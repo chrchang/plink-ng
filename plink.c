@@ -1045,7 +1045,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       }
     }
     if (filter_flags & FILTER_PRUNE) {
-      bitfield_ornot(sample_exclude, pheno_nm, unfiltered_sample_ctl);
+      bitvec_ornot(pheno_nm, unfiltered_sample_ctl, sample_exclude);
       zero_trailing_bits(sample_exclude, unfiltered_sample_ct);
       sample_exclude_ct = popcount_longs(sample_exclude, unfiltered_sample_ctl);
       if ((sample_exclude_ct == unfiltered_sample_ct) && (!allow_no_samples)) {
@@ -1316,7 +1316,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       if (geno_excl_bitfield) {
 	ulii = marker_exclude_ct;
 	uljj = BITCT_TO_WORDCT(unfiltered_marker_ct);
-	bitfield_or(marker_exclude, geno_excl_bitfield, uljj);
+	bitvec_or(geno_excl_bitfield, uljj, marker_exclude);
 	marker_exclude_ct = popcount_longs(marker_exclude, uljj);
 	if ((marker_exclude_ct == unfiltered_marker_ct) && (!allow_no_variants)) {
 	  logerrprint("Error: All variants excluded due to missing genotype data (--geno).\n");

@@ -2716,19 +2716,19 @@ int32_t write_cc_freqs(FILE* bedfile, uintptr_t bed_offset, char* outname, char*
 	reverse_loadbuf((unsigned char*)loadbuf, unfiltered_sample_ct);
       }
       if (is_x) {
-	vec_set_freq_x(unfiltered_sample_ctl2, loadbuf, case_include2, male_vec, &case_set_ct, &case_missing_ct);
-	vec_set_freq_x(unfiltered_sample_ctl2, loadbuf, ctrl_include2, male_vec, &ctrl_set_ct, &ctrl_missing_ct);
+	genovec_set_freq_x(loadbuf, case_include2, male_vec, unfiltered_sample_ctl2, &case_set_ct, &case_missing_ct);
+	genovec_set_freq_x(loadbuf, ctrl_include2, male_vec, unfiltered_sample_ctl2, &ctrl_set_ct, &ctrl_missing_ct);
 	case_obs = 2 * case_ct - case_missing_ct;
 	ctrl_obs = 2 * ctrl_ct - ctrl_missing_ct;
       } else if (!is_haploid) {
-	vec_set_freq(unfiltered_sample_ctl2, loadbuf, case_include2, &case_set_ct, &case_missing_ct);
-	vec_set_freq(unfiltered_sample_ctl2, loadbuf, ctrl_include2, &ctrl_set_ct, &ctrl_missing_ct);
+	genovec_set_freq(loadbuf, case_include2, unfiltered_sample_ctl2, &case_set_ct, &case_missing_ct);
+	genovec_set_freq(loadbuf, ctrl_include2, unfiltered_sample_ctl2, &ctrl_set_ct, &ctrl_missing_ct);
 	case_obs = 2 * (case_ct - case_missing_ct);
 	ctrl_obs = 2 * (ctrl_ct - ctrl_missing_ct);
       } else {
         if (is_y) {
-	  vec_set_freq_y(unfiltered_sample_ctl2, loadbuf, case_include2, nonmale_vec, &case_set_ct, &case_missing_ct);
-	  vec_set_freq_y(unfiltered_sample_ctl2, loadbuf, ctrl_include2, nonmale_vec, &ctrl_set_ct, &ctrl_missing_ct);
+	  genovec_set_freq_y(loadbuf, case_include2, nonmale_vec, unfiltered_sample_ctl2, &case_set_ct, &case_missing_ct);
+	  genovec_set_freq_y(loadbuf, ctrl_include2, nonmale_vec, unfiltered_sample_ctl2, &ctrl_set_ct, &ctrl_missing_ct);
         } else {
 	  vec_3freq(unfiltered_sample_ctl2, loadbuf, case_include2, &case_missing_ct, &uii, &case_set_ct);
 	  case_missing_ct += uii;
@@ -3600,7 +3600,7 @@ int32_t list_duplicate_vars(char* outname, char* outname_end, uint32_t dupvar_mo
       goto list_duplicate_vars_ret_1;
     }
     bitarr_invert(unfiltered_marker_ct, uniqueness_check_bitfield);
-    bitfield_or(uniqueness_check_bitfield, marker_exclude, unfiltered_marker_ctl);
+    bitvec_or(marker_exclude, unfiltered_marker_ctl, uniqueness_check_bitfield);
     uniqueness_check_ct = marker_ct - htable_entry_ct;
     for (marker_uidx2 = 0, marker_idx = 0; marker_idx < uniqueness_check_ct; marker_uidx2++, marker_idx++) {
       next_unset_ul_unsafe_ck(uniqueness_check_bitfield, &marker_uidx2);

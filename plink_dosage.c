@@ -925,7 +925,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   }
   if (do_glm || (filter_flags & FILTER_PRUNE)) {
     ulii = sample_exclude_ct;
-    bitfield_ornot(sample_exclude, pheno_nm, unfiltered_sample_ctl);
+    bitvec_ornot(pheno_nm, unfiltered_sample_ctl, sample_exclude);
     zero_trailing_bits(sample_exclude, unfiltered_sample_ct);
     sample_exclude_ct = popcount_longs(sample_exclude, unfiltered_sample_ctl);
     uii = do_glm && (!(filter_flags & FILTER_PRUNE));

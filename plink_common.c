@@ -5417,12 +5417,11 @@ void bitvec_andnot_reversed_args(const uintptr_t* __restrict include_bitvec, uin
 #endif
 }
 
-void bitfield_or(uintptr_t* vv, uintptr_t* or_vec, uintptr_t word_ct) {
-  // vv := vv OR include_vec
-  // on 64-bit systems, assumes vv and include_vec are 16-byte aligned
+void bitvec_or(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec) {
+  // main_bitvec := main_bitvec OR arg_bitvec
 #ifdef __LP64__
-  __m128i* vv128 = (__m128i*)vv;
-  __m128i* ov128 = (__m128i*)or_vec;
+  __m128i* vv128 = (__m128i*)main_bitvec;
+  const __m128i* ov128 = (const __m128i*)arg_bitvec;
   __m128i* vv128_end = &(vv128[word_ct / 2]);
   while (vv128 < vv128_end) {
     *vv128 = _mm_or_si128(*ov128++, *vv128);
@@ -5430,27 +5429,26 @@ void bitfield_or(uintptr_t* vv, uintptr_t* or_vec, uintptr_t word_ct) {
   }
   if (word_ct & 1) {
     word_ct--;
-    vv[word_ct] |= or_vec[word_ct];
+    main_bitvec[word_ct] |= arg_bitvec[word_ct];
   }
 #else
-  uintptr_t* vec_end = &(vv[word_ct]);
-  while (vv < vec_end) {
-    *vv++ |= *or_vec++;
+  uintptr_t* vec_end = &(main_bitvec[word_ct]);
+  while (main_bitvec < vec_end) {
+    *main_bitvec++ |= *arg_bitvec++;
   }
 #endif
 }
 
-void bitfield_ornot(uintptr_t* vv, uintptr_t* inverted_or_vec, uintptr_t word_ct) {
-  // vv := vv OR (~inverted_or_vec)
-  // on 64-bit systems, assumes vv and inverted_or_vec are 16-byte aligned
+void bitvec_ornot(const uintptr_t* __restrict inverted_or_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec) {
+  // main_bitvec := main_bitvec OR (~inverted_or_bitvec)
 #ifdef __LP64__
 #ifdef __APPLE__
   const __m128i all1 = {0xffffffffffffffffLLU, 0xffffffffffffffffLLU};
 #else
   const __m128i all1 = {-1LL, -1LL};
 #endif
-  __m128i* vv128 = (__m128i*)vv;
-  __m128i* ev128 = (__m128i*)inverted_or_vec;
+  __m128i* vv128 = (__m128i*)main_bitvec;
+  const __m128i* ev128 = (const __m128i*)inverted_or_bitvec;
   __m128i* vv128_end = &(vv128[word_ct / 2]);
   while (vv128 < vv128_end) {
     *vv128 = _mm_or_si128(_mm_xor_si128(*ev128++, all1), *vv128);
@@ -5458,22 +5456,21 @@ void bitfield_ornot(uintptr_t* vv, uintptr_t* inverted_or_vec, uintptr_t word_ct
   }
   if (word_ct & 1) {
     word_ct--;
-    vv[word_ct] |= ~(inverted_or_vec[word_ct]);
+    main_bitvec[word_ct] |= ~(inverted_or_bitvec[word_ct]);
   }
 #else
-  uintptr_t* vec_end = &(vv[word_ct]);
-  while (vv < vec_end) {
-    *vv++ |= ~(*inverted_or_vec++);
+  uintptr_t* vec_end = &(main_bitvec[word_ct]);
+  while (main_bitvec < vec_end) {
+    *main_bitvec++ |= ~(*inverted_or_bitvec++);
   }
 #endif
 }
 
-void bitfield_xor(uintptr_t* bitarr, uintptr_t* xor_bitarr, uintptr_t word_ct) {
-  // bitarr := bitarr XOR xor_bitarr
-  // on 64-bit systems, assumes bitarr and xor_bitarr are 16-byte aligned
+void bitvec_xor(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec) {
+  // main_bitvec := main_bitvec XOR xor_bitvec
 #ifdef __LP64__
-  __m128i* bitv128 = (__m128i*)bitarr;
-  __m128i* xorv128 = (__m128i*)xor_bitarr;
+  __m128i* bitv128 = (__m128i*)main_bitvec;
+  __m128i* xorv128 = (__m128i*)arg_bitvec;
   __m128i* bitv128_end = &(bitv128[word_ct / 2]);
   while (bitv128 < bitv128_end) {
     *bitv128 = _mm_xor_si128(*xorv128++, *bitv128);
@@ -5481,34 +5478,34 @@ void bitfield_xor(uintptr_t* bitarr, uintptr_t* xor_bitarr, uintptr_t word_ct) {
   }
   if (word_ct & 1) {
     word_ct--;
-    bitarr[word_ct] ^= xor_bitarr[word_ct];
+    main_bitvec[word_ct] ^= arg_bitvec[word_ct];
   }
 #else
-  uintptr_t* bitarr_end = &(bitarr[word_ct]);
-  while (bitarr < bitarr_end) {
-    *bitarr++ ^= *xor_bitarr++;
+  uintptr_t* main_bitvec_end = &(main_bitvec[word_ct]);
+  while (main_bitvec < main_bitvec_end) {
+    *main_bitvec++ ^= *arg_bitvec++;
   }
 #endif
 }
 
-uint32_t is_monomorphic_a2(uintptr_t* lptr, uint32_t sample_ct) {
-  uintptr_t* loop_end = &(lptr[sample_ct / BITCT2]);
+uint32_t is_monomorphic_a2(const uintptr_t* geno_arr, uint32_t sample_ct) {
+  const uintptr_t* loop_end = &(geno_arr[sample_ct / BITCT2]);
   uint32_t sample_rem = sample_ct % BITCT2;
-  for (; lptr < loop_end; lptr++) {
-    if ((~(*lptr)) & FIVEMASK) {
+  for (; geno_arr < loop_end; geno_arr++) {
+    if ((~(*geno_arr)) & FIVEMASK) {
       return 0;
     }
   }
-  return (sample_rem && ((~(*lptr)) & (FIVEMASK >> (BITCT - sample_rem * 2))))? 0 : 1;
+  return (sample_rem && ((~(*geno_arr)) & (FIVEMASK >> (BITCT - sample_rem * 2))))? 0 : 1;
 }
 
-uint32_t is_monomorphic(uintptr_t* lptr, uint32_t sample_ct) {
+uint32_t is_monomorphic(const uintptr_t* geno_arr, uint32_t sample_ct) {
   uint32_t sample_ctd2 = sample_ct / BITCT2;
   uint32_t sample_rem = sample_ct % BITCT2;
   uintptr_t ulii;
   uintptr_t uljj;
   while (sample_ctd2) {
-    ulii = *lptr++;
+    ulii = *geno_arr++;
     uljj = (ulii >> 1) & FIVEMASK;
     ulii = ~ulii;
     // now ulii & FIVEMASK = low bit zero, uljj = high bit one
@@ -5524,23 +5521,23 @@ uint32_t is_monomorphic(uintptr_t* lptr, uint32_t sample_ct) {
 	  return 0;
 	}
 	if (!(--sample_ctd2)) {
-	  return (sample_rem && ((~(*lptr)) & (FIVEMASK >> (BITCT - sample_rem * 2))))? 0 : 1;
+	  return (sample_rem && ((~(*geno_arr)) & (FIVEMASK >> (BITCT - sample_rem * 2))))? 0 : 1;
 	}
-	ulii = ~(*lptr++);
+	ulii = ~(*geno_arr++);
       }
     } else if (ulii & FIVEMASK) {
       do {
         if (!(--sample_ctd2)) {
-          return (sample_rem && ((*lptr) & (AAAAMASK >> (BITCT - sample_rem * 2))))? 0 : 1;
+          return (sample_rem && ((*geno_arr) & (AAAAMASK >> (BITCT - sample_rem * 2))))? 0 : 1;
 	}
-	ulii = *lptr++;
+	ulii = *geno_arr++;
       } while (!(ulii & AAAAMASK));
       return 0;
     }
     sample_ctd2--;
   }
   if (sample_rem) {
-    ulii = *lptr;
+    ulii = *geno_arr;
     uljj = (ulii >> 1) & FIVEMASK;
     ulii = ~ulii;
     if ((uljj & ulii) || (uljj && (ulii & (~uljj) & (FIVEMASK >> (BITCT - sample_rem * 2))))) {
@@ -5550,7 +5547,7 @@ uint32_t is_monomorphic(uintptr_t* lptr, uint32_t sample_ct) {
   return 1;
 }
 
-uint32_t less_than_two_genotypes(uintptr_t* lptr, uint32_t sample_ct) {
+uint32_t less_than_two_genotypes(const uintptr_t* geno_arr, uint32_t sample_ct) {
   uint32_t sample_ctd2 = sample_ct / BITCT2;
   uint32_t sample_rem = sample_ct % BITCT2;
   uintptr_t ulii;
@@ -5558,7 +5555,7 @@ uint32_t less_than_two_genotypes(uintptr_t* lptr, uint32_t sample_ct) {
   uintptr_t ulkk;
   uint32_t distinct_genotype_ct;
   while (sample_ctd2) {
-    ulii = *lptr++;
+    ulii = *geno_arr++;
     uljj = (ulii >> 1) & FIVEMASK;
     ulkk = ~ulii;
     if (uljj) {
@@ -5570,15 +5567,15 @@ uint32_t less_than_two_genotypes(uintptr_t* lptr, uint32_t sample_ct) {
 	    return 0;
 	  }
 	  if (!(--sample_ctd2)) {
-	    return (sample_rem && ((~(*lptr)) & (FIVEMASK >> (BITCT - sample_rem * 2))))? 0 : 1;
+	    return (sample_rem && ((~(*geno_arr)) & (FIVEMASK >> (BITCT - sample_rem * 2))))? 0 : 1;
 	  }
-	  ulkk = ~(*lptr++);
+	  ulkk = ~(*geno_arr++);
 	}
       } else {
         // heterozygote observed; either 00 or 11 now means we have 2+
 	// genotypes
 	while (1) {
-	  ulii = ~(*lptr++);
+	  ulii = ~(*geno_arr++);
 	  if (!(--sample_ctd2)) {
 	    return (sample_rem && (((~ulii) ^ (ulii >> 1)) & (FIVEMASK >> (BITCT - sample_rem * 2))))? 0 : 1;
 	  }
@@ -5592,16 +5589,16 @@ uint32_t less_than_two_genotypes(uintptr_t* lptr, uint32_t sample_ct) {
       // polymorphic
       do {
         if (!(--sample_ctd2)) {
-          return (sample_rem && ((*lptr) & (AAAAMASK >> (BITCT - sample_rem * 2))))? 0 : 1;
+          return (sample_rem && ((*geno_arr) & (AAAAMASK >> (BITCT - sample_rem * 2))))? 0 : 1;
 	}
-	ulii = *lptr++;
+	ulii = *geno_arr++;
       } while (!(ulii & AAAAMASK));
       return 0;
     }
     sample_ctd2--;
   }
   if (sample_rem) {
-    ulii = *lptr;
+    ulii = *geno_arr;
     uljj = (ulii >> 1) & FIVEMASK;
     ulkk = ~ulii;
     // homozygous minor present?
@@ -5667,14 +5664,14 @@ uint32_t has_three_genotypes(uintptr_t* lptr, uint32_t sample_ct) {
 
 #ifdef __LP64__
 // Basic SSE2 implementation of Lauradoux/Walisch popcount.
-static inline uintptr_t popcount_vecs(__m128i* vptr, uintptr_t ct) {
+static inline uintptr_t popcount_vecs(const __m128i* vptr, uintptr_t ct) {
   // popcounts vptr[0..(ct-1)].  Assumes ct is a multiple of 3 (0 ok).
   const __m128i m1 = {FIVEMASK, FIVEMASK};
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
   uintptr_t tot = 0;
-  __m128i* vend;
+  const __m128i* vend;
   __m128i count1;
   __m128i count2;
   __m128i half1;
@@ -5717,13 +5714,13 @@ static inline uintptr_t popcount_vecs(__m128i* vptr, uintptr_t ct) {
   return tot;
 }
 
-static inline uintptr_t popcount2_vecs(__m128i* vptr, uintptr_t ct) {
+static inline uintptr_t popcount2_vecs(const __m128i* vptr, uintptr_t ct) {
   // assumes ct is a multiple of 6.
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
   uintptr_t tot = 0;
-  __m128i* vend;
+  const __m128i* vend;
   __m128i loader1;
   __m128i loader2;
   __m128i count1;
@@ -5765,14 +5762,14 @@ static inline uintptr_t popcount2_vecs(__m128i* vptr, uintptr_t ct) {
   return tot;
 }
 
-static inline uintptr_t popcount_vecs_exclude(__m128i* vptr, __m128i* exclude_ptr, uintptr_t ct) {
+static inline uintptr_t popcount_vecs_exclude(const __m128i* __restrict vptr, const __m128i* __restrict exclude_ptr, uintptr_t ct) {
   // popcounts vptr ANDNOT exclude_ptr[0..(ct-1)].  ct is a multiple of 3.
   const __m128i m1 = {FIVEMASK, FIVEMASK};
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
   uintptr_t tot = 0;
-  __m128i* vend;
+  const __m128i* vend;
   __m128i count1, count2, half1, half2;
   __univec acc;
 
@@ -5807,14 +5804,14 @@ static inline uintptr_t popcount_vecs_exclude(__m128i* vptr, __m128i* exclude_pt
   return tot;
 }
 
-static inline uintptr_t popcount_vecs_intersect(__m128i* vptr1, __m128i* vptr2, uintptr_t ct) {
+static inline uintptr_t popcount_vecs_intersect(const __m128i* __restrict vptr1, const __m128i* __restrict vptr2, uintptr_t ct) {
   // popcounts vptr1 AND vptr2[0..(ct-1)].  ct is a multiple of 3.
   const __m128i m1 = {FIVEMASK, FIVEMASK};
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
   uintptr_t tot = 0;
-  __m128i* vend1;
+  const __m128i* vend1;
   __m128i count1, count2, half1, half2;
   __univec acc;
 
@@ -5849,17 +5846,17 @@ static inline uintptr_t popcount_vecs_intersect(__m128i* vptr1, __m128i* vptr2, 
 }
 #endif
 
-uintptr_t popcount_longs(uintptr_t* lptr, uintptr_t word_ct) {
+uintptr_t popcount_longs(const uintptr_t* lptr, uintptr_t word_ct) {
   // Efficiently popcounts lptr[0..(word_ct - 1)].  In the 64-bit case, lptr[]
   // must be 16-byte aligned.
   // The popcount_longs_nzbase() wrapper takes care of starting from a later
   // index.
   uintptr_t tot = 0;
-  uintptr_t* lptr_end = &(lptr[word_ct]);
+  const uintptr_t* lptr_end = &(lptr[word_ct]);
 #ifdef __LP64__
   uintptr_t six_ct;
-  __m128i* vptr;
-  vptr = (__m128i*)lptr;
+  const __m128i* vptr;
+  vptr = (const __m128i*)lptr;
   six_ct = word_ct / 6;
   tot += popcount_vecs(vptr, six_ct * 3);
   lptr = &(lptr[six_ct * 6]);
@@ -5869,7 +5866,7 @@ uintptr_t popcount_longs(uintptr_t* lptr, uintptr_t word_ct) {
   // on my development machine by a hair.
   // However, if we take the hint from Lauradoux/Walisch and postpone the
   // multiply and right shift, this is no longer true.  Ah well.
-  uintptr_t* lptr_six_end;
+  const uintptr_t* lptr_six_end;
   uintptr_t tmp_stor;
   uintptr_t loader;
   uintptr_t ulii;
@@ -5910,19 +5907,19 @@ uintptr_t popcount_longs(uintptr_t* lptr, uintptr_t word_ct) {
   return tot;
 }
 
-uintptr_t popcount2_longs(uintptr_t* lptr, uintptr_t word_ct) {
+uintptr_t popcount2_longs(const uintptr_t* lptr, uintptr_t word_ct) {
   // treats lptr[] as an array of two-bit instead of one-bit numbers
   uintptr_t tot = 0;
-  uintptr_t* lptr_end = &(lptr[word_ct]);
+  const uintptr_t* lptr_end = &(lptr[word_ct]);
 #ifdef __LP64__
   uintptr_t twelve_ct;
-  __m128i* vptr;
-  vptr = (__m128i*)lptr;
+  const __m128i* vptr;
+  vptr = (const __m128i*)lptr;
   twelve_ct = word_ct / 12;
   tot += popcount2_vecs(vptr, twelve_ct * 6);
   lptr = &(lptr[twelve_ct * 12]);
 #else
-  uintptr_t* lptr_six_end;
+  const uintptr_t* lptr_six_end;
   uintptr_t loader1;
   uintptr_t loader2;
   uintptr_t ulii;
@@ -5956,7 +5953,7 @@ uintptr_t popcount2_longs(uintptr_t* lptr, uintptr_t word_ct) {
   return tot;
 }
 
-uintptr_t popcount_bit_idx(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx) {
+uintptr_t popcount_bit_idx(const uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx) {
   uintptr_t start_idxl = start_idx / BITCT;
   uintptr_t start_idxlr = start_idx & (BITCT - 1);
   uintptr_t end_idxl = end_idx / BITCT;
@@ -5977,7 +5974,7 @@ uintptr_t popcount_bit_idx(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_i
   return ct;
 }
 
-uint32_t chrom_window_max(uint32_t* marker_pos, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t ct_max, uint32_t bp_max, uint32_t cur_window_max) {
+uint32_t chrom_window_max(const uint32_t* marker_pos, const uintptr_t* marker_exclude, const Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t ct_max, uint32_t bp_max, uint32_t cur_window_max) {
   // okay, it's absurd to keep rewriting this from scratch, especially given
   // that makes it likely that some reimplementations suck (--indep{-pairwise}
   // version was O(n^2) instead of O(n); sure, it didn't really matter because
@@ -6022,7 +6019,7 @@ uint32_t chrom_window_max(uint32_t* marker_pos, uintptr_t* marker_exclude, Chrom
   return cur_window_max;
 }
 
-uint32_t window_back(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_t marker_uidx_min, uint32_t marker_uidx_start, uint32_t count_max, uint32_t bp_max, uint32_t* window_trail_ct_ptr) {
+uint32_t window_back(const uint32_t* __restrict marker_pos, const uintptr_t* marker_exclude, uint32_t marker_uidx_min, uint32_t marker_uidx_start, uint32_t count_max, uint32_t bp_max, uint32_t* __restrict window_trail_ct_ptr) {
   // finds the earliest location which is within count_max sites and bp_max bps
   // count_max must be positive
   if (marker_uidx_min == marker_uidx_start) {
@@ -6035,7 +6032,7 @@ uint32_t window_back(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_t m
   uint32_t uii = marker_uidx_start % BITCT;
   uint32_t marker_uidx_last = marker_uidx_start;
   uint32_t remaining_count = count_max;
-  uintptr_t* marker_exclude_cur = &(marker_exclude[marker_uwidx_cur]);
+  const uintptr_t* marker_exclude_cur = &(marker_exclude[marker_uwidx_cur]);
   uintptr_t cur_word;
   marker_uwidx_cur *= BITCT;
   if (bp_max <= marker_pos[marker_uidx_start]) {
@@ -6091,7 +6088,7 @@ uint32_t window_back(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_t m
   }
 }
 
-uint32_t window_forward(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_t marker_uidx_start, uint32_t marker_uidx_last, uint32_t count_max, uint32_t bp_max, uint32_t* window_lead_ct_ptr) {
+uint32_t window_forward(const uint32_t* __restrict marker_pos, const uintptr_t* marker_exclude, uint32_t marker_uidx_start, uint32_t marker_uidx_last, uint32_t count_max, uint32_t bp_max, uint32_t* __restrict window_lead_ct_ptr) {
   // window_lead_ct_ptr currently cannot be NULL
   if (marker_uidx_start == marker_uidx_last) {
     *window_lead_ct_ptr = 0;
@@ -6102,7 +6099,7 @@ uint32_t window_forward(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_
   uint32_t marker_uwidx_cur = (marker_uidx_start + 1) / BITCT;
   uint32_t uii = (marker_uidx_start + 1) % BITCT;
   uint32_t remaining_count = count_max;
-  uintptr_t* marker_exclude_cur = &(marker_exclude[marker_uwidx_cur]);
+  const uintptr_t* marker_exclude_cur = &(marker_exclude[marker_uwidx_cur]);
   uintptr_t cur_word;
   marker_uwidx_cur *= BITCT;
   cur_word = ~((*marker_exclude_cur) | ((ONELU << uii) - ONELU));
@@ -6150,19 +6147,19 @@ uint32_t window_forward(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_
   return marker_uwidx_prev;
 }
 
-uintptr_t jump_forward_unset_unsafe(uintptr_t* bitarr, uintptr_t cur_pos, uintptr_t forward_ct) {
+uintptr_t jump_forward_unset_unsafe(const uintptr_t* bitvec, uintptr_t cur_pos, uintptr_t forward_ct) {
   // advances forward_ct unset bits; forward_ct must be positive.  (stays put
   // if forward_ct == 1 and current bit is unset.  may want to tweak this
   // interface, easy to introduce off-by-one bugs...)
-  // In usual 64-bit case, also assumes bitarr is 16-byte aligned and the end
+  // In usual 64-bit case, also assumes bitvec is 16-byte aligned and the end
   // of the trailing 16-byte block can be safely read from.
   uintptr_t widx = cur_pos / BITCT;
   uintptr_t ulii = cur_pos % BITCT;
-  uintptr_t* bptr = &(bitarr[widx]);
+  const uintptr_t* bptr = &(bitvec[widx]);
   uintptr_t uljj;
   uintptr_t ulkk;
 #ifdef __LP64__
-  __m128i* vptr;
+  const __m128i* vptr;
 #endif
   if (ulii) {
     uljj = (~(*bptr)) >> ulii;
@@ -6191,14 +6188,14 @@ uintptr_t jump_forward_unset_unsafe(uintptr_t* bitarr, uintptr_t cur_pos, uintpt
     forward_ct -= ulkk;
     bptr++;
   }
-  vptr = (__m128i*)bptr;
+  vptr = (const __m128i*)bptr;
   while (forward_ct > BITCT * 6) {
     uljj = ((forward_ct - 1) / (BITCT * 6)) * 3;
     ulkk = popcount_vecs(vptr, uljj);
     vptr = &(vptr[uljj]);
     forward_ct -= uljj * BITCT * 2 - ulkk;
   }
-  bptr = (uintptr_t*)vptr;
+  bptr = (const uintptr_t*)vptr;
   while (forward_ct > BITCT) {
     forward_ct -= popcount_long(~(*bptr++));
   }
@@ -6214,7 +6211,7 @@ uintptr_t jump_forward_unset_unsafe(uintptr_t* bitarr, uintptr_t cur_pos, uintpt
     uljj = ~(*bptr);
     ulkk = popcount_long(uljj);
     if (ulkk >= forward_ct) {
-      widx = (uintptr_t)(bptr - bitarr);
+      widx = (uintptr_t)(bptr - bitvec);
       goto jump_forward_unset_unsafe_finish;
     }
     forward_ct -= ulkk;
@@ -6222,18 +6219,18 @@ uintptr_t jump_forward_unset_unsafe(uintptr_t* bitarr, uintptr_t cur_pos, uintpt
   }
 }
 
-uintptr_t popcount_longs_exclude(uintptr_t* lptr, uintptr_t* exclude_arr, uintptr_t end_idx) {
+uintptr_t popcount_longs_exclude(const uintptr_t* __restrict lptr, const uintptr_t* __restrict exclude_arr, uintptr_t end_idx) {
   // popcounts lptr ANDNOT exclude_arr[0..(end_idx-1)].
   // N.B. on 64-bit systems, assumes lptr and exclude_arr are 16-byte aligned.
   uintptr_t tot = 0;
-  uintptr_t* lptr_end = &(lptr[end_idx]);
+  const uintptr_t* lptr_end = &(lptr[end_idx]);
 #ifdef __LP64__
   uintptr_t six_ct = end_idx / 6;
-  tot += popcount_vecs_exclude((__m128i*)lptr, (__m128i*)exclude_arr, six_ct * 3);
+  tot += popcount_vecs_exclude((const __m128i*)lptr, (const __m128i*)exclude_arr, six_ct * 3);
   lptr = &(lptr[six_ct * 6]);
   exclude_arr = &(exclude_arr[six_ct * 6]);
 #else
-  uintptr_t* lptr_six_end;
+  const uintptr_t* lptr_six_end;
   uintptr_t tmp_stor;
   uintptr_t loader;
   uintptr_t ulii;
@@ -6274,16 +6271,16 @@ uintptr_t popcount_longs_exclude(uintptr_t* lptr, uintptr_t* exclude_arr, uintpt
   return tot;
 }
 
-uintptr_t popcount_longs_intersect(uintptr_t* lptr1, uintptr_t* lptr2, uintptr_t word_ct) {
+uintptr_t popcount_longs_intersect(const uintptr_t* __restrict lptr1, const uintptr_t* __restrict lptr2, uintptr_t word_ct) {
   uintptr_t tot = 0;
-  uintptr_t* lptr1_end = &(lptr1[word_ct]);
+  const uintptr_t* lptr1_end = &(lptr1[word_ct]);
 #ifdef __LP64__
   uintptr_t six_ct = word_ct / 6;
-  tot += popcount_vecs_intersect((__m128i*)lptr1, (__m128i*)lptr2, six_ct * 3);
+  tot += popcount_vecs_intersect((const __m128i*)lptr1, (const __m128i*)lptr2, six_ct * 3);
   lptr1 = &(lptr1[six_ct * 6]);
   lptr2 = &(lptr2[six_ct * 6]);
 #else
-  uintptr_t* lptr1_six_end;
+  const uintptr_t* lptr1_six_end;
   uintptr_t tmp_stor;
   uintptr_t loader;
   uintptr_t ulii;
@@ -6324,7 +6321,7 @@ uintptr_t popcount_longs_intersect(uintptr_t* lptr1, uintptr_t* lptr2, uintptr_t
   return tot;
 }
 
-void vertical_bitct_subtract(uintptr_t* bitarr, uint32_t item_ct, uint32_t* sum_arr) {
+void vertical_bitct_subtract(const uintptr_t* bitarr, uint32_t item_ct, uint32_t* sum_arr) {
   // assumes trailing bits are zeroed out
   uintptr_t cur_word;
   uint32_t idx_offset;
@@ -6340,7 +6337,7 @@ void vertical_bitct_subtract(uintptr_t* bitarr, uint32_t item_ct, uint32_t* sum_
 }
 
 #ifdef __LP64__
-void count_2freq_dbl_960b(VECITYPE* vptr, VECITYPE* vend, VECITYPE* mask1vp, VECITYPE* mask2vp, uint32_t* ct1abp, uint32_t* ct1cp, uint32_t* ct2abp, uint32_t* ct2cp) {
+void count_2freq_dbl_960b(const VECITYPE* geno_vvec, const VECITYPE* geno_vvec_end, const VECITYPE* __restrict mask1vp, const VECITYPE* __restrict mask2vp, uint32_t* __restrict ct1abp, uint32_t* __restrict ct1cp, uint32_t* __restrict ct2abp, uint32_t* __restrict ct2cp) {
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   __m128i loader;
@@ -6361,7 +6358,7 @@ void count_2freq_dbl_960b(VECITYPE* vptr, VECITYPE* vend, VECITYPE* mask1vp, VEC
   acc2_ab.vi = _mm_setzero_si128();
   acc2_c.vi = _mm_setzero_si128();
   do {
-    loader = *vptr++;
+    loader = *geno_vvec++;
     loader2 = *mask1vp++;
     loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
     loader2 = _mm_and_si128(loader2, loader);
@@ -6375,7 +6372,7 @@ void count_2freq_dbl_960b(VECITYPE* vptr, VECITYPE* vend, VECITYPE* mask1vp, VEC
     to_ct1_ab = _mm_add_epi64(_mm_and_si128(to_ct1_ab, m2), _mm_and_si128(_mm_srli_epi64(to_ct1_ab, 2), m2));
     to_ct2_ab = _mm_add_epi64(_mm_and_si128(to_ct2_ab, m2), _mm_and_si128(_mm_srli_epi64(to_ct2_ab, 2), m2));
 
-    loader = *vptr++;
+    loader = *geno_vvec++;
     loader2 = *mask1vp++;
     loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
     loader2 = _mm_and_si128(loader2, loader);
@@ -6389,7 +6386,7 @@ void count_2freq_dbl_960b(VECITYPE* vptr, VECITYPE* vend, VECITYPE* mask1vp, VEC
     to_ct2_c = _mm_add_epi64(to_ct2_c, _mm_andnot_si128(loader3, loader2));
     to_ct2_ab = _mm_add_epi64(to_ct2_ab, _mm_add_epi64(_mm_and_si128(to_ct_abtmp, m2), _mm_and_si128(_mm_srli_epi64(to_ct_abtmp, 2), m2)));
 
-    loader = *vptr++;
+    loader = *geno_vvec++;
     loader2 = *mask1vp++;
     loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
     loader2 = _mm_and_si128(loader2, loader);
@@ -6410,7 +6407,7 @@ void count_2freq_dbl_960b(VECITYPE* vptr, VECITYPE* vend, VECITYPE* mask1vp, VEC
     acc1_c.vi = _mm_add_epi64(acc1_c.vi, _mm_add_epi64(_mm_and_si128(to_ct1_c, m4), _mm_and_si128(_mm_srli_epi64(to_ct1_c, 4), m4)));
     acc2_ab.vi = _mm_add_epi64(acc2_ab.vi, _mm_add_epi64(_mm_and_si128(to_ct2_ab, m4), _mm_and_si128(_mm_srli_epi64(to_ct2_ab, 4), m4)));
     acc2_c.vi = _mm_add_epi64(acc2_c.vi, _mm_add_epi64(_mm_and_si128(to_ct2_c, m4), _mm_and_si128(_mm_srli_epi64(to_ct2_c, 4), m4)));
-  } while (vptr < vend);
+  } while (geno_vvec < geno_vvec_end);
   const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
   acc1_ab.vi = _mm_add_epi64(_mm_and_si128(acc1_ab.vi, m8), _mm_and_si128(_mm_srli_epi64(acc1_ab.vi, 8), m8));
   acc1_c.vi = _mm_and_si128(_mm_add_epi64(acc1_c.vi, _mm_srli_epi64(acc1_c.vi, 8)), m8);
@@ -6422,7 +6419,7 @@ void count_2freq_dbl_960b(VECITYPE* vptr, VECITYPE* vend, VECITYPE* mask1vp, VEC
   *ct2cp += ((acc2_c.u8[0] + acc2_c.u8[1]) * 0x1000100010001LLU) >> 48;
 }
 
-void count_3freq_1920b(VECITYPE* vptr, VECITYPE* vend, VECITYPE* maskvp, uint32_t* even_ctp, uint32_t* odd_ctp, uint32_t* homset_ctp) {
+void count_3freq_1920b(const VECITYPE* geno_vvec, const VECITYPE* geno_vvec_end, const VECITYPE* __restrict maskvp, uint32_t* __restrict even_ctp, uint32_t* __restrict odd_ctp, uint32_t* __restrict homset_ctp) {
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   __m128i loader;
@@ -6442,18 +6439,18 @@ void count_3freq_1920b(VECITYPE* vptr, VECITYPE* vend, VECITYPE* maskvp, uint32_
   acc_odd.vi = _mm_setzero_si128();
   acc_homset.vi = _mm_setzero_si128();
   do {
-    loader = *vptr++;
+    loader = *geno_vvec++;
     loader2 = *maskvp++;
     odd1 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
     even1 = _mm_and_si128(loader2, loader);
     homset1 = _mm_and_si128(odd1, loader);
-    loader = *vptr++;
+    loader = *geno_vvec++;
     loader2 = *maskvp++;
     loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
     even1 = _mm_add_epi64(even1, _mm_and_si128(loader2, loader));
     odd1 = _mm_add_epi64(odd1, loader3);
     homset1 = _mm_add_epi64(homset1, _mm_and_si128(loader3, loader));
-    loader = *vptr++;
+    loader = *geno_vvec++;
     loader2 = *maskvp++;
     loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
     even1 = _mm_add_epi64(even1, _mm_and_si128(loader2, loader));
@@ -6464,18 +6461,18 @@ void count_3freq_1920b(VECITYPE* vptr, VECITYPE* vend, VECITYPE* maskvp, uint32_
     odd1 = _mm_add_epi64(_mm_and_si128(odd1, m2), _mm_and_si128(_mm_srli_epi64(odd1, 2), m2));
     homset1 = _mm_add_epi64(_mm_and_si128(homset1, m2), _mm_and_si128(_mm_srli_epi64(homset1, 2), m2));
 
-    loader = *vptr++;
+    loader = *geno_vvec++;
     loader2 = *maskvp++;
     odd2 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
     even2 = _mm_and_si128(loader2, loader);
     homset2 = _mm_and_si128(odd2, loader);
-    loader = *vptr++;
+    loader = *geno_vvec++;
     loader2 = *maskvp++;
     loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
     even2 = _mm_add_epi64(even2, _mm_and_si128(loader2, loader));
     odd2 = _mm_add_epi64(odd2, loader3);
     homset2 = _mm_add_epi64(homset2, _mm_and_si128(loader3, loader));
-    loader = *vptr++;
+    loader = *geno_vvec++;
     loader2 = *maskvp++;
     loader3 = _mm_and_si128(loader2, _mm_srli_epi64(loader, 1));
     even2 = _mm_add_epi64(even2, _mm_and_si128(loader2, loader));
@@ -6489,7 +6486,7 @@ void count_3freq_1920b(VECITYPE* vptr, VECITYPE* vend, VECITYPE* maskvp, uint32_
     acc_even.vi = _mm_add_epi64(acc_even.vi, _mm_add_epi64(_mm_and_si128(even1, m4), _mm_and_si128(_mm_srli_epi64(even1, 4), m4)));
     acc_odd.vi = _mm_add_epi64(acc_odd.vi, _mm_add_epi64(_mm_and_si128(odd1, m4), _mm_and_si128(_mm_srli_epi64(odd1, 4), m4)));
     acc_homset.vi = _mm_add_epi64(acc_homset.vi, _mm_add_epi64(_mm_and_si128(homset1, m4), _mm_and_si128(_mm_srli_epi64(homset1, 4), m4)));
-  } while (vptr < vend);
+  } while (geno_vvec < geno_vvec_end);
   const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
   acc_even.vi = _mm_add_epi64(_mm_and_si128(acc_even.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_even.vi, 8), m8));
   acc_odd.vi = _mm_add_epi64(_mm_and_si128(acc_odd.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_odd.vi, 8), m8));
@@ -6499,8 +6496,8 @@ void count_3freq_1920b(VECITYPE* vptr, VECITYPE* vend, VECITYPE* maskvp, uint32_
   *homset_ctp += ((acc_homset.u8[0] + acc_homset.u8[1]) * 0x1000100010001LLU) >> 48;
 }
 #else
-void count_2freq_dbl_24b(uintptr_t* lptr, uintptr_t* mask1p, uintptr_t* mask2p, uint32_t* ct1abp, uint32_t* ct1cp, uint32_t* ct2abp, uint32_t* ct2cp) {
-  uintptr_t loader = *lptr++;
+void count_2freq_dbl_24b(const uintptr_t* __restrict geno_vec, const uintptr_t* __restrict mask1p, const uintptr_t* __restrict mask2p, uint32_t* __restrict ct1abp, uint32_t* __restrict ct1cp, uint32_t* __restrict ct2abp, uint32_t* __restrict ct2cp) {
+  uintptr_t loader = *geno_vec++;
   uintptr_t loader2 = *mask1p++;
   uintptr_t loader3 = (loader >> 1) & loader2;
   uintptr_t to_ct1_ab;
@@ -6524,7 +6521,7 @@ void count_2freq_dbl_24b(uintptr_t* lptr, uintptr_t* mask1p, uintptr_t* mask2p, 
   to_ct1_ab = (to_ct1_ab & 0x33333333) + ((to_ct1_ab >> 2) & 0x33333333);
   to_ct2_ab = (to_ct2_ab & 0x33333333) + ((to_ct2_ab >> 2) & 0x33333333);
 
-  loader = *lptr++;
+  loader = *geno_vec++;
   loader2 = *mask1p++;
   loader3 = (loader >> 1) & loader2;
   loader2 &= loader;
@@ -6538,7 +6535,7 @@ void count_2freq_dbl_24b(uintptr_t* lptr, uintptr_t* mask1p, uintptr_t* mask2p, 
   to_ct2_c += loader2 & (~loader3);
   to_ct2_ab += (to_ct_abtmp & 0x33333333) + ((to_ct_abtmp >> 2) & 0x33333333);
 
-  loader = *lptr++;
+  loader = *geno_vec++;
   loader2 = *mask1p++;
   loader3 = (loader >> 1) & loader2;
   loader2 &= loader;
@@ -6557,7 +6554,7 @@ void count_2freq_dbl_24b(uintptr_t* lptr, uintptr_t* mask1p, uintptr_t* mask2p, 
   partial2_ab = (to_ct2_ab & 0x0f0f0f0f) + ((to_ct2_ab >> 4) & 0x0f0f0f0f);
   partial2_c = (to_ct2_c & 0x33333333) + ((to_ct2_c >> 2) & 0x33333333);
 
-  loader = *lptr++;
+  loader = *geno_vec++;
   loader2 = *mask1p++;
   loader3 = (loader >> 1) & loader2;
   loader2 &= loader;
@@ -6572,7 +6569,7 @@ void count_2freq_dbl_24b(uintptr_t* lptr, uintptr_t* mask1p, uintptr_t* mask2p, 
   to_ct1_ab = (to_ct1_ab & 0x33333333) + ((to_ct1_ab >> 2) & 0x33333333);
   to_ct2_ab = (to_ct2_ab & 0x33333333) + ((to_ct2_ab >> 2) & 0x33333333);
 
-  loader = *lptr++;
+  loader = *geno_vec++;
   loader2 = *mask1p++;
   loader3 = (loader >> 1) & loader2;
   loader2 &= loader;
@@ -6586,7 +6583,7 @@ void count_2freq_dbl_24b(uintptr_t* lptr, uintptr_t* mask1p, uintptr_t* mask2p, 
   to_ct2_c += loader2 & (~loader3);
   to_ct2_ab += (to_ct_abtmp & 0x33333333) + ((to_ct_abtmp >> 2) & 0x33333333);
 
-  loader = *lptr++;
+  loader = *geno_vec++;
   loader2 = *mask1p++;
   loader3 = (loader >> 1) & loader2;
   loader2 &= loader;
@@ -6614,8 +6611,8 @@ void count_2freq_dbl_24b(uintptr_t* lptr, uintptr_t* mask1p, uintptr_t* mask2p, 
   *ct2cp += (partial2_c * 0x01010101) >> 24;
 }
 
-void count_3freq_48b(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ctap, uint32_t* ctbp, uint32_t* ctcp) {
-  uintptr_t loader = *lptr++;
+void count_3freq_48b(const uintptr_t* __restrict geno_vec, const uintptr_t* __restrict maskp, uint32_t* __restrict ctap, uint32_t* __restrict ctbp, uint32_t* __restrict ctcp) {
+  uintptr_t loader = *geno_vec++;
   uintptr_t loader2 = *maskp++;
   uint32_t to_ct_a1 = loader & loader2;
   uint32_t to_ct_b1 = (loader >> 1) & loader2;
@@ -6627,31 +6624,31 @@ void count_3freq_48b(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ctap, uint32_t
   uintptr_t partial_a;
   uintptr_t partial_b;
   uintptr_t partial_c;
-  loader = *lptr++;
+  loader = *geno_vec++;
   loader2 = *maskp++;
   loader3 = (loader >> 1) & loader2;
   to_ct_a1 += loader & loader2;
   to_ct_b1 += loader3;
   to_ct_c1 += loader & loader3;
-  loader = *lptr++;
+  loader = *geno_vec++;
   loader2 = *maskp++;
   loader3 = (loader >> 1) & loader2;
   to_ct_a1 += loader & loader2;
   to_ct_b1 += loader3;
   to_ct_c1 += loader & loader3;
 
-  loader = *lptr++;
+  loader = *geno_vec++;
   loader2 = *maskp++;
   to_ct_a2 = loader & loader2;
   to_ct_b2 = (loader >> 1) & loader2;
   to_ct_c2 = loader & to_ct_b2;
-  loader = *lptr++;
+  loader = *geno_vec++;
   loader2 = *maskp++;
   loader3 = (loader >> 1) & loader2;
   to_ct_a2 += loader & loader2;
   to_ct_b2 += loader3;
   to_ct_c2 += loader & loader3;
-  loader = *lptr++;
+  loader = *geno_vec++;
   loader2 = *maskp++;
   loader3 = (loader >> 1) & loader2;
   to_ct_a2 += loader & loader2;
@@ -6668,36 +6665,36 @@ void count_3freq_48b(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ctap, uint32_t
   to_ct_c1 += (to_ct_c2 & 0x33333333) + ((to_ct_c2 >> 2) & 0x33333333);
   partial_c = (to_ct_c1 & 0x0f0f0f0f) + ((to_ct_c1 >> 4) & 0x0f0f0f0f);
 
-  loader = *lptr++;
+  loader = *geno_vec++;
   loader2 = *maskp++;
   to_ct_a1 = loader & loader2;
   to_ct_b1 = (loader >> 1) & loader2;
   to_ct_c1 = loader & to_ct_b1;
-  loader = *lptr++;
+  loader = *geno_vec++;
   loader2 = *maskp++;
   loader3 = (loader >> 1) & loader2;
   to_ct_a1 += loader & loader2;
   to_ct_b1 += loader3;
   to_ct_c1 += loader & loader3;
-  loader = *lptr++;
+  loader = *geno_vec++;
   loader2 = *maskp++;
   loader3 = (loader >> 1) & loader2;
   to_ct_a1 += loader & loader2;
   to_ct_b1 += loader3;
   to_ct_c1 += loader & loader3;
 
-  loader = *lptr++;
+  loader = *geno_vec++;
   loader2 = *maskp++;
   to_ct_a2 = loader & loader2;
   to_ct_b2 = (loader >> 1) & loader2;
   to_ct_c2 = loader & to_ct_b2;
-  loader = *lptr++;
+  loader = *geno_vec++;
   loader2 = *maskp++;
   loader3 = (loader >> 1) & loader2;
   to_ct_a2 += loader & loader2;
   to_ct_b2 += loader3;
   to_ct_c2 += loader & loader3;
-  loader = *lptr;
+  loader = *geno_vec;
   loader2 = *maskp;
   loader3 = (loader >> 1) & loader2;
   to_ct_a2 += loader & loader2;
@@ -6721,7 +6718,7 @@ void count_3freq_48b(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ctap, uint32_t
 #endif
 
 #ifdef __LP64__
-void count_set_freq_60v(__m128i* vptr, __m128i* vend, __m128i* include_vec, uint32_t* set_ctp, uint32_t* missing_ctp) {
+void count_set_freq_60v(const __m128i* vptr, const __m128i* vend, const __m128i* __restrict include_vec, uint32_t* __restrict set_ctp, uint32_t* __restrict missing_ctp) {
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
@@ -6776,7 +6773,7 @@ void count_set_freq_60v(__m128i* vptr, __m128i* vend, __m128i* include_vec, uint
   *missing_ctp += ((accm.u8[0] + accm.u8[1]) * 0x1000100010001LLU) >> 48;
 }
 
-void count_set_freq_hap_120v(__m128i* vptr, __m128i* vend, __m128i* include_vec, uint32_t* set_ctp, uint32_t* missing_ctp) {
+void count_set_freq_hap_120v(const __m128i* vptr, const __m128i* vend, const __m128i* __restrict include_vec, uint32_t* __restrict set_ctp, uint32_t* __restrict missing_ctp) {
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
@@ -6836,7 +6833,7 @@ void count_set_freq_hap_120v(__m128i* vptr, __m128i* vend, __m128i* include_vec,
   *missing_ctp += ((accm.u8[0] + accm.u8[1]) * 0x1000100010001LLU) >> 48;
 }
 
-void count_set_freq_x_60v(__m128i* vptr, __m128i* vend, __m128i* include_vec, __m128i* male_vec, uint32_t* set_ctp, uint32_t* missing_ctp) {
+void count_set_freq_x_60v(const __m128i* vptr, const __m128i* vend, const __m128i* __restrict include_vec, const __m128i* __restrict male_vec, uint32_t* __restrict set_ctp, uint32_t* __restrict missing_ctp) {
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
@@ -6906,7 +6903,7 @@ void count_set_freq_x_60v(__m128i* vptr, __m128i* vend, __m128i* include_vec, __
   *missing_ctp += ((accm.u8[0] + accm.u8[1]) * 0x1000100010001LLU) >> 48;
 }
 
-void count_set_freq_y_120v(__m128i* vptr, __m128i* vend, __m128i* include_vec, __m128i* nonmale_vec, uint32_t* set_ctp, uint32_t* missing_ctp) {
+void count_set_freq_y_120v(const __m128i* vptr, const __m128i* vend, const __m128i* __restrict include_vec, const __m128i* __restrict nonmale_vec, uint32_t* __restrict set_ctp, uint32_t* __restrict missing_ctp) {
   const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
@@ -6977,7 +6974,7 @@ void count_set_freq_y_120v(__m128i* vptr, __m128i* vend, __m128i* include_vec, _
   *missing_ctp += ((accm.u8[0] + accm.u8[1]) * 0x1000100010001LLU) >> 48;
 }
 
-uintptr_t count_01_vecs(__m128i* vptr, uintptr_t vct) {
+uintptr_t count_01_vecs(const __m128i* vptr, uintptr_t vct) {
   // counts number of aligned 01s (i.e. PLINK missing genotypes) in
   // [vptr, vend).  Assumes number of words in interval is a multiple of 12.
   const __m128i m1 = {FIVEMASK, FIVEMASK};
@@ -6985,7 +6982,7 @@ uintptr_t count_01_vecs(__m128i* vptr, uintptr_t vct) {
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
   uintptr_t tot = 0;
-  __m128i* vend;
+  const __m128i* vend;
   __m128i loader1;
   __m128i loader2;
   __m128i count1;
@@ -7026,7 +7023,7 @@ uintptr_t count_01_vecs(__m128i* vptr, uintptr_t vct) {
 }
 
 #else
-void count_set_freq_6(uintptr_t* lptr, uintptr_t* include_vec, uint32_t* set_ctp, uint32_t* missing_ctp) {
+void count_set_freq_6(const uintptr_t* __restrict lptr, const uintptr_t* __restrict include_vec, uint32_t* __restrict set_ctp, uint32_t* __restrict missing_ctp) {
   uintptr_t loader = *lptr++;
   uintptr_t loader2 = loader >> 1;
   uintptr_t loader3 = *include_vec++;
@@ -7089,7 +7086,7 @@ void count_set_freq_6(uintptr_t* lptr, uintptr_t* include_vec, uint32_t* set_ctp
   *missing_ctp += (accm * 0x01010101) >> 24;
 }
 
-void count_set_freq_hap_12(uintptr_t* lptr, uintptr_t* include_vec, uint32_t* set_ctp, uint32_t* missing_ctp) {
+void count_set_freq_hap_12(const uintptr_t* __restrict lptr, const uintptr_t* __restrict include_vec, uint32_t* __restrict set_ctp, uint32_t* __restrict missing_ctp) {
   uintptr_t loader = *lptr++;
   uintptr_t loader2 = loader >> 1;
   uintptr_t loader3 = *include_vec++;
@@ -7180,7 +7177,7 @@ void count_set_freq_hap_12(uintptr_t* lptr, uintptr_t* include_vec, uint32_t* se
   *missing_ctp += (accm * 0x01010101) >> 24;
 }
 
-void count_set_freq_x_6(uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* male_vec, uint32_t* set_ctp, uint32_t* missing_ctp) {
+void count_set_freq_x_6(const uintptr_t* __restrict lptr, const uintptr_t* __restrict include_vec, const uintptr_t* __restrict male_vec, uint32_t* __restrict set_ctp, uint32_t* __restrict missing_ctp) {
   uintptr_t loader = *lptr++;
   uintptr_t loader2 = loader >> 1;
   uintptr_t loader3 = *include_vec++;
@@ -7280,7 +7277,7 @@ void count_set_freq_x_6(uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* male
   *missing_ctp += (accm * 0x01010101) >> 24;
 }
 
-void count_set_freq_y_12(uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* nonmale_vec, uint32_t* set_ctp, uint32_t* missing_ctp) {
+void count_set_freq_y_12(const uintptr_t* __restrict lptr, const uintptr_t* __restrict include_vec, const uintptr_t* __restrict nonmale_vec, uint32_t* __restrict set_ctp, uint32_t* __restrict missing_ctp) {
   uintptr_t loader = *lptr++;
   uintptr_t loader2 = loader >> 1;
   uintptr_t loader3 = *include_vec++;
@@ -7384,7 +7381,7 @@ void count_set_freq_y_12(uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* non
   *missing_ctp += (accm * 0x01010101) >> 24;
 }
 
-uintptr_t count_01_12(uintptr_t* lptr) {
+uintptr_t count_01_12(const uintptr_t* lptr) {
   uintptr_t loader1 = *lptr++;
   uintptr_t loader2 = *lptr++;
   uintptr_t count1 = loader1 & (~(loader1 >> 1)) & FIVEMASK;
@@ -7423,14 +7420,14 @@ uintptr_t count_01_12(uintptr_t* lptr) {
 }
 #endif
 
-void vec_set_freq(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uint32_t* set_ctp, uint32_t* missing_ctp) {
-  // Assuming include_vec describes e.g. cases, and an autosomal marker, this
-  // counts the number of case set alleles loaded in lptr[], as well as the
-  // number of cases with missing genotype info.
+void genovec_set_freq(const uintptr_t* __restrict geno_vec, const uintptr_t* __restrict include_quatervec, uintptr_t sample_ctl2, uint32_t* __restrict set_ctp, uint32_t* __restrict missing_ctp) {
+  // Assuming include_quatervec describes e.g. cases, and an autosomal marker,
+  // this counts the number of case set alleles loaded in geno_vec[], as well
+  // as the number of cases with missing genotype info.
   // See single_marker_freqs_and_hwe() for discussion.
   // missing count: popcount2(genotype & (~(genotype >> 1)) & 0x5555...)
   // set allele count: popcount(genotype) - missing count
-  uintptr_t* lptr_end = &(lptr[sample_ctl2]);
+  const uintptr_t* geno_vec_end = &(geno_vec[sample_ctl2]);
   uintptr_t loader;
   uintptr_t loader2;
   uintptr_t missing_incr;
@@ -7438,31 +7435,31 @@ void vec_set_freq(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_vec
   uint32_t accm = 0;
 #ifdef __LP64__
   uintptr_t cur_decr = 60;
-  uintptr_t* lptr_6x_end;
+  const uintptr_t* geno_vec_6x_end;
   sample_ctl2 -= sample_ctl2 % 6;
   while (sample_ctl2 >= 60) {
-  vec_set_freq_loop:
-    lptr_6x_end = &(lptr[cur_decr]);
-    count_set_freq_60v((__m128i*)lptr, (__m128i*)lptr_6x_end, (__m128i*)include_vec, &acc, &accm);
-    lptr = lptr_6x_end;
-    include_vec = &(include_vec[cur_decr]);
+  genovec_set_freq_loop:
+    geno_vec_6x_end = &(geno_vec[cur_decr]);
+    count_set_freq_60v((const __m128i*)geno_vec, (const __m128i*)geno_vec_6x_end, (const __m128i*)include_quatervec, &acc, &accm);
+    geno_vec = geno_vec_6x_end;
+    include_quatervec = &(include_quatervec[cur_decr]);
     sample_ctl2 -= cur_decr;
   }
   if (sample_ctl2) {
     cur_decr = sample_ctl2;
-    goto vec_set_freq_loop;
+    goto genovec_set_freq_loop;
   }
 #else
-  uintptr_t* lptr_six_end = &(lptr[sample_ctl2 - (sample_ctl2 % 6)]);
-  while (lptr < lptr_six_end) {
-    count_set_freq_6(lptr, include_vec, &acc, &accm);
-    lptr = &(lptr[6]);
-    include_vec = &(include_vec[6]);
+  const uintptr_t* geno_vec_six_end = &(geno_vec[sample_ctl2 - (sample_ctl2 % 6)]);
+  while (geno_vec < geno_vec_six_end) {
+    count_set_freq_6(geno_vec, include_quatervec, &acc, &accm);
+    geno_vec = &(geno_vec[6]);
+    include_quatervec = &(include_quatervec[6]);
   }
 #endif
-  while (lptr < lptr_end) {
-    loader = *lptr++;
-    loader2 = *include_vec++;
+  while (geno_vec < geno_vec_end) {
+    loader = *geno_vec++;
+    loader2 = *include_quatervec++;
     missing_incr = popcount2_long(loader & (~(loader >> 1)) & loader2);
     accm += missing_incr;
     acc += popcount_long(loader & (loader2 * 3)) - missing_incr;
@@ -7471,10 +7468,10 @@ void vec_set_freq(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_vec
   *missing_ctp = accm;
 }
 
-void vec_set_freq_x(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* male_vec, uint32_t* set_ctp, uint32_t* missing_ctp) {
+void genovec_set_freq_x(const uintptr_t* __restrict geno_vec, const uintptr_t* __restrict include_quatervec, const uintptr_t* __restrict male_quatervec, uintptr_t sample_ctl2, uint32_t* __restrict set_ctp, uint32_t* __restrict missing_ctp) {
   // diploid counting for nonmales, haploid counting for males
   // missing_ct := male_obs + male_missing + 2 * female_missing
-  uintptr_t* lptr_end = &(lptr[sample_ctl2]);
+  const uintptr_t* geno_vec_end = &(geno_vec[sample_ctl2]);
   uintptr_t loader;
   uintptr_t loader2;
   uintptr_t loader3;
@@ -7484,40 +7481,40 @@ void vec_set_freq_x(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_v
   uint32_t accm = 0;
 #ifdef __LP64__
   uintptr_t cur_decr = 60;
-  uintptr_t* lptr_6x_end;
+  const uintptr_t* geno_vec_6x_end;
   sample_ctl2 -= sample_ctl2 % 6;
   while (sample_ctl2 >= 60) {
-  vec_set_freq_x_loop:
-    lptr_6x_end = &(lptr[cur_decr]);
-    count_set_freq_x_60v((__m128i*)lptr, (__m128i*)lptr_6x_end, (__m128i*)include_vec, (__m128i*)male_vec, &acc, &accm);
-    lptr = lptr_6x_end;
-    include_vec = &(include_vec[cur_decr]);
-    male_vec = &(male_vec[cur_decr]);
+  genovec_set_freq_x_loop:
+    geno_vec_6x_end = &(geno_vec[cur_decr]);
+    count_set_freq_x_60v((const __m128i*)geno_vec, (const __m128i*)geno_vec_6x_end, (const __m128i*)include_quatervec, (const __m128i*)male_quatervec, &acc, &accm);
+    geno_vec = geno_vec_6x_end;
+    include_quatervec = &(include_quatervec[cur_decr]);
+    male_quatervec = &(male_quatervec[cur_decr]);
     sample_ctl2 -= cur_decr;
   }
   if (sample_ctl2) {
     cur_decr = sample_ctl2;
-    goto vec_set_freq_x_loop;
+    goto genovec_set_freq_x_loop;
   }
 #else
-  uintptr_t* lptr_six_end = &(lptr[sample_ctl2 - (sample_ctl2 % 6)]);
-  while (lptr < lptr_six_end) {
-    count_set_freq_x_6(lptr, include_vec, male_vec, &acc, &accm);
-    lptr = &(lptr[6]);
-    include_vec = &(include_vec[6]);
-    male_vec = &(male_vec[6]);
+  const uintptr_t* geno_vec_six_end = &(geno_vec[sample_ctl2 - (sample_ctl2 % 6)]);
+  while (geno_vec < geno_vec_six_end) {
+    count_set_freq_x_6(geno_vec, include_quatervec, male_quatervec, &acc, &accm);
+    geno_vec = &(geno_vec[6]);
+    include_quatervec = &(include_quatervec[6]);
+    male_quatervec = &(male_quatervec[6]);
   }
 #endif
-  while (lptr < lptr_end) {
-    loader = *lptr++;
+  while (geno_vec < geno_vec_end) {
+    loader = *geno_vec++;
     loader2 = loader >> 1;
-    loader3 = *include_vec++;
-    loader4 = loader3 & (~(*male_vec));
+    loader3 = *include_quatervec++;
+    loader4 = loader3 & (~(*male_quatervec));
     missing_incr = popcount2_long(loader & (~loader2) & loader4);
     accm += 2 * missing_incr;
     acc += popcount_long(loader & (loader4 * 3)) - missing_incr;
 
-    loader4 = loader3 & (*male_vec++);
+    loader4 = loader3 & (*male_quatervec++);
     acc += popcount2_long(loader & loader2 & loader4);
     accm += popcount_long(((loader ^ loader2) & loader4) | (loader4 << 1));
   }
@@ -7525,9 +7522,9 @@ void vec_set_freq_x(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_v
   *missing_ctp = accm;
 }
 
-void vec_set_freq_y(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* nonmale_vec, uint32_t* set_ctp, uint32_t* missing_ctp) {
+void genovec_set_freq_y(const uintptr_t* __restrict geno_vec, const uintptr_t* __restrict include_quatervec, const uintptr_t* __restrict nonmale_quatervec, uintptr_t sample_ctl2, uint32_t* __restrict set_ctp, uint32_t* __restrict missing_ctp) {
   // all nonmales contribute to missing_ct here
-  uintptr_t* lptr_end = &(lptr[sample_ctl2]);
+  const uintptr_t* geno_vec_end = &(geno_vec[sample_ctl2]);
   uintptr_t loader;
   uintptr_t loader2;
   uintptr_t loader3;
@@ -7536,35 +7533,35 @@ void vec_set_freq_y(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_v
   uint32_t accm = 0;
 #ifdef __LP64__
   uintptr_t cur_decr = 120;
-  uintptr_t* lptr_12x_end;
+  const uintptr_t* geno_vec_12x_end;
   sample_ctl2 -= sample_ctl2 % 12;
   while (sample_ctl2 >= 120) {
-  vec_set_freq_y_loop:
-    lptr_12x_end = &(lptr[cur_decr]);
-    count_set_freq_y_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)include_vec, (__m128i*)nonmale_vec, &acc, &accm);
-    lptr = lptr_12x_end;
-    include_vec = &(include_vec[cur_decr]);
-    nonmale_vec = &(nonmale_vec[cur_decr]);
+  genovec_set_freq_y_loop:
+    geno_vec_12x_end = &(geno_vec[cur_decr]);
+    count_set_freq_y_120v((__m128i*)geno_vec, (__m128i*)geno_vec_12x_end, (__m128i*)include_quatervec, (__m128i*)nonmale_quatervec, &acc, &accm);
+    geno_vec = geno_vec_12x_end;
+    include_quatervec = &(include_quatervec[cur_decr]);
+    nonmale_quatervec = &(nonmale_quatervec[cur_decr]);
     sample_ctl2 -= cur_decr;
   }
   if (sample_ctl2) {
     cur_decr = sample_ctl2;
-    goto vec_set_freq_y_loop;
+    goto genovec_set_freq_y_loop;
   }
 #else
-  uintptr_t* lptr_twelve_end = &(lptr[sample_ctl2 - (sample_ctl2 % 12)]);
-  while (lptr < lptr_twelve_end) {
-    count_set_freq_y_12(lptr, include_vec, nonmale_vec, &acc, &accm);
-    lptr = &(lptr[12]);
-    include_vec = &(include_vec[12]);
-    nonmale_vec = &(nonmale_vec[12]);
+  const uintptr_t* geno_vec_twelve_end = &(geno_vec[sample_ctl2 - (sample_ctl2 % 12)]);
+  while (geno_vec < geno_vec_twelve_end) {
+    count_set_freq_y_12(geno_vec, include_quatervec, nonmale_quatervec, &acc, &accm);
+    geno_vec = &(geno_vec[12]);
+    include_quatervec = &(include_quatervec[12]);
+    nonmale_quatervec = &(nonmale_quatervec[12]);
   }
 #endif
-  while (lptr < lptr_end) {
-    loader = *lptr++;
+  while (geno_vec < geno_vec_end) {
+    loader = *geno_vec++;
     loader2 = loader >> 1;
-    loader3 = *include_vec++;
-    loader4 = *nonmale_vec++;
+    loader3 = *include_quatervec++;
+    loader4 = *nonmale_quatervec++;
     acc += popcount2_long(loader & loader2 & loader3 & (~loader4));
     accm += popcount2_long(loader3 & ((loader ^ loader2) | loader4));
   }

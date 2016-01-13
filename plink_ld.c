@@ -5710,7 +5710,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
 	}
       } else {
         retval = string_range_list_to_bitfield2(sorted_ids, id_map, marker_ct, max_marker_id_len, &(ldip->snps_rl), "ld-snps", marker_exclude_idx1);
-        bitfield_or(marker_exclude_idx1, marker_exclude, unfiltered_marker_ctl);
+        bitvec_or(marker_exclude, unfiltered_marker_ctl, marker_exclude_idx1);
         marker_ct1 = marker_ct - popcount_longs(marker_exclude_idx1, unfiltered_marker_ctl);
       }
       if (!marker_ct1) {
@@ -9446,7 +9446,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     marker_ct2 = ulii;
     tests_expected = ((((uint64_t)marker_ct1) * (marker_ct1 - 1)) / 2);
   } else {
-    bitfield_or(marker_exclude1, marker_exclude2, unfiltered_marker_ctl);
+    bitvec_or(marker_exclude2, unfiltered_marker_ctl, marker_exclude1);
     marker_ct1 = unfiltered_marker_ct - popcount_longs(marker_exclude1, unfiltered_marker_ctl);
     if (sip->ct == 2) {
       if (bigstack_alloc_ul(unfiltered_marker_ctl, &ulptr)) {
@@ -9454,7 +9454,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
       }
       memcpy(ulptr, marker_exclude2, unfiltered_marker_ctl * sizeof(intptr_t));
       unpack_set_unfiltered(marker_ct2, unfiltered_marker_ct, marker_exclude, sip->setdefs[1], marker_exclude2);
-      bitfield_or(marker_exclude2, ulptr, unfiltered_marker_ctl);
+      bitvec_or(ulptr, unfiltered_marker_ctl, marker_exclude2);
       bigstack_reset(ulptr);
       marker_ct2 = unfiltered_marker_ct - popcount_longs(marker_exclude2, unfiltered_marker_ctl);
     } else {
@@ -11854,7 +11854,7 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	if (wlen) {
 	  uii = marker_idx2;
 	  do {
-	    bitfield_or(&(result_bitfield[((marker_idx2 - marker_idx) * marker_ctv + firstw)]), &(tmp_set_bitfield[firstw]), wlen);
+	    bitvec_or(&(tmp_set_bitfield[firstw]), wlen, &(result_bitfield[((marker_idx2 - marker_idx) * marker_ctv + firstw)]));
 	    marker_idx2++;
 	    next_set_ck(tmp_set_bitfield, idx1_block_end, &marker_idx2);
 	  } while (marker_idx2 < idx1_block_end);
@@ -11867,7 +11867,7 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	  firstw = uii / 32;
 #endif
 	  clear_bits(0, uii + 1 - firstw * BITCT, &(tmp_set_bitfield[firstw]));
-	  bitfield_or(&(load2_bitfield[firstw]), &(tmp_set_bitfield[firstw]), wlen - firstw);
+	  bitvec_or(&(tmp_set_bitfield[firstw]), wlen - firstw, &(load2_bitfield[firstw]));
 	}
       }
     }

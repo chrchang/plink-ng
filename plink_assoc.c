@@ -2381,14 +2381,14 @@ THREAD_RET_TYPE assoc_adapt_thread(void* arg) {
       }
       for (pidx = 0; pidx < perm_vec_ct;) {
 	if (!min_ploidy_1) {
-	  vec_set_freq(pheno_nm_ctv2, &(loadbuf[marker_bidx * pheno_nm_ctv2]), &(perm_vecs[pidx * pheno_nm_ctv2]), &case_set_ct, &case_missing_ct);
+	  genovec_set_freq(&(loadbuf[marker_bidx * pheno_nm_ctv2]), &(perm_vecs[pidx * pheno_nm_ctv2]), pheno_nm_ctv2, &case_set_ct, &case_missing_ct);
 	} else if (is_x) {
-	  vec_set_freq_x(pheno_nm_ctv2, &(loadbuf[marker_bidx * pheno_nm_ctv2]), &(perm_vecs[pidx * pheno_nm_ctv2]), male_vec, &case_set_ct, &case_missing_ct);
+	  genovec_set_freq_x(&(loadbuf[marker_bidx * pheno_nm_ctv2]), &(perm_vecs[pidx * pheno_nm_ctv2]), male_vec, pheno_nm_ctv2, &case_set_ct, &case_missing_ct);
 	} else if (!is_y) {
 	  vec_3freq(pheno_nm_ctv2, &(loadbuf[marker_bidx * pheno_nm_ctv2]), &(perm_vecs[pidx * pheno_nm_ctv2]), &case_missing_ct, &uii, &case_set_ct);
 	  case_missing_ct += uii;
 	} else {
-	  vec_set_freq_y(pheno_nm_ctv2, &(loadbuf[marker_bidx * pheno_nm_ctv2]), &(perm_vecs[pidx * pheno_nm_ctv2]), nonmale_vec, &case_set_ct, &case_missing_ct);
+	  genovec_set_freq_y(&(loadbuf[marker_bidx * pheno_nm_ctv2]), &(perm_vecs[pidx * pheno_nm_ctv2]), nonmale_vec, pheno_nm_ctv2, &case_set_ct, &case_missing_ct);
 	}
 	// deliberate underflow
 	uii = (uint32_t)(case_missing_ct - missing_start);
@@ -2639,9 +2639,9 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
 	  }
 	} else {
 	  if (is_x) {
-	    vec_set_freq_x(pheno_nm_ctv2, loadbuf_cur, &(perm_vecs[pidx * pheno_nm_ctv2]), male_vec, &case_set_ct, &case_missing_ct);
+	    genovec_set_freq_x(loadbuf_cur, &(perm_vecs[pidx * pheno_nm_ctv2]), male_vec, pheno_nm_ctv2, &case_set_ct, &case_missing_ct);
 	  } else {
-	    vec_set_freq_y(pheno_nm_ctv2, loadbuf_cur, &(perm_vecs[pidx * pheno_nm_ctv2]), nonmale_vec, &case_set_ct, &case_missing_ct);
+	    genovec_set_freq_y(loadbuf_cur, &(perm_vecs[pidx * pheno_nm_ctv2]), nonmale_vec, pheno_nm_ctv2, &case_set_ct, &case_missing_ct);
 	  }
 	}
 	// deliberate underflow
@@ -2819,9 +2819,9 @@ THREAD_RET_TYPE assoc_set_thread(void* arg) {
 	  }
 	} else {
 	  if (is_x) {
-	    vec_set_freq_x(pheno_nm_ctv2, loadbuf_cur, &(perm_vecs[pidx * pheno_nm_ctv2]), male_vec, &case_set_ct, &case_missing_ct);
+	    genovec_set_freq_x(loadbuf_cur, &(perm_vecs[pidx * pheno_nm_ctv2]), male_vec, pheno_nm_ctv2, &case_set_ct, &case_missing_ct);
 	  } else {
-	    vec_set_freq_y(pheno_nm_ctv2, loadbuf_cur, &(perm_vecs[pidx * pheno_nm_ctv2]), nonmale_vec, &case_set_ct, &case_missing_ct);
+	    genovec_set_freq_y(loadbuf_cur, &(perm_vecs[pidx * pheno_nm_ctv2]), nonmale_vec, pheno_nm_ctv2, &case_set_ct, &case_missing_ct);
 	  }
 	}
 	// Fisher's exact test not supported since we are adding raw chi-square
@@ -4257,7 +4257,7 @@ THREAD_RET_TYPE model_adapt_trend_thread(void* arg) {
       chisq_high = orig_chisq[marker_idx] + EPSILON;
       chisq_low = orig_chisq[marker_idx] - EPSILON;
       for (pidx = 0; pidx < perm_vec_ct;) {
-	vec_set_freq(pheno_nm_ctv2, &(loadbuf[marker_bidx * pheno_nm_ctv2]), &(perm_vecs[pidx * pheno_nm_ctv2]), &case_com_ct, &case_missing_ct);
+	genovec_set_freq(&(loadbuf[marker_bidx * pheno_nm_ctv2]), &(perm_vecs[pidx * pheno_nm_ctv2]), pheno_nm_ctv2, &case_com_ct, &case_missing_ct);
 	// deliberate underflow
 	uii = (uint32_t)(case_missing_ct - missing_start);
 	if (uii < precomp_width) {

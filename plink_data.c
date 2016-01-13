@@ -3309,7 +3309,7 @@ void zeropatch(uintptr_t sample_ctv2, uintptr_t cluster_ct, uintptr_t* cluster_z
 	at_least_one_cluster = 1;
 	fill_ulong_zero(patchbuf, sample_ctv2);
       }
-      bitfield_or(patchbuf, &(cluster_zc_masks[cluster_idx * sample_ctv2]), sample_ctv2);
+      bitvec_or(&(cluster_zc_masks[cluster_idx * sample_ctv2]), sample_ctv2, patchbuf);
     }
   }
   if (!at_least_one_cluster) {
@@ -12085,7 +12085,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	  goto recode_ret_NOMEM;
 	}
 	memcpy(sample_exclude_y, sample_exclude, unfiltered_sample_ctl * sizeof(intptr_t));
-	bitfield_ornot(sample_exclude_y, sex_male, unfiltered_sample_ctl);
+	bitvec_ornot(sex_male, unfiltered_sample_ctl, sample_exclude_y);
 	zero_trailing_bits(sample_exclude_y, unfiltered_sample_ct);
 	sample_ct_y = unfiltered_sample_ct - popcount_longs(sample_exclude_y, unfiltered_sample_ctl);
         uii = QUATERCT_TO_ALIGNED_WORDCT(sample_ct_y);
@@ -13755,7 +13755,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     if (!recode_allele_reverse) {
       recode_allele_reverse = marker_reverse;
     } else {
-      bitfield_xor(recode_allele_reverse, marker_reverse, unfiltered_marker_ctl);
+      bitvec_xor(marker_reverse, unfiltered_marker_ctl, recode_allele_reverse);
     }
     if (recode_load_to(loadbuf, bedfile, bed_offset, unfiltered_marker_ct, 0, marker_ct, marker_exclude, recode_allele_reverse, &marker_uidx, unfiltered_sample_ct)) {
       goto recode_ret_READ_FAIL;

@@ -1759,7 +1759,7 @@ uint32_t prev_unset_unsafe(const uintptr_t* bitarr, uint32_t loc);
 
 // uint32_t prev_unset(uintptr_t* bitarr, uint32_t loc, uint32_t floor);
 
-static inline void prev_unset_unsafe_ck(uintptr_t* bitarr, uint32_t* loc_ptr) {
+static inline void prev_unset_unsafe_ck(const uintptr_t* bitarr, uint32_t* loc_ptr) {
   *loc_ptr -= 1;
   if (IS_SET(bitarr, *loc_ptr)) {
     *loc_ptr = prev_unset_unsafe(bitarr, *loc_ptr);
@@ -2256,11 +2256,11 @@ void bitvec_andnot(const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct
 
 void bitvec_andnot_reversed_args(const uintptr_t* __restrict include_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec);
 
-void bitfield_or(uintptr_t* vv, uintptr_t* or_vec, uintptr_t word_ct);
+void bitvec_or(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec);
 
-void bitfield_ornot(uintptr_t* vv, uintptr_t* inverted_or_vec, uintptr_t word_ct);
+void bitvec_ornot(const uintptr_t* __restrict inverted_or_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec);
 
-void bitfield_xor(uintptr_t* bitarr, uintptr_t* xor_bitarr, uintptr_t word_ct);
+void bitvec_xor(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec);
 
 static inline uint32_t popcount2_long(uintptr_t val) {
 #ifdef __LP64__
@@ -2277,19 +2277,19 @@ static inline uint32_t popcount_long(uintptr_t val) {
   return popcount2_long(val - ((val >> 1) & FIVEMASK));
 }
 
-uint32_t is_monomorphic_a2(uintptr_t* lptr, uint32_t sample_ct);
+uint32_t is_monomorphic_a2(const uintptr_t* geno_arr, uint32_t sample_ct);
 
-uint32_t is_monomorphic(uintptr_t* lptr, uint32_t sample_ct);
+uint32_t is_monomorphic(const uintptr_t* geno_arr, uint32_t sample_ct);
 
 // same as is_monomorphic, except it also flags the all-heterozygote case
-uint32_t less_than_two_genotypes(uintptr_t* lptr, uint32_t sample_ct);
+uint32_t less_than_two_genotypes(const uintptr_t* geno_arr, uint32_t sample_ct);
 
 // uint32_t has_three_genotypes(uintptr_t* lptr, uint32_t sample_ct);
 
-uintptr_t popcount_longs(uintptr_t* lptr, uintptr_t word_ct);
+uintptr_t popcount_longs(const uintptr_t* lptr, uintptr_t word_ct);
 
 #ifdef __LP64__
-static inline uintptr_t popcount_longs_nzbase(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx) {
+static inline uintptr_t popcount_longs_nzbase(const uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx) {
   uintptr_t prefix_ct = 0;
   if (start_idx & 1) {
     if (end_idx == start_idx) {
@@ -2300,50 +2300,50 @@ static inline uintptr_t popcount_longs_nzbase(uintptr_t* lptr, uintptr_t start_i
   return prefix_ct + popcount_longs(&(lptr[start_idx]), end_idx - start_idx);
 }
 #else
-static inline uintptr_t popcount_longs_nzbase(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx) {
+static inline uintptr_t popcount_longs_nzbase(const uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx) {
   return popcount_longs(&(lptr[start_idx]), end_idx - start_idx);
 }
 #endif
 
-uintptr_t popcount2_longs(uintptr_t* lptr, uintptr_t word_ct);
+uintptr_t popcount2_longs(const uintptr_t* lptr, uintptr_t word_ct);
 
 #define popcount01_longs popcount2_longs
 
-uintptr_t popcount_bit_idx(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx);
+uintptr_t popcount_bit_idx(const uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx);
 
-uint32_t chrom_window_max(uint32_t* marker_pos, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t ct_max, uint32_t bp_max, uint32_t cur_window_max);
+uint32_t chrom_window_max(const uint32_t* marker_pos, const uintptr_t* marker_exclude, const Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t ct_max, uint32_t bp_max, uint32_t cur_window_max);
 
-uint32_t window_back(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_t marker_uidx_min, uint32_t marker_uidx, uint32_t count_max, uint32_t bp_max, uint32_t* window_trail_ct_ptr);
+uint32_t window_back(const uint32_t* __restrict marker_pos, const uintptr_t* marker_exclude, uint32_t marker_uidx_min, uint32_t marker_uidx, uint32_t count_max, uint32_t bp_max, uint32_t* __restrict window_trail_ct_ptr);
 
-uint32_t window_forward(uint32_t* marker_pos, uintptr_t* marker_exclude, uint32_t marker_uidx_start, uint32_t marker_uidx_last, uint32_t count_max, uint32_t bp_max, uint32_t* window_lead_ct_ptr);
+uint32_t window_forward(const uint32_t* __restrict marker_pos, const uintptr_t* marker_exclude, uint32_t marker_uidx_start, uint32_t marker_uidx_last, uint32_t count_max, uint32_t bp_max, uint32_t* __restrict window_lead_ct_ptr);
 
-uintptr_t jump_forward_unset_unsafe(uintptr_t* bitarr, uintptr_t cur_pos, uintptr_t forward_ct);
+uintptr_t jump_forward_unset_unsafe(const uintptr_t* bitarr, uintptr_t cur_pos, uintptr_t forward_ct);
 
-static inline uintptr_t popcount_chars(uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx) {
+static inline uintptr_t popcount_chars(const uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx) {
   return popcount_bit_idx(lptr, start_idx * 8, end_idx * 8);
 }
 
-uintptr_t popcount_longs_exclude(uintptr_t* lptr, uintptr_t* exclude_arr, uintptr_t end_idx);
+uintptr_t popcount_longs_exclude(const uintptr_t* __restrict lptr, const uintptr_t* __restrict exclude_arr, uintptr_t end_idx);
 
-uintptr_t popcount_longs_intersect(uintptr_t* lptr1, uintptr_t* lptr2, uintptr_t word_ct);
+uintptr_t popcount_longs_intersect(const uintptr_t* __restrict lptr1, const uintptr_t* __restrict lptr2, uintptr_t word_ct);
 
-void vertical_bitct_subtract(uintptr_t* bitarr, uint32_t item_ct, uint32_t* sum_arr);
+void vertical_bitct_subtract(const uintptr_t* bitarr, uint32_t item_ct, uint32_t* sum_arr);
 
 #ifdef __LP64__
-void count_2freq_dbl_960b(VECITYPE* vptr, VECITYPE* vend, VECITYPE* mask1vp, VECITYPE* mask2vp, uint32_t* ct1abp, uint32_t* ct1cp, uint32_t* ct2abp, uint32_t* ct2cp);
+void count_2freq_dbl_960b(const VECITYPE* geno_vvec, const VECITYPE* geno_vvec_end, const VECITYPE* __restrict mask1vp, const VECITYPE* __restrict mask2vp, uint32_t* __restrict ct1abp, uint32_t* __restrict ct1cp, uint32_t* __restrict ct2abp, uint32_t* __restrict ct2cp);
 
-void count_3freq_1920b(VECITYPE* vptr, VECITYPE* vend, VECITYPE* maskvp, uint32_t* ctap, uint32_t* ctbp, uint32_t* ctcp);
+void count_3freq_1920b(const VECITYPE* geno_vvec, const VECITYPE* geno_vvec_end, const VECITYPE* __restrict maskvp, uint32_t* __restrict ctap, uint32_t* __restrict ctbp, uint32_t* __restrict ctcp);
 #else
-void count_2freq_dbl_24b(uintptr_t* lptr, uintptr_t* mask1p, uintptr_t* mask2p, uint32_t* ct1abp, uint32_t* ct1cp, uint32_t* ct2abp, uint32_t* ct2cp);
+void count_2freq_dbl_24b(const uintptr_t* __restrict geno_vec, const uintptr_t* __restrict mask1p, const uintptr_t* __restrict mask2p, uint32_t* __restrict ct1abp, uint32_t* __restrict ct1cp, uint32_t* __restrict ct2abp, uint32_t* __restrict ct2cp);
 
-void count_3freq_48b(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ctap, uint32_t* ctbp, uint32_t* ctcp);
+void count_3freq_48b(const uintptr_t* __restrict geno_vec, const uintptr_t* __restrict maskp, uint32_t* __restrict ctap, uint32_t* __restrict ctbp, uint32_t* __restrict ctcp);
 #endif
 
-void vec_set_freq(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uint32_t* set_ctp, uint32_t* missing_ctp);
+void genovec_set_freq(const uintptr_t* __restrict geno_vec, const uintptr_t* __restrict include_quatervec, uintptr_t sample_ctl2, uint32_t* __restrict set_ctp, uint32_t* __restrict missing_ctp);
 
-void vec_set_freq_x(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* male_vec, uint32_t* set_ctp, uint32_t* missing_ctp);
+void genovec_set_freq_x(const uintptr_t* __restrict geno_vec, const uintptr_t* __restrict include_quatervec, const uintptr_t* __restrict male_quatervec, uintptr_t sample_ctl2, uint32_t* __restrict set_ctp, uint32_t* __restrict missing_ctp);
 
-void vec_set_freq_y(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uintptr_t* nonmale_vec, uint32_t* set_ctp, uint32_t* missing_ctp);
+void genovec_set_freq_y(const uintptr_t* __restrict geno_vec, const uintptr_t* __restrict include_quatervec, const uintptr_t* __restrict nonmale_quatervec, uintptr_t sample_ctl2, uint32_t* __restrict set_ctp, uint32_t* __restrict missing_ctp);
 
 void vec_3freq(uintptr_t sample_ctl2, uintptr_t* lptr, uintptr_t* include_vec, uint32_t* missing_ctp, uint32_t* het_ctp, uint32_t* homa2_ctp);
 

@@ -306,9 +306,9 @@ int32_t extract_exclude_flag_norange(char* fname, uint32_t* marker_id_htable, ui
     goto extract_exclude_flag_norange_ret_READ_FAIL;
   }
   if (do_exclude) {
-    bitfield_or(marker_exclude, already_seen, unfiltered_marker_ctl);
+    bitvec_or(already_seen, unfiltered_marker_ctl, marker_exclude);
   } else {
-    bitfield_ornot(marker_exclude, already_seen, unfiltered_marker_ctl);
+    bitvec_ornot(already_seen, unfiltered_marker_ctl, marker_exclude);
     zero_trailing_bits(marker_exclude, unfiltered_marker_ct);
   }
   *marker_exclude_ct_ptr = popcount_longs(marker_exclude, unfiltered_marker_ctl);
@@ -1643,7 +1643,7 @@ int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
     } while (sample_idx < sample_ct);
   }
   if (removed_ct) {
-    bitfield_or(sample_exclude, newly_excluded, unfiltered_sample_ctl);
+    bitvec_or(newly_excluded, unfiltered_sample_ctl, sample_exclude);
     memcpy(outname_end, ".irem", 6);
     if (fopen_checked(outname, "w", &outfile)) {
       goto mind_filter_ret_OPEN_FAIL;
@@ -2331,7 +2331,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
     if (bigstack_alloc_ul(unfiltered_sample_ctv2, &founder_include2)) {
       goto calc_freqs_and_hwe_ret_NOMEM;
     }
-    bitfield_ornot(tmp_sample_excl_mask, founder_info, unfiltered_sample_ctl);
+    bitvec_ornot(founder_info, unfiltered_sample_ctl, tmp_sample_excl_mask);
     zero_trailing_bits(tmp_sample_excl_mask, unfiltered_sample_ct);
     exclude_to_vec_include(unfiltered_sample_ct, founder_include2, tmp_sample_excl_mask);
     if (males_needed) {
@@ -2366,8 +2366,8 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
       goto calc_freqs_and_hwe_ret_NOMEM;
     }
     memcpy(tmp_sample_excl_mask2, tmp_sample_excl_mask, unfiltered_sample_ctl * sizeof(intptr_t));
-    bitfield_ornot(tmp_sample_excl_mask2, pheno_nm, unfiltered_sample_ctl);
-    bitfield_or(tmp_sample_excl_mask2, pheno_c, unfiltered_sample_ctl);
+    bitvec_ornot(pheno_nm, unfiltered_sample_ctl, tmp_sample_excl_mask2);
+    bitvec_or(pheno_c, unfiltered_sample_ctl, tmp_sample_excl_mask2);
     zero_trailing_bits(tmp_sample_excl_mask2, unfiltered_sample_ct);
     // tmp_sample_excl_mask2 is now set for each sample who is excluded, or a
     // nonfounder, or is noncontrol.
@@ -2385,8 +2385,8 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
       if (bigstack_alloc_ul(unfiltered_sample_ctv2, &founder_case_include2)) {
 	goto calc_freqs_and_hwe_ret_NOMEM;
       }
-      bitfield_ornot(tmp_sample_excl_mask, pheno_nm, unfiltered_sample_ctl);
-      bitfield_ornot(tmp_sample_excl_mask, pheno_c, unfiltered_sample_ctl);
+      bitvec_ornot(pheno_nm, unfiltered_sample_ctl, tmp_sample_excl_mask);
+      bitvec_ornot(pheno_c, unfiltered_sample_ctl, tmp_sample_excl_mask);
       zero_trailing_bits(tmp_sample_excl_mask, unfiltered_sample_ct);
       sample_f_case_ct = unfiltered_sample_ct - popcount_longs(tmp_sample_excl_mask, unfiltered_sample_ctl);
       exclude_to_vec_include(unfiltered_sample_ct, founder_case_include2, tmp_sample_excl_mask);
@@ -3364,7 +3364,7 @@ uint32_t enforce_minor_allele_thresholds(double min_maf, double max_maf, uintptr
     }
   }
   if (ac_excl_bitfield) {
-    bitfield_or(marker_exclude, ac_excl_bitfield, unfiltered_marker_ctl);
+    bitvec_or(ac_excl_bitfield, unfiltered_marker_ctl, marker_exclude);
   }
   removed_ct = popcount_longs(marker_exclude, unfiltered_marker_ctl) - (*marker_exclude_ct_ptr);
   if ((marker_ct == removed_ct) && (!allow_no_variants)) {
