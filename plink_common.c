@@ -7595,7 +7595,7 @@ void genovec_3freq(const uintptr_t* __restrict geno_vec, const uintptr_t* __rest
     goto genovec_3freq_loop;
   }
 #else
-  uintptr_t* geno_vec_twelve_end = &(geno_vec[sample_ctl2 - (sample_ctl2 % 12)]);
+  const uintptr_t* geno_vec_twelve_end = &(geno_vec[sample_ctl2 - (sample_ctl2 % 12)]);
   while (geno_vec < geno_vec_twelve_end) {
     count_3freq_48b(geno_vec, include_quatervec, &acc_even, &acc_odd, &acc_and);
     geno_vec = &(geno_vec[12]);
@@ -8765,7 +8765,7 @@ void quatervec_copy_only_01(const uintptr_t* __restrict input_quatervec, uintptr
     *vec2_write++ = _mm_and_si128(_mm_andnot_si128(_mm_srli_epi64(loader, 1), loader), m1);
   } while (vec2_read < read_end);
 #else
-  uintptr_t* read_end = &(input_quatervec[QUATERCT_TO_ALIGNED_WORDCT(unfiltered_sample_ct)]);
+  const uintptr_t* read_end = &(input_quatervec[QUATERCT_TO_ALIGNED_WORDCT(unfiltered_sample_ct)]);
   uintptr_t loader;
   do {
     loader = *input_quatervec++;
