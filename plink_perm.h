@@ -62,7 +62,7 @@ void transpose_perms(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno_
 void transpose_perm1s(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno_nm_ct, uint32_t* perm_vecst);
 
 #ifdef __LP64__
-static inline void unroll_incr_1_4(const __m128i* acc1, __m128i* acc4, uint32_t acc1_vec_ct) {
+HEADER_INLINE void unroll_incr_1_4(const __m128i* acc1, __m128i* acc4, uint32_t acc1_vec_ct) {
   const __m128i m1x4 = {0x1111111111111111LLU, 0x1111111111111111LLU};
   __m128i loader;
   uint32_t vidx;
@@ -82,7 +82,7 @@ static inline void unroll_incr_1_4(const __m128i* acc1, __m128i* acc4, uint32_t 
   }
 }
 
-static inline void unroll_incr_4_8(const __m128i* acc4, __m128i* acc8, uint32_t acc4_vec_ct) {
+HEADER_INLINE void unroll_incr_4_8(const __m128i* acc4, __m128i* acc8, uint32_t acc4_vec_ct) {
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   __m128i loader;
   uint32_t vidx;
@@ -96,7 +96,7 @@ static inline void unroll_incr_4_8(const __m128i* acc4, __m128i* acc8, uint32_t 
   }
 }
 
-static inline void unroll_zero_incr_4_8(__m128i* acc4, __m128i* acc8, uint32_t acc4_vec_ct) {
+HEADER_INLINE void unroll_zero_incr_4_8(__m128i* acc4, __m128i* acc8, uint32_t acc4_vec_ct) {
   const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
   __m128i loader;
   uint32_t vidx;
@@ -111,7 +111,7 @@ static inline void unroll_zero_incr_4_8(__m128i* acc4, __m128i* acc8, uint32_t a
   }
 }
 
-static inline void unroll_incr_8_32(const __m128i* acc8, __m128i* acc32, uint32_t acc8_vec_ct) {
+HEADER_INLINE void unroll_incr_8_32(const __m128i* acc8, __m128i* acc32, uint32_t acc8_vec_ct) {
   const __m128i m8x32 = {0x000000ff000000ffLLU, 0x000000ff000000ffLLU};
   __m128i loader;
   uint32_t vidx;
@@ -131,7 +131,7 @@ static inline void unroll_incr_8_32(const __m128i* acc8, __m128i* acc32, uint32_
   }
 }
 
-static inline void unroll_zero_incr_8_32(__m128i* acc8, __m128i* acc32, uint32_t acc8_vec_ct) {
+HEADER_INLINE void unroll_zero_incr_8_32(__m128i* acc8, __m128i* acc32, uint32_t acc8_vec_ct) {
   const __m128i m8x32 = {0x000000ff000000ffLLU, 0x000000ff000000ffLLU};
   __m128i loader;
   uint32_t vidx;
@@ -152,7 +152,7 @@ static inline void unroll_zero_incr_8_32(__m128i* acc8, __m128i* acc32, uint32_t
   }
 }
 #else
-static inline void unroll_incr_1_4(const uintptr_t* acc1, uintptr_t* acc4, uint32_t acc1_word_ct) {
+HEADER_INLINE void unroll_incr_1_4(const uintptr_t* acc1, uintptr_t* acc4, uint32_t acc1_word_ct) {
   uint32_t widx;
   uintptr_t loader;
   for (widx = 0; widx < acc1_word_ct; widx++) {
@@ -171,7 +171,7 @@ static inline void unroll_incr_1_4(const uintptr_t* acc1, uintptr_t* acc4, uint3
   }
 }
 
-static inline void unroll_incr_4_8(const uintptr_t* acc4, uintptr_t* acc8, uint32_t acc4_word_ct) {
+HEADER_INLINE void unroll_incr_4_8(const uintptr_t* acc4, uintptr_t* acc8, uint32_t acc4_word_ct) {
   uint32_t widx;
   uintptr_t loader;
   for (widx = 0; widx < acc4_word_ct; widx++) {
@@ -184,7 +184,7 @@ static inline void unroll_incr_4_8(const uintptr_t* acc4, uintptr_t* acc8, uint3
   }
 }
 
-static inline void unroll_zero_incr_4_8(uintptr_t* acc4, uintptr_t* acc8, uint32_t acc4_word_ct) {
+HEADER_INLINE void unroll_zero_incr_4_8(uintptr_t* acc4, uintptr_t* acc8, uint32_t acc4_word_ct) {
   uint32_t widx;
   uintptr_t loader;
   for (widx = 0; widx < acc4_word_ct; widx++) {
@@ -198,7 +198,7 @@ static inline void unroll_zero_incr_4_8(uintptr_t* acc4, uintptr_t* acc8, uint32
   }
 }
 
-static inline void unroll_incr_8_32(const uintptr_t* acc8, uintptr_t* acc32, uint32_t acc8_word_ct) {
+HEADER_INLINE void unroll_incr_8_32(const uintptr_t* acc8, uintptr_t* acc32, uint32_t acc8_word_ct) {
   uint32_t widx;
   uintptr_t loader;
   for (widx = 0; widx < acc8_word_ct; widx++) {
@@ -217,7 +217,7 @@ static inline void unroll_incr_8_32(const uintptr_t* acc8, uintptr_t* acc32, uin
   }
 }
 
-static inline void unroll_zero_incr_8_32(uintptr_t* acc8, uintptr_t* acc32, uint32_t acc8_word_ct) {
+HEADER_INLINE void unroll_zero_incr_8_32(uintptr_t* acc8, uintptr_t* acc32, uint32_t acc8_word_ct) {
   uint32_t widx;
   uintptr_t loader;
   for (widx = 0; widx < acc8_word_ct; widx++) {

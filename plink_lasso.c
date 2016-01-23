@@ -153,7 +153,7 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
       refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &uii, &min_ploidy_1);
     }
     min_ploidy_1 |= uii;
-    if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf_collapsed, sample_valid_ct, pheno_nm2, final_mask, IS_SET(marker_reverse, marker_uidx))) {
+    if (load_and_collapse_incl(unfiltered_sample_ct, sample_valid_ct, pheno_nm2, final_mask, IS_SET(marker_reverse, marker_uidx), bedfile, loadbuf_raw, loadbuf_collapsed)) {
       goto lasso_bigmem_ret_READ_FAIL;
     }
     if (min_ploidy_1) {
@@ -372,7 +372,7 @@ uint32_t load_and_normalize(FILE* bedfile, uintptr_t* loadbuf_raw, uintptr_t unf
   uint32_t het_ct;
   uint32_t homset_ct;
   uint32_t uii;
-  if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf_collapsed, sample_valid_ct, pheno_nm2, final_mask, do_reverse)) {
+  if (load_and_collapse_incl(unfiltered_sample_ct, sample_valid_ct, pheno_nm2, final_mask, do_reverse, bedfile, loadbuf_raw, loadbuf_collapsed)) {
     return 2; // read failure
   }
   if (min_ploidy_1) {

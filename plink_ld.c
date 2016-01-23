@@ -956,7 +956,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	if (fseeko(bedfile, bed_offset + (uii * ((uint64_t)unfiltered_sample_ct4)), SEEK_SET)) {
 	  goto ld_prune_ret_READ_FAIL;
 	}
-	if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_sample_ct, &(geno[ulii * founder_ct_192_long]), founder_ct, founder_info, final_mask, IS_SET(marker_reverse, uii))) {
+	if (load_and_collapse_incl(unfiltered_sample_ct, founder_ct, founder_info, final_mask, IS_SET(marker_reverse, uii), bedfile, loadbuf, &(geno[ulii * founder_ct_192_long]))) {
 	  goto ld_prune_ret_READ_FAIL;
 	}
 	if (is_haploid && hh_exists) {
@@ -1260,7 +1260,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	if (fseeko(bedfile, bed_offset + (window_unfiltered_end * ((uint64_t)unfiltered_sample_ct4)), SEEK_SET)) {
 	  goto ld_prune_ret_READ_FAIL;
 	}
-	if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_sample_ct, &(geno[cur_window_size * founder_ct_192_long]), founder_ct, founder_info, final_mask, IS_SET(marker_reverse, window_unfiltered_end))) {
+	if (load_and_collapse_incl(unfiltered_sample_ct, founder_ct, founder_info, final_mask, IS_SET(marker_reverse, window_unfiltered_end), bedfile, loadbuf, &(geno[cur_window_size * founder_ct_192_long]))) {
 	  goto ld_prune_ret_READ_FAIL;
 	}
 	if (is_haploid && hh_exists) {
@@ -1650,11 +1650,11 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 
       // circular index of beginning of window starting at current marker
       window_cidx_starts[window_cidx] = window_cidx2;
-      if (load_raw(bedfile, loadbuf_raw, unfiltered_sample_ct4)) {
+      if (load_raw(unfiltered_sample_ct4, bedfile, loadbuf_raw)) {
 	goto flipscan_ret_READ_FAIL;
       }
       if (IS_SET(marker_reverse, marker_uidx)) {
-	reverse_loadbuf((unsigned char*)loadbuf_raw, unfiltered_sample_ct);
+	reverse_loadbuf(unfiltered_sample_ct, (unsigned char*)loadbuf_raw);
       }
       if (is_haploid && hh_exists) {
         haploid_fix(hh_exists, sample_include2, sample_male_include2, unfiltered_sample_ct, is_x, is_y, (unsigned char*)loadbuf_raw);
@@ -2357,7 +2357,7 @@ int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
 	is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code);
 	is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code);
       }
-      if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_sample_ct, &(g_ld_geno1[block_idx1 * founder_ct_192_long]), founder_ct, founder_info, final_mask, IS_SET(marker_reverse, marker_uidx1))) {
+      if (load_and_collapse_incl(unfiltered_sample_ct, founder_ct, founder_info, final_mask, IS_SET(marker_reverse, marker_uidx1), bedfile, loadbuf, &(g_ld_geno1[block_idx1 * founder_ct_192_long]))) {
 	goto ld_report_matrix_ret_READ_FAIL;
       }
       if (is_haploid && hh_exists) {
@@ -2404,7 +2404,7 @@ int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
 	  is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code);
 	  is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code);
 	}
-	if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_sample_ct, &(g_ld_geno2[block_idx2 * founder_ct_192_long]), founder_ct, founder_info, final_mask, IS_SET(marker_reverse, marker_uidx2))) {
+	if (load_and_collapse_incl(unfiltered_sample_ct, founder_ct, founder_info, final_mask, IS_SET(marker_reverse, marker_uidx2), bedfile, loadbuf, &(g_ld_geno2[block_idx2 * founder_ct_192_long]))) {
 	  goto ld_report_matrix_ret_READ_FAIL;
 	}
 	if (is_haploid && hh_exists) {
@@ -2756,7 +2756,7 @@ uint32_t load_and_split3(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_s
   uintptr_t ulii;
   if (bedfile) {
     // ld_report_dprime() preloads this and does het. haploid handling, etc.
-    if (load_raw(bedfile, rawbuf, unfiltered_sample_ct4)) {
+    if (load_raw(unfiltered_sample_ct4, bedfile, rawbuf)) {
       return RET_READ_FAIL;
     }
   }
@@ -5435,7 +5435,7 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
 	g_ld_interval1[block_idx1 * 2 + 1] = marker_ct - marker_idx2_base;
       }
 
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, founder_ct, founder_info, final_mask, IS_SET(marker_reverse, marker_uidx1_tmp))) {
+      if (load_and_collapse_incl(unfiltered_sample_ct, founder_ct, founder_info, final_mask, IS_SET(marker_reverse, marker_uidx1_tmp), bedfile, loadbuf_raw, loadbuf)) {
 	goto ld_report_dprime_ret_READ_FAIL;
       }
       if (is_haploid && hh_exists) {
@@ -5484,7 +5484,7 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
 	  is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code);
 	  is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code);
 	}
-	if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, founder_ct, founder_info, final_mask, IS_SET(marker_reverse, marker_uidx2))) {
+	if (load_and_collapse_incl(unfiltered_sample_ct, founder_ct, founder_info, final_mask, IS_SET(marker_reverse, marker_uidx2), bedfile, loadbuf_raw, loadbuf)) {
 	  goto ld_report_dprime_ret_READ_FAIL;
 	}
 	if (is_haploid && hh_exists) {
@@ -5944,7 +5944,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
 	g_ld_interval1[block_idx1 * 2 + 1] = marker_ct - marker_idx2_base;
       }
 
-      if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_sample_ct, &(g_ld_geno1[block_idx1 * founder_ct_192_long]), founder_ct, founder_info, final_mask, IS_SET(marker_reverse, marker_uidx1_tmp))) {
+      if (load_and_collapse_incl(unfiltered_sample_ct, founder_ct, founder_info, final_mask, IS_SET(marker_reverse, marker_uidx1_tmp), bedfile, loadbuf, &(g_ld_geno1[block_idx1 * founder_ct_192_long]))) {
 	goto ld_report_regular_ret_READ_FAIL;
       }
       if (is_haploid && hh_exists) {
@@ -5988,7 +5988,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
 	  is_x = (((int32_t)chrom_idx2) == chrom_info_ptr->x_code);
 	  is_y = (((int32_t)chrom_idx2) == chrom_info_ptr->y_code);
 	}
-	if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_sample_ct, &(g_ld_geno2[block_idx2 * founder_ct_192_long]), founder_ct, founder_info, final_mask, IS_SET(marker_reverse, marker_uidx2))) {
+	if (load_and_collapse_incl(unfiltered_sample_ct, founder_ct, founder_info, final_mask, IS_SET(marker_reverse, marker_uidx2), bedfile, loadbuf, &(g_ld_geno2[block_idx2 * founder_ct_192_long]))) {
 	  goto ld_report_regular_ret_READ_FAIL;
 	}
 	if (is_haploid && hh_exists) {
@@ -6414,7 +6414,7 @@ int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t 
       geno_fixed_vec_ptr = &(geno[window_cidx * founder_ct_192_long]);
       mask_fixed_vec_ptr = &(geno_masks[window_cidx * founder_ct_192_long]);
       fill_ulong_zero(&(tag_matrix[window_cidx * max_window_ctl]), max_window_ctl);
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, geno_fixed_vec_ptr, founder_ct, founder_info, final_mask, IS_SET(marker_reverse, marker_uidx))) {
+      if (load_and_collapse_incl(unfiltered_sample_ct, founder_ct, founder_info, final_mask, IS_SET(marker_reverse, marker_uidx), bedfile, loadbuf_raw, geno_fixed_vec_ptr)) {
         goto show_tags_ret_READ_FAIL;
       }
       if (is_haploid && hh_exists) {
@@ -7218,7 +7218,7 @@ int32_t haploview_blocks(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uin
 	}
       }
       block_uidxs[block_cidx] = marker_uidx;
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, window_data_ptr, founder_ct, founder_pnm, final_mask, 0)) {
+      if (load_and_collapse_incl(unfiltered_sample_ct, founder_ct, founder_pnm, final_mask, 0, bedfile, loadbuf_raw, window_data_ptr)) {
 	goto haploview_blocks_ret_READ_FAIL;
       }
       if (is_haploid) {
@@ -7854,7 +7854,7 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
     if (fseeko(bedfile, bed_offset + (marker_uidx * ((uint64_t)unfiltered_sample_ct4)), SEEK_SET)) {
       goto twolocus_ret_READ_FAIL;
     }
-    if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbufs[marker_idx], sample_ct, sample_exclude, final_mask, IS_SET(marker_reverse, marker_uidx))) {
+    if (load_and_collapse(unfiltered_sample_ct, sample_ct, sample_exclude, final_mask, IS_SET(marker_reverse, marker_uidx), bedfile, loadbuf_raw, loadbufs[marker_idx])) {
       goto twolocus_ret_READ_FAIL;
     }
     chrom_fo_idx = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx);
@@ -8469,7 +8469,7 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
           goto epistasis_linear_regression_ret_READ_FAIL;
 	}
       }
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, pheno_nm_ct, pheno_nm, final_mask, IS_SET(marker_reverse, marker_uidx_tmp))) {
+      if (load_and_collapse_incl(unfiltered_sample_ct, pheno_nm_ct, pheno_nm, final_mask, IS_SET(marker_reverse, marker_uidx_tmp), bedfile, loadbuf_raw, loadbuf)) {
         goto epistasis_linear_regression_ret_READ_FAIL;
       }
       rotate_loadbuf_and_compute_phenogeno(loadbuf, pheno_d2, pheno_nm_ct, &(g_epi_geno1[block_idx1 * pheno_nm_ctl2]), &(g_epi_phenogeno1[block_idx1]), &(g_epi_genosums1[block_idx1 * 2]));
@@ -8506,7 +8506,7 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
             goto epistasis_linear_regression_ret_READ_FAIL;
 	  }
 	}
-	if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, pheno_nm_ct, pheno_nm, final_mask, IS_SET(marker_reverse, marker_uidx2))) {
+	if (load_and_collapse_incl(unfiltered_sample_ct, pheno_nm_ct, pheno_nm, final_mask, IS_SET(marker_reverse, marker_uidx2), bedfile, loadbuf_raw, loadbuf)) {
 	  goto epistasis_linear_regression_ret_READ_FAIL;
 	}
         rotate_loadbuf_and_compute_phenogeno(loadbuf, pheno_d2, pheno_nm_ct, &(g_epi_geno2[block_idx2 * pheno_nm_ctl2]), &(g_epi_phenogeno2[block_idx2]), &(g_epi_genosums2[block_idx2 * 2]));
@@ -8940,7 +8940,7 @@ int32_t epistasis_logistic_regression(pthread_t* threads, Epi_info* epi_ip, FILE
 	}
       }
       // marker_reverse deliberately flipped
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, pheno_nm_ct, pheno_nm, final_mask, !IS_SET(marker_reverse, marker_uidx_tmp))) {
+      if (load_and_collapse_incl(unfiltered_sample_ct, pheno_nm_ct, pheno_nm, final_mask, !IS_SET(marker_reverse, marker_uidx_tmp), bedfile, loadbuf_raw, loadbuf)) {
         goto epistasis_logistic_regression_ret_READ_FAIL;
       }
       // rotate to hom A1 = 10, het = 01, hom A2 = 00, missing = 11, to allow
@@ -8983,7 +8983,7 @@ int32_t epistasis_logistic_regression(pthread_t* threads, Epi_info* epi_ip, FILE
 	}
         ulptr = &(g_epi_geno2[block_idx2 * pheno_nm_ctl2]);
 	// marker_reverse deliberately flipped
-	if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, pheno_nm_ct, pheno_nm, final_mask, !IS_SET(marker_reverse, marker_uidx2))) {
+	if (load_and_collapse_incl(unfiltered_sample_ct, pheno_nm_ct, pheno_nm, final_mask, !IS_SET(marker_reverse, marker_uidx2), bedfile, loadbuf_raw, loadbuf)) {
 	  goto epistasis_logistic_regression_ret_READ_FAIL;
 	}
 	rotate_plink1_to_a2ct_and_copy(loadbuf, ulptr, pheno_nm_ctl2);
@@ -9387,7 +9387,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	}
       }
       if ((!no_ueki) && (!cellminx3)) {
-	if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_sample_ct, casebuf, pheno_nm_ct, pheno_nm, final_mask, 0)) {
+	if (load_and_collapse_incl(unfiltered_sample_ct, pheno_nm_ct, pheno_nm, final_mask, 0, bedfile, loadbuf, casebuf)) {
 	  goto epistasis_report_ret_READ_FAIL;
 	}
 	if (is_boost) {
@@ -9400,7 +9400,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	  }
 	}
       } else {
-        if (load_and_split(bedfile, loadbuf, unfiltered_sample_ct, casebuf, ctrlbuf, pheno_nm, pheno_c)) {
+        if (load_and_split(unfiltered_sample_ct, pheno_nm, pheno_c, bedfile, loadbuf, casebuf, ctrlbuf)) {
           goto epistasis_report_ret_READ_FAIL;
 	}
 	if (no_ueki) {
@@ -10400,7 +10400,7 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
 	if (fseeko(bedfile, bed_offset + (uljj * ((uint64_t)unfiltered_sample_ct4)), SEEK_SET)) {
 	  goto indep_pairphase_ret_READ_FAIL;
 	}
-	if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, founder_ct, founder_info, final_mask, IS_SET(marker_reverse, uljj))) {
+	if (load_and_collapse_incl(unfiltered_sample_ct, founder_ct, founder_info, final_mask, IS_SET(marker_reverse, uljj), bedfile, loadbuf_raw, loadbuf)) {
 	  goto indep_pairphase_ret_READ_FAIL;
 	}
 	if (is_haploid && hh_exists) {
@@ -10583,7 +10583,7 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
 	if (fseeko(bedfile, bed_offset + (window_unfiltered_end * ((uint64_t)unfiltered_sample_ct4)), SEEK_SET)) {
 	  goto indep_pairphase_ret_READ_FAIL;
 	}
-	if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, founder_ct, founder_info, final_mask, IS_SET(marker_reverse, window_unfiltered_end))) {
+	if (load_and_collapse_incl(unfiltered_sample_ct, founder_ct, founder_info, final_mask, IS_SET(marker_reverse, window_unfiltered_end), bedfile, loadbuf_raw, loadbuf)) {
 	  goto indep_pairphase_ret_READ_FAIL;
 	}
 	if (is_haploid && hh_exists) {
@@ -11288,7 +11288,7 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
     if (fseeko(bedfile, bed_offset + marker_uidx_cur * ((uint64_t)unfiltered_sample_ct4), SEEK_SET)) {
       goto test_mishap_ret_READ_FAIL;
     }
-    if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_sample_ct, cursnp_ptr, sample_ct, sample_exclude, final_mask, IS_SET(marker_reverse, marker_uidx_cur))) {
+    if (load_and_collapse(unfiltered_sample_ct, sample_ct, sample_exclude, final_mask, IS_SET(marker_reverse, marker_uidx_cur), bedfile, loadbuf_raw, cursnp_ptr)) {
       goto test_mishap_ret_READ_FAIL;
     }
     missing_ct_cur = count_01(cursnp_ptr, sample_ctl2);
@@ -11308,7 +11308,7 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
 	    goto test_mishap_ret_READ_FAIL;
 	  }
 	}
-        if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_sample_ct, nextsnp_ptr, sample_ct, sample_exclude, final_mask, IS_SET(marker_reverse, marker_uidx_next))) {
+        if (load_and_collapse(unfiltered_sample_ct, sample_ct, sample_exclude, final_mask, IS_SET(marker_reverse, marker_uidx_next), bedfile, loadbuf_raw, nextsnp_ptr)) {
           goto test_mishap_ret_READ_FAIL;
 	}
         missing_ct_next = count_01(nextsnp_ptr, sample_ctl2);
@@ -11319,11 +11319,11 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
       if (missing_ct_cur < 5) {
 	continue;
       }
-      vec_init_01(unfiltered_sample_ct, cursnp_ptr, maskbuf_mid);
+      quatervec_copy_only_01(cursnp_ptr, unfiltered_sample_ct, maskbuf_mid);
       uiptr = counts;
       for (uii = 0; uii < 2; uii++) {
 	if (uii) {
-	  vec_invert(unfiltered_sample_ct, maskbuf_mid);
+	  quatervec_01_invert(unfiltered_sample_ct, maskbuf_mid);
 	}
         for (ujj = 0; ujj < 3; ujj++) {
           vec_datamask(unfiltered_sample_ct, ujj + (ujj + 1) / 2, prevsnp_ptr, maskbuf_mid, maskbuf);
@@ -11902,7 +11902,7 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       }
       ulii = block_idx1 * founder_ct_192_long;
       loadbuf_ptr = &(geno1[ulii]);
-      if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_sample_ct, loadbuf_ptr, founder_ct, founder_pnm, final_mask, IS_SET(marker_reverse, marker_uidx))) {
+      if (load_and_collapse_incl(unfiltered_sample_ct, founder_ct, founder_pnm, final_mask, IS_SET(marker_reverse, marker_uidx), bedfile, loadbuf, loadbuf_ptr)) {
 	goto construct_ld_map_ret_READ_FAIL;
       }
       if (is_haploid && hh_exists) {
@@ -11935,7 +11935,7 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	}
 	ulii = block_idx2 * founder_ct_192_long;
 	loadbuf_ptr = &(geno2[ulii]);
-	if (load_and_collapse_incl(bedfile, loadbuf, unfiltered_sample_ct, loadbuf_ptr, founder_ct, founder_pnm, final_mask, IS_SET(marker_reverse, marker_uidx2))) {
+	if (load_and_collapse_incl(unfiltered_sample_ct, founder_ct, founder_pnm, final_mask, IS_SET(marker_reverse, marker_uidx2), bedfile, loadbuf, loadbuf_ptr)) {
 	  goto construct_ld_map_ret_READ_FAIL;
 	}
 	if (is_haploid && hh_exists) {
@@ -13187,7 +13187,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       }
       window_data_ptr[founder_ctv2 - 2] = 0;
       window_data_ptr[founder_ctv2 - 1] = 0;
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, window_data_ptr, founder_ct, founder_info, final_mask, is_set(marker_reverse, marker_uidx))) {
+      if (load_and_collapse_incl(unfiltered_sample_ct, founder_ct, founder_info, final_mask, is_set(marker_reverse, marker_uidx), bedfile, loadbuf_raw, window_data_ptr)) {
 	goto clump_reports_ret_READ_FAIL;
       }
       if (is_haploid) {
@@ -13201,7 +13201,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     }
     window_data_ptr[founder_ctv2 - 2] = 0;
     window_data_ptr[founder_ctv2 - 1] = 0;
-    if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, window_data_ptr, founder_ct, founder_info, final_mask, is_set(marker_reverse, marker_uidx))) {
+    if (load_and_collapse_incl(unfiltered_sample_ct, founder_ct, founder_info, final_mask, is_set(marker_reverse, marker_uidx), bedfile, loadbuf_raw, window_data_ptr)) {
       goto clump_reports_ret_READ_FAIL;
     }
     if (is_haploid) {
@@ -13362,7 +13362,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
       }
       window_data[founder_ctv2 - 2] = 0;
       window_data[founder_ctv2 - 1] = 0;
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, window_data, founder_ct, founder_info, final_mask, is_set(marker_reverse, marker_uidx))) {
+      if (load_and_collapse_incl(unfiltered_sample_ct, founder_ct, founder_info, final_mask, is_set(marker_reverse, marker_uidx), bedfile, loadbuf_raw, window_data)) {
 	goto clump_reports_ret_READ_FAIL;
       }
       if (is_haploid) {

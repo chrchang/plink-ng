@@ -65,8 +65,12 @@
   typedef unsigned long long uint64_t;
   typedef long long int64_t;
 #else
-  #define uint64_t unsigned long long
-  #define int64_t long long
+  #ifndef uint64_t
+    #define uint64_t unsigned long long
+  #endif
+  #ifndef int64_t
+    #define int64_t long long
+  #endif
 #endif
 
 #ifdef _WIN64
@@ -88,6 +92,9 @@
 
 #ifdef __cplusplus
   #include <algorithm>
+  #define HEADER_INLINE inline
+#else
+  #define HEADER_INLINE static inline
 #endif
 
 // It would be useful to disable compilation on big-endian platforms, but I
@@ -645,7 +652,7 @@
 #define CACHELINE_DBL (CACHELINE / 8)
 
 // alignment must be a power of 2
-static inline uintptr_t round_up_pow2(uintptr_t val, uintptr_t alignment) {
+HEADER_INLINE uintptr_t round_up_pow2(uintptr_t val, uintptr_t alignment) {
   uintptr_t alignment_m1 = alignment - 1;
   assert(!(alignment & alignment_m1));
   return (val + alignment_m1) & (~alignment_m1);
@@ -665,7 +672,7 @@ static inline uintptr_t round_up_pow2(uintptr_t val, uintptr_t alignment) {
 #ifdef __LP64__
 #define round_up_pow2_ull round_up_pow2
 #else
-static inline uint64_t round_up_pow2_ull(uint64_t val, uint64_t alignment) {
+HEADER_INLINE uint64_t round_up_pow2_ull(uint64_t val, uint64_t alignment) {
   uint64_t alignment_m1 = alignment - 1;
   assert(!(alignment & alignment_m1));
   return (val + alignment_m1) & (~alignment_m1);
@@ -676,7 +683,7 @@ static inline uint64_t round_up_pow2_ull(uint64_t val, uint64_t alignment) {
 // be 32-bit.
 // (note that the sizeof operator "returns" an uintptr_t, not a uint32_t; hence
 // the lack of sizeof in the CACHELINE_INT32, etc. definitions.)
-static inline uint32_t round_up_pow2_ui(uint32_t val, uint32_t alignment) {
+HEADER_INLINE uint32_t round_up_pow2_ui(uint32_t val, uint32_t alignment) {
   uint32_t alignment_m1 = alignment - 1;
   assert(!(alignment & alignment_m1));
   return (val + alignment_m1) & (~alignment_m1);
@@ -793,7 +800,7 @@ extern const char g_one_char_strs[];
 extern const char* g_missing_geno_ptr;
 extern const char* g_output_missing_geno_ptr;
 
-static inline const char* cond_replace(const char* ss, const char* match_str, const char* replace_str) {
+HEADER_INLINE const char* cond_replace(const char* ss, const char* match_str, const char* replace_str) {
   return (ss != match_str)? ss : replace_str;
 }
 
@@ -801,18 +808,18 @@ uint32_t aligned_malloc(uintptr_t size, uintptr_t** aligned_pp);
 
 void aligned_free(uintptr_t* aligned_pp);
 
-static inline void aligned_free_cond(uintptr_t* aligned_ptr) {
+HEADER_INLINE void aligned_free_cond(uintptr_t* aligned_ptr) {
   if (aligned_ptr) {
     aligned_free(aligned_ptr);
   }
 }
 
-static inline void aligned_free_null(uintptr_t** aligned_pp) {
+HEADER_INLINE void aligned_free_null(uintptr_t** aligned_pp) {
   aligned_free(*aligned_pp);
   *aligned_pp = NULL;
 }
 
-static inline void aligned_free_cond_null(uintptr_t** aligned_pp) {
+HEADER_INLINE void aligned_free_cond_null(uintptr_t** aligned_pp) {
   if (*aligned_pp) {
     aligned_free(*aligned_pp);
     *aligned_pp = NULL;
@@ -907,12 +914,12 @@ void wordwrapb(uint32_t suffix_len);
 
 int32_t fopen_checked(const char* fname, const char* mode, FILE** target_ptr);
 
-static inline int32_t putc_checked(int32_t ii, FILE* outfile) {
+HEADER_INLINE int32_t putc_checked(int32_t ii, FILE* outfile) {
   putc(ii, outfile);
   return ferror(outfile);
 }
 
-static inline int32_t fputs_checked(const char* ss, FILE* outfile) {
+HEADER_INLINE int32_t fputs_checked(const char* ss, FILE* outfile) {
   fputs(ss, outfile);
   return ferror(outfile);
 }
@@ -921,18 +928,18 @@ static inline int32_t fputs_checked(const char* ss, FILE* outfile) {
 // OS X raw fwrite() doesn't work in that case.
 int32_t fwrite_checked(const void* buf, size_t len, FILE* outfile);
 
-static inline int32_t fread_checked(char* buf, uintptr_t len, FILE* infile, uintptr_t* bytes_read_ptr) {
+HEADER_INLINE int32_t fread_checked(char* buf, uintptr_t len, FILE* infile, uintptr_t* bytes_read_ptr) {
   *bytes_read_ptr = fread(buf, 1, len, infile);
   return ferror(infile);
 }
 
-static inline void fclose_cond(FILE* fptr) {
+HEADER_INLINE void fclose_cond(FILE* fptr) {
   if (fptr) {
     fclose(fptr);
   }
 }
 
-static inline int32_t fclose_null(FILE** fptr_ptr) {
+HEADER_INLINE int32_t fclose_null(FILE** fptr_ptr) {
   int32_t ii = ferror(*fptr_ptr);
   int32_t jj = fclose(*fptr_ptr);
   *fptr_ptr = NULL;
@@ -944,19 +951,19 @@ int32_t gzopen_read_checked(const char* fname, gzFile* gzf_ptr);
 
 // pigz interface should be used for writing .gz files.
 
-static inline int32_t gzclose_null(gzFile* gzf_ptr) {
+HEADER_INLINE int32_t gzclose_null(gzFile* gzf_ptr) {
   int32_t ii = gzclose(*gzf_ptr);
   *gzf_ptr = NULL;
   return (ii != Z_OK);
 }
 
-static inline void gzclose_cond(gzFile gz_infile) {
+HEADER_INLINE void gzclose_cond(gzFile gz_infile) {
   if (gz_infile) {
     gzclose(gz_infile);
   }
 }
 
-static inline int32_t flexwrite_checked(const void* buf, size_t len, uint32_t output_gz, FILE* outfile, gzFile gz_outfile) {
+HEADER_INLINE int32_t flexwrite_checked(const void* buf, size_t len, uint32_t output_gz, FILE* outfile, gzFile gz_outfile) {
   if (!output_gz) {
     return fwrite_checked(buf, len, outfile);
   } else {
@@ -964,7 +971,7 @@ static inline int32_t flexwrite_checked(const void* buf, size_t len, uint32_t ou
   }
 }
 
-static inline int32_t flexputc_checked(int32_t ii, uint32_t output_gz, FILE* outfile, gzFile gz_outfile) {
+HEADER_INLINE int32_t flexputc_checked(int32_t ii, uint32_t output_gz, FILE* outfile, gzFile gz_outfile) {
   if (!output_gz) {
     putc(ii, outfile);
     return ferror(outfile);
@@ -973,7 +980,7 @@ static inline int32_t flexputc_checked(int32_t ii, uint32_t output_gz, FILE* out
   }
 }
 
-static inline int32_t flexputs_checked(const char* ss, uint32_t output_gz, FILE* outfile, gzFile gz_outfile) {
+HEADER_INLINE int32_t flexputs_checked(const char* ss, uint32_t output_gz, FILE* outfile, gzFile gz_outfile) {
   if (!output_gz) {
     return fputs_checked(ss, outfile);
   } else {
@@ -981,7 +988,7 @@ static inline int32_t flexputs_checked(const char* ss, uint32_t output_gz, FILE*
   }
 }
 
-static inline int32_t flexclose_null(uint32_t output_gz, FILE** fptr_ptr, gzFile* gzf_ptr) {
+HEADER_INLINE int32_t flexclose_null(uint32_t output_gz, FILE** fptr_ptr, gzFile* gzf_ptr) {
   if (!output_gz) {
     return fclose_null(fptr_ptr);
   } else {
@@ -993,7 +1000,7 @@ static inline int32_t flexclose_null(uint32_t output_gz, FILE** fptr_ptr, gzFile
 extern unsigned char* g_bigstack_base;
 extern unsigned char* g_bigstack_end;
 
-static inline uintptr_t bigstack_left() {
+HEADER_INLINE uintptr_t bigstack_left() {
   return (((uintptr_t)g_bigstack_end) - ((uintptr_t)g_bigstack_base));
 }
 
@@ -1003,60 +1010,60 @@ unsigned char* bigstack_alloc(uintptr_t size);
 
 // Typesafe, return-0-iff-success interfaces.  (See also bigstack_calloc_...
 // further below.)
-static inline int32_t bigstack_alloc_c(uintptr_t ct, char** cp_ptr) {
+HEADER_INLINE int32_t bigstack_alloc_c(uintptr_t ct, char** cp_ptr) {
   *cp_ptr = (char*)bigstack_alloc(ct);
   return !(*cp_ptr);
 }
 
-static inline int32_t bigstack_alloc_d(uintptr_t ct, double** dp_ptr) {
+HEADER_INLINE int32_t bigstack_alloc_d(uintptr_t ct, double** dp_ptr) {
   *dp_ptr = (double*)bigstack_alloc(ct * sizeof(double));
   return !(*dp_ptr);
 }
 
-static inline int32_t bigstack_alloc_f(uintptr_t ct, float** fp_ptr) {
+HEADER_INLINE int32_t bigstack_alloc_f(uintptr_t ct, float** fp_ptr) {
   *fp_ptr = (float*)bigstack_alloc(ct * sizeof(float));
   return !(*fp_ptr);
 }
 
-static inline int32_t bigstack_alloc_i(uintptr_t ct, int32_t** ip_ptr) {
+HEADER_INLINE int32_t bigstack_alloc_i(uintptr_t ct, int32_t** ip_ptr) {
   *ip_ptr = (int32_t*)bigstack_alloc(ct * sizeof(int32_t));
   return !(*ip_ptr);
 }
 
-static inline int32_t bigstack_alloc_uc(uintptr_t ct, unsigned char** ucp_ptr) {
+HEADER_INLINE int32_t bigstack_alloc_uc(uintptr_t ct, unsigned char** ucp_ptr) {
   *ucp_ptr = bigstack_alloc(ct);
   return !(*ucp_ptr);
 }
 
-static inline int32_t bigstack_alloc_ui(uintptr_t ct, uint32_t** uip_ptr) {
+HEADER_INLINE int32_t bigstack_alloc_ui(uintptr_t ct, uint32_t** uip_ptr) {
   *uip_ptr = (uint32_t*)bigstack_alloc(ct * sizeof(int32_t));
   return !(*uip_ptr);
 }
 
-static inline int32_t bigstack_alloc_ul(uintptr_t ct, uintptr_t** ulp_ptr) {
+HEADER_INLINE int32_t bigstack_alloc_ul(uintptr_t ct, uintptr_t** ulp_ptr) {
   *ulp_ptr = (uintptr_t*)bigstack_alloc(ct * sizeof(intptr_t));
   return !(*ulp_ptr);
 }
 
-static inline int32_t bigstack_alloc_ll(uintptr_t ct, int64_t** llp_ptr) {
+HEADER_INLINE int32_t bigstack_alloc_ll(uintptr_t ct, int64_t** llp_ptr) {
   *llp_ptr = (int64_t*)bigstack_alloc(ct * sizeof(int64_t));
   return !(*llp_ptr);
 }
 
-static inline int32_t bigstack_alloc_ull(uintptr_t ct, uint64_t** ullp_ptr) {
+HEADER_INLINE int32_t bigstack_alloc_ull(uintptr_t ct, uint64_t** ullp_ptr) {
   *ullp_ptr = (uint64_t*)bigstack_alloc(ct * sizeof(int64_t));
   return !(*ullp_ptr);
 }
 
-static inline void bigstack_reset(const void* new_base) {
+HEADER_INLINE void bigstack_reset(const void* new_base) {
   g_bigstack_base = (unsigned char*)new_base;
 }
 
-static inline void bigstack_end_reset(const void* new_end) {
+HEADER_INLINE void bigstack_end_reset(const void* new_end) {
   g_bigstack_end = (unsigned char*)new_end;
 }
 
-static inline void bigstack_double_reset(const void* new_base, const void* new_end) {
+HEADER_INLINE void bigstack_double_reset(const void* new_base, const void* new_end) {
   bigstack_reset(new_base);
   bigstack_end_reset(new_end);
 }
@@ -1066,7 +1073,7 @@ void bigstack_shrink_top(const void* rebase, uintptr_t new_size);
 #define END_ALLOC_CHUNK 16
 #define END_ALLOC_CHUNK_M1 (END_ALLOC_CHUNK - 1)
 
-static inline void bigstack_end_set(const void* unaligned_end) {
+HEADER_INLINE void bigstack_end_set(const void* unaligned_end) {
   g_bigstack_end = (unsigned char*)(((uintptr_t)unaligned_end) & (~(END_ALLOC_CHUNK_M1 * ONELU)));
 }
 
@@ -1075,7 +1082,7 @@ static inline void bigstack_end_set(const void* unaligned_end) {
 // compiler will properly optimize a bigstack_end_alloc() call)
 unsigned char* bigstack_end_alloc_presized(uintptr_t size);
 
-static inline unsigned char* bigstack_end_alloc(uintptr_t size) {
+HEADER_INLINE unsigned char* bigstack_end_alloc(uintptr_t size) {
   // multiplication by ONELU is one way to widen an int to word-size.
   size = round_up_pow2(size, END_ALLOC_CHUNK);
   return bigstack_end_alloc_presized(size);
@@ -1083,98 +1090,98 @@ static inline unsigned char* bigstack_end_alloc(uintptr_t size) {
 
 #define bigstack_end_aligned_alloc bigstack_end_alloc
 
-static inline int32_t bigstack_end_alloc_c(uintptr_t ct, char** cp_ptr) {
+HEADER_INLINE int32_t bigstack_end_alloc_c(uintptr_t ct, char** cp_ptr) {
   *cp_ptr = (char*)bigstack_end_alloc(ct);
   return !(*cp_ptr);
 }
 
-static inline int32_t bigstack_end_alloc_d(uintptr_t ct, double** dp_ptr) {
+HEADER_INLINE int32_t bigstack_end_alloc_d(uintptr_t ct, double** dp_ptr) {
   *dp_ptr = (double*)bigstack_end_alloc(ct * sizeof(double));
   return !(*dp_ptr);
 }
 
-static inline int32_t bigstack_end_alloc_f(uintptr_t ct, float** fp_ptr) {
+HEADER_INLINE int32_t bigstack_end_alloc_f(uintptr_t ct, float** fp_ptr) {
   *fp_ptr = (float*)bigstack_end_alloc(ct * sizeof(float));
   return !(*fp_ptr);
 }
 
-static inline int32_t bigstack_end_alloc_i(uintptr_t ct, int32_t** ip_ptr) {
+HEADER_INLINE int32_t bigstack_end_alloc_i(uintptr_t ct, int32_t** ip_ptr) {
   *ip_ptr = (int32_t*)bigstack_end_alloc(ct * sizeof(int32_t));
   return !(*ip_ptr);
 }
 
-static inline int32_t bigstack_end_alloc_uc(uintptr_t ct, unsigned char** ucp_ptr) {
+HEADER_INLINE int32_t bigstack_end_alloc_uc(uintptr_t ct, unsigned char** ucp_ptr) {
   *ucp_ptr = bigstack_end_alloc(ct);
   return !(*ucp_ptr);
 }
 
-static inline int32_t bigstack_end_alloc_ui(uintptr_t ct, uint32_t** uip_ptr) {
+HEADER_INLINE int32_t bigstack_end_alloc_ui(uintptr_t ct, uint32_t** uip_ptr) {
   *uip_ptr = (uint32_t*)bigstack_end_alloc(ct * sizeof(int32_t));
   return !(*uip_ptr);
 }
 
-static inline int32_t bigstack_end_alloc_ul(uintptr_t ct, uintptr_t** ulp_ptr) {
+HEADER_INLINE int32_t bigstack_end_alloc_ul(uintptr_t ct, uintptr_t** ulp_ptr) {
   *ulp_ptr = (uintptr_t*)bigstack_end_alloc(ct * sizeof(intptr_t));
   return !(*ulp_ptr);
 }
 
-static inline int32_t bigstack_end_alloc_ll(uintptr_t ct, int64_t** llp_ptr) {
+HEADER_INLINE int32_t bigstack_end_alloc_ll(uintptr_t ct, int64_t** llp_ptr) {
   *llp_ptr = (int64_t*)bigstack_end_alloc(ct * sizeof(int64_t));
   return !(*llp_ptr);
 }
 
-static inline int32_t bigstack_end_alloc_ull(uintptr_t ct, uint64_t** ullp_ptr) {
+HEADER_INLINE int32_t bigstack_end_alloc_ull(uintptr_t ct, uint64_t** ullp_ptr) {
   *ullp_ptr = (uint64_t*)bigstack_end_alloc(ct * sizeof(int64_t));
   return !(*ullp_ptr);
 }
 
-static inline int32_t bigstack_end_alloc_llstr(uintptr_t str_bytes, Ll_str** llstrp_ptr) {
+HEADER_INLINE int32_t bigstack_end_alloc_llstr(uintptr_t str_bytes, Ll_str** llstrp_ptr) {
   *llstrp_ptr = (Ll_str*)bigstack_end_alloc(str_bytes + sizeof(Ll_str));
   return !(*llstrp_ptr);
 }
 
 
-static inline int32_t is_letter(unsigned char ucc) {
+HEADER_INLINE int32_t is_letter(unsigned char ucc) {
   return (((ucc & 192) == 64) && (((ucc - 1) & 31) < 26));
 }
 
 // if we need the digit value, better to use (unsigned char)cc - '0'...
-static inline int32_t is_digit(unsigned char ucc) {
+HEADER_INLINE int32_t is_digit(unsigned char ucc) {
   return (ucc <= '9') && (ucc >= '0');
 }
 
-static inline int32_t is_not_digit(unsigned char ucc) {
+HEADER_INLINE int32_t is_not_digit(unsigned char ucc) {
   return (ucc > '9') || (ucc < '0');
 }
 
-static inline int32_t is_not_nzdigit(unsigned char ucc) {
+HEADER_INLINE int32_t is_not_nzdigit(unsigned char ucc) {
   return (ucc > '9') || (ucc <= '0');
 }
 
 // may as well treat all chars < 32, except tab, as eoln...
 // kns = "known non-space" (where tab counts as a space)
 /*
-static inline int32_t is_eoln_kns(unsigned char ucc) {
+HEADER_INLINE int32_t is_eoln_kns(unsigned char ucc) {
   return (ucc < 32);
 }
 */
 
-static inline int32_t is_space_or_eoln(unsigned char ucc) {
+HEADER_INLINE int32_t is_space_or_eoln(unsigned char ucc) {
   return (ucc <= 32);
 }
 
 // could assert ucc is not a space/tab
 #define is_eoln_kns is_space_or_eoln
 
-static inline int32_t is_eoln_or_comment_kns(unsigned char ucc) {
+HEADER_INLINE int32_t is_eoln_or_comment_kns(unsigned char ucc) {
   return (ucc < 32) || (ucc == '#');
 }
 
-static inline int32_t no_more_tokens_kns(const char* sptr) {
+HEADER_INLINE int32_t no_more_tokens_kns(const char* sptr) {
   return ((!sptr) || is_eoln_kns(*sptr));
 }
 
-static inline char* skip_initial_spaces(char* sptr) {
+HEADER_INLINE char* skip_initial_spaces(char* sptr) {
   while ((*sptr == ' ') || (*sptr == '\t')) {
     sptr++;
   }
@@ -1182,7 +1189,7 @@ static inline char* skip_initial_spaces(char* sptr) {
 }
 
 /*
-static inline int32_t is_space_or_eoln(unsigned char cc) {
+HEADER_INLINE int32_t is_space_or_eoln(unsigned char cc) {
   // ' ', \t, \n, \0, \r
 #ifdef __LP64__
   return (ucc <= 32) && (0x100002601LLU & (1LLU << ucc));
@@ -1210,36 +1217,36 @@ uint32_t scan_uint_capped(const char* ss, uint32_t cap_div_10, uint32_t cap_mod_
 uint32_t scan_int_abs_bounded(const char* ss, uint32_t bound_div_10, uint32_t bound_mod_10, int32_t* valp);
 
 // intentionally rejects -2^31 for now
-static inline uint32_t scan_int32(const char* ss, int32_t* valp) {
+HEADER_INLINE uint32_t scan_int32(const char* ss, int32_t* valp) {
   return scan_int_abs_bounded(ss, 0x7fffffff / 10, 0x7fffffff % 10, valp);
 }
 
 // default cap = 0x7ffffffe
-static inline uint32_t scan_posint_defcap(const char* ss, uint32_t* valp) {
+HEADER_INLINE uint32_t scan_posint_defcap(const char* ss, uint32_t* valp) {
   return scan_posint_capped(ss, 0x7ffffffe / 10, 0x7ffffffe % 10, valp);
 }
 
-static inline uint32_t scan_uint_defcap(const char* ss, uint32_t* valp) {
+HEADER_INLINE uint32_t scan_uint_defcap(const char* ss, uint32_t* valp) {
   return scan_uint_capped(ss, 0x7ffffffe / 10, 0x7ffffffe % 10, valp);
 }
 
-static inline uint32_t scan_int_abs_defcap(const char* ss, int32_t* valp) {
+HEADER_INLINE uint32_t scan_int_abs_defcap(const char* ss, int32_t* valp) {
   return scan_int_abs_bounded(ss, 0x7ffffffe / 10, 0x7ffffffe % 10, valp);
 }
 
-static inline uint32_t scan_uint_icap(const char* ss, uint32_t* valp) {
+HEADER_INLINE uint32_t scan_uint_icap(const char* ss, uint32_t* valp) {
   return scan_uint_capped(ss, 0x7fffffff / 10, 0x7fffffff % 10, valp);
 }
 
 uint32_t scan_posintptr(const char* ss, uintptr_t* valp);
 
-static inline uint32_t scan_double(const char* ss, double* valp) {
+HEADER_INLINE uint32_t scan_double(const char* ss, double* valp) {
   char* ss2;
   *valp = strtod(ss, &ss2);
   return (ss == ss2);
 }
 
-static inline uint32_t scan_float(const char* ss, float* valp) {
+HEADER_INLINE uint32_t scan_float(const char* ss, float* valp) {
   char* ss2;
   *valp = strtof(ss, &ss2);
   return (ss == ss2);
@@ -1254,17 +1261,17 @@ int32_t scan_token_ct_len(uintptr_t half_bufsize, FILE* infile, char* buf, uintp
 
 int32_t read_tokens(uintptr_t half_bufsize, uintptr_t token_ct, uintptr_t max_token_len, FILE* infile, char* __restrict buf, char* __restrict token_name_buf);
 
-static inline char* memseta(char* target, unsigned char val, uintptr_t ct) {
+HEADER_INLINE char* memseta(char* target, unsigned char val, uintptr_t ct) {
   memset(target, val, ct);
   return &(target[ct]);
 }
 
-static inline char* memcpya(char* __restrict target, const void* __restrict source, uintptr_t ct) {
+HEADER_INLINE char* memcpya(char* __restrict target, const void* __restrict source, uintptr_t ct) {
   memcpy(target, source, ct);
   return &(target[ct]);
 }
 
-static inline char* memcpyb(char* __restrict target, const void* __restrict source, uint32_t ct) {
+HEADER_INLINE char* memcpyb(char* __restrict target, const void* __restrict source, uint32_t ct) {
   // Same as memcpya, except the return value is one byte earlier.  Generally
   // used when source is a null-terminated string of known length and we want
   // to copy the null, but sometimes we need to append later.
@@ -1272,41 +1279,41 @@ static inline char* memcpyb(char* __restrict target, const void* __restrict sour
   return &(target[ct - 1]);
 }
 
-static inline char* memcpyax(char* __restrict target, const void* __restrict source, uint32_t ct, char extra_char) {
+HEADER_INLINE char* memcpyax(char* __restrict target, const void* __restrict source, uint32_t ct, char extra_char) {
   memcpy(target, source, ct);
   target[ct] = extra_char;
   return &(target[ct + 1]);
 }
 
-static inline void memcpyx(char* __restrict target, const void* __restrict source, uint32_t ct, char extra_char) {
+HEADER_INLINE void memcpyx(char* __restrict target, const void* __restrict source, uint32_t ct, char extra_char) {
   memcpy(target, source, ct);
   target[ct] = extra_char;
 }
 
-static inline void memcpyl3(char* __restrict target, const void* __restrict source) {
+HEADER_INLINE void memcpyl3(char* __restrict target, const void* __restrict source) {
   // when it's safe to clobber the fourth character, this is faster
-  *((uint32_t*)target) = *((uint32_t*)source);
+  *((uint32_t*)target) = *((const uint32_t*)source);
 }
 
-static inline char* memcpyl3a(char* __restrict target, const void* __restrict source) {
+HEADER_INLINE char* memcpyl3a(char* __restrict target, const void* __restrict source) {
   memcpyl3(target, source);
   return &(target[3]);
 }
 
-static inline char* strcpya(char* __restrict target, const void* __restrict source) {
+HEADER_INLINE char* strcpya(char* __restrict target, const void* __restrict source) {
   uintptr_t slen = strlen((char*)source);
   memcpy(target, source, slen);
   return &(target[slen]);
 }
 
-static inline char* strcpyax(char* __restrict target, const void* __restrict source, char extra_char) {
+HEADER_INLINE char* strcpyax(char* __restrict target, const void* __restrict source, char extra_char) {
   uintptr_t slen = strlen((char*)source);
   memcpy(target, source, slen);
   target[slen] = extra_char;
   return &(target[slen + 1]);
 }
 
-static inline void append_binary_eoln(char** target_ptr) {
+HEADER_INLINE void append_binary_eoln(char** target_ptr) {
 #ifdef _WIN32
   (*target_ptr)[0] = '\r';
   (*target_ptr)[1] = '\n';
@@ -1317,7 +1324,7 @@ static inline void append_binary_eoln(char** target_ptr) {
 #endif
 }
 
-static inline void fputs_w4(const char* ss, FILE* outfile) {
+HEADER_INLINE void fputs_w4(const char* ss, FILE* outfile) {
   // for efficient handling of width-4 allele columns; don't want to call
   // strlen() since that's redundant with fputs
   if (!ss[1]) {
@@ -1341,7 +1348,7 @@ int32_t get_next_noncomment(FILE* fptr, char** lptr_ptr, uintptr_t* line_idx_ptr
 int32_t get_next_noncomment_excl(const uintptr_t* __restrict marker_exclude, FILE* fptr, char** lptr_ptr, uintptr_t* __restrict line_idx_ptr, uintptr_t* __restrict marker_uidx_ptr);
 
 // assumes we are currently in a token -- UNSAFE OTHERWISE
-static inline char* token_endnn(char* sptr) {
+HEADER_INLINE char* token_endnn(char* sptr) {
   while (!is_space_or_eoln(*(++sptr)));
   return sptr;
 }
@@ -1351,7 +1358,7 @@ void get_top_two_ui(const uint32_t* __restrict uint_arr, uintptr_t uia_size, uin
 uint32_t intlen(int32_t num);
 
 // safer than token_endnn(), since it handles length zero
-static inline uintptr_t strlen_se(const char* ss) {
+HEADER_INLINE uintptr_t strlen_se(const char* ss) {
   const char* ss2 = ss;
   while (!is_space_or_eoln(*ss2)) {
     ss2++;
@@ -1365,7 +1372,7 @@ char* next_token(char* sptr);
 
 char* next_token_mult(char* sptr, uint32_t ct);
 
-static inline char* next_token_multz(char* sptr, uint32_t ct) {
+HEADER_INLINE char* next_token_multz(char* sptr, uint32_t ct) {
   // tried replacing this with ternary operator, but that actually seemed to
   // slow things down a bit under gcc 4.2.1 (tail call optimization issue?).
   // todo: recheck this under newer gcc/clang.
@@ -1378,7 +1385,7 @@ static inline char* next_token_multz(char* sptr, uint32_t ct) {
 
 uint32_t count_tokens(const char* bufptr);
 
-static inline char* fw_strcpyn(uint32_t min_width, uint32_t source_len, const char* source, char* dest) {
+HEADER_INLINE char* fw_strcpyn(uint32_t min_width, uint32_t source_len, const char* source, char* dest) {
   // right-justified strcpy with known source length
   if (source_len < min_width) {
     memcpy(memseta(dest, 32, min_width - source_len), source, source_len);
@@ -1388,7 +1395,7 @@ static inline char* fw_strcpyn(uint32_t min_width, uint32_t source_len, const ch
   }
 }
 
-static inline char* fw_strcpy(uint32_t min_width, const char* source, char* dest) {
+HEADER_INLINE char* fw_strcpy(uint32_t min_width, const char* source, char* dest) {
   return fw_strcpyn(min_width, strlen(source), source, dest);
 }
 
@@ -1433,7 +1440,7 @@ char* dtoa_f_w9p6(double dxx, char* start);
 
 char* dtoa_f_w7p4(double dxx, char* start);
 
-static inline void trailing_zeroes_to_spaces(char* start) {
+HEADER_INLINE void trailing_zeroes_to_spaces(char* start) {
   // removes trailing zeroes
   start--;
   while (*start == '0') {
@@ -1444,7 +1451,7 @@ static inline void trailing_zeroes_to_spaces(char* start) {
   }
 }
 
-static inline char* clip_trailing_zeroes(char* start) {
+HEADER_INLINE char* clip_trailing_zeroes(char* start) {
   char cc;
   do {
     cc = *(--start);
@@ -1460,7 +1467,7 @@ char* dtoa_g(double dxx, char* start);
 
 char* ftoa_g(float dxx, char* start);
 
-static inline char* width_force(uint32_t min_width, char* startp, char* endp) {
+HEADER_INLINE char* width_force(uint32_t min_width, char* startp, char* endp) {
   uintptr_t diff = (endp - startp);
   if (diff >= min_width) {
     return endp;
@@ -1487,105 +1494,105 @@ char* dtoa_g_wxp4(double dxx, uint32_t min_width, char* start);
 // only requires min_width to be positive; less than 8 is ok
 char* dtoa_g_wxp8(double dxx, uint32_t min_width, char* start);
 
-static inline char* uint32toa_x(uint32_t uii, char extra_char, char* start) {
+HEADER_INLINE char* uint32toa_x(uint32_t uii, char extra_char, char* start) {
   char* penult = uint32toa(uii, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* int32toa_x(int32_t ii, char extra_char, char* start) {
+HEADER_INLINE char* int32toa_x(int32_t ii, char extra_char, char* start) {
   char* penult = int32toa(ii, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* uint32toa_w4x(uint32_t uii, char extra_char, char* start) {
+HEADER_INLINE char* uint32toa_w4x(uint32_t uii, char extra_char, char* start) {
   char* penult = uint32toa_w4(uii, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* uint32toa_w6x(uint32_t uii, char extra_char, char* start) {
+HEADER_INLINE char* uint32toa_w6x(uint32_t uii, char extra_char, char* start) {
   char* penult = uint32toa_w6(uii, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* uint32toa_w7x(uint32_t uii, char extra_char, char* start) {
+HEADER_INLINE char* uint32toa_w7x(uint32_t uii, char extra_char, char* start) {
   char* penult = uint32toa_w7(uii, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* uint32toa_w8x(uint32_t uii, char extra_char, char* start) {
+HEADER_INLINE char* uint32toa_w8x(uint32_t uii, char extra_char, char* start) {
   char* penult = uint32toa_w8(uii, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* uint32toa_w10x(uint32_t uii, char extra_char, char* start) {
+HEADER_INLINE char* uint32toa_w10x(uint32_t uii, char extra_char, char* start) {
   char* penult = uint32toa_w10(uii, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* dtoa_ex(double dxx, char extra_char, char* start) {
+HEADER_INLINE char* dtoa_ex(double dxx, char extra_char, char* start) {
   char* penult = dtoa_e(dxx, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* ftoa_ex(float fxx, char extra_char, char* start) {
+HEADER_INLINE char* ftoa_ex(float fxx, char extra_char, char* start) {
   char* penult = ftoa_e(fxx, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* dtoa_f_w9p6x(double dxx, char extra_char, char* start) {
+HEADER_INLINE char* dtoa_f_w9p6x(double dxx, char extra_char, char* start) {
   char* penult = dtoa_f_w9p6(dxx, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* dtoa_f_w7p4x(double dxx, char extra_char, char* start) {
+HEADER_INLINE char* dtoa_f_w7p4x(double dxx, char extra_char, char* start) {
   char* penult = dtoa_f_w7p4(dxx, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* dtoa_gx(double dxx, char extra_char, char* start) {
+HEADER_INLINE char* dtoa_gx(double dxx, char extra_char, char* start) {
   char* penult = dtoa_g(dxx, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
 /*
-static inline char* ftoa_gx(float dxx, char extra_char, char* start) {
+HEADER_INLINE char* ftoa_gx(float dxx, char extra_char, char* start) {
   char* penult = ftoa_g(dxx, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 */
 
-static inline char* dtoa_g_wxp3x(double dxx, uint32_t min_width, char extra_char, char* start) {
+HEADER_INLINE char* dtoa_g_wxp3x(double dxx, uint32_t min_width, char extra_char, char* start) {
   char* penult = dtoa_g_wxp3(dxx, min_width, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* dtoa_g_wxp4x(double dxx, uint32_t min_width, char extra_char, char* start) {
+HEADER_INLINE char* dtoa_g_wxp4x(double dxx, uint32_t min_width, char extra_char, char* start) {
   char* penult = dtoa_g_wxp4(dxx, min_width, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline char* dtoa_g_wxp8x(double dxx, uint32_t min_width, char extra_char, char* start) {
+HEADER_INLINE char* dtoa_g_wxp8x(double dxx, uint32_t min_width, char extra_char, char* start) {
   char* penult = dtoa_g_wxp8(dxx, min_width, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
-static inline void read_next_terminate(char* __restrict target, const char* __restrict source) {
+HEADER_INLINE void read_next_terminate(char* __restrict target, const char* __restrict source) {
   while (!is_space_or_eoln(*source)) {
     *target++ = *source++;
   }
@@ -1604,12 +1611,12 @@ uint32_t allele_reset(const char* newval, uint32_t slen, char** allele_ptr);
 
 void magic_num(uint32_t divisor, uint64_t* multp, uint32_t* __restrict pre_shiftp, uint32_t* __restrict post_shiftp, uint32_t* __restrict incrp);
 
-static inline uintptr_t tri_coord_no_diag(uintptr_t small_coord, uintptr_t big_coord) {
+HEADER_INLINE uintptr_t tri_coord_no_diag(uintptr_t small_coord, uintptr_t big_coord) {
   // small_coord and big_coord are 0-based indices, small_coord < big_coord
   return ((big_coord * (big_coord - 1)) / 2) + small_coord;
 }
 
-static inline uint32_t tri_coord_no_diag_32(uint32_t small_coord, uint32_t big_coord) {
+HEADER_INLINE uint32_t tri_coord_no_diag_32(uint32_t small_coord, uint32_t big_coord) {
   return ((big_coord * (big_coord - 1)) / 2) + small_coord;
 }
 
@@ -1619,11 +1626,11 @@ static inline uint32_t tri_coord_no_diag_32(uint32_t small_coord, uint32_t big_c
 #define SET_BIT_DBL(idx, arr) ((arr)[(idx) / BITCT2] |= ONELU << (2 * ((idx) % BITCT2)))
 
 // useful for coercing int32_t loc to unsigned
-static inline void set_bit(uint32_t loc, uintptr_t* bitarr) {
+HEADER_INLINE void set_bit(uint32_t loc, uintptr_t* bitarr) {
   bitarr[loc / BITCT] |= (ONELU << (loc % BITCT));
 }
 
-static inline void set_bit_ul(uintptr_t loc, uintptr_t* bitarr) {
+HEADER_INLINE void set_bit_ul(uintptr_t loc, uintptr_t* bitarr) {
   bitarr[loc / BITCT] |= (ONELU << (loc % BITCT));
 }
 
@@ -1637,11 +1644,11 @@ void clear_bits(uintptr_t loc_start, uintptr_t len, uintptr_t* bitarr);
 
 #define CLEAR_BIT_DBL(idx, arr) ((arr)[(idx) / BITCT2] &= ~(ONELU << (2 * ((idx) % BITCT2))))
 
-static inline void clear_bit(uint32_t loc, uintptr_t* bitarr) {
+HEADER_INLINE void clear_bit(uint32_t loc, uintptr_t* bitarr) {
   bitarr[loc / BITCT] &= ~(ONELU << (loc % BITCT));
 }
 
-static inline void clear_bit_ul(uintptr_t loc, uintptr_t* bitarr) {
+HEADER_INLINE void clear_bit_ul(uintptr_t loc, uintptr_t* bitarr) {
   bitarr[loc / BITCT] &= ~(ONELU << (loc % BITCT));
 }
 
@@ -1650,11 +1657,11 @@ static inline void clear_bit_ul(uintptr_t loc, uintptr_t* bitarr) {
 #define IS_SET_DBL(arr, idx) (((arr)[(idx) / BITCT2] >> (2 * ((idx) % BITCT2))) & 1)
 
 // use this instead of IS_SET() for signed 32-bit integers
-static inline uint32_t is_set(const uintptr_t* bitarr, uint32_t loc) {
+HEADER_INLINE uint32_t is_set(const uintptr_t* bitarr, uint32_t loc) {
   return (bitarr[loc / BITCT] >> (loc % BITCT)) & 1;
 }
 
-static inline uint32_t is_set_ul(const uintptr_t* bitarr, uintptr_t loc) {
+HEADER_INLINE uint32_t is_set_ul(const uintptr_t* bitarr, uintptr_t loc) {
   return (bitarr[loc / BITCT] >> (loc % BITCT)) & 1;
 }
 
@@ -1662,7 +1669,7 @@ static inline uint32_t is_set_ul(const uintptr_t* bitarr, uintptr_t loc) {
 
 uint32_t next_unset_unsafe(const uintptr_t* bitarr, uint32_t loc);
 
-static inline void next_unset_unsafe_ck(const uintptr_t* __restrict bitarr, uint32_t* __restrict loc_ptr) {
+HEADER_INLINE void next_unset_unsafe_ck(const uintptr_t* __restrict bitarr, uint32_t* __restrict loc_ptr) {
   if (IS_SET(bitarr, *loc_ptr)) {
     *loc_ptr = next_unset_unsafe(bitarr, *loc_ptr);
   }
@@ -1671,12 +1678,12 @@ static inline void next_unset_unsafe_ck(const uintptr_t* __restrict bitarr, uint
 #ifdef __LP64__
 uintptr_t next_unset_ul_unsafe(const uintptr_t* bitarr, uintptr_t loc);
 #else
-static inline uintptr_t next_unset_ul_unsafe(const uintptr_t* bitarr, uintptr_t loc) {
+HEADER_INLINE uintptr_t next_unset_ul_unsafe(const uintptr_t* bitarr, uintptr_t loc) {
   return (uintptr_t)next_unset_unsafe(bitarr, loc);
 }
 #endif
 
-static inline void next_unset_ul_unsafe_ck(const uintptr_t* __restrict bitarr, uintptr_t* __restrict loc_ptr) {
+HEADER_INLINE void next_unset_ul_unsafe_ck(const uintptr_t* __restrict bitarr, uintptr_t* __restrict loc_ptr) {
   if (IS_SET(bitarr, *loc_ptr)) {
     *loc_ptr = next_unset_ul_unsafe(bitarr, *loc_ptr);
   }
@@ -1684,7 +1691,7 @@ static inline void next_unset_ul_unsafe_ck(const uintptr_t* __restrict bitarr, u
 
 uint32_t next_unset(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil);
 
-static inline void next_unset_ck(const uintptr_t* __restrict bitarr, uint32_t ceil, uint32_t* __restrict loc_ptr) {
+HEADER_INLINE void next_unset_ck(const uintptr_t* __restrict bitarr, uint32_t ceil, uint32_t* __restrict loc_ptr) {
   if (IS_SET(bitarr, *loc_ptr)) {
     *loc_ptr = next_unset(bitarr, *loc_ptr, ceil);
   }
@@ -1693,12 +1700,12 @@ static inline void next_unset_ck(const uintptr_t* __restrict bitarr, uint32_t ce
 #ifdef __LP64__
 uintptr_t next_unset_ul(const uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil);
 #else
-static inline uintptr_t next_unset_ul(const uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil) {
+HEADER_INLINE uintptr_t next_unset_ul(const uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil) {
   return (uintptr_t)next_unset(bitarr, loc, ceil);
 }
 #endif
 
-static inline void next_unset_ul_ck(const uintptr_t* __restrict bitarr, uintptr_t ceil, uintptr_t* __restrict loc_ptr) {
+HEADER_INLINE void next_unset_ul_ck(const uintptr_t* __restrict bitarr, uintptr_t ceil, uintptr_t* __restrict loc_ptr) {
   if (IS_SET(bitarr, *loc_ptr)) {
     *loc_ptr = next_unset_ul(bitarr, *loc_ptr, ceil);
   }
@@ -1706,7 +1713,7 @@ static inline void next_unset_ul_ck(const uintptr_t* __restrict bitarr, uintptr_
 
 uint32_t next_set_unsafe(const uintptr_t* bitarr, uint32_t loc);
 
-static inline void next_set_unsafe_ck(const uintptr_t* __restrict bitarr, uint32_t* __restrict loc_ptr) {
+HEADER_INLINE void next_set_unsafe_ck(const uintptr_t* __restrict bitarr, uint32_t* __restrict loc_ptr) {
   if (!IS_SET(bitarr, *loc_ptr)) {
     *loc_ptr = next_set_unsafe(bitarr, *loc_ptr);
   }
@@ -1715,12 +1722,12 @@ static inline void next_set_unsafe_ck(const uintptr_t* __restrict bitarr, uint32
 #ifdef __LP64__
 uintptr_t next_set_ul_unsafe(const uintptr_t* bitarr, uintptr_t loc);
 #else
-static inline uintptr_t next_set_ul_unsafe(const uintptr_t* bitarr, uintptr_t loc) {
+HEADER_INLINE uintptr_t next_set_ul_unsafe(const uintptr_t* bitarr, uintptr_t loc) {
   return (uintptr_t)next_set_unsafe(bitarr, loc);
 }
 #endif
 
-static inline void next_set_ul_unsafe_ck(const uintptr_t* __restrict bitarr, uintptr_t* __restrict loc_ptr) {
+HEADER_INLINE void next_set_ul_unsafe_ck(const uintptr_t* __restrict bitarr, uintptr_t* __restrict loc_ptr) {
   if (!IS_SET(bitarr, *loc_ptr)) {
     *loc_ptr = next_set_ul_unsafe(bitarr, *loc_ptr);
   }
@@ -1728,7 +1735,7 @@ static inline void next_set_ul_unsafe_ck(const uintptr_t* __restrict bitarr, uin
 
 uint32_t next_set(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil);
 
-static inline void next_set_ck(const uintptr_t* __restrict bitarr, uint32_t ceil, uint32_t* __restrict loc_ptr) {
+HEADER_INLINE void next_set_ck(const uintptr_t* __restrict bitarr, uint32_t ceil, uint32_t* __restrict loc_ptr) {
   if (!IS_SET(bitarr, *loc_ptr)) {
     *loc_ptr = next_set(bitarr, *loc_ptr, ceil);
   }
@@ -1737,12 +1744,12 @@ static inline void next_set_ck(const uintptr_t* __restrict bitarr, uint32_t ceil
 #ifdef __LP64__
 uintptr_t next_set_ul(const uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil);
 #else
-static inline uintptr_t next_set_ul(const uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil) {
+HEADER_INLINE uintptr_t next_set_ul(const uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil) {
   return (uintptr_t)next_set(bitarr, loc, ceil);
 }
 #endif
 
-static inline void next_set_ul_ck(const uintptr_t* __restrict bitarr, uintptr_t ceil, uintptr_t* loc_ptr) {
+HEADER_INLINE void next_set_ul_ck(const uintptr_t* __restrict bitarr, uintptr_t ceil, uintptr_t* loc_ptr) {
   if (!IS_SET(bitarr, *loc_ptr)) {
     *loc_ptr = next_set_ul(bitarr, *loc_ptr, ceil);
   }
@@ -1759,7 +1766,7 @@ uint32_t prev_unset_unsafe(const uintptr_t* bitarr, uint32_t loc);
 
 // uint32_t prev_unset(uintptr_t* bitarr, uint32_t loc, uint32_t floor);
 
-static inline void prev_unset_unsafe_ck(const uintptr_t* bitarr, uint32_t* loc_ptr) {
+HEADER_INLINE void prev_unset_unsafe_ck(const uintptr_t* bitarr, uint32_t* loc_ptr) {
   *loc_ptr -= 1;
   if (IS_SET(bitarr, *loc_ptr)) {
     *loc_ptr = prev_unset_unsafe(bitarr, *loc_ptr);
@@ -1769,14 +1776,14 @@ static inline void prev_unset_unsafe_ck(const uintptr_t* bitarr, uint32_t* loc_p
 // These functions seem to optimize better than memset(arr, 0, x) under OS X
 // <10.9's gcc, and they should be equivalent for later versions (looks like
 // memcpy/memset were redone in gcc 4.3).
-static inline void fill_long_zero(intptr_t* larr, size_t size) {
+HEADER_INLINE void fill_long_zero(intptr_t* larr, size_t size) {
   size_t ulii;
   for (ulii = 0; ulii < size; ulii++) {
     *larr++ = 0;
   }
 }
 
-static inline void fill_ulong_zero(uintptr_t* ularr, size_t size) {
+HEADER_INLINE void fill_ulong_zero(uintptr_t* ularr, size_t size) {
   size_t ulii;
   for (ulii = 0; ulii < size; ulii++) {
     *ularr++ = 0;
@@ -1784,31 +1791,31 @@ static inline void fill_ulong_zero(uintptr_t* ularr, size_t size) {
 }
 
 #ifdef __LP64__
-static inline void fill_ull_zero(uint64_t* ullarr, size_t size) {
+HEADER_INLINE void fill_ull_zero(uint64_t* ullarr, size_t size) {
   fill_ulong_zero((uintptr_t*)ullarr, size);
 }
 
 // double v indicates that size is a vector count, not a word count.
-static inline void fill_vec_zero(VECITYPE* vec, size_t size) {
+HEADER_INLINE void fill_vec_zero(VECITYPE* vec, size_t size) {
   size_t ulii;
   for (ulii = 0; ulii < size; ulii++) {
     *vec++ = _mm_setzero_si128();
   }
 }
 #else
-static inline void fill_ull_zero(uint64_t* ullarr, size_t size) {
+HEADER_INLINE void fill_ull_zero(uint64_t* ullarr, size_t size) {
   fill_ulong_zero((uintptr_t*)ullarr, size * 2);
 }
 #endif
 
-static inline void fill_long_one(intptr_t* larr, size_t size) {
+HEADER_INLINE void fill_long_one(intptr_t* larr, size_t size) {
   size_t ulii;
   for (ulii = 0; ulii < size; ulii++) {
     *larr++ = -1;
   }
 }
 
-static inline void fill_ulong_one(uintptr_t* ularr, size_t size) {
+HEADER_INLINE void fill_ulong_one(uintptr_t* ularr, size_t size) {
   size_t ulii;
   for (ulii = 0; ulii < size; ulii++) {
     *ularr++ = ~ZEROLU;
@@ -1816,51 +1823,51 @@ static inline void fill_ulong_one(uintptr_t* ularr, size_t size) {
 }
 
 #ifdef __LP64__
-static inline void fill_ull_one(uint64_t* ullarr, size_t size) {
+HEADER_INLINE void fill_ull_one(uint64_t* ullarr, size_t size) {
   fill_ulong_one((uintptr_t*)ullarr, size);
 }
 #else
-static inline void fill_ull_one(uint64_t* ullarr, size_t size) {
+HEADER_INLINE void fill_ull_one(uint64_t* ullarr, size_t size) {
   fill_ulong_one((uintptr_t*)ullarr, size * 2);
 }
 #endif
 
-static inline void fill_int_zero(int32_t* iarr, size_t size) {
+HEADER_INLINE void fill_int_zero(int32_t* iarr, size_t size) {
   size_t ulii;
   for (ulii = 0; ulii < size; ulii++) {
     *iarr++ = 0;
   }
 }
 
-static inline void fill_int_one(int32_t* iarr, size_t size) {
+HEADER_INLINE void fill_int_one(int32_t* iarr, size_t size) {
   size_t ulii;
   for (ulii = 0; ulii < size; ulii++) {
     *iarr++ = -1;
   }
 }
 
-static inline void fill_uint_zero(uint32_t* uiarr, size_t size) {
+HEADER_INLINE void fill_uint_zero(uint32_t* uiarr, size_t size) {
   size_t ulii;
   for (ulii = 0; ulii < size; ulii++) {
     *uiarr++ = 0;
   }
 }
 
-static inline void fill_uint_one(uint32_t* uiarr, size_t size) {
+HEADER_INLINE void fill_uint_one(uint32_t* uiarr, size_t size) {
   size_t ulii;
   for (ulii = 0; ulii < size; ulii++) {
     *uiarr++ = ~0U;
   }
 }
 
-static inline void fill_float_zero(float* farr, size_t size) {
+HEADER_INLINE void fill_float_zero(float* farr, size_t size) {
   size_t ulii;
   for (ulii = 0; ulii < size; ulii++) {
     *farr++ = 0.0;
   }
 }
 
-static inline void fill_double_zero(double* darr, size_t size) {
+HEADER_INLINE void fill_double_zero(double* darr, size_t size) {
   size_t ulii;
   for (ulii = 0; ulii < size; ulii++) {
     *darr++ = 0.0;
@@ -1880,15 +1887,15 @@ int32_t bigstack_calloc_ul(uintptr_t ct, uintptr_t** ulp_ptr);
 
 int32_t bigstack_calloc_ull(uintptr_t ct, uint64_t** ullp_ptr);
 
-static inline int32_t bigstack_calloc_c(uintptr_t ct, char** cp_ptr) {
+HEADER_INLINE int32_t bigstack_calloc_c(uintptr_t ct, char** cp_ptr) {
   return bigstack_calloc_uc(ct, (unsigned char**)cp_ptr);
 }
 
-static inline int32_t bigstack_calloc_i(uintptr_t ct, int32_t** ip_ptr) {
+HEADER_INLINE int32_t bigstack_calloc_i(uintptr_t ct, int32_t** ip_ptr) {
   return bigstack_calloc_ui(ct, (uint32_t**)ip_ptr);
 }
 
-static inline int32_t bigstack_calloc_ll(uintptr_t ct, int64_t** llp_ptr) {
+HEADER_INLINE int32_t bigstack_calloc_ll(uintptr_t ct, int64_t** llp_ptr) {
   return bigstack_calloc_ull(ct, (uint64_t**)llp_ptr);
 }
 
@@ -1904,28 +1911,28 @@ int32_t bigstack_end_calloc_ul(uintptr_t ct, uintptr_t** ulp_ptr);
 
 int32_t bigstack_end_calloc_ull(uintptr_t ct, uint64_t** ullp_ptr);
 
-static inline int32_t bigstack_end_calloc_c(uintptr_t ct, char** cp_ptr) {
+HEADER_INLINE int32_t bigstack_end_calloc_c(uintptr_t ct, char** cp_ptr) {
   return bigstack_end_calloc_uc(ct, (unsigned char**)cp_ptr);
 }
 
-static inline int32_t bigstack_end_calloc_i(uintptr_t ct, int32_t** ip_ptr) {
+HEADER_INLINE int32_t bigstack_end_calloc_i(uintptr_t ct, int32_t** ip_ptr) {
   return bigstack_end_calloc_ui(ct, (uint32_t**)ip_ptr);
 }
 
-static inline int32_t bigstack_end_calloc_ll(uintptr_t ct, int64_t** llp_ptr) {
+HEADER_INLINE int32_t bigstack_end_calloc_ll(uintptr_t ct, int64_t** llp_ptr) {
   return bigstack_end_calloc_ull(ct, (uint64_t**)llp_ptr);
 }
 
 
 uint32_t murmurhash3_32(const void* key, uint32_t len);
 
-static inline uint32_t hashval2(const char* idstr, uint32_t idlen) {
+HEADER_INLINE uint32_t hashval2(const char* idstr, uint32_t idlen) {
   return murmurhash3_32(idstr, idlen) % HASHSIZE;
 }
 
 uintptr_t geqprime(uintptr_t floor);
 
-static inline uint32_t get_id_htable_size(uintptr_t item_ct) {
+HEADER_INLINE uint32_t get_id_htable_size(uintptr_t item_ct) {
   if (item_ct < 32761) {
     return 65521;
   } else {
@@ -1935,7 +1942,7 @@ static inline uint32_t get_id_htable_size(uintptr_t item_ct) {
 
 int32_t populate_id_htable(uintptr_t unfiltered_ct, const uintptr_t* exclude_arr, uintptr_t item_ct, const char* item_ids, uintptr_t max_id_len, uint32_t store_dups, uint32_t id_htable_size, uint32_t* id_htable);
 
-static inline int32_t alloc_and_populate_id_htable(uintptr_t unfiltered_ct, const uintptr_t* exclude_arr, uintptr_t item_ct, const char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t* id_htable_size_ptr, uint32_t** id_htable_ptr) {
+HEADER_INLINE int32_t alloc_and_populate_id_htable(uintptr_t unfiltered_ct, const uintptr_t* exclude_arr, uintptr_t item_ct, const char* item_ids, uintptr_t max_id_len, uint32_t allow_dups, uint32_t* id_htable_size_ptr, uint32_t** id_htable_ptr) {
   uint32_t id_htable_size = get_id_htable_size(item_ct);
   if (bigstack_alloc_ui(id_htable_size, id_htable_ptr)) {
     return RET_NOMEM;
@@ -1971,21 +1978,21 @@ void quaterarr_collapse_init_exclude(const uintptr_t* __restrict unfiltered_bita
 
 uint32_t alloc_collapsed_haploid_filters(const uintptr_t* __restrict sample_bitarr, const uintptr_t* __restrict sex_male, uint32_t unfiltered_sample_ct, uint32_t sample_ct, uint32_t hh_exists, uint32_t is_include, uintptr_t** sample_include_quatervec_ptr, uintptr_t** sample_male_include_quatervec_ptr);
 
-static inline void free_cond(void* memptr) {
+HEADER_INLINE void free_cond(void* memptr) {
   if (memptr) {
     free(memptr);
   }
 }
 
-static inline uint32_t realnum(double dd) {
+HEADER_INLINE uint32_t realnum(double dd) {
   return (dd == dd) && (dd != INFINITY) && (dd != -INFINITY);
 }
 
-static inline double get_maf(double allele_freq) {
+HEADER_INLINE double get_maf(double allele_freq) {
   return (allele_freq <= 0.5)? allele_freq : (1.0 - allele_freq);
 }
 
-static inline int32_t filename_exists(const char* __restrict fname_append, char* fname, char* fname_end) {
+HEADER_INLINE int32_t filename_exists(const char* __restrict fname_append, char* fname, char* fname_end) {
 #ifdef _WIN32
   DWORD file_attr;
   strcpy(fname_end, fname_append);
@@ -2082,7 +2089,7 @@ typedef struct {
 extern const char* g_species_singular;
 extern const char* g_species_plural;
 
-static inline const char* species_str(uintptr_t ct) {
+HEADER_INLINE const char* species_str(uintptr_t ct) {
   return (ct == ONELU)? g_species_singular : g_species_plural;
 }
 
@@ -2091,7 +2098,7 @@ static inline const char* species_str(uintptr_t ct) {
 #define CHR_OUTPUT_MT 4
 #define CHR_OUTPUT_0M 8
 
-static inline uint32_t all_words_zero(const uintptr_t* word_arr, uintptr_t word_ct) {
+HEADER_INLINE uint32_t all_words_zero(const uintptr_t* word_arr, uintptr_t word_ct) {
   while (word_ct--) {
     if (*word_arr++) {
       return 0;
@@ -2120,11 +2127,11 @@ int32_t get_chrom_code2(const Chrom_info* chrom_info_ptr, char* sptr, uint32_t s
 
 uint32_t get_marker_chrom_fo_idx(const Chrom_info* chrom_info_ptr, uintptr_t marker_uidx);
 
-static inline uint32_t get_marker_chrom(const Chrom_info* chrom_info_ptr, uintptr_t marker_uidx) {
+HEADER_INLINE uint32_t get_marker_chrom(const Chrom_info* chrom_info_ptr, uintptr_t marker_uidx) {
   return chrom_info_ptr->chrom_file_order[get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx)];
 }
 
-static inline int32_t chrom_exists(const Chrom_info* chrom_info_ptr, uint32_t chrom_idx) {
+HEADER_INLINE int32_t chrom_exists(const Chrom_info* chrom_info_ptr, uint32_t chrom_idx) {
   return is_set(chrom_info_ptr->chrom_mask, chrom_idx);
 }
 
@@ -2133,7 +2140,7 @@ int32_t resolve_or_add_chrom_name(const char* cur_chrom_name, const char* file_d
 // no need for this; code is simpler if we just create a copy of marker_exclude
 // with all non-autosomal loci removed
 /*
-static inline uintptr_t next_autosomal_unsafe(uintptr_t* marker_exclude, uintptr_t marker_uidx, Chrom_info* chrom_info_ptr, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr) {
+HEADER_INLINE uintptr_t next_autosomal_unsafe(uintptr_t* marker_exclude, uintptr_t marker_uidx, Chrom_info* chrom_info_ptr, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr) {
   // assumes we are at an autosomal marker if marker_uidx < *chrom_end_ptr
   next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
   if (marker_uidx < (*chrom_end_ptr)) {
@@ -2231,7 +2238,7 @@ uintptr_t nonincr_doublearr_leq_stride(const double* nonincr_dbl_arr, uintptr_t 
 
 int32_t bsearch_str(const char* id_buf, uintptr_t cur_id_len, const char* lptr, uintptr_t max_id_len, uintptr_t end_idx);
 
-static inline int32_t bsearch_str_nl(const char* id_buf, const char* lptr, uintptr_t max_id_len, intptr_t end_idx) {
+HEADER_INLINE int32_t bsearch_str_nl(const char* id_buf, const char* lptr, uintptr_t max_id_len, intptr_t end_idx) {
   return bsearch_str(id_buf, strlen(id_buf), lptr, max_id_len, end_idx);
 }
 
@@ -2262,7 +2269,7 @@ void bitvec_ornot(const uintptr_t* __restrict inverted_or_bitvec, uintptr_t word
 
 void bitvec_xor(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec);
 
-static inline uint32_t popcount2_long(uintptr_t val) {
+HEADER_INLINE uint32_t popcount2_long(uintptr_t val) {
 #ifdef __LP64__
   val = (val & 0x3333333333333333LLU) + ((val >> 2) & 0x3333333333333333LLU);
   return (((val + (val >> 4)) & 0x0f0f0f0f0f0f0f0fLLU) * 0x0101010101010101LLU) >> 56;
@@ -2272,7 +2279,7 @@ static inline uint32_t popcount2_long(uintptr_t val) {
 #endif
 }
 
-static inline uint32_t popcount_long(uintptr_t val) {
+HEADER_INLINE uint32_t popcount_long(uintptr_t val) {
   // the simple version, good enough for all non-time-critical stuff
   return popcount2_long(val - ((val >> 1) & FIVEMASK));
 }
@@ -2289,7 +2296,7 @@ uint32_t less_than_two_genotypes(const uintptr_t* geno_arr, uint32_t sample_ct);
 uintptr_t popcount_longs(const uintptr_t* lptr, uintptr_t word_ct);
 
 #ifdef __LP64__
-static inline uintptr_t popcount_longs_nzbase(const uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx) {
+HEADER_INLINE uintptr_t popcount_longs_nzbase(const uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx) {
   uintptr_t prefix_ct = 0;
   if (start_idx & 1) {
     if (end_idx == start_idx) {
@@ -2300,7 +2307,7 @@ static inline uintptr_t popcount_longs_nzbase(const uintptr_t* lptr, uintptr_t s
   return prefix_ct + popcount_longs(&(lptr[start_idx]), end_idx - start_idx);
 }
 #else
-static inline uintptr_t popcount_longs_nzbase(const uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx) {
+HEADER_INLINE uintptr_t popcount_longs_nzbase(const uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx) {
   return popcount_longs(&(lptr[start_idx]), end_idx - start_idx);
 }
 #endif
@@ -2319,7 +2326,7 @@ uint32_t window_forward(const uint32_t* __restrict marker_pos, const uintptr_t* 
 
 uintptr_t jump_forward_unset_unsafe(const uintptr_t* bitarr, uintptr_t cur_pos, uintptr_t forward_ct);
 
-static inline uintptr_t popcount_chars(const uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx) {
+HEADER_INLINE uintptr_t popcount_chars(const uintptr_t* lptr, uintptr_t start_idx, uintptr_t end_idx) {
   return popcount_bit_idx(lptr, start_idx * 8, end_idx * 8);
 }
 
@@ -2349,7 +2356,7 @@ void genovec_3freq(const uintptr_t* __restrict geno_vec, const uintptr_t* __rest
 
 uintptr_t count_01(const uintptr_t* quatervec, uintptr_t word_ct);
 
-static inline void zero_trailing_bits(uintptr_t unfiltered_ct, uintptr_t* bitarr) {
+HEADER_INLINE void zero_trailing_bits(uintptr_t unfiltered_ct, uintptr_t* bitarr) {
   uintptr_t trail_ct = unfiltered_ct & (BITCT - 1);
   if (trail_ct) {
     bitarr[unfiltered_ct / BITCT] &= (ONELU << trail_ct) - ONELU;
@@ -2364,9 +2371,9 @@ int32_t string_range_list_to_bitarr(char* header_line, uint32_t item_ct, uint32_
 
 int32_t string_range_list_to_bitarr_alloc(char* header_line, uint32_t item_ct, uint32_t fixed_len, const Range_list* range_list_ptr, const char* __restrict range_list_flag, const char* __restrict file_descrip, uintptr_t** bitarr_ptr);
 
-int32_t string_range_list_to_bitarr2(const char* __restrict sorted_ids, const uint32_t* id_map, uintptr_t item_ct, uintptr_t max_id_len, const Range_list* __restrict range_list_ptr, const char* __restrict range_list_flag, uintptr_t* bitfield_excl);
+int32_t string_range_list_to_bitarr2(const char* __restrict sorted_ids, const uint32_t* id_map, uintptr_t item_ct, uintptr_t max_id_len, const Range_list* __restrict range_list_ptr, const char* __restrict range_list_flag, uintptr_t* bitarr_excl);
 
-static inline uint32_t count_chrom_markers(const Chrom_info* chrom_info_ptr, const uintptr_t* marker_exclude, uint32_t chrom_idx) {
+HEADER_INLINE uint32_t count_chrom_markers(const Chrom_info* chrom_info_ptr, const uintptr_t* marker_exclude, uint32_t chrom_idx) {
   uint32_t min_idx;
   uint32_t max_idx;
   if (!is_set(chrom_info_ptr->chrom_mask, chrom_idx)) {
@@ -2383,14 +2390,14 @@ int32_t conditional_allocate_non_autosomal_markers(const Chrom_info* chrom_info_
 
 uint32_t get_max_chrom_size(const Chrom_info* chrom_info_ptr, const uintptr_t* marker_exclude, uint32_t* last_chrom_fo_idx_ptr);
 
-void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uint32_t* male_ct_ptr, uint32_t* female_ct_ptr, uint32_t* unk_ct_ptr);
+void count_genders(const uintptr_t* __restrict sex_nm, const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sample_exclude, uintptr_t unfiltered_sample_ct, uint32_t* __restrict male_ct_ptr, uint32_t* __restrict female_ct_ptr, uint32_t* __restrict unk_ct_ptr);
 
-void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_sample_ct);
+void reverse_loadbuf(uintptr_t unfiltered_sample_ct, unsigned char* loadbuf);
 
 // deprecated, try to just use copy_quaterarr_nonempty_subset()
 void copy_quaterarr_nonempty_subset_excl(const uintptr_t* __restrict raw_quaterarr, const uintptr_t* __restrict subset_excl, uint32_t raw_quaterarr_size, uint32_t subset_size, uintptr_t* __restrict output_quaterarr);
 
-static inline uint32_t load_raw(FILE* bedfile, uintptr_t* rawbuf, uintptr_t unfiltered_sample_ct4) {
+HEADER_INLINE uint32_t load_raw(uintptr_t unfiltered_sample_ct4, FILE* bedfile, uintptr_t* rawbuf) {
   // only use this if all accesses to the data involve
   // 1. some sort of mask, or
   // 2. explicit iteration from 0..(unfiltered_sample_ct-1).
@@ -2399,7 +2406,7 @@ static inline uint32_t load_raw(FILE* bedfile, uintptr_t* rawbuf, uintptr_t unfi
   return (fread(rawbuf, 1, unfiltered_sample_ct4, bedfile) < unfiltered_sample_ct4);
 }
 
-static inline uintptr_t get_final_mask(uint32_t sample_ct) {
+HEADER_INLINE uintptr_t get_final_mask(uint32_t sample_ct) {
   uint32_t uii = sample_ct % BITCT2;
   if (uii) {
     return (ONELU << (2 * uii)) - ONELU;
@@ -2408,7 +2415,7 @@ static inline uintptr_t get_final_mask(uint32_t sample_ct) {
   }
 }
 
-static inline uint32_t load_raw2(FILE* bedfile, uintptr_t* rawbuf, uintptr_t unfiltered_sample_ct4, uintptr_t unfiltered_sample_ctl2m1, uintptr_t final_mask) {
+HEADER_INLINE uint32_t load_raw2(uintptr_t unfiltered_sample_ct4, uintptr_t unfiltered_sample_ctl2m1, uintptr_t final_mask, FILE* bedfile, uintptr_t* rawbuf) {
   if (fread(rawbuf, 1, unfiltered_sample_ct4, bedfile) < unfiltered_sample_ct4) {
     return 1;
   }
@@ -2416,7 +2423,7 @@ static inline uint32_t load_raw2(FILE* bedfile, uintptr_t* rawbuf, uintptr_t unf
   return 0;
 }
 
-uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* mainbuf, uint32_t sample_ct, uintptr_t* sample_exclude, uintptr_t final_mask, uint32_t do_reverse);
+uint32_t load_and_collapse(uint32_t unfiltered_sample_ct, uint32_t sample_ct, const uintptr_t* __restrict sample_exclude, uintptr_t final_mask, uint32_t do_reverse, FILE* bedfile, uintptr_t* __restrict rawbuf, uintptr_t* __restrict mainbuf);
 
 // was "collapse_copy_quaterarr_incl", but this should be better way to think
 // about it
@@ -2430,7 +2437,7 @@ void copy_quaterarr_nonempty_subset(const uintptr_t* __restrict raw_quaterarr, c
 // requiring much more memory.
 void inplace_quaterarr_proper_subset(const uintptr_t* __restrict subset_mask, uint32_t orig_quaterarr_size, uint32_t subset_size, uintptr_t* __restrict main_quaterarr);
 
-static inline void inplace_quaterarr_subset(const uintptr_t* __restrict subset_mask, uint32_t orig_quaterarr_size, uint32_t subset_size, uintptr_t* __restrict main_quaterarr) {
+HEADER_INLINE void inplace_quaterarr_subset(const uintptr_t* __restrict subset_mask, uint32_t orig_quaterarr_size, uint32_t subset_size, uintptr_t* __restrict main_quaterarr) {
   if (orig_quaterarr_size == subset_size) {
     return;
   }
@@ -2438,29 +2445,35 @@ static inline void inplace_quaterarr_subset(const uintptr_t* __restrict subset_m
 }
 */
 
-uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* mainbuf, uint32_t sample_ct, uintptr_t* sample_include, uintptr_t final_mask, uint32_t do_reverse);
+uint32_t load_and_collapse_incl(uint32_t unfiltered_sample_ct, uint32_t sample_ct, const uintptr_t* __restrict sample_include, uintptr_t final_mask, uint32_t do_reverse, FILE* bedfile, uintptr_t* __restrict rawbuf, uintptr_t* __restrict mainbuf);
 
 // uint32_t load_and_collapse_incl_inplace(const uintptr_t* __restrict sample_include, uint32_t unfiltered_sample_ct, uint32_t sample_ct, uintptr_t final_mask, uint32_t do_reverse, FILE* bedfile, uintptr_t* __restrict mainbuf);
 
-uint32_t load_and_split(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* casebuf, uintptr_t* ctrlbuf, uintptr_t* pheno_nm, uintptr_t* pheno_c);
+uint32_t load_and_split(uint32_t unfiltered_sample_ct, const uintptr_t* __restrict pheno_nm, const uintptr_t* __restrict pheno_c, FILE* bedfile, uintptr_t* __restrict rawbuf, uintptr_t* __restrict casebuf, uintptr_t* __restrict ctrlbuf);
 
-void quaterarr_include_init(uintptr_t unfiltered_sample_ct, uintptr_t* new_include_quaterarr, uintptr_t* old_include_bitarr);
+void init_quaterarr_from_bitarr(const uintptr_t* __restrict bitarr, uintptr_t unfiltered_sample_ct, uintptr_t* __restrict new_quaterarr);
 
-void exclude_to_vec_include(uintptr_t unfiltered_sample_ct, uintptr_t* include_vec, uintptr_t* exclude_bitarr);
+void init_quaterarr_from_inverted_bitarr(const uintptr_t* __restrict inverted_bitarr, uintptr_t unfiltered_sample_ct, uintptr_t* __restrict new_quaterarr);
 
-void vec_init_invert(uintptr_t entry_ct, uintptr_t* target_quatervec, uintptr_t* source_quatervec);
+void quatervec_01_init_invert(const uintptr_t* __restrict source_quatervec, uintptr_t entry_ct, uintptr_t* __restrict target_quatervec);
 
-void bitfield_andnot_copy(uintptr_t word_ct, uintptr_t* target_vec, uintptr_t* source_vec, uintptr_t* exclude_vec);
+// target_vec := source_vec ANDNOT exclude_vec
+// may write an extra word
+void bitvec_andnot_copy(const uintptr_t* __restrict source_vec, const uintptr_t* __restrict exclude_vec, uintptr_t word_ct, uintptr_t* __restrict target_vec);
 
-void vec_include_mask_in(uintptr_t unfiltered_sample_ct, uintptr_t* include_quaterarr, uintptr_t* mask_bitarr);
+void apply_bitarr_mask_to_quaterarr_01(const uintptr_t* __restrict mask_bitarr, uintptr_t unfiltered_sample_ct, uintptr_t* main_quaterarr);
 
-void vec_include_mask_out(uintptr_t unfiltered_sample_ct, uintptr_t* include_quaterarr, uintptr_t* mask_bitarr);
+void apply_bitarr_excl_to_quaterarr_01(const uintptr_t* __restrict excl_bitarr, uintptr_t unfiltered_sample_ct, uintptr_t* __restrict main_quaterarr);
 
-void vec_include_mask_out_intersect(uintptr_t unfiltered_sample_ct, uintptr_t* include_quaterarr, uintptr_t* mask_bitarr, uintptr_t* mask2_bitarr);
+// excludes (excl_bitarr_1 & excl_bitarr_2).  (union can be excluded by calling
+// apply_excl_to_quaterarr_01() twice.)
+void apply_excl_intersect_to_quaterarr_01(const uintptr_t* __restrict excl_bitarr_1, const uintptr_t* __restrict excl_bitarr_2, uintptr_t unfiltered_sample_ct, uintptr_t* __restrict main_quaterarr);
 
-void vec_init_01(uintptr_t unfiltered_sample_ct, uintptr_t* data_ptr, uintptr_t* result_ptr);
+// initializes output_quatervec bits to 01 iff input_quatervec bits are 01,
+// everything else zeroed out
+void quatervec_copy_only_01(const uintptr_t* __restrict input_quatervec, uintptr_t unfiltered_sample_ct, uintptr_t* __restrict output_quatervec);
 
-void vec_invert(uintptr_t unfiltered_sample_ct, uintptr_t* vec2);
+void quatervec_01_invert(uintptr_t unfiltered_sample_ct, uintptr_t* main_quatervec);
 
 void vec_datamask(uintptr_t unfiltered_sample_ct, uint32_t matchval, uintptr_t* data_ptr, uintptr_t* mask_ptr, uintptr_t* result_ptr);
 
@@ -2474,7 +2487,7 @@ void hh_reset(unsigned char* loadbuf, uintptr_t* sample_include_quaterarr, uintp
 
 void hh_reset_y(unsigned char* loadbuf, uintptr_t* sample_include_quaterarr, uintptr_t* sample_male_include_quaterarr, uintptr_t unfiltered_sample_ct);
 
-static inline void haploid_fix(uint32_t hh_exists, uintptr_t* sample_include_quaterarr, uintptr_t* sample_male_include_quaterarr, uintptr_t sample_ct, uint32_t is_x, uint32_t is_y, unsigned char* loadbuf) {
+HEADER_INLINE void haploid_fix(uint32_t hh_exists, uintptr_t* sample_include_quaterarr, uintptr_t* sample_male_include_quaterarr, uintptr_t sample_ct, uint32_t is_x, uint32_t is_y, unsigned char* loadbuf) {
   if (is_x) {
     if (hh_exists & XMHH_EXISTS) {
       hh_reset(loadbuf, sample_male_include_quaterarr, sample_ct);
@@ -2494,7 +2507,7 @@ void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start
 
 void force_missing(unsigned char* loadbuf, uintptr_t* force_missing_include2, uintptr_t unfiltered_sample_ct);
 
-static inline char sexchar(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t sample_uidx) {
+HEADER_INLINE char sexchar(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t sample_uidx) {
   if (is_set(sex_nm, sample_uidx)) {
     return '2' - is_set(sex_male, sample_uidx);
   } else {
@@ -2539,7 +2552,7 @@ void copy_when_nonmissing(uintptr_t* loadbuf, char* source, uintptr_t elem_size,
 
 uint32_t collapse_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len, uint32_t* id_starts);
 
-static inline double rand_unif(void) {
+HEADER_INLINE double rand_unif(void) {
   return (sfmt_genrand_uint32(&g_sfmt) + 0.5) * RECIP_2_32;
 }
 
@@ -2553,7 +2566,7 @@ double rand_normal(double* secondval_ptr);
 
 void init_sfmt64_from_sfmt32(sfmt_t* sfmt32, sfmt_t* sfmt64);
 
-static inline void precompute_mods(uintptr_t sample_ct, uint32_t* precomputed_mods) {
+HEADER_INLINE void precompute_mods(uintptr_t sample_ct, uint32_t* precomputed_mods) {
   // sets precomputed_mods[n] = 2^32 mod (n-2)
   uintptr_t sample_idx;
   for (sample_idx = 2; sample_idx <= sample_ct; sample_idx++) {
@@ -2580,7 +2593,7 @@ extern uint32_t g_is_last_thread_block;
 extern HANDLE g_thread_start_next_event[];
 extern HANDLE g_thread_cur_block_done_events[];
 
-static inline void THREAD_BLOCK_FINISH(uintptr_t tidx) {
+HEADER_INLINE void THREAD_BLOCK_FINISH(uintptr_t tidx) {
   SetEvent(g_thread_cur_block_done_events[tidx - 1]);
   WaitForSingleObject(g_thread_start_next_event[tidx - 1], INFINITE);
 }

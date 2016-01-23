@@ -248,7 +248,7 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
 	  goto rserve_call_ret_READ_FAIL;
 	}
       }
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, ulptr, pheno_nm_ct, pheno_nm, final_mask, IS_SET(marker_reverse, marker_uidx))) {
+      if (load_and_collapse_incl(unfiltered_sample_ct, pheno_nm_ct, pheno_nm, final_mask, IS_SET(marker_reverse, marker_uidx), bedfile, loadbuf_raw, ulptr)) {
 	goto rserve_call_ret_READ_FAIL;
       }
       // 0 -> 3

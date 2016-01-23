@@ -869,7 +869,7 @@ int32_t populate_roh_slots_from_disk(FILE* bedfile, uint64_t bed_offset, uintptr
         return RET_READ_FAIL;
       }
     }
-    if (load_raw(bedfile, rawbuf, unfiltered_sample_ct4)) {
+    if (load_raw(unfiltered_sample_ct4, bedfile, rawbuf)) {
       return RET_READ_FAIL;
     }
     marker_cidx = marker_uidx_to_cidx[marker_uidx - chrom_start];
@@ -1823,7 +1823,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 
 	  // last few bytes of each lookahead_buf row may be filled with
 	  // garbage, but it doesn't matter
-	  if (load_raw(bedfile, &(lookahead_buf[ulii * unfiltered_sample_ctl2]), unfiltered_sample_ct4)) {
+	  if (load_raw(unfiltered_sample_ct4, bedfile, &(lookahead_buf[ulii * unfiltered_sample_ctl2]))) {
 	    goto roh_pool_ret_READ_FAIL;
 	  }
 	  ulii++;
@@ -2583,7 +2583,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
 	break;
       }
       readbuf_cur = &(readbuf[widx * sample_ctl2]);
-      if (load_and_collapse(bedfile, rawbuf, unfiltered_sample_ct, readbuf_cur, sample_ct, sample_exclude, final_mask, 0)) {
+      if (load_and_collapse(unfiltered_sample_ct, sample_ct, sample_exclude, final_mask, 0, bedfile, rawbuf, readbuf_cur)) {
 	goto calc_homozyg_ret_READ_FAIL;
       }
       mask_out_homozyg_major(readbuf_cur, sample_ct);
@@ -2644,7 +2644,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
 	  }
 	}
 	uidx_buf[widx] = marker_uidx;
-	if (load_and_collapse(bedfile, rawbuf, unfiltered_sample_ct, readbuf_cur, sample_ct, sample_exclude, final_mask, 0)) {
+	if (load_and_collapse(unfiltered_sample_ct, sample_ct, sample_exclude, final_mask, 0, bedfile, rawbuf, readbuf_cur)) {
 	  goto calc_homozyg_ret_READ_FAIL;
 	}
 	mask_out_homozyg_major(readbuf_cur, sample_ct);

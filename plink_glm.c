@@ -193,7 +193,7 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
         bigstack_alloc_ul(unfiltered_sample_ctv2, &loadbuf_mask)) {
       goto glm_scan_conditions_ret_NOMEM;
     }
-    quaterarr_include_init(unfiltered_sample_ct, loadbuf_mask_orig, load_mask);
+    init_quaterarr_from_bitarr(load_mask, unfiltered_sample_ct, loadbuf_mask_orig);
     memcpy(loadbuf_mask, loadbuf_mask_orig, unfiltered_sample_ctv2 * sizeof(intptr_t));
 #ifdef __LP64__
     loadbuf_vend = (__m128i*)(&(loadbuf_raw[unfiltered_sample_ctv2]));
@@ -207,7 +207,7 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
 	goto glm_scan_conditions_ret_READ_FAIL;
       }
       // don't use load_and_collapse since collapse bitmask not finalized
-      if (load_raw(bedfile, loadbuf_raw, unfiltered_sample_ct4)) {
+      if (load_raw(unfiltered_sample_ct4, bedfile, loadbuf_raw)) {
 	goto glm_scan_conditions_ret_READ_FAIL;
       }
       chrom_idx = get_marker_chrom(chrom_info_ptr, marker_uidx);
@@ -3622,7 +3622,7 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
       if (bigstack_end_alloc_ul(unfiltered_sample_ctv2, &sample_male_include2)) {
         goto glm_common_init_ret_NOMEM;
       }
-      quaterarr_include_init(unfiltered_sample_ct, sample_male_include2, sex_male);
+      init_quaterarr_from_bitarr(sex_male, unfiltered_sample_ct, sample_male_include2);
     }
     retval = glm_scan_conditions(condition_mname, condition_fname, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, chrom_info_ptr, hh_or_mt_exists, loadbuf_raw, bedfile, bed_offset, unfiltered_sample_ct, sex_male, load_mask, &sample_valid_ct, &condition_ct, &condition_uidxs, sample_include2, sample_male_include2);
     if (retval) {
@@ -4216,7 +4216,7 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
 	}
       }
       loadbuf_ptr = &(loadbuf[block_size * sample_valid_ctv2]);
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf_ptr, sample_valid_ct, load_mask, final_mask, IS_SET(marker_reverse, marker_uidx))) {
+      if (load_and_collapse_incl(unfiltered_sample_ct, sample_valid_ct, load_mask, final_mask, IS_SET(marker_reverse, marker_uidx), bedfile, loadbuf_raw, loadbuf_ptr)) {
 	goto glm_linear_assoc_set_test_ret_READ_FAIL;
       }
       if (g_min_ploidy_1 && hh_or_mt_exists) {
@@ -4565,7 +4565,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
       goto glm_linear_assoc_ret_READ_FAIL;
     }
-    if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, g_loadbuf, sample_valid_ct, load_mask, final_mask, IS_SET(marker_reverse, marker_uidx))) {
+    if (load_and_collapse_incl(unfiltered_sample_ct, sample_valid_ct, load_mask, final_mask, IS_SET(marker_reverse, marker_uidx), bedfile, loadbuf_raw, g_loadbuf)) {
       goto glm_linear_assoc_ret_READ_FAIL;
     }
     chrom_idx = get_marker_chrom(chrom_info_ptr, marker_uidx);
@@ -5075,7 +5075,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	}
       }
       loadbuf_ptr = &(g_loadbuf[block_size * sample_valid_ctv2]);
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf_ptr, sample_valid_ct, load_mask, final_mask, IS_SET(marker_reverse, marker_uidx))) {
+      if (load_and_collapse_incl(unfiltered_sample_ct, sample_valid_ct, load_mask, final_mask, IS_SET(marker_reverse, marker_uidx), bedfile, loadbuf_raw, loadbuf_ptr)) {
 	goto glm_linear_assoc_ret_READ_FAIL;
       }
       if (g_min_ploidy_1 && hh_or_mt_exists) {
@@ -5762,7 +5762,7 @@ int32_t glm_logistic_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t
 	}
       }
       loadbuf_ptr = &(loadbuf[block_size * sample_valid_ctv2]);
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf_ptr, sample_valid_ct, load_mask, final_mask, IS_SET(marker_reverse, marker_uidx))) {
+      if (load_and_collapse_incl(unfiltered_sample_ct, sample_valid_ct, load_mask, final_mask, IS_SET(marker_reverse, marker_uidx), bedfile, loadbuf_raw, loadbuf_ptr)) {
 	goto glm_logistic_assoc_set_test_ret_READ_FAIL;
       }
       if (g_min_ploidy_1 && hh_or_mt_exists) {
@@ -6089,7 +6089,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
       goto glm_logistic_assoc_ret_READ_FAIL;
     }
-    if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, g_loadbuf, sample_valid_ct, load_mask, final_mask, IS_SET(marker_reverse, marker_uidx))) {
+    if (load_and_collapse_incl(unfiltered_sample_ct, sample_valid_ct, load_mask, final_mask, IS_SET(marker_reverse, marker_uidx), bedfile, loadbuf_raw, g_loadbuf)) {
       goto glm_logistic_assoc_ret_READ_FAIL;
     }
     chrom_idx = get_marker_chrom(chrom_info_ptr, marker_uidx);
@@ -6546,7 +6546,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	}
       }
       loadbuf_ptr = &(g_loadbuf[block_size * sample_valid_ctv2]);
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf_ptr, sample_valid_ct, load_mask, final_mask, IS_SET(marker_reverse, marker_uidx))) {
+      if (load_and_collapse_incl(unfiltered_sample_ct, sample_valid_ct, load_mask, final_mask, IS_SET(marker_reverse, marker_uidx), bedfile, loadbuf_raw, loadbuf_ptr)) {
 	goto glm_logistic_assoc_ret_READ_FAIL;
       }
       if (g_min_ploidy_1 && hh_or_mt_exists) {
@@ -7134,7 +7134,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       if (bigstack_end_alloc_ul(unfiltered_sample_ctv2, &sample_male_include2)) {
 	goto glm_linear_nosnp_ret_NOMEM;
       }
-      quaterarr_include_init(unfiltered_sample_ct, sample_male_include2, sex_male);
+      init_quaterarr_from_bitarr(sex_male, unfiltered_sample_ct, sample_male_include2);
     }
     retval = glm_scan_conditions(condition_mname, condition_fname, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, chrom_info_ptr, hh_or_mt_exists, loadbuf_raw, bedfile, bed_offset, unfiltered_sample_ct, sex_male, load_mask, &sample_valid_ct, &condition_ct, &condition_uidxs, sample_include2, sample_male_include2);
     if (retval) {
@@ -7301,7 +7301,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
 	goto glm_linear_nosnp_ret_READ_FAIL;
       }
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf_collapsed, sample_valid_ct, load_mask, final_mask, IS_SET(marker_reverse, marker_uidx))) {
+      if (load_and_collapse_incl(unfiltered_sample_ct, sample_valid_ct, load_mask, final_mask, IS_SET(marker_reverse, marker_uidx), bedfile, loadbuf_raw, loadbuf_collapsed)) {
 	goto glm_linear_nosnp_ret_READ_FAIL;
       }
       chrom_idx = get_marker_chrom(chrom_info_ptr, marker_uidx);
@@ -7995,7 +7995,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       if (bigstack_end_alloc_ul(unfiltered_sample_ctv2, &sample_male_include2)) {
 	goto glm_logistic_nosnp_ret_NOMEM;
       }
-      quaterarr_include_init(unfiltered_sample_ct, sample_male_include2, sex_male);
+      init_quaterarr_from_bitarr(sex_male, unfiltered_sample_ct, sample_male_include2);
     }
     retval = glm_scan_conditions(condition_mname, condition_fname, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, chrom_info_ptr, hh_or_mt_exists, loadbuf_raw, bedfile, bed_offset, unfiltered_sample_ct, sex_male, load_mask, &sample_valid_ct, &condition_ct, &condition_uidxs, sample_include2, sample_male_include2);
     if (retval) {
@@ -8172,7 +8172,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
 	goto glm_logistic_nosnp_ret_READ_FAIL;
       }
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf_collapsed, sample_valid_ct, load_mask, final_mask, IS_SET(marker_reverse, marker_uidx))) {
+      if (load_and_collapse_incl(unfiltered_sample_ct, sample_valid_ct, load_mask, final_mask, IS_SET(marker_reverse, marker_uidx), bedfile, loadbuf_raw, loadbuf_collapsed)) {
 	goto glm_logistic_nosnp_ret_READ_FAIL;
       }
       chrom_idx = get_marker_chrom(chrom_info_ptr, marker_uidx);

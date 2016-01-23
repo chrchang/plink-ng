@@ -7905,7 +7905,7 @@ uint32_t get_max_chrom_size(const Chrom_info* chrom_info_ptr, const uintptr_t* m
   return max_chrom_size;
 }
 
-void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uint32_t* male_ct_ptr, uint32_t* female_ct_ptr, uint32_t* unk_ct_ptr) {
+void count_genders(const uintptr_t* __restrict sex_nm, const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sample_exclude, uintptr_t unfiltered_sample_ct, uint32_t* __restrict male_ct_ptr, uint32_t* __restrict female_ct_ptr, uint32_t* __restrict unk_ct_ptr) {
   // unfiltered_sample_ct can be zero
   uint32_t male_ct = 0;
   uint32_t female_ct = 0;
@@ -7935,7 +7935,7 @@ void count_genders(uintptr_t* sex_nm, uintptr_t* sex_male, uintptr_t unfiltered_
   *unk_ct_ptr = unk_ct;
 }
 
-void reverse_loadbuf(unsigned char* loadbuf, uintptr_t unfiltered_sample_ct) {
+void reverse_loadbuf(uintptr_t unfiltered_sample_ct, unsigned char* loadbuf) {
   // unfiltered_sample_ct can be zero
   uintptr_t sample_bidx = 0;
   unsigned char* loadbuf_end = &(loadbuf[(unfiltered_sample_ct + 3) / 4]);
@@ -8118,13 +8118,13 @@ void copy_quaterarr_nonempty_subset_excl(const uintptr_t* __restrict raw_quatera
   }
 }
 
-uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* mainbuf, uint32_t sample_ct, uintptr_t* sample_exclude, uintptr_t final_mask, uint32_t do_reverse) {
+uint32_t load_and_collapse(uint32_t unfiltered_sample_ct, uint32_t sample_ct, const uintptr_t* __restrict sample_exclude, uintptr_t final_mask, uint32_t do_reverse, FILE* bedfile, uintptr_t* __restrict rawbuf, uintptr_t* __restrict mainbuf) {
   assert(unfiltered_sample_ct);
   uint32_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   if (unfiltered_sample_ct == sample_ct) {
     rawbuf = mainbuf;
   }
-  if (load_raw(bedfile, rawbuf, unfiltered_sample_ct4)) {
+  if (load_raw(unfiltered_sample_ct4, bedfile, rawbuf)) {
     return RET_READ_FAIL;
   }
   if (unfiltered_sample_ct != sample_ct) {
@@ -8133,7 +8133,7 @@ uint32_t load_and_collapse(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered
     rawbuf[(unfiltered_sample_ct - 1) / BITCT2] &= final_mask;
   }
   if (do_reverse) {
-    reverse_loadbuf((unsigned char*)mainbuf, sample_ct);
+    reverse_loadbuf(sample_ct, (unsigned char*)mainbuf);
   }
   return 0;
 }
@@ -8377,13 +8377,13 @@ void inplace_quaterarr_proper_subset(const uintptr_t* __restrict subset_mask, ui
 }
 */
 
-uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* mainbuf, uint32_t sample_ct, uintptr_t* sample_include, uintptr_t final_mask, uint32_t do_reverse) {
+uint32_t load_and_collapse_incl(uint32_t unfiltered_sample_ct, uint32_t sample_ct, const uintptr_t* __restrict sample_include, uintptr_t final_mask, uint32_t do_reverse, FILE* bedfile, uintptr_t* __restrict rawbuf, uintptr_t* __restrict mainbuf) {
   assert(unfiltered_sample_ct);
   uint32_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   if (unfiltered_sample_ct == sample_ct) {
     rawbuf = mainbuf;
   }
-  if (load_raw(bedfile, rawbuf, unfiltered_sample_ct4)) {
+  if (load_raw(unfiltered_sample_ct4, bedfile, rawbuf)) {
     return RET_READ_FAIL;
   }
   if (unfiltered_sample_ct != sample_ct) {
@@ -8392,7 +8392,7 @@ uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfil
     mainbuf[(unfiltered_sample_ct - 1) / BITCT2] &= final_mask;
   }
   if (do_reverse) {
-    reverse_loadbuf((unsigned char*)mainbuf, sample_ct);
+    reverse_loadbuf(sample_ct, (unsigned char*)mainbuf);
   }
   return 0;
 }
@@ -8401,7 +8401,7 @@ uint32_t load_and_collapse_incl(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfil
 uint32_t load_and_collapse_incl_inplace(const uintptr_t* __restrict sample_include, uint32_t unfiltered_sample_ct, uint32_t sample_ct, uintptr_t final_mask, uint32_t do_reverse, FILE* bedfile, uintptr_t* __restrict mainbuf) {
   // mainbuf must be large enough to store unfiltered data
   uint32_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  if (load_raw(bedfile, mainbuf, unfiltered_sample_ct4)) {
+  if (load_raw(unfiltered_sample_ct4, bedfile, mainbuf)) {
     return RET_READ_FAIL;
   }
   if (unfiltered_sample_ct == sample_ct) {
@@ -8410,13 +8410,13 @@ uint32_t load_and_collapse_incl_inplace(const uintptr_t* __restrict sample_inclu
     inplace_quaterarr_proper_subset(sample_include, unfiltered_sample_ct, sample_ct, mainbuf);
   }
   if (do_reverse) {
-    reverse_loadbuf((unsigned char*)mainbuf, sample_ct);
+    reverse_loadbuf(sample_ct, (unsigned char*)mainbuf);
   }
   return 0;
 }
 */
 
-uint32_t load_and_split(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sample_ct, uintptr_t* casebuf, uintptr_t* ctrlbuf, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
+uint32_t load_and_split(uint32_t unfiltered_sample_ct, const uintptr_t* __restrict pheno_nm, const uintptr_t* __restrict pheno_c, FILE* bedfile, uintptr_t* __restrict rawbuf, uintptr_t* __restrict casebuf, uintptr_t* __restrict ctrlbuf) {
   // add do_reverse later if needed
   uintptr_t* rawbuf_end = &(rawbuf[unfiltered_sample_ct / BITCT2]);
   uintptr_t case_word = 0;
@@ -8429,7 +8429,7 @@ uint32_t load_and_split(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sa
   uint32_t read_shift;
   uintptr_t read_word;
   uintptr_t ulii;
-  if (load_raw(bedfile, rawbuf, unfiltered_sample_ct4)) {
+  if (load_raw(unfiltered_sample_ct4, bedfile, rawbuf)) {
     return RET_READ_FAIL;
   }
   while (1) {
@@ -8473,7 +8473,7 @@ uint32_t load_and_split(FILE* bedfile, uintptr_t* rawbuf, uint32_t unfiltered_sa
   }
 }
 
-void quaterarr_include_init(uintptr_t unfiltered_sample_ct, uintptr_t* new_include_quaterarr, uintptr_t* old_include_bitarr) {
+void init_quaterarr_from_bitarr(const uintptr_t* __restrict bitarr, uintptr_t unfiltered_sample_ct, uintptr_t* __restrict new_quaterarr) {
   // allows unfiltered_sample_ct == 0
   uint32_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t ulii;
@@ -8482,7 +8482,7 @@ void quaterarr_include_init(uintptr_t unfiltered_sample_ct, uintptr_t* new_inclu
   uintptr_t ulmm;
   uint32_t bit_idx;
   while (unfiltered_sample_ctl) {
-    ulii = ~(*old_include_bitarr++);
+    ulii = ~(*bitarr++);
     ulkk = FIVEMASK;
     ulmm = FIVEMASK;
     if (ulii) {
@@ -8507,23 +8507,23 @@ void quaterarr_include_init(uintptr_t unfiltered_sample_ct, uintptr_t* new_inclu
 	} while (uljj);
       }
     }
-    *new_include_quaterarr++ = ulkk;
-    *new_include_quaterarr++ = ulmm;
+    *new_quaterarr++ = ulkk;
+    *new_quaterarr++ = ulmm;
     --unfiltered_sample_ctl;
   }
   ulii = unfiltered_sample_ct & (BITCT - 1);
   if (ulii) {
-    new_include_quaterarr--;
+    new_quaterarr--;
     if (ulii < BITCT2) {
-      *new_include_quaterarr-- = 0;
+      *new_quaterarr-- = 0;
     } else {
       ulii -= BITCT2;
     }
-    *new_include_quaterarr &= (ONELU << (ulii * 2)) - ONELU;
+    *new_quaterarr &= (ONELU << (ulii * 2)) - ONELU;
   }
 }
 
-void exclude_to_vec_include(uintptr_t unfiltered_sample_ct, uintptr_t* include_vec, uintptr_t* exclude_bitarr) {
+void init_quaterarr_from_inverted_bitarr(const uintptr_t* __restrict inverted_bitarr, uintptr_t unfiltered_sample_ct, uintptr_t* __restrict new_quaterarr) {
   // allows unfiltered_sample_ct == 0
   uint32_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t ulii;
@@ -8532,7 +8532,7 @@ void exclude_to_vec_include(uintptr_t unfiltered_sample_ct, uintptr_t* include_v
   uintptr_t ulmm;
   uint32_t bit_idx;
   while (unfiltered_sample_ctl) {
-    ulii = *exclude_bitarr++;
+    ulii = *inverted_bitarr++;
     ulkk = FIVEMASK;
     ulmm = FIVEMASK;
     if (ulii) {
@@ -8557,23 +8557,23 @@ void exclude_to_vec_include(uintptr_t unfiltered_sample_ct, uintptr_t* include_v
 	} while (uljj);
       }
     }
-    *include_vec++ = ulkk;
-    *include_vec++ = ulmm;
+    *new_quaterarr++ = ulkk;
+    *new_quaterarr++ = ulmm;
     --unfiltered_sample_ctl;
   }
   ulii = unfiltered_sample_ct & (BITCT - 1);
   if (ulii) {
-    include_vec--;
+    new_quaterarr--;
     if (ulii < BITCT2) {
-      *include_vec-- = 0;
+      *new_quaterarr-- = 0;
     } else {
       ulii -= BITCT2;
     }
-    *include_vec &= (ONELU << (ulii * 2)) - ONELU;
+    *new_quaterarr &= (ONELU << (ulii * 2)) - ONELU;
   }
 }
 
-void vec_init_invert(uintptr_t entry_ct, uintptr_t* target_quatervec, uintptr_t* source_quatervec) {
+void quatervec_01_init_invert(const uintptr_t* __restrict source_quatervec, uintptr_t entry_ct, uintptr_t* __restrict target_quatervec) {
   // Initializes a quatervec as the inverse of another.
   // Some modifications needed for AVX2.
   uint32_t vec_wsize = QUATERCT_TO_ALIGNED_WORDCT(entry_ct);
@@ -8613,7 +8613,7 @@ void vec_init_invert(uintptr_t entry_ct, uintptr_t* target_quatervec, uintptr_t*
 #endif
 }
 
-void bitfield_andnot_copy(uintptr_t word_ct, uintptr_t* target_vec, uintptr_t* source_vec, uintptr_t* exclude_vec) {
+void bitvec_andnot_copy(const uintptr_t* __restrict source_vec, const uintptr_t* __restrict exclude_vec, uintptr_t word_ct, uintptr_t* __restrict target_vec) {
   // target_vec := source_vec ANDNOT exclude_vec
   // may write an extra word
   assert(word_ct);
@@ -8633,7 +8633,7 @@ void bitfield_andnot_copy(uintptr_t word_ct, uintptr_t* target_vec, uintptr_t* s
 #endif
 }
 
-void vec_include_mask_in(uintptr_t unfiltered_sample_ct, uintptr_t* include_quaterarr, uintptr_t* mask_bitarr) {
+void apply_bitarr_mask_to_quaterarr_01(const uintptr_t* __restrict mask_bitarr, uintptr_t unfiltered_sample_ct, uintptr_t* main_quaterarr) {
   // allows unfiltered_sample_ct == 0
   uint32_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t ulii;
@@ -8643,8 +8643,8 @@ void vec_include_mask_in(uintptr_t unfiltered_sample_ct, uintptr_t* include_quat
   uint32_t bit_idx;
   while (unfiltered_sample_ctl) {
     ulii = ~(*mask_bitarr++);
-    ulkk = *include_quaterarr;
-    ulmm = include_quaterarr[1];
+    ulkk = *main_quaterarr;
+    ulmm = main_quaterarr[1];
     if (ulii) {
       uljj = ulii >> BITCT2;
 #ifdef __LP64__
@@ -8667,13 +8667,13 @@ void vec_include_mask_in(uintptr_t unfiltered_sample_ct, uintptr_t* include_quat
 	} while (uljj);
       }
     }
-    *include_quaterarr++ = ulkk;
-    *include_quaterarr++ = ulmm;
+    *main_quaterarr++ = ulkk;
+    *main_quaterarr++ = ulmm;
     --unfiltered_sample_ctl;
   }
 }
 
-void vec_include_mask_out(uintptr_t unfiltered_sample_ct, uintptr_t* include_quaterarr, uintptr_t* mask_bitarr) {
+void apply_bitarr_excl_to_quaterarr_01(const uintptr_t* __restrict excl_bitarr, uintptr_t unfiltered_sample_ct, uintptr_t* __restrict main_quaterarr) {
   assert(unfiltered_sample_ct);
   uint32_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t ulii;
@@ -8682,9 +8682,9 @@ void vec_include_mask_out(uintptr_t unfiltered_sample_ct, uintptr_t* include_qua
   uintptr_t ulmm;
   uint32_t bit_idx;
   do {
-    ulii = *mask_bitarr++;
-    ulkk = *include_quaterarr;
-    ulmm = include_quaterarr[1];
+    ulii = *excl_bitarr++;
+    ulkk = *main_quaterarr;
+    ulmm = main_quaterarr[1];
     if (ulii) {
       uljj = ulii >> BITCT2;
 #ifdef __LP64__
@@ -8707,12 +8707,12 @@ void vec_include_mask_out(uintptr_t unfiltered_sample_ct, uintptr_t* include_qua
 	} while (uljj);
       }
     }
-    *include_quaterarr++ = ulkk;
-    *include_quaterarr++ = ulmm;
+    *main_quaterarr++ = ulkk;
+    *main_quaterarr++ = ulmm;
   } while (--unfiltered_sample_ctl);
 }
 
-void vec_include_mask_out_intersect(uintptr_t unfiltered_sample_ct, uintptr_t* include_quaterarr, uintptr_t* mask_bitarr, uintptr_t* mask2_bitarr) {
+void apply_excl_intersect_to_quaterarr_01(const uintptr_t* __restrict excl_bitarr_1, const uintptr_t* __restrict excl_bitarr_2, uintptr_t unfiltered_sample_ct, uintptr_t* __restrict main_quaterarr) {
   assert(unfiltered_sample_ct);
   uint32_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t ulii;
@@ -8721,9 +8721,9 @@ void vec_include_mask_out_intersect(uintptr_t unfiltered_sample_ct, uintptr_t* i
   uintptr_t ulmm;
   uint32_t bit_idx;
   do {
-    ulii = (*mask_bitarr++) & (*mask2_bitarr++);
-    ulkk = *include_quaterarr;
-    ulmm = include_quaterarr[1];
+    ulii = (*excl_bitarr_1++) & (*excl_bitarr_2++);
+    ulkk = *main_quaterarr;
+    ulmm = main_quaterarr[1];
     if (ulii) {
       uljj = ulii >> BITCT2;
 #ifdef __LP64__
@@ -8746,54 +8746,54 @@ void vec_include_mask_out_intersect(uintptr_t unfiltered_sample_ct, uintptr_t* i
 	} while (uljj);
       }
     }
-    *include_quaterarr++ = ulkk;
-    *include_quaterarr++ = ulmm;
+    *main_quaterarr++ = ulkk;
+    *main_quaterarr++ = ulmm;
   } while (--unfiltered_sample_ctl);
 }
 
-void vec_init_01(uintptr_t unfiltered_sample_ct, uintptr_t* data_ptr, uintptr_t* result_ptr) {
-  // initializes result_ptr bits 01 iff data_ptr bits are 01
+void quatervec_copy_only_01(const uintptr_t* __restrict input_quatervec, uintptr_t unfiltered_sample_ct, uintptr_t* __restrict output_quatervec) {
+  // initializes result_ptr bits 01 iff input_quatervec bits are 01
   assert(unfiltered_sample_ct);
 #ifdef __LP64__
   const __m128i m1 = {FIVEMASK, FIVEMASK};
-  __m128i* vec2_read = (__m128i*)data_ptr;
+  __m128i* vec2_read = (__m128i*)input_quatervec;
   __m128i* read_end = &(vec2_read[QUATERCT_TO_VECCT(unfiltered_sample_ct)]);
-  __m128i* vec2_write = (__m128i*)result_ptr;
+  __m128i* vec2_write = (__m128i*)output_quatervec;
   __m128i loader;
   do {
     loader = *vec2_read++;
     *vec2_write++ = _mm_and_si128(_mm_andnot_si128(_mm_srli_epi64(loader, 1), loader), m1);
   } while (vec2_read < read_end);
 #else
-  uintptr_t* read_end = &(data_ptr[QUATERCT_TO_ALIGNED_WORDCT(unfiltered_sample_ct)]);
+  uintptr_t* read_end = &(input_quatervec[QUATERCT_TO_ALIGNED_WORDCT(unfiltered_sample_ct)]);
   uintptr_t loader;
   do {
-    loader = *data_ptr++;
-    *result_ptr++ = loader & (~(loader >> 1)) & FIVEMASK;
-  } while (data_ptr < read_end);
+    loader = *input_quatervec++;
+    *output_quatervec++ = loader & (~(loader >> 1)) & FIVEMASK;
+  } while (input_quatervec < read_end);
 #endif
 }
 
-void vec_invert(uintptr_t unfiltered_sample_ct, uintptr_t* vec2) {
-  uintptr_t* vec2_last = &(vec2[unfiltered_sample_ct / BITCT2]);
+void quatervec_01_invert(uintptr_t unfiltered_sample_ct, uintptr_t* main_quatervec) {
+  uintptr_t* vec2_last = &(main_quatervec[unfiltered_sample_ct / BITCT2]);
   uint32_t remainder = unfiltered_sample_ct & (BITCT2 - 1);
 #ifdef __LP64__
   const __m128i m1 = {FIVEMASK, FIVEMASK};
-  __m128i* vec2_128 = (__m128i*)vec2;
+  __m128i* vec2_128 = (__m128i*)main_quatervec;
   __m128i* vec2_last128 = &(vec2_128[unfiltered_sample_ct / BITCT]);
   while (vec2_128 < vec2_last128) {
     *vec2_128 = _mm_xor_si128(*vec2_128, m1);
     vec2_128++;
   }
-  vec2 = (uintptr_t*)vec2_128;
-  if (vec2 != vec2_last) {
-    *vec2 = (*vec2) ^ FIVEMASK;
-    vec2++;
+  main_quatervec = (uintptr_t*)vec2_128;
+  if (main_quatervec != vec2_last) {
+    *main_quatervec = (*main_quatervec) ^ FIVEMASK;
+    main_quatervec++;
   }
 #else
-  while (vec2 != vec2_last) {
-    *vec2 = (*vec2) ^ FIVEMASK;
-    vec2++;
+  while (main_quatervec != vec2_last) {
+    *main_quatervec = (*main_quatervec) ^ FIVEMASK;
+    main_quatervec++;
   }
 #endif
   if (remainder) {
@@ -9119,9 +9119,9 @@ uint32_t alloc_raw_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t hh_ex
       return 1;
     }
     if (is_include) {
-      quaterarr_include_init(unfiltered_sample_ct, *sample_raw_include_quatervec_ptr, sample_bitarr);
+      init_quaterarr_from_bitarr(sample_bitarr, unfiltered_sample_ct, *sample_raw_include_quatervec_ptr);
     } else {
-      exclude_to_vec_include(unfiltered_sample_ct, *sample_raw_include_quatervec_ptr, sample_bitarr);
+      init_quaterarr_from_inverted_bitarr(sample_bitarr, unfiltered_sample_ct, *sample_raw_include_quatervec_ptr);
     }
   }
   if (hh_exists & (XMHH_EXISTS | Y_FIX_NEEDED)) {
@@ -9133,12 +9133,12 @@ uint32_t alloc_raw_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t hh_ex
       memcpy(sample_raw_male_include_quatervec, *sample_raw_include_quatervec_ptr, unfiltered_sample_ctv2 * sizeof(intptr_t));
     } else {
       if (is_include) {
-	quaterarr_include_init(unfiltered_sample_ct, sample_raw_male_include_quatervec, sample_bitarr);
+	init_quaterarr_from_bitarr(sample_bitarr, unfiltered_sample_ct, sample_raw_male_include_quatervec);
       } else {
-	exclude_to_vec_include(unfiltered_sample_ct, sample_raw_male_include_quatervec, sample_bitarr);
+	init_quaterarr_from_inverted_bitarr(sample_bitarr, unfiltered_sample_ct, sample_raw_male_include_quatervec);
       }
     }
-    vec_include_mask_in(unfiltered_sample_ct, sample_raw_male_include_quatervec, sex_male);
+    apply_bitarr_mask_to_quaterarr_01(sex_male, unfiltered_sample_ct, sample_raw_male_include_quatervec);
   }
   return 0;
 }

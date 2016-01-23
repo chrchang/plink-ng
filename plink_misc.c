@@ -2467,11 +2467,11 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
       *wptr++ = ' ';
       cslen = (uintptr_t)(wptr - csptr);
 
-      if (load_raw(bedfile, readbuf, unfiltered_sample_ct4)) {
+      if (load_raw(unfiltered_sample_ct4, bedfile, readbuf)) {
 	goto write_stratified_freqs_ret_READ_FAIL;
       }
       if (IS_SET(marker_reverse, marker_uidx)) {
-	reverse_loadbuf((unsigned char*)readbuf, unfiltered_sample_ct);
+	reverse_loadbuf(unfiltered_sample_ct, (unsigned char*)readbuf);
       }
       if (is_x) {
 	uiptr = cluster_map_nonmale;
@@ -2648,17 +2648,17 @@ int32_t write_cc_freqs(FILE* bedfile, uintptr_t bed_offset, char* outname, char*
       goto write_cc_freqs_ret_NOMEM;
   }
   loadbuf[unfiltered_sample_ctl2 - 1] = 0;
-  quaterarr_include_init(unfiltered_sample_ct, case_include2, pheno_c);
-  quaterarr_include_init(unfiltered_sample_ct, ctrl_include2, pheno_nm);
+  init_quaterarr_from_bitarr(pheno_c, unfiltered_sample_ct, case_include2);
+  init_quaterarr_from_bitarr(pheno_nm, unfiltered_sample_ct, ctrl_include2);
   memcpy(nonmale_vec, ctrl_include2, unfiltered_sample_ctl2 * sizeof(intptr_t));
   bitvec_andnot(case_include2, unfiltered_sample_ctl2, ctrl_include2);
-  quaterarr_include_init(unfiltered_sample_ct, male_vec, sex_male);
+  init_quaterarr_from_bitarr(sex_male, unfiltered_sample_ct, male_vec);
   bitvec_andnot(male_vec, unfiltered_sample_ctl2, nonmale_vec);
   if (!nonfounders) {
     if (bigstack_alloc_ul(unfiltered_sample_ctl2, &ulptr)) {
       goto write_cc_freqs_ret_NOMEM;
     }
-    quaterarr_include_init(unfiltered_sample_ct, ulptr, founder_info);
+    init_quaterarr_from_bitarr(founder_info, unfiltered_sample_ct, ulptr);
     bitvec_and(ulptr, unfiltered_sample_ctl2, case_include2);
     bitvec_and(ulptr, unfiltered_sample_ctl2, ctrl_include2);
     bitvec_and(ulptr, unfiltered_sample_ctl2, male_vec);
@@ -2709,11 +2709,11 @@ int32_t write_cc_freqs(FILE* bedfile, uintptr_t bed_offset, char* outname, char*
       pzwritep = fw_strcpy(4, marker_allele_ptrs[marker_uidx * 2 + 1], pzwritep);
       *pzwritep++ = ' ';
 
-      if (load_raw(bedfile, loadbuf, unfiltered_sample_ct4)) {
+      if (load_raw(unfiltered_sample_ct4, bedfile, loadbuf)) {
 	goto write_cc_freqs_ret_READ_FAIL;
       }
       if (IS_SET(marker_reverse, marker_uidx)) {
-	reverse_loadbuf((unsigned char*)loadbuf, unfiltered_sample_ct);
+	reverse_loadbuf(unfiltered_sample_ct, (unsigned char*)loadbuf);
       }
       if (is_x) {
 	genovec_set_freq_x(loadbuf, case_include2, male_vec, unfiltered_sample_ctl2, &case_set_ct, &case_missing_ct);
@@ -3030,7 +3030,7 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	  goto sexcheck_ret_READ_FAIL;
 	}
       }
-      if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, sample_ct, sample_exclude, final_mask, 0)) {
+      if (load_and_collapse(unfiltered_sample_ct, sample_ct, sample_exclude, final_mask, 0, bedfile, loadbuf_raw, loadbuf)) {
 	goto sexcheck_ret_READ_FAIL;
       }
       cur_missing_ct = count_01(loadbuf, sample_ctl2);
@@ -3089,7 +3089,7 @@ int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	    goto sexcheck_ret_READ_FAIL;
 	  }
 	}
-	if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, sample_ct, sample_exclude, final_mask, 0)) {
+	if (load_and_collapse(unfiltered_sample_ct, sample_ct, sample_exclude, final_mask, 0, bedfile, loadbuf_raw, loadbuf)) {
 	  goto sexcheck_ret_READ_FAIL;
 	}
 	lptr = loadbuf;
@@ -3748,7 +3748,7 @@ int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
         goto het_report_ret_READ_FAIL;
       }
     }
-    if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, sample_ct, sample_exclude, final_mask, 0)) {
+    if (load_and_collapse(unfiltered_sample_ct, sample_ct, sample_exclude, final_mask, 0, bedfile, loadbuf_raw, loadbuf)) {
       goto het_report_ret_READ_FAIL;
     }
     cur_missing_ct = count_01(loadbuf, sample_ctl2);
@@ -4027,7 +4027,7 @@ int32_t fst_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
       }
       seek_flag = 0;
     }
-    if (load_raw(bedfile, loadbuf, unfiltered_sample_ct4)) {
+    if (load_raw(unfiltered_sample_ct4, bedfile, loadbuf)) {
       goto fst_report_ret_READ_FAIL;
     }
     fill_uint_zero(cluster_geno_cts, cluster_ct * 3);
@@ -4641,7 +4641,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
       ploidy = 2 - is_haploid;
       ploidy_d = (double)((int32_t)ploidy);
     }
-    if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, sample_ct, sample_exclude, final_mask, IS_SET(marker_reverse, marker_uidx))) {
+    if (load_and_collapse(unfiltered_sample_ct, sample_ct, sample_exclude, final_mask, IS_SET(marker_reverse, marker_uidx), bedfile, loadbuf_raw, loadbuf)) {
       goto score_report_ret_READ_FAIL;
     }
     if (is_haploid && hh_exists) {

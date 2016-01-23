@@ -3403,7 +3403,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
       chrom_fo_idx++;
       refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_haploid);
     }
-    if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, sample_ct, sample_exclude, IS_SET(marker_reverse, marker_uidx))) {
+    if (load_and_collapse(unfiltered_sample_ct, sample_ct, sample_exclude, IS_SET(marker_reverse, marker_uidx), bedfile, loadbuf_raw, loadbuf)) {
       goto calc_regress_pcs_ret_READ_FAIL;
     }
     if (is_haploid && hh_exists) {
@@ -7656,7 +7656,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	  // if projecting, loadbuf_raw contains raw data, so we can just
 	  // follow up with copy_quaterarr_nonempty_subset_excl() and
 	  // reverse_loadbuf()
-	  if (load_and_collapse(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, pca_sample_ct, pca_sample_exclude, final_mask, IS_SET(marker_reverse, marker_uidx))) {
+	  if (load_and_collapse(unfiltered_sample_ct, pca_sample_ct, pca_sample_exclude, final_mask, IS_SET(marker_reverse, marker_uidx), bedfile, loadbuf_raw, loadbuf)) {
 	    goto calc_pca_ret_READ_FAIL;
 	  }
 	  // Variant weight matrix = X^T * S * D^{-1/2}, where X^T is the
@@ -7698,7 +7698,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	  if (proj_sample_ct) {
 	    copy_quaterarr_nonempty_subset_excl(loadbuf_raw, sample_exclude_proj, unfiltered_sample_ct, proj_sample_ct, loadbuf_proj);
 	    if (IS_SET(marker_reverse, marker_uidx)) {
-	      reverse_loadbuf((unsigned char*)loadbuf_proj, proj_sample_ct);
+	      reverse_loadbuf(proj_sample_ct, (unsigned char*)loadbuf_proj);
 	    }
 	    ulptr = loadbuf_proj;
 	    sample_uidx = 0;

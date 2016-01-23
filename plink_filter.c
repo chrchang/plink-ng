@@ -1232,7 +1232,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
     goto load_oblig_missing_ret_READ_FAIL;
   }
   if (y_present) {
-    quaterarr_include_init(unfiltered_sample_ct, loadbuf, sex_male);
+    init_quaterarr_from_bitarr(sex_male, unfiltered_sample_ct, loadbuf);
     cur_cluster_zmask2 = cluster_zmask2s;
     ulptr = &(cur_cluster_zmask2[cluster_ct * unfiltered_sample_ctl2]);
     for (cluster_idx = 0; cluster_idx < cluster_ct; cluster_idx++) {
@@ -1332,7 +1332,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
       if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
 	goto load_oblig_missing_ret_READ_FAIL;
       }
-      if (load_raw(bedfile, loadbuf, unfiltered_sample_ct4)) {
+      if (load_raw(unfiltered_sample_ct4, bedfile, loadbuf)) {
 	goto load_oblig_missing_ret_READ_FAIL;
       }
       // no need for het haploid handling here
@@ -1550,7 +1550,7 @@ int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
     if (bigstack_alloc_ul(unfiltered_sample_ctl2, &sample_male_include2)) {
       goto mind_filter_ret_NOMEM;
     }
-    quaterarr_include_init(unfiltered_sample_ct, sample_male_include2, sex_male);
+    init_quaterarr_from_bitarr(sex_male, unfiltered_sample_ct, sample_male_include2);
     nony_marker_ct = marker_ct - (y_end - y_start - popcount_bit_idx(marker_exclude, y_start, y_end));
   }
   if (bigstack_calloc_ui(unfiltered_sample_ct, &missing_cts) ||
@@ -1571,7 +1571,7 @@ int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
 	goto mind_filter_ret_READ_FAIL;
       }
     }
-    if (load_raw2(bedfile, loadbuf, unfiltered_sample_ct4, unfiltered_sample_ctl2m1, final_mask)) {
+    if (load_raw2(unfiltered_sample_ct4, unfiltered_sample_ctl2m1, final_mask, bedfile, loadbuf)) {
       goto mind_filter_ret_READ_FAIL;
     }
     // todo: switch to load_and_collapse()
@@ -2292,7 +2292,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   }
   loadbuf[unfiltered_sample_ctv2 - 2] = 0;
   loadbuf[unfiltered_sample_ctv2 - 1] = 0;
-  exclude_to_vec_include(unfiltered_sample_ct, sample_include2, sample_exclude);
+  init_quaterarr_from_inverted_bitarr(sample_exclude, unfiltered_sample_ct, sample_include2);
   ii = chrom_info_ptr->x_code;
   nonmales_needed = (!is_split_chrom) && (ii != -1) && is_set(chrom_info_ptr->chrom_mask, ii);
   ii = chrom_info_ptr->y_code;
@@ -2301,7 +2301,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
     goto calc_freqs_and_hwe_ret_NOMEM;
   }
   memcpy(sample_male_include2, sample_include2, unfiltered_sample_ctv2 * sizeof(intptr_t));
-  vec_include_mask_in(unfiltered_sample_ct, sample_male_include2, sex_male);
+  apply_bitarr_mask_to_quaterarr_01(sex_male, unfiltered_sample_ct, sample_male_include2);
   sample_male_ct = popcount01_longs(sample_male_include2, unfiltered_sample_ctv2);
   if (sample_male_ct) {
     male_ct_recip = 1.0 / ((double)((int32_t)sample_male_ct));
@@ -2315,7 +2315,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	goto calc_freqs_and_hwe_ret_NOMEM;
       }
       memcpy(sample_nonmale_include2, sample_include2, unfiltered_sample_ctv2 * sizeof(intptr_t));
-      vec_include_mask_out_intersect(unfiltered_sample_ct, sample_nonmale_include2, sex_nm, sex_male);
+      apply_excl_intersect_to_quaterarr_01(sex_nm, sex_male, unfiltered_sample_ct, sample_nonmale_include2);
       sample_nonmale_ct = popcount01_longs(sample_nonmale_include2, unfiltered_sample_ctv2);
       sample_f_nonmale_ct = sample_nonmale_ct;
       founder_nonmale_include2 = sample_nonmale_include2;
@@ -2333,20 +2333,20 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
     }
     bitvec_ornot(founder_info, unfiltered_sample_ctl, tmp_sample_excl_mask);
     zero_trailing_bits(unfiltered_sample_ct, tmp_sample_excl_mask);
-    exclude_to_vec_include(unfiltered_sample_ct, founder_include2, tmp_sample_excl_mask);
+    init_quaterarr_from_inverted_bitarr(tmp_sample_excl_mask, unfiltered_sample_ct, founder_include2);
     if (males_needed) {
       if (bigstack_alloc_ul(unfiltered_sample_ctv2, &founder_male_include2)) {
 	goto calc_freqs_and_hwe_ret_NOMEM;
       }
       memcpy(founder_male_include2, sample_male_include2, unfiltered_sample_ctl * 2 * sizeof(intptr_t));
-      vec_include_mask_in(unfiltered_sample_ct, founder_male_include2, founder_info);
+      apply_bitarr_mask_to_quaterarr_01(founder_info, unfiltered_sample_ct, founder_male_include2);
       sample_f_male_ct = popcount01_longs(founder_male_include2, unfiltered_sample_ctv2);
       if (nonmales_needed) {
 	if (bigstack_alloc_ul(unfiltered_sample_ctv2, &founder_nonmale_include2)) {
 	  goto calc_freqs_and_hwe_ret_NOMEM;
 	}
 	memcpy(founder_nonmale_include2, sample_nonmale_include2, unfiltered_sample_ctv2 * sizeof(intptr_t));
-	vec_include_mask_in(unfiltered_sample_ct, founder_nonmale_include2, founder_info);
+	apply_bitarr_mask_to_quaterarr_01(founder_info, unfiltered_sample_ct, founder_nonmale_include2);
 	sample_f_nonmale_ct = popcount01_longs(founder_nonmale_include2, unfiltered_sample_ctv2);
       }
     }
@@ -2372,13 +2372,13 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
     // tmp_sample_excl_mask2 is now set for each sample who is excluded, or a
     // nonfounder, or is noncontrol.
     sample_f_ctrl_ct = unfiltered_sample_ct - popcount_longs(tmp_sample_excl_mask2, unfiltered_sample_ctl);
-    exclude_to_vec_include(unfiltered_sample_ct, founder_ctrl_include2, tmp_sample_excl_mask2);
+    init_quaterarr_from_inverted_bitarr(tmp_sample_excl_mask2, unfiltered_sample_ct, founder_ctrl_include2);
     if (nonmales_needed) {
       if (bigstack_alloc_ul(unfiltered_sample_ctv2, &founder_ctrl_nonmale_include2)) {
 	goto calc_freqs_and_hwe_ret_NOMEM;
       }
       memcpy(founder_ctrl_nonmale_include2, sample_nonmale_include2, unfiltered_sample_ctv2 * sizeof(intptr_t));
-      vec_include_mask_out(unfiltered_sample_ct, founder_ctrl_nonmale_include2, tmp_sample_excl_mask2);
+      apply_bitarr_excl_to_quaterarr_01(tmp_sample_excl_mask2, unfiltered_sample_ct, founder_ctrl_nonmale_include2);
       sample_f_ctl_nonmale_ct = popcount01_longs(founder_ctrl_nonmale_include2, unfiltered_sample_ctv2);
     }
     if (hardy_needed) {
@@ -2389,13 +2389,13 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
       bitvec_ornot(pheno_c, unfiltered_sample_ctl, tmp_sample_excl_mask);
       zero_trailing_bits(unfiltered_sample_ct, tmp_sample_excl_mask);
       sample_f_case_ct = unfiltered_sample_ct - popcount_longs(tmp_sample_excl_mask, unfiltered_sample_ctl);
-      exclude_to_vec_include(unfiltered_sample_ct, founder_case_include2, tmp_sample_excl_mask);
+      init_quaterarr_from_inverted_bitarr(tmp_sample_excl_mask, unfiltered_sample_ct, founder_case_include2);
       if (nonmales_needed) {
 	if (bigstack_alloc_ul(unfiltered_sample_ctv2, &founder_case_nonmale_include2)) {
 	  goto calc_freqs_and_hwe_ret_NOMEM;
 	}
 	memcpy(founder_case_nonmale_include2, sample_nonmale_include2, unfiltered_sample_ctv2 * sizeof(intptr_t));
-	vec_include_mask_out(unfiltered_sample_ct, founder_case_nonmale_include2, tmp_sample_excl_mask);
+	apply_bitarr_excl_to_quaterarr_01(tmp_sample_excl_mask, unfiltered_sample_ct, founder_case_nonmale_include2);
 	sample_f_case_nonmale_ct = popcount01_longs(founder_case_nonmale_include2, unfiltered_sample_ctv2);
       }
     }
@@ -2447,7 +2447,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	  goto calc_freqs_and_hwe_ret_READ_FAIL;
 	}
       }
-      if (load_raw(bedfile, loadbuf, unfiltered_sample_ct4)) {
+      if (load_raw(unfiltered_sample_ct4, bedfile, loadbuf)) {
 	goto calc_freqs_and_hwe_ret_READ_FAIL;
       }
       if (marker_uidx >= next_chrom_start) {
@@ -2750,9 +2750,9 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   }
   loadbuf[unfiltered_sample_ctv2 - 2] = 0;
   loadbuf[unfiltered_sample_ctv2 - 1] = 0;
-  exclude_to_vec_include(unfiltered_sample_ct, sample_include2, sample_exclude);
+  init_quaterarr_from_inverted_bitarr(sample_exclude, unfiltered_sample_ct, sample_include2);
   memcpy(sample_male_include2, sample_include2, unfiltered_sample_ctv2 * sizeof(intptr_t));
-  vec_include_mask_in(unfiltered_sample_ct, sample_male_include2, sex_male);
+  apply_bitarr_mask_to_quaterarr_01(sex_male, unfiltered_sample_ct, sample_male_include2);
   if (y_present) {
     marker_ct_y = count_chrom_markers(chrom_info_ptr, marker_exclude, chrom_info_ptr->y_code);
   }
@@ -2849,7 +2849,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
 	goto write_missingness_reports_ret_READ_FAIL;
       }
       do {
-	if (load_raw(bedfile, loadbuf, unfiltered_sample_ct4)) {
+	if (load_raw(unfiltered_sample_ct4, bedfile, loadbuf)) {
 	  goto write_missingness_reports_ret_READ_FAIL;
 	}
         if (is_haploid) {

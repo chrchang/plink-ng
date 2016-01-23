@@ -5817,7 +5817,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
 	}
       }
       loadbuf_ptr = &(loadbuf[block_size * pheno_nm_ctv2]);
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf_ptr, pheno_nm_ct, pheno_nm, final_mask, IS_SET(marker_reverse, marker_uidx))) {
+      if (load_and_collapse_incl(unfiltered_sample_ct, pheno_nm_ct, pheno_nm, final_mask, IS_SET(marker_reverse, marker_uidx), bedfile, loadbuf_raw, loadbuf_ptr)) {
 	goto model_assoc_set_test_ret_READ_FAIL;
       }
       g_adapt_m_table[block_size] = marker_idx2++;
@@ -6298,7 +6298,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     g_sample_male_include2 = sample_male_include2;
     quaterarr_collapse_init(sex_male, unfiltered_sample_ct, pheno_nm, pheno_nm_ct, sample_male_include2);
     male_ct = popcount01_longs(sample_male_include2, pheno_nm_ctv2);
-    vec_init_invert(pheno_nm_ct, g_sample_nonmale_include2, sample_male_include2);
+    quatervec_01_init_invert(sample_male_include2, pheno_nm_ct, g_sample_nonmale_include2);
     nonmale_ct = pheno_nm_ct - male_ct;
   }
   // Set test does not support Fisher stats, so currently guaranteed to be
@@ -6430,7 +6430,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   quaterarr_collapse_init(pheno_c, unfiltered_sample_ct, pheno_nm, pheno_nm_ct, sample_case_include2);
   case_ct = popcount01_longs(sample_case_include2, pheno_nm_ctv2);
   g_perm_case_ct = case_ct;
-  vec_init_invert(pheno_nm_ct, sample_ctrl_include2, sample_case_include2);
+  quatervec_01_init_invert(sample_case_include2, pheno_nm_ct, sample_ctrl_include2);
   ctrl_ct = pheno_nm_ct - case_ct;
   if (gender_req) {
     // todo: get rid of these and just use the functions called by the
@@ -6444,9 +6444,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     quaterarr_collapse_init(sex_male, unfiltered_sample_ct, pheno_nm, pheno_nm_ct, sample_male_case_include2);
     bitvec_and(sample_case_include2, pheno_nm_ctv2, sample_male_case_include2);
     case_male_ct = popcount01_longs(sample_male_case_include2, pheno_nm_ctv2);
-    bitfield_andnot_copy(pheno_nm_ctv2, sample_male_ctrl_include2, sample_male_include2, sample_male_case_include2);
-    bitfield_andnot_copy(pheno_nm_ctv2, sample_nonmale_case_include2, sample_case_include2, sample_male_case_include2);
-    bitfield_andnot_copy(pheno_nm_ctv2, sample_nonmale_ctrl_include2, sample_ctrl_include2, sample_male_ctrl_include2);
+    bitvec_andnot_copy(sample_male_include2, sample_male_case_include2, pheno_nm_ctv2, sample_male_ctrl_include2);
+    bitvec_andnot_copy(sample_case_include2, sample_male_case_include2, pheno_nm_ctv2, sample_nonmale_case_include2);
+    bitvec_andnot_copy(sample_ctrl_include2, sample_male_ctrl_include2, pheno_nm_ctv2, sample_nonmale_ctrl_include2);
     ctrl_male_ct = male_ct - case_male_ct;
     case_nonmale_ct = case_ct - case_male_ct;
     ctrl_nonmale_ct = ctrl_ct - ctrl_male_ct;
@@ -6651,7 +6651,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	}
       }
       loadbuf_ptr = &(loadbuf[block_size * pheno_nm_ctv2]);
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf_ptr, pheno_nm_ct, pheno_nm, final_mask, IS_SET(marker_reverse, marker_uidx))) {
+      if (load_and_collapse_incl(unfiltered_sample_ct, pheno_nm_ct, pheno_nm, final_mask, IS_SET(marker_reverse, marker_uidx), bedfile, loadbuf_raw, loadbuf_ptr)) {
 	goto model_assoc_ret_READ_FAIL;
       }
       if (model_adapt_nst) {
@@ -7937,7 +7937,7 @@ int32_t qassoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
 	}
       }
       loadbuf_ptr = &(loadbuf[block_size * pheno_nm_ctv2]);
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf_ptr, pheno_nm_ct, pheno_nm, final_mask, IS_SET(marker_reverse, marker_uidx))) {
+      if (load_and_collapse_incl(unfiltered_sample_ct, pheno_nm_ct, pheno_nm, final_mask, IS_SET(marker_reverse, marker_uidx), bedfile, loadbuf_raw, loadbuf_ptr)) {
 	goto qassoc_set_test_ret_READ_FAIL;
       }
       if (g_min_ploidy_1 && hh_or_mt_exists) {
@@ -8454,7 +8454,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	}
       }
       loadbuf_ptr = &(g_loadbuf[block_size * pheno_nm_ctv2]);
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf_ptr, pheno_nm_ct, pheno_nm, final_mask, IS_SET(marker_reverse, marker_uidx))) {
+      if (load_and_collapse_incl(unfiltered_sample_ct, pheno_nm_ct, pheno_nm, final_mask, IS_SET(marker_reverse, marker_uidx), bedfile, loadbuf_raw, loadbuf_ptr)) {
 	goto qassoc_ret_READ_FAIL;
       }
       if (g_min_ploidy_1 && hh_or_mt_exists) {
@@ -9386,7 +9386,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
 	final_mask = get_final_mask(cur_sample_ct);
       }
 
-      if (load_and_collapse_incl(bedfile, loadbuf_raw, unfiltered_sample_ct, loadbuf, cur_sample_ct, cur_covar_nm_raw, final_mask, IS_SET(marker_reverse, marker_uidx))) {
+      if (load_and_collapse_incl(unfiltered_sample_ct, cur_sample_ct, cur_covar_nm_raw, final_mask, IS_SET(marker_reverse, marker_uidx), bedfile, loadbuf_raw, loadbuf)) {
 	goto gxe_assoc_ret_READ_FAIL;
       }
       if (is_y && skip_y) {
@@ -10052,7 +10052,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
   }
   memcpy(marker_exclude, marker_exclude_orig, unfiltered_marker_ctl * sizeof(intptr_t));
   loadbuf_raw[unfiltered_sample_ctl2 - 1] = 0;
-  quaterarr_include_init(unfiltered_sample_ct, pheno_nm2, pheno_nm);
+  init_quaterarr_from_bitarr(pheno_nm, unfiltered_sample_ct, pheno_nm2);
   cur_pheno_nm2 = pheno_nm2;
   copy_bitarr_subset(pheno_c, pheno_nm, unfiltered_sample_ct, pheno_nm_ct, pheno_c_collapsed);
   cur_pheno_c_collapsed = pheno_c_collapsed;
@@ -10066,7 +10066,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
     bitvec_and(sex_male, unfiltered_sample_ctl, pheno_male_nm2);
     copy_bitarr_subset(pheno_c, pheno_male_nm2, unfiltered_sample_ct, male_ct, pheno_c_collapsed_male);
     memcpy(pheno_male_nm2, pheno_nm2, unfiltered_sample_ctl2 * sizeof(intptr_t));
-    vec_include_mask_in(unfiltered_sample_ct, pheno_male_nm2, sex_male);
+    apply_bitarr_mask_to_quaterarr_01(sex_male, unfiltered_sample_ct, pheno_male_nm2);
   }
   outname_end2 = memcpyb(outname_end, ".missing", 9);
   if (fopen_checked(outname, "w", &outfile)) {
@@ -10132,7 +10132,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
       wptr_start = width_force(4, g_textbuf, chrom_name_write(chrom_info_ptr, uii, g_textbuf));
       *wptr_start++ = ' ';
     }
-    if (load_raw(bedfile, loadbuf_raw, unfiltered_sample_ct4)) {
+    if (load_raw(unfiltered_sample_ct4, bedfile, loadbuf_raw)) {
       goto testmiss_ret_READ_FAIL;
     }
     if (is_haploid && hh_exists) {
@@ -10417,7 +10417,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	    g_perm_case_ct = case_ct_y;
 	  }
 	}
-	if (load_raw(bedfile, loadbuf_raw, unfiltered_sample_ct4)) {
+	if (load_raw(unfiltered_sample_ct4, bedfile, loadbuf_raw)) {
 	  goto testmiss_ret_READ_FAIL;
 	}
 	if (is_haploid && hh_exists) {
@@ -10824,7 +10824,7 @@ int32_t cluster_assoc_init(const char* flag_name, uintptr_t unfiltered_sample_ct
     }
     cluster_ct2++;
   }
-  bitfield_andnot_copy(unfiltered_sample_ctl2, pheno_nm_nonmale_11, pheno_nm_11, pheno_nm_male_11);
+  bitvec_andnot_copy(pheno_nm_11, pheno_nm_male_11, unfiltered_sample_ctl2, pheno_nm_nonmale_11);
   bigstack_shrink_top(cluster_pheno_gtots, cluster_ct2 * 4 * sizeof(int32_t));
   if (bigstack_alloc_ui(cluster_ct2 * 2, cur_cluster_pheno_gtots_ptr) ||
       bigstack_alloc_ui(cluster_ct2 * 4, cluster_geno_cts_ptr) ||
@@ -10905,11 +10905,11 @@ int32_t cluster_assoc_load_one(FILE* bedfile, uintptr_t bed_offset, uintptr_t* m
       *(*chrom_name_pp)++ = '\t';
     }
   }
-  if (load_raw(bedfile, loadbuf_raw, unfiltered_sample_ct4)) {
+  if (load_raw(unfiltered_sample_ct4, bedfile, loadbuf_raw)) {
     return RET_READ_FAIL;
   }
   if (IS_SET(marker_reverse, marker_uidx)) {
-    reverse_loadbuf((unsigned char*)loadbuf_raw, unfiltered_sample_ct);
+    reverse_loadbuf(unfiltered_sample_ct, (unsigned char*)loadbuf_raw);
   }
   if (min_ploidy_1 && hh_or_mt_exists) {
     haploid_fix(hh_or_mt_exists, sample_hh_include2, sample_hh_male_include2, unfiltered_sample_ct, *is_x_ptr, *is_y_ptr, (unsigned char*)loadbuf_raw);

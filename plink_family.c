@@ -837,11 +837,11 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
       goto mendel_error_scan_seek;
     }
     while (1) {
-      if (load_raw2(bedfile, loadbuf, unfiltered_sample_ct4, unfiltered_sample_ctl2m1, final_mask)) {
+      if (load_raw2(unfiltered_sample_ct4, unfiltered_sample_ctl2m1, final_mask, bedfile, loadbuf)) {
 	goto mendel_error_scan_ret_READ_FAIL;
       }
       if (IS_SET(marker_reverse, marker_uidx)) {
-        reverse_loadbuf((unsigned char*)loadbuf, unfiltered_sample_ct);
+        reverse_loadbuf(unfiltered_sample_ct, (unsigned char*)loadbuf);
       }
       if (hh_exists && is_x) {
 	hh_reset((unsigned char*)loadbuf, sample_male_include2, unfiltered_sample_ct);
@@ -1800,11 +1800,11 @@ int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* o
       goto tdt_poo_scan_seek;
     }
     while (1) {
-      if (load_raw2(bedfile, loadbuf, unfiltered_sample_ct4, unfiltered_sample_ctl2m1, final_mask)) {
+      if (load_raw2(unfiltered_sample_ct4, unfiltered_sample_ctl2m1, final_mask, bedfile, loadbuf)) {
 	goto tdt_poo_ret_READ_FAIL;
       }
       if (IS_SET(marker_reverse, marker_uidx)) {
-	reverse_loadbuf((unsigned char*)loadbuf, unfiltered_sample_ct);
+	reverse_loadbuf(unfiltered_sample_ct, (unsigned char*)loadbuf);
       }
       if (hh_exists && is_x) {
         hh_reset((unsigned char*)loadbuf, sample_male_include2, unfiltered_sample_ct);
@@ -2240,11 +2240,11 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
       goto tdt_scan_seek;
     }
     while (1) {
-      if (load_raw2(bedfile, loadbuf, unfiltered_sample_ct4, unfiltered_sample_ctl2m1, final_mask)) {
+      if (load_raw2(unfiltered_sample_ct4, unfiltered_sample_ctl2m1, final_mask, bedfile, loadbuf)) {
 	goto tdt_ret_READ_FAIL;
       }
       if (IS_SET(marker_reverse, marker_uidx)) {
-	reverse_loadbuf((unsigned char*)loadbuf, unfiltered_sample_ct);
+	reverse_loadbuf(unfiltered_sample_ct, (unsigned char*)loadbuf);
       }
       if (hh_exists && is_x) {
 	hh_reset((unsigned char*)loadbuf, sample_male_include2, unfiltered_sample_ct);
@@ -2692,7 +2692,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
       bitvec_andnot(founder_info, unfiltered_sample_ctl, ulptr);
     }
     copy_bitarr_subset_excl(ulptr, sample_exclude, unfiltered_sample_ct, sample_ct, lm_eligible);
-    bitfield_andnot_copy(unfiltered_sample_ctl, ulptr, not_in_family, founder_info);
+    bitvec_andnot_copy(not_in_family, founder_info, unfiltered_sample_ctl, ulptr);
   } else {
     bitvec_and(pheno_nm, unfiltered_sample_ctl, ulptr);
     bitvec_andnot(founder_info, unfiltered_sample_ctl, ulptr);
@@ -4436,11 +4436,11 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	  goto dfam_ret_READ_FAIL;
 	}
       }
-      if (load_raw2(bedfile, loadbuf_raw, unfiltered_sample_ct4, unfiltered_sample_ctl2m1, final_mask)) {
+      if (load_raw2(unfiltered_sample_ct4, unfiltered_sample_ctl2m1, final_mask, bedfile, loadbuf_raw)) {
 	goto dfam_ret_READ_FAIL;
       }
       if (IS_SET(marker_reverse, marker_uidx)) {
-	reverse_loadbuf((unsigned char*)loadbuf_raw, unfiltered_sample_ct);
+	reverse_loadbuf(unfiltered_sample_ct, (unsigned char*)loadbuf_raw);
       }
       erase_mendel_errors(unfiltered_sample_ct, loadbuf_raw, workbuf, sex_male, trio_error_lookup, trio_ct, 0, multigen);
       copy_quaterarr_nonempty_subset_excl(loadbuf_raw, dfam_sample_exclude, unfiltered_sample_ct, dfam_sample_ct, &(g_loadbuf[block_size * dfam_sample_ctl2]));
@@ -5731,11 +5731,11 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	  }
 	  seek_flag = 0;
 	}
-	if (load_raw2(bedfile, loadbuf_raw, unfiltered_sample_ct4, unfiltered_sample_ctl2m1, final_mask)) {
+	if (load_raw2(unfiltered_sample_ct4, unfiltered_sample_ctl2m1, final_mask, bedfile, loadbuf_raw)) {
 	  goto qfam_ret_READ_FAIL;
 	}
 	if (IS_SET(marker_reverse, marker_uidx)) {
-	  reverse_loadbuf((unsigned char*)loadbuf_raw, unfiltered_sample_ct);
+	  reverse_loadbuf(unfiltered_sample_ct, (unsigned char*)loadbuf_raw);
 	}
 	erase_mendel_errors(unfiltered_sample_ct, loadbuf_raw, workbuf, sex_male, trio_error_lookup, trio_ct, 0, multigen);
 	loadbuf_ptr = &(g_loadbuf[block_idx * sample_ctl2]);

@@ -104,7 +104,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (13 Jan 2016)";
+  " (23 Jan 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -608,7 +608,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	memcpy(orig_pheno_d, pheno_d, unfiltered_sample_ct * sizeof(double));
       }
     }
-    count_genders(sex_nm, sex_male, unfiltered_sample_ct, sample_exclude, &uii, &ujj, &gender_unk_ct);
+    count_genders(sex_nm, sex_male, sample_exclude, unfiltered_sample_ct, &uii, &ujj, &gender_unk_ct);
     if (gender_unk_ct) {
       LOGPRINTF("%" PRIuPTR " %s (%u male%s, %u female%s, %u ambiguous) loaded from .fam.\n", unfiltered_sample_ct, species_str(unfiltered_sample_ct), uii, (uii == 1)? "" : "s", ujj, (ujj == 1)? "" : "s", gender_unk_ct);
       retval = write_nosex(outname, outname_end, unfiltered_sample_ct, sample_exclude, sex_nm, gender_unk_ct, sample_ids, max_sample_id_len);
