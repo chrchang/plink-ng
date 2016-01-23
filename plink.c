@@ -13250,6 +13250,9 @@ int32_t main(int32_t argc, char** argv) {
     logerrprint("Error: --merge-equal-pos must be used with --merge/--bmerge/--merge-list.\n(Note that you are permitted to merge a fileset with itself.)\n");
     goto main_ret_INVALID_CMDLINE_A;
   }
+  if (calculation_type && (!(calculation_type & (~(CALC_FREQ | CALC_MISSING_REPORT)))) && ((geno_thresh != 1.0) || (hwe_thresh != 0.0) || (min_maf != 0.0) || (max_maf != 0.5) || min_ac || (max_ac != 0x7fffffff))) {
+    logerrprint("Warning: --freq and --missing complete BEFORE --geno, --hwe, and --maf in\nplink's norder of operations.\n");
+  }
   // short batch job?
   uii = 0;
   if ((!calculation_type) && (!(load_rare & (LOAD_RARE_LGEN | LOAD_RARE_DUMMY | LOAD_RARE_SIMULATE | LOAD_RARE_TRANSPOSE_MASK | LOAD_RARE_23 | LOAD_RARE_CNV | LOAD_RARE_VCF | LOAD_RARE_BCF)))) {
