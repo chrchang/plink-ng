@@ -65,10 +65,11 @@
   typedef unsigned long long uint64_t;
   typedef long long int64_t;
 #else
-  #ifndef uint64_t
+  #if __GNUC__ < 6
+    // not sure how the f*** this inconsistency between GCC 6 and earlier
+    // versions is supposed to be handled, hopefully there will be official
+    // guidance...
     #define uint64_t unsigned long long
-  #endif
-  #ifndef int64_t
     #define int64_t long long
   #endif
 #endif
