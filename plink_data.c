@@ -3808,8 +3808,8 @@ int32_t load_fam(char* famname, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32
   uintptr_t line_idx = 0;
   uint32_t affection = 1;
   int32_t retval = 0;
-  char case_char = affection_01? '1' : '2';
   double pheno_ctrld = (double)((int32_t)(1 - affection_01));
+  double pheno_cased = pheno_ctrld + 1.0;
   uintptr_t* sex_nm;
   uintptr_t* sex_male;
   uintptr_t* pheno_nm;
@@ -3896,6 +3896,8 @@ int32_t load_fam(char* famname, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32
 	if (no_more_tokens_kns(bufptr)) {
 	  goto load_fam_ret_MISSING_TOKENS;
 	}
+	// --1 forces case/control phenotype in plink 1.07, keep that for
+	// backward compatibility
 	if (affection && (!affection_01)) {
 	  affection = eval_affection(bufptr, missing_phenod);
 	}
@@ -4026,15 +4028,15 @@ int32_t load_fam(char* famname, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32
     }
     if (tmp_fam_col_6) {
       bufptr = next_token(bufptr);
-      if (affection) {
-	if (!is_missing_pheno_cc(bufptr, pheno_ctrld)) {
-	  SET_BIT(sample_uidx, pheno_nm);
-	  if (*bufptr == case_char) {
+      if (!scan_double(bufptr, &dxx)) {
+	if (affection) {
+	  if (dxx == pheno_ctrld) {
+	    SET_BIT(sample_uidx, pheno_nm);
+	  } else if (dxx == pheno_cased) {
+	    SET_BIT(sample_uidx, pheno_nm);
 	    SET_BIT(sample_uidx, pheno_c);
 	  }
-	}
-      } else {
-	if ((!scan_double(bufptr, &dxx)) && (dxx != missing_phenod)) {
+	} else if (dxx != missing_phenod) {
 	  pheno_d[sample_uidx] = dxx;
 	  SET_BIT(sample_uidx, pheno_nm);
 	}

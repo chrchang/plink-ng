@@ -4812,16 +4812,6 @@ char* scan_for_duplicate_or_overlap_ids(char* sorted_ids, uintptr_t id_ct, uintp
   }
 }
 
-int32_t is_missing_pheno_cc(const char* bufptr, double pheno_ctrld) {
-  char* ss;
-  double dxx;
-  dxx = strtod(bufptr, &ss);
-  if ((ss == bufptr) || ((dxx != pheno_ctrld) && (dxx != pheno_ctrld + 1.0))) {
-    return 1;
-  }
-  return 0;
-}
-
 int32_t eval_affection(const char* bufptr, double missing_phenod) {
   // turns out --1 had the side-effect of *forcing* case/control
   // interpretation in 1.07.  We replicate that for backward compatibility, and

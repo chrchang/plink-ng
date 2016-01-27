@@ -2185,8 +2185,6 @@ char* scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id
 
 char* scan_for_duplicate_or_overlap_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len, const char* sorted_nonoverlap_ids, uintptr_t nonoverlap_id_ct, uintptr_t max_nonoverlap_id_len);
 
-int32_t is_missing_pheno_cc(const char* bufptr, double pheno_ctrld);
-
 int32_t eval_affection(const char* bufptr, double missing_phenod);
 
 uint32_t triangle_divide(int64_t cur_prod, int32_t modif);

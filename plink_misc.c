@@ -227,9 +227,9 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_sample_ct, uintptr_t sa
   uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t sample_ct = unfiltered_sample_ct - sample_exclude_ct;
   uintptr_t line_idx = 0;
-  char case_char = affection_01? '1' : '2';
   uintptr_t* isz = NULL;
   double pheno_ctrld = (double)((int32_t)(1 - affection_01));
+  double pheno_cased = pheno_ctrld + 1.0;
   double missing_phenod = (double)missing_pheno;
   int32_t retval = 0;
   double dxx;
@@ -237,6 +237,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_sample_ct, uintptr_t sa
   char* loadbuf;
   char* bufptr0;
   char* bufptr;
+  char* ss;
   uint32_t tmp_len;
   uint32_t tmp_len2;
   uint32_t uii;
@@ -337,26 +338,28 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_sample_ct, uintptr_t sa
           sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --pheno file has fewer tokens than expected.\n", line_idx);
 	  return LOAD_PHENO_LAST_COL;
 	}
+	dxx = strtod(bufptr, &ss);
 	if (affection) {
-	  if (affection_01 || eval_affection(bufptr, missing_phenod)) {
-	    if (is_missing_pheno_cc(bufptr, pheno_ctrld)) {
-	      // Since we're only making one pass through the file, we don't
-	      // have the luxury of knowing in advance whether the phenotype is
-	      // binary or scalar.  If there is a '0' entry that occurs before
-	      // we know the phenotype is scalar, we need to not set the
-	      // phenotype to zero during the binary -> scalar conversion step.
-	      if (*bufptr == '0') {
-		set_bit(sample_idx, isz);
-	      }
-	      clear_bit(sample_idx, pheno_c);
-	    } else {
-	      if (*bufptr == case_char) {
-		set_bit(sample_idx, pheno_c);
-	      } else {
-		clear_bit(sample_idx, pheno_c);
-	      }
-	      set_bit(sample_idx, pheno_nm);
+	  // er, this was calling strtod() twice on the same string.  time to
+	  // drop down a level and remove that redundancy...
+
+	  if (dxx == pheno_cased) {
+	    set_bit(sample_idx, pheno_c);
+	    set_bit(sample_idx, pheno_nm);
+	  } else if ((ss != bufptr) && (dxx == pheno_ctrld)) {
+	    clear_bit(sample_idx, pheno_c);
+	    set_bit(sample_idx, pheno_nm);
+	  } else if (affection_01 || (dxx == missing_phenod) || (dxx == 0.0)) {
+	    // Since we're only making one pass through the file, we don't
+	    // have the luxury of knowing in advance whether the phenotype is
+	    // binary or scalar.  If there is a '0' entry that occurs before
+	    // we know the phenotype is scalar, we need to not set the
+	    // phenotype to zero during the binary -> scalar conversion step.
+	    if (dxx == 0.0) {
+	      set_bit(sample_idx, isz);
 	    }
+	    clear_bit(sample_idx, pheno_nm);
+	    clear_bit(sample_idx, pheno_c);
 	  } else {
 	    pheno_d = (double*)malloc(unfiltered_sample_ct * sizeof(double));
 	    if (!pheno_d) {
@@ -376,7 +379,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_sample_ct, uintptr_t sa
 	  }
 	}
 	if (!affection) {
-	  if ((!scan_double(bufptr, &dxx)) && (dxx != missing_phenod)) {
+	  if ((ss != bufptr) && (dxx != missing_phenod)) {
 	    pheno_d[(uint32_t)sample_idx] = dxx;
 	    set_bit(sample_idx, pheno_nm);
 	  }
