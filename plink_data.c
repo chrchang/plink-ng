@@ -3809,6 +3809,7 @@ int32_t load_fam(char* famname, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32
   uint32_t affection = 1;
   int32_t retval = 0;
   char case_char = affection_01? '1' : '2';
+  double pheno_ctrld = (double)((int32_t)(1 - affection_01));
   uintptr_t* sex_nm;
   uintptr_t* sex_male;
   uintptr_t* pheno_nm;
@@ -4026,7 +4027,7 @@ int32_t load_fam(char* famname, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32
     if (tmp_fam_col_6) {
       bufptr = next_token(bufptr);
       if (affection) {
-	if (!is_missing_pheno_cc(bufptr, missing_phenod, affection_01)) {
+	if (!is_missing_pheno_cc(bufptr, pheno_ctrld)) {
 	  SET_BIT(sample_uidx, pheno_nm);
 	  if (*bufptr == case_char) {
 	    SET_BIT(sample_uidx, pheno_c);

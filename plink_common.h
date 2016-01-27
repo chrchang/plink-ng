@@ -18,7 +18,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #define PROG_NAME_STR "plink"
 #define PROG_NAME_CAPS "PLINK"
@@ -2185,7 +2185,7 @@ char* scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id
 
 char* scan_for_duplicate_or_overlap_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len, const char* sorted_nonoverlap_ids, uintptr_t nonoverlap_id_ct, uintptr_t max_nonoverlap_id_len);
 
-int32_t is_missing_pheno_cc(const char* bufptr, double missing_phenod, uint32_t affection_01);
+int32_t is_missing_pheno_cc(const char* bufptr, double pheno_ctrld);
 
 int32_t eval_affection(const char* bufptr, double missing_phenod);
 

@@ -229,6 +229,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_sample_ct, uintptr_t sa
   uintptr_t line_idx = 0;
   char case_char = affection_01? '1' : '2';
   uintptr_t* isz = NULL;
+  double pheno_ctrld = (double)((int32_t)(1 - affection_01));
   double missing_phenod = (double)missing_pheno;
   int32_t retval = 0;
   double dxx;
@@ -338,7 +339,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_sample_ct, uintptr_t sa
 	}
 	if (affection) {
 	  if (affection_01 || eval_affection(bufptr, missing_phenod)) {
-	    if (is_missing_pheno_cc(bufptr, missing_phenod, affection_01)) {
+	    if (is_missing_pheno_cc(bufptr, pheno_ctrld)) {
 	      // Since we're only making one pass through the file, we don't
 	      // have the luxury of knowing in advance whether the phenotype is
 	      // binary or scalar.  If there is a '0' entry that occurs before
