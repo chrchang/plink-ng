@@ -1833,7 +1833,7 @@ char* dtoa_so8(double dxx, char* start) {
     if (!remainder) {
       return start;
     }
-    *start++ = '.';
+    *start = '.';
     start[1] = '0' + remainder;
     return &(start[2]);
   } else {
