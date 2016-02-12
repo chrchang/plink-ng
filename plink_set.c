@@ -2787,11 +2787,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
           goto annotate_ret_INVALID_FORMAT_WW;
 	}
 	ujj |= 1 << uii;
-        if (!seq_idx) {
-	  col_skips[0] = col_idx;
-	} else {
-	  col_skips[seq_idx] = col_idx - col_skips[seq_idx - 1];
-	}
+	col_skips[seq_idx] = col_idx;
 	col_sequence[seq_idx++] = uii;
       }
     }
@@ -2801,6 +2797,10 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
   if (seq_idx != token_ct) {
     sprintf(g_logbuf, "Error: Missing column header%s in %s.\n", (seq_idx + 1 == token_ct)? "" : "s", aip->fname);
     goto annotate_ret_INVALID_FORMAT_WW;
+  }
+  // bugfix: must go backwards
+  for (ujj = seq_idx - 1; ujj; --ujj) {
+    col_skips[ujj] -= col_skips[ujj - 1];
   }
   memcpy(outname_end, ".annot", 7);
   if (fopen_checked(outname, "w", &outfile)) {
@@ -3349,11 +3349,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
 	  goto gene_report_ret_INVALID_FORMAT_WW;
 	}
 	found_header_bitfield |= 1 << ujj;
-	if (!seq_idx) {
-	  col_skips[0] = col_idx;
-	} else {
-	  col_skips[seq_idx] = col_idx - col_skips[seq_idx - 1];
-	}
+	col_skips[seq_idx] = col_idx;
 	col_sequence[seq_idx++] = ujj;
       }
     }
@@ -3363,6 +3359,10 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   if (seq_idx != token_ct) {
     sprintf(g_logbuf, "Error: Missing column header%s in %s.\n", (seq_idx + 1 == token_ct)? "" : "s", fname);
     goto gene_report_ret_INVALID_FORMAT_WW;
+  }
+  // bugfix
+  for (uii = seq_idx - 1; uii; --uii) {
+    col_skips[uii] -= col_skips[uii - 1];
   }
   // assume *bufptr is now \n (if it isn't, header line is never written to
   // output anyway)
