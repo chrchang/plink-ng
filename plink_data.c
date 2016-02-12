@@ -540,6 +540,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   uint32_t missing_ids_set = 0;
   uint32_t missing_template_base_len = 0;
   uint32_t template_insert_ct = 0;
+  uint32_t chrom_header_line_present = 0;
   uint32_t uii = 0;
   uint32_t ujj = 0;
   int32_t exclude_window_start = 0;
@@ -657,7 +658,9 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   // first pass: count columns, determine raw marker count, determine maximum
   // marker ID length and/or marker allele length if necessary, save
   // nonstandard chromosome names.
-  loadbuf_size = bigstack_left();
+
+  // ensure strcmp_se comparison doesn't read past end of buffer
+  loadbuf_size = bigstack_left() - 16;
   if (loadbuf_size > MAXLINEBUFLEN) {
     loadbuf_size = MAXLINEBUFLEN;
   } else if (loadbuf_size <= MAXLINELEN) {
@@ -682,6 +685,34 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     // bufptr3 = col 1 start
     bufptr3 = skip_initial_spaces(loadbuf);
     if (is_eoln_or_comment_kns(*bufptr3)) {
+      if (!strcmp_se(bufptr3, "#CHROM", 6)) {
+	if (chrom_header_line_present) {
+	  sprintf(g_logbuf, "Error: Multiple #CHROM header lines in %s.\n", ftype_str);
+	  goto load_bim_ret_INVALID_FORMAT_2;
+	}
+	// if column order isn't the default, error out
+	bufptr3 = skip_initial_spaces(&(bufptr3[6]));
+        if (strcmp_se(bufptr3, "ID", 2)) {
+	  goto load_bim_ret_UNSUPPORTED_COLUMN_ORDER;
+	}
+	bufptr3 = skip_initial_spaces(&(bufptr3[2]));
+	if (strcmp_se(bufptr3, "CM", 2)) {
+	  goto load_bim_ret_UNSUPPORTED_COLUMN_ORDER;
+	}
+	bufptr3 = skip_initial_spaces(&(bufptr3[2]));
+	if (strcmp_se(bufptr3, "POS", 3)) {
+	  goto load_bim_ret_UNSUPPORTED_COLUMN_ORDER;
+	}
+	bufptr3 = skip_initial_spaces(&(bufptr3[3]));
+	if (strcmp_se(bufptr3, "ALT", 3)) {
+	  goto load_bim_ret_UNSUPPORTED_COLUMN_ORDER;
+	}
+	bufptr3 = skip_initial_spaces(&(bufptr3[3]));
+	if (strcmp_se(bufptr3, "REF", 3)) {
+	  goto load_bim_ret_UNSUPPORTED_COLUMN_ORDER;
+	}
+	chrom_header_line_present = 1;
+      }
       continue;
     }
     jj = get_chrom_code(chrom_info_ptr, bufptr3);
@@ -726,6 +757,12 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
       }
       uii = strlen_se(bufptr4);
       ujj = strlen_se(bufptr5);
+      if (memchr(bufptr4, ',', ujj + ((uintptr_t)(bufptr5 - bufptr4)))) {
+	// this breaks VCF and PLINK 2 binary
+	// may need to add word wrapping if this message is changed
+	sprintf(g_logbuf, "Error: Comma-containing allele code on line %" PRIuPTR " of %s.\n", line_idx, ftype_str);
+	goto load_bim_ret_INVALID_FORMAT_2;
+      }
       if (marker_alleles_needed) {
 	if (uii >= max_marker_allele_len) {
 	  max_marker_allele_len = uii + 1;
@@ -1325,6 +1362,10 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     break;
   load_bim_ret_INVALID_CMDLINE:
     retval = RET_INVALID_CMDLINE;
+    break;
+  load_bim_ret_UNSUPPORTED_COLUMN_ORDER:
+    LOGERRPRINTF("Error: Unsupported column order specified on line %" PRIuPTR " of %s.\n", line_idx, ftype_str);
+    retval = RET_INVALID_FORMAT;
     break;
   load_bim_ret_INVALID_BP_COORDINATE:
     LOGERRPRINTF("Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, ftype_str);
