@@ -790,7 +790,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	ulii += uii + ujj;
       }
       if (ulii >= max_marker_id_len) {
-	if (ulii > MAX_ID_LEN) {
+	if (ulii > MAX_ID_LEN_P1) {
           logerrprint("Error: Variant names are limited to " MAX_ID_LEN_STR " characters.\n");
 	  goto load_bim_ret_INVALID_FORMAT;
 	}
