@@ -1263,8 +1263,6 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	    }
 	  }
 	  ulii = marker_uidx * 2;
-	  // possible todo: warn if a comma is present (could use memchr),
-	  // since that breaks VCF and PLINK 2.0.
 	  if (allele_set(bufptr4, ukk, &(marker_allele_ptrs[ulii]))) {
 	    goto load_bim_ret_NOMEM;
 	  }
