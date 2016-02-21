@@ -2620,9 +2620,9 @@ THREAD_RET_TYPE assoc_maxt_thread(void* arg) {
 	  ldrefs[marker_idx] = ldref;
 	}
 	if (ldref == marker_bidx) {
-	  fill_uint_zero(git_homrar_cts, 3 * perm_vec_ctcl4m);
+	  fill_uint_zero(3 * perm_vec_ctcl4m, git_homrar_cts);
 	  calc_git(pheno_nm_ct, perm_vec_ct, loadbuf_cur, perm_vecst, git_homrar_cts, thread_git_wkspace);
-	  fill_uint_zero(thread_git_wkspace, perm_ctvc * 72 * BYTECT4);
+	  fill_uint_zero(perm_ctvc * 72 * BYTECT4, thread_git_wkspace);
 	} else {
 	  memcpy(git_homrar_cts, &(resultbuf[3 * ldref * perm_vec_ctcl4m]), 3 * perm_vec_ctcl4m * sizeof(int32_t));
 	  calc_rem(pheno_nm_ct, perm_vec_ct, loadbuf_cur, &(loadbuf[ldref * pheno_nm_ctv2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
@@ -2804,9 +2804,9 @@ THREAD_RET_TYPE assoc_set_thread(void* arg) {
 	git_homrar_cts = &(resultbuf[3 * marker_bidx * perm_vec_ctcl4m]);
 	git_missing_cts = &(git_homrar_cts[perm_vec_ctcl4m]);
 	git_het_cts = &(git_homrar_cts[2 * perm_vec_ctcl4m]);
-	fill_uint_zero(git_homrar_cts, 3 * perm_vec_ctcl4m);
+	fill_uint_zero(3 * perm_vec_ctcl4m, git_homrar_cts);
 	calc_git(pheno_nm_ct, perm_vec_ct, loadbuf_cur, perm_vecst, git_homrar_cts, thread_git_wkspace);
-	fill_uint_zero(thread_git_wkspace, perm_ctvc * 72 * BYTECT4);
+	fill_uint_zero(perm_ctvc * 72 * BYTECT4, thread_git_wkspace);
       }
       for (pidx = 0; pidx < perm_vec_ct; pidx++) {
 	if (!is_x_or_y) {
@@ -2994,16 +2994,16 @@ THREAD_RET_TYPE qassoc_adapt_thread(void* arg) {
 	    if ((dyy > aperm_alpha) || (dzz < aperm_alpha)) {
 	      perm_adapt_stop[marker_idx] = 1;
 	      perm_attempt_ct[marker_idx] = next_adapt_check;
-	      fill_double_zero(git_qt_g_prod, next_cqg);
-	      fill_double_zero(git_qt_sum, next_cqg);
-	      fill_double_zero(git_qt_ssq, next_cqg);
+	      fill_double_zero(next_cqg, git_qt_g_prod);
+	      fill_double_zero(next_cqg, git_qt_sum);
+	      fill_double_zero(next_cqg, git_qt_ssq);
 	      goto qassoc_adapt_thread_lesszero;
 	    }
 	  }
 	  next_adapt_check += (int32_t)(adaptive_intercept + ((int32_t)next_adapt_check) * adaptive_slope);
 	}
       }
-      fill_double_zero(git_qt_g_prod, perm_vec_ctcl8m * 3);
+      fill_double_zero(perm_vec_ctcl8m * 3, git_qt_g_prod);
     qassoc_adapt_thread_lesszero:
       perm_2success_ct[marker_idx] += success_2incr;
     }
@@ -3168,19 +3168,19 @@ THREAD_RET_TYPE qassoc_adapt_lin_thread(void* arg) {
 	    if ((dyy > aperm_alpha) || (dzz < aperm_alpha)) {
 	      perm_adapt_stop[marker_idx] = 1;
 	      perm_attempt_ct[marker_idx] = next_adapt_check;
-	      fill_double_zero(git_qt_het_sum, next_cqg);
-	      fill_double_zero(git_qt_het_ssq, next_cqg);
-	      fill_double_zero(git_qt_homrar_sum, next_cqg);
-	      fill_double_zero(git_qt_homrar_ssq, next_cqg);
-	      fill_double_zero(git_qt_missing_sum, next_cqg);
-	      fill_double_zero(git_qt_missing_ssq, next_cqg);
+	      fill_double_zero(next_cqg, git_qt_het_sum);
+	      fill_double_zero(next_cqg, git_qt_het_ssq);
+	      fill_double_zero(next_cqg, git_qt_homrar_sum);
+	      fill_double_zero(next_cqg, git_qt_homrar_ssq);
+	      fill_double_zero(next_cqg, git_qt_missing_sum);
+	      fill_double_zero(next_cqg, git_qt_missing_ssq);
 	      goto qassoc_adapt_lin_thread_lesszero;
 	    }
 	  }
 	  next_adapt_check += (int32_t)(adaptive_intercept + ((int32_t)next_adapt_check) * adaptive_slope);
 	}
       }
-      fill_double_zero(git_qt_het_sum, perm_vec_ctcl8m * 6);
+      fill_double_zero(perm_vec_ctcl8m * 6, git_qt_het_sum);
     qassoc_adapt_lin_thread_lesszero:
       perm_2success_ct[marker_idx] += success_2incr;
     }
@@ -3361,7 +3361,7 @@ THREAD_RET_TYPE qassoc_maxt_thread(void* arg) {
 	ldrefs[marker_idx] = ldref;
       }
       if (ldref == marker_bidx) {
-	fill_double_zero(git_qt_g_prod, perm_vec_ctcl8m * 3);
+	fill_double_zero(perm_vec_ctcl8m * 3, git_qt_g_prod);
 	calc_qgit(pheno_nm_ct, perm_vec_ctcl8m, perm_vec_ct, loadbuf_cur, perm_vecstd, git_qt_g_prod);
       } else {
 	memcpy(git_qt_g_prod, &(qresultbuf[3 * ldref * perm_vec_ctcl8m]), 3 * perm_vec_ctcl8m * sizeof(double));
@@ -3545,7 +3545,7 @@ THREAD_RET_TYPE qassoc_maxt_lin_thread(void* arg) {
 	ldrefs[marker_idx] = ldref;
       }
       if (ldref == marker_bidx) {
-	fill_double_zero(git_qt_het_sum, perm_vec_ctcl8m * 6);
+	fill_double_zero(perm_vec_ctcl8m * 6, git_qt_het_sum);
 	calc_qgit_lin(pheno_nm_ct, perm_vec_ctcl8m, perm_vec_ct, loadbuf_cur, perm_vecstd, git_qt_het_sum);
       } else {
 	memcpy(git_qt_het_sum, &(qresultbuf[6 * ldref * perm_vec_ctcl8m]), 6 * perm_vec_ctcl8m * sizeof(double));
@@ -3672,7 +3672,7 @@ THREAD_RET_TYPE qassoc_set_thread(void* arg) {
 	vbeta_sqrt = sqrt((qt_var * geno_var_recip - beta * beta) * nanal_m2_recip);
 	*msa_ptr++ = fabs(beta / vbeta_sqrt);
       }
-      fill_double_zero(git_qt_g_prod, perm_vec_ctcl8m * 3);
+      fill_double_zero(perm_vec_ctcl8m * 3, git_qt_g_prod);
     }
   qassoc_set_thread_skip_all:
     if ((!tidx) || g_is_last_thread_block) {
@@ -3995,9 +3995,9 @@ THREAD_RET_TYPE model_maxt_domrec_thread(void* arg) {
 	ldrefs[marker_idx] = ldref;
       }
       if (ldref == marker_bidx) {
-	fill_uint_zero(git_homrar_cts, 3 * perm_vec_ctcl4m);
+	fill_uint_zero(3 * perm_vec_ctcl4m, git_homrar_cts);
 	calc_git(pheno_nm_ct, perm_vec_ct, &(loadbuf[marker_bidx * pheno_nm_ctv2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
-	fill_uint_zero(thread_git_wkspace, perm_ctvc * 72 * BYTECT4);
+	fill_uint_zero(perm_ctvc * 72 * BYTECT4, thread_git_wkspace);
       } else {
 	memcpy(git_homrar_cts, &(resultbuf[3 * ldref * perm_vec_ctcl4m]), 3 * perm_vec_ctcl4m * sizeof(int32_t));
 	calc_rem(pheno_nm_ct, perm_vec_ct, loadbuf_cur, &(loadbuf[ldref * pheno_nm_ctv2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
@@ -4151,9 +4151,9 @@ THREAD_RET_TYPE model_set_domrec_thread(void* arg) {
       git_homrar_cts = &(resultbuf[3 * marker_bidx * perm_vec_ctcl4m]);
       git_missing_cts = &(git_homrar_cts[perm_vec_ctcl4m]);
       git_het_cts = &(git_homrar_cts[2 * perm_vec_ctcl4m]);
-      fill_uint_zero(git_homrar_cts, 3 * perm_vec_ctcl4m);
+      fill_uint_zero(3 * perm_vec_ctcl4m, git_homrar_cts);
       calc_git(pheno_nm_ct, perm_vec_ct, loadbuf_cur, perm_vecst, git_homrar_cts, thread_git_wkspace);
-      fill_uint_zero(thread_git_wkspace, perm_ctvc * 72 * BYTECT4);
+      fill_uint_zero(perm_ctvc * 72 * BYTECT4, thread_git_wkspace);
       for (pidx = 0; pidx < perm_vec_ct; pidx++) {
 	case_missing_ct = git_missing_cts[pidx];
         if (is_model_prec) {
@@ -4430,9 +4430,9 @@ THREAD_RET_TYPE model_maxt_trend_thread(void* arg) {
 	ldrefs[marker_idx] = ldref;
       }
       if (ldref == marker_bidx) {
-	fill_uint_zero(git_homrar_cts, 3 * perm_vec_ctcl4m);
+	fill_uint_zero(3 * perm_vec_ctcl4m, git_homrar_cts);
 	calc_git(pheno_nm_ct, perm_vec_ct, loadbuf_cur, perm_vecst, git_homrar_cts, thread_git_wkspace);
-	fill_uint_zero(thread_git_wkspace, perm_ctvc * 72 * BYTECT4);
+	fill_uint_zero(perm_ctvc * 72 * BYTECT4, thread_git_wkspace);
       } else {
 	memcpy(git_homrar_cts, &(resultbuf[3 * ldref * perm_vec_ctcl4m]), 3 * perm_vec_ctcl4m * sizeof(int32_t));
 	calc_rem(pheno_nm_ct, perm_vec_ct, loadbuf_cur, &(loadbuf[ldref * pheno_nm_ctv2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
@@ -4555,9 +4555,9 @@ THREAD_RET_TYPE model_set_trend_thread(void* arg) {
       git_homrar_cts = &(resultbuf[3 * marker_bidx * perm_vec_ctcl4m]);
       git_missing_cts = &(git_homrar_cts[perm_vec_ctcl4m]);
       git_het_cts = &(git_homrar_cts[2 * perm_vec_ctcl4m]);
-      fill_uint_zero(git_homrar_cts, 3 * perm_vec_ctcl4m);
+      fill_uint_zero(3 * perm_vec_ctcl4m, git_homrar_cts);
       calc_git(pheno_nm_ct, perm_vec_ct, loadbuf_cur, perm_vecst, git_homrar_cts, thread_git_wkspace);
-      fill_uint_zero(thread_git_wkspace, perm_ctvc * 72 * BYTECT4);
+      fill_uint_zero(perm_ctvc * 72 * BYTECT4, thread_git_wkspace);
       for (pidx = 0; pidx < perm_vec_ct; pidx++) {
 	case_missing_ct = git_missing_cts[pidx];
 	case_com_ct = 2 * (case_ct - case_missing_ct - git_homrar_cts[pidx]) - git_het_cts[pidx];
@@ -4848,9 +4848,9 @@ THREAD_RET_TYPE model_maxt_gen_thread(void* arg) {
 	ldrefs[marker_idx] = ldref;
       }
       if (ldref == marker_bidx) {
-	fill_uint_zero(git_homrar_cts, 3 * perm_vec_ctcl4m);
+	fill_uint_zero(3 * perm_vec_ctcl4m, git_homrar_cts);
 	calc_git(pheno_nm_ct, perm_vec_ct, loadbuf_cur, perm_vecst, git_homrar_cts, thread_git_wkspace);
-	fill_uint_zero(thread_git_wkspace, perm_ctvc * 72 * BYTECT4);
+	fill_uint_zero(perm_ctvc * 72 * BYTECT4, thread_git_wkspace);
       } else {
 	memcpy(git_homrar_cts, &(resultbuf[3 * ldref * perm_vec_ctcl4m]), 3 * perm_vec_ctcl4m * sizeof(int32_t));
 	calc_rem(pheno_nm_ct, perm_vec_ct, loadbuf_cur, &(loadbuf[ldref * pheno_nm_ctv2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
@@ -5282,9 +5282,9 @@ THREAD_RET_TYPE model_maxt_best_thread(void* arg) {
 	ldrefs[marker_idx] = ldref;
       }
       if (ldref == marker_bidx) {
-	fill_uint_zero(git_homrar_cts, 3 * perm_vec_ctcl4m);
+	fill_uint_zero(3 * perm_vec_ctcl4m, git_homrar_cts);
 	calc_git(pheno_nm_ct, perm_vec_ct, &(loadbuf[marker_bidx * pheno_nm_ctv2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
-	fill_uint_zero(thread_git_wkspace, perm_ctvc * 72 * BYTECT4);
+	fill_uint_zero(perm_ctvc * 72 * BYTECT4, thread_git_wkspace);
       } else {
 	memcpy(git_homrar_cts, &(resultbuf[3 * ldref * perm_vec_ctcl4m]), 3 * perm_vec_ctcl4m * sizeof(int32_t));
 	calc_rem(pheno_nm_ct, perm_vec_ct, loadbuf_cur, &(loadbuf[ldref * pheno_nm_ctv2]), perm_vecst, git_homrar_cts, thread_git_wkspace);
@@ -5538,9 +5538,9 @@ THREAD_RET_TYPE model_set_best_thread(void* arg) {
       git_homrar_cts = &(resultbuf[3 * marker_bidx * perm_vec_ctcl4m]);
       git_missing_cts = &(git_homrar_cts[perm_vec_ctcl4m]);
       git_het_cts = &(git_homrar_cts[2 * perm_vec_ctcl4m]);
-      fill_uint_zero(git_homrar_cts, 3 * perm_vec_ctcl4m);
+      fill_uint_zero(3 * perm_vec_ctcl4m, git_homrar_cts);
       calc_git(pheno_nm_ct, perm_vec_ct, loadbuf_cur, perm_vecst, git_homrar_cts, thread_git_wkspace);
-      fill_uint_zero(thread_git_wkspace, perm_ctvc * 72 * BYTECT4);
+      fill_uint_zero(perm_ctvc * 72 * BYTECT4, thread_git_wkspace);
       for (pidx = 0; pidx < perm_vec_ct; pidx++) {
 	case_missing_ct = git_missing_cts[pidx];
 	case_het_ct = git_het_cts[pidx];
@@ -6148,7 +6148,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	maxt_extreme_stat[uii] = 1;
       }
     } else {
-      fill_double_zero(maxt_extreme_stat, perms_total);
+      fill_double_zero(perms_total, maxt_extreme_stat);
     }
     if (mperm_save & MPERM_DUMP_ALL) {
       memcpy(outname_end, ".mperm.dump.all", 16);
@@ -6350,9 +6350,9 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	goto model_assoc_ret_NOMEM;
       }
 #ifdef __LP64__
-      fill_ulong_one((uintptr_t*)g_ldrefs, (marker_ct + 3) / 4);
+      fill_ulong_one((marker_ct + 3) / 4, (uintptr_t*)g_ldrefs);
 #else
-      fill_ulong_one((uintptr_t*)g_ldrefs, (marker_ct + 1) / 2);
+      fill_ulong_one((marker_ct + 1) / 2, (uintptr_t*)g_ldrefs);
 #endif
       if (!(mperm_save & MPERM_DUMP_ALL)) {
 	// 5.65686 = roughly 4 * sqrt(2), corresponding to 4 stdevs.  this is
@@ -8177,9 +8177,9 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
       goto qassoc_ret_NOMEM;
     }
 #ifdef __LP64__
-    fill_ulong_one((uintptr_t*)g_ldrefs, (marker_ct + 3) / 4);
+    fill_ulong_one((marker_ct + 3) / 4, (uintptr_t*)g_ldrefs);
 #else
-    fill_ulong_one((uintptr_t*)g_ldrefs, (marker_ct + 1) / 2);
+    fill_ulong_one((marker_ct + 1) / 2, (uintptr_t*)g_ldrefs);
 #endif
     if (mperm_save & MPERM_DUMP_ALL) {
       memcpy(outname_end, ".mperm.dump.all", 16);
@@ -9865,7 +9865,7 @@ THREAD_RET_TYPE testmiss_maxt_thread(void* arg) {
       }
       loadbuf_ptr = &(loadbuf[marker_bidx * pheno_nm_ctv]);
       success_2incr = 0;
-      fill_uint_zero(thread_git_wkspace, perm_ct128 * 176);
+      fill_uint_zero(perm_ct128 * 176, thread_git_wkspace);
       calc_git_missing(pheno_nm_ct, perm_vec_ct, loadbuf_ptr, perm_vecst, thread_git_wkspace);
       for (pidx = 0; pidx < perm_vec_ct; pidx++) {
 	missing_case_ct = thread_git_wkspace[pidx];
@@ -10914,7 +10914,7 @@ int32_t cluster_assoc_load_one(FILE* bedfile, uintptr_t bed_offset, uintptr_t* m
   if (min_ploidy_1 && hh_or_mt_exists) {
     haploid_fix(hh_or_mt_exists, sample_hh_include2, sample_hh_male_include2, unfiltered_sample_ct, *is_x_ptr, *is_y_ptr, (unsigned char*)loadbuf_raw);
   }
-  fill_uint_zero(cluster_geno_cts, 4 * cluster_ct2);
+  fill_uint_zero(4 * cluster_ct2, cluster_geno_cts);
   ulptr = loadbuf_raw;
   ulptr2 = pheno_nm_11;
   if ((!min_ploidy_1) || (*is_x_ptr)) {

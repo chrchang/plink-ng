@@ -816,7 +816,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
     fprintf(outfile_l, g_textbuf, "SNP");
   } else {
     // suppress warning
-    fill_ulong_zero((uintptr_t*)errstrs, 10);
+    fill_ulong_zero(10, (uintptr_t*)errstrs);
   }
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
     chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
@@ -857,7 +857,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 	varlen = strlen(varptr);
 	alens[0] = 0;
 	alens[1] = 0;
-	fill_uint_zero(errstr_lens, 11);
+	fill_uint_zero(11, errstr_lens);
       }
       if (!multigen) {
 	for (trio_idx = 0; trio_idx < trio_ct; trio_idx++) {
@@ -948,7 +948,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 	      goto mendel_error_scan_ret_WRITE_FAIL;
 	    }
 	  }
-          fill_ulong_zero(error_locs, trio_ctl);
+          fill_ulong_zero(trio_ctl, error_locs);
 	}
       }
       if (calc_mendel) {
@@ -982,7 +982,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 	      error_cts_tmp[trio_idx] += error_cts_tmp2[trio_idx];
 	    }
 #endif
-	    fill_uint_zero(error_cts_tmp2, trio_ct);
+	    fill_uint_zero(trio_ct, error_cts_tmp2);
 	  }
 	  error_ct_fill++;
 	  if (error_ct_fill == 255) {
@@ -996,7 +996,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 	      *uiptr += uii >> 16;
 	      uiptr++;
 	    }
-	    fill_uint_zero(error_cts_tmp, trio_ct);
+	    fill_uint_zero(trio_ct, error_cts_tmp);
 	    error_ct_fill = 0;
 	  }
 	}
@@ -1045,8 +1045,8 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
     }
     sprintf(g_textbuf, "%%%us %%%us %%%us   CHLD    N\n", plink_maxfid, plink_maxiid, plink_maxiid);
     fprintf(outfile, g_textbuf, "FID", "PAT", "MAT");
-    fill_ull_zero(family_error_cts, family_ct * 3);
-    fill_uint_zero(child_cts, family_ct);
+    fill_ull_zero(family_ct * 3, family_error_cts);
+    fill_uint_zero(family_ct, child_cts);
     for (trio_idx = 0; trio_idx < trio_ct; trio_idx++) {
       uii = (uint32_t)(trio_list[trio_idx] >> 32);
       child_cts[uii] += 1;
@@ -1459,7 +1459,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   if (bigstack_alloc_ul(unfiltered_sample_ctl + ulii, &processed_samples)) {
     return RET_NOMEM;
   }
-  fill_ulong_one(&(processed_samples[unfiltered_sample_ctl]), ulii);
+  fill_ulong_one(ulii, &(processed_samples[unfiltered_sample_ctl]));
 
   bigstack_mark2 = g_bigstack_base;
   for (fidx = 0; fidx < family_id_ct; fidx++) {
@@ -2611,7 +2611,7 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
   }
 
   bitarr_invert_copy(sample_exclude, unfiltered_sample_ct, not_in_family);
-  fill_uint_one(sample_to_fss_idx, sample_ct);
+  fill_uint_one(sample_ct, sample_to_fss_idx);
   fill_uidx_to_idx(sample_exclude, unfiltered_sample_ct, sample_ct, sample_uidx_to_idx);
   if (family_ct) {
     // iterate over all parents
@@ -2951,7 +2951,7 @@ void dfam_sibship_or_unrelated_perm_calc(uintptr_t* loadbuf_ptr, const uint32_t*
   uint32_t max_incr8;
   uint32_t uii;
   // first check if all genotypes are identical
-  fill_uint_zero(cur_genotype_cts, 4);
+  fill_uint_zero(4, cur_genotype_cts);
   for (sib_idx = 0; sib_idx < sibling_ct; sib_idx++) {
     sample_idx = cur_dfam_ptr[sib_idx];
     cur_geno = EXTRACT_2BIT_GENO(loadbuf_ptr, sample_idx);
@@ -2982,13 +2982,13 @@ void dfam_sibship_or_unrelated_perm_calc(uintptr_t* loadbuf_ptr, const uint32_t*
   }
 
 #ifdef __LP64__
-  fill_vec_zero(acc4, acc4_vec_ct);
-  fill_vec_zero(acc8, acc8_vec_ct);
+  fill_vvec_zero(acc4_vec_ct, acc4);
+  fill_vvec_zero(acc8_vec_ct, acc8);
 #else
-  fill_ulong_zero(acc4, acc4_word_ct);
-  fill_ulong_zero(acc8, acc8_word_ct);
+  fill_ulong_zero(acc4_word_ct, acc4);
+  fill_ulong_zero(acc8_word_ct, acc8);
 #endif
-  fill_uint_zero(cur_case_a1_cts, perm_vec_ct);
+  fill_uint_zero(perm_vec_ct, cur_case_a1_cts);
   max_incr4 = 0;
   max_incr8 = 0;
   for (sib_idx = 0; sib_idx < sibling_ct; sib_idx++) {
@@ -3106,13 +3106,13 @@ void dfam_sibship_or_unrelated_perm_calc(uintptr_t* loadbuf_ptr, const uint32_t*
   }
 
 #ifdef __LP64__
-  fill_vec_zero(acc4, acc4_vec_ct);
-  fill_vec_zero(acc8, acc8_vec_ct);
+  fill_vvec_zero(acc4_vec_ct, acc4);
+  fill_vvec_zero(acc8_vec_ct, acc8);
 #else
-  fill_ulong_zero(acc4, acc4_word_ct);
-  fill_ulong_zero(acc8, acc8_word_ct);
+  fill_ulong_zero(acc4_word_ct, acc4);
+  fill_ulong_zero(acc8_word_ct, acc8);
 #endif
-  fill_uint_zero(cur_case_missing_cts, perm_vec_ct);
+  fill_uint_zero(perm_vec_ct, cur_case_missing_cts);
   uii = 0;
   for (sib_idx = 0; sib_idx < sibling_ct; sib_idx++) {
     sample_idx = cur_dfam_ptr[sib_idx];
@@ -3362,9 +3362,9 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
       }
       quad_denom = 0;
       twice_numer_subtract = 0;
-      fill_uint_zero(total_counts, perm_vec_ct);
-      fill_double_zero(numers, perm_vec_ct);
-      fill_double_zero(denoms, perm_vec_ct);
+      fill_uint_zero(perm_vec_ct, total_counts);
+      fill_double_zero(perm_vec_ct, numers);
+      fill_double_zero(perm_vec_ct, denoms);
 
       cur_dfam_ptr = dfam_iteration_order;
       success_2start = perm_2success_ct[marker_idx];
@@ -3372,7 +3372,7 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
       chisq_high = orig_chisq[marker_idx] + EPSILON;
       chisq_low = orig_chisq[marker_idx] - EPSILON;
 #ifdef __LP64__
-      fill_vec_zero(case_a1_ct_acc8, acc8_vec_ct);
+      fill_vvec_zero(acc8_vec_ct, case_a1_ct_acc8);
       max_incr4 = 0;
       max_incr8 = 0;
 #endif
@@ -3487,13 +3487,13 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 
 	  quad_denom += (2 - (parental_a1_ct & 1)) * nonmissing_sib_ct;
 	  cur_flipa = &(flipa[fs_idx * perm_vec_wcta]);
-	  fill_uint_zero(cur_case_a1_cts, perm_vec_ct);
+	  fill_uint_zero(perm_vec_ct, cur_case_a1_cts);
 #ifdef __LP64__
-	  fill_vec_zero(acc4, acc4_vec_ct);
-	  fill_vec_zero(acc8, acc8_vec_ct);
+	  fill_vvec_zero(acc4_vec_ct, acc4);
+	  fill_vvec_zero(acc8_vec_ct, acc8);
 #else
-	  fill_ulong_zero(acc4, acc4_word_ct);
-	  fill_ulong_zero(acc8, acc8_word_ct);
+	  fill_ulong_zero(acc4_word_ct, acc4);
+	  fill_ulong_zero(acc8_word_ct, acc8);
 #endif
 	  // compute (unflipped) case_a1_ct for each permutation
 	  max_incr4 = 0; // maximum possible value in acc4
@@ -3597,13 +3597,13 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	    // case, but we focus our attention on the far more common sparse
 	    // missingness scenario.)
 	    cur_max_incr = 0;
-	    fill_uint_zero(cur_case_missing_cts, perm_vec_ct);
+	    fill_uint_zero(perm_vec_ct, cur_case_missing_cts);
 #ifdef __LP64__
-	    fill_vec_zero(acc4, acc4_vec_ct);
-	    fill_vec_zero(acc8, acc8_vec_ct);
+	    fill_vvec_zero(acc4_vec_ct, acc4);
+	    fill_vvec_zero(acc8_vec_ct, acc8);
 #else
-	    fill_ulong_zero(acc4, acc4_word_ct);
-	    fill_ulong_zero(acc8, acc8_word_ct);
+	    fill_ulong_zero(acc4_word_ct, acc4);
+	    fill_ulong_zero(acc8_word_ct, acc8);
 #endif
 	    for (sib_idx = 0; sib_idx < sibling_ct; sib_idx++) {
 	      sample_idx = cur_dfam_ptr[sib_idx];
@@ -4086,7 +4086,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	goto dfam_ret_NOMEM;
       }
     } else {
-      fill_uint_zero(sample_to_cluster, sample_ct);
+      fill_uint_zero(sample_ct, sample_to_cluster);
       cluster_ct = 1;
     }
     for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
@@ -5635,7 +5635,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   for (uii = 0; uii < fss_ct; uii++) {
     dummy_perm[uii] = uii;
   }
-  fill_ulong_zero(dummy_flip, fss_ctl);
+  fill_ulong_zero(fss_ctl, dummy_flip);
 
   LOGPRINTFWW("--qfam-%s: Permuting %" PRIuPTR " families/singletons, and including %u %s in linear regression.\n", flag_suffix, fss_ct, lm_ct, g_species_plural);
   LOGPRINTFWW5("Writing report to %s ... ", outname);
@@ -5666,7 +5666,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     // permutation generation, since integer divison/modulus sucks that badly?
     // Todo: test with a dataset with ~10k samples.)
     if (only_within) {
-      fill_ulong_zero(g_qfam_flip, cur_perm_ct * lm_ctl);
+      fill_ulong_zero(cur_perm_ct * lm_ctl, g_qfam_flip);
       ujj = fss_ctl * (BITCT / 32);
       ulptr = g_qfam_flip;
       for (ulii = 0; ulii < cur_perm_ct; ulii++) {
@@ -5681,7 +5681,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	}
 	ulptr = &(ulptr[lm_ctl]);
       }
-      fill_ulong_zero(dummy_flip, fss_ctl);
+      fill_ulong_zero(fss_ctl, dummy_flip);
     } else {
       for (ulii = 0; ulii < cur_perm_ct; ulii++) {
 	uint32_permute(&(g_qfam_permute[ulii * fss_ct]), &(precomputed_mods[-1]), &g_sfmt, fss_ct);

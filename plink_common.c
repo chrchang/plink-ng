@@ -3312,7 +3312,7 @@ void fill_bits(uintptr_t loc_start, uintptr_t len, uintptr_t* bitarr) {
     bitarr[maj_start] |= (ONELU << ((loc_start + len) % BITCT)) - (ONELU << (loc_start % BITCT));
   } else {
     bitarr[maj_start] |= ~((ONELU << (loc_start % BITCT)) - ONELU);
-    fill_ulong_one(&(bitarr[maj_start + 1]), maj_end - maj_start - 1);
+    fill_ulong_one(maj_end - maj_start - 1, &(bitarr[maj_start + 1]));
     minor = (loc_start + len) % BITCT;
     if (minor) {
       bitarr[maj_end] |= (ONELU << minor) - ONELU;
@@ -3329,7 +3329,7 @@ void clear_bits(uintptr_t loc_start, uintptr_t len, uintptr_t* bitarr) {
     bitarr[maj_start] &= ~((ONELU << ((loc_start + len) % BITCT)) - (ONELU << (loc_start % BITCT)));
   } else {
     bitarr[maj_start] &= ((ONELU << (loc_start % BITCT)) - ONELU);
-    fill_ulong_zero(&(bitarr[maj_start + 1]), maj_end - maj_start - 1);
+    fill_ulong_zero(maj_end - maj_start - 1, &(bitarr[maj_start + 1]));
     minor = (loc_start + len) % BITCT;
     if (minor) {
       bitarr[maj_end] &= ~((ONELU << minor) - ONELU);
@@ -3562,7 +3562,7 @@ int32_t bigstack_calloc_d(uintptr_t ct, double** dp_ptr) {
   if (!(*dp_ptr)) {
     return 1;
   }
-  fill_double_zero(*dp_ptr, ct);
+  fill_double_zero(ct, *dp_ptr);
   return 0;
 }
 
@@ -3571,7 +3571,7 @@ int32_t bigstack_calloc_f(uintptr_t ct, float** fp_ptr) {
   if (!(*fp_ptr)) {
     return 1;
   }
-  fill_float_zero(*fp_ptr, ct);
+  fill_float_zero(ct, *fp_ptr);
   return 0;
 }
 
@@ -3580,7 +3580,7 @@ int32_t bigstack_calloc_ui(uintptr_t ct, uint32_t** uip_ptr) {
   if (!(*uip_ptr)) {
     return 1;
   }
-  fill_uint_zero(*uip_ptr, ct);
+  fill_uint_zero(ct, *uip_ptr);
   return 0;
 }
 
@@ -3589,7 +3589,7 @@ int32_t bigstack_calloc_ul(uintptr_t ct, uintptr_t** ulp_ptr) {
   if (!(*ulp_ptr)) {
     return 1;
   }
-  fill_ulong_zero(*ulp_ptr, ct);
+  fill_ulong_zero(ct, *ulp_ptr);
   return 0;
 }
 
@@ -3598,7 +3598,7 @@ int32_t bigstack_calloc_ull(uintptr_t ct, uint64_t** ullp_ptr) {
   if (!(*ullp_ptr)) {
     return 1;
   }
-  fill_ull_zero(*ullp_ptr, ct);
+  fill_ull_zero(ct, *ullp_ptr);
   return 0;
 }
 
@@ -3616,7 +3616,7 @@ int32_t bigstack_end_calloc_d(uintptr_t ct, double** dp_ptr) {
   if (!(*dp_ptr)) {
     return 1;
   }
-  fill_double_zero(*dp_ptr, ct);
+  fill_double_zero(ct, *dp_ptr);
   return 0;
 }
 
@@ -3625,7 +3625,7 @@ int32_t bigstack_end_calloc_f(uintptr_t ct, float** fp_ptr) {
   if (!(*fp_ptr)) {
     return 1;
   }
-  fill_float_zero(*fp_ptr, ct);
+  fill_float_zero(ct, *fp_ptr);
   return 0;
 }
 
@@ -3634,7 +3634,7 @@ int32_t bigstack_end_calloc_ui(uintptr_t ct, uint32_t** uip_ptr) {
   if (!(*uip_ptr)) {
     return 1;
   }
-  fill_uint_zero(*uip_ptr, ct);
+  fill_uint_zero(ct, *uip_ptr);
   return 0;
 }
 
@@ -3643,7 +3643,7 @@ int32_t bigstack_end_calloc_ul(uintptr_t ct, uintptr_t** ulp_ptr) {
   if (!(*ulp_ptr)) {
     return 1;
   }
-  fill_ulong_zero(*ulp_ptr, ct);
+  fill_ulong_zero(ct, *ulp_ptr);
   return 0;
 }
 
@@ -3652,7 +3652,7 @@ int32_t bigstack_end_calloc_ull(uintptr_t ct, uint64_t** ullp_ptr) {
   if (!(*ullp_ptr)) {
     return 1;
   }
-  fill_ull_zero(*ullp_ptr, ct);
+  fill_ull_zero(ct, *ullp_ptr);
   return 0;
 }
 
@@ -3803,7 +3803,7 @@ int32_t populate_id_htable(uintptr_t unfiltered_ct, const uintptr_t* exclude_arr
   uint32_t top_diff;
   uint32_t hash_result;
   uint32_t cur_dup;
-  fill_uint_one(id_htable, id_htable_size);
+  fill_uint_one(id_htable_size, id_htable);
   if (!store_dups) {
     for (; item_idx < item_ct; item_uidx++, item_idx++) {
       next_unset_ul_unsafe_ck(exclude_arr, &item_uidx);
@@ -4495,7 +4495,7 @@ int32_t resolve_or_add_chrom_name(const char* cur_chrom_name, const char* file_d
   }
   if (slen > MAX_ID_LEN) {
     if (line_idx) {
-      LOGERRPRINTFWW("Error: Line %" PRIuPTR " of %s has an excessively long chromosome/contig name.  (The " PROG_NAME_CAPS " limit is " MAX_ID_LEN_STR " characters.)\n", line_idx, file_descrip);
+      LOGERRPRINTFWW("Error: Line %" PRIuPTR " of %s has an excessively long chromosome/contig name. (The " PROG_NAME_CAPS " limit is " MAX_ID_LEN_STR " characters.)\n", line_idx, file_descrip);
     } else {
       LOGERRPRINTFWW("Error: Excessively long chromosome/contig name in %s. (The " PROG_NAME_CAPS " limit is " MAX_ID_LEN_STR " characters.)\n", file_descrip);
     }
@@ -4531,6 +4531,562 @@ int32_t resolve_or_add_chrom_name(const char* cur_chrom_name, const char* file_d
   chrom_info_ptr->name_ct += 1;
   return 0;
 }
+
+/*
+// plink2_common code to switch to
+
+// hashval computation left to caller since this is frequently used with
+// chromosome IDs, where the compiler can optimize the integer modulus
+// operation since the hash table size is preset
+uint32_t unklen_id_htable_find(const char* cur_id, const char* const* item_ids, const uint32_t* id_htable, uint32_t hashval, uint32_t id_htable_size) {
+  // returns 0xffffffffU on failure
+  uint32_t next_incr = 1;
+  while (1) {
+    const uint32_t hash_result = id_htable[hashval];
+    if (hash_result == 0xffffffffU) {
+      return 0xffffffffU;
+    }
+    const char* htable_entry = item_ids[hash_result];
+    if (!strcmp(cur_id, htable_entry)) {
+      return hash_result;
+    }
+    const uint32_t top_diff = id_htable_size - hashval;
+    if (top_diff > next_incr) {
+      hashval += next_incr;
+    } else {
+      hashval = next_incr - top_diff;
+    }
+    next_incr += 2;
+  }
+}
+
+static inline uint32_t nonstd_chrom_name_htable_find(const char* chrom_name, const char* const* nonstd_names, const uint32_t* nonstd_id_htable, uint32_t name_slen) {
+  const uint32_t hashval = murmurhash3_32(chrom_name, name_slen) % CHROM_NAME_HTABLE_SIZE;
+  return unklen_id_htable_find(chrom_name, nonstd_names, nonstd_id_htable, hashval, CHROM_NAME_HTABLE_SIZE);
+}
+
+
+// global since species_str() may be called by functions which don't actually
+// care about Chrom_info
+const char* g_species_singular = NULL;
+const char* g_species_plural = NULL;
+
+// if these are defined within init_species(), they may not persist after
+// function exit
+static const char species_singular_constants[][7] = {"person", "cow", "dog", "horse", "mouse", "plant", "sheep", "sample"};
+static const char species_plural_constants[][8] = {"people", "cattle", "dogs", "horses", "mice", "plants", "sheep", "samples"};
+
+int32_t init_chrom_info(Chrom_info* chrom_info_ptr) {
+  // "constructor".  initializes with maximum capacity.  doesn't use bigstack.
+  // chrom_mask, haploid_mask: bits
+  // chrom_file_order, chrom_idx_to_foidx: int32s
+  // chrom_fo_vidx_start: int32s, with an extra trailing element
+  // nonstd_names: intptr_ts
+  // nonstd_id_htable: CHROM_NAME_HTABLE_SIZE int32s
+
+  // this assumes MAX_POSSIBLE_CHROM is divisible by VEC_BYTES
+  const uintptr_t vecs_required = 2 * BITCT_TO_VECCT(MAX_POSSIBLE_CHROM) + 3 * (MAX_POSSIBLE_CHROM / VEC_INT32) + 1 + (MAX_POSSIBLE_CHROM / VEC_WORDS) + (CHROM_NAME_HTABLE_SIZE + (VEC_INT32 - 1)) / VEC_INT32;
+
+  // needed for proper cleanup
+  chrom_info_ptr->name_ct = 0;
+  chrom_info_ptr->incl_excl_name_stack = NULL;
+  if (vecaligned_malloc(vecs_required * VEC_BYTES, &(chrom_info_ptr->chrom_mask))) {
+    return RET_NOMEM;
+  }
+  uintptr_t* alloc_iter = &(chrom_info_ptr->chrom_mask[BITCT_TO_VECCT(MAX_POSSIBLE_CHROM) * VEC_WORDS]);
+  chrom_info_ptr->haploid_mask = alloc_iter;
+  alloc_iter = &(alloc_iter[BITCT_TO_VECCT(MAX_POSSIBLE_CHROM) * VEC_WORDS]);
+  chrom_info_ptr->chrom_file_order = (uint32_t*)alloc_iter;
+  alloc_iter = &(alloc_iter[(MAX_POSSIBLE_CHROM / VEC_INT32) * VEC_WORDS]);
+  chrom_info_ptr->chrom_fo_vidx_start = (uint32_t*)alloc_iter;
+  alloc_iter = &(alloc_iter[((MAX_POSSIBLE_CHROM / VEC_INT32) + 1) * VEC_WORDS]);
+  chrom_info_ptr->chrom_idx_to_foidx = (uint32_t*)alloc_iter;
+  alloc_iter = &(alloc_iter[(MAX_POSSIBLE_CHROM / VEC_INT32) * VEC_WORDS]);
+  chrom_info_ptr->nonstd_names = (char**)alloc_iter;
+  alloc_iter = &(alloc_iter[MAX_POSSIBLE_CHROM]);
+  chrom_info_ptr->nonstd_id_htable = (uint32_t*)alloc_iter;
+  // alloc_iter = &(alloc_iter[((CHROM_NAME_HTABLE_SIZE + (VEC_INT32 - 1)) / VEC_INT32) * VEC_WORDS]);
+  fill_uint_one(CHROM_NAME_HTABLE_SIZE, chrom_info_ptr->nonstd_id_htable);
+  return 0;
+}
+
+void init_species(uint32_t species_code, Chrom_info* chrom_info_ptr) {
+  // human: 22, X, Y, XY, MT
+  // cow: 29, X, Y, MT
+  // dog: 38, X, Y, XY, MT
+  // horse: 31, X, Y
+  // mouse: 19, X, Y
+  // rice: 12
+  // sheep: 26, X, Y
+  const int32_t species_x_code[] = {23, 30, 39, 32, 20, -1, 27};
+  const int32_t species_y_code[] = {24, 31, 40, 33, 21, -1, 28};
+  const int32_t species_xy_code[] = {25, -1, 41, -1, -1, -1, -1};
+  const int32_t species_mt_code[] = {26, 33, 42, -1, -1, -1, -1};
+  const uint32_t species_max_code[] = {26, 33, 42, 33, 21, 12, 28};
+  fill_ulong_zero(CHROM_MASK_WORDS, chrom_info_ptr->chrom_mask);
+  fill_ulong_zero(CHROM_MASK_WORDS, chrom_info_ptr->haploid_mask);
+  chrom_info_ptr->output_encoding = 0;
+  chrom_info_ptr->zero_extra_chroms = 0;
+  chrom_info_ptr->species = species_code;
+  chrom_info_ptr->is_include_stack = 0;
+  g_species_singular = species_singular_constants[species_code];
+  g_species_plural = species_plural_constants[species_code];
+  if (species_code != SPECIES_UNKNOWN) {
+    // these are assumed to be already initialized in the SPECIES_UNKNOWN case
+    chrom_info_ptr->x_code = species_x_code[species_code];
+    chrom_info_ptr->y_code = species_y_code[species_code];
+    chrom_info_ptr->xy_code = species_xy_code[species_code];
+    chrom_info_ptr->mt_code = species_mt_code[species_code];
+    chrom_info_ptr->max_code = species_max_code[species_code];
+    switch (species_code) {
+    case SPECIES_HUMAN:
+      chrom_info_ptr->autosome_ct = 22;
+      chrom_info_ptr->haploid_mask[0] = 0x1800000;
+      break;
+    case SPECIES_COW:
+      chrom_info_ptr->autosome_ct = 29;
+      chrom_info_ptr->haploid_mask[0] = 0xc0000000LU;
+      break;
+    case SPECIES_DOG:
+      chrom_info_ptr->autosome_ct = 38;
+#ifdef __LP64__
+      chrom_info_ptr->haploid_mask[0] = 0x18000000000LLU;
+#else
+      chrom_info_ptr->haploid_mask[1] = 0x180;
+#endif
+      break;
+    case SPECIES_HORSE:
+      chrom_info_ptr->autosome_ct = 31;
+#ifdef __LP64__
+      chrom_info_ptr->haploid_mask[0] = 0x300000000LLU;
+#else
+      chrom_info_ptr->haploid_mask[1] = 3;
+#endif
+      break;
+    case SPECIES_MOUSE:
+      chrom_info_ptr->autosome_ct = 19;
+      chrom_info_ptr->haploid_mask[0] = 0x300000;
+      break;
+    case SPECIES_RICE:
+      chrom_info_ptr->autosome_ct = 12;
+      chrom_info_ptr->haploid_mask[0] = 0x1fff;
+      break;
+    case SPECIES_SHEEP:
+      chrom_info_ptr->autosome_ct = 26;
+      chrom_info_ptr->haploid_mask[0] = 0x18000000;
+      break;
+    }
+  }
+}
+
+void init_default_chrom_mask(Chrom_info* chrom_info_ptr) {
+  if (chrom_info_ptr->species != SPECIES_UNKNOWN) {
+    fill_all_bits(chrom_info_ptr->max_code + 1, chrom_info_ptr->chrom_mask);
+  } else {
+    fill_all_bits(chrom_info_ptr->autosome_ct + 1, chrom_info_ptr->chrom_mask);
+    // --chr-set support
+    if (chrom_info_ptr->x_code != -1) {
+      set_bit(chrom_info_ptr->x_code, chrom_info_ptr->chrom_mask);
+    }
+    if (chrom_info_ptr->y_code != -1) {
+      set_bit(chrom_info_ptr->y_code, chrom_info_ptr->chrom_mask);
+    }
+    if (chrom_info_ptr->xy_code != -1) {
+      set_bit(chrom_info_ptr->xy_code, chrom_info_ptr->chrom_mask);
+    }
+    if (chrom_info_ptr->mt_code != -1) {
+      set_bit(chrom_info_ptr->mt_code, chrom_info_ptr->chrom_mask);
+    }
+  }
+}
+
+void forget_extra_chrom_names(Chrom_info* chrom_info_ptr) {
+  uint32_t name_ct = chrom_info_ptr->name_ct;
+  // guard against init_species() not being called yet
+  if (name_ct) {
+    char** nonstd_names = chrom_info_ptr->nonstd_names;
+    uint32_t chrom_idx = chrom_info_ptr->max_code + 1;
+    const uint32_t chrom_idx_last = chrom_info_ptr->max_code + name_ct;
+    for (; chrom_idx <= chrom_idx_last; ++chrom_idx) {
+      free(nonstd_names[chrom_idx]);
+      nonstd_names[chrom_idx] = NULL;
+    }
+    fill_uint_one(CHROM_NAME_HTABLE_SIZE, chrom_info_ptr->nonstd_id_htable);
+    chrom_info_ptr->name_ct = 0;
+  }
+}
+
+void cleanup_chrom_info(Chrom_info* chrom_info_ptr) {
+  if (chrom_info_ptr->chrom_mask) {
+    vecaligned_free(chrom_info_ptr->chrom_mask);
+    chrom_info_ptr->chrom_mask = NULL;
+  }
+  forget_extra_chrom_names(chrom_info_ptr);
+  Ll_str* ll_str_ptr = chrom_info_ptr->incl_excl_name_stack;
+  while (ll_str_ptr) {
+    Ll_str* next_ptr = ll_str_ptr->next;
+    free(ll_str_ptr);
+    ll_str_ptr = next_ptr;
+  }
+  chrom_info_ptr->incl_excl_name_stack = NULL;
+}
+
+char* chrom_name_std(const Chrom_info* chrom_info_ptr, uint32_t chrom_idx, char* buf) {
+  const uint32_t output_encoding = chrom_info_ptr->output_encoding;
+  if (output_encoding & (CHR_OUTPUT_PREFIX | CHR_OUTPUT_0M)) {
+    if (output_encoding == CHR_OUTPUT_0M) {
+      // force two chars
+      if (chrom_idx <= chrom_info_ptr->autosome_ct) {
+	buf = (char*)memcpya(buf, &(digit2_table[chrom_idx * 2]), 2);
+      } else if ((int32_t)chrom_idx == chrom_info_ptr->xy_code) {
+	buf = (char*)memcpya(buf, "XY", 2);
+      } else {
+	*buf++ = '0';
+	if ((int32_t)chrom_idx == chrom_info_ptr->x_code) {
+	  *buf++ = 'X';
+	} else {
+	  *buf++ = ((int32_t)chrom_idx == chrom_info_ptr->y_code)? 'Y' : 'M';
+	}
+      }
+      return buf;
+    }
+    buf = memcpyl3a(buf, "chr");
+  }
+  if ((!(output_encoding & (CHR_OUTPUT_M | CHR_OUTPUT_MT))) || (chrom_idx <= chrom_info_ptr->autosome_ct)) {
+    return uint32toa(chrom_idx, buf);
+  } else if ((int32_t)chrom_idx == chrom_info_ptr->x_code) {
+    *buf++ = 'X';
+  } else if ((int32_t)chrom_idx == chrom_info_ptr->y_code) {
+    *buf++ = 'Y';
+  } else if ((int32_t)chrom_idx == chrom_info_ptr->xy_code) {
+    buf = (char*)memcpya(buf, "XY", 2);
+  } else {
+    *buf++ = 'M';
+    if (output_encoding & CHR_OUTPUT_MT) {
+      *buf++ = 'T';
+    }
+  }
+  return buf;
+}
+
+char* chrom_name_write(const Chrom_info* chrom_info_ptr, uint32_t chrom_idx, char* buf) {
+  // assumes chrom_idx is valid
+  if (!chrom_idx) {
+    *buf++ = '0';
+    return buf;
+  } else if (chrom_idx <= chrom_info_ptr->max_code) {
+    return chrom_name_std(chrom_info_ptr, chrom_idx, buf);
+  } else if (chrom_info_ptr->zero_extra_chroms) {
+    *buf++ = '0';
+    return buf;
+  } else {
+    return strcpya(buf, chrom_info_ptr->nonstd_names[chrom_idx]);
+  }
+}
+
+uint32_t get_max_chrom_slen(const Chrom_info* chrom_info_ptr) {
+  // does not include trailing null
+  // can be overestimate
+  // if more functions start calling this, it should just be built into
+  // load_bim() instead
+  if (chrom_info_ptr->zero_extra_chroms) {
+    return 3 + MAX_CHROM_TEXTNUM_SLEN;
+  }
+  const uint32_t chrom_ct = chrom_info_ptr->chrom_ct;
+  const uint32_t max_code = chrom_info_ptr->max_code;
+  uint32_t max_chrom_slen = 3 + MAX_CHROM_TEXTNUM_SLEN;
+  for (uint32_t chrom_fo_idx = 0; chrom_fo_idx < chrom_ct; chrom_fo_idx++) {
+    const uint32_t chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+    if (!is_set(chrom_info_ptr->chrom_mask, chrom_idx)) {
+      continue;
+    }
+    if (chrom_idx > max_code) {
+      const uint32_t name_slen = strlen(chrom_info_ptr->nonstd_names[chrom_idx]);
+      if (name_slen > max_chrom_slen) {
+	max_chrom_slen = name_slen;
+      }
+    }
+  }
+  return max_chrom_slen;
+}
+
+uint32_t haploid_chrom_present(const Chrom_info* chrom_info_ptr) {
+  const uintptr_t* chrom_mask = chrom_info_ptr->chrom_mask;
+  const uintptr_t* haploid_mask = chrom_info_ptr->haploid_mask;
+  for (uint32_t widx = 0; widx < CHROM_MASK_INITIAL_WORDS; widx++) {
+    if (chrom_mask[widx] & haploid_mask[widx]) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static inline int32_t single_letter_chrom(uint32_t letter) {
+  letter &= 0xdf;
+  if (letter == 'X') {
+    return CHROM_X;
+  } else if (letter == 'Y') {
+    return CHROM_Y;
+  } else if (letter == 'M') {
+    return CHROM_MT;
+  } else {
+    return -1;
+  }
+}
+
+int32_t get_chrom_code_raw(const char* sptr) {
+  // any character <= ' ' is considered a terminator
+  // note that char arithmetic tends to be compiled to int32 operations, so we
+  // mostly work with ints here
+  // assumes MAX_CHROM_TEXTNUM_SLEN == 2
+  uint32_t first_char_code = (unsigned char)sptr[0];
+  uint32_t second_char_code = (unsigned char)sptr[1];
+  if ((first_char_code & 0xdf) == 'C') {
+    if (((second_char_code & 0xdf) == 'H') && ((((unsigned char)sptr[2]) & 0xdf) == 'R')) {
+      sptr = &(sptr[3]);
+      first_char_code = (unsigned char)sptr[0];
+      second_char_code = (unsigned char)sptr[1];
+    } else {
+      return -1;
+    }
+  }
+  if (second_char_code > ' ') {
+    if (sptr[2] > ' ') {
+      return -1;
+    }
+    const uint32_t first_char_toi = first_char_code - '0';
+    if (first_char_toi < 10) {
+      const uint32_t second_char_toi = second_char_code - '0';
+      if (second_char_toi < 10) {
+	return first_char_toi * 10 + second_char_toi;
+      } else if (!first_char_toi) {
+	// accept '0X', '0Y', '0M' emitted by Oxford software
+	return single_letter_chrom(second_char_code);
+      }
+    } else {
+      first_char_code &= 0xdf;
+      if (first_char_code == 'X') {
+        if ((second_char_code == 'Y') || (second_char_code == 'y')) {
+	  return CHROM_XY;
+	}
+      } else if (first_char_code == 'M') {
+        if ((second_char_code == 'T') || (second_char_code == 't')) {
+	  return CHROM_MT;
+	}
+      }
+    }
+  } else {
+    const uint32_t first_char_toi = first_char_code - '0';
+    if (first_char_toi < 10) {
+      return first_char_toi;
+    } else {
+      return single_letter_chrom(first_char_code);
+    }
+  }
+  return -1;
+}
+
+int32_t get_chrom_code_nt(const char* chrom_name, const Chrom_info* chrom_info_ptr, uint32_t name_slen) {
+  // requires chrom_name to be null-terminated
+  // in practice, name_slen will usually already be known, may as well avoid
+  // redundant strlen() calls even though this uglifies the interface
+  // does not perform exhaustive error-checking
+  // -1 = total fail, -2 = --allow-extra-chr ok
+  int32_t chrom_code_raw = get_chrom_code_raw(chrom_name);
+  if (chrom_code_raw >= MAX_POSSIBLE_CHROM) {
+    switch (chrom_code_raw) {
+    case CHROM_X:
+      chrom_code_raw = chrom_info_ptr->x_code;
+      break;
+    case CHROM_Y:
+      chrom_code_raw = chrom_info_ptr->y_code;
+      break;
+    case CHROM_XY:
+      chrom_code_raw = chrom_info_ptr->xy_code;
+      break;
+    case CHROM_MT:
+      chrom_code_raw = chrom_info_ptr->mt_code;
+    }
+  } else {
+    const uint32_t max_code_p1 = chrom_info_ptr->max_code + 1;
+    if (chrom_code_raw == -1) {
+      const uint32_t nonstd_chrom_idx = nonstd_chrom_name_htable_find(chrom_name, chrom_info_ptr->nonstd_names, chrom_info_ptr->nonstd_id_htable, name_slen);
+      if (nonstd_chrom_idx == 0xffffffffU) {
+        return -2;
+      }
+      return nonstd_chrom_idx;
+    } else if (((uint32_t)chrom_code_raw) >= max_code_p1) {
+      return -1;
+    }
+  }
+  return chrom_code_raw;
+}
+
+int32_t get_chrom_code(const Chrom_info* chrom_info_ptr, char* chrom_name, uint32_t name_slen) {
+  // when the chromosome name isn't null-terminated
+  char* s_end = &(chrom_name[name_slen]);
+  const char tmpc = *s_end;
+  *s_end = '\0';
+  const int32_t retval = get_chrom_code_nt(chrom_name, chrom_info_ptr, name_slen);
+  *s_end = tmpc;
+  return retval;
+}
+
+uint32_t get_variant_chrom_fo_idx(const Chrom_info* chrom_info_ptr, uintptr_t variant_uidx) {
+  const uint32_t* variant_binsearch = chrom_info_ptr->chrom_fo_vidx_start;
+  uint32_t chrom_fo_min = 0;
+  uint32_t chrom_ct = chrom_info_ptr->chrom_ct;
+  while (chrom_ct - chrom_fo_min > 1) {
+    const uint32_t chrom_fo_cur = (chrom_ct + chrom_fo_min) / 2;
+    if (variant_binsearch[chrom_fo_cur] > variant_uidx) {
+      chrom_ct = chrom_fo_cur;
+    } else {
+      chrom_fo_min = chrom_fo_cur;
+    }
+  }
+  return chrom_fo_min;
+}
+
+int32_t resolve_or_add_chrom_name(const char* cur_chrom_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, Chrom_info* chrom_info_ptr, int32_t* chrom_idx_ptr) {
+  // assumes cur_chrom_name is nonstandard (i.e. not "2", "chr2", "chrX", etc.)
+  // requires cur_chrom_name to be null-terminated
+  char** nonstd_names = chrom_info_ptr->nonstd_names;
+  const uint32_t chrom_idx = nonstd_chrom_name_htable_find(cur_chrom_name, nonstd_names, chrom_info_ptr->nonstd_id_htable, name_slen);
+  if (chrom_idx != 0xffffffffU) {
+    *chrom_idx_ptr = (int32_t)chrom_idx;
+    return 0;
+  }
+  if (cur_chrom_name[0] == '#') {
+    logerrprint("Error: Chromosome/contig names may not begin with '#'.\n");
+    return RET_MALFORMED_INPUT;
+  }
+  if (name_slen > MAX_ID_SLEN) {
+    if (line_idx) {
+      LOGERRPRINTFWW("Error: Line %" PRIuPTR " of %s has an excessively long chromosome/contig name. (The " PROG_NAME_CAPS " limit is " MAX_ID_SLEN_STR " characters.)\n", line_idx, file_descrip);
+    } else {
+      LOGERRPRINTFWW("Error: Excessively long chromosome/contig name in %s. (The " PROG_NAME_CAPS " limit is " MAX_ID_SLEN_STR " characters.)\n", file_descrip);
+    }
+    return RET_MALFORMED_INPUT;
+  }
+  const uint32_t max_code_p1 = chrom_info_ptr->max_code + 1;
+  const uint32_t name_ct = chrom_info_ptr->name_ct;
+  const uint32_t chrom_code_end = max_code_p1 + name_ct;
+  if (chrom_code_end == MAX_POSSIBLE_CHROM) {
+    logerrprint("Error: Too many distinct nonstandard chromosome/contig names.\n");
+    return RET_MALFORMED_INPUT;
+  }
+  nonstd_names[chrom_code_end] = (char*)malloc(name_slen + 1);
+  if (!nonstd_names[chrom_code_end]) {
+    return RET_NOMEM;
+  }
+  Ll_str* name_stack_ptr = chrom_info_ptr->incl_excl_name_stack;
+  uint32_t in_name_stack = 0;
+  while (name_stack_ptr) {
+    // there shouldn't be many of these, so sorting is unimportant
+    if (!strcmp(cur_chrom_name, name_stack_ptr->ss)) {
+      in_name_stack = 1;
+      break;
+    }
+    name_stack_ptr = name_stack_ptr->next;
+  }
+  if ((in_name_stack && chrom_info_ptr->is_include_stack) || ((!in_name_stack) && (!chrom_info_ptr->is_include_stack))) {
+    SET_BIT(chrom_code_end, chrom_info_ptr->chrom_mask);
+  }
+  memcpy(nonstd_names[chrom_code_end], cur_chrom_name, name_slen + 1);
+  *chrom_idx_ptr = (int32_t)chrom_code_end;
+  chrom_info_ptr->name_ct = name_ct + 1;
+  uint32_t* id_htable = chrom_info_ptr->nonstd_id_htable;
+  uint32_t hashval = murmurhash3_32(cur_chrom_name, name_slen) % CHROM_NAME_HTABLE_SIZE;
+  uint32_t next_incr = 1;
+  while (1) {
+    if (id_htable[hashval] == 0xffffffffU) {
+      id_htable[hashval] = chrom_idx;
+      return 0;
+    }
+    // no overflow danger here
+    hashval += next_incr;
+    if (hashval >= CHROM_NAME_HTABLE_SIZE) {
+      hashval -= CHROM_NAME_HTABLE_SIZE;
+    }
+    next_incr += 2; // quadratic probing
+  }
+  return 0;
+}
+
+uint32_t chrom_error(const char* chrom_name, const char* file_descrip, const Chrom_info* chrom_info_ptr, uintptr_t line_idx, int32_t error_code, uint32_t allow_extra_chroms) {
+  // assumes chrom_name is null-terminated
+  if (allow_extra_chroms && (error_code == -2)) {
+    return 0;
+  }
+  const int32_t raw_code = get_chrom_code_raw(chrom_name);
+  logprint("\n");
+  if (line_idx) {
+    LOGERRPRINTFWW("Error: Invalid chromosome code '%s' on line %" PRIuPTR " of %s.\n", chrom_name, line_idx, file_descrip);
+  } else {
+    LOGERRPRINTFWW("Error: Invalid chromosome code '%s' in %s.\n", chrom_name, file_descrip);
+  }
+  if ((raw_code > ((int32_t)chrom_info_ptr->max_code)) && ((raw_code <= MAX_CHROM_TEXTNUM + 4) || (raw_code >= MAX_POSSIBLE_CHROM))) {
+    if (chrom_info_ptr->species != SPECIES_UNKNOWN) {
+      if (chrom_info_ptr->species == SPECIES_HUMAN) {
+	logerrprint("(This is disallowed for humans.  Check if the problem is with your data, or if\nyou forgot to define a different chromosome set with e.g. --chr-set.).\n");
+      } else {
+	logerrprint("(This is disallowed by the PLINK 1.07 species flag you used.  You can\ntemporarily work around this restriction with --chr-set; contact the developers\nif you want the flag to be permanently redefined.)\n");
+      }
+    } else {
+      logerrprint("(This is disallowed by your --chr-set/--autosome-num parameters.  Check if the\nproblem is with your data, or your command line.)\n");
+    }
+  } else if (error_code == -2) {
+    logerrprint("(Use --allow-extra-chr to force it to be accepted.)\n");
+  }
+  return 1;
+}
+
+uint32_t allele_set(const char* newval, uint32_t allele_slen, const char** allele_ptr) {
+  const char* newptr;
+  if (allele_slen == 1) {
+    newptr = &(g_one_char_strs[((uint8_t)(*newval)) * 2]);
+  } else {
+    char* new_alloc = (char*)malloc(allele_slen + 1);
+    if (!new_alloc) {
+      return 1;
+    }
+    memcpyx(new_alloc, newval, allele_slen, '\0');
+    newptr = new_alloc;
+  }
+  *allele_ptr = newptr;
+  return 0;
+}
+
+uint32_t allele_reset(const char* newval, uint32_t allele_slen, const char** allele_ptr) {
+  const char* newptr;
+  if (allele_slen == 1) {
+    newptr = &(g_one_char_strs[((uint8_t)(*newval)) * 2]);
+  } else {
+    char* new_alloc = (char*)malloc(allele_slen + 1);
+    if (!new_alloc) {
+      return 1;
+    }
+    memcpyx(new_alloc, newval, allele_slen, '\0');
+    newptr = new_alloc;
+  }
+  if (allele_ptr[0][1]) {
+    free((char*)(*allele_ptr));
+  }
+  *allele_ptr = newptr;
+  return 0;
+}
+
+void cleanup_allele_storage(uint32_t max_allele_slen, uintptr_t allele_storage_entry_ct, const char** allele_storage) {
+  if (allele_storage && (max_allele_slen > 1)) {
+    for (uintptr_t idx = 0; idx < allele_storage_entry_ct; ++idx) {
+      const char* cur_entry = allele_storage[idx];
+      if ((cur_entry < g_one_char_strs) || (cur_entry >= (&(g_one_char_strs[512])))) {
+	free((char*)cur_entry);
+      }
+    }
+  }
+}
+*/
 
 void refresh_chrom_info(const Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t* __restrict chrom_end_ptr, uint32_t* __restrict chrom_fo_idx_ptr, uint32_t* __restrict is_x_ptr, uint32_t* __restrict is_y_ptr, uint32_t* __restrict is_mt_ptr, uint32_t* __restrict is_haploid_ptr) {
   // assumes marker_uidx < unfiltered_marker_ct
@@ -7635,7 +8191,7 @@ void fill_all_bits(uintptr_t ct, uintptr_t* bitarr) {
   // ok for ct == 0
   uintptr_t quotient = ct / BITCT;
   uintptr_t remainder = ct % BITCT;
-  fill_ulong_one(bitarr, quotient);
+  fill_ulong_one(quotient, bitarr);
   if (remainder) {
     bitarr[quotient] = (ONELU << remainder) - ONELU;
   }
@@ -7748,11 +8304,11 @@ int32_t string_range_list_to_bitarr_alloc(char* header_line, uint32_t item_ct, u
     return RET_NOMEM;
   }
   // kludge to use sort_item_ids()
-  fill_ulong_zero((uintptr_t*)seen_idxs, BITCT_TO_WORDCT(name_ct));
+  fill_ulong_zero(BITCT_TO_WORDCT(name_ct), (uintptr_t*)seen_idxs);
   if (sort_item_ids(name_ct, (uintptr_t*)seen_idxs, 0, range_list_ptr->names, range_list_ptr->name_max_len, 0, 0, strcmp_deref, &sorted_ids, &id_map)) {
     return RET_NOMEM;
   }
-  fill_int_one(seen_idxs, name_ct);
+  fill_int_one(name_ct, seen_idxs);
   retval = string_range_list_to_bitarr(header_line, item_ct, fixed_len, range_list_ptr, sorted_ids, id_map, range_list_flag, file_descrip, *bitarr_ptr, seen_idxs);
   bigstack_reset(seen_idxs);
   return retval;
@@ -8925,7 +9481,7 @@ void extract_collapsed_missing_bitfield(uintptr_t* lptr, uintptr_t unfiltered_sa
       *missing_bitfield++ = cur_write;
     }
   } else {
-    fill_ulong_zero(missing_bitfield, BITCT_TO_WORDCT(sample_ct));
+    fill_ulong_zero(BITCT_TO_WORDCT(sample_ct), missing_bitfield);
     sample_idx = 0;
     for (widx = 0; sample_idx < sample_ct; widx++, lptr++) {
       cur_mask = *sample_include_quaterarr++;
@@ -9984,7 +10540,7 @@ void generate_perm1_interleaved(uint32_t tot_ct, uint32_t set_ct, uintptr_t perm
   magic_num(tot_quotient, &totq_magic, &totq_preshift, &totq_postshift, &totq_incr);
   if (set_ct * 2 < tot_ct) {
     for (ulii = 0; ulii < tot_ctl; ulii++) {
-      fill_ulong_zero(&(perm_buf[perm_idx + (ulii * perm_ct)]), uljj);
+      fill_ulong_zero(uljj, &(perm_buf[perm_idx + (ulii * perm_ct)]));
     }
     for (; perm_idx < perm_ct; perm_idx++) {
       pbptr = &(perm_buf[perm_idx]);
@@ -10003,7 +10559,7 @@ void generate_perm1_interleaved(uint32_t tot_ct, uint32_t set_ct, uintptr_t perm
     }
   } else {
     for (ulii = 0; ulii < tot_ctl; ulii++) {
-      fill_ulong_one(&(perm_buf[perm_idx + (ulii * perm_ct)]), uljj);
+      fill_ulong_one(uljj, &(perm_buf[perm_idx + (ulii * perm_ct)]));
     }
     // "set" has reversed meaning here
     set_ct = tot_ct - set_ct;

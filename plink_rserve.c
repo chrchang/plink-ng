@@ -136,7 +136,7 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
     if (bigstack_alloc_i(unfiltered_sample_ct, &sample_to_cluster)) {
       goto rserve_call_ret_NOMEM;
     }
-    fill_int_one(sample_to_cluster, pheno_nm_ct);
+    fill_int_one(pheno_nm_ct, sample_to_cluster);
     fill_unfiltered_sample_to_cluster(unfiltered_sample_ct, cluster_ct, cluster_map, cluster_starts, (uint32_t*)sample_to_cluster);
     inplace_collapse_uint32_incl((uint32_t*)sample_to_cluster, unfiltered_sample_ct, pheno_nm, pheno_nm_ct);
     bigstack_shrink_top(sample_to_cluster, pheno_nm_ct * sizeof(int32_t));

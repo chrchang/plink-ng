@@ -568,7 +568,7 @@ void fill_unfiltered_sample_to_cluster(uintptr_t unfiltered_sample_ct, uintptr_t
   uint32_t* cluster_end_ptr;
   uint32_t cluster_idx;
   // 0xffffffffU cluster index = unassigned
-  fill_uint_one(sample_to_cluster, unfiltered_sample_ct);
+  fill_uint_one(unfiltered_sample_ct, sample_to_cluster);
   for (cluster_idx = 0; cluster_idx < cluster_ct; cluster_idx++) {
     cluster_end_ptr = &(cluster_map[cluster_starts[cluster_idx + 1]]);
     do {
@@ -595,7 +595,7 @@ int32_t fill_sample_to_cluster(uintptr_t unfiltered_sample_ct, uintptr_t* sample
     goto fill_sample_to_cluster_ret_NOMEM;
   }
   fill_uidx_to_idx(sample_exclude, unfiltered_sample_ct, sample_ct, uidx_to_idx);
-  fill_uint_one(sample_to_cluster, sample_ct);
+  fill_uint_one(sample_ct, sample_to_cluster);
   for (cluster_idx = 0; cluster_idx < cluster_ct; cluster_idx++) {
     cluster_end_ptr = &(cluster_map[cluster_starts[cluster_idx + 1]]);
     do {
@@ -1060,7 +1060,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample
     if (bigstack_alloc_ull(sample_ct, &fidx_to_memidx)) {
       goto read_dists_ret_NOMEM;
     }
-    fill_ull_one(fidx_to_memidx, sample_ct);
+    fill_ull_one(sample_ct, fidx_to_memidx);
     if (fopen_checked(id_fname, "r", &id_file)) {
       goto read_dists_ret_OPEN_FAIL;
     }
@@ -3046,15 +3046,15 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
       bigstack_alloc_d(ulii * ulii, &out_v)) {
     goto mds_plot_ret_NOMEM;
   }
-  // fill_double_zero(sqrt_eigvals, ulii);
-  // fill_double_zero(out_u, ulii * ulii);
-  // fill_double_zero(out_v, ulii * ulii);
+  // fill_double_zero(ulii, sqrt_eigvals);
+  // fill_double_zero(ulii * ulii, out_u);
+  // fill_double_zero(ulii * ulii, out_v);
 
   iwork = (__CLPK_integer*)bigstack_alloc(8 * ulii * sizeof(__CLPK_integer));
   if (!iwork) {
     goto mds_plot_ret_NOMEM;
   }
-  // fill_int_zero(iwork, 8 * mdim);
+  // fill_int_zero(8 * mdim, iwork);
 
   // workspace query
   dgesdd_(&jobz, &mdim, &mdim, main_matrix, &mdim, sqrt_eigvals, out_u, &mdim, out_v, &mdim, &optim_lwork, &lwork, iwork, &info);
@@ -3062,7 +3062,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
   if (bigstack_alloc_d(lwork, &work)) {
     goto mds_plot_ret_NOMEM;
   }
-  // fill_double_zero(work, lwork);
+  // fill_double_zero(lwork, work);
   dgesdd_(&jobz, &mdim, &mdim, main_matrix, &mdim, sqrt_eigvals, out_u, &mdim, out_v, &mdim, work, &lwork, iwork, &info);
 
   // * sqrt_eigvals[0..(ulii-1)] contains singular values
@@ -3357,7 +3357,7 @@ int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample
   if (!isuppz) {
     goto mds_plot_eigendecomp_ret_NOMEM;
   }
-  fill_int_zero((int32_t*)isuppz, 2 * dim_ct * (sizeof(__CLPK_integer) / sizeof(int32_t)));
+  fill_int_zero(2 * dim_ct * (sizeof(__CLPK_integer) / sizeof(int32_t)), (int32_t*)isuppz);
   ldz = mdim;
 
   dsyevr_(&jobz, &range, &uplo, &mdim, main_matrix, &mdim, &nz, &nz, &i1, &i2, &zz, &out_m, out_w, out_z, &ldz, isuppz, &optim_lwork, &lwork, &optim_liwork, &liwork, &info);
@@ -3370,7 +3370,7 @@ int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample
   if (!iwork) {
     goto mds_plot_eigendecomp_ret_NOMEM;
   }
-  fill_int_zero((int32_t*)iwork, liwork * (sizeof(__CLPK_integer) / sizeof(int32_t)));
+  fill_int_zero(liwork * (sizeof(__CLPK_integer) / sizeof(int32_t)), (int32_t*)iwork);
   dsyevr_(&jobz, &range, &uplo, &mdim, main_matrix, &mdim, &nz, &nz, &i1, &i2, &zz, &out_m, out_w, out_z, &ldz, isuppz, work, &lwork, iwork, &liwork, &info);
 
   // * out_w[0..(dim_ct-1)] contains eigenvalues

@@ -163,7 +163,7 @@ int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltere
       goto makepheno_load_ret_NOMEM;
     }
     pheno_c = *pheno_c_ptr;
-    fill_ulong_zero(pheno_c, unfiltered_sample_ctl);
+    fill_ulong_zero(unfiltered_sample_ctl, pheno_c);
   }
   if (makepheno_all) {
     fill_all_bits(unfiltered_sample_ct, pheno_nm);
@@ -253,7 +253,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_sample_ct, uintptr_t sa
 	goto load_pheno_ret_NOMEM;
       }
       pheno_c = *pheno_c_ptr;
-      fill_ulong_zero(pheno_c, unfiltered_sample_ctl);
+      fill_ulong_zero(unfiltered_sample_ctl, pheno_c);
     }
   }
   // ----- phenotype file load -----
@@ -428,7 +428,7 @@ int32_t convert_tail_pheno(uint32_t unfiltered_sample_ct, uintptr_t* pheno_nm, u
     }
     pheno_c = *pheno_c_ptr;
   }
-  fill_ulong_zero(pheno_c, sample_uidx);
+  fill_ulong_zero(sample_uidx, pheno_c);
   sample_uidx = 0;
   do {
     sample_uidx = next_set(pheno_nm, sample_uidx, unfiltered_sample_ct);
@@ -2489,7 +2489,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
           pzwritep = memcpya(pzwritep, writebuf, wptr_start - writebuf);
 	  pzwritep = fw_strcpy(8, &(cluster_ids[clidx * max_cluster_id_len]), pzwritep);
 	  pzwritep = memcpya(pzwritep, csptr, cslen);
-	  fill_uint_zero(cur_cts, 4);
+	  fill_uint_zero(4, cur_cts);
 	  uiptr3 = &(cluster_map_nonmale[cluster_starts_nonmale[clidx + 1]]);
 	  while (uiptr < uiptr3) {
 	    uii = *uiptr++;
@@ -2497,7 +2497,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
 	  }
 	  a1_obs = 2 * cur_cts[0] + cur_cts[2];
 	  tot_obs = 2 * (cur_cts[0] + cur_cts[2] + cur_cts[3]);
-	  fill_uint_zero(cur_cts, 4);
+	  fill_uint_zero(4, cur_cts);
 	  uiptr3 = &(cluster_map_male[cluster_starts_male[clidx + 1]]);
 	  while (uiptr2 < uiptr3) {
 	    uii = *uiptr2++;
@@ -2523,7 +2523,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
 	  pzwritep = memcpya(pzwritep, writebuf, wptr_start - writebuf);
 	  pzwritep = fw_strcpy(8, &(cluster_ids[clidx * max_cluster_id_len]), pzwritep);
 	  pzwritep = memcpya(pzwritep, csptr, cslen);
-	  fill_uint_zero(cur_cts, 4);
+	  fill_uint_zero(4, cur_cts);
 	  uiptr2 = &(cluster_map_male[cluster_starts_male[clidx + 1]]);
 	  while (uiptr < uiptr2) {
 	    uii = *uiptr++;
@@ -2554,7 +2554,7 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
 	  pzwritep = memcpya(pzwritep, writebuf, wptr_start - writebuf);
 	  pzwritep = fw_strcpy(8, &(cluster_ids[clidx * max_cluster_id_len]), pzwritep);
 	  pzwritep = memcpya(pzwritep, csptr, cslen);
-	  fill_uint_zero(cur_cts, 4);
+	  fill_uint_zero(4, cur_cts);
 	  uiptr2 = &(cur_cluster_map[cur_cluster_starts[clidx + 1]]);
 	  while (uiptr < uiptr2) {
 	    uii = *uiptr++;
@@ -4039,7 +4039,7 @@ int32_t fst_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
     if (load_raw(unfiltered_sample_ct4, bedfile, loadbuf)) {
       goto fst_report_ret_READ_FAIL;
     }
-    fill_uint_zero(cluster_geno_cts, cluster_ct * 3);
+    fill_uint_zero(cluster_ct * 3, cluster_geno_cts);
     ulptr = loadbuf;
     ulptr2 = cluster_mask;
     for (sample_uidx_base = 0; sample_uidx_base < unfiltered_sample_ct; sample_uidx_base += BITCT2) {
@@ -4621,9 +4621,9 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   if (fseeko(bedfile, bed_offset + ((uint64_t)marker_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
     goto score_report_ret_READ_FAIL;
   }
-  fill_double_zero(score_deltas, sample_ct);
-  fill_uint_zero(miss_cts, sample_ct);
-  fill_int_zero(named_allele_ct_deltas, sample_ct);
+  fill_double_zero(sample_ct, score_deltas);
+  fill_uint_zero(sample_ct, miss_cts);
+  fill_int_zero(sample_ct, named_allele_ct_deltas);
   score_base = 0.0;
   female_y_offset = 0.0;
   obs_expected = 0;
@@ -4920,7 +4920,7 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
       line_idx++;
     }
   }
-  fill_uint_one(parse_table, token_ct);
+  fill_uint_one(token_ct, parse_table);
   do {
     slen = strlen_se(bufptr);
     ii = bsearch_str(bufptr, slen, sorted_header_dict, max_header_len, header_dict_ct);
@@ -5458,7 +5458,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
   bigstack_end_mark[-1] = ' ';
   for (file_idx = 0; file_idx < file_ct; file_idx++) {
     if (sorted_extract_ids) {
-      fill_ulong_zero(duplicate_id_bitfield, extract_ctl);
+      fill_ulong_zero(extract_ctl, duplicate_id_bitfield);
     } else {
       for (uii = 0; uii < HASHSIZE; uii++) {
 	duplicate_id_htable[uii] = NULL;
@@ -5882,7 +5882,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	break;
       }
       if (report_study_specific) {
-	fill_ulong_zero((uintptr_t*)cur_data_ptr, file_ct64 * (8 / BYTECT));
+	fill_ulong_zero(file_ct64 * (8 / BYTECT), (uintptr_t*)cur_data_ptr);
       }
       if (weighted_z) {
 	cur_data[-2] = 0.0;
@@ -5919,7 +5919,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
     fname_ptr = input_fnames;
     for (file_idx = 0; file_idx < file_ct; file_idx++) {
       if (sorted_extract_ids) {
-	fill_ulong_zero(duplicate_id_bitfield, extract_ctl);
+	fill_ulong_zero(extract_ctl, duplicate_id_bitfield);
       } else {
 	for (uii = 0; uii < HASHSIZE; uii++) {
 	  duplicate_id_htable[uii] = NULL;

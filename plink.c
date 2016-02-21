@@ -104,7 +104,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (12 Feb 2016)";
+  " (21 Feb 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -1747,7 +1747,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	goto plink_ret_NOMEM;
       }
       if (cluster_ptr->modifier & CLUSTER_GROUP_AVG) {
-        fill_double_zero(cluster_sorted_ibs, ulii);
+        fill_double_zero(ulii, cluster_sorted_ibs);
       } else {
 	for (uljj = 0; uljj < ulii; uljj++) {
 	  cluster_sorted_ibs[uljj] = 1.0;
@@ -1912,7 +1912,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	  break;
 	}
 	outname_end2 = strcpya(&(outname_end[1]), &(cluster_ids[uii * max_cluster_id_len]));
-	fill_ulong_zero(pheno_c, unfiltered_sample_ctl);
+	fill_ulong_zero(unfiltered_sample_ctl, pheno_c);
 	ukk = cluster_starts[uii + 1];
 	for (ujj = cluster_starts[uii]; ujj < ukk; ujj++) {
 	  SET_BIT(cluster_map[ujj], pheno_c);
@@ -1935,7 +1935,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	    memcpy(pheno_d, orig_pheno_d, unfiltered_sample_ct * sizeof(double));
 	  }
 	} else {
-	  fill_ulong_zero(pheno_nm, unfiltered_sample_ctl);
+	  fill_ulong_zero(unfiltered_sample_ctl, pheno_nm);
 	  aligned_free_cond_null(&pheno_c);
 	  if (pheno_d) {
 	    free(pheno_d);
@@ -2912,8 +2912,8 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
   uint32_t param_ct;
   int32_t ii;
   uint32_t param_idx;
-  fill_ulong_zero(chrom_info_ptr->haploid_mask, CHROM_MASK_WORDS);
-  fill_ulong_zero(chrom_info_ptr->chrom_mask, CHROM_MASK_WORDS);
+  fill_ulong_zero(CHROM_MASK_WORDS, chrom_info_ptr->haploid_mask);
+  fill_ulong_zero(CHROM_MASK_WORDS, chrom_info_ptr->chrom_mask);
   chrom_info_ptr->output_encoding = 0;
   chrom_info_ptr->zero_extra_chroms = 0;
   if (flag_match("autosome-num", &flag_idx, flag_ct, flag_buf)) {
@@ -4057,7 +4057,7 @@ int32_t main(int32_t argc, char** argv) {
   if (retval) {
     goto main_ret_1;
   }
-  fill_ulong_zero(chrom_exclude, CHROM_MASK_INITIAL_WORDS);
+  fill_ulong_zero(CHROM_MASK_INITIAL_WORDS, chrom_exclude);
   cur_flag = 0;
   do {
     argptr = &(flag_buf[cur_flag * MAX_FLAG_LEN]);

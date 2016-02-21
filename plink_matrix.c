@@ -263,7 +263,7 @@ int32_t invert_matrix(int32_t dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* dbl_
 
   // [nxn].[t(v)] 
   for (i=0; i<dim; i++) {
-    fill_double_zero(dbl_1d_buf, dim);
+    fill_double_zero(dim, dbl_1d_buf);
     for (j=0; j<dim; j++) {
       for (k=0; k<dim; k++) {
 	dbl_1d_buf[j] += matrix[i * dim + k] * dbl_2d_buf[j * dim + k];

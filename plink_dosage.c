@@ -1551,7 +1551,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     }
     loadbuf = (char*)g_bigstack_base;
     loadbuf[loadbuf_size - 1] = ' ';
-    fill_ulong_zero(batch_samples, sample_ctl);
+    fill_ulong_zero(sample_ctl, batch_samples);
     bufptr = memcpya(g_logbuf, "--dosage: Reading from ", 23);
     if (cur_batch_size == 1) {
       bufptr = strcpya(bufptr, &(fnames[file_idx_start * max_fn_len]));

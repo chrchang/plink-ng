@@ -50,7 +50,7 @@ void generate_cc_perm_vec(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotien
   uint32_t urand;
   uint32_t uii;
   if (set_ct * 2 < tot_ct) {
-    fill_ulong_zero(perm_vec, QUATERCT_TO_ALIGNED_WORDCT(tot_ct));
+    fill_ulong_zero(QUATERCT_TO_ALIGNED_WORDCT(tot_ct), perm_vec);
     for (; num_set < set_ct; num_set++) {
       do {
 	do {
@@ -91,7 +91,7 @@ void generate_cc_perm1(uint32_t tot_ct, uint32_t set_ct, uint32_t tot_quotient, 
   uint32_t urand;
   uint32_t uii;
   if (set_ct * 2 < tot_ct) {
-    fill_ulong_zero(perm_vec, BITCT_TO_WORDCT(tot_ct));
+    fill_ulong_zero(BITCT_TO_WORDCT(tot_ct), perm_vec);
     for (; num_set < set_ct; num_set++) {
       do {
 	do {
@@ -419,7 +419,7 @@ THREAD_RET_TYPE generate_qt_cluster_perms_smajor_thread(void* arg) {
     pmax = g_perm_vec_ct;
   }
   pdiff = pmax - pmin;
-  fill_uint_zero(in_cluster_positions, cluster_ct);
+  fill_uint_zero(cluster_ct, in_cluster_positions);
   for (; sample_idx < pheno_nm_ct; sample_idx++) {
     cur_source = *pheno_d2++;
     cluster_idx = sample_to_cluster[sample_idx];
@@ -536,7 +536,7 @@ THREAD_RET_TYPE generate_qt_cluster_perms_pmajor_thread(void* arg) {
   }
   pdiff = pmax - pmin;
   for (poffset = 0; poffset < pdiff; poffset++) {
-    fill_uint_zero(in_cluster_positions, cluster_ct);
+    fill_uint_zero(cluster_ct, in_cluster_positions);
     pheno_ptr = pheno_d2;
     for (sample_idx = 0; sample_idx < sample_valid_ct; sample_idx++) {
       cluster_idx = sample_to_cluster[sample_idx];
@@ -606,7 +606,7 @@ void transpose_perms(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno_
 	  memcpy(perm_vecst, wbuf, 16);
 	  perm_vecst = &(perm_vecst[4]);
 	transpose_perms_loop_start:
-	  fill_uint_zero(wbuf, 4);
+	  fill_uint_zero(4, wbuf);
 	  wshift = 0;
 	}
 	wbptr = wbuf;
@@ -660,7 +660,7 @@ void transpose_perm1s(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno
 	  memcpy(perm_vecst, wbuf, 16);
 	  perm_vecst = &(perm_vecst[4]);
 	transpose_perm1s_loop_start:
-	  fill_uint_zero(wbuf, 2);
+	  fill_uint_zero(2, wbuf);
 	  wshift = 0;
 	}
 	wbptr = wbuf;

@@ -191,8 +191,8 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
   chrom_code_end = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
   if ((!small_interval_ct) && (!large_interval_ct)) {
     if (subset_ct) {
-      fill_ulong_zero(il_chrom_start_small, chrom_code_end + 1);
-      fill_ulong_zero(il_chrom_start_large, chrom_code_end + 1);
+      fill_ulong_zero(chrom_code_end + 1, il_chrom_start_small);
+      fill_ulong_zero(chrom_code_end + 1, il_chrom_start_large);
       logerrprint("Warning: All intervals filtered out by --cnv-subset.\n");
       goto cnv_intersect_load_ret_1;
     }
@@ -231,7 +231,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
       il_chrom_start_small[cur_chrom] = 0;
     } while (cur_chrom--);
   } else {
-    fill_ulong_zero(il_chrom_start_small, chrom_code_end + 1);
+    fill_ulong_zero(chrom_code_end + 1, il_chrom_start_small);
   }
   if (large_interval_ct) {
     if (large_interval_ct > 1) {
@@ -286,7 +286,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
       il_chrom_max_width_large[cur_chrom] = max_width;
     }
   } else {
-    fill_ulong_zero(il_chrom_start_large, chrom_code_end + 1);
+    fill_ulong_zero(chrom_code_end + 1, il_chrom_start_large);
   }
   bigstack_end_alloc_presized(round_up_pow2(small_interval_ct + large_interval_ct, CACHELINE_INT64) * sizeof(int64_t));
   while (0) {

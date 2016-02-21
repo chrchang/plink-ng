@@ -1777,14 +1777,7 @@ HEADER_INLINE void prev_unset_unsafe_ck(const uintptr_t* bitarr, uint32_t* loc_p
 // These functions seem to optimize better than memset(arr, 0, x) under OS X
 // <10.9's gcc, and they should be equivalent for later versions (looks like
 // memcpy/memset were redone in gcc 4.3).
-HEADER_INLINE void fill_long_zero(intptr_t* larr, size_t size) {
-  size_t ulii;
-  for (ulii = 0; ulii < size; ulii++) {
-    *larr++ = 0;
-  }
-}
-
-HEADER_INLINE void fill_ulong_zero(uintptr_t* ularr, size_t size) {
+HEADER_INLINE void fill_ulong_zero(size_t size, uintptr_t* ularr) {
   size_t ulii;
   for (ulii = 0; ulii < size; ulii++) {
     *ularr++ = 0;
@@ -1792,31 +1785,24 @@ HEADER_INLINE void fill_ulong_zero(uintptr_t* ularr, size_t size) {
 }
 
 #ifdef __LP64__
-HEADER_INLINE void fill_ull_zero(uint64_t* ullarr, size_t size) {
-  fill_ulong_zero((uintptr_t*)ullarr, size);
+HEADER_INLINE void fill_ull_zero(size_t size, uint64_t* ullarr) {
+  fill_ulong_zero(size, (uintptr_t*)ullarr);
 }
 
 // double v indicates that size is a vector count, not a word count.
-HEADER_INLINE void fill_vec_zero(VECITYPE* vec, size_t size) {
+HEADER_INLINE void fill_vvec_zero(size_t size, VECITYPE* vvec) {
   size_t ulii;
   for (ulii = 0; ulii < size; ulii++) {
-    *vec++ = _mm_setzero_si128();
+    *vvec++ = _mm_setzero_si128();
   }
 }
 #else
-HEADER_INLINE void fill_ull_zero(uint64_t* ullarr, size_t size) {
-  fill_ulong_zero((uintptr_t*)ullarr, size * 2);
+HEADER_INLINE void fill_ull_zero(size_t size, uint64_t* ullarr) {
+  fill_ulong_zero(size * 2, (uintptr_t*)ullarr);
 }
 #endif
 
-HEADER_INLINE void fill_long_one(intptr_t* larr, size_t size) {
-  size_t ulii;
-  for (ulii = 0; ulii < size; ulii++) {
-    *larr++ = -1;
-  }
-}
-
-HEADER_INLINE void fill_ulong_one(uintptr_t* ularr, size_t size) {
+HEADER_INLINE void fill_ulong_one(size_t size, uintptr_t* ularr) {
   size_t ulii;
   for (ulii = 0; ulii < size; ulii++) {
     *ularr++ = ~ZEROLU;
@@ -1824,51 +1810,51 @@ HEADER_INLINE void fill_ulong_one(uintptr_t* ularr, size_t size) {
 }
 
 #ifdef __LP64__
-HEADER_INLINE void fill_ull_one(uint64_t* ullarr, size_t size) {
-  fill_ulong_one((uintptr_t*)ullarr, size);
+HEADER_INLINE void fill_ull_one(size_t size, uint64_t* ullarr) {
+  fill_ulong_one(size, (uintptr_t*)ullarr);
 }
 #else
-HEADER_INLINE void fill_ull_one(uint64_t* ullarr, size_t size) {
-  fill_ulong_one((uintptr_t*)ullarr, size * 2);
+HEADER_INLINE void fill_ull_one(size_t size, uint64_t* ullarr) {
+  fill_ulong_one(size * 2, (uintptr_t*)ullarr);
 }
 #endif
 
-HEADER_INLINE void fill_int_zero(int32_t* iarr, size_t size) {
+HEADER_INLINE void fill_int_zero(size_t size, int32_t* iarr) {
   size_t ulii;
   for (ulii = 0; ulii < size; ulii++) {
     *iarr++ = 0;
   }
 }
 
-HEADER_INLINE void fill_int_one(int32_t* iarr, size_t size) {
+HEADER_INLINE void fill_int_one(size_t size, int32_t* iarr) {
   size_t ulii;
   for (ulii = 0; ulii < size; ulii++) {
     *iarr++ = -1;
   }
 }
 
-HEADER_INLINE void fill_uint_zero(uint32_t* uiarr, size_t size) {
+HEADER_INLINE void fill_uint_zero(size_t size, uint32_t* uiarr) {
   size_t ulii;
   for (ulii = 0; ulii < size; ulii++) {
     *uiarr++ = 0;
   }
 }
 
-HEADER_INLINE void fill_uint_one(uint32_t* uiarr, size_t size) {
+HEADER_INLINE void fill_uint_one(size_t size, uint32_t* uiarr) {
   size_t ulii;
   for (ulii = 0; ulii < size; ulii++) {
     *uiarr++ = ~0U;
   }
 }
 
-HEADER_INLINE void fill_float_zero(float* farr, size_t size) {
+HEADER_INLINE void fill_float_zero(size_t size, float* farr) {
   size_t ulii;
   for (ulii = 0; ulii < size; ulii++) {
     *farr++ = 0.0;
   }
 }
 
-HEADER_INLINE void fill_double_zero(double* darr, size_t size) {
+HEADER_INLINE void fill_double_zero(size_t size, double* darr) {
   size_t ulii;
   for (ulii = 0; ulii < size; ulii++) {
     *darr++ = 0.0;
@@ -2161,6 +2147,171 @@ HEADER_INLINE uintptr_t next_autosomal_unsafe(uintptr_t* marker_exclude, uintptr
     marker_uidx = next_unset_ul_unsafe(marker_exclude, *chrom_end_ptr);
   }
 }
+*/
+
+/*
+// plink2_common code to switch to
+// for hash tables where maximum ID string length is not known in advance.
+uint32_t unklen_id_htable_find(const char* cur_id, const char* const* item_ids, const uint32_t* id_htable, uint32_t hashval, uint32_t id_htable_size);
+
+// okay, time to provide O(c log c)-time instead of O(c^2)-time initialization
+// (c = # of chromosomes/contigs).
+#define MAX_POSSIBLE_CHROM 65280
+
+// get_id_htable_size(MAX_POSSIBLE_CHROM) (use constexpr once sufficient
+// compiler support is available)
+#define CHROM_NAME_HTABLE_SIZE 130579
+
+// assumes MAX_POSSIBLE_CHROM is a multiple of 64, otherwise add round-up
+#define CHROM_MASK_WORDS (MAX_POSSIBLE_CHROM / BITCT)
+
+// (note that n+1, n+2, n+3, and n+4 are reserved for X/Y/XY/MT)
+#define MAX_CHROM_TEXTNUM 95
+
+// get_chrom_code_raw() needs to be modified if this changes
+#define MAX_CHROM_TEXTNUM_SLEN 2
+
+#define CHROM_X MAX_POSSIBLE_CHROM
+#define CHROM_Y (MAX_POSSIBLE_CHROM + 1)
+#define CHROM_XY (MAX_POSSIBLE_CHROM + 2)
+#define CHROM_MT (MAX_POSSIBLE_CHROM + 3)
+
+#ifdef __LP64__
+  // dog requires 42 bits, and other species require less
+  #define CHROM_MASK_INITIAL_WORDS 1
+#else
+  #define CHROM_MASK_INITIAL_WORDS 2
+#endif
+
+typedef struct {
+  // Main dynamic block intended to be allocated as a single aligned block of
+  // memory on the heap freeable with vecaligned_free(), with chrom_mask at the
+  // base.
+
+  uintptr_t* chrom_mask; // which chromosomes aren't known to be absent?
+  // This is a misnomer--it includes X and excludes MT.  Underlying concept is
+  // "are some calls guaranteed to be homozygous (assuming >= 1 male)", which
+  // is no longer true for MT since heteroplasmy is a thing.  (Well, the real
+  // goal with MT is to enable dosage-based analysis, but until all pipelines
+  // have adapted, diploid data handling loses slightly less information than
+  // haploid.)
+  uintptr_t* haploid_mask;
+
+  // order of chromosomes in input files
+  // currently tolerates out-of-order chromosomes, as long as all variants for
+  // any given chromosome are together
+  uint32_t* chrom_file_order;
+  
+  // if the second chromosome in the dataset is chr5, chrom_file_order[1] == 5,
+  // the raw variant indexes for chr5 are in [chrom_fo_vidx_start[1],
+  // chrom_fo_vidx_start[2]). and chrom_idx_to_foidx[5] == 1.
+  uint32_t* chrom_fo_vidx_start;
+  uint32_t* chrom_idx_to_foidx;
+
+  // --allow-extra-chr support
+  char** nonstd_names;
+  uint32_t* nonstd_id_htable;
+  // end main dynamic block
+
+  uint32_t chrom_ct; // number of distinct chromosomes/contigs
+  uint32_t species;
+
+  int32_t x_code;
+  int32_t y_code;
+  int32_t xy_code;
+  int32_t mt_code;
+  uint32_t max_code;
+
+  uint32_t autosome_ct;
+
+  // more --allow-extra-chr support
+  uint32_t zero_extra_chroms;
+  uint32_t name_ct;
+  Ll_str* incl_excl_name_stack;
+  uint32_t is_include_stack;
+  uint32_t output_encoding;
+} Chrom_info;
+
+#define SPECIES_HUMAN 0
+#define SPECIES_COW 1
+#define SPECIES_DOG 2
+#define SPECIES_HORSE 3
+#define SPECIES_MOUSE 4
+#define SPECIES_RICE 5
+#define SPECIES_SHEEP 6
+#define SPECIES_UNKNOWN 7
+
+extern const char* g_species_singular;
+extern const char* g_species_plural;
+
+int32_t init_chrom_info(Chrom_info* chrom_info_ptr);
+
+void init_species(uint32_t species_code, Chrom_info* chrom_info_ptr);
+
+void init_default_chrom_mask(Chrom_info* chrom_info_ptr);
+
+HEADER_INLINE int32_t init_chrom_info_human(Chrom_info* chrom_info_ptr) {
+  // convenience wrapper
+  if (init_chrom_info(chrom_info_ptr)) {
+    return RET_NOMEM;
+  }
+  init_species(SPECIES_HUMAN, chrom_info_ptr);
+  init_default_chrom_mask(chrom_info_ptr);
+  return 0;
+}
+
+void forget_extra_chrom_names(Chrom_info* chrom_info_ptr);
+
+void cleanup_chrom_info(Chrom_info* chrom_info_ptr);
+
+HEADER_INLINE const char* species_str(uintptr_t ct) {
+  return (ct == ONELU)? g_species_singular : g_species_plural;
+}
+
+#define CHR_OUTPUT_PREFIX 1
+#define CHR_OUTPUT_M 2
+#define CHR_OUTPUT_MT 4
+#define CHR_OUTPUT_0M 8
+
+char* chrom_name_write(const Chrom_info* chrom_info_ptr, uint32_t chrom_idx, char* buf);
+
+uint32_t get_max_chrom_slen(const Chrom_info* chrom_info_ptr);
+
+uint32_t haploid_chrom_present(const Chrom_info* chrom_info_ptr);
+
+// does not require null-termination
+int32_t get_chrom_code_raw(const char* sptr);
+
+int32_t get_chrom_code_nt(const char* chrom_name, const Chrom_info* chrom_info_ptr, uint32_t name_slen);
+
+// when the chromosome name isn't null-terminated
+// requires chrom_name[name_slen] to be mutable
+int32_t get_chrom_code(const Chrom_info* chrom_info_ptr, char* chrom_name, uint32_t name_slen);
+
+uint32_t get_variant_chrom_fo_idx(const Chrom_info* chrom_info_ptr, uintptr_t variant_uidx);
+
+HEADER_INLINE uint32_t get_variant_chrom(const Chrom_info* chrom_info_ptr, uintptr_t variant_uidx) {
+  return chrom_info_ptr->chrom_file_order[get_variant_chrom_fo_idx(chrom_info_ptr, variant_uidx)];
+}
+
+HEADER_INLINE int32_t chrom_exists(const Chrom_info* chrom_info_ptr, uint32_t chrom_idx) {
+  return is_set(chrom_info_ptr->chrom_mask, chrom_idx);
+}
+
+// now assumes cur_chrom_name is null-terminated
+int32_t resolve_or_add_chrom_name(const char* cur_chrom_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, Chrom_info* chrom_info_ptr, int32_t* chrom_idx_ptr);
+
+// now assumes chrom_name is null-terminated
+uint32_t chrom_error(const char* chrom_name, const char* file_descrip, const Chrom_info* chrom_info_ptr, uintptr_t line_idx, int32_t error_code, uint32_t allow_extra_chroms);
+
+// newval does not need to be null-terminated
+// assumes *allele_ptr is not initialized
+uint32_t allele_set(const char* newval, uint32_t allele_slen, const char** allele_ptr);
+
+// *allele_ptr must be initialized; frees *allele_ptr if necessary
+uint32_t allele_reset(const char* newval, uint32_t allele_slen, const char** allele_ptr);
+
+void cleanup_allele_storage(uint32_t max_allele_slen, uintptr_t allele_storage_entry_ct, const char** allele_storage);
 */
 
 void refresh_chrom_info(const Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t* __restrict chrom_end_ptr, uint32_t* __restrict chrom_fo_idx_ptr, uint32_t* __restrict is_x_ptr, uint32_t* __restrict is_y_ptr, uint32_t* __restrict is_mt_ptr, uint32_t* __restrict is_haploid_ptr);

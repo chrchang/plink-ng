@@ -208,7 +208,7 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
     bigstack_alloc_d(WARM_START_ITERS * WARM_START_ITERS, &prod_matrix);
     fputs("\r--lasso: Initializing warm start matrix...", stdout);
     fflush(stdout);
-    fill_double_zero(misc_arr, WARM_START_ITERS);
+    fill_double_zero(WARM_START_ITERS, misc_arr);
     for (col_idx = 0; col_idx < col_ct;) {
       ulii = col_idx + WARM_START_ITERS;
       if (ulii > col_ct) {
@@ -520,7 +520,7 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
     }
     fputs("\r--lasso: Initializing warm start matrix...", stdout);
     fflush(stdout);
-    fill_double_zero(misc_arr, WARM_START_ITERS);
+    fill_double_zero(WARM_START_ITERS, misc_arr);
   } else {
     if (bigstack_alloc_d(sample_valid_ct, &data_window)) {
       goto lasso_smallmem_ret_NOMEM;
@@ -910,7 +910,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
     dptr++;
   }
   fill_quatervec_55(sample_valid_ct, sample_include2);
-  fill_ulong_zero(polymorphic_markers, unfiltered_marker_ctl);
+  fill_ulong_zero(unfiltered_marker_ctl, polymorphic_markers);
   if ((chrom_info_ptr->mt_code != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->mt_code)) {
     hh_or_mt_exists |= NXMHH_EXISTS;
   }

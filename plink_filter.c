@@ -1141,7 +1141,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
 
   // two-pass load, same as load_clusters()
   // use loadbuf as duplicate IID detector
-  fill_ulong_zero(loadbuf, sorted_sample_ctl);
+  fill_ulong_zero(sorted_sample_ctl, loadbuf);
   while (fgets(g_textbuf, MAXLINELEN, infile)) {
     line_idx++;
     if (!g_textbuf[MAXLINELEN - 1]) {
@@ -1207,7 +1207,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
       bigstack_calloc_ul(cluster_mct * unfiltered_sample_ctl2, &cluster_zmask2s)) {
     goto load_oblig_missing_ret_NOMEM;
   }
-  fill_uint_one(sample_lookup, unfiltered_sample_ct);
+  fill_uint_one(unfiltered_sample_ct, sample_lookup);
 
   // second pass
   rewind(infile);
@@ -1251,7 +1251,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
     goto load_oblig_missing_ret_NOMEM;
   }
   om_ip->cluster_ref_cts = cluster_ref_cts;
-  fill_uint_zero(cluster_ref_cts, cluster_ct * 2);
+  fill_uint_zero(cluster_ct * 2, cluster_ref_cts);
   retval = sort_item_ids(unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, 0, 0, strcmp_deref, &sorted_marker_ids, &marker_id_map);
   if (retval) {
     goto load_oblig_missing_ret_1;
@@ -1598,7 +1598,7 @@ int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
       }
     }
   }
-  fill_ulong_zero(newly_excluded, unfiltered_sample_ctl);
+  fill_ulong_zero(unfiltered_sample_ctl, newly_excluded);
   if (!om_ip->entry_ct) {
     mind_int_thresh[0] = (int32_t)(mind_thresh * ((int32_t)nony_marker_ct) * (1 + SMALL_EPSILON));
     mind_int_thresh[1] = (int32_t)(mind_thresh * ((int32_t)marker_ct) * (1 + SMALL_EPSILON));
@@ -2864,7 +2864,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
 	    cur_om_entry = *(++om_entry_ptr);
 	  }
 	  if (cluster_ct) {
-	    fill_uint_zero(oblig_missing_ct_by_cluster, cluster_ct);
+	    fill_uint_zero(cluster_ct, oblig_missing_ct_by_cluster);
 	  }
 	}
 	if (!cluster_ct) {
@@ -2894,7 +2894,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
 	    goto write_missingness_reports_ret_WRITE_FAIL;
 	  }
 	} else {
-	  fill_uint_zero(missing_ct_by_cluster, cluster_ct);
+	  fill_uint_zero(cluster_ct, missing_ct_by_cluster);
 	  if ((!om_entry_ptr) || ((cur_om_entry >> 32) != marker_uidx)) {
 	    for (uii = 0; uii < ujj; uii += BITCT2) {
 	      ulii = *lptr++;
@@ -2910,7 +2910,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
 	      }
 	    }
 	  } else {
-	    fill_ulong_zero(cur_omidxs, om_cluster_ctl);
+	    fill_ulong_zero(om_cluster_ctl, cur_omidxs);
 	    do {
               set_bit(((uint32_t)cur_om_entry) - om_ycorr, cur_omidxs);
 	      cur_om_entry = *(++om_entry_ptr);

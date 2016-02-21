@@ -768,7 +768,7 @@ void initialize_roh_slot(uint32_t* cur_roh, uint32_t chrom_start, uint32_t* mark
 #else
   roh_slot[0] = 0x15555555 >> (2 * (15 - uii));
 #endif
-  fill_ulong_zero(&(roh_slot[cur_bidx]), end_bidx - cur_bidx);
+  fill_ulong_zero(end_bidx - cur_bidx, &(roh_slot[cur_bidx]));
   uii = cidx_last & (BITCT2 - 1);
 #ifdef __LP64__
   if (cidx_last & 32) {
@@ -1135,7 +1135,7 @@ void compute_allelic_match_matrix(double mismatch_max, uintptr_t roh_slot_wsize,
   uint32_t block_start_idxl;
   uint32_t block_start_idxs;
   uint32_t uii;
-  fill_uint_zero(allelic_match_cts, pool_size);
+  fill_uint_zero(pool_size, allelic_match_cts);
   if (roh_slot_uncached) {
     // count cached results
     map_first_unset = next_unset(roh_slot_uncached, 0, pool_size);
@@ -1465,7 +1465,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   cur_roh_heap = &(roh_slot_map[-1]);
   sample_uidx_sort_buf = roh_slot_cidx_start;
 
-  fill_ulong_one(pool_size_first_plidx, pool_size_ct);
+  fill_ulong_one(pool_size_ct, pool_size_first_plidx);
 
   pool_list = (uintptr_t*)g_bigstack_base;
   max_pool_list_size = bigstack_left() / sizeof(intptr_t);
@@ -1647,11 +1647,11 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
       }
       marker_uidx_to_cidx[marker_uidx1 - chrom_start] = marker_cidx++;
     }
-    fill_ulong_zero(roh_slot_occupied, max_pool_sizel);
+    fill_ulong_zero(max_pool_sizel, roh_slot_occupied);
     // an extra slot because this is a "1-terminated" list
-    fill_ulong_one((uintptr_t*)roh_slot_map, (max_pool_size + 1) * (sizeof(int64_t) / sizeof(intptr_t)));
-    fill_uint_zero(roh_slot_end_uidx, max_pool_size);
-    fill_ulong_zero(allelic_match_matrix, (((uintptr_t)max_pool_size) * (max_pool_size - 1)) / 2);
+    fill_ulong_one((max_pool_size + 1) * (sizeof(int64_t) / sizeof(intptr_t)), (uintptr_t*)roh_slot_map);
+    fill_uint_zero(max_pool_size, roh_slot_end_uidx);
+    fill_ulong_zero((((uintptr_t)max_pool_size) * (max_pool_size - 1)) / 2, allelic_match_matrix);
     lookahead_end_uidx = next_unset_unsafe(marker_exclude, chrom_start);
     cur_lookahead_start = 0;
     cur_lookahead_size = 0;
@@ -1684,7 +1684,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
           slot_idx1++;
 	}
       } else {
-        fill_ulong_zero(roh_slot_uncached, BITCT_TO_WORDCT(pool_size));
+        fill_ulong_zero(BITCT_TO_WORDCT(pool_size), roh_slot_uncached);
       }
       slot_idx1 = 0;
       while (1) {
@@ -2544,7 +2544,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   if (fseeko(bedfile, bed_offset, SEEK_SET)) {
     goto calc_homozyg_ret_READ_FAIL;
   }
-  fill_ulong_one(sample_to_last_roh, sample_ct);
+  fill_ulong_one(sample_ct, sample_to_last_roh);
 
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_ct; chrom_fo_idx++) {
     uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
@@ -2569,9 +2569,9 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
     }
     fflush(stdout);
     marker_uidx = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
-    fill_ulong_zero(swbuf, sample_ctl * window_size);
-    fill_uint_zero(het_cts, sample_ct);
-    fill_uint_zero(missing_cts, sample_ct);
+    fill_ulong_zero(sample_ctl * window_size, swbuf);
+    fill_uint_zero(sample_ct, het_cts);
+    fill_uint_zero(sample_ct, missing_cts);
     for (widx = 0; widx < window_size; widx++) {
       if (IS_SET(marker_exclude, marker_uidx)) {
         marker_uidx = next_unset_ul(marker_exclude, marker_uidx, chrom_end);
@@ -2592,16 +2592,16 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
     }
     if (widx == window_size) {
       marker_uidx--;
-      fill_ulong_zero(swbuf, window_size * sample_ctl);
-      fill_uint_zero(swhit_cts, sample_ct);
-      fill_uint_one(cur_roh_cidx_starts, sample_ct);
+      fill_ulong_zero(window_size * sample_ctl, swbuf);
+      fill_uint_zero(sample_ct, swhit_cts);
+      fill_uint_one(sample_ct, cur_roh_cidx_starts);
 
       widx = 0;
       swbuf_full = 0;
       marker_cidx = 0;
       old_uidx = uidx_buf[0];
       if (prev_roh_end_cidxs) {
-        fill_uint_one(prev_roh_end_cidxs, sample_ct);
+        fill_uint_one(sample_ct, prev_roh_end_cidxs);
 	for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
           end_nonhom_uidxs[sample_idx] = old_uidx;
 	}
@@ -2614,7 +2614,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
 	swbuf_cur = &(swbuf[widx * sample_ctl]);
 	if (swbuf_full) {
 	  vertical_bitct_subtract(swbuf_cur, sample_ct, swhit_cts);
-	  fill_ulong_zero(swbuf_cur, sample_ctl);
+	  fill_ulong_zero(sample_ctl, swbuf_cur);
 	} else {
 	  swhit_min = (int32_t)(((double)((int32_t)(widx + 1))) * hit_threshold + 1.0 - EPSILON);
 	}

@@ -119,7 +119,7 @@ int32_t sample_major_to_snp_major(char* sample_major_fname, char* outname, uintp
 	sample_idx_base = sample_idx_end;
 	sample_idx_end = sample_idx_base + 4;
 	if (sample_idx_end > unfiltered_sample_ct) {
-	  fill_ulong_zero(&(loadbuf[(unfiltered_sample_ct % 4) * unfiltered_marker_ctl2]), (4 - (unfiltered_sample_ct % 4)) * unfiltered_marker_ctl2);
+	  fill_ulong_zero((4 - (unfiltered_sample_ct % 4)) * unfiltered_marker_ctl2, &(loadbuf[(unfiltered_sample_ct % 4) * unfiltered_marker_ctl2]));
 	  sample_idx_end = unfiltered_sample_ct;
 	}
 	lptr = loadbuf;
@@ -233,7 +233,7 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
   uint32_t cur_pos;
   int32_t ii;
   int32_t jj;
-  fill_ulong_zero(loaded_chrom_mask, CHROM_MASK_WORDS);
+  fill_ulong_zero(CHROM_MASK_WORDS, loaded_chrom_mask);
   if (fopen_checked(mapname, "r", mapfile_ptr)) {
     goto load_map_ret_OPEN_FAIL;
   }
@@ -289,10 +289,10 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
     goto load_map_ret_NOMEM;
   }
   marker_exclude = *marker_exclude_ptr;
-  fill_uint_zero(chrom_info_ptr->chrom_file_order, MAX_POSSIBLE_CHROM);
-  fill_uint_zero(chrom_info_ptr->chrom_file_order_marker_idx, MAX_POSSIBLE_CHROM + 1);
-  fill_uint_zero(chrom_info_ptr->chrom_start, MAX_POSSIBLE_CHROM);
-  fill_uint_zero(chrom_info_ptr->chrom_end, MAX_POSSIBLE_CHROM);
+  fill_uint_zero(MAX_POSSIBLE_CHROM, chrom_info_ptr->chrom_file_order);
+  fill_uint_zero(MAX_POSSIBLE_CHROM + 1, chrom_info_ptr->chrom_file_order_marker_idx);
+  fill_uint_zero(MAX_POSSIBLE_CHROM, chrom_info_ptr->chrom_start);
+  fill_uint_zero(MAX_POSSIBLE_CHROM, chrom_info_ptr->chrom_end);
   // permanent bigstack allocation #2, if needed: marker_pos
   if (marker_pos_needed) {
     if (bigstack_alloc_ui(unfiltered_marker_ct, marker_pos_ptr)) {
@@ -584,7 +584,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   int32_t jj;
   uint32_t cur_pos;
   char cc;
-  fill_ulong_zero(loaded_chrom_mask, CHROM_MASK_WORDS);
+  fill_ulong_zero(CHROM_MASK_WORDS, loaded_chrom_mask);
   insert_buf[0] = NULL;
   insert_buf[1] = NULL;
   insert_buf[2] = NULL;
@@ -605,7 +605,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
       sf_str_lens[uii] = strlen(&(sf_range_list_ptr->names[uii * sf_max_len]));
     }
   }
-  fill_uint_zero(missing_template_seg_len, 5);
+  fill_uint_zero(5, missing_template_seg_len);
   missing_template_seg[0] = NULL;
   missing_template_seg[1] = NULL;
   missing_template_seg[2] = NULL;
@@ -869,7 +869,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	      goto load_bim_ret_FROM_TO_DIFFERENT_CHROM;
 	    }
 	  }
-	  fill_ulong_zero(chrom_info_ptr->chrom_mask, CHROM_MASK_WORDS);
+	  fill_ulong_zero(CHROM_MASK_WORDS, chrom_info_ptr->chrom_mask);
 	  SET_BIT(from_chrom, chrom_info_ptr->chrom_mask);
 	}
 	if ((ulii == to_slen) && (!memcmp(bufptr, markername_to, ulii))) {
@@ -885,7 +885,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	      goto load_bim_ret_FROM_TO_DIFFERENT_CHROM;
 	    }
 	  }
-	  fill_ulong_zero(chrom_info_ptr->chrom_mask, CHROM_MASK_WORDS);
+	  fill_ulong_zero(CHROM_MASK_WORDS, chrom_info_ptr->chrom_mask);
 	  SET_BIT(to_chrom, chrom_info_ptr->chrom_mask);
 	}
 	if ((ulii == snp_slen) && (!memcmp(bufptr, markername_snp, ulii))) {
@@ -897,7 +897,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	    goto load_bim_ret_INVALID_BP_COORDINATE;
 	  }
 	  if (!exclude_snp) {
-	    fill_ulong_zero(chrom_info_ptr->chrom_mask, CHROM_MASK_WORDS);
+	    fill_ulong_zero(CHROM_MASK_WORDS, chrom_info_ptr->chrom_mask);
 	    SET_BIT(snp_chrom, chrom_info_ptr->chrom_mask);
 	  }
 	}
@@ -1089,13 +1089,13 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	goto load_bim_ret_NOMEM;
       }
       // on the other hand, this is not autocomputed
-      fill_uint_one(*nchrobs_ptr, unfiltered_marker_ct);
+      fill_uint_one(unfiltered_marker_ct, *nchrobs_ptr);
     }
   }
-  fill_uint_zero(chrom_info_ptr->chrom_file_order, MAX_POSSIBLE_CHROM);
-  fill_uint_zero(chrom_info_ptr->chrom_file_order_marker_idx, MAX_POSSIBLE_CHROM + 1);
-  fill_uint_zero(chrom_info_ptr->chrom_start, MAX_POSSIBLE_CHROM);
-  fill_uint_zero(chrom_info_ptr->chrom_end, MAX_POSSIBLE_CHROM);
+  fill_uint_zero(MAX_POSSIBLE_CHROM, chrom_info_ptr->chrom_file_order);
+  fill_uint_zero(MAX_POSSIBLE_CHROM + 1, chrom_info_ptr->chrom_file_order_marker_idx);
+  fill_uint_zero(MAX_POSSIBLE_CHROM, chrom_info_ptr->chrom_start);
+  fill_uint_zero(MAX_POSSIBLE_CHROM, chrom_info_ptr->chrom_end);
   // permanent bigstack allocation #3, if needed: marker_pos
   if (marker_pos_needed) {
     if (bigstack_alloc_ui(unfiltered_marker_ct, marker_pos_ptr)) {
@@ -1471,7 +1471,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
     }
 
     // kludge to use sort_item_ids_noalloc()
-    fill_ulong_zero((uintptr_t*)covar_name_flag_seen_idxs, BITCT_TO_WORDCT(ulii));
+    fill_ulong_zero(BITCT_TO_WORDCT(ulii), (uintptr_t*)covar_name_flag_seen_idxs);
     retval = sort_item_ids_noalloc(ulii, (const uintptr_t*)covar_name_flag_seen_idxs, ulii, covar_range_list_ptr->names, covar_range_list_ptr->name_max_len, 0, 0, strcmp_deref, sorted_covar_name_flag_ids, covar_name_flag_id_map);
     if (retval) {
       if (retval == RET_INVALID_FORMAT) {
@@ -1480,7 +1480,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
       }
       goto load_covars_ret_1;
     }
-    fill_int_one(covar_name_flag_seen_idxs, ulii);
+    fill_int_one(ulii, covar_name_flag_seen_idxs);
   }
   retval = sort_item_ids_noalloc(unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, 0, 1, strcmp_deref, sorted_ids, id_map);
   if (retval) {
@@ -1545,7 +1545,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
   bufptr = next_token(bufptr2);
 
   if ((covar_modifier & (COVAR_NAME | COVAR_NUMBER)) && covar_raw_ct) {
-    fill_ulong_zero(covars_active, covar_raw_ctl);
+    fill_ulong_zero(covar_raw_ctl, covars_active);
     if (covar_modifier & COVAR_NUMBER) {
       if (numeric_range_list_to_bitarr(covar_range_list_ptr, covar_raw_ct, 1, 0, covars_active)) {
 	goto load_covars_ret_MISSING_TOKENS;
@@ -1568,7 +1568,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
     covar_ct = covar_raw_ct;
   } else {
     // --gxe only
-    fill_ulong_zero(covars_active, covar_raw_ctl);
+    fill_ulong_zero(covar_raw_ctl, covars_active);
     covar_ct = 0;
   }
   covar_ctx = covar_ct + (sex_nm? 1 : 0);
@@ -1622,7 +1622,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
     covar_names = *covar_names_ptr;
     covar_nm = *covar_nm_ptr;
     covar_d = *covar_d_ptr;
-    fill_ulong_zero(covar_nm, sample_ctl);
+    fill_ulong_zero(sample_ctl, covar_nm);
     for (covar_idx = 0; covar_idx < ulii; covar_idx++) {
       covar_d[covar_idx] = missing_phenod;
     }
@@ -2005,7 +2005,7 @@ int32_t write_covars(char* outname, char* outname_end, uint32_t write_covar_modi
 	downcode_category_ct = 0;
 	if (sample_idx2 > 2) {
 	  covar_nm_ct = sample_idx2;
-	  fill_uint_one(uiptr, sample_ct);
+	  fill_uint_one(sample_ct, uiptr);
 #ifdef __cplusplus
 	  std::sort(sorted_downcoding_intbuf, &(sorted_downcoding_intbuf[covar_nm_ct]));
 #else
@@ -2097,7 +2097,7 @@ int32_t write_covars(char* outname, char* outname_end, uint32_t write_covar_modi
 	downcode_category_ct = 0;
 	if (sample_idx2 > 2) {
 	  covar_nm_ct = sample_idx2;
-	  fill_uint_one(uiptr, sample_ct);
+	  fill_uint_one(sample_ct, uiptr);
 	  if (qsort_ext((char*)sorted_downcoding_buf, covar_nm_ct, sizeof(double), double_cmp_deref, (char*)downcoding_buf_idxs, sizeof(int32_t))) {
 	    goto write_covars_ret_NOMEM;
 	  }
@@ -2354,9 +2354,9 @@ int32_t zero_cluster_init(char* zerofname, uintptr_t unfiltered_marker_ct, uintp
     goto zero_cluster_init_ret_NOMEM;
   }
 #ifdef __LP64__
-  fill_ulong_zero(marker_bitfield_tmp, round_up_pow2(marker_ctp2l, 2));
+  fill_ulong_zero(round_up_pow2(marker_ctp2l, 2), marker_bitfield_tmp);
 #else
-  fill_ulong_zero(marker_bitfield_tmp, round_up_pow2(marker_ctp2l, 4));
+  fill_ulong_zero(round_up_pow2(marker_ctp2l, 4), marker_bitfield_tmp);
 #endif
   zc_entries_end = (int64_t*)marker_bitfield_tmp;
   zc_entries = &(zc_entries_end[-1]);
@@ -2425,7 +2425,7 @@ int32_t zero_cluster_init(char* zerofname, uintptr_t unfiltered_marker_ct, uintp
   range_last = 0;
   for (cluster_idx = 0; cluster_idx < cluster_ct; cluster_idx++) {
     if (range_first < marker_ct) {
-      fill_ulong_zero(marker_bitfield_tmp, marker_ctp2l);
+      fill_ulong_zero(marker_ctp2l, marker_bitfield_tmp);
       range_first = marker_ct;
       range_last = 0;
       bigstack_end_set(zc_entries);
@@ -3098,7 +3098,7 @@ int32_t flip_subset_init(char* flip_fname, char* flip_subset_fname, uintptr_t un
   int32_t sorted_idx;
   unsigned char ucc;
   // load --flip file, then --flip-subset
-  fill_ulong_zero(flip_subset_markers, unfiltered_marker_ctl);
+  fill_ulong_zero(unfiltered_marker_ctl, flip_subset_markers);
   retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable_size, &marker_id_htable);
   if (retval) {
     goto flip_subset_init_ret_1;
@@ -3157,7 +3157,7 @@ int32_t flip_subset_init(char* flip_fname, char* flip_subset_fname, uintptr_t un
   if (fopen_checked(flip_subset_fname, "r", &infile)) {
     goto flip_subset_init_ret_OPEN_FAIL;
   }
-  fill_ulong_zero(flip_subset_vec2, sample_ctv2);
+  fill_ulong_zero(sample_ctv2, flip_subset_vec2);
   line_idx = 0;
   while (fgets(g_textbuf, MAXLINELEN, infile)) {
     line_idx++;
@@ -3346,7 +3346,7 @@ void zeropatch(uintptr_t sample_ctv2, uintptr_t cluster_ct, uintptr_t* cluster_z
     if (in_setdef(zcdefs[cluster_idx], marker_idx)) {
       if (!at_least_one_cluster) {
 	at_least_one_cluster = 1;
-	fill_ulong_zero(patchbuf, sample_ctv2);
+	fill_ulong_zero(sample_ctv2, patchbuf);
       }
       bitvec_or(&(cluster_zc_masks[cluster_idx * sample_ctv2]), sample_ctv2, patchbuf);
     }
@@ -3979,13 +3979,13 @@ int32_t load_fam(char* famname, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32
       goto load_fam_ret_NOMEM;
     }
     pheno_c = *pheno_c_ptr;
-    fill_ulong_zero(pheno_c, unfiltered_sample_ctl);
+    fill_ulong_zero(unfiltered_sample_ctl, pheno_c);
   } else {
     pheno_d = (double*)malloc(unfiltered_sample_ct * sizeof(double));
     if (!pheno_d) {
       goto load_fam_ret_NOMEM;
     }
-    fill_double_zero(pheno_d, unfiltered_sample_ct);
+    fill_double_zero(unfiltered_sample_ct, pheno_d);
     *pheno_d_ptr = pheno_d;
   }
   bigstack_mark = g_bigstack_base;
@@ -4013,14 +4013,14 @@ int32_t load_fam(char* famname, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32
   pheno_nm = *pheno_nm_ptr;
   founder_info = *founder_info_ptr;
   if (fam_cols & FAM_COL_34) {
-    fill_ulong_zero(founder_info, unfiltered_sample_ctl);
+    fill_ulong_zero(unfiltered_sample_ctl, founder_info);
   } else {
     fill_all_bits(unfiltered_sample_ct, founder_info);
   }
-  fill_ulong_zero(sex_nm, unfiltered_sample_ctl);
-  fill_ulong_zero(sex_male, unfiltered_sample_ctl);
-  fill_ulong_zero(*sample_exclude_ptr, unfiltered_sample_ctl);
-  fill_ulong_zero(pheno_nm, unfiltered_sample_ctl);
+  fill_ulong_zero(unfiltered_sample_ctl, sex_nm);
+  fill_ulong_zero(unfiltered_sample_ctl, sex_male);
+  fill_ulong_zero(unfiltered_sample_ctl, *sample_exclude_ptr);
+  fill_ulong_zero(unfiltered_sample_ctl, pheno_nm);
 
   // ----- .fam read, second pass -----
   rewind(famfile);
@@ -4552,7 +4552,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	  continue;
 	}
       }
-      fill_ulong_zero(writebuf, sample_ctl2);
+      fill_ulong_zero(sample_ctl2, writebuf);
       if (single_chr) {
 	fputs(single_chr, outfile_bim);
         putc(' ', outfile_bim);
@@ -7483,7 +7483,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
     alleles[1] = NULL;
     alleles[2] = NULL;
     alleles[3] = NULL;
-    fill_uint_zero(allele_cts, 4);
+    fill_uint_zero(4, allele_cts);
     for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
       cptr2 = skip_initial_spaces(cptr2);
       while (cptr2 == &(g_textbuf[MAXLINELEN - 1])) {
@@ -8509,7 +8509,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     // okay, finally done with the line header
     if (alt_ct < 10) {
       // slightly faster parsing for the usual case
-      fill_ulong_zero(base_bitfields, (alt_ct + 1) * sample_ctv2);
+      fill_ulong_zero((alt_ct + 1) * sample_ctv2, base_bitfields);
       if ((!biallelic_only) || (alt_ct == 1)) {
 	for (sample_idx = 0; sample_idx < sample_ct; sample_idx++, bufptr = &(bufptr2[1])) {
 	  bufptr2 = strchr(bufptr, '\t');
@@ -8692,9 +8692,9 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     } else {
       // bleah, multi-digit genotype codes
       // two-pass read: determine most common alt allele, then actually load it
-      fill_ulong_zero(base_bitfields, 2 * sample_ctv2);
+      fill_ulong_zero(2 * sample_ctv2, base_bitfields);
       alt_bitfield = &(base_bitfields[sample_ctv2]);
-      fill_uint_zero(vcf_alt_cts, alt_ct);
+      fill_uint_zero(alt_ct, vcf_alt_cts);
       geno_start = bufptr;
       for (sample_idx = 0; sample_idx < sample_ct; sample_idx++, bufptr = &(bufptr2[1])) {
         bufptr2 = strchr(bufptr, '\t');
@@ -9688,9 +9688,9 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       goto bcf_to_bed_ret_READ_OR_FORMAT_FAIL;
     }
     if (n_allele < 2) {
-      fill_ulong_zero(base_bitfields, 2 * sample_ctv2);
+      fill_ulong_zero(2 * sample_ctv2, base_bitfields);
     } else {
-      fill_ulong_zero(base_bitfields, n_allele * sample_ctv2);
+      fill_ulong_zero(n_allele * sample_ctv2, base_bitfields);
     }
     if (ukk == 1) {
       ucptr = (unsigned char*)loadbuf;
@@ -12378,7 +12378,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
         bigstack_alloc_c(16, &writebuf2)) {
       goto recode_ret_NOMEM;
     }
-    fill_uint_zero(fid_map, fid_ct);
+    fill_uint_zero(fid_ct, fid_map);
   } else {
     if (recode_modifier & RECODE_A_TRANSPOSE) {
       // format is new to PLINK 1.9, so use tab delimiter unless 'spacex'
@@ -12484,7 +12484,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	goto recode_ret_NOMEM;
       }
       recode_allele_extra = (char*)g_bigstack_base;
-      fill_ulong_zero((uintptr_t*)allele_missing, unfiltered_marker_ct);
+      fill_ulong_zero(unfiltered_marker_ct, (uintptr_t*)allele_missing);
       ulii = round_up_pow2(max_marker_allele_len + MAXLINELEN, END_ALLOC_CHUNK);
       loadbuf = (unsigned char*)bigstack_end_alloc_presized(ulii);
       if (!loadbuf) {
@@ -16486,7 +16486,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   sort_marker_chrom_pos(ll_buf, tot_marker_ct, pos_buf, chrom_start, chrom_id, NULL, &chrom_ct);
   // bugfix: when chromosomes are filtered out, flag the corresponding markers
   // in marker_map[]
-  fill_uint_one(marker_map, tot_marker_ct);
+  fill_uint_one(tot_marker_ct, marker_map);
   if (merge_post_msort_update_maps(marker_ids, max_marker_id_len, marker_map, marker_cms, marker_cms_tmp, pos_buf, ll_buf, chrom_start, chrom_id, chrom_ct, &dedup_marker_ct, merge_equal_pos, marker_allele_ptrs, chrom_info_ptr)) {
     goto merge_datasets_ret_INVALID_FORMAT;
   }
@@ -16585,7 +16585,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
       memset(writebuf, 0x55, ((uintptr_t)ujj) * tot_sample_ct4);
     }
     if (merge_must_track_write(merge_mode)) {
-      fill_ulong_zero(markbuf, ujj * ulii);
+      fill_ulong_zero(ujj * ulii, markbuf);
     }
     for (mlpos = 0; mlpos < merge_ct; mlpos++) {
       retval = merge_main(mergelist_bed[mlpos], mergelist_bim[mlpos], mergelist_fam[mlpos], bim_loadbuf, max_bim_linelen, tot_sample_ct, tot_marker_ct, dedup_marker_ct, uii * markers_per_pass, ujj, marker_allele_ptrs, marker_ids, max_marker_id_len, sample_ids, max_sample_id_len, merge_nsort, sample_nsmap, flex_map, marker_map, idbuf, readbuf, writebuf, mlpos? merge_mode : merge_first_mode(merge_mode, merge_equal_pos), markbuf, outfile, &diff_total_overlap, &diff_not_both_genotyped, &diff_discordant, ped_buflen);

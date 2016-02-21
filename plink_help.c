@@ -247,7 +247,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     for (arg_idx = 0; arg_idx < param_ct; arg_idx++) {
       help_ctrl.param_lens[arg_idx] = strlen(help_ctrl.argv[arg_idx]);
     }
-    fill_ulong_zero(help_ctrl.all_match_arr, param_ctl * 3);
+    fill_ulong_zero(param_ctl * 3, help_ctrl.all_match_arr);
     help_ctrl.prefix_match_arr = &(help_ctrl.all_match_arr[param_ctl]);
     help_ctrl.perfect_match_arr = &(help_ctrl.all_match_arr[param_ctl * 2]);
     help_ctrl.preprint_newline = 1;
