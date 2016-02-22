@@ -4566,15 +4566,14 @@ static inline uint32_t nonstd_chrom_name_htable_find(const char* chrom_name, con
 }
 
 
-// global since species_str() may be called by functions which don't actually
-// care about Chrom_info
+// Global since species_str() may be called by functions which don't actually
+// care about chrom_info.  (chrom_info is really a global variable too, but I
+// find it easier to maintain this code when chrom_info dependencies are made
+// explicit in the function signatures; in contrast, g_species_singular and
+// g_species_plural are just for pretty printing and lend no insight into what
+// the functions which reference them are doing.)
 const char* g_species_singular = NULL;
 const char* g_species_plural = NULL;
-
-// if these are defined within init_species(), they may not persist after
-// function exit
-static const char species_singular_constants[][7] = {"person", "cow", "dog", "horse", "mouse", "plant", "sheep", "sample"};
-static const char species_plural_constants[][8] = {"people", "cattle", "dogs", "horses", "mice", "plants", "sheep", "samples"};
 
 int32_t init_chrom_info(Chrom_info* chrom_info_ptr) {
   // "constructor".  initializes with maximum capacity.  doesn't use bigstack.
@@ -4610,6 +4609,11 @@ int32_t init_chrom_info(Chrom_info* chrom_info_ptr) {
   return 0;
 }
 
+// if these are defined within init_species(), they may not persist after
+// function exit
+static const char species_singular_constants[][7] = {"person", "cow", "dog", "horse", "mouse", "plant", "sheep", "sample"};
+static const char species_plural_constants[][8] = {"people", "cattle", "dogs", "horses", "mice", "plants", "sheep", "samples"};
+
 void init_species(uint32_t species_code, Chrom_info* chrom_info_ptr) {
   // human: 22, X, Y, XY, MT
   // cow: 29, X, Y, MT
@@ -4633,10 +4637,10 @@ void init_species(uint32_t species_code, Chrom_info* chrom_info_ptr) {
   g_species_plural = species_plural_constants[species_code];
   if (species_code != SPECIES_UNKNOWN) {
     // these are assumed to be already initialized in the SPECIES_UNKNOWN case
-    chrom_info_ptr->x_code = species_x_code[species_code];
-    chrom_info_ptr->y_code = species_y_code[species_code];
-    chrom_info_ptr->xy_code = species_xy_code[species_code];
-    chrom_info_ptr->mt_code = species_mt_code[species_code];
+    chrom_info_ptr->xymt_codes[0] = species_x_code[species_code];
+    chrom_info_ptr->xymt_codes[1] = species_y_code[species_code];
+    chrom_info_ptr->xymt_codes[2] = species_xy_code[species_code];
+    chrom_info_ptr->xymt_codes[3] = species_mt_code[species_code];
     chrom_info_ptr->max_code = species_max_code[species_code];
     switch (species_code) {
     case SPECIES_HUMAN:
@@ -4685,35 +4689,83 @@ void init_default_chrom_mask(Chrom_info* chrom_info_ptr) {
   } else {
     fill_all_bits(chrom_info_ptr->autosome_ct + 1, chrom_info_ptr->chrom_mask);
     // --chr-set support
-    if (chrom_info_ptr->x_code != -1) {
-      set_bit(chrom_info_ptr->x_code, chrom_info_ptr->chrom_mask);
-    }
-    if (chrom_info_ptr->y_code != -1) {
-      set_bit(chrom_info_ptr->y_code, chrom_info_ptr->chrom_mask);
-    }
-    if (chrom_info_ptr->xy_code != -1) {
-      set_bit(chrom_info_ptr->xy_code, chrom_info_ptr->chrom_mask);
-    }
-    if (chrom_info_ptr->mt_code != -1) {
-      set_bit(chrom_info_ptr->mt_code, chrom_info_ptr->chrom_mask);
+    for (uint32_t xymt_idx = 0; xymt_idx < CHROM_XYMT_OFFSET_CT; ++xymt_idx) {
+      int32_t cur_code = chrom_info_ptr->xymt_codes[xymt_idx];
+      if (cur_code != -1) {
+	set_bit(chrom_info_ptr->xymt_codes[xymt_idx], chrom_info_ptr->chrom_mask);
+      }
     }
   }
 }
 
 void forget_extra_chrom_names(Chrom_info* chrom_info_ptr) {
-  uint32_t name_ct = chrom_info_ptr->name_ct;
+  const uint32_t name_ct = chrom_info_ptr->name_ct;
   // guard against init_species() not being called yet
   if (name_ct) {
     char** nonstd_names = chrom_info_ptr->nonstd_names;
-    uint32_t chrom_idx = chrom_info_ptr->max_code + 1;
     const uint32_t chrom_idx_last = chrom_info_ptr->max_code + name_ct;
-    for (; chrom_idx <= chrom_idx_last; ++chrom_idx) {
+    for (uint32_t chrom_idx = chrom_info_ptr->max_code + 1; chrom_idx <= chrom_idx_last; ++chrom_idx) {
       free(nonstd_names[chrom_idx]);
       nonstd_names[chrom_idx] = NULL;
     }
     fill_uint_one(CHROM_NAME_HTABLE_SIZE, chrom_info_ptr->nonstd_id_htable);
     chrom_info_ptr->name_ct = 0;
   }
+}
+
+int32_t finalize_chrom_info(Chrom_info* chrom_info_ptr) {
+  const uint32_t chrom_ct = chrom_info_ptr->chrom_ct;
+  const uint32_t name_ct = chrom_info_ptr->name_ct;
+  const uint32_t chrom_code_end = chrom_info_ptr->max_code + 1 + name_ct;
+  const uint32_t chrom_code_bitvec_ct = BITCT_TO_VECCT(chrom_code_end);
+  const uint32_t chrom_ct_int32vec_ct = (chrom_ct + (VEC_INT32 - 1)) / VEC_INT32;
+  const uint32_t chrom_ct_p1_int32vec_ct = 1 + (chrom_ct / VEC_INT32);
+  const uint32_t name_wordvec_ct = (name_ct + (VEC_WORDS - 1)) / VEC_WORDS;
+  uint32_t final_vecs_required = 2 * chrom_code_bitvec_ct + 2 * chrom_ct_int32vec_ct + chrom_ct_p1_int32vec_ct;
+  if (name_ct) {
+    final_vecs_required += name_wordvec_ct + (CHROM_NAME_HTABLE_SIZE + (VEC_INT32 - 1)) / VEC_INT32;
+  }
+  uintptr_t* new_alloc;
+  if (vecaligned_malloc(final_vecs_required * VEC_BYTES, &new_alloc)) {
+    return RET_NOMEM;
+  }
+  uintptr_t* old_alloc = chrom_info_ptr->chrom_mask;
+  uintptr_t* new_alloc_iter = new_alloc;
+
+  memcpy(new_alloc_iter, chrom_info_ptr->chrom_mask, chrom_code_bitvec_ct * VEC_BYTES);
+  chrom_info_ptr->chrom_mask = new_alloc_iter;
+  new_alloc_iter = &(new_alloc_iter[chrom_code_bitvec_ct * VEC_WORDS]);
+
+  memcpy(new_alloc_iter, chrom_info_ptr->haploid_mask, chrom_code_bitvec_ct * VEC_BYTES);
+  chrom_info_ptr->haploid_mask = new_alloc_iter;
+  new_alloc_iter = &(new_alloc_iter[chrom_code_bitvec_ct * VEC_WORDS]);
+
+  memcpy(new_alloc_iter, chrom_info_ptr->chrom_file_order, chrom_ct_int32vec_ct * VEC_BYTES);
+  chrom_info_ptr->chrom_file_order = (uint32_t*)new_alloc_iter;
+  new_alloc_iter = &(new_alloc_iter[chrom_ct_int32vec_ct * VEC_WORDS]);
+
+  memcpy(new_alloc_iter, chrom_info_ptr->chrom_fo_vidx_start, chrom_ct_p1_int32vec_ct * VEC_BYTES);
+  chrom_info_ptr->chrom_fo_vidx_start = (uint32_t*)new_alloc_iter;
+  new_alloc_iter = &(new_alloc_iter[chrom_ct_p1_int32vec_ct * VEC_WORDS]);
+
+  memcpy(new_alloc_iter, chrom_info_ptr->chrom_idx_to_foidx, chrom_ct_int32vec_ct * VEC_BYTES);
+  chrom_info_ptr->chrom_idx_to_foidx = (uint32_t*)new_alloc_iter;
+
+  if (!name_ct) {
+    chrom_info_ptr->nonstd_names = NULL;
+    chrom_info_ptr->nonstd_id_htable = NULL;
+  } else {
+    new_alloc_iter = &(new_alloc_iter[chrom_ct_int32vec_ct * VEC_WORDS]);
+
+    memcpy(new_alloc_iter, chrom_info_ptr->nonstd_names, name_wordvec_ct * VEC_BYTES);
+    chrom_info_ptr->nonstd_names = (char**)new_alloc_iter;
+    new_alloc_iter = &(new_alloc_iter[name_wordvec_ct * VEC_WORDS]);
+
+    memcpy(new_alloc_iter, chrom_info_ptr->nonstd_id_htable, CHROM_NAME_HTABLE_SIZE * sizeof(int32_t));
+    chrom_info_ptr->nonstd_id_htable = (uint32_t*)new_alloc_iter;
+  }
+  vecaligned_free(old_alloc);
+  return 0;
 }
 
 void cleanup_chrom_info(Chrom_info* chrom_info_ptr) {
@@ -4738,14 +4790,15 @@ char* chrom_name_std(const Chrom_info* chrom_info_ptr, uint32_t chrom_idx, char*
       // force two chars
       if (chrom_idx <= chrom_info_ptr->autosome_ct) {
 	buf = (char*)memcpya(buf, &(digit2_table[chrom_idx * 2]), 2);
-      } else if ((int32_t)chrom_idx == chrom_info_ptr->xy_code) {
+      } else if ((int32_t)chrom_idx == chrom_info_ptr->xymt_codes[CHROM_XY_OFFSET]) {
 	buf = (char*)memcpya(buf, "XY", 2);
       } else {
 	*buf++ = '0';
-	if ((int32_t)chrom_idx == chrom_info_ptr->x_code) {
+	if ((int32_t)chrom_idx == chrom_info_ptr->xymt_codes[CHROM_X_OFFSET]) {
 	  *buf++ = 'X';
 	} else {
-	  *buf++ = ((int32_t)chrom_idx == chrom_info_ptr->y_code)? 'Y' : 'M';
+	  // assumes only X/Y/XY/MT defined
+	  *buf++ = ((int32_t)chrom_idx == chrom_info_ptr->xymt_codes[CHROM_Y_OFFSET])? 'Y' : 'M';
 	}
       }
       return buf;
@@ -4754,11 +4807,11 @@ char* chrom_name_std(const Chrom_info* chrom_info_ptr, uint32_t chrom_idx, char*
   }
   if ((!(output_encoding & (CHR_OUTPUT_M | CHR_OUTPUT_MT))) || (chrom_idx <= chrom_info_ptr->autosome_ct)) {
     return uint32toa(chrom_idx, buf);
-  } else if ((int32_t)chrom_idx == chrom_info_ptr->x_code) {
+  } else if ((int32_t)chrom_idx == chrom_info_ptr->xymt_codes[CHROM_X_OFFSET]) {
     *buf++ = 'X';
-  } else if ((int32_t)chrom_idx == chrom_info_ptr->y_code) {
+  } else if ((int32_t)chrom_idx == chrom_info_ptr->xymt_codes[CHROM_Y_OFFSET]) {
     *buf++ = 'Y';
-  } else if ((int32_t)chrom_idx == chrom_info_ptr->xy_code) {
+  } else if ((int32_t)chrom_idx == chrom_info_ptr->xymt_codes[CHROM_XY_OFFSET]) {
     buf = (char*)memcpya(buf, "XY", 2);
   } else {
     *buf++ = 'M';
@@ -4894,23 +4947,12 @@ int32_t get_chrom_code_nt(const char* chrom_name, const Chrom_info* chrom_info_p
   // -1 = total fail, -2 = --allow-extra-chr ok
   int32_t chrom_code_raw = get_chrom_code_raw(chrom_name);
   if (chrom_code_raw >= MAX_POSSIBLE_CHROM) {
-    switch (chrom_code_raw) {
-    case CHROM_X:
-      chrom_code_raw = chrom_info_ptr->x_code;
-      break;
-    case CHROM_Y:
-      chrom_code_raw = chrom_info_ptr->y_code;
-      break;
-    case CHROM_XY:
-      chrom_code_raw = chrom_info_ptr->xy_code;
-      break;
-    case CHROM_MT:
-      chrom_code_raw = chrom_info_ptr->mt_code;
-    }
+    chrom_code_raw = chrom_info_ptr->xymt_codes[chrom_code_raw - MAX_POSSIBLE_CHROM];
   } else {
     const uint32_t max_code_p1 = chrom_info_ptr->max_code + 1;
-    if (chrom_code_raw == -1) {
-      const uint32_t nonstd_chrom_idx = nonstd_chrom_name_htable_find(chrom_name, chrom_info_ptr->nonstd_names, chrom_info_ptr->nonstd_id_htable, name_slen);
+    const uint32_t* nonstd_id_htable = chrom_info_ptr->nonstd_id_htable;
+    if (nonstd_id_htable && (chrom_code_raw == -1)) {
+      const uint32_t nonstd_chrom_idx = nonstd_chrom_name_htable_find(chrom_name, chrom_info_ptr->nonstd_names, nonstd_id_htable, name_slen);
       if (nonstd_chrom_idx == 0xffffffffU) {
         return -2;
       }

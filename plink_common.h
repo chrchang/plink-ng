@@ -2171,10 +2171,16 @@ uint32_t unklen_id_htable_find(const char* cur_id, const char* const* item_ids, 
 // get_chrom_code_raw() needs to be modified if this changes
 #define MAX_CHROM_TEXTNUM_SLEN 2
 
-#define CHROM_X MAX_POSSIBLE_CHROM
-#define CHROM_Y (MAX_POSSIBLE_CHROM + 1)
-#define CHROM_XY (MAX_POSSIBLE_CHROM + 2)
-#define CHROM_MT (MAX_POSSIBLE_CHROM + 3)
+#define CHROM_X_OFFSET 0
+#define CHROM_Y_OFFSET 1
+#define CHROM_XY_OFFSET 2
+#define CHROM_MT_OFFSET 3
+#define CHROM_XYMT_OFFSET_CT 4
+
+#define CHROM_X (MAX_POSSIBLE_CHROM + CHROM_X_OFFSET)
+#define CHROM_Y (MAX_POSSIBLE_CHROM + CHROM_Y_OFFSET)
+#define CHROM_XY (MAX_POSSIBLE_CHROM + CHROM_XY_OFFSET)
+#define CHROM_MT (MAX_POSSIBLE_CHROM + CHROM_MT_OFFSET)
 
 #ifdef __LP64__
   // dog requires 42 bits, and other species require less
@@ -2216,15 +2222,12 @@ typedef struct {
   uint32_t chrom_ct; // number of distinct chromosomes/contigs
   uint32_t species;
 
-  int32_t x_code;
-  int32_t y_code;
-  int32_t xy_code;
-  int32_t mt_code;
+  int32_t xymt_codes[4]; // x, y, xy, mt
   uint32_t max_code;
 
   uint32_t autosome_ct;
 
-  // more --allow-extra-chr support
+  // yet more --allow-extra-chr support
   uint32_t zero_extra_chroms;
   uint32_t name_ct;
   Ll_str* incl_excl_name_stack;
@@ -2261,6 +2264,11 @@ HEADER_INLINE int32_t init_chrom_info_human(Chrom_info* chrom_info_ptr) {
 }
 
 void forget_extra_chrom_names(Chrom_info* chrom_info_ptr);
+
+// in the usual case where the number of chromosomes/contigs is much less than
+// MAX_POSSIBLE_CHROM, this reduces chrom_info's memory consumption and
+// improves locality.
+int32_t finalize_chrom_info(Chrom_info* chrom_info_ptr);
 
 void cleanup_chrom_info(Chrom_info* chrom_info_ptr);
 
