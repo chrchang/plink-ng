@@ -1,6 +1,5 @@
 #include "plink_common.h"
 
-#ifndef HIGH_MAX_CHROM
 int32_t cnv_subset_load(char* subset_fname, char** subset_list_ptr, uintptr_t* subset_ct_ptr, uintptr_t* max_subset_name_len_ptr) {
   FILE* subset_file = NULL;
   uintptr_t subset_ct = 0;
@@ -48,9 +47,11 @@ const char* cnv_intersect_filter_type_to_str(uint32_t intersect_filter_type) {
   }
 }
 
-// log_2(MAX_POSSIBLE_CHROM) + SMALL_INTERVAL_BITS must not exceed 32
 #define SMALL_INTERVAL_BITS 18
 #define SMALL_INTERVAL_MAX_SIZE ((1 << SMALL_INTERVAL_BITS) - 1)
+
+// log_2(chrom_code_end) + SMALL_INTERVAL_BITS must not exceed 32
+#define CNV_CHROM_CODE_END_MAX (1 << (32 - SMALL_INTERVAL_BITS))
 
 int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filter_fname, char* subset_list, uintptr_t subset_ct, uintptr_t max_subset_name_len, uintptr_t* il_chrom_start_small, uintptr_t* il_chrom_start_large, uint32_t* il_chrom_max_width_small, uint32_t* il_chrom_max_width_large, uint64_t** il_small_ptr, uint64_t** il_large_ptr, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t allow_extra_chroms, Chrom_info* chrom_info_ptr) {
   // We store intervals in sorted order, with the center of each interval in
@@ -130,6 +131,10 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
         retval = resolve_or_add_chrom_name(bufptr, cift_str, line_idx, chrom_info_ptr, &ii);
 	if (retval) {
 	  goto cnv_intersect_load_ret_1;
+	}
+	if (ii >= CNV_CHROM_CODE_END_MAX) {
+	  logerrprint("Error: Too many distinct nonstandard chromosome/contig names for CNV module.\n");
+	  goto cnv_intersect_load_ret_INVALID_FORMAT;
 	}
       }
       uljj = ((uint32_t)ii);
@@ -301,6 +306,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
     break;
   cnv_intersect_load_ret_INVALID_FORMAT_2:
     logerrprintb();
+  cnv_intersect_load_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -518,6 +524,10 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
         retval = resolve_or_add_chrom_name(bufptr, ".cnv file", line_idx, chrom_info_ptr, &ii);
 	if (retval) {
 	  goto cnv_make_map_ret_1;
+	}
+	if (ii >= CNV_CHROM_CODE_END_MAX) {
+	  logerrprint("\nError: Too many distinct nonstandard chromosome/contig names for CNV module.\n");
+	  goto cnv_make_map_ret_INVALID_FORMAT;
 	}
       }
       chrom_idx = ii;
@@ -746,6 +756,10 @@ int32_t validate_cnv_map(FILE** mapfile_ptr, char* mapname, int32_t* marker_pos_
       retval = resolve_or_add_chrom_name(bufptr, ".cnv.map file", line_idx, chrom_info_ptr, &ii);
       if (retval) {
 	goto validate_cnv_map_ret_1;
+      }
+      if (ii >= CNV_CHROM_CODE_END_MAX) {
+	logerrprint("Error: Too many distinct nonstandard chromosome/contig names for CNV module.\n");
+	goto validate_cnv_map_ret_INVALID_FORMAT;
       }
     }
     if (((uint32_t)ii) < chrom_idx) {
@@ -1015,7 +1029,6 @@ int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
   bigstack_double_reset(bigstack_mark, bigstack_end_mark);
   return 0;
 }
-#endif // HIGH_MAX_CHROM
 
 int32_t plink_gvar(char* outname, char* outname_end, char* gvarname, char* mapname, char* famname) {
   logerrprint("Error: Common CNP analysis not yet supported.\n");
