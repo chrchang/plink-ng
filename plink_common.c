@@ -3210,39 +3210,6 @@ char* chrom_print_human(uint32_t num, char* buf) {
   }
 }
 
-uint32_t allele_set(const char* newval, uint32_t slen, char** allele_ptr) {
-  char* newptr;
-  if (slen == 1) {
-    newptr = (char*)(&(g_one_char_strs[((unsigned char)*newval) * 2]));
-  } else {
-    newptr = (char*)malloc(slen + 1);
-    if (!newptr) {
-      return 1;
-    }
-    memcpyx(newptr, newval, slen, '\0');
-  }
-  *allele_ptr = newptr;
-  return 0;
-}
-
-uint32_t allele_reset(const char* newval, uint32_t slen, char** allele_ptr) {
-  char* newptr;
-  if (slen == 1) {
-    newptr = (char*)(&(g_one_char_strs[((unsigned char)*newval) * 2]));
-  } else {
-    newptr = (char*)malloc(slen + 1);
-    if (!newptr) {
-      return 1;
-    }
-    memcpyx(newptr, newval, slen, '\0');
-  }
-  if (allele_ptr[0][1]) {
-    free(*allele_ptr);
-  }
-  *allele_ptr = newptr;
-  return 0;
-}
-
 void magic_num(uint32_t divisor, uint64_t* multp, uint32_t* __restrict pre_shiftp, uint32_t* __restrict post_shiftp, uint32_t* __restrict incrp) {
   // Enables fast integer division by a constant not known until runtime.  See
   // http://ridiculousfish.com/blog/posts/labor-of-division-episode-iii.html .
@@ -4746,36 +4713,34 @@ uint32_t chrom_error(const char* chrom_name, const char* file_descrip, const Chr
   return 1;
 }
 
-uint32_t allele_set(const char* newval, uint32_t allele_slen, const char** allele_ptr) {
-  const char* newptr;
-  if (allele_slen == 1) {
-    newptr = &(g_one_char_strs[((uint8_t)(*newval)) * 2]);
+uint32_t allele_set(const char* newval, uint32_t slen, char** allele_ptr) {
+  char* newptr;
+  if (slen == 1) {
+    newptr = (char*)(&(g_one_char_strs[((unsigned char)*newval) * 2]));
   } else {
-    char* new_alloc = (char*)malloc(allele_slen + 1);
-    if (!new_alloc) {
+    newptr = (char*)malloc(slen + 1);
+    if (!newptr) {
       return 1;
     }
-    memcpyx(new_alloc, newval, allele_slen, '\0');
-    newptr = new_alloc;
+    memcpyx(newptr, newval, slen, '\0');
   }
   *allele_ptr = newptr;
   return 0;
 }
 
-uint32_t allele_reset(const char* newval, uint32_t allele_slen, const char** allele_ptr) {
-  const char* newptr;
-  if (allele_slen == 1) {
-    newptr = &(g_one_char_strs[((uint8_t)(*newval)) * 2]);
+uint32_t allele_reset(const char* newval, uint32_t slen, char** allele_ptr) {
+  char* newptr;
+  if (slen == 1) {
+    newptr = (char*)(&(g_one_char_strs[((uint8_t)*newval) * 2]));
   } else {
-    char* new_alloc = (char*)malloc(allele_slen + 1);
-    if (!new_alloc) {
+    newptr = (char*)malloc(slen + 1);
+    if (!newptr) {
       return 1;
     }
-    memcpyx(new_alloc, newval, allele_slen, '\0');
-    newptr = new_alloc;
+    memcpyx(newptr, newval, slen, '\0');
   }
   if (allele_ptr[0][1]) {
-    free((char*)(*allele_ptr));
+    free(*allele_ptr);
   }
   *allele_ptr = newptr;
   return 0;

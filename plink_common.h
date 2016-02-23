@@ -1599,14 +1599,6 @@ HEADER_INLINE char* dtoa_g_wxp8x(double dxx, uint32_t min_width, char extra_char
 
 char* chrom_print_human(uint32_t num, char* buf);
 
-// newval does not need to be null-terminated, and slen does not include
-// terminator
-// assumes *allele_ptr is not initialized
-uint32_t allele_set(const char* newval, uint32_t slen, char** allele_ptr);
-
-// *allele_ptr must be initialized; frees *allele_ptr if necessary
-uint32_t allele_reset(const char* newval, uint32_t slen, char** allele_ptr);
-
 void magic_num(uint32_t divisor, uint64_t* multp, uint32_t* __restrict pre_shiftp, uint32_t* __restrict post_shiftp, uint32_t* __restrict incrp);
 
 HEADER_INLINE uintptr_t tri_coord_no_diag(uintptr_t small_coord, uintptr_t big_coord) {
@@ -2179,12 +2171,12 @@ uint32_t chrom_error(const char* chrom_name, const char* file_descrip, const Chr
 
 // newval does not need to be null-terminated
 // assumes *allele_ptr is not initialized
-uint32_t allele_set(const char* newval, uint32_t allele_slen, const char** allele_ptr);
+// make last parameter const char** later
+uint32_t allele_set(const char* newval, uint32_t allele_slen, char** allele_ptr);
 
 // *allele_ptr must be initialized; frees *allele_ptr if necessary
-uint32_t allele_reset(const char* newval, uint32_t allele_slen, const char** allele_ptr);
+uint32_t allele_reset(const char* newval, uint32_t allele_slen, char** allele_ptr);
 
-// make last parameter const char** later
 void cleanup_allele_storage(uint32_t max_allele_slen, uintptr_t allele_storage_entry_ct, char** allele_storage);
 
 // no need for this; code is simpler if we just create a copy of marker_exclude
