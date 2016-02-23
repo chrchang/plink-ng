@@ -525,7 +525,7 @@ void fill_subset_weights_r(double* subset_weights, double* set_allele_freqs, dou
 }
 
 int32_t get_chrom_end(Chrom_info* chrom_info_ptr, uintptr_t marker_idx) {
-  return chrom_info_ptr->chrom_end[get_marker_chrom(chrom_info_ptr, marker_idx)];
+  return chrom_info_ptr->chrom_end[get_variant_chrom(chrom_info_ptr, marker_idx)];
 }
 
 void exclude_multi(uintptr_t* exclude_arr, int32_t* new_excl, uint32_t unfiltered_sample_ct, uintptr_t* exclude_ct_ptr) {
@@ -3409,7 +3409,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
     if (is_haploid && hh_exists) {
       haploid_fix(hh_exists, sample_include2, sample_male_include2, sample_ct, is_x, is_y, (unsigned char*)loadbuf);
     }
-    bufptr = chrom_name_write(chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx), g_textbuf);
+    bufptr = chrom_name_write(chrom_info_ptr, get_variant_chrom(chrom_info_ptr, marker_uidx), g_textbuf);
     *bufptr++ = ' ';
     fwrite(g_textbuf, 1, bufptr - g_textbuf, outfile);
     fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
@@ -7449,7 +7449,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   uint32_t var_wts = relip->modifier & REL_PCA_VAR_WTS;
   uint32_t chrom_ct = chrom_info_ptr->chrom_ct;
   int32_t ibc_type = relip->ibc_type;
-  int32_t mt_code = chrom_info_ptr->mt_code;
+  int32_t mt_code = chrom_info_ptr->xymt_codes[MT_OFFSET];
   int32_t retval = 0;
   __CLPK_integer info = 0;
   __CLPK_integer lwork = -1;
@@ -7635,8 +7635,8 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
       if (is_set(chrom_info_ptr->haploid_mask, chrom_idx) || (chrom_idx == mt_code)) {
 	continue;
       }
-      marker_uidx = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
-      chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
+      marker_uidx = chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx];
+      chrom_end = chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx + 1];
       wptr_start = chrom_name_write(chrom_info_ptr, chrom_idx, g_textbuf);
       *wptr_start++ = delimiter;
       if (marker_uidx < chrom_end) {

@@ -210,10 +210,10 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
       if (load_raw(unfiltered_sample_ct4, bedfile, loadbuf_raw)) {
 	goto glm_scan_conditions_ret_READ_FAIL;
       }
-      chrom_idx = get_marker_chrom(chrom_info_ptr, marker_uidx);
-      if (IS_SET(chrom_info_ptr->haploid_mask, chrom_idx) || (chrom_idx == (uint32_t)chrom_info_ptr->mt_code)) {
-	is_x = ((int32_t)chrom_idx == chrom_info_ptr->x_code);
-	is_y = ((int32_t)chrom_idx == chrom_info_ptr->y_code);
+      chrom_idx = get_variant_chrom(chrom_info_ptr, marker_uidx);
+      if (IS_SET(chrom_info_ptr->haploid_mask, chrom_idx) || (chrom_idx == (uint32_t)chrom_info_ptr->xymt_codes[MT_OFFSET])) {
+	is_x = ((int32_t)chrom_idx == chrom_info_ptr->xymt_codes[X_OFFSET]);
+	is_y = ((int32_t)chrom_idx == chrom_info_ptr->xymt_codes[Y_OFFSET]);
 	haploid_fix(hh_or_mt_exists, sample_raw_include2, sample_raw_male_include2, unfiltered_sample_ct, is_x, is_y, (unsigned char*)loadbuf_raw);
       }
       // clear loadbuf_mask bits where loadbuf is 01.
@@ -3542,7 +3542,7 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
   uint32_t slen_add = 0;
   uint32_t sex_covar_everywhere = glm_modifier & GLM_SEX;
   uint32_t x_sex_interaction = (glm_xchr_model == 3);
-  uint32_t x_present = (chrom_info_ptr->x_code != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->x_code);
+  uint32_t x_present = (chrom_info_ptr->xymt_codes[X_OFFSET] != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[X_OFFSET]);
   uint32_t hide_covar = glm_modifier & GLM_HIDE_COVAR;
   uint32_t variation_in_sex = 0; // zero if no-x-sex specified
   int32_t retval = 0;
@@ -4468,7 +4468,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   uint32_t ujj;
   uint32_t ukk;
   numbuf[0] = ' ';
-  if ((chrom_info_ptr->mt_code != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->mt_code)) {
+  if ((chrom_info_ptr->xymt_codes[MT_OFFSET] != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[MT_OFFSET])) {
     hh_or_mt_exists |= NXMHH_EXISTS;
   }
   if (is_set_test) {
@@ -4568,11 +4568,11 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     if (load_and_collapse_incl(unfiltered_sample_ct, sample_valid_ct, load_mask, final_mask, IS_SET(marker_reverse, marker_uidx), bedfile, loadbuf_raw, g_loadbuf)) {
       goto glm_linear_assoc_ret_READ_FAIL;
     }
-    chrom_idx = get_marker_chrom(chrom_info_ptr, marker_uidx);
+    chrom_idx = get_variant_chrom(chrom_info_ptr, marker_uidx);
     geno_map_ptr = geno_map;
-    if ((IS_SET(chrom_info_ptr->haploid_mask, chrom_idx)) || (chrom_idx == (uint32_t)chrom_info_ptr->mt_code)) {
-      g_is_x = ((int32_t)chrom_idx == chrom_info_ptr->x_code);
-      g_is_y = ((int32_t)chrom_idx == chrom_info_ptr->y_code);
+    if ((IS_SET(chrom_info_ptr->haploid_mask, chrom_idx)) || (chrom_idx == (uint32_t)chrom_info_ptr->xymt_codes[MT_OFFSET])) {
+      g_is_x = ((int32_t)chrom_idx == chrom_info_ptr->xymt_codes[X_OFFSET]);
+      g_is_y = ((int32_t)chrom_idx == chrom_info_ptr->xymt_codes[Y_OFFSET]);
       if (hh_or_mt_exists) {
 	haploid_fix(hh_or_mt_exists, sample_include2, sample_male_include2, sample_valid_ct, g_is_x, g_is_y, (unsigned char*)g_loadbuf);
       }
@@ -5492,7 +5492,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     marker_idx = 0;
     while (1) {
       do {
-	chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1];
+	chrom_end = chrom_info_ptr->chrom_fo_vidx_start[(++chrom_fo_idx) + 1];
       } while (marker_uidx >= chrom_end);
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
       wptr_start = width_force(4, g_textbuf, chrom_name_write(chrom_info_ptr, uii, g_textbuf));
@@ -5990,7 +5990,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     logerrprint("Warning: Skipping --logistic since less than two phenotypes are present.\n");
     goto glm_logistic_assoc_ret_1;
   }
-  if ((chrom_info_ptr->mt_code != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->mt_code)) {
+  if ((chrom_info_ptr->xymt_codes[MT_OFFSET] != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[MT_OFFSET])) {
     hh_or_mt_exists |= NXMHH_EXISTS;
   }
   if (is_set_test) {
@@ -6092,11 +6092,11 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     if (load_and_collapse_incl(unfiltered_sample_ct, sample_valid_ct, load_mask, final_mask, IS_SET(marker_reverse, marker_uidx), bedfile, loadbuf_raw, g_loadbuf)) {
       goto glm_logistic_assoc_ret_READ_FAIL;
     }
-    chrom_idx = get_marker_chrom(chrom_info_ptr, marker_uidx);
+    chrom_idx = get_variant_chrom(chrom_info_ptr, marker_uidx);
     geno_map_ptr = geno_map;
-    if (IS_SET(chrom_info_ptr->haploid_mask, chrom_idx) || (chrom_idx == (uint32_t)chrom_info_ptr->mt_code)) {
-      g_is_x = ((int32_t)chrom_idx == chrom_info_ptr->x_code);
-      g_is_y = ((int32_t)chrom_idx == chrom_info_ptr->y_code);
+    if (IS_SET(chrom_info_ptr->haploid_mask, chrom_idx) || (chrom_idx == (uint32_t)chrom_info_ptr->xymt_codes[MT_OFFSET])) {
+      g_is_x = ((int32_t)chrom_idx == chrom_info_ptr->xymt_codes[X_OFFSET]);
+      g_is_y = ((int32_t)chrom_idx == chrom_info_ptr->xymt_codes[Y_OFFSET]);
       if (hh_or_mt_exists) {
 	haploid_fix(hh_or_mt_exists, sample_include2, sample_male_include2, sample_valid_ct, g_is_x, g_is_y, (unsigned char*)g_loadbuf);
       }
@@ -6927,7 +6927,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     marker_idx = 0;
     while (1) {
       do {
-	chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1];
+	chrom_end = chrom_info_ptr->chrom_fo_vidx_start[(++chrom_fo_idx) + 1];
       } while (marker_uidx >= chrom_end);
       uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
       wptr_start = width_force(4, g_textbuf, chrom_name_write(chrom_info_ptr, uii, g_textbuf));
@@ -7114,7 +7114,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     goto glm_linear_nosnp_ret_NOMEM;
   }
   sample_valid_ct = popcount_longs(load_mask, unfiltered_sample_ctl);
-  if ((chrom_info_ptr->mt_code != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->mt_code)) {
+  if ((chrom_info_ptr->xymt_codes[MT_OFFSET] != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[MT_OFFSET])) {
     hh_or_mt_exists |= NXMHH_EXISTS;
   }
   if (condition_mname || condition_fname) {
@@ -7304,11 +7304,11 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       if (load_and_collapse_incl(unfiltered_sample_ct, sample_valid_ct, load_mask, final_mask, IS_SET(marker_reverse, marker_uidx), bedfile, loadbuf_raw, loadbuf_collapsed)) {
 	goto glm_linear_nosnp_ret_READ_FAIL;
       }
-      chrom_idx = get_marker_chrom(chrom_info_ptr, marker_uidx);
+      chrom_idx = get_variant_chrom(chrom_info_ptr, marker_uidx);
       geno_map_ptr = geno_map;
-      if (IS_SET(chrom_info_ptr->haploid_mask, chrom_idx) || (chrom_idx == (uint32_t)chrom_info_ptr->mt_code)) {
-	is_x = ((int32_t)chrom_idx == chrom_info_ptr->x_code);
-	is_y = ((int32_t)chrom_idx == chrom_info_ptr->y_code);
+      if (IS_SET(chrom_info_ptr->haploid_mask, chrom_idx) || (chrom_idx == (uint32_t)chrom_info_ptr->xymt_codes[MT_OFFSET])) {
+	is_x = ((int32_t)chrom_idx == chrom_info_ptr->xymt_codes[X_OFFSET]);
+	is_y = ((int32_t)chrom_idx == chrom_info_ptr->xymt_codes[Y_OFFSET]);
 	if (hh_or_mt_exists) {
 	  haploid_fix(hh_or_mt_exists, sample_include2, sample_male_include2, sample_valid_ct, is_x, is_y, (unsigned char*)loadbuf_collapsed);
 	}
@@ -7975,7 +7975,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     goto glm_logistic_nosnp_ret_NOMEM;
   }
   sample_valid_ct = popcount_longs(load_mask, unfiltered_sample_ctl);
-  if ((chrom_info_ptr->mt_code != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->mt_code)) {
+  if ((chrom_info_ptr->xymt_codes[MT_OFFSET] != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[MT_OFFSET])) {
     hh_or_mt_exists |= NXMHH_EXISTS;
   }
   if (condition_mname || condition_fname) {
@@ -8175,11 +8175,11 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       if (load_and_collapse_incl(unfiltered_sample_ct, sample_valid_ct, load_mask, final_mask, IS_SET(marker_reverse, marker_uidx), bedfile, loadbuf_raw, loadbuf_collapsed)) {
 	goto glm_logistic_nosnp_ret_READ_FAIL;
       }
-      chrom_idx = get_marker_chrom(chrom_info_ptr, marker_uidx);
+      chrom_idx = get_variant_chrom(chrom_info_ptr, marker_uidx);
       geno_map_ptr = geno_map;
-      if (IS_SET(chrom_info_ptr->haploid_mask, chrom_idx) || (chrom_idx == (uint32_t)chrom_info_ptr->mt_code)) {
-	is_x = ((int32_t)chrom_idx == chrom_info_ptr->x_code);
-	is_y = ((int32_t)chrom_idx == chrom_info_ptr->y_code);
+      if (IS_SET(chrom_info_ptr->haploid_mask, chrom_idx) || (chrom_idx == (uint32_t)chrom_info_ptr->xymt_codes[MT_OFFSET])) {
+	is_x = ((int32_t)chrom_idx == chrom_info_ptr->xymt_codes[X_OFFSET]);
+	is_y = ((int32_t)chrom_idx == chrom_info_ptr->xymt_codes[Y_OFFSET]);
 	if (hh_or_mt_exists) {
 	  haploid_fix(hh_or_mt_exists, sample_include2, sample_male_include2, sample_valid_ct, is_x, is_y, (unsigned char*)loadbuf_collapsed);
 	}

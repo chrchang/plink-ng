@@ -911,7 +911,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
   }
   fill_quatervec_55(sample_valid_ct, sample_include2);
   fill_ulong_zero(unfiltered_marker_ctl, polymorphic_markers);
-  if ((chrom_info_ptr->mt_code != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->mt_code)) {
+  if ((chrom_info_ptr->xymt_codes[MT_OFFSET] != -1) && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[MT_OFFSET])) {
     hh_or_mt_exists |= NXMHH_EXISTS;
   }
   if (alloc_collapsed_haploid_filters(pheno_nm2, sex_male, unfiltered_sample_ct, sample_valid_ct, hh_or_mt_exists, 1, &sample_include2, &sample_male_include2)) {

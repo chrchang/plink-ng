@@ -1690,9 +1690,9 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
     for (marker_idx = 0; marker_idx < marker_ct; marker_uidx++, marker_idx++) {
       next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
       if (marker_uidx >= chrom_end) {
-	uii = get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx);
+	uii = get_variant_chrom_fo_idx(chrom_info_ptr, marker_uidx);
         chrom_idx = chrom_info_ptr->chrom_file_order[uii];
-        chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[uii];
+        chrom_end = chrom_info_ptr->chrom_fo_vidx_start[uii];
       }
       fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
       bufptr = chrom_name_write(chrom_info_ptr, chrom_idx, &(g_textbuf[1]));

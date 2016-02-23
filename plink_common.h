@@ -231,6 +231,9 @@
 #define RET_NETWORK 14
 #define LOAD_PHENO_LAST_COL 127
 
+// for 2.0 -> 1.9 backports
+#define RET_MALFORMED_INPUT RET_INVALID_FORMAT
+
 #define MISC_AFFECTION_01 1LLU
 #define MISC_NONFOUNDERS 2LLU
 #define MISC_MAF_SUCC 4LLU
@@ -1593,13 +1596,6 @@ HEADER_INLINE char* dtoa_g_wxp8x(double dxx, uint32_t min_width, char extra_char
   return &(penult[1]);
 }
 
-HEADER_INLINE void read_next_terminate(char* __restrict target, const char* __restrict source) {
-  while (!is_space_or_eoln(*source)) {
-    *target++ = *source++;
-  }
-  *target = '\0';
-}
-
 char* chrom_print_human(uint32_t num, char* buf);
 
 // newval does not need to be null-terminated, and slen does not include
@@ -1996,161 +1992,6 @@ void sample_delim_convert(uintptr_t unfiltered_sample_ct, const uintptr_t* sampl
 
 void get_set_wrange_align(const uintptr_t* __restrict bitarr, uintptr_t word_ct, uintptr_t* __restrict firstw_ptr, uintptr_t* __restrict wlen_ptr);
 
-// Maximum accepted chromosome index is this minus 1.  Currently cannot exceed
-// 2^14 due to SMALL_INTERVAL_BITS setting in plink_cnv.c...
-#define MAX_POSSIBLE_CHROM 5120
-// ...unless this is uncommented (it removes the entire CNV module).
-// #define HIGH_MAX_CHROM
-
-// assumes MAX_POSSIBLE_CHROM is a multiple of 64, otherwise add round-up
-#define CHROM_MASK_WORDS (MAX_POSSIBLE_CHROM / BITCT)
-
-#define MAX_CHROM_TEXTNUM 59
-// usual PLINK 1.07 chromosome field length is 4.  So it's safe to increase
-// MAX_CHROM_TEXTNUM to 9995, but 9996+ creates problems...
-// (note that n+1, n+2, n+3, and n+4 are reserved for X/Y/XY/MT)
-#define MAX_CHROM_TEXTNUM_LEN 2
-#define CHROM_X MAX_POSSIBLE_CHROM
-#define CHROM_Y (MAX_POSSIBLE_CHROM + 1)
-#define CHROM_XY (MAX_POSSIBLE_CHROM + 2)
-#define CHROM_MT (MAX_POSSIBLE_CHROM + 3)
-
-#ifdef __LP64__
-  // dog requires 42 bits, and other species require less
-  #define CHROM_MASK_INITIAL_WORDS 1
-#else
-  #define CHROM_MASK_INITIAL_WORDS 2
-#endif
-
-typedef struct {
-  // no point to dynamic allocation when MAX_POSSIBLE_CHROM is small and
-  // there's only one copy of this
-
-  // order of chromosomes in input files
-  // currently tolerates out-of-order chromosomes, as long as all markers for
-  // any given chromosome are together
-  uint32_t chrom_file_order[MAX_POSSIBLE_CHROM];
-  uint32_t chrom_ct; // length of chrom_file_order
-  uint32_t chrom_file_order_marker_idx[MAX_POSSIBLE_CHROM + 1];
-
-  // markers chrom_start[k] to (chrom_end[k] - 1) are part of chromosome k
-  uint32_t chrom_start[MAX_POSSIBLE_CHROM];
-  uint32_t chrom_end[MAX_POSSIBLE_CHROM];
-
-  uintptr_t chrom_mask[CHROM_MASK_WORDS];
-
-  uint32_t species;
-
-  int32_t x_code;
-  int32_t y_code;
-  int32_t xy_code;
-  int32_t mt_code;
-  uint32_t max_code;
-
-  uint32_t autosome_ct;
-
-  // this is a misnomer--it includes X and excludes MT.  Underlying concept is
-  // "are some calls guaranteed to be homozygous (assuming >= 1 male)", which
-  // is no longer true for MT since heteroplasmy is a thing.
-  uintptr_t haploid_mask[CHROM_MASK_WORDS];
-
-  // --allow-extra-chr support
-  uint32_t zero_extra_chroms;
-  uint32_t name_ct;
-  Ll_str* incl_excl_name_stack;
-  uint32_t is_include_stack;
-  uint32_t output_encoding;
-  char* nonstd_names[MAX_POSSIBLE_CHROM];
-  uint32_t nonstd_name_order[MAX_POSSIBLE_CHROM];
-} Chrom_info;
-
-#define SPECIES_HUMAN 0
-#define SPECIES_COW 1
-#define SPECIES_DOG 2
-#define SPECIES_HORSE 3
-#define SPECIES_MOUSE 4
-#define SPECIES_RICE 5
-#define SPECIES_SHEEP 6
-#define SPECIES_UNKNOWN 7
-
-extern const char* g_species_singular;
-extern const char* g_species_plural;
-
-HEADER_INLINE const char* species_str(uintptr_t ct) {
-  return (ct == ONELU)? g_species_singular : g_species_plural;
-}
-
-#define CHR_OUTPUT_PREFIX 1
-#define CHR_OUTPUT_M 2
-#define CHR_OUTPUT_MT 4
-#define CHR_OUTPUT_0M 8
-
-HEADER_INLINE uint32_t all_words_zero(const uintptr_t* word_arr, uintptr_t word_ct) {
-  while (word_ct--) {
-    if (*word_arr++) {
-      return 0;
-    }
-  }
-  return 1;
-}
-
-char* chrom_name_write(const Chrom_info* chrom_info_ptr, uint32_t chrom_idx, char* buf);
-
-char* chrom_name_buf5w4write(const Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t* chrom_name_len_ptr, char* buf5);
-
-uint32_t get_max_chrom_len(const Chrom_info* chrom_info_ptr);
-
-void forget_extra_chrom_names(Chrom_info* chrom_info_ptr);
-
-uint32_t haploid_chrom_present(const Chrom_info* chrom_info_ptr);
-
-int32_t get_chrom_code_raw(const char* sptr);
-
-int32_t get_chrom_code(const Chrom_info* chrom_info_ptr, const char* sptr);
-
-// when the chromosome name doesn't end with a space
-// currently requires sptr[slen] to be mutable
-int32_t get_chrom_code2(const Chrom_info* chrom_info_ptr, char* sptr, uint32_t slen);
-
-uint32_t get_marker_chrom_fo_idx(const Chrom_info* chrom_info_ptr, uintptr_t marker_uidx);
-
-HEADER_INLINE uint32_t get_marker_chrom(const Chrom_info* chrom_info_ptr, uintptr_t marker_uidx) {
-  return chrom_info_ptr->chrom_file_order[get_marker_chrom_fo_idx(chrom_info_ptr, marker_uidx)];
-}
-
-HEADER_INLINE int32_t chrom_exists(const Chrom_info* chrom_info_ptr, uint32_t chrom_idx) {
-  return is_set(chrom_info_ptr->chrom_mask, chrom_idx);
-}
-
-int32_t resolve_or_add_chrom_name(const char* cur_chrom_name, const char* file_descrip, uintptr_t line_idx, Chrom_info* chrom_info_ptr, int32_t* chrom_idx_ptr);
-
-// no need for this; code is simpler if we just create a copy of marker_exclude
-// with all non-autosomal loci removed
-/*
-HEADER_INLINE uintptr_t next_autosomal_unsafe(uintptr_t* marker_exclude, uintptr_t marker_uidx, Chrom_info* chrom_info_ptr, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr) {
-  // assumes we are at an autosomal marker if marker_uidx < *chrom_end_ptr
-  next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
-  if (marker_uidx < (*chrom_end_ptr)) {
-    return marker_uidx;
-  }
-  uintptr_t* haploid_mask = chrom_info_ptr->haploid_mask;
-  uint32_t chrom_idx;
-  while (1) {
-    do {
-      *chrom_fo_idx_ptr += 1;
-      *chrom_end_ptr = chrom_info_ptr->chrom_file_order_marker_idx[(*chrom_fo_idx_ptr) + 1];
-    } while (marker_uidx >= (*chrom_end_ptr));
-    chrom_idx = chrom_info_ptr->chrom_file_order[*chrom_fo_idx_ptr];
-    if (!IS_SET(haploid_mask, chrom_idx)) {
-      return marker_uidx;
-    }
-    marker_uidx = next_unset_ul_unsafe(marker_exclude, *chrom_end_ptr);
-  }
-}
-*/
-
-/*
-// plink2_common code to switch to
 // for hash tables where maximum ID string length is not known in advance.
 uint32_t unklen_id_htable_find(const char* cur_id, const char* const* item_ids, const uint32_t* id_htable, uint32_t hashval, uint32_t id_htable_size);
 
@@ -2171,16 +2012,16 @@ uint32_t unklen_id_htable_find(const char* cur_id, const char* const* item_ids, 
 // get_chrom_code_raw() needs to be modified if this changes
 #define MAX_CHROM_TEXTNUM_SLEN 2
 
-#define CHROM_X_OFFSET 0
-#define CHROM_Y_OFFSET 1
-#define CHROM_XY_OFFSET 2
-#define CHROM_MT_OFFSET 3
-#define CHROM_XYMT_OFFSET_CT 4
+#define X_OFFSET 0
+#define Y_OFFSET 1
+#define XY_OFFSET 2
+#define MT_OFFSET 3
+#define XYMT_OFFSET_CT 4
 
-#define CHROM_X (MAX_POSSIBLE_CHROM + CHROM_X_OFFSET)
-#define CHROM_Y (MAX_POSSIBLE_CHROM + CHROM_Y_OFFSET)
-#define CHROM_XY (MAX_POSSIBLE_CHROM + CHROM_XY_OFFSET)
-#define CHROM_MT (MAX_POSSIBLE_CHROM + CHROM_MT_OFFSET)
+#define CHROM_X (MAX_POSSIBLE_CHROM + X_OFFSET)
+#define CHROM_Y (MAX_POSSIBLE_CHROM + Y_OFFSET)
+#define CHROM_XY (MAX_POSSIBLE_CHROM + XY_OFFSET)
+#define CHROM_MT (MAX_POSSIBLE_CHROM + MT_OFFSET)
 
 #ifdef __LP64__
   // dog requires 42 bits, and other species require less
@@ -2222,7 +2063,7 @@ typedef struct {
   uint32_t chrom_ct; // number of distinct chromosomes/contigs
   uint32_t species;
 
-  int32_t xymt_codes[4]; // x, y, xy, mt
+  int32_t xymt_codes[XYMT_OFFSET_CT]; // x, y, xy, mt
   uint32_t max_code;
 
   uint32_t autosome_ct;
@@ -2306,6 +2147,14 @@ HEADER_INLINE int32_t chrom_exists(const Chrom_info* chrom_info_ptr, uint32_t ch
   return is_set(chrom_info_ptr->chrom_mask, chrom_idx);
 }
 
+HEADER_INLINE uint32_t get_chrom_start_vidx(const Chrom_info* chrom_info_ptr, uint32_t chrom_idx) {
+  return chrom_info_ptr->chrom_fo_vidx_start[chrom_info_ptr->chrom_idx_to_foidx[chrom_idx]];
+}
+
+HEADER_INLINE uint32_t get_chrom_end_vidx(const Chrom_info* chrom_info_ptr, uint32_t chrom_idx) {
+  return chrom_info_ptr->chrom_fo_vidx_start[chrom_info_ptr->chrom_idx_to_foidx[chrom_idx] + 1];
+}
+
 // now assumes cur_chrom_name is null-terminated
 int32_t resolve_or_add_chrom_name(const char* cur_chrom_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, Chrom_info* chrom_info_ptr, int32_t* chrom_idx_ptr);
 
@@ -2320,6 +2169,30 @@ uint32_t allele_set(const char* newval, uint32_t allele_slen, const char** allel
 uint32_t allele_reset(const char* newval, uint32_t allele_slen, const char** allele_ptr);
 
 void cleanup_allele_storage(uint32_t max_allele_slen, uintptr_t allele_storage_entry_ct, const char** allele_storage);
+
+// no need for this; code is simpler if we just create a copy of marker_exclude
+// with all non-autosomal loci removed
+/*
+HEADER_INLINE uintptr_t next_autosomal_unsafe(uintptr_t* marker_exclude, uintptr_t marker_uidx, Chrom_info* chrom_info_ptr, uint32_t* chrom_end_ptr, uint32_t* chrom_fo_idx_ptr) {
+  // assumes we are at an autosomal marker if marker_uidx < *chrom_end_ptr
+  next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
+  if (marker_uidx < (*chrom_end_ptr)) {
+    return marker_uidx;
+  }
+  uintptr_t* haploid_mask = chrom_info_ptr->haploid_mask;
+  uint32_t chrom_idx;
+  while (1) {
+    do {
+      *chrom_fo_idx_ptr += 1;
+      *chrom_end_ptr = chrom_info_ptr->chrom_file_order_marker_idx[(*chrom_fo_idx_ptr) + 1];
+    } while (marker_uidx >= (*chrom_end_ptr));
+    chrom_idx = chrom_info_ptr->chrom_file_order[*chrom_fo_idx_ptr];
+    if (!IS_SET(haploid_mask, chrom_idx)) {
+      return marker_uidx;
+    }
+    marker_uidx = next_unset_ul_unsafe(marker_exclude, *chrom_end_ptr);
+  }
+}
 */
 
 void refresh_chrom_info(const Chrom_info* chrom_info_ptr, uintptr_t marker_uidx, uint32_t* __restrict chrom_end_ptr, uint32_t* __restrict chrom_fo_idx_ptr, uint32_t* __restrict is_x_ptr, uint32_t* __restrict is_y_ptr, uint32_t* __restrict is_mt_ptr, uint32_t* __restrict is_haploid_ptr);
@@ -2532,13 +2405,12 @@ int32_t string_range_list_to_bitarr_alloc(char* header_line, uint32_t item_ct, u
 int32_t string_range_list_to_bitarr2(const char* __restrict sorted_ids, const uint32_t* id_map, uintptr_t item_ct, uintptr_t max_id_len, const Range_list* __restrict range_list_ptr, const char* __restrict range_list_flag, uintptr_t* bitarr_excl);
 
 HEADER_INLINE uint32_t count_chrom_markers(const Chrom_info* chrom_info_ptr, const uintptr_t* marker_exclude, uint32_t chrom_idx) {
-  uint32_t min_idx;
-  uint32_t max_idx;
   if (!is_set(chrom_info_ptr->chrom_mask, chrom_idx)) {
     return 0;
   }
-  min_idx = chrom_info_ptr->chrom_start[chrom_idx];
-  max_idx = chrom_info_ptr->chrom_end[chrom_idx];
+  const uint32_t chrom_fo_idx = chrom_info_ptr->chrom_idx_to_foidx[chrom_idx];
+  const uint32_t min_idx = chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx];
+  const uint32_t max_idx = chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx + 1];
   return (max_idx - min_idx) - ((uint32_t)popcount_bit_idx(marker_exclude, min_idx, max_idx));
 }
 

@@ -483,7 +483,7 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
       cur_roh = &(roh_list[cur_roh_idx * ROH_ENTRY_INTS]);
       marker_uidx1 = cur_roh[0];
       marker_uidx2 = cur_roh[1];
-      wptr = width_force(4, wptr_chr, chrom_name_write(chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_uidx1), wptr_chr));
+      wptr = width_force(4, wptr_chr, chrom_name_write(chrom_info_ptr, get_variant_chrom(chrom_info_ptr, marker_uidx1), wptr_chr));
       *wptr++ = ' ';
       cptr = &(marker_ids[marker_uidx1 * max_marker_id_len]);
       slen = strlen(cptr);
@@ -562,8 +562,8 @@ int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* mark
     chrom_roh_start = roh_list_chrom_starts[chrom_fo_idx];
     chrom_roh_ct = roh_list_chrom_starts[chrom_fo_idx + 1] - chrom_roh_start;
     uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-    chrom_start = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
-    chrom_len = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1] - chrom_start;
+    chrom_start = chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx];
+    chrom_len = chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx + 1] - chrom_start;
     bigstack_reset(bigstack_mark);
     if (bigstack_calloc_i(chrom_len + 1, &roh_ct_unaff_adj)) {
       goto write_main_roh_reports_ret_NOMEM;
@@ -1417,7 +1417,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
     if (roh_list_chrom_starts[chrom_fo_idx] == roh_list_chrom_starts[chrom_fo_idx + 1]) {
       continue;
     }
-    chrom_len = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1] - chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
+    chrom_len = chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx + 1] - chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx];
     if (chrom_len > uii) {
       uii = chrom_len;
     }
@@ -1638,8 +1638,8 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
     }
     fflush(stdout);
 
-    chrom_start = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
-    marker_uidx2 = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
+    chrom_start = chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx];
+    marker_uidx2 = chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx + 1];
     marker_cidx = 0;
     for (marker_uidx1 = chrom_start; marker_uidx1 < marker_uidx2; marker_uidx1++) {
       if (IS_SET(marker_exclude, marker_uidx1)) {
@@ -2234,7 +2234,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
       union_uidx1 = cur_roh[0];
       con_uidx2 = cur_roh[1];
       union_uidx2 = cur_roh[1];
-      chrom_start = get_marker_chrom(chrom_info_ptr, con_uidx1);
+      chrom_start = get_variant_chrom(chrom_info_ptr, con_uidx1);
       // sort pool members primarily by allelic-match group number, then by
       // internal ID
       for (slot_idx1 = 0; slot_idx1 < pool_size; slot_idx1++) {
@@ -2417,8 +2417,8 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   double hit_threshold = hp->hit_threshold;
   uint32_t is_new_lengths = 1 ^ ((hp->modifier / HOMOZYG_OLD_LENGTHS) & 1);
   uint32_t chrom_ct = chrom_info_ptr->chrom_ct;
-  int32_t x_code = chrom_info_ptr->x_code;
-  int32_t mt_code = chrom_info_ptr->mt_code;
+  int32_t x_code = chrom_info_ptr->xymt_codes[X_OFFSET];
+  int32_t mt_code = chrom_info_ptr->xymt_codes[MT_OFFSET];
   uintptr_t* haploid_mask = chrom_info_ptr->haploid_mask;
   uintptr_t roh_ct = 0;
   uintptr_t final_mask = get_final_mask(sample_ct);
@@ -2549,7 +2549,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_ct; chrom_fo_idx++) {
     uii = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
     roh_list_chrom_starts[chrom_fo_idx] = roh_ct;
-    chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
+    chrom_end = chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx + 1];
     if ((x_code == -1) || (uii != ((uint32_t)x_code))) {
       if (IS_SET(haploid_mask, uii) || (uii == (uint32_t)mt_code)) {
 	marker_uidx = chrom_end;
@@ -2568,7 +2568,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
       fputs("\r--homozyg: Scanning chromosome **.\b", stdout);
     }
     fflush(stdout);
-    marker_uidx = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
+    marker_uidx = chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx];
     fill_ulong_zero(sample_ctl * window_size, swbuf);
     fill_uint_zero(sample_ct, het_cts);
     fill_uint_zero(sample_ct, missing_cts);

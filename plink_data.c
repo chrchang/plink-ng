@@ -183,204 +183,177 @@ int32_t sample_major_to_snp_major(char* sample_major_fname, char* outname, uintp
   return retval;
 }
 
-uint32_t chrom_error(const char* extension, Chrom_info* chrom_info_ptr, char* chrom_str, uintptr_t line_idx, int32_t error_code, uint32_t allow_extra_chroms) {
-  if (allow_extra_chroms && (error_code == -2)) {
-    return 0;
-  }
-  int32_t raw_code = get_chrom_code_raw(chrom_str);
-  uint32_t slen = strlen_se(chrom_str);
-  chrom_str[slen] = '\0';
-  logprint("\n");
-  if (line_idx) {
-    LOGERRPRINTFWW("Error: Invalid chromosome code '%s' on line %" PRIuPTR " of %s.\n", chrom_str, line_idx, extension);
-  } else {
-    LOGERRPRINTFWW("Error: Invalid chromosome code '%s' in %s.\n", chrom_str, extension);
-  }
-  if ((raw_code > ((int32_t)chrom_info_ptr->max_code)) && ((raw_code <= MAX_CHROM_TEXTNUM + 4) || (raw_code >= MAX_POSSIBLE_CHROM))) {
-    if (chrom_info_ptr->species != SPECIES_UNKNOWN) {
-      if (chrom_info_ptr->species == SPECIES_HUMAN) {
-	logerrprint("(This is disallowed for humans.  Check if the problem is with your data, or if\nyou forgot to define a different chromosome set with e.g. --chr-set.).\n");
-      } else {
-	logerrprint("(This is disallowed by the PLINK 1.07 species flag you used.  You can\ntemporarily work around this restriction with --chr-set; contact the developers\nif you want the flag to be permanently redefined.)\n");
-      }
-    } else {
-      logerrprint("(This is disallowed by your --chr-set/--autosome-num parameters.  Check if the\nproblem is with your data, or your command line.)\n");
-    }
-  } else if (error_code == -2) {
-    logerrprint("(Use --allow-extra-chr to force it to be accepted.)\n");
-  }
-  return 1;
-}
-
-int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* marker_exclude_ct_ptr, uintptr_t* max_marker_id_len_ptr, uintptr_t** marker_exclude_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, uint32_t** marker_pos_ptr, uint32_t* map_is_unsorted_ptr, uint32_t allow_extra_chroms, uint32_t allow_no_vars) {
+int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* marker_exclude_ct_ptr, uintptr_t* max_marker_id_blen_ptr, uintptr_t** marker_exclude_ptr, char** marker_ids_ptr, Chrom_info* chrom_info_ptr, uint32_t** marker_pos_ptr, uint32_t* map_is_unsorted_ptr, uint32_t allow_extra_chroms, uint32_t allow_no_vars) {
   // currently only used by lgen_to_bed()
   // todo: some cleanup
   uintptr_t marker_exclude_ct = *marker_exclude_ct_ptr;
-  uintptr_t max_marker_id_len = 0;
+  uintptr_t max_marker_id_blen = 0;
   uintptr_t unfiltered_marker_ct = 0;
   uintptr_t line_idx = 0;
   uint32_t last_pos = 0;
   int32_t last_chrom = -1;
   int32_t marker_pos_needed = 0;
-  int32_t chroms_encountered_m1 = -1;
+  uint32_t chroms_encountered_m1 = 0xffffffffU; // deliberate overflow
   int32_t retval = 0;
   uintptr_t loaded_chrom_mask[CHROM_MASK_WORDS];
   uintptr_t* marker_exclude;
   uintptr_t unfiltered_marker_ctl;
-  char* bufptr;
   uintptr_t marker_uidx;
   uintptr_t ulii;
   uint32_t cur_pos;
   int32_t ii;
-  int32_t jj;
-  fill_ulong_zero(CHROM_MASK_WORDS, loaded_chrom_mask);
-  if (fopen_checked(mapname, "r", mapfile_ptr)) {
-    goto load_map_ret_OPEN_FAIL;
-  }
-  // first pass: count columns, determine raw marker count, determine maximum
-  // marker ID length if necessary.
-  g_textbuf[MAXLINELEN - 6] = ' ';
-  while (fgets(g_textbuf, MAXLINELEN - 5, *mapfile_ptr)) {
-    line_idx++;
-    if (!g_textbuf[MAXLINELEN - 6]) {
-      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .map file is pathologically long.\n", line_idx);
-      goto load_map_ret_INVALID_FORMAT_2;
+  {
+    fill_ulong_zero(CHROM_MASK_WORDS, loaded_chrom_mask);
+    if (fopen_checked(mapname, "r", mapfile_ptr)) {
+      goto load_map_ret_OPEN_FAIL;
     }
-    bufptr = skip_initial_spaces(g_textbuf);
-    if (is_eoln_or_comment_kns(*bufptr)) {
-      continue;
-    }
-    bufptr = next_token(bufptr);
-    if (no_more_tokens_kns(bufptr)) {
-      goto load_map_ret_MISSING_TOKENS;
-    }
-    ulii = strlen_se(bufptr) + 1;
-    if (ulii > max_marker_id_len) {
-      max_marker_id_len = ulii;
-    }
-    if (!unfiltered_marker_ct) {
-      bufptr = next_token_mult(bufptr, 2);
-      if (!bufptr) {
-        goto load_map_ret_MISSING_TOKENS;
-      }
-      if (*bufptr > ' ') {
-	*map_cols_ptr = 4;
-      }
-    }
-    unfiltered_marker_ct++;
-  }
-  if (!feof(*mapfile_ptr)) {
-    goto load_map_ret_READ_FAIL;
-  }
-  if ((!unfiltered_marker_ct) && (!allow_no_vars)) {
-    logerrprint("Error: No variants in .map file.\n");
-    goto load_map_ret_INVALID_FORMAT;
-  }
-  *unfiltered_marker_ct_ptr = unfiltered_marker_ct;
-  *max_marker_id_len_ptr = max_marker_id_len;
-  rewind(*mapfile_ptr);
-  unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
-
-  // unfiltered_marker_ct can be very large, so use bigstack for all
-  // allocations that are a multiple of it
-
-  // permanent bigstack allocation #1: marker_exclude
-  if (bigstack_calloc_ul(unfiltered_marker_ctl, marker_exclude_ptr)) {
-    goto load_map_ret_NOMEM;
-  }
-  marker_exclude = *marker_exclude_ptr;
-  fill_uint_zero(MAX_POSSIBLE_CHROM, chrom_info_ptr->chrom_file_order);
-  fill_uint_zero(MAX_POSSIBLE_CHROM + 1, chrom_info_ptr->chrom_file_order_marker_idx);
-  fill_uint_zero(MAX_POSSIBLE_CHROM, chrom_info_ptr->chrom_start);
-  fill_uint_zero(MAX_POSSIBLE_CHROM, chrom_info_ptr->chrom_end);
-  // permanent bigstack allocation #2, if needed: marker_pos
-  if (marker_pos_needed) {
-    if (bigstack_alloc_ui(unfiltered_marker_ct, marker_pos_ptr)) {
-      goto load_map_ret_NOMEM;
-    }
-  }
-  if (bigstack_alloc_c(unfiltered_marker_ct * max_marker_id_len, marker_ids_ptr)) {
-    goto load_map_ret_NOMEM;
-  }
-
-  // second pass: actually load stuff
-  line_idx = 0;
-  for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
-    if (get_next_noncomment(*mapfile_ptr, &bufptr, &line_idx)) {
-      goto load_map_ret_READ_FAIL;
-    }
-    jj = get_chrom_code(chrom_info_ptr, bufptr);
-    if (jj < 0) {
-      if (chrom_error(".map file", chrom_info_ptr, bufptr, line_idx, jj, allow_extra_chroms)) {
-        goto load_map_ret_INVALID_FORMAT;
-      }
-      retval = resolve_or_add_chrom_name(bufptr, ".map file", line_idx, chrom_info_ptr, &jj);
-      if (retval) {
-	goto load_map_ret_1;
-      }
-    }
-    if (jj != last_chrom) {
-      if (last_chrom != -1) {
-	chrom_info_ptr->chrom_end[last_chrom] = marker_uidx;
-      }
-      if (jj < last_chrom) {
-	*map_is_unsorted_ptr |= UNSORTED_CHROM;
-      }
-      last_chrom = jj;
-      if (is_set(loaded_chrom_mask, jj)) {
-	*map_is_unsorted_ptr |= UNSORTED_SPLIT_CHROM | UNSORTED_BP;
-      } else {
-	set_bit(jj, loaded_chrom_mask);
-	chrom_info_ptr->chrom_start[(uint32_t)jj] = marker_uidx;
-	chrom_info_ptr->chrom_file_order[++chroms_encountered_m1] = jj;
-	chrom_info_ptr->chrom_file_order_marker_idx[chroms_encountered_m1] = marker_uidx;
-      }
-      last_pos = 0;
-    }
-
-    if (!is_set(chrom_info_ptr->chrom_mask, jj)) {
-      SET_BIT(marker_uidx, marker_exclude);
-      marker_exclude_ct++;
-    } else {
-      bufptr = next_token(bufptr);
-      if (no_more_tokens_kns(bufptr)) {
-	goto load_map_ret_MISSING_TOKENS;
-      }
-      read_next_terminate(&((*marker_ids_ptr)[marker_uidx * max_marker_id_len]), bufptr);
-      bufptr = next_token_mult(bufptr, *map_cols_ptr - 2);
-      if (no_more_tokens_kns(bufptr)) {
-	goto load_map_ret_MISSING_TOKENS;
-      }
-      if (scan_int_abs_defcap(bufptr, &ii)) {
-	sprintf(g_logbuf, "Error: Invalid bp coordinate on line %" PRIuPTR " of .map file.\n", line_idx);
+    // first pass: count columns, determine raw marker count, determine maximum
+    // marker ID length if necessary.
+    g_textbuf[MAXLINELEN - 6] = ' ';
+    while (fgets(g_textbuf, MAXLINELEN - 5, *mapfile_ptr)) {
+      line_idx++;
+      if (!g_textbuf[MAXLINELEN - 6]) {
+	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .map file is pathologically long.\n", line_idx);
 	goto load_map_ret_INVALID_FORMAT_2;
       }
-      if (ii < 0) {
+      char* textbuf_first_token = skip_initial_spaces(g_textbuf);
+      if (is_eoln_or_comment_kns(*textbuf_first_token)) {
+	continue;
+      }
+      char* textbuf_iter = next_token(textbuf_first_token);
+      if (no_more_tokens_kns(textbuf_iter)) {
+	goto load_map_ret_MISSING_TOKENS;
+      }
+      ulii = strlen_se(textbuf_iter) + 1;
+      if (ulii > max_marker_id_blen) {
+	max_marker_id_blen = ulii;
+      }
+      if (!unfiltered_marker_ct) {
+	textbuf_iter = next_token_mult(textbuf_iter, 2);
+	if (!textbuf_iter) {
+	  goto load_map_ret_MISSING_TOKENS;
+	}
+	if (*textbuf_iter > ' ') {
+	  *map_cols_ptr = 4;
+	}
+      }
+      unfiltered_marker_ct++;
+    }
+    if (!feof(*mapfile_ptr)) {
+      goto load_map_ret_READ_FAIL;
+    }
+    if ((!unfiltered_marker_ct) && (!allow_no_vars)) {
+      logerrprint("Error: No variants in .map file.\n");
+      goto load_map_ret_INVALID_FORMAT;
+    }
+    *unfiltered_marker_ct_ptr = unfiltered_marker_ct;
+    *max_marker_id_blen_ptr = max_marker_id_blen;
+    rewind(*mapfile_ptr);
+    unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
+
+    // unfiltered_marker_ct can be very large, so use bigstack for all
+    // allocations that are a multiple of it
+
+    // permanent bigstack allocation #1: marker_exclude
+    if (bigstack_calloc_ul(unfiltered_marker_ctl, marker_exclude_ptr)) {
+      goto load_map_ret_NOMEM;
+    }
+    marker_exclude = *marker_exclude_ptr;
+    fill_uint_one(MAX_POSSIBLE_CHROM, chrom_info_ptr->chrom_idx_to_foidx);
+
+    // permanent bigstack allocation #2, if needed: marker_pos
+    if (marker_pos_needed) {
+      if (bigstack_alloc_ui(unfiltered_marker_ct, marker_pos_ptr)) {
+	goto load_map_ret_NOMEM;
+      }
+    }
+    if (bigstack_alloc_c(unfiltered_marker_ct * max_marker_id_blen, marker_ids_ptr)) {
+      goto load_map_ret_NOMEM;
+    }
+
+    // second pass: actually load stuff
+    line_idx = 0;
+    for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
+      char* textbuf_first_token;
+      if (get_next_noncomment(*mapfile_ptr, &textbuf_first_token, &line_idx)) {
+	goto load_map_ret_READ_FAIL;
+      }
+      char* textbuf_iter = token_endnn(textbuf_first_token);
+      if (!(*textbuf_iter)) {
+	goto load_map_ret_MISSING_TOKENS;
+      }
+      const uint32_t chrom_name_slen = (uintptr_t)(textbuf_iter - textbuf_first_token);
+      *textbuf_iter = '\0';
+      int32_t cur_chrom_code = get_chrom_code_nt(chrom_info_ptr, textbuf_first_token, chrom_name_slen);
+      if (cur_chrom_code < 0) {
+	if (chrom_error(textbuf_first_token, ".map file", chrom_info_ptr, line_idx, cur_chrom_code, allow_extra_chroms)) {
+	  goto load_map_ret_INVALID_FORMAT;
+	}
+	retval = resolve_or_add_chrom_name(textbuf_first_token, ".map file", line_idx, chrom_name_slen, chrom_info_ptr, &cur_chrom_code);
+	if (retval) {
+	  goto load_map_ret_1;
+	}
+      }
+      if (cur_chrom_code != last_chrom) {
+	if (cur_chrom_code < last_chrom) {
+	  *map_is_unsorted_ptr |= UNSORTED_CHROM;
+	}
+	last_chrom = cur_chrom_code;
+	if (is_set(loaded_chrom_mask, cur_chrom_code)) {
+	  *map_is_unsorted_ptr |= UNSORTED_SPLIT_CHROM | UNSORTED_BP;
+	} else {
+	  set_bit(cur_chrom_code, loaded_chrom_mask);
+	  chrom_info_ptr->chrom_file_order[++chroms_encountered_m1] = cur_chrom_code;
+	  chrom_info_ptr->chrom_fo_vidx_start[chroms_encountered_m1] = marker_uidx;
+	  chrom_info_ptr->chrom_idx_to_foidx[(uint32_t)cur_chrom_code] = chroms_encountered_m1;
+	}
+	last_pos = 0;
+      }
+
+      if (!is_set(chrom_info_ptr->chrom_mask, cur_chrom_code)) {
 	SET_BIT(marker_uidx, marker_exclude);
 	marker_exclude_ct++;
       } else {
-	cur_pos = ii;
-	if (cur_pos < last_pos) {
-	  *map_is_unsorted_ptr |= UNSORTED_BP;
-	} else {
-	  last_pos = cur_pos;
+	textbuf_iter = skip_initial_spaces(&(textbuf_iter[1]));
+	if (is_eoln_kns(*textbuf_iter)) {
+	  goto load_map_ret_MISSING_TOKENS;
 	}
-	if (marker_pos_needed && jj) {
-	  (*marker_pos_ptr)[marker_uidx] = cur_pos;
+	char* token_end = token_endnn(textbuf_iter);
+	memcpyx(&((*marker_ids_ptr)[marker_uidx * max_marker_id_blen]), textbuf_iter, (uintptr_t)(token_end - textbuf_iter), '\0');
+	textbuf_iter = next_token_mult(token_end, *map_cols_ptr - 2);
+	if (no_more_tokens_kns(textbuf_iter)) {
+	  goto load_map_ret_MISSING_TOKENS;
+	}
+	if (scan_int_abs_defcap(textbuf_iter, &ii)) {
+	  sprintf(g_logbuf, "Error: Invalid bp coordinate on line %" PRIuPTR " of .map file.\n", line_idx);
+	  goto load_map_ret_INVALID_FORMAT_2;
+	}
+	if (ii < 0) {
+	  SET_BIT(marker_uidx, marker_exclude);
+	  marker_exclude_ct++;
+	} else {
+	  cur_pos = ii;
+	  if (cur_pos < last_pos) {
+	    *map_is_unsorted_ptr |= UNSORTED_BP;
+	  } else {
+	    last_pos = cur_pos;
+	  }
+	  if (marker_pos_needed && cur_chrom_code) {
+	    (*marker_pos_ptr)[marker_uidx] = cur_pos;
+	  }
 	}
       }
     }
-  }
-  chrom_info_ptr->chrom_ct = ++chroms_encountered_m1;
-  *marker_exclude_ct_ptr = marker_exclude_ct;
-  if (unfiltered_marker_ct) {
-    chrom_info_ptr->chrom_end[last_chrom] = marker_uidx;
-    if (marker_exclude_ct == unfiltered_marker_ct) {
-      logerrprint("Error: All variants excluded from .map file.\n");
-      goto load_map_ret_ALL_MARKERS_EXCLUDED;
+    chrom_info_ptr->chrom_ct = ++chroms_encountered_m1;
+    *marker_exclude_ct_ptr = marker_exclude_ct;
+    if (unfiltered_marker_ct) {
+      if (marker_exclude_ct == unfiltered_marker_ct) {
+	logerrprint("Error: All variants excluded from .map file.\n");
+	goto load_map_ret_ALL_MARKERS_EXCLUDED;
+      }
     }
+    chrom_info_ptr->chrom_fo_vidx_start[chroms_encountered_m1] = marker_uidx;
   }
-  chrom_info_ptr->chrom_file_order_marker_idx[chroms_encountered_m1] = marker_uidx;
   while (0) {
   load_map_ret_NOMEM:
     retval = RET_NOMEM;
@@ -503,14 +476,14 @@ static inline uint32_t sf_out_of_range(uint32_t cur_pos, uint32_t chrom_idx, uin
   return 1;
 }
 
-int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* marker_exclude_ct_ptr, uintptr_t* max_marker_id_len_ptr, uintptr_t** marker_exclude_ptr, double** set_allele_freqs_ptr, uint32_t** nchrobs_ptr, char*** marker_allele_pp, uintptr_t* max_marker_allele_len_ptr, char** marker_ids_ptr, char* missing_mid_template, uint32_t new_id_max_allele_len, const char* missing_marker_id_match, Chrom_info* chrom_info_ptr, double** marker_cms_ptr, uint32_t** marker_pos_ptr, uint64_t misc_flags, uint64_t filter_flags, int32_t marker_pos_start, int32_t marker_pos_end, int32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* sf_range_list_ptr, uint32_t* map_is_unsorted_ptr, uint32_t marker_pos_needed, uint32_t marker_cms_needed, uint32_t marker_alleles_needed, const char* split_chrom_cmd, const char* ftype_str, uint32_t* max_bim_linelen_ptr) {
+int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* marker_exclude_ct_ptr, uintptr_t* max_marker_id_blen_ptr, uintptr_t** marker_exclude_ptr, double** set_allele_freqs_ptr, uint32_t** nchrobs_ptr, char*** marker_allele_pp, uintptr_t* max_marker_allele_blen_ptr, char** marker_ids_ptr, char* missing_mid_template, uint32_t new_id_max_allele_slen, const char* missing_marker_id_match, Chrom_info* chrom_info_ptr, double** marker_cms_ptr, uint32_t** marker_pos_ptr, uint64_t misc_flags, uint64_t filter_flags, int32_t marker_pos_start, int32_t marker_pos_end, int32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* sf_range_list_ptr, uint32_t* map_is_unsorted_ptr, uint32_t marker_pos_needed, uint32_t marker_cms_needed, uint32_t marker_alleles_needed, const char* split_chrom_cmd, const char* ftype_str, uint32_t* max_bim_linelen_ptr) {
   // supports .map now too, to make e.g. --snps + --dosage work
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* bimfile = NULL;
   uintptr_t unfiltered_marker_ct = 0;
   uintptr_t marker_exclude_ct = *marker_exclude_ct_ptr;
-  uintptr_t max_marker_id_len = *max_marker_id_len_ptr;
-  uintptr_t max_marker_allele_len = *max_marker_allele_len_ptr;
+  uintptr_t max_marker_id_blen = *max_marker_id_blen_ptr;
+  uintptr_t max_marker_allele_blen = *max_marker_allele_blen_ptr;
   uintptr_t line_idx = 0;
   int32_t prev_chrom = -1;
   uint32_t last_pos = 0;
@@ -575,7 +548,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   uint32_t sf_entry_ct;
   uint32_t sf_lltop;
   char* bufptr;
-  char* bufptr3;
+  char* col2_ptr;
   uintptr_t ulii;
   uint32_t ukk;
   uint32_t umm;
@@ -584,769 +557,769 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
   int32_t jj;
   uint32_t cur_pos;
   char cc;
-  fill_ulong_zero(CHROM_MASK_WORDS, loaded_chrom_mask);
-  insert_buf[0] = NULL;
-  insert_buf[1] = NULL;
-  insert_buf[2] = NULL;
-  insert_buf[3] = NULL;
-  if (sf_ct) {
-    sf_start_idxs = (uint32_t*)malloc((MAX_POSSIBLE_CHROM + 1) * sizeof(int32_t));
-    if (!sf_start_idxs) {
-      goto load_bim_ret_NOMEM;
+  {
+    fill_ulong_zero(CHROM_MASK_WORDS, loaded_chrom_mask);
+    insert_buf[0] = NULL;
+    insert_buf[1] = NULL;
+    insert_buf[2] = NULL;
+    insert_buf[3] = NULL;
+    if (sf_ct) {
+      sf_start_idxs = (uint32_t*)malloc((MAX_POSSIBLE_CHROM + 1) * sizeof(int32_t));
+      if (!sf_start_idxs) {
+	goto load_bim_ret_NOMEM;
+      }
+      if (bigstack_alloc_ui(sf_ct, &sf_str_chroms) ||
+	  bigstack_alloc_ui(sf_ct, &sf_str_pos) ||
+	  bigstack_alloc_ui(sf_ct, &sf_str_lens) ||
+	  bigstack_alloc_ui(3 * (MAX_POSSIBLE_CHROM + sf_ct), &sf_llbuf)) {
+	goto load_bim_ret_NOMEM;
+      }
+      for (uii = 0; uii < sf_ct; uii++) {
+	sf_str_chroms[uii] = MAX_POSSIBLE_CHROM;
+	sf_str_lens[uii] = strlen(&(sf_range_list_ptr->names[uii * sf_max_len]));
+      }
     }
-    if (bigstack_alloc_ui(sf_ct, &sf_str_chroms) ||
-	bigstack_alloc_ui(sf_ct, &sf_str_pos) ||
-        bigstack_alloc_ui(sf_ct, &sf_str_lens) ||
-        bigstack_alloc_ui(3 * (MAX_POSSIBLE_CHROM + sf_ct), &sf_llbuf)) {
-      goto load_bim_ret_NOMEM;
-    }
-    for (uii = 0; uii < sf_ct; uii++) {
-      sf_str_chroms[uii] = MAX_POSSIBLE_CHROM;
-      sf_str_lens[uii] = strlen(&(sf_range_list_ptr->names[uii * sf_max_len]));
-    }
-  }
-  fill_uint_zero(5, missing_template_seg_len);
-  missing_template_seg[0] = NULL;
-  missing_template_seg[1] = NULL;
-  missing_template_seg[2] = NULL;
-  missing_template_seg[3] = NULL;
-  missing_template_seg[4] = NULL;
-  if (missing_mid_template) {
-    if (!missing_marker_id_match) {
-      missing_marker_id_match = &(g_one_char_strs[92]); // '.'
-    }
-    missing_marker_id_match_len = strlen(missing_marker_id_match);
-    bufptr = missing_mid_template;
-    missing_template_seg[template_insert_ct] = bufptr; // current segment start
-    cc = *bufptr; // template string previously validated
-    do {
-      if (cc == '@') {
-	ujj = (uintptr_t)(bufptr - missing_template_seg[template_insert_ct]);
-	ukk = 0;
-	goto load_bim_template_match;
-      } else if (cc == '#') {
-	ujj = (uintptr_t)(bufptr - missing_template_seg[template_insert_ct]);
-	ukk = 1;
-	goto load_bim_template_match;
-      } else if (cc == '$') {
-	ujj = (uintptr_t)(bufptr - missing_template_seg[template_insert_ct]);
+    fill_uint_zero(5, missing_template_seg_len);
+    missing_template_seg[0] = NULL;
+    missing_template_seg[1] = NULL;
+    missing_template_seg[2] = NULL;
+    missing_template_seg[3] = NULL;
+    missing_template_seg[4] = NULL;
+    if (missing_mid_template) {
+      if (!missing_marker_id_match) {
+	missing_marker_id_match = &(g_one_char_strs[92]); // '.'
+      }
+      missing_marker_id_match_len = strlen(missing_marker_id_match);
+      bufptr = missing_mid_template;
+      missing_template_seg[template_insert_ct] = bufptr; // current segment start
+      cc = *bufptr; // template string previously validated
+      do {
+	if (cc == '@') {
+	  ujj = (uintptr_t)(bufptr - missing_template_seg[template_insert_ct]);
+	  ukk = 0;
+	  goto load_bim_template_match;
+	} else if (cc == '#') {
+	  ujj = (uintptr_t)(bufptr - missing_template_seg[template_insert_ct]);
+	  ukk = 1;
+	  goto load_bim_template_match;
+	} else if (cc == '$') {
+	  ujj = (uintptr_t)(bufptr - missing_template_seg[template_insert_ct]);
+	  cc = *(++bufptr);
+	  ukk = ((unsigned char)cc) - 47;
+	load_bim_template_match:
+	  missing_template_seg_len[template_insert_ct] = ujj;
+	  missing_template_base_len += ujj;
+	  missing_template_seg_order[template_insert_ct++] = ukk;
+	  missing_template_seg[template_insert_ct] = &(bufptr[1]);
+	}
 	cc = *(++bufptr);
-	ukk = ((unsigned char)cc) - 47;
-      load_bim_template_match:
-	missing_template_seg_len[template_insert_ct] = ujj;
-	missing_template_base_len += ujj;
-	missing_template_seg_order[template_insert_ct++] = ukk;
-	missing_template_seg[template_insert_ct] = &(bufptr[1]);
-      }
-      cc = *(++bufptr);
-    } while (cc);
-    ujj = (uintptr_t)(bufptr - missing_template_seg[template_insert_ct]);
-    missing_template_seg_len[template_insert_ct] = ujj;
-    missing_template_base_len += ujj;
-    insert_buf[1] = poscharbuf;
-    if (template_insert_ct == 4) {
-      insert_buf[2] = (char*)malloc(new_id_max_allele_len + 1);
-      insert_buf[3] = (char*)malloc(new_id_max_allele_len + 1);
-      if ((!insert_buf[2]) || (!insert_buf[3])) {
-	goto load_bim_ret_NOMEM;
-      }
-    }
-  }
-  if (fopen_checked(bimname, "r", &bimfile)) {
-    goto load_bim_ret_OPEN_FAIL;
-  }
-  // first pass: count columns, determine raw marker count, determine maximum
-  // marker ID length and/or marker allele length if necessary, save
-  // nonstandard chromosome names.
-
-  // ensure strcmp_se comparison doesn't read past end of buffer
-  loadbuf_size = bigstack_left() - 16;
-  if (loadbuf_size > MAXLINEBUFLEN) {
-    loadbuf_size = MAXLINEBUFLEN;
-  } else if (loadbuf_size <= MAXLINELEN) {
-    goto load_bim_ret_NOMEM;
-  }
-  loadbuf = (char*)g_bigstack_base;
-  loadbuf[loadbuf_size - 1] = ' ';
-  while (fgets(loadbuf, loadbuf_size, bimfile)) {
-    line_idx++;
-    if (!loadbuf[loadbuf_size - 1]) {
-      if (loadbuf_size == MAXLINEBUFLEN) {
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, ftype_str);
-        goto load_bim_ret_INVALID_FORMAT_2;
-      } else {
-	goto load_bim_ret_NOMEM;
-      }
-    }
-    uii = strlen(loadbuf);
-    if (uii >= max_bim_linelen) {
-      max_bim_linelen = uii + 1;
-    }
-    // bufptr3 = col 1 start
-    bufptr3 = skip_initial_spaces(loadbuf);
-    if (is_eoln_or_comment_kns(*bufptr3)) {
-      if (!strcmp_se(bufptr3, "#CHROM", 6)) {
-	if (chrom_header_line_present) {
-	  sprintf(g_logbuf, "Error: Multiple #CHROM header lines in %s.\n", ftype_str);
-	  goto load_bim_ret_INVALID_FORMAT_2;
-	}
-	// if column order isn't the default, error out
-	bufptr3 = skip_initial_spaces(&(bufptr3[6]));
-        if (strcmp_se(bufptr3, "ID", 2)) {
-	  goto load_bim_ret_UNSUPPORTED_COLUMN_ORDER;
-	}
-	bufptr3 = skip_initial_spaces(&(bufptr3[2]));
-	if (strcmp_se(bufptr3, "CM", 2)) {
-	  goto load_bim_ret_UNSUPPORTED_COLUMN_ORDER;
-	}
-	bufptr3 = skip_initial_spaces(&(bufptr3[2]));
-	if (strcmp_se(bufptr3, "POS", 3)) {
-	  goto load_bim_ret_UNSUPPORTED_COLUMN_ORDER;
-	}
-	bufptr3 = skip_initial_spaces(&(bufptr3[3]));
-	if (strcmp_se(bufptr3, "ALT", 3)) {
-	  goto load_bim_ret_UNSUPPORTED_COLUMN_ORDER;
-	}
-	bufptr3 = skip_initial_spaces(&(bufptr3[3]));
-	if (strcmp_se(bufptr3, "REF", 3)) {
-	  goto load_bim_ret_UNSUPPORTED_COLUMN_ORDER;
-	}
-	chrom_header_line_present = 1;
-      }
-      continue;
-    }
-    jj = get_chrom_code(chrom_info_ptr, bufptr3);
-    if (jj < 0) {
-      if (chrom_error(ftype_str, chrom_info_ptr, bufptr3, line_idx, jj, allow_extra_chroms)) {
-        goto load_bim_ret_INVALID_FORMAT;
-      }
-      retval = resolve_or_add_chrom_name(bufptr3, ftype_str, line_idx, chrom_info_ptr, &jj);
-      if (retval) {
-	goto load_bim_ret_1;
-      }
-    }
-
-    // bufptr = col 2 start
-    bufptr = next_token(bufptr3);
-    if (no_more_tokens_kns(bufptr)) {
-      goto load_bim_ret_MISSING_TOKENS;
-    }
-    ulii = strlen_se(bufptr);
-    if (!unfiltered_marker_ct) {
-      if (ftype_str[1] == 'b') {
-	// .bim: bufptr2 = col 5 start
-	bufptr2 = next_token_mult(bufptr, 3);
-      } else {
-	// .map
-	bufptr2 = next_token(bufptr);
-      }
-      if (no_more_tokens_kns(bufptr2)) {
-	goto load_bim_ret_MISSING_TOKENS;
-      }
-      // check if col 6 exists
-      if (*(skip_initial_spaces(token_endnn(bufptr2))) > ' ') {
-	*map_cols_ptr = 4;
-	mcm2 = 2;
-      }
-    }
-    if (marker_alleles_needed || missing_marker_id_match_len) {
-      bufptr4 = next_token_mult(bufptr, mcm2 + 1);
-      bufptr5 = next_token(bufptr4);
-      if (no_more_tokens_kns(bufptr5)) {
-	goto load_bim_ret_MISSING_TOKENS;
-      }
-      uii = strlen_se(bufptr4);
-      ujj = strlen_se(bufptr5);
-      if (memchr(bufptr4, ',', ujj + ((uintptr_t)(bufptr5 - bufptr4)))) {
-	// this breaks VCF and PLINK 2 binary
-	// may need to add word wrapping if this message is changed
-	sprintf(g_logbuf, "Error: Comma-containing allele code on line %" PRIuPTR " of %s.\n", line_idx, ftype_str);
-	goto load_bim_ret_INVALID_FORMAT_2;
-      }
-      if (marker_alleles_needed) {
-	if (uii >= max_marker_allele_len) {
-	  max_marker_allele_len = uii + 1;
-	}
-	if (ujj >= max_marker_allele_len) {
-	  max_marker_allele_len = ujj + 1;
-	}
-      }
-    }
-    if ((ulii == missing_marker_id_match_len) && (!memcmp(bufptr, missing_marker_id_match, missing_marker_id_match_len))) {
-      bufptr2 = next_token_mult(bufptr, mcm2);
-      if (no_more_tokens_kns(bufptr2)) {
-	goto load_bim_ret_MISSING_TOKENS;
-      }
-      insert_buf_len[1] = strlen_se(bufptr2);
-      if (insert_buf_len[1] > 11) {
-	// permit negative sign and 10 digit number
-	goto load_bim_ret_INVALID_BP_COORDINATE;
-      }
-      insert_buf_len[0] = strlen_se(bufptr3);
-      ulii = missing_template_base_len + insert_buf_len[1] + insert_buf_len[0];
+      } while (cc);
+      ujj = (uintptr_t)(bufptr - missing_template_seg[template_insert_ct]);
+      missing_template_seg_len[template_insert_ct] = ujj;
+      missing_template_base_len += ujj;
+      insert_buf[1] = poscharbuf;
       if (template_insert_ct == 4) {
-	uii = MINV(uii, new_id_max_allele_len);
-	ujj = MINV(ujj, new_id_max_allele_len);
-	ulii += uii + ujj;
+	insert_buf[2] = (char*)malloc(new_id_max_allele_slen + 1);
+	insert_buf[3] = (char*)malloc(new_id_max_allele_slen + 1);
+	if ((!insert_buf[2]) || (!insert_buf[3])) {
+	  goto load_bim_ret_NOMEM;
+	}
       }
-      if (ulii >= max_marker_id_len) {
-	if (ulii > MAX_ID_LEN_P1) {
-          logerrprint("Error: Variant names are limited to " MAX_ID_LEN_STR " characters.\n");
+    }
+    if (fopen_checked(bimname, "r", &bimfile)) {
+      goto load_bim_ret_OPEN_FAIL;
+    }
+    // first pass: count columns, determine raw marker count, determine maximum
+    // marker ID length and/or marker allele length if necessary, save
+    // nonstandard chromosome names.
+
+    // ensure strcmp_se comparison doesn't read past end of buffer
+    loadbuf_size = bigstack_left() - 16;
+    if (loadbuf_size > MAXLINEBUFLEN) {
+      loadbuf_size = MAXLINEBUFLEN;
+    } else if (loadbuf_size <= MAXLINELEN) {
+      goto load_bim_ret_NOMEM;
+    }
+    loadbuf = (char*)g_bigstack_base;
+    loadbuf[loadbuf_size - 1] = ' ';
+    while (fgets(loadbuf, loadbuf_size, bimfile)) {
+      line_idx++;
+      if (!loadbuf[loadbuf_size - 1]) {
+	if (loadbuf_size == MAXLINEBUFLEN) {
+	  sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, ftype_str);
+	  goto load_bim_ret_INVALID_FORMAT_2;
+	} else {
+	  goto load_bim_ret_NOMEM;
+	}
+      }
+      uii = strlen(loadbuf);
+      if (uii >= max_bim_linelen) {
+	max_bim_linelen = uii + 1;
+      }
+      char* loadbuf_first_token = skip_initial_spaces(loadbuf);
+      if (is_eoln_or_comment_kns(*loadbuf_first_token)) {
+	if (!strcmp_se(loadbuf_first_token, "#CHROM", 6)) {
+	  if (chrom_header_line_present) {
+	    sprintf(g_logbuf, "Error: Multiple #CHROM header lines in %s.\n", ftype_str);
+	    goto load_bim_ret_INVALID_FORMAT_2;
+	  }
+	  // support plink 2.x files with default column order; error out on
+	  // VCF and other column orders
+	  loadbuf_first_token = skip_initial_spaces(&(loadbuf_first_token[6]));
+	  if (strcmp_se(loadbuf_first_token, "ID", 2)) {
+	    goto load_bim_ret_UNSUPPORTED_COLUMN_ORDER;
+	  }
+	  loadbuf_first_token = skip_initial_spaces(&(loadbuf_first_token[2]));
+	  if (!strcmp_se(loadbuf_first_token, "CM", 2)) {
+	    loadbuf_first_token = skip_initial_spaces(&(loadbuf_first_token[2]));
+	  }
+	  if (strcmp_se(loadbuf_first_token, "POS", 3)) {
+	    goto load_bim_ret_UNSUPPORTED_COLUMN_ORDER;
+	  }
+	  loadbuf_first_token = skip_initial_spaces(&(loadbuf_first_token[3]));
+	  if (strcmp_se(loadbuf_first_token, "ALT", 3)) {
+	    goto load_bim_ret_UNSUPPORTED_COLUMN_ORDER;
+	  }
+	  loadbuf_first_token = skip_initial_spaces(&(loadbuf_first_token[3]));
+	  if (strcmp_se(loadbuf_first_token, "REF", 3)) {
+	    goto load_bim_ret_UNSUPPORTED_COLUMN_ORDER;
+	  }
+	  chrom_header_line_present = 1;
+	}
+	continue;
+      }
+      char* first_token_end = token_endnn(loadbuf_first_token);
+      col2_ptr = skip_initial_spaces(first_token_end);
+      if (is_eoln_kns(*col2_ptr)) {
+	goto load_bim_ret_MISSING_TOKENS;
+      }
+      const uint32_t chrom_name_slen = (uintptr_t)(first_token_end - loadbuf_first_token);
+      *first_token_end = '\0';
+      int32_t cur_chrom_code = get_chrom_code_nt(loadbuf_first_token, chrom_info_ptr, chrom_name_slen);
+      if (cur_chrom_code < 0) {
+	if (chrom_error(ftype_str, chrom_info_ptr, loadbuf_first_token, line_idx, cur_chrom_code, allow_extra_chroms)) {
 	  goto load_bim_ret_INVALID_FORMAT;
 	}
-	max_marker_id_len = ulii + 1;
-      }
-      ulii = 0;
-    } else {
-      if (ulii >= max_marker_id_len) {
-	max_marker_id_len = ulii + 1;
-      }
-    }
-    if (slen_check) {
-      if (!ulii) {
-	// --set-missing-var-ids applies
-	// safe to clobber buffer contents
-	// bufptr3 = chromosome name, umm = chr length
-	insert_buf[0] = bufptr3;
-        memcpyx(poscharbuf, bufptr2, insert_buf_len[1], '\0');
-	if (template_insert_ct == 4) {
-	  bufptr4[uii] = '\0';
-	  bufptr5[ujj] = '\0';
-	  // ASCII-sort allele names
-	  if (strcmp(bufptr4, bufptr5) <= 0) {
-	    memcpy(insert_buf[2], bufptr4, uii);
-	    insert_buf_len[2] = uii;
-	    memcpy(insert_buf[3], bufptr5, ujj);
-	    insert_buf_len[3] = ujj;
-	  } else {
-	    memcpy(insert_buf[3], bufptr4, uii);
-	    insert_buf_len[3] = uii;
-	    memcpy(insert_buf[2], bufptr5, ujj);
-	    insert_buf_len[2] = ujj;
-	  }
+	retval = resolve_or_add_chrom_name(loadbuf_first_token, ftype_str, line_idx, chrom_name_slen, chrom_info_ptr, &cur_chrom_code);
+	if (retval) {
+	  goto load_bim_ret_1;
 	}
-	bufptr4 = bufptr;
-	for (uii = 0; uii < template_insert_ct; uii++) {
-	  bufptr4 = memcpya(bufptr4, missing_template_seg[uii], missing_template_seg_len[uii]);
-	  ujj = missing_template_seg_order[uii];
-	  bufptr4 = memcpya(bufptr4, insert_buf[ujj], insert_buf_len[ujj]);
+      }
+
+      char* col2_end = token_endnn(col2_ptr);
+      ulii = (uintptr_t)(col2_end - col2_ptr);
+      if (!unfiltered_marker_ct) {
+	if (ftype_str[1] == 'b') {
+	  // .bim: bufptr2 = col 5 start
+	  bufptr2 = next_token_mult(col2_end, 3);
+	} else {
+	  // .map
+	  bufptr2 = skip_initial_spaces(col2_end);
 	}
-	bufptr4 = memcpya(bufptr4, missing_template_seg[uii], missing_template_seg_len[uii]);
-	ulii = (uintptr_t)(bufptr4 - bufptr);
-	bufptr2 = poscharbuf;
-      } else {
-        bufptr2 = next_token_mult(bufptr, mcm2);
 	if (no_more_tokens_kns(bufptr2)) {
 	  goto load_bim_ret_MISSING_TOKENS;
 	}
-	bufptr2[strlen_se(bufptr2)] = '\0';
-      }
-      if (sf_ct) {
-	uii = 0;
-	do {
-	  if ((ulii == sf_str_lens[uii]) && (!memcmp(bufptr, &(sf_range_list_ptr->names[uii * sf_max_len]), ulii))) {
-	    if (sf_str_chroms[uii] != MAX_POSSIBLE_CHROM) {
-	      goto load_bim_ret_DUPLICATE_ID;
-	    }
-	    sf_str_chroms[uii] = jj;
-	    if (scan_uint_defcap(bufptr2, &(sf_str_pos[uii]))) {
-	      goto load_bim_ret_INVALID_BP_COORDINATE;
-	    }
-	    break;
-	  }
-	} while (++uii < sf_ct);
-      } else {
-	if ((ulii == from_slen) && (!memcmp(bufptr, markername_from, ulii))) {
-	  if (from_chrom != MAX_POSSIBLE_CHROM) {
-	    goto load_bim_ret_DUPLICATE_ID;
-	  }
-	  from_chrom = jj;
-	  if (scan_uint_defcap(bufptr2, (uint32_t*)&marker_pos_start)) {
-	    goto load_bim_ret_INVALID_BP_COORDINATE;
-	  }
-	  if (to_chrom != MAX_POSSIBLE_CHROM) {
-	    if (from_chrom != to_chrom) {
-	      goto load_bim_ret_FROM_TO_DIFFERENT_CHROM;
-	    }
-	  }
-	  fill_ulong_zero(CHROM_MASK_WORDS, chrom_info_ptr->chrom_mask);
-	  SET_BIT(from_chrom, chrom_info_ptr->chrom_mask);
-	}
-	if ((ulii == to_slen) && (!memcmp(bufptr, markername_to, ulii))) {
-	  if (to_chrom != MAX_POSSIBLE_CHROM) {
-	    goto load_bim_ret_DUPLICATE_ID;
-	  }
-	  to_chrom = jj;
-	  if (scan_uint_defcap(bufptr2, (uint32_t*)&marker_pos_end)) {
-	    goto load_bim_ret_INVALID_BP_COORDINATE;
-	  }
-	  if (from_chrom != MAX_POSSIBLE_CHROM) {
-	    if (to_chrom != from_chrom) {
-	      goto load_bim_ret_FROM_TO_DIFFERENT_CHROM;
-	    }
-	  }
-	  fill_ulong_zero(CHROM_MASK_WORDS, chrom_info_ptr->chrom_mask);
-	  SET_BIT(to_chrom, chrom_info_ptr->chrom_mask);
-	}
-	if ((ulii == snp_slen) && (!memcmp(bufptr, markername_snp, ulii))) {
-	  if (snp_chrom != MAX_POSSIBLE_CHROM) {
-	    goto load_bim_ret_DUPLICATE_ID;
-	  }
-	  snp_chrom = jj;
-	  if (scan_uint_defcap(bufptr2, &snp_pos)) {
-	    goto load_bim_ret_INVALID_BP_COORDINATE;
-	  }
-	  if (!exclude_snp) {
-	    fill_ulong_zero(CHROM_MASK_WORDS, chrom_info_ptr->chrom_mask);
-	    SET_BIT(snp_chrom, chrom_info_ptr->chrom_mask);
-	  }
+	// check if col 6 exists
+	if (!is_eoln_kns(*(skip_initial_spaces(token_endnn(bufptr2))))) {
+	  *map_cols_ptr = 4;
+	  mcm2 = 2;
 	}
       }
-    }
-    unfiltered_marker_ct++;
-  }
-  if (sf_ct) {
-    for (uii = 0; uii < sf_ct; uii++) {
-      if (sf_str_chroms[uii] == MAX_POSSIBLE_CHROM) {
-	LOGPREPRINTFWW("Error: Variant '%s' not found in %s.\n", &(sf_range_list_ptr->names[uii * sf_max_len]), ftype_str);
-	goto load_bim_ret_INVALID_FORMAT_2;
-      }
-    }
-    // effectively build out one linked list per chromosome
-    memcpy(sf_mask, chrom_info_ptr->chrom_mask, CHROM_MASK_WORDS * sizeof(intptr_t));
-    sf_entry_ct = 0;
-    sf_lltop = 0;
-    ujj = chrom_info_ptr->max_code + chrom_info_ptr->name_ct;
-    for (uii = 0; uii <= ujj; uii++) {
-      sf_start_idxs[uii] = 1; // impossible (multiples of 3)
-    }
-    uii = 0;
-    do {
-      ujj = sf_str_chroms[uii];
-      ukk = sf_str_pos[uii];
-      if (sf_range_list_ptr->starts_range[uii]) {
-	umm = sf_str_chroms[uii + 1];
-	unn = sf_str_pos[uii + 1];
-	if (ujj != umm) {
-	  if (ujj > umm) {
-	    uoo = ujj;
-	    ujj = umm;
-	    umm = uoo;
-	    uoo = ukk;
-	    ukk = unn;
-	    unn = uoo;
-	  }
-	  if (IS_SET(sf_mask, ujj)) {
-	    load_bim_sf_insert(ujj, ukk, 0x7fffffff, sf_start_idxs, sf_llbuf, &sf_lltop, &sf_entry_ct);
-	  }
-	  for (uoo = ujj + 1; uoo < umm; uoo++) {
-	    if (IS_SET(sf_mask, uoo)) {
-	      load_bim_sf_insert(uoo, 0, 0x7fffffff, sf_start_idxs, sf_llbuf, &sf_lltop, &sf_entry_ct);
-	    }
-	  }
-	  if (IS_SET(sf_mask, umm)) {
-	    load_bim_sf_insert(umm, 0, unn, sf_start_idxs, sf_llbuf, &sf_lltop, &sf_entry_ct);
-	  }
-	} else {
-	  if (ukk > unn) {
-            umm = ukk;
-	    ukk = unn;
-	    unn = umm;
-	  }
-	  if (IS_SET(sf_mask, ujj)) {
-	    load_bim_sf_insert(ujj, ukk, unn, sf_start_idxs, sf_llbuf, &sf_lltop, &sf_entry_ct);
-	  }
-	}
-	uii += 2;
-      } else {
-	if (IS_SET(sf_mask, ujj)) {
-	  load_bim_sf_insert(ujj, ukk, ukk, sf_start_idxs, sf_llbuf, &sf_lltop, &sf_entry_ct);
-	}
-	uii++;
-      }
-    } while (uii < sf_ct);
-    // now compactify
-    sf_pos = (uint32_t*)malloc(sf_entry_ct * 2 * sizeof(int32_t));
-    if (!sf_pos) {
-      goto load_bim_ret_NOMEM;
-    }
-    ujj = chrom_info_ptr->max_code + chrom_info_ptr->name_ct;
-    ukk = 0;
-    for (uii = 0; uii <= ujj; uii++) {
-      if (sf_start_idxs[uii] == 1) {
-	CLEAR_BIT(uii, sf_mask);
-	sf_start_idxs[uii] = ukk;
-	continue;
-      }
-      umm = sf_start_idxs[uii];
-      sf_start_idxs[uii] = ukk;
-      do {
-	sf_pos[ukk++] = sf_llbuf[umm];
-	sf_pos[ukk++] = sf_llbuf[umm + 1];
-	umm = sf_llbuf[umm + 2];
-      } while (umm != 1);
-    }
-    sf_start_idxs[ujj + 1] = ukk;
-    if (!exclude_snp) {
-      memcpy(chrom_info_ptr->chrom_mask, sf_mask, CHROM_MASK_WORDS * sizeof(intptr_t));
-    }
-    bigstack_reset(bigstack_mark);
-  }
-  if (!feof(bimfile)) {
-    goto load_bim_ret_READ_FAIL;
-  }
-  if ((!unfiltered_marker_ct) && (!allow_no_variants)) {
-    sprintf(g_logbuf, "Error: No variants in %s.\n", ftype_str);
-    goto load_bim_ret_INVALID_FORMAT_2;
-  } else if (unfiltered_marker_ct > 2147483645) {
-    // maximum prime < 2^32 is 4294967291; quadratic hashing guarantee breaks
-    // down past that divided by 2.
-    // PLINK/SEQ now supports a 64-bit count here, and few other tools do, so
-    // it's appropriate to explicitly recommend it.
-    logerrprint("Error: PLINK does not support more than 2^31 - 3 variants.  We recommend other\nsoftware, such as PLINK/SEQ, for very deep studies of small numbers of genomes.\n");
-    goto load_bim_ret_INVALID_FORMAT;
-  }
-  if (from_slen || to_slen) {
-    if (from_slen && (from_chrom == MAX_POSSIBLE_CHROM)) {
-      LOGPREPRINTFWW("Error: --from variant '%s' not found.\n", markername_from);
-      goto load_bim_ret_INVALID_FORMAT_2;
-    }
-    if (to_slen && (to_chrom == MAX_POSSIBLE_CHROM)) {
-      LOGPREPRINTFWW("Error: --to variant '%s' not found.\n", markername_to);
-      goto load_bim_ret_INVALID_FORMAT_2;
-    }
-    if (marker_pos_start == -1) {
-      marker_pos_start = 0;
-    }
-    if (marker_pos_end == -1) {
-      marker_pos_end = 0x7fffffff;
-    }
-    if (marker_pos_start > marker_pos_end) {
-      jj = marker_pos_start;
-      marker_pos_start = marker_pos_end;
-      marker_pos_end = jj;
-    }
-  }
-  if (snp_slen) {
-    if (snp_chrom == MAX_POSSIBLE_CHROM) {
-      LOGPREPRINTFWW("Error: --%ssnp variant '%s' not found.\n", exclude_snp? "exclude-" : "", markername_snp);
-      goto load_bim_ret_INVALID_FORMAT_2;
-    }
-    if (!exclude_snp) {
-      if (snp_window_size == -1) {
-	// no harm in screening on position before variant ID
-	uii = 0;
-      } else {
-	uii = snp_window_size;
-      }
-      if (uii > snp_pos) {
-	marker_pos_start = 0;
-      } else {
-	marker_pos_start = snp_pos - uii;
-      }
-      if (uii > (0x7fffffff - snp_pos)) {
-	marker_pos_end = 0x7fffffff;
-      } else {
-	marker_pos_end = snp_pos + uii;
-      }
-    } else if (snp_window_size != -1) {
-      if ((uint32_t)snp_window_size <= snp_pos) {
-	exclude_window_start = snp_pos - snp_window_size;
-      }
-      if ((uint32_t)snp_window_size > (0x7fffffff - snp_pos)) {
-	exclude_window_end = 0x7fffffff;
-      } else {
-	exclude_window_end = snp_pos + snp_window_size;
-      }
-    }
-  }
-
-  if (max_marker_id_len > MAX_ID_LEN_P1) {
-    logerrprint("Error: Variant names are limited to " MAX_ID_LEN_STR " characters.\n");
-    goto load_bim_ret_INVALID_FORMAT;
-  }
-  *unfiltered_marker_ct_ptr = unfiltered_marker_ct;
-  *max_marker_id_len_ptr = max_marker_id_len;
-  rewind(bimfile);
-  unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
-
-  // unfiltered_marker_ct can be very large, so use bigstack for all
-  // allocations that are a multiple of it
-
-  // permanent bigstack allocation #1: marker_exclude
-  // permanent bigstack allocation #2: set_allele_freqs
-  if (bigstack_calloc_ul(unfiltered_marker_ctl, marker_exclude_ptr)) {
-    goto load_bim_ret_NOMEM;
-  }
-  marker_exclude = *marker_exclude_ptr;
-  if (set_allele_freqs_ptr) {
-    if (bigstack_alloc_d(unfiltered_marker_ct, set_allele_freqs_ptr)) {
-      goto load_bim_ret_NOMEM;
-    }
-    // leave set_allele_freqs uninitialized
-    if (nchrobs_ptr) {
-      if (bigstack_alloc_ui(unfiltered_marker_ct, nchrobs_ptr)) {
-	goto load_bim_ret_NOMEM;
-      }
-      // on the other hand, this is not autocomputed
-      fill_uint_one(unfiltered_marker_ct, *nchrobs_ptr);
-    }
-  }
-  fill_uint_zero(MAX_POSSIBLE_CHROM, chrom_info_ptr->chrom_file_order);
-  fill_uint_zero(MAX_POSSIBLE_CHROM + 1, chrom_info_ptr->chrom_file_order_marker_idx);
-  fill_uint_zero(MAX_POSSIBLE_CHROM, chrom_info_ptr->chrom_start);
-  fill_uint_zero(MAX_POSSIBLE_CHROM, chrom_info_ptr->chrom_end);
-  // permanent bigstack allocation #3, if needed: marker_pos
-  if (marker_pos_needed) {
-    if (bigstack_alloc_ui(unfiltered_marker_ct, marker_pos_ptr)) {
-      goto load_bim_ret_NOMEM;
-    }
-  }
-  if (marker_alleles_needed) {
-    if (snps_only) {
-      max_marker_allele_len = 2;
-    }
-    if (max_marker_allele_len > NON_BIGSTACK_MIN - 1) {
-      // guard against overflows
-      LOGERRPRINTF("Error: Alleles are limited to %u characters.\n", NON_BIGSTACK_MIN - 1);
-      goto load_bim_ret_INVALID_FORMAT;
-    }
-    *max_marker_allele_len_ptr = max_marker_allele_len;
-    marker_allele_ptrs = (char**)bigstack_alloc(unfiltered_marker_ct * 2 * sizeof(intptr_t));
-    if (!marker_allele_ptrs) {
-      goto load_bim_ret_NOMEM;
-    }
-    *marker_allele_pp = marker_allele_ptrs;
-    ujj = unfiltered_marker_ct * 2;
-    for (uii = 0; uii < ujj; uii++) {
-      marker_allele_ptrs[uii] = missing_geno_ptr;
-    }
-  }
-  if (bigstack_alloc_c(unfiltered_marker_ct * max_marker_id_len, marker_ids_ptr)) {
-    goto load_bim_ret_NOMEM;
-  }
-  // todo: check whether marker_cms can be unloaded before
-  // marker_ids/marker_alleles, or vice versa
-  if (marker_cms_needed & MARKER_CMS_FORCED) {
-    if (bigstack_calloc_d(unfiltered_marker_ct, marker_cms_ptr)) {
-      goto load_bim_ret_NOMEM;
-    }
-  }
-  if (filter_flags & FILTER_ZERO_CMS) {
-    marker_cms_needed = 0;
-  }
-
-  // second pass: actually load stuff
-  loadbuf2 = (char*)malloc(max_bim_linelen);
-  if (!loadbuf2) {
-    goto load_bim_ret_NOMEM;
-  }
-  if (missing_mid_template) {
-    prev_new_id = (char*)malloc(max_marker_id_len);
-    if (!prev_new_id) {
-      goto load_bim_ret_NOMEM;
-    }
-    *prev_new_id = '\0';
-  }
-  line_idx = 0;
-  for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
-    do {
-      line_idx++;
-      if (!fgets(loadbuf2, max_bim_linelen, bimfile)) {
-	goto load_bim_ret_READ_FAIL;
-      }
-      bufptr3 = skip_initial_spaces(loadbuf2);
-    } while (is_eoln_or_comment_kns(*bufptr3));
-    jj = get_chrom_code(chrom_info_ptr, bufptr3);
-    if (jj != prev_chrom) {
-      if (!split_chrom) {
-	if (prev_chrom != -1) {
-	  chrom_info_ptr->chrom_end[(uint32_t)prev_chrom] = marker_uidx;
-	}
-	if (jj < prev_chrom) {
-	  *map_is_unsorted_ptr |= UNSORTED_CHROM;
-	}
-	prev_chrom = jj;
-	if (is_set(loaded_chrom_mask, jj)) {
-	  if (split_chrom_cmd) {
-	    sprintf(g_logbuf, "Error: %s has a split chromosome.  Use --%s by itself to\nremedy this.\n", ftype_str, split_chrom_cmd);
-	    goto load_bim_ret_INVALID_FORMAT_2;
-	  }
-	  split_chrom = 1;
-	  *map_is_unsorted_ptr = UNSORTED_CHROM | UNSORTED_BP | UNSORTED_SPLIT_CHROM;
-	} else {
-	  chrom_info_ptr->chrom_start[(uint32_t)jj] = marker_uidx;
-	  chrom_info_ptr->chrom_file_order[++chroms_encountered_m1] = jj;
-	  chrom_info_ptr->chrom_file_order_marker_idx[chroms_encountered_m1] = marker_uidx;
-	}
-        last_pos = 0;
-      }
-      set_bit(jj, loaded_chrom_mask);
-    }
-
-    if (is_set(chrom_info_ptr->chrom_mask, jj)) {
-      bufptr2 = next_token(bufptr3);
-      if (no_more_tokens_kns(bufptr2)) {
-	goto load_bim_ret_MISSING_TOKENS;
-      }
-      uii = strlen_se(bufptr2);
-      ujj = (uii == missing_marker_id_match_len) && (!memcmp(bufptr2, missing_marker_id_match, missing_marker_id_match_len));
-      if (!ujj) {
-        memcpyx(&((*marker_ids_ptr)[marker_uidx * max_marker_id_len]), bufptr2, uii, '\0');
-      }
-      if (marker_cms_needed) {
-	bufptr = next_token(bufptr2);
-	if (no_more_tokens_kns(bufptr)) {
-	  goto load_bim_ret_MISSING_TOKENS;
-	}
-	if ((*bufptr != '0') || (bufptr[1] > ' ')) {
-	  if (!(*marker_cms_ptr)) {
-	    if (bigstack_calloc_d(unfiltered_marker_ct, marker_cms_ptr)) {
-	      goto load_bim_ret_NOMEM;
-	    }
-	  }
-	  if (scan_double(bufptr, &((*marker_cms_ptr)[marker_uidx]))) {
-	    sprintf(g_logbuf, "Error: Invalid centimorgan position on line %" PRIuPTR " of %s.\n", line_idx, ftype_str);
-	    goto load_bim_ret_INVALID_FORMAT_2;
-	  }
-	}
-	bufptr = next_token(bufptr);
-      } else {
-        bufptr = next_token_mult(bufptr2, mcm2);
-      }
-      if (no_more_tokens_kns(bufptr)) {
-	goto load_bim_ret_MISSING_TOKENS;
-      }
-      if (scan_int_abs_defcap(bufptr, (int32_t*)&cur_pos)) {
-	goto load_bim_ret_INVALID_BP_COORDINATE;
-      }
-      // negative marker positions now have the same effect in .bim as .map
-      if ((int32_t)cur_pos < 0) {
-	goto load_bim_skip_marker;
-      }
-      if (cur_pos < last_pos) {
-	*map_is_unsorted_ptr |= UNSORTED_BP;
-      } else {
-	last_pos = cur_pos;
-      }
-      if ((sf_ct && (exclude_snp ^ sf_out_of_range(cur_pos, (uint32_t)jj, sf_start_idxs, sf_pos))) || ((marker_pos_start != -1) && ((((int32_t)cur_pos) < marker_pos_start) || (((int32_t)cur_pos) > marker_pos_end)))) {
-	goto load_bim_skip_marker;
-      }
-      if (snp_slen) {
-	if (snp_window_size == -1) {
-	  if ((uii == snp_slen) && (!memcmp(bufptr2, markername_snp, snp_slen))) {
-	    if (exclude_snp) {
-	      goto load_bim_skip_marker;
-	    }
-	  } else if (!exclude_snp) {
-	    goto load_bim_skip_marker;
-	  }
-	} else if (exclude_snp && ((((int32_t)cur_pos) <= exclude_window_end) && (((int32_t)cur_pos) >= exclude_window_start) && ((uint32_t)jj == snp_chrom))) {
-	  goto load_bim_skip_marker;
-	}
-      }
-      if (marker_pos_needed) {
-	(*marker_pos_ptr)[marker_uidx] = cur_pos;
-      }
-      if (marker_alleles_needed || ujj) {
-	bufptr4 = next_token(bufptr);
+      if (marker_alleles_needed || missing_marker_id_match_len) {
+	bufptr4 = next_token_mult(col2_end, mcm2 + 1);
 	bufptr5 = next_token(bufptr4);
-	if (!bufptr5) {
+	if (no_more_tokens_kns(bufptr5)) {
 	  goto load_bim_ret_MISSING_TOKENS;
 	}
-	ukk = strlen_se(bufptr4);
-	umm = strlen_se(bufptr5);
+	uii = strlen_se(bufptr4);
+	ujj = strlen_se(bufptr5);
+	if (memchr(bufptr4, ',', ujj + ((uintptr_t)(bufptr5 - bufptr4)))) {
+	  // this breaks VCF and plink 2.x
+	  // may need to add word wrapping if this message is changed
+	  sprintf(g_logbuf, "Error: Comma-containing allele code on line %" PRIuPTR " of %s.\n", line_idx, ftype_str);
+	  goto load_bim_ret_INVALID_FORMAT_2;
+	}
 	if (marker_alleles_needed) {
-	  if (snps_only) {
-	    if ((ukk != 1) || (umm != 1) || (snps_only_no_di && ((*bufptr4 == 'D') || (*bufptr4 == 'I') || (*bufptr5 == 'D') || (*bufptr5 == 'I')))) {
-	      goto load_bim_skip_marker;
-	    }
+	  if (uii >= max_marker_allele_blen) {
+	    max_marker_allele_blen = uii + 1;
 	  }
-	  ulii = marker_uidx * 2;
-	  if (allele_set(bufptr4, ukk, &(marker_allele_ptrs[ulii]))) {
-	    goto load_bim_ret_NOMEM;
-	  }
-	  ulii++;
-	  if (allele_set(bufptr5, umm, &(marker_allele_ptrs[ulii]))) {
-	    goto load_bim_ret_NOMEM;
+	  if (ujj >= max_marker_allele_blen) {
+	    max_marker_allele_blen = ujj + 1;
 	  }
 	}
-	if (ujj) {
-	  // --set-missing-var-ids
-	  // bufptr = position string
-	  // bufptr3 = chromosome code
-	  // bufptr4 and bufptr5: alleles (ok to null-terminate)
-	  // ukk and umm: allele lengths
-	  insert_buf[0] = bufptr3;
-	  insert_buf_len[0] = strlen_se(bufptr3);
-	  insert_buf[1] = bufptr;
-	  insert_buf_len[1] = strlen_se(bufptr);
+      }
+      if ((ulii == missing_marker_id_match_len) && (!memcmp(col2_ptr, missing_marker_id_match, missing_marker_id_match_len))) {
+	bufptr2 = next_token_mult(col2_end, mcm2);
+	if (no_more_tokens_kns(bufptr2)) {
+	  goto load_bim_ret_MISSING_TOKENS;
+	}
+	insert_buf_len[1] = strlen_se(bufptr2);
+	if (insert_buf_len[1] > 11) {
+	  // permit negative sign and 10 digit number
+	  goto load_bim_ret_INVALID_BP_COORDINATE;
+	}
+	insert_buf_len[0] = chrom_name_slen;
+	ulii = missing_template_base_len + insert_buf_len[1] + insert_buf_len[0];
+	if (template_insert_ct == 4) {
+	  uii = MINV(uii, new_id_max_allele_slen);
+	  ujj = MINV(ujj, new_id_max_allele_slen);
+	  ulii += uii + ujj;
+	}
+	if (ulii >= max_marker_id_blen) {
+	  if (ulii > MAX_ID_LEN_P1) {
+	    logerrprint("Error: Variant names are limited to " MAX_ID_LEN_STR " characters.\n");
+	    goto load_bim_ret_INVALID_FORMAT;
+	  }
+	  max_marker_id_blen = ulii + 1;
+	}
+	ulii = 0;
+      } else {
+	if (ulii >= max_marker_id_blen) {
+	  max_marker_id_blen = ulii + 1;
+	}
+      }
+      if (slen_check) {
+	if (!ulii) {
+	  // --set-missing-var-ids applies
+	  // safe to clobber buffer contents
+	  insert_buf[0] = loadbuf_first_token;
+	  memcpyx(poscharbuf, bufptr2, insert_buf_len[1], '\0');
 	  if (template_insert_ct == 4) {
-	    ukk = MINV(ukk, new_id_max_allele_len);
-	    umm = MINV(umm, new_id_max_allele_len);
-	    bufptr4[ukk] = '\0';
-	    bufptr5[umm] = '\0';
+	    bufptr4[uii] = '\0';
+	    bufptr5[ujj] = '\0';
 	    // ASCII-sort allele names
 	    if (strcmp(bufptr4, bufptr5) <= 0) {
-	      memcpy(insert_buf[2], bufptr4, ukk);
-	      insert_buf_len[2] = ukk;
-	      memcpy(insert_buf[3], bufptr5, umm);
-	      insert_buf_len[3] = umm;
+	      memcpy(insert_buf[2], bufptr4, uii);
+	      insert_buf_len[2] = uii;
+	      memcpy(insert_buf[3], bufptr5, ujj);
+	      insert_buf_len[3] = ujj;
 	    } else {
-	      memcpy(insert_buf[3], bufptr4, ukk);
-	      insert_buf_len[3] = ukk;
-	      memcpy(insert_buf[2], bufptr5, umm);
-	      insert_buf_len[2] = umm;
+	      memcpy(insert_buf[3], bufptr4, uii);
+	      insert_buf_len[3] = uii;
+	      memcpy(insert_buf[2], bufptr5, ujj);
+	      insert_buf_len[2] = ujj;
 	    }
 	  }
-	  bufptr5 = &((*marker_ids_ptr)[marker_uidx * max_marker_id_len]);
-	  bufptr4 = bufptr5;
+	  bufptr4 = col2_ptr;
 	  for (uii = 0; uii < template_insert_ct; uii++) {
 	    bufptr4 = memcpya(bufptr4, missing_template_seg[uii], missing_template_seg_len[uii]);
 	    ujj = missing_template_seg_order[uii];
 	    bufptr4 = memcpya(bufptr4, insert_buf[ujj], insert_buf_len[ujj]);
 	  }
-	  bufptr4 = memcpyax(bufptr4, missing_template_seg[uii], missing_template_seg_len[uii], '\0');
-	  if (!strcmp(prev_new_id, bufptr5)) {
-	    LOGERRPRINTFWW("Error: Duplicate ID '%s' generated by --set-missing-var-ids.\n", prev_new_id);
-	    goto load_bim_ret_INVALID_CMDLINE;
+	  bufptr4 = memcpya(bufptr4, missing_template_seg[uii], missing_template_seg_len[uii]);
+	  ulii = (uintptr_t)(bufptr4 - col2_ptr);
+	  bufptr2 = poscharbuf;
+	} else {
+	  bufptr2 = next_token_mult(col2_ptr, mcm2);
+	  if (no_more_tokens_kns(bufptr2)) {
+	    goto load_bim_ret_MISSING_TOKENS;
 	  }
-	  missing_ids_set++;
-	  memcpy(prev_new_id, bufptr5, (uintptr_t)(bufptr4 - bufptr5));
+	  bufptr2[strlen_se(bufptr2)] = '\0';
+	}
+	if (sf_ct) {
+	  uii = 0;
+	  do {
+	    if ((ulii == sf_str_lens[uii]) && (!memcmp(col2_ptr, &(sf_range_list_ptr->names[uii * sf_max_len]), ulii))) {
+	      if (sf_str_chroms[uii] != MAX_POSSIBLE_CHROM) {
+		goto load_bim_ret_DUPLICATE_ID;
+	      }
+	      sf_str_chroms[uii] = jj;
+	      if (scan_uint_defcap(bufptr2, &(sf_str_pos[uii]))) {
+		goto load_bim_ret_INVALID_BP_COORDINATE;
+	      }
+	      break;
+	    }
+	  } while (++uii < sf_ct);
+	} else {
+	  if ((ulii == from_slen) && (!memcmp(col2_ptr, markername_from, ulii))) {
+	    if (from_chrom != MAX_POSSIBLE_CHROM) {
+	      goto load_bim_ret_DUPLICATE_ID;
+	    }
+	    from_chrom = jj;
+	    if (scan_uint_defcap(bufptr2, (uint32_t*)&marker_pos_start)) {
+	      goto load_bim_ret_INVALID_BP_COORDINATE;
+	    }
+	    if (to_chrom != MAX_POSSIBLE_CHROM) {
+	      if (from_chrom != to_chrom) {
+		goto load_bim_ret_FROM_TO_DIFFERENT_CHROM;
+	      }
+	    }
+	    fill_ulong_zero(CHROM_MASK_WORDS, chrom_info_ptr->chrom_mask);
+	    SET_BIT(from_chrom, chrom_info_ptr->chrom_mask);
+	  }
+	  if ((ulii == to_slen) && (!memcmp(col2_ptr, markername_to, ulii))) {
+	    if (to_chrom != MAX_POSSIBLE_CHROM) {
+	      goto load_bim_ret_DUPLICATE_ID;
+	    }
+	    to_chrom = jj;
+	    if (scan_uint_defcap(bufptr2, (uint32_t*)&marker_pos_end)) {
+	      goto load_bim_ret_INVALID_BP_COORDINATE;
+	    }
+	    if (from_chrom != MAX_POSSIBLE_CHROM) {
+	      if (to_chrom != from_chrom) {
+		goto load_bim_ret_FROM_TO_DIFFERENT_CHROM;
+	      }
+	    }
+	    fill_ulong_zero(CHROM_MASK_WORDS, chrom_info_ptr->chrom_mask);
+	    SET_BIT(to_chrom, chrom_info_ptr->chrom_mask);
+	  }
+	  if ((ulii == snp_slen) && (!memcmp(col2_ptr, markername_snp, ulii))) {
+	    if (snp_chrom != MAX_POSSIBLE_CHROM) {
+	      goto load_bim_ret_DUPLICATE_ID;
+	    }
+	    snp_chrom = jj;
+	    if (scan_uint_defcap(bufptr2, &snp_pos)) {
+	      goto load_bim_ret_INVALID_BP_COORDINATE;
+	    }
+	    if (!exclude_snp) {
+	      fill_ulong_zero(CHROM_MASK_WORDS, chrom_info_ptr->chrom_mask);
+	      SET_BIT(snp_chrom, chrom_info_ptr->chrom_mask);
+	    }
+	  }
 	}
       }
-    } else {
-    load_bim_skip_marker:
-      SET_BIT(marker_uidx, marker_exclude);
-      marker_exclude_ct++;
-      if (marker_pos_needed) {
-        // support unfiltered marker_pos search
-        (*marker_pos_ptr)[marker_uidx] = last_pos;
+      unfiltered_marker_ct++;
+    }
+    if (sf_ct) {
+      for (uii = 0; uii < sf_ct; uii++) {
+	if (sf_str_chroms[uii] == MAX_POSSIBLE_CHROM) {
+	  LOGPREPRINTFWW("Error: Variant '%s' not found in %s.\n", &(sf_range_list_ptr->names[uii * sf_max_len]), ftype_str);
+	  goto load_bim_ret_INVALID_FORMAT_2;
+	}
+      }
+      // effectively build out one linked list per chromosome
+      memcpy(sf_mask, chrom_info_ptr->chrom_mask, CHROM_MASK_WORDS * sizeof(intptr_t));
+      sf_entry_ct = 0;
+      sf_lltop = 0;
+      ujj = chrom_info_ptr->max_code + chrom_info_ptr->name_ct;
+      for (uii = 0; uii <= ujj; uii++) {
+	sf_start_idxs[uii] = 1; // impossible (multiples of 3)
+      }
+      uii = 0;
+      do {
+	ujj = sf_str_chroms[uii];
+	ukk = sf_str_pos[uii];
+	if (sf_range_list_ptr->starts_range[uii]) {
+	  umm = sf_str_chroms[uii + 1];
+	  unn = sf_str_pos[uii + 1];
+	  if (ujj != umm) {
+	    if (ujj > umm) {
+	      uoo = ujj;
+	      ujj = umm;
+	      umm = uoo;
+	      uoo = ukk;
+	      ukk = unn;
+	      unn = uoo;
+	    }
+	    if (IS_SET(sf_mask, ujj)) {
+	      load_bim_sf_insert(ujj, ukk, 0x7fffffff, sf_start_idxs, sf_llbuf, &sf_lltop, &sf_entry_ct);
+	    }
+	    for (uoo = ujj + 1; uoo < umm; uoo++) {
+	      if (IS_SET(sf_mask, uoo)) {
+		load_bim_sf_insert(uoo, 0, 0x7fffffff, sf_start_idxs, sf_llbuf, &sf_lltop, &sf_entry_ct);
+	      }
+	    }
+	    if (IS_SET(sf_mask, umm)) {
+	      load_bim_sf_insert(umm, 0, unn, sf_start_idxs, sf_llbuf, &sf_lltop, &sf_entry_ct);
+	    }
+	  } else {
+	    if (ukk > unn) {
+	      umm = ukk;
+	      ukk = unn;
+	      unn = umm;
+	    }
+	    if (IS_SET(sf_mask, ujj)) {
+	      load_bim_sf_insert(ujj, ukk, unn, sf_start_idxs, sf_llbuf, &sf_lltop, &sf_entry_ct);
+	    }
+	  }
+	  uii += 2;
+	} else {
+	  if (IS_SET(sf_mask, ujj)) {
+	    load_bim_sf_insert(ujj, ukk, ukk, sf_start_idxs, sf_llbuf, &sf_lltop, &sf_entry_ct);
+	  }
+	  uii++;
+	}
+      } while (uii < sf_ct);
+      // now compactify
+      sf_pos = (uint32_t*)malloc(sf_entry_ct * 2 * sizeof(int32_t));
+      if (!sf_pos) {
+	goto load_bim_ret_NOMEM;
+      }
+      ujj = chrom_info_ptr->max_code + chrom_info_ptr->name_ct;
+      ukk = 0;
+      for (uii = 0; uii <= ujj; uii++) {
+	if (sf_start_idxs[uii] == 1) {
+	  CLEAR_BIT(uii, sf_mask);
+	  sf_start_idxs[uii] = ukk;
+	  continue;
+	}
+	umm = sf_start_idxs[uii];
+	sf_start_idxs[uii] = ukk;
+	do {
+	  sf_pos[ukk++] = sf_llbuf[umm];
+	  sf_pos[ukk++] = sf_llbuf[umm + 1];
+	  umm = sf_llbuf[umm + 2];
+	} while (umm != 1);
+      }
+      sf_start_idxs[ujj + 1] = ukk;
+      if (!exclude_snp) {
+	memcpy(chrom_info_ptr->chrom_mask, sf_mask, CHROM_MASK_WORDS * sizeof(intptr_t));
+      }
+      bigstack_reset(bigstack_mark);
+    }
+    if (!feof(bimfile)) {
+      goto load_bim_ret_READ_FAIL;
+    }
+    if ((!unfiltered_marker_ct) && (!allow_no_variants)) {
+      sprintf(g_logbuf, "Error: No variants in %s.\n", ftype_str);
+      goto load_bim_ret_INVALID_FORMAT_2;
+    } else if (unfiltered_marker_ct > 2147483645) {
+      // maximum prime < 2^32 is 4294967291; quadratic hashing guarantee breaks
+      // down past that divided by 2.
+      // PLINK/SEQ now supports a 64-bit count here, and few other tools do, so
+      // it's appropriate to explicitly recommend it.
+      logerrprint("Error: PLINK does not support more than 2^31 - 3 variants.  We recommend other\nsoftware, such as PLINK/SEQ, for very deep studies of small numbers of genomes.\n");
+      goto load_bim_ret_INVALID_FORMAT;
+    }
+    if (from_slen || to_slen) {
+      if (from_slen && (from_chrom == MAX_POSSIBLE_CHROM)) {
+	LOGPREPRINTFWW("Error: --from variant '%s' not found.\n", markername_from);
+	goto load_bim_ret_INVALID_FORMAT_2;
+      }
+      if (to_slen && (to_chrom == MAX_POSSIBLE_CHROM)) {
+	LOGPREPRINTFWW("Error: --to variant '%s' not found.\n", markername_to);
+	goto load_bim_ret_INVALID_FORMAT_2;
+      }
+      if (marker_pos_start == -1) {
+	marker_pos_start = 0;
+      }
+      if (marker_pos_end == -1) {
+	marker_pos_end = 0x7fffffff;
+      }
+      if (marker_pos_start > marker_pos_end) {
+	jj = marker_pos_start;
+	marker_pos_start = marker_pos_end;
+	marker_pos_end = jj;
       }
     }
-  }
-  if ((unfiltered_marker_ct == marker_exclude_ct) && (!allow_no_variants)) {
-    logerrprint("Error: All variants excluded.\n");
-    goto load_bim_ret_ALL_MARKERS_EXCLUDED;
-  }
-  if (missing_mid_template && ((*map_is_unsorted_ptr) & UNSORTED_BP)) {
-    sprintf(g_logbuf, "Error: --set-missing-var-ids requires a sorted %s.  Retry this command\nafter using --make-bed to sort your data.\n", ftype_str);
-    goto load_bim_ret_INVALID_FORMAT_2;
-  }
-  for (uii = 0; uii < CHROM_MASK_WORDS; uii++) {
-    chrom_info_ptr->chrom_mask[uii] &= loaded_chrom_mask[uii];
-  }
-  chrom_info_ptr->chrom_end[prev_chrom] = marker_uidx;
-  chrom_info_ptr->chrom_ct = ++chroms_encountered_m1;
-  chrom_info_ptr->chrom_file_order_marker_idx[chroms_encountered_m1] = marker_uidx;
-  *marker_exclude_ct_ptr = marker_exclude_ct;
-  LOGPRINTF("%" PRIuPTR " variant%s loaded from %s.\n", unfiltered_marker_ct - marker_exclude_ct, (unfiltered_marker_ct == marker_exclude_ct + 1)? "" : "s", ftype_str);
-  if (missing_ids_set) {
-    LOGPRINTF("%u missing ID%s set.\n", missing_ids_set, (missing_ids_set == 1)? "" : "s");
-  }
+    if (snp_slen) {
+      if (snp_chrom == MAX_POSSIBLE_CHROM) {
+	LOGPREPRINTFWW("Error: --%ssnp variant '%s' not found.\n", exclude_snp? "exclude-" : "", markername_snp);
+	goto load_bim_ret_INVALID_FORMAT_2;
+      }
+      if (!exclude_snp) {
+	if (snp_window_size == -1) {
+	  // no harm in screening on position before variant ID
+	  uii = 0;
+	} else {
+	  uii = snp_window_size;
+	}
+	if (uii > snp_pos) {
+	  marker_pos_start = 0;
+	} else {
+	  marker_pos_start = snp_pos - uii;
+	}
+	if (uii > (0x7fffffff - snp_pos)) {
+	  marker_pos_end = 0x7fffffff;
+	} else {
+	  marker_pos_end = snp_pos + uii;
+	}
+      } else if (snp_window_size != -1) {
+	if ((uint32_t)snp_window_size <= snp_pos) {
+	  exclude_window_start = snp_pos - snp_window_size;
+	}
+	if ((uint32_t)snp_window_size > (0x7fffffff - snp_pos)) {
+	  exclude_window_end = 0x7fffffff;
+	} else {
+	  exclude_window_end = snp_pos + snp_window_size;
+	}
+      }
+    }
 
-  if (max_bim_linelen_ptr) {
-    *max_bim_linelen_ptr = max_bim_linelen;
+    if (max_marker_id_blen > MAX_ID_LEN_P1) {
+      logerrprint("Error: Variant names are limited to " MAX_ID_LEN_STR " characters.\n");
+      goto load_bim_ret_INVALID_FORMAT;
+    }
+    *unfiltered_marker_ct_ptr = unfiltered_marker_ct;
+    *max_marker_id_blen_ptr = max_marker_id_blen;
+    rewind(bimfile);
+    unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
+
+    // unfiltered_marker_ct can be very large, so use bigstack for all
+    // allocations that are a multiple of it
+
+    // permanent bigstack allocation #1: marker_exclude
+    // permanent bigstack allocation #2: set_allele_freqs
+    if (bigstack_calloc_ul(unfiltered_marker_ctl, marker_exclude_ptr)) {
+      goto load_bim_ret_NOMEM;
+    }
+    marker_exclude = *marker_exclude_ptr;
+    if (set_allele_freqs_ptr) {
+      if (bigstack_alloc_d(unfiltered_marker_ct, set_allele_freqs_ptr)) {
+	goto load_bim_ret_NOMEM;
+      }
+      // leave set_allele_freqs uninitialized
+      if (nchrobs_ptr) {
+	if (bigstack_alloc_ui(unfiltered_marker_ct, nchrobs_ptr)) {
+	  goto load_bim_ret_NOMEM;
+	}
+	// on the other hand, this is not autocomputed
+	fill_uint_one(unfiltered_marker_ct, *nchrobs_ptr);
+      }
+    }
+    fill_uint_one(MAX_POSSIBLE_CHROM, chrom_info_ptr->chrom_idx_to_foidx);
+    // permanent bigstack allocation #3, if needed: marker_pos
+    if (marker_pos_needed) {
+      if (bigstack_alloc_ui(unfiltered_marker_ct, marker_pos_ptr)) {
+	goto load_bim_ret_NOMEM;
+      }
+    }
+    if (marker_alleles_needed) {
+      if (snps_only) {
+	max_marker_allele_blen = 2;
+      }
+      if (max_marker_allele_blen > NON_BIGSTACK_MIN - 1) {
+	// guard against overflows
+	LOGERRPRINTF("Error: Alleles are limited to %u characters.\n", NON_BIGSTACK_MIN - 1);
+	goto load_bim_ret_INVALID_FORMAT;
+      }
+      *max_marker_allele_blen_ptr = max_marker_allele_blen;
+      marker_allele_ptrs = (char**)bigstack_alloc(unfiltered_marker_ct * 2 * sizeof(intptr_t));
+      if (!marker_allele_ptrs) {
+	goto load_bim_ret_NOMEM;
+      }
+      *marker_allele_pp = marker_allele_ptrs;
+      ujj = unfiltered_marker_ct * 2;
+      for (uii = 0; uii < ujj; uii++) {
+	marker_allele_ptrs[uii] = missing_geno_ptr;
+      }
+    }
+    if (bigstack_alloc_c(unfiltered_marker_ct * max_marker_id_blen, marker_ids_ptr)) {
+      goto load_bim_ret_NOMEM;
+    }
+    // todo: check whether marker_cms can be unloaded before
+    // marker_ids/marker_alleles, or vice versa
+    if (marker_cms_needed & MARKER_CMS_FORCED) {
+      if (bigstack_calloc_d(unfiltered_marker_ct, marker_cms_ptr)) {
+	goto load_bim_ret_NOMEM;
+      }
+    }
+    if (filter_flags & FILTER_ZERO_CMS) {
+      marker_cms_needed = 0;
+    }
+
+    // second pass: actually load stuff
+    loadbuf2 = (char*)malloc(max_bim_linelen);
+    if (!loadbuf2) {
+      goto load_bim_ret_NOMEM;
+    }
+    if (missing_mid_template) {
+      prev_new_id = (char*)malloc(max_marker_id_blen);
+      if (!prev_new_id) {
+	goto load_bim_ret_NOMEM;
+      }
+      *prev_new_id = '\0';
+    }
+    line_idx = 0;
+    for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
+      char* loadbuf_first_token;
+      do {
+	line_idx++;
+	if (!fgets(loadbuf2, max_bim_linelen, bimfile)) {
+	  goto load_bim_ret_READ_FAIL;
+	}
+	loadbuf_first_token = skip_initial_spaces(loadbuf2);
+      } while (is_eoln_or_comment_kns(*loadbuf_first_token));
+      char* first_token_end = token_endnn(loadbuf_first_token);
+      col2_ptr = skip_initial_spaces(first_token_end);
+      const uint32_t chrom_name_slen = (uintptr_t)(first_token_end - loadbuf_first_token);
+      *first_token_end = '\0';
+      int32_t cur_chrom_code = get_chrom_code_nt(loadbuf_first_token, chrom_info_ptr, chrom_name_slen);
+      if (cur_chrom_code != prev_chrom) {
+	if (!split_chrom) {
+	  if (cur_chrom_code < prev_chrom) {
+	    *map_is_unsorted_ptr |= UNSORTED_CHROM;
+	  }
+	  prev_chrom = cur_chrom_code;
+	  if (is_set(loaded_chrom_mask, cur_chrom_code)) {
+	    if (split_chrom_cmd) {
+	      sprintf(g_logbuf, "Error: %s has a split chromosome.  Use --%s by itself to\nremedy this.\n", ftype_str, split_chrom_cmd);
+	      goto load_bim_ret_INVALID_FORMAT_2;
+	    }
+	    split_chrom = 1;
+	    *map_is_unsorted_ptr = UNSORTED_CHROM | UNSORTED_BP | UNSORTED_SPLIT_CHROM;
+	  } else {
+	    chrom_info_ptr->chrom_file_order[++chroms_encountered_m1] = cur_chrom_code;
+	    chrom_info_ptr->chrom_fo_vidx_start[chroms_encountered_m1] = marker_uidx;
+	    chrom_info_ptr->chrom_idx_to_foidx[(uint32_t)cur_chrom_code] = chroms_encountered_m1;
+	  }
+	  last_pos = 0;
+	}
+	set_bit(cur_chrom_code, loaded_chrom_mask);
+      }
+
+      if (is_set(chrom_info_ptr->chrom_mask, cur_chrom_code)) {
+	if (no_more_tokens_kns(col2_ptr)) {
+	  goto load_bim_ret_MISSING_TOKENS;
+	}
+	uii = strlen_se(col2_ptr);
+	ujj = (uii == missing_marker_id_match_len) && (!memcmp(col2_ptr, missing_marker_id_match, missing_marker_id_match_len));
+	if (!ujj) {
+	  memcpyx(&((*marker_ids_ptr)[marker_uidx * max_marker_id_blen]), col2_ptr, uii, '\0');
+	}
+	if (marker_cms_needed) {
+	  bufptr = next_token(col2_ptr);
+	  if (no_more_tokens_kns(bufptr)) {
+	    goto load_bim_ret_MISSING_TOKENS;
+	  }
+	  if ((*bufptr != '0') || (bufptr[1] > ' ')) {
+	    if (!(*marker_cms_ptr)) {
+	      if (bigstack_calloc_d(unfiltered_marker_ct, marker_cms_ptr)) {
+		goto load_bim_ret_NOMEM;
+	      }
+	    }
+	    if (scan_double(bufptr, &((*marker_cms_ptr)[marker_uidx]))) {
+	      sprintf(g_logbuf, "Error: Invalid centimorgan position on line %" PRIuPTR " of %s.\n", line_idx, ftype_str);
+	      goto load_bim_ret_INVALID_FORMAT_2;
+	    }
+	  }
+	  bufptr = next_token(bufptr);
+	} else {
+	  bufptr = next_token_mult(col2_ptr, mcm2);
+	}
+	if (no_more_tokens_kns(bufptr)) {
+	  goto load_bim_ret_MISSING_TOKENS;
+	}
+	if (scan_int_abs_defcap(bufptr, (int32_t*)&cur_pos)) {
+	  goto load_bim_ret_INVALID_BP_COORDINATE;
+	}
+	// negative marker positions now have the same effect in .bim as .map
+	if ((int32_t)cur_pos < 0) {
+	  goto load_bim_skip_marker;
+	}
+	if (cur_pos < last_pos) {
+	  *map_is_unsorted_ptr |= UNSORTED_BP;
+	} else {
+	  last_pos = cur_pos;
+	}
+	if ((sf_ct && (exclude_snp ^ sf_out_of_range(cur_pos, (uint32_t)cur_chrom_code, sf_start_idxs, sf_pos))) || ((marker_pos_start != -1) && ((((int32_t)cur_pos) < marker_pos_start) || (((int32_t)cur_pos) > marker_pos_end)))) {
+	  goto load_bim_skip_marker;
+	}
+	if (snp_slen) {
+	  if (snp_window_size == -1) {
+	    if ((uii == snp_slen) && (!memcmp(col2_ptr, markername_snp, snp_slen))) {
+	      if (exclude_snp) {
+		goto load_bim_skip_marker;
+	      }
+	    } else if (!exclude_snp) {
+	      goto load_bim_skip_marker;
+	    }
+	  } else if (exclude_snp && ((((int32_t)cur_pos) <= exclude_window_end) && (((int32_t)cur_pos) >= exclude_window_start) && ((uint32_t)cur_chrom_code == snp_chrom))) {
+	    goto load_bim_skip_marker;
+	  }
+	}
+	if (marker_pos_needed) {
+	  (*marker_pos_ptr)[marker_uidx] = cur_pos;
+	}
+	if (marker_alleles_needed || ujj) {
+	  bufptr4 = next_token(bufptr);
+	  bufptr5 = next_token(bufptr4);
+	  if (!bufptr5) {
+	    goto load_bim_ret_MISSING_TOKENS;
+	  }
+	  ukk = strlen_se(bufptr4);
+	  umm = strlen_se(bufptr5);
+	  if (marker_alleles_needed) {
+	    if (snps_only) {
+	      if ((ukk != 1) || (umm != 1) || (snps_only_no_di && ((*bufptr4 == 'D') || (*bufptr4 == 'I') || (*bufptr5 == 'D') || (*bufptr5 == 'I')))) {
+		goto load_bim_skip_marker;
+	      }
+	    }
+	    ulii = marker_uidx * 2;
+	    if (allele_set(bufptr4, ukk, &(marker_allele_ptrs[ulii]))) {
+	      goto load_bim_ret_NOMEM;
+	    }
+	    ulii++;
+	    if (allele_set(bufptr5, umm, &(marker_allele_ptrs[ulii]))) {
+	      goto load_bim_ret_NOMEM;
+	    }
+	  }
+	  if (ujj) {
+	    // --set-missing-var-ids
+	    // bufptr = position string
+	    // loadbuf_first_token = chromosome code
+	    // bufptr4 and bufptr5: alleles (ok to null-terminate)
+	    // ukk and umm: allele lengths
+	    insert_buf[0] = loadbuf_first_token;
+	    insert_buf_len[0] = chrom_name_slen;
+	    insert_buf[1] = bufptr;
+	    insert_buf_len[1] = strlen_se(bufptr);
+	    if (template_insert_ct == 4) {
+	      ukk = MINV(ukk, new_id_max_allele_slen);
+	      umm = MINV(umm, new_id_max_allele_slen);
+	      bufptr4[ukk] = '\0';
+	      bufptr5[umm] = '\0';
+	      // ASCII-sort allele names
+	      if (strcmp(bufptr4, bufptr5) <= 0) {
+		memcpy(insert_buf[2], bufptr4, ukk);
+		insert_buf_len[2] = ukk;
+		memcpy(insert_buf[3], bufptr5, umm);
+		insert_buf_len[3] = umm;
+	      } else {
+		memcpy(insert_buf[3], bufptr4, ukk);
+		insert_buf_len[3] = ukk;
+		memcpy(insert_buf[2], bufptr5, umm);
+		insert_buf_len[2] = umm;
+	      }
+	    }
+	    bufptr5 = &((*marker_ids_ptr)[marker_uidx * max_marker_id_blen]);
+	    bufptr4 = bufptr5;
+	    for (uii = 0; uii < template_insert_ct; uii++) {
+	      bufptr4 = memcpya(bufptr4, missing_template_seg[uii], missing_template_seg_len[uii]);
+	      ujj = missing_template_seg_order[uii];
+	      bufptr4 = memcpya(bufptr4, insert_buf[ujj], insert_buf_len[ujj]);
+	    }
+	    bufptr4 = memcpyax(bufptr4, missing_template_seg[uii], missing_template_seg_len[uii], '\0');
+	    if (!strcmp(prev_new_id, bufptr5)) {
+	      LOGERRPRINTFWW("Error: Duplicate ID '%s' generated by --set-missing-var-ids.\n", prev_new_id);
+	      goto load_bim_ret_INVALID_CMDLINE;
+	    }
+	    missing_ids_set++;
+	    memcpy(prev_new_id, bufptr5, (uintptr_t)(bufptr4 - bufptr5));
+	  }
+	}
+      } else {
+      load_bim_skip_marker:
+	SET_BIT(marker_uidx, marker_exclude);
+	marker_exclude_ct++;
+	if (marker_pos_needed) {
+	  // support unfiltered marker_pos search
+	  (*marker_pos_ptr)[marker_uidx] = last_pos;
+	}
+      }
+    }
+    if ((unfiltered_marker_ct == marker_exclude_ct) && (!allow_no_variants)) {
+      logerrprint("Error: All variants excluded.\n");
+      goto load_bim_ret_ALL_MARKERS_EXCLUDED;
+    }
+    if (missing_mid_template && ((*map_is_unsorted_ptr) & UNSORTED_BP)) {
+      sprintf(g_logbuf, "Error: --set-missing-var-ids requires a sorted %s.  Retry this command\nafter using --make-bed to sort your data.\n", ftype_str);
+      goto load_bim_ret_INVALID_FORMAT_2;
+    }
+    for (uii = 0; uii < CHROM_MASK_WORDS; uii++) {
+      chrom_info_ptr->chrom_mask[uii] &= loaded_chrom_mask[uii];
+    }
+    chrom_info_ptr->chrom_ct = ++chroms_encountered_m1;
+    chrom_info_ptr->chrom_fo_vidx_start[chroms_encountered_m1] = marker_uidx;
+    *marker_exclude_ct_ptr = marker_exclude_ct;
+    LOGPRINTF("%" PRIuPTR " variant%s loaded from %s.\n", unfiltered_marker_ct - marker_exclude_ct, (unfiltered_marker_ct == marker_exclude_ct + 1)? "" : "s", ftype_str);
+    if (missing_ids_set) {
+      LOGPRINTF("%u missing ID%s set.\n", missing_ids_set, (missing_ids_set == 1)? "" : "s");
+    }
+
+    if (max_bim_linelen_ptr) {
+      *max_bim_linelen_ptr = max_bim_linelen;
+    }
   }
   while (0) {
   load_bim_ret_NOMEM:
@@ -1378,9 +1351,9 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
     retval = RET_INVALID_FORMAT;
     break;
   load_bim_ret_DUPLICATE_ID:
-    uii = strlen_se(bufptr);
-    bufptr[uii] = '\0';
-    LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in %s.\n", bufptr, ftype_str);
+    uii = strlen_se(col2_ptr);
+    col2_ptr[uii] = '\0';
+    LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in %s.\n", col2_ptr, ftype_str);
   load_bim_ret_INVALID_FORMAT_2:
     logerrprintb();
   load_bim_ret_INVALID_FORMAT:
@@ -2571,7 +2544,7 @@ int32_t write_map_or_bim(char* outname, uintptr_t* marker_exclude, uintptr_t mar
     next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
     while (marker_uidx >= chrom_end) {
       chrom_idx = chrom_info_ptr->chrom_file_order[++chrom_fo_idx];
-      chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
+      chrom_end = chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx + 1];
       buf_start = chrom_name_write(chrom_info_ptr, chrom_idx, g_textbuf);
       *buf_start++ = delim;
     }
@@ -2613,35 +2586,37 @@ int32_t load_bim_split_chrom(char* bimname, uintptr_t* marker_exclude, uintptr_t
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* infile = NULL;
   char* loadbuf = g_textbuf;
-  uint32_t marker_uidx = 0xffffffffU; // deliberate overflow
   int32_t retval = 0;
-  uintptr_t marker_idx;
-  char* bufptr;
-  uint64_t chrom_idx;
-  if (max_bim_linelen > MAXLINELEN) {
-    if (bigstack_alloc_c(max_bim_linelen, &loadbuf)) {
-      goto load_bim_split_chrom_ret_NOMEM;
+  {
+    if (max_bim_linelen > MAXLINELEN) {
+      if (bigstack_alloc_c(max_bim_linelen, &loadbuf)) {
+	goto load_bim_split_chrom_ret_NOMEM;
+      }
     }
-  }
-  if (fopen_checked(bimname, "r", &infile)) {
-    goto load_bim_split_chrom_ret_OPEN_FAIL;
-  }
-  for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
-  load_bim_split_chrom_reread:
-    if (!fgets(loadbuf, max_bim_linelen, infile)) {
-      goto load_bim_split_chrom_ret_READ_FAIL;
+    if (fopen_checked(bimname, "r", &infile)) {
+      goto load_bim_split_chrom_ret_OPEN_FAIL;
     }
-    bufptr = skip_initial_spaces(loadbuf);
-    if (is_eoln_or_comment_kns(*bufptr)) {
-      goto load_bim_split_chrom_reread;
+    uint32_t marker_uidx = 0xffffffffU; // deliberate overflow
+    for (uintptr_t marker_idx = 0; marker_idx < marker_ct;) {
+      if (!fgets(loadbuf, max_bim_linelen, infile)) {
+	goto load_bim_split_chrom_ret_READ_FAIL;
+      }
+      loadbuf_first_token = skip_initial_spaces(loadbuf);
+      if (is_eoln_or_comment_kns(*loadbuf_first_token)) {
+	continue;
+      }
+      marker_uidx++;
+      if (IS_SET(marker_exclude, marker_uidx)) {
+	continue;
+      }
+      // already validated
+      char* first_token_end = token_endnn(loadbuf_first_token);
+      const uint32_t chrom_name_slen = (uintptr_t)(first_token_end - loadbuf_first_token);
+      *first_token_end = '\0';
+      uint64_t chrom_idx = (uint32_t)get_chrom_code_nt(loadbuf_first_token, chrom_info_ptr, chrom_name_slen);
+      ll_buf[marker_idx] = (int64_t)((chrom_idx << 32) | ((uint64_t)marker_idx));
+      ++marker_idx;
     }
-    marker_uidx++;
-    if (IS_SET(marker_exclude, marker_uidx)) {
-      goto load_bim_split_chrom_reread;
-    }
-    // already validated
-    chrom_idx = ((uint32_t)get_chrom_code(chrom_info_ptr, bufptr));
-    ll_buf[marker_idx] = (int64_t)((chrom_idx << 32) | ((uint64_t)marker_idx));
   }
   while (0) {
   load_bim_split_chrom_ret_NOMEM:
@@ -2669,7 +2644,7 @@ void fill_ll_buf(uintptr_t* marker_exclude, uintptr_t marker_ct, Chrom_info* chr
     next_unset_unsafe_ck(marker_exclude, &marker_uidx);
     if (marker_uidx >= chrom_end) {
       do {
-	chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[++chrom_idx_p1];
+	chrom_end = chrom_info_ptr->chrom_fo_vidx_start[++chrom_idx_p1];
       } while (marker_uidx >= chrom_end);
       chrom_idx_shifted = ((uint64_t)(chrom_info_ptr->chrom_file_order[chrom_idx_p1 - 1])) << 32;
     }
@@ -2699,101 +2674,104 @@ int32_t update_marker_chroms(Two_col_params* update_chr, uintptr_t unfiltered_ma
   uint32_t coldiff;
   uint32_t slen;
   uint32_t marker_idx;
-  int32_t sorted_idx;
   int32_t retval;
   char cc;
-  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable_size, &marker_id_htable);
-  if (retval) {
-    goto update_marker_chroms_ret_1;
-  }
-  if (bigstack_calloc_ul(marker_ctl, &already_seen) ||
-      bigstack_alloc_ui(unfiltered_marker_ct, &marker_uidx_to_idx)) {
-    goto update_marker_chroms_ret_NOMEM;
-  }
-  fill_uidx_to_idx(marker_exclude, unfiltered_marker_ct, marker_ct, marker_uidx_to_idx);
-  loadbuf = (char*)g_bigstack_base;
-  loadbuf_size = bigstack_left();
-  if (loadbuf_size > MAXLINEBUFLEN) {
-    loadbuf_size = MAXLINEBUFLEN;
-  }
-  if (loadbuf_size <= MAXLINELEN) {
-    goto update_marker_chroms_ret_NOMEM;
-  }
-  retval = open_and_skip_first_lines(&infile, update_chr->fname, loadbuf, loadbuf_size, update_chr->skip);
-  if (retval) {
-    goto update_marker_chroms_ret_1;
-  }
-  if (colid_first) {
-    colmin = update_chr->colid - 1;
-    coldiff = update_chr->colx - update_chr->colid;
-  } else {
-    colmin = update_chr->colx - 1;
-    coldiff = update_chr->colid - update_chr->colx;
-  }
-  while (fgets(loadbuf, loadbuf_size, infile)) {
-    line_idx++;
-    if (!(loadbuf[loadbuf_size - 1])) {
-      if (loadbuf_size == MAXLINEBUFLEN) {
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --update-chr file is pathologically long.\n", line_idx);
-	goto update_marker_chroms_ret_INVALID_FORMAT_2;
-      } else {
-        goto update_marker_chroms_ret_NOMEM;
-      }
+  {
+    retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable_size, &marker_id_htable);
+    if (retval) {
+      goto update_marker_chroms_ret_1;
     }
-    colid_ptr = skip_initial_spaces(loadbuf);
-    cc = *colid_ptr;
-    if (is_eoln_kns(cc) || (cc == skipchar)) {
-      continue;
+    if (bigstack_calloc_ul(marker_ctl, &already_seen) ||
+	bigstack_alloc_ui(unfiltered_marker_ct, &marker_uidx_to_idx)) {
+      goto update_marker_chroms_ret_NOMEM;
+    }
+    fill_uidx_to_idx(marker_exclude, unfiltered_marker_ct, marker_ct, marker_uidx_to_idx);
+    loadbuf = (char*)g_bigstack_base;
+    loadbuf_size = bigstack_left();
+    if (loadbuf_size > MAXLINEBUFLEN) {
+      loadbuf_size = MAXLINEBUFLEN;
+    }
+    if (loadbuf_size <= MAXLINELEN) {
+      goto update_marker_chroms_ret_NOMEM;
+    }
+    retval = open_and_skip_first_lines(&infile, update_chr->fname, loadbuf, loadbuf_size, update_chr->skip);
+    if (retval) {
+      goto update_marker_chroms_ret_1;
     }
     if (colid_first) {
-      colid_ptr = next_token_multz(colid_ptr, colmin);
-      colx_ptr = next_token_mult(colid_ptr, coldiff);
-      if (no_more_tokens_kns(colx_ptr)) {
-	goto update_marker_chroms_ret_MISSING_TOKENS;
-      }
+      colmin = update_chr->colid - 1;
+      coldiff = update_chr->colx - update_chr->colid;
     } else {
-      colx_ptr = next_token_multz(colid_ptr, colmin);
-      colid_ptr = next_token_mult(colx_ptr, coldiff);
-      if (no_more_tokens_kns(colid_ptr)) {
-	goto update_marker_chroms_ret_MISSING_TOKENS;
+      colmin = update_chr->colx - 1;
+      coldiff = update_chr->colid - update_chr->colx;
+    }
+    while (fgets(loadbuf, loadbuf_size, infile)) {
+      line_idx++;
+      if (!(loadbuf[loadbuf_size - 1])) {
+	if (loadbuf_size == MAXLINEBUFLEN) {
+	  sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --update-chr file is pathologically long.\n", line_idx);
+	  goto update_marker_chroms_ret_INVALID_FORMAT_2;
+	} else {
+	  goto update_marker_chroms_ret_NOMEM;
+	}
       }
-    }
-    slen = strlen_se(colid_ptr);
-    marker_uidx = id_htable_find(colid_ptr, slen, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len);
-    if (marker_uidx == 0xffffffffU) {
-      miss_ct++;
-      continue;
-    }
-    marker_idx = marker_uidx_to_idx[marker_uidx];
-    if (is_set(already_seen, marker_idx)) {
-      colid_ptr[slen] = '\0';
-      LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in --update-chr file.\n", colid_ptr);
-      goto update_marker_chroms_ret_INVALID_FORMAT_2;
-    }
-    set_bit(marker_idx, already_seen);
-    sorted_idx = get_chrom_code(chrom_info_ptr, colx_ptr);
-    if (sorted_idx < 0) {
-      if ((!allow_extra_chroms) || (sorted_idx == -1)) {
-	sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of --update-chr file.\n", line_idx);
+      colid_ptr = skip_initial_spaces(loadbuf);
+      cc = *colid_ptr;
+      if (is_eoln_kns(cc) || (cc == skipchar)) {
+	continue;
+      }
+      if (colid_first) {
+	colid_ptr = next_token_multz(colid_ptr, colmin);
+	colx_ptr = next_token_mult(colid_ptr, coldiff);
+	if (no_more_tokens_kns(colx_ptr)) {
+	  goto update_marker_chroms_ret_MISSING_TOKENS;
+	}
+      } else {
+	colx_ptr = next_token_multz(colid_ptr, colmin);
+	colid_ptr = next_token_mult(colx_ptr, coldiff);
+	if (no_more_tokens_kns(colid_ptr)) {
+	  goto update_marker_chroms_ret_MISSING_TOKENS;
+	}
+      }
+      slen = strlen_se(colid_ptr);
+      marker_uidx = id_htable_find(colid_ptr, slen, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len);
+      if (marker_uidx == 0xffffffffU) {
+	miss_ct++;
+	continue;
+      }
+      marker_idx = marker_uidx_to_idx[marker_uidx];
+      if (is_set(already_seen, marker_idx)) {
+	colid_ptr[slen] = '\0';
+	LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in --update-chr file.\n", colid_ptr);
 	goto update_marker_chroms_ret_INVALID_FORMAT_2;
       }
-      retval = resolve_or_add_chrom_name(colx_ptr, "--update-chr file", line_idx, chrom_info_ptr, &sorted_idx);
-      if (retval) {
-	goto update_marker_chroms_ret_1;
+      set_bit(marker_idx, already_seen);
+      char* colx_end = token_endnn(colx_ptr);
+      const uint32_t chrom_name_slen = (uintptr_t)(colx_end - colx_ptr);
+      *colx_end = '\0';
+      int32_t cur_chrom_code = get_chrom_code_nt(colx_ptr, chrom_info_ptr, chrom_name_slen);
+      if (cur_chrom_code < 0) {
+	if (chrom_error(colx_ptr, "--update-chr file", chrom_info_ptr, line_idx, cur_chrom_code, allow_extra_chroms)) {
+	  goto update_marker_chroms_ret_INVALID_FORMAT;
+	}
+	retval = resolve_or_add_chrom_name(colx_ptr, "--update-chr file", line_idx, chrom_name_slen, chrom_info_ptr, &cur_chrom_code);
+	if (retval) {
+	  goto update_marker_chroms_ret_1;
+	}
       }
+      ll_buf[marker_idx] = (int64_t)((((uint64_t)((uint32_t)cur_chrom_code)) << 32) | (((uint64_t)ll_buf[marker_idx]) & 0xffffffffLLU));
+      hit_ct++;
     }
-    ll_buf[marker_idx] = (int64_t)((((uint64_t)((uint32_t)sorted_idx)) << 32) | (((uint64_t)ll_buf[marker_idx]) & 0xffffffffLLU));
-    hit_ct++;
+    if (!feof(infile)) {
+      goto update_marker_chroms_ret_READ_FAIL;
+    }
+    if (miss_ct) {
+      sprintf(g_logbuf, "--update-chr: %" PRIuPTR " value%s updated, %" PRIuPTR " variant ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+    } else {
+      sprintf(g_logbuf, "--update-chr: %" PRIuPTR " value%s updated.\n", hit_ct, (hit_ct == 1)? "" : "s");
+    }
+    logprintb();
   }
-  if (!feof(infile)) {
-    goto update_marker_chroms_ret_READ_FAIL;
-  }
-  if (miss_ct) {
-    sprintf(g_logbuf, "--update-chr: %" PRIuPTR " value%s updated, %" PRIuPTR " variant ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
-  } else {
-    sprintf(g_logbuf, "--update-chr: %" PRIuPTR " value%s updated.\n", hit_ct, (hit_ct == 1)? "" : "s");
-  }
-  logprintb();
   while (0) {
   update_marker_chroms_ret_NOMEM:
     retval = RET_NOMEM;
@@ -2805,6 +2783,7 @@ int32_t update_marker_chroms(Two_col_params* update_chr, uintptr_t unfiltered_ma
     sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --update-chr file has fewer tokens than expected.\n", line_idx);
   update_marker_chroms_ret_INVALID_FORMAT_2:
     logerrprintb();
+  update_marker_chroms_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -2982,74 +2961,80 @@ int32_t load_sort_and_write_map(uint32_t** map_reverse_ptr, FILE* mapfile, uint3
   uint32_t ujj;
   uint32_t cur_chrom;
   uint32_t chrom_ct;
-  // See sort_and_write_bim() for discussion.  Note that marker_ids and
-  // marker_cms use filtered instead of unfiltered coordinates, though.
-  if (bigstack_alloc_ui(compact_map_reverse? marker_ct : unfiltered_marker_ct, map_reverse_ptr) ||
-      bigstack_alloc_ll(marker_ct, &ll_buf) ||
-      bigstack_alloc_c(marker_ct * max_marker_id_len, &marker_ids) ||
-      bigstack_alloc_d(marker_ct, &marker_cms) ||
-      bigstack_alloc_ui(marker_ct, &pos_buf) ||
-      bigstack_alloc_ui(marker_ct, &unpack_map) ||
-      bigstack_alloc_ui(MAX_POSSIBLE_CHROM + 2, &chrom_start) ||
-      bigstack_alloc_ui(MAX_POSSIBLE_CHROM + 1, &chrom_id)) {
-    goto load_sort_and_write_map_ret_NOMEM;
-  }
-  rewind(mapfile);
-  marker_idx = 0;
-  for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
-    if (get_next_noncomment(mapfile, &bufptr, &line_idx)) {
-      goto load_sort_and_write_map_ret_READ_FAIL;
+  {
+    // See sort_and_write_bim() for discussion.  Note that marker_ids and
+    // marker_cms use filtered instead of unfiltered coordinates, though.
+    if (bigstack_alloc_ui(compact_map_reverse? marker_ct : unfiltered_marker_ct, map_reverse_ptr) ||
+	bigstack_alloc_ll(marker_ct, &ll_buf) ||
+	bigstack_alloc_c(marker_ct * max_marker_id_len, &marker_ids) ||
+	bigstack_alloc_d(marker_ct, &marker_cms) ||
+	bigstack_alloc_ui(marker_ct, &pos_buf) ||
+	bigstack_alloc_ui(marker_ct, &unpack_map) ||
+	bigstack_alloc_ui(MAX_POSSIBLE_CHROM + 2, &chrom_start) ||
+	bigstack_alloc_ui(MAX_POSSIBLE_CHROM + 1, &chrom_id)) {
+      goto load_sort_and_write_map_ret_NOMEM;
     }
-    if (IS_SET(marker_exclude, marker_uidx)) {
-      continue;
-    }
-    ll_buf[marker_idx] = (((uint64_t)((uint32_t)get_chrom_code(chrom_info_ptr, bufptr))) << 32) + marker_idx;
-    bufptr = next_token(bufptr);
-    uii = strlen_se(bufptr);
-    memcpyx(&(marker_ids[marker_idx * max_marker_id_len]), bufptr, uii, 0);
-    bufptr = next_token(bufptr);
-    if (map_cols == 4) {
-      if (scan_double(bufptr, &(marker_cms[marker_idx]))) {
+    rewind(mapfile);
+    marker_idx = 0;
+    for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
+      char* textbuf_first_token;
+      if (get_next_noncomment(mapfile, &textbuf_first_token, &line_idx)) {
+	goto load_sort_and_write_map_ret_READ_FAIL;
+      }
+      if (IS_SET(marker_exclude, marker_uidx)) {
+	continue;
+      }
+      char* first_token_end = token_endnn(textbuf_first_token);
+      char* textbuf_iter = skip_initial_spaces(first_token_end);
+      const uint32_t chrom_name_slen = (uintptr_t)(first_token_end - textbuf_first_token);
+      *first_token_end = '\0';
+      ll_buf[marker_idx] = (((uint64_t)((uint32_t)get_chrom_code_nt(textbuf_first_token, chrom_info_ptr, chrom_name_len))) << 32) + marker_idx;
+      uii = strlen_se(textbuf_iter);
+      memcpyx(&(marker_ids[marker_idx * max_marker_id_len]), textbuf_iter, uii, 0);
+      textbuf_iter = next_token(textbuf_iter);
+      if (map_cols == 4) {
+	if (scan_double(textbuf_iter, &(marker_cms[marker_idx]))) {
+	  marker_cms[marker_idx] = 0.0;
+	}
+	textbuf_iter = next_token(textbuf_iter);
+      } else {
 	marker_cms[marker_idx] = 0.0;
       }
-      bufptr = next_token(bufptr);
-    } else {
-      marker_cms[marker_idx] = 0.0;
+      unpack_map[marker_idx] = marker_uidx;
+      // previously validated
+      scan_uint_defcap(textbuf_iter, &(pos_buf[marker_idx++]));
     }
-    unpack_map[marker_idx] = marker_uidx;
-    // previously validated
-    scan_uint_defcap(bufptr, &(pos_buf[marker_idx++]));
-  }
-  sort_marker_chrom_pos(ll_buf, marker_ct, pos_buf, chrom_start, chrom_id, NULL, &chrom_ct);
+    sort_marker_chrom_pos(ll_buf, marker_ct, pos_buf, chrom_start, chrom_id, NULL, &chrom_ct);
 
-  strcpy(outname_end, ".map.tmp");
-  if (fopen_checked(outname, "w", &map_outfile)) {
-    goto load_sort_and_write_map_ret_OPEN_FAIL;
-  }
+    strcpy(outname_end, ".map.tmp");
+    if (fopen_checked(outname, "w", &map_outfile)) {
+      goto load_sort_and_write_map_ret_OPEN_FAIL;
+    }
 
-  marker_idx = 0;
-  *zstr = '0';
-  zstr[1] = '\0';
-  chrom_info_ptr->zero_extra_chroms = 0;
-  for (uii = 0; uii < chrom_ct; uii++) {
-    cur_chrom = chrom_id[uii];
-    ujj = chrom_start[uii + 1];
-    bufptr0 = chrom_name_write(chrom_info_ptr, cur_chrom, g_textbuf);
-    *bufptr0++ = '\t';
-    for (; marker_idx < ujj; marker_idx++) {
-      marker_idx2 = (uint32_t)ll_buf[marker_idx];
-      marker_uidx = unpack_map[marker_idx2];
-      bufptr = strcpyax(bufptr0, &(marker_ids[marker_idx2 * max_marker_id_len]), '\t');
-      bufptr = dtoa_g_wxp8x(marker_cms[marker_idx2], 1, '\t', bufptr);
-      bufptr = uint32toa_x((uint32_t)(ll_buf[marker_idx] >> 32), '\n', bufptr);
-      if (fwrite_checked(g_textbuf, bufptr - g_textbuf, map_outfile)) {
-	goto load_sort_and_write_map_ret_WRITE_FAIL;
+    marker_idx = 0;
+    *zstr = '0';
+    zstr[1] = '\0';
+    chrom_info_ptr->zero_extra_chroms = 0;
+    for (uii = 0; uii < chrom_ct; uii++) {
+      cur_chrom = chrom_id[uii];
+      ujj = chrom_start[uii + 1];
+      bufptr0 = chrom_name_write(chrom_info_ptr, cur_chrom, g_textbuf);
+      *bufptr0++ = '\t';
+      for (; marker_idx < ujj; marker_idx++) {
+	marker_idx2 = (uint32_t)ll_buf[marker_idx];
+	marker_uidx = unpack_map[marker_idx2];
+	bufptr = strcpyax(bufptr0, &(marker_ids[marker_idx2 * max_marker_id_len]), '\t');
+	bufptr = dtoa_g_wxp8x(marker_cms[marker_idx2], 1, '\t', bufptr);
+	bufptr = uint32toa_x((uint32_t)(ll_buf[marker_idx] >> 32), '\n', bufptr);
+	if (fwrite_checked(g_textbuf, bufptr - g_textbuf, map_outfile)) {
+	  goto load_sort_and_write_map_ret_WRITE_FAIL;
+	}
+	(*map_reverse_ptr)[compact_map_reverse? marker_idx2 : marker_uidx] = marker_idx;
       }
-      (*map_reverse_ptr)[compact_map_reverse? marker_idx2 : marker_uidx] = marker_idx;
     }
-  }
-  if (fclose_null(&map_outfile)) {
-    goto load_sort_and_write_map_ret_WRITE_FAIL;
+    if (fclose_null(&map_outfile)) {
+      goto load_sort_and_write_map_ret_WRITE_FAIL;
+    }
   }
   while (0) {
   load_sort_and_write_map_ret_NOMEM:
@@ -3226,11 +3211,11 @@ uint32_t merge_or_split_x(uint32_t mergex, uint32_t splitx_bound1, uint32_t spli
   uint32_t marker_idx;
   uint32_t cur_pos;
   if (mergex) {
-    match_chrom = chrom_info_ptr->xy_code;
-    new_chrom_shifted = ((uint64_t)((uint32_t)chrom_info_ptr->x_code)) << 32;
+    match_chrom = chrom_info_ptr->xymt_codes[XY_OFFSET];
+    new_chrom_shifted = ((uint64_t)((uint32_t)chrom_info_ptr->xymt_codes[X_OFFSET])) << 32;
   } else {
-    match_chrom = chrom_info_ptr->x_code;
-    new_chrom_shifted = ((uint64_t)((uint32_t)chrom_info_ptr->xy_code)) << 32;
+    match_chrom = chrom_info_ptr->xymt_codes[X_OFFSET];
+    new_chrom_shifted = ((uint64_t)((uint32_t)chrom_info_ptr->xymt_codes[XY_OFFSET])) << 32;
   }
 
   for (marker_idx = 0; marker_idx < marker_ct; marker_idx++, marker_uidx++) {
@@ -3552,7 +3537,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 	    goto make_bed_ret_1;
 	  }
 	} else if (mergex || splitx_bound2) {
-	  if (splitx_bound2 && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xy_code)) {
+	  if (splitx_bound2 && is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[XY_OFFSET])) {
 	    logerrprint("Error: --split-x cannot be used when the dataset already contains an XY region.\n");
 	    goto make_bed_ret_INVALID_CMDLINE;
 	  }
@@ -3561,7 +3546,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, uint32_t ma
 	      if (mergex) {
 		logerrprint("Error: --merge-x requires XY pseudo-autosomal region data.  (Use 'no-fail' to\nforce --make-bed to proceed anyway.\n");
 	      } else {
-		if (!is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->x_code)) {
+		if (!is_set(chrom_info_ptr->chrom_mask, chrom_info_ptr->xymt_codes[X_OFFSET])) {
 		  logerrprint("Error: --split-x requires X chromosome data.  (Use 'no-fail' to force\n--make-bed to proceed anyway.\n");
 		} else {
 		  LOGERRPRINTFWW("Error: No X chromosome loci have bp positions <= %u or >= %u. (Use 'no-fail' to force --make-bed to proceed anyway.)\n", splitx_bound1, splitx_bound2);
@@ -4191,541 +4176,968 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
   uint16_t uskk;
   char cc;
   char cc2;
-  if (single_chr && (!allow_extra_chroms)) {
-    ii = get_chrom_code_raw(single_chr);
-    if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
-      logerrprint("Error: --oxford-single-chr chromosome code is excluded by chromosome filter.\n");
-      goto oxford_to_bed_ret_INVALID_CMDLINE;
-    }
-  }
-  bufptr = int32toa(missing_pheno, missing_pheno_str);
-  missing_pheno_len = (uintptr_t)(bufptr - missing_pheno_str);
-  if (!missing_code) {
-    mc_ct = 1;
-    max_mc_len = 3;
-    if (bigstack_alloc_c(3, &sorted_mc)) {
-      goto oxford_to_bed_ret_NOMEM;
-    }
-    memcpy(sorted_mc, "NA", 3);
-  } else {
-    bufptr = missing_code;
-    while (*bufptr) {
-      while (*bufptr == ',') {
-	bufptr++;
-      }
-      if (!(*bufptr)) {
-	break;
-      }
-      mc_ct++;
-      bufptr2 = strchr(bufptr, ',');
-      if (!bufptr2) {
-        bufptr2 = strchr(bufptr, '\0');
-      }
-      ulii = (uintptr_t)(bufptr2 - bufptr);
-      if (ulii >= max_mc_len) {
-        max_mc_len = ulii + 1;
-      }
-      bufptr = bufptr2;
-    }
-    if (mc_ct) {
-      if (bigstack_alloc_c(mc_ct * max_mc_len, &sorted_mc)) {
-	goto oxford_to_bed_ret_NOMEM;
-      }
-      bufptr = missing_code;
-      ulii = 0; // current missing-code index
-      do {
-        while (*bufptr == ',') {
-          bufptr++;
-	}
-        if (!(*bufptr)) {
-	  break;
-	}
-        bufptr2 = strchr(bufptr, ',');
-        if (!bufptr2) {
-	  bufptr2 = strchr(bufptr, '\0');
-	}
-	uljj = (uintptr_t)(bufptr2 - bufptr);
-        memcpyx(&(sorted_mc[ulii * max_mc_len]), bufptr, uljj, '\0');
-	bufptr = bufptr2;
-        ulii++;
-      } while (*bufptr);
-      qsort(sorted_mc, mc_ct, max_mc_len, strcmp_casted);
-    }
-  }
-  if (fopen_checked(samplename, "r", &infile)) {
-    goto oxford_to_bed_ret_OPEN_FAIL;
-  }
-  memcpy(outname_end, ".fam", 5);
-  if (fopen_checked(outname, "w", &outfile)) {
-    goto oxford_to_bed_ret_OPEN_FAIL;
-  }
-  g_textbuf[MAXLINELEN - 1] = ' ';
-  do {
-    line_idx++;
-    if (!fgets(g_textbuf, MAXLINELEN, infile)) {
-      if (ferror(infile)) {
-	goto oxford_to_bed_ret_READ_FAIL;
-      }
-      logerrprint("Error: Empty --data/--sample file.\n");
-      goto oxford_to_bed_ret_INVALID_FORMAT;
-    }
-    if (!g_textbuf[MAXLINELEN - 1]) {
-      goto oxford_to_bed_ret_SAMPLE_LONG_LINE;
-    }
-    bufptr = skip_initial_spaces(g_textbuf);
-  } while (is_eoln_kns(*bufptr));
-  bufptr2 = token_endnn(bufptr);
-  if ((((uintptr_t)(bufptr2 - bufptr)) != 4) || memcmp(bufptr, "ID_1", 4)) {
-    goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1; 
-  }
-  bufptr = skip_initial_spaces(bufptr2);
-  slen = strlen_se(bufptr);
-  if ((slen != 4) || memcmp(bufptr, "ID_2", 4)) {
-    goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1; 
-  }
-  bufptr = skip_initial_spaces(&(bufptr[4]));
-  slen = strlen_se(bufptr);
-  if ((slen != 7) || (!match_upper_nt(bufptr, "MISSING", 7))) {
-    goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1; 
-  }
-  bufptr = skip_initial_spaces(&(bufptr[7]));
-  if (pheno_name) {
-    pheno_name_len = strlen(pheno_name);
-  }
-  while (!is_eoln_kns(*bufptr)) {
-    bufptr2 = token_endnn(bufptr);
-    ulii = (uintptr_t)(bufptr2 - bufptr);
-    // allow "Sex", "SEX", etc.
-    if ((ulii == 3) && (tolower(bufptr[0]) == 's') && (tolower(bufptr[1]) == 'e') && (tolower(bufptr[2]) == 'x')) {
-      if (sex_col) {
-        goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1;
-      }
-      sex_col = col_ct;
-    } else if ((ulii == pheno_name_len) && (!memcmp(bufptr, pheno_name, ulii))) {
-      if (pheno_col) {
-	goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1;
-      }
-      pheno_col = col_ct;
-    }
-    col_ct++;
-    bufptr = skip_initial_spaces(bufptr2);
-  }
-  if (pheno_name) {
-    if (!pheno_col) {
-      logerrprint("Error: --oxford-pheno-name parameter not found in .sample file header.\n");
-      goto oxford_to_bed_ret_INVALID_CMDLINE;
-    } else if (sex_col > pheno_col) {
-      logerrprint("Error: .sample phenotype column(s) should be after sex covariate.\n");
-      goto oxford_to_bed_ret_INVALID_FORMAT;
-    }
-  }
-  do {
-    line_idx++;
-    if (!fgets(g_textbuf, MAXLINELEN, infile)) {
-      if (ferror(infile)) {
-	goto oxford_to_bed_ret_READ_FAIL;
-      }
-      logerrprint("Error: Only one nonempty line in .sample file.\n");
-      goto oxford_to_bed_ret_INVALID_FORMAT;
-    }
-    if (!g_textbuf[MAXLINELEN - 1]) {
-      goto oxford_to_bed_ret_SAMPLE_LONG_LINE;
-    }
-    bufptr = skip_initial_spaces(g_textbuf);
-  } while (is_eoln_kns(*bufptr));
-  bufptr2 = token_endnn(bufptr);
-  if ((((uintptr_t)(bufptr2 - bufptr)) != 1) || (*bufptr != '0')) {
-    goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_2;
-  }
-  bufptr = skip_initial_spaces(bufptr2);
-  slen = strlen_se(bufptr);
-  if ((slen != 1) || (*bufptr != '0')) {
-    goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_2;
-  }
-  bufptr = skip_initial_spaces(&(bufptr[1]));
-  slen = strlen_se(bufptr);
-  if ((slen != 1) || (*bufptr != '0')) {
-    goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_2;
-  }
-  bufptr++;
-  col_idx = 3;
-  while (col_idx < col_ct) {
-    bufptr = skip_initial_spaces(bufptr);
-    if (is_eoln_kns(*bufptr)) {
-      logerrprint("Error: Second .sample header line has fewer tokens than the first.\n");
-      goto oxford_to_bed_ret_INVALID_FORMAT;
-    }
-    if (bufptr[1] > ' ') {
-      goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_2;
-    }
-    cc = *bufptr;
-    if ((col_idx == sex_col) && (cc != 'D')) {
-      logerrprint("Error: .sample sex column is not of type 'D'.\n");
-      goto oxford_to_bed_ret_INVALID_FORMAT;
-    }
-    if (!pheno_col) {
-      if ((cc == 'B') || (cc == 'P')) {
-	if (sex_col > col_idx) {
-          logerrprint("Error: .sample phenotype column(s) should be after sex covariate.\n");
-	  goto oxford_to_bed_ret_INVALID_FORMAT;
-	}
-	pheno_col = col_idx;
-	is_binary_pheno = (cc == 'B');
-	break;
-      }
-    } else if (col_idx == pheno_col) {
-      is_binary_pheno = (cc == 'B');
-      if ((!is_binary_pheno) && (cc != 'P')) {
-        logerrprint("Error: --oxford-pheno-name parameter does not refer to a binary or continuous\nphenotype.\n");
+  {
+    if (single_chr && (!allow_extra_chroms)) {
+      ii = get_chrom_code_raw(single_chr);
+      if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
+	logerrprint("Error: --oxford-single-chr chromosome code is excluded by chromosome filter.\n");
 	goto oxford_to_bed_ret_INVALID_CMDLINE;
       }
-      break;
     }
-    col_idx++;
-    bufptr++;
-  }
-  if (is_binary_pheno) {
-    // check for pathological case
-    if ((bsearch_str("0", 1, sorted_mc, max_mc_len, mc_ct) != -1) || (bsearch_str("1", 1, sorted_mc, max_mc_len, mc_ct) != -1)) {
-      logerrprint("Error: '0' and '1' are unacceptable missing case/control phenotype codes.\n");
-      goto oxford_to_bed_ret_INVALID_CMDLINE;
-    }
-  }
-  while (fgets(g_textbuf, MAXLINELEN, infile)) {
-    line_idx++;
-    if (!g_textbuf[MAXLINELEN - 1]) {
-      goto oxford_to_bed_ret_SAMPLE_LONG_LINE;
-    }
-    bufptr = skip_initial_spaces(g_textbuf);
-    if (is_eoln_kns(*bufptr)) {
-      continue;
-    }
-    bufptr2 = token_endnn(bufptr);
-    wptr = memcpyax(tbuf2, bufptr, bufptr2 - bufptr, '\t');
-    bufptr = skip_initial_spaces(bufptr2);
-    if (is_eoln_kns(*bufptr)) {
-      goto oxford_to_bed_ret_MISSING_TOKENS;
-    }
-    bufptr2 = token_endnn(bufptr);
-    wptr = memcpya(wptr, bufptr, bufptr2 - bufptr);
-    wptr = memcpya(wptr, "\t0\t0\t", 5);
-    col_idx = 2;
-    bufptr = bufptr2;
-    if (sex_col) {
-      while (1) {
-        bufptr = skip_initial_spaces(bufptr);
-        if (is_eoln_kns(*bufptr)) {
-	  goto oxford_to_bed_ret_MISSING_TOKENS;
-	}
-	if (col_idx == sex_col) {
-	  break;
-	}
-	bufptr = token_endnn(bufptr);
-	col_idx++;
+    bufptr = int32toa(missing_pheno, missing_pheno_str);
+    missing_pheno_len = (uintptr_t)(bufptr - missing_pheno_str);
+    if (!missing_code) {
+      mc_ct = 1;
+      max_mc_len = 3;
+      if (bigstack_alloc_c(3, &sorted_mc)) {
+	goto oxford_to_bed_ret_NOMEM;
       }
-      cc = *bufptr++;
-      if ((cc < '0') || (cc > '2') || ((*bufptr) > ' ')) {
-	sprintf(g_logbuf, "Error: Invalid sex code on line %" PRIuPTR " of .sample file.\n", line_idx);
-        goto oxford_to_bed_ret_INVALID_FORMAT_2;
-      }
-      *wptr++ = cc;
-      col_idx++;
+      memcpy(sorted_mc, "NA", 3);
     } else {
-      *wptr++ = '0';
-    }
-    *wptr++ = '\t';
-    if (pheno_col) {
-      while (1) {
-	bufptr = skip_initial_spaces(bufptr);
-	if (is_eoln_kns(*bufptr)) {
-          goto oxford_to_bed_ret_MISSING_TOKENS;
+      bufptr = missing_code;
+      while (*bufptr) {
+	while (*bufptr == ',') {
+	  bufptr++;
 	}
-	if (col_idx == pheno_col) {
+	if (!(*bufptr)) {
 	  break;
 	}
-        bufptr = token_endnn(bufptr);
-	col_idx++;
-      }
-      slen = (uintptr_t)(token_endnn(bufptr) - bufptr);
-      if (is_binary_pheno) {
-	cc = *bufptr;
-	if ((slen != 1) || ((cc != '0') && (cc != '1'))) {
-	  goto oxford_to_bed_missing_pheno;
-	} else {
-          *wptr++ = cc + 1;
+	mc_ct++;
+	bufptr2 = strchr(bufptr, ',');
+	if (!bufptr2) {
+	  bufptr2 = strchr(bufptr, '\0');
 	}
-      } else {
-	if (bsearch_str(bufptr, slen, sorted_mc, max_mc_len, mc_ct) == -1) {
-	  if (!scan_double(bufptr, &dxx)) {
-            wptr = memcpya(wptr, bufptr, slen);
-	  } else {
-	    goto oxford_to_bed_missing_pheno;
+	ulii = (uintptr_t)(bufptr2 - bufptr);
+	if (ulii >= max_mc_len) {
+	  max_mc_len = ulii + 1;
+	}
+	bufptr = bufptr2;
+      }
+      if (mc_ct) {
+	if (bigstack_alloc_c(mc_ct * max_mc_len, &sorted_mc)) {
+	  goto oxford_to_bed_ret_NOMEM;
+	}
+	bufptr = missing_code;
+	ulii = 0; // current missing-code index
+	do {
+	  while (*bufptr == ',') {
+	    bufptr++;
 	  }
-	} else {
-	  goto oxford_to_bed_missing_pheno;
-	}
+	  if (!(*bufptr)) {
+	    break;
+	  }
+	  bufptr2 = strchr(bufptr, ',');
+	  if (!bufptr2) {
+	    bufptr2 = strchr(bufptr, '\0');
+	  }
+	  uljj = (uintptr_t)(bufptr2 - bufptr);
+	  memcpyx(&(sorted_mc[ulii * max_mc_len]), bufptr, uljj, '\0');
+	  bufptr = bufptr2;
+	  ulii++;
+	} while (*bufptr);
+	qsort(sorted_mc, mc_ct, max_mc_len, strcmp_casted);
       }
-    } else {
-    oxford_to_bed_missing_pheno:
-      wptr = memcpya(wptr, missing_pheno_str, missing_pheno_len);
     }
-    *wptr++ = '\n';
-    if (fwrite_checked(tbuf2, wptr - tbuf2, outfile)) {
-      goto oxford_to_bed_ret_WRITE_FAIL;
+    if (fopen_checked(samplename, "r", &infile)) {
+      goto oxford_to_bed_ret_OPEN_FAIL;
     }
-    sample_ct++;
-  }
-  if ((!sample_ct) && (!allow_no_samples)) {
-    logerrprint("Error: No samples in .sample file.\n");
-    goto oxford_to_bed_ret_INVALID_FORMAT;
-  }
-  if (fclose_null(&infile)) {
-    goto oxford_to_bed_ret_READ_FAIL;
-  }
-  if (fclose_null(&outfile)) {
-    goto oxford_to_bed_ret_WRITE_FAIL;
-  }
-  sample_ct4 = (sample_ct + 3) / 4;
-  sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
-  if (bigstack_alloc_ul(sample_ctl2, &writebuf)) {
-    goto oxford_to_bed_ret_NOMEM;
-  }
-  memcpy(outname_end, ".bim", 5);
-  if (fopen_checked(outname, "w", &outfile_bim)) {
-    goto oxford_to_bed_ret_OPEN_FAIL;
-  }
-  memcpy(outname_end, ".bed", 5);
-  if (fopen_checked(outname, FOPEN_WB, &outfile)) {
-    goto oxford_to_bed_ret_OPEN_FAIL;
-  }
-  if (fwrite_checked("l\x1b\x01", 3, outfile)) {
-    goto oxford_to_bed_ret_WRITE_FAIL;
-  }
-  if (!is_bgen) {
-    loadbuf_size = bigstack_left();
-    if (loadbuf_size > MAXLINEBUFLEN) {
-      loadbuf_size = MAXLINEBUFLEN;
-    } else if (loadbuf_size <= MAXLINELEN) {
-      goto oxford_to_bed_ret_NOMEM;
+    memcpy(outname_end, ".fam", 5);
+    if (fopen_checked(outname, "w", &outfile)) {
+      goto oxford_to_bed_ret_OPEN_FAIL;
     }
-    loadbuf = (char*)g_bigstack_base;
-    retval = gzopen_read_checked(genname, &gz_infile);
-    if (retval) {
-      goto oxford_to_bed_ret_1;
-    }
-    loadbuf[loadbuf_size - 1] = ' ';
-    line_idx = 0;
-    while (1) {
+    g_textbuf[MAXLINELEN - 1] = ' ';
+    do {
       line_idx++;
-      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-	if (!gzeof(gz_infile)) {
+      if (!fgets(g_textbuf, MAXLINELEN, infile)) {
+	if (ferror(infile)) {
 	  goto oxford_to_bed_ret_READ_FAIL;
+	}
+	logerrprint("Error: Empty --data/--sample file.\n");
+	goto oxford_to_bed_ret_INVALID_FORMAT;
+      }
+      if (!g_textbuf[MAXLINELEN - 1]) {
+	goto oxford_to_bed_ret_SAMPLE_LONG_LINE;
+      }
+      bufptr = skip_initial_spaces(g_textbuf);
+    } while (is_eoln_kns(*bufptr));
+    bufptr2 = token_endnn(bufptr);
+    if ((((uintptr_t)(bufptr2 - bufptr)) != 4) || memcmp(bufptr, "ID_1", 4)) {
+      goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1; 
+    }
+    bufptr = skip_initial_spaces(bufptr2);
+    slen = strlen_se(bufptr);
+    if ((slen != 4) || memcmp(bufptr, "ID_2", 4)) {
+      goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1; 
+    }
+    bufptr = skip_initial_spaces(&(bufptr[4]));
+    slen = strlen_se(bufptr);
+    if ((slen != 7) || (!match_upper_nt(bufptr, "MISSING", 7))) {
+      goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1; 
+    }
+    bufptr = skip_initial_spaces(&(bufptr[7]));
+    if (pheno_name) {
+      pheno_name_len = strlen(pheno_name);
+    }
+    while (!is_eoln_kns(*bufptr)) {
+      bufptr2 = token_endnn(bufptr);
+      ulii = (uintptr_t)(bufptr2 - bufptr);
+      // allow "Sex", "SEX", etc.
+      if ((ulii == 3) && (tolower(bufptr[0]) == 's') && (tolower(bufptr[1]) == 'e') && (tolower(bufptr[2]) == 'x')) {
+	if (sex_col) {
+	  goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1;
+	}
+	sex_col = col_ct;
+      } else if ((ulii == pheno_name_len) && (!memcmp(bufptr, pheno_name, ulii))) {
+	if (pheno_col) {
+	  goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1;
+	}
+	pheno_col = col_ct;
+      }
+      col_ct++;
+      bufptr = skip_initial_spaces(bufptr2);
+    }
+    if (pheno_name) {
+      if (!pheno_col) {
+	logerrprint("Error: --oxford-pheno-name parameter not found in .sample file header.\n");
+	goto oxford_to_bed_ret_INVALID_CMDLINE;
+      } else if (sex_col > pheno_col) {
+	logerrprint("Error: .sample phenotype column(s) should be after sex covariate.\n");
+	goto oxford_to_bed_ret_INVALID_FORMAT;
+      }
+    }
+    do {
+      line_idx++;
+      if (!fgets(g_textbuf, MAXLINELEN, infile)) {
+	if (ferror(infile)) {
+	  goto oxford_to_bed_ret_READ_FAIL;
+	}
+	logerrprint("Error: Only one nonempty line in .sample file.\n");
+	goto oxford_to_bed_ret_INVALID_FORMAT;
+      }
+      if (!g_textbuf[MAXLINELEN - 1]) {
+	goto oxford_to_bed_ret_SAMPLE_LONG_LINE;
+      }
+      bufptr = skip_initial_spaces(g_textbuf);
+    } while (is_eoln_kns(*bufptr));
+    bufptr2 = token_endnn(bufptr);
+    if ((((uintptr_t)(bufptr2 - bufptr)) != 1) || (*bufptr != '0')) {
+      goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_2;
+    }
+    bufptr = skip_initial_spaces(bufptr2);
+    slen = strlen_se(bufptr);
+    if ((slen != 1) || (*bufptr != '0')) {
+      goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_2;
+    }
+    bufptr = skip_initial_spaces(&(bufptr[1]));
+    slen = strlen_se(bufptr);
+    if ((slen != 1) || (*bufptr != '0')) {
+      goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_2;
+    }
+    bufptr++;
+    col_idx = 3;
+    while (col_idx < col_ct) {
+      bufptr = skip_initial_spaces(bufptr);
+      if (is_eoln_kns(*bufptr)) {
+	logerrprint("Error: Second .sample header line has fewer tokens than the first.\n");
+	goto oxford_to_bed_ret_INVALID_FORMAT;
+      }
+      if (bufptr[1] > ' ') {
+	goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_2;
+      }
+      cc = *bufptr;
+      if ((col_idx == sex_col) && (cc != 'D')) {
+	logerrprint("Error: .sample sex column is not of type 'D'.\n");
+	goto oxford_to_bed_ret_INVALID_FORMAT;
+      }
+      if (!pheno_col) {
+	if ((cc == 'B') || (cc == 'P')) {
+	  if (sex_col > col_idx) {
+	    logerrprint("Error: .sample phenotype column(s) should be after sex covariate.\n");
+	    goto oxford_to_bed_ret_INVALID_FORMAT;
+	  }
+	  pheno_col = col_idx;
+	  is_binary_pheno = (cc == 'B');
+	  break;
+	}
+      } else if (col_idx == pheno_col) {
+	is_binary_pheno = (cc == 'B');
+	if ((!is_binary_pheno) && (cc != 'P')) {
+	  logerrprint("Error: --oxford-pheno-name parameter does not refer to a binary or continuous\nphenotype.\n");
+	  goto oxford_to_bed_ret_INVALID_CMDLINE;
 	}
 	break;
       }
-      if (!loadbuf[loadbuf_size - 1]) {
-	if (loadbuf_size == MAXLINEBUFLEN) {
-	  LOGERRPRINTF("Error: Line %" PRIuPTR " of .gen file is pathologically long.\n", line_idx);
-	  goto oxford_to_bed_ret_INVALID_FORMAT;
-	}
-	goto oxford_to_bed_ret_NOMEM;
+      col_idx++;
+      bufptr++;
+    }
+    if (is_binary_pheno) {
+      // check for pathological case
+      if ((bsearch_str("0", 1, sorted_mc, max_mc_len, mc_ct) != -1) || (bsearch_str("1", 1, sorted_mc, max_mc_len, mc_ct) != -1)) {
+	logerrprint("Error: '0' and '1' are unacceptable missing case/control phenotype codes.\n");
+	goto oxford_to_bed_ret_INVALID_CMDLINE;
       }
-      bufptr = skip_initial_spaces(loadbuf);
+    }
+    while (fgets(g_textbuf, MAXLINELEN, infile)) {
+      line_idx++;
+      if (!g_textbuf[MAXLINELEN - 1]) {
+	goto oxford_to_bed_ret_SAMPLE_LONG_LINE;
+      }
+      bufptr = skip_initial_spaces(g_textbuf);
       if (is_eoln_kns(*bufptr)) {
 	continue;
       }
-      if (!single_chr) {
-	ii = get_chrom_code(chrom_info_ptr, bufptr);
-	if (ii < 0) {
-	  if (chrom_error(".gen file", chrom_info_ptr, bufptr, line_idx, ii, allow_extra_chroms)) {
-	    if (!memcmp(bufptr, "---", 3)) {
-	      logprint("(Did you forget --oxford-single-chr?)\n");
+      bufptr2 = token_endnn(bufptr);
+      wptr = memcpyax(tbuf2, bufptr, bufptr2 - bufptr, '\t');
+      bufptr = skip_initial_spaces(bufptr2);
+      if (is_eoln_kns(*bufptr)) {
+	goto oxford_to_bed_ret_MISSING_TOKENS;
+      }
+      bufptr2 = token_endnn(bufptr);
+      wptr = memcpya(wptr, bufptr, bufptr2 - bufptr);
+      wptr = memcpya(wptr, "\t0\t0\t", 5);
+      col_idx = 2;
+      bufptr = bufptr2;
+      if (sex_col) {
+	while (1) {
+	  bufptr = skip_initial_spaces(bufptr);
+	  if (is_eoln_kns(*bufptr)) {
+	    goto oxford_to_bed_ret_MISSING_TOKENS;
+	  }
+	  if (col_idx == sex_col) {
+	    break;
+	  }
+	  bufptr = token_endnn(bufptr);
+	  col_idx++;
+	}
+	cc = *bufptr++;
+	if ((cc < '0') || (cc > '2') || ((*bufptr) > ' ')) {
+	  sprintf(g_logbuf, "Error: Invalid sex code on line %" PRIuPTR " of .sample file.\n", line_idx);
+	  goto oxford_to_bed_ret_INVALID_FORMAT_2;
+	}
+	*wptr++ = cc;
+	col_idx++;
+      } else {
+	*wptr++ = '0';
+      }
+      *wptr++ = '\t';
+      if (pheno_col) {
+	while (1) {
+	  bufptr = skip_initial_spaces(bufptr);
+	  if (is_eoln_kns(*bufptr)) {
+	    goto oxford_to_bed_ret_MISSING_TOKENS;
+	  }
+	  if (col_idx == pheno_col) {
+	    break;
+	  }
+	  bufptr = token_endnn(bufptr);
+	  col_idx++;
+	}
+	slen = (uintptr_t)(token_endnn(bufptr) - bufptr);
+	if (is_binary_pheno) {
+	  cc = *bufptr;
+	  if ((slen != 1) || ((cc != '0') && (cc != '1'))) {
+	    goto oxford_to_bed_missing_pheno;
+	  } else {
+	    *wptr++ = cc + 1;
+	  }
+	} else {
+	  if (bsearch_str(bufptr, slen, sorted_mc, max_mc_len, mc_ct) == -1) {
+	    if (!scan_double(bufptr, &dxx)) {
+	      wptr = memcpya(wptr, bufptr, slen);
+	    } else {
+	      goto oxford_to_bed_missing_pheno;
 	    }
+	  } else {
+	    goto oxford_to_bed_missing_pheno;
+	  }
+	}
+      } else {
+      oxford_to_bed_missing_pheno:
+	wptr = memcpya(wptr, missing_pheno_str, missing_pheno_len);
+      }
+      *wptr++ = '\n';
+      if (fwrite_checked(tbuf2, wptr - tbuf2, outfile)) {
+	goto oxford_to_bed_ret_WRITE_FAIL;
+      }
+      sample_ct++;
+    }
+    if ((!sample_ct) && (!allow_no_samples)) {
+      logerrprint("Error: No samples in .sample file.\n");
+      goto oxford_to_bed_ret_INVALID_FORMAT;
+    }
+    if (fclose_null(&infile)) {
+      goto oxford_to_bed_ret_READ_FAIL;
+    }
+    if (fclose_null(&outfile)) {
+      goto oxford_to_bed_ret_WRITE_FAIL;
+    }
+    sample_ct4 = (sample_ct + 3) / 4;
+    sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
+    if (bigstack_alloc_ul(sample_ctl2, &writebuf)) {
+      goto oxford_to_bed_ret_NOMEM;
+    }
+    memcpy(outname_end, ".bim", 5);
+    if (fopen_checked(outname, "w", &outfile_bim)) {
+      goto oxford_to_bed_ret_OPEN_FAIL;
+    }
+    memcpy(outname_end, ".bed", 5);
+    if (fopen_checked(outname, FOPEN_WB, &outfile)) {
+      goto oxford_to_bed_ret_OPEN_FAIL;
+    }
+    if (fwrite_checked("l\x1b\x01", 3, outfile)) {
+      goto oxford_to_bed_ret_WRITE_FAIL;
+    }
+    if (!is_bgen) {
+      loadbuf_size = bigstack_left();
+      if (loadbuf_size > MAXLINEBUFLEN) {
+	loadbuf_size = MAXLINEBUFLEN;
+      } else if (loadbuf_size <= MAXLINELEN) {
+	goto oxford_to_bed_ret_NOMEM;
+      }
+      loadbuf = (char*)g_bigstack_base;
+      retval = gzopen_read_checked(genname, &gz_infile);
+      if (retval) {
+	goto oxford_to_bed_ret_1;
+      }
+      loadbuf[loadbuf_size - 1] = ' ';
+      line_idx = 0;
+      while (1) {
+	line_idx++;
+	if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
+	  if (!gzeof(gz_infile)) {
+	    goto oxford_to_bed_ret_READ_FAIL;
+	  }
+	  break;
+	}
+	if (!loadbuf[loadbuf_size - 1]) {
+	  if (loadbuf_size == MAXLINEBUFLEN) {
+	    LOGERRPRINTF("Error: Line %" PRIuPTR " of .gen file is pathologically long.\n", line_idx);
 	    goto oxford_to_bed_ret_INVALID_FORMAT;
 	  }
-	  retval = resolve_or_add_chrom_name(bufptr, ".gen file", line_idx, chrom_info_ptr, &ii);
-	  if (retval) {
-	    goto oxford_to_bed_ret_1;
-	  }
+	  goto oxford_to_bed_ret_NOMEM;
 	}
-	if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
+	bufptr = skip_initial_spaces(loadbuf);
+	if (is_eoln_kns(*bufptr)) {
 	  continue;
 	}
-      }
-      fill_ulong_zero(sample_ctl2, writebuf);
-      if (single_chr) {
-	fputs(single_chr, outfile_bim);
-        putc(' ', outfile_bim);
-	bufptr = next_token(bufptr);
-	bufptr2 = next_token(bufptr);
-      } else {
-	bufptr2 = next_token_mult(bufptr, 2);
-      }
-      if (!bufptr2) {
-	goto oxford_to_bed_ret_MISSING_TOKENS_GEN;
-      }
-      fwrite(bufptr, 1, bufptr2 - bufptr, outfile_bim);
-      putc('0', outfile_bim);
-      if (putc_checked(' ', outfile_bim)) {
-	goto oxford_to_bed_ret_WRITE_FAIL;
-      }
-      bufptr = next_token(bufptr2);
-      bufptr3 = next_token(bufptr);
-      if (no_more_tokens_kns(bufptr3)) {
-	goto oxford_to_bed_ret_MISSING_TOKENS_GEN;
-      }
-      // bufptr2 = pos
-      // bufptr  = allele 1
-      // bufptr3 = allele 2
-      bufptr4 = token_endnn(bufptr3);
-      uii = (uintptr_t)(bufptr4 - bufptr3);
-      identical_alleles = (strlen_se(bufptr) == uii) && (!memcmp(bufptr, bufptr3, uii));
-      if (identical_alleles) {
-	// we treat identical A1 and A2 as a special case, since naive handling
-	// prevents e.g. later data merge.
-	// maybe add a warning?
-	fwrite(bufptr2, 1, strlen_se(bufptr2), outfile_bim);
-        fputs(" 0 ", outfile_bim);
-	fwrite(bufptr3, 1, bufptr4 - bufptr3, outfile_bim);        
-      } else {
-	fwrite(bufptr2, 1, bufptr4 - bufptr2, outfile_bim);
-      }
-      if (putc_checked('\n', outfile_bim)) {
-	goto oxford_to_bed_ret_WRITE_FAIL;
-      }
-      if (sample_ct) {
-	cur_word = 0;
-	shiftval = 0;
-	ulptr = writebuf;
-	bufptr = skip_initial_spaces(bufptr4);
-	for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
-	  if (is_eoln_kns(*bufptr)) {
-	    goto oxford_to_bed_ret_MISSING_TOKENS_GEN;
+	if (!single_chr) {
+	  int32_t cur_chrom_code = get_chrom_code_nt();;;
+	  // ***** continue working from here *****
+	  ii = get_chrom_code(chrom_info_ptr, bufptr);
+	  if (ii < 0) {
+	    if (chrom_error(".gen file", chrom_info_ptr, bufptr, line_idx, ii, allow_extra_chroms)) {
+	      if (!memcmp(bufptr, "---", 3)) {
+		logprint("(Did you forget --oxford-single-chr?)\n");
+	      }
+	      goto oxford_to_bed_ret_INVALID_FORMAT;
+	    }
+	    retval = resolve_or_add_chrom_name(bufptr, ".gen file", line_idx, chrom_info_ptr, &ii);
+	    if (retval) {
+	      goto oxford_to_bed_ret_1;
+	    }
 	  }
-	  // fast handling of common cases
-	  cc = bufptr[1];
-	  if ((cc == ' ') || (cc == '\t')) {
-	    cc = bufptr[3];
-	    cc2 = bufptr[5];
-	    if (((cc == ' ') || (cc == '\t')) && ((cc2 == ' ') || (cc2 == '\t'))) {
-	      cc = *bufptr;
-	      if (cc == '0') {
-		bufptr2 = &(bufptr[2]);
-		cc = *bufptr2;
-		cc2 = bufptr2[2];
+	  if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
+	    continue;
+	  }
+	}
+	fill_ulong_zero(sample_ctl2, writebuf);
+	if (single_chr) {
+	  fputs(single_chr, outfile_bim);
+	  putc(' ', outfile_bim);
+	  bufptr = next_token(bufptr);
+	  bufptr2 = next_token(bufptr);
+	} else {
+	  bufptr2 = next_token_mult(bufptr, 2);
+	}
+	if (!bufptr2) {
+	  goto oxford_to_bed_ret_MISSING_TOKENS_GEN;
+	}
+	fwrite(bufptr, 1, bufptr2 - bufptr, outfile_bim);
+	putc('0', outfile_bim);
+	if (putc_checked(' ', outfile_bim)) {
+	  goto oxford_to_bed_ret_WRITE_FAIL;
+	}
+	bufptr = next_token(bufptr2);
+	bufptr3 = next_token(bufptr);
+	if (no_more_tokens_kns(bufptr3)) {
+	  goto oxford_to_bed_ret_MISSING_TOKENS_GEN;
+	}
+	// bufptr2 = pos
+	// bufptr  = allele 1
+	// bufptr3 = allele 2
+	bufptr4 = token_endnn(bufptr3);
+	uii = (uintptr_t)(bufptr4 - bufptr3);
+	identical_alleles = (strlen_se(bufptr) == uii) && (!memcmp(bufptr, bufptr3, uii));
+	if (identical_alleles) {
+	  // we treat identical A1 and A2 as a special case, since naive handling
+	  // prevents e.g. later data merge.
+	  // maybe add a warning?
+	  fwrite(bufptr2, 1, strlen_se(bufptr2), outfile_bim);
+	  fputs(" 0 ", outfile_bim);
+	  fwrite(bufptr3, 1, bufptr4 - bufptr3, outfile_bim);        
+	} else {
+	  fwrite(bufptr2, 1, bufptr4 - bufptr2, outfile_bim);
+	}
+	if (putc_checked('\n', outfile_bim)) {
+	  goto oxford_to_bed_ret_WRITE_FAIL;
+	}
+	if (sample_ct) {
+	  cur_word = 0;
+	  shiftval = 0;
+	  ulptr = writebuf;
+	  bufptr = skip_initial_spaces(bufptr4);
+	  for (sample_idx = 0; sample_idx < sample_ct; sample_idx++) {
+	    if (is_eoln_kns(*bufptr)) {
+	      goto oxford_to_bed_ret_MISSING_TOKENS_GEN;
+	    }
+	    // fast handling of common cases
+	    cc = bufptr[1];
+	    if ((cc == ' ') || (cc == '\t')) {
+	      cc = bufptr[3];
+	      cc2 = bufptr[5];
+	      if (((cc == ' ') || (cc == '\t')) && ((cc2 == ' ') || (cc2 == '\t'))) {
+		cc = *bufptr;
 		if (cc == '0') {
-		  if (cc2 == '1') {
-		    ulii = 3;
-		  } else if (cc2 == '0') {
-		    ulii = 1;
+		  bufptr2 = &(bufptr[2]);
+		  cc = *bufptr2;
+		  cc2 = bufptr2[2];
+		  if (cc == '0') {
+		    if (cc2 == '1') {
+		      ulii = 3;
+		    } else if (cc2 == '0') {
+		      ulii = 1;
+		    } else {
+		      // could be a space...
+		      goto oxford_to_bed_full_parse_2;
+		    }
+		  } else if ((cc == '1') && (cc2 == '0')) {
+		    ulii = 2;
 		  } else {
-		    // could be a space...
 		    goto oxford_to_bed_full_parse_2;
 		  }
-		} else if ((cc == '1') && (cc2 == '0')) {
-		  ulii = 2;
+		} else if ((cc == '1') && (bufptr[2] == '0') && (bufptr[4] == '0')) {
+		  ulii = 0;
 		} else {
-		  goto oxford_to_bed_full_parse_2;
+		  goto oxford_to_bed_full_parse;
 		}
-	      } else if ((cc == '1') && (bufptr[2] == '0') && (bufptr[4] == '0')) {
-		ulii = 0;
+		bufptr = &(bufptr[6]);
 	      } else {
 		goto oxford_to_bed_full_parse;
 	      }
-	      bufptr = &(bufptr[6]);
 	    } else {
-	      goto oxford_to_bed_full_parse;
-	    }
-	  } else {
-	    // okay, gotta do things the slow way
-	  oxford_to_bed_full_parse:
-	    bufptr2 = token_endnn(bufptr);
-	  oxford_to_bed_full_parse_2:
-	    bufptr2 = skip_initial_spaces(bufptr2);
-	    if (is_eoln_kns(*bufptr2)) {
-	      goto oxford_to_bed_ret_MISSING_TOKENS_GEN;
-	    }
-	    bufptr3 = token_endnn(bufptr2);
-	    dzz = strtod(bufptr3, &bufptr4);
-	    if (!is_randomized) {
-	      if (dzz >= hard_call_floor) {
-		ulii = 3;
-	      } else {
-		if (bufptr3 == bufptr4) {
-		  goto oxford_to_bed_ret_INVALID_DOSAGE;
-		}
-		dyy = strtod(bufptr2, &bufptr3);
-		if (dyy >= hard_call_floor) {
-		  ulii = 2;
+	      // okay, gotta do things the slow way
+	    oxford_to_bed_full_parse:
+	      bufptr2 = token_endnn(bufptr);
+	    oxford_to_bed_full_parse_2:
+	      bufptr2 = skip_initial_spaces(bufptr2);
+	      if (is_eoln_kns(*bufptr2)) {
+		goto oxford_to_bed_ret_MISSING_TOKENS_GEN;
+	      }
+	      bufptr3 = token_endnn(bufptr2);
+	      dzz = strtod(bufptr3, &bufptr4);
+	      if (!is_randomized) {
+		if (dzz >= hard_call_floor) {
+		  ulii = 3;
 		} else {
-		  if (bufptr2 == bufptr3) {
+		  if (bufptr3 == bufptr4) {
 		    goto oxford_to_bed_ret_INVALID_DOSAGE;
 		  }
-		  dxx = strtod(bufptr, &bufptr2);
-		  if (dxx >= hard_call_floor) {
-		    ulii = 0;
+		  dyy = strtod(bufptr2, &bufptr3);
+		  if (dyy >= hard_call_floor) {
+		    ulii = 2;
 		  } else {
-		    if (bufptr == bufptr2) {
+		    if (bufptr2 == bufptr3) {
 		      goto oxford_to_bed_ret_INVALID_DOSAGE;
 		    }
-		    ulii = 1;
+		    dxx = strtod(bufptr, &bufptr2);
+		    if (dxx >= hard_call_floor) {
+		      ulii = 0;
+		    } else {
+		      if (bufptr == bufptr2) {
+			goto oxford_to_bed_ret_INVALID_DOSAGE;
+		      }
+		      ulii = 1;
+		    }
+		  }
+		}
+	      } else {
+		drand = rand_unif();
+		if (drand < dzz) {
+		  ulii = 3;
+		} else {
+		  if (bufptr3 == bufptr4) {
+		    goto oxford_to_bed_ret_INVALID_DOSAGE;
+		  }
+		  dyy = strtod(bufptr2, &bufptr3) + dzz;
+		  if (drand < dyy) {
+		    ulii = 2;
+		  } else {
+		    if (bufptr2 == bufptr3) {
+		      goto oxford_to_bed_ret_INVALID_DOSAGE;
+		    }
+		    dxx = strtod(bufptr, &bufptr2) + dyy;
+		    if (drand < dyy) {
+		      ulii = 0;
+		    } else if (dxx < 1 - D_EPSILON) {
+		      ulii = 1;
+		    } else {
+		      // fully called genotype probabilities may add up to less
+		      // than one due to rounding error.  If this appears to have
+		      // happened, do NOT make a missing call; instead rescale
+		      // everything to add to one and reinterpret the random
+		      // number.  (D_EPSILON is currently set to make 4 decimal
+		      // place precision safe to use.)
+		      drand *= dxx;
+		      if (drand < dzz) {
+			ulii = 3;
+		      } else if (drand < dyy) {
+			ulii = 2;
+		      } else {
+			ulii = 0;
+		      }
+		    }
 		  }
 		}
 	      }
+	      bufptr = skip_initial_spaces(bufptr4);
+	    }
+	    cur_word |= ulii << shiftval;
+	    shiftval += 2;
+	    if (shiftval == BITCT) {
+	      *ulptr++ = cur_word;
+	      cur_word = 0;
+	      shiftval = 0;
+	    }
+	  }
+	  if (shiftval) {
+	    *ulptr++ = cur_word;
+	  }
+	  if (identical_alleles) {
+	    // keep missing calls, but convert hom/het A1 to hom A2.
+	    for (ulptr = writebuf; ulptr < (&(writebuf[sample_ctl2])); ulptr++) {
+	      ulii = *ulptr;
+	      *ulptr = ((~ulii) << 1) | ulii | FIVEMASK;
+	    }
+	    if (sample_ct % 4) {
+	      writebuf[sample_ctl2 - 1] &= (ONELU << (2 * (sample_ct % BITCT2))) - ONELU;
+	    }
+	  }
+	  if (fwrite_checked(writebuf, sample_ct4, outfile)) {
+	    goto oxford_to_bed_ret_WRITE_FAIL;
+	  }
+	}
+	marker_ct++;
+	if (!(marker_ct % 1000)) {
+	  printf("\r--data: %uk variants converted.", marker_ct / 1000);
+	  fflush(stdout);
+	}
+      }
+      if ((!marker_ct) && (!allow_no_variants)) {
+	logerrprint("Error: Empty .gen file.\n");
+	goto oxford_to_bed_ret_INVALID_FORMAT;
+      }
+    } else {
+      if (fopen_checked(genname, FOPEN_RB, &infile)) {
+	goto oxford_to_bed_ret_OPEN_FAIL;
+      }
+      // supports BGEN v1.0 and v1.1.
+      bgen_probs = (uint16_t*)bigstack_alloc(6LU * sample_ct);
+      if (!bgen_probs) {
+	goto oxford_to_bed_ret_NOMEM;
+      }
+      loadbuf = (char*)g_bigstack_base;
+      loadbuf_size = bigstack_left();
+      if (loadbuf_size > MAXLINEBUFLEN) {
+	loadbuf_size = MAXLINEBUFLEN;
+      } else if (loadbuf_size < 3 * 65536) {
+	goto oxford_to_bed_ret_NOMEM;
+      }
+      if (fread(uint_arr, 1, 20, infile) < 20) {
+	goto oxford_to_bed_ret_READ_FAIL;
+      }
+      if (uint_arr[1] > uint_arr[0]) {
+	logerrprint("Error: Invalid .bgen header.\n");
+	goto oxford_to_bed_ret_INVALID_FORMAT;
+      }
+      raw_marker_ct = uint_arr[2];
+      if ((!raw_marker_ct) && (!allow_no_variants)) {
+	logerrprint("Error: .bgen file contains no variants.\n");
+	goto oxford_to_bed_ret_INVALID_FORMAT;
+      }
+      if (uint_arr[3] != sample_ct) {
+	logerrprint("Error: --bgen and --sample files contain different numbers of samples.\n");
+	goto oxford_to_bed_ret_INVALID_FORMAT;
+      }
+      if (uint_arr[4] && (uint_arr[4] != 0x6e656762)) {
+	logerrprint("Error: Invalid .bgen magic number.\n");
+	goto oxford_to_bed_ret_INVALID_FORMAT;
+      }
+      if (fseeko(infile, uint_arr[1], SEEK_SET)) {
+	goto oxford_to_bed_ret_READ_FAIL;
+      }
+      if (fread(&uii, 1, 4, infile) < 4) {
+	goto oxford_to_bed_ret_READ_FAIL;
+      }
+      if (uii & (~5)) {
+	uii = (uii >> 2) & 15;
+	if (uii == 2) {
+	  logerrprint("Error: BGEN v1.2 input requires PLINK 2.0 (under development as of this\nwriting).  Use gen-convert to downcode to BGEN v1.1 if you want to process this\ndata with PLINK 1.9.\n");
+	} else if (uii > 2) {
+	  logerrprint("Error: Unrecognized BGEN version.  Use gen-convert or a similar tool to\ndowncode to BGEN v1.1 if you want to process this data with PLINK 1.9.\n");
+	} else {
+	  logerrprint("Error: Unrecognized flags in .bgen header.  (PLINK 1.9 only supports\nBGEN v1.0 and v1.1.)\n");
+	}
+	goto oxford_to_bed_ret_INVALID_FORMAT;
+      }
+      if (fseeko(infile, 4 + uint_arr[0], SEEK_SET)) {
+	goto oxford_to_bed_ret_READ_FAIL;
+      }
+      bgen_compressed = uii & 1;
+      bgen_multichar_alleles = (uii >> 2) & 1;
+      if ((!bgen_multichar_alleles) && (!snpid_chr) && (chrom_info_ptr->species != SPECIES_HUMAN)) {
+	logerrprint("Error: BGEN v1.0 files can only support nonhuman genomes if the SNP ID field is\nused for chromosome codes.\n");
+	goto oxford_to_bed_ret_INVALID_CMDLINE;
+      }
+      if (!is_randomized) {
+	bgen_hardthresh = 32768 - (int32_t)(hard_call_threshold * 32768);
+      }
+      memcpyl3(g_textbuf, " 0 ");
+      for (marker_uidx = 0; marker_uidx < raw_marker_ct; marker_uidx++) {
+	if (fread(&uii, 1, 4, infile) < 4) {
+	  goto oxford_to_bed_ret_READ_FAIL;
+	}
+	if (uii != sample_ct) {
+	  logerrprint("Error: Unexpected number of samples specified in SNP block header.\n");
+	  goto oxford_to_bed_ret_INVALID_FORMAT;
+	}
+	if (bgen_multichar_alleles) {
+	  // v1.1
+	  if (fread(&usii, 1, 2, infile) < 2) {
+	    goto oxford_to_bed_ret_READ_FAIL;
+	  }
+	  if (!snpid_chr) {
+	    if (fseeko(infile, usii, SEEK_CUR)) {
+	      goto oxford_to_bed_ret_READ_FAIL;
+	    }
+	    bufptr = loadbuf;
+	  } else {
+	    if (!usii) {
+	      logerrprint("Error: Length-0 SNP ID in .bgen file.\n");
+	      goto oxford_to_bed_ret_INVALID_FORMAT;
+	    }
+	    if (fread(loadbuf, 1, usii, infile) < usii) {
+	      goto oxford_to_bed_ret_READ_FAIL;
+	    }
+	    loadbuf[usii] = '\0';
+	    bufptr = &(loadbuf[usii + 1]);
+	  }
+	  if (fread(&usjj, 1, 2, infile) < 2) {
+	    goto oxford_to_bed_ret_READ_FAIL;
+	  }
+	  if (!usjj) {
+	    logerrprint("Error: Length-0 rsID in .bgen file.\n");
+	    goto oxford_to_bed_ret_INVALID_FORMAT;
+	  }
+	  if (fread(bufptr, 1, usjj, infile) < usjj) {
+	    goto oxford_to_bed_ret_READ_FAIL;
+	  }
+	  bufptr2 = &(bufptr[usjj]);
+	  if (fread(&uskk, 1, 2, infile) < 2) {
+	    goto oxford_to_bed_ret_READ_FAIL;
+	  }
+	  if (!snpid_chr) {
+	    if (!uskk) {
+	      logerrprint("Error: Length-0 chromosome ID in .bgen file.\n");
+	      goto oxford_to_bed_ret_INVALID_FORMAT;
+	    }
+	    usii = uskk;
+	    if (fread(bufptr2, 1, usii, infile) < usii) {
+	      goto oxford_to_bed_ret_READ_FAIL;
+	    }
+	    if ((usii == 2) && (!memcmp(bufptr2, "NA", 2))) {
+	      // convert 'NA' to 0
+	      usii = 1;
+	      memcpy(bufptr2, "0", 2);
 	    } else {
-	      drand = rand_unif();
-	      if (drand < dzz) {
-		ulii = 3;
+	      bufptr2[usii] = '\0';
+	    }
+	  } else {
+	    if (fseeko(infile, uskk, SEEK_CUR)) {
+	      goto oxford_to_bed_ret_READ_FAIL;
+	    }
+	    bufptr2 = loadbuf;
+	  }
+	  if (fread(uint_arr, 1, 8, infile) < 8) {
+	    goto oxford_to_bed_ret_READ_FAIL;
+	  }
+	  if (!uint_arr[1]) {
+	    logerrprint("Error: Length-0 allele ID in .bgen file.\n");
+	    goto oxford_to_bed_ret_INVALID_FORMAT;
+	  }
+	  ii = get_chrom_code(chrom_info_ptr, bufptr2);
+	  if (ii < 0) {
+	    if (chrom_error(".bgen file", chrom_info_ptr, bufptr2, 0, ii, allow_extra_chroms)) {
+	      goto oxford_to_bed_ret_INVALID_FORMAT;
+	    }
+	    retval = resolve_or_add_chrom_name(bufptr2, ".bgen file", 0, chrom_info_ptr, &ii);
+	    if (retval) {
+	      goto oxford_to_bed_ret_1;
+	    }
+	  }
+	  if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
+	    // skip rest of current SNP
+	    if (fseeko(infile, uint_arr[1], SEEK_CUR)) {
+	      goto oxford_to_bed_ret_READ_FAIL;
+	    }
+	    if (fread(&uii, 1, 4, infile) < 4) {
+	      goto oxford_to_bed_ret_READ_FAIL;
+	    }
+	    if (bgen_compressed) {
+	      if (fseeko(infile, uii, SEEK_CUR)) {
+		goto oxford_to_bed_ret_READ_FAIL;
+	      }
+	      if (fread(&uii, 1, 4, infile) < 4) {
+		goto oxford_to_bed_ret_READ_FAIL;
+	      }
+	      if (fseeko(infile, uii, SEEK_CUR)) {
+		goto oxford_to_bed_ret_READ_FAIL;
+	      }
+	    } else {
+	      if (fseeko(infile, uii + ((uint64_t)sample_ct) * 6, SEEK_CUR)) {
+		goto oxford_to_bed_ret_READ_FAIL;
+	      }
+	    }
+	    continue;
+	  }
+	  fputs(bufptr2, outfile_bim);
+	  if (putc_checked(' ', outfile_bim)) {
+	    goto oxford_to_bed_ret_WRITE_FAIL;
+	  }
+	  fwrite(bufptr, 1, usjj, outfile_bim);
+	  bufptr = uint32toa_x(uint_arr[0], ' ', &(g_textbuf[3]));
+	  fwrite(g_textbuf, 1, bufptr - g_textbuf, outfile_bim);
+
+	  // halve the limit since there are two alleles
+	  // (may want to enforce NON_BIGSTACK_MIN allele length limit?)
+	  if (uint_arr[1] >= loadbuf_size / 2) {
+	    if (loadbuf_size < MAXLINEBUFLEN) {
+	      goto oxford_to_bed_ret_NOMEM;
+	    }
+	    logerrprint("Error: Excessively long allele in .bgen file.\n");
+	    goto oxford_to_bed_ret_INVALID_FORMAT;
+	  }
+	  if (fread(loadbuf, 1, uint_arr[1], infile) < uint_arr[1]) {
+	    goto oxford_to_bed_ret_READ_FAIL;
+	  }
+	  loadbuf[uint_arr[1]] = ' ';
+	  if (fread(&uii, 1, 4, infile) < 4) {
+	    goto oxford_to_bed_ret_READ_FAIL;
+	  }
+	  if (uii >= loadbuf_size / 2) {
+	    if (loadbuf_size < MAXLINEBUFLEN) {
+	      goto oxford_to_bed_ret_NOMEM;
+	    }
+	    logerrprint("Error: Excessively long allele in .bgen file.\n");
+	    goto oxford_to_bed_ret_INVALID_FORMAT;
+	  }
+	  bufptr = &(loadbuf[uint_arr[1] + 1]);
+	  if (fread(bufptr, 1, uii, infile) < uii) {
+	    goto oxford_to_bed_ret_READ_FAIL;
+	  }
+	  bufptr[uii] = '\n';
+	  identical_alleles = (uii == uint_arr[1]) && (!memcmp(loadbuf, bufptr, uii));
+	  if (!identical_alleles) {
+	    if (fwrite_checked(loadbuf, uint_arr[1] + uii + 2, outfile_bim)) {
+	      goto oxford_to_bed_ret_WRITE_FAIL;
+	    }
+	  } else {
+	    fputs("0 ", outfile_bim);
+	    if (fwrite_checked(bufptr, uii + 1, outfile_bim)) {
+	      goto oxford_to_bed_ret_WRITE_FAIL;
+	    }
+	  }
+	} else {
+	  // v1.0
+	  uii = 0;
+	  if (fread(&uii, 1, 1, infile) < 1) {
+	    goto oxford_to_bed_ret_READ_FAIL;
+	  }
+	  if (fread(loadbuf, 1, 2 * uii + 9, infile) < (2 * uii + 9)) {
+	    goto oxford_to_bed_ret_READ_FAIL;
+	  }
+	  // save marker ID length since we might clobber it
+	  ukk = (unsigned char)(loadbuf[uii + 1]);
+	  if (!snpid_chr) {
+	    ii = ((unsigned char)(loadbuf[2 * uii + 2]));
+	    if (ii > 24) {
+	      if (ii == 255) {
+		// unknown
+		ii = 0;
+	      } else if (ii > 252) {
+		// XY or MT
+		ii = ii - 228;
 	      } else {
-		if (bufptr3 == bufptr4) {
-		  goto oxford_to_bed_ret_INVALID_DOSAGE;
+		logerrprint("Error: Invalid chromosome code in BGEN v1.0 file.\n");
+		goto oxford_to_bed_ret_INVALID_FORMAT;
+	      }
+	    }
+	    uint32toa_x((uint32_t)ii, '\0', loadbuf);
+	    bufptr = loadbuf;
+	  } else {
+	    ujj = (unsigned char)loadbuf[0];
+	    bufptr = &(loadbuf[1]);
+	    if ((ujj == 2) && (!memcmp(bufptr, "NA", 2))) {
+	      *bufptr = '0';
+	      ujj = 1;
+	    }
+	    bufptr[ujj] = '\0';
+	    ii = get_chrom_code(chrom_info_ptr, bufptr);
+	    if (ii < 0) {
+	      if (chrom_error(".bgen file", chrom_info_ptr, bufptr, 0, ii, allow_extra_chroms)) {
+		goto oxford_to_bed_ret_INVALID_FORMAT;
+	      }
+	      retval = resolve_or_add_chrom_name(bufptr, ".bgen file", 0, chrom_info_ptr, &ii);
+	      if (retval) {
+		goto oxford_to_bed_ret_1;
+	      }
+	    }
+	  }
+	  if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
+	    if (bgen_compressed) {
+	      if (fread(&uii, 1, 4, infile) < 4) {
+		goto oxford_to_bed_ret_READ_FAIL;
+	      }
+	      if (fseeko(infile, uii, SEEK_CUR)) {
+		goto oxford_to_bed_ret_READ_FAIL;
+	      }
+	    } else {
+	      if (fseeko(infile, ((uint64_t)sample_ct) * 6, SEEK_CUR)) {
+		goto oxford_to_bed_ret_READ_FAIL;
+	      }
+	    }
+	    continue;
+	  }
+	  fputs(bufptr, outfile_bim);
+	  if (putc_checked(' ', outfile_bim)) {
+	    goto oxford_to_bed_ret_WRITE_FAIL;
+	  }
+	  fwrite(&(loadbuf[uii + 2]), 1, ukk, outfile_bim);
+	  memcpy(&ujj, &(loadbuf[2 * uii + 3]), 4);
+	  bufptr = uint32toa_x(ujj, ' ', &(g_textbuf[3]));
+	  identical_alleles = (loadbuf[2 * uii + 7] == loadbuf[2 * uii + 8]);
+	  if (!identical_alleles) {
+	    *bufptr++ = loadbuf[2 * uii + 7];
+	  } else {
+	    *bufptr++ = '0';
+	  }
+	  *bufptr++ = ' ';
+	  *bufptr++ = loadbuf[2 * uii + 8];
+	  *bufptr++ = '\n';
+	  if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile_bim)) {
+	    goto oxford_to_bed_ret_WRITE_FAIL;
+	  }
+	}
+	if (bgen_compressed) {
+	  if (fread(&uii, 1, 4, infile) < 4) {
+	    goto oxford_to_bed_ret_READ_FAIL;
+	  }
+	  if (uii > loadbuf_size) {
+	    if (loadbuf_size < MAXLINEBUFLEN) {
+	      goto oxford_to_bed_ret_NOMEM;
+	    }
+	    logerrprint("Error: Excessively long compressed SNP block in .bgen file.\n");
+	    goto oxford_to_bed_ret_INVALID_FORMAT;
+	  }
+	  if (fread(loadbuf, 1, uii, infile) < uii) {
+	    goto oxford_to_bed_ret_READ_FAIL;
+	  }
+	  zlib_ulongf = 6 * sample_ct;
+	  if (uncompress((Bytef*)bgen_probs, &zlib_ulongf, (Bytef*)loadbuf, uii) != Z_OK) {
+	    logerrprint("Error: Invalid compressed SNP block in .bgen file.\n");
+	    goto oxford_to_bed_ret_INVALID_FORMAT;
+	  }
+	} else {
+	  if (fread(bgen_probs, 1, 6 * sample_ct, infile) < 6 * sample_ct) {
+	    goto oxford_to_bed_ret_READ_FAIL;
+	  }
+	}
+	cur_word = 0;
+	shiftval = 0;
+	ulptr = writebuf;
+	usptr = bgen_probs;
+	if (!is_randomized) {
+	  for (sample_idx = 0; sample_idx < sample_ct; sample_idx++, usptr = &(usptr[3])) {
+	    if (usptr[2] >= bgen_hardthresh) {
+	      ulii = 3;
+	    } else if (usptr[1] >= bgen_hardthresh) {
+	      ulii = 2;
+	    } else if (usptr[0] >= bgen_hardthresh) {
+	      ulii = 0;
+	    } else {
+	      ulii = 1;
+	    }
+	    cur_word |= ulii << shiftval;
+	    shiftval += 2;
+	    if (shiftval == BITCT) {
+	      *ulptr++ = cur_word;
+	      cur_word = 0;
+	      shiftval = 0;
+	    }
+	  }
+	} else {
+	  uii = 0;
+	  for (sample_idx = 0; sample_idx < sample_ct; sample_idx++, usptr = &(usptr[3])) {
+	    // fast handling of common cases
+	    ukk = usptr[2];
+	    if (ukk >= 32768) {
+	      ulii = 3;
+	    } else if (usptr[1] >= 32768) {
+	      ulii = 2;
+	    } else if (usptr[0] >= 32768) {
+	      ulii = 0;
+	    } else {
+	      while (1) {
+		uii >>= 16;
+		if (!uii) {
+		  uii = sfmt_genrand_uint32(&g_sfmt) | 0x80000000U;
 		}
-		dyy = strtod(bufptr2, &bufptr3) + dzz;
-		if (drand < dyy) {
-		  ulii = 2;
+		ujj = uii & 32767;
+		if (ujj < ukk) {
+		  ulii = 3;
+		  break;
 		} else {
-		  if (bufptr2 == bufptr3) {
-		    goto oxford_to_bed_ret_INVALID_DOSAGE;
-		  }
-		  dxx = strtod(bufptr, &bufptr2) + dyy;
-		  if (drand < dyy) {
-		    ulii = 0;
-		  } else if (dxx < 1 - D_EPSILON) {
-		    ulii = 1;
+		  ukk += usptr[1];
+		  if (ujj < ukk) {
+		    ulii = 2;
+		    break;
 		  } else {
-		    // fully called genotype probabilities may add up to less
-		    // than one due to rounding error.  If this appears to have
-		    // happened, do NOT make a missing call; instead rescale
-		    // everything to add to one and reinterpret the random
-		    // number.  (D_EPSILON is currently set to make 4 decimal
-		    // place precision safe to use.)
-		    drand *= dxx;
-		    if (drand < dzz) {
-		      ulii = 3;
-		    } else if (drand < dyy) {
-		      ulii = 2;
-		    } else {
+		    ukk += usptr[0];
+		    if (ujj < ukk) {
 		      ulii = 0;
+		      break;
+		    } else if (ukk < 32766) {
+		      ulii = 1;
+		      break;
+		    } else {
+		      ukk = usptr[2];
 		    }
 		  }
 		}
 	      }
 	    }
-	    bufptr = skip_initial_spaces(bufptr4);
-	  }
-	  cur_word |= ulii << shiftval;
-	  shiftval += 2;
-	  if (shiftval == BITCT) {
-	    *ulptr++ = cur_word;
-	    cur_word = 0;
-	    shiftval = 0;
+	    cur_word |= ulii << shiftval;
+	    shiftval += 2;
+	    if (shiftval == BITCT) {
+	      *ulptr++ = cur_word;
+	      cur_word = 0;
+	      shiftval = 0;
+	    }
 	  }
 	}
 	if (shiftval) {
 	  *ulptr++ = cur_word;
 	}
 	if (identical_alleles) {
-	  // keep missing calls, but convert hom/het A1 to hom A2.
 	  for (ulptr = writebuf; ulptr < (&(writebuf[sample_ctl2])); ulptr++) {
 	    ulii = *ulptr;
 	    *ulptr = ((~ulii) << 1) | ulii | FIVEMASK;
@@ -4737,453 +5149,30 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	if (fwrite_checked(writebuf, sample_ct4, outfile)) {
 	  goto oxford_to_bed_ret_WRITE_FAIL;
 	}
+	marker_ct++;
+	if (!(marker_ct % 1000)) {
+	  if (marker_ct == marker_uidx + 1) {
+	    printf("\r--bgen: %uk variants converted.", marker_ct / 1000);
+	  } else {
+	    printf("\r--bgen: %uk variants converted (out of %u).", marker_ct / 1000, marker_uidx + 1);
+	  }
+	  fflush(stdout);
+	}
       }
-      marker_ct++;
-      if (!(marker_ct % 1000)) {
-	printf("\r--data: %uk variants converted.", marker_ct / 1000);
-	fflush(stdout);
-      }
-    }
-    if ((!marker_ct) && (!allow_no_variants)) {
-      logerrprint("Error: Empty .gen file.\n");
-      goto oxford_to_bed_ret_INVALID_FORMAT;
-    }
-  } else {
-    if (fopen_checked(genname, FOPEN_RB, &infile)) {
-      goto oxford_to_bed_ret_OPEN_FAIL;
-    }
-    // supports BGEN v1.0 and v1.1.
-    bgen_probs = (uint16_t*)bigstack_alloc(6LU * sample_ct);
-    if (!bgen_probs) {
-      goto oxford_to_bed_ret_NOMEM;
-    }
-    loadbuf = (char*)g_bigstack_base;
-    loadbuf_size = bigstack_left();
-    if (loadbuf_size > MAXLINEBUFLEN) {
-      loadbuf_size = MAXLINEBUFLEN;
-    } else if (loadbuf_size < 3 * 65536) {
-      goto oxford_to_bed_ret_NOMEM;
-    }
-    if (fread(uint_arr, 1, 20, infile) < 20) {
-      goto oxford_to_bed_ret_READ_FAIL;
-    }
-    if (uint_arr[1] > uint_arr[0]) {
-      logerrprint("Error: Invalid .bgen header.\n");
-      goto oxford_to_bed_ret_INVALID_FORMAT;
-    }
-    raw_marker_ct = uint_arr[2];
-    if ((!raw_marker_ct) && (!allow_no_variants)) {
-      logerrprint("Error: .bgen file contains no variants.\n");
-      goto oxford_to_bed_ret_INVALID_FORMAT;
-    }
-    if (uint_arr[3] != sample_ct) {
-      logerrprint("Error: --bgen and --sample files contain different numbers of samples.\n");
-      goto oxford_to_bed_ret_INVALID_FORMAT;
-    }
-    if (uint_arr[4] && (uint_arr[4] != 0x6e656762)) {
-      logerrprint("Error: Invalid .bgen magic number.\n");
-      goto oxford_to_bed_ret_INVALID_FORMAT;
-    }
-    if (fseeko(infile, uint_arr[1], SEEK_SET)) {
-      goto oxford_to_bed_ret_READ_FAIL;
-    }
-    if (fread(&uii, 1, 4, infile) < 4) {
-      goto oxford_to_bed_ret_READ_FAIL;
-    }
-    if (uii & (~5)) {
-      uii = (uii >> 2) & 15;
-      if (uii == 2) {
-	logerrprint("Error: BGEN v1.2 input requires PLINK 2.0 (under development as of this\nwriting).  Use gen-convert to downcode to BGEN v1.1 if you want to process this\ndata with PLINK 1.9.\n");
-      } else if (uii > 2) {
-	logerrprint("Error: Unrecognized BGEN version.  Use gen-convert or a similar tool to\ndowncode to BGEN v1.1 if you want to process this data with PLINK 1.9.\n");
-      } else {
-        logerrprint("Error: Unrecognized flags in .bgen header.  (PLINK 1.9 only supports\nBGEN v1.0 and v1.1.)\n");
-      }
-      goto oxford_to_bed_ret_INVALID_FORMAT;
-    }
-    if (fseeko(infile, 4 + uint_arr[0], SEEK_SET)) {
-      goto oxford_to_bed_ret_READ_FAIL;
-    }
-    bgen_compressed = uii & 1;
-    bgen_multichar_alleles = (uii >> 2) & 1;
-    if ((!bgen_multichar_alleles) && (!snpid_chr) && (chrom_info_ptr->species != SPECIES_HUMAN)) {
-      logerrprint("Error: BGEN v1.0 files can only support nonhuman genomes if the SNP ID field is\nused for chromosome codes.\n");
-      goto oxford_to_bed_ret_INVALID_CMDLINE;
-    }
-    if (!is_randomized) {
-      bgen_hardthresh = 32768 - (int32_t)(hard_call_threshold * 32768);
-    }
-    memcpyl3(g_textbuf, " 0 ");
-    for (marker_uidx = 0; marker_uidx < raw_marker_ct; marker_uidx++) {
-      if (fread(&uii, 1, 4, infile) < 4) {
+      if (fclose_null(&infile)) {
 	goto oxford_to_bed_ret_READ_FAIL;
       }
-      if (uii != sample_ct) {
-	logerrprint("Error: Unexpected number of samples specified in SNP block header.\n");
-	goto oxford_to_bed_ret_INVALID_FORMAT;
-      }
-      if (bgen_multichar_alleles) {
-	// v1.1
-        if (fread(&usii, 1, 2, infile) < 2) {
-	  goto oxford_to_bed_ret_READ_FAIL;
-	}
-	if (!snpid_chr) {
-	  if (fseeko(infile, usii, SEEK_CUR)) {
-	    goto oxford_to_bed_ret_READ_FAIL;
-	  }
-	  bufptr = loadbuf;
-	} else {
-	  if (!usii) {
-	    logerrprint("Error: Length-0 SNP ID in .bgen file.\n");
-	    goto oxford_to_bed_ret_INVALID_FORMAT;
-	  }
-	  if (fread(loadbuf, 1, usii, infile) < usii) {
-	    goto oxford_to_bed_ret_READ_FAIL;
-	  }
-	  loadbuf[usii] = '\0';
-	  bufptr = &(loadbuf[usii + 1]);
-	}
-	if (fread(&usjj, 1, 2, infile) < 2) {
-	  goto oxford_to_bed_ret_READ_FAIL;
-	}
-	if (!usjj) {
-	  logerrprint("Error: Length-0 rsID in .bgen file.\n");
-	  goto oxford_to_bed_ret_INVALID_FORMAT;
-	}
-	if (fread(bufptr, 1, usjj, infile) < usjj) {
-	  goto oxford_to_bed_ret_READ_FAIL;
-	}
-        bufptr2 = &(bufptr[usjj]);
-	if (fread(&uskk, 1, 2, infile) < 2) {
-	  goto oxford_to_bed_ret_READ_FAIL;
-	}
-	if (!snpid_chr) {
-	  if (!uskk) {
-	    logerrprint("Error: Length-0 chromosome ID in .bgen file.\n");
-	    goto oxford_to_bed_ret_INVALID_FORMAT;
-	  }
-	  usii = uskk;
-	  if (fread(bufptr2, 1, usii, infile) < usii) {
-	    goto oxford_to_bed_ret_READ_FAIL;
-	  }
-	  if ((usii == 2) && (!memcmp(bufptr2, "NA", 2))) {
-	    // convert 'NA' to 0
-	    usii = 1;
-	    memcpy(bufptr2, "0", 2);
-	  } else {
-	    bufptr2[usii] = '\0';
-	  }
-	} else {
-	  if (fseeko(infile, uskk, SEEK_CUR)) {
-	    goto oxford_to_bed_ret_READ_FAIL;
-	  }
-	  bufptr2 = loadbuf;
-	}
-	if (fread(uint_arr, 1, 8, infile) < 8) {
-	  goto oxford_to_bed_ret_READ_FAIL;
-	}
-	if (!uint_arr[1]) {
-	  logerrprint("Error: Length-0 allele ID in .bgen file.\n");
-	  goto oxford_to_bed_ret_INVALID_FORMAT;
-	}
-        ii = get_chrom_code(chrom_info_ptr, bufptr2);
-	if (ii < 0) {
-	  if (chrom_error(".bgen file", chrom_info_ptr, bufptr2, 0, ii, allow_extra_chroms)) {
-            goto oxford_to_bed_ret_INVALID_FORMAT;
-	  }
-	  retval = resolve_or_add_chrom_name(bufptr2, ".bgen file", 0, chrom_info_ptr, &ii);
-          if (retval) {
-	    goto oxford_to_bed_ret_1;
-	  }
-	}
-        if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
-	  // skip rest of current SNP
-	  if (fseeko(infile, uint_arr[1], SEEK_CUR)) {
-	    goto oxford_to_bed_ret_READ_FAIL;
-	  }
-	  if (fread(&uii, 1, 4, infile) < 4) {
-	    goto oxford_to_bed_ret_READ_FAIL;
-	  }
-	  if (bgen_compressed) {
-	    if (fseeko(infile, uii, SEEK_CUR)) {
-	      goto oxford_to_bed_ret_READ_FAIL;
-	    }
-	    if (fread(&uii, 1, 4, infile) < 4) {
-	      goto oxford_to_bed_ret_READ_FAIL;
-	    }
-	    if (fseeko(infile, uii, SEEK_CUR)) {
-	      goto oxford_to_bed_ret_READ_FAIL;
-	    }
-	  } else {
-	    if (fseeko(infile, uii + ((uint64_t)sample_ct) * 6, SEEK_CUR)) {
-	      goto oxford_to_bed_ret_READ_FAIL;
-	    }
-	  }
-	  continue;
-	}
-	fputs(bufptr2, outfile_bim);
-	if (putc_checked(' ', outfile_bim)) {
-	  goto oxford_to_bed_ret_WRITE_FAIL;
-	}
-        fwrite(bufptr, 1, usjj, outfile_bim);
-	bufptr = uint32toa_x(uint_arr[0], ' ', &(g_textbuf[3]));
-	fwrite(g_textbuf, 1, bufptr - g_textbuf, outfile_bim);
-
-        // halve the limit since there are two alleles
-	// (may want to enforce NON_BIGSTACK_MIN allele length limit?)
-        if (uint_arr[1] >= loadbuf_size / 2) {
-	  if (loadbuf_size < MAXLINEBUFLEN) {
-	    goto oxford_to_bed_ret_NOMEM;
-	  }
-	  logerrprint("Error: Excessively long allele in .bgen file.\n");
-	  goto oxford_to_bed_ret_INVALID_FORMAT;
-	}
-        if (fread(loadbuf, 1, uint_arr[1], infile) < uint_arr[1]) {
-	  goto oxford_to_bed_ret_READ_FAIL;
-	}
-	loadbuf[uint_arr[1]] = ' ';
-	if (fread(&uii, 1, 4, infile) < 4) {
-	  goto oxford_to_bed_ret_READ_FAIL;
-	}
-        if (uii >= loadbuf_size / 2) {
-	  if (loadbuf_size < MAXLINEBUFLEN) {
-	    goto oxford_to_bed_ret_NOMEM;
-	  }
-	  logerrprint("Error: Excessively long allele in .bgen file.\n");
-	  goto oxford_to_bed_ret_INVALID_FORMAT;
-	}
-	bufptr = &(loadbuf[uint_arr[1] + 1]);
-        if (fread(bufptr, 1, uii, infile) < uii) {
-	  goto oxford_to_bed_ret_READ_FAIL;
-	}
-	bufptr[uii] = '\n';
-	identical_alleles = (uii == uint_arr[1]) && (!memcmp(loadbuf, bufptr, uii));
-	if (!identical_alleles) {
-	  if (fwrite_checked(loadbuf, uint_arr[1] + uii + 2, outfile_bim)) {
-	    goto oxford_to_bed_ret_WRITE_FAIL;
-	  }
-	} else {
-	  fputs("0 ", outfile_bim);
-	  if (fwrite_checked(bufptr, uii + 1, outfile_bim)) {
-	    goto oxford_to_bed_ret_WRITE_FAIL;
-	  }
-	}
-      } else {
-	// v1.0
-	uii = 0;
-	if (fread(&uii, 1, 1, infile) < 1) {
-	  goto oxford_to_bed_ret_READ_FAIL;
-	}
-        if (fread(loadbuf, 1, 2 * uii + 9, infile) < (2 * uii + 9)) {
-	  goto oxford_to_bed_ret_READ_FAIL;
-	}
-	// save marker ID length since we might clobber it
-	ukk = (unsigned char)(loadbuf[uii + 1]);
-        if (!snpid_chr) {
-	  ii = ((unsigned char)(loadbuf[2 * uii + 2]));
-	  if (ii > 24) {
-	    if (ii == 255) {
-	      // unknown
-	      ii = 0;
-	    } else if (ii > 252) {
-	      // XY or MT
-	      ii = ii - 228;
-	    } else {
-	      logerrprint("Error: Invalid chromosome code in BGEN v1.0 file.\n");
-	      goto oxford_to_bed_ret_INVALID_FORMAT;
-	    }
-	  }
-	  uint32toa_x((uint32_t)ii, '\0', loadbuf);
-	  bufptr = loadbuf;
-	} else {
-	  ujj = (unsigned char)loadbuf[0];
-	  bufptr = &(loadbuf[1]);
-	  if ((ujj == 2) && (!memcmp(bufptr, "NA", 2))) {
-	    *bufptr = '0';
-	    ujj = 1;
-	  }
-	  bufptr[ujj] = '\0';
-	  ii = get_chrom_code(chrom_info_ptr, bufptr);
-	  if (ii < 0) {
-	    if (chrom_error(".bgen file", chrom_info_ptr, bufptr, 0, ii, allow_extra_chroms)) {
-	      goto oxford_to_bed_ret_INVALID_FORMAT;
-	    }
-	    retval = resolve_or_add_chrom_name(bufptr, ".bgen file", 0, chrom_info_ptr, &ii);
-	    if (retval) {
-	      goto oxford_to_bed_ret_1;
-	    }
-	  }
-	}
-	if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
-	  if (bgen_compressed) {
-	    if (fread(&uii, 1, 4, infile) < 4) {
-	      goto oxford_to_bed_ret_READ_FAIL;
-	    }
-	    if (fseeko(infile, uii, SEEK_CUR)) {
-	      goto oxford_to_bed_ret_READ_FAIL;
-	    }
-	  } else {
-	    if (fseeko(infile, ((uint64_t)sample_ct) * 6, SEEK_CUR)) {
-	      goto oxford_to_bed_ret_READ_FAIL;
-	    }
-	  }
-	  continue;
-	}
-	fputs(bufptr, outfile_bim);
-	if (putc_checked(' ', outfile_bim)) {
-	  goto oxford_to_bed_ret_WRITE_FAIL;
-	}
-	fwrite(&(loadbuf[uii + 2]), 1, ukk, outfile_bim);
-	memcpy(&ujj, &(loadbuf[2 * uii + 3]), 4);
-	bufptr = uint32toa_x(ujj, ' ', &(g_textbuf[3]));
-	identical_alleles = (loadbuf[2 * uii + 7] == loadbuf[2 * uii + 8]);
-	if (!identical_alleles) {
-	  *bufptr++ = loadbuf[2 * uii + 7];
-	} else {
-	  *bufptr++ = '0';
-	}
-	*bufptr++ = ' ';
-	*bufptr++ = loadbuf[2 * uii + 8];
-	*bufptr++ = '\n';
-	if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile_bim)) {
-	  goto oxford_to_bed_ret_WRITE_FAIL;
-	}
-      }
-      if (bgen_compressed) {
-	if (fread(&uii, 1, 4, infile) < 4) {
-	  goto oxford_to_bed_ret_READ_FAIL;
-	}
-	if (uii > loadbuf_size) {
-	  if (loadbuf_size < MAXLINEBUFLEN) {
-	    goto oxford_to_bed_ret_NOMEM;
-	  }
-	  logerrprint("Error: Excessively long compressed SNP block in .bgen file.\n");
-	  goto oxford_to_bed_ret_INVALID_FORMAT;
-	}
-	if (fread(loadbuf, 1, uii, infile) < uii) {
-	  goto oxford_to_bed_ret_READ_FAIL;
-	}
-        zlib_ulongf = 6 * sample_ct;
-	if (uncompress((Bytef*)bgen_probs, &zlib_ulongf, (Bytef*)loadbuf, uii) != Z_OK) {
-	  logerrprint("Error: Invalid compressed SNP block in .bgen file.\n");
-	  goto oxford_to_bed_ret_INVALID_FORMAT;
-	}
-      } else {
-	if (fread(bgen_probs, 1, 6 * sample_ct, infile) < 6 * sample_ct) {
-	  goto oxford_to_bed_ret_READ_FAIL;
-	}
-      }
-      cur_word = 0;
-      shiftval = 0;
-      ulptr = writebuf;
-      usptr = bgen_probs;
-      if (!is_randomized) {
-	for (sample_idx = 0; sample_idx < sample_ct; sample_idx++, usptr = &(usptr[3])) {
-	  if (usptr[2] >= bgen_hardthresh) {
-	    ulii = 3;
-	  } else if (usptr[1] >= bgen_hardthresh) {
-	    ulii = 2;
-	  } else if (usptr[0] >= bgen_hardthresh) {
-	    ulii = 0;
-	  } else {
-	    ulii = 1;
-	  }
-	  cur_word |= ulii << shiftval;
-	  shiftval += 2;
-	  if (shiftval == BITCT) {
-	    *ulptr++ = cur_word;
-	    cur_word = 0;
-	    shiftval = 0;
-	  }
-	}
-      } else {
-	uii = 0;
-	for (sample_idx = 0; sample_idx < sample_ct; sample_idx++, usptr = &(usptr[3])) {
-	  // fast handling of common cases
-	  ukk = usptr[2];
-	  if (ukk >= 32768) {
-	    ulii = 3;
-	  } else if (usptr[1] >= 32768) {
-	    ulii = 2;
-	  } else if (usptr[0] >= 32768) {
-	    ulii = 0;
-	  } else {
-	    while (1) {
-	      uii >>= 16;
-	      if (!uii) {
-		uii = sfmt_genrand_uint32(&g_sfmt) | 0x80000000U;
-	      }
-	      ujj = uii & 32767;
-	      if (ujj < ukk) {
-		ulii = 3;
-		break;
-	      } else {
-		ukk += usptr[1];
-		if (ujj < ukk) {
-		  ulii = 2;
-		  break;
-		} else {
-		  ukk += usptr[0];
-		  if (ujj < ukk) {
-		    ulii = 0;
-		    break;
-		  } else if (ukk < 32766) {
-		    ulii = 1;
-		    break;
-		  } else {
-		    ukk = usptr[2];
-		  }
-		}
-	      }
-	    }
-	  }
-	  cur_word |= ulii << shiftval;
-	  shiftval += 2;
-	  if (shiftval == BITCT) {
-	    *ulptr++ = cur_word;
-	    cur_word = 0;
-	    shiftval = 0;
-	  }
-	}
-      }
-      if (shiftval) {
-	*ulptr++ = cur_word;
-      }
-      if (identical_alleles) {
-	for (ulptr = writebuf; ulptr < (&(writebuf[sample_ctl2])); ulptr++) {
-	  ulii = *ulptr;
-	  *ulptr = ((~ulii) << 1) | ulii | FIVEMASK;
-	}
-	if (sample_ct % 4) {
-	  writebuf[sample_ctl2 - 1] &= (ONELU << (2 * (sample_ct % BITCT2))) - ONELU;
-	}
-      }
-      if (fwrite_checked(writebuf, sample_ct4, outfile)) {
-	goto oxford_to_bed_ret_WRITE_FAIL;
-      }
-      marker_ct++;
-      if (!(marker_ct % 1000)) {
-	if (marker_ct == marker_uidx + 1) {
-	  printf("\r--bgen: %uk variants converted.", marker_ct / 1000);
-	} else {
-	  printf("\r--bgen: %uk variants converted (out of %u).", marker_ct / 1000, marker_uidx + 1);
-	}
-	fflush(stdout);
-      }
     }
-    if (fclose_null(&infile)) {
-      goto oxford_to_bed_ret_READ_FAIL;
+    if (fclose_null(&outfile)) {
+      goto oxford_to_bed_ret_WRITE_FAIL;
     }
+    if (fclose_null(&outfile_bim)) {
+      goto oxford_to_bed_ret_WRITE_FAIL;
+    }
+    putchar('\r');
+    *outname_end = '\0';
+    LOGPRINTFWW("--%s: %s.bed + %s.bim + %s.fam written.\n", is_bgen? "bgen" : "data", outname, outname, outname);
   }
-  if (fclose_null(&outfile)) {
-    goto oxford_to_bed_ret_WRITE_FAIL;
-  }
-  if (fclose_null(&outfile_bim)) {
-    goto oxford_to_bed_ret_WRITE_FAIL;
-  }
-  putchar('\r');
-  *outname_end = '\0';
-  LOGPRINTFWW("--%s: %s.bed + %s.bim + %s.fam written.\n", is_bgen? "bgen" : "data", outname, outname, outname);
   while (0) {
   oxford_to_bed_ret_NOMEM:
     retval = RET_NOMEM;
@@ -6096,7 +6085,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     cm_col_exists = 1;
     fclose_null(&mapfile);
   }
-  // provisionally assume max_marker_allele_len == 1
+  // provisionally assume max_marker_allele_blen == 2
   // bugfix: allocate this after map_reverse
   if (bigstack_alloc_c(marker_ct * 2, &marker_alleles_f) ||
       bigstack_calloc_c(marker_ct * 4, &marker_alleles) ||
@@ -12427,8 +12416,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	    ulii = 0;
 	    for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
 	      uljj = 0;
-	      chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx];
-	      for (marker_uidx = next_unset_ul(marker_exclude, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx], chrom_end); marker_uidx < chrom_end;) {
+	      chrom_end = chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx];
+	      for (marker_uidx = next_unset_ul(marker_exclude, chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx], chrom_end); marker_uidx < chrom_end;) {
 		alen = strlen(mk_allele_ptrs[marker_uidx * 2]);
 		alen2 = strlen(mk_allele_ptrs[marker_uidx * 2 + 1]);
 		uljj += MAXV(alen, alen2) + 1;
@@ -12793,7 +12782,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	}
         cptr = memcpya(cptr, ",length=", 8);
 	if (!(map_is_unsorted & UNSORTED_BP)) {
-	  cptr = uint32toa(marker_pos[chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1] - 1] + 1, cptr);
+	  cptr = uint32toa(marker_pos[chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx + 1] - 1] + 1, cptr);
 	} else {
 	  cptr = memcpya(cptr, "2147483645", 10); // unknown
 	}
@@ -13192,8 +13181,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     // for backward compatibility, also exclude XY.  don't exclude custom name
     // chromosomes, though, since chromosome 0 was actually processed
     autosomal_marker_ct = marker_ct - count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
-    if (chrom_info_ptr->xy_code != -1) {
-      autosomal_marker_ct -= count_chrom_markers(chrom_info_ptr, marker_exclude, chrom_info_ptr->xy_code);
+    if (chrom_info_ptr->xymt_codes[XY_OFFSET] != -1) {
+      autosomal_marker_ct -= count_chrom_markers(chrom_info_ptr, marker_exclude, chrom_info_ptr->xymt_codes[XY_OFFSET]);
     }
     if (!autosomal_marker_ct) {
       // could allow this?
@@ -13353,7 +13342,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       wbufptr = uint32toa(marker_pos[marker_uidx], &(writebuf2[1]));
       if (ulii) {
 	if (marker_uidx >= chrom_end) {
-          chrom_idx = get_marker_chrom(chrom_info_ptr, marker_uidx);
+          chrom_idx = get_variant_chrom(chrom_info_ptr, marker_uidx);
           chrom_end = chrom_info_ptr->chrom_end[chrom_idx];
 	}
         *wbufptr++ = ' ';
@@ -13544,7 +13533,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	goto recode_ret_1;
       }
       marker_uidx_start = marker_uidx;
-      if (recode_load_to(loadbuf, bedfile, bed_offset, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1], 0, ulii, marker_exclude, marker_reverse, &marker_uidx, unfiltered_sample_ct)) {
+      if (recode_load_to(loadbuf, bedfile, bed_offset, chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx + 1], 0, ulii, marker_exclude, marker_reverse, &marker_uidx, unfiltered_sample_ct)) {
 	goto recode_ret_READ_FAIL;
       }
       if (set_hh_missing) {
@@ -14104,7 +14093,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	goto recode_ret_OPEN_FAIL;
       }
       marker_uidx_start = marker_uidx;
-      if (recode_load_to(loadbuf, bedfile, bed_offset, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1], 0, ulii, marker_exclude, marker_reverse, &marker_uidx, unfiltered_sample_ct)) {
+      if (recode_load_to(loadbuf, bedfile, bed_offset, chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx + 1], 0, ulii, marker_exclude, marker_reverse, &marker_uidx, unfiltered_sample_ct)) {
 	goto recode_ret_READ_FAIL;
       }
       if (set_hh_missing && marker_ct) {
@@ -14164,7 +14153,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
       if (marker_uidx >= chrom_end) {
 	do {
-          chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[(++chrom_fo_idx) + 1];
+          chrom_end = chrom_info_ptr->chrom_fo_vidx_start[(++chrom_fo_idx) + 1];
 	} while (marker_uidx >= chrom_end);
 	fputs("-1 ", outfile);
       } else {

@@ -1940,7 +1940,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	    }
 	  }
 	  if (load_map) {
-	    pzwritep = width_force(4, pzwritep, chrom_name_write(chrom_info_ptr, get_marker_chrom(chrom_info_ptr, marker_idx), pzwritep));
+	    pzwritep = width_force(4, pzwritep, chrom_name_write(chrom_info_ptr, get_variant_chrom(chrom_info_ptr, marker_idx), pzwritep));
 	    *pzwritep++ = ' ';
 	    pzwritep = fw_strcpyn(11, cur_marker_id_len, cur_marker_id_buf, pzwritep);
             pzwritep = memseta(pzwritep, 32, 2);

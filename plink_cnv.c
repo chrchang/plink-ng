@@ -90,8 +90,6 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
   const char* cift_str = cnv_intersect_filter_type_to_str(intersect_filter_type);
   int32_t retval = 0;
   uint64_t* il_small;
-  char* bufptr;
-  char* bufptr2;
   uint64_t ullii;
   uintptr_t ulii;
   uintptr_t uljj;
@@ -105,48 +103,53 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
   uint32_t cur_chrom;
   uint32_t uii;
   unsigned char ucc;
-  if (fopen_checked(intersect_filter_fname, "r", &intersect_file)) {
-    goto cnv_intersect_load_ret_OPEN_FAIL;
-  }
-  while (fgets(g_textbuf, MAXLINELEN, intersect_file)) {
-    line_idx++;
-    if (!g_textbuf[MAXLINELEN - 1]) {
-      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, cift_str);
-      goto cnv_intersect_load_ret_INVALID_FORMAT_2;
+  {
+    if (fopen_checked(intersect_filter_fname, "r", &intersect_file)) {
+      goto cnv_intersect_load_ret_OPEN_FAIL;
     }
-    bufptr = skip_initial_spaces(g_textbuf);
-    if (!is_eoln_kns(*bufptr)) {
+    while (fgets(g_textbuf, MAXLINELEN, intersect_file)) {
+      line_idx++;
+      if (!g_textbuf[MAXLINELEN - 1]) {
+	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, cift_str);
+	goto cnv_intersect_load_ret_INVALID_FORMAT_2;
+      }
+      char* textbuf_first_token = skip_initial_spaces(g_textbuf);
+      if (is_eoln_kns(*textbuf_first_token)) {
+	continue;
+      }
       // CHR, BP1, BP2, subset name
-      bufptr2 = next_token_mult(bufptr, 2);
-      if (no_more_tokens_kns(bufptr2)) {
+      char* first_token_end = token_endnn(textbuf_first_token);
+      char* col3_ptr = next_token_mult(first_token_end, 2);
+      if (no_more_tokens_kns(col3_ptr)) {
 	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s file has fewer tokens than expected.\n", line_idx, cift_str);
 	goto cnv_intersect_load_ret_INVALID_FORMAT_2;
       }
-      ii = get_chrom_code(chrom_info_ptr, bufptr);
-      if (ii < 0) {
-	if ((!allow_extra_chroms) || (ii == -1)) {
-	  sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, cift_str);
-	  goto cnv_intersect_load_ret_INVALID_FORMAT_2;
+      const uint32_t chrom_name_slen = (uintptr_t)(first_token_end - textbuf_first_token);
+      *first_token_end = '\0';
+      int32_t cur_chrom_code = get_chrom_code_nt(textbuf_first_token, chrom_info_ptr, chrom_name_slen);
+      if (cur_chrom_code < 0) {
+	if (chrom_error(textbuf_first_token, cift_str, chrom_info_ptr, line_idx, cur_chrom_code, allow_extra_chroms)) {
+	  goto cnv_intersect_load_ret_INVALID_FORMAT;
 	}
-        retval = resolve_or_add_chrom_name(bufptr, cift_str, line_idx, chrom_info_ptr, &ii);
+	retval = resolve_or_add_chrom_name(textbuf_first_token, cift_str, line_idx, chrom_name_slen, chrom_info_ptr, &cur_chrom_code);
 	if (retval) {
 	  goto cnv_intersect_load_ret_1;
 	}
-	if (ii >= CNV_CHROM_CODE_END_MAX) {
+	if (cur_chrom_code >= CNV_CHROM_CODE_END_MAX) {
 	  logerrprint("Error: Too many distinct nonstandard chromosome/contig names for CNV module.\n");
 	  goto cnv_intersect_load_ret_INVALID_FORMAT;
 	}
       }
-      uljj = ((uint32_t)ii);
+      uljj = ((uint32_t)cur_chrom_code);
       if (!IS_SET(chrom_mask, uljj)) {
 	continue;
       }
-      bufptr = next_token(bufptr);
-      if (scan_uint_defcap(bufptr, (uint32_t*)&jj)) {
+      char* textbuf_iter = skip_initial_spaces(&(first_token_end[1]));
+      if (scan_uint_defcap(textbuf_iter, (uint32_t*)&jj)) {
 	sprintf(g_logbuf, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, cift_str);
 	goto cnv_intersect_load_ret_INVALID_FORMAT_2;
       }
-      if (scan_uint_defcap(bufptr2, (uint32_t*)&ii)) {
+      if (scan_uint_defcap(col3_ptr, (uint32_t*)&ii)) {
 	sprintf(g_logbuf, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, cift_str);
 	goto cnv_intersect_load_ret_INVALID_FORMAT_2;
       }
@@ -163,16 +166,16 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
 	continue;
       }
       if (subset_ct) {
-	bufptr = next_token(bufptr2);
-	if (no_more_tokens_kns(bufptr)) {
+	textbuf_iter = next_token(col3_ptr);
+	if (no_more_tokens_kns(textbuf_iter)) {
 	  continue;
 	}
-	if (bsearch_str(bufptr, strlen_se(bufptr), subset_list, max_subset_name_len, subset_ct) == -1) {
+	if (bsearch_str(textbuf_iter, strlen_se(textbuf_iter), subset_list, max_subset_name_len, subset_ct) == -1) {
 	  continue;
 	}
       }
       if (small_interval_ct + large_interval_ct == max_interval_ct) {
-        goto cnv_intersect_load_ret_NOMEM;
+	goto cnv_intersect_load_ret_NOMEM;
       }
       kk = ii - jj;
       if (kk > SMALL_INTERVAL_MAX_SIZE) {
@@ -183,117 +186,117 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
 	tmp_il_small[small_interval_ct++] = (((uint64_t)uljj) << (32 + SMALL_INTERVAL_BITS)) | (((uint64_t)(((uint32_t)ii) + ((uint32_t)jj))) << SMALL_INTERVAL_BITS) | ((uint64_t)((uint32_t)kk));
       }
     }
-  }
-  if (!feof(intersect_file)) {
-    goto cnv_intersect_load_ret_READ_FAIL;
-  }
-  if (reverse_warning_ct > 1) {
-    LOGPRINTF("(%" PRIuPTR " subsequent line%s with [end of range] < [start of range].)\n", reverse_warning_ct - 1, (reverse_warning_ct == 2)? "" : "s");
-  }
-  *il_large_ptr = il_large;
-  il_small = &(il_large[-((intptr_t)small_interval_ct)]);
-  *il_small_ptr = il_small;
-  chrom_code_end = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
-  if ((!small_interval_ct) && (!large_interval_ct)) {
-    if (subset_ct) {
-      fill_ulong_zero(chrom_code_end + 1, il_chrom_start_small);
-      fill_ulong_zero(chrom_code_end + 1, il_chrom_start_large);
-      logerrprint("Warning: All intervals filtered out by --cnv-subset.\n");
-      goto cnv_intersect_load_ret_1;
+    if (!feof(intersect_file)) {
+      goto cnv_intersect_load_ret_READ_FAIL;
     }
-    sprintf(g_logbuf, "Error: Empty %s.\n", cift_str);
-    goto cnv_intersect_load_ret_INVALID_FORMAT_2;
-  }
-  if (small_interval_ct) {
+    if (reverse_warning_ct > 1) {
+      LOGPRINTF("(%" PRIuPTR " subsequent line%s with [end of range] < [start of range].)\n", reverse_warning_ct - 1, (reverse_warning_ct == 2)? "" : "s");
+    }
+    *il_large_ptr = il_large;
+    il_small = &(il_large[-((intptr_t)small_interval_ct)]);
+    *il_small_ptr = il_small;
+    chrom_code_end = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
+    if ((!small_interval_ct) && (!large_interval_ct)) {
+      if (subset_ct) {
+	fill_ulong_zero(chrom_code_end + 1, il_chrom_start_small);
+	fill_ulong_zero(chrom_code_end + 1, il_chrom_start_large);
+	logerrprint("Warning: All intervals filtered out by --cnv-subset.\n");
+	goto cnv_intersect_load_ret_1;
+      }
+      sprintf(g_logbuf, "Error: Empty %s.\n", cift_str);
+      goto cnv_intersect_load_ret_INVALID_FORMAT_2;
+    }
+    if (small_interval_ct) {
 #ifdef __cplusplus
-    std::sort((int64_t*)tmp_il_small, (int64_t*)(&(tmp_il_small[small_interval_ct])));
+      std::sort((int64_t*)tmp_il_small, (int64_t*)(&(tmp_il_small[small_interval_ct])));
 #else
-    qsort((int64_t*)tmp_il_small, small_interval_ct, sizeof(int64_t), llcmp);
+      qsort((int64_t*)tmp_il_small, small_interval_ct, sizeof(int64_t), llcmp);
 #endif
-    il_chrom_start_small[chrom_code_end] = small_interval_ct;
-    cur_chrom = chrom_code_end - 1;
-    max_width = 0;
-    ulii = small_interval_ct;
-    do {
-      ulii--;
-      ullii = tmp_il_small[ulii];
-      uii = (uint32_t)(ullii >> (SMALL_INTERVAL_BITS + 32));
-      if (uii < cur_chrom) {
-	il_chrom_max_width_small[cur_chrom] = max_width;
-	do {
-	  il_chrom_start_small[cur_chrom--] = ulii + 1;
-	} while (cur_chrom > uii);
-	max_width = 0;
-      }
-      cur_width = ullii & (SMALL_INTERVAL_MAX_SIZE * 1LLU);
-      if (cur_width > max_width) {
-	max_width = cur_width;
-      }
-      il_small[ulii] = ((ullii >> SMALL_INTERVAL_BITS) << 32) | ((uint64_t)cur_width);
-    } while (ulii);
-    il_chrom_max_width_small[cur_chrom] = max_width;
-    do {
-      il_chrom_start_small[cur_chrom] = 0;
-    } while (cur_chrom--);
-  } else {
-    fill_ulong_zero(chrom_code_end + 1, il_chrom_start_small);
-  }
-  if (large_interval_ct) {
-    if (large_interval_ct > 1) {
-      uljj = large_interval_ct / 2;
-      ulkk = large_interval_ct - 1;
-      for (ulii = 0; ulii < uljj; ulii++) {
-        ucc = tmp_il_large_chroms[ulii];
-	tmp_il_large_chroms[ulii] = tmp_il_large_chroms[ulkk];
-	tmp_il_large_chroms[ulkk--] = ucc;
-      }
-    }
-    if (qsort_ext((char*)tmp_il_large_chroms, large_interval_ct, sizeof(char), char_cmp_deref, (char*)il_large, sizeof(int64_t))) {
-      goto cnv_intersect_load_ret_NOMEM;
-    }
-    il_chrom_start_large[0] = 0;
-    cur_chrom = 0;
-    for (ulii = 0; ulii < large_interval_ct; ulii++) {
-      uii = tmp_il_large_chroms[ulii];
-      if (uii > cur_chrom) {
-	do {
-	  il_chrom_start_large[++cur_chrom] = ulii;
-	} while (cur_chrom < uii);
-      }
-    }
-    do {
-      il_chrom_start_large[++cur_chrom] = large_interval_ct;
-    } while (cur_chrom < chrom_code_end);
-    ulii = il_chrom_start_large[0];
-    for (cur_chrom = 0; cur_chrom < chrom_code_end; cur_chrom++) {
-      uljj = il_chrom_start_large[cur_chrom + 1];
-      if (uljj > ulii) {
-#ifdef __cplusplus
-	std::sort((int64_t*)(&(il_large[ulii])), (int64_t*)(&(il_large[uljj])));
-#else
-        qsort((int64_t*)(&(il_large[ulii])), uljj - ulii, sizeof(int64_t), llcmp);
-#endif
-	ulii = uljj;
-      }
-    }
-    ulii = 0;
-    for (cur_chrom = 0; cur_chrom < chrom_code_end; cur_chrom++) {
-      uljj = il_chrom_start_large[cur_chrom + 1];
+      il_chrom_start_small[chrom_code_end] = small_interval_ct;
+      cur_chrom = chrom_code_end - 1;
       max_width = 0;
-      while (ulii < uljj) {
-	ullii = il_large[ulii];
-	cur_width = ullii & 0x7fffffffLLU;
+      ulii = small_interval_ct;
+      do {
+	ulii--;
+	ullii = tmp_il_small[ulii];
+	uii = (uint32_t)(ullii >> (SMALL_INTERVAL_BITS + 32));
+	if (uii < cur_chrom) {
+	  il_chrom_max_width_small[cur_chrom] = max_width;
+	  do {
+	    il_chrom_start_small[cur_chrom--] = ulii + 1;
+	  } while (cur_chrom > uii);
+	  max_width = 0;
+	}
+	cur_width = ullii & (SMALL_INTERVAL_MAX_SIZE * 1LLU);
 	if (cur_width > max_width) {
 	  max_width = cur_width;
 	}
-	il_large[ulii++] = ((ullii >> 31) << 32) | ((uint64_t)cur_width);
-      }
-      il_chrom_max_width_large[cur_chrom] = max_width;
+	il_small[ulii] = ((ullii >> SMALL_INTERVAL_BITS) << 32) | ((uint64_t)cur_width);
+      } while (ulii);
+      il_chrom_max_width_small[cur_chrom] = max_width;
+      do {
+	il_chrom_start_small[cur_chrom] = 0;
+      } while (cur_chrom--);
+    } else {
+      fill_ulong_zero(chrom_code_end + 1, il_chrom_start_small);
     }
-  } else {
-    fill_ulong_zero(chrom_code_end + 1, il_chrom_start_large);
+    if (large_interval_ct) {
+      if (large_interval_ct > 1) {
+	uljj = large_interval_ct / 2;
+	ulkk = large_interval_ct - 1;
+	for (ulii = 0; ulii < uljj; ulii++) {
+	  ucc = tmp_il_large_chroms[ulii];
+	  tmp_il_large_chroms[ulii] = tmp_il_large_chroms[ulkk];
+	  tmp_il_large_chroms[ulkk--] = ucc;
+	}
+      }
+      if (qsort_ext((char*)tmp_il_large_chroms, large_interval_ct, sizeof(char), char_cmp_deref, (char*)il_large, sizeof(int64_t))) {
+	goto cnv_intersect_load_ret_NOMEM;
+      }
+      il_chrom_start_large[0] = 0;
+      cur_chrom = 0;
+      for (ulii = 0; ulii < large_interval_ct; ulii++) {
+	uii = tmp_il_large_chroms[ulii];
+	if (uii > cur_chrom) {
+	  do {
+	    il_chrom_start_large[++cur_chrom] = ulii;
+	  } while (cur_chrom < uii);
+	}
+      }
+      do {
+	il_chrom_start_large[++cur_chrom] = large_interval_ct;
+      } while (cur_chrom < chrom_code_end);
+      ulii = il_chrom_start_large[0];
+      for (cur_chrom = 0; cur_chrom < chrom_code_end; cur_chrom++) {
+	uljj = il_chrom_start_large[cur_chrom + 1];
+	if (uljj > ulii) {
+#ifdef __cplusplus
+	  std::sort((int64_t*)(&(il_large[ulii])), (int64_t*)(&(il_large[uljj])));
+#else
+	  qsort((int64_t*)(&(il_large[ulii])), uljj - ulii, sizeof(int64_t), llcmp);
+#endif
+	  ulii = uljj;
+	}
+      }
+      ulii = 0;
+      for (cur_chrom = 0; cur_chrom < chrom_code_end; cur_chrom++) {
+	uljj = il_chrom_start_large[cur_chrom + 1];
+	max_width = 0;
+	while (ulii < uljj) {
+	  ullii = il_large[ulii];
+	  cur_width = ullii & 0x7fffffffLLU;
+	  if (cur_width > max_width) {
+	    max_width = cur_width;
+	  }
+	  il_large[ulii++] = ((ullii >> 31) << 32) | ((uint64_t)cur_width);
+	}
+	il_chrom_max_width_large[cur_chrom] = max_width;
+      }
+    } else {
+      fill_ulong_zero(chrom_code_end + 1, il_chrom_start_large);
+    }
+    bigstack_end_alloc_presized(round_up_pow2(small_interval_ct + large_interval_ct, CACHELINE_INT64) * sizeof(int64_t));
   }
-  bigstack_end_alloc_presized(round_up_pow2(small_interval_ct + large_interval_ct, CACHELINE_INT64) * sizeof(int64_t));
   while (0) {
   cnv_intersect_load_ret_NOMEM:
     retval = RET_NOMEM;
@@ -471,8 +474,6 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
   uint32_t chrom_code_end;
   uintptr_t max_marker_ct;
   int32_t retval;
-  char* bufptr;
-  char* bufptr2;
   int64_t llii;
   uint64_t ullii;
   uintptr_t line_idx;
@@ -484,62 +485,66 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
   uint32_t uii;
   int32_t ii;
   double dxx;
-  logprintb();
-  if (fopen_checked(new_mapname, "w", &new_mapfile)) {
-    goto cnv_make_map_ret_OPEN_FAIL;
-  }
-  retval = cnv_first_nonheader_line(cnvfile, &line_idx);
-  if (retval) {
-    goto cnv_make_map_ret_1;
-  }
-  max_marker_ct = bigstack_left() / sizeof(int64_t);
-  // allow SCORE/SITES to be missing if they aren't being filtered on
-  if (filter_sites) {
-    req_fields = 5;
-  } else if (filter_score) {
-    req_fields = 4;
-  }
-  line_idx--;
-  do {
-    line_idx++;
-    if (!g_textbuf[MAXLINELEN - 1]) {
-      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .cnv file is pathologically long.\n", line_idx);
-      goto cnv_make_map_ret_INVALID_FORMAT_2N;
+  {
+    logprintb();
+    if (fopen_checked(new_mapname, "w", &new_mapfile)) {
+      goto cnv_make_map_ret_OPEN_FAIL;
     }
-    bufptr = skip_initial_spaces(g_textbuf);
-    if (!is_eoln_kns(*bufptr)) {
+    retval = cnv_first_nonheader_line(cnvfile, &line_idx);
+    if (retval) {
+      goto cnv_make_map_ret_1;
+    }
+    max_marker_ct = bigstack_left() / sizeof(int64_t);
+    // allow SCORE/SITES to be missing if they aren't being filtered on
+    if (filter_sites) {
+      req_fields = 5;
+    } else if (filter_score) {
+      req_fields = 4;
+    }
+    line_idx--;
+    do {
+      line_idx++;
+      if (!g_textbuf[MAXLINELEN - 1]) {
+	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .cnv file is pathologically long.\n", line_idx);
+	goto cnv_make_map_ret_INVALID_FORMAT_2N;
+      }
+      char* col3_ptr = skip_initial_spaces(g_textbuf);
+      if (is_eoln_kns(*col3_ptr)) {
+	continue;
+      }
       // FID, IID, CHR, BP1, BP2, TYPE, SCORE, SITES
-      bufptr = next_token_mult(bufptr, 2);
-      bufptr2 = next_token_mult(bufptr, req_fields);
-      if (no_more_tokens_kns(bufptr2)) {
+      col3_ptr = next_token_mult(col3_ptr, 2);
+      if (no_more_tokens_kns(next_token_mult(col3_ptr, req_fields))) {
 	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .cnv file has fewer tokens than expected.\n", line_idx);
 	goto cnv_make_map_ret_INVALID_FORMAT_2N;
       }
-      ii = get_chrom_code(chrom_info_ptr, bufptr);
-      if (ii < 0) {
-	if ((!allow_extra_chroms) || (ii == -1)) {
-	  sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of .cnv file.\n", line_idx);
-          goto cnv_make_map_ret_INVALID_FORMAT_2N;
+      char* col3_end = token_endnn(col3_ptr);
+      const uint32_t chrom_name_slen = (uintptr_t)(col3_end - col3_ptr);
+      *col3_end = '\0';
+      int32_t cur_chrom_code = get_chrom_code_nt(col3_ptr, chrom_info_ptr, chrom_name_slen);
+      if (cur_chrom_code < 0) {
+	if (chrom_error(col3_ptr, ".cnv file", chrom_info_ptr, line_idx, cur_chrom_code, allow_extra_chroms)) {
+	  goto cnv_make_map_ret_INVALID_FORMAT;
 	}
-        retval = resolve_or_add_chrom_name(bufptr, ".cnv file", line_idx, chrom_info_ptr, &ii);
+	retval = resolve_or_add_chrom_name(col3_ptr, ".cnv file", line_idx, chrom_name_slen, chrom_info_ptr, &cur_chrom_code);
 	if (retval) {
 	  goto cnv_make_map_ret_1;
 	}
-	if (ii >= CNV_CHROM_CODE_END_MAX) {
+	if (cur_chrom_code >= CNV_CHROM_CODE_END_MAX) {
 	  logerrprint("\nError: Too many distinct nonstandard chromosome/contig names for CNV module.\n");
 	  goto cnv_make_map_ret_INVALID_FORMAT;
 	}
       }
-      chrom_idx = ii;
+      chrom_idx = (uint32_t)cur_chrom_code;
       if ((!is_autogen) && (!IS_SET(chrom_mask, chrom_idx))) {
 	continue;
       }
       ullii = ((uint64_t)chrom_idx) << 32;
-      bufptr2 = next_token(bufptr);
-      bufptr = next_token(bufptr2);
-      if (scan_uint_defcap(bufptr2, &seg_start) || scan_uint_defcap(bufptr, &seg_end)) {
+      char* col4_ptr = skip_initial_spaces(&(col3_end[1]));
+      char* col5_ptr = next_token(col4_ptr);
+      if (scan_uint_defcap(col4_ptr, &seg_start) || scan_uint_defcap(col5_ptr, &seg_end)) {
 	sprintf(g_logbuf, "Error: Invalid bp coordinate on line %" PRIuPTR " of .cnv file.\n", line_idx);
-        goto cnv_make_map_ret_INVALID_FORMAT_2N;
+	goto cnv_make_map_ret_INVALID_FORMAT_2N;
       }
       if (seg_end < seg_start) {
 	sprintf(g_logbuf, "Error: Segment end coordinate smaller than segment start on line %" PRIuPTR " of\n.cnv file.\n", line_idx);
@@ -556,9 +561,10 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
 	  continue;
 	}
       }
+      char* col5_end = token_endnn(col5_ptr);
       if (cnv_calc_type & (CNV_DEL | CNV_DUP)) {
-	bufptr2 = next_token(bufptr);
-	if (scan_uint_defcap(bufptr2, (uint32_t*)&ii)) {
+	char* col6_ptr = next_token(col5_end);
+	if (scan_uint_defcap(col6_ptr, (uint32_t*)&ii)) {
 	  sprintf(g_logbuf, "Error: Invalid variant copy count on line %" PRIuPTR " of .cnv file.\n", line_idx);
 	  goto cnv_make_map_ret_INVALID_FORMAT_2N;
 	}
@@ -571,9 +577,9 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
 	}
       }
       if (filter_score) {
-	bufptr2 = next_token_mult(bufptr, 2);
-	if (scan_double(bufptr2, &dxx)) {
-          sprintf(g_logbuf, "Error: Invalid confidence score on line %" PRIuPTR " of .cnv file.\n", line_idx);
+	char* col7_ptr = next_token_mult(col5_end, 2);
+	if (scan_double(col7_ptr, &dxx)) {
+	  sprintf(g_logbuf, "Error: Invalid confidence score on line %" PRIuPTR " of .cnv file.\n", line_idx);
 	  goto cnv_make_map_ret_INVALID_FORMAT_2N;
 	}
 	if ((dxx < min_score) || (dxx > max_score)) {
@@ -581,8 +587,8 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
 	}
       }
       if (filter_sites) {
-	bufptr2 = next_token_mult(bufptr, 3);
-	if (scan_posint_defcap(bufptr2, (uint32_t*)&ii)) {
+	char* col8_ptr = next_token_mult(col5_end, 3);
+	if (scan_posint_defcap(col8_ptr, (uint32_t*)&ii)) {
 	  sprintf(g_logbuf, "Error: Invalid probe count on line %" PRIuPTR " of .cnv file.\n", line_idx);
 	  goto cnv_make_map_ret_INVALID_FORMAT_2N;
 	}
@@ -594,7 +600,7 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
 	ulii = il_chrom_start_small[chrom_idx];
 	uljj = il_chrom_start_large[chrom_idx];
 	if (is_cnv_overlap((uint32_t)((uint64_t)llii), (uint32_t)ullii, overlap_type, overlap_val, il_chrom_max_width_small[chrom_idx], il_chrom_max_width_large[chrom_idx], &(il_small[ulii]), il_chrom_start_small[chrom_idx + 1] - ulii, &(il_large[uljj]), il_chrom_start_large[chrom_idx + 1] - uljj)) {
-          if (intersect_filter_type & CNV_EXCLUDE) {
+	  if (intersect_filter_type & CNV_EXCLUDE) {
 	    continue;
 	  }
 	} else if (intersect_filter_type & CNV_INTERSECT) {
@@ -602,65 +608,65 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
 	}
       }
       if (raw_marker_ct + 2 >= max_marker_ct) {
-        goto cnv_make_map_ret_NOMEM;
+	goto cnv_make_map_ret_NOMEM;
       }
       marker_pos_arr[raw_marker_ct++] = llii;
       if (make_map_long && (((uint64_t)llii) != ullii)) {
-        marker_pos_arr[raw_marker_ct++] = (int64_t)ullii;
+	marker_pos_arr[raw_marker_ct++] = (int64_t)ullii;
       }
       marker_pos_arr[raw_marker_ct++] = 1 + (int64_t)ullii;
+    } while (fgets(g_textbuf, MAXLINELEN, cnvfile));
+    if (!feof(cnvfile)) {
+      goto cnv_make_map_ret_READ_FAIL;
     }
-  } while (fgets(g_textbuf, MAXLINELEN, cnvfile));
-  if (!feof(cnvfile)) {
-    goto cnv_make_map_ret_READ_FAIL;
-  }
-  if (!raw_marker_ct) {
-    logprint("\n");
-    logerrprint(cnv_calc_type? "Error: No variants.\n" : "Error: No variants after filtering.\n");
-    goto cnv_make_map_ret_INVALID_FORMAT;
-  }
+    if (!raw_marker_ct) {
+      logprint("\n");
+      logerrprint(cnv_calc_type? "Error: No variants.\n" : "Error: No variants after filtering.\n");
+      goto cnv_make_map_ret_INVALID_FORMAT;
+    }
 #ifdef __cplusplus
-  std::sort(marker_pos_arr, &(marker_pos_arr[raw_marker_ct]));
+    std::sort(marker_pos_arr, &(marker_pos_arr[raw_marker_ct]));
 #else
-  qsort(marker_pos_arr, raw_marker_ct, sizeof(int64_t), llcmp);
+    qsort(marker_pos_arr, raw_marker_ct, sizeof(int64_t), llcmp);
 #endif
-  llii = marker_pos_arr[0];
-  chrom_idx = (uint32_t)(((uint64_t)llii) >> 32);
-  for (uii = 0; uii <= chrom_idx; uii++) {
-    marker_chrom_start[uii] = 0;
-  }
-  if (cnv_make_map_write(new_mapfile, chrom_info_ptr, chrom_idx, (uint32_t)((uint64_t)llii), max_marker_id_len_ptr)) {
-    goto cnv_make_map_ret_WRITE_FAIL;
-  }
-  for (ulii = 1; ulii < raw_marker_ct; ulii++) {
-    if (marker_pos_arr[ulii] != llii) {
+    llii = marker_pos_arr[0];
+    chrom_idx = (uint32_t)(((uint64_t)llii) >> 32);
+    for (uii = 0; uii <= chrom_idx; uii++) {
+      marker_chrom_start[uii] = 0;
+    }
+    if (cnv_make_map_write(new_mapfile, chrom_info_ptr, chrom_idx, (uint32_t)((uint64_t)llii), max_marker_id_len_ptr)) {
+      goto cnv_make_map_ret_WRITE_FAIL;
+    }
+    for (ulii = 1; ulii < raw_marker_ct; ulii++) {
+      if (marker_pos_arr[ulii] != llii) {
 #ifdef __LP64__
-      if ((++distinct_marker_ct) == 0x80000000U) {
-	logprint("\n");
-	logerrprint("Error: Too many distinct .cnv.map positions (max 2^31 - 1).\n");
-	goto cnv_make_map_ret_INVALID_FORMAT;
-      }
+	if ((++distinct_marker_ct) == 0x80000000U) {
+	  logprint("\n");
+	  logerrprint("Error: Too many distinct .cnv.map positions (max 2^31 - 1).\n");
+	  goto cnv_make_map_ret_INVALID_FORMAT;
+	}
 #endif
-      llii = marker_pos_arr[ulii];
-      uii = (uint32_t)(((uint64_t)llii) >> 32);
-      if (uii > chrom_idx) {
-	do {
-	  marker_chrom_start[++chrom_idx] = distinct_marker_ct;
-	} while (chrom_idx < uii);
-      }
-      if (cnv_make_map_write(new_mapfile, chrom_info_ptr, chrom_idx, (uint32_t)((uint64_t)llii), max_marker_id_len_ptr)) {
-	goto cnv_make_map_ret_WRITE_FAIL;
+	llii = marker_pos_arr[ulii];
+	uii = (uint32_t)(((uint64_t)llii) >> 32);
+	if (uii > chrom_idx) {
+	  do {
+	    marker_chrom_start[++chrom_idx] = distinct_marker_ct;
+	  } while (chrom_idx < uii);
+	}
+	if (cnv_make_map_write(new_mapfile, chrom_info_ptr, chrom_idx, (uint32_t)((uint64_t)llii), max_marker_id_len_ptr)) {
+	  goto cnv_make_map_ret_WRITE_FAIL;
+	}
       }
     }
+    chrom_code_end = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
+    do {
+      marker_chrom_start[++chrom_idx] = distinct_marker_ct;
+    } while (chrom_idx < chrom_code_end);
+    if (fclose_null(&new_mapfile)) {
+      goto cnv_make_map_ret_WRITE_FAIL;
+    }
+    logprint("done.\n");
   }
-  chrom_code_end = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
-  do {
-    marker_chrom_start[++chrom_idx] = distinct_marker_ct;
-  } while (chrom_idx < chrom_code_end);
-  if (fclose_null(&new_mapfile)) {
-    goto cnv_make_map_ret_WRITE_FAIL;
-  }
-  logprint("done.\n");
   while (0) {
   cnv_make_map_ret_NOMEM:
     retval = RET_NOMEM;
@@ -699,118 +705,124 @@ int32_t validate_cnv_map(FILE** mapfile_ptr, char* mapname, int32_t* marker_pos_
   int32_t marker_pos_end = 0x7fffffff;
   uintptr_t* chrom_mask = chrom_info_ptr->chrom_mask;
   uint32_t chrom_code_end = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
-  char* bufptr;
-  char* bufptr2;
   uint32_t colskip;
   uintptr_t cur_marker_id_len;
   int32_t ii;
-  if ((*marker_pos_end_ptr) != -1) {
-    marker_pos_end = *marker_pos_end_ptr;
-  }
-  if (fopen_checked(mapname, "r", mapfile_ptr)) {
-    goto validate_cnv_map_ret_OPEN_FAIL;
-  }
-  marker_chrom_start[0] = 0;
-  do {
-    line_idx++;
-    if (!fgets(g_textbuf, MAXLINELEN, *mapfile_ptr)) {
-      if (feof(*mapfile_ptr)) {
-	logerrprint("Error: Empty .cnv.map file.\n");
-	goto validate_cnv_map_ret_INVALID_FORMAT;
-      } else {
-	goto validate_cnv_map_ret_READ_FAIL;
+  {
+    if ((*marker_pos_end_ptr) != -1) {
+      marker_pos_end = *marker_pos_end_ptr;
+    }
+    if (fopen_checked(mapname, "r", mapfile_ptr)) {
+      goto validate_cnv_map_ret_OPEN_FAIL;
+    }
+    marker_chrom_start[0] = 0;
+    char* textbuf_first_token;
+    do {
+      line_idx++;
+      if (!fgets(g_textbuf, MAXLINELEN, *mapfile_ptr)) {
+	if (feof(*mapfile_ptr)) {
+	  logerrprint("Error: Empty .cnv.map file.\n");
+	  goto validate_cnv_map_ret_INVALID_FORMAT;
+	} else {
+	  goto validate_cnv_map_ret_READ_FAIL;
+	}
       }
-    }
-    if (!g_textbuf[MAXLINELEN - 1]) {
-      goto validate_cnv_map_ret_LONG_LINE;
-    }
-    bufptr = skip_initial_spaces(g_textbuf);
-  } while (is_eoln_kns(*bufptr));
-  bufptr2 = next_token_mult(bufptr, 2);
-  if (is_eoln_kns(*bufptr2)) {
-    goto validate_cnv_map_ret_MISSING_TOKENS;
-  }
-  bufptr2 = next_token(bufptr2);
-  if (is_eoln_kns(*bufptr2)) {
-    // --map3 autodetect
-    colskip = 1;
-  } else {
-    colskip = 2;
-  }
-  line_idx--;
-  do {
-    line_idx++;
-    if (!g_textbuf[MAXLINELEN - 1]) {
-      goto validate_cnv_map_ret_LONG_LINE;
-    }
-    bufptr = skip_initial_spaces(g_textbuf);
-    if (is_eoln_kns(*bufptr)) {
-      continue;
-    }
-    ii = get_chrom_code(chrom_info_ptr, bufptr);
-    if (ii < 0) {
-      if ((!allow_extra_chroms) || (ii == -1)) {
-	sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of .cnv.map file.\n", line_idx);
-	goto validate_cnv_map_ret_INVALID_FORMAT_2;
+      if (!g_textbuf[MAXLINELEN - 1]) {
+	goto validate_cnv_map_ret_LONG_LINE;
       }
-      retval = resolve_or_add_chrom_name(bufptr, ".cnv.map file", line_idx, chrom_info_ptr, &ii);
-      if (retval) {
-	goto validate_cnv_map_ret_1;
-      }
-      if (ii >= CNV_CHROM_CODE_END_MAX) {
-	logerrprint("Error: Too many distinct nonstandard chromosome/contig names for CNV module.\n");
-	goto validate_cnv_map_ret_INVALID_FORMAT;
-      }
-    }
-    if (((uint32_t)ii) < chrom_idx) {
-      goto validate_cnv_map_ret_UNSORTED;
-    }
-    bufptr = next_token(bufptr);
-    bufptr2 = next_token_mult(bufptr, colskip);
-    if (is_eoln_kns(*bufptr2)) {
+      textbuf_first_token = skip_initial_spaces(g_textbuf);
+    } while (is_eoln_kns(*textbuf_first_token));
+    char* textbuf_iter = next_token_mult(textbuf_first_token, 2);
+    if (no_more_tokens_kns(textbuf_iter)) {
       goto validate_cnv_map_ret_MISSING_TOKENS;
     }
-    if (((uint32_t)ii) > chrom_idx) {
-      do {
-	marker_chrom_start[++chrom_idx] = marker_ct;
-      } while (chrom_idx < ((uint32_t)ii));
-      last_pos = -1;
+    textbuf_iter = next_token(textbuf_iter);
+    if (no_more_tokens_kns(textbuf_iter)) {
+      // --map3 autodetect
+      colskip = 1;
+    } else {
+      colskip = 2;
     }
-    if (*bufptr2 == '-') {
-      continue;
+    line_idx--;
+    do {
+      line_idx++;
+      if (!g_textbuf[MAXLINELEN - 1]) {
+	goto validate_cnv_map_ret_LONG_LINE;
+      }
+      textbuf_first_token = skip_initial_spaces(g_textbuf);
+      if (is_eoln_kns(*textbuf_first_token)) {
+	continue;
+      }
+      char* first_token_end = token_endnn(textbuf_first_token);
+      if (!(*first_token_end)) {
+	goto validate_cnv_map_ret_MISSING_TOKENS;
+      }
+      const uint32_t chrom_name_slen = (uintptr_t)(first_token_end - textbuf_first_token);
+      *first_token_end = '\0';
+      int32_t cur_chrom_code = get_chrom_code_nt(textbuf_first_token, chrom_info_ptr, chrom_name_slen);
+      if (cur_chrom_code < 0) {
+	if (chrom_error(textbuf_first_token, ".cnv.map file", chrom_info_ptr, line_idx, cur_chrom_code, allow_extra_chroms)) {
+	  goto validate_cnv_map_ret_INVALID_FORMAT;
+	}
+	retval = resolve_or_add_chrom_name(bufptr, ".cnv.map file", line_idx, chrom_name_slen, chrom_info_ptr, &cur_chrom_code);
+	if (retval) {
+	  goto validate_cnv_map_ret_1;
+	}
+	if (cur_chrom_code >= CNV_CHROM_CODE_END_MAX) {
+	  logerrprint("Error: Too many distinct nonstandard chromosome/contig names for CNV module.\n");
+	  goto validate_cnv_map_ret_INVALID_FORMAT;
+	}
+      }
+      if (((uint32_t)cur_chrom_code) < chrom_idx) {
+	goto validate_cnv_map_ret_UNSORTED;
+      }
+      char* col2_ptr = skip_initial_spaces(&(first_token_end[1]));
+      char* bp_col_ptr = next_token_mult(col2_ptr, colskip);
+      if (no_more_tokens_kns(bp_col_ptr)) {
+	goto validate_cnv_map_ret_MISSING_TOKENS;
+      }
+      if (((uint32_t)cur_chrom_code) > chrom_idx) {
+	do {
+	  marker_chrom_start[++chrom_idx] = marker_ct;
+	} while (chrom_idx < ((uint32_t)cur_chrom_code));
+	last_pos = -1;
+      }
+      if (*bp_col_ptr == '-') {
+	continue;
+      }
+      if (scan_uint_defcap(bp_col_ptr, (uint32_t*)&ii)) {
+	sprintf(g_logbuf, "Error: Invalid bp coordinate on line %" PRIuPTR " of .cnv.map file.\n", line_idx);
+	goto validate_cnv_map_ret_INVALID_FORMAT_2;
+      }
+      if (ii <= last_pos) {
+	goto validate_cnv_map_ret_UNSORTED;
+      }
+      last_pos = ii;
+      if (!IS_SET(chrom_mask, chrom_idx)) {
+	continue;
+      }
+      if ((last_pos <= marker_pos_start_m1) || (last_pos > marker_pos_end)) {
+	continue;
+      }
+      cur_marker_id_len = strlen_se(col2_ptr);
+      col2_ptr[cur_marker_id_len] = '\0';
+      if (cur_marker_id_len >= max_marker_id_len) {
+	max_marker_id_len = cur_marker_id_len + 1;
+      }
+      if (++marker_ct == 0x80000000U) {
+	logerrprint("Error: Too many entries in .cnv.map file (max 2147483647).\n");
+	goto validate_cnv_map_ret_INVALID_FORMAT;
+      }
+    } while (fgets(g_textbuf, MAXLINELEN, *mapfile_ptr));
+    if (!feof(*mapfile_ptr)) {
+      goto validate_cnv_map_ret_READ_FAIL;
     }
-    if (scan_uint_defcap(bufptr2, (uint32_t*)&ii)) {
-      sprintf(g_logbuf, "Error: Invalid bp coordinate on line %" PRIuPTR " of .cnv.map file.\n", line_idx);
-      goto validate_cnv_map_ret_INVALID_FORMAT_2;
-    }
-    if (ii <= last_pos) {
-      goto validate_cnv_map_ret_UNSORTED;
-    }
-    last_pos = ii;
-    if (!IS_SET(chrom_mask, chrom_idx)) {
-      continue;
-    }
-    if ((last_pos <= marker_pos_start_m1) || (last_pos > marker_pos_end)) {
-      continue;
-    }
-    cur_marker_id_len = strlen_se(bufptr);
-    bufptr[cur_marker_id_len] = '\0';
-    if (cur_marker_id_len >= max_marker_id_len) {
-      max_marker_id_len = cur_marker_id_len + 1;
-    }
-    if (++marker_ct == 0x80000000U) {
-      logerrprint("Error: Too many entries in .cnv.map file (max 2147483647).\n");
-      goto validate_cnv_map_ret_INVALID_FORMAT;
-    }
-  } while (fgets(g_textbuf, MAXLINELEN, *mapfile_ptr));
-  if (!feof(*mapfile_ptr)) {
-    goto validate_cnv_map_ret_READ_FAIL;
+    do {
+      marker_chrom_start[++chrom_idx] = marker_ct;
+    } while (chrom_idx < chrom_code_end);
+    *max_marker_id_len_ptr = max_marker_id_len;
+    rewind(*mapfile_ptr);
   }
-  do {
-    marker_chrom_start[++chrom_idx] = marker_ct;
-  } while (chrom_idx < chrom_code_end);
-  *max_marker_id_len_ptr = max_marker_id_len;
-  rewind(*mapfile_ptr);
   while (0) {
   validate_cnv_map_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
@@ -843,52 +855,54 @@ int32_t load_cnv_map(FILE* mapfile, int32_t marker_pos_start, int32_t marker_pos
   uint32_t chrom_idx = 0;
   uintptr_t* chrom_mask = chrom_info_ptr->chrom_mask;
   uint32_t colskip;
-  char* bufptr;
-  char* bufptr2;
-  uint32_t cur_marker_id_len;
   int32_t cur_pos;
   // don't need to worry about invalid format
-  if (marker_pos_end == -1) {
-    marker_pos_end = 0x7fffffff;
-  }
-  do {
-    if (!fgets(g_textbuf, MAXLINELEN, mapfile)) {
+  {
+    if (marker_pos_end == -1) {
+      marker_pos_end = 0x7fffffff;
+    }
+    char* textbuf_first_token;
+    do {
+      if (!fgets(g_textbuf, MAXLINELEN, mapfile)) {
+	goto load_cnv_map_ret_READ_FAIL;
+      }
+      textbuf_first_token = skip_initial_spaces(g_textbuf);
+    } while (is_eoln_kns(*textbuf_first_token));
+    char* textbuf_iter = next_token_mult(textbuf_first_token, 3);
+    if (no_more_tokens_kns(textbuf_iter)) {
+      colskip = 1;
+    } else {
+      colskip = 2;
+    }
+    do {
+      textbuf_first_token = skip_initial_spaces(g_textbuf);
+      if (is_eoln_kns(*textbuf_first_token)) {
+	continue;
+      }
+      char* first_token_end = token_endnn(textbuf_first_token);
+      const uint32_t chrom_name_slen = (uintptr_t)(first_token_end - textbuf_first_token);
+      *first_token_end = '\0';
+      chrom_idx = get_chrom_code_nt(textbuf_first_token, chrom_info_ptr, chrom_name_slen);
+      if (!IS_SET(chrom_mask, chrom_idx)) {
+	continue;
+      }
+      char* col2_ptr = skip_initial_spaces(&(first_token_end[1]));
+      char* col2_end = token_endnn(col2_ptr);
+      char* bp_col_ptr = next_token_mult(col2_end, colskip);
+      if (*bp_col_ptr == '-') {
+	continue;
+      }
+      scan_uint_defcap(bp_col_ptr, (uint32_t*)&cur_pos);
+      if ((cur_pos < marker_pos_start) || (cur_pos > marker_pos_end)) {
+	continue;
+      }
+      memcpyx(marker_ids, col2_ptr, (uintptr_t)(col2_end - col2_ptr), '\0');
+      marker_ids = &(marker_ids[max_marker_id_len]);
+      *marker_pos++ = (uint32_t)cur_pos;
+    } while (fgets(g_textbuf, MAXLINELEN, mapfile));
+    if (!feof(mapfile)) {
       goto load_cnv_map_ret_READ_FAIL;
     }
-    bufptr = skip_initial_spaces(g_textbuf);
-  } while (is_eoln_kns(*bufptr));
-  bufptr = next_token_mult(bufptr, 3);
-  if (is_eoln_kns(*bufptr)) {
-    colskip = 1;
-  } else {
-    colskip = 2;
-  }
-  do {
-    bufptr = skip_initial_spaces(g_textbuf);
-    if (is_eoln_kns(*bufptr)) {
-      continue;
-    }
-    chrom_idx = get_chrom_code(chrom_info_ptr, bufptr);
-    if (!IS_SET(chrom_mask, chrom_idx)) {
-      continue;
-    }
-    bufptr = next_token(bufptr);
-    bufptr2 = next_token_mult(bufptr, colskip);
-    if (*bufptr2 == '-') {
-      continue;
-    }
-    scan_uint_defcap(bufptr2, (uint32_t*)&cur_pos);
-    if ((cur_pos < marker_pos_start) || (cur_pos > marker_pos_end)) {
-      continue;
-    }
-    cur_marker_id_len = strlen_se(bufptr);
-    bufptr[cur_marker_id_len] = '\0';
-    memcpy(marker_ids, bufptr, cur_marker_id_len + 1);
-    marker_ids = &(marker_ids[max_marker_id_len]);
-    *marker_pos++ = (uint32_t)cur_pos;
-  } while (fgets(g_textbuf, MAXLINELEN, mapfile));
-  if (!feof(mapfile)) {
-    goto load_cnv_map_ret_READ_FAIL;
   }
   while (0) {
   load_cnv_map_ret_READ_FAIL:

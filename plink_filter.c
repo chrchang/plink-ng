@@ -1096,7 +1096,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
   uintptr_t y_start = 0;
   uintptr_t y_end = 0;
   uintptr_t line_idx = 0;
-  int32_t y_code = chrom_info_ptr->y_code;
+  int32_t y_code = chrom_info_ptr->xymt_codes[Y_OFFSET];
   uint32_t y_present = ((y_code != -1) && is_set(chrom_info_ptr->chrom_mask, y_code));
   int32_t retval = 0;
   Ll_str* ll_ptr;
@@ -1524,7 +1524,7 @@ int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   uint32_t sample_uidx = 0;
   uint32_t sample_idx = 0;
   uint32_t removed_ct = 0;
-  int32_t y_code = chrom_info_ptr->y_code;
+  int32_t y_code = chrom_info_ptr->xymt_codes[Y_OFFSET];
   uint32_t y_present = (y_code != -1) && is_set(chrom_info_ptr->chrom_mask, y_code);
   uint32_t nony_marker_ct = marker_ct;
   int32_t retval = 0;
@@ -2169,9 +2169,9 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   uint32_t nonmissing_nonmale_y = 0;
   int32_t ii = chrom_info_ptr->chrom_file_order[0];
   uint32_t is_haploid = is_set(chrom_info_ptr->haploid_mask, ii);
-  uint32_t next_chrom_start = chrom_info_ptr->chrom_file_order_marker_idx[1];
-  uint32_t is_x = (ii == chrom_info_ptr->x_code);
-  uint32_t is_y = (ii == chrom_info_ptr->y_code);
+  uint32_t next_chrom_start = chrom_info_ptr->chrom_fo_vidx_start[1];
+  uint32_t is_x = (ii == chrom_info_ptr->xymt_codes[X_OFFSET]);
+  uint32_t is_y = (ii == chrom_info_ptr->xymt_codes[Y_OFFSET]);
   uint32_t ll_ct = 0;
   uint32_t lh_ct = 0;
   uint32_t hh_ct = 0;
@@ -2293,9 +2293,9 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   loadbuf[unfiltered_sample_ctv2 - 2] = 0;
   loadbuf[unfiltered_sample_ctv2 - 1] = 0;
   init_quaterarr_from_inverted_bitarr(sample_exclude, unfiltered_sample_ct, sample_include2);
-  ii = chrom_info_ptr->x_code;
+  ii = chrom_info_ptr->xymt_codes[X_OFFSET];
   nonmales_needed = (!is_split_chrom) && (ii != -1) && is_set(chrom_info_ptr->chrom_mask, ii);
-  ii = chrom_info_ptr->y_code;
+  ii = chrom_info_ptr->xymt_codes[Y_OFFSET];
   males_needed = nonmales_needed || ((!is_split_chrom) && (ii != -1) && is_set(chrom_info_ptr->chrom_mask, ii));
   if (bigstack_alloc_ul(unfiltered_sample_ctv2, &sample_male_include2)) {
     goto calc_freqs_and_hwe_ret_NOMEM;
@@ -2452,12 +2452,12 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
       }
       if (marker_uidx >= next_chrom_start) {
 	do {
-	  next_chrom_start = chrom_info_ptr->chrom_file_order_marker_idx[(++cur_chrom_idx) + 1];
+	  next_chrom_start = chrom_info_ptr->chrom_fo_vidx_start[(++cur_chrom_idx) + 1];
 	} while (marker_uidx >= next_chrom_start);
 	ii = chrom_info_ptr->chrom_file_order[cur_chrom_idx];
 	is_haploid = is_set(chrom_info_ptr->haploid_mask, ii);
-	is_x = (ii == chrom_info_ptr->x_code);
-	is_y = (ii == chrom_info_ptr->y_code);
+	is_x = (ii == chrom_info_ptr->xymt_codes[X_OFFSET]);
+	is_y = (ii == chrom_info_ptr->xymt_codes[Y_OFFSET]);
       }
       if (om_entry_ptr) {
         cur_oblig_missing = 0;
@@ -2702,7 +2702,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   uint32_t* om_sample_lookup = NULL;
   uint32_t* om_cluster_ref_cts = NULL;
   uint64_t cur_om_entry = 0;
-  int32_t y_code = chrom_info_ptr->y_code;
+  int32_t y_code = chrom_info_ptr->xymt_codes[Y_OFFSET];
   uint32_t y_present = (y_code != -1) && is_set(chrom_info_ptr->chrom_mask, y_code);
   uint32_t sample_uidx = 0;
   uint32_t sample_idx = 0;
@@ -2754,7 +2754,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   memcpy(sample_male_include2, sample_include2, unfiltered_sample_ctv2 * sizeof(intptr_t));
   apply_bitarr_mask_to_quaterarr_01(sex_male, unfiltered_sample_ct, sample_male_include2);
   if (y_present) {
-    marker_ct_y = count_chrom_markers(chrom_info_ptr, marker_exclude, chrom_info_ptr->y_code);
+    marker_ct_y = count_chrom_markers(chrom_info_ptr, marker_exclude, chrom_info_ptr->xymt_codes[Y_OFFSET]);
   }
   marker_ct_nony = marker_ct - marker_ct_y;
   if (fseeko(bedfile, bed_offset, SEEK_SET)) {
@@ -2826,11 +2826,11 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   pzwritep += sprintf(pzwritep, g_textbuf, "SNP");
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
     chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-    chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
-    marker_uidx = next_unset(marker_exclude, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx], chrom_end);
+    chrom_end = chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx + 1];
+    marker_uidx = next_unset(marker_exclude, chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx], chrom_end);
     if (marker_uidx < chrom_end) {
-      is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code);
-      is_y = (((int32_t)chrom_idx) == chrom_info_ptr->y_code);
+      is_x = (((int32_t)chrom_idx) == chrom_info_ptr->xymt_codes[X_OFFSET]);
+      is_y = (((int32_t)chrom_idx) == chrom_info_ptr->xymt_codes[Y_OFFSET]);
       is_haploid = is_set(chrom_info_ptr->haploid_mask, chrom_idx);
       if (!is_y) {
 	cur_nm = sample_include2;
@@ -3291,11 +3291,11 @@ uint32_t enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct
   }
   for (chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; chrom_fo_idx++) {
     chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-    chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx + 1];
-    marker_uidx = next_unset(marker_exclude, chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx], chrom_end);
+    chrom_end = chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx + 1];
+    marker_uidx = next_unset(marker_exclude, chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx], chrom_end);
     if (marker_uidx < chrom_end) {
-      is_x = (((int32_t)chrom_idx) == chrom_info_ptr->x_code);
-      if ((((int32_t)chrom_idx) == chrom_info_ptr->mt_code) || (is_set(chrom_info_ptr->haploid_mask, chrom_idx) && (!is_x))) {
+      is_x = (((int32_t)chrom_idx) == chrom_info_ptr->xymt_codes[X_OFFSET]);
+      if ((((int32_t)chrom_idx) == chrom_info_ptr->xymt_codes[MT_OFFSET]) || (is_set(chrom_info_ptr->haploid_mask, chrom_idx) && (!is_x))) {
 	continue;
       }
       // okay if min_obs_x is an underestimate
@@ -3387,7 +3387,7 @@ void enforce_min_bp_space(int32_t min_bp_space, uint32_t unfiltered_marker_ct, u
   int32_t last_pos;
   int32_t cur_pos;
   for (chrom_fo_idx_p1 = 1; chrom_fo_idx_p1 <= chrom_ct; chrom_fo_idx_p1++) {
-    chrom_end = chrom_info_ptr->chrom_file_order_marker_idx[chrom_fo_idx_p1];
+    chrom_end = chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx_p1];
     if (marker_uidx >= chrom_end) {
       continue;
     }

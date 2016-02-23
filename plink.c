@@ -552,6 +552,11 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     if (retval) {
       goto plink_ret_1;
     }
+    if (!update_chr) {
+      if (finalize_chrom_info(chrom_info_ptr)) {
+	goto plink_ret_NOMEM;
+      }
+    }
   }
 
   // load .fam, count samples
@@ -2275,7 +2280,7 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
       if (!range_start) {
 	break;
       }
-      chrom_code_start = get_chrom_code2(chrom_info_ptr, range_start, rs_len);
+      chrom_code_start = get_chrom_code(chrom_info_ptr, range_start, rs_len);
       if (chrom_code_start < 0) {
 	range_start[rs_len] = '\0';
 	if (!allow_extra_chroms) {
@@ -2288,7 +2293,7 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
 	  goto parse_chrom_ranges_ret_NOMEM;
 	}
       } else if (range_end) {
-        chrom_code_end = get_chrom_code2(chrom_info_ptr, range_end, re_len);
+        chrom_code_end = get_chrom_code(chrom_info_ptr, range_end, re_len);
 	if (chrom_code_end < 0) {
 	  if (!allow_extra_chroms) {
 	    range_end[re_len] = '\0';
@@ -2887,24 +2892,7 @@ uint32_t valid_varid_template_string(char* varid_str, const char* flag_name) {
   return 1;
 }
 
-// if these are defined within init_delim_and_species, they may not persist
-// after function exit
-static const char species_singular_constants[][7] = {"person", "cow", "dog", "horse", "mouse", "plant", "sheep", "sample"};
-static const char species_plural_constants[][8] = {"people", "cattle", "dogs", "horses", "mice", "plants", "sheep", "samples"};
-
 int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_map, int32_t argc, char** argv, char* range_delim_ptr, Chrom_info* chrom_info_ptr) {
-  // human: 22, X, Y, XY, MT
-  // cow: 29, X, Y, MT
-  // dog: 38, X, Y, XY, MT
-  // horse: 31, X, Y
-  // mouse: 19, X, Y
-  // rice: 12
-  // sheep: 26, X, Y
-  const int32_t species_x_code[] = {23, 30, 39, 32, 20, -1, 27};
-  const int32_t species_y_code[] = {24, 31, 40, 33, 21, -1, 28};
-  const int32_t species_xy_code[] = {25, -1, 41, -1, -1, -1, -1};
-  const int32_t species_mt_code[] = {26, 33, 42, -1, -1, -1, -1};
-  const uint32_t species_max_code[] = {26, 33, 42, 33, 21, 12, 28};
   uint32_t species_code = SPECIES_HUMAN;
   uint32_t flag_idx = 0;
   uint32_t retval = 0;
@@ -2912,10 +2900,6 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
   uint32_t param_ct;
   int32_t ii;
   uint32_t param_idx;
-  fill_ulong_zero(CHROM_MASK_WORDS, chrom_info_ptr->haploid_mask);
-  fill_ulong_zero(CHROM_MASK_WORDS, chrom_info_ptr->chrom_mask);
-  chrom_info_ptr->output_encoding = 0;
-  chrom_info_ptr->zero_extra_chroms = 0;
   if (flag_match("autosome-num", &flag_idx, flag_ct, flag_buf)) {
     species_code = SPECIES_UNKNOWN;
     cur_arg = flag_map[flag_idx - 1];
@@ -2927,10 +2911,10 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
       sprintf(g_logbuf, "Error: Invalid --autosome-num parameter '%s'.\n", argv[cur_arg + 1]);
       goto init_delim_and_species_ret_INVALID_CMDLINE_WWA;
     }
-    chrom_info_ptr->x_code = ii + 1;
-    chrom_info_ptr->y_code = -1;
-    chrom_info_ptr->xy_code = -1;
-    chrom_info_ptr->mt_code = -1;
+    chrom_info_ptr->xymt_codes[X_OFFSET] = ii + 1;
+    chrom_info_ptr->xymt_codes[Y_OFFSET] = -1;
+    chrom_info_ptr->xymt_codes[XY_OFFSET] = -1;
+    chrom_info_ptr->xymt_codes[MT_OFFSET] = -1;
     chrom_info_ptr->max_code = ii + 1;
     chrom_info_ptr->autosome_ct = ii;
     set_bit(ii + 1, chrom_info_ptr->haploid_mask);
@@ -2955,43 +2939,43 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
       }
       ii = -ii;
       chrom_info_ptr->autosome_ct = ii;
-      chrom_info_ptr->x_code = -1;
-      chrom_info_ptr->y_code = -1;
-      chrom_info_ptr->xy_code = -1;
-      chrom_info_ptr->mt_code = -1;
+      chrom_info_ptr->xymt_codes[X_OFFSET] = -1;
+      chrom_info_ptr->xymt_codes[Y_OFFSET] = -1;
+      chrom_info_ptr->xymt_codes[XY_OFFSET] = -1;
+      chrom_info_ptr->xymt_codes[MT_OFFSET] = -1;
       chrom_info_ptr->max_code = ii;
       fill_all_bits(((uint32_t)ii) + 1, chrom_info_ptr->haploid_mask);
     } else {
       chrom_info_ptr->autosome_ct = ii;
-      chrom_info_ptr->x_code = ii + 1;
-      chrom_info_ptr->y_code = ii + 2;
-      chrom_info_ptr->xy_code = ii + 3;
-      chrom_info_ptr->mt_code = ii + 4;
+      chrom_info_ptr->xymt_codes[X_OFFSET] = ii + 1;
+      chrom_info_ptr->xymt_codes[Y_OFFSET] = ii + 2;
+      chrom_info_ptr->xymt_codes[XY_OFFSET] = ii + 3;
+      chrom_info_ptr->xymt_codes[MT_OFFSET] = ii + 4;
       set_bit(ii + 1, chrom_info_ptr->haploid_mask);
       set_bit(ii + 2, chrom_info_ptr->haploid_mask);
       for (param_idx = 2; param_idx <= param_ct; param_idx++) {
 	if (!strcmp(argv[cur_arg + param_idx], "no-x")) {
-	  chrom_info_ptr->x_code = -1;
+	  chrom_info_ptr->xymt_codes[X_OFFSET] = -1;
 	  clear_bit(ii + 1, chrom_info_ptr->haploid_mask);
 	} else if (!strcmp(argv[cur_arg + param_idx], "no-y")) {
-	  chrom_info_ptr->y_code = -1;
+	  chrom_info_ptr->xymt_codes[Y_OFFSET] = -1;
 	  clear_bit(ii + 2, chrom_info_ptr->haploid_mask);
 	} else if (!strcmp(argv[cur_arg + param_idx], "no-xy")) {
-	  chrom_info_ptr->xy_code = -1;
+	  chrom_info_ptr->xymt_codes[XY_OFFSET] = -1;
 	} else if (!strcmp(argv[cur_arg + param_idx], "no-mt")) {
-	  chrom_info_ptr->mt_code = -1;
+	  chrom_info_ptr->xymt_codes[MT_OFFSET] = -1;
 	} else {
 	  sprintf(g_logbuf, "Error: Invalid --chr-set parameter '%s'.\n", argv[cur_arg + param_idx]);
 	  goto init_delim_and_species_ret_INVALID_CMDLINE_WWA;
 	}
       }
-      if (chrom_info_ptr->mt_code != -1) {
+      if (chrom_info_ptr->xymt_codes[MT_OFFSET] != -1) {
 	chrom_info_ptr->max_code = ii + 4;
-      } else if (chrom_info_ptr->xy_code != -1) {
+      } else if (chrom_info_ptr->xymt_codes[XY_OFFSET] != -1) {
 	chrom_info_ptr->max_code = ii + 3;
-      } else if (chrom_info_ptr->y_code != -1) {
+      } else if (chrom_info_ptr->xymt_codes[Y_OFFSET] != -1) {
 	chrom_info_ptr->max_code = ii + 2;
-      } else if (chrom_info_ptr->x_code != -1) {
+      } else if (chrom_info_ptr->xymt_codes[X_OFFSET] != -1) {
 	chrom_info_ptr->max_code = ii + 1;
       } else {
 	chrom_info_ptr->max_code = ii;
@@ -3068,55 +3052,7 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
       goto init_delim_and_species_ret_INVALID_CMDLINE;
     }
   }
-  chrom_info_ptr->species = species_code;
-  chrom_info_ptr->is_include_stack = 0;
-  if (species_code != SPECIES_UNKNOWN) {
-    chrom_info_ptr->x_code = species_x_code[species_code];
-    chrom_info_ptr->y_code = species_y_code[species_code];
-    chrom_info_ptr->xy_code = species_xy_code[species_code];
-    chrom_info_ptr->mt_code = species_mt_code[species_code];
-    chrom_info_ptr->max_code = species_max_code[species_code];
-  }
-  g_species_singular = species_singular_constants[species_code];
-  g_species_plural = species_plural_constants[species_code];
-  switch (species_code) {
-  case SPECIES_HUMAN:
-    chrom_info_ptr->autosome_ct = 22;
-    chrom_info_ptr->haploid_mask[0] = 0x1800000;
-    break;
-  case SPECIES_COW:
-    chrom_info_ptr->autosome_ct = 29;
-    chrom_info_ptr->haploid_mask[0] = 0xc0000000LU;
-    break;
-  case SPECIES_DOG:
-    chrom_info_ptr->autosome_ct = 38;
-#ifdef __LP64__
-    chrom_info_ptr->haploid_mask[0] = 0x18000000000LLU;
-#else
-    chrom_info_ptr->haploid_mask[1] = 0x180;
-#endif
-    break;
-  case SPECIES_HORSE:
-    chrom_info_ptr->autosome_ct = 31;
-#ifdef __LP64__
-    chrom_info_ptr->haploid_mask[0] = 0x300000000LLU;
-#else
-    chrom_info_ptr->haploid_mask[1] = 3;
-#endif
-    break;
-  case SPECIES_MOUSE:
-    chrom_info_ptr->autosome_ct = 19;
-    chrom_info_ptr->haploid_mask[0] = 0x300000;
-    break;
-  case SPECIES_RICE:
-    chrom_info_ptr->autosome_ct = 12;
-    chrom_info_ptr->haploid_mask[0] = 0x1fff;
-    break;
-  case SPECIES_SHEEP:
-    chrom_info_ptr->autosome_ct = 26;
-    chrom_info_ptr->haploid_mask[0] = 0x18000000;
-    break;
-  }
+  init_species(species_code, chrom_info_ptr);
   while (0) {
   init_delim_and_species_ret_INVALID_CMDLINE_WWA:
     wordwrapb(0);
@@ -3131,27 +3067,6 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
     break;
   }
   return retval;
-}
-
-void fill_chrom_mask(Chrom_info* chrom_info_ptr) {
-  if (chrom_info_ptr->species != SPECIES_UNKNOWN) {
-    fill_all_bits(chrom_info_ptr->max_code + 1, chrom_info_ptr->chrom_mask);
-  } else {
-    fill_all_bits(chrom_info_ptr->autosome_ct + 1, chrom_info_ptr->chrom_mask);
-    // --chr-set support
-    if (chrom_info_ptr->x_code != -1) {
-      set_bit(chrom_info_ptr->x_code, chrom_info_ptr->chrom_mask);
-    }
-    if (chrom_info_ptr->y_code != -1) {
-      set_bit(chrom_info_ptr->y_code, chrom_info_ptr->chrom_mask);
-    }
-    if (chrom_info_ptr->xy_code != -1) {
-      set_bit(chrom_info_ptr->xy_code, chrom_info_ptr->chrom_mask);
-    }
-    if (chrom_info_ptr->mt_code != -1) {
-      set_bit(chrom_info_ptr->mt_code, chrom_info_ptr->chrom_mask);
-    }
-  }
 }
 
 int32_t recode_type_set(uint32_t* recode_modifier_ptr, uint32_t cur_code) {
@@ -3473,8 +3388,10 @@ int32_t main(int32_t argc, char** argv) {
   // standardize strtod() behavior
   setlocale(LC_NUMERIC, "C");
 
-  chrom_info.name_ct = 0;
-  chrom_info.incl_excl_name_stack = NULL;
+  if (init_chrom_info(&chrom_info)) {
+    goto main_ret_NOMEM;
+  }
+
   for (uii = 1; uii < (uint32_t)argc; uii++) {
     if ((!strcmp("-script", argv[uii])) || (!strcmp("--script", argv[uii]))) {
       ujj = param_count(argc, argv, uii);
@@ -4257,12 +4174,12 @@ int32_t main(int32_t argc, char** argv) {
           logerrprint("Error: --autosome-xy cannot be used with --autosome.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	if (chrom_info.xy_code == -1) {
+	if (chrom_info.xymt_codes[XY_OFFSET] == -1) {
 	  logerrprint("Error: --autosome-xy used with a species lacking an XY region.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	fill_bits(1, chrom_info.autosome_ct, chrom_info.chrom_mask);
-	set_bit(chrom_info.xy_code, chrom_info.chrom_mask);
+	set_bit(chrom_info.xymt_codes[XY_OFFSET], chrom_info.chrom_mask);
 	chrom_info.is_include_stack = 1;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "llow-extra-chr", 15)) {
@@ -9241,7 +9158,7 @@ int32_t main(int32_t argc, char** argv) {
         set_info.modifier |= SET_COMPLEMENTS | SET_C_PREFIX | SET_MAKE_COLLAPSE_GROUP;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "erge-x", 7)) {
-	if ((chrom_info.x_code == -1) || (chrom_info.xy_code == -1)) {
+	if ((chrom_info.xymt_codes[X_OFFSET] == -1) || (chrom_info.xymt_codes[XY_OFFSET] == -1)) {
 	  logerrprint("Error: --merge-x must be used with a chromosome set containing X and XY codes.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
@@ -9554,7 +9471,7 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_1;
 	}
 	if (chrom_info.is_include_stack || (!chrom_flag_present)) {
-	  fill_chrom_mask(&chrom_info);
+	  init_default_chrom_mask(&chrom_info);
 	}
 	for (uii = 0; uii < CHROM_MASK_INITIAL_WORDS; uii++) {
 	  chrom_info.chrom_mask[uii] &= ~chrom_exclude[uii];
@@ -11392,7 +11309,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (misc_flags & MISC_MERGEX) {
           logerrprint("Error: --split-x cannot be used with --merge-x.\n");
           goto main_ret_INVALID_CMDLINE_A;
-	} else if ((chrom_info.x_code == -1) || (chrom_info.xy_code == -1)) {
+	} else if ((chrom_info.xymt_codes[X_OFFSET] == -1) || (chrom_info.xymt_codes[XY_OFFSET] == -1)) {
 	  logerrprint("Error: --split-x must be used with a chromosome set containing X and XY codes.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
@@ -13122,7 +13039,7 @@ int32_t main(int32_t argc, char** argv) {
     marker_pos_end = 0x7ffffffe;
   }
   if (!chrom_flag_present) {
-    fill_chrom_mask(&chrom_info);
+    init_default_chrom_mask(&chrom_info);
   }
   if (((marker_pos_start != -1) && (!markername_to)) || ((marker_pos_end != -1) && (!markername_from))) {
     // require exactly one chromosome to be defined given --from-bp/--to-bp
@@ -13646,14 +13563,7 @@ int32_t main(int32_t argc, char** argv) {
       file_delete_list = ll_str_ptr;
     } while (file_delete_list);
   }
-  forget_extra_chrom_names(&chrom_info);
-  if (chrom_info.incl_excl_name_stack) {
-    do {
-      ll_str_ptr = chrom_info.incl_excl_name_stack->next;
-      free(chrom_info.incl_excl_name_stack);
-      chrom_info.incl_excl_name_stack = ll_str_ptr;
-    } while (chrom_info.incl_excl_name_stack);
-  }
+  cleanup_chrom_info(&chrom_info);
   if (g_logfile) {
     if (!g_log_failed) {
       logstr("\nEnd time: ");
