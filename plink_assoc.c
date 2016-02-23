@@ -6043,7 +6043,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   char* writebuf = g_textbuf;
   char* chrom_name_ptr = NULL;
   uint32_t chrom_name_len = 0;
-  char chrom_name_buf[3 + MAX_CHROM_TEXTNUM_LEN];
+  char chrom_name_buf[3 + MAX_CHROM_TEXTNUM_SLEN];
   uint32_t mu_table[MODEL_BLOCKSIZE];
   uint32_t uibuf[4];
   char wbuf[48];
@@ -10976,7 +10976,7 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   uint32_t is_x = 0;
   uint32_t is_y = 0;
   int32_t retval = 0;
-  char chrom_name_buf[3 + MAX_CHROM_TEXTNUM_LEN];
+  char chrom_name_buf[3 + MAX_CHROM_TEXTNUM_SLEN];
   uintptr_t* pheno_nm_11;
   uintptr_t* pheno_nm_nonmale_11;
   uintptr_t* pheno_nm_male_11;
@@ -11590,7 +11590,7 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   uint32_t is_x = 0;
   uint32_t is_y = 0;
   int32_t retval = 0;
-  char chrom_name_buf[3 + MAX_CHROM_TEXTNUM_LEN];
+  char chrom_name_buf[3 + MAX_CHROM_TEXTNUM_SLEN];
   uintptr_t* cluster_bitfield;
   uintptr_t* pheno_nm_11;
   uintptr_t* pheno_nm_nonmale_11;
@@ -11630,7 +11630,7 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   double dxx;
   uint32_t cluster_idx;
   uint32_t loop_end;
-  ulii = 2 * max_marker_allele_len + MAX_ID_LEN + max_marker_id_len + max_cluster_id_len + 256;
+  ulii = 2 * max_marker_allele_len + MAX_ID_SLEN + max_marker_id_len + max_cluster_id_len + 256;
   if (ulii > MAXLINELEN) {
     if (bigstack_alloc_c(ulii, &writebuf)) {
       goto homog_assoc_ret_NOMEM;

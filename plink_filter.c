@@ -1127,8 +1127,8 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
   int32_t ii;
 
   if (y_present) {
-    y_start = chrom_info_ptr->chrom_start[(uint32_t)y_code];
-    y_end = chrom_info_ptr->chrom_end[(uint32_t)y_code];
+    y_start = get_chrom_start_vidx(chrom_info_ptr, (uint32_t)y_code);
+    y_end = get_chrom_end_vidx(chrom_info_ptr, (uint32_t)y_code);
   }
   if (bigstack_alloc_ul(unfiltered_sample_ctl2, &loadbuf)) {
     goto load_oblig_missing_ret_NOMEM;
@@ -1545,8 +1545,8 @@ int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   uintptr_t ulii;
 
   if (y_present) {
-    y_start = chrom_info_ptr->chrom_start[(uint32_t)y_code];
-    y_end = chrom_info_ptr->chrom_end[(uint32_t)y_code];
+    y_start = get_chrom_start_vidx(chrom_info_ptr, (uint32_t)y_code);
+    y_end = get_chrom_end_vidx(chrom_info_ptr, (uint32_t)y_code);
     if (bigstack_alloc_ul(unfiltered_sample_ctl2, &sample_male_include2)) {
       goto mind_filter_ret_NOMEM;
     }

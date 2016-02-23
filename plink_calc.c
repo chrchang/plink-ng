@@ -524,10 +524,6 @@ void fill_subset_weights_r(double* subset_weights, double* set_allele_freqs, dou
   }
 }
 
-int32_t get_chrom_end(Chrom_info* chrom_info_ptr, uintptr_t marker_idx) {
-  return chrom_info_ptr->chrom_end[get_variant_chrom(chrom_info_ptr, marker_idx)];
-}
-
 void exclude_multi(uintptr_t* exclude_arr, int32_t* new_excl, uint32_t unfiltered_sample_ct, uintptr_t* exclude_ct_ptr) {
   uint32_t exclude_ct = *exclude_ct_ptr;
   int32_t* new_excl_end = &(new_excl[unfiltered_sample_ct - exclude_ct]);

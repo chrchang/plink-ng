@@ -626,7 +626,7 @@ uint32_t ld_prune_next_valid_chrom_start(uintptr_t* marker_exclude, uint32_t cur
     if (chrom_idx && (chrom_idx < chrom_code_end)) {
       return cur_uidx;
     }
-    cur_uidx = next_unset(marker_exclude, chrom_info_ptr->chrom_end[chrom_idx], unfiltered_marker_ct);
+    cur_uidx = next_unset(marker_exclude, get_chrom_end_vidx(chrom_info_ptr, chrom_idx), unfiltered_marker_ct);
   }
   return cur_uidx;
 }
@@ -634,7 +634,7 @@ uint32_t ld_prune_next_valid_chrom_start(uintptr_t* marker_exclude, uint32_t cur
 void ld_prune_start_chrom(uint32_t ld_window_kb, uint32_t* cur_chrom_ptr, uint32_t* chrom_end_ptr, uint32_t window_unfiltered_start, uint32_t* live_indices, uint32_t* start_arr, uint32_t* window_unfiltered_end_ptr, uint32_t ld_window_size, uint32_t* cur_window_size_ptr, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uint32_t* is_haploid_ptr, uint32_t* is_x_ptr, uint32_t* is_y_ptr) {
   uint32_t cur_chrom = get_variant_chrom(chrom_info_ptr, window_unfiltered_start);
   uint32_t window_unfiltered_end = window_unfiltered_start + 1;
-  uint32_t chrom_end = chrom_info_ptr->chrom_end[cur_chrom];
+  uint32_t chrom_end = get_chrom_end_vidx(chrom_info_ptr, cur_chrom);
   uint32_t uii = 0;
   uint32_t window_size;
   live_indices[0] = window_unfiltered_start;
@@ -683,8 +683,8 @@ int32_t ld_prune_write(char* outname, char* outname_end, uintptr_t* marker_exclu
     goto ld_prune_write_ret_OPEN_FAIL;
   }
   for (cur_chrom = 1; cur_chrom < chrom_code_end; cur_chrom++) {
-    chrom_end = chrom_info_ptr->chrom_end[cur_chrom];
-    for (marker_uidx = chrom_info_ptr->chrom_start[cur_chrom]; marker_uidx < chrom_end; marker_uidx++) {
+    chrom_end = get_chrom_end_vidx(chrom_info_ptr, cur_chrom);
+    for (marker_uidx = get_chrom_start_vidx(chrom_info_ptr, cur_chrom); marker_uidx < chrom_end; marker_uidx++) {
       // pruned_arr initialized to marker_exclude
       if (!IS_SET(pruned_arr, marker_uidx)) {
         fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
@@ -700,8 +700,8 @@ int32_t ld_prune_write(char* outname, char* outname_end, uintptr_t* marker_exclu
     goto ld_prune_write_ret_OPEN_FAIL;
   }
   for (cur_chrom = 1; cur_chrom < chrom_code_end; cur_chrom++) {
-    chrom_end = chrom_info_ptr->chrom_end[cur_chrom];
-    for (marker_uidx = chrom_info_ptr->chrom_start[cur_chrom]; marker_uidx < chrom_end; marker_uidx++) {
+    chrom_end = get_chrom_end_vidx(chrom_info_ptr, cur_chrom);
+    for (marker_uidx = get_chrom_start_vidx(chrom_info_ptr, cur_chrom); marker_uidx < chrom_end; marker_uidx++) {
       if ((!IS_SET(marker_exclude, marker_uidx)) && IS_SET(pruned_arr, marker_uidx)) {
         fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
 	putc('\n', outfile);
@@ -793,6 +793,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   uint32_t ukk;
   int32_t ii;
   uint32_t cur_chrom;
+  uint32_t chrom_start;
   uint32_t chrom_end;
   uint32_t is_haploid;
   uint32_t is_x;
@@ -861,7 +862,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   if (window_is_kb) {
     // determine maximum number of markers that may need to be loaded at once
     for (cur_chrom = 1; cur_chrom < chrom_code_end; cur_chrom++) {
-      if (chrom_exists(chrom_info_ptr, cur_chrom)) {
+      if (is_set(chrom_info_ptr->chrom_mask, cur_chrom)) {
 	window_max = chrom_window_max(marker_pos, marker_exclude, chrom_info_ptr, cur_chrom, 0x7fffffff, ld_window_size * 1000, window_max);
       }
     }
@@ -969,7 +970,8 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
       }
     }
     pct = 1;
-    pct_thresh = window_unfiltered_start + ((uint64_t)pct * (chrom_end - chrom_info_ptr->chrom_start[cur_chrom])) / 100;
+    chrom_start = get_chrom_start_vidx(chrom_info_ptr, cur_chrom);
+    pct_thresh = window_unfiltered_start + ((uint64_t)pct * (chrom_end - chrom_start)) / 100;
     while ((window_unfiltered_start < chrom_end) || (cur_window_size > 1)) {
       if (cur_window_size > 1) {
 	do {
@@ -1192,10 +1194,10 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	break;
       }
       if (window_unfiltered_start >= pct_thresh) {
-	pct = ((window_unfiltered_start - chrom_info_ptr->chrom_start[cur_chrom]) * 100LLU) / (chrom_end - chrom_info_ptr->chrom_start[cur_chrom]);
+	pct = ((window_unfiltered_start - chrom_start) * 100LLU) / (chrom_end - chrom_start);
 	printf("\r%u%%", pct++);
 	fflush(stdout);
-	pct_thresh = chrom_info_ptr->chrom_start[cur_chrom] + (((uint64_t)pct * (chrom_end - chrom_info_ptr->chrom_start[cur_chrom])) / 100);
+	pct_thresh = chrom_start + (((uint64_t)pct * (chrom_end - chrom_start)) / 100);
       }
       ujj = 0;
 
@@ -1278,9 +1280,8 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	start_arr[cur_window_size] = window_unfiltered_end;
       }
     }
-    uii = get_variant_chrom(chrom_info_ptr, window_unfiltered_start - 1);
     putchar('\r');
-    LOGPRINTF("Pruned %" PRIuPTR " variant%s from chromosome %u, leaving %" PRIuPTR ".\n", cur_exclude_ct, (cur_exclude_ct == 1)? "" : "s", uii, chrom_info_ptr->chrom_end[uii] - chrom_info_ptr->chrom_start[uii] - popcount_bit_idx(marker_exclude, chrom_info_ptr->chrom_start[uii], chrom_info_ptr->chrom_end[uii]) - cur_exclude_ct);
+    LOGPRINTF("Pruned %" PRIuPTR " variant%s from chromosome %u, leaving %" PRIuPTR ".\n", cur_exclude_ct, (cur_exclude_ct == 1)? "" : "s", cur_chrom, chrom_end - chrom_start - popcount_bit_idx(marker_exclude, chrom_start, chrom_end) - cur_exclude_ct);
     tot_exclude_ct += cur_exclude_ct;
 
     // advance chromosomes as necessary
@@ -5234,8 +5235,8 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   fill_all_bits(founder_ct, dummy_nm);
   g_ld_thread_wkspace = NULL;
   if ((x_code != -1) && is_set(chrom_info_ptr->chrom_mask, x_code)) {
-    uii = chrom_info_ptr->chrom_start[(uint32_t)x_code];
-    chrom_end = chrom_info_ptr->chrom_end[(uint32_t)x_code];
+    uii = get_chrom_start_vidx(chrom_info_ptr, (uint32_t)x_code);
+    chrom_end = get_chrom_end_vidx(chrom_info_ptr, (uint32_t)x_code);
     chrom_end = chrom_end - uii - popcount_bit_idx(marker_exclude, uii, chrom_end);
     if (chrom_end) {
       if (bigstack_alloc_ul(round_up_pow2(founder_ctsplit, CACHELINE_WORD) * thread_ct, &g_ld_thread_wkspace)) {
@@ -6138,7 +6139,7 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
   }
   *bufptr = '\0';
   if (ld_modifier & LD_INPHASE) {
-    if (max_marker_allele_len * 4 + plink_maxsnp * 2 + get_max_chrom_len(chrom_info_ptr) * 2 + 128 > MAXLINELEN) {
+    if (max_marker_allele_len * 4 + plink_maxsnp * 2 + get_max_chrom_slen(chrom_info_ptr) * 2 + 128 > MAXLINELEN) {
       logerrprint("Error: --r/--r2 in-phase does not support very long allele codes.\n");
       goto ld_report_ret_INVALID_CMDLINE;
     }
@@ -6197,7 +6198,7 @@ int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t 
   uint32_t target_ct = 0;
   uint32_t chrom_name_len = 0;
   int32_t retval = 0;
-  char chrom_name_buf[3 + MAX_CHROM_TEXTNUM_LEN];
+  char chrom_name_buf[3 + MAX_CHROM_TEXTNUM_SLEN];
   int32_t dp_result[5];
   uintptr_t founder_ct_192_long;
   uintptr_t founder_ctwd12;
@@ -10308,6 +10309,7 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
   uint32_t window_unfiltered_end;
   uint32_t cur_window_size;
   uint32_t cur_chrom;
+  uint32_t chrom_start;
   uint32_t chrom_end;
   uint32_t is_haploid;
   uint32_t is_x;
@@ -10345,7 +10347,7 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
   if (window_is_kb) {
     // determine maximum number of markers that may need to be loaded at once
     for (cur_chrom = 1; cur_chrom < chrom_code_end; cur_chrom++) {
-      if (chrom_exists(chrom_info_ptr, cur_chrom)) {
+      if (is_set(chrom_info_ptr->chrom_mask, cur_chrom)) {
 	window_max = chrom_window_max(marker_pos, marker_exclude, chrom_info_ptr, cur_chrom, 0x7fffffff, ld_window_size * 1000, window_max);
       }
     }
@@ -10420,7 +10422,8 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
       }
     }
     pct = 1;
-    pct_thresh = window_unfiltered_start + ((uint64_t)pct * (chrom_end - chrom_info_ptr->chrom_start[cur_chrom])) / 100;
+    chrom_start = get_chrom_start_vidx(chrom_info_ptr, cur_chrom);
+    pct_thresh = window_unfiltered_start + ((uint64_t)pct * (chrom_end - chrom_start)) / 100;
     while ((window_unfiltered_start < chrom_end) || (cur_window_size > 1)) {
       if (cur_window_size > 1) {
 	do {
@@ -10524,10 +10527,10 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
 	break;
       }
       if (window_unfiltered_start >= pct_thresh) {
-	pct = ((window_unfiltered_start - chrom_info_ptr->chrom_start[cur_chrom]) * 100LLU) / (chrom_end - chrom_info_ptr->chrom_start[cur_chrom]);
+	pct = ((window_unfiltered_start - chrom_start) * 100LLU) / (chrom_end - chrom_start);
 	printf("\r%u%%", pct++);
 	fflush(stdout);
-	pct_thresh = chrom_info_ptr->chrom_start[cur_chrom] + (((uint64_t)pct * (chrom_end - chrom_info_ptr->chrom_start[cur_chrom])) / 100);
+	pct_thresh = chrom_start + (((uint64_t)pct * (chrom_end - chrom_start)) / 100);
       }
       uljj = 0;
       if (window_unfiltered_end < window_unfiltered_start) {
@@ -10608,9 +10611,8 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
 	start_arr[cur_window_size] = window_unfiltered_end;
       }
     }
-    uii = get_variant_chrom(chrom_info_ptr, window_unfiltered_start - 1);
     putchar('\r');
-    LOGPRINTF("Pruned %" PRIuPTR " variant%s from chromosome %u, leaving %" PRIuPTR ".\n", cur_exclude_ct, (cur_exclude_ct == 1)? "" : "s", uii, chrom_info_ptr->chrom_end[uii] - chrom_info_ptr->chrom_start[uii] - popcount_bit_idx(marker_exclude, chrom_info_ptr->chrom_start[uii], chrom_info_ptr->chrom_end[uii]) - cur_exclude_ct);
+    LOGPRINTF("Pruned %" PRIuPTR " variant%s from chromosome %u, leaving %" PRIuPTR ".\n", cur_exclude_ct, (cur_exclude_ct == 1)? "" : "s", cur_chrom, chrom_end - chrom_start - popcount_bit_idx(marker_exclude, chrom_start, chrom_end) - cur_exclude_ct);
     tot_exclude_ct += cur_exclude_ct;
 
     // advance chromosomes as necessary

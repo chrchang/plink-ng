@@ -274,21 +274,151 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
   uint32_t range_last;
   uint32_t uii;
   uint32_t ujj;
-  int32_t ii;
-  g_textbuf[MAXLINELEN - 1] = ' ';
-  // if we need to track set names, put together a sorted list
-  if (track_set_names) {
+  {
+    g_textbuf[MAXLINELEN - 1] = ' ';
+    // if we need to track set names, put together a sorted list
+    if (track_set_names) {
+      while (fgets(g_textbuf, MAXLINELEN, infile)) {
+	line_idx++;
+	if (!g_textbuf[MAXLINELEN - 1]) {
+	  sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s file is pathologically long.\n", line_idx, file_descrip);
+	  goto load_range_list_ret_INVALID_FORMAT_2;
+	}
+	char* textbuf_first_token = skip_initial_spaces(g_textbuf);
+	if (is_eoln_kns(*textbuf_first_token)) {
+	  continue;
+	}
+	char* first_token_end = token_endnn(textbuf_first_token);
+	bufptr2 = next_token_mult(first_token_end, 3);
+	if (!collapse_group) {
+	  bufptr3 = bufptr2;
+	} else {
+	  bufptr3 = next_token(bufptr2);
+	}
+	if (no_more_tokens_kns(bufptr3)) {
+	  sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s file has fewer tokens than expected.\n", line_idx, file_descrip);
+	  goto load_range_list_ret_INVALID_FORMAT_2;
+	}
+	const uint32_t chrom_name_slen = (uintptr_t)(first_token_end - textbuf_first_token);
+	*first_token_end = '\0';
+	int32_t cur_chrom_code = get_chrom_code_nt(textbuf_first_token, chrom_info_ptr, chrom_name_slen);
+	if (cur_chrom_code < 0) {
+	  sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
+	  goto load_range_list_ret_INVALID_FORMAT_2;
+	}
+	// chrom_mask check removed, we want to track empty sets
+	uii = strlen_se(bufptr2);
+	bufptr2[uii] = '\0';
+	if (subset_ct) {
+	  if (bsearch_str(bufptr2, uii, sorted_subset_ids, max_subset_id_len, subset_ct) == -1) {
+	    continue;
+	  }
+	}
+	if (collapse_group) {
+	  uii = strlen_se(bufptr3);
+	  bufptr3[uii] = '\0';
+	}
+	// when there are repeats, they are likely to be next to each other
+	if (make_set_ll && (!strcmp(make_set_ll->ss, bufptr3))) {
+	  continue;
+	}
+	uii++;
+	// argh, --clump counts positional overlaps which don't include any
+	// variants in the dataset.  So we prefix set IDs with a chromosome
+	// index in that case (with leading zeroes) and treat cross-chromosome
+	// sets as distinct.
+	if (!marker_pos) {
+	  uii += 4;
+	}
+	if (uii > max_set_id_len) {
+	  max_set_id_len = uii;
+	}
+	if (bigstack_end_alloc_llstr(uii, &ll_tmp)) {
+	  goto load_range_list_ret_NOMEM;
+	}
+	ll_tmp->next = make_set_ll;
+	if (marker_pos) {
+	  memcpy(ll_tmp->ss, bufptr3, uii);
+	} else {
+	  uitoa_z4((uint32_t)cur_chrom_code, ll_tmp->ss);
+	  // if first character of gene name is a digit, natural sort has strange
+	  // effects unless we force [3] to be nonnumeric...
+	  ll_tmp->ss[3] -= 15;
+	  memcpy(&(ll_tmp->ss[4]), bufptr3, uii - 4);
+	}
+	make_set_ll = ll_tmp;
+	set_ct++;
+      }
+      if (!set_ct) {
+	if (fail_on_no_sets) {
+	  if (marker_pos) {
+	    if (!allow_no_variants) {
+	      // okay, this is a kludge
+	      logerrprint("Error: All variants excluded by --gene{-all}, since no sets were defined from\n--make-set file.\n");
+	      retval = RET_ALL_MARKERS_EXCLUDED;
+	      goto load_range_list_ret_1;
+	    }
+	  } else {
+	    if (subset_ct) {
+	      logerrprint("Error: No --gene-subset genes present in --gene-report file.\n");
+	    } else {
+	      logerrprint("Error: Empty --gene-report file.\n");
+	    }
+	    retval = RET_INVALID_FORMAT;
+	    goto load_range_list_ret_1;
+	  }
+	}
+	LOGERRPRINTF("Warning: No valid ranges in %s file.\n", file_descrip);
+	goto load_range_list_ret_1;
+      }
+      max_set_id_len += c_prefix;
+      if (max_set_id_len > MAX_ID_BLEN) {
+	logerrprint("Error: Set IDs are limited to " MAX_ID_SLEN_STR " characters.\n");
+	goto load_range_list_ret_INVALID_FORMAT;
+      }
+      if (bigstack_alloc_c(set_ct * max_set_id_len, set_names_ptr)) {
+	goto load_range_list_ret_NOMEM;
+      }
+      set_names = *set_names_ptr;
+      if (!c_prefix) {
+	for (ulii = 0; ulii < set_ct; ulii++) {
+	  strcpy(&(set_names[ulii * max_set_id_len]), make_set_ll->ss);
+	  make_set_ll = make_set_ll->next;
+	}
+      } else {
+	for (ulii = 0; ulii < set_ct; ulii++) {
+	  memcpy(&(set_names[ulii * max_set_id_len]), "C_", 2);
+	  strcpy(&(set_names[ulii * max_set_id_len + 2]), make_set_ll->ss);
+	  make_set_ll = make_set_ll->next;
+	}
+      }
+      qsort(set_names, set_ct, max_set_id_len, strcmp_natural);
+      set_ct = collapse_duplicate_ids(set_names, set_ct, max_set_id_len, NULL);
+      bigstack_shrink_top(set_names, set_ct * max_set_id_len);
+      rewind(infile);
+    } else {
+      set_ct = 1;
+    }
+    make_set_range_arr = (Make_set_range**)bigstack_end_alloc(set_ct * sizeof(intptr_t));
+    if (!make_set_range_arr) {
+      goto load_range_list_ret_NOMEM;
+    }
+    for (set_idx = 0; set_idx < set_ct; set_idx++) {
+      make_set_range_arr[set_idx] = NULL;
+    }
+    line_idx = 0;
     while (fgets(g_textbuf, MAXLINELEN, infile)) {
       line_idx++;
       if (!g_textbuf[MAXLINELEN - 1]) {
 	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s file is pathologically long.\n", line_idx, file_descrip);
 	goto load_range_list_ret_INVALID_FORMAT_2;
       }
-      bufptr = skip_initial_spaces(g_textbuf);
-      if (is_eoln_kns(*bufptr)) {
+      char* textbuf_first_token = skip_initial_spaces(g_textbuf);
+      if (is_eoln_kns(*textbuf_first_token)) {
 	continue;
       }
-      bufptr2 = next_token_mult(bufptr, 3);
+      char* first_token_end = token_endnn(textbuf_first_token);
+      bufptr2 = next_token_mult(first_token_end, 3);
       if (!collapse_group) {
 	bufptr3 = bufptr2;
       } else {
@@ -298,235 +428,112 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
 	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s file has fewer tokens than expected.\n", line_idx, file_descrip);
 	goto load_range_list_ret_INVALID_FORMAT_2;
       }
-      ii = get_chrom_code(chrom_info_ptr, bufptr);
-      if (ii < 0) {
+      const uint32_t chrom_name_slen = (uintptr_t)(first_token_end - textbuf_first_token);
+      *first_token_end = '\0';
+      int32_t cur_chrom_code = get_chrom_code_nt(textbuf_first_token, chrom_info_ptr, chrom_name_slen);
+      if (cur_chrom_code < 0) {
 	sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
 	goto load_range_list_ret_INVALID_FORMAT_2;
       }
-      // chrom_mask check removed, we want to track empty sets
-      uii = strlen_se(bufptr2);
-      bufptr2[uii] = '\0';
-      if (subset_ct) {
-	if (bsearch_str(bufptr2, uii, sorted_subset_ids, max_subset_id_len, subset_ct) == -1) {
+      if (!is_set(chrom_info_ptr->chrom_mask, cur_chrom_code)) {
+	continue;
+      }
+      chrom_idx = cur_chrom_code;
+      if (marker_pos) {
+	chrom_start = get_chrom_start_vidx(chrom_info_ptr, chrom_idx);
+	chrom_end = get_chrom_end_vidx(chrom_info_ptr, chrom_idx);
+	if (chrom_end == chrom_start) {
+	  continue;
+	}
+	// might need to move this outside the if-statement later
+	if (subset_ct && (bsearch_str(bufptr2, strlen_se(bufptr2), sorted_subset_ids, max_subset_id_len, subset_ct) == -1)) {
 	  continue;
 	}
       }
-      if (collapse_group) {
+      bufptr = skip_initial_spaces(&(first_token_end[1]));
+      if (scan_uint_defcap(bufptr, &range_first)) {
+	sprintf(g_logbuf, "Error: Invalid range start position on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
+	goto load_range_list_ret_INVALID_FORMAT_2;
+      }
+      bufptr = next_token(bufptr);
+      if (scan_uint_defcap(bufptr, &range_last)) {
+	sprintf(g_logbuf, "Error: Invalid range end position on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
+	goto load_range_list_ret_INVALID_FORMAT_2;
+      }
+      if (range_last < range_first) {
+	sprintf(g_logbuf, "Error: Range end position smaller than range start on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
+	wordwrapb(0);
+	goto load_range_list_ret_INVALID_FORMAT_2;
+      }
+      if (border_extend > range_first) {
+	range_first = 0;
+      } else {
+	range_first -= border_extend;
+      }
+      range_last += border_extend;
+      if (set_ct > 1) {
+	// bugfix: bsearch_str_natural requires null-terminated string
 	uii = strlen_se(bufptr3);
 	bufptr3[uii] = '\0';
-      }
-      // when there are repeats, they are likely to be next to each other
-      if (make_set_ll && (!strcmp(make_set_ll->ss, bufptr3))) {
-	continue;
-      }
-      uii++;
-      // argh, --clump counts positional overlaps which don't include any
-      // variants in the dataset.  So we prefix set IDs with a chromosome index
-      // in that case (with leading zeroes) and treat cross-chromosome sets as
-      // distinct.
-      if (!marker_pos) {
-	uii += 4;
-      }
-      if (uii > max_set_id_len) {
-	max_set_id_len = uii;
-      }
-      if (bigstack_end_alloc_llstr(uii, &ll_tmp)) {
-        goto load_range_list_ret_NOMEM;
-      }
-      ll_tmp->next = make_set_ll;
-      if (marker_pos) {
-        memcpy(ll_tmp->ss, bufptr3, uii);
-      } else {
-	uitoa_z4((uint32_t)ii, ll_tmp->ss);
-	// if first character of gene name is a digit, natural sort has strange
-	// effects unless we force [3] to be nonnumeric...
-	ll_tmp->ss[3] -= 15;
-	memcpy(&(ll_tmp->ss[4]), bufptr3, uii - 4);
-      }
-      make_set_ll = ll_tmp;
-      set_ct++;
-    }
-    if (!set_ct) {
-      if (fail_on_no_sets) {
-	if (marker_pos) {
-	  if (!allow_no_variants) {
-	    // okay, this is a kludge
-	    logerrprint("Error: All variants excluded by --gene{-all}, since no sets were defined from\n--make-set file.\n");
-	    retval = RET_ALL_MARKERS_EXCLUDED;
-	    goto load_range_list_ret_1;
-	  }
-	} else {
-	  if (subset_ct) {
-	    logerrprint("Error: No --gene-subset genes present in --gene-report file.\n");
-	  } else {
-	    logerrprint("Error: Empty --gene-report file.\n");
-	  }
-	  retval = RET_INVALID_FORMAT;
-	  goto load_range_list_ret_1;
+	if (c_prefix) {
+	  bufptr3 = &(bufptr3[-2]);
+	  memcpy(bufptr3, "C_", 2);
+	} else if (!marker_pos) {
+	  bufptr3 = &(bufptr3[-4]);
+	  uitoa_z4(chrom_idx, bufptr3);
+	  bufptr3[3] -= 15;
 	}
+	// this should never fail
+	set_idx = (uint32_t)bsearch_str_natural(bufptr3, set_names, max_set_id_len, set_ct);
+      } else {
+	set_idx = 0;
       }
-      LOGERRPRINTF("Warning: No valid ranges in %s file.\n", file_descrip);
-      goto load_range_list_ret_1;
-    }
-    max_set_id_len += c_prefix;
-    if (max_set_id_len > MAX_ID_LEN_P1) {
-      logerrprint("Error: Set IDs are limited to " MAX_ID_LEN_STR " characters.\n");
-      goto load_range_list_ret_INVALID_FORMAT;
-    }
-    if (bigstack_alloc_c(set_ct * max_set_id_len, set_names_ptr)) {
-      goto load_range_list_ret_NOMEM;
-    }
-    set_names = *set_names_ptr;
-    if (!c_prefix) {
-      for (ulii = 0; ulii < set_ct; ulii++) {
-	strcpy(&(set_names[ulii * max_set_id_len]), make_set_ll->ss);
-	make_set_ll = make_set_ll->next;
-      }
-    } else {
-      for (ulii = 0; ulii < set_ct; ulii++) {
-	memcpy(&(set_names[ulii * max_set_id_len]), "C_", 2);
-	strcpy(&(set_names[ulii * max_set_id_len + 2]), make_set_ll->ss);
-	make_set_ll = make_set_ll->next;
-      }
-    }
-    qsort(set_names, set_ct, max_set_id_len, strcmp_natural);
-    set_ct = collapse_duplicate_ids(set_names, set_ct, max_set_id_len, NULL);
-    bigstack_shrink_top(set_names, set_ct * max_set_id_len);
-    rewind(infile);
-  } else {
-    set_ct = 1;
-  }
-  make_set_range_arr = (Make_set_range**)bigstack_end_alloc(set_ct * sizeof(intptr_t));
-  if (!make_set_range_arr) {
-    goto load_range_list_ret_NOMEM;
-  }
-  for (set_idx = 0; set_idx < set_ct; set_idx++) {
-    make_set_range_arr[set_idx] = NULL;
-  }
-  line_idx = 0;
-  while (fgets(g_textbuf, MAXLINELEN, infile)) {
-    line_idx++;
-    if (!g_textbuf[MAXLINELEN - 1]) {
-      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s file is pathologically long.\n", line_idx, file_descrip);
-      goto load_range_list_ret_INVALID_FORMAT_2;
-    }
-    bufptr = skip_initial_spaces(g_textbuf);
-    if (is_eoln_kns(*bufptr)) {
-      continue;
-    }
-    bufptr2 = next_token_mult(bufptr, 3);
-    if (!collapse_group) {
-      bufptr3 = bufptr2;
-    } else {
-      bufptr3 = next_token(bufptr2);
-    }
-    if (no_more_tokens_kns(bufptr3)) {
-      sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s file has fewer tokens than expected.\n", line_idx, file_descrip);
-      goto load_range_list_ret_INVALID_FORMAT_2;
-    }
-    ii = get_chrom_code(chrom_info_ptr, bufptr);
-    if (ii < 0) {
-      sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
-      goto load_range_list_ret_INVALID_FORMAT_2;
-    }
-    if (!is_set(chrom_info_ptr->chrom_mask, ii)) {
-      continue;
-    }
-    chrom_idx = ii;
-    if (marker_pos) {
-      chrom_start = chrom_info_ptr->chrom_start[chrom_idx];
-      chrom_end = chrom_info_ptr->chrom_end[chrom_idx];
-      if (chrom_end == chrom_start) {
-	continue;
-      }
-      // might need to move this outside the if-statement later
-      if (subset_ct && (bsearch_str(bufptr2, strlen_se(bufptr2), sorted_subset_ids, max_subset_id_len, subset_ct) == -1)) {
-	continue;
-      }
-    }
-    bufptr = next_token(bufptr);
-    if (scan_uint_defcap(bufptr, &range_first)) {
-      sprintf(g_logbuf, "Error: Invalid range start position on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
-      goto load_range_list_ret_INVALID_FORMAT_2;
-    }
-    bufptr = next_token(bufptr);
-    if (scan_uint_defcap(bufptr, &range_last)) {
-      sprintf(g_logbuf, "Error: Invalid range end position on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
-      goto load_range_list_ret_INVALID_FORMAT_2;
-    }
-    if (range_last < range_first) {
-      sprintf(g_logbuf, "Error: Range end position smaller than range start on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
-      wordwrapb(0);
-      goto load_range_list_ret_INVALID_FORMAT_2;
-    }
-    if (border_extend > range_first) {
-      range_first = 0;
-    } else {
-      range_first -= border_extend;
-    }
-    range_last += border_extend;
-    if (set_ct > 1) {
-      // bugfix: bsearch_str_natural requires null-terminated string
-      uii = strlen_se(bufptr3);
-      bufptr3[uii] = '\0';
-      if (c_prefix) {
-	bufptr3 = &(bufptr3[-2]);
-	memcpy(bufptr3, "C_", 2);
-      } else if (!marker_pos) {
-	bufptr3 = &(bufptr3[-4]);
-	uitoa_z4(chrom_idx, bufptr3);
-	bufptr3[3] -= 15;
-      }
-      // this should never fail
-      set_idx = (uint32_t)bsearch_str_natural(bufptr3, set_names, max_set_id_len, set_ct);
-    } else {
-      set_idx = 0;
-    }
-    if (marker_pos) {
-      // translate to within-chromosome uidx
-      range_first = uint32arr_greater_than(&(marker_pos[chrom_start]), chrom_end - chrom_start, range_first);
-      range_last = uint32arr_greater_than(&(marker_pos[chrom_start]), chrom_end - chrom_start, range_last + 1);
-      if (range_last > range_first) {
+      if (marker_pos) {
+	// translate to within-chromosome uidx
+	range_first = uint32arr_greater_than(&(marker_pos[chrom_start]), chrom_end - chrom_start, range_first);
+	range_last = uint32arr_greater_than(&(marker_pos[chrom_start]), chrom_end - chrom_start, range_last + 1);
+	if (range_last > range_first) {
+	  msr_tmp = (Make_set_range*)bigstack_end_alloc(sizeof(Make_set_range));
+	  msr_tmp->next = make_set_range_arr[set_idx];
+	  // normally, I'd keep chrom_idx here since that enables by-chromosome
+	  // sorting, but that's probably not worth bloating Make_set_range from
+	  // 16 to 32 bytes
+	  msr_tmp->uidx_start = chrom_start + range_first;
+	  msr_tmp->uidx_end = chrom_start + range_last;
+	  make_set_range_arr[set_idx] = msr_tmp;
+	}
+      } else {
 	msr_tmp = (Make_set_range*)bigstack_end_alloc(sizeof(Make_set_range));
 	msr_tmp->next = make_set_range_arr[set_idx];
-	// normally, I'd keep chrom_idx here since that enables by-chromosome
-	// sorting, but that's probably not worth bloating Make_set_range from
-	// 16 to 32 bytes
-	msr_tmp->uidx_start = chrom_start + range_first;
-	msr_tmp->uidx_end = chrom_start + range_last;
+	msr_tmp->uidx_start = range_first;
+	msr_tmp->uidx_end = range_last + 1;
 	make_set_range_arr[set_idx] = msr_tmp;
       }
-    } else {
-      msr_tmp = (Make_set_range*)bigstack_end_alloc(sizeof(Make_set_range));
-      msr_tmp->next = make_set_range_arr[set_idx];
-      msr_tmp->uidx_start = range_first;
-      msr_tmp->uidx_end = range_last + 1;
-      make_set_range_arr[set_idx] = msr_tmp;
     }
-  }
-  // allocate buffer for sorting ranges later
-  uii = 0;
-  for (set_idx = 0; set_idx < set_ct; set_idx++) {
-    ujj = 0;
-    msr_tmp = make_set_range_arr[set_idx];
-    while (msr_tmp) {
-      ujj++;
-      msr_tmp = msr_tmp->next;
+    // allocate buffer for sorting ranges later
+    uii = 0;
+    for (set_idx = 0; set_idx < set_ct; set_idx++) {
+      ujj = 0;
+      msr_tmp = make_set_range_arr[set_idx];
+      while (msr_tmp) {
+	ujj++;
+	msr_tmp = msr_tmp->next;
+      }
+      if (ujj > uii) {
+	uii = ujj;
+      }
     }
-    if (ujj > uii) {
-      uii = ujj;
+    if (range_sort_buf_ptr) {
+      bigstack_end_alloc_ull(uii, range_sort_buf_ptr);
     }
+    if (set_ct_ptr) {
+      *set_ct_ptr = set_ct;
+    }
+    if (max_set_id_len_ptr) {
+      *max_set_id_len_ptr = max_set_id_len;
+    }
+    *make_set_range_arr_ptr = make_set_range_arr;
   }
-  if (range_sort_buf_ptr) {
-    bigstack_end_alloc_ull(uii, range_sort_buf_ptr);
-  }
-  if (set_ct_ptr) {
-    *set_ct_ptr = set_ct;
-  }
-  if (max_set_id_len_ptr) {
-    *max_set_id_len_ptr = max_set_id_len;
-  }
-  *make_set_range_arr_ptr = make_set_range_arr;
   while (0) {
   load_range_list_ret_NOMEM:
     retval = RET_NOMEM;
@@ -1092,8 +1099,8 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
         goto define_sets_ret_1;
       }
     }
-    if (max_subset_id_len > MAX_ID_LEN_P1) {
-      logerrprint("Error: Subset IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+    if (max_subset_id_len > MAX_ID_BLEN) {
+      logerrprint("Error: Subset IDs are limited to " MAX_ID_SLEN_STR " characters.\n");
       goto define_sets_ret_INVALID_FORMAT;
     }
     if (bigstack_end_alloc_c(subset_ct * max_subset_id_len, &sorted_subset_ids)) {
@@ -1361,8 +1368,8 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     if (sip->merged_set_name) {
       set_ct = 1;
       max_set_id_len = strlen(sip->merged_set_name) + 1;
-      if (max_set_id_len > MAX_ID_LEN_P1) {
-	logerrprint("Error: Set IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+      if (max_set_id_len > MAX_ID_BLEN) {
+	logerrprint("Error: Set IDs are limited to " MAX_ID_SLEN_STR " characters.\n");
 	goto define_sets_ret_INVALID_FORMAT;
       }
       if (bigstack_alloc_c(max_set_id_len, &set_names)) {
@@ -1370,8 +1377,8 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       }
       memcpy(set_names, sip->merged_set_name, max_set_id_len);
     } else {
-      if (max_set_id_len > MAX_ID_LEN_P1) {
-	logerrprint("Error: Set IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+      if (max_set_id_len > MAX_ID_BLEN) {
+	logerrprint("Error: Set IDs are limited to " MAX_ID_SLEN_STR " characters.\n");
 	goto define_sets_ret_INVALID_FORMAT;
       }
       if (bigstack_alloc_c(set_ct * max_set_id_len, &set_names)) {
@@ -2609,8 +2616,8 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	  logerrprint("Error: --annotate subset file is empty.\n");
 	  goto annotate_ret_INVALID_FORMAT;
 	}
-	if (max_subset_id_len > MAX_ID_LEN_P1) {
-	  logerrprint("Error: --annotate subset IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+	if (max_subset_id_len > MAX_ID_BLEN) {
+	  logerrprint("Error: --annotate subset IDs are limited to " MAX_ID_SLEN_STR " characters.\n");
 	  goto annotate_ret_INVALID_FORMAT;
 	}
 	if (bigstack_end_alloc_c(subset_ct * max_subset_id_len, &sorted_subset_ids)) {
@@ -2862,9 +2869,12 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
     if (!bufptr) {
       continue;
     }
+        
     if (need_pos) {
       // CHR
-      chrom_idx = get_chrom_code(chrom_info_ptr, token_ptrs[0]);
+      // can't use get_chrom_code_destructive() due to later
+      // strchr(bufptr, '\0') call
+      chrom_idx = get_chrom_code(chrom_info_ptr, token_ptrs[0], strlen_se(token_ptrs[0]));
       if (chrom_idx < 0) {
         continue;
       }
@@ -3194,8 +3204,8 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       logerrprint("Error: --gene-subset file is empty.\n");
       goto gene_report_ret_INVALID_FORMAT;
     }
-    if (max_subset_id_len > MAX_ID_LEN_P1) {
-      logerrprint("Error: --gene-subset IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+    if (max_subset_id_len > MAX_ID_BLEN) {
+      logerrprint("Error: --gene-subset IDs are limited to " MAX_ID_SLEN_STR " characters.\n");
       goto gene_report_ret_INVALID_FORMAT;
     }
     if (bigstack_end_alloc_c(subset_ct * max_subset_id_len, &sorted_subset_ids)) {
@@ -3224,8 +3234,8 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       logerrprint("Error: Empty --extract file.\n");
       goto gene_report_ret_INVALID_FORMAT;
     }
-    if (max_extract_id_len > MAX_ID_LEN_P1) {
-      logerrprint("Error: --extract IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+    if (max_extract_id_len > MAX_ID_BLEN) {
+      logerrprint("Error: --extract IDs are limited to " MAX_ID_SLEN_STR " characters.\n");
       goto gene_report_ret_INVALID_FORMAT;
     }
     if (bigstack_alloc_c(extract_ct * max_extract_id_len, &sorted_extract_ids)) {
@@ -3263,7 +3273,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   // gene name.  Final output will be the other way around, so we need a
   // remapping table.
   // This logic needs to change a bit if support for unplaced contigs is added
-  // or MAX_CHROM_TEXTNUM_LEN changes.
+  // or MAX_CHROM_TEXTNUM_SLEN changes.
   if (bigstack_alloc_ui(gene_ct, &gene_chridx_to_nameidx) ||
       bigstack_alloc_ui(gene_ct, &gene_nameidx_to_chridx) ||
       bigstack_alloc_c(gene_ct * max_gene_name_len, &loadbuf)) {
@@ -3407,8 +3417,9 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     if (!bufptr) {
       goto gene_report_load_loop;
     }
+    
     // CHR
-    chrom_idx = get_chrom_code(chrom_info_ptr, token_ptrs[0]);
+    chrom_idx = get_chrom_code(chrom_info_ptr, token_ptrs[0], strlen_se(token_ptrs[0]));
     if (chrom_idx < 0) {
       // todo: log warning?
       goto gene_report_load_loop;

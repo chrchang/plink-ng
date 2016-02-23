@@ -4222,7 +4222,7 @@ int32_t init_chrom_info(Chrom_info* chrom_info_ptr) {
   // needed for proper cleanup
   chrom_info_ptr->name_ct = 0;
   chrom_info_ptr->incl_excl_name_stack = NULL;
-  if (vecaligned_malloc(vecs_required * VEC_BYTES, &(chrom_info_ptr->chrom_mask))) {
+  if (aligned_malloc(vecs_required * VEC_BYTES, &(chrom_info_ptr->chrom_mask))) {
     return RET_NOMEM;
   }
   uintptr_t* alloc_iter = &(chrom_info_ptr->chrom_mask[BITCT_TO_VECCT(MAX_POSSIBLE_CHROM) * VEC_WORDS]);
@@ -4360,7 +4360,7 @@ int32_t finalize_chrom_info(Chrom_info* chrom_info_ptr) {
     final_vecs_required += name_wordvec_ct + (CHROM_NAME_HTABLE_SIZE + (VEC_INT32 - 1)) / VEC_INT32;
   }
   uintptr_t* new_alloc;
-  if (vecaligned_malloc(final_vecs_required * VEC_BYTES, &new_alloc)) {
+  if (aligned_malloc(final_vecs_required * VEC_BYTES, &new_alloc)) {
     return RET_NOMEM;
   }
   uintptr_t* old_alloc = chrom_info_ptr->chrom_mask;
@@ -4398,13 +4398,13 @@ int32_t finalize_chrom_info(Chrom_info* chrom_info_ptr) {
     memcpy(new_alloc_iter, chrom_info_ptr->nonstd_id_htable, CHROM_NAME_HTABLE_SIZE * sizeof(int32_t));
     chrom_info_ptr->nonstd_id_htable = (uint32_t*)new_alloc_iter;
   }
-  vecaligned_free(old_alloc);
+  aligned_free(old_alloc);
   return 0;
 }
 
 void cleanup_chrom_info(Chrom_info* chrom_info_ptr) {
   if (chrom_info_ptr->chrom_mask) {
-    vecaligned_free(chrom_info_ptr->chrom_mask);
+    aligned_free(chrom_info_ptr->chrom_mask);
     chrom_info_ptr->chrom_mask = NULL;
   }
   forget_extra_chrom_names(chrom_info_ptr);
@@ -4469,6 +4469,31 @@ char* chrom_name_write(const Chrom_info* chrom_info_ptr, uint32_t chrom_idx, cha
   } else {
     return strcpya(buf, chrom_info_ptr->nonstd_names[chrom_idx]);
   }
+}
+
+char* chrom_name_buf5w4write(const Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t* chrom_name_len_ptr, char* buf5) {
+  uint32_t slen;
+  *chrom_name_len_ptr = 4;
+  if (!chrom_idx) {
+    memcpy(buf5, "   0", 4);
+  } else if (chrom_idx <= chrom_info_ptr->max_code) {
+    if (chrom_info_ptr->output_encoding & CHR_OUTPUT_PREFIX) {
+      *chrom_name_len_ptr = (uintptr_t)(chrom_name_std(chrom_info_ptr, chrom_idx, buf5) - buf5);
+    } else {
+      width_force(4, buf5, chrom_name_std(chrom_info_ptr, chrom_idx, buf5));
+    }
+  } else if (chrom_info_ptr->zero_extra_chroms) {
+    memcpy(buf5, "   0", 4);
+  } else {
+    slen = strlen(chrom_info_ptr->nonstd_names[chrom_idx]);
+    if (slen < 4) {
+      fw_strcpyn(4, slen, chrom_info_ptr->nonstd_names[chrom_idx], buf5);
+    } else {
+      *chrom_name_len_ptr = slen;
+      return chrom_info_ptr->nonstd_names[chrom_idx];
+    }
+  }
+  return buf5;
 }
 
 uint32_t get_max_chrom_slen(const Chrom_info* chrom_info_ptr) {
@@ -4756,15 +4781,15 @@ uint32_t allele_reset(const char* newval, uint32_t allele_slen, const char** all
   return 0;
 }
 
-void cleanup_allele_storage(uint32_t max_allele_slen, uintptr_t allele_storage_entry_ct, const char** allele_storage) {
+void cleanup_allele_storage(uint32_t max_allele_slen, uintptr_t allele_storage_entry_ct, char** allele_storage) {
   if (allele_storage && (max_allele_slen > 1)) {
     const uintptr_t one_char_strs_addr = (uintptr_t)g_one_char_strs;
     for (uintptr_t idx = 0; idx < allele_storage_entry_ct; ++idx) {
-      const char* cur_entry = allele_storage[idx];
+      char* cur_entry = allele_storage[idx];
       assert(cur_entry);
       // take advantage of unsigned wraparound
       if ((((uintptr_t)cur_entry) - one_char_strs_addr) >= 512) {
-	free((char*)cur_entry);
+	free(cur_entry);
       }
     }
   }
@@ -8102,7 +8127,7 @@ int32_t conditional_allocate_non_autosomal_markers(const Chrom_info* chrom_info_
   for (uint32_t xymt_idx = 0; xymt_idx < XYMT_OFFSET_CT; ++xymt_idx) {
     if (xymt_cts[xymt_idx]) {
       const uint32_t chrom_fo_idx = chrom_info_ptr->chrom_idx_to_foidx[xymt_codes[xymt_idx]];
-      fill_bits(chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx], chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx + 1] - chrom_fo_vidx_start[chrom_fo_idx], *marker_exclude_ptr);
+      fill_bits(chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx], chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx + 1] - chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx], *marker_exclude_ptr);
     }
   }
   return 0;

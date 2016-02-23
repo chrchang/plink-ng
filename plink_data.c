@@ -284,7 +284,7 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
       }
       const uint32_t chrom_name_slen = (uintptr_t)(textbuf_iter - textbuf_first_token);
       *textbuf_iter = '\0';
-      int32_t cur_chrom_code = get_chrom_code_nt(chrom_info_ptr, textbuf_first_token, chrom_name_slen);
+      int32_t cur_chrom_code = get_chrom_code_nt(textbuf_first_token, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
 	if (chrom_error(textbuf_first_token, ".map file", chrom_info_ptr, line_idx, cur_chrom_code, allow_extra_chroms)) {
 	  goto load_map_ret_INVALID_FORMAT;
@@ -766,8 +766,8 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	  ulii += uii + ujj;
 	}
 	if (ulii >= max_marker_id_blen) {
-	  if (ulii > MAX_ID_LEN_P1) {
-	    logerrprint("Error: Variant names are limited to " MAX_ID_LEN_STR " characters.\n");
+	  if (ulii > MAX_ID_BLEN) {
+	    logerrprint("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
 	    goto load_bim_ret_INVALID_FORMAT;
 	  }
 	  max_marker_id_blen = ulii + 1;
@@ -823,7 +823,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	      if (sf_str_chroms[uii] != MAX_POSSIBLE_CHROM) {
 		goto load_bim_ret_DUPLICATE_ID;
 	      }
-	      sf_str_chroms[uii] = jj;
+	      sf_str_chroms[uii] = cur_chrom_code;
 	      if (scan_uint_defcap(bufptr2, &(sf_str_pos[uii]))) {
 		goto load_bim_ret_INVALID_BP_COORDINATE;
 	      }
@@ -835,7 +835,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	    if (from_chrom != MAX_POSSIBLE_CHROM) {
 	      goto load_bim_ret_DUPLICATE_ID;
 	    }
-	    from_chrom = jj;
+	    from_chrom = cur_chrom_code;
 	    if (scan_uint_defcap(bufptr2, (uint32_t*)&marker_pos_start)) {
 	      goto load_bim_ret_INVALID_BP_COORDINATE;
 	    }
@@ -851,7 +851,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	    if (to_chrom != MAX_POSSIBLE_CHROM) {
 	      goto load_bim_ret_DUPLICATE_ID;
 	    }
-	    to_chrom = jj;
+	    to_chrom = cur_chrom_code;
 	    if (scan_uint_defcap(bufptr2, (uint32_t*)&marker_pos_end)) {
 	      goto load_bim_ret_INVALID_BP_COORDINATE;
 	    }
@@ -867,7 +867,7 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
 	    if (snp_chrom != MAX_POSSIBLE_CHROM) {
 	      goto load_bim_ret_DUPLICATE_ID;
 	    }
-	    snp_chrom = jj;
+	    snp_chrom = cur_chrom_code;
 	    if (scan_uint_defcap(bufptr2, &snp_pos)) {
 	      goto load_bim_ret_INVALID_BP_COORDINATE;
 	    }
@@ -1036,8 +1036,8 @@ int32_t load_bim(char* bimname, uint32_t* map_cols_ptr, uintptr_t* unfiltered_ma
       }
     }
 
-    if (max_marker_id_blen > MAX_ID_LEN_P1) {
-      logerrprint("Error: Variant names are limited to " MAX_ID_LEN_STR " characters.\n");
+    if (max_marker_id_blen > MAX_ID_BLEN) {
+      logerrprint("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
       goto load_bim_ret_INVALID_FORMAT;
     }
     *unfiltered_marker_ct_ptr = unfiltered_marker_ct;
@@ -1579,8 +1579,8 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
   //   It does track when some covariates are missing and others aren't
   //   (missing covariates are represented as the --missing-phenotype value).
   if (covar_range_list_ptr) {
-    if (max_covar_name_len > MAX_ID_LEN_P1) {
-      logerrprint("Error: Covariate names are limited to " MAX_ID_LEN_STR " characters.\n");
+    if (max_covar_name_len > MAX_ID_BLEN) {
+      logerrprint("Error: Covariate names are limited to " MAX_ID_SLEN_STR " characters.\n");
       goto load_covars_ret_INVALID_FORMAT;
     }
     // not only --gxe
@@ -2604,7 +2604,7 @@ int32_t load_bim_split_chrom(char* bimname, uintptr_t* marker_exclude, uintptr_t
       if (!fgets(loadbuf, max_bim_linelen, infile)) {
 	goto load_bim_split_chrom_ret_READ_FAIL;
       }
-      loadbuf_first_token = skip_initial_spaces(loadbuf);
+      char* loadbuf_first_token = skip_initial_spaces(loadbuf);
       if (is_eoln_or_comment_kns(*loadbuf_first_token)) {
 	continue;
       }
@@ -2991,7 +2991,7 @@ int32_t load_sort_and_write_map(uint32_t** map_reverse_ptr, FILE* mapfile, uint3
       char* textbuf_iter = skip_initial_spaces(first_token_end);
       const uint32_t chrom_name_slen = (uintptr_t)(first_token_end - textbuf_first_token);
       *first_token_end = '\0';
-      ll_buf[marker_idx] = (((uint64_t)((uint32_t)get_chrom_code_nt(textbuf_first_token, chrom_info_ptr, chrom_name_len))) << 32) + marker_idx;
+      ll_buf[marker_idx] = (((uint64_t)((uint32_t)get_chrom_code_nt(textbuf_first_token, chrom_info_ptr, chrom_name_slen))) << 32) + marker_idx;
       uii = strlen_se(textbuf_iter);
       memcpyx(&(marker_ids[marker_idx * max_marker_id_len]), textbuf_iter, uii, 0);
       textbuf_iter = next_token(textbuf_iter);
@@ -3941,8 +3941,8 @@ int32_t load_fam(char* famname, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32
   }
   // don't yet need to enforce separate FID and IID limits, but in theory this
   // may change
-  if ((max_sample_id_len > 2 * MAX_ID_LEN_P1) || (max_paternal_id_len > MAX_ID_LEN_P1) || (max_maternal_id_len > MAX_ID_LEN_P1)) {
-    logerrprint("Error: FIDs and IIDs are limited to " MAX_ID_LEN_STR " characters.\n");
+  if ((max_sample_id_len > 2 * MAX_ID_BLEN) || (max_paternal_id_len > MAX_ID_BLEN) || (max_maternal_id_len > MAX_ID_BLEN)) {
+    logerrprint("Error: FIDs and IIDs are limited to " MAX_ID_SLEN_STR " characters.\n");
     goto load_fam_ret_INVALID_FORMAT;
   }
   bigstack_reset(bigstack_mark);
@@ -4575,8 +4575,8 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	uii = (uintptr_t)(bufptr4 - bufptr3);
 	identical_alleles = (strlen_se(bufptr) == uii) && (!memcmp(bufptr, bufptr3, uii));
 	if (identical_alleles) {
-	  // we treat identical A1 and A2 as a special case, since naive handling
-	  // prevents e.g. later data merge.
+	  // we treat identical A1 and A2 as a special case, since naive
+	  // handling prevents e.g. later data merge.
 	  // maybe add a warning?
 	  fwrite(bufptr2, 1, strlen_se(bufptr2), outfile_bim);
 	  fputs(" 0 ", outfile_bim);
@@ -4688,11 +4688,11 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 		      ulii = 1;
 		    } else {
 		      // fully called genotype probabilities may add up to less
-		      // than one due to rounding error.  If this appears to have
-		      // happened, do NOT make a missing call; instead rescale
-		      // everything to add to one and reinterpret the random
-		      // number.  (D_EPSILON is currently set to make 4 decimal
-		      // place precision safe to use.)
+		      // than one due to rounding error.  If this appears to
+		      // have happened, do NOT make a missing call; instead
+		      // rescale everything to add to one and reinterpret the
+		      // random number.  (D_EPSILON is currently set to make 4
+		      // decimal place precision safe to use.)
 		      drand *= dxx;
 		      if (drand < dzz) {
 			ulii = 3;
@@ -5379,9 +5379,8 @@ char* get_llstr(Ll_str* ll_ptr, uint32_t allele_idx) {
   return cptr;
 }
 
-static inline char* write_token_nt(char* read_ptr, FILE* outfile) {
+static inline char* write_token_notab(char* read_ptr, FILE* outfile) {
   // assumes read_ptr is at the beginning of an item to write
-  // nt = "no tab"
   uint32_t slen = strlen_se(read_ptr);
   fwrite(read_ptr, 1, slen, outfile);
   return skip_initial_spaces(&(read_ptr[slen]));
@@ -5519,7 +5518,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
       fputs("0\t0\t", outfile);
     }
     if (fam_cols & FAM_COL_5) {
-      bufptr2 = write_token_nt(bufptr2, outfile);
+      bufptr2 = write_token_notab(bufptr2, outfile);
     } else {
       putc('0', outfile);
     }
@@ -5675,7 +5674,7 @@ int32_t ped_to_bed_multichar_allele(FILE** pedfile_ptr, FILE** outfile_ptr, char
         ucc = (unsigned char)(*bufptr);
 	// should be good enough at detecting nonnumeric values...
 	if (((ucc >= '0') && (ucc <= '9')) || (ucc == '-') || (ucc == '+')) {
-	  bufptr = write_token_nt(bufptr, outfile);
+	  bufptr = write_token_notab(bufptr, outfile);
 	} else {
 	  putc('0', outfile);
 	  bufptr = next_token(bufptr);
@@ -6179,7 +6178,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
 	fwrite("0\t0\t", 1, 4, outfile);
       }
       if (fam_cols & FAM_COL_5) {
-	bufptr2 = write_token_nt(bufptr2, outfile);
+	bufptr2 = write_token_notab(bufptr2, outfile);
       } else {
 	putc('0', outfile);
       }
@@ -6346,7 +6345,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
 	  if (cm_col_exists) {
 	    ucc = (unsigned char)(*bufptr);
 	    if (((ucc >= '0') && (ucc <= '9')) || (ucc == '-') || (ucc == '+')) {
-	      bufptr = write_token_nt(bufptr, outfile);
+	      bufptr = write_token_notab(bufptr, outfile);
 	    } else {
 	      putc('0', outfile);
 	      bufptr = next_token(bufptr);
@@ -6446,8 +6445,8 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
 	    wbufptr = &(writebuf[sample_idx / 4]);
 	    if (map_is_unsorted) {
 	      // multipass optimizations are possible, but we won't bother,
-	      // especially since the .map should rarely be unsorted in the first
-	      // place...
+	      // especially since the .map should rarely be unsorted in the
+	      // first place...
 	      umm = 0;
 	      for (marker_uidx = 0; marker_uidx < unfiltered_marker_ct; marker_uidx++) {
 		cc = *bufptr++;
@@ -6637,7 +6636,6 @@ int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname,
   char* a2ptr;
   char* sptr;
   char* sptr2;
-  char** ma_end;
   int64_t lgen_size;
   int64_t lgen_next_thresh;
   uintptr_t loadbuf_size;
@@ -7400,16 +7398,16 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       cptr4 = next_token(cptr3);
       if (no_more_tokens_kns(cptr4)) {
 	if (!g_textbuf[MAXLINELEN - 1]) {
-	  if (chrom_name_slen > MAX_ID_LEN) {
-	    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .tped file has an excessively long\nchromosome/contig name.  (The " PROG_NAME_CAPS " limit is " MAX_ID_LEN_STR " characters.)\n", line_idx);
-	  } else if (cptr2 && (strlen_se(cptr2) > MAX_ID_LEN)) {
-	    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .tped file has an excessively long variant ID.\n(The " PROG_NAME_CAPS " limit is " MAX_ID_LEN_STR " characters.)\n", line_idx);
-	  } else if (next_token(cptr2) && (strlen_se(next_token(cptr2)) > MAX_ID_LEN)) {
+	  if (chrom_name_slen > MAX_ID_SLEN) {
+	    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .tped file has an excessively long\nchromosome/contig name.  (The " PROG_NAME_CAPS " limit is " MAX_ID_SLEN_STR " characters.)\n", line_idx);
+	  } else if (cptr2 && (strlen_se(cptr2) > MAX_ID_SLEN)) {
+	    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .tped file has an excessively long variant ID.\n(The " PROG_NAME_CAPS " limit is " MAX_ID_SLEN_STR " characters.)\n", line_idx);
+	  } else if (next_token(cptr2) && (strlen_se(next_token(cptr2)) > MAX_ID_SLEN)) {
 	    // far higher bound than necessary; main point is to ensure that if
 	    // we fall through to the "excessive whitespace" error message,
 	    // that complaint is justified.
 	    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .tped file has an excessively long centimorgan\nposition.\n", line_idx);
-	  } else if (cptr3 && (strlen_se(cptr3) > MAX_ID_LEN)) {
+	  } else if (cptr3 && (strlen_se(cptr3) > MAX_ID_SLEN)) {
 	    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .tped file has an excessively long bp coordinate.\n", line_idx);
 	  } else {
 	    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .tped file has excessive whitespace.\n", line_idx);
@@ -7445,6 +7443,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
 	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .tped file has an invalid bp coordinate.\n", line_idx);
 	goto transposed_to_bed_ret_INVALID_FORMAT_2R;
       }
+      char* textbuf_iter = textbuf_first_token;
       if ((!is_set(chrom_info_ptr->chrom_mask, cur_chrom_code)) || (jj < 0)) {
 	cptr2 = cptr4;
 	goto transposed_to_bed_nextline;
@@ -7463,7 +7462,6 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       } else {
 	last_mapval = cur_mapval;
       }
-      char* textbuf_iter = textbuf_first_token;
       for (uii = 0; uii < 3; uii++) {
 	char* token_end = token_endnn(textbuf_iter);
 	*token_end++ = '\t';
@@ -7772,7 +7770,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       // prevent cleanup from failing
       uint32_t allele_idx_end = marker_ct * 2;
       for (uint32_t allele_idx = 0; allele_idx < allele_idx_end; ++allele_idx) {
-	marker_allele_ptrs[allele_idx] = missing_geno_ptr;
+	marker_allele_ptrs[allele_idx] = (char*)missing_geno_ptr;
       }
 
       for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
@@ -8000,8 +7998,8 @@ int32_t vcf_sample_line(char* outname, char* outname_end, int32_t missing_pheno,
       slen = strlen_se(bufptr);
       bufptr2 = &(bufptr[slen]);
     }
-    if (slen > MAX_ID_LEN) {
-      sprintf(g_logbuf, "Error: --%ccf does not support sample IDs longer than " MAX_ID_LEN_STR " characters.\n", flag_char);
+    if (slen > MAX_ID_SLEN) {
+      sprintf(g_logbuf, "Error: --%ccf does not support sample IDs longer than " MAX_ID_SLEN_STR " characters.\n", flag_char);
       goto vcf_sample_line_ret_INVALID_FORMAT_2;
     }
     if ((*bufptr == '0') && (slen == 1)) {
@@ -8219,8 +8217,8 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	}
 	qsort(sorted_fexcepts, fexcept_ct, max_fexcept_len, strcmp_casted);
 	fexcept_ct = collapse_duplicate_ids(sorted_fexcepts, fexcept_ct, max_fexcept_len, NULL);
-	// there can't be many filter exceptions, so don't bother to free unused
-	// memory in corner case
+	// there can't be many filter exceptions, so don't bother to free
+	// unused memory in corner case
       }
     }
 
@@ -9496,8 +9494,8 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 	    goto bcf_to_bed_ret_1;
 	  }
 	  if ((!uii) && ((!ukk) || ((ukk == 1) && (*bufptr == 'N')))) {
-	    // convert ref 'N' or '.' to missing genotype.  ('.' case was skipped
-	    // the past, and 'N' was not converted.)
+	    // convert ref 'N' or '.' to missing genotype.  ('.' case was
+	    // skipped the past, and 'N' was not converted.)
 	    allele_lens[0] = 1;
 	    allele_ptrs[0] = bufptr;
 	    *bufptr++ = missing_geno;
@@ -9675,8 +9673,8 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
 	goto bcf_to_bed_ret_INVALID_FORMAT;
       }
       if (ujj * umm > 12) {
-	// 12 = 12-ploid, or 6-ploid and >= 127 alleles, or triploid and >= 32767
-	// alleles.  this is pretty darn generous.
+	// 12 = 12-ploid, or 6-ploid and >= 127 alleles, or triploid and >=
+	// 32767 alleles.  this is pretty darn generous.
 	logerrprint("Error: --bcf does not support GT vectors requiring >12 bytes per sample.\n");
 	goto bcf_to_bed_ret_INVALID_FORMAT;
       }
@@ -10041,7 +10039,6 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
   uint32_t allele_calls;
   uint32_t null_chrom;
   uint32_t uii;
-  int32_t ii;
   char cc;
   char cc2;
   unsigned char ucc;
@@ -12074,6 +12071,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   uint32_t shiftmax;
   uint32_t cur_fid;
   uint32_t uii;
+  int32_t ii;
   pzwrite_init_null(&ps);
   if (!hh_exists) {
     set_hh_missing = 0;

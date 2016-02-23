@@ -9468,7 +9468,7 @@ int32_t main(int32_t argc, char** argv) {
 	for (uii = 0; uii < CHROM_MASK_INITIAL_WORDS; uii++) {
 	  chrom_info.chrom_mask[uii] &= ~chrom_exclude[uii];
 	}
-	if (all_words_zero(chrom_info.chrom_mask, CHROM_MASK_INITIAL_WORDS) && ((!((misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1)) || (chrom_info.is_include_stack && (!chrom_info.incl_excl_name_stack)))) {
+	if (are_all_words_zero(chrom_info.chrom_mask, CHROM_MASK_INITIAL_WORDS) && ((!((misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1)) || (chrom_info.is_include_stack && (!chrom_info.incl_excl_name_stack)))) {
 	  logerrprint("Error: All chromosomes excluded.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
@@ -9485,7 +9485,7 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
-	if (scan_posint_capped(argv[cur_arg + 1], (MAX_ID_LEN - 2) / 10, (MAX_ID_LEN - 2) % 10, &new_id_max_allele_len)) {
+	if (scan_posint_capped(argv[cur_arg + 1], (MAX_ID_SLEN - 2) / 10, (MAX_ID_SLEN - 2) % 10, &new_id_max_allele_len)) {
 	  sprintf(g_logbuf, "Error: Invalid --new-id-max-allele-len parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
@@ -10908,7 +10908,7 @@ int32_t main(int32_t argc, char** argv) {
 	} else if (marker_pos_start != -1) {
 	  logerrprint("Error: --snp cannot be used with --from-bp/-kb/-mb.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
-	} else if ((!all_words_zero(chrom_info.chrom_mask, CHROM_MASK_INITIAL_WORDS)) || chrom_info.incl_excl_name_stack) {
+	} else if ((!are_all_words_zero(chrom_info.chrom_mask, CHROM_MASK_INITIAL_WORDS)) || chrom_info.incl_excl_name_stack) {
 	  logerrprint("Error: --snp cannot be used with --autosome{-xy} or --{not-}chr.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (markername_snp) {
@@ -11628,7 +11628,7 @@ int32_t main(int32_t argc, char** argv) {
 	memcpy(pedname, argv[cur_arg + 1], jj + 1);
 	load_rare |= LOAD_RARE_TPED;
       } else if (!memcmp(argptr2, "o", 2)) {
-	if ((!all_words_zero(chrom_info.chrom_mask, CHROM_MASK_INITIAL_WORDS)) || chrom_info.incl_excl_name_stack) {
+	if ((!are_all_words_zero(chrom_info.chrom_mask, CHROM_MASK_INITIAL_WORDS)) || chrom_info.incl_excl_name_stack) {
 	  logerrprint("Error: --to cannot be used with --autosome{-xy} or --{not-}chr.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	} else if (markername_snp) {

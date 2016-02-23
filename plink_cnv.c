@@ -764,7 +764,7 @@ int32_t validate_cnv_map(FILE** mapfile_ptr, char* mapname, int32_t* marker_pos_
 	if (chrom_error(textbuf_first_token, ".cnv.map file", chrom_info_ptr, line_idx, cur_chrom_code, allow_extra_chroms)) {
 	  goto validate_cnv_map_ret_INVALID_FORMAT;
 	}
-	retval = resolve_or_add_chrom_name(bufptr, ".cnv.map file", line_idx, chrom_name_slen, chrom_info_ptr, &cur_chrom_code);
+	retval = resolve_or_add_chrom_name(textbuf_first_token, ".cnv.map file", line_idx, chrom_name_slen, chrom_info_ptr, &cur_chrom_code);
 	if (retval) {
 	  goto validate_cnv_map_ret_1;
 	}

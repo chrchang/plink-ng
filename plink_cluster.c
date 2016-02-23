@@ -350,8 +350,8 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
       goto load_clusters_ret_READ_FAIL;
     }
     if (cluster_names) {
-      if (max_cluster_id_len > MAX_ID_LEN_P1) {
-	logerrprint("Error: Cluster IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+      if (max_cluster_id_len > MAX_ID_BLEN) {
+	logerrprint("Error: Cluster IDs are limited to " MAX_ID_SLEN_STR " characters.\n");
 	goto load_clusters_ret_INVALID_FORMAT;
       }
       *max_cluster_id_len_ptr = max_cluster_id_len;
@@ -453,9 +453,9 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
     // 2. allocate buffer, copy over
     // 3. natural sort, remove duplicates, shrink buffer
     // 4. initialize other data structures
-    if (max_cluster_id_len > MAX_ID_LEN_P1) {
+    if (max_cluster_id_len > MAX_ID_BLEN) {
       // max FID len was previously checked
-      logerrprint("Error: Cluster IDs are limited to " MAX_ID_LEN_STR " characters.\n");
+      logerrprint("Error: Cluster IDs are limited to " MAX_ID_SLEN_STR " characters.\n");
       goto load_clusters_ret_INVALID_FORMAT;
     }
 

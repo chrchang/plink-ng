@@ -1357,7 +1357,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       bigstack_alloc_ui(sample_ct, &read_idx_to_sample_idx) ||
       bigstack_alloc_ui(sample_ct, &skip_vals) ||
       bigstack_alloc_d(sample_ct, &cur_dosages) ||
-      bigstack_alloc_c(MAX_ID_LEN, &cur_marker_id_buf)) {
+      bigstack_alloc_c(MAX_ID_SLEN, &cur_marker_id_buf)) {
     goto plink1_dosage_ret_NOMEM;
   }
   gz_infiles = (gzFile*)bigstack_alloc(infile_ct * sizeof(gzFile));
@@ -1742,7 +1742,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	bufptr4 = token_endnn(bufptr3);
 	bufptr6 = token_endnn(bufptr5);
         slen = (uintptr_t)(bufptr2 - bufptr);
-	if (slen > MAX_ID_LEN) {
+	if (slen > MAX_ID_SLEN) {
 	  sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s has an excessively long variant ID.\n", line_idx, &(fnames[(file_idx + file_idx_start) * max_fn_len]));
 	  goto plink1_dosage_ret_INVALID_FORMAT_WW;
 	}

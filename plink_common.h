@@ -645,6 +645,7 @@
 #define BYTECT (BITCT / 8)
 #define BYTECT4 (BITCT / 32)
 #define VEC_WORDS (VEC_BITS / BITCT)
+#define VEC_INT32 (VEC_BYTES / 4)
 
 // assumed number of bytes per cache line, for alignment
 #define CACHELINE 64
@@ -721,10 +722,10 @@ HEADER_INLINE uint32_t round_up_pow2_ui(uint32_t val, uint32_t alignment) {
 // Maximum length of chromosome, variant, FID, IID, cluster, and set IDs (not
 // including terminating null, that's what _P1 is for).  This value supports up
 // to 8 IDs per line (maximum so far is 5, for e.g. --hom).
-#define MAX_ID_LEN 16000
+#define MAX_ID_SLEN 16000
 
-#define MAX_ID_LEN_P1 (MAX_ID_LEN + 1)
-#define MAX_ID_LEN_STR "16000"
+#define MAX_ID_BLEN (MAX_ID_SLEN + 1)
+#define MAX_ID_SLEN_STR "16000"
 
 // Maximum size of "dynamically" allocated line load buffer.  (This is the
 // limit that applies to .vcf and similar files.)  Inconvenient to go higher
@@ -2122,7 +2123,18 @@ HEADER_INLINE const char* species_str(uintptr_t ct) {
 #define CHR_OUTPUT_MT 4
 #define CHR_OUTPUT_0M 8
 
+HEADER_INLINE uint32_t are_all_words_zero(const uintptr_t* word_arr, uintptr_t word_ct) {
+  while (word_ct--) {
+    if (*word_arr++) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
 char* chrom_name_write(const Chrom_info* chrom_info_ptr, uint32_t chrom_idx, char* buf);
+
+char* chrom_name_buf5w4write(const Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t* chrom_name_len_ptr, char* buf5);
 
 uint32_t get_max_chrom_slen(const Chrom_info* chrom_info_ptr);
 
@@ -2133,18 +2145,22 @@ int32_t get_chrom_code_raw(const char* sptr);
 
 int32_t get_chrom_code_nt(const char* chrom_name, const Chrom_info* chrom_info_ptr, uint32_t name_slen);
 
-// when the chromosome name isn't null-terminated
+// when the chromosome name isn't null-terminated, but we want to preserve the
+// character there
 // requires chrom_name[name_slen] to be mutable
 int32_t get_chrom_code(const Chrom_info* chrom_info_ptr, char* chrom_name, uint32_t name_slen);
+
+// when it's okay to just replace the terminating space/tab with a \0
+HEADER_INLINE int32_t get_chrom_code_destructive(const Chrom_info* chrom_info_ptr, char* chrom_name) {
+  char* chrom_token_end = token_endnn(chrom_name);
+  *chrom_token_end = '\0';
+  return get_chrom_code_nt(chrom_name, chrom_info_ptr, (uintptr_t)(chrom_token_end - chrom_name));
+}
 
 uint32_t get_variant_chrom_fo_idx(const Chrom_info* chrom_info_ptr, uintptr_t variant_uidx);
 
 HEADER_INLINE uint32_t get_variant_chrom(const Chrom_info* chrom_info_ptr, uintptr_t variant_uidx) {
   return chrom_info_ptr->chrom_file_order[get_variant_chrom_fo_idx(chrom_info_ptr, variant_uidx)];
-}
-
-HEADER_INLINE int32_t chrom_exists(const Chrom_info* chrom_info_ptr, uint32_t chrom_idx) {
-  return is_set(chrom_info_ptr->chrom_mask, chrom_idx);
 }
 
 HEADER_INLINE uint32_t get_chrom_start_vidx(const Chrom_info* chrom_info_ptr, uint32_t chrom_idx) {
@@ -2168,7 +2184,8 @@ uint32_t allele_set(const char* newval, uint32_t allele_slen, const char** allel
 // *allele_ptr must be initialized; frees *allele_ptr if necessary
 uint32_t allele_reset(const char* newval, uint32_t allele_slen, const char** allele_ptr);
 
-void cleanup_allele_storage(uint32_t max_allele_slen, uintptr_t allele_storage_entry_ct, const char** allele_storage);
+// make last parameter const char** later
+void cleanup_allele_storage(uint32_t max_allele_slen, uintptr_t allele_storage_entry_ct, char** allele_storage);
 
 // no need for this; code is simpler if we just create a copy of marker_exclude
 // with all non-autosomal loci removed

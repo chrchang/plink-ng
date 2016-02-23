@@ -35,7 +35,7 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
   uint32_t chrom_name_len = 0;
   uint32_t pct = 0;
   int32_t retval = 0;
-  char chrom_name_buf[3 + MAX_CHROM_TEXTNUM_LEN];
+  char chrom_name_buf[3 + MAX_CHROM_TEXTNUM_SLEN];
   uintptr_t marker_uidx;
   uintptr_t marker_uidx_base;
   uintptr_t ulii;

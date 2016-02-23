@@ -2178,7 +2178,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
     retval = RET_CALC_NOT_YET_SUPPORTED;
     goto tdt_ret_1;
   }
-  ulii = 2 * max_marker_allele_len + plink_maxsnp + MAX_ID_LEN + 256;
+  ulii = 2 * max_marker_allele_len + plink_maxsnp + MAX_ID_SLEN + 256;
   if (ulii > MAXLINELEN) {
     if (bigstack_alloc_c(ulii, &textbuf)) {
       goto tdt_ret_NOMEM;
@@ -4259,7 +4259,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     }
   }
 
-  ulii = 2 * max_marker_allele_len + plink_maxsnp + MAX_ID_LEN + 256;
+  ulii = 2 * max_marker_allele_len + plink_maxsnp + MAX_ID_SLEN + 256;
   if (ulii > MAXLINELEN) {
     if (bigstack_alloc_c(ulii, &textbuf)) {
       goto dfam_ret_NOMEM;
@@ -5402,7 +5402,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   const char qfam_flag_suffixes[][8] = {"within", "parents", "total", "between"};
   const char qfam_test_str[][6] = {"WITH ", " TOT ", " BET "};
   const char* qfam_test_ptr = qfam_test_str[0];
-  char chrom_name_buf[3 + MAX_CHROM_TEXTNUM_LEN];
+  char chrom_name_buf[3 + MAX_CHROM_TEXTNUM_SLEN];
   uint32_t mu_table[MODEL_BLOCKSIZE];
   const char* flag_suffix;
   uintptr_t* lm_within2_founder;
