@@ -4354,10 +4354,10 @@ int32_t finalize_chrom_info(Chrom_info* chrom_info_ptr) {
   const uint32_t chrom_ct_int32vec_ct = (chrom_ct + (VEC_INT32 - 1)) / VEC_INT32;
   const uint32_t chrom_ct_p1_int32vec_ct = 1 + (chrom_ct / VEC_INT32);
   const uint32_t chrom_code_end_int32vec_ct = (chrom_code_end + (VEC_INT32 - 1)) / VEC_INT32;
-  const uint32_t name_wordvec_ct = (name_ct + (VEC_WORDS - 1)) / VEC_WORDS;
+  const uint32_t chrom_code_end_wordvec_ct = (chrom_code_end + (VEC_WORDS - 1)) / VEC_WORDS;
   uint32_t final_vecs_required = 2 * chrom_code_bitvec_ct + chrom_ct_int32vec_ct + chrom_ct_p1_int32vec_ct + chrom_code_end_int32vec_ct;
   if (name_ct) {
-    final_vecs_required += name_wordvec_ct + (CHROM_NAME_HTABLE_SIZE + (VEC_INT32 - 1)) / VEC_INT32;
+    final_vecs_required += chrom_code_end_wordvec_ct + (CHROM_NAME_HTABLE_SIZE + (VEC_INT32 - 1)) / VEC_INT32;
   }
   uintptr_t* new_alloc;
   if (aligned_malloc(final_vecs_required * VEC_BYTES, &new_alloc)) {
@@ -4391,9 +4391,9 @@ int32_t finalize_chrom_info(Chrom_info* chrom_info_ptr) {
   } else {
     new_alloc_iter = &(new_alloc_iter[chrom_code_end_int32vec_ct * VEC_WORDS]);
 
-    memcpy(new_alloc_iter, chrom_info_ptr->nonstd_names, name_wordvec_ct * VEC_BYTES);
+    memcpy(new_alloc_iter, chrom_info_ptr->nonstd_names, chrom_code_end_wordvec_ct * VEC_BYTES);
     chrom_info_ptr->nonstd_names = (char**)new_alloc_iter;
-    new_alloc_iter = &(new_alloc_iter[name_wordvec_ct * VEC_WORDS]);
+    new_alloc_iter = &(new_alloc_iter[chrom_code_end_wordvec_ct * VEC_WORDS]);
 
     memcpy(new_alloc_iter, chrom_info_ptr->nonstd_id_htable, CHROM_NAME_HTABLE_SIZE * sizeof(int32_t));
     chrom_info_ptr->nonstd_id_htable = (uint32_t*)new_alloc_iter;
@@ -4706,7 +4706,7 @@ int32_t resolve_or_add_chrom_name(const char* cur_chrom_name, const char* file_d
   uint32_t next_incr = 1;
   while (1) {
     if (id_htable[hashval] == 0xffffffffU) {
-      id_htable[hashval] = chrom_idx;
+      id_htable[hashval] = chrom_code_end;
       return 0;
     }
     // no overflow danger here
