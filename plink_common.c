@@ -4758,9 +4758,12 @@ uint32_t allele_reset(const char* newval, uint32_t allele_slen, const char** all
 
 void cleanup_allele_storage(uint32_t max_allele_slen, uintptr_t allele_storage_entry_ct, const char** allele_storage) {
   if (allele_storage && (max_allele_slen > 1)) {
+    const uintptr_t one_char_strs_addr = (uintptr_t)g_one_char_strs;
     for (uintptr_t idx = 0; idx < allele_storage_entry_ct; ++idx) {
       const char* cur_entry = allele_storage[idx];
-      if (cur_entry && ((cur_entry < g_one_char_strs) || (cur_entry >= (&(g_one_char_strs[512]))))) {
+      assert(cur_entry);
+      // take advantage of unsigned wraparound
+      if ((((uintptr_t)cur_entry) - one_char_strs_addr) >= 512) {
 	free((char*)cur_entry);
       }
     }

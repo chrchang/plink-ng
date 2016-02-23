@@ -6704,7 +6704,10 @@ int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname,
   if (!marker_allele_ptrs) {
     goto lgen_to_bed_ret_NOMEM;
   }
-  memset(marker_allele_ptrs, 0, 2 * marker_ct * sizeof(char*));
+  uii = 2 * marker_ct;
+  for (ujj = 0; ujj < uii; ujj++) {
+    marker_allele_ptrs[ujj] = missing_geno_ptr;
+  }
   sample_ct4 = (sample_ct + 3) / 4;
   if (bigstack_alloc_uc(((uintptr_t)marker_ct) * sample_ct4, &writebuf)) {
     logerrprint("Error: Multipass .lgen -> .bed autoconversions are not yet supported.  Try\nusing --chr and/or --memory (perhaps with a better machine).\n");
@@ -7045,12 +7048,6 @@ int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname,
   memcpy(outname_end, ".bim", 5);
   if (fopen_checked(outname, "w", &outfile)) {
     goto lgen_to_bed_ret_OPEN_FAIL;
-  }
-  uii = 2 * marker_ct;
-  for (ujj = 0; ujj < uii; ujj++) {
-    if (!marker_allele_ptrs[ujj]) {
-      marker_allele_ptrs[ujj] = missing_geno_ptr;
-    }
   }
   uii = 0;
   marker_idx = 0;
@@ -7773,7 +7770,10 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
 	goto transposed_to_bed_ret_NOMEM;
       }
       // prevent cleanup from failing
-      memset(marker_allele_ptrs, 0, marker_ct * 2 * sizeof(intptr_t));
+      uint32_t allele_idx_end = marker_ct * 2;
+      for (uint32_t allele_idx = 0; allele_idx < allele_idx_end; ++allele_idx) {
+	marker_allele_ptrs[allele_idx] = missing_geno_ptr;
+      }
 
       for (marker_idx = 0; marker_idx < marker_ct; marker_idx++) {
 	pos_buf[marker_idx] = (uint32_t)((uint64_t)mapvals[marker_idx]);
@@ -16421,8 +16421,9 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
   if (!marker_allele_ptrs) {
     goto merge_datasets_ret_NOMEM;
   }
+  // prevent cleanup from failing
   for (uii = 0; uii < tot_marker_ct * 2; uii++) {
-    marker_allele_ptrs[uii] = NULL;
+    marker_allele_ptrs[uii] = missing_geno_ptr;
   }
   if (max_bim_linelen) {
     max_bim_linelen++;
@@ -16475,14 +16476,12 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
 	bufptr = llbim_ptr->allele[0];
 	if (bufptr) {
           marker_allele_ptrs[ujj * 2] = bufptr;
-	} else {
-	  marker_allele_ptrs[ujj * 2] = missing_geno_ptr;
 	}
+	// already initialized to missing_geno_ptr otherwise
+
 	bufptr = llbim_ptr->allele[1];
 	if (bufptr) {
 	  marker_allele_ptrs[ujj * 2 + 1] = bufptr;
-	} else {
-	  marker_allele_ptrs[ujj * 2 + 1] = missing_geno_ptr;
 	}
 	marker_cms_tmp[ujj] = llbim_ptr->cm;
 	ll_buf[ujj] = (((uint64_t)llxx) & 0xffffffff00000000LL) | ujj;
