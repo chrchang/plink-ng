@@ -4760,7 +4760,7 @@ void cleanup_allele_storage(uint32_t max_allele_slen, uintptr_t allele_storage_e
   if (allele_storage && (max_allele_slen > 1)) {
     for (uintptr_t idx = 0; idx < allele_storage_entry_ct; ++idx) {
       const char* cur_entry = allele_storage[idx];
-      if ((cur_entry < g_one_char_strs) || (cur_entry >= (&(g_one_char_strs[512])))) {
+      if (cur_entry && ((cur_entry < g_one_char_strs) || (cur_entry >= (&(g_one_char_strs[512]))))) {
 	free((char*)cur_entry);
       }
     }
