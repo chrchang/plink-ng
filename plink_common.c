@@ -4635,10 +4635,12 @@ int32_t resolve_or_add_chrom_name(const char* cur_chrom_name, const char* file_d
     return 0;
   }
   if (cur_chrom_name[0] == '#') {
+    logprint("\n");
     logerrprint("Error: Chromosome/contig names may not begin with '#'.\n");
     return RET_MALFORMED_INPUT;
   }
   if (name_slen > MAX_ID_SLEN) {
+    logprint("\n");
     if (line_idx) {
       LOGERRPRINTFWW("Error: Line %" PRIuPTR " of %s has an excessively long chromosome/contig name. (The " PROG_NAME_CAPS " limit is " MAX_ID_SLEN_STR " characters.)\n", line_idx, file_descrip);
     } else {
@@ -4650,6 +4652,7 @@ int32_t resolve_or_add_chrom_name(const char* cur_chrom_name, const char* file_d
   const uint32_t name_ct = chrom_info_ptr->name_ct;
   const uint32_t chrom_code_end = max_code_p1 + name_ct;
   if (chrom_code_end == MAX_POSSIBLE_CHROM) {
+    logprint("\n");
     logerrprint("Error: Too many distinct nonstandard chromosome/contig names.\n");
     return RET_MALFORMED_INPUT;
   }
