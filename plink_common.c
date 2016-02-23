@@ -4578,7 +4578,7 @@ int32_t get_chrom_code_nt(const char* chrom_name, const Chrom_info* chrom_info_p
     const uint32_t max_code_p1 = chrom_info_ptr->max_code + 1;
     const uint32_t* nonstd_id_htable = chrom_info_ptr->nonstd_id_htable;
     if (nonstd_id_htable && (chrom_code_raw == -1)) {
-      const uint32_t nonstd_chrom_idx = nonstd_chrom_name_htable_find(chrom_name, chrom_info_ptr->nonstd_names, nonstd_id_htable, name_slen);
+      const uint32_t nonstd_chrom_idx = nonstd_chrom_name_htable_find(chrom_name, (const char* const*)chrom_info_ptr->nonstd_names, nonstd_id_htable, name_slen);
       if (nonstd_chrom_idx == 0xffffffffU) {
         return -2;
       }
@@ -4621,7 +4621,7 @@ int32_t resolve_or_add_chrom_name(const char* cur_chrom_name, const char* file_d
   // todo: merge this with chrom_error() since they're practically always
   // called in sequence
   char** nonstd_names = chrom_info_ptr->nonstd_names;
-  const uint32_t chrom_idx = nonstd_chrom_name_htable_find(cur_chrom_name, nonstd_names, chrom_info_ptr->nonstd_id_htable, name_slen);
+  const uint32_t chrom_idx = nonstd_chrom_name_htable_find(cur_chrom_name, (const char* const*)nonstd_names, chrom_info_ptr->nonstd_id_htable, name_slen);
   if (chrom_idx != 0xffffffffU) {
     *chrom_idx_ptr = (int32_t)chrom_idx;
     return 0;

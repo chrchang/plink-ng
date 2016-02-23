@@ -1354,7 +1354,7 @@ static inline void mult_tmatrix_nxd_vect_d(const float* tm, const float* vect, f
   float vect_val;
   uint32_t col_idx;
   uint32_t row_idx;
-  fill_float_zero(dest, col_ct);
+  fill_float_zero(col_ct, dest);
   for (row_idx = 0; row_idx < row_ct; row_idx++) {
     vect_val = vect[row_idx];
     tm_ptr = &(tm[row_idx * col_cta4]);
