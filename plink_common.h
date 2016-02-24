@@ -2165,6 +2165,8 @@ HEADER_INLINE uint32_t get_variant_chrom(const Chrom_info* chrom_info_ptr, uintp
   return chrom_info_ptr->chrom_file_order[get_variant_chrom_fo_idx(chrom_info_ptr, variant_uidx)];
 }
 
+
+// these assume the chromosome is present in the dataset
 HEADER_INLINE uint32_t get_chrom_start_vidx(const Chrom_info* chrom_info_ptr, uint32_t chrom_idx) {
   return chrom_info_ptr->chrom_fo_vidx_start[chrom_info_ptr->chrom_idx_to_foidx[chrom_idx]];
 }

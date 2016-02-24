@@ -5206,7 +5206,8 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
   return retval;
 }
 
-// side effect: initializes textbuf to first nonempty line of .map/.bim
+// side effect: initializes textbuf to first nonempty noncomment line of
+// .map/.bim
 int32_t check_cm_col(FILE* bimfile, char* textbuf, uint32_t is_binary, uint32_t allow_no_variants, uint32_t bufsize, uint32_t* cm_col_exists_ptr, uintptr_t* line_idx_ptr) {
   uintptr_t line_idx = 0;
   char* bufptr;
@@ -5221,11 +5222,7 @@ int32_t check_cm_col(FILE* bimfile, char* textbuf, uint32_t is_binary, uint32_t 
     if (no_more_tokens_kns(bufptr)) {
       return -1;
     }
-    if (no_more_tokens_kns(next_token(bufptr))) {
-      *cm_col_exists_ptr = 0;
-    } else {
-      *cm_col_exists_ptr = 1;
-    }
+    *cm_col_exists_ptr = !no_more_tokens_kns(next_token(bufptr));
     return 0;
   }
   *line_idx_ptr = 0;

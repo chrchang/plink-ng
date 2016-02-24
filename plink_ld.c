@@ -673,47 +673,52 @@ void ld_prune_start_chrom(uint32_t ld_window_kb, uint32_t* cur_chrom_ptr, uint32
 int32_t ld_prune_write(char* outname, char* outname_end, uintptr_t* marker_exclude, uintptr_t* pruned_arr, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, uint32_t chrom_code_end) {
   FILE* outfile = NULL;
   int32_t retval = 0;
-  uint32_t cur_chrom;
-  uint32_t chrom_end;
-  uint32_t marker_uidx;
-  fputs("Writing...", stdout);
-  fflush(stdout);
-  strcpy(outname_end, ".prune.in");
-  if (fopen_checked(outname, "w", &outfile)) {
-    goto ld_prune_write_ret_OPEN_FAIL;
-  }
-  for (cur_chrom = 1; cur_chrom < chrom_code_end; cur_chrom++) {
-    chrom_end = get_chrom_end_vidx(chrom_info_ptr, cur_chrom);
-    for (marker_uidx = get_chrom_start_vidx(chrom_info_ptr, cur_chrom); marker_uidx < chrom_end; marker_uidx++) {
-      // pruned_arr initialized to marker_exclude
-      if (!IS_SET(pruned_arr, marker_uidx)) {
-        fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
-	putc_unlocked('\n', outfile);
+  {
+    fputs("Writing...", stdout);
+    fflush(stdout);
+    strcpy(outname_end, ".prune.in");
+    if (fopen_checked(outname, "w", &outfile)) {
+      goto ld_prune_write_ret_OPEN_FAIL;
+    }
+    for (uint32_t cur_chrom = 1; cur_chrom < chrom_code_end; cur_chrom++) {
+      if (!is_set(chrom_info_ptr->chrom_mask, cur_chrom)) {
+	continue;
+      }
+      const uint32_t chrom_end = get_chrom_end_vidx(chrom_info_ptr, cur_chrom);
+      for (uint32_t marker_uidx = get_chrom_start_vidx(chrom_info_ptr, cur_chrom); marker_uidx < chrom_end; marker_uidx++) {
+	// pruned_arr initialized to marker_exclude
+	if (!IS_SET(pruned_arr, marker_uidx)) {
+	  fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
+	  putc_unlocked('\n', outfile);
+	}
       }
     }
-  }
-  if (fclose_null(&outfile)) {
-    goto ld_prune_write_ret_WRITE_FAIL;
-  }
-  strcpy(outname_end, ".prune.out");
-  if (fopen_checked(outname, "w", &outfile)) {
-    goto ld_prune_write_ret_OPEN_FAIL;
-  }
-  for (cur_chrom = 1; cur_chrom < chrom_code_end; cur_chrom++) {
-    chrom_end = get_chrom_end_vidx(chrom_info_ptr, cur_chrom);
-    for (marker_uidx = get_chrom_start_vidx(chrom_info_ptr, cur_chrom); marker_uidx < chrom_end; marker_uidx++) {
-      if ((!IS_SET(marker_exclude, marker_uidx)) && IS_SET(pruned_arr, marker_uidx)) {
-        fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
-	putc_unlocked('\n', outfile);
+    if (fclose_null(&outfile)) {
+      goto ld_prune_write_ret_WRITE_FAIL;
+    }
+    strcpy(outname_end, ".prune.out");
+    if (fopen_checked(outname, "w", &outfile)) {
+      goto ld_prune_write_ret_OPEN_FAIL;
+    }
+    for (uint32_t cur_chrom = 1; cur_chrom < chrom_code_end; cur_chrom++) {
+      if (!is_set(chrom_info_ptr->chrom_mask, cur_chrom)) {
+	continue;
+      }
+      const uint32_t chrom_end = get_chrom_end_vidx(chrom_info_ptr, cur_chrom);
+      for (uint32_t marker_uidx = get_chrom_start_vidx(chrom_info_ptr, cur_chrom); marker_uidx < chrom_end; marker_uidx++) {
+	if ((!IS_SET(marker_exclude, marker_uidx)) && IS_SET(pruned_arr, marker_uidx)) {
+	  fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
+	  putc_unlocked('\n', outfile);
+	}
       }
     }
+    if (fclose_null(&outfile)) {
+      goto ld_prune_write_ret_WRITE_FAIL;
+    }
+    *outname_end = '\0';
+    putc_unlocked('\r', stdout);
+    LOGPRINTFWW("Marker lists written to %s.prune.in and %s.prune.out .\n", outname, outname);
   }
-  if (fclose_null(&outfile)) {
-    goto ld_prune_write_ret_WRITE_FAIL;
-  }
-  *outname_end = '\0';
-  putc_unlocked('\r', stdout);
-  LOGPRINTFWW("Marker lists written to %s.prune.in and %s.prune.out .\n", outname, outname);
   while (0) {
   ld_prune_write_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
