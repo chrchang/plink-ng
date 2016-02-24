@@ -1930,7 +1930,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
 	if (ii != -1) {
 	  // may want to check for duplicates...
 	  marker_uidx = id_map[(uint32_t)ii];
-	  if ((cur_chrom_code == get_variant_chrom(chrom_info_ptr, marker_uidx)) || (!cur_chrom_code) || (!get_variant_chrom(chrom_info_ptr, marker_uidx))) {
+	  if ((((uint32_t)cur_chrom_code) == get_variant_chrom(chrom_info_ptr, marker_uidx)) || (!cur_chrom_code) || (!get_variant_chrom(chrom_info_ptr, marker_uidx))) {
 	    if ((marker_allele_ptrs[marker_uidx * 2 + 1] == missing_geno_ptr) && (marker_allele_ptrs[marker_uidx * 2] == missing_geno_ptr)) {
 	      double_missing_ct++;
 	      continue;
@@ -2022,7 +2022,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
 	ii = bsearch_str(bufptr, strlen_se(bufptr), sorted_ids, max_marker_id_len, unfiltered_marker_ct - marker_exclude_ct);
 	if (ii != -1) {
 	  marker_uidx = id_map[(uint32_t)ii];
-	  if ((cur_chrom_code == get_variant_chrom(chrom_info_ptr, marker_uidx)) || (!cur_chrom_code) || (!get_variant_chrom(chrom_info_ptr, marker_uidx))) {
+	  if ((((uint32_t)cur_chrom_code) == get_variant_chrom(chrom_info_ptr, marker_uidx)) || (!cur_chrom_code) || (!get_variant_chrom(chrom_info_ptr, marker_uidx))) {
 	    if ((marker_allele_ptrs[marker_uidx * 2 + 1] == missing_geno_ptr) && (marker_allele_ptrs[marker_uidx * 2] == missing_geno_ptr)) {
 	      double_missing_ct++;
 	      continue;

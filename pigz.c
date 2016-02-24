@@ -301,7 +301,11 @@
 
 #include "pigz.h"
 
-#define putc_unlocked _fputc_nolock
+#ifdef _WIN64
+  #define putc_unlocked _fputc_nolock
+#else
+  #define putc_unlocked putc
+#endif
 
 void pigz_init(uint32_t setprocs) {
   return;

@@ -45,8 +45,13 @@
   #define EOLN_STR "\r\n"
   #define FOPEN_RB "rb"
   #define FOPEN_WB "wb"
-  #define getc_unlocked _getc_nolock
-  #define putc_unlocked _putc_nolock
+  #ifdef _WIN64
+    #define getc_unlocked _fgetc_nolock
+    #define putc_unlocked _fputc_nolock
+  #else
+    #define getc_unlocked getc
+    #define putc_unlocked putc
+  #endif
 #else
   #include <pthread.h>
   #define THREAD_RET_TYPE void*
