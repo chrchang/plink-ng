@@ -2145,7 +2145,7 @@ int32_t get_chrom_code_raw(const char* sptr);
 
 // now requires null-termination
 // now returns -1 when --allow-extra-chr may be ok, and -2 on total fail
-int32_t get_chrom_code_nt(const char* chrom_name, const Chrom_info* chrom_info_ptr, uint32_t name_slen);
+int32_t get_chrom_code(const char* chrom_name, const Chrom_info* chrom_info_ptr, uint32_t name_slen);
 
 // when the chromosome name isn't null-terminated, but we want to preserve the
 // character there
@@ -2156,7 +2156,7 @@ int32_t get_chrom_code_counted(const Chrom_info* chrom_info_ptr, uint32_t name_s
 HEADER_INLINE int32_t get_chrom_code_destructive(const Chrom_info* chrom_info_ptr, char* chrom_name) {
   char* chrom_token_end = token_endnn(chrom_name);
   *chrom_token_end = '\0';
-  return get_chrom_code_nt(chrom_name, chrom_info_ptr, (uintptr_t)(chrom_token_end - chrom_name));
+  return get_chrom_code(chrom_name, chrom_info_ptr, (uintptr_t)(chrom_token_end - chrom_name));
 }
 
 uint32_t get_variant_chrom_fo_idx(const Chrom_info* chrom_info_ptr, uintptr_t variant_uidx);
@@ -2173,8 +2173,21 @@ HEADER_INLINE uint32_t get_chrom_end_vidx(const Chrom_info* chrom_info_ptr, uint
   return chrom_info_ptr->chrom_fo_vidx_start[chrom_info_ptr->chrom_idx_to_foidx[chrom_idx] + 1];
 }
 
-// now assumes cur_chrom_name is null-terminated
-int32_t try_to_add_chrom_name(const char* cur_chrom_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, uint32_t allow_extra_chroms, int32_t* chrom_idx_ptr, Chrom_info* chrom_info_ptr);
+// now assumes chrom_name is null-terminated
+int32_t try_to_add_chrom_name(const char* chrom_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, uint32_t allow_extra_chroms, int32_t* chrom_idx_ptr, Chrom_info* chrom_info_ptr);
+
+HEADER_INLINE int32_t get_or_add_chrom_code(const char* chrom_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, uint32_t allow_extra_chroms, Chrom_info* chrom_info_ptr, int32_t* chrom_idx_ptr) {
+  *chrom_idx_ptr = get_chrom_code(chrom_name, chrom_info_ptr, name_slen);
+  if (*chrom_idx_ptr >= 0) {
+    return 0;
+  }
+  return try_to_add_chrom_name(chrom_name, file_descrip, line_idx, name_slen, allow_extra_chroms, chrom_idx_ptr, chrom_info_ptr);
+}
+
+HEADER_INLINE int32_t get_or_add_chrom_code_destructive(const char* file_descrip, uintptr_t line_idx, uint32_t allow_extra_chroms, char* chrom_name, char* chrom_name_end, Chrom_info* chrom_info_ptr, int32_t* chrom_idx_ptr) {
+  *chrom_name_end = '\0';
+  return get_or_add_chrom_code(chrom_name, file_descrip, line_idx, (uintptr_t)(chrom_name_end - chrom_name), allow_extra_chroms, chrom_info_ptr, chrom_idx_ptr);
+}
 
 // newval does not need to be null-terminated
 // assumes *allele_ptr is not initialized

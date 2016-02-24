@@ -126,7 +126,9 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
       }
       const uint32_t chrom_name_slen = (uintptr_t)(first_token_end - textbuf_first_token);
       *first_token_end = '\0';
-      int32_t cur_chrom_code = get_chrom_code_nt(textbuf_first_token, chrom_info_ptr, chrom_name_slen);
+      // don't use get_or_add_chrom_code() since we want to skip the
+      // CNV_CHROM_CODE_END_MAX check when possible
+      int32_t cur_chrom_code = get_chrom_code(textbuf_first_token, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
 	retval = try_to_add_chrom_name(textbuf_first_token, cift_str, line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	if (retval) {
@@ -518,7 +520,7 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
       char* col3_end = token_endnn(col3_ptr);
       const uint32_t chrom_name_slen = (uintptr_t)(col3_end - col3_ptr);
       *col3_end = '\0';
-      int32_t cur_chrom_code = get_chrom_code_nt(col3_ptr, chrom_info_ptr, chrom_name_slen);
+      int32_t cur_chrom_code = get_chrom_code(col3_ptr, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
 	retval = try_to_add_chrom_name(col3_ptr, ".cnv file", line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	if (retval) {
@@ -753,7 +755,7 @@ int32_t validate_cnv_map(FILE** mapfile_ptr, char* mapname, int32_t* marker_pos_
       }
       const uint32_t chrom_name_slen = (uintptr_t)(first_token_end - textbuf_first_token);
       *first_token_end = '\0';
-      int32_t cur_chrom_code = get_chrom_code_nt(textbuf_first_token, chrom_info_ptr, chrom_name_slen);
+      int32_t cur_chrom_code = get_chrom_code(textbuf_first_token, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
 	retval = try_to_add_chrom_name(textbuf_first_token, ".cnv.map file", line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	if (retval) {
@@ -873,7 +875,7 @@ int32_t load_cnv_map(FILE* mapfile, int32_t marker_pos_start, int32_t marker_pos
       char* first_token_end = token_endnn(textbuf_first_token);
       const uint32_t chrom_name_slen = (uintptr_t)(first_token_end - textbuf_first_token);
       *first_token_end = '\0';
-      chrom_idx = get_chrom_code_nt(textbuf_first_token, chrom_info_ptr, chrom_name_slen);
+      chrom_idx = get_chrom_code(textbuf_first_token, chrom_info_ptr, chrom_name_slen);
       if (!IS_SET(chrom_mask, chrom_idx)) {
 	continue;
       }

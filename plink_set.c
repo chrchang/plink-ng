@@ -301,7 +301,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
 	}
 	const uint32_t chrom_name_slen = (uintptr_t)(first_token_end - textbuf_first_token);
 	*first_token_end = '\0';
-	int32_t cur_chrom_code = get_chrom_code_nt(textbuf_first_token, chrom_info_ptr, chrom_name_slen);
+	int32_t cur_chrom_code = get_chrom_code(textbuf_first_token, chrom_info_ptr, chrom_name_slen);
 	if (cur_chrom_code < 0) {
 	  sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
 	  goto load_range_list_ret_INVALID_FORMAT_2;
@@ -430,7 +430,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       }
       const uint32_t chrom_name_slen = (uintptr_t)(first_token_end - textbuf_first_token);
       *first_token_end = '\0';
-      int32_t cur_chrom_code = get_chrom_code_nt(textbuf_first_token, chrom_info_ptr, chrom_name_slen);
+      int32_t cur_chrom_code = get_chrom_code(textbuf_first_token, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
 	sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
 	goto load_range_list_ret_INVALID_FORMAT_2;

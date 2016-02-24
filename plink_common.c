@@ -4563,7 +4563,7 @@ int32_t get_chrom_code_raw(const char* sptr) {
   return -1;
 }
 
-int32_t get_chrom_code_nt(const char* chrom_name, const Chrom_info* chrom_info_ptr, uint32_t name_slen) {
+int32_t get_chrom_code(const char* chrom_name, const Chrom_info* chrom_info_ptr, uint32_t name_slen) {
   // requires chrom_name to be null-terminated
   // in practice, name_slen will usually already be known, may as well avoid
   // redundant strlen() calls even though this uglifies the interface
@@ -4591,7 +4591,7 @@ int32_t get_chrom_code_counted(const Chrom_info* chrom_info_ptr, uint32_t name_s
   char* s_end = &(chrom_name[name_slen]);
   const char tmpc = *s_end;
   *s_end = '\0';
-  const int32_t retval = get_chrom_code_nt(chrom_name, chrom_info_ptr, name_slen);
+  const int32_t retval = get_chrom_code(chrom_name, chrom_info_ptr, name_slen);
   *s_end = tmpc;
   return retval;
 }
@@ -4611,14 +4611,14 @@ uint32_t get_variant_chrom_fo_idx(const Chrom_info* chrom_info_ptr, uintptr_t va
   return chrom_fo_min;
 }
 
-void chrom_error(const char* cur_chrom_name, const char* file_descrip, const Chrom_info* chrom_info_ptr, uintptr_t line_idx, int32_t error_code) {
-  // assumes cur_chrom_name is null-terminated
-  const int32_t raw_code = get_chrom_code_raw(cur_chrom_name);
+void chrom_error(const char* chrom_name, const char* file_descrip, const Chrom_info* chrom_info_ptr, uintptr_t line_idx, int32_t error_code) {
+  // assumes chrom_name is null-terminated
+  const int32_t raw_code = get_chrom_code_raw(chrom_name);
   logprint("\n");
   if (line_idx) {
-    LOGERRPRINTFWW("Error: Invalid chromosome code '%s' on line %" PRIuPTR " of %s.\n", cur_chrom_name, line_idx, file_descrip);
+    LOGERRPRINTFWW("Error: Invalid chromosome code '%s' on line %" PRIuPTR " of %s.\n", chrom_name, line_idx, file_descrip);
   } else {
-    LOGERRPRINTFWW("Error: Invalid chromosome code '%s' in %s.\n", cur_chrom_name, file_descrip);
+    LOGERRPRINTFWW("Error: Invalid chromosome code '%s' in %s.\n", chrom_name, file_descrip);
   }
   if ((raw_code > ((int32_t)chrom_info_ptr->max_code)) && ((raw_code <= MAX_CHROM_TEXTNUM + XYMT_OFFSET_CT) || (raw_code >= MAX_POSSIBLE_CHROM))) {
     if (chrom_info_ptr->species != SPECIES_UNKNOWN) {
@@ -4635,18 +4635,18 @@ void chrom_error(const char* cur_chrom_name, const char* file_descrip, const Chr
   }
 }
 
-int32_t try_to_add_chrom_name(const char* cur_chrom_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, uint32_t allow_extra_chroms, int32_t* chrom_idx_ptr, Chrom_info* chrom_info_ptr) {
-  // assumes cur_chrom_name is nonstandard (i.e. not "2", "chr2", "chrX", etc.)
-  // requires cur_chrom_name to be null-terminated
-  // assumes chrom_idx currently has the return value of get_chrom_code_nt()
+int32_t try_to_add_chrom_name(const char* chrom_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, uint32_t allow_extra_chroms, int32_t* chrom_idx_ptr, Chrom_info* chrom_info_ptr) {
+  // assumes chrom_name is nonstandard (i.e. not "2", "chr2", "chrX", etc.)
+  // requires chrom_name to be null-terminated
+  // assumes chrom_idx currently has the return value of get_chrom_code()
   if ((!allow_extra_chroms) || ((*chrom_idx_ptr) == -2)) {
-    chrom_error(cur_chrom_name, file_descrip, chrom_info_ptr, line_idx, *chrom_idx_ptr);
+    chrom_error(chrom_name, file_descrip, chrom_info_ptr, line_idx, *chrom_idx_ptr);
     return RET_MALFORMED_INPUT;
   }
 
   // quasi-bugfix: remove redundant hash table check
   
-  if (cur_chrom_name[0] == '#') {
+  if (chrom_name[0] == '#') {
     // redundant with some of the comment-skipping loaders, but this isn't
     // performance-critical
     logprint("\n");
@@ -4683,7 +4683,7 @@ int32_t try_to_add_chrom_name(const char* cur_chrom_name, const char* file_descr
   uint32_t in_name_stack = 0;
   while (name_stack_ptr) {
     // there shouldn't be many of these, so sorting is unimportant
-    if (!strcmp(cur_chrom_name, name_stack_ptr->ss)) {
+    if (!strcmp(chrom_name, name_stack_ptr->ss)) {
       in_name_stack = 1;
       break;
     }
@@ -4692,11 +4692,11 @@ int32_t try_to_add_chrom_name(const char* cur_chrom_name, const char* file_descr
   if ((in_name_stack && chrom_info_ptr->is_include_stack) || ((!in_name_stack) && (!chrom_info_ptr->is_include_stack))) {
     SET_BIT(chrom_code_end, chrom_info_ptr->chrom_mask);
   }
-  memcpy(nonstd_names[chrom_code_end], cur_chrom_name, name_slen + 1);
+  memcpy(nonstd_names[chrom_code_end], chrom_name, name_slen + 1);
   *chrom_idx_ptr = (int32_t)chrom_code_end;
   chrom_info_ptr->name_ct = name_ct + 1;
   uint32_t* id_htable = chrom_info_ptr->nonstd_id_htable;
-  uint32_t hashval = murmurhash3_32(cur_chrom_name, name_slen) % CHROM_NAME_HTABLE_SIZE;
+  uint32_t hashval = murmurhash3_32(chrom_name, name_slen) % CHROM_NAME_HTABLE_SIZE;
   uint32_t next_incr = 1;
   while (1) {
     if (id_htable[hashval] == 0xffffffffU) {

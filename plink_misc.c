@@ -484,7 +484,7 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
       post_at_sign_len = strlen(at_sign_ptr) + 1;
     } else {
       const uint32_t chrom_name_slen = strlen(cm_map_chrname);
-      int32_t cur_chrom_code = get_chrom_code_nt(cm_map_chrname, chrom_info_ptr, chrom_name_slen);
+      int32_t cur_chrom_code = get_chrom_code(cm_map_chrname, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
 	LOGPREPRINTFWW("Error: --cm-map chromosome code '%s' not found in dataset.\n", cm_map_chrname);
 	goto apply_cm_map_ret_INVALID_CMDLINE_2;
@@ -1918,7 +1918,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
 	bufptr = skip_initial_spaces(first_token_end); // marker name
 	const uint32_t chrom_name_slen = (uintptr_t)(first_token_end - loadbuf_first_token);
 	*first_token_end = '\0';
-	int32_t cur_chrom_code = get_chrom_code_nt(loadbuf_first_token, chrom_info_ptr, chrom_name_slen);
+	int32_t cur_chrom_code = get_chrom_code(loadbuf_first_token, chrom_info_ptr, chrom_name_slen);
 	if (cur_chrom_code < 0) {
 	  goto read_external_freqs_ret_INVALID_CHROM;
 	}
@@ -2011,7 +2011,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
 	bufptr = skip_initial_spaces(first_token_end);
 	const uint32_t chrom_name_slen = (uintptr_t)(first_token_end - loadbuf_first_token);
 	*first_token_end = '\0';
-	int32_t cur_chrom_code = get_chrom_code_nt(loadbuf_first_token, chrom_info_ptr, chrom_name_slen);
+	int32_t cur_chrom_code = get_chrom_code(loadbuf_first_token, chrom_info_ptr, chrom_name_slen);
 	if (cur_chrom_code < 0) {
 	  goto read_external_freqs_ret_INVALID_CHROM;
 	}
