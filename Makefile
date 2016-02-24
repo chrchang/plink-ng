@@ -45,7 +45,7 @@ OBJ = $(CSRC:.c=.o) $(CCSRC:.cc=.o)
 	g++ -x c++ -c $(CFLAGS) $(ARCH64) -o $@ $<
 
 plink: $(SRC)
-	g++ -x c++ $(CFLAGS) $(SRC) -m32 -o plink $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
+	g++ -x c++ $(CFLAGS) $(SRC) -m32 -x none -o plink $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
 
 plinkw: $(SRC)
 	g++ $(CFLAGS) $(SRC) -c

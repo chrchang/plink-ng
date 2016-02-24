@@ -1312,6 +1312,7 @@ HEADER_INLINE char* memcpyl3a(char* __restrict target, const void* __restrict so
   return &(target[3]);
 }
 
+// note that, unlike stpcpy(), this does not copy the null terminator
 HEADER_INLINE char* strcpya(char* __restrict target, const void* __restrict source) {
   uintptr_t slen = strlen((char*)source);
   memcpy(target, source, slen);
