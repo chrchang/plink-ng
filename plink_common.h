@@ -45,6 +45,8 @@
   #define EOLN_STR "\r\n"
   #define FOPEN_RB "rb"
   #define FOPEN_WB "wb"
+  #define getc_unlocked _fgetc_nolock
+  #define putc_unlocked _fputc_nolock
 #else
   #include <pthread.h>
   #define THREAD_RET_TYPE void*
@@ -920,7 +922,7 @@ void wordwrapb(uint32_t suffix_len);
 int32_t fopen_checked(const char* fname, const char* mode, FILE** target_ptr);
 
 HEADER_INLINE int32_t putc_checked(int32_t ii, FILE* outfile) {
-  putc(ii, outfile);
+  putc_unlocked(ii, outfile);
   return ferror(outfile);
 }
 

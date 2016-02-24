@@ -1675,7 +1675,7 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
     }
     fputs("SNP\tCHR\tBP", outfile);
     for (set_idx = 0; set_idx < set_ct; set_idx++) {
-      putc('\t', outfile);
+      putc_unlocked('\t', outfile);
       fputs(&(sip->names[set_idx * max_set_name_len]), outfile);
     }
     if (putc_checked('\n', outfile)) {
@@ -1780,7 +1780,7 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
     fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, marker_idx_to_uidx);
     for (set_idx = 0; set_idx < set_ct; set_idx++) {
       fputs(&(sip->names[set_idx * max_set_name_len]), outfile);
-      putc('\n', outfile);
+      putc_unlocked('\n', outfile);
       cur_set_ptr = sip->setdefs[set_idx];
       range_ct = cur_set_ptr[0];
       if (range_ct != 0xffffffffU) {
@@ -1788,7 +1788,7 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
 	  ujj = cur_set_ptr[uii * 2 + 2];
           for (marker_idx = cur_set_ptr[uii * 2 + 1]; marker_idx < ujj; marker_idx++) {
             fputs(&(marker_ids[marker_idx_to_uidx[marker_idx] * max_marker_id_len]), outfile);
-	    putc('\n', outfile);
+	    putc_unlocked('\n', outfile);
 	  }
 	}
       } else {
@@ -1798,7 +1798,7 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
 	if (cur_set_ptr[3]) {
 	  for (marker_idx = 0; marker_idx < range_start; marker_idx++) {
 	    fputs(&(marker_ids[marker_idx_to_uidx[marker_idx] * max_marker_id_len]), outfile);
-	    putc('\n', outfile);
+	    putc_unlocked('\n', outfile);
 	  }
 	}
 	marker_idx = 0;
@@ -1808,13 +1808,13 @@ int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t mark
 	    break;
 	  }
           fputs(&(marker_ids[marker_idx_to_uidx[marker_idx] * max_marker_id_len]), outfile);
-	  putc('\n', outfile);
+	  putc_unlocked('\n', outfile);
 	  marker_idx++;
 	}
 	if ((range_start + uii < marker_ct) && cur_set_ptr[3]) {
           for (marker_idx = range_start + uii; marker_idx < marker_ct; marker_idx++) {
 	    fputs(&(marker_ids[marker_idx_to_uidx[marker_idx] * max_marker_id_len]), outfile);
-	    putc('\n', outfile);
+	    putc_unlocked('\n', outfile);
 	  }
 	}
       }
@@ -2822,12 +2822,12 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
   if (block01) {
     if (!range_ct) {
       for (ulii = 0; ulii < attr_id_ct; ulii++) {
-	putc(' ', outfile);
+	putc_unlocked(' ', outfile);
 	fputs(&(sorted_attr_ids[ulii * max_attr_id_len]), outfile);
       }
     } else {
       for (uii = 0; uii < unique_annot_ct; uii++) {
-	putc(' ', outfile);
+	putc_unlocked(' ', outfile);
 	ujj = merged_attr_idx_buf[uii];
 	if (ujj < 0x80000000U) {
 	  fputs(&(range_names[ujj * max_range_name_len + 4]), outfile);
@@ -2845,7 +2845,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
   } else {
     fputs(" ANNOT", outfile);
   }
-  putc('\n', outfile);
+  putc_unlocked('\n', outfile);
   while (fgets(loadbuf, loadbuf_size, infile)) {
     line_idx++;
     if (!loadbuf[loadbuf_size - 1]) {
@@ -3072,12 +3072,12 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	goto annotate_ret_WRITE_FAIL;
       }
     }
-    putc(' ', outfile);
+    putc_unlocked(' ', outfile);
     if (fwrite_checked(writebuf, wptr - writebuf, outfile)) {
       goto annotate_ret_WRITE_FAIL;
     }
 
-    putc('\n', outfile);
+    putc_unlocked('\n', outfile);
     if (block01 && at_least_one_annot) {
       // reinitialize
       ulptr = (uintptr_t*)writebuf;
@@ -3518,10 +3518,10 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       fputs(&(bufptr[4]), outfile);
       fputs(" -- chr", outfile);
       if (bufptr[2] != '0') {
-	putc(bufptr[2], outfile);
+	putc_unlocked(bufptr[2], outfile);
       }
-      putc(bufptr[3] + 15, outfile);
-      putc(':', outfile);
+      putc_unlocked(bufptr[3] + 15, outfile);
+      putc_unlocked(':', outfile);
       uiptr = genedefs[gene_idx];
       range_ct = *uiptr++;
       ujj = 0; // gene length

@@ -803,15 +803,15 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
     fputs(&(sample_ids[sample_uidx * max_sample_id_len]), outfile);
     if (!IS_SET(pheno_nm, sample_uidx)) {
       for (perm_idx = 0; perm_idx < permphe_ct; perm_idx++) {
-	putc('\t', outfile);
+	putc_unlocked('\t', outfile);
 	fputs(output_missing_pheno, outfile);
       }
     } else if (pheno_c) {
       ulptr = &(g_perm_vecs[sample_nmidx / BITCT]);
       rshift = sample_nmidx % BITCT;
       for (perm_idx = 0; perm_idx < permphe_ct; perm_idx++) {
-	putc('\t', outfile);
-        putc('1' + ((ulptr[perm_idx * pheno_nm_ctv] >> rshift) & 1), outfile);
+	putc_unlocked('\t', outfile);
+        putc_unlocked('1' + ((ulptr[perm_idx * pheno_nm_ctv] >> rshift) & 1), outfile);
       }
       sample_nmidx++;
     } else {

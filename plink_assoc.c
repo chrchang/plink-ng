@@ -537,7 +537,7 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
     }
     if (pct < 100) {
       if (pct > 10) {
-	putchar('\b');
+	putc_unlocked('\b', stdout);
       }
       printf("\b\b%u%%", pct);
       fflush(stdout);
@@ -5897,7 +5897,7 @@ int32_t model_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
     goto model_assoc_set_test_more_perms;
   }
  model_assoc_set_test_perms_done:
-  putchar('\r');
+  putc_unlocked('\r', stdout);
   LOGPRINTF("%u permutation%s complete.\n", perms_done, (perms_done != 1)? "s" : "");
  model_assoc_set_test_write:
   if (model_modifier & MODEL_PERM) {
@@ -7415,7 +7415,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
     if ((!perm_pass_idx) && (marker_idx >= loop_end)) {
       if (marker_idx < marker_unstopped_ct) {
 	if (pct >= 10) {
-	  putchar('\b');
+	  putc_unlocked('\b', stdout);
 	}
 	pct = (marker_idx * 100LLU) / marker_unstopped_ct;
 	printf("\b\b%u%%", pct);
@@ -7426,7 +7426,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   } while (marker_idx < marker_unstopped_ct);
   if (!perm_pass_idx) {
     if (pct >= 10) {
-      putchar('\b');
+      putc_unlocked('\b', stdout);
     }
     fputs("\b\b", stdout);
     logprint("done.\n");
@@ -7500,7 +7500,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
   if (model_perms_nst) {
     if (mperm_save & MPERM_DUMP_ALL) {
       if (perm_pass_idx) {
-	putchar(' ');
+	putc_unlocked(' ', stdout);
       }
       fputs("[dumping stats]", stdout);
       fflush(stdout);
@@ -7558,7 +7558,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
 	}
       }
     }
-    putchar('\r');
+    putc_unlocked('\r', stdout);
     LOGPRINTF("%u %s permutation%s complete.\n", perms_done, model_maxt_nst? "max(T)" : "(adaptive)", (perms_done != 1)? "s" : "");
     if (model_fisher && (model_modifier & MODEL_PTREND)) {
       outname_end2 -= 7; // remove ".fisher"
@@ -8015,7 +8015,7 @@ int32_t qassoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset,
     goto qassoc_set_test_more_perms;
   }
  qassoc_set_test_perms_done:
-  putchar('\r');
+  putc_unlocked('\r', stdout);
   LOGPRINTF("%u permutation%s complete.\n", perms_done, (perms_done != 1)? "s" : "");
  qassoc_set_test_write:
   if (model_modifier & MODEL_PERM) {
@@ -8648,23 +8648,23 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	    goto qassoc_ret_WRITE_FAIL;
 	  }
 	  fputs(a1ptr, outfile_qtm);
-	  putc('/', outfile_qtm);
+	  putc_unlocked('/', outfile_qtm);
 	  fputs(a1ptr, outfile_qtm);
-	  putc(' ', outfile_qtm);
+	  putc_unlocked(' ', outfile_qtm);
 	  if (uii + ujj < 7) {
 	    fwrite(spacebuf, 1, 7 - uii - ujj, outfile_qtm);
 	  }
 	  fputs(a1ptr, outfile_qtm);
-	  putc('/', outfile_qtm);
+	  putc_unlocked('/', outfile_qtm);
 	  fputs(a2ptr, outfile_qtm);
-	  putc(' ', outfile_qtm);
+	  putc_unlocked(' ', outfile_qtm);
 	  if (ujj < 4) {
 	    fwrite(spacebuf, 1, 7 - 2 * ujj, outfile_qtm);
 	  }
           fputs(a2ptr, outfile_qtm);
-	  putc('/', outfile_qtm);
+	  putc_unlocked('/', outfile_qtm);
           fputs(a2ptr, outfile_qtm);
-	  putc('\n', outfile_qtm);
+	  putc_unlocked('\n', outfile_qtm);
 	  wptr = memcpya(wptr_restart, "COUNTS ", 7);
 	  wptr = uint32toa_w8x(homrar_ct, ' ', wptr);
 	  wptr = uint32toa_w8x(het_ct, ' ', wptr);
@@ -8793,7 +8793,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
     if ((!perm_pass_idx) && (marker_idx >= loop_end)) {
       if (marker_idx < marker_unstopped_ct) {
 	if (pct >= 10) {
-	  putchar('\b');
+	  putc_unlocked('\b', stdout);
 	}
 	pct = (marker_idx * 100LLU) / marker_unstopped_ct;
 	printf("\b\b%u%%", pct);
@@ -8804,7 +8804,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   } while (marker_idx < marker_unstopped_ct);
   if (!perm_pass_idx) {
     if (pct >= 10) {
-      putchar('\b');
+      putc_unlocked('\b', stdout);
     }
     fputs("\b\b", stdout);
     logprint("done.\n");
@@ -8847,7 +8847,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
   if (do_perms_nst) {
     if (mperm_save & MPERM_DUMP_ALL) {
       if (perm_pass_idx) {
-	putchar(' ');
+	putc_unlocked(' ', stdout);
       }
       fputs("[dumping stats]", stdout);
       fflush(stdout);
@@ -8905,7 +8905,7 @@ int32_t qassoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* ou
 	}
       }
     }
-    putchar('\r');
+    putc_unlocked('\r', stdout);
     LOGPRINTF("%u %s permutation%s complete.\n", g_perms_done, perm_maxt_nst? "max(T)" : "(adaptive)", (g_perms_done != 1)? "s" : "");
 
     if (perm_adapt_nst) {
@@ -9515,7 +9515,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
     }
     if (pct < 100) {
       if (pct > 10) {
-        putchar('\b');
+        putc_unlocked('\b', stdout);
       }
       printf("\b\b%u%%", pct);
       fflush(stdout);
@@ -9523,7 +9523,7 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
   }
 
   if (pct >= 10) {
-    putchar('\b');
+    putc_unlocked('\b', stdout);
   }
   fputs("\b\b", stdout);
   logprint("done.\n");
@@ -10519,7 +10519,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
     } while (marker_idx < marker_unstopped_ct);
     if (mperm_dump_all) {
       if (g_perms_done) {
-	putchar(' ');
+	putc_unlocked(' ', stdout);
       }
       fputs("[dumping stats]", stdout);
       fflush(stdout);
@@ -10578,7 +10578,7 @@ int32_t testmiss(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* 
 	}
       }
     }
-    putchar('\r');
+    putc_unlocked('\r', stdout);
     LOGPRINTF("%u %s permutation%s complete.\n", g_perms_done, perm_maxt? "max(T)" : "(adaptive)", (g_perms_done != 1)? "s" : "");
     if (perm_adapt) {
       memcpy(outname_end2, ".perm", 6);
@@ -11244,7 +11244,7 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
     if (marker_idx >= loop_end) {
       if (marker_idx < marker_ct) {
 	if (pct >= 10) {
-	  putchar('\b');
+	  putc_unlocked('\b', stdout);
 	}
 	pct = (marker_idx * 100LLU) / marker_ct;
         printf("\b\b%u%%", pct);
@@ -11257,7 +11257,7 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
     goto cmh_assoc_ret_WRITE_FAIL;
   }
   if (pct >= 10) {
-    putchar('\b');
+    putc_unlocked('\b', stdout);
   }
   fputs("\b\b", stdout);
   logprint("done.\n");
@@ -11534,7 +11534,7 @@ int32_t cmh2_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
     if (marker_idx >= loop_end) {
       if (marker_idx < marker_ct) {
 	if (pct >= 10) {
-	  putchar('\b');
+	  putc_unlocked('\b', stdout);
 	}
         pct = (marker_idx * 100LLU) / marker_ct;
         printf("\b\b%u%%", pct);
@@ -11547,7 +11547,7 @@ int32_t cmh2_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
     goto cmh2_assoc_ret_WRITE_FAIL;
   }
   if (pct >= 10) {
-    putchar('\b');
+    putc_unlocked('\b', stdout);
   }
   fputs("\b\b", stdout);
   logprint("done.\n");
@@ -11792,7 +11792,7 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
     if (marker_idx >= loop_end) {
       if (marker_idx < marker_ct) {
 	if (pct >= 10) {
-	  putchar('\b');
+	  putc_unlocked('\b', stdout);
 	}
         pct = (marker_idx * 100LLU) / marker_ct;
         printf("\b\b%u%%", pct);
@@ -11805,7 +11805,7 @@ int32_t homog_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
     goto homog_assoc_ret_WRITE_FAIL;
   }
   if (pct >= 10) {
-    putchar('\b');
+    putc_unlocked('\b', stdout);
   }
   fputs("\b\b", stdout);
   logprint("done.\n");

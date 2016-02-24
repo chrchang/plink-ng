@@ -3553,7 +3553,7 @@ int32_t main(int32_t argc, char** argv) {
   }
   if (ujj) {
     fputs(ver_str, stdout);
-    putchar('\n');
+    putc_unlocked('\n', stdout);
     goto main_ret_1;
   }
   if (ukk) {
@@ -13573,8 +13573,8 @@ int32_t main(int32_t argc, char** argv) {
     memcpy(outname_end, ".gplink", 8);
     g_logfile = fopen(outname, "w");
     if (g_logfile) { // can't do much if an error occurs here...
-      putc(retval? '1' : '0', g_logfile);
-      putc('\n', g_logfile);
+      putc_unlocked(retval? '1' : '0', g_logfile);
+      putc_unlocked('\n', g_logfile);
       fclose(g_logfile);
     }
   }

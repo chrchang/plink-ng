@@ -1128,7 +1128,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 	ukk = (uint32_t)(family_code >> 32);
 	if (ukk != unfiltered_sample_ct) {
 	  if (ujj != unfiltered_sample_ct) {
-	    putc('\n', outfile);
+	    putc_unlocked('\n', outfile);
 	  }
 	  wptr = fw_strcpy(plink_maxiid, &(iids[ukk * max_iid_len]), &(g_textbuf[plink_maxfid + 1]));
 	  *wptr++ = ' ';
@@ -1141,8 +1141,8 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
 	    goto mendel_error_scan_ret_WRITE_FAIL;
 	  }
 	}
-	putc(' ', outfile); // PLINK 1.07 formatting quirk
-	putc('\n', outfile);
+	putc_unlocked(' ', outfile); // PLINK 1.07 formatting quirk
+	putc_unlocked('\n', outfile);
       }
       wptr = fw_strcpy(plink_maxiid, &(iids[((uint32_t)trio_code) * max_iid_len]), &(g_textbuf[plink_maxfid + 1]));
       *wptr++ = ' ';
@@ -1914,7 +1914,7 @@ int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* o
       }
       if (++markers_done >= pct_thresh) {
 	if (pct > 10) {
-	  putchar('\b');
+	  putc_unlocked('\b', stdout);
 	}
 	pct = (markers_done * 100LLU) / marker_ct_ax;
 	if (pct < 100) {
@@ -1941,7 +1941,7 @@ int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* o
   if (fclose_null(&outfile)) {
     goto tdt_poo_ret_WRITE_FAIL;
   }
-  putchar('\r');
+  putc_unlocked('\r', stdout);
   LOGPRINTF("--tdt poo: Report written to %s .\n", outname);
   while (0) {
   tdt_poo_ret_OPEN_FAIL:
@@ -2442,7 +2442,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
 
       if (++markers_done >= pct_thresh) {
         if (pct > 10) {
-	  putchar('\b');
+	  putc_unlocked('\b', stdout);
 	}
 	pct = (markers_done * 100LLU) / marker_ct;
         if (pct < 100) {
@@ -2466,7 +2466,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
       }
     }
   }
-  putchar('\r');
+  putc_unlocked('\r', stdout);
   LOGPRINTF("--tdt: Report written to %s .\n", outname);
   if (mtest_adjust) {
   tdt_multcomp:
@@ -4746,7 +4746,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     if ((!perm_pass_idx) && (marker_idx >= loop_end)) {
       if (marker_idx < marker_unstopped_ct) {
 	if (pct >= 10) {
-	  putchar('\b');
+	  putc_unlocked('\b', stdout);
 	}
         pct = (marker_idx * 100LLU) / marker_unstopped_ct;
 	printf("\b\b%u%%", pct);
@@ -4757,7 +4757,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   } while (marker_idx < marker_unstopped_ct);
   if (!perm_pass_idx) {
     if (pct >= 10) {
-      putchar('\b');
+      putc_unlocked('\b', stdout);
     }
     fputs("\b\b", stdout);
     logprint("done.\n");
@@ -4817,7 +4817,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	}
       }
     }
-    putchar('\r');
+    putc_unlocked('\r', stdout);
     LOGPRINTF("%u %s permutation%s complete.\n", g_perms_done, perm_maxt_nst? "max(T)" : "adaptive", (g_perms_done != 1)? "s" : "");
     if (perm_adapt_nst) {
       memcpy(outname_end2, ".perm", 6);
@@ -5808,7 +5808,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       marker_idx2_base += block_size;
       if ((!perms_done) && (marker_idx2_base >= loop_end) && (marker_idx2_base != marker_unstopped_ct)) {
 	if (pct >= 10) {
-	  putchar('\b');
+	  putc_unlocked('\b', stdout);
 	}
 	pct = (marker_idx2_base * 100LLU) / marker_unstopped_ct;
 	printf("\b\b%u%%", pct);
@@ -5822,7 +5822,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	goto qfam_ret_WRITE_FAIL;
       }
       if (pct >= 10) {
-	putchar('\b');
+	putc_unlocked('\b', stdout);
       }
       fputs("\b\b", stdout);
       logprint("done.\n");
@@ -5838,7 +5838,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     fflush(stdout);
     marker_unstopped_ct = marker_ct - popcount_longs((uintptr_t*)perm_adapt_stop, (marker_ct + sizeof(intptr_t) - 1) / sizeof(intptr_t));
   }
-  putchar('\r');
+  putc_unlocked('\r', stdout);
   memcpy(outname_end, ".perm", 6);
   if (fopen_checked(outname, "w", &outfile)) {
     goto qfam_ret_OPEN_FAIL;

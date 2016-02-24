@@ -1913,7 +1913,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	    goto roh_pool_ret_WRITE_FAIL;
 	  }
 	}
-	putc('\n', outfile);
+	putc_unlocked('\n', outfile);
 	wptr = memseta(g_textbuf, 32, plink_maxsnp - 3);
 	wptr = memcpya(wptr, "SNP ", 4);
         fwrite(g_textbuf, 1, wptr - g_textbuf, outfile);
@@ -1930,7 +1930,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	for (marker_uidx1 = union_uidx1; marker_uidx1 <= union_uidx2; marker_uidx1++) {
 	  next_unset_unsafe_ck(marker_exclude, &marker_uidx1);
 	  if (marker_uidx1 == con_uidx1) {
-	    putc('\n', outfile);
+	    putc_unlocked('\n', outfile);
 	  }
 	  ulii = marker_cidx + cur_lookahead_start - lookahead_first_cidx;
 	  if (ulii >= max_lookahead) {
@@ -1980,7 +1980,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	    goto roh_pool_ret_WRITE_FAIL;
 	  }
 	  if (marker_uidx1 == con_uidx2) {
-	    putc('\n', outfile);
+	    putc_unlocked('\n', outfile);
 	  }
 	  marker_cidx++;
 	}
@@ -2045,7 +2045,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	  for (marker_uidx1 = union_uidx1; marker_uidx1 <= union_uidx2; marker_uidx1++) {
 	    next_unset_unsafe_ck(marker_exclude, &marker_uidx1);
 	    if (marker_uidx1 == con_uidx1) {
-	      putc('\n', outfile);
+	      putc_unlocked('\n', outfile);
 	    }
 	    ulii = marker_cidx + cur_lookahead_start - lookahead_first_cidx;
 	    if (ulii >= max_lookahead) {
@@ -2120,7 +2120,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	      goto roh_pool_ret_WRITE_FAIL;
 	    }
 	    if (marker_uidx1 == con_uidx2) {
-	      putc('\n', outfile);
+	      putc_unlocked('\n', outfile);
 	    }
 	    marker_cidx++;
 	  }
@@ -2138,7 +2138,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	for (marker_uidx1 = union_uidx1; marker_uidx1 <= union_uidx2; marker_uidx1++) {
 	  next_unset_unsafe_ck(marker_exclude, &marker_uidx1);
 	  if (marker_uidx1 == con_uidx1) {
-	    putc('\n', outfile);
+	    putc_unlocked('\n', outfile);
 	  }
 	  ulii = marker_cidx + cur_lookahead_start - lookahead_first_cidx;
 	  if (ulii >= max_lookahead) {
@@ -2179,16 +2179,16 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
 	    } else if (ujj > ukk) {
 	      fputs(allele_strs[0], outfile);
 	    } else {
-	      putc('?', outfile);
+	      putc_unlocked('?', outfile);
 	    }
-	    putc(' ', outfile);
+	    putc_unlocked(' ', outfile);
 	    slot_idx1 = group_slot_end;
 	  } while (slot_idx1 < pool_size);
           if (putc_checked('\n', outfile)) {
 	    goto roh_pool_ret_WRITE_FAIL;
 	  }
 	  if (marker_uidx1 == con_uidx2) {
-	    putc('\n', outfile);
+	    putc_unlocked('\n', outfile);
 	  }
 	  marker_cidx++;
 	}
@@ -2201,7 +2201,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
       }
     }
     if (chrom_info_ptr->chrom_file_order[chrom_fo_idx] > onechar_max) {
-      putchar('\b');
+      putc_unlocked('\b', stdout);
     }
   }
   fputs("\b\b\b\b\b\b\b\b\b\b\b\b\b\b               \b\b\b\b\b\b\b\b\b\b\b\b\b\b\bdone.\n", stdout);
@@ -2363,7 +2363,7 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
     goto roh_pool_ret_WRITE_FAIL;
   }
 
-  putchar('\r');
+  putc_unlocked('\r', stdout);
   LOGPRINTFWW("ROH pool report written to %s .\n", outname);
   if (is_verbose) {
     wptr = strcpya(g_logbuf, "Per-pool report");
@@ -2681,7 +2681,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
       } while (marker_cidx <= marker_cidx_max);
     }
   }
-  putchar('\r');
+  putc_unlocked('\r', stdout);
   LOGPRINTF("--homozyg: Scan complete, found %" PRIuPTR " ROH.\n", roh_ct);
   roh_list_chrom_starts[chrom_ct] = roh_ct;
   // "truncate" the completed list so we can start making workspace allocations

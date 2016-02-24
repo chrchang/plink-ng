@@ -1652,7 +1652,7 @@ int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
     for (sample_idx = 0; sample_idx < removed_ct; sample_idx++, sample_uidx++) {
       next_set_unsafe_ck(newly_excluded, &sample_uidx);
       fputs(&(sample_ids[sample_uidx * max_sample_id_len]), outfile);
-      putc('\n', outfile);
+      putc_unlocked('\n', outfile);
     }
     if (fclose_null(&outfile)) {
       goto mind_filter_ret_WRITE_FAIL;
@@ -2590,9 +2590,9 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	      while (ulii) {
 		ukk = sample_uidx * BITCT2 + CTZLU(ulii) / 2;
 		fputs(&(sample_ids[ukk * max_sample_id_len]), hhfile);
-		putc('\t', hhfile);
+		putc_unlocked('\t', hhfile);
 		fputs(&(marker_ids[marker_uidx * max_marker_id_len]), hhfile);
-		putc('\n', hhfile);
+		putc_unlocked('\n', hhfile);
 		ulii &= ulii - ONELU;
 	      }
 	    }
@@ -2603,9 +2603,9 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	      while (ulii) {
 		ukk = sample_uidx * BITCT2 + CTZLU(ulii) / 2;
 		fputs(&(sample_ids[ukk * max_sample_id_len]), hhfile);
-		putc('\t', hhfile);
+		putc_unlocked('\t', hhfile);
 		fputs(&(marker_ids[marker_uidx * max_marker_id_len]), hhfile);
-		putc('\n', hhfile);
+		putc_unlocked('\n', hhfile);
 		ulii &= ulii - ONELU;
 	      }
 	    }
@@ -2645,7 +2645,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
     }
     if (pct < 100) {
       if (pct > 10) {
-	putchar('\b');
+	putc_unlocked('\b', stdout);
       }
       printf("\b\b%u%%", pct);
       fflush(stdout);
@@ -3188,7 +3188,7 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
       }
       if (pct < 100) {
 	if (pct > 10) {
-	  putchar('\b');
+	  putc_unlocked('\b', stdout);
 	}
 	printf("\b\b%u%%", pct);
 	fflush(stdout);
@@ -3237,7 +3237,7 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
       }
       if (pct < 100) {
 	if (pct > 10) {
-	  putchar('\b');
+	  putc_unlocked('\b', stdout);
 	}
 	printf("\b\b%u%%", pct);
 	fflush(stdout);

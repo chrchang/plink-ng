@@ -942,7 +942,7 @@ void ibs_test_range(uint32_t tidx, uintptr_t* perm_col_buf, double* perm_results
       ulii = row_idx * (row_idx + 1);
       if (ulii >= pct_next) {
 	if (pct >= 10) {
-	  putchar('\b');
+	  putc_unlocked('\b', stdout);
 	}
 	pct = ulii / pct_div;
 	printf("\b\b%" PRIuPTR "%%", pct);
@@ -2099,7 +2099,7 @@ int32_t regress_rel_main(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
     dyysq += g_calc_result[uii + 1][3];
   }
   ulii = g_jackknife_iters * g_thread_ct;
-  putchar('\r');
+  putc_unlocked('\r', stdout);
   LOGPRINTF("Jackknife s.e. (y = genomic relationship): %g\n", sqrt(((sample_ct - g_jackknife_d) / (double)g_jackknife_d) * (dxxsq - dxx * dxx / (double)ulii) / ((double)ulii - 1)));
   LOGPRINTF("               (y = phenotype): %g\n", sqrt(((sample_ct - g_jackknife_d) / (double)g_jackknife_d) * (dyysq - dyy * dyy / (double)ulii) / ((double)ulii - 1)));
   bigstack_reset(bigstack_mark);
@@ -2333,7 +2333,7 @@ void reml_em_one_trait(double* wkbase, double* pheno, double* covg_ref, double* 
     printf("\b\b\b\b\b\b      \rcovg: %g  covr: %g  EM step log likelihood change: %g", *covg_ref, *covr_ref, ll_change);
     fflush(stdout);
   } while (ll_change > tol);
-  putchar('\n');
+  putc_unlocked('\n', stdout);
   sprintf(g_logbuf, "covg: %g  covr: %g\n", *covg_ref, *covr_ref);
   logstr(g_logbuf);
 }
@@ -3090,7 +3090,7 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_sample_ct, uintpt
     for (uii = 0; uii < 9; uii++) {
       g_calc_result[0][uii] *= dxx;
     }
-    putchar('\r');
+    putc_unlocked('\r', stdout);
     dxx = g_calc_result[0][0] - g_calc_result[0][1];
     LOGPRINTF("  AA mean - AU mean avg difference (s.e.): %g (%g)\n", dxx, sqrt(((g_case_ct + g_ctrl_ct - g_jackknife_d) / ((double)g_jackknife_d)) * (g_calc_result[0][3] + g_calc_result[0][4] - 2 * g_calc_result[0][6] - dxx * dxx)));
     dxx = g_calc_result[0][0] - g_calc_result[0][2];
@@ -3413,7 +3413,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
     bufptr = uint32toa_x(marker_pos[marker_uidx], ' ', &(g_textbuf[1]));
     fwrite(g_textbuf, 1, bufptr - g_textbuf, outfile);
     fputs(marker_allele_ptrs[2 * marker_uidx], outfile);
-    putc(' ', outfile);
+    putc_unlocked(' ', outfile);
     if (fputs_checked(marker_allele_ptrs[2 * marker_uidx + 1], outfile)) {
       goto calc_regress_pcs_ret_WRITE_FAIL;
     }
@@ -3599,7 +3599,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
     uii = strlen_se(sample_id_ptr);
     // todo: adjust pheno_d, double-check missing gender behavior
     fwrite(sample_id_ptr, 1, uii, outfile);
-    putc(' ', outfile);
+    putc_unlocked(' ', outfile);
     fputs(&(sample_id_ptr[uii + 1]), outfile);
     g_textbuf[0] = ' ';
     bufptr = dtoa_gx(((double)missing_cts[sample_uidx]) / (double)marker_ct, ' ', &(g_textbuf[1]));
@@ -3614,7 +3614,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
     goto calc_regress_pcs_ret_WRITE_FAIL;
   }
   *outname_end = '\0';
-  putchar('\r');
+  putc_unlocked('\r', stdout);
   LOGPRINTF("Principal component regression residuals and %sphenotype Z-scores %s%s.gen and %s.sample.\n", regress_pcs_sex_specific? "sex-specific " : "", regress_pcs_sex_specific? "\nwritten to " : "written to\n", outname, outname);
   bigstack_reset(bigstack_mark);
   while (0) {
@@ -3787,7 +3787,7 @@ int32_t distance_open(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile3_p
 }
 
 void distance_print_done(int32_t format_code, char* outname, char* outname_end) {
-  putchar('\r');
+  putc_unlocked('\r', stdout);
   if (!format_code) {
     strcpy(outname_end, g_textbuf);
     sprintf(g_logbuf, "Distances (allele counts) written to %s .\n", outname);
@@ -4581,7 +4581,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  goto distance_d_write_ret_1;
 	}
       }
-      putchar('\r');
+      putc_unlocked('\r', stdout);
       LOGPRINTFWW("Distances (allele counts) written to %s .\n", outname);
       g_pct = 1;
     }
@@ -4619,7 +4619,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  goto distance_d_write_ret_1;
 	}
       }
-      putchar('\r');
+      putc_unlocked('\r', stdout);
       LOGPRINTFWW("Distances (proportions) written to %s .\n", outname);
       g_pct = 1;
     }
@@ -4659,7 +4659,7 @@ int32_t distance_d_write(FILE** outfile_ptr, FILE** outfile2_ptr, FILE** outfile
 	  goto distance_d_write_ret_1;
 	}
       }
-      putchar('\r');
+      putc_unlocked('\r', stdout);
       LOGPRINTFWW("IBS matrix written to %s .\n", outname);
     }
   }
@@ -5348,8 +5348,8 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
         fwrite(wbuf, 1, cptr - wbuf, outfile);
 	uljj += sample_ct - ulii - 2;
       }
-      putc('1', outfile);
-      putc(' ', outfile);
+      putc_unlocked('1', outfile);
+      putc_unlocked(' ', outfile);
       giptr3++;
       for (ujj = sample_idx + 1; ujj < sample_ct; ujj++) {
 	cptr = dtoa_gx(1.0 - ((double)((*giptr) + 2 * giptr[1])) / ((double)(2 * (uii - (*giptr3++) + (*giptr2++)))), ' ', wbuf);
@@ -5368,7 +5368,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
     if (fclose_null(&outfile)) {
       goto calc_genome_ret_WRITE_FAIL;
     }
-    putchar('\r');
+    putc_unlocked('\r', stdout);
     strcpy(outname_end, ".mibs.id");
     retval = write_ids(outname, unfiltered_sample_ct, sample_exclude, sample_ids, max_sample_id_len);
     if (retval) {
@@ -5395,8 +5395,8 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
 	fwrite(wbuf, 1, cptr - wbuf, outfile);
 	uljj += sample_ct - ulii - 2;
       }
-      putc('0', outfile);
-      putc(' ', outfile);
+      putc_unlocked('0', outfile);
+      putc_unlocked(' ', outfile);
       giptr3++;
       for (ujj = sample_idx + 1; ujj < sample_ct; ujj++) {
 	cptr = dtoa_gx(((double)((*giptr) + 2 * giptr[1])) / ((double)(2 * (uii - (*giptr3++) + (*giptr2++)))), ' ', wbuf);
@@ -5415,7 +5415,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
     if (fclose_null(&outfile)) {
       goto calc_genome_ret_WRITE_FAIL;
     }
-    putchar('\r');
+    putc_unlocked('\r', stdout);
     strcpy(outname_end, ".mdist.id");
     retval = write_ids(outname, unfiltered_sample_ct, sample_exclude, sample_ids, max_sample_id_len);
     if (retval) {
@@ -5474,7 +5474,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
       goto calc_genome_ret_1;
     }
   }
-  putchar('\r');
+  putc_unlocked('\r', stdout);
   LOGPRINTFWW("Finished writing %s .\n", outname);
   while (0) {
   calc_genome_ret_NOMEM:
@@ -5751,7 +5751,7 @@ uint32_t rel_cutoff_batch_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
     progress += row;
     if (progress >= pct * hundredth) {
       if (pct > 10) {
-	putchar('\b');
+	putc_unlocked('\b', stdout);
       }
       pct = 1 + (progress / hundredth);
       printf("\b\b%u%%", pct - 1);
@@ -5828,7 +5828,7 @@ uint32_t rel_cutoff_batch_rbin_emitn(uint32_t overflow_ct, unsigned char* readbu
     progress += row;
     if (progress >= pct * hundredth) {
       if (pct > 10) {
-	putchar('\b');
+	putc_unlocked('\b', stdout);
       }
       pct = 1 + (progress / hundredth);
       printf("\b\b%u%%", pct - 1);
@@ -5981,7 +5981,7 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
       }
       if (pct < 100) {
 	if (pct > 10) {
-	  putchar('\b');
+	  putc_unlocked('\b', stdout);
 	}
 	printf("\b\b%u%%", pct);
 	fflush(stdout);
@@ -6037,7 +6037,7 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
       }
       if (pct < 100) {
 	if (pct > 10) {
-	  putchar('\b');
+	  putc_unlocked('\b', stdout);
 	}
 	printf("\b\b%u%%", pct);
 	fflush(stdout);
@@ -6052,7 +6052,7 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
     gzclose(cur_gzfile);
     cur_gzfile = NULL;
   }
-  putchar('\r');
+  putc_unlocked('\r', stdout);
   LOGPRINTFWW("%s read complete.  Pruning.\n", grmname);
 
   // would prefer to just call do_rel_cutoff(), but unfortunately that
@@ -6368,7 +6368,7 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
 	progress += row;
 	if (progress >= pct * hundredth) {
 	  if (pct > 10) {
-	    putchar('\b');
+	    putc_unlocked('\b', stdout);
 	  }
 	  pct = 1 + (progress / hundredth);
 	  printf("\b\b%u%%", pct - 1);
@@ -6377,7 +6377,7 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
 	col = 0;
       }
     }
-    putchar('\r');
+    putc_unlocked('\r', stdout);
     LOGPRINTFWW("Pruned relationship matrix written to %s .\n", outname);
   }
   retval = 0;
@@ -7031,11 +7031,11 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
     fflush(stdout);
   } while (!is_last_block);
   if (rel_req) {
-    putchar('\r');
+    putc_unlocked('\r', stdout);
     logprint("Relationship matrix calculation complete.\n");
     dist_ptr = rel_dists;
   } else {
-    putchar('\n');
+    putc_unlocked('\n', stdout);
   }
   dptr2 = rel_ibc;
   if (calculation_type & CALC_IBC) {
@@ -7364,7 +7364,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
 	}
       }
     }
-    putchar('\r');
+    putc_unlocked('\r', stdout);
     if (!parallel_idx) {
       wptr = strcpya(g_logbuf, "Relationship matrix ");
       if (parallel_tot > 1) {
@@ -7840,7 +7840,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
     goto calc_pca_ret_WRITE_FAIL;
   }
   *outname_end = '\0';
-  putchar('\r');
+  putc_unlocked('\r', stdout);
   if (var_wts) {
     LOGPRINTFWW("--pca: Results saved to %s.eigenval , %s.eigenvec , and %s.eigenvec.var .\n", outname, outname, outname);
   } else {
@@ -7964,7 +7964,7 @@ int32_t calc_ibm(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintpt
     printf("\r%" PRIuPTR " markers complete.", marker_idx);
     fflush(stdout);
   } while (!is_last_block);
-  putchar('\r');
+  putc_unlocked('\r', stdout);
   bigstack_reset(bigstack_mark);
   while (0) {
   calc_ibm_ret_NOMEM:
@@ -8413,7 +8413,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     printf("\r%" PRIuPTR " markers complete.", marker_idx);
     fflush(stdout);
   } while (!is_last_block);
-  putchar('\r');
+  putc_unlocked('\r', stdout);
   logprint("Distance matrix calculation complete.\n");
   bigstack_reset(masks);
   if (calculation_type & (CALC_PLINK1_DISTANCE_MATRIX | CALC_PLINK1_IBS_MATRIX)) {
@@ -8456,7 +8456,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     if (fclose_null(&outfile)) {
       goto calc_distance_ret_WRITE_FAIL;
     }
-    putchar('\r');
+    putc_unlocked('\r', stdout);
     if (!parallel_idx) {
       wptr = strcpya(g_logbuf, "Distances (proportions) written to ");
       wptr = strcpya(wptr, outname);
@@ -8506,7 +8506,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     if (fclose_null(&outfile)) {
       goto calc_distance_ret_WRITE_FAIL;
     }
-    putchar('\r');
+    putc_unlocked('\r', stdout);
     strcpy(outname_end, ".mibs.id");
     retval = write_ids(outname, unfiltered_sample_ct, sample_exclude, sample_ids, max_sample_id_len);
     if (retval) {
@@ -9007,7 +9007,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     if (min_ppc != 0.0) {
       fputs("   PROP_DIFF ", outfile);
     }
-    putc('\n', outfile);
+    putc_unlocked('\n', outfile);
     dxx1 = 1.0 / ((double)((intptr_t)(sample_ct - 1)));
     for (sample_idx1 = 0; sample_idx1 < sample_ct; sample_idx1++) {
       fam_id = &(sample_ids[sample_idx_to_uidx[sample_idx1] * max_sample_id_len]);
@@ -9192,7 +9192,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	if (putc_checked('1', outfile)) {
 	  goto calc_cluster_neighbor_ret_WRITE_FAIL;
 	}
-	putc(' ', outfile);
+	putc_unlocked(' ', outfile);
 	if (!genome_main) {
 	  for (sample_idx2 = sample_idx1 + 1; sample_idx2 < sample_ct; sample_idx2++) {
 	    dxx = 1.0 - ((double)((int32_t)(uii + (*(++sample_missing_ptr)) - 2 * missing_dbl_excluded[((sample_idx2 * (sample_idx2 - 1)) >> 1) + sample_idx1]))) * dxx1;
@@ -9217,7 +9217,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	}
         if ((sample_idx1 + 1) * 100LLU >= sample_ct * ((uint64_t)pct)) {
           if (pct > 10) {
-	    putchar('\b');
+	    putc_unlocked('\b', stdout);
 	  }
 	  pct = ((sample_idx1 + 1) * 100LLU) / sample_ct;
           printf("\b\b%u%%", pct++);
@@ -9229,7 +9229,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       if (fclose_null(&outfile)) {
 	goto calc_cluster_neighbor_ret_WRITE_FAIL;
       }
-      putchar('\r');
+      putc_unlocked('\r', stdout);
       LOGPRINTFWW("IBM matrix written to %s .\n", outname);
       if (ibm_warning) {
 	logerrprint("Warning: Initial cluster assignment violates IBM constraint.\n");
@@ -9877,7 +9877,7 @@ int32_t regress_distance(pthread_t* threads, uint64_t calculation_type, double* 
     dvv += g_calc_result[uii + 1][3];
   }
   regress_iters = g_jackknife_iters * thread_ct;
-  putchar('\r');
+  putc_unlocked('\r', stdout);
   LOGPRINTF("Jackknife s.e.: %g\n", sqrt(((sample_ct - g_jackknife_d) / ((double)g_jackknife_d)) * (dzz - dyy * dyy / regress_iters) / (regress_iters - 1)));
   LOGPRINTF("Jackknife s.e. (y = avg phenotype): %g\n", sqrt(((sample_ct - g_jackknife_d) / ((double)g_jackknife_d)) * (dvv - dww * dww / regress_iters) / (regress_iters - 1)));
   while (0) {

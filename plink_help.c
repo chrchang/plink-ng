@@ -169,7 +169,7 @@ void help_print(const char* cur_params, Help_ctrl* help_ctrl_ptr, uint32_t postp
 	  payload_end = (char*)(&(payload[payload_len]));
 	}
 	if (help_ctrl_ptr->preprint_newline) {
-	  putchar('\n');
+	  putc_unlocked('\n', stdout);
 	}
 	help_ctrl_ptr->preprint_newline = postprint_newline;
 	payload_ptr = (char*)payload;
@@ -2226,24 +2226,24 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
       if (help_ctrl.unmatched_ct) {
 	if (net_unmatched_ct == 2) {
 	  if (help_ctrl.param_lens[arg_uidx] + col_num > 76) {
-	    putchar('\n');
+	    putc_unlocked('\n', stdout);
 	    col_num = 2 + help_ctrl.param_lens[arg_uidx];
 	  } else {
-	    putchar(' ');
+	    putc_unlocked(' ', stdout);
 	    col_num += 3 + help_ctrl.param_lens[arg_uidx];
 	  }
-	  putchar('\'');
+	  putc_unlocked('\'', stdout);
 	  fputs(argv[arg_uidx], stdout);
-	  putchar('\'');
+	  putc_unlocked('\'', stdout);
 	} else {
 	  if (help_ctrl.param_lens[arg_uidx] + col_num > 75) {
-	    putchar('\n');
+	    putc_unlocked('\n', stdout);
 	    col_num = 3 + help_ctrl.param_lens[arg_uidx];
 	  } else {
-	    putchar(' ');
+	    putc_unlocked(' ', stdout);
 	    col_num += 4 + help_ctrl.param_lens[arg_uidx];
 	  }
-	  putchar('\'');
+	  putc_unlocked('\'', stdout);
 	  fputs(argv[arg_uidx], stdout);
           fputs("',", stdout);
 	}
@@ -2257,8 +2257,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	  }
 	}
       } else {
-	putchar((help_ctrl.param_lens[arg_uidx] + col_num > 75)? '\n' : ' ');
-	putchar('\'');
+	putc_unlocked((help_ctrl.param_lens[arg_uidx] + col_num > 75)? '\n' : ' ', stdout);
+	putc_unlocked('\'', stdout);
         fputs(argv[arg_uidx], stdout);
         fputs("\'.\n", stdout);
       }

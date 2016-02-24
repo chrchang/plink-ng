@@ -4301,7 +4301,7 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
     goto glm_linear_assoc_set_test_more_perms;
   }
  glm_linear_assoc_set_test_perms_done:
-  putchar('\r');
+  putc_unlocked('\r', stdout);
   LOGPRINTF("%u permutation%s complete.\n", perms_done, (perms_done != 1)? "s" : "");
  glm_linear_assoc_set_test_write:
   if (glm_modifier & GLM_PERM) {
@@ -5331,7 +5331,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     if ((!perm_pass_idx) && (marker_idx >= loop_end)) {
       if (marker_idx < marker_initial_ct) {
 	if (pct >= 10) {
-	  putchar('\b');
+	  putc_unlocked('\b', stdout);
 	}
         pct = (marker_idx * 100LLU) / marker_initial_ct;
         printf("\b\b%u%%", pct);
@@ -5343,7 +5343,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   // if more permutations, reevaluate marker_unstopped_ct, etc.
   if (!perm_pass_idx) {
     if (pct >= 10) {
-      putchar('\b');
+      putc_unlocked('\b', stdout);
     }
     fputs("\b\b", stdout);
     logprint("done.\n");
@@ -5372,7 +5372,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   if (do_perms_nst) {
     if (mperm_save_all) {
       if (perm_pass_idx) {
-	putchar(' ');
+	putc_unlocked(' ', stdout);
       }
       fputs("[dumping stats]", stdout);
       fflush(stdout);
@@ -5430,7 +5430,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	}
       }
     }
-    putchar('\r');
+    putc_unlocked('\r', stdout);
     LOGPRINTF("%u %s permutation%s complete.\n", g_perms_done, perm_maxt_nst? "max(T)" : "(adaptive)", (g_perms_done != 1)? "s" : "");
 
     if (perm_adapt_nst) {
@@ -5830,7 +5830,7 @@ int32_t glm_logistic_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t
     goto glm_logistic_assoc_set_test_more_perms;
   }
  glm_logistic_assoc_set_test_perms_done:
-  putchar('\r');
+  putc_unlocked('\r', stdout);
   LOGPRINTF("%u permutation%s complete.\n", perms_done, (perms_done != 1)? "s" : "");
  glm_logistic_assoc_set_test_write:
   if (glm_modifier & GLM_PERM) {
@@ -6766,7 +6766,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     if ((!perm_pass_idx) && (marker_idx >= loop_end)) {
       if (marker_idx < marker_initial_ct) {
 	if (pct >= 10) {
-	  putchar('\b');
+	  putc_unlocked('\b', stdout);
 	}
         pct = (marker_idx * 100LLU) / marker_initial_ct;
         printf("\b\b%u%%", pct);
@@ -6778,7 +6778,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   // if more permutations, reevaluate marker_unstopped_ct, etc.
   if (!perm_pass_idx) {
     if (pct >= 10) {
-      putchar('\b');
+      putc_unlocked('\b', stdout);
     }
     fputs("\b\b", stdout);
     logprint("done.\n");
@@ -6807,7 +6807,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   if (do_perms_nst) {
     if (mperm_save_all) {
       if (perm_pass_idx) {
-	putchar(' ');
+	putc_unlocked(' ', stdout);
       }
       fputs("[dumping stats]", stdout);
       fflush(stdout);
@@ -6865,7 +6865,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	}
       }
     }
-    putchar('\r');
+    putc_unlocked('\r', stdout);
     LOGPRINTF("%u %s permutation%s complete.\n", g_perms_done, perm_maxt_nst? "max(T)" : "(adaptive)", (g_perms_done != 1)? "s" : "");
 
     if (perm_adapt_nst) {
@@ -7740,12 +7740,12 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       }
     }
     perms_done += cur_batch_size;
-    putchar('\r');
+    putc_unlocked('\r', stdout);
     LOGPRINTF("%u permutation%s complete.", perms_done, (perms_done != 1)? "s" : "");
     fflush(stdout);
   }
   if (do_perms) {
-    putchar('\n');
+    putc_unlocked('\n', stdout);
     memcpy(outname_end2, ".mperm", 7);
     if (fopen_checked(outname, "w", &outfile)) {
       goto glm_linear_nosnp_ret_OPEN_FAIL;
@@ -8524,12 +8524,12 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       }
     }
     perms_done += cur_batch_size;
-    putchar('\r');
+    putc_unlocked('\r', stdout);
     LOGPRINTF("%u permutation%s complete.", perms_done, (perms_done != 1)? "s" : "");
     fflush(stdout);
   }
   if (do_perms) {
-    putchar('\n');
+    putc_unlocked('\n', stdout);
     memcpy(outname_end2, ".mperm", 7);
     if (fopen_checked(outname, "w", &outfile)) {
       goto glm_logistic_nosnp_ret_OPEN_FAIL;

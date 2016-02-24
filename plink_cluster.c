@@ -2637,11 +2637,11 @@ void write_cluster1(FILE* outfile, uint32_t clidx, char* sample_ids, uintptr_t m
   char* sptr2;
   uint32_t msidx;
  write_cluster1_recurse:
-  putc(' ', outfile);
+  putc_unlocked(' ', outfile);
   sptr = &(sample_ids[sample_idx_to_uidx[clidx] * max_sample_id_len]);
   sptr2 = (char*)memchr(sptr, '\t', max_sample_id_len);
   fwrite(sptr, 1, sptr2 - sptr, outfile);
-  putc('_', outfile);
+  putc_unlocked('_', outfile);
   fputs(&(sptr2[1]), outfile);
   if (pheno_c) {
     if (IS_SET(pheno_c, sample_idx_to_uidx[clidx])) {
@@ -2666,12 +2666,12 @@ void write_cluster1_oitc(FILE* outfile, uint32_t clidx, char* sample_ids, uintpt
   uint32_t uii;
   uint32_t ujj;
  write_cluster1_oitc_recurse:
-  putc(' ', outfile);
+  putc_unlocked(' ', outfile);
   if (clidx >= orig_within_ct) {
     sptr = &(sample_ids[late_clidx_to_sample_uidx[clidx - orig_within_ct] * max_sample_id_len]);
     sptr2 = (char*)memchr(sptr, '\t', max_sample_id_len);
     fwrite(sptr, 1, sptr2 - sptr, outfile);
-    putc('_', outfile);
+    putc_unlocked('_', outfile);
     fputs(&(sptr2[1]), outfile);
     if (pheno_c) {
       if (IS_SET(pheno_c, late_clidx_to_sample_uidx[clidx - orig_within_ct])) {
@@ -2686,7 +2686,7 @@ void write_cluster1_oitc(FILE* outfile, uint32_t clidx, char* sample_ids, uintpt
       sptr = &(sample_ids[orig_cluster_map[uii] * max_sample_id_len]);
       sptr2 = (char*)memchr(sptr, '\t', max_sample_id_len);
       fwrite(sptr, 1, sptr2 - sptr, outfile);
-      putc('_', outfile);
+      putc_unlocked('_', outfile);
       fputs(&(sptr2[1]), outfile);
       if (pheno_c) {
 	if (IS_SET(pheno_c, orig_cluster_map[uii])) {
@@ -2824,9 +2824,9 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
       if (fwrite_checked(sptr, sptr2 - sptr, outfile)) {
 	goto write_cluster_solution_ret_WRITE_FAIL;
       }
-      putc(' ', outfile);
+      putc_unlocked(' ', outfile);
       fputs(&(sptr2[1]), outfile);
-      putc('\t', outfile);
+      putc_unlocked('\t', outfile);
       if (orig_sample_to_cluster) {
         clidx = orig_sample_to_cluster[sample_idx];
       } else {
@@ -2861,23 +2861,23 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
       }
       if ((sample_idx + 1) * 100LLU >= ((uint64_t)pct * sample_ct)) {
 	if (pct > 10) {
-          putchar('\b');
+          putc_unlocked('\b', stdout);
 	}
         pct = (((uint64_t)(sample_idx + 1)) * 100) / sample_ct;
         printf("\b\b%u%%", pct++);
 	fflush(stdout);
       }
     }
-    putc('\n', outfile);
+    putc_unlocked('\n', outfile);
     if (fclose_null(&outfile)) {
       goto write_cluster_solution_ret_WRITE_FAIL;
     }
     *outname_end = '\0';
-    putchar('\r');
+    putc_unlocked('\r', stdout);
     LOGPREPRINTFWW("Cluster solution written to %s.cluster1 , %s.cluster2 , and %s.cluster3%s .\n", outname, outname, outname, (cp->modifier & CLUSTER_MISSING)? ".missing" : "");
   } else {
     *outname_end = '\0';
-    putchar('\r');
+    putc_unlocked('\r', stdout);
     LOGPREPRINTFWW("Cluster solution written to %s.cluster2 .\n", outname);
   }
   logprintb();

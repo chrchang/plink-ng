@@ -71,7 +71,7 @@ void logstr(const char* ss) {
   if (!g_debug_on) {
     fputs(ss, g_logfile);
     if (ferror(g_logfile)) {
-      putchar('\n');
+      putc_unlocked('\n', stdout);
       fflush(stdout);
       fprintf(stderr, "Warning: Logging failure on:\n%s\nFurther logging will not be attempted in this run.\n", ss);
       g_log_failed = 1;
@@ -83,7 +83,7 @@ void logstr(const char* ss) {
     } else {
       fputs(ss, g_logfile);
       if (ferror(g_logfile)) {
-	putchar('\n');
+	putc_unlocked('\n', stdout);
 	fflush(stdout);
         fprintf(stderr, "Error: Debug logging failure.  Dumping to stderr:\n%s", ss);
 	g_log_failed = 1;

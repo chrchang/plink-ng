@@ -388,13 +388,13 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
       if (fwrite_checked(inbuf_start, inbuf_end - inbuf_start, outfile)) {
 	goto rserve_call_ret_WRITE_FAIL;
       }
-      putc('\n', outfile);
+      putc_unlocked('\n', outfile);
     }
     marker_idx_base += block_size;
     if (marker_idx_base >= loop_end) {
       if (marker_idx_base < marker_ct) {
 	if (pct >= 10) {
-	  putchar('\b');
+	  putc_unlocked('\b', stdout);
 	}
 	pct = (marker_idx_base * 100LLU) / marker_ct;
 	printf("\b\b%u%%", pct);
@@ -405,7 +405,7 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
   }
 
   if (pct >= 10) {
-    putchar('\b');
+    putc_unlocked('\b', stdout);
   }
   fputs("\b\b", stdout);
   logprint("done.\n");

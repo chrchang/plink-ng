@@ -119,7 +119,7 @@ int32_t write_nosex(char* outname, char* outname_end, uintptr_t unfiltered_sampl
   for (sample_idx = 0; sample_idx < gender_unk_ct; sample_idx++, sample_uidx++) {
     next_set_ul_unsafe_ck(sex_missing, &sample_uidx);
     fputs(&(sample_ids[sample_uidx * max_sample_id_len]), outfile);
-    putc('\n', outfile);
+    putc_unlocked('\n', outfile);
   }
   if (fclose_null(&outfile)) {
     goto write_nosex_ret_WRITE_FAIL;
@@ -1138,9 +1138,9 @@ int32_t update_marker_alleles(char* update_alleles_fname, uint32_t* marker_id_ht
       }
       *token_endnn(bufptr3) = '\0';
       fputs(bufptr3, errfile);
-      putc('\t', errfile);
+      putc_unlocked('\t', errfile);
       fputs(bufptr2, errfile);
-      putc('\t', errfile);
+      putc_unlocked('\t', errfile);
       fputs(bufptr, errfile);
       if (putc_checked('\n', errfile)) {
 	goto update_marker_alleles_ret_WRITE_FAIL;
@@ -3359,13 +3359,13 @@ int32_t write_var_ranges(char* outname, char* outname_end, uintptr_t unfiltered_
   for (block_idx = 1; block_idx <= write_var_range_ct; block_idx++) {
     next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx);
     fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
-    putc('\t', outfile);
+    putc_unlocked('\t', outfile);
     new_marker_idx = (block_idx * ((uint64_t)marker_ct)) / write_var_range_ct;
     if (new_marker_idx > marker_idx + 1) {
       marker_uidx = jump_forward_unset_unsafe(marker_exclude, marker_uidx + 1, new_marker_idx - marker_idx - 1);
     }
     fputs(&(marker_ids[marker_uidx * max_marker_id_len]), outfile);
-    putc('\n', outfile);
+    putc_unlocked('\n', outfile);
     marker_uidx++;
     marker_idx = new_marker_idx;
   }
@@ -3570,26 +3570,26 @@ int32_t list_duplicate_vars(char* outname, char* outname_end, uint32_t dupvar_mo
 		// use ASCII order
 		if (strcmp(a1ptr, a2ptr) < 0) {
 		  fputs(a1ptr, outfile);
-		  putc(',', outfile);
+		  putc_unlocked(',', outfile);
 		  fputs(a2ptr, outfile);
 		} else {
 		  fputs(a2ptr, outfile);
-		  putc(',', outfile);
+		  putc_unlocked(',', outfile);
 		  fputs(a1ptr, outfile);
 		}
 	      } else {
 		fputs(a2ptr, outfile);
-		putc('\t', outfile);
+		putc_unlocked('\t', outfile);
 		fputs(a1ptr, outfile);
 	      }
-	      putc('\t', outfile);
+	      putc_unlocked('\t', outfile);
 	      while (1) {
 		fputs(&(marker_ids[ujj * max_marker_id_len]), outfile);
 		read_uiptr++;
 		if (uii & 0x80000000U) {
 		  break;
 		}
-		putc(' ', outfile);
+		putc_unlocked(' ', outfile);
 		uii = *read_uiptr;
 		ujj = uii & 0x7fffffff;
 	      }
@@ -3644,7 +3644,7 @@ int32_t list_duplicate_vars(char* outname, char* outname_end, uint32_t dupvar_mo
 	  goto list_duplicate_vars_ret_WRITE_FAIL;
 	}
       } else {
-	putc(' ', outfile);
+	putc_unlocked(' ', outfile);
       }
     } while (read_uiptr != group_write);
   }
@@ -4122,7 +4122,7 @@ int32_t fst_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
     if (marker_idx >= loop_end) {
       if (marker_idx < marker_ct) {
 	if (pct >= 10) {
-	  putchar('\b');
+	  putc_unlocked('\b', stdout);
 	}
         pct = (marker_idx * 100LLU) / marker_ct;
         printf("\b\b%u%%", pct);
@@ -4135,7 +4135,7 @@ int32_t fst_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
     goto fst_report_ret_WRITE_FAIL;
   }
   if (pct >= 10) {
-    putchar('\b');
+    putc_unlocked('\b', stdout);
   }
   fputs("\b\b", stdout);
   logprint("done.\n");
@@ -4357,7 +4357,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
 	  if (fwrite_checked(bufptr_arr[varid_idx], strlen_se(bufptr_arr[varid_idx]), outfile)) {
 	    goto score_report_ret_WRITE_FAIL;
 	  }
-	  putc('\n', outfile);
+	  putc_unlocked('\n', outfile);
           miss_ct++;
 	} else {
 	  if (!IS_SET(marker_exclude, marker_uidx)) {
@@ -4380,13 +4380,13 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
 	if (fwrite_checked(bufptr_arr[varid_idx], strlen_se(bufptr_arr[varid_idx]), outfile)) {
 	  goto score_report_ret_WRITE_FAIL;
 	}
-	putc(' ', outfile);
+	putc_unlocked(' ', outfile);
 	fputs(bufptr_arr[allele_idx], outfile);
 	fputs(" vs ", outfile);
 	fputs(marker_allele_ptrs[2 * marker_uidx], outfile);
-	putc(' ', outfile);
+	putc_unlocked(' ', outfile);
 	fputs(marker_allele_ptrs[2 * marker_uidx + 1], outfile);
-	putc('\n', outfile);
+	putc_unlocked('\n', outfile);
 	miss_ct++;
 	miss_allele_ct++;
       }
@@ -4400,7 +4400,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
       if (fwrite_checked(bufptr_arr[varid_idx], strlen_se(bufptr_arr[varid_idx]), outfile)) {
 	goto score_report_ret_WRITE_FAIL;
       }
-      putc('\n', outfile);
+      putc_unlocked('\n', outfile);
       miss_ct++;
       miss_varid_ct++;
     }
@@ -5840,7 +5840,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	}
       }
     }
-    putc('\n', outfile);
+    putc_unlocked('\n', outfile);
 
     cur_data_index = (uintptr_t*)g_bigstack_base;
     if (use_map) {
@@ -6151,12 +6151,12 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	    bufptr = (char*)(&(cur_data_ptr[file_ct64]));
 	  }
 	  slen = strlen(bufptr);
-	  putc(' ', outfile);
+	  putc_unlocked(' ', outfile);
 	  if (slen == 1) {
-	    putc(' ', outfile);
-	    putc(' ', outfile);
+	    putc_unlocked(' ', outfile);
+	    putc_unlocked(' ', outfile);
 	  } else if (slen == 2) {
-	    putc(' ', outfile);
+	    putc_unlocked(' ', outfile);
 	  }
 	  bufptr2 = &(bufptr[slen]);
 	  if (fwrite_checked(bufptr, bufptr2 - bufptr, outfile)) {
@@ -6168,13 +6168,13 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	    // instead, we want a leading space, then fputs_w3.
 	    if (!bufptr2[1]) {
 	      fputs("   ", outfile);
-	      putc(bufptr2[0], outfile);
+	      putc_unlocked(bufptr2[0], outfile);
 	    } else if (!bufptr2[2]) {
 	      fputs("  ", outfile);
-	      putc(bufptr2[0], outfile);
-	      putc(bufptr2[1], outfile);
+	      putc_unlocked(bufptr2[0], outfile);
+	      putc_unlocked(bufptr2[1], outfile);
 	    } else {
-	      putc(' ', outfile);
+	      putc_unlocked(' ', outfile);
 	      fputs(bufptr2, outfile);
 	    }
 	  } else {
@@ -6295,7 +6295,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	    }
 	  }
 	}
-	putc('\n', outfile);
+	putc_unlocked('\n', outfile);
       }
       if (last_var_idx == final_variant_ct) {
 	break;
@@ -6305,7 +6305,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
       fflush(stdout);
     }
     if (pass_idx) {
-      putchar('\r');
+      putc_unlocked('\r', stdout);
     }
     LOGPRINTFWW("--meta-analysis: %" PRIuPTR " variant%s processed; results written to %s .\n", final_variant_ct, (final_variant_ct == 1)? "" : "s", outname);
   }

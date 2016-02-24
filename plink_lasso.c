@@ -195,7 +195,7 @@ int32_t lasso_bigmem(FILE* bedfile, uintptr_t bed_offset, uintptr_t* marker_excl
   }
   *polymorphic_marker_ct_ptr = polymorphic_marker_ct;
   if (!polymorphic_marker_ct) {
-    putchar('\n');
+    putc_unlocked('\n', stdout);
     logerrprint("Warning: Skipping --lasso since no polymorphic loci are present.\n");
     return 0;
   }
@@ -1022,7 +1022,7 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
   if (fclose_null(&outfile)) {
     goto lasso_ret_WRITE_FAIL;
   }
-  putchar('\r');
+  putc_unlocked('\r', stdout);
   LOGPRINTFWW("--lasso report written to %s. Total iterations: %" PRIu64 ".\n", outname, iter_tot);
 
   while (0) {
