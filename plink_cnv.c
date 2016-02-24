@@ -128,7 +128,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
       *first_token_end = '\0';
       int32_t cur_chrom_code = get_chrom_code_nt(textbuf_first_token, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
-	retval = resolve_or_add_chrom_name(textbuf_first_token, cift_str, line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
+	retval = try_to_add_chrom_name(textbuf_first_token, cift_str, line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	if (retval) {
 	  goto cnv_intersect_load_ret_1;
 	}
@@ -520,7 +520,7 @@ int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, u
       *col3_end = '\0';
       int32_t cur_chrom_code = get_chrom_code_nt(col3_ptr, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
-	retval = resolve_or_add_chrom_name(col3_ptr, ".cnv file", line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
+	retval = try_to_add_chrom_name(col3_ptr, ".cnv file", line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	if (retval) {
 	  goto cnv_make_map_ret_1;
 	}
@@ -755,7 +755,7 @@ int32_t validate_cnv_map(FILE** mapfile_ptr, char* mapname, int32_t* marker_pos_
       *first_token_end = '\0';
       int32_t cur_chrom_code = get_chrom_code_nt(textbuf_first_token, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
-	retval = resolve_or_add_chrom_name(textbuf_first_token, ".cnv.map file", line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
+	retval = try_to_add_chrom_name(textbuf_first_token, ".cnv.map file", line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	if (retval) {
 	  goto validate_cnv_map_ret_1;
 	}

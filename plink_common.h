@@ -2144,6 +2144,7 @@ uint32_t haploid_chrom_present(const Chrom_info* chrom_info_ptr);
 int32_t get_chrom_code_raw(const char* sptr);
 
 // now requires null-termination
+// now returns -1 when --allow-extra-chr may be ok, and -2 on total fail
 int32_t get_chrom_code_nt(const char* chrom_name, const Chrom_info* chrom_info_ptr, uint32_t name_slen);
 
 // when the chromosome name isn't null-terminated, but we want to preserve the
@@ -2173,7 +2174,7 @@ HEADER_INLINE uint32_t get_chrom_end_vidx(const Chrom_info* chrom_info_ptr, uint
 }
 
 // now assumes cur_chrom_name is null-terminated
-int32_t resolve_or_add_chrom_name(const char* cur_chrom_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, uint32_t allow_extra_chroms, int32_t* chrom_idx_ptr, Chrom_info* chrom_info_ptr);
+int32_t try_to_add_chrom_name(const char* cur_chrom_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, uint32_t allow_extra_chroms, int32_t* chrom_idx_ptr, Chrom_info* chrom_info_ptr);
 
 // newval does not need to be null-terminated
 // assumes *allele_ptr is not initialized

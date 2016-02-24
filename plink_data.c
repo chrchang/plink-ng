@@ -286,7 +286,7 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
       *textbuf_iter = '\0';
       int32_t cur_chrom_code = get_chrom_code_nt(textbuf_first_token, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
-	retval = resolve_or_add_chrom_name(textbuf_first_token, ".map file", line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
+	retval = try_to_add_chrom_name(textbuf_first_token, ".map file", line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	if (retval) {
 	  goto load_map_ret_1;
 	}
@@ -701,7 +701,7 @@ int32_t load_bim(char* bimname, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* 
       *first_token_end = '\0';
       int32_t cur_chrom_code = get_chrom_code_nt(loadbuf_first_token, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
-	retval = resolve_or_add_chrom_name(loadbuf_first_token, ftype_str, line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
+	retval = try_to_add_chrom_name(loadbuf_first_token, ftype_str, line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	if (retval) {
 	  goto load_bim_ret_1;
 	}
@@ -2754,7 +2754,7 @@ int32_t update_marker_chroms(Two_col_params* update_chr, uintptr_t unfiltered_ma
       *colx_end = '\0';
       int32_t cur_chrom_code = get_chrom_code_nt(colx_ptr, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
-	retval = resolve_or_add_chrom_name(colx_ptr, "--update-chr file", line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
+	retval = try_to_add_chrom_name(colx_ptr, "--update-chr file", line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	if (retval) {
 	  goto update_marker_chroms_ret_1;
 	}
@@ -4525,7 +4525,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
           *first_token_end = '\0';
 	  int32_t cur_chrom_code = get_chrom_code_nt(loadbuf_first_token, chrom_info_ptr, chrom_name_slen);
 	  if (cur_chrom_code < 0) {
-	    retval = resolve_or_add_chrom_name(loadbuf_first_token, ".gen file", line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
+	    retval = try_to_add_chrom_name(loadbuf_first_token, ".gen file", line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	    if (retval) {
 	      if ((chrom_name_slen == 3) && (!memcmp(loadbuf_first_token, "---", 3))) {
 		logerrprint("(Did you forget --oxford-single-chr?)\n");
@@ -4877,7 +4877,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	  // length usii
 	  int32_t cur_chrom_code = get_chrom_code_nt(bufptr2, chrom_info_ptr, usii);
 	  if (cur_chrom_code < 0) {
-	    retval = resolve_or_add_chrom_name(bufptr2, ".bgen file", 0, usii, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
+	    retval = try_to_add_chrom_name(bufptr2, ".bgen file", 0, usii, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	    if (retval) {
 	      goto oxford_to_bed_ret_1;
 	    }
@@ -4992,7 +4992,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	    bufptr[ujj] = '\0';
 	    cur_chrom_code = get_chrom_code_nt(bufptr, chrom_info_ptr, ujj);
 	    if (cur_chrom_code < 0) {
-	      retval = resolve_or_add_chrom_name(bufptr, ".bgen file", 0, ujj, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
+	      retval = try_to_add_chrom_name(bufptr, ".bgen file", 0, ujj, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	      if (retval) {
 		goto oxford_to_bed_ret_1;
 	      }
@@ -6020,7 +6020,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       int32_t cur_chrom_code = get_chrom_code_nt(col1_ptr, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
 	// guess it's best to extend .map format too
-	retval = resolve_or_add_chrom_name(col1_ptr, ".map file", line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
+	retval = try_to_add_chrom_name(col1_ptr, ".map file", line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	if (retval) {
 	  goto ped_to_bed_ret_1;
 	}
@@ -7414,7 +7414,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       *first_token_end = '\0';
       int32_t cur_chrom_code = get_chrom_code_nt(textbuf_first_token, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
-	retval = resolve_or_add_chrom_name(textbuf_first_token, ".tped file", line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
+	retval = try_to_add_chrom_name(textbuf_first_token, ".tped file", line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	if (retval) {
 	  goto transposed_to_bed_ret_1;
 	}
@@ -8314,7 +8314,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
       *bufptr2 = '\0';
       int32_t cur_chrom_code = get_chrom_code_nt(bufptr, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
-	retval = resolve_or_add_chrom_name(bufptr, ".vcf file", line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
+	retval = try_to_add_chrom_name(bufptr, ".vcf file", line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	if (retval) {
 	  goto vcf_to_bed_ret_1;
 	}
@@ -9366,7 +9366,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       const uint32_t chrom_name_slen = strlen(contig_list->ss);
       int32_t cur_chrom_code = get_chrom_code_nt(contig_list->ss, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
-	retval = resolve_or_add_chrom_name(contig_list->ss, ".bcf file", 0, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
+	retval = try_to_add_chrom_name(contig_list->ss, ".bcf file", 0, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	if (retval) {
 	  goto bcf_to_bed_ret_1;
 	}
@@ -14765,7 +14765,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uint32_t allow_no_vari
       *chrom_token_end = '\0';
       int32_t cur_chrom_code = get_chrom_code_nt(bufptr, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
-	retval = resolve_or_add_chrom_name(bufptr, bimname, line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
+	retval = try_to_add_chrom_name(bufptr, bimname, line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	if (retval) {
 	  goto merge_bim_scan_ret_1;
 	}

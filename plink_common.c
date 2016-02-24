@@ -4205,7 +4205,9 @@ int32_t init_chrom_info(Chrom_info* chrom_info_ptr) {
   alloc_iter = &(alloc_iter[MAX_POSSIBLE_CHROM]);
   chrom_info_ptr->nonstd_id_htable = (uint32_t*)alloc_iter;
   // alloc_iter = &(alloc_iter[((CHROM_NAME_HTABLE_SIZE + (VEC_INT32 - 1)) / VEC_INT32) * VEC_WORDS]);
-  fill_uint_one(CHROM_NAME_HTABLE_SIZE, chrom_info_ptr->nonstd_id_htable);
+  // postpone nonstd_id_htable initialization until first nonstandard ID is
+  // loaded
+  // fill_uint_one(CHROM_NAME_HTABLE_SIZE, chrom_info_ptr->nonstd_id_htable);
   return 0;
 }
 
@@ -4566,24 +4568,22 @@ int32_t get_chrom_code_nt(const char* chrom_name, const Chrom_info* chrom_info_p
   // in practice, name_slen will usually already be known, may as well avoid
   // redundant strlen() calls even though this uglifies the interface
   // does not perform exhaustive error-checking
-  // -1 = total fail, -2 = --allow-extra-chr ok
-  int32_t chrom_code_raw = get_chrom_code_raw(chrom_name);
-  if (chrom_code_raw >= MAX_POSSIBLE_CHROM) {
-    chrom_code_raw = chrom_info_ptr->xymt_codes[chrom_code_raw - MAX_POSSIBLE_CHROM];
-  } else {
-    const uint32_t max_code_p1 = chrom_info_ptr->max_code + 1;
-    const uint32_t* nonstd_id_htable = chrom_info_ptr->nonstd_id_htable;
-    if (nonstd_id_htable && (chrom_code_raw == -1)) {
-      const uint32_t nonstd_chrom_idx = nonstd_chrom_name_htable_find(chrom_name, (const char* const*)chrom_info_ptr->nonstd_names, nonstd_id_htable, name_slen);
-      if (nonstd_chrom_idx == 0xffffffffU) {
-        return -2;
-      }
-      return nonstd_chrom_idx;
-    } else if (((uint32_t)chrom_code_raw) >= max_code_p1) {
-      return -1;
-    }
+  // -1 = --allow-extra-chr ok, -2 = total fail
+  const int32_t chrom_code_raw = get_chrom_code_raw(chrom_name);
+  if (((const uint32_t)chrom_code_raw) <= chrom_info_ptr->max_code) {
+    return chrom_code_raw;
   }
-  return chrom_code_raw;
+  if (chrom_code_raw != -1) {
+    if (chrom_code_raw >= MAX_POSSIBLE_CHROM) {
+      return chrom_info_ptr->xymt_codes[chrom_code_raw - MAX_POSSIBLE_CHROM];
+    }
+    return -2;
+  }
+  if (!chrom_info_ptr->name_ct) {
+    return -1;
+  }
+  // 0xffffffffU gets casted to -1
+  return (int32_t)nonstd_chrom_name_htable_find(chrom_name, (const char* const*)chrom_info_ptr->nonstd_names, chrom_info_ptr->nonstd_id_htable, name_slen);
 }
 
 int32_t get_chrom_code_counted(const Chrom_info* chrom_info_ptr, uint32_t name_slen, char* chrom_name) {
@@ -4630,26 +4630,25 @@ void chrom_error(const char* cur_chrom_name, const char* file_descrip, const Chr
     } else {
       logerrprint("(This is disallowed by your --chr-set/--autosome-num parameters.  Check if the\nproblem is with your data, or your command line.)\n");
     }
-  } else if (error_code == -2) {
+  } else if (error_code == -1) {
     logerrprint("(Use --allow-extra-chr to force it to be accepted.)\n");
   }
 }
 
-int32_t resolve_or_add_chrom_name(const char* cur_chrom_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, uint32_t allow_extra_chroms, int32_t* chrom_idx_ptr, Chrom_info* chrom_info_ptr) {
+int32_t try_to_add_chrom_name(const char* cur_chrom_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, uint32_t allow_extra_chroms, int32_t* chrom_idx_ptr, Chrom_info* chrom_info_ptr) {
   // assumes cur_chrom_name is nonstandard (i.e. not "2", "chr2", "chrX", etc.)
   // requires cur_chrom_name to be null-terminated
   // assumes chrom_idx currently has the return value of get_chrom_code_nt()
-  if ((!allow_extra_chroms) || ((*chrom_idx_ptr) != -2)) {
+  if ((!allow_extra_chroms) || ((*chrom_idx_ptr) == -2)) {
     chrom_error(cur_chrom_name, file_descrip, chrom_info_ptr, line_idx, *chrom_idx_ptr);
     return RET_MALFORMED_INPUT;
   }
-  char** nonstd_names = chrom_info_ptr->nonstd_names;
-  const uint32_t chrom_idx = nonstd_chrom_name_htable_find(cur_chrom_name, (const char* const*)nonstd_names, chrom_info_ptr->nonstd_id_htable, name_slen);
-  if (chrom_idx != 0xffffffffU) {
-    *chrom_idx_ptr = (int32_t)chrom_idx;
-    return 0;
-  }
+
+  // quasi-bugfix: remove redundant hash table check
+  
   if (cur_chrom_name[0] == '#') {
+    // redundant with some of the comment-skipping loaders, but this isn't
+    // performance-critical
     logprint("\n");
     logerrprint("Error: Chromosome/contig names may not begin with '#'.\n");
     return RET_MALFORMED_INPUT;
@@ -4671,6 +4670,11 @@ int32_t resolve_or_add_chrom_name(const char* cur_chrom_name, const char* file_d
     logerrprint("Error: Too many distinct nonstandard chromosome/contig names.\n");
     return RET_MALFORMED_INPUT;
   }
+  if (!name_ct) {
+    // lazy initialization
+    fill_uint_one(CHROM_NAME_HTABLE_SIZE, chrom_info_ptr->nonstd_id_htable);
+  }
+  char** nonstd_names = chrom_info_ptr->nonstd_names;
   nonstd_names[chrom_code_end] = (char*)malloc(name_slen + 1);
   if (!nonstd_names[chrom_code_end]) {
     return RET_NOMEM;
