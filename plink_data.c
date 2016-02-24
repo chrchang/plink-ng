@@ -286,10 +286,7 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
       *textbuf_iter = '\0';
       int32_t cur_chrom_code = get_chrom_code_nt(textbuf_first_token, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
-	if (chrom_error(textbuf_first_token, ".map file", chrom_info_ptr, line_idx, cur_chrom_code, allow_extra_chroms)) {
-	  goto load_map_ret_INVALID_FORMAT;
-	}
-	retval = resolve_or_add_chrom_name(textbuf_first_token, ".map file", line_idx, chrom_name_slen, chrom_info_ptr, &cur_chrom_code);
+	retval = resolve_or_add_chrom_name(textbuf_first_token, ".map file", line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	if (retval) {
 	  goto load_map_ret_1;
 	}
@@ -704,10 +701,7 @@ int32_t load_bim(char* bimname, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* 
       *first_token_end = '\0';
       int32_t cur_chrom_code = get_chrom_code_nt(loadbuf_first_token, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
-	if (chrom_error(loadbuf_first_token, ftype_str, chrom_info_ptr, line_idx, cur_chrom_code, allow_extra_chroms)) {
-	  goto load_bim_ret_INVALID_FORMAT;
-	}
-	retval = resolve_or_add_chrom_name(loadbuf_first_token, ftype_str, line_idx, chrom_name_slen, chrom_info_ptr, &cur_chrom_code);
+	retval = resolve_or_add_chrom_name(loadbuf_first_token, ftype_str, line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	if (retval) {
 	  goto load_bim_ret_1;
 	}
@@ -2760,10 +2754,7 @@ int32_t update_marker_chroms(Two_col_params* update_chr, uintptr_t unfiltered_ma
       *colx_end = '\0';
       int32_t cur_chrom_code = get_chrom_code_nt(colx_ptr, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
-	if (chrom_error(colx_ptr, "--update-chr file", chrom_info_ptr, line_idx, cur_chrom_code, allow_extra_chroms)) {
-	  goto update_marker_chroms_ret_INVALID_FORMAT;
-	}
-	retval = resolve_or_add_chrom_name(colx_ptr, "--update-chr file", line_idx, chrom_name_slen, chrom_info_ptr, &cur_chrom_code);
+	retval = resolve_or_add_chrom_name(colx_ptr, "--update-chr file", line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	if (retval) {
 	  goto update_marker_chroms_ret_1;
 	}
@@ -2792,7 +2783,6 @@ int32_t update_marker_chroms(Two_col_params* update_chr, uintptr_t unfiltered_ma
     sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --update-chr file has fewer tokens than expected.\n", line_idx);
   update_marker_chroms_ret_INVALID_FORMAT_2:
     logerrprintb();
-  update_marker_chroms_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
   }
@@ -4280,7 +4270,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     }
     bufptr = skip_initial_spaces(&(bufptr[4]));
     slen = strlen_se(bufptr);
-    if ((slen != 7) || (!match_upper_nt(bufptr, "MISSING", 7))) {
+    if ((slen != 7) || (!match_upper_counted(bufptr, "MISSING", 7))) {
       goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1; 
     }
     bufptr = skip_initial_spaces(&(bufptr[7]));
@@ -4535,14 +4525,11 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
           *first_token_end = '\0';
 	  int32_t cur_chrom_code = get_chrom_code_nt(loadbuf_first_token, chrom_info_ptr, chrom_name_slen);
 	  if (cur_chrom_code < 0) {
-	    if (chrom_error(loadbuf_first_token, ".gen file", chrom_info_ptr, line_idx, cur_chrom_code, allow_extra_chroms)) {
-	      if (!memcmp(loadbuf_first_token, "---", 3)) {
-		logprint("(Did you forget --oxford-single-chr?)\n");
-	      }
-	      goto oxford_to_bed_ret_INVALID_FORMAT;
-	    }
-	    retval = resolve_or_add_chrom_name(loadbuf_first_token, ".gen file", line_idx, chrom_name_slen, chrom_info_ptr, &cur_chrom_code);
+	    retval = resolve_or_add_chrom_name(loadbuf_first_token, ".gen file", line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	    if (retval) {
+	      if ((chrom_name_slen == 3) && (!memcmp(loadbuf_first_token, "---", 3))) {
+		logerrprint("(Did you forget --oxford-single-chr?)\n");
+	      }
 	      goto oxford_to_bed_ret_1;
 	    }
 	  }
@@ -4890,10 +4877,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	  // length usii
 	  int32_t cur_chrom_code = get_chrom_code_nt(bufptr2, chrom_info_ptr, usii);
 	  if (cur_chrom_code < 0) {
-	    if (chrom_error(bufptr2, ".bgen file", chrom_info_ptr, 0, cur_chrom_code, allow_extra_chroms)) {
-	      goto oxford_to_bed_ret_INVALID_FORMAT;
-	    }
-	    retval = resolve_or_add_chrom_name(bufptr2, ".bgen file", 0, usii, chrom_info_ptr, &cur_chrom_code);
+	    retval = resolve_or_add_chrom_name(bufptr2, ".bgen file", 0, usii, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	    if (retval) {
 	      goto oxford_to_bed_ret_1;
 	    }
@@ -5008,10 +4992,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	    bufptr[ujj] = '\0';
 	    cur_chrom_code = get_chrom_code_nt(bufptr, chrom_info_ptr, ujj);
 	    if (cur_chrom_code < 0) {
-	      if (chrom_error(bufptr, ".bgen file", chrom_info_ptr, 0, cur_chrom_code, allow_extra_chroms)) {
-		goto oxford_to_bed_ret_INVALID_FORMAT;
-	      }
-	      retval = resolve_or_add_chrom_name(bufptr, ".bgen file", 0, ujj, chrom_info_ptr, &cur_chrom_code);
+	      retval = resolve_or_add_chrom_name(bufptr, ".bgen file", 0, ujj, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	      if (retval) {
 		goto oxford_to_bed_ret_1;
 	      }
@@ -6039,10 +6020,7 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
       int32_t cur_chrom_code = get_chrom_code_nt(col1_ptr, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
 	// guess it's best to extend .map format too
-	if (chrom_error(col1_ptr, ".map file", chrom_info_ptr, line_idx, cur_chrom_code, allow_extra_chroms)) {
-	  goto ped_to_bed_ret_INVALID_FORMAT;
-	}
-	retval = resolve_or_add_chrom_name(col1_ptr, ".map file", line_idx, chrom_name_slen, chrom_info_ptr, &cur_chrom_code);
+	retval = resolve_or_add_chrom_name(col1_ptr, ".map file", line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	if (retval) {
 	  goto ped_to_bed_ret_1;
 	}
@@ -7436,10 +7414,7 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
       *first_token_end = '\0';
       int32_t cur_chrom_code = get_chrom_code_nt(textbuf_first_token, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
-	if (chrom_error(textbuf_first_token, ".tped file", chrom_info_ptr, line_idx, cur_chrom_code, allow_extra_chroms)) {
-	  goto transposed_to_bed_ret_INVALID_FORMAT;
-	}
-	retval = resolve_or_add_chrom_name(textbuf_first_token, ".tped file", line_idx, chrom_name_slen, chrom_info_ptr, &cur_chrom_code);
+	retval = resolve_or_add_chrom_name(textbuf_first_token, ".tped file", line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	if (retval) {
 	  goto transposed_to_bed_ret_1;
 	}
@@ -8339,10 +8314,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
       *bufptr2 = '\0';
       int32_t cur_chrom_code = get_chrom_code_nt(bufptr, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
-	if (chrom_error(bufptr, ".vcf file", chrom_info_ptr, line_idx, cur_chrom_code, allow_extra_chroms)) {
-	  goto vcf_to_bed_ret_INVALID_FORMAT;
-	}
-	retval = resolve_or_add_chrom_name(bufptr, ".vcf file", line_idx, chrom_name_slen, chrom_info_ptr, &cur_chrom_code);
+	retval = resolve_or_add_chrom_name(bufptr, ".vcf file", line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	if (retval) {
 	  goto vcf_to_bed_ret_1;
 	}
@@ -9394,10 +9366,7 @@ int32_t bcf_to_bed(char* bcfname, char* outname, char* outname_end, int32_t miss
       const uint32_t chrom_name_slen = strlen(contig_list->ss);
       int32_t cur_chrom_code = get_chrom_code_nt(contig_list->ss, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
-	if (chrom_error(contig_list->ss, ".bcf file", chrom_info_ptr, 0, cur_chrom_code, allow_extra_chroms)) {
-	  goto bcf_to_bed_ret_INVALID_FORMAT;
-	}
-	retval = resolve_or_add_chrom_name(contig_list->ss, ".bcf file", 0, chrom_name_slen, chrom_info_ptr, &cur_chrom_code);
+	retval = resolve_or_add_chrom_name(contig_list->ss, ".bcf file", 0, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	if (retval) {
 	  goto bcf_to_bed_ret_1;
 	}
@@ -10082,8 +10051,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
       chrom_start = token_endnn(id_start);
       id_len = (uintptr_t)(chrom_start - id_start);
       chrom_start = skip_initial_spaces(chrom_start);
-      const uint32_t chrom_name_slen = strlen_se(chrom_start);
-      pos_start = next_token(&(chrom_start[chrom_name_slen]));
+      pos_start = next_token(chrom_start);
       allele_start = next_token(pos_start);
       if (no_more_tokens_kns(allele_start)) {
 	goto bed_from_23_ret_MISSING_TOKENS;
@@ -10093,8 +10061,7 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
 	LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s has more allele calls than expected.\n", line_idx, infile_name);
 	goto bed_from_23_ret_INVALID_FORMAT_2;
       }
-      chrom_start[chrom_name_slen] = '\0';
-      int32_t cur_chrom_code = get_chrom_code_nt(chrom_start, chrom_info_ptr, chrom_name_slen);
+      int32_t cur_chrom_code = get_chrom_code_raw(chrom_start);
       if (cur_chrom_code < 0) {
 	sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, infile_name);
 	goto bed_from_23_ret_INVALID_FORMAT_2;
@@ -11098,7 +11065,7 @@ int32_t simulate_dataset(char* outname, char* outname_end, uint32_t flags, char*
 	sprintf(g_logbuf, "Error: Invalid heterozygote disease odds ratio on line %" PRIuPTR " of\n--simulate file.\n", line_idx);
 	goto simulate_ret_INVALID_FORMAT_2N;
       }
-      if ((strlen_se(last_ptr) == 4) && match_upper_nt(last_ptr, "MULT", 4)) {
+      if ((strlen_se(last_ptr) == 4) && match_upper_counted(last_ptr, "MULT", 4)) {
 	hom0_odds = het_odds * het_odds;
       } else if (scan_double(last_ptr, &hom0_odds) || (hom0_odds < 0)) {
 	sprintf(g_logbuf, "Error: Invalid homozygote disease odds ratio on line %" PRIuPTR " of --simulate\nfile.\n", line_idx);
@@ -14798,10 +14765,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uint32_t allow_no_vari
       *chrom_token_end = '\0';
       int32_t cur_chrom_code = get_chrom_code_nt(bufptr, chrom_info_ptr, chrom_name_slen);
       if (cur_chrom_code < 0) {
-	if (chrom_error(bufptr, bimname, chrom_info_ptr, line_idx, cur_chrom_code, allow_extra_chroms)) {
-	  goto merge_bim_scan_ret_INVALID_FORMAT;
-	}
-	retval = resolve_or_add_chrom_name(bufptr, bimname, line_idx, chrom_name_slen, chrom_info_ptr, &cur_chrom_code);
+	retval = resolve_or_add_chrom_name(bufptr, bimname, line_idx, chrom_name_slen, allow_extra_chroms, &cur_chrom_code, chrom_info_ptr);
 	if (retval) {
 	  goto merge_bim_scan_ret_1;
 	}
@@ -15007,7 +14971,6 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uint32_t allow_no_vari
     LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, bimname);
   merge_bim_scan_ret_INVALID_FORMAT_2:
     logerrprintb();
-  merge_bim_scan_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
   }
  merge_bim_scan_ret_1:

@@ -92,7 +92,7 @@
 
 static const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b3.31"
+  "PLINK v1.90b3.32"
 #else
   "PLINK v1.90p"
 #endif
@@ -104,7 +104,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (23 Feb 2016)";
+  " (24 Feb 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -2271,7 +2271,7 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
       if (!range_start) {
 	break;
       }
-      chrom_code_start = get_chrom_code(chrom_info_ptr, range_start, rs_len);
+      chrom_code_start = get_chrom_code_counted(chrom_info_ptr, rs_len, range_start);
       if (chrom_code_start < 0) {
 	range_start[rs_len] = '\0';
 	if (!allow_extra_chroms) {
@@ -2284,7 +2284,7 @@ int32_t parse_chrom_ranges(uint32_t param_ct, char range_delim, char** argv, uin
 	  goto parse_chrom_ranges_ret_NOMEM;
 	}
       } else if (range_end) {
-        chrom_code_end = get_chrom_code(chrom_info_ptr, range_end, re_len);
+        chrom_code_end = get_chrom_code_counted(chrom_info_ptr, re_len, range_end);
 	if (chrom_code_end < 0) {
 	  if (!allow_extra_chroms) {
 	    range_end[re_len] = '\0';
@@ -10483,7 +10483,7 @@ int32_t main(int32_t argc, char** argv) {
 	    if (recode_type_set(&recode_modifier, RECODE_COMPOUND)) {
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
-	  } else if (match_upper_nt(argv[cur_arg + uii], "HV", 2)) {
+	  } else if (match_upper_counted(argv[cur_arg + uii], "HV", 2)) {
 	    if (!argv[cur_arg + uii][2]) {
 	      if (recode_type_set(&recode_modifier, RECODE_HV)) {
 	        goto main_ret_INVALID_CMDLINE_A;

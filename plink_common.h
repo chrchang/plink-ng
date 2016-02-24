@@ -1215,7 +1215,7 @@ HEADER_INLINE int32_t is_space_or_eoln(unsigned char cc) {
 // contains nothing but letters and a null terminator.
 uint32_t match_upper(const char* ss, const char* fixed_str);
 
-uint32_t match_upper_nt(const char* ss, const char* fixed_str, uint32_t ct);
+uint32_t match_upper_counted(const char* ss, const char* fixed_str, uint32_t ct);
 
 // Reads an integer in [1, cap].  Assumes first character is nonspace.  Has the
 // overflow detection atoi() lacks.
@@ -2140,14 +2140,16 @@ uint32_t get_max_chrom_slen(const Chrom_info* chrom_info_ptr);
 uint32_t haploid_chrom_present(const Chrom_info* chrom_info_ptr);
 
 // does not require null-termination
+// only handles 1-99, X, Y, XY, MT, and "chr" prefix
 int32_t get_chrom_code_raw(const char* sptr);
 
+// now requires null-termination
 int32_t get_chrom_code_nt(const char* chrom_name, const Chrom_info* chrom_info_ptr, uint32_t name_slen);
 
 // when the chromosome name isn't null-terminated, but we want to preserve the
 // character there
 // requires chrom_name[name_slen] to be mutable
-int32_t get_chrom_code(const Chrom_info* chrom_info_ptr, char* chrom_name, uint32_t name_slen);
+int32_t get_chrom_code_counted(const Chrom_info* chrom_info_ptr, uint32_t name_slen, char* chrom_name);
 
 // when it's okay to just replace the terminating space/tab with a \0
 HEADER_INLINE int32_t get_chrom_code_destructive(const Chrom_info* chrom_info_ptr, char* chrom_name) {
@@ -2171,10 +2173,7 @@ HEADER_INLINE uint32_t get_chrom_end_vidx(const Chrom_info* chrom_info_ptr, uint
 }
 
 // now assumes cur_chrom_name is null-terminated
-int32_t resolve_or_add_chrom_name(const char* cur_chrom_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, Chrom_info* chrom_info_ptr, int32_t* chrom_idx_ptr);
-
-// now assumes chrom_name is null-terminated
-uint32_t chrom_error(const char* chrom_name, const char* file_descrip, const Chrom_info* chrom_info_ptr, uintptr_t line_idx, int32_t error_code, uint32_t allow_extra_chroms);
+int32_t resolve_or_add_chrom_name(const char* cur_chrom_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, uint32_t allow_extra_chroms, int32_t* chrom_idx_ptr, Chrom_info* chrom_info_ptr);
 
 // newval does not need to be null-terminated
 // assumes *allele_ptr is not initialized

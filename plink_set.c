@@ -2874,7 +2874,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
       // CHR
       // can't use get_chrom_code_destructive() due to later
       // strchr(bufptr, '\0') call
-      chrom_idx = get_chrom_code(chrom_info_ptr, token_ptrs[0], strlen_se(token_ptrs[0]));
+      chrom_idx = get_chrom_code_counted(chrom_info_ptr, strlen_se(token_ptrs[0]), token_ptrs[0]);
       if (chrom_idx < 0) {
         continue;
       }
@@ -3419,7 +3419,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     }
     
     // CHR
-    chrom_idx = get_chrom_code(chrom_info_ptr, token_ptrs[0], strlen_se(token_ptrs[0]));
+    chrom_idx = get_chrom_code_counted(chrom_info_ptr, strlen_se(token_ptrs[0]), token_ptrs[0]);
     if (chrom_idx < 0) {
       // todo: log warning?
       goto gene_report_load_loop;

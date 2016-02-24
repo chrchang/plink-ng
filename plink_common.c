@@ -261,7 +261,7 @@ uint32_t match_upper(const char* ss, const char* fixed_str) {
   return !(*ss);
 }
 
-uint32_t match_upper_nt(const char* ss, const char* fixed_str, uint32_t ct) {
+uint32_t match_upper_counted(const char* ss, const char* fixed_str, uint32_t ct) {
   do {
     if ((((unsigned char)(*ss++)) & 0xdf) != ((unsigned char)(*fixed_str++))) {
       return 0;
@@ -4183,7 +4183,7 @@ int32_t init_chrom_info(Chrom_info* chrom_info_ptr) {
   // nonstd_names: intptr_ts
   // nonstd_id_htable: CHROM_NAME_HTABLE_SIZE int32s
 
-  // this assumes MAX_POSSIBLE_CHROM is divisible by VEC_BYTES
+  assert(!(MAX_POSSIBLE_CHROM % VEC_BYTES));
   const uintptr_t vecs_required = 2 * BITCT_TO_VECCT(MAX_POSSIBLE_CHROM) + 3 * (MAX_POSSIBLE_CHROM / VEC_INT32) + 1 + (MAX_POSSIBLE_CHROM / VEC_WORDS) + (CHROM_NAME_HTABLE_SIZE + (VEC_INT32 - 1)) / VEC_INT32;
 
   // needed for proper cleanup
@@ -4222,10 +4222,15 @@ void init_species(uint32_t species_code, Chrom_info* chrom_info_ptr) {
   // mouse: 19, X, Y
   // rice: 12
   // sheep: 26, X, Y
-  const int32_t species_x_code[] = {23, 30, 39, 32, 20, -1, 27};
-  const int32_t species_y_code[] = {24, 31, 40, 33, 21, -1, 28};
-  const int32_t species_xy_code[] = {25, -1, 41, -1, -1, -1, -1};
-  const int32_t species_mt_code[] = {26, 33, 42, -1, -1, -1, -1};
+  const int32_t species_xymt_codes[] = {
+    23, 24, 25, 26,
+    30, 31, -1, 33,
+    39, 40, 41, 42,
+    32, 33, -1, -1,
+    20, 21, -1, -1,
+    -1, -1, -1, -1,
+    27, 28, -1, -1};
+  const uint32_t species_autosome_ct[] = {22, 29, 38, 31, 19, 12, 26};
   const uint32_t species_max_code[] = {26, 33, 42, 33, 21, 12, 28};
   fill_ulong_zero(CHROM_MASK_WORDS, chrom_info_ptr->chrom_mask);
   fill_ulong_zero(CHROM_MASK_WORDS, chrom_info_ptr->haploid_mask);
@@ -4237,22 +4242,17 @@ void init_species(uint32_t species_code, Chrom_info* chrom_info_ptr) {
   g_species_plural = species_plural_constants[species_code];
   if (species_code != SPECIES_UNKNOWN) {
     // these are assumed to be already initialized in the SPECIES_UNKNOWN case
-    chrom_info_ptr->xymt_codes[0] = species_x_code[species_code];
-    chrom_info_ptr->xymt_codes[1] = species_y_code[species_code];
-    chrom_info_ptr->xymt_codes[2] = species_xy_code[species_code];
-    chrom_info_ptr->xymt_codes[3] = species_mt_code[species_code];
+    memcpy(chrom_info_ptr->xymt_codes, &(species_xymt_codes[species_code * XYMT_OFFSET_CT]), XYMT_OFFSET_CT * sizeof(int32_t));
+    chrom_info_ptr->autosome_ct = species_autosome_ct[species_code];
     chrom_info_ptr->max_code = species_max_code[species_code];
     switch (species_code) {
     case SPECIES_HUMAN:
-      chrom_info_ptr->autosome_ct = 22;
       chrom_info_ptr->haploid_mask[0] = 0x1800000;
       break;
     case SPECIES_COW:
-      chrom_info_ptr->autosome_ct = 29;
       chrom_info_ptr->haploid_mask[0] = 0xc0000000LU;
       break;
     case SPECIES_DOG:
-      chrom_info_ptr->autosome_ct = 38;
 #ifdef __LP64__
       chrom_info_ptr->haploid_mask[0] = 0x18000000000LLU;
 #else
@@ -4260,7 +4260,6 @@ void init_species(uint32_t species_code, Chrom_info* chrom_info_ptr) {
 #endif
       break;
     case SPECIES_HORSE:
-      chrom_info_ptr->autosome_ct = 31;
 #ifdef __LP64__
       chrom_info_ptr->haploid_mask[0] = 0x300000000LLU;
 #else
@@ -4268,15 +4267,12 @@ void init_species(uint32_t species_code, Chrom_info* chrom_info_ptr) {
 #endif
       break;
     case SPECIES_MOUSE:
-      chrom_info_ptr->autosome_ct = 19;
       chrom_info_ptr->haploid_mask[0] = 0x300000;
       break;
     case SPECIES_RICE:
-      chrom_info_ptr->autosome_ct = 12;
       chrom_info_ptr->haploid_mask[0] = 0x1fff;
       break;
     case SPECIES_SHEEP:
-      chrom_info_ptr->autosome_ct = 26;
       chrom_info_ptr->haploid_mask[0] = 0x18000000;
       break;
     }
@@ -4590,7 +4586,7 @@ int32_t get_chrom_code_nt(const char* chrom_name, const Chrom_info* chrom_info_p
   return chrom_code_raw;
 }
 
-int32_t get_chrom_code(const Chrom_info* chrom_info_ptr, char* chrom_name, uint32_t name_slen) {
+int32_t get_chrom_code_counted(const Chrom_info* chrom_info_ptr, uint32_t name_slen, char* chrom_name) {
   // when the chromosome name isn't null-terminated
   char* s_end = &(chrom_name[name_slen]);
   const char tmpc = *s_end;
@@ -4615,11 +4611,38 @@ uint32_t get_variant_chrom_fo_idx(const Chrom_info* chrom_info_ptr, uintptr_t va
   return chrom_fo_min;
 }
 
-int32_t resolve_or_add_chrom_name(const char* cur_chrom_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, Chrom_info* chrom_info_ptr, int32_t* chrom_idx_ptr) {
+void chrom_error(const char* cur_chrom_name, const char* file_descrip, const Chrom_info* chrom_info_ptr, uintptr_t line_idx, int32_t error_code) {
+  // assumes cur_chrom_name is null-terminated
+  const int32_t raw_code = get_chrom_code_raw(cur_chrom_name);
+  logprint("\n");
+  if (line_idx) {
+    LOGERRPRINTFWW("Error: Invalid chromosome code '%s' on line %" PRIuPTR " of %s.\n", cur_chrom_name, line_idx, file_descrip);
+  } else {
+    LOGERRPRINTFWW("Error: Invalid chromosome code '%s' in %s.\n", cur_chrom_name, file_descrip);
+  }
+  if ((raw_code > ((int32_t)chrom_info_ptr->max_code)) && ((raw_code <= MAX_CHROM_TEXTNUM + XYMT_OFFSET_CT) || (raw_code >= MAX_POSSIBLE_CHROM))) {
+    if (chrom_info_ptr->species != SPECIES_UNKNOWN) {
+      if (chrom_info_ptr->species == SPECIES_HUMAN) {
+	logerrprint("(This is disallowed for humans.  Check if the problem is with your data, or if\nyou forgot to define a different chromosome set with e.g. --chr-set.).\n");
+      } else {
+	logerrprint("(This is disallowed by the PLINK 1.07 species flag you used.  You can\ntemporarily work around this restriction with --chr-set; contact the developers\nif you want the flag to be permanently redefined.)\n");
+      }
+    } else {
+      logerrprint("(This is disallowed by your --chr-set/--autosome-num parameters.  Check if the\nproblem is with your data, or your command line.)\n");
+    }
+  } else if (error_code == -2) {
+    logerrprint("(Use --allow-extra-chr to force it to be accepted.)\n");
+  }
+}
+
+int32_t resolve_or_add_chrom_name(const char* cur_chrom_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, uint32_t allow_extra_chroms, int32_t* chrom_idx_ptr, Chrom_info* chrom_info_ptr) {
   // assumes cur_chrom_name is nonstandard (i.e. not "2", "chr2", "chrX", etc.)
   // requires cur_chrom_name to be null-terminated
-  // todo: merge this with chrom_error() since they're practically always
-  // called in sequence
+  // assumes chrom_idx currently has the return value of get_chrom_code_nt()
+  if ((!allow_extra_chroms) || ((*chrom_idx_ptr) != -2)) {
+    chrom_error(cur_chrom_name, file_descrip, chrom_info_ptr, line_idx, *chrom_idx_ptr);
+    return RET_MALFORMED_INPUT;
+  }
   char** nonstd_names = chrom_info_ptr->nonstd_names;
   const uint32_t chrom_idx = nonstd_chrom_name_htable_find(cur_chrom_name, (const char* const*)nonstd_names, chrom_info_ptr->nonstd_id_htable, name_slen);
   if (chrom_idx != 0xffffffffU) {
@@ -4683,34 +4706,6 @@ int32_t resolve_or_add_chrom_name(const char* cur_chrom_name, const char* file_d
     }
     next_incr += 2; // quadratic probing
   }
-}
-
-uint32_t chrom_error(const char* chrom_name, const char* file_descrip, const Chrom_info* chrom_info_ptr, uintptr_t line_idx, int32_t error_code, uint32_t allow_extra_chroms) {
-  // assumes chrom_name is null-terminated
-  if (allow_extra_chroms && (error_code == -2)) {
-    return 0;
-  }
-  const int32_t raw_code = get_chrom_code_raw(chrom_name);
-  logprint("\n");
-  if (line_idx) {
-    LOGERRPRINTFWW("Error: Invalid chromosome code '%s' on line %" PRIuPTR " of %s.\n", chrom_name, line_idx, file_descrip);
-  } else {
-    LOGERRPRINTFWW("Error: Invalid chromosome code '%s' in %s.\n", chrom_name, file_descrip);
-  }
-  if ((raw_code > ((int32_t)chrom_info_ptr->max_code)) && ((raw_code <= MAX_CHROM_TEXTNUM + XYMT_OFFSET_CT) || (raw_code >= MAX_POSSIBLE_CHROM))) {
-    if (chrom_info_ptr->species != SPECIES_UNKNOWN) {
-      if (chrom_info_ptr->species == SPECIES_HUMAN) {
-	logerrprint("(This is disallowed for humans.  Check if the problem is with your data, or if\nyou forgot to define a different chromosome set with e.g. --chr-set.).\n");
-      } else {
-	logerrprint("(This is disallowed by the PLINK 1.07 species flag you used.  You can\ntemporarily work around this restriction with --chr-set; contact the developers\nif you want the flag to be permanently redefined.)\n");
-      }
-    } else {
-      logerrprint("(This is disallowed by your --chr-set/--autosome-num parameters.  Check if the\nproblem is with your data, or your command line.)\n");
-    }
-  } else if (error_code == -2) {
-    logerrprint("(Use --allow-extra-chr to force it to be accepted.)\n");
-  }
-  return 1;
 }
 
 uint32_t allele_set(const char* newval, uint32_t slen, char** allele_ptr) {
