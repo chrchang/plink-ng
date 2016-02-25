@@ -270,135 +270,223 @@ uint32_t match_upper_counted(const char* ss, const char* fixed_str, uint32_t ct)
   return 1;
 }
 
-uint32_t scan_posint_capped(const char* ss, uint32_t cap_div_10, uint32_t cap_mod_10, uint32_t* valp) {
+#ifdef __LP64__
+static inline uint32_t scan_uint_capped_finish(const char* ss, uint64_t cap, uint32_t* valp) {
+  uint64_t val = *valp;
+  while (1) {
+    // a little bit of unrolling seems to help
+    const uint32_t cur_digit = (uint32_t)((unsigned char)(*ss++)) - 48;
+    if (cur_digit >= 10) {
+      break;
+    }
+    // val = val * 10 + cur_digit;
+    const uint32_t cur_digit2 = (uint32_t)((unsigned char)(*ss++)) - 48;
+    if (cur_digit2 >= 10) {
+      val = val * 10 + cur_digit;
+      if (val > cap) {
+	return 1;
+      }
+      break;
+    }
+    val = val * 100 + cur_digit * 10 + cur_digit2;
+    if (val > cap) {
+      return 1;
+    }
+  }
+  *valp = val;
+  return 0;
+}
+
+uint32_t scan_posint_capped(const char* ss, uint64_t cap, uint32_t* valp) {
   // '0' has ascii code 48
-  uint32_t val = (uint32_t)((unsigned char)*ss) - 48;
-  uint32_t cur_digit;
-  if (val < 10) {
-    while (1) {
-    scan_posint_capped_main_loop:
-      cur_digit = (uint32_t)((unsigned char)(*(++ss))) - 48;
-      if (cur_digit >= 10) {
-	if (val) {
-	  *valp = val;
-	  return 0;
-	}
-	return 1;
-      }
-      // avoid integer overflow in middle of computation
-      if ((val >= cap_div_10) && ((val > cap_div_10) || (cur_digit > cap_mod_10))) {
-	return 1;
-      }
-      val = val * 10 + cur_digit;
-    }
-  } else if (val == 0xfffffffbU) {
+  *valp = (uint32_t)((unsigned char)(*ss++)) - 48;
+  if (*valp >= 10) {
     // permit leading '+' (ascii 43), but not '++' or '+-'
-    val = (uint32_t)((unsigned char)(*(++ss))) - 48;
-    if (val < 10) {
-      goto scan_posint_capped_main_loop;
+    if (*valp != 0xfffffffbU) {
+      return 1;
+    }
+    *valp = (uint32_t)((unsigned char)(*ss++)) - 48;
+    if (*valp >= 10) {
+      return 1;
     }
   }
-  return 1;
+  while (!(*valp)) {
+    *valp = (uint32_t)((unsigned char)(*ss++)) - 48;
+    if ((*valp) >= 10) {
+      return 1;
+    }
+  }
+  return scan_uint_capped_finish(ss, cap, valp);
 }
 
-uint32_t scan_uint_capped(const char* ss, uint32_t cap_div_10, uint32_t cap_mod_10, uint32_t* valp) {
+uint32_t scan_uint_capped(const char* ss, uint64_t cap, uint32_t* valp) {
   // Reads an integer in [0, cap].  Assumes first character is nonspace. 
-  uint32_t val = (uint32_t)((unsigned char)*ss) - 48;
-  uint32_t cur_digit;
-  if (val < 10) {
-    while (1) {
-    scan_uint_capped_main_loop:
-      cur_digit = (uint32_t)((unsigned char)(*(++ss))) - 48;
-      if (cur_digit >= 10) {
-	*valp = val;
-	return 0;
-      }
-      if ((val >= cap_div_10) && ((val > cap_div_10) || (cur_digit > cap_mod_10))) {
+  uint32_t val = (uint32_t)((unsigned char)(*ss++)) - 48;
+  if (val >= 10) {
+    if (val != 0xfffffffbU) {
+      // '-' has ascii code 45, so unsigned 45 - 48 = 0xfffffffdU
+      if ((val != 0xfffffffdU) || (*ss != '0')) {
 	return 1;
       }
-      val = val * 10 + cur_digit;
+      // accept "-0", "-00", etc.
+      while (*(++ss) == '0');
+      *valp = 0;
+      return ((uint32_t)((unsigned char)(*ss)) - 48) < 10;      
+    }
+    // accept leading '+'
+    val = (uint32_t)((unsigned char)(*ss++)) - 48;
+    if (val >= 10) {
+      return 1;
     }
   }
-  // '-' has ascii code 45, so unsigned 45 - 48 = 0xfffffffdU
-  ss++;
-  if (val != 0xfffffffdU) {
-    if (val == 0xfffffffbU) {
-      val = (uint32_t)((unsigned char)(*ss)) - 48;
-      if (val < 10) {
-	goto scan_uint_capped_main_loop;
-      }
-    }
-    return 1;
-  }
-  // accept "-0", "-00", etc.
-  if (*ss != '0') {
-    return 1;
-  }
-  while (*(++ss) == '0');
-  *valp = 0;
-  return ((uint32_t)((unsigned char)(*ss)) - 48) < 10;
+  *valp = val;
+  return scan_uint_capped_finish(ss, cap, valp);
 }
 
-uint32_t scan_int_abs_bounded(const char* ss, uint32_t bound_div_10, uint32_t bound_mod_10, int32_t* valp) {
+uint32_t scan_int_abs_bounded(const char* ss, uint64_t bound, int32_t* valp) {
   // Reads an integer in [-bound, bound].  Assumes first character is nonspace.
-  uint32_t val = (uint32_t)((unsigned char)*ss) - 48;
+  *valp = (uint32_t)((unsigned char)(*ss++)) - 48;
   int32_t sign = 1;
-  uint32_t cur_digit;
-  if (val < 10) {
-    while (1) {
-    scan_int_abs_bounded_main_loop:
-      cur_digit = (uint32_t)((unsigned char)(*(++ss))) - 48;
-      if (cur_digit >= 10) {
-	*valp = sign * ((int32_t)val);
-	return 0;
-      }
-      if ((val >= bound_div_10) && ((val > bound_div_10) || (cur_digit > bound_mod_10))) {
-	return 1;
-      }
-      val = val * 10 + cur_digit;
+  if (((uint32_t)*valp) >= 10) {
+    if (*valp == -3) {
+      sign = -1;
+    } else if (*valp != -5) {
+      return 1;
+    }
+    *valp = (uint32_t)((unsigned char)(*ss++)) - 48;
+    if (((uint32_t)*valp) >= 10) {
+      return 1;
     }
   }
-  if (val == 0xfffffffdU) {
-    sign = -1;
-  } else if (val != 0xfffffffbU) {
+  if (scan_uint_capped_finish(ss, bound, (uint32_t*)valp)) {
     return 1;
   }
-  val = (uint32_t)((unsigned char)(*(++ss))) - 48;
-  if (val < 10) {
-    goto scan_int_abs_bounded_main_loop;
-  }
-  return 1;
+  *valp *= sign;
+  return 0;
 }
 
 uint32_t scan_posintptr(const char* ss, uintptr_t* valp) {
   // Reads an integer in [1, 2^BITCT - 1].  Assumes first character is
   // nonspace. 
-  uintptr_t val = (uint32_t)((unsigned char)*ss) - 48;
-  uintptr_t cur_digit;
-  if (val < 10) {
-    while (1) {
-    scan_posintptr_main_loop:
-      cur_digit = (uint32_t)((unsigned char)(*(++ss))) - 48;
-      if (cur_digit >= 10) {
-	if (val) {
-	  *valp = val;
-	  return 0;
-	}
-	return 1;
-      }
-      if ((val >= (~ZEROLU) / 10) && ((val > (~ZEROLU) / 10) || (cur_digit > (~ZEROLU) % 10))) {
-	return 1;
-      }
-      val = val * 10 + cur_digit;
+  uintptr_t val = (uint32_t)((unsigned char)(*ss++)) - 48;
+  if (val >= 10) {
+    if (val != 0xfffffffbU) {
+      return 1;
     }
-  } else if (val == 0xfffffffbU) {
-    val = (uint32_t)((unsigned char)(*(++ss))) - 48;
-    if (val < 10) {
-      goto scan_posintptr_main_loop;
+    val = (uint32_t)((unsigned char)(*ss++)) - 48;
+    if (val >= 10) {
+      return 1;
     }
   }
-  return 1;
+  while (!val) {
+    val = (uint32_t)((unsigned char)(*ss++)) - 48;
+    if (val >= 10) {
+      return 1;
+    }
+  }
+  while (1) {
+    const uintptr_t cur_digit = (uint32_t)((unsigned char)(*ss++)) - 48;
+    if (cur_digit >= 10) {
+      *valp = val;
+      return 0;
+    }
+    if ((val >= (~ZEROLU) / 10) && ((val > (~ZEROLU) / 10) || (cur_digit > (~ZEROLU) % 10))) {
+      return 1;
+    }
+    val = val * 10 + cur_digit;
+  }
 }
+#else // not __LP64__
+uint32_t scan_posint_capped32(const char* ss, uint32_t cap_div_10, uint32_t cap_mod_10, uint32_t* valp) {
+  // '0' has ascii code 48
+  uint32_t val = (uint32_t)((unsigned char)(*ss++)) - 48;
+  if (val >= 10) {
+    if (val != 0xfffffffbU) {
+      return 1;
+    }
+    val = (uint32_t)((unsigned char)(*ss++)) - 48;
+    if (val >= 10) {
+      return 1;
+    }
+  }
+  while (!val) {
+    val = (uint32_t)((unsigned char)(*ss++)) - 48;
+    if (val >= 10) {
+      return 1;
+    }
+  }
+  while (1) {
+    const uint32_t cur_digit = (uint32_t)((unsigned char)(*ss++)) - 48;
+    if (cur_digit >= 10) {
+      *valp = val;
+      return 0;
+    }
+    // avoid integer overflow in middle of computation
+    if ((val >= cap_div_10) && ((val > cap_div_10) || (cur_digit > cap_mod_10))) {
+      return 1;
+    }
+    val = val * 10 + cur_digit;
+  }
+}
+
+uint32_t scan_uint_capped32(const char* ss, uint32_t cap_div_10, uint32_t cap_mod_10, uint32_t* valp) {
+  // Reads an integer in [0, cap].  Assumes first character is nonspace. 
+  uint32_t val = (uint32_t)((unsigned char)(*ss++)) - 48;
+  if (val >= 10) {
+    if (val != 0xfffffffbU) {
+      if ((val != 0xfffffffdU) || (*ss != '0')) {
+	return 1;
+      }
+      while (*(++ss) == '0');
+      *valp = 0;
+      return ((uint32_t)((unsigned char)(*ss)) - 48) < 10;
+    }
+    val = (uint32_t)((unsigned char)(*ss++)) - 48;
+    if (val >= 10) {
+      return 1;
+    }
+  }
+  while (1) {
+    const uint32_t cur_digit = (uint32_t)((unsigned char)(*ss++)) - 48;
+    if (cur_digit >= 10) {
+      *valp = val;
+      return 0;
+    }
+    if ((val >= cap_div_10) && ((val > cap_div_10) || (cur_digit > cap_mod_10))) {
+      return 1;
+    }
+    val = val * 10 + cur_digit;
+  }
+}
+
+uint32_t scan_int_abs_bounded32(const char* ss, uint32_t bound_div_10, uint32_t bound_mod_10, int32_t* valp) {
+  // Reads an integer in [-bound, bound].  Assumes first character is nonspace.
+  uint32_t val = (uint32_t)((unsigned char)(*ss++)) - 48;
+  int32_t sign = 1;
+  if (val >= 10) {
+    if (val == 0xfffffffdU) {
+      sign = -1;
+    } else if (val != 0xfffffffbU) {
+      return 1;
+    }
+    val = (uint32_t)((unsigned char)(*ss++)) - 48;
+    if (val >= 10) {
+      return 1;
+    }
+  }
+  while (1) {
+    const uint32_t cur_digit = (uint32_t)((unsigned char)(*ss++)) - 48;
+    if (cur_digit >= 10) {
+      *valp = sign * ((int32_t)val);
+      return 0;
+    }
+    if ((val >= bound_div_10) && ((val > bound_div_10) || (cur_digit > bound_mod_10))) {
+      return 1;
+    }
+    val = val * 10 + cur_digit;
+  }
+}
+#endif
 
 /*
 uint32_t scan_uintptr(char* ss, uintptr_t* valp) {
@@ -7878,7 +7966,7 @@ uint32_t numeric_range_list_to_bitarr(const Range_list* range_list_ptr, uint32_t
   uint32_t idx1;
   uint32_t idx2;
   for (name_idx = 0; name_idx < name_ct; name_idx++) {
-    if (scan_uint_capped(&(names[name_idx * name_max_len]), idx_max / 10, idx_max % 10, &idx1)) {
+    if (scan_uint_capped(&(names[name_idx * name_max_len]), idx_max, &idx1)) {
       if (ignore_overflow) {
 	continue;
       }
@@ -7886,7 +7974,7 @@ uint32_t numeric_range_list_to_bitarr(const Range_list* range_list_ptr, uint32_t
     }
     if (starts_range[name_idx]) {
       name_idx++;
-      if (scan_uint_capped(&(names[name_idx * name_max_len]), idx_max / 10, idx_max % 10, &idx2)) {
+      if (scan_uint_capped(&(names[name_idx * name_max_len]), idx_max, &idx2)) {
 	if (!ignore_overflow) {
 	  return 1;
 	}
