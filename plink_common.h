@@ -1225,8 +1225,6 @@ uint32_t scan_posint_capped(const char* ss, uint64_t cap, uint32_t* valp);
 uint32_t scan_uint_capped(const char* ss, uint64_t cap, uint32_t* valp);
 
 uint32_t scan_int_abs_bounded(const char* ss, uint64_t bound, int32_t* valp);
-
-uint32_t scan_posintptr(const char* ss, uintptr_t* valp);
 #else // not __LP64__
 // Need to be more careful in 32-bit case due to overflow.
 // A funny-looking div_10/mod_10 interface is used since the cap will usually
@@ -1243,10 +1241,6 @@ uint32_t scan_int_abs_bounded32(const char* ss, uint32_t bound_div_10, uint32_t 
   #define scan_uint_capped(aa, bb, cc) scan_uint_capped32((aa), (bb) / 10, (bb) % 10, (cc))
 
   #define scan_int_abs_bounded(aa, bb, cc) scan_int_abs_bounded32((aa), (bb) / 10, (bb) % 10, (cc))
-
-HEADER_INLINE uint32_t scan_posintptr(const char* ss, uintptr_t* valp) {
-  return scan_posint_capped32(ss, (~ZEROLU) / 10, (~ZEROLU) % 10, (uint32_t*)valp);
-}
 #endif
 
 // intentionally rejects -2^31 for now
@@ -1270,6 +1264,8 @@ HEADER_INLINE uint32_t scan_int_abs_defcap(const char* ss, int32_t* valp) {
 HEADER_INLINE uint32_t scan_uint_icap(const char* ss, uint32_t* valp) {
   return scan_uint_capped(ss, 0x7fffffff, valp);
 }
+
+uint32_t scan_posintptr(const char* ss, uintptr_t* valp);
 
 HEADER_INLINE uint32_t scan_double(const char* ss, double* valp) {
   char* ss2;

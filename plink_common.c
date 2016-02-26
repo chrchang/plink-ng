@@ -364,38 +364,6 @@ uint32_t scan_int_abs_bounded(const char* ss, uint64_t bound, int32_t* valp) {
   *valp *= sign;
   return 0;
 }
-
-uint32_t scan_posintptr(const char* ss, uintptr_t* valp) {
-  // Reads an integer in [1, 2^BITCT - 1].  Assumes first character is
-  // nonspace. 
-  uintptr_t val = (uint32_t)((unsigned char)(*ss++)) - 48;
-  if (val >= 10) {
-    if (val != 0xfffffffbU) {
-      return 1;
-    }
-    val = (uint32_t)((unsigned char)(*ss++)) - 48;
-    if (val >= 10) {
-      return 1;
-    }
-  }
-  while (!val) {
-    val = (uint32_t)((unsigned char)(*ss++)) - 48;
-    if (val >= 10) {
-      return 1;
-    }
-  }
-  while (1) {
-    const uintptr_t cur_digit = (uint32_t)((unsigned char)(*ss++)) - 48;
-    if (cur_digit >= 10) {
-      *valp = val;
-      return 0;
-    }
-    if ((val >= (~ZEROLU) / 10) && ((val > (~ZEROLU) / 10) || (cur_digit > (~ZEROLU) % 10))) {
-      return 1;
-    }
-    val = val * 10 + cur_digit;
-  }
-}
 #else // not __LP64__
 uint32_t scan_posint_capped32(const char* ss, uint32_t cap_div_10, uint32_t cap_mod_10, uint32_t* valp) {
   // '0' has ascii code 48
@@ -487,6 +455,69 @@ uint32_t scan_int_abs_bounded32(const char* ss, uint32_t bound_div_10, uint32_t 
   }
 }
 #endif
+
+uint32_t scan_posintptr(const char* ss, uintptr_t* valp) {
+  // Reads an integer in [1, 2^BITCT - 1].  Assumes first character is
+  // nonspace. 
+  uintptr_t val = (uint32_t)((unsigned char)(*ss++)) - 48;
+  if (val >= 10) {
+    if (val != 0xfffffffbU) {
+      return 1;
+    }
+    val = (uint32_t)((unsigned char)(*ss++)) - 48;
+    if (val >= 10) {
+      return 1;
+    }
+  }
+  while (!val) {
+    val = (uint32_t)((unsigned char)(*ss++)) - 48;
+    if (val >= 10) {
+      return 1;
+    }
+  }
+#ifdef __LP64__
+  // limit is 20 digits, we've already read one
+  for (uint32_t digit_pair_idx = 0; digit_pair_idx < 9; ++digit_pair_idx) {
+    const uintptr_t cur_digit = (uint32_t)((unsigned char)(*ss++)) - 48;
+    if (cur_digit >= 10) {
+      *valp = val;
+      return 0;
+    }
+    const uint32_t cur_digit2 = (uint32_t)((unsigned char)(*ss++)) - 48;
+    if (cur_digit2 >= 10) {
+      *valp = val * 10 + cur_digit;
+      return 0;
+    }
+    val = val * 100 + cur_digit * 10 + cur_digit2;
+  }
+#else
+  // limit is 10 digits, we've already read one
+  for (uint32_t digit_pair_idx = 0; digit_pair_idx < 4; ++digit_pair_idx) {
+    const uintptr_t cur_digit = (uint32_t)((unsigned char)(*ss++)) - 48;
+    if (cur_digit >= 10) {
+      *valp = val;
+      return 0;
+    }
+    const uintptr_t cur_digit2 = (uint32_t)((unsigned char)(*ss++)) - 48;
+    if (cur_digit2 >= 10) {
+      *valp = val * 10 + cur_digit;
+      return 0;
+    }
+    val = val * 100 + cur_digit * 10 + cur_digit2;
+  }  
+#endif
+  const uintptr_t cur_digit = (uint32_t)((unsigned char)(*ss++)) - 48;
+  if (cur_digit >= 10) {
+    *valp = val;
+    return 0;
+  }
+  const uint32_t next_digit = (uint32_t)((unsigned char)(*ss)) - 48;
+  if ((next_digit >= 10) || ((val >= (~ZEROLU) / 10) && ((val > (~ZEROLU) / 10) || (cur_digit > (~ZEROLU) % 10)))) {
+    return 1;
+  }
+  *valp = val * 10 + cur_digit;
+  return 0;
+}
 
 /*
 uint32_t scan_uintptr(char* ss, uintptr_t* valp) {
