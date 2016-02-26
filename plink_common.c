@@ -275,12 +275,12 @@ static inline uint32_t scan_uint_capped_finish(const char* ss, uint64_t cap, uin
   uint64_t val = *valp;
   while (1) {
     // a little bit of unrolling seems to help
-    const uint32_t cur_digit = (uint32_t)((unsigned char)(*ss++)) - 48;
+    const uint64_t cur_digit = (uint64_t)((unsigned char)(*ss++)) - 48;
     if (cur_digit >= 10) {
       break;
     }
     // val = val * 10 + cur_digit;
-    const uint32_t cur_digit2 = (uint32_t)((unsigned char)(*ss++)) - 48;
+    const uint64_t cur_digit2 = (uint64_t)((unsigned char)(*ss++)) - 48;
     if (cur_digit2 >= 10) {
       val = val * 10 + cur_digit;
       if (val > cap) {
@@ -459,36 +459,42 @@ uint32_t scan_int_abs_bounded32(const char* ss, uint32_t bound_div_10, uint32_t 
 uint32_t scan_posintptr(const char* ss, uintptr_t* valp) {
   // Reads an integer in [1, 2^BITCT - 1].  Assumes first character is
   // nonspace. 
-  uintptr_t val = (uint32_t)((unsigned char)(*ss++)) - 48;
+  uintptr_t val = (uintptr_t)((unsigned char)(*ss++)) - 48;
   if (val >= 10) {
+#ifdef __LP64__
+    if (val != 0xfffffffffffffffbLLU) {
+      return 1;
+    }
+#else
     if (val != 0xfffffffbU) {
       return 1;
     }
-    val = (uint32_t)((unsigned char)(*ss++)) - 48;
+#endif
+    val = (uintptr_t)((unsigned char)(*ss++)) - 48;
     if (val >= 10) {
       return 1;
     }
   }
   while (!val) {
-    val = (uint32_t)((unsigned char)(*ss++)) - 48;
+    val = (uintptr_t)((unsigned char)(*ss++)) - 48;
     if (val >= 10) {
       return 1;
     }
   }
   // limit is 20 digits, we've already read one
 #ifdef __LP64__
-  const char* ss_end = &(ss[20]);
+  const char* ss_limit = &(ss[20]);
 #else
-  const char* ss_end = &(ss[10]);
+  const char* ss_limit = &(ss[10]);
 #endif
   while (1) {
-    const uintptr_t cur_digit = (uint32_t)((unsigned char)(*ss++)) - 48;
+    const uintptr_t cur_digit = (uintptr_t)((unsigned char)(*ss++)) - 48;
     if (cur_digit >= 10) {
       *valp = val;
       return 0;
     }
-    const uint32_t cur_digit2 = (uint32_t)((unsigned char)(*ss++)) - 48;
-    if (ss == ss_end) {
+    const uintptr_t cur_digit2 = (uintptr_t)((unsigned char)(*ss++)) - 48;
+    if (ss == ss_limit) {
       if ((cur_digit2 < 10) || ((val >= (~ZEROLU) / 10) && ((val > (~ZEROLU) / 10) || (cur_digit > (~ZEROLU) % 10)))) {
 	return 1;
       }
