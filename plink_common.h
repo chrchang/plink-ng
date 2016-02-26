@@ -1386,6 +1386,7 @@ void get_top_two_ui(const uint32_t* __restrict uint_arr, uintptr_t uia_size, uin
 uint32_t intlen(int32_t num);
 
 // safer than token_endnn(), since it handles length zero
+// "se" = stops at space or eoln character
 HEADER_INLINE uintptr_t strlen_se(const char* ss) {
   const char* ss2 = ss;
   while (!is_space_or_eoln(*ss2)) {

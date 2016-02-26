@@ -475,48 +475,32 @@ uint32_t scan_posintptr(const char* ss, uintptr_t* valp) {
       return 1;
     }
   }
-#ifdef __LP64__
   // limit is 20 digits, we've already read one
-  for (uint32_t digit_pair_idx = 0; digit_pair_idx < 9; ++digit_pair_idx) {
+#ifdef __LP64__
+  const char* ss_end = &(ss[20]);
+#else
+  const char* ss_end = &(ss[10]);
+#endif
+  while (1) {
     const uintptr_t cur_digit = (uint32_t)((unsigned char)(*ss++)) - 48;
     if (cur_digit >= 10) {
       *valp = val;
       return 0;
     }
     const uint32_t cur_digit2 = (uint32_t)((unsigned char)(*ss++)) - 48;
+    if (ss == ss_end) {
+      if ((cur_digit2 < 10) || ((val >= (~ZEROLU) / 10) && ((val > (~ZEROLU) / 10) || (cur_digit > (~ZEROLU) % 10)))) {
+	return 1;
+      }
+      *valp = val * 10 + cur_digit;
+      return 0;
+    }
     if (cur_digit2 >= 10) {
       *valp = val * 10 + cur_digit;
       return 0;
     }
     val = val * 100 + cur_digit * 10 + cur_digit2;
   }
-#else
-  // limit is 10 digits, we've already read one
-  for (uint32_t digit_pair_idx = 0; digit_pair_idx < 4; ++digit_pair_idx) {
-    const uintptr_t cur_digit = (uint32_t)((unsigned char)(*ss++)) - 48;
-    if (cur_digit >= 10) {
-      *valp = val;
-      return 0;
-    }
-    const uintptr_t cur_digit2 = (uint32_t)((unsigned char)(*ss++)) - 48;
-    if (cur_digit2 >= 10) {
-      *valp = val * 10 + cur_digit;
-      return 0;
-    }
-    val = val * 100 + cur_digit * 10 + cur_digit2;
-  }  
-#endif
-  const uintptr_t cur_digit = (uint32_t)((unsigned char)(*ss++)) - 48;
-  if (cur_digit >= 10) {
-    *valp = val;
-    return 0;
-  }
-  const uint32_t next_digit = (uint32_t)((unsigned char)(*ss)) - 48;
-  if ((next_digit >= 10) || ((val >= (~ZEROLU) / 10) && ((val > (~ZEROLU) / 10) || (cur_digit > (~ZEROLU) % 10)))) {
-    return 1;
-  }
-  *valp = val * 10 + cur_digit;
-  return 0;
 }
 
 /*
