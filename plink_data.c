@@ -3867,7 +3867,7 @@ int32_t load_fam(char* famname, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32
       }
     }
     bufptr0 = skip_initial_spaces(loadbuf);
-    if (!is_eoln_kns(*bufptr0)) {
+    if (!is_eoln_or_comment_kns(*bufptr0)) {
       if (fam_cols & FAM_COL_1) {
 	bufptr = next_token(bufptr0);
 	if (!bufptr) {
@@ -4005,7 +4005,7 @@ int32_t load_fam(char* famname, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32
       goto load_fam_ret_NOMEM;
     }
     bufptr0 = skip_initial_spaces(loadbuf);
-    if (is_eoln_kns(*bufptr0)) {
+    if (is_eoln_or_comment_kns(*bufptr0)) {
       continue;
     }
     if (fam_cols & FAM_COL_1) {
