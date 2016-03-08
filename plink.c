@@ -104,7 +104,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (3 Mar 2016)";
+  " (8 Mar 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -1164,7 +1164,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	logprint("Using 1 thread.\n");
       } else {
 #endif
-	logprint("Using 1 thread (no multithreaded calculations invoked.\n");
+	logprint("Using 1 thread (no multithreaded calculations invoked).\n");
 #ifndef NOLAPACK
       }
 #endif
