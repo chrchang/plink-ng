@@ -2121,7 +2121,7 @@ HEADER_INLINE int32_t init_chrom_info_human(Chrom_info* chrom_info_ptr) {
   return 0;
 }
 
-void forget_extra_chrom_names(Chrom_info* chrom_info_ptr);
+void forget_extra_chrom_names(uint32_t reinitialize, Chrom_info* chrom_info_ptr);
 
 // in the usual case where the number of chromosomes/contigs is much less than
 // MAX_POSSIBLE_CHROM, this reduces chrom_info's memory consumption and

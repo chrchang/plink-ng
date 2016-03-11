@@ -4405,7 +4405,7 @@ void init_default_chrom_mask(Chrom_info* chrom_info_ptr) {
   }
 }
 
-void forget_extra_chrom_names(Chrom_info* chrom_info_ptr) {
+void forget_extra_chrom_names(uint32_t reinitialize, Chrom_info* chrom_info_ptr) {
   const uint32_t name_ct = chrom_info_ptr->name_ct;
   // guard against init_species() not being called yet
   if (name_ct) {
@@ -4415,8 +4415,10 @@ void forget_extra_chrom_names(Chrom_info* chrom_info_ptr) {
       free(nonstd_names[chrom_idx]);
       nonstd_names[chrom_idx] = NULL;
     }
-    fill_uint_one(CHROM_NAME_HTABLE_SIZE, chrom_info_ptr->nonstd_id_htable);
-    chrom_info_ptr->name_ct = 0;
+    if (reinitialize) {
+      fill_uint_one(CHROM_NAME_HTABLE_SIZE, chrom_info_ptr->nonstd_id_htable);
+      chrom_info_ptr->name_ct = 0;
+    }
   }
 }
 
@@ -4478,10 +4480,12 @@ int32_t finalize_chrom_info(Chrom_info* chrom_info_ptr) {
 
 void cleanup_chrom_info(Chrom_info* chrom_info_ptr) {
   if (chrom_info_ptr->chrom_mask) {
+    // bugfix: this must happened before aligned_free() call
+    forget_extra_chrom_names(0, chrom_info_ptr);
+
     aligned_free(chrom_info_ptr->chrom_mask);
     chrom_info_ptr->chrom_mask = NULL;
   }
-  forget_extra_chrom_names(chrom_info_ptr);
   Ll_str* ll_str_ptr = chrom_info_ptr->incl_excl_name_stack;
   while (ll_str_ptr) {
     Ll_str* next_ptr = ll_str_ptr->next;

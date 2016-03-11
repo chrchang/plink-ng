@@ -16604,7 +16604,7 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     LOGPRINTF("%" PRIu64 " overlapping call%s, %" PRIu64 " nonmissing in both filesets.\n%" PRIu64 " concordant, for a concordance rate of %g.\n", diff_total_overlap, (diff_total_overlap == 1)? "" : "s", diff_not_both_genotyped, diff_not_both_genotyped - diff_discordant, 1.0 - (((double)diff_discordant) / ((double)diff_not_both_genotyped)));
   }
 
-  forget_extra_chrom_names(chrom_info_ptr);
+  forget_extra_chrom_names(1, chrom_info_ptr);
   while (0) {
   merge_datasets_ret_NOMEM:
     retval = RET_NOMEM;
