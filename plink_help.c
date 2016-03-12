@@ -376,7 +376,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    used with only .bim/.fam input.\n"
 "    USE THESE CAUTIOUSLY.  It is very easy to desynchronize your binary\n"
 "    genotype data and your .bim/.fam indexes if you use these commands\n"
-"    improperly.  If you have any doubt, stick with --make-bed.\n"
+"    improperly.  If you have any doubt, stick with --make-bed.\n\n"
 	       );
 
     help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead\trecodeA\trecodea\trecode-rlist\trecode-allele\tlist\twith-reference\trecode-vcf\tfid\tiid\trecode-beagle\trecode-bimbam\trecode-fastphase\trecodeHV\trecodehv\trecode-structure", &help_ctrl, 1,
