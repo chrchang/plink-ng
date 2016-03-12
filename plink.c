@@ -3536,9 +3536,11 @@ int32_t main(int32_t argc, char** argv) {
       }
       if (strlen(argptr) >= MAX_FLAG_LEN) {
 	print_ver();
-	invalid_arg(argv[uii]);
-	fputs(g_logbuf, stdout);
-	fputs(errstr_append, stdout);
+	// shouldn't be possible for this to overflow the buffer...
+	sprintf(g_logbuf, "Error: Unrecognized flag ('%s').\n", argv[uii]);
+	wordwrapb(0);
+	fputs(g_logbuf, stderr);
+	fputs(errstr_append, stderr);
         goto main_ret_INVALID_CMDLINE;
       }
       flag_ct++;
