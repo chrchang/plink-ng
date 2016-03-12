@@ -133,19 +133,23 @@ static const char notestr_null_calc2[] = "Commands include --make-bed, --recode,
   #endif
 #endif
 
+static const char errstr_nomem[] = "Error: Out of memory.  The --memory flag may be helpful.\n";
+static const char errstr_write[] = "Error: File write failure.\n";
+static const char errstr_read[] = "Error: File read failure.\n";
+
 void disp_exit_msg(int32_t retval) {
   switch (retval) {
   case RET_NOMEM:
     logprint("\n");
-    logerrprint("Error: Out of memory.  The --memory flag may be helpful.\n");
+    logerrprint(errstr_nomem);
     break;
   case RET_WRITE_FAIL:
     logprint("\n");
-    logerrprint("Error: File write failure.\n");
+    logerrprint(errstr_write);
     break;
   case RET_READ_FAIL:
     logprint("\n");
-    logerrprint("Error: File read failure.\n");
+    logerrprint(errstr_read);
     break;
   case RET_THREAD_CREATE_FAIL:
     logprint("\n");
@@ -2479,7 +2483,6 @@ int32_t rerun(uint32_t rerun_argv_pos, uint32_t rerun_parameter_present, int32_t
   uint32_t slen;
   uint32_t slen2;
   if (!rerunfile) {
-    print_ver();
     goto rerun_ret_OPEN_FAIL;
   }
   g_textbuf[MAXLINELEN - 1] = ' ';
@@ -3350,7 +3353,6 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t uii;
   uint32_t ujj;
   uint32_t ukk;
-  uint32_t umm;
   intptr_t default_alloc_mb;
   int64_t llxx;
   Ll_str* ll_str_ptr;
@@ -3380,7 +3382,7 @@ int32_t main(int32_t argc, char** argv) {
   setlocale(LC_NUMERIC, "C");
 
   if (init_chrom_info(&chrom_info)) {
-    goto main_ret_NOMEM;
+    goto main_ret_NOMEM_NOLOG;
   }
 
   for (uii = 1; uii < (uint32_t)argc; uii++) {
@@ -3405,36 +3407,32 @@ int32_t main(int32_t argc, char** argv) {
       scriptfile = fopen(argv[uii + 1], FOPEN_RB);
       if (!scriptfile) {
 	print_ver();
-	printf(g_errstr_fopen, argv[uii + 1]);
+	fprintf(stderr, g_errstr_fopen, argv[uii + 1]);
 	goto main_ret_OPEN_FAIL;
       }
       if (fseeko(scriptfile, 0, SEEK_END)) {
-	print_ver();
-	goto main_ret_READ_FAIL;
+	goto main_ret_READ_FAIL_NOLOG;
       }
       llxx = ftello(scriptfile);
       if (llxx == -1) {
-	print_ver();
-	goto main_ret_READ_FAIL;
+	goto main_ret_READ_FAIL_NOLOG;
       } else if (llxx > 0x7fffffff) {
 	// could actually happen if user enters parameters in the wrong order,
 	// so may as well catch it and print a somewhat informative error msg
 	print_ver();
 	fflush(stdout);
         fputs("Error: --script file too large.\n", stderr);
-        goto main_ret_NOMEM;
+        goto main_ret_INVALID_CMDLINE;
       }
       rewind(scriptfile);
       ujj = (uint32_t)((uint64_t)llxx);
       script_buf = (char*)malloc(ujj);
       if (!script_buf) {
-	print_ver();
-	goto main_ret_NOMEM;
+	goto main_ret_NOMEM_NOLOG;
       }
       ukk = fread(script_buf, 1, ujj, scriptfile);
       if (ukk < ujj) {
-	print_ver();
-	goto main_ret_READ_FAIL;
+	goto main_ret_READ_FAIL_NOLOG;
       }
       fclose_null(&scriptfile);
       num_params = 0;
@@ -3470,6 +3468,7 @@ int32_t main(int32_t argc, char** argv) {
       argc = num_params;
       cur_arg = 0;
       argv = subst_argv;
+      break;
     }
   }
   for (uii = cur_arg; uii < (uint32_t)argc; uii++) {
@@ -3491,8 +3490,9 @@ int32_t main(int32_t argc, char** argv) {
       }
       retval = rerun(uii, ujj, &argc, &cur_arg, &argv, &subst_argv, &rerun_buf);
       if (retval) {
-	goto main_ret_1;
+	goto main_ret_NOLOG;
       }
+      break;
     }
   }
   if ((cur_arg < (uint32_t)argc) && (!is_flag(argv[cur_arg]))) {
@@ -3563,10 +3563,9 @@ int32_t main(int32_t argc, char** argv) {
   flag_buf = (char*)malloc(flag_ct * MAX_FLAG_LEN * sizeof(char));
   flag_map = (uint32_t*)malloc(flag_ct * sizeof(int32_t));
   if ((!flag_buf) || (!flag_map)) {
-    goto main_ret_NOMEM;
+    goto main_ret_NOMEM_NOLOG2;
   }
   flagptr = flag_buf;
-  umm = 0; // parameter count increase due to aliases
   for (uii = cur_arg; uii < (uint32_t)argc; uii++) {
     argptr = is_flag_start(argv[uii]);
     if (argptr) {
@@ -3785,7 +3784,6 @@ int32_t main(int32_t argc, char** argv) {
 	      misc_flags |= MISC_SET_HH_MISSING;
 	      fputs("Note: --recode-fastphase flag deprecated.  Use e.g. '--recode 01 fastphase-1chr'.\n", stdout);
 	      ujj = 2;
-	      umm++;
 	    } else if (!memcmp(argptr2, "-structure", 10)) {
 	      memcpy(flagptr, "recode structure", 17);
 	      recode_modifier |= RECODE_STRUCTURE;
@@ -3798,7 +3796,6 @@ int32_t main(int32_t argc, char** argv) {
 	    if (ujj == 1) {
 	      printf("Note: --%s flag deprecated.  Use '%s ...'.\n", argptr, flagptr);
 	    }
-	    umm++;
 	    break;
 	  }
 	} else if (!strcmp(argptr, "reference-allele")) {
@@ -3833,7 +3830,7 @@ int32_t main(int32_t argc, char** argv) {
   // requires MAX_FLAG_LEN to be at least sizeof(void*) + sizeof(int32_t)
   sptr = (char*)malloc(flag_ct * MAX_FLAG_LEN);
   if (!sptr) {
-    goto main_ret_NOMEM;
+    goto main_ret_NOMEM_NOLOG2;
   }
   qsort_ext2(flag_buf, flag_ct, MAX_FLAG_LEN, strcmp_deref, (char*)flag_map, sizeof(int32_t), sptr, MAX_FLAG_LEN);
   free(sptr);
@@ -3890,19 +3887,6 @@ int32_t main(int32_t argc, char** argv) {
   outname[uii] = '\0';
 
   logstr(ver_str);
-  /*
-  sprintf(g_logbuf, "\n%d argument%s:", argc + umm - cur_arg, (argc + umm - cur_arg == 1)? "" : "s");
-  logstr(g_logbuf);
-  for (cur_flag = 0; cur_flag < flag_ct; cur_flag++) {
-    logstr(" --");
-    logstr(&(flag_buf[cur_flag * MAX_FLAG_LEN]));
-    ii = flag_map[cur_flag] + 1;
-    while ((ii < argc) && (!is_flag(argv[ii]))) {
-      logstr(" ");
-      logstr(argv[ii++]);
-    }
-  }
-  */
   logstr("\n");
   logprint("Options in effect:\n");
   for (cur_flag = 0; cur_flag < flag_ct; cur_flag++) {
@@ -13402,9 +13386,6 @@ int32_t main(int32_t argc, char** argv) {
   main_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
     break;
-  main_ret_READ_FAIL:
-    retval = RET_READ_FAIL;
-    break;
   main_ret_INVALID_CMDLINE_UNRECOGNIZED:
     invalid_arg(argv[cur_arg]);
     logerrprintb();
@@ -13451,8 +13432,22 @@ int32_t main(int32_t argc, char** argv) {
 #endif
   }
  main_ret_1:
-  fclose_cond(scriptfile);
   disp_exit_msg(retval);
+  while (0) {
+  main_ret_NOMEM_NOLOG:
+    print_ver();
+  main_ret_NOMEM_NOLOG2:
+    fputs(errstr_nomem, stderr);
+    retval = RET_NOMEM;
+    break;
+  main_ret_READ_FAIL_NOLOG:
+    print_ver();
+    fputs(errstr_read, stderr);
+    retval = RET_READ_FAIL;
+    break;
+  }
+ main_ret_NOLOG:
+  fclose_cond(scriptfile);
   free_cond(bubble);
   free_cond(bigstack_ua);
   free_cond(subst_argv);
