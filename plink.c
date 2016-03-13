@@ -92,7 +92,7 @@
 
 static const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b3.32"
+  "PLINK v1.90b3.33"
 #else
   "PLINK v1.90p"
 #endif
@@ -104,7 +104,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (11 Mar 2016)";
+  " (13 Mar 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -4177,15 +4177,12 @@ int32_t main(int32_t argc, char** argv) {
         sex_missing_pheno |= ALLOW_NO_SEX;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "llow-no-samples", 16)) {
-	UNSTABLE("allow-no-samples");
 	misc_flags |= MISC_ALLOW_NO_SAMPLES;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "llow-no-vars", 13)) {
-	UNSTABLE("allow-no-vars");
 	misc_flags |= MISC_ALLOW_NO_VARS;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "llow-no-covars", 15)) {
-	UNSTABLE("allow-no-covars");
 	covar_modifier |= COVAR_ALLOW_NONE;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ll", 3)) {
