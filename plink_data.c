@@ -6539,6 +6539,8 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
 }
 
 int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname, char* outname_end, int32_t missing_pheno, uint64_t misc_flags, uint32_t lgen_modifier, char* lgen_reference_fname, Chrom_info* chrom_info_ptr) {
+  // This code has not been carefully optimized, and also does not support
+  // multipass writes.
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* infile = NULL;
   FILE* outfile = NULL;
@@ -6714,7 +6716,7 @@ int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname,
       ii = bsearch_str(cptr, a1len, marker_ids, max_marker_id_len, marker_ct);
       if (ii != -1) {
 	marker_idx = marker_id_map[(uint32_t)ii];
-	if (marker_allele_ptrs[2 * marker_idx + 1]) {
+	if (marker_allele_ptrs[2 * marker_idx + 1] != missing_geno_ptr) {
 	  cptr[a1len] = '\0';
 	  LOGPREPRINTFWW("Error: Duplicate variant ID '%s' in .ref file.\n", cptr);
 	  goto lgen_to_bed_ret_INVALID_FORMAT_2;
@@ -6842,7 +6844,7 @@ int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname,
 	} else if ((*a2ptr == missing_geno) && (a2len == 1)) {
 	  goto lgen_to_bed_ret_HALF_MISSING;
         } else {
-          if (!sptr) {
+          if (sptr == missing_geno_ptr) {
 	    if (allele_set(a1ptr, a1len, &(marker_allele_ptrs[2 * marker_idx + 1]))) {
 	      goto lgen_to_bed_ret_NOMEM;
 	    }
@@ -6856,7 +6858,7 @@ int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname,
 	    }
 	  } else {
 	    sptr2 = marker_allele_ptrs[2 * marker_idx];
-	    if (!sptr2) {
+	    if (sptr2 == missing_geno_ptr) {
 	      if (!strcmp(a1ptr, sptr)) {
 		if (!strcmp(a2ptr, sptr)) {
 		  uii = 2;
@@ -6875,6 +6877,7 @@ int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname,
 		} else if (!strcmp(a2ptr, a1ptr)) {
 		  uii = 0;
 		} else {
+		  printf("\nfail 1\n");
 		  goto lgen_to_bed_ret_NOT_BIALLELIC;
 		}
 	      }
@@ -7890,12 +7893,15 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   }
  transposed_to_bed_ret_1:
   chrom_info_ptr->zero_extra_chroms = orig_zec;
+  printf("step 1\n");
   for (uii = 0; uii < allele_tot; uii++) {
     if (alleles[uii][1]) {
       free(alleles[uii]);
     }
   }
+  printf("step 2\n");
   cleanup_allele_storage(max_marker_allele_blen - 1, marker_ct * 2, marker_allele_ptrs);
+  printf("step 3\n");
   fclose_cond(infile);
   fclose_cond(bimfile);
   fclose_cond(outfile);

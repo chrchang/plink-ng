@@ -10192,16 +10192,14 @@ void copy_when_nonmissing(uintptr_t* loadbuf, char* source, uintptr_t elem_size,
   do {
     cur_word = *loadbuf++;
     cur_word = cur_word & (~(cur_word >> 1)) & FIVEMASK;
-    if (cur_word) {
-      do {
-	new_missing_idx = sample_idx_offset + (CTZLU(cur_word) / 2);
-	diff = new_missing_idx - last_missing_p1;
-	if (diff) {
-	  dest = memcpya(dest, &(source[last_missing_p1 * elem_size]), diff * elem_size);
-	}
-	last_missing_p1 = new_missing_idx + 1;
-	cur_word &= cur_word - 1;
-      } while (cur_word);
+    while (cur_word) {
+      new_missing_idx = sample_idx_offset + (CTZLU(cur_word) / 2);
+      diff = new_missing_idx - last_missing_p1;
+      if (diff) {
+	dest = memcpya(dest, &(source[last_missing_p1 * elem_size]), diff * elem_size);
+      }
+      last_missing_p1 = new_missing_idx + 1;
+      cur_word &= cur_word - 1;
     }
     sample_idx_offset += BITCT2;
   } while (loadbuf < loadbuf_end);
