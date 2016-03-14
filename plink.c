@@ -104,7 +104,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (13 Mar 2016)";
+  " (14 Mar 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -3856,8 +3856,8 @@ int32_t main(int32_t argc, char** argv) {
       ujj = flag_map[cur_flag];
       ukk = param_count(argc, argv, ujj);
       if (enforce_param_ct_range(ukk, argv[ujj], 1, 1)) {
-	fputs(g_logbuf, stdout);
-	fputs(errstr_append, stdout);
+	fputs(g_logbuf, stderr);
+	fputs(errstr_append, stderr);
 	goto main_ret_INVALID_CMDLINE;
       }
       if (strlen(argv[ujj + 1]) > (FNAMESIZE - MAX_POST_EXT)) {
