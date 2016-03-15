@@ -66,6 +66,15 @@
   #define EOLN_STR "\n"
   #define FOPEN_RB "r"
   #define FOPEN_WB "w"
+  #ifndef __APPLE__
+    // argh
+    #define GCC_VERSION (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__)
+    // not sure what the right threshold actually is, but this works for now
+    #if GCC_VERSION < 48000
+      #define uint64_t unsigned long long
+      #define int64_t long long
+    #endif
+  #endif
 #endif
 
 #ifdef _WIN64
