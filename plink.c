@@ -3559,7 +3559,9 @@ int32_t main(int32_t argc, char** argv) {
     goto main_ret_1;
   }
   if (ukk) {
-    FILE* dummy = freopen("/dev/null", "w", stdout);
+    if (!freopen("/dev/null", "w", stdout)) {
+      fputs("Warning: --silent failed.\n", stderr);
+    }
   }
   print_ver();
   flag_buf = (char*)malloc(flag_ct * MAX_FLAG_LEN * sizeof(char));
