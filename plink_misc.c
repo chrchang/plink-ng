@@ -287,7 +287,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_sample_ct, uintptr_t sa
 	goto load_pheno_ret_MISSING_TOKENS;
       }
       tmp_len2 = strlen_se(bufptr);
-      if ((tmp_len == 3) && (tmp_len2 == 3) && (!memcmp("FID", bufptr0, 3)) && (!memcmp("IID", bufptr, 3))) {
+      if ((((tmp_len == 3) && (!memcmp("FID", bufptr0, 3))) || ((tmp_len == 4) && (!memcmp("#FID", bufptr0, 4)))) && (tmp_len2 == 3) && (!memcmp("IID", bufptr, 3))) {
 	if (phenoname_str) {
 	  tmp_len = strlen(phenoname_str);
 	  do {

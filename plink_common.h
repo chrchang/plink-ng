@@ -52,6 +52,8 @@
     #define getc_unlocked getc
     #define putc_unlocked putc
   #endif
+  #define uint64_t unsigned long long
+  #define int64_t long long
 #else
   #include <pthread.h>
   #define THREAD_RET_TYPE void*
@@ -64,21 +66,6 @@
   #define EOLN_STR "\n"
   #define FOPEN_RB "r"
   #define FOPEN_WB "w"
-#endif
-
-#ifdef __APPLE__
-  // fix OS X 10.9 build break; unfortunately, this doesn't work on some other
-  // systems...
-  typedef unsigned long long uint64_t;
-  typedef long long int64_t;
-#else
-  #if __GNUC__ < 6
-    // not sure how the f*** this inconsistency between GCC 6 and earlier
-    // versions is supposed to be handled, hopefully there will be official
-    // guidance...
-    #define uint64_t unsigned long long
-    #define int64_t long long
-  #endif
 #endif
 
 #ifdef _WIN64
