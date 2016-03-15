@@ -3559,7 +3559,7 @@ int32_t main(int32_t argc, char** argv) {
     goto main_ret_1;
   }
   if (ukk) {
-    freopen("/dev/null", "w", stdout);
+    FILE* dummy = freopen("/dev/null", "w", stdout);
   }
   print_ver();
   flag_buf = (char*)malloc(flag_ct * MAX_FLAG_LEN * sizeof(char));
@@ -3914,7 +3914,9 @@ int32_t main(int32_t argc, char** argv) {
     logstr(g_textbuf);
   }
   logstr("\nWorking directory: ");
-  getcwd(g_textbuf, FNAMESIZE);
+  if (!getcwd(g_textbuf, FNAMESIZE)) {
+    goto main_ret_READ_FAIL;
+  }
   logstr(g_textbuf);
   logstr("\nStart time: ");
   time(&rawtime);
@@ -3926,14 +3928,8 @@ int32_t main(int32_t argc, char** argv) {
   g_thread_ct = sysinfo.dwNumberOfProcessors;
   known_procs = g_thread_ct;
 #else
-  ii = sysconf(_SC_NPROCESSORS_ONLN);
-  if (ii == -1) {
-    g_thread_ct = 1;
-    known_procs = -1;
-  } else {
-    g_thread_ct = ii;
-    known_procs = ii;
-  }
+  known_procs = sysconf(_SC_NPROCESSORS_ONLN);
+  g_thread_ct = (known_procs == -1)? 1 : ii;
 #endif
   if (g_thread_ct > 8) {
     if (g_thread_ct > MAX_THREADS) {
@@ -13384,6 +13380,9 @@ int32_t main(int32_t argc, char** argv) {
     break;
   main_ret_OPEN_FAIL:
     retval = RET_OPEN_FAIL;
+    break;
+  main_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
     break;
   main_ret_INVALID_CMDLINE_UNRECOGNIZED:
     invalid_arg(argv[cur_arg]);
