@@ -1115,7 +1115,7 @@ int32_t update_marker_alleles(char* update_alleles_fname, uint32_t* marker_id_ht
       if ((len == len2) && (!memcmp(bufptr, bufptr2, len))) {
 	goto update_marker_alleles_ret_DUPLICATE_ALLELE_CODE;
       }
-      if (memchr(bufptr, ',', len2 + ((uintptr_t)(bufptr2 - bufptr)))) {
+      if (memchr(bufptr, ',', len) || memchr(bufptr2, ',', len2)) {
 	// this breaks VCF and PLINK 2 binary
         LOGPREPRINTFWW("Error: Comma-containing new allele code on line %" PRIuPTR " of --update-alleles file.\n", line_idx);
 	goto update_marker_alleles_ret_INVALID_FORMAT_2;
