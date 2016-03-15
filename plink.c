@@ -104,7 +104,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (14 Mar 2016)";
+  " (15 Mar 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -3931,7 +3931,7 @@ int32_t main(int32_t argc, char** argv) {
   known_procs = g_thread_ct;
 #else
   known_procs = sysconf(_SC_NPROCESSORS_ONLN);
-  g_thread_ct = (known_procs == -1)? 1 : ii;
+  g_thread_ct = (known_procs == -1)? 1 : known_procs;
 #endif
   if (g_thread_ct > 8) {
     if (g_thread_ct > MAX_THREADS) {

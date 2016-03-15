@@ -2576,7 +2576,9 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
             goto unrelated_herit_batch_ret_READ_FAIL;
 	  }
 	}
-        fread(&fxx, 4, 1, grm_binfile);
+        if (fread(&fxx, sizeof(float), 1, grm_binfile) != sizeof(float)) {
+	  goto unrelated_herit_batch_ret_READ_FAIL;
+	}
         *row_ptr++ = (double)fxx;
         sample_uidx2++;
       }
@@ -5788,7 +5790,7 @@ uint32_t rel_cutoff_batch_rbin_emitn(uint32_t overflow_ct, unsigned char* readbu
   uint32_t wbuf_ct;
   uint32_t uii;
   float fxx;
-
+  float fyy;
   while (row < sample_ct) {
     if (rel_ct_arr[row] == -1) {
       fseeko(in_binfile, (row + 1) * sizeof(float), SEEK_CUR);
@@ -5812,10 +5814,15 @@ uint32_t rel_cutoff_batch_rbin_emitn(uint32_t overflow_ct, unsigned char* readbu
 	}
 	sptr_cur = memcpya(sptr_cur, wbuf, wbuf_ct);
 	sptr_cur = uint32toa_x(++new_col, '\t', sptr_cur);
-	fread(&fxx, 4, 1, in_bin_nfile);
+	if ((fread(&fxx, sizeof(float), 1, in_bin_nfile) != sizeof(float)) || (fread(&fyy, sizeof(float), 1, in_binfile) != sizeof(float))) {
+	  // can't use return code here
+	  putc_unlocked('\n', stdout);
+	  fflush(stdout);
+	  fputs("Error: File read failure.\n", stderr);
+	  exit(RET_READ_FAIL);
+	}
 	sptr_cur = uint32toa_x((int32_t)fxx, '\t', sptr_cur);
-	fread(&fxx, 4, 1, in_binfile);
-	sptr_cur = ftoa_ex(fxx, '\n', sptr_cur);
+	sptr_cur = ftoa_ex(fyy, '\n', sptr_cur);
 	col++;
 	if (sptr_cur >= readbuf_end) {
 	  goto rel_cutoff_batch_rbin_emitn_ret;
@@ -6339,10 +6346,11 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
 		  break;
 		}
 	      }
-	      fread(&fxx, 4, 1, in_bin_nfile);
+	      if ((fread(&fxx, sizeof(float), 1, in_bin_nfile) != sizeof(float)) || (fread(&fyy, sizeof(float), 1, in_binfile) != sizeof(float))) {
+		goto rel_cutoff_batch_ret_READ_FAIL;
+	      }
 	      fwrite(&fxx, 4, 1, out_bin_nfile);
-	      fread(&fxx, 4, 1, in_binfile);
-	      fwrite(&fxx, 4, 1, outfile);
+	      fwrite(&fyy, 4, 1, outfile);
 	      col++;
 	    }
 	  } else {

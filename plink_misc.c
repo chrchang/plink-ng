@@ -6301,7 +6301,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	break;
       }
       pass_idx++;
-      printf("\r--meta-analysis: Pass %u complete (%" PRIu64 "%%).", pass_idx, (last_var_idx * 100LLU) / final_variant_ct);
+      printf("\r--meta-analysis: Pass %u complete (%" PRIu64 "%%).", pass_idx, (last_var_idx * ((uint64_t)100)) / final_variant_ct);
       fflush(stdout);
     }
     if (pass_idx) {
