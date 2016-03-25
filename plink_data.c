@@ -12117,9 +12117,9 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       next_unset_ul_unsafe_ck(sample_exclude, &sample_uidx);
       cptr = &(sample_ids[sample_uidx * max_sample_id_len]);
       aptr = (char*)memchr(cptr, '\t', max_sample_id_len);
-      ulii = (uintptr_t)(aptr - cptr);
-      wbufptr = memcpyax(wbufptr, cptr, ulii, ' ');
-      wbufptr = memcpyax(wbufptr, cptr, ulii, ' ');
+      uljj = (uintptr_t)(aptr - cptr);
+      wbufptr = memcpyax(wbufptr, cptr, uljj, ' ');
+      wbufptr = memcpyax(wbufptr, cptr, uljj, ' ');
     }
     wbufptr = memcpya(wbufptr, "\nI IID ", 7);
     sample_uidx = 0;
@@ -12128,9 +12128,9 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       cptr = &(sample_ids[sample_uidx * max_sample_id_len]);
       cptr = (char*)memchr(cptr, '\t', max_sample_id_len);
       cptr++;
-      ulii = strlen(cptr);
-      wbufptr = memcpyax(wbufptr, cptr, ulii, ' ');
-      wbufptr = memcpyax(wbufptr, cptr, ulii, ' ');
+      uljj = strlen(cptr);
+      wbufptr = memcpyax(wbufptr, cptr, uljj, ' ');
+      wbufptr = memcpyax(wbufptr, cptr, uljj, ' ');
     }
     sample_uidx = 0;
     if (pheno_c) {
