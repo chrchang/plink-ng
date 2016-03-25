@@ -1234,7 +1234,10 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	    }
             in_set = 0;
 	  } else if (!in_set) {
-	    if (subset_ct && (bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_subset_ids, max_subset_id_len, subset_ct) == -1)) {
+	    // bugfix: forgot to apply --gene here
+	    //	if (gene_all || (bsearch_str_nl(&(set_names[set_idx * max_set_id_len]), sorted_genekeep_ids, max_genekeep_len, genekeep_ct) != -1)) {
+
+	    if ((subset_ct && (bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_subset_ids, max_subset_id_len, subset_ct) == -1)) || (sorted_genekeep_ids && (bsearch_str(bufptr, (uintptr_t)(bufptr2 - bufptr), sorted_genekeep_ids, max_genekeep_len, genekeep_ct) == -1))) {
 	      in_set = 2; // ignore this set
 	      bufptr = &(bufptr2[1]);
 	      continue;
