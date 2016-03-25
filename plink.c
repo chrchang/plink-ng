@@ -12312,6 +12312,11 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --vcf-min-gq must be used with --vcf.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
+	if (vcf_half_call) {
+	  logerrprint("Error: --vcf-min-gq cannot currently be used with --vcf-half-call.\n");
+	  retval = RET_CALC_NOT_YET_SUPPORTED;
+	  goto main_ret_1;
+	}
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -12354,6 +12359,8 @@ int32_t main(int32_t argc, char** argv) {
 	  vcf_half_call = VCF_HALF_CALL_MISSING;
 	} else if ((!strcmp(argv[cur_arg + 1], "e")) || (!strcmp(argv[cur_arg + 1], "error"))) {
 	  vcf_half_call = VCF_HALF_CALL_ERROR;
+	} else if ((!strcmp(argv[cur_arg + 1], "r")) || (!strcmp(argv[cur_arg + 1], "reference"))) {
+	  vcf_half_call = VCF_HALF_CALL_REFERENCE;
 	} else {
 	  sprintf(g_logbuf, "Error: '%s' is not a valid mode for --vcf-half-call.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;

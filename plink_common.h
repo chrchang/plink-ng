@@ -381,8 +381,9 @@
 
 // 0 = non-explicit error
 #define VCF_HALF_CALL_ERROR 1
-#define VCF_HALF_CALL_HAPLOID 2
-#define VCF_HALF_CALL_MISSING 3
+#define VCF_HALF_CALL_MISSING 2
+#define VCF_HALF_CALL_HAPLOID 3
+#define VCF_HALF_CALL_REFERENCE 4
 
 #define M23_MALE 1
 #define M23_FEMALE 2

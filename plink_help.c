@@ -1372,10 +1372,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --vcf-min-gp [val]               : No-call a genotype when 0-1 scaled GP is\n"
 "                                     below the given threshold.\n"
 "  --vcf-half-call [m]  : Specify how '0/.' and similar VCF GT values should be\n"
-"                         handled.  The following three modes are supported:\n"
+"                         handled.  The following four modes are supported:\n"
 "                         * 'error'/'e' (default) errors out and reports line #.\n"
 "                         * 'haploid'/'h' treats them as haploid calls.\n"
 "                         * 'missing'/'m' treats them as missing.\n"
+"                         * 'reference'/'r' treats the missing value as 0.\n"
 	       );
     help_print("oxford-single-chr\tdata\tgen", &help_ctrl, 0,
 "  --oxford-single-chr [chr nm] : Specify single-chromosome .gen file with\n"
