@@ -101,9 +101,13 @@
   #define HEADER_INLINE static inline
 #endif
 
-#if __cplusplus <= 199711L
-  #ifndef HAVE_NULLPTR
+#ifndef HAVE_NULLPTR
+  #ifndef __cplusplus
     #define nullptr NULL
+  #else
+    #if __cplusplus <= 199711L
+      #define nullptr NULL
+    #endif
   #endif
 #endif
 
