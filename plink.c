@@ -296,26 +296,26 @@ static inline int32_t relationship_or_ibc_req(uint64_t calculation_type) {
 }
 
 int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, char* famname, char* cm_map_fname, char* cm_map_chrname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* distance_wts_fname, char* read_dists_fname, char* read_dists_id_fname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* missing_mid_template, char* missing_marker_id_match, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* update_alleles_fname, char* read_genome_fname, Two_col_params* qual_filter, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* sample_sort_fname, char* filtervals_flattened, char* condition_mname, char* condition_fname, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_sample_fname, char* filter_attrib_sample_liststr, char* rplugin_fname, uint32_t rplugin_port, double qual_min_thresh, double qual_max_thresh, double thin_keep_prob, double thin_keep_sample_prob, uint32_t new_id_max_allele_len, uint32_t thin_keep_ct, uint32_t thin_keep_sample_ct, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t fam_cols, int32_t missing_pheno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, Family_info* fam_ip, double check_sex_fthresh, double check_sex_mthresh, uint32_t check_sex_f_yobs, uint32_t check_sex_m_yobs, double distance_exp, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t filter_flags, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t splitx_bound1, uint32_t splitx_bound2, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t update_sex_col, uint32_t hwe_modifier, uint32_t min_ac, uint32_t max_ac, uint32_t genome_modifier, double genome_min_pi_hat, double genome_max_pi_hat, Homozyg_info* homozyg_ptr, Cluster_info* cluster_ptr, uint32_t neighbor_n1, uint32_t neighbor_n2, Set_info* sip, Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip, Rel_info* relip, Score_info* sc_ip, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t sample_sort, int32_t marker_pos_start, int32_t marker_pos_end, int32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t write_var_range_ct, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t write_covar_modifier, uint32_t write_covar_dummy_max_categories, uint32_t dupvar_modifier, uint32_t mwithin_col, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, Aperm_info* apip, uint32_t mperm_save, uintptr_t ibs_test_perms, uint32_t perm_batch_size, double lasso_h2, double lasso_minlambda, Range_list* lasso_select_covars_range_list_ptr, uint32_t testmiss_modifier, uint32_t testmiss_mperm_val, uint32_t permphe_ct, int32_t known_procs, Ll_str** file_delete_list_ptr) {
-  FILE* bedfile = NULL;
-  FILE* phenofile = NULL;
+  FILE* bedfile = nullptr;
+  FILE* phenofile = nullptr;
   uintptr_t unfiltered_marker_ct = 0;
-  uintptr_t* marker_exclude = NULL;
+  uintptr_t* marker_exclude = nullptr;
   uintptr_t marker_exclude_ct = 0;
   uintptr_t marker_ct = 0;
   uintptr_t max_marker_id_len = 0;
   // set_allele_freqs = .bed set bit frequency in middle of loading process, A2
   //   allele frequency later.
-  double* set_allele_freqs = NULL;
+  double* set_allele_freqs = nullptr;
   uintptr_t unfiltered_sample_ct = 0;
   uintptr_t unfiltered_sample_ct4 = 0;
   uintptr_t unfiltered_sample_ctl = 0;
-  uintptr_t* sample_exclude = NULL;
+  uintptr_t* sample_exclude = nullptr;
   uintptr_t sample_exclude_ct = 0;
   uintptr_t sample_ct = 0;
-  uint32_t* sample_sort_map = NULL;
-  uintptr_t* founder_info = NULL;
-  uintptr_t* sex_nm = NULL;
-  uintptr_t* sex_male = NULL;
+  uint32_t* sample_sort_map = nullptr;
+  uintptr_t* founder_info = nullptr;
+  uintptr_t* sex_nm = nullptr;
+  uintptr_t* sex_male = nullptr;
   uint32_t genome_skip_write = (cluster_ptr->ppc != 0.0) && (!(calculation_type & CALC_GENOME)) && (!read_genome_fname);
   uint32_t marker_pos_needed = are_marker_pos_needed(calculation_type, misc_flags, cm_map_fname, sip->fname, min_bp_space, genome_skip_write, ldip->modifier, epi_ip->modifier, cluster_ptr->modifier);
   uint32_t marker_cms_needed = are_marker_cms_needed(calculation_type, cm_map_fname, update_cm);
@@ -329,62 +329,62 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   uint32_t allow_no_samples = (misc_flags / MISC_ALLOW_NO_SAMPLES) & 1;
   uint32_t allow_no_variants = (misc_flags / MISC_ALLOW_NO_VARS) & 1;
   uint32_t pheno_all = pheno_modifier & PHENO_ALL;
-  char* marker_ids = NULL;
-  uint32_t* marker_id_htable = NULL;
+  char* marker_ids = nullptr;
+  uint32_t* marker_id_htable = nullptr;
   uint32_t marker_id_htable_size = 0;
-  double* marker_cms = NULL;
+  double* marker_cms = nullptr;
   // marker_allele_ptrs[2 * i] is id of A1 (usually minor) allele at marker i
   // marker_allele_ptrs[2 * i + 1] is id of A2 allele
   // Single-character allele names point to g_one_char_strs[]; otherwise
   // string allocation occurs on the heap.
-  char** marker_allele_ptrs = NULL;
+  char** marker_allele_ptrs = nullptr;
   uintptr_t max_marker_allele_blen = 2; // er, this probably should be slen
-  uintptr_t* marker_reverse = NULL;
+  uintptr_t* marker_reverse = nullptr;
   int32_t retval = 0;
   uint32_t map_is_unsorted = 0;
   uint32_t affection = 0;
   uint32_t gender_unk_ct = 0;
-  uintptr_t* pheno_nm = NULL;
-  uintptr_t* pheno_nm_datagen = NULL; // --make-bed/--recode/--write-covar only
-  uintptr_t* orig_pheno_nm = NULL; // --all-pheno + --pheno-merge
-  uintptr_t* pheno_c = NULL;
-  uintptr_t* orig_pheno_c = NULL;
-  uintptr_t* geno_excl_bitfield = NULL;
-  uintptr_t* ac_excl_bitfield = NULL;
-  double* pheno_d = NULL;
-  double* orig_pheno_d = NULL;
-  char* sample_ids = NULL;
+  uintptr_t* pheno_nm = nullptr;
+  uintptr_t* pheno_nm_datagen = nullptr; // --make-bed/--recode/--write-covar
+  uintptr_t* orig_pheno_nm = nullptr; // --all-pheno + --pheno-merge
+  uintptr_t* pheno_c = nullptr;
+  uintptr_t* orig_pheno_c = nullptr;
+  uintptr_t* geno_excl_bitfield = nullptr;
+  uintptr_t* ac_excl_bitfield = nullptr;
+  double* pheno_d = nullptr;
+  double* orig_pheno_d = nullptr;
+  char* sample_ids = nullptr;
   uintptr_t max_sample_id_len = 4;
-  char* paternal_ids = NULL;
+  char* paternal_ids = nullptr;
   uintptr_t max_paternal_id_len = 2;
-  char* maternal_ids = NULL;
+  char* maternal_ids = nullptr;
   uintptr_t max_maternal_id_len = 2;
-  unsigned char* bigstack_mark = NULL;
+  unsigned char* bigstack_mark = nullptr;
   uintptr_t cluster_ct = 0;
-  uint32_t* cluster_map = NULL; // unfiltered sample IDs
+  uint32_t* cluster_map = nullptr; // unfiltered sample IDs
   // index for cluster_map, length (cluster_ct + 1)
   // cluster_starts[n+1] - cluster_starts[n] = length of cluster n (0-based)
-  uint32_t* cluster_starts = NULL;
-  char* cluster_ids = NULL;
+  uint32_t* cluster_starts = nullptr;
+  char* cluster_ids = nullptr;
   uintptr_t max_cluster_id_len = 2;
-  double* mds_plot_dmatrix_copy = NULL;
-  uintptr_t* cluster_merge_prevented = NULL;
-  double* cluster_sorted_ibs = NULL;
-  char* cptr = NULL;
+  double* mds_plot_dmatrix_copy = nullptr;
+  uintptr_t* cluster_merge_prevented = nullptr;
+  double* cluster_sorted_ibs = nullptr;
+  char* cptr = nullptr;
   double missing_phenod = (double)missing_pheno;
   double ci_zt = 0.0;
   uintptr_t bed_offset = 3;
-  uint32_t* marker_pos = NULL;
+  uint32_t* marker_pos = nullptr;
   uint32_t hh_exists = 0;
   uint32_t pheno_ctrl_ct = 0;
   uintptr_t covar_ct = 0;
-  char* covar_names = NULL;
+  char* covar_names = nullptr;
   uintptr_t max_covar_name_len = 0;
-  uintptr_t* covar_nm = NULL;
-  double* covar_d = NULL;
-  uintptr_t* gxe_covar_nm = NULL;
-  uintptr_t* gxe_covar_c = NULL;
-  uintptr_t* pca_sample_exclude = NULL;
+  uintptr_t* covar_nm = nullptr;
+  double* covar_d = nullptr;
+  uintptr_t* gxe_covar_nm = nullptr;
+  uintptr_t* gxe_covar_c = nullptr;
+  uintptr_t* pca_sample_exclude = nullptr;
   uintptr_t pca_sample_ct = 0;
   uintptr_t ulii = 0;
   uint32_t pheno_nm_ct = 0;
@@ -395,21 +395,21 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   uint32_t sample_male_ct = 0;
   uint32_t sample_f_ct = 0;
   uint32_t sample_f_male_ct = 0;
-  unsigned char* bigstack_mark2 = NULL;
-  unsigned char* bigstack_mark_precluster = NULL;
-  unsigned char* bigstack_mark_postcluster = NULL;
-  uint32_t* nchrobs = NULL;
-  int32_t* hwe_lls = NULL;
-  int32_t* hwe_lhs = NULL;
-  int32_t* hwe_hhs = NULL;
-  int32_t* hwe_ll_cases = NULL;
-  int32_t* hwe_lh_cases = NULL;
-  int32_t* hwe_hh_cases = NULL;
-  int32_t* hwe_ll_allfs = NULL;
-  int32_t* hwe_lh_allfs = NULL;
-  int32_t* hwe_hh_allfs = NULL;
-  int32_t* hwe_hapl_allfs = NULL;
-  int32_t* hwe_haph_allfs = NULL;
+  unsigned char* bigstack_mark2 = nullptr;
+  unsigned char* bigstack_mark_precluster = nullptr;
+  unsigned char* bigstack_mark_postcluster = nullptr;
+  uint32_t* nchrobs = nullptr;
+  int32_t* hwe_lls = nullptr;
+  int32_t* hwe_lhs = nullptr;
+  int32_t* hwe_hhs = nullptr;
+  int32_t* hwe_ll_cases = nullptr;
+  int32_t* hwe_lh_cases = nullptr;
+  int32_t* hwe_hh_cases = nullptr;
+  int32_t* hwe_ll_allfs = nullptr;
+  int32_t* hwe_lh_allfs = nullptr;
+  int32_t* hwe_hh_allfs = nullptr;
+  int32_t* hwe_hapl_allfs = nullptr;
+  int32_t* hwe_haph_allfs = nullptr;
   pthread_t threads[MAX_THREADS];
   uint32_t* uiptr;
   double* rel_ibc;
@@ -440,7 +440,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   // famname[0] is nonzero iff we're not in the --merge-list special case
   if ((calculation_type & CALC_MAKE_BED) && famname[0]) {
 #ifdef _WIN32
-    uii = GetFullPathName(bedname, FNAMESIZE, g_textbuf, NULL);
+    uii = GetFullPathName(bedname, FNAMESIZE, g_textbuf, nullptr);
     if ((!uii) || (uii > FNAMESIZE))
 #else
     if (!realpath(bedname, g_textbuf))
@@ -455,10 +455,10 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       goto plink_ret_OPEN_FAIL;
     }
     memcpy(outname_end, ".bed", 5);
-    // if file doesn't exist, realpath returns NULL on Linux instead of what
+    // if file doesn't exist, realpath returns nullptr on Linux instead of what
     // the path would be.
 #ifdef _WIN32
-    uii = GetFullPathName(outname, FNAMESIZE, &(g_textbuf[FNAMESIZE + 64]), NULL);
+    uii = GetFullPathName(outname, FNAMESIZE, &(g_textbuf[FNAMESIZE + 64]), nullptr);
     if (uii && (uii <= FNAMESIZE) && (!strcmp(g_textbuf, &(g_textbuf[FNAMESIZE + 64]))))
 #else
     cptr = realpath(outname, &(g_textbuf[FNAMESIZE + 64]));
@@ -551,7 +551,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     if (!marker_alleles_needed) {
       allelexxxx = 0;
     }
-    retval = load_bim(bimname, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, &set_allele_freqs, nchrobs_needed? (&nchrobs) : NULL, &marker_allele_ptrs, &max_marker_allele_blen, &marker_ids, missing_mid_template, new_id_max_allele_len, missing_marker_id_match, chrom_info_ptr, &marker_cms, &marker_pos, misc_flags, filter_flags, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_range_list_ptr, &map_is_unsorted, marker_pos_needed, marker_cms_needed, marker_alleles_needed, ((!(calculation_type & (~(CALC_MAKE_BED | CALC_MAKE_BIM | CALC_MAKE_FAM)))) && (mind_thresh == 1.0) && (geno_thresh == 1.0) && (hwe_thresh == 0.0) && (!update_map) && (!freqname))? NULL : "make-bed", ".bim file", &max_bim_linelen);
+    retval = load_bim(bimname, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, &set_allele_freqs, nchrobs_needed? (&nchrobs) : nullptr, &marker_allele_ptrs, &max_marker_allele_blen, &marker_ids, missing_mid_template, new_id_max_allele_len, missing_marker_id_match, chrom_info_ptr, &marker_cms, &marker_pos, misc_flags, filter_flags, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_range_list_ptr, &map_is_unsorted, marker_pos_needed, marker_cms_needed, marker_alleles_needed, ((!(calculation_type & (~(CALC_MAKE_BED | CALC_MAKE_BIM | CALC_MAKE_FAM)))) && (mind_thresh == 1.0) && (geno_thresh == 1.0) && (hwe_thresh == 0.0) && (!update_map) && (!freqname))? nullptr : "make-bed", ".bim file", &max_bim_linelen);
     if (retval) {
       goto plink_ret_1;
     }
@@ -649,7 +649,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	    goto plink_ret_1;
 	  }
 	} else if (phenofile) {
-	  retval = load_pheno(phenofile, unfiltered_sample_ct, 0, cptr, max_sample_id_len, uiptr, missing_pheno, (misc_flags / MISC_AFFECTION_01) & 1, mpheno_col, phenoname_str, pheno_nm, &pheno_c, &pheno_d, NULL, 0);
+	  retval = load_pheno(phenofile, unfiltered_sample_ct, 0, cptr, max_sample_id_len, uiptr, missing_pheno, (misc_flags / MISC_AFFECTION_01) & 1, mpheno_col, phenoname_str, pheno_nm, &pheno_c, &pheno_d, nullptr, 0);
 	  if (retval) {
 	    if (retval == LOAD_PHENO_LAST_COL) {
 	      logerrprintb();
@@ -1092,7 +1092,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     }
     if (filter_flags & (FILTER_BINARY_FOUNDERS | FILTER_BINARY_NONFOUNDERS)) {
       ii = sample_exclude_ct;
-      filter_samples_bitfields(unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, founder_info, (filter_flags / FILTER_BINARY_FOUNDERS) & 1, NULL);
+      filter_samples_bitfields(unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, founder_info, (filter_flags / FILTER_BINARY_FOUNDERS) & 1, nullptr);
       if ((sample_exclude_ct == unfiltered_sample_ct) && (!allow_no_samples)) {
 	LOGERRPRINTF("Error: All %s removed due to founder status (--filter-%s).\n", g_species_plural, (filter_flags & FILTER_BINARY_FOUNDERS)? "founders" : "nonfounders");
 	goto plink_ret_ALL_SAMPLES_EXCLUDED;
@@ -1223,7 +1223,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       } else {
 	// if only --gxe, ignore --covar-name/--covar-number
 	uii = (calculation_type & (CALC_MAKE_BED | CALC_MAKE_FAM | CALC_RECODE | CALC_WRITE_COVAR | CALC_GLM | CALC_LASSO | CALC_RPLUGIN))? 1 : 0;
-	retval = load_covars(covar_fname, unfiltered_sample_ct, sample_exclude, sample_ct, NULL, NULL, sample_ids, max_sample_id_len, missing_phenod, uii? covar_modifier : (covar_modifier & COVAR_KEEP_PHENO_ON_MISSING_COV), uii? covar_range_list_ptr : NULL, gxe_mcovar, &covar_ct, &covar_names, &max_covar_name_len, pheno_nm, &covar_nm, &covar_d, &gxe_covar_nm, &gxe_covar_c);
+	retval = load_covars(covar_fname, unfiltered_sample_ct, sample_exclude, sample_ct, nullptr, nullptr, sample_ids, max_sample_id_len, missing_phenod, uii? covar_modifier : (covar_modifier & COVAR_KEEP_PHENO_ON_MISSING_COV), uii? covar_range_list_ptr : nullptr, gxe_mcovar, &covar_ct, &covar_names, &max_covar_name_len, pheno_nm, &covar_nm, &covar_d, &gxe_covar_nm, &gxe_covar_c);
 	if (retval) {
 	  goto plink_ret_1;
 	}
@@ -1264,7 +1264,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       goto plink_ret_NOMEM;
     }
     if (bedfile && sample_ct) {
-      retval = calc_freqs_and_hwe(bedfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, unfiltered_sample_ct, sample_exclude, sample_exclude_ct, sample_ids, max_sample_id_len, founder_info, nonfounders, (misc_flags / MISC_MAF_SUCC) & 1, set_allele_freqs, bed_offset, (hwe_thresh > 0.0) || (calculation_type & CALC_HARDY), hwe_modifier & HWE_THRESH_ALL, (pheno_nm_ct && pheno_c)? ((calculation_type / CALC_HARDY) & 1) : 0, min_ac, max_ac, geno_thresh, pheno_nm, pheno_nm_ct? pheno_c : NULL, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_cases, &hwe_lh_cases, &hwe_hh_cases, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &hwe_hapl_allfs, &hwe_haph_allfs, &geno_excl_bitfield, &ac_excl_bitfield, &sample_male_ct, &sample_f_ct, &sample_f_male_ct, chrom_info_ptr, om_ip, sex_nm, sex_male, map_is_unsorted & UNSORTED_SPLIT_CHROM, &hh_exists);
+      retval = calc_freqs_and_hwe(bedfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, unfiltered_sample_ct, sample_exclude, sample_exclude_ct, sample_ids, max_sample_id_len, founder_info, nonfounders, (misc_flags / MISC_MAF_SUCC) & 1, set_allele_freqs, bed_offset, (hwe_thresh > 0.0) || (calculation_type & CALC_HARDY), hwe_modifier & HWE_THRESH_ALL, (pheno_nm_ct && pheno_c)? ((calculation_type / CALC_HARDY) & 1) : 0, min_ac, max_ac, geno_thresh, pheno_nm, pheno_nm_ct? pheno_c : nullptr, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_cases, &hwe_lh_cases, &hwe_hh_cases, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &hwe_hapl_allfs, &hwe_haph_allfs, &geno_excl_bitfield, &ac_excl_bitfield, &sample_male_ct, &sample_f_ct, &sample_f_male_ct, chrom_info_ptr, om_ip, sex_nm, sex_male, map_is_unsorted & UNSORTED_SPLIT_CHROM, &hh_exists);
       if (retval) {
 	goto plink_ret_1;
       }
@@ -1446,7 +1446,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	  }
 	  if (pca_sample_ct == sample_ct) {
 	    logerrprint("Warning: --pca-cluster-names/--pca-clusters has no effect since all samples are\nin the named clusters.\n");
-	    pca_sample_exclude = NULL;
+	    pca_sample_exclude = nullptr;
 	  } else {
 	    LOGPRINTF("--pca-cluster-names/--pca-clusters: %" PRIuPTR " samples specified.\n", pca_sample_ct);
 	    ulii = unfiltered_sample_ct - pca_sample_ct;
@@ -1500,8 +1500,8 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	if (retval) {
 	  goto plink_ret_1;
 	}
-	g_sample_missing_unwt = NULL;
-	g_missing_dbl_excluded = NULL;
+	g_sample_missing_unwt = nullptr;
+	g_missing_dbl_excluded = nullptr;
       }
 
       if (calculation_type & CALC_SEXCHECK) {
@@ -1538,7 +1538,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     }
 
     if (calculation_type & CALC_WRITE_SNPLIST) {
-      retval = write_snplist(outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, NULL, 0);
+      retval = write_snplist(outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, nullptr, 0);
       if (retval) {
 	goto plink_ret_1;
       }
@@ -1670,7 +1670,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   }
 
   if ((calculation_type & CALC_EPI) && epi_ip->ld_mkr1) {
-    retval = twolocus(epi_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, chrom_info_ptr, unfiltered_sample_ct, founder_info, 0, NULL, 0, 0, NULL, sex_male, NULL, NULL, hh_exists);
+    retval = twolocus(epi_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, chrom_info_ptr, unfiltered_sample_ct, founder_info, 0, nullptr, 0, 0, nullptr, sex_male, nullptr, nullptr, hh_exists);
     if (retval) {
       goto plink_ret_1;
     }
@@ -1788,7 +1788,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     if (bigstack_alloc_d((sample_ct * (sample_ct - 1)) / 2, &g_dists)) {
       goto plink_ret_NOMEM;
     }
-    retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, 0, NULL, NULL, 0, 0, g_dists, 0, NULL, NULL);
+    retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, 0, nullptr, nullptr, 0, 0, g_dists, 0, nullptr, nullptr);
     if (retval) {
       goto plink_ret_1;
     }
@@ -1824,12 +1824,12 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 
   if (read_dists_fname && (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE))) {
     bigstack_reset(g_dists);
-    g_dists = NULL;
+    g_dists = nullptr;
   }
 
   if ((calculation_type & CALC_GENOME) || genome_skip_write) {
     bigstack_reset(bigstack_mark2);
-    g_dists = NULL;
+    g_dists = nullptr;
     retval = calc_genome(threads, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, marker_pos, set_allele_freqs, nchrobs, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, plink_maxfid, plink_maxiid, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, founder_info, parallel_idx, parallel_tot, outname, outname_end, nonfounders, calculation_type, genome_modifier, ppc_gap, genome_min_pi_hat, genome_max_pi_hat, pheno_nm, pheno_c, pri, genome_skip_write);
     if (retval) {
       goto plink_ret_1;
@@ -1837,14 +1837,14 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   }
 
   if (calculation_type & CALC_HET) {
-    retval = het_report(bedfile, bed_offset, outname, outname_end, (misc_flags / MISC_HET_GZ) & 1, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, plink_maxfid, plink_maxiid, max_sample_id_len, (misc_flags & MISC_HET_SMALL_SAMPLE)? founder_info : NULL, chrom_info_ptr, set_allele_freqs);
+    retval = het_report(bedfile, bed_offset, outname, outname_end, (misc_flags / MISC_HET_GZ) & 1, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, plink_maxfid, plink_maxiid, max_sample_id_len, (misc_flags & MISC_HET_SMALL_SAMPLE)? founder_info : nullptr, chrom_info_ptr, set_allele_freqs);
     if (retval) {
       goto plink_ret_1;
     }
   }
 
   if (calculation_type & CALC_FST) {
-    retval = fst_report(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_pos, chrom_info_ptr, unfiltered_sample_ct, sample_exclude, pheno_nm, (misc_flags & MISC_FST_CC)? pheno_c : NULL, cluster_ct, cluster_map, cluster_starts);
+    retval = fst_report(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_pos, chrom_info_ptr, unfiltered_sample_ct, sample_exclude, pheno_nm, (misc_flags & MISC_FST_CC)? pheno_c : nullptr, cluster_ct, cluster_map, cluster_starts);
     if (retval) {
       goto plink_ret_1;
     }
@@ -1894,13 +1894,13 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     uii = 0; // phenotype/cluster number
     *outname_end = '.';
     if (loop_assoc_fname) {
-      retval = load_clusters(loop_assoc_fname, unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, sample_ids, max_sample_id_len, mwithin_col, (misc_flags / MISC_LOAD_CLUSTER_KEEP_NA) & 1, &cluster_ct, &cluster_map, &cluster_starts, &cluster_ids, &max_cluster_id_len, NULL, NULL, NULL, NULL, 0);
+      retval = load_clusters(loop_assoc_fname, unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, sample_ids, max_sample_id_len, mwithin_col, (misc_flags / MISC_LOAD_CLUSTER_KEEP_NA) & 1, &cluster_ct, &cluster_map, &cluster_starts, &cluster_ids, &max_cluster_id_len, nullptr, nullptr, nullptr, nullptr, 0);
       if (retval) {
 	goto plink_ret_1;
       }
       if (pheno_d) {
 	free(pheno_d);
-	pheno_d = NULL;
+	pheno_d = nullptr;
       }
       if (!pheno_c) {
 	if (aligned_malloc(unfiltered_sample_ctl * sizeof(intptr_t), &pheno_c)) {
@@ -1933,7 +1933,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	  if (orig_pheno_c) {
 	    if (!pheno_c) {
 	      free(pheno_d);
-	      pheno_d = NULL;
+	      pheno_d = nullptr;
 	      if (aligned_malloc(unfiltered_sample_ctl * sizeof(intptr_t), &pheno_c)) {
 		goto plink_ret_NOMEM;
 	      }
@@ -1947,14 +1947,14 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	  aligned_free_cond_null(&pheno_c);
 	  if (pheno_d) {
 	    free(pheno_d);
-	    pheno_d = NULL;
+	    pheno_d = nullptr;
 	  }
 	}
 	uii++;
       plink_skip_empty_pheno:
 	rewind(phenofile);
 	outname_end[1] = '\0';
-	retval = load_pheno(phenofile, unfiltered_sample_ct, sample_exclude_ct, cptr, max_sample_id_len, uiptr, missing_pheno, (misc_flags / MISC_AFFECTION_01) & 1, uii, NULL, pheno_nm, &pheno_c, &pheno_d, &(outname_end[1]), (uintptr_t)((&(outname[FNAMESIZE - 32])) - outname_end));
+	retval = load_pheno(phenofile, unfiltered_sample_ct, sample_exclude_ct, cptr, max_sample_id_len, uiptr, missing_pheno, (misc_flags / MISC_AFFECTION_01) & 1, uii, nullptr, pheno_nm, &pheno_c, &pheno_d, &(outname_end[1]), (uintptr_t)((&(outname[FNAMESIZE - 32])) - outname_end));
 	if (retval == LOAD_PHENO_LAST_COL) {
 	  bigstack_reset(bigstack_mark);
 	  retval = 0; // exit code bugfix
@@ -1996,7 +1996,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	    retval = qassoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_mperm_val, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, cluster_ct, cluster_map, cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_d, founder_info, sex_male, hh_exists, ldip->modifier & LD_IGNORE_X, perm_batch_size, sip);
 	  }
 	} else {
-	  retval = model_assoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_cell_ct, model_mperm_val, ci_size, ci_zt, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_blen, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, cluster_ct, cluster_map, loop_assoc_fname? NULL : cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, founder_info, sex_male, hh_exists, ldip->modifier & LD_IGNORE_X, perm_batch_size, sip);
+	  retval = model_assoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_cell_ct, model_mperm_val, ci_size, ci_zt, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_blen, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, cluster_ct, cluster_map, loop_assoc_fname? nullptr : cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, founder_info, sex_male, hh_exists, ldip->modifier & LD_IGNORE_X, perm_batch_size, sip);
 	}
 	if (retval) {
 	  goto plink_ret_1;
@@ -2059,7 +2059,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	}
       }
       if ((calculation_type & CALC_TESTMISS) && pheno_c) {
-        retval = testmiss(threads, bedfile, bed_offset, outname, outname_end2, testmiss_mperm_val, testmiss_modifier, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, unfiltered_sample_ct, cluster_ct, cluster_map, loop_assoc_fname? NULL : cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists);
+        retval = testmiss(threads, bedfile, bed_offset, outname, outname_end2, testmiss_mperm_val, testmiss_modifier, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, unfiltered_sample_ct, cluster_ct, cluster_map, loop_assoc_fname? nullptr : cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists);
         if (retval) {
 	  goto plink_ret_1;
 	}
@@ -2071,7 +2071,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	}
       }
       if ((calculation_type & CALC_DFAM) && pheno_c) {
-	retval = dfam(threads, bedfile, bed_offset, outname, outname_end2, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_blen, marker_reverse, unfiltered_sample_ct, sample_exclude, sample_ct, cluster_ct, cluster_map, loop_assoc_fname? NULL : cluster_starts, apip, mperm_save, pheno_c, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, chrom_info_ptr, hh_exists, (cluster_ptr->fname != NULL), perm_batch_size, fam_ip, sip);
+	retval = dfam(threads, bedfile, bed_offset, outname, outname_end2, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_blen, marker_reverse, unfiltered_sample_ct, sample_exclude, sample_ct, cluster_ct, cluster_map, loop_assoc_fname? nullptr : cluster_starts, apip, mperm_save, pheno_c, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, chrom_info_ptr, hh_exists, (cluster_ptr->fname != nullptr), perm_batch_size, fam_ip, sip);
 	if (retval) {
 	  goto plink_ret_1;
 	}
@@ -2158,7 +2158,7 @@ static inline char* is_flag_start(char* param) {
   if ((*param == '-') && ((ucc > '9') || ((ucc < '0') && (ucc != '.') && (ucc != '\0')))) {
     return (ucc == '-')? (&(param[2])) : (&(param[1]));
   }
-  return NULL;
+  return nullptr;
 }
 
 uint32_t param_count(int32_t argc, char** argv, int32_t flag_idx) {
@@ -2198,14 +2198,14 @@ int32_t enforce_param_ct_range(uint32_t param_ct, char* flag_name, uint32_t min_
 int32_t parse_next_range(uint32_t param_ct, char range_delim, char** argv, uint32_t* cur_param_idx_ptr, char** cur_arg_pptr, char** range_start_ptr, uint32_t* rs_len_ptr, char** range_end_ptr, uint32_t* re_len_ptr) {
   // Starts reading from argv[cur_param_idx][cur_pos].  If a valid range is
   // next, range_start + rs_len + range_end + re_len are updated.  If only a
-  // single item is next, range_end is set to NULL and range_start + rs_len are
-  // updated.  If there are no items left, range_start is set to NULL.  If
-  // the input is not well-formed, -1 is returned instead of 0.
+  // single item is next, range_end is set to nullptr and range_start + rs_len
+  // are updated.  If there are no items left, range_start is set to nullptr.
+  // If the input is not well-formed, -1 is returned instead of 0.
   uint32_t cur_param_idx = *cur_param_idx_ptr;
   char* cur_arg_ptr = *cur_arg_pptr;
   char cc;
   if (cur_param_idx > param_ct) {
-    *cur_arg_pptr = NULL;
+    *cur_arg_pptr = nullptr;
     return 0;
   }
   while (1) {
@@ -2213,7 +2213,7 @@ int32_t parse_next_range(uint32_t param_ct, char range_delim, char** argv, uint3
     if (!cc) {
       *cur_param_idx_ptr = ++cur_param_idx;
       if (cur_param_idx > param_ct) {
-	*range_start_ptr = NULL;
+	*range_start_ptr = nullptr;
 	return 0;
       }
       cur_arg_ptr = argv[cur_param_idx];
@@ -2233,7 +2233,7 @@ int32_t parse_next_range(uint32_t param_ct, char range_delim, char** argv, uint3
     if ((!cc) || (cc == ',')) {
       *rs_len_ptr = (uintptr_t)(cur_arg_ptr - (*range_start_ptr));
       *cur_arg_pptr = cur_arg_ptr;
-      *range_end_ptr = NULL;
+      *range_end_ptr = nullptr;
       return 0;
     }
   } while (cc != range_delim);
@@ -2464,7 +2464,7 @@ int32_t rerun(uint32_t rerun_argv_pos, uint32_t rerun_parameter_present, int32_t
   char** argv = *argv_ptr;
   FILE* rerunfile = fopen(rerun_parameter_present? argv[rerun_argv_pos + 1] : (PROG_NAME_STR ".log"), "r");
   uintptr_t line_idx = 1;
-  char** subst_argv2 = NULL;
+  char** subst_argv2 = nullptr;
   uint32_t argc = (uint32_t)(*argc_ptr);
   uint32_t cur_arg = *cur_arg_ptr;
   int32_t retval = 0;
@@ -2654,7 +2654,7 @@ int32_t rerun(uint32_t rerun_argv_pos, uint32_t rerun_parameter_present, int32_t
   }
   *subst_argv_ptr = subst_argv2;
   *argv_ptr = subst_argv2;
-  subst_argv2 = NULL;
+  subst_argv2 = nullptr;
   while (0) {
   rerun_ret_NOMEM:
     print_ver();
@@ -3073,71 +3073,71 @@ int32_t recode_type_set(uint32_t* recode_modifier_ptr, uint32_t cur_code) {
 }
 
 int32_t main(int32_t argc, char** argv) {
-  char* outname_end = NULL;
-  char** subst_argv = NULL;
-  char* script_buf = NULL;
-  char* rerun_buf = NULL;
-  char* flag_buf = NULL;
-  uint32_t* flag_map = NULL;
-  char* makepheno_str = NULL;
-  char* phenoname_str = NULL;
-  Two_col_params* a1alleles = NULL;
-  Two_col_params* a2alleles = NULL;
-  char* sample_sort_fname = NULL;
-  char* filtervals_flattened = NULL;
-  char* evecname = NULL;
-  char* filtername = NULL;
-  char* distance_wts_fname = NULL;
-  char* read_dists_fname = NULL;
-  char* read_dists_id_fname = NULL;
-  char* freqname = NULL;
-  char* extractname = NULL;
-  char* excludename = NULL;
-  char* keepname = NULL;
-  char* removename = NULL;
-  char* keepfamname = NULL;
-  char* removefamname = NULL;
-  char* cm_map_fname = NULL;
-  char* cm_map_chrname = NULL;
-  char* phenoname = NULL;
-  char* recode_allele_name = NULL;
-  char* lgen_reference_fname = NULL;
-  char* covar_fname = NULL;
-  char* update_alleles_fname = NULL;
-  Two_col_params* qual_filter = NULL;
-  Two_col_params* update_chr = NULL;
-  Two_col_params* update_cm = NULL;
-  Two_col_params* update_map = NULL;
-  Two_col_params* update_name = NULL;
-  char* oxford_single_chr = NULL;
-  char* oxford_pheno_name = NULL;
-  char* update_ids_fname = NULL;
-  char* update_parents_fname = NULL;
-  char* update_sex_fname = NULL;
-  char* loop_assoc_fname = NULL;
-  char* flip_fname = NULL;
-  char* flip_subset_fname = NULL;
-  char* read_genome_fname = NULL;
-  char* condition_mname = NULL;
-  char* condition_fname = NULL;
-  char* missing_marker_id_match = NULL;
-  char* filter_attrib_fname = NULL;
-  char* filter_attrib_liststr = NULL;
-  char* filter_attrib_sample_fname = NULL;
-  char* filter_attrib_sample_liststr = NULL;
-  char* const_fid = NULL;
-  char* vcf_filter_exceptions_flattened = NULL;
-  char* gene_report_fname = NULL;
-  char* gene_report_glist = NULL;
-  char* gene_report_subset = NULL;
-  char* gene_report_snp_field = NULL;
-  char* metaanal_fnames = NULL;
-  char* metaanal_snpfield_search_order = NULL;
-  char* metaanal_a1field_search_order = NULL;
-  char* metaanal_a2field_search_order = NULL;
-  char* metaanal_pfield_search_order = NULL;
-  char* metaanal_essfield_search_order = NULL;
-  char* rplugin_fname = NULL;
+  char* outname_end = nullptr;
+  char** subst_argv = nullptr;
+  char* script_buf = nullptr;
+  char* rerun_buf = nullptr;
+  char* flag_buf = nullptr;
+  uint32_t* flag_map = nullptr;
+  char* makepheno_str = nullptr;
+  char* phenoname_str = nullptr;
+  Two_col_params* a1alleles = nullptr;
+  Two_col_params* a2alleles = nullptr;
+  char* sample_sort_fname = nullptr;
+  char* filtervals_flattened = nullptr;
+  char* evecname = nullptr;
+  char* filtername = nullptr;
+  char* distance_wts_fname = nullptr;
+  char* read_dists_fname = nullptr;
+  char* read_dists_id_fname = nullptr;
+  char* freqname = nullptr;
+  char* extractname = nullptr;
+  char* excludename = nullptr;
+  char* keepname = nullptr;
+  char* removename = nullptr;
+  char* keepfamname = nullptr;
+  char* removefamname = nullptr;
+  char* cm_map_fname = nullptr;
+  char* cm_map_chrname = nullptr;
+  char* phenoname = nullptr;
+  char* recode_allele_name = nullptr;
+  char* lgen_reference_fname = nullptr;
+  char* covar_fname = nullptr;
+  char* update_alleles_fname = nullptr;
+  Two_col_params* qual_filter = nullptr;
+  Two_col_params* update_chr = nullptr;
+  Two_col_params* update_cm = nullptr;
+  Two_col_params* update_map = nullptr;
+  Two_col_params* update_name = nullptr;
+  char* oxford_single_chr = nullptr;
+  char* oxford_pheno_name = nullptr;
+  char* update_ids_fname = nullptr;
+  char* update_parents_fname = nullptr;
+  char* update_sex_fname = nullptr;
+  char* loop_assoc_fname = nullptr;
+  char* flip_fname = nullptr;
+  char* flip_subset_fname = nullptr;
+  char* read_genome_fname = nullptr;
+  char* condition_mname = nullptr;
+  char* condition_fname = nullptr;
+  char* missing_marker_id_match = nullptr;
+  char* filter_attrib_fname = nullptr;
+  char* filter_attrib_liststr = nullptr;
+  char* filter_attrib_sample_fname = nullptr;
+  char* filter_attrib_sample_liststr = nullptr;
+  char* const_fid = nullptr;
+  char* vcf_filter_exceptions_flattened = nullptr;
+  char* gene_report_fname = nullptr;
+  char* gene_report_glist = nullptr;
+  char* gene_report_subset = nullptr;
+  char* gene_report_snp_field = nullptr;
+  char* metaanal_fnames = nullptr;
+  char* metaanal_snpfield_search_order = nullptr;
+  char* metaanal_a1field_search_order = nullptr;
+  char* metaanal_a2field_search_order = nullptr;
+  char* metaanal_pfield_search_order = nullptr;
+  char* metaanal_essfield_search_order = nullptr;
+  char* rplugin_fname = nullptr;
   uint32_t gene_report_border = 0;
   uint32_t metaanal_flags = 0;
   uint32_t rplugin_port = 6311;
@@ -3202,12 +3202,12 @@ int32_t main(int32_t argc, char** argv) {
   double glm_vif_thresh = 50.0;
   uint32_t glm_xchr_model = 1;
   uint32_t ppc_gap = DEFAULT_PPC_GAP;
-  uint32_t* rseeds = NULL;
+  uint32_t* rseeds = nullptr;
   uint32_t rseed_ct = 0;
   uint32_t genome_modifier = 0;
   double genome_min_pi_hat = -1.0;
   double genome_max_pi_hat = 1.0;
-  FILE* scriptfile = NULL;
+  FILE* scriptfile = nullptr;
   uint32_t recode_modifier = 0;
   uint32_t allelexxxx = 0;
   uint32_t merge_type = 0;
@@ -3219,17 +3219,17 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t dummy_flags = 0;
   double dummy_missing_geno = 0.0;
   double dummy_missing_pheno = 0.0;
-  char* simulate_fname = NULL;
+  char* simulate_fname = nullptr;
   uint32_t simulate_flags = 0;
   uint32_t simulate_cases = 1000;
   uint32_t simulate_controls = 1000;
   double simulate_prevalence = 0.01;
-  char* simulate_label = NULL;
+  char* simulate_label = nullptr;
   double simulate_missing = 0.0;
   uint32_t simulate_qt_samples = 1000;
-  char* markername_from = NULL;
-  char* markername_to = NULL;
-  char* markername_snp = NULL;
+  char* markername_from = nullptr;
+  char* markername_to = nullptr;
+  char* markername_snp = nullptr;
   // minor bugfix: --snp and '--window 0 --snp' should actually behave
   // differently when there are other variants at the same bp coordinate
   int32_t snp_window_size = -1;
@@ -3264,8 +3264,8 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t cnv_min_sites = 0;
   uint32_t cnv_max_sites = 0xffffffffU;
   uint32_t cnv_intersect_filter_type = 0;
-  char* cnv_intersect_filter_fname = NULL;
-  char* cnv_subset_fname = NULL;
+  char* cnv_intersect_filter_fname = nullptr;
+  char* cnv_subset_fname = nullptr;
   uint32_t cnv_overlap_type = 0;
   double cnv_overlap_val = 0.0;
   uint32_t cnv_freq_type = 0;
@@ -3287,16 +3287,16 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t new_id_max_allele_len = 23;
 
   uint32_t aperm_present = 0;
-  char* segment_spanning_fname = NULL;
-  char* missing_code = NULL;
+  char* segment_spanning_fname = nullptr;
+  char* missing_code = nullptr;
   char range_delim = '-';
   uint32_t modifier_23 = 0;
   double pheno_23 = DBL_MAX;
-  char* fid_23 = NULL;
-  char* iid_23 = NULL;
-  char* paternal_id_23 = NULL;
-  char* maternal_id_23 = NULL;
-  Ll_str* file_delete_list = NULL;
+  char* fid_23 = nullptr;
+  char* iid_23 = nullptr;
+  char* paternal_id_23 = nullptr;
+  char* maternal_id_23 = nullptr;
+  Ll_str* file_delete_list = nullptr;
   uint32_t chrom_flag_present = 0;
   uintptr_t chrom_exclude[CHROM_MASK_INITIAL_WORDS];
   // er, except for first four, these should not be preallocated...
@@ -3313,8 +3313,8 @@ int32_t main(int32_t argc, char** argv) {
   int32_t mib[2];
   size_t sztmp;
 #endif
-  unsigned char* bigstack_ua = NULL; // ua = unaligned
-  char* bubble = NULL;
+  unsigned char* bigstack_ua = nullptr; // ua = unaligned
+  char* bubble = nullptr;
   unsigned char* bigstack_initial_base;
   uint32_t param_ct;
   time_t rawtime;
@@ -3376,7 +3376,7 @@ int32_t main(int32_t argc, char** argv) {
   range_list_init(&lasso_select_covars_range_list);
   range_list_init(&parameters_range_list);
   range_list_init(&tests_range_list);
-  missing_mid_template = NULL;
+  missing_mid_template = nullptr;
 
   // standardize strtod() behavior
   setlocale(LC_NUMERIC, "C");
@@ -12168,7 +12168,7 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	  logprint("Note: --update-map [filename] + parameter-free --update-name deprecated.  Use\n--update-name [filename] instead.\n");
 	  update_name = update_map;
-	  update_map = NULL;
+	  update_map = nullptr;
 	} else {
 	  if (update_map) {
 	    // no point in explaining the deprecated exception to this in the
@@ -13169,13 +13169,13 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(rerun_buf);
   free_cond(flag_buf);
   free_cond(flag_map);
-  subst_argv = NULL;
-  script_buf = NULL;
-  rerun_buf = NULL;
-  flag_buf = NULL;
-  flag_map = NULL;
+  subst_argv = nullptr;
+  script_buf = nullptr;
+  rerun_buf = nullptr;
+  flag_buf = nullptr;
+  flag_map = nullptr;
   if (!rseeds) {
-    ujj = (uint32_t)time(NULL);
+    ujj = (uint32_t)time(nullptr);
     sprintf(g_logbuf, "Random number seed: %u\n", ujj);
     logstr(g_logbuf);
     sfmt_init_gen_rand(&g_sfmt, ujj);
@@ -13186,7 +13186,7 @@ int32_t main(int32_t argc, char** argv) {
       sfmt_init_by_array(&g_sfmt, rseeds, rseed_ct);
     }
     free(rseeds);
-    rseeds = NULL;
+    rseeds = nullptr;
   }
   // guarantee contiguous malloc space outside of main workspace
   bubble = (char*)malloc(NON_BIGSTACK_MIN * sizeof(char));
@@ -13200,7 +13200,7 @@ int32_t main(int32_t argc, char** argv) {
   mib[1] = HW_MEMSIZE;
   llxx = 0;
   sztmp = sizeof(int64_t);
-  sysctl(mib, 2, &llxx, &sztmp, NULL, 0);
+  sysctl(mib, 2, &llxx, &sztmp, nullptr, 0);
   llxx /= 1048576;
 #else
 #ifdef _WIN32
@@ -13252,7 +13252,7 @@ int32_t main(int32_t argc, char** argv) {
   g_bigstack_base = bigstack_initial_base;
   g_bigstack_end = &(bigstack_initial_base[(malloc_size_mb * 1048576 - (uintptr_t)(bigstack_initial_base - bigstack_ua)) & (~(CACHELINE - ONELU))]);
   free(bubble);
-  bubble = NULL;
+  bubble = nullptr;
 
   // standalone stuff
   if (epi_info.summary_merge_prefix) {
@@ -13265,13 +13265,13 @@ int32_t main(int32_t argc, char** argv) {
     retval = annotate(&annot_info, outname, outname_end, pfilter, &chrom_info);
   }
   if (gene_report_fname) {
-    retval = gene_report(gene_report_fname, gene_report_glist, gene_report_subset, gene_report_border, (misc_flags & MISC_EXTRACT_RANGE)? NULL : extractname, gene_report_snp_field, outname, outname_end, pfilter, &chrom_info);
+    retval = gene_report(gene_report_fname, gene_report_glist, gene_report_subset, gene_report_border, (misc_flags & MISC_EXTRACT_RANGE)? nullptr : extractname, gene_report_snp_field, outname, outname_end, pfilter, &chrom_info);
     if (retval) {
       goto main_ret_1;
     }
   }
   if (metaanal_fnames) {
-    retval = meta_analysis(metaanal_fnames, metaanal_snpfield_search_order, metaanal_a1field_search_order, metaanal_a2field_search_order, metaanal_pfield_search_order, metaanal_essfield_search_order, metaanal_flags, (misc_flags & MISC_EXTRACT_RANGE)? NULL : extractname, outname, outname_end, output_min_p, &chrom_info);
+    retval = meta_analysis(metaanal_fnames, metaanal_snpfield_search_order, metaanal_a1field_search_order, metaanal_a2field_search_order, metaanal_pfield_search_order, metaanal_essfield_search_order, metaanal_flags, (misc_flags & MISC_EXTRACT_RANGE)? nullptr : extractname, outname, outname_end, output_min_p, &chrom_info);
     if (retval) {
       goto main_ret_1;
     }
@@ -13348,10 +13348,10 @@ int32_t main(int32_t argc, char** argv) {
 	// care of generating those test cases
 	retval = simulate_dataset(outname, sptr, simulate_flags, simulate_fname, simulate_cases, simulate_controls, simulate_prevalence, simulate_qt_samples, simulate_missing, simulate_label);
 	free(simulate_fname);
-	simulate_fname = NULL;
+	simulate_fname = nullptr;
 	if (simulate_label) {
 	  free(simulate_label);
-	  simulate_label = NULL;
+	  simulate_label = nullptr;
 	}
       } else if (load_params & LOAD_PARAMS_OX_ALL) {
 	retval = oxford_to_bed(pedname, mapname, outname, sptr, oxford_single_chr, oxford_pheno_name, hard_call_threshold, missing_code, missing_pheno, misc_flags, (load_params / LOAD_PARAMS_OXBGEN) & 1, &chrom_info);
@@ -13569,7 +13569,7 @@ int32_t main(int32_t argc, char** argv) {
     } else {
       fclose(g_logfile);
     }
-    g_logfile = NULL;
+    g_logfile = nullptr;
   }
   if (misc_flags & MISC_GPLINK) {
     memcpy(outname_end, ".gplink", 8);

@@ -1,7 +1,7 @@
 #include "plink_common.h"
 
 int32_t cnv_subset_load(char* subset_fname, char** subset_list_ptr, uintptr_t* subset_ct_ptr, uintptr_t* max_subset_name_len_ptr) {
-  FILE* subset_file = NULL;
+  FILE* subset_file = nullptr;
   uintptr_t subset_ct = 0;
   uintptr_t max_subset_name_len = 0;
   int32_t retval = open_and_size_string_list(subset_fname, &subset_file, &subset_ct, &max_subset_name_len);
@@ -72,7 +72,7 @@ int32_t cnv_intersect_load(uint32_t intersect_filter_type, char* intersect_filte
   // This way, whenever we check for an intersection, we can usually skip
   // almost all the "small tier" intervals regardless of the largest interval
   // size.
-  FILE* intersect_file = NULL;
+  FILE* intersect_file = nullptr;
   uintptr_t max_interval_ct = bigstack_left() / 9;
   uintptr_t small_interval_ct = 0;
   uintptr_t large_interval_ct = 0;
@@ -459,7 +459,7 @@ int32_t cnv_make_map_write(FILE* new_mapfile, Chrom_info* chrom_info_ptr, uint32
 
 int32_t cnv_make_map(FILE* cnvfile, char* new_mapname, uint32_t cnv_calc_type, uint32_t min_seglen, uint32_t max_seglen, double min_score, double max_score, uint32_t min_sites, uint32_t max_sites, uintptr_t* il_chrom_start_small, uintptr_t* il_chrom_start_large, uint32_t* il_chrom_max_width_small, uint32_t* il_chrom_max_width_large, uint64_t* il_small, uint64_t* il_large, uint32_t intersect_filter_type, uint32_t overlap_type, double overlap_val, int32_t marker_pos_start, int32_t marker_pos_end, uint32_t allow_extra_chroms, uint32_t zero_extra_chroms, Chrom_info* chrom_info_ptr, uintptr_t* max_marker_id_len_ptr, uint32_t* marker_chrom_start) {
   int64_t* marker_pos_arr = (int64_t*)g_bigstack_base;
-  FILE* new_mapfile = NULL;
+  FILE* new_mapfile = nullptr;
   uintptr_t raw_marker_ct = 0;
   uint32_t distinct_marker_ct = 1;
   uint32_t req_fields = 3;
@@ -908,17 +908,17 @@ int32_t load_cnv_map(FILE* mapfile, int32_t marker_pos_start, int32_t marker_pos
 int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname, char* famname, char* phenoname, char* keepname, char* removename, char* filtername, uint64_t misc_flags, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* filtervals_flattened, uint64_t filter_flags, uint32_t cnv_calc_type, uint32_t min_seglen, uint32_t max_seglen, double min_score, double max_score, uint32_t min_sites, uint32_t max_sites, uint32_t intersect_filter_type, char* intersect_filter_fname, char* subset_fname, uint32_t overlap_type, double overlap_val, uint32_t freq_type, uint32_t freq_val, double freq_val2, uint32_t test_window, uint32_t segment_modifier, char* segment_spanning_fname, uint32_t sample_mperms, uint32_t test_mperms, uint32_t test_region_mperms, uint32_t enrichment_test_mperms, int32_t marker_pos_start, int32_t marker_pos_end, Chrom_info* chrom_info_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
-  FILE* cnvfile = NULL;
-  FILE* famfile = NULL;
-  FILE* mapfile = NULL;
-  FILE* outfile = NULL;
-  char* subset_list = NULL;
+  FILE* cnvfile = nullptr;
+  FILE* famfile = nullptr;
+  FILE* mapfile = nullptr;
+  FILE* outfile = nullptr;
+  char* subset_list = nullptr;
   uintptr_t subset_ct = 0;
   uintptr_t max_subset_name_len = 0;
   uint32_t allow_extra_chroms = (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1;
-  uint64_t* il_small = NULL; // high-order 32 bits = 2x center pos,
-                             // low-order 32 bits = interval end - start
-  uint64_t* il_large = NULL;
+  uint64_t* il_small = nullptr; // high-order 32 bits = 2x center pos,
+                                // low-order 32 bits = interval end - start
+  uint64_t* il_large = nullptr;
   uintptr_t* il_chrom_start_small;
   uintptr_t* il_chrom_start_large;
   unsigned char* bigstack_mark2;
@@ -981,7 +981,7 @@ int32_t plink_cnv(char* outname, char* outname_end, char* cnvname, char* mapname
       }
       sprintf(g_logbuf, "Autogenerating missing %s ... ", mapname);
       wordwrapb(5);
-      retval = cnv_make_map(cnvfile, mapname, 0, 0, 0xffffffffU, -DBL_MAX, DBL_MAX, 0, 0xffffffffU, NULL, NULL, NULL, NULL, NULL, NULL, 0, 0, 0.0, -1, -1, allow_extra_chroms, 0, chrom_info_ptr, &max_marker_id_len, marker_chrom_start);
+      retval = cnv_make_map(cnvfile, mapname, 0, 0, 0xffffffffU, -DBL_MAX, DBL_MAX, 0, 0xffffffffU, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 0, 0, 0.0, -1, -1, allow_extra_chroms, 0, chrom_info_ptr, &max_marker_id_len, marker_chrom_start);
     } else {
       retval = validate_cnv_map(&mapfile, mapname, &marker_pos_start, &marker_pos_end, allow_extra_chroms, chrom_info_ptr, &max_marker_id_len, marker_chrom_start);
     }

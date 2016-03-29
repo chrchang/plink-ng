@@ -206,9 +206,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
   help_ctrl.param_ct = param_ct;
   help_ctrl.argv = argv;
   help_ctrl.unmatched_ct = param_ct;
-  help_ctrl.param_lens = NULL;
-  help_ctrl.all_match_arr = NULL;
-  help_ctrl.argv = NULL;
+  help_ctrl.param_lens = nullptr;
+  help_ctrl.all_match_arr = nullptr;
+  help_ctrl.argv = nullptr;
   if (param_ct) {
     help_ctrl.param_lens = (uint32_t*)malloc(param_ct * sizeof(int32_t));
     if (!help_ctrl.param_lens) {
@@ -252,7 +252,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_ctrl.perfect_match_arr = &(help_ctrl.all_match_arr[param_ctl * 2]);
     help_ctrl.preprint_newline = 1;
   } else {
-    help_ctrl.argv = NULL;
+    help_ctrl.argv = nullptr;
     fputs(
 "\nIn the command line flag definitions that follow,\n"
 "  * [square brackets] denote a required parameter, where the text between the\n"

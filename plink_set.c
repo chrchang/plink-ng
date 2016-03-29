@@ -3,24 +3,24 @@
 #include "plink_set.h"
 
 void set_init(Set_info* sip, Annot_info* aip) {
-  sip->fname = NULL;
-  sip->setnames_flattened = NULL;
-  sip->subset_fname = NULL;
-  sip->merged_set_name = NULL;
-  sip->genekeep_flattened = NULL;
+  sip->fname = nullptr;
+  sip->setnames_flattened = nullptr;
+  sip->subset_fname = nullptr;
+  sip->merged_set_name = nullptr;
+  sip->genekeep_flattened = nullptr;
   sip->ct = 0;
   sip->modifier = 0;
   sip->set_r2 = 0.5;
   sip->set_p = 0.05;
   sip->set_test_lambda = 0.0;
   sip->set_max = 5;
-  aip->fname = NULL;
-  aip->attrib_fname = NULL;
-  aip->ranges_fname = NULL;
-  aip->filter_fname = NULL;
-  aip->snps_fname = NULL;
-  aip->subset_fname = NULL;
-  aip->snpfield = NULL;
+  aip->fname = nullptr;
+  aip->attrib_fname = nullptr;
+  aip->ranges_fname = nullptr;
+  aip->filter_fname = nullptr;
+  aip->snps_fname = nullptr;
+  aip->subset_fname = nullptr;
+  aip->snpfield = nullptr;
   aip->modifier = 0;
   aip->border = 0;
 }
@@ -253,8 +253,8 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
   // Called directly by extract_exclude_range(), define_sets(), and indirectly
   // by annotate(), gene_report(), and clump_reports().
   // Assumes caller will reset g_bigstack_end later.
-  Ll_str* make_set_ll = NULL;
-  char* set_names = NULL;
+  Ll_str* make_set_ll = nullptr;
+  char* set_names = nullptr;
   uintptr_t set_ct = 0;
   uintptr_t max_set_id_len = 0;
   uintptr_t line_idx = 0;
@@ -393,7 +393,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
 	}
       }
       qsort(set_names, set_ct, max_set_id_len, strcmp_natural);
-      set_ct = collapse_duplicate_ids(set_names, set_ct, max_set_id_len, NULL);
+      set_ct = collapse_duplicate_ids(set_names, set_ct, max_set_id_len, nullptr);
       bigstack_shrink_top(set_names, set_ct * max_set_id_len);
       rewind(infile);
     } else {
@@ -404,7 +404,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
       goto load_range_list_ret_NOMEM;
     }
     for (set_idx = 0; set_idx < set_ct; set_idx++) {
-      make_set_range_arr[set_idx] = NULL;
+      make_set_range_arr[set_idx] = nullptr;
     }
     line_idx = 0;
     while (fgets(g_textbuf, MAXLINELEN, infile)) {
@@ -555,16 +555,16 @@ int32_t extract_exclude_range(char* fname, uint32_t* marker_pos, uintptr_t unfil
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
-  FILE* infile = NULL;
+  FILE* infile = nullptr;
   uintptr_t orig_marker_exclude_ct = *marker_exclude_ct_ptr;
-  Make_set_range** range_arr = NULL;
+  Make_set_range** range_arr = nullptr;
   int32_t retval = 0;
   Make_set_range* msr_tmp;
   uintptr_t* marker_exclude_new;
   if (fopen_checked(fname, "r", &infile)) {
     goto extract_exclude_range_ret_OPEN_FAIL;
   }
-  retval = load_range_list(infile, 0, 0, 0, 0, 0, allow_no_variants, 0, NULL, 0, marker_pos, chrom_info_ptr, NULL, NULL, NULL, &range_arr, NULL, is_exclude? "--exclude range" : "--extract range");
+  retval = load_range_list(infile, 0, 0, 0, 0, 0, allow_no_variants, 0, nullptr, 0, marker_pos, chrom_info_ptr, nullptr, nullptr, nullptr, &range_arr, nullptr, is_exclude? "--exclude range" : "--extract range");
   if (retval) {
     goto extract_exclude_range_ret_1;
   }
@@ -950,9 +950,9 @@ uint32_t save_set_range(uint64_t* range_sort_buf, uint32_t marker_ct, uint32_t r
 
 int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* marker_pos, uintptr_t* marker_exclude_ct_ptr, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, uint32_t allow_no_variants) {
   unsigned char* bigstack_end_mark = g_bigstack_end;
-  FILE* infile = NULL;
-  char* sorted_marker_ids = NULL;
-  char* sorted_genekeep_ids = NULL;
+  FILE* infile = nullptr;
+  char* sorted_marker_ids = nullptr;
+  char* sorted_genekeep_ids = nullptr;
   uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   uintptr_t marker_exclude_ct = *marker_exclude_ct_ptr;
   uintptr_t marker_ct = unfiltered_marker_ct - marker_exclude_ct;
@@ -969,12 +969,12 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
   uintptr_t genekeep_ct = 0;
   uintptr_t max_genekeep_len = 0;
   uintptr_t max_set_id_len = 0;
-  Make_set_range** make_set_range_arr = NULL;
+  Make_set_range** make_set_range_arr = nullptr;
   char* midbuf = &(g_textbuf[MAXLINELEN]);
-  char* sorted_subset_ids = NULL;
-  char* set_names = NULL;
-  char* bufptr = NULL;
-  uint64_t* range_sort_buf = NULL;
+  char* sorted_subset_ids = nullptr;
+  char* set_names = nullptr;
+  char* bufptr = nullptr;
+  uint64_t* range_sort_buf = nullptr;
   char* bufptr2;
   char* bufptr3;
   char* buf_end;
@@ -1020,7 +1020,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 	}
       }
       free(sip->genekeep_flattened);
-      sip->genekeep_flattened = NULL;
+      sip->genekeep_flattened = nullptr;
       gene_all = 1;
     } else {
       do {
@@ -1128,7 +1128,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
       }
     }
     qsort(sorted_subset_ids, subset_ct, max_subset_id_len, strcmp_casted);
-    subset_ct = collapse_duplicate_ids(sorted_subset_ids, subset_ct, max_subset_id_len, NULL);
+    subset_ct = collapse_duplicate_ids(sorted_subset_ids, subset_ct, max_subset_id_len, nullptr);
   }
   if (fopen_checked(sip->fname, make_set? "r" : FOPEN_RB, &infile)) {
     goto define_sets_ret_OPEN_FAIL;
@@ -1648,7 +1648,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
 
 int32_t write_set(Set_info* sip, char* outname, char* outname_end, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, Chrom_info* chrom_info_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* outfile = NULL;
+  FILE* outfile = nullptr;
   uintptr_t set_ct = sip->ct;
   uintptr_t max_set_name_len = sip->max_name_len;
   uintptr_t set_idx = 0;
@@ -2162,7 +2162,7 @@ uint32_t setdefs_compress(Set_info* sip, uintptr_t* set_incl, uintptr_t set_ct, 
 int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t subset_ct, char* sorted_subset_ids, uintptr_t max_subset_id_len, Chrom_info* chrom_info_ptr, uintptr_t* gene_ct_ptr, char** gene_names_ptr, uintptr_t* max_gene_id_len_ptr, uintptr_t** chrom_bounds_ptr, uint32_t*** genedefs_ptr, uintptr_t* chrom_max_gene_ct_ptr, const char* file_descrip) {
   // --annotate, --clump-range, --gene-report
   unsigned char* bigstack_end_mark = g_bigstack_end;
-  FILE* infile = NULL;
+  FILE* infile = nullptr;
   uintptr_t gene_ct = 0;
   uintptr_t max_gene_id_len = 0;
   uintptr_t chrom_max_gene_ct = 0;
@@ -2189,7 +2189,7 @@ int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t s
   if (fopen_checked(fname, "r", &infile)) {
     goto load_range_list_sortpos_ret_OPEN_FAIL;
   }
-  retval = load_range_list(infile, 1, border_extend, 0, 0, 0, 0, subset_ct, sorted_subset_ids, 0, NULL, chrom_info_ptr, &gene_ct, gene_names_ptr, &max_gene_id_len, &gene_arr, &range_sort_buf, file_descrip);
+  retval = load_range_list(infile, 1, border_extend, 0, 0, 0, 0, subset_ct, sorted_subset_ids, 0, nullptr, chrom_info_ptr, &gene_ct, gene_names_ptr, &max_gene_id_len, &gene_arr, &range_sort_buf, file_descrip);
   if (retval) {
     goto load_range_list_sortpos_ret_1;
   }
@@ -2309,25 +2309,25 @@ int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t s
 int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
-  gzFile gz_attribfile = NULL;
-  FILE* infile = NULL;
-  FILE* outfile = NULL;
-  char* sorted_snplist = NULL;
-  char* sorted_attr_ids = NULL; // natural-sorted
-  char* sorted_snplist_attr_ids = NULL;
-  char* sorted_subset_ids = NULL;
-  char* range_names = NULL;
-  char* filter_range_names = NULL;
-  char* wptr = NULL;
-  const char* snp_field = NULL;
-  uintptr_t* attr_bitfields = NULL;
-  uintptr_t* chrom_bounds = NULL;
-  uintptr_t* chrom_filter_bounds = NULL;
-  uint32_t** rangedefs = NULL;
-  uint32_t** filter_rangedefs = NULL;
-  uint32_t* range_idx_lookup = NULL;
-  uint32_t* attr_id_remap = NULL;
-  uint32_t* merged_attr_idx_buf = NULL;
+  gzFile gz_attribfile = nullptr;
+  FILE* infile = nullptr;
+  FILE* outfile = nullptr;
+  char* sorted_snplist = nullptr;
+  char* sorted_attr_ids = nullptr; // natural-sorted
+  char* sorted_snplist_attr_ids = nullptr;
+  char* sorted_subset_ids = nullptr;
+  char* range_names = nullptr;
+  char* filter_range_names = nullptr;
+  char* wptr = nullptr;
+  const char* snp_field = nullptr;
+  uintptr_t* attr_bitfields = nullptr;
+  uintptr_t* chrom_bounds = nullptr;
+  uintptr_t* chrom_filter_bounds = nullptr;
+  uint32_t** rangedefs = nullptr;
+  uint32_t** filter_rangedefs = nullptr;
+  uint32_t* range_idx_lookup = nullptr;
+  uint32_t* attr_id_remap = nullptr;
+  uint32_t* merged_attr_idx_buf = nullptr;
   const char constsnpstr[] = "SNP";
   const char constdotstr[] = ".";
   const char constnastr[] = "NA";
@@ -2444,7 +2444,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	goto annotate_ret_READ_FAIL;
       }
       qsort(sorted_snplist, snplist_ct, max_snplist_id_len, strcmp_casted);
-      ulii = collapse_duplicate_ids(sorted_snplist, snplist_ct, max_snplist_id_len, NULL);
+      ulii = collapse_duplicate_ids(sorted_snplist, snplist_ct, max_snplist_id_len, nullptr);
       if (ulii < snplist_ct) {
 	snplist_ct = ulii;
 	bigstack_shrink_top(sorted_snplist, snplist_ct * max_snplist_id_len);
@@ -2468,7 +2468,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	goto annotate_ret_NOMEM;
       }
       for (uii = 0; uii < HASHSIZE; uii++) {
-	attr_id_htable[uii] = NULL;
+	attr_id_htable[uii] = nullptr;
       }
       while (1) {
 	line_idx++;
@@ -2519,7 +2519,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	      if (bigstack_end_alloc_llstr(slen, &ll_ptr)) {
 	        goto annotate_ret_NOMEM;
 	      }
-	      ll_ptr->next = NULL;
+	      ll_ptr->next = nullptr;
 	      memcpy(ll_ptr->ss, bufptr2, slen);
 	      if (slen > max_attr_id_len) {
 	        max_attr_id_len = slen;
@@ -2595,7 +2595,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	} while (!is_eoln_kns(*bufptr2));
       }
       gzclose(gz_attribfile);
-      gz_attribfile = NULL;
+      gz_attribfile = nullptr;
       if (qsort_ext(sorted_snplist_attr_ids, snplist_attr_ct, max_snplist_attr_id_len, strcmp_deref, (char*)attr_bitfields, attr_id_ctl * sizeof(intptr_t))) {
 	goto annotate_ret_NOMEM;
       }
@@ -2635,7 +2635,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
 	  goto annotate_ret_READ_FAIL;
 	}
 	qsort(sorted_subset_ids, subset_ct, max_subset_id_len, strcmp_casted);
-	subset_ct = collapse_duplicate_ids(sorted_subset_ids, subset_ct, max_subset_id_len, NULL);
+	subset_ct = collapse_duplicate_ids(sorted_subset_ids, subset_ct, max_subset_id_len, nullptr);
       }
       // normally can't use border here because we need nearest distance
       retval = load_range_list_sortpos(aip->ranges_fname, (block01 && (!track_distance))? border : 0, subset_ct, sorted_subset_ids, max_subset_id_len, chrom_info_ptr, &range_ct, &range_names, &max_range_name_len, &chrom_bounds, &rangedefs, &chrom_max_range_ct, "--annotate ranges");
@@ -2656,7 +2656,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
     }
     bigstack_end_reset(bigstack_end_mark);
     if (aip->filter_fname) {
-      retval = load_range_list_sortpos(aip->filter_fname, border, 0, NULL, 0, chrom_info_ptr, &filter_range_ct, &filter_range_names, &max_filter_range_name_len, &chrom_filter_bounds, &filter_rangedefs, &chrom_max_filter_range_ct, "--annotate filter");
+      retval = load_range_list_sortpos(aip->filter_fname, border, 0, nullptr, 0, chrom_info_ptr, &filter_range_ct, &filter_range_names, &max_filter_range_name_len, &chrom_filter_bounds, &filter_rangedefs, &chrom_max_filter_range_ct, "--annotate filter");
       if (retval) {
 	goto annotate_ret_1;
       }
@@ -3136,20 +3136,20 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   // similar to define_sets() and --clump
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
-  FILE* infile = NULL;
-  FILE* outfile = NULL;
+  FILE* infile = nullptr;
+  FILE* outfile = nullptr;
   uintptr_t subset_ct = 0;
   uintptr_t max_subset_id_len = 0;
   uintptr_t extract_ct = 0;
   uintptr_t max_extract_id_len = 0;
   const char constsnpstr[] = "SNP";
-  char* sorted_subset_ids = NULL;
-  char* sorted_extract_ids = NULL;
-  uintptr_t* chrom_bounds = NULL;
-  uint32_t** genedefs = NULL;
+  char* sorted_subset_ids = nullptr;
+  char* sorted_extract_ids = nullptr;
+  uintptr_t* chrom_bounds = nullptr;
+  uint32_t** genedefs = nullptr;
   uint64_t saved_line_ct = 0;
   uint32_t do_pfilter = (pfilter != 2.0);
-  uint32_t token_ct = 2 + (extractname != NULL) + do_pfilter;
+  uint32_t token_ct = 2 + (extractname != nullptr) + do_pfilter;
   uint32_t snp_field_len = 0;
   uint32_t col_idx = 0;
   uint32_t seq_idx = 0;
@@ -3223,7 +3223,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       goto gene_report_ret_READ_FAIL;
     }
     qsort(sorted_subset_ids, subset_ct, max_subset_id_len, strcmp_casted);
-    subset_ct = collapse_duplicate_ids(sorted_subset_ids, subset_ct, max_subset_id_len, NULL);
+    subset_ct = collapse_duplicate_ids(sorted_subset_ids, subset_ct, max_subset_id_len, nullptr);
   }
   if (extractname) {
     if (fopen_checked(extractname, FOPEN_RB, &infile)) {
@@ -3254,7 +3254,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       goto gene_report_ret_READ_FAIL;
     }
     qsort(sorted_extract_ids, extract_ct, max_extract_id_len, strcmp_casted);
-    ulii = collapse_duplicate_ids(sorted_extract_ids, extract_ct, max_extract_id_len, NULL);
+    ulii = collapse_duplicate_ids(sorted_extract_ids, extract_ct, max_extract_id_len, nullptr);
     if (ulii < extract_ct) {
       extract_ct = ulii;
       bigstack_shrink_top(sorted_extract_ids, extract_ct * max_extract_id_len);

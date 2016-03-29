@@ -57,7 +57,7 @@
 #else
   #include <pthread.h>
   #define THREAD_RET_TYPE void*
-  #define THREAD_RETURN return NULL
+  #define THREAD_RETURN return nullptr
   #ifdef __cplusplus
     #ifndef PRId64
       #define PRId64 "lld"
@@ -99,6 +99,12 @@
   #define HEADER_INLINE inline
 #else
   #define HEADER_INLINE static inline
+#endif
+
+#if __cplusplus <= 199711L
+  #ifndef HAVE_NULLPTR
+    #define nullptr NULL
+  #endif
 #endif
 
 // It would be useful to disable compilation on big-endian platforms, but I
@@ -825,13 +831,13 @@ HEADER_INLINE void aligned_free_cond(uintptr_t* aligned_ptr) {
 
 HEADER_INLINE void aligned_free_null(uintptr_t** aligned_pp) {
   aligned_free(*aligned_pp);
-  *aligned_pp = NULL;
+  *aligned_pp = nullptr;
 }
 
 HEADER_INLINE void aligned_free_cond_null(uintptr_t** aligned_pp) {
   if (*aligned_pp) {
     aligned_free(*aligned_pp);
-    *aligned_pp = NULL;
+    *aligned_pp = nullptr;
   }
 }
 
@@ -951,7 +957,7 @@ HEADER_INLINE void fclose_cond(FILE* fptr) {
 HEADER_INLINE int32_t fclose_null(FILE** fptr_ptr) {
   int32_t ii = ferror(*fptr_ptr);
   int32_t jj = fclose(*fptr_ptr);
-  *fptr_ptr = NULL;
+  *fptr_ptr = nullptr;
   return ii || jj;
 }
 
@@ -962,7 +968,7 @@ int32_t gzopen_read_checked(const char* fname, gzFile* gzf_ptr);
 
 HEADER_INLINE int32_t gzclose_null(gzFile* gzf_ptr) {
   int32_t ii = gzclose(*gzf_ptr);
-  *gzf_ptr = NULL;
+  *gzf_ptr = nullptr;
   return (ii != Z_OK);
 }
 

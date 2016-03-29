@@ -16,15 +16,15 @@
 int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin_debug, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uint32_t* marker_pos, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, uintptr_t* pheno_c, double* pheno_d, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uintptr_t covar_ct, double* covar_d, char* outname, char* outname_end) {
   // See PLINK 1.07 r.cpp.
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* infile = NULL;
-  FILE* outfile = NULL;
-  int32_t* geno_int_buf = NULL;
-  Rinteger* r_n = NULL;
-  Rinteger* r_s = NULL;
-  Rdouble* r_p = NULL;
-  Rdouble* r_cov = NULL;
-  Rconnection* rc = NULL;
-  char* chrom_name_ptr = NULL;
+  FILE* infile = nullptr;
+  FILE* outfile = nullptr;
+  int32_t* geno_int_buf = nullptr;
+  Rinteger* r_n = nullptr;
+  Rinteger* r_s = nullptr;
+  Rdouble* r_p = nullptr;
+  Rdouble* r_cov = nullptr;
+  Rconnection* rc = nullptr;
+  char* chrom_name_ptr = nullptr;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl2 = (unfiltered_sample_ct + (BITCT2 - 1)) / BITCT2;
   uintptr_t pheno_nm_ctl2 = (pheno_nm_ct + (BITCT2 - 1)) / BITCT2;

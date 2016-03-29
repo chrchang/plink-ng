@@ -416,7 +416,7 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
   // there's also more computational work to do per sample, multithreading is
   // more profitable here than in the bigmem case.
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  double* covar_data_arr = NULL;
+  double* covar_data_arr = nullptr;
   double sqrt_n_recip = sqrt(1.0 / ((double)((intptr_t)sample_valid_ct)));
   double lambda_max = 0.0;
   double err_cur = 0.0;
@@ -432,7 +432,7 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
   uint32_t min_ploidy_1 = 0;
   uint32_t partial_marker_idx = 0;
   int32_t retval = 0;
-  double* prod_matrix = NULL;
+  double* prod_matrix = nullptr;
   double* data_window;
   double* xhat;
   double* dptr;
@@ -774,18 +774,18 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
   // Not yet multithreaded.  (Main loop is fairly tightly coupled, so getting
   // a performance benefit will be a bit tricky.)
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* outfile = NULL;
+  FILE* outfile = nullptr;
   uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t unfiltered_sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(unfiltered_sample_ct);
   uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   uintptr_t polymorphic_marker_ct = 0;
   uint64_t iter_tot = 0;
-  double* xhat = NULL;
-  double* rand_matrix = NULL;
-  double* misc_arr = NULL;
-  uintptr_t* sample_male_include2 = NULL;
-  uintptr_t* select_covars_bitfield = NULL;
-  char* wptr_start = NULL;
+  double* xhat = nullptr;
+  double* rand_matrix = nullptr;
+  double* misc_arr = nullptr;
+  uintptr_t* sample_male_include2 = nullptr;
+  uintptr_t* select_covars_bitfield = nullptr;
+  char* wptr_start = nullptr;
   uint32_t report_zeroes = (misc_flags / MISC_LASSO_REPORT_ZEROES) & 1;
   uint32_t select_covars = (misc_flags / MISC_LASSO_SELECT_COVARS) & 1;
   uint32_t chrom_fo_idx = 0xffffffffU; // exploit overflow

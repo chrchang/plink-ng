@@ -75,8 +75,8 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
   // side effects: load_mask and sample_valid_ct potentially updated,
   //   condition_ct should be changed, condition_uidxs should be malloc'd
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* condition_file = NULL;
-  uint32_t* condition_uidxs = NULL;
+  FILE* condition_file = nullptr;
+  uint32_t* condition_uidxs = nullptr;
   uintptr_t marker_ctl = BITCT_TO_WORDCT(marker_ct);
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(unfiltered_sample_ct);
@@ -275,7 +275,7 @@ int32_t glm_scan_conditions(char* condition_mname, char* condition_fname, uintpt
 }
 
 uint32_t glm_loadbuf_to_doubles(uintptr_t* loadbuf_collapsed, uint32_t sample_valid_ct, double* covar_row, double* geno_map, uintptr_t* cur_missing) {
-  // ok for cur_missing to be NULL if there can't possibly be any missing
+  // ok for cur_missing to be nullptr if there can't possibly be any missing
   uintptr_t* ulptr_end = &(loadbuf_collapsed[sample_valid_ct / BITCT2]);
   uint32_t cur_missing_ct = 0;
   uint32_t sample_idx = 0;
@@ -332,7 +332,7 @@ uint32_t glm_loadbuf_to_doubles_x(uintptr_t* loadbuf_collapsed, uintptr_t* sex_m
 }
 
 uint32_t glm_loadbuf_to_floats(uintptr_t* loadbuf_collapsed, uint32_t sample_valid_ct, float* covar_row, float* geno_map, uintptr_t* cur_missing) {
-  // ok for cur_missing to be NULL if there can't possibly be any missing
+  // ok for cur_missing to be nullptr if there can't possibly be any missing
   uintptr_t* ulptr_end = &(loadbuf_collapsed[sample_valid_ct / BITCT2]);
   uint32_t cur_missing_ct = 0;
   uint32_t sample_idx = 0;
@@ -3069,7 +3069,7 @@ THREAD_RET_TYPE glm_linear_maxt_thread(void* arg) {
   uint32_t is_nonx_haploid = g_min_ploidy_1 && (!g_is_x);
   double* fixed_covars_cov_major = g_fixed_covars_cov_major;
   double* constraints_con_major = g_constraints_con_major;
-  double* msa_ptr = NULL;
+  double* msa_ptr = nullptr;
   double* param_2d_buf = g_linear_mt[tidx].param_2d_buf;
   double* param_2d_buf2 = g_linear_mt[tidx].param_2d_buf2;
   MATRIX_INVERT_BUF1_TYPE* mi_buf = g_linear_mt[tidx].mi_buf;
@@ -3239,7 +3239,7 @@ THREAD_RET_TYPE glm_logistic_maxt_thread(void* arg) {
   uint32_t is_nonx_haploid = g_min_ploidy_1 && (!g_is_x);
   float* fixed_covars_cov_major = g_fixed_covars_cov_major_f;
   double* constraints_con_major = g_constraints_con_major;
-  double* msa_ptr = NULL;
+  double* msa_ptr = nullptr;
   float* cur_covars_cov_major = g_logistic_mt[tidx].cur_covars_cov_major;
   float* coef = g_logistic_mt[tidx].coef;
   float* pp = g_logistic_mt[tidx].pp;
@@ -3435,7 +3435,7 @@ THREAD_RET_TYPE glm_linear_set_thread(void* arg) {
     }
     dgels_nrhs = (int32_t)((uint32_t)perm_vec_ct);
     dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
-    glm_linear(perm_vec_ct, cur_param_ct, cur_sample_valid_ct, cur_missing_ct, loadbuf_ptr, standard_beta, pheno_sum_base, pheno_ssq_base, cur_covars_cov_major, cur_covars_sample_major, perm_pmajor, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, regression_results, 0, NULL, NULL, NULL, NULL, NULL, &perm_fail_ct, perm_fails);
+    glm_linear(perm_vec_ct, cur_param_ct, cur_sample_valid_ct, cur_missing_ct, loadbuf_ptr, standard_beta, pheno_sum_base, pheno_ssq_base, cur_covars_cov_major, cur_covars_sample_major, perm_pmajor, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, regression_results, 0, nullptr, nullptr, nullptr, nullptr, nullptr, &perm_fail_ct, perm_fails);
     for (pidx = 0; pidx < perm_vec_ct; pidx++) {
       if (!IS_SET(perm_fails, pidx)) {
 	dxx = fabs(dgels_b[pidx * cur_sample_valid_ct + 1] / sqrt(regression_results[pidx * param_ct_m1]));
@@ -3502,7 +3502,7 @@ THREAD_RET_TYPE glm_logistic_set_thread(void* arg) {
     cur_sample_valid_ct = sample_valid_ct - cur_missing_ct;
     // todo: try better starting position
     fill_float_zero(cur_param_cta4 * perm_vec_ct, coef);
-    glm_logistic(perm_vec_ct, cur_param_ct, cur_sample_valid_ct, cur_missing_ct, 1, loadbuf_ptr, cur_covars_cov_major, perm_vecs, coef, pp, sample_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, perm_fails);
+    glm_logistic(perm_vec_ct, cur_param_ct, cur_sample_valid_ct, cur_missing_ct, 1, loadbuf_ptr, cur_covars_cov_major, perm_vecs, coef, pp, sample_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, 0, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, perm_fails);
     for (pidx = 0; pidx < perm_vec_ct; pidx++) {
       if (!IS_SET(perm_fails, pidx)) {
 	dxx = (double)coef[pidx * cur_param_cta4 + 1];
@@ -3531,10 +3531,10 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
   uintptr_t condition_ct = 0;
   uintptr_t np_sex = 0;
   uintptr_t param_idx_end = 2;
-  uintptr_t* load_mask = NULL;
-  uintptr_t* sample_include2 = NULL;
-  uintptr_t* sample_male_include2 = NULL;
-  uint32_t* condition_uidxs = NULL;
+  uintptr_t* load_mask = nullptr;
+  uintptr_t* sample_include2 = nullptr;
+  uintptr_t* sample_male_include2 = nullptr;
+  uint32_t* condition_uidxs = nullptr;
   uint32_t covar_interactions = (glm_modifier / GLM_INTERACTION) & 1;
   uint32_t genotypic = glm_modifier & GLM_GENOTYPIC;
   uint32_t genotypic_or_hethom = (glm_modifier & (GLM_GENOTYPIC | GLM_HETHOM))? 1 : 0;
@@ -3568,7 +3568,7 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
   uint32_t slen;
   uint32_t uii;
   uint32_t ujj;
-  g_joint_test_params = NULL;
+  g_joint_test_params = nullptr;
   if (max_marker_allele_len > MAXLINELEN) {
     if (bigstack_alloc_c(max_marker_allele_len + MAXLINELEN, writebuf_ptr)) {
       goto glm_common_init_ret_NOMEM;
@@ -3632,8 +3632,8 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
 
     // need to set to null for next alloc_collapsed_haploid_filters() call to
     // work properly
-    sample_include2 = NULL;
-    sample_male_include2 = NULL;
+    sample_include2 = nullptr;
+    sample_male_include2 = nullptr;
     np_base_raw += condition_ct * (1 + covar_interactions);
   }
   np_base_raw += covar_ct * (1 + covar_interactions);
@@ -3955,7 +3955,7 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
       param_ctx_max++;
     } else {
       bigstack_reset(g_joint_test_params);
-      g_joint_test_params = NULL;
+      g_joint_test_params = nullptr;
       constraint_ct_max = 0;
       logerrprint("Warning: Ignoring --tests since too few parameter indices are in range.\n");
     }
@@ -3972,7 +3972,7 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
   g_perm_cluster_ct = 0;
   g_perm_pheno_nm_ct = sample_valid_ct;
   g_perms_done = 0;
-  g_mperm_save_all = NULL;
+  g_mperm_save_all = nullptr;
   if ((!do_perms) || is_set_test) {
     *perm_batch_size_ptr = 1;
   }
@@ -4028,16 +4028,16 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t cur_param_ct = 0;
   uintptr_t* marker_exclude = marker_exclude_mid;
-  uintptr_t* unstopped_markers = NULL;
+  uintptr_t* unstopped_markers = nullptr;
   uintptr_t* loadbuf = g_loadbuf;
-  uintptr_t* perm_adapt_set_unstopped = NULL;
+  uintptr_t* perm_adapt_set_unstopped = nullptr;
   double* orig_stats = g_orig_stats;
-  double* sorted_chisq_buf = NULL;
-  uint32_t* marker_idx_to_uidx = NULL;
-  uint32_t* sorted_marker_idx_buf = NULL;
-  uint32_t* proxy_arr = NULL;
-  uint32_t* perm_2success_ct = NULL;
-  uint32_t* perm_attempt_ct = NULL;
+  double* sorted_chisq_buf = nullptr;
+  uint32_t* marker_idx_to_uidx = nullptr;
+  uint32_t* sorted_marker_idx_buf = nullptr;
+  uint32_t* proxy_arr = nullptr;
+  uint32_t* perm_2success_ct = nullptr;
+  uint32_t* perm_attempt_ct = nullptr;
   uintptr_t marker_ct = marker_ct_mid;
   uintptr_t set_ct = 0;
   uintptr_t final_mask = get_final_mask(pheno_nm_ct);
@@ -4331,8 +4331,8 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
-  FILE* outfile = NULL;
-  FILE* outfile_msa = NULL;
+  FILE* outfile = nullptr;
+  FILE* outfile_msa = nullptr;
   uintptr_t marker_ct = marker_ct_orig;
   uintptr_t sample_uidx = 0;
   uintptr_t cur_constraint_ct = 0;
@@ -4370,16 +4370,16 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   __CLPK_integer dgels_nrhs = 0;
   __CLPK_integer dgels_ldb = 0;
   uintptr_t* marker_exclude = marker_exclude_orig;
-  uintptr_t* founder_pnm = NULL;
-  uintptr_t* regression_skip = NULL;
-  double* constraints_con_major = NULL;
-  double* orig_pvals = NULL;
-  uint32_t* condition_uidxs = NULL;
-  uint32_t* marker_idx_to_uidx = NULL;
-  uint32_t* tcnt = NULL;
-  char* cur_param_names = NULL;
-  char* haploid_param_names = NULL;
-  char* wptr_start = NULL;
+  uintptr_t* founder_pnm = nullptr;
+  uintptr_t* regression_skip = nullptr;
+  double* constraints_con_major = nullptr;
+  double* orig_pvals = nullptr;
+  uint32_t* condition_uidxs = nullptr;
+  uint32_t* marker_idx_to_uidx = nullptr;
+  uint32_t* tcnt = nullptr;
+  char* cur_param_names = nullptr;
+  char* haploid_param_names = nullptr;
+  char* wptr_start = nullptr;
   double geno_map[12];
   uint32_t mu_table[GLM_BLOCKSIZE];
   char numbuf[16];
@@ -4477,7 +4477,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     }
     memcpy(founder_pnm, pheno_nm, unfiltered_sample_ctl * sizeof(intptr_t));
     bitvec_and(founder_info, unfiltered_sample_ctl, founder_pnm);
-    if (extract_set_union_unfiltered(sip, NULL, unfiltered_marker_ct, marker_exclude_orig, &marker_exclude, &marker_ct)) {
+    if (extract_set_union_unfiltered(sip, nullptr, unfiltered_marker_ct, marker_exclude_orig, &marker_exclude, &marker_ct)) {
       goto glm_linear_assoc_ret_NOMEM;
     }
     if (glm_modifier & GLM_PERM) {
@@ -4516,7 +4516,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       goto glm_linear_assoc_ret_NOMEM;
     }
   } else {
-    g_perm_adapt_stop = NULL;
+    g_perm_adapt_stop = nullptr;
     if (bigstack_calloc_ul(BITCT_TO_WORDCT(marker_initial_ct), &regression_skip)) {
       goto glm_linear_assoc_ret_NOMEM;
     }
@@ -4583,9 +4583,9 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       g_is_x = 0;
     }
     if (!g_is_x) {
-      glm_loadbuf_to_doubles(g_loadbuf, sample_valid_ct, &(g_fixed_covars_cov_major[param_idx_fixed * sample_valid_ct]), geno_map_ptr, NULL);
+      glm_loadbuf_to_doubles(g_loadbuf, sample_valid_ct, &(g_fixed_covars_cov_major[param_idx_fixed * sample_valid_ct]), geno_map_ptr, nullptr);
     } else {
-      glm_loadbuf_to_doubles_x(g_loadbuf, sex_male_collapsed, sample_valid_ct, &(g_fixed_covars_cov_major[param_idx_fixed * sample_valid_ct]), geno_map_ptr, NULL);
+      glm_loadbuf_to_doubles_x(g_loadbuf, sex_male_collapsed, sample_valid_ct, &(g_fixed_covars_cov_major[param_idx_fixed * sample_valid_ct]), geno_map_ptr, nullptr);
     }
     if (is_set(active_params, param_idx_fixed + condition_list_start_idx)) {
       strcpy(&(param_names[param_idx * max_param_name_len]), &(marker_ids[marker_uidx * max_marker_id_len]));
@@ -4785,7 +4785,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   if (do_perms) {
     if (cluster_starts) {
       // Pointless to include size-1 clusters in permutation.
-      retval = cluster_include_and_reindex(unfiltered_sample_ct, load_mask, 1, NULL, sample_valid_ct, 0, cluster_ct, cluster_map, cluster_starts, &g_perm_cluster_ct, &g_perm_cluster_map, &g_perm_cluster_starts, NULL, NULL);
+      retval = cluster_include_and_reindex(unfiltered_sample_ct, load_mask, 1, nullptr, sample_valid_ct, 0, cluster_ct, cluster_map, cluster_starts, &g_perm_cluster_ct, &g_perm_cluster_map, &g_perm_cluster_starts, nullptr, nullptr);
       if (retval) {
 	goto glm_linear_assoc_ret_1;
       }
@@ -5352,7 +5352,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     }
     if (!is_set_test) {
       if (mtest_adjust) {
-	retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_initial_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, constraint_ct_max? NULL : g_orig_stats, pfilter, output_min_p, mtest_adjust, constraint_ct_max, adjust_lambda, constraint_ct_max? NULL : tcnt, constraint_ct_max? orig_pvals : NULL);
+	retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_initial_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, constraint_ct_max? nullptr : g_orig_stats, pfilter, output_min_p, mtest_adjust, constraint_ct_max, adjust_lambda, constraint_ct_max? nullptr : tcnt, constraint_ct_max? orig_pvals : nullptr);
 	if (retval) {
 	  goto glm_linear_assoc_ret_1;
 	}
@@ -5581,16 +5581,16 @@ int32_t glm_logistic_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t cur_param_ct = 0;
   uintptr_t* marker_exclude = marker_exclude_mid;
-  uintptr_t* unstopped_markers = NULL;
+  uintptr_t* unstopped_markers = nullptr;
   uintptr_t* loadbuf = g_loadbuf;
-  uintptr_t* perm_adapt_set_unstopped = NULL;
+  uintptr_t* perm_adapt_set_unstopped = nullptr;
   double* orig_stats = g_orig_stats;
-  double* sorted_chisq_buf = NULL;
-  uint32_t* marker_idx_to_uidx = NULL;
-  uint32_t* sorted_marker_idx_buf = NULL;
-  uint32_t* proxy_arr = NULL;
-  uint32_t* perm_2success_ct = NULL;
-  uint32_t* perm_attempt_ct = NULL;
+  double* sorted_chisq_buf = nullptr;
+  uint32_t* marker_idx_to_uidx = nullptr;
+  uint32_t* sorted_marker_idx_buf = nullptr;
+  uint32_t* proxy_arr = nullptr;
+  uint32_t* perm_2success_ct = nullptr;
+  uint32_t* perm_attempt_ct = nullptr;
   uintptr_t marker_ct = marker_ct_mid;
   uintptr_t set_ct = 0;
   uintptr_t final_mask = get_final_mask(pheno_nm_ct);
@@ -5859,8 +5859,8 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
-  FILE* outfile = NULL;
-  FILE* outfile_msa = NULL;
+  FILE* outfile = nullptr;
+  FILE* outfile_msa = nullptr;
   uintptr_t marker_ct = marker_ct_orig;
   uintptr_t sample_uidx = 0;
   uintptr_t cur_constraint_ct = 0;
@@ -5890,17 +5890,17 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   uint32_t hh_or_mt_exists = hh_exists;
   uint32_t skip_intercept = !(glm_modifier & GLM_INTERCEPT);
   int32_t retval = 0;
-  double* constraints_con_major = NULL;
-  double* orig_pvals = NULL;
+  double* constraints_con_major = nullptr;
+  double* orig_pvals = nullptr;
   uintptr_t* marker_exclude = marker_exclude_orig;
-  uintptr_t* founder_pnm = NULL;
-  uintptr_t* regression_skip = NULL;
-  uintptr_t* pheno_c_collapsed = NULL;
-  uint32_t* condition_uidxs = NULL;
-  uint32_t* marker_idx_to_uidx = NULL;
-  char* cur_param_names = NULL;
-  char* haploid_param_names = NULL;
-  char* wptr_start = NULL;
+  uintptr_t* founder_pnm = nullptr;
+  uintptr_t* regression_skip = nullptr;
+  uintptr_t* pheno_c_collapsed = nullptr;
+  uint32_t* condition_uidxs = nullptr;
+  uint32_t* marker_idx_to_uidx = nullptr;
+  char* cur_param_names = nullptr;
+  char* haploid_param_names = nullptr;
+  char* wptr_start = nullptr;
   float geno_map[12];
   uint32_t mu_table[GLM_BLOCKSIZE];
   char numbuf[16];
@@ -5999,7 +5999,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     }
     memcpy(founder_pnm, pheno_nm, unfiltered_sample_ctl * sizeof(intptr_t));
     bitvec_and(founder_info, unfiltered_sample_ctl, founder_pnm);
-    if (extract_set_union_unfiltered(sip, NULL, unfiltered_marker_ct, marker_exclude_orig, &marker_exclude, &marker_ct)) {
+    if (extract_set_union_unfiltered(sip, nullptr, unfiltered_marker_ct, marker_exclude_orig, &marker_exclude, &marker_ct)) {
       goto glm_logistic_assoc_ret_NOMEM;
     }
     if (glm_modifier & GLM_PERM) {
@@ -6040,7 +6040,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       goto glm_logistic_assoc_ret_NOMEM;
     }
   } else {
-    g_perm_adapt_stop = NULL;
+    g_perm_adapt_stop = nullptr;
     if (bigstack_calloc_ul(BITCT_TO_WORDCT(marker_initial_ct), &regression_skip)) {
       goto glm_logistic_assoc_ret_NOMEM;
     }
@@ -6107,9 +6107,9 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       g_is_x = 0;
     }
     if (!g_is_x) {
-      glm_loadbuf_to_floats(g_loadbuf, sample_valid_ct, &(g_fixed_covars_cov_major_f[param_idx_fixed * sample_valid_ct]), geno_map_ptr, NULL);
+      glm_loadbuf_to_floats(g_loadbuf, sample_valid_ct, &(g_fixed_covars_cov_major_f[param_idx_fixed * sample_valid_ct]), geno_map_ptr, nullptr);
     } else {
-      glm_loadbuf_to_floats_x(g_loadbuf, sex_male_collapsed, sample_valid_ct, &(g_fixed_covars_cov_major_f[param_idx_fixed * sample_valid_ct]), geno_map_ptr, NULL);
+      glm_loadbuf_to_floats_x(g_loadbuf, sex_male_collapsed, sample_valid_ct, &(g_fixed_covars_cov_major_f[param_idx_fixed * sample_valid_ct]), geno_map_ptr, nullptr);
     }
     if (is_set(active_params, param_idx_fixed + condition_list_start_idx)) {
       strcpy(&(param_names[param_idx * max_param_name_len]), &(marker_ids[marker_uidx * max_marker_id_len]));
@@ -6355,13 +6355,13 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	goto glm_logistic_assoc_ret_NOMEM;
       }
     } else {
-      g_logistic_mt[tidx].mi_buf = NULL;
-      g_logistic_mt[tidx].param_1d_dbuf = NULL;
-      g_logistic_mt[tidx].param_2d_dbuf = NULL;
-      g_logistic_mt[tidx].param_2d_dbuf2 = NULL;
-      g_logistic_mt[tidx].param_df_dbuf = NULL;
-      g_logistic_mt[tidx].df_df_dbuf = NULL;
-      g_logistic_mt[tidx].df_dbuf = NULL;
+      g_logistic_mt[tidx].mi_buf = nullptr;
+      g_logistic_mt[tidx].param_1d_dbuf = nullptr;
+      g_logistic_mt[tidx].param_2d_dbuf = nullptr;
+      g_logistic_mt[tidx].param_2d_dbuf2 = nullptr;
+      g_logistic_mt[tidx].param_df_dbuf = nullptr;
+      g_logistic_mt[tidx].df_df_dbuf = nullptr;
+      g_logistic_mt[tidx].df_dbuf = nullptr;
     }
   }
 
@@ -6787,7 +6787,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     }
     if (!is_set_test) {
       if (mtest_adjust) {
-	retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_initial_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, NULL, pfilter, output_min_p, mtest_adjust, constraint_ct_max, adjust_lambda, NULL, orig_pvals);
+	retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_initial_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, nullptr, pfilter, output_min_p, mtest_adjust, constraint_ct_max, adjust_lambda, nullptr, orig_pvals);
 	if (retval) {
 	  goto glm_logistic_assoc_ret_1;
 	}
@@ -7016,7 +7016,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t unfiltered_sample_ctv2 = 2 * unfiltered_sample_ctl;
-  FILE* outfile = NULL;
+  FILE* outfile = nullptr;
   uintptr_t sample_uidx = 0;
   uintptr_t max_param_name_len = 2;
   uintptr_t param_raw_ct = 1;
@@ -7040,31 +7040,31 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   __CLPK_integer dgels_m = 0;
   __CLPK_integer dgels_n = 0;
   __CLPK_integer dgels_nrhs = 0;
-  double* dgels_a = NULL;
-  double* dgels_b = NULL;
-  double* dgels_work = NULL;
-  double* param_df_buf = NULL;
-  double* param_df_buf2 = NULL;
+  double* dgels_a = nullptr;
+  double* dgels_b = nullptr;
+  double* dgels_work = nullptr;
+  double* param_df_buf = nullptr;
+  double* param_df_buf2 = nullptr;
   __CLPK_integer dgels_ldb = 0;
   __CLPK_integer dgels_lwork = -1;
   __CLPK_integer dgels_info;
   double dzz;
-  double* regression_results = NULL;
-  double* mperm_save_stats = NULL;
-  double* constraints_con_major = NULL;
-  double* df_df_buf = NULL;
-  double* df_buf = NULL;
-  uintptr_t* loadbuf_raw = NULL;
-  uintptr_t* loadbuf_collapsed = NULL;
-  uintptr_t* load_mask = NULL;
-  uintptr_t* sex_male_collapsed = NULL;
-  uintptr_t* sample_include2 = NULL;
-  uintptr_t* sample_male_include2 = NULL;
-  uintptr_t* active_params = NULL;
-  uintptr_t* joint_test_params = NULL;
-  uintptr_t* perm_fails = NULL;
-  uint32_t* perm_2success_ct = NULL;
-  uint32_t* condition_uidxs = NULL;
+  double* regression_results = nullptr;
+  double* mperm_save_stats = nullptr;
+  double* constraints_con_major = nullptr;
+  double* df_df_buf = nullptr;
+  double* df_buf = nullptr;
+  uintptr_t* loadbuf_raw = nullptr;
+  uintptr_t* loadbuf_collapsed = nullptr;
+  uintptr_t* load_mask = nullptr;
+  uintptr_t* sex_male_collapsed = nullptr;
+  uintptr_t* sample_include2 = nullptr;
+  uintptr_t* sample_male_include2 = nullptr;
+  uintptr_t* active_params = nullptr;
+  uintptr_t* joint_test_params = nullptr;
+  uintptr_t* perm_fails = nullptr;
+  uint32_t* perm_2success_ct = nullptr;
+  uint32_t* condition_uidxs = nullptr;
   double geno_map[12];
   double* geno_map_ptr;
   double* param_2d_buf;
@@ -7319,9 +7319,9 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	is_x = 0;
       }
       if (!is_x) {
-        glm_loadbuf_to_doubles(loadbuf_collapsed, sample_valid_ct, &(covars_cov_major[param_idx * sample_valid_ct]), geno_map_ptr, NULL);
+        glm_loadbuf_to_doubles(loadbuf_collapsed, sample_valid_ct, &(covars_cov_major[param_idx * sample_valid_ct]), geno_map_ptr, nullptr);
       } else {
-	glm_loadbuf_to_doubles_x(loadbuf_collapsed, sex_male_collapsed, sample_valid_ct, &(covars_cov_major[param_idx * sample_valid_ct]), geno_map_ptr, NULL);
+	glm_loadbuf_to_doubles_x(loadbuf_collapsed, sex_male_collapsed, sample_valid_ct, &(covars_cov_major[param_idx * sample_valid_ct]), geno_map_ptr, nullptr);
       }
       strcpy(&(param_names[param_idx * max_param_name_len]), &(marker_ids[marker_uidx * max_marker_id_len]));
       param_idx++;
@@ -7524,7 +7524,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     max_thread_ct = uii;
   }
   if (cluster_starts && do_perms) {
-    retval = cluster_include_and_reindex(unfiltered_sample_ct, load_mask, 1, NULL, sample_valid_ct, 0, cluster_ct, cluster_map, cluster_starts, &g_perm_cluster_ct, &g_perm_cluster_map, &g_perm_cluster_starts, NULL, NULL);
+    retval = cluster_include_and_reindex(unfiltered_sample_ct, load_mask, 1, nullptr, sample_valid_ct, 0, cluster_ct, cluster_map, cluster_starts, &g_perm_cluster_ct, &g_perm_cluster_map, &g_perm_cluster_starts, nullptr, nullptr);
     if (retval) {
       goto glm_linear_nosnp_ret_1;
     }
@@ -7548,7 +7548,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   }
 
   transpose_copy(param_ct, sample_valid_ct, covars_cov_major, covars_sample_major);
-  if (glm_linear(1, param_ct, sample_valid_ct, 0, NULL, 0, 0, 0, covars_cov_major, covars_sample_major, g_perm_pheno_d2, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, regression_results, constraint_ct, constraints_con_major, param_df_buf, param_df_buf2, df_df_buf, df_buf, &perm_fail_ct, perm_fails) || perm_fail_ct) {
+  if (glm_linear(1, param_ct, sample_valid_ct, 0, nullptr, 0, 0, 0, covars_cov_major, covars_sample_major, g_perm_pheno_d2, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, regression_results, constraint_ct, constraints_con_major, param_df_buf, param_df_buf2, df_df_buf, df_buf, &perm_fail_ct, perm_fails) || perm_fail_ct) {
     logerrprint("Warning: Skipping --linear no-snp due to multicollinearity.\n");
     goto glm_linear_nosnp_ret_1;
   }
@@ -7684,7 +7684,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
     memcpy(dgels_a, covars_cov_major, param_ct * sample_valid_ct * sizeof(double));
     memcpy(dgels_b, g_perm_pmajor, cur_batch_size * sample_valid_ct * sizeof(double));
     dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
-    if (glm_linear(cur_batch_size, param_ct, sample_valid_ct, 0, NULL, 0, 0, 0, covars_cov_major, covars_sample_major, g_perm_pmajor, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, regression_results, constraint_ct, constraints_con_major, param_df_buf, param_df_buf2, df_df_buf, df_buf, &perm_fail_ct, perm_fails)) {
+    if (glm_linear(cur_batch_size, param_ct, sample_valid_ct, 0, nullptr, 0, 0, 0, covars_cov_major, covars_sample_major, g_perm_pmajor, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, regression_results, constraint_ct, constraints_con_major, param_df_buf, param_df_buf2, df_df_buf, df_buf, &perm_fail_ct, perm_fails)) {
       perm_fail_ct = cur_batch_size;
       fill_bits(0, cur_batch_size, perm_fails);
     }
@@ -7879,7 +7879,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t unfiltered_sample_ctv2 = 2 * unfiltered_sample_ctl;
-  FILE* outfile = NULL;
+  FILE* outfile = nullptr;
   uintptr_t sample_uidx = 0;
   uintptr_t max_param_name_len = 2;
   uintptr_t param_raw_ct = 1;
@@ -7899,26 +7899,26 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   uint32_t max_thread_ct = g_thread_ct;
   uint32_t skip_intercept = !(glm_modifier & GLM_INTERCEPT);
   int32_t retval = 0;
-  uintptr_t* loadbuf_raw = NULL;
-  uintptr_t* loadbuf_collapsed = NULL;
-  uintptr_t* load_mask = NULL;
-  uintptr_t* sex_male_collapsed = NULL;
-  uintptr_t* sample_include2 = NULL;
-  uintptr_t* sample_male_include2 = NULL;
-  uintptr_t* active_params = NULL;
-  uintptr_t* joint_test_params = NULL;
-  double* mperm_save_stats = NULL;
-  double* constraints_con_major = NULL;
-  double* param_1d_dbuf = NULL;
-  double* param_2d_dbuf = NULL;
-  double* param_2d_dbuf2 = NULL;
-  double* param_df_dbuf = NULL;
-  double* df_df_dbuf = NULL;
-  MATRIX_INVERT_BUF1_TYPE* mi_buf = NULL;
-  double* df_dbuf = NULL;
-  uintptr_t* perm_fails = NULL;
-  uint32_t* perm_2success_ct = NULL;
-  uint32_t* condition_uidxs = NULL;
+  uintptr_t* loadbuf_raw = nullptr;
+  uintptr_t* loadbuf_collapsed = nullptr;
+  uintptr_t* load_mask = nullptr;
+  uintptr_t* sex_male_collapsed = nullptr;
+  uintptr_t* sample_include2 = nullptr;
+  uintptr_t* sample_male_include2 = nullptr;
+  uintptr_t* active_params = nullptr;
+  uintptr_t* joint_test_params = nullptr;
+  double* mperm_save_stats = nullptr;
+  double* constraints_con_major = nullptr;
+  double* param_1d_dbuf = nullptr;
+  double* param_2d_dbuf = nullptr;
+  double* param_2d_dbuf2 = nullptr;
+  double* param_df_dbuf = nullptr;
+  double* df_df_dbuf = nullptr;
+  MATRIX_INVERT_BUF1_TYPE* mi_buf = nullptr;
+  double* df_dbuf = nullptr;
+  uintptr_t* perm_fails = nullptr;
+  uint32_t* perm_2success_ct = nullptr;
+  uint32_t* condition_uidxs = nullptr;
   float geno_map[12];
   float* geno_map_ptr;
   char* param_names;
@@ -8190,9 +8190,9 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	is_x = 0;
       }
       if (!is_x) {
-        glm_loadbuf_to_floats(loadbuf_collapsed, sample_valid_ct, &(covars_cov_major[param_idx * sample_valid_cta4]), geno_map_ptr, NULL);
+        glm_loadbuf_to_floats(loadbuf_collapsed, sample_valid_ct, &(covars_cov_major[param_idx * sample_valid_cta4]), geno_map_ptr, nullptr);
       } else {
-	glm_loadbuf_to_floats_x(loadbuf_collapsed, sex_male_collapsed, sample_valid_ct, &(covars_cov_major[param_idx * sample_valid_cta4]), geno_map_ptr, NULL);
+	glm_loadbuf_to_floats_x(loadbuf_collapsed, sex_male_collapsed, sample_valid_ct, &(covars_cov_major[param_idx * sample_valid_cta4]), geno_map_ptr, nullptr);
       }
       strcpy(&(param_names[param_idx * max_param_name_len]), &(marker_ids[marker_uidx * max_marker_id_len]));
       param_idx++;
@@ -8334,7 +8334,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   }
 
   fill_float_zero(param_cta4, coef);
-  if (glm_logistic(1, param_ct, sample_valid_ct, 0, skip_intercept, NULL, covars_cov_major, g_perm_vecs, coef, pp, sample_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, constraint_ct, constraints_con_major, param_1d_dbuf, param_2d_dbuf, param_2d_dbuf2, param_df_dbuf, df_df_dbuf, mi_buf, df_dbuf, perm_fails)) {
+  if (glm_logistic(1, param_ct, sample_valid_ct, 0, skip_intercept, nullptr, covars_cov_major, g_perm_vecs, coef, pp, sample_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, constraint_ct, constraints_con_major, param_1d_dbuf, param_2d_dbuf, param_2d_dbuf2, param_df_dbuf, df_df_dbuf, mi_buf, df_dbuf, perm_fails)) {
     logerrprint("Warning: Skipping --logistic no-snp due to multicollinearity.\n");
     goto glm_logistic_nosnp_ret_1;
   }
@@ -8473,7 +8473,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     }
     join_threads(threads, g_perm_generation_thread_ct);
     fill_float_zero(cur_batch_size * param_cta4, coef);
-    perm_fail_total += glm_logistic(cur_batch_size, param_ct, sample_valid_ct, 0, 1, NULL, covars_cov_major, g_perm_vecs, coef, pp, sample_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, constraint_ct, constraints_con_major, param_1d_dbuf, param_2d_dbuf, param_2d_dbuf2, param_df_dbuf, df_df_dbuf, mi_buf, df_dbuf, perm_fails);
+    perm_fail_total += glm_logistic(cur_batch_size, param_ct, sample_valid_ct, 0, 1, nullptr, covars_cov_major, g_perm_vecs, coef, pp, sample_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, constraint_ct, constraints_con_major, param_1d_dbuf, param_2d_dbuf, param_2d_dbuf2, param_df_dbuf, df_df_dbuf, mi_buf, df_dbuf, perm_fails);
     ulii = param_ct - 1;
     uljj = param_ctx - 1;
     for (perm_idx = 0; perm_idx < cur_batch_size; perm_idx++) {
@@ -8755,7 +8755,7 @@ uint32_t glm_linear_dosage(uintptr_t sample_ct, uintptr_t* cur_samples, uintptr_
   memcpy(dgels_a, covars_cov_major, param_ct * sample_valid_ct * sizeof(double));
   memcpy(dgels_b, pheno_d2, sample_valid_ct * sizeof(double));
   dgels_(&dgels_trans, &dgels_m, &dgels_n, &dgels_nrhs, dgels_a, &dgels_m, dgels_b, &dgels_ldb, dgels_work, &dgels_lwork, &dgels_info);
-  glm_linear(1, param_ct, sample_valid_ct, 0, NULL, 0, 0, 0, covars_cov_major, covars_sample_major, pheno_d2, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, regression_results, 0, NULL, NULL, NULL, NULL, NULL, &perm_fail_ct, perm_fails);
+  glm_linear(1, param_ct, sample_valid_ct, 0, nullptr, 0, 0, 0, covars_cov_major, covars_sample_major, pheno_d2, dgels_b, param_2d_buf, mi_buf, param_2d_buf2, regression_results, 0, nullptr, nullptr, nullptr, nullptr, nullptr, &perm_fail_ct, perm_fails);
   if (perm_fail_ct) {
     return 0;
   }
@@ -8812,7 +8812,7 @@ uint32_t glm_logistic_dosage(uintptr_t sample_ct, uintptr_t* cur_samples, uintpt
     covar_f++;
   }
   fill_float_zero(param_cta4, coef);
-  if (glm_logistic(1, param_ct, sample_valid_ct, 0, 1, NULL, covars_cov_major, perm_vec, coef, pp, sample_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, perm_fails) || perm_fails[0]) {
+  if (glm_logistic(1, param_ct, sample_valid_ct, 0, 1, nullptr, covars_cov_major, perm_vec, coef, pp, sample_1d_buf, pheno_buf, param_1d_buf, param_1d_buf2, param_2d_buf, param_2d_buf2, regression_results, 0, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, perm_fails) || perm_fails[0]) {
     return 0;
   }
   dxx = (double)coef[1];

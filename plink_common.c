@@ -18,7 +18,7 @@ const char* g_output_missing_geno_ptr = &(g_one_char_strs[96]);
 
 sfmt_t g_sfmt;
 
-FILE* g_logfile = NULL;
+FILE* g_logfile = nullptr;
 
 char g_logbuf[MAXLINELEN * 2];
 
@@ -227,7 +227,7 @@ unsigned char* bigstack_alloc(uintptr_t size) {
   unsigned char* alloc_ptr;
   size = round_up_pow2(size, CACHELINE);
   if (bigstack_left() < size) {
-    return NULL;
+    return nullptr;
   }
   alloc_ptr = g_bigstack_base;
   g_bigstack_base += size;
@@ -243,7 +243,7 @@ unsigned char* bigstack_end_alloc_presized(uintptr_t size) {
   assert(!(size & END_ALLOC_CHUNK_M1));
   uintptr_t cur_bigstack_left = bigstack_left();
   if (size > cur_bigstack_left) {
-    return NULL;
+    return nullptr;
   } else {
     g_bigstack_end -= size;
     return g_bigstack_end;
@@ -787,7 +787,7 @@ int32_t strcmp_se(const char* s_read, const char* s_const, uint32_t s_const_len)
 
 char* next_token(char* sptr) {
   if (!sptr) {
-    return NULL;
+    return nullptr;
   }
   unsigned char ucc = *sptr;
   while (ucc > 32) {
@@ -796,13 +796,13 @@ char* next_token(char* sptr) {
   while ((ucc == ' ') || (ucc == '\t')) {
     ucc = *(++sptr);
   }
-  return (ucc > 32)? sptr : NULL;
+  return (ucc > 32)? sptr : nullptr;
 }
 
 char* next_token_mult(char* sptr, uint32_t ct) {
   assert(ct);
   if (!sptr) {
-    return NULL;
+    return nullptr;
   }
   unsigned char ucc = *sptr;
   do {
@@ -813,7 +813,7 @@ char* next_token_mult(char* sptr, uint32_t ct) {
       ucc = *(++sptr);
     }
     if (ucc <= 32) {
-      return NULL;
+      return nullptr;
     }
   } while (--ct);
   return sptr;
@@ -4281,8 +4281,8 @@ static inline uint32_t nonstd_chrom_name_htable_find(const char* chrom_name, con
 // explicit in the function signatures; in contrast, g_species_singular and
 // g_species_plural are just for pretty printing and lend no insight into what
 // the functions which reference them are doing.)
-const char* g_species_singular = NULL;
-const char* g_species_plural = NULL;
+const char* g_species_singular = nullptr;
+const char* g_species_plural = nullptr;
 
 int32_t init_chrom_info(Chrom_info* chrom_info_ptr) {
   // "constructor".  initializes with maximum capacity.  doesn't use bigstack.
@@ -4297,7 +4297,7 @@ int32_t init_chrom_info(Chrom_info* chrom_info_ptr) {
 
   // needed for proper cleanup
   chrom_info_ptr->name_ct = 0;
-  chrom_info_ptr->incl_excl_name_stack = NULL;
+  chrom_info_ptr->incl_excl_name_stack = nullptr;
   if (aligned_malloc(vecs_required * VEC_BYTES, &(chrom_info_ptr->chrom_mask))) {
     return RET_NOMEM;
   }
@@ -4413,7 +4413,7 @@ void forget_extra_chrom_names(uint32_t reinitialize, Chrom_info* chrom_info_ptr)
     const uint32_t chrom_idx_last = chrom_info_ptr->max_code + name_ct;
     for (uint32_t chrom_idx = chrom_info_ptr->max_code + 1; chrom_idx <= chrom_idx_last; ++chrom_idx) {
       free(nonstd_names[chrom_idx]);
-      nonstd_names[chrom_idx] = NULL;
+      nonstd_names[chrom_idx] = nullptr;
     }
     if (reinitialize) {
       fill_uint_one(CHROM_NAME_HTABLE_SIZE, chrom_info_ptr->nonstd_id_htable);
@@ -4462,8 +4462,8 @@ int32_t finalize_chrom_info(Chrom_info* chrom_info_ptr) {
   chrom_info_ptr->chrom_idx_to_foidx = (uint32_t*)new_alloc_iter;
 
   if (!name_ct) {
-    chrom_info_ptr->nonstd_names = NULL;
-    chrom_info_ptr->nonstd_id_htable = NULL;
+    chrom_info_ptr->nonstd_names = nullptr;
+    chrom_info_ptr->nonstd_id_htable = nullptr;
   } else {
     new_alloc_iter = &(new_alloc_iter[chrom_code_end_int32vec_ct * VEC_WORDS]);
 
@@ -4484,7 +4484,7 @@ void cleanup_chrom_info(Chrom_info* chrom_info_ptr) {
     forget_extra_chrom_names(0, chrom_info_ptr);
 
     aligned_free(chrom_info_ptr->chrom_mask);
-    chrom_info_ptr->chrom_mask = NULL;
+    chrom_info_ptr->chrom_mask = nullptr;
   }
   Ll_str* ll_str_ptr = chrom_info_ptr->incl_excl_name_stack;
   while (ll_str_ptr) {
@@ -4492,7 +4492,7 @@ void cleanup_chrom_info(Chrom_info* chrom_info_ptr) {
     free(ll_str_ptr);
     ll_str_ptr = next_ptr;
   }
-  chrom_info_ptr->incl_excl_name_stack = NULL;
+  chrom_info_ptr->incl_excl_name_stack = nullptr;
 }
 
 char* chrom_name_std(const Chrom_info* chrom_info_ptr, uint32_t chrom_idx, char* buf) {
@@ -5113,14 +5113,14 @@ char* scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id
       return &(sorted_ids[id_idx * max_id_len]);
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 char* scan_for_duplicate_or_overlap_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len, const char* sorted_nonoverlap_ids, uintptr_t nonoverlap_id_ct, uintptr_t max_nonoverlap_id_len) {
   // extended scan_for_duplicate_ids() which also verifies that no entry in
   // sorted_ids matches any entry in sorted_nonoverlap_ids.
-  // nonoverlap_id_ct == 0 and sorted_nonoverlap_ids == NULL ok.  id_ct cannot
-  // be zero, though.
+  // nonoverlap_id_ct == 0 and sorted_nonoverlap_ids == nullptr ok.  id_ct
+  // cannot be zero, though.
   uintptr_t nonoverlap_id_idx = 0;
   uintptr_t id_idx = 0;
   char* cur_id_ptr = sorted_ids;
@@ -5135,7 +5135,7 @@ char* scan_for_duplicate_or_overlap_ids(char* sorted_ids, uintptr_t id_ct, uintp
     ii = strcmp(cur_id_ptr, nonoverlap_id_ptr);
     if (ii < 0) {
       if (++id_idx == id_ct) {
-	return NULL;
+	return nullptr;
       }
       other_id_ptr = &(cur_id_ptr[max_id_len]);
       if (!strcmp(cur_id_ptr, other_id_ptr)) {
@@ -6418,7 +6418,7 @@ uint32_t window_back(const uint32_t* __restrict marker_pos, const uintptr_t* mar
 }
 
 uint32_t window_forward(const uint32_t* __restrict marker_pos, const uintptr_t* marker_exclude, uint32_t marker_uidx_start, uint32_t marker_uidx_last, uint32_t count_max, uint32_t bp_max, uint32_t* __restrict window_lead_ct_ptr) {
-  // window_lead_ct_ptr currently cannot be NULL
+  // window_lead_ct_ptr currently cannot be nullptr
   if (marker_uidx_start == marker_uidx_last) {
     *window_lead_ct_ptr = 0;
     return marker_uidx_start;
@@ -9732,7 +9732,7 @@ int32_t scan_max_strlen(char* fname, uint32_t colnum, uint32_t colnum2, uint32_t
   // colnum and colnum2 are 1-based indices.  If colnum2 is zero, only colnum
   // is scanned.
   // Includes terminating null in lengths.
-  FILE* infile = NULL;
+  FILE* infile = nullptr;
   uintptr_t loadbuf_size = bigstack_left();
   uintptr_t max_str_len = *max_str_len_ptr;
   uintptr_t max_str2_len = 0;
@@ -9835,7 +9835,7 @@ int32_t scan_max_fam_indiv_strlen(char* fname, uint32_t colnum, uintptr_t* max_s
   // colnum is a 1-based index with the FID column number; IID column is
   // assumed to follow.
   // Includes terminating null in lengths.
-  FILE* infile = NULL;
+  FILE* infile = nullptr;
   uintptr_t loadbuf_size = bigstack_left();
   uintptr_t max_sample_id_len = *max_sample_id_len_ptr;
   uintptr_t line_idx = 0;
@@ -9937,7 +9937,7 @@ char* alloc_and_init_collapsed_arr(char* item_arr, uintptr_t item_len, uintptr_t
     return item_arr;
   }
   if (bigstack_alloc_c(filtered_ct * item_len, &new_arr)) {
-    return NULL;
+    return nullptr;
   }
   wptr = new_arr;
   wptr_end = &(new_arr[filtered_ct * item_len]);
@@ -9963,7 +9963,7 @@ char* alloc_and_init_collapsed_arr_incl(char* item_arr, uintptr_t item_len, uint
     return item_arr;
   }
   if (bigstack_alloc_c(filtered_ct * item_len, &new_arr)) {
-    return NULL;
+    return nullptr;
   }
   wptr = new_arr;
   wptr_end = &(new_arr[filtered_ct * item_len]);
@@ -10212,7 +10212,7 @@ void copy_when_nonmissing(uintptr_t* loadbuf, char* source, uintptr_t elem_size,
 uint32_t collapse_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_len, uint32_t* id_starts) {
   // Collapses array of sorted IDs to remove duplicates, and writes
   // pre-collapse positions to id_starts (so e.g. duplication count of any
-  // sample ID can be determined via subtraction) if it isn't NULL.
+  // sample ID can be determined via subtraction) if it isn't nullptr.
   // Returns id_ct of collapsed array.
   uintptr_t read_idx;
   uintptr_t write_idx;
@@ -10252,8 +10252,8 @@ uint32_t collapse_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max
 }
 
 void range_list_init(Range_list* range_list_ptr) {
-  range_list_ptr->names = NULL;
-  range_list_ptr->starts_range = NULL;
+  range_list_ptr->names = nullptr;
+  range_list_ptr->starts_range = nullptr;
   range_list_ptr->name_ct = 0;
   range_list_ptr->name_max_len = 0;
 }
@@ -10443,7 +10443,7 @@ void join_threads(pthread_t* threads, uint32_t ctp1) {
 #else
   uint32_t uii;
   for (uii = 0; uii < ctp1; uii++) {
-    pthread_join(threads[uii], NULL);
+    pthread_join(threads[uii], nullptr);
   }
 #endif
 }
@@ -10460,13 +10460,13 @@ int32_t spawn_threads(pthread_t* threads, void* (*start_routine)(void*), uintptr
   }
   for (ulii = 1; ulii < ct; ulii++) {
 #ifdef _WIN32
-    threads[ulii - 1] = (HANDLE)_beginthreadex(NULL, 4096, start_routine, (void*)ulii, 0, NULL);
+    threads[ulii - 1] = (HANDLE)_beginthreadex(nullptr, 4096, start_routine, (void*)ulii, 0, nullptr);
     if (!threads[ulii - 1]) {
       join_threads(threads, ulii);
       return -1;
     }
 #else
-    if (pthread_create(&(threads[ulii - 1]), NULL, start_routine, (void*)ulii)) {
+    if (pthread_create(&(threads[ulii - 1]), nullptr, start_routine, (void*)ulii)) {
       join_threads(threads, ulii);
       return -1;
     }
@@ -10596,7 +10596,7 @@ void join_threads2(pthread_t* threads, uint32_t ctp1, uint32_t is_last_block) {
     // keep mutex until next block loaded
   } else {
     for (uii = 0; uii < ctp1; uii++) {
-      pthread_join(threads[uii], NULL);
+      pthread_join(threads[uii], nullptr);
     }
     // slightly inefficient if there are multiple multithreaded commands being
     // run, but if different commands require different numbers of threads,
@@ -10631,11 +10631,11 @@ int32_t spawn_threads2(pthread_t* threads, void* (*start_routine)(void*), uintpt
       return 0;
     }
     for (ulii = 1; ulii < ct; ulii++) {
-      g_thread_start_next_event[ulii - 1] = CreateEvent(NULL, FALSE, FALSE, NULL);
-      g_thread_cur_block_done_events[ulii - 1] = CreateEvent(NULL, FALSE, FALSE, NULL);
+      g_thread_start_next_event[ulii - 1] = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+      g_thread_cur_block_done_events[ulii - 1] = CreateEvent(nullptr, FALSE, FALSE, nullptr);
     }
     for (ulii = 1; ulii < ct; ulii++) {
-      threads[ulii - 1] = (HANDLE)_beginthreadex(NULL, 4096, start_routine, (void*)ulii, 0, NULL);
+      threads[ulii - 1] = (HANDLE)_beginthreadex(nullptr, 4096, start_routine, (void*)ulii, 0, nullptr);
       if (!threads[ulii - 1]) {
 	join_threads2(threads, ulii, is_last_block);
 	return -1;
@@ -10657,13 +10657,13 @@ int32_t spawn_threads2(pthread_t* threads, void* (*start_routine)(void*), uintpt
     if (ct == 1) {
       return 0;
     }
-    if (pthread_mutex_init(&g_thread_sync_mutex, NULL) ||
-        pthread_cond_init(&g_thread_cur_block_done_condvar, NULL) ||
-        pthread_cond_init(&g_thread_start_next_condvar, NULL)) {
+    if (pthread_mutex_init(&g_thread_sync_mutex, nullptr) ||
+        pthread_cond_init(&g_thread_cur_block_done_condvar, nullptr) ||
+        pthread_cond_init(&g_thread_start_next_condvar, nullptr)) {
       return -1;
     }
     for (ulii = 1; ulii < ct; ulii++) {
-      if (pthread_create(&(threads[ulii - 1]), NULL, start_routine, (void*)ulii)) {
+      if (pthread_create(&(threads[ulii - 1]), nullptr, start_routine, (void*)ulii)) {
 	join_threads2(threads, ulii, is_last_block);
 	return -1;
       }

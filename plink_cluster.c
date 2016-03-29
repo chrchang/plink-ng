@@ -4,18 +4,18 @@
 #include "plink_matrix.h"
 
 void cluster_init(Cluster_info* cluster_ptr) {
-  cluster_ptr->fname = NULL;
-  cluster_ptr->match_fname = NULL;
-  cluster_ptr->match_missing_str = NULL;
-  cluster_ptr->match_type_fname = NULL;
-  cluster_ptr->qmatch_fname = NULL;
-  cluster_ptr->qmatch_missing_str = NULL;
-  cluster_ptr->qt_fname = NULL;
-  cluster_ptr->keep_fname = NULL;
-  cluster_ptr->remove_fname = NULL;
-  cluster_ptr->keep_flattened = NULL;
-  cluster_ptr->remove_flattened = NULL;
-  cluster_ptr->zerofname = NULL;
+  cluster_ptr->fname = nullptr;
+  cluster_ptr->match_fname = nullptr;
+  cluster_ptr->match_missing_str = nullptr;
+  cluster_ptr->match_type_fname = nullptr;
+  cluster_ptr->qmatch_fname = nullptr;
+  cluster_ptr->qmatch_missing_str = nullptr;
+  cluster_ptr->qt_fname = nullptr;
+  cluster_ptr->keep_fname = nullptr;
+  cluster_ptr->remove_fname = nullptr;
+  cluster_ptr->keep_flattened = nullptr;
+  cluster_ptr->remove_flattened = nullptr;
+  cluster_ptr->zerofname = nullptr;
   cluster_ptr->modifier = 0;
   cluster_ptr->ppc = 0.0;
   cluster_ptr->max_size = 0xffffffffU;
@@ -45,8 +45,8 @@ void cluster_cleanup(Cluster_info* cluster_ptr) {
 int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, char* sample_ids, uintptr_t max_sample_id_len, uint32_t mwithin_col, uint32_t keep_na, uintptr_t* cluster_ct_ptr, uint32_t** cluster_map_ptr, uint32_t** cluster_starts_ptr, char** cluster_ids_ptr, uintptr_t* max_cluster_id_len_ptr, char* keep_fname, char* keep_flattened, char* remove_fname, char* remove_flattened, uint32_t allow_no_samples) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
-  FILE* infile = NULL;
-  uintptr_t* sample_exclude_new = NULL;
+  FILE* infile = nullptr;
+  uintptr_t* sample_exclude_new = nullptr;
   uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t sample_exclude_ct = *sample_exclude_ct_ptr;
   uintptr_t sample_ct = unfiltered_sample_ct - sample_exclude_ct;
@@ -60,14 +60,14 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
   // one is effectively active (i.e. any names in both lists are deleted from
   // the keep list, and then the function proceeds as if --remove-clusters
   // wasn't specified); this is tracked by which of
-  // sorted_keep_ids/sorted_remove_ids is non-NULL.  cluster_kr_ct and
+  // sorted_keep_ids/sorted_remove_ids is non-nullptr.  cluster_kr_ct and
   // max_cluster_kr_len apply to that array.
-  char* sorted_keep_ids = NULL;
-  char* sorted_remove_ids = NULL;
+  char* sorted_keep_ids = nullptr;
+  char* sorted_remove_ids = nullptr;
   uintptr_t max_cluster_id_len = 0;
   uintptr_t assigned_ct = 0;
   uintptr_t cluster_ct = 0;
-  Ll_str* cluster_names = NULL;
+  Ll_str* cluster_names = nullptr;
   uintptr_t* already_seen;
   uintptr_t* ulptr;
   char* cluster_ids;
@@ -153,7 +153,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
 	}
       }
       qsort(sorted_keep_ids, cluster_kr_ct, max_cluster_kr_len, strcmp_casted);
-      cluster_kr_ct = collapse_duplicate_ids(sorted_keep_ids, cluster_kr_ct, max_cluster_kr_len, NULL);
+      cluster_kr_ct = collapse_duplicate_ids(sorted_keep_ids, cluster_kr_ct, max_cluster_kr_len, nullptr);
       if (remove_flattened || remove_fname) {
 	bigstack_end_mark2 = g_bigstack_end;
 	// track deletions
@@ -258,7 +258,7 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
 	  }
 	}
 	qsort(sorted_remove_ids, cluster_kr_ct, max_cluster_kr_len, strcmp_casted);
-        cluster_kr_ct = collapse_duplicate_ids(sorted_remove_ids, cluster_kr_ct, max_cluster_kr_len, NULL);
+        cluster_kr_ct = collapse_duplicate_ids(sorted_remove_ids, cluster_kr_ct, max_cluster_kr_len, nullptr);
       }
       if (infile) {
 	if (fclose_null(&infile)) {
@@ -578,7 +578,7 @@ void fill_unfiltered_sample_to_cluster(uintptr_t unfiltered_sample_ct, uintptr_t
 }
 
 int32_t fill_sample_to_cluster(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t* sample_to_cluster, uint32_t* late_clidx_to_sample_uidx) {
-  // If late_clidx_to_sample_uidx is not NULL, all samples not in a loaded
+  // If late_clidx_to_sample_uidx is not nullptr, all samples not in a loaded
   // cluster are given their own cluster, and late_clidx_to_sample_uidx is
   // filled with the cluster index -> sample uidx mapping.
   // (Yes, this is a strange interface; it may be switched to filtered sample
@@ -623,7 +623,7 @@ int32_t fill_sample_to_cluster(uintptr_t unfiltered_sample_ct, uintptr_t* sample
 
 int32_t write_clusters(char* outname, char* outname_end, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, uint32_t omit_unassigned, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* outfile = NULL;
+  FILE* outfile = nullptr;
   uintptr_t sample_uidx = 0;
   int32_t retval = 0;
   uint32_t* sample_to_cluster;
@@ -680,7 +680,7 @@ int32_t write_clusters(char* outname, char* outname_end, uintptr_t unfiltered_sa
 
 int32_t extract_clusters(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uintptr_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, char* cluster_ids, uintptr_t max_cluster_id_len, char* cluster_names_flattened, char* clusters_fname, uintptr_t** new_sample_exclude_ptr, uintptr_t* new_sample_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* infile = NULL;
+  FILE* infile = nullptr;
   uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t line_idx = 0;
   int32_t retval = 0;
@@ -851,8 +851,8 @@ int32_t cluster_include_and_reindex(uintptr_t unfiltered_sample_ct, uintptr_t* s
   uint32_t sample_uidx = 0;
   uint32_t case_ct = 0;
   uint32_t assigned_ct = 0;
-  uintptr_t* cluster_cc_perm_preimage = NULL;
-  uint32_t* cluster_case_cts = NULL;
+  uintptr_t* cluster_cc_perm_preimage = nullptr;
+  uint32_t* cluster_case_cts = nullptr;
   uint32_t* new_cluster_map;
   uint32_t* new_cluster_starts;
   uint32_t* uidx_to_idx;
@@ -1021,13 +1021,13 @@ int32_t cluster_alloc_and_populate_magic_nums(uint32_t cluster_ct, uint32_t* clu
 
 int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* sample_to_cluster, uint32_t for_cluster_flag, uint32_t is_max_dist, double* dists, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* dist_file = NULL;
-  FILE* id_file = NULL;
+  FILE* dist_file = nullptr;
+  FILE* id_file = nullptr;
   uintptr_t id_entry_ct = sample_ct;
   uintptr_t matching_entry_ct = sample_ct;
   uintptr_t line_idx = 0;
   char* id_buf = &(g_textbuf[MAXLINELEN]);
-  uint64_t* fidx_to_memidx = NULL; // high 32 bits = fidx, low 32 = memidx
+  uint64_t* fidx_to_memidx = nullptr; // high 32 bits = fidx, low 32 = memidx
   uint32_t is_presorted = cluster_ct? 0 : 1;
   int32_t retval = 0;
   char* sorted_ids;
@@ -1081,7 +1081,7 @@ int32_t read_dists(char* dist_fname, char* id_fname, uintptr_t unfiltered_sample
       if (is_eoln_kns(*fam_id)) {
         continue;
       }
-      if (bsearch_read_fam_indiv(fam_id, sorted_ids, max_sample_id_len, sample_ct, NULL, &ii, id_buf)) {
+      if (bsearch_read_fam_indiv(fam_id, sorted_ids, max_sample_id_len, sample_ct, nullptr, &ii, id_buf)) {
 	LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, id_fname);
         goto read_dists_ret_INVALID_FORMAT_2;
       }
@@ -1293,7 +1293,7 @@ void update_neighbor(uintptr_t sample_ct, uint32_t neighbor_n2, uintptr_t sample
 
 int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t* cluster_merge_prevented, double* cluster_sorted_ibs, uint32_t neighbor_n2, double* neighbor_quantiles, uint32_t* neighbor_qindices, uint32_t* ppc_fail_counts, double min_ppc, uint32_t is_max_dist, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* sample_to_cluster) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  gzFile gz_infile = NULL;
+  gzFile gz_infile = nullptr;
   uint32_t neighbor_load_quantiles = neighbor_quantiles && cluster_sorted_ibs;
   uint32_t ppc_warning = cluster_merge_prevented? 0 : 1;
   uintptr_t loaded_entry_ct = 0;
@@ -1448,10 +1448,10 @@ int32_t read_genome(char* read_genome_fname, uintptr_t unfiltered_sample_ct, uin
 
 int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t cluster_ct, uint32_t* cluster_starts, uint32_t* sample_to_cluster, uintptr_t* merge_prevented) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* matchfile = NULL;
-  FILE* typefile = NULL;
+  FILE* matchfile = nullptr;
+  FILE* typefile = nullptr;
   char* id_buf = &(g_textbuf[MAXLINELEN]);
-  char* missing_str = NULL;
+  char* missing_str = nullptr;
   uintptr_t bigstack_pre_end_address = ((uintptr_t)g_bigstack_end) - MAXLINELEN;
   uintptr_t cur_coord = 0;
   uint32_t cluster_mismatch_warning = 0;
@@ -1500,7 +1500,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       goto cluster_enforce_match_ret_NOMEM;
     }
     for (sample_idx1 = 0; sample_idx1 < sample_ct; sample_idx1++) {
-      sample_idx_to_match_str[sample_idx1] = NULL;
+      sample_idx_to_match_str[sample_idx1] = nullptr;
     }
     cov_type_arr = g_bigstack_base;
     if (((uintptr_t)cov_type_arr) > bigstack_pre_end_address) {
@@ -1726,7 +1726,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
       goto cluster_enforce_match_ret_NOMEM;
     }
     for (sample_idx1 = 0; sample_idx1 < sample_ct; sample_idx1++) {
-      sample_idx_to_dvals[sample_idx1] = NULL;
+      sample_idx_to_dvals[sample_idx1] = nullptr;
     }
     tol_arr = (double*)g_bigstack_base;
     if (bigstack_left() <= MAXLINELEN * 4) {
@@ -2018,7 +2018,7 @@ uint32_t cluster_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_
 	}
 	if (is_old_tiebreaks && (siptr != tie_end)) {
 	  siptr2 = siptr;
-	  siptr_best = NULL;
+	  siptr_best = nullptr;
 	  for (siptr2 = siptr; siptr2 < tie_end; siptr2++) {
 	    ujj = *siptr2;
 	    if (ujj != 0xffffffffU) {
@@ -2091,7 +2091,7 @@ uint32_t cluster_main(uintptr_t cluster_ct, uintptr_t* merge_prevented, uintptr_
 	}
 	if (is_old_tiebreaks && (siptr != tie_end)) {
 	  siptr2 = siptr;
-	  siptr_best = NULL;
+	  siptr_best = nullptr;
 	  for (siptr2 = siptr; siptr2 < tie_end; siptr2++) {
 	    ujj = *siptr2;
 	    if (ujj != 0xffffffffU) {
@@ -2709,7 +2709,7 @@ void write_cluster1_oitc(FILE* outfile, uint32_t clidx, char* sample_ids, uintpt
 
 int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_sample_to_cluster, uintptr_t sample_ct, uint32_t* orig_cluster_map, uint32_t* orig_cluster_starts, uint32_t* late_clidx_to_sample_uidx, uint32_t orig_within_ct, uint32_t orig_cluster_ct, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t* pheno_c, uint32_t* sample_idx_to_uidx, Cluster_info* cp, uint32_t* cluster_remap, uint32_t* clidx_table_space, uint32_t merge_ct, uint32_t* merge_sequence) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* outfile = NULL;
+  FILE* outfile = nullptr;
   uint32_t only2 = cp->modifier & CLUSTER_ONLY2;
   uint32_t report_pheno = (cp->modifier & CLUSTER_CC) || (cp->max_ctrls != 0xffffffffU);
   uint32_t pct = 1;
@@ -2768,9 +2768,9 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
 	  goto write_cluster_solution_ret_WRITE_FAIL;
 	}
         if (!orig_sample_to_cluster) {
-	  write_cluster1(outfile, clidx, sample_ids, max_sample_id_len, report_pheno? pheno_c : NULL, sample_idx_to_uidx, merge_sequence, merge_ct);
+	  write_cluster1(outfile, clidx, sample_ids, max_sample_id_len, report_pheno? pheno_c : nullptr, sample_idx_to_uidx, merge_sequence, merge_ct);
 	} else {
-	  write_cluster1_oitc(outfile, clidx, sample_ids, max_sample_id_len, report_pheno? pheno_c : NULL, orig_cluster_map, orig_cluster_starts, late_clidx_to_sample_uidx, orig_within_ct, cluster_remap, merge_sequence, merge_ct);
+	  write_cluster1_oitc(outfile, clidx, sample_ids, max_sample_id_len, report_pheno? pheno_c : nullptr, orig_cluster_map, orig_cluster_starts, late_clidx_to_sample_uidx, orig_within_ct, cluster_remap, merge_sequence, merge_ct);
 	}
 	if (putc_checked('\n', outfile)) {
 	  goto write_cluster_solution_ret_WRITE_FAIL;
@@ -2896,7 +2896,7 @@ int32_t write_cluster_solution(char* outname, char* outname_end, uint32_t* orig_
 
 #ifndef NOLAPACK
 int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, uintptr_t sample_ct, uint32_t* sample_idx_to_uidx, char* sample_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_sample_id_len, uint32_t cur_cluster_ct, uint32_t merge_ct, uint32_t* orig_sample_to_cluster, uint32_t* cur_cluster_remap, uint32_t dim_ct, uint32_t is_mds_cluster, uint32_t dump_eigvals, double* dists) {
-  FILE* outfile = NULL;
+  FILE* outfile = nullptr;
   uintptr_t final_cluster_ct = cur_cluster_ct - merge_ct;
   double grand_mean = 0.0;
   uintptr_t ulii = 0;
@@ -3194,7 +3194,7 @@ int32_t mds_plot(char* outname, char* outname_end, uintptr_t* sample_exclude, ui
 
 // probably want to factor out common initialization with mds_plot, etc.
 int32_t mds_plot_eigendecomp(char* outname, char* outname_end, uintptr_t* sample_exclude, uintptr_t sample_ct, uint32_t* sample_idx_to_uidx, char* sample_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_sample_id_len, uint32_t cur_cluster_ct, uint32_t merge_ct, uint32_t* orig_sample_to_cluster, uint32_t* cur_cluster_remap, uint32_t dim_ct, uint32_t is_mds_cluster, uint32_t dump_eigvals, double* dists) {
-  FILE* outfile = NULL;
+  FILE* outfile = nullptr;
   uintptr_t final_cluster_ct = cur_cluster_ct - merge_ct;
   double grand_mean = 0.0;
   uintptr_t ulii = 0;

@@ -70,7 +70,7 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
   // fids is a list of null-terminated FIDs using trio_list indices, and iids
   // is a list of IIDs using regular unfiltered indices.  If include_duos is
   // set, iids has a trailing entry set to '0'.  (fids_ptr, iids_ptr, and the
-  // corresponding lengths can be NULL.)
+  // corresponding lengths can be nullptr.)
   //
   // PLINK 1.07 enforces <= 1 father and <= 1 mother per sample (and ambiguous
   // sex parents are not permitted), but the IDs CAN be reversed in the .fam
@@ -79,10 +79,10 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
   // It won't be replicated in PLINK 2.0.
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
-  uint64_t* edge_list = NULL;
-  uint32_t* toposort_queue = NULL;
-  char* fids = NULL;
-  char* iids = NULL;
+  uint64_t* edge_list = nullptr;
+  uint32_t* toposort_queue = nullptr;
+  char* fids = nullptr;
+  char* iids = nullptr;
   uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t unfiltered_sample_ctp1l = 1 + (unfiltered_sample_ct / BITCT);
   uintptr_t sample_uidx = next_unset_unsafe(sample_exclude, 0);
@@ -661,15 +661,15 @@ void fill_mendel_errstr(uint32_t error_code, char** allele_ptrs, uint32_t* alens
 
 int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t plink_maxfid, uint32_t plink_maxiid, uint32_t plink_maxsnp, uint32_t allow_no_variants, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sample_exclude_ct_ptr, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* sample_ids, uintptr_t max_sample_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uint32_t hh_exists, Chrom_info* chrom_info_ptr, uint32_t calc_mendel) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* outfile = NULL;
-  FILE* outfile_l = NULL;
-  uintptr_t* sample_male_include2 = NULL;
-  uintptr_t* error_locs = NULL;
-  char* varptr = NULL;
-  char* chrom_name_ptr = NULL;
-  unsigned char* cur_errors = NULL;
-  uint64_t* family_error_cts = NULL;
-  uint32_t* child_cts = NULL;
+  FILE* outfile = nullptr;
+  FILE* outfile_l = nullptr;
+  uintptr_t* sample_male_include2 = nullptr;
+  uintptr_t* error_locs = nullptr;
+  char* varptr = nullptr;
+  char* chrom_name_ptr = nullptr;
+  unsigned char* cur_errors = nullptr;
+  uint64_t* family_error_cts = nullptr;
+  uint32_t* child_cts = nullptr;
   uintptr_t marker_ct = unfiltered_marker_ct - *marker_exclude_ct_ptr;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctp1l2 = 1 + (unfiltered_sample_ct / BITCT2);
@@ -769,7 +769,7 @@ int32_t mendel_error_scan(Family_info* fam_ip, FILE* bedfile, uintptr_t bed_offs
   }
   loadbuf[unfiltered_sample_ctp1l2 - 1] = 0;
   hh_exists &= XMHH_EXISTS;
-  if (alloc_raw_haploid_filters(unfiltered_sample_ct, hh_exists, 0, sample_exclude, sex_male, NULL, &sample_male_include2)) {
+  if (alloc_raw_haploid_filters(unfiltered_sample_ct, hh_exists, 0, sample_exclude, sex_male, nullptr, &sample_male_include2)) {
     goto mendel_error_scan_ret_NOMEM;
   }
   alens[0] = 0;
@@ -1243,10 +1243,10 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
   uintptr_t max_family_id_len = 0;
   uintptr_t max_indiv_id_len = 0;
   uintptr_t max_pm_id_len = MAXV(max_paternal_id_len, max_maternal_id_len);
-  char* last_family_id = NULL;
-  double* tmp_rel_space = NULL;
-  double* tmp_rel_writer = NULL;
-  uint32_t* uiptr2 = NULL;
+  char* last_family_id = nullptr;
+  double* tmp_rel_space = nullptr;
+  double* tmp_rel_writer = nullptr;
+  uint32_t* uiptr2 = nullptr;
   int32_t max_family_nf = 0;
   unsigned char* bigstack_mark;
   unsigned char* bigstack_mark2;
@@ -1707,7 +1707,7 @@ int32_t populate_pedigree_rel_info(Pedigree_rel_info* pri_ptr, uintptr_t unfilte
 }
 
 int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double output_min_p, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct_ax, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sex_male, uintptr_t* sample_male_include2, uint32_t* trio_nuclear_lookup, uint32_t family_ct, Aperm_info* apip, uint32_t mperm_save, char* sample_ids, uintptr_t max_sample_id_len, Chrom_info* chrom_info_ptr, uint32_t hh_exists, Family_info* fam_ip, uintptr_t* loadbuf, uintptr_t* workbuf, char* textbuf, double* orig_chisq, uint32_t* trio_error_lookup, uintptr_t trio_ct) {
-  FILE* outfile = NULL;
+  FILE* outfile = nullptr;
   uint64_t mendel_error_ct = 0;
   double pat_a2transmit_recip = 0.0;
   double mat_a1transmit_recip = 0.0;
@@ -1960,9 +1960,9 @@ int32_t tdt_poo(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* o
 
 int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double ci_size, double ci_zt, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, Aperm_info* apip, uint32_t mperm_save, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* sample_ids, uintptr_t max_sample_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, Chrom_info* chrom_info_ptr, uint32_t hh_exists, Family_info* fam_ip) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* outfile = NULL;
+  FILE* outfile = nullptr;
   char* textbuf = g_textbuf;
-  double* orig_chisq = NULL; // pval if exact test
+  double* orig_chisq = nullptr; // pval if exact test
   uint64_t last_parents = 0;
   // uint64_t mendel_error_ct = 0;
   double chisq = 0;
@@ -2170,7 +2170,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   loadbuf[unfiltered_sample_ctl2 - 1] = 0;
   workbuf[unfiltered_sample_ctp1l2 - 1] = 0;
   hh_exists &= XMHH_EXISTS;
-  if (alloc_raw_haploid_filters(unfiltered_sample_ct, hh_exists, 1, sample_exclude, sex_male, NULL, &sample_male_include2)) {
+  if (alloc_raw_haploid_filters(unfiltered_sample_ct, hh_exists, 1, sample_exclude, sex_male, nullptr, &sample_male_include2)) {
     goto tdt_ret_NOMEM;
   }
   if (fam_ip->tdt_modifier & (TDT_PERM | TDT_MPERM)) {
@@ -2485,7 +2485,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
       }
     }
     fill_idx_to_uidx(marker_exclude_tmp, unfiltered_marker_ct, marker_ct, marker_idx_to_uidx);
-    retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, is_exact? NULL : orig_chisq, pfilter, output_min_p, mtest_adjust, 0, adjust_lambda, NULL, is_exact? orig_chisq : NULL);
+    retval = multcomp(outname, outname_end, marker_idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, is_exact? nullptr : orig_chisq, pfilter, output_min_p, mtest_adjust, 0, adjust_lambda, nullptr, is_exact? orig_chisq : nullptr);
     if (retval) {
       goto tdt_ret_1;
     }
@@ -2530,9 +2530,9 @@ int32_t get_sibship_info(uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclu
   uintptr_t sample_ctl = BITCT_TO_WORDCT(sample_ct);
   uintptr_t max_merged_id_len = max_fid_len + max_paternal_id_len + max_maternal_id_len + sizeof(int32_t);
   uintptr_t trio_idx = 0;
-  uintptr_t* tmp_within2_founder = NULL;
-  uintptr_t* lm_within2_founder = NULL;
-  uintptr_t* lm_eligible = NULL;
+  uintptr_t* tmp_within2_founder = nullptr;
+  uintptr_t* lm_within2_founder = nullptr;
+  uintptr_t* lm_eligible = nullptr;
   uint32_t is_within2 = (test_type == QFAM_WITHIN2);
   uint32_t family_idx = 0;
   uint32_t fssc_idx = 0;
@@ -3233,16 +3233,16 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
   uint32_t* __restrict__ perm_attempt_ct = g_perm_attempt_ct;
   uint32_t* __restrict__ perm_2success_ct = g_perm_2success_ct;
   double* __restrict__ mperm_save_all = g_mperm_save_all;
-  double* msa_ptr = NULL;
+  double* msa_ptr = nullptr;
   double* numers = &(g_dfam_numers[tidx * perm_vec_cta128]);
   double* denoms = &(g_dfam_denoms[tidx * perm_vec_cta128]);
   const uint32_t* dfam_iteration_order = g_dfam_iteration_order;
-  unsigned char* perm_adapt_stop = NULL;
+  unsigned char* perm_adapt_stop = nullptr;
   double adaptive_intercept = 0.0;
   double adaptive_slope = 0.0;
   double adaptive_ci_zt = 0.0;
   double aperm_alpha = 0.0;
-  double* maxt_results = NULL;
+  double* maxt_results = nullptr;
   uint32_t perm_adapt = g_test_type;
   uint32_t next_adapt_check = 0;
   uint32_t cur_case_a1_ct_flip[2];
@@ -3776,8 +3776,8 @@ void dfam_flipa_shuffle(uintptr_t* perms, uintptr_t* shuffled_perms, uint32_t pe
 
 int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uintptr_t marker_ct_orig, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, Aperm_info* apip, uint32_t mperm_save, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* sample_ids, uintptr_t max_sample_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, Chrom_info* chrom_info_ptr, uint32_t hh_exists, uint32_t within_cmdflag, uint32_t perm_batch_size, Family_info* fam_ip, Set_info* sip) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* outfile = NULL;
-  FILE* outfile_msa = NULL;
+  FILE* outfile = nullptr;
+  FILE* outfile_msa = nullptr;
   char* textbuf = g_textbuf;
   uintptr_t marker_ct_orig_autosomal = marker_ct_orig;
   uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
@@ -3792,9 +3792,9 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   uintptr_t perm_vec_wcta = 0;
   uintptr_t perm_vec_ctcl8m = 0;
   uintptr_t* marker_exclude_orig_autosomal = marker_exclude_orig;
-  uintptr_t* founder_pnm = NULL;
-  double* orig_chisq = NULL;
-  double* maxt_extreme_stat = NULL;
+  uintptr_t* founder_pnm = nullptr;
+  double* orig_chisq = nullptr;
+  double* maxt_extreme_stat = nullptr;
   uint32_t unfiltered_sample_ctl2m1 = (unfiltered_sample_ct - 1) / BITCT2;
   uint32_t multigen = (fam_ip->mendel_modifier / MENDEL_MULTIGEN) & 1;
   uint32_t is_set_test = fam_ip->dfam_modifier & DFAM_SET_TEST;
@@ -3946,13 +3946,13 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     }
     memcpy(founder_pnm, pheno_nm, unfiltered_sample_ctl * sizeof(intptr_t));
     bitvec_and(founder_info, unfiltered_sample_ctl, founder_pnm);
-    if (extract_set_union_unfiltered(sip, NULL, unfiltered_marker_ct, marker_exclude_orig_autosomal, &marker_exclude, &marker_ct)) {
+    if (extract_set_union_unfiltered(sip, nullptr, unfiltered_marker_ct, marker_exclude_orig_autosomal, &marker_exclude, &marker_ct)) {
       goto dfam_ret_NOMEM;
     }
   }
 
   // no --mendel-duos support for now
-  retval = get_trios_and_families(unfiltered_sample_ct, sample_exclude, sample_ct, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, NULL, &max_fid_len, NULL, NULL, &family_list, &family_ct, &trio_list, &trio_ct, &trio_error_lookup, 0, multigen);
+  retval = get_trios_and_families(unfiltered_sample_ct, sample_exclude, sample_ct, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, nullptr, &max_fid_len, nullptr, nullptr, &family_list, &family_ct, &trio_list, &trio_ct, &trio_error_lookup, 0, multigen);
   if (retval) {
     goto dfam_ret_1;
   }
@@ -3962,7 +3962,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     goto dfam_ret_INVALID_CMDLINE;
   }
 #endif
-  if (get_sibship_info(unfiltered_sample_ct, sample_exclude, sample_ct, pheno_nm, founder_info, sample_ids, max_sample_id_len, max_fid_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, family_list, trio_list, family_ct, trio_ct, 0, &size_one_sibships, NULL, NULL, &fs_starts, &fss_contents, &sample_to_fss_idx, &fs_ct, NULL, NULL)) {
+  if (get_sibship_info(unfiltered_sample_ct, sample_exclude, sample_ct, pheno_nm, founder_info, sample_ids, max_sample_id_len, max_fid_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, family_list, trio_list, family_ct, trio_ct, 0, &size_one_sibships, nullptr, nullptr, &fs_starts, &fss_contents, &sample_to_fss_idx, &fs_ct, nullptr, nullptr)) {
     goto dfam_ret_NOMEM;
   }
   // Prepare final family, sibship, and unrelated cluster data structures.
@@ -4082,7 +4082,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     // (no unrelated cluster at all) than no --within at all (one big unrelated
     // cluster) in PLINK 1.07.  Replicate this for now.
     if (within_cmdflag) {
-      if (fill_sample_to_cluster(unfiltered_sample_ct, sample_exclude, sample_ct, cluster_ct, cluster_map, cluster_starts, sample_to_cluster, NULL)) {
+      if (fill_sample_to_cluster(unfiltered_sample_ct, sample_exclude, sample_ct, cluster_ct, cluster_map, cluster_starts, sample_to_cluster, nullptr)) {
 	goto dfam_ret_NOMEM;
       }
     } else {
@@ -4269,8 +4269,8 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   // permutation test boilerplate mostly copied from qassoc() in plink_assoc.c,
   // since it's also restricted to autosomes
   g_perms_done = 0;
-  g_mperm_save_all = NULL;
-  g_perm_vecs = NULL;
+  g_mperm_save_all = nullptr;
+  g_perm_vecs = nullptr;
   if (perm_maxt_nst) {
     perms_total = fam_ip->dfam_mperm_val;
     if (bigstack_calloc_d(perms_total, &maxt_extreme_stat)) {
@@ -4776,7 +4776,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	  goto dfam_ret_NOMEM;
 	}
 	fill_idx_to_uidx(marker_exclude, unfiltered_marker_ct, marker_ct, idx_to_uidx);
-	retval = multcomp(outname, outname_end, idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, orig_chisq, pfilter, output_min_p, mtest_adjust, 0, adjust_lambda, NULL, NULL);
+	retval = multcomp(outname, outname_end, idx_to_uidx, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, orig_chisq, pfilter, output_min_p, mtest_adjust, 0, adjust_lambda, nullptr, nullptr);
 	if (retval) {
 	  goto dfam_ret_1;
 	}
@@ -5201,14 +5201,14 @@ THREAD_RET_TYPE qfam_thread(void* arg) {
   double* pheno_d2 = g_pheno_d2;
   double* beta_sum = g_beta_sum;
   double* beta_ssq = g_beta_ssq;
-  uint32_t* qfam_permute = only_within? NULL : g_qfam_permute;
-  uint32_t* permute_edit_buf = only_within? NULL : (&(g_permute_edit[tidx * round_up_pow2(fss_ct, CACHELINE_INT32)]));
+  uint32_t* qfam_permute = only_within? nullptr : g_qfam_permute;
+  uint32_t* permute_edit_buf = only_within? nullptr : (&(g_permute_edit[tidx * round_up_pow2(fss_ct, CACHELINE_INT32)]));
   uint32_t* perm_2success_ct = g_perm_2success_ct;
   uint32_t* perm_attempt_ct = g_perm_attempt_ct;
   uint32_t* fs_starts = g_fs_starts;
   uint32_t* fss_contents = g_fss_contents;
   uint32_t* sample_lm_to_fss_idx = g_sample_lm_to_fss_idx;
-  uint32_t* perm_ptr = NULL;
+  uint32_t* perm_ptr = nullptr;
   uint32_t* beta_fail_cts = g_beta_fail_cts;
   uintptr_t cur_perm_ct = g_cur_perm_ct;
   uintptr_t sample_ct = g_qfam_sample_ct;
@@ -5371,7 +5371,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   // Fortunately, this can use some of qassoc()'s logic instead of punting to
   // LAPACK, since it doesn't support covariates.
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* outfile = NULL;
+  FILE* outfile = nullptr;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl2 = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t unfiltered_sample_ctp1l2 = 1 + (unfiltered_sample_ct / BITCT2);
@@ -5382,8 +5382,8 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   double geno_sum = 0.0;
   double geno_ssq = 0.0;
   double qt_g_prod = 0.0;
-  double* orig_beta = NULL;
-  char* chrom_name_ptr = NULL;
+  double* orig_beta = nullptr;
+  char* chrom_name_ptr = nullptr;
   uint32_t unfiltered_sample_ctl2m1 = (unfiltered_sample_ct - 1) / BITCT2;
   uint32_t test_type = fam_ip->qfam_modifier & QFAM_TEST;
   uint32_t perm_adapt = fam_ip->qfam_modifier & QFAM_PERM;
@@ -5491,7 +5491,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     goto qfam_ret_INVALID_CMDLINE;
   }
   // no --mendel-duos support for now
-  retval = get_trios_and_families(unfiltered_sample_ct, sample_exclude, sample_ct, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, NULL, &max_fid_len, NULL, NULL, &family_list, &family_ct, &trio_list, &trio_ct, &trio_error_lookup, 0, multigen);
+  retval = get_trios_and_families(unfiltered_sample_ct, sample_exclude, sample_ct, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, nullptr, &max_fid_len, nullptr, nullptr, &family_list, &family_ct, &trio_list, &trio_ct, &trio_error_lookup, 0, multigen);
   if (retval) {
     goto qfam_ret_1;
   }
@@ -5506,7 +5506,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     goto qfam_ret_INVALID_CMDLINE;
   }
 #endif
-  if (get_sibship_info(unfiltered_sample_ct, sample_exclude, sample_ct, pheno_nm, founder_info, sample_ids, max_sample_id_len, max_fid_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, family_list, trio_list, family_ct, trio_ct, test_type, NULL, &lm_eligible, &lm_within2_founder, &fs_starts, &fss_contents, &sample_lm_to_fss_idx, &fs_ct, &lm_ct, &singleton_ct)) {
+  if (get_sibship_info(unfiltered_sample_ct, sample_exclude, sample_ct, pheno_nm, founder_info, sample_ids, max_sample_id_len, max_fid_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, family_list, trio_list, family_ct, trio_ct, test_type, nullptr, &lm_eligible, &lm_within2_founder, &fs_starts, &fss_contents, &sample_lm_to_fss_idx, &fs_ct, &lm_ct, &singleton_ct)) {
     goto qfam_ret_NOMEM;
   }
   fss_ct = fs_ct + singleton_ct;
@@ -5557,7 +5557,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     g_adaptive_intercept = apip->init_interval;
     g_adaptive_slope = apip->interval_slope;
   } else {
-    g_perm_attempt_ct = NULL;
+    g_perm_attempt_ct = nullptr;
     perms_total = fam_ip->qfam_mperm_val;
     g_first_adapt_check = perms_total + 1;
     g_aperm_alpha = 0.0;
@@ -5594,9 +5594,9 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       goto qfam_ret_NOMEM;
     }
   } else {
-    g_beta_sum = NULL;
-    g_beta_ssq = NULL;
-    g_beta_fail_cts = NULL;
+    g_beta_sum = nullptr;
+    g_beta_ssq = nullptr;
+    g_beta_fail_cts = nullptr;
   }
   if (bigstack_alloc_ul(MODEL_BLOCKSIZE * sample_ctl2, &g_loadbuf) ||
       bigstack_alloc_d(marker_ct, &g_orig_stat) ||

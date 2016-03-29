@@ -30,28 +30,28 @@ void ld_epi_init(Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip) {
   ldip->flipscan_thresh = 0.5;
   ldip->show_tags_bp = 250000;
   ldip->show_tags_r2 = 0.8;
-  ldip->snpstr = NULL;
-  ldip->show_tags_fname = NULL;
+  ldip->snpstr = nullptr;
+  ldip->show_tags_fname = nullptr;
   range_list_init(&(ldip->snps_rl));
   epi_ip->modifier = 0;
   epi_ip->case_only_gap = 1000000;
   epi_ip->epi1 = 0.0;
   epi_ip->epi2 = 0.01;
   epi_ip->je_cellmin = 5;
-  epi_ip->ld_mkr1 = NULL;
-  epi_ip->ld_mkr2 = NULL;
-  epi_ip->twolocus_mkr1 = NULL;
-  epi_ip->twolocus_mkr2 = NULL;
-  epi_ip->summary_merge_prefix = NULL;
+  epi_ip->ld_mkr1 = nullptr;
+  epi_ip->ld_mkr2 = nullptr;
+  epi_ip->twolocus_mkr1 = nullptr;
+  epi_ip->twolocus_mkr2 = nullptr;
+  epi_ip->summary_merge_prefix = nullptr;
   clump_ip->modifier = 0;
   clump_ip->fname_ct = 0;
   clump_ip->bp_radius = 249999;
   clump_ip->range_border = 0;
-  clump_ip->fnames_flattened = NULL;
-  clump_ip->annotate_flattened = NULL;
-  clump_ip->snpfield_search_order = NULL;
-  clump_ip->pfield_search_order = NULL;
-  clump_ip->range_fname = NULL;
+  clump_ip->fnames_flattened = nullptr;
+  clump_ip->annotate_flattened = nullptr;
+  clump_ip->snpfield_search_order = nullptr;
+  clump_ip->pfield_search_order = nullptr;
+  clump_ip->range_fname = nullptr;
   clump_ip->p1 = 1e-4;
   clump_ip->p2 = 1e-2;
   clump_ip->r2 = 0.5;
@@ -671,7 +671,7 @@ void ld_prune_start_chrom(uint32_t ld_window_kb, uint32_t* cur_chrom_ptr, uint32
 }
 
 int32_t ld_prune_write(char* outname, char* outname_end, uintptr_t* marker_exclude, uintptr_t* pruned_arr, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, uint32_t chrom_code_end) {
-  FILE* outfile = NULL;
+  FILE* outfile = nullptr;
   int32_t retval = 0;
   {
     fputs("Writing...", stdout);
@@ -768,16 +768,16 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
   double ld_last_param = ldip->prune_last_param;
   uint32_t nonmale_founder_ct = 0;
   uintptr_t window_max = 1;
-  uintptr_t* geno = NULL;
-  uintptr_t* founder_include2 = NULL;
-  uintptr_t* founder_male_include2 = NULL;
-  uintptr_t* nonmale_geno = NULL;
-  uintptr_t* nonmale_masks = NULL;
-  double* cov_matrix = NULL;
-  double* new_cov_matrix = NULL;
-  MATRIX_INVERT_BUF1_TYPE* irow = NULL;
-  double* work = NULL;
-  uint32_t* idx_remap = NULL;
+  uintptr_t* geno = nullptr;
+  uintptr_t* founder_include2 = nullptr;
+  uintptr_t* founder_male_include2 = nullptr;
+  uintptr_t* nonmale_geno = nullptr;
+  uintptr_t* nonmale_masks = nullptr;
+  double* cov_matrix = nullptr;
+  double* new_cov_matrix = nullptr;
+  MATRIX_INVERT_BUF1_TYPE* irow = nullptr;
+  double* work = nullptr;
+  uint32_t* idx_remap = nullptr;
   uint32_t tot_exclude_ct = 0;
   uint32_t at_least_one_prune = 0;
   uint32_t chrom_code_end = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
@@ -1435,10 +1435,10 @@ uint32_t ld_missing_ct_intersect(uintptr_t* lptr1, uintptr_t* lptr2, uintptr_t w
 
 int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* marker_pos, uintptr_t unfiltered_sample_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, uintptr_t* founder_info, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* outfile = NULL;
-  FILE* outfile_verbose = NULL;
-  uintptr_t* sample_include2 = NULL;
-  uintptr_t* sample_male_include2 = NULL;
+  FILE* outfile = nullptr;
+  FILE* outfile_verbose = nullptr;
+  uintptr_t* sample_include2 = nullptr;
+  uintptr_t* sample_male_include2 = nullptr;
   double min_corr = ldip->flipscan_thresh * (1 - SMALL_EPSILON);
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
@@ -1984,8 +1984,8 @@ THREAD_RET_TYPE ld_block_thread(void* arg) {
   uint32_t keep_sign = g_ld_keep_sign;
   double* results = g_ld_results;
   float* results_f = g_ld_results_f;
-  double* rptr = NULL;
-  float* rptr_f = NULL;
+  double* rptr = nullptr;
+  float* rptr_f = nullptr;
   int32_t dp_result[5];
   uintptr_t* geno_fixed_vec_ptr;
   uintptr_t* geno_var_vec_ptr;
@@ -2151,7 +2151,7 @@ uint32_t ld_matrix_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 }
 
 int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, uintptr_t* founder_include2, uintptr_t* founder_male_include2, uintptr_t* loadbuf, char* outname, uint32_t hh_exists) {
-  FILE* outfile = NULL;
+  FILE* outfile = nullptr;
   uint32_t ld_modifier = ldip->modifier;
   uint32_t is_binary = ld_modifier & (LD_MATRIX_BIN | LD_MATRIX_BIN4);
   uint32_t is_square = ((ld_modifier & LD_MATRIX_SHAPEMASK) == LD_MATRIX_SQ);
@@ -2256,12 +2256,12 @@ int32_t ld_report_matrix(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   bigstack_alloc_ui(idx1_block_size * 2, &g_ld_interval1);
 
   if (!output_single_prec) {
-    // may want to set g_ld_results_f to NULL
+    // may want to set g_ld_results_f to nullptr
     if (bigstack_alloc_d(marker_ctm8 * idx1_block_size, &g_ld_results)) {
       goto ld_report_matrix_ret_NOMEM;
     }
   } else {
-    g_ld_results = NULL;
+    g_ld_results = nullptr;
     if (bigstack_alloc_f(marker_ctm8 * idx1_block_size, &g_ld_results_f)) {
       goto ld_report_matrix_ret_NOMEM;
     }
@@ -2578,8 +2578,8 @@ uint32_t ld_regular_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   uint32_t* ld_interval1 = g_ld_interval1;
   double* results = g_ld_results;
   double* set_allele_freqs = g_ld_set_allele_freqs;
-  char* fixed_a1 = NULL;
-  char* fixed_a2 = NULL;
+  char* fixed_a1 = nullptr;
+  char* fixed_a2 = nullptr;
   uintptr_t max_marker_id_len = g_ld_max_marker_id_len;
   uintptr_t marker_uidx1 = g_ld_marker_uidx1;
   uintptr_t block_idx1 = g_ld_block_idx1;
@@ -3374,7 +3374,7 @@ static uint32_t* g_epi_fail_ct1;
 static uintptr_t* g_epi_geno2;
 static uintptr_t* g_epi_zmiss2;
 static uint32_t* g_epi_tot2;
-static double* g_epi_boost_precalc2 = NULL;
+static double* g_epi_boost_precalc2 = nullptr;
 static double* g_epi_best_chisq2;
 static uint32_t* g_epi_best_id2;
 static uint32_t* g_epi_n_sig_ct2;
@@ -3724,10 +3724,10 @@ THREAD_RET_TYPE fast_epi_thread(void* arg) {
   uint32_t is_first_half = 0;
   uintptr_t* geno1 = g_epi_geno1;
   uintptr_t* zmiss1 = g_epi_zmiss1;
-  uintptr_t* cur_geno1 = NULL;
-  uintptr_t* cur_geno1_ctrls = NULL;
-  double* cur_boost_precalc2 = NULL;
-  double* p_bc_ptr = NULL;
+  uintptr_t* cur_geno1 = nullptr;
+  uintptr_t* cur_geno1_ctrls = nullptr;
+  double* cur_boost_precalc2 = nullptr;
+  double* p_bc_ptr = nullptr;
   uint32_t* geno1_offsets = g_epi_geno1_offsets;
   uint32_t* best_id1 = &(g_epi_best_id1[idx1_block_start16]);
   double* alpha1sq_ptr = g_epi_alpha1sq;
@@ -5012,7 +5012,7 @@ uint32_t em_phase_hethet_nobase(uint32_t* counts, uint32_t is_x1, uint32_t is_x2
       known22 -= ((double)(2 * counts[17] + counts[14])) * (1.0 - SQRT_HALF);
     }
   }
-  return em_phase_hethet(known11, known12, known21, known22, counts[4], freq1x_ptr, freq2x_ptr, freqx1_ptr, freqx2_ptr, freq11_ptr, NULL);
+  return em_phase_hethet(known11, known12, known21, known22, counts[4], freq1x_ptr, freq2x_ptr, freqx1_ptr, freqx2_ptr, freq11_ptr, nullptr);
 }
 
 THREAD_RET_TYPE ld_dprime_thread(void* arg) {
@@ -5026,7 +5026,7 @@ THREAD_RET_TYPE ld_dprime_thread(void* arg) {
   uintptr_t* geno1 = g_ld_geno1;
   uintptr_t* zmiss1 = g_epi_zmiss1;
   uintptr_t* sex_male = g_ld_sex_male;
-  uintptr_t* cur_geno1_male = NULL;
+  uintptr_t* cur_geno1_male = nullptr;
   uint32_t* ld_interval1 = g_ld_interval1;
   uint32_t is_r2 = g_ld_is_r2;
   uint32_t xstart1 = g_ld_xstart1;
@@ -5248,7 +5248,7 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   loadbuf[founder_ctl * 2 - 2] = 0;
   loadbuf[founder_ctl * 2 - 1] = 0;
   fill_all_bits(founder_ct, dummy_nm);
-  g_ld_thread_wkspace = NULL;
+  g_ld_thread_wkspace = nullptr;
   if ((x_code != -1) && is_set(chrom_info_ptr->chrom_mask, x_code)) {
     uii = get_chrom_start_vidx(chrom_info_ptr, (uint32_t)x_code);
     chrom_end = get_chrom_end_vidx(chrom_info_ptr, (uint32_t)x_code);
@@ -5457,7 +5457,7 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
       if (is_haploid && hh_exists) {
         haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)loadbuf);
       }
-      load_and_split3(NULL, loadbuf, founder_ct, &(g_ld_geno1[block_idx1 * founder_ctsplit]), dummy_nm, dummy_nm, founder_ctv3, 0, 0, 1, &ulii);
+      load_and_split3(nullptr, loadbuf, founder_ct, &(g_ld_geno1[block_idx1 * founder_ctsplit]), dummy_nm, dummy_nm, founder_ctv3, 0, 0, 1, &ulii);
       if (ulii == 3) {
         SET_BIT(block_idx1, g_epi_zmiss1);
       }
@@ -5507,7 +5507,7 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
 	  haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)loadbuf);
 	}
 	ulptr = &(g_ld_geno2[block_idx2 * founder_ctsplit]);
-	load_and_split3(NULL, loadbuf, founder_ct, ulptr, dummy_nm, dummy_nm, founder_ctv3, 0, 0, 1, &ulii);
+	load_and_split3(nullptr, loadbuf, founder_ct, ulptr, dummy_nm, dummy_nm, founder_ctv3, 0, 0, 1, &ulii);
 	uiptr = &(g_epi_tot2[block_idx2 * 3]);
 	uiptr[0] = popcount_longs(ulptr, founder_ctv3);
 	uiptr[1] = popcount_longs(&(ulptr[founder_ctv3]), founder_ctv3);
@@ -5579,7 +5579,7 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
 }
 
 int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, uintptr_t* sex_male, uintptr_t* founder_include2, uintptr_t* founder_male_include2, uintptr_t* loadbuf, char* outname, uint32_t hh_exists) {
-  FILE* infile = NULL;
+  FILE* infile = nullptr;
   uintptr_t* marker_exclude = g_ld_marker_exclude;
   char* marker_ids = g_ld_marker_ids;
   uintptr_t max_marker_id_len = g_ld_max_marker_id_len;
@@ -6091,8 +6091,8 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t unfiltered_sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(unfiltered_sample_ct);
   uintptr_t founder_ct = popcount_longs(founder_info, unfiltered_sample_ctv2 / 2);
-  uintptr_t* founder_include2 = NULL;
-  uintptr_t* founder_male_include2 = NULL;
+  uintptr_t* founder_include2 = nullptr;
+  uintptr_t* founder_male_include2 = nullptr;
   uintptr_t founder_ct_mld = (founder_ct + MULTIPLEX_LD - 1) / MULTIPLEX_LD;
   uint32_t founder_ct_mld_m1 = ((uint32_t)founder_ct_mld) - 1;
 #ifdef __LP64__
@@ -6117,7 +6117,7 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
   g_ld_marker_ct = marker_ct;
   g_ld_chrom_info_ptr = chrom_info_ptr;
   g_ld_thread_ct = g_thread_ct;
-  g_ld_set_allele_freqs = (ld_modifier & LD_WITH_FREQS)? set_allele_freqs : NULL;
+  g_ld_set_allele_freqs = (ld_modifier & LD_WITH_FREQS)? set_allele_freqs : nullptr;
   if (founder_ct < 2) {
     LOGERRPRINTF("Warning: Skipping --r%s since there are less than two founders.\n(--make-founders may come in handy here.)\n", g_ld_is_r2? "2" : "");
     goto ld_report_ret_1;
@@ -6160,7 +6160,7 @@ int32_t ld_report(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintptr_t be
     }
     g_ld_marker_allele_ptrs = marker_allele_ptrs;
   } else {
-    g_ld_marker_allele_ptrs = NULL;
+    g_ld_marker_allele_ptrs = nullptr;
   }
   if (ld_modifier & (LD_MATRIX_SQ | LD_MATRIX_SQ0 | LD_MATRIX_TRI)) {
     retval = ld_report_matrix(threads, ldip, bedfile, bed_offset, unfiltered_marker_ct, marker_exclude, marker_reverse, unfiltered_sample_ct, founder_info, parallel_idx, parallel_tot, sex_male, founder_include2, founder_male_include2, loadbuf, outname, hh_exists);
@@ -6199,12 +6199,12 @@ int32_t show_tags(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t 
   uintptr_t max_window_size = 1;
   uintptr_t pct = 1;
   uintptr_t pct_thresh = marker_ct / 100;
-  FILE* infile = NULL;
-  FILE* outfile = NULL;
-  uintptr_t* final_set = NULL;
-  uintptr_t* founder_include2 = NULL;
-  uintptr_t* founder_male_include2 = NULL;
-  char* chrom_name_ptr = NULL;
+  FILE* infile = nullptr;
+  FILE* outfile = nullptr;
+  uintptr_t* final_set = nullptr;
+  uintptr_t* founder_include2 = nullptr;
+  uintptr_t* founder_male_include2 = nullptr;
+  char* chrom_name_ptr = nullptr;
   double tag_thresh = ldip->show_tags_r2 * (1 - SMALL_EPSILON);
   uint32_t tags_list = (ldip->modifier & LD_SHOW_TAGS_LIST_ALL) || (!ldip->show_tags_fname);
   uint32_t twocolumn = ldip->modifier & LD_SHOW_TAGS_MODE2;
@@ -6965,12 +6965,12 @@ int32_t haploview_blocks(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uin
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t unfiltered_sample_ctl2 = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
-  FILE* outfile = NULL;
-  FILE* outfile_det = NULL;
+  FILE* outfile = nullptr;
+  FILE* outfile_det = nullptr;
   // circular.  [2n] = numStrong, [2n+1] = numRec
-  uintptr_t* strong_rec_cts = NULL;
-  uintptr_t* founder_include2 = NULL;
-  uintptr_t* founder_male_include2 = NULL;
+  uintptr_t* strong_rec_cts = nullptr;
+  uintptr_t* founder_include2 = nullptr;
+  uintptr_t* founder_male_include2 = nullptr;
   uintptr_t marker_uidx = 0;
   uintptr_t block_idx_first = 0;
   uintptr_t block_uidx_first = 0;
@@ -7758,11 +7758,11 @@ void twolocus_write_table(FILE* outfile, uint32_t* counts, uint32_t plink_maxsnp
 
 int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, uint32_t pheno_ctrl_ct, uintptr_t* pheno_c, uintptr_t* sex_male, char* outname, char* outname_end, uint32_t hh_exists) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* outfile = NULL;
+  FILE* outfile = nullptr;
   char* mkr1 = outname? epi_ip->twolocus_mkr1 : epi_ip->ld_mkr1;
   char* mkr2 = outname? epi_ip->twolocus_mkr2 : epi_ip->ld_mkr2;
-  uintptr_t* sample_include2 = NULL;
-  uintptr_t* sample_male_include2 = NULL;
+  uintptr_t* sample_include2 = nullptr;
+  uintptr_t* sample_male_include2 = nullptr;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl2 = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t ulii = strlen(mkr1) + 1;
@@ -7889,7 +7889,7 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
       pheno_c = sex_male;
       pheno_nm = sex_male;
     } else {
-      pheno_c = NULL;
+      pheno_c = nullptr;
     }
   }
   fill_uint_zero(16, counts_all);
@@ -8249,7 +8249,7 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
   // because we have 3 covariates instead of one, but two of them are still
   // restricted to the values {0, 1, 2} and the last is the product of the
   // first two.  So we're able to use variations of the QT --assoc bit hacks.
-  FILE* outfile = NULL;
+  FILE* outfile = nullptr;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t pheno_nm_ctl2 = QUATERCT_TO_WORDCT(pheno_nm_ct);
   uintptr_t final_mask = get_final_mask(pheno_nm_ct);
@@ -8725,7 +8725,7 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
 }
 
 int32_t epistasis_logistic_regression(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, uintptr_t marker_uidx_base, uintptr_t marker_ct1, uintptr_t* marker_exclude1, uintptr_t marker_idx1_start, uintptr_t marker_idx1_end, uintptr_t marker_ct2, uintptr_t* marker_exclude2, uint32_t is_triangular, uintptr_t job_size, uint64_t tests_expected, uintptr_t unfiltered_sample_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, uintptr_t* pheno_c, uint32_t parallel_idx, uint32_t parallel_tot, char* outname, char* outname_end, double output_min_p, uintptr_t* loadbuf_raw, uintptr_t* loadbuf, double* best_chisq, uint32_t* best_ids, uint32_t* n_sig_cts, uint32_t* fail_cts, uint32_t* gap_cts) {
-  FILE* outfile = NULL;
+  FILE* outfile = nullptr;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t pheno_nm_cta4 = round_up_pow2(pheno_nm_ct, 4);
   uintptr_t pheno_nm_ctl2 = QUATERCT_TO_WORDCT(pheno_nm_ct);
@@ -9201,7 +9201,7 @@ int32_t epistasis_logistic_regression(pthread_t* threads, Epi_info* epi_ip, FILE
 
 int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct2, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, uint32_t ctrl_ct, uintptr_t* pheno_c, double* pheno_d, uint32_t parallel_idx, uint32_t parallel_tot, char* outname, char* outname_end, double output_min_p, double glm_vif_thresh, Set_info* sip) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* outfile = NULL;
+  FILE* outfile = nullptr;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(unfiltered_sample_ct);
   uintptr_t final_mask = get_final_mask(pheno_nm_ct);
@@ -9245,10 +9245,10 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
   uint32_t first_pos = 0;
   uint32_t uii = 0;
   int32_t retval = 0;
-  uint32_t* gap_cts = NULL;
-  uintptr_t* ctrlbuf = NULL;
-  uintptr_t* marker_exclude1 = NULL;
-  uintptr_t* ulptr = NULL;
+  uint32_t* gap_cts = nullptr;
+  uintptr_t* ctrlbuf = nullptr;
+  uintptr_t* marker_exclude1 = nullptr;
+  uintptr_t* ulptr = nullptr;
   uintptr_t ularr[sizeof(double) / BYTECT];
   uintptr_t* casebuf;
   uintptr_t* loadbuf;
@@ -10281,10 +10281,10 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
   uintptr_t founder_ctsplit = 3 * founder_ctv3;
   uintptr_t final_mask = get_final_mask(founder_ct);
   uintptr_t window_max = 1;
-  uintptr_t* founder_include2 = NULL;
-  uintptr_t* founder_male_include2 = NULL;
-  uintptr_t* sex_male_collapsed = NULL;
-  uintptr_t* cur_geno1_male = NULL;
+  uintptr_t* founder_include2 = nullptr;
+  uintptr_t* founder_male_include2 = nullptr;
+  uintptr_t* sex_male_collapsed = nullptr;
+  uintptr_t* cur_geno1_male = nullptr;
   double prune_ld_thresh = ldip->prune_last_param * (1 + SMALL_EPSILON);
   uint32_t window_is_kb = (ldip->modifier / LD_PRUNE_KB_WINDOW) & 1;
   uint32_t ld_window_size = ldip->prune_window_size;
@@ -10424,7 +10424,7 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
 	  haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)loadbuf);
 	}
 	cur_geno1 = &(geno[ulii * founder_ctsplit]);
-	load_and_split3(NULL, loadbuf, founder_ct, cur_geno1, dummy_nm, dummy_nm, founder_ctv3, 0, 0, 1, &ulkk);
+	load_and_split3(nullptr, loadbuf, founder_ct, cur_geno1, dummy_nm, dummy_nm, founder_ctv3, 0, 0, 1, &ulkk);
 	cur_tots[ulii * 3] = popcount_longs(cur_geno1, founder_ctv3);
 	cur_tots[ulii * 3 + 1] = popcount_longs(&(cur_geno1[founder_ctv3]), founder_ctv3);
 	cur_tots[ulii * 3 + 2] = popcount_longs(&(cur_geno1[2 * founder_ctv3]), founder_ctv3);
@@ -10608,7 +10608,7 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
 	  haploid_fix(hh_exists, founder_include2, founder_male_include2, founder_ct, is_x, is_y, (unsigned char*)loadbuf);
 	}
 	cur_geno1 = &(geno[cur_window_size * founder_ctsplit]);
-	load_and_split3(NULL, loadbuf, founder_ct, cur_geno1, dummy_nm, dummy_nm, founder_ctv3, 0, 0, 1, &ulkk);
+	load_and_split3(nullptr, loadbuf, founder_ct, cur_geno1, dummy_nm, dummy_nm, founder_ctv3, 0, 0, 1, &ulkk);
 	cur_tots[((uintptr_t)cur_window_size) * 3] = popcount_longs(cur_geno1, founder_ctv3);
 	cur_tots[((uintptr_t)cur_window_size) * 3 + 1] = popcount_longs(&(cur_geno1[founder_ctv3]), founder_ctv3);
 	cur_tots[((uintptr_t)cur_window_size) * 3 + 2] = popcount_longs(&(cur_geno1[2 * founder_ctv3]), founder_ctv3);
@@ -10671,10 +10671,10 @@ Ll_epi_summary* lle_alloc(char* chrom_id, uint32_t chrom_len, char* marker_id, u
   uintptr_t alloc_size = (sizeof(Ll_epi_summary) + chrom_len + marker_id_len + sizeof(intptr_t)) & (~(sizeof(intptr_t) - ONELU));
   Ll_epi_summary* newptr = (Ll_epi_summary*)g_bigstack_base;
   if (bigstack_left() < alloc_size) {
-    return NULL;
+    return nullptr;
   }
   g_bigstack_base = &(g_bigstack_base[alloc_size]);
-  newptr->next = NULL;
+  newptr->next = nullptr;
   newptr->best_chisq = chisq;
   newptr->n_sig = nsig;
   newptr->n_tot = ntot;
@@ -10737,15 +10737,15 @@ int32_t validate_epistasis_summary_header(char* bufptr) {
 
 int32_t epi_summary_merge(Epi_info* epi_ip, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* infile = NULL;
-  FILE* outfile = NULL;
+  FILE* infile = nullptr;
+  FILE* outfile = nullptr;
   char* inprefix = epi_ip->summary_merge_prefix;
   char* inprefix_end = (char*)memchr(inprefix, 0, FNAMESIZE);
-  Ll_epi_summary* list_start = NULL;
+  Ll_epi_summary* list_start = nullptr;
   // first .3 entry is later than first .2 entry, etc., so we can save
   // ourselves some linked list traversal time by starting the first-entry scan
   // after where the last one left off.
-  Ll_epi_summary* last_start = NULL;
+  Ll_epi_summary* last_start = nullptr;
   Ll_epi_summary** lle_pp = &list_start; // end-of-list pointer for first file
   uint32_t file_ct = epi_ip->summary_merge_ct;
   int32_t retval = 0;
@@ -11193,14 +11193,14 @@ void test_mishap_write_line(FILE* outfile, char* wptr, uint32_t prev_alen, uint3
 
 int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, double output_min_p, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, double min_maf, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* outfile = NULL;
+  FILE* outfile = nullptr;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl2 = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
   uintptr_t sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_ct);
   uintptr_t final_mask = get_final_mask(sample_ct);
   char* tbuf2 = &(g_textbuf[MAXLINELEN]);
-  char* wptr2 = NULL;
+  char* wptr2 = nullptr;
   uint32_t chrom_ct = chrom_info_ptr->chrom_ct;
   uint32_t inspected_ct = 0;
   uint32_t missing_ct_next = 0;
@@ -11469,10 +11469,10 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
 	  }
 	  tot_recip = 1.0 / tot_recip;
 	  if (hap_ct_table[2] + hap_ct_table[3] >= dxx) {
-	    test_mishap_write_line(outfile, wptr, 0, next_a1len, NULL, marker_allele_ptrs[2 * marker_uidx_next], hap_ct_table, &(hap_ct_table[2]), tot_recip, output_min_p, tbuf2, flanklen);
+	    test_mishap_write_line(outfile, wptr, 0, next_a1len, nullptr, marker_allele_ptrs[2 * marker_uidx_next], hap_ct_table, &(hap_ct_table[2]), tot_recip, output_min_p, tbuf2, flanklen);
 	  }
 	  if (hap_ct_table[4] + hap_ct_table[5] >= dxx) {
-	    test_mishap_write_line(outfile, wptr, 0, next_a2len, NULL, marker_allele_ptrs[2 * marker_uidx_next + 1], hap_ct_table, &(hap_ct_table[4]), tot_recip, output_min_p, tbuf2, flanklen);
+	    test_mishap_write_line(outfile, wptr, 0, next_a2len, nullptr, marker_allele_ptrs[2 * marker_uidx_next + 1], hap_ct_table, &(hap_ct_table[4]), tot_recip, output_min_p, tbuf2, flanklen);
 	  }
 	}
       } else {
@@ -11502,17 +11502,17 @@ int32_t test_mishap(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
 	}
 	tot_recip = 1.0 / tot_recip;
 	if (hap_ct_table[2] + hap_ct_table[3] >= dxx) {
-	  test_mishap_write_line(outfile, wptr, prev_a1len, 0, marker_allele_ptrs[2 * marker_uidx_prev], NULL, hap_ct_table, &(hap_ct_table[2]), tot_recip, output_min_p, tbuf2, flanklen);
+	  test_mishap_write_line(outfile, wptr, prev_a1len, 0, marker_allele_ptrs[2 * marker_uidx_prev], nullptr, hap_ct_table, &(hap_ct_table[2]), tot_recip, output_min_p, tbuf2, flanklen);
 	}
 	if (hap_ct_table[4] + hap_ct_table[5] >= dxx) {
-	  test_mishap_write_line(outfile, wptr, prev_a2len, 0, marker_allele_ptrs[2 * marker_uidx_prev + 1], NULL, hap_ct_table, &(hap_ct_table[4]), tot_recip, output_min_p, tbuf2, flanklen);
+	  test_mishap_write_line(outfile, wptr, prev_a2len, 0, marker_allele_ptrs[2 * marker_uidx_prev + 1], nullptr, hap_ct_table, &(hap_ct_table[4]), tot_recip, output_min_p, tbuf2, flanklen);
 	}
       }
       hap_ct_table[0] = orig_cmiss_tot * 0.5;
       hap_ct_table[1] = orig_cnm_tot * 0.5;
       hap_ct_table[2] = (int32_t)(counts[1] + counts[3] + counts[4] + counts[5] + counts[7]);
       hap_ct_table[3] = (int32_t)(counts[10] + counts[12] + counts[13] + counts[14] + counts[16]);
-      test_mishap_write_line(outfile, wptr, 6, 0, "HETERO", NULL, hap_ct_table, &(hap_ct_table[2]), 1.0 / (hap_ct_table[0] + hap_ct_table[1]), output_min_p, tbuf2, flanklen);
+      test_mishap_write_line(outfile, wptr, 6, 0, "HETERO", nullptr, hap_ct_table, &(hap_ct_table[2]), 1.0 / (hap_ct_table[0] + hap_ct_table[1]), output_min_p, tbuf2, flanklen);
       inspected_ct++;
       if (!(inspected_ct % 1000)) {
         printf("\r--test-mishap: %uk loci checked.", inspected_ct / 1000);
@@ -11675,7 +11675,7 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   // prefix}.ldset.
   // Note that, when very large set(s) are present, and there's a moderate
   // amount of "random" long-range LD, the memory requirement may be huge.
-  FILE* outfile = NULL;
+  FILE* outfile = nullptr;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t marker_ctv = ((marker_ct + 127) / 128) * (128 / BITCT);
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
@@ -12300,7 +12300,7 @@ int32_t set_test_common_init(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   for (set_idx = 0; set_idx < set_ct; set_idx++) {
     // we're calling this again during final write anyway, so don't bother
     // saving raw_sig_ct or final_sig_ct now
-    set_test_score(marker_ct, chisq_threshold, sip->set_max, orig_chisq, *ld_map_ptr, setdefs[set_idx], *sorted_chisq_buf_ptr, *sorted_marker_idx_buf_ptr, *proxy_arr_ptr, NULL, NULL, &(orig_set_scores[set_idx]));
+    set_test_score(marker_ct, chisq_threshold, sip->set_max, orig_chisq, *ld_map_ptr, setdefs[set_idx], *sorted_chisq_buf_ptr, *sorted_marker_idx_buf_ptr, *proxy_arr_ptr, nullptr, nullptr, &(orig_set_scores[set_idx]));
   }
   // just treat --mperm as --perm with min_perms == max_perms, since this isn't
   // a proper max(T) test
@@ -12344,7 +12344,7 @@ void compute_set_scores(uintptr_t marker_ct, uintptr_t perm_vec_ct, uintptr_t se
       stat_high = orig_set_scores[set_idx] + EPSILON;
       stat_low = orig_set_scores[set_idx] - EPSILON;
       for (pidx = 0; pidx < perm_vec_ct;) {
-	set_test_score(marker_ct, chisq_threshold, set_max, &(chisq_matrix[pidx * marker_ct]), ld_map, setdefs[set_idx], sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr, NULL, NULL, &cur_score);
+	set_test_score(marker_ct, chisq_threshold, set_max, &(chisq_matrix[pidx * marker_ct]), ld_map, setdefs[set_idx], sorted_chisq_buf, sorted_marker_idx_buf, proxy_arr, nullptr, nullptr, &cur_score);
 	if (cur_score > stat_high) {
 	  uii += 2;
 	} else if (cur_score > stat_low) {
@@ -12370,9 +12370,9 @@ void compute_set_scores(uintptr_t marker_ct, uintptr_t perm_vec_ct, uintptr_t se
 
 int32_t write_set_test_results(char* outname, char* outname_end2, Set_info* sip, uint32_t** ld_map, uint32_t** setdefs, uintptr_t* set_incl, uintptr_t set_ct, uintptr_t marker_ct_orig, uintptr_t marker_ct, uint32_t* marker_idx_to_uidx, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* perm_2success_ct, uint32_t* perm_attempt_ct, uint32_t mtest_adjust, uint32_t perm_count, double pfilter, double output_min_p, double chisq_threshold, double* orig_stats, double* sorted_chisq_buf, uint32_t* sorted_marker_idx_buf, uint32_t* proxy_arr) {
   // assumes caller will free memory from stack
-  FILE* outfile = NULL;
-  uintptr_t* nonempty_set_incl = NULL;
-  double* empirical_pvals = NULL;
+  FILE* outfile = nullptr;
+  uintptr_t* nonempty_set_incl = nullptr;
+  double* empirical_pvals = nullptr;
   uintptr_t raw_set_ct = sip->ct;
   uintptr_t max_set_id_len = sip->max_name_len;
   uint32_t nonempty_set_ct = 0;
@@ -12459,7 +12459,7 @@ int32_t write_set_test_results(char* outname, char* outname_end2, Set_info* sip,
     fill_idx_to_uidx_incl(nonempty_set_incl, raw_set_ct, nonempty_set_ct, nonempty_set_idx_to_uidx);
     // .qassoc.set.adjusted instead of .set.mperm.adjusted, etc.
     *outname_end2 = '\0';
-    retval = multcomp(outname, outname_end2, nonempty_set_idx_to_uidx, nonempty_set_ct, sip->names, max_set_id_len, 0, NULL, NULL, pfilter, output_min_p, mtest_adjust, 1, 0.0, NULL, empirical_pvals);
+    retval = multcomp(outname, outname_end2, nonempty_set_idx_to_uidx, nonempty_set_ct, sip->names, max_set_id_len, 0, nullptr, nullptr, pfilter, output_min_p, mtest_adjust, 1, 0.0, nullptr, empirical_pvals);
   }
   while (0) {
   write_set_test_results_ret_NOMEM:
@@ -12514,10 +12514,10 @@ void update_clump_histo(double pval, uintptr_t* histo) {
 int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* founder_info, Clump_info* clump_ip, uintptr_t* sex_male, uint32_t hh_exists) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
-  gzFile gz_infile = NULL;
-  FILE* outfile = NULL;
-  FILE* outfile_ranges = NULL;
-  FILE* outfile_best = NULL;
+  gzFile gz_infile = nullptr;
+  FILE* outfile = nullptr;
+  FILE* outfile_ranges = nullptr;
+  FILE* outfile_best = nullptr;
   uintptr_t marker_ctl = BITCT_TO_WORDCT(marker_ct);
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
@@ -12537,20 +12537,20 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   uintptr_t range_chrom_max = 0;
   uintptr_t unmatched_group_ct = 0;
   uintptr_t* haploid_mask = chrom_info_ptr->haploid_mask;
-  char* range_group_names = NULL;
-  char* fname_ptr = NULL;
+  char* range_group_names = nullptr;
+  char* fname_ptr = nullptr;
   char* annot_flattened = clump_ip->annotate_flattened;
   char* tbuf2 = &(g_textbuf[MAXLINELEN]);
-  char* header2_ptr = NULL;
-  char* annot_ptr = NULL;
-  char* cur_rg_names = NULL;
-  uintptr_t* founder_include2 = NULL;
-  uintptr_t* founder_male_include2 = NULL;
-  uintptr_t* rg_chrom_bounds = NULL;
-  uint32_t** rg_setdefs = NULL;
-  uint32_t** cur_rg_setdefs = NULL;
-  Clump_missing_id* not_found_list = NULL;
-  uintptr_t* rangematch_bitfield = NULL;
+  char* header2_ptr = nullptr;
+  char* annot_ptr = nullptr;
+  char* cur_rg_names = nullptr;
+  uintptr_t* founder_include2 = nullptr;
+  uintptr_t* founder_male_include2 = nullptr;
+  uintptr_t* rg_chrom_bounds = nullptr;
+  uint32_t** rg_setdefs = nullptr;
+  uint32_t** cur_rg_setdefs = nullptr;
+  Clump_missing_id* not_found_list = nullptr;
+  uintptr_t* rangematch_bitfield = nullptr;
   double p1_thresh = clump_ip->p1;
   double p2_thresh = clump_ip->p2;
   double load_pthresh = 0.05;
@@ -12680,7 +12680,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   }
   if (clump_ip->range_fname) {
     // 1. load range file, sort, etc.
-    retval = load_range_list_sortpos(clump_ip->range_fname, clump_ip->range_border, 0, NULL, 0, chrom_info_ptr, &range_group_ct, &range_group_names, &max_range_group_id_len, &rg_chrom_bounds, &rg_setdefs, &range_chrom_max, "--clump-range");
+    retval = load_range_list_sortpos(clump_ip->range_fname, clump_ip->range_border, 0, nullptr, 0, chrom_info_ptr, &range_group_ct, &range_group_names, &max_range_group_id_len, &rg_chrom_bounds, &rg_setdefs, &range_chrom_max, "--clump-range");
     if (retval) {
       goto clump_reports_ret_1;
     }
@@ -13248,7 +13248,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     max_r2 = -1;
     max_r2_uidx = 0xffffffffU;
     fill_ulong_zero(5, histo);
-    best_entry_ptr = NULL;
+    best_entry_ptr = nullptr;
     for (; marker_idx < ivar_idx; marker_uidx++, marker_idx++) {
       marker_uidx = next_unset_unsafe(marker_exclude, marker_uidx);
       clump_entry_ptr = clump_entries[marker_idx];

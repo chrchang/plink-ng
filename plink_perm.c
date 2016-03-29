@@ -690,12 +690,12 @@ void transpose_perm1s(uintptr_t* perm_vecs, uint32_t perm_vec_ct, uint32_t pheno
 
 int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uint32_t pheno_nm_ct, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* output_missing_pheno, uint32_t permphe_ct) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* outfile = NULL;
+  FILE* outfile = nullptr;
   uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t pheno_nm_ctl = BITCT_TO_WORDCT(pheno_nm_ct);
   uintptr_t pheno_nm_ctv = round_up_pow2(pheno_nm_ctl, VEC_WORDS);
   uintptr_t perm_vec_ctcl8m = 0;
-  char* writebuf = NULL;
+  char* writebuf = nullptr;
   int32_t retval = 0;
   uintptr_t* ulptr;
   double* dptr;
@@ -747,7 +747,7 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
       }
       generate_cc_cluster_perms_thread((void*)ulii);
     } else {
-      g_perm_cluster_starts = NULL;
+      g_perm_cluster_starts = nullptr;
       g_perm_tot_quotient = 0x100000000LLU / pheno_nm_ct;
       magic_num(g_perm_tot_quotient, &g_perm_totq_magic, &g_perm_totq_preshift, &g_perm_totq_postshift, &g_perm_totq_incr);
       if (spawn_threads(threads, &generate_cc_perms_thread, g_perm_generation_thread_ct)) {
@@ -765,7 +765,7 @@ int32_t make_perm_pheno(pthread_t* threads, char* outname, char* outname_end, ui
       goto make_perm_pheno_ret_NOMEM;
     }
     if (cluster_starts) {
-      retval = cluster_include_and_reindex(unfiltered_sample_ct, pheno_nm, 1, NULL, pheno_nm_ct, 0, cluster_ct, cluster_map, cluster_starts, &g_perm_cluster_ct, &g_perm_cluster_map, &g_perm_cluster_starts, NULL, NULL);
+      retval = cluster_include_and_reindex(unfiltered_sample_ct, pheno_nm, 1, nullptr, pheno_nm_ct, 0, cluster_ct, cluster_map, cluster_starts, &g_perm_cluster_ct, &g_perm_cluster_map, &g_perm_cluster_starts, nullptr, nullptr);
       if (retval) {
 	goto make_perm_pheno_ret_1;
       }

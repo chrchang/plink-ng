@@ -108,8 +108,8 @@ void rel_init(Rel_info* relip) {
   relip->cutoff = 0.025;
   relip->ibc_type = 0;
   relip->pc_ct = 20;
-  relip->pca_cluster_names_flattened = NULL;
-  relip->pca_clusters_fname = NULL;
+  relip->pca_cluster_names_flattened = nullptr;
+  relip->pca_clusters_fname = nullptr;
 }
 
 void rel_cleanup(Rel_info* relip) {
@@ -713,16 +713,16 @@ static inline uint32_t popcount_xor_2mask_multiword(uintptr_t** xor1p, uintptr_t
 #endif
 
 // ----- multithread globals -----
-double* g_rel_dists = NULL;
-uint32_t* g_sample_missing_unwt = NULL;
-uint32_t* g_missing_dbl_excluded = NULL;
-double* g_dists = NULL;
+double* g_rel_dists = nullptr;
+uint32_t* g_sample_missing_unwt = nullptr;
+uint32_t* g_missing_dbl_excluded = nullptr;
+double* g_dists = nullptr;
 
 static uint32_t g_thread_start[MAX_THREADS_P1];
 static int32_t* g_idists;
-static uintptr_t* g_pheno_nm = NULL;
-static uintptr_t* g_pheno_c = NULL;
-static unsigned char* g_geno = NULL;
+static uintptr_t* g_pheno_nm = nullptr;
+static uintptr_t* g_pheno_c = nullptr;
+static unsigned char* g_geno = nullptr;
 static double* g_subset_weights;
 static uint32_t* g_subset_weights_i;
 static double g_reg_tot_xy;
@@ -740,8 +740,8 @@ static uintptr_t* g_masks;
 static uintptr_t* g_mmasks;
 static uint32_t* g_missing_tot_weights;
 static uint32_t* g_sample_missing;
-static double* g_jackknife_precomp = NULL;
-static uint32_t* g_genome_main = NULL;
+static double* g_jackknife_precomp = nullptr;
+static uint32_t* g_genome_main = nullptr;
 static uintptr_t g_marker_window[GENOME_MULTIPLEX * 2];
 static double* g_pheno_packed;
 
@@ -2376,7 +2376,7 @@ int32_t calc_unrelated_herit(uint64_t calculation_type, Rel_info* relip, uintptr
   double* ibc_ptr;
   double* rel_base;
   g_sample_ct = sample_ct;
-  g_missing_dbl_excluded = NULL;
+  g_missing_dbl_excluded = nullptr;
   ulii = sample_ct;
   ulii = round_up_pow2(ulii * ulii, CACHELINE_DBL);
   rel_base = &(g_rel_dists[ulii]);
@@ -2408,9 +2408,9 @@ int32_t calc_unrelated_herit(uint64_t calculation_type, Rel_info* relip, uintptr
 
 int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenoname, uint32_t mpheno_col, char* phenoname_str, int32_t missing_pheno, Rel_info* relip) {
   char* grmname_end = (char*)memchr(grmname, 0, FNAMESIZE);
-  FILE* infile = NULL;
-  FILE* grm_binfile = NULL;
-  gzFile grm_gzfile = NULL;
+  FILE* infile = nullptr;
+  FILE* grm_binfile = nullptr;
+  gzFile grm_gzfile = nullptr;
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t max_sample_id_len = 4;
@@ -2421,8 +2421,8 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
   double unrelated_herit_covg = relip->unrelated_herit_covg;
   double unrelated_herit_covr = relip->unrelated_herit_covr;
   uint32_t is_strict = (relip->modifier / REL_UNRELATED_HERITABILITY_STRICT) & 1;
-  uintptr_t* pheno_c = NULL;
-  double* pheno_d = NULL;
+  uintptr_t* pheno_c = nullptr;
+  double* pheno_d = nullptr;
   uintptr_t cur_sample_id_len;
   uintptr_t unfiltered_sample_ctl;
   uintptr_t* pheno_nm;
@@ -2516,7 +2516,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
   if (fopen_checked(phenoname, "r", &infile)) {
     goto unrelated_herit_batch_ret_OPEN_FAIL;
   }
-  retval = load_pheno(infile, unfiltered_sample_ct, 0, sorted_ids, max_sample_id_len, id_map, missing_pheno, 0, mpheno_col, phenoname_str, pheno_nm, &pheno_c, &pheno_d, NULL, 0);
+  retval = load_pheno(infile, unfiltered_sample_ct, 0, sorted_ids, max_sample_id_len, id_map, missing_pheno, 0, mpheno_col, phenoname_str, pheno_nm, &pheno_c, &pheno_d, nullptr, 0);
   bigstack_end_reset(bigstack_end_mark);
   fclose_null(&infile);
   if (retval) {
@@ -2626,7 +2626,7 @@ int32_t unrelated_herit_batch(uint32_t load_grm_bin, char* grmname, char* phenon
       }
     }
     gzclose(grm_gzfile);
-    grm_gzfile = NULL;
+    grm_gzfile = nullptr;
   }
   // fill in upper right
   for (ulii = 0; ulii < pheno_nm_ct; ulii++) {
@@ -2739,7 +2739,7 @@ int32_t ibs_test_calc(pthread_t* threads, char* read_dists_fname, uintptr_t unfi
   ctrl_case_ct = pheno_ctrl_ct * case_ct;
   case_case_ct = (case_ct * (case_ct - 1)) / 2;
   g_perm_ct = perm_ct;
-  // g_pheno_nm and g_pheno_c should be NULL
+  // g_pheno_nm and g_pheno_c should be nullptr
   if (bigstack_alloc_ul(unfiltered_sample_ctl, &g_pheno_nm) ||
       bigstack_alloc_ul(unfiltered_sample_ctl, &g_pheno_c)) {
     goto ibs_test_calc_ret_NOMEM;
@@ -2880,8 +2880,8 @@ int32_t ibs_test_calc(pthread_t* threads, char* read_dists_fname, uintptr_t unfi
   }
  ibs_test_calc_ret_1:
   bigstack_reset(bigstack_mark);
-  g_pheno_nm = NULL;
-  g_pheno_c = NULL;
+  g_pheno_nm = nullptr;
+  g_pheno_c = nullptr;
   return retval;
 }
 
@@ -2931,7 +2931,7 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_sample_ct, uintpt
   }
   g_ctrl_ct = pheno_ctrl_ct;
   g_sample_ct = sample_ct;
-  // g_pheno_nm and g_pheno_c should be NULL
+  // g_pheno_nm and g_pheno_c should be nullptr
   if (bigstack_alloc_ul(unfiltered_sample_ctl, &pheno_nm_local) ||
       bigstack_alloc_ul(unfiltered_sample_ctl, &pheno_c_local)) {
     goto groupdist_calc_ret_NOMEM;
@@ -3110,8 +3110,8 @@ int32_t groupdist_calc(pthread_t* threads, uint32_t unfiltered_sample_ct, uintpt
   }
  groupdist_calc_ret_1:
   bigstack_reset(bigstack_mark);
-  g_pheno_nm = NULL;
-  g_pheno_c = NULL;
+  g_pheno_nm = nullptr;
+  g_pheno_c = nullptr;
   return retval;
 }
 
@@ -3178,11 +3178,11 @@ void normalize_phenos(double* new_phenos, uint32_t sample_ct, uintptr_t* sample_
 
 /*
 int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t max_pcs, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t sample_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, double* pheno_d, double missing_phenod, char* outname, char* outname_end, uint32_t hh_exists) {
-  FILE* outfile = NULL;
-  FILE* evecfile = NULL;
+  FILE* outfile = nullptr;
+  FILE* evecfile = nullptr;
   unsigned char* bigstack_mark = g_bigstack_base;
-  uintptr_t* sample_include2 = NULL;
-  uintptr_t* sample_male_include2 = NULL;
+  uintptr_t* sample_include2 = nullptr;
+  uintptr_t* sample_male_include2 = nullptr;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(unfiltered_sample_ct);
   uintptr_t sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_ct);
@@ -4962,11 +4962,11 @@ uint32_t calc_genome_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 }
 
 int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uint32_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, double* set_allele_freqs, uint32_t* nchrobs, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_sample_id_len, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info, uint32_t parallel_idx, uint32_t parallel_tot, char* outname, char* outname_end, int32_t nonfounders, uint64_t calculation_type, uint32_t genome_modifier, uint32_t ppc_gap, double min_pi_hat, double max_pi_hat, uintptr_t* pheno_nm, uintptr_t* pheno_c, Pedigree_rel_info pri, uint32_t skip_write) {
-  FILE* outfile = NULL;
+  FILE* outfile = nullptr;
   int32_t retval = 0;
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
-  unsigned char* loadbuf = NULL; // from file
+  unsigned char* loadbuf = nullptr; // from file
   int32_t ibd_prect = 0;
   int64_t cur_line = 0;
   double e00 = 0;
@@ -5859,12 +5859,12 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   uintptr_t sample_ct = 0;
   uintptr_t line_idx = 0;
   double rel_cutoff = relip->cutoff;
-  FILE* idfile = NULL;
-  FILE* outfile = NULL;
-  FILE* out_bin_nfile = NULL;
-  FILE* in_binfile = NULL;
-  FILE* in_bin_nfile = NULL;
-  gzFile cur_gzfile = NULL;
+  FILE* idfile = nullptr;
+  FILE* outfile = nullptr;
+  FILE* out_bin_nfile = nullptr;
+  FILE* in_binfile = nullptr;
+  FILE* in_bin_nfile = nullptr;
+  gzFile cur_gzfile = nullptr;
   unsigned char* bigstack_mark = g_bigstack_base;
   uint32_t samples_excluded = 0;
   uint32_t exactly_one_rel_ct = 0;
@@ -6057,7 +6057,7 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
       goto rel_cutoff_batch_ret_INVALID_FORMAT_GENERIC;
     }
     gzclose(cur_gzfile);
-    cur_gzfile = NULL;
+    cur_gzfile = nullptr;
   }
   putc_unlocked('\r', stdout);
   LOGPRINTFWW("%s read complete.  Pruning.\n", grmname);
@@ -6231,7 +6231,7 @@ int32_t rel_cutoff_batch(uint32_t load_grm_bin, char* grmname, char* outname, ch
   }
 
   for (sample_idx = 0; sample_idx < sample_ct;) {
-    if (fgets(g_textbuf, MAXLINELEN, idfile) == NULL) {
+    if (fgets(g_textbuf, MAXLINELEN, idfile) == nullptr) {
       goto rel_cutoff_batch_ret_READ_FAIL;
     }
     if (is_eoln_kns(*(skip_initial_spaces(g_textbuf)))) {
@@ -6681,7 +6681,7 @@ void copy_set_allele_freqs(uintptr_t marker_uidx, uintptr_t* marker_exclude, uin
 int32_t load_distance_wts(char* distance_wts_fname, uintptr_t unfiltered_marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t noheader, uint32_t conditional_alloc_exclude, uintptr_t** marker_exclude_ptr, uint32_t* marker_ct_ptr, double** main_weights_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
-  FILE* infile = NULL;
+  FILE* infile = nullptr;
   uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   uintptr_t line_idx = 0;
 
@@ -6816,8 +6816,8 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   uintptr_t sample_ct = unfiltered_sample_ct - (*sample_exclude_ct_ptr);
   uintptr_t marker_uidx = 0;
   uintptr_t marker_idx = 0;
-  FILE* outfile = NULL;
-  FILE* out_bin_nfile = NULL;
+  FILE* outfile = nullptr;
+  FILE* out_bin_nfile = nullptr;
   uintptr_t* marker_exclude = marker_exclude_orig;
   uint32_t rel_calc_type = relip->modifier & REL_CALC_MASK;
   int32_t ibc_type = relip->ibc_type;
@@ -6827,12 +6827,12 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   uint32_t all_missing_warning = 0;
   int64_t llxx = 0;
   double rel_cutoff = relip->cutoff;
-  double* dist_ptr = NULL;
-  double* dptr3 = NULL;
-  double* dptr4 = NULL;
-  double* rel_dists = NULL;
-  double* main_weights = NULL;
-  double* main_weights_ptr = NULL;
+  double* dist_ptr = nullptr;
+  double* dptr3 = nullptr;
+  double* dptr4 = nullptr;
+  double* rel_dists = nullptr;
+  double* main_weights = nullptr;
+  double* main_weights_ptr = nullptr;
   double* dptr2;
   double set_allele_freq_buf[MULTIPLEX_DIST];
   char wbuf[96];
@@ -7013,13 +7013,13 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
       }
       if (calculation_type & CALC_IBC) {
 	for (uii = 0; uii < 3; uii++) {
-	  update_rel_ibc(&(rel_ibc[uii * sample_ct]), geno, &(set_allele_freq_buf[win_marker_idx]), main_weights_ptr? (&(main_weights_ptr[win_marker_idx])) : NULL, uii, sample_ct, ukk);
+	  update_rel_ibc(&(rel_ibc[uii * sample_ct]), geno, &(set_allele_freq_buf[win_marker_idx]), main_weights_ptr? (&(main_weights_ptr[win_marker_idx])) : nullptr, uii, sample_ct, ukk);
 	}
       } else {
-	update_rel_ibc(rel_ibc, geno, &(set_allele_freq_buf[win_marker_idx]), main_weights_ptr? (&(main_weights_ptr[win_marker_idx])) : NULL, ibc_type, sample_ct, ukk);
+	update_rel_ibc(rel_ibc, geno, &(set_allele_freq_buf[win_marker_idx]), main_weights_ptr? (&(main_weights_ptr[win_marker_idx])) : nullptr, ibc_type, sample_ct, ukk);
       }
       if (rel_req) {
-	fill_subset_weights_r(subset_weights, &(set_allele_freq_buf[win_marker_idx]), main_weights_ptr? (&(main_weights_ptr[win_marker_idx])) : NULL, (ibc_type != -1));
+	fill_subset_weights_r(subset_weights, &(set_allele_freq_buf[win_marker_idx]), main_weights_ptr? (&(main_weights_ptr[win_marker_idx])) : nullptr, (ibc_type != -1));
 	ulii = 0;
 	if (!main_weights_ptr) {
 	  if (spawn_threads2(threads, &calc_rel_thread, dist_thread_ct, ujj)) {
@@ -7433,7 +7433,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   // todo: provide a randomized approximation algorithm as well.  (This can
   // wait, though; far more important to implement stuff that doesn't already
   // exist.  EIGENSOFT is not *that* hard to use.)
-  FILE* outfile = NULL;
+  FILE* outfile = nullptr;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t unfiltered_sample_ctl2 = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
@@ -7443,11 +7443,11 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   uintptr_t final_mask = get_final_mask(pca_sample_ct);
   double nz = 0.0;
   double zz = -1.0;
-  uintptr_t* loadbuf_proj = NULL;
-  uintptr_t* sample_exclude_proj = NULL;
-  double* proj_sample_loadings = NULL;
-  double* proj_allhom_wts = NULL;
-  uint32_t* proj_missing_cts = NULL;
+  uintptr_t* loadbuf_proj = nullptr;
+  uintptr_t* sample_exclude_proj = nullptr;
+  double* proj_sample_loadings = nullptr;
+  double* proj_allhom_wts = nullptr;
+  uint32_t* proj_missing_cts = nullptr;
   uint32_t write_headers = relip->modifier & REL_PCA_HEADER;
   uint32_t pc_ct = relip->pc_ct;
   uint32_t var_wts = relip->modifier & REL_PCA_VAR_WTS;
@@ -7502,7 +7502,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
   uint32_t ujj;
   int32_t chrom_idx;
   // calc_rel() already verified that diploid data is present
-  g_missing_dbl_excluded = NULL;
+  g_missing_dbl_excluded = nullptr;
   marker_ct -= count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
   if ((pc_ct > pca_sample_ct) || (pc_ct > marker_ct)) {
     if (pca_sample_ct <= marker_ct) {
@@ -7879,7 +7879,7 @@ int32_t calc_ibm(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintpt
   uint32_t dist_thread_ct = g_thread_ct;
   int32_t retval = 0;
   uintptr_t* marker_exclude = marker_exclude_orig;
-  uint32_t* giptr = NULL;
+  uint32_t* giptr = nullptr;
   unsigned char* bigstack_mark;
   unsigned char* bedbuf;
   unsigned char* gptr;
@@ -7990,9 +7990,9 @@ int32_t calc_ibm(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uintpt
 int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_tot, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, char* read_dists_fname, char* distance_wts_fname, double distance_exp, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude_orig, uint32_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, double* set_allele_freqs, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uintptr_t max_sample_id_len, Chrom_info* chrom_info_ptr) {
   // if calculation_type == 0, this must perform the basic unweighted
   // computation and not write to disk.
-  FILE* outfile = NULL;
-  FILE* outfile2 = NULL;
-  FILE* outfile3 = NULL;
+  FILE* outfile = nullptr;
+  FILE* outfile2 = nullptr;
+  FILE* outfile3 = nullptr;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uint64_t dists_alloc = 0;
   uint32_t missing_wt_needed = ((calculation_type & CALC_DISTANCE) || ((!read_dists_fname) && (calculation_type & (CALC_IBS_TEST | CALC_GROUPDIST | CALC_REGRESS_DISTANCE)))) && (!(dist_calc_type & DISTANCE_FLAT_MISSING));
@@ -8000,14 +8000,14 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
   uint32_t marker_weight_sum = 0;
   int32_t retval = 0;
   uintptr_t* marker_exclude = marker_exclude_orig;
-  uint32_t* dist_missing_wts_i = NULL;
-  uint32_t* sample_missing = NULL;
-  uint32_t* sample_missing_unwt = NULL;
-  uint32_t* giptr = NULL;
-  uint32_t* giptr2 = NULL;
-  char* writebuf = NULL;
-  double* main_weights = NULL;
-  double* subset_weights = NULL;
+  uint32_t* dist_missing_wts_i = nullptr;
+  uint32_t* sample_missing = nullptr;
+  uint32_t* sample_missing_unwt = nullptr;
+  uint32_t* giptr = nullptr;
+  uint32_t* giptr2 = nullptr;
+  char* writebuf = nullptr;
+  double* main_weights = nullptr;
+  double* subset_weights = nullptr;
   uint32_t dist_thread_ct = g_thread_ct;
   double set_allele_freq_buf[MULTIPLEX_DIST];
   uint32_t wtbuf[MULTIPLEX_DIST];
@@ -8070,7 +8070,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     unwt_needed = 1;
   } else {
     // defensive
-    g_missing_dbl_excluded = NULL;
+    g_missing_dbl_excluded = nullptr;
   }
   // Additional + CACHELINE is to fix aliasing bug that shows up with -O2 in
   // some cases.
@@ -8086,7 +8086,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     }
     g_sample_missing = sample_missing;
   } else {
-    g_missing_tot_weights = NULL;
+    g_missing_tot_weights = nullptr;
   }
 
   ujj = distance_wts_fname || (distance_exp != 0.0); // special weights?
@@ -8268,7 +8268,7 @@ int32_t calc_distance(pthread_t* threads, uint32_t parallel_idx, uint32_t parall
     // See the comments at the beginning of this file for discussion of
     // the zero exponent special case.
 
-    copy_set_allele_freqs(marker_uidx, marker_exclude, multiplex, marker_idx, marker_ct, NULL, set_allele_freqs, set_allele_freq_buf);
+    copy_set_allele_freqs(marker_uidx, marker_exclude, multiplex, marker_idx, marker_ct, nullptr, set_allele_freqs, set_allele_freq_buf);
     if (missing_wt_needed) {
       uii = marker_ct - marker_idx;
       if (uii > multiplex) {
@@ -8691,27 +8691,27 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
   // O(n) space, so it's an excellent complement to --distance/--genome +
   // --parallel on very large datasets (e.g. 500k samples), and should be added
   // as a special case in the future.
-  FILE* outfile = NULL;
-  uint32_t* cluster_sorted_ibs_indices = NULL;
+  FILE* outfile = nullptr;
+  uint32_t* cluster_sorted_ibs_indices = nullptr;
 #ifdef __LP64__
-  // uint64_t* cluster_sorted_ibs_indices_big = NULL;
+  // uint64_t* cluster_sorted_ibs_indices_big = nullptr;
 #endif
-  uint32_t* sample_to_cluster = NULL;
-  double* neighbor_quantiles = NULL;
-  double* neighbor_quantile_means = NULL;
-  double* neighbor_quantile_stdev_recips = NULL;
-  uint32_t* neighbor_qindices = NULL;
-  uint32_t* ppc_fail_counts = NULL;
-  uint32_t* cur_cluster_sizes = NULL;
-  uint32_t* cur_cluster_case_cts = NULL;
-  uint32_t* cur_cluster_remap = NULL;
-  uint32_t* cluster_index = NULL;
-  uintptr_t* collapsed_pheno_c = NULL;
-  uint32_t* sample_idx_to_uidx = NULL;
-  uint32_t* late_clidx_to_sample_uidx = NULL;
-  uintptr_t* ibs_ties = NULL;
+  uint32_t* sample_to_cluster = nullptr;
+  double* neighbor_quantiles = nullptr;
+  double* neighbor_quantile_means = nullptr;
+  double* neighbor_quantile_stdev_recips = nullptr;
+  uint32_t* neighbor_qindices = nullptr;
+  uint32_t* ppc_fail_counts = nullptr;
+  uint32_t* cur_cluster_sizes = nullptr;
+  uint32_t* cur_cluster_case_cts = nullptr;
+  uint32_t* cur_cluster_remap = nullptr;
+  uint32_t* cluster_index = nullptr;
+  uintptr_t* collapsed_pheno_c = nullptr;
+  uint32_t* sample_idx_to_uidx = nullptr;
+  uint32_t* late_clidx_to_sample_uidx = nullptr;
+  uintptr_t* ibs_ties = nullptr;
   uint32_t* genome_main = g_genome_main;
-  double* dptr = NULL;
+  double* dptr = nullptr;
   double min_ppc = cp->ppc;
   double min_ibm = cp->min_ibm;
   double min_zx = 0.0;
@@ -8841,7 +8841,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       fill_uint_zero(sample_ct, ppc_fail_counts);
     }
     if (read_genome_fname) {
-      retval = read_genome(read_genome_fname, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, cluster_merge_prevented, use_genome_dists? cluster_sorted_ibs : NULL, neighbor_n2, neighbor_quantiles, neighbor_qindices, ppc_fail_counts, min_ppc, cluster_ct && (!is_group_avg), cluster_ct, cluster_starts, sample_to_cluster);
+      retval = read_genome(read_genome_fname, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, cluster_merge_prevented, use_genome_dists? cluster_sorted_ibs : nullptr, neighbor_n2, neighbor_quantiles, neighbor_qindices, ppc_fail_counts, min_ppc, cluster_ct && (!is_group_avg), cluster_ct, cluster_starts, sample_to_cluster);
       if (retval) {
 	goto calc_cluster_neighbor_ret_1;
       }
@@ -8921,7 +8921,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
     // calculate entire distance matrix, or use already-calculated matrix in
     // memory
     if (!g_dists) {
-      retval = calc_distance(threads, 0, 1, bedfile, bed_offset, outname, outname_end, NULL, NULL, 0.0, 0, DISTANCE_FLAT_MISSING | DISTANCE_CLUSTER, unfiltered_marker_ct, marker_exclude, marker_ct, NULL, 0, set_allele_freqs, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, chrom_info_ptr);
+      retval = calc_distance(threads, 0, 1, bedfile, bed_offset, outname, outname_end, nullptr, nullptr, 0.0, 0, DISTANCE_FLAT_MISSING | DISTANCE_CLUSTER, unfiltered_marker_ct, marker_exclude, marker_ct, nullptr, 0, set_allele_freqs, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, chrom_info_ptr);
       if (retval) {
         goto calc_cluster_neighbor_ret_1;
       }
@@ -9616,9 +9616,9 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
 	fill_double_zero((ulii * (ulii - 1)) / 2, mds_plot_dmatrix_copy);
       }
       if (read_dists_fname) {
-	retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, is_mds_cluster? cluster_ct : 0, is_mds_cluster? cluster_starts : NULL, is_mds_cluster? sample_to_cluster : NULL, 2, 0, mds_plot_dmatrix_copy, 0, NULL, NULL);
+	retval = read_dists(read_dists_fname, read_dists_id_fname, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, is_mds_cluster? cluster_ct : 0, is_mds_cluster? cluster_starts : nullptr, is_mds_cluster? sample_to_cluster : nullptr, 2, 0, mds_plot_dmatrix_copy, 0, nullptr, nullptr);
       } else {
-	retval = read_genome(read_genome_fname, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, NULL, mds_plot_dmatrix_copy, 0, NULL, NULL, NULL, 0.0, 0, is_mds_cluster? cluster_ct : 0, is_mds_cluster? cluster_starts : NULL, is_mds_cluster? sample_to_cluster : NULL);
+	retval = read_genome(read_genome_fname, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, nullptr, mds_plot_dmatrix_copy, 0, nullptr, nullptr, nullptr, 0.0, 0, is_mds_cluster? cluster_ct : 0, is_mds_cluster? cluster_starts : nullptr, is_mds_cluster? sample_to_cluster : nullptr);
       }
       if (retval) {
 	goto calc_cluster_neighbor_ret_1;

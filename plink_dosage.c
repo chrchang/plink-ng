@@ -10,7 +10,7 @@
 #include "pigz.h"
 
 void dosage_init(Dosage_info* doip) {
-  doip->fname = NULL;
+  doip->fname = nullptr;
   doip->modifier = 0;
   doip->skip0 = 0;
   doip->skip1 = 0;
@@ -33,7 +33,7 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
   //    the relevant variant IDs and check for duplicates; third pass, save
   //    allele codes and scores.
   // 2. If --q-score-range was specified, load those files.
-  FILE* infile = NULL;
+  FILE* infile = nullptr;
   uintptr_t score_marker_ct = 0;
   uintptr_t max_score_marker_id_len = 0;
   uintptr_t miss_ct = 0;
@@ -41,8 +41,8 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
   uintptr_t qrange_ct = 0;
   uintptr_t max_qrange_name_len = 0;
   uint64_t allele_code_buf_len = 0;
-  uintptr_t* score_qrange_key_exists = NULL;
-  double* score_qrange_keys = NULL;
+  uintptr_t* score_qrange_key_exists = nullptr;
+  double* score_qrange_keys = nullptr;
   uint32_t modifier = sc_ip->modifier;
   int32_t retval = 0;
   char* bufptr_arr[3];
@@ -467,82 +467,82 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   // sucks to duplicate so much, but this code will be thrown out later so
   // there's no long-term maintenance problem
   unsigned char* bigstack_end_mark = g_bigstack_end;
-  FILE* phenofile = NULL;
-  FILE* infile = NULL;
-  FILE* profile_outfile = NULL;
-  gzFile* gz_infiles = NULL;
-  char* marker_ids = NULL;
-  char* sample_ids = NULL;
-  char* paternal_ids = NULL;
-  char* maternal_ids = NULL;
-  char* cluster_ids = NULL;
-  char* covar_names = NULL;
-  char* sorted_sample_ids = NULL;
-  char* sep_fnames = NULL;
-  char* cur_marker_id_buf = NULL;
-  char* score_marker_ids = NULL;
-  char* score_qrange_names = NULL;
-  char** score_allele_codes = NULL;
-  char* a1_ptr = NULL;
-  char* a2_ptr = NULL;
-  char* pzwritep = NULL;
-  uintptr_t* marker_exclude = NULL;
-  uintptr_t* sample_exclude = NULL;
-  uintptr_t* sex_nm = NULL;
-  uintptr_t* sex_male = NULL;
-  uintptr_t* pheno_nm = NULL;
-  uintptr_t* pheno_c = NULL;
-  uintptr_t* pheno_nm_collapsed = NULL;
-  uintptr_t* pheno_c_collapsed = NULL;
-  uintptr_t* founder_info = NULL;
-  uintptr_t* covar_nm = NULL;
-  uintptr_t* perm_vec = NULL;
-  uintptr_t* perm_fails = NULL; // need to enforce alignment
-  uintptr_t* score_qrange_key_exists = NULL;
-  double* pheno_d = NULL;
-  double* covar_d = NULL;
-  double* cur_dosages2 = NULL;
-  double* score_effect_sizes = NULL;
-  double* score_qrange_keys = NULL;
-  double* score_qrange_bounds = NULL;
-  double* cur_scores = NULL;
-  double* score_bases = NULL;
+  FILE* phenofile = nullptr;
+  FILE* infile = nullptr;
+  FILE* profile_outfile = nullptr;
+  gzFile* gz_infiles = nullptr;
+  char* marker_ids = nullptr;
+  char* sample_ids = nullptr;
+  char* paternal_ids = nullptr;
+  char* maternal_ids = nullptr;
+  char* cluster_ids = nullptr;
+  char* covar_names = nullptr;
+  char* sorted_sample_ids = nullptr;
+  char* sep_fnames = nullptr;
+  char* cur_marker_id_buf = nullptr;
+  char* score_marker_ids = nullptr;
+  char* score_qrange_names = nullptr;
+  char** score_allele_codes = nullptr;
+  char* a1_ptr = nullptr;
+  char* a2_ptr = nullptr;
+  char* pzwritep = nullptr;
+  uintptr_t* marker_exclude = nullptr;
+  uintptr_t* sample_exclude = nullptr;
+  uintptr_t* sex_nm = nullptr;
+  uintptr_t* sex_male = nullptr;
+  uintptr_t* pheno_nm = nullptr;
+  uintptr_t* pheno_c = nullptr;
+  uintptr_t* pheno_nm_collapsed = nullptr;
+  uintptr_t* pheno_c_collapsed = nullptr;
+  uintptr_t* founder_info = nullptr;
+  uintptr_t* covar_nm = nullptr;
+  uintptr_t* perm_vec = nullptr;
+  uintptr_t* perm_fails = nullptr; // need to enforce alignment
+  uintptr_t* score_qrange_key_exists = nullptr;
+  double* pheno_d = nullptr;
+  double* covar_d = nullptr;
+  double* cur_dosages2 = nullptr;
+  double* score_effect_sizes = nullptr;
+  double* score_qrange_keys = nullptr;
+  double* score_qrange_bounds = nullptr;
+  double* cur_scores = nullptr;
+  double* score_bases = nullptr;
 #ifndef NOLAPACK
-  double* pheno_d2 = NULL;
-  double* covars_cov_major_buf = NULL;
-  double* covars_sample_major_buf = NULL;
-  double* pheno_d_collapsed = NULL;
-  double* param_2d_buf = NULL;
-  double* param_2d_buf2 = NULL;
-  double* regression_results = NULL;
-  double* dgels_a = NULL;
-  double* dgels_b = NULL;
-  double* dgels_work = NULL;
-  MATRIX_INVERT_BUF1_TYPE* mi_buf = NULL;
+  double* pheno_d2 = nullptr;
+  double* covars_cov_major_buf = nullptr;
+  double* covars_sample_major_buf = nullptr;
+  double* pheno_d_collapsed = nullptr;
+  double* param_2d_buf = nullptr;
+  double* param_2d_buf2 = nullptr;
+  double* regression_results = nullptr;
+  double* dgels_a = nullptr;
+  double* dgels_b = nullptr;
+  double* dgels_work = nullptr;
+  MATRIX_INVERT_BUF1_TYPE* mi_buf = nullptr;
 #endif
-  float* covar_f = NULL;
-  float* covars_cov_major_f_buf = NULL;
-  float* coef_f = NULL;
-  float* pp_f = NULL;
-  float* sample_1d_buf_f = NULL;
-  float* pheno_buf_f = NULL;
-  float* param_1d_buf_f = NULL;
-  float* param_1d_buf2_f = NULL;
-  float* param_2d_buf_f = NULL;
-  float* param_2d_buf2_f = NULL;
-  float* regression_results_f = NULL;
-  Ll_ctstr_entry** htable = NULL;
-  uint32_t* marker_pos = NULL;
-  uint32_t* cluster_map = NULL;
-  uint32_t* cluster_starts = NULL;
-  uint32_t* marker_id_htable = NULL;
-  uint32_t* sample_id_map = NULL;
-  uint32_t* batch_sizes = NULL;
-  uint32_t* score_range_obs_cts = NULL;
-  uint32_t* score_miss_cts = NULL;
-  uint32_t* uiptr = NULL;
-  uint32_t* uiptr2 = NULL;
-  uint32_t* uiptr3 = NULL;
+  float* covar_f = nullptr;
+  float* covars_cov_major_f_buf = nullptr;
+  float* coef_f = nullptr;
+  float* pp_f = nullptr;
+  float* sample_1d_buf_f = nullptr;
+  float* pheno_buf_f = nullptr;
+  float* param_1d_buf_f = nullptr;
+  float* param_1d_buf2_f = nullptr;
+  float* param_2d_buf_f = nullptr;
+  float* param_2d_buf2_f = nullptr;
+  float* regression_results_f = nullptr;
+  Ll_ctstr_entry** htable = nullptr;
+  uint32_t* marker_pos = nullptr;
+  uint32_t* cluster_map = nullptr;
+  uint32_t* cluster_starts = nullptr;
+  uint32_t* marker_id_htable = nullptr;
+  uint32_t* sample_id_map = nullptr;
+  uint32_t* batch_sizes = nullptr;
+  uint32_t* score_range_obs_cts = nullptr;
+  uint32_t* score_miss_cts = nullptr;
+  uint32_t* uiptr = nullptr;
+  uint32_t* uiptr2 = nullptr;
+  uint32_t* uiptr3 = nullptr;
   uintptr_t unfiltered_marker_ct = 0;
   uintptr_t marker_exclude_ct = 0;
   uintptr_t max_marker_id_len = 0;
@@ -674,7 +674,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   int32_t ii;
   pzwrite_init_null(&ps);
   if (load_map) {
-    retval = load_bim(mapname, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, NULL, NULL, NULL, &ulii, &marker_ids, NULL, 0, NULL, chrom_info_ptr, NULL, &marker_pos, misc_flags, filter_flags, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_range_list_ptr, &map_is_unsorted, do_glm || min_bp_space || (misc_flags & (MISC_EXTRACT_RANGE | MISC_EXCLUDE_RANGE)), 0, 0, NULL, ".map file", NULL);
+    retval = load_bim(mapname, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, nullptr, nullptr, nullptr, &ulii, &marker_ids, nullptr, 0, nullptr, chrom_info_ptr, nullptr, &marker_pos, misc_flags, filter_flags, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_range_list_ptr, &map_is_unsorted, do_glm || min_bp_space || (misc_flags & (MISC_EXTRACT_RANGE | MISC_EXCLUDE_RANGE)), 0, 0, nullptr, ".map file", nullptr);
     if (retval) {
       goto plink1_dosage_ret_1;
     }
@@ -743,7 +743,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
         goto plink1_dosage_ret_1;
       }
     } else if (phenofile) {
-      retval = load_pheno(phenofile, unfiltered_sample_ct, 0, sorted_sample_ids, max_sample_id_len, sample_id_map, missing_pheno, (misc_flags / MISC_AFFECTION_01) & 1, mpheno_col, phenoname_str, pheno_nm, &pheno_c, &pheno_d, NULL, 0);
+      retval = load_pheno(phenofile, unfiltered_sample_ct, 0, sorted_sample_ids, max_sample_id_len, sample_id_map, missing_pheno, (misc_flags / MISC_AFFECTION_01) & 1, mpheno_col, phenoname_str, pheno_nm, &pheno_c, &pheno_d, nullptr, 0);
       if (retval) {
 	if (retval == LOAD_PHENO_LAST_COL) {
 	  logprintb();
@@ -963,7 +963,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
   }
   if (filter_flags & (FILTER_BINARY_FOUNDERS | FILTER_BINARY_NONFOUNDERS)) {
     ii = sample_exclude_ct;
-    filter_samples_bitfields(unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, founder_info, (filter_flags / FILTER_BINARY_FOUNDERS) & 1, NULL);
+    filter_samples_bitfields(unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, founder_info, (filter_flags / FILTER_BINARY_FOUNDERS) & 1, nullptr);
     if (sample_exclude_ct == unfiltered_sample_ct) {
       LOGERRPRINTF("Error: All %s removed due to founder status (--filter-%s).\n", g_species_plural, (filter_flags & FILTER_BINARY_FOUNDERS)? "founders" : "nonfounders");
       goto plink1_dosage_ret_ALL_SAMPLES_EXCLUDED;
@@ -1017,7 +1017,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     if (!do_glm) {
       logerrprint("Warning: Ignoring --covar since no commands reference the covariates.\n");
     } else {
-      retval = load_covars(covar_fname, unfiltered_sample_ct, sample_exclude, sample_ct, sex_covar? sex_nm : NULL, sex_covar? sex_male : NULL, sample_ids, max_sample_id_len, missing_phenod, covar_modifier, covar_range_list_ptr, 0, &covar_ct, &covar_names, &max_covar_name_len, pheno_nm, &covar_nm, &covar_d, NULL, NULL);
+      retval = load_covars(covar_fname, unfiltered_sample_ct, sample_exclude, sample_ct, sex_covar? sex_nm : nullptr, sex_covar? sex_male : nullptr, sample_ids, max_sample_id_len, missing_phenod, covar_modifier, covar_range_list_ptr, 0, &covar_ct, &covar_names, &max_covar_name_len, pheno_nm, &covar_nm, &covar_d, nullptr, nullptr);
       if (retval) {
 	goto plink1_dosage_ret_1;
       }
@@ -1365,7 +1365,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     goto plink1_dosage_ret_NOMEM;
   }
   for (uii = 0; uii < infile_ct; uii++) {
-    gz_infiles[uii] = NULL;
+    gz_infiles[uii] = nullptr;
   }
   if (noheader) {
     if (infile_ct != 1) {
@@ -1376,7 +1376,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	}
       }
     }
-    // sorted_sample_ids = NULL;
+    // sorted_sample_ids = nullptr;
   } else {
     retval = sort_item_ids(unfiltered_sample_ct, sample_exclude, sample_exclude_ct, sample_ids, max_sample_id_len, 0, 1, strcmp_deref, &sorted_sample_ids, &sample_id_map);
     if (retval) {
@@ -1500,7 +1500,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
       goto plink1_dosage_ret_NOMEM;
     }
     for (uii = 0; uii < HASHSIZE; uii++) {
-      htable[uii] = NULL;
+      htable[uii] = nullptr;
     }
     bufptr2 = memcpyb(outname_end, ".occur.dosage", 14);
   } else if (!do_score) {
@@ -1609,10 +1609,10 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  }
 	}
 	if (gzclose(gz_infiles[file_idx]) != Z_OK) {
-	  gz_infiles[file_idx] = NULL;
+	  gz_infiles[file_idx] = nullptr;
 	  goto plink1_dosage_ret_READ_FAIL;
 	}
-	gz_infiles[file_idx] = NULL;
+	gz_infiles[file_idx] = nullptr;
 	if (read_idx_start == read_idx) {
           sprintf(g_logbuf, "Error: %s is empty.\n", &(sep_fnames[(file_idx + file_idx_start) * max_sepheader_len]));
           goto plink1_dosage_ret_INVALID_FORMAT_WW;
@@ -1815,7 +1815,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	      } else {
 		goto plink1_dosage_ret_NOMEM;
 	      }
-	      ll_ptr->next = NULL;
+	      ll_ptr->next = nullptr;
 	      memcpy(ll_ptr->ss, cur_marker_id_buf, slen);
 	      if (slen > max_occur_id_len) {
 		max_occur_id_len = slen;
@@ -2150,20 +2150,20 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	if (a1_ptr[1]) {
 	  free(a1_ptr);
 	}
-	a1_ptr = NULL;
+	a1_ptr = nullptr;
 	if (a2_ptr[1]) {
 	  free(a2_ptr);
 	}
-	a2_ptr = NULL;
+	a2_ptr = nullptr;
       }
     }
   plink1_dosage_end_loop:
     for (file_idx = 0; file_idx < cur_batch_size; file_idx++) {
       if (gzclose(gz_infiles[file_idx]) != Z_OK) {
-        gz_infiles[file_idx] = NULL;
+        gz_infiles[file_idx] = nullptr;
         goto plink1_dosage_ret_READ_FAIL;
       }
-      gz_infiles[file_idx] = NULL;
+      gz_infiles[file_idx] = nullptr;
     }
     bigstack_reset(bigstack_mark);
   }

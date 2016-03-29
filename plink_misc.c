@@ -6,9 +6,9 @@
 #include "pigz.h"
 
 void misc_init(Score_info* sc_ip) {
-  sc_ip->fname = NULL;
-  sc_ip->range_fname = NULL;
-  sc_ip->data_fname = NULL;
+  sc_ip->fname = nullptr;
+  sc_ip->range_fname = nullptr;
+  sc_ip->data_fname = nullptr;
   sc_ip->modifier = 0;
   sc_ip->varid_col = 1;
   sc_ip->allele_col = 2;
@@ -101,7 +101,7 @@ int32_t make_founders(uintptr_t unfiltered_sample_ct, uintptr_t sample_ct, char*
 
 int32_t write_nosex(char* outname, char* outname_end, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t* sex_nm, uintptr_t gender_unk_ct, char* sample_ids, uintptr_t max_sample_id_len) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* outfile = NULL;
+  FILE* outfile = nullptr;
   uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t sample_uidx = 0;
   int32_t retval = 0;
@@ -170,7 +170,7 @@ int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltere
   }
   // probably want to permit long lines here
   g_textbuf[MAXLINELEN - 1] = ' '; 
-  while (fgets(g_textbuf, MAXLINELEN, phenofile) != NULL) {
+  while (fgets(g_textbuf, MAXLINELEN, phenofile) != nullptr) {
     line_idx++;
     if (!g_textbuf[MAXLINELEN - 1]) {
       sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --make-pheno file is pathologically long.\n", line_idx);
@@ -227,7 +227,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_sample_ct, uintptr_t sa
   uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t sample_ct = unfiltered_sample_ct - sample_exclude_ct;
   uintptr_t line_idx = 0;
-  uintptr_t* isz = NULL;
+  uintptr_t* isz = nullptr;
   double pheno_ctrld = (double)((int32_t)(1 - affection_01));
   double pheno_cased = pheno_ctrld + 1.0;
   double missing_phenod = (double)missing_pheno;
@@ -266,7 +266,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_sample_ct, uintptr_t sa
   }
   loadbuf = (char*)g_bigstack_base;
   loadbuf[loadbuf_size - 1] = ' ';
-  while (fgets(loadbuf, loadbuf_size, phenofile) != NULL) {
+  while (fgets(loadbuf, loadbuf_size, phenofile) != nullptr) {
     line_idx++;
     if (!loadbuf[loadbuf_size - 1]) {
       if (loadbuf_size == MAXLINEBUFLEN) {
@@ -445,16 +445,16 @@ int32_t convert_tail_pheno(uint32_t unfiltered_sample_ct, uintptr_t* pheno_nm, u
     }
   } while (sample_uidx_stop < unfiltered_sample_ct);
   free(pheno_d);
-  *pheno_d_ptr = NULL;
+  *pheno_d_ptr = nullptr;
   sample_uidx = popcount_longs(pheno_nm, BITCT_TO_WORDCT(unfiltered_sample_ct));
   LOGPRINTF("--tail-pheno: %u phenotype value%s remaining.\n", sample_uidx, (sample_uidx == 1)? "" : "s");
   return 0;
 }
 
 int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uint32_t* marker_pos, double* marker_cms, Chrom_info* chrom_info_ptr) {
-  FILE* shapeitfile = NULL;
-  char* at_sign_ptr = NULL;
-  char* fname_write = NULL;
+  FILE* shapeitfile = nullptr;
+  char* at_sign_ptr = nullptr;
+  char* fname_write = nullptr;
   char* fname_buf = &(g_textbuf[MAXLINELEN]);
   double cm_old = 0.0;
   uint32_t autosome_ct = chrom_info_ptr->autosome_ct;
@@ -631,7 +631,7 @@ int32_t apply_cm_map(char* cm_map_fname, char* cm_map_chrname, uintptr_t unfilte
 
 int32_t update_marker_cms(Two_col_params* update_cm, uint32_t* marker_id_htable, uint32_t marker_id_htable_size, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_marker_ct, double* marker_cms) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* infile = NULL;
+  FILE* infile = nullptr;
   char skipchar = update_cm->skipchar;
   uint32_t colid_first = (update_cm->colid < update_cm->colx);
   uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
@@ -750,7 +750,7 @@ int32_t update_marker_cms(Two_col_params* update_cm, uint32_t* marker_id_htable,
 
 int32_t update_marker_pos(Two_col_params* update_map, uint32_t* marker_id_htable, uint32_t marker_id_htable_size, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_exclude_ct_ptr, uint32_t* marker_pos, uint32_t* map_is_unsorted_ptr, Chrom_info* chrom_info_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* infile = NULL;
+  FILE* infile = nullptr;
   char skipchar = update_map->skipchar;
   uint32_t colid_first = (update_map->colid < update_map->colx);
   uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
@@ -909,7 +909,7 @@ int32_t update_marker_pos(Two_col_params* update_map, uint32_t* marker_id_htable
 
 int32_t update_marker_names(Two_col_params* update_name, uint32_t* marker_id_htable, uint32_t marker_id_htable_size, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_marker_ct) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* infile = NULL;
+  FILE* infile = nullptr;
   char skipchar = update_name->skipchar;
   uint32_t colold_first = (update_name->colid < update_name->colx);
   uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
@@ -1014,8 +1014,8 @@ int32_t update_marker_names(Two_col_params* update_name, uint32_t* marker_id_hta
 
 int32_t update_marker_alleles(char* update_alleles_fname, uint32_t* marker_id_htable, uint32_t marker_id_htable_size, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char** marker_allele_ptrs, uintptr_t* max_marker_allele_len_ptr, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* infile = NULL;
-  FILE* errfile = NULL;
+  FILE* infile = nullptr;
+  FILE* errfile = nullptr;
   uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   uintptr_t max_marker_allele_len = *max_marker_allele_len_ptr;
   uintptr_t hit_ct = 0;
@@ -1234,7 +1234,7 @@ uint32_t flip_process_token(char* tok_start, uint32_t* marker_id_htable, uint32_
 
 int32_t flip_strand(char* flip_fname, uint32_t* marker_id_htable, uint32_t marker_id_htable_size, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, char** marker_allele_ptrs) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* flipfile = NULL;
+  FILE* flipfile = nullptr;
   uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   uintptr_t hit_ct = 0;
   uintptr_t miss_ct = 0;
@@ -1341,7 +1341,7 @@ int32_t flip_strand(char* flip_fname, uint32_t* marker_id_htable, uint32_t marke
 int32_t update_sample_ids(char* update_ids_fname, char* sorted_sample_ids, uintptr_t sample_ct, uintptr_t max_sample_id_len, uint32_t* sample_id_map, char* sample_ids) {
   // file has been pre-scanned
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* infile = NULL;
+  FILE* infile = nullptr;
   int32_t retval = 0;
   uintptr_t sample_ctl = BITCT_TO_WORDCT(sample_ct);
   uintptr_t hit_ct = 0;
@@ -1432,7 +1432,7 @@ int32_t update_sample_ids(char* update_ids_fname, char* sorted_sample_ids, uintp
 
 int32_t update_sample_parents(char* update_parents_fname, char* sorted_sample_ids, uintptr_t sample_ct, uintptr_t max_sample_id_len, uint32_t* sample_id_map, char* paternal_ids, uintptr_t max_paternal_id_len, char* maternal_ids, uintptr_t max_maternal_id_len, uintptr_t* founder_info) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* infile = NULL;
+  FILE* infile = nullptr;
   int32_t retval = 0;
   uintptr_t sample_ctl = BITCT_TO_WORDCT(sample_ct);
   uintptr_t hit_ct = 0;
@@ -1533,7 +1533,7 @@ int32_t update_sample_parents(char* update_parents_fname, char* sorted_sample_id
 
 int32_t update_sample_sexes(char* update_sex_fname, uint32_t update_sex_col, char* sorted_sample_ids, uintptr_t sample_ct, uintptr_t max_sample_id_len, uint32_t* sample_id_map, uintptr_t* sex_nm, uintptr_t* sex_male) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* infile = NULL;
+  FILE* infile = nullptr;
   int32_t retval = 0;
   uintptr_t sample_ctl = BITCT_TO_WORDCT(sample_ct);
   uintptr_t hit_ct = 0;
@@ -1839,15 +1839,15 @@ uint32_t get_freq_file_type(char* bufptr) {
 
 int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, char* marker_ids, uintptr_t max_marker_id_len, Chrom_info* chrom_info_ptr, char** marker_allele_ptrs, double* set_allele_freqs, uint32_t* nchrobs, uint32_t maf_succ) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* freqfile = NULL;
+  FILE* freqfile = nullptr;
   uintptr_t line_idx = 0;
   uint32_t freq_counts = 0;
   uint32_t alen1 = 0;
   uint32_t alen2 = 0;
   uint32_t double_missing_ct = 0;
   uint32_t cur_nchrobs = 0;
-  char* aptr1 = NULL;
-  char* aptr2 = NULL;
+  char* aptr1 = nullptr;
+  char* aptr2 = nullptr;
   int32_t retval = 0;
   const char* missing_geno_ptr = g_missing_geno_ptr;
   char missing_geno = *missing_geno_ptr;
@@ -1905,7 +1905,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
       if (uii == 2) {
 	freq_counts = 1;
       }
-      while (fgets(loadbuf, loadbuf_size, freqfile) != NULL) {
+      while (fgets(loadbuf, loadbuf_size, freqfile) != nullptr) {
 	line_idx++;
 	if (!loadbuf[loadbuf_size - 1]) {
 	  goto read_external_freqs_ret_TOO_LONG_LINE;
@@ -1998,7 +1998,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
       }
     } else if (uii == 3) {
       // --freqx format
-      while (fgets(loadbuf, loadbuf_size, freqfile) != NULL) {
+      while (fgets(loadbuf, loadbuf_size, freqfile) != nullptr) {
 	line_idx++;
 	if (!loadbuf[loadbuf_size - 1]) {
 	  goto read_external_freqs_ret_TOO_LONG_LINE;
@@ -2201,7 +2201,7 @@ int32_t read_external_freqs(char* freqname, uintptr_t unfiltered_marker_ct, uint
 int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_exclude_ct, char** marker_allele_ptrs, uintptr_t* max_marker_allele_len_ptr, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, double* set_allele_freqs, uint32_t is_a2) {
   // note that swap_reversed_marker_alleles() has NOT been called yet
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* infile = NULL;
+  FILE* infile = nullptr;
   char skipchar = axalleles->skipchar;
   const char* missing_geno_ptr = g_missing_geno_ptr;
   uint32_t colid_first = (axalleles->colid < axalleles->colx);
@@ -2346,15 +2346,15 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
   // unfiltered_sample_ct == 0 ok
   unsigned char* bigstack_mark = g_bigstack_base;
   char* writebuf = g_textbuf;
-  char* pzwritep = NULL;
+  char* pzwritep = nullptr;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl2 = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
   uint32_t* cur_cluster_map = cluster_map;
   uint32_t* cur_cluster_starts = cluster_starts;
-  uint32_t* cluster_map_nonmale = NULL;
-  uint32_t* cluster_starts_nonmale = NULL;
-  uint32_t* cluster_map_male = NULL;
-  uint32_t* cluster_starts_male = NULL;
+  uint32_t* cluster_map_nonmale = nullptr;
+  uint32_t* cluster_starts_nonmale = nullptr;
+  uint32_t* cluster_map_male = nullptr;
+  uint32_t* cluster_starts_male = nullptr;
   int32_t chrom_code_end = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
   uint32_t cslen = 10;
   int32_t retval = 0;
@@ -2631,14 +2631,14 @@ int32_t write_stratified_freqs(FILE* bedfile, uintptr_t bed_offset, char* outnam
 int32_t write_cc_freqs(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t output_gz, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, Chrom_info* chrom_info_ptr, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t unfiltered_sample_ct, uintptr_t* founder_info, uint32_t nonfounders, uintptr_t* sex_male, uintptr_t* marker_reverse, uintptr_t* pheno_nm, uintptr_t* pheno_c) {
   // unfiltered_sample_ct must be positive
   unsigned char* bigstack_mark = g_bigstack_base;
-  char* pzwritep = NULL;
+  char* pzwritep = nullptr;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl2 = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
-  uintptr_t* loadbuf = NULL;
-  uintptr_t* case_include2 = NULL;
-  uintptr_t* ctrl_include2 = NULL;
-  uintptr_t* male_vec = NULL;
-  uintptr_t* nonmale_vec = NULL;
+  uintptr_t* loadbuf = nullptr;
+  uintptr_t* case_include2 = nullptr;
+  uintptr_t* ctrl_include2 = nullptr;
+  uintptr_t* male_vec = nullptr;
+  uintptr_t* nonmale_vec = nullptr;
   int32_t chrom_code_end = chrom_info_ptr->max_code + 1 + chrom_info_ptr->name_ct;
   int32_t retval = 0;
   Pigz_state ps;
@@ -2815,7 +2815,7 @@ int32_t write_cc_freqs(FILE* bedfile, uintptr_t bed_offset, char* outname, char*
 int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, double* set_allele_freqs, Chrom_info* chrom_info_ptr, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, int32_t* ll_cts, int32_t* lh_cts, int32_t* hh_cts, int32_t* hapl_cts, int32_t* haph_cts, uint32_t sample_f_ct, uint32_t sample_f_male_ct, uint32_t nonfounders, uint64_t misc_flags, uintptr_t* marker_reverse) {
   // unfiltered_sample_ct == 0 ok
   unsigned char* bigstack_mark = g_bigstack_base;
-  char* pzwritep = NULL;
+  char* pzwritep = nullptr;
   uint32_t reverse = 0;
   uint32_t freq_counts = (misc_flags / MISC_FREQ_COUNTS) & 1;
   uint32_t freqx = (misc_flags / MISC_FREQX) & 1;
@@ -2966,11 +2966,11 @@ int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uin
 
 int32_t sexcheck(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_sample_id_len, uintptr_t* sex_nm, uintptr_t* sex_male, uint64_t misc_flags, double check_sex_fthresh, double check_sex_mthresh, uint32_t max_f_yobs, uint32_t min_m_yobs, Chrom_info* chrom_info_ptr, double* set_allele_freqs, uint32_t* gender_unk_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* outfile = NULL;
-  uint32_t* het_cts = NULL;
-  uint32_t* missing_cts = NULL;
-  double* nei_offsets = NULL;
-  uint32_t* ymiss_cts = NULL;
+  FILE* outfile = nullptr;
+  uint32_t* het_cts = nullptr;
+  uint32_t* missing_cts = nullptr;
+  double* nei_offsets = nullptr;
+  uint32_t* ymiss_cts = nullptr;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t unfiltered_sample_ctl2 = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
@@ -3339,7 +3339,7 @@ int32_t write_snplist(char* outname, char* outname_end, uintptr_t unfiltered_mar
 }
 
 int32_t write_var_ranges(char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t write_var_range_ct) {
-  FILE* outfile = NULL;
+  FILE* outfile = nullptr;
   uintptr_t marker_uidx = 0;
   uintptr_t marker_idx = 0;
   int32_t retval = 0;
@@ -3390,7 +3390,7 @@ int32_t write_var_ranges(char* outname, char* outname_end, uintptr_t unfiltered_
 
 int32_t list_duplicate_vars(char* outname, char* outname_end, uint32_t dupvar_modifier, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uint32_t* marker_pos, Chrom_info* chrom_info_ptr, char** marker_allele_ptrs) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* outfile = NULL;
+  FILE* outfile = nullptr;
   uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   uint32_t* uidx_list_end = (uint32_t*)g_bigstack_end;
   uint32_t* group_list_start = (uint32_t*)g_bigstack_base;
@@ -3675,9 +3675,9 @@ int32_t list_duplicate_vars(char* outname, char* outname_end, uint32_t dupvar_mo
 int32_t het_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint32_t output_gz, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, char* sample_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_sample_id_len, uintptr_t* founder_info, Chrom_info* chrom_info_ptr, double* set_allele_freqs) {
   // Same F coefficient computation as sexcheck().
   unsigned char* bigstack_mark = g_bigstack_base;
-  uintptr_t* loadbuf_f = NULL;
-  uintptr_t* founder_vec11 = NULL;
-  char* pzwritep = NULL;
+  uintptr_t* loadbuf_f = nullptr;
+  uintptr_t* founder_vec11 = nullptr;
+  char* pzwritep = nullptr;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl2 = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
@@ -3899,8 +3899,8 @@ int32_t fst_report(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
   // Math based on VCFtools variant_file::output_weir_and_cockerham_fst();
   // frequency counting logic similar to cmh_assoc().
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* outfile = NULL;
-  char* wptr_start = NULL;
+  FILE* outfile = nullptr;
+  char* wptr_start = nullptr;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl2 = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
   uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
@@ -4175,8 +4175,8 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   // plink_dosage.c.
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
-  FILE* infile = NULL;
-  FILE* outfile = NULL;
+  FILE* infile = nullptr;
+  FILE* outfile = nullptr;
   uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl2 = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
@@ -4189,11 +4189,11 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   uintptr_t range_skip = 0;
   uintptr_t ulii = 0;
   char* tbuf2 = &(g_textbuf[MAXLINELEN]);
-  uintptr_t* marker_exclude_main = NULL;
-  uintptr_t* sample_include2 = NULL;
-  uintptr_t* sample_male_include2 = NULL;
-  double* qrange_keys = NULL;
-  double* effect_sizes_cur = NULL;
+  uintptr_t* marker_exclude_main = nullptr;
+  uintptr_t* sample_include2 = nullptr;
+  uintptr_t* sample_male_include2 = nullptr;
+  double* qrange_keys = nullptr;
+  double* effect_sizes_cur = nullptr;
   double ploidy_d = 0.0;
   double lbound = 0.0;
   double ubound = 0.0;
@@ -5116,13 +5116,13 @@ static inline uint32_t uint32_decode_5_hi_uchar(const char* start) {
 int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1field_search_order, char* a2field_search_order, char* pfield_search_order, char* essfield_search_order, uint32_t flags, char* extractname, char* outname, char* outname_end, double output_min_p, Chrom_info* chrom_info_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
-  gzFile gz_infile = NULL;
-  FILE* infile = NULL;
-  FILE* outfile = NULL;
-  char* cur_window_marker_ids = NULL;
-  char* sorted_extract_ids = NULL;
-  uintptr_t* duplicate_id_bitfield = NULL;
-  Ll_str** duplicate_id_htable = NULL;
+  gzFile gz_infile = nullptr;
+  FILE* infile = nullptr;
+  FILE* outfile = nullptr;
+  char* cur_window_marker_ids = nullptr;
+  char* sorted_extract_ids = nullptr;
+  uintptr_t* duplicate_id_bitfield = nullptr;
+  Ll_str** duplicate_id_htable = nullptr;
   uintptr_t header_dict_ct = 2; // 'SE', BETA/OR
   uintptr_t max_header_len = 3;
   uintptr_t extract_ct = 0;
@@ -5421,7 +5421,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	goto meta_analysis_ret_READ_FAIL;
       }
       qsort(sorted_extract_ids, extract_ct, max_extract_id_len, strcmp_casted);
-      ulii = collapse_duplicate_ids(sorted_extract_ids, extract_ct, max_extract_id_len, NULL);
+      ulii = collapse_duplicate_ids(sorted_extract_ids, extract_ct, max_extract_id_len, nullptr);
       if (ulii < extract_ct) {
 	extract_ct = ulii;
 	bigstack_shrink_top(sorted_extract_ids, extract_ct * max_extract_id_len);
@@ -5449,7 +5449,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
       goto meta_analysis_ret_NOMEM;
     }
     for (uii = 0; uii < HASHSIZE; uii++) {
-      htable[uii] = NULL;
+      htable[uii] = nullptr;
     }
 
     // 4. Initial scan: save all potentially valid variant IDs (and
@@ -5479,7 +5479,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	fill_ulong_zero(extract_ctl, duplicate_id_bitfield);
       } else {
 	for (uii = 0; uii < HASHSIZE; uii++) {
-	  duplicate_id_htable[uii] = NULL;
+	  duplicate_id_htable[uii] = nullptr;
 	}
       }
       fname_len = strlen(fname_ptr);
@@ -5580,7 +5580,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	  }
 	  duplicate_id_htable_write = (Ll_str*)(((uintptr_t)duplicate_id_htable_write) - ulii);
 	  *ll_pptr = duplicate_id_htable_write;
-	  duplicate_id_htable_write->next = NULL;
+	  duplicate_id_htable_write->next = nullptr;
 	  memcpy(duplicate_id_htable_write->ss, bufptr, var_id_len);
 	}
 	ll_pptr = &(htable[uii]);
@@ -5651,7 +5651,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	  // new hash table entry; word-align the allocation for now
 	  ll_ptr = htable_write;
 	  *ll_pptr = ll_ptr;
-	  ll_ptr->next = NULL;
+	  ll_ptr->next = nullptr;
 	  wptr = memseta(ll_ptr->ss, 0, file_ct_byte_width);
 	  if (use_map) {
 	    *wptr++ = cur_chrom;
@@ -5720,10 +5720,10 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	}
       }
       if (gzclose(gz_infile) != Z_OK) {
-	gz_infile = NULL;
+	gz_infile = nullptr;
 	goto meta_analysis_ret_READ_FAIL;
       }
-      gz_infile = NULL;
+      gz_infile = nullptr;
       if (!sorted_extract_ids) {
 	ulii = ((uintptr_t)loadbuf) - ((uintptr_t)duplicate_id_htable_write);
 	if (ulii > duplicate_id_htable_max_alloc) {
@@ -5941,13 +5941,13 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	  fill_ulong_zero(extract_ctl, duplicate_id_bitfield);
 	} else {
 	  for (uii = 0; uii < HASHSIZE; uii++) {
-	    duplicate_id_htable[uii] = NULL;
+	    duplicate_id_htable[uii] = nullptr;
 	  }
 	}
 	duplicate_id_htable_write = (Ll_str*)bigstack_mark2;
 	fname_len = strlen(fname_ptr);
 	token_ct = parse_max;
-	retval = meta_analysis_open_and_read_header(fname_ptr, loadbuf, loadbuf_size, sorted_header_dict, header_id_map, header_dict_ct, max_header_len, weighted_z, &token_ct, &gz_infile, col_skips, col_sequence, NULL, NULL);
+	retval = meta_analysis_open_and_read_header(fname_ptr, loadbuf, loadbuf_size, sorted_header_dict, header_id_map, header_dict_ct, max_header_len, weighted_z, &token_ct, &gz_infile, col_skips, col_sequence, nullptr, nullptr);
 	if (retval) {
 	  goto meta_analysis_ret_1;
 	}
@@ -6001,7 +6001,7 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	      continue;
 	    }
 	    *ll_pptr = duplicate_id_htable_write;
-	    duplicate_id_htable_write->next = NULL;
+	    duplicate_id_htable_write->next = nullptr;
 	    memcpy(duplicate_id_htable_write->ss, bufptr, var_id_len + 1);
 	    ulii = sizeof(intptr_t) + ((var_id_len + BYTECT) & (~(BYTECT - 1)));
 	    duplicate_id_htable_write = (Ll_str*)(((uintptr_t)duplicate_id_htable_write) + ulii);
@@ -6118,10 +6118,10 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	  cur_data_index[2 * cur_var_idx + 1] += 1;
 	}
 	if (gzclose(gz_infile) != Z_OK) {
-	  gz_infile = NULL;
+	  gz_infile = nullptr;
 	  goto meta_analysis_ret_READ_FAIL;
 	}
-	gz_infile = NULL;
+	gz_infile = nullptr;
 	fname_ptr = &(fname_ptr[fname_len + 1]);
       }
       for (cur_var_idx = 0; cur_var_idx < cur_variant_ct; cur_var_idx++) {

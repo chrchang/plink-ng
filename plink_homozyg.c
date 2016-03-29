@@ -222,7 +222,7 @@ void save_confirmed_roh_extend(uint32_t uidx_first, uint32_t older_uidx, uint32_
 
 uint32_t roh_update(Homozyg_info* hp, uintptr_t* readbuf_cur, uintptr_t* swbuf_cur, uint32_t* het_cts, uint32_t* missing_cts, uint32_t* marker_pos, uintptr_t* cur_sample_male, uint32_t sample_ct, uint32_t swhit_min, uint32_t older_uidx, uint32_t old_uidx, uint32_t marker_cidx, uintptr_t max_roh_ct, uint32_t* swhit_cts, uint32_t* cur_roh_uidx_starts, uint32_t* cur_roh_cidx_starts, uint32_t* cur_roh_het_cts, uint32_t* cur_roh_missing_cts, uintptr_t* sample_to_last_roh, uint32_t* roh_list, uintptr_t* roh_ct_ptr, uintptr_t* marker_exclude, uint32_t* prev_roh_end_cidxs, uint32_t* end_nonhom_uidxs, uint32_t* cur_roh_earliest_extend_uidxs) {
   // Finishes processing current marker, saving all ROH that end at the
-  // previous one.  If readbuf_cur is NULL, the previous marker is assumed to
+  // previous one.  If readbuf_cur is nullptr, the previous marker is assumed to
   // be the last one on the chromosome.
   uint32_t* roh_list_cur = &(roh_list[(*roh_ct_ptr) * ROH_ENTRY_INTS]);
   uint32_t min_snp = hp->min_snp;
@@ -253,7 +253,7 @@ uint32_t roh_update(Homozyg_info* hp, uintptr_t* readbuf_cur, uintptr_t* swbuf_c
 	cur_word >>= 2;
       }
       if (cur_sample_male && IS_SET(cur_sample_male, sample_idx)) {
-	// skip males on Xchr (cur_sample_male should be NULL when not Xchr)
+	// skip males on Xchr (cur_sample_male should be nullptr when not Xchr)
 	continue;
       }
       if (readbuf_cur) {
@@ -394,11 +394,11 @@ uint32_t roh_update(Homozyg_info* hp, uintptr_t* readbuf_cur, uintptr_t* swbuf_c
 
 int32_t write_main_roh_reports(char* outname, char* outname_end, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t sample_ct, uintptr_t* sample_exclude, char* sample_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_sample_id_len, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* missing_pheno_str, uint32_t omp_is_numeric, uint32_t missing_pheno_len, uint32_t is_new_lengths, uintptr_t roh_ct, uint32_t* roh_list, uintptr_t* roh_list_chrom_starts, uintptr_t* sample_to_last_roh, uint32_t* max_pool_size_ptr, uint32_t* max_roh_len_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* outfile = NULL;
-  FILE* outfile_indiv = NULL;
+  FILE* outfile = nullptr;
+  FILE* outfile_indiv = nullptr;
   char* wptr_iid = &(g_textbuf[plink_maxfid + 1]);
   char* wptr_phe = &(g_textbuf[plink_maxfid + plink_maxiid + 2]);
-  int32_t* roh_ct_aff_adj = NULL;
+  int32_t* roh_ct_aff_adj = nullptr;
   uintptr_t next_roh_idx = 0;
   uint32_t max_pool_size = 0;
   uint32_t max_roh_len = 0;
@@ -1116,7 +1116,7 @@ static inline uint32_t is_allelic_match(double mismatch_max, uintptr_t* roh_slot
 }
 
 void compute_allelic_match_matrix(double mismatch_max, uintptr_t roh_slot_wsize, uint32_t pool_size, uintptr_t* roh_slots, uintptr_t* roh_slot_occupied, uintptr_t* roh_slot_uncached, uint32_t* roh_slot_cidx_start, uint32_t* roh_slot_cidx_end, uint64_t* roh_slot_map, uint32_t overlap_cidx_start, uint32_t overlap_cidx_end, uint32_t* allelic_match_cts, uintptr_t* allelic_match_matrix) {
-  // consensus_match in effect iff roh_slot_uncached is NULL
+  // consensus_match in effect iff roh_slot_uncached is nullptr
   // may want to make this multithreaded in the future
   uint32_t cidx_end_idxl = 0;
   uint32_t skip_cached = 0;
@@ -1315,7 +1315,7 @@ char* roh_pool_write_middle(char* wptr, char* marker_ids, uintptr_t max_marker_i
 
 int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* outname, char* outname_end, uintptr_t* rawbuf, uintptr_t* marker_exclude, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, char** marker_allele_ptrs, uintptr_t max_marker_allele_len, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uint32_t* marker_pos, uintptr_t sample_ct, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, char* sample_ids, uint32_t plink_maxfid, uint32_t plink_maxiid, uintptr_t max_sample_id_len, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, char* missing_pheno_str, uint32_t missing_pheno_len, uint32_t is_new_lengths, uintptr_t roh_ct, uint32_t* roh_list, uintptr_t* roh_list_chrom_starts, uint32_t max_pool_size, uint32_t max_roh_len) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* outfile = NULL;
+  FILE* outfile = nullptr;
   uint64_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
   uintptr_t unfiltered_sample_ctl2 = QUATERCT_TO_WORDCT(unfiltered_sample_ct);
   double mismatch_max = 1 - (hp->overlap_min * (1 - EPSILON)); // fuzz
@@ -1329,11 +1329,11 @@ int32_t roh_pool(Homozyg_info* hp, FILE* bedfile, uint64_t bed_offset, char* out
   uintptr_t pool_list_size = 0;
   uint32_t pool_ct = 0;
   uint32_t onechar_max = (chrom_info_ptr->max_code > 9)? 9 : chrom_info_ptr->max_code;
-  uintptr_t* roh_slot_uncached = NULL;
-  uint64_t* verbose_group_sort_buf = NULL;
-  uint32_t* verbose_uidx_bounds = NULL;
-  uint32_t* verbose_sample_uidx = NULL;
-  char* writebuf = NULL;
+  uintptr_t* roh_slot_uncached = nullptr;
+  uint64_t* verbose_group_sort_buf = nullptr;
+  uint32_t* verbose_uidx_bounds = nullptr;
+  uint32_t* verbose_sample_uidx = nullptr;
+  char* writebuf = nullptr;
   int32_t retval = 0;
   char* allele_strs[4];
 
@@ -2422,12 +2422,12 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
   uintptr_t* haploid_mask = chrom_info_ptr->haploid_mask;
   uintptr_t roh_ct = 0;
   uintptr_t final_mask = get_final_mask(sample_ct);
-  uintptr_t* sample_male = NULL;
+  uintptr_t* sample_male = nullptr;
 
   // support for new 'extend' modifier
-  uint32_t* prev_roh_end_cidxs = NULL;
-  uint32_t* end_nonhom_uidxs = NULL;
-  uint32_t* cur_roh_earliest_extend_uidxs = NULL;
+  uint32_t* prev_roh_end_cidxs = nullptr;
+  uint32_t* end_nonhom_uidxs = nullptr;
+  uint32_t* cur_roh_earliest_extend_uidxs = nullptr;
 
   uint32_t swhit_min = 0;
   int32_t retval = 0;
@@ -2558,7 +2558,7 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
 	}
 	continue;
       }
-      cur_sample_male = NULL;
+      cur_sample_male = nullptr;
     } else {
       cur_sample_male = sample_male;
     }
@@ -2665,9 +2665,9 @@ int32_t calc_homozyg(Homozyg_info* hp, FILE* bedfile, uintptr_t bed_offset, uint
 	  vertical_bitct_subtract(swbuf_cur, sample_ct, swhit_cts);
 	  swhit_min = (int32_t)(((double)((int32_t)(marker_cidx_max - marker_cidx))) * hit_threshold + 1.0 - EPSILON);
 	} else {
-	  readbuf_cur = NULL;
+	  readbuf_cur = nullptr;
 	}
-	if (roh_update(hp, readbuf_cur, NULL, het_cts, missing_cts, marker_pos, cur_sample_male, sample_ct, swhit_min, older_uidx, old_uidx, marker_cidx, max_roh_ct, swhit_cts, cur_roh_uidx_starts, cur_roh_cidx_starts, cur_roh_het_cts, cur_roh_missing_cts, sample_to_last_roh, roh_list, &roh_ct, marker_exclude, prev_roh_end_cidxs, end_nonhom_uidxs, cur_roh_earliest_extend_uidxs)) {
+	if (roh_update(hp, readbuf_cur, nullptr, het_cts, missing_cts, marker_pos, cur_sample_male, sample_ct, swhit_min, older_uidx, old_uidx, marker_cidx, max_roh_ct, swhit_cts, cur_roh_uidx_starts, cur_roh_cidx_starts, cur_roh_het_cts, cur_roh_missing_cts, sample_to_last_roh, roh_list, &roh_ct, marker_exclude, prev_roh_end_cidxs, end_nonhom_uidxs, cur_roh_earliest_extend_uidxs)) {
 	  goto calc_homozyg_ret_NOMEM;
 	}
 	widx_next = widx + 1;
