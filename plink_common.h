@@ -68,9 +68,10 @@
   #define FOPEN_WB "w"
   #ifndef __APPLE__
     // argh
-    #define GCC_VERSION (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__)
     // not sure what the right threshold actually is, but this works for now
-    #if GCC_VERSION < 48000
+    // (may break on gcc <3.0?  but that shouldn't matter anymore)
+    // tried defining GCC_VERSION, but that didn't always work
+    #if (__GNUC__ <= 4) && (__GNUC_MINOR__ < 8)
       #define uint64_t unsigned long long
       #define int64_t long long
     #endif
