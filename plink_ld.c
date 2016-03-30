@@ -11795,6 +11795,11 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   // bugfix: last word might not be initialized by unpack_set().  Also
   // initialize second-to-last word to defend against an unpack_set()
   // implementation change.
+#ifndef __LP64__
+  // oh, this also matters in 32-bit case
+  tmp_set_bitfield[marker_ctv - 4] = 0;
+  tmp_set_bitfield[marker_ctv - 3] = 0;
+#endif
   tmp_set_bitfield[marker_ctv - 2] = 0;
   tmp_set_bitfield[marker_ctv - 1] = 0;
   g_ld_load2_bitfield = load2_bitfield;
@@ -11887,7 +11892,7 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	  bitvec_or(&(tmp_set_bitfield[firstw]), wlen - firstw, &(load2_bitfield[firstw]));
 	}
       }
-    }
+    }    
     load_idx2_tot = popcount_longs(load2_bitfield, marker_ctv);
     if (!load_idx2_tot) {
       // no new r^2 computations to make at all!
