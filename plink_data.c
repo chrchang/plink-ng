@@ -1508,7 +1508,7 @@ int32_t load_covars(char* covar_fname, uintptr_t unfiltered_sample_ct, uintptr_t
 
   // no header line present?
   bufptr2 = next_token(bufptr);
-  header_absent = (strcmp_se(bufptr, "FID", 3) || strcmp_se(bufptr2, "IID", 3));
+  header_absent = ((strcmp_se(bufptr, "FID", 3) && (strcmp_se(bufptr, "#FID", 4))) || strcmp_se(bufptr2, "IID", 3));
   bufptr = next_token(bufptr2);
 
   if ((covar_modifier & (COVAR_NAME | COVAR_NUMBER)) && covar_raw_ct) {
