@@ -92,7 +92,7 @@
 
 static const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b3.35"
+  "PLINK v1.90b3.36"
 #else
   "PLINK v1.90p"
 #endif
@@ -104,7 +104,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (30 Mar 2016)";
+  " (31 Mar 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -11311,7 +11311,7 @@ int32_t main(int32_t argc, char** argv) {
             splitx_bound2 = 154931044;
 	  } else if ((!strcmp(argv[cur_arg + uii], "b38")) || (!strcmp(argv[cur_arg + uii], "hg38"))) {
             splitx_bound1 = 2781479;
-            splitx_bound1 = 155701383;
+            splitx_bound2 = 155701383;
 	  } else {
             sprintf(g_logbuf, "Error: Unrecognized --split-x build code '%s'.\n", argv[cur_arg + uii]);
 	    goto main_ret_INVALID_CMDLINE_WWA;
