@@ -8790,7 +8790,7 @@ int32_t calc_cluster_neighbor(pthread_t* threads, FILE* bedfile, uintptr_t bed_o
       }
     }
     retval = fill_sample_to_cluster(unfiltered_sample_ct, sample_exclude, sample_ct, cluster_ct, cluster_map, cluster_starts, sample_to_cluster, late_clidx_to_sample_uidx);
-    if (!retval) {
+    if (retval) {
       goto calc_cluster_neighbor_ret_1;
     }
   }
