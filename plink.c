@@ -104,10 +104,10 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (31 Mar 2016)";
+  " (2 Apr 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has a trailing letter)
 #else
@@ -13147,7 +13147,7 @@ int32_t main(int32_t argc, char** argv) {
     goto main_ret_INVALID_CMDLINE_A;
   }
   if (calculation_type && (!(calculation_type & (~(CALC_FREQ | CALC_MISSING_REPORT)))) && ((geno_thresh != 1.0) || (hwe_thresh != 0.0) || (min_maf != 0.0) || (max_maf != 0.5) || min_ac || (max_ac != 0x7fffffff))) {
-    logerrprint("Warning: --freq and --missing complete BEFORE --geno, --hwe, and --maf in\nplink's norder of operations.\n");
+    logerrprint("Warning: --freq and --missing complete BEFORE --geno, --hwe, and --maf in\nplink's order of operations.\n");
   }
   // short batch job?
   uii = 0;
