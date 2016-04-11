@@ -104,10 +104,10 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (2 Apr 2016)";
+  " (11 Apr 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has a trailing letter)
 #else
@@ -295,7 +295,7 @@ static inline int32_t relationship_or_ibc_req(uint64_t calculation_type) {
   return (relationship_req(calculation_type) || (calculation_type & CALC_IBC));
 }
 
-int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, char* famname, char* cm_map_fname, char* cm_map_chrname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* distance_wts_fname, char* read_dists_fname, char* read_dists_id_fname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* missing_mid_template, char* missing_marker_id_match, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* update_alleles_fname, char* read_genome_fname, Two_col_params* qual_filter, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* sample_sort_fname, char* filtervals_flattened, char* condition_mname, char* condition_fname, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_sample_fname, char* filter_attrib_sample_liststr, char* rplugin_fname, uint32_t rplugin_port, double qual_min_thresh, double qual_max_thresh, double thin_keep_prob, double thin_keep_sample_prob, uint32_t new_id_max_allele_len, uint32_t thin_keep_ct, uint32_t thin_keep_sample_ct, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t fam_cols, int32_t missing_pheno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, Family_info* fam_ip, double check_sex_fthresh, double check_sex_mthresh, uint32_t check_sex_f_yobs, uint32_t check_sex_m_yobs, double distance_exp, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t filter_flags, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t splitx_bound1, uint32_t splitx_bound2, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t update_sex_col, uint32_t hwe_modifier, uint32_t min_ac, uint32_t max_ac, uint32_t genome_modifier, double genome_min_pi_hat, double genome_max_pi_hat, Homozyg_info* homozyg_ptr, Cluster_info* cluster_ptr, uint32_t neighbor_n1, uint32_t neighbor_n2, Set_info* sip, Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip, Rel_info* relip, Score_info* sc_ip, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t sample_sort, int32_t marker_pos_start, int32_t marker_pos_end, int32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t write_var_range_ct, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t write_covar_modifier, uint32_t write_covar_dummy_max_categories, uint32_t dupvar_modifier, uint32_t mwithin_col, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, Aperm_info* apip, uint32_t mperm_save, uintptr_t ibs_test_perms, uint32_t perm_batch_size, double lasso_h2, double lasso_minlambda, Range_list* lasso_select_covars_range_list_ptr, uint32_t testmiss_modifier, uint32_t testmiss_mperm_val, uint32_t permphe_ct, int32_t known_procs, Ll_str** file_delete_list_ptr) {
+int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, char* famname, char* cm_map_fname, char* cm_map_chrname, char* phenoname, char* extractname, char* excludename, char* keepname, char* removename, char* keepfamname, char* removefamname, char* filtername, char* freqname, char* distance_wts_fname, char* read_dists_fname, char* read_dists_id_fname, char* evecname, char* mergename1, char* mergename2, char* mergename3, char* missing_mid_template, char* missing_marker_id_match, char* makepheno_str, char* phenoname_str, Two_col_params* a1alleles, Two_col_params* a2alleles, char* recode_allele_name, char* covar_fname, char* update_alleles_fname, char* read_genome_fname, Two_col_params* qual_filter, Two_col_params* update_chr, Two_col_params* update_cm, Two_col_params* update_map, Two_col_params* update_name, char* update_ids_fname, char* update_parents_fname, char* update_sex_fname, char* loop_assoc_fname, char* flip_fname, char* flip_subset_fname, char* sample_sort_fname, char* filtervals_flattened, char* condition_mname, char* condition_fname, char* filter_attrib_fname, char* filter_attrib_liststr, char* filter_attrib_sample_fname, char* filter_attrib_sample_liststr, char* rplugin_fname, uint32_t rplugin_port, double qual_min_thresh, double qual_max_thresh, double thin_keep_prob, double thin_keep_sample_prob, uint32_t new_id_max_allele_len, uint32_t thin_keep_ct, uint32_t thin_keep_sample_ct, uint32_t min_bp_space, uint32_t mfilter_col, uint32_t fam_cols, int32_t missing_pheno, char* output_missing_pheno, uint32_t mpheno_col, uint32_t pheno_modifier, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, Family_info* fam_ip, double check_sex_fthresh, double check_sex_mthresh, uint32_t check_sex_f_yobs, uint32_t check_sex_m_yobs, double distance_exp, double min_maf, double max_maf, double geno_thresh, double mind_thresh, double hwe_thresh, double tail_bottom, double tail_top, uint64_t misc_flags, uint64_t filter_flags, uint64_t calculation_type, uint32_t dist_calc_type, uintptr_t groupdist_iters, uint32_t groupdist_d, uintptr_t regress_iters, uint32_t regress_d, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t splitx_bound1, uint32_t splitx_bound2, uint32_t ppc_gap, uint32_t sex_missing_pheno, uint32_t update_sex_col, uint32_t hwe_modifier, uint32_t min_ac, uint32_t max_ac, uint32_t genome_modifier, double genome_min_pi_hat, double genome_max_pi_hat, Homozyg_info* homozyg_ptr, Cluster_info* cluster_ptr, uint32_t neighbor_n1, uint32_t neighbor_n2, Set_info* sip, Ld_info* ldip, Epi_info* epi_ip, Clump_info* clump_ip, Rel_info* relip, Score_info* sc_ip, uint32_t recode_modifier, uint32_t allelexxxx, uint32_t merge_type, uint32_t sample_sort, int32_t marker_pos_start, int32_t marker_pos_end, int32_t snp_window_size, char* markername_from, char* markername_to, char* markername_snp, Range_list* snps_range_list_ptr, uint32_t write_var_range_ct, uint32_t covar_modifier, Range_list* covar_range_list_ptr, uint32_t write_covar_modifier, uint32_t write_covar_dummy_max_categories, uint32_t dupvar_modifier, uint32_t mwithin_col, uint32_t model_modifier, uint32_t model_cell_ct, uint32_t model_mperm_val, uint32_t glm_modifier, double glm_vif_thresh, uint32_t glm_xchr_model, uint32_t glm_mperm_val, Range_list* parameters_range_list_ptr, Range_list* tests_range_list_ptr, double ci_size, double pfilter, double output_min_p, uint32_t mtest_adjust, double adjust_lambda, uint32_t gxe_mcovar, Aperm_info* apip, uint32_t mperm_save, uintptr_t ibs_test_perms, uint32_t perm_batch_size, double lasso_h2, uint32_t lasso_lambda_iters, double lasso_minlambda, Range_list* lasso_select_covars_range_list_ptr, uint32_t testmiss_modifier, uint32_t testmiss_mperm_val, uint32_t permphe_ct, int32_t known_procs, Ll_str** file_delete_list_ptr) {
   FILE* bedfile = nullptr;
   FILE* phenofile = nullptr;
   uintptr_t unfiltered_marker_ct = 0;
@@ -1884,6 +1884,13 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   }
 #endif
 
+  if (calculation_type & CALC_LASSO_LAMBDA) {
+    retval = lasso_lambda(marker_exclude, marker_reverse, chrom_info_ptr, sex_male, pheno_nm, covar_nm, bed_offset, unfiltered_marker_ct, marker_ct, unfiltered_sample_ct, pheno_nm_ct, hh_exists, lasso_lambda_iters, lasso_h2, bedfile, &lasso_minlambda);
+    if (retval) {
+      goto plink_ret_1;
+    }
+  }
+
   if (calculation_type & (CALC_MODEL | CALC_GXE | CALC_GLM | CALC_LASSO | CALC_CMH | CALC_HOMOG | CALC_TESTMISS | CALC_TDT | CALC_DFAM | CALC_QFAM)) {
     // can't use pheno_ctrl_ct in here since new phenotypes may be loaded, and
     // we don't bother updating it...
@@ -2038,7 +2045,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       }
       if (calculation_type & CALC_LASSO) {
 	retval = lasso(threads, bedfile, bed_offset, outname, outname_end2, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_allele_ptrs, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, pheno_nm_ct, lasso_h2, lasso_minlambda, lasso_select_covars_range_list_ptr, misc_flags, pheno_nm, pheno_c, pheno_d, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_male, hh_exists);
-        if (retval) {
+	if (retval) {
 	  goto plink_ret_1;
 	}
       }
@@ -3280,6 +3287,7 @@ int32_t main(int32_t argc, char** argv) {
   double tail_top = 0.0;
   double lasso_h2 = 0.0;
   double lasso_minlambda = -1;
+  uint32_t lasso_lambda_iters = 0;
   uint32_t testmiss_modifier = 0;
   uint32_t testmiss_mperm_val = 0;
 
@@ -8050,6 +8058,35 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_1;
 	  }
 	}
+      } else if (!memcmp(argptr2, "asso-lambda", 12)) {
+	UNSTABLE("lasso-lambda");
+	if (lasso_minlambda != -1) {
+	  logerrprint("Error: --lasso-lambda cannot be used with a --lasso minimum lambda setting.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+        if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
+	  goto main_ret_INVALID_CMDLINE_2A;
+	}
+	if (scan_posint_defcap(argv[cur_arg + 1], &lasso_lambda_iters)) {
+	  sprintf(g_logbuf, "Error: Invalid --lasso-lambda parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
+	}
+	if (param_ct == 2) {
+	  if (scan_double(argv[cur_arg + 2], &dxx) || (dxx > 1) || (dxx <= 0)) {
+	    sprintf(g_logbuf, "Error: Invalid --lasso-lambda heritability estimate '%s'.\n", argv[cur_arg + 2]);
+	    goto main_ret_INVALID_CMDLINE_WWA;
+	  }
+	  if ((calculation_type & CALC_LASSO) && (dxx != lasso_h2)) {
+	    logerrprint("Error: --lasso and --lasso-lambda heritability estimates are different.\n");
+	    goto main_ret_INVALID_CMDLINE;
+	  } else {
+	    lasso_h2 = dxx;
+	  }
+	} else if (!(calculation_type & CALC_LASSO)) {
+	  logerrprint("Error: --lasso-lambda requires a heritability estimate.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	calculation_type |= CALC_LASSO_LAMBDA;
       } else if (!memcmp(argptr2, "d-window", 9)) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
@@ -13381,7 +13418,7 @@ int32_t main(int32_t argc, char** argv) {
     } else if (!rel_info.ibc_type) {
       rel_info.ibc_type = 1;
     }
-    retval = plink(outname, outname_end, pedname, mapname, famname, cm_map_fname, cm_map_chrname, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, freqname, distance_wts_fname, read_dists_fname, read_dists_id_fname, evecname, mergename1, mergename2, mergename3, missing_mid_template, missing_marker_id_match, makepheno_str, phenoname_str, a1alleles, a2alleles, recode_allele_name, covar_fname, update_alleles_fname, read_genome_fname, qual_filter, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, sample_sort_fname, filtervals_flattened, condition_mname, condition_fname, filter_attrib_fname, filter_attrib_liststr, filter_attrib_sample_fname, filter_attrib_sample_liststr, rplugin_fname, rplugin_port, qual_min_thresh, qual_max_thresh, thin_keep_prob, thin_keep_sample_prob, new_id_max_allele_len, thin_keep_ct, thin_keep_sample_ct, min_bp_space, mfilter_col, fam_cols, missing_pheno, output_missing_pheno, mpheno_col, pheno_modifier, &chrom_info, &oblig_missing_info, &family_info, check_sex_fthresh, check_sex_mthresh, check_sex_f_yobs, check_sex_m_yobs, distance_exp, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, tail_bottom, tail_top, misc_flags, filter_flags, calculation_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, parallel_idx, parallel_tot, splitx_bound1, splitx_bound2, ppc_gap, sex_missing_pheno, update_sex_col, hwe_modifier, min_ac, max_ac, genome_modifier, genome_min_pi_hat, genome_max_pi_hat, &homozyg, &cluster, neighbor_n1, neighbor_n2, &set_info, &ld_info, &epi_info, &clump_info, &rel_info, &score_info, recode_modifier, allelexxxx, merge_type, sample_sort, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, write_var_range_ct, covar_modifier, &covar_range_list, write_covar_modifier, write_covar_dummy_max_categories, dupvar_modifier, mwithin_col, model_modifier, (uint32_t)model_cell_ct, model_mperm_val, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, &parameters_range_list, &tests_range_list, ci_size, pfilter, output_min_p, mtest_adjust, adjust_lambda, gxe_mcovar, &aperm, mperm_save, ibs_test_perms, perm_batch_size, lasso_h2, lasso_minlambda, &lasso_select_covars_range_list, testmiss_modifier, testmiss_mperm_val, permphe_ct, known_procs, &file_delete_list);
+    retval = plink(outname, outname_end, pedname, mapname, famname, cm_map_fname, cm_map_chrname, phenoname, extractname, excludename, keepname, removename, keepfamname, removefamname, filtername, freqname, distance_wts_fname, read_dists_fname, read_dists_id_fname, evecname, mergename1, mergename2, mergename3, missing_mid_template, missing_marker_id_match, makepheno_str, phenoname_str, a1alleles, a2alleles, recode_allele_name, covar_fname, update_alleles_fname, read_genome_fname, qual_filter, update_chr, update_cm, update_map, update_name, update_ids_fname, update_parents_fname, update_sex_fname, loop_assoc_fname, flip_fname, flip_subset_fname, sample_sort_fname, filtervals_flattened, condition_mname, condition_fname, filter_attrib_fname, filter_attrib_liststr, filter_attrib_sample_fname, filter_attrib_sample_liststr, rplugin_fname, rplugin_port, qual_min_thresh, qual_max_thresh, thin_keep_prob, thin_keep_sample_prob, new_id_max_allele_len, thin_keep_ct, thin_keep_sample_ct, min_bp_space, mfilter_col, fam_cols, missing_pheno, output_missing_pheno, mpheno_col, pheno_modifier, &chrom_info, &oblig_missing_info, &family_info, check_sex_fthresh, check_sex_mthresh, check_sex_f_yobs, check_sex_m_yobs, distance_exp, min_maf, max_maf, geno_thresh, mind_thresh, hwe_thresh, tail_bottom, tail_top, misc_flags, filter_flags, calculation_type, dist_calc_type, groupdist_iters, groupdist_d, regress_iters, regress_d, parallel_idx, parallel_tot, splitx_bound1, splitx_bound2, ppc_gap, sex_missing_pheno, update_sex_col, hwe_modifier, min_ac, max_ac, genome_modifier, genome_min_pi_hat, genome_max_pi_hat, &homozyg, &cluster, neighbor_n1, neighbor_n2, &set_info, &ld_info, &epi_info, &clump_info, &rel_info, &score_info, recode_modifier, allelexxxx, merge_type, sample_sort, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &snps_range_list, write_var_range_ct, covar_modifier, &covar_range_list, write_covar_modifier, write_covar_dummy_max_categories, dupvar_modifier, mwithin_col, model_modifier, (uint32_t)model_cell_ct, model_mperm_val, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, &parameters_range_list, &tests_range_list, ci_size, pfilter, output_min_p, mtest_adjust, adjust_lambda, gxe_mcovar, &aperm, mperm_save, ibs_test_perms, perm_batch_size, lasso_h2, lasso_lambda_iters, lasso_minlambda, &lasso_select_covars_range_list, testmiss_modifier, testmiss_mperm_val, permphe_ct, known_procs, &file_delete_list);
   }
   while (0) {
   main_ret_NOMEM:

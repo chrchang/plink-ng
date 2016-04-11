@@ -1972,6 +1972,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --lasso-select-covars {cov(s)...} : Subject some or all covariates to LASSO\n"
 "                                      model selection.\n"
 	       );
+#ifndef STABLE_BUILD
+    help_print("lasso\tlasso-lambda", &help_ctrl, 0,
+"  --lasso-lambda [iters] {h2}       : Customize LASSO warm-start procedure.\n"
+"                                      (h2 required if not used with --lasso.)\n"
+	       );
+#endif
     help_print("adjust\tgc\tlog10\tqq-plot", &help_ctrl, 0,
 "  --adjust <gc> <log10> <qq-plot>   : Report some multiple-testing corrections.\n"
 	       );
