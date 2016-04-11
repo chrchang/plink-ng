@@ -2256,6 +2256,8 @@ void refresh_chrom_info(const Chrom_info* chrom_info_ptr, uintptr_t marker_uidx,
 
 int32_t single_chrom_start(const Chrom_info* chrom_info_ptr, const uintptr_t* marker_exclude, uint32_t unfiltered_marker_ct);
 
+double get_dmedian(const double* sorted_arr, uintptr_t len);
+
 double destructive_get_dmedian(uintptr_t len, double* unsorted_arr);
 
 int32_t strcmp_casted(const void* s1, const void* s2);

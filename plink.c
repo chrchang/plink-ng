@@ -1885,7 +1885,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 #endif
 
   if (calculation_type & CALC_LASSO_LAMBDA) {
-    retval = lasso_lambda(marker_exclude, marker_reverse, chrom_info_ptr, sex_male, pheno_nm, covar_nm, bed_offset, unfiltered_marker_ct, marker_ct, unfiltered_sample_ct, pheno_nm_ct, hh_exists, lasso_lambda_iters, lasso_h2, bedfile, &lasso_minlambda);
+    retval = lasso_lambda(marker_exclude, marker_reverse, chrom_info_ptr, sex_male, pheno_nm, covar_nm, bed_offset, unfiltered_marker_ct, marker_ct, unfiltered_sample_ct, pheno_nm_ct, hh_exists, lasso_lambda_iters, lasso_h2, bedfile, outname, outname_end, &lasso_minlambda);
     if (retval) {
       goto plink_ret_1;
     }

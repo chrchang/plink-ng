@@ -412,10 +412,11 @@ uint32_t load_and_normalize(FILE* bedfile, uintptr_t* loadbuf_raw, uintptr_t unf
 // this needs to work in very-low-memory contexts
 #define LASSO_LAMBDA_BLOCK_SIZE 64
 
-int32_t lasso_lambda(const uintptr_t* marker_exclude, const uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t* sex_male, uintptr_t* pheno_nm, const uintptr_t* covar_nm, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t marker_ct, uintptr_t unfiltered_sample_ct, uintptr_t pheno_nm_ct, uint32_t hh_or_mt_exists, uint32_t lasso_lambda_iters, double lasso_h2, FILE* bedfile, double* lasso_minlambda_ptr) {
+int32_t lasso_lambda(const uintptr_t* marker_exclude, const uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t* sex_male, uintptr_t* pheno_nm, const uintptr_t* covar_nm, uintptr_t bed_offset, uintptr_t unfiltered_marker_ct, uintptr_t marker_ct, uintptr_t unfiltered_sample_ct, uintptr_t pheno_nm_ct, uint32_t hh_or_mt_exists, uint32_t lasso_lambda_iters, double lasso_h2, FILE* bedfile, char* outname, char* outname_end, double* lasso_minlambda_ptr) {
   // standalone memory-efficient lambda calculation, since even 1000 x
   // sample_ct matrices may be too large.
   unsigned char* bigstack_mark = g_bigstack_base;
+  FILE* outfile = nullptr;
   int32_t retval = 0;
   {
     uintptr_t sample_valid_ct;
@@ -559,19 +560,60 @@ int32_t lasso_lambda(const uintptr_t* marker_exclude, const uintptr_t* marker_re
     }
     const double sige = sqrt(1.0 - lasso_h2 + 1.0 / ((double)((intptr_t)sample_valid_ct)));
     const double zz = sige * sqrt_n_recip;
-    double lambda_min = destructive_get_dmedian(lasso_lambda_iters, max_empirical_lambdas) * zz;
+    for (uint32_t iter_idx = 0; iter_idx < lasso_lambda_iters; ++iter_idx) {
+      max_empirical_lambdas[iter_idx] *= zz;
+    }
+#ifdef __cplusplus
+    std::sort(max_empirical_lambdas, &(max_empirical_lambdas[lasso_lambda_iters]));
+#else
+    qsort(max_empirical_lambdas, lasso_lambda_iters, sizeof(double), double_cmp);
+#endif
+
+    double lambda_min = get_dmedian(max_empirical_lambdas, lasso_lambda_iters);
     putc_unlocked('\r', stdout);
     LOGPRINTF("--lasso-lambda (%u iteration%s): min lambda = %g.\n", lasso_lambda_iters, (lasso_lambda_iters == 1)? "" : "s", lambda_min);
     *lasso_minlambda_ptr = lambda_min;
+    memcpy(outname_end, ".lambdamin", 11);
+    if (fopen_checked(outname, "w", &outfile)) {
+      goto lasso_lambda_ret_OPEN_FAIL;
+    }
+    char* wptr = g_textbuf;
+    char* wptr_flush = &(wptr[MAXLINELEN]);
+    for (uint32_t iter_idx = 0; iter_idx < lasso_lambda_iters; ++iter_idx) {
+      wptr = dtoa_g(max_empirical_lambdas[iter_idx], wptr);
+      *wptr++ = '\n';
+      if (wptr >= wptr_flush) {
+	if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
+	  goto lasso_lambda_ret_WRITE_FAIL;
+	}
+	wptr = g_textbuf;
+      }
+    }
+    if (wptr != wptr_flush) {
+      if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
+	goto lasso_lambda_ret_WRITE_FAIL;
+      }
+    }
+    if (fclose_null(&outfile)) {
+      goto lasso_lambda_ret_WRITE_FAIL;
+    }
+    LOGPRINTFWW("Lambda distribution written to %s .\n", outname);
   }
   while (0) {
   lasso_lambda_ret_NOMEM:
     retval = RET_NOMEM;
     break;
+  lasso_lambda_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
   lasso_lambda_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
+  lasso_lambda_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
   }
+  fclose_cond(outfile);
   bigstack_reset(bigstack_mark);
   return retval;
 }

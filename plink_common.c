@@ -4896,6 +4896,18 @@ int32_t single_chrom_start(const Chrom_info* chrom_info_ptr, const uintptr_t* ma
   return (get_variant_chrom(chrom_info_ptr, first_marker_uidx) == last_marker_chrom)? first_marker_uidx : -1;
 }
 
+double get_dmedian(const double* sorted_arr, uintptr_t len) {
+  if (len) {
+    if (len % 2) {
+      return sorted_arr[len / 2];
+    } else {
+      return (sorted_arr[len / 2] + sorted_arr[(len / 2) - 1]) * 0.5;
+    }
+  } else {
+    return 0.0;
+  }
+}
+
 #ifdef __cplusplus
 double destructive_get_dmedian(uintptr_t len, double* unsorted_arr) {
   if (!len) {
@@ -4911,18 +4923,6 @@ double destructive_get_dmedian(uintptr_t len, double* unsorted_arr) {
   }
 }
 #else
-double get_dmedian(const double* sorted_arr, uintptr_t len) {
-  if (len) {
-    if (len % 2) {
-      return sorted_arr[len / 2];
-    } else {
-      return (sorted_arr[len / 2] + sorted_arr[(len / 2) - 1]) * 0.5;
-    }
-  } else {
-    return 0.0;
-  }
-}
-
 double destructive_get_dmedian(uintptr_t len, double* unsorted_arr) {
   // no, I'm not gonna bother reimplementing introselect just for folks who
   // insist on using gcc over g++
