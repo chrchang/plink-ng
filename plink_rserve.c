@@ -224,8 +224,7 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
       fwrite(g_textbuf, 1, (uintptr_t)(bufptr - g_textbuf), outfile);
     }
     bufptr = int32toa(sample_to_cluster[sample_idx], g_textbuf);
-    bufptr = memcpya(bufptr, " ) \n", 4);
-    fputs("CLUSTER[CLUSTER==-1] <- NA\n", outfile);
+    bufptr = memcpya(bufptr, " ) \nCLUSTER[CLUSTER==-1] <- NA\n", 31);
     if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
       goto rserve_call_ret_WRITE_FAIL;
     }
@@ -358,7 +357,6 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
       if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
 	goto rserve_call_ret_WRITE_FAIL;
       }
-      block_offset = 0;
       sample_idx = 0;
       while (1) {
         bufptr = g_textbuf;
