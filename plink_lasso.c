@@ -513,7 +513,7 @@ int32_t lasso_lambda(const uintptr_t* marker_exclude, const uintptr_t* marker_re
 	    goto lasso_lambda_ret_READ_FAIL;
 	  }
 	}
-	uint32_t min_ploidy_1;
+	uint32_t min_ploidy_1 = 0;
 	uint32_t uii;
 	if (marker_uidx >= chrom_end) {
 	  chrom_fo_idx++;
