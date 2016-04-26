@@ -32,6 +32,18 @@
   #include <sys/stat.h>
 #endif
 
+#ifndef HAVE_NULLPTR
+  #ifndef __cplusplus
+    #define nullptr NULL
+  #else
+    #if __cplusplus <= 199711L
+      #ifndef nullptr
+        #define nullptr NULL
+      #endif
+    #endif
+  #endif
+#endif
+
 #ifdef _WIN32
   #define PRId64 "I64d"
   #define PRIu64 "I64u"
@@ -100,16 +112,6 @@
   #define HEADER_INLINE inline
 #else
   #define HEADER_INLINE static inline
-#endif
-
-#ifndef HAVE_NULLPTR
-  #ifndef __cplusplus
-    #define nullptr NULL
-  #else
-    #if __cplusplus <= 199711L
-      #define nullptr NULL
-    #endif
-  #endif
 #endif
 
 // It would be useful to disable compilation on big-endian platforms, but I
@@ -191,7 +193,14 @@
 #define VEC_BITS (VEC_BYTES * 8)
 #define VEC_BITS_M1 (VEC_BITS - 1)
 
-#include "zlib-1.2.8/zlib.h"
+#ifdef DYNAMIC_ZLIB
+  #include <zlib.h>
+  #if !defined(ZLIB_VERNUM) || ZLIB_VERNUM < 0x1240
+    #error "zlib version 1.2.4 or later required."
+  #endif
+#else
+  #include "zlib-1.2.8/zlib.h"
+#endif
 #include "SFMT.h"
 
 // 64MB of non-workspace memory guaranteed for now.

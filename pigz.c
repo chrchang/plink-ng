@@ -297,7 +297,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <windows.h>
-#include "zlib-1.2.8/zlib.h"
+#ifdef DYNAMIC_ZLIB
+  #include <zlib.h>
+#else
+  #include "zlib-1.2.8/zlib.h"
+#endif
 
 #include "pigz.h"
 
@@ -519,12 +523,16 @@ int32_t flex_pzwrite_close_null(Pigz_state* ps_ptr, char* writep) {
 #  include <sys/pstat.h>
 #endif
 
-#include "zlib-1.2.8/zlib.h" /* deflateInit2(), deflateReset(), deflate(), */
+#ifdef DYNAMIC_ZLIB
+  #include <zlib.h>
+#else
+  #include "zlib-1.2.8/zlib.h" /* deflateInit2(), deflateReset(), deflate(), */
                         /* deflateEnd(), deflateSetDictionary(), crc32(),
                            inflateBackInit(), inflateBack(), inflateBackEnd(),
                            Z_DEFAULT_COMPRESSION, Z_DEFAULT_STRATEGY,
                            Z_DEFLATED, Z_NO_FLUSH, Z_NULL, Z_OK,
                            Z_SYNC_FLUSH, z_stream */
+#endif
 #if !defined(ZLIB_VERNUM) || ZLIB_VERNUM < 0x1230
 #  error Need zlib version 1.2.3 or later
 #endif
