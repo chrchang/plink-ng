@@ -555,19 +555,6 @@ void collapse_copy_phenod(double* target, double* pheno_d, uintptr_t* sample_exc
   } while (target < target_end);
 }
 
-static inline void collapse_copy_phenod_incl(double* target, double* pheno_d, uintptr_t* sample_include, uintptr_t unfiltered_sample_ct, uintptr_t sample_ct) {
-  uintptr_t sample_uidx = 0;
-  double* target_end = &(target[sample_ct]);
-  uintptr_t delta;
-  do {
-    sample_uidx = next_set_ul_unsafe(sample_include, sample_uidx);
-    delta = next_unset_ul(sample_include, sample_uidx, unfiltered_sample_ct) - sample_uidx;
-    memcpy(target, &(pheno_d[sample_uidx]), delta * sizeof(double));
-    target = &(target[delta]);
-    sample_uidx += delta;
-  } while (target < target_end);
-}
-
 #ifdef __LP64__
 // XOR + mask variants of vectorized Lauradoux/Walisch popcount.  (See
 // popcount_vecs() in plink_common.c for basic documentation.)
@@ -2174,6 +2161,19 @@ void matrix_row_sum_ur(uintptr_t sample_ct, double* sums, double* matrix) {
 }
 
 #ifndef NOLAPACK
+static inline void collapse_copy_phenod_incl(double* target, double* pheno_d, uintptr_t* sample_include, uintptr_t unfiltered_sample_ct, uintptr_t sample_ct) {
+  uintptr_t sample_uidx = 0;
+  double* target_end = &(target[sample_ct]);
+  uintptr_t delta;
+  do {
+    sample_uidx = next_set_ul_unsafe(sample_include, sample_uidx);
+    delta = next_unset_ul(sample_include, sample_uidx, unfiltered_sample_ct) - sample_uidx;
+    memcpy(target, &(pheno_d[sample_uidx]), delta * sizeof(double));
+    target = &(target[delta]);
+    sample_uidx += delta;
+  } while (target < target_end);
+}
+
 // one-trait REML via EM.
 //
 // wkbase is assumed to have space for three cache-aligned
