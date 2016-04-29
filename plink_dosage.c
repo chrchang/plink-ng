@@ -1431,7 +1431,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	  bigstack_alloc_d(sample_ct, &dgels_b)) {
 	goto plink1_dosage_ret_NOMEM;
       }
-      mi_buf = (MATRIX_INVERT_BUF1_TYPE*)bigstack_alloc(param_ct * sizeof(MATRIX_INVERT_BUF1_TYPE));
+      mi_buf = (MATRIX_INVERT_BUF1_TYPE*)bigstack_alloc(param_ct * MATRIX_INVERT_BUF1_ELEM_ALLOC);
       if (!mi_buf) {
 	goto plink1_dosage_ret_NOMEM;
       }

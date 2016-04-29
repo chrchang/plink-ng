@@ -930,7 +930,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
       goto ld_prune_ret_NOMEM;
     }
 
-    irow = (MATRIX_INVERT_BUF1_TYPE*)bigstack_alloc(window_max * 2 * sizeof(MATRIX_INVERT_BUF1_TYPE));
+    irow = (MATRIX_INVERT_BUF1_TYPE*)bigstack_alloc(window_max * MATRIX_INVERT_BUF1_CHECKED_ALLOC);
     if (!irow) {
       goto ld_prune_ret_NOMEM;
     }

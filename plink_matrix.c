@@ -37,20 +37,14 @@ double pythag(const double a, const double b) {
 #ifdef NOLAPACK
 int32_t svdcmp_c(int32_t m, double* a, double* w, double* v) {
   // C port of PLINK stats.cpp svdcmp().
-  // Note that this function is NOT thread-safe, due to the buffer allocated
-  // from the workspace stack.  Pass in a preallocated buffer if that's not
-  // okay.
-  unsigned char* bigstack_mark = g_bigstack_base;
+  // now thread-safe.
+  double* rv1 = &(w[(uint32_t)m]);
   int32_t n = m;
   int32_t flag;
   int32_t l = 0; // suppress compile warning
   int32_t i,its,j,jj,k,nm;
   double anorm,c,f,g,h,s,scale,x,y,z;
-  double volatile temp;
-  double* rv1;
-  if (bigstack_alloc_d(m, &rv1)) {
-    return -1;
-  }
+  double temp;
 
   g=scale=anorm=0.0;
   for (i=0;i<n;i++) {
@@ -225,12 +219,12 @@ int32_t svdcmp_c(int32_t m, double* a, double* w, double* v) {
       w[k]=x;
     }
   }
-  bigstack_reset(bigstack_mark);
   return 1;
 }
 
 int32_t invert_matrix(int32_t dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* dbl_1d_buf, double* dbl_2d_buf) {
   // C port of PLINK stats.cpp's svd_inverse() function.
+  // Now thread-safe in NOLAPACK case.
 
   // w -> dbl_1d_buf
   // v -> dbl_2d_buf

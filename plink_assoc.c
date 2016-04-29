@@ -11411,7 +11411,7 @@ int32_t cmh2_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* out
       bigstack_alloc_d((cluster_ct1 - 1) * (cluster_ct1 - 1), &dbl_2d_buf)) {
     goto cmh2_assoc_ret_NOMEM;
   }
-  mi_buf = (MATRIX_INVERT_BUF1_TYPE*)bigstack_alloc((cluster_ct1 - 1) * sizeof(MATRIX_INVERT_BUF1_TYPE));
+  mi_buf = (MATRIX_INVERT_BUF1_TYPE*)bigstack_alloc((cluster_ct1 - 1) * MATRIX_INVERT_BUF1_ELEM_ALLOC);
   if (!mi_buf) {
     goto cmh2_assoc_ret_NOMEM;
   }

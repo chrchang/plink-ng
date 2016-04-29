@@ -17,6 +17,8 @@
 #ifdef NOLAPACK
 
 #define MATRIX_INVERT_BUF1_TYPE double
+#define MATRIX_INVERT_BUF1_ELEM_ALLOC (2 * sizeof(double))
+#define MATRIX_INVERT_BUF1_CHECKED_ALLOC (2 * sizeof(double))
 #define __CLPK_integer int
 
 #else // not NOLAPACK
@@ -106,7 +108,12 @@ extern "C" {
 }
 #endif // __cplusplus
 #endif // __APPLE__
+
 #define MATRIX_INVERT_BUF1_TYPE __CLPK_integer
+#define MATRIX_INVERT_BUF1_ELEM_ALLOC sizeof(__CLPK_integer)
+// invert_matrix_checked() usually requires a larger buffer
+#define MATRIX_INVERT_BUF1_CHECKED_ALLOC (2 * sizeof(__CLPK_integer))
+
 #endif // NOLAPACK
 
 #define MATRIX_SINGULAR_RCOND 1e-14

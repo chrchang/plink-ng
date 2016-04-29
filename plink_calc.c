@@ -3304,7 +3304,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
       bigstack_alloc_d(pc_ct_p1 * pc_ct_p1, &dbl_2d_buf)) {
     goto calc_regress_pcs_ret_NOMEM;
   }
-  inv_1d_buf = (MATRIX_INVERT_BUF1_TYPE*)bigstack_alloc(pc_ct_p1 * sizeof(MATRIX_INVERT_BUF1_TYPE));
+  inv_1d_buf = (MATRIX_INVERT_BUF1_TYPE*)bigstack_alloc(pc_ct_p1 * MATRIX_INVERT_BUF1_ELEM_ALLOC);
   if (!inv_1d_buf) {
     goto calc_regress_pcs_ret_NOMEM;
   }

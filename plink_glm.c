@@ -4824,7 +4824,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       goto glm_linear_assoc_ret_NOMEM;
     }
 
-    g_linear_mt[tidx].mi_buf = (MATRIX_INVERT_BUF1_TYPE*)bigstack_alloc(param_ct_max * sizeof(MATRIX_INVERT_BUF1_TYPE));
+    g_linear_mt[tidx].mi_buf = (MATRIX_INVERT_BUF1_TYPE*)bigstack_alloc(param_ct_max * MATRIX_INVERT_BUF1_ELEM_ALLOC);
     if (!(g_linear_mt[tidx].mi_buf)) {
       goto glm_linear_assoc_ret_NOMEM;
     }
@@ -6342,7 +6342,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       goto glm_logistic_assoc_ret_NOMEM;
     }
     if (constraint_ct_max) {
-      g_logistic_mt[tidx].mi_buf = (MATRIX_INVERT_BUF1_TYPE*)bigstack_alloc(param_ct_max * sizeof(MATRIX_INVERT_BUF1_TYPE));
+      g_logistic_mt[tidx].mi_buf = (MATRIX_INVERT_BUF1_TYPE*)bigstack_alloc(param_ct_max * MATRIX_INVERT_BUF1_ELEM_ALLOC);
       if (!(g_logistic_mt[tidx].mi_buf)) {
 	goto glm_logistic_assoc_ret_NOMEM;
       }
@@ -7353,7 +7353,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       bigstack_alloc_d(param_ct * param_ct, &param_2d_buf2)) {
     goto glm_linear_nosnp_ret_NOMEM;
   }
-  mi_buf = (MATRIX_INVERT_BUF1_TYPE*)bigstack_alloc(param_ct * sizeof(MATRIX_INVERT_BUF1_TYPE));
+  mi_buf = (MATRIX_INVERT_BUF1_TYPE*)bigstack_alloc(param_ct * MATRIX_INVERT_BUF1_ELEM_ALLOC);
   if (!mi_buf) {
     goto glm_linear_nosnp_ret_NOMEM;
   }
@@ -8309,7 +8309,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
     fill_unfiltered_sample_to_cluster(sample_valid_ct, g_perm_cluster_ct, g_perm_cluster_map, g_perm_cluster_starts, g_perm_sample_to_cluster);
   }
   if (constraint_ct) {
-    mi_buf = (MATRIX_INVERT_BUF1_TYPE*)bigstack_alloc(param_ct * sizeof(MATRIX_INVERT_BUF1_TYPE));
+    mi_buf = (MATRIX_INVERT_BUF1_TYPE*)bigstack_alloc(param_ct * MATRIX_INVERT_BUF1_ELEM_ALLOC);
     if (!mi_buf) {
       goto glm_logistic_nosnp_ret_NOMEM;
     }
