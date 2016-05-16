@@ -4388,6 +4388,7 @@ void init_species(uint32_t species_code, Chrom_info* chrom_info_ptr) {
       break;
     }
   }
+  fill_uint_one(chrom_info_ptr->max_code + 1, chrom_info_ptr->chrom_idx_to_foidx);
 }
 
 void init_default_chrom_mask(Chrom_info* chrom_info_ptr) {

@@ -1483,7 +1483,7 @@ int32_t define_sets(Set_info* sip, uintptr_t unfiltered_marker_ct, uintptr_t* ma
     }
     retval = sort_item_ids_noalloc(unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, 0, 1, strcmp_deref, sorted_marker_ids, marker_id_map);
     if (retval) {
-      goto define_sets_ret_NOMEM;
+      goto define_sets_ret_1;
     }
 #ifdef __LP64__
     fill_ulong_zero(round_up_pow2(marker_ctp2l, 2), marker_bitfield_tmp);

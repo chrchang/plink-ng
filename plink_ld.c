@@ -12119,6 +12119,7 @@ void set_test_score(uintptr_t marker_ct, double chisq_threshold, uint32_t set_ma
   }
   if (!raw_sig_ct) {
     // not possible for initial pass, so no need to set raw_sig_ct_ptr, etc.
+    // bugfix: actually, that comment was incorrect
     *set_score_ptr = 0.0;
     return;
   }
@@ -12181,6 +12182,7 @@ int32_t set_test_common_init(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
   uint32_t range_stop;
   uint32_t include_out_of_bounds;
   uint32_t cur_set_size;
+  uint32_t cur_range_size;
   uint32_t uii;
   if (bigstack_calloc_ul(raw_set_ctl, set_incl_ptr) ||
       bigstack_alloc_ui(marker_ct_orig, &marker_midx_to_idx)) {
@@ -12200,10 +12202,11 @@ int32_t set_test_common_init(pthread_t* threads, FILE* bedfile, uintptr_t bed_of
       for (range_idx = 0; range_idx < range_ct; range_idx++) {
         marker_midx = *(++cur_setdef);
         range_stop = *(++cur_setdef);
-        cur_set_size += range_stop - marker_midx;
+	cur_range_size = range_stop - marker_midx;
+        cur_set_size += cur_range_size;
         if (!uii) {
           chisq_ptr = &(orig_chisq[marker_midx_to_idx[marker_midx]]);
-          chisq_end = &(chisq_ptr[cur_set_size]);
+          chisq_end = &(chisq_ptr[cur_range_size]);
 	  for (; chisq_ptr < chisq_end; chisq_ptr++) {
 	    if (*chisq_ptr >= chisq_threshold) {
 	      uii = 1;
