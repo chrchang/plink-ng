@@ -117,7 +117,24 @@ static const char ver_str2[] =
   "  "
 #endif
   "    https://www.cog-genomics.org/plink2\n"
-  "(C) 2005-2016 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
+  "(C) 2005-2016 Shaun Purcell, Christopher Chang   GNU General Public License v3"
+#if SPECIES_DEFAULT > 0
+  "\nRecompiled with default species = "
+  #if SPECIES_DEFAULT == SPECIES_COW
+    "cow"
+  #elif SPECIES_DEFAULT == SPECIES_DOG
+    "dog"
+  #elif SPECIES_DEFAULT == SPECIES_HORSE
+    "horse"
+  #elif SPECIES_DEFAULT == SPECIES_MOUSE
+    "mouse"
+  #elif SPECIES_DEFAULT == SPECIES_RICE
+    "rice"
+  #elif SPECIES_DEFAULT == SPECIES_SHEEP
+    "sheep"
+  #endif
+#endif
+  "\n";
 static const char errstr_append[] = "For more information, try '" PROG_NAME_STR " --help [flag name]' or '" PROG_NAME_STR " --help | more'.\n";
 #ifdef STABLE_BUILD
   #ifndef NOLAPACK
