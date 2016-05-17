@@ -20,6 +20,16 @@
 // the command line.
 // #define STABLE_BUILD
 
+#define SPECIES_HUMAN 0
+#define SPECIES_COW 1
+#define SPECIES_DOG 2
+#define SPECIES_HORSE 3
+#define SPECIES_MOUSE 4
+#define SPECIES_RICE 5
+#define SPECIES_SHEEP 6
+#define SPECIES_UNKNOWN 7
+#define SPECIES_DEFAULT SPECIES_HUMAN
+
 #define PROG_NAME_STR "plink"
 #define PROG_NAME_CAPS "PLINK"
 
@@ -2110,15 +2120,6 @@ typedef struct {
   uint32_t is_include_stack;
   uint32_t output_encoding;
 } Chrom_info;
-
-#define SPECIES_HUMAN 0
-#define SPECIES_COW 1
-#define SPECIES_DOG 2
-#define SPECIES_HORSE 3
-#define SPECIES_MOUSE 4
-#define SPECIES_RICE 5
-#define SPECIES_SHEEP 6
-#define SPECIES_UNKNOWN 7
 
 extern const char* g_species_singular;
 extern const char* g_species_plural;

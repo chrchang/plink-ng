@@ -2894,7 +2894,7 @@ uint32_t valid_varid_template_string(char* varid_str, const char* flag_name) {
 }
 
 int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_map, int32_t argc, char** argv, char* range_delim_ptr, Chrom_info* chrom_info_ptr) {
-  uint32_t species_code = SPECIES_HUMAN;
+  uint32_t species_code = SPECIES_DEFAULT;
   uint32_t flag_idx = 0;
   uint32_t retval = 0;
   int32_t cur_arg;
