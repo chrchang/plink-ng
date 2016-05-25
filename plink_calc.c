@@ -5041,6 +5041,15 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
     logerrprint("Error: --genome cannot be used on haploid genomes.\n");
     goto calc_genome_ret_INVALID_CMDLINE;
   }
+#ifdef __LP64__
+  // 32-bit value in main loop can be up to
+  //   sample_ct * (GENOME_MULTIPLEX2 / BITCT) - 1
+  if (sample_ct > 119304647) {
+    logerrprint("Error: --genome does not support > 119304647 samples.\n");
+    retval = RET_CALC_NOT_YET_SUPPORTED;
+    goto calc_genome_ret_1;
+  }
+#endif
   g_sample_ct = sample_ct;
   if (dist_thread_ct > sample_ct / 32) {
     dist_thread_ct = sample_ct / 32;

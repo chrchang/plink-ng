@@ -1482,8 +1482,8 @@ static inline void compute_hessian(const float* mm, const float* vv, float* dest
 }
 
 void solve_linear_system(const float* ll, const float* yy, float* xx, uint32_t dd) {
-  // if we're ever able to produce 32-bit Linux builds with statically linked
-  // LAPACK, we might want to use it in place of this hardcoded stuff
+  // might want to use this in NOLAPACK case only, since we can now produce
+  // 32-bit Linux builds with statically linked LAPACK
   uintptr_t dim_cta4 = round_up_pow2(dd, 4);
   const float* ll_ptr;
   float* xx_ptr;
