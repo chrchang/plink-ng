@@ -10135,6 +10135,10 @@ int32_t bed_from_23(char* infile_name, char* outname, char* outname_end, uint32_
 	sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, infile_name);
 	goto bed_from_23_ret_INVALID_FORMAT_2;
       }
+      // X/Y/MT bugfix
+      if (cur_chrom_code >= MAX_POSSIBLE_CHROM) {
+	cur_chrom_code -= MAX_POSSIBLE_CHROM - 23;
+      }
       uii = (uint32_t)cur_chrom_code;
       if (!(chrom_mask_23 & (1 << uii))) {
 	continue;
