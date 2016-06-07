@@ -339,14 +339,19 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_sample_ct, uintptr_t sa
 	  return LOAD_PHENO_LAST_COL;
 	}
 	dxx = strtod(bufptr, &ss);
-	if (affection) {
-	  // er, this was calling strtod() twice on the same string.  time to
-	  // drop down a level and remove that redundancy...
 
+	// if conversion fails, strtod return value is 0.0.  that has some
+	// unpleasant interactions with the following code, and my previous
+	// attempt to account for them had a bug.
+	if (ss == bufptr) {
+	  dxx = missing_phenod;
+	}
+	
+	if (affection) {
 	  if (dxx == pheno_cased) {
 	    set_bit(sample_idx, pheno_c);
 	    set_bit(sample_idx, pheno_nm);
-	  } else if ((ss != bufptr) && (dxx == pheno_ctrld)) {
+	  } else if (dxx == pheno_ctrld) {
 	    clear_bit(sample_idx, pheno_c);
 	    set_bit(sample_idx, pheno_nm);
 	  } else if (affection_01 || (dxx == missing_phenod) || (dxx == 0.0)) {
@@ -379,7 +384,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_sample_ct, uintptr_t sa
 	  }
 	}
 	if (!affection) {
-	  if ((ss != bufptr) && (dxx != missing_phenod)) {
+	  if (dxx != missing_phenod) {
 	    pheno_d[(uint32_t)sample_idx] = dxx;
 	    set_bit(sample_idx, pheno_nm);
 	  }
