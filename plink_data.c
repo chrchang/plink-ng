@@ -3568,6 +3568,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, char* outna
       *outname_end = '\0';
       LOGPRINTFWW5("--make-bed to %s.bed + %s.bim + %s.fam ... ", outname, outname, outname);
       fputs("0%", stdout);
+      fflush(stdout);
       if (sample_ct) {
 	loop_end = marker_ct / 100;
 	markers_done = 0;
