@@ -10441,9 +10441,11 @@ void join_threads(pthread_t* threads, uint32_t ctp1) {
   }
 #ifdef _WIN32
   WaitForMultipleObjects(ctp1, threads, 1, INFINITE);
+  for (uint32_t uii = 0; uii < ctp1; ++uii) {
+    CloseHandle(threads[uii]);
+  }
 #else
-  uint32_t uii;
-  for (uii = 0; uii < ctp1; uii++) {
+  for (uint32_t uii = 0; uii < ctp1; uii++) {
     pthread_join(threads[uii], nullptr);
   }
 #endif
@@ -10583,6 +10585,7 @@ void join_threads2(pthread_t* threads, uint32_t ctp1, uint32_t is_last_block) {
   } else {
     WaitForMultipleObjects(ctp1, threads, 1, INFINITE);
     for (uii = 0; uii < ctp1; uii++) {
+      CloseHandle(threads[uii]);
       CloseHandle(g_thread_start_next_event[uii]);
       CloseHandle(g_thread_cur_block_done_events[uii]);
     }
@@ -10638,7 +10641,21 @@ int32_t spawn_threads2(pthread_t* threads, void* (*start_routine)(void*), uintpt
     for (ulii = 1; ulii < ct; ulii++) {
       threads[ulii - 1] = (HANDLE)_beginthreadex(nullptr, 4096, start_routine, (void*)ulii, 0, nullptr);
       if (!threads[ulii - 1]) {
-	join_threads2(threads, ulii, is_last_block);
+	if (ulii > 1) {
+	  join_threads2(threads, ulii, is_last_block);
+	  if (!is_last_block) {
+	    for (uintptr_t uljj = 0; uljj < ulii - 1; ++uljj) {
+	      CloseHandle(threads[uljj]);
+	    }
+	  }
+	}
+	if ((!is_last_block) || (ulii == 1)) {
+	  for (uint32_t uii = 0; uii < ct - 1; ++uii) {
+	    CloseHandle(g_thread_start_next_event[uii]);
+	    CloseHandle(g_thread_cur_block_done_events[uii]);
+	  }
+	  g_thread_mutex_initialized = 0;
+	}
 	return -1;
       }
     }
@@ -10665,7 +10682,20 @@ int32_t spawn_threads2(pthread_t* threads, void* (*start_routine)(void*), uintpt
     }
     for (ulii = 1; ulii < ct; ulii++) {
       if (pthread_create(&(threads[ulii - 1]), nullptr, start_routine, (void*)ulii)) {
-	join_threads2(threads, ulii, is_last_block);
+	if (ulii > 1) {
+	  join_threads2(threads, ulii, is_last_block);
+	  if (!is_last_block) {
+	    for (uintptr_t uljj = 0; uljj < ulii - 1; ++uljj) {
+	      pthread_cancel(threads[uljj]);
+	    }
+	  }
+	}
+	if ((!is_last_block) || (ulii == 1)) {
+	  pthread_mutex_destroy(&g_thread_sync_mutex);
+	  pthread_cond_destroy(&g_thread_cur_block_done_condvar);
+	  pthread_cond_destroy(&g_thread_start_next_condvar);
+	  g_thread_mutex_initialized = 0;
+	}
 	return -1;
       }
     }
