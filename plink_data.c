@@ -8197,6 +8197,16 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
       if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
 	goto vcf_to_bed_ret_READ_FAIL;
       }
+      if ((line_idx == 1) && (!memcmp(loadbuf, "BCF", 3))) {
+	// this is more informative than "missing header line"...
+	if (loadbuf[3] == 2) {
+	  LOGPREPRINTFWW("Error: %s appears to be a BCF2 file. Try --bcf instead of --vcf.\n", vcfname);
+	  goto vcf_to_bed_ret_INVALID_FORMAT_2;
+	} else if (loadbuf[3] == 4) {
+	  LOGPREPRINTFWW("Error: %s appears to be a BCF1 file. Use 'bcftools view' to convert it to a PLINK-readable VCF.\n", vcfname);
+	  goto vcf_to_bed_ret_INVALID_FORMAT_2;
+	}
+      }
       if (!loadbuf[loadbuf_size - 1]) {
 	if (loadbuf_size == MAXLINEBUFLEN) {
 	  goto vcf_to_bed_ret_LONG_LINE;
@@ -9049,6 +9059,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     sprintf(g_logbuf, "Error: Line %" PRIuPTR " of .vcf file is pathologically long.\n", line_idx);
   vcf_to_bed_ret_INVALID_FORMAT_2N:
     logprint("\n");
+  vcf_to_bed_ret_INVALID_FORMAT_2:
     logerrprintb();
   vcf_to_bed_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
