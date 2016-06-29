@@ -8154,9 +8154,20 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     if (vcf_half_call_explicit_error) {
       vcf_half_call = 0;
     }
-    retval = gzopen_read_checked(vcfname, &gz_infile);
-    if (retval) {
-      goto vcf_to_bed_ret_1;
+    // don't use gzopen_read_checked() since we want to customize the error
+    // message
+    gz_infile = gzopen(vcfname, FOPEN_RB);
+    if (!gz_infile) {
+      uii = strlen(vcfname);
+      if ((uii > 4) && (!memcmp(&(vcfname[uii - 4]), ".vcf", 4))) {
+	LOGERRPRINTFWW("Error: Failed to open %s.", vcfname);
+      } else {
+	LOGERRPRINTFWW("Error: Failed to open %s. (--vcf expects a complete filename; did you forget '.vcf' at the end?)\n", vcfname);	
+      }
+      goto vcf_to_bed_ret_OPEN_FAIL;
+    }
+    if (gzbuffer(gz_infile, 131072)) {
+      goto vcf_to_bed_ret_NOMEM;
     }
     if (misc_flags & MISC_VCF_FILTER) {
       // automatically include "." and "PASS"

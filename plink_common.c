@@ -188,7 +188,7 @@ void wordwrapb(uint32_t suffix_len) {
 int32_t fopen_checked(const char* fname, const char* mode, FILE** target_ptr) {
   *target_ptr = fopen(fname, mode);
   if (!(*target_ptr)) {
-    LOGPRINTFWW(g_errstr_fopen, fname);
+    LOGERRPRINTFWW(g_errstr_fopen, fname);
     return -1;
   }
   return 0;
@@ -210,7 +210,7 @@ int32_t fwrite_checked(const void* buf, size_t len, FILE* outfile) {
 int32_t gzopen_read_checked(const char* fname, gzFile* gzf_ptr) {
   *gzf_ptr = gzopen(fname, FOPEN_RB);
   if (!(*gzf_ptr)) {
-    LOGPRINTFWW(g_errstr_fopen, fname);
+    LOGERRPRINTFWW(g_errstr_fopen, fname);
     return RET_OPEN_FAIL;
   }
   if (gzbuffer(*gzf_ptr, 131072)) {
