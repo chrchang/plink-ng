@@ -104,7 +104,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (29 Jun 2016)";
+  " (30 Jun 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -514,21 +514,21 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     }
     // Only append -merge to the filename stem if --make-bed or --recode lgen
     // is specified.
-    ulii = bed_suffix_conflict(calculation_type, recode_modifier);
-    if (ulii) {
-      memcpy(outname_end, "-merge", 7);
-    }
+    // bugfix: also no need if --merge-mode 6 or 7.
+    ulii = ((merge_type & MERGE_MODE_MASK) < 6) && bed_suffix_conflict(calculation_type, recode_modifier);
     retval = merge_datasets(bedname, bimname, famname, outname, ulii? &(outname_end[6]) : outname_end, mergename1, mergename2, mergename3, sample_sort_fname, calculation_type, merge_type, sample_sort, misc_flags, chrom_info_ptr);
     if (retval || (!(calculation_type & (~CALC_MERGE)))) {
       goto plink_ret_1;
     }
-    uljj = (uintptr_t)(outname_end - outname) + (ulii? 6 : 0);
-    memcpy(memcpya(bedname, outname, uljj), ".bed", 5);
-    memcpy(memcpya(famname, bedname, uljj), ".fam", 5);
-    memcpy(memcpya(bimname, bedname, uljj), ".bim", 5);
-    if ((calculation_type & CALC_MAKE_BED) && ulii) {
-      if (push_ll_str(bedname, file_delete_list_ptr) || push_ll_str(famname, file_delete_list_ptr) || push_ll_str(bimname, file_delete_list_ptr)) {
-	goto plink_ret_NOMEM;
+    if ((merge_type & MERGE_MODE_MASK) < 6) {
+      uljj = (uintptr_t)(outname_end - outname) + (ulii? 6 : 0);
+      memcpy(memcpya(bedname, outname, uljj), ".bed", 5);
+      memcpy(memcpya(famname, bedname, uljj), ".fam", 5);
+      memcpy(memcpya(bimname, bedname, uljj), ".bim", 5);
+      if ((calculation_type & CALC_MAKE_BED) && ulii) {
+	if (push_ll_str(bedname, file_delete_list_ptr) || push_ll_str(famname, file_delete_list_ptr) || push_ll_str(bimname, file_delete_list_ptr)) {
+	  goto plink_ret_NOMEM;
+	}
       }
     }
   }
