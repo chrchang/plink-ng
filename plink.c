@@ -516,6 +516,9 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     // is specified.
     // bugfix: also no need if --merge-mode 6 or 7.
     ulii = ((merge_type & MERGE_MODE_MASK) < 6) && bed_suffix_conflict(calculation_type, recode_modifier);
+    if (ulii) {
+      memcpy(outname_end, "-merge", 6);
+    }
     retval = merge_datasets(bedname, bimname, famname, outname, ulii? &(outname_end[6]) : outname_end, mergename1, mergename2, mergename3, sample_sort_fname, calculation_type, merge_type, sample_sort, misc_flags, chrom_info_ptr);
     if (retval || (!(calculation_type & (~CALC_MERGE)))) {
       goto plink_ret_1;
