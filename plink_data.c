@@ -8160,7 +8160,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
     if (!gz_infile) {
       uii = strlen(vcfname);
       if ((uii > 4) && (!memcmp(&(vcfname[uii - 4]), ".vcf", 4))) {
-	LOGERRPRINTFWW("Error: Failed to open %s.", vcfname);
+	LOGERRPRINTFWW("Error: Failed to open %s.\n", vcfname);
       } else {
 	LOGERRPRINTFWW("Error: Failed to open %s. (--vcf expects a complete filename; did you forget '.vcf' at the end?)\n", vcfname);	
       }
