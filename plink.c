@@ -104,10 +104,10 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (30 Jun 2016)";
+  " (1 Jul 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has a trailing letter)
 #else
@@ -534,6 +534,8 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	}
       }
     }
+    // do we want to permit other operations with --merge-mode 6/7 at all?
+    // seems like a recipe for confusion...
   }
 
   // don't use fopen_checked() here, since we want to customize the error
@@ -2515,7 +2517,6 @@ int32_t rerun(uint32_t rerun_argv_pos, uint32_t rerun_parameter_present, int32_t
   g_textbuf[MAXLINELEN - 1] = ' ';
   if (!fgets(g_textbuf, MAXLINELEN, rerunfile)) {
     print_ver();
-    fflush(stdout);
     fputs("Error: Empty log file for --rerun.\n", stderr);
     goto rerun_ret_INVALID_FORMAT;
   }
@@ -2524,7 +2525,6 @@ int32_t rerun(uint32_t rerun_argv_pos, uint32_t rerun_parameter_present, int32_t
   }
   if (!fgets(g_textbuf, MAXLINELEN, rerunfile)) {
     print_ver();
-    fflush(stdout);
     fputs("Error: Only one line in --rerun log file.\n", stderr);
     goto rerun_ret_INVALID_FORMAT;
   }
@@ -2537,7 +2537,6 @@ int32_t rerun(uint32_t rerun_argv_pos, uint32_t rerun_parameter_present, int32_t
     fclose_null(&rerunfile);
     if (scan_posint_capped(g_textbuf, (MAXLINELEN / 2), &loaded_arg_ct)) {
       print_ver();
-      fflush(stdout);
       fputs("Error: Invalid argument count on line 2 of --rerun log file.\n", stderr);
       goto rerun_ret_INVALID_FORMAT;
     }
@@ -2556,7 +2555,6 @@ int32_t rerun(uint32_t rerun_argv_pos, uint32_t rerun_parameter_present, int32_t
       line_idx++;
       if (!fgets(g_textbuf, MAXLINELEN, rerunfile)) {
 	print_ver();
-	fflush(stdout);
 	fputs("Error: Invalid log file for --rerun.\n", stderr);
 	goto rerun_ret_INVALID_FORMAT;
       }
@@ -2590,7 +2588,6 @@ int32_t rerun(uint32_t rerun_argv_pos, uint32_t rerun_parameter_present, int32_t
       load_ptr = argptr;
       if (load_ptr >= &(g_textbuf[MAXLINELEN])) {
 	print_ver();
-	fflush(stdout);
 	fputs("Error: --rerun argument sequence too long.\n", stderr);
 	goto rerun_ret_INVALID_FORMAT;
       }
@@ -2614,7 +2611,6 @@ int32_t rerun(uint32_t rerun_argv_pos, uint32_t rerun_parameter_present, int32_t
   do {
     if (no_more_tokens_kns(sptr)) {
       print_ver();
-      fflush(stdout);
       fputs("Error: Line 2 of --rerun log file has fewer tokens than expected.\n", stderr);
       goto rerun_ret_INVALID_FORMAT;
     }
@@ -2693,7 +2689,6 @@ int32_t rerun(uint32_t rerun_argv_pos, uint32_t rerun_parameter_present, int32_t
     break;
   rerun_ret_LONG_LINE:
     print_ver();
-    fflush(stdout);
     fprintf(stderr, "Error: Line %" PRIuPTR " of --rerun log file is pathologically long.\n", line_idx);
   rerun_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
@@ -3418,14 +3413,13 @@ int32_t main(int32_t argc, char** argv) {
       ujj = param_count(argc, argv, uii);
       if (enforce_param_ct_range(ujj, argv[uii], 1, 1)) {
 	print_ver();
-	fputs(g_logbuf, stdout);
-	fputs(errstr_append, stdout);
+	fputs(g_logbuf, stderr);
+	fputs(errstr_append, stderr);
 	goto main_ret_INVALID_CMDLINE;
       }
       for (ujj = uii + 2; ujj < (uint32_t)argc; ujj++) {
 	if ((!strcmp("-script", argv[ujj])) || (!strcmp("--script", argv[ujj]))) {
 	  print_ver();
-	  fflush(stdout);
 	  fputs("Error: Multiple --script flags.  Merge the files into one.\n", stderr);
 	  fputs(errstr_append, stderr);
 	  goto main_ret_INVALID_CMDLINE;
@@ -3448,7 +3442,6 @@ int32_t main(int32_t argc, char** argv) {
 	// could actually happen if user enters parameters in the wrong order,
 	// so may as well catch it and print a somewhat informative error msg
 	print_ver();
-	fflush(stdout);
         fputs("Error: --script file too large.\n", stderr);
         goto main_ret_INVALID_CMDLINE;
       }
@@ -3504,14 +3497,13 @@ int32_t main(int32_t argc, char** argv) {
       ujj = param_count(argc, argv, uii);
       if (enforce_param_ct_range(ujj, argv[uii], 0, 1)) {
 	print_ver();
-	fputs(g_logbuf, stdout);
-	fputs(errstr_append, stdout);
+	fputs(g_logbuf, stderr);
+	fputs(errstr_append, stderr);
 	goto main_ret_INVALID_CMDLINE;
       }
       for (ukk = uii + ujj + 1; ukk < (uint32_t)argc; ukk++) {
 	if ((!strcmp("-rerun", argv[ukk])) || (!strcmp("--rerun", argv[ukk]))) {
 	  print_ver();
-	  fflush(stdout);
 	  fputs("Error: Duplicate --rerun flag.\n", stderr);
 	  goto main_ret_INVALID_CMDLINE;
 	}
@@ -3525,7 +3517,6 @@ int32_t main(int32_t argc, char** argv) {
   }
   if ((cur_arg < (uint32_t)argc) && (!is_flag(argv[cur_arg]))) {
     print_ver();
-    fflush(stdout);
     fputs("Error: First parameter must be a flag.\n", stderr);
     fputs(errstr_append, stderr);
     goto main_ret_INVALID_CMDLINE;
@@ -3606,7 +3597,6 @@ int32_t main(int32_t argc, char** argv) {
       switch (*argptr) {
       case '\0':
 	// special case, since we reserve empty names for preprocessed flags
-	fflush(stdout);
 	fputs("Error: Unrecognized flag ('--').\n", stderr);
 	goto main_ret_INVALID_CMDLINE;
       case 'F':
@@ -3683,12 +3673,10 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_flag_copy;
       case 'h':
         if (!strcmp(argptr, "hwe2")) {
-	  fflush(stdout);
 	  fputs("Warning: --hwe2 flag is obsolete, and now treated as an alias for '--hwe midp'.\n", stderr);
 	  memcpy(flagptr, "hwe midp", 9);
 	  break;
         } else if (!strcmp(argptr, "hardy2")) {
-	  fflush(stdout);
 	  fputs("Warning: --hardy2 flag is obsolete, and now treated as an alias for\n'--hardy midp'.\n", stderr);
 	  memcpy(flagptr, "hardy midp", 11);
 	  break;
@@ -3871,7 +3859,6 @@ int32_t main(int32_t argc, char** argv) {
     ukk = strlen_se(&(flag_buf[cur_flag * MAX_FLAG_LEN]));
     if ((ujj == ukk) && (!memcmp(&(flag_buf[(cur_flag - 1) * MAX_FLAG_LEN]), &(flag_buf[cur_flag * MAX_FLAG_LEN]), ukk))) {
       flag_buf[cur_flag * MAX_FLAG_LEN + ukk] = '\0'; // just in case of aliases
-      fflush(stdout);
       fprintf(stderr, "Error: Duplicate --%s flag.\n", &(flag_buf[cur_flag * MAX_FLAG_LEN]));
       goto main_ret_INVALID_CMDLINE;
     }
@@ -3891,7 +3878,6 @@ int32_t main(int32_t argc, char** argv) {
 	goto main_ret_INVALID_CMDLINE;
       }
       if (strlen(argv[ujj + 1]) > (FNAMESIZE - MAX_POST_EXT)) {
-	fflush(stdout);
 	fputs("Error: --out parameter too long.\n", stderr);
 	goto main_ret_OPEN_FAIL;
       }
@@ -3906,7 +3892,6 @@ int32_t main(int32_t argc, char** argv) {
   memcpy(&(outname[uii]), ".log", 5);
   g_logfile = fopen(outname, "w");
   if (!g_logfile) {
-    fflush(stdout);
     fprintf(stderr, "Error: Failed to open %s.  Try ", outname);
     if (!memcmp(outname, PROG_NAME_STR, 6)) {
       fputs("using --out.\n", stderr);
