@@ -104,7 +104,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (1 Jul 2016)";
+  " (5 Jul 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -3578,7 +3578,14 @@ int32_t main(int32_t argc, char** argv) {
     goto main_ret_1;
   }
   if (ukk) {
-    if (!freopen("/dev/null", "w", stdout)) {
+    // bugfix: redirection to /dev/null doesn't work on Windows
+    if (!freopen(
+#ifdef _WIN32
+"nul"
+#else
+"/dev/null"
+#endif
+, "w", stdout)) {
       fputs("Warning: --silent failed.\n", stderr);
     }
   }
