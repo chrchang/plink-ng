@@ -10479,8 +10479,8 @@ int32_t main(int32_t argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_2A;
 	    } else if (recode_modifier & RECODE_VCF) {
 	    main_recode_012_vcf_conflict:
-	      sprintf(g_logbuf, "Error: '%s' cannot be used with --recode's VCF output formats.\n", argv[cur_arg + uii]);
-	      goto main_ret_INVALID_CMDLINE_2A;
+	      logerrprint("Error: '01'/'12' cannot be used with --recode's VCF output formats.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    if (argv[cur_arg + uii][0] == '0') {
 	      if (recode_modifier & RECODE_12) {
