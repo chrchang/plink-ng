@@ -380,9 +380,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
 
     help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead\trecodeA\trecodea\trecode-rlist\trecode-allele\tlist\twith-reference\trecode-vcf\tfid\tiid\trecode-beagle\trecode-bimbam\trecode-fastphase\trecodeHV\trecodehv\trecode-structure", &help_ctrl, 1,
-"  --recode [target format] <01 | 12> <tab | tabx | spacex | bgz | gen-gz>\n"
+"  --recode [output format] <01 | 12> <tab | tabx | spacex | bgz | gen-gz>\n"
 "           <include-alt> <omit-nonmale-y>\n"
-"    Create a new text fileset with all filters applied.  The following target\n"
+"    Create a new text fileset with all filters applied.  The following output\n"
 "    formats are supported:\n"
 "    * '23': 23andMe 4-column format.  This can only be used on a single\n"
 "      sample's data (--keep may be handy), and does not support multicharacter\n"

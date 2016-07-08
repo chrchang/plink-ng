@@ -3086,7 +3086,7 @@ int32_t init_delim_and_species(uint32_t flag_ct, char* flag_buf, uint32_t* flag_
 
 int32_t recode_type_set(uint32_t* recode_modifier_ptr, uint32_t cur_code) {
   if (*recode_modifier_ptr & (RECODE_TYPEMASK - cur_code)) {
-    logerrprint("Error: Conflicting --recode modifiers.\n");
+    logerrprint("Error: Multiple --recode output formats.\n");
     return -1;
   }
   *recode_modifier_ptr |= cur_code;
@@ -10475,22 +10475,22 @@ int32_t main(int32_t argc, char** argv) {
 	for (uii = 1; uii <= param_ct; uii++) {
 	  if ((!strcmp(argv[cur_arg + uii], "01")) || (!strcmp(argv[cur_arg + uii], "12"))) {
 	    if (recode_modifier & (RECODE_A | RECODE_AD)) {
-	      logerrprint("Error: --recode '01' and '12' modifiers cannot be used with 'A' or 'AD'.\n");
-	      goto main_ret_INVALID_CMDLINE_A;
+	      sprintf(g_logbuf, "Error: The '%s' modifier does not apply to --recode's A and AD output formats.\n", argv[cur_arg + uii]);
+	      goto main_ret_INVALID_CMDLINE_2A;
 	    } else if (recode_modifier & RECODE_VCF) {
 	    main_recode_012_vcf_conflict:
-	      logerrprint("Error: --recode '01' and '12' modifiers cannot be used with VCF output.\n");
-	      goto main_ret_INVALID_CMDLINE_A;
+	      sprintf(g_logbuf, "Error: '%s' cannot be used with --recode's VCF output formats.\n", argv[cur_arg + uii]);
+	      goto main_ret_INVALID_CMDLINE_2A;
 	    }
 	    if (argv[cur_arg + uii][0] == '0') {
 	      if (recode_modifier & RECODE_12) {
-		logerrprint("Error: --recode '01' and '12' modifiers cannot be used together.\n");
+		logerrprint("Error: --recode '01' and '12' cannot be used together.\n");
 		goto main_ret_INVALID_CMDLINE;
 	      }
 	      recode_modifier |= RECODE_01;
 	    } else {
 	      if (recode_modifier & RECODE_01) {
-		logerrprint("Error: --recode '01' and '12' modifiers cannot be used together.\n");
+		logerrprint("Error: --recode '01' and '12' cannot be used together.\n");
 		goto main_ret_INVALID_CMDLINE;
 	      }
 	      recode_modifier |= RECODE_12;
@@ -10644,23 +10644,23 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
 	if (!(recode_modifier & RECODE_TYPEMASK)) {
-	  logerrprint("Warning: --recode should be used with an explicit target format.  (This will be\nrequired by PLINK 2.0.)  Assuming ped.\n");
+	  logerrprint("Warning: --recode should be used with an explicit output format.  (This will be\nrequired by PLINK 2.0.)  Assuming ped.\n");
 	  recode_modifier |= RECODE_PED;
 	}
 	if ((recode_modifier & RECODE_INCLUDE_ALT) && (!(recode_modifier & (RECODE_A | RECODE_AD)))) {
-	  logerrprint("Error: --recode 'include-alt' modifier must be used with 'A' or 'AD'.\n");
+	  logerrprint("Error: The 'include-alt' modifier only applies to --recode's A and AD output\nformats.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if ((recode_modifier & RECODE_OMIT_NONMALE_Y) && (!(recode_modifier & (RECODE_LIST | RECODE_RLIST)))) {
-	  logerrprint("Error: --recode 'omit-nonmale-y' modifier must be used with 'list' or 'rlist'.\n");
+	  logerrprint("Error: The 'omit-nonmale-y' modifier only applies to --recode's list and rlist\noutput formats.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if ((recode_modifier & RECODE_BGZ) && (!(recode_modifier & RECODE_VCF))) {
-	  logerrprint("Error: --recode 'bgz' modifier must be used with VCF output.\n");
+	  logerrprint("Error: The 'bgz' modifier only applies to --recode's VCF output formats.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	if ((recode_modifier & RECODE_GEN_GZ) && (!(recode_modifier & RECODE_OXFORD))) {
-	  logerrprint("Error: --recode 'gen-gz' modifier must be used with Oxford-format output.\n");
+	  logerrprint("Error: The 'gen-gz' modifier only applies to --recode's oxford output format.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
 	calculation_type |= CALC_RECODE;
