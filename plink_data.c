@@ -14313,7 +14313,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       goto recode_ret_OPEN_FAIL;
     }
     *outname_end = '\0';
-    LOGPRINTFWW5("--recode to %s.ped + %s.map ... ", outname, outname);
+    LOGPRINTFWW5("--recode ped to %s.ped + %s.map ... ", outname, outname);
     if (recode_load_to(loadbuf, bedfile, bed_offset, unfiltered_marker_ct, 0, marker_ct, marker_exclude, marker_reverse, &marker_uidx, unfiltered_sample_ct)) {
       goto recode_ret_READ_FAIL;
     }
@@ -14359,7 +14359,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     }
   }
 
-  if (!(recode_modifier & (RECODE_TRANSPOSE | RECODE_23 | RECODE_A | RECODE_A_TRANSPOSE | RECODE_AD | RECODE_BEAGLE | RECODE_BEAGLE_NOMAP | RECODE_BIMBAM | RECODE_BIMBAM_1CHR | RECODE_FASTPHASE | RECODE_FASTPHASE_1CHR | RECODE_HV | RECODE_HV_1CHR | RECODE_LIST | RECODE_STRUCTURE | RECODE_VCF))) {
+  // bugfix: stop generating a .map file when Oxford-format requested
+  if (recode_modifier & (RECODE_COMPOUND | RECODE_LGEN | RECODE_LGEN_REF | RECODE_PED)) {
     strcpy(outname_end, ".map");
     retval = write_map_or_bim(outname, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_cms, marker_pos, nullptr, ((recode_modifier & (RECODE_TAB | RECODE_DELIMX)) == RECODE_DELIMX)? ' ' : '\t', chrom_info_ptr);
     if (retval) {

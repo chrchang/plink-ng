@@ -104,7 +104,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (7 Jul 2016)";
+  " (8 Jul 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -7622,7 +7622,7 @@ int32_t main(int32_t argc, char** argv) {
         logprint("Note: --inter-chr flag deprecated.  Use e.g. '--r2 inter-chr'.\n");
 	ld_info.modifier |= LD_INTER_CHR;
       } else if (!memcmp(argptr2, "nd-major", 9)) {
-	logerrprint("Error: --ind-major is retired, to discourage creation of .bed files that\nconstantly have to be transposed back.  --recode exports sample-major files\nwhich are good enough for smaller jobs; we suggest transposing small data\nwindows on the fly when tackling large jobs.\n");
+	logerrprint("Error: --ind-major is retired, to discourage creation of .bed files that\nconstantly have to be transposed back.  '--recode ped' exports sample-major\nfiles which are good enough for smaller jobs; we suggest transposing small data\nwindows on the fly when tackling large jobs.\n");
         goto main_ret_INVALID_CMDLINE;
       } else if (!memcmp(argptr2, "mpute-sex", 10)) {
 	if (calculation_type & CALC_SEXCHECK) {
@@ -10587,6 +10587,10 @@ int32_t main(int32_t argc, char** argv) {
             if (recode_type_set(&recode_modifier, RECODE_OXFORD)) {
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
+	  } else if (!strcmp(argv[cur_arg + uii], "ped")) {
+	    if (recode_type_set(&recode_modifier, RECODE_PED)) {
+	      goto main_ret_INVALID_CMDLINE_A;
+	    }
 	  } else if (!strcmp(argv[cur_arg + uii], "rlist")) {
 	    if (recode_type_set(&recode_modifier, RECODE_RLIST)) {
 	      goto main_ret_INVALID_CMDLINE_A;
@@ -10638,6 +10642,10 @@ int32_t main(int32_t argc, char** argv) {
 	    sprintf(g_logbuf, "Error: Invalid --recode parameter '%s'.%s\n", argv[cur_arg + uii], ((uii == param_ct) && (!outname_end))? " (Did you forget '--out'?)" : "");
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
+	}
+	if (!(recode_modifier & RECODE_TYPEMASK)) {
+	  logerrprint("Warning: --recode should be used with an explicit target format.  (This will be\nrequired by PLINK 2.0.)  Assuming ped.\n");
+	  recode_modifier |= RECODE_PED;
 	}
 	if ((recode_modifier & RECODE_INCLUDE_ALT) && (!(recode_modifier & (RECODE_A | RECODE_AD)))) {
 	  logerrprint("Error: --recode 'include-alt' modifier must be used with 'A' or 'AD'.\n");
