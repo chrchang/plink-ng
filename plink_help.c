@@ -421,6 +421,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * 'compound-genotypes': Same as 'ped', except that the space between each\n"
 "      pair of same-variant allele codes is removed.\n"
 "    * 'structure': Structure-format.\n"
+"    * 'transpose': PLINK 1 variant-major (.tped + .tfam), loadable with\n"
+"      --tfile.\n"
 "    * 'vcf', 'vcf-fid', 'vcf-iid': VCFv4.2.  'vcf-fid' and 'vcf-iid' cause\n"
 "      family IDs or within-family IDs respectively to be used for the sample\n"
 "      IDs in the last header row, while 'vcf' merges both IDs and puts an\n"
