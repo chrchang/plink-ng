@@ -8564,7 +8564,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	      }
 	    } else if (uii != (uint32_t)(((unsigned char)'.') - '0')) {
 	      goto vcf_to_bed_ret_INVALID_GT;
-	    } else if (vcf_half_call > VCF_HALF_CALL_MISSING) {
+	    } else if (vcf_half_call != VCF_HALF_CALL_MISSING) {
 	      cc = bufptr[2];
 	      if ((cc != '.') && ((bufptr[1] == '/') || (bufptr[1] == '|'))) {
 		uii = ((unsigned char)cc) - '0';
@@ -8573,6 +8573,8 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 		}
 		if (vcf_half_call == VCF_HALF_CALL_HAPLOID) {
 		  goto vcf_to_bed_haploid_1;
+		} else if (!vcf_half_call) {
+		  goto vcf_to_bed_ret_HALF_CALL_ERROR;
 		} else {
 		  // VCF_HALF_CALL_REFERENCE
 		  ujj = 0;
@@ -8606,7 +8608,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	    uii = (unsigned char)(*bufptr) - '0';
 	    if (uii && (uii != alt_allele_idx)) {
 	      if (uii == (uint32_t)(((unsigned char)'.') - '0')) {
-		if (vcf_half_call <= VCF_HALF_CALL_MISSING) {
+		if (vcf_half_call == VCF_HALF_CALL_MISSING) {
 		  continue;
 		}
 	        cc = bufptr[2];
@@ -8626,6 +8628,8 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 		}
 		if (vcf_half_call == VCF_HALF_CALL_HAPLOID) {
 		  goto vcf_to_bed_haploid_2;
+		} else if (!vcf_half_call) {
+		  goto vcf_to_bed_ret_HALF_CALL_ERROR;
 		} else {
 		  // VCF_HALF_CALL_REFERENCE
 		  ujj = 0;
@@ -8810,7 +8814,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	    }
 	  } else if (uii != (uint32_t)(((unsigned char)'.') - '0')) {
 	    goto vcf_to_bed_ret_INVALID_GT;
-	  } else if ((vcf_half_call > VCF_HALF_CALL_MISSING) && (bufptr[2] != '.') && ((bufptr[1] == '/') || (bufptr[1] == '|'))) {
+	  } else if ((vcf_half_call != VCF_HALF_CALL_MISSING) && (bufptr[2] != '.') && ((bufptr[1] == '/') || (bufptr[1] == '|'))) {
 	    bufptr = &(bufptr[2]);
 	    uii = ((unsigned char)(*bufptr)) - '0';
 	    if (uii > 9) {
@@ -8825,6 +8829,8 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	    }
 	    if (vcf_half_call == VCF_HALF_CALL_HAPLOID) {
 	      goto vcf_to_bed_haploid_3;
+	    } else if (!vcf_half_call) {
+	      goto vcf_to_bed_ret_HALF_CALL_ERROR;
 	    } else {
 	      ujj = 0;
 	      goto vcf_to_bed_reference_3;
@@ -8852,7 +8858,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	  }
 	  if (*bufptr == '.') {
 	    // validated on first pass
-	    if ((vcf_half_call > VCF_HALF_CALL_MISSING) && (bufptr[2] != '.') && ((bufptr[1] == '/') || (bufptr[1] == '|'))) {
+	    if ((vcf_half_call != VCF_HALF_CALL_MISSING) && (bufptr[2] != '.') && ((bufptr[1] == '/') || (bufptr[1] == '|'))) {
 	      bufptr = &(bufptr[2]);
 	      uii = ((unsigned char)(*bufptr)) - '0';
 	      while (1) {
@@ -8864,6 +8870,8 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	      }
 	      if (vcf_half_call == VCF_HALF_CALL_HAPLOID) {
 		goto vcf_to_bed_haploid_4;
+	      } else if (!vcf_half_call) {
+		goto vcf_to_bed_ret_HALF_CALL_ERROR;
 	      } else {
 		ujj = 0;
 		goto vcf_to_bed_reference_4;
@@ -8902,6 +8910,8 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	    if (uii == alt_allele_idx) {
 	      if (vcf_half_call == VCF_HALF_CALL_HAPLOID) {
 	        goto vcf_to_bed_haploid_4;
+	      } else if (!vcf_half_call) {
+		goto vcf_to_bed_ret_HALF_CALL_ERROR;
 	      } else if (vcf_half_call == VCF_HALF_CALL_REFERENCE) {
 		ujj = 0;
 		goto vcf_to_bed_reference_4;
