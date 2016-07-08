@@ -10635,7 +10635,7 @@ int32_t main(int32_t argc, char** argv) {
 	  } else if (!strcmp(argv[cur_arg + uii], "omit-nonmale-y")) {
 	    recode_modifier |= RECODE_OMIT_NONMALE_Y;
 	  } else {
-	    sprintf(g_logbuf, "Error: Invalid --recode parameter '%s'.%s\n", argv[cur_arg + uii], ((uii == param_ct) && (!outname_end))? "  (Did you forget '--out'?)" : "");
+	    sprintf(g_logbuf, "Error: Invalid --recode parameter '%s'.%s\n", argv[cur_arg + uii], ((uii == param_ct) && (!outname_end))? " (Did you forget '--out'?)" : "");
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	}
