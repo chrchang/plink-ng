@@ -12992,16 +12992,12 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
           if ((!invalid_allele_code_seen) && (!valid_vcf_allele_code(cptr))) {
 	    invalid_allele_code_seen = 1;
 	  }
-	  // if ALT allele is not actually present in immediate dataset, VCF
-	  // spec actually requires '.'
-	  if (!is_monomorphic_a2(loadbuf_collapsed, sample_ct)) {
-	    if (flexbputs_checked(cptr, output_bgz, outfile, bgz_outfile)) {
-	      goto recode_ret_WRITE_FAIL;
-	    }
-	  } else {
-	    if (flexbputc_checked('.', output_bgz, outfile, bgz_outfile)) {
-	      goto recode_ret_WRITE_FAIL;
-	    }
+	  // previously, if ALT allele was not actually present in immediate
+	  // dataset, VCF spec actually required '.'
+	  // this restriction was contrary to practice (even by the 1000G team)
+	  // and retroactively removed in mid-2016.
+	  if (flexbputs_checked(cptr, output_bgz, outfile, bgz_outfile)) {
+	    goto recode_ret_WRITE_FAIL;
 	  }
 	} else {
 	  if (flexbputc_checked('.', output_bgz, outfile, bgz_outfile)) {

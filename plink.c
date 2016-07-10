@@ -104,10 +104,10 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (8 Jul 2016)";
+  " (10 Jul 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has a trailing letter)
 #else
@@ -3644,6 +3644,9 @@ int32_t main(int32_t argc, char** argv) {
 	} else if (!strcmp(argptr, "chr-output")) {
 	  fputs("Note: --chr-output flag has been renamed to --output-chr, for consistency with\n--output-missing-{genotype/phenotype}.\n", stdout);
 	  memcpy(flagptr, "output-chr", 11);
+	  break;
+	} else if (!strcmp(argptr, "convert")) {
+	  memcpy(flagptr, "recode", 7);
 	  break;
 	}
 	goto main_flag_copy;
@@ -10644,7 +10647,11 @@ int32_t main(int32_t argc, char** argv) {
 	  }
 	}
 	if (!(recode_modifier & RECODE_TYPEMASK)) {
-	  logerrprint("Warning: --recode should be used with an explicit output format.  (This will be\nrequired by PLINK 2.0.)  Assuming ped.\n");
+	  // thought about including a warning here, and then outright
+	  // prohibiting parameterless --recode in v2.0, but that usage is
+	  // simply too common.  new plan: --convert requires an explicit
+	  // output format, but --recode will continue to be translated without
+	  // a warning even when defaulting to ped output.
 	  recode_modifier |= RECODE_PED;
 	}
 	if ((recode_modifier & RECODE_INCLUDE_ALT) && (!(recode_modifier & (RECODE_A | RECODE_AD)))) {
