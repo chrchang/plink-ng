@@ -45,7 +45,7 @@ uint32_t edit1_match(uint32_t len1, char* s1, uint32_t len2, char* s2) {
   return 1;
 }
 
-#define MAX_EQUAL_HELP_PARAMS 22
+#define MAX_EQUAL_HELP_PARAMS 23
 
 typedef struct {
   uint32_t iters_left;
@@ -379,7 +379,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    improperly.  If you have any doubt, stick with --make-bed.\n\n"
 	       );
 
-    help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead\trecodeA\trecodea\trecode-rlist\trecode-allele\tlist\twith-reference\trecode-vcf\tfid\tiid\trecode-beagle\trecode-bimbam\trecode-fastphase\trecodeHV\trecodehv\trecode-structure", &help_ctrl, 1,
+    help_print("recode\trecode12\ttab\ttranspose\trecode-lgen\trecodeAD\trecodead\trecodeA\trecodea\trecode-rlist\trecode-allele\tlist\twith-reference\trecode-vcf\tfid\tiid\trecode-beagle\trecode-bimbam\trecode-fastphase\trecodeHV\trecodehv\trecode-structure\tconvert", &help_ctrl, 1,
 "  --recode [output format] <01 | 12> <tab | tabx | spacex | bgz | gen-gz>\n"
 "           <include-alt> <omit-nonmale-y>\n"
 "    Create a new text fileset with all filters applied.  The following output\n"
@@ -1683,7 +1683,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --make-founders <require-2-missing> <first> : Clear parental IDs for those\n"
 "                                                with 1+ missing parent(s).\n"
 	       );
-    help_print("recode\trecode-allele", &help_ctrl, 0,
+    help_print("recode\trecode-allele\tconvert", &help_ctrl, 0,
 "  --recode-allele [fn] : With --recode A/A-transpose/AD, count alleles named in\n"
 "                         the file (otherwise A1 alleles are always counted).\n"
 	       );

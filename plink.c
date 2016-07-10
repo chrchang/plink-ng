@@ -3230,6 +3230,7 @@ int32_t main(int32_t argc, char** argv) {
   double genome_max_pi_hat = 1.0;
   FILE* scriptfile = nullptr;
   uint32_t recode_modifier = 0;
+  uint32_t recode_require_format = 0;
   uint32_t allelexxxx = 0;
   uint32_t merge_type = 0;
   uint32_t sample_sort = 0;
@@ -3647,6 +3648,7 @@ int32_t main(int32_t argc, char** argv) {
 	  break;
 	} else if (!strcmp(argptr, "convert")) {
 	  memcpy(flagptr, "recode", 7);
+	  recode_require_format = 1;
 	  break;
 	}
 	goto main_flag_copy;
@@ -10652,6 +10654,10 @@ int32_t main(int32_t argc, char** argv) {
 	  // simply too common.  new plan: --convert requires an explicit
 	  // output format, but --recode will continue to be translated without
 	  // a warning even when defaulting to ped output.
+	  if (recode_require_format) {
+	    logerrprint("Error: --convert requires an output format.  (Did you forget 'ped' or 'vcf'?)\n");
+	    goto main_ret_INVALID_CMDLINE_A;
+	  }
 	  recode_modifier |= RECODE_PED;
 	}
 	if ((recode_modifier & RECODE_INCLUDE_ALT) && (!(recode_modifier & (RECODE_A | RECODE_AD)))) {
