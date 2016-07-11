@@ -3646,10 +3646,6 @@ int32_t main(int32_t argc, char** argv) {
 	  fputs("Note: --chr-output flag has been renamed to --output-chr, for consistency with\n--output-missing-{genotype/phenotype}.\n", stdout);
 	  memcpy(flagptr, "output-chr", 11);
 	  break;
-	} else if (!strcmp(argptr, "convert")) {
-	  memcpy(flagptr, "recode", 7);
-	  recode_require_format = 1;
-	  break;
 	}
 	goto main_flag_copy;
       case 'e':
@@ -3658,6 +3654,10 @@ int32_t main(int32_t argc, char** argv) {
 	  break;
 	} else if (!strcmp(argptr, "exponent")) {
 	  memcpy(flagptr, "distance-exp", 13);
+	  break;
+	} else if (!strcmp(argptr, "export")) {
+	  memcpy(flagptr, "recode", 7);
+	  recode_require_format = 1;
 	  break;
 	}
 	goto main_flag_copy;
@@ -10651,11 +10651,11 @@ int32_t main(int32_t argc, char** argv) {
 	if (!(recode_modifier & RECODE_TYPEMASK)) {
 	  // thought about including a warning here, and then outright
 	  // prohibiting parameterless --recode in v2.0, but that usage is
-	  // simply too common.  new plan: --convert requires an explicit
-	  // output format, but --recode will continue to be translated without
-	  // a warning even when defaulting to ped output.
+	  // simply too common.  new plan: --export requires an explicit output
+	  // format, but --recode will continue to be translated without a
+	  // warning even when defaulting to ped output.
 	  if (recode_require_format) {
-	    logerrprint("Error: --convert requires an output format.  (Did you forget 'ped' or 'vcf'?)\n");
+	    logerrprint("Error: --export requires an output format.  (Did you forget 'ped' or 'vcf'?)\n");
 	    goto main_ret_INVALID_CMDLINE_A;
 	  }
 	  recode_modifier |= RECODE_PED;
