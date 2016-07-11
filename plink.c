@@ -104,7 +104,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (10 Jul 2016)";
+  " (11 Jul 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -3537,7 +3537,23 @@ int32_t main(int32_t argc, char** argv) {
 	if ((cur_arg != 1) || (uii != 1) || subst_argv) {
 	  fputs("--help present, ignoring other flags.\n", stdout);
 	}
-	retval = disp_help(argc - uii - 1, &(argv[uii + 1]));
+	if ((uii == ((uint32_t)argc) - 1) && flag_ct) {
+	  // make "plink [valid flags/parameters] --help" work, and skip the
+	  // parameters
+	  char** help_argv = (char**)malloc(flag_ct * sizeof(intptr_t));
+	  if (!help_argv) {
+	    goto main_ret_NOMEM_NOLOG2;
+	  }
+	  uint32_t arg_idx2 = 0;
+	  for (uint32_t flag_idx = 0; flag_idx < flag_ct; ++flag_idx) {
+	    while (!is_flag_start(argv[++arg_idx2]));
+	    help_argv[flag_idx] = argv[arg_idx2];
+	  }
+	  retval = disp_help(flag_ct, help_argv);
+	  free(help_argv);
+	} else {
+	  retval = disp_help(argc - uii - 1, &(argv[uii + 1]));
+	}
 	goto main_ret_1;
       }
       if ((!strcmp("h", argptr)) || (!strcmp("?", argptr))) {
@@ -4888,6 +4904,9 @@ int32_t main(int32_t argc, char** argv) {
 	} else {
 	  annot_info.border = (int32_t)(dxx * 1000 * (1 + SMALL_EPSILON));
 	}
+      } else if (!memcmp(argptr2, "pfile", 6)) {
+	sprintf(g_logbuf, "Error: Unrecognized flag (%s).  (This is PLINK 1.9, not 2.x.)\n", argv[cur_arg]);
+	goto main_ret_INVALID_CMDLINE_2;
       } else {
 	goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
       }
@@ -9437,6 +9456,9 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "ishap-window", 13)) {
         logerrprint("Error: --mishap-window is provisionally retired.  Contact the developers if you\nneed this function.\n");
         goto main_ret_INVALID_CMDLINE;
+      } else if ((!memcmp(argptr2, "ake-bpgen", 10)) || (!memcmp(argptr2, "ake-pgen", 9))) {
+	sprintf(g_logbuf, "Error: Unrecognized flag (%s).  (This is PLINK 1.9, not 2.x.)\n", argv[cur_arg]);
+	goto main_ret_INVALID_CMDLINE_2;
       } else {
 	goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
       }
@@ -10012,6 +10034,9 @@ int32_t main(int32_t argc, char** argv) {
 	// happening before 2016.)
         logerrprint("Error: PLINK 1 proxy association and imputation commands have been retired due\nto poor accuracy.  (See Nothnagel M et al. (2009) A comprehensive evaluation of\nSNP genotype imputation.)  We suggest using another tool, such as BEAGLE 4 or\nIMPUTE2, for imputation instead, and performing association analysis on those\nresults.  ('--recode vcf' and --vcf can be used to exchange data with BEAGLE 4,\nwhile '--recode oxford' and --data let you work with IMPUTE2.)\n");
         goto main_ret_INVALID_CMDLINE;
+      } else if (!memcmp(argptr2, "file", 5)) {
+	sprintf(g_logbuf, "Error: Unrecognized flag (%s).  (This is PLINK 1.9, not 2.x.)\n", argv[cur_arg]);
+	goto main_ret_INVALID_CMDLINE_2;
       } else {
 	goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
       }
