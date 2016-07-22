@@ -16,6 +16,8 @@ const char g_one_char_strs[] = "\0\0\1\0\2\0\3\0\4\0\5\0\6\0\7\0\10\0\11\0\12\0\
 const char* g_missing_geno_ptr = &(g_one_char_strs[96]);
 const char* g_output_missing_geno_ptr = &(g_one_char_strs[96]);
 
+uintptr_t g_failed_alloc_attempt_size = 0;
+
 sfmt_t g_sfmt;
 
 FILE* g_logfile = nullptr;
@@ -33,6 +35,7 @@ uint32_t aligned_malloc(uintptr_t size, uintptr_t** aligned_pp) {
   // does not even guarantee 8-byte alignment.)
   uintptr_t* malloc_ptr = (uintptr_t*)malloc(size + VEC_BYTES);
   if (!malloc_ptr) {
+    g_failed_alloc_attempt_size = size + VEC_BYTES;
     return 1;
   }
   *aligned_pp = (uintptr_t*)((((uintptr_t)malloc_ptr) + VEC_BYTES) & (~(VEC_BYTES_M1 * ONELU)));
@@ -41,6 +44,7 @@ uint32_t aligned_malloc(uintptr_t size, uintptr_t** aligned_pp) {
   // no SSE2 concerns here
   *aligned_pp = (uintptr_t*)malloc(size);
   if (!(*aligned_pp)) {
+    g_failed_alloc_attempt_size = size;
     return 1;
   }
 #endif
@@ -59,6 +63,7 @@ uint32_t push_ll_str(const char* ss, Ll_str** ll_stack_ptr) {
   uintptr_t str_bytes = strlen(ss) + 1;
   Ll_str* new_ll_str = (Ll_str*)malloc(sizeof(Ll_str) + str_bytes);
   if (!new_ll_str) {
+    g_failed_alloc_attempt_size = sizeof(Ll_str) + str_bytes;
     return 1;
   }
   new_ll_str->next = *ll_stack_ptr;
@@ -227,6 +232,7 @@ unsigned char* bigstack_alloc(uintptr_t size) {
   unsigned char* alloc_ptr;
   size = round_up_pow2(size, CACHELINE);
   if (bigstack_left() < size) {
+    g_failed_alloc_attempt_size = size;
     return nullptr;
   }
   alloc_ptr = g_bigstack_base;
@@ -243,6 +249,7 @@ unsigned char* bigstack_end_alloc_presized(uintptr_t size) {
   assert(!(size & END_ALLOC_CHUNK_M1));
   uintptr_t cur_bigstack_left = bigstack_left();
   if (size > cur_bigstack_left) {
+    g_failed_alloc_attempt_size = size;
     return nullptr;
   } else {
     g_bigstack_end -= size;

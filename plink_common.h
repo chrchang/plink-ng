@@ -867,6 +867,8 @@ HEADER_INLINE void aligned_free_cond_null(uintptr_t** aligned_pp) {
   }
 }
 
+extern uintptr_t g_failed_alloc_attempt_size;
+
 extern sfmt_t g_sfmt;
 
 // file-scope string constants don't always have the g_ prefix, but multi-file

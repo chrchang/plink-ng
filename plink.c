@@ -104,7 +104,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (11 Jul 2016)";
+  " (21 Jul 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -159,6 +159,9 @@ void disp_exit_msg(int32_t retval) {
   case RET_NOMEM:
     logprint("\n");
     logerrprint(errstr_nomem);
+    if (g_failed_alloc_attempt_size) {
+      LOGERRPRINTF("Failed allocation size: %" PRIuPTR "\n", g_failed_alloc_attempt_size);
+    }
     break;
   case RET_WRITE_FAIL:
     logprint("\n");
@@ -13536,6 +13539,9 @@ int32_t main(int32_t argc, char** argv) {
     print_ver();
   main_ret_NOMEM_NOLOG2:
     fputs(errstr_nomem, stderr);
+    if (g_failed_alloc_attempt_size) {
+      fprintf(stderr, "Failed allocation size: %" PRIuPTR "\n", g_failed_alloc_attempt_size);
+    }
     retval = RET_NOMEM;
     break;
   main_ret_READ_FAIL_NOLOG:
