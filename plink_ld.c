@@ -5997,7 +5997,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
 		}
 	      }
 	    } else {
-	      cur_marker_cm = marker_cms[marker_uidx1_tmp] + window_bp;
+	      cur_marker_cm = marker_cms[marker_uidx1_tmp] + window_cm;
 	      while ((marker_pos[marker_uidx2_fwd2] <= cur_marker_pos) && (marker_cms[marker_uidx2_fwd2] <= cur_marker_cm)) {
 		marker_uidx2_fwd = marker_uidx2_fwd2;
 		window_lead_ct++;
