@@ -629,7 +629,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * By default, text matrices are tab-delimited; 'spaces' switches this.\n"
 "    * 'in-phase' adds a column with in-phase allele pairs to table-formatted\n"
 "      reports.  (This cannot be used with very long allele codes.)\n"
-"    * 'dprime' adds the absolute value of Lewontin's D-prime statistic to"
+"    * 'dprime' adds the absolute value of Lewontin's D-prime statistic to\n"
 "      table-formatted reports, and forces both r/r^2 and D-prime to be based on\n"
 "      the maximum likelihood solution to the cubic equation discussed in Gaunt\n"
 "      T, Rodriguez S, Day I (2007) Cubic exact solutions for the estimation of\n"
@@ -1837,9 +1837,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --mendel-multigen  : Make Mendel error checks consider (great-)grandparental\n"
 "                       genotypes when parental genotype data is missing.\n"
 	       );
-    help_print("r\tr2\tld-window-kb\tld-window-r2\tld-window\tld-snp\tld-snps\tld-snp-list", &help_ctrl, 0,
+    help_print("r\tr2\tld-window-kb\tld-window-cm\tld-window-r2\tld-window\tld-snp\tld-snps\tld-snp-list", &help_ctrl, 0,
 "  --ld-window [ct+1] : Set --r/--r2 max variant ct pairwise distance (usu. 10).\n"
 "  --ld-window-kb [x] : Set --r/--r2 max kb pairwise distance (usually 1000).\n"
+"  --ld-window-cm [x] : Set --r/--r2 max centimorgan pairwise distance.\n"
 "  --ld-window-r2 [x] : Set threshold for --r2 report inclusion (usually 0.2).\n"
 "  --ld-snp [var ID]  : Set first variant in all --r/--r2 pairs.\n"
 "  --ld-snps [vID...] : Restrict first --r/--r2 variant to the given ranges.\n"

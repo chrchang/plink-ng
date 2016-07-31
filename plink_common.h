@@ -426,8 +426,8 @@
 
 #define UNSORTED_CHROM 1
 #define UNSORTED_BP 2
-// probably insert unsorted centimorgans later
-#define UNSORTED_SPLIT_CHROM 4
+#define UNSORTED_CM 4
+#define UNSORTED_SPLIT_CHROM 8
 
 #define ALLOW_NO_SEX 1
 #define MUST_HAVE_SEX 2
@@ -2423,9 +2423,9 @@ uintptr_t popcount_bit_idx(const uintptr_t* lptr, uintptr_t start_idx, uintptr_t
 
 uint32_t chrom_window_max(const uint32_t* marker_pos, const uintptr_t* marker_exclude, const Chrom_info* chrom_info_ptr, uint32_t chrom_idx, uint32_t ct_max, uint32_t bp_max, uint32_t cur_window_max);
 
-uint32_t window_back(const uint32_t* __restrict marker_pos, const uintptr_t* marker_exclude, uint32_t marker_uidx_min, uint32_t marker_uidx, uint32_t count_max, uint32_t bp_max, uint32_t* __restrict window_trail_ct_ptr);
+uint32_t window_back(const uint32_t* __restrict marker_pos, const double* __restrict marker_cms, const uintptr_t* marker_exclude, uint32_t marker_uidx_min, uint32_t marker_uidx_start, uint32_t count_max, uint32_t bp_max, double cm_max, uint32_t* __restrict window_trail_ct_ptr);
 
-uint32_t window_forward(const uint32_t* __restrict marker_pos, const uintptr_t* marker_exclude, uint32_t marker_uidx_start, uint32_t marker_uidx_last, uint32_t count_max, uint32_t bp_max, uint32_t* __restrict window_lead_ct_ptr);
+uint32_t window_forward(const uint32_t* __restrict marker_pos, const double* __restrict marker_cms, const uintptr_t* marker_exclude, uint32_t marker_uidx_start, uint32_t marker_uidx_last, uint32_t count_max, uint32_t bp_max, double cm_max, uint32_t* __restrict window_lead_ct_ptr);
 
 uintptr_t jump_forward_unset_unsafe(const uintptr_t* bitarr, uintptr_t cur_pos, uintptr_t forward_ct);
 

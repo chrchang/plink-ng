@@ -6356,14 +6356,16 @@ uint32_t chrom_window_max(const uint32_t* marker_pos, const uintptr_t* marker_ex
   return cur_window_max;
 }
 
-uint32_t window_back(const uint32_t* __restrict marker_pos, const uintptr_t* marker_exclude, uint32_t marker_uidx_min, uint32_t marker_uidx_start, uint32_t count_max, uint32_t bp_max, uint32_t* __restrict window_trail_ct_ptr) {
-  // finds the earliest location which is within count_max sites and bp_max bps
-  // count_max must be positive
+uint32_t window_back(const uint32_t* __restrict marker_pos, const double* __restrict marker_cms, const uintptr_t* marker_exclude, uint32_t marker_uidx_min, uint32_t marker_uidx_start, uint32_t count_max, uint32_t bp_max, double cm_max, uint32_t* __restrict window_trail_ct_ptr) {
+  // Finds the earliest location which is within count_max sites, bp_max bps,
+  // and (if marker_cms != nullptr) cm_max centimorgans.
+  // count_max must be positive.
   if (marker_uidx_min == marker_uidx_start) {
     // special-case this since it happens frequently
     *window_trail_ct_ptr = 0;
     return marker_uidx_min;
   }
+  double min_cm = marker_cms? (marker_cms[marker_uidx_start] - cm_max) : 0.0;
   uint32_t min_pos = 0;
   uint32_t marker_uwidx_cur = marker_uidx_start / BITCT;
   uint32_t uii = marker_uidx_start % BITCT;
@@ -6371,6 +6373,8 @@ uint32_t window_back(const uint32_t* __restrict marker_pos, const uintptr_t* mar
   uint32_t remaining_count = count_max;
   const uintptr_t* marker_exclude_cur = &(marker_exclude[marker_uwidx_cur]);
   uintptr_t cur_word;
+  uint32_t ujj;
+  uint32_t ukk;
   marker_uwidx_cur *= BITCT;
   if (bp_max <= marker_pos[marker_uidx_start]) {
     min_pos = marker_pos[marker_uidx_start] - bp_max;
@@ -6386,7 +6390,7 @@ uint32_t window_back(const uint32_t* __restrict marker_pos, const uintptr_t* mar
       uii = popcount_long(cur_word);
       if (uii >= remaining_count) {
 	goto window_back_count;
-      } else if (marker_pos[marker_uwidx_cur] < min_pos) {
+      } else if ((marker_pos[marker_uwidx_cur] < min_pos) || (marker_cms && (marker_cms[marker_uwidx_cur] < min_cm))) {
 	goto window_back_find_first_pos;
       } else {
 	goto window_back_min;
@@ -6401,15 +6405,22 @@ uint32_t window_back(const uint32_t* __restrict marker_pos, const uintptr_t* mar
         uii--;
       }
       marker_uwidx_cur += CTZLU(cur_word);
-      if (marker_pos[marker_uwidx_cur] < min_pos) {
+      if ((marker_pos[marker_uwidx_cur] < min_pos) || (marker_cms && (marker_cms[marker_uwidx_cur] < min_cm))) {
 	goto window_back_find_first_pos;
       }
       *window_trail_ct_ptr = count_max;
       return marker_uwidx_cur;
     }
-    if (marker_pos[marker_uwidx_cur] < min_pos) {
+    if ((marker_pos[marker_uwidx_cur] < min_pos) || (marker_cms && (marker_cms[marker_uwidx_cur] < min_cm))) {
     window_back_find_first_pos:
-      marker_uwidx_cur += uint32arr_greater_than(&(marker_pos[marker_uwidx_cur]), marker_uidx_last - marker_uwidx_cur, min_pos);
+      ujj = uint32arr_greater_than(&(marker_pos[marker_uwidx_cur]), marker_uidx_last - marker_uwidx_cur, min_pos);
+      if (marker_cms) {
+	ukk = doublearr_greater_than(&(marker_cms[marker_uwidx_cur]), marker_uidx_last - marker_uwidx_cur, min_cm);
+	if (ujj < ukk) {
+	  ujj = ukk;
+	}
+      }
+      marker_uwidx_cur += ujj;
       if (marker_uwidx_cur > marker_uidx_min) {
 	next_unset_unsafe_ck(marker_exclude, &marker_uwidx_cur);
       }
@@ -6425,12 +6436,13 @@ uint32_t window_back(const uint32_t* __restrict marker_pos, const uintptr_t* mar
   }
 }
 
-uint32_t window_forward(const uint32_t* __restrict marker_pos, const uintptr_t* marker_exclude, uint32_t marker_uidx_start, uint32_t marker_uidx_last, uint32_t count_max, uint32_t bp_max, uint32_t* __restrict window_lead_ct_ptr) {
+uint32_t window_forward(const uint32_t* __restrict marker_pos, const double* __restrict marker_cms, const uintptr_t* marker_exclude, uint32_t marker_uidx_start, uint32_t marker_uidx_last, uint32_t count_max, uint32_t bp_max, double cm_max, uint32_t* __restrict window_lead_ct_ptr) {
   // window_lead_ct_ptr currently cannot be nullptr
   if (marker_uidx_start == marker_uidx_last) {
     *window_lead_ct_ptr = 0;
     return marker_uidx_start;
   }
+  double max_cm = marker_cms? (cm_max + marker_cms[marker_uidx_start]) : 0.0;
   uint32_t marker_uwidx_prev = marker_uidx_start;
   uint32_t max_pos = bp_max + marker_pos[marker_uidx_start];
   uint32_t marker_uwidx_cur = (marker_uidx_start + 1) / BITCT;
@@ -6438,6 +6450,8 @@ uint32_t window_forward(const uint32_t* __restrict marker_pos, const uintptr_t* 
   uint32_t remaining_count = count_max;
   const uintptr_t* marker_exclude_cur = &(marker_exclude[marker_uwidx_cur]);
   uintptr_t cur_word;
+  uint32_t ujj;
+  uint32_t ukk;
   marker_uwidx_cur *= BITCT;
   cur_word = ~((*marker_exclude_cur) | ((ONELU << uii) - ONELU));
   while (1) {
@@ -6448,14 +6462,14 @@ uint32_t window_forward(const uint32_t* __restrict marker_pos, const uintptr_t* 
       }
       marker_uwidx_cur += CTZLU(cur_word);
       if (marker_uwidx_cur <= marker_uidx_last) {
-	if (marker_pos[marker_uwidx_cur] > max_pos) {
+	if ((marker_pos[marker_uwidx_cur] > max_pos) || (marker_cms && (marker_cms[marker_uwidx_cur] > max_cm))) {
 	  break;
 	}
 	*window_lead_ct_ptr = count_max;
 	return marker_uwidx_cur;
       }
-      if (marker_pos[marker_uidx_last] <= max_pos) {
-        marker_uwidx_prev = marker_uidx_last;
+      if ((marker_pos[marker_uidx_last] <= max_pos) && ((!marker_cms) || (marker_cms[marker_uidx_last] <= max_cm))) {
+	marker_uwidx_prev = marker_uidx_last;
 	goto window_forward_return;
       }
       marker_uwidx_cur = marker_uidx_last;
@@ -6463,21 +6477,27 @@ uint32_t window_forward(const uint32_t* __restrict marker_pos, const uintptr_t* 
     }
     marker_uwidx_cur += BITCT;
     if (marker_uwidx_cur >= marker_uidx_last) {
-      if (marker_pos[marker_uidx_last] <= max_pos) {
+      if ((marker_pos[marker_uidx_last] <= max_pos) && ((!marker_cms) || (marker_cms[marker_uidx_last] <= max_cm))) {
 	marker_uwidx_prev = marker_uidx_last;
 	goto window_forward_return;
-      } else {
-	marker_uwidx_cur = marker_uidx_last;
-	break;
       }
-    } else if (marker_pos[marker_uwidx_cur] > max_pos) {
+      marker_uwidx_cur = marker_uidx_last;
+      break;
+    } else if ((marker_pos[marker_uwidx_cur] > max_pos) || (marker_cms && (marker_cms[marker_uwidx_cur] > max_cm))) {
       break;
     }
     marker_uwidx_prev = marker_uwidx_cur;
     remaining_count -= uii;
     cur_word = ~(*(++marker_exclude_cur));
   }
-  marker_uwidx_prev += uint32arr_greater_than(&(marker_pos[marker_uwidx_prev]), marker_uwidx_cur - marker_uwidx_prev, max_pos + 1);
+  ujj = uint32arr_greater_than(&(marker_pos[marker_uwidx_prev]), marker_uwidx_cur - marker_uwidx_prev, max_pos + 1);
+  if (marker_cms) {
+    ukk = doublearr_greater_than(&(marker_cms[marker_uwidx_prev]), marker_uwidx_cur - marker_uwidx_prev, max_cm * (1 + SMALL_EPSILON));
+    if (ujj > ukk) {
+      ujj = ukk;
+    }
+  }
+  marker_uwidx_prev += ujj;
   prev_unset_unsafe_ck(marker_exclude, &marker_uwidx_prev);
  window_forward_return:
   *window_lead_ct_ptr = marker_uwidx_prev - marker_uidx_start - popcount_bit_idx(marker_exclude, marker_uidx_start, marker_uwidx_prev);

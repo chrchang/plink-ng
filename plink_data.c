@@ -480,6 +480,7 @@ int32_t load_bim(char* bimname, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* 
   uintptr_t line_idx = 0;
   int32_t prev_chrom = -1;
   uint32_t last_pos = 0;
+  double last_cm = -DBL_MAX;
   const uint32_t is_bim = (ftype_str[1] == 'b'); // .map also supported
   uint32_t allow_extra_chroms = (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1;
   uint32_t allow_no_variants = (misc_flags / MISC_ALLOW_NO_VARS) & 1;
@@ -550,6 +551,7 @@ int32_t load_bim(char* bimname, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* 
   uint32_t uoo;
   int32_t jj;
   uint32_t cur_pos;
+  double cur_cm;
   char cc;
   {
     fill_ulong_zero(CHROM_MASK_WORDS, loaded_chrom_mask);
@@ -1141,13 +1143,14 @@ int32_t load_bim(char* bimname, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* 
 	      goto load_bim_ret_INVALID_FORMAT_2;
 	    }
 	    split_chrom = 1;
-	    *map_is_unsorted_ptr = UNSORTED_CHROM | UNSORTED_BP | UNSORTED_SPLIT_CHROM;
+	    *map_is_unsorted_ptr |= UNSORTED_CHROM | UNSORTED_BP | UNSORTED_SPLIT_CHROM;
 	  } else {
 	    chrom_info_ptr->chrom_file_order[++chroms_encountered_m1] = cur_chrom_code;
 	    chrom_info_ptr->chrom_fo_vidx_start[chroms_encountered_m1] = marker_uidx;
 	    chrom_info_ptr->chrom_idx_to_foidx[(uint32_t)cur_chrom_code] = chroms_encountered_m1;
 	  }
 	  last_pos = 0;
+	  last_cm = -DBL_MAX;
 	}
 	set_bit(cur_chrom_code, loaded_chrom_mask);
       }
@@ -1172,10 +1175,16 @@ int32_t load_bim(char* bimname, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* 
 		goto load_bim_ret_NOMEM;
 	      }
 	    }
-	    if (scan_double(bufptr, &((*marker_cms_ptr)[marker_uidx]))) {
+	    if (scan_double(bufptr, &cur_cm)) {
 	      sprintf(g_logbuf, "Error: Invalid centimorgan position on line %" PRIuPTR " of %s.\n", line_idx, ftype_str);
 	      goto load_bim_ret_INVALID_FORMAT_2;
 	    }
+	    if (cur_cm < last_cm) {
+	      *map_is_unsorted_ptr |= UNSORTED_CM;
+	    } else {
+	      last_cm = cur_cm;
+	    }
+	    (*marker_cms_ptr)[marker_uidx] = cur_cm;
 	  }
 	  bufptr = next_token(bufptr);
 	} else {
@@ -1289,6 +1298,9 @@ int32_t load_bim(char* bimname, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* 
 	if (marker_pos_needed) {
 	  // support unfiltered marker_pos search
 	  (*marker_pos_ptr)[marker_uidx] = last_pos;
+	}
+	if (marker_cms_needed & MARKER_CMS_FORCED) {
+	  (*marker_cms_ptr)[marker_uidx] = last_cm;
 	}
       }
     }
@@ -3500,6 +3512,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, char* outna
 	// main loop, but no real need to bother.
 	errptr = errflags[set_hh_missing? 0 : (set_me_missing? 1 : 2)];
 	if (map_is_unsorted) {
+	  // assumes UNSORTED_CM was masked out
 	  LOGERRPRINTF("Error: --%s cannot be used on an unsorted .bim file.  Use\n--make-bed without --%s to sort by position first; then run\n--make-bed + --%s on the new fileset.\n", errptr, errptr, errptr);
 	} else {
 	  LOGERRPRINTF("Error: --%s cannot be used with --merge-x/--split-x/--update-chr.\nFinish updating chromosome codes first.\n", errptr);
