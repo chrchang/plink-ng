@@ -2592,7 +2592,10 @@ uint32_t ld_regular_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
   double window_r2 = g_ld_window_r2;
   uint32_t plink_maxsnp = g_ld_plink_maxsnp;
   uint32_t is_inter_chr = g_ld_is_inter_chr;
-  uint32_t is_dprime = (g_ld_modifier / LD_DPRIME) & 1;
+
+  // 0 = not d/dprime/dprime-signed
+  uint32_t dprime_type = g_ld_modifier & LD_DX;
+
   uint32_t is_r2 = g_ld_is_r2;
   uint32_t prefix_len = g_ld_prefix_len;
   uint32_t chrom_fo_idx1 = get_variant_chrom_fo_idx(chrom_info_ptr, marker_uidx1);
@@ -2631,8 +2634,8 @@ uint32_t ld_regular_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
     }
     sptr_cur = memseta(sptr_cur, 32, 11);
     sptr_cur = memcpyl3a(sptr_cur, is_r2? "R2 " : " R ");
-    if (is_dprime) {
-      sptr_cur = memcpya(sptr_cur, "          DP ", 13);
+    if (dprime_type) {
+      sptr_cur = memcpya(sptr_cur, (dprime_type == LD_D)? "           D " : "          DP ", 13);
     }
     *sptr_cur++ = '\n';
   }
@@ -2675,7 +2678,7 @@ uint32_t ld_regular_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
     }
     chrom_end2 = 0;
     block_end2 = ld_interval1[2 * block_idx1 + 1];
-    dptr = &(results[(block_idx1 * marker_idx2_maxw + block_idx2 - block_idx2_start) * (1 + is_dprime)]);
+    dptr = &(results[(block_idx1 * marker_idx2_maxw + block_idx2 - block_idx2_start) * (1 + (dprime_type != 0))]);
     while (block_idx2 < block_end2) {
       next_unset_ul_unsafe_ck(marker_exclude, &marker_uidx2);
       dxx = *dptr++;
@@ -2710,12 +2713,12 @@ uint32_t ld_regular_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
 	  dxx = fabs(dxx);
 	}
 	sptr_cur = width_force(12, sptr_cur, dtoa_g(dxx, sptr_cur));
-	if (is_dprime) {
+	if (dprime_type) {
 	  *sptr_cur++ = ' ';
           sptr_cur = width_force(12, sptr_cur, dtoa_g(*dptr++, sptr_cur));
 	}
 	sptr_cur = memcpya(sptr_cur, " \n", 2);
-      } else if (is_dprime) {
+      } else if (dprime_type) {
 	dptr++;
       }
       block_idx2++;
@@ -5028,6 +5031,8 @@ THREAD_RET_TYPE ld_dprime_thread(void* arg) {
   uintptr_t* sex_male = g_ld_sex_male;
   uintptr_t* cur_geno1_male = nullptr;
   uint32_t* ld_interval1 = g_ld_interval1;
+  uint32_t is_dprime = g_ld_modifier & (LD_DPRIME | LD_DPRIME_SIGNED);
+  uint32_t is_dprime_unsigned = g_ld_modifier & LD_DPRIME;
   uint32_t is_r2 = g_ld_is_r2;
   uint32_t xstart1 = g_ld_xstart1;
   uint32_t xend1 = g_ld_xend1;
@@ -5158,11 +5163,17 @@ THREAD_RET_TYPE ld_dprime_thread(void* arg) {
 	    *rptr = dxx / sqrt(freq11_expected * freq2x * freqx2);
 	  }
 	  rptr++;
-	  if (dxx >= 0) {
-	    *rptr = dxx / MINV(freqx1 * freq2x, freqx2 * freq1x);
-	  } else {
-	    *rptr = -dxx / MINV(freq11_expected, freqx2 * freq2x);
+	  if (is_dprime) {
+	    if (dxx >= 0) {
+	      dxx /= MINV(freqx1 * freq2x, freqx2 * freq1x);
+	    } else {
+	      if (is_dprime_unsigned) {
+		dxx = -dxx;
+	      }
+	      dxx /= MINV(freq11_expected, freqx2 * freq2x);
+	    }
 	  }
+	  *rptr = dxx;
 	}
 	rptr++;
       }
@@ -5320,7 +5331,7 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   if (marker_idx1) {
     marker_uidx1 = jump_forward_unset_unsafe(marker_exclude_idx1, marker_uidx1 + 1, marker_idx1);
   }
-  LOGPRINTF("--r%s%s%s dprime%s...", g_ld_is_r2? "2" : "", is_inter_chr? " inter-chr" : "", g_ld_marker_allele_ptrs? " in-phase" : "", g_ld_set_allele_freqs? " with-freqs" : "");
+  LOGPRINTF("--r%s%s%s d%s%s...", g_ld_is_r2? "2" : "", is_inter_chr? " inter-chr" : "", g_ld_marker_allele_ptrs? " in-phase" : "", (g_ld_modifier & LD_D)? "" : ((g_ld_modifier & LD_DPRIME)? "prime" : "prime-signed"), g_ld_set_allele_freqs? " with-freqs" : "");
   fputs(" 0%", stdout);
   while (1) {
     fputs(" [processing]", stdout);
@@ -5766,7 +5777,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
   if (g_ld_is_r2) {
     g_ld_window_r2 = ldip->window_r2;
   }
-  if (ld_modifier & LD_DPRIME) {
+  if (ld_modifier & LD_DX) {
     // this is more like --fast-epistasis under the hood, since it requires the
     // entire 3x3 table
     g_ld_marker_ctm8 = round_up_pow2(marker_idx2_maxw, 4);

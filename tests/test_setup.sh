@@ -19,16 +19,16 @@
 # to figure out when that has happened (in which case they can just rerun this
 # script), vs. when an actual bug is involved.
 
-plink2 --silent --dummy 513 1423 0.02 --out dummy_cc1
-plink2 --silent --dummy 512 1234 0.04 --out dummy_cc2
-plink2 --silent --dummy 387 1112 0.03 scalar-pheno --out dummy1
-plink2 --silent --dummy 478 1111 0.05 scalar-pheno --out dummy2
-plink2 --silent --dummy 3 9999 0.01 --out trio_tmp
+plink19 --silent --dummy 513 1423 0.02 --out dummy_cc1
+plink19 --silent --dummy 512 1234 0.04 --out dummy_cc2
+plink19 --silent --dummy 387 1112 0.03 scalar-pheno --out dummy1
+plink19 --silent --dummy 478 1111 0.05 scalar-pheno --out dummy2
+plink19 --silent --dummy 3 9999 0.01 --out trio_tmp
 rm trio_tmp.fam
 echo "fam1 dad 0 0 1 2" > trio_tmp.fam
 echo "fam1 mom 0 0 2 1" >> trio_tmp.fam
 echo "fam1 son dad mom 1 1" >> trio_tmp.fam
-plink2 --silent --bfile trio_tmp --geno 0.6 --make-bed --out trio
+plink19 --silent --bfile trio_tmp --geno 0.6 --make-bed --out trio
 rm trio_tmp*
 rm set.txt
 echo "1 10 20 set1" > set.txt

@@ -104,7 +104,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (21 Jul 2016)";
+  " (31 Jul 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -10825,9 +10825,9 @@ int32_t main(int32_t argc, char** argv) {
 	    if (ld_info.modifier & LD_MATRIX_SHAPEMASK) {
 	      logerrprint("Error: Multiple --r/--r2 shape modifiers.\n");
 	      goto main_ret_INVALID_CMDLINE;
-	    } else if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DPRIME | LD_WITH_FREQS)) {
+	    } else if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DX | LD_WITH_FREQS)) {
 	    main_r2_matrix_conflict:
-              sprintf(g_logbuf, "Error: --r/--r2 '%s' cannot be used with matrix output.\n", (ld_info.modifier & LD_INTER_CHR)? "inter-chr" : ((ld_info.modifier & LD_INPHASE)? "in-phase" : ((ld_info.modifier & LD_DPRIME)? "dprime" : "with-freqs")));
+              sprintf(g_logbuf, "Error: --r/--r2 '%s' cannot be used with matrix output.\n", (ld_info.modifier & LD_INTER_CHR)? "inter-chr" : ((ld_info.modifier & LD_INPHASE)? "in-phase" : ((ld_info.modifier & LD_DX)? "d'/'dprime'/'dprime-signed" : "with-freqs")));
 	      goto main_ret_INVALID_CMDLINE_2A;
 	    }
 	    ld_info.modifier |= LD_MATRIX_SQ;
@@ -10835,7 +10835,7 @@ int32_t main(int32_t argc, char** argv) {
 	    if (ld_info.modifier & LD_MATRIX_SHAPEMASK) {
 	      logerrprint("Error: Multiple --r/--r2 shape modifiers.\n");
 	      goto main_ret_INVALID_CMDLINE;
-	    } else if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DPRIME | LD_WITH_FREQS)) {
+	    } else if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DX | LD_WITH_FREQS)) {
 	      goto main_r2_matrix_conflict;
 	    }
 	    ld_info.modifier |= LD_MATRIX_SQ0;
@@ -10843,7 +10843,7 @@ int32_t main(int32_t argc, char** argv) {
 	    if (ld_info.modifier & LD_MATRIX_SHAPEMASK) {
 	      logerrprint("Error: Multiple --r/--r2 shape modifiers.\n");
 	      goto main_ret_INVALID_CMDLINE;
-	    } else if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DPRIME | LD_WITH_FREQS)) {
+	    } else if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DX | LD_WITH_FREQS)) {
 	      goto main_r2_matrix_conflict;
 	    }
 	    ld_info.modifier |= LD_MATRIX_TRI;
@@ -10859,7 +10859,7 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	    ld_info.modifier |= LD_REPORT_GZ;
 	  } else if (!strcmp(argv[cur_arg + uii], "bin")) {
-	    if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DPRIME | LD_WITH_FREQS)) {
+	    if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DX | LD_WITH_FREQS)) {
 	      goto main_r2_matrix_conflict;
 	    } else if (ld_info.modifier & (LD_REPORT_GZ | LD_MATRIX_BIN4)) {
 	      logerrprint("Error: Conflicting --r/--r2 modifiers.\n");
@@ -10870,7 +10870,7 @@ int32_t main(int32_t argc, char** argv) {
 	    }
 	    ld_info.modifier |= LD_MATRIX_BIN;
 	  } else if (!strcmp(argv[cur_arg + uii], "bin4")) {
-	    if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DPRIME | LD_WITH_FREQS)) {
+	    if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DX | LD_WITH_FREQS)) {
 	      goto main_r2_matrix_conflict;
 	    } else if (ld_info.modifier & (LD_REPORT_GZ | LD_MATRIX_BIN)) {
 	      logerrprint("Error: Conflicting --r/--r2 modifiers.\n");
@@ -10884,7 +10884,7 @@ int32_t main(int32_t argc, char** argv) {
 	    logerrprint("Error: --r/--r2 'single-prec' modifier has been retired.  Use 'bin4'.\n");
 	    goto main_ret_INVALID_CMDLINE;
 	  } else if (!strcmp(argv[cur_arg + uii], "spaces")) {
-	    if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DPRIME | LD_WITH_FREQS)) {
+	    if (ld_info.modifier & (LD_INTER_CHR | LD_INPHASE | LD_DX | LD_WITH_FREQS)) {
 	      goto main_r2_matrix_conflict;
 	    } else if (ld_info.modifier & (LD_MATRIX_BIN | LD_MATRIX_BIN4)) {
 	      logerrprint("Error: --r/--r2 'bin{4}' and 'spaces' modifiers cannot be used together.\n");
@@ -10896,10 +10896,32 @@ int32_t main(int32_t argc, char** argv) {
             if (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_MATRIX_BIN | LD_MATRIX_BIN4 | LD_MATRIX_SPACES)) {
 	      goto main_r2_matrix_conflict;
 	    }
+	  } else if (!strcmp(argv[cur_arg + uii], "d")) {
+	    ld_info.modifier |= LD_D;
+            if (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_MATRIX_BIN | LD_MATRIX_BIN4 | LD_MATRIX_SPACES)) {
+	      goto main_r2_matrix_conflict;
+	    }
+	    if (ld_info.modifier & (LD_DPRIME | LD_DPRIME_SIGNED)) {
+	      logerrprint("Error: --r/--r2 'd' cannot be used with 'dprime'/'dprime-signed'.\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
 	  } else if (!strcmp(argv[cur_arg + uii], "dprime")) {
 	    ld_info.modifier |= LD_DPRIME;
             if (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_MATRIX_BIN | LD_MATRIX_BIN4 | LD_MATRIX_SPACES)) {
 	      goto main_r2_matrix_conflict;
+	    }
+	    if (ld_info.modifier & (LD_D | LD_DPRIME_SIGNED)) {
+	      logerrprint("Error: --r/--r2 'dprime' cannot be used with 'd'/'dprime-signed'.\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	  } else if (!strcmp(argv[cur_arg + uii], "dprime-signed")) {
+	    ld_info.modifier |= LD_DPRIME_SIGNED;
+            if (ld_info.modifier & (LD_MATRIX_SHAPEMASK | LD_MATRIX_BIN | LD_MATRIX_BIN4 | LD_MATRIX_SPACES)) {
+	      goto main_r2_matrix_conflict;
+	    }
+	    if (ld_info.modifier & (LD_D | LD_DPRIME)) {
+	      logerrprint("Error: --r/--r2 'dprime-signed' cannot be used with 'd'/'dprime'.\n");
+	      goto main_ret_INVALID_CMDLINE;
 	    }
 	  } else if (!strcmp(argv[cur_arg + uii], "with-freqs")) {
 	    ld_info.modifier |= LD_WITH_FREQS;
