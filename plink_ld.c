@@ -5253,6 +5253,7 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
   uint32_t chrom_idx;
   uint32_t chrom_end;
   uint32_t cur_marker_pos;
+  double cur_marker_cm;
   uint32_t is_last_block;
   uint32_t uii;
   if (bigstack_alloc_uc(262144, &overflow_buf) ||
@@ -5403,6 +5404,8 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
 	uii = 1;
       }
       if (!is_inter_chr) {
+	// uii == 0 if we can perform an incremental update, 1 if we need
+	// fully-powered window_back()/window_forward()
 	if (uii) {
 	  if (idx1_subset) {
 	    marker_uidx2_back = window_back(marker_pos, marker_cms, marker_exclude, next_unset_unsafe(marker_exclude, chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx]), marker_uidx1_tmp, window_size_m1, window_bp, window_cm, &window_trail_ct);
@@ -5431,19 +5434,43 @@ int32_t ld_report_dprime(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uintp
 		next_unset_unsafe_ck(marker_exclude, &marker_uidx2_back);
 	      }
 	    }
+	    if (marker_cms) {
+	      cur_marker_cm = marker_cms[marker_uidx1_tmp] - window_cm;
+	      while (marker_cms[marker_uidx2_back] < cur_marker_cm) {
+		window_trail_ct--;
+		marker_uidx2_back++;
+		next_unset_unsafe_ck(marker_exclude, &marker_uidx2_back);
+	      }
+	    }
 	  }
 	  if (marker_uidx2_fwd < chrom_last) {
 	    cur_marker_pos = marker_pos[marker_uidx1_tmp] + window_bp;
-	    while (marker_pos[marker_uidx2_fwd2] <= cur_marker_pos) {
-	      marker_uidx2_fwd = marker_uidx2_fwd2;
-	      window_lead_ct++;
-	      if (marker_uidx2_fwd == chrom_last) {
-		break;
+	    if (!marker_cms) {
+	      while (marker_pos[marker_uidx2_fwd2] <= cur_marker_pos) {
+		marker_uidx2_fwd = marker_uidx2_fwd2;
+		window_lead_ct++;
+		if (marker_uidx2_fwd == chrom_last) {
+		  break;
+		}
+		marker_uidx2_fwd2++;
+		next_unset_unsafe_ck(marker_exclude, &marker_uidx2_fwd2);
+		if (window_lead_ct > window_size_m1) {
+		  break;
+		}
 	      }
-	      marker_uidx2_fwd2++;
-	      next_unset_unsafe_ck(marker_exclude, &marker_uidx2_fwd2);
-	      if (window_lead_ct > window_size_m1) {
-		break;
+	    } else {
+	      cur_marker_cm = marker_cms[marker_uidx1_tmp] + window_cm;
+	      while ((marker_pos[marker_uidx2_fwd2] <= cur_marker_pos) && (marker_cms[marker_uidx2_fwd2] <= window_cm)) {
+		marker_uidx2_fwd = marker_uidx2_fwd2;
+		window_lead_ct++;
+		if (marker_uidx2_fwd == chrom_last) {
+		  break;
+		}
+		marker_uidx2_fwd2++;
+		next_unset_unsafe_ck(marker_exclude, &marker_uidx2_fwd2);
+		if (window_lead_ct > window_size_m1) {
+		  break;
+		}
 	      }
 	    }
 	  }
@@ -5670,6 +5697,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
   uint32_t chrom_idx2;
   uint32_t chrom_end2;
   uint32_t cur_marker_pos;
+  double cur_marker_cm;
   uint32_t is_last_block;
   uint32_t uii;
   int32_t ii;
@@ -5914,6 +5942,8 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
 	uii = 1;
       }
       if (!is_inter_chr) {
+	// uii == 0 if we can perform an incremental update, 1 if we need
+	// fully-powered window_back()/window_forward()
 	if (uii) {
 	  if (idx1_subset) {
 	    marker_uidx2_back = window_back(marker_pos, marker_cms, marker_exclude, next_unset_unsafe(marker_exclude, chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx]), marker_uidx1_tmp, window_size_m1, window_bp, window_cm, &window_trail_ct);
@@ -5942,19 +5972,43 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
 		next_unset_unsafe_ck(marker_exclude, &marker_uidx2_back);
 	      }
 	    }
+	    if (marker_cms) {
+	      cur_marker_cm = marker_cms[marker_uidx1_tmp] - window_cm;
+	      while (marker_cms[marker_uidx2_back] < cur_marker_cm) {
+		window_trail_ct--;
+		marker_uidx2_back++;
+		next_unset_unsafe_ck(marker_exclude, &marker_uidx2_back);
+	      }
+	    }
 	  }
 	  if (marker_uidx2_fwd < chrom_last) {
 	    cur_marker_pos = marker_pos[marker_uidx1_tmp] + window_bp;
-	    while (marker_pos[marker_uidx2_fwd2] <= cur_marker_pos) {
-	      marker_uidx2_fwd = marker_uidx2_fwd2;
-	      window_lead_ct++;
-	      if (marker_uidx2_fwd == chrom_last) {
-		break;
+	    if (!marker_cms) {
+	      while (marker_pos[marker_uidx2_fwd2] <= cur_marker_pos) {
+		marker_uidx2_fwd = marker_uidx2_fwd2;
+		window_lead_ct++;
+		if (marker_uidx2_fwd == chrom_last) {
+		  break;
+		}
+		marker_uidx2_fwd2++;
+		next_unset_unsafe_ck(marker_exclude, &marker_uidx2_fwd2);
+		if (window_lead_ct > window_size_m1) {
+		  break;
+		}
 	      }
-	      marker_uidx2_fwd2++;
-	      next_unset_unsafe_ck(marker_exclude, &marker_uidx2_fwd2);
-	      if (window_lead_ct > window_size_m1) {
-		break;
+	    } else {
+	      cur_marker_cm = marker_cms[marker_uidx1_tmp] + window_bp;
+	      while ((marker_pos[marker_uidx2_fwd2] <= cur_marker_pos) && (marker_cms[marker_uidx2_fwd2] <= cur_marker_cm)) {
+		marker_uidx2_fwd = marker_uidx2_fwd2;
+		window_lead_ct++;
+		if (marker_uidx2_fwd == chrom_last) {
+		  break;
+		}
+		marker_uidx2_fwd2++;
+		next_unset_unsafe_ck(marker_exclude, &marker_uidx2_fwd2);
+		if (window_lead_ct > window_size_m1) {
+		  break;
+		}
 	      }
 	    }
 	  }
