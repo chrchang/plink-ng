@@ -2543,6 +2543,8 @@ int32_t write_map_or_bim(char* outname, uintptr_t* marker_exclude, uintptr_t mar
   uint32_t chrom_end = 0;
   uint32_t chrom_fo_idx = 0xffffffffU;
   uint32_t chrom_idx = 0;
+  const char* output_missing_geno_ptr = g_output_missing_geno_ptr;
+  const char* missing_geno_ptr = (g_missing_geno_ptr == g_output_missing_geno_ptr)? nullptr : g_missing_geno_ptr;
   char* buf_start = nullptr;
   uintptr_t marker_idx;
   char* bufptr;
@@ -2569,10 +2571,19 @@ int32_t write_map_or_bim(char* outname, uintptr_t* marker_exclude, uintptr_t mar
       goto write_map_or_bim_ret_WRITE_FAIL;
     }
     if (marker_allele_ptrs) {
+      // quasi-bugfix: --missing-genotype + --output-missing-genotype did not
+      // have the expected behavior with regular --make-bed (though it *did*
+      // already do the right thing when sorting the .bim...)
       putc_unlocked(delim, outfile);
-      fputs(marker_allele_ptrs[2 * marker_uidx], outfile);
-      putc_unlocked(delim, outfile);
-      fputs(marker_allele_ptrs[2 * marker_uidx + 1], outfile);
+      if (!missing_geno_ptr) {
+	fputs(marker_allele_ptrs[2 * marker_uidx], outfile);
+	putc_unlocked(delim, outfile);
+	fputs(marker_allele_ptrs[2 * marker_uidx + 1], outfile);
+      } else {
+	fputs(cond_replace(marker_allele_ptrs[2 * marker_uidx], missing_geno_ptr, output_missing_geno_ptr), outfile);
+	putc_unlocked(delim, outfile);
+	fputs(cond_replace(marker_allele_ptrs[2 * marker_uidx + 1], missing_geno_ptr, output_missing_geno_ptr), outfile);
+      }
     }
     putc_unlocked('\n', outfile);
   }
