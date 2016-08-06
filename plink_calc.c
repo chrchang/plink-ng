@@ -5153,7 +5153,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
       }
       set_allele_freq_buf[ujj] = set_allele_freqs[marker_uidx];
       if (nchrobs) {
-	nchrobs_buf[ujj] = nchrobs[ujj];
+	nchrobs_buf[ujj] = nchrobs[marker_uidx];
       }
       // See comments in incr_genome(): the PPC test is time-critical and
       // we do a bit of unusual precomputation here to speed it up.
@@ -5186,7 +5186,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
       if (mp_lead_unfiltered_idx < unfiltered_marker_ct) {
 	ulii = 2 * (mp_lead_idx - marker_idx);
 	if (ulii < BITCT + (2 * (ujj & (~(BITCT2 - 1))))) {
-	  ulii = ~ZEROLU << (ulii & (BITCT - 1));
+	  ulii = (~ZEROLU) << (ulii & (BITCT - 1));
 	}
       } else {
 	ulii = 2 * (unfiltered_marker_ct + GENOME_MULTIPLEX);
