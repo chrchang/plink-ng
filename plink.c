@@ -104,7 +104,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (5 Aug 2016)";
+  " (8 Aug 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -9241,7 +9241,6 @@ int32_t main(int32_t argc, char** argv) {
 	  misc_flags |= MISC_SPLIT_MERGE_NOFAIL;
 	}
 	misc_flags |= MISC_MERGEX;
-	goto main_param_zero;
       } else if (!memcmp(argptr2, "issing-var-code", 16)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
