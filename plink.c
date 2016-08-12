@@ -9452,6 +9452,7 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(g_logbuf, "Error: Invalid --mac parameter '%s'.\n", argv[cur_arg + 1]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
+	filter_flags |= FILTER_ALL_REQ | FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "ax-mac", 7)) {
 	UNSTABLE("max-mac");
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
@@ -9465,6 +9466,7 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --max-mac parameter cannot be smaller than --mac parameter.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
+	filter_flags |= FILTER_ALL_REQ | FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "lma", 4)) {
         logerrprint("Error: --mlma is not implemented yet.\n");
         goto main_ret_INVALID_CMDLINE;
