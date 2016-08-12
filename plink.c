@@ -104,10 +104,10 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (8 Aug 2016)";
+  " (12 Aug 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has a trailing letter)
 #else
@@ -9459,6 +9459,7 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	if (scan_uint_defcap(argv[cur_arg + 1], &max_ac)) {
 	  sprintf(g_logbuf, "Error: Invalid --max-mac parameter '%s'.\n", argv[cur_arg + 1]);
+	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
         if (max_ac < min_ac) {
 	  logerrprint("Error: --max-mac parameter cannot be smaller than --mac parameter.\n");
