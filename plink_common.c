@@ -4812,6 +4812,9 @@ int32_t try_to_add_chrom_name(const char* chrom_name, const char* file_descrip, 
   }
   if ((in_name_stack && chrom_info_ptr->is_include_stack) || ((!in_name_stack) && (!chrom_info_ptr->is_include_stack))) {
     SET_BIT(chrom_code_end, chrom_info_ptr->chrom_mask);
+    if (chrom_info_ptr->haploid_mask[0] & 1) {
+      SET_BIT(chrom_code_end, chrom_info_ptr->haploid_mask);
+    }
   }
   memcpy(nonstd_names[chrom_code_end], chrom_name, name_slen + 1);
   *chrom_idx_ptr = (int32_t)chrom_code_end;
