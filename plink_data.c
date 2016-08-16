@@ -4114,7 +4114,7 @@ int32_t load_fam(char* famname, uint32_t fam_cols, uint32_t tmp_fam_col_6, int32
   return retval;
 }
 
-#define D_EPSILON 0.000244140625
+#define D_EPSILON 0.001220703125
 
 int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outname_end, char* single_chr, char* pheno_name, double hard_call_threshold, char* missing_code, int32_t missing_pheno, uint64_t misc_flags, uint32_t is_bgen, Chrom_info* chrom_info_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
@@ -4688,17 +4688,18 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 		      goto oxford_to_bed_ret_INVALID_DOSAGE;
 		    }
 		    dxx = strtod(bufptr, &bufptr2) + dyy;
-		    if (drand < dyy) {
+		    if (drand < dxx) {
 		      ulii = 0;
 		    } else if (dxx < 1 - D_EPSILON) {
 		      ulii = 1;
 		    } else {
-		      // fully called genotype probabilities may add up to less
-		      // than one due to rounding error.  If this appears to
-		      // have happened, do NOT make a missing call; instead
-		      // rescale everything to add to one and reinterpret the
-		      // random number.  (D_EPSILON is currently set to make 4
-		      // decimal place precision safe to use.)
+		      // fully called genotype probabilities may add up to
+		      // less than one due to rounding error.  If this
+		      // appears to have happened, do NOT make a missing
+		      // call; instead rescale everything to add to one and
+		      // reinterpret the random number.  (D_EPSILON is
+		      // currently set to make 3 decimal place precision safe
+		      // to use.)
 		      drand *= dxx;
 		      if (drand < dzz) {
 			ulii = 3;
