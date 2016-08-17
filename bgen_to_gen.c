@@ -10,6 +10,10 @@
 #include <unistd.h>
 #endif
 
+#ifdef __APPLE__
+  #include <sys/sysctl.h> // sysctl()
+#endif
+
 // #include <sys/stat.h>
 #include <sys/types.h>
 
@@ -403,8 +407,141 @@ int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
   return retval;
 }
 
-int32_t main(int32_t argc, char** argv) {
-  if (argc != 3) {
-    fputs("Usage: bgen_to_gen [input .bgen] [output .gen]", stdout);
+int32_t init_logfile(uint32_t always_stderr, char* outname, char* outname_end) {
+  memcpy(outname_end, ".log", 5);
+  g_logfile = fopen(outname, "w");
+  if (!g_logfile) {
+    fflush(stdout);
+    fprintf(stderr, "Error: Failed to open %s for logging.\n", outname);
+    return RET_OPEN_FAIL;
   }
+  fprintf(always_stderr? stderr : stdout, "Logging to %s.\n", outname);
+  return 0;
+}
+
+void cleanup_logfile() {
+  if (g_logfile) {
+    if (!g_log_failed) {
+      logstr("\nEnd time: ");
+      time_t rawtime;
+      time(&rawtime);
+      logstr(ctime(&rawtime));
+      if (fclose(g_logfile)) {
+	fflush(stdout);
+	fputs("Error: Failed to finish writing to log.\n", stderr);
+      }
+    } else {
+      fclose(g_logfile);
+    }
+    g_logfile = nullptr;
+  }
+}
+
+uintptr_t detect_mb() {
+  int64_t llxx;
+  // return zero if detection failed
+  // see e.g. http://nadeausoftware.com/articles/2012/09/c_c_tip_how_get_physical_memory_size_system .
+#ifdef __APPLE__
+  int32_t mib[2];
+  mib[0] = CTL_HW;
+  mib[1] = HW_MEMSIZE;
+  llxx = 0;
+  size_t sztmp = sizeof(int64_t);
+  sysctl(mib, 2, &llxx, &sztmp, nullptr, 0);
+  llxx /= 1048576;
+#else
+#ifdef _WIN32
+  MEMORYSTATUSEX memstatus;
+  memstatus.dwLength = sizeof(memstatus);
+  GlobalMemoryStatusEx(&memstatus);
+  llxx = memstatus.ullTotalPhys / 1048576;
+#else
+  llxx = ((uint64_t)sysconf(_SC_PHYS_PAGES)) * ((size_t)sysconf(_SC_PAGESIZE)) / 1048576;
+#endif
+#endif
+  return llxx;
+}
+
+uintptr_t get_default_alloc_mb() {
+  const uintptr_t total_mb = detect_mb();
+  if (!total_mb) {
+    return BIGSTACK_DEFAULT_MB;
+  }
+  if (total_mb < (BIGSTACK_MIN_MB * 2)) {
+    return BIGSTACK_MIN_MB;
+  }
+  return (total_mb / 2);
+}
+
+int32_t init_bigstack(uintptr_t malloc_size_mb, uintptr_t* malloc_mb_final_ptr, unsigned char** bigstack_ua_ptr) {
+  // guarantee contiguous malloc space outside of main workspace
+  unsigned char* bubble = (unsigned char*)malloc(NON_BIGSTACK_MIN);
+  if (!bubble) {
+    return RET_NOMEM;
+  }
+  assert(malloc_size_mb >= BIGSTACK_MIN_MB);
+#ifndef __LP64__
+  assert(malloc_size_mb <= 2047);
+#endif
+  unsigned char* bigstack_ua = (unsigned char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
+  while (!bigstack_ua) {
+    malloc_size_mb = (malloc_size_mb * 3) / 4;
+    if (malloc_size_mb < BIGSTACK_MIN_MB) {
+      malloc_size_mb = BIGSTACK_MIN_MB;
+    }
+    bigstack_ua = (unsigned char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
+    if ((!bigstack_ua) && (malloc_size_mb == BIGSTACK_MIN_MB)) {
+      // switch to "goto cleanup" pattern if any more exit points are needed
+      free(bubble);
+      return RET_NOMEM;
+    }
+  }
+  // force 64-byte align to make cache line sensitivity work
+  unsigned char* bigstack_initial_base = (unsigned char*)round_up_pow2((uintptr_t)bigstack_ua, CACHELINE);
+  g_bigstack_base = bigstack_initial_base;
+  g_bigstack_end = &(bigstack_initial_base[(malloc_size_mb * 1048576 - (uintptr_t)(bigstack_initial_base - bigstack_ua)) & (~(CACHELINE - ONELU))]);
+  free(bubble);
+  *malloc_mb_final_ptr = malloc_size_mb;
+  *bigstack_ua_ptr = bigstack_ua;
+  return 0;
+}
+
+int32_t main(int32_t argc, char** argv) {
+  unsigned char* bigstack_ua = nullptr;
+  int32_t retval;
+  {
+    if (argc != 3) {
+      fputs("Usage: bgen_to_gen [input .bgen] [output .gen]\n", stdout);
+      goto main_ret_INVALID_CMDLINE;
+    }
+    char outname[16];
+    char* outname_end = strcpya(outname, "bgen_to_gen");
+    if (init_logfile(0, outname, outname_end)) {
+      goto main_ret_OPEN_FAIL;
+    }
+    uintptr_t malloc_mb_final;
+    if (init_bigstack(get_default_alloc_mb(), &malloc_mb_final, &bigstack_ua)) {
+      goto main_ret_NOMEM;
+    }
+    retval = bgen_to_gen(argv[1], argv[2], 0);
+    if (retval) {
+      goto main_ret_1;
+    }
+  }
+  while (0) {
+  main_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  main_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  main_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
+  }
+ main_ret_1:
+  if (bigstack_ua) {
+    free(bigstack_ua);
+  }
+  return retval;
 }
