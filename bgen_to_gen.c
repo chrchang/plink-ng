@@ -15,98 +15,65 @@
 
 #define D_EPSILON 0.000244140625
 
+char* div32768_print(uint32_t rawval, char* start) {
+  *start++ = ' ';
+  *start++ = '0' + (rawval >= 32768);
+  rawval = rawval % 32768;
+  if (!rawval) {
+    return start;
+  }
+  *start++ = '.';
+  // we wish to print (100000 * remainder + 16384) / 32768, rounded up,
+  // left-0-padded
+  const uint32_t five_decimal_places = (3125 * rawval + 512) / 1024;
+  const uint32_t first_decimal_place = five_decimal_places / 10000;
+  *start++ = '0' + first_decimal_place;
+  return uitoa_z4(five_decimal_places - first_decimal_place * 10000, start);
+}
+
 int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* infile = nullptr;
+  FILE* in_bgenfile = nullptr;
   FILE* out_genfile = nullptr;
-  uintptr_t mc_ct = 0;
-  uintptr_t max_mc_len = 0;
-  uintptr_t line_idx = 0;
-  char* loadbuf = nullptr;
-  char* sorted_mc = nullptr;
-
-  uint32_t sample_ct = 0;
-  uint32_t col_ct = 3;
-  uint32_t is_binary_pheno = 0;
-  uint32_t bgen_hardthresh = 0;
-  uint32_t marker_ct = 0;
-  int32_t retval = 0;
-  uint32_t uint_arr[5];
-  char* bufptr;
-  char* bufptr2;
-  char* bufptr3;
-  char* bufptr4;
-  char* wptr;
-  uintptr_t* writebuf;
-  uintptr_t* ulptr;
-  uint16_t* bgen_probs;
-  uint16_t* usptr;
-  uintptr_t loadbuf_size;
-  uintptr_t slen;
-  uintptr_t cur_word;
-  uintptr_t ulii;
-  uintptr_t uljj;
-  double dxx;
-  double dyy;
-  double dzz;
-  double drand;
-  uLongf zlib_ulongf;
-  uint32_t missing_pheno_len;
-  uint32_t marker_uidx;
-  uint32_t sample_ct4;
-  uint32_t sample_ctl2;
-  uint32_t sample_idx;
-  uint32_t col_idx;
-  uint32_t shiftval;
-  uint32_t bgen_compressed;
-  uint32_t bgen_multichar_alleles;
-  uint32_t identical_alleles;
-  uint32_t ujj;
-  uint32_t ukk;
-  int32_t ii;
-  uint16_t usii;
-  uint16_t usjj;
-  uint16_t uskk;
-  char cc;
-  char cc2;
+  int32_t retval;
   {
     if (fopen_checked(out_genname, FOPEN_WB, &out_genfile)) {
       goto bgen_to_gen_ret_OPEN_FAIL;
     }
 
-    uint32_t uint_arr[5];
     if (fopen_checked(bgenname, FOPEN_RB, &in_bgenfile)) {
       goto bgen_to_gen_ret_OPEN_FAIL;
     }
-    if (fread(uint_arr, 1, 20, in_bgenfile) < 20) {
+    uint32_t initial_uints[5];
+    if (!fread(initial_uints, 20, 1, in_bgenfile)) {
       goto bgen_to_gen_ret_READ_FAIL;
     }
-    if (uint_arr[1] > uint_arr[0]) {
+    if (initial_uints[1] > initial_uints[0]) {
       logerrprint("Error: Invalid .bgen header.\n");
       goto bgen_to_gen_ret_INVALID_FORMAT;
     }
-    const uint32_t raw_marker_ct = uint_arr[2];
-    if (!raw_marker_ct) {
+    const uint32_t raw_variant_ct = initial_uints[2];
+    if (!raw_variant_ct) {
       logerrprint("Error: .bgen file contains no variants.\n");
       goto bgen_to_gen_ret_INVALID_FORMAT;
     }
-    const uint32_t sample_ct = uint_arr[3];
-    if (uint_arr[4] && (uint_arr[4] != 0x6e656762)) {
+    const uint32_t sample_ct = initial_uints[3];
+    if (initial_uints[4] && (initial_uints[4] != 0x6e656762)) {
       logerrprint("Error: Invalid .bgen magic number.\n");
       goto bgen_to_gen_ret_INVALID_FORMAT;
     }
-    if (fseeko(in_bgenfile, uint_arr[1], SEEK_SET)) {
+    if (fseeko(in_bgenfile, initial_uints[1], SEEK_SET)) {
       goto bgen_to_gen_ret_READ_FAIL;
     }
-    uint32_t uii;
-    if (fread(&uii, 1, 4, in_bgenfile) < 4) {
+    uint32_t header_flags;
+    if (!fread(&header_flags, 4, 1, in_bgenfile)) {
       goto bgen_to_gen_ret_READ_FAIL;
     }
-    if (uii & (~5)) {
-      uii = (uii >> 2) & 15;
-      if (uii == 2) {
+    if (header_flags & (~5)) {
+      header_flags = (header_flags >> 2) & 15;
+      if (header_flags == 2) {
 	logerrprint("Error: BGEN v1.2 input is not yet supported.  Use gen-convert or a similar tool\nto downcode to BGEN v1.1.\n");
-      } else if (uii > 2) {
+      } else if (header_flags > 2) {
 	logerrprint("Error: Unrecognized BGEN version.  Use gen-convert or a similar tool to\ndowncode to BGEN v1.1.\n");
       } else {
 	logerrprint("Error: Unrecognized flags in .bgen header.\n");
@@ -114,11 +81,17 @@ int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
       goto bgen_to_gen_ret_INVALID_FORMAT;
     }
 
-    // supports BGEN v1.0 and v1.1.
+    // supports BGEN v1.1.
     uint16_t* bgen_probs = (uint16_t*)bigstack_alloc(6LU * sample_ct);
     if (!bgen_probs) {
       goto bgen_to_gen_ret_NOMEM;
     }
+    char* writebuf;
+    // three 5-decimal-place floating point values per sample
+    if (bigstack_alloc_c(sample_ct * 24LU, &writebuf)) {
+      goto bgen_to_gen_ret_NOMEM;
+    }
+    const uint32_t sample_ctx3 = sample_ct * 3;
     char* loadbuf = (char*)g_bigstack_base;
     uintptr_t loadbuf_size = bigstack_left();
     if (loadbuf_size > MAXLINEBUFLEN) {
@@ -126,163 +99,152 @@ int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
     } else if (loadbuf_size < 3 * 65536) {
       goto bgen_to_gen_ret_NOMEM;
     }
-    if (fseeko(in_bgenfile, 4 + uint_arr[0], SEEK_SET)) {
+    if (fseeko(in_bgenfile, 4 + initial_uints[0], SEEK_SET)) {
       goto bgen_to_gen_ret_READ_FAIL;
     }
-    bgen_compressed = uii & 1;
-    bgen_multichar_alleles = (uii >> 2) & 1;
-    memcpyl3(g_textbuf, " 0 ");
-    for (marker_uidx = 0; marker_uidx < raw_marker_ct; marker_uidx++) {
-      if (fread(&uii, 1, 4, in_bgenfile) < 4) {
+    const uint32_t bgen_compressed = header_flags & 1;
+    const uint32_t bgen_multichar_alleles = (header_flags >> 2) & 1;
+    if (!bgen_multichar_alleles) {
+      logerrprint("BGEN v1.0 support is not implemented yet.\n");
+      goto bgen_to_gen_ret_INVALID_FORMAT;
+    }
+    char numbuf[16];
+    numbuf[0] = ' ';
+
+    if (fopen_checked(out_genname, FOPEN_WB, &out_genfile)) {
+      goto bgen_to_gen_ret_OPEN_FAIL;
+    }
+    for (uint32_t variant_uidx = 0; variant_uidx < raw_variant_ct; variant_uidx++) {
+      uint32_t uii;
+      if (!fread(&uii, 4, 1, in_bgenfile)) {
 	goto bgen_to_gen_ret_READ_FAIL;
       }
       if (uii != sample_ct) {
 	logerrprint("Error: Unexpected number of samples specified in SNP block header.\n");
 	goto bgen_to_gen_ret_INVALID_FORMAT;
       }
-      if (bgen_multichar_alleles) {
+      char* wptr;
+      uint32_t alleles_are_identical;
+      if (1) {
+      // if (bgen_multichar_alleles) {
 	// v1.1
-	if (fread(&usii, 1, 2, in_bgenfile) < 2) {
+	uint16_t snpid_slen;
+	if (!fread(&snpid_slen, 2, 1, in_bgenfile)) {
 	  goto bgen_to_gen_ret_READ_FAIL;
 	}
+	char* rsid_start = loadbuf;
 	if (!snpid_chr) {
-	  if (fseeko(in_bgenfile, usii, SEEK_CUR)) {
+	  if (fseeko(in_bgenfile, snpid_slen, SEEK_CUR)) {
 	    goto bgen_to_gen_ret_READ_FAIL;
 	  }
-	  bufptr = loadbuf;
 	} else {
-	  if (!usii) {
+	  if (!snpid_slen) {
 	    logerrprint("Error: Length-0 SNP ID in .bgen file.\n");
 	    goto bgen_to_gen_ret_INVALID_FORMAT;
 	  }
-	  if (fread(loadbuf, 1, usii, in_bgenfile) < usii) {
+	  if (!fread(loadbuf, snpid_slen, 1, in_bgenfile)) {
 	    goto bgen_to_gen_ret_READ_FAIL;
 	  }
-	  loadbuf[usii] = '\0';
-	  bufptr = &(loadbuf[usii + 1]);
+	  loadbuf[snpid_slen] = '\0';
+	  rsid_start = &(loadbuf[snpid_slen + 1]);
 	}
-	if (fread(&usjj, 1, 2, in_bgenfile) < 2) {
+	uint16_t rsid_slen;
+	if (!fread(&rsid_slen, 2, 1, in_bgenfile)) {
 	  goto bgen_to_gen_ret_READ_FAIL;
 	}
-	if (!usjj) {
+	if (!rsid_slen) {
 	  logerrprint("Error: Length-0 rsID in .bgen file.\n");
 	  goto bgen_to_gen_ret_INVALID_FORMAT;
 	}
-	if (fread(bufptr, 1, usjj, in_bgenfile) < usjj) {
+	if (!fread(rsid_start, rsid_slen, 1, in_bgenfile)) {
 	  goto bgen_to_gen_ret_READ_FAIL;
 	}
-	bufptr2 = &(bufptr[usjj]);
-	if (fread(&uskk, 1, 2, in_bgenfile) < 2) {
+	char* chrom_name_start = &(rsid_start[rsid_slen]);
+	uint16_t chrom_name_slen;
+	if (fread(&chrom_name_slen, 1, 2, in_bgenfile) < 2) {
 	  goto bgen_to_gen_ret_READ_FAIL;
 	}
 	if (!snpid_chr) {
-	  if (!uskk) {
+	  if (!chrom_name_slen) {
 	    logerrprint("Error: Length-0 chromosome ID in .bgen file.\n");
 	    goto bgen_to_gen_ret_INVALID_FORMAT;
 	  }
-	  usii = uskk;
-	  if (fread(bufptr2, 1, usii, in_bgenfile) < usii) {
+	  if (!fread(chrom_name_start, chrom_name_slen, 1, in_bgenfile)) {
 	    goto bgen_to_gen_ret_READ_FAIL;
 	  }
-	  if ((usii == 2) && (!memcmp(bufptr2, "NA", 2))) {
+	  if ((chrom_name_slen == 2) && (!memcmp(chrom_name_start, "NA", 2))) {
 	    // convert 'NA' to 0
-	    usii = 1;
-	    memcpy(bufptr2, "0", 2);
+	    memcpy(chrom_name_start, "0", 2);
 	  } else {
-	    bufptr2[usii] = '\0';
+	    chrom_name_start[chrom_name_slen] = '\0';
 	  }
 	} else {
-	  if (fseeko(in_bgenfile, uskk, SEEK_CUR)) {
+	  if (fseeko(in_bgenfile, chrom_name_slen, SEEK_CUR)) {
 	    goto bgen_to_gen_ret_READ_FAIL;
 	  }
-	  bufptr2 = loadbuf;
+	  chrom_name_start = loadbuf;
 	}
-	if (fread(uint_arr, 1, 8, in_bgenfile) < 8) {
+	uint32_t bp_and_a1len[2];
+	if (!fread(bp_and_a1len, 8, 1, in_bgenfile)) {
 	  goto bgen_to_gen_ret_READ_FAIL;
 	}
-	if (!uint_arr[1]) {
+	if (!bp_and_a1len[1]) {
 	  logerrprint("Error: Length-0 allele ID in .bgen file.\n");
 	  goto bgen_to_gen_ret_INVALID_FORMAT;
 	}
-	// bufptr2 (chromosome code) is already zero-terminated, with known
-	// length usii
-	int32_t cur_chrom_code;
-	retval = get_or_add_chrom_code(bufptr2, ".bgen file", 0, usii, allow_extra_chroms, chrom_info_ptr, &cur_chrom_code);
-	if (retval) {
-	  goto bgen_to_gen_ret_1;
-	}
-	if (!is_set(chrom_info_ptr->chrom_mask, cur_chrom_code)) {
-	  // skip rest of current SNP
-	  if (fseeko(in_bgenfile, uint_arr[1], SEEK_CUR)) {
-	    goto bgen_to_gen_ret_READ_FAIL;
-	  }
-	  if (fread(&uii, 1, 4, in_bgenfile) < 4) {
-	    goto bgen_to_gen_ret_READ_FAIL;
-	  }
-	  if (bgen_compressed) {
-	    if (fseeko(in_bgenfile, uii, SEEK_CUR)) {
-	      goto bgen_to_gen_ret_READ_FAIL;
-	    }
-	    if (fread(&uii, 1, 4, in_bgenfile) < 4) {
-	      goto bgen_to_gen_ret_READ_FAIL;
-	    }
-	    if (fseeko(in_bgenfile, uii, SEEK_CUR)) {
-	      goto bgen_to_gen_ret_READ_FAIL;
-	    }
-	  } else {
-	    if (fseeko(in_bgenfile, uii + ((uint64_t)sample_ct) * 6, SEEK_CUR)) {
-	      goto bgen_to_gen_ret_READ_FAIL;
-	    }
-	  }
-	  continue;
-	}
-	fputs(bufptr2, outfile_bim);
-	if (putc_checked(' ', outfile_bim)) {
+	// chrom_name_start (chromosome code) is already zero-terminated
+	fputs(chrom_name_start, out_genfile);
+	if (putc_checked(' ', out_genfile)) {
 	  goto bgen_to_gen_ret_WRITE_FAIL;
 	}
-	fwrite(bufptr, 1, usjj, outfile_bim);
-	bufptr = uint32toa_x(uint_arr[0], ' ', &(g_textbuf[3]));
-	fwrite(g_textbuf, 1, bufptr - g_textbuf, outfile_bim);
+	fwrite(rsid_start, 1, rsid_slen, out_genfile);
+	wptr = uint32toa_x(bp_and_a1len[0], ' ', &(numbuf[1]));
+	fwrite(numbuf, 1, wptr - numbuf, out_genfile);
 
 	// halve the limit since there are two alleles
 	// (may want to enforce NON_BIGSTACK_MIN allele length limit?)
-	if (uint_arr[1] >= loadbuf_size / 2) {
+	if (bp_and_a1len[1] >= loadbuf_size / 2) {
 	  if (loadbuf_size < MAXLINEBUFLEN) {
 	    goto bgen_to_gen_ret_NOMEM;
 	  }
 	  logerrprint("Error: Excessively long allele in .bgen file.\n");
 	  goto bgen_to_gen_ret_INVALID_FORMAT;
 	}
-	if (fread(loadbuf, 1, uint_arr[1], in_bgenfile) < uint_arr[1]) {
+	if (!fread(loadbuf, bp_and_a1len[1], 1, in_bgenfile)) {
 	  goto bgen_to_gen_ret_READ_FAIL;
 	}
-	loadbuf[uint_arr[1]] = ' ';
-	if (fread(&uii, 1, 4, in_bgenfile) < 4) {
+	loadbuf[bp_and_a1len[1]] = ' ';
+	uint32_t a2len;
+	if (!fread(&a2len, 4, 1, in_bgenfile)) {
 	  goto bgen_to_gen_ret_READ_FAIL;
 	}
-	if (uii >= loadbuf_size / 2) {
+	if (a2len >= loadbuf_size / 2) {
 	  if (loadbuf_size < MAXLINEBUFLEN) {
 	    goto bgen_to_gen_ret_NOMEM;
 	  }
 	  logerrprint("Error: Excessively long allele in .bgen file.\n");
 	  goto bgen_to_gen_ret_INVALID_FORMAT;
 	}
-	bufptr = &(loadbuf[uint_arr[1] + 1]);
-	if (fread(bufptr, 1, uii, in_bgenfile) < uii) {
+	char* a2_start = &(loadbuf[bp_and_a1len[1] + 1]);
+	if (!fread(a2_start, a2len, 1, in_bgenfile)) {
 	  goto bgen_to_gen_ret_READ_FAIL;
 	}
-	bufptr[uii] = '\n';
-	identical_alleles = (uii == uint_arr[1]) && (!memcmp(loadbuf, bufptr, uii));
-	if (!identical_alleles) {
-	  if (fwrite_checked(loadbuf, uint_arr[1] + uii + 2, outfile_bim)) {
+	alleles_are_identical = (a2len == bp_and_a1len[1]) && (!memcmp(loadbuf, a2_start, a2len));
+	if (!alleles_are_identical) {
+	  if (fwrite_checked(loadbuf, bp_and_a1len[1] + a2len + 1, out_genfile)) {
 	    goto bgen_to_gen_ret_WRITE_FAIL;
 	  }
 	} else {
-	  fputs("0 ", outfile_bim);
-	  if (fwrite_checked(bufptr, uii + 1, outfile_bim)) {
+	  logerrprint("Error: A variant in the .bgen file has identical alleles.\n");
+	  goto bgen_to_gen_ret_INVALID_FORMAT;
+	  /*
+	  fputs("0 ", out_genfile);
+	  if (fwrite_checked(a2_start, a2len, out_genfile)) {
 	    goto bgen_to_gen_ret_WRITE_FAIL;
 	  }
+	  */
 	}
+	/*
       } else {
 	// v1.0
 	uii = 0;
@@ -346,8 +308,8 @@ int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
 	fwrite(&(loadbuf[uii + 2]), 1, ukk, outfile_bim);
 	memcpy(&ujj, &(loadbuf[2 * uii + 3]), 4);
 	bufptr = uint32toa_x(ujj, ' ', &(g_textbuf[3]));
-	identical_alleles = (loadbuf[2 * uii + 7] == loadbuf[2 * uii + 8]);
-	if (!identical_alleles) {
+	alleles_are_identical = (loadbuf[2 * uii + 7] == loadbuf[2 * uii + 8]);
+	if (!alleles_are_identical) {
 	  *bufptr++ = loadbuf[2 * uii + 7];
 	} else {
 	  *bufptr++ = '0';
@@ -358,108 +320,39 @@ int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
 	if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile_bim)) {
 	  goto bgen_to_gen_ret_WRITE_FAIL;
 	}
+	*/
       }
       if (bgen_compressed) {
-	if (fread(&uii, 1, 4, in_bgenfile) < 4) {
+	uint32_t compressed_block_blen;
+	if (!fread(&compressed_block_blen, 4, 1, in_bgenfile)) {
 	  goto bgen_to_gen_ret_READ_FAIL;
 	}
-	if (uii > loadbuf_size) {
+	if (compressed_block_blen > loadbuf_size) {
 	  if (loadbuf_size < MAXLINEBUFLEN) {
 	    goto bgen_to_gen_ret_NOMEM;
 	  }
 	  logerrprint("Error: Excessively long compressed SNP block in .bgen file.\n");
 	  goto bgen_to_gen_ret_INVALID_FORMAT;
 	}
-	if (fread(loadbuf, 1, uii, in_bgenfile) < uii) {
+	if (!fread(loadbuf, compressed_block_blen, 1, in_bgenfile)) {
 	  goto bgen_to_gen_ret_READ_FAIL;
 	}
-	zlib_ulongf = 6 * sample_ct;
-	if (uncompress((Bytef*)bgen_probs, &zlib_ulongf, (Bytef*)loadbuf, uii) != Z_OK) {
+	uLongf zlib_ulongf = 6 * sample_ct;
+	if (uncompress((Bytef*)bgen_probs, &zlib_ulongf, (Bytef*)loadbuf, compressed_block_blen) != Z_OK) {
 	  logerrprint("Error: Invalid compressed SNP block in .bgen file.\n");
 	  goto bgen_to_gen_ret_INVALID_FORMAT;
 	}
       } else {
-	if (fread(bgen_probs, 1, 6 * sample_ct, in_bgenfile) < 6 * sample_ct) {
+	if (!fread(bgen_probs, 6 * sample_ct, 1, in_bgenfile)) {
 	  goto bgen_to_gen_ret_READ_FAIL;
 	}
       }
-      cur_word = 0;
-      shiftval = 0;
-      ulptr = writebuf;
-      usptr = bgen_probs;
-      if (!is_randomized) {
-	for (sample_idx = 0; sample_idx < sample_ct; sample_idx++, usptr = &(usptr[3])) {
-	  if (usptr[2] >= bgen_hardthresh) {
-	    ulii = 3;
-	  } else if (usptr[1] >= bgen_hardthresh) {
-	    ulii = 2;
-	  } else if (usptr[0] >= bgen_hardthresh) {
-	    ulii = 0;
-	  } else {
-	    ulii = 1;
-	  }
-	  cur_word |= ulii << shiftval;
-	  shiftval += 2;
-	  if (shiftval == BITCT) {
-	    *ulptr++ = cur_word;
-	    cur_word = 0;
-	    shiftval = 0;
-	  }
-	}
-      } else {
-	uii = 0;
-	for (sample_idx = 0; sample_idx < sample_ct; sample_idx++, usptr = &(usptr[3])) {
-	  // fast handling of common cases
-	  ukk = usptr[2];
-	  if (ukk >= 32768) {
-	    ulii = 3;
-	  } else if (usptr[1] >= 32768) {
-	    ulii = 2;
-	  } else if (usptr[0] >= 32768) {
-	    ulii = 0;
-	  } else {
-	    while (1) {
-	      uii >>= 16;
-	      if (!uii) {
-		uii = sfmt_genrand_uint32(&g_sfmt) | 0x80000000U;
-	      }
-	      ujj = uii & 32767;
-	      if (ujj < ukk) {
-		ulii = 3;
-		break;
-	      } else {
-		ukk += usptr[1];
-		if (ujj < ukk) {
-		  ulii = 2;
-		  break;
-		} else {
-		  ukk += usptr[0];
-		  if (ujj < ukk) {
-		    ulii = 0;
-		    break;
-		  } else if (ukk < 32766) {
-		    ulii = 1;
-		    break;
-		  } else {
-		    ukk = usptr[2];
-		  }
-		}
-	      }
-	    }
-	  }
-	  cur_word |= ulii << shiftval;
-	  shiftval += 2;
-	  if (shiftval == BITCT) {
-	    *ulptr++ = cur_word;
-	    cur_word = 0;
-	    shiftval = 0;
-	  }
-	}
+      wptr = writebuf;
+      for (uint32_t prob_idx = 0; prob_idx < sample_ctx3; ++prob_idx) {
+	wptr = div32768_print(bgen_probs[prob_idx], wptr);
       }
-      if (shiftval) {
-	*ulptr++ = cur_word;
-      }
-      if (identical_alleles) {
+      /*
+      if (alleles_are_identical) {
 	for (ulptr = writebuf; ulptr < (&(writebuf[sample_ctl2])); ulptr++) {
 	  ulii = *ulptr;
 	  *ulptr = ((~ulii) << 1) | ulii | FIVEMASK;
@@ -468,16 +361,12 @@ int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
 	  writebuf[sample_ctl2 - 1] &= (ONELU << (2 * (sample_ct % BITCT2))) - ONELU;
 	}
       }
-      if (fwrite_checked(writebuf, sample_ct4, outfile)) {
+      */
+      if (fwrite_checked(writebuf, wptr - writebuf, out_genfile)) {
 	goto bgen_to_gen_ret_WRITE_FAIL;
       }
-      marker_ct++;
-      if (!(marker_ct % 1000)) {
-	if (marker_ct == marker_uidx + 1) {
-	  printf("\r--bgen: %uk variants converted.", marker_ct / 1000);
-	} else {
-	  printf("\r--bgen: %uk variants converted (out of %u).", marker_ct / 1000, marker_uidx + 1);
-	}
+      if (!(variant_uidx % 1000)) {
+	printf("\r--bgen: %uk variants converted.", variant_uidx / 1000);
 	fflush(stdout);
       }
     }
@@ -487,9 +376,9 @@ int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
     if (fclose_null(&out_genfile)) {
       goto bgen_to_gen_ret_WRITE_FAIL;
     }
+    retval = 0;
     putc_unlocked('\r', stdout);
-    *outname_end = '\0';
-    LOGPRINTFWW("%s.bed + %s.bim + %s.fam written.\n", outname, outname, outname);
+    LOGPRINTFWW("%s written.\n", out_genname);
   }
   while (0) {
   bgen_to_gen_ret_NOMEM:
@@ -504,32 +393,10 @@ int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
   bgen_to_gen_ret_WRITE_FAIL:
     retval = RET_WRITE_FAIL;
     break;
-  bgen_to_gen_ret_MISSING_TOKENS:
-    LOGERRPRINTF("Error: Line %" PRIuPTR " of .sample file has fewer tokens than expected.\n", line_idx);
-    retval = RET_INVALID_FORMAT;
-    break;
-  bgen_to_gen_ret_SAMPLE_LONG_LINE:
-    LOGERRPRINTF("Error: Line %" PRIuPTR " of .sample file is pathologically long.\n", line_idx);
-    retval = RET_INVALID_FORMAT;
-    break;
-  bgen_to_gen_ret_INVALID_SAMPLE_HEADER_2:
-    logerrprint("Error: Invalid second header line in .sample file.\n");
-    retval = RET_INVALID_FORMAT;
-    break;
-  bgen_to_gen_ret_INVALID_SAMPLE_HEADER_1:
-    logerrprint("Error: Invalid first header line in .sample file.\n");
-    retval = RET_INVALID_FORMAT;
-    break;
-  bgen_to_gen_ret_INVALID_FORMAT_2:
-    logerrprintb();
   bgen_to_gen_ret_INVALID_FORMAT:
     retval = RET_INVALID_FORMAT;
     break;
-  bgen_to_gen_ret_INVALID_CMDLINE:
-    retval = RET_INVALID_CMDLINE;
-    break;
   }
- bgen_to_gen_ret_1:
   fclose_cond(in_bgenfile);
   fclose_cond(out_genfile);
   bigstack_reset(bigstack_mark);

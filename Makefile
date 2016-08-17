@@ -101,5 +101,8 @@ dose2plink32: dose2plink.c
 dose2plink: dose2plink.c
 	g++ -Wall -O2 -lm dose2plink.c -o dose2plink -L. $(ZLIB64)
 
+bgen_to_gen: bgen_to_gen.c plink_common.c SFMT.c
+	g++ -x c++ -Wall -O2 bgen_to_gen.c plink_common.c SFMT.c -o bgen_to_gen -L. $(ZLIB64)
+
 clobber:
 	rm -f *.o
