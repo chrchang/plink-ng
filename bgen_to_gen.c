@@ -366,6 +366,7 @@ int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
 	}
       }
       */
+      *wptr++ = '\n';
       if (fwrite_checked(writebuf, wptr - writebuf, out_genfile)) {
 	goto bgen_to_gen_ret_WRITE_FAIL;
       }
@@ -540,6 +541,7 @@ int32_t main(int32_t argc, char** argv) {
     break;
   }
  main_ret_1:
+  cleanup_logfile();
   if (bigstack_ua) {
     free(bigstack_ua);
   }
