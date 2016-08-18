@@ -19,6 +19,42 @@
 
 #define D_EPSILON 0.000244140625
 
+static const char digit2_table[200] = {
+  '0', '0', '0', '1', '0', '2', '0', '3', '0', '4',
+  '0', '5', '0', '6', '0', '7', '0', '8', '0', '9',
+  '1', '0', '1', '1', '1', '2', '1', '3', '1', '4',
+  '1', '5', '1', '6', '1', '7', '1', '8', '1', '9',
+  '2', '0', '2', '1', '2', '2', '2', '3', '2', '4',
+  '2', '5', '2', '6', '2', '7', '2', '8', '2', '9',
+  '3', '0', '3', '1', '3', '2', '3', '3', '3', '4',
+  '3', '5', '3', '6', '3', '7', '3', '8', '3', '9',
+  '4', '0', '4', '1', '4', '2', '4', '3', '4', '4',
+  '4', '5', '4', '6', '4', '7', '4', '8', '4', '9',
+  '5', '0', '5', '1', '5', '2', '5', '3', '5', '4',
+  '5', '5', '5', '6', '5', '7', '5', '8', '5', '9',
+  '6', '0', '6', '1', '6', '2', '6', '3', '6', '4',
+  '6', '5', '6', '6', '6', '7', '6', '8', '6', '9',
+  '7', '0', '7', '1', '7', '2', '7', '3', '7', '4',
+  '7', '5', '7', '6', '7', '7', '7', '8', '7', '9',
+  '8', '0', '8', '1', '8', '2', '8', '3', '8', '4',
+  '8', '5', '8', '6', '8', '7', '8', '8', '8', '9',
+  '9', '0', '9', '1', '9', '2', '9', '3', '9', '4',
+  '9', '5', '9', '6', '9', '7', '9', '8', '9', '9'};
+
+static inline char* uitoa_trunc4(uint32_t uii, char* start) {
+  uint32_t quotient = uii / 100;
+  memcpy(start, &(digit2_table[quotient * 2]), 2);
+  uii -= 100 * quotient;
+  if (uii) {
+    start += 2;
+    memcpy(start, &(digit2_table[uii * 2]), 2);
+  }
+  if (start[1] != '0') {
+    return &(start[2]);
+  }
+  return &(start[1]);
+}
+
 char* div32768_print(uint32_t rawval, char* start) {
   *start++ = ' ';
   *start++ = '0' + (rawval >= 32768);
@@ -27,12 +63,20 @@ char* div32768_print(uint32_t rawval, char* start) {
     return start;
   }
   *start++ = '.';
-  // we wish to print (100000 * remainder + 16384) / 32768, rounded up,
+  // we wish to print (100000 * remainder + 16384) / 32768, banker's-rounded,
   // left-0-padded
-  const uint32_t five_decimal_places = (3125 * rawval + 512) / 1024;
+  uint32_t five_decimal_places = (3125 * rawval + 512) / 1024;
+  if ((rawval % 1024) == 512) {
+    // banker's rounding is relevant for n/64 for n odd.  32768/64 = 512
+    five_decimal_places &= ~1;
+  }
   const uint32_t first_decimal_place = five_decimal_places / 10000;
   *start++ = '0' + first_decimal_place;
-  return uitoa_z4(five_decimal_places - first_decimal_place * 10000, start);
+  const uint32_t last_four_digits = five_decimal_places - first_decimal_place * 10000;
+  if (last_four_digits) {
+    return uitoa_trunc4(last_four_digits, start);
+  }
+  return start;
 }
 
 int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
@@ -371,7 +415,7 @@ int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
 	goto bgen_to_gen_ret_WRITE_FAIL;
       }
       if (!(variant_uidx % 1000)) {
-	printf("\r--bgen: %uk variants converted.", variant_uidx / 1000);
+	printf("\rbgen_to_gen: %uk variants converted.", variant_uidx / 1000);
 	fflush(stdout);
       }
     }
@@ -383,7 +427,7 @@ int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
     }
     retval = 0;
     putc_unlocked('\r', stdout);
-    LOGPRINTFWW("%s written.\n", out_genname);
+    LOGPRINTFWW("bgen_to_gen: %u variants written to %s .\n", raw_variant_ct, out_genname);
   }
   while (0) {
   bgen_to_gen_ret_NOMEM:
