@@ -108,11 +108,14 @@
   #define CTZLU __builtin_ctzl
   #define CLZLU __builtin_clzl
   #ifndef __LP64__
-    #ifndef uintptr_t
-      #define uintptr_t unsigned long
-    #endif
-    #ifndef intptr_t
-      #define intptr_t long
+    // attempt to patch GCC 6 build failure
+    #if (__GNUC__ <= 4) && (__GNUC_MINOR__ < 8)
+      #ifndef uintptr_t
+        #define uintptr_t unsigned long
+      #endif
+      #ifndef intptr_t
+        #define intptr_t long
+      #endif
     #endif
   #endif
 #endif
