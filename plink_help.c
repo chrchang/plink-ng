@@ -403,7 +403,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      .chr-[chr #].recode.phase.inp filename extensions.\n"
 "    * 'fastphase-1chr': Single .recode.phase.inp file.  Does not support\n"
 "      multiple chromosomes.\n"
-"    * 'HV': Per-chromosome Haploview files, with .chr-[chr #].{ped,info}\n"
+"    * 'HV': Per-chromosome Haploview files, with .chr-[chr #][.ped + .info]\n"
 "      filename extensions.\n"
 "    * 'HV-1chr': Single Haploview .ped + .info file pair.  Does not support\n"
 "      multiple chromosomes.\n"
