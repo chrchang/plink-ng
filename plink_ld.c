@@ -1046,7 +1046,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 		// could cache MAFs of all current-window variants, but
 		// get_maf() is too cheap for this to make a noticeable
 		// difference
-		if (get_maf(set_allele_freqs[live_indices[uii]]) < get_maf(set_allele_freqs[live_indices[ujj]])) {
+		if (get_maf(set_allele_freqs[live_indices[uii]]) < (1 - SMALL_EPSILON) * get_maf(set_allele_freqs[live_indices[ujj]])) {
 		  /*
 		  if (debug_print) {
 		    printf("removed %u, kept %u, MAFs %g/%g, r2 %g\n", live_indices[uii], live_indices[ujj], get_maf(set_allele_freqs[live_indices[uii]]), get_maf(set_allele_freqs[live_indices[ujj]]), dxx);
@@ -10587,7 +10587,7 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
 		  at_least_one_prune = 1;
 		  cur_exclude_ct++;
 		  // remove marker with lower MAF
-		  if (get_maf(set_allele_freqs[live_indices[ulii]]) < get_maf(set_allele_freqs[live_indices[uljj]])) {
+		  if (get_maf(set_allele_freqs[live_indices[ulii]]) < (1 - SMALL_EPSILON) * get_maf(set_allele_freqs[live_indices[uljj]])) {
 		    SET_BIT(live_indices[ulii], pruned_arr);
 		  } else {
 		    SET_BIT(live_indices[uljj], pruned_arr);
