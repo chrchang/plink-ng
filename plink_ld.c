@@ -10705,7 +10705,7 @@ int32_t indep_pairphase(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uint
 	next_unset_ck(marker_exclude, chrom_end, &window_unfiltered_end);
       }
       if (cur_window_size > prev_end) {
-	start_arr[cur_window_size] = window_unfiltered_end;
+	start_arr[cur_window_size - 1] = window_unfiltered_end;
       }
     }
     putc_unlocked('\r', stdout);
