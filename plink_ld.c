@@ -1047,8 +1047,18 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 		// get_maf() is too cheap for this to make a noticeable
 		// difference
 		if (get_maf(set_allele_freqs[live_indices[uii]]) < get_maf(set_allele_freqs[live_indices[ujj]])) {
+		  /*
+		  if (debug_print) {
+		    printf("removed %u, kept %u, MAFs %g/%g, r2 %g\n", live_indices[uii], live_indices[ujj], get_maf(set_allele_freqs[live_indices[uii]]), get_maf(set_allele_freqs[live_indices[ujj]]), dxx);
+		  }
+		  */
 		  SET_BIT(live_indices[uii], pruned_arr);
 		} else {
+		  /*
+		  if (debug_print) {
+		    printf("removed %u, kept %u, MAFs %g/%g, r2 %g\n", live_indices[ujj], live_indices[uii], get_maf(set_allele_freqs[live_indices[ujj]]), get_maf(set_allele_freqs[live_indices[uii]]), dxx);
+		  }
+		  */
 		  SET_BIT(live_indices[ujj], pruned_arr);
 		  ujj++;
 		  while (ujj < cur_window_size) {
@@ -1283,7 +1293,7 @@ int32_t ld_prune(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
 	next_unset_ck(marker_exclude, chrom_end, &window_unfiltered_end);
       }
       if (cur_window_size > prev_end) {
-	start_arr[cur_window_size] = window_unfiltered_end;
+	start_arr[cur_window_size - 1] = window_unfiltered_end;
       }
     }
     putc_unlocked('\r', stdout);
