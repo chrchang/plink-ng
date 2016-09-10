@@ -7920,15 +7920,12 @@ int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* o
   }
  transposed_to_bed_ret_1:
   chrom_info_ptr->zero_extra_chroms = orig_zec;
-  printf("step 1\n");
   for (uii = 0; uii < allele_tot; uii++) {
     if (alleles[uii][1]) {
       free(alleles[uii]);
     }
   }
-  printf("step 2\n");
   cleanup_allele_storage(max_marker_allele_blen - 1, marker_ct * 2, marker_allele_ptrs);
-  printf("step 3\n");
   fclose_cond(infile);
   fclose_cond(bimfile);
   fclose_cond(outfile);
