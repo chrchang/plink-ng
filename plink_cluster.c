@@ -473,6 +473,8 @@ int32_t load_clusters(char* fname, uintptr_t unfiltered_sample_ct, uintptr_t* sa
 	sorted_idx = bsearch_str(cluster_name_ptr, slen, sorted_remove_ids, max_cluster_kr_len, cluster_kr_ct);
 	if (sorted_idx != -1) {
 	  set_bit(sample_uidx, sample_exclude_new);
+	  // bugfix: forgot to avoid incrementing assigned_ct
+	  continue;
 	}
       }
       if (slen >= max_cluster_id_len) {
