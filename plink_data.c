@@ -13015,18 +13015,11 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	    invalid_allele_code_seen = 1;
 	  }
 	  // if ALT allele was not actually present in immediate dataset, VCF
-	  // spec actually required '.'
+	  // spec actually used to require '.'
 	  // this restriction was contrary to practice (even by the 1000G team)
-	  // and should be retroactively removed very soon: see
-	  // github.com/samtools/hts-specs/pull/152
-	  if (!is_monomorphic_a2(loadbuf_collapsed, sample_ct)) {
-	    if (flexbputs_checked(cptr, output_bgz, outfile, bgz_outfile)) {
-	      goto recode_ret_WRITE_FAIL;
-	    }
-	  } else {
-	    if (flexbputc_checked('.', output_bgz, outfile, bgz_outfile)) {
-	      goto recode_ret_WRITE_FAIL;
-	    }
+	  // and was removed from plink after b3.41.
+	  if (flexbputs_checked(cptr, output_bgz, outfile, bgz_outfile)) {
+	    goto recode_ret_WRITE_FAIL;
 	  }
 	} else {
 	  if (flexbputc_checked('.', output_bgz, outfile, bgz_outfile)) {
