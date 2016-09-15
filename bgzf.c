@@ -23,6 +23,8 @@
    THE SOFTWARE.
 */
 
+#define _FILE_OFFSET_BITS 64
+
 #include <errno.h>
 #include <unistd.h>
 #include <assert.h>

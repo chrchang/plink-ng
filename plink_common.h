@@ -3,6 +3,8 @@
 #ifndef __PLINK_COMMON_H__
 #define __PLINK_COMMON_H__
 
+#define _FILE_OFFSET_BITS 64
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -736,7 +738,6 @@ HEADER_INLINE uint32_t round_up_pow2_ui(uint32_t val, uint32_t alignment) {
 #define MAXV(aa, bb) (((bb) > (aa))? (bb) : (aa))
 #define MINV(aa, bb) (((aa) > (bb))? (bb) : (aa))
 
-#define _FILE_OFFSET_BITS 64
 #ifdef _WIN32
 // if MAX_THREADS > 65, single WaitForMultipleObjects calls must be converted
 // into loops
