@@ -4760,7 +4760,7 @@ int32_t try_to_add_chrom_name(const char* chrom_name, const char* file_descrip, 
   // assumes chrom_name is nonstandard (i.e. not "2", "chr2", "chrX", etc.)
   // requires chrom_name to be null-terminated
   // assumes chrom_idx currently has the return value of get_chrom_code()
-  if ((!allow_extra_chroms) || ((*chrom_idx_ptr) == -2)) {
+  if ((!allow_extra_chroms) || ((*chrom_idx_ptr) == -1)) {
     chrom_error(chrom_name, file_descrip, chrom_info_ptr, line_idx, *chrom_idx_ptr);
     return RET_MALFORMED_INPUT;
   }
