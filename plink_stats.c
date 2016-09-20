@@ -1949,9 +1949,9 @@ double chi23_eval(intptr_t m11, intptr_t m12, intptr_t row1_sum, intptr_t col1_s
   delta = (col3_sum - m13) - expect;
   chisq += delta * delta / expect;
   if (chisq < (SMALL_EPSILON * SMALL_EPSILON)) {
-    chisq = 0;
+    return 0;
   }
-  return 0;
+  return chisq;
 }
 
 void chi23_evalx(intptr_t m11, intptr_t m12, intptr_t m13, intptr_t m21, intptr_t m22, intptr_t m23, double* chip, uint32_t* dfp) {

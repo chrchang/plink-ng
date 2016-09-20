@@ -4809,15 +4809,20 @@ THREAD_RET_TYPE model_maxt_gen_thread(void* arg) {
     for (; marker_bidx < marker_bceil; marker_bidx++) {
       if (model_fisher) {
 	if (orig_pvals[marker_idx] == -9) {
+	model_maxt_gen_thread_skip_marker:
 	  marker_idx++;
+	  if (msa_ptr) {
+	    for (pidx = 0; pidx < perm_vec_ct; ++pidx) {
+	      *msa_ptr++ = -9;
+	    }
+	  }
 	  continue;
 	}
 	stat_high = orig_pvals[marker_idx] * (1.0 + EPSILON);
 	stat_low = orig_pvals[marker_idx] * (1.0 - EPSILON);
       } else {
 	if (orig_chisq[marker_idx] == -9) {
-	  marker_idx++;
-	  continue;
+	  goto model_maxt_gen_thread_skip_marker;
 	}
 	stat_high = orig_chisq[marker_idx] + EPSILON;
 	stat_low = orig_chisq[marker_idx] - EPSILON;
