@@ -12851,7 +12851,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	goto recode_ret_OPEN_FAIL;
       }
     } else {
-      memcpy(outname_end, ".vcf.gz", 7);
+      memcpy(outname_end, ".vcf.gz", 8);
       bgz_outfile = bgzf_open(outname, "w");
       if (!bgz_outfile) {
 	goto recode_ret_OPEN_FAIL;
