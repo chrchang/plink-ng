@@ -3283,7 +3283,7 @@ uint32_t enforce_hwe_threshold(double hwe_thresh, uintptr_t unfiltered_marker_ct
     logerrprint("Warning: --hwe has no effect since entire genome is haploid.\n");
     return 0;
   }
-  hwe_thresh *= 1 + SMALL_EPSILON;
+  hwe_thresh *= 1 - SMALL_EPSILON;
   if (hwe_all) {
     hwe_lhs = hwe_lh_allfs;
     hwe_lls = hwe_ll_allfs;
