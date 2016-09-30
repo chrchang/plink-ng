@@ -6207,7 +6207,7 @@ int32_t model_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, cha
       goto model_assoc_ret_WRITE_FAIL;
     }
     if (display_ci) {
-      uii = (uint32_t)((int32_t)(ci_size * 100));
+      uii = (uint32_t)((int32_t)(ci_size * (100 + EPSILON)));
       if (uii >= 10) {
 	fprintf(outfile, "          SE          L%u          U%u ", uii, uii);
       } else {
@@ -11070,7 +11070,7 @@ int32_t cmh_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char*
   fflush(stdout);
   sprintf(g_textbuf, " CHR %%%us         BP   A1      MAF   A2      CHISQ          P         OR         SE        ", plink_maxsnp);
   fprintf(outfile, g_textbuf, "SNP");
-  uii = (uint32_t)((int32_t)(ci_size * 100));
+  uii = (uint32_t)((int32_t)(ci_size * (100 + EPSILON)));
   if (uii >= 10) {
     fprintf(outfile, "L%u        U%u ", uii, uii);
   } else {

@@ -2203,7 +2203,7 @@ int32_t tdt(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outna
   sprintf(textbuf, " CHR %%%us           BP  A1  A2      T      U           OR ", plink_maxsnp);
   fprintf(outfile, textbuf, "SNP");
   if (display_ci) {
-    uii = (uint32_t)((int32_t)(ci_size * 100));
+    uii = (uint32_t)((int32_t)(ci_size * (100 + EPSILON)));
     if (uii >= 10) {
       fprintf(outfile, "         L%u          U%u ", uii, uii);
     } else {

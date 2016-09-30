@@ -4911,7 +4911,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   sprintf(g_textbuf, " CHR %%%us         BP   A1       TEST    NMISS       BETA ", plink_maxsnp);
   fprintf(outfile, g_textbuf, "SNP");
   if (display_ci) {
-    uii = (uint32_t)((int32_t)(ci_size * 100));
+    uii = (uint32_t)((int32_t)(ci_size * (100 + EPSILON)));
     if (uii >= 10) {
       fprintf(outfile, "      SE      L%u      U%u ", uii, uii);
     } else {
@@ -6389,7 +6389,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   sprintf(g_textbuf, " CHR %%%us         BP   A1       TEST    NMISS       %s ", plink_maxsnp, report_odds? "  OR" : "BETA");
   fprintf(outfile, g_textbuf, "SNP");
   if (display_ci) {
-    uii = (uint32_t)((int32_t)(ci_size * 100));
+    uii = (uint32_t)((int32_t)(ci_size * (100 + EPSILON)));
     if (uii >= 10) {
       fprintf(outfile, "      SE      L%u      U%u ", uii, uii);
     } else {
@@ -7578,7 +7578,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
   fflush(stdout);
   fputs("      TEST    NMISS       BETA ", outfile);
   if (display_ci) {
-    uii = (uint32_t)((int32_t)(ci_size * 100));
+    uii = (uint32_t)((int32_t)(ci_size * (100 + EPSILON)));
     if (uii >= 10) {
       fprintf(outfile, "      SE      L%u      U%u ", uii, uii);
     } else {
@@ -8361,7 +8361,7 @@ int32_t glm_logistic_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
   fflush(stdout);
   fprintf(outfile, "      TEST    NMISS       %s ", report_odds? "  OR" : "BETA");
   if (display_ci) {
-    uii = (uint32_t)((int32_t)(ci_size * 100));
+    uii = (uint32_t)((int32_t)(ci_size * (100 + EPSILON)));
     if (uii >= 10) {
       fprintf(outfile, "      SE      L%u      U%u ", uii, uii);
     } else {
