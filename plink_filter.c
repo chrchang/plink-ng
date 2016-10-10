@@ -280,7 +280,7 @@ int32_t extract_exclude_flag_norange(char* fname, uint32_t* marker_id_htable, ui
     }
     if (!bufsize) {
       if (curtoklen) {
-	g_textbuf = ' '; // bugfix for no-\n-on-last-line case
+	g_textbuf[MAXLINELEN] = ' '; // bugfix for no-\n-on-last-line case
         extract_exclude_process_token(&(g_textbuf[MAXLINELEN - curtoklen]), marker_id_htable, marker_id_htable_size, extra_alloc_base, marker_ids, max_marker_id_len, marker_exclude, already_seen, &duplicate_ct, do_exclude, curtoklen);
       }
       break;
