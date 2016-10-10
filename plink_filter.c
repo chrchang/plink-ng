@@ -280,6 +280,7 @@ int32_t extract_exclude_flag_norange(char* fname, uint32_t* marker_id_htable, ui
     }
     if (!bufsize) {
       if (curtoklen) {
+	g_textbuf = ' '; // bugfix for no-\n-on-last-line case
         extract_exclude_process_token(&(g_textbuf[MAXLINELEN - curtoklen]), marker_id_htable, marker_id_htable_size, extra_alloc_base, marker_ids, max_marker_id_len, marker_exclude, already_seen, &duplicate_ct, do_exclude, curtoklen);
       }
       break;
@@ -3048,7 +3049,7 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   return retval;
 }
 
-int32_t hardy_report_write_line(Pigz_state* ps_ptr, char** pzwritep_ptr, char* prefix_buf, uint32_t prefix_len, uint32_t reverse, uint32_t ll_ct, uint32_t lh_ct, uint32_t hh_ct, uint32_t hwe_midp, uint32_t is_mt, char* midbuf_ptr, double pval, double output_min_p) {
+int32_t hardy_report_write_line(Pigz_state* ps_ptr, char** pzwritep_ptr, char* prefix_buf, uint32_t prefix_len, uint32_t reverse, uint32_t ll_ct, uint32_t lh_ct, uint32_t hh_ct, uint32_t hwe_midp, uint32_t is_mt, double pval, double output_min_p) {
   char* pzwritep = *pzwritep_ptr;
   char wbuf[48];
   char* cptr;
@@ -3199,7 +3200,7 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
 	cptr5 = fw_strcpy(4, cptr4, &(cptr5[1]));
 	*cptr5 = ' ';
 	prefix_len = 1 + (cptr5 - writebuf);
-	if (hardy_report_write_line(&ps, &pzwritep, writebuf, prefix_len, reverse, hwe_ll_allfs[marker_uidx], hwe_lh_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], hwe_midp, is_mt, cptr2, p_values[marker_idx], output_min_p)) {
+	if (hardy_report_write_line(&ps, &pzwritep, writebuf, prefix_len, reverse, hwe_ll_allfs[marker_uidx], hwe_lh_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], hwe_midp, is_mt, p_values[marker_idx], output_min_p)) {
 	  goto hardy_report_ret_WRITE_FAIL;
 	}
       }
@@ -3238,17 +3239,17 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
 	cptr5 = fw_strcpy(4, cptr4, &(cptr5[1]));
 	*cptr5 = ' ';
 	prefix_len = 1 + (cptr5 - writebuf);
-	if (hardy_report_write_line(&ps, &pzwritep, writebuf, prefix_len, reverse, hwe_ll_allfs[marker_uidx], hwe_lh_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], hwe_midp, is_mt, cptr2, p_values[3 * marker_idx], output_min_p)) {
+	if (hardy_report_write_line(&ps, &pzwritep, writebuf, prefix_len, reverse, hwe_ll_allfs[marker_uidx], hwe_lh_allfs[marker_uidx], hwe_hh_allfs[marker_uidx], hwe_midp, is_mt, p_values[3 * marker_idx], output_min_p)) {
 	  goto hardy_report_ret_WRITE_FAIL;
 	}
 
 	memcpy(&(cptr0[7 + plink_maxsnp]), "FF", 2);
-	if (hardy_report_write_line(&ps, &pzwritep, writebuf, prefix_len, reverse, hwe_ll_cases[marker_uidx], hwe_lh_cases[marker_uidx], hwe_hh_cases[marker_uidx], hwe_midp, is_mt, cptr2, p_values[3 * marker_idx + 1], output_min_p)) {
+	if (hardy_report_write_line(&ps, &pzwritep, writebuf, prefix_len, reverse, hwe_ll_cases[marker_uidx], hwe_lh_cases[marker_uidx], hwe_hh_cases[marker_uidx], hwe_midp, is_mt, p_values[3 * marker_idx + 1], output_min_p)) {
 	  goto hardy_report_ret_WRITE_FAIL;
 	}
 
 	memcpy(&(cptr0[4 + plink_maxsnp]), "UN", 2);
-	if (hardy_report_write_line(&ps, &pzwritep, writebuf, prefix_len, reverse, hwe_lls[marker_uidx], hwe_lhs[marker_uidx], hwe_hhs[marker_uidx], hwe_midp, is_mt, cptr2, p_values[3 * marker_idx + 2], output_min_p)) {
+	if (hardy_report_write_line(&ps, &pzwritep, writebuf, prefix_len, reverse, hwe_lls[marker_uidx], hwe_lhs[marker_uidx], hwe_hhs[marker_uidx], hwe_midp, is_mt, p_values[3 * marker_idx + 2], output_min_p)) {
 	  goto hardy_report_ret_WRITE_FAIL;
 	}
       }

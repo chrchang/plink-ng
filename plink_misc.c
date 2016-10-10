@@ -1284,6 +1284,7 @@ int32_t flip_strand(char* flip_fname, uint32_t* marker_id_htable, uint32_t marke
     }
     if (!bufsize) {
       if (curtoklen) {
+	g_textbuf[MAXLINELEN] = ' '; // bugfix for no-\n-on-last-line case
         if (flip_process_token(&(g_textbuf[MAXLINELEN - curtoklen]), marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len, marker_exclude, already_seen, marker_allele_ptrs, &hit_ct, &miss_ct, &non_acgt_ct)) {
 	  goto flip_strand_ret_INVALID_FORMAT_2;
 	}
