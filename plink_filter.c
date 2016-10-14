@@ -3114,7 +3114,6 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
   char* writebuf;
   char* cptr0;
   char* cptr;
-  char* cptr2;
   char* cptr3;
   char* cptr4;
   char* cptr5;
@@ -3172,7 +3171,6 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
     } else {
       memcpy(&(cptr0[plink_maxsnp]), "  ALL(NP)           ", 20);
     }
-    cptr2 = &(cptr[18 + 2 * max_marker_allele_len]);
     for (; pct <= 100; pct++) {
       loop_end = (((uint64_t)pct) * marker_ct) / 100LLU;
       for (; marker_idx < loop_end; marker_uidx++, marker_idx++) {
@@ -3189,7 +3187,6 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
 	  } else {
 	    memcpy(&(cptr0[plink_maxsnp]), "  ALL(NP)           ", 20);
 	  }
-	  cptr2 = &(cptr[18 + 2 * max_marker_allele_len]);
 	}
 	fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), cptr0);
 	reverse = IS_SET(marker_reverse, marker_uidx);
@@ -3214,7 +3211,6 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
     }
   } else {
     memset(&(cptr0[plink_maxsnp]), 32, 20);
-    cptr2 = &(cptr[18 + 2 * max_marker_allele_len]);
     for (; pct <= 100; pct++) {
       loop_end = (((uint64_t)pct) * marker_ct) / 100LLU;
       for (; marker_idx < loop_end; marker_uidx++, marker_idx++) {
@@ -3226,7 +3222,6 @@ int32_t hardy_report(char* outname, char* outname_end, double output_min_p, uint
 	  *cptr0++ = ' ';
           memset(&(cptr0[plink_maxsnp]), 32, 20);
 	  cptr = &(cptr0[10 + plink_maxsnp]);
-	  cptr2 = &(cptr[18 + 2 * max_marker_allele_len]);
 	  prefix_len = 10 + ((uintptr_t)(cptr - writebuf));
 	}
 	fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), cptr0);
