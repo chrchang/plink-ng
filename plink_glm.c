@@ -1792,7 +1792,7 @@ uint32_t glm_logistic(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t sa
   return perm_fail_ct;
 }
 
-uint32_t glm_fill_design(uintptr_t* loadbuf_collapsed, double* fixed_covars_cov_major, uintptr_t sample_valid_ct, uint32_t cur_param_ct, uint32_t coding_flags, uint32_t xchr_model, uintptr_t condition_list_start_idx, uintptr_t interaction_start_idx, uintptr_t sex_start_idx, uintptr_t* active_params, uintptr_t* haploid_params, uint32_t include_sex, uint32_t male_x_01, uintptr_t* sex_male_collapsed, uint32_t is_nonx_haploid, double* cur_covars_cov_major, double* cur_covars_sample_major, uint32_t standard_beta) {
+uint32_t glm_fill_design(uintptr_t* loadbuf_collapsed, double* fixed_covars_cov_major, uintptr_t sample_valid_ct, uint32_t cur_param_ct, uint32_t coding_flags, uintptr_t condition_list_start_idx, uintptr_t interaction_start_idx, uintptr_t sex_start_idx, uintptr_t* active_params, uintptr_t* haploid_params, uint32_t include_sex, uint32_t male_x_01, uintptr_t* sex_male_collapsed, uint32_t is_nonx_haploid, double* cur_covars_cov_major, double* cur_covars_sample_major, uint32_t standard_beta) {
   double* dptr = cur_covars_cov_major;
   uintptr_t* ulptr_end_init = &(loadbuf_collapsed[sample_valid_ct / BITCT2]);
   uintptr_t fixed_covar_nonsex_ct = interaction_start_idx - condition_list_start_idx;
@@ -2210,7 +2210,7 @@ uint32_t glm_fill_design(uintptr_t* loadbuf_collapsed, double* fixed_covars_cov_
   return missing_ct;
 }
 
-uint32_t glm_fill_design_float(uintptr_t* loadbuf_collapsed, float* fixed_covars_cov_major, uintptr_t sample_valid_ct, uint32_t cur_param_ct, uint32_t coding_flags, uint32_t xchr_model, uintptr_t condition_list_start_idx, uintptr_t interaction_start_idx, uintptr_t sex_start_idx, uintptr_t* active_params, uintptr_t* haploid_params, uint32_t include_sex, uint32_t male_x_01, uintptr_t* sex_male_collapsed, uint32_t is_nonx_haploid, float* cur_covars_cov_major) {
+uint32_t glm_fill_design_float(uintptr_t* loadbuf_collapsed, float* fixed_covars_cov_major, uintptr_t sample_valid_ct, uint32_t cur_param_ct, uint32_t coding_flags, uintptr_t condition_list_start_idx, uintptr_t interaction_start_idx, uintptr_t sex_start_idx, uintptr_t* active_params, uintptr_t* haploid_params, uint32_t include_sex, uint32_t male_x_01, uintptr_t* sex_male_collapsed, uint32_t is_nonx_haploid, float* cur_covars_cov_major) {
   // rows of cur_covars_cov_major must be 16-byte aligned
   float* fptr = cur_covars_cov_major;
   uintptr_t* ulptr_end_init = &(loadbuf_collapsed[sample_valid_ct / BITCT2]);
@@ -2690,7 +2690,6 @@ static uintptr_t g_cur_param_ct;
 static uintptr_t g_cur_constraint_ct;
 static uint32_t g_standard_beta;
 static uint32_t g_coding_flags;
-static uint32_t g_glm_xchr_model;
 static uintptr_t g_condition_list_start_idx;
 static uintptr_t g_interaction_start_idx;
 static uintptr_t g_sex_start_idx;
@@ -2742,7 +2741,6 @@ THREAD_RET_TYPE glm_linear_adapt_thread(void* arg) {
   __CLPK_integer dgels_lwork = g_dgels_lwork;
   uint32_t standard_beta = g_standard_beta;
   uint32_t coding_flags = g_coding_flags;
-  uint32_t glm_xchr_model = g_glm_xchr_model;
   uintptr_t condition_list_start_idx = g_condition_list_start_idx;
   uintptr_t interaction_start_idx = g_interaction_start_idx;
   uintptr_t sex_start_idx = g_sex_start_idx;
@@ -2812,7 +2810,7 @@ THREAD_RET_TYPE glm_linear_adapt_thread(void* arg) {
     stat_high = orig_stats[marker_idx] + EPSILON;
     stat_low = orig_stats[marker_idx] - EPSILON;
     loadbuf_ptr = &(loadbuf[marker_bidx * sample_valid_ctv2]);
-    cur_missing_ct = glm_fill_design(loadbuf_ptr, fixed_covars_cov_major, sample_valid_ct, cur_param_ct, coding_flags, glm_xchr_model, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, include_sex, male_x_01, sex_male_collapsed, is_nonx_haploid, cur_covars_cov_major, cur_covars_sample_major, standard_beta);
+    cur_missing_ct = glm_fill_design(loadbuf_ptr, fixed_covars_cov_major, sample_valid_ct, cur_param_ct, coding_flags, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, include_sex, male_x_01, sex_male_collapsed, is_nonx_haploid, cur_covars_cov_major, cur_covars_sample_major, standard_beta);
     cur_sample_valid_ct = sample_valid_ct - cur_missing_ct;
     dgels_m = (int32_t)((uint32_t)cur_sample_valid_ct);
     dgels_ldb = dgels_m;
@@ -2921,7 +2919,6 @@ THREAD_RET_TYPE glm_logistic_adapt_thread(void* arg) {
   uintptr_t cur_param_cta4 = round_up_pow2(cur_param_ct, 4);
   uintptr_t cur_constraint_ct = g_cur_constraint_ct;
   uint32_t coding_flags = g_coding_flags;
-  uint32_t glm_xchr_model = g_glm_xchr_model;
   uintptr_t condition_list_start_idx = g_condition_list_start_idx;
   uintptr_t interaction_start_idx = g_interaction_start_idx;
   uintptr_t sex_start_idx = g_sex_start_idx;
@@ -2988,7 +2985,7 @@ THREAD_RET_TYPE glm_logistic_adapt_thread(void* arg) {
     stat_high = orig_stats[marker_idx] + EPSILON;
     stat_low = orig_stats[marker_idx] - EPSILON;
     loadbuf_ptr = &(loadbuf[marker_bidx * sample_valid_ctv2]);
-    cur_missing_ct = glm_fill_design_float(loadbuf_ptr, fixed_covars_cov_major, sample_valid_ct, cur_param_ct, coding_flags, glm_xchr_model, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, include_sex, male_x_01, sex_male_collapsed, is_nonx_haploid, cur_covars_cov_major);
+    cur_missing_ct = glm_fill_design_float(loadbuf_ptr, fixed_covars_cov_major, sample_valid_ct, cur_param_ct, coding_flags, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, include_sex, male_x_01, sex_male_collapsed, is_nonx_haploid, cur_covars_cov_major);
     cur_sample_valid_ct = sample_valid_ct - cur_missing_ct;
     success_2incr = 0;
     cur_fail_ct = 0;
@@ -3073,7 +3070,6 @@ THREAD_RET_TYPE glm_linear_maxt_thread(void* arg) {
   __CLPK_integer dgels_lwork = g_dgels_lwork;
   uint32_t standard_beta = g_standard_beta;
   uint32_t coding_flags = g_coding_flags;
-  uint32_t glm_xchr_model = g_glm_xchr_model;
   uintptr_t condition_list_start_idx = g_condition_list_start_idx;
   uintptr_t interaction_start_idx = g_interaction_start_idx;
   uintptr_t sex_start_idx = g_sex_start_idx;
@@ -3146,7 +3142,7 @@ THREAD_RET_TYPE glm_linear_maxt_thread(void* arg) {
     stat_high = orig_stats[marker_idx] + EPSILON;
     stat_low = orig_stats[marker_idx] - EPSILON;
     loadbuf_ptr = &(loadbuf[marker_bidx * sample_valid_ctv2]);
-    cur_missing_ct = glm_fill_design(loadbuf_ptr, fixed_covars_cov_major, sample_valid_ct, cur_param_ct, coding_flags, glm_xchr_model, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, include_sex, male_x_01, sex_male_collapsed, is_nonx_haploid, cur_covars_cov_major, cur_covars_sample_major, standard_beta);
+    cur_missing_ct = glm_fill_design(loadbuf_ptr, fixed_covars_cov_major, sample_valid_ct, cur_param_ct, coding_flags, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, include_sex, male_x_01, sex_male_collapsed, is_nonx_haploid, cur_covars_cov_major, cur_covars_sample_major, standard_beta);
     cur_sample_valid_ct = sample_valid_ct - cur_missing_ct;
     dgels_m = (int32_t)((uint32_t)cur_sample_valid_ct);
     dgels_ldb = dgels_m;
@@ -3243,7 +3239,6 @@ THREAD_RET_TYPE glm_logistic_maxt_thread(void* arg) {
   uintptr_t cur_param_cta4 = round_up_pow2(cur_param_ct, 4);
   uintptr_t cur_constraint_ct = g_cur_constraint_ct;
   uint32_t coding_flags = g_coding_flags;
-  uint32_t glm_xchr_model = g_glm_xchr_model;
   uintptr_t condition_list_start_idx = g_condition_list_start_idx;
   uintptr_t interaction_start_idx = g_interaction_start_idx;
   uintptr_t sex_start_idx = g_sex_start_idx;
@@ -3312,7 +3307,7 @@ THREAD_RET_TYPE glm_logistic_maxt_thread(void* arg) {
     stat_high = orig_stats[marker_idx] + EPSILON;
     stat_low = orig_stats[marker_idx] - EPSILON;
     loadbuf_ptr = &(loadbuf[marker_bidx * sample_valid_ctv2]);
-    cur_missing_ct = glm_fill_design_float(loadbuf_ptr, fixed_covars_cov_major, sample_valid_ct, cur_param_ct, coding_flags, glm_xchr_model, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, include_sex, male_x_01, sex_male_collapsed, is_nonx_haploid, cur_covars_cov_major);
+    cur_missing_ct = glm_fill_design_float(loadbuf_ptr, fixed_covars_cov_major, sample_valid_ct, cur_param_ct, coding_flags, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, include_sex, male_x_01, sex_male_collapsed, is_nonx_haploid, cur_covars_cov_major);
     cur_sample_valid_ct = sample_valid_ct - cur_missing_ct;
     success_2incr = 0;
     // todo: try better starting position
@@ -3378,7 +3373,6 @@ THREAD_RET_TYPE glm_linear_set_thread(void* arg) {
   __CLPK_integer dgels_lwork = g_dgels_lwork;
   uint32_t standard_beta = g_standard_beta;
   uint32_t coding_flags = g_coding_flags;
-  uint32_t glm_xchr_model = g_glm_xchr_model;
   uintptr_t condition_list_start_idx = g_condition_list_start_idx;
   uintptr_t interaction_start_idx = g_interaction_start_idx;
   uintptr_t sex_start_idx = g_sex_start_idx;
@@ -3420,7 +3414,7 @@ THREAD_RET_TYPE glm_linear_set_thread(void* arg) {
   for (; marker_bidx < marker_bceil; marker_bidx++) {
     msa_ptr = &(g_mperm_save_all[marker_bidx * perm_vec_ct]);
     loadbuf_ptr = &(loadbuf[marker_bidx * sample_valid_ctv2]);
-    cur_missing_ct = glm_fill_design(loadbuf_ptr, fixed_covars_cov_major, sample_valid_ct, cur_param_ct, coding_flags, glm_xchr_model, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, include_sex, male_x_01, sex_male_collapsed, is_nonx_haploid, cur_covars_cov_major, cur_covars_sample_major, standard_beta);
+    cur_missing_ct = glm_fill_design(loadbuf_ptr, fixed_covars_cov_major, sample_valid_ct, cur_param_ct, coding_flags, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, include_sex, male_x_01, sex_male_collapsed, is_nonx_haploid, cur_covars_cov_major, cur_covars_sample_major, standard_beta);
     cur_sample_valid_ct = sample_valid_ct - cur_missing_ct;
     dgels_m = (int32_t)((uint32_t)cur_sample_valid_ct);
     dgels_ldb = dgels_m;
@@ -3481,7 +3475,6 @@ THREAD_RET_TYPE glm_logistic_set_thread(void* arg) {
   uintptr_t param_ct_m1 = cur_param_ct - 1;
   uintptr_t cur_param_cta4 = round_up_pow2(cur_param_ct, 4);
   uint32_t coding_flags = g_coding_flags;
-  uint32_t glm_xchr_model = g_glm_xchr_model;
   uintptr_t condition_list_start_idx = g_condition_list_start_idx;
   uintptr_t interaction_start_idx = g_interaction_start_idx;
   uintptr_t sex_start_idx = g_sex_start_idx;
@@ -3515,7 +3508,7 @@ THREAD_RET_TYPE glm_logistic_set_thread(void* arg) {
   for (; marker_bidx < marker_bceil; marker_bidx++) {
     msa_ptr = &(g_mperm_save_all[marker_bidx * perm_vec_ct]);
     loadbuf_ptr = &(loadbuf[marker_bidx * sample_valid_ctv2]);
-    cur_missing_ct = glm_fill_design_float(loadbuf_ptr, fixed_covars_cov_major, sample_valid_ct, cur_param_ct, coding_flags, glm_xchr_model, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, include_sex, male_x_01, sex_male_collapsed, is_nonx_haploid, cur_covars_cov_major);
+    cur_missing_ct = glm_fill_design_float(loadbuf_ptr, fixed_covars_cov_major, sample_valid_ct, cur_param_ct, coding_flags, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, include_sex, male_x_01, sex_male_collapsed, is_nonx_haploid, cur_covars_cov_major);
     cur_sample_valid_ct = sample_valid_ct - cur_missing_ct;
     // todo: try better starting position
     fill_float_zero(cur_param_cta4 * perm_vec_ct, coef);
@@ -3595,7 +3588,6 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
   }
   g_standard_beta = standard_beta;
   g_coding_flags = glm_modifier & (GLM_HETHOM | GLM_DOMINANT | GLM_RECESSIVE);
-  g_glm_xchr_model = glm_xchr_model;
   g_include_sex = 0;
   g_male_x_01 = 0;
   if (!glm_xchr_model) {
@@ -5131,7 +5123,7 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	if (marker_idx_to_uidx) {
 	  marker_idx_to_uidx[marker_idx3] = marker_uidx2;
 	}
-        cur_missing_ct = glm_fill_design(loadbuf_ptr, g_fixed_covars_cov_major, sample_valid_ct, cur_param_ct, glm_modifier & (GLM_HETHOM | GLM_DOMINANT | GLM_RECESSIVE), glm_xchr_model, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, g_include_sex, g_male_x_01, sex_male_collapsed, g_min_ploidy_1 && (!g_is_x), g_linear_mt[0].cur_covars_cov_major, g_linear_mt[0].cur_covars_sample_major, standard_beta);
+        cur_missing_ct = glm_fill_design(loadbuf_ptr, g_fixed_covars_cov_major, sample_valid_ct, cur_param_ct, glm_modifier & (GLM_HETHOM | GLM_DOMINANT | GLM_RECESSIVE), condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, g_include_sex, g_male_x_01, sex_male_collapsed, g_min_ploidy_1 && (!g_is_x), g_linear_mt[0].cur_covars_cov_major, g_linear_mt[0].cur_covars_sample_major, standard_beta);
 	cur_sample_valid_ct = sample_valid_ct - cur_missing_ct;
 	g_nm_cts[marker_idx3] = cur_sample_valid_ct;
 	if ((cur_sample_valid_ct > cur_param_ct) && (!glm_check_vif(glm_vif_thresh, cur_param_ct, cur_sample_valid_ct, g_linear_mt[0].cur_covars_cov_major, g_linear_mt[0].param_2d_buf, g_linear_mt[0].mi_buf, g_linear_mt[0].param_2d_buf2))) {
@@ -6598,7 +6590,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
 	if (marker_idx_to_uidx) {
 	  marker_idx_to_uidx[marker_idx3] = marker_uidx2;
 	}
-	cur_missing_ct = glm_fill_design_float(loadbuf_ptr, g_fixed_covars_cov_major_f, sample_valid_ct, cur_param_ct, glm_modifier & (GLM_HETHOM | GLM_DOMINANT | GLM_RECESSIVE), glm_xchr_model, condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, g_include_sex, g_male_x_01, sex_male_collapsed, g_min_ploidy_1 && (!g_is_x), g_logistic_mt[0].cur_covars_cov_major);
+	cur_missing_ct = glm_fill_design_float(loadbuf_ptr, g_fixed_covars_cov_major_f, sample_valid_ct, cur_param_ct, glm_modifier & (GLM_HETHOM | GLM_DOMINANT | GLM_RECESSIVE), condition_list_start_idx, interaction_start_idx, sex_start_idx, active_params, haploid_params, g_include_sex, g_male_x_01, sex_male_collapsed, g_min_ploidy_1 && (!g_is_x), g_logistic_mt[0].cur_covars_cov_major);
 	cur_sample_valid_ct = sample_valid_ct - cur_missing_ct;
 	g_nm_cts[marker_idx3] = cur_sample_valid_ct;
 	if (cur_sample_valid_ct > cur_param_ct) {
