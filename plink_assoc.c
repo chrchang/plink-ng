@@ -9549,7 +9549,6 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
   }
   fputs("\b\b", stdout);
   logprint("done.\n");
-  fclose_cond(outfile);
 
   while (0) {
   gxe_assoc_ret_NOMEM:

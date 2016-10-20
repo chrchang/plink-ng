@@ -7,6 +7,11 @@
 # (when enabled, "#define NOLAPACK" must be uncommented in plink_common.h)
 NO_LAPACK =
 
+# Variable that allows additional linker flags (e.g., "-L/path/to/libs") to be
+# passed into the linker; to use this, invoke 'make LINKFLAGS_EXTRA="<opts>"'.
+LINKFLAGS_EXTRA =
+
+.PHONY: clean
 
 # should autodetect system
 SYS = UNIX
@@ -49,16 +54,28 @@ ifdef NO_LAPACK
   BLASFLAGS=
 endif
 
-SRC = plink.c plink_assoc.c plink_calc.c plink_cluster.c plink_cnv.c plink_common.c plink_data.c plink_dosage.c plink_family.c plink_filter.c plink_glm.c plink_help.c plink_homozyg.c plink_lasso.c plink_ld.c plink_matrix.c plink_misc.c plink_perm.c plink_rserve.c plink_set.c plink_stats.c SFMT.c dcdflib.c pigz.c yarn.c Rconnection.cc hfile.c bgzf.c
+OBJS = plink.o plink_assoc.o plink_calc.o plink_cluster.o plink_cnv.o plink_common.o plink_data.o plink_dosage.o plink_family.o plink_filter.o plink_glm.o plink_help.o plink_homozyg.o plink_lasso.o plink_ld.o plink_matrix.o plink_misc.o plink_perm.o plink_rserve.o plink_set.o plink_stats.o SFMT.o dcdflib.o pigz.o yarn.o Rconnection.o hfile.o bgzf.o
 
 # In the event that you are still concurrently using PLINK 1.07, we suggest
 # renaming that binary to "plink107", and this one to "plink1".  (Previously,
 # "plink1"/"plink2" was suggested here; that also works for now, but it may
 # lead to minor problems when PLINK 2.0 is released.)
 
-plink: $(SRC)
-	g++ $(CFLAGS) $(SRC) -o plink $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
+plink: $(OBJS)
+	g++ $^ $(LINKFLAGS_EXTRA) $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB) -o $@
 
-plinkw: $(SRC)
-	g++ $(CFLAGS) $(SRC) -c
-	gfortran -O2 $(OBJ) -o plink -Wl,-Bstatic $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
+plinkw: $(OBJS)
+	gfortran -O2 $^ $(LINKFLAGS_EXTRA) -Wl,-Bstatic $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB) -o $@
+
+clean:
+	rm -f $(OBJS) plink plinkw
+
+
+# Pattern-based rules for compiling object (.o) files; basically identical to
+# GNU make's built-in rules, except we explicitly use "g++" instead of $(CC).
+
+%.o: %.c
+	g++ -c $(CFLAGS) $< -o $@
+
+%.o: %.cc
+	g++ -x c++ -c $(CFLAGS) $< -o $@
