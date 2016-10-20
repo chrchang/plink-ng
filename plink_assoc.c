@@ -9543,7 +9543,9 @@ int32_t gxe_assoc(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outn
       fflush(stdout);
     }
   }
-
+  if (fclose_null(&outfile)) {
+    goto gxe_assoc_ret_WRITE_FAIL;
+  }
   if (pct >= 10) {
     putc_unlocked('\b', stdout);
   }
