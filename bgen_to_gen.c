@@ -570,6 +570,9 @@ int32_t main(int32_t argc, char** argv) {
       logerrprint("Error: Output file name must have a .gen.gz extension.\n");
       goto main_ret_INVALID_CMDLINE;
     }
+    int32_t known_procs = sysconf(_SC_NPROCESSORS_ONLN);
+    uint32_t thread_ct = (known_procs == -1)? 1 : known_procs;
+    pigz_init(thread_ct);
     retval = bgen_to_gen(argv[1], argv[2], 0);
     if (retval) {
       goto main_ret_1;
