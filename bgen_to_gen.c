@@ -17,6 +17,8 @@
 // #include <sys/stat.h>
 #include <sys/types.h>
 
+#include "pigz.h"
+
 #define D_EPSILON 0.000244140625
 
 static const char digit2_table[200] = {
@@ -82,13 +84,11 @@ char* div32768_print(uint32_t rawval, char* start) {
 int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* in_bgenfile = nullptr;
-  FILE* out_genfile = nullptr;
+  char* pzwritep = nullptr;
+  Pigz_state ps;
   int32_t retval;
+  pzwrite_init_null(&ps);
   {
-    if (fopen_checked(out_genname, FOPEN_WB, &out_genfile)) {
-      goto bgen_to_gen_ret_OPEN_FAIL;
-    }
-
     if (fopen_checked(bgenname, FOPEN_RB, &in_bgenfile)) {
       goto bgen_to_gen_ret_OPEN_FAIL;
     }
@@ -105,11 +105,23 @@ int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
       logerrprint("Error: .bgen file contains no variants.\n");
       goto bgen_to_gen_ret_INVALID_FORMAT;
     }
+    LOGPRINTF("%u variant%s detected.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s");
     const uint32_t sample_ct = initial_uints[3];
     if (initial_uints[4] && (initial_uints[4] != 0x6e656762)) {
       logerrprint("Error: Invalid .bgen magic number.\n");
       goto bgen_to_gen_ret_INVALID_FORMAT;
     }
+
+    // three 5-decimal-place floating point values per sample
+    unsigned char* overflow_buf;
+    if (bigstack_alloc_uc(PIGZ_BLOCK_SIZE + sample_ct * 48LU, &overflow_buf)) {
+      goto bgen_to_gen_ret_NOMEM;
+    }
+    if (flex_pzwrite_init(1, out_genname, overflow_buf, 0, &ps)) {
+      goto bgen_to_gen_ret_OPEN_FAIL;
+    }
+    pzwritep = (char*)overflow_buf;
+
     if (fseeko(in_bgenfile, initial_uints[1], SEEK_SET)) {
       goto bgen_to_gen_ret_READ_FAIL;
     }
@@ -134,11 +146,6 @@ int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
     if (!bgen_probs) {
       goto bgen_to_gen_ret_NOMEM;
     }
-    char* writebuf;
-    // three 5-decimal-place floating point values per sample
-    if (bigstack_alloc_c(sample_ct * 24LU, &writebuf)) {
-      goto bgen_to_gen_ret_NOMEM;
-    }
     const uint32_t sample_ctx3 = sample_ct * 3;
     char* loadbuf = (char*)g_bigstack_base;
     uintptr_t loadbuf_size = bigstack_left();
@@ -156,12 +163,7 @@ int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
       logerrprint("BGEN v1.0 support is not implemented yet.\n");
       goto bgen_to_gen_ret_INVALID_FORMAT;
     }
-    char numbuf[16];
-    numbuf[0] = ' ';
 
-    if (fopen_checked(out_genname, FOPEN_WB, &out_genfile)) {
-      goto bgen_to_gen_ret_OPEN_FAIL;
-    }
     for (uint32_t variant_uidx = 0; variant_uidx < raw_variant_ct; variant_uidx++) {
       uint32_t uii;
       if (!fread(&uii, 4, 1, in_bgenfile)) {
@@ -171,7 +173,6 @@ int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
 	logerrprint("Error: Unexpected number of samples specified in SNP block header.\n");
 	goto bgen_to_gen_ret_INVALID_FORMAT;
       }
-      char* wptr;
       uint32_t alleles_are_identical;
       if (1) {
       // if (bgen_multichar_alleles) {
@@ -241,13 +242,9 @@ int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
 	  goto bgen_to_gen_ret_INVALID_FORMAT;
 	}
 	// chrom_name_start (chromosome code) is already zero-terminated
-	fputs(chrom_name_start, out_genfile);
-	if (putc_checked(' ', out_genfile)) {
-	  goto bgen_to_gen_ret_WRITE_FAIL;
-	}
-	fwrite(rsid_start, 1, rsid_slen, out_genfile);
-	wptr = uint32toa_x(bp_and_a1len[0], ' ', &(numbuf[1]));
-	fwrite(numbuf, 1, wptr - numbuf, out_genfile);
+	pzwritep = strcpyax(pzwritep, chrom_name_start, ' ');
+	pzwritep = memcpyax(pzwritep, rsid_start, rsid_slen, ' ');
+        pzwritep = uint32toa_x(bp_and_a1len[0], ' ', pzwritep);
 
 	// halve the limit since there are two alleles
 	// (may want to enforce NON_BIGSTACK_MIN allele length limit?)
@@ -279,9 +276,7 @@ int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
 	}
 	alleles_are_identical = (a2len == bp_and_a1len[1]) && (!memcmp(loadbuf, a2_start, a2len));
 	if (!alleles_are_identical) {
-	  if (fwrite_checked(loadbuf, bp_and_a1len[1] + a2len + 1, out_genfile)) {
-	    goto bgen_to_gen_ret_WRITE_FAIL;
-	  }
+	  pzwritep = memcpya(pzwritep, loadbuf, bp_and_a1len[1] + a2len + 1);
 	} else {
 	  logerrprint("Error: A variant in the .bgen file has identical alleles.\n");
 	  goto bgen_to_gen_ret_INVALID_FORMAT;
@@ -291,6 +286,9 @@ int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
 	    goto bgen_to_gen_ret_WRITE_FAIL;
 	  }
 	  */
+	}
+	if (flex_pzwrite(&ps, &pzwritep)) {
+	  goto bgen_to_gen_ret_WRITE_FAIL;
 	}
 	/*
       } else {
@@ -395,9 +393,8 @@ int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
 	  goto bgen_to_gen_ret_READ_FAIL;
 	}
       }
-      wptr = writebuf;
       for (uint32_t prob_idx = 0; prob_idx < sample_ctx3; ++prob_idx) {
-	wptr = div32768_print(bgen_probs[prob_idx], wptr);
+	pzwritep = div32768_print(bgen_probs[prob_idx], pzwritep);
       }
       /*
       if (alleles_are_identical) {
@@ -410,8 +407,8 @@ int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
 	}
       }
       */
-      *wptr++ = '\n';
-      if (fwrite_checked(writebuf, wptr - writebuf, out_genfile)) {
+      *pzwritep++ = '\n';
+      if (flex_pzwrite(&ps, &pzwritep)) {
 	goto bgen_to_gen_ret_WRITE_FAIL;
       }
       if (!(variant_uidx % 1000)) {
@@ -422,7 +419,7 @@ int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
     if (fclose_null(&in_bgenfile)) {
       goto bgen_to_gen_ret_READ_FAIL;
     }
-    if (fclose_null(&out_genfile)) {
+    if (flex_pzwrite_close_null(&ps, pzwritep)) {
       goto bgen_to_gen_ret_WRITE_FAIL;
     }
     retval = 0;
@@ -447,8 +444,8 @@ int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
     break;
   }
   fclose_cond(in_bgenfile);
-  fclose_cond(out_genfile);
   bigstack_reset(bigstack_mark);
+  flex_pzwrite_close_cond(&ps, pzwritep);
   return retval;
 }
 
@@ -556,7 +553,7 @@ int32_t main(int32_t argc, char** argv) {
   int32_t retval;
   {
     if (argc != 3) {
-      fputs("Usage: bgen_to_gen [input .bgen] [output .gen]\n", stdout);
+      fputs("Usage: bgen_to_gen [input .bgen] [output .gen.gz]\n", stdout);
       goto main_ret_INVALID_CMDLINE;
     }
     char outname[16];
@@ -567,6 +564,11 @@ int32_t main(int32_t argc, char** argv) {
     uintptr_t malloc_mb_final;
     if (init_bigstack(get_default_alloc_mb(), &malloc_mb_final, &bigstack_ua)) {
       goto main_ret_NOMEM;
+    }
+    const uint32_t outname_slen = strlen(argv[2]);
+    if ((outname_slen < 8) || memcmp(&(argv[2][outname_slen - 7]), ".gen.gz", 8)) {
+      logerrprint("Error: Output file name must have a .gen.gz extension.\n");
+      goto main_ret_INVALID_CMDLINE;
     }
     retval = bgen_to_gen(argv[1], argv[2], 0);
     if (retval) {
