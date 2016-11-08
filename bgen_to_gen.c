@@ -562,7 +562,8 @@ int32_t main(int32_t argc, char** argv) {
       goto main_ret_OPEN_FAIL;
     }
     uintptr_t malloc_mb_final;
-    if (init_bigstack(get_default_alloc_mb(), &malloc_mb_final, &bigstack_ua)) {
+    if (init_bigstack(512, &malloc_mb_final, &bigstack_ua)) {
+    // if (init_bigstack(get_default_alloc_mb(), &malloc_mb_final, &bigstack_ua)) {
       goto main_ret_NOMEM;
     }
     const uint32_t outname_slen = strlen(argv[2]);
