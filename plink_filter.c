@@ -1708,209 +1708,6 @@ int32_t mind_filter(FILE* bedfile, uintptr_t bed_offset, char* outname, char* ou
   return retval;
 }
 
-#ifdef __LP64__
-void freq_hwe_haploid_count_120v(__m128i* vptr, __m128i* vend, __m128i* maskvp, uint32_t* ct_nmp, uint32_t* ct_hmajp) {
-  const __m128i m2 = {0x3333333333333333LLU, 0x3333333333333333LLU};
-  const __m128i m4 = {0x0f0f0f0f0f0f0f0fLLU, 0x0f0f0f0f0f0f0f0fLLU};
-  const __m128i m8 = {0x00ff00ff00ff00ffLLU, 0x00ff00ff00ff00ffLLU};
-  __m128i loader;
-  __m128i loader2;
-  __m128i loader3;
-  __m128i to_ct_nm1;
-  __m128i to_ct_hmaj1;
-  __m128i to_ct_nm2;
-  __m128i to_ct_hmaj2;
-  __univec acc_nm;
-  __univec acc_hmaj;
-
-  acc_nm.vi = _mm_setzero_si128();
-  acc_hmaj.vi = _mm_setzero_si128();
-  do {
-    loader = *vptr++;
-    loader3 = _mm_srli_epi64(loader, 1);
-    loader2 = _mm_xor_si128(loader, loader3); // inverted
-    loader = _mm_and_si128(loader, loader3);
-    loader3 = *maskvp++;
-    to_ct_nm1 = _mm_andnot_si128(loader2, loader3);
-    to_ct_hmaj1 = _mm_and_si128(loader, loader3);
-
-    loader = *vptr++;
-    loader3 = _mm_srli_epi64(loader, 1);
-    loader2 = _mm_xor_si128(loader, loader3); // inverted
-    loader = _mm_and_si128(loader, loader3);
-    loader3 = *maskvp++;
-    to_ct_nm1 = _mm_add_epi64(to_ct_nm1, _mm_andnot_si128(loader2, loader3));
-    to_ct_hmaj1 = _mm_add_epi64(to_ct_hmaj1, _mm_and_si128(loader, loader3));
-
-    loader = *vptr++;
-    loader3 = _mm_srli_epi64(loader, 1);
-    loader2 = _mm_xor_si128(loader, loader3); // inverted
-    loader = _mm_and_si128(loader, loader3);
-    loader3 = *maskvp++;
-    to_ct_nm1 = _mm_add_epi64(to_ct_nm1, _mm_andnot_si128(loader2, loader3));
-    to_ct_hmaj1 = _mm_add_epi64(to_ct_hmaj1, _mm_and_si128(loader, loader3));
-
-    to_ct_nm1 = _mm_add_epi64(_mm_and_si128(to_ct_nm1, m2), _mm_and_si128(_mm_srli_epi64(to_ct_nm1, 2), m2));
-    to_ct_hmaj1 = _mm_add_epi64(_mm_and_si128(to_ct_hmaj1, m2), _mm_and_si128(_mm_srli_epi64(to_ct_hmaj1, 2), m2));
-
-    loader = *vptr++;
-    loader3 = _mm_srli_epi64(loader, 1);
-    loader2 = _mm_xor_si128(loader, loader3); // inverted
-    loader = _mm_and_si128(loader, loader3);
-    loader3 = *maskvp++;
-    to_ct_nm2 = _mm_andnot_si128(loader2, loader3);
-    to_ct_hmaj2 = _mm_and_si128(loader, loader3);
-
-    loader = *vptr++;
-    loader3 = _mm_srli_epi64(loader, 1);
-    loader2 = _mm_xor_si128(loader, loader3); // inverted
-    loader = _mm_and_si128(loader, loader3);
-    loader3 = *maskvp++;
-    to_ct_nm2 = _mm_add_epi64(to_ct_nm2, _mm_andnot_si128(loader2, loader3));
-    to_ct_hmaj2 = _mm_add_epi64(to_ct_hmaj2, _mm_and_si128(loader, loader3));
-
-    loader = *vptr++;
-    loader3 = _mm_srli_epi64(loader, 1);
-    loader2 = _mm_xor_si128(loader, loader3); // inverted
-    loader = _mm_and_si128(loader, loader3);
-    loader3 = *maskvp++;
-    to_ct_nm2 = _mm_add_epi64(to_ct_nm2, _mm_andnot_si128(loader2, loader3));
-    to_ct_hmaj2 = _mm_add_epi64(to_ct_hmaj2, _mm_and_si128(loader, loader3));
-
-    to_ct_nm1 = _mm_add_epi64(to_ct_nm1, _mm_add_epi64(_mm_and_si128(to_ct_nm2, m2), _mm_and_si128(_mm_srli_epi64(to_ct_nm2, 2), m2)));
-    to_ct_hmaj1 = _mm_add_epi64(to_ct_hmaj1, _mm_add_epi64(_mm_and_si128(to_ct_hmaj2, m2), _mm_and_si128(_mm_srli_epi64(to_ct_hmaj2, 2), m2)));
-
-    acc_nm.vi = _mm_add_epi64(acc_nm.vi, _mm_add_epi64(_mm_and_si128(to_ct_nm1, m4), _mm_and_si128(_mm_srli_epi64(to_ct_nm1, 4), m4)));
-    acc_hmaj.vi = _mm_add_epi64(acc_hmaj.vi, _mm_add_epi64(_mm_and_si128(to_ct_hmaj1, m4), _mm_and_si128(_mm_srli_epi64(to_ct_hmaj1, 4), m4)));
-  } while (vptr < vend);
-  acc_nm.vi = _mm_add_epi64(_mm_and_si128(acc_nm.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_nm.vi, 8), m8));
-  acc_hmaj.vi = _mm_add_epi64(_mm_and_si128(acc_hmaj.vi, m8), _mm_and_si128(_mm_srli_epi64(acc_hmaj.vi, 8), m8));
-  *ct_nmp += ((acc_nm.u8[0] + acc_nm.u8[1]) * 0x1000100010001LLU) >> 48;
-  *ct_hmajp += ((acc_hmaj.u8[0] + acc_hmaj.u8[1]) * 0x1000100010001LLU) >> 48;
-}
-#else
-void freq_hwe_haploid_count_12(uintptr_t* lptr, uintptr_t* maskp, uint32_t* ct_nmp, uint32_t* ct_hmajp) {
-  uintptr_t loader = *lptr++;
-  uintptr_t loader3 = loader >> 1;
-  uintptr_t loader2 = loader ^ (~loader3);
-  uint32_t to_ct_nm1;
-  uint32_t to_ct_hmaj1;
-  uint32_t to_ct_nm2;
-  uint32_t to_ct_hmaj2;
-  uintptr_t partial_nm;
-  uintptr_t partial_hmaj;
-  loader &= loader3;
-  loader3 = *maskp++;
-  to_ct_nm1 = loader2 & loader3;
-  to_ct_hmaj1 = loader & loader3;
-
-  loader = *lptr++;
-  loader3 = loader >> 1;
-  loader2 = loader ^ (~loader3);
-  loader &= loader3;
-  loader3 = *maskp++;
-  to_ct_nm1 += loader2 & loader3;
-  to_ct_hmaj1 += loader & loader3;
-
-  loader = *lptr++;
-  loader3 = loader >> 1;
-  loader2 = loader ^ (~loader3);
-  loader &= loader3;
-  loader3 = *maskp++;
-  to_ct_nm1 += loader2 & loader3;
-  to_ct_hmaj1 += loader & loader3;
-
-  loader = *lptr++;
-  loader3 = loader >> 1;
-  loader2 = loader ^ (~loader3);
-  loader &= loader3;
-  loader3 = *maskp++;
-  to_ct_nm2 = loader2 & loader3;
-  to_ct_hmaj2 = loader & loader3;
-
-  loader = *lptr++;
-  loader3 = loader >> 1;
-  loader2 = loader ^ (~loader3);
-  loader &= loader3;
-  loader3 = *maskp++;
-  to_ct_nm2 += loader2 & loader3;
-  to_ct_hmaj2 += loader & loader3;
-
-  loader = *lptr++;
-  loader3 = loader >> 1;
-  loader2 = loader ^ (~loader3);
-  loader &= loader3;
-  loader3 = *maskp++;
-  to_ct_nm2 += loader2 & loader3;
-  to_ct_hmaj2 += loader & loader3;
-
-  to_ct_nm1 = (to_ct_nm1 & 0x33333333) + ((to_ct_nm1 >> 2) & 0x33333333);
-  to_ct_nm1 += (to_ct_nm2 & 0x33333333) + ((to_ct_nm2 >> 2) & 0x33333333);
-  partial_nm = (to_ct_nm1 & 0x0f0f0f0f) + ((to_ct_nm1 >> 4) & 0x0f0f0f0f);
-  to_ct_hmaj1 = (to_ct_hmaj1 & 0x33333333) + ((to_ct_hmaj1 >> 2) & 0x33333333);
-  to_ct_hmaj1 += (to_ct_hmaj2 & 0x33333333) + ((to_ct_hmaj2 >> 2) & 0x33333333);
-  partial_hmaj = (to_ct_hmaj1 & 0x0f0f0f0f) + ((to_ct_hmaj1 >> 4) & 0x0f0f0f0f);
-
-  loader = *lptr++;
-  loader3 = loader >> 1;
-  loader2 = loader ^ (~loader3);
-  loader &= loader3;
-  loader3 = *maskp++;
-  to_ct_nm1 = loader2 & loader3;
-  to_ct_hmaj1 = loader & loader3;
-
-  loader = *lptr++;
-  loader3 = loader >> 1;
-  loader2 = loader ^ (~loader3);
-  loader &= loader3;
-  loader3 = *maskp++;
-  to_ct_nm1 += loader2 & loader3;
-  to_ct_hmaj1 += loader & loader3;
-
-  loader = *lptr++;
-  loader3 = loader >> 1;
-  loader2 = loader ^ (~loader3);
-  loader &= loader3;
-  loader3 = *maskp++;
-  to_ct_nm1 += loader2 & loader3;
-  to_ct_hmaj1 += loader & loader3;
-
-  loader = *lptr++;
-  loader3 = loader >> 1;
-  loader2 = loader ^ (~loader3);
-  loader &= loader3;
-  loader3 = *maskp++;
-  to_ct_nm2 = loader2 & loader3;
-  to_ct_hmaj2 = loader & loader3;
-
-  loader = *lptr++;
-  loader3 = loader >> 1;
-  loader2 = loader ^ (~loader3);
-  loader &= loader3;
-  loader3 = *maskp++;
-  to_ct_nm2 += loader2 & loader3;
-  to_ct_hmaj2 += loader & loader3;
-
-  loader = *lptr;
-  loader3 = loader >> 1;
-  loader2 = loader ^ (~loader3);
-  loader &= loader3;
-  loader3 = *maskp;
-  to_ct_nm2 += loader2 & loader3;
-  to_ct_hmaj2 += loader & loader3;
-
-  to_ct_nm1 = (to_ct_nm1 & 0x33333333) + ((to_ct_nm1 >> 2) & 0x33333333);
-  to_ct_nm1 += (to_ct_nm2 & 0x33333333) + ((to_ct_nm2 >> 2) & 0x33333333);
-  partial_nm += (to_ct_nm1 & 0x0f0f0f0f) + ((to_ct_nm1 >> 4) & 0x0f0f0f0f);
-  to_ct_hmaj1 = (to_ct_hmaj1 & 0x33333333) + ((to_ct_hmaj1 >> 2) & 0x33333333);
-  to_ct_hmaj1 += (to_ct_hmaj2 & 0x33333333) + ((to_ct_hmaj2 >> 2) & 0x33333333);
-  partial_hmaj += (to_ct_hmaj1 & 0x0f0f0f0f) + ((to_ct_hmaj1 >> 4) & 0x0f0f0f0f);
-
-  *ct_nmp += (partial_nm * 0x01010101) >> 24;
-  *ct_hmajp += (partial_hmaj * 0x01010101) >> 24;
-}
-#endif
-
 static inline void single_marker_freqs_and_hwe(uintptr_t unfiltered_sample_ctl2, uintptr_t* lptr, uintptr_t* sample_include2, uintptr_t* founder_include2, uintptr_t* founder_ctrl_include2, uintptr_t* founder_case_include2, uintptr_t sample_ct, uint32_t* ll_ctp, uint32_t* lh_ctp, uint32_t* hh_ctp, uint32_t sample_f_ct, uint32_t* ll_ctfp, uint32_t* lh_ctfp, uint32_t* hh_ctfp, uint32_t hwe_or_geno_needed, uintptr_t sample_f_ctrl_ct, uint32_t* ll_hwep, uint32_t* lh_hwep, uint32_t* hh_hwep, int32_t hardy_needed, uintptr_t sample_f_case_ct, uint32_t* ll_case_hwep, uint32_t* lh_case_hwep, uint32_t* hh_case_hwep) {
   // This is best understood from the bottom third up (which is the order it
   // was written).  It's way overkill for just determining genotype
@@ -2078,86 +1875,6 @@ static inline uint32_t nonmissing_present_diff(uintptr_t unfiltered_sample_ctl2,
   return 0;
 }
 
-static inline void haploid_single_marker_freqs(uintptr_t unfiltered_sample_ct, uintptr_t unfiltered_sample_ctl2, uintptr_t* lptr, uintptr_t* sample_include2, uintptr_t* founder_include2, uintptr_t sample_ct, uint32_t* ll_ctp, uint32_t* hh_ctp, uint32_t sample_f_ct, uint32_t* ll_ctfp, uint32_t* hh_ctfp, uint32_t* hethap_incr_ptr) {
-  // Here, we interpret heterozygotes as missing.
-  // Nonmissing: (genotype ^ (~(genotype >> 1))) & 0x5555...
-  // Homozygote major: (genotype & (genotype >> 1)) & 0x5555...
-  uint32_t tot_a = 0;
-  uint32_t tot_b = 0;
-  uint32_t tot_hmaj = 0;
-  uint32_t tot_nm_f = 0;
-  uint32_t tot_hmaj_f = 0;
-  uintptr_t* lptr_end = &(lptr[unfiltered_sample_ctl2]);
-  uint32_t hethap_incr;
-  uint32_t tot_nm;
-  uint32_t uii;
-  uintptr_t loader;
-  uintptr_t loader2;
-  uintptr_t loader3;
-  uintptr_t loader4;
-#ifdef __LP64__
-  uintptr_t cur_decr = 120;
-  uintptr_t* lptr_12x_end;
-  unfiltered_sample_ctl2 -= unfiltered_sample_ctl2 % 12;
-  while (unfiltered_sample_ctl2 >= 120) {
-  haploid_single_marker_freqs_loop:
-    lptr_12x_end = &(lptr[cur_decr]);
-  // Given a buffer with PLINK binary genotypes for a single marker, let
-  //   A := genotype & 0x5555...
-  //   B := (genotype >> 1) & 0x5555...
-  //   C := A & B
-  // Then,
-  //   popcount(C) = homozyg major ct
-  //   popcount(B) = het ct + homozyg major ct
-  //   popcount(A) = missing_ct + homozyg major ct
-  //               = sample_ct - homozyg minor ct - het ct
-    count_3freq_1920b((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)sample_include2, &tot_a, &tot_b, &tot_hmaj);
-    freq_hwe_haploid_count_120v((__m128i*)lptr, (__m128i*)lptr_12x_end, (__m128i*)founder_include2, &tot_nm_f, &tot_hmaj_f);
-    lptr = lptr_12x_end;
-    sample_include2 = &(sample_include2[cur_decr]);
-    founder_include2 = &(founder_include2[cur_decr]);
-    unfiltered_sample_ctl2 -= cur_decr;
-  }
-  if (unfiltered_sample_ctl2) {
-    cur_decr = unfiltered_sample_ctl2;
-    goto haploid_single_marker_freqs_loop;
-  }
-#else
-  uintptr_t* lptr_twelve_end = &(lptr[unfiltered_sample_ctl2 - unfiltered_sample_ctl2 % 12]);
-  while (lptr < lptr_twelve_end) {
-    count_3freq_48b(lptr, sample_include2, &tot_a, &tot_b, &tot_hmaj);
-    freq_hwe_haploid_count_12(lptr, founder_include2, &tot_nm_f, &tot_hmaj_f);
-    lptr = &(lptr[12]);
-    sample_include2 = &(sample_include2[12]);
-    founder_include2 = &(founder_include2[12]);
-  }
-#endif
-  tot_nm = 2 * tot_hmaj + sample_ct - tot_a - tot_b;
-  hethap_incr = tot_b - tot_hmaj;
-  while (lptr < lptr_end) {
-    loader = *lptr++;
-    loader3 = loader >> 1;
-    loader4 = *sample_include2++;
-    // different from tot_nm_f because of +sample_ct above
-    tot_nm -= popcount2_long(loader & loader4);
-    hethap_incr += popcount2_long(loader3 & (~loader) & loader4);
-    loader2 = loader ^ (~loader3); // nonmissing?
-    loader &= loader3; // homozyg A2?
-    uii = popcount2_long(loader & loader4);
-    tot_nm += 2 * uii - popcount2_long(loader3 & loader4);
-    // tot_nm += popcount2_long(loader2 & loader4);
-    tot_hmaj += uii;
-    loader3 = *founder_include2++;
-    tot_nm_f += popcount2_long(loader2 & loader3);
-    tot_hmaj_f += popcount2_long(loader & loader3);
-  }
-  *hh_ctp = tot_hmaj;
-  *ll_ctp = tot_nm - tot_hmaj;
-  *hh_ctfp = tot_hmaj_f;
-  *ll_ctfp = tot_nm_f - tot_hmaj_f;
-  *hethap_incr_ptr = hethap_incr;
-}
-
 int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_exclude_ct, char* sample_ids, uintptr_t max_sample_id_len, uintptr_t* founder_info, int32_t nonfounders, int32_t maf_succ, double* set_allele_freqs, uintptr_t bed_offset, uint32_t hwe_needed, uint32_t hwe_all, uint32_t hardy_needed, uint32_t min_ac, uint32_t max_ac, double geno_thresh, uintptr_t* pheno_nm, uintptr_t* pheno_c, int32_t** hwe_lls_ptr, int32_t** hwe_lhs_ptr, int32_t** hwe_hhs_ptr, int32_t** hwe_ll_cases_ptr, int32_t** hwe_lh_cases_ptr, int32_t** hwe_hh_cases_ptr, int32_t** hwe_ll_allfs_ptr, int32_t** hwe_lh_allfs_ptr, int32_t** hwe_hh_allfs_ptr, int32_t** hwe_hapl_allfs_ptr, int32_t** hwe_haph_allfs_ptr, uintptr_t** geno_excl_bitfield_ptr, uintptr_t** ac_excl_bitfield_ptr, uint32_t* sample_male_ct_ptr, uint32_t* sample_f_ct_ptr, uint32_t* sample_f_male_ct_ptr, Chrom_info* chrom_info_ptr, Oblig_missing_info* om_ip, uintptr_t* sex_nm, uintptr_t* sex_male, uint32_t is_split_chrom, uint32_t* hh_exists_ptr) {
   FILE* hhfile = nullptr;
   uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
@@ -2243,7 +1960,6 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
   uintptr_t ulii;
   uint32_t sample_male_ct;
   uint32_t sample_f_male_ct;
-  uint32_t hethap_incr;
   uint32_t nonmales_needed;
   uint32_t males_needed;
   uint32_t uii;
@@ -2555,39 +2271,46 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	  } else if (!nonmissing_nonmale_y) {
 	    nonmissing_nonmale_y = nonmissing_present_diff(unfiltered_sample_ctv2, loadbuf, sample_include2, sample_male_include2);
 	  }
-	  haploid_single_marker_freqs(unfiltered_sample_ct, unfiltered_sample_ctv2, loadbuf, sample_male_include2, founder_male_include2, sample_male_ct, &ll_ct, &hh_ct, sample_f_male_ct, &ll_ctf, &hh_ctf, &hethap_incr);
+	  // Quasi-bugfix, 13 Nov 2016:
+	  // There was a haploid_single_marker_freqs() function called by
+	  // calc_freqs_and_hwe(), which treated heterozygous haploids as
+	  // missing.  This was inconsistent with PLINK 1.07, and also caused
+	  // --geno to be based on a different set of missing calls than
+	  // --mind.
+	  single_marker_freqs_and_hwe(unfiltered_sample_ctv2, loadbuf, sample_male_include2, founder_male_include2, nullptr, nullptr, sample_male_ct, &ll_ct, &lh_ct, &hh_ct, sample_f_male_ct, &ll_ctf, &lh_ctf, &hh_ctf, 0, 0, nullptr, nullptr, nullptr, 0, 0, nullptr, nullptr, nullptr);
 	  if ((is_x || sample_male_ct) && (sample_ct - cur_oblig_missing)) {
 	    if (is_x) {
 	      if (!cur_oblig_missing) {
-		cur_genotyping_rate = ((int32_t)(ll_ct + hh_ct + ukk)) * sample_ct_recip;
+		cur_genotyping_rate = ((int32_t)(ll_ct + lh_ct + hh_ct + ukk)) * sample_ct_recip;
 	      } else {
-		cur_genotyping_rate = ((int32_t)(ll_ct + hh_ct + ukk)) / ((double)((int32_t)(sample_ct - cur_oblig_missing)));
+		cur_genotyping_rate = ((int32_t)(ll_ct + lh_ct + hh_ct + ukk)) / ((double)((int32_t)(sample_ct - cur_oblig_missing)));
 	      }
 	    } else {
 	      if (!cur_oblig_missing) {
-		cur_genotyping_rate = ((int32_t)(ll_ct + hh_ct)) * male_ct_recip;
+		cur_genotyping_rate = ((int32_t)(ll_ct + lh_ct + hh_ct)) * male_ct_recip;
 	      } else {
-		cur_genotyping_rate = ((int32_t)(ll_ct + hh_ct)) / ((double)((int32_t)(sample_male_ct - cur_oblig_missing)));
+		cur_genotyping_rate = ((int32_t)(ll_ct + lh_ct + hh_ct)) / ((double)((int32_t)(sample_male_ct - cur_oblig_missing)));
 	      }
 	    }
 	  } else {
+	    lh_ct = 0;
 	    cur_genotyping_rate = 0;
 	    nonmissing_rate_tot_max -= 1;
 	  }
 	} else {
-	  haploid_single_marker_freqs(unfiltered_sample_ct, unfiltered_sample_ctv2, loadbuf, sample_include2, founder_include2, sample_ct, &ll_ct, &hh_ct, sample_f_ct, &ll_ctf, &hh_ctf, &hethap_incr);
+	  single_marker_freqs_and_hwe(unfiltered_sample_ctv2, loadbuf, sample_include2, founder_include2, nullptr, nullptr, sample_ct, &ll_ct, &lh_ct, &hh_ct, sample_f_ct, &ll_ctf, &lh_ctf, &hh_ctf, 0, 0, nullptr, nullptr, nullptr, 0, 0, nullptr, nullptr, nullptr);
 	  if (!cur_oblig_missing) {
-	    cur_genotyping_rate = ((int32_t)(ll_ct + hh_ct)) * sample_ct_recip;
+	    cur_genotyping_rate = ((int32_t)(ll_ct + lh_ct + hh_ct)) * sample_ct_recip;
 	  } else {
 	    if (sample_ct - cur_oblig_missing) {
-	      cur_genotyping_rate = ((int32_t)(ll_ct + hh_ct)) / ((double)((int32_t)(sample_ct - cur_oblig_missing)));
+	      cur_genotyping_rate = ((int32_t)(ll_ct + lh_ct + hh_ct)) / ((double)((int32_t)(sample_ct - cur_oblig_missing)));
 	    } else {
 	      cur_genotyping_rate = 0;
 	      nonmissing_rate_tot_max -= 1;
 	    }
 	  }
 	}
-	if (hethap_incr) {
+	if (lh_ct) {
 	  if (!hhfile) {
 	    memcpy(outname_end, ".hh", 4);
 	    if (fopen_checked(outname, "w", &hhfile)) {
@@ -2631,7 +2354,7 @@ int32_t calc_freqs_and_hwe(FILE* bedfile, char* outname, char* outname_end, uint
 	  if (ferror(hhfile)) {
 	    goto calc_freqs_and_hwe_ret_WRITE_FAIL;
 	  }
-	  hethap_ct += hethap_incr;
+	  hethap_ct += lh_ct;
 	}
 	hwe_hapl_allfs[marker_uidx] = ll_ctf;
 	hwe_haph_allfs[marker_uidx] = hh_ctf;
@@ -2748,9 +2471,9 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
   uint32_t chrom_idx;
   uint32_t chrom_end;
   uint32_t cur_tot;
-  uint32_t is_x;
+  // uint32_t is_x;
   uint32_t is_y;
-  uint32_t is_haploid;
+  // uint32_t is_haploid;
   uint32_t om_ycorr;
   uint32_t clidx;
   uint32_t uii;
@@ -2847,9 +2570,9 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
     chrom_end = chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx + 1];
     marker_uidx = next_unset(marker_exclude, chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx], chrom_end);
     if (marker_uidx < chrom_end) {
-      is_x = (((int32_t)chrom_idx) == chrom_info_ptr->xymt_codes[X_OFFSET]);
+      // is_x = (((int32_t)chrom_idx) == chrom_info_ptr->xymt_codes[X_OFFSET]);
       is_y = (((int32_t)chrom_idx) == chrom_info_ptr->xymt_codes[Y_OFFSET]);
-      is_haploid = is_set(chrom_info_ptr->haploid_mask, chrom_idx);
+      // is_haploid = is_set(chrom_info_ptr->haploid_mask, chrom_idx);
       if (!is_y) {
 	cur_nm = sample_include2;
 	cur_tot = sample_ct;
@@ -2870,9 +2593,9 @@ int32_t write_missingness_reports(FILE* bedfile, uintptr_t bed_offset, char* out
 	if (load_raw(unfiltered_sample_ct4, bedfile, loadbuf)) {
 	  goto write_missingness_reports_ret_READ_FAIL;
 	}
-        if (is_haploid) {
-          haploid_fix(hh_exists, sample_include2, sample_male_include2, unfiltered_sample_ct, is_x, is_y, (unsigned char*)loadbuf);
-	}
+        // if (is_haploid) {
+        //   haploid_fix(hh_exists, sample_include2, sample_male_include2, unfiltered_sample_ct, is_x, is_y, (unsigned char*)loadbuf);
+	// }
 	lptr = loadbuf;
 	lptr2 = cur_nm;
 	cptr2 = fw_strcpy(plink_maxsnp, &(marker_ids[marker_uidx * max_marker_id_len]), cptr);
