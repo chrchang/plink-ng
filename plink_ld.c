@@ -3282,7 +3282,8 @@ void fepi_counts_to_joint_effects_stats(uint32_t group_ct, uint32_t* counts, dou
     }
   }
   dptr2 = ivv;
-  for (uii = 0; uii < group_ct; uii++) {
+  uii = 0;
+  do {
     dptr = &(dcounts[uii * 9]);
     dptr3 = &(invcounts[uii * 9]);
     dxx = dptr[8];
@@ -3290,7 +3291,7 @@ void fepi_counts_to_joint_effects_stats(uint32_t group_ct, uint32_t* counts, dou
     *dptr2++ = dxx * dptr[1] * dptr3[2] * dptr3[7];
     *dptr2++ = dxx * dptr[3] * dptr3[5] * dptr3[6];
     *dptr2++ = dxx * dptr[4] * dptr3[5] * dptr3[7];
-  }
+  } while (++uii < group_ct);
   use_reg_stat = (ivv[3] > 0.5) && ((group_ct == 1) || (ivv[7] > 0.5));
   if (use_reg_stat) {
     dptr2 = xiv;
