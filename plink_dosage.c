@@ -1052,7 +1052,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
     for (sample_uidx = 0, sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
       next_unset_unsafe_ck(sample_exclude, &sample_uidx);
       if (is_set(sex_nm, sample_uidx)) {
-        covar_d[sample_idx] = (double)((int32_t)is_set(sex_male, sample_idx));
+        covar_d[sample_idx] = (double)((int32_t)is_set(sex_male, sample_uidx));
       } else {
 	CLEAR_BIT(sample_idx, covar_nm);
         covar_d[sample_idx] = missing_phenod;
