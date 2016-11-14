@@ -5099,7 +5099,7 @@ void flip_precalc(uint32_t lm_ct, double* qfam_w, double* pheno_d2, uintptr_t* n
   // * geno_ssq is constant, so we precompute it.
   // * The inner loop can also skip W=0 samples.  So we clear those nm_lm bits.
   // * We can also precompute geno_sum and qt_g_prod under the assumption of no
-  //   flips, and then 
+  //   flips, and then patch them for each flip
   double geno_sum = 0.0;
   double geno_ssq = 0.0;
   double qt_g_prod = 0.0;
@@ -5625,7 +5625,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
       bigstack_alloc_d(round_up_pow2(fss_ct, CACHELINE_DBL) * qfam_thread_ct, &qfam_b) ||
       bigstack_alloc_d(round_up_pow2(lm_ct, CACHELINE_DBL) * qfam_thread_ct, &qfam_w) ||
       bigstack_alloc_ui(fss_ct, &dummy_perm) ||
-      bigstack_alloc_ul(fss_ctl, &dummy_flip)) {
+      bigstack_alloc_ul(flip_ctl, &dummy_flip)) {
     goto qfam_ret_NOMEM;
   }
   for (uii = 0, ujj = 0, ukk = 0; ujj < sample_ct; uii++, ujj++) {
@@ -5652,7 +5652,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   for (uii = 0; uii < fss_ct; uii++) {
     dummy_perm[uii] = uii;
   }
-  fill_ulong_zero(fss_ctl, dummy_flip);
+  fill_ulong_zero(flip_ctl, dummy_flip);
 
   LOGPRINTFWW("--qfam-%s: Permuting %" PRIuPTR " families/singletons, and including %u %s in linear regression.\n", flag_suffix, fss_ct, lm_ct, g_species_plural);
   LOGPRINTFWW5("Writing report to %s ... ", outname);
@@ -5698,7 +5698,7 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
 	}
 	ulptr = &(ulptr[lm_ctl]);
       }
-      fill_ulong_zero(fss_ctl, dummy_flip);
+      fill_ulong_zero(lm_ctl, dummy_flip);
     } else {
       for (ulii = 0; ulii < cur_perm_ct; ulii++) {
 	uint32_permute(&(g_qfam_permute[ulii * fss_ct]), &(precomputed_mods[-1]), &g_sfmt, fss_ct);

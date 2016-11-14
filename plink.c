@@ -105,7 +105,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (20 Oct 2016)";
+  " (13 Nov 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -2693,10 +2693,12 @@ int32_t rerun(uint32_t rerun_argv_pos, uint32_t rerun_parameter_present, int32_t
   while (0) {
   rerun_ret_NOMEM:
     print_ver();
+    fputs(errstr_nomem, stderr);
     retval = RET_NOMEM;
     break;
   rerun_ret_OPEN_FAIL:
     print_ver();
+    fputs("Error: Failed to open --rerun file.\n", stderr);
     retval = RET_OPEN_FAIL;
     break;
   rerun_ret_LONG_LINE:
