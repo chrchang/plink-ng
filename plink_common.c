@@ -4368,7 +4368,6 @@ void init_species(uint32_t species_code, Chrom_info* chrom_info_ptr) {
   const uint32_t species_autosome_ct[] = {22, 29, 38, 31, 19, 12, 26};
   const uint32_t species_max_code[] = {26, 33, 42, 33, 21, 12, 28};
   fill_ulong_zero(CHROM_MASK_WORDS, chrom_info_ptr->chrom_mask);
-  fill_ulong_zero(CHROM_MASK_WORDS, chrom_info_ptr->haploid_mask);
   chrom_info_ptr->output_encoding = 0;
   chrom_info_ptr->zero_extra_chroms = 0;
   chrom_info_ptr->species = species_code;
@@ -4377,6 +4376,9 @@ void init_species(uint32_t species_code, Chrom_info* chrom_info_ptr) {
   g_species_plural = species_plural_constants[species_code];
   if (species_code != SPECIES_UNKNOWN) {
     // these are assumed to be already initialized in the SPECIES_UNKNOWN case
+
+    // bugfix: haploid_mask was being cleared in --chr-set case
+    fill_ulong_zero(CHROM_MASK_WORDS, chrom_info_ptr->haploid_mask);
     memcpy(chrom_info_ptr->xymt_codes, &(species_xymt_codes[species_code * XYMT_OFFSET_CT]), XYMT_OFFSET_CT * sizeof(int32_t));
     chrom_info_ptr->autosome_ct = species_autosome_ct[species_code];
     chrom_info_ptr->max_code = species_max_code[species_code];
