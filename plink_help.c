@@ -1726,9 +1726,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                       second.  This must now be used with --make-bed and no\n"
 "                       other output commands.\n"
 	       );
-    help_print("set-hh-missing", &help_ctrl, 0,
-"  --set-hh-missing : Cause --make-bed and --recode to set heterozygous haploid\n"
-"                     genotypes to missing.\n"
+    help_print("set-hh-missing\tset-mixed-mt-missing", &help_ctrl, 0,
+"  --set-hh-missing       : Cause --make-bed and --recode to set heterozygous\n"
+"                           haploid genotypes to missing.\n"
+"  --set-mixed-mt-missing : Cause --make-bed and --recode to set mixed MT\n"
+"                           genotypes to missing.\n"
 	       );
     help_print("split-x\tmerge-x\tset-hh-missing\t23file-convert-xy\t23file-make-xylist\tcheck-sex\timpute-sex", &help_ctrl, 0,
 "  --split-x [bp1] [bp2] <no-fail> : Changes chromosome code of all X chromosome\n"

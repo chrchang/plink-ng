@@ -105,7 +105,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (17 Nov 2016)";
+  " (20 Nov 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -11073,6 +11073,9 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "et-hh-missing", 14)) {
 	misc_flags |= MISC_SET_HH_MISSING;
 	goto main_param_zero;
+      } else if (!memcmp(argptr2, "et-mixed-mt-missing", 20)) {
+        misc_flags |= MISC_SET_MIXED_MT_MISSING;
+        goto main_param_zero;
       } else if (!memcmp(argptr2, "et", 3)) {
 	if (set_info.fname) {
 	  logerrprint("Error: --set cannot be used with --make-set.\n");

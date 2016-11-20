@@ -3467,6 +3467,10 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, char* outna
   uint32_t unfiltered_sample_ctl2m1 = (unfiltered_sample_ct - 1) / BITCT2;
   uint32_t family_ct = 0;
   uint32_t set_hh_missing = (misc_flags / MISC_SET_HH_MISSING) & 1;
+
+  // todo: clear this when no MT markers loaded
+  uint32_t set_mixed_mt_missing = (misc_flags / MISC_SET_MIXED_MT_MISSING) & 1;
+
   uint32_t set_me_missing = ((misc_flags / MISC_SET_ME_MISSING) & 1) && sample_ct;
   uint32_t fill_missing_a2 = (misc_flags / MISC_FILL_MISSING_A2) & 1;
   uint32_t mendel_include_duos = (mendel_modifier / MENDEL_DUOS) & 1;
@@ -3478,7 +3482,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, char* outna
   uint32_t chrom_fo_idx = 0xffffffffU; // deliberate overflow
   uint32_t pct = 1;
   int32_t retval = 0;
-  const char errflags[][16] = {"set-hh-missing", "set-me-missing", "fill-missing-a2"};
+  const char errflags[][24] = {"set-hh-missing", "set-mixed-mt-missing", "set-me-missing", "fill-missing-a2"};
   uintptr_t* loadbuf;
   uintptr_t* writebuf;
   uintptr_t* writebuf_ptr;
@@ -3535,10 +3539,10 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, char* outna
     }
     fflush(stdout);
     if (resort_map) {
-      if (set_hh_missing || set_me_missing || fill_missing_a2) {
+      if (set_hh_missing || set_mixed_mt_missing || set_me_missing || fill_missing_a2) {
 	// could remove this restriction if we added a chromosome check to the
 	// main loop, but no real need to bother.
-	errptr = errflags[set_hh_missing? 0 : (set_me_missing? 1 : 2)];
+	errptr = errflags[set_hh_missing? 0 : (set_mixed_mt_missing? 1 : (set_me_missing? 2 : 3))];
 	if (map_is_unsorted) {
 	  // assumes UNSORTED_CM was masked out
 	  LOGERRPRINTF("Error: --%s cannot be used on an unsorted .bim file.  Use\n--make-bed without --%s to sort by position first; then run\n--make-bed + --%s on the new fileset.\n", errptr, errptr, errptr);
@@ -3673,6 +3677,12 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, char* outna
       } else if (!set_hh_missing) {
 	hh_exists = 0;
       }
+      if (fill_missing_a2 || (hh_exists & NXMHH_EXISTS) || set_mixed_mt_missing) {
+        if (bigstack_alloc_ul(sample_ctv2, &sample_include2)) {
+	  goto make_bed_ret_NOMEM;
+	}
+        fill_quatervec_55(sample_ct, sample_include2);
+      }
       if (alloc_collapsed_haploid_filters(sample_exclude, sex_male, unfiltered_sample_ct, sample_ct, fill_missing_a2? Y_FIX_NEEDED : hh_exists, 0, &sample_include2, &sample_male_include2)) {
 	goto make_bed_ret_NOMEM;
       }
@@ -3721,10 +3731,12 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, char* outna
 	      chrom_fo_idx++;
 	      refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
 	    }
-	    if ((!set_me_missing) || (is_haploid && (!is_x))) {
+	    if ((!set_me_missing) || (is_haploid && (!is_x)) || is_mt) {
 	      retval = make_bed_one_marker(bedfile, loadbuf, unfiltered_sample_ct, unfiltered_sample_ct4, sample_exclude, sample_ct, sample_sort_map, final_mask, IS_SET(marker_reverse, marker_uidx), writebuf);
 	      if (is_haploid && set_hh_missing) {
 		haploid_fix(hh_exists, sample_include2, sample_male_include2, sample_ct, is_x, is_y, (unsigned char*)writebuf);
+	      } else if (is_mt && set_mixed_mt_missing) {
+		hh_reset((unsigned char*)writebuf, sample_include2, sample_ct);
 	      }
 	    } else {
 	      retval = make_bed_me_missing_one_marker(bedfile, loadbuf, unfiltered_sample_ct, unfiltered_sample_ct4, sample_exclude, sample_ct, sample_sort_map, final_mask, unfiltered_sample_ctl2m1, IS_SET(marker_reverse, marker_uidx), writebuf, workbuf, sex_male, sample_raw_male_include2, trio_lookup, trio_ct, set_hh_missing, is_x, mendel_multigen, &mendel_error_ct);
