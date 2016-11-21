@@ -9517,13 +9517,14 @@ uint32_t alloc_raw_haploid_filters(uint32_t unfiltered_sample_ct, uint32_t hh_ex
   return 0;
 }
 
-void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, uint32_t hh_exists, uintptr_t* sample_raw_include2, uintptr_t* sample_raw_male_include2, uintptr_t unfiltered_sample_ct, uintptr_t byte_ct_per_marker, unsigned char* loadbuf) {
+void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start, uintptr_t marker_ct, Chrom_info* chrom_info_ptr, uint32_t hh_exists, uint32_t set_hh_missing, uint32_t set_mixed_mt_missing, uintptr_t* sample_raw_include2, uintptr_t* sample_raw_male_include2, uintptr_t unfiltered_sample_ct, uintptr_t byte_ct_per_marker, unsigned char* loadbuf) {
   uintptr_t marker_idx = 0;
   uintptr_t marker_uidx = next_unset_ul_unsafe(marker_exclude, marker_uidx_start);
   uint32_t chrom_fo_idx = get_variant_chrom_fo_idx(chrom_info_ptr, marker_uidx);
   uint32_t chrom_idx;
   uint32_t is_x;
   uint32_t is_y;
+  uint32_t is_mt;
   uint32_t is_haploid;
   uintptr_t chrom_end;
   uintptr_t marker_idx_chrom_end;
@@ -9533,12 +9534,13 @@ void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start
     chrom_end = chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx + 1];
     is_x = (chrom_info_ptr->xymt_codes[X_OFFSET] == (int32_t)chrom_idx);
     is_y = (chrom_info_ptr->xymt_codes[Y_OFFSET] == (int32_t)chrom_idx);
+    is_mt = (chrom_info_ptr->xymt_codes[MT_OFFSET] == (int32_t)chrom_idx);
     is_haploid = IS_SET(chrom_info_ptr->haploid_mask, chrom_idx);
     marker_idx_chrom_end = marker_idx + chrom_end - marker_uidx - popcount_bit_idx(marker_exclude, marker_uidx, chrom_end);
     if (marker_idx_chrom_end > marker_ct) {
       marker_idx_chrom_end = marker_ct;
     }
-    if (is_haploid) {
+    if (is_haploid && set_hh_missing) {
       if (is_x) {
 	if (hh_exists & XMHH_EXISTS) {
 	  for (; marker_idx < marker_idx_chrom_end; marker_idx++) {
@@ -9555,6 +9557,10 @@ void haploid_fix_multiple(uintptr_t* marker_exclude, uintptr_t marker_uidx_start
 	for (; marker_idx < marker_idx_chrom_end; marker_idx++) {
 	  hh_reset(&(loadbuf[marker_idx * byte_ct_per_marker]), sample_raw_include2, unfiltered_sample_ct);
 	}
+      }
+    } else if (is_mt && set_mixed_mt_missing) {
+      for (; marker_idx < marker_idx_chrom_end; marker_idx++) {
+	hh_reset(&(loadbuf[marker_idx * byte_ct_per_marker]), sample_raw_include2, unfiltered_sample_ct);
       }
     }
     marker_idx = marker_idx_chrom_end;

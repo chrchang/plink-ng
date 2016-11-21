@@ -12127,6 +12127,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   uint32_t output_gen_gz = (recode_modifier / RECODE_GEN_GZ) & 1;
   uint32_t recode_012 = recode_modifier & (RECODE_01 | RECODE_12);
   uint32_t set_hh_missing = (misc_flags / MISC_SET_HH_MISSING) & 1;
+  uint32_t set_mixed_mt_missing = (misc_flags / MISC_SET_MIXED_MT_MISSING) & 1;
   uint32_t real_ref_alleles = (misc_flags / MISC_REAL_REF_ALLELES) & 1;
   uint32_t xmhh_exists_orig = hh_exists & XMHH_EXISTS;
   uint32_t omit_nonmale_y = recode_modifier & RECODE_OMIT_NONMALE_Y;
@@ -12206,17 +12207,17 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
   if (!hh_exists) {
     set_hh_missing = 0;
   }
-  if (set_hh_missing || (recode_modifier & RECODE_VCF)) {
+  if (set_hh_missing || set_mixed_mt_missing || (recode_modifier & RECODE_VCF)) {
     if (recode_modifier & (RECODE_23 | RECODE_A_TRANSPOSE | RECODE_BEAGLE | RECODE_BEAGLE_NOMAP | RECODE_BIMBAM | RECODE_BIMBAM_1CHR | RECODE_LGEN | RECODE_LGEN_REF | RECODE_LIST | RECODE_OXFORD | RECODE_RLIST | RECODE_TRANSPOSE | RECODE_VCF)) {
       // SNP-major and no need for sample_uidx in inner loop, so we can use
       // collapsed representation
-      if (alloc_collapsed_haploid_filters(sample_exclude, sex_male, unfiltered_sample_ct, sample_ct, hh_exists | ((recode_modifier & RECODE_VCF)? XMHH_EXISTS : 0), 0, &sample_include2, &sample_male_include2)) {
+      if (alloc_collapsed_haploid_filters(sample_exclude, sex_male, unfiltered_sample_ct, sample_ct, hh_exists | ((recode_modifier & RECODE_VCF)? XMHH_EXISTS : 0) | (set_mixed_mt_missing? NXMHH_EXISTS : 0), 0, &sample_include2, &sample_male_include2)) {
 	goto recode_ret_NOMEM;
       }
     } else {
       // sample-major output (in which case we load large blocks and use
       // haploid_fix_multiple())
-      if (alloc_raw_haploid_filters(unfiltered_sample_ct, hh_exists, 0, sample_exclude, sex_male, &sample_include2, &sample_male_include2)) {
+      if (alloc_raw_haploid_filters(unfiltered_sample_ct, hh_exists | (set_mixed_mt_missing? NXMHH_EXISTS : 0), 0, sample_exclude, sex_male, &sample_include2, &sample_male_include2)) {
 	goto recode_ret_NOMEM;
       }
     }
@@ -12722,6 +12723,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	  }
 	  if (is_haploid && set_hh_missing) {
 	    haploid_fix(hh_exists, sample_include2, sample_male_include2, sample_ct, is_x, is_y, (unsigned char*)loadbuf_collapsed);
+	  } else if (is_mt && set_mixed_mt_missing) {
+	    hh_reset((unsigned char*)loadbuf_collapsed, sample_include2, sample_ct);
 	  }
 	  init_recode_cmax0(mk_allele_ptrs[2 * marker_uidx], mk_allele_ptrs[2 * marker_uidx + 1], cur_mk_allelesx, cmalen, delimiter, delim2);
 	  ulptr = loadbuf_collapsed;
@@ -12830,6 +12833,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	  }
 	  if (is_haploid && set_hh_missing) {
 	    haploid_fix(hh_exists, sample_include2, sample_male_include2, sample_ct, is_x, is_y, (unsigned char*)loadbuf_collapsed);
+	  } else if (is_mt && set_mixed_mt_missing) {
+	    hh_reset((unsigned char*)loadbuf_collapsed, sample_include2, sample_ct);
 	  }
 	  ulptr = loadbuf_collapsed;
 	  ulptr_end = &(loadbuf_collapsed[sample_ct / BITCT2]);
@@ -12981,7 +12986,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     fputs("0%", stdout);
     fflush(stdout);
     g_textbuf[0] = '\n';
-    if (((!hh_exists) || set_hh_missing) && is_haploid && (!is_x)) {
+    if ((((!hh_exists) || set_hh_missing) && is_haploid && (!is_x)) || (set_mixed_mt_missing && is_mt)) {
       uii = 2;
     } else {
       uii = 4;
@@ -12999,7 +13004,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	  chrom_fo_idx++;
 	  refresh_chrom_info(chrom_info_ptr, marker_uidx, &chrom_end, &chrom_fo_idx, &is_x, &is_y, &is_mt, &is_haploid);
 	  chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
-	  if (((!hh_exists) || set_hh_missing) && is_haploid && (!is_x)) {
+	  if ((((!hh_exists) || set_hh_missing) && is_haploid && (!is_x)) || (set_mixed_mt_missing && is_mt)) {
 	    uii = 2;
 	  } else {
 	    uii = 4;
@@ -13035,6 +13040,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	  }
 	  if (is_haploid && set_hh_missing) {
 	    haploid_fix(hh_exists, sample_include2, sample_male_include2, sample_ct, is_x, is_y, (unsigned char*)loadbuf_collapsed);
+	  } else if (is_mt && set_mixed_mt_missing) {
+	    hh_reset((unsigned char*)loadbuf_collapsed, sample_include2, sample_ct);
 	  }
 	}
 
@@ -13159,6 +13166,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	  }
 	  if (is_haploid && set_hh_missing) {
 	    haploid_fix(hh_exists, sample_include2, sample_male_include2, sample_ct, is_x, is_y, (unsigned char*)loadbuf_collapsed);
+	  } else if (is_mt && set_mixed_mt_missing) {
+	    hh_reset((unsigned char*)loadbuf_collapsed, sample_include2, sample_ct);
 	  }
 	  ulptr = loadbuf_collapsed;
 	  ulptr_end = &(loadbuf_collapsed[sample_ct / BITCT2]);
@@ -13283,7 +13292,10 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       }
       cur_word = (((uint32_t)ii) >> ((sample_uidx % 4) * 2)) & 3;
       if (is_haploid && set_hh_missing) {
+	// ok, this is a bit silly
 	haploid_fix(hh_exists, sample_include2, sample_male_include2, 1, is_x, is_y, (unsigned char*)(&cur_word));
+      } else if (is_mt && set_mixed_mt_missing) {
+	hh_reset((unsigned char*)(&cur_word), sample_include2, 1);
       }
       if (IS_SET(marker_reverse, marker_uidx)) {
 	cur_word = cur_word ^ (((~(cur_word ^ (cur_word >> 1))) & 1) * 3);
@@ -13579,6 +13591,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	  }
 	  if (is_haploid && set_hh_missing) {
 	    haploid_fix(hh_exists, sample_include2, sample_male_include2, sample_ct, is_x, is_y, (unsigned char*)loadbuf_collapsed);
+	  } else if (is_mt && set_mixed_mt_missing) {
+	    hh_reset((unsigned char*)loadbuf_collapsed, sample_include2, sample_ct);
 	  }
 	  ucc = mk_allele_ptrs[2 * marker_uidx][0];
 	  ucc2 = mk_allele_ptrs[2 * marker_uidx + 1][0];
@@ -13671,8 +13685,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       if (recode_load_to(loadbuf, bedfile, bed_offset, chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx + 1], 0, ulii, marker_exclude, marker_reverse, &marker_uidx, unfiltered_sample_ct)) {
 	goto recode_ret_READ_FAIL;
       }
-      if (set_hh_missing) {
-	haploid_fix_multiple(marker_exclude, marker_uidx_start, ulii, chrom_info_ptr, hh_exists, sample_include2, sample_male_include2, unfiltered_sample_ct, unfiltered_sample_ct4, loadbuf);
+      if (set_hh_missing || set_mixed_mt_missing) {
+	haploid_fix_multiple(marker_exclude, marker_uidx_start, ulii, chrom_info_ptr, hh_exists, set_hh_missing, set_mixed_mt_missing, sample_include2, sample_male_include2, unfiltered_sample_ct, unfiltered_sample_ct4, loadbuf);
       }
       sample_uidx = 0;
       if (!recode_012) {
@@ -13794,6 +13808,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	  }
 	  if (is_haploid && set_hh_missing) {
 	    haploid_fix(hh_exists, sample_include2, sample_male_include2, sample_ct, is_x, is_y, (unsigned char*)loadbuf_collapsed);
+	  } else if (is_mt && set_mixed_mt_missing) {
+	    hh_reset((unsigned char*)loadbuf_collapsed, sample_include2, sample_ct);
 	  }
 	}
 	wbufptr = &(marker_ids[marker_uidx * max_marker_id_len]);
@@ -13926,8 +13942,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     if (recode_load_to(loadbuf, bedfile, bed_offset, unfiltered_marker_ct, 0, marker_ct, marker_exclude, recode_allele_reverse, &marker_uidx, unfiltered_sample_ct)) {
       goto recode_ret_READ_FAIL;
     }
-    if (set_hh_missing && marker_ct) {
-      haploid_fix_multiple(marker_exclude, 0, marker_ct, chrom_info_ptr, hh_exists, sample_include2, sample_male_include2, unfiltered_sample_ct, unfiltered_sample_ct4, loadbuf);
+    if ((set_hh_missing || set_mixed_mt_missing) && marker_ct) {
+      haploid_fix_multiple(marker_exclude, 0, marker_ct, chrom_info_ptr, hh_exists, set_hh_missing, set_mixed_mt_missing, sample_include2, sample_male_include2, unfiltered_sample_ct, unfiltered_sample_ct4, loadbuf);
     }
     fputs("0%", stdout);
     sample_uidx = 0;
@@ -14062,6 +14078,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
 	  }
 	  if (is_haploid && set_hh_missing) {
 	    haploid_fix(hh_exists, cur_sample_include2, cur_sample_male_include2, cur_sample_ct, is_x, is_y, (unsigned char*)loadbuf_collapsed);
+	  } else if (is_mt && set_mixed_mt_missing) {
+	    hh_reset((unsigned char*)loadbuf_collapsed, cur_sample_include2, cur_sample_ct);
 	  }
 	}
 	init_recode_cmax(mk_allele_ptrs[2 * marker_uidx], mk_allele_ptrs[2 * marker_uidx + 1], cur_mk_allelesx, cmalen, '\0', delimiter);
@@ -14231,8 +14249,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       if (recode_load_to(loadbuf, bedfile, bed_offset, chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx + 1], 0, ulii, marker_exclude, marker_reverse, &marker_uidx, unfiltered_sample_ct)) {
 	goto recode_ret_READ_FAIL;
       }
-      if (set_hh_missing && marker_ct) {
-        haploid_fix_multiple(marker_exclude, marker_uidx_start, ulii, chrom_info_ptr, hh_exists, sample_include2, sample_male_include2, unfiltered_sample_ct, unfiltered_sample_ct4, loadbuf);
+      if ((set_hh_missing || set_mixed_mt_missing) && marker_ct) {
+        haploid_fix_multiple(marker_exclude, marker_uidx_start, ulii, chrom_info_ptr, hh_exists, set_hh_missing, set_mixed_mt_missing, sample_include2, sample_male_include2, unfiltered_sample_ct, unfiltered_sample_ct4, loadbuf);
       }
       sample_uidx = 0;
       // Haploview requires '0' missing phenotype code
@@ -14304,8 +14322,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     if (recode_load_to(loadbuf, bedfile, bed_offset, unfiltered_marker_ct, 0, marker_ct, marker_exclude, marker_reverse, &marker_uidx, unfiltered_sample_ct)) {
       goto recode_ret_READ_FAIL;
     }
-    if (set_hh_missing && marker_ct) {
-      haploid_fix_multiple(marker_exclude, 0, marker_ct, chrom_info_ptr, hh_exists, sample_include2, sample_male_include2, unfiltered_sample_ct, unfiltered_sample_ct4, loadbuf);
+    if ((set_hh_missing || set_mixed_mt_missing) && marker_ct) {
+      haploid_fix_multiple(marker_exclude, 0, marker_ct, chrom_info_ptr, hh_exists, set_hh_missing, set_mixed_mt_missing, sample_include2, sample_male_include2, unfiltered_sample_ct, unfiltered_sample_ct4, loadbuf);
     }
     sample_uidx = 0;
     sample_idx = 0;
@@ -14364,8 +14382,8 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
     if (recode_load_to(loadbuf, bedfile, bed_offset, unfiltered_marker_ct, 0, marker_ct, marker_exclude, marker_reverse, &marker_uidx, unfiltered_sample_ct)) {
       goto recode_ret_READ_FAIL;
     }
-    if (set_hh_missing && marker_ct) {
-      haploid_fix_multiple(marker_exclude, 0, marker_ct, chrom_info_ptr, hh_exists, sample_include2, sample_male_include2, unfiltered_sample_ct, unfiltered_sample_ct4, loadbuf);
+    if ((set_hh_missing || set_mixed_mt_missing) && marker_ct) {
+      haploid_fix_multiple(marker_exclude, 0, marker_ct, chrom_info_ptr, hh_exists, set_hh_missing, set_mixed_mt_missing, sample_include2, sample_male_include2, unfiltered_sample_ct, unfiltered_sample_ct4, loadbuf);
     }
     sample_uidx = 0;
     sample_idx = 0;
