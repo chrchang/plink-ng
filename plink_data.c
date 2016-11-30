@@ -389,7 +389,8 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
   return retval;
 }
 
-static const uint8_t acgt_bool_table[256] = {
+// missing code set to 1 by load_bim()
+static uint8_t acgtm_bool_table[256] = {
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -407,8 +408,8 @@ static const uint8_t acgt_bool_table[256] = {
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
-static inline uint32_t is_acgt(unsigned char ucc) {
-  return (uint32_t)(acgt_bool_table[ucc]);
+static inline uint32_t is_acgtm(unsigned char ucc) {
+  return (uint32_t)(acgtm_bool_table[ucc]);
 }
 
 void load_bim_sf_insert(uint32_t chrom_idx, uint32_t pos_start, uint32_t pos_end, uint32_t* start_idxs, uint32_t* llbuf, uint32_t* lltop_ptr, uint32_t* entry_ct_ptr) {
@@ -1112,6 +1113,7 @@ int32_t load_bim(char* bimname, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* 
     if (marker_alleles_needed) {
       if (snps_only) {
 	max_marker_allele_blen = 2;
+	acgtm_bool_table[(unsigned char)(*missing_geno_ptr)] = 1;
       }
       if (max_marker_allele_blen > NON_BIGSTACK_MIN - 1) {
 	// guard against overflows
@@ -1273,7 +1275,7 @@ int32_t load_bim(char* bimname, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* 
 	  umm = strlen_se(bufptr5);
 	  if (marker_alleles_needed) {
 	    if (snps_only) {
-	      if ((ukk != 1) || (umm != 1) || (snps_only_just_acgt && (!is_acgt(*bufptr4)))) {
+	      if ((ukk != 1) || (umm != 1) || (snps_only_just_acgt && (!is_acgtm(*bufptr4)))) {
 		goto load_bim_skip_marker;
 	      }
 	    }
