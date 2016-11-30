@@ -389,6 +389,28 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
   return retval;
 }
 
+static const uint8_t acgt_bool_table[256] = {
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+
+static inline uint32_t is_acgt(unsigned char ucc) {
+  return (uint32_t)(acgt_bool_table[ucc]);
+}
+
 void load_bim_sf_insert(uint32_t chrom_idx, uint32_t pos_start, uint32_t pos_end, uint32_t* start_idxs, uint32_t* llbuf, uint32_t* lltop_ptr, uint32_t* entry_ct_ptr) {
   uint32_t lltop = *lltop_ptr;
   uint32_t entry_ct = *entry_ct_ptr;
@@ -503,7 +525,7 @@ int32_t load_bim(char* bimname, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* 
   uint32_t allow_no_variants = (misc_flags / MISC_ALLOW_NO_VARS) & 1;
   uint32_t exclude_snp = (filter_flags / FILTER_EXCLUDE_MARKERNAME_SNP) & 1;
   uint32_t snps_only = (filter_flags / FILTER_SNPS_ONLY) & 1;
-  uint32_t snps_only_no_di = (misc_flags / MISC_SNPS_ONLY_NO_DI) & 1;
+  uint32_t snps_only_just_acgt = (misc_flags / MISC_SNPS_ONLY_JUST_ACGT) & 1;
   uint32_t from_slen = markername_from? strlen(markername_from) : 0;
   uint32_t to_slen = markername_to? strlen(markername_to) : 0;
   uint32_t snp_slen = markername_snp? strlen(markername_snp) : 0;
@@ -1251,7 +1273,7 @@ int32_t load_bim(char* bimname, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* 
 	  umm = strlen_se(bufptr5);
 	  if (marker_alleles_needed) {
 	    if (snps_only) {
-	      if ((ukk != 1) || (umm != 1) || (snps_only_no_di && ((*bufptr4 == 'D') || (*bufptr4 == 'I') || (*bufptr5 == 'D') || (*bufptr5 == 'I')))) {
+	      if ((ukk != 1) || (umm != 1) || (snps_only_just_acgt && (!is_acgt(*bufptr4)))) {
 		goto load_bim_skip_marker;
 	      }
 	    }
@@ -1335,7 +1357,11 @@ int32_t load_bim(char* bimname, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* 
     chrom_info_ptr->chrom_ct = ++chroms_encountered_m1;
     chrom_info_ptr->chrom_fo_vidx_start[chroms_encountered_m1] = marker_uidx;
     *marker_exclude_ct_ptr = marker_exclude_ct;
-    LOGPRINTF("%" PRIuPTR " variant%s loaded from %s.\n", unfiltered_marker_ct - marker_exclude_ct, (unfiltered_marker_ct == marker_exclude_ct + 1)? "" : "s", ftype_str);
+    if (!marker_exclude_ct) {
+      LOGPRINTF("%" PRIuPTR " variant%s loaded from %s.\n", unfiltered_marker_ct, (unfiltered_marker_ct == 1)? "" : "s", ftype_str);
+    } else {
+      LOGPRINTF("%" PRIuPTR " out of %" PRIuPTR " variant%s loaded from %s.\n", unfiltered_marker_ct - marker_exclude_ct, unfiltered_marker_ct, (unfiltered_marker_ct == marker_exclude_ct + 1)? "" : "s", ftype_str);
+    }
     if (missing_ids_set) {
       LOGPRINTF("%u missing ID%s set.\n", missing_ids_set, (missing_ids_set == 1)? "" : "s");
     }

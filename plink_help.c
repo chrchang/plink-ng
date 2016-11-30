@@ -1581,7 +1581,9 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "                     chromosome code XY (pseudo-autosomal region of X).\n"
 	       );
     help_print("snps-only", &help_ctrl, 0,
-"  --snps-only <no-DI> : Exclude variants with multi-character allele codes.\n"
+"  --snps-only <just-acgt> : Exclude non-SNP variants.  By default, SNP = both\n"
+"                            allele codes are single-character; 'just-acgt'\n"
+"                            restricts SNP codes to {A,C,G,T,a,c,g,t,[missing]}.\n"
 	       );
     help_print("from\tto\tsnp\twindow\tfrom-bp\tto-bp\tfrom-kb\tto-kb\tfrom-mb\tto-mb\texclude-snp\textract-snp", &help_ctrl, 0,
 "  --from [var ID]  : Use ID(s) to specify a variant range to load.  When used\n"

@@ -105,7 +105,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (20 Nov 2016)";
+  " (30 Nov 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -11418,11 +11418,16 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (param_ct) {
-	  if ((strlen(argv[cur_arg + 1]) != 5) || (memcmp(argv[cur_arg + 1], "no-", 3)) || (!match_upper(&(argv[cur_arg + 1][3]), "DI"))) {
-	    sprintf(g_logbuf, "Error: Invalid --snps-only parameter '%s'.\n", argv[cur_arg + 1]);
-	    goto main_ret_INVALID_CMDLINE_WWA;
+	  const char* cur_modif = argv[cur_arg + 1];
+	  const uint32_t slen = strlen(cur_modif);
+	  if ((slen != 9) || memcmp(cur_modif, "just-acgt", 9)) {
+	    if ((slen != 5) || (memcmp(cur_modif, "no-", 3)) || (!match_upper(&(cur_modif[3]), "DI"))) {
+	      sprintf(g_logbuf, "Error: Invalid --snps-only parameter '%s'.\n", argv[cur_arg + 1]);
+	      goto main_ret_INVALID_CMDLINE_WWA;
+	    }
+	    logerrprint("Warning: --snps-only 'no-DI' modifier has been changed to 'just-acgt', and now\nexcludes all non-ACGT allele codes.\n");
 	  }
-          misc_flags |= MISC_SNPS_ONLY_NO_DI;
+          misc_flags |= MISC_SNPS_ONLY_JUST_ACGT;
 	}
 	filter_flags |= FILTER_BIM_REQ | FILTER_SNPS_ONLY | FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "plit-x", 7)) {
