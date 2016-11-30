@@ -1362,7 +1362,7 @@ int32_t load_bim(char* bimname, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* 
     if (!marker_exclude_ct) {
       LOGPRINTF("%" PRIuPTR " variant%s loaded from %s.\n", unfiltered_marker_ct, (unfiltered_marker_ct == 1)? "" : "s", ftype_str);
     } else {
-      LOGPRINTF("%" PRIuPTR " out of %" PRIuPTR " variant%s loaded from %s.\n", unfiltered_marker_ct - marker_exclude_ct, unfiltered_marker_ct, (unfiltered_marker_ct == marker_exclude_ct + 1)? "" : "s", ftype_str);
+      LOGPRINTF("%" PRIuPTR " out of %" PRIuPTR " variant%s loaded from %s.\n", unfiltered_marker_ct - marker_exclude_ct, unfiltered_marker_ct, (unfiltered_marker_ct == 1)? "" : "s", ftype_str);
     }
     if (missing_ids_set) {
       LOGPRINTF("%u missing ID%s set.\n", missing_ids_set, (missing_ids_set == 1)? "" : "s");
