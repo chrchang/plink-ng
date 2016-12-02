@@ -1275,7 +1275,7 @@ int32_t load_bim(char* bimname, uintptr_t* unfiltered_marker_ct_ptr, uintptr_t* 
 	  umm = strlen_se(bufptr5);
 	  if (marker_alleles_needed) {
 	    if (snps_only) {
-	      if ((ukk != 1) || (umm != 1) || (snps_only_just_acgt && (!is_acgtm(*bufptr4)))) {
+	      if ((ukk != 1) || (umm != 1) || (snps_only_just_acgt && ((!is_acgtm(*bufptr4)) || (!is_acgtm(*bufptr5))))) {
 		goto load_bim_skip_marker;
 	      }
 	    }
