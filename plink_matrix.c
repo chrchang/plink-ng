@@ -339,7 +339,7 @@ void col_major_matrix_multiply(__CLPK_integer row1_ct, __CLPK_integer col2_ct, _
       dxx = 0;
       dptr = &(inmatrix2[col_idx * common_ct]);
       for (com_idx = 0; com_idx < common_ct_l; com_idx++) {
-        dxx += (*dptr++) * inmatrix1[com_idx * common_ct + row_idx];
+        dxx += (*dptr++) * inmatrix1[com_idx * row1_ct_l + row_idx];
       }
       *outmatrix++ = dxx;
     }
@@ -372,7 +372,7 @@ void col_major_fmatrix_multiply(__CLPK_integer row1_ct, __CLPK_integer col2_ct, 
       fxx = 0;
       fptr = &(inmatrix2[col_idx * common_ct]);
       for (com_idx = 0; com_idx < common_ct_l; com_idx++) {
-        fxx += (*fptr++) * inmatrix1[com_idx * common_ct + row_idx];
+        fxx += (*fptr++) * inmatrix1[com_idx * row1_ct_l + row_idx];
       }
       *outmatrix++ = fxx;
     }
