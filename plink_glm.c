@@ -3752,7 +3752,7 @@ int32_t glm_common_init(FILE* bedfile, uintptr_t bed_offset, uint32_t glm_modifi
     fill_ulong_zero(param_raw_ctl, active_params);
     active_params[0] = 1;
     numeric_range_list_to_bitarr(parameters_range_list_ptr, param_raw_ct_max, 0, 1, active_params);
-    if ((!(active_params[0] & 2)) && ((!np_diploid_raw) || (active_params[0] & 4)) && ((!covar_interactions) || ((!popcount_bit_idx(active_params, interaction_start_idx, sex_start_idx)) && ((!variation_in_sex) || (!popcount_bit_idx(active_params, sex_start_idx + 1, param_raw_ct_max)))))) {
+    if ((!(active_params[0] & 2)) && ((!np_diploid_raw) || (!(active_params[0] & 4))) && ((!covar_interactions) || ((!popcount_bit_idx(active_params, interaction_start_idx, sex_start_idx)) && ((!variation_in_sex) || (!popcount_bit_idx(active_params, sex_start_idx + 1, param_raw_ct_max)))))) {
       // force the user to explicitly use no-snp if that's their intention
       logerrprint("Error: --parameters must retain at least one dosage-dependent variable.  To\nperform one-off regression(s), use the --linear 'no-snp' modifier instead.\n");
       goto glm_common_init_ret_INVALID_CMDLINE;
