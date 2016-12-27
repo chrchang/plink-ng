@@ -1407,7 +1407,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
     help_print("oxford-pheno-name\tdata\tsample", &help_ctrl, 0,
 "  --oxford-pheno-name [col nm] : Import named phenotype from the .sample file.\n"
 	       );
-    help_print("hard-call-threshold\tmissing-code\tmissing_code\tdata\tgen\tsample", &help_ctrl, 0,
+    help_print("hard-call-threshold\tmissing-code\tmissing_code\tdata\tgen\tbgen\tsample", &help_ctrl, 0,
 "  --hard-call-threshold [val]  : When an Oxford-format fileset is loaded, calls\n"
 "  --hard-call-threshold random   with uncertainty level greater than 0.1 are\n"
 "                                 normally treated as missing.  You can adjust\n"

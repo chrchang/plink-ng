@@ -105,7 +105,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (18 Dec 2016)";
+  " (27 Dec 2016)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -3326,7 +3326,7 @@ int32_t main(int32_t argc, char** argv) {
 
   uint32_t aperm_present = 0;
   char* segment_spanning_fname = nullptr;
-  char* missing_code = nullptr;
+  char* oxford_missing_code = nullptr;
   char range_delim = '-';
   uint32_t modifier_23 = 0;
   double pheno_23 = DBL_MAX;
@@ -8297,14 +8297,12 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
 	memcpy(output_missing_pheno, argv[cur_arg + 1], jj + 1);
-      } else if ((!memcmp(argptr2, "issing-code", 12))) {
+      } else if (!memcmp(argptr2, "issing-code", 12)) {
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 0, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
-	if (param_ct) {
-	  missing_code = argv[cur_arg + 1];
-	} else {
-	  missing_code = (char*)"";
+	if (alloc_string(&oxford_missing_code, param_ct? argv[cur_arg + 1] : "")) {
+	  goto main_ret_NOMEM;
 	}
       } else if (!memcmp(argptr2, "ake-pheno", 10)) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 2, 2)) {
@@ -13501,7 +13499,7 @@ int32_t main(int32_t argc, char** argv) {
 	  simulate_label = nullptr;
 	}
       } else if (load_params & LOAD_PARAMS_OX_ALL) {
-	retval = oxford_to_bed(pedname, mapname, outname, sptr, oxford_single_chr, oxford_pheno_name, hard_call_threshold, missing_code, missing_pheno, misc_flags, (load_params / LOAD_PARAMS_OXBGEN) & 1, &chrom_info);
+	retval = oxford_to_bed(pedname, mapname, outname, sptr, oxford_single_chr, oxford_pheno_name, hard_call_threshold, oxford_missing_code, missing_pheno, misc_flags, (load_params / LOAD_PARAMS_OXBGEN) & 1, &chrom_info);
       } else {
         retval = ped_to_bed(pedname, mapname, outname, sptr, fam_cols, misc_flags, missing_pheno, &chrom_info);
 	fam_cols |= FAM_COL_1 | FAM_COL_34 | FAM_COL_5;
@@ -13650,6 +13648,7 @@ int32_t main(int32_t argc, char** argv) {
   free_cond(update_cm);
   free_cond(update_map);
   free_cond(update_name);
+  free_cond(oxford_missing_code);
   free_cond(oxford_single_chr);
   free_cond(oxford_pheno_name);
   free_cond(update_ids_fname);
