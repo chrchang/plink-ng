@@ -67,11 +67,8 @@ char* div32768_print(uint32_t rawval, char* start) {
   *start++ = '.';
   // we wish to print (100000 * remainder + 16384) / 32768, banker's-rounded,
   // left-0-padded
-  uint32_t five_decimal_places = (3125 * rawval + 512) / 1024;
-  if ((rawval % 1024) == 512) {
-    // banker's rounding is relevant for n/64 for n odd.  32768/64 = 512
-    five_decimal_places &= ~1;
-  }
+  // banker's rounding is relevant for n/64 for n odd.  32768/64 = 512
+  uint32_t five_decimal_places = ((3125 * rawval + 512) / 1024) - ((rawval % 2048) == 512);
   const uint32_t first_decimal_place = five_decimal_places / 10000;
   *start++ = '0' + first_decimal_place;
   const uint32_t last_four_digits = five_decimal_places - first_decimal_place * 10000;

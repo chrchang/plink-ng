@@ -27,7 +27,7 @@ endif
 CFLAGS=-Wall -O2
 BLASFLAGS=-L/usr/lib64/atlas -llapack -lcblas -latlas
 LINKFLAGS=-lm -lpthread -ldl
-ZLIB=zlib-1.2.8/libz.so.1.2.8
+ZLIB=zlib-1.2.10/libz.so.1.2.10
 
 ifeq ($(SYS), MAC)
   GCC_GTEQ_43 := $(shell expr `g++ -dumpversion | sed -e 's/\.\([0-9][0-9]\)/\1/g' -e 's/\.\([0-9]\)/0\1/g' -e 's/^[0-9]\{3,4\}$$/&00/'` \>= 40300)
@@ -36,7 +36,7 @@ ifeq ($(SYS), MAC)
   endif
   BLASFLAGS=-framework Accelerate
   LINKFLAGS=-ldl
-  ZLIB=zlib-1.2.8/libz.1.2.8.dylib
+  ZLIB=zlib-1.2.10/libz.1.2.10.dylib
 endif
 
 ifeq ($(SYS), WIN)
@@ -47,7 +47,7 @@ ifeq ($(SYS), WIN)
 # NO_LAPACK.
   BLASFLAGS=-L. lapack/liblapack.a -L. lapack/librefblas.a
   LINKFLAGS=-lm -static-libgcc
-  ZLIB=zlib-1.2.8/libz.a
+  ZLIB=zlib-1.2.10/libz.a
 endif
 
 ifdef NO_LAPACK
