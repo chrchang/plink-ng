@@ -1,4 +1,4 @@
-// This file is part of PLINK 1.90, copyright (C) 2005-2016 Shaun Purcell,
+// This file is part of PLINK 1.90, copyright (C) 2005-2017 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify
@@ -5799,8 +5799,12 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
 	}
       } else {
         retval = string_range_list_to_bitarr2(sorted_ids, id_map, marker_ct, max_marker_id_len, &(ldip->snps_rl), "ld-snps", marker_exclude_idx1);
+	if (retval) {
+	  goto ld_report_regular_ret_1;
+	}
         bitvec_or(marker_exclude, unfiltered_marker_ctl, marker_exclude_idx1);
-        marker_ct1 = marker_ct - popcount_longs(marker_exclude_idx1, unfiltered_marker_ctl);
+	// bugfix, 13 Jan 2017
+        marker_ct1 = unfiltered_marker_ct - popcount_longs(marker_exclude, unfiltered_marker_ctl);
       }
       if (!marker_ct1) {
 	goto ld_report_regular_ret_EMPTY_SET1;
