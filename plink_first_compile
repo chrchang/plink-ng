@@ -1,17 +1,24 @@
 #!/bin/bash
 
 # Download and verify zlib
-EXPECTEDCHECKSUM=76af0bfb4d17fad1d8bda13cb5593c311f59adee
-curl -O http://zlib.net/fossils/zlib-1.2.10.tar.gz
-CHECKSUM=$(shasum zlib-1.2.10.tar.gz | cut -b-40)
+curl -Of http://zlib.net/zlib-1.2.11.tar.gz
+last_exit_code=$?
+if [ $last_exit_code -ne 0 ]; then
+    # There's a newer zlib, and we might want to update this script.  But
+    # download the hardcoded version for now to make the static build work...
+    curl -O http://zlib.net/fossils/zlib-1.2.11.tar.gz
+fi
+
+EXPECTEDCHECKSUM=e6d119755acdf9104d7ba236b1242696940ed6dd
+CHECKSUM=$(shasum zlib-1.2.11.tar.gz | cut -b-40)
 if [ "$EXPECTEDCHECKSUM" != "$CHECKSUM" ]; then
     echo "Zlib checksum verification failure"
     exit 1
 fi;
 
 # Unpack and compile zlib
-tar -xzvf zlib-1.2.10.tar.gz
-cd zlib-1.2.10
+tar -xzvf zlib-1.2.11.tar.gz
+cd zlib-1.2.11
 ./configure
 make
 
