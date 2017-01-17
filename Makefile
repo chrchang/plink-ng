@@ -4,7 +4,7 @@ CFLAGS=-Wall -O2
 BLASFLAGS=-L/usr/lib64/atlas -llapack -lcblas -latlas
 BLASFLAGS64=-L/usr/lib64/atlas -llapack -lcblas -latlas
 LINKFLAGS=-lm -lpthread
-ZLIB=zlib-1.2.10/libz.so.1.2.10
+ZLIB=zlib-1.2.11/libz.so.1.2.11
 ARCH64=-arch x86_64
 
 UNAME := $(shell uname)
@@ -17,16 +17,16 @@ ifeq ($(UNAME), Darwin)
   BLASFLAGS=-framework Accelerate
   BLASFLAGS64=-framework Accelerate
   LINKFLAGS=-ldl
-  ZLIB=zlib-1.2.10/libz-32.a
-  ZLIB64=zlib-1.2.10/libz-64.a
+  ZLIB=zlib-1.2.11/libz-32.a
+  ZLIB64=zlib-1.2.11/libz-64.a
 else
   ifeq ($(UNAME), MINGW32_NT-6.2)
     ARCH64=
     BLASFLAGS=-Wl,-Bstatic -L. lapack/liblapack.a -L. lapack/librefblas.a
     BLASFLAGS64=-Wl,-Bstatic -L. lapack/liblapack-64.a -L. lapack/librefblas-64.a
     LINKFLAGS=-lm -static-libgcc
-    ZLIB=zlib-1.2.10/libz-32.a
-    ZLIB64=zlib-1.2.10/libz-64.a
+    ZLIB=zlib-1.2.11/libz-32.a
+    ZLIB64=zlib-1.2.11/libz-64.a
   endif
 endif
 
