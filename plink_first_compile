@@ -2,7 +2,7 @@
 
 # Download and verify zlib
 EXPECTEDCHECKSUM=76af0bfb4d17fad1d8bda13cb5593c311f59adee
-curl -O http://zlib.net/zlib-1.2.10.tar.gz
+curl -O http://zlib.net/fossils/zlib-1.2.10.tar.gz
 CHECKSUM=$(shasum zlib-1.2.10.tar.gz | cut -b-40)
 if [ "$EXPECTEDCHECKSUM" != "$CHECKSUM" ]; then
     echo "Zlib checksum verification failure"
