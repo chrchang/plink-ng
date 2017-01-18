@@ -4850,9 +4850,9 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
       }
       if (uii & (~5)) {
 	uii = (uii >> 2) & 15;
-	if (uii == 2) {
-	  logerrprint("Error: BGEN v1.2 input requires PLINK 2.0 (under development as of this\nwriting).  Use gen-convert to downcode to BGEN v1.1 if you want to process this\ndata with PLINK 1.9.\n");
-	} else if (uii > 2) {
+	if ((uii == 2) || (uii == 3)) {
+	  LOGERRPRINTF("Error: BGEN v1.%c input requires PLINK 2.0 (under development as of this\nwriting).  Use gen-convert to downcode to BGEN v1.1 if you want to process this\ndata with PLINK 1.9.\n", uii + '0');
+	} else if (uii > 3) {
 	  logerrprint("Error: Unrecognized BGEN version.  Use gen-convert or a similar tool to\ndowncode to BGEN v1.1 if you want to process this data with PLINK 1.9.\n");
 	} else {
 	  logerrprint("Error: Unrecognized flags in .bgen header.  (PLINK 1.9 only supports\nBGEN v1.0 and v1.1.)\n");
