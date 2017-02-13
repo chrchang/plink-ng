@@ -64,6 +64,7 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
   Rinteger* r_g;
   Rdouble* r_data;
   double* pheno_d2;
+  double* covar_d2 = nullptr;
   double* dptr;
   char* inbuf_start;
   char* inbuf_end;
@@ -149,6 +150,19 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
   } else {
     pheno_d2 = pheno_d;
   }
+  if (covar_ct) {
+    if (pheno_nm_ct == unfiltered_sample_ct) {
+      covar_d2 = covar_d;
+    } else {
+      if (bigstack_alloc_d(pheno_nm_ct * covar_ct, &covar_d2)) {
+	goto rserve_call_ret_NOMEM;
+      }
+      for (sample_uidx = 0, sample_idx = 0; sample_idx < pheno_nm_ct; ++sample_uidx, ++sample_idx) {
+	next_set_unsafe_ck(pheno_nm, &sample_uidx);
+	memcpy(&(covar_d2[sample_idx * covar_ct]), &(covar_d[sample_uidx * covar_ct]), covar_ct * sizeof(double));
+      }
+    }
+  }
   if (cluster_ct) {
     if (bigstack_alloc_i(unfiltered_sample_ct, &sample_to_cluster)) {
       goto rserve_call_ret_NOMEM;
@@ -183,7 +197,7 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
     rc->assign("CLUSTER", r_s);
     rc->eval("CLUSTER[CLUSTER==-1] <- NA");
     if (covar_ct) {
-      r_cov = new Rdouble(covar_d, pheno_nm_ct * covar_ct);
+      r_cov = new Rdouble(covar_d2, pheno_nm_ct * covar_ct);
       rc->assign("c", r_cov);
       rc->eval("COVAR<-matrix(c,nrow=n,byrow=T)");
     } else {
@@ -221,11 +235,11 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
       fputs("c <- c( ", outfile);
       uljj = pheno_nm_ct * covar_ct - 1;
       for (ulii = 0; ulii < uljj; ulii++) {
-	bufptr = dtoa_g(covar_d[ulii], g_textbuf);
+	bufptr = dtoa_g(covar_d2[ulii], g_textbuf);
 	bufptr = memcpya(bufptr, ", ", 2);
 	fwrite(g_textbuf, 1, (uintptr_t)(bufptr - g_textbuf), outfile);
       }
-      bufptr = dtoa_g(covar_d[ulii], g_textbuf);
+      bufptr = dtoa_g(covar_d2[ulii], g_textbuf);
       fwrite(g_textbuf, 1, (uintptr_t)(bufptr - g_textbuf), outfile);
       fputs(" ) \nCOVAR <- matrix( c , nrow = n , byrow=T)\n", outfile);
     } else {

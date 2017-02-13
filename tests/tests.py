@@ -10,7 +10,7 @@ def main():
     bfile_names_fam = ['trio']
 
     for bfn in bfile_names:
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --nonfounders --max-maf 0.4999 --recode --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bfile ' + bfn + ' --silent --nonfounders --max-maf 0.4999 --recode --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --file/--maf/--max-maf/--nonfounders/--recode/--write-snplist test.'
             sys.exit(1)
@@ -27,7 +27,7 @@ def main():
             print '--file/--maf/--max-maf/--nonfounders/--recode/--write-snplist test failed.'
             sys.exit(1)
 
-        retval = subprocess.call('plink1 --file test1 --silent --nonfounders --maf 0.04999 --write-snplist --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --file test1 --silent --nonfounders --maf 0.04999 --write-snplist --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --file/--maf/--max-maf/--nonfounders/--recode/--write-snplist test.'
             sys.exit(1)
@@ -48,7 +48,7 @@ def main():
         if not retval == 0:
             print 'Unexpected error in --hwe/--recode vcf/--vcf test.'
             sys.exit(1)
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --hwe 0.009999 --write-snplist --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bfile ' + bfn + ' --silent --hwe 0.009999 --write-snplist --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --hwe/--recode vcf/--vcf test.'
             sys.exit(1)
@@ -63,7 +63,7 @@ def main():
     print '--hwe/--recode vcf/--vcf test passed.'
 
     for bfn in bfile_names:
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --nonfounders --max-maf 0.4999 --recode --transpose --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bfile ' + bfn + ' --silent --nonfounders --max-maf 0.4999 --recode --transpose --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --missing/--recode transpose/--tfile test.'
             sys.exit(1)
@@ -80,7 +80,7 @@ def main():
             print '--missing/--recode transpose/--tfile test failed.'
             sys.exit(1)
 
-        retval = subprocess.call('plink1 --tfile test1 --silent --missing --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --tfile test1 --silent --missing --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --missing/--recode transpose/--tfile test.'
             sys.exit(1)
@@ -98,7 +98,7 @@ def main():
             sys.exit(1)
     print '--missing/--recode transpose/--tfile test passed.'
 
-    retval = subprocess.call('plink1 --bfile ' + bfile_names_cc[0] + ' --silent --bmerge ' + bfile_names_cc[1] + '.bed ' + bfile_names_cc[1] + '.bim ' + bfile_names_cc[1] + '.fam --max-maf 0.4999 --make-bed --out test1', shell=True)
+    retval = subprocess.call('plink1 --noweb --bfile ' + bfile_names_cc[0] + ' --silent --bmerge ' + bfile_names_cc[1] + '.bed ' + bfile_names_cc[1] + '.bim ' + bfile_names_cc[1] + '.fam --max-maf 0.4999 --make-bed --out test1', shell=True)
     if not retval == 0:
         print 'Unexpected error in --bmerge/--make-bed test.'
         sys.exit(1)
@@ -148,7 +148,7 @@ def main():
         if not retval == 0:
             print 'Unexpected error in --extract/--freq/--geno test.'
             sys.exit(1)
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --freq --extract test2.snplist --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bfile ' + bfn + ' --silent --freq --extract test2.snplist --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --extract/--freq/--geno test.'
             sys.exit(1)
@@ -163,7 +163,7 @@ def main():
     print '--extract/--freq/--geno test passed.'
 
     for bfn in bfile_names_fam:
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --covar ' + bfn + '.fam --covar-number 3 --filter-founders --write-covar --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bfile ' + bfn + ' --silent --covar ' + bfn + '.fam --covar-number 3 --filter-founders --write-covar --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --covar/--covar-number/--filter-founders/--write-covar test.'
             sys.exit(1)
@@ -178,7 +178,7 @@ def main():
     print '--covar/--covar-number/--filter-founders/--write-covar test passed.'
 
     for bfn in bfile_names:
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --cluster --K 2 --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bfile ' + bfn + ' --silent --cluster --K 2 --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --cluster/--filter-females/--within/--write-cluster test.'
             sys.exit(1)
@@ -190,7 +190,7 @@ def main():
         if not retval == 0:
             print '--cluster/--filter-females/--within/--write-cluster test failed.'
             sys.exit(1)
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --within ' + bfn + '.cluster2 --filter-females --write-cluster --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bfile ' + bfn + ' --silent --within ' + bfn + '.cluster2 --filter-females --write-cluster --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --cluster/--filter-females/--within/--write-cluster test.'
             sys.exit(1)
@@ -205,7 +205,7 @@ def main():
     print '--cluster/--filter-females/--within/--write-cluster test passed.'
 
     for bfn in bfile_names:
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --make-set set.txt --write-set --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bfile ' + bfn + ' --silent --make-set set.txt --write-set --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --make-set/--set/--set-table/--write-set test.'
             sys.exit(1)
@@ -217,7 +217,7 @@ def main():
         if not retval == 0:
             print '--make-set/--set/--set-table/--write-set test failed.'
             sys.exit(1)
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --make-set set.txt --set-table --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bfile ' + bfn + ' --silent --make-set set.txt --set-table --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --make-set/--set/--set-table/--write-set test.'
             sys.exit(1)
@@ -294,7 +294,7 @@ def main():
 
     for bfn in bfile_names_cc:
         # diff error likely at MAF = 0.4875 due to rounding
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --flip-scan --mind 0.05399 --maf 0.4876 --max-maf 0.4999 --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bfile ' + bfn + ' --silent --flip-scan --mind 0.05399 --maf 0.4876 --max-maf 0.4999 --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --flip-scan/--mind test.'
             sys.exit(1)
@@ -326,7 +326,7 @@ def main():
             print 'Unexpected error in --exclude/--hardy test.'
             sys.exit(1)
 
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --extract test2.snplist --hardy --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bfile ' + bfn + ' --silent --extract test2.snplist --hardy --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --exclude/--hardy test.'
             sys.exit(1)
@@ -345,7 +345,7 @@ def main():
     print '--exclude/--hardy test passed.'
 
     for bfn in bfile_names_fam:
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --mendel --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bfile ' + bfn + ' --silent --mendel --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --mendel test.'
             sys.exit(1)
@@ -376,7 +376,7 @@ def main():
         if not retval == 0:
             print 'Unexpected error in --data/--het/--recode oxford test.'
             sys.exit(1)
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --het --nonfounders --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bfile ' + bfn + ' --silent --het --nonfounders --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --data/--het/--recode oxford test.'
             sys.exit(1)
@@ -400,7 +400,7 @@ def main():
         if not retval == 0:
             print 'Unexpected error in --check-sex/--impute-sex/--read-freq test.'
             sys.exit(1)
-        retval = subprocess.call('plink1 --bed ' + bfn + '.bed --bim test1.bim.tmp --fam ' + bfn + '.fam --silent --read-freq test1.frq --check-sex --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bed ' + bfn + '.bed --bim test1.bim.tmp --fam ' + bfn + '.fam --silent --read-freq test1.frq --check-sex --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --check-sex/--impute-sex/--read-freq test.'
             sys.exit(1)
@@ -412,7 +412,7 @@ def main():
         if not retval == 0:
             print '--check-sex/--impute-sex/--read-freq test failed.'
             sys.exit(1)
-        retval = subprocess.call('plink1 --bed ' + bfn + '.bed --bim test1.bim.tmp --fam ' + bfn + '.fam --silent --read-freq test1.frq --maf 0.4876 --max-maf 0.4999 --impute-sex --make-bed --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bed ' + bfn + '.bed --bim test1.bim.tmp --fam ' + bfn + '.fam --silent --read-freq test1.frq --maf 0.4876 --max-maf 0.4999 --impute-sex --make-bed --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --check-sex/--impute-sex/--read-freq test.'
             sys.exit(1)
@@ -443,7 +443,7 @@ def main():
 
     # floating-point error is more likely to affect --r, so we just test --r2
     for bfn in bfile_names:
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --r2 --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bfile ' + bfn + ' --silent --r2 --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --r2 test.'
             sys.exit(1)
@@ -462,7 +462,7 @@ def main():
         if not retval == 0:
             print 'Unexpected error in --gene/--show-tags test.'
             sys.exit(1)
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --set test1.set --gene set2 --show-tags all --tag-r2 0.031 --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bfile ' + bfn + ' --silent --set test1.set --gene set2 --show-tags all --tag-r2 0.031 --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --gene/--show-tags test.'
             sys.exit(1)
@@ -488,7 +488,7 @@ def main():
     # skip --blocks for now since test files lack the necessary LD
 
     for bfn in bfile_names:
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --cluster --distance-matrix --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bfile ' + bfn + ' --silent --cluster --distance-matrix --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --distance-matrix test.'
             sys.exit(1)
@@ -503,7 +503,7 @@ def main():
     print '--distance-matrix test passed.'
 
     for bfn in bfile_names:
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --genome --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bfile ' + bfn + ' --silent --genome --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --genome test.'
             sys.exit(1)
@@ -518,7 +518,7 @@ def main():
     print '--genome test passed.'
 
     for bfn in bfile_names:
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --homozyg --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bfile ' + bfn + ' --silent --homozyg --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --homozyg test.'
             sys.exit(1)
@@ -536,7 +536,7 @@ def main():
     # command-line parsing bug when trying to write that test, though.)
 
     for bfn in bfile_names_cc:
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --assoc --max-maf 0.4999 --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bfile ' + bfn + ' --silent --assoc --max-maf 0.4999 --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in case/control --assoc test.'
             sys.exit(1)
@@ -555,7 +555,7 @@ def main():
     print 'Case/control --assoc test passed.'
 
     for bfn in bfile_names_qt:
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --assoc --max-maf 0.4999 --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bfile ' + bfn + ' --silent --assoc --max-maf 0.4999 --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in QT --assoc test.'
             sys.exit(1)
@@ -570,7 +570,7 @@ def main():
     print 'QT --assoc test passed.'
 
     for bfn in bfile_names_cc:
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --max-maf 0.4999 --model --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bfile ' + bfn + ' --silent --max-maf 0.4999 --model --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --model test.'
             sys.exit(1)
@@ -585,7 +585,7 @@ def main():
     print '--model test passed.'
 
     for bfn in bfile_names_cc:
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --within ' + bfn + '.cluster2 --max-maf 0.4999 --bd --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bfile ' + bfn + ' --silent --within ' + bfn + '.cluster2 --max-maf 0.4999 --bd --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --bd test.'
             sys.exit(1)
@@ -602,7 +602,7 @@ def main():
     # --mh2 output format has been changed, so we skip that.
 
     for bfn in bfile_names_cc:
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --within ' + bfn + '.cluster2 --max-maf 0.4999 --homog --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bfile ' + bfn + ' --silent --within ' + bfn + '.cluster2 --max-maf 0.4999 --homog --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --homog test.'
             sys.exit(1)
@@ -621,7 +621,7 @@ def main():
         if not retval == 0:
             print 'Unexpected error in --gxe test.'
             sys.exit(1)
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --gxe --covar test1.cluster2 --max-maf 0.4999 --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bfile ' + bfn + ' --silent --gxe --covar test1.cluster2 --max-maf 0.4999 --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --gxe test.'
             sys.exit(1)
@@ -637,7 +637,7 @@ def main():
 
     # can't use qt[1] as covar file since it probably used the same random seed
     # and hence has the same phenotypes as qt[0]
-    retval = subprocess.call('plink1 --bfile ' + bfile_names_qt[0] + ' --silent --adjust --linear --covar ' + bfile_names_cc[0] + '.fam --covar-number 4 --out test1', shell=True)
+    retval = subprocess.call('plink1 --noweb --bfile ' + bfile_names_qt[0] + ' --silent --adjust --linear --covar ' + bfile_names_cc[0] + '.fam --covar-number 4 --out test1', shell=True)
     if not retval == 0:
         print 'Unexpected error in --adjust/--linear test.'
         sys.exit(1)
@@ -662,7 +662,7 @@ def main():
         if not retval == 0:
             print 'Unexpected error in --dosage test.'
             sys.exit(1)
-        retval = subprocess.call('plink1 --silent --dosage test1.gen noheader skip0=1 skip1=1 format=3 --fam ' + bfn + '.fam --covar ' + bfile_names_cc[0] + '.fam --covar-number 4 --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --silent --dosage test1.gen noheader skip0=1 skip1=1 format=3 --fam ' + bfn + '.fam --covar ' + bfile_names_cc[0] + '.fam --covar-number 4 --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --dosage test.'
             sys.exit(1)
@@ -678,7 +678,7 @@ def main():
 
     # [0] may or may not have variants with zero missing calls, which
     # complicates things
-    retval = subprocess.call('plink1 --bfile ' + bfile_names_cc[1] + ' --silent --test-missing --out test1', shell=True)
+    retval = subprocess.call('plink1 --noweb --bfile ' + bfile_names_cc[1] + ' --silent --test-missing --out test1', shell=True)
     if not retval == 0:
         print 'Unexpected error in --test-missing test.'
         sys.exit(1)
@@ -693,7 +693,7 @@ def main():
     print '--test-missing test passed.'
 
     for bfn in bfile_names_fam:
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --tdt --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bfile ' + bfn + ' --silent --tdt --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --tdt test.'
             sys.exit(1)
@@ -714,7 +714,7 @@ def main():
         if not retval == 0:
             print 'Unexpected error in --annotate test.'
             sys.exit(1)
-        retval = subprocess.call('plink1 --silent --annotate test1.assoc.linear ranges=set.txt --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --silent --annotate test1.assoc.linear ranges=set.txt --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --annotate test.'
             sys.exit(1)
@@ -733,7 +733,7 @@ def main():
     # skip --gene-report for now due to format changes
 
     for bfn in bfile_names_cc:
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --fast-epistasis --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bfile ' + bfn + ' --silent --fast-epistasis --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --epistasis-summary-merge/--fast-epistasis/--parallel test.'
             sys.exit(1)
@@ -777,7 +777,7 @@ def main():
     # skip --twolocus due to format change
 
     for bfn in bfile_names_qt:
-        retval = subprocess.call('plink1 --bfile ' + bfn + ' --silent --score score.txt --out test1', shell=True)
+        retval = subprocess.call('plink1 --noweb --bfile ' + bfn + ' --silent --score score.txt --out test1', shell=True)
         if not retval == 0:
             print 'Unexpected error in --score test.'
             sys.exit(1)
