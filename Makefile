@@ -9,10 +9,10 @@ ARCH64=-arch x86_64
 
 UNAME := $(shell uname)
 ifeq ($(UNAME), Darwin)
-  CFLAGS=-Wall -O2 -mmacosx-version-min=10.6
+  CFLAGS=-Wall -O2 -mmacosx-version-min=10.7
   GCC_GTEQ_43 := $(shell expr `g++ -dumpversion | sed -e 's/\.\([0-9][0-9]\)/\1/g' -e 's/\.\([0-9]\)/0\1/g' -e 's/^[0-9]\{3,4\}$$/&00/'` \>= 40300)
   ifeq "$(GCC_GTEQ_43)" "1"
-    CFLAGS=-Wall -O2 -flax-vector-conversions -mmacosx-version-min=10.6
+    CFLAGS=-Wall -O2 -flax-vector-conversions -mmacosx-version-min=10.7
   endif
   BLASFLAGS=-framework Accelerate
   BLASFLAGS64=-framework Accelerate
