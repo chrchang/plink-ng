@@ -8742,7 +8742,7 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
 	chrom_end2 = chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx2 + 1];
 	wptr_start2 = width_force(4, wptr_start, chrom_name_write(chrom_info_ptr, chrom_idx2, wptr_start));
 	*wptr_start2++ = ' ';
-	for (; marker_uidx2 < chrom_end2; next_unset_ul_ck(marker_exclude2, chrom_end2, &marker_uidx2), marker_idx2++, dptr = &(dptr[2])) {
+	for (; marker_uidx2 < chrom_end2; ++marker_uidx2, next_unset_ul_ck(marker_exclude2, unfiltered_marker_ct, &marker_uidx2), ++marker_idx2, dptr = &(dptr[2])) {
 	  if (marker_idx2 == ujj) {
 	    marker_idx2 = g_epi_geno1_offsets[2 * block_idx1 + 1];
 	    if (marker_idx2 == marker_ct2) {
@@ -8776,7 +8776,6 @@ int32_t epistasis_linear_regression(pthread_t* threads, Epi_info* epi_ip, FILE* 
 	    // could remove this writeback in --epi1 1 case
 	    *dptr = -1;
 	  }
-	  marker_uidx2++;
 	}
       }
     epistasis_linear_regression_write_loop:
@@ -9219,7 +9218,7 @@ int32_t epistasis_logistic_regression(pthread_t* threads, Epi_info* epi_ip, FILE
 	chrom_end2 = chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx2 + 1];
 	wptr_start2 = width_force(4, wptr_start, chrom_name_write(chrom_info_ptr, chrom_idx2, wptr_start));
 	*wptr_start2++ = ' ';
-	for (; marker_uidx2 < chrom_end2; next_unset_ul_ck(marker_exclude2, chrom_end2, &marker_uidx2), marker_idx2++, fptr = &(fptr[2])) {
+	for (; marker_uidx2 < chrom_end2; ++marker_uidx2, next_unset_ul_ck(marker_exclude2, unfiltered_marker_ct, &marker_uidx2), ++marker_idx2, fptr = &(fptr[2])) {
 	  if (marker_idx2 == ujj) {
 	    marker_idx2 = g_epi_geno1_offsets[2 * block_idx1 + 1];
 	    if (marker_idx2 == marker_ct2) {
@@ -9254,7 +9253,6 @@ int32_t epistasis_logistic_regression(pthread_t* threads, Epi_info* epi_ip, FILE
 	    // could remove this writeback in --epi1 1 case
 	    *fptr = -1;
 	  }
-	  marker_uidx2++;
 	}
       }
     epistasis_logistic_regression_write_loop:
@@ -10140,7 +10138,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
           chrom_idx2 = chrom_info_ptr->chrom_file_order[chrom_fo_idx2];
           wptr_start2 = width_force(4, wptr_start, chrom_name_write(chrom_info_ptr, chrom_idx2, wptr_start));
 	  *wptr_start2++ = ' ';
-	  for (; marker_uidx2 < chrom_end2; next_unset_ul_ck(marker_exclude2, unfiltered_marker_ct, &marker_uidx2), marker_idx2++, dptr++) {
+	  for (; marker_uidx2 < chrom_end2; ++marker_uidx2, next_unset_ul_ck(marker_exclude2, unfiltered_marker_ct, &marker_uidx2), ++marker_idx2, ++dptr) {
 	    if (marker_idx2 == ujj) {
 	      marker_idx2 = g_epi_geno1_offsets[2 * block_idx1 + 1];
 	      if (marker_idx2 == marker_ct2) {
@@ -10200,7 +10198,6 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
 	      // could remove this writeback in --epi1 1 case
 	      *dptr = -1;
 	    }
-	    marker_uidx2++;
 	  }
 	}
       epistasis_report_write_loop:
