@@ -78,7 +78,7 @@ char* div32768_print(uint32_t rawval, char* start) {
   return start;
 }
 
-int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
+int32_t bgen_to_gen(char* bgenname, char* out_genname, const char* chr_code, uint32_t snpid_chr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* in_bgenfile = nullptr;
   char* pzwritep = nullptr;
@@ -161,6 +161,11 @@ int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
       goto bgen_to_gen_ret_INVALID_FORMAT;
     }
 
+    uint32_t chr_blen = strlen(chr_code);
+    if (chr_blen) {
+      ++chr_blen;
+      snpid_chr = 0;
+    }
     for (uint32_t variant_uidx = 0; variant_uidx < raw_variant_ct; variant_uidx++) {
       uint32_t uii;
       if (!fread(&uii, 4, 1, in_bgenfile)) {
@@ -211,18 +216,25 @@ int32_t bgen_to_gen(char* bgenname, char* out_genname, uint32_t snpid_chr) {
 	  goto bgen_to_gen_ret_READ_FAIL;
 	}
 	if (!snpid_chr) {
-	  if (!chrom_name_slen) {
-	    logerrprint("Error: Length-0 chromosome ID in .bgen file.\n");
-	    goto bgen_to_gen_ret_INVALID_FORMAT;
-	  }
-	  if (!fread(chrom_name_start, chrom_name_slen, 1, in_bgenfile)) {
-	    goto bgen_to_gen_ret_READ_FAIL;
-	  }
-	  if ((chrom_name_slen == 2) && (!memcmp(chrom_name_start, "NA", 2))) {
-	    // convert 'NA' to 0
-	    memcpy(chrom_name_start, "0", 2);
+	  if (chr_blen) {
+	    if (fseeko(in_bgenfile, chrom_name_slen, SEEK_CUR)) {
+	      goto bgen_to_gen_ret_READ_FAIL;
+	    }
+	    memcpy(chrom_name_start, chr_code, chr_blen);
 	  } else {
-	    chrom_name_start[chrom_name_slen] = '\0';
+	    if (!chrom_name_slen) {
+	      logerrprint("Error: Length-0 chromosome ID in .bgen file.\n");
+	      goto bgen_to_gen_ret_INVALID_FORMAT;
+	    }
+	    if (!fread(chrom_name_start, chrom_name_slen, 1, in_bgenfile)) {
+	      goto bgen_to_gen_ret_READ_FAIL;
+	    }
+	    if ((chrom_name_slen == 2) && (!memcmp(chrom_name_start, "NA", 2))) {
+	      // convert 'NA' to 0
+	      memcpy(chrom_name_start, "0", 2);
+	    } else {
+	      chrom_name_start[chrom_name_slen] = '\0';
+	    }
 	  }
 	} else {
 	  if (fseeko(in_bgenfile, chrom_name_slen, SEEK_CUR)) {
@@ -549,8 +561,8 @@ int32_t main(int32_t argc, char** argv) {
   unsigned char* bigstack_ua = nullptr;
   int32_t retval;
   {
-    if (argc != 3) {
-      fputs("Usage: bgen_to_gen [input .bgen] [output .gen.gz]\n", stdout);
+    if ((argc < 3) || (argc > 4)) {
+      fputs("Usage: bgen_to_gen [input .bgen] [output .gen.gz] {chr}\n", stdout);
       goto main_ret_INVALID_CMDLINE;
     }
     char outname[16];
@@ -571,7 +583,11 @@ int32_t main(int32_t argc, char** argv) {
     int32_t known_procs = sysconf(_SC_NPROCESSORS_ONLN);
     uint32_t thread_ct = (known_procs == -1)? 1 : known_procs;
     pigz_init(thread_ct);
-    retval = bgen_to_gen(argv[1], argv[2], 0);
+    const char* chr_code = "";
+    if (argc == 4) {
+      chr_code = argv[3];
+    }
+    retval = bgen_to_gen(argv[1], argv[2], chr_code, 0);
     if (retval) {
       goto main_ret_1;
     }
