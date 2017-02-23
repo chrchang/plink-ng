@@ -4935,8 +4935,8 @@ uint32_t em_phase_hethet(double known11, double known12, double known21, double 
 	if (solutions[sol_start_idx] < 0) {
 	  solutions[sol_start_idx] = 0;
 	}
-	if (solutions[sol_end_idx] > half_hethet_share) {
-	  solutions[sol_end_idx] = half_hethet_share;
+	if (solutions[sol_end_idx - 1] > half_hethet_share) {
+	  solutions[sol_end_idx - 1] = half_hethet_share;
 	}
       }
     } else {
