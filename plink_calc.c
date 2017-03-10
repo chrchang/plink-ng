@@ -7454,7 +7454,7 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
 }
 
 #ifndef NOLAPACK
-int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, Rel_info* relip, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uintptr_t* pca_sample_exclude, uintptr_t pca_sample_ct, char* sample_ids, uintptr_t max_sample_id_len, double* set_allele_freqs, Chrom_info* chrom_info_ptr, double* rel_ibc) {
+int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uint64_t calculation_type, Rel_info* relip, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uintptr_t* pca_sample_exclude, uintptr_t pca_sample_ct, char* sample_ids, uintptr_t max_sample_id_len, double* set_allele_freqs, Chrom_info* chrom_info_ptr, double* rel_ibc) {
   // similar to mds_plot() in plink_cluster.c
   // todo: provide a randomized approximation algorithm as well.  (This can
   // wait, though; far more important to implement stuff that doesn't already
@@ -7639,6 +7639,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
       zero_trailing_bits(unfiltered_sample_ct, sample_exclude_proj);
       loadbuf_proj[proj_sample_ctl2 - 1] = 0;
     }
+    char* textbuf_mid = &(g_textbuf[MAXLINELEN]);
     if (var_wts) {
       memcpy(outname_end, ".eigenvec.var", 14);
       if (fopen_checked(outname, "w", &outfile)) {
@@ -7648,6 +7649,11 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	wptr = memcpyl3a(g_textbuf, "CHR");
 	*wptr++ = delimiter;
 	wptr = memcpyl3a(wptr, "VAR");
+	// design fix: include allele codes
+	*wptr++ = delimiter;
+	wptr = strcpya(wptr, "A1");
+	*wptr++ = delimiter;
+	wptr = strcpya(wptr, "A2");
 	for (pc_idx = 1; pc_idx <= pc_ct; pc_idx++) {
 	  *wptr++ = delimiter;
 	  wptr = memcpya(wptr, "PC", 2);
@@ -7764,6 +7770,16 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	  }
 	  if (var_wts) {
 	    wptr = strcpya(wptr_start, &(marker_ids[marker_uidx * max_marker_id_len]));
+	    *wptr++ = delimiter;
+	    if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
+	      goto calc_pca_ret_WRITE_FAIL;
+	    }
+	    fputs(marker_allele_ptrs[marker_uidx * 2], outfile);
+	    putc_unlocked(delimiter, outfile);
+	    if (fputs_checked(marker_allele_ptrs[marker_uidx * 2 + 1], outfile)) {
+	      goto calc_pca_ret_WRITE_FAIL;
+	    }
+	    wptr = textbuf_mid;
 	    dptr = &(cur_var_wts[pc_ct]);
 	    dptr2 = cur_var_wts;
 	    do {
@@ -7771,7 +7787,7 @@ int32_t calc_pca(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outna
 	      wptr = dtoa_g(*(--dptr), wptr);
 	    } while (dptr > dptr2);
 	    *wptr++ = '\n';
-	    if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
+	    if (fwrite_checked(textbuf_mid, wptr - textbuf_mid, outfile)) {
 	      goto calc_pca_ret_WRITE_FAIL;
 	    }
 	  }

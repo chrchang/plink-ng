@@ -105,7 +105,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (23 Feb 2017)";
+  " (10 Mar 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -311,8 +311,8 @@ static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, char* cm
   return 0;
 }
 
-static inline uint32_t are_marker_alleles_needed(uint64_t calculation_type, char* freqname, Homozyg_info* homozyg_ptr, Two_col_params* a1alleles, Two_col_params* a2alleles, uint32_t ld_modifier, uint32_t snps_only, uint32_t clump_modifier, uint32_t cluster_modifier) {
-  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_MAKE_BIM | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_LASSO | CALC_LIST_23_INDELS | CALC_EPI | CALC_TESTMISHAP | CALC_SCORE | CALC_MENDEL | CALC_TDT | CALC_FLIPSCAN | CALC_QFAM | CALC_HOMOG | CALC_DUPVAR | CALC_RPLUGIN | CALC_DFAM)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)) || ((calculation_type & CALC_LD) && (ld_modifier & LD_INPHASE)) || ((calculation_type & CALC_CMH) && (!(cluster_modifier & CLUSTER_CMH2))) || a1alleles || a2alleles || snps_only || (clump_modifier & (CLUMP_VERBOSE | CLUMP_BEST)));
+static inline uint32_t are_marker_alleles_needed(uint64_t calculation_type, char* freqname, Homozyg_info* homozyg_ptr, Two_col_params* a1alleles, Two_col_params* a2alleles, uint32_t ld_modifier, uint32_t snps_only, uint32_t clump_modifier, uint32_t cluster_modifier, uint32_t rel_modifier) {
+  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_MAKE_BIM | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_LASSO | CALC_LIST_23_INDELS | CALC_EPI | CALC_TESTMISHAP | CALC_SCORE | CALC_MENDEL | CALC_TDT | CALC_FLIPSCAN | CALC_QFAM | CALC_HOMOG | CALC_DUPVAR | CALC_RPLUGIN | CALC_DFAM)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)) || ((calculation_type & CALC_LD) && (ld_modifier & LD_INPHASE)) || ((calculation_type & CALC_PCA) && (rel_modifier & REL_PCA_VAR_WTS)) || ((calculation_type & CALC_CMH) && (!(cluster_modifier & CLUSTER_CMH2))) || a1alleles || a2alleles || snps_only || (clump_modifier & (CLUMP_VERBOSE | CLUMP_BEST)));
 }
 
 static inline int32_t relationship_or_ibc_req(uint64_t calculation_type) {
@@ -343,7 +343,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   uint32_t genome_skip_write = (cluster_ptr->ppc != 0.0) && (!(calculation_type & CALC_GENOME)) && (!read_genome_fname);
   uint32_t marker_pos_needed = are_marker_pos_needed(calculation_type, misc_flags, cm_map_fname, sip->fname, min_bp_space, genome_skip_write, ldip->modifier, epi_ip->modifier, cluster_ptr->modifier);
   uint32_t marker_cms_needed = are_marker_cms_needed(calculation_type, cm_map_fname, update_cm, ldip);
-  uint32_t marker_alleles_needed = are_marker_alleles_needed(calculation_type, freqname, homozyg_ptr, a1alleles, a2alleles, ldip->modifier, (filter_flags / FILTER_SNPS_ONLY) & 1, clump_ip->modifier, cluster_ptr->modifier);
+  uint32_t marker_alleles_needed = are_marker_alleles_needed(calculation_type, freqname, homozyg_ptr, a1alleles, a2alleles, ldip->modifier, (filter_flags / FILTER_SNPS_ONLY) & 1, clump_ip->modifier, cluster_ptr->modifier, relip->modifier);
 
   // add other nchrobs subscribers later
   uint32_t nchrobs_needed = (calculation_type & CALC_GENOME) && freqname;
@@ -1516,7 +1516,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	}
 #ifndef NOLAPACK
 	if (calculation_type & CALC_PCA) {
-	  retval = calc_pca(bedfile, bed_offset, outname, outname_end, calculation_type, relip, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, unfiltered_sample_ct, sample_exclude, sample_ct, pca_sample_exclude? pca_sample_exclude : sample_exclude, pca_sample_exclude? pca_sample_ct : sample_ct, sample_ids, max_sample_id_len, set_allele_freqs, chrom_info_ptr, rel_ibc);
+	  retval = calc_pca(bedfile, bed_offset, outname, outname_end, calculation_type, relip, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_allele_ptrs, marker_reverse, unfiltered_sample_ct, sample_exclude, sample_ct, pca_sample_exclude? pca_sample_exclude : sample_exclude, pca_sample_exclude? pca_sample_ct : sample_ct, sample_ids, max_sample_id_len, set_allele_freqs, chrom_info_ptr, rel_ibc);
 	} else if (calculation_type & CALC_UNRELATED_HERITABILITY) {
 	  if (sample_ct != pheno_nm_ct) {
 	    logerrprint("Error: --unrelated-heritability requires phenotype data for all samples.\n(--prune should help.)\n");
