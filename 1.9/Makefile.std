@@ -27,7 +27,7 @@ endif
 CFLAGS=-Wall -O2
 BLASFLAGS=-L/usr/lib64/atlas -llapack -lcblas -latlas
 LINKFLAGS=-lm -lpthread -ldl
-ZLIB=zlib-1.2.11/libz.so.1.2.11
+ZLIB=../zlib-1.2.11/libz.so.1.2.11
 
 ifeq ($(SYS), MAC)
   GCC_GTEQ_43 := $(shell expr `g++ -dumpversion | sed -e 's/\.\([0-9][0-9]\)/\1/g' -e 's/\.\([0-9]\)/0\1/g' -e 's/^[0-9]\{3,4\}$$/&00/'` \>= 40300)
@@ -36,7 +36,7 @@ ifeq ($(SYS), MAC)
   endif
   BLASFLAGS=-framework Accelerate
   LINKFLAGS=-ldl
-  ZLIB=zlib-1.2.11/libz.1.2.11.dylib
+  ZLIB=../zlib-1.2.11/libz.1.2.11.dylib
 endif
 
 ifeq ($(SYS), WIN)
@@ -47,7 +47,7 @@ ifeq ($(SYS), WIN)
 # NO_LAPACK.
   BLASFLAGS=-L. lapack/liblapack.a -L. lapack/librefblas.a
   LINKFLAGS=-lm -static-libgcc
-  ZLIB=zlib-1.2.11/libz.a
+  ZLIB=../zlib-1.2.11/libz.a
 endif
 
 ifdef NO_LAPACK
@@ -57,9 +57,7 @@ endif
 OBJS = plink.o plink_assoc.o plink_calc.o plink_cluster.o plink_cnv.o plink_common.o plink_data.o plink_dosage.o plink_family.o plink_filter.o plink_glm.o plink_help.o plink_homozyg.o plink_lasso.o plink_ld.o plink_matrix.o plink_misc.o plink_perm.o plink_rserve.o plink_set.o plink_stats.o SFMT.o dcdflib.o pigz.o yarn.o Rconnection.o hfile.o bgzf.o
 
 # In the event that you are still concurrently using PLINK 1.07, we suggest
-# renaming that binary to "plink107", and this one to "plink1".  (Previously,
-# "plink1"/"plink2" was suggested here; that also works for now, but it may
-# lead to minor problems when PLINK 2.0 is released.)
+# renaming that binary to "plink107", and this one to "plink1".
 
 plink: $(OBJS)
 	g++ $^ $(LINKFLAGS_EXTRA) $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB) -o $@
