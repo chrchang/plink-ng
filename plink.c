@@ -93,7 +93,7 @@
 
 static const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b3.47"
+  "PLINK v1.90b4"
 #else
   "PLINK v1.90p"
 #endif
@@ -105,7 +105,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (10 Mar 2017)";
+  " (15 Mar 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -117,7 +117,7 @@ static const char ver_str2[] =
 #ifndef NOLAPACK
   "  "
 #endif
-  "    https://www.cog-genomics.org/plink2\n"
+  "       https://www.cog-genomics.org/plink2\n"
   "(C) 2005-2017 Shaun Purcell, Christopher Chang   GNU General Public License v3"
 #if SPECIES_DEFAULT > 0
   "\nRecompiled with default species = "
@@ -4134,7 +4134,6 @@ int32_t main(int32_t argc, char** argv) {
     case 'R':
       if (*argptr2 == '\0') {
 #if defined __cplusplus && !defined _WIN32
-        UNSTABLE("R");
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 2)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -9445,7 +9444,6 @@ int32_t main(int32_t argc, char** argv) {
 	metaanal_flags |= METAANAL_REPORT_DUPS;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "ac", 3)) {
-	UNSTABLE("mac");
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -9455,7 +9453,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	filter_flags |= FILTER_ALL_REQ | FILTER_NODOSAGE | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "ax-mac", 7)) {
-	UNSTABLE("max-mac");
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
@@ -11875,7 +11872,6 @@ int32_t main(int32_t argc, char** argv) {
 	}
 	filter_flags |= FILTER_BIM_REQ | FILTER_DOSAGEMAP | FILTER_NOCNV;
       } else if (!memcmp(argptr2, "hin-indiv", 10)) {
-	UNSTABLE("thin-indiv");
         if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
           goto main_ret_INVALID_CMDLINE_2A;
         }
@@ -11891,7 +11887,6 @@ int32_t main(int32_t argc, char** argv) {
           goto main_ret_INVALID_CMDLINE_A;
         }
       } else if (!memcmp(argptr2, "hin-indiv-count", 16)) {
-	UNSTABLE("thin-indiv-count");
         if (thin_keep_sample_prob != 1.0) {
           logerrprint("Error: --thin-indiv cannot be used with --thin-indiv-count.\n");
           goto main_ret_INVALID_CMDLINE_WWA;
