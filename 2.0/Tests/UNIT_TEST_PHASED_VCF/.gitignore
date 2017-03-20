@@ -1,0 +1,9 @@
+plink*
+remove.txt
+extract.txt
+sparse.*
+1kg_noheader.txt
+1kg_variant_cols.txt
+1kg_geno_cols*
+1kg_phase3_chr21_start.vcf
+1kg_noheader_pruned.txt

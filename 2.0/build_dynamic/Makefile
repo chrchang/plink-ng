@@ -30,6 +30,7 @@ ZLIB=
 ARCH32=
 
 ifdef FORCE_32BIT
+  # this is targeted at Scientific Linux 6.
   NO_SSE42 = 1
   STATIC_ZLIB = 1
   ZSTD_O2 = 1
@@ -38,6 +39,7 @@ ifdef FORCE_32BIT
 else
   CXXFLAGS = -std=c++11
 endif
+BASEFLAGS += ${ARCH32}
 
 CFLAGS=-O2 -std=gnu99
 # zstd appears to be seriously targeted at -O3; see 26 Jul 2016 entry at
@@ -63,7 +65,7 @@ endif
 
 ifdef STATIC_ZLIB
   BASEFLAGS += -DSTATIC_ZLIB
-  LINKFLAGS += -L. ../zlib-1.2.11/libz.a
+  LINKFLAGS += -L. ../../zlib-1.2.11/libz.a
 else
   LINKFLAGS += -lz
 endif
@@ -112,9 +114,9 @@ OBJ = SFMT.o hfile.o bgzf.o zstd_zlibwrapper.o gzclose.o gzlib.o gzread.o gzwrit
 all: plink2 pgen_compress
 
 plink2: $(CSRC) $(ZCSRC) $(CPPSRC)
-	gcc $(CFLAGS) $(ARCH32) $(CSRC) -c
-	gcc $(ZCFLAGS) $(ARCH32) $(ZCSRC) -c
-	g++ $(CXXFLAGS) $(ARCH32) $(CPPSRC) -c
+	gcc $(CFLAGS) $(CSRC) -c
+	gcc $(ZCFLAGS) $(ZCSRC) -c
+	g++ $(CXXFLAGS) $(CPPSRC) -c
 	g++ $(OBJ) $(ARCH32) -o plink2 $(BLASFLAGS) $(LINKFLAGS)
 
 pgen_compress: ../pgenlib_internal.cpp ../pgen_compress.cpp

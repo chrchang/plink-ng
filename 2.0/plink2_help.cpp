@@ -284,6 +284,11 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "    braces describes its nature.\n"
 "  * An ellipsis (...) indicates that you may enter multiple parameters of the\n"
 "    specified type.\n"
+"  * A \"column set descriptor\" is either\n"
+"    1. a comma-separated sequence of column set names; this is interpreted as\n"
+"       the full list of column sets to include.\n"
+"    2. a comma-separated sequence of column set names, all preceded by '+' or\n"
+"       '-'; this is interpreted as a list of changes to the default.\n"
 , stdout);
     fputs(g_cmdline_format_str, stdout);
     fputs(
@@ -767,7 +772,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "    --make-grm-bin writes them in GCTA 1.1+'s single-precision triangular\n"
 "    binary format.  Note that these formats explicitly report the number of\n"
 "    valid observations (where neither sample has a missing call) for each pair,\n"
-"    which is useful input for some scripts.\n"
+"    which is useful input for some scripts.\n\n"
 	       );
 #ifndef NOLAPACK
     // GRM, PCA, etc. based on major vs. nonmajor alleles
