@@ -5804,7 +5804,8 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
 	}
         bitvec_or(marker_exclude, unfiltered_marker_ctl, marker_exclude_idx1);
 	// bugfix, 13 Jan 2017
-        marker_ct1 = unfiltered_marker_ct - popcount_longs(marker_exclude, unfiltered_marker_ctl);
+	// another bugfix, 28 Mar 2017: popcounted the wrong array...
+        marker_ct1 = unfiltered_marker_ct - popcount_longs(marker_exclude_idx1, unfiltered_marker_ctl);
       }
       if (!marker_ct1) {
 	goto ld_report_regular_ret_EMPTY_SET1;
@@ -5835,6 +5836,7 @@ int32_t ld_report_regular(pthread_t* threads, Ld_info* ldip, FILE* bedfile, uint
       }
     }
   }
+
   g_ld_marker_exclude_idx1 = marker_exclude_idx1;
   g_ld_marker_exclude = marker_exclude;
   g_ld_is_inter_chr = is_inter_chr;

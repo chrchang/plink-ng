@@ -44,6 +44,10 @@ OBJ = $(CSRC:.c=.o) $(CCSRC:.cc=.o)
 %.o: %.cc
 	g++ -x c++ -c $(CFLAGS) $(ARCH64) -o $@ $<
 
+plink64: $(OBJ)
+	g++ $(CFLAGS) $(ARCH64) $(OBJ) -o plink $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
+# for clean build, "make clobber" first
+
 plink: $(SRC)
 	g++ -x c++ $(CFLAGS) $(SRC) -m32 -x none -o plink $(BLASFLAGS) $(LINKFLAGS) -L. $(ZLIB)
 
@@ -62,10 +66,6 @@ plinkd: $(SRC)
 
 plinknl: $(SRC)
 	g++ $(CFLAGS) $(SRC) -o plink $(LINKFLAGS) -Wl,-Bstatic -L. $(ZLIB)
-
-plink64: $(OBJ)
-	g++ $(CFLAGS) $(ARCH64) $(OBJ) -o plink $(BLASFLAGS64) $(LINKFLAGS) -L. $(ZLIB64)
-# for clean build, "make clobber" first
 
 plink64w: $(SRC)
 	g++ $(CFLAGS) $(ARCH64) $(SRC) -c
