@@ -6,7 +6,7 @@ CXXFLAGS=-O2 -std=c++11
 CFLAGS += ${BASEFLAGS}
 CXXFLAGS += ${BASEFLAGS}
 
-ZLIB=zlib-1.2.11/libz-64.a
+ZLIB=../zlib-1.2.11/libz-64.a
 BLASFLAGS64=-llapack -lf77blas -latlas
 LINKFLAGS=-lm -lpthread -L. ${ZLIB}
 ARCH32=

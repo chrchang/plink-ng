@@ -36,11 +36,7 @@ extern "C" {
       #endif
       #define HAVE_LAPACK_CONFIG_H
       #define LAPACK_COMPLEX_STRUCTURE
-      #ifdef __LP64__
-        #include "../openblas-64/include/lapacke.h"
-      #else
-        #include "../openblas-32/include/lapacke.h"
-      #endif
+      #include "lapacke.h"
 
   void dgemm_(char* transa, char* transb, int* m, int* n, int* k,
               double* alpha, double* a, int* lda, double* b, int* ldb,
@@ -75,26 +71,31 @@ extern "C" {
         // an AMD processor), modify the Makefile to link to a LAPACK library
         // recompiled with -fdefault-integer-8.
 
-	// ARGH
-	// cmake on Ubuntu seems to require use of cblas_f77.h instead of
-	// cblas.h.  Conversely, cblas_f77.h does not seem to be available on
-        // the Scientific Linux ATLAS/LAPACK install, and right now that's my
-        // only option for producing 32-bit static builds...
-	#ifdef USE_CBLAS_XGEMM
+        #ifdef USE_CBLAS_XGEMM
 	  #include <cblas.h>
 	#else
-	  #if (__GNUC__ <= 4)
-            #ifdef PREFER_CBLAS_F77
+	  // ARGH
+	  // cmake on Ubuntu 14 seems to require use of cblas_f77.h instead of
+	  // cblas.h.  Conversely, cblas_f77.h does not seem to be available on
+	  // the Scientific Linux ATLAS/LAPACK install, and right now that's my
+	  // only option for producing 32-bit static builds...
+          // So.  Default include is cblas.h.  To play well with cmake + Ubuntu
+          // 14 and 16 simultaneously, there is a CBLAS_F77_ON_OLD_GCC mode
+          // which picks cblas_f77.h on Ubuntu 14 and cblas.h on 16.
+          #ifdef FORCE_CBLAS_F77
+            #include <cblas_f77.h>
+          #elif !defined(CBLAS_F77_ON_OLD_GCC)
+            #include <cblas.h>
+          #else
+	    #if (__GNUC__ <= 4)
               #include <cblas_f77.h>
             #else
-	      #include <cblas.h>
+	      #if __has_include(<cblas.h>)
+	        #include <cblas.h>
+	      #else
+	        #include <cblas_f77.h>
+	      #endif
             #endif
-	  #else
-	    #if __has_include(<cblas.h>)
-	      #include <cblas.h>
-	    #else
-	      #include <cblas_f77.h>
-	    #endif
 	  #endif
 	#endif
   int dgetrf_(__CLPK_integer* m, __CLPK_integer* n,

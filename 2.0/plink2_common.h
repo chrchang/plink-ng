@@ -149,11 +149,13 @@ FLAGSET64_DEF_START()
   kfMiscHweKeepFewhet = (1 << 23),
   kfMiscWriteSnplistZs = (1 << 24),
   kfMiscMafSucc = (1 << 25),
-  kfMiscGenoHhMissing = (1 << 26),
-  kfMiscMindHhMissing = (1 << 27),
-  kfMiscSetMissingVarIds = (1 << 28),
-  kfMiscChrOverrideCmdline = (1 << 29),
-  kfMiscChrOverrideFile = (1 << 30)
+  kfMiscGenoDosage = (1 << 26),
+  kfMiscGenoHhMissing = (1 << 27),
+  kfMiscMindDosage = (1 << 28),
+  kfMiscMindHhMissing = (1 << 29),
+  kfMiscSetMissingVarIds = (1 << 30),
+  kfMiscChrOverrideCmdline = (1LLU << 31),
+  kfMiscChrOverrideFile = (1LLU << 32)
 FLAGSET64_DEF_END(misc_flags_t);
 
 FLAGSET64_DEF_START()

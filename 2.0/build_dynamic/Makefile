@@ -3,8 +3,7 @@
 # Compilation options (leave blank after "=" to disable, put "= 1" to enable):
 #   Do not use SSE 4.2 instructions: NO_SSE42
 #   Do not link to LAPACK: NO_LAPACK
-#   Use cblas_f77 instead of cblas (needed for Ubuntu 14 cmake):
-#     PREFER_CBLAS_F77
+#   Use cblas_f77 instead of cblas: FORCE_CBLAS_F77
 #   Use only -O2 optimization for zstd (may be necessary for gcc 4.x): ZSTD_O2
 #   Statically link zlib: STATIC_ZLIB
 #   Link to MKL with 64-bit indexes (dynamically): DYNAMIC_MKL
@@ -56,8 +55,8 @@ ifndef NO_SSE42
   BASEFLAGS += -msse4.2
 endif
 
-ifdef PREFER_CBLAS_F77
-  BASEFLAGS += -DPREFER_CBLAS_F77
+ifdef FORCE_CBLAS_F77
+  BASEFLAGS += -DFORCE_CBLAS_F77
   BLASFLAGS=-llapack -lf77blas -latlas
 else
   BLASFLAGS=-llapack -lblas -lcblas -latlas

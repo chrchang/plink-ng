@@ -1114,6 +1114,8 @@ pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintpt
 	  }
 	}
       }
+      const uint32_t scol_nmiss_dosage = (missing_rpt_modifier / kfMissingRptScolNmissDosage) & 1;
+      ;;;
       const uint32_t scol_nmiss = (missing_rpt_modifier / kfMissingRptScolNmiss) & 1;
       if (scol_nmiss) {
 	cswritep = strcpya(cswritep, "\tMISSING_CT");

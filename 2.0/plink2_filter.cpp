@@ -683,8 +683,8 @@ THREAD_FUNC_DECL load_sample_missing_cts_thread(void* arg) {
 	  hethap_check = is_set(cip->haploid_mask, chr_idx);
 	}
       }
-      // todo: add difflist interface to pgenlib_internal
       pglerr_t reterr;
+      // todo: pgr_read_missingness_dosage()
       if ((!variant_allele_idxs) || (!hethap_check) || (variant_allele_idxs[variant_uidx + 1] - variant_allele_idxs[variant_uidx] == 2)) {
 	reterr = pgr_read_allele_countvec_subset_unsafe(nullptr, nullptr, raw_sample_ct, variant_uidx, 1, pgrp, genovec);
       } else {

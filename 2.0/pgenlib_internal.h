@@ -1583,8 +1583,7 @@ struct Pgen_file_info_struct {
   //        phasing info present.  If it's unset, phasing info is present for
   //        every het call.
   //        This is followed by a "phaseinfo" bitarray, where 0 = unswapped,
-  //        1 = swapped (e.g. "1|0" in VCF).  (soon: determine whether/when
-  //        this starts on a byte boundary.)
+  //        1 = swapped (e.g. "1|0" in VCF).
   //        This track is normally unpacked into fixed-size bitarrays when
   //        loaded, but a raw mode is also provided (which doesn't support
   //        subsetting).
@@ -1599,8 +1598,9 @@ struct Pgen_file_info_struct {
   //        value is only permitted in unconditional-dosage case) value for
   //        each allele except the last alt; if it's phased, it uses the order
   //          [hap1 ref prob] [hap2 ref prob] [hap1 alt1 prob] ...
-  //        note that this and the other dosage modes are in ADDITION to
-  //        hardcalls.  this increases filesize by up to 12.5%, but makes the
+  //        where the values are in 0..2^14 (to minimize rounding headaches).
+  //        Note that this and the other dosage modes are in ADDITION to
+  //        hardcalls.  This increases filesize by up to 12.5%, but makes the
   //        reader substantially simpler; --hard-call-threshold logic is nicely
   //        compartmentalized.
   //   10 = unconditional dosage (just track #5).
@@ -2008,7 +2008,6 @@ pglerr_t pgr_read_raw(uint32_t vidx, pgen_global_flags_t read_gflags, pgen_reade
 
 pglerr_t pgr_validate(pgen_reader_t* pgrp, char* errstr_buf);
 
-// (these two functions need a bit more testing)
 // missingness bit is set iff hardcall is not present (even if dosage info *is*
 // present)
 pglerr_t pgr_read_missingness(const uintptr_t* __restrict sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, pgen_reader_t* pgrp, uintptr_t* __restrict missingness, uintptr_t* __restrict genovec_buf);

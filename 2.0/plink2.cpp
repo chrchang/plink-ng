@@ -62,7 +62,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (20 Mar 2017)";
+  " (27 Mar 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -93,7 +93,7 @@ static const char errstr_thread_create[] = "Error: Failed to create thread.\n";
 #ifndef __LP64__
   // 2047 seems to consistently fail on both OS X and Windows
   #ifdef _WIN32
-CONSTU31(kMalloc32bitMbMax, 1792);
+CONSTU31(kMalloc32bitMbMax, 1760);
   #else
     #ifdef __APPLE__
 CONSTU31(kMalloc32bitMbMax, 1920);
@@ -3773,31 +3773,27 @@ int main(int argc, char** argv) {
 	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 2)) {
 	    goto main_ret_INVALID_CMDLINE_2A;
 	  }
-	  uint32_t geno_thresh_idx = 1;
-	  if (param_ct == 2) {
-	    if (check_extra_param(&(argv[arg_idx]), "hh-missing", &geno_thresh_idx)) {
-	      goto main_ret_INVALID_CMDLINE_A;
-	    }
-	    pc.misc_flags |= kfMiscGenoHhMissing;
-	  } else if (param_ct == 1) {
-	    if (!strcmp(argv[arg_idx + 1], "hh-missing")) {
-	      geno_thresh_idx = 0;
+	  uint32_t geno_thresh_present = 0;
+	  for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+	    char* cur_modif = argv[arg_idx + param_idx];
+	    if (!strcmp(cur_modif, "dosage")) {
+	      pc.misc_flags |= kfMiscGenoDosage;
+	    } else if (!strcmp(cur_modif, "hh-missing")) {
 	      pc.misc_flags |= kfMiscGenoHhMissing;
-	    }
-	  } else {
-	    geno_thresh_idx = 0;
-	  }
-	  if (geno_thresh_idx) {
-	    char* cur_modif = argv[arg_idx + geno_thresh_idx];
-	    if (!scanadv_double(cur_modif, &pc.geno_thresh)) {
+	    } else if (geno_thresh_present) {
+	      logerrprint("Error: Invalid --geno parameter sequence.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
+	    } else if (!scanadv_double(cur_modif, &pc.geno_thresh)) {
 	      sprintf(g_logbuf, "Error: Invalid --geno parameter '%s'.\n", cur_modif);
 	      goto main_ret_INVALID_CMDLINE_WWA;
-	    }
-	    if ((pc.geno_thresh < 0.0) || (pc.geno_thresh > 1.0)) {
+	    } else if ((pc.geno_thresh < 0.0) || (pc.geno_thresh > 1.0)) {
 	      sprintf(g_logbuf, "Error: Invalid --geno parameter '%s' (must be between 0 and 1).\n", cur_modif);
 	      goto main_ret_INVALID_CMDLINE_WWA;
+	    } else {
+	      geno_thresh_present = 1;
 	    }
-	  } else {
+	  }
+	  if (!geno_thresh_present) {
 	    pc.geno_thresh = 0.1;
 	  }
 	  pc.filter_flags |= kfFilterAllReq;
@@ -4899,7 +4895,7 @@ int main(int argc, char** argv) {
 		logerrprint("Error: Multiple --missing scols= modifiers.\n");
 		goto main_ret_INVALID_CMDLINE;
 	      }
-	      reterr = parse_col_descriptor(&(cur_modif[6]), "maybesid\0sid\0misspheno1\0missphenos\0nmiss\0nmisshh\0hethap\0nobs\0fmiss\0fmisshh\0", "missing scols", kfMissingRptScolMaybesid, kfMissingRptScolDefault, 1, &pc.missing_rpt_modifier);
+	      reterr = parse_col_descriptor(&(cur_modif[6]), "maybesid\0sid\0misspheno1\0missphenos\0nmissdosage\0nmiss\0nmisshh\0hethap\0nobs\0fmissdosage\0fmiss\0fmisshh\0", "missing scols", kfMissingRptScolMaybesid, kfMissingRptScolDefault, 1, &pc.missing_rpt_modifier);
 	      if (reterr) {
 		goto main_ret_1;
 	      }
@@ -4908,7 +4904,7 @@ int main(int argc, char** argv) {
 		logerrprint("Error: Multiple --missing vcols= modifiers.\n");
 		goto main_ret_INVALID_CMDLINE;
 	      }
-	      reterr = parse_col_descriptor(&(cur_modif[6]), "chrom\0pos\0ref\0alt1\0alt\0nmiss\0nmisshh\0hethap\0nobs\0fmiss\0fmisshh\0fhethap\0", "missing vcols", kfMissingRptVcolChrom, kfMissingRptVcolDefault, 1, &pc.missing_rpt_modifier);
+	      reterr = parse_col_descriptor(&(cur_modif[6]), "chrom\0pos\0ref\0alt1\0alt\0nmissdosage\0nmiss\0nmisshh\0hethap\0nobs\0fmissdosage\0fmiss\0fmisshh\0fhethap\0", "missing vcols", kfMissingRptVcolChrom, kfMissingRptVcolDefault, 1, &pc.missing_rpt_modifier);
 	      if (reterr) {
 		goto main_ret_1;
 	      }
@@ -5034,31 +5030,27 @@ int main(int argc, char** argv) {
 	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 2)) {
 	    goto main_ret_INVALID_CMDLINE_2A;
 	  }
-	  uint32_t mind_thresh_idx = 1;
-	  if (param_ct == 2) {
-	    if (check_extra_param(&(argv[arg_idx]), "hh-missing", &mind_thresh_idx)) {
-	      goto main_ret_INVALID_CMDLINE_A;
-	    }
-	    pc.misc_flags |= kfMiscMindHhMissing;
-	  } else if (param_ct == 1) {
-	    if (!strcmp(argv[arg_idx + 1], "hh-missing")) {
-	      mind_thresh_idx = 0;
+	  uint32_t mind_thresh_present = 0;
+	  for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+	    char* cur_modif = argv[arg_idx + param_idx];
+	    if (!strcmp(cur_modif, "dosage")) {
+	      pc.misc_flags |= kfMiscMindDosage;
+	    } else if (!strcmp(cur_modif, "hh-missing")) {
 	      pc.misc_flags |= kfMiscMindHhMissing;
-	    }
-	  } else {
-	    mind_thresh_idx = 0;
-	  }
-	  if (mind_thresh_idx) {
-	    char* cur_modif = argv[arg_idx + mind_thresh_idx];
-	    if (!scanadv_double(cur_modif, &pc.mind_thresh)) {
+	    } else if (mind_thresh_present) {
+	      logerrprint("Error: Invalid --mind parameter sequence.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
+	    } else if (!scanadv_double(cur_modif, &pc.mind_thresh)) {
 	      sprintf(g_logbuf, "Error: Invalid --mind parameter '%s'.\n", cur_modif);
 	      goto main_ret_INVALID_CMDLINE_WWA;
-	    }
-	    if ((pc.mind_thresh < 0.0) || (pc.mind_thresh > 1.0)) {
+	    } else if ((pc.mind_thresh < 0.0) || (pc.mind_thresh > 1.0)) {
 	      sprintf(g_logbuf, "Error: Invalid --mind parameter '%s' (must be between 0 and 1).\n", cur_modif);
 	      goto main_ret_INVALID_CMDLINE_WWA;
+	    } else {
+	      mind_thresh_present = 1;
 	    }
-	  } else {
+	  }
+	  if (!mind_thresh_present) {
 	    pc.mind_thresh = 0.1;
 	  }
 	  pc.filter_flags |= kfFilterAllReq;
