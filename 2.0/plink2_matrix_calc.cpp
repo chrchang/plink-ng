@@ -3028,6 +3028,7 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
       }
       uint32_t prev_batch_size = 0;
       uint32_t variant_uidx = next_set_unsafe(variant_include, 0);
+      uint32_t variant_uidx_load = variant_uidx;
       uint32_t parity = 0;
       reinit_threads3z(&ts);
       uint32_t chr_fo_idx = 0xffffffffU;
@@ -3048,7 +3049,6 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
 	  uintptr_t* dosage_present_iter = g_dosage_presents[parity];
 	  dosage_t* dosage_vals_iter = g_dosage_val_bufs[parity];
 	  double* nonmajor_freqs_write_iter = g_cur_nonmajor_freqs[parity];
-	  uint32_t variant_uidx_load = variant_uidx;
 	  for (uint32_t variant_idx = cur_variant_idx_start; variant_idx < cur_variant_idx_end; ++variant_uidx_load, ++variant_idx) {
 	    next_set_unsafe_ck(variant_include, &variant_uidx_load);
 	    uint32_t dosage_ct;
