@@ -65,7 +65,7 @@ static const char ver_str[] = "PLINK v2.00a"
   " (11 Apr 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifndef LAPACK_ILP64
   "  "
 #endif

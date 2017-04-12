@@ -4264,9 +4264,6 @@ uintptr_t get_linear_workspace_size(uint32_t sample_ct, uint32_t predictor_ct, u
     // inner_buf = constraint_ct * constraint_ct
     workspace_size += round_up_pow2(constraint_ct * constraint_ct * sizeof(double), kCacheline);
 
-    // outer_buf = constraint_ct
-    workspace_size += round_up_pow2(constraint_ct * sizeof(double), kCacheline);
-
 #ifndef NOLAPACK
     // mi_buf = constraint_ct * kMatrixInvertBuf1CheckedAlloc bytes
     workspace_size += round_up_pow2(constraint_ct * kMatrixInvertBuf1CheckedAlloc, kCacheline);
@@ -4415,7 +4412,6 @@ THREAD_FUNC_DECL glm_linear_thread(void* arg) {
       double* tmphxs_buf = nullptr;
       double* h_transpose_buf = nullptr;
       double* inner_buf = nullptr;
-      double* outer_buf = nullptr;
 #ifdef NOLAPACK
       // (well, except if LAPACK is missing)
       inv_1d_buf = (matrix_invert_buf1_t*)arena_alloc_raw(round_up_pow2(cur_predictor_ct * kMatrixInvertBuf1CheckedAlloc, kCacheline), &workspace_iter);
@@ -4427,7 +4423,6 @@ THREAD_FUNC_DECL glm_linear_thread(void* arg) {
 	tmphxs_buf = (double*)arena_alloc_raw(round_up_pow2(cur_constraint_ct * cur_predictor_ct * sizeof(double), kCacheline), &workspace_iter);
 	h_transpose_buf = (double*)arena_alloc_raw(round_up_pow2(cur_constraint_ct * cur_predictor_ct * sizeof(double), kCacheline), &workspace_iter);
 	inner_buf = (double*)arena_alloc_raw(round_up_pow2(cur_constraint_ct * cur_constraint_ct * sizeof(double), kCacheline), &workspace_iter);
-	outer_buf = (double*)arena_alloc_raw(round_up_pow2(cur_constraint_ct * cur_constraint_ct * sizeof(double), kCacheline), &workspace_iter);
       }
       assert((uintptr_t)(workspace_iter - workspace_buf) == get_linear_workspace_size(cur_sample_ct, cur_predictor_ct, cur_constraint_ct, genod_buffer_needed));
       double pheno_ssq_base = 0.0;
