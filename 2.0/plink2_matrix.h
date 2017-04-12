@@ -147,8 +147,13 @@ void transpose_copy(const double* old_matrix, uint32_t old_maj, uint32_t new_maj
 
 void transpose_copy_float(const float* old_matrix, uint32_t old_maj, uint32_t new_maj, uint32_t new_maj_max, float* new_matrix_iter);
 
-// (A^T)A, where A is row-major
-void transpose_multiply_self_incr(uint32_t dim, uint32_t row_ct, double* input_part, double* result);
+
+// A(A^T), where A is row-major; result is dim x dim
+// ONLY UPDATES LOWER TRIANGLE OF result[].
+void multiply_self_transpose(double* input_matrix, uint32_t dim, uint32_t col_ct, double* result);
+
+// (A^T)A
+void transpose_multiply_self_incr(double* input_part, uint32_t dim, uint32_t partial_row_ct, double* result);
 
 #ifndef NOLAPACK
 boolerr_t get_svd_rect_lwork(uint32_t major_ct, uint32_t minor_ct, __CLPK_integer* lwork_ptr);
@@ -163,6 +168,8 @@ boolerr_t get_extract_eigvecs_lworks(uint32_t dim, uint32_t pc_ct, __CLPK_intege
 // *increasing* eigenvalue.
 boolerr_t extract_eigvecs(uint32_t dim, uint32_t pc_ct, __CLPK_integer lwork, __CLPK_integer liwork, double* matrix, double* eigvals, double* reverse_eigvecs, unsigned char* extract_eigvecs_wkspace);
 #endif
+
+boolerr_t linear_regression_inv(const double* pheno_d, double* predictors_pmaj, uint32_t predictor_ct, uint32_t sample_ct, double* fitted_coefs, double* xtx_inv, double* xt_y, matrix_invert_buf1_t* mi_buf, double* dbl_2d_buf);
 
 #ifdef __cplusplus
 } // namespace plink2

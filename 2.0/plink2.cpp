@@ -62,7 +62,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (27 Mar 2017)";
+  " (11 Apr 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -80,9 +80,9 @@ static const char ver_str2[] =
 static const char errstr_append[] = "For more information, try '" PROG_NAME_STR " --help [flag name]' or '" PROG_NAME_STR " --help | more'.\n";
 
 #ifndef NOLAPACK
-static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --make-king, --king-cutoff, --write-snplist,\n--make-grm-gz, --pca, --glm, --genotyping-rate, --validate, and\n--zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --make-king, --king-cutoff, --write-snplist,\n--make-grm-gz, --pca, --glm, --score, --genotyping-rate, --validate, and\n--zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
 #else
-static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --make-king, --king-cutoff, --write-snplist,\n--make-grm-gz, --glm, --genotyping-rate, --validate, and --zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --make-king, --king-cutoff, --write-snplist,\n--make-grm-gz, --glm, --score, --genotyping-rate, --validate, and\n--zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
 #endif
 
 static const char errstr_nomem[] = "Error: Out of memory.  The --memory flag may be helpful.\n";
@@ -188,7 +188,8 @@ FLAGSET64_DEF_START()
   kfCommand1Glm = (1 << 11),
   kfCommand1MakeRel = (1 << 12),
   kfCommand1Validate = (1 << 13),
-  kfCommand1GenotypingRate = (1 << 14)
+  kfCommand1GenotypingRate = (1 << 14),
+  kfCommand1Score = (1 << 15)
 FLAGSET64_DEF_END(command1_flags_t);
 
 // this is a hybrid, only kfSampleSortFileSid is actually a flag
@@ -224,6 +225,7 @@ typedef struct plink2_cmdline_struct {
   missing_rpt_t missing_rpt_modifier;
   geno_counts_t geno_counts_modifier;
   hardy_flags_t hardy_modifier;
+  score_flags_t score_flags;
   glm_info_t glm_info;
   adjust_info_t adjust_info;
   aperm_t aperm;
@@ -260,6 +262,7 @@ typedef struct plink2_cmdline_struct {
   uint32_t max_thread_ct;
   uint32_t parallel_idx;
   uint32_t parallel_tot;
+  uint32_t score_cols[3];
   uint32_t exportf_bits;
   char exportf_id_delim;
   
@@ -284,10 +287,11 @@ typedef struct plink2_cmdline_struct {
   char* glm_local_covar_fname;
   char* glm_local_pvar_fname;
   char* glm_local_psam_fname;
+  char* score_fname;
 } plink2_cmdline_t;
 
 uint32_t is_single_variant_loader_needed(const char* king_cutoff_fprefix, command1_flags_t command_flags1, make_plink2_t make_plink2_modifier) {
-  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel)) || ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_modifier & kfMakePgen)) || ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix));
+  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm)) || ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_modifier & kfMakePgen)) || ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix));
 }
 
 uint32_t are_nonmajor_freqs_needed(command1_flags_t command_flags1, double min_maf, double max_maf) {
@@ -318,12 +322,20 @@ uint32_t are_founder_allele_dosages_needed(misc_flags_t misc_flags, uint32_t maj
   return (maj_or_maf_needed || (misc_flags & kfMiscMajRef) || min_allele_dosage || (max_allele_dosage != (~0LLU))) && (!(misc_flags & kfMiscNonfounders));
 }
 
-uint32_t are_variant_missing_cts_needed(command1_flags_t command_flags1, double geno_thresh, missing_rpt_t missing_rpt_modifier) {
-  return (command_flags1 & kfCommand1GenotypingRate) || ((command_flags1 & kfCommand1MissingReport) && (!(missing_rpt_modifier & kfMissingRptSampleOnly))) || (geno_thresh != 1.0);
+uint32_t are_sample_missing_dosage_cts_needed(misc_flags_t misc_flags, uint32_t smaj_missing_geno_report_requested, double mind_thresh, missing_rpt_t missing_rpt_modifier) {
+  return ((mind_thresh != 1.0) && (misc_flags & kfMiscMindDosage)) || (smaj_missing_geno_report_requested && (missing_rpt_modifier & (kfMissingRptScolNmissDosage | kfMissingRptScolFmissDosage)));
+}
+
+uint32_t are_variant_missing_hc_cts_needed(command1_flags_t command_flags1, misc_flags_t misc_flags, double geno_thresh, missing_rpt_t missing_rpt_modifier) {
+  return ((command_flags1 & kfCommand1GenotypingRate) && (!(misc_flags & kfMiscGenotypingRateDosage))) || ((command_flags1 & kfCommand1MissingReport) && (missing_rpt_modifier & (kfMissingRptVcolNmiss | kfMissingRptVcolNmissHh | kfMissingRptVcolHethap | kfMissingRptVcolFmiss | kfMissingRptVcolFmissHh | kfMissingRptVcolFhethap))) || ((geno_thresh != 1.0) && (!(misc_flags & kfMiscGenoDosage)));
 }
 
 uint32_t are_variant_hethap_cts_needed(command1_flags_t command_flags1, misc_flags_t misc_flags, double geno_thresh, missing_rpt_t missing_rpt_modifier, uint32_t first_hap_uidx) {
   return (first_hap_uidx != 0x7fffffff) && (((command_flags1 & kfCommand1MissingReport) && (missing_rpt_modifier & (kfMissingRptVcolNmissHh | kfMissingRptVcolHethap | kfMissingRptVcolFmissHh | kfMissingRptVcolFhethap))) || ((geno_thresh != 1.0) && (!(misc_flags & kfMiscGenoHhMissing))));
+}
+
+uint32_t are_variant_missing_dosage_cts_needed(command1_flags_t command_flags1, misc_flags_t misc_flags, double geno_thresh, missing_rpt_t missing_rpt_modifier) {
+  return ((command_flags1 & kfCommand1GenotypingRate) && (misc_flags & kfMiscGenotypingRateDosage)) || ((command_flags1 & kfCommand1MissingReport) && (!(missing_rpt_modifier & kfMissingRptSampleOnly)) && (missing_rpt_modifier & (kfMissingRptVcolNmissDosage | kfMissingRptVcolFmissDosage))) || ((geno_thresh != 1.0) && (misc_flags & kfMiscGenoDosage));
 }
 
 // can simplify --geno-counts all-biallelic case, but let's first make sure the
@@ -345,7 +357,7 @@ uint32_t grm_keep_needed(command1_flags_t command_flags1, pca_flags_t pca_flags)
   return ((command_flags1 & kfCommand1Pca) && (!(pca_flags & kfPcaApprox)));
 }
 
-void report_genotyping_rate(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_missing_cts, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t male_ct, uint32_t variant_ct) {
+void report_genotyping_rate(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_missing_cts, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t male_ct, uint32_t variant_ct, uint32_t is_dosage) {
   // defined the same way as PLINK 1.x, to allow this to serve as a sanity
   // check
   // trivial to multithread this if it ever matters
@@ -389,7 +401,7 @@ void report_genotyping_rate(const uintptr_t* variant_include, const chr_info_t* 
     tot_nony_missing += cur_tot_missing;
   }
   if ((!tot_y_missing) && (!tot_nony_missing)) {
-    LOGPRINTF("Total genotyping rate %sis exactly 1.\n", (raw_sample_ct != sample_ct)? "in remaining samples " : "");
+    LOGPRINTF("Total (%s) genotyping rate %sis exactly 1.\n", is_dosage? "dosage" : "hardcall", (raw_sample_ct != sample_ct)? "in remaining samples " : "");
     return;
   }
   double genotyping_rate;
@@ -404,9 +416,9 @@ void report_genotyping_rate(const uintptr_t* variant_include, const chr_info_t* 
     genotyping_rate = (double)((int64_t)(denom - tot_nony_missing)) / ((double)((int64_t)denom));
   }
   if (genotyping_rate >= 0.9999995) {
-    LOGPRINTF("Total genotyping rate %sis in [0.9999995, 1).\n", (raw_sample_ct != sample_ct)? "in remaining samples " : "");
+    LOGPRINTF("Total (%s) genotyping rate %sis in [0.9999995, 1).\n", is_dosage? "dosage" : "hardcall", (raw_sample_ct != sample_ct)? "in remaining samples " : "");
   } else {
-    LOGPRINTF("Total genotyping rate %sis %g.\n", (raw_sample_ct != sample_ct)? "in remaining samples " : "", genotyping_rate);
+    LOGPRINTF("Total (%s) genotyping rate %sis %g.\n", is_dosage? "dosage" : "hardcall", (raw_sample_ct != sample_ct)? "in remaining samples " : "", genotyping_rate);
   }
 }
 
@@ -783,7 +795,50 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, const plink2_cmdline
     if (!pheno_ct) {
       logprint("Note: No phenotype data present.\n");      
     } else {
-      LOGPRINTF("%u phenotype%s loaded.\n", pheno_ct, (pheno_ct == 1)? "" : "s");
+      if (pheno_ct == 1) {
+	if (pheno_cols[0].type_code == kPhenoDtypeCc) {
+	  const uint32_t obs_ct = popcount_longs(pheno_cols[0].nonmiss, raw_sample_ctl);
+	  const uint32_t case_ct = popcount_longs(pheno_cols[0].data.cc, raw_sample_ctl);
+	  const uint32_t ctrl_ct = obs_ct - case_ct;
+	  LOGPRINTF("1 binary phenotype loaded (%u case%s, %u control%s).\n", case_ct, (case_ct == 1)? "" : "s", ctrl_ct, (ctrl_ct == 1)? "" : "s");
+	} else if (pheno_cols[0].type_code == kPhenoDtypeQt) {
+	  LOGPRINTF("1 quantitative phenotype loaded.\n");
+	} else {
+	  LOGPRINTF("1 categorical phenotype loaded.\n");
+	}
+      } else {
+	uint32_t cc_ct = 0;
+	uint32_t qt_ct = 0;
+	for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
+	  const pheno_dtype_t cur_type_code = pheno_cols[pheno_idx].type_code;
+	  if (pheno_cols[pheno_idx].type_code == kPhenoDtypeCc) {
+	    ++cc_ct;
+	  } else if (cur_type_code == kPhenoDtypeQt) {
+	    ++qt_ct;
+	  }
+	}
+	uint32_t cat_ct = pheno_ct - cc_ct - qt_ct;
+	// just brute force this for now
+	if (!cc_ct) {
+	  if (!qt_ct) {
+	    LOGPRINTF("%u categorical phenotypes loaded.\n", pheno_ct);
+	  } else if (!cat_ct) {
+	    LOGPRINTF("%u quantitative phenotypes loaded.\n", pheno_ct);
+	  } else {
+	    LOGPRINTF("%u phenotypes loaded (%u quantitative, %u categorical).\n", pheno_ct, qt_ct, cat_ct);
+	  }
+	} else if (!qt_ct) {
+	  if (!cat_ct) {
+	    LOGPRINTF("%u binary phenotypes loaded.\n", pheno_ct);
+	  } else {
+	    LOGPRINTF("%u phenotypes loaded (%u binary, %u categorical).\n", pheno_ct, cc_ct, cat_ct);
+	  }
+	} else if (!cat_ct) {
+	  LOGPRINTF("%u phenotypes loaded (%u binary, %u quantitative).\n", pheno_ct, cc_ct, qt_ct);
+	} else {
+	  LOGPRINTFWW("%u phenotypes loaded (%u binary, %u quantitative, %u categorical).\n", pheno_ct, cc_ct, qt_ct, cat_ct);
+	}
+      }
     }
     const uint32_t full_variant_id_htable_needed = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct);
     if (variant_ct && (!full_variant_id_htable_needed)) {
@@ -917,7 +972,8 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, const plink2_cmdline
 	goto plink2_ret_1;
       }
     }
-    uint32_t* sample_missing_geno_cts = nullptr;
+    uint32_t* sample_missing_dosage_cts = nullptr;
+    uint32_t* sample_missing_hc_cts = nullptr;
     uint32_t* sample_hethap_cts = nullptr;
     uintptr_t max_covar_name_blen = 0;
     if (psamname[0]) {
@@ -950,15 +1006,24 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, const plink2_cmdline
 	const uint32_t removed_ct = old_sample_ct - sample_ct;
 	LOGPRINTF("--keep-%sfounders: %u sample%s removed.\n", keep_founders? "" : "non", removed_ct, (removed_ct == 1)? "" : "s");
       }
-      const uint32_t smaj_missing_geno_report = (pcp->command_flags1 & kfCommand1MissingReport) && (!(pcp->missing_rpt_modifier & kfMissingRptVariantOnly));
-      if ((pcp->mind_thresh < 1.0) || smaj_missing_geno_report) {
-	if (bigstack_alloc_ui(raw_sample_ct, &sample_missing_geno_cts) ||
+      const uint32_t smaj_missing_geno_report_requested = (pcp->command_flags1 & kfCommand1MissingReport) && (!(pcp->missing_rpt_modifier & kfMissingRptVariantOnly));
+      if ((pcp->mind_thresh < 1.0) || smaj_missing_geno_report_requested) {
+	if (bigstack_alloc_ui(raw_sample_ct, &sample_missing_hc_cts) ||
 	    bigstack_alloc_ui(raw_sample_ct, &sample_hethap_cts)) {
 	  goto plink2_ret_NOMEM;
 	}
+	if (are_sample_missing_dosage_cts_needed(pcp->misc_flags, smaj_missing_geno_report_requested, pcp->mind_thresh, pcp->missing_rpt_modifier)) {
+	  if (pgfi.gflags & kfPgenGlobalDosagePresent) {
+	    if (bigstack_alloc_ui(raw_sample_ct, &sample_missing_dosage_cts)) {
+	      goto plink2_ret_NOMEM;
+	    }
+	  } else {
+	    sample_missing_dosage_cts = sample_missing_hc_cts;
+	  }
+	}
 	// could avoid this call and make load_allele_and_geno_counts() do
 	// double duty with --missing?
-	reterr = load_sample_missing_cts(sex_male, variant_include, cip, variant_allele_idxs, raw_variant_ct, variant_ct, raw_sample_ct, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, sample_missing_geno_cts, sample_hethap_cts);
+	reterr = load_sample_missing_cts(sex_male, variant_include, cip, raw_variant_ct, variant_ct, raw_sample_ct, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, sample_missing_hc_cts, (pgfi.gflags & kfPgenGlobalDosagePresent)? sample_missing_dosage_cts : nullptr, sample_hethap_cts);
 	if (reterr) {
 	  goto plink2_ret_1;
 	}
@@ -968,16 +1033,16 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, const plink2_cmdline
 	  if (xymt_exists(cip, kChrOffsetY, &y_code)) {
 	    variant_ct_y = count_chr_variants_unsafe(variant_include, cip, y_code);
 	  }
-	  reterr = mind_filter(sample_missing_geno_cts, (pcp->misc_flags & kfMiscMindHhMissing)? sample_hethap_cts : nullptr, sample_ids, sids, raw_sample_ct, max_sample_id_blen, max_sid_blen, variant_ct, variant_ct_y, pcp->mind_thresh, sample_include, sex_male, &sample_ct, outname, outname_end);
+	  reterr = mind_filter((pcp->misc_flags & kfMiscMindDosage)? sample_missing_dosage_cts : sample_missing_hc_cts, (pcp->misc_flags & kfMiscMindHhMissing)? sample_hethap_cts : nullptr, sample_ids, sids, raw_sample_ct, max_sample_id_blen, max_sid_blen, variant_ct, variant_ct_y, pcp->mind_thresh, sample_include, sex_male, &sample_ct, outname, outname_end);
 	  if (reterr) {
 	    goto plink2_ret_1;
 	  }
 	}
-	if (!smaj_missing_geno_report) {
-	  bigstack_reset(sample_missing_geno_cts);
+	if (!smaj_missing_geno_report_requested) {
+	  bigstack_reset(sample_missing_hc_cts);
 	}
 	// this results in a small "memory leak" when a regular missingness
-	// report is requested, but not a big deal
+	// report is requested, not a big deal
       }
       if (pcp->covar_fname || pcp->covar_range_list.name_ct) {
 	const char* cur_covar_fname = pcp->covar_fname? pcp->covar_fname : (pcp->pheno_fname? pcp->pheno_fname : psamname);
@@ -1011,6 +1076,12 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, const plink2_cmdline
 	  LOGPRINTFWW("%u sample%s (%u female%s, %u male%s; %u founder%s) remaining after main filters.\n", sample_ct, (sample_ct == 1)? "" : "s", female_ct, (female_ct == 1)? "" : "s", male_ct, (male_ct == 1)? "" : "s", founder_ct, (founder_ct == 1)? "" : "s");
 	} else {
 	  LOGPRINTFWW("%u sample%s (%u female%s, %u male%s, %u ambiguous; %u founder%s) remaining after main filters.\n", sample_ct, (sample_ct == 1)? "" : "s", female_ct, (female_ct == 1)? "" : "s", male_ct, (male_ct == 1)? "" : "s", nosex_ct, founder_ct, (founder_ct == 1)? "" : "s");
+	}
+	if ((pheno_ct == 1) && (pheno_cols[0].type_code == kPhenoDtypeCc)) {
+	  const uint32_t obs_ct = popcount_longs_intersect(pheno_cols[0].nonmiss, sample_include, raw_sample_ctl);
+	  const uint32_t case_ct = popcount_longs_intersect(pheno_cols[0].data.cc, sample_include, raw_sample_ctl);
+	  const uint32_t ctrl_ct = obs_ct - case_ct;
+	  LOGPRINTF("%u case%s and %u control%s remaining after main filters.\n", case_ct, (case_ct == 1)? "" : "s", ctrl_ct, (ctrl_ct == 1)? "" : "s");
 	}
       }
     }
@@ -1078,20 +1149,29 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, const plink2_cmdline
       }
       
       unsigned char* bigstack_mark_geno_cts = g_bigstack_base;
-
-      uint32_t* variant_hethap_cts = nullptr;
-      if (are_variant_hethap_cts_needed(pcp->command_flags1, pcp->misc_flags, pcp->geno_thresh, pcp->missing_rpt_modifier, first_hap_uidx)) {
-	// first_hap_uidx offset can save an entire GB...
-	if (bigstack_alloc_ui(raw_variant_ct - first_hap_uidx, &variant_hethap_cts)) {
-	  goto plink2_ret_NOMEM;
-	}
-      }
       
       // no longer includes hethaps by default
-      uint32_t* variant_missing_cts = nullptr;
-      if (are_variant_missing_cts_needed(pcp->command_flags1, pcp->geno_thresh, pcp->missing_rpt_modifier)) {
-	if (bigstack_alloc_ui(raw_variant_ct, &variant_missing_cts)) {
+      uint32_t* variant_missing_hc_cts = nullptr;
+      uint32_t* variant_hethap_cts = nullptr;
+      if (are_variant_missing_hc_cts_needed(pcp->command_flags1, pcp->misc_flags, pcp->geno_thresh, pcp->missing_rpt_modifier)) {
+	if (bigstack_alloc_ui(raw_variant_ct, &variant_missing_hc_cts)) {
 	  goto plink2_ret_NOMEM;
+	}
+	if (are_variant_hethap_cts_needed(pcp->command_flags1, pcp->misc_flags, pcp->geno_thresh, pcp->missing_rpt_modifier, first_hap_uidx)) {
+	  // first_hap_uidx offset can save an entire GB...
+	  if (bigstack_alloc_ui(raw_variant_ct - first_hap_uidx, &variant_hethap_cts)) {
+	    goto plink2_ret_NOMEM;
+	  }
+	}
+      }
+      uint32_t* variant_missing_dosage_cts = nullptr;
+      if (are_variant_missing_dosage_cts_needed(pcp->command_flags1, pcp->misc_flags, pcp->geno_thresh, pcp->missing_rpt_modifier)) {
+	if ((!variant_missing_hc_cts) || (pgfi.gflags & kfPgenGlobalDosagePresent)) {
+	  if (bigstack_alloc_ui(raw_variant_ct, &variant_missing_dosage_cts)) {
+	    goto plink2_ret_NOMEM;
+	  }
+	} else {
+	  variant_missing_dosage_cts = variant_missing_hc_cts;
 	}
       }
       uint32_t* x_male_geno_cts = nullptr;
@@ -1150,17 +1230,18 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, const plink2_cmdline
 	  }
 	}
       }
-      if (allele_dosages || founder_allele_dosages || variant_missing_cts || variant_hethap_cts || raw_geno_cts || founder_raw_geno_cts) {
+      if (allele_dosages || founder_allele_dosages || variant_missing_hc_cts || variant_missing_dosage_cts || variant_hethap_cts || raw_geno_cts || founder_raw_geno_cts) {
 	// note that --geno depends on different handling of X/Y than --maf.
 
 	// possible todo: "free" these arrays early in some cases
 	// todo: oblig-missing
-	reterr = load_allele_and_geno_counts(sample_include, founder_info, sex_nm, sex_male, variant_include, cip, variant_allele_idxs, raw_sample_ct, sample_ct, founder_ct, male_ct, nosex_ct, raw_variant_ct, variant_ct, first_hap_uidx, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, allele_dosages, founder_allele_dosages, variant_missing_cts, variant_hethap_cts, raw_geno_cts, founder_raw_geno_cts, x_male_geno_cts, founder_x_male_geno_cts, x_nosex_geno_cts, founder_x_nosex_geno_cts);
+	reterr = load_allele_and_geno_counts(sample_include, founder_info, sex_nm, sex_male, variant_include, cip, variant_allele_idxs, raw_sample_ct, sample_ct, founder_ct, male_ct, nosex_ct, raw_variant_ct, variant_ct, first_hap_uidx, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, allele_dosages, founder_allele_dosages, variant_missing_hc_cts, (pgfi.gflags & kfPgenGlobalDosagePresent)? variant_missing_dosage_cts : nullptr, variant_hethap_cts, raw_geno_cts, founder_raw_geno_cts, x_male_geno_cts, founder_x_male_geno_cts, x_nosex_geno_cts, founder_x_nosex_geno_cts);
 	if (reterr) {
 	  goto plink2_ret_1;
 	}
 	if (pcp->command_flags1 & kfCommand1GenotypingRate) {
-	  report_genotyping_rate(variant_include, cip, variant_missing_cts, raw_sample_ct, sample_ct, male_ct, variant_ct);
+	  const uint32_t is_dosage = (pcp->misc_flags / kfMiscGenotypingRateDosage) & 1;
+	  report_genotyping_rate(variant_include, cip, is_dosage? variant_missing_dosage_cts : variant_missing_hc_cts, raw_sample_ct, sample_ct, male_ct, variant_ct, is_dosage);
 	  if (!(pcp->command_flags1 & (~kfCommand1GenotypingRate))) {
 	    goto plink2_ret_1;
 	  }
@@ -1185,7 +1266,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, const plink2_cmdline
       }
       
       if (pcp->command_flags1 & kfCommand1MissingReport) {
-	reterr = write_missingness_reports(sample_include, sex_male, sample_ids, sids, pheno_cols, pheno_names, sample_missing_geno_cts, sample_hethap_cts, variant_include, cip, variant_bp, variant_ids, variant_allele_idxs, allele_storage, variant_missing_cts, variant_hethap_cts, sample_ct, male_ct, max_sample_id_blen, max_sid_blen, pheno_ct, max_pheno_name_blen, variant_ct, max_allele_slen, variant_hethap_cts? first_hap_uidx : 0x7fffffff, pcp->missing_rpt_modifier, outname, outname_end);
+	reterr = write_missingness_reports(sample_include, sex_male, sample_ids, sids, pheno_cols, pheno_names, sample_missing_hc_cts, sample_missing_dosage_cts, sample_hethap_cts, variant_include, cip, variant_bp, variant_ids, variant_allele_idxs, allele_storage, variant_missing_hc_cts, variant_missing_dosage_cts, variant_hethap_cts, sample_ct, male_ct, max_sample_id_blen, max_sid_blen, pheno_ct, max_pheno_name_blen, variant_ct, max_allele_slen, variant_hethap_cts? first_hap_uidx : 0x7fffffff, pcp->missing_rpt_modifier, outname, outname_end);
 	if (reterr || (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1MissingReport))))) {
 	  goto plink2_ret_1;
 	}
@@ -1193,7 +1274,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, const plink2_cmdline
 
       if (pcp->geno_thresh != 1.0) {
 	const uint32_t geno_hh_missing = (uint32_t)(pcp->misc_flags & kfMiscGenoHhMissing);
-	enforce_geno_thresh(cip, variant_missing_cts, geno_hh_missing? variant_hethap_cts : nullptr, sample_ct, male_ct, geno_hh_missing? first_hap_uidx : 0x7fffffff, pcp->geno_thresh, variant_include, &variant_ct);
+	enforce_geno_thresh(cip, (pcp->misc_flags & kfMiscGenoDosage)? variant_missing_dosage_cts : variant_missing_hc_cts, geno_hh_missing? variant_hethap_cts : nullptr, sample_ct, male_ct, geno_hh_missing? first_hap_uidx : 0x7fffffff, pcp->geno_thresh, variant_include, &variant_ct);
       }
 
       double* hwe_x_pvals = nullptr;
@@ -1482,10 +1563,18 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, const plink2_cmdline
       }
     }
 
+    if (pcp->command_flags1 & kfCommand1Score) {
+      logerrprint("Error: --score is currently under development.\n");
+      reterr = kPglRetNotYetSupported;
+      // reterr = score_report(sample_include, sample_ids, sids, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_ids, variant_allele_idxs, allele_storage, pcp->score_fname, pcp->score_flags, pcp->score_cols, sample_ct, max_sample_id_blen, max_sid_blen, pheno_ct, max_pheno_name_blen, variant_ct, max_variant_id_blen, max_allele_slen, );
+      if (reterr) {
+	goto plink2_ret_1;
+      }
+    }
     // eventually check for nonzero pheno_ct here?
     
     if (pcp->command_flags1 & kfCommand1Glm) {
-      reterr = glm_main(sample_include, sample_ids, sids, sex_nm, sex_male, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bp, variant_ids, variant_allele_idxs, allele_storage, &(pcp->glm_info), &(pcp->adjust_info), &(pcp->aperm), pcp->glm_local_covar_fname, pcp->glm_local_pvar_fname, pcp->glm_local_psam_fname, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_allele_slen, pcp->ci_size, pcp->vif_thresh, pcp->pfilter, pcp->output_min_p, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, outname, outname_end);
+      reterr = glm_main(sample_include, sample_ids, sids, sex_nm, sex_male, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bp, variant_ids, variant_allele_idxs, allele_storage, &(pcp->glm_info), &(pcp->adjust_info), &(pcp->aperm), pcp->glm_local_covar_fname, pcp->glm_local_pvar_fname, pcp->glm_local_psam_fname, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_variant_id_blen, max_allele_slen, pcp->ci_size, pcp->vif_thresh, pcp->pfilter, pcp->output_min_p, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
       if (reterr) {
 	goto plink2_ret_1;
       }
@@ -2314,6 +2403,7 @@ int main(int argc, char** argv) {
   pc.glm_local_covar_fname = nullptr;
   pc.glm_local_pvar_fname = nullptr;
   pc.glm_local_psam_fname = nullptr;
+  pc.score_fname = nullptr;
   init_range_list(&pc.snps_range_list);
   init_range_list(&pc.exclude_snps_range_list);
   init_range_list(&pc.pheno_range_list);
@@ -2778,6 +2868,7 @@ int main(int argc, char** argv) {
     pc.missing_rpt_modifier = kfMissingRpt0;
     pc.geno_counts_modifier = kfGenoCounts0;
     pc.hardy_modifier = kfHardy0;
+    pc.score_flags = kfScore0;
     pc.aperm.min = 6;
     pc.aperm.max = 1000000;
     pc.aperm.alpha = 0.0;
@@ -2819,6 +2910,9 @@ int main(int argc, char** argv) {
     pc.pca_ct = 0;
     pc.parallel_idx = 0;
     pc.parallel_tot = 1;
+    pc.score_cols[0] = 1;
+    pc.score_cols[1] = 0;
+    pc.score_cols[2] = 0;
     pc.exportf_bits = 0;
     pc.exportf_id_delim = '\0';
     double import_dosage_certainty = 0.0;
@@ -3213,9 +3307,6 @@ int main(int argc, char** argv) {
 	  if (reterr) {
 	    goto main_ret_1;
 	  }
-	  logerrprint("Error: --condition is not implemented yet.\n");
-	  reterr = kPglRetNotYetSupported;
-	  goto main_ret_1;
 	} else if (!memcmp(flagname_p2, "ondition-list", 14)) {
 	  if (pc.glm_info.condition_varname) {
 	    logerrprint("Error: --condition-list cannot be used with --condition.\n");
@@ -3246,9 +3337,6 @@ int main(int argc, char** argv) {
 	  if (reterr) {
 	    goto main_ret_1;
 	  }
-	  logerrprint("Error: --condition-list is not implemented yet.\n");
-	  reterr = kPglRetNotYetSupported;
-	  goto main_ret_1;
 	} else if (!memcmp(flagname_p2, "ow", 3)) {
 	  if (chr_info.chrset_source) {
 	    logerrprint("Error: Conflicting chromosome-set flags.\n");
@@ -4007,8 +4095,18 @@ int main(int argc, char** argv) {
 	  memcpy(pgenname, cur_fname, slen + 1);
 	  xload |= kfXloadOxGen;
 	} else if (!memcmp(flagname_p2, "enotyping-rate", 15)) {
+	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
+	    goto main_ret_INVALID_CMDLINE_2A;
+	  }
+	  if (param_ct) {
+	    const char* cur_modif = argv[arg_idx + 1];
+	    if (strcmp("dosage", cur_modif)) {
+	      sprintf(g_logbuf, "Error: Invalid --genotyping-rate parameter '%s'.\n", cur_modif);
+	      goto main_ret_INVALID_CMDLINE_WWA;
+	    }
+	    pc.misc_flags |= kfMiscGenotypingRateDosage;
+	  }
 	  pc.command_flags1 |= kfCommand1GenotypingRate;
-	  goto main_param_zero;
 	} else {
 	  goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
 	}
@@ -5883,6 +5981,62 @@ int main(int argc, char** argv) {
 	    }
 	  }
 	  pc.filter_flags |= kfFilterPvarReq | kfFilterSnpsOnly;
+	} else if (!memcmp(flagname_p2, "core", 5)) {
+	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 8)) {
+	    goto main_ret_INVALID_CMDLINE_2A;
+	  }
+	  reterr = alloc_fname(argv[arg_idx + 1], flagname_p, 0, &pc.score_fname);
+	  if (reterr) {
+	    goto main_ret_1;
+	  }
+	  uint32_t numeric_param_ct = 0;
+	  for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
+	    const char* cur_modif = argv[arg_idx + param_idx];
+	    const uint32_t cur_modif_slen = strlen(cur_modif);
+	    if ((cur_modif_slen == 6) && (!memcmp(cur_modif, "header", 6))) {
+	      pc.score_flags |= kfScoreHeader;
+	    } else if ((cur_modif_slen == 18) && (!memcmp(cur_modif, "no-mean-imputation", 18))) {
+	      pc.score_flags |= kfScoreNoMeanimpute;
+	    } else if ((cur_modif_slen == 6) && (!memcmp(cur_modif, "center", 6))) {
+	      pc.score_flags |= kfScoreCenter;
+	    } else if ((cur_modif_slen == 18) && (!memcmp(cur_modif, "variance-normalize", 18))) {
+	      pc.score_flags |= kfScoreVarianceNormalize;
+	    } else if ((cur_modif_slen > 5) && (!memcmp(cur_modif, "cols=", 5))) {
+	      if (pc.score_flags & kfScoreColAll) {
+		logerrprint("Error: Multiple --score cols= modifiers.\n");
+		goto main_ret_INVALID_CMDLINE;
+	      }
+	      reterr = parse_col_descriptor(&(cur_modif[5]), "maybesid\0sid\0pheno1\0phenos\0nmissallele\0denom\0dosagesum\0score\0scoresum\0", "score", kfScoreColMaybesid, kfScoreColDefault, 1, &pc.score_flags);
+	      if (reterr) {
+		goto main_ret_1;
+	      }
+	    } else if (numeric_param_ct == 3) {
+	      logerrprint("Error: --score takes at most three numeric parameters.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
+	    } else {
+	      if (scan_posint_capped(cur_modif, kMaxLongLine / 2, &(pc.score_cols[numeric_param_ct]))) {
+		sprintf(g_logbuf, "Error: Invalid --score parameter '%s'.\n", cur_modif);
+		goto main_ret_INVALID_CMDLINE_WWA;
+	      }
+	      for (uint32_t uii = 0; uii < numeric_param_ct; ++uii) {
+		if (pc.score_cols[uii] == pc.score_cols[numeric_param_ct]) {
+		  logerrprint("Error: Identical --score column indexes.\n");
+		  goto main_ret_INVALID_CMDLINE_A;
+		}
+	      }
+	      ++numeric_param_ct;
+	    }
+	  }
+	  if (!(pc.score_flags & kfScoreColAll)) {
+	    pc.score_flags |= kfScoreColDefault;
+	  }
+	  if (!pc.score_cols[1]) {
+	    pc.score_cols[1] = pc.score_cols[0] + 1;
+	  }
+	  if (!pc.score_cols[2]) {
+	    pc.score_cols[2] = pc.score_cols[1] + 1;
+	  }
+	  pc.command_flags1 |= kfCommand1Score;
 	} else {
 	  goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
 	}
@@ -6626,6 +6780,7 @@ int main(int argc, char** argv) {
   free_cond(flag_buf);
   free_cond(flag_map);
   free_cond(king_cutoff_fprefix);
+  free_cond(pc.score_fname);
   free_cond(pc.glm_local_covar_fname);
   free_cond(pc.glm_local_pvar_fname);
   free_cond(pc.glm_local_psam_fname);

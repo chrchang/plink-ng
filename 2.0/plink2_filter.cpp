@@ -308,9 +308,8 @@ pglerr_t extract_exclude_flag_norange(char** variant_ids, const uint32_t* varian
 	if (token_slen == 0xffffffffU) {
 	  sprintf(g_logbuf, "Error: Excessively long ID in --%s file.\n", do_exclude? "exclude" : "extract");
 	  goto extract_exclude_flag_norange_ret_MALFORMED_INPUT_2;
-	} else {
-	  goto extract_exclude_flag_norange_ret_READ_FAIL;
 	}
+	goto extract_exclude_flag_norange_ret_READ_FAIL;
       }
       if (gz_token_stream_close(&gts)) {
 	goto extract_exclude_flag_norange_ret_READ_FAIL;
@@ -588,39 +587,17 @@ void compute_maj_alleles_and_nonmajor_freqs(const uintptr_t* variant_include, co
   }
 }
 
-static inline void incr_missing_row(const uintptr_t* genovec, uint32_t acc2_vec_ct, uintptr_t* missing_acc2) {
-  const vul_t* genovvec = (const vul_t*)genovec;
-  vul_t* missing_acc2v = (vul_t*)missing_acc2;
-  const vul_t m1 = VCONST_UL(kMask5555);
-  for (uint32_t vidx = 0; vidx < acc2_vec_ct; ++vidx) {
-    const vul_t geno_vword = genovvec[vidx];
-    const vul_t geno_vword_shifted_masked = vul_rshift(geno_vword, 1) & m1;
-    missing_acc2v[vidx] = missing_acc2v[vidx] + (geno_vword & geno_vword_shifted_masked);
-  }
-}
-
-static inline void incr_het_row(const uintptr_t* genovec, uint32_t acc2_vec_ct, uintptr_t* hethap_acc2) {
-  const vul_t* genovvec = (const vul_t*)genovec;
-  const vul_t m1 = VCONST_UL(kMask5555);
-  vul_t* hethap_acc2v = (vul_t*)hethap_acc2;
-  for (uint32_t vidx = 0; vidx < acc2_vec_ct; ++vidx) {
-    const vul_t geno_vword = genovvec[vidx];
-    const vul_t geno_vword_shifted_nmasked = (~(vul_rshift(geno_vword, 1))) & m1;
-    hethap_acc2v[vidx] = hethap_acc2v[vidx] + (geno_vword & geno_vword_shifted_nmasked);
-  }
-}
-
 // multithread globals
 static pgen_reader_t** g_pgr_ptrs = nullptr;
 static uintptr_t** g_genovecs = nullptr;
 static uint32_t* g_read_variant_uidx_starts = nullptr;
-static uintptr_t** g_missing_acc2 = nullptr;
-static uintptr_t** g_hethap_acc2 = nullptr;
+static uintptr_t** g_missing_hc_acc1 = nullptr;
+static uintptr_t** g_missing_dosage_acc1 = nullptr;
+static uintptr_t** g_hethap_acc1 = nullptr;
 
 static const uintptr_t* g_variant_include = nullptr;
-static const uintptr_t* g_variant_allele_idxs = nullptr;
 static const chr_info_t* g_cip = nullptr;
-static uintptr_t* g_sex_male_interleaved_vec = nullptr;
+static const uintptr_t* g_sex_male = nullptr;
 static uint32_t g_raw_sample_ct = 0;
 static uint32_t g_cur_block_size = 0;
 static uint32_t g_calc_thread_ct = 0;
@@ -629,33 +606,44 @@ static pglerr_t g_error_ret = kPglRetSuccess;
 THREAD_FUNC_DECL load_sample_missing_cts_thread(void* arg) {
   const uintptr_t tidx = (uintptr_t)arg;
   const uintptr_t* variant_include = g_variant_include;
-  const uintptr_t* variant_allele_idxs = g_variant_allele_idxs;
   const chr_info_t* cip = g_cip;
-  const uintptr_t* sex_male_interleaved_vec = g_sex_male_interleaved_vec;
+  const uintptr_t* sex_male = g_sex_male;
   const uint32_t raw_sample_ct = g_raw_sample_ct;
-  const uint32_t acc2_vec_ct = QUATERCT_TO_VECCT(raw_sample_ct);
-  const uint32_t acc4_vec_ct = acc2_vec_ct * 2;
-  const uint32_t acc8_vec_ct = acc2_vec_ct * 4;
+  const uint32_t raw_sample_ctaw = BITCT_TO_ALIGNED_WORDCT(raw_sample_ct);
+  const uint32_t acc1_vec_ct = BITCT_TO_VECCT(raw_sample_ct);
+  const uint32_t acc4_vec_ct = acc1_vec_ct * 4;
+  const uint32_t acc8_vec_ct = acc1_vec_ct * 8;
   const uint32_t calc_thread_ct = g_calc_thread_ct;
   const int32_t x_code = cip->xymt_codes[kChrOffsetX];
   const int32_t y_code = cip->xymt_codes[kChrOffsetY];
-  uintptr_t* genovec = g_genovecs[tidx];
-  uintptr_t* all_acc2 = g_missing_acc2[tidx];
-  uintptr_t* all_acc4 = &(all_acc2[acc2_vec_ct * kWordsPerVec]);
-  uintptr_t* all_acc8 = &(all_acc4[acc4_vec_ct * kWordsPerVec]);
-  uintptr_t* all_acc32 = &(all_acc8[acc8_vec_ct * kWordsPerVec]);
-  uintptr_t* hethap_acc2 = g_hethap_acc2[tidx];
-  uintptr_t* hethap_acc4 = &(hethap_acc2[acc2_vec_ct * kWordsPerVec]);
+  uintptr_t* genovec_buf = g_genovecs[tidx];
+  uintptr_t* missing_hc_acc1 = g_missing_hc_acc1[tidx];
+  uintptr_t* missing_hc_acc4 = &(missing_hc_acc1[acc1_vec_ct * kWordsPerVec]);
+  uintptr_t* missing_hc_acc8 = &(missing_hc_acc4[acc4_vec_ct * kWordsPerVec]);
+  uintptr_t* missing_hc_acc32 = &(missing_hc_acc8[acc8_vec_ct * kWordsPerVec]);
+  fill_ulong_zero(acc1_vec_ct * kWordsPerVec * 45, missing_hc_acc1);
+  uintptr_t* missing_dosage_acc1 = nullptr;
+  uintptr_t* missing_dosage_acc4 = nullptr;
+  uintptr_t* missing_dosage_acc8 = nullptr;
+  uintptr_t* missing_dosage_acc32 = nullptr;
+  if (g_missing_dosage_acc1) {
+    missing_dosage_acc1 = g_missing_dosage_acc1[tidx];
+    missing_dosage_acc4 = &(missing_dosage_acc1[acc1_vec_ct * kWordsPerVec]);
+    missing_dosage_acc8 = &(missing_dosage_acc4[acc4_vec_ct * kWordsPerVec]);
+    missing_dosage_acc32 = &(missing_dosage_acc8[acc8_vec_ct * kWordsPerVec]);
+    fill_ulong_zero(acc1_vec_ct * kWordsPerVec * 45, missing_dosage_acc1);
+  }
+  // could make this optional
+  // (could technically make missing_hc optional too...)
+  uintptr_t* hethap_acc1 = g_hethap_acc1[tidx];
+  uintptr_t* hethap_acc4 = &(hethap_acc1[acc1_vec_ct * kWordsPerVec]);
   uintptr_t* hethap_acc8 = &(hethap_acc4[acc4_vec_ct * kWordsPerVec]);
   uintptr_t* hethap_acc32 = &(hethap_acc8[acc8_vec_ct * kWordsPerVec]);
-  uint32_t all_ct_rem3 = 3;
-  uint32_t all_ct_rem15d3 = 5;
+  fill_ulong_zero(acc1_vec_ct * kWordsPerVec * 45, hethap_acc1);
+  uint32_t all_ct_rem15 = 15;
   uint32_t all_ct_rem255d15 = 17;
-  uint32_t hap_ct_rem3 = 3;
-  uint32_t hap_ct_rem15d3 = 5;
+  uint32_t hap_ct_rem15 = 15;
   uint32_t hap_ct_rem255d15 = 17;
-  fill_ulong_zero(acc2_vec_ct * kWordsPerVec * 23, all_acc2);
-  fill_ulong_zero(acc2_vec_ct * kWordsPerVec * 23, hethap_acc2);
   while (1) {
     pgen_reader_t* pgrp = g_pgr_ptrs[tidx];
     const uint32_t is_last_block = g_is_last_thread_block;
@@ -663,7 +651,7 @@ THREAD_FUNC_DECL load_sample_missing_cts_thread(void* arg) {
     const uint32_t cur_idx_ct = (((tidx + 1) * cur_block_size) / calc_thread_ct) - ((tidx * cur_block_size) / calc_thread_ct);
     uint32_t variant_uidx = g_read_variant_uidx_starts[tidx];
     uint32_t chr_end = 0;
-    uint32_t hethap_check = 0;
+    uintptr_t* cur_hets = nullptr;
     uint32_t is_diploid_x = 0;
     uint32_t is_y = 0;
     for (uint32_t cur_idx = 0; cur_idx < cur_idx_ct; ++cur_idx, ++variant_uidx) {
@@ -672,7 +660,7 @@ THREAD_FUNC_DECL load_sample_missing_cts_thread(void* arg) {
 	const uint32_t chr_fo_idx = get_variant_chr_fo_idx(cip, variant_uidx);
 	const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
 	chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-	hethap_check = 1;
+	cur_hets = hethap_acc1;
 	is_diploid_x = 0;
 	is_y = 0;
 	if (chr_idx == x_code) {
@@ -680,66 +668,65 @@ THREAD_FUNC_DECL load_sample_missing_cts_thread(void* arg) {
 	} else if (chr_idx == y_code) {
 	  is_y = 1;
 	} else {
-	  hethap_check = is_set(cip->haploid_mask, chr_idx);
+	  if (!is_set(cip->haploid_mask, chr_idx)) {
+	    cur_hets = nullptr;
+	  }
 	}
       }
-      pglerr_t reterr;
-      // todo: pgr_read_missingness_dosage()
-      if ((!variant_allele_idxs) || (!hethap_check) || (variant_allele_idxs[variant_uidx + 1] - variant_allele_idxs[variant_uidx] == 2)) {
-	reterr = pgr_read_allele_countvec_subset_unsafe(nullptr, nullptr, raw_sample_ct, variant_uidx, 1, pgrp, genovec);
-      } else {
-	// todo: multiallelic, at-least-partially-haploid case
-	// countvec may not have the correct hethap information then
-	reterr = kPglRetSuccess;
-	assert(0);
-      }
+      // could instead have missing_hc and (missing_hc - missing_dosage); that
+      // has the advantage of letting you skip one of the two increment
+      // operations when the variant is all hardcalls.
+      pglerr_t reterr = pgr_read_missingness_multi(nullptr, nullptr, raw_sample_ct, variant_uidx, pgrp, missing_hc_acc1, missing_dosage_acc1, cur_hets, genovec_buf);
       if (reterr) {
 	g_error_ret = reterr;
 	break;
       }
-      // trailing bits don't matter
-      // zero_trailing_quaters(raw_sample_ct, genovec);
       if (is_y) {
-	interleaved_mask_zero(sex_male_interleaved_vec, acc2_vec_ct, genovec);
+	bitvec_and(sex_male, raw_sample_ctaw, missing_hc_acc1);
+	if (missing_dosage_acc1) {
+	  bitvec_and(sex_male, raw_sample_ctaw, missing_dosage_acc1);
+	}
       }
-      incr_missing_row(genovec, acc2_vec_ct, all_acc2);
-      if (!(--all_ct_rem3)) {
-	unroll_zero_incr_2_4(acc2_vec_ct, all_acc2, all_acc4);
-	all_ct_rem3 = 3;
-	if (!(--all_ct_rem15d3)) {
-	  unroll_zero_incr_4_8(acc4_vec_ct, all_acc4, all_acc8);
-	  all_ct_rem15d3 = 5;
-	  if (!(--all_ct_rem255d15)) {
-	    unroll_zero_incr_8_32(acc8_vec_ct, all_acc8, all_acc32);
-	    all_ct_rem255d15 = 17;
+      unroll_incr_1_4(missing_hc_acc1, acc1_vec_ct, missing_hc_acc4);
+      if (missing_dosage_acc1) {
+	unroll_incr_1_4(missing_dosage_acc1, acc1_vec_ct, missing_dosage_acc4);
+      }
+      if (!(--all_ct_rem15)) {
+	unroll_zero_incr_4_8(acc4_vec_ct, missing_hc_acc4, missing_hc_acc8);
+	if (missing_dosage_acc1) {
+	  unroll_zero_incr_4_8(acc4_vec_ct, missing_dosage_acc4, missing_dosage_acc8);
+	}
+	all_ct_rem15 = 15;
+	if (!(--all_ct_rem255d15)) {
+	  unroll_zero_incr_8_32(acc8_vec_ct, missing_hc_acc8, missing_hc_acc32);
+	  if (missing_dosage_acc1) {
+	    unroll_zero_incr_8_32(acc8_vec_ct, missing_dosage_acc8, missing_dosage_acc32);
 	  }
+	  all_ct_rem255d15 = 17;
 	}
       }
-      if (hethap_check) {
-	if (is_diploid_x) {
-	  // faster to merge with incr_het_row, but shouldn't be a big deal
-	  interleaved_mask_zero(sex_male_interleaved_vec, acc2_vec_ct, genovec);
+      if (cur_hets) {
+	if (is_diploid_x) {	  
+	  bitvec_and(sex_male, raw_sample_ctaw, cur_hets);
 	}
-	incr_het_row(genovec, acc2_vec_ct, hethap_acc2);
-	if (!(--hap_ct_rem3)) {
-	  unroll_zero_incr_2_4(acc2_vec_ct, hethap_acc2, hethap_acc4);
-	  hap_ct_rem3 = 3;
-	  if (!(--hap_ct_rem15d3)) {
-	    unroll_zero_incr_4_8(acc4_vec_ct, hethap_acc4, hethap_acc8);
-	    hap_ct_rem15d3 = 5;
-	    if (!(--hap_ct_rem255d15)) {
-	      unroll_zero_incr_8_32(acc8_vec_ct, hethap_acc8, hethap_acc32);
-	      hap_ct_rem255d15 = 17;
-	    }
+	unroll_incr_1_4(cur_hets, acc1_vec_ct, hethap_acc4);
+	if (!(--hap_ct_rem15)) {
+	  unroll_zero_incr_4_8(acc4_vec_ct, hethap_acc4, hethap_acc8);
+	  hap_ct_rem15 = 15;
+	  if (!(--hap_ct_rem255d15)) {
+	    unroll_zero_incr_8_32(acc8_vec_ct, hethap_acc8, hethap_acc32);
+	    hap_ct_rem255d15 = 17;
 	  }
 	}
       }
     }
     if (is_last_block) {
-      unroll_incr_2_4(all_acc2, acc2_vec_ct, all_acc4);
-      unroll_incr_4_8(all_acc4, acc4_vec_ct, all_acc8);
-      unroll_incr_8_32(all_acc8, acc8_vec_ct, all_acc32);
-      unroll_incr_2_4(hethap_acc2, acc2_vec_ct, hethap_acc4);
+      unroll_incr_4_8(missing_hc_acc4, acc4_vec_ct, missing_hc_acc8);
+      unroll_incr_8_32(missing_hc_acc8, acc8_vec_ct, missing_hc_acc32);
+      if (missing_dosage_acc1) {
+	unroll_incr_4_8(missing_dosage_acc4, acc4_vec_ct, missing_dosage_acc8);
+	unroll_incr_8_32(missing_dosage_acc8, acc8_vec_ct, missing_dosage_acc32);
+      }
       unroll_incr_4_8(hethap_acc4, acc4_vec_ct, hethap_acc8);
       unroll_incr_8_32(hethap_acc8, acc8_vec_ct, hethap_acc32);
       THREAD_RETURN;
@@ -748,38 +735,51 @@ THREAD_FUNC_DECL load_sample_missing_cts_thread(void* arg) {
   }
 }
 
-pglerr_t load_sample_missing_cts(const uintptr_t* sex_male, const uintptr_t* variant_include, const chr_info_t* cip, const uintptr_t* variant_allele_idxs, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, pgen_file_info_t* pgfip, uint32_t* sample_missing_geno_cts, uint32_t* sample_hethap_cts) {
+pglerr_t load_sample_missing_cts(const uintptr_t* sex_male, const uintptr_t* variant_include, const chr_info_t* cip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, pgen_file_info_t* pgfip, uint32_t* sample_missing_hc_cts, uint32_t* sample_missing_dosage_cts, uint32_t* sample_hethap_cts) {
+  assert(sample_missing_hc_cts || sample_missing_dosage_cts);
   unsigned char* bigstack_mark = g_bigstack_base;
   pglerr_t reterr = kPglRetSuccess;
   {
     if (!variant_ct) {
-      fill_uint_zero(raw_sample_ct, sample_missing_geno_cts);
+      fill_uint_zero(raw_sample_ct, sample_missing_hc_cts);
+      if (sample_missing_dosage_cts) {
+	fill_uint_zero(raw_sample_ct, sample_missing_dosage_cts);
+      }
       fill_uint_zero(raw_sample_ct, sample_hethap_cts);
       goto load_sample_missing_cts_ret_1;
     }
     // this doesn't seem to saturate below 35 threads
     uint32_t calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
-    const uint32_t acc2_vec_ct = QUATERCT_TO_VECCT(raw_sample_ct);
-    if (bigstack_alloc_ul(acc2_vec_ct * kWordsPerVec, &g_sex_male_interleaved_vec) ||
-	bigstack_alloc_ulp(calc_thread_ct, &g_missing_acc2) ||
-	bigstack_alloc_ulp(calc_thread_ct, &g_hethap_acc2)) {
+    const uint32_t acc1_vec_ct = BITCT_TO_VECCT(raw_sample_ct);
+    const uintptr_t acc1_alloc_cacheline_ct = DIV_UP(acc1_vec_ct * (45 * k1LU * kBytesPerVec), kCacheline);
+    g_sex_male = sex_male;
+    uintptr_t thread_alloc_cacheline_ct = 2 * acc1_alloc_cacheline_ct;
+    g_missing_dosage_acc1 = nullptr;
+    if (sample_missing_dosage_cts) {
+      if (bigstack_alloc_ulp(calc_thread_ct, &g_missing_dosage_acc1)) {
+	goto load_sample_missing_cts_ret_NOMEM;
+      }
+      thread_alloc_cacheline_ct += acc1_alloc_cacheline_ct;
+    }
+    if (bigstack_alloc_ulp(calc_thread_ct, &g_missing_hc_acc1) ||
+	bigstack_alloc_ulp(calc_thread_ct, &g_hethap_acc1)) {
       goto load_sample_missing_cts_ret_NOMEM;
     }
-    fill_interleaved_mask_vec(sex_male, acc2_vec_ct, g_sex_male_interleaved_vec);
-    const uintptr_t acc2_alloc_cacheline_ct = DIV_UP(acc2_vec_ct * (23 * k1LU * kBytesPerVec), kCacheline);
     unsigned char* main_loadbufs[2];
     pthread_t* threads;
     uint32_t read_block_size;
-    if (multithread_load_init(variant_include, raw_sample_ct, variant_ct, pgr_alloc_cacheline_ct, acc2_alloc_cacheline_ct, 0, pgfip, &calc_thread_ct, &g_genovecs, nullptr, nullptr, &read_block_size, main_loadbufs, &threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
+    if (multithread_load_init(variant_include, raw_sample_ct, variant_ct, pgr_alloc_cacheline_ct, thread_alloc_cacheline_ct, 0, pgfip, &calc_thread_ct, &g_genovecs, nullptr, nullptr, &read_block_size, main_loadbufs, &threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
       goto load_sample_missing_cts_ret_NOMEM;
     }
-    const uintptr_t acc2_alloc = acc2_alloc_cacheline_ct * kCacheline;
+    const uintptr_t acc1_alloc = acc1_alloc_cacheline_ct * kCacheline;
     for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
-      g_missing_acc2[tidx] = (uintptr_t*)bigstack_alloc_raw(acc2_alloc);
-      g_hethap_acc2[tidx] = (uintptr_t*)bigstack_alloc_raw(acc2_alloc);
+      g_missing_hc_acc1[tidx] = (uintptr_t*)bigstack_alloc_raw(acc1_alloc);
+      if (g_missing_dosage_acc1) {
+	g_missing_dosage_acc1[tidx] = (uintptr_t*)bigstack_alloc_raw(acc1_alloc);
+      }
+      g_hethap_acc1[tidx] = (uintptr_t*)bigstack_alloc_raw(acc1_alloc);
     }
     g_variant_include = variant_include;
-    g_variant_allele_idxs = variant_allele_idxs;
     g_cip = cip;
     g_raw_sample_ct = raw_sample_ct;
     g_calc_thread_ct = calc_thread_ct;
@@ -870,24 +870,39 @@ pglerr_t load_sample_missing_cts(const uintptr_t* sex_male, const uintptr_t* var
       // pointers
       pgfip->block_base = main_loadbufs[parity];
     }
-    const uint32_t sample_ctav2 = acc2_vec_ct * kQuatersPerVec;
-    const uintptr_t acc32_offset = acc2_vec_ct * (7 * k1LU * kWordsPerVec);
-    uint32_t* scrambled_missing_cts = (uint32_t*)(&(g_missing_acc2[0][acc32_offset]));
-    uint32_t* scrambled_hethap_cts = (uint32_t*)(&(g_hethap_acc2[0][acc32_offset]));
+    const uint32_t sample_ctv = acc1_vec_ct * kBitsPerVec;
+    const uintptr_t acc32_offset = acc1_vec_ct * (13 * k1LU * kWordsPerVec);
+    uint32_t* scrambled_missing_hc_cts = nullptr;
+    uint32_t* scrambled_missing_dosage_cts = nullptr;
+    uint32_t* scrambled_hethap_cts = nullptr;
+    scrambled_missing_hc_cts = (uint32_t*)(&(g_missing_hc_acc1[0][acc32_offset]));
+    if (g_missing_dosage_acc1) {
+      scrambled_missing_dosage_cts = (uint32_t*)(&(g_missing_dosage_acc1[0][acc32_offset]));
+    }
+    scrambled_hethap_cts = (uint32_t*)(&(g_hethap_acc1[0][acc32_offset]));
     for (uint32_t tidx = 1; tidx < calc_thread_ct; ++tidx) {
-      uint32_t* thread_scrambled_missing_cts = (uint32_t*)(&(g_missing_acc2[tidx][acc32_offset]));
-      for (uint32_t uii = 0; uii < sample_ctav2; ++uii) {
-	scrambled_missing_cts[uii] += thread_scrambled_missing_cts[uii];
+      uint32_t* thread_scrambled_missing_hc_cts = (uint32_t*)(&(g_missing_hc_acc1[tidx][acc32_offset]));
+      for (uint32_t uii = 0; uii < sample_ctv; ++uii) {
+	scrambled_missing_hc_cts[uii] += thread_scrambled_missing_hc_cts[uii];
       }
-      uint32_t* thread_scrambled_hethap_cts = (uint32_t*)(&(g_hethap_acc2[tidx][acc32_offset]));
-      for (uint32_t uii = 0; uii < sample_ctav2; ++uii) {
+      if (scrambled_missing_dosage_cts) {
+	uint32_t* thread_scrambled_missing_dosage_cts = (uint32_t*)(&(g_missing_dosage_acc1[tidx][acc32_offset]));
+	for (uint32_t uii = 0; uii < sample_ctv; ++uii) {
+	  scrambled_missing_dosage_cts[uii] += thread_scrambled_missing_dosage_cts[uii];
+	}
+      }
+      uint32_t* thread_scrambled_hethap_cts = (uint32_t*)(&(g_hethap_acc1[tidx][acc32_offset]));
+      for (uint32_t uii = 0; uii < sample_ctv; ++uii) {
 	scrambled_hethap_cts[uii] += thread_scrambled_hethap_cts[uii];
       }
     }
     for (uint32_t sample_uidx = 0; sample_uidx < raw_sample_ct; ++sample_uidx) {
-      const uint32_t scrambled_idx = scramble_2_4_8_32(sample_uidx);
+      const uint32_t scrambled_idx = scramble_1_4_8_32(sample_uidx);
+      sample_missing_hc_cts[sample_uidx] = scrambled_missing_hc_cts[scrambled_idx];
+      if (sample_missing_dosage_cts) {
+	sample_missing_dosage_cts[sample_uidx] = scrambled_missing_dosage_cts[scrambled_idx];
+      }
       sample_hethap_cts[sample_uidx] = scrambled_hethap_cts[scrambled_idx];
-      sample_missing_geno_cts[sample_uidx] = scrambled_missing_cts[scrambled_idx];
     }
     if (pct > 10) {
       putc_unlocked('\b', stdout);
@@ -911,7 +926,7 @@ pglerr_t load_sample_missing_cts(const uintptr_t* sex_male, const uintptr_t* var
   return reterr;
 }
 
-pglerr_t mind_filter(const uint32_t* sample_missing_geno_cts, const uint32_t* sample_hethap_cts, const char* sample_ids, const char* sids, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t variant_ct, uint32_t variant_ct_y, double mind_thresh, uintptr_t* sample_include, uintptr_t* sex_male, uint32_t* sample_ct_ptr, char* outname, char* outname_end) {
+pglerr_t mind_filter(const uint32_t* sample_missing_cts, const uint32_t* sample_hethap_cts, const char* sample_ids, const char* sids, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t variant_ct, uint32_t variant_ct_y, double mind_thresh, uintptr_t* sample_include, uintptr_t* sex_male, uint32_t* sample_ct_ptr, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   pglerr_t reterr = kPglRetSuccess;
@@ -933,7 +948,7 @@ pglerr_t mind_filter(const uint32_t* sample_missing_geno_cts, const uint32_t* sa
     uint32_t sample_uidx = 0;
     for (uint32_t sample_idx = 0; sample_idx < orig_sample_ct; ++sample_idx, ++sample_uidx) {
       next_set_unsafe_ck(sample_include, &sample_uidx);
-      uint32_t cur_missing_geno_ct = sample_missing_geno_cts[sample_uidx];
+      uint32_t cur_missing_geno_ct = sample_missing_cts[sample_uidx];
       if (sample_hethap_cts) {
 	cur_missing_geno_ct += sample_hethap_cts[sample_uidx];
       }

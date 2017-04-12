@@ -737,6 +737,7 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
     // first, when _start_block matches
     uint32_t at_least_one_npass_filter = 0;
     uint32_t at_least_one_nzero_cm = 0;
+    uintptr_t new_variant_id_allele_len_overflow = 0;
     double* cur_cms = nullptr;
     uint32_t cms_start_block = 0xffffffffU;
     
@@ -807,7 +808,6 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 	  }
 	}
 	if (((uint32_t)cur_chr_code) != prev_chr_code) {
-	  // temporarily skip UNSORTED_CHROM check
 	  prev_chr_code = cur_chr_code;
 	  if (is_set(loaded_chr_mask, cur_chr_code)) {
 	    // todo: split-chromosome handling
@@ -1012,7 +1012,11 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 	    uint32_t ref_slen = 0;
 	    char* tmp_allele_ptrs[2];
 	    if (varid_alleles_needed & 1) {
-	      ref_slen = MINV(token_slens[2], new_variant_id_max_allele_slen);
+	      ref_slen = token_slens[2];
+	      if (ref_slen > new_variant_id_max_allele_slen) {
+		ref_slen = new_variant_id_max_allele_slen;
+		++new_variant_id_allele_len_overflow;
+	      }
 	      insert_slens[2] = ref_slen;
 	      tmp_allele_ptrs[0] = token_ptrs[2];
 	    }
@@ -1025,6 +1029,7 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 	      }
 	      if (alt1_slen > new_variant_id_max_allele_slen) {
 		alt1_slen = new_variant_id_max_allele_slen;
+		++new_variant_id_allele_len_overflow;
 	      }
 	      if (varid_alleles_needed <= 3) {
 	      load_pvar_keep_allele_ascii_order:
@@ -1226,6 +1231,9 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
     if (max_variant_id_slen > kMaxIdSlen) {
       logerrprint("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
       goto load_pvar_ret_MALFORMED_INPUT;
+    }
+    if (new_variant_id_allele_len_overflow) {
+      LOGERRPRINTFWW("Warning: %" PRIuPTR " allele code%s truncated by --set-%s-var-ids. You should either switch to a different allele/variant naming scheme for long indels, or use --new-id-max-allele-len to raise the length limit.\n", new_variant_id_allele_len_overflow, (new_variant_id_allele_len_overflow == 1)? " was" : "s were", missing_varid_match_slen? "missing" : "all");
     }
     if (gzclose_null(&gz_infile)) {
       goto load_pvar_ret_READ_FAIL;

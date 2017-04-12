@@ -52,7 +52,7 @@ double SNPHWEX(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, in
 // mi_buf only needs to be of length 2 * constraint_ct
 boolerr_t linear_hypothesis_chisq_f(const float* coef, const float* constraints_con_major, const float* cov_matrix, uint32_t constraint_ct, uint32_t predictor_ct, uint32_t cov_stride, double* chisq_ptr, float* tmphxs_buf, float* h_transpose_buf, float* inner_buf, matrix_finvert_buf1_t* mi_buf, float* outer_buf);
 
-// boolerr_t linear_hypothesis_chisq(const double* coef, const double* constraints_con_major, const double* cov_matrix, uintptr_t constraint_ct, uintptr_t predictor_ct, double* chisq_ptr, double* tmphxs_buf, double* h_transpose_buf, double* inner_buf, matrix_invert_buf1_t* mi_buf, double* outer_buf);
+boolerr_t linear_hypothesis_chisq(const double* coef, const double* constraints_con_major, const double* cov_matrix, uintptr_t constraint_ct, uintptr_t predictor_ct, double* chisq_ptr, double* tmphxs_buf, double* h_transpose_buf, double* inner_buf, matrix_invert_buf1_t* mi_buf, double* outer_buf);
 
 #ifdef __cplusplus
 }

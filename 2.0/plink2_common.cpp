@@ -3110,6 +3110,38 @@ void genoarr_to_nonmissing(const uintptr_t* genoarr, uint32_t sample_ct, uintptr
   }
 }
 
+uint32_t genoarr_count_missing_notsubset_unsafe(const uintptr_t* genoarr, const uintptr_t* exclude_mask, uint32_t sample_ct) {
+  const uint32_t sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
+  const uintptr_t* genoarr_iter = genoarr;
+  const halfword_t* exclude_alias_iter = (halfword_t*)exclude_mask;
+  uint32_t missing_ct = 0;
+  for (uint32_t widx = 0; widx < sample_ctl2; ++widx) {
+    uintptr_t ww = *genoarr_iter++;
+    ww = ww & (ww >> 1);
+    const uint32_t include_mask = ~(*exclude_alias_iter++);
+    missing_ct += popcount01_long(ww & unpack_halfword_to_word(include_mask));
+  }
+  return missing_ct;
+}
+
+
+int32_t get_variant_uidx_without_htable(const char* idstr, char** variant_ids, const uintptr_t* variant_include, uint32_t variant_ct) {
+  const uint32_t id_blen = strlen(idstr) + 1;
+  uint32_t variant_uidx = 0;
+  int32_t retval = -1;
+  for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
+    next_set_unsafe_ck(variant_include, &variant_uidx);
+    if (!memcmp(idstr, variant_ids[variant_uidx], id_blen)) {
+      if (retval != -1) {
+	// duplicate
+	return -2;
+      }
+      retval = (int32_t)variant_uidx;
+    }
+  }
+  return retval;
+}
+
 // assumes 0b11 == missing
 // retired in favor of genoarr_to_nonmissing followed by a for loop?
 /*

@@ -5742,7 +5742,8 @@ static uint32_t* g_read_variant_uidx_starts = nullptr; // size calc_thread_ct
 
 static uint64_t* g_allele_dosages = nullptr;
 static uint32_t* g_raw_geno_cts = nullptr;
-static uint32_t* g_variant_missing_cts = nullptr;
+static uint32_t* g_variant_missing_hc_cts = nullptr;
+static uint32_t* g_variant_missing_dosage_cts = nullptr;
 static uint32_t* g_variant_hethap_cts = nullptr;
 static uint64_t* g_founder_allele_dosages = nullptr;
 static uint32_t* g_founder_raw_geno_cts = nullptr;
@@ -6155,11 +6156,13 @@ THREAD_FUNC_DECL load_allele_and_geno_counts_thread(void* arg) {
     uint32_t nosex_ct = g_nosex_ct;
     uint64_t* allele_dosages = g_allele_dosages;
     uint32_t* raw_geno_cts = g_raw_geno_cts;
-    uint32_t* variant_missing_cts = g_variant_missing_cts;
+    uint32_t* variant_missing_hc_cts = g_variant_missing_hc_cts;
+    uint32_t* variant_missing_dosage_cts = g_variant_missing_dosage_cts;
     uint32_t* variant_hethap_cts = g_variant_hethap_cts;
     uint32_t* x_male_geno_cts = g_x_male_geno_cts;
     uint32_t* x_nosex_geno_cts = g_x_nosex_geno_cts;
     uint32_t subset_idx = 0;
+    uint32_t dosage_ct = 0;
     while (1) {
       uint32_t cur_idx = (tidx * cur_block_write_ct) / calc_thread_ct;
       uint32_t variant_uidx = g_read_variant_uidx_starts[tidx];
@@ -6237,7 +6240,6 @@ THREAD_FUNC_DECL load_allele_and_geno_counts_thread(void* arg) {
 	  }
 	} else {
 	  // chrX
-	  uint32_t dosage_ct;
 	  uint32_t is_explicit_alt1;
 	  reterr = pgr_read_refalt1_genovec_dosage16_subset_unsafe(nullptr, nullptr, raw_sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
 	  if (reterr) {
@@ -6319,11 +6321,27 @@ THREAD_FUNC_DECL load_allele_and_geno_counts_thread(void* arg) {
 	  cur_raw_geno_cts[1] = genocounts[1];
 	  cur_raw_geno_cts[2] = genocounts[2];
 	}
-	if (variant_missing_cts) {
-	  variant_missing_cts[variant_uidx] = genocounts[3];
+	if (variant_missing_hc_cts) {
+	  variant_missing_hc_cts[variant_uidx] = genocounts[3];
 	  if (variant_hethap_cts) {
 	    variant_hethap_cts[variant_uidx - first_hap_uidx] = hethap_ct;
 	  }
+	}
+	if (variant_missing_dosage_cts) {
+	  uint32_t missing_dosage_ct;
+	  if (!is_x_or_y) {
+	    missing_dosage_ct = sample_ct - ((cur_dosages[0] + cur_dosages[1]) / kDosageMax);
+	  } else if (is_y) {
+	    missing_dosage_ct = male_ct - ((cur_dosages[0] + cur_dosages[1]) / kDosageMax);
+	  } else {
+	    if (dosage_ct) {
+	      zero_trailing_quaters(raw_sample_ct, genovec);
+	      missing_dosage_ct = genoarr_count_missing_notsubset_unsafe(genovec, dosage_present, raw_sample_ct);
+	    } else {
+	      missing_dosage_ct = genocounts[3];
+	    }
+	  }
+	  variant_missing_dosage_cts[variant_uidx] = missing_dosage_ct;
 	}
       }
       if ((++subset_idx == subset_ct) || reterr) {
@@ -6342,7 +6360,8 @@ THREAD_FUNC_DECL load_allele_and_geno_counts_thread(void* arg) {
       male_ct = g_founder_male_ct;
       nosex_ct = g_founder_nosex_ct;
       allele_dosages = g_founder_allele_dosages;
-      variant_missing_cts = nullptr;
+      variant_missing_hc_cts = nullptr;
+      variant_missing_dosage_cts = nullptr;
       raw_geno_cts = g_founder_raw_geno_cts;
       x_male_geno_cts = g_founder_x_male_geno_cts;
       x_nosex_geno_cts = g_founder_x_nosex_geno_cts;
@@ -6355,7 +6374,7 @@ THREAD_FUNC_DECL load_allele_and_geno_counts_thread(void* arg) {
   }
 }
 
-pglerr_t load_allele_and_geno_counts(const uintptr_t* sample_include, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const chr_info_t* cip, const uintptr_t* variant_allele_idxs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t founder_ct, uint32_t male_ct, uint32_t nosex_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t first_hap_uidx, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, pgen_file_info_t* pgfip, uint64_t* allele_dosages, uint64_t* founder_allele_dosages, uint32_t* variant_missing_cts, uint32_t* variant_hethap_cts, uint32_t* raw_geno_cts, uint32_t* founder_raw_geno_cts, uint32_t* x_male_geno_cts, uint32_t* founder_x_male_geno_cts, uint32_t* x_nosex_geno_cts, uint32_t* founder_x_nosex_geno_cts) {
+pglerr_t load_allele_and_geno_counts(const uintptr_t* sample_include, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const chr_info_t* cip, const uintptr_t* variant_allele_idxs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t founder_ct, uint32_t male_ct, uint32_t nosex_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t first_hap_uidx, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, pgen_file_info_t* pgfip, uint64_t* allele_dosages, uint64_t* founder_allele_dosages, uint32_t* variant_missing_hc_cts, uint32_t* variant_missing_dosage_cts, uint32_t* variant_hethap_cts, uint32_t* raw_geno_cts, uint32_t* founder_raw_geno_cts, uint32_t* x_male_geno_cts, uint32_t* founder_x_male_geno_cts, uint32_t* x_nosex_geno_cts, uint32_t* founder_x_nosex_geno_cts) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   pglerr_t reterr = kPglRetSuccess;
@@ -6370,7 +6389,7 @@ pglerr_t load_allele_and_geno_counts(const uintptr_t* sample_include, const uint
     }
 
     // four cases:
-    // 1. allele_dosages, raw_geno_cts, and/or variant_missing_cts
+    // 1. allele_dosages, raw_geno_cts, and/or variant_missing_{hc,dosage}_cts
     //    required, and that's it
     // 2. founder_allele_dosages and/or founder_raw_geno_cts required, and
     //    that's it
@@ -6378,7 +6397,7 @@ pglerr_t load_allele_and_geno_counts(const uintptr_t* sample_include, const uint
     // 4. both required, and founder_ct == sample_ct.  caller is expected to
     //    make founder_allele_dosages and allele_dosages point to the same
     //    memory, ditto for founder_raw_geno_cts/raw_geno_cts.
-    const uint32_t only_founder_cts_required = (!allele_dosages) && (!raw_geno_cts) && (!variant_missing_cts);
+    const uint32_t only_founder_cts_required = (!allele_dosages) && (!raw_geno_cts) && (!variant_missing_hc_cts) && (!variant_missing_dosage_cts);
     const uint32_t two_subsets_required = (founder_ct != sample_ct) && (!only_founder_cts_required) && (founder_allele_dosages || founder_raw_geno_cts);
     g_cip = cip;
     g_sample_include = only_founder_cts_required? founder_info : sample_include;
@@ -6430,7 +6449,8 @@ pglerr_t load_allele_and_geno_counts(const uintptr_t* sample_include, const uint
       fill_interleaved_mask_vec(nosex_buf, raw_sample_ctv, g_nosex_interleaved_vec);
     }
 
-    g_variant_missing_cts = variant_missing_cts;
+    g_variant_missing_hc_cts = variant_missing_hc_cts;
+    g_variant_missing_dosage_cts = variant_missing_dosage_cts;
     g_variant_hethap_cts = variant_hethap_cts;
     g_first_hap_uidx = first_hap_uidx;
     
@@ -6524,7 +6544,7 @@ pglerr_t load_allele_and_geno_counts(const uintptr_t* sample_include, const uint
     bigstack_end_reset(bigstack_end_mark); // free nosex_buf
 
     int32_t ii;
-    const uint32_t x_dosages_needed = (allele_dosages || founder_allele_dosages) && xymt_exists(cip, kChrOffsetX, &ii) && (pgfip->gflags & kfPgenGlobalDosagePresent);
+    const uint32_t x_dosages_needed = (allele_dosages || founder_allele_dosages || variant_missing_dosage_cts) && xymt_exists(cip, kChrOffsetX, &ii) && (pgfip->gflags & kfPgenGlobalDosagePresent);
     if (!x_dosages_needed) {
       // defensive
       g_dosage_presents = nullptr;

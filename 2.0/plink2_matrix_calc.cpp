@@ -1349,7 +1349,7 @@ THREAD_FUNC_DECL calc_grm_thread(void* arg) {
     const uint32_t is_last_batch = g_is_last_thread_block;
     const uint32_t cur_batch_size = g_cur_batch_size;
     if (cur_batch_size) {
-      transpose_multiply_self_incr(sample_ct, cur_batch_size, g_normed_dosage_vmaj_bufs[parity], grm);
+      transpose_multiply_self_incr(g_normed_dosage_vmaj_bufs[parity], sample_ct, cur_batch_size, grm);
     }
     if (is_last_batch) {
       THREAD_RETURN;
@@ -1521,7 +1521,7 @@ pglerr_t calc_missing_matrix(const uintptr_t* sample_include, const uint32_t* sa
 	uintptr_t* missing_vmaj_iter = missing_vmaj;
 	for (uint32_t variant_idx = cur_variant_idx_start; variant_idx < cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
 	  next_set_unsafe_ck(variant_include, &variant_uidx);
-	  reterr = pgr_read_missingness_dosage(sample_include, sample_include_cumulative_popcounts, row_end_idx, variant_uidx, simple_pgrp, missing_vmaj_iter, genovec_buf);
+	  reterr = pgr_read_missingness_multi(sample_include, sample_include_cumulative_popcounts, row_end_idx, variant_uidx, simple_pgrp, nullptr, missing_vmaj_iter, nullptr, genovec_buf);
 	  if (reterr) {
 	    if (reterr == kPglRetMalformedInput) {
 	      logprint("\n");
@@ -1843,6 +1843,8 @@ pglerr_t calc_grm(const uintptr_t* orig_sample_include, const char* sample_ids, 
 	}
       }
     }
+    // N.B. Only the lower right of grm[] is valid when parallel_tot == 1.
+
     // possible todo: allow simultaneous --make-rel and
     // --make-grm-gz/--make-grm-bin
     // (note that this routine may also be called by --pca, which may not write
@@ -2890,8 +2892,8 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
       // extract_eigvecs() results are in reverse order, and we also need to
       // transpose eigenvectors to sample-major
       const uint32_t pc_ct_m1 = pc_ct - 1;
-      const uint32_t pc_ct_m1_div2 = pc_ct_m1 / 2;
-      for (uint32_t pc_idx = 0; pc_idx < pc_ct_m1_div2; ++pc_idx) {
+      const uint32_t pc_ct_div2 = pc_ct_m1 / 2;
+      for (uint32_t pc_idx = 0; pc_idx < pc_ct_div2; ++pc_idx) {
 	double tmp_eigval = eigvals[pc_idx];
 	eigvals[pc_idx] = eigvals[pc_ct_m1 - pc_idx];
 	eigvals[pc_ct_m1 - pc_idx] = tmp_eigval;
@@ -3028,6 +3030,7 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
       }
       uint32_t prev_batch_size = 0;
       uint32_t variant_uidx = next_set_unsafe(variant_include, 0);
+      uint32_t variant_uidx_load = variant_uidx;
       uint32_t parity = 0;
       reinit_threads3z(&ts);
       uint32_t chr_fo_idx = 0xffffffffU;
@@ -3048,7 +3051,6 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
 	  uintptr_t* dosage_present_iter = g_dosage_presents[parity];
 	  dosage_t* dosage_vals_iter = g_dosage_val_bufs[parity];
 	  double* nonmajor_freqs_write_iter = g_cur_nonmajor_freqs[parity];
-	  uint32_t variant_uidx_load = variant_uidx;
 	  for (uint32_t variant_idx = cur_variant_idx_start; variant_idx < cur_variant_idx_end; ++variant_uidx_load, ++variant_idx) {
 	    next_set_unsafe_ck(variant_include, &variant_uidx_load);
 	    uint32_t dosage_ct;

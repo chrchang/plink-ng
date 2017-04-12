@@ -762,7 +762,9 @@ void invert_fmatrix_second_half(int32_t dim, int32_t stride, float* matrix, matr
 }
 #else // !NOLAPACK
 boolerr_t invert_matrix(__CLPK_integer dim, double* matrix, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf) {
-  // dgetrf_/dgetri_ is more efficient than dpotrf_/dpotri_ on OS X.
+  // todo: dgetrf_/dgetri_ was more efficient than dpotrf_/dpotri_ on OS X the
+  // last time I checked, but is this still true?  re-benchmark this, and
+  // create a new symmetric-positive-definite-only function if appropriate.
   __CLPK_integer info;
   dgetrf_(&dim, &dim, matrix, &dim, int_1d_buf, &info);
   if (info) {
@@ -1027,12 +1029,42 @@ boolerr_t qr_square_factor_float(const float* input_matrix, uint32_t dim, uintpt
 }
 */
 
-// (A^T)A, where A is row-major
-void transpose_multiply_self_incr(uint32_t dim, uint32_t row_ct, double* input_part, double* result) {
+// A(A^T), where A is row-major; result is dim x dim
+// ONLY UPDATES LOWER TRIANGLE OF result[].
+void multiply_self_transpose(double* input_matrix, uint32_t dim, uint32_t col_ct, double* result) {
+#ifdef NOLAPACK
+  for (uintptr_t row1_idx = 0; row1_idx < dim; ++row1_idx) {
+    const double* pred_row1 = &(input_matrix[row1_idx * col_ct]);
+    double* result_row = &(result[row1_idx * dim]);
+    for (uintptr_t row2_idx = 0; row2_idx <= row1_idx; ++row2_idx) {
+      const double* pred_row2 = &(input_matrix[row2_idx * col_ct]);
+      double cur_dotprod = 0.0;
+      for (uint32_t col_idx = 0; col_idx < col_ct; ++col_idx) {
+	cur_dotprod += pred_row1[col_idx] * pred_row2[col_idx];
+      }
+      result_row[row2_idx] = cur_dotprod;
+    }
+  }
+#else
+  #ifndef USE_CBLAS_XGEMM
+  char uplo = 'U';
+  char trans = 'T';
+  __CLPK_integer tmp_n = dim;
+  __CLPK_integer tmp_k = col_ct;
+  double alpha = 1.0;
+  double beta = 0.0;
+  dsyrk_(&uplo, &trans, &tmp_n, &tmp_k, &alpha, input_matrix, &tmp_k, &beta, result, &tmp_n);
+  #else
+  cblas_dsyrk(CblasColMajor, CblasUpper, CblasTrans, dim, col_ct, 1.0, input_matrix, col_ct, 0.0, result, dim);
+  #endif
+#endif
+}
+
+void transpose_multiply_self_incr(double* input_part, uint32_t dim, uint32_t partial_row_ct, double* result) {
 #ifdef NOLAPACK
   // friends do not let friends use this implementation
   const uintptr_t dim_l = dim;
-  const uintptr_t row_ct_l = row_ct;
+  const uintptr_t row_ct_l = partial_row_ct;
   for (uintptr_t idx1 = 0; idx1 < dim_l; ++idx1) {
     const double* col1 = &(input_part[idx1]);
     double* write_iter = &(result[idx1 * dim_l]);
@@ -1051,12 +1083,12 @@ void transpose_multiply_self_incr(uint32_t dim, uint32_t row_ct, double* input_p
   char uplo = 'U';
   char trans = 'N';
   __CLPK_integer tmp_n = dim;
-  __CLPK_integer tmp_k = row_ct;
+  __CLPK_integer tmp_k = partial_row_ct;
   double alpha = 1.0;
   double beta = 1.0;
   dsyrk_(&uplo, &trans, &tmp_n, &tmp_k, &alpha, input_part, &tmp_n, &beta, result, &tmp_n);
   #else
-  cblas_dsyrk(CblasColMajor, CblasUpper, CblasNoTrans, dim, row_ct, 1.0, input_part, dim, 1.0, result, dim);
+  cblas_dsyrk(CblasColMajor, CblasUpper, CblasNoTrans, dim, partial_row_ct, 1.0, input_part, dim, 1.0, result, dim);
   #endif
 #endif // !NOLAPACK
 }
@@ -1096,6 +1128,8 @@ boolerr_t svd_rect(uint32_t major_ct, uint32_t minor_ct, __CLPK_integer lwork, d
   return (info != 0);
 }
 
+// dsyevr_ takes ~30% less time than dsyevd_ on OS X dev machine.  todo: retest
+// for Linux 64-bit MKL.
 boolerr_t get_extract_eigvecs_lworks(uint32_t dim, uint32_t pc_ct, __CLPK_integer* lwork_ptr, __CLPK_integer* liwork_ptr, uintptr_t* wkspace_byte_ct_ptr) {
   char jobz = 'V';
   char range = 'I';
@@ -1145,6 +1179,66 @@ boolerr_t extract_eigvecs(uint32_t dim, uint32_t pc_ct, __CLPK_integer lwork, __
   return (info != 0);
 }
 #endif // !NOLAPACK
+
+// can't use this, since we need (X^T X)^{-1} for validParameters() check
+/*
+void linear_regression_first_half(uint32_t sample_ct, uint32_t predictor_ct, double* pheno_d, double* predictors_pmaj, double* xt_y, double* xtx) {
+  // Note that only the lower triangle of X^T X is filled.  (well, upper
+  // triangle in column-major Fortran notation.)
+  multiply_self_transpose(predictors_pmaj, predictor_ct, sample_ct, xtx);
+  row_major_matrix_multiply(predictors_pmaj, pheno_d, predictor_ct, 1, sample_ct, xt_y);
+}
+
+#ifndef NOLAPACK
+boolerr_t linear_regression_second_half(const double* xt_y, uint32_t predictor_ct, double* xtx_destroy, double* fitted_coefs) {
+  // See e.g. wls.c in Alex Blocker's go-lm code
+  // (https://github.com/awblocker/go-lm ).
+  char uplo = 'U';
+  __CLPK_integer tmp_n = predictor_ct;
+  memcpy(fitted_coefs, xt_y, predictor_ct * sizeof(double));
+  __CLPK_integer nrhs = 1;
+  __CLPK_integer info;
+  dposv_(&uplo, &tmp_n, &nrhs, xtx_destroy, &tmp_n, fitted_coefs, &tmp_n, &info);
+  return (info != 0);
+}
+#endif // !NOLAPACK
+*/
+
+// todo: support nrhs > 1 when permutation test implemented
+boolerr_t linear_regression_inv(const double* pheno_d, double* predictors_pmaj, uint32_t predictor_ct, uint32_t sample_ct, double* fitted_coefs, double* xtx_inv, double* xt_y, __maybe_unused matrix_invert_buf1_t* mi_buf, __maybe_unused double* dbl_2d_buf) {
+  multiply_self_transpose(predictors_pmaj, predictor_ct, sample_ct, xtx_inv);
+  row_major_matrix_multiply(predictors_pmaj, pheno_d, predictor_ct, 1, sample_ct, xt_y);
+#ifdef NOLAPACK
+  // Need to fill the upper triangle of xtx, since linear_regression_first_half
+  // didn't do it for us.
+  for (uintptr_t row_idx = 0; row_idx < predictor_ct; ++row_idx) {
+    double* cur_row = &(xtx_inv[row_idx * predictor_ct]);
+    double* cur_col = &(xtx_inv[row_idx]);
+    for (uintptr_t col_idx = row_idx + 1; col_idx < predictor_ct; ++col_idx) {
+      cur_row[col_idx] = cur_col[col_idx * predictor_ct];
+    }
+  }
+  if (invert_matrix(predictor_ct, xtx_inv, mi_buf, dbl_2d_buf)) {
+    return 1;
+  }
+  row_major_matrix_multiply(xtx_inv, xt_y, predictor_ct, 1, predictor_ct, fitted_coefs);
+  return 0;
+#else
+  char uplo = 'U';
+  __CLPK_integer tmp_n = predictor_ct;
+  __CLPK_integer info;
+  dpotrf_(&uplo, &tmp_n, xtx_inv, &tmp_n, &info);
+  if (info) {
+    return 1;
+  }
+  memcpy(fitted_coefs, xt_y, predictor_ct * sizeof(double));
+  __CLPK_integer nrhs = 1;
+  dpotrs_(&uplo, &tmp_n, &nrhs, xtx_inv, &tmp_n, fitted_coefs, &tmp_n, &info);
+  assert(!info);
+  dpotri_(&uplo, &tmp_n, xtx_inv, &tmp_n, &info);
+  return (info != 0);
+#endif // !NOLAPACK
+}
 
 #ifdef __cplusplus
 } // namespace plink2

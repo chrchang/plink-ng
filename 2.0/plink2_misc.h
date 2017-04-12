@@ -125,7 +125,6 @@ FLAGSET_DEF_START()
   kfGenoCountsColMutex = (kfGenoCountsColAltxy | kfGenoCountsColXy | kfGenoCountsColNumeq)
 FLAGSET_DEF_END(geno_counts_t);
 
-
 FLAGSET_DEF_START()
   kfHardy0,
   kfHardyZs = (1 << 0),
@@ -146,13 +145,33 @@ FLAGSET_DEF_START()
   kfHardyColAll = ((kfHardyColP * 2) - kfHardyColChrom)
 FLAGSET_DEF_END(hardy_flags_t);
 
+FLAGSET_DEF_START()
+  kfScore0,
+  kfScoreHeader = (1 << 0),
+  kfScoreNoMeanimpute = (1 << 1),
+  kfScoreCenter = (1 << 2),
+  kfScoreVarianceNormalize = (1 << 3),
+  
+  kfScoreColMaybesid = (1 << 4),
+  kfScoreColSid = (1 << 5),
+  kfScoreColPheno1 = (1 << 6),
+  kfScoreColPhenos = (1 << 7),
+  kfScoreColNmissAllele = (1 << 8),
+  kfScoreColDenom = (1 << 9),
+  kfScoreColDosageSum = (1 << 10),
+  kfScoreColScore = (1 << 11),
+  kfScoreColScoreSum = (1 << 12),
+  kfScoreColDefault = (kfScoreColMaybesid | kfScoreColPhenos | kfScoreColNmissAllele | kfScoreColDosageSum | kfScoreColScore),
+  kfScoreColAll = ((kfScoreColScoreSum * 2) - kfScoreColMaybesid)
+FLAGSET_DEF_END(score_flags_t);
+
 pglerr_t update_sample_sexes(const char* update_sex_fname, const uintptr_t* sample_include, char* sample_ids, uint32_t raw_sample_ct, uintptr_t sample_ct, uintptr_t max_sample_id_blen, uint32_t update_sex_colm2, uintptr_t* sex_nm, uintptr_t* sex_male);
 
 pglerr_t write_allele_freqs(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bp, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint64_t* founder_allele_dosages, const char* ref_binstr, const char* alt1_binstr, uint32_t variant_ct, uint32_t max_alt_allele_ct, uint32_t max_allele_slen, allele_freq_t allele_freq_modifier, uint32_t nonfounders, char* outname, char* outname_end);
 
 pglerr_t write_geno_counts(const uintptr_t* sample_include, const uintptr_t* sex_male, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bp, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint32_t* raw_geno_cts, const uint32_t* x_male_geno_cts, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t male_ct, uint32_t variant_ct, uint32_t x_start, uint32_t max_allele_slen, geno_counts_t geno_counts_modifier, pgen_reader_t* simple_pgrp, char* outname, char* outname_end);
 
-pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintptr_t* sex_male, const char* sample_ids, const char* sids, const pheno_col_t* pheno_cols, const char* pheno_names, const uint32_t* sample_missing_geno_cts, const uint32_t* sample_hethap_cts, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bp, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint32_t* variant_missing_hh_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t male_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t variant_ct, uintptr_t max_allele_slen, uint32_t first_hap_uidx, missing_rpt_t missing_rpt_modifier, char* outname, char* outname_end);
+pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintptr_t* sex_male, const char* sample_ids, const char* sids, const pheno_col_t* pheno_cols, const char* pheno_names, const uint32_t* sample_missing_hc_cts, const uint32_t* sample_missing_dosage_cts, const uint32_t* sample_hethap_cts, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bp, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint32_t* variant_missing_cts, const uint32_t* variant_missing_dosage_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t male_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t variant_ct, uintptr_t max_allele_slen, uint32_t first_hap_uidx, missing_rpt_t missing_rpt_modifier, char* outname, char* outname_end);
 
 pglerr_t compute_hwe_x_pvals(const uintptr_t* variant_include, const uint32_t* founder_raw_geno_cts, const uint32_t* founder_x_male_geno_cts, const uint32_t* founder_x_nosex_geno_cts, uint32_t x_start, uint32_t hwe_x_ct, uint32_t hwe_midp, uint32_t calc_thread_ct, double** hwe_x_pvals_ptr);
 

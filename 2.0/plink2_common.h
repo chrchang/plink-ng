@@ -117,7 +117,8 @@ typedef uint32_t dosage_prod_t;
 #define kDosageMax (1U << (8 * sizeof(dosage_t) - 1))
 CONSTU31(kDosageMid, kDosageMax / 2);
 CONSTU31(kDosage4th, kDosageMax / 4);
-static const float kRecipDosage4thf = 0.00006103515625;
+static const double kRecipDosageMid = 0.00006103515625;
+static const float kRecipDosageMidf = 0.00006103515625;
 
 // unnecessary to use e.g. (1LLU << 0), the FLAGSET64 macros should force the
 // integer type to 64-bit.
@@ -153,9 +154,10 @@ FLAGSET64_DEF_START()
   kfMiscGenoHhMissing = (1 << 27),
   kfMiscMindDosage = (1 << 28),
   kfMiscMindHhMissing = (1 << 29),
-  kfMiscSetMissingVarIds = (1 << 30),
-  kfMiscChrOverrideCmdline = (1LLU << 31),
-  kfMiscChrOverrideFile = (1LLU << 32)
+  kfMiscGenotypingRateDosage = (1 << 30),
+  kfMiscSetMissingVarIds = (1LLU << 31),
+  kfMiscChrOverrideCmdline = (1LLU << 32),
+  kfMiscChrOverrideFile = (1LLU << 33)
 FLAGSET64_DEF_END(misc_flags_t);
 
 FLAGSET64_DEF_START()
@@ -413,6 +415,7 @@ int32_t double_cmp(const void* aa, const void* bb);
 
 int32_t double_cmp_decr(const void* aa, const void* bb);
 
+// requires all elements to be within 2^31 - 1 of each other
 int32_t intcmp(const void* aa, const void* bb);
 
 #ifndef __cplusplus
@@ -828,6 +831,11 @@ HEADER_INLINE boolerr_t bigstack_end_alloc_i(uintptr_t ct, int32_t** i_arr_ptr) 
 HEADER_INLINE boolerr_t bigstack_end_alloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr) {
   *uc_arr_ptr = bigstack_end_alloc(ct);
   return !(*uc_arr_ptr);
+}
+
+HEADER_INLINE boolerr_t bigstack_end_alloc_dosage(uintptr_t ct, dosage_t** dosage_arr_ptr) {
+  *dosage_arr_ptr = (dosage_t*)bigstack_end_alloc(ct * sizeof(dosage_t));
+  return !(*dosage_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_end_alloc_ui(uintptr_t ct, uint32_t** ui_arr_ptr) {
@@ -1461,6 +1469,12 @@ void set_het_missing(uintptr_t word_ct, uintptr_t* genovec);
 
 void genoarr_to_nonmissing(const uintptr_t* genoarr, uint32_t sample_ctl2, uintptr_t* nonmissing_bitarr);
 
+uint32_t genoarr_count_missing_notsubset_unsafe(const uintptr_t* genoarr, const uintptr_t* exclude_mask, uint32_t sample_ct);
+
+// dumb linear scan
+// returns -1 on failure to find, -2 if duplicate
+int32_t get_variant_uidx_without_htable(const char* idstr, char** variant_ids, const uintptr_t* variant_include, uint32_t variant_ct);
+
 // copy_subset() doesn't exist since a loop of the form
 //   uint32_t uidx = 0;
 //   for (uint32_t idx = 0; idx < subset_size; ++idx, ++uidx) {
@@ -2012,6 +2026,64 @@ HEADER_INLINE void unroll_zero_incr_8_32(uint32_t acc8_vec_ct, uintptr_t* acc8, 
     loader = vul_rshift(loader, 8);
     *acc32v_iter = (*acc32v_iter) + (loader & m8x32);
     ++acc32v_iter;
+  }
+}
+
+#ifdef __LP64__
+static_assert(kBytesPerVec == 16, "scramble_1_4_8_32() assumes kBytesPerVec == 16.");
+HEADER_INLINE uint32_t scramble_1_4_8_32(uint32_t orig_idx) {
+  // 1->4: 0 4 8 12 16 20 24 28 32 ... 124 1 5 9 ...
+  // 4->8: 0 8 16 24 32 ... 120 4 12 20 ... 1 9 17 ...
+  // 8->32: 0 32 64 96 8 40 72 104 16 48 80 112 24 56 88 120 4 36 68 ... 1 33 ...
+  return (orig_idx & (~127)) + ((orig_idx & 3) * 32) + ((orig_idx & 4) * 4) + ((orig_idx & 24) / 2) + ((orig_idx & 96) / 32);
+}
+#else
+// 1->4: 0 4 8 12 16 20 24 28 1 5 9 13 17 21 25 29 2 6 10 ...
+// 4->8: 0 8 16 24 4 12 20 28 1 9 17 25 5 13 21 29 2 10 18 ...
+// 8->32: 0 8 16 24 4 12 20 28 1 9 17 25 5 13 21 29 2 10 18 ...
+HEADER_INLINE uint32_t scramble_1_4_8_32(uint32_t orig_idx) {
+  return (orig_idx & (~31)) + ((orig_idx & 3) * 8) + (orig_idx & 4) + ((orig_idx & 24) / 8);
+}
+#endif
+
+HEADER_INLINE void unroll_incr_1_4(const uintptr_t* acc1, uint32_t acc1_vec_ct, uintptr_t* acc4) {
+  const vul_t m1x4 = VCONST_UL(kMask1111);
+  const vul_t* acc1v_iter = (const vul_t*)acc1;
+  vul_t* acc4v_iter = (vul_t*)acc4;
+  for (uint32_t vidx = 0; vidx < acc1_vec_ct; ++vidx) {
+    vul_t loader = *acc1v_iter++;
+    *acc4v_iter = (*acc4v_iter) + (loader & m1x4);
+    ++acc4v_iter;
+    loader = vul_rshift(loader, 1);
+    *acc4v_iter = (*acc4v_iter) + (loader & m1x4);
+    ++acc4v_iter;
+    loader = vul_rshift(loader, 1);
+    *acc4v_iter = (*acc4v_iter) + (loader & m1x4);
+    ++acc4v_iter;
+    loader = vul_rshift(loader, 1);
+    *acc4v_iter = (*acc4v_iter) + (loader & m1x4);
+    ++acc4v_iter;
+  }
+}
+
+HEADER_INLINE void unroll_zero_incr_1_4(uint32_t acc1_vec_ct, uintptr_t* acc1, uintptr_t* acc4) {
+  const vul_t m1x4 = VCONST_UL(kMask1111);
+  vul_t* acc1v_iter = (vul_t*)acc1;
+  vul_t* acc4v_iter = (vul_t*)acc4;
+  for (uint32_t vidx = 0; vidx < acc1_vec_ct; ++vidx) {
+    vul_t loader = *acc1v_iter;
+    *acc1v_iter++ = vul_setzero();
+    *acc4v_iter = (*acc4v_iter) + (loader & m1x4);
+    ++acc4v_iter;
+    loader = vul_rshift(loader, 1);
+    *acc4v_iter = (*acc4v_iter) + (loader & m1x4);
+    ++acc4v_iter;
+    loader = vul_rshift(loader, 1);
+    *acc4v_iter = (*acc4v_iter) + (loader & m1x4);
+    ++acc4v_iter;
+    loader = vul_rshift(loader, 1);
+    *acc4v_iter = (*acc4v_iter) + (loader & m1x4);
+    ++acc4v_iter;
   }
 }
 

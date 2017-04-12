@@ -1072,7 +1072,7 @@ pglerr_t write_geno_counts(__attribute__((unused)) const uintptr_t* sample_inclu
   return reterr;
 }
 
-pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintptr_t* sex_male, const char* sample_ids, const char* sids, const pheno_col_t* pheno_cols, const char* pheno_names, const uint32_t* sample_missing_geno_cts, const uint32_t* sample_hethap_cts, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bp, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint32_t* variant_missing_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t male_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t variant_ct, uintptr_t max_allele_slen, uint32_t first_hap_uidx, missing_rpt_t missing_rpt_modifier, char* outname, char* outname_end) {
+pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintptr_t* sex_male, const char* sample_ids, const char* sids, const pheno_col_t* pheno_cols, const char* pheno_names, const uint32_t* sample_missing_hc_cts, const uint32_t* sample_missing_dosage_cts, const uint32_t* sample_hethap_cts, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bp, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint32_t* variant_missing_hc_cts, const uint32_t* variant_missing_dosage_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t male_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t variant_ct, uintptr_t max_allele_slen, uint32_t first_hap_uidx, missing_rpt_t missing_rpt_modifier, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   compress_stream_state_t css;
@@ -1115,7 +1115,9 @@ pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintpt
 	}
       }
       const uint32_t scol_nmiss_dosage = (missing_rpt_modifier / kfMissingRptScolNmissDosage) & 1;
-      ;;;
+      if (scol_nmiss_dosage) {
+	cswritep = strcpya(cswritep, "\tMISSING_DOSAGE_CT");
+      }
       const uint32_t scol_nmiss = (missing_rpt_modifier / kfMissingRptScolNmiss) & 1;
       if (scol_nmiss) {
 	cswritep = strcpya(cswritep, "\tMISSING_CT");
@@ -1131,6 +1133,10 @@ pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintpt
       const uint32_t scol_nobs = (missing_rpt_modifier / kfMissingRptScolNobs) & 1;
       if (scol_nobs) {
 	cswritep = strcpya(cswritep, "\tOBS_CT");
+      }
+      const uint32_t scol_fmiss_dosage = (missing_rpt_modifier / kfMissingRptScolFmissDosage) & 1;
+      if (scol_fmiss_dosage) {
+	cswritep = strcpya(cswritep, "\tF_MISS_DOSAGE");
       }
       const uint32_t scol_fmiss = (missing_rpt_modifier / kfMissingRptScolFmiss) & 1;
       if (scol_fmiss) {
@@ -1189,14 +1195,18 @@ pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintpt
 	    goto write_missingness_reports_ret_WRITE_FAIL;
 	  }
 	}
-	const uint32_t cur_missing_geno_base = sample_missing_geno_cts[sample_uidx];
+	if (scol_nmiss_dosage) {
+	  *cswritep++ = '\t';
+	  cswritep = uint32toa(sample_missing_dosage_cts[sample_uidx], cswritep);
+	}
+	const uint32_t cur_missing_hc_base = sample_missing_hc_cts[sample_uidx];
 	if (scol_nmiss) {
 	  *cswritep++ = '\t';
-	  cswritep = uint32toa(cur_missing_geno_base, cswritep);
+	  cswritep = uint32toa(cur_missing_hc_base, cswritep);
 	}
 	if (scol_nmiss_hh) {
 	  *cswritep++ = '\t';
-	  cswritep = uint32toa(cur_missing_geno_base + sample_hethap_cts[sample_uidx], cswritep);
+	  cswritep = uint32toa(cur_missing_hc_base + sample_hethap_cts[sample_uidx], cswritep);
 	}
 	if (scol_hethap) {
 	  *cswritep++ = '\t';
@@ -1207,13 +1217,17 @@ pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintpt
 	  cswritep = memcpya(cswritep, nobs_strs[is_male], nobs_slens[is_male]);
 	}
 	const double cur_variant_ct_recip = variant_ct_recips[is_male];
+	if (scol_fmiss_dosage) {
+	  *cswritep++ = '\t';
+	  cswritep = dtoa_g(((double)((int32_t)sample_missing_dosage_cts[sample_uidx])) * cur_variant_ct_recip, cswritep);
+	}
 	if (scol_fmiss) {
 	  *cswritep++ = '\t';
-	  cswritep = dtoa_g(((double)((int32_t)cur_missing_geno_base)) * cur_variant_ct_recip, cswritep);
+	  cswritep = dtoa_g(((double)((int32_t)cur_missing_hc_base)) * cur_variant_ct_recip, cswritep);
 	}
 	if (scol_fmiss_hh) {
 	  *cswritep++ = '\t';
-	  cswritep = dtoa_g(((double)((int32_t)(cur_missing_geno_base + sample_hethap_cts[sample_uidx]))) * cur_variant_ct_recip, cswritep);
+	  cswritep = dtoa_g(((double)((int32_t)(cur_missing_hc_base + sample_hethap_cts[sample_uidx]))) * cur_variant_ct_recip, cswritep);
 	}
 	append_binary_eoln(&cswritep);
       }
@@ -1263,6 +1277,10 @@ pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintpt
       if (alt_col) {
 	cswritep = strcpya(cswritep, "\tALT");
       }
+      const uint32_t nmiss_dosage_col = missing_rpt_modifier & kfMissingRptVcolNmissDosage;
+      if (nmiss_dosage_col) {
+	cswritep = strcpya(cswritep, "\tMISSING_DOSAGE_CT");
+      }
       const uint32_t nmiss_col = (missing_rpt_modifier / kfMissingRptVcolNmiss) & 1;
       if (nmiss_col) {
 	cswritep = strcpya(cswritep, "\tMISSING_CT");
@@ -1278,6 +1296,10 @@ pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintpt
       const uint32_t nobs_col = (missing_rpt_modifier / kfMissingRptVcolNobs) & 1;
       if (nobs_col) {
 	cswritep = strcpya(cswritep, "\tOBS_CT");
+      }
+      const uint32_t fmiss_dosage_col = missing_rpt_modifier & kfMissingRptVcolFmissDosage;
+      if (fmiss_dosage_col) {
+	cswritep = strcpya(cswritep, "\tF_MISS_DOSAGE");
       }
       const uint32_t fmiss_col = (missing_rpt_modifier / kfMissingRptVcolFmiss) & 1;
       if (fmiss_col) {
@@ -1307,6 +1329,8 @@ pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintpt
       fputs("--missing variant report: 0%", stdout);
       fflush(stdout);
       uint32_t cur_allele_ct = 2;
+      uint32_t cur_missing_hc_ct = 0;
+      uint32_t cur_hethap_ct = 0;
       for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
 	next_set_unsafe_ck(variant_include, &variant_uidx);
 	if (variant_uidx >= chr_end) {
@@ -1359,33 +1383,43 @@ pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintpt
 	  }
 	  --cswritep;
 	}
-	const uint32_t cur_missing_ct = variant_missing_cts[variant_uidx];
-	uint32_t cur_hethap_ct = 0;
-	if (variant_uidx >= first_hap_uidx) {
-	  cur_hethap_ct = variant_hethap_cts[variant_uidx - first_hap_uidx];
-	}
-	if (nmiss_col) {
+	if (nmiss_dosage_col) {
 	  *cswritep++ = '\t';
-	  cswritep = uint32toa(cur_missing_ct, cswritep);
+	  cswritep = uint32toa(variant_missing_dosage_cts[variant_uidx], cswritep);
 	}
-	if (nmiss_hh_col) {
-	  *cswritep++ = '\t';
-	  cswritep = uint32toa(cur_missing_ct + cur_hethap_ct, cswritep);
-	}
-	if (hethap_col) {
-	  *cswritep++ = '\t';
-	  cswritep = uint32toa(cur_hethap_ct, cswritep);
+	if (variant_missing_hc_cts) {
+	  cur_missing_hc_ct = variant_missing_hc_cts[variant_uidx];
+	  cur_hethap_ct = 0;
+	  if (variant_uidx >= first_hap_uidx) {
+	    cur_hethap_ct = variant_hethap_cts[variant_uidx - first_hap_uidx];
+	  }
+	  if (nmiss_col) {
+	    *cswritep++ = '\t';
+	    cswritep = uint32toa(cur_missing_hc_ct, cswritep);
+	  }
+	  if (nmiss_hh_col) {
+	    *cswritep++ = '\t';
+	    cswritep = uint32toa(cur_missing_hc_ct + cur_hethap_ct, cswritep);
+	  }
+	  if (hethap_col) {
+	    *cswritep++ = '\t';
+	    cswritep = uint32toa(cur_hethap_ct, cswritep);
+	  }
 	}
 	if (nobs_col) {
 	  cswritep = memcpya(cswritep, nobs_str, nobs_slen);
 	}
+	if (fmiss_dosage_col) {
+	  *cswritep++ = '\t';
+	  cswritep = dtoa_g(((double)((int32_t)variant_missing_dosage_cts[variant_uidx])) * nobs_recip, cswritep);
+	}
 	if (fmiss_col) {
 	  *cswritep++ = '\t';
-	  cswritep = dtoa_g(((double)((int32_t)cur_missing_ct)) * nobs_recip, cswritep);
+	  cswritep = dtoa_g(((double)((int32_t)cur_missing_hc_ct)) * nobs_recip, cswritep);
 	}
 	if (fmiss_hh_col) {
 	  *cswritep++ = '\t';
-	  cswritep = dtoa_g(((double)((int32_t)(cur_missing_ct + cur_hethap_ct))) * nobs_recip, cswritep);
+	  cswritep = dtoa_g(((double)((int32_t)(cur_missing_hc_ct + cur_hethap_ct))) * nobs_recip, cswritep);
 	}
 	if (fhethap_col) {
 	  *cswritep++ = '\t';

@@ -85,7 +85,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 504
+#define PGENLIB_INTERNAL_VERNUM 505
 
 
 #define _FILE_OFFSET_BITS 64
@@ -500,6 +500,7 @@ static const uintptr_t k1LU = (uintptr_t)1;
 static const uintptr_t kMask5555 = (~((uintptr_t)0)) / 3;
 static const uintptr_t kMaskAAAA = ((~((uintptr_t)0)) / 3) * 2;
 static const uintptr_t kMask3333 = (~((uintptr_t)0)) / 5;
+static const uintptr_t kMask1111 = (~((uintptr_t)0)) / 15;
 static const uintptr_t kMask0F0F = (~((uintptr_t)0)) / 17;
 static const uintptr_t kMask0101 = (~((uintptr_t)0)) / 255;
 static const uintptr_t kMask00FF = (~((uintptr_t)0)) / 257;
@@ -1992,6 +1993,11 @@ pglerr_t pgr_read_allele_countvec_subset_unsafe(const uintptr_t* __restrict samp
 
 void pgr_detect_genovec_hets_unsafe(const uintptr_t*__restrict genovec, uint32_t raw_sample_ctl2, uintptr_t* __restrict all_hets);
 
+HEADER_INLINE void pgr_detect_genovec_hets(const uintptr_t*__restrict genovec, uint32_t raw_sample_ct, uintptr_t* __restrict all_hets) {
+  pgr_detect_genovec_hets_unsafe(genovec, QUATERCT_TO_WORDCT(raw_sample_ct), all_hets);
+  zero_trailing_bits(raw_sample_ct, all_hets);
+}
+
 // pglerr_t pgr_read_refalt1_genovec_hphase_raw_unsafe(uint32_t vidx, pgen_reader_t* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phaseraw, uint32_t* phasepresent_ct_ptr);
 
 pglerr_t pgr_read_refalt1_genovec_hphase_subset_unsafe(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, pgen_reader_t* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr);
@@ -2012,8 +2018,8 @@ pglerr_t pgr_validate(pgen_reader_t* pgrp, char* errstr_buf);
 // present)
 pglerr_t pgr_read_missingness(const uintptr_t* __restrict sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, pgen_reader_t* pgrp, uintptr_t* __restrict missingness, uintptr_t* __restrict genovec_buf);
 
-// is_missing bit is set iff neither hardcall nor dosage info is present
-pglerr_t pgr_read_missingness_dosage(const uintptr_t* __restrict sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, pgen_reader_t* pgrp, uintptr_t* __restrict missingness, uintptr_t* __restrict genovec_buf);
+// either missingness_hc (hardcall) or missingness_dosage must be non-null
+pglerr_t pgr_read_missingness_multi(const uintptr_t* __restrict sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, pgen_reader_t* pgrp, uintptr_t* __restrict missingness_hc, uintptr_t* __restrict missingness_dosage, uintptr_t* __restrict hets, uintptr_t* __restrict genovec_buf);
 
 
 // failure = kPglRetReadFail
