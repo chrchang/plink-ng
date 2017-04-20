@@ -572,9 +572,9 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "  --freq <zs> <counts> <cols=[column set descriptor]> <bins-only>\n"
 "         <refbins=[comma-separated bin boundaries] | refbins-file=[filename]>\n"
 "         <alt1bins=[comma-separated bin boundaries] | alt1bins-file=[filename]>\n"
-"    Allele frequency report.  By default, only founders are considered.\n"
-"    Dosages are taken into account (e.g. heterozygous haploid calls count as\n"
-"    0.5).  chrM dosages are scaled to sum to 2.\n"
+"    Empirical allele frequency report.  By default, only founders are\n"
+"    considered.  Dosages are taken into account (e.g. heterozygous haploid\n"
+"    calls count as 0.5).  chrM dosages are scaled to sum to 2.\n"
 "    Supported column sets are:\n"
 "      chrom: Chromosome ID.\n"
 "      pos: Base-pair coordinate.\n"
@@ -802,9 +802,9 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "    * The 'approx' modifier causes the standard deterministic computation to be\n"
 "      replaced with the randomized algorithm originally implemented for\n"
 "      Galinsky KJ, Bhatia G, Loh PR, Georgiev S, Mukherjee S, Patterson NJ,\n"
-"      Price AL (2015) Fast principal components analysis reveals independent\n"
-"      evolution of ADH1B gene in Europe and East Asia.  This can be a good idea\n"
-"      when you have >5k samples.\n"
+"      Price AL (2016) Fast Principal-Component Analysis Reveals Convergent\n"
+"      Evolution of ADH1B in Europe and East Asia.  This can be a good idea when\n"
+"      you have >5k samples.\n"
 "    * The randomized algorithm always uses mean imputation for missing genotype\n"
 "      calls.  For comparison purposes, you can use the 'meanimpute' modifier to\n"
 "      request this behavior for the standard computation.\n"
@@ -926,15 +926,18 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "    The default is chrom,pos,ref,alt1,firth,test,nobs,orbeta,se,ci,t,p.\n\n"
 	       );
     help_print("score", &help_ctrl, 1,
-"  --score [filename] {i} {j} {k} <header> <no-mean-imputation>\n"
-"          <center | variance-normalize> <cols=[col set descriptor]>\n"
-"    Apply a linear scoring system to each sample.\n"
+"  --score [filename] {i} {j} {k} <header | header-read> <no-mean-imputation>\n"
+"          <center | variance-normalize> <zs> <cols=[col set descriptor]>\n"
+"    Apply linear scoring system(s) to each sample.\n"
 "    The input file should have one line per scored variant.  Variant IDs are\n"
-"    read from column #i, allele codes are read from column #j, and scores are\n"
-"    read from column #k, where i defaults to 1, j defaults to i+1, and k\n"
-"    defaults to j+1.\n"
+"    read from column #i and allele codes are read from column #j, where i\n"
+"    defaults to 1 and j defaults to i+1.\n"
+"    * By default, a single column of input coefficients is read from column #k,\n"
+"      where k defaults to j+1.  (--score-number can be used to specify multiple\n"
+"      columns.)\n"
 "    * The 'header' modifier causes the first nonempty line of the input file to\n"
-"      be ignored; otherwise, --score assumes there is no header line.\n"
+"      be treated as an ignorable header line, while 'header-read' causes score\n"
+"      column header(s) to be read and included in the report.\n"
 "    * By default, copies of unnamed alleles contribute zero to score, while\n"
 "      missing genotypes contribute an amount proportional to the loaded (via\n"
 "      --read-freq) or imputed allele frequency.  To throw out missing\n"
@@ -942,7 +945,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "      when this happens), use the 'no-mean-imputation' modifier.\n"
 "    * You can use the 'center' modifier to shift all genotypes to mean zero, or\n"
 "      'variance-normalize' to linearly transform the genotypes to mean-0,\n"
-"      variance-1.\n"
+"      variance-1.  ('variance-normalize' cannot be used with chrX or MT.)\n"
 "    The main report supports the following column sets:\n"
 "      (FID and IID are always present, and positioned here.)\n"
 "      maybesid: SID, if at least one nonmissing value is present.\n"
@@ -953,9 +956,9 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "      denom: Denominator of score average (equal to nmissallele value when\n"
 "             'no-mean-imputation' specified)\n"
 "      dosagesum: Sum of named allele dosages.\n"
-"      score: Average of scores.\n"
-"      scoresum: Sum of scores.\n"
-"    The default is maybesid,phenos,nmissallele,dosagesum,score.\n\n"
+"      scoreavgs: Score averages.\n"
+"      scoresums: Score sums.\n"
+"    The default is maybesid,phenos,nmissallele,dosagesum,scoreavgs.\n\n"
 	       );
     help_print("genotyping-rate", &help_ctrl, 1,
 "  --genotyping-rate <dosage>\n"
@@ -1021,10 +1024,9 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     // any need to keep --hard-call-threshold random?  postpone it for now...
     help_print("hard-call-threshold\tgen\tbgen\tdata\timport-dosage", &help_ctrl, 0,
-"  --hard-call-threshold [val]     : When importing .{b}gen dosage data, a\n"
-"                                    hardcall is normally saved when the\n"
-"                                    distance from the nearest hardcall, defined\n"
-"                                    as\n"
+"  --hard-call-threshold [val]     : When importing dosage data, a hardcall is\n"
+"                                    normally saved when the distance from the\n"
+"                                    nearest hardcall, defined as\n"
 "                                      0.5 * sum_i |x_i - round(x_i)|\n"
 "                                    (where the x_i's are 0..2 allele dosages),\n"
 "                                    is not greater than 0.1.  You can adjust\n"
@@ -1041,8 +1043,6 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "                                    Use --dosage-erase-threshold to make PLINK\n"
 "                                    erase dosages and keep only hardcalls when\n"
 "                                    distance-from-hardcall <= the given level.\n"
-"                                    (Unlike --hard-call-threshold, this also\n"
-"                                    applies to VCF/BCF/.{b}gen dosage import.)\n"
 "  --import-dosage-certainty [val] : The PLINK 2.0 file format currently\n"
 "                                    supports a single dosage for each allele.\n"
 "                                    Some other dosage file formats include a\n"
@@ -1057,7 +1057,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("missing-code\tmissing_code\tdata\tsample", &help_ctrl, 0,
 "  --missing-code {string list}    : Comma-delimited list of missing phenotype\n"
-"      (alias: --missing_code)       values for Oxford-format import (default\n"
+"    (alias: --missing_code)         values for Oxford-format import (default\n"
 "                                    'NA').\n"
 	       );
     help_print("allow-extra-chr\taec", &help_ctrl, 0,
@@ -1211,12 +1211,18 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "                       the given threshold.\n"
 	       );
     help_print("maf-succ", &help_ctrl, 0,
-"  --maf-succ         : Rule of succession MAF estimation (used in EIGENSOFT).\n"
-"                       Given j observations of the most common allele and k\n"
-"                       observations of the other(s), infer a nonmajor allele\n"
-"                       frequency of (k+1) / (j+k+2), rather than the default\n"
+"  --maf-succ         : Rule of succession allele frequency estimation (used in\n"
+"                       EIGENSOFT).  Given a j observations of one allele and k\n"
+"                       observations of the other for a biallelic variant, infer\n"
+"                       allele frequencies of (j+1) / (j+k+2) and\n"
+"                       (k+1) / (j+k+2), rather than the default j / (j+k) and\n"
 "                       k / (j+k).\n"
 "                       Note that this does not affect --freq's output.\n"
+	       );
+    help_print("read-freq", &help_ctrl, 0,
+"  --read-freq [file] : Load allele frequency estimates from the given --freq or\n"
+"                       --geno-counts (or PLINK 1.9 --freqx) report, instead of\n"
+"                       imputing them from the immediate dataset.\n"
 	       );
 // todo: something like <check-ctrls>/<check-ctrl=[case/ctrl phenotype name]>
 // and maybe <ctrls-only>/<ctrl-only=[case/ctrl phenotype name]>
@@ -1307,11 +1313,11 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "                               You may also use '$r'/'$a' to refer to the\n"
 "                               ref and alt1 alleles, or '$1'/'$2' to refer to\n"
 "                               them in alphabetical order.\n"
-"  --new-id-max-allele-len [] : Specify maximum number of leading characters\n"
-"                               from allele codes to include in new variant IDs\n"
-"                               (default 23).\n"
+"  --new-id-max-allele-len [len] <error | missing | truncate> :\n"
+"    Specify maximum number of leading characters from allele codes to include\n"
+"    in new variant IDs, and behavior on longer codes (defaults 23, error).\n"
 "  --missing-var-code [str]   : Change unnamed variant code for\n"
-"                               --set-missing-var-ids (default '.').\n"
+"                               --set-[missing/all]-var-ids (default '.').\n"
 	       );
     help_print("update-sex", &help_ctrl, 0,
 "  --update-sex [f] {n} : Update sexes.  Sex (1/M/m = male, 2/F/f = female, 0 =\n"
@@ -1379,8 +1385,8 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "                       (default 0.999).  For case/control phenotypes, only\n"
 "                       covariates are checked.\n"
 	       );
-    help_print("glm\tlinear\tlogistic\txchr-model", &help_ctrl, 0,
-"  --xchr-model [m]   : Set the chrX --glm model.\n"
+    help_print("glm\tlinear\tlogistic\tscore\txchr-model", &help_ctrl, 0,
+"  --xchr-model [m]   : Set the chrX --glm/--score model.\n"
 "                       * '0' = skip chrX.\n"
 "                       * '1' = add sex as a covar on chrX, code males 0..1.\n"
 "                       * '2' (default) = chrX sex covar, code males 0..2.\n"
@@ -1445,6 +1451,11 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "  --mperm-save-all   : Save all max(T) permutation test statistics.\n"
 	       );
     */
+    help_print("score-col-nums\tscore", &help_ctrl, 0,
+"  --score-col-nums [...] : Process all the specified coefficient columns in the\n"
+"                           --score file, identified by 1-based indexes and/or\n"
+"                           ranges of them.\n"
+	       );
     help_print("parallel", &help_ctrl, 0,
 "  --parallel [k] [n] : Divide the output matrix into n pieces, and only compute\n"
 "                       the kth piece.  The primary output file will have the\n"
@@ -1456,16 +1467,20 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "                       symmetric square matrix.  Choose square0 or triangle\n"
 "                       shape instead, and postprocess as necessary.\n"
 	       );
-    help_print("memory", &help_ctrl, 0,
-"  --memory [val]     : Set size, in MB, of initial workspace malloc attempt.\n"
-"                       (Practically mandatory when using GNU parallel.)\n"
+    help_print("memory\tseed", &help_ctrl, 0,
+"  --memory [val] <require> : Set size, in MB, of initial workspace malloc\n"
+"                             attempt.  To error out instead of reducing the\n"
+"                             request size when the initial attempt fails, add\n"
+"                             the 'require' modifier.\n"
 	       );
-    help_print("threads\tnum_threads\tthread-num", &help_ctrl, 0,
+    help_print("threads\tnum_threads\tthread-num\tseed", &help_ctrl, 0,
 "  --threads [val]    : Set maximum number of concurrent threads.\n"
 	       );
     help_print("seed", &help_ctrl, 0,
 "  --seed [val...]    : Set random number seed(s).  Each value must be an\n"
 "                       integer between 0 and 4294967295 inclusive.\n"
+"                       Note that --threads and \"--memory require\" may also be\n"
+"                       needed to reproduce some randomized runs.\n"
 	       );
     help_print("output-min-p", &help_ctrl, 0,
 "  --output-min-p [p] : Specify minimum p-value to write to reports.\n"

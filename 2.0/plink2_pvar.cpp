@@ -672,6 +672,7 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
     uint32_t varid_template_insert_ct = 0;
     uint32_t varid_template_base_len = 0;
     uint32_t varid_alleles_needed = 0;
+    uint32_t missing_varid_blen = 0;
     uint32_t missing_varid_match_slen = 0;
     fill_uint_zero(4, insert_slens);
     if (varid_template) {
@@ -680,12 +681,14 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
       }
       chr_output_name_buf = (char*)tmp_alloc_base;
       tmp_alloc_base = &(tmp_alloc_base[kMaxIdSlen]);
-      if (misc_flags & kfMiscSetMissingVarIds) {
-	if (!missing_varid_match) {
-	  missing_varid_match = &(g_one_char_strs[92]); // '.'
-	}
-	missing_varid_match_slen = strlen(missing_varid_match);
+      if (!missing_varid_match) {
+	missing_varid_match = &(g_one_char_strs[92]); // '.'
       }
+      missing_varid_blen = strlen(missing_varid_match);
+      if (misc_flags & kfMiscSetMissingVarIds) {
+	missing_varid_match_slen = missing_varid_blen;
+      }
+      ++missing_varid_blen;
       varid_template_init(varid_template, &varid_template_insert_ct, &varid_template_base_len, &varid_alleles_needed, varid_template_segs, varid_template_seg_lens, varid_template_insert_types);
     }
 
@@ -737,6 +740,7 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
     // first, when _start_block matches
     uint32_t at_least_one_npass_filter = 0;
     uint32_t at_least_one_nzero_cm = 0;
+    const uint32_t new_variant_id_overflow_missing = (misc_flags / kfMiscNewVarIdOverflowMissing) & 1;
     uintptr_t new_variant_id_allele_len_overflow = 0;
     double* cur_cms = nullptr;
     uint32_t cms_start_block = 0xffffffffU;
@@ -1010,12 +1014,13 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 	  } else {
 	    insert_slens[1] = int_slen(cur_bp);
 	    uint32_t ref_slen = 0;
+	    uint32_t cur_overflow = 0;
 	    char* tmp_allele_ptrs[2];
 	    if (varid_alleles_needed & 1) {
 	      ref_slen = token_slens[2];
 	      if (ref_slen > new_variant_id_max_allele_slen) {
 		ref_slen = new_variant_id_max_allele_slen;
-		++new_variant_id_allele_len_overflow;
+		cur_overflow = 1;
 	      }
 	      insert_slens[2] = ref_slen;
 	      tmp_allele_ptrs[0] = token_ptrs[2];
@@ -1029,7 +1034,7 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 	      }
 	      if (alt1_slen > new_variant_id_max_allele_slen) {
 		alt1_slen = new_variant_id_max_allele_slen;
-		++new_variant_id_allele_len_overflow;
+		++cur_overflow;
 	      }
 	      if (varid_alleles_needed <= 3) {
 	      load_pvar_keep_allele_ascii_order:
@@ -1055,25 +1060,36 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 	      }
 	    }
 	    id_slen = varid_template_base_len + insert_slens[1] + insert_slens[2] + insert_slens[3];
-	    tmp_alloc_end -= id_slen + 1;
-	    if (tmp_alloc_end < tmp_alloc_base) {
-	      goto load_pvar_ret_NOMEM;
+	    if (new_variant_id_overflow_missing && cur_overflow) {
+	      tmp_alloc_end -= missing_varid_blen;
+	      if (tmp_alloc_end < tmp_alloc_base) {
+		goto load_pvar_ret_NOMEM;
+	      }
+	      memcpy(tmp_alloc_end, missing_varid_match, missing_varid_blen);
+	      id_slen = 0;
+	      cur_overflow = 1;
+	    } else {
+	      tmp_alloc_end -= id_slen + 1;
+	      if (tmp_alloc_end < tmp_alloc_base) {
+		goto load_pvar_ret_NOMEM;
+	      }
+	      char* id_iter = (char*)tmp_alloc_end;
+	      char* insert_ptrs[4];
+	      for (uint32_t insert_idx = 0; insert_idx < varid_template_insert_ct; ++insert_idx) {
+		id_iter = memcpya(id_iter, varid_template_segs[insert_idx], varid_template_seg_lens[insert_idx]);
+		const uint32_t cur_insert_type = varid_template_insert_types[insert_idx];
+		insert_ptrs[cur_insert_type] = id_iter;
+		id_iter = &(id_iter[insert_slens[cur_insert_type]]);
+	      }
+	      memcpyx(id_iter, varid_template_segs[varid_template_insert_ct], varid_template_seg_lens[varid_template_insert_ct], '\0');
+
+	      memcpy(insert_ptrs[0], chr_output_name_buf, insert_slens[0]);
+	      uint32toa(cur_bp, insert_ptrs[1]);
+	      for (uint32_t insert_type_idx = 2; insert_type_idx < varid_template_insert_ct; ++insert_type_idx) {
+		memcpy(insert_ptrs[insert_type_idx], tmp_allele_ptrs[insert_type_idx - 2], insert_slens[insert_type_idx]);
+	      }
 	    }
-	    char* id_iter = (char*)tmp_alloc_end;
-	    char* insert_ptrs[4];
-	    for (uint32_t insert_idx = 0; insert_idx < varid_template_insert_ct; ++insert_idx) {
-	      id_iter = memcpya(id_iter, varid_template_segs[insert_idx], varid_template_seg_lens[insert_idx]);
-	      const uint32_t cur_insert_type = varid_template_insert_types[insert_idx];
-	      insert_ptrs[cur_insert_type] = id_iter;
-	      id_iter = &(id_iter[insert_slens[cur_insert_type]]);
-	    }
-	    memcpyx(id_iter, varid_template_segs[varid_template_insert_ct], varid_template_seg_lens[varid_template_insert_ct], '\0');
-	    
-	    memcpy(insert_ptrs[0], chr_output_name_buf, insert_slens[0]);
-	    uint32toa(cur_bp, insert_ptrs[1]);
-	    for (uint32_t insert_type_idx = 2; insert_type_idx < varid_template_insert_ct; ++insert_type_idx) {
-	      memcpy(insert_ptrs[insert_type_idx], tmp_allele_ptrs[insert_type_idx - 2], insert_slens[insert_type_idx]);
-	    }
+            new_variant_id_allele_len_overflow += cur_overflow;
 	  }
 	  if (id_slen > max_variant_id_slen) {
 	    max_variant_id_slen = id_slen;
@@ -1233,7 +1249,17 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
       goto load_pvar_ret_MALFORMED_INPUT;
     }
     if (new_variant_id_allele_len_overflow) {
-      LOGERRPRINTFWW("Warning: %" PRIuPTR " allele code%s truncated by --set-%s-var-ids. You should either switch to a different allele/variant naming scheme for long indels, or use --new-id-max-allele-len to raise the length limit.\n", new_variant_id_allele_len_overflow, (new_variant_id_allele_len_overflow == 1)? " was" : "s were", missing_varid_match_slen? "missing" : "all");
+      if (new_variant_id_overflow_missing) {
+	LOGERRPRINTFWW("Warning: %" PRIuPTR " variant ID%s %s due to allele code length.\n", new_variant_id_allele_len_overflow, (new_variant_id_allele_len_overflow == 1)? "" : "s", missing_varid_match_slen? "unchanged by --set-missing-var-ids" : "erased by --set-all-var-ids");
+	if (max_variant_id_slen < missing_varid_blen - 1) {
+	  max_variant_id_slen = missing_varid_blen - 1;
+	}
+      } else if (misc_flags & kfMiscNewVarIdOverflowTruncate) {
+	LOGERRPRINTF("Warning: %" PRIuPTR " allele code%s truncated by --set-%s-var-ids.\n", new_variant_id_allele_len_overflow, (new_variant_id_allele_len_overflow == 1)? "" : "s", missing_varid_match_slen? "missing" : "all");
+      } else {
+	LOGERRPRINTFWW("Error: %" PRIuPTR " allele code%s too long for --set-%s-var-ids. You should either switch to a different allele/variant naming scheme for long indels, or use --new-id-max-allele-len to raise the length limit.\n", new_variant_id_allele_len_overflow, (new_variant_id_allele_len_overflow == 1)? "" : "s", missing_varid_match_slen? "missing" : "all");
+	goto load_pvar_ret_INCONSISTENT_INPUT;
+      }
     }
     if (gzclose_null(&gz_infile)) {
       goto load_pvar_ret_READ_FAIL;
@@ -1443,6 +1469,9 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
     logerrprintb();
   load_pvar_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
+    break;
+  load_pvar_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
     break;
   load_pvar_ret_MISSING_TOKENS:
     LOGERRPRINTFWW("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, pvarname);

@@ -117,6 +117,7 @@ typedef uint32_t dosage_prod_t;
 #define kDosageMax (1U << (8 * sizeof(dosage_t) - 1))
 CONSTU31(kDosageMid, kDosageMax / 2);
 CONSTU31(kDosage4th, kDosageMax / 4);
+static const double kRecipDosageMax = 0.000030517578125;
 static const double kRecipDosageMid = 0.00006103515625;
 static const float kRecipDosageMidf = 0.00006103515625;
 
@@ -157,7 +158,9 @@ FLAGSET64_DEF_START()
   kfMiscGenotypingRateDosage = (1 << 30),
   kfMiscSetMissingVarIds = (1LLU << 31),
   kfMiscChrOverrideCmdline = (1LLU << 32),
-  kfMiscChrOverrideFile = (1LLU << 33)
+  kfMiscChrOverrideFile = (1LLU << 33),
+  kfMiscNewVarIdOverflowMissing = (1LLU << 34),
+  kfMiscNewVarIdOverflowTruncate = (1LLU << 35)
 FLAGSET64_DEF_END(misc_flags_t);
 
 FLAGSET64_DEF_START()
@@ -1459,7 +1462,16 @@ HEADER_INLINE boolerr_t bigstack_end_calloc_ll(uintptr_t ct, int64_t** ll_arr_pt
 }
 
 
+// These ensure the trailing bits are zeroed out.
+void bitarr_invert(uintptr_t bit_ct, uintptr_t* bitarr);
+
+void bitarr_invert_copy(const uintptr_t* __restrict source_bitarr, uintptr_t bit_ct, uintptr_t* __restrict target_bitarr);
+
 // bitvec_and(), bitvec_andnot() in pgenlib_internal.h
+
+void bitvec_and_copy(const uintptr_t* __restrict source1_bitvec, const uintptr_t* __restrict source2_bitvec, uintptr_t word_ct, uintptr_t* target_bitvec);
+
+void bitvec_andnot_copy(const uintptr_t* __restrict source_bitvec, const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct, uintptr_t* target_bitvec);
 
 void bitvec_or(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec);
 
@@ -1531,7 +1543,7 @@ uint32_t id_htable_find(const char* cur_id, char** item_ids, const uint32_t* id_
 // bigstack
 uint32_t variant_id_htable_find(const char* idbuf, char** variant_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_blen);
 
-uint32_t variant_id_dup_htable_find(const char* idbuf, char** variant_ids, const uint32_t* id_htable, const uint32_t* extra_alloc_base, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_blen, uint32_t* llidx_ptr);
+uint32_t variant_id_dup_htable_find(const char* idbuf, char** variant_ids, const uint32_t* id_htable, const uint32_t* htable_dup_base, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_blen, uint32_t* llidx_ptr);
 
 char* scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_blen);
 
@@ -1574,6 +1586,31 @@ uint32_t sid_col_required(const uintptr_t* sample_include, const char* sids, uin
 // forced SID '0' if sids == nullptr
 // ok for sample_augid_map_ptr == nullptr
 pglerr_t augid_init_alloc(const uintptr_t* sample_include, const char* sample_ids, const char* sids, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t** sample_augid_map_ptr, char** sample_augids_ptr, uintptr_t* max_sample_augid_blen_ptr);
+
+HEADER_INLINE double get_nonmaj_freq(const double* cur_alt_allele_freqs, uint32_t cur_allele_ct) {
+  double tot_alt_freq = cur_alt_allele_freqs[1];
+  double max_freq = tot_alt_freq;
+  for (uint32_t allele_idx = 2; allele_idx < cur_allele_ct; ++allele_idx) {
+    const double cur_alt_freq = cur_alt_allele_freqs[allele_idx];
+    tot_alt_freq += cur_alt_freq;
+    if (cur_alt_freq > max_freq) {
+      max_freq = cur_alt_freq;
+    }
+  }
+  const double nonmajor_freq = 1.0 - max_freq;
+  return MINV(nonmajor_freq, tot_alt_freq);
+}
+
+HEADER_INLINE double get_allele_freq(const double* cur_alt_allele_freqs, uint32_t allele_idx, uint32_t cur_allele_ct) {
+  if (allele_idx) {
+    return cur_alt_allele_freqs[allele_idx];
+  }
+  double ref_freq = 1.0 - cur_alt_allele_freqs[1];
+  for (uint32_t allele_idx = 2; allele_idx < cur_allele_ct; ++allele_idx) {
+    ref_freq -= cur_alt_allele_freqs[allele_idx];
+  }
+  return ref_freq;
+}
 
 
 FLAGSET_DEF_START()
@@ -2357,6 +2394,8 @@ HEADER_INLINE void threads3z_cleanup(threads_state_t* tsp, uint32_t* cur_block_s
 
 
 pglerr_t populate_variant_id_htable_mt(const uintptr_t* variant_include, char** variant_ids, uintptr_t variant_ct, uint32_t store_dups, uint32_t id_htable_size, uint32_t thread_ct, uint32_t* id_htable);
+
+pglerr_t alloc_and_populate_variant_id_dup_htable_mt(const uintptr_t* variant_include, char** variant_ids, uintptr_t variant_ct, uint32_t max_thread_ct, uint32_t** id_htable_ptr, uint32_t** htable_dup_base_ptr, uint32_t* id_htable_size_ptr);
 
 // sample_ct not relevant if genovecs_ptr == nullptr
 pglerr_t multithread_load_init(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, pgen_file_info_t* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** dosage_present_ptr, dosage_t*** dosage_val_bufs_ptr, uint32_t* read_block_size_ptr, unsigned char** main_loadbufs, pthread_t** threads_ptr, pgen_reader_t*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr);

@@ -28,7 +28,6 @@ void init_glm(glm_info_t* glm_info_ptr) {
   glm_info_ptr->cols = kfGlmCol0;
   glm_info_ptr->mperm_ct = 0;
   glm_info_ptr->local_cat_ct = 0;
-  glm_info_ptr->xchr_model = 2;
   glm_info_ptr->max_corr = 0.999;
   glm_info_ptr->condition_varname = nullptr;
   glm_info_ptr->condition_list_fname = nullptr;
@@ -182,11 +181,9 @@ pglerr_t glm_local_init(const char* local_covar_fname, const char* local_pvar_fn
 	goto glm_local_init_ret_NOMEM;
       }
       memcpy(sample_include_copy, new_sample_include, raw_sample_ctl * sizeof(intptr_t));
-      memcpy(sex_nm_copy, *sex_nm_ptr, raw_sample_ctl * sizeof(intptr_t));
-      bitvec_and(sample_include_copy, raw_sample_ctl, sex_nm_copy);
+      bitvec_and_copy(sample_include_copy, *sex_nm_ptr, raw_sample_ctl, sex_nm_copy);
       *sex_nm_ptr = sex_nm_copy;
-      memcpy(sex_male_copy, *sex_male_ptr, raw_sample_ctl * sizeof(intptr_t));
-      bitvec_and(sample_include_copy, raw_sample_ctl, sex_male_copy);
+      bitvec_and_copy(sample_include_copy, *sex_male_ptr, raw_sample_ctl, sex_male_copy);
       *sex_male_ptr = sex_male_copy;
       *sample_include_ptr = sample_include_copy;
       bigstack_end_reset(loadbuf);
@@ -5365,7 +5362,7 @@ pglerr_t glm_linear(const char* cur_pheno_name, char** test_names, char** test_n
   return reterr;
 }
 
-pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, const char* sids, const uintptr_t* sex_nm, const uintptr_t* sex_male, const pheno_col_t* pheno_cols, const char* pheno_names, const pheno_col_t* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const chr_info_t* cip, const uint32_t* variant_bp, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const glm_info_t* glm_info_ptr, const adjust_info_t* adjust_info_ptr, const aperm_t* aperm_ptr, const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t orig_covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_blen, uint32_t max_allele_slen, double ci_size, double vif_thresh, double pfilter, double output_min_p, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, pgen_file_info_t* pgfip, pgen_reader_t* simple_pgrp, char* outname, char* outname_end) {
+pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, const char* sids, const uintptr_t* sex_nm, const uintptr_t* sex_male, const pheno_col_t* pheno_cols, const char* pheno_names, const pheno_col_t* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const chr_info_t* cip, const uint32_t* variant_bp, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const glm_info_t* glm_info_ptr, const adjust_info_t* adjust_info_ptr, const aperm_t* aperm_ptr, const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t orig_covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_blen, uint32_t max_allele_slen, uint32_t xchr_model, double ci_size, double vif_thresh, double pfilter, double output_min_p, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, pgen_file_info_t* pgfip, pgen_reader_t* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   gzFile gz_local_covar_file = nullptr;
@@ -5457,7 +5454,6 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
     g_variant_allele_idxs = variant_allele_idxs;
     
     const uint32_t raw_variant_ctl = BITCT_TO_WORDCT(raw_variant_ct);
-    const uint32_t xchr_model = glm_info_ptr->xchr_model;
     uint32_t max_variant_ct = variant_ct;
 
     uint32_t x_start;
@@ -5610,28 +5606,13 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
 	  if (bigstack_calloc_ul(BITCT_TO_WORDCT(orig_variant_ct), &already_seen)) {
 	    goto glm_main_ret_NOMEM;
 	  }
-	  // smart sizing should be in plink2_common...
-	  uintptr_t htable_max_alloc = bigstack_left() & (~(kCacheline - k1LU));
-	  const uintptr_t nonhtable_alloc = round_up_pow2(orig_variant_ct * sizeof(int32_t), kCacheline) + round_up_pow2(orig_variant_ct * 2 * sizeof(int32_t), kCacheline);
-	  if (nonhtable_alloc + orig_variant_ct * sizeof(int32_t) > htable_max_alloc) {
-	    goto glm_main_ret_NOMEM;
-	  }
-	  htable_max_alloc -= nonhtable_alloc;
-	  uint32_t variant_id_htable_size = get_htable_fast_size(orig_variant_ct);
-	  if (variant_id_htable_size * sizeof(int32_t) > htable_max_alloc) {
-	    variant_id_htable_size = leqprime(htable_max_alloc / sizeof(int32_t));
-	    const uint32_t min_htable_size = get_htable_min_size(orig_variant_ct);
-	    if (variant_id_htable_size < min_htable_size) {
-	      variant_id_htable_size = min_htable_size;
-	    }
-	  }
-	  // guaranteed to succeed
-	  uint32_t* variant_id_htable = (uint32_t*)bigstack_alloc_raw(round_up_pow2(variant_id_htable_size * sizeof(int32_t), kCacheline));
-	  reterr = populate_variant_id_htable_mt(orig_variant_include, variant_ids, orig_variant_ct, 1, variant_id_htable_size, max_thread_ct, variant_id_htable);
+	  uint32_t* variant_id_htable = nullptr;
+	  uint32_t* htable_dup_base = nullptr;
+	  uint32_t variant_id_htable_size;
+	  reterr = alloc_and_populate_variant_id_dup_htable_mt(orig_variant_include, variant_ids, orig_variant_ct, max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size);
 	  if (reterr) {
 	    goto glm_main_ret_1;
 	  }
-	  const uint32_t* extra_alloc_base = &(variant_id_htable[round_up_pow2_ui(variant_id_htable_size, kInt32PerCacheline)]);
 
 	  // 2. iterate through --condition-list file, make sure no IDs are
 	  //    duplicate in loaded fileset, warn about duplicates in
@@ -5649,7 +5630,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
 	      break;
 	    }
 	    uint32_t cur_llidx;
-	    uint32_t cur_variant_uidx = variant_id_dup_htable_find(token_start, variant_ids, variant_id_htable, extra_alloc_base, token_slen, variant_id_htable_size, max_variant_id_blen, &cur_llidx);
+	    uint32_t cur_variant_uidx = variant_id_dup_htable_find(token_start, variant_ids, variant_id_htable, htable_dup_base, token_slen, variant_id_htable_size, max_variant_id_blen, &cur_llidx);
 	    if (cur_variant_uidx == 0xffffffffU) {
 	      ++skip_ct;
 	    } else if (is_set(already_seen, cur_variant_uidx)) {
@@ -6018,8 +5999,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
 	continue;
       }
 
-      memcpy(cur_sample_include, orig_sample_include, raw_sample_ctl * sizeof(intptr_t));
-      bitvec_and(cur_pheno_col->nonmiss, raw_sample_ctl, cur_sample_include);
+      bitvec_and_copy(orig_sample_include, cur_pheno_col->nonmiss, raw_sample_ctl, cur_sample_include);
       const uint32_t is_logistic = (dtype_code == kPhenoDtypeCc);
       uint32_t sample_ct = popcount_longs(cur_sample_include, raw_sample_ctl);
       if (is_logistic) {
@@ -6108,8 +6088,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
       uint32_t predictor_ct_x = 0;
       uint32_t x_samples_are_different = 0;
       if (cur_sample_include_x) {
-	memcpy(cur_sample_include_x, orig_sample_include, raw_sample_ctl * sizeof(intptr_t));
-	bitvec_and(cur_pheno_col->nonmiss, raw_sample_ctl, cur_sample_include_x);
+	bitvec_and_copy(orig_sample_include, cur_pheno_col->nonmiss, raw_sample_ctl, cur_sample_include_x);
         uint32_t separation_warning_x = 0;
 	if (glm_determine_covars(is_logistic? cur_pheno_col->data.cc : nullptr, initial_covar_include, covar_cols, raw_sample_ct, raw_covar_ctl, initial_nonx_covar_ct + 1, covar_max_nonnull_cat_ct, is_sometimes_firth, cur_sample_include_x, covar_include_x, &sample_ct_x, &covar_ct_x, &extra_cat_ct_x, &separation_warning_x)) {
 	  goto glm_main_ret_NOMEM;
@@ -6170,8 +6149,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
       uint32_t predictor_ct_y = 0;
       uint32_t y_samples_are_different = 0;
       if (cur_sample_include_y) {
-	memcpy(cur_sample_include_y, orig_sample_include, raw_sample_ctl * sizeof(intptr_t));
-	bitvec_and(sex_male, raw_sample_ctl, cur_sample_include_y);
+	bitvec_and_copy(orig_sample_include, sex_male, raw_sample_ctl, cur_sample_include_y);
 	bitvec_and(cur_pheno_col->nonmiss, raw_sample_ctl, cur_sample_include_y);
 	uint32_t separation_warning_y = 0;
 	if (glm_determine_covars(is_logistic? cur_pheno_col->data.cc : nullptr, initial_covar_include, covar_cols, raw_sample_ct, raw_covar_ctl, initial_y_covar_ct, covar_max_nonnull_cat_ct, is_sometimes_firth, cur_sample_include_y, covar_include_y, &sample_ct_y, &covar_ct_y, &extra_cat_ct_y, &separation_warning_y)) {

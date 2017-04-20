@@ -25,12 +25,12 @@ namespace plink2 {
 pglerr_t from_to_flag(char** variant_ids, const uint32_t* variant_id_htable, const char* varid_from, const char* varid_to, uint32_t raw_variant_ct, uintptr_t max_variant_id_blen, uintptr_t variant_id_htable_size, uintptr_t* variant_include, chr_info_t* cip, uint32_t* variant_ct_ptr) {
   pglerr_t reterr = kPglRetSuccess;
   {
-    const uint32_t* extra_alloc_base = &(variant_id_htable[round_up_pow2_ui(variant_id_htable_size, kInt32PerCacheline)]);
+    const uint32_t* htable_dup_base = &(variant_id_htable[round_up_pow2_ui(variant_id_htable_size, kInt32PerCacheline)]);
     uint32_t chr_fo_idx = 0xffffffffU;
     uint32_t variant_uidx_start = 0xffffffffU;
     if (varid_from) {
       uint32_t cur_llidx;
-      variant_uidx_start = variant_id_dup_htable_find(varid_from, variant_ids, variant_id_htable, extra_alloc_base, strlen(varid_from), variant_id_htable_size, max_variant_id_blen, &cur_llidx);
+      variant_uidx_start = variant_id_dup_htable_find(varid_from, variant_ids, variant_id_htable, htable_dup_base, strlen(varid_from), variant_id_htable_size, max_variant_id_blen, &cur_llidx);
       if (variant_uidx_start == 0xffffffffU) {
 	sprintf(g_logbuf, "Error: --from variant '%s' not found.\n", varid_from);
 	goto from_to_flag_ret_INCONSISTENT_INPUT_WW;
@@ -46,7 +46,7 @@ pglerr_t from_to_flag(char** variant_ids, const uint32_t* variant_id_htable, con
     uint32_t variant_uidx_end = 0;
     if (varid_to) {
       uint32_t cur_llidx;
-      variant_uidx_end = variant_id_dup_htable_find(varid_to, variant_ids, variant_id_htable, extra_alloc_base, strlen(varid_to), variant_id_htable_size, max_variant_id_blen, &cur_llidx);
+      variant_uidx_end = variant_id_dup_htable_find(varid_to, variant_ids, variant_id_htable, htable_dup_base, strlen(varid_to), variant_id_htable_size, max_variant_id_blen, &cur_llidx);
       if (variant_uidx_end == 0xffffffffU) {
 	sprintf(g_logbuf, "Error: --to variant '%s' not found.\n", varid_to);
 	goto from_to_flag_ret_INCONSISTENT_INPUT_WW;
@@ -102,10 +102,10 @@ pglerr_t snp_flag(const uint32_t* variant_bp, char** variant_ids, const uint32_t
   unsigned char* bigstack_mark = g_bigstack_base;
   pglerr_t reterr = kPglRetSuccess;
   {
-    const uint32_t* extra_alloc_base = &(variant_id_htable[round_up_pow2_ui(variant_id_htable_size, kInt32PerCacheline)]);
+    const uint32_t* htable_dup_base = &(variant_id_htable[round_up_pow2_ui(variant_id_htable_size, kInt32PerCacheline)]);
     const uint32_t raw_variant_ctl = BITCT_TO_WORDCT(raw_variant_ct);
     uint32_t cur_llidx;
-    uint32_t variant_uidx = variant_id_dup_htable_find(varid_snp, variant_ids, variant_id_htable, extra_alloc_base, strlen(varid_snp), variant_id_htable_size, max_variant_id_blen, &cur_llidx);
+    uint32_t variant_uidx = variant_id_dup_htable_find(varid_snp, variant_ids, variant_id_htable, htable_dup_base, strlen(varid_snp), variant_id_htable_size, max_variant_id_blen, &cur_llidx);
     if (variant_uidx == 0xffffffffU) {
       sprintf(g_logbuf, "Error: --%ssnp variant '%s' not found.\n", do_exclude? "exclude-" : "", varid_snp);
       goto snp_flag_ret_INCONSISTENT_INPUT_WW;
@@ -125,8 +125,8 @@ pglerr_t snp_flag(const uint32_t* variant_bp, char** variant_ids, const uint32_t
 	if (cur_llidx == 0xffffffffU) {
 	  break;
 	}
-	variant_uidx = extra_alloc_base[cur_llidx];
-	cur_llidx = extra_alloc_base[cur_llidx + 1];
+	variant_uidx = htable_dup_base[cur_llidx];
+	cur_llidx = htable_dup_base[cur_llidx + 1];
       }
       if (do_exclude) {
 	bitvec_andnot(seen_uidxs, raw_variant_ctl, variant_include);
@@ -182,7 +182,7 @@ pglerr_t snps_flag(char** variant_ids, const uint32_t* variant_id_htable, const 
   unsigned char* bigstack_mark = g_bigstack_base;
   pglerr_t reterr = kPglRetSuccess;
   {
-    const uint32_t* extra_alloc_base = &(variant_id_htable[round_up_pow2_ui(variant_id_htable_size, kInt32PerCacheline)]);
+    const uint32_t* htable_dup_base = &(variant_id_htable[round_up_pow2_ui(variant_id_htable_size, kInt32PerCacheline)]);
     const char* varid_strbox = snps_range_list_ptr->names;
     const unsigned char* starts_range = snps_range_list_ptr->starts_range;
     const uint32_t varid_ct = snps_range_list_ptr->name_ct;
@@ -196,7 +196,7 @@ pglerr_t snps_flag(char** variant_ids, const uint32_t* variant_id_htable, const 
     for (uint32_t varid_idx = 0; varid_idx < varid_ct; ++varid_idx) {
       const char* cur_varid = &(varid_strbox[varid_idx * varid_max_blen]);
       uint32_t cur_llidx;
-      uint32_t variant_uidx = variant_id_dup_htable_find(cur_varid, variant_ids, variant_id_htable, extra_alloc_base, strlen(cur_varid), variant_id_htable_size, max_variant_id_blen, &cur_llidx);
+      uint32_t variant_uidx = variant_id_dup_htable_find(cur_varid, variant_ids, variant_id_htable, htable_dup_base, strlen(cur_varid), variant_id_htable_size, max_variant_id_blen, &cur_llidx);
       if (variant_uidx == 0xffffffffU) {
 	sprintf(g_logbuf, "Error: --%ssnps variant '%s' not found.\n", do_exclude? "exclude-" : "", cur_varid);
 	goto snps_flag_ret_INCONSISTENT_INPUT_WW;
@@ -225,8 +225,8 @@ pglerr_t snps_flag(char** variant_ids, const uint32_t* variant_id_htable, const 
 	    if (cur_llidx == 0xffffffffU) {
 	      break;
 	    }
-	    variant_uidx = extra_alloc_base[cur_llidx];
-	    cur_llidx = extra_alloc_base[cur_llidx + 1];
+	    variant_uidx = htable_dup_base[cur_llidx];
+	    cur_llidx = htable_dup_base[cur_llidx + 1];
 	  }
 	}
 	range_start_vidx = 0xffffffffU;
@@ -255,9 +255,9 @@ pglerr_t snps_flag(char** variant_ids, const uint32_t* variant_id_htable, const 
   return reterr;
 }
 
-void extract_exclude_process_token(char** variant_ids, const uint32_t* variant_id_htable, const uint32_t* extra_alloc_base, const char* tok_start, uint32_t variant_id_htable_size, uintptr_t max_variant_id_blen, uint32_t curtoklen, uintptr_t* already_seen, uintptr_t* duplicate_ct_ptr) {
+void extract_exclude_process_token(char** variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* tok_start, uint32_t variant_id_htable_size, uintptr_t max_variant_id_blen, uint32_t curtoklen, uintptr_t* already_seen, uintptr_t* duplicate_ct_ptr) {
   uint32_t cur_llidx;
-  uint32_t variant_uidx = variant_id_dup_htable_find(tok_start, variant_ids, variant_id_htable, extra_alloc_base, curtoklen, variant_id_htable_size, max_variant_id_blen, &cur_llidx);
+  uint32_t variant_uidx = variant_id_dup_htable_find(tok_start, variant_ids, variant_id_htable, htable_dup_base, curtoklen, variant_id_htable_size, max_variant_id_blen, &cur_llidx);
   if (variant_uidx == 0xffffffffU) {
     return;
   }
@@ -269,8 +269,8 @@ void extract_exclude_process_token(char** variant_ids, const uint32_t* variant_i
       if (cur_llidx == 0xffffffffU) {
 	return;
       }
-      variant_uidx = extra_alloc_base[cur_llidx];
-      cur_llidx = extra_alloc_base[cur_llidx + 1];
+      variant_uidx = htable_dup_base[cur_llidx];
+      cur_llidx = htable_dup_base[cur_llidx + 1];
     }
   }
 }
@@ -287,7 +287,7 @@ pglerr_t extract_exclude_flag_norange(char** variant_ids, const uint32_t* varian
     if (bigstack_calloc_ul(raw_variant_ctl, &already_seen)) {
       goto extract_exclude_flag_norange_ret_NOMEM;
     }
-    const uint32_t* extra_alloc_base = &(variant_id_htable[round_up_pow2_ui(variant_id_htable_size, kInt32PerCacheline)]);
+    const uint32_t* htable_dup_base = &(variant_id_htable[round_up_pow2_ui(variant_id_htable_size, kInt32PerCacheline)]);
     const char* fnames_iter = fnames;
     uintptr_t duplicate_ct = 0;
     do {
@@ -301,7 +301,7 @@ pglerr_t extract_exclude_flag_norange(char** variant_ids, const uint32_t* varian
 	if (!token_start) {
 	  break;
 	}
-	extract_exclude_process_token(variant_ids, variant_id_htable, extra_alloc_base, token_start, variant_id_htable_size, max_variant_id_blen, token_slen, already_seen, &duplicate_ct);
+	extract_exclude_process_token(variant_ids, variant_id_htable, htable_dup_base, token_start, variant_id_htable_size, max_variant_id_blen, token_slen, already_seen, &duplicate_ct);
       }
       if (token_slen) {
 	// error code
@@ -531,61 +531,586 @@ pglerr_t keep_or_remove(const char* fnames, const char* sample_ids, const char* 
   return reterr;
 }
 
-void compute_maj_alleles_and_nonmajor_freqs(const uintptr_t* variant_include, const uintptr_t* variant_allele_idxs, const uint64_t* founder_allele_dosages, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t maf_succ, alt_allele_ct_t* maj_alleles, double* nonmajor_freqs) {
-  // ok for maj_alleles or nonmajor_freqs to be nullptr
-  const uintptr_t maf_succ_x2 = 65536 * maf_succ; // dosage is in 32768ths
-  const uintptr_t maf_succ_x4 = 131072 * maf_succ;
+void compute_maj_alleles_and_alt_allele_freqs(const uintptr_t* variant_include, const uintptr_t* variant_allele_idxs, const uint64_t* founder_allele_dosages, uint32_t variant_ct, uint32_t maf_succ, alt_allele_ct_t* maj_alleles, double* alt_allele_freqs) {
+  // ok for maj_alleles or alt_allele_freqs to be nullptr
+  // note that founder_allele_dosages is in 32768ths
+  uint32_t cur_allele_ct = 2;
   uint32_t variant_uidx = 0;
-  if (variant_allele_idxs && (variant_allele_idxs[raw_variant_ct] == 2 * raw_variant_ct)) {
-    variant_allele_idxs = nullptr;
-  }
   for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
     next_set_unsafe_ck(variant_include, &variant_uidx);
-    uint32_t maj_allele_idx = 0;
-    uint64_t min_dosage_x2;
-    uint64_t tot_dosage_x2;
+    uintptr_t variant_allele_idx_base;
     if (!variant_allele_idxs) {
-      uint64_t dosage0 = founder_allele_dosages[2 * variant_uidx];
-      uint64_t min_dosage = founder_allele_dosages[2 * variant_uidx + 1];
-      tot_dosage_x2 = (min_dosage + dosage0) * 2LLU;
-      if (dosage0 < min_dosage) {
-	min_dosage = dosage0;
-	maj_allele_idx = 1;
-      }
-      min_dosage_x2 = min_dosage * 2;
+      variant_allele_idx_base = 2 * variant_uidx;
     } else {
-      const uintptr_t variant_allele_idx_base = variant_allele_idxs[variant_uidx];
-      const uint64_t* cur_founder_allele_dosages = &(founder_allele_dosages[variant_allele_idx_base]);
-      const uint32_t cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - variant_allele_idx_base;
-      uint64_t max_dosage_x2 = 0;
-      tot_dosage_x2 = 0;
-      for (uint32_t allele_idx = 0; allele_idx < cur_allele_ct; ++allele_idx) {
-	uint64_t cur_dosage_x2 = 2 * cur_founder_allele_dosages[allele_idx];
-	tot_dosage_x2 += cur_dosage_x2;
-	if (cur_dosage_x2 > max_dosage_x2) {
-	  max_dosage_x2 = cur_dosage_x2;
+      variant_allele_idx_base = variant_allele_idxs[variant_uidx];
+      cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - variant_allele_idx_base;
+    }
+    const uint64_t* cur_founder_allele_dosages = &(founder_allele_dosages[variant_allele_idx_base]);
+    uint64_t tot_dosage = cur_founder_allele_dosages[0];
+    uint32_t maj_allele_idx = 0;
+    if (cur_allele_ct == 2) {
+      const uint64_t dosage1 = cur_founder_allele_dosages[1];
+      maj_allele_idx = (tot_dosage < dosage1);
+      tot_dosage += dosage1;
+    } else {
+      uint64_t max_dosage = tot_dosage;
+      for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct; ++allele_idx) {
+	const uint64_t cur_dosage = cur_founder_allele_dosages[allele_idx];
+	tot_dosage += cur_dosage;
+	if (cur_dosage > max_dosage) {
+	  max_dosage = cur_dosage;
 	  maj_allele_idx = allele_idx;
 	}
       }
-      min_dosage_x2 = tot_dosage_x2 - max_dosage_x2;
     }
     if (maj_alleles) {
       maj_alleles[variant_uidx] = (alt_allele_ct_t)maj_allele_idx;
     }
-    if (nonmajor_freqs) {
-      tot_dosage_x2 += maf_succ_x4;
-      if (tot_dosage_x2) {
-	const double min_ctd = (double)((int64_t)(min_dosage_x2 + maf_succ_x2));
-	const double tot_ctd = (double)((int64_t)tot_dosage_x2);
-	nonmajor_freqs[variant_uidx] = min_ctd / tot_ctd;
-      } else {
-	// occasionally has weird effects when variant is multiallelic, but
-	// shouldn't be a big deal
-	nonmajor_freqs[variant_uidx] = 0.5;
+    if (alt_allele_freqs) {
+      // todo: try changing this expression
+      const uint64_t cur_maf_succ_dosage = (maf_succ | (!tot_dosage)) * kDosageMax;
+
+      tot_dosage += cur_maf_succ_dosage * cur_allele_ct;
+      double* cur_alt_allele_freqs_base = &(alt_allele_freqs[variant_allele_idx_base - variant_uidx]);
+      const double tot_dosage_recip = 1.0 / ((double)((int64_t)tot_dosage));
+      for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct; ++allele_idx) {
+	const double cur_dosage = (double)((int64_t)(cur_founder_allele_dosages[allele_idx] + cur_maf_succ_dosage));
+	cur_alt_allele_freqs_base[allele_idx] = cur_dosage * tot_dosage_recip;
       }
     }
   }
 }
+
+/*
+CONSTU31(kMaxReadFreqAlleles, 255);
+
+pglerr_t read_allele_freqs(const uintptr_t* variant_include, const chr_info_t* cip, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const char* read_freq_fname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_alt_allele_ct, uint32_t max_variant_id_blen, uint32_t max_allele_slen, uint32_t maf_succ, uint32_t max_thread_ct, alt_allele_ct_t* maj_alleles, double* alt_allele_freqs) {
+  // support PLINK 1.9 --freq/--freqx, and 2.0 --freq/--geno-counts.
+  unsigned char* bigstack_mark = g_bigstack_base;
+  gzFile gz_infile = nullptr;
+  uintptr_t loadbuf_size = 0;
+  uintptr_t line_idx = 0;
+  pglerr_t reterr = kPglRetSuccess;
+  {
+    double* cur_allele_freqs;
+    double* cur_allele_dcounts;
+    uintptr_t* matched_loaded_alleles;
+    uintptr_t* matched_internal_alleles;
+    uint32_t* loaded_to_internal_allele_idx;
+    uintptr_t* already_seen;
+    if (bigstack_alloc_d(kMaxReadFreqAlleles, &cur_allele_freqs) ||
+	bigstack_alloc_d(kMaxReadFreqAlleles, &cur_allele_dcounts) ||
+	bigstack_alloc_ul(BITCT_TO_WORDCT(kMaxReadFreqAlleles), &matched_loaded_alleles) ||
+	bigstack_alloc_ul(BITCT_TO_WORDCT(max_alt_allele_ct + 1), &matched_internal_alleles) ||
+	bigstack_alloc_ui(kMaxReadFreqAlleles, &loaded_to_internal_allele_idx) ||
+	bigstack_calloc_ul(BITCT_TO_WORDCT(raw_variant_ct), &already_seen)) {
+      goto read_allele_freqs_ret_NOMEM;
+    }
+    reterr = gzopen_read_checked(read_freq_fname, &gz_infile);
+    if (reterr) {
+      goto read_allele_freqs_ret_1;
+    }
+    loadbuf_size = bigstack_left() / 8;
+    if (loadbuf_size > kMaxLongLine) {
+      loadbuf_size = kMaxLongLine;
+    } else if (loadbuf_size <= kMaxMediumLine) {
+      goto read_allele_freqs_ret_NOMEM;
+    } else {
+      loadbuf_size = round_up_pow2(loadbuf_size, kCacheline);
+    }
+    char* loadbuf = (char*)bigstack_alloc_raw(loadbuf_size);
+    loadbuf[loadbuf_size - 1] = ' ';
+    uint32_t* variant_id_htable = nullptr;
+    uint32_t* htable_dup_base;
+    uint32_t variant_id_htable_size;
+    reterr = alloc_and_populate_variant_id_dup_htable_mt(variant_include, variant_ids, variant_ct, max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size);
+    if (reterr) {
+      goto read_allele_freqs_ret_1;
+    }
+    char* loadbuf_first_token;
+    do {
+      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
+	goto read_allele_freqs_ret_READ_FAIL;
+      }
+      ++line_idx;
+      if (!loadbuf[loadbuf_size - 1]) {
+	goto read_allele_freqs_ret_LONG_LINE;
+      }
+      loadbuf_first_token = skip_initial_spaces(loadbuf);
+      // automatically skip header lines that start with '##' or '# '
+    } while (is_eoln_kns(*loadbuf_first_token) || ((*loadbuf_first_token == '#') && ((unsigned char)loadbuf_first_token[1] <= '#')));
+
+    // relevant column types:
+    // 0: variant ID
+    // 1: ref allele code
+    // 2: all alt allele codes (potentially just alt1)
+    //
+    // (3-4 are --freq only)
+    // 3: ref freq/count
+    // 4: either all freqs/counts, or all-but-ref
+    //
+    // (5-10 are --geno-counts/--freqx only)
+    // 5: hom-ref count
+    // 6: het ref-alt counts (worst case, just ref-alt1)
+    // 7: altx-alty counts (worst case, just hom-alt1), or all pairs
+    // 8: hap-ref count
+    // 9: hap-alt counts (worst case, just hap-alt1), or all hap counts
+    // 10: --geno-counts numeq (if present, ignore 5..9)
+    //
+    // overrideable:
+    // 11->2: ALT1
+    // 12->4: ALT1_FREQ/ALT1_CT
+    // 13->6: HET_REF_ALT1_CT
+    // 14->7: HOM_ALT1_CT
+    // 15->9: HAP_ALT1_CT
+
+    // er, this logic isn't quite right, need to support e.g. ALT_FREQ without
+    // REF_FREQ, or (in biallelic case) vice versa.  fix this tomorrow.
+    uint32_t col_skips[16];
+    uint32_t col_types[16];
+    uint32_t overrideable_pos[5];
+    uint32_t geno_counts = 0;
+    uint32_t relevant_col_ct = 0;
+
+    // interpretation of type 2
+    uint32_t allele_list_just_alt1 = 1;
+
+    // interpretation of types 4 and 7
+    uint32_t ref_included_in_main_list = 0; // type 4 or 7
+    uint32_t main_list_just_alt1 = 1;
+
+    // interpretation of type 9
+    uint32_t ref_included_in_hap_list = 0;
+    uint32_t hap_list_just_alt1 = 1;
+
+    uint32_t het_list_just_alt1 = 1; // type 6
+    uint32_t biallelic_only = 0;
+    if (*loadbuf_first_token == '#') {
+      // PLINK 2.0
+      uint32_t found_header_bitset = 0;
+      char* loadbuf_iter = &(loadbuf_first_token[1]); // guaranteed nonspace
+      uint32_t col_idx = 0;
+      while (1) {
+	char* token_end = token_endnn(loadbuf_iter);
+	const uint32_t token_slen = (uintptr_t)(token_end - loadbuf_iter);
+	uint32_t cur_col_type = 0xffffffffU;
+	if (token_slen <= 4) {
+	  if ((token_slen == 2) && (!memcmp(loadbuf_iter, "ID", 2))) {
+	    cur_col_type = 0;
+	  } else if (token_slen == 3) {
+	    if (!memcmp(loadbuf_iter, "REF", 3)) {
+	      cur_col_type = 1;
+	    } else if (!memcmp(loadbuf_iter, "ALT", 3)) {
+	      cur_col_type = 2;
+	      if (allele_list_just_alt1) {
+		// override ALT1
+		found_header_bitset &= ~0x800;
+	        allele_list_just_alt1 = 0;
+	      }
+	    } else if (!memcmp(loadbuf_iter, "CTS", 3)) {
+	      goto read_allele_freqs_freqmain_found1;
+	    }
+	  } else if (token_slen == 4) {
+	    if ((!memcmp(loadbuf_iter, "ALT1", 4)) && allele_list_just_alt1) {
+	      cur_col_type = 11;
+	    }
+	  }
+	} else if (((token_slen == 8) && (!memcmp(loadbuf_iter, "REF_FREQ", 8))) || ((token_slen == 6) && (!memcmp(loadbuf_iter, "REF_CT", 6)))) {
+	  cur_col_type = 3;
+	} else if (((token_slen == 9) && (!memcmp(loadbuf_iter, "ALT1_FREQ", 9))) || ((token_slen == 7) && (!memcmp(loadbuf_iter, "ALT1_CT", 7))) && main_list_just_alt1) {
+	  cur_col_type = 12;
+	} else if (((token_slen == 9) && (!memcmp(loadbuf_iter, "ALT_FREQS", 9))) || ((token_slen == 7) && (!memcmp(loadbuf_iter, "ALT_CTS", 7)))) {
+	  goto read_allele_freqs_freqmain_found2;
+	} else if ((token_slen == 5) && (!memcmp(loadbuf_iter, "FREQS", 5))) {
+	read_allele_freqs_freqmain_found1:
+	  ref_included_in_main_list = 1;
+	read_allele_freqs_freqmain_found2:
+	  cur_col_type = 4;
+	  if (main_list_just_alt1) {
+	    // override ALT1_FREQ/ALT1_CT
+	    found_header_bitset &= ~0x1000;
+	    main_list_just_alt1 = 0;
+	  }
+	} else if ((token_slen == 10) && (!memcmp(loadbuf_iter, "HOM_REF_CT", 10))) {
+	  cur_col_type = 5;
+	} else if ((token_slen == 15) && (!memcmp(loadbuf_iter, "HET_REF_ALT1_CT", 15)) && het_list_just_alt1) {
+	  cur_col_type = 13;
+	} else if ((token_slen == 15) && (!memcmp(loadbuf_iter, "HET_REF_ALT_CTS", 15))) {
+	  cur_col_type = 6;
+	  if (het_list_just_alt1) {
+	    // override HET_REF_ALT1_CT
+	    found_header_bitset &= ~0x2000;
+	    het_list_just_alt1 = 0;
+	  }
+	} else if ((token_slen == 11) && (!memcmp(loadbuf_iter, "HOM_ALT1_CT", 11)) && main_list_just_alt1) {
+	  cur_col_type = 14;
+	} else if ((token_slen == 23) && (!memcmp(loadbuf_iter, "NONREF_DIPLOID_GENO_CTS", 23))) {
+	  goto read_allele_freqs_countmain_found;
+	} else if ((token_slen == 16) && (!memcmp(loadbuf_iter, "DIPLOID_GENO_CTS", 16))) {
+	  ref_included_in_main_list = 0;
+	read_allele_freqs_countmain_found:
+	  cur_col_type = 7;
+	  if (main_list_just_alt1) {
+	    // override HOM_ALT1_CT
+	    found_header_bitset &= ~0x4000;
+	    // could make this use a different variable than FREQS does
+	    main_list_just_alt1 = 0;
+	  }
+	} else if ((token_slen == 10) && (!memcmp(loadbuf_iter, "HAP_REF_CT", 10))) {
+	  cur_col_type = 8;
+	} else if ((token_slen == 11) && (!memcmp(loadbuf_iter, "HAP_ALT1_CT", 11)) && hap_list_just_alt1) {
+	  cur_col_type = 15;
+	} else if ((token_slen == 11) && (!memcmp(loadbuf_iter, "HAP_ALT_CTS", 11))) {
+	} else if ((token_slen == 7) && (!memcmp(loadbuf_iter, "HAP_CTS", 7))) {
+	  ref_included_in_hap_list = 1;
+	read_allele_freqs_hapmain_found:
+	  cur_col_type = 9;
+	  if (hap_list_just_alt1) {
+	    // override HAP_ALT1_CT
+	    found_header_bitset &= ~0x8000;
+	    hap_list_just_alt1 = 0;
+	  }
+	} else if ((token_slen == 8) && (!memcmp(loadbuf_iter, "GENO_CTS", 8))) {
+	  cur_col_type = 10;
+	}
+	if (cur_col_type != 0xffffffffU) {
+	  const uint32_t cur_col_type_shifted = 1 << cur_col_type;
+	  if (found_header_bitset & cur_col_type_shifted) {
+	    logerrprint("Error: Conflicting columns in header line of --read-freq file.\n");
+	    goto read_allele_freqs_ret_MALFORMED_INPUT;
+	  }
+	  if (cur_col_type >= 11) {
+	    overrideable_pos[cur_col_type - 11] = relevant_col_ct;
+	  }
+	  found_header_bitset |= cur_col_type_shifted;
+	  col_skips[relevant_col_ct] = col_idx;
+	  col_types[relevant_col_ct++] = cur_col_type;
+	}
+	loadbuf_iter = skip_initial_spaces(token_end);
+	if (is_eoln_kns(*loadbuf_iter)) {
+	  break;
+	}
+	++col_idx;
+      }
+      // possible todo: If our loaded variant has n alleles, only (n-1) are
+      // explicitly named in the file, but the file explicitly indicates there
+      // is one unnamed allele (e.g. ALT is present and REF isn't; or for a
+      // biallelic variant, only REF is present), it is possible to recover all
+      // the necessary information under the assumption the unnamed allele is
+      // our last allele.  This is unsupported for now, but may be useful at
+      // some point.
+      uint32_t semifinal_header_bitset = found_header_bitset;
+      if (found_header_bitset & 0x1000) {
+	found_header_bitset ^= 0x1010;
+	col_types[overrideable_pos[1]] = 4;
+      }
+      if (found_header_bitset & 0x2000) {
+	found_header_bitset ^= 0x2040;
+	col_types[overrideable_pos[2]] = 6;
+      }
+      if (found_header_bitset & 0x4000) {
+	found_header_bitset ^= 0x4080;
+	col_types[overrideable_pos[3]] = 7;
+      }
+      if (found_header_bitset & 0x8000) {
+	found_header_bitset ^= 0x8200;
+	col_types[overrideable_pos[4]] = 9;
+      }
+      if ((semifinal_header_bitset != found_header_bitset) && (!(found_header_bitset & 0x400))) {
+	biallelic_only = 1;
+      }
+      if (found_header_bitset & 0x800) {
+	found_header_bitset ^= 0x804;
+	col_types[overrideable_pos[0]] = 2;
+	biallelic_only = 1;
+      }
+      if ((found_header_bitset & 7) != 7) {
+	logerrprint("Error: Missing column(s) in --read-freq file (ID, REF, ALT{1} required).\n");
+	goto read_allele_freqs_ret_MALFORMED_INPUT;
+      }
+      semifinal_header_bitset = found_header_bitset;
+      if (found_header_bitset & 0x18) {
+	if (found_header_bitset & 0x7e0) {
+	  logerrprint("Error: Conflicting columns in header line of --read-freq file (--freq and\n--geno-counts values mixed together).\n");
+	  goto read_allele_freqs_ret_MALFORMED_INPUT;
+	}
+	if (!(found_header_bitset & 0x10)) {
+	  logerrprint("Error: Missing column(s) in --read-freq file (ALT1_FREQ, ALT1_CT, ALT_FREQS,\nALT_CTS, FREQS, or CTS required).\n");
+	  goto read_allele_freqs_ret_MALFORMED_INPUT;
+	}
+	if (ref_included_in_main_list) {
+	  found_header_bitset &= ~8; // don't need REF_FREQ/REF_CT
+	} else if (!(found_header_bitset & 8)) {
+	  logerrprint("Error: Missing column(s) in --read-freq file (REF_FREQ/REF_CT cannot be omitted\nunless FREQS/CTS is present).\n");
+	  goto read_allele_freqs_ret_MALFORMED_INPUT;
+	}
+	logprint("--read-freq: PLINK 2 --freq file detected.\n");
+      } else if (found_header_bitset & 0x7e0) {
+	if (found_header_bitset & 0x400) {
+	  found_header_bitset &= ~0x3e0; // don't need anything but GENO_CTS
+	} else {
+	  // require both diploid and haploid columns for now.  (could
+	  // conditionally drop one of these requirements later.)
+	  if (!(found_header_bitset & 0x80)) {
+	    logerrprint("Error: Missing column(s) in --read-freq file (HOM_ALT1_CT,\nNONREF_DIPLOID_GENO_CTS, or DIPLOID_GENO_CTS required).\n");
+	    goto read_allele_freqs_ret_MALFORMED_INPUT;
+	  }
+	  if (ref_included_in_main_list) {
+	    found_header_bitset &= ~0x60;
+	  } else if ((found_header_bitset & 0x60) != 0x60) {
+	    logerrprint("Error: Missing column(s) in --read-freq file (HOM_REF_CT, HET_REF_ALT1_CT, or\nHET_REF_ALT_CTS required unless {DIPLOID_}GENO_CTS present).\n");
+	    goto read_allele_freqs_ret_MALFORMED_INPUT;
+	  }
+	  if (!(found_header_bitset & 0x200)) {
+	    logerrprint("Error: Missing column(s) in --read-freq file (HAP_ALT1_CT, HAP_ALT_CTS, or\nHAP_CTS required).\n");
+	    goto read_allele_freqs_ret_MALFORMED_INPUT;
+	  }
+	  if (ref_included_in_hap_list) {
+	    found_header_bitset &= ~0x100;
+	  } else if (!(found_header_bitset & 0x100)) {
+	    logerrprint("Error: Missing column(s) in --read-freq file (HAP_REF_CT required unless\nHAP_CTS or GENO_CTS present).\n");
+	    goto read_allele_freqs_ret_MALFORMED_INPUT;
+	  }
+	}
+	logprint("--read-freq: PLINK 2 --geno-counts file detected.\n");
+      } else {
+	logerrprint("Error: Missing column(s) in --read-freq file (no frequencies/counts).\n");
+	goto read_allele_freqs_ret_MALFORMED_INPUT;
+      }
+      if (semifinal_header_bitset != found_header_bitset) {
+	// remove redundant columns
+	uint32_t relevant_col_idx_read = 0;
+	while ((found_header_bitset >> col_types[relevant_col_idx_read]) & 1) {
+	  ++relevant_col_idx_read;
+	}
+	uint32_t relevant_col_idx_write = relevant_col_idx_read;
+	for (; relevant_col_idx_read < relevant_col_ct; ++relevant_col_idx_read) {
+	  const uint32_t cur_type = col_types[relevant_col_idx_read];
+	  if ((found_header_bitset >> cur_type) & 1) {
+	    col_types[relevant_col_idx_write] = cur_type;
+	    col_skips[relevant_col_idx_write] = col_skips[relevant_col_idx_read];
+	    ++relevant_col_idx_write;
+	  }
+	}
+	relevant_col_ct = relevant_col_idx_write;
+      }
+      for (uint32_t uii = relevant_col_ct - 1; uii; --uii) {
+	col_skips[uii] -= col_skips[uii - 1];
+      }
+    } else {
+      // PLINK 1.9
+      // .frq:       CHR  SNP  A1  A2  MAF        NCHROBS
+      // .frq.count: CHR  SNP  A1  A2  C1         C2       G0
+      // .frqx:      CHR  SNP  A1  A2  C(HOM A1)  C(HET)   C(HOM A2)  C(HAP A1)
+      //   C(HAP A2)  C(MISSING)
+      // (yeah, the spaces in the .frqx header were a mistake, should have used
+      // underscores.  oh well, live and learn.)
+      col_skips[0] = 1;
+      col_skips[1] = 1;
+      col_skips[2] = 1;
+      col_skips[3] = 1;
+
+      col_types[0] = 0;
+      col_types[1] = 1; // doesn't matter if we treat A1 or A2 as ref
+      col_types[2] = 2;
+      biallelic_only = 1;
+      if (!memcmp(loadbuf_first_token, "CHR\tSNP\tA1\tA2\tC(HOM A1)\tC(HET)\tC(HOM A2)\tC(HAP A1)\tC(HAP A2)\tC(MISSING)", 71)) {
+        col_skips[4] = 1;
+	col_skips[5] = 1;
+	col_skips[6] = 1;
+	col_skips[7] = 1;
+
+	col_types[3] = 5;
+	col_types[4] = 6;
+	col_types[5] = 7;
+	col_types[6] = 8;
+	col_types[7] = 9;
+	geno_counts = 1;
+	relevant_col_ct = 8;
+	logprint("--read-freq: PLINK 1.9 --freqx file detected.\n");
+      } else {
+	if (strcmp_se(loadbuf_first_token, "CHR", 3)) {
+	  goto read_allele_freqs_ret_UNRECOGNIZED_HEADER;
+	}
+	char* loadbuf_iter = skip_initial_spaces(&(loadbuf_first_token[3]));
+	if (strcmp_se(loadbuf_iter, "SNP", 3)) {
+	  goto read_allele_freqs_ret_UNRECOGNIZED_HEADER;
+	}
+	loadbuf_iter = skip_initial_spaces(&(loadbuf_iter[3]));
+	if (strcmp_se(loadbuf_iter, "A1", 2)) {
+	  goto read_allele_freqs_ret_UNRECOGNIZED_HEADER;
+	}
+	loadbuf_iter = skip_initial_spaces(&(loadbuf_iter[2]));
+	if (strcmp_se(loadbuf_iter, "A2", 2)) {
+	  goto read_allele_freqs_ret_UNRECOGNIZED_HEADER;
+	}
+	loadbuf_iter = skip_initial_spaces(&(loadbuf_iter[2]));
+	col_types[3] = 3;
+	if (!strcmp_se(loadbuf_iter, "MAF", 3)) {
+	  relevant_col_ct = 4;
+	  logprint("--read-freq: PLINK 1.9 --freq file detected.\n");
+	} else {
+	  if (strcmp_se(loadbuf_iter, "C1", 2)) {
+	    goto read_allele_freqs_ret_UNRECOGNIZED_HEADER;
+	  }
+	  loadbuf_iter = skip_initial_spaces(&(loadbuf_iter[2]));
+	  if (strcmp_se(loadbuf_iter, "C2", 2)) {
+	    goto read_allele_freqs_ret_UNRECOGNIZED_HEADER;
+	  }
+	  col_skips[4] = 1;
+	  col_types[4] = 4;
+	  relevant_col_ct = 5;
+	  logprint("--read-freq: PLINK 1.9 '--freq counts' file detected.\n");
+	}
+      }
+    }
+    assert(relevant_col_ct <= 8);
+
+    uintptr_t skipped_variant_ct = 0;
+    uint32_t loaded_variant_ct = 0;
+    uint32_t cur_allele_ct = 2;
+    while (gzgets(gz_infile, loadbuf, loadbuf_size)) {
+      ++line_idx;
+      if (!loadbuf[loadbuf_size - 1]) {
+	goto read_allele_freqs_ret_LONG_LINE;
+      }
+      loadbuf_first_token = skip_initial_spaces(loadbuf);
+      if (is_eoln_kns(*loadbuf_first_token)) {
+	continue;
+      }
+      char* loadbuf_iter = loadbuf_first_token;
+      char* token_ptrs[8];
+      uint32_t token_slens[8];
+      for (uint32_t relevant_col_idx = 0; relevant_col_idx < relevant_col_ct; ++relevant_col_idx) {
+	const uint32_t cur_col_type = col_types[relevant_col_idx];
+	loadbuf_iter = next_token_multz(loadbuf_iter, col_skips[relevant_col_idx]);
+	if (!loadbuf_iter) {
+	  goto read_allele_freqs_ret_MISSING_TOKENS;
+	}
+	token_ptrs[cur_col_type] = loadbuf_iter;
+	char* token_end = token_endnn(loadbuf_iter);
+	token_slens[cur_col_type] = (uintptr_t)(token_end - loadbuf_iter);
+	loadbuf_iter = token_end;
+      }
+      // ID
+      char* variant_id_start = token_ptrs[0];
+      const uint32_t variant_id_slen = token_slens[0];
+      uint32_t cur_llidx;
+      uint32_t variant_uidx = variant_id_dup_htable_find(variant_id_start, variant_ids, variant_id_htable, htable_dup_base, variant_id_slen, variant_id_htable_size, max_variant_id_blen, &cur_llidx);
+      if (variant_uidx == 0xffffffffU) {
+	++skipped_variant_ct;
+	continue;
+      }
+      if (cur_llidx != 0xffffffffU) {
+	sprintf(g_logbuf, "Error: --read-freq variant ID '%s' appears multiple times in main dataset.\n", variant_ids[variant_uidx]);
+	goto read_allele_freqs_ret_MALFORMED_INPUT_WW;
+      }
+      if (is_set(already_seen, variant_uidx)) {
+	sprintf(g_logbuf, "Error: Variant ID '%s' appears multiple times in --read-freq file.\n", variant_ids[variant_uidx]);
+	goto read_allele_freqs_ret_MALFORMED_INPUT_WW;
+      }
+      set_bit(variant_uidx, already_seen);
+
+      uintptr_t variant_allele_idx_base;
+      if (!variant_allele_idxs) {
+	variant_allele_idx_base = variant_uidx * 2;
+      } else {
+	variant_allele_idx_base = variant_allele_idxs[variant_uidx];
+	cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - variant_allele_idx_base;
+	if (biallelic_only) {
+	  ++skipped_variant_ct;
+	  continue;
+	}
+	if (cur_allele_ct > kBitsPerWord) {
+	}
+      }
+      fill_ulong_zero(BITCT_TO_WORDCT(cur_allele_ct), matched_internal_alleles);
+      char** cur_alleles = &(allele_storage[variant_allele_idx_base]);
+      uint32_t cur_loaded_allele_ct = 0;
+      uint32_t cur_loaded_allele_code_slen = token_slens[1];
+      uint32_t unmatched_allele_ct = cur_allele_ct;
+      char* cur_loaded_allele_code = token_ptrs[1];
+      char* loaded_allele_code_iter = token_ptrs[2];
+      char* loaded_allele_code_end = &(loaded_allele_code_iter[token_slens[2]]);
+      *loaded_allele_code_end++ = ',';
+      uint32_t widx = 0;
+      while (1) {
+	if (!(cur_loaded_allele_ct % kBitsPerWord)) {
+	  widx = cur_loaded_allele_ct / kBitsPerWord;
+	  matched_loaded_alleles[widx] = 0;
+	}
+	uint32_t internal_allele_idx = 0;
+	uint32_t unmatched_allele_idx = 0;
+	for (; unmatched_allele_idx < unmatched_allele_ct; ++unmatched_allele_idx) {
+	  next_unset_unsafe_ck(matched_internal_alleles, &internal_allele_idx);
+	}
+	if (unmatched_allele_idx != unmatched_allele_ct) {
+	  // success
+	  ;;;
+	}
+	if (loaded_allele_code_iter == loaded_allele_code_end) {
+	  break;
+	}
+	if (++cur_loaded_allele_ct == kMaxReadFreqAlleles) {
+	  sprintf(g_logbuf, "Error: --read-freq file entry for variant ID '%s' has more than %u ALT alleles.\n", variant_ids[variant_uidx], kMaxReadFreqAlleles - 1);
+	  goto read_allele_freqs_ret_MALFORMED_INPUT_WW;
+	}
+	cur_loaded_allele_code = loaded_allele_code_iter;
+	loaded_allele_code_iter = rawmemchr(loaded_allele_code_iter, ',');
+	cur_loaded_allele_code_slen = (uintptr_t)(loaded_allele_code_iter - cur_loaded_allele_code);
+	++loaded_allele_code_iter;
+      }
+
+      ++loaded_variant_ct;
+      if (!(loaded_variant_ct % 10000)) {
+	printf("\r--read-freq: Frequencies for %uk variants loaded.\n", loaded_variant_ct / 1000);
+      }
+    }
+    if (!gzeof(gz_infile)) {
+      goto read_allele_freqs_ret_READ_FAIL;
+    }
+    if (gzclose_null(&gz_infile)) {
+      goto read_allele_freqs_ret_READ_FAIL;
+    }
+    putc_unlocked('\r', stdout);
+    LOGPRINTF("--read-freq: Frequencies for %u variant%s loaded.\n", loaded_variant_ct, (loaded_variant_ct == 1)? "" : "s");
+    if (skipped_variant_ct) {
+      LOGERRPRINTFWW("Warning: %" PRIuPTR " entr%s skipped due to missing variant ID(s) and/or mismatching allele codes.\n", skipped_variant_ct, (skipped_variant_ct == 1)? "y" : "ies");
+    }
+  }
+  while (0) {
+  read_allele_freqs_ret_LONG_LINE:
+    if (loadbuf_size == kMaxLongLine) {
+      LOGERRPRINTF("Error: Line %" PRIuPTR " of --read-freq file is pathologically long.\n", line_idx);
+      reterr = kPglRetMalformedInput;
+      break;
+    }
+  read_allele_freqs_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  read_allele_freqs_ret_READ_FAIL:
+    reterr = kPglRetReadFail;
+    break;
+  read_allele_freqs_ret_UNRECOGNIZED_HEADER:
+    logerrprint("Error: Unrecognized header line in --read-freq file.\n");
+    reterr = kPglRetMalformedInput;
+    break;
+  read_allele_freqs_ret_MISSING_TOKENS:
+    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --read-freq file has fewer tokens than expected.\n", line_idx);
+  read_allele_freqs_ret_MALFORMED_INPUT_WW:
+    logprint("\n");
+    wordwrapb(0);
+    logerrprintb();
+  read_allele_freqs_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+ read_allele_freqs_ret_1:
+  bigstack_reset(bigstack_mark);
+  gzclose_cond(gz_infile);
+  return reterr;
+}
+*/
 
 // multithread globals
 static pgen_reader_t** g_pgr_ptrs = nullptr;
@@ -1167,51 +1692,55 @@ void enforce_hwe_thresh(const chr_info_t* cip, const uint32_t* founder_raw_geno_
   *variant_ct_ptr -= removed_ct;
 }
 
-void enforce_minor_freq_constraints(const uintptr_t* variant_allele_idxs, const uint64_t* founder_allele_dosages, const double* nonmajor_freqs, uint32_t raw_variant_ct, double min_maf, double max_maf, uint64_t min_allele_dosage, uint64_t max_allele_dosage, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+void enforce_minor_freq_constraints(const uintptr_t* variant_allele_idxs, const uint64_t* founder_allele_dosages, const double* alt_allele_freqs, double min_maf, double max_maf, uint64_t min_allele_dosage, uint64_t max_allele_dosage, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   const uint32_t prefilter_variant_ct = *variant_ct_ptr;  
   uint32_t variant_uidx = 0;
   uint32_t removed_ct = 0;
-  if (variant_allele_idxs && (variant_allele_idxs[raw_variant_ct] == 2 * raw_variant_ct)) {
-    variant_allele_idxs = nullptr;
-  }
   if ((min_maf != 0.0) || (max_maf != 1.0)) {
     // defend against floating point error
     min_maf *= 1.0 - kSmallEpsilon;
     max_maf *= 1.0 + kSmallEpsilon;
   } else {
-    nonmajor_freqs = nullptr;
+    alt_allele_freqs = nullptr;
   }
   const uint32_t dosage_filter = min_allele_dosage || (max_allele_dosage != (~0LLU));
   
+  uint32_t cur_allele_ct = 2;
   for (uint32_t variant_idx = 0; variant_idx < prefilter_variant_ct; ++variant_idx, ++variant_uidx) {
     next_set_unsafe_ck(variant_include, &variant_uidx);
-    if (nonmajor_freqs) {
-      const double cur_nonmajor_freq = nonmajor_freqs[variant_uidx];
-      if ((cur_nonmajor_freq < min_maf) || (cur_nonmajor_freq > max_maf)) {
+    uintptr_t variant_allele_idx_base;
+    if (!variant_allele_idxs) {
+      variant_allele_idx_base = 2 * variant_uidx;
+    } else {
+      variant_allele_idx_base = variant_allele_idxs[variant_uidx];
+      cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - variant_allele_idx_base;
+    }
+    if (alt_allele_freqs) {
+      const double cur_nonmaj_freq = get_nonmaj_freq(&(alt_allele_freqs[variant_allele_idx_base - variant_uidx]), cur_allele_ct);
+      if ((cur_nonmaj_freq < min_maf) || (cur_nonmaj_freq > max_maf)) {
 	CLEAR_BIT(variant_uidx, variant_include);
 	++removed_ct;
 	continue;
       }
     }
     if (dosage_filter) {
-      uint64_t cur_min_dosage;
-      if (!variant_allele_idxs) {
-	cur_min_dosage = MINV(founder_allele_dosages[2 * variant_uidx], founder_allele_dosages[2 * variant_uidx + 1]);
+      const uint64_t* cur_founder_allele_dosages = &(founder_allele_dosages[variant_allele_idx_base]);
+      uint64_t max_dosage = cur_founder_allele_dosages[0];
+      uint64_t nonmaj_dosage;
+      if (cur_allele_ct == 2) {
+	nonmaj_dosage = MINV(max_dosage, cur_founder_allele_dosages[1]);
       } else {
-	const uintptr_t allele_idx_end = variant_allele_idxs[variant_uidx + 1];
-	uintptr_t allele_idx = variant_allele_idxs[variant_uidx];
-	uint64_t max_dosage = 0;
-	uint64_t tot_dosage = 0;
-	do {
-	  const uint64_t cur_dosage = founder_allele_dosages[allele_idx];
+	uint64_t tot_dosage = max_dosage;
+	for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct; ++allele_idx) {
+	  const uint64_t cur_dosage = cur_founder_allele_dosages[allele_idx];
 	  tot_dosage += cur_dosage;
 	  if (cur_dosage > max_dosage) {
 	    max_dosage = cur_dosage;
 	  }
-	} while (++allele_idx < allele_idx_end);
-	cur_min_dosage = tot_dosage - max_dosage;
+	}
+	nonmaj_dosage = tot_dosage - max_dosage;
       }
-      if ((cur_min_dosage < min_allele_dosage) || (cur_min_dosage > max_allele_dosage)) {
+      if ((nonmaj_dosage < min_allele_dosage) || (nonmaj_dosage > max_allele_dosage)) {
 	CLEAR_BIT(variant_uidx, variant_include);
 	++removed_ct;
       }

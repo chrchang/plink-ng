@@ -89,15 +89,51 @@ FLAGSET_DEF_START()
   kfPcaVcolAll = ((kfPcaVcolNonmaj * 2) - kfPcaVcolChrom)
 FLAGSET_DEF_END(pca_flags_t);
 
+FLAGSET_DEF_START()
+  kfScore0,
+  kfScoreHeaderIgnore = (1 << 0),
+  kfScoreHeaderRead = (1 << 1),
+  kfScoreNoMeanimpute = (1 << 2),
+  kfScoreCenter = (1 << 3),
+  kfScoreVarianceNormalize = (1 << 4),
+  kfScoreZs = (1 << 5),
+  
+  kfScoreColMaybesid = (1 << 6),
+  kfScoreColSid = (1 << 7),
+  kfScoreColPheno1 = (1 << 8),
+  kfScoreColPhenos = (1 << 9),
+  kfScoreColNmissAllele = (1 << 10),
+  kfScoreColDenom = (1 << 11),
+  kfScoreColDosageSum = (1 << 12),
+  kfScoreColScoreAvgs = (1 << 13),
+  kfScoreColScoreSums = (1 << 14),
+  kfScoreColDefault = (kfScoreColMaybesid | kfScoreColPhenos | kfScoreColNmissAllele | kfScoreColDosageSum | kfScoreColScoreAvgs),
+  kfScoreColAll = ((kfScoreColScoreSums * 2) - kfScoreColMaybesid)
+FLAGSET_DEF_END(score_flags_t);
+
+typedef struct score_info_struct {
+  score_flags_t flags;
+  uint32_t varid_col_p1;
+  uint32_t allele_col_p1;
+  char* input_fname;
+  range_list_t input_col_idx_range_list;
+} score_info_t;
+
+void init_score(score_info_t* score_info_ptr);
+
+void cleanup_score(score_info_t* score_info_ptr);
+
 pglerr_t king_cutoff_batch(const char* sample_ids, const char* sids, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, double king_cutoff, uintptr_t* sample_include, char* king_cutoff_fprefix, uint32_t* sample_ct_ptr);
 
 pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_include, const chr_info_t* cip, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, double king_cutoff, double king_table_filter, king_flags_t king_modifier, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, pgen_reader_t* simple_pgrp, uintptr_t* sample_include, uint32_t* sample_ct_ptr, char* outname, char* outname_end);
 
-pglerr_t calc_grm(const uintptr_t* orig_sample_include, const char* sample_ids, const char* sids, uintptr_t* variant_include, const chr_info_t* cip, const alt_allele_ct_t* maj_alleles, const double* nonmajor_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, grm_flags_t grm_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, pgen_reader_t* simple_pgrp, char* outname, char* outname_end, double** grm_ptr);
+pglerr_t calc_grm(const uintptr_t* orig_sample_include, const char* sample_ids, const char* sids, uintptr_t* variant_include, const chr_info_t* cip, const uintptr_t* variant_allele_idxs, const alt_allele_ct_t* maj_alleles, const double* nonmajor_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, grm_flags_t grm_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, pgen_reader_t* simple_pgrp, char* outname, char* outname_end, double** grm_ptr);
 
 #ifndef NOLAPACK
-pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const char* sids, uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bp, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const alt_allele_ct_t* maj_alleles, const double* nonmajor_freqs, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t pc_ct, pca_flags_t pca_flags, uint32_t max_thread_ct, pgen_reader_t* simple_pgrp, double* grm, char* outname, char* outname_end);
+pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const char* sids, uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bp, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const alt_allele_ct_t* maj_alleles, const double* alt_allele_freqs, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t pc_ct, pca_flags_t pca_flags, uint32_t max_thread_ct, pgen_reader_t* simple_pgrp, double* grm, char* outname, char* outname_end);
 #endif
+
+pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const uintptr_t* sex_male, const pheno_col_t* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const chr_info_t* cip, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const double* alt_allele_freqs, const score_info_t* score_info_ptr, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_blen, uint32_t xchr_model, uint32_t max_thread_ct, pgen_reader_t* simple_pgrp, char* outname, char* outname_end);
 
 #ifdef __cplusplus
 } // namespace plink2

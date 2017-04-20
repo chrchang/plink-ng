@@ -145,26 +145,6 @@ FLAGSET_DEF_START()
   kfHardyColAll = ((kfHardyColP * 2) - kfHardyColChrom)
 FLAGSET_DEF_END(hardy_flags_t);
 
-FLAGSET_DEF_START()
-  kfScore0,
-  kfScoreHeader = (1 << 0),
-  kfScoreNoMeanimpute = (1 << 1),
-  kfScoreCenter = (1 << 2),
-  kfScoreVarianceNormalize = (1 << 3),
-  
-  kfScoreColMaybesid = (1 << 4),
-  kfScoreColSid = (1 << 5),
-  kfScoreColPheno1 = (1 << 6),
-  kfScoreColPhenos = (1 << 7),
-  kfScoreColNmissAllele = (1 << 8),
-  kfScoreColDenom = (1 << 9),
-  kfScoreColDosageSum = (1 << 10),
-  kfScoreColScore = (1 << 11),
-  kfScoreColScoreSum = (1 << 12),
-  kfScoreColDefault = (kfScoreColMaybesid | kfScoreColPhenos | kfScoreColNmissAllele | kfScoreColDosageSum | kfScoreColScore),
-  kfScoreColAll = ((kfScoreColScoreSum * 2) - kfScoreColMaybesid)
-FLAGSET_DEF_END(score_flags_t);
-
 pglerr_t update_sample_sexes(const char* update_sex_fname, const uintptr_t* sample_include, char* sample_ids, uint32_t raw_sample_ct, uintptr_t sample_ct, uintptr_t max_sample_id_blen, uint32_t update_sex_colm2, uintptr_t* sex_nm, uintptr_t* sex_male);
 
 pglerr_t write_allele_freqs(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bp, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint64_t* founder_allele_dosages, const char* ref_binstr, const char* alt1_binstr, uint32_t variant_ct, uint32_t max_alt_allele_ct, uint32_t max_allele_slen, allele_freq_t allele_freq_modifier, uint32_t nonfounders, char* outname, char* outname_end);

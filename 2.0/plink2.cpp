@@ -29,6 +29,9 @@
 // needed for logistic testing
 // #include "plink2_matrix.h"
 
+// needed for SNPHWEX testing
+// #include "plink2_stats.h"
+
 // #include <locale.h>
 #include <time.h>
 #include <unistd.h> // getcwd(), gethostname(), sysconf(), unlink()
@@ -62,7 +65,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (11 Apr 2017)";
+  " (19 Apr 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -77,7 +80,7 @@ static const char ver_str2[] =
 #endif
   "    www.cog-genomics.org/plink/2.0/\n"
   "(C) 2005-2017 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
-static const char errstr_append[] = "For more information, try '" PROG_NAME_STR " --help [flag name]' or '" PROG_NAME_STR " --help | more'.\n";
+static const char errstr_append[] = "For more info, try '" PROG_NAME_STR " --help [flag name]' or '" PROG_NAME_STR " --help | more'.\n";
 
 #ifndef NOLAPACK
 static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --make-king, --king-cutoff, --write-snplist,\n--make-grm-gz, --pca, --glm, --score, --genotyping-rate, --validate, and\n--zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
@@ -225,9 +228,9 @@ typedef struct plink2_cmdline_struct {
   missing_rpt_t missing_rpt_modifier;
   geno_counts_t geno_counts_modifier;
   hardy_flags_t hardy_modifier;
-  score_flags_t score_flags;
   glm_info_t glm_info;
   adjust_info_t adjust_info;
+  score_info_t score_info;
   aperm_t aperm;
   double ci_size;
   float var_min_qual;
@@ -259,10 +262,10 @@ typedef struct plink2_cmdline_struct {
   int32_t to_bp;
   int32_t window_bp;
   uint32_t pca_ct;
+  uint32_t xchr_model;
   uint32_t max_thread_ct;
   uint32_t parallel_idx;
   uint32_t parallel_tot;
-  uint32_t score_cols[3];
   uint32_t exportf_bits;
   char exportf_id_delim;
   
@@ -287,15 +290,15 @@ typedef struct plink2_cmdline_struct {
   char* glm_local_covar_fname;
   char* glm_local_pvar_fname;
   char* glm_local_psam_fname;
-  char* score_fname;
+  char* read_freq_fname;
 } plink2_cmdline_t;
 
 uint32_t is_single_variant_loader_needed(const char* king_cutoff_fprefix, command1_flags_t command_flags1, make_plink2_t make_plink2_modifier) {
-  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm)) || ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_modifier & kfMakePgen)) || ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix));
+  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score)) || ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_modifier & kfMakePgen)) || ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix));
 }
 
-uint32_t are_nonmajor_freqs_needed(command1_flags_t command_flags1, double min_maf, double max_maf) {
-  return (command_flags1 & (kfCommand1AlleleFreq | kfCommand1LdPrune | kfCommand1Pca | kfCommand1MakeRel)) || (min_maf != 0.0) || (max_maf != 1.0);
+uint32_t are_alt_allele_freqs_needed(command1_flags_t command_flags1, double min_maf, double max_maf) {
+  return (command_flags1 & (kfCommand1AlleleFreq | kfCommand1LdPrune | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Score)) || (min_maf != 0.0) || (max_maf != 1.0);
 }
 
 uint32_t are_maj_alleles_needed(command1_flags_t command_flags1) {
@@ -852,29 +855,10 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, const plink2_cmdline
       // table structures, just check specific IDs for duplication in the
       // no-duplicates-allowed cases
       unsigned char* bigstack_mark = g_bigstack_base;
-      uintptr_t htable_max_alloc = bigstack_left() & (~(kCacheline - k1LU));
-      // this needs to work under low memory conditions, but it gets a
-      // substantial speedup from a smaller load factor, so we want to use a
-      // smart sizing strategy
-      uint32_t variant_id_htable_size = get_htable_fast_size(variant_ct);
-      // 4 bytes per variant for hash buffer
-      // up to 8 bytes per variant in extra_alloc for duplicate tracking
-      const uintptr_t nonhtable_alloc = round_up_pow2(variant_ct * sizeof(int32_t), kCacheline) + round_up_pow2(variant_ct * 2 * sizeof(int32_t), kCacheline);
-      // the variant_ct * sizeof(int32_t) term here is a bit arbitrary
-      if (nonhtable_alloc + variant_ct * sizeof(int32_t) > htable_max_alloc) {
-	goto plink2_ret_NOMEM;
-      }
-      htable_max_alloc -= nonhtable_alloc;
-      if (variant_id_htable_size * sizeof(int32_t) > htable_max_alloc) {
-	variant_id_htable_size = leqprime(htable_max_alloc / sizeof(int32_t));
-	const uint32_t min_htable_size = get_htable_min_size(variant_ct);
-	if (variant_id_htable_size < min_htable_size) {
-	  variant_id_htable_size = min_htable_size;
-	}
-      }
-      // guaranteed to succeed
-      uint32_t* variant_id_htable = (uint32_t*)bigstack_alloc_raw(round_up_pow2(variant_id_htable_size * sizeof(int32_t), kCacheline));
-      reterr = populate_variant_id_htable_mt(variant_include, variant_ids, variant_ct, 1, variant_id_htable_size, pcp->max_thread_ct, variant_id_htable);
+      uint32_t* variant_id_htable = nullptr;
+      uint32_t* htable_dup_base = nullptr;
+      uint32_t variant_id_htable_size;
+      reterr = alloc_and_populate_variant_id_dup_htable_mt(variant_include, variant_ids, variant_ct, pcp->max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size);
       if (reterr) {
 	goto plink2_ret_1;
       }
@@ -1090,7 +1074,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, const plink2_cmdline
     uint64_t* allele_dosages = nullptr; // same indexes as allele_storage
     uint64_t* founder_allele_dosages = nullptr;
     alt_allele_ct_t* maj_alleles = nullptr;    
-    double* nonmajor_freqs = nullptr;
+    double* alt_allele_freqs = nullptr;
     uint32_t* raw_geno_cts = nullptr;
     uint32_t* founder_raw_geno_cts = nullptr;
     unsigned char* bigstack_mark_allele_dosages = g_bigstack_base;
@@ -1102,8 +1086,19 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, const plink2_cmdline
 	  goto plink2_ret_NOMEM;
 	}
       }
-      if (are_nonmajor_freqs_needed(pcp->command_flags1, pcp->min_maf, pcp->max_maf)) {
-	if (bigstack_alloc_d(raw_variant_ct, &nonmajor_freqs)) {
+      if (are_alt_allele_freqs_needed(pcp->command_flags1, pcp->min_maf, pcp->max_maf)) {
+	// alt_allele_freqs[variant_allele_idxs[variant_uidx] + 1 -
+        //                  variant_uidx]
+	// stores the frequency estimate for alt1; replace "+ 1" with "+ 2" for
+	// alt2, etc.  To save memory, we don't explicitly store reference
+	// allele frequencies.
+	uintptr_t total_alt_allele_ct = raw_variant_ct;
+	if (variant_allele_idxs) {
+	  total_alt_allele_ct = variant_allele_idxs[raw_variant_ct] - raw_variant_ct;
+	}
+	// Note that we use elements [1..total_alt_allele_ct], not
+	// [0..(tot_alt_allele_ct - 1)].
+	if (bigstack_alloc_d(total_alt_allele_ct + 1, &alt_allele_freqs)) {
 	  goto plink2_ret_NOMEM;
 	}
       }
@@ -1132,13 +1127,13 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, const plink2_cmdline
       }
       bigstack_mark_allele_dosages = g_bigstack_base;
       const uint32_t first_hap_uidx = get_first_haploid_uidx(cip);
-      if (are_allele_dosages_needed(pcp->misc_flags, make_plink2_modifier, maj_alleles || nonmajor_freqs, pcp->min_allele_dosage, pcp->max_allele_dosage)) {
+      if (are_allele_dosages_needed(pcp->misc_flags, make_plink2_modifier, maj_alleles || alt_allele_freqs, pcp->min_allele_dosage, pcp->max_allele_dosage)) {
 	if (bigstack_alloc_ull(variant_allele_idxs? variant_allele_idxs[raw_variant_ct] : (2 * raw_variant_ct), &allele_dosages)) {
 	  goto plink2_ret_NOMEM;
 	}
       }
       bigstack_mark_founder_allele_dosages = g_bigstack_base;
-      if (are_founder_allele_dosages_needed(pcp->misc_flags, maj_alleles || nonmajor_freqs, pcp->min_allele_dosage, pcp->max_allele_dosage)) {
+      if (are_founder_allele_dosages_needed(pcp->misc_flags, maj_alleles || alt_allele_freqs, pcp->min_allele_dosage, pcp->max_allele_dosage)) {
 	if ((founder_ct == sample_ct) && allele_dosages) {
 	  founder_allele_dosages = allele_dosages;
 	} else {
@@ -1247,9 +1242,18 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, const plink2_cmdline
 	  }
 	}
       }
-      if (maj_alleles || nonmajor_freqs) {
-	compute_maj_alleles_and_nonmajor_freqs(variant_include, variant_allele_idxs, nonfounders? allele_dosages : founder_allele_dosages, raw_variant_ct, variant_ct, (pcp->misc_flags / kfMiscMafSucc) & 1, maj_alleles, nonmajor_freqs);
-	// todo: --read-freq
+      if (maj_alleles || alt_allele_freqs) {
+	compute_maj_alleles_and_alt_allele_freqs(variant_include, variant_allele_idxs, nonfounders? allele_dosages : founder_allele_dosages, variant_ct, (pcp->misc_flags / kfMiscMafSucc) & 1, maj_alleles, alt_allele_freqs);
+	if (pcp->read_freq_fname) {
+	  logerrprint("Error: --read-freq is under development.\n");
+	  reterr = kPglRetNotYetSupported;
+	  // reterr = read_allele_freqs(variant_include, cip, variant_ids, variant_allele_idxs, allele_storage, pcp->read_freq_fname, raw_variant_ct, variant_ct, pgfi.max_alt_allele_ct, max_variant_id_blen, max_allele_slen, (pcp->misc_flags / kfMiscMafSucc) & 1, pcp->max_thread_ct, maj_alleles, alt_allele_freqs);
+	  if (reterr) {
+	    goto plink2_ret_1;
+	  }
+	}
+      } else if (pcp->read_freq_fname) {
+	LOGERRPRINTF("Warning: Ignoring --read-freq since no command would use the frequencies.\n");
       }
 
       if (pcp->command_flags1 & kfCommand1AlleleFreq) {
@@ -1322,7 +1326,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, const plink2_cmdline
 
       if ((pcp->min_maf != 0.0) || (pcp->max_maf != 1.0) || pcp->min_allele_dosage || (pcp->max_allele_dosage != (~0LLU))) {
 	// todo: --read-freq handling
-	enforce_minor_freq_constraints(variant_allele_idxs, nonfounders? allele_dosages : founder_allele_dosages, nonmajor_freqs, raw_variant_ct, pcp->min_maf, pcp->max_maf, pcp->min_allele_dosage, pcp->max_allele_dosage, variant_include, &variant_ct);
+	enforce_minor_freq_constraints(variant_allele_idxs, nonfounders? allele_dosages : founder_allele_dosages, alt_allele_freqs, pcp->min_maf, pcp->max_maf, pcp->min_allele_dosage, pcp->max_allele_dosage, variant_include, &variant_ct);
       }
 
       if (pcp->mach_r2_max != 0.0) {
@@ -1379,7 +1383,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, const plink2_cmdline
     double* grm = nullptr;
     const uint32_t keep_grm = grm_keep_needed(pcp->command_flags1, pcp->pca_flags);
     if ((pcp->command_flags1 & kfCommand1MakeRel) || keep_grm) {
-      reterr = calc_grm(sample_include, sample_ids, sids, variant_include, cip, maj_alleles, nonmajor_freqs, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, raw_variant_ct, variant_ct, pcp->grm_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end, keep_grm? (&grm) : nullptr);
+      reterr = calc_grm(sample_include, sample_ids, sids, variant_include, cip, variant_allele_idxs, maj_alleles, alt_allele_freqs, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, raw_variant_ct, variant_ct, pcp->grm_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end, keep_grm? (&grm) : nullptr);
       if (reterr) {
 	goto plink2_ret_1;
       }
@@ -1391,7 +1395,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, const plink2_cmdline
 #ifndef NOLAPACK
     if (pcp->command_flags1 & kfCommand1Pca) {
       // if the GRM is on the stack, this always frees it
-      reterr = calc_pca(sample_include, sample_ids, sids, variant_include, cip, variant_bp, variant_ids, variant_allele_idxs, allele_storage, maj_alleles, nonmajor_freqs, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, raw_variant_ct, variant_ct, max_allele_slen, pcp->pca_ct, pcp->pca_flags, pcp->max_thread_ct, &simple_pgr, grm, outname, outname_end);
+      reterr = calc_pca(sample_include, sample_ids, sids, variant_include, cip, variant_bp, variant_ids, variant_allele_idxs, allele_storage, maj_alleles, alt_allele_freqs, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, raw_variant_ct, variant_ct, max_allele_slen, pcp->pca_ct, pcp->pca_flags, pcp->max_thread_ct, &simple_pgr, grm, outname, outname_end);
       if (reterr) {
 	goto plink2_ret_1;
       }
@@ -1557,16 +1561,14 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, const plink2_cmdline
 	logerrprint("Error: When the window size is in kb units, LD-based pruning requires a sorted\n.pvar/.bim.  Retry this command after using e.g. plink 1.9 --make-bed to sort\nyour data.\n");
 	goto plink2_ret_INCONSISTENT_INPUT;
       }
-      reterr = ld_prune(variant_include, cip, variant_bp, variant_ids, maj_alleles, nonmajor_freqs, founder_info, sex_male, &(pcp->ld_info), raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+      reterr = ld_prune(variant_include, cip, variant_bp, variant_ids, variant_allele_idxs, maj_alleles, alt_allele_freqs, founder_info, sex_male, &(pcp->ld_info), raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
       if (reterr) {
 	goto plink2_ret_1;
       }
     }
 
     if (pcp->command_flags1 & kfCommand1Score) {
-      logerrprint("Error: --score is currently under development.\n");
-      reterr = kPglRetNotYetSupported;
-      // reterr = score_report(sample_include, sample_ids, sids, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_ids, variant_allele_idxs, allele_storage, pcp->score_fname, pcp->score_flags, pcp->score_cols, sample_ct, max_sample_id_blen, max_sid_blen, pheno_ct, max_pheno_name_blen, variant_ct, max_variant_id_blen, max_allele_slen, );
+      reterr = score_report(sample_include, sample_ids, sids, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_ids, variant_allele_idxs, allele_storage, alt_allele_freqs, &(pcp->score_info), sample_ct, max_sample_id_blen, max_sid_blen, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_variant_id_blen, pcp->xchr_model, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
       if (reterr) {
 	goto plink2_ret_1;
       }
@@ -1574,7 +1576,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, const plink2_cmdline
     // eventually check for nonzero pheno_ct here?
     
     if (pcp->command_flags1 & kfCommand1Glm) {
-      reterr = glm_main(sample_include, sample_ids, sids, sex_nm, sex_male, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bp, variant_ids, variant_allele_idxs, allele_storage, &(pcp->glm_info), &(pcp->adjust_info), &(pcp->aperm), pcp->glm_local_covar_fname, pcp->glm_local_pvar_fname, pcp->glm_local_psam_fname, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_variant_id_blen, max_allele_slen, pcp->ci_size, pcp->vif_thresh, pcp->pfilter, pcp->output_min_p, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
+      reterr = glm_main(sample_include, sample_ids, sids, sex_nm, sex_male, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bp, variant_ids, variant_allele_idxs, allele_storage, &(pcp->glm_info), &(pcp->adjust_info), &(pcp->aperm), pcp->glm_local_covar_fname, pcp->glm_local_pvar_fname, pcp->glm_local_psam_fname, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_variant_id_blen, max_allele_slen, pcp->xchr_model, pcp->ci_size, pcp->vif_thresh, pcp->pfilter, pcp->output_min_p, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
       if (reterr) {
 	goto plink2_ret_1;
       }
@@ -2343,7 +2345,6 @@ int main(int argc, char** argv) {
 #ifdef __cplusplus
   using namespace plink2;
 #endif
-
   // special case, since it may dump to stdout
   if ((argc > 1) && ((!strcmp(argv[1], "--zst-decompress")) || (!strcmp(argv[1], "-zst-decompress")))) {
     if (argc == 2) {
@@ -2403,7 +2404,7 @@ int main(int argc, char** argv) {
   pc.glm_local_covar_fname = nullptr;
   pc.glm_local_pvar_fname = nullptr;
   pc.glm_local_psam_fname = nullptr;
-  pc.score_fname = nullptr;
+  pc.read_freq_fname = nullptr;
   init_range_list(&pc.snps_range_list);
   init_range_list(&pc.exclude_snps_range_list);
   init_range_list(&pc.pheno_range_list);
@@ -2411,6 +2412,7 @@ int main(int argc, char** argv) {
   init_ld(&pc.ld_info);
   init_glm(&pc.glm_info);
   init_adjust(&pc.adjust_info);
+  init_score(&pc.score_info);
   chr_info_t chr_info;
   if (init_chr_info(&chr_info)) {
     goto main_ret_NOMEM;
@@ -2868,7 +2870,6 @@ int main(int argc, char** argv) {
     pc.missing_rpt_modifier = kfMissingRpt0;
     pc.geno_counts_modifier = kfGenoCounts0;
     pc.hardy_modifier = kfHardy0;
-    pc.score_flags = kfScore0;
     pc.aperm.min = 6;
     pc.aperm.max = 1000000;
     pc.aperm.alpha = 0.0;
@@ -2908,11 +2909,9 @@ int main(int argc, char** argv) {
     pc.to_bp = -1;
     pc.window_bp = -1;
     pc.pca_ct = 0;
+    pc.xchr_model = 2;
     pc.parallel_idx = 0;
     pc.parallel_tot = 1;
-    pc.score_cols[0] = 1;
-    pc.score_cols[1] = 0;
-    pc.score_cols[2] = 0;
     pc.exportf_bits = 0;
     pc.exportf_id_delim = '\0';
     double import_dosage_certainty = 0.0;
@@ -2933,6 +2932,7 @@ int main(int argc, char** argv) {
     uint32_t notchr_present = 0;
     uint32_t permit_multiple_inclusion_filters = 0;
     uint32_t vcf_dosage_import_field = 0;
+    uint32_t memory_require = 0;
     do {
       flagname_p = &(flag_buf[cur_flag_idx * kMaxFlagBlen]);
       if (!(*flagname_p)) {
@@ -4038,7 +4038,7 @@ int main(int argc, char** argv) {
 	  }
 	  uint32_t alternate_genotype_col_flags = (uint32_t)(pc.glm_info.flags & (kfGlmGenotypic | kfGlmHethom | kfGlmDominant | kfGlmRecessive));
 	  if (alternate_genotype_col_flags) {
-	    pc.glm_info.xchr_model = 0;
+	    pc.xchr_model = 0;
 	    if (alternate_genotype_col_flags & (alternate_genotype_col_flags - 1)) {
 	      logerrprint("Error: Conflicting --glm parameters.\n");
 	      goto main_ret_INVALID_CMDLINE_A;
@@ -4542,15 +4542,23 @@ int main(int argc, char** argv) {
 
       case 'm':
 	if (!memcmp(flagname_p2, "emory", 6)) {
-	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
 	    goto main_ret_INVALID_CMDLINE_2A;
 	  }
-	  if (scan_posintptr(argv[arg_idx + 1], (uintptr_t*)(&malloc_size_mb))) {
-	    sprintf(g_logbuf, "Error: Invalid --memory parameter '%s'.\n", argv[arg_idx + 1]);
+	  uint32_t mb_modif_idx = 1;
+	  if (param_ct == 2) {
+	    if (check_extra_param(&(argv[arg_idx]), "require", &mb_modif_idx)) {
+	      goto main_ret_INVALID_CMDLINE_A;
+	    }
+	    memory_require = 1;
+	  }
+	  const char* mb_modif = argv[arg_idx + mb_modif_idx];
+	  if (scan_posintptr(mb_modif, (uintptr_t*)(&malloc_size_mb))) {
+	    sprintf(g_logbuf, "Error: Invalid --memory parameter '%s'.\n", mb_modif);
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	  if (malloc_size_mb < (intptr_t)kBigstackMinMb) {
-	    sprintf(g_logbuf, "Error: Invalid --memory parameter '%s' (minimum %u).\n", argv[arg_idx + 1], kBigstackMinMb);
+	    sprintf(g_logbuf, "Error: Invalid --memory parameter '%s' (minimum %u).\n", mb_modif, kBigstackMinMb);
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 #ifndef __LP64__
@@ -5439,13 +5447,24 @@ int main(int argc, char** argv) {
 	  notchr_present = 1;
 	  // remaining processing now postponed to finalize_chrset()
 	} else if (!memcmp(flagname_p2, "ew-id-max-allele-len", 21)) {
-	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
 	    goto main_ret_INVALID_CMDLINE_2A;
 	  }
 	  const char* cur_modif = argv[arg_idx + 1];
 	  if (scan_posint_capped(cur_modif, kMaxIdSlen - 2, &pc.new_variant_id_max_allele_slen)) {
-	    sprintf(g_logbuf, "Error: Invalid --new-id-max-allele-len parameter '%s'.\n", cur_modif);
+	    sprintf(g_logbuf, "Error: Invalid --new-id-max-allele-len length parameter '%s'.\n", cur_modif);
 	    goto main_ret_INVALID_CMDLINE_WWA;
+	  }
+	  if (param_ct == 2) {
+	    cur_modif = argv[arg_idx + 2];
+	    if (!strcmp(cur_modif, "missing")) {
+	      pc.misc_flags |= kfMiscNewVarIdOverflowMissing;
+	    } else if (!strcmp(cur_modif, "truncate")) {
+	      pc.misc_flags |= kfMiscNewVarIdOverflowTruncate;
+	    } else if (strcmp(cur_modif, "error")) {
+	      sprintf(g_logbuf, "Error: Invalid --new-id-max-allele-len parameter '%s'.\n", cur_modif);
+	      goto main_ret_INVALID_CMDLINE_WWA;
+	    }
 	  }
 	} else {
 	  goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
@@ -5807,6 +5826,15 @@ int main(int argc, char** argv) {
 	} else if (!memcmp(flagname_p2, "emove-nosex", 12)) {
 	  pc.filter_flags |= kfFilterPsamReq | kfFilterExclNosex;
 	  goto main_param_zero;
+	} else if (!memcmp(flagname_p2, "ead-freq", 9)) {
+	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+	    goto main_ret_INVALID_CMDLINE_2A;
+	  }
+	  reterr = alloc_fname(argv[arg_idx + 1], flagname_p, 0, &pc.read_freq_fname);
+	  if (reterr) {
+	    goto main_ret_1;
+	  }
+	  pc.filter_flags |= kfFilterAllReq;
 	} else if (!memcmp(flagname_p2, "ice", 4)) {
 	  if (chr_info.chrset_source) {
 	    logerrprint("Error: Conflicting chromosome-set flags.\n");
@@ -5876,12 +5904,7 @@ int main(int argc, char** argv) {
 	  }
 	  pc.filter_flags |= kfFilterPvarReq;
 	} else if ((!memcmp(flagname_p2, "et-all-var-ids", 15)) || (!memcmp(flagname_p2, "et-missing-var-ids", 19))) {
-	  if (flagname_p2[3] == 'a') {
-	    if (pc.missing_varid_match) {
-	      logerrprint("Error: --set-all-var-ids cannot be used with --missing-var-code.\n");
-	      goto main_ret_INVALID_CMDLINE_A;
-	    }
-	  } else {
+	  if (flagname_p2[3] == 'm') {
 	    if (pc.varid_template) {
 	      logerrprint("Error: --set-missing-var-ids cannot be used with --set-all-var-ids.\n");
 	      goto main_ret_INVALID_CMDLINE;
@@ -5982,31 +6005,36 @@ int main(int argc, char** argv) {
 	  }
 	  pc.filter_flags |= kfFilterPvarReq | kfFilterSnpsOnly;
 	} else if (!memcmp(flagname_p2, "core", 5)) {
-	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 8)) {
+	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 9)) {
 	    goto main_ret_INVALID_CMDLINE_2A;
 	  }
-	  reterr = alloc_fname(argv[arg_idx + 1], flagname_p, 0, &pc.score_fname);
+	  reterr = alloc_fname(argv[arg_idx + 1], flagname_p, 0, &pc.score_info.input_fname);
 	  if (reterr) {
 	    goto main_ret_1;
 	  }
 	  uint32_t numeric_param_ct = 0;
+	  uint32_t score_cols[3];
 	  for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
 	    const char* cur_modif = argv[arg_idx + param_idx];
 	    const uint32_t cur_modif_slen = strlen(cur_modif);
 	    if ((cur_modif_slen == 6) && (!memcmp(cur_modif, "header", 6))) {
-	      pc.score_flags |= kfScoreHeader;
+	      pc.score_info.flags |= kfScoreHeaderIgnore;
+	    } else if ((cur_modif_slen == 11) && (!memcmp(cur_modif, "header-read", 11))) {
+	      pc.score_info.flags |= kfScoreHeaderRead;
 	    } else if ((cur_modif_slen == 18) && (!memcmp(cur_modif, "no-mean-imputation", 18))) {
-	      pc.score_flags |= kfScoreNoMeanimpute;
+	      pc.score_info.flags |= kfScoreNoMeanimpute;
 	    } else if ((cur_modif_slen == 6) && (!memcmp(cur_modif, "center", 6))) {
-	      pc.score_flags |= kfScoreCenter;
+	      pc.score_info.flags |= kfScoreCenter;
 	    } else if ((cur_modif_slen == 18) && (!memcmp(cur_modif, "variance-normalize", 18))) {
-	      pc.score_flags |= kfScoreVarianceNormalize;
+	      pc.score_info.flags |= kfScoreVarianceNormalize;
+	    } else if ((cur_modif_slen == 2) && (!memcmp(cur_modif, "zs", 2))) {
+	      pc.score_info.flags |= kfScoreZs;
 	    } else if ((cur_modif_slen > 5) && (!memcmp(cur_modif, "cols=", 5))) {
-	      if (pc.score_flags & kfScoreColAll) {
+	      if (pc.score_info.flags & kfScoreColAll) {
 		logerrprint("Error: Multiple --score cols= modifiers.\n");
 		goto main_ret_INVALID_CMDLINE;
 	      }
-	      reterr = parse_col_descriptor(&(cur_modif[5]), "maybesid\0sid\0pheno1\0phenos\0nmissallele\0denom\0dosagesum\0score\0scoresum\0", "score", kfScoreColMaybesid, kfScoreColDefault, 1, &pc.score_flags);
+	      reterr = parse_col_descriptor(&(cur_modif[5]), "maybesid\0sid\0pheno1\0phenos\0nmissallele\0denom\0dosagesum\0scoreavgs\0scoresums\0", "score", kfScoreColMaybesid, kfScoreColDefault, 1, &pc.score_info.flags);
 	      if (reterr) {
 		goto main_ret_1;
 	      }
@@ -6014,12 +6042,12 @@ int main(int argc, char** argv) {
 	      logerrprint("Error: --score takes at most three numeric parameters.\n");
 	      goto main_ret_INVALID_CMDLINE_A;
 	    } else {
-	      if (scan_posint_capped(cur_modif, kMaxLongLine / 2, &(pc.score_cols[numeric_param_ct]))) {
+	      if (scan_posint_capped(cur_modif, kMaxLongLine / 2, &(score_cols[numeric_param_ct]))) {
 		sprintf(g_logbuf, "Error: Invalid --score parameter '%s'.\n", cur_modif);
 		goto main_ret_INVALID_CMDLINE_WWA;
 	      }
 	      for (uint32_t uii = 0; uii < numeric_param_ct; ++uii) {
-		if (pc.score_cols[uii] == pc.score_cols[numeric_param_ct]) {
+		if (score_cols[uii] == score_cols[numeric_param_ct]) {
 		  logerrprint("Error: Identical --score column indexes.\n");
 		  goto main_ret_INVALID_CMDLINE_A;
 		}
@@ -6027,16 +6055,50 @@ int main(int argc, char** argv) {
 	      ++numeric_param_ct;
 	    }
 	  }
-	  if (!(pc.score_flags & kfScoreColAll)) {
-	    pc.score_flags |= kfScoreColDefault;
+	  if ((pc.score_info.flags & (kfScoreHeaderIgnore | kfScoreHeaderRead)) == (kfScoreHeaderIgnore | kfScoreHeaderRead)) {
+	    logerrprint("Error: --score 'header' and 'header-read' modifiers cannot be used together.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
 	  }
-	  if (!pc.score_cols[1]) {
-	    pc.score_cols[1] = pc.score_cols[0] + 1;
+	  if (!(pc.score_info.flags & kfScoreColAll)) {
+	    pc.score_info.flags |= kfScoreColDefault;
 	  }
-	  if (!pc.score_cols[2]) {
-	    pc.score_cols[2] = pc.score_cols[1] + 1;
+	  if (numeric_param_ct) {
+	    pc.score_info.varid_col_p1 = score_cols[0];
+	  }
+	  if (numeric_param_ct > 1) {
+	    pc.score_info.allele_col_p1 = score_cols[1];
+	  } else {
+	    pc.score_info.allele_col_p1 = pc.score_info.varid_col_p1 + 1;
+	  }
+	  if (numeric_param_ct == 3) {
+	    // a bit artificial, but it works
+	    const uint32_t col_idx = score_cols[2];
+	    const uint32_t col_idx_blen = 1 + int_slen(col_idx);
+	    char* new_buf = (char*)malloc(col_idx_blen + 1);
+	    if (!new_buf) {
+	      goto main_ret_NOMEM;
+	    }
+	    pc.score_info.input_col_idx_range_list.names = new_buf;
+	    pc.score_info.input_col_idx_range_list.name_max_blen = col_idx_blen;
+	    pc.score_info.input_col_idx_range_list.name_ct = 1;
+	    uint32toa_x(col_idx, '\0', new_buf);
+	    new_buf[col_idx_blen] = '\0';
+	    pc.score_info.input_col_idx_range_list.starts_range = (unsigned char*)(&(new_buf[col_idx_blen]));
 	  }
 	  pc.command_flags1 |= kfCommand1Score;
+	} else if (!memcmp(flagname_p2, "core-col-nums", 14)) {
+	  if (!(pc.command_flags1 & kfCommand1Score)) {
+	    logerrprint("Error: --score-col-nums must be used with --score.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
+	  }
+	  if (pc.score_info.input_col_idx_range_list.name_ct) {
+	    logerrprint("Error: --score-col-nums cannot be used when three numeric parameters are\nprovided to --score.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
+	  }
+	  reterr = parse_name_ranges(&(argv[arg_idx]), errstr_append, param_ct, 1, '-', &pc.score_info.input_col_idx_range_list);
+	  if (reterr) {
+	    goto main_ret_1;
+	  }
 	} else {
 	  goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
 	}
@@ -6339,8 +6401,8 @@ int main(int argc, char** argv) {
 
       case 'x':
 	if (!memcmp(flagname_p2, "chr-model", 10)) {
-	  if (!(pc.command_flags1 & kfCommand1Glm)) {
-	    logerrprint("Error: --xchr-model must be used with --glm.\n");
+	  if (!(pc.command_flags1 & (kfCommand1Glm | kfCommand1Score))) {
+	    logerrprint("Error: --xchr-model must be used with --glm or --score.\n");
 	    goto main_ret_INVALID_CMDLINE_A;
 	  }
 	  if (pc.glm_info.flags & (kfGlmGenotypic | kfGlmHethom | kfGlmDominant | kfGlmRecessive)) {
@@ -6351,8 +6413,8 @@ int main(int argc, char** argv) {
 	    goto main_ret_INVALID_CMDLINE_2A;
 	  }
 	  const char* cur_modif = argv[arg_idx + 1];
-	  pc.glm_info.xchr_model = ((uint32_t)extract_char_param(cur_modif)) - 48;
-	  if (pc.glm_info.xchr_model > 2) {
+	  pc.xchr_model = ((uint32_t)extract_char_param(cur_modif)) - 48;
+	  if (pc.xchr_model > 2) {
 	    sprintf(g_logbuf, "Error: Invalid --xchr-model parameter '%s'.\n", cur_modif);
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
@@ -6505,6 +6567,9 @@ int main(int argc, char** argv) {
     g_input_missing_geno_ptr = &(g_one_char_strs[2 * ((unsigned char)input_missing_geno_char)]);
     g_output_missing_geno_ptr = &(g_one_char_strs[2 * ((unsigned char)output_missing_geno_char)]);
     if (((uintptr_t)malloc_size_mb) != malloc_mb_final) {
+      if (memory_require) {
+	goto main_ret_NOMEM;
+      }
       LOGPRINTF("Allocated %" PRIuPTR " MB successfully, after larger attempt(s) failed.\n", malloc_mb_final);
     }
 
@@ -6780,7 +6845,7 @@ int main(int argc, char** argv) {
   free_cond(flag_buf);
   free_cond(flag_map);
   free_cond(king_cutoff_fprefix);
-  free_cond(pc.score_fname);
+  free_cond(pc.read_freq_fname);
   free_cond(pc.glm_local_covar_fname);
   free_cond(pc.glm_local_pvar_fname);
   free_cond(pc.glm_local_psam_fname);
@@ -6810,6 +6875,7 @@ int main(int argc, char** argv) {
       file_delete_list = llstr_ptr;
     } while (file_delete_list);
   }
+  cleanup_score(&pc.score_info);
   cleanup_glm(&pc.glm_info);
   cleanup_chr_info(&chr_info);
   cleanup_ld(&pc.ld_info);

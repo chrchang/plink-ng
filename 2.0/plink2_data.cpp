@@ -384,6 +384,7 @@ pglerr_t write_pvar(const char* outname, const char* xheader, const uintptr_t* v
     uint32_t chr_buf_blen = 0;
     uint32_t ref_allele_idx = 0;
     uint32_t alt1_allele_idx = 1;
+    uint32_t cur_allele_ct = 2;
     for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
       next_set_unsafe_ck(variant_include, &variant_uidx);
       if (variant_uidx >= chr_end) {
@@ -398,9 +399,10 @@ pglerr_t write_pvar(const char* outname, const char* xheader, const uintptr_t* v
       cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
       cswritep = uint32toa_x(variant_bp[variant_uidx], '\t', cswritep);
       cswritep = strcpyax(cswritep, variant_ids[variant_uidx], '\t');
-      uintptr_t variant_allele_idx_base = variant_uidx * 2;
-      uint32_t cur_allele_ct = 2;
-      if (variant_allele_idxs) {
+      uintptr_t variant_allele_idx_base;
+      if (!variant_allele_idxs) {
+	variant_allele_idx_base = variant_uidx * 2;
+      } else {
 	variant_allele_idx_base = variant_allele_idxs[variant_uidx];
 	cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - variant_allele_idx_base;
       }
@@ -6929,10 +6931,7 @@ THREAD_FUNC_DECL make_pgen_thread(void* arg) {
 	    if (cur_write_phasepresent) {
 	      bitvec_andnot2(cur_write_phasepresent, sample_ctl, write_phaseinfo);
 	    } else {
-	      for (uint32_t widx = 0; widx < sample_ctl; ++widx) {
-		write_phaseinfo[widx] = ~write_phaseinfo[widx];
-	      }
-	      zero_trailing_bits(sample_ct, write_phaseinfo);
+	      bitarr_invert(sample_ctl, write_phaseinfo);
 	    }
 	  }
 	  if (write_dosage_ct) {
@@ -7052,8 +7051,7 @@ pglerr_t make_plink2_no_vsort(const char* xheader, const uintptr_t* sample_inclu
       copy_bitarr_subset(sex_male, sample_include, sample_ct, sex_collapsed_tmp);
       fill_interleaved_mask_vec(sex_collapsed_tmp, sample_ctv, g_sex_male_collapsed_interleaved);
 
-      memcpy(sex_female, sex_nm, raw_sample_ctl * sizeof(intptr_t));
-      bitvec_andnot(sex_male, raw_sample_ctl, sex_female);
+      bitvec_andnot_copy(sex_nm, sex_male, raw_sample_ctl, sex_female);
       copy_bitarr_subset(sex_female, sample_include, sample_ct, sex_collapsed_tmp);
       fill_interleaved_mask_vec(sex_collapsed_tmp, sample_ctv, g_sex_female_collapsed_interleaved);
       
@@ -10008,6 +10006,7 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
     uint32_t gz_variant_uidx = 0;
     uint32_t ref_allele_idx = 0;
     uint32_t alt1_allele_idx = 1;
+    uint32_t cur_allele_ct = 2;
     for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
       // a lot of this is redundant with write_pvar(), may want to factor the
       // commonalities out
@@ -10051,7 +10050,6 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
 
       // REF, ALT
       uintptr_t variant_allele_idx_base = variant_uidx * 2;
-      uint32_t cur_allele_ct = 2;
       if (variant_allele_idxs) {
 	variant_allele_idx_base = variant_allele_idxs[variant_uidx];
 	cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - variant_allele_idx_base;

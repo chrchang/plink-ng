@@ -1866,7 +1866,7 @@ double SNPHWEX(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, in
       tmp_hets -= 2;
     }
   }
-  // a "row" holds male1/male2 constant.  
+  // a "row" holds male1/male2 constant.
   const double orig_row_prob = tailp + centerp;
   n1 += male1;
   n2 += male2;
@@ -1903,14 +1903,19 @@ double SNPHWEX(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, in
 	// row likelihood is ((n1 choose male1) * (n2 choose male2)) /
 	//   ((n1 + n2) choose (male1 + male2))
 	row_prob *= (old_male1 * old_female2) / (cur_male2 * (n1 - cur_male1));
-	if (cur_lhom2) {
-	  cur_lhets += 1;
-	  base_probl *= (2 * old_male1 * cur_lhom2) / (cur_male2 * cur_lhets);
-	  cur_lhom2 -= 1;
-	} else {
+	// bugfix (19 Apr 2017): We cannot move to the right of the mode here.
+	// Otherwise, if the mode itself is more probable than our initial
+	// table, but the table to the immediate right of the mode is not,
+	// we'll fail to count the mode.
+	// ("right" = high het count, "left" = low het count.)
+	if (cur_lhets) {
 	  cur_lhom1 += 1;
 	  base_probl *= (old_male1 * cur_lhets) / (2 * cur_male2 * cur_lhom1);
 	  cur_lhets -= 1;
+	} else {
+	  cur_lhets += 1;
+	  base_probl *= (2 * old_male1 * cur_lhom2) / (cur_male2 * cur_lhets);
+	  cur_lhom2 -= 1;
 	}
       } else {
 	const double old_male2 = cur_male2;
@@ -1918,14 +1923,14 @@ double SNPHWEX(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, in
 	cur_male1 += 1;
 	cur_male2 -= 1;
 	row_prob *= (old_male2 * old_female1) / (cur_male1 * (n2 - cur_male2));
-	if (cur_lhom1) {
-	  cur_lhets += 1;
-	  base_probl *= (2 * old_male2 * cur_lhom1) / (cur_male1 * cur_lhets);
-	  cur_lhom1 -= 1;
-	} else {
+	if (cur_lhets) {
 	  cur_lhom2 += 1;
 	  base_probl *= (old_male2 * cur_lhets) / (2 * cur_male1 * cur_lhom2);
 	  cur_lhets -= 1;
+	} else {
+	  cur_lhets += 1;
+	  base_probl *= (2 * old_male2 * cur_lhom1) / (cur_male1 * cur_lhets);
+	  cur_lhom1 -= 1;
 	}
       }
       double tail_incr1;

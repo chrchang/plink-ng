@@ -940,6 +940,7 @@ pglerr_t init_bigstack(uintptr_t malloc_size_mb, uintptr_t* malloc_mb_final_ptr,
   assert(malloc_size_mb <= 2047);
 #endif
   unsigned char* bigstack_ua = (unsigned char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
+  // this is thwarted by overcommit, but still better than nothing...
   while (!bigstack_ua) {
     malloc_size_mb = (malloc_size_mb * 3) / 4;
     if (malloc_size_mb < kBigstackMinMb) {
@@ -2954,6 +2955,82 @@ boolerr_t bigstack_end_calloc_ull(uintptr_t ct, uint64_t** ull_arr_ptr) {
 }
 
 
+void bitarr_invert(uintptr_t bit_ct, uintptr_t* bitarr) {
+  uintptr_t* bitarr_stop = &(bitarr[bit_ct / kBitsPerWord]);
+  while (bitarr < bitarr_stop) {
+    *bitarr = ~(*bitarr);
+    ++bitarr;
+  }
+  const uint32_t trailing_bit_ct = bit_ct % kBitsPerWord;
+  if (trailing_bit_ct) {
+    *bitarr = (~(*bitarr)) & ((k1LU << trailing_bit_ct) - k1LU);
+  }
+}
+
+void bitarr_invert_copy(const uintptr_t* __restrict source_bitarr, uintptr_t bit_ct, uintptr_t* __restrict target_bitarr) {
+  const uintptr_t* source_bitarr_stop = &(source_bitarr[bit_ct / kBitsPerWord]);
+  while (source_bitarr < source_bitarr_stop) {
+    *target_bitarr++ = ~(*source_bitarr++);
+  }
+  const uint32_t trailing_bit_ct = bit_ct % kBitsPerWord;
+  if (trailing_bit_ct) {
+    *target_bitarr = (~(*source_bitarr)) & ((k1LU << trailing_bit_ct) - k1LU);
+  }
+}
+
+void bitvec_and_copy(const uintptr_t* __restrict source1_bitvec, const uintptr_t* __restrict source2_bitvec, uintptr_t word_ct, uintptr_t* target_bitvec) {
+#ifdef __LP64__
+  vul_t* target_bitvvec = (vul_t*)target_bitvec;
+  const vul_t* source1_bitvvec = (const vul_t*)source1_bitvec;
+  const vul_t* source2_bitvvec = (const vul_t*)source2_bitvec;
+  const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
+  for (uintptr_t ulii = 0; ulii < full_vec_ct; ++ulii) {
+    target_bitvvec[ulii] = source1_bitvvec[ulii] & source2_bitvvec[ulii];
+  }
+  #ifdef USE_AVX2
+  if (word_ct & 2) {
+    const uintptr_t base_idx = full_vec_ct * kWordsPerVec;
+    target_bitvec[base_idx] = source1_bitvec[base_idx] & source2_bitvec[base_idx];
+    target_bitvec[base_idx + 1] = source1_bitvec[base_idx + 1] & source2_bitvec[base_idx + 1];
+  }
+  #endif
+  if (word_ct & 1) {
+    target_bitvec[word_ct - 1] = source1_bitvec[word_ct - 1] & source2_bitvec[word_ct - 1];
+  }
+#else
+  for (uintptr_t widx = 0; widx < word_ct; ++widx) {
+    target_bitvec[widx] = source1_bitvec[widx] & source2_bitvec[widx];
+  }
+#endif
+}
+
+void bitvec_andnot_copy(const uintptr_t* __restrict source_bitvec, const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct, uintptr_t* target_bitvec) {
+  // target_bitvec := source_bitvec AND (~exclude_bitvec)
+#ifdef __LP64__
+  vul_t* target_bitvvec = (vul_t*)target_bitvec;
+  const vul_t* source_bitvvec = (const vul_t*)source_bitvec;
+  const vul_t* exclude_bitvvec = (const vul_t*)exclude_bitvec;
+  const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
+  for (uintptr_t ulii = 0; ulii < full_vec_ct; ++ulii) {
+    target_bitvvec[ulii] = source_bitvvec[ulii] & (~exclude_bitvvec[ulii]);
+  }
+  #ifdef USE_AVX2
+  if (word_ct & 2) {
+    const uintptr_t base_idx = full_vec_ct * kWordsPerVec;
+    target_bitvec[base_idx] = source_bitvec[base_idx] & (~exclude_bitvec[base_idx]);
+    target_bitvec[base_idx + 1] = source_bitvec[base_idx + 1] & (~exclude_bitvec[base_idx + 1]);
+  }
+  #endif
+  if (word_ct & 1) {
+    target_bitvec[word_ct - 1] = source_bitvec[word_ct - 1] & (~exclude_bitvec[word_ct - 1]);
+  }
+#else
+  for (uintptr_t widx = 0; widx < word_ct; ++widx) {
+    target_bitvec[widx] = source_bitvec[widx] & (~exclude_bitvec[widx]);
+  }
+#endif
+}
+
 void bitvec_or(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec) {
   // main_bitvec := main_bitvec OR arg_bitvec
 #ifdef __LP64__
@@ -3429,14 +3506,14 @@ uint32_t variant_id_htable_find(const char* idbuf, char** variant_ids, const uin
   }
 }
 
-uint32_t variant_id_dup_htable_find(const char* idbuf, char** variant_ids, const uint32_t* id_htable, const uint32_t* extra_alloc_base, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_blen, uint32_t* llidx_ptr) {
+uint32_t variant_id_dup_htable_find(const char* idbuf, char** variant_ids, const uint32_t* id_htable, const uint32_t* htable_dup_base, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_blen, uint32_t* llidx_ptr) {
   // Permits duplicate entries.  Similar to plink 1.9
   // extract_exclude_process_token().
   // - Returns 0xffffffffU on failure (llidx currently unset in that case),
   //   otherwise returns the index of the first match (which will have the
   //   highest index, due to how the linked list is constructed)
   // - Sets second_llidx to 0xffffffffU if not a duplicate, otherwise it's the
-  //   position in extra_alloc_base[] of the next {variant_uidx, next_llidx}
+  //   position in htable_dup_base[] of the next {variant_uidx, next_llidx}
   //   linked list entry.
   // - idbuf does not need to be null-terminated.
   if (cur_id_slen >= max_id_blen) {
@@ -3455,7 +3532,7 @@ uint32_t variant_id_dup_htable_find(const char* idbuf, char** variant_ids, const
 	return 0xffffffffU;
       }
       cur_llidx = cur_htable_idval << 1;
-      variant_uidx = extra_alloc_base[cur_llidx];
+      variant_uidx = htable_dup_base[cur_llidx];
     } else {
       cur_llidx = 0xffffffffU;
       variant_uidx = cur_htable_idval;
@@ -3968,7 +4045,7 @@ void init_range_list(range_list_t* range_list_ptr) {
 
 void cleanup_range_list(range_list_t* range_list_ptr) {
   free_cond(range_list_ptr->names);
-  free_cond(range_list_ptr->starts_range);
+  // starts_range now uses same allocation
 }
 
 boolerr_t numeric_range_list_to_bitarr(const range_list_t* range_list_ptr, uint32_t bitarr_size, uint32_t offset, uint32_t ignore_overflow, uintptr_t* bitarr) {
@@ -5616,14 +5693,11 @@ pglerr_t parse_name_ranges(char** argv, const char* errstr_append, uint32_t para
   }
   range_list_ptr->name_max_blen = ++name_max_blen;
   range_list_ptr->name_ct = name_ct;
-  range_list_ptr->names = (char*)malloc(name_ct * ((uintptr_t)name_max_blen));
+  range_list_ptr->names = (char*)malloc(name_ct * (((uintptr_t)name_max_blen) + 1));
   if (!range_list_ptr->names) {
     return kPglRetNomem;
   }
-  range_list_ptr->starts_range = (unsigned char*)malloc(name_ct * sizeof(char));
-  if (!range_list_ptr->starts_range) {
-    return kPglRetNomem;
-  }
+  range_list_ptr->starts_range = (unsigned char*)(&(range_list_ptr->names[name_ct * ((uintptr_t)name_max_blen)]));
   cur_name_str = range_list_ptr->names;
   cur_name_starts_range = range_list_ptr->starts_range;
   cur_param_idx = 1;
@@ -6069,7 +6143,7 @@ pglerr_t populate_variant_id_htable_mt(const uintptr_t* variant_include, char** 
       uint32_t prev_llidx = 0;
       // needs to be synced with extract_exclude_flag_norange()
       // multithread this?
-      uint32_t* extra_alloc_base = (uint32_t*)g_bigstack_base;
+      uint32_t* htable_dup_base = (uint32_t*)g_bigstack_base;
       for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_uidx, ++variant_idx) {
 	next_set_ul_unsafe_ck(variant_include, &variant_uidx);
 	uint32_t hashval = g_variant_id_hashes[variant_idx];
@@ -6083,7 +6157,7 @@ pglerr_t populate_variant_id_htable_mt(const uintptr_t* variant_include, char** 
 	    uint32_t prev_uidx;
 	    if (cur_dup) {
 	      prev_llidx = cur_htable_entry << 1;
-	      prev_uidx = extra_alloc_base[prev_llidx];
+	      prev_uidx = htable_dup_base[prev_llidx];
 	    } else {
 	      prev_uidx = cur_htable_entry;
 	    }
@@ -6093,13 +6167,13 @@ pglerr_t populate_variant_id_htable_mt(const uintptr_t* variant_include, char** 
 	      }
 	      // point to linked list entry instead
 	      if (!cur_dup) {
-		extra_alloc_base[extra_alloc] = cur_htable_entry;
-		extra_alloc_base[extra_alloc + 1] = 0xffffffffU; // list end
+		htable_dup_base[extra_alloc] = cur_htable_entry;
+		htable_dup_base[extra_alloc + 1] = 0xffffffffU; // list end
 		prev_llidx = extra_alloc;
 		extra_alloc += 2;
 	      }
-	      extra_alloc_base[extra_alloc] = variant_uidx;
-	      extra_alloc_base[extra_alloc + 1] = prev_llidx;
+	      htable_dup_base[extra_alloc] = variant_uidx;
+	      htable_dup_base[extra_alloc + 1] = prev_llidx;
 	      id_htable[hashval] = 0x80000000U | (extra_alloc >> 1);
 	      extra_alloc += 2;
 	      break; // bugfix
@@ -6134,6 +6208,29 @@ pglerr_t populate_variant_id_htable_mt(const uintptr_t* variant_include, char** 
   }
   bigstack_end_reset(bigstack_end_mark);
   return reterr;
+}
+
+pglerr_t alloc_and_populate_variant_id_dup_htable_mt(const uintptr_t* variant_include, char** variant_ids, uintptr_t variant_ct, uint32_t max_thread_ct, uint32_t** id_htable_ptr, uint32_t** htable_dup_base_ptr, uint32_t* id_htable_size_ptr) {
+  uint32_t id_htable_size = get_htable_fast_size(variant_ct);
+  // 4 bytes per variant for hash buffer
+  // up to 8 bytes per variant in extra_alloc for duplicate tracking
+  const uintptr_t nonhtable_alloc = round_up_pow2(variant_ct * sizeof(int32_t), kCacheline) + round_up_pow2(variant_ct * 2 * sizeof(int32_t), kCacheline);
+  uintptr_t max_bytes = bigstack_left() & (~(kCacheline - k1LU));
+  if (nonhtable_alloc + variant_ct * sizeof(int32_t) > max_bytes) {
+    return kPglRetNomem;
+  }
+  max_bytes -= nonhtable_alloc;
+  if (id_htable_size * sizeof(int32_t) > max_bytes) {
+    id_htable_size = leqprime(max_bytes / sizeof(int32_t));
+    const uint32_t min_htable_size = get_htable_min_size(variant_ct);
+    if (id_htable_size < min_htable_size) {
+      id_htable_size = min_htable_size;
+    }
+  }
+  *id_htable_ptr = (uint32_t*)bigstack_alloc_raw(round_up_pow2(id_htable_size * sizeof(int32_t), kCacheline));
+  *htable_dup_base_ptr = &((*id_htable_ptr)[round_up_pow2_ui(id_htable_size, kInt32PerCacheline)]);
+  *id_htable_size_ptr = id_htable_size;
+  return populate_variant_id_htable_mt(variant_include, variant_ids, variant_ct, 1, id_htable_size, max_thread_ct, *id_htable_ptr);
 }
 
 pglerr_t multithread_load_init(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, pgen_file_info_t* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** dosage_present_ptr, dosage_t*** dosage_val_bufs_ptr, uint32_t* read_block_size_ptr, unsigned char** main_loadbufs, pthread_t** threads_ptr, pgen_reader_t*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr) {
