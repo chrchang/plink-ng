@@ -10467,7 +10467,7 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
   uint32_t geno_m_check = (geno_mrate > 0.0);
   uint32_t geno_m32 = (uint32_t)(geno_mrate * 4294967296.0);
   uint32_t pheno_m_check = (pheno_mrate > 0.0);
-  uint32_t pheno_m32 = (uint32_t)(geno_mrate * 4294967296.0);
+  uint32_t pheno_m32 = (uint32_t)(pheno_mrate * 4294967296.0);
   uint32_t saved_rnormal = 0;
   int32_t retval = 0;
   char wbuf[64];
