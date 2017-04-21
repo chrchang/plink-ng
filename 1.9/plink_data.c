@@ -10464,10 +10464,10 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
   double missing_phenod = (double)missing_pheno;
   uint32_t dbl_sample_mod4 = 2 * (sample_ct % 4);
   uint32_t four_alleles = 0;
-  uint32_t geno_m_check = (geno_mrate > 0.0);
-  uint32_t geno_m32 = (uint32_t)(geno_mrate * 4294967296.0);
-  uint32_t pheno_m_check = (pheno_mrate > 0.0);
-  uint32_t pheno_m32 = (uint32_t)(geno_mrate * 4294967296.0);
+  uint32_t geno_m_check = (geno_mrate >= RECIP_2_32 * 0.5);
+  uint32_t geno_m32 = (uint32_t)(geno_mrate * 4294967296.0 - 0.5);
+  uint32_t pheno_m_check = (pheno_mrate >= RECIP_2_32 * 0.5);
+  uint32_t pheno_m32 = (uint32_t)(pheno_mrate * 4294967296.0 - 0.5);
   uint32_t saved_rnormal = 0;
   int32_t retval = 0;
   char wbuf[64];
@@ -10629,7 +10629,7 @@ int32_t generate_dummy(char* outname, char* outname_end, uint32_t flags, uintptr
 	}
 	ucc = 0;
 	for (ukk = 0; ukk < 8; ukk += 2) {
-	  if (geno_m_check && (sfmt_genrand_uint32(&g_sfmt) < geno_m32)) {
+	  if (geno_m_check && (sfmt_genrand_uint32(&g_sfmt) <= geno_m32)) {
 	    ucc2 = 1;
 	  } else {
 	    ucc2 = urand & 3;
