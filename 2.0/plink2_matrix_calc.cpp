@@ -3574,7 +3574,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
     uint64_t* dosage_sums;
     uint64_t* dosage_incrs;
     uintptr_t* already_seen;
-    unsigned char* overflow_buf;
+    unsigned char* overflow_buf = nullptr;
     if (bigstack_alloc_thread(1, &ts.threads) ||
 	bigstack_alloc_d((kScoreVariantBlockSize * k1LU) * sample_ct, &(g_dosages_vmaj[0])) ||
 	bigstack_alloc_d((kScoreVariantBlockSize * k1LU) * sample_ct, &(g_dosages_vmaj[1])) ||
@@ -3639,7 +3639,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
     uint32_t valid_variant_ct = 0;
     uintptr_t missing_var_id_ct = 0;
     uintptr_t missing_allele_code_ct = 0;
-#ifndef __APPLE__
+#ifdef USE_MTBLAS
     const uint32_t matrix_multiply_thread_ct = (max_thread_ct > 1)? (max_thread_ct - 1) : 1;
     BLAS_SET_NUM_THREADS(matrix_multiply_thread_ct);
 #endif

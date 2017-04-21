@@ -29,9 +29,6 @@
 // needed for logistic testing
 // #include "plink2_matrix.h"
 
-// needed for SNPHWEX testing
-// #include "plink2_stats.h"
-
 // #include <locale.h>
 #include <time.h>
 #include <unistd.h> // getcwd(), gethostname(), sysconf(), unlink()
@@ -65,7 +62,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (19 Apr 2017)";
+  " (20 Apr 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -143,7 +140,8 @@ FLAGSET_DEF_START()
   kfXloadOxGen = (1 << 3),
   kfXloadOxBgen = (1 << 4),
   kfXloadOxHaps = (1 << 5),
-  kfXloadOxLegend = (1 << 6)
+  kfXloadOxLegend = (1 << 6),
+  kfXloadGenDummy = (1 << 7)
 FLAGSET_DEF_END(xload_t);
 
 // maximum number of usable cluster computers, this is arbitrary though it
@@ -772,6 +770,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, const plink2_cmdline
 	pgfi.shared_ff = shared_ff_copy;
 	if (pcp->command_flags1 & kfCommand1Validate) {
 	  LOGPRINTFWW5("Validating %s... ", pgenname);
+	  fflush(stdout);
 	  reterr = pgr_validate(&simple_pgr, g_logbuf);
 	  if (reterr) {
 	    if (reterr != kPglRetReadFail) {
@@ -2933,6 +2932,8 @@ int main(int argc, char** argv) {
     uint32_t permit_multiple_inclusion_filters = 0;
     uint32_t vcf_dosage_import_field = 0;
     uint32_t memory_require = 0;
+    gendummy_info_t gendummy_info;
+    init_gendummy(&gendummy_info);
     do {
       flagname_p = &(flag_buf[cur_flag_idx * kMaxFlagBlen]);
       if (!(*flagname_p)) {
@@ -3498,6 +3499,68 @@ int main(int argc, char** argv) {
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
 	  pc.dosage_erase_thresh = (int32_t)(dosage_erase_frac * ((1 + kSmallEpsilon) * kDosageMid));
+	} else if (!memcmp(flagname_p2, "ummy", 5)) {
+	  if (load_params || xload) {
+	    goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
+	  }
+	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 2, 8)) {
+	    goto main_ret_INVALID_CMDLINE_2A;
+	  }
+	  // todo: support --allow-no-samples/--allow-no-vars
+	  if (scan_posint_defcap(argv[arg_idx + 1], &gendummy_info.sample_ct)) {
+	    logerrprint("Error: Invalid --dummy sample count.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
+	  }
+	  if (scan_posint_defcap(argv[arg_idx + 2], &gendummy_info.variant_ct)) {
+	    logerrprint("Error: Invalid --dummy SNP count.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
+	  }
+	  uint32_t extra_numeric_param_ct = 0;
+	  for (uint32_t param_idx = 3; param_idx <= param_ct; ++param_idx) {
+	    char* cur_modif = argv[arg_idx + param_idx];
+	    const uint32_t cur_modif_slen = strlen(cur_modif);
+	    if ((cur_modif_slen == 4) && match_upper_counted(cur_modif, "ACGT", 4)) {
+	      gendummy_info.flags |= kfGenDummyAcgt;
+	    } else if ((cur_modif_slen == 4) && (!memcmp(cur_modif, "1234", 4))) {
+	      gendummy_info.flags |= kfGenDummy1234;
+	    } else if ((cur_modif_slen == 2) && (!memcmp(cur_modif, "12", 2))) {
+	      gendummy_info.flags |= kfGenDummy12;
+	    } else if ((cur_modif_slen > 9) && (!memcmp(cur_modif, "pheno-ct=", 9))) {
+	      const char* pheno_ct_start = &(cur_modif[9]);
+	      if (scan_uint_capped(pheno_ct_start, kMaxPhenoCt, &gendummy_info.pheno_ct)) {
+		sprintf(g_logbuf, "Error: Invalid --dummy pheno-ct= parameter '%s'.\n", pheno_ct_start);
+		goto main_ret_INVALID_CMDLINE_WWA;
+	      }
+	    } else if ((cur_modif_slen == 12) && (!memcmp(cur_modif, "scalar-pheno", 12))) {
+	      gendummy_info.flags |= kfGenDummyScalarPheno;
+	    } else if ((cur_modif_slen > 12) && (!memcmp(cur_modif, "dosage-freq=", 12))) {
+	      char* dosage_freq_start = &(cur_modif[12]);
+	      double dxx;
+	      if ((!scanadv_double(dosage_freq_start, &dxx)) || (dxx < 0.0) || (dxx > 1.0)) {
+		sprintf(g_logbuf, "Error: Invalid --dummy dosage-freq= parameter '%s'.\n", dosage_freq_start);
+		goto main_ret_INVALID_CMDLINE_WWA;
+	      }
+	      gendummy_info.dosage_freq = dxx;
+	    } else {
+	      double dxx;
+	      if ((extra_numeric_param_ct == 2) || (!scanadv_double(cur_modif, &dxx)) || (dxx < 0.0) || (dxx > 1.0)) {
+		sprintf(g_logbuf, "Error: Invalid --dummy parameter '%s'.\n", cur_modif);
+		goto main_ret_INVALID_CMDLINE_WWA;
+	      }
+	      if (!extra_numeric_param_ct) {
+		gendummy_info.geno_mfreq = dxx;
+	      } else {
+		gendummy_info.pheno_mfreq = dxx;
+	      }
+	      ++extra_numeric_param_ct;
+	    }
+	  }
+	  const uint32_t mutually_exclusive_flags = gendummy_info.flags & (kfGenDummyAcgt | kfGenDummy1234 | kfGenDummy12);
+	  if (mutually_exclusive_flags & (mutually_exclusive_flags - 1)) {
+	    logerrprint("Error: --dummy 'acgt', '1234', and '12' modifiers are mutually exclusive.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
+	  }
+	  xload |= kfXloadGenDummy;
 	} else if (!memcmp(flagname_p2, "og", 3)) {
 	  if (chr_info.chrset_source) {
 	    logerrprint("Error: Conflicting chromosome-set flags.\n");
@@ -6436,7 +6499,7 @@ int main(int argc, char** argv) {
       outname_end = &(outname[6]);
     }
     
-    if ((!pc.command_flags1) && (!(xload & (kfXloadVcf | kfXloadBcf | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxSample)))) {
+    if ((!pc.command_flags1) && (!(xload & (kfXloadVcf | kfXloadBcf | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxSample | kfXloadGenDummy)))) {
       // add command_flags2 when needed
       goto main_ret_NULL_CALC;
     }
@@ -6631,6 +6694,8 @@ int main(int argc, char** argv) {
 	  reterr = ox_bgen_to_pgen(pgenname, psamname, const_fid, ox_missing_code, pc.misc_flags, oxford_import_flags, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, pc.max_thread_ct, outname, convname_end, &chr_info);
 	} else if (xload & kfXloadOxHaps) {
 	  reterr = ox_hapslegend_to_pgen(pgenname, pvarname, psamname, ox_single_chr_str, ox_missing_code, pc.misc_flags, oxford_import_flags, outname, convname_end, &chr_info);
+	} else if (xload & kfXloadGenDummy) {
+	  reterr = generate_dummy(&gendummy_info, pc.misc_flags, pc.hard_call_thresh, pc.dosage_erase_thresh, pc.max_thread_ct, outname, convname_end, &chr_info);
 	}
 	if (reterr || (!pc.command_flags1)) {
 	  goto main_ret_1;

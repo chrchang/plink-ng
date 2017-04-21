@@ -367,6 +367,24 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "    Specify PLINK 1.x-style dosage file to import.\n\n"
 	       );
     */
+    // todo: triallelic rate
+    help_print("dummy", &help_ctrl, 1,
+"  --dummy [sample ct] [SNP ct] {missing dosage freq} {missing pheno freq}\n"
+"          <acgt | 1234 | 12> <pheno-ct=[count]> <scalar-pheno>\n"
+"          <dosage-freq=[rate]>\n"
+"    This generates a fake input dataset with the specified number of samples\n"
+"    and SNPs.\n"
+"    * By default, the missing dosage and phenotype frequencies are zero.\n"
+"      These can be changed by providing 3rd and 4th numeric parameters.\n"
+"    * By default, allele codes are As and Bs; this can be changed with the\n"
+"      'acgt', '1234', or '12' modifier.\n"
+"    * By default, one binary phenotype is generated.  'pheno-ct=' can be used\n"
+"      to change the number of phenotypes, and 'scalar-pheno' causes these\n"
+"      phenotypes to be normally distributed scalars.\n"
+"    * By default, all (nonmissing) dosages are in {0,1,2}.  To make some of\n"
+"      them take on decimal values, use 'dosage-freq='.  (These dosages are\n"
+"      affected by --hard-call-threshold and --dosage-erase-threshold.)\n\n"
+	       );
     if (!param_ct) {
       fputs(
 "Output files have names of the form '" PROG_NAME_STR ".{extension}' by default.  You can\n"

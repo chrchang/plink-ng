@@ -307,9 +307,9 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
 	pheno_names_reverse_ll = pheno_names_reverse_ll->next;
       }
       if (pheno_ct > 1) {
-	if (pheno_ct > 0x8000000) {
+	if (pheno_ct > kMaxPhenoCt) {
 	  // yeah, yeah, this will never come up
-	  logerrprint("Error: " PROG_NAME_STR " does not support more than 2^27 phenotypes.\n");
+	  LOGERRPRINTF("Error: " PROG_NAME_STR " does not support more than %u phenotypes.\n", kMaxPhenoCt);
 	  goto load_psam_ret_MALFORMED_INPUT;
 	}
 	// verify there are no duplicates

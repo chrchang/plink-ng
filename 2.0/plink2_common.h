@@ -121,6 +121,9 @@ static const double kRecipDosageMax = 0.000030517578125;
 static const double kRecipDosageMid = 0.00006103515625;
 static const float kRecipDosageMidf = 0.00006103515625;
 
+// this is a bit arbitrary
+CONSTU31(kMaxPhenoCt, 0x200000);
+
 // unnecessary to use e.g. (1LLU << 0), the FLAGSET64 macros should force the
 // integer type to 64-bit.
 FLAGSET64_DEF_START()
