@@ -22,7 +22,7 @@
 // stream interface for zstd compression.  Not multithreaded yet, but the
 // interface is identical to the old multithreaded gzipper so we'll be able to
 // upgrade the backend later without making significant changes to other code.
-#include "plink2_common.h"
+#include "plink2_decompress.h"
 
 #ifdef __cplusplus
 namespace plink2 {

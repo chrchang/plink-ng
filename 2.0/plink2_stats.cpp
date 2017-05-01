@@ -896,6 +896,7 @@ double ltqnorm(double p) {
 }
 
 
+// SNPHWE2() and SNPHWEX() are now licensed as GPL 2+.
 double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t midp) {
   // This function implements an exact SNP test of Hardy-Weinberg
   // Equilibrium as described in Wigginton, JE, Cutler, DJ, and

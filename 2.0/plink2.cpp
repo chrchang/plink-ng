@@ -16,6 +16,7 @@
 
 
 #include "plink2_data.h"
+#include "plink2_decompress.h"
 #include "plink2_filter.h"
 #include "plink2_glm.h"
 #include "plink2_ld.h"
@@ -62,7 +63,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (20 Apr 2017)";
+  " (30 Apr 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -315,12 +316,12 @@ uint32_t get_first_haploid_uidx(const chr_info_t* cip) {
   return 0x7fffffff;
 }
 
-uint32_t are_allele_dosages_needed(misc_flags_t misc_flags, make_plink2_t make_plink2_modifier, uint32_t maj_or_maf_needed, uint64_t min_allele_dosage, uint64_t max_allele_dosage) {
-  return (make_plink2_modifier & kfMakePlink2TrimAlts) || ((misc_flags & kfMiscNonfounders) && (maj_or_maf_needed || (misc_flags & kfMiscMajRef) || min_allele_dosage || (max_allele_dosage != 0xffffffffU)));
+uint32_t are_allele_dosages_needed(misc_flags_t misc_flags, make_plink2_t make_plink2_modifier, uint32_t afreq_needed, uint64_t min_allele_dosage, uint64_t max_allele_dosage) {
+  return (make_plink2_modifier & kfMakePlink2TrimAlts) || ((misc_flags & kfMiscNonfounders) && (afreq_needed || (misc_flags & kfMiscMajRef) || min_allele_dosage || (max_allele_dosage != 0xffffffffU)));
 }
 
-uint32_t are_founder_allele_dosages_needed(misc_flags_t misc_flags, uint32_t maj_or_maf_needed, uint64_t min_allele_dosage, uint64_t max_allele_dosage) {
-  return (maj_or_maf_needed || (misc_flags & kfMiscMajRef) || min_allele_dosage || (max_allele_dosage != (~0LLU))) && (!(misc_flags & kfMiscNonfounders));
+uint32_t are_founder_allele_dosages_needed(misc_flags_t misc_flags, uint32_t afreq_needed, uint64_t min_allele_dosage, uint64_t max_allele_dosage) {
+  return (afreq_needed || (misc_flags & kfMiscMajRef) || min_allele_dosage || (max_allele_dosage != (~0LLU))) && (!(misc_flags & kfMiscNonfounders));
 }
 
 uint32_t are_sample_missing_dosage_cts_needed(misc_flags_t misc_flags, uint32_t smaj_missing_geno_report_requested, double mind_thresh, missing_rpt_t missing_rpt_modifier) {
@@ -1079,13 +1080,13 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, const plink2_cmdline
     unsigned char* bigstack_mark_allele_dosages = g_bigstack_base;
     unsigned char* bigstack_mark_founder_allele_dosages = g_bigstack_base;
     if (pgenname[0]) {
-      if (are_maj_alleles_needed(pcp->command_flags1)) {
-	maj_alleles = (alt_allele_ct_t*)bigstack_alloc(raw_variant_ct * sizeof(alt_allele_ct_t));
-	if (!maj_alleles) {
-	  goto plink2_ret_NOMEM;
-	}
-      }
       if (are_alt_allele_freqs_needed(pcp->command_flags1, pcp->min_maf, pcp->max_maf)) {
+	if (are_maj_alleles_needed(pcp->command_flags1)) {
+	  maj_alleles = (alt_allele_ct_t*)bigstack_alloc(raw_variant_ct * sizeof(alt_allele_ct_t));
+	  if (!maj_alleles) {
+	    goto plink2_ret_NOMEM;
+	  }
+	}
 	// alt_allele_freqs[variant_allele_idxs[variant_uidx] + 1 -
         //                  variant_uidx]
 	// stores the frequency estimate for alt1; replace "+ 1" with "+ 2" for
@@ -1126,13 +1127,13 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, const plink2_cmdline
       }
       bigstack_mark_allele_dosages = g_bigstack_base;
       const uint32_t first_hap_uidx = get_first_haploid_uidx(cip);
-      if (are_allele_dosages_needed(pcp->misc_flags, make_plink2_modifier, maj_alleles || alt_allele_freqs, pcp->min_allele_dosage, pcp->max_allele_dosage)) {
+      if (are_allele_dosages_needed(pcp->misc_flags, make_plink2_modifier, (alt_allele_freqs != nullptr), pcp->min_allele_dosage, pcp->max_allele_dosage)) {
 	if (bigstack_alloc_ull(variant_allele_idxs? variant_allele_idxs[raw_variant_ct] : (2 * raw_variant_ct), &allele_dosages)) {
 	  goto plink2_ret_NOMEM;
 	}
       }
       bigstack_mark_founder_allele_dosages = g_bigstack_base;
-      if (are_founder_allele_dosages_needed(pcp->misc_flags, maj_alleles || alt_allele_freqs, pcp->min_allele_dosage, pcp->max_allele_dosage)) {
+      if (are_founder_allele_dosages_needed(pcp->misc_flags, (alt_allele_freqs != nullptr), pcp->min_allele_dosage, pcp->max_allele_dosage)) {
 	if ((founder_ct == sample_ct) && allele_dosages) {
 	  founder_allele_dosages = allele_dosages;
 	} else {
@@ -1241,15 +1242,17 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, const plink2_cmdline
 	  }
 	}
       }
-      if (maj_alleles || alt_allele_freqs) {
-	compute_maj_alleles_and_alt_allele_freqs(variant_include, variant_allele_idxs, nonfounders? allele_dosages : founder_allele_dosages, variant_ct, (pcp->misc_flags / kfMiscMafSucc) & 1, maj_alleles, alt_allele_freqs);
+      if (alt_allele_freqs) {
+	const uint32_t maf_succ = (pcp->misc_flags / kfMiscMafSucc) & 1;
+	compute_alt_allele_freqs(variant_include, variant_allele_idxs, nonfounders? allele_dosages : founder_allele_dosages, variant_ct, maf_succ, alt_allele_freqs);
 	if (pcp->read_freq_fname) {
-	  logerrprint("Error: --read-freq is under development.\n");
-	  reterr = kPglRetNotYetSupported;
-	  // reterr = read_allele_freqs(variant_include, cip, variant_ids, variant_allele_idxs, allele_storage, pcp->read_freq_fname, raw_variant_ct, variant_ct, pgfi.max_alt_allele_ct, max_variant_id_blen, max_allele_slen, (pcp->misc_flags / kfMiscMafSucc) & 1, pcp->max_thread_ct, maj_alleles, alt_allele_freqs);
+	  reterr = read_allele_freqs(variant_include, variant_ids, variant_allele_idxs, allele_storage, pcp->read_freq_fname, raw_variant_ct, variant_ct, pgfi.max_alt_allele_ct, max_variant_id_blen, max_allele_slen, maf_succ, pcp->max_thread_ct, alt_allele_freqs);
 	  if (reterr) {
 	    goto plink2_ret_1;
 	  }
+	}
+	if (maj_alleles) {
+	  compute_maj_alleles(variant_include, variant_allele_idxs, alt_allele_freqs, variant_ct, maj_alleles);
 	}
       } else if (pcp->read_freq_fname) {
 	LOGERRPRINTF("Warning: Ignoring --read-freq since no command would use the frequencies.\n");
@@ -2375,6 +2378,7 @@ int main(int argc, char** argv) {
   char* var_filter_exceptions_flattened = nullptr;
   char* ox_single_chr_str = nullptr; // .legend, sometimes .gen
   char* ox_missing_code = nullptr;
+  char* vcf_dosage_import_field = nullptr;
   FILE* scriptfile = nullptr;
   uint32_t* rseeds = nullptr;
   ll_str_t* file_delete_list = nullptr;
@@ -2414,7 +2418,7 @@ int main(int argc, char** argv) {
   init_score(&pc.score_info);
   chr_info_t chr_info;
   if (init_chr_info(&chr_info)) {
-    goto main_ret_NOMEM;
+    goto main_ret_NOMEM_NOLOG;
   }
   
   {
@@ -2598,7 +2602,7 @@ int main(int argc, char** argv) {
 	  fputs(errstr_append, stderr);
 	  goto main_ret_INVALID_CMDLINE;
 	}
-	flag_ct++;
+	++flag_ct;
       }
     }
     if (version_present) {
@@ -2629,7 +2633,6 @@ int main(int argc, char** argv) {
 	switch (*flagname_p) {
 	case '\0':
 	  // special case, since we reserve empty names for preprocessed flags
-	  fflush(stdout);
 	  fputs("Error: Unrecognized flag ('--').\n", stderr);
 	  goto main_ret_INVALID_CMDLINE;
 	case 'a':
@@ -2930,7 +2933,6 @@ int main(int argc, char** argv) {
     uint32_t aperm_present = 0;
     uint32_t notchr_present = 0;
     uint32_t permit_multiple_inclusion_filters = 0;
-    uint32_t vcf_dosage_import_field = 0;
     uint32_t memory_require = 0;
     gendummy_info_t gendummy_info;
     init_gendummy(&gendummy_info);
@@ -3183,13 +3185,23 @@ int main(int argc, char** argv) {
 	  }
 	  if (param_ct == 2) {
 	    const char* cur_modif = argv[arg_idx + 2];
-	    if (strcmp(cur_modif, "dosage=GP")) {
+	    const uint32_t cur_modif_slen = strlen(cur_modif);
+	    if ((cur_modif_slen < 8) || memcmp(cur_modif, "dosage=", 7)) {
 	      sprintf(g_logbuf, "Error: Invalid --bcf parameter '%s'.\n", cur_modif);
 	      goto main_ret_INVALID_CMDLINE_WWA;
 	    }
-	    // make this an enum or arbitrary string later, depending on allele
-	    // fraction conventions
-	    vcf_dosage_import_field = 1;
+	    reterr = cmdline_alloc_string(&(cur_modif[7]), argv[arg_idx], 4095, &vcf_dosage_import_field);
+	    if (reterr) {
+	      goto main_ret_1;
+	    }
+	    if (!is_alphanumeric(vcf_dosage_import_field)) {
+	      logerrprint("Error: --bcf dosage= parameter is not alphanumeric.\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    if (!strcmp(vcf_dosage_import_field, "GT")) {
+	      logerrprint("Error: --bcf dosage= parameter cannot be 'GT'.\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
 	  }
 	  const char* cur_modif = argv[arg_idx + 1];
 	  const uint32_t slen = strlen(cur_modif);
@@ -3693,12 +3705,19 @@ int main(int argc, char** argv) {
 		  logerrprint("Error: The 'vcf-dosage' modifier only applies to --export's vcf output format.\n");
 		  goto main_ret_INVALID_CMDLINE_A;
 		}
+		if (pc.exportf_modifier & (kfExportfVcfDosageGp | kfExportfVcfDosageDs)) {
+		  logerrprint("Error: Multiple --export vcf-dosage= modifiers.\n");
+		  goto main_ret_INVALID_CMDLINE;
+		}
 		const char* vcf_dosage_start = &(cur_modif[11]);
-		if (strcmp(vcf_dosage_start, "GP")) {
+		if (!strcmp(vcf_dosage_start, "GP")) {
+		  pc.exportf_modifier |= kfExportfVcfDosageGp;
+		} else if (!strcmp(vcf_dosage_start, "DS")) {
+		  pc.exportf_modifier |= kfExportfVcfDosageDs;
+		} else {
 		  sprintf(g_logbuf, "Error: Invalid --export vcf-dosage= parameter '%s'.\n", vcf_dosage_start);
 		  goto main_ret_INVALID_CMDLINE_WWA;
 		}
-		pc.exportf_modifier |= kfExportfVcfDosageGp;
 	      } else if (!memcmp(cur_modif, "bits=", 5)) {
 		if (!(pc.exportf_modifier & (kfExportfBgen12 | kfExportfBgen13))) {
 		  logerrprint("Error: The 'bits' modifier only applies to --export's bgen-1.2 and bgen-1.3\noutput formats.\n");
@@ -6068,7 +6087,7 @@ int main(int argc, char** argv) {
 	  }
 	  pc.filter_flags |= kfFilterPvarReq | kfFilterSnpsOnly;
 	} else if (!memcmp(flagname_p2, "core", 5)) {
-	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 9)) {
+	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 10)) {
 	    goto main_ret_INVALID_CMDLINE_2A;
 	  }
 	  reterr = alloc_fname(argv[arg_idx + 1], flagname_p, 0, &pc.score_info.input_fname);
@@ -6090,6 +6109,8 @@ int main(int argc, char** argv) {
 	      pc.score_info.flags |= kfScoreCenter;
 	    } else if ((cur_modif_slen == 18) && (!memcmp(cur_modif, "variance-normalize", 18))) {
 	      pc.score_info.flags |= kfScoreVarianceNormalize;
+	    } else if ((cur_modif_slen == 2) && (!memcmp(cur_modif, "se", 2))) {
+	      pc.score_info.flags |= kfScoreSe;
 	    } else if ((cur_modif_slen == 2) && (!memcmp(cur_modif, "zs", 2))) {
 	      pc.score_info.flags |= kfScoreZs;
 	    } else if ((cur_modif_slen > 5) && (!memcmp(cur_modif, "cols=", 5))) {
@@ -6313,11 +6334,23 @@ int main(int argc, char** argv) {
 	  }
 	  if (param_ct == 2) {
 	    const char* cur_modif = argv[arg_idx + 2];
-	    if (strcmp(cur_modif, "dosage=GP")) {
+	    const uint32_t cur_modif_slen = strlen(cur_modif);
+	    if ((cur_modif_slen < 8) || memcmp(cur_modif, "dosage=", 7)) {
 	      sprintf(g_logbuf, "Error: Invalid --vcf parameter '%s'.\n", cur_modif);
 	      goto main_ret_INVALID_CMDLINE_WWA;
 	    }
-	    vcf_dosage_import_field = 1;
+	    reterr = cmdline_alloc_string(&(cur_modif[7]), argv[arg_idx], 4095, &vcf_dosage_import_field);
+	    if (reterr) {
+	      goto main_ret_1;
+	    }
+	    if (!is_alphanumeric(vcf_dosage_import_field)) {
+	      logerrprint("Error: --vcf dosage= parameter is not alphanumeric.\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
+	    if (!strcmp(vcf_dosage_import_field, "GT")) {
+	      logerrprint("Error: --vcf dosage= parameter cannot be 'GT'.\n");
+	      goto main_ret_INVALID_CMDLINE;
+	    }
 	  }
 	  const char* cur_modif = argv[arg_idx + 1];
 	  const uint32_t slen = strlen(cur_modif);
@@ -6684,7 +6717,7 @@ int main(int argc, char** argv) {
 	const uint32_t convname_slen = (uintptr_t)(convname_end - outname);
 	const uint32_t psam_specified = (load_params & kfLoadParamsPsam);
 	if (xload & kfXloadVcf) {
-	  reterr = vcf_to_pgen(pgenname, psam_specified? psamname : nullptr, const_fid, pc.misc_flags, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_half_call, vcf_dosage_import_field, pc.fam_cols, outname, convname_end, &chr_info);
+	  reterr = vcf_to_pgen(pgenname, psam_specified? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_half_call, pc.fam_cols, outname, convname_end, &chr_info);
 	} else if (xload & kfXloadVcf) {
 	  logerrprint("Error: --bcf is not implemented yet.\n");
 	  reterr = kPglRetNotYetSupported;
@@ -6899,6 +6932,7 @@ int main(int argc, char** argv) {
   }
  main_ret_NOLOG:
   fclose_cond(scriptfile);
+  free_cond(vcf_dosage_import_field);
   free_cond(ox_missing_code);
   free_cond(ox_single_chr_str);
   free_cond(const_fid);

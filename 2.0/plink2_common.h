@@ -62,15 +62,6 @@
   #endif
 #endif
 
-// documentation on ZWRAP_USE_ZSTD is incorrect as of 11 Jan 2017, necessary to
-// edit zstd_zlibwrapper.c or use compile flag.
-#include "zstd/zlibWrapper/zstd_zlibwrapper.h"
-#ifndef STATIC_ZLIB
-  #if !defined(ZLIB_VERNUM) || ZLIB_VERNUM < 0x1240
-    #error "plink2_common requires zlib 1.2.4 or later."
-  #endif
-#endif
-
 #ifdef DYNAMIC_MKL
   #define USE_MKL
 #endif
@@ -204,7 +195,8 @@ FLAGSET64_DEF_START()
   kfExportfIncludeAlt = (1LLU << 32),
   kfExportfBgz = (1LLU << 33),
   kfExportfVcfDosageGp = (1LLU << 34),
-  kfExportfOmitNonmaleY = (1LLU << 35)
+  kfExportfVcfDosageDs = (1LLU << 35),
+  kfExportfOmitNonmaleY = (1LLU << 36)
 FLAGSET64_DEF_END(exportf_flags_t);
 
 #ifdef _WIN32
@@ -387,23 +379,6 @@ HEADER_INLINE void fclose_cond(FILE* fptr) {
   }
 }
 
-// Also sets 128k read buffer.
-pglerr_t gzopen_read_checked(const char* fname, gzFile* gzf_ptr);
-
-// pigz interface should be used for writing .gz files.
-
-HEADER_INLINE boolerr_t gzclose_null(gzFile* gzf_ptr) {
-  const int32_t ii = gzclose(*gzf_ptr);
-  *gzf_ptr = nullptr;
-  return (ii != Z_OK);
-}
-
-HEADER_INLINE void gzclose_cond(gzFile gz_infile) {
-  if (gz_infile) {
-    gzclose(gz_infile);
-  }
-}
-
 uint32_t int_slen(int32_t num);
 
 // assumes it's safe to read first s_const_len bytes of s_read
@@ -548,6 +523,9 @@ uintptr_t uint64arr_greater_than(const uint64_t* sorted_uint64_arr, uintptr_t ar
 
 uintptr_t doublearr_greater_than(const double* sorted_dbl_arr, uintptr_t arr_length, double dxx);
 
+
+uintptr_t uint64arr_geq(const uint64_t* sorted_uint64_arr, uintptr_t arr_length, uint64_t ullii);
+
 HEADER_INLINE uint32_t is_flag(const char* param) {
   unsigned char ucc = param[1];
   return ((*param == '-') && ((ucc > '9') || ((ucc < '0') && (ucc != '.') && (ucc != '\0'))));
@@ -580,6 +558,7 @@ static const double kPi = 3.1415926535897932;
 static const double kRecipE = 0.36787944117144233;
 static const double kRecip2m53 = 0.00000000000000011102230246251565404236316680908203125;
 static const double kRecip2m32 = 0.00000000023283064365386962890625;
+static const double k2m64 = 18446744073709551616.0;
 
 // 2^{-44}
 static const double kSmallEpsilon = 0.00000000000005684341886080801486968994140625;
@@ -654,6 +633,11 @@ HEADER_INLINE boolerr_t bigstack_alloc_f(uintptr_t ct, float** f_arr_ptr) {
   return !(*f_arr_ptr);
 }
 
+HEADER_INLINE boolerr_t bigstack_alloc_si(uintptr_t ct, int16_t** si_arr_ptr) {
+  *si_arr_ptr = (int16_t*)bigstack_alloc(ct * sizeof(int16_t));
+  return !(*si_arr_ptr);
+}
+
 HEADER_INLINE boolerr_t bigstack_alloc_i(uintptr_t ct, int32_t** i_arr_ptr) {
   *i_arr_ptr = (int32_t*)bigstack_alloc(ct * sizeof(int32_t));
   return !(*i_arr_ptr);
@@ -696,6 +680,11 @@ HEADER_INLINE boolerr_t bigstack_alloc_ulp(uintptr_t ct, uintptr_t*** ulp_arr_pt
 HEADER_INLINE boolerr_t bigstack_alloc_cp(uintptr_t ct, char*** cp_arr_ptr) {
   *cp_arr_ptr = (char**)bigstack_alloc(ct * sizeof(intptr_t));
   return !(*cp_arr_ptr);
+}
+
+HEADER_INLINE boolerr_t bigstack_alloc_sip(uintptr_t ct, int16_t*** sip_arr_ptr) {
+  *sip_arr_ptr = (int16_t**)bigstack_alloc(ct * sizeof(intptr_t));
+  return !(*sip_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_alloc_ip(uintptr_t ct, int32_t*** ip_arr_ptr) {
@@ -1044,7 +1033,7 @@ HEADER_INLINE int32_t no_more_tokens_kns(const char* sptr) {
 
 HEADER_INLINE char* skip_initial_spaces(char* sptr) {
   while ((*sptr == ' ') || (*sptr == '\t')) {
-    sptr++;
+    ++sptr;
   }
   return sptr;
 }
@@ -1053,6 +1042,11 @@ HEADER_INLINE char* skip_initial_spaces(char* sptr) {
 HEADER_INLINE char* token_endnn(char* sptr) {
   // assert(((unsigned char)(*sptr)) > 32);
   while (!is_space_or_eoln(*(++sptr)));
+  return sptr;
+}
+
+HEADER_INLINE char* next_prespace(char* sptr) {
+  while (((unsigned char)(*(++sptr))) >= 32);
   return sptr;
 }
 
@@ -1099,6 +1093,8 @@ void buf_toupper(uint32_t slen, char* ss);
 void strcpy_toupper(char* target, const char* source);
 */
 
+uint32_t is_alphanumeric(const char* ss);
+
 // scan_posint_capped(), scan_uint_capped(), scan_int_abs_bounded(),
 // scan_int32(), scan_posint_defcap(), scan_uint_defcap(),
 // scan_int_abs_defcap(), scan_uint_icap() in pgenlib_internal
@@ -1107,14 +1103,30 @@ boolerr_t scan_posintptr(const char* ss, uintptr_t* valp);
 
 #ifdef __LP64__
 boolerr_t scanadv_posint_capped(uint64_t cap, char** ss_ptr, uint32_t* valp);
+
+boolerr_t scanadv_uint_capped(uint64_t cap, char** ss_ptr, uint32_t* valp);
 #else
 boolerr_t scanadv_posint_capped32(uint32_t cap_div_10, uint32_t cap_mod_10, char** ss_ptr, uint32_t* valp);
+
+boolerr_t scanadv_uint_capped32(uint32_t cap_div_10, uint32_t cap_mod_10, char** ss_ptr, uint32_t* valp);
 
 HEADER_INLINE boolerr_t scanadv_posint_capped(uint32_t cap, char** ss_ptr, uint32_t* valp) {
  return scanadv_posint_capped32(cap / 10, cap % 10, ss_ptr, valp);
 }
+
+HEADER_INLINE boolerr_t scanadv_uint_capped(uint32_t cap, char** ss_ptr, uint32_t* valp) {
+ return scanadv_uint_capped32(cap / 10, cap % 10, ss_ptr, valp);
+}
 #endif
 
+HEADER_INLINE boolerr_t scanadv_uint_defcap(char** ss_ptr, uint32_t* valp) {
+  return scanadv_uint_capped(0x7ffffffe, ss_ptr, valp);
+}
+
+// this has different semantics from scanadv_posint_capped, etc. since integer
+// readers don't take much code (so it's fine to have a bunch of similar
+// functions, optimized for slightly different use cases), but we only want one
+// floating point reader
 char* scanadv_double(char* ss, double* valp);
 
 HEADER_INLINE boolerr_t scan_float(const char* ss, float* valp) {
@@ -1422,6 +1434,8 @@ boolerr_t bigstack_calloc_d(uintptr_t ct, double** d_arr_ptr);
 
 boolerr_t bigstack_calloc_f(uintptr_t ct, float** f_arr_ptr);
 
+boolerr_t bigstack_calloc_usi(uintptr_t ct, uint16_t** usi_arr_ptr);
+
 boolerr_t bigstack_calloc_ui(uintptr_t ct, uint32_t** ui_arr_ptr);
 
 boolerr_t bigstack_calloc_ul(uintptr_t ct, uintptr_t** ul_arr_ptr);
@@ -1430,6 +1444,10 @@ boolerr_t bigstack_calloc_ull(uintptr_t ct, uint64_t** ull_arr_ptr);
 
 HEADER_INLINE boolerr_t bigstack_calloc_c(uintptr_t ct, char** c_arr_ptr) {
   return bigstack_calloc_uc(ct, (unsigned char**)c_arr_ptr);
+}
+
+HEADER_INLINE boolerr_t bigstack_calloc_si(uintptr_t ct, int16_t** si_arr_ptr) {
+  return bigstack_calloc_usi(ct, (uint16_t**)si_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_calloc_i(uintptr_t ct, int32_t** i_arr_ptr) {
@@ -1647,14 +1665,6 @@ ENUM_U31_DEF_START()
   kSidDetectModeForce
 ENUM_U31_DEF_END(sid_detect_mode_t);
 
-// may return kPglRetLongLine or kPglRetEmptyFile
-// loadbuf_iter_ptr can be nullptr
-// line_idx must be zero unless initial lines were skipped
-pglerr_t load_xid_header(const char* flag_name, sid_detect_mode_t sid_detect_mode, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, xid_mode_t* xid_mode_ptr);
-
-// sets last character of loadbuf to ' '
-pglerr_t open_and_load_xid_header(const char* fname, const char* flag_name, sid_detect_mode_t sid_detect_mode, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, xid_mode_t* xid_mode_ptr);
-
 
 typedef struct range_list_struct {
   char* names;
@@ -1673,26 +1683,6 @@ boolerr_t numeric_range_list_to_bitarr(const range_list_t* range_list_ptr, uint3
 pglerr_t string_range_list_to_bitarr(char* header_line, const range_list_t* range_list_ptr, const char* __restrict sorted_ids, const uint32_t* __restrict id_map, const char* __restrict range_list_flag, const char* __restrict file_descrip, uint32_t token_ct, uint32_t fixed_len, uint32_t comma_delim, uintptr_t* bitarr, int32_t* __restrict seen_idxs);
 
 pglerr_t string_range_list_to_bitarr_alloc(char* header_line, const range_list_t* range_list_ptr, const char* __restrict range_list_flag, const char* __restrict file_descrip, uint32_t token_ct, uint32_t fixed_len, uint32_t comma_delim, uintptr_t** bitarr_ptr);
-
-
-// currently hardcoded to have maximum token length = kMaxMediumLine, buffer
-// size = 2 * kMaxMediumLine * 2.
-typedef struct gz_token_stream_struct {
-  gzFile gz_infile;
-  char* buf_start;
-  char* read_iter;
-  char* buf_end;
-} gz_token_stream_t;
-
-void gz_token_stream_preinit(gz_token_stream_t* gtsp);
-
-pglerr_t gz_token_stream_init(const char* fname, gz_token_stream_t* gtsp, char* buf_start);
-
-// sets token_slen to 0xfffffffeU on read fail, 0xffffffffU on too-long token
-char* gz_token_stream_advance(gz_token_stream_t* gtsp, uint32_t* token_slen_ptr);
-
-// ok if already closed
-boolerr_t gz_token_stream_close(gz_token_stream_t* gtsp);
 
 
 HEADER_INLINE uint32_t realnum(double dd) {

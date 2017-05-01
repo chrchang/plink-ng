@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
+#include "plink2_decompress.h"
 #include "plink2_set.h"
 
 #ifdef __cplusplus
@@ -220,13 +221,13 @@ pglerr_t load_range_list(const chr_info_t* cip, const uint32_t* variant_bp, cons
       }
       char* textbuf_iter = skip_initial_spaces(&(first_token_end[1]));
       uint32_t range_first;
-      if (scan_uint_defcap(textbuf_iter, &range_first)) {
+      if (scanadv_uint_defcap(&textbuf_iter, &range_first)) {
 	sprintf(g_logbuf, "Error: Invalid range start position on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
 	goto load_range_list_ret_MALFORMED_INPUT_2;
       }
       textbuf_iter = next_token(textbuf_iter);
       uint32_t range_last;
-      if (scan_uint_defcap(textbuf_iter, &range_last)) {
+      if (scanadv_uint_defcap(&textbuf_iter, &range_last)) {
 	sprintf(g_logbuf, "Error: Invalid range end position on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
 	goto load_range_list_ret_MALFORMED_INPUT_2;
       }

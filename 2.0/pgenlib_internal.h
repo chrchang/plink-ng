@@ -85,7 +85,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 505
+#define PGENLIB_INTERNAL_VERNUM 507
 
 
 #define _FILE_OFFSET_BITS 64
@@ -1272,7 +1272,7 @@ CONSTU31(kPglDifflistGroupSize, 64);
 //   named kf[CamelCase description]0.
 // * The type name is always of the form [snake_case description]_flags_t.
 // * To gain the desired level of type-checking under C++11 without pointless
-//   verbosity, &, |, ~, &=, and |= operations are defined; [my_flags_t
+//   verbosity, &, |, ^, ~, &=, |=, and ^= operations are defined; [my_flags_t
 //   variable] |= [another my_flags_t variable] & [a my_flags_t constant] works
 //   without an explicit cast.  (Defining "struct my_flags_t" separately from
 //   the enum global-scope-constants container is necessary to make |= work
@@ -1296,6 +1296,10 @@ inline tname ## _PGENLIB_INTERNAL_DO_NOT_USE__ operator|(tname ## _PGENLIB_INTER
   \
 inline tname ## _PGENLIB_INTERNAL_DO_NOT_USE__ operator&(tname ## _PGENLIB_INTERNAL_DO_NOT_USE__ aa, tname ## _PGENLIB_INTERNAL_DO_NOT_USE__ bb) { \
   return static_cast<tname ## _PGENLIB_INTERNAL_DO_NOT_USE__>(static_cast<uint32_t>(aa) & static_cast<uint32_t>(bb)); \
+} \
+  \
+inline tname ## _PGENLIB_INTERNAL_DO_NOT_USE__ operator^(tname ## _PGENLIB_INTERNAL_DO_NOT_USE__ aa, tname ## _PGENLIB_INTERNAL_DO_NOT_USE__ bb) { \
+  return static_cast<tname ## _PGENLIB_INTERNAL_DO_NOT_USE__>(static_cast<uint32_t>(aa) ^ static_cast<uint32_t>(bb)); \
 } \
   \
 inline tname ## _PGENLIB_INTERNAL_DO_NOT_USE__ operator~(tname ## _PGENLIB_INTERNAL_DO_NOT_USE__ aa) { \
@@ -1325,6 +1329,11 @@ struct tname { \
     return *this; \
   } \
   \
+  tname& operator^=(const tname ## _PGENLIB_INTERNAL_DO_NOT_USE__ rhs) { \
+    value_ ^= rhs; \
+    return *this; \
+  } \
+  \
 private: \
   uint32_t value_; \
 }
@@ -1338,6 +1347,10 @@ inline tname ## _PGENLIB_INTERNAL_DO_NOT_USE__ operator|(tname ## _PGENLIB_INTER
   \
 inline tname ## _PGENLIB_INTERNAL_DO_NOT_USE__ operator&(tname ## _PGENLIB_INTERNAL_DO_NOT_USE__ aa, tname ## _PGENLIB_INTERNAL_DO_NOT_USE__ bb) { \
   return static_cast<tname ## _PGENLIB_INTERNAL_DO_NOT_USE__>(static_cast<uint64_t>(aa) & static_cast<uint64_t>(bb)); \
+} \
+  \
+inline tname ## _PGENLIB_INTERNAL_DO_NOT_USE__ operator^(tname ## _PGENLIB_INTERNAL_DO_NOT_USE__ aa, tname ## _PGENLIB_INTERNAL_DO_NOT_USE__ bb) { \
+  return static_cast<tname ## _PGENLIB_INTERNAL_DO_NOT_USE__>(static_cast<uint64_t>(aa) ^ static_cast<uint64_t>(bb)); \
 } \
   \
 inline tname ## _PGENLIB_INTERNAL_DO_NOT_USE__ operator~(tname ## _PGENLIB_INTERNAL_DO_NOT_USE__ aa) { \
@@ -1364,6 +1377,11 @@ struct tname { \
   \
   tname& operator&=(const tname ## _PGENLIB_INTERNAL_DO_NOT_USE__ rhs) { \
     value_ &= rhs; \
+    return *this; \
+  } \
+  \
+  tname& operator^=(const tname ## _PGENLIB_INTERNAL_DO_NOT_USE__ rhs) { \
+    value_ ^= rhs; \
     return *this; \
   } \
   \
@@ -1972,8 +1990,7 @@ pglerr_t pgr_get_refalt1_genotype_counts(const uintptr_t* __restrict sample_incl
 // allele_idx is set to 0 for ref, 1 for alt1, 2 for alt2, etc.
 // frequencies are computed on the fly.  ties are broken in favor of the
 // lower-indexed allele.
-// possible todo: also provide ..._common2_then_subset() function, if the
-// VariantDB API needs it.
+// possible todo: also provide ..._common2_then_subset() function.
 // better default than the functions above for machine learning/GWAS, since the
 // reference allele is "wrong" sometimes.
 pglerr_t pgr_read_genovec_subset_then_common2(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, pgen_reader_t* pgrp, uintptr_t* __restrict genovec, uint32_t* __restrict maj_allele_idx_ptr, uint32_t* __restrict second_allele_idx_ptr, uint32_t* __restrict allele_ct_buf);
@@ -2007,6 +2024,10 @@ pglerr_t pgr_read_refalt1_genovec_hphase_subset_unsafe(const uintptr_t* __restri
 pglerr_t pgr_read_refalt1_genovec_dosage16_subset_unsafe(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, pgen_reader_t* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr, uint32_t* is_explicit_alt1_ptr);
 
 pglerr_t pgr_get_ref_nonref_genotype_counts_and_dosage16s(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, pgen_reader_t* pgrp, uint32_t* genocounts, uint64_t* all_dosages);
+
+// ok for both dosage_present and dosage_vals to be nullptr when no dosage data
+// is present
+pglerr_t pgr_read_refalt1_genovec_hphase_dosage16_subset_unsafe(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, pgen_reader_t* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr, uint32_t* is_explicit_alt1_ptr);
 
 // interface used by --make-pgen, just performs basic LD/difflist decompression
 // (still needs multiallelic and dosage-phase extensions)
@@ -2162,6 +2183,8 @@ void pwc_append_biallelic_genovec_dosage16(const uintptr_t* __restrict genovec, 
 pglerr_t spgw_append_biallelic_genovec_dosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_vals, uint32_t dosage_ct, st_pgen_writer_t* spgwp);
 
 void pwc_append_biallelic_genovec_hphase_dosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_vals, uint32_t dosage_ct, pgen_writer_common_t* pwcp);
+
+pglerr_t spgw_append_biallelic_genovec_hphase_dosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_vals, uint32_t dosage_ct, st_pgen_writer_t* spgwp);
 
 
 // Backfills header info, then closes the file.

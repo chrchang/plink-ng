@@ -3623,6 +3623,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
     const int32_t y_code = cip->xymt_codes[kChrOffsetY];
     const uint32_t center = variance_standardize || (score_flags & kfScoreCenter);
     const uint32_t no_meanimpute = (score_flags / kfScoreNoMeanimpute) & 1;
+    const uint32_t se_mode = (score_flags / kfScoreSe) & 1;
     uint32_t block_vidx = 0;
     uint32_t parity = 0;
     uint32_t cur_allele_ct = 2;
@@ -3851,6 +3852,22 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
 	      next_unset_unsafe_ck(missing_acc1, &sample_idx);
 	      cur_dosages_vmaj_iter[sample_idx] = ((int64_t)dosage_incrs[sample_idx]) * geno_slope + geno_intercept;
 	    }
+	    if (se_mode) {
+	      // Suppose our score coefficients are drawn from independent
+	      // Gaussians.  Then the variance of the final score average is
+	      // the sum of the variances of the individual terms, divided by
+	      // (T^2) where T is the number of terms.  These individual
+	      // variances are of the form ([genotype value] * [stdev])^2.
+	      //
+	      // Thus, we can use the same inner loop to compute standard
+	      // errors, as long as
+	      //   1. we square the genotypes and the standard errors before
+	      //      matrix multiplication, and
+	      //   2. we take the square root of the sums at the end.
+	      for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
+		cur_dosages_vmaj_iter[sample_idx] *= cur_dosages_vmaj_iter[sample_idx];
+	      }
+	    }
 	    cur_dosages_vmaj_iter = &(cur_dosages_vmaj_iter[sample_ct]);
 
 	    *allele_end = allele_end_char;
@@ -3875,6 +3892,11 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
 	    }
 	    ++block_vidx;
 	    if (block_vidx == kScoreVariantBlockSize) {
+	      if (se_mode) {
+		for (uintptr_t ulii = 0; ulii < kScoreVariantBlockSize * score_col_ct; ++ulii) {
+		  cur_score_coefs_cmaj[ulii] *= cur_score_coefs_cmaj[ulii];
+		}
+	      }
 	      parity = 1 - parity;
 	      const uint32_t is_not_first_block = (ts.thread_func_ptr != nullptr);
 	      if (is_not_first_block) {
@@ -3939,12 +3961,26 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
     }
     ts.is_last_block = 1;
     g_cur_batch_size = block_vidx;
+    if (se_mode) {
+      for (uintptr_t score_col_idx = 0; score_col_idx < score_col_ct; ++score_col_idx) {
+	double* cur_score_coefs_row = &(cur_score_coefs_cmaj[score_col_idx * kScoreVariantBlockSize]);
+	for (uint32_t uii = 0; uii < block_vidx; ++uii) {
+	  cur_score_coefs_row[uii] *= cur_score_coefs_row[uii];
+	}
+      }
+    }
     if (spawn_threads3z(is_not_first_block, &ts)) {
       goto score_report_ret_THREAD_CREATE_FAIL;
     }
     join_threads3z(&ts);
     if (gzclose_null(&gz_infile)) {
       goto score_report_ret_READ_FAIL;
+    }
+    if (se_mode) {
+      // sample_ct * score_col_ct
+      for (uintptr_t ulii = 0; ulii < sample_ct * score_col_ct; ++ulii) {
+	g_final_scores_cmaj[ulii] = sqrt(g_final_scores_cmaj[ulii]);
+      }
     }
     LOGPRINTF("--score: %u variant%s processed.\n", valid_variant_ct, (valid_variant_ct == 1)? "" : "s");
 

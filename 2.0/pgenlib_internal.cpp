@@ -6687,6 +6687,28 @@ pglerr_t pgr_get_ref_nonref_genotype_counts_and_dosage16s(const uintptr_t* __res
   return get_ref_nonref_genotype_counts_and_dosage16s(sample_include, sample_include_interleaved_vec, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, genocounts, all_dosages);
 }
 
+pglerr_t pgr_read_refalt1_genovec_hphase_dosage16_subset_unsafe(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, pgen_reader_t* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr, uint32_t* is_explicit_alt1_ptr) {
+  assert(vidx < pgrp->fi.raw_variant_ct);
+  if (!sample_ct) {
+    *phasepresent_ct_ptr = 0;
+    *dosage_ct_ptr = 0;
+    return kPglRetSuccess;
+  }
+  const unsigned char* fread_ptr = nullptr;
+  const unsigned char* fread_end = nullptr;
+  const uint32_t vrtype = get_pgfi_vrtype(&(pgrp->fi), vidx);
+  const uint32_t dosage_is_present = vrtype_dosage(vrtype);
+  pglerr_t reterr = read_refalt1_genovec_hphase_subset_unsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, dosage_is_present? (&fread_ptr) : nullptr, dosage_is_present? (&fread_end) : nullptr, genovec, phasepresent, phaseinfo, phasepresent_ct_ptr);
+  if (reterr || (!dosage_is_present)) {
+    *dosage_ct_ptr = 0;
+    return reterr;
+  }
+  const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
+  const uint32_t alt_allele_ct = allele_idx_offsets? ((uint32_t)(allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx] - 1)) : 1;
+  *is_explicit_alt1_ptr = (alt_allele_ct > 1);
+  return parse_dosage16(fread_ptr, fread_end, sample_include, sample_ct, vidx, alt_allele_ct, pgrp, dosage_ct_ptr, dosage_present, dosage_vals);
+}
+
 pglerr_t pgr_read_raw(uint32_t vidx, pgen_global_flags_t read_gflags, pgen_reader_t* pgrp, uintptr_t** loadbuf_iter_ptr, unsigned char* loaded_vrtype_ptr) {
   // currently handles hardcall phase and unphased dosage
   // todo: multiallelic variants, phased dosage
@@ -9177,6 +9199,20 @@ void pwc_append_biallelic_genovec_hphase_dosage16(const uintptr_t* __restrict ge
     append_dosage16(dosage_present, dosage_vals, dosage_ct, pwcp, vrtype_dest, &vrec_len);
   }
   memcpy(vrec_len_dest, &vrec_len, vrec_len_byte_ct);
+}
+
+pglerr_t spgw_append_biallelic_genovec_hphase_dosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_vals, uint32_t dosage_ct, st_pgen_writer_t* spgwp) {
+  // flush write buffer if necessary
+  if (spgwp->pwc.fwrite_bufp >= &(spgwp->pwc.fwrite_buf[kPglFwriteBlockSize])) {
+    const uintptr_t cur_byte_ct = (uintptr_t)(spgwp->pwc.fwrite_bufp - spgwp->pwc.fwrite_buf);
+    if (fwrite_checked(spgwp->pwc.fwrite_buf, cur_byte_ct, spgwp->pgen_outfile)) {
+      return kPglRetWriteFail;
+    }
+    spgwp->pwc.vblock_fpos_offset += cur_byte_ct;
+    spgwp->pwc.fwrite_bufp = spgwp->pwc.fwrite_buf;
+  }
+  pwc_append_biallelic_genovec_hphase_dosage16(genovec, phasepresent, phaseinfo, dosage_present, dosage_vals, dosage_ct, &(spgwp->pwc));
+  return kPglRetSuccess;
 }
 
 pglerr_t pwc_finish(pgen_writer_common_t* pwcp, FILE** pgen_outfile_ptr) {

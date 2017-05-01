@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-#include "plink2_common.h"
+#include "plink2_decompress.h"
 
 #ifdef __cplusplus
 namespace plink2 {

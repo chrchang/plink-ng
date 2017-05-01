@@ -409,6 +409,9 @@ pglerr_t write_allele_freqs(const uintptr_t* variant_include, const chr_info_t* 
 	if (commalist_exclude_ref) {
 	  cswritep = strcpya(cswritep, "ALT_");
 	}
+	if (eq_num) {
+	  cswritep = strcpya(cswritep, "NUM_");
+	}
 	if (counts) {
 	  cswritep = memcpyl3a(cswritep, "CTS");
 	} else {
@@ -523,8 +526,13 @@ pglerr_t write_allele_freqs(const uintptr_t* variant_include, const chr_info_t* 
 		if (cswrite(&css, &cswritep)) {
 		  goto write_allele_freqs_ret_WRITE_FAIL;
 		}
-		// possible todo: warning if an allele code includes a '='
-		cswritep = strcpya(cswritep, cur_alleles[allele_idx]);
+		const char* cur_allele = cur_alleles[allele_idx];
+		const uint32_t allele_slen = strlen(cur_allele);
+		if (memchr(cur_allele, '=', allele_slen) != nullptr) {
+		  logerrprint("Error: --freq's 'eq', 'eqz', 'alteq', and 'alteqz' columns cannot be requested\nwhen an allele code contains a '='.\n");
+		  goto write_allele_freqs_ret_INCONSISTENT_INPUT;
+		}
+		cswritep = memcpya(cswritep, cur_allele, allele_slen);
 	      }
 	      *cswritep++ = '=';
 	      if (counts) {
@@ -709,6 +717,9 @@ pglerr_t write_allele_freqs(const uintptr_t* variant_include, const chr_info_t* 
   write_allele_freqs_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
+  write_allele_freqs_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
   }
  write_allele_freqs_ret_1:
   cswrite_close_cond(&css, cswritep);
@@ -833,7 +844,7 @@ pglerr_t write_geno_counts(__attribute__((unused)) const uintptr_t* sample_inclu
     }
     const uint32_t numeq_col = geno_counts_modifier & kfGenoCountsColNumeq;
     if (numeq_col) {
-      cswritep = strcpya(cswritep, "\tGENO_CTS");
+      cswritep = strcpya(cswritep, "\tGENO_NUM_CTS");
     }
     const uint32_t missing_col = geno_counts_modifier & kfGenoCountsColMissing;
     if (missing_col) {

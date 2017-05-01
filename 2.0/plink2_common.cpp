@@ -17,6 +17,8 @@
 
 #include "plink2_common.h"
 
+#include <unistd.h> // sysconf()
+
 #ifdef __APPLE__
   // needed for sysctl() call
   #include <sys/sysctl.h>
@@ -190,19 +192,6 @@ boolerr_t fopen_checked(const char* fname, const char* mode, FILE** target_ptr) 
     return 1;
   }
   return 0;
-}
-
-pglerr_t gzopen_read_checked(const char* fname, gzFile* gzf_ptr) {
-  *gzf_ptr = gzopen(fname, FOPEN_RB);
-  if (!(*gzf_ptr)) {
-    logprint("\n");
-    LOGERRPRINTFWW(g_errstr_fopen, fname);
-    return kPglRetOpenFail;
-  }
-  if (gzbuffer(*gzf_ptr, 131072)) {
-    return kPglRetNomem;
-  }
-  return kPglRetSuccess;
 }
 
 
@@ -797,6 +786,20 @@ uintptr_t doublearr_greater_than(const double* sorted_dbl_arr, uintptr_t arr_len
   return min_idx + (dxx > sorted_dbl_arr[((uintptr_t)min_idx)]);
 }
 
+uintptr_t uint64arr_geq(const uint64_t* sorted_uint64_arr, uintptr_t arr_length, uint64_t ullii) {
+  intptr_t min_idx = 0;
+  intptr_t max_idx = arr_length - 1;
+  while (min_idx < max_idx) {
+    const uintptr_t mid_idx = (((uintptr_t)min_idx) + ((uintptr_t)max_idx)) / 2;
+    if (ullii >= sorted_uint64_arr[mid_idx]) {
+      min_idx = mid_idx + 1;
+    } else {
+      max_idx = mid_idx - 1;
+    }
+  }
+  return min_idx + (ullii >= sorted_uint64_arr[((uintptr_t)min_idx)]);
+}
+
 uint32_t param_count(char** argv, uint32_t argc, uint32_t flag_idx) {
   // Counts the number of optional parameters given to the flag at position
   // flag_idx, treating any nonnumeric parameter beginning with "-" as
@@ -1047,6 +1050,18 @@ void strcpy_toupper(char* target, const char* source) {
 }
 */
 
+uint32_t is_alphanumeric(const char* ss) {
+  while (1) {
+    uint32_t uii = (unsigned char)(*ss++);
+    if (!uii) {
+      return 1;
+    }
+    if (((uii - 48) > 9) && (((uii & 0xffffffdfU) - 65) > 25)) {
+      return 0;
+    }
+  }
+}
+
 boolerr_t scan_posintptr(const char* ss, uintptr_t* valp) {
   // Reads an integer in [1, 2^kBitsPerWord - 1].  Assumes first character is
   // nonspace.
@@ -1151,6 +1166,31 @@ boolerr_t scanadv_posint_capped(uint64_t cap, char** ss_ptr, uint32_t* valp) {
   *ss_ptr = (char*)ss;
   return scanadv_uint_capped_finish(cap, ss_ptr, valp);
 }
+
+boolerr_t scanadv_uint_capped(uint64_t cap, char** ss_ptr, uint32_t* valp) {
+  unsigned char* ss = (unsigned char*)(*ss_ptr);
+  *valp = (uint32_t)(*ss++) - 48;
+  if (*valp >= 10) {
+    if (*valp != 0xfffffffbU) {
+      // '-' has ascii code 45, so unsigned 45 - 48 = 0xfffffffdU
+      if ((*valp != 0xfffffffdU) || (*ss != '0')) {
+	return 1;
+      }
+      // accept "-0", "-00", etc.
+      while (*(++ss) == '0');
+      *valp = 0;
+      *ss_ptr = (char*)ss;
+      return ((uint32_t)((unsigned char)(*ss)) - 48) < 10;
+    }
+    // accept leading '+'
+    *valp = (uint32_t)((unsigned char)(*ss++)) - 48;
+    if (*valp >= 10) {
+      return 1;
+    }
+  }
+  *ss_ptr = (char*)ss;
+  return scanadv_uint_capped_finish(cap, ss_ptr, valp);
+}
 #else
 boolerr_t scanadv_posint_capped32(uint32_t cap_div_10, uint32_t cap_mod_10, char** ss_ptr, uint32_t* valp) {
   unsigned char* ss = (unsigned char*)ss_ptr;
@@ -1166,6 +1206,38 @@ boolerr_t scanadv_posint_capped32(uint32_t cap_div_10, uint32_t cap_mod_10, char
   }
   while (!val) {
     val = (uint32_t)(*ss++);
+    if (val >= 10) {
+      return 1;
+    }
+  }
+  while (1) {
+    const uint32_t cur_digit = (uint32_t)(*ss++) - 48;
+    if (cur_digit >= 10) {
+      *valp = val;
+      *ss_ptr = (char*)(&(ss[-1]));
+      return 0;
+    }
+    if ((val >= cap_div_10) && ((val > cap_div_10) || (cur_digit > cap_mod_10))) {
+      return 1;
+    }
+    val = val * 10 + cur_digit;
+  }
+}
+
+boolerr_t scanadv_uint_capped32(uint32_t cap_div_10, uint32_t cap_mod_10, char** ss_ptr, uint32_t* valp) {
+  unsigned char* ss = (unsigned char*)ss_ptr;
+  uint32_t val = (uint32_t)(*ss++) - 48;
+  if (val >= 10) {
+    if (val != 0xfffffffbU) {
+      if ((val != 0xfffffffd) || (*ss != '0')) {
+	return 1;
+      }
+      while (*(++ss) == '0');
+      *valp = 0;
+      *ss_ptr = (char*)ss;
+      return ((uint32_t)((unsigned char)(*ss)) - 48) < 10;
+    }
+    val = (uint32_t)((unsigned char)(*ss++)) - 48;
     if (val >= 10) {
       return 1;
     }
@@ -2873,6 +2945,15 @@ boolerr_t bigstack_calloc_f(uintptr_t ct, float** f_arr_ptr) {
   return 0;
 }
 
+boolerr_t bigstack_calloc_usi(uintptr_t ct, uint16_t** usi_arr_ptr) {
+  *usi_arr_ptr = (uint16_t*)bigstack_alloc(ct * sizeof(int16_t));
+  if (!(*usi_arr_ptr)) {
+    return 1;
+  }
+  memset(*usi_arr_ptr, 0, ct * sizeof(int16_t));
+  return 0;
+}
+
 boolerr_t bigstack_calloc_ui(uintptr_t ct, uint32_t** ui_arr_ptr) {
   *ui_arr_ptr = (uint32_t*)bigstack_alloc(ct * sizeof(int32_t));
   if (!(*ui_arr_ptr)) {
@@ -3966,76 +4047,6 @@ boolerr_t sorted_xidbox_read_find(const char* __restrict sorted_xidbox, const ui
   return sorted_idbox_find(idbuf, sorted_xidbox, xid_map, slen_final, max_xid_blen, end_idx, sample_uidx_ptr);
 }
 
-pglerr_t load_xid_header(const char* flag_name, sid_detect_mode_t sid_detect_mode, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, xid_mode_t* xid_mode_ptr) {
-  // possible todo: support comma delimiter
-  uintptr_t line_idx = *line_idx_ptr;
-  uint32_t is_header_line;
-  char* loadbuf_first_token;
-  do {
-    ++line_idx;
-    if (!gzgets(*gz_infile_ptr, loadbuf, loadbuf_size)) {
-      if (!gzeof(*gz_infile_ptr)) {
-	return kPglRetReadFail;
-      }
-      return kPglRetEmptyFile;
-    }
-    if (!loadbuf[loadbuf_size - 1]) {
-      return kPglRetLongLine;
-    }
-    loadbuf_first_token = skip_initial_spaces(loadbuf);
-    is_header_line = (loadbuf_first_token[0] == '#');
-  } while (is_header_line && strcmp_se(&(loadbuf_first_token[1]), "FID", 3) && strcmp_se(&(loadbuf_first_token[1]), "IID", 3));
-  xid_mode_t xid_mode = kfXidMode0;
-  char* loadbuf_iter;
-  if (is_header_line) {
-    // the following header leading columns are supported:
-    // #FID IID (sid_detect_mode can't be FORCE)
-    // #FID IID SID (SID ignored on sid_detect_mode NOT_LOADED)
-    // #IID
-    // #IID SID
-    loadbuf_iter = &(loadbuf_first_token[4]);
-    if (loadbuf_first_token[1] == 'I') {
-      xid_mode = kfXidModeFlagNeverFid;
-    } else {
-      loadbuf_iter = skip_initial_spaces(loadbuf_iter);
-      if (strcmp_se(loadbuf_iter, "IID", 3)) {
-	LOGERRPRINTF("Error: No IID column on line %" PRIuPTR " of --%s file.\n", line_idx, flag_name);
-	return kPglRetMalformedInput;
-      }
-      loadbuf_iter = &(loadbuf_iter[3]);
-    }
-    loadbuf_iter = skip_initial_spaces(loadbuf_iter);
-    if (!strcmp_se(&(loadbuf_iter[3]), "SID", 3)) {
-      if ((uint32_t)sid_detect_mode >= kSidDetectModeLoaded) {
-	xid_mode |= kfXidModeFlagSid;
-      }
-      loadbuf_iter = skip_initial_spaces(&(loadbuf_iter[3]));
-    } else if (sid_detect_mode == kSidDetectModeForce) {
-      LOGERRPRINTFWW("Error: No SID column on line %" PRIuPTR " of --%s file.\n", line_idx, flag_name);
-      return kPglRetMalformedInput;
-    }
-  } else {
-    xid_mode = (sid_detect_mode == kSidDetectModeForce)? kfXidModeFidiidSid : kfXidModeFidiidOrIid;
-    loadbuf_iter = loadbuf_first_token;
-  }
-  if (loadbuf_iter_ptr) {
-    *loadbuf_iter_ptr = loadbuf_iter;
-  }
-  *loadbuf_first_token_ptr = loadbuf_first_token;
-  *line_idx_ptr = line_idx;
-  *xid_mode_ptr = xid_mode;
-  return kPglRetSuccess;
-}
-
-pglerr_t open_and_load_xid_header(const char* fname, const char* flag_name, sid_detect_mode_t sid_detect_mode, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, xid_mode_t* xid_mode_ptr) {
-  pglerr_t reterr = gzopen_read_checked(fname, gz_infile_ptr);
-  if (reterr) {
-    return reterr;
-  }
-  loadbuf[loadbuf_size - 1] = ' ';
-  return load_xid_header(flag_name, sid_detect_mode, loadbuf_size, loadbuf, loadbuf_iter_ptr, line_idx_ptr, loadbuf_first_token_ptr, gz_infile_ptr, xid_mode_ptr);
-}
-
 void init_range_list(range_list_t* range_list_ptr) {
   range_list_ptr->names = nullptr;
   range_list_ptr->starts_range = nullptr;
@@ -4165,89 +4176,6 @@ pglerr_t string_range_list_to_bitarr_alloc(char* header_line, const range_list_t
 }
 
 
-void gz_token_stream_preinit(gz_token_stream_t* gtsp) {
-  gtsp->gz_infile = nullptr;
-}
-
-pglerr_t gz_token_stream_init(const char* fname, gz_token_stream_t* gtsp, char* buf_start) {
-  pglerr_t reterr = gzopen_read_checked(fname, &(gtsp->gz_infile));
-  if (reterr) {
-    return reterr;
-  }
-  gtsp->buf_start = buf_start;
-  gtsp->read_iter = &(buf_start[kMaxMediumLine]);
-  gtsp->buf_end = gtsp->read_iter;
-  gtsp->buf_end[0] = '0'; // force initial load
-  return kPglRetSuccess;
-}
-
-char* gz_token_stream_advance(gz_token_stream_t* gtsp, uint32_t* token_slen_ptr) {
-  char* token_start = gtsp->read_iter;
-  char* buf_end = gtsp->buf_end;
- gz_token_stream_advance_restart:
-  while ((unsigned char)(*token_start) <= ' ') {
-    ++token_start;
-  }
-  while (1) {
-    if (token_start < buf_end) {
-      char* token_end = &(token_start[1]);
-      while ((unsigned char)(*token_end) > ' ') {
-	++token_end;
-      }
-      const uint32_t token_slen = (uintptr_t)(token_end - token_start);
-      if (token_end < buf_end) {
-	*token_slen_ptr = token_slen;
-	gtsp->read_iter = &(token_end[1]);
-	return token_start;
-      }
-      if (token_slen > kMaxMediumLine) {
-	*token_slen_ptr = 0xffffffffU;
-	return nullptr;
-      }
-      char* new_token_start = &(gtsp->buf_start[kMaxMediumLine - token_slen]);
-      memcpy(new_token_start, token_start, token_slen);
-      token_start = new_token_start;
-    } else {
-      token_start = &(gtsp->buf_start[kMaxMediumLine]);
-    }
-    char* load_start = &(gtsp->buf_start[kMaxMediumLine]);
-    const int32_t bufsize = gzread(gtsp->gz_infile, load_start, kMaxMediumLine);
-    if (bufsize < 0) {
-      *token_slen_ptr = 0xfffffffeU;
-      return nullptr;
-    }
-    buf_end = &(load_start[(uint32_t)bufsize]);
-    buf_end[0] = ' ';
-    buf_end[1] = '0';
-    gtsp->buf_end = buf_end;
-    if (!bufsize) {
-      if (!gzeof(gtsp->gz_infile)) {
-	*token_slen_ptr = 0xfffffffeU;
-	return nullptr;
-      }
-      // bufsize == 0, eof
-      if (token_start == load_start) {
-	*token_slen_ptr = 0;
-	return nullptr;
-      }
-      gtsp->read_iter = load_start;
-      *token_slen_ptr = (uintptr_t)(load_start - token_start);
-      return token_start;
-    }
-    if (token_start == load_start) {
-      goto gz_token_stream_advance_restart;
-    }
-  }
-}
-
-boolerr_t gz_token_stream_close(gz_token_stream_t* gtsp) {
-  if (!gtsp->gz_infile) {
-    return 0;
-  }
-  return gzclose_null(&(gtsp->gz_infile));
-}
-
-
 const char g_xymt_log_names[][5] = {"chrX", "chrY", "XY", "chrM", "PAR1", "PAR2"};
 
 static_assert(!(kChrRawEnd % kBytesPerVec), "kChrRawEnd must be a multiple of kBytesPerVec.");
@@ -4352,6 +4280,7 @@ void finalize_chrset(misc_flags_t misc_flags, chr_info_t* cip) {
       }
     }
   } else if (misc_flags & (kfMiscAutosomePar | kfMiscAutosomeOnly)) {
+    fill_bits_nz(1, cip->autosome_ct + 1, chr_mask);
     clear_bits_nz(cip->autosome_ct + 1, kChrExcludeWords * kBitsPerWord, chr_mask);
     if (misc_flags & kfMiscAutosomePar) {
       int32_t par_chr_code = cip->xymt_codes[kChrOffsetY];
