@@ -2226,24 +2226,22 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
 		if (dosage_field_idx) {
 		  uint32_t is_missing = 0;
 		  uint32_t dosage_int;
-		  if (parse_vcf_dosage(loadbuf_iter, cur_gtext_end - loadbuf_iter, dosage_field_idx, is_haploid, dosage_is_gp, import_dosage_certainty, &is_missing, &dosage_int)) {
-		    if (is_missing) {
-		      goto vcf_to_pgen_force_missing_1;
+		  if (!parse_vcf_dosage(loadbuf_iter, cur_gtext_end - loadbuf_iter, dosage_field_idx, is_haploid, dosage_is_gp, import_dosage_certainty, &is_missing, &dosage_int)) {
+		    const uint32_t cur_halfdist = biallelic_dosage_halfdist(dosage_int);
+		    if ((cur_geno == 3) && (cur_halfdist >= hard_call_halfdist)) {
+		      // only overwrite GT if (i) it was missing, and (ii) the
+		      // dosage's distance from the nearest hardcall doesn't
+		      // exceed the --hard-call-threshold value.
+		      // (possible todo: warn or error out if dosage and GT are
+		      // inconsistent)
+		      cur_geno = (dosage_int + (kDosage4th * k1LU)) / kDosageMid;
 		    }
+		    if (cur_halfdist < dosage_erase_halfdist) {
+		      dosage_present_hw |= 1U << sample_idx_lowbits;
+		      *dosage_vals_iter++ = dosage_int;
+		    }
+		  } else if (!is_missing) {
 		    goto vcf_to_pgen_ret_INVALID_DOSAGE;
-		  }
-		  const uint32_t cur_halfdist = biallelic_dosage_halfdist(dosage_int);
-		  if ((cur_geno == 3) && (cur_halfdist >= hard_call_halfdist)) {
-		    // only overwrite GT if (i) it was missing, and (ii) the
-		    // dosage's distance from the nearest hardcall doesn't
-		    // exceed the --hard-call-threshold value.
-		    // (possible todo: warn or error out if dosage and GT are
-		    // inconsistent)
-		    cur_geno = (dosage_int + (kDosage4th * k1LU)) / kDosageMid;
-		  }
-		  if (cur_halfdist < dosage_erase_halfdist) {
-		    dosage_present_hw |= 1U << sample_idx_lowbits;
-		    *dosage_vals_iter++ = dosage_int;
 		  }
 		}
 	      }
@@ -2358,19 +2356,17 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
 		if (dosage_field_idx) {
 		  uint32_t is_missing = 0;
 		  uint32_t dosage_int;
-		  if (parse_vcf_dosage(loadbuf_iter, cur_gtext_end - loadbuf_iter, dosage_field_idx, is_haploid, dosage_is_gp, import_dosage_certainty, &is_missing, &dosage_int)) {
-		    if (is_missing) {
-		      goto vcf_to_pgen_force_missing_2;
+		  if (!parse_vcf_dosage(loadbuf_iter, cur_gtext_end - loadbuf_iter, dosage_field_idx, is_haploid, dosage_is_gp, import_dosage_certainty, &is_missing, &dosage_int)) {
+		    const uint32_t cur_halfdist = biallelic_dosage_halfdist(dosage_int);
+		    if ((cur_geno == 3) && (cur_halfdist >= hard_call_halfdist)) {
+		      cur_geno = (dosage_int + (kDosage4th * k1LU)) / kDosageMid;
 		    }
+		    if (cur_halfdist < dosage_erase_halfdist) {
+		      dosage_present_hw |= 1U << sample_idx_lowbits;
+		      *dosage_vals_iter++ = dosage_int;
+		    }
+		  } else if (!is_missing) {
 		    goto vcf_to_pgen_ret_INVALID_DOSAGE;
-		  }
-		  const uint32_t cur_halfdist = biallelic_dosage_halfdist(dosage_int);
-		  if ((cur_geno == 3) && (cur_halfdist >= hard_call_halfdist)) {
-		    cur_geno = (dosage_int + (kDosage4th * k1LU)) / kDosageMid;
-		  }
-		  if (cur_halfdist < dosage_erase_halfdist) {
-		    dosage_present_hw |= 1U << sample_idx_lowbits;
-		    *dosage_vals_iter++ = dosage_int;
 		  }
 		}
 	      }
@@ -11051,6 +11047,9 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
 	  } else {
 	    write_iter = memcpyl3a(write_iter, ":GP");
 	  }
+	  if (!alt1_allele_idx) {
+	    biallelic_dosage16_invert(dosage_ct, dosage_vals);
+	  }
 	  dosage_t* dosage_vals_iter = dosage_vals;
           if (!is_haploid_or_mt) {
 	    while (1) {
@@ -11221,6 +11220,9 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
 	    write_iter = memcpyl3a(write_iter, ":DS");
 	  } else {
 	    write_iter = memcpyl3a(write_iter, ":GP");
+	  }
+	  if (!alt1_allele_idx) {
+	    biallelic_dosage16_invert(dosage_ct, dosage_vals);
 	  }
 	  dosage_t* dosage_vals_iter = dosage_vals;
 	  if (!is_haploid_or_mt) {
