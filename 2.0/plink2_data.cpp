@@ -1249,7 +1249,7 @@ static inline uint32_t biallelic_dosage_halfdist(uint32_t dosage_int) {
 
 static_assert(!kVcfHalfCallReference, "vcf_to_pgen() assumes kVcfHalfCallReference == 0.");
 static_assert(kVcfHalfCallHaploid == 1, "vcf_to_pgen() assumes kVcfHalfCallHaploid == 1.");
-pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, misc_flags_t misc_flags, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, double vcf_min_gq, vcf_half_call_t vcf_half_call, fam_col_t fam_cols, char* outname, char* outname_end, chr_info_t* cip) {
+pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, misc_flags_t misc_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, double vcf_min_gq, vcf_half_call_t vcf_half_call, fam_col_t fam_cols, char* outname, char* outname_end, chr_info_t* cip) {
   // Now performs a 2-pass load.  Yes, this can be slower than plink 1.9, but
   // it's necessary to use the Pgen_writer classes for now (since we need to
   // know upfront how many variants there are, and whether phase/dosage is
@@ -2002,6 +2002,12 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
     }
     write_iter = writebuf;
     char* writebuf_flush = &(writebuf[kCompressStreamBlock]);
+
+    if (hard_call_thresh == 0xffffffffU) {
+      hard_call_thresh = kDosageMid / 10;
+    }
+    const uint32_t hard_call_halfdist = kDosage4th - hard_call_thresh;
+
     uint32_t vidx = 0;
     for (line_idx = header_line_ct + 1; line_idx <= line_ct; ++line_idx) {
       if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
@@ -2227,8 +2233,10 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
 		    goto vcf_to_pgen_ret_INVALID_DOSAGE;
 		  }
 		  const uint32_t cur_halfdist = biallelic_dosage_halfdist(dosage_int);
-		  if (cur_geno == 3) {
-		    // only overwrite GT if it was missing
+		  if ((cur_geno == 3) && (cur_halfdist >= hard_call_halfdist)) {
+		    // only overwrite GT if (i) it was missing, and (ii) the
+		    // dosage's distance from the nearest hardcall doesn't
+		    // exceed the --hard-call-threshold value.
 		    // (possible todo: warn or error out if dosage and GT are
 		    // inconsistent)
 		    cur_geno = (dosage_int + (kDosage4th * k1LU)) / kDosageMid;
@@ -2357,7 +2365,7 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
 		    goto vcf_to_pgen_ret_INVALID_DOSAGE;
 		  }
 		  const uint32_t cur_halfdist = biallelic_dosage_halfdist(dosage_int);
-		  if (cur_geno == 3) {
+		  if ((cur_geno == 3) && (cur_halfdist >= hard_call_halfdist)) {
 		    cur_geno = (dosage_int + (kDosage4th * k1LU)) / kDosageMid;
 		  }
 		  if (cur_halfdist < dosage_erase_halfdist) {

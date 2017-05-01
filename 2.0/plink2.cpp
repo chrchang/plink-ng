@@ -6717,7 +6717,7 @@ int main(int argc, char** argv) {
 	const uint32_t convname_slen = (uintptr_t)(convname_end - outname);
 	const uint32_t psam_specified = (load_params & kfLoadParamsPsam);
 	if (xload & kfXloadVcf) {
-	  reterr = vcf_to_pgen(pgenname, psam_specified? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_half_call, pc.fam_cols, outname, convname_end, &chr_info);
+	  reterr = vcf_to_pgen(pgenname, psam_specified? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_half_call, pc.fam_cols, outname, convname_end, &chr_info);
 	} else if (xload & kfXloadVcf) {
 	  logerrprint("Error: --bcf is not implemented yet.\n");
 	  reterr = kPglRetNotYetSupported;
