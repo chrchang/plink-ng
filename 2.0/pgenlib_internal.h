@@ -85,7 +85,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 507
+#define PGENLIB_INTERNAL_VERNUM 508
 
 
 #define _FILE_OFFSET_BITS 64
@@ -1232,9 +1232,10 @@ CONSTU31(kPglBitTransposeBufwords, kPglBitTransposeBufbytes / kBytesPerWord);
 void transpose_bitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, vul_t* vecaligned_buf);
 
 // replaces each x with (32768 - x)
+// okay for dosage_vals to be nullptr if dosage_ct == 0
 void biallelic_dosage16_invert(uint32_t dosage_ct, uint16_t* dosage_vals);
 
-void genovec_to_missingness(const uintptr_t* __restrict genovec, uint32_t sample_ct, uintptr_t* __restrict missingness);
+void genovec_to_missingness_unsafe(const uintptr_t* __restrict genovec, uint32_t sample_ct, uintptr_t* __restrict missingness);
 
 // ----- end plink2_common subset -----
 
@@ -2008,10 +2009,21 @@ pglerr_t pgr_read_allele_countvec_subset_unsafe(const uintptr_t* __restrict samp
 // variants without actually loading the genotype data, since the size of the
 // record puts an upper bound on the alt allele frequency.
 
-void pgr_detect_genovec_hets_unsafe(const uintptr_t*__restrict genovec, uint32_t raw_sample_ctl2, uintptr_t* __restrict all_hets);
+// requires trailing bits of genovec to be zeroed out, AND does not update high
+// bits of last word if raw_sample_ctl2 is odd.
+void detect_genovec_hets_hw(const uintptr_t*__restrict genovec, uint32_t raw_sample_ctl2, halfword_t* __restrict all_hets_hw);
 
-HEADER_INLINE void pgr_detect_genovec_hets(const uintptr_t*__restrict genovec, uint32_t raw_sample_ct, uintptr_t* __restrict all_hets) {
-  pgr_detect_genovec_hets_unsafe(genovec, QUATERCT_TO_WORDCT(raw_sample_ct), all_hets);
+// requires trailing bits of genovec to be zeroed out.
+HEADER_INLINE void pgr_detect_genovec_hets_unsafe(const uintptr_t*__restrict genovec, uint32_t raw_sample_ctl2, uintptr_t* __restrict all_hets) {
+  halfword_t* all_hets_alias = (halfword_t*)all_hets;
+  detect_genovec_hets_hw(genovec, raw_sample_ctl2, all_hets_alias);
+  if (raw_sample_ctl2 % 2) {
+    all_hets_alias[raw_sample_ctl2] = 0;
+  }
+}
+
+HEADER_INLINE void pgr_detect_genovec_hets(const uintptr_t* __restrict genovec, uint32_t raw_sample_ct, uintptr_t* __restrict all_hets) {
+  detect_genovec_hets_hw(genovec, QUATERCT_TO_WORDCT(raw_sample_ct), (halfword_t*)all_hets);
   zero_trailing_bits(raw_sample_ct, all_hets);
 }
 

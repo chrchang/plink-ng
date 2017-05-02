@@ -3718,7 +3718,8 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
 		biallelic_dosage16_invert(dosage_ct, dosage_vals_buf);
 	      }
 	    }
-	    genovec_to_missingness(genovec_buf, sample_ct, missing_acc1);
+	    zero_trailing_quaters(sample_ct, genovec_buf);
+	    genovec_to_missingness_unsafe(genovec_buf, sample_ct, missing_acc1);
 	    if (dosage_ct) {
 	      bitvec_andnot(dosage_present_buf, sample_ctl, missing_acc1);
 	    }

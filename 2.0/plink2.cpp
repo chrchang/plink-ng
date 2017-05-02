@@ -63,7 +63,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (1 May 2017)";
+  " (2 May 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -1422,11 +1422,12 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, const plink2_cmdline
       // (Technically, I could also drop support for --export, but that would
       // force too many real-world jobs to require two plink2 runs instead of
       // one.)
+      unsigned char* bigstack_end_mark = g_bigstack_end;
       alt_allele_ct_t* refalt1_select = nullptr;
       if (pcp->misc_flags & kfMiscMajRef) {
 	const uintptr_t refalt1_word_ct = DIV_UP(2 * raw_variant_ct * sizeof(alt_allele_ct_t), kBytesPerWord);
 	uintptr_t* refalt1_select_ul;
-	if (bigstack_alloc_ul(refalt1_word_ct, &refalt1_select_ul)) {
+	if (bigstack_end_alloc_ul(refalt1_word_ct, &refalt1_select_ul)) {
 	  goto plink2_ret_NOMEM;
 	}
 	const uintptr_t alt_allele_vals = (uintptr_t)(k1LU << (8 * sizeof(alt_allele_ct_t)));
@@ -1445,7 +1446,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, const plink2_cmdline
 	    logerrprint("Warning: --maj-ref has no effect, since no provisional reference alleles are\npresent.  (Did you forget to add the 'force' modifier?)\n");
 	  } else {
 	    if (not_all_nonref && (!nonref_flags)) {
-	      if (bigstack_alloc_ul(raw_variant_ctl, &nonref_flags)) {
+	      if (bigstack_end_alloc_ul(raw_variant_ctl, &nonref_flags)) {
 		goto plink2_ret_NOMEM;
 	      }
 	      pgfi.nonref_flags = nonref_flags;
@@ -1555,6 +1556,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, const plink2_cmdline
 	  goto plink2_ret_1;
 	}
       }
+      bigstack_end_reset(bigstack_end_mark);
     }
     bigstack_reset(bigstack_mark_allele_dosages);
     
@@ -2917,7 +2919,8 @@ int main(int argc, char** argv) {
     pc.exportf_bits = 0;
     pc.exportf_id_delim = '\0';
     double import_dosage_certainty = 0.0;
-    double vcf_min_gq = -1;
+    int32_t vcf_min_gq = -1;
+    int32_t vcf_min_dp = -1;
     intptr_t malloc_size_mb = 0;
     load_params_t load_params = kfLoadParams0;
     xload_t xload = kfXload0;
@@ -5135,7 +5138,6 @@ int main(int argc, char** argv) {
 	  }
 	  pc.misc_flags |= kfMiscMajRef;
 	  pc.filter_flags |= kfFilterAllReq;
-	  goto main_param_zero;
 	} else if (!memcmp(flagname_p2, "af", 3)) {
 	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
 	    goto main_ret_INVALID_CMDLINE_2A;
@@ -6361,24 +6363,28 @@ int main(int argc, char** argv) {
 	  memcpy(pgenname, cur_modif, slen + 1);
 	  xload = kfXloadVcf;
         } else if (!memcmp(flagname_p2, "cf-min-gp", 10)) {
-	  logerrprint("Error: --vcf-min-gp is no longer supported.  Dosage-based filtering will be\nimplemented fairly soon.\n");
+	  logerrprint("Error: --vcf-min-gp is no longer supported.  Use --import-dosage-certainty\ninstead.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
-	} else if (!memcmp(flagname_p2, "cf-min-gq", 10)) {
+	} else if ((!memcmp(flagname_p2, "cf-min-gq", 10)) || (!memcmp(flagname_p2, "cf-min-dp", 10))) {
 	  if (!(xload & kfXloadVcf)) {
 	    // todo: support BCF too
-	    logerrprint("Error: --vcf-min-gq must be used with --vcf.\n");
+	    LOGERRPRINTF("Error: --%s must be used with --vcf.\n", flagname_p);
 	    goto main_ret_INVALID_CMDLINE;
 	  }
 	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
 	    goto main_ret_INVALID_CMDLINE_2A;
 	  }
-	  if ((!scanadv_double(argv[arg_idx + 1], &vcf_min_gq)) || (vcf_min_gq < 0.0)) {
-	    sprintf(g_logbuf, "Error: Invalid --vcf-min-gq parameter '%s'.\n", argv[arg_idx + 1]);
+	  const char* cur_modif = argv[arg_idx + 1];
+	  uint32_t uii;
+	  if (scan_uint_defcap(cur_modif, &uii)) {
+	    sprintf(g_logbuf, "Error: Invalid --%s parameter '%s'.\n", flagname_p, cur_modif);
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
-	  // er, should standardize where the epsilon adjustments happen
-	  // I suspect it shouldn't be here...
-	  vcf_min_gq *= 1 - kSmallEpsilon;
+	  if (flagname_p2[7] == 'g') {
+	    vcf_min_gq = uii;
+	  } else {
+	    vcf_min_dp = uii;
+	  }
 	} else if (!memcmp(flagname_p2, "cf-idspace-to", 14)) {
 	  if (!(xload & (kfXloadVcf | kfXloadBcf))) {
 	    logerrprint("Error: --vcf-idspace-to must be used with --vcf/--bcf.\n");
@@ -6717,7 +6723,7 @@ int main(int argc, char** argv) {
 	const uint32_t convname_slen = (uintptr_t)(convname_end - outname);
 	const uint32_t psam_specified = (load_params & kfLoadParamsPsam);
 	if (xload & kfXloadVcf) {
-	  reterr = vcf_to_pgen(pgenname, psam_specified? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_half_call, pc.fam_cols, outname, convname_end, &chr_info);
+	  reterr = vcf_to_pgen(pgenname, psam_specified? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_half_call, pc.fam_cols, outname, convname_end, &chr_info);
 	} else if (xload & kfXloadVcf) {
 	  logerrprint("Error: --bcf is not implemented yet.\n");
 	  reterr = kPglRetNotYetSupported;

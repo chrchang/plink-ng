@@ -1942,6 +1942,11 @@ void interleaved_set_missing(const uintptr_t* __restrict interleaved_set, uintpt
 
 void set_male_het_missing(const uintptr_t* __restrict sex_male_interleaved, uint32_t vec_ct, uintptr_t* __restrict genovec);
 
+// Clears each bit in bitarr which doesn't correspond to a genovec het.
+// Assumes that either trailing bits of bitarr are already zero, or trailing
+// bits of genovec are zero.
+void mask_genovec_hets_unsafe(const uintptr_t* __restrict genovec, uint32_t raw_sample_ctl2, uintptr_t* __restrict bitarr);
+
 // vertical popcount support
 #ifdef __LP64__
 static_assert(kBytesPerVec == 16, "scramble_2_4_8_32() assumes kBytesPerVec == 16.");
