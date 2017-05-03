@@ -1048,7 +1048,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      normally zero, but can be changed with 'skip0', 'skip1', and 'skip2'\n"
 "      respectively.)  If such a header line is not present,\n"
 "      * when all samples appear in the same order as they do in the .fam file,\n"
-"        you can use the 'noheader' modiifer.\n"
+"        you can use the 'noheader' modifier.\n"
 "      * Otherwise, use the 'sepheader' modifier, and append sample ID filenames\n"
 "        to your 'list' file entries.\n"
 "    * The 'format' modifier lets you specify the number of values used to\n"
