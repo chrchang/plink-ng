@@ -510,8 +510,8 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "    <vcf-dosage=[field]> <ref-first> <bits=[#]>\n"
 "    Create a new fileset with all filters applied.  The following output\n"
 "    formats are supported:\n"
-"    (actually, only bgen-1.1, ind-major-bed, haps, hapslegend, oxford, and vcf\n"
-"    are implemented for now)\n"
+"    (actually, only A-transpose, bgen-1.1, ind-major-bed, haps, hapslegend,\n"
+"    oxford, and vcf are implemented for now)\n"
 "    * '23': 23andMe 4-column format.  This can only be used on a single\n"
 "            sample's data (--keep may be handy), and does not support\n"
 "            multicharacter allele codes.\n"
@@ -1034,9 +1034,11 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "  --idspace-to [c]   : Convert spaces in VCF/.bgen sample IDs to the given\n"
 "                       character.\n"
 	       );
-    help_print("vcf\tbcf\tvcf-half-call\tvcf-min-gq\tvcf-require-gt", &help_ctrl, 0,
+    help_print("vcf\tbcf\tvcf-half-call\tvcf-min-gq\tvcf-min-dp\tvcf-require-gt", &help_ctrl, 0,
 "  --vcf-require-gt   : Skip variants with no GT field.\n"
 "  --vcf-min-gq [val] : No-call genotypes when GQ is present and below the\n"
+"                       threshold.\n"
+"  --vcf-min-dp [val] : No-call genotypes when DP is present and below the\n"
 "                       threshold.\n"
 "  --vcf-half-call [] : Specify how '0/.' and similar VCF GT values should be\n"
 "                       handled.  The following four modes are supported:\n"

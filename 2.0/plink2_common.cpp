@@ -5074,6 +5074,20 @@ void set_male_het_missing(const uintptr_t* __restrict sex_male_interleaved, uint
 #endif
 }
 
+// Clears each bit in bitarr which doesn't correspond to a genovec het.
+// Assumes that either trailing bits of bitarr are already zero, or trailing
+// bits of genovec are zero.
+//
+// Similar to pgr_detect_genovec_hets_unsafe(). 
+void mask_genovec_hets_unsafe(const uintptr_t* __restrict genovec, uint32_t raw_sample_ctl2, uintptr_t* __restrict bitarr) {
+  halfword_t* bitarr_alias = (halfword_t*)bitarr;
+  for (uint32_t widx = 0; widx < raw_sample_ctl2; ++widx) {
+    const uintptr_t cur_word = genovec[widx];
+    uintptr_t ww = (~(cur_word >> 1)) & cur_word & kMask5555; // low 1, high 0
+    bitarr_alias[widx] &= pack_word_to_halfword(ww);
+  }
+}
+
 /*
 uint32_t chr_window_max(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bp, uint32_t chr_fo_idx, uint32_t ct_max, uint32_t bp_max, uint32_t cur_window_max) {
   if (cur_window_max >= ct_max) {

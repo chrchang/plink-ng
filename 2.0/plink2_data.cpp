@@ -1120,14 +1120,15 @@ uint32_t vcf_is_het_short(const char* first_gchar_ptr, vcf_half_call_t vcf_half_
 
 uint32_t get_vcf_format_position(const char* __restrict needle, uint32_t needle_slen, char* format_start, char* format_end) {
   *format_end = '\0';
+  // assumes first field is GT
   char* token_start = &(format_start[3]);
-  uint32_t dosage_field_idx = 0;
+  uint32_t field_idx = 0;
   while (1) {
     char* token_end = strchr(token_start, ':');
-    ++dosage_field_idx;
+    ++field_idx;
     if (!token_end) {
       if (((uintptr_t)(format_end - token_start) != needle_slen) || memcmp(token_start, needle, needle_slen)) {
-	dosage_field_idx = 0;
+	field_idx = 0;
       }
       break;
     }
@@ -1137,24 +1138,70 @@ uint32_t get_vcf_format_position(const char* __restrict needle, uint32_t needle_
     token_start = &(token_end[1]);
   }
   *format_end = '\t';
-  return dosage_field_idx;
+  return field_idx;
 }
 
-uint32_t vcf_gq_check(char* gtext_iter, uint32_t gtext_slen, uint32_t gq_field_idx, double vcf_min_gq) {
-  // returns 1 on low GQ
-  // assumes gq_field_idx != 0, switch to while() loop if that's permitted
-  uint32_t field_idx = 0;
-  do {
-    char* field_end = (char*)memchr(gtext_iter, ':', gtext_slen);
-    if (!field_end) {
-      // VCF standard permits fewer fields, in this case we treat GQ as missing
-      return 0;
+uint32_t vcf_qual_scan_init(int32_t vcf_min_gq, int32_t vcf_min_dp, char* format_start, char* format_end, uint32_t* qual_field_skips, int32_t* qual_thresholds) {
+  uint32_t gq_field_idx = 0;
+  if (vcf_min_gq >= 0) {
+    gq_field_idx = get_vcf_format_position("GQ", 2, format_start, format_end);
+  }
+  uint32_t qual_field_ct = 0;
+  uint32_t dp_field_idx = 0;
+  if (vcf_min_dp >= 0) {
+    dp_field_idx = get_vcf_format_position("DP", 2, format_start, format_end);
+    if (dp_field_idx && ((!gq_field_idx) || (dp_field_idx < gq_field_idx))) {
+      qual_field_skips[0] = dp_field_idx;
+      qual_thresholds[0] = vcf_min_dp;
+      qual_field_ct = 1;
+      dp_field_idx = 0;
     }
-    gtext_slen -= 1 + (uintptr_t)(field_end - gtext_iter);
+  }
+  if (gq_field_idx) {
+    qual_field_skips[qual_field_ct] = gq_field_idx;
+    qual_thresholds[qual_field_ct++] = vcf_min_gq;
+    if (dp_field_idx) {
+      qual_field_skips[qual_field_ct] = dp_field_idx;
+      qual_thresholds[qual_field_ct++] = vcf_min_dp;
+    }
+  }
+  if (qual_field_ct == 2) {
+    qual_field_skips[1] -= qual_field_skips[0];
+  }
+  return qual_field_ct;
+}
+
+char* vcf_field_advance(char* gtext_iter, char* gtext_end, uint32_t advance_ct) {
+  // assumes advance_ct is nonzero
+  do {
+    char* field_end = (char*)memchr(gtext_iter, ':', gtext_end - gtext_iter);
+    if (!field_end) {
+      return nullptr;
+    }
     gtext_iter = &(field_end[1]);
-  } while (++field_idx < gq_field_idx);
-  double dxx;
-  return scanadv_double(gtext_iter, &dxx) && (dxx < vcf_min_gq);
+  } while (--advance_ct);
+  return gtext_iter;
+}
+
+// returns 1 if a quality check failed
+// assumes either 1 or 2 qual fields, otherwise change this to a loop
+uint32_t vcf_check_quals(const uint32_t* qual_field_skips, const int32_t* qual_thresholds, char* gtext_iter, char* gtext_end, uint32_t qual_field_ct) {
+  gtext_iter = vcf_field_advance(gtext_iter, gtext_end, qual_field_skips[0]);
+  if (!gtext_iter) {
+    return 0;
+  }
+  int32_t ii;
+  if ((!scan_int32(gtext_iter, &ii)) && (ii < qual_thresholds[0])) {
+    return 1;
+  }
+  if (qual_field_ct == 1) {
+    return 0;
+  }
+  gtext_iter = vcf_field_advance(gtext_iter, gtext_end, qual_field_skips[1]);
+  if (!gtext_iter) {
+    return 0;
+  }
+  return (!scan_int32(gtext_iter, &ii)) && (ii < qual_thresholds[1]);
 }
 
 boolerr_t parse_vcf_gp(char* gp_iter, uint32_t is_haploid, double import_dosage_certainty, uint32_t* is_missing_ptr, double* alt_dosage_ptr) {
@@ -1200,18 +1247,17 @@ boolerr_t parse_vcf_gp(char* gp_iter, uint32_t is_haploid, double import_dosage_
   return 0;
 }
 
-boolerr_t parse_vcf_dosage(char* gtext_iter, uint32_t gtext_slen, uint32_t dosage_field_idx, uint32_t is_haploid, uint32_t dosage_is_gp, double import_dosage_certainty, uint32_t* is_missing_ptr, uint32_t* dosage_int_ptr) {
+boolerr_t parse_vcf_dosage(char* gtext_iter, char* gtext_end, uint32_t dosage_field_idx, uint32_t is_haploid, uint32_t dosage_is_gp, double import_dosage_certainty, uint32_t* is_missing_ptr, uint32_t* dosage_int_ptr) {
   // assumes is_missing initialized to 0
   // assumes dosage_field_idx != 0
   // returns 1 if missing OR parsing error.
   uint32_t field_idx = 0;
   do {
-    char* field_end = (char*)memchr(gtext_iter, ':', gtext_slen);
+    char* field_end = (char*)memchr(gtext_iter, ':', gtext_end - gtext_iter);
     if (!field_end) {
       *is_missing_ptr = 1;
       return 1;
     }
-    gtext_slen -= 1 + (uintptr_t)(field_end - gtext_iter);
     gtext_iter = &(field_end[1]);
   } while (++field_idx < dosage_field_idx);
   if (((gtext_iter[0] == '.') || (gtext_iter[0] == '?')) && (((uint32_t)((unsigned char)gtext_iter[1])) - 48 >= 10)) {
@@ -1249,7 +1295,7 @@ static inline uint32_t biallelic_dosage_halfdist(uint32_t dosage_int) {
 
 static_assert(!kVcfHalfCallReference, "vcf_to_pgen() assumes kVcfHalfCallReference == 0.");
 static_assert(kVcfHalfCallHaploid == 1, "vcf_to_pgen() assumes kVcfHalfCallHaploid == 1.");
-pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, misc_flags_t misc_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, double vcf_min_gq, vcf_half_call_t vcf_half_call, fam_col_t fam_cols, char* outname, char* outname_end, chr_info_t* cip) {
+pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, misc_flags_t misc_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, vcf_half_call_t vcf_half_call, fam_col_t fam_cols, char* outname, char* outname_end, chr_info_t* cip) {
   // Now performs a 2-pass load.  Yes, this can be slower than plink 1.9, but
   // it's necessary to use the Pgen_writer classes for now (since we need to
   // know upfront how many variants there are, and whether phase/dosage is
@@ -1299,6 +1345,7 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
     const uint32_t dosage_is_gp = (dosage_import_field_slen == 2) && (!memcmp(dosage_import_field, "GP", 2));
     uint32_t format_gt_present = 0;
     uint32_t format_gq_relevant = 0;
+    uint32_t format_dp_relevant = 0;
     uint32_t format_dosage_relevant = 0;
     uint32_t info_pr_present = 0;
     uint32_t info_nonpr_present = 0;
@@ -1386,6 +1433,12 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
 	  goto vcf_to_pgen_ret_MALFORMED_INPUT;
 	}
 	format_gq_relevant = 1;
+      } else if ((vcf_min_dp != -1) && (!memcmp(&(loadbuf_iter[2]), "FORMAT=<ID=DP,Number=1,Type=", 21))) {
+	if (format_dp_relevant) {
+	  logerrprint("Error: Duplicate FORMAT:DP header line in --vcf file.\n");
+	  goto vcf_to_pgen_ret_MALFORMED_INPUT;
+	}
+	format_dp_relevant = 1;
       } else if (dosage_import_field && (!memcmp(&(loadbuf_iter[2]), "FORMAT=<ID=", 11)) && (!memcmp(&(loadbuf_iter[13]), dosage_import_field, dosage_import_field_slen)) && (loadbuf_iter[13 + dosage_import_field_slen] == ',')) {
 	if (format_dosage_relevant) {
 	  LOGERRPRINTFWW("Error: Duplicate FORMAT:%s header line in --vcf file.\n", dosage_import_field);
@@ -1416,7 +1469,13 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
     }
     if ((!format_gq_relevant) && (vcf_min_gq != -1)) {
       logerrprint("Warning: No GQ field in --vcf file header.  --vcf-min-gq ignored.\n");
+      vcf_min_gq = -1;
     }
+    if ((!format_dp_relevant) && (vcf_min_dp != -1)) {
+      logerrprint("Warning: No DP field in --vcf file header.  --vcf-min-dp ignored.\n");
+      vcf_min_dp = -1;
+    }
+    const uint32_t format_gq_or_dp_relevant = format_gq_relevant || format_dp_relevant;
     if ((!format_dosage_relevant) && dosage_import_field) {
       LOGERRPRINTFWW("Warning: No %s field in --vcf file header. Dosages will not be imported.\n", dosage_import_field);
     }
@@ -1497,6 +1556,7 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
     uintptr_t allele_idx_end = 0;
     uint32_t max_allele_slen = 1;
     uint32_t max_qualfilterinfo_slen = 6;
+    uint32_t qual_field_ct = 0;
 
     const uint32_t dosage_erase_halfdist = kDosage4th - dosage_erase_thresh;
 
@@ -1665,9 +1725,10 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
 	  goto vcf_to_pgen_ret_MISSING_TOKENS;
 	}
 
-	uint32_t gq_field_idx = 0;
-	if (format_gq_relevant) {
-	  gq_field_idx = get_vcf_format_position("GQ", 2, loadbuf_iter, format_end);
+	uint32_t qual_field_skips[2];
+	int32_t qual_thresholds[2];
+	if (format_gq_or_dp_relevant) {
+	  qual_field_ct = vcf_qual_scan_init(vcf_min_gq, vcf_min_dp, loadbuf_iter, format_end, qual_field_skips, qual_thresholds);
 	}
         // if nonzero, 0-based index of dosage field
 	uint32_t dosage_field_idx = 0;
@@ -1696,12 +1757,12 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
 		}
 		if (phasescan_iter[2] == '|') {
 		  if (vcf_is_het_short(&(phasescan_iter[1]), vcf_half_call)) {
-		    if (gq_field_idx) {
+		    if (qual_field_ct) {
 		      char* cur_gtext_end = strchr(phasescan_iter, '\t');
 		      if (!cur_gtext_end) {
 			cur_gtext_end = next_prespace(phasescan_iter);
 		      }
-		      if (vcf_gq_check(phasescan_iter, cur_gtext_end - phasescan_iter, gq_field_idx, vcf_min_gq)) {
+		      if (vcf_check_quals(qual_field_skips, qual_thresholds, phasescan_iter, cur_gtext_end, qual_field_ct)) {
 			break;
 		      }
 		    }
@@ -1713,12 +1774,12 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
 	      break;
 	    }
 	    if (vcf_is_het_short(&(phasescan_iter[-1]), vcf_half_call)) {
-	      if (gq_field_idx) {
+	      if (qual_field_ct) {
 		char* cur_gtext_end = strchr(phasescan_iter, '\t');
 		if (!cur_gtext_end) {
 		  cur_gtext_end = next_prespace(phasescan_iter);
 		}
-		if (vcf_gq_check(phasescan_iter, cur_gtext_end - phasescan_iter, gq_field_idx, vcf_min_gq)) {
+		if (vcf_check_quals(qual_field_skips, qual_thresholds, phasescan_iter, cur_gtext_end, qual_field_ct)) {
 		  break;
 		}
 	      }
@@ -1742,16 +1803,15 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
 		cur_gtext_end = next_prespace(dosagescan_iter);
 	      }
 	      dosagescan_iter = cur_gtext_end;
-	      const uint32_t gtext_slen = (uintptr_t)(cur_gtext_end - cur_gtext_start);
-	      if (gq_field_idx) {
-	        if (vcf_gq_check(cur_gtext_start, gtext_slen, gq_field_idx, vcf_min_gq)) {
-		  continue;
+	      if (qual_field_ct) {
+		if (vcf_check_quals(qual_field_skips, qual_thresholds, cur_gtext_start, cur_gtext_end, qual_field_ct)) {
+		  break;
 		}
 	      }
 	      const uint32_t is_haploid = (cur_gtext_start[1] != '/') && (cur_gtext_start[1] != '|');
 	      uint32_t is_missing = 0;
 	      uint32_t dosage_int;
-	      if (parse_vcf_dosage(cur_gtext_start, gtext_slen, dosage_field_idx, is_haploid, dosage_is_gp, import_dosage_certainty, &is_missing, &dosage_int)) {
+	      if (parse_vcf_dosage(cur_gtext_start, cur_gtext_end, dosage_field_idx, is_haploid, dosage_is_gp, import_dosage_certainty, &is_missing, &dosage_int)) {
 		if (is_missing) {
 		  continue;
 		}
@@ -2132,9 +2192,10 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
 	}
       } else {
 	loadbuf_iter = (char*)rawmemchr(format_start, '\t');
-	uint32_t gq_field_idx = 0;
-	if (format_gq_relevant) {
-	  gq_field_idx = get_vcf_format_position("GQ", 2, format_start, loadbuf_iter);
+	uint32_t qual_field_skips[2];
+	int32_t qual_thresholds[2];
+	if (format_gq_or_dp_relevant) {
+	  qual_field_ct = vcf_qual_scan_init(vcf_min_gq, vcf_min_dp, format_start, loadbuf_iter, qual_field_skips, qual_thresholds);
 	}
 
 	uint32_t dosage_field_idx = 0;
@@ -2167,10 +2228,8 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
 		cur_gtext_end = next_prespace(loadbuf_iter);
 	      }
 	      uintptr_t cur_geno;
-	      if (gq_field_idx) {
-		// can't make GQ check conditional on cur_geno <= 1, since we
-		// may need to import dosage
-		if (vcf_gq_check(loadbuf_iter, cur_gtext_end - loadbuf_iter, gq_field_idx, vcf_min_gq)) {
+	      if (qual_field_ct) {
+		if (vcf_check_quals(qual_field_skips, qual_thresholds, loadbuf_iter, cur_gtext_end, qual_field_ct)) {
 		  goto vcf_to_pgen_force_missing_1;
 		}
 	      }
@@ -2226,7 +2285,7 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
 		if (dosage_field_idx) {
 		  uint32_t is_missing = 0;
 		  uint32_t dosage_int;
-		  if (!parse_vcf_dosage(loadbuf_iter, cur_gtext_end - loadbuf_iter, dosage_field_idx, is_haploid, dosage_is_gp, import_dosage_certainty, &is_missing, &dosage_int)) {
+		  if (!parse_vcf_dosage(loadbuf_iter, cur_gtext_end, dosage_field_idx, is_haploid, dosage_is_gp, import_dosage_certainty, &is_missing, &dosage_int)) {
 		    const uint32_t cur_halfdist = biallelic_dosage_halfdist(dosage_int);
 		    if ((cur_geno == 3) && (cur_halfdist >= hard_call_halfdist)) {
 		      // only overwrite GT if (i) it was missing, and (ii) the
@@ -2289,8 +2348,8 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
 		cur_gtext_end = next_prespace(loadbuf_iter);
 	      }
 	      uintptr_t cur_geno;
-	      if (gq_field_idx) {
-		if (vcf_gq_check(loadbuf_iter, cur_gtext_end - loadbuf_iter, gq_field_idx, vcf_min_gq)) {
+	      if (qual_field_ct) {
+		if (vcf_check_quals(qual_field_skips, qual_thresholds, loadbuf_iter, cur_gtext_end, qual_field_ct)) {
 		  goto vcf_to_pgen_force_missing_2;
 		}
 	      }
@@ -2356,7 +2415,7 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
 		if (dosage_field_idx) {
 		  uint32_t is_missing = 0;
 		  uint32_t dosage_int;
-		  if (!parse_vcf_dosage(loadbuf_iter, cur_gtext_end - loadbuf_iter, dosage_field_idx, is_haploid, dosage_is_gp, import_dosage_certainty, &is_missing, &dosage_int)) {
+		  if (!parse_vcf_dosage(loadbuf_iter, cur_gtext_end, dosage_field_idx, is_haploid, dosage_is_gp, import_dosage_certainty, &is_missing, &dosage_int)) {
 		    const uint32_t cur_halfdist = biallelic_dosage_halfdist(dosage_int);
 		    if ((cur_geno == 3) && (cur_halfdist >= hard_call_halfdist)) {
 		      cur_geno = (dosage_int + (kDosage4th * k1LU)) / kDosageMid;
@@ -7556,7 +7615,6 @@ THREAD_FUNC_DECL make_pgen_thread(void* arg) {
   const uint32_t sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
   const uint32_t sample_ctv2 = QUATERCT_TO_VECCT(sample_ct);
   const uint32_t raw_sample_ctaw2 = QUATERCT_TO_ALIGNED_WORDCT(raw_sample_ct);
-  const uint32_t raw_sample_ctl2 = QUATERCT_TO_WORDCT(raw_sample_ct);
   const uint32_t sample_ctl = BITCT_TO_WORDCT(sample_ct);
   const int32_t x_code = cip->xymt_codes[kChrOffsetX];
   const int32_t y_code = cip->xymt_codes[kChrOffsetY];
@@ -7583,13 +7641,11 @@ THREAD_FUNC_DECL make_pgen_thread(void* arg) {
     write_genovec[QUATERCT_TO_WORDCT(sample_ct) - 1] = 0;
   }
   uintptr_t* write_phasepresent = nullptr;
-  uintptr_t* cur_write_phasepresent = nullptr;
   uintptr_t* write_phaseinfo = nullptr;
   uintptr_t* all_hets = nullptr;
   if (hphase_present) {
     all_hets = g_thread_all_hets[tidx];
     write_phasepresent = g_thread_write_phasepresents[tidx];
-    cur_write_phasepresent = write_phasepresent;
     write_phaseinfo = g_thread_write_phaseinfos[tidx];
   }
   uintptr_t* write_dosagepresent = nullptr;
@@ -7630,16 +7686,16 @@ THREAD_FUNC_DECL make_pgen_thread(void* arg) {
 	is_haploid = is_set(cip->haploid_mask, chr_idx);
 	is_mt = (chr_idx == mt_code);
       }
-      const uint32_t is_hphase = loaded_vrtype & 0x10;
+      uint32_t is_hphase = loaded_vrtype & 0x10;
       const uint32_t is_dosage = loaded_vrtype & 0x60;
+      uintptr_t* cur_write_phasepresent = write_phasepresent;
       if (1) {
 	// biallelic, no phased-dosage
 	uintptr_t* cur_genovec_end = &(loadbuf_iter[raw_sample_ctaw2]);
 	uintptr_t* cur_phaseraw = nullptr;
 	uintptr_t* cur_dosageraw = nullptr;
 	if (is_hphase) {
-	  pgr_detect_genovec_hets_unsafe(loadbuf_iter, raw_sample_ctl2, all_hets);
-	  zero_trailing_bits(raw_sample_ct, all_hets);
+	  pgr_detect_genovec_hets(loadbuf_iter, raw_sample_ct, all_hets);
 	  cur_phaseraw = cur_genovec_end;
 	  cur_genovec_end = &(cur_genovec_end[phaseraw_word_ct]);
 	}
@@ -7676,49 +7732,42 @@ THREAD_FUNC_DECL make_pgen_thread(void* arg) {
 	if (refalt1_select_iter && (refalt1_select_iter[2 * write_idx] == 1)) {
 	  genovec_invert_unsafe(sample_ct, write_genovec);
 	  if (is_hphase) {
-	    // probably could ignore phasepresent here, but better safe than
-	    // sorry for now
-	    if (cur_write_phasepresent) {
-	      bitvec_andnot2(cur_write_phasepresent, sample_ctl, write_phaseinfo);
-	    } else {
-	      bitarr_invert(sample_ctl, write_phaseinfo);
-	    }
+	    bitarr_invert(sample_ctl, write_phaseinfo);
 	  }
 	  if (write_dosage_ct) {
 	    biallelic_dosage16_invert(write_dosage_ct, write_dosagevals);
 	  }
 	}
-	if (set_hh_missing && is_haploid) {
-	  if (is_x_or_y) {
-	    // male hets to missing
-	    set_male_het_missing(sex_male_collapsed_interleaved, sample_ctv2, write_genovec);
-	    if (is_y) {
-	      // all female calls to missing; unknown-sex calls now left alone
-	      interleaved_set_missing(sex_female_collapsed_interleaved, sample_ctv2, write_genovec);
-	    }
-	  } else {
-	    // all hets to missing
-	    set_het_missing(sample_ctl2, write_genovec);
-	  }
-	} else if (set_mixed_mt_missing && is_mt) {
-	  // all hets to missing
-	  set_het_missing(sample_ctl2, write_genovec);
-	}
-	zero_trailing_quaters(sample_ct, write_genovec);
 	if (write_dosage_ct) {
 	  if (hard_call_halfdist) {
+	    if (is_hphase && (!cur_write_phasepresent)) {
+	      cur_write_phasepresent = write_phasepresent;
+	      // unsafe to just copy all_hets, because we may have resorted
+	      pgr_detect_genovec_hets(write_genovec, sample_ct, cur_write_phasepresent);
+	    }
 	    uint32_t sample_uidx = 0;
 	    for (uint32_t dosage_idx = 0; dosage_idx < write_dosage_ct; ++dosage_idx, ++sample_uidx) {
 	      next_set_unsafe_ck(write_dosagepresent, &sample_uidx);
 	      const uint32_t dosage_int = write_dosagevals[dosage_idx];
 	      const uint32_t halfdist = biallelic_dosage_halfdist(dosage_int);
-	      uintptr_t cur_geno;
+	      const uint32_t widx = sample_uidx / kBitsPerWordD2;
+	      uintptr_t prev_geno_word = write_genovec[widx];
+	      const uint32_t shift = (sample_uidx % kBitsPerWordD2) * 2;
+	      uintptr_t new_geno;
 	      if (halfdist < hard_call_halfdist) {
-		cur_geno = 3;
+		new_geno = 3;
 	      } else {
-		cur_geno = (dosage_int + kDosage4th) / kDosageMid;
+		new_geno = (dosage_int + kDosage4th) / kDosageMid;
 	      }
-	      ASSIGN_QUATERARR_ENTRY(sample_uidx, cur_geno, write_genovec);
+	      const uintptr_t prev_geno = (prev_geno_word >> shift) & 3;
+	      const uintptr_t geno_xor = new_geno ^ prev_geno;
+	      if (geno_xor) {
+	        if (is_hphase) {
+		  // must erase phase here
+		  CLEAR_BIT(sample_uidx, cur_write_phasepresent);
+		}
+		write_genovec[widx] = prev_geno_word ^ (geno_xor << shift);
+	      }
 	    }
 	  }
 	  if (dosage_erase_halfdist < kDosage4th) {
@@ -7751,6 +7800,31 @@ THREAD_FUNC_DECL make_pgen_thread(void* arg) {
 	    write_dosage_ct = 0;
 	  }
 	}
+	// moved after --hard-call-threshold, since it makes sense to
+	// immediately erase fresh het haploid calls
+	if (set_hh_missing && is_haploid) {
+	  if (is_x_or_y) {
+	    // male hets to missing
+	    set_male_het_missing(sex_male_collapsed_interleaved, sample_ctv2, write_genovec);
+	    if (is_y) {
+	      // all female calls to missing; unknown-sex calls now left alone
+	      interleaved_set_missing(sex_female_collapsed_interleaved, sample_ctv2, write_genovec);
+	    }
+	    if (is_hphase && cur_write_phasepresent) {
+	      mask_genovec_hets_unsafe(write_genovec, sample_ctl2, cur_write_phasepresent);
+	    }
+	  } else {
+	    // all hets to missing
+	    // may want to move is_hphase zeroing in front
+	    set_het_missing(sample_ctl2, write_genovec);
+	    is_hphase = 0;
+	  }
+	} else if (set_mixed_mt_missing && is_mt) {
+	  // all hets to missing
+	  set_het_missing(sample_ctl2, write_genovec);
+	  is_hphase = 0;
+	}
+	zero_trailing_quaters(sample_ct, write_genovec);
 	// todo: --set-me-missing, --zero-cluster, --fill-missing-with-ref
 	if (!is_hphase) {
 	  pwc_append_biallelic_genovec_dosage16(write_genovec, write_dosagepresent, write_dosagevals, write_dosage_ct, pwcp);
@@ -8270,7 +8344,7 @@ pglerr_t make_plink2_no_vsort(const char* xheader, const uintptr_t* sample_inclu
 	  other_per_thread_cacheline_ct += 2 * BITCT_TO_CLCT(sample_ct);
 
 	  // all_hets
-	  other_per_thread_cacheline_ct += BITCT_TO_CLCT(raw_sample_ct);	
+	  other_per_thread_cacheline_ct += BITCT_TO_CLCT(raw_sample_ct);
 	}
 	if (read_dosage_present) {
 	  if (bigstack_alloc_dosagep(calc_thread_ct, &g_thread_write_dosagevals) ||
@@ -8666,6 +8740,288 @@ pglerr_t sample_sort_file_map(const uintptr_t* sample_include, const char* sampl
   }
  sample_sort_file_map_ret_1:
   gzclose_cond(gz_infile);
+  bigstack_reset(bigstack_mark);
+  return reterr;
+}
+
+
+// assumes rawval is in [0, 163839]
+static_assert(kDosageMid == 16384, "gen_dosage_print() needs to be updated.");
+char* gen_dosage_print(uint32_t rawval, char* start) {
+  // Instead of constant 5-digit precision, we print fewer digits whenever that
+  // doesn't interfere with proper round-tripping.
+  // This is complicated by .gen import's quantization step (instead of
+  // rounding the numbers directly, they're first converted to bgen-1.1
+  // equivalents).  Without quantization, we'd search for the shortest string
+  // in
+  //   ((n - 0.5)/16384, (n + 0.5)/16384), 
+  // e.g. 3277/16384 is 0.20001 when printed with 5-digit precision, but we'd
+  // print that as 0.2 since that's still in (3276.5/16384, 3277.5/16384).
+  // With it, we have
+  //   ((n - 0.75)/16384, (n + 0.75)/16384) for even n
+  //   ((n - 0.25)/16384, (n + 0.25)/16384) for odd n
+  // due to banker's rounding.
+  //
+  // For simplicity, we also use this function when exporting the VCF GP field.
+  *start++ = '0' + (rawval / 16384);
+  rawval = rawval % 16384;
+  if (!rawval) {
+    return start;
+  }
+  *start++ = '.';
+  const uint32_t halfwidth_65536ths = 3 - (2 * (rawval % 2));
+  // (rawval * 4) is in 65536ths
+  // 65536 * 625 = 40960k
+
+  const uint32_t range_top_40960k = (rawval * 4 + halfwidth_65536ths) * 625;
+  // this is technically checking a half-open rather than a fully-open
+  // interval, but that's fine since we never hit the boundary points
+  if ((range_top_40960k % 4096) < 1250 * halfwidth_65536ths) {
+    // when this is true, the four-decimal-place approximation is in the range
+    // which round-trips back to our original number.
+    const uint32_t four_decimal_places = range_top_40960k / 4096;
+    return uitoa_trunc4(four_decimal_places, start);
+  }
+  
+  // we wish to print (100000 * remainder + 8192) / 16384, left-0-padded.  and
+  // may as well banker's round too.
+  //  
+  // banker's rounding yields a different result than regular rounding for n/64
+  // when n is congruent to 1 mod 4:
+  //   1/64 = .015625 -> print 0.01562
+  //   3/64 = .046875 -> print 0.04688
+  //   5/64 = .078125 -> print 0.07812
+  const uint32_t five_decimal_places = ((3125 * rawval + 256) / 512) - ((rawval % 1024) == 256);
+  const uint32_t first_decimal_place = five_decimal_places / 10000;
+  *start++ = '0' + first_decimal_place;
+  const uint32_t last_four_digits = five_decimal_places - first_decimal_place * 10000;
+  if (last_four_digits) {
+    return uitoa_trunc4(last_four_digits, start);
+  }
+  return start;
+}
+
+#ifdef __arm__
+  #error "Unaligned accesses in export_012_vmaj()."
+#endif
+pglerr_t export_012_vmaj(const char* outname, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const char* sample_ids, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bp, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const alt_allele_ct_t* refalt1_select, const double* variant_cms, uint32_t sample_ct, uintptr_t max_sample_id_blen, uint32_t variant_ct, uint32_t max_allele_slen, pgen_reader_t* simple_pgrp) {
+  // todo: --recode-allele?
+  unsigned char* bigstack_mark = g_bigstack_base;
+  FILE* outfile = nullptr;
+  pglerr_t reterr = kPglRetSuccess;
+  {
+    const uint32_t sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
+    const uint32_t sample_ctl = BITCT_TO_WORDCT(sample_ct);
+    const uint32_t max_chr_blen = 1 + get_max_chr_slen(cip);
+    char* chr_buf; // includes trailing tab
+    char* writebuf;
+    uintptr_t* genovec;
+    // dosages are limited to 7 characters (x.yyyyy)
+    if (bigstack_alloc_c(max_chr_blen, &chr_buf) ||
+	bigstack_alloc_c(kMaxMediumLine + max_chr_blen + 2 * kMaxIdSlen + 48 + 2 * max_allele_slen + (8 * k1LU) * sample_ct, &writebuf) ||
+        bigstack_alloc_ul(sample_ctl2, &genovec)) {
+      goto export_012_vmaj_ret_NOMEM;
+    }
+    char* writebuf_flush = &(writebuf[kMaxMediumLine]);
+    const uint32_t dosage_is_present = simple_pgrp->fi.gflags & kfPgenGlobalDosagePresent;
+    uintptr_t* dosage_present = nullptr;
+    dosage_t* dosage_vals = nullptr;
+    if (dosage_is_present) {
+      if (bigstack_alloc_ul(sample_ctl, &dosage_present) ||
+	  bigstack_alloc_dosage(sample_ct, &dosage_vals)) {
+	goto export_012_vmaj_ret_NOMEM;
+      }
+    }
+    if (fopen_checked(outname, FOPEN_WB, &outfile)) {
+      goto export_012_vmaj_ret_OPEN_FAIL;
+    }
+    char* write_iter = strcpya(writebuf, "CHR\tSNP\t(C)M\tPOS\tCOUNTED\tALT");
+    uint32_t sample_uidx = 0;
+    for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+      next_set_unsafe_ck(sample_include, &sample_uidx);
+      *write_iter++ = '\t';
+      const char* fid_start = &(sample_ids[sample_uidx * max_sample_id_blen]);
+      const char* fid_end = (const char*)rawmemchr(fid_start, '\t');
+      write_iter = memcpyax(write_iter, fid_start, fid_end - fid_start, '_');
+      write_iter = strcpya(write_iter, &(fid_end[1]));
+      if (write_iter >= writebuf_flush) {
+	if (fwrite_checked(writebuf, write_iter - writebuf, outfile)) {
+	  goto export_012_vmaj_ret_WRITE_FAIL;
+	}
+	write_iter = writebuf;
+      }
+    }
+    append_binary_eoln(&write_iter);
+    LOGPRINTFWW5("--export A-transpose to %s ... ", outname);
+    fputs("0%", stdout);
+    fflush(stdout);
+    uint32_t chr_fo_idx = 0xffffffffU;
+    uint32_t chr_end = 0;
+    uint32_t chr_blen = 0;
+    uint32_t ref_allele_idx = 0;
+    uint32_t cur_allele_ct = 2;
+    const uint32_t sample_ctl2_m1 = sample_ctl2 - 1;
+
+    uint32_t pct = 0;
+    uint32_t next_print_variant_idx = variant_ct / 100;
+    uint32_t variant_uidx = 0;
+    for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
+      next_set_unsafe_ck(variant_include, &variant_uidx);
+      if (variant_uidx >= chr_end) {
+	do {
+	  ++chr_fo_idx;
+	  chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+	} while (variant_uidx >= chr_end);
+	const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+	char* chr_name_end = chr_name_write(cip, chr_idx, chr_buf);
+	*chr_name_end++ = '\t';
+	chr_blen = (uintptr_t)(chr_name_end - chr_buf);
+      }
+      write_iter = memcpya(write_iter, chr_buf, chr_blen);
+      write_iter = strcpyax(write_iter, variant_ids[variant_uidx], '\t');
+      if (variant_cms) {
+	write_iter = dtoa_g(variant_cms[variant_uidx], write_iter);
+      } else {
+	*write_iter++ = '0';
+      }
+      *write_iter++ = '\t';
+      write_iter = uint32toa_x(variant_bp[variant_uidx], '\t', write_iter);
+      // todo: multiallelic case
+      uint32_t dosage_ct;
+      uint32_t is_explicit_alt1;
+      reterr = pgr_read_refalt1_genovec_dosage16_subset_unsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
+      if (reterr) {
+	if (reterr != kPglRetReadFail) {
+	  logprint("\n");
+	  logerrprint("Error: Malformed .pgen file.\n");
+	}
+	goto export_012_vmaj_ret_1;
+      }
+      if (refalt1_select) {
+	ref_allele_idx = refalt1_select[2 * variant_uidx];
+      }
+      if (!ref_allele_idx) {
+	// we *usually* invert, since COUNTED = REF.
+	genovec_invert_unsafe(sample_ct, genovec);
+	biallelic_dosage16_invert(dosage_ct, dosage_vals);
+      }
+      uintptr_t variant_allele_idx_base = variant_uidx * 2;
+      if (variant_allele_idxs) {
+	variant_allele_idx_base = variant_allele_idxs[variant_uidx];
+      }
+      char** cur_alleles = &(allele_storage[variant_allele_idx_base]);
+      write_iter = strcpyax(write_iter, cur_alleles[ref_allele_idx], '\t');
+      const uint32_t first_alt_idx = (ref_allele_idx == 0);
+      write_iter = strcpya(write_iter, cur_alleles[first_alt_idx]);
+      if (cur_allele_ct > 2) {
+	for (uint32_t allele_idx = first_alt_idx + 1; allele_idx < cur_allele_ct; ++allele_idx) {
+	  if (allele_idx == ref_allele_idx) {
+	    continue;
+	  }
+	  if (write_iter >= writebuf_flush) {
+	    if (fwrite_checked(writebuf, write_iter - writebuf, outfile)) {
+	      goto export_012_vmaj_ret_WRITE_FAIL;
+	    }
+	    write_iter = writebuf;
+	  }
+	  *write_iter++ = ',';
+	  write_iter = strcpya(write_iter, cur_alleles[allele_idx]);
+	}
+      }
+      if (write_iter >= writebuf_flush) {
+	if (fwrite_checked(writebuf, write_iter - writebuf, outfile)) {
+	  goto export_012_vmaj_ret_WRITE_FAIL;
+	}
+	write_iter = writebuf;
+      }
+      uint32_t widx = 0;
+      uint32_t loop_len = kBitsPerWordD2;
+      if (!dosage_ct) {
+	while (1) {
+	  if (widx >= sample_ctl2_m1) {
+	    if (widx > sample_ctl2_m1) {
+	      break;
+	    }
+	    loop_len = MOD_NZ(sample_ct, kBitsPerWordD2);
+	  }
+	  uintptr_t geno_word = genovec[widx];
+	  for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits < loop_len; ++sample_idx_lowbits) {
+	    *write_iter++ = '\t';
+	    uintptr_t cur_geno = geno_word & 3;
+	    if (cur_geno != 3) {
+	      *write_iter++ = '0' + cur_geno;
+	    } else {
+	      write_iter = strcpya(write_iter, "NA");
+	    }
+	    geno_word >>= 2;
+	  }
+	  ++widx;
+	}
+      } else {
+	dosage_t* dosage_vals_iter = dosage_vals;
+	while (1) {
+	  if (widx >= sample_ctl2_m1) {
+	    if (widx > sample_ctl2_m1) {
+	      break;
+	    }
+	    loop_len = MOD_NZ(sample_ct, kBitsPerWordD2);
+	  }
+	  uintptr_t geno_word = genovec[widx];
+	  uint32_t dosage_present_hw = ((halfword_t*)dosage_present)[widx];
+	  for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits < loop_len; ++sample_idx_lowbits) {
+	    *write_iter++ = '\t';
+	    if (dosage_present_hw & 1) {
+	      write_iter = gen_dosage_print(*dosage_vals_iter++, write_iter);
+	    } else {
+	      uintptr_t cur_geno = geno_word & 3;
+	      if (cur_geno != 3) {
+		*write_iter++ = '0' + cur_geno;
+	      } else {
+		write_iter = strcpya(write_iter, "NA");
+	      }
+	    }
+	    geno_word >>= 2;
+	    dosage_present_hw >>= 1;
+	  }
+	  ++widx;
+	}
+      }
+      append_binary_eoln(&write_iter);
+      if (variant_idx >= next_print_variant_idx) {
+	if (pct > 10) {
+	  putc_unlocked('\b', stdout);
+	}
+	pct = (variant_idx * 100LLU) / variant_ct;
+	printf("\b\b%u%%", pct++);
+	fflush(stdout);
+	next_print_variant_idx = (pct * ((uint64_t)variant_ct)) / 100;
+      }
+    }
+    if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), outfile)) {
+      goto export_012_vmaj_ret_WRITE_FAIL;
+    }
+    if (fclose_null(&outfile)) {
+      goto export_012_vmaj_ret_WRITE_FAIL;
+    }
+    if (pct > 10) {
+      putc_unlocked('\b', stdout);
+    }
+    fputs("\b\b", stdout);
+    LOGPRINTF("done.\n");
+  }
+  while (0) {
+  export_012_vmaj_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  export_012_vmaj_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  export_012_vmaj_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  }
+ export_012_vmaj_ret_1:
+  fclose_cond(outfile);
   bigstack_reset(bigstack_mark);
   return reterr;
 }
@@ -9070,61 +9426,6 @@ static inline void incr_missing_row(const uintptr_t* genovec, uint32_t acc2_vec_
     const vul_t geno_vword_shifted_masked = vul_rshift(geno_vword, 1) & m1;
     missing_acc2v[vidx] = missing_acc2v[vidx] + (geno_vword & geno_vword_shifted_masked);
   }
-}
-
-// assumes rawval is in [0, 163839]
-static_assert(kDosageMid == 16384, "gen_dosage_print() needs to be updated.");
-char* gen_dosage_print(uint32_t rawval, char* start) {
-  // Instead of constant 5-digit precision, we print fewer digits whenever that
-  // doesn't interfere with proper round-tripping.
-  // This is complicated by .gen import's quantization step (instead of
-  // rounding the numbers directly, they're first converted to bgen-1.1
-  // equivalents).  Without quantization, we'd search for the shortest string
-  // in
-  //   ((n - 0.5)/16384, (n + 0.5)/16384), 
-  // e.g. 3277/16384 is 0.20001 when printed with 5-digit precision, but we'd
-  // print that as 0.2 since that's still in (3276.5/16384, 3277.5/16384).
-  // With it, we have
-  //   ((n - 0.75)/16384, (n + 0.75)/16384) for even n
-  //   ((n - 0.25)/16384, (n + 0.25)/16384) for odd n
-  // due to banker's rounding.
-  //
-  // For simplicity, we also use this function when exporting the VCF GP field.
-  *start++ = '0' + (rawval / 16384);
-  rawval = rawval % 16384;
-  if (!rawval) {
-    return start;
-  }
-  *start++ = '.';
-  const uint32_t halfwidth_65536ths = 3 - (2 * (rawval % 2));
-  // (rawval * 4) is in 65536ths
-  // 65536 * 625 = 40960k
-  // subtract 1 since we want to check for containment in a fully-open, not
-  // half-open, interval
-  const uint32_t range_top_40960k_m1 = (rawval * 4 + halfwidth_65536ths) * 625 - 1;
-  if ((range_top_40960k_m1 % 4096) < 1250 * halfwidth_65536ths - 1) {
-    // when this is true, the four-decimal-place approximation is in the range
-    // which round-trips back to our original number.
-    const uint32_t four_decimal_places = range_top_40960k_m1 / 4096;
-    return uitoa_trunc4(four_decimal_places, start);
-  }
-  
-  // we wish to print (100000 * remainder + 8192) / 16384, left-0-padded.  and
-  // may as well banker's round too.
-  //  
-  // banker's rounding yields a different result than regular rounding for n/64
-  // when n is congruent to 1 mod 4:
-  //   1/64 = .015625 -> print 0.01562
-  //   3/64 = .046875 -> print 0.04688
-  //   5/64 = .078125 -> print 0.07812
-  const uint32_t five_decimal_places = ((3125 * rawval + 256) / 512) - ((rawval % 1024) == 256);
-  const uint32_t first_decimal_place = five_decimal_places / 10000;
-  *start++ = '0' + first_decimal_place;
-  const uint32_t last_four_digits = five_decimal_places - first_decimal_place * 10000;
-  if (last_four_digits) {
-    return uitoa_trunc4(last_four_digits, start);
-  }
-  return start;
 }
 
 pglerr_t export_ox_gen(const char* outname, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* sex_male, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bp, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const alt_allele_ct_t* refalt1_select, uint32_t sample_ct, uint32_t variant_ct, uint32_t max_allele_slen, exportf_flags_t exportf_modifier, pgen_reader_t* simple_pgrp, uint32_t* sample_missing_geno_cts) {
@@ -10455,13 +10756,12 @@ char* haploid_dosage_print(uint32_t rawval, char* start) {
 
   // (rawval * 2) is in 65536ths
   // 65536 * 625 = 40960k
-  // subtract 1 since we want to check for containment in the fully-open, not
-  // half-open, interval
-  const uint32_t range_top_40960k_m1 = rawval * 1250 + 624;
-  if ((range_top_40960k_m1 % 4096) < 1249) {
+  const uint32_t range_top_40960k = rawval * 1250 + 625;
+  // ok to check half-open interval since we never hit boundary
+  if ((range_top_40960k % 4096) < 1250) {
     // when this is true, the four-decimal-place approximation is in the range
     // which round-trips back to our original number.
-    const uint32_t four_decimal_places = range_top_40960k_m1 / 4096;
+    const uint32_t four_decimal_places = range_top_40960k / 4096;
     return uitoa_trunc4(four_decimal_places, start);
   }
   
@@ -11428,12 +11728,20 @@ pglerr_t exportf(char* xheader, const uintptr_t* sample_include, const char* sam
     if (exportf_modifier & (kfExportf01 | kfExportf12)) {
       // todo
     }
-    if (exportf_modifier & (kfExportfTypemask - kfExportfIndMajorBed - kfExportfVcf - kfExportfOxGen - kfExportfBgen11 - kfExportfHaps - kfExportfHapsLegend)) {
-      logerrprint("Error: Only VCF, oxford, bgen-1.1, haps, hapslegend, and ind-major-bed output\nhave been implemented so far.\n");
+    if (exportf_modifier & (kfExportfTypemask - kfExportfIndMajorBed - kfExportfVcf - kfExportfOxGen - kfExportfBgen11 - kfExportfHaps - kfExportfHapsLegend - kfExportfATranspose)) {
+      logerrprint("Error: Only VCF, oxford, bgen-1.1, haps, hapslegend, A-transpose, and\nind-major-bed output have been implemented so far.\n");
       reterr = kPglRetNotYetSupported;
       goto exportf_ret_1;
     }
     const char exportf_delim = (exportf_modifier & kfExportfSpaces)? ' ' : '\t';
+    if (exportf_modifier & kfExportfATranspose) {
+      strcpy(outname_end, ".traw");
+      pgr_clear_ld_cache(simple_pgrp);
+      reterr = export_012_vmaj(outname, sample_include, sample_include_cumulative_popcounts, sample_ids, variant_include, cip, variant_bp, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, variant_cms, sample_ct, max_sample_id_blen, variant_ct, max_allele_slen, simple_pgrp);
+      if (reterr) {
+	goto exportf_ret_1;
+      }
+    }
     if (exportf_modifier & kfExportfIndMajorBed) {
       reterr = export_ind_major_bed(sample_include, variant_include, variant_allele_idxs, refalt1_select, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, max_thread_ct, pgr_alloc_cacheline_ct, pgfip, outname, outname_end);
       if (reterr) {

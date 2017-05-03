@@ -2030,7 +2030,7 @@ void biallelic_dosage16_invert(uint32_t dosage_ct, uint16_t* dosage_vals) {
   }
 }
 
-void genovec_to_missingness(const uintptr_t* __restrict genovec, uint32_t sample_ct, uintptr_t* __restrict missingness) {
+void genovec_to_missingness_unsafe(const uintptr_t* __restrict genovec, uint32_t sample_ct, uintptr_t* __restrict missingness) {
   const uint32_t sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
   halfword_t* missingness_alias = (halfword_t*)missingness;
   for (uint32_t widx = 0; widx < sample_ctl2; ++widx) {
@@ -5850,14 +5850,13 @@ pglerr_t pgr_read_allele_countvec_subset_unsafe(const uintptr_t* __restrict samp
   return kPglRetSuccess;
 }
 
-void pgr_detect_genovec_hets_unsafe(const uintptr_t*__restrict genovec, uint32_t raw_sample_ctl2, uintptr_t* __restrict all_hets) {
+void detect_genovec_hets_hw(const uintptr_t*__restrict genovec, uint32_t raw_sample_ctl2, halfword_t* all_hets_hw) {
   // requires trailing bits of genovec to be zeroed out.  does not update last
   // all_hets[] halfword if raw_sample_ctl2 is odd.
-  halfword_t* all_hets_alias = (halfword_t*)all_hets;
   for (uint32_t widx = 0; widx < raw_sample_ctl2; ++widx) {
     const uintptr_t cur_word = genovec[widx];
     uintptr_t ww = (~(cur_word >> 1)) & cur_word & kMask5555; // low 1, high 0
-    all_hets_alias[widx] = pack_word_to_halfword(ww);
+    all_hets_hw[widx] = pack_word_to_halfword(ww);
   }
 }
 
@@ -5872,7 +5871,7 @@ pglerr_t parse_and_apply_difflist_hphase_subset(const unsigned char* fread_end, 
     if (reterr) {
       return reterr;
     }
-    pgr_detect_genovec_hets_unsafe(genovec, QUATERCT_TO_WORDCT(raw_sample_ct), all_hets);
+    pgr_detect_genovec_hets(genovec, raw_sample_ct, all_hets);
     return kPglRetSuccess;
   }
   uintptr_t* cur_raregeno_iter = pgrp->workspace_raregeno_tmp_loadbuf;
@@ -6033,7 +6032,7 @@ pglerr_t pgr_read_refalt1_genovec_hphase_raw_unsafe(uint32_t vidx, pgen_reader_t
     if (reterr) {
       return reterr;
     }
-    pgr_detect_genovec_hets_unsafe(genovec, QUATERCT_TO_WORDCT(raw_sample_ct), all_hets);
+    pgr_detect_genovec_hets(genovec, raw_sample_ct, all_hets);
     if ((vrtype & 7) == 3) {
       genovec_invert_unsafe(raw_sample_ct, genovec);
     }
@@ -6755,7 +6754,7 @@ pglerr_t pgr_read_raw(uint32_t vidx, pgen_global_flags_t read_gflags, pgen_reade
       return reterr;
     }
     if (all_hets) {
-      pgr_detect_genovec_hets_unsafe(genovec, QUATERCT_TO_WORDCT(raw_sample_ct), all_hets);
+      pgr_detect_genovec_hets(genovec, raw_sample_ct, all_hets);
     }
     if ((vrtype & 7) == 3) {
       genovec_invert_unsafe(raw_sample_ct, genovec);
@@ -6832,9 +6831,9 @@ pglerr_t read_missingness(const uintptr_t* __restrict sample_include, const uint
   const unsigned char* fread_end;
   pglerr_t reterr = read_refalt1_genovec_subset_unsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, &fread_ptr, &fread_end, genovec_buf);
   zero_trailing_quaters(sample_ct, genovec_buf);
-  genovec_to_missingness(genovec_buf, sample_ct, missingness);
+  genovec_to_missingness_unsafe(genovec_buf, sample_ct, missingness);
   if (hets) {
-    pgr_detect_genovec_hets(genovec_buf, sample_ct, hets);
+    pgr_detect_genovec_hets_unsafe(genovec_buf, QUATERCT_TO_WORDCT(sample_ct), hets);
   }
   if (fread_pp) {
     *fread_pp = fread_ptr;
@@ -6884,7 +6883,8 @@ pglerr_t pgr_read_missingness_dosage(const uintptr_t* __restrict sample_include,
     if (reterr) {
       return reterr;
     }
-    genovec_to_missingness(genovec_buf, sample_ct, missingness);
+    zero_trailing_quaters(sample_ct, genovec_buf);
+    genovec_to_missingness_unsafe(genovec_buf, sample_ct, missingness);
   }
   // now perform bitwise andnot with dosage_present
   if ((vrtype & 0x60) == 0x40) {
@@ -6959,9 +6959,10 @@ pglerr_t pgr_read_missingness_multi(const uintptr_t* __restrict sample_include, 
     if (reterr) {
       return reterr;
     }
-    genovec_to_missingness(genovec_buf, sample_ct, missingness_base);
+    zero_trailing_quaters(sample_ct, genovec_buf);
+    genovec_to_missingness_unsafe(genovec_buf, sample_ct, missingness_base);
     if (hets) {
-      pgr_detect_genovec_hets(genovec_buf, sample_ct, hets);
+      pgr_detect_genovec_hets_unsafe(genovec_buf, QUATERCT_TO_WORDCT(sample_ct), hets);
     }
     if (missingness_hc) {
       memcpy(missingness_dosage, missingness_hc, BITCT_TO_WORDCT(sample_ct) * sizeof(intptr_t));
@@ -7688,8 +7689,7 @@ pglerr_t pgr_validate(pgen_reader_t* pgrp, char* errstr_buf) {
     }
     const uint32_t vrtype = vrtypes[vidx];
     if (vrtype_hphase(vrtype)) {
-      pgr_detect_genovec_hets_unsafe(pgrp->workspace_vec, QUATERCT_TO_WORDCT(sample_ct), pgrp->workspace_all_hets);
-      zero_trailing_bits(sample_ct, pgrp->workspace_all_hets);
+      pgr_detect_genovec_hets(pgrp->workspace_vec, sample_ct, pgrp->workspace_all_hets);
     }
     if (vrtype_multiallelic(vrtype)) {
       // todo
@@ -7800,6 +7800,9 @@ pglerr_t pwc_init_phase1(const char* __restrict fname, uintptr_t* __restrict all
   } else {
     // 4-bit vrtypes
     header_bytes_left += DIV_UP(variant_ct, 2);
+  }
+  if (nonref_flags_storage == 3) {
+    header_bytes_left += DIV_UP(variant_ct, CHAR_BIT);
   }
   
   // this should be the position of the first variant
