@@ -1337,13 +1337,21 @@ pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_li
 	    }
 	  } else {
 	    double dxx = pheno_data[new_pheno_idx];
-	    if (dxx != missing_phenod) {
-	      SET_BIT(sample_uidx, pheno_cols_iter->nonmiss);
-	    }
+	    // bugfix (6 May 2017): forgot to accept 0 as missing value for
+	    // case/control
 	    if (IS_SET(quantitative_phenos, new_pheno_idx)) {
-	      pheno_cols_iter->data.qt[sample_uidx] = dxx;
-	    } else if (dxx == pheno_cased) {
-	      SET_BIT(sample_uidx, pheno_cols_iter->data.cc);
+	      if (dxx == missing_phenod) {
+		SET_BIT(sample_uidx, pheno_cols_iter->nonmiss);
+	      } else {
+		pheno_cols_iter->data.qt[sample_uidx] = dxx;
+	      }
+	    } else {
+	      if (dxx == pheno_cased) {
+	        SET_BIT(sample_uidx, pheno_cols_iter->data.cc);
+		SET_BIT(sample_uidx, pheno_cols_iter->nonmiss);
+	      } else if (dxx == pheno_ctrld) {
+		SET_BIT(sample_uidx, pheno_cols_iter->nonmiss);
+	      }
 	    }
 	  }
 	  ++pheno_cols_iter;

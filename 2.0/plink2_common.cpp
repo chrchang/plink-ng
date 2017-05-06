@@ -3564,7 +3564,8 @@ uint32_t id_htable_find(const char* cur_id, char** item_ids, const uint32_t* id_
   }
 }
 
-uint32_t variant_id_htable_find(const char* idbuf, char** variant_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_blen) {
+/*
+uint32_t variant_id_htable_find(const char* idbuf, char** variant_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_slen) {
   // assumes no duplicate entries, and nonzero id_htable_size
   // idbuf does not need to be null-terminated (note that this is currently
   // achieved in a way that forces variant_ids[] entries to not be too close
@@ -3572,7 +3573,7 @@ uint32_t variant_id_htable_find(const char* idbuf, char** variant_ids, const uin
   // undefined)
   // returns 0xffffffffU on failure
   assert(id_htable_size);
-  if (cur_id_slen >= max_id_blen) {
+  if (cur_id_slen > max_id_slen) {
     return 0xffffffffU;
   }
   uint32_t hashval = hashceil(idbuf, cur_id_slen, id_htable_size);
@@ -3586,8 +3587,9 @@ uint32_t variant_id_htable_find(const char* idbuf, char** variant_ids, const uin
     }
   }
 }
+*/
 
-uint32_t variant_id_dup_htable_find(const char* idbuf, char** variant_ids, const uint32_t* id_htable, const uint32_t* htable_dup_base, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_blen, uint32_t* llidx_ptr) {
+uint32_t variant_id_dup_htable_find(const char* idbuf, char** variant_ids, const uint32_t* id_htable, const uint32_t* htable_dup_base, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_slen, uint32_t* llidx_ptr) {
   // Permits duplicate entries.  Similar to plink 1.9
   // extract_exclude_process_token().
   // - Returns 0xffffffffU on failure (llidx currently unset in that case),
@@ -3597,7 +3599,7 @@ uint32_t variant_id_dup_htable_find(const char* idbuf, char** variant_ids, const
   //   position in htable_dup_base[] of the next {variant_uidx, next_llidx}
   //   linked list entry.
   // - idbuf does not need to be null-terminated.
-  if (cur_id_slen >= max_id_blen) {
+  if (cur_id_slen > max_id_slen) {
     return 0xffffffffU;
   }
   uint32_t hashval = hashceil(idbuf, cur_id_slen, id_htable_size);
@@ -4241,6 +4243,7 @@ pglerr_t init_chr_info(chr_info_t* cip) {
 // rice: 12
 // sheep: 26, X, Y
 
+// must be safe to call this twice.
 void finalize_chrset(misc_flags_t misc_flags, chr_info_t* cip) {
   uint32_t autosome_ct = cip->autosome_ct;
   uint32_t max_code = autosome_ct;
@@ -4260,7 +4263,9 @@ void finalize_chrset(misc_flags_t misc_flags, chr_info_t* cip) {
   uintptr_t last_chr_mask_word = chr_mask[kChrMaskWords - 1];
   int32_t* xymt_codes = cip->xymt_codes;
   if (last_chr_mask_word) {
-    chr_mask[kChrMaskWords - 1] = 0; // do we actually want this?
+    // avoids repeating some work if this is called twice
+    chr_mask[kChrMaskWords - 1] = 0;
+
     uint32_t xymt_include = last_chr_mask_word >> (kBitsPerWord - kChrOffsetCt);
     do {
       const uint32_t xymt_idx = __builtin_ctz(xymt_include);
@@ -4283,7 +4288,7 @@ void finalize_chrset(misc_flags_t misc_flags, chr_info_t* cip) {
     fill_bits_nz(1, cip->autosome_ct + 1, chr_mask);
     clear_bits_nz(cip->autosome_ct + 1, kChrExcludeWords * kBitsPerWord, chr_mask);
     if (misc_flags & kfMiscAutosomePar) {
-      int32_t par_chr_code = cip->xymt_codes[kChrOffsetY];
+      int32_t par_chr_code = cip->xymt_codes[kChrOffsetXY];
       if (par_chr_code >= 0) {
 	set_bit(par_chr_code, chr_mask);
       }
@@ -4329,12 +4334,13 @@ void forget_extra_chr_names(uint32_t reinitialize, chr_info_t* cip) {
       nonstd_names[chr_idx] = nullptr;
     }
     if (reinitialize) {
-      fill_uint_one(kChrHtableSize, cip->nonstd_id_htable);
+      // fill_uint_one(kChrHtableSize, cip->nonstd_id_htable);
       cip->name_ct = 0;
     }
   }
 }
 
+// not currently called.  might want to do so in the future.
 pglerr_t finalize_chr_info(chr_info_t* cip) {
   const uint32_t chr_ct = cip->chr_ct;
   const uint32_t name_ct = cip->name_ct;

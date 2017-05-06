@@ -23,7 +23,7 @@
 namespace plink2 {
 #endif
 
-pglerr_t from_to_flag(char** variant_ids, const uint32_t* variant_id_htable, const char* varid_from, const char* varid_to, uint32_t raw_variant_ct, uintptr_t max_variant_id_blen, uintptr_t variant_id_htable_size, uintptr_t* variant_include, chr_info_t* cip, uint32_t* variant_ct_ptr) {
+pglerr_t from_to_flag(char** variant_ids, const uint32_t* variant_id_htable, const char* varid_from, const char* varid_to, uint32_t raw_variant_ct, uintptr_t max_variant_id_slen, uintptr_t variant_id_htable_size, uintptr_t* variant_include, chr_info_t* cip, uint32_t* variant_ct_ptr) {
   pglerr_t reterr = kPglRetSuccess;
   {
     const uint32_t* htable_dup_base = &(variant_id_htable[round_up_pow2_ui(variant_id_htable_size, kInt32PerCacheline)]);
@@ -31,7 +31,7 @@ pglerr_t from_to_flag(char** variant_ids, const uint32_t* variant_id_htable, con
     uint32_t variant_uidx_start = 0xffffffffU;
     if (varid_from) {
       uint32_t cur_llidx;
-      variant_uidx_start = variant_id_dup_htable_find(varid_from, variant_ids, variant_id_htable, htable_dup_base, strlen(varid_from), variant_id_htable_size, max_variant_id_blen, &cur_llidx);
+      variant_uidx_start = variant_id_dup_htable_find(varid_from, variant_ids, variant_id_htable, htable_dup_base, strlen(varid_from), variant_id_htable_size, max_variant_id_slen, &cur_llidx);
       if (variant_uidx_start == 0xffffffffU) {
 	sprintf(g_logbuf, "Error: --from variant '%s' not found.\n", varid_from);
 	goto from_to_flag_ret_INCONSISTENT_INPUT_WW;
@@ -47,7 +47,7 @@ pglerr_t from_to_flag(char** variant_ids, const uint32_t* variant_id_htable, con
     uint32_t variant_uidx_end = 0;
     if (varid_to) {
       uint32_t cur_llidx;
-      variant_uidx_end = variant_id_dup_htable_find(varid_to, variant_ids, variant_id_htable, htable_dup_base, strlen(varid_to), variant_id_htable_size, max_variant_id_blen, &cur_llidx);
+      variant_uidx_end = variant_id_dup_htable_find(varid_to, variant_ids, variant_id_htable, htable_dup_base, strlen(varid_to), variant_id_htable_size, max_variant_id_slen, &cur_llidx);
       if (variant_uidx_end == 0xffffffffU) {
 	sprintf(g_logbuf, "Error: --to variant '%s' not found.\n", varid_to);
 	goto from_to_flag_ret_INCONSISTENT_INPUT_WW;
@@ -99,14 +99,14 @@ pglerr_t from_to_flag(char** variant_ids, const uint32_t* variant_id_htable, con
   return reterr;
 }
 
-pglerr_t snp_flag(const uint32_t* variant_bp, char** variant_ids, const uint32_t* variant_id_htable, const char* varid_snp, uint32_t raw_variant_ct, uintptr_t max_variant_id_blen, uintptr_t variant_id_htable_size, uint32_t do_exclude, int32_t window_bp, uintptr_t* variant_include, chr_info_t* cip, uint32_t* variant_ct_ptr) {
+pglerr_t snp_flag(const uint32_t* variant_bps, char** variant_ids, const uint32_t* variant_id_htable, const char* varid_snp, uint32_t raw_variant_ct, uintptr_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t do_exclude, int32_t window_bp, uintptr_t* variant_include, chr_info_t* cip, uint32_t* variant_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   pglerr_t reterr = kPglRetSuccess;
   {
     const uint32_t* htable_dup_base = &(variant_id_htable[round_up_pow2_ui(variant_id_htable_size, kInt32PerCacheline)]);
     const uint32_t raw_variant_ctl = BITCT_TO_WORDCT(raw_variant_ct);
     uint32_t cur_llidx;
-    uint32_t variant_uidx = variant_id_dup_htable_find(varid_snp, variant_ids, variant_id_htable, htable_dup_base, strlen(varid_snp), variant_id_htable_size, max_variant_id_blen, &cur_llidx);
+    uint32_t variant_uidx = variant_id_dup_htable_find(varid_snp, variant_ids, variant_id_htable, htable_dup_base, strlen(varid_snp), variant_id_htable_size, max_variant_id_slen, &cur_llidx);
     if (variant_uidx == 0xffffffffU) {
       sprintf(g_logbuf, "Error: --%ssnp variant '%s' not found.\n", do_exclude? "exclude-" : "", varid_snp);
       goto snp_flag_ret_INCONSISTENT_INPUT_WW;
@@ -141,13 +141,13 @@ pglerr_t snp_flag(const uint32_t* variant_bp, char** variant_ids, const uint32_t
       }
       const uint32_t chr_fo_idx = get_variant_chr_fo_idx(cip, variant_uidx);
       const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-      const uint32_t center_bp = variant_bp[variant_uidx];
+      const uint32_t center_bp = variant_bps[variant_uidx];
       uint32_t vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
       if (center_bp > (uint32_t)window_bp) {
-	vidx_start += uint32arr_greater_than(&(variant_bp[vidx_start]), chr_vidx_end - vidx_start, center_bp - (uint32_t)window_bp);
+	vidx_start += uint32arr_greater_than(&(variant_bps[vidx_start]), chr_vidx_end - vidx_start, center_bp - (uint32_t)window_bp);
       }
       const uint32_t bp_end = 1 + center_bp + (uint32_t)window_bp;
-      const uint32_t vidx_end = vidx_start + uint32arr_greater_than(&(variant_bp[vidx_start]), chr_vidx_end - vidx_start, bp_end);
+      const uint32_t vidx_end = vidx_start + uint32arr_greater_than(&(variant_bps[vidx_start]), chr_vidx_end - vidx_start, bp_end);
       if (do_exclude) {
 	clear_bits_nz(vidx_start, vidx_end, variant_include);
       } else {
@@ -179,7 +179,7 @@ pglerr_t snp_flag(const uint32_t* variant_bp, char** variant_ids, const uint32_t
   return reterr;
 }
 
-pglerr_t snps_flag(char** variant_ids, const uint32_t* variant_id_htable, const range_list_t* snps_range_list_ptr, uint32_t raw_variant_ct, uintptr_t max_variant_id_blen, uintptr_t variant_id_htable_size, uint32_t do_exclude, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+pglerr_t snps_flag(char** variant_ids, const uint32_t* variant_id_htable, const range_list_t* snps_range_list_ptr, uint32_t raw_variant_ct, uintptr_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t do_exclude, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   pglerr_t reterr = kPglRetSuccess;
   {
@@ -197,7 +197,7 @@ pglerr_t snps_flag(char** variant_ids, const uint32_t* variant_id_htable, const 
     for (uint32_t varid_idx = 0; varid_idx < varid_ct; ++varid_idx) {
       const char* cur_varid = &(varid_strbox[varid_idx * varid_max_blen]);
       uint32_t cur_llidx;
-      uint32_t variant_uidx = variant_id_dup_htable_find(cur_varid, variant_ids, variant_id_htable, htable_dup_base, strlen(cur_varid), variant_id_htable_size, max_variant_id_blen, &cur_llidx);
+      uint32_t variant_uidx = variant_id_dup_htable_find(cur_varid, variant_ids, variant_id_htable, htable_dup_base, strlen(cur_varid), variant_id_htable_size, max_variant_id_slen, &cur_llidx);
       if (variant_uidx == 0xffffffffU) {
 	sprintf(g_logbuf, "Error: --%ssnps variant '%s' not found.\n", do_exclude? "exclude-" : "", cur_varid);
 	goto snps_flag_ret_INCONSISTENT_INPUT_WW;
@@ -256,9 +256,9 @@ pglerr_t snps_flag(char** variant_ids, const uint32_t* variant_id_htable, const 
   return reterr;
 }
 
-void extract_exclude_process_token(char** variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* tok_start, uint32_t variant_id_htable_size, uintptr_t max_variant_id_blen, uint32_t curtoklen, uintptr_t* already_seen, uintptr_t* duplicate_ct_ptr) {
+void extract_exclude_process_token(char** variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* tok_start, uint32_t variant_id_htable_size, uintptr_t max_variant_id_slen, uint32_t curtoklen, uintptr_t* already_seen, uintptr_t* duplicate_ct_ptr) {
   uint32_t cur_llidx;
-  uint32_t variant_uidx = variant_id_dup_htable_find(tok_start, variant_ids, variant_id_htable, htable_dup_base, curtoklen, variant_id_htable_size, max_variant_id_blen, &cur_llidx);
+  uint32_t variant_uidx = variant_id_dup_htable_find(tok_start, variant_ids, variant_id_htable, htable_dup_base, curtoklen, variant_id_htable_size, max_variant_id_slen, &cur_llidx);
   if (variant_uidx == 0xffffffffU) {
     return;
   }
@@ -276,7 +276,7 @@ void extract_exclude_process_token(char** variant_ids, const uint32_t* variant_i
   }
 }
 
-pglerr_t extract_exclude_flag_norange(char** variant_ids, const uint32_t* variant_id_htable, const char* fnames, uint32_t raw_variant_ct, uintptr_t max_variant_id_blen, uintptr_t variant_id_htable_size, uint32_t do_exclude, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+pglerr_t extract_exclude_flag_norange(char** variant_ids, const uint32_t* variant_id_htable, const char* fnames, uint32_t raw_variant_ct, uintptr_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t do_exclude, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   gz_token_stream_t gts;
   gz_token_stream_preinit(&gts);
@@ -302,7 +302,7 @@ pglerr_t extract_exclude_flag_norange(char** variant_ids, const uint32_t* varian
 	if (!token_start) {
 	  break;
 	}
-	extract_exclude_process_token(variant_ids, variant_id_htable, htable_dup_base, token_start, variant_id_htable_size, max_variant_id_blen, token_slen, already_seen, &duplicate_ct);
+	extract_exclude_process_token(variant_ids, variant_id_htable, htable_dup_base, token_start, variant_id_htable_size, max_variant_id_slen, token_slen, already_seen, &duplicate_ct);
       }
       if (token_slen) {
 	// error code
@@ -647,7 +647,7 @@ FLAGSET_DEF_START()
   kfReadFreqColsetHapAlt1Ct = (1 << kfReadFreqColHapAlt1Ct)
 FLAGSET_DEF_END(read_freq_colset_t);
 
-pglerr_t read_allele_freqs(const uintptr_t* variant_include, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const char* read_freq_fname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_alt_allele_ct, uint32_t max_variant_id_blen, uint32_t max_allele_slen, uint32_t maf_succ, uint32_t max_thread_ct, double* alt_allele_freqs) {
+pglerr_t read_allele_freqs(const uintptr_t* variant_include, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const char* read_freq_fname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_alt_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t maf_succ, uint32_t max_thread_ct, double* alt_allele_freqs) {
   // support PLINK 1.9 --freq/--freqx, and 2.0 --freq/--geno-counts.
   // GCTA-format no longer supported since it inhibits the allele consistency
   // check.
@@ -1126,7 +1126,7 @@ pglerr_t read_allele_freqs(const uintptr_t* variant_include, char** variant_ids,
 	char* variant_id_start = token_ptrs[kfReadFreqColVarId];
 	const uint32_t variant_id_slen = token_slens[kfReadFreqColVarId];
 	uint32_t cur_llidx;
-	uint32_t variant_uidx = variant_id_dup_htable_find(variant_id_start, variant_ids, variant_id_htable, htable_dup_base, variant_id_slen, variant_id_htable_size, max_variant_id_blen, &cur_llidx);
+	uint32_t variant_uidx = variant_id_dup_htable_find(variant_id_start, variant_ids, variant_id_htable, htable_dup_base, variant_id_slen, variant_id_htable_size, max_variant_id_slen, &cur_llidx);
 	if (variant_uidx == 0xffffffffU) {
 	  goto read_allele_freqs_skip_variant;
 	}

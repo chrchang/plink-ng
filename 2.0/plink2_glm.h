@@ -59,12 +59,12 @@ FLAGSET_DEF_START()
   kfGlmColRef = (1 << 2),
   kfGlmColAlt1 = (1 << 3),
   kfGlmColAlt = (1 << 4),
-  kfGlmColAlt1count = (1 << 5),
+  kfGlmColAltcount = (1 << 5),
   kfGlmColTotallele = (1 << 6),
-  kfGlmColAlt1countcc = (1 << 7),
+  kfGlmColAltcountcc = (1 << 7),
   kfGlmColTotallelecc = (1 << 8),
-  kfGlmColAlt1freq = (1 << 9),
-  kfGlmColAlt1freqcc = (1 << 10),
+  kfGlmColAltfreq = (1 << 9),
+  kfGlmColAltfreqcc = (1 << 10),
   kfGlmColMachR2 = (1 << 11),
   kfGlmColFirthYn = (1 << 12),
   kfGlmColTest = (1 << 13),
@@ -104,7 +104,7 @@ void cleanup_glm(glm_info_t* glm_info_ptr);
 
 // boolerr_t firth_regression(const float* yy, const float* xx, uint32_t sample_ct, uint32_t predictor_ct, float* coef, float* hh, matrix_finvert_buf1_t* inv_1d_buf, float* flt_2d_buf, float* pp, float* vv, float* grad, float* dcoef, float* ww, float* tmpnxk_buf);
 
-pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, const char* sids, const uintptr_t* sex_nm, const uintptr_t* sex_male, const pheno_col_t* pheno_cols, const char* pheno_names, const pheno_col_t* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const chr_info_t* cip, const uint32_t* variant_bp, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const glm_info_t* glm_info_ptr, const adjust_info_t* adjust_info_ptr, const aperm_t* aperm_ptr, const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t orig_covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_blen, uint32_t max_allele_slen, uint32_t xchr_model, double ci_size, double vif_thresh, double pfilter, double output_min_p, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, pgen_file_info_t* pgfip, pgen_reader_t* simple_pgrp, char* outname, char* outname_end);
+pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, const char* sids, const uintptr_t* sex_nm, const uintptr_t* sex_male, const pheno_col_t* pheno_cols, const char* pheno_names, const pheno_col_t* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const glm_info_t* glm_info_ptr, const adjust_info_t* adjust_info_ptr, const aperm_t* aperm_ptr, const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t orig_covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t xchr_model, double ci_size, double vif_thresh, double pfilter, double output_min_p, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, pgen_file_info_t* pgfip, pgen_reader_t* simple_pgrp, char* outname, char* outname_end);
 
 #ifdef __cplusplus
 } // namespace plink2

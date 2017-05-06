@@ -324,7 +324,7 @@ pglerr_t init_histogram_from_file_or_commalist(const char* binstr, uint32_t is_f
   return reterr;
 }
 
-pglerr_t write_allele_freqs(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bp, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint64_t* founder_allele_dosages, const char* ref_binstr, const char* alt1_binstr, uint32_t variant_ct, uint32_t max_alt_allele_ct, uint32_t max_allele_slen, allele_freq_t allele_freq_modifier, uint32_t nonfounders, char* outname, char* outname_end) {
+pglerr_t write_allele_freqs(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint64_t* founder_allele_dosages, const char* ref_binstr, const char* alt1_binstr, uint32_t variant_ct, uint32_t max_alt_allele_ct, uint32_t max_allele_slen, allele_freq_t allele_freq_modifier, uint32_t nonfounders, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -366,7 +366,7 @@ pglerr_t write_allele_freqs(const uintptr_t* variant_include, const chr_info_t* 
       if (allele_freq_modifier & kfAlleleFreqColPos) {
 	cswritep = strcpya(cswritep, "POS\t");
       } else {
-	variant_bp = nullptr;
+	variant_bps = nullptr;
       }
       cswritep = strcpya(cswritep, "ID");
       const uint32_t ref_col = allele_freq_modifier & kfAlleleFreqColRef;
@@ -447,8 +447,8 @@ pglerr_t write_allele_freqs(const uintptr_t* variant_include, const chr_info_t* 
 	  }
 	  cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
 	}
-	if (variant_bp) {
-	  cswritep = uint32toa_x(variant_bp[variant_uidx], '\t', cswritep);
+	if (variant_bps) {
+	  cswritep = uint32toa_x(variant_bps[variant_uidx], '\t', cswritep);
 	}
 	cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
 	uintptr_t variant_allele_idx_base = variant_uidx * 2;
@@ -728,7 +728,7 @@ pglerr_t write_allele_freqs(const uintptr_t* variant_include, const chr_info_t* 
   return reterr;
 }
 
-pglerr_t write_geno_counts(__attribute__((unused)) const uintptr_t* sample_include, __attribute__((unused)) const uintptr_t* sex_male, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bp, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint32_t* raw_geno_cts, const uint32_t* x_male_geno_cts, __attribute__((unused)) uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t male_ct, uint32_t variant_ct, uint32_t x_start, uint32_t max_allele_slen, geno_counts_t geno_counts_modifier, pgen_reader_t* simple_pgrp, char* outname, char* outname_end) {
+pglerr_t write_geno_counts(__attribute__((unused)) const uintptr_t* sample_include, __attribute__((unused)) const uintptr_t* sex_male, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint32_t* raw_geno_cts, const uint32_t* x_male_geno_cts, __attribute__((unused)) uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t male_ct, uint32_t variant_ct, uint32_t x_start, uint32_t max_allele_slen, geno_counts_t geno_counts_modifier, pgen_reader_t* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   compress_stream_state_t css;
@@ -785,7 +785,7 @@ pglerr_t write_geno_counts(__attribute__((unused)) const uintptr_t* sample_inclu
     if (geno_counts_modifier & kfGenoCountsColPos) {
       cswritep = strcpya(cswritep, "POS\t");
     } else {
-      variant_bp = nullptr;
+      variant_bps = nullptr;
     }
     cswritep = strcpya(cswritep, "ID");
     const uint32_t ref_col = geno_counts_modifier & kfGenoCountsColRef;
@@ -908,8 +908,8 @@ pglerr_t write_geno_counts(__attribute__((unused)) const uintptr_t* sample_inclu
       if (chr_col) {
 	cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
       }
-      if (variant_bp) {
-	cswritep = uint32toa_x(variant_bp[variant_uidx], '\t', cswritep);
+      if (variant_bps) {
+	cswritep = uint32toa_x(variant_bps[variant_uidx], '\t', cswritep);
       }
       cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
       uintptr_t variant_allele_idx_base = variant_uidx * 2;
@@ -1083,7 +1083,7 @@ pglerr_t write_geno_counts(__attribute__((unused)) const uintptr_t* sample_inclu
   return reterr;
 }
 
-pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintptr_t* sex_male, const char* sample_ids, const char* sids, const pheno_col_t* pheno_cols, const char* pheno_names, const uint32_t* sample_missing_hc_cts, const uint32_t* sample_missing_dosage_cts, const uint32_t* sample_hethap_cts, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bp, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint32_t* variant_missing_hc_cts, const uint32_t* variant_missing_dosage_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t male_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t variant_ct, uintptr_t max_allele_slen, uint32_t first_hap_uidx, missing_rpt_t missing_rpt_modifier, char* outname, char* outname_end) {
+pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintptr_t* sex_male, const char* sample_ids, const char* sids, const pheno_col_t* pheno_cols, const char* pheno_names, const uint32_t* sample_missing_hc_cts, const uint32_t* sample_missing_dosage_cts, const uint32_t* sample_hethap_cts, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint32_t* variant_missing_hc_cts, const uint32_t* variant_missing_dosage_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t male_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t variant_ct, uintptr_t max_allele_slen, uint32_t first_hap_uidx, missing_rpt_t missing_rpt_modifier, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   compress_stream_state_t css;
@@ -1273,7 +1273,7 @@ pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintpt
       if (missing_rpt_modifier & kfMissingRptVcolPos) {
 	cswritep = strcpya(cswritep, "POS\t");
       } else {
-	variant_bp = nullptr;
+	variant_bps = nullptr;
       }
       cswritep = strcpya(cswritep, "ID");
       const uint32_t ref_col = missing_rpt_modifier & kfMissingRptVcolRef;
@@ -1366,8 +1366,8 @@ pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintpt
 	if (chr_col) {
 	  cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
 	}
-	if (variant_bp) {
-	  cswritep = uint32toa_x(variant_bp[variant_uidx], '\t', cswritep);
+	if (variant_bps) {
+	  cswritep = uint32toa_x(variant_bps[variant_uidx], '\t', cswritep);
 	}
 	cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
 	uintptr_t variant_allele_idx_base = variant_uidx * 2;
@@ -1599,7 +1599,7 @@ pglerr_t compute_hwe_x_pvals(const uintptr_t* variant_include, const uint32_t* f
   return reterr;
 }
 
-pglerr_t hardy_report(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bp, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint32_t* founder_raw_geno_cts, const uint32_t* founder_x_male_geno_cts, const uint32_t* founder_x_nosex_geno_cts, const double* hwe_x_pvals, uint32_t variant_ct, uint32_t hwe_x_ct, uint32_t max_allele_slen, double output_min_p, hardy_flags_t hardy_modifier, uint32_t nonfounders, char* outname, char* outname_end) {
+pglerr_t hardy_report(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint32_t* founder_raw_geno_cts, const uint32_t* founder_x_male_geno_cts, const uint32_t* founder_x_nosex_geno_cts, const double* hwe_x_pvals, uint32_t variant_ct, uint32_t hwe_x_ct, uint32_t max_allele_slen, double output_min_p, hardy_flags_t hardy_modifier, uint32_t nonfounders, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   compress_stream_state_t css;
@@ -1672,7 +1672,7 @@ pglerr_t hardy_report(const uintptr_t* variant_include, const chr_info_t* cip, c
       if (hardy_modifier & kfHardyColPos) {
 	cswritep = strcpya(cswritep, "POS\t");
       } else {
-	variant_bp = nullptr;
+	variant_bps = nullptr;
       }
       cswritep = strcpya(cswritep, "ID");
       if (ref_col) {
@@ -1729,8 +1729,8 @@ pglerr_t hardy_report(const uintptr_t* variant_include, const chr_info_t* cip, c
 	  }
 	  cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
 	}
-	if (variant_bp) {
-	  cswritep = uint32toa_x(variant_bp[variant_uidx], '\t', cswritep);
+	if (variant_bps) {
+	  cswritep = uint32toa_x(variant_bps[variant_uidx], '\t', cswritep);
 	}
 	cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
 	uintptr_t variant_allele_idx_base = variant_uidx * 2;
@@ -1825,7 +1825,7 @@ pglerr_t hardy_report(const uintptr_t* variant_include, const chr_info_t* cip, c
       if (hardy_modifier & kfHardyColPos) {
 	cswritep = strcpya(cswritep, "POS\t");
       } else {
-	variant_bp = nullptr;
+	variant_bps = nullptr;
       }
       cswritep = strcpya(cswritep, "ID");
       if (ref_col) {
@@ -1880,8 +1880,8 @@ pglerr_t hardy_report(const uintptr_t* variant_include, const chr_info_t* cip, c
       for (uint32_t variant_idx = 0; variant_idx < hwe_x_ct; ++variant_idx, ++variant_uidx) {
 	next_set_unsafe_ck(variant_include, &variant_uidx);
 	cswritep = memcpya(cswritep, x_name_buf, x_name_blen);
-	if (variant_bp) {
-	  cswritep = uint32toa_x(variant_bp[variant_uidx], '\t', cswritep);
+	if (variant_bps) {
+	  cswritep = uint32toa_x(variant_bps[variant_uidx], '\t', cswritep);
 	}
 	cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
 	uintptr_t variant_allele_idx_base = variant_uidx * 2;

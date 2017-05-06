@@ -22,7 +22,7 @@
 namespace plink2 {
 #endif
 
-pglerr_t load_range_list(const chr_info_t* cip, const uint32_t* variant_bp, const char* sorted_subset_ids, const char* file_descrip, uint32_t track_set_names, uint32_t border_extend, uint32_t collapse_group, uint32_t fail_on_no_sets, uint32_t c_prefix, uint32_t allow_no_variants, uintptr_t subset_ct, uintptr_t max_subset_id_blen, gzFile gz_infile, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_id_blen_ptr, uint64_t** range_sort_buf_ptr, make_set_range_t*** make_set_range_arr_ptr) {
+pglerr_t load_range_list(const chr_info_t* cip, const uint32_t* variant_bps, const char* sorted_subset_ids, const char* file_descrip, uint32_t track_set_names, uint32_t border_extend, uint32_t collapse_group, uint32_t fail_on_no_sets, uint32_t c_prefix, uint32_t allow_no_variants, uintptr_t subset_ct, uintptr_t max_subset_id_blen, gzFile gz_infile, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_id_blen_ptr, uint64_t** range_sort_buf_ptr, make_set_range_t*** make_set_range_arr_ptr) {
   // In plink 1.9, called directly by extract_exclude_range(), define_sets(),
   // and indirectly by annotate(), gene_report(), and clump_reports().
   // Assumes caller will reset g_bigstack_end later.
@@ -86,7 +86,7 @@ pglerr_t load_range_list(const chr_info_t* cip, const uint32_t* variant_bp, cons
 	// variants in the dataset.  So we prefix set IDs with a chromosome
 	// index in that case (with leading zeroes) and treat cross-chromosome
 	// sets as distinct.
-	if (!variant_bp) {
+	if (!variant_bps) {
 	  set_id_blen += 4;
 	}
 	if (set_id_blen > max_set_id_blen) {
@@ -97,7 +97,7 @@ pglerr_t load_range_list(const chr_info_t* cip, const uint32_t* variant_bp, cons
 	  goto load_range_list_ret_NOMEM;
 	}
 	ll_tmp->next = make_set_ll;
-	if (variant_bp) {
+	if (variant_bps) {
 	  memcpy(ll_tmp->ss, last_token, set_id_blen);
 	} else {
 	  uitoa_z4((uint32_t)cur_chr_code, ll_tmp->ss);
@@ -114,7 +114,7 @@ pglerr_t load_range_list(const chr_info_t* cip, const uint32_t* variant_bp, cons
       }
       if (!set_ct) {
 	if (fail_on_no_sets) {
-	  if (variant_bp) {
+	  if (variant_bps) {
 	    if (!allow_no_variants) {
 	      // okay, this is a kludge
 	      logerrprint("Error: All variants excluded by --gene{-all}, since no sets were defined from\n--make-set file.\n");
@@ -207,7 +207,7 @@ pglerr_t load_range_list(const chr_info_t* cip, const uint32_t* variant_bp, cons
       if (!is_set(cip->chr_mask, cur_chr_code)) {
 	continue;
       }
-      if (variant_bp) {
+      if (variant_bps) {
 	const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[(uint32_t)cur_chr_code];
 	chr_start = cip->chr_fo_vidx_start[chr_fo_idx];
 	chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
@@ -250,7 +250,7 @@ pglerr_t load_range_list(const chr_info_t* cip, const uint32_t* variant_bp, cons
 	if (c_prefix) {
 	  last_token = &(last_token[-2]);
 	  memcpy(last_token, "C_", 2);
-	} else if (!variant_bp) {
+	} else if (!variant_bps) {
 	  last_token = &(last_token[-4]);
 	  uitoa_z4((uint32_t)cur_chr_code, last_token);
 	  last_token[3] -= 15;
@@ -258,10 +258,10 @@ pglerr_t load_range_list(const chr_info_t* cip, const uint32_t* variant_bp, cons
 	// this should never fail
 	cur_set_idx = (uint32_t)bsearch_str_natural(last_token, set_names, max_set_id_blen, set_ct);
       }
-      if (variant_bp) {
+      if (variant_bps) {
 	// translate to within-chromosome uidx
-	range_first = uint32arr_greater_than(&(variant_bp[chr_start]), chr_end - chr_start, range_first);
-	range_last = uint32arr_greater_than(&(variant_bp[chr_start]), chr_end - chr_start, range_last + 1);
+	range_first = uint32arr_greater_than(&(variant_bps[chr_start]), chr_end - chr_start, range_first);
+	range_last = uint32arr_greater_than(&(variant_bps[chr_start]), chr_end - chr_start, range_last + 1);
 	if (range_last > range_first) {
 	  make_set_range_t* msr_tmp = (make_set_range_t*)bigstack_end_alloc(sizeof(make_set_range_t));
 	  if (!msr_tmp) {
@@ -332,7 +332,7 @@ pglerr_t load_range_list(const chr_info_t* cip, const uint32_t* variant_bp, cons
   return reterr;
 }
 
-pglerr_t extract_exclude_range(const char* fnames, const chr_info_t* cip, const uint32_t* variant_bp, uint32_t raw_variant_ct, uint32_t do_exclude, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+pglerr_t extract_exclude_range(const char* fnames, const chr_info_t* cip, const uint32_t* variant_bps, uint32_t raw_variant_ct, uint32_t do_exclude, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   const uint32_t orig_variant_ct = *variant_ct_ptr;
   if (!orig_variant_ct) {
     return kPglRetSuccess;
@@ -356,7 +356,7 @@ pglerr_t extract_exclude_range(const char* fnames, const chr_info_t* cip, const 
 	goto extract_exclude_range_ret_1;
       }
       make_set_range_t** range_arr = nullptr;
-      reterr = load_range_list(cip, variant_bp, nullptr, do_exclude? "--exclude range" : "--extract range", 0, 0, 0, 0, 0, 1, 0, 0, gz_infile, nullptr, nullptr, nullptr, nullptr, &range_arr);
+      reterr = load_range_list(cip, variant_bps, nullptr, do_exclude? "--exclude range" : "--extract range", 0, 0, 0, 0, 0, 1, 0, 0, gz_infile, nullptr, nullptr, nullptr, nullptr, &range_arr);
       if (reterr) {
 	goto extract_exclude_range_ret_1;
       }

@@ -2484,7 +2484,7 @@ THREAD_FUNC_DECL calc_pca_var_wts_thread(void* arg) {
   }
 }
 
-pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const char* sids, uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bp, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const alt_allele_ct_t* maj_alleles, const double* alt_allele_freqs, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t pc_ct, pca_flags_t pca_flags, uint32_t max_thread_ct, pgen_reader_t* simple_pgrp, double* grm, char* outname, char* outname_end) {
+pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const char* sids, uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const alt_allele_ct_t* maj_alleles, const double* alt_allele_freqs, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t pc_ct, pca_flags_t pca_flags, uint32_t max_thread_ct, pgen_reader_t* simple_pgrp, double* grm, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -2979,7 +2979,7 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
       if (pca_flags & kfPcaVcolPos) {
 	cswritep = strcpya(cswritep, "POS\t");
       } else {
-	variant_bp = nullptr;
+	variant_bps = nullptr;
       }
       cswritep = strcpya(cswritep, "ID");
       if (ref_col) {
@@ -3162,8 +3162,8 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
 	      }
 	      cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
 	    }
-	    if (variant_bp) {
-	      cswritep = uint32toa_x(variant_bp[variant_uidx], '\t', cswritep);
+	    if (variant_bps) {
+	      cswritep = uint32toa_x(variant_bps[variant_uidx], '\t', cswritep);
 	    }
 	    cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
 	    uintptr_t variant_allele_idx_base = variant_uidx * 2;
@@ -3395,7 +3395,7 @@ THREAD_FUNC_DECL calc_score_thread(void* arg) {
   }
 }
 
-pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const uintptr_t* sex_male, const pheno_col_t* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const chr_info_t* cip, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const double* alt_allele_freqs, const score_info_t* score_info_ptr, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_blen, uint32_t xchr_model, uint32_t max_thread_ct, pgen_reader_t* simple_pgrp, char* outname, char* outname_end) {
+pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const uintptr_t* sex_male, const pheno_col_t* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const chr_info_t* cip, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const double* alt_allele_freqs, const score_info_t* score_info_ptr, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t xchr_model, uint32_t max_thread_ct, pgen_reader_t* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   gzFile gz_infile = nullptr;
@@ -3655,7 +3655,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
 	char* variant_id_token_end = token_endnn(variant_id_start);
 	const uint32_t variant_id_slen = (uintptr_t)(variant_id_token_end - variant_id_start);
 	uint32_t cur_llidx;
-	uint32_t variant_uidx = variant_id_dup_htable_find(variant_id_start, variant_ids, variant_id_htable, htable_dup_base, variant_id_slen, variant_id_htable_size, max_variant_id_blen, &cur_llidx);
+	uint32_t variant_uidx = variant_id_dup_htable_find(variant_id_start, variant_ids, variant_id_htable, htable_dup_base, variant_id_slen, variant_id_htable_size, max_variant_id_slen, &cur_llidx);
 	if (variant_uidx != 0xffffffffU) {
 	  if (cur_llidx != 0xffffffffU) {
 	    sprintf(g_logbuf, "Error: --score variant ID '%s' appears multiple times in main dataset.\n", variant_ids[variant_uidx]);

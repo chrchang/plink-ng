@@ -300,9 +300,11 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
     // explicit gzipped .pvar/.bim support was tried, and then rejected since
     // decompression was too slow
     // Zstd should have the necessary x86 performance characteristics, though
-    help_print("pfile\tpgen\tpvar\tpsam\tbfile\tbed\tbim\tfam", &help_ctrl, 1,
+    help_print("pfile\tpgen\tbfile\tbed", &help_ctrl, 1,
 "  --pfile [prefix] <vzs> : Specify .pgen + .pvar{.zst} + .psam prefix.\n"
 "  --pgen [filename]      : Specify full name of .pgen/.bed file.\n"
+	       );
+    help_print("pfile\tpgen\tpvar\tpsam\tbfile\tbed\tbim\tfam\timport-dosage\tdosage", &help_ctrl, 1,
 "  --pvar [filename]      : Specify full name of .pvar/.bim file.\n"
 "  --psam [filename]      : Specify full name of .psam/.fam file.\n\n"
 	       );
@@ -359,15 +361,35 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "      PLINK currently cannot handle omitted male columns.)\n"
 "    * If not used with --sample, new sample IDs are of the form 'per#/per#'.\n\n"
 	       );
-    // Commented out since, while this is on the roadmap, it isn't implemented
-    // yet.  (This also applies to other commented-out help text.)
-    /*
+    help_print("map\timport-dosage\tdosage", &help_ctrl, 1,
+"  --map [fname]      : Specify full name of .map file.\n"
+	       );
     help_print("import-dosage\tdosage", &help_ctrl, 1,
 "  --import-dosage [allele dosage file] <noheader> <skip0=[i]> <skip1=[j]>\n"
-"                  <skip2=[k]> <dose1> <format=[m]>\n"
-"    Specify PLINK 1.x-style dosage file to import.\n\n"
+"                  <skip2=[k]> <dose1> <format=[m]> <ref-first | ref-second>\n"
+"                  <single-chr=[code]> <chr-col-num=[#]> <pos-col-num=[#]>\n"
+"    Specify PLINK 1.x-style dosage file to import.\n"
+"    * You must also specify a companion .fam file.\n"
+"    * By default, PLINK assumes that the file contains a header line, which has\n"
+"      'SNP' in (1-based) column i+1, 'A1' in column i+j+2, 'A2' in column\n"
+"      i+j+3, and sample FID/IIDs starting from column i+j+k+4.  (i/j/k are\n"
+"      normally zero, but can be changed with 'skip0', 'skip1', and 'skip2'\n"
+"      respectively.)  If such a header line is not present, use the 'noheader'\n"
+"      modifier; samples will then be assumed to appear in the same order as\n"
+"      they do in the .fam file.\n"
+"    * You may specify a companion .map file.  If you do not,\n"
+"      * 'single-chr=' can be used to specify that all variants are on the named\n"
+"        chromosome.  Otherwise, you can use 'chr-col-num=' to read chromosome\n"
+"        codes from the given (1-based) column number.\n"
+"      * 'pos-col-num=' causes bp coordinates to be read from the given column\n"
+"        number.\n"
+"    * The 'format' modifier lets you specify the number of values used to\n"
+"      represent each dosage.  'format=1' normally indicates a single 0..2 A1\n"
+"      expected count; 'dose1' modifies this to a 0..1 frequency.  'format=2'\n"
+"      (the default) indicates a 0..1 homozygous A1 likelihood followed by a\n"
+"      0..1 het likelihood, while 'format=3' indicates 0..1 hom A1, 0..1 het,\n"
+"      0..1 hom A2.\n\n"
 	       );
-    */
     // todo: triallelic rate
     help_print("dummy", &help_ctrl, 1,
 "  --dummy [sample ct] [SNP ct] {missing dosage freq} {missing pheno freq}\n"
@@ -431,6 +453,8 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "        3: unphased dosage data\n"
 "        4: phased dosage data\n"
 	       */
+    // Commented out since, while this is on the roadmap, it isn't implemented
+    // yet.  (This also applies to other commented-out help text.)
 	       /*
 "    * The 'multiallelics' modifier (alias: 'm') specifies a merge or split\n"
 "      mode.  The following modes are currently supported (well, not yet):\n"
@@ -871,9 +895,8 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "    Basic association analysis on quantitative and/or case/control phenotypes.\n"
 "    For each variant, a linear (for quantitative traits) or logistic (for\n"
 "    case/control) regression is run with the phenotype as the dependent\n"
-"    variable, and alt1 dosage and a constant-1 column as predictors.\n"
-"    * For multiallelic variants, when total dosage of alt2 + alt3 + ... exceeds\n"
-"      0.5, the dosage is treated as missing.\n"
+"    variable, and alt dosage and a constant-1 column as predictors.\n"
+"    * For multiallelic variants, the total alt1 + alt2 + ... dosage is used.\n"
 "    * By default, sex (male = 1, female = 2; note that this is a change from\n"
 "      PLINK 1.x) is automatically added as a predictor for X chromosome\n"
 "      variants, and no others.  The 'sex' modifier causes it to be added\n"
@@ -928,13 +951,13 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "      ref: Reference allele.\n"
 "      alt1: Alternate allele 1.\n"
 "      alt: All alternate alleles, comma-separated.\n"
-"      alt1count: Alternate allele 1 count (can be decimal with dosage data).\n"
+"      altcount: Alternate allele count (can be decimal with dosage data).\n"
 "      totallele: Allele observation count (can be higher than --freq value, due\n"
 "                 to inclusion of het haploids and chrX model).\n"
-"      alt1countcc: alt1 count in cases, then controls (case/control only).\n"
+"      altcountcc: alt count in cases, then controls (case/control only).\n"
 "      totallelecc: Case and control allele observation counts.\n"
-"      alt1freq: alt1 allele frequency.\n"
-"      alt1freqcc: alt1 frequency in cases, then controls (case/control only).\n"
+"      altfreq: alt allele frequency.\n"
+"      altfreqcc: alt frequency in cases, then controls (case/control only).\n"
 "      machr2: Empirical divided by theoretical variance quality metric.\n"
 "      firth: Reports whether Firth regression was used (firth-fallback only).\n"
 "      test: Test identifier.  (Required unless only one test is run.)\n"
@@ -945,7 +968,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "      ci: Bounds of symmetric approximate confidence interval (requires --ci).\n"
 "      t: T-statistic.\n"
 "      p: Asymptotic p-value for t-statistic.\n"
-"    The default is chrom,pos,ref,alt1,firth,test,nobs,orbeta,se,ci,t,p.\n\n"
+"    The default is chrom,pos,ref,alt,firth,test,nobs,orbeta,se,ci,t,p.\n\n"
 	       );
     help_print("score", &help_ctrl, 1,
 "  --score [filename] {i} {j} {k} <header | header-read> <no-mean-imputation>\n"

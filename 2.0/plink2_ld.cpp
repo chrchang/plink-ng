@@ -222,7 +222,7 @@ int32_t dotprod_longs(const uintptr_t* __restrict bitvec1a_iter, const uintptr_t
   return tot;
 }
 
-void ldprune_next_subcontig(const uintptr_t* variant_include, const uint32_t* variant_bp, const uint32_t* subcontig_info, const uint32_t* subcontig_thread_assignments, uint32_t x_start, uint32_t x_len, uint32_t y_start, uint32_t y_len, uint32_t founder_ct, uint32_t founder_male_ct, uint32_t prune_window_size, uint32_t thread_idx, uint32_t* subcontig_idx_ptr, uint32_t* subcontig_end_tvidx_ptr, uint32_t* next_window_end_tvidx_ptr, uint32_t* is_x_ptr, uint32_t* is_y_ptr, uint32_t* cur_founder_ct_ptr, uint32_t* cur_founder_ctaw_ptr, uint32_t* cur_founder_ctl_ptr, uintptr_t* entire_variant_buf_word_ct_ptr, uint32_t* variant_uidx_winstart_ptr, uint32_t* variant_uidx_winend_ptr) {
+void ldprune_next_subcontig(const uintptr_t* variant_include, const uint32_t* variant_bps, const uint32_t* subcontig_info, const uint32_t* subcontig_thread_assignments, uint32_t x_start, uint32_t x_len, uint32_t y_start, uint32_t y_len, uint32_t founder_ct, uint32_t founder_male_ct, uint32_t prune_window_size, uint32_t thread_idx, uint32_t* subcontig_idx_ptr, uint32_t* subcontig_end_tvidx_ptr, uint32_t* next_window_end_tvidx_ptr, uint32_t* is_x_ptr, uint32_t* is_y_ptr, uint32_t* cur_founder_ct_ptr, uint32_t* cur_founder_ctaw_ptr, uint32_t* cur_founder_ctl_ptr, uintptr_t* entire_variant_buf_word_ct_ptr, uint32_t* variant_uidx_winstart_ptr, uint32_t* variant_uidx_winend_ptr) {
   uint32_t subcontig_idx = *subcontig_idx_ptr;
   do {
     ++subcontig_idx;
@@ -233,14 +233,14 @@ void ldprune_next_subcontig(const uintptr_t* variant_include, const uint32_t* va
   const uint32_t variant_uidx_winstart = subcontig_info[3 * subcontig_idx + 2];
   const uint32_t subcontig_end_tvidx = subcontig_first_tvidx + subcontig_len;
   *subcontig_end_tvidx_ptr = subcontig_end_tvidx;
-  if (variant_bp) {
-    const uint32_t variant_bp_thresh = variant_bp[variant_uidx_winstart] + prune_window_size;
+  if (variant_bps) {
+    const uint32_t variant_bp_thresh = variant_bps[variant_uidx_winstart] + prune_window_size;
     uint32_t variant_uidx_winend = variant_uidx_winstart;
     uint32_t first_window_len = 1;
     do {
       ++variant_uidx_winend;
       next_set_unsafe_ck(variant_include, &variant_uidx_winend);
-    } while ((variant_bp[variant_uidx_winend] <= variant_bp_thresh) && (++first_window_len < subcontig_len));
+    } while ((variant_bps[variant_uidx_winend] <= variant_bp_thresh) && (++first_window_len < subcontig_len));
     *next_window_end_tvidx_ptr = subcontig_first_tvidx + first_window_len;
     *variant_uidx_winend_ptr = variant_uidx_winend;
   } else {
@@ -292,7 +292,7 @@ void genoarr_split_02nm(const uintptr_t* __restrict genoarr, uint32_t sample_ct,
   }
 }
 
-void ldprune_next_window(const uintptr_t* __restrict variant_include, const uint32_t* __restrict variant_bp, const uint32_t* __restrict tvidxs, const uintptr_t* __restrict cur_window_removed, uint32_t prune_window_size, uint32_t window_incr, uint32_t window_maxl, uint32_t subcontig_end_tvidx, uint32_t* cur_window_size_ptr, uint32_t* __restrict window_start_tvidx_ptr, uint32_t* __restrict variant_uidx_winstart_ptr, uint32_t* __restrict next_window_end_tvidx_ptr, uint32_t* __restrict variant_uidx_winend_ptr, uintptr_t* __restrict occupied_window_slots, uint32_t* winpos_to_slot_idx) {
+void ldprune_next_window(const uintptr_t* __restrict variant_include, const uint32_t* __restrict variant_bps, const uint32_t* __restrict tvidxs, const uintptr_t* __restrict cur_window_removed, uint32_t prune_window_size, uint32_t window_incr, uint32_t window_maxl, uint32_t subcontig_end_tvidx, uint32_t* cur_window_size_ptr, uint32_t* __restrict window_start_tvidx_ptr, uint32_t* __restrict variant_uidx_winstart_ptr, uint32_t* __restrict next_window_end_tvidx_ptr, uint32_t* __restrict variant_uidx_winend_ptr, uintptr_t* __restrict occupied_window_slots, uint32_t* winpos_to_slot_idx) {
   uint32_t next_window_end_tvidx = *next_window_end_tvidx_ptr;
   if (next_window_end_tvidx == subcontig_end_tvidx) {
     // just completed last window in subcontig
@@ -302,11 +302,11 @@ void ldprune_next_window(const uintptr_t* __restrict variant_include, const uint
     return;
   }
   uint32_t next_window_start_tvidx = *window_start_tvidx_ptr;
-  if (variant_bp) {
+  if (variant_bps) {
     // this is guaranteed to be nonnegative
     uint32_t variant_uidx_winstart = *variant_uidx_winstart_ptr;
     uint32_t variant_uidx_winend = *variant_uidx_winend_ptr;
-    const uint32_t window_start_min_bp = variant_bp[variant_uidx_winend] - prune_window_size;
+    const uint32_t window_start_min_bp = variant_bps[variant_uidx_winend] - prune_window_size;
     uint32_t window_start_bp;
     do {
       // advance window start by as much as necessary to make end advance by at
@@ -314,7 +314,7 @@ void ldprune_next_window(const uintptr_t* __restrict variant_include, const uint
       ++next_window_start_tvidx;
       ++variant_uidx_winstart;
       next_set_unsafe_ck(variant_include, &variant_uidx_winstart);
-      window_start_bp = variant_bp[variant_uidx_winstart];
+      window_start_bp = variant_bps[variant_uidx_winstart];
     } while (window_start_bp < window_start_min_bp);
     // now advance window end as appropriate
     const uint32_t window_end_thresh = window_start_bp + prune_window_size;
@@ -324,7 +324,7 @@ void ldprune_next_window(const uintptr_t* __restrict variant_include, const uint
       }
       ++variant_uidx_winend;
       next_set_unsafe_ck(variant_include, &variant_uidx_winend);
-    } while (variant_bp[variant_uidx_winend] <= window_end_thresh);
+    } while (variant_bps[variant_uidx_winend] <= window_end_thresh);
     *variant_uidx_winstart_ptr = variant_uidx_winstart;
     *variant_uidx_winend_ptr = variant_uidx_winend;
   } else {
@@ -385,7 +385,7 @@ static const uintptr_t* g_variant_include = nullptr;
 static const uintptr_t* g_variant_allele_idxs = nullptr;
 static const alt_allele_ct_t* g_maj_alleles = nullptr;
 static const double* g_all_alt_freqs = nullptr;
-static const uint32_t* g_variant_bp = nullptr;
+static const uint32_t* g_variant_bps = nullptr;
 static uint32_t* g_tvidx_end = nullptr;
 static uint32_t g_x_start = 0;
 static uint32_t g_x_len = 0;
@@ -422,7 +422,7 @@ THREAD_FUNC_DECL indep_pairwise_thread(void* arg) {
   const uintptr_t* variant_allele_idxs = g_variant_allele_idxs;
   const alt_allele_ct_t* maj_alleles = g_maj_alleles;
   const double* all_alt_freqs = g_all_alt_freqs;
-  const uint32_t* variant_bp = g_variant_bp;
+  const uint32_t* variant_bps = g_variant_bps;
   const uint32_t founder_ct = g_founder_ct;
   const uint32_t founder_male_ct = g_founder_male_ct;
   const uint32_t founder_male_ctl2 = QUATERCT_TO_WORDCT(founder_male_ct);
@@ -475,7 +475,7 @@ THREAD_FUNC_DECL indep_pairwise_thread(void* arg) {
     const uintptr_t* raw_tgenovecs = g_raw_tgenovecs[parity][tidx];
     for (uint32_t cur_tvidx = tvidx_start; cur_tvidx < tvidx_stop; ++variant_uidx) {
       if (cur_tvidx == subcontig_end_tvidx) {
-	ldprune_next_subcontig(variant_include, variant_bp, subcontig_info, subcontig_thread_assignments, x_start, x_len, y_start, y_len, founder_ct, founder_male_ct, prune_window_size, tidx, &subcontig_idx, &subcontig_end_tvidx, &next_window_end_tvidx, &is_x, &is_y, &cur_founder_ct, &cur_founder_ctaw, &cur_founder_ctl, &entire_variant_buf_word_ct, &variant_uidx_winstart, &variant_uidx_winend);
+	ldprune_next_subcontig(variant_include, variant_bps, subcontig_info, subcontig_thread_assignments, x_start, x_len, y_start, y_len, founder_ct, founder_male_ct, prune_window_size, tidx, &subcontig_idx, &subcontig_end_tvidx, &next_window_end_tvidx, &is_x, &is_y, &cur_founder_ct, &cur_founder_ctaw, &cur_founder_ctl, &entire_variant_buf_word_ct, &variant_uidx_winstart, &variant_uidx_winend);
 	variant_uidx = variant_uidx_winstart;
       }
       next_set_unsafe_ck(variant_include, &variant_uidx);
@@ -637,7 +637,7 @@ THREAD_FUNC_DECL indep_pairwise_thread(void* arg) {
 	  cur_removed_ct = popcount_longs(cur_window_removed, BITCT_TO_WORDCT(cur_window_size));
 	} while (cur_removed_ct > prev_removed_ct);
 	const uint32_t prev_window_size = cur_window_size;
-	ldprune_next_window(variant_include, variant_bp, tvidxs, cur_window_removed, prune_window_size, window_incr, window_maxl, subcontig_end_tvidx, &cur_window_size, &window_start_tvidx, &variant_uidx_winstart, &next_window_end_tvidx, &variant_uidx_winend, occupied_window_slots, winpos_to_slot_idx);
+	ldprune_next_window(variant_include, variant_bps, tvidxs, cur_window_removed, prune_window_size, window_incr, window_maxl, subcontig_end_tvidx, &cur_window_size, &window_start_tvidx, &variant_uidx_winstart, &next_window_end_tvidx, &variant_uidx_winend, occupied_window_slots, winpos_to_slot_idx);
 	// clear bits here since we set cur_window_removed bits during loading
 	// process in monomorphic case
 	fill_ulong_zero(BITCT_TO_WORDCT(prev_window_size), cur_window_removed);
@@ -653,7 +653,7 @@ THREAD_FUNC_DECL indep_pairwise_thread(void* arg) {
   }
 }
 
-pglerr_t indep_pairwise(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bp, const uintptr_t* variant_allele_idxs, const alt_allele_ct_t* maj_alleles, const double* alt_allele_freqs, const uintptr_t* founder_info, const uint32_t* founder_info_cumulative_popcounts, const uintptr_t* founder_nonmale, const uintptr_t* founder_male, const ld_info_t* ldip, const uint32_t* subcontig_info, const uint32_t* subcontig_thread_assignments, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t founder_male_ct, uint32_t subcontig_ct, uintptr_t window_max, uint32_t calc_thread_ct, uint32_t max_load, pgen_reader_t* simple_pgrp, uintptr_t* removed_variants_collapsed) {
+pglerr_t indep_pairwise(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, const uintptr_t* variant_allele_idxs, const alt_allele_ct_t* maj_alleles, const double* alt_allele_freqs, const uintptr_t* founder_info, const uint32_t* founder_info_cumulative_popcounts, const uintptr_t* founder_nonmale, const uintptr_t* founder_male, const ld_info_t* ldip, const uint32_t* subcontig_info, const uint32_t* subcontig_thread_assignments, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t founder_male_ct, uint32_t subcontig_ct, uintptr_t window_max, uint32_t calc_thread_ct, uint32_t max_load, pgen_reader_t* simple_pgrp, uintptr_t* removed_variants_collapsed) {
   pglerr_t reterr = kPglRetSuccess;
   {
     const uint32_t founder_nonmale_ct = founder_ct - founder_male_ct;
@@ -769,7 +769,7 @@ pglerr_t indep_pairwise(const uintptr_t* variant_include, const chr_info_t* cip,
     g_variant_allele_idxs = variant_allele_idxs;
     g_maj_alleles = maj_alleles;
     g_all_alt_freqs = alt_allele_freqs;
-    g_variant_bp = variant_bp;
+    g_variant_bps = variant_bps;
     g_founder_ct = founder_ct;
     g_founder_male_ct = founder_male_ct;
     g_prune_ld_thresh = ldip->prune_last_param * (1 + kSmallEpsilon);
@@ -949,8 +949,8 @@ pglerr_t indep_pairphase() {
   return kPglRetNotYetSupported;
 }
 
-pglerr_t ld_prune_subcontig_split_all(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bp, uint32_t prune_window_size, uint32_t* window_max_ptr, uint32_t** subcontig_info_ptr, uint32_t* subcontig_ct_ptr) {
-  // variant_bp must be nullptr if window size is not bp-based
+pglerr_t ld_prune_subcontig_split_all(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, uint32_t prune_window_size, uint32_t* window_max_ptr, uint32_t** subcontig_info_ptr, uint32_t* subcontig_ct_ptr) {
+  // variant_bps must be nullptr if window size is not bp-based
   // chr0 assumed to already be removed from variant_include.
   // this will skip over chromosomes/contigs with only 1 variant.
   const uint32_t chr_ct = cip->chr_ct;
@@ -959,7 +959,7 @@ pglerr_t ld_prune_subcontig_split_all(const uintptr_t* variant_include, const ch
   uint32_t* subcontig_info_limit = &(((uint32_t*)g_bigstack_end)[-3]);
   uint32_t window_max = 0;
   uint32_t variant_idx = 0;
-  if (variant_bp) {
+  if (variant_bps) {
     window_max = 1;
     for (uint32_t chr_fo_idx = 0; chr_fo_idx < chr_ct; ++chr_fo_idx) {
       const uint32_t chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
@@ -971,13 +971,13 @@ pglerr_t ld_prune_subcontig_split_all(const uintptr_t* variant_include, const ch
 	uint32_t subcontig_idx_first = variant_idx;
 	uint32_t window_idx_first = variant_idx;
 	uint32_t window_uidx_first = variant_uidx;
-	uint32_t window_pos_first = variant_bp[variant_uidx];
+	uint32_t window_pos_first = variant_bps[variant_uidx];
 	uint32_t prev_pos = window_pos_first;
 	++variant_idx;
 	do {
 	  ++variant_uidx;
 	  next_set_unsafe_ck(variant_include, &variant_uidx);
-	  uint32_t variant_bp_thresh = variant_bp[variant_uidx];
+	  uint32_t variant_bp_thresh = variant_bps[variant_uidx];
 	  if (variant_bp_thresh < prune_window_size) {
 	    prev_pos = variant_bp_thresh;
 	    variant_bp_thresh = 0;
@@ -1001,7 +1001,7 @@ pglerr_t ld_prune_subcontig_split_all(const uintptr_t* variant_include, const ch
 	    do {
 	      ++window_uidx_first;
 	      next_set_unsafe_ck(variant_include, &window_uidx_first);
-	      window_pos_first = variant_bp[window_uidx_first];
+	      window_pos_first = variant_bps[window_uidx_first];
 	      ++window_idx_first;
 	    } while (variant_bp_thresh > window_pos_first);
 	  } else if (variant_idx - window_idx_first == window_max) {
@@ -1325,7 +1325,7 @@ pglerr_t ld_prune_write(const uintptr_t* variant_include, const uintptr_t* remov
   return reterr;
 }
 
-pglerr_t ld_prune(const uintptr_t* orig_variant_include, const chr_info_t* cip, const uint32_t* variant_bp, char** variant_ids, const uintptr_t* variant_allele_idxs, const alt_allele_ct_t* maj_alleles, const double* alt_allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_male, const ld_info_t* ldip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_thread_ct, pgen_reader_t* simple_pgrp, char* outname, char* outname_end) {
+pglerr_t ld_prune(const uintptr_t* orig_variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, const alt_allele_ct_t* maj_alleles, const double* alt_allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_male, const ld_info_t* ldip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_thread_ct, pgen_reader_t* simple_pgrp, char* outname, char* outname_end) {
   // common initialization between --indep-pairwise and --indep-pairphase
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -1376,13 +1376,13 @@ pglerr_t ld_prune(const uintptr_t* orig_variant_include, const chr_info_t* cip, 
     }
 
     if (!(ldip->prune_modifier & kfLdPruneWindowBp)) {
-      variant_bp = nullptr;
+      variant_bps = nullptr;
     }
     const uint32_t prune_window_size = ldip->prune_window_size;
     uint32_t* subcontig_info;
     uint32_t window_max;
     uint32_t subcontig_ct;
-    if (ld_prune_subcontig_split_all(variant_include, cip, variant_bp, prune_window_size, &window_max, &subcontig_info, &subcontig_ct)) {
+    if (ld_prune_subcontig_split_all(variant_include, cip, variant_bps, prune_window_size, &window_max, &subcontig_info, &subcontig_ct)) {
       return kPglRetNomem;
     }
     if (!subcontig_ct) {
@@ -1461,7 +1461,7 @@ pglerr_t ld_prune(const uintptr_t* orig_variant_include, const chr_info_t* cip, 
     if (is_pairphase) {
       reterr = indep_pairphase();
     } else {
-      reterr = indep_pairwise(variant_include, cip, variant_bp, variant_allele_idxs, maj_alleles, alt_allele_freqs, founder_info, founder_info_cumulative_popcounts, founder_nonmale_collapsed, founder_male_collapsed, ldip, subcontig_info, subcontig_thread_assignments, raw_sample_ct, founder_ct, founder_male_ct, subcontig_ct, window_max, max_thread_ct, max_load, simple_pgrp, removed_variants_collapsed);
+      reterr = indep_pairwise(variant_include, cip, variant_bps, variant_allele_idxs, maj_alleles, alt_allele_freqs, founder_info, founder_info_cumulative_popcounts, founder_nonmale_collapsed, founder_male_collapsed, ldip, subcontig_info, subcontig_thread_assignments, raw_sample_ct, founder_ct, founder_male_ct, subcontig_ct, window_max, max_thread_ct, max_load, simple_pgrp, removed_variants_collapsed);
     }
     if (reterr) {
       goto ld_prune_ret_1;
