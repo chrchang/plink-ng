@@ -6426,7 +6426,9 @@ uint32_t window_back(const uint32_t* __restrict marker_pos, const double* __rest
 	cur_word &= cur_word - 1;
         uii--;
       }
-      marker_uwidx_cur += CTZLU(cur_word);
+      // bugfix (7 May 2017): forgot to round marker_uwidx_cur down to word
+      //   boundary, before adding CTZLU(cur_word) offset
+      marker_uwidx_cur = (marker_uwidx_cur & (~(BITCT - ONELU))) + CTZLU(cur_word);
       if ((marker_pos[marker_uwidx_cur] < min_pos) || (marker_cms && (marker_cms[marker_uwidx_cur] < min_cm))) {
 	goto window_back_find_first_pos;
       }
