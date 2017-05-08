@@ -611,6 +611,33 @@ pglerr_t write_fam(const char* outname, const uintptr_t* sample_include, const c
   return reterr;
 }
 
+uint32_t is_parental_info_present(const uintptr_t* sample_include, const char* paternal_ids, const char* maternal_ids, uint32_t sample_ct, uintptr_t max_paternal_id_blen, uintptr_t max_maternal_id_blen) {
+  uint32_t sample_uidx = 0;
+  for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+    next_set_unsafe_ck(sample_include, &sample_uidx);
+    if (memcmp(&(paternal_ids[sample_uidx * max_paternal_id_blen]), "0", 2) || memcmp(&(maternal_ids[sample_uidx * max_maternal_id_blen]), "0", 2)) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+char* append_pheno_str(const pheno_col_t* pheno_col, const char* output_missing_pheno, uint32_t omp_slen, uint32_t sample_uidx, char* write_iter) {
+  const pheno_dtype_t type_code = pheno_col->type_code;
+  if (type_code <= kPhenoDtypeQt) {
+    if (!is_set(pheno_col->nonmiss, sample_uidx)) {
+      write_iter = memcpya(write_iter, output_missing_pheno, omp_slen);
+    } else if (type_code == kPhenoDtypeCc) {
+      *write_iter++ = '1' + is_set(pheno_col->data.cc, sample_uidx);
+    } else {
+      write_iter = dtoa_g(pheno_col->data.qt[sample_uidx], write_iter);
+    }
+  } else {
+    write_iter = strcpya(write_iter, pheno_col->category_names[pheno_col->data.cat[sample_uidx]]);
+  }
+  return write_iter;
+}
+
 pglerr_t write_psam(const char* outname, const uintptr_t* sample_include, const char* sample_ids, const char* sids, const char* paternal_ids, const char* maternal_ids, const uintptr_t* sex_nm, const uintptr_t* sex_male, const pheno_col_t* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uintptr_t max_paternal_id_blen, uintptr_t max_maternal_id_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, pvar_psam_t pvar_psam_modifier) {
   FILE* outfile = nullptr;
   pglerr_t reterr = kPglRetSuccess;
@@ -629,14 +656,7 @@ pglerr_t write_psam(const char* outname, const uintptr_t* sample_include, const 
     if (pvar_psam_modifier & kfPsamColParents) {
       write_parents = 1;
     } else if (pvar_psam_modifier & kfPsamColMaybeparents) {
-      uint32_t sample_uidx = 0;
-      for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-	next_set_unsafe_ck(sample_include, &sample_uidx);
-	if (memcmp(&(paternal_ids[sample_uidx * max_paternal_id_blen]), "0", 2) || memcmp(&(maternal_ids[sample_uidx * max_maternal_id_blen]), "0", 2)) {
-	  write_parents = 1;
-	  break;
-	}
-      }
+      write_parents = is_parental_info_present(sample_include, paternal_ids, maternal_ids, sample_ct, max_paternal_id_blen, max_maternal_id_blen);
     }
     const uint32_t write_sex = (pvar_psam_modifier / kfPsamColSex) & 1;
     const uint32_t write_empty_pheno = (pvar_psam_modifier & kfPsamColPheno1) && (!pheno_ct);
@@ -705,26 +725,13 @@ pglerr_t write_psam(const char* outname, const uintptr_t* sample_include, const 
 	  // as --covar input
 	  // (can't do this for .fam export, though: not worth the
 	  // compatibility issues)
-	  write_iter = memcpya(write_iter, "NA", 2);
+	  write_iter = strcpya(write_iter, "NA");
 	}
       }
       if (write_phenos) {
 	for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
-	  const pheno_col_t* cur_pheno_col = &(pheno_cols[pheno_idx]);
-	  const pheno_dtype_t type_code = cur_pheno_col->type_code;
 	  *write_iter++ = '\t';
-	  if (type_code <= kPhenoDtypeQt) {
-	    if (!IS_SET(cur_pheno_col->nonmiss, sample_uidx)) {
-	      write_iter = memcpya(write_iter, output_missing_pheno, omp_slen);
-	    } else if (type_code == kPhenoDtypeCc) {
-	      *write_iter++ = '1' + IS_SET(cur_pheno_col->data.cc, sample_uidx);
-	    } else {
-	      write_iter = dtoa_g(cur_pheno_col->data.qt[sample_uidx], write_iter);
-	    }
-	  } else {
-	    // category index guaranteed to be zero for missing values
-	    write_iter = strcpya(write_iter, cur_pheno_col->category_names[cur_pheno_col->data.cat[sample_uidx]]);
-	  }
+	  write_iter = append_pheno_str(&(pheno_cols[pheno_idx]), output_missing_pheno, omp_slen, sample_uidx, write_iter);
 	  if (write_iter >= textbuf_flush) {
 	    if (fwrite_checked(textbuf, write_iter - textbuf, outfile)) {
 	      goto write_psam_ret_WRITE_FAIL;
@@ -3275,8 +3282,8 @@ pglerr_t ox_gen_to_pgen(const char* genname, const char* samplename, const char*
       // alt was usually first, but the reverse seems to be more common now.
       // So:
       //   If 'ref-first' or 'ref-second' was specified, we know what to do.
-      //   If not, we now treat the first allele as the provisional reference,
-      //   not the second.
+      //   If not, we treat the second allele as the provisional reference, for
+      //     backward compatibility.
       char* first_allele_str = skip_initial_spaces(pos_end);
       if (is_eoln_kns(*first_allele_str)) {
 	goto ox_gen_to_pgen_ret_MISSING_TOKENS;
@@ -5577,6 +5584,7 @@ pglerr_t ox_hapslegend_to_pgen(const char* hapsname, const char* legendname, con
 // is easy enough to write a separate loader for...
 CONSTU31(kLoadMapBlockSize, 65536);
 
+// assumes finalize_chrset() has already been called.
 static_assert(kMaxContigs <= 65536, "load_map() needs to be updated.");
 pglerr_t load_map(const char* mapname, misc_flags_t misc_flags, chr_info_t* cip, uint32_t* max_variant_id_slen_ptr, uint16_t** variant_chr_codes_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, double** variant_cms_ptr, uint32_t* variant_ct_ptr) {
   // caller should call forget_extra_chr_names(1, cip) after finishing import.
@@ -5641,8 +5649,6 @@ pglerr_t load_map(const char* mapname, misc_flags_t misc_flags, chr_info_t* cip,
 	}
       }
     }
-
-    finalize_chrset(misc_flags, cip);
 
     const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
     uint32_t max_variant_id_slen = *max_variant_id_slen_ptr;
@@ -5752,6 +5758,11 @@ pglerr_t load_map(const char* mapname, misc_flags_t misc_flags, chr_info_t* cip,
       goto load_map_ret_MALFORMED_INPUT;
     }
 
+    if (!variant_ct) {
+      logerrprint("Error: All variants in .map/.bim file skipped due to chromosome filter.\n");
+      goto load_map_ret_INCONSISTENT_INPUT;
+    }
+    tmp_alloc_base = (unsigned char*)(&(loadbuf[loadbuf_size]));
     // true requirement is weaker, but whatever
     g_bigstack_end = tmp_alloc_base;
 
@@ -5835,7 +5846,8 @@ pglerr_t load_map(const char* mapname, misc_flags_t misc_flags, chr_info_t* cip,
   return reterr;
 }
 
-pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, const char* mapname, const char* import_single_chr_str, const plink1_dosage_info_t* pdip, misc_flags_t misc_flags, fam_col_t fam_cols, int32_t missing_pheno, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, char* outname, char* outname_end, chr_info_t* cip) {
+static_assert(sizeof(dosage_t) == 2, "plink1_dosage_to_pgen() needs to be updated.");
+pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, const char* mapname, const char* import_single_chr_str, const plink1_dosage_info_t* pdip, misc_flags_t misc_flags, fam_col_t fam_cols, int32_t missing_pheno, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, uint32_t max_thread_ct, char* outname, char* outname_end, chr_info_t* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
 
@@ -5852,10 +5864,6 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
   pglerr_t reterr = kPglRetSuccess;
   spgw_preinit(&spgw);
   {
-    logerrprint("Error: --import-dosage is under development.\n");
-    reterr = kPglRetNotYetSupported;
-    goto plink1_dosage_to_pgen_ret_1;
-    /*
     // 1. Read .fam file.  (May as well support most .psam files too, since
     //    it's the same driver function.  However, unless 'noheader' modifier
     //    is present, SID field cannot be used for disambiguation.)
@@ -5873,7 +5881,6 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
     uintptr_t* sex_male = nullptr;
     uintptr_t* founder_info = nullptr;
     uintptr_t max_pheno_name_blen = 0;
-    uint32_t raw_sample_ctl = 0;
     reterr = load_psam(famname, nullptr, fam_cols, 0x7fffffff, missing_pheno, (misc_flags / kfMiscAffection01) & 1, &max_sample_id_blen, &max_sid_blen, &max_paternal_id_blen, &max_maternal_id_blen, &sample_include, &sample_ids, &sids, &paternal_ids, &maternal_ids, &founder_info, &sex_nm, &sex_male, &pheno_cols, &pheno_names, &raw_sample_ct, &pheno_ct, &max_pheno_name_blen);
     if (reterr) {
       goto plink1_dosage_to_pgen_ret_1;
@@ -5885,12 +5892,14 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
       goto plink1_dosage_to_pgen_ret_1;
     }
 
+    const uint32_t first_data_col_idx = pdip->skips[0] + pdip->skips[1] + pdip->skips[2] + 3;
     uint32_t sample_ct = 0;
     uint32_t* dosage_sample_idx_to_fam_uidx;
     if (bigstack_end_alloc_ui(raw_sample_ct, &dosage_sample_idx_to_fam_uidx)) {
       goto plink1_dosage_to_pgen_ret_NOMEM;
     }
-    if (pdip->flags & kfPlink1DosageNoheader) {
+    const plink1_dosage_flags_t flags = pdip->flags;
+    if (flags & kfPlink1DosageNoheader) {
       sample_ct = raw_sample_ct;
       for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
 	dosage_sample_idx_to_fam_uidx[sample_idx] = sample_idx;
@@ -5899,7 +5908,9 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
       fill_ulong_zero(BITCT_TO_WORDCT(raw_sample_ct), sample_include);
       const uint32_t tmp_htable_size = get_htable_fast_size(raw_sample_ct);
       uint32_t* htable_tmp;
-      if (bigstack_end_alloc_ui(tmp_htable_size, &htable_tmp)) {
+      char* idbuf;
+      if (bigstack_end_alloc_ui(tmp_htable_size, &htable_tmp) ||
+	  bigstack_end_alloc_c(max_sample_id_blen, &idbuf)) {
 	goto plink1_dosage_to_pgen_ret_NOMEM;
       }
       const uint32_t duplicate_idx = populate_strbox_htable(sample_ids, raw_sample_ct, max_sample_id_blen, tmp_htable_size, htable_tmp);
@@ -5935,13 +5946,41 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
 	}
 	loadbuf_first_token = skip_initial_spaces(loadbuf);
       } while (is_eoln_kns(*loadbuf_first_token));
-      const uint32_t first_data_col_idx = pdip->skips[0] + pdip->skips[1] + pdip->skips[2] + 3;
-      char* loadbuf_iter = next_token_mult(loadbuf_first_token, 3);
+      char* loadbuf_iter = next_token_mult(loadbuf_first_token, first_data_col_idx);
       if (!loadbuf_iter) {
 	goto plink1_dosage_to_pgen_ret_MISSING_TOKENS;
       }
+      uint32_t sample_ct = 0;
       do {
-      } while (loadbuf_iter);
+	char* fid_end = token_endnn(loadbuf_iter);
+	char* iid_start = skip_initial_spaces(fid_end);
+	if (is_eoln_kns(*iid_start)) {
+	  goto plink1_dosage_to_pgen_ret_MISSING_TOKENS;
+	}
+	char* iid_end = token_endnn(iid_start);
+	const uint32_t fid_slen = (uintptr_t)(fid_end - loadbuf_iter);
+	const uint32_t iid_slen = (uintptr_t)(iid_end - iid_start);
+	const uint32_t cur_id_slen = fid_slen + iid_slen + 1;
+	if (cur_id_slen >= max_sample_id_blen) {
+	  logerrprint("Error: .fam file does not contain all sample IDs in dosage file.\n");
+	  goto plink1_dosage_to_pgen_ret_INCONSISTENT_INPUT;
+	}
+	char* idbuf_iid = memcpyax(idbuf, loadbuf_iter, fid_slen, '\t');
+	memcpyx(idbuf_iid, iid_start, iid_slen, '\0');
+	uint32_t sample_uidx = strbox_htable_find(idbuf, sample_ids, htable_tmp, max_sample_id_blen, cur_id_slen, tmp_htable_size);
+	if (sample_uidx == 0xffffffffU) {
+	  logerrprint("Error: .fam file does not contain all sample IDs in dosage file.\n");
+	  goto plink1_dosage_to_pgen_ret_INCONSISTENT_INPUT;
+	}
+	if (is_set(sample_include, sample_uidx)) {
+	  idbuf_iid[-1] = ' ';
+	  sprintf(g_logbuf, "Error: Duplicate sample ID '%s' in dosage file.\n", idbuf);
+	  goto plink1_dosage_to_pgen_ret_MALFORMED_INPUT_WW;
+	}
+	set_bit(sample_uidx, sample_include);
+	dosage_sample_idx_to_fam_uidx[sample_ct++] = sample_uidx;
+	loadbuf_iter = skip_initial_spaces(iid_end);
+      } while (!is_eoln_kns(*loadbuf_iter));
     }
 
     strcpy(outname_end, ".psam");
@@ -5951,7 +5990,75 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
     char* writebuf = g_textbuf;
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
     char* write_iter = strcpya(writebuf, "#FID\tIID");
-    uint32_t ;;;
+    const uint32_t write_sid = sid_col_required(sample_include, sids, sample_ct, max_sid_blen, 1);
+    if (write_sid) {
+      write_iter = strcpya(write_iter, "\tSID");
+    }
+    const uint32_t write_parents = is_parental_info_present(sample_include, paternal_ids, maternal_ids, sample_ct, max_paternal_id_blen, max_maternal_id_blen);
+    if (write_parents) {
+      write_iter = strcpya(write_iter, "\tPAT\tMAT");
+    }
+    write_iter = strcpya(write_iter, "\tSEX");
+    for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
+      *write_iter++ = '\t';
+      write_iter = strcpya(write_iter, &(pheno_names[pheno_idx * max_pheno_name_blen]));
+      if (write_iter >= writebuf_flush) {
+	if (fwrite_checked(writebuf, write_iter - writebuf, outfile)) {
+	  goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
+	}
+	write_iter = writebuf;
+      }
+    }
+    append_binary_eoln(&write_iter);
+    uint32_t omp_slen = 2;
+    char output_missing_pheno[kMaxMissingPhenostrBlen];
+    if (misc_flags & kfMiscKeepAutoconv) {
+      omp_slen = strlen(g_output_missing_pheno);
+      memcpy(output_missing_pheno, g_output_missing_pheno, omp_slen);
+    } else {
+      memcpy(output_missing_pheno, "NA", 2);
+    }
+    for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
+      const uint32_t sample_uidx = dosage_sample_idx_to_fam_uidx[sample_idx];
+      write_iter = strcpya(write_iter, &(sample_ids[sample_uidx * max_sample_id_blen]));
+      if (write_sid) {
+	*write_iter++ = '\t';
+	write_iter = strcpya(write_iter, &(sids[sample_uidx * max_sid_blen]));
+      }
+      if (write_parents) {
+	*write_iter++ = '\t';
+	write_iter = strcpyax(write_iter, &(paternal_ids[max_paternal_id_blen * sample_uidx]), '\t');
+	write_iter = strcpya(write_iter, &(maternal_ids[max_maternal_id_blen * sample_uidx]));
+      }
+      *write_iter++ = '\t';
+      if (is_set(sex_nm, sample_uidx)) {
+	*write_iter++ = '2' - is_set(sex_male, sample_uidx);
+      } else {
+	write_iter = strcpya(write_iter, "NA");
+      }
+      for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
+	if (write_iter >= writebuf_flush) {
+	  if (fwrite_checked(writebuf, write_iter - writebuf, outfile)) {
+	    goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
+	  }
+	  write_iter = writebuf;
+	}
+	*write_iter++ = '\t';
+	write_iter = append_pheno_str(&(pheno_cols[pheno_idx]), output_missing_pheno, omp_slen, sample_uidx, write_iter);
+      }
+      append_binary_eoln(&write_iter);
+      if (write_iter >= writebuf_flush) {
+	if (fwrite_checked(writebuf, write_iter - writebuf, outfile)) {
+	  goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
+	}
+	write_iter = writebuf;
+      }
+    }
+    if (write_iter != writebuf) {
+      if (fwrite_checked(writebuf, write_iter - writebuf, outfile)) {
+	goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
+      }
+    }
     if (fclose_null(&outfile)) {
       goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
     }
@@ -5964,18 +6071,571 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
     uint32_t* variant_bps = nullptr;
     char** variant_ids = nullptr;
     double* variant_cms = nullptr;
+    uint32_t* variant_id_htable = nullptr;
+    uint32_t* variant_id_htable_dup_base = nullptr;
+    uintptr_t* variant_already_seen = nullptr;
+    uint32_t variant_id_htable_size = 0;
     uint32_t map_variant_ct = 0;
+    finalize_chrset(misc_flags, cip);
     if (mapname) {
       reterr = load_map(mapname, misc_flags, cip, &max_variant_id_slen, &variant_chr_codes, &variant_bps, &variant_ids, &variant_cms, &map_variant_ct);
       if (reterr) {
 	goto plink1_dosage_to_pgen_ret_1;
       }
-    } else {
-      ;;;
+      const uint32_t map_variant_ctl = BITCT_TO_WORDCT(map_variant_ct);
+      if (bigstack_alloc_ul(map_variant_ctl, &variant_already_seen)) {
+	goto plink1_dosage_to_pgen_ret_NOMEM;
+      }
+      fill_all_bits(map_variant_ct, variant_already_seen);
+      unsigned char* bigstack_end_mark2 = g_bigstack_end;
+      g_bigstack_end = &(g_bigstack_base[(bigstack_left() / 2) & (~(kEndAllocAlign - k1LU))]); // allow hash table to only use half of available memory
+      reterr = alloc_and_populate_variant_id_dup_htable_mt(variant_already_seen, variant_ids, map_variant_ct, max_thread_ct, &variant_id_htable, &variant_id_htable_dup_base, &variant_id_htable_size);
+      if (reterr) {
+	goto plink1_dosage_to_pgen_ret_1;
+      }
+      g_bigstack_end = bigstack_end_mark2;
+      fill_ulong_zero(map_variant_ctl, variant_already_seen);
     }
-    */
+
+    // 4. Dosage file pass 1: count variants, check whether any decimal dosages
+    //    need to be saved, write .pvar.
+    //
+    // Lots of overlap with ox_gen_to_pgen().
+    loadbuf_size = bigstack_left() / 2;
+    if (loadbuf_size <= kMaxMediumLine) {
+      goto plink1_dosage_to_pgen_ret_NOMEM;
+    }
+    loadbuf_size -= kMaxMediumLine;
+    if (loadbuf_size > kMaxLongLine) {
+      loadbuf_size = kMaxLongLine;
+    } else {
+      loadbuf_size = round_up_pow2(loadbuf_size, kCacheline);
+    }
+    char* loadbuf = (char*)bigstack_alloc_raw(loadbuf_size);
+    loadbuf[loadbuf_size - 1] = ' ';
+    writebuf = (char*)bigstack_alloc_raw(kMaxMediumLine + loadbuf_size);
+    writebuf_flush = &(writebuf[kMaxMediumLine]);
+    const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
+    const char* single_chr_str = nullptr;
+    uint32_t single_chr_slen = 0;
+    const uint32_t chr_col_idx = pdip->chr_col_idx;
+    const uint32_t check_chr_col = (chr_col_idx != 0xffffffffU);
+    if (!check_chr_col) {
+      if (import_single_chr_str) {
+	int32_t chr_code_raw = get_chr_code_raw(import_single_chr_str);
+	if (chr_code_raw == -1) {
+	  // command-line parser guarantees that allow_extra_chrs is true here
+	  single_chr_str = import_single_chr_str;
+	  single_chr_slen = strlen(import_single_chr_str);
+	} else {
+	  uint32_t chr_code = chr_code_raw;
+	  if (chr_code > cip->max_code) {
+	    if (chr_code < kMaxContigs) {
+	      logerrprint("Error: --import-dosage single-chr= code is not in the chromosome set.\n");
+	      goto plink1_dosage_to_pgen_ret_INVALID_CMDLINE;
+	    }
+	    chr_code = cip->xymt_codes[chr_code - kMaxContigs];
+	    if (((int32_t)chr_code) < 0) {
+	      logerrprint("Error: --import-dosage single-chr= code is not in the chromosome set.\n");
+	      goto plink1_dosage_to_pgen_ret_INVALID_CMDLINE;
+	    }
+	  }
+	  if (!is_set(cip->chr_mask, chr_code)) {
+	    // could permit this in --allow-no-vars case, but it's silly
+	    logerrprint("Error: --import-dosage single-chr= code is excluded by chromosome filter.\n");
+	    goto plink1_dosage_to_pgen_ret_INVALID_CMDLINE;
+	  }
+	  char* chr_buf = (char*)bigstack_alloc_raw(kCacheline);
+	  char* chr_name_end = chr_name_write(cip, chr_code, chr_buf);
+	  single_chr_str = chr_buf;
+	  single_chr_slen = (uintptr_t)(chr_name_end - chr_buf);
+	}
+      } else {
+	// default to "chr0"
+	if (!is_set(cip->chr_mask, 0)) {
+	  logerrprint("Error: No --import-dosage chromosome information specified, and chr0 excluded.\n");
+	  goto plink1_dosage_to_pgen_ret_INVALID_CMDLINE;
+	}
+	char* chr_buf = (char*)bigstack_alloc_raw(kCacheline);
+	char* chr_name_end = chr_name_write(cip, 0, chr_buf);
+	single_chr_str = chr_buf;
+	single_chr_slen = (uintptr_t)(chr_name_end - chr_buf);
+      }
+    }
+    strcpy(outname_end, ".pvar");
+    if (fopen_checked(outname, FOPEN_WB, &outfile)) {
+      goto plink1_dosage_to_pgen_ret_OPEN_FAIL;
+    }
+    write_iter = strcpya(writebuf, "#CHROM\tPOS\tID\tREF\tALT");
+    if (variant_cms) {
+      write_iter = memcpyl3a(write_iter, "\tCM");
+    }
+    append_binary_eoln(&write_iter);
+    // types:
+    // 0 = #CHROM
+    // 1 = POS
+    // 2 = ID
+    // 3 = REF
+    // 4 = ALT
+    // 5 = first data column
+    // (command-line parser verifies that CHROM/POS don't collide with
+    // anything else)
+    uint64_t parse_table[6];
+    // high bits = col index, low bits = col type
+    const uint32_t id_col_idx = pdip->skips[0];
+    const uint32_t prov_ref_allele_second = !(flags & kfPlink1DosageRefFirst);
+    uint32_t ref_col_idx = id_col_idx + pdip->skips[1] + 1;
+    const uint32_t alt_col_idx = ref_col_idx + (!prov_ref_allele_second);
+    ref_col_idx += prov_ref_allele_second;
+    parse_table[0] = (((uint64_t)id_col_idx) << 32) + 2;
+    parse_table[1] = (((uint64_t)ref_col_idx) << 32) + 3;
+    parse_table[2] = (((uint64_t)alt_col_idx) << 32) + 4;
+    uint32_t relevant_initial_col_ct = 3;
+    if (check_chr_col) {
+      parse_table[relevant_initial_col_ct++] = ((uint64_t)chr_col_idx) << 32;
+    }
+    const uint32_t check_pos_col = (pdip->pos_col_idx != 0xffffffffU);
+    if (check_pos_col) {
+      parse_table[relevant_initial_col_ct++] = (((uint64_t)(pdip->pos_col_idx)) << 32) + 1;
+    }
+    qsort(parse_table, relevant_initial_col_ct, sizeof(int64_t), uint64cmp);
+    uint32_t col_skips[6];
+    uint32_t col_types[6];
+    for (uint32_t uii = 0; uii < relevant_initial_col_ct; ++uii) {
+      const uint64_t parse_table_entry = parse_table[uii];
+      col_skips[uii] = parse_table_entry >> 32;
+      col_types[uii] = (uint32_t)parse_table_entry;
+    }
+    col_skips[relevant_initial_col_ct] = first_data_col_idx;
+    col_types[relevant_initial_col_ct++] = 5;
+    for (uint32_t uii = relevant_initial_col_ct - 1; uii; --uii) {
+      col_skips[uii] -= col_skips[uii - 1];
+    }
+
+    double dosage_multiplier = kDosageMid;
+    if (flags & kfPlink1DosageFormatSingle01) {
+      dosage_multiplier = kDosageMax;
+    }
+    const uint32_t format_triple = (flags / kfPlink1DosageFormatTriple) & 1;
+    const uint32_t dosage_erase_halfdist = kDosage4th - dosage_erase_thresh;
+    uint32_t dosage_is_present = 0;
+    uint32_t variant_ct = 0;
+    uintptr_t variant_skip_ct = 0;
+    uint32_t variant_uidx = 0;
+    while (1) {
+      ++line_idx;
+      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
+	if (!gzeof(gz_infile)) {
+	  goto plink1_dosage_to_pgen_ret_READ_FAIL;
+	}
+	break;
+      }
+      if (!loadbuf[loadbuf_size - 1]) {
+	goto plink1_dosage_to_pgen_ret_LONG_LINE_N;
+      }
+      char* loadbuf_iter = skip_initial_spaces(loadbuf);
+      if (is_eoln_kns(*loadbuf_iter)) {
+	continue;
+      }
+      char* token_ptrs[6];
+      uint32_t token_slens[6];
+      for (uint32_t ric_col_idx = 0; ric_col_idx < relevant_initial_col_ct; ++ric_col_idx) {
+	const uint32_t cur_col_type = col_types[ric_col_idx];
+	loadbuf_iter = next_token_multz(loadbuf_iter, col_skips[ric_col_idx]);
+	if (!loadbuf_iter) {
+	  goto plink1_dosage_to_pgen_ret_MISSING_TOKENS;
+	}
+	token_ptrs[cur_col_type] = loadbuf_iter;
+	char* token_end = token_endnn(loadbuf_iter);
+	token_slens[cur_col_type] = (uintptr_t)(token_end - loadbuf_iter);
+	loadbuf_iter = token_end;
+      }
+      // ID
+      const char* variant_id = token_ptrs[2];
+      const uint32_t variant_id_slen = token_slens[2];
+      if (map_variant_ct) {
+	uint32_t cur_llidx;
+	variant_uidx = variant_id_dup_htable_find(variant_id, variant_ids, variant_id_htable, variant_id_htable_dup_base, variant_id_slen, variant_id_htable_size, max_variant_id_slen, &cur_llidx);
+	if (variant_uidx == 0xffffffffU) {
+	  ++variant_skip_ct;
+	  continue;
+	}
+	if (cur_llidx != 0xffffffffU) {
+	  sprintf(g_logbuf, "Error: Variant ID '%s' appears multiple times in .map file.\n", variant_ids[variant_uidx]);
+	  goto plink1_dosage_to_pgen_ret_MALFORMED_INPUT_WW;
+	}
+	if (is_set(variant_already_seen, variant_uidx)) {
+	  sprintf(g_logbuf, "Error: Variant ID '%s' appears multiple times in --import-dosage file.\n", variant_ids[variant_uidx]);
+	  goto plink1_dosage_to_pgen_ret_MALFORMED_INPUT_WW;
+	}
+	// already performed chromosome filtering
+	write_iter = chr_name_write(cip, (uint32_t)variant_chr_codes[variant_uidx], write_iter);
+	*write_iter++ = '\t';
+	write_iter = uint32toa_x(variant_bps[variant_uidx], '\t', write_iter);
+	write_iter = memcpya(write_iter, variant_id, variant_id_slen);
+      } else {
+	if (variant_id_slen > kMaxIdSlen) {
+	  putc_unlocked('\n', stdout);
+	  logerrprint("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
+	  goto plink1_dosage_to_pgen_ret_MALFORMED_INPUT;
+	}
+	// #CHROM
+	if (check_chr_col) {
+	  char* chr_code_str = token_ptrs[0];
+	  char* chr_code_end = &(chr_code_str[token_slens[0]]);
+	  int32_t cur_chr_code;
+	  reterr = get_or_add_chr_code_destructive("--import-dosage file", line_idx, allow_extra_chrs, chr_code_str, chr_code_end, cip, &cur_chr_code);
+	  if (reterr) {
+	    goto plink1_dosage_to_pgen_ret_1;
+	  }
+	  if (!is_set(cip->chr_mask, cur_chr_code)) {
+	    ++variant_skip_ct;
+	    continue;
+	  }
+	  write_iter = chr_name_write(cip, cur_chr_code, write_iter);
+	} else {
+	  write_iter = memcpya(write_iter, single_chr_str, single_chr_slen);
+	}
+	*write_iter++ = '\t';
+	// POS
+	if (check_pos_col) {
+	  char* pos_str = token_ptrs[1];
+	  // no need to support negative values here
+	  uint32_t cur_bp;
+	  if (scan_uint_defcap(pos_str, &cur_bp)) {
+	    sprintf(g_logbuf, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, dosagename);
+	    goto plink1_dosage_to_pgen_ret_MALFORMED_INPUT_WW;
+	  }
+	  write_iter = uint32toa(cur_bp, write_iter);
+	} else {
+	  *write_iter++ = '0';
+	}
+	*write_iter++ = '\t';
+        write_iter = memcpya(write_iter, variant_id, variant_id_slen);
+      }
+      ++variant_ct;
+      *write_iter++ = '\t';
+      // REF, ALT
+      write_iter = memcpyax(write_iter, token_ptrs[3], token_slens[3], '\t');
+      write_iter = memcpya(write_iter, token_ptrs[4], token_slens[4]);
+      if (variant_cms) {
+	*write_iter++ = '\t';
+	write_iter = dtoa_g(variant_cms[variant_uidx], write_iter);
+      }
+      append_binary_eoln(&write_iter);
+      if (write_iter >= writebuf_flush) {
+	if (fwrite_checked(writebuf, write_iter - writebuf, outfile)) {
+	  goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
+	}
+	write_iter = writebuf;
+      }
+      if (!dosage_is_present) {
+	loadbuf_iter = token_ptrs[5];
+	if (flags & kfPlink1DosageFormatSingle) {
+	  for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
+	    if (!loadbuf_iter) {
+	      goto plink1_dosage_to_pgen_ret_MISSING_TOKENS;
+	    }
+	    double a1_dosage;
+	    char* str_end = scanadv_double(loadbuf_iter, &a1_dosage);
+	    if ((!loadbuf_iter) || (a1_dosage < (0.5 / 32768.0)) || (a1_dosage >= 32767.5)) {
+	      loadbuf_iter = next_token(loadbuf_iter);
+	      continue;
+	    }
+	    a1_dosage *= dosage_multiplier;
+	    const uint32_t dosage_int = (uint32_t)(a1_dosage + 0.5);
+	    const uint32_t halfdist = biallelic_dosage_halfdist(dosage_int);
+	    if (halfdist < dosage_erase_halfdist) {
+	      dosage_is_present = 1;
+	      break;
+	    }
+	    loadbuf_iter = next_token(str_end);
+	  }
+	} else {
+	  // for compatibility with plink 1.x, do not actually parse third
+	  // value of each triplet if format=3
+	  for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
+	    if (!loadbuf_iter) {
+	      goto plink1_dosage_to_pgen_ret_MISSING_TOKENS;
+	    }
+	    double prob_2a1;
+	    char* str_end = scanadv_double(loadbuf_iter, &prob_2a1);
+	    if (!str_end) {
+	      loadbuf_iter = next_token_mult(loadbuf_iter, 2 + format_triple);
+	      continue;
+	    }
+	    loadbuf_iter = next_token(str_end);
+	    if (!loadbuf_iter) {
+	      goto plink1_dosage_to_pgen_ret_MISSING_TOKENS;
+	    }
+	    double prob_1a1;
+	    str_end = scanadv_double(loadbuf_iter, &prob_1a1);
+	    if (!str_end) {
+	      loadbuf_iter = next_token_mult(loadbuf_iter, 1 + format_triple);
+	      continue;
+	    }
+	    loadbuf_iter = next_token_mult(str_end, 1 + format_triple);
+	    double prob_one_or_two_a1 = prob_2a1 + prob_1a1;
+	    if ((prob_2a1 < 0.0) || (prob_1a1 < 0.0) || (prob_one_or_two_a1 > 1.01 * (1 + kSmallEpsilon))) {
+	      continue;
+	    }
+	    if (prob_one_or_two_a1 > 1.0) {
+	      const double rescale = 1.0 / prob_one_or_two_a1;
+	      prob_2a1 *= rescale;
+	      prob_1a1 *= rescale;
+	      prob_one_or_two_a1 = 1.0;
+	    }
+	    const uint32_t dosage_int = (uint32_t)(prob_2a1 * 32768 + prob_1a1 * 16384 + 0.5);
+	    const uint32_t halfdist = biallelic_dosage_halfdist(dosage_int);
+	    if ((halfdist < dosage_erase_halfdist) && ((prob_2a1 >= import_dosage_certainty) || (prob_1a1 >= import_dosage_certainty) || (prob_one_or_two_a1 <= 1.0 - import_dosage_certainty))) {
+	      dosage_is_present = 1;
+	      break;
+	    }
+	  }
+	}
+      }
+      if (!(variant_ct % 1000)) {
+	printf("\r--import-dosage: %uk variants scanned.", variant_ct / 1000);
+	fflush(stdout);
+      }
+    }
+    putc_unlocked('\r', stdout);
+    if (write_iter != writebuf) {
+      if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), outfile)) {
+	goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
+      }
+    }
+    if (fclose_null(&outfile)) {
+      goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
+    }
+    if (!variant_ct) {
+      if (!variant_skip_ct) {
+	logerrprint("Error: Empty --import-dosage file.\n");
+	goto plink1_dosage_to_pgen_ret_INCONSISTENT_INPUT;
+      }
+      LOGERRPRINTFWW("Error: All %" PRIuPTR " variant%s in --import-dosage file skipped.\n", variant_skip_ct, (variant_skip_ct == 1)? "" : "s");
+      goto plink1_dosage_to_pgen_ret_INCONSISTENT_INPUT;
+    }
+    LOGPRINTF("--import-dosage: %u variant%s scanned%s.\n", variant_ct, (variant_ct == 1)? "" : "s", dosage_is_present? "" : " (all hardcalls)");
+
+    // 5. Dosage file pass 2: write .pgen.
+    bigstack_reset(writebuf);
+    if (gzrewind(gz_infile)) {
+      goto plink1_dosage_to_pgen_ret_READ_FAIL;
+    }
+    const uintptr_t line_ct = line_idx - 1;
+    line_idx = 0;
+    if (!(flags & kfPlink1DosageNoheader)) {
+      // skip header line again
+      char* loadbuf_first_token;
+      do {
+	++line_idx;
+	if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
+	  goto plink1_dosage_to_pgen_ret_READ_FAIL;
+	}
+	loadbuf_first_token = skip_initial_spaces(loadbuf);
+      } while (is_eoln_kns(*loadbuf_first_token));
+    }
+    strcpy(outname_end, ".pgen");
+    uintptr_t spgw_alloc_cacheline_ct;
+    uint32_t max_vrec_len;
+    reterr = spgw_init_phase1(outname, nullptr, nullptr, variant_ct, sample_ct, dosage_is_present? kfPgenGlobalDosagePresent: kfPgenGlobal0, (flags & (kfPlink1DosageRefFirst | kfPlink1DosageRefSecond))? 1 : 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+    if (reterr) {
+      goto plink1_dosage_to_pgen_ret_1;
+    }
+    unsigned char* spgw_alloc;
+    if (bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc)) {
+      goto plink1_dosage_to_pgen_ret_NOMEM;
+    }
+    spgw_init_phase2(max_vrec_len, &spgw, spgw_alloc);
+
+    const uint32_t sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
+    const uint32_t sample_ctl = BITCT_TO_WORDCT(sample_ct);
+    uintptr_t* genovec;
+    uintptr_t* dosage_present;
+    if (bigstack_alloc_ul(sample_ctl2, &genovec) ||
+	bigstack_alloc_ul(sample_ctl, &dosage_present)) {
+      goto plink1_dosage_to_pgen_ret_NOMEM;
+    }
+    dosage_t* dosage_vals = nullptr;
+    if (dosage_is_present) {
+      if (bigstack_alloc_dosage(sample_ct, &dosage_vals)) {
+	goto plink1_dosage_to_pgen_ret_NOMEM;
+      }
+    }
+    if (hard_call_thresh == 0xffffffffU) {
+      hard_call_thresh = kDosageMid / 10;
+    }
+    const uint32_t hard_call_halfdist = kDosage4th - hard_call_thresh;
+    const uint32_t sample_ctl2_m1 = sample_ctl2 - 1;
+    uint32_t vidx = 0;
+    do {
+      ++line_idx;
+      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
+	goto plink1_dosage_to_pgen_ret_READ_FAIL;
+      }
+      char* loadbuf_iter = skip_initial_spaces(loadbuf);
+      if (is_eoln_kns(*loadbuf_iter)) {
+	continue;
+      }
+      if (variant_skip_ct) {
+	if (map_variant_ct) {
+	  char* variant_id = next_token_multz(loadbuf_iter, id_col_idx);
+	  const uint32_t variant_id_slen = strlen_se(variant_id);
+	  uint32_t cur_llidx;
+	  if (variant_id_dup_htable_find(variant_id, variant_ids, variant_id_htable, variant_id_htable_dup_base, variant_id_slen, variant_id_htable_size, max_variant_id_slen, &cur_llidx) == 0xffffffffU) {
+	    continue;
+	  }
+	  loadbuf_iter = next_token_mult(variant_id, first_data_col_idx - id_col_idx);
+	} else {
+	  char* chr_code_str = next_token_multz(loadbuf_iter, chr_col_idx);
+	  char* chr_code_end = token_endnn(chr_code_str);
+	  loadbuf_iter = next_token_mult(chr_code_end, first_data_col_idx - chr_col_idx);
+	  *chr_code_end = '\0';
+	  const uint32_t chr_code = get_chr_code(chr_code_str, cip, (uintptr_t)(chr_code_end - chr_code_str));
+	  if (!is_set(cip->chr_mask, chr_code)) {
+	    continue;
+	  }
+	}
+      } else {
+	loadbuf_iter = next_token_mult(loadbuf_iter, first_data_col_idx);
+      }
+      uint32_t inner_loop_last = kBitsPerWordD2 - 1;
+      uint32_t widx = 0;
+      dosage_t* dosage_vals_iter = dosage_vals;
+      while (1) {
+	if (widx >= sample_ctl2_m1) {
+	  if (widx > sample_ctl2_m1) {
+	    break;
+	  }
+	  inner_loop_last = (sample_ct - 1) % kBitsPerWordD2;
+	}
+	uintptr_t genovec_word = 0;
+	uint32_t dosage_present_hw = 0;
+	if (flags & kfPlink1DosageFormatSingle) {
+	  for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
+	    if (!loadbuf_iter) {
+	      goto plink1_dosage_to_pgen_ret_MISSING_TOKENS;
+	    }
+	    double a1_dosage;
+	    char* str_end = scanadv_double(loadbuf_iter, &a1_dosage);
+	    if ((!loadbuf_iter) || (a1_dosage < 0.0) || (a1_dosage > 1.01 * (1 + kSmallEpsilon))) {
+	      genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+	      loadbuf_iter = next_token(loadbuf_iter);
+	      continue;
+	    }
+	    loadbuf_iter = next_token(str_end);
+	    uint32_t dosage_int = (uint32_t)(a1_dosage * dosage_multiplier + 0.5);
+	    if (dosage_int > kDosageMax) {
+	      dosage_int = kDosageMax;
+	    }
+	    const uint32_t cur_halfdist = biallelic_dosage_halfdist(dosage_int);
+	    if (cur_halfdist < hard_call_halfdist) {
+	      genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+	    } else {
+	      genovec_word |= ((dosage_int + (kDosage4th * k1LU)) / kDosageMid) << (2 * sample_idx_lowbits);
+	      if (cur_halfdist >= dosage_erase_halfdist) {
+		continue;
+	      }
+	    }
+	    dosage_present_hw |= 1U << sample_idx_lowbits;
+	    *dosage_vals_iter++ = dosage_int;
+	  }
+	} else {
+	  for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
+	    if (!loadbuf_iter) {
+	      goto plink1_dosage_to_pgen_ret_MISSING_TOKENS;
+	    }
+	    double prob_2a1;
+	    char* str_end = scanadv_double(loadbuf_iter, &prob_2a1);
+	    if (!str_end) {
+	      genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+	      loadbuf_iter = next_token_mult(loadbuf_iter, 2 + format_triple);
+	      continue;
+	    }
+	    loadbuf_iter = next_token(str_end);
+	    if (!loadbuf_iter) {
+	      goto plink1_dosage_to_pgen_ret_MISSING_TOKENS;
+	    }
+	    double prob_1a1;
+	    str_end = scanadv_double(loadbuf_iter, &prob_1a1);
+	    if (!str_end) {
+	      genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+	      loadbuf_iter = next_token_mult(loadbuf_iter, 1 + format_triple);
+	      continue;
+	    }
+	    loadbuf_iter = next_token_mult(str_end, 1 + format_triple);
+	    double prob_one_or_two_a1 = prob_2a1 + prob_1a1;
+	    if ((prob_2a1 < 0.0) || (prob_1a1 < 0.0) || (prob_one_or_two_a1 > 1.01 * (1 + kSmallEpsilon))) {
+	      genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+	      continue;
+	    }
+	    if (prob_one_or_two_a1 > 1.0) {
+	      const double rescale = 1.0 / prob_one_or_two_a1;
+	      prob_2a1 *= rescale;
+	      prob_1a1 *= rescale;
+	      prob_one_or_two_a1 = 1.0;
+	    }
+	    if ((prob_2a1 < import_dosage_certainty) && (prob_1a1 < import_dosage_certainty) && (prob_one_or_two_a1 > 1.0 - import_dosage_certainty)) {
+	      genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+	    }
+	    const uint32_t dosage_int = (uint32_t)(prob_2a1 * 32768 + prob_1a1 * 16384 + 0.5);
+	    const uint32_t cur_halfdist = biallelic_dosage_halfdist(dosage_int);
+	    if (cur_halfdist < hard_call_halfdist) {
+	      genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+	    } else {
+	      genovec_word |= ((dosage_int + (kDosage4th * k1LU)) / kDosageMid) << (2 * sample_idx_lowbits);
+	      if (cur_halfdist >= dosage_erase_halfdist) {
+		continue;
+	      }
+	    }
+	    dosage_present_hw |= 1U << sample_idx_lowbits;
+	    *dosage_vals_iter++ = dosage_int;
+	  }
+	}
+	genovec[widx] = genovec_word;
+	((halfword_t*)dosage_present)[widx] = (halfword_t)dosage_present_hw;
+	++widx;
+      }
+      if (!prov_ref_allele_second) {
+	genovec_invert_unsafe(sample_ct, genovec);
+	zero_trailing_quaters(sample_ct, genovec);
+      }
+      if (dosage_vals_iter != dosage_vals) {
+	const uint32_t dosage_ct = (uintptr_t)(dosage_vals_iter - dosage_vals);
+	if (!prov_ref_allele_second) {
+	  biallelic_dosage16_invert(dosage_ct, dosage_vals);
+	}
+	if (spgw_append_biallelic_genovec_dosage16(genovec, dosage_present, dosage_vals, dosage_ct, &spgw)) {
+	  goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
+	}
+      } else {
+	if (spgw_append_biallelic_genovec(genovec, &spgw)) {
+	  goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
+	}
+      }
+      ++vidx;
+      if (!(vidx % 1000)) {
+	printf("\r--import-dosage: %uk variants converted.", vidx / 1000);
+	fflush(stdout);
+      }
+    } while (line_idx < line_ct);
+    spgw_finish(&spgw);
+    putc_unlocked('\r', stdout);
+    write_iter = strcpya(g_logbuf, "--import-dosage: ");
+    const uint32_t outname_base_slen = (uintptr_t)(outname_end - outname);
+    write_iter = memcpya(write_iter, outname, outname_base_slen + 5);
+    write_iter = memcpyl3a(write_iter, " + ");
+    write_iter = memcpya(write_iter, outname, outname_base_slen);
+    write_iter = strcpya(write_iter, ".pvar + ");
+    write_iter = memcpya(write_iter, outname, outname_base_slen);
+    write_iter = strcpya(write_iter, ".psam written.\n");
+    wordwrapb(0);
+    logprintb();
   }
   while (0) {
+  plink1_dosage_to_pgen_ret_LONG_LINE_N:
+    putc_unlocked('\n', stdout);
   plink1_dosage_to_pgen_ret_LONG_LINE:
     if (loadbuf_size == kMaxLongLine) {
       LOGERRPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, dosagename);
@@ -5988,19 +6648,35 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
   plink1_dosage_to_pgen_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
+  plink1_dosage_to_pgen_ret_READ_FAIL:
+    reterr = kPglRetReadFail;
+    break;
   plink1_dosage_to_pgen_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
+  plink1_dosage_to_pgen_ret_INVALID_CMDLINE:
+    reterr = kPglRetInvalidCmdline;
+    break;
+    /*
+  plink1_dosage_to_pgen_ret_INVALID_DOSAGE:
+    putc_unlocked('\n', stdout);
+    LOGERRPRINTFWW("Error: Line %" PRIuPTR " of %s has an invalid dosage value.\n", line_idx, dosagename);
+    reterr = kPglRetInconsistentInput; // might be ok with different format=
+    break;
+    */
   plink1_dosage_to_pgen_ret_MISSING_TOKENS:
     sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, dosagename);
   plink1_dosage_to_pgen_ret_MALFORMED_INPUT_WW:
     wordwrapb(0);
+    putc_unlocked('\n', stdout);
     logerrprintb();
+  plink1_dosage_to_pgen_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
   plink1_dosage_to_pgen_ret_INCONSISTENT_INPUT_WW:
     wordwrapb(0);
     logerrprintb();
+  plink1_dosage_to_pgen_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
   }
@@ -10064,7 +10740,7 @@ pglerr_t export_ox_gen(const char* outname, const uintptr_t* sample_include, con
 		    write_iter = gen_dosage_print(kDosageMid - dosage_int, write_iter);
 		    *write_iter++ = ' ';
 		    write_iter = gen_dosage_print(dosage_int, write_iter);
-		    write_iter = memcpya(write_iter, " 0", 2);
+		    write_iter = strcpya(write_iter, " 0");
 		  } else {
 		    assert(dosage_int <= kDosageMax);
 		    write_iter = memcpyl3a(write_iter, " 0 ");
@@ -11185,9 +11861,9 @@ char* diploid_vcf_dosage_print(uint32_t dosage_int, uint32_t write_ds, char* wri
     write_iter = gen_dosage_print(kDosageMid - dosage_int, write_iter);
     *write_iter++ = ',';
     write_iter = gen_dosage_print(dosage_int, write_iter);
-    return memcpya(write_iter, ",0", 2);
+    return strcpya(write_iter, ",0");
   }
-  write_iter = memcpya(write_iter, "0,", 2);
+  write_iter = strcpya(write_iter, "0,");
   write_iter = gen_dosage_print(kDosageMax - dosage_int, write_iter);
   *write_iter++ = ',';
   return gen_dosage_print(dosage_int - kDosageMid, write_iter);

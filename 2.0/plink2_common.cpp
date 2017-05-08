@@ -411,6 +411,15 @@ int32_t intcmp(const void* aa, const void* bb) {
   return *((const int32_t*)aa) - *((const int32_t*)bb);
 }
 
+int32_t uint64cmp(const void* aa, const void* bb) {
+  const uint64_t ullaa = *((const uint64_t*)aa);
+  const uint64_t ullbb = *((const uint64_t*)bb);
+  if (ullaa < ullbb) {
+    return -1;
+  }
+  return (ullaa > ullbb);
+}
+
 #ifndef __cplusplus
 int32_t uint64cmp_decr(const void* aa, const void* bb) {
   const uint64_t ullaa = *((const uint64_t*)aa);
@@ -3556,6 +3565,22 @@ uint32_t id_htable_find(const char* cur_id, char** item_ids, const uint32_t* id_
   while (1) {
     const uint32_t cur_htable_idval = id_htable[hashval];
     if ((cur_htable_idval == 0xffffffffU) || (!strcmp(cur_id, item_ids[cur_htable_idval]))) {
+      return cur_htable_idval;
+    }
+    if (++hashval == id_htable_size) {
+      hashval = 0;
+    }
+  }
+}
+
+// assumes cur_id_slen < max_str_blen.
+// requires cur_id to be null-terminated.
+uint32_t strbox_htable_find(const char* cur_id, const char* strbox, const uint32_t* id_htable, uintptr_t max_str_blen, uint32_t cur_id_slen, uint32_t id_htable_size) {
+  uint32_t hashval = hashceil(cur_id, cur_id_slen, id_htable_size);
+  const uint32_t cur_id_blen = cur_id_slen + 1;
+  while (1) {
+    const uint32_t cur_htable_idval = id_htable[hashval];
+    if ((cur_htable_idval == 0xffffffffU) || (!memcmp(cur_id, &(strbox[cur_htable_idval * max_str_blen]), cur_id_blen))) {
       return cur_htable_idval;
     }
     if (++hashval == id_htable_size) {

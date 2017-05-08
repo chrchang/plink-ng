@@ -719,13 +719,19 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
 	} else {
 	  double dxx;
 	  memcpy(&dxx, &(cur_vardata[pheno_idx * 8]), sizeof(double));
-	  if (dxx != missing_phenod) {
-	    SET_BIT(sample_uidx, pheno_cols[pheno_idx].nonmiss);
-	  }
 	  if (IS_SET(quantitative_phenos, pheno_idx)) {
-	    pheno_cols[pheno_idx].data.qt[sample_uidx] = dxx;
-	  } else if (dxx == pheno_cased) {
-	    SET_BIT(sample_uidx, pheno_cols[pheno_idx].data.cc);
+	    if (dxx == missing_phenod) {
+	      SET_BIT(sample_uidx, pheno_cols[pheno_idx].nonmiss);
+	    } else {
+	      pheno_cols[pheno_idx].data.qt[sample_uidx] = dxx;
+	    }
+	  } else {
+	    if (dxx == pheno_cased) {
+	      SET_BIT(sample_uidx, pheno_cols[pheno_idx].data.cc);
+	      SET_BIT(sample_uidx, pheno_cols[pheno_idx].nonmiss);
+	    } else if (dxx == pheno_ctrld) {
+	      SET_BIT(sample_uidx, pheno_cols[pheno_idx].nonmiss);
+	    }
 	  }
 	}
       }

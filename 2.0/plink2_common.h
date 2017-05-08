@@ -399,6 +399,8 @@ int32_t double_cmp_decr(const void* aa, const void* bb);
 // requires all elements to be within 2^31 - 1 of each other
 int32_t intcmp(const void* aa, const void* bb);
 
+int32_t uint64cmp(const void* aa, const void* bb);
+
 #ifndef __cplusplus
 int32_t uint64cmp_decr(const void* aa, const void* bb);
 #endif
@@ -1559,6 +1561,10 @@ uint32_t populate_strbox_htable(const char* strbox, uintptr_t str_ct, uintptr_t 
 
 // cur_id does not need to be null-terminated
 uint32_t id_htable_find(const char* cur_id, char** item_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size);
+
+// assumes cur_id_slen < max_str_blen.
+// requires cur_id to be null-terminated.
+uint32_t strbox_htable_find(const char* cur_id, const char* strbox, const uint32_t* id_htable, uintptr_t max_str_blen, uint32_t cur_id_slen, uint32_t id_htable_size);
 
 // last variant_ids entry must be at least kMaxIdBlen bytes before end of
 // bigstack

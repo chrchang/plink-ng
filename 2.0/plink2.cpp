@@ -60,7 +60,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (6 May 2017)";
+  " (7 May 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -4573,7 +4573,7 @@ int main(int argc, char** argv) {
 	    }
 	  }
 
-	  if (format_num_m1) {
+	  if (!format_num_m1) {
 	    plink1_dosage_info.flags |= kfPlink1DosageFormatSingle;
 	  } else {
 	    if (plink1_dosage_info.flags & kfPlink1DosageFormatSingle01) {
@@ -4588,20 +4588,32 @@ int main(int argc, char** argv) {
 	    logerrprint("Error: --import-dosage 'ref-first' and 'ref-second' modifiers cannot be used\ntogether.\n");
 	    goto main_ret_INVALID_CMDLINE;
 	  }
-	  const uint32_t first_data_col_idx = plink1_dosage_info.skips[0] + plink1_dosage_info.skips[1] + plink1_dosage_info.skips[2] + 3;
-	  if (plink1_dosage_info.chr_col_idx != 0xffffffffU) {
+	  const uint32_t id_col_idx = plink1_dosage_info.skips[0];
+	  const uint32_t a1_col_idx = id_col_idx + plink1_dosage_info.skips[1] + 1;
+	  const uint32_t data_col_idx = a1_col_idx + plink1_dosage_info.skips[2] + 2;
+	  const uint32_t chr_col_idx = plink1_dosage_info.chr_col_idx;
+	  if (chr_col_idx != 0xffffffffU) {
 	    if (import_single_chr_str) {
 	      logerrprint("Error: --import-dosage 'single-chr=' and 'chr-col-num=' modifiers cannot be\nused together.\n");
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
-	    if (plink1_dosage_info.chr_col_idx >= first_data_col_idx) {
-	      logerrprint("Error: --import-dosage chr-col-num= parameter too large.\n");
+	    if ((chr_col_idx == id_col_idx) || (chr_col_idx == a1_col_idx) || (chr_col_idx == a1_col_idx + 1)) {
+	      logerrprint("Error: --import-dosage chr-col-num= value collides with another column.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
+	    } else if (chr_col_idx >= data_col_idx) {
+	      logerrprint("Error: --import-dosage chr-col-num= value too large.\n");
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	  }
-	  if ((plink1_dosage_info.pos_col_idx != 0xffffffffU) && (plink1_dosage_info.pos_col_idx >= first_data_col_idx)) {
-	    logerrprint("Error: --import-dosage pos-col-num= parameter too large.\n");
-	    goto main_ret_INVALID_CMDLINE_A;
+	  const uint32_t pos_col_idx = plink1_dosage_info.pos_col_idx;
+	  if (pos_col_idx != 0xffffffffU) {
+	    if ((pos_col_idx == id_col_idx) || (pos_col_idx == a1_col_idx) || (pos_col_idx == a1_col_idx + 1) || (pos_col_idx == chr_col_idx)) {
+	      logerrprint("Error: --import-dosage pos-col-num= value collides with another column.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
+	    } else if (pos_col_idx >= data_col_idx) {
+	      logerrprint("Error: --import-dosage pos-col-num= value too large.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
+	    }
 	  }
 	  char* cur_modif = argv[arg_idx + 1];
 	  const uint32_t slen = strlen(cur_modif);
@@ -6678,7 +6690,7 @@ int main(int argc, char** argv) {
       outname_end = &(outname[6]);
     }
     
-    if ((!pc.command_flags1) && (!(xload & (kfXloadVcf | kfXloadBcf | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxSample | kfXloadGenDummy)))) {
+    if ((!pc.command_flags1) && (!(xload & (kfXloadVcf | kfXloadBcf | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxSample | kfXloadPlink1Dosage | kfXloadGenDummy)))) {
       // add command_flags2 when needed
       goto main_ret_NULL_CALC;
     }
@@ -6878,7 +6890,7 @@ int main(int argc, char** argv) {
 	} else if (xload & kfXloadOxHaps) {
 	  reterr = ox_hapslegend_to_pgen(pgenname, pvarname, psamname, import_single_chr_str, ox_missing_code, pc.misc_flags, oxford_import_flags, outname, convname_end, &chr_info);
 	} else if (xload & kfXloadPlink1Dosage) {
-	  reterr = plink1_dosage_to_pgen(pgenname, psamname, (xload & kfXloadMap)? pvarname : nullptr, import_single_chr_str, &plink1_dosage_info, pc.misc_flags, pc.fam_cols, pc.missing_pheno, pc.hard_call_thresh, pc.dosage_erase_thresh, outname, convname_end, &chr_info);
+	  reterr = plink1_dosage_to_pgen(pgenname, psamname, (xload & kfXloadMap)? pvarname : nullptr, import_single_chr_str, &plink1_dosage_info, pc.misc_flags, pc.fam_cols, pc.missing_pheno, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, pc.max_thread_ct, outname, convname_end, &chr_info);
 	} else if (xload & kfXloadGenDummy) {
 	  reterr = generate_dummy(&gendummy_info, pc.misc_flags, pc.hard_call_thresh, pc.dosage_erase_thresh, pc.max_thread_ct, outname, convname_end, &chr_info);
 	}
