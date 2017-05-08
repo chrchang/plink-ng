@@ -720,9 +720,8 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
 	  double dxx;
 	  memcpy(&dxx, &(cur_vardata[pheno_idx * 8]), sizeof(double));
 	  if (IS_SET(quantitative_phenos, pheno_idx)) {
-	    if (dxx == missing_phenod) {
+	    if (dxx != missing_phenod) {
 	      SET_BIT(sample_uidx, pheno_cols[pheno_idx].nonmiss);
-	    } else {
 	      pheno_cols[pheno_idx].data.qt[sample_uidx] = dxx;
 	    }
 	  } else {
@@ -1346,9 +1345,8 @@ pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_li
 	    // bugfix (6 May 2017): forgot to accept 0 as missing value for
 	    // case/control
 	    if (IS_SET(quantitative_phenos, new_pheno_idx)) {
-	      if (dxx == missing_phenod) {
+	      if (dxx != missing_phenod) {
 		SET_BIT(sample_uidx, pheno_cols_iter->nonmiss);
-	      } else {
 		pheno_cols_iter->data.qt[sample_uidx] = dxx;
 	      }
 	    } else {
