@@ -2938,7 +2938,7 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
       // extract_eigvecs() results are in reverse order, and we also need to
       // transpose eigenvectors to sample-major
       const uint32_t pc_ct_m1 = pc_ct - 1;
-      const uint32_t pc_ct_div2 = pc_ct_m1 / 2;
+      const uint32_t pc_ct_div2 = pc_ct / 2;
       for (uint32_t pc_idx = 0; pc_idx < pc_ct_div2; ++pc_idx) {
 	double tmp_eigval = eigvals[pc_idx];
 	eigvals[pc_idx] = eigvals[pc_ct_m1 - pc_idx];

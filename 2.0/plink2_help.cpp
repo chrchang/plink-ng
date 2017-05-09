@@ -833,6 +833,8 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 	       );
 #ifndef NOLAPACK
     // GRM, PCA, etc. based on major vs. nonmajor alleles
+    // possible todo: have an 'approx2' mode which implements the flashpca 2.0
+    //   algorithm, which does not require memory quadratic in the # of PCs
     help_print("pca", &help_ctrl, 1,
 "  --pca {count} <approx | meanimpute> <sid>\n"
 "  --pca var-wts {count} <approx | meanimpute> <sid> <vzs>\n"
