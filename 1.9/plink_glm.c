@@ -5053,7 +5053,9 @@ int32_t glm_linear_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       g_include_sex = sex_covar_everywhere || (g_is_x && np_sex);
       if (cur_constraint_ct) {
 	cur_param_ctx++;
-	if (g_is_x || (!g_min_ploidy_1)) {
+	// bugfix (9 May 2017): constraints_con_major wasn't being initialized
+	// in some haploid cases
+	if (g_is_x || (!g_min_ploidy_1) || (!genotypic_or_hethom)) {
 	  ulii = 0;
 	  for (constraint_idx = 0; constraint_idx < cur_constraint_ct; ulii++, constraint_idx++) {
             next_set_ul_unsafe_ck(g_joint_test_params, &ulii);
@@ -6524,7 +6526,7 @@ int32_t glm_logistic_assoc(pthread_t* threads, FILE* bedfile, uintptr_t bed_offs
       g_include_sex = sex_covar_everywhere || (g_is_x && np_sex);
       if (cur_constraint_ct) {
 	cur_param_ctx++;
-	if (g_is_x || (!g_min_ploidy_1)) {
+	if (g_is_x || (!g_min_ploidy_1) || (!genotypic_or_hethom)) {
 	  ulii = 0;
 	  for (constraint_idx = 0; constraint_idx < cur_constraint_ct; ulii++, constraint_idx++) {
             next_set_ul_unsafe_ck(g_joint_test_params, &ulii);

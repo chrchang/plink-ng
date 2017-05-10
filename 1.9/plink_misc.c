@@ -4217,6 +4217,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
   uintptr_t* sample_male_include2 = nullptr;
   double* qrange_keys = nullptr;
   double* effect_sizes_cur = nullptr;
+  double abs_score_sum = 0.0;
   double ploidy_d = 0.0;
   double lbound = 0.0;
   double ubound = 0.0;
@@ -4370,7 +4371,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
       bufptr_arr[allele_idx][strlen_se(bufptr_arr[allele_idx])] = '\0';
       uii = strcmp(bufptr_arr[allele_idx], marker_allele_ptrs[2 * marker_uidx]);
       if ((!uii) || (!strcmp(bufptr_arr[allele_idx], marker_allele_ptrs[2 * marker_uidx + 1]))) {
-        if (scan_double(bufptr_arr[effect_idx], &(dptr[marker_uidx]))) {
+        if (scan_double(bufptr_arr[effect_idx], &dxx) || (dxx != dxx)) {
 	  if (!miss_ct) {
 	    if (fopen_checked(outname, "w", &outfile)) {
 	      goto score_report_ret_OPEN_FAIL;
@@ -4388,6 +4389,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
             LOGPREPRINTFWW("Error: Duplicate variant '%s' in --score file.\n", bufptr_arr[varid_idx]);
             goto score_report_ret_INVALID_FORMAT_2;
 	  }
+	  dptr[marker_uidx] = dxx;
           CLEAR_BIT(marker_uidx, marker_exclude);
 	  if (uii) {
 	    SET_BIT(marker_uidx, a2_effect);
@@ -4503,7 +4505,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
       marker_uidx = id_htable_find(bufptr_arr[varid_idx], strlen_se(bufptr_arr[varid_idx]), marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len);
       if (marker_uidx != 0xffffffffU) {
         if (!IS_SET(marker_exclude, marker_uidx)) {
-	  if (scan_double(bufptr_arr[1 - varid_idx], &dxx) || (dxx != dxx)) {
+	  if (scan_double(bufptr_arr[1 - varid_idx], &dxx) || (dxx != dxx) || (dxx == INFINITY) || (dxx == -INFINITY)) {
 	    miss_ct++;
 	  } else {
 	    dptr[marker_uidx] = dxx;
@@ -4696,6 +4698,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
       haploid_fix(hh_exists, sample_include2, sample_male_include2, sample_ct, is_x, is_y, (unsigned char*)loadbuf);
     }
     cur_effect_size = (*dptr++) * ploidy_d;
+    abs_score_sum += fabs(cur_effect_size);
     uii = IS_SET(a2_effect, marker_uidx);
     if (!uii) {
       delta1 = 1;
@@ -4855,7 +4858,7 @@ int32_t score_report(Score_info* sc_ip, FILE* bedfile, uintptr_t bed_offset, uin
     }
     bufptr = uint32toa_w6x(((int32_t)named_allele_ct_expected) - ujj * named_allele_ct_female_delta + named_allele_ct_deltas[sample_idx], ' ', bufptr);
     dxx = (score_base + ((int32_t)ujj) * female_y_offset + score_deltas[sample_idx]);
-    if (fabs(dxx) < SMALL_EPSILON) {
+    if (fabs(dxx) < abs_score_sum * RECIP_2_53) {
       dxx = 0;
     } else if (report_average) {
       dxx /= ((double)((int32_t)uii));
