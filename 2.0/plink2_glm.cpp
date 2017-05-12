@@ -1022,24 +1022,29 @@ boolerr_t glm_fill_and_test_covars(const uintptr_t* sample_include, const uintpt
       *cur_covar_names_iter++ = (char*)((uintptr_t)covar_name_base);
       const double* covar_vals = cur_covar_col->data.qt;
       uint32_t sample_uidx = first_sample_uidx;
-      double covar_sum = 0.0;
       if (standard_beta) {
-	double covar_ssq = 0.0;
-	for (uintptr_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+	// shift everything by first value, otherwise this may be numerically
+	// unstable
+	next_set_unsafe_ck(sample_include, &sample_uidx);
+	const double covar_shift = covar_vals[sample_uidx++];
+        double shifted_covar_sum = 0.0;
+	double shifted_covar_ssq = 0.0;
+	for (uintptr_t sample_idx = 1; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
 	  next_set_unsafe_ck(sample_include, &sample_uidx);
-	  const double cur_covar_val = covar_vals[sample_uidx];
-	  covar_sum += cur_covar_val;
-	  covar_ssq += cur_covar_val * cur_covar_val;
-	  covar_write_iter[sample_idx] = cur_covar_val;
+	  const double cur_shifted_covar_val = covar_vals[sample_uidx] - covar_shift;
+	  shifted_covar_sum += cur_shifted_covar_val;
+	  shifted_covar_ssq += cur_shifted_covar_val * cur_shifted_covar_val;
+	  covar_write_iter[sample_idx] = cur_shifted_covar_val;
 	}
-	const double cur_mean = covar_sum / ((double)((intptr_t)sample_ct));
-	const double cur_stdev_recip = sqrt((double)((intptr_t)(sample_ct - 1)) / (covar_ssq - covar_sum * cur_mean));
+	const double cur_shifted_mean = shifted_covar_sum / ((double)((intptr_t)sample_ct));
+	const double cur_stdev_recip = sqrt((double)((intptr_t)(sample_ct - 1)) / (shifted_covar_ssq - shifted_covar_sum * cur_shifted_mean));
 
 	for (uintptr_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
-	  const double cur_covar_val = *covar_write_iter;
-	  *covar_write_iter++ = (cur_covar_val - cur_mean) * cur_stdev_recip;
+	  const double cur_shifted_covar_val = *covar_write_iter;
+	  *covar_write_iter++ = (cur_shifted_covar_val - cur_shifted_mean) * cur_stdev_recip;
 	}
       } else {
+	double covar_sum = 0.0;
 	for (uintptr_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
 	  next_set_unsafe_ck(sample_include, &sample_uidx);
 	  const double cur_covar_val = covar_vals[sample_uidx];
@@ -1179,23 +1184,25 @@ boolerr_t glm_alloc_fill_and_test_pheno_covars_qt(const uintptr_t* sample_includ
   const uint32_t first_sample_uidx = next_set_unsafe(sample_include, 0);
   uint32_t sample_uidx = first_sample_uidx;
   if (standard_beta) {
-    double pheno_sum = 0.0;
-    double pheno_ssq = 0.0;
-    for (uintptr_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+    double shifted_pheno_sum = 0.0;
+    double shifted_pheno_ssq = 0.0;
+    next_set_unsafe_ck(sample_include, &sample_uidx);
+    const double pheno_shift = pheno_qt[sample_uidx++];
+    for (uintptr_t sample_idx = 1; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
       next_set_unsafe_ck(sample_include, &sample_uidx);
-      const double cur_pheno_val = pheno_qt[sample_uidx];
-      pheno_sum += cur_pheno_val;
-      pheno_ssq += cur_pheno_val * cur_pheno_val;
-      *pheno_d_iter++ = cur_pheno_val;
+      const double cur_shifted_pheno_val = pheno_qt[sample_uidx] - pheno_shift;
+      shifted_pheno_sum += cur_shifted_pheno_val;
+      shifted_pheno_ssq += cur_shifted_pheno_val * cur_shifted_pheno_val;
+      *pheno_d_iter++ = cur_shifted_pheno_val;
     }
     pheno_d_iter = *pheno_d_ptr;
-    const double cur_mean = pheno_sum / ((double)((intptr_t)sample_ct));
+    const double cur_shifted_mean = shifted_pheno_sum / ((double)((intptr_t)sample_ct));
     // assumes we checked for a constant phenotype earlier
-    const double cur_stdev_recip = sqrt((double)((intptr_t)(sample_ct - 1)) / (pheno_ssq - pheno_sum * cur_mean));
+    const double cur_stdev_recip = sqrt((double)((intptr_t)(sample_ct - 1)) / (shifted_pheno_ssq - shifted_pheno_sum * cur_shifted_mean));
     
     for (uintptr_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
-      const double cur_pheno_val = *pheno_d_iter;
-      *pheno_d_iter++ = (cur_pheno_val - cur_mean) * cur_stdev_recip;
+      const double cur_shifted_pheno_val = *pheno_d_iter;
+      *pheno_d_iter++ = (cur_shifted_pheno_val - cur_shifted_mean) * cur_stdev_recip;
     }
   } else {
     for (uintptr_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
@@ -2893,6 +2900,8 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
 	  }
 	  double alt_case_dosage = 0.0;
 	  double dosage_sum = 0.0;
+	  // genotype_vals restricted to [0, 2], so naive variance computation
+	  // is stable
 	  double dosage_ssq = 0.0;
 	  for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx) {
 	    const double cur_genotype_val = genotype_vals[sample_idx];
@@ -4646,6 +4655,8 @@ THREAD_FUNC_DECL glm_linear_thread(void* arg) {
 	  // RSS = y^T y - y^T X (X^T X)^{-1} X^T y
 	  //     = cur_pheno_ssq - xt_y * fitted_coefs
 	  // s^2 = RSS / df
+	  // possible todo: improve numerical stability of this computation in
+	  // non-mean-centered phenotype case
 	  double sigma = cur_pheno_ssq;
 	  for (uint32_t pred_uidx = 0; pred_uidx < cur_predictor_ct; ++pred_uidx) {
 	    sigma -= xt_y[pred_uidx] * fitted_coefs[pred_uidx];
@@ -5759,7 +5770,9 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
       }
       memcpy(&(new_covar_cols[condition_ct + local_covar_ct]), covar_cols, orig_covar_ct * sizeof(pheno_col_t));
       const char* covar_names_read_iter = covar_names;
-      char* covar_names_write_iter = &(new_covar_names[condition_ct * new_max_covar_name_blen]);
+      // bugfix (11 May 2017): local covar names come before, not after,
+      //   --condition{-list} covar names
+      char* covar_names_write_iter = new_covar_names;
       for (uint32_t local_covar_idx = 0; local_covar_idx < local_covar_ct; ++local_covar_idx) {
 	memcpy(covar_names_write_iter, "LOCAL", 5);
 	char* name_end = uint32toa(local_covar_idx + 1, &(covar_names_write_iter[5]));
@@ -6018,6 +6031,15 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
       uint32_t extra_cat_ct = 0;
       uint32_t separation_warning = 0;
       bigstack_double_reset(bigstack_mark2, bigstack_end_mark);
+      /*
+      for (uint32_t uii = 0; uii < raw_covar_ct; ++uii) {
+	const pheno_col_t* cur_covar_col = &(covar_cols[uii]);
+	for (uint32_t sample_uidx = 0; sample_uidx < raw_sample_ct; ++sample_uidx) {
+	  printf("%g ", cur_covar_col->data.qt[sample_uidx]);
+	}
+	printf("\n\n");
+      }
+      */
       if (initial_nonx_covar_ct) {
 	if (glm_determine_covars(is_logistic? cur_pheno_col->data.cc : nullptr, initial_covar_include, covar_cols, raw_sample_ct, raw_covar_ctl, initial_nonx_covar_ct, covar_max_nonnull_cat_ct, is_sometimes_firth, cur_sample_include, covar_include, &sample_ct, &covar_ct, &extra_cat_ct, &separation_warning)) {
 	  goto glm_main_ret_NOMEM;
