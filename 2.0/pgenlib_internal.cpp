@@ -7246,7 +7246,7 @@ boolerr_t validate_onebit(const unsigned char* fread_end, uint32_t difflist_ambi
     genovec[genovec_widx++] = word_base + ww * common_code_delta;
   }
   *fread_pp = fread_difflist_start;
-  return validate_and_apply_difflist(fread_end, common2_code, difflist_ambig_ids_needed, fread_pp, pgrp, genovec);
+  return validate_and_apply_difflist(fread_end, (uint32_t)common2_code, difflist_ambig_ids_needed, fread_pp, pgrp, genovec);
 }
 
 // assumes that we aren't dealing with the trivial fixed-width case.

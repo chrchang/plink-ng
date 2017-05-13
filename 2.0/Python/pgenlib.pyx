@@ -1,5 +1,5 @@
 # from libc.stdlib cimport malloc, free
-from libc.stdint cimport int64_t, uintptr_t, uint32_t, int32_t, uint8_t, int8_t
+from libc.stdint cimport int64_t, uintptr_t, uint32_t, int32_t, uint16_t, uint8_t, int8_t
 from cpython.mem cimport PyMem_Malloc, PyMem_Free
 # from cpython.view cimport array as cvarray
 import numpy as np
@@ -42,16 +42,23 @@ cdef extern from "../pgenlib_python_support.h" namespace "plink2":
     ctypedef uintptr_t vul_t
     void transpose_quaterblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, vul_t* vecaligned_buf)
     void transpose_bitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, vul_t* vecaligned_buf)
-    
+
+    void genovec_invert_unsafe(uint32_t sample_ct, uintptr_t* genovec)
+    void biallelic_dosage16_invert(uint32_t dosage_ct, uint16_t* dosage_vals)
+
     void genoarr_to_bytes_minus9(const uintptr_t* genoarr, uint32_t sample_ct, int8_t* genobytes)
-    void genoarr_to_int32_minus9(const uintptr_t* genoarr, uint32_t sample_ct, int32_t* geno_int32)
-    void genoarr_to_int64_minus9(const uintptr_t* genoarr, uint32_t sample_ct, int64_t* geno_int64)
+    void genoarr_to_int32s_minus9(const uintptr_t* genoarr, uint32_t sample_ct, int32_t* geno_int32)
+    void genoarr_to_int64s_minus9(const uintptr_t* genoarr, uint32_t sample_ct, int64_t* geno_int64)
     void genoarr_to_allele_codes(const uintptr_t* genoarr, uint32_t sample_ct, int32_t* allele_codes)
     void genoarr_phased_to_allele_codes(const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, uint32_t sample_ct, uint32_t phasepresent_ct, unsigned char* phasebytes, int32_t* allele_codes)
     void genoarr_phased_to_hap_codes(const uintptr_t* genoarr, const uintptr_t* phaseinfo, uint32_t variant_batch_size, int32_t* hap0_codes_iter, int32_t* hap1_codes_iter)
+    void dosage16_to_floats_minus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_vals, uint32_t sample_ct, uint32_t dosage_ct, float* geno_float)
+    void dosage16_to_doubles_minus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_vals, uint32_t sample_ct, uint32_t dosage_ct, double* geno_double)
     void bytes_to_bits_unsafe(const uint8_t* boolbytes, uint32_t sample_ct, uintptr_t* bitarr)
     void bytes_to_genoarr_unsafe(const int8_t* genobytes, uint32_t sample_ct, uintptr_t* genoarr)
     void allele_codes_to_genoarr_unsafe(const int32_t* allele_codes, const unsigned char* phasepresent_bytes, uint32_t sample_ct, uintptr_t* genoarr, uintptr_t* phasepresent, uintptr_t* phaseinfo)
+    void floats_to_dosage16(const float* floatarr, uint32_t sample_ct, uint32_t hard_call_halfdist, uintptr_t* genoarr, uintptr_t* dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr)
+    void doubles_to_dosage16(const double* doublearr, uint32_t sample_ct, uint32_t hard_call_halfdist, uintptr_t* genoarr, uintptr_t* dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr)
 
     cdef enum:
         k1LU
@@ -74,6 +81,8 @@ cdef extern from "../pgenlib_python_support.h" namespace "plink2":
     cdef enum:
         kInt32PerVec
     cdef enum:
+        kInt32PerCacheline
+    cdef enum:
         kWordsPerVec
     cdef enum:
         kPglErrstrBufBlen
@@ -92,6 +101,8 @@ cdef extern from "../pgenlib_python_support.h" namespace "plink2":
         kfPgenGlobal0
     cdef enum:
         kfPgenGlobalHardcallPhasePresent
+    cdef enum:
+        kfPgenGlobalDosagePresent
 
     cdef cppclass pgen_file_info_t:
         uint32_t raw_variant_ct
@@ -118,6 +129,8 @@ cdef extern from "../pgenlib_python_support.h" namespace "plink2":
     pglerr_t pgr_read_allele_countvec_subset_unsafe(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, pgen_reader_t* pgrp, uintptr_t* allele_countvec)
 
     pglerr_t pgr_read_refalt1_genovec_hphase_subset_unsafe(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, pgen_reader_t* pgrp, uintptr_t* genovec, uintptr_t* phasepresent, uintptr_t* phaseinfo, uint32_t* phasepresent_ct_ptr)
+
+    pglerr_t pgr_read_refalt1_genovec_dosage16_subset_unsafe(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, pgen_reader_t* pgrp, uintptr_t* genovec, uintptr_t* dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr, uint32_t* is_explicit_alt1_ptr)
     
     pglerr_t pgr_get_refalt1_genotype_counts(const uintptr_t* sample_include, const uintptr_t* sample_include_interleaved_vec, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, pgen_reader_t* pgrp, uint32_t* genocounts)
     
@@ -140,6 +153,8 @@ cdef extern from "../pgenlib_python_support.h" namespace "plink2":
     pglerr_t spgw_append_biallelic_genovec(const uintptr_t* genovec, st_pgen_writer_t* spgwp)
     
     pglerr_t spgw_append_biallelic_genovec_hphase(const uintptr_t* genovec, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, st_pgen_writer_t* spgwp)
+
+    pglerr_t spgw_append_biallelic_genovec_dosage16(const uintptr_t* genovec, const uintptr_t* dosage_present, const uint16_t* dosage_vals, uint32_t dosage_ct, st_pgen_writer_t* spgwp)
     
     pglerr_t spgw_finish(st_pgen_writer_t* spgwp)
     
@@ -158,6 +173,8 @@ cdef class PgenReader:
     cdef uintptr_t* _genovec
     cdef uintptr_t* _phasepresent
     cdef uintptr_t* _phaseinfo
+    cdef uintptr_t* _dosage_present
+    cdef uint16_t* _dosage_vals
     cdef vul_t* _transpose_batch_buf
     # for multi-variant load-and-transpose, we load up to
     # kPglQuaterTransposeBatch (= 256) variants at a time, and then transpose
@@ -250,8 +267,9 @@ cdef class PgenReader:
         cdef uintptr_t sample_subset_byte_ct = DIV_UP(file_sample_ct, kBitsPerVec) * kBytesPerVec
         cdef uintptr_t cumulative_popcounts_byte_ct = DIV_UP(file_sample_ct, kBitsPerWord * kInt32PerVec) * kBytesPerVec
         cdef uintptr_t genovec_byte_ct = DIV_UP(file_sample_ct, kQuatersPerVec) * kBytesPerVec
+        cdef uintptr_t dosage_vals_byte_ct = DIV_UP(file_sample_ct, (2 * kInt32PerVec)) * kBytesPerVec
         cdef unsigned char* pgr_alloc
-        if cachealigned_malloc(pgr_alloc_main_byte_ct + (2 * kPglQuaterTransposeBatch + 4) * sample_subset_byte_ct + cumulative_popcounts_byte_ct + (1 + kPglQuaterTransposeBatch) * genovec_byte_ct + kPglBitTransposeBufbytes + 4 * (kPglQuaterTransposeBatch * kPglQuaterTransposeBatch / 8), &pgr_alloc):
+        if cachealigned_malloc(pgr_alloc_main_byte_ct + (2 * kPglQuaterTransposeBatch + 5) * sample_subset_byte_ct + cumulative_popcounts_byte_ct + (1 + kPglQuaterTransposeBatch) * genovec_byte_ct + dosage_vals_byte_ct + kPglBitTransposeBufbytes + 4 * (kPglQuaterTransposeBatch * kPglQuaterTransposeBatch / 8), &pgr_alloc):
             raise MemoryError()
         cdef pglerr_t reterr = pgr_init(fname, max_vrec_width, self._info_ptr, self._state_ptr, pgr_alloc)
         if reterr != kPglRetSuccess:
@@ -275,6 +293,10 @@ cdef class PgenReader:
         pgr_alloc_iter = &(pgr_alloc_iter[sample_subset_byte_ct])
         self._phaseinfo = <uintptr_t*>pgr_alloc_iter
         pgr_alloc_iter = &(pgr_alloc_iter[sample_subset_byte_ct])
+        self._dosage_present = <uintptr_t*>pgr_alloc_iter
+        pgr_alloc_iter = &(pgr_alloc_iter[sample_subset_byte_ct])
+        self._dosage_vals = <uint16_t*>pgr_alloc_iter
+        pgr_alloc_iter = &(pgr_alloc_iter[dosage_vals_byte_ct])
         if sample_subset is not None:
             self.set_sample_subset_internal(sample_subset)
         else:
@@ -330,12 +352,39 @@ cdef class PgenReader:
             genoarr_to_bytes_minus9(self._genovec, self._subset_size, data8_ptr)
         elif geno_int_out.dtype == np.int32:
             data32_ptr = <int32_t*>geno_int_out.data
-            genoarr_to_int32_minus9(self._genovec, self._subset_size, data32_ptr)
+            genoarr_to_int32s_minus9(self._genovec, self._subset_size, data32_ptr)
         elif geno_int_out.dtype == np.int64:
             data64_ptr = <int64_t*>geno_int_out.data
-            genoarr_to_int64_minus9(self._genovec, self._subset_size, data64_ptr)
+            genoarr_to_int64s_minus9(self._genovec, self._subset_size, data64_ptr)
         else:
             raise RuntimeError("Invalid read() geno_int_out array element type (int8, int32, or int64 expected).")
+        return
+
+
+    cpdef read_dosages(self, uint32_t variant_idx, np.ndarray floatarr_out, uint32_t allele_idx = 1):
+        if variant_idx >= self._info_ptr[0].raw_variant_ct:
+            raise RuntimeError("read_dosages() variant_idx too large (" + str(variant_idx) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
+        # todo: change this when pgenlib_internal supports multiallelic
+        # variants
+        cdef uint32_t dosage_ct
+        cdef uint32_t is_explicit_alt1
+        cdef pglerr_t reterr = pgr_read_refalt1_genovec_dosage16_subset_unsafe(self._subset_include_vec, self._subset_cumulative_popcounts, self._subset_size, variant_idx, self._state_ptr, self._genovec, self._dosage_present, self._dosage_vals, &dosage_ct, &is_explicit_alt1)
+        if reterr != kPglRetSuccess:
+            raise RuntimeError("read_dosages() error " + str(reterr))
+        if allele_idx == 0:
+            genovec_invert_unsafe(self._subset_size, self._genovec)
+            biallelic_dosage16_invert(dosage_ct, self._dosage_vals)
+        # todo: flip on allele_idx == 0
+        cdef float* data32_ptr
+        cdef double* data64_ptr
+        if floatarr_out.dtype == np.float32:
+            data32_ptr = <float*>floatarr_out.data
+            dosage16_to_floats_minus9(self._genovec, self._dosage_present, self._dosage_vals, self._subset_size, dosage_ct, data32_ptr)
+        elif floatarr_out.dtype == np.float64:
+            data64_ptr = <double*>floatarr_out.data
+            dosage16_to_doubles_minus9(self._genovec, self._dosage_present, self._dosage_vals, self._subset_size, dosage_ct, data64_ptr)
+        else:
+            raise RuntimeError("Invalid read_dosages() floatarr_out array element type (float32 or float64 expected).")
         return
 
 
@@ -459,8 +508,8 @@ cdef class PgenReader:
                 reterr = pgr_read_allele_countvec_subset_unsafe(subset_include_vec, subset_cumulative_popcounts, subset_size, variant_idx, allele_idx, pgrp, genovec)
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("read_range() error " + str(reterr))
-                data_ptr = &(geno_int32_out[(variant_idx - variant_idx_start), 0])
-                genoarr_to_int32_minus9(genovec, subset_size, data_ptr)
+                data_ptr = <int32_t*>(&(geno_int32_out[(variant_idx - variant_idx_start), 0]))
+                genoarr_to_int32s_minus9(genovec, subset_size, data_ptr)
             return
         if variant_idx_start >= variant_idx_end:
             raise RuntimeError("read_range() variant_idx_start >= variant_idx_end (" + str(variant_idx_start) + ", " + str(variant_idx_end) + ")")
@@ -499,8 +548,8 @@ cdef class PgenReader:
                 smaj_iter = multivar_smaj_geno_batch_buf
                 transpose_quaterblock(vmaj_iter, sample_ctaw2, kPglQuaterTransposeWords, variant_batch_size, sample_batch_size, smaj_iter, transpose_batch_buf)
                 for uii in range(sample_batch_size):
-                    data_ptr = &(geno_int32_out[uii + sample_batch_idx * kPglQuaterTransposeBatch, variant_batch_idx * kPglQuaterTransposeBatch])
-                    genoarr_to_int32_minus9(smaj_iter, variant_batch_size, data_ptr)
+                    data_ptr = <int32_t*>(&(geno_int32_out[uii + sample_batch_idx * kPglQuaterTransposeBatch, variant_batch_idx * kPglQuaterTransposeBatch]))
+                    genoarr_to_int32s_minus9(smaj_iter, variant_batch_size, data_ptr)
                     smaj_iter = &(smaj_iter[kPglQuaterTransposeWords])
                 vmaj_iter = &(vmaj_iter[kPglQuaterTransposeWords])
             variant_idx_offset += kPglQuaterTransposeBatch
@@ -528,7 +577,7 @@ cdef class PgenReader:
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("read_range() error " + str(reterr))
                 data_ptr = &(geno_int64_out[(variant_idx - variant_idx_start), 0])
-                genoarr_to_int64_minus9(genovec, subset_size, data_ptr)
+                genoarr_to_int64s_minus9(genovec, subset_size, data_ptr)
             return
         if variant_idx_start >= variant_idx_end:
             raise RuntimeError("read_range() variant_idx_start >= variant_idx_end (" + str(variant_idx_start) + ", " + str(variant_idx_end) + ")")
@@ -568,7 +617,7 @@ cdef class PgenReader:
                 transpose_quaterblock(vmaj_iter, sample_ctaw2, kPglQuaterTransposeWords, variant_batch_size, sample_batch_size, smaj_iter, transpose_batch_buf)
                 for uii in range(sample_batch_size):
                     data_ptr = &(geno_int64_out[uii + sample_batch_idx * kPglQuaterTransposeBatch, variant_batch_idx * kPglQuaterTransposeBatch])
-                    genoarr_to_int64_minus9(smaj_iter, variant_batch_size, data_ptr)
+                    genoarr_to_int64s_minus9(smaj_iter, variant_batch_size, data_ptr)
                     smaj_iter = &(smaj_iter[kPglQuaterTransposeWords])
                 vmaj_iter = &(vmaj_iter[kPglQuaterTransposeWords])
             variant_idx_offset += kPglQuaterTransposeBatch
@@ -682,8 +731,8 @@ cdef class PgenReader:
                 reterr = pgr_read_allele_countvec_subset_unsafe(subset_include_vec, subset_cumulative_popcounts, subset_size, variant_idx, allele_idx, pgrp, genovec)
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("read_range() error " + str(reterr))
-                data_ptr = &(geno_int32_out[variant_list_idx, 0])
-                genoarr_to_int32_minus9(genovec, subset_size, data_ptr)
+                data_ptr = <int32_t*>(&(geno_int32_out[variant_list_idx, 0]))
+                genoarr_to_int32s_minus9(genovec, subset_size, data_ptr)
             return
         if geno_int32_out.shape[0] < subset_size:
             raise RuntimeError("Sample-major read_list() geno_int_out buffer has too few rows (" + str(geno_int32_out.shape[0]) + "; current sample subset has size " + str(subset_size) + ")")
@@ -723,8 +772,8 @@ cdef class PgenReader:
                 smaj_iter = multivar_smaj_geno_batch_buf
                 transpose_quaterblock(vmaj_iter, sample_ctaw2, kPglQuaterTransposeWords, variant_batch_size, sample_batch_size, smaj_iter, transpose_batch_buf)
                 for uii in range(sample_batch_size):
-                    data_ptr = &(geno_int32_out[uii + sample_batch_idx * kPglQuaterTransposeBatch, variant_batch_idx * kPglQuaterTransposeBatch])
-                    genoarr_to_int32_minus9(smaj_iter, variant_batch_size, data_ptr)
+                    data_ptr = <int32_t*>(&(geno_int32_out[uii + sample_batch_idx * kPglQuaterTransposeBatch, variant_batch_idx * kPglQuaterTransposeBatch]))
+                    genoarr_to_int32s_minus9(smaj_iter, variant_batch_size, data_ptr)
                     smaj_iter = &(smaj_iter[kPglQuaterTransposeWords])
                 vmaj_iter = &(vmaj_iter[kPglQuaterTransposeWords])
             variant_list_idx += kPglQuaterTransposeBatch
@@ -755,7 +804,7 @@ cdef class PgenReader:
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("read_range() error " + str(reterr))
                 data_ptr = &(geno_int64_out[variant_list_idx, 0])
-                genoarr_to_int64_minus9(genovec, subset_size, data_ptr)
+                genoarr_to_int64s_minus9(genovec, subset_size, data_ptr)
             return
         if geno_int64_out.shape[0] < subset_size:
             raise RuntimeError("Sample-major read_list() geno_int_out buffer has too few rows (" + str(geno_int64_out.shape[0]) + "; current sample subset has size " + str(subset_size) + ")")
@@ -796,7 +845,7 @@ cdef class PgenReader:
                 transpose_quaterblock(vmaj_iter, sample_ctaw2, kPglQuaterTransposeWords, variant_batch_size, sample_batch_size, smaj_iter, transpose_batch_buf)
                 for uii in range(sample_batch_size):
                     data_ptr = &(geno_int64_out[uii + sample_batch_idx * kPglQuaterTransposeBatch, variant_batch_idx * kPglQuaterTransposeBatch])
-                    genoarr_to_int64_minus9(smaj_iter, variant_batch_size, data_ptr)
+                    genoarr_to_int64s_minus9(smaj_iter, variant_batch_size, data_ptr)
                     smaj_iter = &(smaj_iter[kPglQuaterTransposeWords])
                 vmaj_iter = &(vmaj_iter[kPglQuaterTransposeWords])
             variant_list_idx += kPglQuaterTransposeBatch
@@ -1095,6 +1144,8 @@ cdef class PgenWriter:
     cdef uintptr_t* _genovec
     cdef uintptr_t* _phasepresent
     cdef uintptr_t* _phaseinfo
+    cdef uintptr_t* _dosage_present
+    cdef uint16_t* _dosage_vals
     
     
     def __cinit__(self, bytes filename, uint32_t sample_ct,
@@ -1105,8 +1156,6 @@ cdef class PgenWriter:
                   bint dosage_phase_present = False):
         if dosage_phase_present and not dosage_present:
             raise RuntimeError("Invalid arguments for PgenWriter constructor (dosage_phase_present true but dosage_present false).")
-        if dosage_present:
-            raise RuntimeError("Dosage data isn't supported by PgenWriter yet.")
         if allele_idx_offsets is not None:
             for uii in range(variant_ct + 1):
                 if allele_idx_offsets[uii] != uii * 2:
@@ -1133,19 +1182,25 @@ cdef class PgenWriter:
         cdef pgen_global_flags_t phase_dosage_gflags = kfPgenGlobal0
         if hardcall_phase_present:
             phase_dosage_gflags |= kfPgenGlobalHardcallPhasePresent
+        if dosage_present:
+            phase_dosage_gflags |= kfPgenGlobalDosagePresent
+        assert not dosage_phase_present
         cdef uintptr_t alloc_cacheline_ct
         cdef uint32_t max_vrec_len
         cdef pglerr_t reterr = spgw_init_phase1(fname, NULL, self._nonref_flags, variant_ct, sample_ct, phase_dosage_gflags, nonref_flags_storage, self._state_ptr, &alloc_cacheline_ct, &max_vrec_len)
         if reterr != kPglRetSuccess:
             raise RuntimeError("spgw_init_phase1() error " + str(reterr))
         cdef uint32_t genovec_cacheline_ct = DIV_UP(sample_ct, kQuatersPerCacheline)
+        cdef uint32_t dosage_vals_cacheline_ct = DIV_UP(sample_ct, (2 * kInt32PerCacheline))
         cdef unsigned char* spgw_alloc
-        if cachealigned_malloc((alloc_cacheline_ct + genovec_cacheline_ct + 2 * bitvec_cacheline_ct) * kCacheline, &spgw_alloc):
+        if cachealigned_malloc((alloc_cacheline_ct + genovec_cacheline_ct + 3 * bitvec_cacheline_ct + dosage_vals_cacheline_ct) * kCacheline, &spgw_alloc):
             raise MemoryError()
         spgw_init_phase2(max_vrec_len, self._state_ptr, spgw_alloc)  
         self._genovec = <uintptr_t*>(&(spgw_alloc[alloc_cacheline_ct * kCacheline]))
         self._phasepresent = <uintptr_t*>(&(spgw_alloc[(alloc_cacheline_ct + genovec_cacheline_ct) * kCacheline]))
         self._phaseinfo = <uintptr_t*>(&(spgw_alloc[(alloc_cacheline_ct + genovec_cacheline_ct + bitvec_cacheline_ct) * kCacheline]))
+        self._dosage_present = <uintptr_t*>(&(spgw_alloc[(alloc_cacheline_ct + genovec_cacheline_ct + 2 * bitvec_cacheline_ct) * kCacheline]))
+        self._dosage_vals = <uint16_t*>(&(spgw_alloc[(alloc_cacheline_ct + genovec_cacheline_ct + 3 * bitvec_cacheline_ct) * kCacheline]))
         return
 
     
@@ -1187,6 +1242,38 @@ cdef class PgenWriter:
         cdef pglerr_t reterr = spgw_append_biallelic_genovec_hphase(genovec, phasepresent_buf, phaseinfo, self._state_ptr)
         if reterr != kPglRetSuccess:
             raise RuntimeError("append_partially_phased() error " + str(reterr))
+        return
+
+
+    cdef append_dosages_internal32(self, np.ndarray[np.float32_t] floatarr):
+        cdef uintptr_t* genovec = self._genovec
+        cdef uintptr_t* dosage_present = self._dosage_present
+        cdef uint16_t* dosage_vals = self._dosage_vals
+        cdef uint32_t dosage_ct
+        floats_to_dosage16(<float*>(&(floatarr[0])), self._state_ptr[0].pwc.sample_ct, 6554, genovec, dosage_present, dosage_vals, &dosage_ct)
+        cdef pglerr_t reterr = spgw_append_biallelic_genovec_dosage16(genovec, dosage_present, dosage_vals, dosage_ct, self._state_ptr)
+        if reterr != kPglRetSuccess:
+            raise RuntimeError("append_dosages() error " + str(reterr))
+        return
+
+    cdef append_dosages_internal64(self, np.ndarray[np.float64_t] doublearr):
+        cdef uintptr_t* genovec = self._genovec
+        cdef uintptr_t* dosage_present = self._dosage_present
+        cdef uint16_t* dosage_vals = self._dosage_vals
+        cdef uint32_t dosage_ct
+        doubles_to_dosage16(<double*>(&(doublearr[0])), self._state_ptr[0].pwc.sample_ct, 6554, genovec, dosage_present, dosage_vals, &dosage_ct)
+        cdef pglerr_t reterr = spgw_append_biallelic_genovec_dosage16(genovec, dosage_present, dosage_vals, dosage_ct, self._state_ptr)
+        if reterr != kPglRetSuccess:
+            raise RuntimeError("append_dosages() error " + str(reterr))
+        return
+
+    cpdef append_dosages(self, np.ndarray floatarr):
+        if floatarr.dtype == np.float32:
+            self.append_dosages_internal32(floatarr)
+        elif floatarr.dtype == np.float64:
+            self.append_dosages_internal64(floatarr)
+        else:
+            raise RuntimeError("Invalid append_dosages() dosage array element type (float32 or float64 expected).")
         return
     
     
