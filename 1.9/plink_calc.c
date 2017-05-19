@@ -5531,7 +5531,7 @@ int32_t calc_genome(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, uin
   return retval;
 }
 
-inline void rel_cut_arr_dec(int32_t* rel_ct_arr_elem, uint32_t* exactly_one_rel_ct_ptr) {
+static inline void rel_cut_arr_dec(int32_t* rel_ct_arr_elem, uint32_t* exactly_one_rel_ct_ptr) {
   int32_t rcae = *rel_ct_arr_elem - 1;
   *rel_ct_arr_elem = rcae;
   if (rcae < 2) {

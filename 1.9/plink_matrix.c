@@ -25,21 +25,9 @@
 #endif
 #endif
 
-inline double SQR(const double a) {
+static inline double SQR(const double a) {
   return a * a;
 }
-
-#ifdef __cplusplus
-inline double SIGN(const double &a, const double &b) {
-  // PLINK helper.h SIGN() template specialized to doubles.
-  return (b >= 0)? (a >= 0 ? a : -a) : (a >= 0 ? -a : a);
-}
-#else
-inline double SIGN(const double a, const double b) {
-  // PLINK helper.h SIGN() template specialized to doubles.
-  return (b >= 0)? (a >= 0 ? a : -a) : (a >= 0 ? -a : a);
-}
-#endif
 
 double pythag(const double a, const double b) {
   // PLINK stats.cpp pythag().
@@ -52,6 +40,18 @@ double pythag(const double a, const double b) {
 }
 
 #ifdef NOLAPACK
+  #ifdef __cplusplus
+static inline double SIGN(const double &a, const double &b) {
+  // PLINK helper.h SIGN() template specialized to doubles.
+  return (b >= 0)? (a >= 0 ? a : -a) : (a >= 0 ? -a : a);
+}
+  #else
+static inline double SIGN(const double a, const double b) {
+  // PLINK helper.h SIGN() template specialized to doubles.
+  return (b >= 0)? (a >= 0 ? a : -a) : (a >= 0 ? -a : a);
+}
+  #endif
+
 int32_t svdcmp_c(int32_t m, double* a, double* w, double* v) {
   // C port of PLINK stats.cpp svdcmp().
   // now thread-safe.
