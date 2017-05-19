@@ -517,7 +517,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "                force at least one phenotype column to be written.)\n"
 "      The default is maybesid,maybeparents,sex,phenos.\n\n"
 	       );
-    help_print("make-just-pvar\tmake-just-psam\tmake-just-bim\tmake-just-fam\n", &help_ctrl, 1,
+    help_print("make-just-pvar\tmake-just-psam\tmake-just-bim\tmake-just-fam\twrite-cluster\n", &help_ctrl, 1,
 "  --make-just-pvar <zs> <cols=[column set descriptor]>\n"
 "  --make-just-psam <cols=[column set descriptor]>\n"
 "  --make-just-bim <zs>\n"
@@ -614,7 +614,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
     // corresponds to nonmajor_freqs when e.g. --maf-succ was specified) and
     // machr2 (this is probably the best home since, unlike --geno-counts and
     // --hardy, it's dosage-aware).
-    help_print("freq", &help_ctrl, 1,
+    help_print("freq\tmach-r2-filter", &help_ctrl, 1,
 "  --freq <zs> <counts> <cols=[column set descriptor]> <bins-only>\n"
 "         <refbins=[comma-separated bin boundaries] | refbins-file=[filename]>\n"
 "         <alt1bins=[comma-separated bin boundaries] | alt1bins-file=[filename]>\n"
@@ -638,6 +638,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "      alteq/alteqz: Same as eq/eqz, except reference allele is omitted.\n"
 "      numeq: 0=[freq],1=[freq], etc.  Zero-counts are omitted.\n"
 "      altnumeq: Same as numeq, except reference allele is omitted.\n"
+"      machr2: Empirical divided by theoretical variance quality metric.\n"
 "      nobs: Number of allele observations.\n"
 "    The default is chrom,ref,alt,altfreq,nobs.\n"
 "    Additional .afreq.{ref,alt1}.bins (or .acount.{ref,alt1}.bins with\n"
@@ -881,12 +882,34 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "    {output prefix}.king.cutoff.in + .king.cutoff.out.\n"
 "    If present, the .king.bin file must be triangular (either precision is ok).\n\n"
 	       );
+    help_print("write-covar\twith-phenotype", &help_ctrl, 1,
+"  --write-covar <cols=[column set descriptor]>\n"
+"    If covariates are defined, an updated version (with all filters applied) is\n"
+"    automatically written to {output prefix}.cov whenever --make-pgen,\n"
+"    --make-just-psam, --export, or a similar command is present.  However, if\n"
+"    you do not wish to simultaneously generate a new sample file, you can use\n"
+"    --write-covar to just produce a pruned covariate file.\n"
+"    Supported column sets are:\n"
+"      maybesid: SID, if at least one nonmissing value is present.\n"
+"      sid: Force SID column to be written even when empty.\n"
+"      maybeparents: Father and mother IIDs, '0' = missing.  Omitted if all\n"
+"                    loaded values are missing.\n"
+"      parents: Force PAT and MAT columns to be written even when empty.\n"
+"      sex: '1'/'M'/'m' = male, '2'/'F'/'f' = female, 'NA'/'0' = missing.\n"
+"      pheno1: First active phenotype.  If none, all column entries are set to\n"
+"              the --output-missing-phenotype string.\n"
+"      phenos: All active phenotypes, if any.  (Can be combined with pheno1 to\n"
+"              force at least one phenotype column to be written.)\n"
+"      (Covariates are always present, and positioned here.)\n"
+"    The default is just maybesid.\n\n"
+	       );
     help_print("write-snplist", &help_ctrl, 1,
 "  --write-snplist <zs>\n"
 "    List all variants which pass your filters/inclusion thresholds.\n\n"
 	       );
     // todo: support e.g. quantile normalization, but as a generic phenotype
     // processing operation, no need to bind it to --glm
+    // --standard-beta should also be unbound from --glm
     help_print("glm\tlinear\tlogistic\tassoc", &help_ctrl, 1,
 "  --glm <zs> <sex | no-x-sex> <genotypic | hethom | dominant | recessive>\n"
 "        <interaction> <hide-covar> <intercept> <standard-beta>\n"
@@ -1169,6 +1192,20 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "                       --covar (if one was specified), --pheno (if no --covar),\n"
 "                       or .psam (if no --covar or --pheno) file.\n"
 	       );
+    help_print("within\tmwithin\tfamily\tfamily-missing-catname", &help_ctrl, 0,
+"  --within [f] {new pheno name} : Import a PLINK 1.x categorical phenotype.\n"
+"                                  (Phenotype name defaults to 'CATPHENO'.)\n"
+"                                  * If any numeric values are present, ALL\n"
+"                                    values must be numeric.  In that case, 'C'\n"
+"                                    is added in front of all category names.\n"
+"                                  * 'NA' is treated as a missing value.\n"
+"  --mwithin [n]                 : Load --within categories from column n+2.\n"
+"  --family {new pheno name}     : Create a categorical phenotype from FID.\n"
+"                                  Restrictions on and handling of numeric\n"
+"                                  values are the same as for --within.\n"
+"  --family-missing-catname [nm] : Make --family treat the specified FID as\n"
+"                                  missing.\n"
+	       );
     help_print("keep\tremove\tkeep-fam\tremove-fam", &help_ctrl, 0,
 "  --keep <sid> [fn...]  : Exclude all samples not named in a file.\n"
 "  --remove <sid> [f...] : Exclude all samples named in a file.\n"
@@ -1178,6 +1215,35 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
     help_print("extract\texclude\trange", &help_ctrl, 0,
 "  --extract <range> [f...] : Exclude all variants not named in a file.\n"
 "  --exclude <range> [f...] : Exclude all variants named in a file.\n"
+	       );
+    help_print("keep-cats\tkeep-cat-names\tkeep-cat-pheno\tremove-cats\tremove-cat-names\tremove-cat-pheno\tkeep-clusters\tkeep-cluster-names\tremove-clusters\tremove-cluster-names", &help_ctrl, 0,
+"  --keep-cats [filename]   : These can be used individually or in combination\n"
+"  --keep-cat-names [nm...]   to define a list of categories to keep; all\n"
+"                             samples not in one of the named categories are\n"
+"                             excluded.  Use spaces to separate category names\n"
+"                             for --keep-cat-names.  Use the --missing-catname\n"
+"                             value (default 'NONE') to refer to the group of\n"
+"                             uncategorized samples.\n"
+"  --keep-cat-pheno [pheno] : If more than one categorical phenotype is loaded,\n"
+"                             or you wish to filter on a categorical covariate,\n"
+"                             --keep-cat-pheno must be used to specify which\n"
+"                             phenotype/covariate --keep-cats and\n"
+"                             --keep-cat-names apply to.\n"
+"  --remove-cats [filename] : Exclude all categories named in the file.\n"
+"  --remove-cat-names [...] : Exclude named categories.\n"
+"  --remove-cat-pheno [phe] : Specify pheno for --remove-cats/remove-cat-names.\n"
+	       );
+    help_print("split-cat-pheno\tdummy-coding\tloop-assoc", &help_ctrl, 0,
+"  --split-cat-pheno <omit-last> <covar-01> {cat. pheno/covar name(s)...} :\n"
+"    Split n-category phenotype(s) into n (or n-1, with 'omit-last') binary\n"
+"    phenotypes, with names of the form [orig. pheno name]=[category name].  (As\n"
+"    a consequence, affected phenotypes and categories are not permitted to\n"
+"    contain the '=' character.)\n"
+"    * This happens after all sample filters.\n"
+"    * If no phenotype or covariate names are provided, all categorical\n"
+"      phenotypes (but not covariates) are processed.\n"
+"    * By default, generated covariates are coded as 1=false, 2=true.  To code\n"
+"      them as 0=false, 1=true instead, add the 'covar-01' modifier.\n"
 	       );
     help_print("chr\tnot-chr", &help_ctrl, 0,
 "  --chr [chr(s)...]  : Exclude all variants not on the given chromosome(s).\n"
@@ -1251,10 +1317,13 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "                              have FIDs in the first column, IIDs in the\n"
 "                              second, and block IDs in the third.\n"
 	       );
-    help_print("prune", &help_ctrl, 0,
-"  --prune            : Remove samples with missing phenotypes.\n"
-	       );
     */
+    help_print("require-pheno\trequire-covar\tprune", &help_ctrl, 0,
+"  --require-pheno {name(s)...} : Remove samples missing any of the named\n"
+"  --require-covar {name(s)...}   phenotype(s)/covariate(s).  If no parameters\n"
+"                                 are provided, all phenotype(s)/covariate(s)\n"
+"                                 must be present.\n"
+	       );
     help_print("maf\tmax-maf\tmac\tmin-ac\tmax-mac\tmax-ac", &help_ctrl, 0,
 "  --maf {freq}       : Exclude variants with nonmajor allele frequency lower\n"
 "                       than a threshold (default 0.01).\n"
@@ -1294,17 +1363,13 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "                                     and the female-only p-value.)\n"
 "                                   * There is currently no special handling of\n"
 "                                     case/control phenotypes.\n"
-	       /*
 "  --mach-r2-filter {min} {max}   : Exclude variants with MaCH\n"
 "                                   empirical-theoretical variance ratio outside\n"
 "                                   of [min, max] (defaults 0.1 and 2.0).\n"
 "                                   * For multiallelic variants, only the\n"
-"                                     ref-alt1 dimension is considered.  When\n"
-"                                     alt2 + alt3 + ... dosage exceeds 0.5, the\n"
-"                                     dosage is treated as missing.\n"
+"                                     ref-nonref dimension is considered.\n"
 "                                   * If a single parameter is provided, it is\t"
 "                                     treated as the minimum.\n"
-	       */
 	       );
     help_print("keep-females\tkeep-males\tkeep-nosex\tremove-females\tremove-males\tremove-nosex\tfilter-males\tfilter-females", &help_ctrl, 0,
 "  --keep-females     : Exclude male and unknown-sex samples.\n"
@@ -1317,6 +1382,17 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
     help_print("keep-founders\tkeep-nonfounders\tfilter-founders\tfilter-nonfounders\tgeno-counts", &help_ctrl, 0,
 "  --keep-founders    : Exclude nonfounder samples.\n"
 "  --keep-nonfounders : Exclude founder samples.\n"
+	       );
+    // possible todo: allow or/and of multiple predicates
+    // best if syntax allows for '=' character inside phenotype/covariate
+    // names, though...
+    help_print("keep-if\tremove-if\tfilter-cases\tfilter-controls", &help_ctrl, 0,
+"  --keep-if [pheno/covar] [op] [val] : Exclude samples which don't/do satisfy a\n"
+"  --remove-if [pheno/covar] [op] [v]   comparison predicate, e.g.\n"
+"                                         --keep-if PHENO1 == case\n"
+"                                       Unless the operator is !=, the predicate\n"
+"                                       always evaluates to false when the\n"
+"                                       phenotype/covariate is missing.\n"
 	       );
     help_print("nonfounders\tfreq\thardy\thwe", &help_ctrl, 0,
 "  --nonfounders      : Include nonfounders in allele freq/HWE calculations.\n"

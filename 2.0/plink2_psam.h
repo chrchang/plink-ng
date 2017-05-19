@@ -59,7 +59,19 @@ namespace plink2 {
 // sample filters happen first, then indiv_represent is computed, then
 // FID/IID-sensitive sample filters are applied.
 
+// chosen to be likely to fit in L3 cache
+CONSTU31(kCatHtableSize, 524287);
+
 pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_ptr, fam_col_t fam_cols, uint32_t pheno_ct_max, int32_t missing_pheno, uint32_t affection_01, uintptr_t* max_sample_id_blen_ptr, uintptr_t* max_sid_blen_ptr, uintptr_t* max_paternal_id_blen_ptr, uintptr_t* max_maternal_id_blen_ptr, uintptr_t** sample_include_ptr, char** sample_ids_ptr, char** sids_ptr, char** paternal_ids_ptr, char** maternal_ids_ptr, uintptr_t** founder_info_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, pheno_col_t** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* raw_sample_ct_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr);
+
+HEADER_INLINE boolerr_t is_reserved_pheno_name(const char* pheno_name, uint32_t pheno_name_slen) {
+  if (pheno_name_slen != 3) {
+    return 0;
+  }
+  // tolerate "SEX" column in phenotype/covariate files; just impose some
+  // restrictions on it when writing .psam files.
+  return (!memcmp(pheno_name, "FID", 3)) || (!memcmp(pheno_name, "IID", 3)) || (!memcmp(pheno_name, "SID", 3)) || (!memcmp(pheno_name, "PAT", 3)) || (!memcmp(pheno_name, "MAT", 3));
+}
 
 // also for loading covariates.  set affection_01 to 2 to prohibit case/control
 pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_list_ptr, const uintptr_t* sample_include, const char* sample_ids, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, int32_t missing_pheno, uint32_t affection_01, pheno_col_t** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr);

@@ -113,7 +113,8 @@ static const double kRecipDosageMid = 0.00006103515625;
 static const float kRecipDosageMidf = 0.00006103515625;
 
 // this is a bit arbitrary
-CONSTU31(kMaxPhenoCt, 0x200000);
+CONSTU31(kMaxPhenoCt, 2097152);
+#define MAX_PHENO_CT_STR "2097152"
 
 // unnecessary to use e.g. (1LLU << 0), the FLAGSET64 macros should force the
 // integer type to 64-bit.
@@ -154,7 +155,13 @@ FLAGSET64_DEF_START()
   kfMiscChrOverrideCmdline = (1LLU << 32),
   kfMiscChrOverrideFile = (1LLU << 33),
   kfMiscNewVarIdOverflowMissing = (1LLU << 34),
-  kfMiscNewVarIdOverflowTruncate = (1LLU << 35)
+  kfMiscNewVarIdOverflowTruncate = (1LLU << 35),
+  kfMiscRequirePheno = (1LLU << 36),
+  kfMiscRequireCovar = (1LLU << 37),
+  kfMiscCatPhenoFamily = (1LLU << 38),
+  kfMiscSplitCatPheno = (1LLU << 39),
+  kfMiscSplitCatPhenoOmitLast = (1LLU << 40),
+  kfMiscSplitCatPhenoCovar01 = (1LLU << 41)
 FLAGSET64_DEF_END(misc_flags_t);
 
 FLAGSET64_DEF_START()
@@ -763,6 +770,12 @@ HEADER_INLINE void bigstack_finalize_ul(__maybe_unused const uintptr_t* ulptr, u
 HEADER_INLINE void bigstack_finalize_ui(__maybe_unused const uint32_t* uiptr, uintptr_t ct) {
   assert(uiptr == (const uint32_t*)g_bigstack_base);
   g_bigstack_base += round_up_pow2(ct * sizeof(int32_t), kCacheline);
+  assert(g_bigstack_base <= g_bigstack_end);
+}
+
+HEADER_INLINE void bigstack_finalize_c(__maybe_unused const char* cptr, uintptr_t ct) {
+  assert(cptr == (const char*)g_bigstack_base);
+  g_bigstack_base += round_up_pow2(ct, kCacheline);
   assert(g_bigstack_base <= g_bigstack_end);
 }
 
@@ -1534,6 +1547,7 @@ HEADER_INLINE uint32_t hashceil(const char* idstr, uint32_t idlen, uint32_t htab
 
 uintptr_t geqprime(uintptr_t floor);
 
+// assumes ceil is odd and greater than 4.  Returns the first prime <= ceil.
 uintptr_t leqprime(uintptr_t ceil);
 
 HEADER_INLINE uint32_t get_htable_min_size(uintptr_t item_ct) {
@@ -1545,12 +1559,14 @@ HEADER_INLINE uint32_t get_htable_min_size(uintptr_t item_ct) {
 
 // load factor ~20% seems to yield the best speed/space tradeoff on my test
 // machines
-HEADER_INLINE uint32_t get_htable_fast_size(uintptr_t item_ct) {
+HEADER_INLINE uint32_t get_htable_fast_size(uint32_t item_ct) {
   if (item_ct < 858993456) {
     return geqprime(round_up_pow2(item_ct * 5, 2) + 1);
   }
   return 4294967291U;
 }
+
+boolerr_t htable_good_size_alloc(uint32_t item_ct, uintptr_t bytes_avail, uint32_t** htable_ptr, uint32_t* htable_size_ptr);
 
 // useful for duplicate detection: returns 0 on no duplicates, a positive index
 // of a duplicate pair if they're present
@@ -1559,7 +1575,7 @@ uint32_t populate_strbox_htable(const char* strbox, uintptr_t str_ct, uintptr_t 
 // returned index in duplicate-pair case is unfiltered
 // uint32_t populate_strbox_subset_htable(const uintptr_t* __restrict subset_mask, const char* strbox, uintptr_t raw_str_ct, uintptr_t str_ct, uintptr_t max_str_blen, uint32_t str_htable_size, uint32_t* str_htable);
 
-// cur_id does not need to be null-terminated
+// cur_id DOES need to be null-terminated
 uint32_t id_htable_find(const char* cur_id, char** item_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size);
 
 // assumes cur_id_slen < max_str_blen.
@@ -1568,7 +1584,7 @@ uint32_t strbox_htable_find(const char* cur_id, const char* strbox, const uint32
 
 // last variant_ids entry must be at least kMaxIdBlen bytes before end of
 // bigstack
-// uint32_t variant_id_htable_find(const char* idbuf, char** variant_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_slen);
+uint32_t variant_id_dupflag_htable_find(const char* idbuf, char** variant_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_slen);
 
 uint32_t variant_id_dup_htable_find(const char* idbuf, char** variant_ids, const uint32_t* id_htable, const uint32_t* htable_dup_base, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_slen, uint32_t* llidx_ptr);
 
@@ -2243,7 +2259,7 @@ ENUM_U31_DEF_END(pheno_dtype_t);
 typedef union {
   uintptr_t* cc; // bitvector
   double* qt;
-  uint32_t* cat; // 0 for missing
+  uint32_t* cat; // always 0 for missing, nonmiss[] check unnecessary
 } phenodata_t;
 
 typedef struct {
@@ -2293,6 +2309,8 @@ uint32_t first_cc_or_qt_pheno_idx(const pheno_col_t* pheno_cols, uint32_t pheno_
 
 // "_covar" since this doesn't handle case/control
 uint32_t is_const_covar(const pheno_col_t* covar_col, const uintptr_t* sample_include, uint32_t sample_ct);
+
+uint32_t identify_remaining_cats(const uintptr_t* sample_include, const pheno_col_t* covar_col, uint32_t sample_ct, uintptr_t* cat_covar_wkspace);
 
 // pheno_names is also allocated on the heap, but it can be handled with a
 // simple free_cond().
@@ -2397,9 +2415,10 @@ HEADER_INLINE void threads3z_cleanup(threads_state_t* tsp, uint32_t* cur_block_s
 }
 
 
-pglerr_t populate_variant_id_htable_mt(const uintptr_t* variant_include, char** variant_ids, uintptr_t variant_ct, uint32_t store_dups, uint32_t id_htable_size, uint32_t thread_ct, uint32_t* id_htable);
+pglerr_t populate_id_htable_mt(const uintptr_t* subset_mask, char** item_ids, uintptr_t item_ct, uint32_t store_all_dups, uint32_t id_htable_size, uint32_t thread_ct, uint32_t* id_htable);
 
-pglerr_t alloc_and_populate_variant_id_dup_htable_mt(const uintptr_t* variant_include, char** variant_ids, uintptr_t variant_ct, uint32_t max_thread_ct, uint32_t** id_htable_ptr, uint32_t** htable_dup_base_ptr, uint32_t* id_htable_size_ptr);
+// pass in htable_dup_base_ptr == nullptr if not storing all duplicate IDs
+pglerr_t alloc_and_populate_id_htable_mt(const uintptr_t* subset_mask, char** item_ids, uintptr_t item_ct, uint32_t max_thread_ct, uint32_t** id_htable_ptr, uint32_t** htable_dup_base_ptr, uint32_t* id_htable_size_ptr);
 
 // sample_ct not relevant if genovecs_ptr == nullptr
 pglerr_t multithread_load_init(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, pgen_file_info_t* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** dosage_present_ptr, dosage_t*** dosage_val_bufs_ptr, uint32_t* read_block_size_ptr, unsigned char** main_loadbufs, pthread_t** threads_ptr, pgen_reader_t*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr);

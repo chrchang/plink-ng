@@ -677,7 +677,84 @@ pglerr_t write_psam(const char* outname, const uintptr_t* sample_include, const 
     if (write_phenos) {
       for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
 	*write_iter++ = '\t';
-	write_iter = strcpya(write_iter, &(pheno_names[pheno_idx * max_pheno_name_blen]));
+	const char* cur_pheno_name = &(pheno_names[pheno_idx * max_pheno_name_blen]);
+	const uint32_t cur_pheno_name_slen = strlen(cur_pheno_name);
+	if ((cur_pheno_name_slen == 3) && (!memcmp(cur_pheno_name, "SEX", 3))) {
+	  if (write_sex) {
+	    logerrprint("Error: .psam file cannot have both a regular SEX column and a phenotype named\n'SEX'.  Exclude or rename one of these columns.\n");
+	    goto write_psam_ret_INCONSISTENT_INPUT;
+	  }
+	  // does this phenotype column conform to the SEX column format?
+	  // case/control is always ok, but quantitative or categorical needs
+	  // to be checked
+	  const pheno_col_t* sex_col = &(pheno_cols[pheno_idx]);
+	  if (sex_col->type_code != kPhenoDtypeCc) {
+	    // could bitwise-and sample_include and pheno_nm before the loop
+	    const uintptr_t* pheno_nm = sex_col->nonmiss;
+	    uint32_t sample_uidx = 0;
+	    if (sex_col->type_code == kPhenoDtypeQt) {
+	      const double* pheno_vals = sex_col->data.qt;
+	      for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+		next_set_unsafe_ck(sample_include, &sample_uidx);
+		if (is_set(pheno_nm, sample_uidx)) {
+		  const double dxx = pheno_vals[sample_uidx];
+		  // tolerate '-9' and '0' as missing values, and anything in
+		  // [1, 2] (could be reasonable to represent XXY, etc. with
+		  // decimals).
+		  if (((dxx < 1.0) && (dxx != -9.0) && (dxx != 0.0)) || (dxx > 2.0)) {
+		    logerrprint("Error: .psam SEX values are expected to be in {-9, 0, 1, 2}.\n");
+		    goto write_psam_ret_INCONSISTENT_INPUT;
+		  }
+		}
+	      }
+	    } else {
+	      assert(sex_col->type_code == kPhenoDtypeCat);
+	      const uint32_t nonnull_cat_ct = sex_col->nonnull_category_ct;
+	      if (nonnull_cat_ct) {
+		char** cur_category_names = sex_col->category_names;
+		// tolerate 'M' and 'm' being present simultaneously, etc.
+		uint32_t male_cat_idx1 = 0;
+		uint32_t male_cat_idx2 = 0;
+		uint32_t female_cat_idx1 = 0;
+		uint32_t female_cat_idx2 = 0;
+		for (uint32_t cat_idx = 1; cat_idx <= nonnull_cat_ct; ++cat_idx) {
+		  const char* cur_cat_name = cur_category_names[cat_idx];
+		  if (!cur_cat_name[1]) {
+		    uint32_t first_char_code = (unsigned char)cur_cat_name[0];
+		    first_char_code &= 0xdf;
+		    if (first_char_code == 70) {
+		      if (!female_cat_idx1) {
+			female_cat_idx1 = cat_idx;
+		      } else {
+			female_cat_idx2 = cat_idx;
+		      }
+		    } else if (first_char_code == 77) {
+		      if (!male_cat_idx1) {
+			male_cat_idx1 = cat_idx;
+		      } else {
+			male_cat_idx2 = cat_idx;
+		      }
+		    }
+		  }
+		}
+		if ((male_cat_idx1 != 0) + (male_cat_idx2 != 0) + (female_cat_idx1 != 0) + (female_cat_idx2 != 0) < nonnull_cat_ct) {
+		  const uint32_t* pheno_vals = sex_col->data.cat;
+		  for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+		    next_set_unsafe_ck(sample_include, &sample_uidx);
+		    if (is_set(pheno_nm, sample_uidx)) {
+		      const uint32_t cur_cat_idx = pheno_vals[sample_uidx];
+		      if ((cur_cat_idx != male_cat_idx1) && (cur_cat_idx != female_cat_idx1) && (cur_cat_idx != male_cat_idx2) && (cur_cat_idx != female_cat_idx2)) {
+			logerrprint("Error: .psam SEX values are expected to be in {'F', 'f', 'M', 'm'}.\n");
+			goto write_psam_ret_INCONSISTENT_INPUT;
+		      }
+		    }
+		  }
+		}
+	      }
+	    }
+	  }
+	}
+	write_iter = memcpya(write_iter, cur_pheno_name, cur_pheno_name_slen);
 	if (write_iter >= textbuf_flush) {
 	  if (fwrite_checked(textbuf, write_iter - textbuf, outfile)) {
 	    goto write_psam_ret_WRITE_FAIL;
@@ -768,6 +845,9 @@ pglerr_t write_psam(const char* outname, const uintptr_t* sample_include, const 
     break;
   write_psam_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
+    break;
+  write_psam_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
     break;
   }
   fclose_cond(outfile);
@@ -2098,10 +2178,12 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
       if (chr_code_base == -1) {
 	// skip hash table lookup if we know we aren't skipping the variant
 	if (variant_skip_ct) {
+	  *chr_code_end = '\0';
 	  const uint32_t chr_code = id_htable_find(loadbuf, cip->nonstd_names, cip->nonstd_id_htable, (uintptr_t)(chr_code_end - loadbuf), kChrHtableSize);
 	  if ((chr_code == 0xffffffffU) || (!IS_SET(cip->chr_mask, chr_code))) {
 	    continue;
 	  }
+	  *chr_code_end = '\t';
 	}
       } else {
 	if (chr_code_base >= ((int32_t)kMaxContigs)) {
@@ -2697,7 +2779,7 @@ pglerr_t ox_sample_to_psam(const char* samplename, const char* ox_missing_code, 
     if (fopen_checked(outname, FOPEN_WB, &psamfile)) {
       goto ox_sample_to_psam_ret_OPEN_FAIL;
     }
-    // categorical phenotypes are lengthened by 1 character ('P' added in
+    // categorical phenotypes are lengthened by 1 character ('C' added in
     // front), so this needs to be 50% larger than loadbuf to handle worst case
     char* writebuf = (char*)bigstack_alloc_raw(round_up_pow2(loadbuf_size + (loadbuf_size / 2), kCacheline));
     char* write_iter = strcpya(writebuf, "#FID\tIID\tSEX");
@@ -2939,7 +3021,7 @@ pglerr_t ox_sample_to_psam(const char* samplename, const char* ox_missing_code, 
 	  *write_iter++ = '\t';
 	  if (is_set(col_is_categorical, col_idx)) {
 	    if (!is_missing) {
-	      *write_iter++ = 'P';
+	      *write_iter++ = 'C';
 	      // .sample files are relatively small, so let's go ahead and
 	      // (i) validate we have a positive integer < 2^31
 	      // (ii) convert e.g. 9000000, 9000000., 9.0e6 all to 9000000
@@ -6072,7 +6154,6 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
     char** variant_ids = nullptr;
     double* variant_cms = nullptr;
     uint32_t* variant_id_htable = nullptr;
-    uint32_t* variant_id_htable_dup_base = nullptr;
     uintptr_t* variant_already_seen = nullptr;
     uint32_t variant_id_htable_size = 0;
     uint32_t map_variant_ct = 0;
@@ -6089,7 +6170,7 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
       fill_all_bits(map_variant_ct, variant_already_seen);
       unsigned char* bigstack_end_mark2 = g_bigstack_end;
       g_bigstack_end = &(g_bigstack_base[(bigstack_left() / 2) & (~(kEndAllocAlign - k1LU))]); // allow hash table to only use half of available memory
-      reterr = alloc_and_populate_variant_id_dup_htable_mt(variant_already_seen, variant_ids, map_variant_ct, max_thread_ct, &variant_id_htable, &variant_id_htable_dup_base, &variant_id_htable_size);
+      reterr = alloc_and_populate_id_htable_mt(variant_already_seen, variant_ids, map_variant_ct, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size);
       if (reterr) {
 	goto plink1_dosage_to_pgen_ret_1;
       }
@@ -6254,14 +6335,13 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
       const char* variant_id = token_ptrs[2];
       const uint32_t variant_id_slen = token_slens[2];
       if (map_variant_ct) {
-	uint32_t cur_llidx;
-	variant_uidx = variant_id_dup_htable_find(variant_id, variant_ids, variant_id_htable, variant_id_htable_dup_base, variant_id_slen, variant_id_htable_size, max_variant_id_slen, &cur_llidx);
-	if (variant_uidx == 0xffffffffU) {
-	  ++variant_skip_ct;
-	  continue;
-	}
-	if (cur_llidx != 0xffffffffU) {
-	  sprintf(g_logbuf, "Error: Variant ID '%s' appears multiple times in .map file.\n", variant_ids[variant_uidx]);
+	variant_uidx = variant_id_dupflag_htable_find(variant_id, variant_ids, variant_id_htable, variant_id_slen, variant_id_htable_size, max_variant_id_slen);
+	if (variant_uidx >> 31) {
+	  if (variant_uidx == 0xffffffffU) {
+	    ++variant_skip_ct;
+	    continue;
+	  }
+	  sprintf(g_logbuf, "Error: Variant ID '%s' appears multiple times in .map file.\n", variant_ids[variant_uidx & 0x7fffffff]);
 	  goto plink1_dosage_to_pgen_ret_MALFORMED_INPUT_WW;
 	}
 	if (is_set(variant_already_seen, variant_uidx)) {
@@ -6482,8 +6562,7 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
 	if (map_variant_ct) {
 	  char* variant_id = next_token_multz(loadbuf_iter, id_col_idx);
 	  const uint32_t variant_id_slen = strlen_se(variant_id);
-	  uint32_t cur_llidx;
-	  if (variant_id_dup_htable_find(variant_id, variant_ids, variant_id_htable, variant_id_htable_dup_base, variant_id_slen, variant_id_htable_size, max_variant_id_slen, &cur_llidx) == 0xffffffffU) {
+	  if (variant_id_dupflag_htable_find(variant_id, variant_ids, variant_id_htable, variant_id_slen, variant_id_htable_size, max_variant_id_slen) == 0xffffffffU) {
 	    continue;
 	  }
 	  loadbuf_iter = next_token_mult(variant_id, first_data_col_idx - id_col_idx);
@@ -7692,6 +7771,7 @@ static uint32_t* g_x_male_geno_cts = nullptr;
 static uint32_t* g_founder_x_male_geno_cts = nullptr;
 static uint32_t* g_x_nosex_geno_cts = nullptr;
 static uint32_t* g_founder_x_nosex_geno_cts = nullptr;
+static double* g_mach_r2_vals = nullptr;
 
 static unsigned char* g_writebufs[2] = {nullptr, nullptr};
 
@@ -8102,6 +8182,7 @@ THREAD_FUNC_DECL load_allele_and_geno_counts_thread(void* arg) {
     uint32_t* variant_hethap_cts = g_variant_hethap_cts;
     uint32_t* x_male_geno_cts = g_x_male_geno_cts;
     uint32_t* x_nosex_geno_cts = g_x_nosex_geno_cts;
+    double* mach_r2_vals = g_mach_r2_vals;
     uint32_t subset_idx = 0;
     uint32_t dosage_ct = 0;
     while (1) {
@@ -8145,7 +8226,7 @@ THREAD_FUNC_DECL load_allele_and_geno_counts_thread(void* arg) {
 	if (!is_x_or_y) {
 	  // call pgr_get_refalt1_genotype_counts() instead when dosages not
 	  // needed?
-	  reterr = pgr_get_ref_nonref_genotype_counts_and_dosage16s(sample_include, sample_include_interleaved_vec, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genocounts, cur_dosages);
+	  reterr = pgr_get_ref_nonref_genotype_counts_and_dosage16s(sample_include, sample_include_interleaved_vec, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, mach_r2_vals? (&(mach_r2_vals[variant_uidx])) : nullptr, genocounts, cur_dosages);
 	  if (reterr) {
 	    g_error_ret = reterr;
 	    break;
@@ -8169,7 +8250,7 @@ THREAD_FUNC_DECL load_allele_and_geno_counts_thread(void* arg) {
 	    }
 	  }
 	} else if (is_y) {
-	  reterr = pgr_get_ref_nonref_genotype_counts_and_dosage16s(sex_male, sex_male_interleaved_vec, sex_male_cumulative_popcounts, male_ct, variant_uidx, pgrp, genocounts, cur_dosages);
+	  reterr = pgr_get_ref_nonref_genotype_counts_and_dosage16s(sex_male, sex_male_interleaved_vec, sex_male_cumulative_popcounts, male_ct, variant_uidx, pgrp, nullptr, genocounts, cur_dosages);
 	  if (reterr) {
 	    g_error_ret = reterr;
 	    break;
@@ -8306,6 +8387,7 @@ THREAD_FUNC_DECL load_allele_and_geno_counts_thread(void* arg) {
       raw_geno_cts = g_founder_raw_geno_cts;
       x_male_geno_cts = g_founder_x_male_geno_cts;
       x_nosex_geno_cts = g_founder_x_nosex_geno_cts;
+      mach_r2_vals = nullptr;
       pgr_clear_ld_cache(pgrp);
     }
     if (is_last_block) {
@@ -8315,7 +8397,7 @@ THREAD_FUNC_DECL load_allele_and_geno_counts_thread(void* arg) {
   }
 }
 
-pglerr_t load_allele_and_geno_counts(const uintptr_t* sample_include, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const chr_info_t* cip, const uintptr_t* variant_allele_idxs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t founder_ct, uint32_t male_ct, uint32_t nosex_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t first_hap_uidx, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, pgen_file_info_t* pgfip, uint64_t* allele_dosages, uint64_t* founder_allele_dosages, uint32_t* variant_missing_hc_cts, uint32_t* variant_missing_dosage_cts, uint32_t* variant_hethap_cts, uint32_t* raw_geno_cts, uint32_t* founder_raw_geno_cts, uint32_t* x_male_geno_cts, uint32_t* founder_x_male_geno_cts, uint32_t* x_nosex_geno_cts, uint32_t* founder_x_nosex_geno_cts) {
+pglerr_t load_allele_and_geno_counts(const uintptr_t* sample_include, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const chr_info_t* cip, const uintptr_t* variant_allele_idxs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t founder_ct, uint32_t male_ct, uint32_t nosex_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t first_hap_uidx, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, pgen_file_info_t* pgfip, uint64_t* allele_dosages, uint64_t* founder_allele_dosages, uint32_t* variant_missing_hc_cts, uint32_t* variant_missing_dosage_cts, uint32_t* variant_hethap_cts, uint32_t* raw_geno_cts, uint32_t* founder_raw_geno_cts, uint32_t* x_male_geno_cts, uint32_t* founder_x_male_geno_cts, uint32_t* x_nosex_geno_cts, uint32_t* founder_x_nosex_geno_cts, double* mach_r2_vals) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   pglerr_t reterr = kPglRetSuccess;
@@ -8349,6 +8431,7 @@ pglerr_t load_allele_and_geno_counts(const uintptr_t* sample_include, const uint
     g_raw_geno_cts = only_founder_cts_required? founder_raw_geno_cts : raw_geno_cts;
     g_x_male_geno_cts = only_founder_cts_required? founder_x_male_geno_cts : x_male_geno_cts;
     g_x_nosex_geno_cts = only_founder_cts_required? founder_x_nosex_geno_cts : x_nosex_geno_cts;
+    g_mach_r2_vals = mach_r2_vals;
     const uint32_t raw_sample_ctl = BITCT_TO_WORDCT(raw_sample_ct);
     const uint32_t raw_sample_ctv = BITCT_TO_VECCT(raw_sample_ct);
     if (bigstack_alloc_ul(raw_sample_ctv * kWordsPerVec, &g_sample_include_interleaved_vec) ||
@@ -11704,7 +11787,7 @@ pglerr_t export_ox_sample(const char* outname, const uintptr_t* sample_include, 
 	uint32_t cat_idx;
 	for (cat_idx = 1; cat_idx <= nn_cat_ct; ++cat_idx) {
 	  const char* cat_name_iter = cur_cat_names[cat_idx];
-	  if (*cat_name_iter == 'P') {
+	  if (*cat_name_iter == 'C') {
 	    uint32_t char_code = *(++cat_name_iter);
 	    if ((char_code - 49) < 9) {
 	      uint32_t uii;

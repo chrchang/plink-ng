@@ -6528,7 +6528,7 @@ uint64_t uint16_vec_sum(const uint16_t* __restrict uint16_vec, uint32_t entry_ct
 #endif
 }
 
-pglerr_t get_ref_nonref_genotype_counts_and_dosage16s(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, pgen_reader_t* pgrp, uint32_t* genocounts, uint64_t* all_dosages) {
+pglerr_t get_ref_nonref_genotype_counts_and_dosage16s(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, pgen_reader_t* pgrp, double* mach_r2_ptr, uint32_t* genocounts, uint64_t* all_dosages) {
   // genocounts[0] := ref/ref, genocounts[1] := ref/altx,
   // genocounts[2] := altx/alty, genocounts[3] := missing
   const uint32_t vrtype = get_pgfi_vrtype(&(pgrp->fi), vidx);
@@ -6539,6 +6539,21 @@ pglerr_t get_ref_nonref_genotype_counts_and_dosage16s(const uintptr_t* __restric
     }
     all_dosages[0] = (genocounts[0] * 2 + genocounts[1]) * 16384LLU;
     all_dosages[1] = (genocounts[2] * 2 + genocounts[1]) * 16384LLU;
+    if (!mach_r2_ptr) {
+      return kPglRetSuccess;
+    }
+    // yeah, it's sinful to implement mach-r2 here...
+    const uint32_t nm_sample_ct = sample_ct - genocounts[3];
+    double mach_r2 = 1.0;
+    if (nm_sample_ct) {
+      const uintptr_t dosage_sum = genocounts[2] * 2 + genocounts[1];
+      const int64_t dosage_ssq = (uint64_t)(dosage_sum + genocounts[2] * 2LLU);
+      const double dosage_sumd = dosage_sum;
+      const double dosage_avg = dosage_sumd / ((double)((int32_t)nm_sample_ct));
+      const double dosage_variance = dosage_ssq - dosage_sumd * dosage_avg;
+      mach_r2 = 2 * dosage_variance / (dosage_sumd * (2 - dosage_avg));
+    }
+    *mach_r2_ptr = mach_r2;
     return kPglRetSuccess;
   }
   const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
@@ -6586,10 +6601,10 @@ pglerr_t get_ref_nonref_genotype_counts_and_dosage16s(const uintptr_t* __restric
   const uint32_t alt_allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx] - 1) : 1;
   assert(alt_allele_ct == 1);
 #endif
-  uint32_t alt1_ct = genocounts[2] * 2 + genocounts[1];
   uint64_t alt1_dosage = 0;
+  uint64_t alt1_dosage_sq_sum = 0;
   uint32_t dosage_ct = 0;
-  uint32_t replaced_ct = 0;
+  uint32_t replaced_genocounts[4];
   if ((vrtype & 0x60) == 0x40) {
     // unconditional dosage.  needs to be handled separately from the other
     // cases due to possible presence of missing values.
@@ -6599,6 +6614,7 @@ pglerr_t get_ref_nonref_genotype_counts_and_dosage16s(const uintptr_t* __restric
 #ifdef __arm__
   #error "Unaligned accesses in get_ref_nonref_genotype_counts_and_dosage16s()."
 #endif
+    fill_uint_zero(4, replaced_genocounts);
     const uint16_t* dosage_vals = (const uint16_t*)fread_ptr;
     if (subsetting_required) {
       for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
@@ -6606,12 +6622,14 @@ pglerr_t get_ref_nonref_genotype_counts_and_dosage16s(const uintptr_t* __restric
 	const uintptr_t cur_dosage_val = dosage_vals[sample_uidx];
 	if (cur_dosage_val != 65535) {
 	  alt1_dosage += cur_dosage_val;
+
+	  // todo: check if this is slow enough to justify removing it from the
+	  // main loop
+	  alt1_dosage_sq_sum += cur_dosage_val * cur_dosage_val;
+
 	  ++dosage_ct;
 	  const uint32_t hardcall_code = GET_QUATERARR_ENTRY(tmp_genovec, sample_uidx);
-	  if (hardcall_code != 3) {
-	    alt1_ct -= hardcall_code;
-	    ++replaced_ct;
-	  }
+	  replaced_genocounts[hardcall_code] += 1;
 	}
       }
     } else {
@@ -6619,12 +6637,10 @@ pglerr_t get_ref_nonref_genotype_counts_and_dosage16s(const uintptr_t* __restric
 	const uintptr_t cur_dosage_val = dosage_vals[sample_uidx];
 	if (cur_dosage_val != 65535) {
 	  alt1_dosage += cur_dosage_val;
+	  alt1_dosage_sq_sum += cur_dosage_val * cur_dosage_val;
 	  ++dosage_ct;
 	  const uint32_t hardcall_code = GET_QUATERARR_ENTRY(tmp_genovec, sample_uidx);
-	  if (hardcall_code != 3) {
-	    alt1_ct -= hardcall_code;
-	    ++replaced_ct;
-	  }
+	  replaced_genocounts[hardcall_code] += 1;
 	}
       }
     }
@@ -6647,43 +6663,71 @@ pglerr_t get_ref_nonref_genotype_counts_and_dosage16s(const uintptr_t* __restric
     }
     const uint16_t* dosage_vals_iter = (const uint16_t*)fread_ptr;
     uint32_t sample_uidx = 0;
-    uint32_t replaced_genocounts[4];
     if (subsetting_required) {
       for (uint32_t dosage_idx = 0; dosage_idx < raw_dosage_ct; ++dosage_idx, ++sample_uidx) {
 	next_set_unsafe_ck(raw_dosage_present, &sample_uidx);
 	if (IS_SET(sample_include, sample_uidx)) {
 	  const uintptr_t cur_dosage_val = dosage_vals_iter[dosage_idx];
 	  alt1_dosage += cur_dosage_val;
+	  alt1_dosage_sq_sum += cur_dosage_val * cur_dosage_val;
 	  ++dosage_ct;
 	}
       }
       genoarr_count_subset_intersect_freqs(tmp_genovec, raw_dosage_present, sample_include, raw_sample_ct, replaced_genocounts);
     } else {
-      for (uint32_t dosage_idx = 0; dosage_idx < raw_dosage_ct; ++dosage_idx) {
-	alt1_dosage += dosage_vals_iter[dosage_idx];
+      if (!mach_r2_ptr) {
+	for (uint32_t dosage_idx = 0; dosage_idx < raw_dosage_ct; ++dosage_idx) {
+	  alt1_dosage += dosage_vals_iter[dosage_idx];
+	}
+      } else {
+	for (uint32_t dosage_idx = 0; dosage_idx < raw_dosage_ct; ++dosage_idx) {
+	  const uintptr_t cur_dosage_val = dosage_vals_iter[dosage_idx];
+	  alt1_dosage += cur_dosage_val;
+	  alt1_dosage_sq_sum += cur_dosage_val * cur_dosage_val;
+	}
       }
       dosage_ct = raw_dosage_ct;
       genoarr_count_subset_freqs2(tmp_genovec, raw_dosage_present, raw_sample_ct, raw_dosage_ct, replaced_genocounts);
     }
-    replaced_ct = replaced_genocounts[0] + replaced_genocounts[1] + replaced_genocounts[2];
-    alt1_ct -= 2 * replaced_genocounts[2] + replaced_genocounts[1];
   }
-  all_dosages[1] = alt1_dosage + (alt1_ct * 16384LLU);
-  const uintptr_t ref_ct = (sample_ct - genocounts[3] - replaced_ct) * (2 * k1LU) - alt1_ct;
-  all_dosages[0] = (dosage_ct * 32768LLU) - alt1_dosage + (ref_ct * 16384LLU);
+  const uint32_t replaced_ct = replaced_genocounts[0] + replaced_genocounts[1] + replaced_genocounts[2];
+  const uint32_t remaining_het_ct = genocounts[1] - replaced_genocounts[1];
+  const uint32_t remaining_hom_alt_ct = genocounts[2] - replaced_genocounts[2];
+  const uint32_t alt1_ct = 2 * remaining_hom_alt_ct + remaining_het_ct;
+  alt1_dosage += alt1_ct * 16384LLU;
+  all_dosages[1] = alt1_dosage;
+  const uint32_t nondosage_nm_ct = sample_ct - genocounts[3] - replaced_ct;
+  const uint32_t new_sample_nm_ct = dosage_ct + nondosage_nm_ct;
+  all_dosages[0] = new_sample_nm_ct * 32768LLU - alt1_dosage;
+  if (!mach_r2_ptr) {
+    return kPglRetSuccess;
+  }
+  double mach_r2 = 1.0;
+  if (new_sample_nm_ct) {
+    // 16384^2, 32768^2
+    alt1_dosage_sq_sum += remaining_het_ct * 0x10000000LLU + remaining_hom_alt_ct * 0x40000000LLU;
+    const double dosage_sumd = (int64_t)alt1_dosage;
+    const double dosage_avg = dosage_sumd / ((double)((int32_t)new_sample_nm_ct));
+    const double dosage_variance = ((int64_t)alt1_dosage_sq_sum) - dosage_sumd * dosage_avg;
+    mach_r2 = 2 * dosage_variance / (dosage_sumd * (32768 - dosage_avg));
+  }
+  *mach_r2_ptr = mach_r2;
   return kPglRetSuccess;
 }
 
-pglerr_t pgr_get_ref_nonref_genotype_counts_and_dosage16s(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, pgen_reader_t* pgrp, uint32_t* genocounts, uint64_t* all_dosages) {
+pglerr_t pgr_get_ref_nonref_genotype_counts_and_dosage16s(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, pgen_reader_t* pgrp, double* mach_r2_ptr, uint32_t* genocounts, uint64_t* all_dosages) {
   assert(vidx < pgrp->fi.raw_variant_ct);
   if (!sample_ct) {
     fill_uint_zero(4, genocounts);
     const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
     const uint32_t cur_allele_ct = allele_idx_offsets? ((uint32_t)(allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx])) : 2;
     fill_ull_zero(cur_allele_ct, all_dosages);
+    if (mach_r2_ptr) {
+      *mach_r2_ptr = 1.0;
+    }
     return kPglRetSuccess;
   }
-  return get_ref_nonref_genotype_counts_and_dosage16s(sample_include, sample_include_interleaved_vec, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, genocounts, all_dosages);
+  return get_ref_nonref_genotype_counts_and_dosage16s(sample_include, sample_include_interleaved_vec, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, mach_r2_ptr, genocounts, all_dosages);
 }
 
 pglerr_t pgr_read_refalt1_genovec_hphase_dosage16_subset_unsafe(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, pgen_reader_t* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr, uint32_t* is_explicit_alt1_ptr) {

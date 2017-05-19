@@ -16,6 +16,7 @@
 
 
 #include "plink2_decompress.h"
+#include "plink2_psam.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -40,9 +41,6 @@ typedef struct psam_info_ll_struct {
   uint32_t sex_code; // 0 = unknown, 1 = male, 2 = female
   unsigned char vardata[];
 } psam_info_ll_t;
-
-// chosen to be likely to fit in L3 cache
-CONSTU31(kCatHtableSize, 524287);
 
 pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_ptr, fam_col_t fam_cols, uint32_t pheno_ct_max, int32_t missing_pheno, uint32_t affection_01, uintptr_t* max_sample_id_blen_ptr, uintptr_t* max_sid_blen_ptr, uintptr_t* max_paternal_id_blen_ptr, uintptr_t* max_maternal_id_blen_ptr, uintptr_t** sample_include_ptr, char** sample_ids_ptr, char** sids_ptr, char** paternal_ids_ptr, char** maternal_ids_ptr, uintptr_t** founder_info_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, pheno_col_t** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* raw_sample_ct_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
   // outparameter pointers assumed to be initialized to nullptr
@@ -309,16 +307,16 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
       if (pheno_ct > 1) {
 	if (pheno_ct > kMaxPhenoCt) {
 	  // yeah, yeah, this will never come up
-	  LOGERRPRINTF("Error: " PROG_NAME_STR " does not support more than %u phenotypes.\n", kMaxPhenoCt);
+	  logerrprint("Error: " PROG_NAME_STR " does not support more than " MAX_PHENO_CT_STR " phenotypes.\n");
 	  goto load_psam_ret_MALFORMED_INPUT;
 	}
 	// verify there are no duplicates
-	const uint32_t tmp_htable_size = get_htable_min_size(pheno_ct);
+	uint32_t tmp_htable_size;
 	uint32_t* htable_tmp;
-	if (bigstack_alloc_ui(tmp_htable_size, &htable_tmp)) {
+	if (htable_good_size_alloc(pheno_ct, bigstack_left(), &htable_tmp, &tmp_htable_size)) {
 	  goto load_psam_ret_NOMEM;
 	}
-	uint32_t duplicate_idx = populate_strbox_htable(pheno_names, pheno_ct, max_pheno_name_blen, tmp_htable_size, htable_tmp);
+	const uint32_t duplicate_idx = populate_strbox_htable(pheno_names, pheno_ct, max_pheno_name_blen, tmp_htable_size, htable_tmp);
 	if (duplicate_idx) {
 	  const char* duplicate_pheno_name = &(pheno_names[duplicate_idx * max_pheno_name_blen]);
 	  sprintf(g_logbuf, "Error: Duplicate phenotype/covariate name '%s' on line %" PRIuPTR " of %s.\n", duplicate_pheno_name, line_idx, psamname);
@@ -634,21 +632,25 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
 	  nonnull_catname_ct = nonnull_catname_cts[cat_pheno_idx];
 	  data_vec_ct = INT32CT_TO_VECCT(raw_sample_ct);
 	  catname_vec_ct = WORDCT_TO_VECCT(nonnull_catname_ct + 1);
-	  catname_storage_vec_ct = round_up_pow2(total_catname_blens[cat_pheno_idx], kBytesPerVec);
+	  catname_storage_vec_ct = DIV_UP(total_catname_blens[cat_pheno_idx], kBytesPerVec);
 	  pheno_cols_iter->type_code = kPhenoDtypeCat;
 	  pheno_cols_iter->nonnull_category_ct = nonnull_catname_ct;
 	}
 	// pheno_cols_iter->nonmiss = nullptr;
-	if (vecaligned_malloc((nonmiss_vec_ct + data_vec_ct + catname_vec_ct + catname_storage_vec_ct) * kBytesPerVec, &(pheno_cols_iter->nonmiss))) {
+	uintptr_t* new_pheno_data_iter;
+	if (vecaligned_malloc((nonmiss_vec_ct + data_vec_ct + catname_vec_ct + catname_storage_vec_ct) * kBytesPerVec, &new_pheno_data_iter)) {
 	  goto load_psam_ret_NOMEM;
 	}
-	fill_ulong_zero(nonmiss_vec_ct * kWordsPerVec, pheno_cols_iter->nonmiss);
-	pheno_cols_iter->data.cc = &(pheno_cols_iter->nonmiss[nonmiss_vec_ct * kWordsPerVec]);
+	pheno_cols_iter->nonmiss = new_pheno_data_iter;
+	fill_ulong_zero(nonmiss_vec_ct * kWordsPerVec, new_pheno_data_iter);
+	new_pheno_data_iter = &(new_pheno_data_iter[nonmiss_vec_ct * kWordsPerVec]);
 	if (is_categorical) {
-	  char** cur_name_ptrs = (char**)(&(pheno_cols_iter->data.cc[data_vec_ct * kWordsPerVec]));
+	  pheno_cols_iter->data.cat = (uint32_t*)new_pheno_data_iter;
+	  new_pheno_data_iter = &(new_pheno_data_iter[data_vec_ct * kWordsPerVec]);
+	  char** cur_name_ptrs = (char**)new_pheno_data_iter;
 	  pheno_cols_iter->category_names = cur_name_ptrs;
 	  *cur_name_ptrs++ = missing_catname;
-	  char* name_storage_iter = (char*)(&(pheno_cols_iter->data.cc[(data_vec_ct + catname_vec_ct) * kWordsPerVec]));
+	  char* name_storage_iter = (char*)(&(new_pheno_data_iter[catname_vec_ct * kWordsPerVec]));
 	  uint32_t cur_hval = missing_catname_hval + cat_pheno_idx;
 	  if (cur_hval >= kCatHtableSize) {
 	    cur_hval -= kCatHtableSize;
@@ -664,7 +666,10 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
 	  }
 	  ++cat_pheno_idx;
 	} else if (!is_qt) {
-	  fill_ulong_zero(nonmiss_vec_ct * kWordsPerVec, pheno_cols_iter->data.cc);
+	  pheno_cols_iter->data.cc = new_pheno_data_iter;
+	  fill_ulong_zero(nonmiss_vec_ct * kWordsPerVec, new_pheno_data_iter);
+	} else {
+	  pheno_cols_iter->data.qt = (double*)new_pheno_data_iter;
 	}
 	++pheno_cols_iter;
       }
@@ -829,14 +834,13 @@ typedef struct pheno_info_ll_struct {
 } pheno_info_ll_t;
 
 // also for loading covariates.  set affection_01 to 2 to prohibit case/control
+// and make unnamed variables start with "COVAR" instead of "PHENO"
 pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_list_ptr, const uintptr_t* sample_include, const char* sample_ids, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, int32_t missing_pheno, uint32_t affection_01, pheno_col_t** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   
   gzFile gz_infile = nullptr;
-  pheno_col_t* pheno_cols = *pheno_cols_ptr;
   char* pheno_names = nullptr;
   uintptr_t line_idx = 0;
-  uint32_t old_pheno_ct = *pheno_ct_ptr;
   pglerr_t reterr = kPglRetSuccess;
   {
     reterr = gzopen_read_checked(pheno_fname, &gz_infile);
@@ -876,6 +880,7 @@ pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_li
     if (loadbuf_first_token[0] == '#') {
       ++loadbuf_first_token;
     }    
+    const uint32_t old_pheno_ct = *pheno_ct_ptr;
     const uintptr_t old_max_pheno_name_blen = *max_pheno_name_blen_ptr;
     uintptr_t max_pheno_name_blen = old_max_pheno_name_blen;
     uint32_t comma_delim = 0;
@@ -958,7 +963,13 @@ pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_li
       for (uint32_t new_pheno_idx = 0; new_pheno_idx < new_pheno_ct; ++new_pheno_idx) {
 	loadbuf_iter = comma_or_space_next_token_mult(loadbuf_iter, col_skips[new_pheno_idx], comma_delim);
 	char* token_end = comma_or_space_token_end(loadbuf_iter, comma_delim);
-	memcpyx(pheno_names_iter, loadbuf_iter, (uintptr_t)(token_end - loadbuf_iter), '\0');
+	const uint32_t name_slen = (uintptr_t)(token_end - loadbuf_iter);
+	if (is_reserved_pheno_name(loadbuf_iter, name_slen)) {
+	  *token_end = '\0';
+	  sprintf(g_logbuf, "Error: '%s' cannot be used as a phenotype/covariate name.\n", loadbuf_iter);
+	  goto load_phenos_ret_MALFORMED_INPUT_2;
+	}
+	memcpyx(pheno_names_iter, loadbuf_iter, name_slen, '\0');
 	pheno_names_iter = &(pheno_names_iter[max_pheno_name_blen]);
 	loadbuf_iter = token_end;
       }
@@ -995,8 +1006,9 @@ pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_li
       for (uint32_t col_idx = 0; col_idx < new_pheno_ct; ++col_idx) {
 	col_skips[col_idx] = 1;
       }
+      const char* default_prefix = (affection_01 == 2)? "COVAR" : "PHENO";
       for (uint32_t pheno_idx = old_pheno_ct; pheno_idx < final_pheno_ct;) {
-	char* write_iter = memcpya(&(pheno_names[pheno_idx * max_pheno_name_blen]), "PHENO", 5);
+	char* write_iter = memcpya(&(pheno_names[pheno_idx * max_pheno_name_blen]), default_prefix, 5);
 	++pheno_idx; // 1-based default names, not 0-based
 	write_iter = uint32toa(pheno_idx, write_iter);
 	*write_iter = '\0';
@@ -1006,12 +1018,12 @@ pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_li
       strcpy(&(pheno_names[old_pheno_idx * max_pheno_name_blen]), &((*pheno_names_ptr)[old_pheno_idx * old_max_pheno_name_blen]));
     }
 
-    const uint32_t tmp_htable_size = get_htable_min_size(final_pheno_ct);
+    uint32_t tmp_htable_size;
     uint32_t* htable_tmp;
-    if (bigstack_alloc_ui(tmp_htable_size, &htable_tmp)) {
+    if (htable_good_size_alloc(final_pheno_ct, bigstack_left(), &htable_tmp, &tmp_htable_size)) {
       goto load_phenos_ret_NOMEM;
     }
-    uint32_t duplicate_idx = populate_strbox_htable(pheno_names, final_pheno_ct, max_pheno_name_blen, tmp_htable_size, htable_tmp);
+    const uint32_t duplicate_idx = populate_strbox_htable(pheno_names, final_pheno_ct, max_pheno_name_blen, tmp_htable_size, htable_tmp);
     if (duplicate_idx) {
       const char* duplicate_pheno_name = &(pheno_names[duplicate_idx * max_pheno_name_blen]);
       sprintf(g_logbuf, "Error: Duplicate phenotype/covariate ID '%s'.\n", duplicate_pheno_name);
@@ -1019,21 +1031,16 @@ pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_li
     }
     bigstack_reset(htable_tmp);
 
-    pheno_cols = (pheno_col_t*)malloc(final_pheno_ct * sizeof(pheno_col_t));
-    if (!pheno_cols) {
-      pheno_cols = *pheno_cols_ptr;
+    pheno_col_t* new_pheno_cols = (pheno_col_t*)realloc(*pheno_cols_ptr, final_pheno_ct * sizeof(pheno_col_t));
+    if (!new_pheno_cols) {
       goto load_phenos_ret_NOMEM;
-    }
-    if (old_pheno_ct) {
-      memcpy(pheno_cols, *pheno_cols_ptr, old_pheno_ct * sizeof(pheno_col_t));
     }
     // ensure cleanup works if initialization fails in the middle
     for (uint32_t pheno_idx = old_pheno_ct; pheno_idx < final_pheno_ct; ++pheno_idx) {
-      pheno_cols[pheno_idx].nonmiss = nullptr;
+      new_pheno_cols[pheno_idx].nonmiss = nullptr;
     }
     *pheno_ct_ptr = final_pheno_ct;
-    free(*pheno_cols_ptr);
-    *pheno_cols_ptr = pheno_cols;
+    *pheno_cols_ptr = new_pheno_cols;
 
     // switch to hash table?
     char* sorted_sample_ids;
@@ -1263,8 +1270,8 @@ pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_li
     }
     if (!pheno_info_reverse_ll) {
       if (line_idx == 1) {
-	logerrprint("Error: %s is empty.\n");
-	goto load_phenos_ret_MALFORMED_INPUT;
+	sprintf(g_logbuf, "Error: %s is empty.\n", pheno_fname);
+	goto load_phenos_ret_MALFORMED_INPUT_WW;
       }
       // could make this a warning, and automatically delete phenotypes?
       LOGERRPRINTF("Error: No entries in %s correspond to loaded sample IDs.\n", pheno_fname);
@@ -1273,7 +1280,7 @@ pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_li
     if (new_pheno_ct) {
       const uintptr_t nonmiss_vec_ct = BITCT_TO_VECCT(raw_sample_ct);
       uint32_t cat_pheno_idx = 0;
-      pheno_col_t* pheno_cols_iter = &(pheno_cols[old_pheno_ct]);
+      pheno_col_t* pheno_cols_iter = &(new_pheno_cols[old_pheno_ct]);
       for (uint32_t new_pheno_idx = 0; new_pheno_idx < new_pheno_ct; ++new_pheno_idx) {
 	const uint32_t is_categorical = IS_SET(categorical_phenos, new_pheno_idx);
 	const uint32_t is_qt = IS_SET(quantitative_phenos, new_pheno_idx);
@@ -1294,21 +1301,27 @@ pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_li
 	  nonnull_catname_ct = nonnull_catname_cts[cat_pheno_idx];
 	  data_vec_ct = INT32CT_TO_VECCT(raw_sample_ct);
 	  catname_vec_ct = WORDCT_TO_VECCT(nonnull_catname_ct + 1);
-	  catname_storage_vec_ct = round_up_pow2(total_catname_blens[cat_pheno_idx], kBytesPerVec);
+	  catname_storage_vec_ct = DIV_UP(total_catname_blens[cat_pheno_idx], kBytesPerVec);
 	  pheno_cols_iter->type_code = kPhenoDtypeCat;
 	  pheno_cols_iter->nonnull_category_ct = nonnull_catname_ct;
 	}
 	// pheno_cols_iter->nonmiss = nullptr;
-	if (vecaligned_malloc((nonmiss_vec_ct + data_vec_ct + catname_vec_ct + catname_storage_vec_ct) * kBytesPerVec, &(pheno_cols_iter->nonmiss))) {
+	uintptr_t* new_pheno_data_iter;
+	if (vecaligned_malloc((nonmiss_vec_ct + data_vec_ct + catname_vec_ct + catname_storage_vec_ct) * kBytesPerVec, &new_pheno_data_iter)) {
 	  goto load_phenos_ret_NOMEM;
 	}
-	fill_ulong_zero(nonmiss_vec_ct * kWordsPerVec, pheno_cols_iter->nonmiss);
-	pheno_cols_iter->data.cc = &(pheno_cols_iter->nonmiss[nonmiss_vec_ct * kWordsPerVec]);
+	pheno_cols_iter->nonmiss = new_pheno_data_iter;
+	fill_ulong_zero(nonmiss_vec_ct * kWordsPerVec, new_pheno_data_iter);
+	new_pheno_data_iter = &(new_pheno_data_iter[nonmiss_vec_ct * kWordsPerVec]);
 	if (is_categorical) {
-	  char** cur_name_ptrs = (char**)(&(pheno_cols_iter->data.cc[data_vec_ct * kWordsPerVec]));
+	  // allow nonmiss[] to be ignored in categorical case
+	  fill_ulong_zero(data_vec_ct, new_pheno_data_iter);
+	  pheno_cols_iter->data.cat = (uint32_t*)new_pheno_data_iter;
+	  new_pheno_data_iter = &(new_pheno_data_iter[data_vec_ct * kWordsPerVec]);
+	  char** cur_name_ptrs = (char**)new_pheno_data_iter;
 	  pheno_cols_iter->category_names = cur_name_ptrs;
 	  *cur_name_ptrs++ = g_missing_catname;
-	  char* name_storage_iter = (char*)(&(pheno_cols_iter->data.cc[(data_vec_ct + catname_vec_ct) * kWordsPerVec]));
+	  char* name_storage_iter = (char*)(&(new_pheno_data_iter[catname_vec_ct * kWordsPerVec]));
 	  uint32_t cur_hval = missing_catname_hval + cat_pheno_idx;
 	  if (cur_hval >= kCatHtableSize) {
 	    cur_hval -= kCatHtableSize;
@@ -1324,14 +1337,17 @@ pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_li
 	  }
 	  ++cat_pheno_idx;
 	} else if (!is_qt) {
-	  fill_ulong_zero(nonmiss_vec_ct * kWordsPerVec, pheno_cols_iter->data.cc);
+	  pheno_cols_iter->data.cc = new_pheno_data_iter;
+	  fill_ulong_zero(nonmiss_vec_ct * kWordsPerVec, new_pheno_data_iter);
+	} else {
+	  pheno_cols_iter->data.qt = (double*)new_pheno_data_iter;
 	}
 	++pheno_cols_iter;
       }
       while (pheno_info_reverse_ll) {
 	const uint32_t sample_uidx = pheno_info_reverse_ll->sample_uidx;
 	double* pheno_data = pheno_info_reverse_ll->phenodata;
-	pheno_cols_iter = &(pheno_cols[old_pheno_ct]);
+	pheno_cols_iter = &(new_pheno_cols[old_pheno_ct]);
 	for (uint32_t new_pheno_idx = 0; new_pheno_idx < new_pheno_ct; ++new_pheno_idx) {
 	  if (IS_SET(categorical_phenos, new_pheno_idx)) {
 	    uint32_t cur_cat;
@@ -1377,6 +1393,7 @@ pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_li
     sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, pheno_fname);
   load_phenos_ret_MALFORMED_INPUT_WW:
     wordwrapb(0);
+  load_phenos_ret_MALFORMED_INPUT_2:
     logerrprintb();
   load_phenos_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
@@ -1405,7 +1422,7 @@ pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_li
       free(*pheno_names_ptr);
       *pheno_names_ptr = nullptr;
     }
-    cleanup_pheno_cols(*pheno_ct_ptr, pheno_cols);
+    cleanup_pheno_cols(*pheno_ct_ptr, *pheno_cols_ptr);
     *pheno_ct_ptr = 0;
     *pheno_cols_ptr = nullptr;
   }

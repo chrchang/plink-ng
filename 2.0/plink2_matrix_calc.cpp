@@ -3612,9 +3612,8 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
     const uint32_t nonmale_ct = popcount_longs(sex_nonmale_collapsed, sample_ctl);
     const uint32_t male_ct = sample_ct - nonmale_ct;
     uint32_t* variant_id_htable = nullptr;
-    uint32_t* htable_dup_base = nullptr;
     uint32_t variant_id_htable_size;
-    reterr = alloc_and_populate_variant_id_dup_htable_mt(variant_include, variant_ids, variant_ct, max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size);
+    reterr = alloc_and_populate_id_htable_mt(variant_include, variant_ids, variant_ct, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size);
     if (reterr) {
       goto score_report_ret_1;
     }
@@ -3654,13 +3653,8 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
 	}
 	char* variant_id_token_end = token_endnn(variant_id_start);
 	const uint32_t variant_id_slen = (uintptr_t)(variant_id_token_end - variant_id_start);
-	uint32_t cur_llidx;
-	uint32_t variant_uidx = variant_id_dup_htable_find(variant_id_start, variant_ids, variant_id_htable, htable_dup_base, variant_id_slen, variant_id_htable_size, max_variant_id_slen, &cur_llidx);
-	if (variant_uidx != 0xffffffffU) {
-	  if (cur_llidx != 0xffffffffU) {
-	    sprintf(g_logbuf, "Error: --score variant ID '%s' appears multiple times in main dataset.\n", variant_ids[variant_uidx]);
-	    goto score_report_ret_INCONSISTENT_INPUT_WW;
-	  }
+	uint32_t variant_uidx = variant_id_dupflag_htable_find(variant_id_start, variant_ids, variant_id_htable, variant_id_slen, variant_id_htable_size, max_variant_id_slen);
+	if (!(variant_uidx >> 31)) {
 	  if (is_set(already_seen, variant_uidx)) {
 	    sprintf(g_logbuf, "Error: Variant ID '%s' appears multiple times in --score file.\n", variant_ids[variant_uidx]);
 	    goto score_report_ret_MALFORMED_INPUT_WW;
@@ -3916,6 +3910,10 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
 	    ++missing_allele_code_ct;
 	  }
 	} else {
+	  if (variant_uidx != 0xffffffffU) {
+	    sprintf(g_logbuf, "Error: --score variant ID '%s' appears multiple times in main dataset.\n", variant_ids[variant_uidx & 0x7fffffff]);
+	    goto score_report_ret_INCONSISTENT_INPUT_WW;
+	  }
 	  ++missing_var_id_ct;
 	}
       }

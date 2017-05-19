@@ -25,6 +25,19 @@ namespace plink2 {
 #endif
 
 FLAGSET_DEF_START()
+  kfWriteCovar0,
+  kfWriteCovarColMaybesid = (1 << 0),
+  kfWriteCovarColSid = (1 << 1),
+  kfWriteCovarColMaybeparents = (1 << 2),
+  kfWriteCovarColParents = (1 << 3),
+  kfWriteCovarColSex = (1 << 4),
+  kfWriteCovarColPheno1 = (1 << 5),
+  kfWriteCovarColPhenos = (1 << 6),
+  kfWriteCovarColDefault = kfWriteCovarColMaybesid,
+  kfWriteCovarColAll = ((kfWriteCovarColPhenos * 2) - kfWriteCovarColMaybesid)
+FLAGSET_DEF_END(write_covar_flags_t);
+
+FLAGSET_DEF_START()
   kfAlleleFreq0,
   kfAlleleFreqZs = (1 << 0),
   kfAlleleFreqCounts = (1 << 1),
@@ -47,7 +60,8 @@ FLAGSET_DEF_START()
   kfAlleleFreqColAlteqz = (1 << 17),
   kfAlleleFreqColNumeq = (1 << 18),
   kfAlleleFreqColAltnumeq = (1 << 19),
-  kfAlleleFreqColNobs = (1 << 20),
+  kfAlleleFreqColMachR2 = (1 << 20),
+  kfAlleleFreqColNobs = (1 << 21),
   kfAlleleFreqColDefault = (kfAlleleFreqColChrom | kfAlleleFreqColRef | kfAlleleFreqColAlt | kfAlleleFreqColAltfreq | kfAlleleFreqColNobs),
   kfAlleleFreqColAll = ((kfAlleleFreqColNobs * 2) - kfAlleleFreqColChrom),
   // only mutual exclusion is altfreq/freq/eq/eqz/alteq/alteqz/numeq/numeqz
@@ -145,9 +159,13 @@ FLAGSET_DEF_START()
   kfHardyColAll = ((kfHardyColP * 2) - kfHardyColChrom)
 FLAGSET_DEF_END(hardy_flags_t);
 
+pglerr_t plink1_cluster_import(const char* within_fname, const char* catpheno_name, const char* family_missing_catname, const uintptr_t* sample_include, const char* sample_ids, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uint32_t mwithin_val, pheno_col_t** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr);
+
 pglerr_t update_sample_sexes(const char* update_sex_fname, const uintptr_t* sample_include, char* sample_ids, uint32_t raw_sample_ct, uintptr_t sample_ct, uintptr_t max_sample_id_blen, uint32_t update_sex_colm2, uintptr_t* sex_nm, uintptr_t* sex_male);
 
-pglerr_t write_allele_freqs(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint64_t* founder_allele_dosages, const char* ref_binstr, const char* alt1_binstr, uint32_t variant_ct, uint32_t max_alt_allele_ct, uint32_t max_allele_slen, allele_freq_t allele_freq_modifier, uint32_t nonfounders, char* outname, char* outname_end);
+pglerr_t split_cat_pheno(const char* split_cat_phenonames_flattened, const uintptr_t* sample_include, uint32_t raw_sample_ct, misc_flags_t misc_flags, pheno_col_t** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr, pheno_col_t** covar_cols_ptr, char** covar_names_ptr, uint32_t* covar_ct_ptr, uintptr_t* max_covar_name_blen_ptr);
+
+pglerr_t write_allele_freqs(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint64_t* founder_allele_dosages, const double* mach_r2_vals, const char* ref_binstr, const char* alt1_binstr, uint32_t variant_ct, uint32_t max_alt_allele_ct, uint32_t max_allele_slen, allele_freq_t allele_freq_modifier, uint32_t nonfounders, char* outname, char* outname_end);
 
 pglerr_t write_geno_counts(const uintptr_t* sample_include, const uintptr_t* sex_male, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint32_t* raw_geno_cts, const uint32_t* x_male_geno_cts, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t male_ct, uint32_t variant_ct, uint32_t x_start, uint32_t max_allele_slen, geno_counts_t geno_counts_modifier, pgen_reader_t* simple_pgrp, char* outname, char* outname_end);
 
@@ -158,6 +176,8 @@ pglerr_t compute_hwe_x_pvals(const uintptr_t* variant_include, const uint32_t* f
 pglerr_t hardy_report(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint32_t* founder_raw_geno_cts, const uint32_t* founder_x_male_geno_cts, const uint32_t* founder_x_nosex_geno_cts, const double* hwe_x_pvals, uint32_t variant_ct, uint32_t hwe_x_ct, uint32_t max_allele_slen, double output_min_p, hardy_flags_t hardy_modifier, uint32_t nonfounders, char* outname, char* outname_end);
 
 pglerr_t write_snplist(const uintptr_t* variant_include, char** variant_ids, uint32_t variant_ct, uint32_t output_zst, char* outname, char* outname_end);
+
+pglerr_t write_covar(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const char* paternal_ids, const char* maternal_ids, const uintptr_t* sex_nm, const uintptr_t* sex_male, const pheno_col_t* pheno_cols, const char* pheno_names, const pheno_col_t* covar_cols, const char* covar_names, const uint32_t* new_sample_idx_to_old, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uintptr_t max_paternal_id_blen, uintptr_t max_maternal_id_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, write_covar_flags_t write_covar_flags, char* outname, char* outname_end);
 
 #ifdef __cplusplus
 } // namespace plink2

@@ -76,6 +76,7 @@ void gz_token_stream_preinit(gz_token_stream_t* gtsp);
 pglerr_t gz_token_stream_init(const char* fname, gz_token_stream_t* gtsp, char* buf_start);
 
 // sets token_slen to 0xfffffffeU on read fail, 0xffffffffU on too-long token
+// safe to null-terminate token between calls
 char* gz_token_stream_advance(gz_token_stream_t* gtsp, uint32_t* token_slen_ptr);
 
 // ok if already closed

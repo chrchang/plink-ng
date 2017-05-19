@@ -3490,6 +3490,23 @@ uintptr_t leqprime(uintptr_t ceil) {
   return ceil;
 }
 
+boolerr_t htable_good_size_alloc(uint32_t item_ct, uintptr_t bytes_avail, uint32_t** htable_ptr, uint32_t* htable_size_ptr) {
+  bytes_avail &= (~(kCacheline - k1LU));
+  uint32_t htable_size = get_htable_fast_size(item_ct);
+  if (htable_size > bytes_avail / sizeof(int32_t)) {
+    if (!bytes_avail) {
+      return 1;
+    }
+    htable_size = leqprime((bytes_avail / sizeof(int32_t)) - 1);
+    if (htable_size < item_ct * 2) {
+      return 1;
+    }
+  }
+  *htable_ptr = (uint32_t*)bigstack_alloc_raw(round_up_pow2(htable_size * sizeof(int32_t), kCacheline));
+  *htable_size_ptr = htable_size;
+  return 0;
+}
+
 uint32_t populate_strbox_htable(const char* strbox, uintptr_t str_ct, uintptr_t max_str_blen, uint32_t str_htable_size, uint32_t* str_htable) {
   // may want subset_mask parameter later
   fill_uint_one(str_htable_size, str_htable);
@@ -3589,22 +3606,21 @@ uint32_t strbox_htable_find(const char* cur_id, const char* strbox, const uint32
   }
 }
 
-/*
-uint32_t variant_id_htable_find(const char* idbuf, char** variant_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_slen) {
-  // assumes no duplicate entries, and nonzero id_htable_size
+uint32_t variant_id_dupflag_htable_find(const char* idbuf, char** variant_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_slen) {
+  // assumes duplicate variant IDs are flagged, but full variant_uidx linked
+  // lists are not stored
   // idbuf does not need to be null-terminated (note that this is currently
   // achieved in a way that forces variant_ids[] entries to not be too close
   // to the end of bigstack, otherwise memcmp behavior is potentially
   // undefined)
-  // returns 0xffffffffU on failure
-  assert(id_htable_size);
+  // returns 0xffffffffU on failure, value with bit 31 set on duplicate
   if (cur_id_slen > max_id_slen) {
     return 0xffffffffU;
   }
   uint32_t hashval = hashceil(idbuf, cur_id_slen, id_htable_size);
   while (1) {
     const uint32_t cur_htable_idval = id_htable[hashval];
-    if ((cur_htable_idval == 0xffffffffU) || ((!memcmp(idbuf, variant_ids[cur_htable_idval], cur_id_slen)) && (!variant_ids[cur_htable_idval][cur_id_slen]))) {
+    if ((cur_htable_idval == 0xffffffffU) || ((!memcmp(idbuf, variant_ids[cur_htable_idval & 0x7fffffff], cur_id_slen)) && (!variant_ids[cur_htable_idval & 0x7fffffff][cur_id_slen]))) {
       return cur_htable_idval;
     }
     if (++hashval == id_htable_size) {
@@ -3612,7 +3628,6 @@ uint32_t variant_id_htable_find(const char* idbuf, char** variant_ids, const uin
     }
   }
 }
-*/
 
 uint32_t variant_id_dup_htable_find(const char* idbuf, char** variant_ids, const uint32_t* id_htable, const uint32_t* htable_dup_base, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_slen, uint32_t* llidx_ptr) {
   // Permits duplicate entries.  Similar to plink 1.9
@@ -5471,6 +5486,20 @@ uint32_t is_const_covar(const pheno_col_t* covar_col, const uintptr_t* sample_in
   return 1;
 }
 
+uint32_t identify_remaining_cats(const uintptr_t* sample_include, const pheno_col_t* covar_col, uint32_t sample_ct, uintptr_t* cat_covar_wkspace) {
+  // assumes covar_col->type_code == kPhenoTypeCat
+  const uint32_t nonnull_cat_ct = covar_col->nonnull_category_ct;
+  const uint32_t* covar_vals = covar_col->data.cat;
+  const uint32_t word_ct = 1 + (nonnull_cat_ct / kBitsPerWord);
+  fill_ulong_zero(word_ct, cat_covar_wkspace);
+  uint32_t sample_uidx = 0;
+  for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+    next_set_unsafe_ck(sample_include, &sample_uidx);
+    set_bit(covar_vals[sample_uidx], cat_covar_wkspace);
+  }
+  return popcount_longs(cat_covar_wkspace, word_ct);
+}
+
 void cleanup_pheno_cols(uint32_t pheno_ct, pheno_col_t* pheno_cols) {
   if (pheno_cols) {
     for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
@@ -5982,53 +6011,54 @@ void error_cleanup_threads2z(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, pthr
 
 
 // multithread globals
-static const uintptr_t* g_variant_include = nullptr;
-static char** g_variant_ids;
-static uint32_t* g_variant_id_htable = nullptr;
+static const uintptr_t* g_subset_mask = nullptr;
+static char** g_item_ids;
+static uint32_t* g_id_htable = nullptr;
 
-// currently by variant_idx, not variant_uidx
-static uint32_t* g_variant_id_hashes = nullptr;
-static uint32_t g_variant_ct = 0;
-static uint32_t g_variant_id_htable_size = 0;
+// currently by item_idx, not item_uidx
+static uint32_t* g_item_id_hashes = nullptr;
+static uint32_t g_item_ct = 0;
+static uint32_t g_id_htable_size = 0;
 static uint32_t g_calc_thread_ct = 0;
-static uint32_t g_variant_uidx_starts[16];
+static uint32_t g_item_uidx_starts[16];
 
 THREAD_FUNC_DECL calc_id_hash_thread(void* arg) {
   const uintptr_t tidx = (uintptr_t)arg;
-  const uintptr_t* variant_include = g_variant_include;
-  char** variant_ids = g_variant_ids;
-  uint32_t* variant_id_hashes = g_variant_id_hashes;
-  const uint32_t variant_id_htable_size = g_variant_id_htable_size;
+  const uintptr_t* subset_mask = g_subset_mask;
+  char** item_ids = g_item_ids;
+  uint32_t* item_id_hashes = g_item_id_hashes;
+  const uint32_t id_htable_size = g_id_htable_size;
   const uint32_t calc_thread_ct = g_calc_thread_ct;
-  const uint32_t fill_start = ((variant_id_htable_size * ((uint64_t)tidx)) / calc_thread_ct) & (~(kInt32PerCacheline - k1LU));
+  const uint32_t fill_start = ((id_htable_size * ((uint64_t)tidx)) / calc_thread_ct) & (~(kInt32PerCacheline - k1LU));
   uint32_t fill_end;
   if (tidx + 1 < calc_thread_ct) {
-    fill_end = ((variant_id_htable_size * (((uint64_t)tidx) + 1)) / calc_thread_ct) & (~(kInt32PerCacheline - k1LU));
+    fill_end = ((id_htable_size * (((uint64_t)tidx) + 1)) / calc_thread_ct) & (~(kInt32PerCacheline - k1LU));
   } else {
-    fill_end = variant_id_htable_size;
+    fill_end = id_htable_size;
   }
-  fill_uint_one(fill_end - fill_start, &(g_variant_id_htable[fill_start]));
+  fill_uint_one(fill_end - fill_start, &(g_id_htable[fill_start]));
 
-  const uint32_t variant_ct = g_variant_ct;
-  const uint32_t variant_idx_end = (variant_ct * (((uint64_t)tidx) + 1)) / calc_thread_ct;
-  uint32_t variant_uidx = g_variant_uidx_starts[tidx];
-  for (uint32_t variant_idx = (variant_ct * ((uint64_t)tidx)) / calc_thread_ct; variant_idx < variant_idx_end; ++variant_idx, ++variant_uidx) {
-    next_set_unsafe_ck(variant_include, &variant_uidx);
-    const char* sptr = variant_ids[variant_uidx];
+  const uint32_t item_ct = g_item_ct;
+  const uint32_t item_idx_end = (item_ct * (((uint64_t)tidx) + 1)) / calc_thread_ct;
+  uint32_t item_uidx = g_item_uidx_starts[tidx];
+  for (uint32_t item_idx = (item_ct * ((uint64_t)tidx)) / calc_thread_ct; item_idx < item_idx_end; ++item_idx, ++item_uidx) {
+    next_set_unsafe_ck(subset_mask, &item_uidx);
+    const char* sptr = item_ids[item_uidx];
     const uint32_t slen = strlen(sptr);
-    variant_id_hashes[variant_idx] = hashceil(sptr, slen, variant_id_htable_size);
+    item_id_hashes[item_idx] = hashceil(sptr, slen, id_htable_size);
   }
   THREAD_RETURN;
 }
 
-pglerr_t populate_variant_id_htable_mt(const uintptr_t* variant_include, char** variant_ids, uintptr_t variant_ct, uint32_t store_dups, uint32_t id_htable_size, uint32_t thread_ct, uint32_t* id_htable) {
-  // While unique IDs are normally assumed (and enforced) here, --extract and
-  // --exclude are an exception, since we want to be able to e.g. exclude all
-  // variants named '.'.  Since there could be millions of them, simple O(n^2)
-  // hash table duplicate resolution is unacceptably slow; instead, we allocate
-  // additional linked lists past the end of id_htable to track all raw indexes
-  // of duplicate names.
-  if (!variant_ct) {
+pglerr_t populate_id_htable_mt(const uintptr_t* subset_mask, char** item_ids, uintptr_t item_ct, uint32_t store_all_dups, uint32_t id_htable_size, uint32_t thread_ct, uint32_t* id_htable) {
+  // Change from plink 1.9: if store_all_dups is false, we don't error out on
+  // the first encountered duplicate ID; instead, we just flag it in the hash
+  // table.  So if '.' is the only duplicate ID, and it never appears in a
+  // variant ID list, plink2 never complains.
+  //
+  // When store_all_dups is true, additional linked lists are allocated past
+  // the end of id_htable to track all raw indexes of duplicate names.
+  if (!item_ct) {
     return kPglRetSuccess;
   }
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -6038,35 +6068,35 @@ pglerr_t populate_variant_id_htable_mt(const uintptr_t* variant_include, char** 
     if (thread_ct > 16) {
       thread_ct = 16;
     }
-    if (thread_ct > variant_ct / 65536) {
-      thread_ct = variant_ct / 65536;
+    if (thread_ct > item_ct / 65536) {
+      thread_ct = item_ct / 65536;
       if (!thread_ct) {
 	thread_ct = 1;
       }
     }
-    if (bigstack_end_alloc_ui(variant_ct, &g_variant_id_hashes)) {
-      goto populate_variant_id_htable_mt_ret_NOMEM;
+    if (bigstack_end_alloc_ui(item_ct, &g_item_id_hashes)) {
+      goto populate_id_htable_mt_ret_NOMEM;
     }
-    g_variant_include = variant_include;
-    g_variant_ids = variant_ids;
-    g_variant_id_htable = id_htable;
-    g_variant_ct = variant_ct;
-    g_variant_id_htable_size = id_htable_size;
+    g_subset_mask = subset_mask;
+    g_item_ids = item_ids;
+    g_id_htable = id_htable;
+    g_item_ct = item_ct;
+    g_id_htable_size = id_htable_size;
     g_calc_thread_ct = thread_ct;
     pthread_t threads[16];
     {
-      uint32_t variant_uidx = next_set_unsafe(variant_include, 0);
-      uint32_t variant_idx = 0;
-      g_variant_uidx_starts[0] = variant_uidx;
+      uint32_t item_uidx = next_set_unsafe(subset_mask, 0);
+      uint32_t item_idx = 0;
+      g_item_uidx_starts[0] = item_uidx;
       for (uintptr_t tidx = 1; tidx < thread_ct; ++tidx) {
-	const uint32_t variant_idx_new = (variant_ct * ((uint64_t)tidx)) / thread_ct;
-	variant_uidx = jump_forward_set_unsafe(variant_include, variant_uidx + 1, variant_idx_new - variant_idx);
-	g_variant_uidx_starts[tidx] = variant_uidx;
-	variant_idx = variant_idx_new;
+	const uint32_t item_idx_new = (item_ct * ((uint64_t)tidx)) / thread_ct;
+	item_uidx = jump_forward_set_unsafe(subset_mask, item_uidx + 1, item_idx_new - item_idx);
+	g_item_uidx_starts[tidx] = item_uidx;
+	item_idx = item_idx_new;
       }
     }
     if (spawn_threads(calc_id_hash_thread, thread_ct, threads)) {
-      goto populate_variant_id_htable_mt_ret_THREAD_CREATE_FAIL;
+      goto populate_id_htable_mt_ret_THREAD_CREATE_FAIL;
     }
     calc_id_hash_thread((void*)0);
     join_threads(thread_ct, threads);
@@ -6074,28 +6104,35 @@ pglerr_t populate_variant_id_htable_mt(const uintptr_t* variant_include, char** 
     // multithreaded manner, but I'll postpone that for now since it's tricky
     // to make that work with duplicate ID handling, and it also is a
     // substantially smaller bottleneck than hash value computation.
-    uintptr_t variant_uidx = 0;
-    if (!store_dups) {
-      for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_uidx, ++variant_idx) {
-	next_set_ul_unsafe_ck(variant_include, &variant_uidx);
-	uint32_t hashval = g_variant_id_hashes[variant_idx];
+    uint32_t item_uidx = 0;
+    if (!store_all_dups) {
+      for (uint32_t item_idx = 0; item_idx < item_ct; ++item_uidx, ++item_idx) {
+	next_set_unsafe_ck(subset_mask, &item_uidx);
+	uint32_t hashval = g_item_id_hashes[item_idx];
 	uint32_t cur_htable_entry = id_htable[hashval];
-	if (cur_htable_entry != 0xffffffffU) {
-	  const char* sptr = variant_ids[variant_uidx];
-	  do {
+	if (cur_htable_entry == 0xffffffffU) {
+	  id_htable[hashval] = item_uidx;
+	} else {
+	  const char* sptr = item_ids[item_uidx];
+	  while (1) {
 	    // could also use memcmp, guaranteed to be safe due to where
 	    // variant IDs are allocated
-	    if (!strcmp(sptr, variant_ids[cur_htable_entry])) {
-	      LOGERRPRINTFWW("Error: Duplicate variant ID '%s'.\n", sptr);
-	      goto populate_variant_id_htable_mt_ret_MALFORMED_INPUT;
+	    if (!strcmp(sptr, item_ids[cur_htable_entry & 0x7fffffff])) {
+	      if (!(cur_htable_entry >> 31)) {
+	        id_htable[hashval] |= 0x80000000U;
+	      }
+	      break;
 	    }
 	    if (++hashval == id_htable_size) {
 	      hashval = 0;
 	    }
 	    cur_htable_entry = id_htable[hashval];
-	  } while (cur_htable_entry != 0xffffffffU);
+	    if (cur_htable_entry == 0xffffffffU) {
+	      id_htable[hashval] = item_uidx;
+	      break;
+	    }
+	  }
 	}
-	id_htable[hashval] = variant_uidx;
       }
     } else {
       const uintptr_t cur_bigstack_left = bigstack_left();
@@ -6107,7 +6144,7 @@ pglerr_t populate_variant_id_htable_mt(const uintptr_t* variant_include, char** 
       } else {
 #endif
 	if (cur_bigstack_left < 4 * sizeof(int32_t)) {
-	  goto populate_variant_id_htable_mt_ret_NOMEM;
+	  goto populate_id_htable_mt_ret_NOMEM;
 	}
 	max_extra_alloc_m4 = (cur_bigstack_left / sizeof(int32_t)) - 4;
 #ifdef __LP64__
@@ -6118,26 +6155,26 @@ pglerr_t populate_variant_id_htable_mt(const uintptr_t* variant_include, char** 
       // needs to be synced with extract_exclude_flag_norange()
       // multithread this?
       uint32_t* htable_dup_base = (uint32_t*)g_bigstack_base;
-      for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_uidx, ++variant_idx) {
-	next_set_ul_unsafe_ck(variant_include, &variant_uidx);
-	uint32_t hashval = g_variant_id_hashes[variant_idx];
+      for (uint32_t item_idx = 0; item_idx < item_ct; ++item_uidx, ++item_idx) {
+	next_set_unsafe_ck(subset_mask, &item_uidx);
+	uint32_t hashval = g_item_id_hashes[item_idx];
 	uint32_t cur_htable_entry = id_htable[hashval];
 	if (cur_htable_entry == 0xffffffffU) {
-	  id_htable[hashval] = variant_uidx;
+	  id_htable[hashval] = item_uidx;
 	} else {
-	  const char* sptr = variant_ids[variant_uidx];
+	  const char* sptr = item_ids[item_uidx];
 	  while (1) {
 	    const uint32_t cur_dup = cur_htable_entry >> 31;
 	    uint32_t prev_uidx;
 	    if (cur_dup) {
-	      prev_llidx = cur_htable_entry << 1;
+	      prev_llidx = cur_htable_entry * 2;
 	      prev_uidx = htable_dup_base[prev_llidx];
 	    } else {
 	      prev_uidx = cur_htable_entry;
 	    }
-	    if (!strcmp(sptr, variant_ids[prev_uidx])) {
+	    if (!strcmp(sptr, item_ids[prev_uidx])) {
 	      if (extra_alloc > max_extra_alloc_m4) {
-		goto populate_variant_id_htable_mt_ret_NOMEM;
+		goto populate_id_htable_mt_ret_NOMEM;
 	      }
 	      // point to linked list entry instead
 	      if (!cur_dup) {
@@ -6146,7 +6183,7 @@ pglerr_t populate_variant_id_htable_mt(const uintptr_t* variant_include, char** 
 		prev_llidx = extra_alloc;
 		extra_alloc += 2;
 	      }
-	      htable_dup_base[extra_alloc] = variant_uidx;
+	      htable_dup_base[extra_alloc] = item_uidx;
 	      htable_dup_base[extra_alloc + 1] = prev_llidx;
 	      id_htable[hashval] = 0x80000000U | (extra_alloc >> 1);
 	      extra_alloc += 2;
@@ -6157,7 +6194,7 @@ pglerr_t populate_variant_id_htable_mt(const uintptr_t* variant_include, char** 
 	    }
 	    cur_htable_entry = id_htable[hashval];
 	    if (cur_htable_entry == 0xffffffffU) {
-	      id_htable[hashval] = variant_uidx;
+	      id_htable[hashval] = item_uidx;
 	      break;
 	    }
 	  }
@@ -6170,13 +6207,10 @@ pglerr_t populate_variant_id_htable_mt(const uintptr_t* variant_include, char** 
     }
   }
   while (0) {
-  populate_variant_id_htable_mt_ret_NOMEM:
+  populate_id_htable_mt_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  populate_variant_id_htable_mt_ret_MALFORMED_INPUT:
-    reterr = kPglRetMalformedInput;
-    break;
-  populate_variant_id_htable_mt_ret_THREAD_CREATE_FAIL:
+  populate_id_htable_mt_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
     break;
   }
@@ -6184,27 +6218,32 @@ pglerr_t populate_variant_id_htable_mt(const uintptr_t* variant_include, char** 
   return reterr;
 }
 
-pglerr_t alloc_and_populate_variant_id_dup_htable_mt(const uintptr_t* variant_include, char** variant_ids, uintptr_t variant_ct, uint32_t max_thread_ct, uint32_t** id_htable_ptr, uint32_t** htable_dup_base_ptr, uint32_t* id_htable_size_ptr) {
-  uint32_t id_htable_size = get_htable_fast_size(variant_ct);
+pglerr_t alloc_and_populate_id_htable_mt(const uintptr_t* subset_mask, char** item_ids, uintptr_t item_ct, uint32_t max_thread_ct, uint32_t** id_htable_ptr, uint32_t** htable_dup_base_ptr, uint32_t* id_htable_size_ptr) {
+  uint32_t id_htable_size = get_htable_fast_size(item_ct);
   // 4 bytes per variant for hash buffer
-  // up to 8 bytes per variant in extra_alloc for duplicate tracking
-  const uintptr_t nonhtable_alloc = round_up_pow2(variant_ct * sizeof(int32_t), kCacheline) + round_up_pow2(variant_ct * 2 * sizeof(int32_t), kCacheline);
+  // if store_all_dups, up to 8 bytes per variant in extra_alloc for duplicate
+  //   tracking
+  const uint32_t store_all_dups = (htable_dup_base_ptr != nullptr);
+  const uintptr_t nonhtable_alloc = round_up_pow2(item_ct * sizeof(int32_t), kCacheline) + store_all_dups * round_up_pow2(item_ct * 2 * sizeof(int32_t), kCacheline);
   uintptr_t max_bytes = bigstack_left() & (~(kCacheline - k1LU));
-  if (nonhtable_alloc + variant_ct * sizeof(int32_t) > max_bytes) {
+  // force max_bytes >= 5 so leqprime() doesn't fail
+  if (nonhtable_alloc + (item_ct + 6) * sizeof(int32_t) > max_bytes) {
     return kPglRetNomem;
   }
   max_bytes -= nonhtable_alloc;
   if (id_htable_size * sizeof(int32_t) > max_bytes) {
-    id_htable_size = leqprime(max_bytes / sizeof(int32_t));
-    const uint32_t min_htable_size = get_htable_min_size(variant_ct);
+    id_htable_size = leqprime((max_bytes / sizeof(int32_t)) - 1);
+    const uint32_t min_htable_size = get_htable_min_size(item_ct);
     if (id_htable_size < min_htable_size) {
       id_htable_size = min_htable_size;
     }
   }
   *id_htable_ptr = (uint32_t*)bigstack_alloc_raw(round_up_pow2(id_htable_size * sizeof(int32_t), kCacheline));
-  *htable_dup_base_ptr = &((*id_htable_ptr)[round_up_pow2_ui(id_htable_size, kInt32PerCacheline)]);
+  if (store_all_dups) {
+    *htable_dup_base_ptr = &((*id_htable_ptr)[round_up_pow2_ui(id_htable_size, kInt32PerCacheline)]);
+  }
   *id_htable_size_ptr = id_htable_size;
-  return populate_variant_id_htable_mt(variant_include, variant_ids, variant_ct, 1, id_htable_size, max_thread_ct, *id_htable_ptr);
+  return populate_id_htable_mt(subset_mask, item_ids, item_ct, store_all_dups, id_htable_size, max_thread_ct, *id_htable_ptr);
 }
 
 pglerr_t multithread_load_init(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, pgen_file_info_t* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** dosage_present_ptr, dosage_t*** dosage_val_bufs_ptr, uint32_t* read_block_size_ptr, unsigned char** main_loadbufs, pthread_t** threads_ptr, pgen_reader_t*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr) {

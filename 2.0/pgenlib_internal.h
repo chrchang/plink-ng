@@ -85,7 +85,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 508
+#define PGENLIB_INTERNAL_VERNUM 509
 
 
 #define _FILE_OFFSET_BITS 64
@@ -2035,7 +2035,7 @@ pglerr_t pgr_read_refalt1_genovec_hphase_subset_unsafe(const uintptr_t* __restri
 // is present
 pglerr_t pgr_read_refalt1_genovec_dosage16_subset_unsafe(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, pgen_reader_t* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr, uint32_t* is_explicit_alt1_ptr);
 
-pglerr_t pgr_get_ref_nonref_genotype_counts_and_dosage16s(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, pgen_reader_t* pgrp, uint32_t* genocounts, uint64_t* all_dosages);
+pglerr_t pgr_get_ref_nonref_genotype_counts_and_dosage16s(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, pgen_reader_t* pgrp, double* mach_r2_ptr, uint32_t* genocounts, uint64_t* all_dosages);
 
 // ok for both dosage_present and dosage_vals to be nullptr when no dosage data
 // is present

@@ -23,6 +23,14 @@
 namespace plink2 {
 #endif
 
+void init_cmp_expr(cmp_expr_t* cmp_expr_ptr) {
+  cmp_expr_ptr->pheno_name = nullptr;
+}
+
+void cleanup_cmp_expr(cmp_expr_t* cmp_expr_ptr) {
+  free_cond(cmp_expr_ptr->pheno_name);
+}
+
 pglerr_t from_to_flag(char** variant_ids, const uint32_t* variant_id_htable, const char* varid_from, const char* varid_to, uint32_t raw_variant_ct, uintptr_t max_variant_id_slen, uintptr_t variant_id_htable_size, uintptr_t* variant_include, chr_info_t* cip, uint32_t* variant_ct_ptr) {
   pglerr_t reterr = kPglRetSuccess;
   {
@@ -532,6 +540,498 @@ pglerr_t keep_or_remove(const char* fnames, const char* sample_ids, const char* 
   return reterr;
 }
 
+pglerr_t require_pheno(const pheno_col_t* pheno_cols, const char* pheno_names, char* require_pheno_flattened, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t is_covar, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  pglerr_t reterr = kPglRetSuccess;
+  {
+    uint32_t required_pheno_ct = 0;
+    uintptr_t max_required_pheno_blen = 2;
+    uintptr_t* matched_phenos = nullptr;
+    char* sorted_required_pheno_names = nullptr;
+    if (require_pheno_flattened) {
+      char** strptr_arr = (char**)bigstack_end_mark;
+      if (count_and_measure_multistr_reverse_alloc(require_pheno_flattened, bigstack_left() / sizeof(intptr_t), &required_pheno_ct, &max_required_pheno_blen, &strptr_arr)) {
+	goto require_pheno_ret_NOMEM;
+      }
+      if ((uintptr_t)(((unsigned char*)strptr_arr) - g_bigstack_base) < required_pheno_ct * max_required_pheno_blen) {
+	goto require_pheno_ret_NOMEM;
+      }
+      strptr_arr_sort(required_pheno_ct, strptr_arr);
+      sorted_required_pheno_names = (char*)g_bigstack_base;
+      required_pheno_ct = copy_and_dedup_sorted_strptrs_to_strbox(strptr_arr, required_pheno_ct, max_required_pheno_blen, sorted_required_pheno_names);
+      bigstack_end_reset(bigstack_end_mark);
+      bigstack_finalize_c(sorted_required_pheno_names, required_pheno_ct * max_required_pheno_blen);
+      if (bigstack_calloc_ul(1 + (required_pheno_ct / kBitsPerWord), &matched_phenos)) {
+	goto require_pheno_ret_NOMEM;
+      }
+    } else {
+      if (!pheno_ct) {
+	logerrprint(is_covar? "Warning: No covariates loaded; ignoring --require-covar.\n" : "Warning: No phenotypes loaded; ignoring --require-pheno.\n");
+	goto require_pheno_ret_1;
+      }
+      required_pheno_ct = pheno_ct;
+    }
+    const uint32_t raw_sample_ctl = BITCT_TO_WORDCT(raw_sample_ct);
+    for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
+      if (sorted_required_pheno_names) {
+	const char* cur_pheno_name = &(pheno_names[pheno_idx * max_pheno_name_blen]);
+	const int32_t ii = bsearch_str(cur_pheno_name, sorted_required_pheno_names, strlen(cur_pheno_name), max_required_pheno_blen, required_pheno_ct);
+	if (ii == -1) {
+	  continue;
+	}
+	set_bit(ii, matched_phenos);
+      }
+      bitvec_and(pheno_cols[pheno_idx].nonmiss, raw_sample_ctl, sample_include);
+    }
+    if (matched_phenos) {
+      const uint32_t first_unmatched_idx = next_unset_unsafe(matched_phenos, 0);
+      if (first_unmatched_idx < required_pheno_ct) {
+	LOGERRPRINTFWW("Error: --require-%s '%s' not loaded.\n", is_covar? "covar covariate" : "pheno phenotype", &(sorted_required_pheno_names[first_unmatched_idx * max_required_pheno_blen]));
+	goto require_pheno_ret_INCONSISTENT_INPUT;
+      }
+    }
+    const uint32_t new_sample_ct = popcount_longs(sample_include, raw_sample_ctl);
+    const uint32_t removed_sample_ct = (*sample_ct_ptr) - new_sample_ct;
+    LOGPRINTF("--require-%s: %u sample%s removed.\n", is_covar? "covar" : "pheno", removed_sample_ct, (removed_sample_ct == 1)? "" : "s");
+    *sample_ct_ptr = new_sample_ct;
+  }
+  while (0) {
+  require_pheno_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  require_pheno_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ require_pheno_ret_1:
+  bigstack_double_reset(bigstack_mark, bigstack_end_mark);
+  return reterr;
+}
+
+pglerr_t keep_remove_if(const cmp_expr_t* cmp_expr, const pheno_col_t* pheno_cols, const char* pheno_names, const pheno_col_t* covar_cols, const char* covar_names, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t affection_01, uint32_t is_remove, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  pglerr_t reterr = kPglRetSuccess;
+  {
+    const char* cur_name = cmp_expr->pheno_name;
+    const uintptr_t name_blen = 1 + strlen(cur_name);
+    const pheno_col_t* cur_pheno_col = nullptr;
+    if (name_blen <= max_pheno_name_blen) {
+      for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
+	if (!memcmp(cur_name, &(pheno_names[pheno_idx * max_pheno_name_blen]), name_blen)) {
+	  cur_pheno_col = &(pheno_cols[pheno_idx]);
+	  break;
+	}
+      }
+    }
+    if (!cur_pheno_col) {
+      if (name_blen <= max_covar_name_blen) {
+	for (uint32_t covar_idx = 0; covar_idx < covar_ct; ++covar_idx) {
+	  if (!memcmp(cur_name, &(covar_names[covar_idx * max_covar_name_blen]), name_blen)) {
+	    cur_pheno_col = &(covar_cols[covar_idx]);
+	    break;
+	  }
+	}
+      }
+    }
+    if (!cur_pheno_col) {
+      sprintf(g_logbuf, "Error: --%s-if phenotype/covariate not loaded.\n", is_remove? "remove" : "keep");
+      goto keep_remove_if_ret_INCONSISTENT_INPUT_2;
+    }
+    const uint32_t raw_sample_ctl = BITCT_TO_WORDCT(raw_sample_ct);
+    cmp_binary_op_t binary_op = cmp_expr->binary_op;
+    const uint32_t pheno_must_exist = is_remove ^ (binary_op != kCmpOperatorNoteq);
+    const uintptr_t* pheno_nm = cur_pheno_col->nonmiss;
+    if (pheno_must_exist) {
+      bitvec_and(pheno_nm, raw_sample_ctl, sample_include);
+    }
+    uintptr_t* sample_include_intersect;
+    if (bigstack_alloc_ul(raw_sample_ctl, &sample_include_intersect)) {
+      goto keep_remove_if_ret_NOMEM;
+    }
+    memcpy(sample_include_intersect, sample_include, raw_sample_ctl * sizeof(intptr_t));
+    if (!pheno_must_exist) {
+      bitvec_and(pheno_nm, raw_sample_ctl, sample_include_intersect);
+    }
+    const uint32_t sample_intersect_ct = popcount_longs(sample_include_intersect, raw_sample_ctl);
+    const char* cur_val_str = &(cur_name[name_blen]);
+    const uint32_t val_slen = strlen(cur_val_str);
+    if (cur_pheno_col->type_code == kPhenoDtypeQt) {
+      double val;
+      if (!scanadv_double((char*)cur_val_str, &val)) {
+	sprintf(g_logbuf, "Error: Invalid --%s-if value (number expected).\n", is_remove? "remove" : "keep");
+	goto keep_remove_if_ret_INCONSISTENT_INPUT_2;
+      }
+      uint32_t sample_ct = *sample_ct_ptr;
+      if (pheno_must_exist) {
+	sample_ct = popcount_longs(sample_include, raw_sample_ctl);
+      }
+      if (is_remove) {
+	binary_op = (cmp_binary_op_t)(kCmpOperatorEq - (uint32_t)binary_op);
+      }
+      const double* pheno_vals = cur_pheno_col->data.qt;
+      uint32_t sample_uidx = 0;
+      switch (binary_op) {
+      case kCmpOperatorNoteq:
+	for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
+	  next_set_unsafe_ck(sample_include_intersect, &sample_uidx);
+	  if (pheno_vals[sample_uidx] == val) {
+	    clear_bit(sample_uidx, sample_include);
+	  }
+	}
+	break;
+      case kCmpOperatorLe:
+	for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
+	  next_set_unsafe_ck(sample_include_intersect, &sample_uidx);
+	  if (pheno_vals[sample_uidx] >= val) {
+	    clear_bit(sample_uidx, sample_include);
+	  }
+	}
+	break;
+      case kCmpOperatorLeq:
+	for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
+	  next_set_unsafe_ck(sample_include_intersect, &sample_uidx);
+	  if (pheno_vals[sample_uidx] > val) {
+	    clear_bit(sample_uidx, sample_include);
+	  }
+	}
+	break;
+      case kCmpOperatorGe:
+	for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
+	  next_set_unsafe_ck(sample_include_intersect, &sample_uidx);
+	  if (pheno_vals[sample_uidx] <= val) {
+	    clear_bit(sample_uidx, sample_include);
+	  }
+	}
+	break;
+      case kCmpOperatorGeq:
+	for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
+	  next_set_unsafe_ck(sample_include_intersect, &sample_uidx);
+	  if (pheno_vals[sample_uidx] < val) {
+	    clear_bit(sample_uidx, sample_include);
+	  }
+	}
+	break;
+      case kCmpOperatorEq:
+	for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
+	  next_set_unsafe_ck(sample_include_intersect, &sample_uidx);
+	  if (pheno_vals[sample_uidx] != val) {
+	    clear_bit(sample_uidx, sample_include);
+	  }
+	}
+	break;
+      }
+    } else {
+      if ((binary_op != kCmpOperatorNoteq) && (binary_op != kCmpOperatorEq)) {
+	sprintf(g_logbuf, "Error: --%s-if operator type mismatch (binary and categorical phenotypes only support == and !=).\n", is_remove? "remove" : "keep");
+	goto keep_remove_if_ret_INCONSISTENT_INPUT_WW;
+      }
+      if (cur_pheno_col->type_code == kPhenoDtypeCc) {
+	uint32_t val_12 = 0; // 1 = control, 2 = case
+	if (val_slen == 1) {
+	  val_12 = affection_01 + (uint32_t)((unsigned char)cur_val_str[0]) - 48;
+	  if ((val_12 != 1) && (val_12 != 2)) {
+	    val_12 = 0;
+	  } 
+	} else if (val_slen == 4) {
+	  if (match_upper_counted(cur_val_str, "CASE", 4)) {
+	    val_12 = 2;
+	  } else if (match_upper_counted(cur_val_str, "CTRL", 4)) {
+	    val_12 = 1;
+	  }
+	} else if (val_slen == 7) {
+	  if (match_upper_counted(cur_val_str, "CONTROL", 7)) {
+	    val_12 = 1;
+	  }
+	}
+	if (!val_12) {
+	  sprintf(g_logbuf, "Error: Invalid --%s-if value ('case'/'%c' or 'control'/'ctrl'/'%c' expected).\n", is_remove? "remove" : "keep", '2' - affection_01, '1' - affection_01);
+	  goto keep_remove_if_ret_INCONSISTENT_INPUT_WW;
+	}
+	if (is_remove ^ (val_12 == 2)) {
+	  bitvec_and(cur_pheno_col->data.cc, raw_sample_ctl, sample_include);
+	} else {
+	  bitvec_andnot(cur_pheno_col->data.cc, raw_sample_ctl, sample_include);
+	}
+      } else {
+        assert(cur_pheno_col->type_code == kPhenoDtypeCat);
+	const uint32_t nonnull_cat_ct = cur_pheno_col->nonnull_category_ct;
+	uint32_t cat_idx = 1;
+	for (; cat_idx <= nonnull_cat_ct; ++cat_idx) {
+	  if (!strcmp(cur_val_str, cur_pheno_col->category_names[cat_idx])) {
+	    break;
+	  }
+	}
+	if (cat_idx == nonnull_cat_ct + 1) {
+	  double dxx;
+	  if (scanadv_double((char*)cur_val_str, &dxx)) {
+	    sprintf(g_logbuf, "Error: Invalid --%s-if value (category name expected).\n", is_remove? "remove" : "keep");
+	    goto keep_remove_if_ret_INCONSISTENT_INPUT_2;
+	  }
+	  // tolerate this, there are legitimate reasons for empty categories
+	  // to exist
+	  LOGERRPRINTFWW("Warning: Categorical phenotype/covariate '%s' does not have a category named '%s'.\n", cur_name, cur_val_str);
+	  if (pheno_must_exist) {
+	    fill_ulong_zero(raw_sample_ctl, sample_include);
+	  }
+	} else {
+	  const uint32_t* cur_cats = cur_pheno_col->data.cat;
+	  uint32_t sample_uidx = 0;
+	  if (pheno_must_exist) {
+	    for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
+	      next_set_unsafe_ck(sample_include_intersect, &sample_uidx);
+	      if (cur_cats[sample_uidx] != cat_idx) {
+		clear_bit(sample_uidx, sample_include);
+	      }
+	    }
+	  } else {
+	    for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
+	      next_set_unsafe_ck(sample_include_intersect, &sample_uidx);
+	      if (cur_cats[sample_uidx] == cat_idx) {
+		clear_bit(sample_uidx, sample_include);
+	      }
+	    }
+	  }
+	}
+      }
+    }
+
+    const uint32_t new_sample_ct = popcount_longs(sample_include, raw_sample_ctl);
+    const uint32_t removed_sample_ct = (*sample_ct_ptr) - new_sample_ct;
+    LOGPRINTF("--%s-if: %u sample%s removed.\n", is_remove? "remove" : "keep", removed_sample_ct, (removed_sample_ct == 1)? "" : "s");
+    *sample_ct_ptr = new_sample_ct;
+  }
+  while (0) {
+  keep_remove_if_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  keep_remove_if_ret_INCONSISTENT_INPUT_WW:
+    wordwrapb(0);
+  keep_remove_if_ret_INCONSISTENT_INPUT_2:
+    logerrprintb();
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+  bigstack_reset(bigstack_mark);
+  return reterr;
+}
+
+pglerr_t keep_remove_cats_internal(const pheno_col_t* cur_pheno_col, const char* cats_fname, const char* cat_names_flattened, uint32_t raw_sample_ct, uint32_t is_remove, uint32_t max_thread_ct, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  gz_token_stream_t gts;
+  gz_token_stream_preinit(&gts);
+  pglerr_t reterr = kPglRetSuccess;
+  {
+    const uint32_t raw_sample_ctl = BITCT_TO_WORDCT(raw_sample_ct);
+    const uint32_t cat_ct = cur_pheno_col->nonnull_category_ct + 1;
+    const uint32_t cat_ctl = BITCT_TO_WORDCT(cat_ct);
+    uintptr_t* affected_samples;
+    uintptr_t* cat_include;
+    if (bigstack_calloc_ul(raw_sample_ctl, &affected_samples) ||
+        bigstack_alloc_ul(cat_ctl, &cat_include)) {
+      goto keep_remove_cats_internal_ret_NOMEM;
+    }
+    fill_all_bits(cat_ct, cat_include);
+    char** category_names = cur_pheno_col->category_names;
+    uint32_t* cat_id_htable;
+    uint32_t id_htable_size;
+    reterr = alloc_and_populate_id_htable_mt(cat_include, category_names, cat_ct, max_thread_ct, &cat_id_htable, nullptr, &id_htable_size);
+    if (reterr) {
+      goto keep_remove_cats_internal_ret_1;
+    }
+    fill_ulong_zero(cat_ctl, cat_include);
+    if (cats_fname) {
+      reterr = gz_token_stream_init(cats_fname, &gts, g_textbuf);
+      if (reterr) {
+	goto keep_remove_cats_internal_ret_1;
+      }
+      uintptr_t skip_ct = 0;
+      uint32_t token_slen;
+      while (1) {
+	char* token_start = gz_token_stream_advance(&gts, &token_slen);
+	if (!token_start) {
+	  break;
+	}
+	token_start[token_slen] = '\0';
+        const uint32_t cur_cat_idx = id_htable_find(token_start, category_names, cat_id_htable, token_slen, id_htable_size);
+	if (cur_cat_idx == 0xffffffffU) {
+	  ++skip_ct;
+	} else {
+	  set_bit(cur_cat_idx, cat_include);
+	}
+      }
+      if (token_slen) {
+	// error code
+	if (token_slen == 0xffffffffU) {
+	  sprintf(g_logbuf, "Error: Excessively long ID in --%s-cats file.\n", is_remove? "remove" : "keep");
+	  goto keep_remove_cats_internal_ret_MALFORMED_INPUT_2;
+	}
+	goto keep_remove_cats_internal_ret_READ_FAIL;
+      }
+      if (gz_token_stream_close(&gts)) {
+	goto keep_remove_cats_internal_ret_READ_FAIL;
+      }
+      if (skip_ct) {
+	LOGERRPRINTF("Warning: %" PRIuPTR " --%s-cats categor%s not present.\n", skip_ct, is_remove? "remove" : "keep", (skip_ct == 1)? "y" : "ies");
+      }
+    }
+    if (cat_names_flattened) {
+      uint32_t skip_ct = 0;
+      const char* cat_names_iter = cat_names_flattened;
+      do {
+	const uint32_t cat_name_slen = strlen(cat_names_iter);
+	const uint32_t cur_cat_idx = id_htable_find(cat_names_iter, category_names, cat_id_htable, cat_name_slen, id_htable_size);
+	if (cur_cat_idx == 0xffffffffU) {
+	  ++skip_ct;
+	} else {
+	  set_bit(cur_cat_idx, cat_include);
+	}
+	cat_names_iter = &(cat_names_iter[cat_name_slen + 1]);
+      } while (*cat_names_iter);
+      if (skip_ct) {
+	LOGERRPRINTF("Warning: %u --%s-cat-names categor%s not present.\n", skip_ct, is_remove? "remove" : "keep", (skip_ct == 1)? "y" : "ies");
+      }
+    }
+    const uint32_t selected_cat_ct = popcount_longs(cat_include, cat_ctl);
+    if (!selected_cat_ct) {
+      LOGERRPRINTF("Warning: No matching --%s-cat-names category names.\n", is_remove? "remove-cats/--remove" : "keep-cats/--keep");
+    } else {
+      const uint32_t* cur_cats = cur_pheno_col->data.cat;
+      const uint32_t orig_sample_ct = *sample_ct_ptr;
+      uint32_t sample_uidx = 0;
+      for (uint32_t sample_idx = 0; sample_idx < orig_sample_ct; ++sample_idx, ++sample_uidx) {
+	next_set_unsafe_ck(sample_include, &sample_uidx);
+	const uint32_t cur_cat_idx = cur_cats[sample_uidx];
+	if (is_set(cat_include, cur_cat_idx)) {
+	  set_bit(sample_uidx, affected_samples);
+	}
+      }
+      if (is_remove) {
+	bitvec_andnot(affected_samples, raw_sample_ctl, sample_include);
+      } else {
+	bitvec_and(affected_samples, raw_sample_ctl, sample_include);
+      }
+      const uint32_t new_sample_ct = popcount_longs(sample_include, raw_sample_ctl);
+      const uint32_t removed_sample_ct = (*sample_ct_ptr) - new_sample_ct;
+      LOGPRINTFWW("--%s-cat-names: %u categor%s selected, %u sample%s removed.\n", is_remove? "remove-cats/--remove" : "keep-cats/--keep", selected_cat_ct, (selected_cat_ct == 1)? "y" : "ies", removed_sample_ct, (removed_sample_ct == 1)? "" : "s");
+      *sample_ct_ptr = new_sample_ct;
+    }
+  }
+  while (0) {
+  keep_remove_cats_internal_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  keep_remove_cats_internal_ret_READ_FAIL:
+    reterr = kPglRetReadFail;
+    break;
+  keep_remove_cats_internal_ret_MALFORMED_INPUT_2:
+    logerrprintb();
+    reterr = kPglRetMalformedInput;
+    break;
+  }
+ keep_remove_cats_internal_ret_1:
+  gz_token_stream_close(&gts);
+  bigstack_reset(bigstack_mark);
+  return reterr;
+}
+
+pglerr_t keep_remove_cats(const char* cats_fname, const char* cat_names_flattened, const char* cat_phenoname, const pheno_col_t* pheno_cols, const char* pheno_names, const pheno_col_t* covar_cols, const char* covar_names, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t is_remove, uint32_t max_thread_ct, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
+  pglerr_t reterr = kPglRetSuccess;
+  {
+    if (!cat_phenoname) {
+      // Default behavior:
+      // 1. If at least one categorical phenotype exists, fail on >= 2, select
+      //    it if one.
+      // 2. Otherwise, fail if 0 or >= 2 categorical covariates, select the
+      //    categorical covariate if there's exactly one.
+      uint32_t cat_pheno_idx = 0xffffffffU;
+      const pheno_col_t* cur_pheno_col = nullptr;
+      for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
+	if (pheno_cols[pheno_idx].type_code == kPhenoDtypeCat) {
+	  if (cat_pheno_idx != 0xffffffffU) {
+	    sprintf(g_logbuf, "Error: Multiple categorical phenotypes present. Use --%s-cat-pheno to specify which phenotype/covariate you want to filter on.\n", is_remove? "remove" : "keep");
+	    goto keep_remove_cats_ret_INCONSISTENT_INPUT_WW;
+	  }
+	  cat_pheno_idx = pheno_idx;
+	}
+      }
+      if (cat_pheno_idx != 0xffffffffU) {
+        cur_pheno_col = &(pheno_cols[cat_pheno_idx]);
+      } else {
+	for (uint32_t covar_idx = 0; covar_idx < covar_ct; ++covar_idx) {
+	  if (covar_cols[covar_idx].type_code == kPhenoDtypeCat) {
+	    if (cat_pheno_idx != 0xffffffffU) {
+	      sprintf(g_logbuf, "Error: Multiple categorical covariates and no categorical phenotype present. Use --%s-cat-pheno to specify which phenotype/covariate you want to filter on.\n", is_remove? "remove" : "keep");
+	      goto keep_remove_cats_ret_INCONSISTENT_INPUT_WW;
+	    }
+	    cat_pheno_idx = covar_idx;
+	  }
+	}
+	if (cat_pheno_idx == 0xffffffffU) {
+	  sprintf(g_logbuf, "Error: --%s-cat-names requires a categorical phenotype or covariate.\n", is_remove? "remove-cats/--remove" : "keep-cats/--keep");
+	  goto keep_remove_cats_ret_INCONSISTENT_INPUT_WW;
+	}
+	cur_pheno_col = &(covar_cols[cat_pheno_idx]);
+      }
+      reterr = keep_remove_cats_internal(cur_pheno_col, cats_fname, cat_names_flattened, raw_sample_ct, is_remove, max_thread_ct, sample_include, sample_ct_ptr);
+      if (reterr) {
+	goto keep_remove_cats_ret_1;
+      }
+    } else {
+      const uintptr_t name_blen = 1 + strlen(cat_phenoname);
+      uint32_t success = 0;
+      if (name_blen <= max_pheno_name_blen) {
+	for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
+	  if (!memcmp(cat_phenoname, &(pheno_names[pheno_idx * max_pheno_name_blen]), name_blen)) {
+	    const pheno_col_t* cur_pheno_col = &(pheno_cols[pheno_idx]);
+	    if (cur_pheno_col->type_code != kPhenoDtypeCat) {
+	      sprintf(g_logbuf, "Error: '%s' is not a categorical phenotype.\n", cat_phenoname);
+	      goto keep_remove_cats_ret_INCONSISTENT_INPUT_WW;
+	    }
+	    reterr = keep_remove_cats_internal(cur_pheno_col, cats_fname, cat_names_flattened, raw_sample_ct, is_remove, max_thread_ct, sample_include, sample_ct_ptr);
+	    if (reterr) {
+	      goto keep_remove_cats_ret_1;
+	    }
+	    success = 1;
+	    break;
+	  }
+	}
+      }
+      if (name_blen <= max_covar_name_blen) {
+	for (uint32_t covar_idx = 0; covar_idx < covar_ct; ++covar_idx) {
+	  if (!memcmp(cat_phenoname, &(covar_names[covar_idx * max_covar_name_blen]), name_blen)) {
+	    const pheno_col_t* cur_pheno_col = &(covar_cols[covar_idx]);
+	    if (cur_pheno_col->type_code != kPhenoDtypeCat) {
+	      sprintf(g_logbuf, "Error: '%s' is not a categorical covariate.\n", cat_phenoname);
+	      goto keep_remove_cats_ret_INCONSISTENT_INPUT_WW;
+	    }
+	    reterr = keep_remove_cats_internal(cur_pheno_col, cats_fname, cat_names_flattened, raw_sample_ct, is_remove, max_thread_ct, sample_include, sample_ct_ptr);
+	    if (reterr) {
+	      goto keep_remove_cats_ret_1;
+	    }
+	    success = 1;
+	    break;
+	  }
+	}
+      }
+      if (!success) {
+	sprintf(g_logbuf, "Error: --%s-cat-pheno phenotype/covariate not loaded.\n", is_remove? "remove" : "keep");
+	goto keep_remove_cats_ret_INCONSISTENT_INPUT_2;
+      }
+    }
+  }
+  while (0) {
+  keep_remove_cats_ret_INCONSISTENT_INPUT_WW:
+    wordwrapb(0);
+  keep_remove_cats_ret_INCONSISTENT_INPUT_2:
+    logerrprintb();
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ keep_remove_cats_ret_1:
+  return reterr;
+}
+
 void compute_alt_allele_freqs(const uintptr_t* variant_include, const uintptr_t* variant_allele_idxs, const uint64_t* founder_allele_dosages, uint32_t variant_ct, uint32_t maf_succ, double* alt_allele_freqs) {
   // ok for maj_alleles or alt_allele_freqs to be nullptr
   // note that founder_allele_dosages is in 32768ths
@@ -684,9 +1184,8 @@ pglerr_t read_allele_freqs(const uintptr_t* variant_include, char** variant_ids,
     char* loadbuf = (char*)bigstack_alloc_raw(loadbuf_size);
     loadbuf[loadbuf_size - 1] = ' ';
     uint32_t* variant_id_htable = nullptr;
-    uint32_t* htable_dup_base;
     uint32_t variant_id_htable_size;
-    reterr = alloc_and_populate_variant_id_dup_htable_mt(variant_include, variant_ids, variant_ct, max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size);
+    reterr = alloc_and_populate_id_htable_mt(variant_include, variant_ids, variant_ct, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size);
     if (reterr) {
       goto read_allele_freqs_ret_1;
     }
@@ -1125,13 +1624,12 @@ pglerr_t read_allele_freqs(const uintptr_t* variant_include, char** variant_ids,
 	}
 	char* variant_id_start = token_ptrs[kfReadFreqColVarId];
 	const uint32_t variant_id_slen = token_slens[kfReadFreqColVarId];
-	uint32_t cur_llidx;
-	uint32_t variant_uidx = variant_id_dup_htable_find(variant_id_start, variant_ids, variant_id_htable, htable_dup_base, variant_id_slen, variant_id_htable_size, max_variant_id_slen, &cur_llidx);
-	if (variant_uidx == 0xffffffffU) {
-	  goto read_allele_freqs_skip_variant;
-	}
-	if (cur_llidx != 0xffffffffU) {
-	  sprintf(g_logbuf, "Error: --read-freq variant ID '%s' appears multiple times in main dataset.\n", variant_ids[variant_uidx]);
+	uint32_t variant_uidx = variant_id_dupflag_htable_find(variant_id_start, variant_ids, variant_id_htable, variant_id_slen, variant_id_htable_size, max_variant_id_slen);
+	if (variant_uidx >> 31) {
+	  if (variant_uidx == 0xffffffffU) {
+	    goto read_allele_freqs_skip_variant;
+	  }
+	  sprintf(g_logbuf, "Error: --read-freq variant ID '%s' appears multiple times in main dataset.\n", variant_ids[variant_uidx & 0xffffffffU]);
 	  goto read_allele_freqs_ret_MALFORMED_INPUT_WW;
 	}
 	if (is_set(already_seen, variant_uidx)) {
@@ -2330,6 +2828,44 @@ void enforce_minor_freq_constraints(const uintptr_t* variant_allele_idxs, const 
     }
   }
   LOGPRINTFWW("%u variant%s removed due to minor allele threshold(s) (--maf/--max-maf/--mac/--max-mac).\n", removed_ct, (removed_ct == 1)? "" : "s");
+  *variant_ct_ptr -= removed_ct;
+}
+
+void enforce_mach_r2_thresh(const chr_info_t* cip, const double* mach_r2_vals, double mach_r2_min, double mach_r2_max, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+  const uint32_t prefilter_variant_ct = *variant_ct_ptr;
+  mach_r2_min *= 1 - kSmallEpsilon;
+  mach_r2_max *= 1 + kSmallEpsilon;
+  uint32_t removed_ct = 0;
+  uint32_t variant_uidx = 0;
+  const int32_t mt_code = cip->xymt_codes[kChrOffsetMT];
+  const uint32_t chr_ct = cip->chr_ct;
+  uint32_t relevant_variant_ct = prefilter_variant_ct;
+  for (uint32_t chr_fo_idx = 0; chr_fo_idx < chr_ct; ++chr_fo_idx) {
+    const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+    // skip X, Y, MT, other haploid
+    if (is_set(cip->haploid_mask, chr_idx) || (chr_idx == ((uint32_t)mt_code))) {
+      relevant_variant_ct -= popcount_bit_idx(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1]);
+    }
+  }
+  uint32_t chr_fo_idx = 0xffffffffU;
+  uint32_t chr_end = 0;
+  for (uint32_t variant_idx = 0; variant_idx < relevant_variant_ct; ++variant_idx, ++variant_uidx) {
+    next_set_unsafe_ck(variant_include, &variant_uidx);
+    while (variant_uidx >= chr_end) {
+      uint32_t chr_idx;
+      do {
+	chr_idx = cip->chr_file_order[++chr_fo_idx];
+      } while (is_set(cip->haploid_mask, chr_idx) || (chr_idx == ((uint32_t)mt_code)));
+      chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+      variant_uidx = next_set(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], chr_end);
+    }
+    const double cur_mach_r2 = mach_r2_vals[variant_uidx];
+    if ((cur_mach_r2 < mach_r2_min) || (cur_mach_r2 > mach_r2_max)) {
+      CLEAR_BIT(variant_uidx, variant_include);
+      ++removed_ct;
+    }
+  }
+  LOGPRINTF("--mach-r2-filter: %u variant%s removed.\n", removed_ct, (removed_ct == 1)? "" : "s");
   *variant_ct_ptr -= removed_ct;
 }
 
