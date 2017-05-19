@@ -662,10 +662,6 @@ pglerr_t keep_remove_if(const cmp_expr_t* cmp_expr, const pheno_col_t* pheno_col
 	sprintf(g_logbuf, "Error: Invalid --%s-if value (number expected).\n", is_remove? "remove" : "keep");
 	goto keep_remove_if_ret_INCONSISTENT_INPUT_2;
       }
-      uint32_t sample_ct = *sample_ct_ptr;
-      if (pheno_must_exist) {
-	sample_ct = popcount_longs(sample_include, raw_sample_ctl);
-      }
       if (is_remove) {
 	binary_op = (cmp_binary_op_t)(kCmpOperatorEq - (uint32_t)binary_op);
       }

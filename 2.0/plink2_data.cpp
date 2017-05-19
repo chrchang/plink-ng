@@ -737,7 +737,7 @@ pglerr_t write_psam(const char* outname, const uintptr_t* sample_include, const 
 		    }
 		  }
 		}
-		if ((male_cat_idx1 != 0) + (male_cat_idx2 != 0) + (female_cat_idx1 != 0) + (female_cat_idx2 != 0) < nonnull_cat_ct) {
+		if ((uint32_t)((male_cat_idx1 != 0) + (male_cat_idx2 != 0) + (female_cat_idx1 != 0) + (female_cat_idx2 != 0)) < nonnull_cat_ct) {
 		  const uint32_t* pheno_vals = sex_col->data.cat;
 		  for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
 		    next_set_unsafe_ck(sample_include, &sample_uidx);
