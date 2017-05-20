@@ -2502,7 +2502,10 @@ static_assert(kDosageMax == 32768, "print_dosage() needs to be updated.");
 char* print_dosage(uint64_t dosage, char* start) {
   // 3 digit precision seems like the best compromise between accuracy and
   // avoidance of rounding ugliness
-  
+  // (Rounding ugliness is not actually hidden for e.g. 1000 Genomes phase 1,
+  // since there are lots of 0.05 and 0.1 dosages which all get rounded in the
+  // same direction; oh well.)
+
   // +16 since we need to round .99951 up to 1
   const uint64_t dosage_p16 = dosage + 16;
   start = uint32toa(dosage_p16 / kDosageMax, start);

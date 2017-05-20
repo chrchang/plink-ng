@@ -911,6 +911,53 @@ void count_subset_3freq_6xvec(const vul_t* __restrict geno_vvec, const vul_t* __
   }
 }
 
+uint32_t count_01_vecs(const vul_t* geno_vvec, uint32_t vec_ct) {
+  assert(!(vec_ct % 6));
+  const vul_t m1 = VCONST_UL(kMask5555);
+  const vul_t m2 = VCONST_UL(kMask3333);
+  const vul_t m4 = VCONST_UL(kMask0F0F);
+  const vul_t m8 = VCONST_UL(kMask00FF);
+  const vul_t* geno_vvec_iter = geno_vvec;
+  uint32_t tot = 0;
+  while (1) {
+    univec_t acc;
+    acc.vi = vul_setzero();
+    const vul_t* geno_vvec_stop;
+    if (vec_ct < 60) {
+      if (!vec_ct) {
+	return tot;
+      }
+      geno_vvec_stop = &(geno_vvec_iter[vec_ct]);
+      vec_ct = 0;
+    } else {
+      geno_vvec_stop = &(geno_vvec_iter[60]);
+      vec_ct -= 60;
+    }
+    do {
+      vul_t loader1 = *geno_vvec_iter++;
+      vul_t loader2 = *geno_vvec_iter++;
+      vul_t count1 = ((~vul_rshift(loader1, 1)) & loader1) & m1;
+      vul_t count2 = ((~vul_rshift(loader2, 1)) & loader2) & m1;
+
+      loader1 = *geno_vvec_iter++;
+      loader2 = *geno_vvec_iter++;
+      count1 = count1 + (((~vul_rshift(loader1, 1)) & loader1) & m1);
+      count2 = count2 + (((~vul_rshift(loader2, 1)) & loader2) & m1);
+
+      loader1 = *geno_vvec_iter++;
+      loader2 = *geno_vvec_iter++;
+      count1 = count1 + (((~vul_rshift(loader1, 1)) & loader1) & m1);
+      count2 = count2 + (((~vul_rshift(loader2, 1)) & loader2) & m1);
+
+      count1 = (count1 & m2) + (vul_rshift(count1, 2) & m2);
+      count1 = count1 + (count2 & m2) + (vul_rshift(count2, 2) & m2);
+      acc.vi = acc.vi + (count1 & m4) + (vul_rshift(count1, 4) & m4);
+    } while (geno_vvec_iter < geno_vvec_stop);
+    acc.vi = (acc.vi & m8) + (vul_rshift(acc.vi, 8) & m8);
+    tot += univec_hsum_16bit(acc);
+  }
+}
+
 uintptr_t popcount_bytes(const unsigned char* bitarr, uintptr_t byte_ct) {
   const uint32_t lead_byte_ct = ((uintptr_t)(-((uintptr_t)bitarr))) % kBytesPerVec;
   uintptr_t tot = 0;
@@ -1274,6 +1321,18 @@ void genovec_count_subset_freqs(const uintptr_t* __restrict genovec, const uintp
   genocounts[1] = even_ct - bothset_ct;
   genocounts[2] = odd_ct - bothset_ct;
   genocounts[3] = bothset_ct;
+}
+
+uint32_t genovec_count_01_unsafe(const uintptr_t* genovec, uint32_t sample_ct) {
+  const uint32_t sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
+  uint32_t word_idx = sample_ctl2 - (sample_ctl2 % (6 * kWordsPerVec));
+  assert(IS_VEC_ALIGNED(genovec));
+  uint32_t tot = count_01_vecs((const vul_t*)genovec, word_idx / kWordsPerVec);
+  for (; word_idx < sample_ctl2; ++word_idx) {
+    const uintptr_t cur_geno_word = genovec[word_idx];
+    tot += popcount01_long(cur_geno_word & (~(cur_geno_word >> 1)) & kMask5555);
+  }
+  return tot;
 }
 
 void small_genoarr_count_3freq_incr(const uintptr_t* genoarr_iter, uint32_t byte_ct, uint32_t* even_ctp, uint32_t* odd_ctp, uint32_t* bothset_ctp) {
@@ -6532,11 +6591,19 @@ pglerr_t get_ref_nonref_genotype_counts_and_dosage16s(const uintptr_t* __restric
   // genocounts[0] := ref/ref, genocounts[1] := ref/altx,
   // genocounts[2] := altx/alty, genocounts[3] := missing
   const uint32_t vrtype = get_pgfi_vrtype(&(pgrp->fi), vidx);
-  if (!(vrtype & 0x68)) {
-    pglerr_t reterr = get_refalt1_genotype_counts(sample_include, sample_include_interleaved_vec, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, nullptr, nullptr, genocounts);
-    if (reterr) {
-      return reterr;
+  const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
+  const uint32_t subsetting_required = (sample_ct != raw_sample_ct);
+  // to avoid LD cache thrashing, we either always keep a subsetted cache, or
+  // never do so.
+  // todo: can't take the shortcut in the multiallelic variant case
+  if ((!(pgrp->fi.gflags & (kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent))) || ((!(vrtype & 0x68)) && (!subsetting_required))) {
+    {
+      pglerr_t reterr = get_refalt1_genotype_counts(sample_include, sample_include_interleaved_vec, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, nullptr, nullptr, genocounts);
+      if (reterr) {
+	return reterr;
+      }
     }
+  get_ref_nonref_genotype_counts_and_dosage16s_basic_finish:
     all_dosages[0] = (genocounts[0] * 2 + genocounts[1]) * 16384LLU;
     all_dosages[1] = (genocounts[2] * 2 + genocounts[1]) * 16384LLU;
     if (!mach_r2_ptr) {
@@ -6556,7 +6623,6 @@ pglerr_t get_ref_nonref_genotype_counts_and_dosage16s(const uintptr_t* __restric
     *mach_r2_ptr = mach_r2;
     return kPglRetSuccess;
   }
-  const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
   uintptr_t* tmp_genovec = pgrp->workspace_vec;
   const unsigned char* fread_ptr;
   const unsigned char* fread_end;
@@ -6564,26 +6630,35 @@ pglerr_t get_ref_nonref_genotype_counts_and_dosage16s(const uintptr_t* __restric
   if (reterr) {
     return reterr;
   }
-  const uint32_t subsetting_required = (sample_ct != raw_sample_ct);
   if (!subsetting_required) {
     zero_trailing_quaters(raw_sample_ct, tmp_genovec);
     genovec_count_freqs_unsafe(tmp_genovec, raw_sample_ct, genocounts);
   } else {
     genovec_count_subset_freqs(tmp_genovec, sample_include_interleaved_vec, raw_sample_ct, sample_ct, genocounts);
   }
-  uint32_t het_ct = genocounts[1];
+  if (!(vrtype & 0x68)) {
+    goto get_ref_nonref_genotype_counts_and_dosage16s_basic_finish;
+  }
   if (vrtype & 8) {
     // todo: multiallelic case
     assert(0);
     if (!(vrtype & 0x60)) {
       return kPglRetSuccess;
     }
-    // update het_ct if hphase present
+    // update raw_het_ct if hphase present
   }
   if (vrtype & 0x10) {
+    uint32_t raw_het_ct;
+    if (!subsetting_required) {
+      raw_het_ct = genocounts[1];
+    } else {
+      zero_trailing_quaters(raw_sample_ct, tmp_genovec);
+      raw_het_ct = genovec_count_01_unsafe(tmp_genovec, raw_sample_ct);
+    }
     // skip phase info
     // probably make this its own function...
-    const uint32_t first_half_byte_ct = 1 + (het_ct / CHAR_BIT);
+    // bugfix: need to use raw het ct, not subsetted
+    const uint32_t first_half_byte_ct = 1 + (raw_het_ct / CHAR_BIT);
     const uint32_t explicit_phasepresent = fread_ptr[0] & 1;
     if (explicit_phasepresent) {
       // uintptr_t popcount_bytes(const unsigned char* bitarr, uintptr_t byte_ct) {

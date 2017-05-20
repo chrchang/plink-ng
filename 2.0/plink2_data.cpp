@@ -1371,6 +1371,10 @@ boolerr_t parse_vcf_dosage(char* gtext_iter, char* gtext_end, uint32_t dosage_fi
       return 1;
     }
     if (is_haploid) {
+      // possible todo: allow this to be suppressed (maybe upstream of this
+      // function); 1000 Genomes phase 1 haploid dosages are still on 0..2
+      // scale
+      ;;;
       alt_dosage *= 2;
     }
     if (alt_dosage > 2.0) {
