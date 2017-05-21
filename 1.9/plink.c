@@ -12146,7 +12146,6 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Warning: --tucc without 'write-bed' is deprecated.\n");
 	}
 	calculation_type |= CALC_TUCC;
-	goto main_param_zero;
       } else {
 	goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
       }

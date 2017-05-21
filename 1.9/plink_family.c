@@ -78,7 +78,8 @@ int32_t get_trios_and_families(uintptr_t unfiltered_sample_ct, uintptr_t* sample
   // family_list has paternal indices in low 32 bits, maternal indices in high
   // 32, sorted in child ID order.
   // trio_list has child IDs in low 32 bits, family_list indices in high 32
-  // bits, in PLINK 1.07 reporting order.
+  // bits, in PLINK 1.07 reporting order.  (Actually, reporting order may
+  // change, but this isn't a big deal.)
   // If include_duos is set, missing parental IDs are coded as
   // unfiltered_sample_ct.  include_duos must be 0 or 1.
   // If toposort is set, trio_lookup has child IDs in [4n], paternal IDs in
@@ -6068,7 +6069,7 @@ int32_t make_pseudocontrols(FILE* bedfile, uintptr_t bed_offset, char* outname, 
     unsigned char* new_bed_contents = nullptr;
     unsigned char* uwrite_iter;
     if (write_bed) {
-      strcpy(outname, ".tucc.fam");
+      strcpy(outname_end, ".tucc.fam");
       if (fopen_checked(outname, "wb", &outfile)) {
 	goto make_pseudocontrols_ret_OPEN_FAIL;
       }
@@ -6106,7 +6107,7 @@ int32_t make_pseudocontrols(FILE* bedfile, uintptr_t bed_offset, char* outname, 
 	goto make_pseudocontrols_ret_WRITE_FAIL;
       }
 
-      memcpy(&(outname[5]), "bi", 2);
+      memcpy(&(outname_end[6]), "bi", 2);
       if (fopen_checked(outname, "wb", &outfile)) {
 	goto make_pseudocontrols_ret_OPEN_FAIL;
       }
@@ -6160,7 +6161,7 @@ int32_t make_pseudocontrols(FILE* bedfile, uintptr_t bed_offset, char* outname, 
 	goto make_pseudocontrols_ret_WRITE_FAIL;
       }
 
-      memcpy(&(outname[6]), "ed", 2);
+      memcpy(&(outname_end[7]), "ed", 2);
       if (fopen_checked(outname, "wb", &outfile)) {
 	goto make_pseudocontrols_ret_OPEN_FAIL;
       }
@@ -6182,6 +6183,7 @@ int32_t make_pseudocontrols(FILE* bedfile, uintptr_t bed_offset, char* outname, 
     const uint32_t write_word_ct_m1 = (trio_ct - 1) / (BITCT / 4);
     uint32_t variant_uidx = 0;
     for (uint32_t variant_idx = 0; variant_idx < marker_ct; ++variant_idx, ++variant_uidx) {
+      //printf("%u\n", variant_uidx);
       if (!is_set(marker_exclude, variant_uidx)) {
 	variant_uidx = next_unset_unsafe(marker_exclude, variant_uidx);
 	if (fseeko(bedfile, bed_offset + ((uint64_t)variant_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
@@ -6217,7 +6219,7 @@ int32_t make_pseudocontrols(FILE* bedfile, uintptr_t bed_offset, char* outname, 
 	  const uint32_t table_index = EXTRACT_2BIT_GENO(loadbuf, ((uint32_t)trio_code)) + 4 * EXTRACT_2BIT_GENO(loadbuf, ((uint32_t)family_code)) + 16 * EXTRACT_2BIT_GENO(loadbuf, (family_code >> 32));
 	  cur_write_word |= tucc_table[table_index] << (trio_idx_lowbits * 4);
 	}
-        *uwrite_alias++ = cur_write_word;
+        uwrite_alias[widx++] = cur_write_word;
       }
       uwrite_iter = &(uwrite_iter[trio_ct2]);
       if (uwrite_iter >= ((unsigned char*)writebuf_flush)) {
@@ -6236,7 +6238,7 @@ int32_t make_pseudocontrols(FILE* bedfile, uintptr_t bed_offset, char* outname, 
       if (fclose_null(&outfile)) {
 	goto make_pseudocontrols_ret_WRITE_FAIL;
       }
-      outname_end[1] = '\0';
+      outname_end[6] = '\0';
       LOGPRINTFWW("--tucc: Pseudo cases/controls written to %sbed + %sbim + %sfam .\n", outname, outname, outname);
     } else {
       logerrprint("Error: --tucc without 'write-bed' is currently under development.\n");
