@@ -5950,9 +5950,324 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
   return retval;
 }
 
-int32_t make_pseudocontrols(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_blen, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t max_marker_allele_blen, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* sample_ids, uintptr_t max_sample_id_blen, char* paternal_ids, uintptr_t max_paternal_id_blen, char* maternal_ids, uintptr_t max_maternal_id_blen, Chrom_info* chrom_info_ptr, Family_info* fam_ip) {
+// bottom 2 bits of index = child genotype
+// middle 2 bits of index = paternal genotype
+// top 2 bits of index = maternal genotype
+
+// bottom 2 bits of result = child genotype
+// top 2 bits of result = untransmitted genotype
+const uintptr_t tucc_table[] =
+{0, 5, 5, 5,
+ 5, 5, 5, 5,
+ 8, 5, 2, 5,
+ 5, 5, 10, 5,
+ 5, 5, 5, 5,
+ 5, 5, 5, 5,
+ 5, 5, 5, 5,
+ 5, 5, 5, 5,
+ 8, 5, 2, 5,
+ 5, 5, 5, 5,
+ 12, 5, 10, 3,
+ 5, 5, 14, 11,
+ 5, 5, 10, 5,
+ 5, 5, 5, 5,
+ 5, 5, 14, 11,
+ 5, 5, 5, 15};
+
+int32_t make_pseudocontrols(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_blen, double* marker_cms, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t max_marker_allele_blen, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* sample_ids, uintptr_t max_sample_id_blen, char* paternal_ids, uintptr_t max_paternal_id_blen, char* maternal_ids, uintptr_t max_maternal_id_blen, Chrom_info* chrom_info_ptr, Family_info* fam_ip) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  FILE* outfile = NULL;
   int32_t retval = 0;
-  logerrprint("Error: --tucc is under development.\n");
-  retval = RET_CALC_NOT_YET_SUPPORTED;
+  {
+    const uint32_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
+    const uint32_t sex_mt_variant_ct = count_non_autosomal_markers(chrom_info_ptr, marker_exclude, 1, 1);
+    if (sex_mt_variant_ct) {
+      LOGPRINTF("Excluding %u X/MT/haploid variant%s from --tucc dataset.\n", sex_mt_variant_ct, (sex_mt_variant_ct == 1)? "" : "s");
+      if (sex_mt_variant_ct == marker_ct) {
+	logerrprint("Error: No variants remaining for --tucc.\n");
+	goto make_pseudocontrols_ret_INVALID_CMDLINE;
+      }
+      marker_ct -= sex_mt_variant_ct;
+      uintptr_t* marker_exclude_new;
+      if (bigstack_alloc_ul(unfiltered_marker_ctl, &marker_exclude_new)) {
+	goto make_pseudocontrols_ret_NOMEM;
+      }
+      memcpy(marker_exclude_new, marker_exclude, unfiltered_marker_ctl * sizeof(intptr_t));
+      for (uint32_t chrom_fo_idx = 0; chrom_fo_idx < chrom_info_ptr->chrom_ct; ++chrom_fo_idx) {
+	const uint32_t chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+	if (is_set(chrom_info_ptr->haploid_mask, chrom_idx) || ((int32_t)chrom_idx == chrom_info_ptr->xymt_codes[MT_OFFSET])) {
+	  const uint32_t variant_uidx_start = chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx];
+	  fill_bits(variant_uidx_start, chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx + 1] - variant_uidx_start, marker_exclude_new);
+	}
+      }
+      marker_exclude = marker_exclude_new;
+    } else if (is_set(chrom_info_ptr->haploid_mask, 0)) {
+      logerrprint("Error: --tucc test does not support haploid data.\n");
+      goto make_pseudocontrols_ret_INVALID_CMDLINE;
+    }
+    const uint32_t multigen = (fam_ip->mendel_modifier / MENDEL_MULTIGEN) & 1;
+    uint64_t* family_list;
+    uint64_t* trio_list;
+    uint32_t* trio_error_lookup;
+    uint32_t family_ct;
+    uintptr_t trio_ct;
+    retval = get_trios_and_families(unfiltered_sample_ct, sample_exclude, sample_ct, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_blen, paternal_ids, max_paternal_id_blen, maternal_ids, max_maternal_id_blen, nullptr, nullptr, nullptr, nullptr, &family_list, &family_ct, &trio_list, &trio_ct, &trio_error_lookup, 0, multigen);
+    if (retval) {
+      goto make_pseudocontrols_ret_1;
+    }
+    if (!trio_ct) {
+      LOGERRPRINTF("Warning: Skipping --tucc since there are no trios.\n");
+      goto make_pseudocontrols_ret_1;
+    } else if (trio_ct > 0x3fffffff) {
+      logerrprint("Error: Too many trios for --tucc.\n");
+      goto make_pseudocontrols_ret_INVALID_CMDLINE;
+    }
+    // main write buffer size requirements:
+    //   write-bed:
+    //     MAXLINELEN + max(max_sample_id_blen + 16,
+    //                      max_chrom_slen + max_marker_id_blen +
+    //                        2 * max_marker_allele_blen + 48,
+    //                      trio_ct2 + sizeof(intptr_t) - 1)
+    //   ped:
+    //     MAXLINELEN + max(max_sample_id_blen + 16,
+    //                      2 * max_marker_allele_blen)
+    const uint32_t write_bed = fam_ip->tucc_bed;
+    const uintptr_t trio_ct2 = (trio_ct + 1) / 2;
+    char* chrom_buf = nullptr;
+    uintptr_t writebuf_blen = max_sample_id_blen + 16;
+    if (write_bed) {
+      if (writebuf_blen < trio_ct2 + BYTECT - 1) {
+	writebuf_blen = trio_ct2 + BYTECT - 1;
+      }
+      const uint32_t max_chrom_slen = get_max_chrom_slen(chrom_info_ptr);
+      if (bigstack_alloc_c(max_chrom_slen + 1, &chrom_buf)) {
+	goto make_pseudocontrols_ret_NOMEM;
+      }
+      if (writebuf_blen < max_chrom_slen + max_marker_id_blen + 2 * max_marker_id_blen + 48) {
+	writebuf_blen = max_chrom_slen + max_marker_id_blen + 2 * max_marker_id_blen + 48;
+      }
+    } else {
+      if (writebuf_blen < 2 * max_marker_allele_blen) {
+	writebuf_blen = 2 * max_marker_allele_blen;
+      }
+    }
+    writebuf_blen += MAXLINELEN;
+    const uintptr_t unfiltered_sample_ctl2m1 = (unfiltered_sample_ct - 1) / BITCT2;
+    const uintptr_t unfiltered_sample_ctp1l2 = 1 + (unfiltered_sample_ct / BITCT2);
+    uintptr_t* loadbuf;
+    uintptr_t* workbuf;
+    char* writebuf;
+    if (bigstack_alloc_ul(unfiltered_sample_ctl2m1 + 1, &loadbuf) ||
+	bigstack_alloc_ul(unfiltered_sample_ctp1l2, &workbuf) ||
+	bigstack_alloc_c(writebuf_blen, &writebuf)) {
+      goto make_pseudocontrols_ret_NOMEM;
+    }
+    loadbuf[unfiltered_sample_ctl2m1] = 0;
+    workbuf[unfiltered_sample_ctp1l2 - 1] = 0;
+    char* writebuf_flush = &(writebuf[MAXLINELEN]);
+    unsigned char* new_bed_contents = nullptr;
+    unsigned char* uwrite_iter;
+    if (write_bed) {
+      strcpy(outname, ".tucc.fam");
+      if (fopen_checked(outname, "wb", &outfile)) {
+	goto make_pseudocontrols_ret_OPEN_FAIL;
+      }
+      char* write_iter = writebuf;
+      for (uintptr_t trio_idx = 0; trio_idx < trio_ct; ++trio_idx) {
+	const uintptr_t child_uidx = (uint32_t)trio_list[trio_idx];
+	const char* child_sample_id = (const char*)(&(sample_ids[child_uidx * max_sample_id_blen]));
+	const uint32_t child_sample_id_slen = strlen(child_sample_id);
+	const char child_sex_char = sexchar(sex_nm, sex_male, child_uidx);
+	for (uint32_t is_pseudocontrol = 0; is_pseudocontrol < 2; ++is_pseudocontrol) {
+	  write_iter = memcpyax(write_iter, child_sample_id, child_sample_id_slen, '_');
+	  *write_iter++ = 'T' + is_pseudocontrol;
+	  write_iter = strcpya(write_iter, "\t0\t0\t");
+	  *write_iter++ = child_sex_char;
+	  *write_iter++ = ' ';
+	  *write_iter++ = '2' - is_pseudocontrol;
+#ifdef _WIN32
+	  *write_iter++ = '\r';
+#endif
+	  *write_iter++ = '\n';
+	  if (write_iter >= writebuf_flush) {
+	    if (fwrite_checked(writebuf, write_iter - writebuf, outfile)) {
+	      goto make_pseudocontrols_ret_WRITE_FAIL;
+	    }
+	    write_iter = writebuf;
+	  }
+	}
+      }
+      if (write_iter != writebuf) {
+	if (fwrite_checked(writebuf, write_iter - writebuf, outfile)) {
+	  goto make_pseudocontrols_ret_WRITE_FAIL;
+	}
+      }
+      if (fclose_null(&outfile)) {
+	goto make_pseudocontrols_ret_WRITE_FAIL;
+      }
+
+      memcpy(&(outname[5]), "bi", 2);
+      if (fopen_checked(outname, "wb", &outfile)) {
+	goto make_pseudocontrols_ret_OPEN_FAIL;
+      }
+      write_iter = writebuf;
+      const char* missing_geno_ptr = g_missing_geno_ptr;
+      const char* output_missing_geno_ptr = g_output_missing_geno_ptr;
+      uint32_t variant_uidx = 0;
+      uint32_t chrom_fo_idx = 0xffffffffU;
+      uint32_t chrom_end = 0;
+      uint32_t chrom_name_blen = 0;
+      for (uint32_t variant_idx = 0; variant_idx < marker_ct; ++variant_idx, ++variant_uidx) {
+	next_unset_unsafe_ck(marker_exclude, &variant_uidx);
+	if (variant_uidx >= chrom_end) {
+	  do {
+	    ++chrom_fo_idx;
+	    chrom_end = chrom_info_ptr->chrom_fo_vidx_start[chrom_fo_idx + 1];
+	  } while (variant_uidx >= chrom_end);
+	  const uint32_t chrom_idx = chrom_info_ptr->chrom_file_order[chrom_fo_idx];
+	  char* chrom_name_end = chrom_name_write(chrom_info_ptr, chrom_idx, chrom_buf);
+	  *chrom_name_end = '\t';
+	  chrom_name_blen = 1 + (uintptr_t)(chrom_name_end - chrom_buf);
+	}
+	write_iter = memcpya(write_iter, chrom_buf, chrom_name_blen);
+	write_iter = strcpyax(write_iter, &(marker_ids[variant_uidx * max_marker_id_blen]), '\t');
+	if (!marker_cms) {
+	  *write_iter++ = '0';
+	} else {
+	  write_iter = dtoa_g_wxp8(marker_cms[variant_uidx], 1, write_iter);
+	}
+	*write_iter++ = '\t';
+	write_iter = uint32toa_x(marker_pos[variant_uidx], '\t', write_iter);
+	write_iter = strcpyax(write_iter, cond_replace(marker_allele_ptrs[2 * variant_uidx], missing_geno_ptr, output_missing_geno_ptr), '\t');
+	write_iter = strcpya(write_iter, cond_replace(marker_allele_ptrs[2 * variant_uidx + 1], missing_geno_ptr, output_missing_geno_ptr));
+#ifdef _WIN32
+	*write_iter++ = '\r';
+#endif
+	*write_iter++ = '\n';
+	if (write_iter >= writebuf_flush) {
+	  if (fwrite_checked(writebuf, write_iter - writebuf, outfile)) {
+	    goto make_pseudocontrols_ret_WRITE_FAIL;
+	  }
+	  write_iter = writebuf;
+	}
+      }
+      if (write_iter != writebuf) {
+	if (fwrite_checked(writebuf, write_iter - writebuf, outfile)) {
+	  goto make_pseudocontrols_ret_WRITE_FAIL;
+	}
+      }
+      if (fclose_null(&outfile)) {
+	goto make_pseudocontrols_ret_WRITE_FAIL;
+      }
+
+      memcpy(&(outname[6]), "ed", 2);
+      if (fopen_checked(outname, "wb", &outfile)) {
+	goto make_pseudocontrols_ret_OPEN_FAIL;
+      }
+      uwrite_iter = (unsigned char*)memcpyl3a(writebuf, "l\x1b\x01");
+    } else {
+      if (bigstack_alloc_uc(trio_ct2 * marker_ct + BYTECT, &new_bed_contents)) {
+	goto make_pseudocontrols_ret_NOMEM;
+      }
+      uwrite_iter = new_bed_contents;
+
+      // never flush
+      writebuf_flush = (char*)(&(new_bed_contents[trio_ct2 * marker_ct + BYTECT]));
+    }
+    if (fseeko(bedfile, bed_offset, SEEK_SET)) {
+      goto make_pseudocontrols_ret_READ_FAIL;
+    }
+    const uintptr_t unfiltered_sample_ct4 = (unfiltered_sample_ct + 3) / 4;
+    const uintptr_t final_mask = get_final_mask(unfiltered_sample_ct);
+    const uint32_t write_word_ct_m1 = (trio_ct - 1) / (BITCT / 4);
+    uint32_t variant_uidx = 0;
+    for (uint32_t variant_idx = 0; variant_idx < marker_ct; ++variant_idx, ++variant_uidx) {
+      if (!is_set(marker_exclude, variant_uidx)) {
+	variant_uidx = next_unset_unsafe(marker_exclude, variant_uidx);
+	if (fseeko(bedfile, bed_offset + ((uint64_t)variant_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
+	  goto make_pseudocontrols_ret_READ_FAIL;
+	}
+      }
+      if (load_raw2(unfiltered_sample_ct4, unfiltered_sample_ctl2m1, final_mask, bedfile, loadbuf)) {
+	goto make_pseudocontrols_ret_READ_FAIL;
+      }
+      if (IS_SET(marker_reverse, variant_uidx)) {
+	reverse_loadbuf(unfiltered_sample_ct, (unsigned char*)loadbuf);
+      }
+      // 1. iterate through all trios, setting Mendel errors to missing
+      // 2. iterate through trio_list:
+      //    a. if child or either parent isn't genotyped, save missing genos
+      //    b. otherwise, save appropriate 4-bit genotype pair
+      erase_mendel_errors(unfiltered_sample_ct, loadbuf, workbuf, sex_male, trio_error_lookup, trio_ct, 0, multigen);
+      uint32_t loop_len = BITCT / 4;
+      const uint64_t* trio_list_iter = trio_list;
+      uintptr_t* uwrite_alias = (uintptr_t*)uwrite_iter;
+      uint32_t widx = 0;
+      while (1) {
+	if (widx >= write_word_ct_m1) {
+	  if (widx > write_word_ct_m1) {
+	    break;
+	  }
+	  loop_len = 1 + ((trio_ct - 1) % (BITCT / 4));
+	}
+	uintptr_t cur_write_word = 0;
+	for (uint32_t trio_idx_lowbits = 0; trio_idx_lowbits < loop_len; ++trio_idx_lowbits) {
+	  const uint64_t trio_code = *trio_list_iter++;
+	  const uint64_t family_code = family_list[trio_code >> 32];
+	  const uint32_t table_index = EXTRACT_2BIT_GENO(loadbuf, ((uint32_t)trio_code)) + 4 * EXTRACT_2BIT_GENO(loadbuf, ((uint32_t)family_code)) + 16 * EXTRACT_2BIT_GENO(loadbuf, (family_code >> 32));
+	  cur_write_word |= tucc_table[table_index] << (trio_idx_lowbits * 4);
+	}
+        *uwrite_alias++ = cur_write_word;
+      }
+      uwrite_iter = &(uwrite_iter[trio_ct2]);
+      if (uwrite_iter >= ((unsigned char*)writebuf_flush)) {
+	if (fwrite_checked(writebuf, uwrite_iter - ((unsigned char*)writebuf), outfile)) {
+	  goto make_pseudocontrols_ret_WRITE_FAIL;
+	}
+	uwrite_iter = (unsigned char*)writebuf;
+      }
+    }
+    if (write_bed) {
+      if (uwrite_iter != (unsigned char*)writebuf) {
+	if (fwrite_checked(writebuf, uwrite_iter - ((unsigned char*)writebuf), outfile)) {
+	  goto make_pseudocontrols_ret_WRITE_FAIL;
+	}
+      }
+      if (fclose_null(&outfile)) {
+	goto make_pseudocontrols_ret_WRITE_FAIL;
+      }
+      outname_end[1] = '\0';
+      LOGPRINTFWW("--tucc: Pseudo cases/controls written to %sbed + %sbim + %sfam .\n", outname, outname, outname);
+    } else {
+      logerrprint("Error: --tucc without 'write-bed' is currently under development.\n");
+      retval = RET_CALC_NOT_YET_SUPPORTED;
+      goto make_pseudocontrols_ret_1;
+      for (uintptr_t trio_idx = 0; trio_idx < trio_ct; ++trio_idx) {
+	for (uint32_t is_pseudocontrol = 0; is_pseudocontrol < 2; ++is_pseudocontrol) {
+	  ;;;
+	}
+      }
+    }
+  }
+  while (0) {
+  make_pseudocontrols_ret_NOMEM:
+    retval = RET_NOMEM;
+    break;
+  make_pseudocontrols_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  make_pseudocontrols_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  make_pseudocontrols_ret_WRITE_FAIL:
+    retval = RET_WRITE_FAIL;
+    break;
+  make_pseudocontrols_ret_INVALID_CMDLINE:
+    retval = RET_INVALID_CMDLINE;
+    break;
+  }
+ make_pseudocontrols_ret_1:
+  bigstack_reset(bigstack_mark);
+  fclose_cond(outfile);
   return retval;
 }

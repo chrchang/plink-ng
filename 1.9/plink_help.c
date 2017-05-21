@@ -1152,12 +1152,12 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
 #ifndef STABLE_BUILD
     help_print("tucc", &help_ctrl, 1,
-"  --tucc <bed>\n"
+"  --tucc <write-bed>\n"
 "    By default, this generates a .tucc.ped file where, for each child with two\n"
 "    parents in the dataset, one case sample is created with all the child's\n"
 "    alleles, and one pseudocontrol sample is created with all untransmitted\n"
 "    alleles.  (Both genotypes are set to missing when there's a Mendel error.)\n"
-"    Add the 'bed' modifier to create a .tucc.bed + .tucc.bim + .tucc.fam\n"
+"    Add the 'write-bed' modifier to create a .tucc.bed + .tucc.bim + .tucc.fam\n"
 "    fileset instead.\n\n"
 	       );
 #endif

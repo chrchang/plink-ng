@@ -294,14 +294,14 @@ static inline int32_t bed_suffix_conflict(uint64_t calculation_type, uint32_t re
 }
 
 static inline uint32_t are_marker_pos_needed(uint64_t calculation_type, uint64_t misc_flags, char* cm_map_fname, char* set_fname, uint32_t min_bp_space, uint32_t genome_skip_write, uint32_t ld_modifier, uint32_t epi_modifier, uint32_t cluster_modifier) {
-  return (calculation_type & (CALC_MAKE_BED | CALC_MAKE_BIM | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_CLUMP | CALC_BLOCKS | CALC_FLIPSCAN | CALC_TDT | CALC_QFAM | CALC_FST | CALC_SHOW_TAGS | CALC_DUPVAR | CALC_RPLUGIN)) || (misc_flags & (MISC_EXTRACT_RANGE | MISC_EXCLUDE_RANGE)) || cm_map_fname || set_fname || min_bp_space || genome_skip_write || ((calculation_type & CALC_LD) && (!(ld_modifier & LD_MATRIX_SHAPEMASK))) || ((calculation_type & CALC_EPI) && (epi_modifier & EPI_FAST_CASE_ONLY)) || ((calculation_type & CALC_CMH) && (!(cluster_modifier & CLUSTER_CMH2)));
+  return (calculation_type & (CALC_MAKE_BED | CALC_MAKE_BIM | CALC_RECODE | CALC_GENOME | CALC_HOMOZYG | CALC_LD_PRUNE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_CLUMP | CALC_BLOCKS | CALC_FLIPSCAN | CALC_TDT | CALC_QFAM | CALC_FST | CALC_SHOW_TAGS | CALC_DUPVAR | CALC_RPLUGIN | CALC_TUCC)) || (misc_flags & (MISC_EXTRACT_RANGE | MISC_EXCLUDE_RANGE)) || cm_map_fname || set_fname || min_bp_space || genome_skip_write || ((calculation_type & CALC_LD) && (!(ld_modifier & LD_MATRIX_SHAPEMASK))) || ((calculation_type & CALC_EPI) && (epi_modifier & EPI_FAST_CASE_ONLY)) || ((calculation_type & CALC_CMH) && (!(cluster_modifier & CLUSTER_CMH2)));
 }
 
 static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, char* cm_map_fname, Two_col_params* update_cm, Ld_info* ldip) {
   if ((calculation_type & CALC_LD) && (!(ldip->modifier & LD_MATRIX_SHAPEMASK)) && (ldip->window_cm != -1)) {
     return MARKER_CMS_FORCED;
   }
-  if (calculation_type & (CALC_MAKE_BED | CALC_MAKE_BIM | CALC_RECODE)) {
+  if (calculation_type & (CALC_MAKE_BED | CALC_MAKE_BIM | CALC_RECODE | CALC_TUCC)) {
     if (cm_map_fname || update_cm) {
       return MARKER_CMS_FORCED;
     } else {
@@ -312,7 +312,7 @@ static inline uint32_t are_marker_cms_needed(uint64_t calculation_type, char* cm
 }
 
 static inline uint32_t are_marker_alleles_needed(uint64_t calculation_type, char* freqname, Homozyg_info* homozyg_ptr, Two_col_params* a1alleles, Two_col_params* a2alleles, uint32_t ld_modifier, uint32_t snps_only, uint32_t clump_modifier, uint32_t cluster_modifier, uint32_t rel_modifier) {
-  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_MAKE_BIM | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_LASSO | CALC_LIST_23_INDELS | CALC_EPI | CALC_TESTMISHAP | CALC_SCORE | CALC_MENDEL | CALC_TDT | CALC_FLIPSCAN | CALC_QFAM | CALC_HOMOG | CALC_DUPVAR | CALC_RPLUGIN | CALC_DFAM)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)) || ((calculation_type & CALC_LD) && (ld_modifier & LD_INPHASE)) || ((calculation_type & CALC_PCA) && (rel_modifier & REL_PCA_VAR_WTS)) || ((calculation_type & CALC_CMH) && (!(cluster_modifier & CLUSTER_CMH2))) || a1alleles || a2alleles || snps_only || (clump_modifier & (CLUMP_VERBOSE | CLUMP_BEST)));
+  return (freqname || (calculation_type & (CALC_FREQ | CALC_HARDY | CALC_MAKE_BED | CALC_MAKE_BIM | CALC_RECODE | CALC_REGRESS_PCS | CALC_MODEL | CALC_GLM | CALC_LASSO | CALC_LIST_23_INDELS | CALC_EPI | CALC_TESTMISHAP | CALC_SCORE | CALC_MENDEL | CALC_TDT | CALC_FLIPSCAN | CALC_QFAM | CALC_HOMOG | CALC_DUPVAR | CALC_RPLUGIN | CALC_DFAM | CALC_TUCC)) || ((calculation_type & CALC_HOMOZYG) && (homozyg_ptr->modifier & HOMOZYG_GROUP_VERBOSE)) || ((calculation_type & CALC_LD) && (ld_modifier & LD_INPHASE)) || ((calculation_type & CALC_PCA) && (rel_modifier & REL_PCA_VAR_WTS)) || ((calculation_type & CALC_CMH) && (!(cluster_modifier & CLUSTER_CMH2))) || a1alleles || a2alleles || snps_only || (clump_modifier & (CLUMP_VERBOSE | CLUMP_BEST)));
 }
 
 static inline int32_t relationship_or_ibc_req(uint64_t calculation_type) {
@@ -1541,7 +1541,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       }
 
       if (calculation_type & CALC_TUCC) {
-	retval = make_pseudocontrols(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_blen, marker_reverse, unfiltered_sample_ct, sample_exclude, sample_ct, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, chrom_info_ptr, fam_ip);
+	retval = make_pseudocontrols(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_cms, marker_pos, marker_allele_ptrs, max_marker_allele_blen, marker_reverse, unfiltered_sample_ct, sample_exclude, sample_ct, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, chrom_info_ptr, fam_ip);
 	if (retval) {
 	  goto plink_ret_1;
 	}
@@ -12137,11 +12137,13 @@ int32_t main(int32_t argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
 	if (param_ct) {
-	  if (strcmp(argv[cur_arg + 1], "bed")) {
+	  if (strcmp(argv[cur_arg + 1], "write-bed")) {
 	    sprintf(g_logbuf, "Error: Invalid --tucc parameter '%s'.\n", argv[cur_arg + 1]);
 	    goto main_ret_INVALID_CMDLINE;
 	  }
 	  family_info.tucc_bed = 1;
+	} else {
+	  logerrprint("Warning: --tucc without 'write-bed' is deprecated.\n");
 	}
 	calculation_type |= CALC_TUCC;
 	goto main_param_zero;
