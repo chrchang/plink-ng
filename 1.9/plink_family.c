@@ -34,6 +34,7 @@ void family_init(Family_info* fam_ip) {
   fam_ip->dfam_mperm_val = 0;
   fam_ip->qfam_modifier = 0;
   fam_ip->qfam_mperm_val = 0;
+  fam_ip->tucc_bed = 0;
 }
 
 // bottom 2 bits of index = child genotype
@@ -5946,5 +5947,12 @@ int32_t qfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
  qfam_ret_1:
   bigstack_reset(bigstack_mark);
   fclose_cond(outfile);
+  return retval;
+}
+
+int32_t make_pseudocontrols(FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_blen, uint32_t plink_maxsnp, uint32_t* marker_pos, char** marker_allele_ptrs, uintptr_t max_marker_allele_blen, uintptr_t* marker_reverse, uintptr_t unfiltered_sample_ct, uintptr_t* sample_exclude, uintptr_t sample_ct, uintptr_t* founder_info, uintptr_t* sex_nm, uintptr_t* sex_male, char* sample_ids, uintptr_t max_sample_id_blen, char* paternal_ids, uintptr_t max_paternal_id_blen, char* maternal_ids, uintptr_t max_maternal_id_blen, Chrom_info* chrom_info_ptr, Family_info* fam_ip) {
+  int32_t retval = 0;
+  logerrprint("Error: --tucc is under development.\n");
+  retval = RET_CALC_NOT_YET_SUPPORTED;
   return retval;
 }
