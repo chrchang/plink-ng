@@ -3800,6 +3800,7 @@ int32_t main(int32_t argc, char** argv) {
 	    if (!memcmp(argptr2, "12", 2)) {
               memcpy(flagptr, "recode 12", 10);
 	      recode_modifier |= RECODE_12;
+	      // technically, this should also affect --tucc, but whatever
 	      ujj = 1;
             } else if (match_upper(argptr2, "AD")) {
               memcpy(flagptr, "recode AD", 10);

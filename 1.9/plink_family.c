@@ -6066,6 +6066,7 @@ int32_t make_pseudocontrols(FILE* bedfile, uintptr_t bed_offset, char* outname, 
     loadbuf[unfiltered_sample_ctl2m1] = 0;
     workbuf[unfiltered_sample_ctp1l2 - 1] = 0;
     char* writebuf_flush = &(writebuf[MAXLINELEN]);
+    const char* output_missing_geno_ptr = g_output_missing_geno_ptr;
     unsigned char* new_bed_contents = nullptr;
     unsigned char* uwrite_iter;
     if (write_bed) {
@@ -6084,7 +6085,7 @@ int32_t make_pseudocontrols(FILE* bedfile, uintptr_t bed_offset, char* outname, 
 	  *write_iter++ = 'T' + is_pseudocontrol;
 	  write_iter = strcpya(write_iter, "\t0\t0\t");
 	  *write_iter++ = child_sex_char;
-	  *write_iter++ = ' ';
+	  *write_iter++ = '\t';
 	  *write_iter++ = '2' - is_pseudocontrol;
 #ifdef _WIN32
 	  *write_iter++ = '\r';
@@ -6113,7 +6114,6 @@ int32_t make_pseudocontrols(FILE* bedfile, uintptr_t bed_offset, char* outname, 
       }
       write_iter = writebuf;
       const char* missing_geno_ptr = g_missing_geno_ptr;
-      const char* output_missing_geno_ptr = g_output_missing_geno_ptr;
       uint32_t variant_uidx = 0;
       uint32_t chrom_fo_idx = 0xffffffffU;
       uint32_t chrom_end = 0;
@@ -6183,7 +6183,6 @@ int32_t make_pseudocontrols(FILE* bedfile, uintptr_t bed_offset, char* outname, 
     const uint32_t write_word_ct_m1 = (trio_ct - 1) / (BITCT / 4);
     uint32_t variant_uidx = 0;
     for (uint32_t variant_idx = 0; variant_idx < marker_ct; ++variant_idx, ++variant_uidx) {
-      //printf("%u\n", variant_uidx);
       if (!is_set(marker_exclude, variant_uidx)) {
 	variant_uidx = next_unset_unsafe(marker_exclude, variant_uidx);
 	if (fseeko(bedfile, bed_offset + ((uint64_t)variant_uidx) * unfiltered_sample_ct4, SEEK_SET)) {
@@ -6239,16 +6238,88 @@ int32_t make_pseudocontrols(FILE* bedfile, uintptr_t bed_offset, char* outname, 
 	goto make_pseudocontrols_ret_WRITE_FAIL;
       }
       outname_end[6] = '\0';
-      LOGPRINTFWW("--tucc: Pseudo cases/controls written to %sbed + %sbim + %sfam .\n", outname, outname, outname);
+      LOGPRINTFWW("--tucc write-bed: Pseudo cases/controls written to %sbed + %sbim + %sfam .\n", outname, outname, outname);
     } else {
-      logerrprint("Error: --tucc without 'write-bed' is currently under development.\n");
-      retval = RET_CALC_NOT_YET_SUPPORTED;
-      goto make_pseudocontrols_ret_1;
+      strcpy(outname_end, ".tucc.ped");
+      if (fopen_checked(outname, "wb", &outfile)) {
+	goto make_pseudocontrols_ret_OPEN_FAIL;
+      }
+      writebuf_flush = &(writebuf[MAXLINELEN]);
+      char missing4[4];
+      missing4[0] = ' ';
+      missing4[1] = *output_missing_geno_ptr;
+      missing4[2] = ' ';
+      missing4[3] = *output_missing_geno_ptr;
+      char* write_iter = writebuf;
       for (uintptr_t trio_idx = 0; trio_idx < trio_ct; ++trio_idx) {
+	const uintptr_t child_uidx = (uint32_t)trio_list[trio_idx];
+	const char* child_fid = (const char*)(&(sample_ids[child_uidx * max_sample_id_blen]));
+	const char* iid_start = (const char*)memchr(child_fid, '\t', max_sample_id_blen);
+	const uint32_t fid_slen = (uintptr_t)(iid_start - child_fid);
+	++iid_start;
+	const uint32_t iid_slen = strlen(iid_start);
+	const char child_sex_char = sexchar(sex_nm, sex_male, child_uidx);
 	for (uint32_t is_pseudocontrol = 0; is_pseudocontrol < 2; ++is_pseudocontrol) {
-	  ;;;
+	  write_iter = memcpyax(write_iter, child_fid, fid_slen, ' ');
+	  write_iter = memcpyax(write_iter, iid_start, iid_slen, '_');
+	  *write_iter++ = 'T' + is_pseudocontrol;
+	  write_iter = strcpya(write_iter, " 0 0 ");
+	  *write_iter++ = child_sex_char;
+	  *write_iter++ = ' ';
+	  *write_iter++ = '2' - is_pseudocontrol;
+	  *write_iter++ = ' ';
+	  if (write_iter >= writebuf_flush) {
+	    if (fwrite_checked(writebuf, write_iter - writebuf, outfile)) {
+	      goto make_pseudocontrols_ret_WRITE_FAIL;
+	    }
+	    write_iter = writebuf;
+	  }
+	  variant_uidx = 0;
+	  const unsigned char* cur_geno_base = &(new_bed_contents[trio_idx / 2]);
+	  const uint32_t cur_shift = ((trio_idx % 2) * 2 + is_pseudocontrol) * 2;
+	  for (uint32_t variant_idx = 0; variant_idx < marker_ct; ++variant_idx, ++variant_uidx) {
+	    next_unset_unsafe_ck(marker_exclude, &variant_uidx);
+	    const uint32_t cur_geno = (cur_geno_base[variant_uidx * trio_ct2] >> cur_shift) & 3;
+	    if (cur_geno == 1) {
+	      write_iter = memcpya(write_iter, missing4, 4);
+	    } else {
+	      *write_iter++ = ' ';
+	      const char* a1_allele = marker_allele_ptrs[2 * variant_uidx];
+	      const char* a2_allele = marker_allele_ptrs[2 * variant_uidx + 1];
+	      if (cur_geno == 3) {
+		write_iter = strcpya(write_iter, a2_allele);
+	      } else {
+		write_iter = strcpya(write_iter, a1_allele);
+	      }
+	      *write_iter++ = ' ';
+	      if (cur_geno == 0) {
+		write_iter = strcpya(write_iter, a1_allele);
+	      } else {
+		write_iter = strcpya(write_iter, a2_allele);
+	      }
+	    }
+	    if (write_iter >= writebuf_flush) {
+	      if (fwrite_checked(writebuf, write_iter - writebuf, outfile)) {
+		goto make_pseudocontrols_ret_WRITE_FAIL;
+	      }
+	      write_iter = writebuf;
+	    }
+	  }
+#ifdef _WIN32
+	  *write_iter++ = '\r';
+#endif
+	  *write_iter++ = '\n';
 	}
       }
+      if (write_iter != writebuf_flush) {
+	if (fwrite_checked(writebuf, write_iter - writebuf, outfile)) {
+	  goto make_pseudocontrols_ret_WRITE_FAIL;
+	}
+      }
+      if (fclose_null(&outfile)) {
+	goto make_pseudocontrols_ret_WRITE_FAIL;
+      }
+      LOGPRINTFWW("--tucc: Pseudo cases/controls written to %s .\n", outname);
     }
   }
   while (0) {
