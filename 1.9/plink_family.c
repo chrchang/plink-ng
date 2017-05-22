@@ -3704,7 +3704,7 @@ THREAD_RET_TYPE dfam_perm_thread(void* arg) {
 	  }
 	}
       } else {
-	for (perm_idx = 0; perm_idx < perm_vec_ct;) {
+	for (perm_idx = 0; perm_idx < perm_vec_ct; ++perm_idx) {
 	  dxx = numers[perm_idx] + ((double)((int32_t)twice_numers[perm_idx])) * 0.5;
 	  dyy = denoms[perm_idx] + ((double)((int32_t)quad_denom)) * 0.25;
 	  chisq = dxx * dxx / dyy;

@@ -1,2 +1,4 @@
 # make install artefact
 libzstd.pc
+libzstd.*.dylib
+libzstd.a
