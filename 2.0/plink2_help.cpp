@@ -422,7 +422,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "Most runs also require at least one of the following commands:\n\n"
 , stdout);
     }
-    help_print("make-pgen\tmake-bpgen\tmake-bed", &help_ctrl, 1,
+    help_print("make-pgen\tmake-bpgen\tmake-bed\tmake-just-pvar\tmake-just-psam", &help_ctrl, 1,
 "  --make-pgen <vzs> <format=[code]> <trim-alts>\n"
 "              <erase-phase> <erase-dosage>\n"
 "              <pvar-cols=[col set descriptor]> <psam-cols=[col set descriptor]>\n"
@@ -997,7 +997,8 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("score", &help_ctrl, 1,
 "  --score [filename] {i} {j} {k} <header | header-read> <no-mean-imputation>\n"
-"          <center | variance-normalize> <se> <zs> <cols=[col set descriptor]>\n"
+"          <center | variance-normalize> <se> <zs>\n"
+"          <list-variants | list-variants-zs> <cols=[col set descriptor]>\n"
 "    Apply linear scoring system(s) to each sample.\n"
 "    The input file should have one line per scored variant.  Variant IDs are\n"
 "    read from column #i and allele codes are read from column #j, where i\n"
@@ -1020,6 +1021,8 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "      independent standard errors; in this case, standard errors for the score\n"
 "      average/sum are reported.  (Note that this will systematically\n"
 "      underestimate standard errors when scored variants are in LD.)\n"
+"    * The 'list-variants{-zs}' modifier causes variant IDs used for scoring to\n"
+"      be written to [output prefix].sscore.vars{.zst}.\n"
 "    The main report supports the following column sets:\n"
 "      (FID and IID are always present, and positioned here.)\n"
 "      maybesid: SID, if at least one nonmissing value is present.\n"

@@ -1063,7 +1063,7 @@ pglerr_t vcf_sample_line(const char* preexisting_psamname, const char* const_fid
 	  goto vcf_sample_line_ret_NOMEM;
 	}
 	loadbuf_first_token = skip_initial_spaces(loadbuf);
-      } while ((loadbuf_first_token[0] == '#') && strcmp_se(&(loadbuf_first_token[1]), "FID", 3) && strcmp_se(&(loadbuf_first_token[1]), "IID", 3));
+      } while (is_eoln_kns(*loadbuf_first_token) || ((loadbuf_first_token[0] == '#') && strcmp_se(&(loadbuf_first_token[1]), "FID", 3) && strcmp_se(&(loadbuf_first_token[1]), "IID", 3)));
       uint32_t fid_present;
       if (loadbuf_first_token[0] == '#') {
 	// only care about position of IID column

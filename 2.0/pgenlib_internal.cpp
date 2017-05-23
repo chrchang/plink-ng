@@ -6494,7 +6494,9 @@ pglerr_t parse_dosage16(const unsigned char* fread_ptr, const unsigned char* fre
 	}
       } else {
 	uint32_t sample_uidx = 0;
-	for (uint32_t dosage_entry_idx = 0; dosage_entry_idx < dosage_ct; ++dosage_entry_idx, ++sample_uidx, ++dosage_vals_read_iter) {
+	// bugfix (22 May 2017): dosage_entry_idx needs to iterate up to
+	// raw_dosage_ct, not dosage_ct
+	for (uint32_t dosage_entry_idx = 0; dosage_entry_idx < raw_dosage_ct; ++dosage_entry_idx, ++sample_uidx, ++dosage_vals_read_iter) {
 	  next_set_unsafe_ck(raw_dosage_present, &sample_uidx);
 	  if (!IS_SET(sample_include, sample_uidx)) {
 	    continue;

@@ -97,7 +97,7 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
 	goto load_psam_ret_NOMEM;
       }
       loadbuf_first_token = skip_initial_spaces(loadbuf);
-    } while ((loadbuf_first_token[0] == '#') && strcmp_se(&(loadbuf_first_token[1]), "FID", 3) && strcmp_se(&(loadbuf_first_token[1]), "IID", 3));
+    } while (is_eoln_kns(*loadbuf_first_token) || ((loadbuf_first_token[0] == '#') && strcmp_se(&(loadbuf_first_token[1]), "FID", 3) && strcmp_se(&(loadbuf_first_token[1]), "IID", 3)));
     const uint32_t pheno_name_subset = pheno_range_list_ptr && pheno_range_list_ptr->names;
     uint32_t* col_skips = nullptr;
     uint32_t* col_types = nullptr;

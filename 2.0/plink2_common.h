@@ -779,6 +779,12 @@ HEADER_INLINE void bigstack_finalize_c(__maybe_unused const char* cptr, uintptr_
   assert(g_bigstack_base <= g_bigstack_end);
 }
 
+HEADER_INLINE void bigstack_finalize_cp(__maybe_unused char** cpptr, uintptr_t ct) {
+  assert(cpptr == (char**)g_bigstack_base);
+  g_bigstack_base += round_up_pow2(ct * sizeof(intptr_t), kCacheline);
+  assert(g_bigstack_base <= g_bigstack_end);
+}
+
 
 HEADER_INLINE void bigstack_shrink_top(const void* rebase, uintptr_t new_size) {
   // could assert that this doesn't go in the wrong direction?

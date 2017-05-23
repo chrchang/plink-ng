@@ -3618,6 +3618,19 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
       goto score_report_ret_1;
     }
 
+    const uint32_t list_variants = (score_flags / kfScoreListVariants);
+    if (list_variants) {
+      char* outname_end2 = strcpya0(outname_end, ".sscore.vars");
+      const uint32_t output_zst = (score_flags / kfScoreListVariantsZs) & 1;
+      if (output_zst) {
+	strcpy(outname_end2, ".zst");
+      }
+      if (cswrite_init(outname, 0, output_zst, overflow_buf, &css)) {
+	goto score_report_ret_OPEN_FAIL;
+      }
+      cswritep = (char*)overflow_buf;
+    }
+
     const int32_t x_code = cip->xymt_codes[kChrOffsetX];
     const int32_t y_code = cip->xymt_codes[kChrOffsetY];
     const uint32_t center = variance_standardize || (score_flags & kfScoreCenter);
@@ -3880,6 +3893,13 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
 	      cur_score_coefs_iter = &(cur_score_coefs_iter[kScoreVariantBlockSize]);
 	      read_iter = token_end;
 	    }
+	    if (list_variants) {
+	      cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
+	      append_binary_eoln(&cswritep);
+	      if (cswrite(&css, &cswritep)) {
+		goto score_report_ret_WRITE_FAIL;
+	      }
+	    }
 	    ++valid_variant_ct;
 	    if (!(valid_variant_ct % 10000)) {
 	      printf("\r--score: %uk variants loaded.", valid_variant_ct / 1000);
@@ -3945,6 +3965,9 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
       }
       wordwrapb(0);
       logerrprintb();
+      if (!list_variants) {
+	logerrprint("(Add the 'list-variants' modifier to see which variants were actually used for\nscoring.)\n");
+      }
     }
     if (block_vidx) {
       if (is_not_first_block) {
@@ -3982,6 +4005,13 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
       }
     }
     LOGPRINTF("--score: %u variant%s processed.\n", valid_variant_ct, (valid_variant_ct == 1)? "" : "s");
+    if (list_variants) {
+      if (cswrite_close_null(&css, cswritep)) {
+	goto score_report_ret_WRITE_FAIL;
+      }
+      cswritep = nullptr;
+      LOGPRINTF("Variant list written to %s .\n", outname);
+    }
 
     char* outname_end2 = strcpya0(outname_end, ".sscore");
     const uint32_t output_zst = (score_flags / kfScoreZs) & 1;

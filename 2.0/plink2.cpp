@@ -60,7 +60,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (19 May 2017)";
+  " (22 May 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -6638,7 +6638,7 @@ int main(int argc, char** argv) {
 	  }
 	  pc.filter_flags |= kfFilterPvarReq | kfFilterSnpsOnly;
 	} else if (!memcmp(flagname_p2, "core", 5)) {
-	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 10)) {
+	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 11)) {
 	    goto main_ret_INVALID_CMDLINE_2A;
 	  }
 	  reterr = alloc_fname(argv[arg_idx + 1], flagname_p, 0, &pc.score_info.input_fname);
@@ -6664,6 +6664,10 @@ int main(int argc, char** argv) {
 	      pc.score_info.flags |= kfScoreSe;
 	    } else if ((cur_modif_slen == 2) && (!memcmp(cur_modif, "zs", 2))) {
 	      pc.score_info.flags |= kfScoreZs;
+	    } else if ((cur_modif_slen == 13) && (!memcmp(cur_modif, "list-variants", 13))) {
+	      pc.score_info.flags |= kfScoreListVariants;
+	    } else if ((cur_modif_slen == 16) && (!memcmp(cur_modif, "list-variants-zs", 16))) {
+	      pc.score_info.flags |= kfScoreListVariants | kfScoreListVariantsZs;
 	    } else if ((cur_modif_slen > 5) && (!memcmp(cur_modif, "cols=", 5))) {
 	      if (pc.score_info.flags & kfScoreColAll) {
 		logerrprint("Error: Multiple --score cols= modifiers.\n");
