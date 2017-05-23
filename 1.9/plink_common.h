@@ -29,7 +29,10 @@
 #include <stdint.h>
 #include <inttypes.h>
 
-#define NDEBUG
+// avoid compiler warning
+#ifndef NDEBUG
+  #define NDEBUG
+#endif
 #include <assert.h>
 
 // Uncomment this to build this without CBLAS/CLAPACK.
