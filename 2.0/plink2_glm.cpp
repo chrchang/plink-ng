@@ -239,11 +239,11 @@ pglerr_t glm_local_init(const char* local_covar_fname, const char* local_pvar_fn
 	}
 	++col_idx;
 	token_end = token_endnn(loadbuf_iter);
-	const uint32_t toklen = (uintptr_t)(token_end - loadbuf_iter);
+	const uint32_t token_slen = (uintptr_t)(token_end - loadbuf_iter);
 	uint32_t cur_col_type;
-	if ((toklen == 3) && (!memcmp(loadbuf_iter, "POS", 3))) {
+	if ((token_slen == 3) && (!memcmp(loadbuf_iter, "POS", 3))) {
 	  cur_col_type = 0;
-	} else if ((toklen == 2) && (!memcmp(loadbuf_iter, "ID", 2))) {
+	} else if ((token_slen == 2) && (!memcmp(loadbuf_iter, "ID", 2))) {
 	  cur_col_type = 1;
 	} else {
 	  continue;

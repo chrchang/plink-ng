@@ -2395,6 +2395,7 @@ pglerr_t pgfi_init_phase1(const char* fname, uint32_t raw_variant_ct, uint32_t r
       pgfip->gflags |= kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent;
     }
     if (((uint64_t)raw_variant_ct) * const_vrec_width + pgfip->const_fpos_offset != fsize) {
+      sprintf(errstr_buf, "Error: Unexpected .pgen file size (expected %" PRIu64 " bytes).\n", ((uint64_t)raw_variant_ct) * const_vrec_width + pgfip->const_fpos_offset);
       return kPglRetMalformedInput;
     }
     pgfip->const_vrtype = vrtype;
@@ -2440,7 +2441,7 @@ pglerr_t pgfi_init_phase1(const char* fname, uint32_t raw_variant_ct, uint32_t r
 }
 
 static_assert(kPglMaxAltAlleleCt == 254, "Need to update pgfi_init_phase2().");
-pglerr_t pgfi_init_phase2(pgen_header_ctrl_t header_ctrl, uint32_t allele_cts_already_loaded, uint32_t nonref_flags_already_loaded, uint32_t use_blockload, uint32_t* max_vrec_width_ptr, pgen_file_info_t* pgfip, unsigned char* pgfi_alloc, uintptr_t* pgr_alloc_cacheline_ct_ptr, char* errstr_buf) {
+pglerr_t pgfi_init_phase2(pgen_header_ctrl_t header_ctrl, uint32_t allele_cts_already_loaded, uint32_t nonref_flags_already_loaded, uint32_t use_blockload, uint32_t vblock_idx_start, uint32_t vidx_end, uint32_t* max_vrec_width_ptr, pgen_file_info_t* pgfip, unsigned char* pgfi_alloc, uintptr_t* pgr_alloc_cacheline_ct_ptr, char* errstr_buf) {
   // *max_vrec_width_ptr technically only needs to be set in single-variant
   // fread() mode, but its computation is not currently optimized out in the
   // other two modes.
@@ -2574,7 +2575,7 @@ pglerr_t pgfi_init_phase2(pgen_header_ctrl_t header_ctrl, uint32_t allele_cts_al
   pgfip->vrtypes = vrtypes_iter;
   uint64_t* var_fpos_iter = (uint64_t*)(&(vrtypes_iter[round_up_pow2(raw_variant_ct + 1, kCacheline)]));
   pgfip->var_fpos = var_fpos_iter;
-  const uint32_t vblock_ct_m1 = (raw_variant_ct - 1) / kPglVblockSize;
+  uint32_t vblock_ct_m1 = (raw_variant_ct - 1) / kPglVblockSize;
   uint32_t max_vrec_width = 0;
   uint64_t cur_fpos;
 #ifdef NO_MMAP
@@ -2613,7 +2614,36 @@ pglerr_t pgfi_init_phase2(pgen_header_ctrl_t header_ctrl, uint32_t allele_cts_al
       return kPglRetImproperFunctionCall;
     }
   }
-  uint32_t vblock_idx = 0;
+  uint32_t vblock_idx = vblock_idx_start;
+  vblock_ct_m1 = (vidx_end - 1) / kPglVblockSize;
+  if (vblock_idx) {
+    uintptr_t header_vblock_byte_ct = kPglVblockSize * alt_allele_ct_byte_ct;
+    if (nonref_flags_stored) {
+      header_vblock_byte_ct += kPglVblockSize / CHAR_BIT;
+    }
+    if (vrtype_and_fpos_storage & 8) {
+      header_vblock_byte_ct += kPglVblockSize >> (10 - vrtype_and_fpos_storage);
+    } else {
+      if (!(vrtype_and_fpos_storage & 4)) {
+	header_vblock_byte_ct += kPglVblockSize / 2;
+      } else {
+	header_vblock_byte_ct += kPglVblockSize;
+      }
+      header_vblock_byte_ct += kPglVblockSize * (1 + (vrtype_and_fpos_storage & 3));
+    }
+#ifndef NO_MMAP
+    if (!shared_ff) {
+      fread_ptr = &(fread_ptr[header_vblock_byte_ct * ((uint64_t)vblock_idx)]);
+    } else {
+#endif
+      if (fseeko(shared_ff, header_vblock_byte_ct * ((uint64_t)vblock_idx), SEEK_CUR)) {
+	strcpy(errstr_buf, "Error: File read failure.\n");
+	return kPglRetReadFail;
+      }
+#ifndef NO_MMAP
+    }
+#endif
+  }
   uint32_t cur_vblock_variant_ct = kPglVblockSize;
   uint32_t max_alt_allele_ct = 1;
   while (1) {
@@ -2637,16 +2667,20 @@ pglerr_t pgfi_init_phase2(pgen_header_ctrl_t header_ctrl, uint32_t allele_cts_al
 #ifndef NO_MMAP
 	}
 #endif
-	pgfip->var_fpos[raw_variant_ct] = cur_fpos;
+	pgfip->var_fpos[vidx_end] = cur_fpos;
 	pgfip->max_alt_allele_ct = max_alt_allele_ct;
 	// if difflist/LD might be present, scan for them in a way that's
 	// likely to terminate quickly
 	pgen_global_flags_t new_gflags = kfPgenGlobal0;
 	if (vrtype_and_fpos_storage < 8) {
-	  uintptr_t* vrtypes_alias_iter = (uintptr_t*)pgfip->vrtypes;
-	  uintptr_t* vrtypes_alias_end = &(vrtypes_alias_iter[DIV_UP(raw_variant_ct, kBytesPerWord)]);
-	  if (raw_variant_ct & (kBytesPerWord - 1)) {
-	    vrtypes_alias_end[-1] &= (k1LU << ((raw_variant_ct & (kBytesPerWord - 1)) * CHAR_BIT)) - k1LU;
+	  uintptr_t* vrtypes_alias_start = (uintptr_t*)pgfip->vrtypes;
+	  uintptr_t* vrtypes_alias_end = &(vrtypes_alias_start[DIV_UP(vidx_end, kBytesPerWord)]);
+	  if (vblock_idx_start) {
+	    vrtypes_alias_start = &(vrtypes_alias_start[vblock_idx_start * (kPglVblockSize / kBytesPerWord)]);
+	  }
+	  uintptr_t* vrtypes_alias_iter = vrtypes_alias_start;
+	  if (vidx_end & (kBytesPerWord - 1)) {
+	    vrtypes_alias_end[-1] &= (k1LU << ((vidx_end & (kBytesPerWord - 1)) * CHAR_BIT)) - k1LU;
 	  }
 	  for (; vrtypes_alias_iter < vrtypes_alias_end; ++vrtypes_alias_iter) {
 	    const uintptr_t cur_word = *vrtypes_alias_iter;
@@ -2671,7 +2705,7 @@ pglerr_t pgfi_init_phase2(pgen_header_ctrl_t header_ctrl, uint32_t allele_cts_al
 	    // other; make this scan faster in that case, at the cost of
 	    // failing to early-exit when both are present
 	    uintptr_t or_word = 0; // just bitwise-or everything together
-	    for (vrtypes_alias_iter = (uintptr_t*)pgfip->vrtypes; vrtypes_alias_iter < vrtypes_alias_end; ++vrtypes_alias_iter) {
+	    for (vrtypes_alias_iter = vrtypes_alias_start; vrtypes_alias_iter < vrtypes_alias_end; ++vrtypes_alias_iter) {
 	      or_word |= *vrtypes_alias_iter;
 	    }
 	    if (or_word & (0x10 * kMask0101)) {
@@ -2696,7 +2730,7 @@ pglerr_t pgfi_init_phase2(pgen_header_ctrl_t header_ctrl, uint32_t allele_cts_al
 	*max_vrec_width_ptr = max_vrec_width;
 	return kPglRetSuccess;
       }
-      cur_vblock_variant_ct = MOD_NZ(raw_variant_ct, kPglVblockSize);
+      cur_vblock_variant_ct = MOD_NZ(vidx_end, kPglVblockSize);
     }
     ++vblock_idx;
     // 1. handle vrtypes and var_fpos.

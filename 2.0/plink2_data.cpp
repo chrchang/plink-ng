@@ -1374,7 +1374,6 @@ boolerr_t parse_vcf_dosage(char* gtext_iter, char* gtext_end, uint32_t dosage_fi
       // possible todo: allow this to be suppressed (maybe upstream of this
       // function); 1000 Genomes phase 1 haploid dosages are still on 0..2
       // scale
-      ;;;
       alt_dosage *= 2;
     }
     if (alt_dosage > 2.0) {
@@ -2661,7 +2660,7 @@ pglerr_t ox_sample_to_psam(const char* samplename, const char* ox_missing_code, 
     char output_missing_pheno[kMaxMissingPhenostrBlen];
     if (misc_flags & kfMiscKeepAutoconv) {
       // must use --output-missing-phenotype parameter, which we've validated
-      // to be consistent with --missing-phenotype
+      // to be consistent with --input-missing-phenotype
       omp_slen = strlen(g_output_missing_pheno);
       memcpy(output_missing_pheno, g_output_missing_pheno, omp_slen);
     } else {
@@ -3008,12 +3007,12 @@ pglerr_t ox_sample_to_psam(const char* samplename, const char* ox_missing_code, 
 	const uint32_t is_missing = (bsearch_str(loadbuf_iter, sorted_mc, token_slen, max_mc_blen, mc_ct) != -1);
 	if (col_idx == sex_col) {
 	  if (!is_missing) {
-	    const unsigned char sexchar = *loadbuf_iter;
-	    if ((token_slen == 1) && ((((uint32_t)sexchar) - 49) < 2)) {
+	    const unsigned char sex_ucc = *loadbuf_iter;
+	    if ((token_slen == 1) && ((((uint32_t)sex_ucc) - 49) < 2)) {
 	      ++cur_writebuf_start;
 	      cur_writebuf_start[0] = '\t';
-	      cur_writebuf_start[1] = sexchar;
-	    } else if ((token_slen != 1) || (sexchar != '0')) {
+	      cur_writebuf_start[1] = sex_ucc;
+	    } else if ((token_slen != 1) || (sex_ucc != '0')) {
 	      // tolerate '0' as a sex-only missing code even when not
 	      // explicitly specified
 	      *token_end = '\0';
@@ -7015,7 +7014,7 @@ pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t m
     char output_missing_pheno[kMaxMissingPhenostrBlen];
     if (misc_flags & kfMiscKeepAutoconv) {
       // must use --output-missing-phenotype parameter, which we've validated
-      // to be consistent with --missing-phenotype
+      // to be consistent with --input-missing-phenotype
       omp_slen = strlen(g_output_missing_pheno);
       memcpy(output_missing_pheno, g_output_missing_pheno, omp_slen);
     } else {
@@ -7165,6 +7164,8 @@ pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t m
     //   g_write_dosage_val_bufs: 2 * sample_ct * sizeof(dosage_t)
     uint32_t calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
     // saturates around 4 compute threads, both with and without dosage
+    // (todo: test this on something other than a MacBook Pro, could just be a
+    // hyperthreading artifact)
     if (calc_thread_ct > 4) {
       calc_thread_ct = 4;
     }
@@ -8349,7 +8350,7 @@ THREAD_FUNC_DECL load_allele_and_geno_counts_thread(void* arg) {
 	}
 	if (variant_missing_hc_cts) {
 	  variant_missing_hc_cts[variant_uidx] = genocounts[3];
-	  if (variant_hethap_cts) {
+	  if (variant_hethap_cts && (variant_uidx >= first_hap_uidx)) {
 	    variant_hethap_cts[variant_uidx - first_hap_uidx] = hethap_ct;
 	  }
 	}
@@ -9937,10 +9938,6 @@ pglerr_t sample_sort_file_map(const uintptr_t* sample_include, const char* sampl
   sample_sort_file_map_ret_READ_FAIL:
     reterr = kPglRetReadFail;
     break;
-  sample_sort_file_map_ret_MISSING_TOKENS:
-    LOGERRPRINTF("Error: Line %" PRIuPTR " of --indiv-sort file has fewer tokens than expected.\n", line_idx);
-    reterr = kPglRetMalformedInput;
-    break;
   sample_sort_file_map_ret_MALFORMED_INPUT_WW:
     wordwrapb(0);
     logerrprintb();
@@ -9951,6 +9948,8 @@ pglerr_t sample_sort_file_map(const uintptr_t* sample_include, const char* sampl
     LOGERRPRINTF("Error: Line %" PRIuPTR " of --indiv-sort file is pathologically long.\n", line_idx);
     reterr = kPglRetMalformedInput;
     break;
+  sample_sort_file_map_ret_MISSING_TOKENS:
+    LOGERRPRINTF("Error: Line %" PRIuPTR " of --indiv-sort file has fewer tokens than expected.\n", line_idx);
   sample_sort_file_map_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
@@ -9963,46 +9962,36 @@ pglerr_t sample_sort_file_map(const uintptr_t* sample_include, const char* sampl
 
 
 // assumes rawval is in [0, 163839]
-static_assert(kDosageMid == 16384, "gen_dosage_print() needs to be updated.");
-char* gen_dosage_print(uint32_t rawval, char* start) {
+static_assert(kDosageMid == 16384, "print_small_dosage() needs to be updated.");
+char* print_small_dosage(uint32_t rawval, char* start) {
   // Instead of constant 5-digit precision, we print fewer digits whenever that
-  // doesn't interfere with proper round-tripping.
-  // This is complicated by .gen import's quantization step (instead of
-  // rounding the numbers directly, they're first converted to bgen-1.1
-  // equivalents).  Without quantization, we'd search for the shortest string
-  // in
-  //   ((n - 0.5)/16384, (n + 0.5)/16384), 
-  // e.g. 3277/16384 is 0.20001 when printed with 5-digit precision, but we'd
+  // doesn't interfere with proper round-tripping.  I.e. we search for the
+  // shortest string in
+  //   ((n - 0.5)/16384, (n + 0.5)/16384). 
+  // E.g. 3277/16384 is 0.20001 when printed with 5-digit precision, but we'd
   // print that as 0.2 since that's still in (3276.5/16384, 3277.5/16384).
-  // With it, we have
-  //   ((n - 0.75)/16384, (n + 0.75)/16384) for even n
-  //   ((n - 0.25)/16384, (n + 0.25)/16384) for odd n
-  // due to banker's rounding.
-  //
-  // For simplicity, we also use this function when exporting the VCF GP field.
   *start++ = '0' + (rawval / 16384);
   rawval = rawval % 16384;
   if (!rawval) {
     return start;
   }
   *start++ = '.';
-  const uint32_t halfwidth_65536ths = 3 - (2 * (rawval % 2));
-  // (rawval * 4) is in 65536ths
-  // 65536 * 625 = 40960k
+  // (rawval * 2) is in 32768ths
+  // 32768 * 625 = 20480k
 
-  const uint32_t range_top_40960k = (rawval * 4 + halfwidth_65536ths) * 625;
+  const uint32_t range_top_20480k = (rawval * 2 + 1) * 625;
   // this is technically checking a half-open rather than a fully-open
   // interval, but that's fine since we never hit the boundary points
-  if ((range_top_40960k % 4096) < 1250 * halfwidth_65536ths) {
+  if ((range_top_20480k % 2048) < 1250) {
     // when this is true, the four-decimal-place approximation is in the range
     // which round-trips back to our original number.
-    const uint32_t four_decimal_places = range_top_40960k / 4096;
+    const uint32_t four_decimal_places = range_top_20480k / 2048;
     return uitoa_trunc4(four_decimal_places, start);
   }
   
   // we wish to print (100000 * remainder + 8192) / 16384, left-0-padded.  and
   // may as well banker's round too.
-  //  
+  //
   // banker's rounding yields a different result than regular rounding for n/64
   // when n is congruent to 1 mod 4:
   //   1/64 = .015625 -> print 0.01562
@@ -10188,7 +10177,7 @@ pglerr_t export_012_vmaj(const char* outname, const uintptr_t* sample_include, c
 	  for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits < loop_len; ++sample_idx_lowbits) {
 	    *write_iter++ = '\t';
 	    if (dosage_present_hw & 1) {
-	      write_iter = gen_dosage_print(*dosage_vals_iter++, write_iter);
+	      write_iter = print_small_dosage(*dosage_vals_iter++, write_iter);
 	    } else {
 	      uintptr_t cur_geno = geno_word & 3;
 	      if (cur_geno != 3) {
@@ -10633,6 +10622,52 @@ pglerr_t export_ind_major_bed(const uintptr_t* orig_sample_include, const uintpt
   return reterr;
 }
 
+static_assert(kDosageMid == 16384, "print_gen_dosage() needs to be updated.");
+char* print_gen_dosage(uint32_t rawval, char* start) {
+  // Similar to small_dosage_print(), but it's complicated by .gen import's
+  // quantization step (instead of rounding the numbers directly, they're first
+  // converted to bgen-1.1 equivalents).  We check
+  //   ((n - 0.75)/16384, (n + 0.75)/16384) for even n
+  //   ((n - 0.25)/16384, (n + 0.25)/16384) for odd n
+  // due to banker's rounding.
+  *start++ = '0' + (rawval / 16384);
+  rawval = rawval % 16384;
+  if (!rawval) {
+    return start;
+  }
+  *start++ = '.';
+  const uint32_t halfwidth_65536ths = 3 - (2 * (rawval % 2));
+  // (rawval * 4) is in 65536ths
+  // 65536 * 625 = 40960k
+
+  const uint32_t range_top_40960k = (rawval * 4 + halfwidth_65536ths) * 625;
+  // this is technically checking a half-open rather than a fully-open
+  // interval, but that's fine since we never hit the boundary points
+  if ((range_top_40960k % 4096) < 1250 * halfwidth_65536ths) {
+    // when this is true, the four-decimal-place approximation is in the range
+    // which round-trips back to our original number.
+    const uint32_t four_decimal_places = range_top_40960k / 4096;
+    return uitoa_trunc4(four_decimal_places, start);
+  }
+  
+  // we wish to print (100000 * remainder + 8192) / 16384, left-0-padded.  and
+  // may as well banker's round too.
+  //  
+  // banker's rounding yields a different result than regular rounding for n/64
+  // when n is congruent to 1 mod 4:
+  //   1/64 = .015625 -> print 0.01562
+  //   3/64 = .046875 -> print 0.04688
+  //   5/64 = .078125 -> print 0.07812
+  const uint32_t five_decimal_places = ((3125 * rawval + 256) / 512) - ((rawval % 1024) == 256);
+  const uint32_t first_decimal_place = five_decimal_places / 10000;
+  *start++ = '0' + first_decimal_place;
+  const uint32_t last_four_digits = five_decimal_places - first_decimal_place * 10000;
+  if (last_four_digits) {
+    return uitoa_trunc4(last_four_digits, start);
+  }
+  return start;
+}
+
 // note that this is also in plink2_filter; may belong in plink2_common
 static inline void incr_missing_row(const uintptr_t* genovec, uint32_t acc2_vec_ct, uintptr_t* missing_acc2) {
   const vul_t* genovvec = (const vul_t*)genovec;
@@ -10824,16 +10859,16 @@ pglerr_t export_ox_gen(const char* outname, const uintptr_t* sample_include, con
 		  const uint32_t dosage_int = *dosage_vals_iter++;
 		  if (dosage_int <= kDosageMid) {
 		    *write_iter++ = ' ';
-		    write_iter = gen_dosage_print(kDosageMid - dosage_int, write_iter);
+		    write_iter = print_gen_dosage(kDosageMid - dosage_int, write_iter);
 		    *write_iter++ = ' ';
-		    write_iter = gen_dosage_print(dosage_int, write_iter);
+		    write_iter = print_gen_dosage(dosage_int, write_iter);
 		    write_iter = strcpya(write_iter, " 0");
 		  } else {
 		    assert(dosage_int <= kDosageMax);
 		    write_iter = memcpyl3a(write_iter, " 0 ");
-		    write_iter = gen_dosage_print(kDosageMax - dosage_int, write_iter);
+		    write_iter = print_gen_dosage(kDosageMax - dosage_int, write_iter);
 		    *write_iter++ = ' ';
-		    write_iter = gen_dosage_print(dosage_int - kDosageMid, write_iter);
+		    write_iter = print_gen_dosage(dosage_int - kDosageMid, write_iter);
 		  }
 		} else {
 		  write_iter = memcpya(write_iter, &(hardcall_strs[(geno_word & 3) * 8]), 6);
@@ -11942,18 +11977,18 @@ uint32_t valid_vcf_allele_code(const char* allele_code) {
 
 char* diploid_vcf_dosage_print(uint32_t dosage_int, uint32_t write_ds, char* write_iter) {
   if (write_ds) {
-    return gen_dosage_print(dosage_int, write_iter);
+    return print_small_dosage(dosage_int, write_iter);
   }
   if (dosage_int <= kDosageMid) {
-    write_iter = gen_dosage_print(kDosageMid - dosage_int, write_iter);
+    write_iter = print_small_dosage(kDosageMid - dosage_int, write_iter);
     *write_iter++ = ',';
-    write_iter = gen_dosage_print(dosage_int, write_iter);
+    write_iter = print_small_dosage(dosage_int, write_iter);
     return strcpya(write_iter, ",0");
   }
   write_iter = strcpya(write_iter, "0,");
-  write_iter = gen_dosage_print(kDosageMax - dosage_int, write_iter);
+  write_iter = print_small_dosage(kDosageMax - dosage_int, write_iter);
   *write_iter++ = ',';
-  return gen_dosage_print(dosage_int - kDosageMid, write_iter);
+  return print_small_dosage(dosage_int - kDosageMid, write_iter);
 }
 
 // assumes rawval is in [0, 327679]

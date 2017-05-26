@@ -5431,9 +5431,43 @@ uint32_t is_categorical_phenostr(const char* phenostr) {
   if ((first_char_code == 43) || (first_char_code == 45)) {
     first_char_code = (unsigned char)(*phenostr++);
   }
-  if (((first_char_code - 48) < 10) || (first_char_code == 46) || (first_char_code == 44) || (first_char_code < 32)) {
+  if (((first_char_code - 48) < 10) || (first_char_code == 44) || (first_char_code < 32)) {
     // the last two conditions are for detecting CSV empty strings
     return 0;
+  }
+  if (first_char_code == 46) {
+    // decimal point.  classify based on whether next character is a digit.
+    const uint32_t second_char_code = (unsigned char)phenostr[0];
+    return ((second_char_code - 48) >= 10);
+  }
+  // allow any capitalization of "NA"/"nan", but not "inf"
+  if ((first_char_code & 0xdf) != 78) {
+    return 1;
+  }
+  const uint32_t second_char_code = (unsigned char)phenostr[0];
+  if ((second_char_code & 0xdf) != 65) {
+    return 1;
+  }
+  const uint32_t third_char_code = (unsigned char)phenostr[1];
+  if ((third_char_code & 0xdf) == 78) {
+    return (((unsigned char)phenostr[2]) > ' ');
+  }
+  return (third_char_code > 32);
+}
+
+uint32_t is_categorical_phenostr_nocsv(const char* phenostr) {
+  uint32_t first_char_code = (unsigned char)(*phenostr++);
+  // allow leading +/-
+  if ((first_char_code == 43) || (first_char_code == 45)) {
+    first_char_code = (unsigned char)(*phenostr++);
+  }
+  if ((first_char_code - 48) < 10) {
+    return 0;
+  }
+  if (first_char_code == 46) {
+    // decimal point.  classify based on whether next character is a digit.
+    const uint32_t second_char_code = (unsigned char)phenostr[0];
+    return ((second_char_code - 48) >= 10);
   }
   // allow any capitalization of "NA"/"nan", but not "inf"
   if ((first_char_code & 0xdf) != 78) {

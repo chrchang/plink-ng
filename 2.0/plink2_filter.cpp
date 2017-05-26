@@ -264,9 +264,9 @@ pglerr_t snps_flag(char** variant_ids, const uint32_t* variant_id_htable, const 
   return reterr;
 }
 
-void extract_exclude_process_token(char** variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* tok_start, uint32_t variant_id_htable_size, uintptr_t max_variant_id_slen, uint32_t curtoklen, uintptr_t* already_seen, uintptr_t* duplicate_ct_ptr) {
+void extract_exclude_process_token(char** variant_ids, const uint32_t* variant_id_htable, const uint32_t* htable_dup_base, const char* tok_start, uint32_t variant_id_htable_size, uintptr_t max_variant_id_slen, uint32_t token_slen, uintptr_t* already_seen, uintptr_t* duplicate_ct_ptr) {
   uint32_t cur_llidx;
-  uint32_t variant_uidx = variant_id_dup_htable_find(tok_start, variant_ids, variant_id_htable, htable_dup_base, curtoklen, variant_id_htable_size, max_variant_id_slen, &cur_llidx);
+  uint32_t variant_uidx = variant_id_dup_htable_find(tok_start, variant_ids, variant_id_htable, htable_dup_base, token_slen, variant_id_htable_size, max_variant_id_slen, &cur_llidx);
   if (variant_uidx == 0xffffffffU) {
     return;
   }

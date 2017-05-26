@@ -85,7 +85,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 511
+#define PGENLIB_INTERNAL_VERNUM 600
 
 
 #define _FILE_OFFSET_BITS 64
@@ -1902,7 +1902,7 @@ pglerr_t pgfi_init_phase1(const char* fname, uint32_t raw_variant_ct, uint32_t r
 
 // If allele_cts_already_loaded is set, but they're present in the file,
 // they'll be validated; similarly for nonref_flags_already_loaded.
-pglerr_t pgfi_init_phase2(pgen_header_ctrl_t header_ctrl, uint32_t allele_cts_already_loaded, uint32_t nonref_flags_already_loaded, uint32_t use_blockload, uint32_t* max_vrec_width_ptr, pgen_file_info_t* pgfip, unsigned char* pgfi_alloc, uintptr_t* pgr_alloc_cacheline_ct_ptr, char* errstr_buf);
+pglerr_t pgfi_init_phase2(pgen_header_ctrl_t header_ctrl, uint32_t allele_cts_already_loaded, uint32_t nonref_flags_already_loaded, uint32_t use_blockload, uint32_t vblock_idx_start, uint32_t vidx_end, uint32_t* max_vrec_width_ptr, pgen_file_info_t* pgfip, unsigned char* pgfi_alloc, uintptr_t* pgr_alloc_cacheline_ct_ptr, char* errstr_buf);
 
 
 uint64_t pgfi_multiread_get_cacheline_req(const uintptr_t* variant_include, const pgen_file_info_t* pgfip, uint32_t variant_ct, uint32_t block_size);

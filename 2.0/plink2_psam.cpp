@@ -22,13 +22,6 @@
 namespace plink2 {
 #endif
 
-typedef struct catname_ll2_struct {
-  struct catname_ll2_struct* htable_next;
-  struct catname_ll2_struct* pheno_next;
-  uint32_t cat_idx; // 0 == "NONE", etc.
-  char ss[];
-} catname_ll2_t;
-
 typedef struct psam_info_ll_struct {
   // vardata[] starts with 8-byte phenotypes (we don't want to parse the same
   // same numeric string twice), followed by NON-null-terminated sample_id, and
@@ -110,13 +103,13 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
     unsigned char* bigstack_mark2;
     if (loadbuf_first_token[0] == '#') {
       // parse header
-      // [0] = #FID (if present, must be first column)
-      // [1] = IID (could also be first column)
-      // [2] = SID
-      // [3] = PAT
-      // [4] = MAT
-      // [5] = SEX
-      // [6+] = phenotypes
+      // [-1] = #FID (if present, must be first column)
+      // [0] = IID (could also be first column)
+      // [1] = SID
+      // [2] = PAT
+      // [3] = MAT
+      // [4] = SEX
+      // [5+] = phenotypes
       relevant_postfid_col_ct = count_tokens(loadbuf_first_token);
       if (relevant_postfid_col_ct > pheno_ct_max + 5) {
 	relevant_postfid_col_ct = pheno_ct_max + 5;
@@ -129,9 +122,9 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
       uint32_t rpf_col_idx = 0;
       if (loadbuf_first_token[1] == 'I') {
 	col_skips[0] = 0;
-	col_types[0] = 1;
+	col_types[0] = 0;
 	++rpf_col_idx;
-	psam_cols_mask = 2;
+	psam_cols_mask = 1;
       }
       uint32_t col_idx = 0;
       uint32_t in_interval = 0;
@@ -165,25 +158,25 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
 	}
 	++col_idx;
 	token_end = token_endnn(loadbuf_iter);
-	const uint32_t toklen = (uintptr_t)(token_end - loadbuf_iter);
-	uint32_t cur_col_type = 0;
-	if (toklen == 3) {
+	const uint32_t token_slen = (uintptr_t)(token_end - loadbuf_iter);
+	if (token_slen == 3) {
+	  uint32_t cur_col_type = 0xffffffffU;
 	  if (!memcmp(loadbuf_iter, "IID", 3)) {
-	    cur_col_type = 1;
+	    cur_col_type = 0;
 	  } else if (!memcmp(loadbuf_iter, "SID", 3)) {
-	    cur_col_type = 2;
+	    cur_col_type = 1;
 	  } else if (!memcmp(loadbuf_iter, "PAT", 3)) {
-	    cur_col_type = 3;
+	    cur_col_type = 2;
 	  } else if (!memcmp(loadbuf_iter, "MAT", 3)) {
-	    cur_col_type = 4;
+	    cur_col_type = 3;
 	  } else if (!memcmp(loadbuf_iter, "SEX", 3)) {
-	    cur_col_type = 5;
+	    cur_col_type = 4;
 	  } else if (!memcmp(loadbuf_iter, "FID", 3)) {
 	    sprintf(g_logbuf, "Error: 'FID' column header on line %" PRIuPTR " of %s is not at the beginning.\n", line_idx, psamname);
 	    goto load_psam_ret_MALFORMED_INPUT_WW;
 	  }
-	  if (cur_col_type) {
-	    uint32_t cur_col_type_shifted = 1 << cur_col_type;
+	  if (cur_col_type != 0xffffffffU) {
+	    const uint32_t cur_col_type_shifted = 1 << cur_col_type;
 	    if (psam_cols_mask & cur_col_type_shifted) {
 	      *token_end = '\0';
 	      sprintf(g_logbuf, "Error: Duplicate column header '%s' on line %" PRIuPTR " of %s.\n", loadbuf_iter, line_idx, psamname);
@@ -191,14 +184,14 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
 	    }
 	    psam_cols_mask |= cur_col_type_shifted;
 	    col_skips[rpf_col_idx] = col_idx;
-	    col_types[rpf_col_idx++] = cur_col_type - 1;
+	    col_types[rpf_col_idx++] = cur_col_type;
 	    continue;
 	  }
 	}
 	if (pheno_ct < pheno_ct_max) {
 	  if (pheno_name_subset) {
 	    uint32_t cmdline_pos;
-	    if (!sorted_idbox_find(loadbuf_iter, cmdline_pheno_sorted_ids, cmdline_pheno_id_map, toklen, max_cmdline_pheno_id_blen, cmdline_pheno_name_ct, &cmdline_pos)) {
+	    if (!sorted_idbox_find(loadbuf_iter, cmdline_pheno_sorted_ids, cmdline_pheno_id_map, token_slen, max_cmdline_pheno_id_blen, cmdline_pheno_name_ct, &cmdline_pos)) {
 	      // similar to string_range_list_to_bitarr()
 	      if (pheno_range_list_ptr->starts_range[cmdline_pos]) {
 		if (in_interval) {
@@ -217,7 +210,7 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
 	      continue;
 	    }
 	  }
-	  const uint32_t tok_blen = toklen + 1;
+	  const uint32_t tok_blen = token_slen + 1;
 	  ll_str_t* ll_str_new = (ll_str_t*)ll_alloc_base;
 	  // just word-aligned, not cacheline-aligned
 	  ll_alloc_base += round_up_pow2_ui(tok_blen + sizeof(ll_str_t), kBytesPerWord);
@@ -225,7 +218,7 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
 	    goto load_psam_ret_NOMEM;
 	  }
 	  ll_str_new->next = pheno_names_reverse_ll;
-	  memcpyx(ll_str_new->ss, loadbuf_iter, toklen, '\0');
+	  memcpyx(ll_str_new->ss, loadbuf_iter, token_slen, '\0');
 	  if (tok_blen > max_pheno_name_blen) {
 	    max_pheno_name_blen = tok_blen;
 	  }
@@ -240,7 +233,7 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
 	goto load_psam_ret_MALFORMED_INPUT;
       }
       g_bigstack_base = (unsigned char*)round_up_pow2((uintptr_t)ll_alloc_base, kCacheline);
-      if (!(psam_cols_mask & 2)) {
+      if (!(psam_cols_mask & 1)) {
 	sprintf(g_logbuf, "Error: No IID column on line %" PRIuPTR " of %s.\n", line_idx, psamname);
 	goto load_psam_ret_MALFORMED_INPUT_WW;
       }
@@ -268,19 +261,19 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
       bigstack_mark2 = g_bigstack_base;
       col_skips[0] = fam_cols & 1; // assumes kfFamCol1 == 1
       col_types[0] = 0;
-      // psam_cols_mask = 2; // may need this later
+      // psam_cols_mask = 1; // may need this later
       uint32_t rpf_col_idx = 1;
       if (fam_cols & kfFamCol34) {
 	col_skips[rpf_col_idx] = 1;
 	col_types[rpf_col_idx++] = 2;
 	col_skips[rpf_col_idx] = 1;
 	col_types[rpf_col_idx++] = 3;
-	psam_cols_mask |= 0x18;
+	psam_cols_mask |= 12;
       }
       if (fam_cols & kfFamCol5) {
 	col_skips[rpf_col_idx] = 1;
 	col_types[rpf_col_idx++] = 4;
-	psam_cols_mask |= 0x20;
+	psam_cols_mask |= 0x10;
       }
       if (pheno_ct) {
 	col_skips[rpf_col_idx] = 1;
@@ -329,10 +322,10 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
     
     // make sure to handle sample_ct == 0 case properly
     psam_info_ll_t* psam_info_reverse_ll = nullptr;
-    const uint32_t sids_present = (psam_cols_mask / 4) & 1;
-    const uint32_t paternal_ids_present = psam_cols_mask & 8;
-    const uint32_t maternal_ids_present = psam_cols_mask & 0x10;
-    const uint32_t sex_present = psam_cols_mask & 0x20;
+    const uint32_t sids_present = (psam_cols_mask / 2) & 1;
+    const uint32_t paternal_ids_present = psam_cols_mask & 4;
+    const uint32_t maternal_ids_present = psam_cols_mask & 8;
+    const uint32_t sex_present = psam_cols_mask & 0x10;
     const uint32_t col_type_end = 5 + pheno_ct;
     const uint32_t pheno_ctl = BITCT_TO_WORDCT(pheno_ct);
     const double missing_phenod = (double)missing_pheno;
@@ -361,7 +354,6 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
     unsigned char* tmp_bigstack_base = g_bigstack_base;
     catname_ll2_t** catname_htable = nullptr;
     catname_ll2_t** pheno_catname_last = nullptr;
-    uint32_t* nonnull_catname_cts = nullptr;
     uintptr_t* total_catname_blens = nullptr;
     while (1) {
       if (!is_eoln_kns(*loadbuf_first_token)) {
@@ -389,43 +381,40 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
 	// phenotypes
 	if (!raw_sample_ct) {
 	  for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
-	    if (is_categorical_phenostr(token_ptrs[pheno_idx + 5])) {
+	    if (is_categorical_phenostr_nocsv(token_ptrs[pheno_idx + 5])) {
 	      SET_BIT(pheno_idx, categorical_phenos);
 	    }
 	  }
 	  categorical_pheno_ct = popcount_longs(categorical_phenos, pheno_ctl);
 	  if (categorical_pheno_ct) {
 	    // initialize hash table
+	    /*
 	    if (categorical_pheno_ct > kCatHtableSize) {
 	      // use a larger hash table if/when we ever care for this case
 	      logerrprint("Error: " PROG_NAME_STR " does not support more than 2^19 - 1 categorical phenotypes.\n");
 	      goto load_psam_ret_MALFORMED_INPUT;
 	    }
-	    const uint32_t cat_ui_alloc = round_up_pow2(categorical_pheno_ct * sizeof(int32_t), sizeof(intptr_t));
-	    const uint32_t cat_ul_alloc = categorical_pheno_ct * sizeof(intptr_t);
-	    const uint32_t htable_alloc = kCatHtableSize * sizeof(uintptr_t);
-	    const uintptr_t entry_alloc = (missing_catname_blen + sizeof(int32_t) - 1 + 2 * sizeof(intptr_t)) & (~(sizeof(uintptr_t) - 1));
-	    
-	    if ((uintptr_t)(tmp_bigstack_end - tmp_bigstack_base) < htable_alloc + categorical_pheno_ct * entry_alloc + cat_ui_alloc + 2 * cat_ul_alloc) {
+	    */
+	    const uint32_t cat_ul_byte_ct = categorical_pheno_ct * sizeof(intptr_t);
+	    const uint32_t htable_byte_ct = kCatHtableSize * sizeof(uintptr_t);
+	    const uintptr_t entry_byte_ct = round_up_pow2(offsetof(catname_ll2_t, ss) + missing_catname_blen, sizeof(intptr_t));	    
+	    if ((uintptr_t)(tmp_bigstack_end - tmp_bigstack_base) < htable_byte_ct + categorical_pheno_ct * entry_byte_ct + 2 * cat_ul_byte_ct) {
 	      goto load_psam_ret_NOMEM;
 	    }
 	    pheno_catname_last = (catname_ll2_t**)tmp_bigstack_base;
-	    tmp_bigstack_base += cat_ul_alloc;	    
-	    nonnull_catname_cts = (uint32_t*)tmp_bigstack_base;
-	    tmp_bigstack_base += cat_ui_alloc;
-	    fill_uint_zero(categorical_pheno_ct, nonnull_catname_cts);
+	    tmp_bigstack_base += cat_ul_byte_ct;	    
 	    total_catname_blens = (uintptr_t*)tmp_bigstack_base;
-	    tmp_bigstack_base += cat_ul_alloc;
+	    tmp_bigstack_base += cat_ul_byte_ct;
 	    fill_ulong_zero(categorical_pheno_ct, total_catname_blens);
 	    catname_htable = (catname_ll2_t**)tmp_bigstack_base;
-	    tmp_bigstack_base += htable_alloc;
+	    tmp_bigstack_base += htable_byte_ct;
 	    for (uint32_t uii = 0; uii < kCatHtableSize; ++uii) {
 	      catname_htable[uii] = nullptr;
 	    }
 	    uint32_t cur_hval = missing_catname_hval;
 	    for (uint32_t cat_pheno_idx = 0; cat_pheno_idx < categorical_pheno_ct; ++cat_pheno_idx) {
 	      catname_ll2_t* new_entry = (catname_ll2_t*)tmp_bigstack_base;
-	      tmp_bigstack_base += entry_alloc;
+	      tmp_bigstack_base += entry_byte_ct;
 	      pheno_catname_last[cat_pheno_idx] = new_entry;
 	      new_entry->cat_idx = 0;
 	      new_entry->htable_next = nullptr;
@@ -491,11 +480,11 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
 	// less efficient
 	// don't accept "male"/"female", that's overkill
 	if (sex_present && (token_slens[4] == 1)) {
-	  const unsigned char sexchar = token_ptrs[4][0];
-	  const unsigned char sexchar_upcase = sexchar & 0xdfU;
-	  if ((sexchar == '1') || (sexchar_upcase == 'M')) {
+	  const unsigned char sex_ucc = token_ptrs[4][0];
+	  const unsigned char sex_ucc_upcase = sex_ucc & 0xdfU;
+	  if ((sex_ucc == '1') || (sex_ucc_upcase == 'M')) {
 	    cur_sex_code = 1;
-	  } else if ((sexchar == '2') || (sexchar_upcase == 'F')) {
+	  } else if ((sex_ucc == '2') || (sex_ucc_upcase == 'F')) {
 	    cur_sex_code = 2;
 	  }
 	}
@@ -528,10 +517,10 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
 	      while (1) {
 		catname_ll2_t* cur_entry = *cur_entry_ptr;
 		if (!cur_entry) {
-		  const uint32_t entry_alloc = (slen + sizeof(int32_t) + 3 * sizeof(intptr_t)) & (~(sizeof(intptr_t) - 1));
-		  htable_idx = nonnull_catname_cts[cat_pheno_idx] + 1;
+		  const uint32_t entry_byte_ct = round_up_pow2(offsetof(catname_ll2_t, ss) + slen + 1, sizeof(intptr_t));
+		  htable_idx = pheno_catname_last[cat_pheno_idx]->cat_idx + 1;
 		  catname_ll2_t* new_entry = (catname_ll2_t*)tmp_bigstack_base;
-		  tmp_bigstack_base += entry_alloc;
+		  tmp_bigstack_base += entry_byte_ct;
 		  if (tmp_bigstack_base > tmp_bigstack_end) {
 		    goto load_psam_ret_NOMEM;
 		  }
@@ -542,13 +531,12 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
 		  *cur_entry_ptr = new_entry;
 		  new_entry->cat_idx = htable_idx;
 		  memcpyx(new_entry->ss, cur_phenostr, slen, '\0');
-		  nonnull_catname_cts[cat_pheno_idx] = htable_idx;
 		  total_catname_blens[cat_pheno_idx] += slen + 1;
 		  break;
 		}
 		// safe since we guarantee kMaxIdSlen spare bytes at the end
 		// of bigstack
-		if (!strcmp_se(cur_entry->ss, cur_phenostr, slen)) {
+		if ((!memcmp(cur_entry->ss, cur_phenostr, slen)) && (!cur_entry->ss[slen])) {
 		  htable_idx = cur_entry->cat_idx;
 		  break;
 		}
@@ -629,7 +617,7 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
 	    data_vec_ct = nonmiss_vec_ct;
 	  }
 	} else {
-	  nonnull_catname_ct = nonnull_catname_cts[cat_pheno_idx];
+	  nonnull_catname_ct = pheno_catname_last[cat_pheno_idx]->cat_idx;
 	  data_vec_ct = INT32CT_TO_VECCT(raw_sample_ct);
 	  catname_vec_ct = WORDCT_TO_VECCT(nonnull_catname_ct + 1);
 	  catname_storage_vec_ct = DIV_UP(total_catname_blens[cat_pheno_idx], kBytesPerVec);
@@ -901,8 +889,8 @@ pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_li
       char* iid_end;
       if (!xid_mode) {
         iid_end = comma_or_space_token_end(loadbuf_iter, comma_delim);
-	const uintptr_t toklen = (uintptr_t)(iid_end - loadbuf_iter);
-	if ((toklen != 3) || memcmp(loadbuf_iter, "IID", 3)) {
+	const uintptr_t token_slen = (uintptr_t)(iid_end - loadbuf_iter);
+	if ((token_slen != 3) || memcmp(loadbuf_iter, "IID", 3)) {
 	  sprintf(g_logbuf, "Error: Second column header in %s must be 'IID'.\n", pheno_fname);
 	  goto load_phenos_ret_MALFORMED_INPUT_WW;
 	}
@@ -914,9 +902,9 @@ pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_li
       char* pheno_start = loadbuf_iter;
       while (loadbuf_iter) {
 	char* token_end = comma_or_space_token_end(loadbuf_iter, comma_delim);
-	const uintptr_t toklen = (uintptr_t)(token_end - loadbuf_iter);
-	if (max_pheno_name_blen <= toklen) {
-	  max_pheno_name_blen = toklen + 1;
+	const uintptr_t token_slen = (uintptr_t)(token_end - loadbuf_iter);
+	if (max_pheno_name_blen <= token_slen) {
+	  max_pheno_name_blen = token_slen + 1;
 	}
 	++pheno_col_ct;
 	loadbuf_iter = comma_or_space_next_token(token_end, comma_delim);
@@ -1082,7 +1070,6 @@ pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_li
     unsigned char* tmp_bigstack_end = g_bigstack_end;
     catname_ll2_t** catname_htable = nullptr;
     catname_ll2_t** pheno_catname_last = nullptr;
-    uint32_t* nonnull_catname_cts = nullptr;
     uintptr_t* total_catname_blens = nullptr;
     while (1) {
       if (!is_eoln_kns(*loadbuf_first_token)) {
@@ -1130,30 +1117,26 @@ pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_li
 		logerrprint("Error: " PROG_NAME_STR " does not support more than 2^19 - 1 categorical phenotypes.\n");
 		goto load_phenos_ret_MALFORMED_INPUT;
 	      }
-	      const uint32_t cat_ui_alloc = round_up_pow2(categorical_pheno_ct * sizeof(int32_t), sizeof(intptr_t));
-	      const uint32_t cat_ul_alloc = categorical_pheno_ct * sizeof(intptr_t);
-	      const uint32_t htable_alloc = kCatHtableSize * sizeof(uintptr_t);
-	      const uintptr_t entry_alloc = (missing_catname_blen + sizeof(int32_t) - 1 + 2 * sizeof(intptr_t)) & (~(sizeof(uintptr_t) - 1));
+	      const uint32_t cat_ul_byte_ct = categorical_pheno_ct * sizeof(intptr_t);
+	      const uint32_t htable_byte_ct = kCatHtableSize * sizeof(uintptr_t);
+	      const uintptr_t entry_byte_ct = round_up_pow2(offsetof(catname_ll2_t, ss) + missing_catname_blen, sizeof(intptr_t));
 
-	      if ((uintptr_t)(tmp_bigstack_end - bigstack_base_copy) < htable_alloc + categorical_pheno_ct * entry_alloc + cat_ui_alloc + 2 * cat_ul_alloc) {
+	      if ((uintptr_t)(tmp_bigstack_end - bigstack_base_copy) < htable_byte_ct + categorical_pheno_ct * entry_byte_ct + 2 * cat_ul_byte_ct) {
 		goto load_phenos_ret_NOMEM;
 	      }
-	      tmp_bigstack_end -= cat_ul_alloc;
+	      tmp_bigstack_end -= cat_ul_byte_ct;
 	      total_catname_blens = (uintptr_t*)tmp_bigstack_end;
-	      tmp_bigstack_end -= cat_ul_alloc;
+	      tmp_bigstack_end -= cat_ul_byte_ct;
 	      pheno_catname_last = (catname_ll2_t**)tmp_bigstack_end;
 	      fill_ulong_zero(categorical_pheno_ct, total_catname_blens);
-	      tmp_bigstack_end -= cat_ui_alloc;
-	      nonnull_catname_cts = (uint32_t*)tmp_bigstack_end;
-	      fill_uint_zero(categorical_pheno_ct, nonnull_catname_cts);
-	      tmp_bigstack_end -= htable_alloc;
+	      tmp_bigstack_end -= htable_byte_ct;
 	      catname_htable = (catname_ll2_t**)tmp_bigstack_end;
 	      for (uint32_t uii = 0; uii < kCatHtableSize; ++uii) {
 		catname_htable[uii] = nullptr;
 	      }
 	      uint32_t cur_hval = missing_catname_hval;
 	      for (uint32_t cat_pheno_idx = 0; cat_pheno_idx < categorical_pheno_ct; ++cat_pheno_idx) {
-		tmp_bigstack_end -= entry_alloc;
+		tmp_bigstack_end -= entry_byte_ct;
 		catname_ll2_t* new_entry = (catname_ll2_t*)tmp_bigstack_end;
 		pheno_catname_last[cat_pheno_idx] = new_entry;
 		new_entry->cat_idx = 0;
@@ -1201,12 +1184,12 @@ pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_li
 		while (1) {
 		  catname_ll2_t* cur_entry = *cur_entry_ptr;
 		  if (!cur_entry) {
-		    const uint32_t entry_alloc = (slen + sizeof(int32_t) + 3 * sizeof(intptr_t)) & (~(sizeof(intptr_t) - 1));
-		    if ((uintptr_t)(tmp_bigstack_end - bigstack_base_copy) < entry_alloc) {
+		    const uint32_t entry_byte_ct = round_up_pow2(offsetof(catname_ll2_t, ss) + slen + 1, sizeof(intptr_t));
+		    if ((uintptr_t)(tmp_bigstack_end - bigstack_base_copy) < entry_byte_ct) {
 		      goto load_phenos_ret_NOMEM;
 		    }
-		    tmp_bigstack_end -= entry_alloc;
-		    htable_idx = nonnull_catname_cts[cat_pheno_idx] + 1;
+		    tmp_bigstack_end -= entry_byte_ct;
+		    htable_idx = pheno_catname_last[cat_pheno_idx]->cat_idx + 1;
 		    catname_ll2_t* new_entry = (catname_ll2_t*)tmp_bigstack_end;
 		    new_entry->htable_next = nullptr;
 		    new_entry->pheno_next = nullptr;
@@ -1215,13 +1198,12 @@ pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_li
 		    *cur_entry_ptr = new_entry;
 		    new_entry->cat_idx = htable_idx;
 		    memcpyx(new_entry->ss, cur_phenostr, slen, '\0');
-		    nonnull_catname_cts[cat_pheno_idx] = htable_idx;
 		    total_catname_blens[cat_pheno_idx] += slen + 1;
 		    break;
 		  }
 		  // safe since hash table entries are in the middle of
 		  // bigstack
-		  if (!strcmp_se(cur_entry->ss, cur_phenostr, slen)) {
+		  if ((!memcmp(cur_entry->ss, cur_phenostr, slen)) && (!cur_entry->ss[slen])) {
 		    htable_idx = cur_entry->cat_idx;
 		    break;
 		  }
@@ -1298,7 +1280,7 @@ pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_li
 	    data_vec_ct = nonmiss_vec_ct;
 	  }
 	} else {
-	  nonnull_catname_ct = nonnull_catname_cts[cat_pheno_idx];
+	  nonnull_catname_ct = pheno_catname_last[cat_pheno_idx]->cat_idx;
 	  data_vec_ct = INT32CT_TO_VECCT(raw_sample_ct);
 	  catname_vec_ct = WORDCT_TO_VECCT(nonnull_catname_ct + 1);
 	  catname_storage_vec_ct = DIV_UP(total_catname_blens[cat_pheno_idx], kBytesPerVec);

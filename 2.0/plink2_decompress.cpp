@@ -74,7 +74,7 @@ pglerr_t load_xid_header(const char* flag_name, sid_detect_mode_t sid_detect_mod
       loadbuf_iter = &(loadbuf_iter[3]);
     }
     loadbuf_iter = skip_initial_spaces(loadbuf_iter);
-    if (!strcmp_se(&(loadbuf_iter[3]), "SID", 3)) {
+    if (!strcmp_se(loadbuf_iter, "SID", 3)) {
       if ((uint32_t)sid_detect_mode >= kSidDetectModeLoaded) {
 	xid_mode |= kfXidModeFlagSid;
       }

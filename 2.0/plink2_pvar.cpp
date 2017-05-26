@@ -522,10 +522,10 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 	}
 	++col_idx;
 	token_end = token_endnn(loadbuf_iter);
-        const uint32_t toklen = (uintptr_t)(token_end - loadbuf_iter);
+        const uint32_t token_slen = (uintptr_t)(token_end - loadbuf_iter);
 	uint32_t cur_col_type;
-	if (toklen <= 3) {
-	  if (toklen == 3) {
+	if (token_slen <= 3) {
+	  if (token_slen == 3) {
 	    if (!memcmp(loadbuf_iter, "POS", 3)) {
 	      cur_col_type = 0;
 	    } else if (!memcmp(loadbuf_iter, "REF", 3)) {
@@ -536,7 +536,7 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 	    } else {
 	      continue;
 	    }
-	  } else if (toklen == 2) {
+	  } else if (token_slen == 2) {
 	    if (!memcmp(loadbuf_iter, "ID", 2)) {
 	      cur_col_type = 1;
 	    } else if (!memcmp(loadbuf_iter, "CM", 2)) {
@@ -548,16 +548,16 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 	  } else {
 	    continue;
 	  }
-	} else if ((toklen == 4) && (!memcmp(loadbuf_iter, "QUAL", 4))) {
+	} else if ((token_slen == 4) && (!memcmp(loadbuf_iter, "QUAL", 4))) {
 	  load_qual_col = 2 * ((pvar_psam_modifier & (kfPvarColMaybequal | kfPvarColQual)) || (exportf_modifier & kfExportfVcf)) + (var_min_qual != -1);
 	  if (!load_qual_col) {
 	    continue;
 	  }
 	  cur_col_type = 4;
-	} else if ((toklen == 4) && (!memcmp(loadbuf_iter, "INFO", 4))) {
+	} else if ((token_slen == 4) && (!memcmp(loadbuf_iter, "INFO", 4))) {
 	  cur_col_type = 6;
 	  info_col_present = 1;
-	} else if (toklen == 6) {
+	} else if (token_slen == 6) {
 	  if (!memcmp(loadbuf_iter, "FILTER", 6)) {
 	    load_filter_col = 2 * ((pvar_psam_modifier & (kfPvarColMaybefilter | kfPvarColFilter)) || (exportf_modifier & kfExportfVcf)) + ((misc_flags / kfMiscExcludePvarFilterFail) & 1);
 	    if (!load_filter_col) {

@@ -60,7 +60,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (22 May 2017)";
+  " (25 May 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -738,7 +738,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
       // only practical effect of setting use_blockload to zero here is that
       // pgr_alloc_cacheline_ct is overestimated by
       // DIV_UP(max_vrec_width, kCacheline).
-      reterr = pgfi_init_phase2(header_ctrl, 1, nonref_flags_already_loaded, 1, &max_vrec_width, &pgfi, pgfi_alloc, &pgr_alloc_cacheline_ct, g_logbuf);
+      reterr = pgfi_init_phase2(header_ctrl, 1, nonref_flags_already_loaded, 1, 0, raw_variant_ct, &max_vrec_width, &pgfi, pgfi_alloc, &pgr_alloc_cacheline_ct, g_logbuf);
       if (reterr) {
 	if (reterr != kPglRetReadFail) {
 	  wordwrapb(0);
@@ -3369,6 +3369,9 @@ int main(int argc, char** argv) {
 	  }
 	  chr_info.haploid_mask[0] = 0;
 	  set_bit(autosome_ct + 1, chr_info.haploid_mask);
+	} else if (!memcmp(flagname_p2, "llow-no-sex", 12)) {
+	  logprint("Note: --allow-no-sex no longer has any effect.  (Missing-sex samples are\nautomatically excluded from association analysis when sex is a covariate, and\ntreated normally otherwise.)\n");
+	  goto main_param_zero;
 	} else {
 	  goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
 	}
@@ -7349,17 +7352,27 @@ int main(int argc, char** argv) {
       if (xload) {
 	char* convname_end = outname_end;
 	if (pc.command_flags1) {
-	  if (!(pc.misc_flags & kfMiscKeepAutoconv)) {
+	  if (pc.misc_flags & kfMiscKeepAutoconv) {
+	    if (pc.misc_flags & kfMiscAffection01) {
+	      logerrprint("Error: --1 cannot be used with --keep-autoconv.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
+	    }
 	    if ((output_missing_geno_char != '.') && (output_missing_geno_char != input_missing_geno_char)) {
-	      logerrprint("Error: --output-missing-genotype and --missing-genotype parameters cannot be\ninconsistent when --keep-autoconv is specified.\n");
+	      logerrprint("Error: --output-missing-genotype and --input-missing-genotype parameters cannot\nbe inconsistent when --keep-autoconv is specified.\n");
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    double dxx;
 	    const char* num_end = scanadv_double(g_output_missing_pheno, &dxx);
-	    if (num_end && (dxx != ((double)pc.missing_pheno))) {
-	      logerrprint("Error: --output-missing-phenotype and --missing-phenotype parameters cannot be\ninconsistent when --keep-autoconv is specified.\n");
+	    if (num_end) {
+	      if (dxx != ((double)pc.missing_pheno)) {
+		logerrprint("Error: --output-missing-phenotype and --input-missing-phenotype parameters\ncannot be inconsistent when --keep-autoconv is specified.\n");
+		goto main_ret_INVALID_CMDLINE_A;
+	      }
+	    } else if (!is_nan_str(g_output_missing_pheno, strlen(g_output_missing_pheno))) {
+	      logerrprint("Error: --output-missing-phenotype parameter must be numeric or 'NA' when\n--keep-autoconv is specified.\n");
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
+	  } else {
 	    convname_end = strcpya0(convname_end, "-temporary");
 	  }
 	} else {

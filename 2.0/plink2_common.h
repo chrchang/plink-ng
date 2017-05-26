@@ -113,8 +113,8 @@ static const double kRecipDosageMid = 0.00006103515625;
 static const float kRecipDosageMidf = 0.00006103515625;
 
 // this is a bit arbitrary
-CONSTU31(kMaxPhenoCt, 2097152);
-#define MAX_PHENO_CT_STR "2097152"
+CONSTU31(kMaxPhenoCt, 524287);
+#define MAX_PHENO_CT_STR "524287"
 
 // unnecessary to use e.g. (1LLU << 0), the FLAGSET64 macros should force the
 // integer type to 64-bit.
@@ -942,6 +942,11 @@ HEADER_INLINE boolerr_t arena_alloc_ull(unsigned char* arena_top, uintptr_t ct, 
   return !(*ull_arr_ptr);
 }
 
+HEADER_INLINE boolerr_t arena_alloc_cp(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, char*** cp_arr_ptr) {
+  *cp_arr_ptr = (char**)arena_alloc(arena_top, ct * sizeof(intptr_t), arena_bottom_ptr);
+  return !(*cp_arr_ptr);
+}
+
 HEADER_INLINE unsigned char* arena_end_alloc_raw(uintptr_t size, unsigned char** arena_top_ptr) {
   assert(!(size % kEndAllocAlign));
   unsigned char* alloc_ptr = *arena_top_ptr;
@@ -1001,6 +1006,11 @@ HEADER_INLINE boolerr_t arena_end_alloc_ll(unsigned char* arena_bottom, uintptr_
 HEADER_INLINE boolerr_t arena_end_alloc_ull(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, uint64_t** ull_arr_ptr) {
   *ull_arr_ptr = (uint64_t*)arena_end_alloc(arena_bottom, ct * sizeof(int64_t), arena_top_ptr);
   return !(*ull_arr_ptr);
+}
+
+HEADER_INLINE boolerr_t arena_end_alloc_cp(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, char*** cp_arr_ptr) {
+  *cp_arr_ptr = (char**)arena_end_alloc(arena_bottom, ct * sizeof(intptr_t), arena_top_ptr);
+  return !(*cp_arr_ptr);
 }
 
 
@@ -2290,6 +2300,8 @@ void init_pheno();
 
 
 uint32_t is_categorical_phenostr(const char* phenostr);
+
+uint32_t is_categorical_phenostr_nocsv(const char* phenostr);
 
 #ifdef __arm__
   #error "Unaligned accesses in is_nan_str()."
