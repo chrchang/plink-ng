@@ -3431,13 +3431,6 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
     // now xchr_model is set iff it's 1
 
     const score_flags_t score_flags = score_info_ptr->flags;
-    const uint32_t variance_standardize = (score_flags / kfScoreVarianceNormalize) & 1;
-    if (variance_standardize) {
-      if (xymt_is_nonempty(variant_include, cip, kChrOffsetX) || xymt_is_nonempty(variant_include, cip, kChrOffsetMT)) {
-	logerrprint("Error: --score 'variance-normalize' modifier cannot be used with chrX or MT.\n");
-	goto score_report_ret_INCONSISTENT_INPUT;
-      }
-    }
     reterr = gzopen_read_checked(score_info_ptr->input_fname, &gz_infile);
     if (reterr) {
       goto score_report_ret_1;
@@ -3633,6 +3626,8 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
 
     const int32_t x_code = cip->xymt_codes[kChrOffsetX];
     const int32_t y_code = cip->xymt_codes[kChrOffsetY];
+    const int32_t mt_code = cip->xymt_codes[kChrOffsetMT];
+    const uint32_t variance_standardize = (score_flags / kfScoreVarianceStandardize) & 1;
     const uint32_t center = variance_standardize || (score_flags & kfScoreCenter);
     const uint32_t no_meanimpute = (score_flags / kfScoreNoMeanimpute) & 1;
     const uint32_t se_mode = (score_flags / kfScoreSe) & 1;
@@ -3711,6 +3706,10 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
 	    }
 	    const uint32_t chr_idx = get_variant_chr(cip, variant_uidx);
 	    uint32_t is_relevant_x = (((int32_t)chr_idx) == x_code);
+	    if (variance_standardize && (is_relevant_x || (((int32_t)chr_idx) == mt_code))) {
+	      logerrprint("Error: --score 'variance-standardize' modifier cannot be used with chrX or MT.\n");
+	      goto score_report_ret_INCONSISTENT_INPUT;
+	    }
 	    const uint32_t is_nonx_haploid = (!is_relevant_x) && is_set(cip->haploid_mask, chr_idx);
 
             // only if --xchr-model 1 (which is no longer the default)
@@ -3805,7 +3804,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
 		  uint32_t genocounts[4];
 		  genovec_count_freqs_unsafe(genovec_buf, sample_ct, genocounts);
 		  if (dosage_ct || genocounts[1] || genocounts[2]) {
-		    sprintf(g_logbuf, "Error: --score variance-normalize failure for ID '%s': estimated allele frequency is zero, but not all dosages are zero. (This is possible when e.g. allele frequencies are estimated from founders, but the allele is only observed in nonfounders.)\n", variant_ids[variant_uidx]);
+		    sprintf(g_logbuf, "Error: --score variance-standardize failure for ID '%s': estimated allele frequency is zero, but not all dosages are zero. (This is possible when e.g. allele frequencies are estimated from founders, but the allele is only observed in nonfounders.)\n", variant_ids[variant_uidx]);
 		    goto score_report_ret_INCONSISTENT_INPUT_WW;
 		  }
 		  geno_slope = 0.0;

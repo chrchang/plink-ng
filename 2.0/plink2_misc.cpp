@@ -622,14 +622,14 @@ pglerr_t update_sample_sexes(const char* update_sex_fname, const uintptr_t* samp
   return reterr;
 }
 
-pglerr_t split_cat_pheno(const char* split_cat_phenonames_flattened, const uintptr_t* sample_include, uint32_t raw_sample_ct, misc_flags_t misc_flags, pheno_col_t** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr, pheno_col_t** covar_cols_ptr, char** covar_names_ptr, uint32_t* covar_ct_ptr, uintptr_t* max_covar_name_blen_ptr) {
+pglerr_t split_cat_pheno(const char* split_cat_phenonames_flattened, const uintptr_t* sample_include, uint32_t raw_sample_ct, pheno_transform_flags_t pheno_transform_flags, pheno_col_t** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr, pheno_col_t** covar_cols_ptr, char** covar_names_ptr, uint32_t* covar_ct_ptr, uintptr_t* max_covar_name_blen_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* doomed_pheno_names = nullptr;
   pheno_col_t* doomed_pheno_cols = nullptr;
   uint32_t doomed_pheno_ct = 0;
   pglerr_t reterr = kPglRetSuccess;
   {
-    const uint32_t omit_last = (misc_flags / kfMiscSplitCatPhenoOmitLast) & 1;
+    const uint32_t omit_last = (pheno_transform_flags / kfPhenoTransformSplitCatOmitLast) & 1;
     uint32_t qt_12 = 0;
     uint32_t at_least_one_cat_pheno_processed = 0;
     for (uint32_t is_covar = 0; is_covar < 2; ++is_covar) {
@@ -651,7 +651,7 @@ pglerr_t split_cat_pheno(const char* split_cat_phenonames_flattened, const uintp
 	xpheno_names_ptr = covar_names_ptr;
 	xpheno_ct_ptr = covar_ct_ptr;
 	max_xpheno_name_blen_ptr = max_covar_name_blen_ptr;
-	qt_12 = !(misc_flags & kfMiscSplitCatPhenoCovar01);
+	qt_12 = !(pheno_transform_flags & kfPhenoTransformSplitCatCovar01);
       }
       const uint32_t old_pheno_ct = *xpheno_ct_ptr;
       if (!old_pheno_ct) {
@@ -951,6 +951,240 @@ pglerr_t split_cat_pheno(const char* split_cat_phenonames_flattened, const uintp
     *covar_ct_ptr = 0;
     *covar_cols_ptr = nullptr;
   }
+  return reterr;
+}
+
+pglerr_t pheno_variance_standardize(const char* vstd_flattened, const uintptr_t* sample_include, const char* pheno_names, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t is_covar, uint32_t is_covar_flag, pheno_col_t* pheno_cols) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  pglerr_t reterr = kPglRetSuccess;
+  {
+    if (!pheno_ct) {
+      goto pheno_variance_standardize_ret_SKIP;
+    }
+    const uint32_t pheno_ctl = BITCT_TO_WORDCT(pheno_ct);
+    uintptr_t* phenos_to_transform;
+    if (bigstack_calloc_ul(pheno_ctl, &phenos_to_transform)) {
+      goto pheno_variance_standardize_ret_NOMEM;
+    }
+    if (!vstd_flattened) {
+      for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
+	const pheno_col_t* cur_pheno_col = &(pheno_cols[pheno_idx]);
+	if (cur_pheno_col->type_code == kPhenoDtypeQt) {
+	  set_bit(pheno_idx, phenos_to_transform);
+	}
+      }
+    } else {
+      uint32_t* id_htable;
+      uint32_t id_htable_size;
+      if (htable_good_size_alloc(pheno_ct, bigstack_left(), &id_htable, &id_htable_size)) {
+	goto pheno_variance_standardize_ret_NOMEM;
+      }
+      populate_strbox_htable(pheno_names, pheno_ct, max_pheno_name_blen, id_htable_size, id_htable);
+      const char* vstd_phenonames_iter = vstd_flattened;
+      do {
+	const uint32_t cur_phenoname_slen = strlen(vstd_phenonames_iter);
+	if (cur_phenoname_slen < max_pheno_name_blen) {
+	  uint32_t pheno_idx = strbox_htable_find(vstd_phenonames_iter, pheno_names, id_htable, max_pheno_name_blen, cur_phenoname_slen, id_htable_size);
+	  if (pheno_idx != 0xffffffffU) {
+	    if (pheno_cols[pheno_idx].type_code != kPhenoDtypeQt) {
+	      sprintf(g_logbuf, "Error: '%s' is not a quantitative %s.\n", vstd_phenonames_iter, is_covar? "covariate" : "phenotype");
+	      goto pheno_variance_standardize_ret_INCONSISTENT_INPUT_WW;
+	    }
+	    set_bit(pheno_idx, phenos_to_transform);
+	  }
+	}
+	vstd_phenonames_iter = &(vstd_phenonames_iter[cur_phenoname_slen + 1]);
+      } while (*vstd_phenonames_iter);
+      bigstack_reset(id_htable);
+    }
+    const uint32_t pheno_transform_ct = popcount_longs(phenos_to_transform, pheno_ctl);
+    if (!pheno_transform_ct) {
+      goto pheno_variance_standardize_ret_SKIP;
+    }
+    double* shifted_pheno_qt;
+    if (bigstack_alloc_d(raw_sample_ct, &shifted_pheno_qt)) {
+      goto pheno_variance_standardize_ret_NOMEM;
+    }
+    const uint32_t raw_sample_ctaw = BITCT_TO_ALIGNED_WORDCT(raw_sample_ct);
+    uint32_t pheno_uidx = 0;
+    for (uint32_t pheno_transform_idx = 0; pheno_transform_idx < pheno_transform_ct; ++pheno_transform_idx, ++pheno_uidx) {
+      next_set_unsafe_ck(phenos_to_transform, &pheno_uidx);
+      pheno_col_t* cur_pheno_col = &(pheno_cols[pheno_uidx]);
+      uintptr_t* pheno_nm = cur_pheno_col->nonmiss;
+      bitvec_and(sample_include, raw_sample_ctaw, pheno_nm);
+      const uint32_t cur_sample_ct = popcount_longs(pheno_nm, raw_sample_ctaw);
+      if (cur_sample_ct < 2) {
+	if (cur_sample_ct) {
+	  LOGERRPRINTFWW("Warning: Exactly one value present for %s '%s'; standardizing to missing.\n", is_covar? "covariate" : "quantitative phenotype", &(pheno_names[pheno_uidx * max_pheno_name_blen]));
+	  fill_ulong_zero(raw_sample_ctaw, pheno_nm);
+	}
+	continue;
+      }
+      double* pheno_qt = cur_pheno_col->data.qt;
+      double shifted_pheno_sum = 0.0;
+      double shifted_pheno_ssq = 0.0;
+      const uint32_t first_sample_uidx = next_set_unsafe(pheno_nm, 0);
+      uint32_t sample_uidx = first_sample_uidx;
+      shifted_pheno_qt[sample_uidx] = 0.0;
+      const double pheno_shift = pheno_qt[sample_uidx++];
+      for (uint32_t sample_idx = 1; sample_idx < cur_sample_ct; ++sample_idx, ++sample_uidx) {
+	next_set_unsafe_ck(sample_include, &sample_uidx);
+	const double cur_shifted_pheno_val = pheno_qt[sample_uidx] - pheno_shift;
+	shifted_pheno_sum += cur_shifted_pheno_val;
+	shifted_pheno_ssq += cur_shifted_pheno_val * cur_shifted_pheno_val;
+        shifted_pheno_qt[sample_uidx] = cur_shifted_pheno_val;
+      }
+      const double cur_shifted_mean = shifted_pheno_sum / ((double)((int32_t)cur_sample_ct));
+      const double variance_numer = shifted_pheno_ssq - shifted_pheno_sum * cur_shifted_mean;
+      if (!(variance_numer > 0.0)) {
+	LOGERRPRINTFWW("Warning: %s '%s' is constant; standardizing to all-missing.\n", is_covar? "Covariate" : "Quantitative phenotype", &(pheno_names[pheno_uidx * max_pheno_name_blen]));
+	fill_ulong_zero(raw_sample_ctaw, pheno_nm);
+	continue;
+      }
+      const double cur_stdev_recip = sqrt((double)((int32_t)(cur_sample_ct - 1)) / variance_numer);
+      sample_uidx = first_sample_uidx;
+      for (uint32_t sample_idx = 0; sample_idx < cur_sample_ct; ++sample_idx, ++sample_uidx) {
+	next_set_unsafe_ck(sample_include, &sample_uidx);
+	pheno_qt[sample_uidx] = (shifted_pheno_qt[sample_uidx] - cur_shifted_mean) * cur_stdev_recip;
+      }
+    }
+    // could reduce the reported number when all values were originally missing
+    LOGPRINTF("--%svariance-standardize: %u %s%s transformed.\n", is_covar_flag? "covar-" : "", pheno_transform_ct, is_covar? "covariate" : "phenotype", (pheno_transform_ct == 1)? "" : "s");
+  }
+  while (0) {
+  pheno_variance_standardize_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  pheno_variance_standardize_ret_INCONSISTENT_INPUT_WW:
+    wordwrapb(0);
+    logerrprintb();
+    reterr = kPglRetInconsistentInput;
+    break;
+  pheno_variance_standardize_ret_SKIP:
+    LOGPRINTF("--%svariance-standardize: No %s affected.\n", is_covar_flag? "covar-" : "", is_covar? "covariates" : "quantitative phenotypes");
+    break;    
+  }
+  bigstack_reset(bigstack_mark);
+  return reterr;
+}
+
+typedef struct dbl_index_struct {
+  double dxx;
+  uint32_t uii;
+#ifdef __cplusplus
+  bool operator<(const struct dbl_index_struct& rhs) const {
+    return dxx < rhs.dxx;
+  }
+#endif
+} dbl_index_t;
+
+pglerr_t pheno_quantile_normalize(const char* quantnorm_flattened, const uintptr_t* sample_include, const char* pheno_names, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t is_covar, uint32_t is_subset_flag, pheno_col_t* pheno_cols) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  const char* flag_prefix = is_subset_flag? (is_covar? "covar-" : "pheno-") : "";
+  pglerr_t reterr = kPglRetSuccess;
+  {
+    if (!pheno_ct) {
+      goto pheno_quantile_normalize_ret_SKIP;
+    }
+    // this boilerplate probably belongs in its own function
+    const uint32_t pheno_ctl = BITCT_TO_WORDCT(pheno_ct);
+    uintptr_t* phenos_to_transform;
+    if (bigstack_calloc_ul(pheno_ctl, &phenos_to_transform)) {
+      goto pheno_quantile_normalize_ret_NOMEM;
+    }
+    if (!quantnorm_flattened) {
+      for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
+	const pheno_col_t* cur_pheno_col = &(pheno_cols[pheno_idx]);
+	if (cur_pheno_col->type_code == kPhenoDtypeQt) {
+	  set_bit(pheno_idx, phenos_to_transform);
+	}
+      }
+    } else {
+      uint32_t* id_htable;
+      uint32_t id_htable_size;
+      if (htable_good_size_alloc(pheno_ct, bigstack_left(), &id_htable, &id_htable_size)) {
+	goto pheno_quantile_normalize_ret_NOMEM;
+      }
+      populate_strbox_htable(pheno_names, pheno_ct, max_pheno_name_blen, id_htable_size, id_htable);
+      const char* quantnorm_phenonames_iter = quantnorm_flattened;
+      do {
+	const uint32_t cur_phenoname_slen = strlen(quantnorm_phenonames_iter);
+	if (cur_phenoname_slen < max_pheno_name_blen) {
+	  uint32_t pheno_idx = strbox_htable_find(quantnorm_phenonames_iter, pheno_names, id_htable, max_pheno_name_blen, cur_phenoname_slen, id_htable_size);
+	  if (pheno_idx != 0xffffffffU) {
+	    if (pheno_cols[pheno_idx].type_code != kPhenoDtypeQt) {
+	      sprintf(g_logbuf, "Error: '%s' is not a quantitative %s.\n", quantnorm_phenonames_iter, is_covar? "covariate" : "phenotype");
+	      goto pheno_quantile_normalize_ret_INCONSISTENT_INPUT_WW;
+	    }
+	    set_bit(pheno_idx, phenos_to_transform);
+	  }
+	}
+	quantnorm_phenonames_iter = &(quantnorm_phenonames_iter[cur_phenoname_slen + 1]);
+      } while (*quantnorm_phenonames_iter);
+      bigstack_reset(id_htable);
+    }
+    const uint32_t pheno_transform_ct = popcount_longs(phenos_to_transform, pheno_ctl);
+    if (!pheno_transform_ct) {
+      goto pheno_quantile_normalize_ret_SKIP;
+    }
+    dbl_index_t* tagged_raw_pheno_vals = (dbl_index_t*)bigstack_alloc(sample_ct * sizeof(dbl_index_t));
+    if (!tagged_raw_pheno_vals) {
+      goto pheno_quantile_normalize_ret_NOMEM;
+    }
+    const uint32_t raw_sample_ctaw = BITCT_TO_ALIGNED_WORDCT(raw_sample_ct);
+    uint32_t pheno_uidx = 0;
+    for (uint32_t pheno_transform_idx = 0; pheno_transform_idx < pheno_transform_ct; ++pheno_transform_idx, ++pheno_uidx) {
+      next_set_unsafe_ck(phenos_to_transform, &pheno_uidx);
+      pheno_col_t* cur_pheno_col = &(pheno_cols[pheno_uidx]);
+      uintptr_t* pheno_nm = cur_pheno_col->nonmiss;
+      bitvec_and(sample_include, raw_sample_ctaw, pheno_nm);
+      const uint32_t cur_sample_ct = popcount_longs(pheno_nm, raw_sample_ctaw);
+      if (!cur_sample_ct) {
+	continue;
+      }
+      double* pheno_qt = cur_pheno_col->data.qt;
+      uint32_t sample_uidx = 0;
+      for (uint32_t sample_idx = 0; sample_idx < cur_sample_ct; ++sample_idx, ++sample_uidx) {
+	next_set_unsafe_ck(sample_include, &sample_uidx);
+	tagged_raw_pheno_vals[sample_idx].dxx = pheno_qt[sample_uidx];
+	tagged_raw_pheno_vals[sample_idx].uii = sample_uidx;
+      }
+#ifdef __cplusplus
+      std::sort(tagged_raw_pheno_vals, &(tagged_raw_pheno_vals[cur_sample_ct]));
+#else
+      qsort(tagged_raw_pheno_vals, cur_sample_ct, sizeof(dbl_index_t), double_cmp);
+#endif
+      const double sample_ct_x2_recip = 1.0 / ((double)(2 * cur_sample_ct));
+      for (uint32_t sample_idx_start = 0; sample_idx_start < cur_sample_ct;) {
+	const double cur_raw_pheno = tagged_raw_pheno_vals[sample_idx_start].dxx;
+	uint32_t sample_idx_end = sample_idx_start + 1;
+	for (; sample_idx_end < cur_sample_ct; ++sample_idx_end) {
+	  if (tagged_raw_pheno_vals[sample_idx_end].dxx != cur_raw_pheno) {
+	    break;
+	  }
+	}
+	const double cur_zscore = ltqnorm((double)(sample_idx_start + sample_idx_end) * sample_ct_x2_recip);
+	for (; sample_idx_start < sample_idx_end; ++sample_idx_start) {
+	  pheno_qt[tagged_raw_pheno_vals[sample_idx_start].uii] = cur_zscore;
+	}
+      }
+    }
+    LOGPRINTF("--%squantile-normalize: %u %s%s transformed.\n", flag_prefix, pheno_transform_ct, is_covar? "covariate" : "phenotype", (pheno_transform_ct == 1)? "" : "s");
+  }
+  while (0) {
+  pheno_quantile_normalize_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  pheno_quantile_normalize_ret_INCONSISTENT_INPUT_WW:
+    wordwrapb(0);
+    logerrprintb();
+    reterr = kPglRetInconsistentInput;
+    break;
+  pheno_quantile_normalize_ret_SKIP:
+    LOGPRINTF("--%squantile-normalize: No %s affected.\n", flag_prefix, is_covar? "covariates" : "quantitative phenotypes");
+    break;
+  }
+  bigstack_reset(bigstack_mark);
   return reterr;
 }
 

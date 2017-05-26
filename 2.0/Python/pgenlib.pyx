@@ -116,7 +116,7 @@ cdef extern from "../pgenlib_python_support.h" namespace "plink2":
     
     pglerr_t pgfi_init_phase1(const char* fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, uint32_t use_mmap, pgen_header_ctrl_t* header_ctrl_ptr, pgen_file_info_t* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf)
 
-    pglerr_t pgfi_init_phase2(pgen_header_ctrl_t header_ctrl, uint32_t allele_cts_already_loaded, uint32_t nonref_flags_already_loaded, uint32_t use_blockload, uint32_t* max_vrec_width_ptr, pgen_file_info_t* pgfip, unsigned char* pgfi_alloc, uintptr_t* pgr_alloc_cacheline_ct_ptr, char* errstr_buf)
+    pglerr_t pgfi_init_phase2(pgen_header_ctrl_t header_ctrl, uint32_t allele_cts_already_loaded, uint32_t nonref_flags_already_loaded, uint32_t use_blockload, uint32_t vblock_idx_start, uint32_t vidx_end, uint32_t* max_vrec_width_ptr, pgen_file_info_t* pgfip, unsigned char* pgfi_alloc, uintptr_t* pgr_alloc_cacheline_ct_ptr, char* errstr_buf)
     
     cdef cppclass pgen_reader_t:
         pgen_file_info_t fi
@@ -253,7 +253,7 @@ cdef class PgenReader:
                 raise MemoryError()
         cdef uint32_t max_vrec_width
         cdef uintptr_t pgr_alloc_cacheline_ct
-        if pgfi_init_phase2(header_ctrl, 1, 1, 0, &max_vrec_width, self._info_ptr, pgfi_alloc, &pgr_alloc_cacheline_ct, errstr_buf):
+        if pgfi_init_phase2(header_ctrl, 1, 1, 0, 0, self._info_ptr[0].raw_variant_ct, &max_vrec_width, self._info_ptr, pgfi_alloc, &pgr_alloc_cacheline_ct, errstr_buf):
             if pgfi_alloc and not self._info_ptr[0].vrtypes:
                 aligned_free(pgfi_alloc)
             raise RuntimeError(errstr_buf[7:])

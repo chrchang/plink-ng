@@ -95,7 +95,7 @@ FLAGSET_DEF_START()
   kfScoreHeaderRead = (1 << 1),
   kfScoreNoMeanimpute = (1 << 2),
   kfScoreCenter = (1 << 3),
-  kfScoreVarianceNormalize = (1 << 4),
+  kfScoreVarianceStandardize = (1 << 4),
   kfScoreSe = (1 << 5),
   kfScoreZs = (1 << 6),
   kfScoreListVariants = (1 << 7),

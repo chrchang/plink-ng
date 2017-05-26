@@ -25,6 +25,18 @@ namespace plink2 {
 #endif
 
 FLAGSET_DEF_START()
+  kfPhenoTransform0,
+  kfPhenoTransformSplitCat = (1 << 0),
+  kfPhenoTransformSplitCatOmitLast = (1 << 1),
+  kfPhenoTransformSplitCatCovar01 = (1 << 2),
+  kfPhenoTransformVstdCovar = (1 << 3),
+  kfPhenoTransformVstdAll = (1 << 4),
+  kfPhenoTransformQuantnormPheno = (1 << 5),
+  kfPhenoTransformQuantnormCovar = (1 << 6),
+  kfPhenoTransformQuantnormAll = (1 << 7),
+FLAGSET_DEF_END(pheno_transform_flags_t);
+
+FLAGSET_DEF_START()
   kfWriteCovar0,
   kfWriteCovarColMaybesid = (1 << 0),
   kfWriteCovarColSid = (1 << 1),
@@ -163,7 +175,11 @@ pglerr_t plink1_cluster_import(const char* within_fname, const char* catpheno_na
 
 pglerr_t update_sample_sexes(const char* update_sex_fname, const uintptr_t* sample_include, char* sample_ids, uint32_t raw_sample_ct, uintptr_t sample_ct, uintptr_t max_sample_id_blen, uint32_t update_sex_colm2, uintptr_t* sex_nm, uintptr_t* sex_male);
 
-pglerr_t split_cat_pheno(const char* split_cat_phenonames_flattened, const uintptr_t* sample_include, uint32_t raw_sample_ct, misc_flags_t misc_flags, pheno_col_t** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr, pheno_col_t** covar_cols_ptr, char** covar_names_ptr, uint32_t* covar_ct_ptr, uintptr_t* max_covar_name_blen_ptr);
+pglerr_t split_cat_pheno(const char* split_cat_phenonames_flattened, const uintptr_t* sample_include, uint32_t raw_sample_ct, pheno_transform_flags_t pheno_transform_flags, pheno_col_t** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr, pheno_col_t** covar_cols_ptr, char** covar_names_ptr, uint32_t* covar_ct_ptr, uintptr_t* max_covar_name_blen_ptr);
+
+pglerr_t pheno_variance_standardize(const char* vstd_flattened, const uintptr_t* sample_include, const char* pheno_names, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t is_covar, uint32_t is_covar_flag, pheno_col_t* pheno_cols);
+
+pglerr_t pheno_quantile_normalize(const char* quantnorm_flattened, const uintptr_t* sample_include, const char* pheno_names, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t is_covar, uint32_t is_subset_flag, pheno_col_t* pheno_cols);
 
 pglerr_t write_allele_freqs(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint64_t* founder_allele_dosages, const double* mach_r2_vals, const char* ref_binstr, const char* alt1_binstr, uint32_t variant_ct, uint32_t max_alt_allele_ct, uint32_t max_allele_slen, allele_freq_t allele_freq_modifier, uint32_t nonfounders, char* outname, char* outname_end);
 

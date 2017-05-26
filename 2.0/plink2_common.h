@@ -158,10 +158,7 @@ FLAGSET64_DEF_START()
   kfMiscNewVarIdOverflowTruncate = (1LLU << 35),
   kfMiscRequirePheno = (1LLU << 36),
   kfMiscRequireCovar = (1LLU << 37),
-  kfMiscCatPhenoFamily = (1LLU << 38),
-  kfMiscSplitCatPheno = (1LLU << 39),
-  kfMiscSplitCatPhenoOmitLast = (1LLU << 40),
-  kfMiscSplitCatPhenoCovar01 = (1LLU << 41)
+  kfMiscCatPhenoFamily = (1LLU << 38)
 FLAGSET64_DEF_END(misc_flags_t);
 
 FLAGSET64_DEF_START()

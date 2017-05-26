@@ -8531,6 +8531,7 @@ pglerr_t load_allele_and_geno_counts(const uintptr_t* sample_include, const uint
 	  }
 	  g_founder_nosex_ct = popcount_longs(nosex_buf, raw_sample_ctl);
 	  assert(g_founder_nosex_ct);
+          fill_interleaved_mask_vec(nosex_buf, raw_sample_ctv, g_founder_nosex_interleaved_vec);
 	  g_founder_x_nosex_geno_cts = founder_x_nosex_geno_cts;
 	}
       } else {

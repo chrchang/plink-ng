@@ -971,7 +971,7 @@ typedef struct {
   uint32_t covar_idx2; // for correlation failure only
 } vif_corr_err_t;
 
-boolerr_t glm_fill_and_test_covars(const uintptr_t* sample_include, const uintptr_t* covar_include, const pheno_col_t* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, uint32_t standard_beta, double vif_thresh, double max_corr, double* covars_smaj, double* covar_dotprod, double* covars_cmaj, char** cur_covar_names, vif_corr_err_t* vif_corr_check_result_ptr) {
+boolerr_t glm_fill_and_test_covars(const uintptr_t* sample_include, const uintptr_t* covar_include, const pheno_col_t* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double vif_thresh, double max_corr, double* covars_smaj, double* covar_dotprod, double* covars_cmaj, char** cur_covar_names, vif_corr_err_t* vif_corr_check_result_ptr) {
   vif_corr_check_result_ptr->errcode = kVifCorrCheckOk;
   if (covar_ct == local_covar_ct) {
     return 0;
@@ -1010,37 +1010,14 @@ boolerr_t glm_fill_and_test_covars(const uintptr_t* sample_include, const uintpt
       *cur_covar_names_iter++ = (char*)((uintptr_t)covar_name_base);
       const double* covar_vals = cur_covar_col->data.qt;
       uint32_t sample_uidx = first_sample_uidx;
-      if (standard_beta) {
-	// shift everything by first value, otherwise this may be numerically
-	// unstable
+      double covar_sum = 0.0;
+      for (uintptr_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
 	next_set_unsafe_ck(sample_include, &sample_uidx);
-	const double covar_shift = covar_vals[sample_uidx++];
-        double shifted_covar_sum = 0.0;
-	double shifted_covar_ssq = 0.0;
-	for (uintptr_t sample_idx = 1; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-	  next_set_unsafe_ck(sample_include, &sample_uidx);
-	  const double cur_shifted_covar_val = covar_vals[sample_uidx] - covar_shift;
-	  shifted_covar_sum += cur_shifted_covar_val;
-	  shifted_covar_ssq += cur_shifted_covar_val * cur_shifted_covar_val;
-	  covar_write_iter[sample_idx] = cur_shifted_covar_val;
-	}
-	const double cur_shifted_mean = shifted_covar_sum / ((double)((intptr_t)sample_ct));
-	const double cur_stdev_recip = sqrt((double)((intptr_t)(sample_ct - 1)) / (shifted_covar_ssq - shifted_covar_sum * cur_shifted_mean));
-
-	for (uintptr_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
-	  const double cur_shifted_covar_val = *covar_write_iter;
-	  *covar_write_iter++ = (cur_shifted_covar_val - cur_shifted_mean) * cur_stdev_recip;
-	}
-      } else {
-	double covar_sum = 0.0;
-	for (uintptr_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-	  next_set_unsafe_ck(sample_include, &sample_uidx);
-	  const double cur_covar_val = covar_vals[sample_uidx];
-	  covar_sum += cur_covar_val;
-	  *covar_write_iter++ = cur_covar_val;
-	}
-        *sum_iter++ = covar_sum;
+	const double cur_covar_val = covar_vals[sample_uidx];
+	covar_sum += cur_covar_val;
+	*covar_write_iter++ = cur_covar_val;
       }
+      *sum_iter++ = covar_sum;
     } else {
       const uint32_t remaining_cat_ct = identify_remaining_cats(sample_include, cur_covar_col, sample_ct, cat_covar_wkspace);
       assert(remaining_cat_ct >= 2);
@@ -1064,31 +1041,13 @@ boolerr_t glm_fill_and_test_covars(const uintptr_t* sample_include, const uintpt
 	
 	uint32_t sample_uidx = first_sample_uidx;
 	uint32_t cur_cat_obs_ct = 0;
-	if (standard_beta) {
-	  for (uintptr_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-	    next_set_unsafe_ck(sample_include, &sample_uidx);
-	    cur_cat_obs_ct += (covar_vals[sample_uidx] == cat_uidx);
-	  }
-	  const double covar_sum_and_ssq = (double)((int32_t)cur_cat_obs_ct);
-	  const double cur_mean = covar_sum_and_ssq * sample_ct_recip;
-	  const double cur_stdev_recip = sqrt(sample_ct_m1_d / (covar_sum_and_ssq * (1.0 - cur_mean)));
-	  double normalized_covar_vals[2];
-	  normalized_covar_vals[0] = (-cur_mean) * cur_stdev_recip;
-	  normalized_covar_vals[1] = (1.0 - cur_mean) * cur_stdev_recip;
-	  sample_uidx = first_sample_uidx;
-	  for (uintptr_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-	    next_set_unsafe_ck(sample_include, &sample_uidx);
-	    *covar_write_iter++ = normalized_covar_vals[(covar_vals[sample_uidx] == cat_uidx)];
-	  }
-	} else {
-	  for (uintptr_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-	    next_set_unsafe_ck(sample_include, &sample_uidx);
-	    const uint32_t cur_sample_is_in_cat = (covar_vals[sample_uidx] == cat_uidx);
-	    cur_cat_obs_ct += cur_sample_is_in_cat;
-	    *covar_write_iter++ = (double)((int32_t)cur_sample_is_in_cat);
-	  }
-	  *sum_iter++ = (double)((int32_t)cur_cat_obs_ct);
+	for (uintptr_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+	  next_set_unsafe_ck(sample_include, &sample_uidx);
+	  const uint32_t cur_sample_is_in_cat = (covar_vals[sample_uidx] == cat_uidx);
+	  cur_cat_obs_ct += cur_sample_is_in_cat;
+	  *covar_write_iter++ = (double)((int32_t)cur_sample_is_in_cat);
 	}
+	*sum_iter++ = (double)((int32_t)cur_cat_obs_ct);
       }
     }
   }
@@ -1100,9 +1059,6 @@ boolerr_t glm_fill_and_test_covars(const uintptr_t* sample_include, const uintpt
   //   (dotprod - sum(a)mean(b)) / (N-1)
   // to get small-sample covariance
   const uintptr_t new_nonlocal_covar_ct_p1 = new_nonlocal_covar_ct + 1;
-  if (standard_beta) {
-    fill_double_zero(new_nonlocal_covar_ct, dbl_2d_buf); // all covariates zero-mean
-  }
   const double sample_ct_m1_recip = 1.0 / sample_ct_m1_d;
   double* covar_dotprod_iter = covar_dotprod;
   double* sample_covariance_iter = inverse_corr_buf;
@@ -1157,7 +1113,7 @@ boolerr_t glm_fill_and_test_covars(const uintptr_t* sample_include, const uintpt
   return 0;
 }
 
-boolerr_t glm_alloc_fill_and_test_pheno_covars_qt(const uintptr_t* sample_include, const double* pheno_qt, const uintptr_t* covar_include, const pheno_col_t* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, uint32_t standard_beta, double vif_thresh, double max_corr, double** pheno_d_ptr, double** covars_cmaj_d_ptr, char*** cur_covar_names_ptr, vif_corr_err_t* vif_corr_check_result_ptr) {
+boolerr_t glm_alloc_fill_and_test_pheno_covars_qt(const uintptr_t* sample_include, const double* pheno_qt, const uintptr_t* covar_include, const pheno_col_t* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double vif_thresh, double max_corr, double** pheno_d_ptr, double** covars_cmaj_d_ptr, char*** cur_covar_names_ptr, vif_corr_err_t* vif_corr_check_result_ptr) {
   const uintptr_t new_covar_ct = covar_ct + extra_cat_ct;
   const uintptr_t new_nonlocal_covar_ct = new_covar_ct - local_covar_ct;
   double* covar_dotprod;
@@ -1170,43 +1126,19 @@ boolerr_t glm_alloc_fill_and_test_pheno_covars_qt(const uintptr_t* sample_includ
     return 1;
   }
   double* pheno_d_iter = *pheno_d_ptr;
-  const uint32_t first_sample_uidx = next_set_unsafe(sample_include, 0);
-  uint32_t sample_uidx = first_sample_uidx;
-  if (standard_beta) {
-    double shifted_pheno_sum = 0.0;
-    double shifted_pheno_ssq = 0.0;
+  uint32_t sample_uidx = 0;
+  for (uintptr_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
     next_set_unsafe_ck(sample_include, &sample_uidx);
-    const double pheno_shift = pheno_qt[sample_uidx++];
-    for (uintptr_t sample_idx = 1; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-      next_set_unsafe_ck(sample_include, &sample_uidx);
-      const double cur_shifted_pheno_val = pheno_qt[sample_uidx] - pheno_shift;
-      shifted_pheno_sum += cur_shifted_pheno_val;
-      shifted_pheno_ssq += cur_shifted_pheno_val * cur_shifted_pheno_val;
-      *pheno_d_iter++ = cur_shifted_pheno_val;
-    }
-    pheno_d_iter = *pheno_d_ptr;
-    const double cur_shifted_mean = shifted_pheno_sum / ((double)((intptr_t)sample_ct));
-    // assumes we checked for a constant phenotype earlier
-    const double cur_stdev_recip = sqrt((double)((intptr_t)(sample_ct - 1)) / (shifted_pheno_ssq - shifted_pheno_sum * cur_shifted_mean));
-    
-    for (uintptr_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
-      const double cur_shifted_pheno_val = *pheno_d_iter;
-      *pheno_d_iter++ = (cur_shifted_pheno_val - cur_shifted_mean) * cur_stdev_recip;
-    }
-  } else {
-    for (uintptr_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-      next_set_unsafe_ck(sample_include, &sample_uidx);
-      *pheno_d_iter++ = pheno_qt[sample_uidx];
-    }
+    *pheno_d_iter++ = pheno_qt[sample_uidx];
   }
-  if (glm_fill_and_test_covars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, standard_beta, vif_thresh, max_corr, covars_smaj, covar_dotprod, *covars_cmaj_d_ptr, *cur_covar_names_ptr, vif_corr_check_result_ptr)) {
+  if (glm_fill_and_test_covars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, vif_thresh, max_corr, covars_smaj, covar_dotprod, *covars_cmaj_d_ptr, *cur_covar_names_ptr, vif_corr_check_result_ptr)) {
     return 1;
   }
   bigstack_reset(covar_dotprod);
   return 0;
 }
 
-boolerr_t glm_alloc_fill_and_test_pheno_covars_cc(const uintptr_t* sample_include, const uintptr_t* pheno_cc, const uintptr_t* covar_include, const pheno_col_t* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, uint32_t standard_beta, double vif_thresh, double max_corr, uintptr_t** pheno_cc_collapsed_ptr, float** pheno_f_ptr, float** covars_cmaj_f_ptr, char*** cur_covar_names_ptr, vif_corr_err_t* vif_corr_check_result_ptr) {
+boolerr_t glm_alloc_fill_and_test_pheno_covars_cc(const uintptr_t* sample_include, const uintptr_t* pheno_cc, const uintptr_t* covar_include, const pheno_col_t* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double vif_thresh, double max_corr, uintptr_t** pheno_cc_collapsed_ptr, float** pheno_f_ptr, float** covars_cmaj_f_ptr, char*** cur_covar_names_ptr, vif_corr_err_t* vif_corr_check_result_ptr) {
   const uintptr_t sample_cta4 = round_up_pow2(sample_ct, 4);
   const uintptr_t new_covar_ct = covar_ct + extra_cat_ct;
   const uintptr_t new_nonlocal_covar_ct = new_covar_ct - local_covar_ct;
@@ -1230,7 +1162,7 @@ boolerr_t glm_alloc_fill_and_test_pheno_covars_cc(const uintptr_t* sample_includ
   }
   const uint32_t sample_rem4 = sample_cta4 - sample_ct;
   fill_float_zero(sample_rem4, pheno_f_iter);
-  if (glm_fill_and_test_covars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, standard_beta, vif_thresh, max_corr, covars_smaj_d, covar_dotprod, covars_cmaj_d, *cur_covar_names_ptr, vif_corr_check_result_ptr)) {
+  if (glm_fill_and_test_covars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, vif_thresh, max_corr, covars_smaj_d, covar_dotprod, covars_cmaj_d, *cur_covar_names_ptr, vif_corr_check_result_ptr)) {
     return 1;
   }
   double* covar_read_iter = covars_cmaj_d;
@@ -5999,7 +5931,6 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
 	}
       }
     }
-    const uint32_t standard_beta = glm_flags & kfGlmStandardBeta;
     const uint32_t report_adjust = (adjust_info_ptr->flags & kfAdjustColAll);
     const uint32_t is_sometimes_firth = (glm_flags & (kfGlmFirthFallback | kfGlmFirth))? 1 : 0;
     const uint32_t is_always_firth = glm_flags & kfGlmFirth;
@@ -6245,11 +6176,11 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
       char** cur_covar_names = nullptr;
       vif_corr_err_t vif_corr_check_result;
       if (is_logistic) {
-	if (glm_alloc_fill_and_test_pheno_covars_cc(cur_sample_include, cur_pheno_col->data.cc, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, standard_beta, vif_thresh, glm_info_ptr->max_corr, &pheno_cc, &pheno_f, &covars_cmaj_f, &cur_covar_names, &vif_corr_check_result)) {
+	if (glm_alloc_fill_and_test_pheno_covars_cc(cur_sample_include, cur_pheno_col->data.cc, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, vif_thresh, glm_info_ptr->max_corr, &pheno_cc, &pheno_f, &covars_cmaj_f, &cur_covar_names, &vif_corr_check_result)) {
 	  goto glm_main_ret_NOMEM;
 	}
       } else {
-	if (glm_alloc_fill_and_test_pheno_covars_qt(cur_sample_include, cur_pheno_col->data.qt, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, standard_beta, vif_thresh, glm_info_ptr->max_corr, &pheno_d, &covars_cmaj_d, &cur_covar_names, &vif_corr_check_result)) {
+	if (glm_alloc_fill_and_test_pheno_covars_qt(cur_sample_include, cur_pheno_col->data.qt, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, vif_thresh, glm_info_ptr->max_corr, &pheno_d, &covars_cmaj_d, &cur_covar_names, &vif_corr_check_result)) {
 	  goto glm_main_ret_NOMEM;
 	}
       }
@@ -6269,11 +6200,11 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
       char** cur_covar_names_x = nullptr;
       if (sample_ct_x) {
 	if (is_logistic) {
-	  if (glm_alloc_fill_and_test_pheno_covars_cc(cur_sample_include_x, cur_pheno_col->data.cc, covar_include_x, covar_cols, covar_names, sample_ct_x, covar_ct_x, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, standard_beta, vif_thresh, glm_info_ptr->max_corr, &g_pheno_x_cc, &g_pheno_x_f, &g_covars_cmaj_x_f, &cur_covar_names_x, &vif_corr_check_result)) {
+	  if (glm_alloc_fill_and_test_pheno_covars_cc(cur_sample_include_x, cur_pheno_col->data.cc, covar_include_x, covar_cols, covar_names, sample_ct_x, covar_ct_x, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, vif_thresh, glm_info_ptr->max_corr, &g_pheno_x_cc, &g_pheno_x_f, &g_covars_cmaj_x_f, &cur_covar_names_x, &vif_corr_check_result)) {
 	    goto glm_main_ret_NOMEM;
 	  }
 	} else {
-	  if (glm_alloc_fill_and_test_pheno_covars_qt(cur_sample_include_x, cur_pheno_col->data.qt, covar_include_x, covar_cols, covar_names, sample_ct_x, covar_ct_x, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, standard_beta, vif_thresh, glm_info_ptr->max_corr, &g_pheno_x_d, &g_covars_cmaj_x_d, &cur_covar_names_x, &vif_corr_check_result)) {
+	  if (glm_alloc_fill_and_test_pheno_covars_qt(cur_sample_include_x, cur_pheno_col->data.qt, covar_include_x, covar_cols, covar_names, sample_ct_x, covar_ct_x, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, vif_thresh, glm_info_ptr->max_corr, &g_pheno_x_d, &g_covars_cmaj_x_d, &cur_covar_names_x, &vif_corr_check_result)) {
 	    goto glm_main_ret_NOMEM;
 	  }
 	}
@@ -6294,11 +6225,11 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
       char** cur_covar_names_y = nullptr;
       if (sample_ct_y) {
 	if (is_logistic) {
-	  if (glm_alloc_fill_and_test_pheno_covars_cc(cur_sample_include_y, cur_pheno_col->data.cc, covar_include_y, covar_cols, covar_names, sample_ct_y, covar_ct_y, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, standard_beta, vif_thresh, glm_info_ptr->max_corr, &g_pheno_y_cc, &g_pheno_y_f, &g_covars_cmaj_y_f, &cur_covar_names_y, &vif_corr_check_result)) {
+	  if (glm_alloc_fill_and_test_pheno_covars_cc(cur_sample_include_y, cur_pheno_col->data.cc, covar_include_y, covar_cols, covar_names, sample_ct_y, covar_ct_y, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, vif_thresh, glm_info_ptr->max_corr, &g_pheno_y_cc, &g_pheno_y_f, &g_covars_cmaj_y_f, &cur_covar_names_y, &vif_corr_check_result)) {
 	    goto glm_main_ret_NOMEM;
 	  }
 	} else {
-	  if (glm_alloc_fill_and_test_pheno_covars_qt(cur_sample_include_y, cur_pheno_col->data.qt, covar_include_y, covar_cols, covar_names, sample_ct_y, covar_ct_y, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, standard_beta, vif_thresh, glm_info_ptr->max_corr, &g_pheno_y_d, &g_covars_cmaj_y_d, &cur_covar_names_y, &vif_corr_check_result)) {
+	  if (glm_alloc_fill_and_test_pheno_covars_qt(cur_sample_include_y, cur_pheno_col->data.qt, covar_include_y, covar_cols, covar_names, sample_ct_y, covar_ct_y, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, vif_thresh, glm_info_ptr->max_corr, &g_pheno_y_d, &g_covars_cmaj_y_d, &cur_covar_names_y, &vif_corr_check_result)) {
 	    goto glm_main_ret_NOMEM;
 	  }
 	}

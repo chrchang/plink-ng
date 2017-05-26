@@ -11287,7 +11287,9 @@ int32_t main(int32_t argc, char** argv) {
 	  logerrprint("Error: --standard-beta must be used with --linear or --dosage.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
 	}
-	logprint("Note: --standard-beta flag deprecated.  Use e.g. '--linear standard-beta'.\n");
+	// '--linear standard-beta' is ALSO deprecated now for plink2's
+	// --{covar-}variance-normalize, so this note is pointless.
+	// logprint("Note: --standard-beta flag deprecated.  Use e.g. '--linear standard-beta'.\n");
 	glm_modifier |= GLM_STANDARD_BETA;
 	goto main_param_zero;
       } else if (!memcmp(argptr2, "et-table", 9)) {

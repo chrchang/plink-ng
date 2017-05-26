@@ -60,7 +60,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (25 May 2017)";
+  " (26 May 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -119,8 +119,8 @@ void disp_exit_msg(pglerr_t reterr) {
   }
 }
 
-// meta-analysis-report-dups + terminating null
-CONSTU31(kMaxFlagBlen, 26);
+// covar-variance-standardize + terminating null
+CONSTU31(kMaxFlagBlen, 27);
 
 FLAGSET_DEF_START()
   kfLoadParams0,
@@ -214,6 +214,7 @@ typedef struct plink2_cmdline_struct {
   grm_flags_t grm_flags;
   pca_flags_t pca_flags;
   write_covar_flags_t write_covar_flags;
+  pheno_transform_flags_t pheno_transform_flags;
   range_list_t snps_range_list;
   range_list_t exclude_snps_range_list;
   range_list_t pheno_range_list;
@@ -304,6 +305,9 @@ typedef struct plink2_cmdline_struct {
   char* remove_cat_names_flattened;
   char* remove_cat_phenoname;
   char* split_cat_phenonames_flattened;
+  char* vstd_flattened;
+  char* quantnorm_flattened;
+  char* covar_quantnorm_flattened;
 } plink2_cmdline_t;
 
 uint32_t is_single_variant_loader_needed(const char* king_cutoff_fprefix, command1_flags_t command_flags1, make_plink2_t make_plink2_modifier) {
@@ -1130,8 +1134,37 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	}
       }
     }
-    if (pcp->misc_flags & kfMiscSplitCatPheno) {
-      reterr = split_cat_pheno(pcp->split_cat_phenonames_flattened, sample_include, raw_sample_ct, pcp->misc_flags, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen, &covar_cols, &covar_names, &covar_ct, &max_covar_name_blen);
+    if (pcp->pheno_transform_flags & kfPhenoTransformSplitCat) {
+      reterr = split_cat_pheno(pcp->split_cat_phenonames_flattened, sample_include, raw_sample_ct, pcp->pheno_transform_flags, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen, &covar_cols, &covar_names, &covar_ct, &max_covar_name_blen);
+      if (reterr) {
+	goto plink2_ret_1;
+      }
+    }
+
+    // quantnorm before variance-standardize, since at least that has a minor
+    // effect, whereas the other order is pointless
+    if (pcp->pheno_transform_flags & (kfPhenoTransformQuantnormPheno | kfPhenoTransformQuantnormAll)) {
+      reterr = pheno_quantile_normalize(pcp->quantnorm_flattened, sample_include, pheno_names, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, 0, (pcp->pheno_transform_flags / kfPhenoTransformQuantnormPheno) & 1, pheno_cols);
+      if (reterr) {
+	goto plink2_ret_1;
+      }
+    }
+    if (pcp->pheno_transform_flags & (kfPhenoTransformQuantnormCovar | kfPhenoTransformQuantnormAll)) {
+      reterr = pheno_quantile_normalize((pcp->pheno_transform_flags & kfPhenoTransformQuantnormAll)? pcp->quantnorm_flattened : pcp->covar_quantnorm_flattened, sample_include, covar_names, raw_sample_ct, sample_ct, covar_ct, max_covar_name_blen, 1, (pcp->pheno_transform_flags / kfPhenoTransformQuantnormCovar) & 1, covar_cols);
+      if (reterr) {
+	goto plink2_ret_1;
+      }
+    }
+
+    if (pcp->pheno_transform_flags & (kfPhenoTransformVstdCovar | kfPhenoTransformVstdAll)) {
+      const uint32_t is_covar_flag = (pcp->pheno_transform_flags / kfPhenoTransformVstdCovar) & 1;
+      if (!is_covar_flag) {
+	reterr = pheno_variance_standardize(pcp->vstd_flattened, sample_include, pheno_names, raw_sample_ct, pheno_ct, max_pheno_name_blen, 0, 0, pheno_cols);
+	if (reterr) {
+	  goto plink2_ret_1;
+	}
+      }
+      reterr = pheno_variance_standardize(pcp->vstd_flattened, sample_include, covar_names, raw_sample_ct, covar_ct, max_covar_name_blen, 1, is_covar_flag, covar_cols);
       if (reterr) {
 	goto plink2_ret_1;
       }
@@ -2648,6 +2681,9 @@ int main(int argc, char** argv) {
   pc.remove_cat_names_flattened = nullptr;
   pc.remove_cat_phenoname = nullptr;
   pc.split_cat_phenonames_flattened = nullptr;
+  pc.vstd_flattened = nullptr;
+  pc.quantnorm_flattened = nullptr;
+  pc.covar_quantnorm_flattened = nullptr;
   init_range_list(&pc.snps_range_list);
   init_range_list(&pc.exclude_snps_range_list);
   init_range_list(&pc.pheno_range_list);
@@ -3130,6 +3166,7 @@ int main(int argc, char** argv) {
     pc.grm_flags = kfGrm0;
     pc.pca_flags = kfPca0;
     pc.write_covar_flags = kfWriteCovar0;
+    pc.pheno_transform_flags = kfPhenoTransform0;
     pc.fam_cols = kfFamCol13456;
     pc.exportf_id_paste = kfIdpaste0;
     pc.king_modifier = kfKing0;
@@ -3715,6 +3752,24 @@ int main(int argc, char** argv) {
 	  } else {
 	    pc.misc_flags |= kfMiscChrOverrideCmdline;
 	  }
+	} else if (!memcmp(flagname_p2, "ovar-quantile-normalize", 24)) {
+	  if (param_ct) {
+	    reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &pc.covar_quantnorm_flattened);
+	    if (reterr) {
+	      goto main_ret_1;
+	    }
+	  }
+	  pc.pheno_transform_flags |= kfPhenoTransformQuantnormCovar;
+	  pc.filter_flags |= kfFilterPsamReq;
+	} else if (!memcmp(flagname_p2, "ovar-variance-standardize", 26)) {
+	  if (param_ct) {
+	    reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &pc.vstd_flattened);
+	    if (reterr) {
+	      goto main_ret_1;
+	    }
+	  }
+	  pc.pheno_transform_flags |= kfPhenoTransformVstdCovar;
+	  pc.filter_flags |= kfFilterPsamReq;
 	} else {
 	  goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
 	}
@@ -4344,7 +4399,8 @@ int main(int argc, char** argv) {
 	    } else if ((cur_modif_slen == 5) && (!memcmp(cur_modif, "firth", 5))) {
 	      pc.glm_info.flags |= kfGlmFirth;
 	    } else if ((cur_modif_slen == 13) && (!memcmp(cur_modif, "standard-beta", 13))) {
-	      pc.glm_info.flags |= kfGlmStandardBeta;
+	      logerrprint("Error: --glm 'standard-beta' modifier has been retired.  Use\n--{covar-}variance-standardize instead.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
 	    } else if ((cur_modif_slen == 4) && (!memcmp(cur_modif, "perm", 4))) {
 	      pc.glm_info.flags |= kfGlmPerm;
 	    } else if ((cur_modif_slen == 10) && (!memcmp(cur_modif, "perm-count", 10))) {
@@ -6364,6 +6420,34 @@ int main(int argc, char** argv) {
 	    goto main_ret_INVALID_CMDLINE;
 	  }
 	  pc.command_flags1 |= kfCommand1Pca;
+	} else if (!memcmp(flagname_p2, "heno-quantile-normalize", 24)) {
+	  if (param_ct) {
+	    reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &pc.quantnorm_flattened);
+	    if (reterr) {
+	      goto main_ret_1;
+	    }
+	  }
+	  pc.pheno_transform_flags |= kfPhenoTransformQuantnormPheno;
+	  pc.filter_flags |= kfFilterPsamReq;
+	} else {
+	  goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
+	}
+	break;
+
+      case 'q':
+	if (!memcmp(flagname_p2, "uantile-normalize", 18)) {
+	  if (pc.pheno_transform_flags & (kfPhenoTransformQuantnormPheno | kfPhenoTransformQuantnormCovar)) {
+	    logerrprint("Error: --quantile-normalize cannot be used with --pheno-quantile-normalize or\n--covar-quantile-normalize.\n");
+	    goto main_ret_INVALID_CMDLINE;
+	  }
+	  if (param_ct) {
+	    reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &pc.quantnorm_flattened);
+	    if (reterr) {
+	      goto main_ret_1;
+	    }
+	  }
+	  pc.pheno_transform_flags |= kfPhenoTransformQuantnormAll;
+	  pc.filter_flags |= kfFilterPsamReq;
 	} else {
 	  goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
 	}
@@ -6661,8 +6745,11 @@ int main(int argc, char** argv) {
 	      pc.score_info.flags |= kfScoreNoMeanimpute;
 	    } else if ((cur_modif_slen == 6) && (!memcmp(cur_modif, "center", 6))) {
 	      pc.score_info.flags |= kfScoreCenter;
+	    } else if ((cur_modif_slen == 20) && (!memcmp(cur_modif, "variance-standardize", 20))) {
+	      pc.score_info.flags |= kfScoreVarianceStandardize;
 	    } else if ((cur_modif_slen == 18) && (!memcmp(cur_modif, "variance-normalize", 18))) {
-	      pc.score_info.flags |= kfScoreVarianceNormalize;
+	      logerrprint("Note: --score's 'variance-normalize' modifier has been renamed to the more\nprecise 'variance-standardize'.\n");
+	      pc.score_info.flags |= kfScoreVarianceStandardize;
 	    } else if ((cur_modif_slen == 2) && (!memcmp(cur_modif, "se", 2))) {
 	      pc.score_info.flags |= kfScoreSe;
 	    } else if ((cur_modif_slen == 2) && (!memcmp(cur_modif, "zs", 2))) {
@@ -6746,9 +6833,9 @@ int main(int argc, char** argv) {
 	  for (; first_phenoname_idx <= param_ct; ++first_phenoname_idx) {
 	    const char* cur_modif = argv[arg_idx + first_phenoname_idx];
 	    if (!strcmp(cur_modif, "omit-last")) {
-	      pc.misc_flags |= kfMiscSplitCatPhenoOmitLast;
+	      pc.pheno_transform_flags |= kfPhenoTransformSplitCatOmitLast;
 	    } else if (!strcmp(cur_modif, "covar-01")) {
-	      pc.misc_flags |= kfMiscSplitCatPhenoCovar01;
+	      pc.pheno_transform_flags |= kfPhenoTransformSplitCatCovar01;
 	    } else {
 	      break;
 	    }
@@ -6768,11 +6855,11 @@ int main(int argc, char** argv) {
 	      }
 	      phenonames_iter = &(phenonames_iter[cur_phenoname_slen + 1]);
 	    } while (*phenonames_iter);
-	  } else if (pc.misc_flags & kfMiscSplitCatPhenoCovar01) {
+	  } else if (pc.pheno_transform_flags & kfPhenoTransformSplitCatCovar01) {
 	    logerrprint("Error: --split-cat-pheno 'covar-01' modifier cannot be used without any\nphenotype names.\n");
 	    goto main_ret_INVALID_CMDLINE_A;
 	  }
-	  pc.misc_flags |= kfMiscSplitCatPheno;
+	  pc.pheno_transform_flags |= kfPhenoTransformSplitCat;
 	  pc.filter_flags |= kfFilterPsamReq;
 	} else {
 	  goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
@@ -7042,6 +7129,19 @@ int main(int argc, char** argv) {
 	    sprintf(g_logbuf, "Error: --glm/--epistasis VIF threshold '%s' too small (must be >= 1).\n", cur_modif);
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
+	} else if (!memcmp(flagname_p2, "ariance-standardize", 20)) {
+	  if (pc.pheno_transform_flags & kfPhenoTransformVstdCovar) {
+	    logerrprint("Error: --variance-standardize cannot be used with --covar-variance-standardize.\n");
+	    goto main_ret_INVALID_CMDLINE;
+	  }
+	  if (param_ct) {
+	    reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &pc.vstd_flattened);
+	    if (reterr) {
+	      goto main_ret_1;
+	    }
+	  }
+	  pc.pheno_transform_flags |= kfPhenoTransformVstdAll;
+	  pc.filter_flags |= kfFilterPsamReq;
 	} else if (!memcmp(flagname_p2, "alidate", 8)) {
 	  pc.command_flags1 |= kfCommand1Validate;
 	  goto main_param_zero;
@@ -7526,6 +7626,9 @@ int main(int argc, char** argv) {
   free_cond(flag_buf);
   free_cond(flag_map);
   free_cond(king_cutoff_fprefix);
+  free_cond(pc.covar_quantnorm_flattened);
+  free_cond(pc.quantnorm_flattened);
+  free_cond(pc.vstd_flattened);
   free_cond(pc.split_cat_phenonames_flattened);
   free_cond(pc.remove_cat_phenoname);
   free_cond(pc.remove_cat_names_flattened);

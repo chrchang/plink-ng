@@ -43,13 +43,12 @@ FLAGSET_DEF_START()
   kfGlmIntercept = (1 << 9),
   kfGlmFirthFallback = (1 << 10),
   kfGlmFirth = (1 << 11),
-  kfGlmStandardBeta = (1 << 12),
-  kfGlmPerm = (1 << 13),
-  kfGlmPermCount = (1 << 14),
-  kfGlmConditionDominant = (1 << 15),
-  kfGlmConditionRecessive = (1 << 16),
-  kfGlmLocalOmitLast = (1 << 17),
-  kfGlmTestsAll = (1 << 18)
+  kfGlmPerm = (1 << 12),
+  kfGlmPermCount = (1 << 13),
+  kfGlmConditionDominant = (1 << 14),
+  kfGlmConditionRecessive = (1 << 15),
+  kfGlmLocalOmitLast = (1 << 16),
+  kfGlmTestsAll = (1 << 17)
 FLAGSET_DEF_END(glm_flags_t);
 
 FLAGSET_DEF_START()
