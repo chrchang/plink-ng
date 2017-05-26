@@ -64,7 +64,7 @@ int32_t main(int32_t argc, char** argv) {
     }
     uint32_t max_vrec_width;
     // todo: test block-fread
-    reterr = pgfi_init_phase2(header_ctrl, 0, 0, 0, &max_vrec_width, &pgfi, pgfi_alloc, &cur_alloc_cacheline_ct, errstr_buf);
+    reterr = pgfi_init_phase2(header_ctrl, 0, 0, 0, 0, variant_ct, &max_vrec_width, &pgfi, pgfi_alloc, &cur_alloc_cacheline_ct, errstr_buf);
     if (reterr) {
       fputs(errstr_buf, stderr);
       goto main_ret_1;
