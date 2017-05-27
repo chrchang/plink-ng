@@ -2807,7 +2807,7 @@ int main(int argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	for (uint32_t arg_idx2 = arg_idx + param_ct + 1; arg_idx2 < (uint32_t)argc; ++arg_idx2) {
-	  if ((!strcmp("-rerun", argv[arg_idx])) || (!strcmp("--rerun", argv[arg_idx]))) {
+	  if ((!strcmp("-rerun", argv[arg_idx2])) || (!strcmp("--rerun", argv[arg_idx2]))) {
 	    print_ver();
 	    fputs("Error: Duplicate --rerun flag.\n", stderr);
 	    goto main_ret_INVALID_CMDLINE;

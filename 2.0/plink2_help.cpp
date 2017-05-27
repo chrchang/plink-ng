@@ -907,16 +907,12 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "  --write-snplist <zs>\n"
 "    List all variants which pass your filters/inclusion thresholds.\n\n"
 	       );
-    // todo: support e.g. quantile normalization, but as a generic phenotype
-    // processing operation, no need to bind it to --glm
-    // --standard-beta should also be unbound from --glm
     help_print("glm\tlinear\tlogistic\tassoc", &help_ctrl, 1,
 "  --glm <zs> <sex | no-x-sex> <genotypic | hethom | dominant | recessive>\n"
-"        <interaction> <hide-covar> <intercept> <standard-beta>\n"
-"        <firth-fallback | firth> <cols=[col set descriptor]>\n"
-"        <local-covar=[f]> <local-pvar=[f]> <local-psam=[f]>\n"
-"        <local-omit-last | local-cats=[category ct]>\n"
-"        <perm | mperm=[value]> <perm-count>\n"
+"        <interaction> <hide-covar> <intercept> <firth-fallback | firth>\n"
+"        <cols=[col set descriptor]> <local-covar=[f]> <local-pvar=[f]>\n"
+"        <local-psam=[f]> <local-omit-last | local-cats=[category ct]>\n"
+	       // "        <perm | mperm=[value]> <perm-count>\n"
 "    Basic association analysis on quantitative and/or case/control phenotypes.\n"
 "    For each variant, a linear (for quantitative traits) or logistic (for\n"
 "    case/control) regression is run with the phenotype as the dependent\n"
@@ -928,23 +924,24 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "      everywhere (except chrY), while 'no-x-sex' excludes it entirely.\n"
 "    * The 'genotypic' modifier adds an additive effect/dominance deviation 2df\n"
 "      joint test (0-2 and 0..1..0 coding), while 'hethom' uses 0..0..1 and\n"
-"      0..1..0 coding instead.  If permutation is also requested, these\n"
+"      0..1..0 coding instead.\n"
+	       /*
+"  If permutation is also requested, these\n"
 "      modifiers cause permutation to be based on the joint test.\n"
+	       */
 "    * 'dominant' and 'recessive' specify a model assuming full dominance or\n"
 "      recessiveness, respectively, for the ref allele.  I.e. the genotype\n"
 "      column is recoded as 0..1..1 or 0..0..1, respectively.\n"
-"    * 'interaction' adds genotype x covariate interactions to the model.  This\n"
+"    * 'interaction' adds genotype x covariate interactions to the model.\n"
+	       /*
+"  This\n"
 "      cannot be combined with the usual permutation tests; use --tests to\n"
 "      define the permutation test statistic instead.\n"
+	       */
 "    * Additional predictors can be added with --covar.  By default, association\n"
 "      statistics are reported for all nonconstant predictors; 'hide-covar'\n"
 "      suppresses covariate-only results, while 'intercept' causes intercepts\n"
 "      to be reported.\n"
-"    * The 'standard-beta' modifier standardizes all non-local covariates to\n"
-"      zero mean and unit variance before any regressions are run.  When the\n"
-"      phenotype is quantitative, it is also standardized.  (However, genotype\n"
-"      columns are no longer standardized, and presence of missing genotype\n"
-"      values does not induce re-standardization of covariates.)\n"
 "    * For logistic regression, when the phenotype {quasi-}separates the\n"
 "      genotype, an NA result will normally be reported.  To fall back on Firth\n"
 "      logistic regression instead when the basic logistic regression fails to\n"
@@ -964,10 +961,12 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "      Alternatively, with 'local-cats=[k]', the local-covar file is expected to\n"
 "      have n columns with integer-valued entries in [1, k].  These category\n"
 "      assignments are expanded into (k-1) local covariates in the usual manner.\n"
+	       /*
 "    * 'perm' normally causes an adaptive permutation test to be performed on\n"
 "      the main effect, while 'mperm=[value]' starts a max(T) permutation test.\n"
 "    * 'perm-count' causes the permutation test report to include counts instead\n"
 "      of frequencies.\n"
+	       */
 // May want to change or leave out set-based test; punt for now.
 "    The main report supports the following column sets:\n"
 "      chrom: Chromosome ID.\n"
@@ -997,7 +996,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("score", &help_ctrl, 1,
 "  --score [filename] {i} {j} {k} <header | header-read> <no-mean-imputation>\n"
-"          <center | variance-normalize> <se> <zs>\n"
+"          <center | variance-standardize> <se> <zs>\n"
 "          <list-variants | list-variants-zs> <cols=[col set descriptor]>\n"
 "    Apply linear scoring system(s) to each sample.\n"
 "    The input file should have one line per scored variant.  Variant IDs are\n"
@@ -1015,8 +1014,8 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "      observations instead (decreasing the denominator in the final average\n"
 "      when this happens), use the 'no-mean-imputation' modifier.\n"
 "    * You can use the 'center' modifier to shift all genotypes to mean zero, or\n"
-"      'variance-normalize' to linearly transform the genotypes to mean-0,\n"
-"      variance-1.  ('variance-normalize' cannot be used with chrX or MT.)\n"
+"      'variance-standardize' to linearly transform the genotypes to mean-0,\n"
+"      variance-1.  ('variance-standardize' cannot be used with chrX or MT.)\n"
 "    * The 'se' modifier causes the score coefficients to be treated as\n"
 "      independent standard errors; in this case, standard errors for the score\n"
 "      average/sum are reported.  (Note that this will systematically\n"
@@ -1247,6 +1246,16 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "      phenotypes (but not covariates) are processed.\n"
 "    * By default, generated covariates are coded as 1=false, 2=true.  To code\n"
 "      them as 0=false, 1=true instead, add the 'covar-01' modifier.\n"
+	       );
+    help_print("variance-standardize\tcovar-variance-standardize\tquantile-normalize\tpheno-quantile-normalize\tcovar-quantile-normalize\tstandard-beta\tglm\tlinear\tlogistic", &help_ctrl, 0,
+"  --variance-standardize {pheno/covar name(s)...}\n"
+"  --covar-variance-standardize {covar name(s)...} :\n"
+"    Linearly transform named covariates (and quantitative phenotypes, if\n"
+"    --variance-standardize) to mean-zero, variance 1.  If no parameters are\n"
+"    provided, all possible phenotypes/covariates are affected.\n"
+"  --quantile-normalize {...}       : Force named covariates and quantitative\n"
+"  --pheno-quantile-normalize {...}   phenotypes to a N(0,1) distribution,\n"
+"  --covar-quantile-normalize {...}   preserving only the original rank orders.\n"
 	       );
     help_print("chr\tnot-chr", &help_ctrl, 0,
 "  --chr [chr(s)...]  : Exclude all variants not on the given chromosome(s).\n"
