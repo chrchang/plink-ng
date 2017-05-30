@@ -6035,7 +6035,6 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
       if (!loadbuf_iter) {
 	goto plink1_dosage_to_pgen_ret_MISSING_TOKENS;
       }
-      uint32_t sample_ct = 0;
       do {
 	char* fid_end = token_endnn(loadbuf_iter);
 	char* iid_start = skip_initial_spaces(fid_end);
@@ -6297,8 +6296,10 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
     }
 
     double dosage_multiplier = kDosageMid;
+    double dosage_ceil = 32767.5 / 16384.0;
     if (flags & kfPlink1DosageFormatSingle01) {
       dosage_multiplier = kDosageMax;
+      dosage_ceil = 32767.5 / 32768.0;
     }
     const uint32_t format_triple = (flags / kfPlink1DosageFormatTriple) & 1;
     const uint32_t dosage_erase_halfdist = kDosage4th - dosage_erase_thresh;
@@ -6421,7 +6422,7 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
 	    }
 	    double a1_dosage;
 	    char* str_end = scanadv_double(loadbuf_iter, &a1_dosage);
-	    if ((!loadbuf_iter) || (a1_dosage < (0.5 / 32768.0)) || (a1_dosage >= 32767.5)) {
+	    if ((!loadbuf_iter) || (a1_dosage < (0.5 / 32768.0)) || (a1_dosage >= dosage_ceil)) {
 	      loadbuf_iter = next_token(loadbuf_iter);
 	      continue;
 	    }
@@ -6549,6 +6550,10 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
     if (hard_call_thresh == 0xffffffffU) {
       hard_call_thresh = kDosageMid / 10;
     }
+    dosage_ceil = 2.02 * (1 + kSmallEpsilon);
+    if (flags & kfPlink1DosageFormatSingle01) {
+      dosage_ceil = 1.01 * (1 + kSmallEpsilon);
+    }
     const uint32_t hard_call_halfdist = kDosage4th - hard_call_thresh;
     const uint32_t sample_ctl2_m1 = sample_ctl2 - 1;
     uint32_t vidx = 0;
@@ -6601,7 +6606,7 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
 	    }
 	    double a1_dosage;
 	    char* str_end = scanadv_double(loadbuf_iter, &a1_dosage);
-	    if ((!loadbuf_iter) || (a1_dosage < 0.0) || (a1_dosage > 1.01 * (1 + kSmallEpsilon))) {
+	    if ((!loadbuf_iter) || (a1_dosage < 0.0) || (a1_dosage > dosage_ceil)) {
 	      genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
 	      loadbuf_iter = next_token(loadbuf_iter);
 	      continue;

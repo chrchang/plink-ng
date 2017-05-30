@@ -2586,11 +2586,17 @@ pglerr_t pgfi_init_phase2(pgen_header_ctrl_t header_ctrl, uint32_t allele_cts_al
       strcpy(errstr_buf, "Error: pgfi_init_phase2() cannot be called with use_blockload set when pgfi_init_phase1() had use_mmap set.\n");
       return kPglRetImproperFunctionCall;
     }
-    fread_ptr = &(pgfip->block_base[12]);
+    fread_ptr = &(pgfip->block_base[12 + 8 * vblock_idx_start]);
     memcpy(&cur_fpos, fread_ptr, sizeof(int64_t));
-    fread_ptr = &(fread_ptr[(vblock_ct_m1 + 1) * sizeof(int64_t)]);
+    fread_ptr = &(fread_ptr[(vblock_ct_m1 + 1 - vblock_idx_start) * sizeof(int64_t)]);
   } else {
 #endif
+    if (vblock_idx_start) {
+      if (fseeko(shared_ff, vblock_idx_start * sizeof(int64_t), SEEK_CUR)) {
+	strcpy(errstr_buf, "Error: File read failure.\n");
+	return kPglRetReadFail;
+      }
+    }
     if (!fread(&cur_fpos, sizeof(int64_t), 1, shared_ff)) {
       strcpy(errstr_buf, "Error: File read failure.\n");
       return kPglRetReadFail;
@@ -2598,7 +2604,7 @@ pglerr_t pgfi_init_phase2(pgen_header_ctrl_t header_ctrl, uint32_t allele_cts_al
     // May also need to load the rest of these values in the future, if we want
     // to support dynamic insertion into a memory-mapped file.  But skip them
     // for now.
-    if (fseeko(shared_ff, vblock_ct_m1 * sizeof(int64_t), SEEK_CUR)) {
+    if (fseeko(shared_ff, (vblock_ct_m1 - vblock_idx_start) * sizeof(int64_t), SEEK_CUR)) {
       strcpy(errstr_buf, "Error: File read failure.\n");
       return kPglRetReadFail;
     }

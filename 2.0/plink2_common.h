@@ -76,7 +76,7 @@
   #ifdef DYNAMIC_MKL
     #include <mkl_service.h>
   #else
-    #include "../intel/mkl/include/mkl_service.h"
+    #include "/opt/intel/mkl/include/mkl_service.h"
   #endif
   #define USE_MTBLAS
   #define BLAS_SET_NUM_THREADS mkl_set_num_threads

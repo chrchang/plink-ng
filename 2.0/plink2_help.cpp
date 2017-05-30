@@ -1422,6 +1422,15 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "  --output-missing-phenotype [s] : Set the string used to represent missing\n"
 "                                   phenotypes in output files (default 'NA').\n"
 	       );
+    /*
+    help_print("sort-vars", &help_ctrl, 0,
+"  --sort-vars {mode}      : Sort variants by chromosome, then position, then\n"
+"                            ID.  The following string orders are supported:\n"
+"                            * 'natural'/'n': Natural sort (default).\n"
+"                            * 'ascii'/'a': ASCII.\n"
+"                            This must be used with --make-{b}pgen/--make-bed.\n"
+	       );
+    */
     help_print("set-hh-missing\tset-mixed-mt-missing", &help_ctrl, 0,
 "  --set-hh-missing        : Make --make-{b}pgen/--make-bed set heterozygous\n"
 "                            haploid and female chrY genotypes to missing.\n"
