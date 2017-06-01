@@ -2290,9 +2290,15 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
     if (colid_first) {
       colid_ptr = next_token_multz(colid_ptr, colmin);
       colx_ptr = next_token_mult(colid_ptr, coldiff);
+      if (!colx_ptr) {
+	goto load_ax_alleles_ret_MISSING_TOKENS;
+      }
     } else {
       colx_ptr = next_token_multz(colid_ptr, colmin);
       colid_ptr = next_token_mult(colx_ptr, coldiff);
+      if (!colid_ptr) {
+	goto load_ax_alleles_ret_MISSING_TOKENS;
+      }
     }
     idlen = strlen_se(colid_ptr);
     marker_uidx = id_htable_find(colid_ptr, idlen, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len);
@@ -2354,6 +2360,9 @@ int32_t load_ax_alleles(Two_col_params* axalleles, uintptr_t unfiltered_marker_c
   load_ax_alleles_ret_READ_FAIL:
     retval = RET_READ_FAIL;
     break;
+  load_ax_alleles_ret_MISSING_TOKENS:
+    sprintf(g_logbuf, "Error: Fewer tokens than expected on line %" PRIuPTR " of --a%c-allele file.\n", line_idx, is_a2? '2' : '1');
+    wordwrapb(0);
   load_ax_alleles_ret_INVALID_FORMAT_2:
     logerrprintb();
     retval = RET_INVALID_FORMAT;
