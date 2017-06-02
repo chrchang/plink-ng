@@ -3063,8 +3063,8 @@ uint32_t get_reported_test_ct(const uintptr_t* parameter_subset, glm_flags_t glm
   const uint32_t hide_covar = (glm_flags / kfGlmHideCovar) & 1;
   const uint32_t include_intercept = (glm_flags / kfGlmIntercept) & 1;
   const uint32_t domdev_present = (glm_flags & (kfGlmGenotypic | kfGlmHethom))? 1 : 0;
-  // todo: --tests
-  const uint32_t joint_test = domdev_present || 0;
+  // TODO: --tests
+  const uint32_t joint_test = domdev_present;
 
   if (hide_covar) {
     if (!parameter_subset) {
@@ -3109,8 +3109,8 @@ boolerr_t alloc_and_init_reported_test_names(const uintptr_t* parameter_subset, 
     domdev_slen = 4;
   }
   
-  // todo: --tests
-  const uint32_t joint_test = domdev_present || 0;
+  // TODO: --tests
+  const uint32_t joint_test = domdev_present;
   
   if (glm_flags & kfGlmHideCovar) {
     const uint32_t reported_test_ct = include_intercept + include_main_effect + domdev_present + joint_test;
@@ -3137,7 +3137,7 @@ boolerr_t alloc_and_init_reported_test_names(const uintptr_t* parameter_subset, 
       test_name_buf_iter = iter_next;
     }
     if (joint_test) {
-      // todo: --tests
+      // TODO: --tests
       strcpy(test_name_buf_iter, "GENO_2DF");
       cur_test_names[write_idx++] = test_name_buf_iter;
     }
@@ -5801,8 +5801,8 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
       first_interaction_pred_uidx = first_covar_pred_uidx + raw_covar_ct;
     }
 
-    // todo: --tests
-    const uint32_t joint_test = domdev_present || 0;
+    // TODO: --tests
+    const uint32_t joint_test = domdev_present;
     g_constraints_con_major = nullptr;
     g_constraints_con_major_x = nullptr;
     g_constraints_con_major_y = nullptr;
