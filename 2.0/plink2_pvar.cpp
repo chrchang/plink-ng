@@ -646,6 +646,8 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
     
     unsigned char* tmp_alloc_base = (unsigned char*)(&(loadbuf[loadbuf_size]));
     uintptr_t* loaded_chr_mask = (uintptr_t*)tmp_alloc_base;
+    // bugfix (2 Jun 2017): forgot to zero-initialize loaded_chr_mask
+    fill_ulong_zero(kChrMaskWords, loaded_chr_mask);
     tmp_alloc_base = &(tmp_alloc_base[round_up_pow2(kChrMaskWords * sizeof(intptr_t), kCacheline)]);
     unsigned char* tmp_alloc_end = bigstack_end_mark;
     uint32_t fexcept_ct = 0;
