@@ -7174,7 +7174,7 @@ pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t m
     if (calc_thread_ct > 4) {
       calc_thread_ct = 4;
     }
-    if (bigstack_init_sfmtp(calc_thread_ct)) {
+    if (bigstack_init_sfmtp(calc_thread_ct, 0)) {
       goto generate_dummy_ret_NOMEM;
     }
     if (bigstack_alloc_thread(calc_thread_ct, &ts.threads)) {

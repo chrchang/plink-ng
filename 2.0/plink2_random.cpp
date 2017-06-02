@@ -34,15 +34,17 @@ double rand_normal(sfmt_t* sfmtp, double* secondval_ptr) {
 
 sfmt_t** g_sfmtp_arr;
 
-boolerr_t bigstack_init_sfmtp(uint32_t thread_ct) {
+boolerr_t bigstack_init_sfmtp(uint32_t thread_ct, uint32_t use_main_sfmt_as_element_zero) {
   g_sfmtp_arr = (sfmt_t**)bigstack_alloc(thread_ct * sizeof(intptr_t));
   if (!g_sfmtp_arr) {
     return 1;
   }
-  g_sfmtp_arr[0] = &g_sfmt;
-  if (thread_ct > 1) {
+  if (use_main_sfmt_as_element_zero) {
+    g_sfmtp_arr[0] = &g_sfmt;
+  }
+  if (thread_ct > use_main_sfmt_as_element_zero) {
     uint32_t uibuf[4];
-    for (uint32_t tidx = 1; tidx < thread_ct; ++tidx) {
+    for (uint32_t tidx = use_main_sfmt_as_element_zero; tidx < thread_ct; ++tidx) {
       g_sfmtp_arr[tidx] = (sfmt_t*)bigstack_alloc(sizeof(sfmt_t));
       if (!g_sfmtp_arr[tidx]) {
 	return 1;
@@ -86,7 +88,7 @@ pglerr_t fill_gaussian_darray(uintptr_t entry_pair_ct, uint32_t thread_ct, doubl
       thread_ct = max_useful_thread_ct;
     }
     pthread_t* threads;
-    if (bigstack_init_sfmtp(thread_ct) ||
+    if (bigstack_init_sfmtp(thread_ct, 1) ||
 	bigstack_alloc_thread(thread_ct, &threads)) {
       goto fill_gaussian_darray_ret_NOMEM;
     }

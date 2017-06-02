@@ -35,7 +35,7 @@ double rand_normal(sfmt_t* sfmtp, double* secondval_ptr);
 
 extern sfmt_t** g_sfmtp_arr;
 
-boolerr_t bigstack_init_sfmtp(uint32_t thread_ct);
+boolerr_t bigstack_init_sfmtp(uint32_t thread_ct, uint32_t use_main_sfmt_as_element_zero);
 
 pglerr_t fill_gaussian_darray(uintptr_t entry_pair_ct, uint32_t thread_ct, double* darray);
 
