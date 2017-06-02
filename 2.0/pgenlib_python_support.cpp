@@ -49,7 +49,7 @@ void genoarr_to_bytes_minus9(const uintptr_t* genoarr, uint32_t sample_ct, int8_
 // could have a size-16 lookup table in 64-bit builds, etc.
 static const int32_t geno_to_int32[4] = {0, 1, 2, -9};
 
-void genoarr_to_int32_minus9(const uintptr_t* genoarr, uint32_t sample_ct, int32_t* geno_int32) {
+void genoarr_to_int32s_minus9(const uintptr_t* genoarr, uint32_t sample_ct, int32_t* geno_int32) {
   const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
   int32_t* write_iter = geno_int32;
   uint32_t subgroup_len = kBitsPerWordD2;
@@ -72,7 +72,7 @@ void genoarr_to_int32_minus9(const uintptr_t* genoarr, uint32_t sample_ct, int32
 
 static const int64_t geno_to_int64[4] = {0, 1, 2, -9};
 
-void genoarr_to_int64_minus9(const uintptr_t* genoarr, uint32_t sample_ct, int64_t* geno_int64) {
+void genoarr_to_int64s_minus9(const uintptr_t* genoarr, uint32_t sample_ct, int64_t* geno_int64) {
   const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
   int64_t* write_iter = geno_int64;
   uint32_t subgroup_len = kBitsPerWordD2;
@@ -189,6 +189,69 @@ void genoarr_phased_to_hap_codes(const uintptr_t* genoarr, const uintptr_t* phas
       phaseinfo_hw >>= 1;
     }
     ++widx;
+  }
+}
+
+static const float geno_to_float[4] = {0.0f, 1.0f, 2.0f, -9.0f};
+
+void dosage16_to_floats_minus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_vals, uint32_t sample_ct, uint32_t dosage_ct, float* geno_float) {
+  const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
+  float* write_iter = geno_float;
+  uint32_t subgroup_len = kBitsPerWordD2;
+  uint32_t widx = 0;
+  while (1) {
+    if (widx >= word_ct_m1) {
+      if (widx > word_ct_m1) {
+	break;
+      }
+      subgroup_len = MOD_NZ(sample_ct, kBitsPerWordD2);
+    }
+    uintptr_t geno_word = genoarr[widx];
+    for (uint32_t uii = 0; uii < subgroup_len; ++uii) {
+      *write_iter++ = geno_to_float[geno_word & 3];
+      geno_word >>= 2;
+    }
+    ++widx;
+  }
+  if (dosage_ct) {
+    const uint16_t* dosage_vals_iter = dosage_vals;
+    uint32_t sample_uidx = 0;
+    for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_uidx) {
+      next_set_unsafe_ck(dosage_present, &sample_uidx);
+      // multiply by 2^{-14}
+      geno_float[sample_uidx] = ((float)(*dosage_vals_iter++)) * 0.00006103515625f;
+    }
+  }
+}
+
+static const double geno_to_double[4] = {0.0, 1.0, 2.0, -9.0};
+
+void dosage16_to_doubles_minus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_vals, uint32_t sample_ct, uint32_t dosage_ct, double* geno_double) {
+  const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
+  double* write_iter = geno_double;
+  uint32_t subgroup_len = kBitsPerWordD2;
+  uint32_t widx = 0;
+  while (1) {
+    if (widx >= word_ct_m1) {
+      if (widx > word_ct_m1) {
+	break;
+      }
+      subgroup_len = MOD_NZ(sample_ct, kBitsPerWordD2);
+    }
+    uintptr_t geno_word = genoarr[widx];
+    for (uint32_t uii = 0; uii < subgroup_len; ++uii) {
+      *write_iter++ = geno_to_double[geno_word & 3];
+      geno_word >>= 2;
+    }
+    ++widx;
+  }
+  if (dosage_ct) {
+    const uint16_t* dosage_vals_iter = dosage_vals;
+    uint32_t sample_uidx = 0;
+    for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_uidx) {
+      next_set_unsafe_ck(dosage_present, &sample_uidx);
+      geno_double[sample_uidx] = ((double)(*dosage_vals_iter++)) * 0.00006103515625;
+    }
   }
 }
 
@@ -340,6 +403,97 @@ void allele_codes_to_genoarr_unsafe(const int32_t* allele_codes, const unsigned 
     genoarr[widx] = geno_write_word;
     ++widx;
   }
+}
+
+static inline uint32_t biallelic_dosage_halfdist(uint32_t dosage_int) {
+  const uint32_t dosage_int_rem = dosage_int & 16383;
+  return abs_int32(((int32_t)dosage_int_rem) - 8192);
+}
+
+void floats_to_dosage16(const float* floatarr, uint32_t sample_ct, uint32_t hard_call_halfdist, uintptr_t* genoarr, uintptr_t* dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr) {
+  const uint32_t word_ct_m1 = (sample_ct - 1) / kBytesPerWord;
+  const float* read_iter = floatarr;
+  halfword_t* dosage_present_alias = (halfword_t*)dosage_present;
+  uint16_t* dosage_vals_iter = dosage_vals;
+  uint32_t subgroup_len = kBitsPerWordD2;
+  uint32_t widx = 0;
+  while (1) {
+    if (widx >= word_ct_m1) {
+      if (widx > word_ct_m1) {
+	break;
+      }
+      subgroup_len = MOD_NZ(sample_ct, kBitsPerWordD2);
+    }
+    uintptr_t geno_word = 0;
+    uint32_t dosage_present_hw = 0;
+    for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits < subgroup_len; ++sample_idx_lowbits) {
+      // 0..2 -> 0..32768
+      const float fxx = (*read_iter++) * 16384 + 0.5;
+      uintptr_t cur_geno = 3;
+      if ((fxx >= 0.0) && (fxx < 32769)) {
+	uint32_t dosage_int = (int32_t)fxx;
+	const uint32_t cur_halfdist = biallelic_dosage_halfdist(dosage_int);
+	if (cur_halfdist >= hard_call_halfdist) {
+	  cur_geno = (dosage_int + (8192 * k1LU)) / 16384;
+	}
+	if (cur_halfdist != 8192) {
+	  dosage_present_hw |= 1U << sample_idx_lowbits;
+	  *dosage_vals_iter++ = dosage_int;
+	}
+      }
+      geno_word |= cur_geno << (2 * sample_idx_lowbits);
+    }
+    genoarr[widx] = geno_word;
+    dosage_present_alias[widx] = dosage_present_hw;
+    ++widx;
+  }
+  if (widx % 2) {
+    dosage_present_alias[widx] = 0;
+  }
+  *dosage_ct_ptr = (uint32_t)((uintptr_t)(dosage_vals_iter - dosage_vals));
+}
+
+void doubles_to_dosage16(const double* doublearr, uint32_t sample_ct, uint32_t hard_call_halfdist, uintptr_t* genoarr, uintptr_t* dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr) {
+  const uint32_t word_ct_m1 = (sample_ct - 1) / kBytesPerWord;
+  const double* read_iter = doublearr;
+  halfword_t* dosage_present_alias = (halfword_t*)dosage_present;
+  uint16_t* dosage_vals_iter = dosage_vals;
+  uint32_t subgroup_len = kBitsPerWordD2;
+  uint32_t widx = 0;
+  while (1) {
+    if (widx >= word_ct_m1) {
+      if (widx > word_ct_m1) {
+	break;
+      }
+      subgroup_len = MOD_NZ(sample_ct, kBitsPerWordD2);
+    }
+    uintptr_t geno_word = 0;
+    uint32_t dosage_present_hw = 0;
+    for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits < subgroup_len; ++sample_idx_lowbits) {
+      // 0..2 -> 0..32768
+      const double dxx = (*read_iter++) * 16384 + 0.5;
+      uintptr_t cur_geno = 3;
+      if ((dxx >= 0.0) && (dxx < 32769)) {
+	uint32_t dosage_int = (int32_t)dxx;
+	const uint32_t cur_halfdist = biallelic_dosage_halfdist(dosage_int);
+	if (cur_halfdist >= hard_call_halfdist) {
+	  cur_geno = (dosage_int + (8192 * k1LU)) / 16384;
+	}
+	if (cur_halfdist != 8192) {
+	  dosage_present_hw |= 1U << sample_idx_lowbits;
+	  *dosage_vals_iter++ = dosage_int;
+	}
+      }
+      geno_word |= cur_geno << (2 * sample_idx_lowbits);
+    }
+    genoarr[widx] = geno_word;
+    dosage_present_alias[widx] = dosage_present_hw;
+    ++widx;
+  }
+  if (widx % 2) {
+    dosage_present_alias[widx] = 0;
+  }
+  *dosage_ct_ptr = (uint32_t)((uintptr_t)(dosage_vals_iter - dosage_vals));
 }
 
 #ifdef __cplusplus
