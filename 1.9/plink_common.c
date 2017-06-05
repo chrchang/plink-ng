@@ -4763,7 +4763,7 @@ void chrom_error(const char* chrom_name, const char* file_descrip, const Chrom_i
   if ((raw_code > ((int32_t)chrom_info_ptr->max_code)) && ((raw_code <= MAX_CHROM_TEXTNUM + XYMT_OFFSET_CT) || (raw_code >= MAX_POSSIBLE_CHROM))) {
     if (chrom_info_ptr->species != SPECIES_UNKNOWN) {
       if (chrom_info_ptr->species == SPECIES_HUMAN) {
-	logerrprint("(This is disallowed for humans.  Check if the problem is with your data, or if\nyou forgot to define a different chromosome set with e.g. --chr-set.).\n");
+	logerrprint("(This is disallowed for humans.  Check if the problem is with your data, or if\nyou forgot to define a different chromosome set with e.g. --chr-set.)\n");
       } else {
 	logerrprint("(This is disallowed by the PLINK 1.07 species flag you used.  You can\ntemporarily work around this restriction with --chr-set; contact the developers\nif you want the flag to be permanently redefined.)\n");
       }

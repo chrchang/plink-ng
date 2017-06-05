@@ -60,7 +60,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (2 Jun 2017)";
+  " (4 Jun 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -314,7 +314,7 @@ uint32_t is_single_variant_loader_needed(const char* king_cutoff_fprefix, comman
   return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score)) || ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_modifier & kfMakePgen)) || ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix));
 }
 
-uint32_t are_alt_allele_freqs_needed(command1_flags_t command_flags1, double min_maf, double max_maf) {
+uint32_t are_allele_freqs_needed(command1_flags_t command_flags1, double min_maf, double max_maf) {
   return (command_flags1 & (kfCommand1AlleleFreq | kfCommand1LdPrune | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Score)) || (min_maf != 0.0) || (max_maf != 1.0);
 }
 
@@ -1173,32 +1173,29 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
     // dosages are currently in 32768ths
     uint64_t* allele_dosages = nullptr; // same indexes as allele_storage
     uint64_t* founder_allele_dosages = nullptr;
-    alt_allele_ct_t* maj_alleles = nullptr;    
-    double* alt_allele_freqs = nullptr;
+    alt_allele_ct_t* maj_alleles = nullptr;
+    double* allele_freqs = nullptr;
     uint32_t* raw_geno_cts = nullptr;
     uint32_t* founder_raw_geno_cts = nullptr;
     unsigned char* bigstack_mark_allele_dosages = g_bigstack_base;
     unsigned char* bigstack_mark_founder_allele_dosages = g_bigstack_base;
     if (pgenname[0]) {
-      if (are_alt_allele_freqs_needed(pcp->command_flags1, pcp->min_maf, pcp->max_maf)) {
+      if (are_allele_freqs_needed(pcp->command_flags1, pcp->min_maf, pcp->max_maf)) {
 	if (are_maj_alleles_needed(pcp->command_flags1)) {
 	  maj_alleles = (alt_allele_ct_t*)bigstack_alloc(raw_variant_ct * sizeof(alt_allele_ct_t));
 	  if (!maj_alleles) {
 	    goto plink2_ret_NOMEM;
 	  }
 	}
-	// alt_allele_freqs[variant_allele_idxs[variant_uidx] + 1 -
-        //                  variant_uidx]
-	// stores the frequency estimate for alt1; replace "+ 1" with "+ 2" for
-	// alt2, etc.  To save memory, we don't explicitly store reference
-	// allele frequencies.
+	//   allele_freqs[variant_allele_idxs[variant_uidx] - variant_uidx]
+	// stores the frequency estimate for the reference allele; if there's
+	// more than 1 alt allele, next element stores alt1 freq, etc.  To save
+	// memory, we omit the last alt.
 	uintptr_t total_alt_allele_ct = raw_variant_ct;
 	if (variant_allele_idxs) {
 	  total_alt_allele_ct = variant_allele_idxs[raw_variant_ct] - raw_variant_ct;
 	}
-	// Note that we use elements [1..total_alt_allele_ct], not
-	// [0..(tot_alt_allele_ct - 1)].
-	if (bigstack_alloc_d(total_alt_allele_ct + 1, &alt_allele_freqs)) {
+	if (bigstack_alloc_d(total_alt_allele_ct, &allele_freqs)) {
 	  goto plink2_ret_NOMEM;
 	}
       }
@@ -1227,13 +1224,13 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
       }
       bigstack_mark_allele_dosages = g_bigstack_base;
       const uint32_t first_hap_uidx = get_first_haploid_uidx(cip);
-      if (are_allele_dosages_needed(pcp->misc_flags, make_plink2_modifier, (alt_allele_freqs != nullptr), pcp->min_allele_dosage, pcp->max_allele_dosage)) {
+      if (are_allele_dosages_needed(pcp->misc_flags, make_plink2_modifier, (allele_freqs != nullptr), pcp->min_allele_dosage, pcp->max_allele_dosage)) {
 	if (bigstack_alloc_ull(variant_allele_idxs? variant_allele_idxs[raw_variant_ct] : (2 * raw_variant_ct), &allele_dosages)) {
 	  goto plink2_ret_NOMEM;
 	}
       }
       bigstack_mark_founder_allele_dosages = g_bigstack_base;
-      if (are_founder_allele_dosages_needed(pcp->misc_flags, (alt_allele_freqs != nullptr), pcp->min_allele_dosage, pcp->max_allele_dosage)) {
+      if (are_founder_allele_dosages_needed(pcp->misc_flags, (allele_freqs != nullptr), pcp->min_allele_dosage, pcp->max_allele_dosage)) {
 	if ((founder_ct == sample_ct) && allele_dosages) {
 	  founder_allele_dosages = allele_dosages;
 	} else {
@@ -1348,17 +1345,17 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	  }
 	}
       }
-      if (alt_allele_freqs) {
+      if (allele_freqs) {
 	const uint32_t maf_succ = (pcp->misc_flags / kfMiscMafSucc) & 1;
-	compute_alt_allele_freqs(variant_include, variant_allele_idxs, nonfounders? allele_dosages : founder_allele_dosages, variant_ct, maf_succ, alt_allele_freqs);
+	compute_allele_freqs(variant_include, variant_allele_idxs, nonfounders? allele_dosages : founder_allele_dosages, variant_ct, maf_succ, allele_freqs);
 	if (pcp->read_freq_fname) {
-	  reterr = read_allele_freqs(variant_include, variant_ids, variant_allele_idxs, allele_storage, pcp->read_freq_fname, raw_variant_ct, variant_ct, pgfi.max_alt_allele_ct, max_variant_id_slen, max_allele_slen, maf_succ, pcp->max_thread_ct, alt_allele_freqs);
+	  reterr = read_allele_freqs(variant_include, variant_ids, variant_allele_idxs, allele_storage, pcp->read_freq_fname, raw_variant_ct, variant_ct, pgfi.max_alt_allele_ct, max_variant_id_slen, max_allele_slen, maf_succ, pcp->max_thread_ct, allele_freqs);
 	  if (reterr) {
 	    goto plink2_ret_1;
 	  }
 	}
 	if (maj_alleles) {
-	  compute_maj_alleles(variant_include, variant_allele_idxs, alt_allele_freqs, variant_ct, maj_alleles);
+	  compute_maj_alleles(variant_include, variant_allele_idxs, allele_freqs, variant_ct, maj_alleles);
 	}
       } else if (pcp->read_freq_fname) {
 	LOGERRPRINTF("Warning: Ignoring --read-freq since no command would use the frequencies.\n");
@@ -1432,7 +1429,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
       bigstack_reset(bigstack_mark_geno_cts);
 
       if ((pcp->min_maf != 0.0) || (pcp->max_maf != 1.0) || pcp->min_allele_dosage || (pcp->max_allele_dosage != (~0LLU))) {
-	enforce_minor_freq_constraints(variant_allele_idxs, nonfounders? allele_dosages : founder_allele_dosages, alt_allele_freqs, pcp->min_maf, pcp->max_maf, pcp->min_allele_dosage, pcp->max_allele_dosage, variant_include, &variant_ct);
+	enforce_minor_freq_constraints(variant_allele_idxs, nonfounders? allele_dosages : founder_allele_dosages, allele_freqs, pcp->min_maf, pcp->max_maf, pcp->min_allele_dosage, pcp->max_allele_dosage, variant_include, &variant_ct);
       }
 
       if (mach_r2_vals) {
@@ -1490,7 +1487,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
     double* grm = nullptr;
     const uint32_t keep_grm = grm_keep_needed(pcp->command_flags1, pcp->pca_flags);
     if ((pcp->command_flags1 & kfCommand1MakeRel) || keep_grm) {
-      reterr = calc_grm(sample_include, sample_ids, sids, variant_include, cip, variant_allele_idxs, maj_alleles, alt_allele_freqs, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, raw_variant_ct, variant_ct, pcp->grm_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end, keep_grm? (&grm) : nullptr);
+      reterr = calc_grm(sample_include, sample_ids, sids, variant_include, cip, variant_allele_idxs, maj_alleles, allele_freqs, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, raw_variant_ct, variant_ct, pcp->grm_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end, keep_grm? (&grm) : nullptr);
       if (reterr) {
 	goto plink2_ret_1;
       }
@@ -1502,7 +1499,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 #ifndef NOLAPACK
     if (pcp->command_flags1 & kfCommand1Pca) {
       // if the GRM is on the stack, this always frees it
-      reterr = calc_pca(sample_include, sample_ids, sids, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, maj_alleles, alt_allele_freqs, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, raw_variant_ct, variant_ct, max_allele_slen, pcp->pca_ct, pcp->pca_flags, pcp->max_thread_ct, &simple_pgr, grm, outname, outname_end);
+      reterr = calc_pca(sample_include, sample_ids, sids, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, maj_alleles, allele_freqs, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, raw_variant_ct, variant_ct, max_allele_slen, pcp->pca_ct, pcp->pca_flags, pcp->max_thread_ct, &simple_pgr, grm, outname, outname_end);
       if (reterr) {
 	goto plink2_ret_1;
       }
@@ -1679,14 +1676,14 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	logerrprint("Error: When the window size is in kb units, LD-based pruning requires a sorted\n.pvar/.bim.  Retry this command after using e.g. plink 1.9 --make-bed to sort\nyour data.\n");
 	goto plink2_ret_INCONSISTENT_INPUT;
       }
-      reterr = ld_prune(variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, maj_alleles, alt_allele_freqs, founder_info, sex_male, &(pcp->ld_info), raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+      reterr = ld_prune(variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, maj_alleles, allele_freqs, founder_info, sex_male, &(pcp->ld_info), raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
       if (reterr) {
 	goto plink2_ret_1;
       }
     }
 
     if (pcp->command_flags1 & kfCommand1Score) {
-      reterr = score_report(sample_include, sample_ids, sids, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_ids, variant_allele_idxs, allele_storage, alt_allele_freqs, &(pcp->score_info), sample_ct, max_sample_id_blen, max_sid_blen, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, pcp->xchr_model, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+      reterr = score_report(sample_include, sample_ids, sids, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_ids, variant_allele_idxs, allele_storage, allele_freqs, &(pcp->score_info), sample_ct, max_sample_id_blen, max_sid_blen, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, pcp->xchr_model, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
       if (reterr) {
 	goto plink2_ret_1;
       }

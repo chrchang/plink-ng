@@ -1028,8 +1028,8 @@ pglerr_t keep_remove_cats(const char* cats_fname, const char* cat_names_flattene
   return reterr;
 }
 
-void compute_alt_allele_freqs(const uintptr_t* variant_include, const uintptr_t* variant_allele_idxs, const uint64_t* founder_allele_dosages, uint32_t variant_ct, uint32_t maf_succ, double* alt_allele_freqs) {
-  // ok for maj_alleles or alt_allele_freqs to be nullptr
+void compute_allele_freqs(const uintptr_t* variant_include, const uintptr_t* variant_allele_idxs, const uint64_t* founder_allele_dosages, uint32_t variant_ct, uint32_t maf_succ, double* allele_freqs) {
+  // ok for maj_alleles or allele_freqs to be nullptr
   // note that founder_allele_dosages is in 32768ths
   uint32_t cur_allele_ct = 2;
   uint32_t variant_uidx = 0;
@@ -1051,11 +1051,12 @@ void compute_alt_allele_freqs(const uintptr_t* variant_include, const uintptr_t*
     const uint64_t cur_maf_succ_dosage = (maf_succ | (!tot_dosage)) * kDosageMax;
 
     tot_dosage += cur_maf_succ_dosage * cur_allele_ct;
-    double* cur_alt_allele_freqs_base = &(alt_allele_freqs[variant_allele_idx_base - variant_uidx]);
+    double* cur_allele_freqs_base = &(allele_freqs[variant_allele_idx_base - variant_uidx]);
     const double tot_dosage_recip = 1.0 / ((double)((int64_t)tot_dosage));
-    for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct; ++allele_idx) {
+    const uint32_t cur_allele_ct_m1 = cur_allele_ct - 1;
+    for (uint32_t allele_idx = 0; allele_idx < cur_allele_ct_m1; ++allele_idx) {
       const double cur_dosage = (double)((int64_t)(cur_founder_allele_dosages[allele_idx] + cur_maf_succ_dosage));
-      cur_alt_allele_freqs_base[allele_idx] = cur_dosage * tot_dosage_recip;
+      cur_allele_freqs_base[allele_idx] = cur_dosage * tot_dosage_recip;
     }
   }
 }
@@ -1143,7 +1144,7 @@ FLAGSET_DEF_START()
   kfReadFreqColsetHapAlt1Ct = (1 << kfReadFreqColHapAlt1Ct)
 FLAGSET_DEF_END(read_freq_colset_t);
 
-pglerr_t read_allele_freqs(const uintptr_t* variant_include, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const char* read_freq_fname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_alt_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t maf_succ, uint32_t max_thread_ct, double* alt_allele_freqs) {
+pglerr_t read_allele_freqs(const uintptr_t* variant_include, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const char* read_freq_fname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_alt_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t maf_succ, uint32_t max_thread_ct, double* allele_freqs) {
   // support PLINK 1.9 --freq/--freqx, and 2.0 --freq/--geno-counts.
   // GCTA-format no longer supported since it inhibits the allele consistency
   // check.
@@ -1705,7 +1706,7 @@ pglerr_t read_allele_freqs(const uintptr_t* variant_include, char** variant_ids,
 	  }
 	}
 
-	double* alt_allele_freqs_write = &(alt_allele_freqs[variant_allele_idx_base - variant_uidx]);
+	double* allele_freqs_write = &(allele_freqs[variant_allele_idx_base - variant_uidx]);
 	if (geno_counts) {
 	  fill_double_zero(cur_allele_ct, cur_allele_freqs);
 	  if (is_numeq) {
@@ -2020,15 +2021,15 @@ pglerr_t read_allele_freqs(const uintptr_t* variant_include, char** variant_ids,
 	    double known_scaled_freq = known_freq_d * obs_ct_recip;
 	    if (known_scaled_freq <= 1.0) {
 	      if (infer_freq_internal_idx) {
-		alt_allele_freqs_write[1] = 1.0 - known_scaled_freq;
+		allele_freqs_write[0] = known_scaled_freq;
 	      } else {
-		alt_allele_freqs_write[1] = known_scaled_freq;
+		allele_freqs_write[0] = 1.0 - known_scaled_freq;
 	      }
 	    } else if (known_scaled_freq <= (1.0 / 0.99)) {
 	      if (infer_freq_internal_idx) {
-		alt_allele_freqs_write[1] = 0;
+		allele_freqs_write[0] = 1.0;
 	      } else {
-		alt_allele_freqs_write[1] = 1;
+		allele_freqs_write[0] = 0.0;
 	      }
 	    } else {
 	      sprintf(g_logbuf, "Error: Frequency/count too large on line %" PRIuPTR " of --read-freq file.\n", line_idx);
@@ -2052,14 +2053,15 @@ pglerr_t read_allele_freqs(const uintptr_t* variant_include, char** variant_ids,
 		obs_ct_recip = 1.0 / known_scaled_freq_sum;
 		known_scaled_freq_sum = 1.0;
 	      }
-	      for (uint32_t internal_allele_idx = 1; internal_allele_idx < cur_allele_ct; ++internal_allele_idx) {
+	      const uint32_t cur_allele_ct_m1 = cur_allele_ct - 1;
+	      for (uint32_t internal_allele_idx = 0; internal_allele_idx < cur_allele_ct_m1; ++internal_allele_idx) {
 		double dxx;
 		if (internal_allele_idx == infer_freq_internal_idx) {
 		  dxx = 1.0 - known_scaled_freq_sum;
 		} else {
 		  dxx = obs_ct_recip * cur_allele_freqs[internal_allele_idx];
 		}
-		alt_allele_freqs_write[internal_allele_idx] = dxx;
+		allele_freqs_write[internal_allele_idx] = dxx;
 	      }
 	    } else {
 	      sprintf(g_logbuf, "Error: Frequency/count too large on line %" PRIuPTR " of --read-freq file.\n", line_idx);
@@ -2081,8 +2083,9 @@ pglerr_t read_allele_freqs(const uintptr_t* variant_include, char** variant_ids,
 	    goto read_allele_freqs_skip_variant;
 	  }
 	  const double tot_freq_recip = 1.0 / tot_freq;
-	  for (uint32_t internal_allele_idx = 1; internal_allele_idx < cur_allele_ct; ++internal_allele_idx) {
-	    alt_allele_freqs_write[internal_allele_idx] = tot_freq_recip * cur_allele_freqs[internal_allele_idx];
+	  const uint32_t cur_allele_ct_m1 = cur_allele_ct - 1;
+	  for (uint32_t internal_allele_idx = 0; internal_allele_idx < cur_allele_ct_m1; ++internal_allele_idx) {
+	    allele_freqs_write[internal_allele_idx] = tot_freq_recip * cur_allele_freqs[internal_allele_idx];
 	  }
 	}
 
@@ -2152,28 +2155,29 @@ pglerr_t read_allele_freqs(const uintptr_t* variant_include, char** variant_ids,
   return reterr;
 }
 
-void compute_maj_alleles(const uintptr_t* variant_include, const uintptr_t* variant_allele_idxs, const double* alt_allele_freqs, uint32_t variant_ct, alt_allele_ct_t* maj_alleles) {
+void compute_maj_alleles(const uintptr_t* variant_include, const uintptr_t* variant_allele_idxs, const double* allele_freqs, uint32_t variant_ct, alt_allele_ct_t* maj_alleles) {
   uint32_t cur_allele_ct = 2;
   uint32_t variant_uidx = 0;
   for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
     next_set_unsafe_ck(variant_include, &variant_uidx);
-    uintptr_t alt_allele_idx_base;
+    uintptr_t allele_idx_base;
     if (!variant_allele_idxs) {
-      alt_allele_idx_base = variant_uidx;
+      allele_idx_base = variant_uidx;
     } else {
-      alt_allele_idx_base = variant_allele_idxs[variant_uidx];
-      cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - alt_allele_idx_base;
-      alt_allele_idx_base -= variant_uidx;
+      allele_idx_base = variant_allele_idxs[variant_uidx];
+      cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - allele_idx_base;
+      allele_idx_base -= variant_uidx;
     }
-    const double* cur_alt_allele_freqs_base = &(alt_allele_freqs[alt_allele_idx_base]);
+    const double* cur_allele_freqs_base = &(allele_freqs[allele_idx_base]);
     if (cur_allele_ct == 2) {
-      maj_alleles[variant_uidx] = (cur_alt_allele_freqs_base[1] > 0.5);
+      maj_alleles[variant_uidx] = (cur_allele_freqs_base[0] < 0.5);
     } else {
-      uint32_t maj_allele_idx = 1;
-      double max_freq = cur_alt_allele_freqs_base[1];
+      uint32_t maj_allele_idx = 0;
+      double max_freq = cur_allele_freqs_base[0];
       double tot_alt_freq = max_freq;
-      for (uint32_t allele_idx = 2; allele_idx < cur_allele_ct; ++allele_idx) {
-	const double cur_freq = cur_alt_allele_freqs_base[allele_idx];
+      const uint32_t cur_allele_ct_m1 = cur_allele_ct - 1;
+      for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct_m1; ++allele_idx) {
+	const double cur_freq = cur_allele_freqs_base[allele_idx];
 	tot_alt_freq += cur_freq;
 	if (cur_freq > max_freq) {
 	  maj_allele_idx = allele_idx;
@@ -2181,7 +2185,7 @@ void compute_maj_alleles(const uintptr_t* variant_include, const uintptr_t* vari
 	}
       }
       if (max_freq + tot_alt_freq <= 1.0) {
-	maj_allele_idx = 0;
+	maj_allele_idx = cur_allele_ct_m1;
       }
       maj_alleles[variant_uidx] = maj_allele_idx;
     }
@@ -2662,7 +2666,7 @@ void enforce_hwe_thresh(const chr_info_t* cip, const uint32_t* founder_raw_geno_
     logerrprint("Warning: --hwe has no effect since entire genome is haploid.\n");
     return;
   }
-  const uint32_t prefilter_variant_ct = *variant_ct_ptr;
+  uint32_t prefilter_variant_ct = *variant_ct_ptr;
   uint32_t x_start = 0xffffffffU;
   uint32_t x_end = 0xffffffffU;
   int32_t x_code;
@@ -2670,6 +2674,10 @@ void enforce_hwe_thresh(const chr_info_t* cip, const uint32_t* founder_raw_geno_
     const uint32_t x_chr_fo_idx = cip->chr_idx_to_foidx[(uint32_t)x_code];
     x_start = cip->chr_fo_vidx_start[x_chr_fo_idx];
     x_end = cip->chr_fo_vidx_start[x_chr_fo_idx + 1];
+    // bugfix (4 Jun 2017): if no sex info available, need to skip chrX
+    if (!hwe_x_pvals) {
+      prefilter_variant_ct -= popcount_bit_idx(variant_include, x_start, x_end);
+    }
   }
   uint32_t x_thresh = x_start;
   const uint32_t midp = (misc_flags / kfMiscHweMidp) & 1;
@@ -2689,7 +2697,13 @@ void enforce_hwe_thresh(const chr_info_t* cip, const uint32_t* founder_raw_geno_
     if (variant_uidx >= x_thresh) {
       is_x = (variant_uidx < x_end);
       if (is_x) {
-	x_thresh = x_end;
+	if (hwe_x_pvals) {
+	  x_thresh = x_end;
+	} else {
+	  is_x = 0;
+	  x_thresh = 0xffffffffU;
+	  variant_uidx = next_set_unsafe(variant_include, x_end);
+	}
       } else {
 	x_thresh = 0xffffffffU;
       }
@@ -2769,8 +2783,8 @@ void enforce_hwe_thresh(const chr_info_t* cip, const uint32_t* founder_raw_geno_
   *variant_ct_ptr -= removed_ct;
 }
 
-void enforce_minor_freq_constraints(const uintptr_t* variant_allele_idxs, const uint64_t* founder_allele_dosages, const double* alt_allele_freqs, double min_maf, double max_maf, uint64_t min_allele_dosage, uint64_t max_allele_dosage, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
-  const uint32_t prefilter_variant_ct = *variant_ct_ptr;  
+void enforce_minor_freq_constraints(const uintptr_t* variant_allele_idxs, const uint64_t* founder_allele_dosages, const double* allele_freqs, double min_maf, double max_maf, uint64_t min_allele_dosage, uint64_t max_allele_dosage, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+  const uint32_t prefilter_variant_ct = *variant_ct_ptr;
   uint32_t variant_uidx = 0;
   uint32_t removed_ct = 0;
   if ((min_maf != 0.0) || (max_maf != 1.0)) {
@@ -2778,7 +2792,7 @@ void enforce_minor_freq_constraints(const uintptr_t* variant_allele_idxs, const 
     min_maf *= 1.0 - kSmallEpsilon;
     max_maf *= 1.0 + kSmallEpsilon;
   } else {
-    alt_allele_freqs = nullptr;
+    allele_freqs = nullptr;
   }
   const uint32_t dosage_filter = min_allele_dosage || (max_allele_dosage != (~0LLU));
   
@@ -2792,8 +2806,8 @@ void enforce_minor_freq_constraints(const uintptr_t* variant_allele_idxs, const 
       variant_allele_idx_base = variant_allele_idxs[variant_uidx];
       cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - variant_allele_idx_base;
     }
-    if (alt_allele_freqs) {
-      const double cur_nonmaj_freq = get_nonmaj_freq(&(alt_allele_freqs[variant_allele_idx_base - variant_uidx]), cur_allele_ct);
+    if (allele_freqs) {
+      const double cur_nonmaj_freq = get_nonmaj_freq(&(allele_freqs[variant_allele_idx_base - variant_uidx]), cur_allele_ct);
       if ((cur_nonmaj_freq < min_maf) || (cur_nonmaj_freq > max_maf)) {
 	CLEAR_BIT(variant_uidx, variant_include);
 	++removed_ct;

@@ -1633,8 +1633,10 @@ struct Pgen_file_info_struct {
   //   unconditional dosages, but it doesn't work well when only some samples
   //   have dosage data.
   // bit 7: some dosages phased?  if yes, and dosages are not unconditionally
-  //        present, auxiliary data track #4 is an array of 1-bit values for
-  //        each sample with dosage data, indicating phasing state (unset = no
+  //        present, auxiliary data track #4 is either a single zero byte
+  //        (indicating that all dosages are phased), or a bitarray of length
+  //        (dosage_ct + 1) where the first bit is set, and the other bits
+  //        indicate whether phase info is present for that sample (unset = no
   //        phasing info)
   //        note that this is independent of bit 4; either can be set without
   //        the other.
@@ -2087,7 +2089,9 @@ struct Pgen_writer_common_struct {
   
   // these must hold sample_ct entries (could be fewer if not subsetting, but
   // let's play it safe)
-  uintptr_t* genovec_invert_buf; // also used as phaseinfo temporary storage
+  // genovec_invert_buf also used as phaseinfo and dphase_present temporary
+  // storage
+  uintptr_t* genovec_invert_buf;
   uintptr_t* ldbase_genovec;
   
   // these must hold 2 * (sample_ct / kPglMaxDifflistLenDivisor) entries
@@ -2190,6 +2194,7 @@ pglerr_t spgw_append_multiallelic_counts(const uintptr_t** __restrict alt_countv
 //   phasepresent
 pglerr_t spgw_append_biallelic_genovec_hphase(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, st_pgen_writer_t* spgwp);
 
+// dosage_vals[] has length dosage_ct, not sample_ct
 void pwc_append_biallelic_genovec_dosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_vals, uint32_t dosage_ct, pgen_writer_common_t* pwcp);
 
 pglerr_t spgw_append_biallelic_genovec_dosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_vals, uint32_t dosage_ct, st_pgen_writer_t* spgwp);
@@ -2197,6 +2202,12 @@ pglerr_t spgw_append_biallelic_genovec_dosage16(const uintptr_t* __restrict geno
 void pwc_append_biallelic_genovec_hphase_dosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_vals, uint32_t dosage_ct, pgen_writer_common_t* pwcp);
 
 pglerr_t spgw_append_biallelic_genovec_hphase_dosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_vals, uint32_t dosage_ct, st_pgen_writer_t* spgwp);
+
+// dphase_present can be nullptr if dosage_ct == dphase_ct
+// dosage_present cannot be null for nonzero dosage_ct
+// dphase_vals[] has length dphase_ct * 2; dosage_vals[] has length
+// (dosage_ct - dphase_ct)
+// pglerr_t spgw_append_biallelic_genovec_dphase16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uintptr_t* dphase_present, const uint16_t* dosage_vals, const uint16_t* dphase_vals, uint32_t dosage_ct, uint32_t dphase_ct, st_pgen_writer_t* spgwp);
 
 
 // Backfills header info, then closes the file.

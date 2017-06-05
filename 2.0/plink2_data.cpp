@@ -7936,9 +7936,12 @@ pglerr_t plink1_sample_major_to_pgen(const char* pgenname, uintptr_t variant_ct,
       calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
     }
     mpgwp = (mt_pgen_writer_t*)bigstack_alloc((calc_thread_ct + DIV_UP(sizeof(mt_pgen_writer_t), kBytesPerWord)) * sizeof(intptr_t));
+    if (!mpgwp) {
+      goto plink1_sample_major_to_pgen_ret_NOMEM;
+    }
+    mpgwp->pgen_outfile = nullptr;
     pthread_t* threads;
-    if ((!mpgwp) ||
-	bigstack_alloc_thread(calc_thread_ct, &threads) ||
+    if (bigstack_alloc_thread(calc_thread_ct, &threads) ||
 	bigstack_alloc_vp(calc_thread_ct, &g_thread_vecaligned_bufs) ||
 	bigstack_alloc_ulp(calc_thread_ct, &g_thread_write_genovecs)) {
       goto plink1_sample_major_to_pgen_ret_NOMEM;
@@ -9518,9 +9521,12 @@ pglerr_t make_plink2_no_vsort(const char* xheader, const uintptr_t* sample_inclu
 	}
       }
       mpgwp = (mt_pgen_writer_t*)bigstack_alloc((calc_thread_ct + DIV_UP(sizeof(mt_pgen_writer_t), kBytesPerWord)) * sizeof(intptr_t));
+      if (!mpgwp) {
+	goto make_plink2_no_vsort_ret_NOMEM;
+      }
+      mpgwp->pgen_outfile = nullptr;
       pthread_t* threads;
-      if ((!mpgwp) ||
-	  bigstack_alloc_thread(calc_thread_ct, &threads) ||
+      if (bigstack_alloc_thread(calc_thread_ct, &threads) ||
 	  bigstack_alloc_ulp(calc_thread_ct, &(g_loadbuf_thread_starts[0])) ||
 	  bigstack_alloc_ulp(calc_thread_ct, &(g_loadbuf_thread_starts[1]))) {
 	goto make_plink2_no_vsort_ret_NOMEM;

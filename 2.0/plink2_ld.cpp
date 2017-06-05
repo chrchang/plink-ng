@@ -384,7 +384,7 @@ static const uint32_t* g_subcontig_thread_assignments = nullptr;
 static const uintptr_t* g_variant_include = nullptr;
 static const uintptr_t* g_variant_allele_idxs = nullptr;
 static const alt_allele_ct_t* g_maj_alleles = nullptr;
-static const double* g_all_alt_freqs = nullptr;
+static const double* g_all_allele_freqs = nullptr;
 static const uint32_t* g_variant_bps = nullptr;
 static uint32_t* g_tvidx_end = nullptr;
 static uint32_t g_x_start = 0;
@@ -421,7 +421,7 @@ THREAD_FUNC_DECL indep_pairwise_thread(void* arg) {
   const uint32_t y_len = g_y_len;
   const uintptr_t* variant_allele_idxs = g_variant_allele_idxs;
   const alt_allele_ct_t* maj_alleles = g_maj_alleles;
-  const double* all_alt_freqs = g_all_alt_freqs;
+  const double* all_allele_freqs = g_all_allele_freqs;
   const uint32_t* variant_bps = g_variant_bps;
   const uint32_t founder_ct = g_founder_ct;
   const uint32_t founder_male_ct = g_founder_male_ct;
@@ -512,15 +512,15 @@ THREAD_FUNC_DECL indep_pairwise_thread(void* arg) {
 	SET_BIT(cur_tvidx, removed_variants_write);
       } else {
 	tvidxs[write_slot_idx] = cur_tvidx;
-	uintptr_t alt_allele_idx_base;
+	uintptr_t allele_idx_base;
 	if (!variant_allele_idxs) {
-	  alt_allele_idx_base = variant_uidx;
+	  allele_idx_base = variant_uidx;
 	} else {
-	  alt_allele_idx_base = variant_allele_idxs[variant_uidx];
-	  cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - alt_allele_idx_base;
-	  alt_allele_idx_base -= variant_uidx;
+	  allele_idx_base = variant_allele_idxs[variant_uidx];
+	  cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - allele_idx_base;
+	  allele_idx_base -= variant_uidx;
 	}
-	cur_maj_freqs[write_slot_idx] = get_allele_freq(&(all_alt_freqs[alt_allele_idx_base]), maj_alleles[variant_uidx], cur_allele_ct);
+	cur_maj_freqs[write_slot_idx] = get_allele_freq(&(all_allele_freqs[allele_idx_base]), maj_alleles[variant_uidx], cur_allele_ct);
 	first_unchecked_tvidx[write_slot_idx] = cur_tvidx + 1;
       }
       SET_BIT(write_slot_idx, occupied_window_slots);
@@ -653,7 +653,7 @@ THREAD_FUNC_DECL indep_pairwise_thread(void* arg) {
   }
 }
 
-pglerr_t indep_pairwise(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, const uintptr_t* variant_allele_idxs, const alt_allele_ct_t* maj_alleles, const double* alt_allele_freqs, const uintptr_t* founder_info, const uint32_t* founder_info_cumulative_popcounts, const uintptr_t* founder_nonmale, const uintptr_t* founder_male, const ld_info_t* ldip, const uint32_t* subcontig_info, const uint32_t* subcontig_thread_assignments, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t founder_male_ct, uint32_t subcontig_ct, uintptr_t window_max, uint32_t calc_thread_ct, uint32_t max_load, pgen_reader_t* simple_pgrp, uintptr_t* removed_variants_collapsed) {
+pglerr_t indep_pairwise(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, const uintptr_t* variant_allele_idxs, const alt_allele_ct_t* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uint32_t* founder_info_cumulative_popcounts, const uintptr_t* founder_nonmale, const uintptr_t* founder_male, const ld_info_t* ldip, const uint32_t* subcontig_info, const uint32_t* subcontig_thread_assignments, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t founder_male_ct, uint32_t subcontig_ct, uintptr_t window_max, uint32_t calc_thread_ct, uint32_t max_load, pgen_reader_t* simple_pgrp, uintptr_t* removed_variants_collapsed) {
   pglerr_t reterr = kPglRetSuccess;
   {
     const uint32_t founder_nonmale_ct = founder_ct - founder_male_ct;
@@ -768,7 +768,7 @@ pglerr_t indep_pairwise(const uintptr_t* variant_include, const chr_info_t* cip,
     g_variant_include = variant_include;
     g_variant_allele_idxs = variant_allele_idxs;
     g_maj_alleles = maj_alleles;
-    g_all_alt_freqs = alt_allele_freqs;
+    g_all_allele_freqs = allele_freqs;
     g_variant_bps = variant_bps;
     g_founder_ct = founder_ct;
     g_founder_male_ct = founder_male_ct;
@@ -1325,7 +1325,7 @@ pglerr_t ld_prune_write(const uintptr_t* variant_include, const uintptr_t* remov
   return reterr;
 }
 
-pglerr_t ld_prune(const uintptr_t* orig_variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, const alt_allele_ct_t* maj_alleles, const double* alt_allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_male, const ld_info_t* ldip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_thread_ct, pgen_reader_t* simple_pgrp, char* outname, char* outname_end) {
+pglerr_t ld_prune(const uintptr_t* orig_variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, const alt_allele_ct_t* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_male, const ld_info_t* ldip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_thread_ct, pgen_reader_t* simple_pgrp, char* outname, char* outname_end) {
   // common initialization between --indep-pairwise and --indep-pairphase
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -1461,7 +1461,7 @@ pglerr_t ld_prune(const uintptr_t* orig_variant_include, const chr_info_t* cip, 
     if (is_pairphase) {
       reterr = indep_pairphase();
     } else {
-      reterr = indep_pairwise(variant_include, cip, variant_bps, variant_allele_idxs, maj_alleles, alt_allele_freqs, founder_info, founder_info_cumulative_popcounts, founder_nonmale_collapsed, founder_male_collapsed, ldip, subcontig_info, subcontig_thread_assignments, raw_sample_ct, founder_ct, founder_male_ct, subcontig_ct, window_max, max_thread_ct, max_load, simple_pgrp, removed_variants_collapsed);
+      reterr = indep_pairwise(variant_include, cip, variant_bps, variant_allele_idxs, maj_alleles, allele_freqs, founder_info, founder_info_cumulative_popcounts, founder_nonmale_collapsed, founder_male_collapsed, ldip, subcontig_info, subcontig_thread_assignments, raw_sample_ct, founder_ct, founder_male_ct, subcontig_ct, window_max, max_thread_ct, max_load, simple_pgrp, removed_variants_collapsed);
     }
     if (reterr) {
       goto ld_prune_ret_1;

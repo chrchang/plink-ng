@@ -1643,29 +1643,32 @@ uint32_t sid_col_required(const uintptr_t* sample_include, const char* sids, uin
 // ok for sample_augid_map_ptr == nullptr
 pglerr_t augid_init_alloc(const uintptr_t* sample_include, const char* sample_ids, const char* sids, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t** sample_augid_map_ptr, char** sample_augids_ptr, uintptr_t* max_sample_augid_blen_ptr);
 
-HEADER_INLINE double get_nonmaj_freq(const double* cur_alt_allele_freqs, uint32_t cur_allele_ct) {
-  double tot_alt_freq = cur_alt_allele_freqs[1];
-  double max_freq = tot_alt_freq;
-  for (uint32_t allele_idx = 2; allele_idx < cur_allele_ct; ++allele_idx) {
-    const double cur_alt_freq = cur_alt_allele_freqs[allele_idx];
-    tot_alt_freq += cur_alt_freq;
+HEADER_INLINE double get_nonmaj_freq(const double* cur_allele_freqs, uint32_t cur_allele_ct) {
+  double tot_nonlast_freq = cur_allele_freqs[0];
+  double max_freq = tot_nonlast_freq;
+  const uint32_t cur_allele_ct_m1 = cur_allele_ct - 1;
+  for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct_m1; ++allele_idx) {
+    const double cur_alt_freq = cur_allele_freqs[allele_idx];
+    tot_nonlast_freq += cur_alt_freq;
     if (cur_alt_freq > max_freq) {
       max_freq = cur_alt_freq;
     }
   }
   const double nonmajor_freq = 1.0 - max_freq;
-  return MINV(nonmajor_freq, tot_alt_freq);
+  return MINV(nonmajor_freq, tot_nonlast_freq);
 }
 
-HEADER_INLINE double get_allele_freq(const double* cur_alt_allele_freqs, uint32_t allele_idx, uint32_t cur_allele_ct) {
-  if (allele_idx) {
-    return cur_alt_allele_freqs[allele_idx];
+HEADER_INLINE double get_allele_freq(const double* cur_allele_freqs, uint32_t allele_idx, uint32_t cur_allele_ct) {
+  const uint32_t cur_allele_ct_m1 = cur_allele_ct - 1;
+  if (allele_idx < cur_allele_ct_m1) {
+    return cur_allele_freqs[allele_idx];
   }
-  double ref_freq = 1.0 - cur_alt_allele_freqs[1];
-  for (uint32_t allele_idx = 2; allele_idx < cur_allele_ct; ++allele_idx) {
-    ref_freq -= cur_alt_allele_freqs[allele_idx];
+  double last_freq = 1.0 - cur_allele_freqs[0];
+  for (uint32_t tmp_allele_idx = 1; tmp_allele_idx < cur_allele_ct_m1; ++tmp_allele_idx) {
+    last_freq -= cur_allele_freqs[tmp_allele_idx];
   }
-  return ref_freq;
+  // possible todo: force this to be nonnegative?
+  return last_freq;
 }
 
 
