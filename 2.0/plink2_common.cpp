@@ -883,13 +883,18 @@ pglerr_t init_logfile(uint32_t always_stderr, char* outname, char* outname_end) 
   return kPglRetSuccess;
 }
 
-void cleanup_logfile() {
+void cleanup_logfile(uint32_t print_end_time) {
+  char* write_iter = strcpya(g_logbuf, "End time: ");
+  time_t rawtime;
+  time(&rawtime);
+  write_iter = strcpya0(write_iter, ctime(&rawtime)); // has trailing \n
+  if (print_end_time) {
+    fputs(g_logbuf, stdout);
+  }
   if (g_logfile) {
     if (!g_log_failed) {
-      logstr("\nEnd time: ");
-      time_t rawtime;
-      time(&rawtime);
-      logstr(ctime(&rawtime));
+      logstr("\n");
+      logstr(g_logbuf);
       if (fclose(g_logfile)) {
 	fflush(stdout);
 	fputs("Error: Failed to finish writing to log.\n", stderr);

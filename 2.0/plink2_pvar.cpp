@@ -346,7 +346,7 @@ static inline uint32_t is_acgtm(unsigned char ucc) {
 }
 
 static_assert((!(kMaxIdSlen % kCacheline)), "load_pvar() must be updated.");
-pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, const char* varid_template, const char* missing_varid_match, misc_flags_t misc_flags, pvar_psam_t pvar_psam_modifier, exportf_flags_t exportf_modifier, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, chr_info_t* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, unsorted_var_t* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** variant_allele_idxs_ptr, char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, uint32_t* xheader_info_pr_ptr, uint32_t* max_filter_slen_ptr) {
+pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, const char* varid_template, const char* missing_varid_match, misc_flags_t misc_flags, pvar_psam_t pvar_psam_modifier, exportf_flags_t exportf_modifier, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t split_chr_ok, chr_info_t* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, unsorted_var_t* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** variant_allele_idxs_ptr, char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, uint32_t* xheader_info_pr_ptr, uint32_t* max_filter_slen_ptr) {
   // chr_info, max_variant_id_slen, and info_reload_slen are in/out; just
   // outparameters after them.  (Due to its large size in some VCFs, INFO is
   // not kept in memory for now.  This has a speed penalty, of course; maybe
@@ -746,6 +746,7 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
     uintptr_t new_variant_id_allele_len_overflow = 0;
     double* cur_cms = nullptr;
     uint32_t cms_start_block = 0xffffffffU;
+    unsorted_var_t vpos_sortstatus = kfUnsortedVar0;
     
     while (1) {
       if (!is_eoln_kns(*loadbuf_first_token)) {
@@ -814,25 +815,28 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 	  }
 	}
 	if (((uint32_t)cur_chr_code) != prev_chr_code) {
-	  prev_chr_code = cur_chr_code;
-	  if (is_set(loaded_chr_mask, cur_chr_code)) {
-	    // todo: split-chromosome handling
-	    sprintf(g_logbuf, "Error: %s has a split chromosome. If you're working with .bed data, you can use PLINK 1.9 --make-bed by itself to remedy this for now.\n", pvarname);
-	    goto load_pvar_ret_MALFORMED_INPUT_WW;
-	    // *vpos_sortstatus_ptr |= kfUnsortedVarBp | kfUnsortedVarSplitChrom;
+	  if (!(vpos_sortstatus & kfUnsortedVarSplitChr)) {
+	    prev_chr_code = cur_chr_code;
+	    if (is_set(loaded_chr_mask, cur_chr_code)) {
+	      if (!split_chr_ok) {
+		sprintf(g_logbuf, "Error: %s has a split chromosome. If you're working with .bed data, you can use PLINK 1.9 --make-bed by itself to remedy this for now.\n", pvarname);
+		goto load_pvar_ret_MALFORMED_INPUT_WW;
+	      }
+	      vpos_sortstatus |= kfUnsortedVarBp | kfUnsortedVarSplitChr;
+	    }
+	    cip->chr_file_order[++chrs_encountered_m1] = cur_chr_code;
+	    cip->chr_fo_vidx_start[chrs_encountered_m1] = raw_variant_ct;
+	    cip->chr_idx_to_foidx[(uint32_t)cur_chr_code] = chrs_encountered_m1;
+	    last_bp = 0;
+	    last_cm = -DBL_MAX;
+	    if (chr_output_name_buf) {
+	      varid_template_base_len -= insert_slens[0];
+	      char* chr_name_end = chr_name_write(cip, (uint32_t)cur_chr_code, chr_output_name_buf);
+	      insert_slens[0] = (uintptr_t)(chr_name_end - chr_output_name_buf);
+	      varid_template_base_len += insert_slens[0];
+	    }
 	  }
-	  cip->chr_file_order[++chrs_encountered_m1] = cur_chr_code;
-	  cip->chr_fo_vidx_start[chrs_encountered_m1] = raw_variant_ct;
-	  cip->chr_idx_to_foidx[(uint32_t)cur_chr_code] = chrs_encountered_m1;
 	  set_bit(cur_chr_code, loaded_chr_mask);
-	  last_bp = 0;
-	  last_cm = -DBL_MAX;
-	  if (chr_output_name_buf) {
-	    varid_template_base_len -= insert_slens[0];
-	    char* chr_name_end = chr_name_write(cip, (uint32_t)cur_chr_code, chr_output_name_buf);
-	    insert_slens[0] = (uintptr_t)(chr_name_end - chr_output_name_buf);
-	    varid_template_base_len += insert_slens[0];
-	  }
 	}
 	*loadbuf_iter = '\t';
 
@@ -861,8 +865,10 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 	      info_reload_slen = info_slen;
 	    }
 	    if (info_pr_present) {
-	      // always perform INFO:PR integrity check for now
-	      // (generalize to arbitrary INFO filter in the future)
+	      // always load all nonref_flags entries so they can be compared
+	      // against .pgen for now.
+
+	      // (todo: general INFO filtering code)
 	      char* info_token = token_ptrs[6];
 	      if (((!memcmp(info_token, "PR", 2)) && ((info_slen == 2) || (info_token[2] == ';'))) || (!memcmp(&(info_token[((int32_t)info_slen) - 3]), ";PR", 3))) {
 		SET_BIT(variant_idx_lowbits, cur_nonref_flags);
@@ -891,7 +897,7 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 	  }
 
 	  if (cur_bp < last_bp) {
-	    *vpos_sortstatus_ptr |= kfUnsortedVarBp;
+	    vpos_sortstatus |= kfUnsortedVarBp;
 	  }
 	  
 	  // QUAL
@@ -1177,7 +1183,7 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 		goto load_pvar_ret_MALFORMED_INPUT_WW;
 	      }
 	      if (cur_cm < last_cm) {
-		*vpos_sortstatus_ptr |= kfUnsortedVarCm;
+		vpos_sortstatus |= kfUnsortedVarCm;
 	      } else {
 		last_cm = cur_cm;
 	      }
@@ -1424,30 +1430,31 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
     } else {
       *variant_cms_ptr = nullptr;
     }
-    cip->chr_fo_vidx_start[chrs_encountered_m1 + 1] = raw_variant_ct;
-    if (splitpar_bound2) {
-      if (splitpar_and_exclude_x) {
-	clear_bit(x_code, chr_mask);
+    if (!(vpos_sortstatus & kfUnsortedVarSplitChr)) {
+      cip->chr_fo_vidx_start[chrs_encountered_m1 + 1] = raw_variant_ct;
+      if (splitpar_bound2) {
+	if (splitpar_and_exclude_x) {
+	  clear_bit(x_code, chr_mask);
+	}
+	reterr = splitpar(variant_bps, *vpos_sortstatus_ptr, splitpar_bound1, splitpar_bound2, variant_include, loaded_chr_mask, cip, &chrs_encountered_m1, &exclude_ct);
+	if (reterr) {
+	  goto load_pvar_ret_1;
+	}
+      } else if (merge_par) {
+	if (merge_par_ct) {
+	  LOGPRINTF("--merge-par: %u chromosome code%s changed.\n", merge_par_ct, (merge_par_ct == 1)? "" : "s");
+	} else {
+	  logerrprint("Warning: --merge-par had no effect (no PAR1/PAR2 chromosome codes present).\n");
+	}
       }
-      reterr = splitpar(variant_bps, *vpos_sortstatus_ptr, splitpar_bound1, splitpar_bound2, variant_include, loaded_chr_mask, cip, &chrs_encountered_m1, &exclude_ct);
-      if (reterr) {
-	goto load_pvar_ret_1;
-      }
-    } else if (merge_par) {
-      if (merge_par_ct) {
-	LOGPRINTF("--merge-par: %u chromosome code%s changed.\n", merge_par_ct, (merge_par_ct == 1)? "" : "s");
-      } else {
-	logerrprint("Warning: --merge-par had no effect (no PAR1/PAR2 chromosome codes present).\n");
-      }
+      cip->chr_ct = chrs_encountered_m1 + 1;
     }
     const uint32_t last_chr_code = cip->max_code + cip->name_ct;
     const uint32_t chr_word_ct = BITCT_TO_WORDCT(last_chr_code + 1);
-    for (uint32_t widx = 0; widx < chr_word_ct; ++widx) {
-      chr_mask[widx] &= loaded_chr_mask[widx];
-    }
-    cip->chr_ct = chrs_encountered_m1 + 1;
+    bitvec_and(loaded_chr_mask, chr_word_ct, chr_mask);
     bigstack_end_set(tmp_alloc_end);
     *variant_ct_ptr = raw_variant_ct - exclude_ct;
+    *vpos_sortstatus_ptr = vpos_sortstatus;
     *allele_storage_ptr = allele_storage;
     // if only INFO:PR present, no need to reload
     *info_reload_slen_ptr = info_nonpr_present? info_reload_slen : 0;

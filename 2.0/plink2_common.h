@@ -553,7 +553,7 @@ pglerr_t sort_cmdline_flags(uint32_t max_flag_len, uint32_t flag_ct, char* flag_
 
 pglerr_t init_logfile(uint32_t always_stderr, char* outname, char* outname_end);
 
-void cleanup_logfile();
+void cleanup_logfile(uint32_t print_end_time);
 
 CONSTU31(kNonBigstackMin, 67108864);
 

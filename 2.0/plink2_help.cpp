@@ -986,7 +986,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "      firth: Reports whether Firth regression was used (firth-fallback only).\n"
 "      test: Test identifier.  (Required unless only one test is run.)\n"
 "      nobs: Number of samples in the regression.\n"
-"      beta: Regression coefficient.\n"
+"      beta: Regression coefficient (for alternate allele).\n"
 "      orbeta: Odds ratio for case/control, beta for quantitative traits.\n"
 "      se: Standard error of beta/odds ratio.\n"
 "      ci: Bounds of symmetric approximate confidence interval (requires --ci).\n"

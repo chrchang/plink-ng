@@ -60,7 +60,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (4 Jun 2017)";
+  " (5 Jun 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -164,13 +164,14 @@ FLAGSET64_DEF_START()
   kfFilterAllReq = (1 << 0),
   kfFilterPvarReq = (1 << 1),
   kfFilterPsamReq = (1 << 2),
-  kfFilterExclFemales = (1 << 3),
-  kfFilterExclMales = (1 << 4),
-  kfFilterExclNosex = (1 << 5),
-  kfFilterExclFounders = (1 << 6),
-  kfFilterExclNonfounders = (1 << 7),
-  kfFilterSnpsOnly = (1 << 8),
-  kfFilterSnpsOnlyJustAcgt = (1 << 9)
+  kfFilterNoSplitChr = (1 << 3),
+  kfFilterExclFemales = (1 << 4),
+  kfFilterExclMales = (1 << 5),
+  kfFilterExclNosex = (1 << 6),
+  kfFilterExclFounders = (1 << 7),
+  kfFilterExclNonfounders = (1 << 8),
+  kfFilterSnpsOnly = (1 << 9),
+  kfFilterSnpsOnlyJustAcgt = (1 << 10)
 FLAGSET64_DEF_END(filter_flags_t);
 
 FLAGSET64_DEF_START()
@@ -322,13 +323,15 @@ uint32_t are_maj_alleles_needed(command1_flags_t command_flags1) {
   return (command_flags1 & (kfCommand1LdPrune | kfCommand1Pca | kfCommand1MakeRel));
 }
 
-uint32_t get_first_haploid_uidx(const chr_info_t* cip) {
+uint32_t get_first_haploid_uidx(const chr_info_t* cip, unsorted_var_t vpos_sortstatus) {
   // returns 0x7fffffff if no X/haploid chromosomes present
-  const uint32_t chr_ct = cip->chr_ct;
-  for (uint32_t chr_fo_idx = 0; chr_fo_idx < chr_ct; ++chr_fo_idx) {
-    const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
-    if (IS_SET(cip->haploid_mask, chr_idx)) {
-      return cip->chr_fo_vidx_start[chr_fo_idx];
+  if (!(vpos_sortstatus & kfUnsortedVarSplitChr)) {
+    const uint32_t chr_ct = cip->chr_ct;
+    for (uint32_t chr_fo_idx = 0; chr_fo_idx < chr_ct; ++chr_fo_idx) {
+      const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+      if (IS_SET(cip->haploid_mask, chr_idx)) {
+	return cip->chr_fo_vidx_start[chr_fo_idx];
+      }
     }
   }
   return 0x7fffffff;
@@ -629,7 +632,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
     unsorted_var_t vpos_sortstatus = kfUnsortedVar0;
     double* variant_cms = nullptr;
     if (pvarname[0]) {
-      reterr = load_pvar(pvarname, var_filter_exceptions_flattened, pcp->varid_template, pcp->missing_varid_match, pcp->misc_flags, pcp->pvar_psam_modifier, pcp->exportf_modifier, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids, &variant_allele_idxs, &allele_storage, &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage, &nonref_flags, &variant_cms, &raw_variant_ct, &variant_ct, &max_allele_slen, &xheader_blen, &xheader_info_pr, &max_filter_slen);
+      reterr = load_pvar(pvarname, var_filter_exceptions_flattened, pcp->varid_template, pcp->missing_varid_match, pcp->misc_flags, pcp->pvar_psam_modifier, pcp->exportf_modifier, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->filter_flags & kfFilterNoSplitChr), cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids, &variant_allele_idxs, &allele_storage, &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage, &nonref_flags, &variant_cms, &raw_variant_ct, &variant_ct, &max_allele_slen, &xheader_blen, &xheader_info_pr, &max_filter_slen);
       if (reterr) {
 	goto plink2_ret_1;
       }
@@ -1203,7 +1206,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
       uint32_t x_len = 0;
       uint32_t hwe_x_probs_needed = 0;
       int32_t x_code;
-      if (xymt_exists(cip, kChrOffsetX, &x_code)) {
+      if ((!(vpos_sortstatus & kfUnsortedVarSplitChr)) && xymt_exists(cip, kChrOffsetX, &x_code)) {
 	const uint32_t x_chr_fo_idx = cip->chr_idx_to_foidx[(uint32_t)x_code];
 	x_start = cip->chr_fo_vidx_start[x_chr_fo_idx];
 	const uint32_t x_end = cip->chr_fo_vidx_start[x_chr_fo_idx + 1];
@@ -1223,7 +1226,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	}
       }
       bigstack_mark_allele_dosages = g_bigstack_base;
-      const uint32_t first_hap_uidx = get_first_haploid_uidx(cip);
+      const uint32_t first_hap_uidx = get_first_haploid_uidx(cip, vpos_sortstatus);
       if (are_allele_dosages_needed(pcp->misc_flags, make_plink2_modifier, (allele_freqs != nullptr), pcp->min_allele_dosage, pcp->max_allele_dosage)) {
 	if (bigstack_alloc_ull(variant_allele_idxs? variant_allele_idxs[raw_variant_ct] : (2 * raw_variant_ct), &allele_dosages)) {
 	  goto plink2_ret_NOMEM;
@@ -1527,6 +1530,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
       unsigned char* bigstack_end_mark = g_bigstack_end;
       alt_allele_ct_t* refalt1_select = nullptr;
       if (pcp->misc_flags & kfMiscMajRef) {
+	// todo: also support updated version of --a2-allele, etc.
 	const uintptr_t refalt1_word_ct = DIV_UP(2 * raw_variant_ct * sizeof(alt_allele_ct_t), kBytesPerWord);
 	uintptr_t* refalt1_select_ul;
 	if (bigstack_end_alloc_ul(refalt1_word_ct, &refalt1_select_ul)) {
@@ -1539,6 +1543,9 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	}
 	refalt1_select = (alt_allele_ct_t*)refalt1_select_ul;
 	if (pcp->misc_flags & kfMiscMajRef) {
+	  // possible todo: make this subscribe to maj_alleles[] instead?
+	  // might be pointless due to ALT1 computation, though.
+
 	  // todo: warning if this is specified without file write command, if
 	  // this is ever moved out of the file-write subblock
 	  const uint64_t* main_allele_dosages = nonfounders? allele_dosages : founder_allele_dosages;
@@ -1651,6 +1658,11 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
       
       if (pcp->command_flags1 & kfCommand1MakePlink2) {
 	// todo: unsorted case (--update-chr, etc.)
+	if (vpos_sortstatus & kfUnsortedVarSplitChr) {
+	  logerrprint("Error: --make-bed/--make-{b}pgen variant sorting is under development.\n");
+	  reterr = kPglRetNotYetSupported;
+	  goto plink2_ret_1;
+	}
 	if (vpos_sortstatus & kfUnsortedVarBp) {
 	  logerrprint("Warning: --make-bed/--make-{b}pgen variant sorting is not implemented yet.\n");
 	}
@@ -2643,6 +2655,7 @@ int main(int argc, char** argv) {
   uint32_t* rseeds = nullptr;
   ll_str_t* file_delete_list = nullptr;
   uint32_t arg_idx = 0;
+  uint32_t print_end_time = 0;
   pglerr_t reterr = kPglRetSuccess;
   plink2_cmdline_t pc;
   pc.filter_flags = kfFilter0;
@@ -3939,6 +3952,7 @@ int main(int argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    pc.misc_flags |= kfMiscExtractRange;
+	    pc.filter_flags |= kfFilterNoSplitChr;
 	  }
 	  reterr = alloc_and_flatten(&(argv[arg_idx + 1 + is_range]), param_ct - is_range, kPglFnamesize, &pc.extract_fnames);
 	  if (reterr) {
@@ -3956,6 +3970,7 @@ int main(int argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	    pc.misc_flags |= kfMiscExcludeRange;
+	    pc.filter_flags |= kfFilterNoSplitChr;
 	  }
 	  reterr = alloc_and_flatten(&(argv[arg_idx + 1 + is_range]), param_ct - is_range, kPglFnamesize, &pc.exclude_fnames);
 	  if (reterr) {
@@ -4216,7 +4231,7 @@ int main(int argc, char** argv) {
 	  if (reterr) {
 	    goto main_ret_1;
 	  }
-	  pc.filter_flags |= kfFilterPvarReq;
+	  pc.filter_flags |= kfFilterPvarReq | kfFilterNoSplitChr;
 	} else if ((!memcmp(flagname_p2, "rom-bp", 7)) || (!memcmp(flagname_p2, "rom-kb", 7)) || (!memcmp(flagname_p2, "rom-mb", 7))) {
 	  if (!cmdline_single_chr(&chr_info, pc.misc_flags)) {
 	    logerrprint("Error: --from-bp/-kb/-mb and --to-bp/-kb/-mb must be used with --chr, and only\none chromosome.\n");
@@ -4254,7 +4269,7 @@ int main(int argc, char** argv) {
 	    }
 	    pc.from_bp = 1 + (int32_t)(dxx * (1 - kSmallEpsilon));
 	  }
-	  pc.filter_flags |= kfFilterPvarReq;
+	  pc.filter_flags |= kfFilterPvarReq | kfFilterNoSplitChr;
 	} else if (!memcmp(flagname_p2, "orce-intersect", 15)) {
 	  permit_multiple_inclusion_filters = 1;
 	  goto main_param_zero;
@@ -4318,7 +4333,7 @@ int main(int argc, char** argv) {
 	      sprintf(g_logbuf, "Error: Invalid --geno parameter '%s'.\n", cur_modif);
 	      goto main_ret_INVALID_CMDLINE_WWA;
 	    } else if ((pc.geno_thresh < 0.0) || (pc.geno_thresh > 1.0)) {
-	      sprintf(g_logbuf, "Error: Invalid --geno parameter '%s' (must be between 0 and 1).\n", cur_modif);
+	      sprintf(g_logbuf, "Error: Invalid --geno parameter '%s' (must be in [0, 1]).\n", cur_modif);
 	      goto main_ret_INVALID_CMDLINE_WWA;
 	    } else {
 	      geno_thresh_present = 1;
@@ -4327,7 +4342,9 @@ int main(int argc, char** argv) {
 	  if (!geno_thresh_present) {
 	    pc.geno_thresh = 0.1;
 	  }
-	  pc.filter_flags |= kfFilterAllReq;
+	  if (pc.geno_thresh < 1.0) {
+	    pc.filter_flags |= kfFilterAllReq | kfFilterNoSplitChr;
+	  }
 	} else if (!memcmp(flagname_p2, "eno-counts", 11)) {
 	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 2)) {
 	    goto main_ret_INVALID_CMDLINE_2A;
@@ -4617,7 +4634,7 @@ int main(int argc, char** argv) {
 	  if ((pc.misc_flags & kfMiscHweMidp) && (pc.hwe_thresh >= 0.5)) {
 	    logerrprint("Error: --hwe threshold must be smaller than 0.5 when using mid-p adjustment.\n");
 	  }
-	  pc.filter_flags |= kfFilterAllReq;
+	  pc.filter_flags |= kfFilterAllReq | kfFilterNoSplitChr;
 	} else if (!memcmp(flagname_p2, "ard-call-threshold", 19)) {
 	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
 	    goto main_ret_INVALID_CMDLINE_2A;
@@ -5637,8 +5654,11 @@ int main(int argc, char** argv) {
 	      logerrprint("Error: --missing 'variant-only' and 'scols=' modifiers cannot be used together.\n");
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
-	  } else if (!explicit_scols) {
-	    pc.missing_rpt_modifier |= kfMissingRptScolDefault;
+	  } else {
+	    pc.filter_flags |= kfFilterNoSplitChr;
+            if (!explicit_scols) {
+	      pc.missing_rpt_modifier |= kfMissingRptScolDefault;
+	    }
 	  }
 	  const uint32_t explicit_vcols = pc.missing_rpt_modifier & kfMissingRptVcolAll;
 	  if (pc.missing_rpt_modifier & kfMissingRptSampleOnly) {
@@ -5664,7 +5684,7 @@ int main(int argc, char** argv) {
 	    }
 	  }
 	  pc.misc_flags |= kfMiscMajRef;
-	  pc.filter_flags |= kfFilterAllReq;
+	  pc.filter_flags |= kfFilterAllReq | kfFilterNoSplitChr;
 	} else if (!memcmp(flagname_p2, "af", 3)) {
 	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
 	    goto main_ret_INVALID_CMDLINE_2A;
@@ -5686,7 +5706,7 @@ int main(int argc, char** argv) {
 	    pc.min_maf = 0.01;
 	  }
 	  if (pc.min_maf != 0.0) {
-	    pc.filter_flags |= kfFilterAllReq;
+	    pc.filter_flags |= kfFilterAllReq | kfFilterNoSplitChr;
 	  }
 	} else if (!memcmp(flagname_p2, "ax-maf", 7)) {
 	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
@@ -5704,7 +5724,7 @@ int main(int argc, char** argv) {
 	    sprintf(g_logbuf, "Error: --max-maf parameter '%s' too large (must be < 1).\n", cur_modif);
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  }
-	  pc.filter_flags |= kfFilterAllReq;
+	  pc.filter_flags |= kfFilterAllReq | kfFilterNoSplitChr;
 	} else if (!memcmp(flagname_p2, "ac", 3)) {
 	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
 	    goto main_ret_INVALID_CMDLINE_2A;
@@ -5723,7 +5743,7 @@ int main(int argc, char** argv) {
 	    if (dxx > 0.0) {
 	      pc.min_allele_dosage += 1 + (dxx * (kDosageMax * (1 - kSmallEpsilon)));
 	    }
-	    pc.filter_flags |= kfFilterAllReq;
+	    pc.filter_flags |= kfFilterAllReq | kfFilterNoSplitChr;
 	  }
 	} else if (!memcmp(flagname_p2, "ax-mac", 7)) {
 	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
@@ -5742,7 +5762,7 @@ int main(int argc, char** argv) {
 	    logerrprint("Error: --max-mac parameter cannot be smaller than --mac parameter.\n");
 	    goto main_ret_INVALID_CMDLINE;
 	  }
-	  pc.filter_flags |= kfFilterAllReq;
+	  pc.filter_flags |= kfFilterAllReq | kfFilterNoSplitChr;
 	} else if (!memcmp(flagname_p2, "ind", 4)) {
 	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 2)) {
 	    goto main_ret_INVALID_CMDLINE_2A;
@@ -5761,7 +5781,7 @@ int main(int argc, char** argv) {
 	      sprintf(g_logbuf, "Error: Invalid --mind parameter '%s'.\n", cur_modif);
 	      goto main_ret_INVALID_CMDLINE_WWA;
 	    } else if ((pc.mind_thresh < 0.0) || (pc.mind_thresh > 1.0)) {
-	      sprintf(g_logbuf, "Error: Invalid --mind parameter '%s' (must be between 0 and 1).\n", cur_modif);
+	      sprintf(g_logbuf, "Error: Invalid --mind parameter '%s' (must be in [0, 1]).\n", cur_modif);
 	      goto main_ret_INVALID_CMDLINE_WWA;
 	    } else {
 	      mind_thresh_present = 1;
@@ -5770,7 +5790,9 @@ int main(int argc, char** argv) {
 	  if (!mind_thresh_present) {
 	    pc.mind_thresh = 0.1;
 	  }
-	  pc.filter_flags |= kfFilterAllReq;
+	  if (pc.mind_thresh < 1.0) {
+	    pc.filter_flags |= kfFilterAllReq | kfFilterNoSplitChr;
+	  }
 	} else if (!memcmp(flagname_p2, "issing-var-code", 16)) {
 	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
 	    goto main_ret_INVALID_CMDLINE_2A;
@@ -5784,7 +5806,7 @@ int main(int argc, char** argv) {
 	    logerrprint("Warning: --merge-par should not be used with VCF export.  (The VCF export\nroutine automatically converts PAR1/PAR2 chromosome codes to X, while using\nthe PAR boundaries to get male ploidy right; --merge-par causes VCF export to\nget male ploidy wrong.)\n");
 	  }
 	  pc.misc_flags |= kfMiscMergePar;
-	  pc.filter_flags |= kfFilterPvarReq;
+	  pc.filter_flags |= kfFilterPvarReq | kfFilterNoSplitChr;
 	  goto main_param_zero;
 	} else if (!memcmp(flagname_p2, "af-succ", 8)) {
 	  pc.misc_flags |= kfMiscMafSucc;
@@ -5836,7 +5858,7 @@ int main(int argc, char** argv) {
 	  } else {
 	    pc.mach_r2_min = 0.1;
 	  }
-	  pc.filter_flags |= kfFilterAllReq;
+	  pc.filter_flags |= kfFilterAllReq | kfFilterNoSplitChr;;;
 	} else if (!memcmp(flagname_p2, "issing-code", 12)) {
 	  if (!(xload & (kfXloadOxGen | kfXloadOxBgen))) {
 	    // could technically support pure .sample -> .fam/.psam, but let's
@@ -6619,7 +6641,7 @@ int main(int argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_WWA;
 	    }
 	  }
-	  pc.filter_flags |= kfFilterPvarReq;
+	  pc.filter_flags |= kfFilterPvarReq | kfFilterNoSplitChr;
 	} else if ((!memcmp(flagname_p2, "et-all-var-ids", 15)) || (!memcmp(flagname_p2, "et-missing-var-ids", 19))) {
 	  if (flagname_p2[3] == 'm') {
 	    if (pc.varid_template) {
@@ -6894,7 +6916,7 @@ int main(int argc, char** argv) {
 	  if (reterr) {
 	    goto main_ret_1;
 	  }
-	  pc.filter_flags |= kfFilterPvarReq;
+	  pc.filter_flags |= kfFilterPvarReq | kfFilterNoSplitChr;
 	} else if ((!memcmp(flagname_p2, "o-bp", 5)) || (!memcmp(flagname_p2, "o-kb", 5)) || (!memcmp(flagname_p2, "o-mb", 5))) {
 	  if (!cmdline_single_chr(&chr_info, pc.misc_flags)) {
 	    logerrprint("Error: --from-bp/-kb/-mb and --to-bp/-kb/-mb must be used with --chr, and only\none chromosome.\n");
@@ -7184,7 +7206,8 @@ int main(int argc, char** argv) {
 	  } else {
 	    pc.window_bp = (int32_t)dxx;
 	  }
-	  // no need to set filter_flags due to --snp/--exclude-snp req.
+	  pc.filter_flags |= kfFilterNoSplitChr;
+	  // no need to set kfFilterPvarReq due to --snp/--exclude-snp req.
 	} else if (!memcmp(flagname_p2, "ithin", 6)) {
 	  if (pc.misc_flags & kfMiscCatPhenoFamily) {
 	    logerrprint("Error: --within cannot be used with --family.\n");
@@ -7428,7 +7451,8 @@ int main(int argc, char** argv) {
     pthread_attr_setstacksize(&g_smallstack_thread_attr, kDefaultThreadStack);
 #endif
     // pigz_init(pc.max_thread_ct);
-    
+
+    print_end_time = 1;
     if (0) {
       // nonstandard cases (CNV, etc.) here
     } else {
@@ -7520,7 +7544,7 @@ int main(int argc, char** argv) {
 	}
 	*outname_end = '\0';
       }
-      const uint32_t calc_all_req = (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1WriteSnplist | kfCommand1WriteCovar))) || ((pc.command_flags1 & kfCommand1MakePlink2) && (make_plink2_modifier & (kfMakeBed | kfMakePgen)));
+      const uint32_t calc_all_req = (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Validate | kfCommand1WriteSnplist | kfCommand1WriteCovar))) || ((pc.command_flags1 & kfCommand1MakePlink2) && (make_plink2_modifier & (kfMakeBed | kfMakePgen)));
       if (calc_all_req || (pc.filter_flags & kfFilterAllReq)) {
 	if ((!xload) && (load_params != kfLoadParamsPfileAll)) {
 	  logerrprint("Error: A full fileset (.pgen/.bed + .pvar/.bim + .psam/.fam) is required for\nthis.\n");
@@ -7548,6 +7572,9 @@ int main(int argc, char** argv) {
 	} else {
 	  psamname[0] = '\0';
 	}
+      }
+      if (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Validate | kfCommand1WriteSnplist | kfCommand1WriteCovar))) {
+	pc.filter_flags |= kfFilterNoSplitChr;
       }
 
       BLAS_SET_NUM_THREADS(1);
@@ -7679,7 +7706,7 @@ int main(int argc, char** argv) {
   cleanup_range_list(&pc.pheno_range_list);
   cleanup_range_list(&pc.exclude_snps_range_list);
   cleanup_range_list(&pc.snps_range_list);
-  cleanup_logfile();
+  cleanup_logfile(print_end_time);
   if (bigstack_ua) {
     free(bigstack_ua);
   }

@@ -7916,7 +7916,7 @@ void spgw_preinit(st_pgen_writer_t* spgwp) {
   spgwp->pgen_outfile = nullptr;
 }
 
-pglerr_t pwc_init_phase1(const char* __restrict fname, uintptr_t* __restrict allele_idx_offsets, uintptr_t* explicit_nonref_flags, uint32_t variant_ct, uint32_t sample_ct, pgen_global_flags_t phase_dosage_gflags, uint32_t nonref_flags_storage, uint32_t vrec_len_byte_ct, pgen_writer_common_t* pwcp, FILE** pgen_outfile_ptr) {
+pglerr_t pwc_init_phase1(const char* __restrict fname, const uintptr_t* __restrict allele_idx_offsets, uintptr_t* explicit_nonref_flags, uint32_t variant_ct, uint32_t sample_ct, pgen_global_flags_t phase_dosage_gflags, uint32_t nonref_flags_storage, uint32_t vrec_len_byte_ct, pgen_writer_common_t* pwcp, FILE** pgen_outfile_ptr) {
   pwcp->allele_idx_offsets = allele_idx_offsets;
   pwcp->explicit_nonref_flags = nullptr;
   if (nonref_flags_storage == 3) {
@@ -8027,7 +8027,7 @@ uint32_t count_spgw_alloc_cachelines_required(uint32_t variant_ct, uint32_t samp
 }
 
 static_assert(kPglMaxAltAlleleCt == 254, "Need to update spgw_init_phase1().");
-pglerr_t spgw_init_phase1(const char* __restrict fname, uintptr_t* __restrict allele_idx_offsets, uintptr_t* __restrict explicit_nonref_flags, uint32_t variant_ct, uint32_t sample_ct, pgen_global_flags_t phase_dosage_gflags, uint32_t nonref_flags_storage, st_pgen_writer_t* spgwp, uintptr_t* alloc_cacheline_ct_ptr, uint32_t* max_vrec_len_ptr) {
+pglerr_t spgw_init_phase1(const char* __restrict fname, const uintptr_t* __restrict allele_idx_offsets, uintptr_t* __restrict explicit_nonref_flags, uint32_t variant_ct, uint32_t sample_ct, pgen_global_flags_t phase_dosage_gflags, uint32_t nonref_flags_storage, st_pgen_writer_t* spgwp, uintptr_t* alloc_cacheline_ct_ptr, uint32_t* max_vrec_len_ptr) {
   assert(variant_ct);
   assert(sample_ct);
   
@@ -8324,7 +8324,7 @@ void spgw_init_phase2(uint32_t max_vrec_len, st_pgen_writer_t* spgwp, unsigned c
   pwc_init_phase2(fwrite_cacheline_ct, 1, &pwcp, spgw_alloc);
 }
 
-pglerr_t mpgw_init_phase2(const char* __restrict fname, uintptr_t* __restrict allele_idx_offsets, uintptr_t* __restrict explicit_nonref_flags, uint32_t variant_ct, uint32_t sample_ct, pgen_global_flags_t phase_dosage_gflags, uint32_t nonref_flags_storage, uint32_t vrec_len_byte_ct, uintptr_t vblock_cacheline_ct, uint32_t thread_ct, unsigned char* mpgw_alloc, mt_pgen_writer_t* mpgwp) {
+pglerr_t mpgw_init_phase2(const char* __restrict fname, const uintptr_t* __restrict allele_idx_offsets, uintptr_t* __restrict explicit_nonref_flags, uint32_t variant_ct, uint32_t sample_ct, pgen_global_flags_t phase_dosage_gflags, uint32_t nonref_flags_storage, uint32_t vrec_len_byte_ct, uintptr_t vblock_cacheline_ct, uint32_t thread_ct, unsigned char* mpgw_alloc, mt_pgen_writer_t* mpgwp) {
   assert(thread_ct);
   const uintptr_t pwc_byte_ct = round_up_pow2(sizeof(pgen_writer_common_t), kCacheline);
   for (uint32_t tidx = 0; tidx < thread_ct; ++tidx) {
