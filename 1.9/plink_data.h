@@ -34,6 +34,8 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 
 int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_end, uint32_t fam_cols, uint64_t misc_flags, int32_t missing_pheno, Chrom_info* chrom_info_ptr);
 
+uint32_t realpath_identical(const char* outname, const char* read_realpath, char* write_realpath_buf);
+
 int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname, char* outname_end, int32_t missing_pheno, uint64_t misc_flags, uint32_t lgen_modifier, char* lgen_reference_fname, Chrom_info* chrom_info_ptr);
 
 int32_t transposed_to_bed(char* tpedname, char* tfamname, char* outname, char* outname_end, uint64_t misc_flags, Chrom_info* chrom_info_ptr);

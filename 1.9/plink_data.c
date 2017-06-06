@@ -6623,6 +6623,15 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
   return retval;
 }
 
+uint32_t realpath_identical(const char* outname, const char* read_realpath, char* write_realpath_buf) {
+#ifdef _WIN32
+  const uint32_t fname_slen = GetFullPathName(outname, FNAMESIZE, write_realpath_buf, nullptr);
+  return (fname_slen && (fname_slen <= FNAMESIZE) && (!strcmp(read_realpath, write_realpath_buf)));
+#else
+  return (realpath(outname, write_realpath_buf) && (!strcmp(read_realpath, write_realpath_buf)));
+#endif
+}
+
 int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname, char* outname_end, int32_t missing_pheno, uint64_t misc_flags, uint32_t lgen_modifier, char* lgen_reference_fname, Chrom_info* chrom_info_ptr) {
   // This code has not been carefully optimized, and also does not support
   // multipass writes.
@@ -7143,14 +7152,7 @@ int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname,
     LOGERRPRINTFWW("Error: Failed to open %s.\n", outname);
     goto lgen_to_bed_ret_OPEN_FAIL;
   }
-#ifdef _WIN32
-  uii = GetFullPathName(outname, FNAMESIZE, &(g_textbuf[FNAMESIZE + 64]), nullptr);
-  if (!(uii && (uii <= FNAMESIZE) && (!strcmp(g_textbuf, &(g_textbuf[FNAMESIZE + 64])))))
-#else
-  cptr = realpath(outname, &(g_textbuf[FNAMESIZE + 64]));
-  if (!(cptr && (!strcmp(g_textbuf, &(g_textbuf[FNAMESIZE + 64])))))
-#endif
-  {
+  if (realpath_identical(outname, g_textbuf, &(g_textbuf[FNAMESIZE + 64]))) {
     if (fopen_checked(famname, "r", &infile)) {
       goto lgen_to_bed_ret_OPEN_FAIL;
     }

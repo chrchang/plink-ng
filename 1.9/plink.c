@@ -105,10 +105,10 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (31 May 2017)";
+  " (6 Jun 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has a trailing letter)
 #else
@@ -479,16 +479,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       goto plink_ret_OPEN_FAIL;
     }
     memcpy(outname_end, ".bed", 5);
-    // if file doesn't exist, realpath returns nullptr on Linux instead of what
-    // the path would be.
-#ifdef _WIN32
-    uii = GetFullPathName(outname, FNAMESIZE, &(g_textbuf[FNAMESIZE + 64]), nullptr);
-    if (uii && (uii <= FNAMESIZE) && (!strcmp(g_textbuf, &(g_textbuf[FNAMESIZE + 64]))))
-#else
-    cptr = realpath(outname, &(g_textbuf[FNAMESIZE + 64]));
-    if (cptr && (!strcmp(g_textbuf, &(g_textbuf[FNAMESIZE + 64]))))
-#endif
-    {
+    if (realpath_identical(outname, g_textbuf, &(g_textbuf[FNAMESIZE + 64]))) {
       logprint("Note: --make-bed input and output filenames match.  Appending '~' to input\nfilenames.\n");
       uii = strlen(bedname);
       memcpy(g_textbuf, bedname, uii + 1);
