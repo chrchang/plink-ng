@@ -181,32 +181,14 @@ pglerr_t pvar_info_reload_header(const char* pvar_info_reload, gzFile* gz_pvar_r
   return kPglRetSuccess;
 }
 
-pglerr_t pvar_info_reload_and_write(uintptr_t loadbuf_size, uint32_t xheader_info_pr, uint32_t info_col_idx, uint32_t variant_uidx, uint32_t is_pr, gzFile gz_pvar_reload, char** write_iter_ptr, uint32_t* gz_variant_uidx_ptr, char* loadbuf) {
-  char* write_iter = *write_iter_ptr;
-  uint32_t gz_variant_uidx = *gz_variant_uidx_ptr;
-  char* loadbuf_first_token;
-  do {
-    do {
-      if (!gzgets(gz_pvar_reload, loadbuf, loadbuf_size)) {
-	return kPglRetReadFail;
-      }
-      if (!loadbuf[loadbuf_size - 1]) {
-	if (loadbuf_size == kMaxLongLine) {
-	  return kPglRetReadFail;
-	}
-	return kPglRetNomem;
-      }
-      loadbuf_first_token = skip_initial_spaces(loadbuf);
-    } while (is_eoln_kns(*loadbuf_first_token));
-    ++gz_variant_uidx;
-  } while (gz_variant_uidx <= variant_uidx);
-  char* info_token = next_token_mult(loadbuf_first_token, info_col_idx);
+void pvar_info_write(char* info_token, uint32_t xheader_info_pr, uint32_t is_pr, char** write_iter_ptr) {
   char* info_token_end = token_endnn(info_token);
   uint32_t info_token_slen = (uintptr_t)(info_token_end - info_token);
   char* info_token_pr = nullptr;
   if (xheader_info_pr) {
     info_token_pr = pr_in_info_token(info_token_slen, info_token);
   }
+  char* write_iter = *write_iter_ptr;
   if (is_pr || (!info_token_pr))  {
     write_iter = memcpya(write_iter, info_token, info_token_slen);
     if (is_pr && (!info_token_pr)) {
@@ -232,7 +214,29 @@ pglerr_t pvar_info_reload_and_write(uintptr_t loadbuf_size, uint32_t xheader_inf
     }
   }
   *write_iter_ptr = write_iter;
+}
+
+pglerr_t pvar_info_reload_and_write(uintptr_t loadbuf_size, uint32_t xheader_info_pr, uint32_t info_col_idx, uint32_t variant_uidx, uint32_t is_pr, gzFile gz_pvar_reload, char** write_iter_ptr, uint32_t* gz_variant_uidx_ptr, char* loadbuf) {
+  uint32_t gz_variant_uidx = *gz_variant_uidx_ptr;
+  char* loadbuf_first_token;
+  do {
+    do {
+      if (!gzgets(gz_pvar_reload, loadbuf, loadbuf_size)) {
+	return kPglRetReadFail;
+      }
+      if (!loadbuf[loadbuf_size - 1]) {
+	if (loadbuf_size == kMaxLongLine) {
+	  return kPglRetReadFail;
+	}
+	return kPglRetNomem;
+      }
+      loadbuf_first_token = skip_initial_spaces(loadbuf);
+    } while (is_eoln_kns(*loadbuf_first_token));
+    ++gz_variant_uidx;
+  } while (gz_variant_uidx <= variant_uidx);
+  char* info_token = next_token_mult(loadbuf_first_token, info_col_idx);
   *gz_variant_uidx_ptr = gz_variant_uidx;
+  pvar_info_write(info_token, xheader_info_pr, is_pr, write_iter_ptr);
   return kPglRetSuccess;
 }
 
@@ -9082,7 +9086,7 @@ THREAD_FUNC_DECL make_pgen_thread(void* arg) {
 	loadbuf_iter = cur_genovec_end;
       } else {
         // todo: multiallelic write
-	// (some trim-alts logic here?)
+	// (some trim-alts logic here)
       }
     }
     if (is_last_block) {
@@ -9426,7 +9430,7 @@ pglerr_t make_pgen_robust(const uintptr_t* sample_include, const uint32_t* new_s
       uint32_t read_batch_idx = 0;
       uint32_t cur_batch_size = write_block_size;
       uint32_t next_print_variant_idx = variant_ct / 100;
-      uint32_t read_variant_uidx = 0;
+      uint32_t read_variant_uidx = 0xffffffffU; // deliberate overflow
       pgr_clear_ld_cache(simple_pgrp);
       while (1) {
 	if (!ts.is_last_block) {
@@ -9437,7 +9441,6 @@ pglerr_t make_pgen_robust(const uintptr_t* sample_include, const uint32_t* new_s
 	  uintptr_t* loadbuf_iter = cur_loadbuf;
 	  unsigned char* cur_loaded_vrtypes = g_loaded_vrtypes[parity];
 	  g_loadbuf_thread_starts[parity][0] = loadbuf_iter;
-	  --read_variant_uidx;
 	  for (uint32_t uii = 0; uii < cur_batch_size; ++uii) {
 	    if (!new_variant_idx_to_old_iter) {
 	      ++read_variant_uidx;
@@ -9454,7 +9457,6 @@ pglerr_t make_pgen_robust(const uintptr_t* sample_include, const uint32_t* new_s
 	      goto make_pgen_robust_ret_1;
 	    }
 	  }
-	  ++read_variant_uidx;
 	}
 	if (read_batch_idx) {
 	  join_threads3z(&ts);
@@ -10127,7 +10129,7 @@ pglerr_t make_plink2_no_vsort(const char* xheader, const uintptr_t* sample_inclu
       }
     }
     const uint32_t trim_alts = (uint32_t)(make_plink2_modifier & kfMakePlink2TrimAlts);
-    // todo: trim-alts interaction with set-hh-missing
+    // don't bother with trim-alts/set-hh-missing interaction for now
     if (make_plink2_modifier & kfMakeBim) {
       char* bimname_end = strcpya0(outname_end, ".bim");
       const uint32_t bim_zst = (make_plink2_modifier / kfMakeBimZs) & 1;
@@ -10207,6 +10209,317 @@ pglerr_t make_plink2_no_vsort(const char* xheader, const uintptr_t* sample_inclu
   bigstack_reset(bigstack_mark);
   return reterr;
 }
+
+/*
+pglerr_t write_pvar_resorted(const char* outname, const char* xheader, const uintptr_t* variant_include, const chr_info_t* write_cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint64_t* allele_dosages, const alt_allele_ct_t* refalt1_select, const uintptr_t* qual_present, const float* quals, const uintptr_t* filter_present, const uintptr_t* filter_npass, char** filter_storage, const uintptr_t* nonref_flags, char** pvar_info_strs, const double* variant_cms, const uint32_t* new_variant_idx_to_old, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uintptr_t xheader_blen, uint32_t xheader_info_pr, uint32_t nonref_flags_storage, uint32_t max_filter_slen, uint32_t info_reload_slen, pvar_psam_t pvar_psam_modifier) {
+  // allele_dosages must be nullptr unless we're trimming alt alleles
+
+  // The annoying part of this is handling a sequence of INFO strings that
+  // don't fit in memory; use a multipass approach for that.
+  unsigned char* bigstack_mark = g_bigstack_base;
+  char* cswritep = nullptr;
+  compress_stream_state_t css;
+  pglerr_t reterr = kPglRetSuccess;
+  cswrite_init_null(&css);
+  {
+    const uint32_t max_chr_blen = get_max_chr_slen(write_cip) + 1;
+    // includes trailing tab
+    char* chr_buf;
+
+    uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen + max_filter_slen + info_reload_slen;
+    if (overflow_buf_size < 2 * kCompressStreamBlock) {
+      overflow_buf_size = 2 * kCompressStreamBlock;
+    }
+    unsigned char* overflow_buf;
+    uintptr_t* allele_include;
+    if (bigstack_alloc_c(max_chr_blen, &chr_buf) ||
+	bigstack_alloc_uc(overflow_buf_size, &overflow_buf) ||
+	bigstack_alloc_ul(BITCT_TO_WORDCT(kPglMaxAltAlleleCt), &allele_include)) {
+      goto write_pvar_resorted_ret_NOMEM;
+    }
+    const uint32_t output_zst = (pvar_psam_modifier / kfPvarZs) & 1;
+    if (cswrite_init(outname, 0, output_zst, overflow_buf, &css)) {
+      goto write_pvar_resorted_ret_OPEN_FAIL;
+    }
+    cswritep = (char*)overflow_buf;
+    const uint32_t raw_variant_ctl = BITCT_TO_WORDCT(raw_variant_ct);
+    const uint32_t all_nonref = (nonref_flags_storage == 2);
+    uint32_t write_info_pr = all_nonref;
+    uint32_t write_info = (pvar_psam_modifier & kfPvarColInfo) || pvar_info_reload;
+    if (write_info && nonref_flags) {
+      uint32_t widx;
+      for (widx = 0; widx < raw_variant_ctl; ++widx) {
+	if (variant_include[widx] & nonref_flags[widx]) {
+	  break;
+	}
+      }
+      if (widx == raw_variant_ctl) {
+	write_info_pr = 0;
+      }
+    }
+    write_info_pr = write_info_pr && write_info;
+
+    char* loadbuf = nullptr;
+    uintptr_t loadbuf_size = 0;
+    uint32_t info_col_idx = 0; // could save this during first load instead
+    if (pvar_psam_modifier & kfPvarColXheader) {
+      if (csputs_std(xheader, xheader_blen, &css, &cswritep)) {
+	goto write_pvar_resorted_ret_WRITE_FAIL;
+      }
+      if (write_info_pr && (!xheader_info_pr)) {
+	cswritep = strcpya(cswritep, "##INFO=<ID=PR,Number=0,Type=Flag,Description=\"Provisional reference allele, may not be based on real reference genome\">" EOLN_STR);
+      }
+    }
+    if (write_cip->chrset_source) {
+      append_chrset_line(write_cip, &cswritep);
+    }
+    cswritep = strcpya(cswritep, "#CHROM\tPOS\tID\tREF\tALT");
+
+    uint32_t write_qual = 0;
+    if (pvar_psam_modifier & kfPvarColQual) {
+      write_qual = 1;
+    } else if ((pvar_psam_modifier & kfPvarColMaybequal) && qual_present) {
+      for (uint32_t widx = 0; widx < raw_variant_ctl; ++widx) {
+	if (variant_include[widx] & qual_present[widx]) {
+	  write_qual = 1;
+	  break;
+	}
+      }
+    }
+    if (write_qual) {
+      cswritep = strcpya(cswritep, "\tQUAL");
+    }
+    
+    uint32_t write_filter = 0;
+    if (pvar_psam_modifier & kfPvarColFilter) {
+      write_filter = 1;
+    } else if ((pvar_psam_modifier & kfPvarColMaybefilter) && filter_present) {
+      for (uint32_t widx = 0; widx < raw_variant_ctl; ++widx) {
+	if (variant_include[widx] & filter_present[widx]) {
+	  write_filter = 1;
+	  break;
+	}
+      }
+    }
+    if (write_filter) {
+      cswritep = strcpya(cswritep, "\tFILTER");
+    }
+
+    if (write_info) {
+      cswritep = strcpya(cswritep, "\tINFO");
+    }
+    
+    uint32_t write_cm = 0;
+    if (pvar_psam_modifier & kfPvarColCm) {
+      write_cm = 1;
+    } else if ((pvar_psam_modifier & kfPvarColMaybecm) && variant_cms) {
+      if (raw_variant_ct == variant_ct) {
+	// nonzero_cm_present check was performed
+	write_cm = 1;
+      } else {
+	uint32_t variant_uidx = 0;
+	for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
+	  next_set_unsafe_ck(variant_include, &variant_uidx);
+	  if (variant_cms[variant_uidx] != 0.0) {
+	    write_cm = 1;
+	    break;
+	  }
+	}
+      }
+    }
+    if (write_cm) {
+      cswritep = memcpyl3a(cswritep, "\tCM");
+    }
+    append_binary_eoln(&cswritep);
+
+    const char output_missing_geno_char = *g_output_missing_geno_ptr;
+    const uint32_t* new_variant_idx_to_old_iter = new_variant_idx_to_old;
+    uint32_t chr_fo_idx = 0xffffffffU;
+    uint32_t chr_end = 0;
+    uint32_t chr_buf_blen = 0;
+    uint32_t ref_allele_idx = 0;
+    uint32_t alt1_allele_idx = 1;
+    uint32_t cur_allele_ct = 2;
+    for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx) {
+      const uint32_t variant_uidx = *new_variant_idx_to_old_iter++;
+      if (variant_idx >= chr_end) {
+	do {
+	  ++chr_fo_idx;
+	  chr_end = write_cip->chr_fo_vidx_start[chr_fo_idx + 1];
+	} while (variant_idx >= chr_end);
+	char* chr_name_end = chr_name_write(write_cip, write_cip->chr_file_order[chr_fo_idx], chr_buf);
+	*chr_name_end = '\t';
+	chr_buf_blen = 1 + (uintptr_t)(chr_name_end - chr_buf);
+      }
+      cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
+      cswritep = uint32toa_x(variant_bps[variant_uidx], '\t', cswritep);
+      cswritep = strcpyax(cswritep, variant_ids[variant_uidx], '\t');
+      uintptr_t variant_allele_idx_base;
+      if (!variant_allele_idxs) {
+	variant_allele_idx_base = variant_uidx * 2;
+      } else {
+	variant_allele_idx_base = variant_allele_idxs[variant_uidx];
+	cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - variant_allele_idx_base;
+      }
+      char** cur_alleles = &(allele_storage[variant_allele_idx_base]);
+      if (refalt1_select) {
+	ref_allele_idx = refalt1_select[variant_uidx * 2];
+	alt1_allele_idx = refalt1_select[variant_uidx * 2 + 1];
+      }
+      cswritep = strcpyax(cswritep, cur_alleles[ref_allele_idx], '\t');
+      if ((!allele_dosages) || allele_dosages[variant_allele_idx_base + alt1_allele_idx]) {
+        cswritep = strcpya(cswritep, cur_alleles[alt1_allele_idx]);
+      } else {
+	*cswritep++ = output_missing_geno_char;
+      }
+      if (cswrite(&css, &cswritep)) {
+	goto write_pvar_resorted_ret_WRITE_FAIL;
+      }
+      if (cur_allele_ct > 2) {
+	fill_all_bits(cur_allele_ct, allele_include);
+	CLEAR_BIT(ref_allele_idx, allele_include);
+	CLEAR_BIT(alt1_allele_idx, allele_include);
+        uint32_t cur_allele_uidx = 0;
+	uint32_t alt_allele_idx = 2;
+	do {
+	  *cswritep++ = ',';
+	  next_set_unsafe_ck(allele_include, &cur_allele_uidx);
+	  cswritep = strcpya(cswritep, cur_alleles[cur_allele_uidx++]);
+	  if (cswrite(&css, &cswritep)) {
+	    goto write_pvar_resorted_ret_WRITE_FAIL;
+	  }
+	} while (++alt_allele_idx < cur_allele_ct);
+      }
+
+      if (write_qual) {
+	*cswritep++ = '\t';
+	if (!IS_SET(qual_present, variant_uidx)) {
+	  *cswritep++ = '.';
+	} else {
+	  cswritep = ftoa_g(quals[variant_uidx], cswritep);
+	}
+      }
+
+      if (write_filter) {
+	*cswritep++ = '\t';
+	if (!IS_SET(filter_present, variant_uidx)) {
+	  *cswritep++ = '.';
+	} else if (!IS_SET(filter_npass, variant_uidx)) {
+	  cswritep = strcpya(cswritep, "PASS");
+	} else {
+	  cswritep = strcpya(cswritep, filter_storage[variant_uidx]);
+	}
+      }
+
+      if (write_info) {
+	*cswritep++ = '\t';
+	const uint32_t is_pr = all_nonref || (nonref_flags && IS_SET(nonref_flags, variant_uidx));
+	if (pvar_info_strs && pvar_info_strs[variant_uidx]) {
+	  pvar_info_write(pvar_info_strs[variant_uidx], xheader_info_pr, is_pr, cswritep);
+	} else {
+	  if (is_pr) {
+	    cswritep = strcpya(cswritep, "PR");
+	  } else {
+	    *cswritep++ = '.';
+	  }
+	}
+      }
+      
+      if (write_cm) {
+        *cswritep++ = '\t';
+	if (!variant_cms) {
+	  *cswritep++ = '0';
+	} else {
+	  cswritep = dtoa_g_p8(variant_cms[variant_uidx], cswritep);
+	}
+      }
+      append_binary_eoln(&cswritep);
+    }
+    if (cswrite_close_null(&css, cswritep)) {
+      goto write_pvar_resorted_ret_WRITE_FAIL;
+    }
+  }
+  while (0) {
+  write_pvar_resorted_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  write_pvar_resorted_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  write_pvar_resorted_ret_WRITE_FAIL:
+    reterr = kPglRetWriteFail;
+    break;
+  }
+ write_pvar_resorted_ret_1:
+  cswrite_close_cond(&css, cswritep);
+  bigstack_reset(bigstack_mark);
+  return reterr;
+}
+*/
+
+/*
+pglerr_t make_plink2_vsort(const char* xheader, const uintptr_t* sample_include, const char* sample_ids, const char* sids, const char* paternal_ids, const char* maternal_ids, const uintptr_t* sex_nm, const uintptr_t* sex_male, const pheno_col_t* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint64_t* allele_dosages, const alt_allele_ct_t* refalt1_select, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, char** pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, uintptr_t xheader_blen, uint32_t xheader_info_pr, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uintptr_t max_paternal_id_blen, uintptr_t max_maternal_id_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, uint32_t max_thread_ct, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, make_plink2_t make_plink2_modifier, pvar_psam_t pvar_psam_modifier, uintptr_t pgr_alloc_cacheline_ct, pgen_file_info_t* pgfip, pgen_reader_t* simple_pgrp, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  pglerr_t reterr = kPglRetSuccess;
+  {
+    if (make_plink2_modifier & kfMakeBim) {
+      char* bimname_end = strcpya0(outname_end, ".bim");
+      const uint32_t bim_zst = (make_plink2_modifier / kfMakeBimZs) & 1;
+      if (bim_zst) {
+	strcpy(bimname_end, ".zst");
+      }
+      LOGPRINTFWW5("Writing %s ... ", outname);
+      fflush(stdout);
+      // reterr = write_map_or_bim(outname, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, trim_alts? allele_dosages : nullptr, refalt1_select, variant_cms, variant_ct, max_allele_slen, '\t', bim_zst);
+      if (reterr) {
+	goto make_plink2_vsort_ret_1;
+      }
+      logprint("done.\n");
+    }
+    if (make_plink2_modifier & kfMakePvar) {
+      char* pvarname_end = strcpya0(outname_end, ".pvar");
+      if (pvar_psam_modifier & kfPvarZs) {
+	strcpy(pvarname_end, ".zst");
+      }
+      LOGPRINTFWW5("Writing %s ... ", outname);
+      fflush(stdout);
+      uint32_t nonref_flags_storage = 3;
+      if (!pgfip->nonref_flags) {
+	nonref_flags_storage = (pgfip->gflags & kfPgenGlobalAllNonref)? 2 : 1;
+      }
+      reterr = write_pvar_resorted(outname, xheader, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, trim_alts? allele_dosages : nullptr, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, pgfip->nonref_flags, pvar_info_reload, variant_cms, raw_variant_ct, variant_ct, max_allele_slen, xheader_blen, xheader_info_pr, nonref_flags_storage, max_filter_slen, info_reload_slen, pvar_psam_modifier);
+      if (reterr) {
+	goto make_plink2_vsort_ret_1;
+      }
+      logprint("done.\n");
+    }
+    if (make_plink2_modifier & kfMakeFam) {
+      strcpy(outname_end, ".fam");
+      LOGPRINTFWW5("Writing %s ... ", outname);
+      fflush(stdout);
+      reterr = write_fam(outname, sample_include, sample_ids, paternal_ids, maternal_ids, sex_nm, sex_male, pheno_cols, new_sample_idx_to_old, sample_ct, max_sample_id_blen, max_paternal_id_blen, max_maternal_id_blen, pheno_ct, '\t');
+      if (reterr) {
+	goto make_plink2_vsort_ret_1;
+      }
+      logprint("done.\n");
+    }
+    if (make_plink2_modifier & kfMakePsam) {
+      strcpy(outname_end, ".psam");
+      LOGPRINTFWW5("Writing %s ... ", outname);
+      fflush(stdout);
+      reterr = write_psam(outname, sample_include, sample_ids, sids, paternal_ids, maternal_ids, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, sample_ct, max_sample_id_blen, max_sid_blen, max_paternal_id_blen, max_maternal_id_blen, pheno_ct, max_pheno_name_blen, pvar_psam_modifier);
+      if (reterr) {
+	goto make_plink2_vsort_ret_1;
+      }
+      logprint("done.\n");
+    }
+  }
+  while (0) {
+  }
+  bigstack_reset(bigstack_mark);
+  return reterr;
+}
+*/
 
 pglerr_t sample_sort_file_map(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const char* sample_sort_fname, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t sid_col_present, uint32_t** new_sample_idx_to_old_ptr) {
   // assumes sample_ct >= 2 (enforced by caller)

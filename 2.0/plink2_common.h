@@ -1730,6 +1730,9 @@ HEADER_INLINE uint32_t realnum(double dd) {
 // note that this is no longer divisible by 64
 CONSTU31(kMaxContigs, 65274);
 
+// change chr_idx_t to uint32_t if (kMaxContigs + kChrOffsetCt) > 65536
+typedef uint16_t chr_idx_t;
+
 // get_htable_min_size(kChrRawEnd) (use constexpr once sufficient
 // compiler support is available)
 // (not get_htable_fast_size since, an overwhelming majority of the time, we'll

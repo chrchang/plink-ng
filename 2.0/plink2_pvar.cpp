@@ -228,6 +228,27 @@ void varid_template_init(const char* varid_template, uint32_t* template_insert_c
   *alleles_needed_ptr = alleles_needed;
 }
 
+void backfill_chr_idxs(const chr_info_t* cip, uint32_t chrs_encountered_m1, uint32_t offset, uint32_t end_vidx, chr_idx_t* chr_idxs) {
+  uint32_t chr_fo_idx = chrs_encountered_m1;
+  while (1) {
+    uint32_t start_vidx = cip->chr_fo_vidx_start[chr_fo_idx];
+    if (start_vidx < offset) {
+      start_vidx = offset;
+    }
+    chr_idx_t* chr_idxs_write_base = &(chr_idxs[start_vidx - offset]);
+    const uint32_t vidx_ct = end_vidx - start_vidx;
+    const chr_idx_t cur_chr_idx = (uint32_t)(cip->chr_file_order[chr_fo_idx]);
+    for (uint32_t uii = 0; uii < vidx_ct; ++uii) {
+      chr_idxs_write_base[uii] = cur_chr_idx;
+    }
+    if (start_vidx == offset) {
+      return;
+    }
+    end_vidx = start_vidx;
+    --chr_fo_idx;
+  }
+}
+
 char* pr_in_info_token(uint32_t info_slen, char* info_token) {
   if ((!memcmp(info_token, "PR", 2)) && ((info_slen == 2) || (info_token[2] == ';'))) {
     return info_token;
@@ -346,7 +367,7 @@ static inline uint32_t is_acgtm(unsigned char ucc) {
 }
 
 static_assert((!(kMaxIdSlen % kCacheline)), "load_pvar() must be updated.");
-pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, const char* varid_template, const char* missing_varid_match, misc_flags_t misc_flags, pvar_psam_t pvar_psam_modifier, exportf_flags_t exportf_modifier, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t split_chr_ok, chr_info_t* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, unsorted_var_t* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** variant_allele_idxs_ptr, char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, uint32_t* xheader_info_pr_ptr, uint32_t* max_filter_slen_ptr) {
+pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, const char* varid_template, const char* missing_varid_match, misc_flags_t misc_flags, pvar_psam_t pvar_psam_modifier, exportf_flags_t exportf_modifier, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t split_chr_ok, chr_info_t* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, unsorted_var_t* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** variant_allele_idxs_ptr, char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, chr_idx_t** chr_idxs_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, uint32_t* xheader_info_pr_ptr, uint32_t* max_filter_slen_ptr) {
   // chr_info, max_variant_id_slen, and info_reload_slen are in/out; just
   // outparameters after them.  (Due to its large size in some VCFs, INFO is
   // not kept in memory for now.  This has a speed penalty, of course; maybe
@@ -737,15 +758,19 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 
     // only allocated when necessary
     // if we want to scale this approach to more fields, we'll need to add a
-    // few pointers to the start of each block; otherwise, it's inconvenient
-    // to track whether e.g. cur_cms[] or another optional array was allocated
-    // first, when _start_block matches
+    // few pointers to the start of each block.  right now, we force cur_cms[]
+    // to be allocated before cur_chr_idxs[] when both are present, but this
+    // is error-prone.
     uint32_t at_least_one_npass_filter = 0;
     uint32_t at_least_one_nzero_cm = 0;
     const uint32_t new_variant_id_overflow_missing = (misc_flags / kfMiscNewVarIdOverflowMissing) & 1;
     uintptr_t new_variant_id_allele_len_overflow = 0;
     double* cur_cms = nullptr;
     uint32_t cms_start_block = 0xffffffffU;
+
+    chr_idx_t* cur_chr_idxs = nullptr;
+    uint32_t chr_idxs_start_block = 0xffffffffU;
+    uint32_t is_split_chr = 0;
     unsorted_var_t vpos_sortstatus = kfUnsortedVar0;
     
     while (1) {
@@ -760,7 +785,7 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 #endif
 	const uint32_t variant_idx_lowbits = raw_variant_ct % kLoadPvarBlockSize;
 	if (!variant_idx_lowbits) {
-	  if (((uintptr_t)(tmp_alloc_end - tmp_alloc_base) <= kLoadPvarBlockSize * (sizeof(int32_t) + 2 * sizeof(intptr_t) + at_least_one_nzero_cm * sizeof(double)) + (1 + info_pr_present) * (kLoadPvarBlockSize / CHAR_BIT) + (load_qual_col? ((kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(float)) : 0) + (load_filter_col? (2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)) : 0)) || (allele_storage_iter >= allele_storage_limit)) {
+	  if (((uintptr_t)(tmp_alloc_end - tmp_alloc_base) <= kLoadPvarBlockSize * (sizeof(int32_t) + 2 * sizeof(intptr_t) + at_least_one_nzero_cm * sizeof(double)) + is_split_chr * sizeof(chr_idx_t) + (1 + info_pr_present) * (kLoadPvarBlockSize / CHAR_BIT) + (load_qual_col? ((kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(float)) : 0) + (load_filter_col? (2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)) : 0)) || (allele_storage_iter >= allele_storage_limit)) {
 	    goto load_pvar_ret_NOMEM;
 	  }
 	  cur_bps = (uint32_t*)tmp_alloc_base;
@@ -793,6 +818,10 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 	    fill_double_zero(kLoadPvarBlockSize, cur_cms);
 	    tmp_alloc_base = (unsigned char*)(&(cur_cms[kLoadPvarBlockSize]));
 	  }
+	  if (is_split_chr) {
+	    cur_chr_idxs = (chr_idx_t*)tmp_alloc_base;
+	    tmp_alloc_base = (unsigned char*)(&(cur_chr_idxs[kLoadPvarBlockSize]));
+	  }
 	}
 	char* loadbuf_iter = token_endnn(loadbuf_first_token);	
 	// #CHROM
@@ -815,28 +844,40 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 	  }
 	}
 	if (((uint32_t)cur_chr_code) != prev_chr_code) {
-	  if (!(vpos_sortstatus & kfUnsortedVarSplitChr)) {
-	    prev_chr_code = cur_chr_code;
+	  prev_chr_code = cur_chr_code;
+	  if (!is_split_chr) {
 	    if (is_set(loaded_chr_mask, cur_chr_code)) {
 	      if (!split_chr_ok) {
-		sprintf(g_logbuf, "Error: %s has a split chromosome. If you're working with .bed data, you can use PLINK 1.9 --make-bed by itself to remedy this for now.\n", pvarname);
+		sprintf(g_logbuf, "Error: %s has a split chromosome. Use --make-pgen by itself to remedy this.\n", pvarname);
 		goto load_pvar_ret_MALFORMED_INPUT_WW;
 	      }
-	      vpos_sortstatus |= kfUnsortedVarBp | kfUnsortedVarSplitChr;
-	    }
-	    cip->chr_file_order[++chrs_encountered_m1] = cur_chr_code;
-	    cip->chr_fo_vidx_start[chrs_encountered_m1] = raw_variant_ct;
-	    cip->chr_idx_to_foidx[(uint32_t)cur_chr_code] = chrs_encountered_m1;
-	    last_bp = 0;
-	    last_cm = -DBL_MAX;
-	    if (chr_output_name_buf) {
-	      varid_template_base_len -= insert_slens[0];
-	      char* chr_name_end = chr_name_write(cip, (uint32_t)cur_chr_code, chr_output_name_buf);
-	      insert_slens[0] = (uintptr_t)(chr_name_end - chr_output_name_buf);
-	      varid_template_base_len += insert_slens[0];
+	      if ((uintptr_t)(tmp_alloc_end - tmp_alloc_base) < kLoadPvarBlockSize * sizeof(chr_idx_t)) {
+		goto load_pvar_ret_NOMEM;
+	      }
+	      cur_chr_idxs = (chr_idx_t*)tmp_alloc_base;
+	      tmp_alloc_base = (unsigned char*)(&(cur_chr_idxs[kLoadPvarBlockSize]));
+	      // may want to track the first problem variant index
+	      // cip->chr_fo_vidx_start[chrs_encountered_m1] = raw_variant_ct;
+	      backfill_chr_idxs(cip, chrs_encountered_m1, raw_variant_ct & (~(kLoadPvarBlockSize - 1)), raw_variant_ct, cur_chr_idxs);
+	      chr_idxs_start_block = raw_variant_ct / kLoadPvarBlockSize;
+	      is_split_chr = 1;
+	      vpos_sortstatus |= kfUnsortedVarBp | kfUnsortedVarCm | kfUnsortedVarSplitChr;
+	    } else {
+	      // how much of this do we need in split-chrom case?
+	      cip->chr_file_order[++chrs_encountered_m1] = cur_chr_code;
+	      cip->chr_fo_vidx_start[chrs_encountered_m1] = raw_variant_ct;
+	      cip->chr_idx_to_foidx[(uint32_t)cur_chr_code] = chrs_encountered_m1;
+	      last_bp = 0;
+	      last_cm = -DBL_MAX;
 	    }
 	  }
 	  set_bit(cur_chr_code, loaded_chr_mask);
+	  if (chr_output_name_buf) {
+	    varid_template_base_len -= insert_slens[0];
+	    char* chr_name_end = chr_name_write(cip, (uint32_t)cur_chr_code, chr_output_name_buf);
+	    insert_slens[0] = (uintptr_t)(chr_name_end - chr_output_name_buf);
+	    varid_template_base_len += insert_slens[0];
+	  }
 	}
 	*loadbuf_iter = '\t';
 
@@ -894,10 +935,6 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 
 	  if (cur_bp < 0) {
 	    goto load_pvar_skip_variant;
-	  }
-
-	  if (cur_bp < last_bp) {
-	    vpos_sortstatus |= kfUnsortedVarBp;
 	  }
 	  
 	  // QUAL
@@ -1007,7 +1044,13 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 	      }
 	    }
 	  }
-	  
+
+	  if (cur_chr_idxs) {
+	    cur_chr_idxs[variant_idx_lowbits] = (uint32_t)cur_chr_code;
+	  }
+	  if (cur_bp < last_bp) {
+	    vpos_sortstatus |= kfUnsortedVarBp;
+	  }
 	  cur_bps[variant_idx_lowbits] = cur_bp;
 	  last_bp = cur_bp;
 	  char* alt_allele_iter = (char*)memchr(loadbuf_iter, ',', remaining_alt_char_ct);
@@ -1192,9 +1235,17 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 		  if ((uintptr_t)(tmp_alloc_end - tmp_alloc_base) < kLoadPvarBlockSize * sizeof(double)) {
 		    goto load_pvar_ret_NOMEM;
 		  }
-		  cur_cms = (double*)tmp_alloc_base;
+		  if (cur_chr_idxs) {
+		    // reposition cur_chr_idxs[] after cur_cms[]
+		    cur_cms = (double*)cur_chr_idxs;
+		    cur_chr_idxs = (chr_idx_t*)(&(cur_cms[kLoadPvarBlockSize]));
+		    memcpy(cur_chr_idxs, cur_cms, kLoadPvarBlockSize * sizeof(chr_idx_t));
+		    tmp_alloc_base = (unsigned char*)(&(cur_chr_idxs[kLoadPvarBlockSize]));
+		  } else {
+		    cur_cms = (double*)tmp_alloc_base;
+		    tmp_alloc_base = (unsigned char*)(&(cur_cms[kLoadPvarBlockSize]));
+		  }
 		  fill_double_zero(kLoadPvarBlockSize, cur_cms);
-		  tmp_alloc_base = (unsigned char*)(&(cur_cms[kLoadPvarBlockSize]));
 		  cms_start_block = raw_variant_ct / kLoadPvarBlockSize;
 		  at_least_one_nzero_cm = 1;
 		}
@@ -1332,6 +1383,8 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
     //   kLoadPvarBlockSize * sizeof(intptr_t) for filter_storage
     // at_least_one_nzero_cm:
     //   kLoadPvarBlockSize * sizeof(double)
+    // is_split_chr:
+    //   kLoadPvarBlockSize * sizeof(chr_idx_t)
     unsigned char* read_iter = g_bigstack_end;
     uint32_t* variant_bps = *variant_bps_ptr;
     char** variant_ids = *variant_ids_ptr;
@@ -1368,6 +1421,10 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
       if (block_idx >= cms_start_block) {
         read_iter = &(read_iter[kLoadPvarBlockSize * sizeof(double)]);
       }
+      // skip over chr_idxs
+      if (block_idx >= chr_idxs_start_block) {
+	read_iter = &(read_iter[kLoadPvarBlockSize * sizeof(chr_idx_t)]);
+      }
     }
     memcpy(&(variant_bps[full_block_ct * kLoadPvarBlockSize]), read_iter, raw_variant_ct_lowbits * sizeof(int32_t));
     read_iter = &(read_iter[kLoadPvarBlockSize * (sizeof(int32_t) + sizeof(intptr_t))]);
@@ -1401,18 +1458,18 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
       zero_trailing_bits(raw_variant_ct, nonref_flags);
       // read_iter = &(read_iter[kLoadPvarBlockSize / CHAR_BIT]);
     }
-    const uintptr_t read_incr_stride_base = kLoadPvarBlockSize * (sizeof(int32_t) + 2 * sizeof(intptr_t)) + (kLoadPvarBlockSize / CHAR_BIT) + (load_qual_col > 1) * ((kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(float)) + (load_filter_col > 1) * (2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)) + info_pr_present * (kLoadPvarBlockSize / CHAR_BIT);
+    const uintptr_t read_iter_stride_base = kLoadPvarBlockSize * (sizeof(int32_t) + 2 * sizeof(intptr_t)) + (kLoadPvarBlockSize / CHAR_BIT) + (load_qual_col > 1) * ((kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(float)) + (load_filter_col > 1) * (2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)) + info_pr_present * (kLoadPvarBlockSize / CHAR_BIT);
     if (allele_idx_end > 2 * ((uintptr_t)raw_variant_ct)) {
       if (bigstack_alloc_ul(raw_variant_ct + 1, variant_allele_idxs_ptr)) {
 	goto load_pvar_ret_NOMEM;
       }
       variant_allele_idxs = *variant_allele_idxs_ptr;
-      uintptr_t* allele_idx_read_incr = (uintptr_t*)(&(g_bigstack_end[kLoadPvarBlockSize * sizeof(int32_t)]));
+      uintptr_t* allele_idx_read_iter = (uintptr_t*)(&(g_bigstack_end[kLoadPvarBlockSize * sizeof(int32_t)]));
       for (uint32_t block_idx = 0; block_idx < full_block_ct; ++block_idx) {
-	memcpy(&(variant_allele_idxs[block_idx * kLoadPvarBlockSize]), allele_idx_read_incr, kLoadPvarBlockSize * sizeof(intptr_t));
-	allele_idx_read_incr = (uintptr_t*)(((uintptr_t)allele_idx_read_incr) + read_incr_stride_base + (block_idx >= cms_start_block) * kLoadPvarBlockSize * sizeof(double));
+	memcpy(&(variant_allele_idxs[block_idx * kLoadPvarBlockSize]), allele_idx_read_iter, kLoadPvarBlockSize * sizeof(intptr_t));
+	allele_idx_read_iter = (uintptr_t*)(((uintptr_t)allele_idx_read_iter) + read_iter_stride_base + (block_idx >= cms_start_block) * kLoadPvarBlockSize * sizeof(double) + (block_idx >= chr_idxs_start_block) * kLoadPvarBlockSize * sizeof(chr_idx_t));
       }
-      memcpy(&(variant_allele_idxs[full_block_ct * kLoadPvarBlockSize]), allele_idx_read_incr, raw_variant_ct_lowbits * sizeof(intptr_t));
+      memcpy(&(variant_allele_idxs[full_block_ct * kLoadPvarBlockSize]), allele_idx_read_iter, raw_variant_ct_lowbits * sizeof(intptr_t));
       variant_allele_idxs[raw_variant_ct] = allele_idx_end;
     }
     if (at_least_one_nzero_cm) {
@@ -1421,16 +1478,19 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
       }
       double* variant_cms = *variant_cms_ptr;
       fill_double_zero(cms_start_block * kLoadPvarBlockSize, variant_cms);
-      double* cms_read_incr = (double*)(&(g_bigstack_end[read_incr_stride_base * (cms_start_block + 1)]));
-      for (uint32_t block_idx = cms_start_block; block_idx < full_block_ct; ++block_idx) {
-	memcpy(&(variant_cms[block_idx * kLoadPvarBlockSize]), cms_read_incr, kLoadPvarBlockSize * sizeof(double));
-	cms_read_incr = (double*)(((uintptr_t)cms_read_incr) + read_incr_stride_base + kLoadPvarBlockSize * sizeof(double));
+      double* cms_read_iter = (double*)(&(g_bigstack_end[read_iter_stride_base * (cms_start_block + 1)]));
+      if (cms_start_block > chr_idxs_start_block) {
+	cms_read_iter = (double*)(((uintptr_t)cms_read_iter) + kLoadPvarBlockSize * sizeof(chr_idx_t) * (cms_start_block - chr_idxs_start_block));
       }
-      memcpy(&(variant_cms[full_block_ct * kLoadPvarBlockSize]), cms_read_incr, raw_variant_ct_lowbits * sizeof(double));
+      for (uint32_t block_idx = cms_start_block; block_idx < full_block_ct; ++block_idx) {
+	memcpy(&(variant_cms[block_idx * kLoadPvarBlockSize]), cms_read_iter, kLoadPvarBlockSize * sizeof(double));
+	cms_read_iter = (double*)(((uintptr_t)cms_read_iter) + read_iter_stride_base + kLoadPvarBlockSize * sizeof(double) + (block_idx >= chr_idxs_start_block) * kLoadPvarBlockSize * sizeof(chr_idx_t));
+      }
+      memcpy(&(variant_cms[full_block_ct * kLoadPvarBlockSize]), cms_read_iter, raw_variant_ct_lowbits * sizeof(double));
     } else {
       *variant_cms_ptr = nullptr;
     }
-    if (!(vpos_sortstatus & kfUnsortedVarSplitChr)) {
+    if (!is_split_chr) {
       cip->chr_fo_vidx_start[chrs_encountered_m1 + 1] = raw_variant_ct;
       if (splitpar_bound2) {
 	if (splitpar_and_exclude_x) {
@@ -1448,6 +1508,30 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 	}
       }
       cip->chr_ct = chrs_encountered_m1 + 1;
+    } else {
+      chr_idx_t* chr_idxs = (chr_idx_t*)bigstack_alloc(raw_variant_ct * sizeof(chr_idx_t));
+      if (!chr_idxs) {
+	goto load_pvar_ret_NOMEM;
+      }
+      *chr_idxs_ptr = chr_idxs;
+      if (chr_idxs_start_block) {
+	const uint32_t end_vidx = chr_idxs_start_block * kLoadPvarBlockSize;
+	uint32_t chr_fo_idx = chrs_encountered_m1;
+	while (cip->chr_fo_vidx_start[chr_fo_idx] >= end_vidx) {
+	  --chr_fo_idx;
+	}
+	backfill_chr_idxs(cip, chr_fo_idx, 0, end_vidx, chr_idxs);
+      }
+      chr_idx_t* chr_idxs_read_iter = (chr_idx_t*)(&(g_bigstack_end[read_iter_stride_base * (chr_idxs_start_block + 1)]));
+      if (chr_idxs_start_block >= cms_start_block) {
+	chr_idxs_read_iter = (chr_idx_t*)(((uintptr_t)chr_idxs_read_iter) + kLoadPvarBlockSize * sizeof(double) * (chr_idxs_start_block + 1 - cms_start_block));
+      }
+      for (uint32_t block_idx = chr_idxs_start_block; block_idx < full_block_ct;) {
+	memcpy(&(chr_idxs[block_idx * kLoadPvarBlockSize]), chr_idxs_read_iter, kLoadPvarBlockSize * sizeof(chr_idx_t));
+	++block_idx;
+	chr_idxs_read_iter = (chr_idx_t*)(((uintptr_t)chr_idxs_read_iter) + read_iter_stride_base + kLoadPvarBlockSize * sizeof(chr_idx_t) + (block_idx >= cms_start_block) * kLoadPvarBlockSize * sizeof(double));
+      }
+      memcpy(&(chr_idxs[full_block_ct * kLoadPvarBlockSize]), chr_idxs_read_iter, raw_variant_ct_lowbits * sizeof(chr_idx_t));
     }
     const uint32_t last_chr_code = cip->max_code + cip->name_ct;
     const uint32_t chr_word_ct = BITCT_TO_WORDCT(last_chr_code + 1);

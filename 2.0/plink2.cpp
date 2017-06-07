@@ -60,7 +60,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (5 Jun 2017)";
+  " (6 Jun 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -631,8 +631,9 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
     uint32_t max_filter_slen = 0;
     unsorted_var_t vpos_sortstatus = kfUnsortedVar0;
     double* variant_cms = nullptr;
+    chr_idx_t* chr_idxs = nullptr; // split-chromosome case only
     if (pvarname[0]) {
-      reterr = load_pvar(pvarname, var_filter_exceptions_flattened, pcp->varid_template, pcp->missing_varid_match, pcp->misc_flags, pcp->pvar_psam_modifier, pcp->exportf_modifier, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->filter_flags & kfFilterNoSplitChr), cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids, &variant_allele_idxs, &allele_storage, &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage, &nonref_flags, &variant_cms, &raw_variant_ct, &variant_ct, &max_allele_slen, &xheader_blen, &xheader_info_pr, &max_filter_slen);
+      reterr = load_pvar(pvarname, var_filter_exceptions_flattened, pcp->varid_template, pcp->missing_varid_match, pcp->misc_flags, pcp->pvar_psam_modifier, pcp->exportf_modifier, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->filter_flags & kfFilterNoSplitChr), cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids, &variant_allele_idxs, &allele_storage, &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_slen, &xheader_blen, &xheader_info_pr, &max_filter_slen);
       if (reterr) {
 	goto plink2_ret_1;
       }
