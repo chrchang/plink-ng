@@ -375,6 +375,15 @@ HEADER_INLINE interr_t fputs_checked(const char* ss, FILE* outfile) {
   return ferror(outfile);
 }
 
+interr_t fwrite_flush2(char* buf_flush, FILE* outfile, char** write_iter_ptr);
+
+HEADER_INLINE interr_t fwrite_ck(char* buf_flush, FILE* outfile, char** write_iter_ptr) {
+  if ((*write_iter_ptr) < buf_flush) {
+    return 0;
+  }
+  return fwrite_flush2(buf_flush, outfile, write_iter_ptr);
+}
+
 // fclose_null defined in pgenlib_internal.h
 
 HEADER_INLINE void fclose_cond(FILE* fptr) {
@@ -674,6 +683,16 @@ HEADER_INLINE boolerr_t bigstack_alloc_ul(uintptr_t ct, uintptr_t** ul_arr_ptr) 
   return !(*ul_arr_ptr);
 }
 
+HEADER_INLINE boolerr_t bigstack_alloc_ll(uintptr_t ct, int64_t** ll_arr_ptr) {
+  *ll_arr_ptr = (int64_t*)bigstack_alloc(ct * sizeof(int64_t));
+  return !(*ll_arr_ptr);
+}
+
+HEADER_INLINE boolerr_t bigstack_alloc_ull(uintptr_t ct, uint64_t** ull_arr_ptr) {
+  *ull_arr_ptr = (uint64_t*)bigstack_alloc(ct * sizeof(int64_t));
+  return !(*ull_arr_ptr);
+}
+
 // some versions of gcc give aliasing warnings if we use bigstack_alloc_ul()
 // for everything
 // if sizeof(intptr_t) != sizeof(uintptr_t*), we're doomed anyway, so I won't
@@ -731,16 +750,6 @@ HEADER_INLINE boolerr_t bigstack_alloc_vp(uintptr_t ct, vul_t*** vp_arr_ptr) {
 HEADER_INLINE boolerr_t bigstack_alloc_thread(uintptr_t ct, pthread_t** thread_arr_ptr) {
   *thread_arr_ptr = (pthread_t*)bigstack_alloc(ct * sizeof(pthread_t));
   return !(*thread_arr_ptr);
-}
-
-HEADER_INLINE boolerr_t bigstack_alloc_ll(uintptr_t ct, int64_t** ll_arr_ptr) {
-  *ll_arr_ptr = (int64_t*)bigstack_alloc(ct * sizeof(int64_t));
-  return !(*ll_arr_ptr);
-}
-
-HEADER_INLINE boolerr_t bigstack_alloc_ull(uintptr_t ct, uint64_t** ull_arr_ptr) {
-  *ull_arr_ptr = (uint64_t*)bigstack_alloc(ct * sizeof(int64_t));
-  return !(*ull_arr_ptr);
 }
 
 HEADER_INLINE void bigstack_reset(void* new_base) {
@@ -874,6 +883,21 @@ HEADER_INLINE boolerr_t bigstack_end_alloc_ull(uintptr_t ct, uint64_t** ull_arr_
 HEADER_INLINE boolerr_t bigstack_end_alloc_llstr(uintptr_t str_bytes, ll_str_t** llstr_arr_ptr) {
   *llstr_arr_ptr = (ll_str_t*)bigstack_end_alloc(str_bytes + sizeof(ll_str_t));
   return !(*llstr_arr_ptr);
+}
+
+HEADER_INLINE boolerr_t bigstack_end_alloc_cp(uintptr_t ct, char*** cp_arr_ptr) {
+  *cp_arr_ptr = (char**)bigstack_end_alloc(ct * sizeof(intptr_t));
+  return !(*cp_arr_ptr);
+}
+
+HEADER_INLINE boolerr_t bigstack_end_alloc_ucp(uintptr_t ct, unsigned char*** ucp_arr_ptr) {
+  *ucp_arr_ptr = (unsigned char**)bigstack_end_alloc(ct * sizeof(intptr_t));
+  return !(*ucp_arr_ptr);
+}
+
+HEADER_INLINE boolerr_t bigstack_end_alloc_thread(uintptr_t ct, pthread_t** thread_arr_ptr) {
+  *thread_arr_ptr = (pthread_t*)bigstack_end_alloc(ct * sizeof(pthread_t));
+  return !(*thread_arr_ptr);
 }
 
 

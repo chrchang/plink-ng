@@ -5556,7 +5556,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
 	} else {
 	  // 1. (re)construct variant ID hash table
 	  uintptr_t* already_seen;
-	  if (bigstack_calloc_ul(BITCT_TO_WORDCT(orig_variant_ct), &already_seen)) {
+	  if (bigstack_calloc_ul(raw_variant_ctl, &already_seen)) {
 	    goto glm_main_ret_NOMEM;
 	  }
 	  uint32_t* variant_id_htable = nullptr;

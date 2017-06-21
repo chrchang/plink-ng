@@ -60,10 +60,10 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (6 Jun 2017)";
+  " (20 Jun 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -2918,48 +2918,48 @@ int main(int argc, char** argv) {
     for (arg_idx = first_arg_idx; arg_idx < (uint32_t)argc; ++arg_idx) {
       flagname_p = is_flag_start(argv[arg_idx]);
       if (flagname_p) {
-	const uint32_t flag_blen = strlen(flagname_p) + 1;
+	const uint32_t flag_slen = strlen(flagname_p);
 	switch (*flagname_p) {
 	case '\0':
 	  // special case, since we reserve empty names for preprocessed flags
 	  fputs("Error: Unrecognized flag ('--').\n", stderr);
 	  goto main_ret_INVALID_CMDLINE;
 	case 'a':
-	  if (!strcmp(flagname_p, "aec")) {
+	  if ((flag_slen == 3) && (!memcmp(flagname_p, "aec", 3))) {
 	    strcpy(flagname_write_iter, "allow-extra-chr");
-	  } else if (!strcmp(flagname_p, "autosome-xy")) {
+	  } else if ((flag_slen == 11) && (!memcmp(flagname_p, "autosome-xy", 11))) {
 	    strcpy(flagname_write_iter, "autosome-par");
 	  } else {
 	    goto main_flag_copy;
 	  }
 	  break;
 	case 'b':
-	  if (!strcmp(flagname_p, "bed")) {
+	  if ((flag_slen == 3) && (!memcmp(flagname_p, "bed", 3))) {
 	    strcpy(flagname_write_iter, "pgen");
-	  } else if (!strcmp(flagname_p, "bim")) {
+	  } else if ((flag_slen == 3) && (!memcmp(flagname_p, "bim", 3))) {
 	    strcpy(flagname_write_iter, "pvar");
 	  } else {
 	    goto main_flag_copy;
 	  }
 	  break;
 	case 'f':
-	  if (!strcmp(flagname_p, "fam")) {
+	  if ((flag_slen == 3) && (!memcmp(flagname_p, "fam", 3))) {
 	    strcpy(flagname_write_iter, "psam");
-	  } else if (!strcmp(flagname_p, "filter-males")) {
+	  } else if ((flag_slen == 12) && (!memcmp(flagname_p, "filter-males", 12))) {
 	    strcpy(flagname_write_iter, "keep-males");
-	  } else if (!strcmp(flagname_p, "filter-females")) {
+	  } else if ((flag_slen == 14) && (!memcmp(flagname_p, "filter-females", 14))) {
 	    fputs("Note: --filter-females flag deprecated.  Use --keep-females or --remove-males\ninstead.\n", stdout);
 	    strcpy(flagname_write_iter, "remove-males");
-	  } else if (!strcmp(flagname_p, "filter-founders")) {
+	  } else if ((flag_slen == 15) && (!memcmp(flagname_p, "filter-founders", 15))) {
 	    strcpy(flagname_write_iter, "keep-founders");
-	  } else if (!strcmp(flagname_p, "filter-nonfounders")) {
+	  } else if ((flag_slen == 17) && (!memcmp(flagname_p, "filter-nonfounders", 17))) {
 	    strcpy(flagname_write_iter, "keep-nonfounders");
 	  } else {
 	    goto main_flag_copy;
 	  }
 	  break;
 	case 'h':
-	  if (!strcmp(flagname_p, "hound")) {
+	  if ((flag_slen == 5) && (!memcmp(flagname_p, "hound", 5))) {
 	    // the creature type should be Dog.
 	    strcpy(flagname_write_iter, "dog");
 	  } else {
@@ -2967,10 +2967,10 @@ int main(int argc, char** argv) {
 	  }
 	  break;
 	case 'k':
-	  if (!strcmp(flagname_p, "keep-clusters")) {
+	  if ((flag_slen == 13) && (!memcmp(flagname_p, "keep-clusters", 13))) {
 	    fputs("Note: --keep-clusters flag deprecated.  Use --keep-cats instead.\n", stdout);
 	    strcpy(flagname_write_iter, "keep-cats");
-	  } else if (!strcmp(flagname_p, "keep-cluster-names")) {
+	  } else if ((flag_slen == 18) && (!memcmp(flagname_p, "keep-cluster-names", 18))) {
 	    fputs("Note: --keep-cluster-names flag deprecated.  Use --keep-cat-names instead.\n", stdout);
 	    strcpy(flagname_write_iter, "keep-cat-names");
 	  } else {
@@ -2978,45 +2978,45 @@ int main(int argc, char** argv) {
 	  }
 	  break;
 	case 'l':
-	  if ((!strcmp(flagname_p, "linear")) || (!strcmp(flagname_p, "logistic"))) {
+	  if (((flag_slen == 6) && (!memcmp(flagname_p, "linear", 6))) || ((flag_slen == 8) && (!memcmp(flagname_p, "logistic", 8)))) {
 	    strcpy(flagname_write_iter, "glm");
 	  } else {
 	    goto main_flag_copy;
 	  }
 	  break;
 	case 'm':
-	  if (!strcmp(flagname_p, "min-ac")) {
+	  if ((flag_slen == 6) && (!memcmp(flagname_p, "min-ac", 6))) {
 	    strcpy(flagname_write_iter, "mac");
-	  } else if (!strcmp(flagname_p, "max-ac")) {
+	  } else if ((flag_slen == 6) && (!memcmp(flagname_p, "max-ac", 6))) {
 	    strcpy(flagname_write_iter, "max-mac");
-	  } else if (!strcmp(flagname_p, "make-bfile")) {
+	  } else if ((flag_slen == 10) && (!memcmp(flagname_p, "make-bfile", 10))) {
 	    strcpy(flagname_write_iter, "make-bed");
-	  } else if (!strcmp(flagname_p, "make-bpfile")) {
+	  } else if ((flag_slen == 11) && (!memcmp(flagname_p, "make-bpfile", 11))) {
 	    strcpy(flagname_write_iter, "make-bpgen");
-	  } else if (!strcmp(flagname_p, "make-pfile")) {
+	  } else if ((flag_slen == 10) && (!memcmp(flagname_p, "make-pfile", 10))) {
 	    strcpy(flagname_write_iter, "make-pgen");
-	  } else if (!strcmp(flagname_p, "missing_code")) {
+	  } else if ((flag_slen == 12) && (!memcmp(flagname_p, "missing_code", 12))) {
 	    strcpy(flagname_write_iter, "missing-code");
 	  } else {
 	    goto main_flag_copy;
 	  }
 	  break;
 	case 'n':
-	  if (!strcmp(flagname_p, "num_threads")) {
+	  if ((flag_slen == 11) && (!memcmp(flagname_p, "num_threads", 11))) {
 	    strcpy(flagname_write_iter, "threads");
 	  } else {
 	    goto main_flag_copy;
 	  }
 	  break;
         case 'p':
-	  if (!strcmp(flagname_p, "prune")) {
+	  if ((flag_slen == 5) && (!memcmp(flagname_p, "prune", 5))) {
 	    strcpy(flagname_write_iter, "require-pheno");
 	  } else {
 	    goto main_flag_copy;
 	  }
 	  break;
 	case 'r':
-	  if (!strcmp(flagname_p, "recode")) {
+	  if ((flag_slen == 6) && (!memcmp(flagname_p, "recode", 6))) {
 	    // special case: translate to "export ped" if no format specified
 	    const uint32_t param_ct = param_count(argv, argc, arg_idx);
 	    if (param_ct > 4) {
@@ -3032,14 +3032,14 @@ int main(int argc, char** argv) {
 	    } else {
 	      strcpy(flagname_write_iter, "export");
 	    }
-	  } else if (!strcmp(flagname_p, "remove-founders")) {
+	  } else if ((flag_slen == 15) && (!memcmp(flagname_p, "remove-founders", 15))) {
 	    strcpy(flagname_write_iter, "keep-founders");
-	  } else if (!strcmp(flagname_p, "remove-nonfounders")) {
+	  } else if ((flag_slen == 17) && (!memcmp(flagname_p, "remove-nonfounders", 17))) {
 	    strcpy(flagname_write_iter, "keep-nonfounders");
-	  } else if (!strcmp(flagname_p, "remove-clusters")) {
+	  } else if ((flag_slen == 15) && (!memcmp(flagname_p, "remove-clusters", 15))) {
 	    fputs("Note: --remove-clusters flag deprecated.  Use --remove-cats instead.\n", stdout);	    
 	    strcpy(flagname_write_iter, "remove-cats");
-	  } else if (!strcmp(flagname_p, "remove-cluster-names")) {
+	  } else if ((flag_slen == 20) && (!memcmp(flagname_p, "remove-cluster-names", 20))) {
 	    fputs("Note: --remove-cluster-names flag deprecated.  Use --remove-cat-names instead.\n", stdout);
 	    strcpy(flagname_write_iter, "remove-cat-names");
 	  } else {
@@ -3047,16 +3047,16 @@ int main(int argc, char** argv) {
 	  }
 	  break;
 	case 't':
-	  if (!strcmp(flagname_p, "thread-num")) {
+	  if ((flag_slen == 10) && (!memcmp(flagname_p, "thread-num", 10))) {
 	    strcpy(flagname_write_iter, "threads");
 	  } else {
 	    goto main_flag_copy;
 	  }
 	  break;
 	case 'v':
-	  if (!strcmp(flagname_p, "vcf-filter")) {
+	  if ((flag_slen == 10) && (!memcmp(flagname_p, "vcf-filter", 10))) {
 	    strcpy(flagname_write_iter, "var-filter");
-	  } else if (!strcmp(flagname_p, "vcf-min-qual")) {
+	  } else if ((flag_slen == 12) && (!memcmp(flagname_p, "vcf-min-qual", 12))) {
 	    strcpy(flagname_write_iter, "var-min-qual");
 	  } else {
 	    goto main_flag_copy;
@@ -3064,7 +3064,7 @@ int main(int argc, char** argv) {
 	  break;
 	default:
 	main_flag_copy:
-	  memcpy(flagname_write_iter, flagname_p, flag_blen);
+	  memcpy(flagname_write_iter, flagname_p, flag_slen + 1);
 	}
 	flagname_write_iter = &(flagname_write_iter[kMaxFlagBlen]);
 	flag_map[cur_flag_idx++] = arg_idx;

@@ -194,6 +194,13 @@ boolerr_t fopen_checked(const char* fname, const char* mode, FILE** target_ptr) 
   return 0;
 }
 
+interr_t fwrite_flush2(char* buf_flush, FILE* outfile, char** write_iter_ptr) {
+  char* buf = &(buf_flush[-((int32_t)kMaxMediumLine)]);
+  char* buf_end = *write_iter_ptr;
+  *write_iter_ptr = buf;
+  return fwrite_checked(buf, (uintptr_t)(buf_end - buf), outfile);
+}
+
 
 uint32_t int_slen(int32_t num) {
   int32_t slen = 1;

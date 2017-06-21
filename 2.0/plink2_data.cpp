@@ -4314,11 +4314,6 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
     g_dosage_is_present = 0;
     if (layout == 1) {
       // v1.1
-      uintptr_t compressed_block_byte_ct = 6LU * sample_ct;
-      uint16_t* bgen_probs = (uint16_t*)bigstack_alloc(compressed_block_byte_ct);
-      if (!bgen_probs) {
-	goto ox_bgen_to_pgen_ret_NOMEM;
-      }
       uintptr_t loadbuf_size = (bigstack_left() / 4) & (~(kCacheline - k1LU));
 #ifdef __LP64__
       if (loadbuf_size > kMaxLongLine) {
@@ -4422,10 +4417,10 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       uint32_t block_vidx = 0;
       uint32_t cur_block_size = calc_thread_ct;
       uint32_t parity = 0;
+      uintptr_t compressed_block_byte_ct = 6LU * sample_ct;
       unsigned char** compressed_geno_starts = g_compressed_geno_starts[0];
       unsigned char* bgen_geno_iter = compressed_geno_bufs[0];
-      uint32_t variant_uidx = 0;
-      for (; variant_uidx < raw_variant_ct;) {
+      for (uint32_t variant_uidx = 0; variant_uidx < raw_variant_ct; ) {
 	uint32_t uii;
 	if (!fread(&uii, 4, 1, bgenfile)) {
 	  goto ox_bgen_to_pgen_ret_READ_FAIL;
@@ -4914,6 +4909,108 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       logerrprint("Error: .bgen v1.2-1.3 import is currently under development.\n");
       reterr = kPglRetNotYetSupported;
       goto ox_bgen_to_pgen_ret_1;
+      // ploidy >2 is not supported by PLINK 2.
+      // But even without that, the diploid worst case of 65535 alleles,
+      // unphased 32-bit probabilities blows past the 4GB uncompressed record
+      // size limit with just 1 sample!  Consequences:
+      // * If multithreaded decompression is being employed, each thread needs
+      //   4GB of decompression workspace, at least on the first pass.
+      // * This won't always be available, even for a single thread (especially
+      //   since we have a double-buffering workflow which wants two other 4GB
+      //   allocations).  So we need a fallback workspace allocation size, and
+      //   the decompressor thread must be able to throw NOMEM.
+      // * In practice, records will almost always be far smaller than 4GB.
+      //   To keep thread synchronization overhead under control, when e.g. 64k
+      //   variants fit in the load buffer, we only want to join threads every
+      //   64k variants (at least in the main loop; see v1.1 comment about
+      //   early exit from the first pass)...
+      // * Or maybe not quite that many, since in the main loop we also need to
+      //   save the converted genotype data.  But more than 1 variant at a
+      //   time, anyway.
+      // Overall memory allocation:
+      //   mainbuf_size (~20%): Compressed genotype data buffer 0, up to 4GB
+      //                        per decompression thread
+      //   mainbuf_size       : Compressed genotype data buffer 1
+      //   mainbuf_size       : Decompression thread workspace(s)
+      //   min(mainbuf_size / 2, kMaxLongLine): variant-identifying data load
+      //                                        buffer
+      //
+      /*
+      uintptr_t mainbuf_size = (bigstack_left() / 5) & (~(kCacheline - k1LU));
+#ifdef __LP64__
+      // hard compressed and uncompressed record length limit of 2^31 - 1
+      // bytes, since these are represented as uint32s in the file.
+      uint32_t calc_thread_ct = 1;
+      if (mainbuf_size > 0x100000000LLU) {
+	mainbuf_size &= 0xffffffff00000000LLU;
+	calc_thread_ct = mainbuf_size >> 32;
+	if (calc_thread_ct > max_thread_ct - 1) {
+	  calc_thread_ct = max_thread_ct - 1;
+	  mainbuf_size = ((uintptr_t)(max_thread_ct - 1)) << 32;
+	}
+      }
+#else
+      const uint32_t calc_thread_ct = 1;
+#endif
+      ts.calc_thread_ct = calc_thread_ct;
+      if (bigstack_alloc_thread(calc_thread_ct, &ts.threads)) {
+	goto ox_bgen_to_pgen_ret_NOMEM;
+      }
+
+      // must have enough spaces for SNP/rs/chromosome IDs
+      if (loadbuf_size < 3 * 65536) {
+	goto ox_bgen_to_pgen_ret_NOMEM;
+      }
+      unsigned char* loadbuf = (unsigned char*)bigstack_alloc_raw(loadbuf_size);
+
+      // thread-count-independent:
+      //   compressed_geno_bufs: 2 * loadbuf_size
+      for (uint32_t variant_uidx = 0; variant_uidx < raw_variant_ct; ) {
+	uint16_t snpid_slen;
+	if (!fread(snpid_slen, 2, 1, bgenfile)) {
+	  goto ox_bgen_to_pgen_ret_READ_FAIL;
+	}
+	if (!snpid_chr) {
+	  if (fseeko(bgenfile, snpid_slen, SEEK_CUR)) {
+	    goto ox_bgen_to_pgen_ret_READ_FAIL;
+	  }
+	} else {
+	  if (!snpid_slen) {
+	    logprint("\n");
+	    logerrprint("Error: Length-0 SNP ID in .bgen file.\n");
+	    goto ox_bgen_to_pgen_ret_INCONSISTENT_INPUT;
+	  }
+	  if (!fread(loadbuf, snpid_slen, 1, bgenfile)) {
+	    goto ox_bgen_to_pgen_ret_READ_FAIL;
+	  }
+	  loadbuf[snpid_slen] = '\0';
+	}
+	uint16_t rsid_slen;
+	if (!fread(&rsid_slen, 2, 1, bgenfile)) {
+	  goto ox_bgen_to_pgen_ret_READ_FAIL;
+	}
+	if (fseeko(bgenfile, rsid_slen, SEEK_CUR)) {
+	  goto ox_bgen_to_pgen_ret_READ_FAIL;
+	}
+	uint16_t chr_name_slen;
+	if (!fread(&chr_name_slen, 2, 1, bgenfile)) {
+	  goto ox_bgen_to_pgen_ret_READ_FAIL;
+	}
+	if (!) {
+	}
+
+	uint32_t cur_compressed_byte_ct;
+	if (!fread(&cur_compressed_byte_ct, 4, 1, bgenfile)) {
+	  goto ox_bgen_to_pgen_ret_READ_FAIL;
+	}
+	;;;
+	++variant_uidx;
+	if (!(variant_uidx % 1000)) {
+	  printf("\r--bgen: %uk variants scanned.", variant_uidx / 1000);
+	  fflush(stdout);
+	}
+      }
+      */
     }
     if (write_iter != writebuf) {
       if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), pvarfile)) {
@@ -12721,12 +12818,30 @@ char* haploid_dosage_print(uint32_t rawval, char* start) {
   return start;
 }
 
-interr_t flexbwrite_checked(const void* buf, size_t len, uint32_t output_bgz, FILE* outfile, BGZF* bgz_outfile) {
-  if (!output_bgz) {
+interr_t flexbwrite_flush(char* buf, size_t len, FILE* outfile, BGZF* bgz_outfile) {
+  if (outfile) {
     return fwrite_checked(buf, len, outfile);
   }
   return (bgzf_write(bgz_outfile, buf, len) < 0);
 }
+
+
+// these assume buf_flush - buf = kMaxMediumLine
+// outfile should be nullptr iff we're doing bgzf compression
+interr_t flexbwrite_flush2(char* buf_flush, FILE* outfile, BGZF* bgz_outfile, char** write_iter_ptr) {
+  char* buf = &(buf_flush[-((int32_t)kMaxMediumLine)]);
+  char* buf_end = *write_iter_ptr;
+  *write_iter_ptr = buf;
+  return flexbwrite_flush(buf, (uintptr_t)(buf_end - buf), outfile, bgz_outfile);
+}
+
+static inline interr_t flexbwrite_ck(char* buf_flush, FILE* outfile, BGZF* bgz_outfile, char** write_iter_ptr) {
+  if ((*write_iter_ptr) < buf_flush) {
+    return 0;
+  }
+  return flexbwrite_flush2(buf_flush, outfile, bgz_outfile, write_iter_ptr);
+}
+
 
 #ifdef __arm__
   #error "Unaligned accesses in export_vcf()."
@@ -12738,8 +12853,7 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
   BGZF* bgz_outfile = nullptr;
   pglerr_t reterr = kPglRetSuccess;
   {
-    const uint32_t output_bgz = (exportf_modifier / kfExportfBgz) & 1;
-    if (!output_bgz) {
+    if (!(exportf_modifier & kfExportfBgz)) {
       strcpy(outname_end, ".vcf");
       if (fopen_checked(outname, FOPEN_WB, &outfile)) {
 	goto export_vcf_ret_OPEN_FAIL;
@@ -12780,18 +12894,18 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
     if (bigstack_alloc_c(writebuf_blen, &writebuf)) {
       goto export_vcf_ret_NOMEM;
     }
-    char* writebuf_flush = &(writebuf[kCompressStreamBlock]);
+    char* writebuf_flush = &(writebuf[kMaxMediumLine]);
     char* write_iter = strcpya(writebuf, "##fileformat=VCFv4.3" EOLN_STR "##fileDate=");
     time_t rawtime;
     time(&rawtime);
     struct tm* loctime;
     loctime = localtime(&rawtime);
-    write_iter += strftime(write_iter, kCompressStreamBlock, "%Y%m%d", loctime);
+    write_iter += strftime(write_iter, kMaxMediumLine, "%Y%m%d", loctime);
     write_iter = strcpya(write_iter, EOLN_STR "##source=PLINKv2.00" EOLN_STR);
     if (cip->chrset_source) {
       append_chrset_line(cip, &write_iter);
     }
-    if (flexbwrite_checked(writebuf, write_iter - writebuf, output_bgz, outfile, bgz_outfile)) {
+    if (flexbwrite_flush(writebuf, write_iter - writebuf, outfile, bgz_outfile)) {
       goto export_vcf_ret_WRITE_FAIL;
     }
     const uint32_t chr_ctl = BITCT_TO_WORDCT(cip->chr_ct);
@@ -12830,14 +12944,14 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
 	  // if --output-chr was used at some point, we need to sync the
 	  // ##contig chromosome code with the code in the VCF body.
 	  write_iter = chr_name_write(cip, chr_idx, &(writebuf[13]));
-	  if (flexbwrite_checked(writebuf, write_iter - writebuf, output_bgz, outfile, bgz_outfile)) {
+	  if (flexbwrite_flush(writebuf, write_iter - writebuf, outfile, bgz_outfile)) {
 	    goto export_vcf_ret_WRITE_FAIL;
 	  }
-	  if (flexbwrite_checked(contig_name_end, (uintptr_t)(line_end - contig_name_end), output_bgz, outfile, bgz_outfile)) {
+	  if (flexbwrite_flush(contig_name_end, (uintptr_t)(line_end - contig_name_end), outfile, bgz_outfile)) {
 	    goto export_vcf_ret_WRITE_FAIL;
 	  }
 	} else {
-	  if (flexbwrite_checked(xheader_iter, slen, output_bgz, outfile, bgz_outfile)) {
+	  if (flexbwrite_flush(xheader_iter, slen, outfile, bgz_outfile)) {
 	    goto export_vcf_ret_WRITE_FAIL;
 	  }
 	}
@@ -12877,11 +12991,8 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
       }
       *write_iter++ = '>';
       append_binary_eoln(&write_iter);
-      if (write_iter >= writebuf_flush) {
-	if (flexbwrite_checked(writebuf, write_iter - writebuf, output_bgz, outfile, bgz_outfile)) {
-	  goto export_vcf_ret_WRITE_FAIL;
-	}
-	write_iter = writebuf;
+      if (flexbwrite_ck(writebuf_flush, outfile, bgz_outfile, &write_iter)) {
+	goto export_vcf_ret_WRITE_FAIL;
       }
     }
     bigstack_reset(written_contig_header_lines);
@@ -12986,17 +13097,14 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
       *write_iter++ = '\t';
       write_iter = strcpya(write_iter, &(exported_sample_ids[sample_idx * max_exported_sample_id_blen]));
-      if (write_iter >= writebuf_flush) {
-	if (flexbwrite_checked(writebuf, write_iter - writebuf, output_bgz, outfile, bgz_outfile)) {
-	  goto export_vcf_ret_WRITE_FAIL;
-	}
-	write_iter = writebuf;
+      if (flexbwrite_ck(writebuf_flush, outfile, bgz_outfile, &write_iter)) {
+	goto export_vcf_ret_WRITE_FAIL;
       }
     }
     append_binary_eoln(&write_iter);
     bigstack_reset(exported_sample_ids);
 
-    LOGPRINTFWW5("--export vcf%s to %s ... ", output_bgz? " bgz" : "", outname);
+    LOGPRINTFWW5("--export vcf%s to %s ... ", bgz_outfile? " bgz" : "", outname);
     fputs("0%", stdout);
     fflush(stdout);
 
@@ -13164,11 +13272,8 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
       }
       *write_iter++ = '\t';
       write_iter = strcpya(write_iter, cur_alleles[alt1_allele_idx]);
-      if (write_iter >= writebuf_flush) {
-	if (flexbwrite_checked(writebuf, write_iter - writebuf, output_bgz, outfile, bgz_outfile)) {
-	  goto export_vcf_ret_WRITE_FAIL;
-	}
-	write_iter = writebuf;
+      if (flexbwrite_ck(writebuf_flush, outfile, bgz_outfile, &write_iter)) {
+	goto export_vcf_ret_WRITE_FAIL;
       }
       if (cur_allele_ct > 2) {
 	fill_all_bits(cur_allele_ct, allele_include);
@@ -13180,11 +13285,8 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
 	  *write_iter++ = ',';
 	  next_set_unsafe_ck(allele_include, &cur_allele_uidx);
 	  write_iter = strcpya(write_iter, cur_alleles[cur_allele_uidx++]);
-	  if (write_iter >= writebuf_flush) {
-	    if (flexbwrite_checked(writebuf, write_iter - writebuf, output_bgz, outfile, bgz_outfile)) {
-	      goto export_vcf_ret_WRITE_FAIL;
-	    }
-	    write_iter = writebuf;
+	  if (flexbwrite_ck(writebuf_flush, outfile, bgz_outfile, &write_iter)) {
+	    goto export_vcf_ret_WRITE_FAIL;
 	  }
 	} while (++alt_allele_idx < cur_allele_ct);
       }
@@ -13577,11 +13679,8 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
       }
       // todo: multiallelic cases (separate out cur_allele_ct <= 10)
       append_binary_eoln(&write_iter);
-      if (write_iter >= writebuf_flush) {
-	if (flexbwrite_checked(writebuf, write_iter - writebuf, output_bgz, outfile, bgz_outfile)) {
-	  goto export_vcf_ret_WRITE_FAIL;
-	}
-	write_iter = writebuf;
+      if (flexbwrite_ck(writebuf_flush, outfile, bgz_outfile, &write_iter)) {
+	goto export_vcf_ret_WRITE_FAIL;
       }
       if (variant_idx >= next_print_variant_idx) {
 	if (pct > 10) {
@@ -13594,11 +13693,11 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
       }
     }
     if (write_iter != writebuf) {
-      if (flexbwrite_checked(writebuf, write_iter - writebuf, output_bgz, outfile, bgz_outfile)) {
+      if (flexbwrite_flush(writebuf, write_iter - writebuf, outfile, bgz_outfile)) {
 	goto export_vcf_ret_WRITE_FAIL;
       }
     }
-    if (output_bgz) {
+    if (bgz_outfile) {
       if (bgzf_close(bgz_outfile)) {
 	bgz_outfile = nullptr;
 	goto export_vcf_ret_WRITE_FAIL;
