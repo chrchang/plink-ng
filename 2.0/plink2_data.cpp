@@ -5580,11 +5580,11 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       //                         .pvar.
       //   remainder (~1/2)    : Writer and write buffers
       uintptr_t mainbuf_size = round_down_pow2(bigstack_left() / 6, kCacheline);
+      uintptr_t thread_wkspace_size;
 #ifdef __LP64__
       // hard compressed and uncompressed record length limit of 2^31 - 1
       // bytes, since these are represented as uint32s in the file.
       uint32_t calc_thread_ct = 1;
-      uintptr_t thread_wkspace_size;
       if (mainbuf_size > 0x100000000LLU) {
 	thread_wkspace_size = 0x100000000LLU;
 	mainbuf_size &= 0xffffffff00000000LLU;
