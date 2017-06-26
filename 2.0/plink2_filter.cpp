@@ -34,7 +34,7 @@ void cleanup_cmp_expr(cmp_expr_t* cmp_expr_ptr) {
 pglerr_t from_to_flag(char** variant_ids, const uint32_t* variant_id_htable, const char* varid_from, const char* varid_to, uint32_t raw_variant_ct, uintptr_t max_variant_id_slen, uintptr_t variant_id_htable_size, uintptr_t* variant_include, chr_info_t* cip, uint32_t* variant_ct_ptr) {
   pglerr_t reterr = kPglRetSuccess;
   {
-    const uint32_t* htable_dup_base = &(variant_id_htable[round_up_pow2_ui(variant_id_htable_size, kInt32PerCacheline)]);
+    const uint32_t* htable_dup_base = &(variant_id_htable[round_up_pow2(variant_id_htable_size, kInt32PerCacheline)]);
     uint32_t chr_fo_idx = 0xffffffffU;
     uint32_t variant_uidx_start = 0xffffffffU;
     if (varid_from) {
@@ -111,7 +111,7 @@ pglerr_t snp_flag(const uint32_t* variant_bps, char** variant_ids, const uint32_
   unsigned char* bigstack_mark = g_bigstack_base;
   pglerr_t reterr = kPglRetSuccess;
   {
-    const uint32_t* htable_dup_base = &(variant_id_htable[round_up_pow2_ui(variant_id_htable_size, kInt32PerCacheline)]);
+    const uint32_t* htable_dup_base = &(variant_id_htable[round_up_pow2(variant_id_htable_size, kInt32PerCacheline)]);
     const uint32_t raw_variant_ctl = BITCT_TO_WORDCT(raw_variant_ct);
     uint32_t cur_llidx;
     uint32_t variant_uidx = variant_id_dup_htable_find(varid_snp, variant_ids, variant_id_htable, htable_dup_base, strlen(varid_snp), variant_id_htable_size, max_variant_id_slen, &cur_llidx);
@@ -191,7 +191,7 @@ pglerr_t snps_flag(char** variant_ids, const uint32_t* variant_id_htable, const 
   unsigned char* bigstack_mark = g_bigstack_base;
   pglerr_t reterr = kPglRetSuccess;
   {
-    const uint32_t* htable_dup_base = &(variant_id_htable[round_up_pow2_ui(variant_id_htable_size, kInt32PerCacheline)]);
+    const uint32_t* htable_dup_base = &(variant_id_htable[round_up_pow2(variant_id_htable_size, kInt32PerCacheline)]);
     const char* varid_strbox = snps_range_list_ptr->names;
     const unsigned char* starts_range = snps_range_list_ptr->starts_range;
     const uint32_t varid_ct = snps_range_list_ptr->name_ct;
@@ -296,7 +296,7 @@ pglerr_t extract_exclude_flag_norange(char** variant_ids, const uint32_t* varian
     if (bigstack_calloc_ul(raw_variant_ctl, &already_seen)) {
       goto extract_exclude_flag_norange_ret_NOMEM;
     }
-    const uint32_t* htable_dup_base = &(variant_id_htable[round_up_pow2_ui(variant_id_htable_size, kInt32PerCacheline)]);
+    const uint32_t* htable_dup_base = &(variant_id_htable[round_up_pow2(variant_id_htable_size, kInt32PerCacheline)]);
     const char* fnames_iter = fnames;
     uintptr_t duplicate_ct = 0;
     do {

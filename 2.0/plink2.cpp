@@ -60,7 +60,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (20 Jun 2017)";
+  " (25 Jun 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -101,11 +101,15 @@ CONSTU31(kMalloc32bitMbMax, 2047);
   #endif
 #endif
 
+// assumes logfile is open
 void disp_exit_msg(pglerr_t reterr) {
   if (reterr) {
     if (reterr == kPglRetNomem) {
       logprint("\n");
       logerrprint(errstr_nomem);
+      if (g_failed_alloc_attempt_size) {
+	LOGERRPRINTF("Failed allocation size: %" PRIuPTR "\n", g_failed_alloc_attempt_size);
+      }
     } else if (reterr == kPglRetReadFail) {
       logprint("\n");
       logerrprint(errstr_read);
@@ -1844,32 +1848,30 @@ char extract_char_param(const char* ss) {
   return '\0';
 }
 
-pglerr_t cmdline_alloc_string(const char* source, const char* flag_name, uint32_t max_slen, char** sbuf) {
+pglerr_t cmdline_alloc_string(const char* source, const char* flag_name, uint32_t max_slen, char** sbuf_ptr) {
   const uint32_t slen = strlen(source);
   if (slen > max_slen) {
     LOGERRPRINTF("Error: %s parameter too long.\n", flag_name);
     return kPglRetInvalidCmdline;
   }
   const uint32_t blen = slen + 1;
-  *sbuf = (char*)malloc(blen);
-  if (!(*sbuf)) {
+  if (pgl_malloc(blen, sbuf_ptr)) {
     return kPglRetNomem;
   }
-  memcpy(*sbuf, source, blen);
+  memcpy(*sbuf_ptr, source, blen);
   return kPglRetSuccess;
 }
 
-pglerr_t alloc_fname(const char* source, const char* flagname_p, uint32_t extra_size, char** fnbuf) {
+pglerr_t alloc_fname(const char* source, const char* flagname_p, uint32_t extra_size, char** fnbuf_ptr) {
   const uint32_t blen = strlen(source) + 1;
   if (blen > (kPglFnamesize - extra_size)) {
     LOGERRPRINTF("Error: --%s filename too long.\n", flagname_p);
     return kPglRetOpenFail;
   }
-  *fnbuf = (char*)malloc(blen + extra_size);
-  if (!(*fnbuf)) {
+  if (pgl_malloc(blen + extra_size, fnbuf_ptr)) {
     return kPglRetNomem;
   }
-  memcpy(*fnbuf, source, blen);
+  memcpy(*fnbuf_ptr, source, blen);
   return kPglRetSuccess;
 }
 
@@ -1882,8 +1884,8 @@ pglerr_t alloc_and_flatten(char** sources, uint32_t param_ct, uint32_t max_blen,
     }
     tot_blen += cur_blen;
   }
-  char* buf_iter = (char*)malloc(tot_blen);
-  if (!buf_iter) {
+  char* buf_iter;
+  if (pgl_malloc(tot_blen, &buf_iter)) {
     return kPglRetNomem;
   }
   *flattened_buf_ptr = buf_iter;
@@ -2017,8 +2019,8 @@ pglerr_t validate_and_alloc_cmp_expr(char** sources, const char* flag_name, uint
       LOGERRPRINTF("Error: ID too long in %s expression.\n", flag_name);
       goto validate_and_alloc_cmp_expr_ret_INVALID_CMDLINE;
     }
-    char* new_pheno_name_buf = (char*)malloc(2 + pheno_name_slen + pheno_val_slen);
-    if (!new_pheno_name_buf) {
+    char* new_pheno_name_buf;
+    if (pgl_malloc(2 + pheno_name_slen + pheno_val_slen, &new_pheno_name_buf)) {
       goto validate_and_alloc_cmp_expr_ret_NOMEM;
     }
     memcpyx(new_pheno_name_buf, pheno_name_start, pheno_name_slen, '\0');
@@ -2057,8 +2059,8 @@ pglerr_t alloc_and_flatten_comma_delim(char** sources, uint32_t param_ct, char**
     }
     totlen += 1 + strlen(cur_param_iter);
   }
-  char* write_iter = (char*)malloc(totlen);
-  if (!write_iter) {
+  char* write_iter;
+  if (pgl_malloc(totlen, &write_iter)) {
     return kPglRetNomem;
   }
   *flattened_buf_ptr = write_iter;
@@ -2168,8 +2170,8 @@ pglerr_t rerun(uint32_t rerun_argv_pos, uint32_t rerun_parameter_present, int32_
     }
     gzclose_null(&gz_rerunfile);
     const uint32_t line_byte_ct = 1 + (uintptr_t)(all_args_write_iter - textbuf);
-    char* rerun_buf = (char*)malloc(line_byte_ct);
-    if (!rerun_buf) {
+    char* rerun_buf;
+    if (pgl_malloc(line_byte_ct, &rerun_buf)) {
       goto rerun_ret_NOMEM;
     }
     *rerun_buf_ptr = rerun_buf;
@@ -2221,8 +2223,7 @@ pglerr_t rerun(uint32_t rerun_argv_pos, uint32_t rerun_parameter_present, int32_
 	arg_iter = next_token(arg_iter);
       }
     } while (loaded_arg_idx < loaded_arg_ct);
-    subst_argv2 = (char**)malloc((argc + loaded_arg_ct - duplicate_arg_ct - rerun_parameter_present - 1 - first_arg_idx) * sizeof(char*));
-    if (!subst_argv2) {
+    if (pgl_malloc((argc + loaded_arg_ct - duplicate_arg_ct - rerun_parameter_present - 1 - first_arg_idx) * sizeof(intptr_t), &subst_argv2)) {
       goto rerun_ret_NOMEM;
     }
     uint32_t new_arg_idx = rerun_argv_pos - first_arg_idx;
@@ -2310,8 +2311,7 @@ pglerr_t parse_col_descriptor(const char* col_descriptor_iter, const char* suppo
     } while (*supported_ids_iter);
     // max_id_blen + 4 extra bytes at the end, to support a "maybe" search
     // (yes, this can also be precomputed)
-    id_map = (uint32_t*)malloc((max_id_blen + 4) * (id_ct + 1));
-    if (!id_map) {
+    if (pgl_malloc((max_id_blen + 4) * (id_ct + 1), &id_map)) {
       goto parse_col_descriptor_ret_NOMEM;
     }
     char* sorted_ids = (char*)(&(id_map[id_ct]));
@@ -2657,6 +2657,7 @@ int main(int argc, char** argv) {
   ll_str_t* file_delete_list = nullptr;
   uint32_t arg_idx = 0;
   uint32_t print_end_time = 0;
+  uint32_t warning_errcode = 0;
   pglerr_t reterr = kPglRetSuccess;
   plink2_cmdline_t pc;
   pc.filter_flags = kfFilter0;
@@ -2756,8 +2757,7 @@ int main(int argc, char** argv) {
 	}
 	rewind(scriptfile);
 	const uint32_t fsize_ui = (uint64_t)fsize;
-	script_buf = (char*)malloc(fsize_ui + 1);
-	if (!script_buf) {
+	if (pgl_malloc(fsize_ui + 1, &script_buf)) {
 	  goto main_ret_NOMEM_NOLOG;
 	}
 	if (!fread(script_buf, fsize_ui, 1, scriptfile)) {
@@ -2787,8 +2787,7 @@ int main(int argc, char** argv) {
 	  goto main_ret_INVALID_CMDLINE;
 	}
 	const uint32_t new_param_ct = num_script_params + argc - 3;
-	subst_argv = (char**)malloc(new_param_ct * sizeof(intptr_t));
-	if (!subst_argv) {
+	if (pgl_malloc(new_param_ct * sizeof(intptr_t), &subst_argv)) {
 	  goto main_ret_NOMEM_NOLOG;
 	}
 	memcpy(subst_argv, &(argv[1]), arg_idx * sizeof(intptr_t));
@@ -2850,8 +2849,8 @@ int main(int argc, char** argv) {
 	  if ((arg_idx == ((uint32_t)argc) - 1) && flag_ct) {
 	    // make "plink [valid flags/parameters] --help" work, and skip the
 	    // parameters
-	    char** help_argv = (char**)malloc(flag_ct * sizeof(intptr_t));
-	    if (!help_argv) {
+	    char** help_argv;
+	    if (pgl_malloc(flag_ct * sizeof(intptr_t), &help_argv)) {
 	      goto main_ret_NOMEM_NOLOG2;
 	    }
 	    uint32_t arg_idx2 = 0;
@@ -2902,15 +2901,15 @@ int main(int argc, char** argv) {
     if (silent_present) {
       if (!freopen("/dev/null", "w", stdout)) {
 	fputs("Warning: --silent failed.", stderr);
+	g_stderr_written_to = 1;
       }
     }
     print_ver();
     if (!flag_ct) {
       goto main_ret_NULL_CALC_0;
     }
-    flag_buf = (char*)malloc(flag_ct * kMaxFlagBlen);
-    flag_map = (uint32_t*)malloc(flag_ct * sizeof(int32_t));
-    if ((!flag_buf) || (!flag_map)) {
+    if (pgl_malloc(flag_ct * kMaxFlagBlen, &flag_buf) ||
+	pgl_malloc(flag_ct * sizeof(int32_t), &flag_map)) {
       goto main_ret_NOMEM_NOLOG2;
     }
     char* flagname_write_iter = flag_buf;
@@ -6601,7 +6600,9 @@ int main(int argc, char** argv) {
 	    goto main_ret_INVALID_CMDLINE_2A;
 	  }
 	  rseed_ct = param_ct;
-	  rseeds = (uint32_t*)malloc(param_ct * sizeof(int32_t));
+	  if (pgl_malloc(param_ct * sizeof(int32_t), &rseeds)) {
+	    goto main_ret_NOMEM;
+	  }
 	  for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
 	    const char* cur_modif = argv[arg_idx + param_idx];
 	    if (scan_uint_capped(cur_modif, 0xffffffffU, &(rseeds[param_idx - 1]))) {
@@ -6823,8 +6824,8 @@ int main(int argc, char** argv) {
 	    // a bit artificial, but it works
 	    const uint32_t col_idx = score_cols[2];
 	    const uint32_t col_idx_blen = 1 + int_slen(col_idx);
-	    char* new_buf = (char*)malloc(col_idx_blen + 1);
-	    if (!new_buf) {
+	    char* new_buf;
+	    if (pgl_malloc(col_idx_blen + 1, &new_buf)) {
 	      goto main_ret_NOMEM;
 	    }
 	    pc.score_info.input_col_idx_range_list.names = new_buf;
@@ -7258,6 +7259,9 @@ int main(int argc, char** argv) {
 	    pc.write_covar_flags |= kfWriteCovarColDefault;
 	  }
 	  pc.command_flags1 |= kfCommand1WriteCovar;
+	} else if (!memcmp(flagname_p2, "arning-errcode", 15)) {
+	  warning_errcode = 1;
+	  goto main_param_zero;
 	} else if (!memcmp(flagname_p2, "rite-cluster", 13)) {
 	  logerrprint("Error: --write-cluster is retired.  Use e.g. --make-just-psam.\n");
 	  goto main_ret_INVALID_CMDLINE_A;
@@ -7630,6 +7634,9 @@ int main(int argc, char** argv) {
     print_ver();
   main_ret_NOMEM_NOLOG2:
     fputs(errstr_nomem, stderr);
+    if (g_failed_alloc_attempt_size) {
+      fprintf(stderr, "Failed allocation size: %" PRIuPTR "\n", g_failed_alloc_attempt_size);
+    }
     reterr = kPglRetNomem;
     break;
   main_ret_READ_FAIL_NOLOG:
@@ -7707,7 +7714,13 @@ int main(int argc, char** argv) {
   cleanup_range_list(&pc.pheno_range_list);
   cleanup_range_list(&pc.exclude_snps_range_list);
   cleanup_range_list(&pc.snps_range_list);
-  cleanup_logfile(print_end_time);
+  if (warning_errcode && g_stderr_written_to && (!reterr)) {
+    logerrprint("--warning-errcode: One or more warnings in this run; exiting with code 61.\n");
+    reterr = kPglRetWarningErrcode;
+  }
+  if (cleanup_logfile(print_end_time) && (!reterr)) {
+    reterr = kPglRetWriteFail;
+  }
   if (bigstack_ua) {
     free(bigstack_ua);
   }

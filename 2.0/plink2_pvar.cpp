@@ -409,7 +409,7 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
       goto load_pvar_ret_1;
     }
     const uintptr_t initial_bigstack_size = bigstack_left();
-    uintptr_t loadbuf_size = (initial_bigstack_size / 4) & (~(kCacheline - k1LU));
+    uintptr_t loadbuf_size = round_down_pow2(initial_bigstack_size / 4, kCacheline);
     char* loadbuf = (char*)(&(bigstack_mark[loadbuf_size]));
     if (loadbuf_size > kMaxLongLine) {
       loadbuf_size = kMaxLongLine;
@@ -858,7 +858,7 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 	      tmp_alloc_base = (unsigned char*)(&(cur_chr_idxs[kLoadPvarBlockSize]));
 	      // may want to track the first problem variant index
 	      // cip->chr_fo_vidx_start[chrs_encountered_m1] = raw_variant_ct;
-	      backfill_chr_idxs(cip, chrs_encountered_m1, raw_variant_ct & (~(kLoadPvarBlockSize - 1)), raw_variant_ct, cur_chr_idxs);
+	      backfill_chr_idxs(cip, chrs_encountered_m1, round_down_pow2(raw_variant_ct, kLoadPvarBlockSize), raw_variant_ct, cur_chr_idxs);
 	      chr_idxs_start_block = raw_variant_ct / kLoadPvarBlockSize;
 	      is_split_chr = 1;
 	      vpos_sortstatus |= kfUnsortedVarBp | kfUnsortedVarCm | kfUnsortedVarSplitChr;

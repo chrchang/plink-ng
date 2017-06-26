@@ -51,11 +51,12 @@ char g_logbuf[kMaxMediumLine * 2];
 
 uint32_t g_debug_on = 0;
 uint32_t g_log_failed = 0;
+uint32_t g_stderr_written_to = 0;
 
 boolerr_t push_llstr(const char* ss, ll_str_t** ll_stack_ptr) {
   uintptr_t blen = strlen(ss) + 1;
-  ll_str_t* new_llstr = (ll_str_t*)malloc(sizeof(ll_str_t) + blen);
-  if (!new_llstr) {
+  ll_str_t* new_llstr;
+  if (pgl_malloc(sizeof(ll_str_t) + blen, &new_llstr)) {
     return 1;
   }
   new_llstr->next = *ll_stack_ptr;
@@ -84,6 +85,7 @@ void logstr(const char* ss) {
 	fflush(stdout);
         fprintf(stderr, "Error: Debug logging failure.  Dumping to stderr:\n%s", ss);
 	g_log_failed = 1;
+	g_stderr_written_to = 1;
       } else {
 	fflush(g_logfile);
       }
@@ -100,6 +102,7 @@ void logerrprint(const char* ss) {
   logstr(ss);
   fflush(stdout);
   fputs(ss, stderr);
+  g_stderr_written_to = 1;
 }
 
 void logprintb() {
@@ -111,6 +114,7 @@ void logerrprintb() {
   logstr(g_logbuf);
   fflush(stdout);
   fputs(g_logbuf, stderr);
+  g_stderr_written_to = 1;
 }
 
 void wordwrap(uint32_t suffix_len, char* ss) {
@@ -717,8 +721,8 @@ boolerr_t sort_strbox_indexed_malloc(uintptr_t str_ct, uintptr_t max_str_blen, c
     return 0;
   }
   const uintptr_t wkspace_entry_blen = get_strboxsort_wentry_blen(max_str_blen);
-  unsigned char* sort_wkspace = (unsigned char*)malloc(str_ct * wkspace_entry_blen);
-  if (!sort_wkspace) {
+  unsigned char* sort_wkspace;
+  if (pgl_malloc(str_ct * wkspace_entry_blen, &sort_wkspace)) {
     return 1;
   }
   sort_strbox_indexed2(str_ct, max_str_blen, 0, strbox, id_map, sort_wkspace);
@@ -870,6 +874,7 @@ pglerr_t sort_cmdline_flags(uint32_t max_flag_blen, uint32_t flag_ct, char* flag
       cur_flag_ptr[cur_flag_len] = '\0'; // just in case of aliases
       fflush(stdout);
       fprintf(stderr, "Error: Duplicate --%s flag.\n", cur_flag_ptr);
+      // g_stderr_written_to = 1;
       return kPglRetInvalidCmdline;
     }
     prev_flag_ptr = cur_flag_ptr;
@@ -884,13 +889,14 @@ pglerr_t init_logfile(uint32_t always_stderr, char* outname, char* outname_end) 
   if (!g_logfile) {
     fflush(stdout);
     fprintf(stderr, "Error: Failed to open %s for logging.\n", outname);
+    // g_stderr_written_to = 1;
     return kPglRetOpenFail;
   }
   fprintf(always_stderr? stderr : stdout, "Logging to %s.\n", outname);
   return kPglRetSuccess;
 }
 
-void cleanup_logfile(uint32_t print_end_time) {
+boolerr_t cleanup_logfile(uint32_t print_end_time) {
   char* write_iter = strcpya(g_logbuf, "End time: ");
   time_t rawtime;
   time(&rawtime);
@@ -898,6 +904,7 @@ void cleanup_logfile(uint32_t print_end_time) {
   if (print_end_time) {
     fputs(g_logbuf, stdout);
   }
+  boolerr_t ret_boolerr = 0;
   if (g_logfile) {
     if (!g_log_failed) {
       logstr("\n");
@@ -905,12 +912,14 @@ void cleanup_logfile(uint32_t print_end_time) {
       if (fclose(g_logfile)) {
 	fflush(stdout);
 	fputs("Error: Failed to finish writing to log.\n", stderr);
+	ret_boolerr = 1;
       }
     } else {
       fclose(g_logfile);
     }
     g_logfile = nullptr;
   }
+  return ret_boolerr;
 }
 
 // manually managed, very large stack
@@ -955,14 +964,16 @@ uintptr_t get_default_alloc_mb() {
 
 pglerr_t init_bigstack(uintptr_t malloc_size_mb, uintptr_t* malloc_mb_final_ptr, unsigned char** bigstack_ua_ptr) {
   // guarantee contiguous malloc space outside of main workspace
-  unsigned char* bubble = (unsigned char*)malloc(kNonBigstackMin);
-  if (!bubble) {
+  unsigned char* bubble;
+  if (pgl_malloc(kNonBigstackMin, &bubble)) {
     return kPglRetNomem;
   }
   assert(malloc_size_mb >= kBigstackMinMb);
 #ifndef __LP64__
   assert(malloc_size_mb <= 2047);
 #endif
+  // don't use pgl_malloc here since we don't automatically want to set
+  // g_failed_alloc_attempt_size on failure
   unsigned char* bigstack_ua = (unsigned char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
   // this is thwarted by overcommit, but still better than nothing...
   while (!bigstack_ua) {
@@ -973,6 +984,7 @@ pglerr_t init_bigstack(uintptr_t malloc_size_mb, uintptr_t* malloc_mb_final_ptr,
     bigstack_ua = (unsigned char*)malloc(malloc_size_mb * 1048576 * sizeof(char));
     if ((!bigstack_ua) && (malloc_size_mb == kBigstackMinMb)) {
       // switch to "goto cleanup" pattern if any more exit points are needed
+      g_failed_alloc_attempt_size = kBigstackMinMb * 1048576;
       free(bubble);
       return kPglRetNomem;
     }
@@ -981,7 +993,7 @@ pglerr_t init_bigstack(uintptr_t malloc_size_mb, uintptr_t* malloc_mb_final_ptr,
   unsigned char* bigstack_initial_base = (unsigned char*)round_up_pow2((uintptr_t)bigstack_ua, kCacheline);
   g_bigstack_base = bigstack_initial_base;
   // last 512 bytes now reserved for g_one_char_strs
-  g_bigstack_end = &(bigstack_initial_base[(malloc_size_mb * 1048576 - 512 - (uintptr_t)(bigstack_initial_base - bigstack_ua)) & (~(kCacheline - k1LU))]);
+  g_bigstack_end = &(bigstack_initial_base[round_down_pow2(malloc_size_mb * 1048576 - 512 - (uintptr_t)(bigstack_initial_base - bigstack_ua), kCacheline)]);
   free(bubble);
   uintptr_t* one_char_iter = (uintptr_t*)g_bigstack_end;
 #ifdef __LP64__
@@ -3517,7 +3529,7 @@ boolerr_t htable_good_size_alloc(uint32_t item_ct, uintptr_t bytes_avail, uint32
       return 1;
     }
   }
-  *htable_ptr = (uint32_t*)bigstack_alloc_raw(round_up_pow2(htable_size * sizeof(int32_t), kCacheline));
+  *htable_ptr = (uint32_t*)bigstack_alloc_raw_rd(htable_size * sizeof(int32_t));
   *htable_size_ptr = htable_size;
   return 0;
 }
@@ -4752,8 +4764,7 @@ pglerr_t try_to_add_chr_name(const char* chr_name, const char* file_descrip, uin
     fill_uint_one(kChrHtableSize, cip->nonstd_id_htable);
   }
   char** nonstd_names = cip->nonstd_names;
-  nonstd_names[chr_code_end] = (char*)malloc(name_slen + 1);
-  if (!nonstd_names[chr_code_end]) {
+  if (pgl_malloc(name_slen + 1, &(nonstd_names[chr_code_end]))) {
     return kPglRetNomem;
   }
   ll_str_t* name_stack_ptr = cip->incl_excl_name_stack;
@@ -5371,8 +5382,8 @@ boolerr_t allele_set(const char* newval, uint32_t allele_slen, char** allele_ptr
     // const_cast
     newptr = (char*)((uintptr_t)(&(g_one_char_strs[((unsigned char)(*newval)) * 2])));
   } else {
-    char* new_alloc = (char*)malloc(allele_slen + 1);
-    if (!new_alloc) {
+    char* new_alloc;
+    if (pgl_malloc(allele_slen + 1, &new_alloc)) {
       return 1;
     }
     memcpyx(new_alloc, newval, allele_slen, '\0');
@@ -5388,14 +5399,17 @@ boolerr_t allele_reset(const char* newval, uint32_t allele_slen, char** allele_p
     // const_cast
     newptr = (char*)((uintptr_t)(&(g_one_char_strs[((unsigned char)(*newval)) * 2])));
   } else {
-    char* new_alloc = (char*)malloc(allele_slen + 1);
-    if (!new_alloc) {
+    char* new_alloc;
+    if (pgl_malloc(allele_slen + 1, &new_alloc)) {
       return 1;
     }
     memcpyx(new_alloc, newval, allele_slen, '\0');
     newptr = new_alloc;
   }
-  if (allele_ptr[0][1]) {
+  const uintptr_t bigstack_end_addr = (uintptr_t)g_bigstack_end;
+  const uintptr_t maxdiff = ((uintptr_t)(&(g_one_char_strs[512]))) - bigstack_end_addr;
+  // take advantage of unsigned wraparound
+  if ((((uintptr_t)(*allele_ptr)) - bigstack_end_addr) >= maxdiff) {
     free(*allele_ptr);
   }
   *allele_ptr = newptr;
@@ -5745,8 +5759,7 @@ pglerr_t parse_name_ranges(char** argv, const char* errstr_append, uint32_t para
   }
   range_list_ptr->name_max_blen = ++name_max_blen;
   range_list_ptr->name_ct = name_ct;
-  range_list_ptr->names = (char*)malloc(name_ct * (((uintptr_t)name_max_blen) + 1));
-  if (!range_list_ptr->names) {
+  if (pgl_malloc(name_ct * (((uintptr_t)name_max_blen) + 1), &range_list_ptr->names)) {
     return kPglRetNomem;
   }
   range_list_ptr->starts_range = (unsigned char*)(&(range_list_ptr->names[name_ct * ((uintptr_t)name_max_blen)]));
@@ -6078,10 +6091,10 @@ THREAD_FUNC_DECL calc_id_hash_thread(void* arg) {
   uint32_t* item_id_hashes = g_item_id_hashes;
   const uint32_t id_htable_size = g_id_htable_size;
   const uint32_t calc_thread_ct = g_calc_thread_ct;
-  const uint32_t fill_start = ((id_htable_size * ((uint64_t)tidx)) / calc_thread_ct) & (~(kInt32PerCacheline - k1LU));
+  const uint32_t fill_start = round_down_pow2((id_htable_size * ((uint64_t)tidx)) / calc_thread_ct, kInt32PerCacheline);
   uint32_t fill_end;
   if (tidx + 1 < calc_thread_ct) {
-    fill_end = ((id_htable_size * (((uint64_t)tidx) + 1)) / calc_thread_ct) & (~(kInt32PerCacheline - k1LU));
+    fill_end = round_down_pow2((id_htable_size * (((uint64_t)tidx) + 1)) / calc_thread_ct, kInt32PerCacheline);
   } else {
     fill_end = id_htable_size;
   }
@@ -6251,7 +6264,7 @@ pglerr_t populate_id_htable_mt(const uintptr_t* subset_mask, char** item_ids, ui
       }
       if (extra_alloc) {
 	// bugfix: forgot to align this
-	bigstack_alloc_raw(round_up_pow2(extra_alloc * sizeof(int32_t), kCacheline));
+	bigstack_alloc_raw_rd(extra_alloc * sizeof(int32_t));
       }
     }
   }
@@ -6274,7 +6287,7 @@ pglerr_t alloc_and_populate_id_htable_mt(const uintptr_t* subset_mask, char** it
   //   tracking
   const uint32_t store_all_dups = (htable_dup_base_ptr != nullptr);
   const uintptr_t nonhtable_alloc = round_up_pow2(item_ct * sizeof(int32_t), kCacheline) + store_all_dups * round_up_pow2(item_ct * 2 * sizeof(int32_t), kCacheline);
-  uintptr_t max_bytes = bigstack_left() & (~(kCacheline - k1LU));
+  uintptr_t max_bytes = round_down_pow2(bigstack_left(), kCacheline);
   // force max_bytes >= 5 so leqprime() doesn't fail
   if (nonhtable_alloc + (item_ct + 6) * sizeof(int32_t) > max_bytes) {
     return kPglRetNomem;
@@ -6287,9 +6300,9 @@ pglerr_t alloc_and_populate_id_htable_mt(const uintptr_t* subset_mask, char** it
       id_htable_size = min_htable_size;
     }
   }
-  *id_htable_ptr = (uint32_t*)bigstack_alloc_raw(round_up_pow2(id_htable_size * sizeof(int32_t), kCacheline));
+  *id_htable_ptr = (uint32_t*)bigstack_alloc_raw_rd(id_htable_size * sizeof(int32_t));
   if (store_all_dups) {
-    *htable_dup_base_ptr = &((*id_htable_ptr)[round_up_pow2_ui(id_htable_size, kInt32PerCacheline)]);
+    *htable_dup_base_ptr = &((*id_htable_ptr)[round_up_pow2(id_htable_size, kInt32PerCacheline)]);
   }
   *id_htable_size_ptr = id_htable_size;
   return populate_id_htable_mt(subset_mask, item_ids, item_ct, store_all_dups, id_htable_size, max_thread_ct, *id_htable_ptr);
@@ -6365,7 +6378,7 @@ pglerr_t multithread_load_init(const uintptr_t* variant_include, uint32_t sample
   const uint32_t array_of_ptrs_alloc = round_up_pow2(calc_thread_ct * sizeof(intptr_t), kCacheline);
   *pgr_pps = (pgen_reader_t**)bigstack_alloc_raw(array_of_ptrs_alloc);
   *threads_ptr = (pthread_t*)bigstack_alloc_raw(array_of_ptrs_alloc);
-  *read_variant_uidx_starts_ptr = (uint32_t*)bigstack_alloc_raw(round_up_pow2(calc_thread_ct * sizeof(int32_t), kCacheline));
+  *read_variant_uidx_starts_ptr = (uint32_t*)bigstack_alloc_raw_rd(calc_thread_ct * sizeof(int32_t));
   for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
     (*pgr_pps)[tidx] = (pgen_reader_t*)bigstack_alloc_raw(pgr_struct_alloc);
     // pgr_preinit(g_pgr_ptrs[tidx]);

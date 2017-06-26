@@ -29,6 +29,8 @@
 namespace plink2 {
 #endif
 
+uintptr_t g_failed_alloc_attempt_size = 0;
+
 interr_t fwrite_checked(const void* buf, uintptr_t len, FILE* outfile) {
   while (len > kMaxBytesPerIO) {
     // OS X can't perform 2GB+ writes
@@ -255,14 +257,14 @@ boolerr_t aligned_malloc(uintptr_t size, uintptr_t alignment, void* aligned_pp) 
   // Assumes malloc returns word-aligned addresses.
   assert(alignment);
   assert(!(alignment % kBytesPerWord));
-  uintptr_t* malloc_ptr = (uintptr_t*)malloc(size + alignment);
-  if (!malloc_ptr) {
+  uintptr_t malloc_addr;
+  if (pgl_malloc(size + alignment, &malloc_addr)) {
     return 1;
   }
-  assert(!(((uintptr_t)malloc_ptr) % kBytesPerWord));
+  assert(!(malloc_addr % kBytesPerWord));
   uintptr_t** casted_aligned_pp = (uintptr_t**)aligned_pp;
-  *casted_aligned_pp = (uintptr_t*)((((uintptr_t)malloc_ptr) + alignment) & (~((alignment - 1))));
-  (*casted_aligned_pp)[-1] = (uintptr_t)malloc_ptr;
+  *casted_aligned_pp = (uintptr_t*)round_down_pow2(malloc_addr + alignment, alignment);
+  (*casted_aligned_pp)[-1] = malloc_addr;
   return 0;
 }
 
@@ -3141,7 +3143,7 @@ pglerr_t pgfi_multiread(const uintptr_t* variant_include, uint32_t variant_uidx_
       }
       // bugfix: can't use do..while, since previous "continue" needs to skip
       // this check
-      if (((cur_read_end_fpos + kDiskBlockSize + 1LLU) & (~(kDiskBlockSize - 1LLU))) < (next_read_start_fpos & (~(kDiskBlockSize - 1LLU)))) {
+      if (round_down_pow2_ull(cur_read_end_fpos + kDiskBlockSize + 1LLU, kDiskBlockSize) < round_down_pow2_ull(next_read_start_fpos, kDiskBlockSize)) {
 	continue;
       }
     }
@@ -4280,7 +4282,7 @@ void copy_and_subset_difflist(const uintptr_t* __restrict sample_include, const 
   }
   const uintptr_t* raw_raregeno_incr = raw_raregeno;
   const uint32_t* raw_difflist_sample_ids_iter = raw_difflist_sample_ids;
-  const uint32_t* raw_difflist_sample_ids_last = &(raw_difflist_sample_ids[(raw_difflist_len - 1) & (~(kBitsPerWordD2 - 1))]);
+  const uint32_t* raw_difflist_sample_ids_last = &(raw_difflist_sample_ids[round_down_pow2(raw_difflist_len - 1, kBitsPerWordD2)]);
   uintptr_t* new_raregeno_incr = new_raregeno;
   uintptr_t new_raregeno_word = 0;
   uint32_t new_difflist_len = 0;
@@ -6950,7 +6952,7 @@ pglerr_t pgr_read_raw(uint32_t vidx, pgen_global_flags_t read_gflags, pgen_reade
     const uint32_t first_half_byte_ct = 1 + (het_ct / CHAR_BIT);
     if (save_hphase) {
       // this needs to be synced with phaseraw_word_ct in make_pgen_thread()
-      loadbuf_iter = &(loadbuf_iter[kWordsPerVec + ((raw_sample_ct / kBitsPerWordD2) & (~(kWordsPerVec - 1)))]);
+      loadbuf_iter = &(loadbuf_iter[kWordsPerVec + round_down_pow2(raw_sample_ct / kBitsPerWordD2, kWordsPerVec)]);
       phaseraw[het_ctdl] = 0;
 
       memcpy(phaseraw, fread_ptr, first_half_byte_ct);
@@ -8275,7 +8277,7 @@ void pwc_init_phase2(uintptr_t fwrite_cacheline_ct, uint32_t thread_ct, pgen_wri
   const pgen_global_flags_t phase_dosage_gflags = pwcs[0]->phase_dosage_gflags;
   uint32_t vrtype_buf_bytes;
   if (phase_dosage_gflags) {
-    vrtype_buf_bytes = (uint32_t)round_up_pow2(variant_ct, kCacheline);
+    vrtype_buf_bytes = round_up_pow2(variant_ct, kCacheline);
   } else {
     vrtype_buf_bytes = DIV_UP(variant_ct, kCacheline * 2) * kCacheline;
   }
@@ -9380,7 +9382,7 @@ pglerr_t spgw_append_biallelic_genovec_hphase_dosage16(const uintptr_t* __restri
 }
 
 /*
-void append_dphase16(const uintptr_t* __restrict dosage_present, const uintptr_t* __restrict dphase_present, const uint16_t* __restrict dosage_vals, const uint16_t* __restrict dphase_vals, uint32_t dosage_ct, uint32_t dphase_ct, pgen_writer_common_t* pwcp, unsigned char* vrtype_ptr, uint32_t* vrec_len_ptr) {
+void append_dphase16(const uintptr_t* __restrict dosage_present, const uintptr_t* __restrict dphase_present, const uint16_t* __restrict dosage_vals, uint32_t dosage_ct, uint32_t dphase_ct, pgen_writer_common_t* pwcp, unsigned char* vrtype_ptr, uint32_t* vrec_len_ptr) {
   if (!dphase_ct) {
     append_dosage16(dosage_present, dosage_vals, dosage_ct, pwcp, vrtype_ptr, vrec_len_ptr);
   }
@@ -9404,18 +9406,11 @@ void append_dphase16(const uintptr_t* __restrict dosage_present, const uintptr_t
   *vrtype_ptr += 0x80;
   if (dosage_ct == dphase_ct) {
     *(pwcp->fwrite_bufp)++ = 0;
-    pwcp->fwrite_bufp = (unsigned char*)memcpya(pwcp->fwrite_bufp, dphase_vals, dphase_ct * 2 * sizeof(int16_t));
+    pwcp->fwrite_bufp = (unsigned char*)memcpya(pwcp->fwrite_bufp, dosage_vals, dphase_ct * 2 * sizeof(int16_t));
     *vrec_len_ptr += 1 + (dphase_ct * 2 * sizeof(int16_t));
   } else {
-    const uint16_t* dosage_vals_read_iter = dosage_vals;
-    const uint16_t* dphase_vals_read_iter = dphase_vals;
-    unsigned char* dphase_present_write_start = pwcp->fwrite_bufp;
     uintptr_t* dphase_present_tmp_write_iter = pwcp->genovec_invert_buf;
     const uint32_t dosage_ctp1b = 1 + (dosage_ct / CHAR_BIT);
-#ifdef __arm__
-  #error "Unaligned accesses in append_dphase16()."
-#endif
-    uintptr_t* aux5_write_iter = (uintptr_t*)(&(dphase_present_write_start[dosage_ctp1b]));
     const uint32_t widx_last = dosage_ct / kBitsPerWord;
     uintptr_t dphase_present_write_word = 1;
     uint32_t sample_idx = 0;
@@ -9432,11 +9427,7 @@ void append_dphase16(const uintptr_t* __restrict dosage_present, const uintptr_t
       for (; dosage_idx_lowbits < loop_end; ++dosage_idx_lowbits, ++sample_idx) {
 	next_set_unsafe_ck(dosage_present, &sample_idx);
 	if (IS_SET(dphase_present, sample_idx)) {
-	  *aux5_write_iter++ = *dphase_vals_read_iter++;
-	  *aux5_write_iter++ = *dphase_vals_read_iter++;
 	  dphase_present_write_word |= k1LU << dosage_idx_lowbits;
-	} else {
-	  *aux5_write_iter++ = *dosage_vals_read_iter++;
 	}
       }
       *dphase_present_tmp_write_iter++ = dphase_present_write_word;
@@ -9444,13 +9435,14 @@ void append_dphase16(const uintptr_t* __restrict dosage_present, const uintptr_t
       dosage_idx_lowbits = 0;
       ++widx;
     }
-    memcpy(dphase_present_write_start, pwcp->genovec_invert_buf, dosage_ctp1b);
-    pwcp->fwrite_bufp = (unsigned char*)aux5_write_iter;
-    *vrec_len_ptr += (uintptr_t)(pwcp->fwrite_bufp - dphase_present_write_start);
+    char* cur_write_iter = memcpya(pwcp->fwrite_bufp, pwcp->genovec_invert_buf, dosage_ctp1b);
+    cur_write_iter = memcpya(cur_write_iter, dosage_vals, (dosage_ct + dphase_ct) * sizeof(int16_t));
+    *vrec_len_ptr += (uintptr_t)(cur_write_iter - pwcp->fwrite_bufp);
+    pwcp->fwrite_bufp = (unsigned char*)cur_write_iter;
   }
 }
 
-void pwc_append_biallelic_genovec_dphase16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uintptr_t* __restrict dphase_present, const uint16_t* __restrict dosage_vals, const uint16_t* __restrict dphase_vals, uint32_t dosage_ct, uint32_t dphase_ct, pgen_writer_common_t* pwcp) {
+void pwc_append_biallelic_genovec_dphase16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uintptr_t* __restrict dphase_present, const uint16_t* __restrict dosage_vals, uint32_t dosage_ct, uint32_t dphase_ct, pgen_writer_common_t* pwcp) {
   // assumes there is phase and/or dosage data in output file, otherwise
   // vrtype_dest needs to be replaced
   const uint32_t vidx = pwcp->vidx;
@@ -9467,12 +9459,12 @@ void pwc_append_biallelic_genovec_dphase16(const uintptr_t* __restrict genovec, 
     append_hphase(genovec, phasepresent, phaseinfo, het_ct, phasepresent_ct, pwcp, vrtype_dest, &vrec_len);
   }
   if (dosage_ct) {
-    append_dphase16(dosage_present, dphase_present, dosage_vals, dphase_vals, dosage_ct, dphase_ct, pwcp, vrtype_dest, &vrec_len);
+    append_dphase16(dosage_present, dphase_present, dosage_vals, dosage_ct, dphase_ct, pwcp, vrtype_dest, &vrec_len);
   }
   memcpy(vrec_len_dest, &vrec_len, vrec_len_byte_ct);
 }
 
-pglerr_t spgw_append_biallelic_genovec_dphase16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uintptr_t* dphase_present, const uint16_t* dosage_vals, const uint16_t* dphase_vals, uint32_t dosage_ct, uint32_t dphase_ct, st_pgen_writer_t* spgwp) {
+pglerr_t spgw_append_biallelic_genovec_dphase16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uintptr_t* dphase_present, const uint16_t* dosage_vals, uint32_t dosage_ct, uint32_t dphase_ct, st_pgen_writer_t* spgwp) {
   // flush write buffer if necessary
   if (spgwp->pwc.fwrite_bufp >= &(spgwp->pwc.fwrite_buf[kPglFwriteBlockSize])) {
     const uintptr_t cur_byte_ct = (uintptr_t)(spgwp->pwc.fwrite_bufp - spgwp->pwc.fwrite_buf);
@@ -9482,7 +9474,7 @@ pglerr_t spgw_append_biallelic_genovec_dphase16(const uintptr_t* __restrict geno
     spgwp->pwc.vblock_fpos_offset += cur_byte_ct;
     spgwp->pwc.fwrite_bufp = spgwp->pwc.fwrite_buf;
   }
-  pwc_append_biallelic_genovec_dphase16(genovec, phasepresent, phaseinfo, dosage_present, dphase_present, dosage_vals, dphase_vals, dosage_ct, dphase_ct, &(spgwp->pwc));
+  pwc_append_biallelic_genovec_dphase16(genovec, phasepresent, phaseinfo, dosage_present, dphase_present, dosage_vals, dosage_ct, dphase_ct, &(spgwp->pwc));
   return kPglRetSuccess;
 }
 */
@@ -9548,7 +9540,7 @@ pglerr_t spgw_finish(st_pgen_writer_t* spgwp) {
 
 pglerr_t mpgw_flush(mt_pgen_writer_t* mpgwp) {
   pgen_writer_common_t* pwcp = mpgwp->pwcs[0];
-  uint32_t vidx = (pwcp->vidx - 1) & (~(kPglVblockSize - 1));
+  uint32_t vidx = round_down_pow2(pwcp->vidx - 1, kPglVblockSize);
   uint32_t thread_ct = mpgwp->thread_ct;
   const uint32_t variant_ct = pwcp->variant_ct;
   const uint32_t is_last_flush = ((vidx + thread_ct * kPglVblockSize) >= variant_ct);

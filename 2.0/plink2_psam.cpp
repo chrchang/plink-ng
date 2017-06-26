@@ -213,7 +213,7 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
 	  const uint32_t tok_blen = token_slen + 1;
 	  ll_str_t* ll_str_new = (ll_str_t*)ll_alloc_base;
 	  // just word-aligned, not cacheline-aligned
-	  ll_alloc_base += round_up_pow2_ui(tok_blen + sizeof(ll_str_t), kBytesPerWord);
+	  ll_alloc_base += round_up_pow2(tok_blen + sizeof(ll_str_t), kBytesPerWord);
 	  if (ll_alloc_base > tmp_bigstack_end) {
 	    goto load_psam_ret_NOMEM;
 	  }
@@ -256,8 +256,8 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
       relevant_postfid_col_ct = ((fam_cols / kfFamCol1) & 1) + ((fam_cols / (kfFamCol34 / 2)) & 2) + ((fam_cols / kfFamCol5) & 1) + pheno_ct;
       // these small allocations can't fail, since kMaxMediumLine <
       // loadbuf_size <= 1/3 of remaining space
-      col_skips = (uint32_t*)bigstack_alloc_raw(round_up_pow2(relevant_postfid_col_ct * sizeof(int32_t), kCacheline));
-      col_types = (uint32_t*)bigstack_alloc_raw(round_up_pow2(relevant_postfid_col_ct * sizeof(int32_t), kCacheline));
+      col_skips = (uint32_t*)bigstack_alloc_raw_rd(relevant_postfid_col_ct * sizeof(int32_t));
+      col_types = (uint32_t*)bigstack_alloc_raw_rd(relevant_postfid_col_ct * sizeof(int32_t));
       bigstack_mark2 = g_bigstack_base;
       col_skips[0] = fam_cols & 1; // assumes kfFamCol1 == 1
       col_types[0] = 0;
@@ -279,7 +279,7 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
 	col_skips[rpf_col_idx] = 1;
 	// col_types[rpf_col_idx++] = 6;
 	col_types[rpf_col_idx] = 5;
-	ll_str_t* ll_str_new = (ll_str_t*)bigstack_alloc_raw(round_up_pow2(7 + sizeof(ll_str_t), kCacheline));
+	ll_str_t* ll_str_new = (ll_str_t*)bigstack_alloc_raw_rd(7 + sizeof(ll_str_t));
 	ll_str_new->next = pheno_names_reverse_ll;
 	strcpy(ll_str_new->ss, "PHENO1");
 	max_pheno_name_blen = 7;
@@ -431,7 +431,7 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
 	// the "+ sizeof(intptr_t)" at the end, since that would normally be
 	// "+ (sizeof(intptr_t) - 1)"
 	// bugfix: pheno_ct * sizeof(intptr_t) -> pheno_ct * 8
-	const uint32_t alloc_byte_ct = sizeof(psam_info_ll_t) + sizeof(intptr_t) + ((fid_slen + iid_slen + sid_slen + paternal_id_slen + maternal_id_slen + pheno_ct * 8) & (~(sizeof(intptr_t) - 1)));
+	const uint32_t alloc_byte_ct = sizeof(psam_info_ll_t) + sizeof(intptr_t) + round_down_pow2(fid_slen + iid_slen + sid_slen + paternal_id_slen + maternal_id_slen + pheno_ct * 8, sizeof(intptr_t));
 	psam_info_ll_t* new_psam_info = (psam_info_ll_t*)tmp_bigstack_base;
 	tmp_bigstack_base += alloc_byte_ct;
 	if (tmp_bigstack_base > tmp_bigstack_end) {

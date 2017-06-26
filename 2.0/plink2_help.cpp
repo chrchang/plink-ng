@@ -227,12 +227,8 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
   help_ctrl.all_match_arr = nullptr;
   help_ctrl.argv = nullptr;
   if (param_ct) {
-    help_ctrl.param_slens = (uint32_t*)malloc(param_ct * sizeof(int32_t));
-    if (!help_ctrl.param_slens) {
-      goto disp_help_ret_NOMEM;
-    }
-    help_ctrl.all_match_arr = (uintptr_t*)malloc(param_ctl * 3 * sizeof(intptr_t));
-    if (!help_ctrl.all_match_arr) {
+    if (pgl_malloc(param_ct * sizeof(int32_t), &help_ctrl.param_slens) ||
+	pgl_malloc(param_ctl * 3 * sizeof(intptr_t), &help_ctrl.all_match_arr)) {
       goto disp_help_ret_NOMEM;
     }
     leading_dashes = 0;
@@ -243,8 +239,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
       }
     }
     if (leading_dashes) {
-      help_ctrl.argv = (char**)malloc(param_ct * sizeof(char*));
-      if (!help_ctrl.argv) {
+      if (pgl_malloc(param_ct * sizeof(intptr_t), &help_ctrl.argv)) {
 	goto disp_help_ret_NOMEM;
       }
       for (arg_uidx = 0; arg_uidx < param_ct; arg_uidx++) {
@@ -1638,6 +1633,10 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("debug", &help_ctrl, 0,
 "  --debug            : Use slower, more crash-resistant logging method.\n"
+	       );
+    help_print("warning-errcode", &help_ctrl, 0,
+"  --warning-errcode  : Return a nonzero error code to the OS when a run\n"
+"                       completes with warning(s).\n"
 	       );
     if (!param_ct) {
       fputs(

@@ -1636,16 +1636,16 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
     
     const uintptr_t header_line_ct = line_idx;
     const uint32_t max_variant_ctaw = BITCT_TO_ALIGNED_WORDCT(max_variant_ct);
-    uintptr_t* phasing_flags = (uintptr_t*)bigstack_end_alloc_raw(round_up_pow2(max_variant_ctaw * sizeof(intptr_t), kEndAllocAlign));
+    uintptr_t* phasing_flags = (uintptr_t*)bigstack_end_alloc_raw_rd(max_variant_ctaw * sizeof(intptr_t));
     uintptr_t* phasing_flags_iter = phasing_flags;
     uintptr_t* dosage_flags = nullptr;
     if (format_dosage_relevant) {
-      dosage_flags = (uintptr_t*)bigstack_end_alloc_raw(round_up_pow2(max_variant_ctaw * sizeof(intptr_t), kEndAllocAlign));
+      dosage_flags = (uintptr_t*)bigstack_end_alloc_raw_rd(max_variant_ctaw * sizeof(intptr_t));
     }
     uintptr_t* dosage_flags_iter = dosage_flags;
     uintptr_t* nonref_flags = nullptr;
     if (info_pr_present) {
-      nonref_flags = (uintptr_t*)bigstack_end_alloc_raw(round_up_pow2(max_variant_ctaw * sizeof(intptr_t), kEndAllocAlign));
+      nonref_flags = (uintptr_t*)bigstack_end_alloc_raw_rd(max_variant_ctaw * sizeof(intptr_t));
     }
     uintptr_t* nonref_flags_iter = nonref_flags;
     if (vcf_half_call == kVcfHalfCallDefault) {
@@ -1979,7 +1979,7 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
 
     // temporary kludge
     if (multiallelic_skip_ct) {
-      LOGPRINTF("%" PRIuPTR " multiallelic variant%s %sskipped (not yet supported).\n", multiallelic_skip_ct, (multiallelic_skip_ct == 1)? "" : "s", variant_skip_ct? "also " : "");
+      LOGERRPRINTFWW("Warning: %" PRIuPTR " multiallelic variant%s %sskipped (not yet supported).\n", multiallelic_skip_ct, (multiallelic_skip_ct == 1)? "" : "s", variant_skip_ct? "also " : "");
     }
     
     if (gzrewind(gz_infile)) {
@@ -2025,28 +2025,19 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
 	    goto vcf_to_pgen_ret_MALFORMED_INPUT_WW;
 	  }
 	}
-	// could also check for duplicates?
-	const char old_contig_name_end_char = *contig_name_end;
-	*contig_name_end = '\0';
-	// can't use get_chr_code() since hash table may not be initialized
-	int32_t chr_code_raw = get_chr_code_raw(contig_name_start);
-	if (chr_code_raw == -1) {
-	  if (!cip->name_ct) {
-	    continue;
-	  }
-	  const uint32_t chr_code = id_htable_find(contig_name_start, cip->nonstd_names, cip->nonstd_id_htable, (uintptr_t)(contig_name_end - contig_name_start), kChrHtableSize);
-	  if ((chr_code == 0xffffffffU) || (!IS_SET(cip->chr_mask, chr_code))) {
+        const int32_t cur_chr_code = get_chr_code_counted(cip, (uintptr_t)(contig_name_end - contig_name_start), contig_name_start);
+	if (cur_chr_code < 0) {
+	  continue;
+	}
+	if ((uint32_t)cur_chr_code <= cip->max_code) {
+	  if (!is_set(base_chr_present, cur_chr_code)) {
 	    continue;
 	  }
 	} else {
-	  if (chr_code_raw >= ((int32_t)kMaxContigs)) {
-	    chr_code_raw = cip->xymt_codes[chr_code_raw - kMaxContigs];
-	  }
-	  if ((chr_code_raw < 0) || (!is_set(base_chr_present, chr_code_raw))) {
+	  if (!is_set(cip->chr_mask, cur_chr_code)) {
 	    continue;
 	  }
 	}
-	*contig_name_end = old_contig_name_end_char;
 	// Note that, when --output-chr is specified, we don't update the
 	// ##contig header line chromosome code in the .pvar file, since
 	// ##contig is not an explicit part of the .pvar specification, it's
@@ -2788,7 +2779,7 @@ pglerr_t ox_sample_to_psam(const char* samplename, const char* ox_missing_code, 
     }
     // categorical phenotypes are lengthened by 1 character ('C' added in
     // front), so this needs to be 50% larger than loadbuf to handle worst case
-    char* writebuf = (char*)bigstack_alloc_raw(round_up_pow2(loadbuf_size + (loadbuf_size / 2), kCacheline));
+    char* writebuf = (char*)bigstack_alloc_raw_rd(loadbuf_size + (loadbuf_size / 2));
     char* write_iter = strcpya(writebuf, "#FID\tIID\tSEX");
     
     // 0 = not present, otherwise zero-based index (this is fine since first
@@ -2843,8 +2834,8 @@ pglerr_t ox_sample_to_psam(const char* samplename, const char* ox_missing_code, 
     loadbuf_iter = &(loadbuf_iter[1]);
 
     const uint32_t col_ctl = BITCT_TO_WORDCT(col_ct);
-    uintptr_t* col_is_categorical = (uintptr_t*)bigstack_alloc_raw(round_up_pow2(col_ctl * sizeof(intptr_t), kCacheline));
-    uintptr_t* col_is_qt = (uintptr_t*)bigstack_alloc_raw(round_up_pow2(col_ctl * sizeof(intptr_t), kCacheline));
+    uintptr_t* col_is_categorical = (uintptr_t*)bigstack_alloc_raw_rd(col_ctl * sizeof(intptr_t));
+    uintptr_t* col_is_qt = (uintptr_t*)bigstack_alloc_raw_rd(col_ctl * sizeof(intptr_t));
     fill_ulong_zero(col_ctl, col_is_categorical);
     fill_ulong_zero(col_ctl, col_is_qt);
     uint32_t at_least_one_binary_pheno = 0;
@@ -3292,10 +3283,12 @@ pglerr_t ox_gen_to_pgen(const char* genname, const char* samplename, const char*
     }
     write_iter = strcpya(write_iter, "#CHROM\tPOS\tID\tREF\tALT" EOLN_STR);
 
-    uint32_t import_dosage_certainty_int = kDosageMax - ((int32_t)((1.0 - import_dosage_certainty) * kDosageMax));
-    if (!import_dosage_certainty_int) {
-      import_dosage_certainty_int = 1;
-    }
+    // Explicit 32768 instead of kDosageMax since this is driven by the BGEN
+    // 1.1 format, not plink2's dosage representation.
+    // Note that command-line parser multiplies import_dosage_certainty by
+    // (1 - kSmallEpsilon), and we want import_dosage_certainty_int to be 1
+    // when import_dosage_certainty is zero.
+    uint32_t import_dosage_certainty_int = 1 + (int32_t)(import_dosage_certainty * 32768);
     const uint32_t dosage_int_sum_thresh = 3 * (import_dosage_certainty_int - 1);
     
     const uint32_t dosage_erase_halfdist = kDosage4th - dosage_erase_thresh;
@@ -3782,7 +3775,6 @@ THREAD_FUNC_DECL bgen11_dosage_scan_thread(void* arg) {
     uint32_t vidx = (tidx * cur_block_write_ct) / calc_thread_ct;
     unsigned char* compressed_geno_iter = g_compressed_geno_starts[parity][vidx];
     uint16_t* bgen_probs = bgen_geno_buf;
-    uint32_t dosage_is_present = 0;
     for (; vidx < vidx_end; ++vidx) {
       if (compression_mode) {
 	uint32_t compressed_block_byte_ct;
@@ -3818,18 +3810,19 @@ THREAD_FUNC_DECL bgen11_dosage_scan_thread(void* arg) {
 	    write_dosage_int -= (2 * (write_dosage_int_numer - write_dosage_int * dosage_int_sum) == dosage_int_sum) * (write_dosage_int % 2);
 	  }
 	  const uint32_t halfdist = biallelic_dosage_halfdist(write_dosage_int);
-	  dosage_is_present = (halfdist < dosage_erase_halfdist);
-	  if (dosage_is_present) {
-	    break;
+	  if (halfdist < dosage_erase_halfdist) {
+	    goto bgen11_dosage_scan_thread_dosage_found;
 	  }
 	}
       }
     }
-    if (dosage_is_present) {
-      g_dosage_is_present = 1;
-    } else if (vidx != vidx_end) {
+    if (vidx != vidx_end) {
       // g_error_vidxs[tidx] = vidx + vidx_base;
       g_error_ret = kPglRetMalformedInput;
+    }
+    while (0) {
+    bgen11_dosage_scan_thread_dosage_found:
+      g_dosage_is_present = 1;
     }
     // vidx_base += cur_block_write_ct;
     if (is_last_block) {
@@ -3956,9 +3949,650 @@ THREAD_FUNC_DECL bgen11_geno_to_pgen_thread(void* arg) {
   }
 }
 
+static unsigned char** g_thread_wkspaces = nullptr;
+static uint32_t* g_thread_bidxs[2] = {nullptr, nullptr};
+static uint16_t* g_bgen_allele_cts[2] = {nullptr, nullptr};
+static uintptr_t g_thread_wkspace_size = 0;
+
+// for each bit precision level, how large must
+//   max(numerators, 2^{bit_precision} - 1 - [sum of numerators])
+// be to avoid throwing out the genotype?
+static uint32_t* g_bgen_import_dosage_certainty_thresholds = nullptr;
+
+// Reliably fast division by constants of the form 2^n - 1; see
+//   http://ridiculousfish.com/blog/posts/labor-of-division-episode-iii.html
+// The general case also requires a preshift parameter, but it's always zero
+// for the odd .bgen denominators.
+typedef struct bgen_magic_num_struct {
+  uint64_t totq_magic;
+  uint32_t totq_postshift;
+  uint32_t totq_incr;
+} bgen_magic_num_t;
+
+static const bgen_magic_num_t kBgenMagicNums[25] = {
+  {0, 0, 0},
+  {1, 0, 0},
+  {2863311531U, 33, 0},
+  {1227133513U, 33, 1},
+  {2290649225U, 35, 0},
+  {1108378657U, 35, 1},
+  {1090785345U, 36, 1},
+  {270549121, 35, 1},
+  {2155905153U, 39, 0},
+  {134480385, 36, 1},
+  {1074791425U, 40, 1},
+  {4196353, 33, 1},
+  {16781313, 36, 1},
+  {67117057, 39, 1},
+  {268451841, 42, 1},
+  {1073774593U, 45, 1},
+  {2147516417U, 47, 0}
+  // todo: check whether something similar works for 17-32 bit cases
+  /*
+  ,{131073, 34, 1},
+  {262145, 36, 1},
+  {524289, 38, 1},
+  {1048577, 40, 1},
+  {2097153, 42, 1},
+  {4194305, 44, 1},
+  {8388609, 46, 1},
+  {16777217, 48, 1},
+  {33554433, 50, 1},
+  {67108865, 52, 1},
+  {134217729, 54, 1},
+  {268435457, 56, 1},
+  {536870913, 58, 1},
+  {1073741825U, 60, 1},
+  {2147483649U, 62, 1},
+  {2147483649U, 63, 0}
+  */
+};
+
+static_assert(sizeof(dosage_t) == 2, "bgen13_dosage_or_phase_scan_thread() needs to be updated.");
+THREAD_FUNC_DECL bgen13_dosage_or_phase_scan_thread(void* arg) {
+  // This bails as soon as a single phased or dosage call is detected.  We
+  // provisionally assume e.g. phased calls are also present when dosages are,
+  // and clean up the relevant header bytes when the assumption is untrue.
+  // (Well, that's how it'll work after phased dosages are implemented,
+  // anyway.)
+  const uintptr_t tidx = (uintptr_t)arg;
+  const uint32_t sample_ct = g_sample_ct;
+  const uint32_t dosage_erase_halfdist = g_dosage_erase_halfdist;
+  const uint32_t* bgen_import_dosage_certainty_thresholds = g_bgen_import_dosage_certainty_thresholds;
+  const uint32_t compression_mode = g_compression_mode;
+  const uintptr_t thread_wkspace_size = g_thread_wkspace_size;
+  const unsigned char* cur_uncompressed_geno = nullptr;
+  if (compression_mode) {
+    cur_uncompressed_geno = g_thread_wkspaces[tidx];
+  }
+  uint32_t parity = 0;
+  while (1) {
+    const uint32_t is_last_block = g_is_last_thread_block;
+    // printf("is_last_block: %lu %u %u\n", tidx, parity, is_last_block);
+
+    // this is just used as an no-error flag
+    const uintptr_t cur_block_write_ct = g_cur_block_write_ct;
+    if (cur_block_write_ct) {
+      const uint32_t bidx_end = g_thread_bidxs[parity][tidx + 1];
+      uint32_t bidx = g_thread_bidxs[parity][tidx];
+      unsigned char** compressed_geno_starts = g_compressed_geno_starts[parity];
+      const uint16_t* bgen_allele_cts = g_bgen_allele_cts[parity];
+      for (; bidx < bidx_end; ++bidx) {
+	const unsigned char* compressed_geno_start = compressed_geno_starts[bidx];
+	const unsigned char* compressed_geno_end = compressed_geno_starts[bidx + 1];
+	uint32_t compressed_byte_ct = (uintptr_t)(compressed_geno_end - compressed_geno_start);
+	uint32_t uncompressed_byte_ct;
+	if (compression_mode) {
+	  memcpy(&uncompressed_byte_ct, compressed_geno_start, 4);
+	  if (uncompressed_byte_ct > thread_wkspace_size) {
+	    goto bgen13_dosage_or_phase_scan_thread_nomem;
+	  }
+	  if (compression_mode == 1) {
+	    uLongf zlib_ulongf = uncompressed_byte_ct;
+	    // const_cast
+	    if (uncompress((Bytef*)((uintptr_t)cur_uncompressed_geno), &zlib_ulongf, (const Bytef*)(&(compressed_geno_start[4])), compressed_byte_ct) != Z_OK) {
+	      // possible todo: report variant index
+	      goto bgen13_dosage_or_phase_scan_thread_malformed;
+	    }
+	  } else {
+	    // const_cast
+	    const uintptr_t extracted_byte_ct = ZSTD_decompress((void*)((uintptr_t)cur_uncompressed_geno), uncompressed_byte_ct, &(compressed_geno_start[4]), compressed_byte_ct);
+	    if (extracted_byte_ct != uncompressed_byte_ct) {
+	      // possible todo: inspect error code
+	      goto bgen13_dosage_or_phase_scan_thread_malformed;
+	    }
+	  }
+	} else {
+	  cur_uncompressed_geno = compressed_geno_start;
+	  uncompressed_byte_ct = compressed_byte_ct;
+	}
+	// 4 bytes: sample_ct
+	// 2 bytes: # of alleles, must match bgen_allele_cts[bidx]
+	// 1 byte: min ploidy
+	// 1 byte: max ploidy
+	// sample_ct bytes: low 6 bits = ploidy, top bit = missingness
+	// 1 byte: 1 if phased, 0 if not
+	// 1 byte: # of bits of probability precision (we just support 8 and 16
+	//         for now, add others later)
+	if ((uncompressed_byte_ct < 10 + sample_ct) || memcmp(&sample_ct, cur_uncompressed_geno, 4)) {
+	  goto bgen13_dosage_or_phase_scan_thread_malformed;
+	}
+	const uint32_t cur_allele_ct = bgen_allele_cts[bidx];
+	if (*((const uint16_t*)(&(cur_uncompressed_geno[4]))) != cur_allele_ct) {
+	  goto bgen13_dosage_or_phase_scan_thread_malformed;
+	}
+	const uint32_t min_ploidy = cur_uncompressed_geno[6];
+	const uint32_t max_ploidy = cur_uncompressed_geno[7];
+	if ((min_ploidy > max_ploidy) || (max_ploidy > 63)) {
+	  goto bgen13_dosage_or_phase_scan_thread_malformed;
+	}
+	if (max_ploidy > 2) {
+	  goto bgen13_dosage_or_phase_scan_thread_not_yet_supported;
+	}
+	const unsigned char* missing_and_ploidy_info = &(cur_uncompressed_geno[8]);
+	const unsigned char* uncompressed_geno_iter = &(cur_uncompressed_geno[8 + sample_ct]);
+	const uint32_t is_phased = *uncompressed_geno_iter++;
+	if (is_phased > 1) {
+	  goto bgen13_dosage_or_phase_scan_thread_malformed;
+	}
+	const uint32_t bit_precision = *uncompressed_geno_iter++;
+	if ((!bit_precision) || (bit_precision > 32)) {
+	  goto bgen13_dosage_or_phase_scan_thread_malformed;
+	}
+	if (bit_precision > 16) {
+	  goto bgen13_dosage_or_phase_scan_thread_not_yet_supported;
+	}
+	const uint64_t totq_magic = kBgenMagicNums[bit_precision].totq_magic;
+	const uint32_t totq_postshift = kBgenMagicNums[bit_precision].totq_postshift;
+	uint32_t totq_incr = kBgenMagicNums[bit_precision].totq_incr;
+	const uint32_t bytes_per_prob = DIV_UP(bit_precision, CHAR_BIT);
+
+	// also equal to denominator
+	const uintptr_t numer_mask = (1U << bit_precision) - 1;
+
+        // diploid (haploid is identical except b is always zero):
+        //   round((32768a + 16384b)/(2^{bit precision} - 1))
+	//   floor((32768a + 16384b)/(2^{bit_precision} - 1) + 0.5)
+	// = floor((32768a + 16384b + 2^{bit_precision - 1})
+        //     / (2^{bit_precision} - 1))
+	// = (totq_magic * (32768a + 16384b + 2^{bits-1} + totq_incr))
+        //     >> totq_postshift
+	//
+	// This works fine for bit_precision <= 16, anyway.  There are two
+	// issues which come up with higher precision:
+	// 1. The ridiculous_fish magic numbers assume a 32-bit dividend.  Our
+	//    dividend is guaranteed to be divisible by 2^14, but it can be as
+	//    large as
+	//      (2^{bits} - 1) * 2^15 + 2^{bits-1}.
+	//    I would not be surprised if a similar approach still works with
+	//    bits > 16, but I'm pretty sure the magic-number-generating
+	//    function would need to be different.
+	// 2. Relatedly, the current sequence of operations multiplies
+	//    totq_magic by (dividend + totq_incr) (where totq_incr is zero or
+	//    one); this intermediate result must not overflow a uint64_t.
+        //
+        // Meanwhile, idempotence is not possible for --import-dosage-certainty
+	// anyway, so we apply that check to the pre-conversion numerators.
+	totq_incr += 1U << (bit_precision - 1);
+	uint32_t numer_certainty_min = 0;
+	if (bgen_import_dosage_certainty_thresholds) {
+	  numer_certainty_min = bgen_import_dosage_certainty_thresholds[bit_precision];
+	}
+
+	if (is_phased) {
+	  // todo
+	  goto bgen13_dosage_or_phase_scan_thread_not_yet_supported;
+	} else {
+	  if (cur_allele_ct == 2) {
+	    if (min_ploidy == max_ploidy) {
+	      // faster handling of common cases (no need to keep checking if
+	      // we've read past the end)
+	      if (uncompressed_byte_ct != (1 + bytes_per_prob * (max_ploidy * k1LU)) * sample_ct + 10) {
+		goto bgen13_dosage_or_phase_scan_thread_malformed;
+	      }
+	      if (max_ploidy == 2) {
+		for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
+		  const uint32_t missing_and_ploidy = missing_and_ploidy_info[sample_idx];
+		  // treat anything else as missing
+		  if (missing_and_ploidy == 2) {
+		    const unsigned char* sample_probs_start = &(uncompressed_geno_iter[sample_idx * 2 * bytes_per_prob]);
+#ifdef __arm__
+  #error "Unaligned accesses in bgen13_dosage_or_phase_scan_thread()."
+#endif
+		    // this can read slightly past the end of the buffer
+		    const uintptr_t numer_aa = (*((const uint32_t*)sample_probs_start)) & numer_mask;
+		    const uintptr_t numer_ab = (*((const uint32_t*)(&(sample_probs_start[bytes_per_prob])))) & numer_mask;
+		    if ((numer_aa < numer_certainty_min) && (numer_ab < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_aa + numer_ab)) {
+		      // treat as missing
+		      continue;
+		    }
+		    const uint32_t write_dosage_int = (totq_magic * (kDosageMax * ((uint64_t)numer_aa) + kDosageMid * ((uint64_t)numer_ab) + totq_incr)) >> totq_postshift;
+		    const uint32_t halfdist = biallelic_dosage_halfdist(write_dosage_int);
+		    if (halfdist < dosage_erase_halfdist) {
+		      goto bgen13_dosage_or_phase_scan_thread_found;
+		    }
+		  }
+		}
+	      } else if (max_ploidy == 1) {
+		for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
+		  const uint32_t missing_and_ploidy = missing_and_ploidy_info[sample_idx];
+		  if (missing_and_ploidy == 1) {
+		    const unsigned char* sample_probs_start = &(uncompressed_geno_iter[sample_idx * bytes_per_prob]);
+		    const uintptr_t numer_a = (*((const uint32_t*)sample_probs_start)) & numer_mask;
+		    if ((numer_a < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_a)) {
+		      continue;
+		    }
+		    const uint32_t write_dosage_int = (totq_magic * (kDosageMax * ((uint64_t)numer_a) + totq_incr)) >> totq_postshift;
+		    const uint32_t halfdist = biallelic_dosage_halfdist(write_dosage_int);
+		    if (halfdist < dosage_erase_halfdist) {
+		      goto bgen13_dosage_or_phase_scan_thread_found;
+		    }
+		  }
+		}
+	      }
+	      // don't need to do anything in all-ploidy-0 case
+	    } else {
+	      const unsigned char* uncompressed_geno_end = &(cur_uncompressed_geno[uncompressed_byte_ct]);
+	      for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
+		if (uncompressed_geno_iter > uncompressed_geno_end) {
+		  goto bgen13_dosage_or_phase_scan_thread_malformed;
+		}
+		uint32_t missing_and_ploidy = missing_and_ploidy_info[sample_idx];
+		if (missing_and_ploidy == 2) {
+		  const uintptr_t numer_aa = (*((const uint32_t*)uncompressed_geno_iter)) & numer_mask;
+		  const uintptr_t numer_ab = (*((const uint32_t*)(&(uncompressed_geno_iter[bytes_per_prob])))) & numer_mask;
+		  uncompressed_geno_iter = &(uncompressed_geno_iter[2 * bytes_per_prob]);
+		  if ((numer_aa < numer_certainty_min) && (numer_ab < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_aa + numer_ab)) {
+		    // treat as missing
+		    continue;
+		  }
+		  const uint32_t write_dosage_int = (totq_magic * (kDosageMax * ((uint64_t)numer_aa) + kDosageMid * ((uint64_t)numer_ab) + totq_incr)) >> totq_postshift;
+		  const uint32_t halfdist = biallelic_dosage_halfdist(write_dosage_int);
+		  if (halfdist < dosage_erase_halfdist) {
+		    goto bgen13_dosage_or_phase_scan_thread_found;
+		  }
+		} else if (missing_and_ploidy == 1) {
+		  const uintptr_t numer_a = (*((const uint32_t*)uncompressed_geno_iter)) & numer_mask;
+		  uncompressed_geno_iter = &(uncompressed_geno_iter[bytes_per_prob]);
+		  if ((numer_a < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_a)) {
+		    continue;
+		  }
+		  const uint32_t write_dosage_int = (totq_magic * (kDosageMax * ((uint64_t)numer_a) + totq_incr)) >> totq_postshift;
+		  const uint32_t halfdist = biallelic_dosage_halfdist(write_dosage_int);
+		  if (halfdist < dosage_erase_halfdist) {
+		    goto bgen13_dosage_or_phase_scan_thread_found;
+		  }
+		} else {
+		  // treat as missing
+		  missing_and_ploidy &= 127;
+		  if (missing_and_ploidy > 2) {
+		    goto bgen13_dosage_or_phase_scan_thread_malformed;
+		  }
+		  uncompressed_geno_iter = &(uncompressed_geno_iter[missing_and_ploidy * bytes_per_prob]);
+		}
+	      }
+	    }
+	  } else {
+	    // todo: unphased multiallelic variants
+	    // (shouldn't currently be possible to reach here, I/O thread skips
+	    // multiallelics for now)
+	    assert(0);
+	    goto bgen13_dosage_or_phase_scan_thread_not_yet_supported;
+	  }
+	}
+      }
+    }
+    while (0) {
+    bgen13_dosage_or_phase_scan_thread_nomem:
+      g_error_ret = kPglRetNomem;
+      break;
+    bgen13_dosage_or_phase_scan_thread_malformed:
+      g_error_ret = kPglRetMalformedInput;
+      break;
+    bgen13_dosage_or_phase_scan_thread_not_yet_supported:
+      g_error_ret = kPglRetNotYetSupported;
+      break;
+    bgen13_dosage_or_phase_scan_thread_found:
+      g_dosage_is_present = 1;
+      break;
+    }
+    if (is_last_block) {
+      THREAD_RETURN;
+    }
+    THREAD_BLOCK_FINISH(tidx);
+    parity = 1 - parity;
+  }
+}
+
+static uintptr_t* g_write_phasepresents[2] = {nullptr, nullptr};
+static uintptr_t* g_write_phaseinfos[2] = {nullptr, nullptr};
+static uintptr_t* g_write_dphase_presents[2] = {nullptr, nullptr};
+static uint32_t* g_write_dphase_cts[2] = {nullptr, nullptr};
+
+static_assert(sizeof(dosage_t) == 2, "bgen13_geno_to_pgen_thread() needs to be updated.");
+THREAD_FUNC_DECL bgen13_geno_to_pgen_thread(void* arg) {
+  const uintptr_t tidx = (uintptr_t)arg;
+  const uintptr_t sample_ct = g_sample_ct;
+  const uint32_t hard_call_halfdist = g_hard_call_halfdist;
+  const uint32_t dosage_erase_halfdist = g_dosage_erase_halfdist;
+  const uint32_t* bgen_import_dosage_certainty_thresholds = g_bgen_import_dosage_certainty_thresholds;
+  const uint32_t compression_mode = g_compression_mode;
+  const uint32_t prov_ref_allele_second = g_prov_ref_allele_second;
+  const uintptr_t sample_ctaw2 = QUATERCT_TO_ALIGNED_WORDCT(sample_ct);
+  const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
+  const uintptr_t sample_ctaw = BITCT_TO_ALIGNED_WORDCT(sample_ct);
+  const uintptr_t thread_wkspace_size = g_thread_wkspace_size;
+  const unsigned char* cur_uncompressed_geno = nullptr;
+  if (compression_mode) {
+    cur_uncompressed_geno = g_thread_wkspaces[tidx];
+  }
+  uint32_t parity = 0;
+  while (1) {
+    const uint32_t is_last_block = g_is_last_thread_block;
+
+    // this is just used as an no-error flag
+    const uintptr_t cur_block_write_ct = g_cur_block_write_ct;
+    if (cur_block_write_ct) {
+      const uint32_t bidx_end = g_thread_bidxs[parity][tidx + 1];
+      uint32_t bidx = g_thread_bidxs[parity][tidx];
+      unsigned char** compressed_geno_starts = g_compressed_geno_starts[parity];
+      uintptr_t* write_genovec_iter = &(g_write_genovecs[parity][bidx * sample_ctaw2]);
+      uint32_t* write_dosage_ct_iter = &(g_write_dosage_cts[parity][bidx]);
+      uint32_t* write_dphase_ct_iter = &(g_write_dphase_cts[parity][bidx]);
+      uintptr_t* write_dosage_present_iter = &(g_write_dosage_presents[parity][bidx * sample_ctaw]);
+      uintptr_t* write_dphase_present_iter = &(g_write_dphase_presents[parity][bidx * sample_ctaw]);
+      dosage_t* write_dosage_vals_iter = &(g_write_dosage_val_bufs[parity][bidx * sample_ct * 2]);
+      const uint16_t* bgen_allele_ct_iter = &(g_bgen_allele_cts[parity][bidx]);
+      for (; bidx < bidx_end; ++bidx) {
+	const unsigned char* compressed_geno_start = compressed_geno_starts[bidx];
+	const unsigned char* compressed_geno_end = compressed_geno_starts[bidx + 1];
+	uint32_t compressed_byte_ct = (uintptr_t)(compressed_geno_end - compressed_geno_start);
+	uint32_t uncompressed_byte_ct;
+	if (compression_mode) {
+	  memcpy(&uncompressed_byte_ct, compressed_geno_start, 4);
+	  if (uncompressed_byte_ct > thread_wkspace_size) {
+	    goto bgen13_geno_to_pgen_thread_nomem;
+	  }
+	  if (compression_mode == 1) {
+	    uLongf zlib_ulongf = uncompressed_byte_ct;
+	    // const_cast
+	    if (uncompress((Bytef*)((uintptr_t)cur_uncompressed_geno), &zlib_ulongf, (const Bytef*)(&(compressed_geno_start[4])), compressed_byte_ct) != Z_OK) {
+	      // possible todo: report variant index
+	      goto bgen13_geno_to_pgen_thread_malformed;
+	    }
+	  } else {
+            // const_cast
+	    const uintptr_t extracted_byte_ct = ZSTD_decompress((void*)((uintptr_t)cur_uncompressed_geno), uncompressed_byte_ct, &(compressed_geno_start[4]), compressed_byte_ct);
+	    if (extracted_byte_ct != uncompressed_byte_ct) {
+	      // possible todo: inspect error code
+	      goto bgen13_geno_to_pgen_thread_malformed;
+	    }
+	  }
+	} else {
+	  cur_uncompressed_geno = compressed_geno_start;
+	  uncompressed_byte_ct = compressed_byte_ct;
+	}
+	// 4 bytes: sample_ct
+	// 2 bytes: # of alleles, must match bgen_allele_cts[bidx]
+	// 1 byte: min ploidy
+	// 1 byte: max ploidy
+	// sample_ct bytes: low 6 bits = ploidy, top bit = missingness
+	// 1 byte: 1 if phased, 0 if not
+	// 1 byte: # of bits of probability precision (we just support 8 and 16
+	//         for now, add others later)
+	if ((uncompressed_byte_ct < 10 + sample_ct) || memcmp(&sample_ct, cur_uncompressed_geno, 4)) {
+	  goto bgen13_geno_to_pgen_thread_malformed;
+	}
+	const uint32_t cur_allele_ct = *bgen_allele_ct_iter++;
+	if (*((const uint16_t*)(&(cur_uncompressed_geno[4]))) != cur_allele_ct) {
+	  goto bgen13_geno_to_pgen_thread_malformed;
+	}
+	const uint32_t min_ploidy = cur_uncompressed_geno[6];
+	const uint32_t max_ploidy = cur_uncompressed_geno[7];
+	if ((min_ploidy > max_ploidy) || (max_ploidy > 63)) {
+	  goto bgen13_geno_to_pgen_thread_malformed;
+	}
+	if (max_ploidy > 2) {
+	  goto bgen13_geno_to_pgen_thread_not_yet_supported;
+	}
+	const unsigned char* missing_and_ploidy_iter = &(cur_uncompressed_geno[8]);
+	const unsigned char* uncompressed_geno_iter = &(cur_uncompressed_geno[8 + sample_ct]);
+	const uint32_t is_phased = *uncompressed_geno_iter++;
+	if (is_phased > 1) {
+	  goto bgen13_geno_to_pgen_thread_malformed;
+	}
+	const uint32_t bit_precision = *uncompressed_geno_iter++;
+	if ((!bit_precision) || (bit_precision > 32)) {
+	  goto bgen13_geno_to_pgen_thread_malformed;
+	}
+	if (bit_precision > 16) {
+	  goto bgen13_geno_to_pgen_thread_not_yet_supported;
+	}
+	const uint64_t totq_magic = kBgenMagicNums[bit_precision].totq_magic;
+	const uint32_t totq_postshift = kBgenMagicNums[bit_precision].totq_postshift;
+	uint32_t totq_incr = kBgenMagicNums[bit_precision].totq_incr;
+	const uint32_t bytes_per_prob = DIV_UP(bit_precision, CHAR_BIT);
+
+	// also equal to denominator
+	const uintptr_t numer_mask = (1U << bit_precision) - 1;
+
+	totq_incr += 1U << (bit_precision - 1);
+	uint32_t numer_certainty_min = 0;
+	if (bgen_import_dosage_certainty_thresholds) {
+	  numer_certainty_min = bgen_import_dosage_certainty_thresholds[bit_precision];
+	}
+
+	dosage_t* cur_dosage_vals_iter = write_dosage_vals_iter;
+	uint32_t inner_loop_last = kBitsPerWordD2 - 1;
+	uint32_t widx = 0;
+	if (is_phased) {
+	  // todo
+	  goto bgen13_geno_to_pgen_thread_not_yet_supported;
+	} else {
+	  // fill_ulong_zero(sample_ctaw, write_dphase_present_iter);
+	  if (cur_allele_ct == 2) {
+	    if (min_ploidy == max_ploidy) {
+	      // faster handling of common cases (no need to keep checking if
+	      // we've read past the end)
+	      if (uncompressed_byte_ct != (bytes_per_prob * (max_ploidy * k1LU) + 1) * sample_ct + 10) {
+		goto bgen13_geno_to_pgen_thread_malformed;
+	      }
+	      if (max_ploidy == 2) {
+		while (1) {
+		  if (widx >= sample_ctl2_m1) {
+		    if (widx > sample_ctl2_m1) {
+		      break;
+		    }
+		    inner_loop_last = (sample_ct - 1) % kBitsPerWordD2;
+		  }
+		  uintptr_t genovec_word = 0;
+		  uint32_t dosage_present_hw = 0;
+		  for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits, uncompressed_geno_iter = &(uncompressed_geno_iter[2 * bytes_per_prob])) {
+		    const uint32_t missing_and_ploidy = *missing_and_ploidy_iter++;
+		    if (missing_and_ploidy == 2) {
+#ifdef __arm__
+  #error "Unaligned accesses in bgen13_geno_to_pgen_thread()."
+#endif
+		      const uintptr_t numer_aa = (*((const uint32_t*)uncompressed_geno_iter)) & numer_mask;
+		      const uintptr_t numer_ab = (*((const uint32_t*)(&(uncompressed_geno_iter[bytes_per_prob])))) & numer_mask;
+		      if (numer_aa + numer_ab > numer_mask) {
+			goto bgen13_geno_to_pgen_thread_malformed;
+		      }
+		      if ((numer_aa < numer_certainty_min) && (numer_ab < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_aa + numer_ab)) {
+			// missing due to --import-dosage-certainty
+			goto bgen13_geno_to_pgen_thread_diploid_missing;
+		      }
+		      const uint32_t write_dosage_int = (totq_magic * (kDosageMax * ((uint64_t)numer_aa) + kDosageMid * ((uint64_t)numer_ab) + totq_incr)) >> totq_postshift;
+		      const uint32_t halfdist = biallelic_dosage_halfdist(write_dosage_int);
+		      if (halfdist < hard_call_halfdist) {
+			genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+		      } else {
+			genovec_word |= ((write_dosage_int + (kDosage4th * k1LU)) / kDosageMid) << (2 * sample_idx_lowbits);
+			if (halfdist >= dosage_erase_halfdist) {
+			  continue;
+			}
+		      }
+		      dosage_present_hw |= 1U << sample_idx_lowbits;
+		      *cur_dosage_vals_iter++ = write_dosage_int;
+		    } else {
+		      // (could also validate that missing_and_ploidy == 130)
+		    bgen13_geno_to_pgen_thread_diploid_missing:
+		      genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+		    }
+		  }
+		  write_genovec_iter[widx] = genovec_word;
+		  ((halfword_t*)write_dosage_present_iter)[widx] = (halfword_t)dosage_present_hw;
+		  ++widx;
+		}
+	      } else if (max_ploidy == 1) {
+		while (1) {
+		  if (widx >= sample_ctl2_m1) {
+		    if (widx > sample_ctl2_m1) {
+		      break;
+		    }
+		    inner_loop_last = (sample_ct - 1) % kBitsPerWordD2;
+		  }
+		  uintptr_t genovec_word = 0;
+		  uint32_t dosage_present_hw = 0;
+		  for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits, uncompressed_geno_iter = &(uncompressed_geno_iter[bytes_per_prob])) {
+		    const uint32_t missing_and_ploidy = *missing_and_ploidy_iter++;
+		    if (missing_and_ploidy == 1) {
+		      const uintptr_t numer_a = (*((const uint32_t*)uncompressed_geno_iter)) & numer_mask;
+		      if ((numer_a < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_a)) {
+			goto bgen13_geno_to_pgen_thread_haploid_missing;
+		      }
+		      const uint32_t write_dosage_int = (totq_magic * (kDosageMax * ((uint64_t)numer_a) + totq_incr)) >> totq_postshift;
+		      const uint32_t halfdist = biallelic_dosage_halfdist(write_dosage_int);
+		      if (halfdist < hard_call_halfdist) {
+			genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+		      } else {
+			genovec_word |= ((write_dosage_int + (kDosage4th * k1LU)) / kDosageMid) << (2 * sample_idx_lowbits);
+			if (halfdist >= dosage_erase_halfdist) {
+			  continue;
+			}
+		      }
+		      dosage_present_hw |= 1U << sample_idx_lowbits;
+		      *cur_dosage_vals_iter++ = write_dosage_int;
+		    } else {
+		    bgen13_geno_to_pgen_thread_haploid_missing:
+		      genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+		    }
+		  }
+		  write_genovec_iter[widx] = genovec_word;
+		  ((halfword_t*)write_dosage_present_iter)[widx] = (halfword_t)dosage_present_hw;
+		  ++widx;
+		}
+	      }
+	      // don't need to do anything in all-ploidy-0 case
+	    } else {
+	      const unsigned char* uncompressed_geno_end = &(cur_uncompressed_geno[uncompressed_byte_ct]);
+	      while (1) {
+		if (widx >= sample_ctl2_m1) {
+		  if (widx > sample_ctl2_m1) {
+		    break;
+		  }
+		  inner_loop_last = (sample_ct - 1) % kBitsPerWordD2;
+		}
+		uintptr_t genovec_word = 0;
+		uint32_t dosage_present_hw = 0;
+		for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
+		  if (uncompressed_geno_iter > uncompressed_geno_end) {
+		    goto bgen13_geno_to_pgen_thread_malformed;
+		  }
+		  uint32_t missing_and_ploidy = *missing_and_ploidy_iter++;
+		  uint32_t write_dosage_int;
+		  if (missing_and_ploidy == 2) {
+		    const uintptr_t numer_aa = (*((const uint32_t*)uncompressed_geno_iter)) & numer_mask;
+		    const uintptr_t numer_ab = (*((const uint32_t*)(&(uncompressed_geno_iter[bytes_per_prob])))) & numer_mask;
+		    uncompressed_geno_iter = &(uncompressed_geno_iter[2 * bytes_per_prob]);
+		    if (numer_aa + numer_ab > numer_mask) {
+		      goto bgen13_geno_to_pgen_thread_malformed;
+		    }
+		    if ((numer_aa < numer_certainty_min) && (numer_ab < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_aa + numer_ab)) {
+		      // missing due to --import-dosage-certainty
+		      goto bgen13_geno_to_pgen_thread_generic_missing;
+		    }
+		    write_dosage_int = (totq_magic * (kDosageMax * ((uint64_t)numer_aa) + kDosageMid * ((uint64_t)numer_ab) + totq_incr)) >> totq_postshift;
+		  } else if (missing_and_ploidy == 1) {
+		    const uintptr_t numer_a = (*((const uint32_t*)uncompressed_geno_iter)) & numer_mask;
+		    uncompressed_geno_iter = &(uncompressed_geno_iter[bytes_per_prob]);
+		    if ((numer_a < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_a)) {
+		      goto bgen13_geno_to_pgen_thread_generic_missing;
+		    }
+		    write_dosage_int = (totq_magic * (kDosageMax * ((uint64_t)numer_a) + totq_incr)) >> totq_postshift;
+		  } else {
+		    missing_and_ploidy &= 127;
+		    if (missing_and_ploidy > 2) {
+		      goto bgen13_geno_to_pgen_thread_malformed;
+		    }
+		    uncompressed_geno_iter = &(uncompressed_geno_iter[missing_and_ploidy * bytes_per_prob]);
+		  bgen13_geno_to_pgen_thread_generic_missing:
+		    genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+		    continue;
+		  }
+		  const uint32_t halfdist = biallelic_dosage_halfdist(write_dosage_int);
+		  if (halfdist < hard_call_halfdist) {
+		    genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+		  } else {
+		    genovec_word |= ((write_dosage_int + (kDosage4th * k1LU)) / kDosageMid) << (2 * sample_idx_lowbits);
+		    if (halfdist >= dosage_erase_halfdist) {
+		      continue;
+		    }
+		  }
+		  dosage_present_hw |= 1U << sample_idx_lowbits;
+		  *cur_dosage_vals_iter++ = write_dosage_int;
+		}
+		write_genovec_iter[widx] = genovec_word;
+		((halfword_t*)write_dosage_present_iter)[widx] = (halfword_t)dosage_present_hw;
+		++widx;
+	      }
+	    }
+	    const uint32_t dosage_ct = (uintptr_t)(cur_dosage_vals_iter - write_dosage_vals_iter);
+	    // note that this is inverted from bgen-1.1
+	    if (!prov_ref_allele_second) {
+	      genovec_invert_unsafe(sample_ct, write_genovec_iter);
+	      zero_trailing_quaters(sample_ct, write_genovec_iter);
+	      if (dosage_ct) {
+		biallelic_dosage16_invert(dosage_ct, write_dosage_vals_iter);
+	      }
+	    }
+	    *write_dosage_ct_iter++ = dosage_ct;
+	    *write_dphase_ct_iter++ = 0;
+	    write_genovec_iter = &(write_genovec_iter[sample_ctaw2]);
+	    write_dosage_present_iter = &(write_dosage_present_iter[sample_ctaw]);
+	    write_dphase_present_iter = &(write_dphase_present_iter[sample_ctaw]);
+	    write_dosage_vals_iter = &(write_dosage_vals_iter[sample_ct * 2]);
+	  } else {
+	    // todo: unphased multiallelic variants
+	    assert(0);
+	    goto bgen13_geno_to_pgen_thread_not_yet_supported;
+	  }
+	}
+      }
+    }
+    while (0) {
+    bgen13_geno_to_pgen_thread_nomem:
+      g_error_ret = kPglRetNomem;
+      break;
+    bgen13_geno_to_pgen_thread_malformed:
+      g_error_ret = kPglRetMalformedInput;
+      break;
+    bgen13_geno_to_pgen_thread_not_yet_supported:
+      g_error_ret = kPglRetNotYetSupported;
+      break;
+    }
+    if (is_last_block) {
+      THREAD_RETURN;
+    }
+    THREAD_BLOCK_FINISH(tidx);
+    parity = 1 - parity;
+  }
+}
+
 static_assert(sizeof(dosage_t) == 2, "ox_bgen_to_pgen() needs to be updated.");
 pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const char* const_fid, const char* ox_missing_code, misc_flags_t misc_flags, oxford_import_t oxford_import_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, uint32_t max_thread_ct, char* outname, char* outname_end, chr_info_t* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* bgenfile = nullptr;
 
   // only if no sample file specified, and .bgen has sample IDs.  (possible
@@ -3974,12 +4608,12 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
   {
     // Pass 1: Determine whether there's at least one non-hardcall needs to be
     //         saved, and if a chromosome filter was specified, count the
-    //         number of variants which pass the filter.  (Fortunately, the
-    //         header contains the variant count so we can usually early-bail
-    //         when no chromosome filter is involved.)
-    // Pass 2: Write .pvar and .pgen files.
-    // Probable todo: Multithreaded load (unlike .gen.gz/.vcf.gz, there is no
-    // reason to restrict ourselves to single-threaded decompression)
+    //         number of variants which pass the filter.
+    //         For bgen-1.2/1.3, the .pvar is also written in this pass.
+    //         For bgen-1.1, we can usually early-bail when no chromosome
+    //         filter is involved, so .pvar writing is postponed till the
+    //         second pass.
+    // Pass 2: Write .pgen file.
 
     if (fopen_checked(bgenname, FOPEN_RB, &bgenfile)) {
       goto ox_bgen_to_pgen_ret_OPEN_FAIL;
@@ -3999,7 +4633,6 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       logerrprint("Error: Empty .bgen file.\n");
       goto ox_bgen_to_pgen_ret_INCONSISTENT_INPUT;
     }
-    LOGPRINTF("--bgen: %u variant%s detected.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s");
     const uint32_t sample_ct = initial_uints[3];
     if (initial_uints[4] && (initial_uints[4] != 0x6e656762)) {
       logerrprint("Error: Invalid .bgen magic number.\n");
@@ -4027,6 +4660,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       logerrprint("Error: Invalid .bgen header.\n");
       goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
     }
+    LOGPRINTF("--bgen: %u variant%s detected, format v1.%c.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s", (layout == 1)? '1' : ((compression_mode == 2)? '3' : '2'));
     if (samplename[0]) {
       uint32_t sfile_sample_ct;
       reterr = ox_sample_to_psam(samplename, ox_missing_code, misc_flags, outname, outname_end, &sfile_sample_ct);
@@ -4300,10 +4934,15 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
     write_iter = strcpya(write_iter, "#CHROM\tPOS\tID\tREF\tALT" EOLN_STR);
 
     const uint32_t snpid_chr = (oxford_import_flags & kfOxfordImportBgenSnpIdChr);
+
+    // true for both provisional-reference and real-reference second
     const uint32_t prov_ref_allele_second = !(oxford_import_flags & kfOxfordImportRefFirst);
+
     if (hard_call_thresh == 0xffffffffU) {
       hard_call_thresh = kDosageMid / 10;
     }
+    const uint32_t sample_ctaw2 = QUATERCT_TO_ALIGNED_WORDCT(sample_ct);
+    const uint32_t sample_ctaw = BITCT_TO_ALIGNED_WORDCT(sample_ct);
     uint32_t dosage_is_present = 0;
     g_sample_ct = sample_ct;
     g_hard_call_halfdist = kDosage4th - hard_call_thresh;
@@ -4314,21 +4953,18 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
     g_dosage_is_present = 0;
     if (layout == 1) {
       // v1.1
-      uintptr_t loadbuf_size = (bigstack_left() / 4) & (~(kCacheline - k1LU));
+      uintptr_t loadbuf_size = round_down_pow2(bigstack_left() / 4, kCacheline);
 #ifdef __LP64__
       if (loadbuf_size > kMaxLongLine) {
 	loadbuf_size = kMaxLongLine;
       }
 #endif
-      // must have enough space for SNP/rs/chromosome IDs
-      if (loadbuf_size < 3 * 65536) {
+      // must have enough space for chromosome and variant IDs
+      if (loadbuf_size < 2 * 65536) {
 	goto ox_bgen_to_pgen_ret_NOMEM;
       }
       unsigned char* loadbuf = (unsigned char*)bigstack_alloc_raw(loadbuf_size);
-      g_import_dosage_certainty_int = kDosageMax - ((int32_t)((1.0 - import_dosage_certainty) * kDosageMax));
-      if (!g_import_dosage_certainty_int) {
-	g_import_dosage_certainty_int = 1;
-      }
+      g_import_dosage_certainty_int = 1 + (int32_t)(import_dosage_certainty * 32768);
       uintptr_t bgen_geno_max_byte_ct = 6LU * sample_ct;
       if (compression_mode) {
         bgen_geno_max_byte_ct = compressBound(bgen_geno_max_byte_ct);
@@ -4367,8 +5003,6 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
 	  goto ox_bgen_to_pgen_ret_NOMEM;
 	}
       }
-      const uint32_t sample_ctaw2 = QUATERCT_TO_ALIGNED_WORDCT(sample_ct);
-      const uint32_t sample_ctaw = BITCT_TO_ALIGNED_WORDCT(sample_ct);
       uintptr_t cachelines_avail_m12 = bigstack_left() / kCacheline;
       // reserve 1/8 of remaining memory for writer
       cachelines_avail_m12 -= cachelines_avail_m12 / 8;
@@ -4521,7 +5155,8 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
 	  if (fseeko(bgenfile, compressed_block_byte_ct, SEEK_CUR)) {
 	    goto ox_bgen_to_pgen_ret_READ_FAIL;
 	  }
-	  block_vidx += 1 - skip;
+	  // bugfix (25 Jun 2017): block_vidx should be left unchanged here
+	  variant_ct += 1 - skip;
 	  continue;
 	}
 	compressed_geno_starts[block_vidx] = bgen_geno_iter;
@@ -4548,7 +5183,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
 	    dosage_is_present = g_dosage_is_present;
 	    if (dosage_is_present) {
 	      // don't need to scan for any more dosages
-	      threads3z_cleanup(&ts, &g_cur_block_write_ct);
+	      stop_threads3z(&ts, &g_cur_block_write_ct);
 	      if (!chr_filter_present) {
 		break;
 	      }
@@ -4578,6 +5213,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       } else {
 	variant_ct += block_vidx;
         if (!variant_ct) {
+	  logprint("\n");
 	  LOGERRPRINTFWW("Error: All %u variant%s in .bgen file skipped due to chromosome filter.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s");
 	  goto ox_bgen_to_pgen_ret_INCONSISTENT_INPUT;
 	}
@@ -4702,7 +5338,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
 		goto ox_bgen_to_pgen_ret_READ_FAIL;
 	      }
 	      if ((chr_name_slen == 2) && (!memcmp(chr_name_start, "NA", 2))) {
-		memcpy(chr_name_start, "0", 2);
+		strcpy(chr_name_start, "0");
 		chr_name_slen = 1;
 	      } else {
 		chr_name_start[chr_name_slen] = '\0';
@@ -4906,10 +5542,16 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       }
     } else {
       // v1.2-1.3
-      logerrprint("Error: .bgen v1.2-1.3 import is currently under development.\n");
-      reterr = kPglRetNotYetSupported;
-      goto ox_bgen_to_pgen_ret_1;
-      // ploidy >2 is not supported by PLINK 2.
+
+      uintptr_t* allele_idx_offsets;
+      if (bigstack_end_alloc_ul(raw_variant_ct + 1, &allele_idx_offsets)) {
+	goto ox_bgen_to_pgen_ret_NOMEM;
+      }
+
+      // ploidy >2 is not supported by PLINK 2.  (A future build may have code
+      // to treat those calls as missing instead of erroring out, as is done
+      // with VCF ploidy >2.  But I'll wait until this case actually comes up
+      // in the wild...)
       // But even without that, the diploid worst case of 65535 alleles,
       // unphased 32-bit probabilities blows past the 4GB uncompressed record
       // size limit with just 1 sample!  Consequences:
@@ -4928,48 +5570,159 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       //   save the converted genotype data.  But more than 1 variant at a
       //   time, anyway.
       // Overall memory allocation:
-      //   mainbuf_size (~20%): Compressed genotype data buffer 0, up to 4GB
-      //                        per decompression thread
-      //   mainbuf_size       : Compressed genotype data buffer 1
-      //   mainbuf_size       : Decompression thread workspace(s)
-      //   min(mainbuf_size / 2, kMaxLongLine): variant-identifying data load
-      //                                        buffer
-      //
-      /*
-      uintptr_t mainbuf_size = (bigstack_left() / 5) & (~(kCacheline - k1LU));
+      //   mainbuf_size (~1/6) : Compressed genotype data buffer 0, up to 4GB
+      //                         per decompression thread
+      //   mainbuf_size        : Compressed genotype data buffer 1
+      //   mainbuf_size        : Decompression thread workspace(s)
+      //   16K                 : .bgen chromosome code load buffer.  Larger
+      //                         during scanning pass, when same buffer is used
+      //                         to copy potentially-very-long allele codes to
+      //                         .pvar.
+      //   remainder (~1/2)    : Writer and write buffers
+      uintptr_t mainbuf_size = round_down_pow2(bigstack_left() / 6, kCacheline);
 #ifdef __LP64__
       // hard compressed and uncompressed record length limit of 2^31 - 1
       // bytes, since these are represented as uint32s in the file.
       uint32_t calc_thread_ct = 1;
+      uintptr_t thread_wkspace_size;
       if (mainbuf_size > 0x100000000LLU) {
+	thread_wkspace_size = 0x100000000LLU;
 	mainbuf_size &= 0xffffffff00000000LLU;
 	calc_thread_ct = mainbuf_size >> 32;
 	if (calc_thread_ct > max_thread_ct - 1) {
 	  calc_thread_ct = max_thread_ct - 1;
 	  mainbuf_size = ((uintptr_t)(max_thread_ct - 1)) << 32;
 	}
+      } else {
+	thread_wkspace_size = mainbuf_size;
       }
 #else
+      thread_wkspace_size = mainbuf_size;
       const uint32_t calc_thread_ct = 1;
 #endif
+      // note that thread_wkspace_size is the size limit for a compressed
+      // variant record *and* the uncompressed form
+      g_thread_wkspace_size = thread_wkspace_size;
+
       ts.calc_thread_ct = calc_thread_ct;
+      g_calc_thread_ct = calc_thread_ct;
       if (bigstack_alloc_thread(calc_thread_ct, &ts.threads)) {
 	goto ox_bgen_to_pgen_ret_NOMEM;
       }
 
-      // must have enough spaces for SNP/rs/chromosome IDs
-      if (loadbuf_size < 3 * 65536) {
+      g_thread_wkspaces = (unsigned char**)bigstack_alloc_raw_rd(calc_thread_ct * sizeof(intptr_t));
+      g_thread_bidxs[0] = (uint32_t*)bigstack_alloc_raw_rd((calc_thread_ct + 1) * sizeof(int32_t));
+      g_thread_bidxs[1] = (uint32_t*)bigstack_alloc_raw_rd((calc_thread_ct + 1) * sizeof(int32_t));
+      unsigned char* compressed_geno_bufs[2];
+      compressed_geno_bufs[0] = bigstack_alloc_raw(mainbuf_size);
+      compressed_geno_bufs[1] = bigstack_alloc_raw(mainbuf_size);
+      for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
+	g_thread_wkspaces[tidx] = bigstack_alloc_raw(g_thread_wkspace_size);
+      }
+
+      g_bgen_import_dosage_certainty_thresholds = nullptr;
+      if (import_dosage_certainty > (1.0 - kSmallEpsilon) / 3.0) {
+	g_bgen_import_dosage_certainty_thresholds = (uint32_t*)bigstack_alloc_raw_rd(25 * sizeof(int32_t));
+	for (uint32_t bit_precision = 1; bit_precision <= 16; ++bit_precision) {
+	  const uint32_t denom = (1U << bit_precision) - 1;
+	  g_bgen_import_dosage_certainty_thresholds[bit_precision] = 1 + (int32_t)(import_dosage_certainty * ((int32_t)denom));
+	}
+      }
+      // per-write-buffer-variant allocations:
+      //   g_bgen_allele_cts: 2 * sizeof(int16_t)
+      //   g_compressed_geno_starts: 2 * sizeof(intptr_t)
+      //   g_write_genovecs: 2 * sample_ctaw2 * sizeof(intptr_t)
+      //   g_write_phasepresents: 2 * sample_ctaw * sizeof(intptr_t)
+      //   g_write_phaseinfos: 2 * sample_ctaw * sizeof(intptr_t)
+      //   g_write_dosage_presents: 2 * sample_ctaw * sizeof(intptr_t)
+      //   g_write_dphase_presents: 2 * sample_ctaw * sizeof(intptr_t)
+      //   g_write_dosage_cts: 2 * sizeof(int32_t)
+      //   g_write_dphase_cts: 2 * sizeof(int32_t)
+      //   g_write_dosage_val_bufs (the big one): 2 * sample_ct * 2 *
+      //                                          sizeof(dosage_t)
+      //     additional factor of 2 here is due to phased-dosage support.  (not
+      //     actually implemented yet, but will be soon.)
+      uintptr_t cachelines_avail_m20 = bigstack_left() / kCacheline;
+      // reserve 1/8 of remaining memory for writer
+      cachelines_avail_m20 -= cachelines_avail_m20 / 8;
+      if (cachelines_avail_m20 < 20 + DIV_UP(kMaxIdBlen, kCacheline)) {
 	goto ox_bgen_to_pgen_ret_NOMEM;
       }
-      unsigned char* loadbuf = (unsigned char*)bigstack_alloc_raw(loadbuf_size);
+      // we're making 20 allocations; be pessimistic re: rounding
+      // (g_compressed_geno_starts has +1, but we have enough room for error)
+      // we also reserve 16K for main-loop loadbuf.
+      cachelines_avail_m20 -= 20 + DIV_UP(kMaxIdBlen, kCacheline);
+      const uintptr_t bytes_req_per_in_block_variant = 2 * (sizeof(int16_t) + sizeof(intptr_t) + sample_ctaw2 * sizeof(intptr_t) + sample_ctaw * 4 * sizeof(intptr_t) + 2 * sizeof(int32_t) + sample_ct * 2 * sizeof(dosage_t));
+      uintptr_t main_block_size = (cachelines_avail_m20 * kCacheline) / bytes_req_per_in_block_variant;
+      if (main_block_size > 65536) {
+	main_block_size = 65536;
+      }
+      if (main_block_size > raw_variant_ct + calc_thread_ct - 1) {
+	main_block_size = raw_variant_ct + calc_thread_ct - 1;
+      }
+      const uint32_t per_thread_block_limit = main_block_size / calc_thread_ct;
+      // may as well guarantee divisibility
+      main_block_size = per_thread_block_limit * calc_thread_ct;
+      if (main_block_size < 8) {
+	// threshold is a bit arbitrary
+	goto ox_bgen_to_pgen_ret_NOMEM;
+      }
+      if (bigstack_alloc_usi(main_block_size, &(g_bgen_allele_cts[0])) ||
+	  bigstack_alloc_usi(main_block_size, &(g_bgen_allele_cts[1])) ||
+	  bigstack_alloc_ucp(main_block_size + 1, &(g_compressed_geno_starts[0])) ||
+	  bigstack_alloc_ucp(main_block_size + 1, &(g_compressed_geno_starts[1]))) {
+	// this should be impossible
+	assert(0);
+	goto ox_bgen_to_pgen_ret_NOMEM;
+      }
+      uintptr_t loadbuf_size = round_down_pow2(bigstack_left(), kCacheline);
+      if (loadbuf_size > kMaxLongLine) {
+	loadbuf_size = kMaxLongLine;
+      } else if (loadbuf_size < 2 * 65536) {
+	// make sure we have enough space for SNP/rs/chromosome IDs
+	goto ox_bgen_to_pgen_ret_NOMEM;
+      }
+      // formally allocate just the 16K we'll need in the main loop
+      // as a consequence, this must be the last allocation before the scanning
+      // loop
+      unsigned char* loadbuf = bigstack_alloc_raw_rd(kMaxIdBlen);
 
-      // thread-count-independent:
-      //   compressed_geno_bufs: 2 * loadbuf_size
+      uint32_t variant_ct = 0;
+
+      uint32_t block_vidx = 0;
+
+      // bgen-1.2 and -1.3 records can vary wildly in size, so we're a bit more
+      // careful with load balancing here.
+      uint32_t cur_per_thread_block_limit = 1;
+      uint32_t cur_thread_block_vidx_limit = 1;
+      uint32_t cur_thread_fill_idx = 0;
+
+      uint32_t parity = 0;
+      uint32_t* thread_bidxs = g_thread_bidxs[0];
+      uint16_t* bgen_allele_cts = g_bgen_allele_cts[0];
+      unsigned char** compressed_geno_starts = g_compressed_geno_starts[0];
+      unsigned char* bgen_geno_iter = compressed_geno_bufs[0];
+      unsigned char* cur_geno_buf_end = &(bgen_geno_iter[thread_wkspace_size]);
+      thread_bidxs[0] = 0;
+      compressed_geno_starts[0] = bgen_geno_iter;
+      uintptr_t* allele_idx_offsets_iter = allele_idx_offsets;
+      uintptr_t tot_allele_ct = 0;
+
+      // temporary kludge
+      uint32_t multiallelic_skip_ct = 0;
+
+      g_cur_block_write_ct = 1; // just used as a flag
+
       for (uint32_t variant_uidx = 0; variant_uidx < raw_variant_ct; ) {
+	// format is mostly identical to bgen 1.1; but there's no sample count,
+	// and there is an allele count
+	// logic is more similar to the second bgen 1.1 pass since we write the
+	// .pvar here.
 	uint16_t snpid_slen;
-	if (!fread(snpid_slen, 2, 1, bgenfile)) {
+	if (!fread(&snpid_slen, 2, 1, bgenfile)) {
 	  goto ox_bgen_to_pgen_ret_READ_FAIL;
 	}
+	char* rsid_start = (char*)loadbuf;
 	if (!snpid_chr) {
 	  if (fseeko(bgenfile, snpid_slen, SEEK_CUR)) {
 	    goto ox_bgen_to_pgen_ret_READ_FAIL;
@@ -4984,33 +5737,605 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
 	    goto ox_bgen_to_pgen_ret_READ_FAIL;
 	  }
 	  loadbuf[snpid_slen] = '\0';
+	  rsid_start = (char*)(&(loadbuf[snpid_slen + 1]));
 	}
 	uint16_t rsid_slen;
 	if (!fread(&rsid_slen, 2, 1, bgenfile)) {
 	  goto ox_bgen_to_pgen_ret_READ_FAIL;
 	}
-	if (fseeko(bgenfile, rsid_slen, SEEK_CUR)) {
+	if (!rsid_slen) {
+	  logprint("\n");
+	  logerrprint("Error: Length-0 rsID in .bgen file.\n");
+	  goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+	}
+	if (!fread(rsid_start, rsid_slen, 1, bgenfile)) {
 	  goto ox_bgen_to_pgen_ret_READ_FAIL;
 	}
+	char* loadbuf_iter = &(rsid_start[rsid_slen]);
+	char* chr_name_start = loadbuf_iter;
 	uint16_t chr_name_slen;
 	if (!fread(&chr_name_slen, 2, 1, bgenfile)) {
 	  goto ox_bgen_to_pgen_ret_READ_FAIL;
 	}
-	if (!) {
+	if (!snpid_chr) {
+	  if (!chr_name_slen) {
+	    logprint("\n");
+	    logerrprint("Error: Length-0 chromosome ID in .bgen file.\n");
+	    goto ox_bgen_to_pgen_ret_INCONSISTENT_INPUT;
+	  }
+	  if (!fread(chr_name_start, chr_name_slen, 1, bgenfile)) {
+	    goto ox_bgen_to_pgen_ret_READ_FAIL;
+	  }
+	  if ((chr_name_slen == 2) && (!memcmp(chr_name_start, "NA", 2))) {
+	    strcpy(chr_name_start, "0");
+	    chr_name_slen = 1;
+	  } else {
+	    chr_name_start[chr_name_slen] = '\0';
+	  }
+	} else {
+	  if (fseeko(bgenfile, chr_name_slen, SEEK_CUR)) {
+	    goto ox_bgen_to_pgen_ret_READ_FAIL;
+	  }
+	  chr_name_start = (char*)loadbuf;
+	  chr_name_slen = snpid_slen;
 	}
+	// chromosome ID length restriction enforced here, so we don't check
+	// earlier
+	int32_t cur_chr_code;
+	reterr = get_or_add_chr_code_destructive("--bgen file", 0, allow_extra_chrs, (char*)chr_name_start, &(chr_name_start[chr_name_slen]), cip, &cur_chr_code);
+	if (reterr) {
+	  printf("fail variant_uidx: %u\n", variant_uidx);
+	  goto ox_bgen_to_pgen_ret_1;
+	}
+	uint32_t skip = !is_set(cip->chr_mask, cur_chr_code);
 
-	uint32_t cur_compressed_byte_ct;
-	if (!fread(&cur_compressed_byte_ct, 4, 1, bgenfile)) {
+	uint32_t cur_bp;
+	uint32_t cur_allele_ct = 0;
+	if ((!fread(&cur_bp, 4, 1, bgenfile)) ||
+	    (!fread(&cur_allele_ct, 2, 1, bgenfile))) {
 	  goto ox_bgen_to_pgen_ret_READ_FAIL;
 	}
-	;;;
+	if (cur_allele_ct < 2) {
+	  // this is undefined in the 1.3 standard; prohibit for now
+	  logprint("\n");
+	  logerrprint("Error: .bgen variant has fewer than two alleles.\n");
+	  goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+	}
 	++variant_uidx;
 	if (!(variant_uidx % 1000)) {
 	  printf("\r--bgen: %uk variants scanned.", variant_uidx / 1000);
 	  fflush(stdout);
 	}
+
+	// temporary kludge
+	if (skip || (cur_allele_ct > 2)) {
+	  if (!skip) {
+	    ++multiallelic_skip_ct;
+	  }
+	  for (uint32_t allele_idx = 0; allele_idx < cur_allele_ct; ++allele_idx) {
+	    uint32_t cur_allele_slen;
+	    if ((!fread(&cur_allele_slen, 4, 1, bgenfile)) ||
+		fseeko(bgenfile, cur_allele_slen, SEEK_CUR)) {
+	      goto ox_bgen_to_pgen_ret_READ_FAIL;
+	    }
+	  }
+	  uint32_t genodata_byte_ct;
+	  if ((!fread(&genodata_byte_ct, 4, 1, bgenfile)) ||
+	      fseeko(bgenfile, genodata_byte_ct, SEEK_CUR)) {
+	    goto ox_bgen_to_pgen_ret_READ_FAIL;
+	  }
+	  continue;
+	}
+	if (rsid_slen > kMaxIdSlen) {
+	  // enforce this iff we aren't skipping
+	  logprint("\n");
+	  printf("variant_uidx + 1: %u\n", variant_uidx);
+	  logerrprint("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
+	  goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+	}
+	// special handling of first two alleles since either may be
+	// reference, so we may need to swap order
+	char* a1_ptr = loadbuf_iter;
+	uint32_t a1_slen;
+	if (!fread(&a1_slen, 4, 1, bgenfile)) {
+	  goto ox_bgen_to_pgen_ret_READ_FAIL;
+	}
+	if (!a1_slen) {
+	  logprint("\n");
+	  logerrprint("Error: Empty allele code in .bgen file.\n");
+	  goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+	}
+	if (a1_slen > 1000000000) {
+	  logprint("\n");
+	  logerrprint("Error: Allele code in .bgen file has more than 1 billion characters.\n");
+	  goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+	}
+	if (a1_slen + (uintptr_t)(a1_ptr - ((char*)loadbuf)) > loadbuf_size) {
+	  goto ox_bgen_to_pgen_ret_NOMEM;
+	}
+	if (!fread(a1_ptr, a1_slen, 1, bgenfile)) {
+	  goto ox_bgen_to_pgen_ret_READ_FAIL;
+	}
+	char* a2_ptr = &(a1_ptr[a1_slen]);
+	uint32_t a2_slen;
+	if (!fread(&a2_slen, 4, 1, bgenfile)) {
+	  goto ox_bgen_to_pgen_ret_READ_FAIL;
+	}
+	if (!a2_slen) {
+	  logprint("\n");
+	  logerrprint("Error: Empty allele code in .bgen file.\n");
+	  goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+	}
+	if (a2_slen > 1000000000) {
+	  logprint("\n");
+	  logerrprint("Error: Allele code in .bgen file has more than 1 billion characters.\n");
+	  goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+	}
+	if (a2_slen + (uintptr_t)(a2_ptr - ((char*)loadbuf)) > loadbuf_size) {
+	  goto ox_bgen_to_pgen_ret_NOMEM;
+	}
+	if (!fread(a2_ptr, a2_slen, 1, bgenfile)) {
+	  goto ox_bgen_to_pgen_ret_READ_FAIL;
+	}
+	write_iter = chr_name_write(cip, cur_chr_code, write_iter);
+	*write_iter++ = '\t';
+	if (cur_bp > 0x7ffffffe) {
+	  logprint("\n");
+	  logerrprint("Error: Invalid bp coordinate (> 2^31 - 2) in .bgen file\n");
+	  goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+	}
+	write_iter = uint32toa_x(cur_bp, '\t', write_iter);
+	write_iter = memcpyax(write_iter, rsid_start, rsid_slen, '\t');
+	if (prov_ref_allele_second) {
+	  uint32_t swap_slen = a1_slen;
+	  a1_slen = a2_slen;
+	  a2_slen = swap_slen;
+	  char* swap_ptr = a1_ptr;
+	  a1_ptr = a2_ptr;
+	  a2_ptr = swap_ptr;
+	}
+	// allele codes may be too large for write buffer, so we special-case
+	// this instead of using fwrite_ck()
+	if ((write_iter >= writebuf_flush) || (a1_slen >= kMaxMediumLine)) {
+	  if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), pvarfile)) {
+	    goto ox_bgen_to_pgen_ret_WRITE_FAIL;
+	  }
+	  write_iter = writebuf;
+	}
+	if (a1_slen < kMaxMediumLine) {
+	  write_iter = memcpya(write_iter, a1_ptr, a1_slen);
+	} else {
+	  if (fwrite_checked(a1_ptr, a1_slen, pvarfile)) {
+	    goto ox_bgen_to_pgen_ret_WRITE_FAIL;
+	  }
+	}
+	*write_iter++ = '\t';
+	if ((write_iter >= writebuf_flush) || (a2_slen >= kMaxMediumLine)) {
+	  if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), pvarfile)) {
+	    goto ox_bgen_to_pgen_ret_WRITE_FAIL;
+	  }
+	  write_iter = writebuf;
+	}
+	if (a2_slen < kMaxMediumLine) {
+	  write_iter = memcpya(write_iter, a2_ptr, a2_slen);
+	} else {
+	  if (fwrite_checked(a2_ptr, a2_slen, pvarfile)) {
+	    goto ox_bgen_to_pgen_ret_WRITE_FAIL;
+	  }
+	}
+	for (uint32_t allele_idx = 2; allele_idx < cur_allele_ct; ++allele_idx) {
+	  // (can't actually reach here yet since we're skipping multiallelics
+	  // for now)
+	  // safe to use entire loadbuf for this
+	  assert(0);
+	  uint32_t cur_allele_slen;
+	  if (!fread(&cur_allele_slen, 4, 1, bgenfile)) {
+	    goto ox_bgen_to_pgen_ret_READ_FAIL;
+	  }
+	  if (!cur_allele_slen) {
+	    logprint("\n");
+	    logerrprint("Error: Empty allele code in .bgen file.\n");
+	    goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+	  }
+	  if (cur_allele_slen > 1000000000) {
+	    logprint("\n");
+	    logerrprint("Error: Allele code in .bgen file has more than 1 billion characters.\n");
+	    goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+	  }
+	  if (cur_allele_slen > loadbuf_size) {
+	    goto ox_bgen_to_pgen_ret_NOMEM;
+	  }
+	  if (!fread(loadbuf, cur_allele_slen, 1, bgenfile)) {
+	    goto ox_bgen_to_pgen_ret_READ_FAIL;
+	  }
+	  *write_iter++ = ',';
+	  if ((write_iter >= writebuf_flush) || (cur_allele_slen >= kMaxMediumLine)) {
+	    if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), pvarfile)) {
+	      goto ox_bgen_to_pgen_ret_WRITE_FAIL;
+	    }
+	    write_iter = writebuf;
+	  }
+	  if (cur_allele_slen < kMaxMediumLine) {
+	    write_iter = memcpya(write_iter, loadbuf, cur_allele_slen);
+	  } else {
+	    if (fwrite_checked(loadbuf, cur_allele_slen, pvarfile)) {
+	      goto ox_bgen_to_pgen_ret_WRITE_FAIL;
+	    }
+	  }
+	}
+
+	append_binary_eoln(&write_iter);
+	*allele_idx_offsets_iter++ = tot_allele_ct;
+	tot_allele_ct += cur_allele_ct;
+	uint32_t genodata_byte_ct;
+	if (!fread(&genodata_byte_ct, 4, 1, bgenfile)) {
+	  goto ox_bgen_to_pgen_ret_READ_FAIL;
+	}
+	if (dosage_is_present) {
+	  if (fseeko(bgenfile, genodata_byte_ct, SEEK_CUR)) {
+	    goto ox_bgen_to_pgen_ret_READ_FAIL;
+	  }
+	  ++variant_ct;
+	  continue;
+	}
+
+	if ((block_vidx == cur_thread_block_vidx_limit) || ((uintptr_t)(cur_geno_buf_end - bgen_geno_iter) < genodata_byte_ct)) {
+	  if (!block_vidx) {
+	    goto ox_bgen_to_pgen_ret_NOMEM;
+	  }
+	  thread_bidxs[++cur_thread_fill_idx] = block_vidx;
+	  if (cur_thread_fill_idx == calc_thread_ct) {
+	    parity = 1 - parity;
+	    if (ts.thread_func_ptr) {
+	      // process *previous* block results
+	      join_threads3z(&ts);
+	      reterr = g_error_ret;
+	      if (reterr) {
+		goto ox_bgen_to_pgen_ret_bgen13_thread_fail;
+	      }
+	      dosage_is_present = g_dosage_is_present;
+	      if (dosage_is_present) {
+		// don't need to scan for any more dosages
+		stop_threads3z(&ts, &g_cur_block_write_ct);
+
+		// however, unlike bgen-1.1 case, we can never early-exit since
+		// we have to scan for multiallelic variants (since writer must
+		// be initialized with (i) an accurate variant count, which is
+		// affected by skipped multiallelic variants, and (ii) when we
+		// no longer skip them, the constructor still needs a maximum
+		// allele count so it can allocate properly-sized buffers).
+
+		if (fseeko(bgenfile, genodata_byte_ct, SEEK_CUR)) {
+		  goto ox_bgen_to_pgen_ret_READ_FAIL;
+		}
+		++variant_ct;
+		continue;
+	      }
+	    }
+	    ts.thread_func_ptr = bgen13_dosage_or_phase_scan_thread;
+	    if (spawn_threads3z(variant_ct, &ts)) {
+	      goto ox_bgen_to_pgen_ret_THREAD_CREATE_FAIL;
+	    }
+	    compressed_geno_starts = g_compressed_geno_starts[parity];
+	    thread_bidxs = g_thread_bidxs[parity];
+	    bgen_allele_cts = g_bgen_allele_cts[parity];
+	    bgen_geno_iter = compressed_geno_bufs[parity];
+	    cur_geno_buf_end = &(bgen_geno_iter[thread_wkspace_size]);
+	    thread_bidxs[0] = 0;
+	    compressed_geno_starts[0] = bgen_geno_iter;
+	    variant_ct += block_vidx;
+	    block_vidx = 0;
+	    if (cur_per_thread_block_limit < per_thread_block_limit) {
+	      cur_per_thread_block_limit *= 2;
+	      if (cur_per_thread_block_limit > per_thread_block_limit) {
+		cur_per_thread_block_limit = per_thread_block_limit;
+	      }
+	    }
+	    cur_thread_block_vidx_limit = 0;
+	    cur_thread_fill_idx = 0;
+	  }
+	  cur_thread_block_vidx_limit += cur_per_thread_block_limit;
+	}
+	bgen_allele_cts[block_vidx] = cur_allele_ct;
+	if (fread_checked(bgen_geno_iter, genodata_byte_ct, bgenfile)) {
+	  goto ox_bgen_to_pgen_ret_READ_FAIL;
+	}
+	bgen_geno_iter = &(bgen_geno_iter[genodata_byte_ct]);
+	compressed_geno_starts[++block_vidx] = bgen_geno_iter;
       }
-      */
+      variant_ct += block_vidx;
+      if (multiallelic_skip_ct) {
+	logprint("\n");
+        LOGERRPRINTFWW("Warning: %u multiallelic variant%s skipped (not yet supported).\n", multiallelic_skip_ct, (multiallelic_skip_ct == 1)? "" : "s");
+      }
+      if (!variant_ct) {
+	logprint("\n");
+	LOGERRPRINTF("Error: All %u variant%s in .bgen file skipped.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s");
+	goto ox_bgen_to_pgen_ret_INCONSISTENT_INPUT;
+      }
+      if (variant_ct == block_vidx) {
+	// with multiple threads, there's no guarantee that even the first
+	// decompression job has launched (e.g. there's only 1 variant on the
+	// relevant chromosome in the entire .bgen, and calc_thread_ct == 2).
+	// (this is not an issue with the bgen-1.1 converter because we error
+	// out on variant_ct == 0, and the first block size is 1.)
+	thread_bidxs[cur_thread_fill_idx + 1] = block_vidx;
+	ts.thread_func_ptr = bgen13_dosage_or_phase_scan_thread;
+	if (spawn_threads3z(variant_ct, &ts)) {
+	  goto ox_bgen_to_pgen_ret_THREAD_CREATE_FAIL;
+	}
+	block_vidx = 0;
+      }
+      chr_filter_present = (variant_ct + multiallelic_skip_ct != raw_variant_ct);
+      if (ts.thread_func_ptr) {
+	join_threads3z(&ts);
+	reterr = g_error_ret;
+	if (reterr) {
+	  goto ox_bgen_to_pgen_ret_bgen13_thread_fail;
+	}
+	if ((!block_vidx) || g_dosage_is_present) {
+	  // ignore thread_bidxs[] in this case
+	  g_cur_block_write_ct = 0;
+	}
+	ts.is_last_block = 1;
+	if (spawn_threads3z(1, &ts)) {
+	  goto ox_bgen_to_pgen_ret_THREAD_CREATE_FAIL;
+	}
+	join_threads3z(&ts);
+	dosage_is_present = g_dosage_is_present;
+      }
+
+      if (tot_allele_ct == variant_ct * 2) {
+	allele_idx_offsets = nullptr;
+	bigstack_end_reset(bigstack_end_mark);
+      } else {
+	// not yet possible
+	assert(0);
+	*allele_idx_offsets_iter = tot_allele_ct;
+      }
+      if (fseeko(bgenfile, initial_uints[0] + 4, SEEK_SET)) {
+	goto ox_bgen_to_pgen_ret_READ_FAIL;
+      }
+      strcpy(outname_end, ".pgen");
+      uintptr_t spgw_alloc_cacheline_ct;
+      uint32_t max_vrec_len;
+      reterr = spgw_init_phase1(outname, allele_idx_offsets, nullptr, variant_ct, sample_ct, dosage_is_present? (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent) : kfPgenGlobal0, (oxford_import_flags & (kfOxfordImportRefFirst | kfOxfordImportRefSecond))? 1 : 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+      if (reterr) {
+	goto ox_bgen_to_pgen_ret_1;
+      }
+      unsigned char* spgw_alloc;
+      if (bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc) ||
+	  bigstack_alloc_ul(sample_ctaw2 * main_block_size, &(g_write_genovecs[0])) ||
+	  bigstack_alloc_ul(sample_ctaw2 * main_block_size, &(g_write_genovecs[1])) ||
+	  bigstack_alloc_ul(sample_ctaw * main_block_size, &(g_write_phasepresents[0])) ||
+	  bigstack_alloc_ul(sample_ctaw * main_block_size, &(g_write_phasepresents[1])) ||
+	  bigstack_alloc_ul(sample_ctaw * main_block_size, &(g_write_phaseinfos[0])) ||
+	  bigstack_alloc_ul(sample_ctaw * main_block_size, &(g_write_phaseinfos[1])) ||
+	  bigstack_alloc_ul(sample_ctaw * main_block_size, &(g_write_dosage_presents[0])) ||
+	  bigstack_alloc_ul(sample_ctaw * main_block_size, &(g_write_dosage_presents[1])) ||
+	  bigstack_alloc_ul(sample_ctaw * main_block_size, &(g_write_dphase_presents[0])) ||
+	  bigstack_alloc_ul(sample_ctaw * main_block_size, &(g_write_dphase_presents[1])) ||
+	  bigstack_alloc_ui(main_block_size, &(g_write_dosage_cts[0])) ||
+	  bigstack_alloc_ui(main_block_size, &(g_write_dosage_cts[1])) ||
+	  bigstack_alloc_ui(main_block_size, &(g_write_dphase_cts[0])) ||
+	  bigstack_alloc_ui(main_block_size, &(g_write_dphase_cts[1])) ||
+	  bigstack_alloc_dosage(sample_ct * 2 * main_block_size, &(g_write_dosage_val_bufs[0])) ||
+	  bigstack_alloc_dosage(sample_ct * 2 * main_block_size, &(g_write_dosage_val_bufs[1]))) {
+	goto ox_bgen_to_pgen_ret_NOMEM;
+      }
+      spgw_init_phase2(max_vrec_len, &spgw, spgw_alloc);
+
+      // Main workflow:
+      // 1. Set n=0, load genotype data for first main_block_size variants
+      //    while writing .pvar
+      //
+      // 2. Spawn threads processing batch n genotype data
+      // 3. If n>0, write results for block (n-1)
+      // 4. Increment n by 1
+      // 5. Load/write-.pvar for batch (n+1) unless eof
+      // 6. Join threads
+      // 7. Goto step 2 unless eof
+      //
+      // 8. Write results for last block
+      //
+      // (May be better to change this to use one output buffer instead of 2,
+      // due to high memory requirement.)
+      uint32_t vidx_start = 0;
+      uint32_t prev_block_write_ct = 0;
+      uint32_t prev_genodata_byte_ct = 0;
+      uint32_t prev_allele_ct = 0;
+      uint32_t skip = 0;
+      parity = 0;
+      reinit_threads3z(&ts);
+      g_cur_block_write_ct = 1;
+      while (1) {
+	uint32_t cur_block_write_ct = 0;
+	if (!ts.is_last_block) {
+	  const uint32_t block_vidx_limit = variant_ct - vidx_start;
+	  cur_thread_block_vidx_limit = MINV(block_vidx_limit, per_thread_block_limit);
+	  cur_thread_fill_idx = 0;
+	  thread_bidxs = g_thread_bidxs[parity];
+	  bgen_allele_cts = g_bgen_allele_cts[parity];
+	  compressed_geno_starts = g_compressed_geno_starts[parity];
+          bgen_geno_iter = compressed_geno_bufs[parity];
+	  cur_geno_buf_end = &(bgen_geno_iter[thread_wkspace_size]);
+	  thread_bidxs[0] = 0;
+	  compressed_geno_starts[0] = bgen_geno_iter;
+	  block_vidx = 0;
+	  // strictly speaking, prev_genodata_byte_ct and genodata_byte_ct
+	  // can be collapsed into one variable, as well as
+	  // {block_vidx, cur_block_write_ct}, but not a big deal if the
+	  // compiler doesn't notice
+	  uint32_t genodata_byte_ct = prev_genodata_byte_ct;
+	  uint32_t cur_allele_ct = prev_allele_ct;
+	  if (!genodata_byte_ct) {
+	    goto ox_bgen_to_pgen_load13_start;
+	  }
+	  // we may stop before main_block_size due to insufficient space in
+	  // compressed_geno_buf.  if so, the file pointer is right before the
+	  // genotype data, rather than at the beginning of a variant record.
+	  while (1) {
+	    bgen_allele_cts[block_vidx] = cur_allele_ct;
+	    if (fread_checked(bgen_geno_iter, genodata_byte_ct, bgenfile)) {
+	      goto ox_bgen_to_pgen_ret_READ_FAIL;
+	    }
+	    bgen_geno_iter = &(bgen_geno_iter[genodata_byte_ct]);
+	    compressed_geno_starts[++block_vidx] = bgen_geno_iter;
+
+	    // true iff this is the last variant we're keeping in the entire
+	    // file
+	    if (block_vidx == block_vidx_limit) {
+	      for (; cur_thread_fill_idx < calc_thread_ct; ) {
+		// tell leftover threads to do nothing
+		thread_bidxs[++cur_thread_fill_idx] = block_vidx;
+	      }
+	      break;
+	    }
+	  ox_bgen_to_pgen_load13_start:
+	    uint16_t snpid_slen;
+	    if (!fread(&snpid_slen, 2, 1, bgenfile)) {
+	      goto ox_bgen_to_pgen_ret_READ_FAIL;
+	    }
+
+	    if (!snpid_chr) {
+	      if (fseeko(bgenfile, snpid_slen, SEEK_CUR)) {
+		goto ox_bgen_to_pgen_ret_READ_FAIL;
+	      }
+	    } else {
+	      if (!fread(loadbuf, snpid_slen, 1, bgenfile)) {
+		goto ox_bgen_to_pgen_ret_READ_FAIL;
+	      }
+	      loadbuf[snpid_slen] = '\0';
+	    }
+	    uint16_t rsid_slen;
+	    if (!fread(&rsid_slen, 2, 1, bgenfile)) {
+	      goto ox_bgen_to_pgen_ret_READ_FAIL;
+	    }
+	    if (fseeko(bgenfile, rsid_slen, SEEK_CUR)) {
+	      goto ox_bgen_to_pgen_ret_READ_FAIL;
+	    }
+	    uint16_t chr_name_slen;
+	    if (!fread(&chr_name_slen, 2, 1, bgenfile)) {
+	      goto ox_bgen_to_pgen_ret_READ_FAIL;
+	    }
+	    if (!snpid_chr) {
+	      if (!fread(loadbuf, chr_name_slen, 1, bgenfile)) {
+		goto ox_bgen_to_pgen_ret_READ_FAIL;
+	      }
+	      if ((chr_name_slen == 2) && (!memcmp(loadbuf, "NA", 2))) {
+		strcpy((char*)loadbuf, "0");
+		chr_name_slen = 1;
+	      } else {
+		loadbuf[chr_name_slen] = '\0';
+	      }
+	    } else {
+	      if (fseeko(bgenfile, chr_name_slen, SEEK_CUR)) {
+		goto ox_bgen_to_pgen_ret_READ_FAIL;
+	      }
+	      chr_name_slen = snpid_slen;
+	    }
+	    if (chr_filter_present) {
+	      const int32_t cur_chr_code = get_chr_code((char*)loadbuf, cip, chr_name_slen);
+	      assert(cur_chr_code >= 0); // we scanned all the variants
+	      skip = !is_set(cip->chr_mask, cur_chr_code);
+	    }
+
+	    uint32_t cur_bp; // ignore in this pass
+	    if (!fread(&cur_bp, 4, 1, bgenfile)) {
+	      goto ox_bgen_to_pgen_ret_READ_FAIL;
+	    }
+
+	    cur_allele_ct = 0;
+	    if (!fread(&cur_allele_ct, 2, 1, bgenfile)) {
+	      goto ox_bgen_to_pgen_ret_READ_FAIL;
+	    }
+	    for (uint32_t allele_idx = 0; allele_idx < cur_allele_ct; ++allele_idx) {
+	      uint32_t allele_slen;
+	      if (!fread(&allele_slen, 4, 1, bgenfile)) {
+		goto ox_bgen_to_pgen_ret_READ_FAIL;
+	      }
+	      if (fseeko(bgenfile, allele_slen, SEEK_CUR)) {
+		goto ox_bgen_to_pgen_ret_READ_FAIL;
+	      }
+	    }
+	    if (!fread(&genodata_byte_ct, 4, 1, bgenfile)) {
+	      goto ox_bgen_to_pgen_ret_READ_FAIL;
+	    }
+
+	    // "cur_allele_ct > 2" is temporary kludge
+	    if (skip || (cur_allele_ct > 2)) {
+	      goto ox_bgen_to_pgen_load13_start;
+	    }
+
+	    if ((block_vidx == cur_thread_block_vidx_limit) || ((uintptr_t)(cur_geno_buf_end - bgen_geno_iter) < genodata_byte_ct)) {
+	      thread_bidxs[++cur_thread_fill_idx] = block_vidx;
+	      if (cur_thread_fill_idx == calc_thread_ct) {
+		prev_allele_ct = cur_allele_ct;
+		prev_genodata_byte_ct = genodata_byte_ct;
+		break;
+	      }
+	      cur_thread_block_vidx_limit = MINV(cur_thread_block_vidx_limit + per_thread_block_limit, block_vidx_limit);
+	    }
+	  }
+	  cur_block_write_ct = block_vidx;
+	}
+	if (vidx_start) {
+	  join_threads3z(&ts);
+	  reterr = g_error_ret;
+	  if (reterr) {
+	    goto ox_bgen_to_pgen_ret_bgen13_thread_fail;
+	  }
+	}
+	if (!ts.is_last_block) {
+	  ts.is_last_block = (vidx_start + cur_block_write_ct == variant_ct);
+	  ts.thread_func_ptr = bgen13_geno_to_pgen_thread;
+	  if (spawn_threads3z(vidx_start, &ts)) {
+	    goto ox_bgen_to_pgen_ret_THREAD_CREATE_FAIL;
+	  }
+	}
+	parity = 1 - parity;
+	if (vidx_start) {
+	  // write *previous* block results
+	  const uintptr_t* write_genovec_iter = g_write_genovecs[parity];
+	  // const uintptr_t* write_phasepresents = g_write_phasepresents[parity];
+	  // const uintptr_t* write_phaseinfos = g_write_phaseinfos[parity];
+	  const uintptr_t* write_dosage_presents = g_write_dosage_presents[parity];
+	  // const uintptr_t* write_dphase_presents = g_write_dphase_presents[parity];
+	  const uint32_t* write_dosage_cts = g_write_dosage_cts[parity];
+	  const uint32_t* write_dphase_cts = g_write_dphase_cts[parity];
+	  const dosage_t* write_dosage_val_bufs = g_write_dosage_val_bufs[parity];
+	  for (uintptr_t block_vidx = 0; block_vidx < prev_block_write_ct; ++block_vidx) {
+	    const uint32_t cur_dosage_ct = write_dosage_cts[block_vidx];
+	    const uint32_t cur_dphase_ct = write_dphase_cts[block_vidx];
+	    if (!cur_dphase_ct) {
+	      if (!cur_dosage_ct) {
+		if (spgw_append_biallelic_genovec(write_genovec_iter, &spgw)) {
+		  goto ox_bgen_to_pgen_ret_WRITE_FAIL;
+		}
+	      } else {
+		if (spgw_append_biallelic_genovec_dosage16(write_genovec_iter, &(write_dosage_presents[block_vidx * sample_ctaw]), &(write_dosage_val_bufs[block_vidx * 2 * sample_ct]), cur_dosage_ct, &spgw)) {
+		  goto ox_bgen_to_pgen_ret_WRITE_FAIL;
+		}
+	      }
+	    } else {
+	      // todo
+	    }
+	    write_genovec_iter = &(write_genovec_iter[sample_ctaw2]);
+	  }
+	}
+	if (vidx_start == variant_ct) {
+	  break;
+	}
+	if (vidx_start) {
+	  printf("\r--bgen: %uk variants converted.", vidx_start / 1000);
+	  if (vidx_start <= main_block_size) {
+	    fputs("    \b\b\b\b", stdout);
+	  }
+	  fflush(stdout);
+	}
+	vidx_start += cur_block_write_ct;
+	prev_block_write_ct = cur_block_write_ct;
+      }
     }
     if (write_iter != writebuf) {
       if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), pvarfile)) {
@@ -5071,6 +6396,15 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
     break;
   ox_bgen_to_pgen_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
+    break;
+  ox_bgen_to_pgen_ret_bgen13_thread_fail:
+    if (reterr == kPglRetMalformedInput) {
+      logprint("\n");
+      logerrprint("Error: Invalid compressed SNP block in .bgen file.\n");
+    } else if (reterr == kPglRetNotYetSupported) {
+      logprint("\n");
+      logerrprint("Error: BGEN import doesn't currently support phased variants, >16-bit\nprobability precision, or ploidy > 2.\n");
+    }
   }
  ox_bgen_to_pgen_ret_1:
   if (spgw_cleanup(&spgw) && (!reterr)) {
@@ -5080,7 +6414,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
   fclose_cond(bgenfile);
   fclose_cond(psamfile);
   fclose_cond(pvarfile);
-  bigstack_reset(bigstack_mark);
+  bigstack_double_reset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }
 
@@ -5789,7 +7123,7 @@ pglerr_t load_map(const char* mapname, misc_flags_t misc_flags, chr_info_t* cip,
     // |--loadbuf--|--temp-->----|----<- variant IDs --|
     //            1/4                                 end
     // loadbuf is overwritten with the main return arrays at the end.
-    loadbuf_size = (bigstack_left() / 4) & (~(kCacheline - k1LU));
+    loadbuf_size = round_down_pow2(bigstack_left() / 4, kCacheline);
     char* loadbuf = (char*)g_bigstack_base;
     if (loadbuf_size > kMaxLongLine) {
       loadbuf_size = kMaxLongLine;
@@ -6272,7 +7606,7 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
       }
       fill_all_bits(map_variant_ct, variant_already_seen);
       unsigned char* bigstack_end_mark2 = g_bigstack_end;
-      g_bigstack_end = &(g_bigstack_base[(bigstack_left() / 2) & (~(kEndAllocAlign - k1LU))]); // allow hash table to only use half of available memory
+      g_bigstack_end = &(g_bigstack_base[round_down_pow2(bigstack_left() / 2, kEndAllocAlign)]); // allow hash table to only use half of available memory
       reterr = alloc_and_populate_id_htable_mt(variant_already_seen, variant_ids, map_variant_ct, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size);
       if (reterr) {
 	goto plink1_dosage_to_pgen_ret_1;
@@ -8097,11 +9431,11 @@ pglerr_t plink1_sample_major_to_pgen(const char* pgenname, uintptr_t variant_ct,
       load_multiplier = cachelines_avail / ((kPglVblockSize / (4 * kCacheline)) * calc_thread_ct * ((uintptr_t)sample_ct));
       assert(load_multiplier);
       cur_vidx_ct = load_multiplier * calc_thread_ct * kPglVblockSize;
-      plink1_smaj_loadbuf = (uintptr_t*)bigstack_alloc_raw(round_up_pow2((cur_vidx_ct / 4) * ((uintptr_t)sample_ct), kCacheline));
+      plink1_smaj_loadbuf = (uintptr_t*)bigstack_alloc_raw_rd((cur_vidx_ct / 4) * ((uintptr_t)sample_ct));
     } else {
       load_multiplier = 1 + ((variant_ct - 1) / (calc_thread_ct * kPglVblockSize));
       cur_vidx_ct = variant_ct;
-      plink1_smaj_loadbuf = (uintptr_t*)bigstack_alloc_raw(round_up_pow2(full_load_vecs_req * kBytesPerVec, kCacheline));
+      plink1_smaj_loadbuf = (uintptr_t*)bigstack_alloc_raw_rd(full_load_vecs_req * kBytesPerVec);
     }
     uint32_t cur_vidx_base = 0;
     uint32_t cur_vidx_ct4 = QUATERCT_TO_BYTECT(cur_vidx_ct);
@@ -8958,7 +10292,7 @@ THREAD_FUNC_DECL make_pgen_thread(void* arg) {
   const uint32_t dosage_present = (g_read_phase_dosage_gflags & (kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent))? 1 : 0;
   const uint32_t hard_call_halfdist = g_hard_call_halfdist;
   const uint32_t dosage_erase_halfdist = g_dosage_erase_halfdist;
-  const uintptr_t phaseraw_word_ct = kWordsPerVec + ((raw_sample_ct / kBitsPerWordD2) & (~(kWordsPerVec - 1)));
+  const uintptr_t phaseraw_word_ct = kWordsPerVec + round_down_pow2(raw_sample_ct / kBitsPerWordD2, kWordsPerVec);
   // todo: double dosage_vals allocation in phased-dosage case
   const uintptr_t dosageraw_word_ct = kWordsPerVec * (BITCT_TO_VECCT(raw_sample_ct) + DIV_UP(raw_sample_ct, (kBytesPerVec / sizeof(dosage_t))));
   
@@ -9468,7 +10802,7 @@ pglerr_t make_pgen_robust(const uintptr_t* sample_include, const uint32_t* new_s
 	  //    remaining bits store packed phaseinfo values for all hets.
 	  // 2. word-aligned bitarray of up to raw_sample_ct bits, storing
 	  //    phaseinfo values.  (end of this array is vec-aligned.)
-	  const uintptr_t phaseraw_word_ct = kWordsPerVec + ((raw_sample_ct / kBitsPerWordD2) & (~(kWordsPerVec - 1)));
+	  const uintptr_t phaseraw_word_ct = kWordsPerVec + round_down_pow2(raw_sample_ct / kBitsPerWordD2, kWordsPerVec);
 	  load_variant_vec_ct += WORDCT_TO_VECCT(phaseraw_word_ct);
 	}
 	if (read_dosage_present) {	
@@ -9499,11 +10833,11 @@ pglerr_t make_pgen_robust(const uintptr_t* sample_include, const uint32_t* new_s
       }
       const uint32_t write_block_size = ulii;
       uintptr_t* main_loadbufs[2];
-      main_loadbufs[0] = (uintptr_t*)bigstack_alloc_raw(round_up_pow2(load_variant_vec_ct * kBytesPerVec * write_block_size, kCacheline));
-      main_loadbufs[1] = (uintptr_t*)bigstack_alloc_raw(round_up_pow2(load_variant_vec_ct * kBytesPerVec * write_block_size, kCacheline));
+      main_loadbufs[0] = (uintptr_t*)bigstack_alloc_raw_rd(load_variant_vec_ct * kBytesPerVec * write_block_size);
+      main_loadbufs[1] = (uintptr_t*)bigstack_alloc_raw_rd(load_variant_vec_ct * kBytesPerVec * write_block_size);
       if (loaded_vrtypes_needed) {
-	g_loaded_vrtypes[0] = bigstack_alloc_raw(round_up_pow2(write_block_size, kCacheline));
-	g_loaded_vrtypes[1] = bigstack_alloc_raw(round_up_pow2(write_block_size, kCacheline));
+	g_loaded_vrtypes[0] = bigstack_alloc_raw_rd(write_block_size);
+	g_loaded_vrtypes[1] = bigstack_alloc_raw_rd(write_block_size);
       } else {
 	g_loaded_vrtypes[0] = nullptr;
 	g_loaded_vrtypes[1] = nullptr;
@@ -9947,7 +11281,7 @@ pglerr_t make_plink2_no_vsort(const char* xheader, const uintptr_t* sample_inclu
 	//    remaining bits store packed phaseinfo values for all hets.
 	// 2. word-aligned bitarray of up to raw_sample_ct bits, storing
 	//    phaseinfo values.  (end of this array is vec-aligned.)
-	const uintptr_t phaseraw_word_ct = kWordsPerVec + ((raw_sample_ct / kBitsPerWordD2) & (~(kWordsPerVec - 1)));
+	const uintptr_t phaseraw_word_ct = kWordsPerVec + round_down_pow2(raw_sample_ct / kBitsPerWordD2, kWordsPerVec);
 	load_vblock_cacheline_ct += WORDCT_TO_CLCT(((uint64_t)phaseraw_word_ct) * max_vblock_size);
       }
       if (read_dosage_present) {	
@@ -11185,7 +12519,7 @@ pglerr_t export_ind_major_bed(const uintptr_t* orig_sample_include, const uintpt
       const uintptr_t writebuf_cachelines_avail = bigstack_left() / (kCacheline * 8);
       uint32_t sample_batch_size = kPglQuaterTransposeBatch;
       if (variant_cacheline_ct * kPglQuaterTransposeBatch > writebuf_cachelines_avail) {
-	sample_batch_size = (writebuf_cachelines_avail / variant_cacheline_ct) & (~(kBitsPerWordD2 - 1));
+	sample_batch_size = round_down_pow2(writebuf_cachelines_avail / variant_cacheline_ct, kBitsPerWordD2);
 	if (!sample_batch_size) {
 	  goto export_ind_major_bed_ret_NOMEM;
 	}
@@ -11204,7 +12538,7 @@ pglerr_t export_ind_major_bed(const uintptr_t* orig_sample_include, const uintpt
 	read_sample_ct = read_sample_ctv2 * kQuatersPerVec;
       }
       uintptr_t read_sample_ctaw2 = QUATERCT_TO_ALIGNED_WORDCT(read_sample_ct);
-      uintptr_t* vmaj_readbuf = (uintptr_t*)bigstack_alloc_raw(round_up_pow2(variant_ct * read_sample_ctaw2 * kBytesPerWord, kCacheline));      
+      uintptr_t* vmaj_readbuf = (uintptr_t*)bigstack_alloc_raw_rd(variant_ct * read_sample_ctaw2 * kBytesPerWord);
       g_variant_ct = variant_ct;
       g_output_calc_thread_ct = output_calc_thread_ct;
       g_error_ret = kPglRetSuccess;

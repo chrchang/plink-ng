@@ -85,7 +85,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 600
+#define PGENLIB_INTERNAL_VERNUM 601
 
 
 #define _FILE_OFFSET_BITS 64
@@ -197,6 +197,7 @@ typedef enum
   kPglRetThreadCreateFail,
   kPglRetNetworkFail,
   kPglRetSampleMajorBed = 32,
+  kPglRetWarningErrcode = 61,
   kPglRetImproperFunctionCall = 62,
   kPglRetNotYetSupported = 63,
   kPglRetLongLine = 126,
@@ -239,6 +240,7 @@ const pglerr_t kPglRetHelp = pglerr_t::ec::kPglRetHelp;
 const pglerr_t kPglRetThreadCreateFail = pglerr_t::ec::kPglRetThreadCreateFail;
 const pglerr_t kPglRetNetworkFail = pglerr_t::ec::kPglRetNetworkFail;
 const pglerr_t kPglRetSampleMajorBed = pglerr_t::ec::kPglRetSampleMajorBed;
+const pglerr_t kPglRetWarningErrcode = pglerr_t::ec::kPglRetWarningErrcode;
 const pglerr_t kPglRetImproperFunctionCall = pglerr_t::ec::kPglRetImproperFunctionCall;
 const pglerr_t kPglRetNotYetSupported = pglerr_t::ec::kPglRetNotYetSupported;
 const pglerr_t kPglRetLongLine = pglerr_t::ec::kPglRetLongLine;
@@ -620,11 +622,26 @@ HEADER_INLINE halfword_t pack_word_to_halfword(uintptr_t ww) {
 }
 
 // alignment must be a power of 2
+// tried splitting out round_down_pow2_ui() and _up_pow2_ui() functions, no
+// practical difference
+HEADER_INLINE uintptr_t round_down_pow2(uintptr_t val, uintptr_t alignment) {
+  const uintptr_t alignment_m1 = alignment - 1;
+  assert(!(alignment & alignment_m1));
+  return val & (~alignment_m1);
+}
+
+HEADER_INLINE uint64_t round_down_pow2_ull(uint64_t val, uint64_t alignment) {
+  const uint64_t alignment_m1 = alignment - 1;
+  assert(!(alignment & alignment_m1));
+  return val & (~alignment_m1);
+}
+
 HEADER_INLINE uintptr_t round_up_pow2(uintptr_t val, uintptr_t alignment) {
-  uintptr_t alignment_m1 = alignment - 1;
+  const uintptr_t alignment_m1 = alignment - 1;
   assert(!(alignment & alignment_m1));
   return (val + alignment_m1) & (~alignment_m1);
 }
+
 
 // this is best when the divisor is constant (so (divisor - 1) can be
 // collapsed), and handles val == 0 properly.  if the divisor isn't constant
@@ -645,6 +662,17 @@ HEADER_INLINE uintptr_t round_up_pow2(uintptr_t val, uintptr_t alignment) {
 HEADER_INLINE uint32_t abs_int32(int32_t ii) {
   const uint32_t neg_sign_bit = -(((uint32_t)ii) >> 31);
   return (((uint32_t)ii) ^ neg_sign_bit) - neg_sign_bit;
+}
+
+extern uintptr_t g_failed_alloc_attempt_size;
+
+HEADER_INLINE boolerr_t pgl_malloc(uintptr_t size, void* pp) {
+  *((uintptr_t**)pp) = (uintptr_t*)malloc(size);
+  if (*((uintptr_t**)pp)) {
+    return 0;
+  }
+  g_failed_alloc_attempt_size = size;
+  return 1;
 }
 
 // This must be used for all fwrite() calls where len could be >= 2^31, since
@@ -940,9 +968,9 @@ void uidxs_to_idxs(const uintptr_t* subset_mask, const uint32_t* subset_cumulati
 
 HEADER_INLINE boolerr_t vecaligned_malloc(uintptr_t size, void* aligned_pp) {
 #if defined(__APPLE__) || !defined(__LP64__)
-  *((uintptr_t**)aligned_pp) = (uintptr_t*)malloc(size);
+  const boolerr_t ret_boolerr = pgl_malloc(size, aligned_pp);
   assert(IS_VEC_ALIGNED(*((uintptr_t*)aligned_pp)));
-  return !(*((uintptr_t**)aligned_pp));
+  return ret_boolerr;
 #else
   return aligned_malloc(size, kBytesPerVec, aligned_pp);
 #endif
@@ -2205,9 +2233,8 @@ pglerr_t spgw_append_biallelic_genovec_hphase_dosage16(const uintptr_t* __restri
 
 // dphase_present can be nullptr if dosage_ct == dphase_ct
 // dosage_present cannot be null for nonzero dosage_ct
-// dphase_vals[] has length dphase_ct * 2; dosage_vals[] has length
-// (dosage_ct - dphase_ct)
-// pglerr_t spgw_append_biallelic_genovec_dphase16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uintptr_t* dphase_present, const uint16_t* dosage_vals, const uint16_t* dphase_vals, uint32_t dosage_ct, uint32_t dphase_ct, st_pgen_writer_t* spgwp);
+// dosage_vals[] has length dosage_ct + dphase_ct
+// pglerr_t spgw_append_biallelic_genovec_dphase16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uintptr_t* dphase_present, const uint16_t* dosage_vals, uint32_t dosage_ct, uint32_t dphase_ct, st_pgen_writer_t* spgwp);
 
 
 // Backfills header info, then closes the file.

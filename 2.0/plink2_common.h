@@ -278,16 +278,6 @@ HEADER_INLINE uint64_t round_up_pow2_ull(uint64_t val, uint64_t alignment) {
 }
 #endif
 
-// 32-bit instead of word-length bitwise-not here, when val can be assumed to
-// be 32-bit.
-// (note that the sizeof operator "returns" a uintptr_t, not a uint32_t; hence
-// the lack of sizeof in the kInt32PerCacheline, etc. definitions.)
-HEADER_INLINE uint32_t round_up_pow2_ui(uint32_t val, uint32_t alignment) {
-  const uint32_t alignment_m1 = alignment - 1;
-  assert(!(alignment & alignment_m1));
-  return (val + alignment_m1) & (~alignment_m1);
-}
-
 typedef struct aperm_struct {
   uint32_t min;
   uint32_t max;
@@ -299,7 +289,7 @@ typedef struct aperm_struct {
 
 // (2^31 - 1000001) / 2
 CONSTU31(kApermMax, 1073241823);
- 
+
 // file-scope string constants don't always have the g_ prefix, but multi-file
 // constants are always tagged.
 extern const char g_errstr_fopen[];
@@ -323,6 +313,9 @@ extern char g_logbuf[];
 
 extern uint32_t g_debug_on;
 extern uint32_t g_log_failed;
+
+// for --warning-errcode
+extern uint32_t g_stderr_written_to;
 
 
 typedef struct ll_str_struct {
@@ -562,7 +555,7 @@ pglerr_t sort_cmdline_flags(uint32_t max_flag_len, uint32_t flag_ct, char* flag_
 
 pglerr_t init_logfile(uint32_t always_stderr, char* outname, char* outname_end);
 
-void cleanup_logfile(uint32_t print_end_time);
+boolerr_t cleanup_logfile(uint32_t print_end_time);
 
 CONSTU31(kNonBigstackMin, 67108864);
 
@@ -618,6 +611,13 @@ HEADER_INLINE unsigned char* bigstack_alloc_raw(uintptr_t size) {
   assert(!(size % kCacheline));
   unsigned char* alloc_ptr = g_bigstack_base;
   g_bigstack_base += size;
+  return alloc_ptr;
+}
+
+HEADER_INLINE unsigned char* bigstack_alloc_raw_rd(uintptr_t size) {
+  // Same as bigstack_alloc_raw(), except for rounding up size.
+  unsigned char* alloc_ptr = g_bigstack_base;
+  g_bigstack_base += round_up_pow2(size, kCacheline);
   return alloc_ptr;
 }
 
@@ -802,7 +802,7 @@ HEADER_INLINE void bigstack_shrink_top(const void* rebase, uintptr_t new_size) {
 CONSTU31(kEndAllocAlign, MAXV(kBytesPerVec, 16));
 
 HEADER_INLINE void bigstack_end_set(const void* unaligned_end) {
-  g_bigstack_end = (unsigned char*)(((uintptr_t)unaligned_end) & (~((kEndAllocAlign - 1) * k1LU)));
+  g_bigstack_end = (unsigned char*)round_down_pow2((uintptr_t)unaligned_end, kEndAllocAlign);
 }
 
 // assumes size is divisible by kEndAllocAlign
@@ -810,6 +810,11 @@ HEADER_INLINE void bigstack_end_set(const void* unaligned_end) {
 HEADER_INLINE unsigned char* bigstack_end_alloc_raw(uintptr_t size) {
   assert(!(size % kEndAllocAlign));
   g_bigstack_end -= size;
+  return g_bigstack_end;
+}
+
+HEADER_INLINE unsigned char* bigstack_end_alloc_raw_rd(uintptr_t size) {
+  g_bigstack_end -= round_up_pow2(size, kEndAllocAlign);
   return g_bigstack_end;
 }
 
@@ -907,6 +912,12 @@ HEADER_INLINE unsigned char* arena_alloc_raw(uintptr_t size, unsigned char** are
   assert(!(size % kCacheline));
   unsigned char* alloc_ptr = *arena_bottom_ptr;
   *arena_bottom_ptr = &(alloc_ptr[size]);
+  return alloc_ptr;
+}
+
+HEADER_INLINE unsigned char* arena_alloc_raw_rd(uintptr_t size, unsigned char** arena_bottom_ptr) {
+  unsigned char* alloc_ptr = *arena_bottom_ptr;
+  *arena_bottom_ptr = &(alloc_ptr[round_up_pow2(size, kCacheline)]);
   return alloc_ptr;
 }
 
@@ -1895,7 +1906,7 @@ uint32_t get_max_chr_slen(const chr_info_t* cip);
 
 uint32_t haploid_chr_present(const chr_info_t* cip);
 
-// does not require null-termination
+// any character <= ' ' is considered a terminator
 // maps chrX -> kChrRawX, etc.
 int32_t get_chr_code_raw(const char* sptr);
 
@@ -2422,8 +2433,8 @@ HEADER_INLINE void init_threads3z(threads_state_t* tsp) {
 }
 
 HEADER_INLINE void reinit_threads3z(threads_state_t* tsp) {
+  assert(!tsp->is_unjoined);
   tsp->is_last_block = 0;
-  tsp->is_unjoined = 0;
 }
 
 HEADER_INLINE boolerr_t spawn_threads3z(uint32_t is_not_first_block, threads_state_t* tsp) {
@@ -2443,6 +2454,22 @@ HEADER_INLINE void join_threads3z(threads_state_t* tsp) {
   if (tsp->is_last_block) {
     tsp->thread_func_ptr = nullptr;
   }
+}
+
+HEADER_INLINE void stop_threads3z(threads_state_t* tsp, uint32_t* cur_block_sizep) {
+  assert(tsp->thread_func_ptr);
+  if (tsp->is_unjoined) {
+    join_threads2z(tsp->calc_thread_ct, tsp->is_last_block, tsp->threads);
+  }
+  tsp->is_unjoined = 0;
+  if (!tsp->is_last_block) {
+    tsp->is_last_block = 1;
+    if (cur_block_sizep) {
+      *cur_block_sizep = 0;
+    }
+    error_cleanup_threads2z(tsp->thread_func_ptr, tsp->calc_thread_ct, tsp->threads);
+  }
+  tsp->thread_func_ptr = nullptr;
 }
 
 HEADER_INLINE void threads3z_cleanup(threads_state_t* tsp, uint32_t* cur_block_sizep) {

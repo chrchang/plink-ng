@@ -109,7 +109,7 @@ pglerr_t glm_local_init(const char* local_covar_fname, const char* local_pvar_fn
       goto glm_local_init_ret_1;
     }
     uint32_t* local_sample_uidx_order = (uint32_t*)g_bigstack_base;
-    uintptr_t max_local_sample_ct = (bigstack_left() & (~(kCacheline - k1LU))) / sizeof(int32_t);
+    uintptr_t max_local_sample_ct = round_down_pow2(bigstack_left(), kCacheline) / sizeof(int32_t);
 #ifdef __LP64__
     if (max_local_sample_ct > kMaxLongLine / 2) {
       max_local_sample_ct = kMaxLongLine / 2;
@@ -291,7 +291,7 @@ pglerr_t glm_local_init(const char* local_covar_fname, const char* local_pvar_fn
     }
     uint32_t max_local_variant_ct = 0x7ffffffd;
     if (bigstack_left() < (0x80000000U / CHAR_BIT)) {
-      max_local_variant_ct = (bigstack_left() & (~(kCacheline - k1LU))) * CHAR_BIT;
+      max_local_variant_ct = round_down_pow2(bigstack_left(), kCacheline) * CHAR_BIT;
     }
     const uintptr_t* orig_variant_include = *variant_include_ptr;
     uintptr_t* local_variant_include = (uintptr_t*)g_bigstack_base;
@@ -2669,18 +2669,18 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
       }
       const uint32_t genof_buffer_needed = cur_parameter_subset && (!is_set(cur_parameter_subset, 1));
       unsigned char* workspace_iter = workspace_buf;
-      uintptr_t* sample_nm = (uintptr_t*)arena_alloc_raw(round_up_pow2(sample_ctl * sizeof(intptr_t), kCacheline), &workspace_iter);
-      uintptr_t* pheno_cc_nm = (uintptr_t*)arena_alloc_raw(round_up_pow2(sample_ctl * sizeof(intptr_t), kCacheline), &workspace_iter);
-      uintptr_t* male_nm = (uintptr_t*)arena_alloc_raw(round_up_pow2(sample_ctl * sizeof(intptr_t), kCacheline), &workspace_iter);
-      float* nm_pheno_buf = (float*)arena_alloc_raw(round_up_pow2(sample_cta4 * sizeof(float), kCacheline), &workspace_iter);
-      float* nm_predictors_pmaj_buf = (float*)arena_alloc_raw(round_up_pow2((cur_predictor_ct + genof_buffer_needed) * sample_cta4 * sizeof(float), kCacheline), &workspace_iter);
-      float* coef_return = (float*)arena_alloc_raw(round_up_pow2(predictor_cta4 * sizeof(float), kCacheline), &workspace_iter);
-      float* hh_return = (float*)arena_alloc_raw(round_up_pow2(cur_predictor_ct * predictor_cta4 * sizeof(float), kCacheline), &workspace_iter);
-      float* pp_buf = (float*)arena_alloc_raw(round_up_pow2(sample_cta4 * sizeof(float), kCacheline), &workspace_iter);
-      float* sample_variance_buf = (float*)arena_alloc_raw(round_up_pow2(sample_cta4 * sizeof(float), kCacheline), &workspace_iter);
-      float* gradient_buf = (float*)arena_alloc_raw(round_up_pow2(predictor_cta4 * sizeof(float), kCacheline), &workspace_iter);
-      float* dcoef_buf = (float*)arena_alloc_raw(round_up_pow2(predictor_cta4 * sizeof(float), kCacheline), &workspace_iter);
-      float* cholesky_decomp_return = (float*)arena_alloc_raw(round_up_pow2(cur_predictor_ct * predictor_cta4 * sizeof(float), kCacheline), &workspace_iter);
+      uintptr_t* sample_nm = (uintptr_t*)arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter);
+      uintptr_t* pheno_cc_nm = (uintptr_t*)arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter);
+      uintptr_t* male_nm = (uintptr_t*)arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter);
+      float* nm_pheno_buf = (float*)arena_alloc_raw_rd(sample_cta4 * sizeof(float), &workspace_iter);
+      float* nm_predictors_pmaj_buf = (float*)arena_alloc_raw_rd((cur_predictor_ct + genof_buffer_needed) * sample_cta4 * sizeof(float), &workspace_iter);
+      float* coef_return = (float*)arena_alloc_raw_rd(predictor_cta4 * sizeof(float), &workspace_iter);
+      float* hh_return = (float*)arena_alloc_raw_rd(cur_predictor_ct * predictor_cta4 * sizeof(float), &workspace_iter);
+      float* pp_buf = (float*)arena_alloc_raw_rd(sample_cta4 * sizeof(float), &workspace_iter);
+      float* sample_variance_buf = (float*)arena_alloc_raw_rd(sample_cta4 * sizeof(float), &workspace_iter);
+      float* gradient_buf = (float*)arena_alloc_raw_rd(predictor_cta4 * sizeof(float), &workspace_iter);
+      float* dcoef_buf = (float*)arena_alloc_raw_rd(predictor_cta4 * sizeof(float), &workspace_iter);
+      float* cholesky_decomp_return = (float*)arena_alloc_raw_rd(cur_predictor_ct * predictor_cta4 * sizeof(float), &workspace_iter);
       
       matrix_finvert_buf1_t* inv_1d_buf = nullptr;
       float* flt_2d_buf = nullptr;
@@ -2695,16 +2695,16 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
       float* inner_buf = nullptr;
 
       if (is_sometimes_firth || cur_constraint_ct) {
-	inv_1d_buf = (matrix_finvert_buf1_t*)arena_alloc_raw(round_up_pow2(cur_predictor_ct * kMatrixFinvertBuf1CheckedAlloc, kCacheline), &workspace_iter);
-	flt_2d_buf = (float*)arena_alloc_raw(round_up_pow2(cur_predictor_ct * predictor_cta4 * sizeof(float), kCacheline), &workspace_iter);
+	inv_1d_buf = (matrix_finvert_buf1_t*)arena_alloc_raw_rd(cur_predictor_ct * kMatrixFinvertBuf1CheckedAlloc, &workspace_iter);
+	flt_2d_buf = (float*)arena_alloc_raw_rd(cur_predictor_ct * predictor_cta4 * sizeof(float), &workspace_iter);
 	if (is_sometimes_firth) {
-	  score_buf = (float*)arena_alloc_raw(round_up_pow2(sample_cta4 * sizeof(float), kCacheline), &workspace_iter);
-	  tmpnxk_buf = (float*)arena_alloc_raw(round_up_pow2(cur_predictor_ct * sample_cta4 * sizeof(float), kCacheline), &workspace_iter);
+	  score_buf = (float*)arena_alloc_raw_rd(sample_cta4 * sizeof(float), &workspace_iter);
+	  tmpnxk_buf = (float*)arena_alloc_raw_rd(cur_predictor_ct * sample_cta4 * sizeof(float), &workspace_iter);
 	}
 	if (cur_constraint_ct) {
-	  tmphxs_buf = (float*)arena_alloc_raw(round_up_pow2(cur_constraint_ct * predictor_cta4 * sizeof(float), kCacheline), &workspace_iter);
-	  h_transpose_buf = (float*)arena_alloc_raw(round_up_pow2(cur_constraint_ct * predictor_cta4 * sizeof(float), kCacheline), &workspace_iter);
-	  inner_buf = (float*)arena_alloc_raw(round_up_pow2(cur_constraint_ct * cur_constraint_ct * sizeof(float), kCacheline), &workspace_iter);
+	  tmphxs_buf = (float*)arena_alloc_raw_rd(cur_constraint_ct * predictor_cta4 * sizeof(float), &workspace_iter);
+	  h_transpose_buf = (float*)arena_alloc_raw_rd(cur_constraint_ct * predictor_cta4 * sizeof(float), &workspace_iter);
+	  inner_buf = (float*)arena_alloc_raw_rd(cur_constraint_ct * cur_constraint_ct * sizeof(float), &workspace_iter);
 	}
       }
       // assert((uintptr_t)(workspace_iter - workspace_buf) == get_logistic_workspace_size(cur_sample_ct, cur_predictor_ct, cur_constraint_ct, genof_buffer_needed, is_sometimes_firth));
@@ -3607,7 +3607,7 @@ pglerr_t glm_logistic(const char* cur_pheno_name, char** test_names, char** test
     if (max_sample_ct > 2000000) {
       logerrprint("Warning: --glm logistic regression is unreliable on more than ~2 million\nsamples, since it uses single-precision arithmetic.\n");
     }
-    g_workspace_bufs = (unsigned char**)bigstack_alloc_raw(round_up_pow2(calc_thread_ct * sizeof(intptr_t), kCacheline));
+    g_workspace_bufs = (unsigned char**)bigstack_alloc_raw_rd(calc_thread_ct * sizeof(intptr_t));
     for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
       g_workspace_bufs[tidx] = bigstack_alloc_raw(workspace_alloc);
     }
@@ -4336,14 +4336,14 @@ THREAD_FUNC_DECL glm_linear_thread(void* arg) {
       }
       const uint32_t genod_buffer_needed = cur_parameter_subset && (!is_set(cur_parameter_subset, 1));
       unsigned char* workspace_iter = workspace_buf;
-      uintptr_t* sample_nm = (uintptr_t*)arena_alloc_raw(round_up_pow2(sample_ctl * sizeof(intptr_t), kCacheline), &workspace_iter);
-      uintptr_t* male_nm = (uintptr_t*)arena_alloc_raw(round_up_pow2(sample_ctl * sizeof(intptr_t), kCacheline), &workspace_iter);
-      double* nm_pheno_buf = (double*)arena_alloc_raw(round_up_pow2(cur_sample_ct * sizeof(double), kCacheline), &workspace_iter);
-      double* nm_predictors_pmaj_buf = (double*)arena_alloc_raw(round_up_pow2((cur_predictor_ct + genod_buffer_needed) * cur_sample_ct * sizeof(double), kCacheline), &workspace_iter);
-      double* xtx_inv = (double*)arena_alloc_raw(round_up_pow2(cur_predictor_ct * cur_predictor_ct * sizeof(double), kCacheline), &workspace_iter);
-      double* fitted_coefs = (double*)arena_alloc_raw(round_up_pow2(cur_predictor_ct * sizeof(double), kCacheline), &workspace_iter);
-      double* xt_y = (double*)arena_alloc_raw(round_up_pow2(cur_predictor_ct * sizeof(double), kCacheline), &workspace_iter);
-      double* dbl_2d_buf = (double*)arena_alloc_raw(round_up_pow2(cur_predictor_ct * cur_predictor_ct * sizeof(double), kCacheline), &workspace_iter);
+      uintptr_t* sample_nm = (uintptr_t*)arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter);
+      uintptr_t* male_nm = (uintptr_t*)arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter);
+      double* nm_pheno_buf = (double*)arena_alloc_raw_rd(cur_sample_ct * sizeof(double), &workspace_iter);
+      double* nm_predictors_pmaj_buf = (double*)arena_alloc_raw_rd((cur_predictor_ct + genod_buffer_needed) * cur_sample_ct * sizeof(double), &workspace_iter);
+      double* xtx_inv = (double*)arena_alloc_raw_rd(cur_predictor_ct * cur_predictor_ct * sizeof(double), &workspace_iter);
+      double* fitted_coefs = (double*)arena_alloc_raw_rd(cur_predictor_ct * sizeof(double), &workspace_iter);
+      double* xt_y = (double*)arena_alloc_raw_rd(cur_predictor_ct * sizeof(double), &workspace_iter);
+      double* dbl_2d_buf = (double*)arena_alloc_raw_rd(cur_predictor_ct * cur_predictor_ct * sizeof(double), &workspace_iter);
       
       // joint test only
       matrix_invert_buf1_t* inv_1d_buf = nullptr;
@@ -4352,15 +4352,15 @@ THREAD_FUNC_DECL glm_linear_thread(void* arg) {
       double* inner_buf = nullptr;
 #ifdef NOLAPACK
       // (well, except if LAPACK is missing)
-      inv_1d_buf = (matrix_invert_buf1_t*)arena_alloc_raw(round_up_pow2(cur_predictor_ct * kMatrixInvertBuf1CheckedAlloc, kCacheline), &workspace_iter);
+      inv_1d_buf = (matrix_invert_buf1_t*)arena_alloc_raw_rd(cur_predictor_ct * kMatrixInvertBuf1CheckedAlloc, &workspace_iter);
 #endif
       if (cur_constraint_ct) {
 #ifndef NOLAPACK
-	inv_1d_buf = (matrix_invert_buf1_t*)arena_alloc_raw(round_up_pow2(cur_predictor_ct * kMatrixInvertBuf1CheckedAlloc, kCacheline), &workspace_iter);
+	inv_1d_buf = (matrix_invert_buf1_t*)arena_alloc_raw_rd(cur_predictor_ct * kMatrixInvertBuf1CheckedAlloc, &workspace_iter);
 #endif
-	tmphxs_buf = (double*)arena_alloc_raw(round_up_pow2(cur_constraint_ct * cur_predictor_ct * sizeof(double), kCacheline), &workspace_iter);
-	h_transpose_buf = (double*)arena_alloc_raw(round_up_pow2(cur_constraint_ct * cur_predictor_ct * sizeof(double), kCacheline), &workspace_iter);
-	inner_buf = (double*)arena_alloc_raw(round_up_pow2(cur_constraint_ct * cur_constraint_ct * sizeof(double), kCacheline), &workspace_iter);
+	tmphxs_buf = (double*)arena_alloc_raw_rd(cur_constraint_ct * cur_predictor_ct * sizeof(double), &workspace_iter);
+	h_transpose_buf = (double*)arena_alloc_raw_rd(cur_constraint_ct * cur_predictor_ct * sizeof(double), &workspace_iter);
+	inner_buf = (double*)arena_alloc_raw_rd(cur_constraint_ct * cur_constraint_ct * sizeof(double), &workspace_iter);
       }
       assert((uintptr_t)(workspace_iter - workspace_buf) == get_linear_workspace_size(cur_sample_ct, cur_predictor_ct, cur_constraint_ct, genod_buffer_needed));
       double pheno_ssq_base = 0.0;
@@ -4849,7 +4849,7 @@ pglerr_t glm_linear(const char* cur_pheno_name, char** test_names, char** test_n
       }
     }
 
-    g_workspace_bufs = (unsigned char**)bigstack_alloc_raw(round_up_pow2(calc_thread_ct * sizeof(intptr_t), kCacheline));
+    g_workspace_bufs = (unsigned char**)bigstack_alloc_raw_rd(calc_thread_ct * sizeof(intptr_t));
     for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
       g_workspace_bufs[tidx] = bigstack_alloc_raw(workspace_alloc);
     }

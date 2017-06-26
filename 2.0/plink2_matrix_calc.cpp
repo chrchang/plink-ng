@@ -3065,7 +3065,7 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
 	  g_yy_bufs[tidx] = (double*)arena_alloc_raw(yy_alloc, &arena_bottom);
 	}
         var_wts_part_size = (MINV(variant_ct, calc_thread_ct * kPcaVariantBlockSize)) * ((uintptr_t)pc_ct);
-	qq = (double*)arena_alloc_raw(round_up_pow2(2 * var_wts_part_size * sizeof(double), kCacheline), &arena_bottom);
+	qq = (double*)arena_alloc_raw_rd(2 * var_wts_part_size * sizeof(double), &arena_bottom);
 	g_qq = qq;
 #ifndef NDEBUG
 	if (arena_top == g_bigstack_end) {

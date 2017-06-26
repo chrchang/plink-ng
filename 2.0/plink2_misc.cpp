@@ -1245,7 +1245,7 @@ pglerr_t init_histogram_from_file_or_commalist(const char* binstr, uint32_t is_f
   uint32_t max_boundary_ct = 0;
   pglerr_t reterr = kPglRetSuccess;
   {
-    uintptr_t ulii = bigstack_left() & (~(kCacheline - k1LU));
+    uintptr_t ulii = round_down_pow2(bigstack_left(), kCacheline);
     if (ulii < 2 * kCacheline) {
       goto init_histogram_from_file_or_commalist_ret_NOMEM;
     }
@@ -1310,7 +1310,7 @@ pglerr_t init_histogram_from_file_or_commalist(const char* binstr, uint32_t is_f
     }
     *boundary_ct_ptr = boundary_ct;
     g_bigstack_base += round_up_pow2(boundary_ct * (8 * k1LU), kCacheline);
-    *histogram_ptr = (uint32_t*)bigstack_alloc_raw(round_up_pow2((boundary_ct + 1) * sizeof(int32_t), kCacheline));
+    *histogram_ptr = (uint32_t*)bigstack_alloc_raw_rd((boundary_ct + 1) * sizeof(int32_t));
     fill_uint_zero(boundary_ct + 1, *histogram_ptr);
   }
   while (0) {

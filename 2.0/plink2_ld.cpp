@@ -731,7 +731,7 @@ pglerr_t indep_pairwise(const uintptr_t* variant_include, const chr_info_t* cip,
     const uint32_t founder_nonmale_ctl2 = QUATERCT_TO_WORDCT(founder_nonmale_ct);
     const uintptr_t raw_tgenovec_single_variant_word_ct = round_up_pow2(founder_nonmale_ctl2 + founder_male_ctl2, kWordsPerVec);
     // round down
-    uintptr_t bigstack_avail_per_thread = (bigstack_left() / calc_thread_ct) & (~(kCacheline - k1LU));
+    uintptr_t bigstack_avail_per_thread = round_down_pow2(bigstack_left() / calc_thread_ct, kCacheline);
     // may as well require capacity for >= 256 variants per thread per pass
     if (bigstack_avail_per_thread <= thread_alloc_base + 2 * 256 * raw_tgenovec_single_variant_word_ct * sizeof(intptr_t)) {
       goto indep_pairwise_ret_NOMEM;
@@ -760,8 +760,8 @@ pglerr_t indep_pairwise(const uintptr_t* variant_include, const chr_info_t* cip,
       g_winpos_to_slot_idx[tidx] = (uint32_t*)bigstack_alloc_raw(window_int32_alloc);
       g_tvidxs[tidx] = (uint32_t*)bigstack_alloc_raw(window_int32_alloc);
       g_first_unchecked_tvidx[tidx] = (uint32_t*)bigstack_alloc_raw(window_int32_alloc);
-      g_raw_tgenovecs[0][tidx] = (uintptr_t*)bigstack_alloc_raw(round_up_pow2(tvidx_batch_size * raw_tgenovec_single_variant_word_ct * sizeof(intptr_t), kCacheline));
-      g_raw_tgenovecs[1][tidx] = (uintptr_t*)bigstack_alloc_raw(round_up_pow2(tvidx_batch_size * raw_tgenovec_single_variant_word_ct * sizeof(intptr_t), kCacheline));
+      g_raw_tgenovecs[0][tidx] = (uintptr_t*)bigstack_alloc_raw_rd(tvidx_batch_size * raw_tgenovec_single_variant_word_ct * sizeof(intptr_t));
+      g_raw_tgenovecs[1][tidx] = (uintptr_t*)bigstack_alloc_raw_rd(tvidx_batch_size * raw_tgenovec_single_variant_word_ct * sizeof(intptr_t));
     }
     g_subcontig_info = subcontig_info;
     g_subcontig_thread_assignments = subcontig_thread_assignments;
