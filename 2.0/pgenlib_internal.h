@@ -666,14 +666,7 @@ HEADER_INLINE uint32_t abs_int32(int32_t ii) {
 
 extern uintptr_t g_failed_alloc_attempt_size;
 
-HEADER_INLINE boolerr_t pgl_malloc(uintptr_t size, void* pp) {
-  *((uintptr_t**)pp) = (uintptr_t*)malloc(size);
-  if (*((uintptr_t**)pp)) {
-    return 0;
-  }
-  g_failed_alloc_attempt_size = size;
-  return 1;
-}
+boolerr_t pgl_malloc(uintptr_t size, void* pp);
 
 // This must be used for all fwrite() calls where len could be >= 2^31, since
 // OS X raw fwrite() doesn't work in that case.

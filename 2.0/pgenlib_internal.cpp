@@ -31,6 +31,17 @@ namespace plink2 {
 
 uintptr_t g_failed_alloc_attempt_size = 0;
 
+// putting this in the header file caused a bunch of gcc 4.4 strict-aliasing
+// warnings, bleah
+boolerr_t pgl_malloc(uintptr_t size, void* pp) {
+  *((unsigned char**)pp) = (unsigned char*)malloc(size);
+  if (*((unsigned char**)pp)) {
+    return 0;
+  }
+  g_failed_alloc_attempt_size = size;
+  return 1;
+}
+
 interr_t fwrite_checked(const void* buf, uintptr_t len, FILE* outfile) {
   while (len > kMaxBytesPerIO) {
     // OS X can't perform 2GB+ writes

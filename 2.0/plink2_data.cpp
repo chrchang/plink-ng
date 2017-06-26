@@ -6182,6 +6182,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
 	    bgen_geno_iter = &(bgen_geno_iter[genodata_byte_ct]);
 	    compressed_geno_starts[++block_vidx] = bgen_geno_iter;
 
+	    uint16_t snpid_slen;
 	    // true iff this is the last variant we're keeping in the entire
 	    // file
 	    if (block_vidx == block_vidx_limit) {
@@ -6192,7 +6193,6 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
 	      break;
 	    }
 	  ox_bgen_to_pgen_load13_start:
-	    uint16_t snpid_slen;
 	    if (!fread(&snpid_slen, 2, 1, bgenfile)) {
 	      goto ox_bgen_to_pgen_ret_READ_FAIL;
 	    }
