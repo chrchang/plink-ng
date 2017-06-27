@@ -2143,7 +2143,10 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 	       );
 #if defined __cplusplus && !defined _WIN32 && !defined STABLE_BUILD
     help_print("R\tR-port", &help_ctrl, 0,
-"  --R-port [port #]  : Connect to Rserve on a port other than 6311.\n"
+"  --R-port [port #]  : Connect to Rserve on a port other than 6311 (-1 for\n"
+"                       unix domain sockets.\n"
+"  --R-host [host]    : Connect to Rserve host or unix domain socket (set port\n"
+"                       to -1)\n"
 	       );
 #endif
     help_print("parallel\tgenome-lists", &help_ctrl, 0,
