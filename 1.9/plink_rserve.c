@@ -30,7 +30,7 @@
 
 #define RPLUGIN_BLOCK_SIZE 100
 
-int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin_debug, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uint32_t* marker_pos, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, uintptr_t* pheno_c, double* pheno_d, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uintptr_t covar_ct, double* covar_d, char* outname, char* outname_end) {
+int32_t rserve_call(char* rplugin_fname, char *rplugin_host, uint32_t rplugin_port, uint32_t rplugin_debug, FILE* bedfile, uintptr_t bed_offset, uintptr_t marker_ct, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t* marker_reverse, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uint32_t* marker_pos, uint32_t plink_maxsnp, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t* pheno_nm, uint32_t pheno_nm_ct, uintptr_t* pheno_c, double* pheno_d, uint32_t cluster_ct, uint32_t* cluster_map, uint32_t* cluster_starts, uintptr_t covar_ct, double* covar_d, char* outname, char* outname_end) {
   // See PLINK 1.07 r.cpp.
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* infile = nullptr;
@@ -180,7 +180,7 @@ int32_t rserve_call(char* rplugin_fname, uint32_t rplugin_port, uint32_t rplugin
     if (bigstack_alloc_i(RPLUGIN_BLOCK_SIZE * ((uintptr_t)pheno_nm_ct), &geno_int_buf)) {
       goto rserve_call_ret_NOMEM;
     }
-    rc = new Rconnection("127.0.0.1", rplugin_port);
+    rc = new Rconnection(rplugin_host, rplugin_port);
     ii = rc->connect();
     if (ii) {
       sockerrorchecks(g_textbuf, 128, -1);
