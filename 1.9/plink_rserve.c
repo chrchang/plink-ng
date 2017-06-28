@@ -180,6 +180,9 @@ int32_t rserve_call(char* rplugin_fname, char* rplugin_host_or_socket, int32_t r
     if (bigstack_alloc_i(RPLUGIN_BLOCK_SIZE * ((uintptr_t)pheno_nm_ct), &geno_int_buf)) {
       goto rserve_call_ret_NOMEM;
     }
+    if (rplugin_port == -2) {
+      rplugin_port = 6311;
+    }
     rc = new Rconnection(rplugin_host_or_socket, rplugin_port);
     ii = rc->connect();
     if (ii) {

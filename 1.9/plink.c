@@ -105,7 +105,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (27 Jun 2017)";
+  " (28 Jun 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -3175,7 +3175,7 @@ int32_t main(int32_t argc, char** argv) {
   char* rplugin_host_or_socket = nullptr;
   uint32_t gene_report_border = 0;
   uint32_t metaanal_flags = 0;
-  int32_t rplugin_port = 6311;
+  int32_t rplugin_port = -2; // now interpreted by rserve_call() as default
   double vcf_min_qual = -1;
   double vcf_min_gq = -1;
   double vcf_min_gp = -1;
@@ -4196,6 +4196,10 @@ int32_t main(int32_t argc, char** argv) {
       } else if (!memcmp(argptr2, "-socket", 8)) {
 	if (!rplugin_fname) {
 	  logerrprint("Error: --R-socket must be used with --R.\n");
+	  goto main_ret_INVALID_CMDLINE;
+	}
+	if (rplugin_port != -2) {
+	  logerrprint("Error: --R-socket cannot be used with --R-port.\n");
 	  goto main_ret_INVALID_CMDLINE;
 	}
         if (rplugin_host_or_socket) {
