@@ -1294,7 +1294,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      it.  Also, note that scores are multiplied by 0..1 dosages, not 0..2\n"
 "      diploid allele counts, unless the 'double-dosage' modifier is present.\n\n"
 	       );
-#if defined __cplusplus && !defined _WIN32 && !defined STABLE_BUILD
+#if defined __cplusplus && !defined _WIN32
     help_print("R\tR-debug", &help_ctrl, 1,
 "  --R [R script file] <debug>\n"
 "    Connect to a Rserve (preferably version 1.7 or later) background process,\n"
@@ -2141,12 +2141,11 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "      j defaults to i+1.  The 'header' modifier causes the first nonempty line\n"
 "      of this file to be skipped.\n"
 	       );
-#if defined __cplusplus && !defined _WIN32 && !defined STABLE_BUILD
-    help_print("R\tR-port", &help_ctrl, 0,
-"  --R-port [port #]  : Connect to Rserve on a port other than 6311 (-1 for\n"
-"                       unix domain sockets.\n"
-"  --R-host [host]    : Connect to Rserve host or unix domain socket (set port\n"
-"                       to -1)\n"
+#if defined __cplusplus && !defined _WIN32
+    help_print("R\tR-port\tR-host\tR-socket", &help_ctrl, 0,
+"  --R-port [port #]  : Connect to Rserve on a port other than 6311.\n"
+"  --R-host [host]    : Connect to Rserve host.\n"
+"  --R-socket [sock]  : Connect to Rserve socket.\n"
 	       );
 #endif
     help_print("parallel\tgenome-lists", &help_ctrl, 0,
