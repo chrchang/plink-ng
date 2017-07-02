@@ -6861,7 +6861,6 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
   double* main_weights_ptr = nullptr;
   double* dptr2;
   double set_allele_freq_buf[MULTIPLEX_DIST];
-  char wbuf[96];
   uint64_t start_offset;
   uint64_t hundredth;
   unsigned char* overflow_buf;
@@ -7125,19 +7124,20 @@ int32_t calc_rel(pthread_t* threads, uint32_t parallel_idx, uint32_t parallel_to
     if (fputs_checked("FID\tIID\tNOMISS\tFhat1\tFhat2\tFhat3\n", outfile)) {
       goto calc_rel_ret_WRITE_FAIL;
     }
+    char* textbuf = g_textbuf;
     sample_uidx = 0;
     for (sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
       next_unset_ul_unsafe_ck(sample_exclude, &sample_uidx);
       fam_id = &(sample_ids[sample_uidx * max_sample_id_len]);
       sample_id = (char*)memchr(fam_id, '\t', max_sample_id_len);
-      wptr = memcpyax(wbuf, fam_id, (uintptr_t)(sample_id - fam_id), '\t');
+      wptr = memcpyax(textbuf, fam_id, (uintptr_t)(sample_id - fam_id), '\t');
       wptr = strcpyax(wptr, &(sample_id[1]), '\t');
       wptr = uint32toa_x(marker_ct - sample_missing_unwt[sample_idx], '\t', wptr);
       wptr = dtoa_gx(*dptr3++ - 1.0, '\t', wptr);
       wptr = dtoa_gx(*dptr4++ - 1.0, '\t', wptr);
       wptr = dtoa_gx(*dptr2++ - 1.0, '\n', wptr);
 
-      if (fwrite_checked(wbuf, wptr - wbuf, outfile)) {
+      if (fwrite_checked(textbuf, wptr - textbuf, outfile)) {
 	goto calc_rel_ret_WRITE_FAIL;
       }
     }
