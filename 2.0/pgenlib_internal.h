@@ -651,6 +651,8 @@ HEADER_INLINE uintptr_t round_up_pow2(uintptr_t val, uintptr_t alignment) {
 // Thought about conditional use of constexpr here, but that has annoying
 // integer-widening effects.  Unless we split the use cases into DIV_UP,
 // DIVL_UP, and DIV64_UP; this may be worth doing at some point.
+// Note that this fails if (val + divisor - 1) overflows the widest integer
+// type on the left.
 #define DIV_UP(val, divisor) (((val) + (divisor) - 1) / (divisor))
 
 // "NZ" means nonzero in two ways:
@@ -666,7 +668,23 @@ HEADER_INLINE uint32_t abs_int32(int32_t ii) {
 
 extern uintptr_t g_failed_alloc_attempt_size;
 
+#if (__GNUC__ <= 4) && (__GNUC_MINOR__ < 7) && !defined(__APPLE__)
+// putting this in the header file caused a bunch of gcc 4.4 strict-aliasing
+// warnings, while not doing so seems to inhibit some malloc-related compiler
+// optimizations, bleah
+// compromise: header-inline iff gcc version >= 4.7 (might not be the right
+// cutoff?)
 boolerr_t pgl_malloc(uintptr_t size, void* pp);
+#else
+HEADER_INLINE boolerr_t pgl_malloc(uintptr_t size, void* pp) {
+  *((unsigned char**)pp) = (unsigned char*)malloc(size);
+  if (*((unsigned char**)pp)) {
+    return 0;
+  }
+  g_failed_alloc_attempt_size = size;
+  return 1;
+}
+#endif
 
 // This must be used for all fwrite() calls where len could be >= 2^31, since
 // OS X raw fwrite() doesn't work in that case.

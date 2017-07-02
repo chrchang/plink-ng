@@ -1275,6 +1275,102 @@ cdef class PgenWriter:
         else:
             raise RuntimeError("Invalid append_dosages() dosage array element type (float32 or float64 expected).")
         return
+
+
+    cpdef append_biallelic_batch(self, np.ndarray[np.int8_t,mode="c",ndim=2] geno_int8_batch):
+        cdef uint32_t batch_size = <uint32_t>geno_int8_batch.shape[0]
+        cdef int8_t* genobytes
+        cdef uint32_t uii
+        cdef pglerr_t reterr
+        for uii in range(batch_size):
+            genobytes = &(geno_int8_batch[uii, 0])
+            bytes_to_genoarr_unsafe(genobytes, self._state_ptr[0].pwc.sample_ct, self._genovec)
+            reterr = spgw_append_biallelic_genovec(self._genovec, self._state_ptr)
+            if reterr != kPglRetSuccess:
+                raise RuntimeError("append_biallelic_batch() error " + str(reterr))
+        return
+    
+
+    cpdef append_alleles_batch(self, np.ndarray[np.int32_t,mode="c",ndim=2] allele_int32_batch, bint all_phased = False):
+        cdef uint32_t batch_size = <uint32_t>allele_int32_batch.shape[0]
+        cdef uintptr_t* genovec = self._genovec
+        cdef int32_t* allele_codes
+        cdef uint32_t uii
+        cdef pglerr_t reterr
+        if not all_phased:
+            for uii in range(batch_size):
+                allele_codes = <int32_t*>(&(allele_int32_batch[uii, 0]))
+                allele_codes_to_genoarr_unsafe(allele_codes, NULL, self._state_ptr[0].pwc.sample_ct, genovec, NULL, NULL)
+                reterr = spgw_append_biallelic_genovec(genovec, self._state_ptr)
+                if reterr != kPglRetSuccess:
+                    raise RuntimeError("append_alleles_batch() error " + str(reterr))
+        else:
+            for uii in range(batch_size):
+                allele_codes = <int32_t*>(&(allele_int32_batch[uii, 0]))
+                allele_codes_to_genoarr_unsafe(allele_codes, NULL, self._state_ptr[0].pwc.sample_ct, genovec, self._phasepresent, self._phaseinfo)
+                reterr = spgw_append_biallelic_genovec_hphase(genovec, self._phasepresent, self._phaseinfo, self._state_ptr)
+                if reterr != kPglRetSuccess:
+                    raise RuntimeError("append_alleles_batch() error " + str(reterr))
+        return
+
+    
+    cpdef append_partially_phased_batch(self, np.ndarray[np.int32_t,mode="c",ndim=2] allele_int32_batch, np.ndarray[np.uint8_t,mode="c",cast=True,ndim=2] phasepresent_batch):
+        cdef uint32_t batch_size = <uint32_t>allele_int32_batch.shape[0]
+        cdef uintptr_t* genovec = self._genovec
+        cdef uintptr_t* phasepresent_buf = self._phasepresent
+        cdef uintptr_t* phaseinfo = self._phaseinfo
+        cdef int32_t* allele_codes
+        cdef unsigned char* phasepresent_bytes
+        cdef uint32_t uii
+        cdef pglerr_t reterr
+        for uii in range(batch_size):
+            allele_codes = <int32_t*>(&(allele_int32_batch[uii, 0]))
+            phasepresent_bytes = <unsigned char*>(&(phasepresent_batch[uii, 0]))
+            allele_codes_to_genoarr_unsafe(allele_codes, phasepresent_bytes, self._state_ptr[0].pwc.sample_ct, genovec, phasepresent_buf, phaseinfo)
+            reterr = spgw_append_biallelic_genovec_hphase(genovec, phasepresent_buf, phaseinfo, self._state_ptr)
+            if reterr != kPglRetSuccess:
+                raise RuntimeError("append_partially_phased_batch() error " + str(reterr))
+        return
+
+
+    cdef append_dosages_batch_internal32(self, np.ndarray[np.float32_t,mode="c",ndim=2] floatarr_batch):
+        cdef uint32_t batch_size = <uint32_t>floatarr_batch.shape[0]
+        cdef uintptr_t* genovec = self._genovec
+        cdef uintptr_t* dosage_present = self._dosage_present
+        cdef uint16_t* dosage_vals = self._dosage_vals
+        cdef uint32_t dosage_ct
+        cdef uint32_t uii
+        cdef pglerr_t reterr
+        for uii in range(batch_size):
+            floats_to_dosage16(<float*>(&(floatarr_batch[uii, 0])), self._state_ptr[0].pwc.sample_ct, 6554, genovec, dosage_present, dosage_vals, &dosage_ct)
+            reterr = spgw_append_biallelic_genovec_dosage16(genovec, dosage_present, dosage_vals, dosage_ct, self._state_ptr)
+            if reterr != kPglRetSuccess:
+                raise RuntimeError("append_dosages_batch() error " + str(reterr))
+        return
+
+    cdef append_dosages_batch_internal64(self, np.ndarray[np.float64_t,mode="c",ndim=2] doublearr_batch):
+        cdef uint32_t batch_size = <uint32_t>doublearr_batch.shape[0]
+        cdef uintptr_t* genovec = self._genovec
+        cdef uintptr_t* dosage_present = self._dosage_present
+        cdef uint16_t* dosage_vals = self._dosage_vals
+        cdef uint32_t dosage_ct
+        cdef uint32_t uii
+        cdef pglerr_t reterr
+        for uii in range(batch_size):
+            doubles_to_dosage16(<double*>(&(doublearr_batch[uii, 0])), self._state_ptr[0].pwc.sample_ct, 6554, genovec, dosage_present, dosage_vals, &dosage_ct)
+            reterr = spgw_append_biallelic_genovec_dosage16(genovec, dosage_present, dosage_vals, dosage_ct, self._state_ptr)
+            if reterr != kPglRetSuccess:
+                raise RuntimeError("append_dosages_batch() error " + str(reterr))
+        return
+
+    cpdef append_dosages_batch(self, np.ndarray floatarr_batch):
+        if floatarr_batch.dtype == np.float32:
+            self.append_dosages_batch_internal32(floatarr_batch)
+        elif floatarr_batch.dtype == np.float64:
+            self.append_dosages_batch_internal64(floatarr_batch)
+        else:
+            raise RuntimeError("Invalid append_dosages_batch() dosage array element type (float32 or float64 expected).")
+        return
     
     
     cpdef close(self):

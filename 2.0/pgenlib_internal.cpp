@@ -31,8 +31,7 @@ namespace plink2 {
 
 uintptr_t g_failed_alloc_attempt_size = 0;
 
-// putting this in the header file caused a bunch of gcc 4.4 strict-aliasing
-// warnings, bleah
+#if (__GNUC__ <= 4) && (__GNUC_MINOR__ < 7) && !defined(__APPLE__)
 boolerr_t pgl_malloc(uintptr_t size, void* pp) {
   *((unsigned char**)pp) = (unsigned char*)malloc(size);
   if (*((unsigned char**)pp)) {
@@ -41,6 +40,7 @@ boolerr_t pgl_malloc(uintptr_t size, void* pp) {
   g_failed_alloc_attempt_size = size;
   return 1;
 }
+#endif
 
 interr_t fwrite_checked(const void* buf, uintptr_t len, FILE* outfile) {
   while (len > kMaxBytesPerIO) {
@@ -2139,6 +2139,8 @@ uint32_t count_pgr_alloc_cachelines_required(uint32_t raw_sample_ct, pgen_global
   const uint32_t bitvec_cacheline_req = BITCT_TO_CLCT(raw_sample_ct);
   uint32_t cachelines_required = genovec_cacheline_req;
   // fread_buf.  fread_buf_byte_ct should be zero if mmap() is being used.
+  // DIV_UP() won't overflow since fread_buf_byte_ct requirement can't exceed
+  // kPglMaxBytesPerVariant, which is sufficiently far from 2^32.
   cachelines_required += DIV_UP(fread_buf_byte_ct, kCacheline);
 
   const uint32_t ld_compression_present = (gflags / kfPgenGlobalLdCompressionPresent) & 1;
@@ -8288,7 +8290,7 @@ void pwc_init_phase2(uintptr_t fwrite_cacheline_ct, uint32_t thread_ct, pgen_wri
   const pgen_global_flags_t phase_dosage_gflags = pwcs[0]->phase_dosage_gflags;
   uint32_t vrtype_buf_bytes;
   if (phase_dosage_gflags) {
-    vrtype_buf_bytes = round_up_pow2(variant_ct, kCacheline);
+    vrtype_buf_bytes = (uint32_t)round_up_pow2(variant_ct, kCacheline);
   } else {
     vrtype_buf_bytes = DIV_UP(variant_ct, kCacheline * 2) * kCacheline;
   }
@@ -9551,7 +9553,7 @@ pglerr_t spgw_finish(st_pgen_writer_t* spgwp) {
 
 pglerr_t mpgw_flush(mt_pgen_writer_t* mpgwp) {
   pgen_writer_common_t* pwcp = mpgwp->pwcs[0];
-  uint32_t vidx = round_down_pow2(pwcp->vidx - 1, kPglVblockSize);
+  uint32_t vidx = (uint32_t)round_down_pow2(pwcp->vidx - 1, kPglVblockSize);
   uint32_t thread_ct = mpgwp->thread_ct;
   const uint32_t variant_ct = pwcp->variant_ct;
   const uint32_t is_last_flush = ((vidx + thread_ct * kPglVblockSize) >= variant_ct);

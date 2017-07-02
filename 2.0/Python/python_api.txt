@@ -1,4 +1,4 @@
-Pgenlib Python API specification, v0.62
+Pgenlib Python API specification, v0.7
 ("import numpy as np" assumed)
 
 class PgenReader:
@@ -198,6 +198,16 @@ class PgenWriter:
     haploid dosages by 2).
   - Except for small (2^{-16}) tolerances around 0 and 2, any out-of-range
     value (including -9) is interpreted as missing.
+
+* append_biallelic_batch(np.ndarray[np.int8_t,mode="c",ndim=2] genobytes_batch)
+  append_alleles_batch(np.ndarray[np.int32_t,mode="c",ndim=2] allele_codes_batch,
+                       all_phased = False)
+  append_partially_phased_batch(np.ndarray[np.int32_t,mode="c",ndim=2] allele_codes_batch,
+                                np.ndarray[np.{int8,uint8}_t,mode="c",ndim=2] phasepresent_batch)
+  append_dosages_batch(np.ndarray[np.float{32,64}_t] floatarr_batch)
+  Multi-variant forms of append_biallelic(), append_alleles(),
+  append_partially_phased(), and append_dosages().  Input matrices must be
+  variant-major.
 
 * close()
   Backfills the header and closes the file; no further append operations can be
