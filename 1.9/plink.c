@@ -7555,6 +7555,9 @@ int32_t main(int32_t argc, char** argv) {
 	  sprintf(g_logbuf, "Error: Invalid increment '%s' for --%s.\n", argv[cur_arg + param_ct - 1], argptr);
 	  goto main_ret_INVALID_CMDLINE_WWA;
 	}
+	if ((ld_info.modifier & LD_PRUNE_KB_WINDOW) && (ld_info.prune_window_incr > 1)) {
+	  LOGERRPRINTFWW("Warning: --%s step size should be 1 when window size is in kb units.\n", argptr);
+	}
 	if (scan_double(argv[cur_arg + param_ct], &ld_info.prune_last_param) || (ld_info.prune_last_param < 0.0) || (ld_info.prune_last_param >= 1.0)) {
 	  sprintf(g_logbuf, "Error: Invalid --%s r^2 threshold '%s'.\n", argptr, argv[cur_arg + param_ct]);
 	  goto main_ret_INVALID_CMDLINE_WWA;
