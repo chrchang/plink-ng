@@ -10130,7 +10130,7 @@ pglerr_t load_allele_and_geno_counts(const uintptr_t* sample_include, const uint
     pthread_t* threads;
     uint32_t read_block_size;
     // todo: check if raw_sample_ct should be replaced with sample_ct here
-    if (multithread_load_init(variant_include, raw_sample_ct, raw_variant_ct, pgr_alloc_cacheline_ct, 0, 0, pgfip, &calc_thread_ct, &g_genovecs, x_dosages_needed? (&g_dosage_presents) : nullptr, x_dosages_needed? (&g_dosage_val_bufs) : nullptr, &read_block_size, main_loadbufs, &threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
+    if (multithread_load_init(variant_include, raw_sample_ct, variant_ct, pgr_alloc_cacheline_ct, 0, 0, pgfip, &calc_thread_ct, &g_genovecs, x_dosages_needed? (&g_dosage_presents) : nullptr, x_dosages_needed? (&g_dosage_val_bufs) : nullptr, &read_block_size, main_loadbufs, &threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
       goto load_allele_and_geno_counts_ret_NOMEM;
     }
 
@@ -11173,7 +11173,7 @@ pglerr_t make_plink2_no_vsort(const char* xheader, const uintptr_t* sample_inclu
 	
 	unsigned char* main_loadbufs[2];
 	uint32_t read_block_size;
-	if (multithread_load_init(variant_include, sample_ct, raw_variant_ct, pgr_alloc_cacheline_ct, 0, 0, pgfip, &calc_thread_ct, &g_genovecs, nullptr, nullptr, &read_block_size, main_loadbufs, &ts.threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
+	if (multithread_load_init(variant_include, sample_ct, variant_ct, pgr_alloc_cacheline_ct, 0, 0, pgfip, &calc_thread_ct, &g_genovecs, nullptr, nullptr, &read_block_size, main_loadbufs, &ts.threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
 	  goto make_plink2_no_vsort_ret_NOMEM;
 	}
 
@@ -12591,7 +12591,7 @@ pglerr_t export_ind_major_bed(const uintptr_t* orig_sample_include, const uintpt
       unsigned char* main_loadbufs[2];
       pthread_t* threads;
       uint32_t read_block_size;
-      if (multithread_load_init(variant_include, sample_ct, raw_variant_ct, pgr_alloc_cacheline_ct, 0, 0, pgfip, &calc_thread_ct, &g_genovecs, nullptr, nullptr, &read_block_size, main_loadbufs, &threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
+      if (multithread_load_init(variant_include, sample_ct, variant_ct, pgr_alloc_cacheline_ct, 0, 0, pgfip, &calc_thread_ct, &g_genovecs, nullptr, nullptr, &read_block_size, main_loadbufs, &threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
 	goto export_ind_major_bed_ret_NOMEM;
       }
       g_bigstack_end = bigstack_end_mark;
@@ -13760,7 +13760,7 @@ pglerr_t export_bgen11(const char* outname, const uintptr_t* sample_include, uin
     unsigned char* main_loadbufs[2];
     pthread_t* threads;
     uint32_t read_block_size;
-    if (multithread_load_init(variant_include, sample_ct, raw_variant_ct, pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, 0, pgfip, &calc_thread_ct, &g_genovecs, dosage_is_present? (&g_dosage_presents) : nullptr, dosage_is_present? (&g_dosage_val_bufs) : nullptr, &read_block_size, main_loadbufs, &threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
+    if (multithread_load_init(variant_include, sample_ct, variant_ct, pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, 0, pgfip, &calc_thread_ct, &g_genovecs, dosage_is_present? (&g_dosage_presents) : nullptr, dosage_is_present? (&g_dosage_val_bufs) : nullptr, &read_block_size, main_loadbufs, &threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
       goto export_bgen11_ret_NOMEM;
     }
     if (read_block_size > max_write_block_size) {
