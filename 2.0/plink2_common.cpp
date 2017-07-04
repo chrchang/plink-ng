@@ -6308,12 +6308,12 @@ pglerr_t alloc_and_populate_id_htable_mt(const uintptr_t* subset_mask, char** it
   return populate_id_htable_mt(subset_mask, item_ids, item_ct, store_all_dups, id_htable_size, max_thread_ct, *id_htable_ptr);
 }
 
-pglerr_t multithread_load_init(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, pgen_file_info_t* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** dosage_present_ptr, dosage_t*** dosage_val_bufs_ptr, uint32_t* read_block_size_ptr, unsigned char** main_loadbufs, pthread_t** threads_ptr, pgen_reader_t*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr) {
+pglerr_t multithread_load_init(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t raw_variant_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, pgen_file_info_t* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** dosage_present_ptr, dosage_t*** dosage_val_bufs_ptr, uint32_t* read_block_size_ptr, unsigned char** main_loadbufs, pthread_t** threads_ptr, pgen_reader_t*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr) {
   uintptr_t cachelines_avail = bigstack_left() / kCacheline;
   uint32_t read_block_size = kPglVblockSize;
   uint64_t multiread_cacheline_ct;
   while (1) {
-    multiread_cacheline_ct = pgfi_multiread_get_cacheline_req(variant_include, pgfip, variant_ct, read_block_size);
+    multiread_cacheline_ct = pgfi_multiread_get_cacheline_req(variant_include, pgfip, raw_variant_ct, read_block_size);
     // limit each raw load buffer to 1/4 of remaining workspace
     // if there's an additional per-variant allocation, put it in the same bin
     // as the load buffers

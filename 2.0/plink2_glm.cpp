@@ -3581,7 +3581,7 @@ pglerr_t glm_logistic(const char* cur_pheno_name, char** test_names, char** test
     uintptr_t per_variant_xalloc_byte_ct = sizeof(logistic_aux_result_t) + 2 * max_reported_test_ct * sizeof(double) + max_sample_ct * local_covar_ct * sizeof(float);
     unsigned char* main_loadbufs[2];
     uint32_t read_block_size;
-    if (multithread_load_init(variant_include, max_sample_ct, variant_ct, pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, per_variant_xalloc_byte_ct, pgfip, &calc_thread_ct, &g_genovecs, dosage_is_present? (&g_dosage_presents) : nullptr, dosage_is_present? (&g_dosage_val_bufs) : nullptr, &read_block_size, main_loadbufs, &ts.threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
+    if (multithread_load_init(variant_include, max_sample_ct, raw_variant_ct, pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, per_variant_xalloc_byte_ct, pgfip, &calc_thread_ct, &g_genovecs, dosage_is_present? (&g_dosage_presents) : nullptr, dosage_is_present? (&g_dosage_val_bufs) : nullptr, &read_block_size, main_loadbufs, &ts.threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
       goto glm_logistic_ret_NOMEM;
     }
     ts.calc_thread_ct = calc_thread_ct;
@@ -4826,7 +4826,7 @@ pglerr_t glm_linear(const char* cur_pheno_name, char** test_names, char** test_n
     uintptr_t per_variant_xalloc_byte_ct = sizeof(linear_aux_result_t) + 2 * max_reported_test_ct * sizeof(double) + max_sample_ct * local_covar_ct * sizeof(double);
     unsigned char* main_loadbufs[2];
     uint32_t read_block_size;
-    if (multithread_load_init(variant_include, max_sample_ct, variant_ct, pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, per_variant_xalloc_byte_ct, pgfip, &calc_thread_ct, &g_genovecs, dosage_is_present? (&g_dosage_presents) : nullptr, dosage_is_present? (&g_dosage_val_bufs) : nullptr, &read_block_size, main_loadbufs, &ts.threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
+    if (multithread_load_init(variant_include, max_sample_ct, raw_variant_ct, pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, per_variant_xalloc_byte_ct, pgfip, &calc_thread_ct, &g_genovecs, dosage_is_present? (&g_dosage_presents) : nullptr, dosage_is_present? (&g_dosage_val_bufs) : nullptr, &read_block_size, main_loadbufs, &ts.threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
       goto glm_linear_ret_NOMEM;
     }
     ts.calc_thread_ct = calc_thread_ct;
