@@ -8285,13 +8285,6 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
   plink1_dosage_to_pgen_ret_INVALID_CMDLINE:
     reterr = kPglRetInvalidCmdline;
     break;
-    /*
-  plink1_dosage_to_pgen_ret_INVALID_DOSAGE:
-    putc_unlocked('\n', stdout);
-    LOGERRPRINTFWW("Error: Line %" PRIuPTR " of %s has an invalid dosage value.\n", line_idx, dosagename);
-    reterr = kPglRetInconsistentInput; // might be ok with different format=
-    break;
-    */
   plink1_dosage_to_pgen_ret_MISSING_TOKENS:
     sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, dosagename);
   plink1_dosage_to_pgen_ret_MALFORMED_INPUT_WW:
@@ -14029,6 +14022,11 @@ static uintptr_t** g_dphase_presents = nullptr;
 static uint32_t g_bgen_bit_precision = 0;
 static uint32_t g_bgen_uncompressed_buf_max = 0;
 
+// memcpy(target,
+//   &(g_bgen_hardcall_write[cur_geno * biallelic_diploid_byte_ct]),
+//   biallelic_diploid_byte_ct) should do the right thing
+static unsigned char* g_bgen_hardcall_write = nullptr;
+
 THREAD_FUNC_DECL export_bgen13_thread(void* arg) {
   const uintptr_t tidx = (uintptr_t)arg;
   pgen_reader_t* pgrp = g_pgr_ptrs[tidx];
@@ -14052,19 +14050,37 @@ THREAD_FUNC_DECL export_bgen13_thread(void* arg) {
   dosage_t* dosage_vals = dosage_present? g_dosage_val_bufs[tidx] : nullptr;
   unsigned char* uncompressed_bgen_geno_buf = g_thread_wkspaces[tidx];
   const uintptr_t* variant_include = g_variant_include;
+  const chr_info_t* cip = g_cip;
   const uintptr_t* sample_include = g_sample_include;
   const uint32_t* sample_include_cumulative_popcounts = g_sample_include_cumulative_popcounts;
   const uintptr_t* sex_male_collapsed_interleaved = g_sex_male_collapsed_interleaved;
+  const unsigned char* bgen_diploid_hardcall_write = g_bgen_hardcall_write;
   const uint32_t calc_thread_ct = g_calc_thread_ct;
   const uint32_t sample_ctl2_m1 = QUATERCT_TO_WORDCT(sample_ct) - 1;
   const uint32_t bit_precision = g_bgen_bit_precision;
   const uint32_t bytes_per_prob = DIV_UP(bit_precision, CHAR_BIT);
+
+  // note that this applies to both unphased and phased output, for different
+  // reasons
+  const uint32_t biallelic_diploid_byte_ct = 2 * bytes_per_prob;
+  const unsigned char* bgen_haploid_hardcall_write = &(bgen_diploid_hardcall_write[4 * biallelic_diploid_byte_ct]);
+  ;;;
+
   const uint32_t bgen_uncompressed_buf_max = g_bgen_uncompressed_buf_max;
   const uint32_t bgen_compressed_buf_max = g_bgen_compressed_buf_max;
   const alt_allele_ct_t* refalt1_select = g_refalt1_select;
+  uint32_t chr_fo_idx = 0xffffffffU; // deliberate overflow
+  uint32_t chr_end = 0;
+  uint32_t is_x = 0;
   uint32_t is_y = 0;
-  uint32_t y_thresh = g_y_start;
-  const uint32_t y_end = g_y_end;
+
+  uint32_t is_haploid_or_mt = 0; // includes chrX and chrY
+  // for bgen-1.2/1.3 and VCF/BCF export, MT ploidy is 1 unless the call is
+  //   heterozygous (i.e. it's treated the same way as an ordinary haploid
+  //   chromosome); similarly for chrX male ploidy
+  // for bgen-1.2/1.3, chrY female (but not unknown-sex) ploidy is 0 when
+  //   genotype is missing
+
   const uint32_t ref_allele_second = g_ref_allele_second;
   uint32_t vidx_rem3 = 3;
   uint32_t vidx_rem15d3 = 5;
@@ -14082,18 +14098,21 @@ THREAD_FUNC_DECL export_bgen13_thread(void* arg) {
     uint32_t variant_uidx = g_read_variant_uidx_starts[tidx];
     for (; write_idx < write_idx_end; ++write_idx, ++variant_uidx) {
       next_set_unsafe_ck(variant_include, &variant_uidx);
-      if (variant_uidx >= y_thresh) {
-	if (variant_uidx < y_end) {
-	  y_thresh = y_end;
-	  is_y = 1;
-	} else {
-	  y_thresh = 0xffffffffU;
-	  is_y = 0;
-	}
+      if (variant_uidx >= chr_end) {
+	do {
+	  ++chr_fo_idx;
+	  chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+	} while (variant_uidx >= chr_end);
+	const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+	is_x = (chr_idx == x_code);
+	is_y = (chr_idx == y_code);
+	is_haploid_or_mt = is_set(cip->haploid_mask, chr_idx) || (chr_idx == mt_code);
       }
       if (refalt1_select) {
 	ref_allele_idx = refalt1_select[variant_uidx * 2];
       }
+      // todo: export phase info
+      // todo: multiallelic cases
       uint32_t dosage_ct;
       uint32_t is_explicit_alt1;
       pglerr_t reterr = pgr_read_refalt1_genovec_dosage16_subset_unsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
@@ -14105,24 +14124,48 @@ THREAD_FUNC_DECL export_bgen13_thread(void* arg) {
 	genovec_invert_unsafe(sample_ct, genovec);
 	biallelic_dosage16_invert(dosage_ct, dosage_vals);
       }
+      unsigned char* bgen_geno_buf_iter = uncompressed_bgen_geno_buf;
+      // 4 bytes: # of samples
+      // 2 bytes: # of alleles
+      // 1 byte: minimum ploidy
+      // 1 byte: maximum ploidy
+      // sample_ct bytes: high bit = missing, low bits = ploidy
+      // 1 byte: is_phased
+      // 1 byte: bit_precision
+      bgen_geno_buf_iter = memcpya(bgen_geno_buf_iter, &sample_ct, 4);
       uint32_t widx = 0;
       uint32_t inner_loop_last = kBitsPerWordD2 - 1;
-      uint16_t* bgen_geno_buf_iter = bgen_geno_buf;
       if (!dosage_ct) {
-	while (1) {
-	  if (widx >= sample_ctl2_m1) {
-	    if (widx > sample_ctl2_m1) {
-	      break;
+	if (!is_haploid_or_mt) {
+	  // 2 alleles, min ploidy == max ploidy == 2
+	  *((uint32_t*)bgen_geno_buf_iter)++ = 0x2020002;
+	  unsigned char* sample_ploidy_and_missingness = bgen_geno_buf_iter;
+	  bgen_geno_buf_iter = memseta(bgen_geno_buf_iter, 2, sample_ct);
+	  *bgen_geno_buf_iter++ = 0; // not phased
+	  *bgen_geno_buf_iter++ = bit_precision;
+	  while (1) {
+	    if (widx >= sample_ctl2_m1) {
+	      if (widx > sample_ctl2_m1) {
+		break;
+	      }
+	      inner_loop_last = (sample_ct - 1) % kBitsPerWordD2;
 	    }
-	    inner_loop_last = (sample_ct - 1) % kBitsPerWordD2;
+	    uintptr_t geno_word = genovec[widx];
+	    for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
+	      const uintptr_t cur_geno = geno_word & 3;
+	      bgen_geno_buf_iter = memcpya(bgen_geno_buf_iter, &(bgen_hardcall_write[cur_geno * biallelic_diploid_byte_ct]), biallelic_diploid_byte_ct);
+	      if (cur_geno == 3) {
+		// maybe handle this in a different loop?
+		sample_ploidy_and_missingness_iter[sample_idx_lowbits] = 130;
+	      }
+	      geno_word >>= 2;
+	    }
+	    ++widx;
+	    sample_ploidy_and_missingness_iter = &(sample_ploidy_and_missingness_iter[kBitsPerWordD2]);
 	  }
-	  uintptr_t geno_word = genovec[widx];
-	  for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
-	    memcpy(bgen_geno_buf_iter, &(bgen11_hardcall_usis[(geno_word & 3) * 4]), 6);
-	    bgen_geno_buf_iter = &(bgen_geno_buf_iter[3]);
-	    geno_word >>= 2;
-	  }
-	  ++widx;
+	} else if (is_x) {
+	} else {
+	  // ...
 	}
       } else {
 	const halfword_t* dosage_present_alias = (halfword_t*)dosage_present;
@@ -14209,7 +14252,7 @@ THREAD_FUNC_DECL export_bgen13_thread(void* arg) {
   }
 }
 
-pglerr_t export_bgen13(const char* outname, const uintptr_t* sample_include, uint32_t* sample_include_cumulative_popcounts, const uintptr_t* sex_male, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const alt_allele_ct_t* refalt1_select, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_thread_ct, exportf_flags_t exportf_modifier, uintptr_t pgr_alloc_cacheline_ct, pgen_file_info_t* pgfip, uint32_t* sample_missing_geno_cts) {
+pglerr_t export_bgen13(const char* outname, const uintptr_t* sample_include, uint32_t* sample_include_cumulative_popcounts, const uintptr_t* sex_male, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const alt_allele_ct_t* refalt1_select, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_thread_ct, exportf_flags_t exportf_modifier, uint32_t exportf_bits, uintptr_t pgr_alloc_cacheline_ct, pgen_file_info_t* pgfip, uint32_t* sample_missing_geno_cts) {
   assert(sample_ct);
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
@@ -14219,6 +14262,16 @@ pglerr_t export_bgen13(const char* outname, const uintptr_t* sample_include, uin
     ZWRAP_useZSTDcompression(0);
   }
   {
+    if (exportf_bits > 16) {
+      logerrprint("Error: bits= parameter is currently limited to 16.  (This is sufficient to\ncapture all information in a .pgen file.)\n");
+      reterr = kPglRetNotYetSupported;
+      goto export_bgen13_ret_1;
+    }
+    if (pgfip->gflags & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePhasePresent)) {
+      logerrprint("Error: Export of phase information to .bgen files is currently under\ndevelopment.\n");
+      reterr = kPglRetNotYetSupported;
+      goto export_bgen13_ret_1;
+    }
     const uint32_t sample_ctv = BITCT_TO_VECCT(sample_ct);
     const uint32_t max_chr_slen = get_max_chr_slen(cip);
     const uintptr_t bgen_compressed_buf_max = compressBound(6LU * sample_ct);
@@ -15696,7 +15749,7 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
   return reterr;
 }
 
-pglerr_t exportf(char* xheader, const uintptr_t* sample_include, const char* sample_ids, const char* sids, const char* paternal_ids, const char* maternal_ids, const uintptr_t* sex_nm, const uintptr_t* sex_male, const pheno_col_t* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const alt_allele_ct_t* refalt1_select, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, char** pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, uintptr_t xheader_blen, uint32_t xheader_info_pr, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uintptr_t max_paternal_id_blen, uintptr_t max_maternal_id_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, uint32_t max_thread_ct, make_plink2_t make_plink2_modifier, exportf_flags_t exportf_modifier, idpaste_t exportf_id_paste, char exportf_id_delim, uintptr_t pgr_alloc_cacheline_ct, pgen_file_info_t* pgfip, pgen_reader_t* simple_pgrp, char* outname, char* outname_end) {
+pglerr_t exportf(char* xheader, const uintptr_t* sample_include, const char* sample_ids, const char* sids, const char* paternal_ids, const char* maternal_ids, const uintptr_t* sex_nm, const uintptr_t* sex_male, const pheno_col_t* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const alt_allele_ct_t* refalt1_select, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, char** pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, uintptr_t xheader_blen, uint32_t xheader_info_pr, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uintptr_t max_paternal_id_blen, uintptr_t max_maternal_id_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, uint32_t max_thread_ct, make_plink2_t make_plink2_modifier, exportf_flags_t exportf_modifier, idpaste_t exportf_id_paste, char exportf_id_delim, uint32_t exportf_bits, uintptr_t pgr_alloc_cacheline_ct, pgen_file_info_t* pgfip, pgen_reader_t* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   pglerr_t reterr = kPglRetSuccess;
   {
@@ -15767,7 +15820,7 @@ pglerr_t exportf(char* xheader, const uintptr_t* sample_include, const char* sam
       /*
     } else if (exportf_modifier & (kfExportfBgen12 | kfExportfBgen13)) {
       strcpy(outname_end, ".bgen");
-      reterr = export_bgen13(outname, sample_include, sample_include_cumulative_popcounts, sex_male, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, max_thread_ct, exportf_modifier, pgr_alloc_cacheline_ct, pgfip, sample_missing_geno_cts);
+      reterr = export_bgen13(outname, sample_include, sample_include_cumulative_popcounts, sex_male, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, max_thread_ct, exportf_modifier, exportf_bits, pgr_alloc_cacheline_ct, pgfip, sample_missing_geno_cts);
       if (reterr) {
 	goto exportf_ret_1;
       }

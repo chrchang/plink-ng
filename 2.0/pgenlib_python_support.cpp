@@ -315,7 +315,7 @@ void allele_codes_to_genoarr_unsafe(const int32_t* allele_codes, const unsigned 
   //   phasepresent and phaseinfo to be nullptr here.
   // - Otherwise, phasepresent and phaseinfo are always updated; neither can be
   //   nullptr.
-  const uint32_t word_ct_m1 = (sample_ct - 1) / kBytesPerWord;
+  const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
   uint32_t subgroup_len = kBitsPerWordD2;
   uint32_t widx = 0;
   const int32_t* read_alias = allele_codes;
@@ -411,7 +411,7 @@ static inline uint32_t biallelic_dosage_halfdist(uint32_t dosage_int) {
 }
 
 void floats_to_dosage16(const float* floatarr, uint32_t sample_ct, uint32_t hard_call_halfdist, uintptr_t* genoarr, uintptr_t* dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr) {
-  const uint32_t word_ct_m1 = (sample_ct - 1) / kBytesPerWord;
+  const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
   const float* read_iter = floatarr;
   halfword_t* dosage_present_alias = (halfword_t*)dosage_present;
   uint16_t* dosage_vals_iter = dosage_vals;
@@ -454,7 +454,7 @@ void floats_to_dosage16(const float* floatarr, uint32_t sample_ct, uint32_t hard
 }
 
 void doubles_to_dosage16(const double* doublearr, uint32_t sample_ct, uint32_t hard_call_halfdist, uintptr_t* genoarr, uintptr_t* dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr) {
-  const uint32_t word_ct_m1 = (sample_ct - 1) / kBytesPerWord;
+  const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
   const double* read_iter = doublearr;
   halfword_t* dosage_present_alias = (halfword_t*)dosage_present;
   uint16_t* dosage_vals_iter = dosage_vals;
