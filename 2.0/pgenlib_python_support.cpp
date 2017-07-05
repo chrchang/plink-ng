@@ -321,9 +321,12 @@ void allele_codes_to_genoarr_unsafe(const int32_t* allele_codes, const unsigned 
   const int32_t* read_alias = allele_codes;
   halfword_t* phaseinfo_alias = (halfword_t*)phaseinfo;
   if (!phasepresent_bytes) {
+    printf("entering allele_codes_to_genoarr_unsafe() loop, word_ct_m1 == %u\n", word_ct_m1);
     while (1) {
+      printf("widx: %u\n", widx);
       if (widx >= word_ct_m1) {
 	if (widx > word_ct_m1) {
+	  printf("done\n");
 	  return;
 	}
 	subgroup_len = MOD_NZ(sample_ct, kBitsPerWordD2);
