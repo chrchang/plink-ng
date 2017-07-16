@@ -3157,7 +3157,8 @@ pglerr_t pgfi_multiread(const uintptr_t* variant_include, uint32_t variant_uidx_
       // bugfix: can't use do..while, since previous "continue" needs to skip
       // this check
       if (round_down_pow2_ull(cur_read_end_fpos + kDiskBlockSize + 1LLU, kDiskBlockSize) < round_down_pow2_ull(next_read_start_fpos, kDiskBlockSize)) {
-	continue;
+	// minor bugfix (7 Jul 2017): break, not continue
+	break;
       }
     }
     if (fseeko(pgfip->shared_ff, cur_read_start_fpos, SEEK_SET)) {

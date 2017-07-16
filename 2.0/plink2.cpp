@@ -60,10 +60,10 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (4 Jul 2017)";
+  " (16 Jul 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -5858,7 +5858,7 @@ int main(int argc, char** argv) {
 	  } else {
 	    pc.mach_r2_min = 0.1;
 	  }
-	  pc.filter_flags |= kfFilterAllReq | kfFilterNoSplitChr;;;
+	  pc.filter_flags |= kfFilterAllReq | kfFilterNoSplitChr;
 	} else if (!memcmp(flagname_p2, "issing-code", 12)) {
 	  if (!(xload & (kfXloadOxGen | kfXloadOxBgen))) {
 	    // could technically support pure .sample -> .fam/.psam, but let's

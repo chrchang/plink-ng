@@ -185,7 +185,7 @@ cdef class PgenReader:
     cdef uintptr_t* _multivar_smaj_phaseinfo_batch_buf
     cdef uintptr_t* _multivar_smaj_phasepresent_batch_buf
 
-    cdef set_sample_subset_internal(self, np.ndarray[np.uint32_t] sample_subset):
+    cdef set_sample_subset_internal(self, np.ndarray[np.uint32_t,mode="c",ndim=1] sample_subset):
         cdef uint32_t raw_sample_ct = self._info_ptr[0].raw_sample_ct
         cdef uint32_t raw_sample_ctv = DIV_UP(raw_sample_ct, kBitsPerVec)
         cdef uint32_t raw_sample_ctaw = raw_sample_ctv * kWordsPerVec
@@ -339,6 +339,8 @@ cdef class PgenReader:
             # could have an unsafe mode which doesn't perform this check, but
             # let's default to at least this much bounds-checking
             raise RuntimeError("read() variant_idx too large (" + str(variant_idx) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
+        if not geno_int_out.flags["C_CONTIGUOUS"]:
+            raise RuntimeError("read() requires geno_int_out to be C-contiguous.")
         # for full genotype info for multiallelic variants, use read_phased()
         # instead
         cdef pglerr_t reterr = pgr_read_allele_countvec_subset_unsafe(self._subset_include_vec, self._subset_cumulative_popcounts, self._subset_size, variant_idx, allele_idx, self._state_ptr, self._genovec)
@@ -364,6 +366,8 @@ cdef class PgenReader:
     cpdef read_dosages(self, uint32_t variant_idx, np.ndarray floatarr_out, uint32_t allele_idx = 1):
         if variant_idx >= self._info_ptr[0].raw_variant_ct:
             raise RuntimeError("read_dosages() variant_idx too large (" + str(variant_idx) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
+        if not floatarr_out.flags["C_CONTIGUOUS"]:
+            raise RuntimeError("read_dosages() requires floatarr_out to be C-contiguous.")
         # todo: change this when pgenlib_internal supports multiallelic
         # variants
         cdef uint32_t dosage_ct
@@ -388,7 +392,7 @@ cdef class PgenReader:
         return
 
 
-    cpdef read_alleles(self, uint32_t variant_idx, np.ndarray[np.int32_t] allele_int32_out):
+    cpdef read_alleles(self, uint32_t variant_idx, np.ndarray[np.int32_t,mode="c",ndim=1] allele_int32_out):
         if variant_idx >= self._info_ptr[0].raw_variant_ct:
             # could have an unsafe mode which doesn't perform this check, but
             # let's default to at least this much bounds-checking
@@ -403,7 +407,7 @@ cdef class PgenReader:
         return
 
 
-    cpdef read_alleles_and_phasepresent(self, uint32_t variant_idx, np.ndarray[np.int32_t] allele_int32_out, np.ndarray[np.uint8_t,cast=True] phasepresent_out):
+    cpdef read_alleles_and_phasepresent(self, uint32_t variant_idx, np.ndarray[np.int32_t,mode="c",ndim=1] allele_int32_out, np.ndarray[np.uint8_t,mode="c",cast=True] phasepresent_out):
         if variant_idx >= self._info_ptr[0].raw_variant_ct:
             # could have an unsafe mode which doesn't perform this check, but
             # let's default to at least this much bounds-checking
@@ -624,6 +628,7 @@ cdef class PgenReader:
         return
 
     cpdef read_range(self, uint32_t variant_idx_start, uint32_t variant_idx_end, np.ndarray geno_int_out, uint32_t allele_idx = 1, bint sample_maj = 0):
+        # C-contiguity checked by read_range_internal8(), etc.
         if geno_int_out.dtype == np.int8:
             self.read_range_internal8(variant_idx_start, variant_idx_end, geno_int_out, allele_idx, sample_maj)
         elif geno_int_out.dtype == np.int32:
@@ -854,12 +859,10 @@ cdef class PgenReader:
     cpdef read_list(self, np.ndarray[np.uint32_t] variant_idxs, np.ndarray geno_int_out, uint32_t allele_idx = 1, bint sample_maj = 0):
         if geno_int_out.dtype == np.int8:
             self.read_list_internal8(variant_idxs, geno_int_out, allele_idx, sample_maj)
-            '''
         elif geno_int_out.dtype == np.int32:
             self.read_list_internal32(variant_idxs, geno_int_out, allele_idx, sample_maj)
         elif geno_int_out.dtype == np.int64:
             self.read_list_internal64(variant_idxs, geno_int_out, allele_idx, sample_maj)
-            '''
         else:
             raise RuntimeError("Invalid read_list() geno_int_out array element type (int8, int32, or int64 expected).")
         return
@@ -1073,7 +1076,7 @@ cdef class PgenReader:
         pass
 
     
-    cpdef count(self, uint32_t variant_idx, np.ndarray[np.uint32_t] genocount_uint32_out, object allele_idx = 1):
+    cpdef count(self, uint32_t variant_idx, np.ndarray[np.uint32_t,mode="c"] genocount_uint32_out, object allele_idx = 1):
         # todo: multiallelic variants
         if allele_idx is None:
             allele_idx = 1
@@ -1134,7 +1137,7 @@ cdef class PgenReader:
 
 
 
-cdef bytes_to_bits_internal(np.ndarray[np.uint8_t,cast=True] boolbytes, uint32_t sample_ct, uintptr_t* bitarr):
+cdef bytes_to_bits_internal(np.ndarray[np.uint8_t,mode="c",cast=True] boolbytes, uint32_t sample_ct, uintptr_t* bitarr):
     bytes_to_bits_unsafe(boolbytes, sample_ct, bitarr)
 
 cdef class PgenWriter:
@@ -1208,7 +1211,7 @@ cdef class PgenWriter:
         return self
 
 
-    cpdef append_biallelic(self, np.ndarray[np.int8_t] geno_int8):
+    cpdef append_biallelic(self, np.ndarray[np.int8_t,mode="c"] geno_int8):
         cdef int8_t* genobytes = &(geno_int8[0])
         bytes_to_genoarr_unsafe(genobytes, self._state_ptr[0].pwc.sample_ct, self._genovec)
         cdef pglerr_t reterr = spgw_append_biallelic_genovec(self._genovec, self._state_ptr)
@@ -1217,7 +1220,7 @@ cdef class PgenWriter:
         return
     
 
-    cpdef append_alleles(self, np.ndarray[np.int32_t] allele_int32, bint all_phased = False):
+    cpdef append_alleles(self, np.ndarray[np.int32_t,mode="c"] allele_int32, bint all_phased = False):
         cdef int32_t* allele_codes = <int32_t*>(&(allele_int32[0]))
         cdef uintptr_t* genovec = self._genovec
         cdef pglerr_t reterr
@@ -1232,7 +1235,7 @@ cdef class PgenWriter:
         return
 
     
-    cpdef append_partially_phased(self, np.ndarray[np.int32_t] allele_int32, np.ndarray[np.uint8_t,cast=True] phasepresent):
+    cpdef append_partially_phased(self, np.ndarray[np.int32_t,mode="c"] allele_int32, np.ndarray[np.uint8_t,cast=True] phasepresent):
         cdef int32_t* allele_codes = <int32_t*>(&(allele_int32[0]))
         cdef unsigned char* phasepresent_bytes = <unsigned char*>(&(phasepresent[0]))
         cdef uintptr_t* genovec = self._genovec
@@ -1245,7 +1248,7 @@ cdef class PgenWriter:
         return
 
 
-    cdef append_dosages_internal32(self, np.ndarray[np.float32_t] floatarr):
+    cdef append_dosages_internal32(self, np.ndarray[np.float32_t,mode="c"] floatarr):
         cdef uintptr_t* genovec = self._genovec
         cdef uintptr_t* dosage_present = self._dosage_present
         cdef uint16_t* dosage_vals = self._dosage_vals
@@ -1256,7 +1259,7 @@ cdef class PgenWriter:
             raise RuntimeError("append_dosages() error " + str(reterr))
         return
 
-    cdef append_dosages_internal64(self, np.ndarray[np.float64_t] doublearr):
+    cdef append_dosages_internal64(self, np.ndarray[np.float64_t,mode="c"] doublearr):
         cdef uintptr_t* genovec = self._genovec
         cdef uintptr_t* dosage_present = self._dosage_present
         cdef uint16_t* dosage_vals = self._dosage_vals

@@ -115,6 +115,7 @@ class PgenReader:
   is included, variant_idx_end - 1 is included, variant_idx_end is not).  For
   the _list() functions, it's currently okay for the variant indexes to be
   unsorted, or for duplicates to be present, but that may not remain true.
+  (read_alleles_and_phasepresent_{range,list} not implemented yet.)
   (Todo: read_dosages_range() and read_dosages_list().)
 
 * count(uint32_t variant_idx, np.ndarray[np.uint32_t] genocount_uint32_out,
