@@ -5535,6 +5535,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
 
       uintptr_t* allele_idx_offsets;
       if (bigstack_end_alloc_ul(raw_variant_ct + 1, &allele_idx_offsets)) {
+	logerrprint("error path 1\n");
 	goto ox_bgen_to_pgen_ret_NOMEM;
       }
 
@@ -5550,6 +5551,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       //   limit to 1 thread rather than (max_thread_ct - 1)...
       const uint32_t calc_thread_ct_limit = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
       if (bigstack_alloc_thread(calc_thread_ct_limit, &ts.threads)) {
+	logerrprint("error path 2\n");
 	goto ox_bgen_to_pgen_ret_NOMEM;
       }
 
@@ -5562,11 +5564,13 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
 	  bigstack_alloc_usi(main_block_size, &(g_bgen_allele_cts[1])) ||
 	  bigstack_alloc_ucp(main_block_size + 1, &(g_compressed_geno_starts[0])) ||
 	  bigstack_alloc_ucp(main_block_size + 1, &(g_compressed_geno_starts[1]))) {
+	logerrprint("error path 3\n");
 	goto ox_bgen_to_pgen_ret_NOMEM;
       }
       if (compression_mode) {
 	if (bigstack_alloc_ui(main_block_size, &(g_uncompressed_genodata_byte_cts[0])) ||
 	    bigstack_alloc_ui(main_block_size, &(g_uncompressed_genodata_byte_cts[1]))) {
+	  logerrprint("error path 4\n");
 	  goto ox_bgen_to_pgen_ret_NOMEM;
 	}
       } else {
@@ -5616,8 +5620,6 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       } else if (loadbuf_size < 2 * 65536) {
 	// don't want to worry about chromosome/variant ID buffer space checks
 	// in inner loop
-
-	logerrprint("error path 1\n");
 	goto ox_bgen_to_pgen_ret_NOMEM;
       }
       unsigned char* loadbuf = bigstack_alloc_raw(loadbuf_size);
@@ -5825,7 +5827,6 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
 	  goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
 	}
 	if (a1_slen + (uintptr_t)(a1_ptr - ((char*)loadbuf)) > loadbuf_size) {
-	  logerrprint("error path 2\n");
 	  goto ox_bgen_to_pgen_ret_NOMEM;
 	}
 	if (!fread(a1_ptr, a1_slen, 1, bgenfile)) {
@@ -5847,7 +5848,6 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
 	  goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
 	}
 	if (a2_slen + (uintptr_t)(a2_ptr - ((char*)loadbuf)) > loadbuf_size) {
-	  logerrprint("error path 3\n");
 	  goto ox_bgen_to_pgen_ret_NOMEM;
 	}
 	if (!fread(a2_ptr, a2_slen, 1, bgenfile)) {
@@ -5919,7 +5919,6 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
 	    goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
 	  }
 	  if (cur_allele_slen > loadbuf_size) {
-	    logerrprint("error path 4\n");
 	    goto ox_bgen_to_pgen_ret_NOMEM;
 	  }
 	  if (!fread(loadbuf, cur_allele_slen, 1, bgenfile)) {
@@ -5974,7 +5973,6 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
 
 	if ((block_vidx == cur_thread_block_vidx_limit) || ((uintptr_t)(cur_geno_buf_end - bgen_geno_iter) < genodata_byte_ct)) {
 	  if (!block_vidx) {
-	    logerrprint("error path 5\n");
 	    goto ox_bgen_to_pgen_ret_NOMEM;
 	  }
 	  thread_bidxs[++cur_thread_fill_idx] = block_vidx;
@@ -6114,6 +6112,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       loadbuf = bigstack_alloc_raw_rd(kMaxIdBlen);
       unsigned char* spgw_alloc;
       if (bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc)) {
+	logerrprint("error path 5\n");
 	goto ox_bgen_to_pgen_ret_NOMEM;
       }
       // Now that we know max_geno_blen, try to increase calc_thread_ct, and
@@ -6129,7 +6128,6 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       } else {
 	calc_thread_ct = bytes_avail / thread_wkspace_size;
 	if (!calc_thread_ct) {
-	  logerrprint("error path 6\n");
 	  goto ox_bgen_to_pgen_ret_NOMEM;
 	}
       }
@@ -6162,7 +6160,6 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       //     total allocation here.
       uintptr_t cachelines_avail_m24 = bigstack_left() / kCacheline;
       if (cachelines_avail_m24 < 24) {
-	logerrprint("error path 7\n");
 	goto ox_bgen_to_pgen_ret_NOMEM;
       }
       // we're making up to 24 allocations; be pessimistic re: rounding
@@ -6174,6 +6171,8 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       }
       // 50% cap
       mainbuf_size = MINV(max_geno_blen, bytes_req_per_in_block_variant);
+      // bugfix (16 Jul 2017): forgot to include this term
+      bytes_req_per_in_block_variant += mainbuf_size;
       main_block_size = (cachelines_avail_m24 * kCacheline) / bytes_req_per_in_block_variant;
       if (main_block_size > 65536) {
 	main_block_size = 65536;
@@ -6188,7 +6187,6 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       if (mainbuf_size < max_geno_blen) {
 	// bugfix (2 Jul 2017): don't error out here if the entire .bgen has
 	// e.g. only one variant
-	logerrprint("error path 8\n");
 	goto ox_bgen_to_pgen_ret_NOMEM;
       }
       if (bigstack_alloc_usi(main_block_size, &(g_bgen_allele_cts[0])) ||
@@ -6214,12 +6212,19 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
 	  bigstack_alloc_dosage(sample_ct * 2 * main_block_size, &(g_write_dosage_val_bufs[0])) ||
 	  bigstack_alloc_dosage(sample_ct * 2 * main_block_size, &(g_write_dosage_val_bufs[1]))) {
 	// this should be impossible
+	logerrprint("error path 6\n");
+	LOGERRPRINTF("main_block_size: %" PRIuPTR "\n", main_block_size);
+	LOGERRPRINTF("mainbuf_size: %" PRIuPTR "\n", mainbuf_size);
+	LOGERRPRINTF("sample_ctaw: %u\n", sample_ctaw);
+	LOGERRPRINTF("cachelines_avail_m24: %" PRIuPTR "\n", cachelines_avail_m24);
+	LOGERRPRINTF("bytes_req_per_in_block_variant: %" PRIuPTR "\n", bytes_req_per_in_block_variant);
 	assert(0);
 	goto ox_bgen_to_pgen_ret_NOMEM;
       }
       if (compression_mode) {
 	if (bigstack_alloc_ui(main_block_size, &(g_uncompressed_genodata_byte_cts[0])) ||
 	    bigstack_alloc_ui(main_block_size, &(g_uncompressed_genodata_byte_cts[1]))) {
+	  logerrprint("error path 7\n");
 	  assert(0);
 	  goto ox_bgen_to_pgen_ret_NOMEM;
 	}

@@ -625,6 +625,7 @@ HEADER_INLINE unsigned char* bigstack_alloc_raw_rd(uintptr_t size) {
 HEADER_INLINE unsigned char* bigstack_alloc(uintptr_t size) {
   size = round_up_pow2(size, kCacheline);
   if (bigstack_left() < size) {
+    g_failed_alloc_attempt_size = size;
     return nullptr;
   }
   return bigstack_alloc_raw(size);
@@ -821,6 +822,7 @@ HEADER_INLINE unsigned char* bigstack_end_alloc_raw_rd(uintptr_t size) {
 HEADER_INLINE unsigned char* bigstack_end_alloc_presized(uintptr_t size) {
   uintptr_t cur_bigstack_left = bigstack_left();
   if (size > cur_bigstack_left) {
+    g_failed_alloc_attempt_size = size;
     return nullptr;
   }
   return bigstack_end_alloc_raw(size);
@@ -924,6 +926,7 @@ HEADER_INLINE unsigned char* arena_alloc_raw_rd(uintptr_t size, unsigned char** 
 HEADER_INLINE unsigned char* arena_alloc(unsigned char* arena_top, uintptr_t size, unsigned char** arena_bottom_ptr) {
   size = round_up_pow2(size, kCacheline);
   if (((uintptr_t)(arena_top - (*arena_bottom_ptr))) < size) {
+    g_failed_alloc_attempt_size = size;
     return nullptr;
   }
   return arena_alloc_raw(size, arena_bottom_ptr);
@@ -990,6 +993,7 @@ HEADER_INLINE unsigned char* arena_end_alloc_raw(uintptr_t size, unsigned char**
 HEADER_INLINE unsigned char* arena_end_alloc(unsigned char* arena_bottom, uintptr_t size, unsigned char** arena_top_ptr) {
   size = round_up_pow2(size, kEndAllocAlign);
   if (((uintptr_t)((*arena_top_ptr) - arena_bottom)) < size) {
+    g_failed_alloc_attempt_size = size;
     return nullptr;
   }
   return arena_end_alloc_raw(size, arena_top_ptr);
