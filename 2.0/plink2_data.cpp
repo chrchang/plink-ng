@@ -6172,7 +6172,8 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       // 50% cap
       mainbuf_size = MINV(max_geno_blen, bytes_req_per_in_block_variant);
       // bugfix (16 Jul 2017): forgot to include this term
-      bytes_req_per_in_block_variant += mainbuf_size;
+      // (17 Jul 2017): forgot to multiply by 2
+      bytes_req_per_in_block_variant += 2 * mainbuf_size;
       main_block_size = (cachelines_avail_m24 * kCacheline) / bytes_req_per_in_block_variant;
       if (main_block_size > 65536) {
 	main_block_size = 65536;
