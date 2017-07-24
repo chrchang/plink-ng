@@ -246,10 +246,13 @@ int32_t load_map(FILE** mapfile_ptr, char* mapname, uint32_t* map_cols_ptr, uint
 	max_marker_id_blen = ulii;
       }
       if (!unfiltered_marker_ct) {
-	textbuf_iter = next_token_mult(textbuf_iter, 2);
+	// bugfix (24 Jul 2017): this was inappropriately erroring out on
+	//   3-column .map files
+	textbuf_iter = next_token(textbuf_iter);
 	if (!textbuf_iter) {
 	  goto load_map_ret_MISSING_TOKENS;
 	}
+	textbuf_iter = skip_initial_spaces(token_endnn(textbuf_iter));
 	if (*textbuf_iter > ' ') {
 	  *map_cols_ptr = 4;
 	}
