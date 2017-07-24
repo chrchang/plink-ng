@@ -2744,7 +2744,8 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
 		cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - allele_idx_base;
 		allele_idx_base -= variant_uidx;
 	      }
-	      *maj_freqs_write_iter++ = get_allele_freq(&(allele_freqs[allele_idx_base - variant_uidx]), maj_allele_idx, cur_allele_ct);
+	      // bugfix (23 Jul 2017): we already subtracted variant_uidx
+	      *maj_freqs_write_iter++ = get_allele_freq(&(allele_freqs[allele_idx_base]), maj_allele_idx, cur_allele_ct);
 	    }
 	  }
 	  if (cur_variant_idx_start) {
