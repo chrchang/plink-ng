@@ -587,7 +587,9 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "             the character between the ID pieces (default '_').\n"
 "             By default, dosages are not exported; use 'vcf-dosage=GP' to\n"
 "             export them as genotype posterior probabilities, or\n"
-"             'vcf-dosage=DS' to export Minimac3-style dosages.\n"
+"             'vcf-dosage=DS' to export Minimac3-style dosages.  Replace 'DS'\n"
+"             with 'DS-force' to prevent DS from being omitted when it's an\n"
+"             integer.\n"
 	       // possible todo: pedigree output?
 "    In addition,\n"
 "    * When the output format only supports biallelic variants, multiallelic\n"
@@ -1241,6 +1243,12 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "      phenotypes (but not covariates) are processed.\n"
 "    * By default, generated covariates are coded as 1=false, 2=true.  To code\n"
 "      them as 0=false, 1=true instead, add the 'covar-01' modifier.\n"
+	       );
+    help_print("loop-cats\tloop-assoc", &help_ctrl, 0,
+"  --loop-cats [pheno/cov]  : Run variant filters and subsequent operations on\n"
+"                             just the samples in the first category; then just\n"
+"                             the samples in the second category; and so on, for\n"
+"                             all categories in the named categorical phenotype.\n"
 	       );
     help_print("variance-standardize\tcovar-variance-standardize\tquantile-normalize\tpheno-quantile-normalize\tcovar-quantile-normalize\tstandard-beta\tglm\tlinear\tlogistic", &help_ctrl, 0,
 "  --variance-standardize {pheno/covar name(s)...}\n"

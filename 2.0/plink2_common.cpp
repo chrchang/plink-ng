@@ -5549,18 +5549,31 @@ uint32_t is_const_covar(const pheno_col_t* covar_col, const uintptr_t* sample_in
   return 1;
 }
 
-uint32_t identify_remaining_cats(const uintptr_t* sample_include, const pheno_col_t* covar_col, uint32_t sample_ct, uintptr_t* cat_covar_wkspace) {
+uint32_t identify_remaining_cats(const uintptr_t* sample_include, const pheno_col_t* covar_col, uint32_t sample_ct, uintptr_t* observed_cat_bitarr) {
   // assumes covar_col->type_code == kPhenoTypeCat
   const uint32_t nonnull_cat_ct = covar_col->nonnull_category_ct;
   const uint32_t* covar_vals = covar_col->data.cat;
   const uint32_t word_ct = 1 + (nonnull_cat_ct / kBitsPerWord);
-  fill_ulong_zero(word_ct, cat_covar_wkspace);
+  fill_ulong_zero(word_ct, observed_cat_bitarr);
   uint32_t sample_uidx = 0;
   for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
     next_set_unsafe_ck(sample_include, &sample_uidx);
-    set_bit(covar_vals[sample_uidx], cat_covar_wkspace);
+    set_bit(covar_vals[sample_uidx], observed_cat_bitarr);
   }
-  return popcount_longs(cat_covar_wkspace, word_ct);
+  return popcount_longs(observed_cat_bitarr, word_ct);
+}
+
+uint32_t get_is_cat_include(const uintptr_t* sample_include_base, const pheno_col_t* cat_pheno_col, uint32_t raw_sample_ctl, uint32_t sample_ct, uint32_t cat_uidx, uintptr_t* is_cat_include) {
+  fill_ulong_zero(raw_sample_ctl, is_cat_include);
+  const uint32_t* cat_vals = cat_pheno_col->data.cat;
+  uint32_t sample_uidx = 0;
+  for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+    next_set_unsafe_ck(sample_include_base, &sample_uidx);
+    if (cat_vals[sample_uidx] == cat_uidx) {
+      set_bit(sample_uidx, is_cat_include);
+    }
+  }
+  return popcount_longs(is_cat_include, raw_sample_ctl);
 }
 
 void cleanup_pheno_cols(uint32_t pheno_ct, pheno_col_t* pheno_cols) {

@@ -200,7 +200,8 @@ FLAGSET64_DEF_START()
   kfExportfBgz = (1LLU << 33),
   kfExportfVcfDosageGp = (1LLU << 34),
   kfExportfVcfDosageDs = (1LLU << 35),
-  kfExportfOmitNonmaleY = (1LLU << 36)
+  kfExportfVcfDosageForce = (1LLU << 36),
+  kfExportfOmitNonmaleY = (1LLU << 37)
 FLAGSET64_DEF_END(exportf_flags_t);
 
 #ifdef _WIN32
@@ -2370,7 +2371,9 @@ uint32_t first_cc_or_qt_pheno_idx(const pheno_col_t* pheno_cols, uint32_t pheno_
 // "_covar" since this doesn't handle case/control
 uint32_t is_const_covar(const pheno_col_t* covar_col, const uintptr_t* sample_include, uint32_t sample_ct);
 
-uint32_t identify_remaining_cats(const uintptr_t* sample_include, const pheno_col_t* covar_col, uint32_t sample_ct, uintptr_t* cat_covar_wkspace);
+uint32_t identify_remaining_cats(const uintptr_t* sample_include, const pheno_col_t* covar_col, uint32_t sample_ct, uintptr_t* observed_cat_bitarr);
+
+uint32_t get_is_cat_include(const uintptr_t* sample_include_base, const pheno_col_t* cat_pheno_col, uint32_t raw_sample_ctl, uint32_t sample_ct, uint32_t cat_uidx, uintptr_t* is_cat_include);
 
 // pheno_names is also allocated on the heap, but it can be handled with a
 // simple free_cond().

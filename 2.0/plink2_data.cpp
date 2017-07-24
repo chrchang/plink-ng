@@ -6170,7 +6170,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
 	bytes_req_per_in_block_variant += 2 * sizeof(int32_t);
       }
       // 50% cap
-      mainbuf_size = MINV(max_geno_blen, bytes_req_per_in_block_variant);
+      mainbuf_size = MINV(max_geno_blen, bytes_req_per_in_block_variant / 2);
       // bugfix (16 Jul 2017): forgot to include this term
       // (17 Jul 2017): forgot to multiply by 2
       bytes_req_per_in_block_variant += 2 * mainbuf_size;
@@ -8366,7 +8366,9 @@ THREAD_FUNC_DECL generate_dummy_thread(void* arg) {
     uintptr_t* write_genovec_iter = &(g_write_genovecs[parity][vidx * sample_ctaw2]);
     uint32_t* write_dosage_ct_iter = &(g_write_dosage_cts[parity][vidx]);
     uintptr_t* write_dosage_present_iter = &(g_write_dosage_presents[parity][vidx * sample_ctaw]);
-    dosage_t* write_dosage_vals_iter = &(g_write_dosage_val_bufs[parity][vidx * sample_ctaw]);
+
+    // bugfix (23 Jul 2017): multiply by sample_ct, not sample_ctaw
+    dosage_t* write_dosage_vals_iter = &(g_write_dosage_val_bufs[parity][vidx * sample_ct]);
     for (; vidx < vidx_end; ++vidx) {
       dosage_t* cur_dosage_vals_iter = write_dosage_vals_iter;
       uint32_t loop_len = kBitsPerWordD2;
@@ -14903,9 +14905,10 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
     uintptr_t writebuf_blen = kMaxIdSlen + 32 + max_chr_blen + 2 * max_allele_slen;
     // QUAL, FILTER, INFO, FORMAT, genotypes, eoln
     // needs to be larger for >9 alt alleles
+    const uint32_t dosage_force = (exportf_modifier / kfExportfVcfDosageForce) & 1;
     uint32_t write_ds = (exportf_modifier / kfExportfVcfDosageDs) & 1;
     uint32_t write_gp_or_ds = write_ds || (exportf_modifier & kfExportfVcfDosageGp);
-    if (write_gp_or_ds && (!(pgfip->gflags & kfPgenGlobalDosagePresent))) {
+    if ((!dosage_force) && write_gp_or_ds && (!(pgfip->gflags & kfPgenGlobalDosagePresent))) {
       write_gp_or_ds = 0;
       LOGERRPRINTF("Warning: No dosage data present.  %s field will not be exported.\n", write_ds? "DS" : "GP");
       write_ds = 0;
@@ -15202,7 +15205,10 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
     haploid_genotext_blen[5] = 4;
     haploid_genotext_blen[6] = 2;
     haploid_genotext_blen[7] = 2;
-    // don't bother exporting GP/DS for hardcalls
+    // don't bother exporting GP for hardcalls
+    // usually don't bother for DS, but DS-force is an exception
+    char dosage_inttext[16]; // 4..7 = haploid, 5 should never be looked up
+    memcpy(dosage_inttext, ":0:1:2:.:0:.:1:.", 16);
     const char* dot_ptr = &(g_one_char_strs[92]);
     const char* input_missing_geno_ptr = g_input_missing_geno_ptr;
     const uint32_t sample_ctl2_m1 = sample_ctl2 - 1;
@@ -15288,6 +15294,11 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
 	    memcpy(haploid_genotext[2], "\t0/0", 4);
 	  }
 	}
+	if (alt1_allele_idx) {
+	  memcpy(dosage_inttext, ":0:1:2:.:0:.:1:.", 16);
+	} else {
+	  memcpy(dosage_inttext, ":2:1:0:.:1:.:0:.", 16);
+	}
       }
       if ((cur_alleles[ref_allele_idx] != dot_ptr) && (cur_alleles[ref_allele_idx] != input_missing_geno_ptr)) {
         write_iter = strcpya(write_iter, cur_alleles[ref_allele_idx]);
@@ -15366,7 +15377,7 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
 	if (reterr) {
 	  goto export_vcf_ret_PGR_FAIL;
 	}
-	if (!dosage_ct) {
+	if ((!dosage_ct) && (!dosage_force)) {
 	  if (!is_haploid_or_mt) {
 	    // always 4 bytes wide, exploit that
 	    uint32_t* write_iter_ui_alias = (uint32_t*)write_iter;
@@ -15408,9 +15419,13 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
 	    }
 	  }
 	} else {
-	  // some dosages present
+	  // some dosages present, or DS-force
 	  if (write_ds) {
 	    write_iter = memcpyl3a(write_iter, ":DS");
+	    if (!dosage_ct) {
+	      // DS-force, need to clear this
+	      fill_ulong_zero(sample_ctl, dosage_present);
+	    }
 	  } else {
 	    write_iter = memcpyl3a(write_iter, ":GP");
 	  }
@@ -15435,6 +15450,8 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
 		  *write_iter++ = ':';
 		  const uint32_t dosage_int = *dosage_vals_iter++;
 		  write_iter = diploid_vcf_dosage_print(dosage_int, write_ds, write_iter);
+		} else if (dosage_force) {
+		  write_iter = memcpya(write_iter, &(dosage_inttext[cur_geno * 2]), 2);
 		}
 		genovec_word >>= 2;
 		dosage_present_hw >>= 1;
@@ -15472,6 +15489,8 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
 		    // het haploid, or female X
 		    write_iter = diploid_vcf_dosage_print(dosage_int, write_ds, write_iter);
 		  }
+		} else if (dosage_force) {
+		  write_iter = memcpya(write_iter, &(dosage_inttext[2 * cur_geno + 16 - 4 * cur_genotext_blen]), 2);
 		}
 		genovec_word >>= 2;
 		sex_male_hw >>= 1;
@@ -15493,7 +15512,7 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
 	  goto export_vcf_ret_PGR_FAIL;
 	}
 	at_least_one_phase_present = (at_least_one_phase_present != 0);
-	if (!dosage_ct) {
+	if ((!dosage_ct) && (!dosage_force)) {
 	  if (!is_haploid_or_mt) {
 	    uint32_t* write_iter_ui_alias = (uint32_t*)write_iter;
 	    while (1) {
@@ -15582,9 +15601,12 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
 	    }
 	  }
 	} else {
-	  // both dosage and phase present
+	  // both dosage (or DS-force) and phase present
 	  if (write_ds) {
 	    write_iter = memcpyl3a(write_iter, ":DS");
+	    if (!dosage_ct) {
+	      fill_ulong_zero(sample_ctl, dosage_present);
+	    }
 	  } else {
 	    write_iter = memcpyl3a(write_iter, ":GP");
 	  }
@@ -15629,6 +15651,8 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
 		  *write_iter++ = ':';
 		  const uint32_t dosage_int = *dosage_vals_iter++;
 		  write_iter = diploid_vcf_dosage_print(dosage_int, write_ds, write_iter);
+		} else if (dosage_force) {
+		  write_iter = memcpya(write_iter, &(dosage_inttext[cur_geno * 2]), 2);
 		}
 		genovec_word >>= 2;
 		cur_shift <<= 1;
@@ -15677,6 +15701,8 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
 		    *write_iter++ = ':';
 		    const uint32_t dosage_int = *dosage_vals_iter++;
 		    write_iter = diploid_vcf_dosage_print(dosage_int, write_ds, write_iter);
+		  } else if (dosage_force) {
+		    write_iter = memcpya(write_iter, &(dosage_inttext[cur_geno * 2]), 2);
 		  }
 		} else {
 		  if (dosage_present_hw & cur_shift) {
@@ -15689,6 +15715,8 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
 		      *write_iter++ = ',';
 		      write_iter = haploid_dosage_print(dosage_int, write_iter);
 		    }
+		  } else if (dosage_force) {
+		    write_iter = memcpya(write_iter, &(dosage_inttext[cur_geno * 2 + 8]), 2);
 		  }
 		}
 		genovec_word >>= 2;
