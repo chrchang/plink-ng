@@ -7155,7 +7155,8 @@ int32_t lgen_to_bed(char* lgenname, char* mapname, char* famname, char* outname,
     LOGERRPRINTFWW("Error: Failed to open %s.\n", outname);
     goto lgen_to_bed_ret_OPEN_FAIL;
   }
-  if (realpath_identical(outname, g_textbuf, &(g_textbuf[FNAMESIZE + 64]))) {
+  // bugfix (25 Jul 2017): forgot the not
+  if (!realpath_identical(outname, g_textbuf, &(g_textbuf[FNAMESIZE + 64]))) {
     if (fopen_checked(famname, "r", &infile)) {
       goto lgen_to_bed_ret_OPEN_FAIL;
     }
