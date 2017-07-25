@@ -105,7 +105,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (24 Jul 2017)";
+  " (25 Jul 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
