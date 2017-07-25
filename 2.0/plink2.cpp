@@ -60,7 +60,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (24 Jul 2017)";
+  " (25 Jul 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -1185,8 +1185,10 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
     uintptr_t* loop_cats_founder_info_backup = nullptr;
     uintptr_t* loop_cats_sex_nm_backup = nullptr;
     uintptr_t* loop_cats_sex_male_backup = nullptr;
+    uintptr_t* loop_cats_variant_include_backup = nullptr;
     uintptr_t* loop_cats_cat_include = nullptr;
     uint32_t loop_cats_sample_ct = 0;
+    uint32_t loop_cats_variant_ct = variant_ct;
     uint32_t loop_cats_uidx = 0;
     uint32_t loop_cats_idx = 0;
     uint32_t loop_cats_ct = 1;
@@ -1246,6 +1248,12 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	  bigstack_alloc_ul(1 + (loop_cats_pheno_col->nonnull_category_ct / kBitsPerWord), &loop_cats_cat_include)) {
 	goto plink2_ret_NOMEM;
       }
+      if (variant_ct != raw_variant_ct) {
+	if (bigstack_alloc_ul(raw_variant_ctl, &loop_cats_variant_include_backup)) {
+	  goto plink2_ret_NOMEM;
+	}
+	memcpy(loop_cats_variant_include_backup, variant_include, raw_variant_ctl * sizeof(intptr_t));
+      }
       bitvec_and_copy(sample_include, loop_cats_pheno_col->nonmiss, raw_sample_ctl, loop_cats_sample_include_backup);
       loop_cats_sample_ct = popcount_longs(loop_cats_sample_include_backup, raw_sample_ctl);
       loop_cats_ct = identify_remaining_cats(sample_include, loop_cats_pheno_col, sample_ct, loop_cats_cat_include);
@@ -1276,6 +1284,12 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	memcpy(sex_nm, loop_cats_sex_nm_backup, raw_sample_ctl * sizeof(intptr_t));
 	memcpy(sex_male, loop_cats_sex_male_backup, raw_sample_ctl * sizeof(intptr_t));
         update_sample_subsets(sample_include, raw_sample_ct, sample_ct, founder_info, &founder_ct, sex_nm, sex_male, &male_ct, &nosex_ct);
+	variant_ct = loop_cats_variant_ct;
+	if (loop_cats_variant_include_backup) {
+	  memcpy(variant_include, loop_cats_variant_include_backup, raw_variant_ctl * sizeof(intptr_t));
+	} else {
+	  fill_all_bits(variant_ct, variant_include);
+	}
 	LOGPRINTF("--loop-cats: Processing category '%s' (%u sample%s).\n", catname, sample_ct, (sample_ct == 1)? "" : "s");
       }
       // dosages are currently in 32768ths
