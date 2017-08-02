@@ -12366,7 +12366,8 @@ pglerr_t make_plink2_vsort(const char* xheader, const uintptr_t* sample_include,
 
     const uint32_t chr_code_end = cip->max_code + 1 + cip->name_ct;
     uint32_t* chr_idx_to_size;
-    if (bigstack_alloc_ui(chr_code_end, &write_chr_info.chr_idx_to_foidx) ||
+    if (bigstack_calloc_ul(kChrMaskWords, &write_chr_info.chr_mask) ||
+	bigstack_alloc_ui(chr_code_end, &write_chr_info.chr_idx_to_foidx) ||
 	bigstack_end_calloc_ui(chr_code_end, &chr_idx_to_size)) {
       goto make_plink2_vsort_ret_NOMEM;
     }
@@ -12377,6 +12378,11 @@ pglerr_t make_plink2_vsort(const char* xheader, const uintptr_t* sample_include,
 	next_set_unsafe_ck(variant_include, &variant_uidx);
 	chr_idx_to_size[chr_idxs[variant_uidx]] += 1;
       }
+      for (uint32_t chr_idx = 0; chr_idx < chr_code_end; ++chr_idx) {
+	if (chr_idx_to_size[chr_idx]) {
+	  set_bit(chr_idx, write_chr_info.chr_mask);
+	}
+      }
       // bugfix: chr_file_order is invalid
     } else {
       const uint32_t* chr_fo_vidx_start = cip->chr_fo_vidx_start;
@@ -12386,6 +12392,9 @@ pglerr_t make_plink2_vsort(const char* xheader, const uintptr_t* sample_include,
 	const uint32_t vidx_end = chr_fo_vidx_start[chr_fo_idx + 1];
 	const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
 	chr_idx_to_size[chr_idx] = popcount_bit_idx(variant_include, vidx_start, vidx_end);
+	if (chr_idx_to_size[chr_idx]) {
+	  set_bit(chr_idx, write_chr_info.chr_mask);
+	}
 	vidx_start = vidx_end;
       }
     }
