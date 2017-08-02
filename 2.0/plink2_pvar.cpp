@@ -1507,6 +1507,7 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 	  logerrprint("Warning: --merge-par had no effect (no PAR1/PAR2 chromosome codes present).\n");
 	}
       }
+      cip->chr_ct = chrs_encountered_m1 + 1;
     } else {
       chr_idx_t* chr_idxs = (chr_idx_t*)bigstack_alloc(raw_variant_ct * sizeof(chr_idx_t));
       if (!chr_idxs) {
@@ -1531,8 +1532,8 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 	chr_idxs_read_iter = (chr_idx_t*)(((uintptr_t)chr_idxs_read_iter) + read_iter_stride_base + kLoadPvarBlockSize * sizeof(chr_idx_t) + (block_idx >= cms_start_block) * kLoadPvarBlockSize * sizeof(double));
       }
       memcpy(&(chr_idxs[full_block_ct * kLoadPvarBlockSize]), chr_idxs_read_iter, raw_variant_ct_lowbits * sizeof(chr_idx_t));
+      cip->chr_ct = popcount_longs(loaded_chr_mask, DIV_UP(cip->max_code + cip->name_ct + 1, kBitsPerWord));
     }
-    cip->chr_ct = chrs_encountered_m1 + 1;
     const uint32_t last_chr_code = cip->max_code + cip->name_ct;
     const uint32_t chr_word_ct = BITCT_TO_WORDCT(last_chr_code + 1);
     bitvec_and(loaded_chr_mask, chr_word_ct, chr_mask);

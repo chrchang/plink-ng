@@ -11767,13 +11767,15 @@ pglerr_t make_plink2_no_vsort(const char* xheader, const uintptr_t* sample_inclu
 }
 
 
-boolerr_t sort_chr(const chr_info_t* cip, const uint32_t* chr_fo_idx_to_size, uint32_t orig_chr_ct, uint32_t use_nsort, chr_info_t* write_cip) {
+boolerr_t sort_chr(const chr_info_t* cip, const uint32_t* chr_idx_to_size, uint32_t use_nsort, chr_info_t* write_cip) {
   // Finishes initialization of write_cip.  Assumes chr_fo_vidx_start is
   // allocated and initialized to all-bits-one, chr_file_order/chr_idx_to_foidx
   // are unallocated, and chr_ct is uninitialized.
+  const uint32_t max_code = cip->max_code;
+  const uint32_t chr_code_end = max_code + 1 + cip->name_ct;
   uint32_t new_chr_ct = 0;
-  for (uint32_t chr_fo_idx = 0; chr_fo_idx < orig_chr_ct; ++chr_fo_idx) {
-    const uint32_t cur_chr_size = chr_fo_idx_to_size[chr_fo_idx];
+  for (uint32_t chr_idx = 0; chr_idx < chr_code_end; ++chr_idx) {
+    const uint32_t cur_chr_size = chr_idx_to_size[chr_idx];
     if (cur_chr_size) {
       ++new_chr_ct;
     }
@@ -11786,55 +11788,29 @@ boolerr_t sort_chr(const chr_info_t* cip, const uint32_t* chr_fo_idx_to_size, ui
   // now for the actual sorting.
   // autosomes and PAR1/X/PAR2/Y/XY/MT come first, then contig names.
   const uint32_t autosome_ct = cip->autosome_ct;
-  const uint32_t max_code = cip->max_code;
   const uint32_t xymt_ct = max_code - autosome_ct;
   const uint32_t autosome_ct_p1 = autosome_ct + 1;
 
   const int32_t* xymt_codes = cip->xymt_codes;
-  const uint32_t* chr_idx_to_foidx = cip->chr_idx_to_foidx;
   uintptr_t xymt_idx_to_chr_sort_offset[kChrOffsetCt] = {1, 3, 4, 5, 0, 2};
 
-  // chr_sort_idx in high bits, original chr_fo_idx in low
+  // chr_sort_idx in high bits, original chr_idx in low
   uint64_t* std_sortbuf;
   uint64_t* std_sortbuf_iter;
-  if (new_chr_ct <= max_code) {
-    if (bigstack_alloc_ull(new_chr_ct, &std_sortbuf)) {
-      return 1;
+  if (bigstack_alloc_ull(max_code + 1, &std_sortbuf)) {
+    return 1;
+  }
+  std_sortbuf_iter = std_sortbuf;
+  for (uintptr_t chr_idx = 0; chr_idx <= autosome_ct; ++chr_idx) {
+    if (chr_idx_to_size[chr_idx]) {
+      *std_sortbuf_iter++ = chr_idx * 0x100000001LLU;
     }
-    std_sortbuf_iter = std_sortbuf;
-    const uint32_t* chr_file_order = cip->chr_file_order;
-    for (uintptr_t chr_fo_idx = 0; chr_fo_idx < orig_chr_ct; ++chr_fo_idx) {
-      if (chr_fo_idx_to_size[chr_fo_idx]) {
-	const uintptr_t chr_idx = chr_file_order[chr_fo_idx];
-	if (chr_idx <= max_code) {
-	  uintptr_t chr_sort_idx;
-	  if (chr_idx <= autosome_ct) {
-	    chr_sort_idx = chr_idx;
-	  } else {
-	    chr_sort_idx = autosome_ct_p1 + xymt_idx_to_chr_sort_offset[chr_idx - autosome_ct_p1];
-	  }
-	  *std_sortbuf_iter++ = (((uint64_t)chr_sort_idx) << 32) | chr_fo_idx;
-	}
-      }
-    }
-  } else {
-    if (bigstack_alloc_ull(max_code + 1, &std_sortbuf)) {
-      return 1;
-    }
-    std_sortbuf_iter = std_sortbuf;
-    for (uintptr_t chr_idx = 0; chr_idx <= autosome_ct; ++chr_idx) {
-      const uintptr_t chr_fo_idx = chr_idx_to_foidx[chr_idx];
-      if ((chr_fo_idx != 0xffffffffU) && chr_fo_idx_to_size[chr_fo_idx]) {
-	*std_sortbuf_iter++ = (((uint64_t)chr_idx) << 32) | chr_fo_idx;
-      }
-    }
-    for (uint32_t xymt_idx = 0; xymt_idx < xymt_ct; ++xymt_idx) {
-      const int32_t xymt_code = xymt_codes[xymt_idx];
-      if (xymt_code >= 0) {
-	const uintptr_t chr_fo_idx = chr_idx_to_foidx[(uint32_t)xymt_code];
-	if ((chr_fo_idx != 0xffffffffU) && chr_fo_idx_to_size[chr_fo_idx]) {
-	  *std_sortbuf_iter++ = (((uint64_t)(xymt_idx_to_chr_sort_offset[xymt_idx] + autosome_ct_p1)) << 32) | chr_fo_idx;
-	}
+  }
+  for (uint32_t xymt_idx = 0; xymt_idx < xymt_ct; ++xymt_idx) {
+    const int32_t xymt_code = xymt_codes[xymt_idx];
+    if (xymt_code >= 0) {
+      if (chr_idx_to_size[xymt_idx + autosome_ct_p1]) {
+	*std_sortbuf_iter++ = (((uint64_t)(xymt_idx_to_chr_sort_offset[xymt_idx] + autosome_ct_p1)) << 32) | (xymt_idx + autosome_ct_p1);
       }
     }
   }
@@ -11848,9 +11824,8 @@ boolerr_t sort_chr(const chr_info_t* cip, const uint32_t* chr_fo_idx_to_size, ui
   write_cip->chr_fo_vidx_start[0] = 0;
   for (uint32_t new_chr_fo_idx = 0; new_chr_fo_idx < std_sortbuf_len; ++new_chr_fo_idx) {
     const uint64_t cur_entry = std_sortbuf[new_chr_fo_idx];
-    const uintptr_t old_chr_fo_idx = (uint32_t)cur_entry;
-    const uint32_t chr_idx = cur_entry >> 32;
-    const uint32_t chr_size = chr_fo_idx_to_size[old_chr_fo_idx];
+    const uintptr_t chr_idx = (uint32_t)cur_entry;
+    const uint32_t chr_size = chr_idx_to_size[chr_idx];
     write_cip->chr_file_order[new_chr_fo_idx] = chr_idx;
     write_vidx += chr_size;
     write_cip->chr_fo_vidx_start[new_chr_fo_idx + 1] = write_vidx;
@@ -11863,13 +11838,10 @@ boolerr_t sort_chr(const chr_info_t* cip, const uint32_t* chr_fo_idx_to_size, ui
     if (!nonstd_sort_buf) {
       return 1;
     }
-    const uint32_t chr_idx_end = max_code + 1 + cip->name_ct;
     char** nonstd_names = cip->nonstd_names;
     uint32_t str_idx = 0;
-    for (uint32_t chr_idx = max_code + 1; chr_idx < chr_idx_end; ++chr_idx) {
-      // this is always initialized
-      const uint32_t chr_fo_idx = chr_idx_to_foidx[chr_idx];
-      if (chr_fo_idx_to_size[chr_fo_idx]) {
+    for (uint32_t chr_idx = max_code + 1; chr_idx < chr_code_end; ++chr_idx) {
+      if (chr_idx_to_size[chr_idx]) {
 	nonstd_sort_buf[str_idx].strptr = nonstd_names[chr_idx];
 	nonstd_sort_buf[str_idx].orig_idx = chr_idx;
 	++str_idx;
@@ -11880,8 +11852,7 @@ boolerr_t sort_chr(const chr_info_t* cip, const uint32_t* chr_fo_idx_to_size, ui
     uint32_t new_chr_fo_idx = std_sortbuf_len;
     for (uint32_t str_idx = 0; str_idx < new_nonstd_ct; ++str_idx, ++new_chr_fo_idx) {
       const uint32_t chr_idx = nonstd_sort_buf[str_idx].orig_idx;
-      const uint32_t old_chr_fo_idx = chr_idx_to_foidx[chr_idx];
-      const uint32_t chr_size = chr_fo_idx_to_size[old_chr_fo_idx];
+      const uint32_t chr_size = chr_idx_to_size[chr_idx];
       write_cip->chr_file_order[new_chr_fo_idx] = chr_idx;
       write_vidx += chr_size;
       write_cip->chr_fo_vidx_start[new_chr_fo_idx + 1] = write_vidx;
@@ -12394,37 +12365,31 @@ pglerr_t make_plink2_vsort(const char* xheader, const uintptr_t* sample_include,
     write_chr_info.output_encoding = cip->output_encoding;
 
     const uint32_t chr_code_end = cip->max_code + 1 + cip->name_ct;
-    const uint32_t orig_chr_ct = cip->chr_ct;
-    uint32_t* chr_fo_idx_to_size;
+    uint32_t* chr_idx_to_size;
     if (bigstack_alloc_ui(chr_code_end, &write_chr_info.chr_idx_to_foidx) ||
-	bigstack_end_calloc_ui(orig_chr_ct, &chr_fo_idx_to_size)) {
+	bigstack_end_calloc_ui(chr_code_end, &chr_idx_to_size)) {
       goto make_plink2_vsort_ret_NOMEM;
     }
     fill_uint_one(chr_code_end, write_chr_info.chr_idx_to_foidx);
     if (chr_idxs) {
-      uint32_t* chr_idx_to_size;
-      if (bigstack_end_calloc_ui(chr_code_end, &chr_idx_to_size)) {
-	goto make_plink2_vsort_ret_NOMEM;
-      }
       uint32_t variant_uidx = 0;
       for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
 	next_set_unsafe_ck(variant_include, &variant_uidx);
 	chr_idx_to_size[chr_idxs[variant_uidx]] += 1;
       }
-      for (uint32_t chr_fo_idx = 0; chr_fo_idx < orig_chr_ct; ++chr_fo_idx) {
-	chr_fo_idx_to_size[chr_fo_idx] = chr_idx_to_size[cip->chr_file_order[chr_fo_idx]];
-      }
-      bigstack_end_reset(chr_fo_idx_to_size);
+      // bugfix: chr_file_order is invalid
     } else {
       const uint32_t* chr_fo_vidx_start = cip->chr_fo_vidx_start;
+      const uint32_t orig_chr_ct = cip->chr_ct;
       uint32_t vidx_start = 0;
       for (uint32_t chr_fo_idx = 0; chr_fo_idx < orig_chr_ct; ++chr_fo_idx) {
 	const uint32_t vidx_end = chr_fo_vidx_start[chr_fo_idx + 1];
-	chr_fo_idx_to_size[chr_fo_idx] = popcount_bit_idx(variant_include, vidx_start, vidx_end);
+	const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+	chr_idx_to_size[chr_idx] = popcount_bit_idx(variant_include, vidx_start, vidx_end);
 	vidx_start = vidx_end;
       }
     }
-    if (sort_chr(cip, chr_fo_idx_to_size, orig_chr_ct, use_nsort, &write_chr_info)) {
+    if (sort_chr(cip, chr_idx_to_size, use_nsort, &write_chr_info)) {
       goto make_plink2_vsort_ret_NOMEM;
     }
 
