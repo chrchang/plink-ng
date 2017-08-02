@@ -848,7 +848,7 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 	  if (!is_split_chr) {
 	    if (is_set(loaded_chr_mask, cur_chr_code)) {
 	      if (!split_chr_ok) {
-		sprintf(g_logbuf, "Error: %s has a split chromosome. Use --make-pgen by itself to remedy this.\n", pvarname);
+		sprintf(g_logbuf, "Error: %s has a split chromosome. Use --make-pgen + --sort-vars to remedy this.\n", pvarname);
 		goto load_pvar_ret_MALFORMED_INPUT_WW;
 	      }
 	      if ((uintptr_t)(tmp_alloc_end - tmp_alloc_base) < kLoadPvarBlockSize * sizeof(chr_idx_t)) {
@@ -1507,7 +1507,6 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 	  logerrprint("Warning: --merge-par had no effect (no PAR1/PAR2 chromosome codes present).\n");
 	}
       }
-      cip->chr_ct = chrs_encountered_m1 + 1;
     } else {
       chr_idx_t* chr_idxs = (chr_idx_t*)bigstack_alloc(raw_variant_ct * sizeof(chr_idx_t));
       if (!chr_idxs) {
@@ -1533,6 +1532,7 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
       }
       memcpy(&(chr_idxs[full_block_ct * kLoadPvarBlockSize]), chr_idxs_read_iter, raw_variant_ct_lowbits * sizeof(chr_idx_t));
     }
+    cip->chr_ct = chrs_encountered_m1 + 1;
     const uint32_t last_chr_code = cip->max_code + cip->name_ct;
     const uint32_t chr_word_ct = BITCT_TO_WORDCT(last_chr_code + 1);
     bitvec_and(loaded_chr_mask, chr_word_ct, chr_mask);

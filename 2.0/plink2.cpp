@@ -60,10 +60,10 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (25 Jul 2017)";
+  " (1 Aug 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -216,6 +216,7 @@ typedef struct plink2_cmdline_struct {
   pvar_psam_t pvar_psam_modifier;
   exportf_flags_t exportf_modifier;
   sort_flags_t sample_sort_flags;
+  sort_flags_t sort_vars_flags;
   grm_flags_t grm_flags;
   pca_flags_t pca_flags;
   write_covar_flags_t write_covar_flags;
@@ -1790,15 +1791,14 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 
 	if (pcp->command_flags1 & kfCommand1MakePlink2) {
 	  // todo: unsorted case (--update-chr, etc.)
-	  if (vpos_sortstatus & kfUnsortedVarSplitChr) {
-	    logerrprint("Error: --make-bed/--make-{b}pgen variant sorting is under development.\n");
-	    reterr = kPglRetNotYetSupported;
-	    goto plink2_ret_1;
+	  if (pcp->sort_vars_flags != kfSort0) {
+	    reterr = make_plink2_vsort(xheader, sample_include, sample_ids, sids, paternal_ids, maternal_ids, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, allele_dosages, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, chr_idxs, xheader_blen, xheader_info_pr, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, max_paternal_id_blen, max_maternal_id_blen, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->hard_call_thresh, pcp->dosage_erase_thresh, make_plink2_modifier, (pcp->sort_vars_flags == kfSortNatural), pcp->pvar_psam_modifier, &simple_pgr, outname, outname_end);
+	  } else {
+	    if (vpos_sortstatus & kfUnsortedVarBp) {
+	      logerrprint("Warning: Variants are not sorted by position.  Consider rerunning with the\n--sort-vars flag added to remedy this.\n");
+            }
+	    reterr = make_plink2_no_vsort(xheader, sample_include, sample_ids, sids, paternal_ids, maternal_ids, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, allele_dosages, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, xheader_blen, xheader_info_pr, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, max_paternal_id_blen, max_maternal_id_blen, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, make_plink2_modifier, pcp->pvar_psam_modifier, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
 	  }
-	  if (vpos_sortstatus & kfUnsortedVarBp) {
-	    logerrprint("Warning: --make-bed/--make-{b}pgen variant sorting is not implemented yet.\n");
-	  }
-	  reterr = make_plink2_no_vsort(xheader, sample_include, sample_ids, sids, paternal_ids, maternal_ids, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, allele_dosages, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, xheader_blen, xheader_info_pr, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, max_paternal_id_blen, max_maternal_id_blen, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, make_plink2_modifier, pcp->pvar_psam_modifier, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
 	  if (reterr) {
 	    goto plink2_ret_1;
 	  }
@@ -3310,6 +3310,7 @@ int main(int argc, char** argv) {
     pc.pvar_psam_modifier = kfPvarPsam0;
     pc.exportf_modifier = kfExportf0;
     pc.sample_sort_flags = kfSort0;
+    pc.sort_vars_flags = kfSort0;
     pc.grm_flags = kfGrm0;
     pc.pca_flags = kfPca0;
     pc.write_covar_flags = kfWriteCovar0;
@@ -7030,8 +7031,29 @@ int main(int argc, char** argv) {
 	  pc.pheno_transform_flags |= kfPhenoTransformSplitCat;
 	  pc.filter_flags |= kfFilterPsamReq;
 	} else if (!memcmp(flagname_p2, "ort-vars", 9)) {
-	  logerrprint("Error: --sort-vars is not implemented yet.\n");
-	  reterr = kPglRetNotYetSupported;
+	  if (!(pc.command_flags1 & kfCommand1MakePlink2)) {
+	    // todo: permit merge
+	    logerrprint("Error: --sort-vars must be used with --make-{b}pgen/--make-bed or dataset\nmerging.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
+	  }
+	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
+	    goto main_ret_INVALID_CMDLINE_2A;
+	  }
+	  if (param_ct) {
+	    const char* sort_vars_mode_str = argv[arg_idx + 1];
+	    const char first_char_upcase_match = sort_vars_mode_str[0] & 0xdf;
+	    const uint32_t is_short_name = (sort_vars_mode_str[1] == '\0');
+	    if ((is_short_name && (first_char_upcase_match == 'N')) || (!strcmp(sort_vars_mode_str, "natural"))) {
+	      pc.sort_vars_flags = kfSortNatural;
+	    } else if ((is_short_name && (first_char_upcase_match == 'A')) || (!strcmp(sort_vars_mode_str, "ascii"))) {
+	      pc.sort_vars_flags = kfSortAscii;
+	    } else {
+	      sprintf(g_logbuf, "Error: '%s' is not a valid mode for --sort-vars.\n", sort_vars_mode_str);
+	      goto main_ret_INVALID_CMDLINE_WWA;
+	    }
+	  } else {
+	    pc.sort_vars_flags = kfSortNatural;
+	  }
 	} else {
 	  goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
 	}
@@ -7725,7 +7747,7 @@ int main(int argc, char** argv) {
 	  psamname[0] = '\0';
 	}
       }
-      if (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Validate | kfCommand1WriteSnplist | kfCommand1WriteCovar))) {
+      if ((pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Validate | kfCommand1WriteSnplist | kfCommand1WriteCovar))) || ((pc.command_flags1 & kfCommand1MakePlink2) && (pc.sort_vars_flags == kfSort0))) {
 	pc.filter_flags |= kfFilterNoSplitChr;
       }
 

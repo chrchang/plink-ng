@@ -505,18 +505,6 @@ double destructive_get_dmedian(uintptr_t len, double* unsorted_arr) {
 
 // alas, qsort_r not available on some Linux distributions
 
-// note that this can be expected to have size 16 bytes, not 12, on 64-bit
-// systems
-typedef struct str_sort_indexed_deref_struct {
-  const char* strptr;
-  uint32_t orig_idx;
-#ifdef __cplusplus
-  bool operator<(const struct str_sort_indexed_deref_struct& rhs) const {
-    return (strcmp(strptr, rhs.strptr) < 0);
-  }
-#endif
-} str_sort_indexed_deref_t;
-
 #ifdef __cplusplus
 typedef struct strbuf36_ui_struct {
   char strbuf[36];
@@ -751,6 +739,48 @@ uint32_t copy_and_dedup_sorted_strptrs_to_strbox(char** sorted_strptrs, uintptr_
   } while (sorted_strptrs_iter != sorted_strptrs_end);
   return write_idx;
 }
+
+
+void strptr_arr_sort_main(uintptr_t str_ct, uint32_t use_nsort, str_sort_indexed_deref_t* wkspace_alias) {
+  if (!use_nsort) {
+#ifdef __cplusplus
+    std::sort(wkspace_alias, &(wkspace_alias[str_ct]));
+#else
+    qsort(wkspace_alias, str_ct, sizeof(str_sort_indexed_deref_t), strcmp_deref);
+#endif
+  } else {
+#ifdef __cplusplus
+    str_nsort_indexed_deref_t* wkspace_alias2 = (str_nsort_indexed_deref_t*)wkspace_alias;
+    std::sort(wkspace_alias2, &(wkspace_alias2[str_ct]));
+#else
+    qsort(wkspace_alias, str_ct, sizeof(str_sort_indexed_deref_t), strcmp_natural_deref);
+#endif
+  }
+}
+
+boolerr_t strptr_arr_indexed_sort(char** unsorted_strptrs, uint32_t str_ct, uint32_t use_nsort, uint32_t* id_map) {
+  if (str_ct < 2) {
+    if (str_ct) {
+      id_map[0] = 0;
+    }
+    return 0;
+  }
+  if (bigstack_left() < str_ct * sizeof(str_sort_indexed_deref_t)) {
+    return 1;
+  }
+  str_sort_indexed_deref_t* wkspace_alias = (str_sort_indexed_deref_t*)g_bigstack_base;
+  for (uint32_t str_idx = 0; str_idx < str_ct; ++str_idx) {
+    wkspace_alias[str_idx].strptr = unsorted_strptrs[str_idx];
+    wkspace_alias[str_idx].orig_idx = str_idx;
+  }
+  strptr_arr_sort_main(str_ct, use_nsort, wkspace_alias);
+  for (uint32_t str_idx = 0; str_idx < str_ct; ++str_idx) {
+    id_map[str_idx] = wkspace_alias[str_idx].orig_idx;
+  }
+  bigstack_reset(wkspace_alias);
+  return 0;
+}
+
 
 uint32_t uint32arr_greater_than(const uint32_t* sorted_uint32_arr, uint32_t arr_length, uint32_t uii) {
   // (strangely, this seems to be equal to or better than std::lower_bound with
@@ -4395,8 +4425,8 @@ void forget_extra_chr_names(uint32_t reinitialize, chr_info_t* cip) {
   const uint32_t name_ct = cip->name_ct;
   if (name_ct) {
     char** nonstd_names = cip->nonstd_names;
-    const uint32_t chr_idx_last = cip->max_code + name_ct;
-    for (uint32_t chr_idx = cip->max_code + 1; chr_idx <= chr_idx_last; ++chr_idx) {
+    const uint32_t chr_idx_end = cip->max_code + 1 + name_ct;
+    for (uint32_t chr_idx = cip->max_code + 1; chr_idx < chr_idx_end; ++chr_idx) {
       free(nonstd_names[chr_idx]);
       nonstd_names[chr_idx] = nullptr;
     }

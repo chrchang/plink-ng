@@ -519,6 +519,25 @@ boolerr_t sort_strbox_indexed_malloc(uintptr_t str_ct, uintptr_t max_str_blen, c
 // Returns dedup'd strbox entry count.
 uint32_t copy_and_dedup_sorted_strptrs_to_strbox(char** sorted_strptrs, uintptr_t str_ct, uintptr_t max_str_blen, char* strbox);
 
+
+// note that this can be expected to have size 16 bytes, not 12, on 64-bit
+// systems
+typedef struct str_sort_indexed_deref_struct {
+  const char* strptr;
+  uint32_t orig_idx;
+#ifdef __cplusplus
+  bool operator<(const struct str_sort_indexed_deref_struct& rhs) const {
+    return (strcmp(strptr, rhs.strptr) < 0);
+  }
+#endif
+} str_sort_indexed_deref_t;
+
+void strptr_arr_sort_main(uintptr_t str_ct, uint32_t use_nsort, str_sort_indexed_deref_t* wkspace_alias);
+
+// This makes a temporary g_bigstack allocation.
+boolerr_t strptr_arr_indexed_sort(char** unsorted_strptrs, uintptr_t str_ct, uint32_t use_nsort, uint32_t* id_map);
+
+
 /*
 void qsort_ext2(void* main_arr, uintptr_t arr_length, uintptr_t item_length, int(* comparator_deref)(const void*, const void*), void* secondary_arr, uintptr_t secondary_item_len, unsigned char* proxy_arr, uintptr_t proxy_len);
 
@@ -1572,7 +1591,7 @@ void genoarr_to_nonmissing(const uintptr_t* genoarr, uint32_t sample_ctl2, uintp
 
 uint32_t genoarr_count_missing_notsubset_unsafe(const uintptr_t* genoarr, const uintptr_t* exclude_mask, uint32_t sample_ct);
 
-// dumb linear scan
+// basic linear scan
 // returns -1 on failure to find, -2 if duplicate
 int32_t get_variant_uidx_without_htable(const char* idstr, char** variant_ids, const uintptr_t* variant_include, uint32_t variant_ct);
 
