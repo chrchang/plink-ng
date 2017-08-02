@@ -12356,7 +12356,6 @@ pglerr_t write_pvar_resorted(const char* outname, const char* xheader, const uin
   return reterr;
 }
 
-// bunch of these variables aren't needed?
 pglerr_t make_plink2_vsort(const char* xheader, const uintptr_t* sample_include, const char* sample_ids, const char* sids, const char* paternal_ids, const char* maternal_ids, const uintptr_t* sex_nm, const uintptr_t* sex_male, const pheno_col_t* pheno_cols, const char* pheno_names, const uint32_t* new_sample_idx_to_old, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint64_t* allele_dosages, const alt_allele_ct_t* refalt1_select, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, char** pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const chr_idx_t* chr_idxs, uintptr_t xheader_blen, uint32_t xheader_info_pr, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uintptr_t max_paternal_id_blen, uintptr_t max_maternal_id_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, make_plink2_t make_plink2_modifier, uint32_t use_nsort, pvar_psam_t pvar_psam_modifier, pgen_reader_t* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -12593,7 +12592,37 @@ pglerr_t make_plink2_vsort(const char* xheader, const uintptr_t* sample_include,
       logprint("done.\n");
     }
     if (make_plink2_modifier & (kfMakeBed | kfMakePgen)) {
-      // todo: --set-hh-missing, etc.
+      // boilerplate from start of make_plink2_no_vsort()
+      if (make_plink2_modifier & kfMakePlink2MMask) {
+	logerrprint("Error: --make-bed/--make-{b}pgen multiallelics= is currently under development.\n");
+	reterr = kPglRetNotYetSupported;
+	goto make_plink2_vsort_ret_1;
+      }
+      g_plink2_write_flags = kfPlink2Write0;
+      const uint32_t raw_sample_ctl = BITCT_TO_WORDCT(raw_sample_ct);
+      if (make_plink2_modifier & kfMakePlink2SetHhMissing) {
+	const uint32_t sample_ctv = BITCT_TO_VECCT(sample_ct);
+	uintptr_t* sex_collapsed_tmp;
+	uintptr_t* sex_female;
+	if (bigstack_alloc_ul(sample_ctv * kWordsPerVec, &g_sex_male_collapsed_interleaved) ||
+	    bigstack_alloc_ul(sample_ctv * kWordsPerVec, &g_sex_female_collapsed_interleaved) ||
+	    bigstack_alloc_ul(sample_ctv * kWordsPerVec, &sex_collapsed_tmp) ||
+	    bigstack_alloc_ul(raw_sample_ctl, &sex_female)) {
+	  goto make_plink2_vsort_ret_NOMEM;
+	}
+	copy_bitarr_subset(sex_male, sample_include, sample_ct, sex_collapsed_tmp);
+	fill_interleaved_mask_vec(sex_collapsed_tmp, sample_ctv, g_sex_male_collapsed_interleaved);
+
+	bitvec_andnot_copy(sex_nm, sex_male, raw_sample_ctl, sex_female);
+	copy_bitarr_subset(sex_female, sample_include, sample_ct, sex_collapsed_tmp);
+	fill_interleaved_mask_vec(sex_collapsed_tmp, sample_ctv, g_sex_female_collapsed_interleaved);
+
+	bigstack_reset(sex_collapsed_tmp);
+	g_plink2_write_flags |= kfPlink2WriteSetHhMissing;
+      }
+      if (make_plink2_modifier & kfMakePlink2SetMixedMtMissing) {
+	g_plink2_write_flags |= kfPlink2WriteSetMixedMtMissing;
+      }
       g_cip = &write_chr_info;
       reterr = make_pgen_robust(sample_include, new_sample_idx_to_old, variant_include, variant_allele_idxs, refalt1_select, new_variant_idx_to_old, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, hard_call_thresh, dosage_erase_thresh, make_plink2_modifier, simple_pgrp, outname, outname_end);
       if (reterr) {
