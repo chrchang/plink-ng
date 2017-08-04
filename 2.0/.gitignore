@@ -1,3 +1,7 @@
+/**/pgen_compress
+/**/plink2
+/Python/Pgenlib.egg-info/
+/Python/dist/
 *.o
 *~
 plink2_src.zip
