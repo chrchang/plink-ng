@@ -12001,7 +12001,7 @@ pglerr_t pvar_info_reload_interval(const uint32_t* old_variant_uidx_to_new, uint
     pvar_info_strs[new_variant_idx_offset] = str_store_iter;
     str_store_iter = memcpyax(str_store_iter, loadbuf_iter, info_slen, '\0');
   }
-  assert(str_store_iter <= g_bigstack_end);
+  assert(str_store_iter <= (char*)g_bigstack_end);
   return kPglRetSuccess;
 }
 
