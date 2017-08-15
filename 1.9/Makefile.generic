@@ -83,7 +83,7 @@ clean:
 # GNU make's built-in rules, except we explicitly use "g++" instead of $(CC).
 
 %.o: %.c
-	$(CXX) -c $(CFLAGS) $< -o $@
+	$(CC) -c $(CFLAGS) $< -o $@
 
 %.o: %.cc
 	$(CXX) -x c++ -c $(CXXFLAGS) $< -o $@
