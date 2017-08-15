@@ -11,7 +11,7 @@ NO_LAPACK =
 # passed into the linker; to use this, invoke 'make LDFLAGS_EXTRA="<opts>"'.
 LDFLAGS_EXTRA =
 
-.PHONY: clean
+.PHONY: clean install
 
 # should autodetect system
 SYS = UNIX
@@ -24,6 +24,8 @@ else
   endif
 endif
 
+# Allow these to be overridden by make arguments or env variables, so people
+# don't have to edit the Makefile to build in a different environment.
 BIN ?=		plink
 CC ?=		gcc
 CXX ?=		g++
@@ -36,11 +38,11 @@ ZLIB ?=		../zlib-1.2.11/libz.so.1.2.11
 ifeq ($(SYS), MAC)
   GCC_GTEQ_43 := $(shell expr `g++ -dumpversion | sed -e 's/\.\([0-9][0-9]\)/\1/g' -e 's/\.\([0-9]\)/0\1/g' -e 's/^[0-9]\{3,4\}$$/&00/'` \>= 40300)
   ifeq "$(GCC_GTEQ_43)" "1"
-    CFLAGS=-Wall -O2 -flax-vector-conversions
+    CFLAGS ?= -Wall -O2 -flax-vector-conversions
   endif
-  BLASFLAGS=-framework Accelerate
-  LDFLAGS=-ldl
-  ZLIB=../zlib-1.2.11/libz.1.2.11.dylib
+  BLASFLAGS ?= -framework Accelerate
+  LDFLAGS ?= -ldl
+  ZLIB ?= ../zlib-1.2.11/libz.1.2.11.dylib
 endif
 
 ifeq ($(SYS), WIN)
@@ -49,9 +51,9 @@ ifeq ($(SYS), WIN)
 # on Windows.
 # If you don't already have LAPACK built, you'll probably want to turn on
 # NO_LAPACK.
-  BLASFLAGS=-L. lapack/liblapack.a -L. lapack/librefblas.a
-  LDFLAGS=-lm -static-libgcc
-  ZLIB=../zlib-1.2.11/libz.a
+  BLASFLAGS ?= -L. lapack/liblapack.a -L. lapack/librefblas.a
+  LDFLAGS ?= -lm -static-libgcc
+  ZLIB ?= ../zlib-1.2.11/libz.a
 endif
 
 ifdef NO_LAPACK
@@ -78,12 +80,15 @@ install:
 clean:
 	rm -f $(OBJS) plink plinkw
 
-
 # Pattern-based rules for compiling object (.o) files; basically identical to
 # GNU make's built-in rules, except we explicitly use "g++" instead of $(CC).
 
+# Compiling C files with a C++ compiler is deprecated, but the code needs
+# to be cleaned up before we can switch to cc.  E.g. plink_rserve.c
+# includes a C++ header and exposed functions will need to be declared with
+# extern "C".
 %.o: %.c
-	$(CC) -c $(CFLAGS) $< -o $@
+	$(CXX) -c $(CFLAGS) $< -o $@
 
 %.o: %.cc
 	$(CXX) -x c++ -c $(CXXFLAGS) $< -o $@
