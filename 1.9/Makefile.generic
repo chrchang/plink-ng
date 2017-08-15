@@ -38,6 +38,7 @@ ZLIB ?=		../zlib-1.2.11/libz.so.1.2.11
 PREFIX ?=	/usr/local
 DESTDIR ?=	.
 INSTALL ?=	install
+STRIP ?=	strip
 
 ifeq ($(SYS), MAC)
   GCC_GTEQ_43 := $(shell expr `g++ -dumpversion | sed -e 's/\.\([0-9][0-9]\)/\1/g' -e 's/\.\([0-9]\)/0\1/g' -e 's/^[0-9]\{3,4\}$$/&00/'` \>= 40300)
@@ -80,6 +81,9 @@ plinkw: $(OBJS)
 install:
 	$(INSTALL) -d $(DESTDIR)$(PREFIX)/bin
 	$(INSTALL) -c $(BIN) $(DESTDIR)$(PREFIX)/bin
+
+install-strip: install
+	$(STRIP) $(DESTDIR)$(PREFIX)/bin/$(BIN)
 
 clean:
 	rm -f $(OBJS) plink plinkw
