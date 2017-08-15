@@ -93,7 +93,7 @@
 
 static const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b4.5"
+  "PLINK v1.90b4.6"
 #else
   "PLINK v1.90p"
 #endif
@@ -105,7 +105,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (25 Jul 2017)";
+  " (14 Aug 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -2077,7 +2077,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	}
       }
       if (calculation_type & CALC_LASSO) {
-	retval = lasso(threads, bedfile, bed_offset, outname, outname_end2, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_allele_ptrs, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, pheno_nm_ct, lasso_h2, lasso_minlambda, lasso_select_covars_range_list_ptr, misc_flags, pheno_nm, pheno_c, pheno_d, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_male, hh_exists);
+	retval = lasso(threads, bedfile, bed_offset, outname, outname_end2, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_allele_ptrs, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, sample_ct, pheno_nm_ct, lasso_h2, lasso_minlambda, lasso_select_covars_range_list_ptr, misc_flags, sample_exclude, pheno_nm, pheno_c, pheno_d, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_male, hh_exists);
 	if (retval) {
 	  goto plink_ret_1;
 	}

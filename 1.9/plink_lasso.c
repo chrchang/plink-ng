@@ -995,16 +995,16 @@ int32_t lasso_smallmem(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, 
   return retval;
 }
 
-int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uintptr_t pheno_nm_ct, double lasso_h2, double lasso_minlambda, Range_list* select_covars_range_list_ptr, uint64_t misc_flags, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, uintptr_t covar_ct, char* covar_names, uintptr_t max_covar_name_len, uintptr_t* covar_nm, double* covar_d, uintptr_t* sex_male, uint32_t hh_or_mt_exists) {
+int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outname, char* outname_end, uintptr_t unfiltered_marker_ct, uintptr_t* marker_exclude, uintptr_t marker_ct, char* marker_ids, uintptr_t max_marker_id_len, char** marker_allele_ptrs, uintptr_t* marker_reverse, Chrom_info* chrom_info_ptr, uintptr_t unfiltered_sample_ct, uint32_t sample_ct, uintptr_t pheno_nm_ct, double lasso_h2, double lasso_minlambda, Range_list* select_covars_range_list_ptr, uint64_t misc_flags, const uintptr_t* sample_exclude, uintptr_t* pheno_nm, uintptr_t* pheno_c, double* pheno_d, uintptr_t covar_ct, char* covar_names, uintptr_t max_covar_name_len, uintptr_t* covar_nm, double* covar_d, uintptr_t* sex_male, uint32_t hh_or_mt_exists) {
   // Coordinate descent LASSO.  Based on a MATLAB script by Shashaank
   // Vattikuti.
   // Not yet multithreaded.  (Main loop is fairly tightly coupled, so getting
   // a performance benefit will be a bit tricky.)
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
-  uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
-  uintptr_t unfiltered_sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(unfiltered_sample_ct);
-  uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
+  const uintptr_t unfiltered_sample_ctl = BITCT_TO_WORDCT(unfiltered_sample_ct);
+  const uintptr_t unfiltered_sample_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(unfiltered_sample_ct);
+  const uintptr_t unfiltered_marker_ctl = BITCT_TO_WORDCT(unfiltered_marker_ct);
   uintptr_t polymorphic_marker_ct = 0;
   uint64_t iter_tot = 0;
   double* xhat = nullptr;
@@ -1013,8 +1013,8 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
   uintptr_t* sample_male_include2 = nullptr;
   uintptr_t* select_covars_bitfield = nullptr;
   char* wptr_start = nullptr;
-  uint32_t report_zeroes = (misc_flags / MISC_LASSO_REPORT_ZEROES) & 1;
-  uint32_t select_covars = (misc_flags / MISC_LASSO_SELECT_COVARS) & 1;
+  const uint32_t report_zeroes = (misc_flags / MISC_LASSO_REPORT_ZEROES) & 1;
+  const uint32_t select_covars = (misc_flags / MISC_LASSO_SELECT_COVARS) & 1;
   uint32_t chrom_fo_idx = 0xffffffffU; // exploit overflow
   uint32_t chrom_end = 0;
   uint32_t is_x = 0;
@@ -1052,8 +1052,22 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
   uint32_t uii;
   if (!covar_ct) {
     sample_valid_ct = pheno_nm_ct;
+    pheno_nm2 = pheno_nm;
   } else {
-    sample_valid_ct = popcount_longs(covar_nm, BITCT_TO_WORDCT(pheno_nm_ct));
+    // bugfix (14 Aug 2017): need to look at intersection of pheno_nm and
+    // covar_nm, rather than just covar_nm
+    // also, can't simply use popcount_longs_intersect() and bitvec_and(),
+    // since covar_nm is already subsetted on sample_include
+    if (bigstack_calloc_ul(unfiltered_sample_ctl, &pheno_nm2)) {
+      goto lasso_ret_NOMEM;
+    }
+    for (sample_uidx = 0, sample_idx = 0; sample_idx < sample_ct; sample_uidx++, sample_idx++) {
+      next_unset_ul_unsafe_ck(sample_exclude, &sample_uidx);
+      if (IS_SET(pheno_nm, sample_uidx) && IS_SET(covar_nm, sample_idx)) {
+        SET_BIT(sample_uidx, pheno_nm2);
+      }
+    }
+    sample_valid_ct = popcount_longs(pheno_nm2, unfiltered_sample_ctl);
   }
   if (sample_valid_ct < 2) {
     if (pheno_nm_ct < 2) {
@@ -1062,19 +1076,6 @@ int32_t lasso(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* out
       logerrprint("Warning: Skipping --lasso since too many samples have missing covariates.\n");
     }
     goto lasso_ret_1;
-  }
-  if (sample_valid_ct == pheno_nm_ct) {
-    pheno_nm2 = pheno_nm;
-  } else {
-    if (bigstack_calloc_ul(unfiltered_sample_ctl, &pheno_nm2)) {
-      goto lasso_ret_NOMEM;
-    }
-    for (sample_uidx = 0, sample_idx = 0; sample_idx < pheno_nm_ct; sample_uidx++, sample_idx++) {
-      next_set_ul_unsafe_ck(pheno_nm, &sample_uidx);
-      if (IS_SET(covar_nm, sample_idx)) {
-        SET_BIT(sample_uidx, pheno_nm2);
-      }
-    }
   }
   sample_valid_ctv2 = QUATERCT_TO_ALIGNED_WORDCT(sample_valid_ct);
   sqrt_n_recip = sqrt(1.0 / ((double)((intptr_t)sample_valid_ct)));
