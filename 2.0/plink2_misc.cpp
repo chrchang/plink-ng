@@ -1690,11 +1690,8 @@ pglerr_t write_allele_freqs(const uintptr_t* variant_include, const chr_info_t* 
 	    *write_iter++ = '\t';
 	    write_iter = uint32toa(cur_histogram[bin_idx], write_iter);
 	    append_binary_eoln(&write_iter);
-	    if (write_iter >= textbuf_flush) {
-	      if (fwrite_checked(textbuf, (uintptr_t)(write_iter - textbuf), outfile)) {
-		goto write_allele_freqs_ret_WRITE_FAIL;
-	      }
-	      write_iter = textbuf;
+	    if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
+	      goto write_allele_freqs_ret_WRITE_FAIL;
 	    }
 	  }
 	} else {
@@ -1708,20 +1705,12 @@ pglerr_t write_allele_freqs(const uintptr_t* variant_include, const chr_info_t* 
 	    *write_iter++ = '\t';
 	    write_iter = uint32toa(cur_histogram[bin_idx], write_iter);
 	    append_binary_eoln(&write_iter);
-	    if (write_iter >= textbuf_flush) {
-	      if (fwrite_checked(textbuf, (uintptr_t)(write_iter - textbuf), outfile)) {
-		goto write_allele_freqs_ret_WRITE_FAIL;
-	      }
-	      write_iter = textbuf;
+	    if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
+	      goto write_allele_freqs_ret_WRITE_FAIL;
 	    }
 	  }
 	}
-	if (write_iter != textbuf) {
-	  if (fwrite_checked(textbuf, (uintptr_t)(write_iter - textbuf), outfile)) {
-	    goto write_allele_freqs_ret_WRITE_FAIL;
-	  }
-	}
-	if (fclose_null(&outfile)) {
+	if (fclose_flush_null(textbuf_flush, write_iter, &outfile)) {
 	  goto write_allele_freqs_ret_WRITE_FAIL;
 	}
 	const uint32_t cur_is_file = allele_freq_modifier & (is_alt1? kfAlleleFreqBinsAlt1Fname : kfAlleleFreqBinsRefFname);
@@ -3166,11 +3155,8 @@ pglerr_t write_covar(const uintptr_t* sample_include, const char* sample_ids, co
 	  }
 	  write_iter = memcpya(write_iter, pheno_name_iter, cur_pheno_name_slen);
 	  pheno_name_iter = &(pheno_name_iter[max_pheno_name_blen]);
-	  if (write_iter >= textbuf_flush) {
-	    if (fwrite_checked(textbuf, write_iter - textbuf, outfile)) {
-	      goto write_covar_ret_WRITE_FAIL;
-	    }
-	    write_iter = textbuf;
+	  if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
+	    goto write_covar_ret_WRITE_FAIL;
 	  }
 	}
       } else if (write_empty_pheno) {
@@ -3201,11 +3187,8 @@ pglerr_t write_covar(const uintptr_t* sample_include, const char* sample_ids, co
       const char* cur_covar_name = &(covar_names[covar_idx * max_covar_name_blen]);
       const uint32_t cur_covar_name_slen = strlen(cur_covar_name);
       write_iter = memcpya(write_iter, cur_covar_name, cur_covar_name_slen);
-      if (write_iter >= textbuf_flush) {
-	if (fwrite_checked(textbuf, write_iter - textbuf, outfile)) {
-	  goto write_covar_ret_WRITE_FAIL;
-	}
-	write_iter = textbuf;
+      if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
+	goto write_covar_ret_WRITE_FAIL;
       }
     }
     append_binary_eoln(&write_iter);
@@ -3252,11 +3235,8 @@ pglerr_t write_covar(const uintptr_t* sample_include, const char* sample_ids, co
 	for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
 	  *write_iter++ = '\t';
 	  write_iter = append_pheno_str(&(pheno_cols[pheno_idx]), output_missing_pheno, omp_slen, sample_uidx, write_iter);
-	  if (write_iter >= textbuf_flush) {
-	    if (fwrite_checked(textbuf, write_iter - textbuf, outfile)) {
-	      goto write_covar_ret_WRITE_FAIL;
-	    }
-	    write_iter = textbuf;
+	  if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
+	    goto write_covar_ret_WRITE_FAIL;
 	  }
 	}
       } else {
@@ -3264,31 +3244,20 @@ pglerr_t write_covar(const uintptr_t* sample_include, const char* sample_ids, co
 	  *write_iter++ = '\t';
 	  write_iter = memcpya(write_iter, output_missing_pheno, omp_slen);
 	}
-	if (write_iter >= textbuf_flush) {
-	  if (fwrite_checked(textbuf, write_iter - textbuf, outfile)) {
-	    goto write_covar_ret_WRITE_FAIL;
-	  }
-	  write_iter = textbuf;
-	}	
+	if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
+	  goto write_covar_ret_WRITE_FAIL;
+	}
       }
       for (uint32_t covar_idx = 0; covar_idx < covar_ct; ++covar_idx) {
 	*write_iter++ = '\t';
 	write_iter = append_pheno_str(&(covar_cols[covar_idx]), output_missing_pheno, omp_slen, sample_uidx, write_iter);
-	if (write_iter >= textbuf_flush) {
-	  if (fwrite_checked(textbuf, write_iter - textbuf, outfile)) {
-	    goto write_covar_ret_WRITE_FAIL;
-	  }
-	  write_iter = textbuf;
+	if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
+	  goto write_covar_ret_WRITE_FAIL;
 	}
       }
       append_binary_eoln(&write_iter);
     }
-    if (write_iter != textbuf) {
-      if (fwrite_checked(textbuf, write_iter - textbuf, outfile)) {
-	goto write_covar_ret_WRITE_FAIL;
-      }
-    }
-    if (fclose_null(&outfile)) {
+    if (fclose_flush_null(textbuf_flush, write_iter, &outfile)) {
       goto write_covar_ret_WRITE_FAIL;
     }
     LOGPRINTFWW("Covariates written to %s.\n", outname);

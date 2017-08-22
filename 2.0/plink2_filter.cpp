@@ -2574,9 +2574,8 @@ pglerr_t mind_filter(const uint32_t* sample_missing_cts, const uint32_t* sample_
 	goto mind_filter_ret_OPEN_FAIL;
       }
       sample_uidx = 0;
-      char* textbuf = g_textbuf;
-      char* write_iter = textbuf;
-      char* textbuf_flush = &(textbuf[kMaxMediumLine]);
+      char* write_iter = g_textbuf;
+      char* textbuf_flush = &(write_iter[kMaxMediumLine]);
       for (uint32_t sample_idx = 0; sample_idx < removed_ct; ++sample_idx, ++sample_uidx) {
 	next_set_unsafe_ck(newly_excluded, &sample_uidx);
 	write_iter = strcpya(write_iter, &(sample_ids[sample_uidx * max_sample_id_blen]));
@@ -2585,19 +2584,11 @@ pglerr_t mind_filter(const uint32_t* sample_missing_cts, const uint32_t* sample_
 	  write_iter = strcpya(write_iter, &(sids[sample_uidx * max_sid_blen]));
 	}
 	*write_iter++ = '\n';
-	if (write_iter >= textbuf_flush) {
-	  if (fwrite_checked(textbuf, write_iter - textbuf, outfile)) {
-	    goto mind_filter_ret_WRITE_FAIL;
-	  }
-	  write_iter = textbuf;
-	}
-      }
-      if (write_iter != textbuf) {
-	if (fwrite_checked(textbuf, write_iter - textbuf, outfile)) {
+	if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
 	  goto mind_filter_ret_WRITE_FAIL;
 	}
       }
-      if (fclose_null(&outfile)) {
+      if (fclose_flush_null(textbuf_flush, write_iter, &outfile)) {
 	goto mind_filter_ret_WRITE_FAIL;
       }
       LOGPRINTFWW("ID%s written to %s .\n", (removed_ct == 1)? "" : "s", outname);

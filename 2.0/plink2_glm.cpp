@@ -2108,7 +2108,8 @@ boolerr_t logistic_regression(const float* yy, const float* xx, uint32_t sample_
   //         be 16-byte aligned.
   //
   // Outputs:
-  // ll    = cholesky decomposition matrix, predictor_ct^2, rows 16-byte aligned
+  // ll    = cholesky decomposition matrix, predictor_ct^2, rows 16-byte
+  //         aligned
   // pp    = final likelihoods minus Y[] (not currently used by callers)
   //
   // Returns 0 on success, 1 on convergence failure.

@@ -1254,9 +1254,8 @@ pglerr_t ld_prune_write(const uintptr_t* variant_include, const uintptr_t* remov
     if (fopen_checked(outname, FOPEN_WB, &outfile)) {
       goto ld_prune_write_ret_OPEN_FAIL;
     }
-    char* textbuf = g_textbuf;
-    char* write_iter = textbuf;
-    char* textbuf_flush = &(textbuf[kMaxMediumLine]);
+    char* write_iter = g_textbuf;
+    char* textbuf_flush = &(write_iter[kMaxMediumLine]);
     uint32_t variant_uidx = 0;
     for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
       next_set_unsafe_ck(variant_include, &variant_uidx);
@@ -1265,19 +1264,11 @@ pglerr_t ld_prune_write(const uintptr_t* variant_include, const uintptr_t* remov
       }
       write_iter = strcpya(write_iter, variant_ids[variant_uidx]);
       append_binary_eoln(&write_iter);
-      if (write_iter >= textbuf_flush) {
-        if (fwrite_checked(textbuf, write_iter - textbuf, outfile)) {
-	  goto ld_prune_write_ret_WRITE_FAIL;
-	}
-	write_iter = textbuf;
-      }
-    }
-    if (write_iter > textbuf) {
-      if (fwrite_checked(textbuf, write_iter - textbuf, outfile)) {
+      if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
 	goto ld_prune_write_ret_WRITE_FAIL;
       }
     }
-    if (fclose_null(&outfile)) {
+    if (fclose_flush_null(textbuf_flush, write_iter, &outfile)) {
       goto ld_prune_write_ret_WRITE_FAIL;
     }
 
@@ -1285,7 +1276,7 @@ pglerr_t ld_prune_write(const uintptr_t* variant_include, const uintptr_t* remov
     if (fopen_checked(outname, FOPEN_WB, &outfile)) {
       goto ld_prune_write_ret_OPEN_FAIL;
     }
-    write_iter = textbuf;
+    write_iter = g_textbuf;
     variant_uidx = 0;
     for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
       next_set_unsafe_ck(variant_include, &variant_uidx);
@@ -1294,19 +1285,11 @@ pglerr_t ld_prune_write(const uintptr_t* variant_include, const uintptr_t* remov
       }
       write_iter = strcpya(write_iter, variant_ids[variant_uidx]);
       append_binary_eoln(&write_iter);
-      if (write_iter >= textbuf_flush) {
-        if (fwrite_checked(textbuf, write_iter - textbuf, outfile)) {
-	  goto ld_prune_write_ret_WRITE_FAIL;
-	}
-	write_iter = textbuf;
-      }
-    }
-    if (write_iter > textbuf) {
-      if (fwrite_checked(textbuf, write_iter - textbuf, outfile)) {
+      if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
 	goto ld_prune_write_ret_WRITE_FAIL;
       }
     }
-    if (fclose_null(&outfile)) {
+    if (fclose_flush_null(textbuf_flush, write_iter, &outfile)) {
       goto ld_prune_write_ret_WRITE_FAIL;
     }
     *outname_end = '\0';

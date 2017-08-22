@@ -46,6 +46,7 @@ double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t
 
 double SNPHWEX(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, int32_t male1, int32_t male2, uint32_t midp);
 
+// (put linear_hypothesis_chisq in another file?)
 // outer_buf = constraint_ct
 // inner_buf = constraint_ct x constraint_ct
 // tmphxs_buf and h_transpose_buf are constraint_ct x predictor_ct

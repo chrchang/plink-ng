@@ -558,9 +558,8 @@ pglerr_t write_fam(const char* outname, const uintptr_t* sample_include, const c
 
     uintptr_t sample_uidx = 0;
     uint32_t sample_uidx2 = 0;
-    char* textbuf = g_textbuf;
-    char* write_iter = textbuf;
-    char* textbuf_flush = &(textbuf[kMaxMediumLine]);
+    char* write_iter = g_textbuf;
+    char* textbuf_flush = &(write_iter[kMaxMediumLine]);
     // not really necessary to make sample_uidx increment dependent on
     // new_sample_idx_to_old == nullptr
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
@@ -593,19 +592,11 @@ pglerr_t write_fam(const char* outname, const uintptr_t* sample_include, const c
 	write_iter = dtoa_g(pheno_qt[sample_uidx], write_iter);
       }
       append_binary_eoln(&write_iter);
-      if (write_iter >= textbuf_flush) {
-	if (fwrite_checked(textbuf, write_iter - textbuf, outfile)) {
-	  goto write_fam_ret_WRITE_FAIL;
-	}
-	write_iter = textbuf;
-      }
-    }
-    if (write_iter != textbuf) {
-      if (fwrite_checked(textbuf, write_iter - textbuf, outfile)) {
+      if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
 	goto write_fam_ret_WRITE_FAIL;
       }
     }
-    if (fclose_null(&outfile)) {
+    if (fclose_flush_null(textbuf_flush, write_iter, &outfile)) {
       goto write_fam_ret_WRITE_FAIL;
     }
   }
@@ -658,8 +649,7 @@ pglerr_t write_psam(const char* outname, const uintptr_t* sample_include, const 
     const char* output_missing_pheno = g_output_missing_pheno;
     const uint32_t omp_slen = strlen(output_missing_pheno);
     
-    char* textbuf = g_textbuf;
-    char* textbuf_flush = &(textbuf[kMaxMediumLine]);
+    char* textbuf_flush = &(g_textbuf[kMaxMediumLine]);
 
     const uint32_t write_sid = sid_col_required(sample_include, sids, sample_ct, max_sid_blen, pvar_psam_modifier / kfPsamColMaybesid);
     uint32_t write_parents = 0;
@@ -674,7 +664,7 @@ pglerr_t write_psam(const char* outname, const uintptr_t* sample_include, const 
     if (write_phenos && (!(pvar_psam_modifier & kfPsamColPhenos))) {
       pheno_ct = 1;
     }
-    char* write_iter = strcpya(textbuf, "#FID\tIID");
+    char* write_iter = strcpya(g_textbuf, "#FID\tIID");
     if (write_sid) {
       write_iter = strcpya(write_iter, "\tSID");
     }
@@ -765,11 +755,8 @@ pglerr_t write_psam(const char* outname, const uintptr_t* sample_include, const 
 	  }
 	}
 	write_iter = memcpya(write_iter, cur_pheno_name, cur_pheno_name_slen);
-	if (write_iter >= textbuf_flush) {
-	  if (fwrite_checked(textbuf, write_iter - textbuf, outfile)) {
-	    goto write_psam_ret_WRITE_FAIL;
-	  }
-	  write_iter = textbuf;
+	if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
+	  goto write_psam_ret_WRITE_FAIL;
 	}
       }
     } else if (write_empty_pheno) {
@@ -819,11 +806,8 @@ pglerr_t write_psam(const char* outname, const uintptr_t* sample_include, const 
 	for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
 	  *write_iter++ = '\t';
 	  write_iter = append_pheno_str(&(pheno_cols[pheno_idx]), output_missing_pheno, omp_slen, sample_uidx, write_iter);
-	  if (write_iter >= textbuf_flush) {
-	    if (fwrite_checked(textbuf, write_iter - textbuf, outfile)) {
-	      goto write_psam_ret_WRITE_FAIL;
-	    }
-	    write_iter = textbuf;
+	  if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
+	    goto write_psam_ret_WRITE_FAIL;
 	  }
 	}
       } else {
@@ -831,21 +815,13 @@ pglerr_t write_psam(const char* outname, const uintptr_t* sample_include, const 
 	  *write_iter++ = '\t';
 	  write_iter = memcpya(write_iter, output_missing_pheno, omp_slen);
 	}
-	if (write_iter >= textbuf_flush) {
-	  if (fwrite_checked(textbuf, write_iter - textbuf, outfile)) {
-	    goto write_psam_ret_WRITE_FAIL;
-	  }
-	  write_iter = textbuf;
-	}	
+	if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
+	  goto write_psam_ret_WRITE_FAIL;
+	}
       }
       append_binary_eoln(&write_iter);
     }
-    if (write_iter != textbuf) {
-      if (fwrite_checked(textbuf, write_iter - textbuf, outfile)) {
-	goto write_psam_ret_WRITE_FAIL;
-      }
-    }
-    if (fclose_null(&outfile)) {
+    if (fclose_flush_null(textbuf_flush, write_iter, &outfile)) {
       goto write_psam_ret_WRITE_FAIL;
     }
   }
@@ -894,14 +870,15 @@ pglerr_t vcf_sample_line(const char* preexisting_psamname, const char* const_fid
       }
     }
     char* sample_line_iter = sample_line_first_id;
-    char* textbuf = g_textbuf;
     uintptr_t sample_ct = 0;
     if (!preexisting_psamname) {
       strcpy(outname_end, ".psam");
       if (fopen_checked(outname, FOPEN_WB, &outfile)) {
 	goto vcf_sample_line_ret_OPEN_FAIL;
       }
-      char* write_iter = strcpya(textbuf, "#FID\tIID");
+      char* write_iter = g_textbuf;
+      char* textbuf_flush = &(write_iter[kMaxMediumLine]);
+      write_iter = strcpya(write_iter, "#FID\tIID");
       uint32_t sid_present = 0;
       if (id_delim) {
 	while (((unsigned char)sample_line_iter[0]) >= ' ') {
@@ -927,7 +904,6 @@ pglerr_t vcf_sample_line(const char* preexisting_psamname, const char* const_fid
       }
       write_iter = strcpya(write_iter, "\tSEX");
       append_binary_eoln(&write_iter);
-      char* textbuf_flush = &(textbuf[kMaxMediumLine]);
       while (((unsigned char)sample_line_iter[0]) >= ' ') {
 	++sample_ct;
 	char* token_end = strchr(sample_line_iter, '\t');
@@ -1021,23 +997,15 @@ pglerr_t vcf_sample_line(const char* preexisting_psamname, const char* const_fid
 	// + --make-pgen + --out
 	write_iter = memcpyl3a(write_iter, "\tNA");
 	append_binary_eoln(&write_iter);
-	if (write_iter >= textbuf_flush) {
-	  if (fwrite_checked(textbuf, (uintptr_t)(write_iter - textbuf), outfile)) {
-	    goto vcf_sample_line_ret_WRITE_FAIL;
-	  }
-	  write_iter = textbuf;
+	if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
+	  goto vcf_sample_line_ret_WRITE_FAIL;
 	}
 	if (*token_end != '\t') {
 	  break;
 	}
 	sample_line_iter = &(token_end[1]);
       }
-      if (write_iter != textbuf) {
-	if (fwrite_checked(textbuf, (uintptr_t)(write_iter - textbuf), outfile)) {
-	  goto vcf_sample_line_ret_WRITE_FAIL;
-	}
-      }
-      if (fclose_null(&outfile)) {
+      if (fclose_flush_null(textbuf_flush, write_iter, &outfile)) {
 	goto vcf_sample_line_ret_WRITE_FAIL;
       }
     } else {
@@ -2156,11 +2124,11 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
     }
 
     char* writebuf;
-    if (bigstack_alloc_c(2 * max_allele_slen + max_qualfilterinfo_slen + kCompressStreamBlock + kMaxIdSlen + 32, &writebuf)) {
+    if (bigstack_alloc_c(2 * max_allele_slen + max_qualfilterinfo_slen + kMaxMediumLine + kMaxIdSlen + 32, &writebuf)) {
       goto vcf_to_pgen_ret_NOMEM;
     }
     write_iter = writebuf;
-    char* writebuf_flush = &(writebuf[kCompressStreamBlock]);
+    char* writebuf_flush = &(writebuf[kMaxMediumLine]);
 
     if (hard_call_thresh == 0xffffffffU) {
       hard_call_thresh = kDosageMid / 10;
@@ -2257,12 +2225,9 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
 	write_iter = memcpya(write_iter, copy_start, (uintptr_t)(loadbuf_iter - copy_start));
 	// unsafe to flush for now due to multiallelic kludge
 	/*
-	if (write_iter >= writebuf_flush) {
-	  if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), pvarfile)) {
-	    goto vcf_to_pgen_ret_WRITE_FAIL;
-	  }
-	  write_iter = writebuf;
-	}
+        if (fwrite_ck(writebuf_flush, pvarfile, &write_iter)) {
+          goto vcf_to_pgen_ret_WRITE_FAIL;
+        }
 	*/
 	if (ucc != ',') {
 	  break;
@@ -2276,11 +2241,8 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
 	write_iter = write_line_start;
 	continue;
       }
-      if (write_iter >= writebuf_flush) {
-	if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), pvarfile)) {
-	  goto vcf_to_pgen_ret_WRITE_FAIL;
-	}
-	write_iter = writebuf;
+      if (fwrite_ck(writebuf_flush, pvarfile, &write_iter)) {
+	goto vcf_to_pgen_ret_WRITE_FAIL;
       }
 
       write_iter = memcpya(write_iter, loadbuf_iter, (uintptr_t)((info_nonpr_present ? info_end : filter_end) - loadbuf_iter));
@@ -2561,12 +2523,7 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
 	fflush(stdout);
       }
     }
-    if (write_iter != writebuf) {
-      if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), pvarfile)) {
-	goto vcf_to_pgen_ret_WRITE_FAIL;
-      }
-    }
-    if (fclose_null(&pvarfile)) {
+    if (fclose_flush_null(writebuf_flush, write_iter, &pvarfile)) {
       goto vcf_to_pgen_ret_WRITE_FAIL;
     }
     spgw_finish(&spgw);
@@ -3243,8 +3200,8 @@ pglerr_t ox_gen_to_pgen(const char* genname, const char* samplename, const char*
     const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
     finalize_chrset(misc_flags, cip);
 
-    char* writebuf = (char*)bigstack_alloc_raw(kCompressStreamBlock + loadbuf_size);
-    char* writebuf_flush = &(writebuf[kCompressStreamBlock]);
+    char* writebuf = (char*)bigstack_alloc_raw(kMaxMediumLine + loadbuf_size);
+    char* writebuf_flush = &(writebuf[kMaxMediumLine]);
 
     const char* single_chr_str = nullptr;
     uint32_t single_chr_slen = 0;
@@ -3390,11 +3347,8 @@ pglerr_t ox_gen_to_pgen(const char* genname, const char* samplename, const char*
 	write_iter = memcpya(write_iter, first_allele_str, (uintptr_t)(first_allele_end - first_allele_str));
       }
       append_binary_eoln(&write_iter);
-      if (write_iter >= writebuf_flush) {
-	if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), pvarfile)) {
-	  goto ox_gen_to_pgen_ret_WRITE_FAIL;
-	}
-	write_iter = writebuf;
+      if (fwrite_ck(writebuf_flush, pvarfile, &write_iter)) {
+	goto ox_gen_to_pgen_ret_WRITE_FAIL;
       }
       
       if (!dosage_is_present) {
@@ -3477,12 +3431,7 @@ pglerr_t ox_gen_to_pgen(const char* genname, const char* samplename, const char*
       }
     }
     putc_unlocked('\r', stdout);
-    if (write_iter != writebuf) {
-      if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), pvarfile)) {
-	goto ox_gen_to_pgen_ret_WRITE_FAIL;
-      }
-    }
-    if (fclose_null(&pvarfile)) {
+    if (fclose_flush_null(writebuf_flush, write_iter, &pvarfile)) {
       goto ox_gen_to_pgen_ret_WRITE_FAIL;
     }
     if (!variant_ct) {
@@ -4917,8 +4866,8 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       }
     }
     
-    char* writebuf = (char*)bigstack_alloc_raw(kMaxMediumLine + kCompressStreamBlock + kCacheline);
-    char* writebuf_flush = &(writebuf[kCompressStreamBlock]);
+    char* writebuf = (char*)bigstack_alloc_raw(2 * kMaxMediumLine + kCacheline);
+    char* writebuf_flush = &(writebuf[kMaxMediumLine]);
     strcpy(outname_end, ".pvar");
     if (fopen_checked(outname, FOPEN_WB, &pvarfile)) {
       goto ox_bgen_to_pgen_ret_OPEN_FAIL;
@@ -6465,12 +6414,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
 	prev_block_write_ct = cur_block_write_ct;
       }
     }
-    if (write_iter != writebuf) {
-      if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), pvarfile)) {
-	goto ox_bgen_to_pgen_ret_WRITE_FAIL;
-      }
-    }
-    if (fclose_null(&pvarfile)) {
+    if (fclose_flush_null(writebuf_flush, write_iter, &pvarfile)) {
       goto ox_bgen_to_pgen_ret_WRITE_FAIL;
     }
     
@@ -6691,21 +6635,21 @@ pglerr_t ox_hapslegend_to_pgen(const char* hapsname, const char* legendname, con
       goto ox_hapslegend_to_pgen_ret_1;
     }
     uintptr_t writebuf_size = bigstack_left() / 2;
-    if (writebuf_size < kMaxMediumLine + kCompressStreamBlock + kCacheline) {
+    if (writebuf_size < 2 * kMaxMediumLine + kCacheline) {
       return kPglRetNomem;
 #ifdef __LP64__
-      // in 32-bit case, kMaxLongLine + kCompressStreamBlock overflows
-    } else if (writebuf_size > kMaxLongLine + kCompressStreamBlock) {
-      writebuf_size = kMaxLongLine + kCompressStreamBlock;
+      // in 32-bit case, kMaxLongLine + kMaxMediumLine overflows
+    } else if (writebuf_size > kMaxLongLine + kMaxMediumLine) {
+      writebuf_size = kMaxLongLine + kMaxMediumLine;
 #endif
     } else {
       writebuf_size &= ~(kCacheline - 1);
     }
-    loadbuf_size = writebuf_size - kCompressStreamBlock;
+    loadbuf_size = writebuf_size - kMaxMediumLine;
     char* loadbuf = (char*)bigstack_alloc_raw(loadbuf_size);
     loadbuf[loadbuf_size - 1] = ' ';
     char* writebuf = (char*)bigstack_alloc_raw(writebuf_size);
-    char* writebuf_flush = &(writebuf[kCompressStreamBlock]);
+    char* writebuf_flush = &(writebuf[kMaxMediumLine]);
     strcpy(outname_end, ".pvar");
     if (fopen_checked(outname, FOPEN_WB, &outfile)) {
       goto ox_hapslegend_to_pgen_ret_OPEN_FAIL;
@@ -6829,11 +6773,8 @@ pglerr_t ox_hapslegend_to_pgen(const char* hapsname, const char* legendname, con
 	  putc_unlocked('\n', stdout);
 	  goto ox_hapslegend_to_pgen_ret_MALFORMED_INPUT;
 	}
-	if (write_iter >= writebuf_flush) {
-	  if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), outfile)) {
-	    goto ox_hapslegend_to_pgen_ret_WRITE_FAIL;
-	  }
-	  write_iter = writebuf;
+	if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
+	  goto ox_hapslegend_to_pgen_ret_WRITE_FAIL;
 	}
 	if (!at_least_one_het) {
 	  do {
@@ -6894,11 +6835,8 @@ pglerr_t ox_hapslegend_to_pgen(const char* hapsname, const char* legendname, con
 	      putc_unlocked('\n', stdout);
 	      goto ox_hapslegend_to_pgen_ret_MALFORMED_INPUT;
 	    }
-	    if (write_iter >= writebuf_flush) {
-	      if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), outfile)) {
-		goto ox_hapslegend_to_pgen_ret_WRITE_FAIL;
-	      }
-	      write_iter = writebuf;
+	    if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
+	      goto ox_hapslegend_to_pgen_ret_WRITE_FAIL;
 	    }
 	    if (!at_least_one_het) {
 	      loadbuf_iter = skip_initial_spaces(loadbuf_iter);
@@ -6927,12 +6865,7 @@ pglerr_t ox_hapslegend_to_pgen(const char* hapsname, const char* legendname, con
 	goto ox_hapslegend_to_pgen_ret_INCONSISTENT_INPUT_WW;
       }
     }
-    if (write_iter != writebuf) {
-      if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), outfile)) {
-	goto ox_hapslegend_to_pgen_ret_WRITE_FAIL;
-      }
-    }
-    if (fclose_null(&outfile)) {
+    if (fclose_flush_null(writebuf_flush, write_iter, &outfile)) {
       goto ox_hapslegend_to_pgen_ret_WRITE_FAIL;
     }
     if (!sfile_sample_ct) {
@@ -6949,19 +6882,11 @@ pglerr_t ox_hapslegend_to_pgen(const char* hapsname, const char* legendname, con
 	write_iter = strcpya(write_iter, "\tper");
 	write_iter = uint32toa(sample_idx, write_iter);
 	write_iter = strcpya(write_iter, "\tNA" EOLN_STR);
-	if (write_iter >= writebuf_flush) {
-	  if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), outfile)) {
-	    goto ox_hapslegend_to_pgen_ret_WRITE_FAIL;
-	  }
-	  write_iter = writebuf;
-	}
-      }
-      if (write_iter != writebuf) {
-	if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), outfile)) {
+	if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
 	  goto ox_hapslegend_to_pgen_ret_WRITE_FAIL;
 	}
       }
-      if (fclose_null(&outfile)) {
+      if (fclose_flush_null(writebuf_flush, write_iter, &outfile)) {
 	goto ox_hapslegend_to_pgen_ret_WRITE_FAIL;
       }
     }
@@ -7649,11 +7574,8 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
     for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
       *write_iter++ = '\t';
       write_iter = strcpya(write_iter, &(pheno_names[pheno_idx * max_pheno_name_blen]));
-      if (write_iter >= writebuf_flush) {
-	if (fwrite_checked(writebuf, write_iter - writebuf, outfile)) {
-	  goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
-	}
-	write_iter = writebuf;
+      if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
+	goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
       }
     }
     append_binary_eoln(&write_iter);
@@ -7684,29 +7606,18 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
 	write_iter = strcpya(write_iter, "NA");
       }
       for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
-	if (write_iter >= writebuf_flush) {
-	  if (fwrite_checked(writebuf, write_iter - writebuf, outfile)) {
-	    goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
-	  }
-	  write_iter = writebuf;
+	if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
+	  goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
 	}
 	*write_iter++ = '\t';
 	write_iter = append_pheno_str(&(pheno_cols[pheno_idx]), output_missing_pheno, omp_slen, sample_uidx, write_iter);
       }
       append_binary_eoln(&write_iter);
-      if (write_iter >= writebuf_flush) {
-	if (fwrite_checked(writebuf, write_iter - writebuf, outfile)) {
-	  goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
-	}
-	write_iter = writebuf;
-      }
-    }
-    if (write_iter != writebuf) {
-      if (fwrite_checked(writebuf, write_iter - writebuf, outfile)) {
+      if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
 	goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
       }
     }
-    if (fclose_null(&outfile)) {
+    if (fclose_flush_null(writebuf_flush, write_iter, &outfile)) {
       goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
     }
     // Don't need sample info any more.
@@ -7970,11 +7881,8 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
 	write_iter = dtoa_g(variant_cms[variant_uidx], write_iter);
       }
       append_binary_eoln(&write_iter);
-      if (write_iter >= writebuf_flush) {
-	if (fwrite_checked(writebuf, write_iter - writebuf, outfile)) {
-	  goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
-	}
-	write_iter = writebuf;
+      if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
+	goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
       }
       if (!dosage_is_present) {
 	loadbuf_iter = token_ptrs[5];
@@ -8047,12 +7955,7 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
       }
     }
     putc_unlocked('\r', stdout);
-    if (write_iter != writebuf) {
-      if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), outfile)) {
-	goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
-      }
-    }
-    if (fclose_null(&outfile)) {
+    if (fclose_flush_null(writebuf_flush, write_iter, &outfile)) {
       goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
     }
     if (!variant_ct) {
@@ -8512,11 +8415,8 @@ pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t m
       uint32_t urand = 0;
       for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx) {
 	if (!(variant_idx % 8)) {
-	  if (write_iter >= textbuf_flush) {
-	    if (fwrite_checked(textbuf, write_iter - textbuf, outfile)) {
-	      goto generate_dummy_ret_WRITE_FAIL;
-	    }
-	    write_iter = textbuf;
+	  if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
+	    goto generate_dummy_ret_WRITE_FAIL;
 	  }
 	  do {
 	    urand = sfmt_genrand_uint32(&g_sfmt);
@@ -8536,11 +8436,8 @@ pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t m
       uint32_t urand = 0;
       for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx) {
 	if (!(variant_idx % 32)) {
-	  if (write_iter >= textbuf_flush) {
-	    if (fwrite_checked(textbuf, write_iter - textbuf, outfile)) {
-	      goto generate_dummy_ret_WRITE_FAIL;
-	    }
-	    write_iter = textbuf;
+	  if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
+	    goto generate_dummy_ret_WRITE_FAIL;
 	  }
 	  urand = sfmt_genrand_uint32(&g_sfmt);
 	}
@@ -8554,12 +8451,7 @@ pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t m
 	append_binary_eoln(&write_iter);
       }
     }
-    if (write_iter != textbuf) {
-      if (fwrite_checked(textbuf, write_iter - textbuf, outfile)) {
-	goto generate_dummy_ret_WRITE_FAIL;
-      }
-    }
-    if (fclose_null(&outfile)) {
+    if (fclose_flush_null(textbuf_flush, write_iter, &outfile)) {
       goto generate_dummy_ret_WRITE_FAIL;
     }
 
@@ -8596,11 +8488,8 @@ pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t m
       uint32_t saved_rnormal = 0;
       double saved_rnormal_val = 0.0;
       for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
-	if (write_iter >= writebuf_flush) {
-	  if (fwrite_checked(writebuf, write_iter - writebuf, outfile)) {
-	    goto generate_dummy_ret_WRITE_FAIL;
-	  }
-	  write_iter = writebuf;
+	if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
+	  goto generate_dummy_ret_WRITE_FAIL;
 	}
 	write_iter = memcpyl3a(write_iter, "per");
 	write_iter = uint32toa(sample_idx, write_iter);
@@ -8629,11 +8518,8 @@ pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t m
       uint32_t urand = sfmt_genrand_uint32(&g_sfmt);
       uint32_t urand_bits_left = 32;
       for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
-	if (write_iter >= writebuf_flush) {
-	  if (fwrite_checked(writebuf, write_iter - writebuf, outfile)) {
-	    goto generate_dummy_ret_WRITE_FAIL;
-	  }
-	  write_iter = writebuf;
+	if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
+	  goto generate_dummy_ret_WRITE_FAIL;
 	}
 	write_iter = memcpyl3a(write_iter, "per");
 	write_iter = uint32toa(sample_idx, write_iter);
@@ -8657,12 +8543,7 @@ pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t m
 	append_binary_eoln(&write_iter);
       }
     }
-    if (write_iter != writebuf) {
-      if (fwrite_checked(writebuf, write_iter - writebuf, outfile)) {
-	goto generate_dummy_ret_WRITE_FAIL;
-      }
-    }
-    if (fclose_null(&outfile)) {
+    if (fclose_flush_null(writebuf_flush, write_iter, &outfile)) {
       goto generate_dummy_ret_WRITE_FAIL;
     }
 
@@ -12832,11 +12713,8 @@ pglerr_t export_012_vmaj(const char* outname, const uintptr_t* sample_include, c
       const char* fid_end = (const char*)rawmemchr(fid_start, '\t');
       write_iter = memcpyax(write_iter, fid_start, fid_end - fid_start, '_');
       write_iter = strcpya(write_iter, &(fid_end[1]));
-      if (write_iter >= writebuf_flush) {
-	if (fwrite_checked(writebuf, write_iter - writebuf, outfile)) {
-	  goto export_012_vmaj_ret_WRITE_FAIL;
-	}
-	write_iter = writebuf;
+      if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
+	goto export_012_vmaj_ret_WRITE_FAIL;
       }
     }
     append_binary_eoln(&write_iter);
@@ -12906,21 +12784,15 @@ pglerr_t export_012_vmaj(const char* outname, const uintptr_t* sample_include, c
 	  if (allele_idx == ref_allele_idx) {
 	    continue;
 	  }
-	  if (write_iter >= writebuf_flush) {
-	    if (fwrite_checked(writebuf, write_iter - writebuf, outfile)) {
-	      goto export_012_vmaj_ret_WRITE_FAIL;
-	    }
-	    write_iter = writebuf;
+	  if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
+	    goto export_012_vmaj_ret_WRITE_FAIL;
 	  }
 	  *write_iter++ = ',';
 	  write_iter = strcpya(write_iter, cur_alleles[allele_idx]);
 	}
       }
-      if (write_iter >= writebuf_flush) {
-	if (fwrite_checked(writebuf, write_iter - writebuf, outfile)) {
-	  goto export_012_vmaj_ret_WRITE_FAIL;
-	}
-	write_iter = writebuf;
+      if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
+	goto export_012_vmaj_ret_WRITE_FAIL;
       }
       uint32_t widx = 0;
       uint32_t loop_len = kBitsPerWordD2;
@@ -12985,10 +12857,7 @@ pglerr_t export_012_vmaj(const char* outname, const uintptr_t* sample_include, c
 	next_print_variant_idx = (pct * ((uint64_t)variant_ct)) / 100;
       }
     }
-    if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), outfile)) {
-      goto export_012_vmaj_ret_WRITE_FAIL;
-    }
-    if (fclose_null(&outfile)) {
+    if (fclose_flush_null(writebuf_flush, write_iter, &outfile)) {
       goto export_012_vmaj_ret_WRITE_FAIL;
     }
     if (pct > 10) {
@@ -13516,13 +13385,13 @@ pglerr_t export_ox_gen(const char* outname, const uintptr_t* sample_include, con
     char* chr_buf; // includes trailing space
     char* writebuf;
     if (bigstack_alloc_c(max_chr_blen, &chr_buf) ||
-	bigstack_alloc_c(kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 16 + 2 * max_allele_slen + max_geno_slen * sample_ct, &writebuf)) {
+	bigstack_alloc_c(kMaxMediumLine + max_chr_blen + kMaxIdSlen + 16 + 2 * max_allele_slen + max_geno_slen * sample_ct, &writebuf)) {
       goto export_ox_gen_ret_NOMEM;
     }
     if (fopen_checked(outname, FOPEN_WB, &outfile)) {
       goto export_ox_gen_ret_OPEN_FAIL;
     }
-    char* writebuf_flush = &(writebuf[kCompressStreamBlock]);
+    char* writebuf_flush = &(writebuf[kMaxMediumLine]);
     char* write_iter = writebuf;
     uint32_t variant_uidx = 0;
     uint32_t chr_blen = 0;
@@ -13671,11 +13540,8 @@ pglerr_t export_ox_gen(const char* outname, const uintptr_t* sample_include, con
 	}
       }
       append_binary_eoln(&write_iter);
-      if (write_iter >= writebuf_flush) {
-	if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), outfile)) {
-	  goto export_ox_gen_ret_WRITE_FAIL;
-	}
-	write_iter = writebuf;
+      if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
+	goto export_ox_gen_ret_WRITE_FAIL;
       }
       if (is_y) {
 	interleaved_mask_zero(sex_male_collapsed_interleaved, acc2_vec_ct, genovec);
@@ -13703,12 +13569,7 @@ pglerr_t export_ox_gen(const char* outname, const uintptr_t* sample_include, con
 	next_print_variant_idx = (pct * ((uint64_t)variant_ct)) / 100;
       }
     }
-    if (write_iter != writebuf) {
-      if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), outfile)) {
-	goto export_ox_gen_ret_WRITE_FAIL;
-      }
-    }
-    if (fclose_null(&outfile)) {
+    if (fclose_flush_null(writebuf_flush, write_iter, &outfile)) {
       goto export_ox_gen_ret_WRITE_FAIL;
     }
     if (pct > 10) {
@@ -13789,10 +13650,10 @@ pglerr_t export_ox_hapslegend(const uintptr_t* sample_include, const uint32_t* s
 	goto export_ox_hapslegend_ret_OPEN_FAIL;
       }
       char* writebuf;
-      if (bigstack_alloc_c(kCompressStreamBlock + kMaxIdSlen + 32 + 2 * max_allele_slen, &writebuf)) {
+      if (bigstack_alloc_c(kMaxMediumLine + kMaxIdSlen + 32 + 2 * max_allele_slen, &writebuf)) {
 	goto export_ox_hapslegend_ret_NOMEM;
       }
-      char* writebuf_flush = &(writebuf[kCompressStreamBlock]);
+      char* writebuf_flush = &(writebuf[kMaxMediumLine]);
       char* write_iter = strcpya(writebuf, "id position a0 a1" EOLN_STR);
       LOGPRINTFWW5("Writing %s ... ", outname);
       fflush(stdout);
@@ -13817,19 +13678,11 @@ pglerr_t export_ox_hapslegend(const uintptr_t* sample_include, const uint32_t* s
 	  write_iter = strcpya(write_iter, cur_alleles[alt1_allele_idx]);
 	}
 	append_binary_eoln(&write_iter);
-	if (write_iter >= writebuf_flush) {
-	  if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), outfile)) {
-	    goto export_ox_hapslegend_ret_WRITE_FAIL;
-	  }
-	  write_iter = writebuf;
-	}
-      }
-      if (write_iter != writebuf) {
-	if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), outfile)) {
+	if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
 	  goto export_ox_hapslegend_ret_WRITE_FAIL;
 	}
       }
-      if (fclose_null(&outfile)) {
+      if (fclose_flush_null(writebuf_flush, write_iter, &outfile)) {
 	goto export_ox_hapslegend_ret_WRITE_FAIL;
       }
       logprint("done.\n");
@@ -13842,7 +13695,7 @@ pglerr_t export_ox_hapslegend(const uintptr_t* sample_include, const uint32_t* s
       }
       writebuf_alloc = max_chr_blen + kMaxIdSlen + 32 + 2 * max_allele_slen;
     }
-    writebuf_alloc += kCompressStreamBlock + (4 * k1LU) * sample_ct + kCacheline;
+    writebuf_alloc += kMaxMediumLine + (4 * k1LU) * sample_ct + kCacheline;
     const uint32_t sample_ctv = BITCT_TO_VECCT(sample_ct);
     const uint32_t sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
     const uint32_t sample_ctl2_m1 = sample_ctl2 - 1;
@@ -13882,7 +13735,7 @@ pglerr_t export_ox_hapslegend(const uintptr_t* sample_include, const uint32_t* s
     if (is_haploid_or_mt && (!is_x)) {
       cur_genotext = &(genotext[4]);
     }
-    char* writebuf_flush = &(writebuf[kCompressStreamBlock]);
+    char* writebuf_flush = &(writebuf[kMaxMediumLine]);
     char* write_iter = writebuf;
     strcpy(outname_end, ".haps");
     if (fopen_checked(outname, FOPEN_WB, &outfile)) {
@@ -14017,11 +13870,8 @@ pglerr_t export_ox_hapslegend(const uintptr_t* sample_include, const uint32_t* s
       }
       write_iter = (char*)write_iter_ui_alias;
       decr_append_binary_eoln(&write_iter);
-      if (write_iter >= writebuf_flush) {
-	if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), outfile)) {
-	  goto export_ox_hapslegend_ret_WRITE_FAIL;
-	}
-	write_iter = writebuf;
+      if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
+	goto export_ox_hapslegend_ret_WRITE_FAIL;
       }
       if (variant_idx >= next_print_variant_idx) {
 	if (pct > 10) {
@@ -14033,12 +13883,7 @@ pglerr_t export_ox_hapslegend(const uintptr_t* sample_include, const uint32_t* s
 	next_print_variant_idx = (pct * ((uint64_t)variant_ct)) / 100;
       }
     }
-    if (write_iter != writebuf) {
-      if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), outfile)) {
-	goto export_ox_hapslegend_ret_WRITE_FAIL;
-      }
-    }
-    if (fclose_null(&outfile)) {
+    if (fclose_flush_null(writebuf_flush, write_iter, &outfile)) {
       goto export_ox_hapslegend_ret_WRITE_FAIL;
     }
     if (pct > 10) {
@@ -15196,11 +15041,8 @@ pglerr_t export_ox_sample(const char* outname, const uintptr_t* sample_include, 
 	  set_bit(pheno_idx, is_basic_categorical);
 	}
       }
-      if (write_iter >= writebuf_flush) {
-	if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), outfile)) {
-	  goto export_ox_sample_ret_WRITE_FAIL;
-	}
-	write_iter = writebuf;
+      if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
+	goto export_ox_sample_ret_WRITE_FAIL;
       }
     }
     append_binary_eoln(&write_iter);
@@ -15218,11 +15060,8 @@ pglerr_t export_ox_sample(const char* outname, const uintptr_t* sample_include, 
       } else {
 	*write_iter++ = 'D';
       }
-      if (write_iter >= writebuf_flush) {
-	if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), outfile)) {
-	  goto export_ox_sample_ret_WRITE_FAIL;
-	}
-	write_iter = writebuf;
+      if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
+	goto export_ox_sample_ret_WRITE_FAIL;
       }
     }
     append_binary_eoln(&write_iter);
@@ -15272,19 +15111,11 @@ pglerr_t export_ox_sample(const char* outname, const uintptr_t* sample_include, 
 	}
       }
       append_binary_eoln(&write_iter);
-      if (write_iter >= writebuf_flush) {
-	if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), outfile)) {
-	  goto export_ox_sample_ret_WRITE_FAIL;
-	}
-	write_iter = writebuf;
-      }
-    }
-    if (write_iter != writebuf) {
-      if (fwrite_checked(writebuf, write_iter - writebuf, outfile)) {
+      if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
 	goto export_ox_sample_ret_WRITE_FAIL;
       }
     }
-    if (fclose_null(&outfile)) {
+    if (fclose_flush_null(writebuf_flush, write_iter, &outfile)) {
       goto export_ox_sample_ret_WRITE_FAIL;
     }
   }
@@ -15459,7 +15290,7 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
     if (writebuf_blen < ((4 * k1LU) + write_gp_or_ds * 24 - write_ds * 16) * sample_ct + 32 + max_filter_slen + info_reload_slen) {
       writebuf_blen = ((4 * k1LU) + write_gp_or_ds * 24 - write_ds * 16) * sample_ct + 32 + max_filter_slen + info_reload_slen;
     }
-    writebuf_blen += kCompressStreamBlock;
+    writebuf_blen += kMaxMediumLine;
     char* writebuf;
     if (bigstack_alloc_c(writebuf_blen, &writebuf)) {
       goto export_vcf_ret_NOMEM;

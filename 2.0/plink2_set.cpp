@@ -169,9 +169,7 @@ pglerr_t load_range_list(const chr_info_t* cip, const uint32_t* variant_bps, con
     if (!make_set_range_arr) {
       goto load_range_list_ret_NOMEM;
     }
-    for (uintptr_t set_idx = 0; set_idx < set_ct; ++set_idx) {
-      make_set_range_arr[set_idx] = nullptr;
-    }
+    fill_ptr_zero(set_ct, make_set_range_arr);
     uintptr_t line_idx = 0;
     uint32_t chr_start = 0;
     uint32_t chr_end = 0;

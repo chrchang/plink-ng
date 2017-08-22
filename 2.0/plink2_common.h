@@ -380,6 +380,8 @@ HEADER_INLINE interr_t fwrite_ck(char* buf_flush, FILE* outfile, char** write_it
 
 // fclose_null defined in pgenlib_internal.h
 
+boolerr_t fclose_flush_null(char* buf_flush, char* write_iter, FILE** outfile_ptr);
+
 HEADER_INLINE void fclose_cond(FILE* fptr) {
   if (fptr) {
     fclose(fptr);
@@ -535,8 +537,7 @@ typedef struct str_sort_indexed_deref_struct {
 void strptr_arr_sort_main(uintptr_t str_ct, uint32_t use_nsort, str_sort_indexed_deref_t* wkspace_alias);
 
 // This makes a temporary g_bigstack allocation.
-boolerr_t strptr_arr_indexed_sort(char** unsorted_strptrs, uintptr_t str_ct, uint32_t use_nsort, uint32_t* id_map);
-
+boolerr_t strptr_arr_indexed_sort(char** unsorted_strptrs, uint32_t str_ct, uint32_t use_nsort, uint32_t* id_map);
 
 /*
 void qsort_ext2(void* main_arr, uintptr_t arr_length, uintptr_t item_length, int(* comparator_deref)(const void*, const void*), void* secondary_arr, uintptr_t secondary_item_len, unsigned char* proxy_arr, uintptr_t proxy_len);
@@ -1450,6 +1451,10 @@ HEADER_INLINE void fill_double_zero(uintptr_t entry_ct, double* darr) {
   for (uintptr_t ulii = 0; ulii < entry_ct; ulii++) {
     *darr++ = 0.0;
   }
+}
+
+HEADER_INLINE void fill_ptr_zero(uintptr_t entry_ct, void* pp) {
+  memset(pp, 0, entry_ct * sizeof(intptr_t));
 }
 
 
@@ -2408,6 +2413,10 @@ pglerr_t parse_name_ranges(char** argv, const char* errstr_append, uint32_t para
 // need to call CloseHandle.
 void join_threads(uint32_t ctp1, pthread_t* threads);
 
+#ifndef _WIN32
+extern pthread_attr_t g_smallstack_thread_attr;
+#endif
+
 boolerr_t spawn_threads(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, pthread_t* threads);
 
 
@@ -2427,8 +2436,6 @@ HEADER_INLINE void THREAD_BLOCK_FINISH(uintptr_t tidx) {
   WaitForSingleObject(g_thread_start_next_event[tidx], INFINITE);
 }
 #else
-extern pthread_attr_t g_smallstack_thread_attr;
-
 void THREAD_BLOCK_FINISH(uintptr_t tidx);
 #endif
 

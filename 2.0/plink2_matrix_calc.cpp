@@ -3264,19 +3264,11 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
 	write_iter = dtoa_g(*sample_wts_iter++, write_iter);
       }
       append_binary_eoln(&write_iter);
-      if (write_iter >= writebuf_flush) {
-	if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), outfile)) {
-	  goto calc_pca_ret_WRITE_FAIL;
-	}
-	write_iter = writebuf;
-      }
-    }
-    if (write_iter != writebuf) {
-      if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), outfile)) {
+      if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
 	goto calc_pca_ret_WRITE_FAIL;
       }
     }
-    if (fclose_null(&outfile)) {
+    if (fclose_flush_null(writebuf_flush, write_iter, &outfile)) {
       goto calc_pca_ret_WRITE_FAIL;
     }
 
@@ -3289,10 +3281,7 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
       write_iter = dtoa_g(eigvals[pc_idx], write_iter);
       append_binary_eoln(&write_iter);
     }
-    if (fwrite_checked(writebuf, (uintptr_t)(write_iter - writebuf), outfile)) {
-      goto calc_pca_ret_WRITE_FAIL;
-    }
-    if (fclose_null(&outfile)) {
+    if (fclose_flush_null(writebuf_flush, write_iter, &outfile)) {
       goto calc_pca_ret_WRITE_FAIL;
     }
     *outname_end = '\0';

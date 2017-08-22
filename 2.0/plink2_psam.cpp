@@ -1131,9 +1131,7 @@ pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_li
 	      fill_ulong_zero(categorical_pheno_ct, total_catname_blens);
 	      tmp_bigstack_end -= htable_byte_ct;
 	      catname_htable = (catname_ll2_t**)tmp_bigstack_end;
-	      for (uint32_t uii = 0; uii < kCatHtableSize; ++uii) {
-		catname_htable[uii] = nullptr;
-	      }
+	      fill_ptr_zero(kCatHtableSize, catname_htable);
 	      uint32_t cur_hval = missing_catname_hval;
 	      for (uint32_t cat_pheno_idx = 0; cat_pheno_idx < categorical_pheno_ct; ++cat_pheno_idx) {
 		tmp_bigstack_end -= entry_byte_ct;

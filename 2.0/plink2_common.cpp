@@ -205,6 +205,16 @@ interr_t fwrite_flush2(char* buf_flush, FILE* outfile, char** write_iter_ptr) {
   return fwrite_checked(buf, (uintptr_t)(buf_end - buf), outfile);
 }
 
+boolerr_t fclose_flush_null(char* buf_flush, char* write_iter, FILE** outfile_ptr) {
+  char* buf = &(buf_flush[-((int32_t)kMaxMediumLine)]);
+  if (write_iter != buf) {
+    if (fwrite_checked(buf, (uintptr_t)(write_iter - buf), *outfile_ptr)) {
+      return 1;
+    }
+  }
+  return fclose_null(outfile_ptr);
+}
+
 
 uint32_t int_slen(int32_t num) {
   int32_t slen = 1;
@@ -5888,6 +5898,10 @@ void join_threads(uint32_t ctp1, pthread_t* threads) {
 #endif
 }
 
+#ifndef _WIN32
+pthread_attr_t g_smallstack_thread_attr;
+#endif
+
 boolerr_t spawn_threads(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, pthread_t* threads) {
   uintptr_t ulii;
   if (ct == 1) {
@@ -5895,13 +5909,13 @@ boolerr_t spawn_threads(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, pthread_t
   }
   for (ulii = 1; ulii < ct; ++ulii) {
 #ifdef _WIN32
-    threads[ulii - 1] = (HANDLE)_beginthreadex(nullptr, 4096, start_routine, (void*)ulii, 0, nullptr);
+    threads[ulii - 1] = (HANDLE)_beginthreadex(nullptr, kDefaultThreadStack, start_routine, (void*)ulii, 0, nullptr);
     if (!threads[ulii - 1]) {
       join_threads(ulii, threads);
       return 1;
     }
 #else
-    if (pthread_create(&(threads[ulii - 1]), nullptr, start_routine, (void*)ulii)) {
+    if (pthread_create(&(threads[ulii - 1]), &g_smallstack_thread_attr, start_routine, (void*)ulii)) {
       join_threads(ulii, threads);
       return 1;
     }
@@ -5962,7 +5976,6 @@ uint32_t g_is_last_thread_block = 0;
 HANDLE g_thread_start_next_event[kMaxThreads];
 HANDLE g_thread_cur_block_done_events[kMaxThreads];
 #else
-pthread_attr_t g_smallstack_thread_attr;
 static pthread_mutex_t g_thread_sync_mutex;
 static pthread_cond_t g_thread_cur_block_done_condvar;
 static pthread_cond_t g_thread_start_next_condvar;
@@ -6041,6 +6054,9 @@ boolerr_t spawn_threads2z(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, uint32_
 	if (ulii) {
 	  join_threads2z(ulii, is_last_block, threads);
 	  if (!is_last_block) {
+	    for (uintptr_t uljj = 0; uljj < ulii; ++uljj) {
+	      TerminateThread(threads[uljj], 0);
+	    }
 	    // fix handle leak?
 	    for (uintptr_t uljj = 0; uljj < ulii; ++uljj) {
 	      CloseHandle(threads[uljj]);
@@ -6076,10 +6092,20 @@ boolerr_t spawn_threads2z(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, uint32_
       return 1;
     }
     for (uintptr_t ulii = 0; ulii < ct; ++ulii) {
-      if (pthread_create(&(threads[ulii]), nullptr, start_routine, (void*)ulii)) {
+      if (pthread_create(&(threads[ulii]), &g_smallstack_thread_attr, start_routine, (void*)ulii)) {
 	if (ulii) {
-	  join_threads2z(ulii, is_last_block, threads);
-	  if (!is_last_block) {
+	  if (is_last_block) {
+	    join_threads2z(ulii, 1, threads);
+	  } else {
+	    const uintptr_t unstarted_thread_ct = ct - ulii;
+	    pthread_mutex_lock(&g_thread_sync_mutex);
+	    // minor bugfix (21 Aug 2017): join_threads2z hangs forever if not
+	    //   last block, since cur_block_done_condvar is only signaled
+	    //   when g_thread_active_ct decreased to zero
+	    g_thread_active_ct -= unstarted_thread_ct;
+	    while (g_thread_active_ct) {
+	      pthread_cond_wait(&g_thread_cur_block_done_condvar, &g_thread_sync_mutex);
+	    }
 	    // not worth the trouble of demanding that all callers handle
 	    // pthread_create() failure cleanly
 	    // (in contrast, error_cleanup_threads2z is relevant when an input
@@ -6457,9 +6483,8 @@ pglerr_t write_sample_ids(const uintptr_t* sample_include, const char* sample_id
     if (fopen_checked(outname, FOPEN_WB, &outfile)) {
       goto write_sample_ids_ret_OPEN_FAIL;
     }
-    char* textbuf = g_textbuf;
-    char* write_iter = textbuf;
-    char* textbuf_flush = &(textbuf[kMaxMediumLine]);
+    char* write_iter = g_textbuf;
+    char* textbuf_flush = &(write_iter[kMaxMediumLine]);
     uintptr_t sample_uidx = 0;
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
       next_set_ul_unsafe_ck(sample_include, &sample_uidx);
@@ -6469,19 +6494,11 @@ pglerr_t write_sample_ids(const uintptr_t* sample_include, const char* sample_id
 	write_iter = strcpya(write_iter, &(sids[sample_uidx * max_sid_blen]));
       }
       append_binary_eoln(&write_iter);
-      if (write_iter >= textbuf_flush) {
-	if (fwrite_checked(textbuf, write_iter - textbuf, outfile)) {
-	  goto write_sample_ids_ret_WRITE_FAIL;
-	}
-	write_iter = textbuf;
-      }
-    }
-    if (write_iter > textbuf) {
-      if (fwrite_checked(textbuf, write_iter - textbuf, outfile)) {
+      if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
 	goto write_sample_ids_ret_WRITE_FAIL;
       }
     }
-    if (fclose_null(&outfile)) {
+    if (fclose_flush_null(textbuf_flush, write_iter, &outfile)) {
       goto write_sample_ids_ret_WRITE_FAIL;
     }
   }
