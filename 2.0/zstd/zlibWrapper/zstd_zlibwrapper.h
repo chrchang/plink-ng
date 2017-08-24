@@ -21,7 +21,7 @@ extern "C" {
 #ifdef STATIC_ZLIB
   #include "../../../zlib-1.2.11/zlib.h"
 #else
-  #include "<zlib.h>"
+  #include <zlib.h>
 #endif
 
 #if !defined(z_const)
