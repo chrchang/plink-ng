@@ -900,6 +900,11 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "      (Covariates are always present, and positioned here.)\n"
 "    The default is just maybesid.\n\n"
 	       );
+    help_print("write-samples\twrite-snplist", &help_ctrl, 1,
+"  --write-samples\n"
+"    Report FID/IID (or FID/IID/SID, iff the input .psam file had a SID column)\n"
+"    of all samples which pass your filters/inclusion thresholds.\n\n"
+	       );
     help_print("write-snplist", &help_ctrl, 1,
 "  --write-snplist <zs>\n"
 "    List all variants which pass your filters/inclusion thresholds.\n\n"
@@ -975,8 +980,10 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "      altcount: Alternate allele count (can be decimal with dosage data).\n"
 "      totallele: Allele observation count (can be higher than --freq value, due\n"
 "                 to inclusion of het haploids and chrX model).\n"
-"      altcountcc: alt count in cases, then controls (case/control only).\n"
+"      altcountcc: Alt count in cases, then controls (case/control only).\n"
 "      totallelecc: Case and control allele observation counts.\n"
+"      gcountcc: Genotype hardcall counts (hom-ref, ref-alt, alt-alt) in cases,\n"
+"                then controls (case/control only).\n"
 "      altfreq: alt allele frequency.\n"
 "      altfreqcc: alt frequency in cases, then controls (case/control only).\n"
 "      machr2: Empirical divided by theoretical variance quality metric.\n"
@@ -1477,17 +1484,35 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     // don't make --real-ref-alleles apply to e.g. Oxford import, since
     // explicit 'ref-first'/'ref-second' modifiers are clearer
-    help_print("real-ref-alleles\tmaj-ref\tkeep-allele-order", &help_ctrl, 0,
+    help_print("real-ref-alleles", &help_ctrl, 0,
 "  --real-ref-alleles : Treat A2 alleles in a PLINK 1.x fileset as actual ref\n"
-"                       alleles; otherwise they're flagged as provisional.\n"
+"                       alleles; otherwise they're marked as provisional.\n"
+	       );
+    help_print("maj-ref\tref-allele\talt1-allele\ta1-allele\treference-allele\tupdate-ref-allele\ta2-allele\tkeep-allele-order", &help_ctrl, 0,
 "  --maj-ref <force>  : Set major alleles to reference, like PLINK 1.x\n"
 "                       automatically did.  (Note that this is now opt-in rather\n"
 "                       than opt-out; --keep-allele-order is no longer necessary\n"
-"                       to prevent allele-swapping.)  By default, this only\n"
-"                       affects variants with \"provisional reference\" flags;\n"
-"                       add 'force' to override validated reference alleles as\n"
-"                       well.\n"
-"                       All new reference alleles are marked as provisional.\n"
+"                       to prevent allele-swapping.)\n"
+"                       * This can only be used in runs with\n"
+"                         --make-bed/--make-{b}pgen/--export and no other\n"
+"                         commands.\n"
+"                       * By default, this only affects variants marked as\n"
+"                         having 'provisional' reference alleles.  Add 'force'\n"
+"                         to apply this to all variants.\n"
+"                       * All new reference alleles are marked as provisional.\n"
+"  --ref-allele <force> [filename] {refcol} {IDcol} {skip}\n"
+"  --alt1-allele <force> [filename] {alt1col} {IDcol} {skip} :\n"
+"    These set the alleles specified in the file to ref (--ref-allele) or alt1\n"
+"    (--alt1-allele).  They can be combined in the same run.\n"
+"    * These can only be used in runs with --make-bed/--make-{b}pgen/--export\n"
+"      and no other commands.\n"
+"    * \"--ref-allele [VCF filename] 4 3 '#'\", which scrapes reference allele\n"
+"      assignments from a VCF file, is especially useful.\n"
+"    * By default, these error out when asked to change a 'known' reference\n"
+"      allele.  Add 'force' to permit this (when e.g. switching to a new\n"
+"      reference genome).\n"
+"    * When --alt1-allele changes the previous ref allele to alt1, the previous\n"
+"      alt1 allele is set to reference and marked as provisional.\n"
 	       );
     help_print("indiv-sort", &help_ctrl, 0,
 "  --indiv-sort [m] <sid> {f} : Specify FID/IID(/SID) sort order for merge and\n"

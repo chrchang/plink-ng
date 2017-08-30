@@ -1626,7 +1626,7 @@ pglerr_t read_allele_freqs(const uintptr_t* variant_include, char** variant_ids,
 	  if (variant_uidx == 0xffffffffU) {
 	    goto read_allele_freqs_skip_variant;
 	  }
-	  sprintf(g_logbuf, "Error: --read-freq variant ID '%s' appears multiple times in main dataset.\n", variant_ids[variant_uidx & 0xffffffffU]);
+	  sprintf(g_logbuf, "Error: --read-freq variant ID '%s' appears multiple times in main dataset.\n", variant_ids[variant_uidx & 0x7fffffff]);
 	  goto read_allele_freqs_ret_MALFORMED_INPUT_WW;
 	}
 	if (is_set(already_seen, variant_uidx)) {
@@ -2869,6 +2869,153 @@ void enforce_mach_r2_thresh(const chr_info_t* cip, const double* mach_r2_vals, d
   LOGPRINTF("--mach-r2-filter: %u variant%s removed.\n", removed_ct, (removed_ct == 1)? "" : "s");
   *variant_ct_ptr -= removed_ct;
 }
+
+// Generalization of plink 1.9 load_ax_alleles().
+//
+// Note that, when a variant has 2 (or more) nonmissing allele codes, we print
+// a warning if the loaded allele doesn't match one of them (and the variant is
+// unchanged).  However, if the variant is biallelic with one or two missing
+// allele codes, a missing allele code is filled in.  This maintains
+// compatibility with plink 1.9 --a1-allele/--a2-allele's behavior, and is good
+// enough for most real-world use cases; however, it's a bit annoying to be
+// unable to e.g. add the ref allele when dealing with a single-sample file
+// with a het alt1/alt2 call.
+// (Workaround for that case when merge is implemented: generate a
+// single-sample file with all the right reference alleles, and merge with
+// that.)
+/*
+pglerr_t set_refalt1_from_file(const uintptr_t* variant_include, char** variant_ids, const uintptr_t* variant_allele_idxs, const two_col_params_t* allele_flag_info, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t is_alt1, uint32_t force, uint32_t max_thread_ct, char** allele_storage, uint32_t* max_allele_slen_ptr) {
+  // temporary allocations on bottom, "permanent" allocations on top (so we
+  // don't reset g_bigstack_end).
+  unsigned char* bigstack_mark = g_bigstack_base;
+  gzFile gz_infile = nullptr;
+  uintptr_t loadbuf_size = 0;
+  uintptr_t line_idx = 0;
+  pglerr_t reterr = kPglRetSuccess;
+  {
+    uintptr_t* already_seen;
+    if (bigstack_calloc_ul(BITCT_TO_WORDCT(raw_variant_ct), &already_seen)) {
+      goto set_refalt1_from_file_ret_NOMEM;
+    }
+    loadbuf_size = bigstack_left() / 4;
+    if (loadbuf_size > kMaxLongLine) {
+      loadbuf_size = kMaxLongLine;
+    } else if (loadbuf_size <= kMaxMediumLine) {
+      goto set_refalt1_from_file_ret_NOMEM;
+    } else {
+      loadbuf_size = round_up_pow2(loadbuf_size, kCacheline);
+    }
+    char* loadbuf = (char*)bigstack_alloc_raw(loadbuf_size);
+    uint32_t* variant_id_htable = nullptr;
+    uint32_t variant_id_htable_size;
+    reterr = alloc_and_populate_id_htable_mt(variant_include, variant_ids, variant_ct, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size);
+    if (reterr) {
+      goto set_refalt1_from_file_ret_1;
+    }
+    reterr = gzopen_and_skip_first_lines(allele_flag_info->fname, allele_flag_info->skip_ct, loadbuf_size, loadbuf, &gz_infile);
+    if (reterr) {
+      goto set_refalt1_from_file_ret_1;
+    }
+
+    const uint32_t colid_first = (allele_flag_info->colid < allele_flag_info->colx);
+    const char skipchar = allele_flag_info->skipchar;
+    uint32_t colmin;
+    uint32_t coldiff;
+    if (colid_first) {
+      colmin = allele_flag_info->colid - 1;
+      coldiff = allele_flag_info->colx - allele_flag_info->colid;
+    } else {
+      colmin = allele_flag_info->colx - 1;
+      coldiff = allele_flag_info->colid - allele_flag_info->colx;
+    }
+    line_idx = allele_flag_info->skip;
+    uintptr_t skipped_variant_ct = 0;
+    while (gzgets(gz_infile, loadbuf, loadbuf_size)) {
+      ++line_idx;
+      if (!loadbuf[loadbuf_size - 1]) {
+	goto set_refalt1_from_file_ret_LONG_LINE;
+      }
+      char* loadbuf_first_token = skip_initial_spaces(loadbuf);
+      char cc = *loadbuf_first_token;
+      if (is_eoln_kns(cc) || (cc == skipchar)) {
+	continue;
+      }
+      char* variant_id_start;
+      char* allele_start;
+      if (colid_first) {
+	variant_id_start = next_token_multz(loadbuf_first_token, colmin);
+	allele_start = next_token_mult(variant_id_start, coldiff);
+	if (!allele_start) {
+	  goto set_refalt1_from_file_ret_MISSING_TOKENS;
+	}
+      } else {
+	allele_start = next_token_multz(variant_id_start, colmin);
+	variant_id_start = next_token_mult(allele_start, coldiff);
+	if (!variant_id_start) {
+	  goto set_refalt1_from_file_ret_MISSING_TOKENS;
+	}
+      }
+      char* token_end = token_endnn(variant_id_start);
+      const uint32_t variant_id_slen = (uintptr_t)(token_end - variant_id_start);
+      const uint32_t variant_uidx = variant_id_dupflag_htable_find(variant_id_start, variant_ids, variant_id_htable, variant_id_slen, variant_id_htable_size, max_variant_id_slen);
+      if (variant_uidx >> 31) {
+	if (variant_uidx == 0xffffffffU) {
+	  ++skipped_variant_ct;
+	  continue;
+	}
+	sprintf(g_logbuf, "Error: --%s-allele variant ID '%s' appears multiple times in main dataset.\n", is_alt1? "alt1" : "ref", variant_ids[variant_uidx & 0x7fffffff]);
+	goto set_refalt1_from_file_ret_MALFORMED_INPUT_WW;
+      }
+      if (is_set(already_seen, variant_uidx)) {
+	sprintf(g_logbuf, "Error: Duplicate variant ID '%s' in --%s-allele file.\n", variant_ids[variant_uidx], is_alt1? "alt1" : "ref");
+	goto set_refalt1_from_file_ret_MALFORMED_INPUT_WW;
+      }
+      set_bit(variant_uidx, already_seen);
+      token_end = token_endnn(allele_start);
+      const uint32_t allele_slen = (uintptr_t)(token_end - allele_start);
+      *token_end = '\0';
+      const uintptr_t variant_allele_idx_base = variant_allele_idxs? variant_allele_idxs[variant_uidx] : (variant_uidx * 2);
+      char** cur_alleles = &(allele_storage[variant_allele_idx_base]);
+      
+    }
+    if (!gzeof(gz_infile)) {
+      goto set_refalt1_from_file_ret_READ_FAIL;
+    }
+
+  }
+  while (0) {
+  set_refalt1_from_file_ret_LONG_LINE:
+    if (loadbuf_size == kMaxLongLine) {
+      LOGERRPRINTF("Error: Line %" PRIuPTR " of --%s-allele file is pathologically long.\n", line_idx, is_alt1? "alt1" : "ref");
+      reterr = kPglRetMalformedInput;
+      break;
+    }
+  set_refalt1_from_file_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  set_refalt1_from_file_ret_READ_FAIL:
+    reterr = kPglRetReadFail;
+    break;
+  set_refalt1_from_file_ret_MISSING_TOKENS:
+    LOGERRPRINTFWW("Error: Line %" PRIuPTR " of --%s-allele file has fewer tokens than expected.\n", line_idx, is_alt1? "alt1" : "ref");
+    reterr = kPglRetMalformedInput;
+    break;
+  set_refalt1_from_file_ret_MALFORMED_INPUT_WW:
+    wordwrapb(0);
+    logerrprintb();
+    reterr = kPglRetMalformedInput;
+    break;
+  set_refalt1_from_file_ret_INCONSISTENT_INPUT_2:
+    logerrprintb();
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ set_refalt1_from_file_ret_1:
+  gzclose_cond(gz_infile);
+  bigstack_reset(bigstack_mark);
+  return reterr;
+}
+*/
 
 #ifdef __cplusplus
 } // namespace plink2

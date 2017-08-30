@@ -60,7 +60,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (18 Aug 2017)";
+  " (29 Aug 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -78,9 +78,9 @@ static const char ver_str2[] =
 static const char errstr_append[] = "For more info, try '" PROG_NAME_STR " --help [flag name]' or '" PROG_NAME_STR " --help | more'.\n";
 
 #ifndef NOLAPACK
-static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --make-king, --king-cutoff, --write-snplist,\n--make-grm-gz, --pca, --glm, --score, --genotyping-rate, --validate, and\n--zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --make-king, --king-cutoff, --write-samples,\n--write-snplist, --make-grm-gz, --pca, --glm, --score, --genotyping-rate,\n--validate, and --zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
 #else
-static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --make-king, --king-cutoff, --write-snplist,\n--make-grm-gz, --glm, --score, --genotyping-rate, --validate, and\n--zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --make-king, --king-cutoff, --write-samples,\n--write-snplist, --make-grm-gz, --glm, --score, --genotyping-rate, --validate,\nand --zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
 #endif
 
 static const char errstr_nomem[] = "Error: Out of memory.  The --memory flag may be helpful.\n";
@@ -196,7 +196,8 @@ FLAGSET64_DEF_START()
   kfCommand1Validate = (1 << 13),
   kfCommand1GenotypingRate = (1 << 14),
   kfCommand1Score = (1 << 15),
-  kfCommand1WriteCovar = (1 << 16)
+  kfCommand1WriteCovar = (1 << 16),
+  kfCommand1WriteSamples = (1 << 17)
 FLAGSET64_DEF_END(command1_flags_t);
 
 // this is a hybrid, only kfSortFileSid is actually a flag
@@ -315,6 +316,8 @@ typedef struct plink2_cmdline_struct {
   char* quantnorm_flattened;
   char* covar_quantnorm_flattened;
   char* loop_cats_phenoname;
+  two_col_params_t* ref_allele_flag;
+  two_col_params_t* alt1_allele_flag;
 } plink2_cmdline_t;
 
 uint32_t is_single_variant_loader_needed(const char* king_cutoff_fprefix, command1_flags_t command_flags1, make_plink2_t make_plink2_modifier) {
@@ -1268,7 +1271,9 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
       bitvec_and_copy(sample_include, sex_male, raw_sample_ctl, loop_cats_sex_male_backup);
       *outname_end = '.';
     }
+    const uintptr_t raw_allele_ct = variant_allele_idxs? variant_allele_idxs[raw_variant_ct] : (2 * raw_variant_ct);
     unsigned char* bigstack_mark_varfilter = g_bigstack_base;
+    unsigned char* bigstack_end_mark_varfilter = g_bigstack_end;
     while (1) {
       if (loop_cats_pheno_col) {
 	++loop_cats_uidx;
@@ -1293,6 +1298,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	}
 	LOGPRINTF("--loop-cats: Processing category '%s' (%u sample%s).\n", catname, sample_ct, (sample_ct == 1)? "" : "s");
       }
+
       // dosages are currently in 32768ths
       uint64_t* allele_dosages = nullptr; // same indexes as allele_storage
       uint64_t* founder_allele_dosages = nullptr;
@@ -1304,6 +1310,19 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
       unsigned char* bigstack_mark_founder_allele_dosages = g_bigstack_base;
       const uint32_t keep_grm = grm_keep_needed(pcp->command_flags1, pcp->pca_flags);
       double* grm = nullptr;
+
+      if (pcp->command_flags1 & kfCommand1WriteSamples) {
+	strcpy(outname_end, ".id");
+	reterr = write_sample_ids(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen);
+	if (reterr) {
+	  goto plink2_ret_1;
+	}
+	LOGPRINTFWW("--write-samples: Sample IDs written to %s .\n", outname);
+	if (!(pcp->command_flags1 & (~kfCommand1WriteSamples))) {
+	  goto plink2_early_complete;
+	}
+      }
+
       if (pgenname[0]) {
 	if (are_allele_freqs_needed(pcp->command_flags1, pcp->min_maf, pcp->max_maf)) {
 	  if (are_maj_alleles_needed(pcp->command_flags1)) {
@@ -1316,11 +1335,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	  // stores the frequency estimate for the reference allele; if there's
 	  // more than 1 alt allele, next element stores alt1 freq, etc.  To
 	  // save memory, we omit the last alt.
-	  uintptr_t total_alt_allele_ct = raw_variant_ct;
-	  if (variant_allele_idxs) {
-	    total_alt_allele_ct = variant_allele_idxs[raw_variant_ct] - raw_variant_ct;
-	  }
-	  if (bigstack_alloc_d(total_alt_allele_ct, &allele_freqs)) {
+	  if (bigstack_alloc_d(raw_allele_ct - raw_variant_ct, &allele_freqs)) {
 	    goto plink2_ret_NOMEM;
 	  }
 	}
@@ -1350,7 +1365,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	bigstack_mark_allele_dosages = g_bigstack_base;
 	const uint32_t first_hap_uidx = get_first_haploid_uidx(cip, vpos_sortstatus);
 	if (are_allele_dosages_needed(pcp->misc_flags, make_plink2_modifier, (allele_freqs != nullptr), pcp->min_allele_dosage, pcp->max_allele_dosage)) {
-	  if (bigstack_alloc_ull(variant_allele_idxs? variant_allele_idxs[raw_variant_ct] : (2 * raw_variant_ct), &allele_dosages)) {
+	  if (bigstack_alloc_ull(raw_allele_ct, &allele_dosages)) {
 	    goto plink2_ret_NOMEM;
 	  }
 	}
@@ -1359,7 +1374,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	  if ((founder_ct == sample_ct) && allele_dosages) {
 	    founder_allele_dosages = allele_dosages;
 	  } else {
-	    if (bigstack_alloc_ull(variant_allele_idxs? variant_allele_idxs[raw_variant_ct] : (2 * raw_variant_ct), &founder_allele_dosages)) {
+	    if (bigstack_alloc_ull(raw_allele_ct, &founder_allele_dosages)) {
 	      goto plink2_ret_NOMEM;
 	    }
 	  }
@@ -1465,7 +1480,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	  if (pcp->command_flags1 & kfCommand1GenotypingRate) {
 	    const uint32_t is_dosage = (pcp->misc_flags / kfMiscGenotypingRateDosage) & 1;
 	    report_genotyping_rate(variant_include, cip, is_dosage? variant_missing_dosage_cts : variant_missing_hc_cts, raw_sample_ct, sample_ct, male_ct, variant_ct, is_dosage);
-	    if (!(pcp->command_flags1 & (~kfCommand1GenotypingRate))) {
+	    if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1WriteSamples)))) {
 	      goto plink2_early_complete;
 	    }
 	  }
@@ -1491,7 +1506,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	  if (reterr) {
 	    goto plink2_ret_1;
 	  }
-	  if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq)))) {
+	  if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1WriteSamples)))) {
 	    goto plink2_early_complete;
 	  }
 	}
@@ -1500,7 +1515,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	  if (reterr) {
 	    goto plink2_ret_1;
 	  }
-	  if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1GenoCounts)))) {
+	  if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1WriteSamples)))) {
 	    goto plink2_early_complete;
 	  }
 	}
@@ -1510,7 +1525,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	  if (reterr) {
 	    goto plink2_ret_1;
 	  }
-	  if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1MissingReport)))) {
+	  if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1MissingReport | kfCommand1WriteSamples)))) {
 	    goto plink2_early_complete;
 	  }
 	}
@@ -1554,7 +1569,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	  if (reterr) {
 	    goto plink2_ret_1;
 	  }
-	  if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1MissingReport | kfCommand1Hardy)))) {
+	  if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1MissingReport | kfCommand1Hardy | kfCommand1WriteSamples)))) {
 	    goto plink2_early_complete;
 	  }
 	}
@@ -1649,23 +1664,45 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
       }
 
       if (pcp->command_flags1 & (kfCommand1MakePlink2 | kfCommand1Exportf | kfCommand1WriteCovar)) {
-	// If non-null, this has (2 * raw_variant_ct) entries.  [2n] stores the
-	// index of the new ref allele for variant n, and [2n+1] stores the
-	// index of the new alt1 allele.  (0 = original ref, 1 = original alt1,
-	// etc.)
-	// If at all possible, operations which instantiate this
-	// (--ref-allele, --alt1-allele, ...) should only be usable with
-	// fileset creation commands.  no more
-	// pass-marker_reverse-to-everything nonsense.
+	// If non-null, refalt1_select has (2 * raw_variant_ct) entries.  [2n]
+	// stores the index of the new ref allele for variant n, and [2n+1]
+	// stores the index of the new alt1 allele.  (0 = original ref, 1 =
+	// original alt1, etc.)
+	// Operations which instantiate this (--maj-ref, --ref-allele,
+	// --alt1-allele) are only usable with fileset creation commands.  No
+	// more pass-marker_reverse-to-everything nonsense.
 	// (Technically, I could also drop support for --export, but that would
 	// force too many real-world jobs to require two plink2 runs instead of
 	// one.)
-	unsigned char* bigstack_end_mark = g_bigstack_end;
+
+	char** allele_storage_backup = nullptr;
+        uint32_t max_allele_slen_backup = max_allele_slen;
+	uintptr_t* nonref_flags_backup = nullptr;
+
 	alt_allele_ct_t* refalt1_select = nullptr;
-	if (pcp->misc_flags & kfMiscMajRef) {
-	  // todo: also support updated version of --a2-allele, etc.
+	if ((pcp->misc_flags & kfMiscMajRef) || pcp->ref_allele_flag || pcp->alt1_allele_flag) {
+	  if (loop_cats_idx + 1 < loop_cats_ct) {
+	    // --ref-allele and --alt1-allele may alter max_allele_slen and
+	    // allele_storage[]; --loop-cats doesn't like this.  Save a backup
+	    // copy.
+            if (pcp->ref_allele_flag || pcp->alt1_allele_flag) {
+	      if (bigstack_end_alloc_cp(raw_allele_ct, &allele_storage_backup)) {
+		goto plink2_ret_NOMEM;
+	      }
+	      memcpy(allele_storage_backup, allele_storage, raw_allele_ct * sizeof(intptr_t));
+	    }
+	    // nonref_flags may be altered by all three flags.
+	    if (nonref_flags) {
+	      if (bigstack_end_alloc_ul(raw_variant_ctl, &nonref_flags_backup)) {
+		goto plink2_ret_NOMEM;
+	      }
+	      memcpy(nonref_flags_backup, nonref_flags, raw_variant_ctl * sizeof(intptr_t));
+	    }
+	  }
 	  const uintptr_t refalt1_word_ct = DIV_UP(2 * raw_variant_ct * sizeof(alt_allele_ct_t), kBytesPerWord);
 	  uintptr_t* refalt1_select_ul;
+	  // no need to track bigstack_end_mark before this is allocated, etc.,
+	  // due to the restriction to --make-pgen/--export
 	  if (bigstack_end_alloc_ul(refalt1_word_ct, &refalt1_select_ul)) {
 	    goto plink2_ret_NOMEM;
 	  }
@@ -1675,12 +1712,25 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	    refalt1_select_ul[widx] = fill_word;
 	  }
 	  refalt1_select = (alt_allele_ct_t*)refalt1_select_ul;
+	  if (pcp->ref_allele_flag) {
+	    // reterr = set_refalt1_from_file();
+	    logerrprint("Error: --ref-allele is currently under development.\n");
+	    reterr = kPglRetNotYetSupported;
+	    if (reterr) {
+	      goto plink2_ret_1;
+	    }
+	  }
+	  if (pcp->alt1_allele_flag) {
+	    // reterr = set_refalt1_from_file();
+	    logerrprint("Error: --alt1-allele is currently under development.\n");
+	    reterr = kPglRetNotYetSupported;
+	    if (reterr) {
+	      goto plink2_ret_1;
+	    }
+	  }
 	  if (pcp->misc_flags & kfMiscMajRef) {
-	    // possible todo: make this subscribe to maj_alleles[] instead?
-	    // might be pointless due to ALT1 computation, though.
-
-	    // todo: warning if this is specified without file write command,
-	    // if this is ever moved out of the file-write subblock
+	    // Since this also sets ALT1 to the second-most-common allele, it
+	    // can't just subscribe to maj_alleles[].
 	    const uint64_t* main_allele_dosages = nonfounders? allele_dosages : founder_allele_dosages;
 	    const uint32_t not_all_nonref = !(pgfi.gflags & kfPgenGlobalAllNonref);
 	    const uint32_t skip_real_ref = not_all_nonref && (!(pcp->misc_flags & kfMiscMajRefForce));
@@ -1811,7 +1861,14 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	    goto plink2_ret_1;
 	  }
 	}
-	bigstack_end_reset(bigstack_end_mark);
+
+	if (allele_storage_backup) {
+	  max_allele_slen = max_allele_slen_backup;
+	  memcpy(allele_storage, allele_storage_backup, raw_allele_ct * sizeof(intptr_t));
+	}
+	if (nonref_flags_backup) {
+	  memcpy(nonref_flags, nonref_flags_backup, raw_variant_ctl * sizeof(intptr_t));
+	}
       }
       bigstack_reset(bigstack_mark_allele_dosages);
 
@@ -1844,7 +1901,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
       if (++loop_cats_idx == loop_cats_ct) {
 	break;
       }
-      bigstack_reset(bigstack_mark_varfilter);
+      bigstack_double_reset(bigstack_mark_varfilter, bigstack_end_mark_varfilter);
     }
   }
   while (0) {
@@ -2029,6 +2086,59 @@ pglerr_t alloc_and_flatten(char** sources, uint32_t param_ct, uint32_t max_blen,
     buf_iter = strcpyax(buf_iter, sources[param_idx], '\0');
   }
   *buf_iter = '\0';
+  return kPglRetSuccess;
+}
+
+pglerr_t alloc_2col(char** sources, const char* flagname_p, uint32_t param_ct, two_col_params_t** tcbuf) {
+  uint32_t fname_blen = strlen(sources[0]) + 1;
+  if (fname_blen > kPglFnamesize) {
+    LOGERRPRINTF("Error: --%s filename too long.\n", flagname_p);
+    return kPglRetOpenFail;
+  }
+  *tcbuf = (two_col_params_t*)malloc(offsetof(two_col_params_t, fname) + fname_blen);
+  if (!(*tcbuf)) {
+    return kPglRetNomem;
+  }
+  memcpy((*tcbuf)->fname, sources[0], fname_blen);
+  (*tcbuf)->skip_ct = 0;
+  (*tcbuf)->skipchar = '\0';
+  if (param_ct > 1) {
+    if (scan_posint_defcap(sources[1], &((*tcbuf)->colx))) {
+      LOGERRPRINTF("Error: Invalid --%s column number.\n", flagname_p);
+      return kPglRetInvalidCmdline;
+    }
+    if (param_ct > 2) {
+      if (scan_posint_defcap(sources[2], &((*tcbuf)->colid))) {
+	LOGERRPRINTF("Error: Invalid --%s variant ID column number.\n", flagname_p);
+	return kPglRetInvalidCmdline;
+      }
+      if (param_ct == 4) {
+	char cc = sources[3][0];
+	if ((cc < '0') || (cc > '9')) {
+	  cc = extract_char_param(sources[3]);
+	  if (!cc) {
+            goto alloc_2col_invalid_skip;
+	  }
+	  (*tcbuf)->skipchar = cc;
+	} else {
+	  if (scan_uint_defcap(sources[3], &((*tcbuf)->skip_ct))) {
+	  alloc_2col_invalid_skip:
+	    LOGERRPRINTF("Error: Invalid --%s skip parameter.  This needs to either be a\nsingle character (usually '#') which, when present at the start of a line,\nindicates it should be skipped; or the number of initial lines to skip.  (Note\nthat in shells such as bash, '#' is a special character that must be\nsurrounded by single- or double-quotes to be parsed correctly.)\n", flagname_p);
+	    return kPglRetInvalidCmdline;
+	  }
+	}
+      }
+    } else {
+      (*tcbuf)->colid = 1;
+    }
+    if ((*tcbuf)->colx == (*tcbuf)->colid) {
+      LOGERRPRINTF("Error: Column numbers for --%s cannot be equal.\n%s", flagname_p, errstr_append);
+      return kPglRetInvalidCmdline;
+    }
+  } else {
+    (*tcbuf)->colx = 2;
+    (*tcbuf)->colid = 1;
+  }
   return kPglRetSuccess;
 }
 
@@ -2833,6 +2943,8 @@ int main(int argc, char** argv) {
   pc.quantnorm_flattened = nullptr;
   pc.covar_quantnorm_flattened = nullptr;
   pc.loop_cats_phenoname = nullptr;
+  pc.ref_allele_flag = nullptr;
+  pc.alt1_allele_flag = nullptr;
   init_range_list(&pc.snps_range_list);
   init_range_list(&pc.exclude_snps_range_list);
   init_range_list(&pc.pheno_range_list);
@@ -3065,6 +3177,12 @@ int main(int argc, char** argv) {
 	    strcpy(flagname_write_iter, "allow-extra-chr");
 	  } else if ((flag_slen == 11) && (!memcmp(flagname_p, "autosome-xy", 11))) {
 	    strcpy(flagname_write_iter, "autosome-par");
+	  } else if ((flag_slen == 9) && (!memcmp(flagname_p, "a1-allele", 9))) {
+	    fputs("Warning: --a1-allele flag deprecated.  Use --alt1-allele instead.\n", stderr);
+	    strcpy(flagname_write_iter, "alt1-allele");
+	  } else if ((flag_slen == 9) && (!memcmp(flagname_p, "a2-allele", 9))) {
+	    fputs("Warning: --a2-allele flag deprecated.  Use --ref-allele instead.\n", stderr);
+	    strcpy(flagname_write_iter, "ref-allele");
 	  } else {
 	    goto main_flag_copy;
 	  }
@@ -3554,6 +3672,25 @@ int main(int argc, char** argv) {
 	  }
 	  chr_info.haploid_mask[0] = 0;
 	  set_bit(autosome_ct + 1, chr_info.haploid_mask);
+	} else if (!memcmp(flagname_p2, "lt1-allele", 11)) {
+	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 5)) {
+	    goto main_ret_INVALID_CMDLINE_2A;
+	  }
+	  char** sources = &(argv[arg_idx + 1]);
+	  if (!strcmp(sources[0], "force")) {
+	    --param_ct;
+	    if (!param_ct) {
+	      logprint("Error: Invalid --alt1-allele parameter sequence.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
+	    }
+	    pc.misc_flags |= kfMiscAlt1AlleleForce;
+	    ++sources;
+	  }
+	  reterr = alloc_2col(sources, flagname_p, param_ct, &pc.alt1_allele_flag);
+	  if (reterr) {
+	    goto main_ret_1;
+	  }
+	  pc.filter_flags |= kfFilterPvarReq;
 	} else if (!memcmp(flagname_p2, "llow-no-sex", 12)) {
 	  logprint("Note: --allow-no-sex no longer has any effect.  (Missing-sex samples are\nautomatically excluded from association analysis when sex is a covariate, and\ntreated normally otherwise.)\n");
 	  goto main_param_zero;
@@ -4564,7 +4701,7 @@ int main(int argc, char** argv) {
 		logerrprint("Error: Multiple --glm cols= modifiers.\n");
 		goto main_ret_INVALID_CMDLINE;
 	      }
-	      reterr = parse_col_descriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0altcount\0totallele\0altcountcc\0totallelecc\0altfreq\0altfreqcc\0machr2\0firth\0test\0nobs\0beta\0orbeta\0se\0ci\0t\0p\0", flagname_p, kfGlmColChrom, kfGlmColDefault, 1, &pc.glm_info.cols);
+	      reterr = parse_col_descriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0altcount\0totallele\0altcountcc\0totallelecc\0gcountcc\0altfreq\0altfreqcc\0machr2\0firth\0test\0nobs\0beta\0orbeta\0se\0ci\0t\0p\0", flagname_p, kfGlmColChrom, kfGlmColDefault, 1, &pc.glm_info.cols);
 	      if (reterr) {
 		goto main_ret_1;
 	      }
@@ -5803,7 +5940,6 @@ int main(int argc, char** argv) {
 	      goto main_ret_INVALID_CMDLINE_A;
 	    }
 	  } else {
-	    pc.filter_flags |= kfFilterNoSplitChr;
             if (!explicit_scols) {
 	      pc.missing_rpt_modifier |= kfMissingRptScolDefault;
 	    }
@@ -6722,6 +6858,25 @@ int main(int argc, char** argv) {
 	  if (reterr) {
 	    goto main_ret_1;
 	  }
+	} else if (!memcmp(flagname_p2, "ef-allele", 10)) {
+	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 5)) {
+	    goto main_ret_INVALID_CMDLINE_2A;
+	  }
+	  char** sources = &(argv[arg_idx + 1]);
+	  if (!strcmp(sources[0], "force")) {
+	    --param_ct;
+	    if (!param_ct) {
+	      logprint("Error: Invalid --ref-allele parameter sequence.\n");
+	      goto main_ret_INVALID_CMDLINE_A;
+	    }
+	    pc.misc_flags |= kfMiscRefAlleleForce;
+	    ++sources;
+	  }
+	  reterr = alloc_2col(sources, flagname_p, param_ct, &pc.ref_allele_flag);
+	  if (reterr) {
+	    goto main_ret_1;
+	  }
+	  pc.filter_flags |= kfFilterPvarReq;
 	} else if (!memcmp(flagname_p2, "ice", 4)) {
 	  if (chr_info.chrset_source) {
 	    logerrprint("Error: Conflicting chromosome-set flags.\n");
@@ -7357,6 +7512,9 @@ int main(int argc, char** argv) {
 	    pc.misc_flags |= kfMiscWriteSnplistZs;
 	  }
 	  pc.command_flags1 |= kfCommand1WriteSnplist;
+	} else if (!memcmp(flagname_p2, "rite-samples", 13)) {
+	  pc.command_flags1 |= kfCommand1WriteSamples;
+	  goto main_param_zero;
 	} else if (!memcmp(flagname_p2, "indow", 6)) {
 	  if (!(pc.varid_snp || pc.varid_exclude_snp)) {
 	    logerrprint("Error: --window must be used with --snp or --exclude-snp.\n");
@@ -7505,6 +7663,10 @@ int main(int argc, char** argv) {
     }
     if ((make_plink2_modifier & (kfMakePlink2MMask | kfMakePlink2TrimAlts | kfMakePgenEraseAlt2Plus | kfMakePgenErasePhase | kfMakePgenEraseDosage)) && (pc.command_flags1 & (~kfCommand1MakePlink2))) {
       logerrprint("Error: When the 'multiallelics=', 'trim-alts', and/or 'erase-...' modifier is\npresent, --make-bed/--make-{b}pgen cannot be combined with other commands.\n(Other filters are fine.)\n");
+      goto main_ret_INVALID_CMDLINE;
+    }
+    if (((pc.misc_flags & kfMiscMajRef) || pc.ref_allele_flag || pc.alt1_allele_flag) && (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Exportf)))) {
+      logerrprint("Error: Flags which alter REF/ALT1 allele settings (--maj-ref, --ref-allele,\n--alt1-allele) must be used with --make-bed/--make-{b}pgen/--export and no\nother commands.\n");
       goto main_ret_INVALID_CMDLINE;
     }
     if (aperm_present && (pc.command_flags1 & kfCommand1Glm) && (!(pc.glm_info.flags & kfGlmPerm))) {
@@ -7718,7 +7880,7 @@ int main(int argc, char** argv) {
 	}
 	*outname_end = '\0';
       }
-      const uint32_t calc_all_req = (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Validate | kfCommand1WriteSnplist | kfCommand1WriteCovar))) || ((pc.command_flags1 & kfCommand1MakePlink2) && (make_plink2_modifier & (kfMakeBed | kfMakePgen)));
+      const uint32_t calc_all_req = (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Validate | kfCommand1WriteSnplist | kfCommand1WriteCovar | kfCommand1WriteSamples))) || ((pc.command_flags1 & kfCommand1MakePlink2) && (make_plink2_modifier & (kfMakeBed | kfMakePgen)));
       if (calc_all_req || (pc.filter_flags & kfFilterAllReq)) {
 	if ((!xload) && (load_params != kfLoadParamsPfileAll)) {
 	  logerrprint("Error: A full fileset (.pgen/.bed + .pvar/.bim + .psam/.fam) is required for\nthis.\n");
@@ -7728,7 +7890,7 @@ int main(int argc, char** argv) {
 	// no genotype file required
 	pgenname[0] = '\0';
 	
-	const uint32_t calc_pvar_req = (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1WriteCovar))) || ((pc.command_flags1 & kfCommand1MakePlink2) && (make_plink2_modifier & (kfMakeBed | kfMakeBim | kfMakePgen | kfMakePvar)));
+	const uint32_t calc_pvar_req = (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1WriteCovar | kfCommand1WriteSamples))) || ((pc.command_flags1 & kfCommand1MakePlink2) && (make_plink2_modifier & (kfMakeBed | kfMakeBim | kfMakePgen | kfMakePvar)));
 	if (calc_pvar_req || (pc.filter_flags & kfFilterPvarReq)) {
 	  if ((!xload) && (!(load_params & kfLoadParamsPvar))) {
 	    logerrprint("Error: A .pvar/.bim file is required for this.\n");
@@ -7747,7 +7909,7 @@ int main(int argc, char** argv) {
 	  psamname[0] = '\0';
 	}
       }
-      if ((pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Validate | kfCommand1WriteSnplist | kfCommand1WriteCovar))) || ((pc.command_flags1 & kfCommand1MakePlink2) && (pc.sort_vars_flags == kfSort0))) {
+      if ((pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Validate | kfCommand1WriteSnplist | kfCommand1WriteCovar | kfCommand1WriteSamples))) || ((pc.command_flags1 & kfCommand1MakePlink2) && (pc.sort_vars_flags == kfSort0))) {
 	pc.filter_flags |= kfFilterNoSplitChr;
       }
 
@@ -7830,6 +7992,8 @@ int main(int argc, char** argv) {
   free_cond(flag_buf);
   free_cond(flag_map);
   free_cond(king_cutoff_fprefix);
+  free_cond(pc.alt1_allele_flag);
+  free_cond(pc.ref_allele_flag);
   free_cond(pc.loop_cats_phenoname);
   free_cond(pc.covar_quantnorm_flattened);
   free_cond(pc.quantnorm_flattened);

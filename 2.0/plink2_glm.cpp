@@ -1138,7 +1138,7 @@ boolerr_t glm_alloc_fill_and_test_pheno_covars_qt(const uintptr_t* sample_includ
   return 0;
 }
 
-boolerr_t glm_alloc_fill_and_test_pheno_covars_cc(const uintptr_t* sample_include, const uintptr_t* pheno_cc, const uintptr_t* covar_include, const pheno_col_t* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double vif_thresh, double max_corr, uintptr_t** pheno_cc_collapsed_ptr, float** pheno_f_ptr, float** covars_cmaj_f_ptr, char*** cur_covar_names_ptr, vif_corr_err_t* vif_corr_check_result_ptr) {
+boolerr_t glm_alloc_fill_and_test_pheno_covars_cc(const uintptr_t* sample_include, const uintptr_t* pheno_cc, const uintptr_t* covar_include, const pheno_col_t* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double vif_thresh, double max_corr, uintptr_t** pheno_cc_collapsed_ptr, uintptr_t** gcount_case_interleaved_vec_ptr, float** pheno_f_ptr, float** covars_cmaj_f_ptr, char*** cur_covar_names_ptr, vif_corr_err_t* vif_corr_check_result_ptr) {
   const uintptr_t sample_cta4 = round_up_pow2(sample_ct, 4);
   const uintptr_t new_covar_ct = covar_ct + extra_cat_ct;
   const uintptr_t new_nonlocal_covar_ct = new_covar_ct - local_covar_ct;
@@ -1175,6 +1175,13 @@ boolerr_t glm_alloc_fill_and_test_pheno_covars_cc(const uintptr_t* sample_includ
     covar_write_iter = &(covar_write_iter[sample_rem4]);
   }
   bigstack_reset(covars_cmaj_d);
+  if (gcount_case_interleaved_vec_ptr) {
+    const uint32_t sample_ctv = BITCT_TO_VECCT(sample_ct);
+    if (bigstack_alloc_ul(sample_ctv * kWordsPerVec, gcount_case_interleaved_vec_ptr)) {
+      return 1;
+    }
+    fill_interleaved_mask_vec(pheno_cc_collapsed, sample_ctv, *gcount_case_interleaved_vec_ptr);
+  }
   return 0;
 }
 
@@ -2434,6 +2441,9 @@ typedef struct {
   double alt_case_dosage;
 
   double mach_r2;
+
+  // case hom-ref, case ref-alt, case alt-alt, ctrl hom-ref, ...
+  uint32_t geno_hardcall_cts[6];
 } logistic_aux_result_t;
 
 typedef struct {
@@ -2467,9 +2477,12 @@ static uint32_t* g_sample_include_cumulative_popcounts = nullptr;
 static uint32_t* g_sample_include_x_cumulative_popcounts = nullptr;
 static uint32_t* g_sample_include_y_cumulative_popcounts = nullptr;
 static const uintptr_t* g_sex_male_collapsed = nullptr;
-static const uintptr_t* g_pheno_cc = nullptr;
+static uintptr_t* g_pheno_cc = nullptr;
 static uintptr_t* g_pheno_x_cc = nullptr;
 static uintptr_t* g_pheno_y_cc = nullptr;
+static uintptr_t* g_gcount_case_interleaved_vec = nullptr;
+static uintptr_t* g_gcount_case_interleaved_vec_x = nullptr;
+static uintptr_t* g_gcount_case_interleaved_vec_y = nullptr;
 static const float* g_pheno_f = nullptr;
 static float* g_pheno_x_f = nullptr;
 static float* g_pheno_y_f = nullptr;
@@ -2480,7 +2493,7 @@ static const float* g_covars_cmaj_f = nullptr;
 static float* g_covars_cmaj_x_f = nullptr;
 static float* g_covars_cmaj_y_f = nullptr;
 static float* g_local_covars_vcmaj_f[2] = {nullptr, nullptr};
-static const double* g_pheno_d = nullptr;
+static double* g_pheno_d = nullptr;
 static double* g_pheno_x_d = nullptr;
 static double* g_pheno_y_d = nullptr;
 static const double* g_covars_cmaj_d = nullptr;
@@ -2603,6 +2616,7 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
       const uintptr_t* cur_sample_include;
       const uint32_t* cur_sample_include_cumulative_popcounts;
       const uintptr_t* cur_pheno_cc;
+      const uintptr_t* cur_gcount_case_interleaved_vec;
       const float* cur_pheno;
       const float* cur_covars_cmaj;
       const uintptr_t* cur_parameter_subset;
@@ -2615,6 +2629,7 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
 	cur_sample_include = g_sample_include_y;
 	cur_sample_include_cumulative_popcounts = g_sample_include_y_cumulative_popcounts;
 	cur_pheno_cc = g_pheno_y_cc;
+	cur_gcount_case_interleaved_vec = g_gcount_case_interleaved_vec_y;
 	cur_pheno = g_pheno_y_f;
 	cur_covars_cmaj = g_covars_cmaj_y_f;
 	cur_parameter_subset = g_parameter_subset_y;
@@ -2626,6 +2641,7 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
 	cur_sample_include = g_sample_include_x;
 	cur_sample_include_cumulative_popcounts = g_sample_include_x_cumulative_popcounts;
 	cur_pheno_cc = g_pheno_x_cc;
+	cur_gcount_case_interleaved_vec = g_gcount_case_interleaved_vec_x;
 	cur_pheno = g_pheno_x_f;
 	cur_covars_cmaj = g_covars_cmaj_x_f;
 	cur_parameter_subset = g_parameter_subset_x;
@@ -2637,6 +2653,7 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
 	cur_sample_include = g_sample_include;
 	cur_sample_include_cumulative_popcounts = g_sample_include_cumulative_popcounts;
 	cur_pheno_cc = g_pheno_cc;
+	cur_gcount_case_interleaved_vec = g_gcount_case_interleaved_vec;
 	cur_pheno = g_pheno_f;
 	cur_covars_cmaj = g_covars_cmaj_f;
 	cur_parameter_subset = g_parameter_subset;
@@ -2647,6 +2664,7 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
       }
       const uint32_t sample_ctl = BITCT_TO_WORDCT(cur_sample_ct);
       const uint32_t sample_cta4 = round_up_pow2(cur_sample_ct, 4);
+      const uint32_t cur_case_ct = popcount_longs(cur_pheno_cc, sample_ctl);
       const uint32_t cur_predictor_ct_base = 2 + domdev_present + cur_covar_ct * (1 + add_interactions * domdev_present_p1);
       uint32_t cur_predictor_ct = cur_predictor_ct_base;
       if (cur_parameter_subset) {
@@ -2734,6 +2752,16 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
 	      missing_ct = cur_sample_ct - popcount_longs(sample_nm, sample_ctl);
 	    }
 	  }
+
+          if (cur_gcount_case_interleaved_vec) {
+	    // gcountcc
+	    uint32_t* cur_geno_hardcall_cts = block_aux_iter->geno_hardcall_cts;
+	    genovec_count_subset_freqs(genovec, cur_gcount_case_interleaved_vec, cur_sample_ct, cur_case_ct, cur_geno_hardcall_cts);
+	    for (uint32_t geno_hardcall_idx = 0; geno_hardcall_idx < 3; ++geno_hardcall_idx) {
+	      cur_geno_hardcall_cts[3 + geno_hardcall_idx] = genocounts[geno_hardcall_idx] - cur_geno_hardcall_cts[geno_hardcall_idx];
+	    }
+	  }
+
 	  uint32_t nm_sample_ct = cur_sample_ct - missing_ct;
 	  // todo: alt2/alt3/etc. dosage > 0.5 -> missing
 	  const uint32_t nm_sample_ctl = BITCT_TO_WORDCT(nm_sample_ct);
@@ -3620,6 +3648,7 @@ pglerr_t glm_logistic(const char* cur_pheno_name, char** test_names, char** test
     const uint32_t tot_allele_col = glm_cols & kfGlmColTotallele;
     const uint32_t alt_ct_cc_col = glm_cols & kfGlmColAltcountcc;
     const uint32_t tot_allele_cc_col = glm_cols & kfGlmColTotallelecc;
+    const uint32_t gcount_cc_col = glm_cols & kfGlmColGcountcc;
     const uint32_t alt_freq_col = glm_cols & kfGlmColAltfreq;
     const uint32_t alt_freq_cc_col = glm_cols & kfGlmColAltfreqcc;
     const uint32_t mach_r2_col = glm_cols & kfGlmColMachR2;
@@ -3660,6 +3689,9 @@ pglerr_t glm_logistic(const char* cur_pheno_name, char** test_names, char** test
     }
     if (tot_allele_cc_col) {
       cswritep = strcpya(cswritep, "\tCASE_ALLELE_CT\tCTRL_ALLELE_CT");
+    }
+    if (gcount_cc_col) {
+      cswritep = strcpya(cswritep, "\tCASE_HOM_REF_CT\tCASE_HET_REF_CT\tCASE_NONREF_CT\tCTRL_HOM_REF_CT\tCTRL_HET_REF_CT\tCTRL_NONREF_CT");
     }
     if (alt_freq_col) {
       cswritep = strcpya(cswritep, "\tALT_FREQ");
@@ -3924,6 +3956,13 @@ pglerr_t glm_logistic(const char* cur_pheno_name, char** test_names, char** test
 	      *cswritep++ = '\t';
 	      cswritep = uint32toa_x(auxp->case_allele_obs_ct, '\t', cswritep);
 	      cswritep = uint32toa(auxp->allele_obs_ct - auxp->case_allele_obs_ct, cswritep);
+	    }
+	    if (gcount_cc_col) {
+              const uint32_t* cur_geno_hardcall_cts = auxp->geno_hardcall_cts;
+	      for (uint32_t uii = 0; uii < 6; ++uii) {
+		*cswritep++ = '\t';
+		cswritep = uint32toa(cur_geno_hardcall_cts[uii], cswritep);
+	      }
 	    }
 	    if (alt_freq_col) {
 	      *cswritep++ = '\t';
@@ -5398,7 +5437,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
     unsigned char* overflow_buf;
     uintptr_t* cur_sample_include;
     // synthetic categorical covariate name could be ~twice max ID length?
-    if (bigstack_alloc_uc(kCompressStreamBlock + 2 * kMaxIdSlen + max_chr_blen + kMaxIdSlen + 512 + 2 * max_allele_slen, &overflow_buf) ||
+    if (bigstack_alloc_uc(kCompressStreamBlock + 2 * kMaxIdSlen + max_chr_blen + kMaxIdSlen + 1024 + 2 * max_allele_slen, &overflow_buf) ||
 	bigstack_alloc_ul(raw_sample_ctl, &cur_sample_include) ||
 	bigstack_alloc_ui(raw_sample_ctl, &g_sample_include_cumulative_popcounts)) {
       goto glm_main_ret_NOMEM;
@@ -5936,6 +5975,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
     const uint32_t is_sometimes_firth = (glm_flags & (kfGlmFirthFallback | kfGlmFirth))? 1 : 0;
     const uint32_t is_always_firth = glm_flags & kfGlmFirth;
     const uint32_t glm_pos_col = glm_info_ptr->cols & kfGlmColPos;
+    const uint32_t gcount_cc_col = glm_info_ptr->cols & kfGlmColGcountcc;
 
     unsigned char* bigstack_mark2 = g_bigstack_base;
     for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
@@ -6168,20 +6208,18 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
 
       // Expand categorical covariates and perform VIF and correlation checks
       // here.
-      double* pheno_d = nullptr;
       double* covars_cmaj_d = nullptr;
       // double* covar_dotprod_d = nullptr;
-      uintptr_t* pheno_cc = nullptr;
       float* pheno_f = nullptr;
       float* covars_cmaj_f = nullptr;
       char** cur_covar_names = nullptr;
       vif_corr_err_t vif_corr_check_result;
       if (is_logistic) {
-	if (glm_alloc_fill_and_test_pheno_covars_cc(cur_sample_include, cur_pheno_col->data.cc, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, vif_thresh, glm_info_ptr->max_corr, &pheno_cc, &pheno_f, &covars_cmaj_f, &cur_covar_names, &vif_corr_check_result)) {
+	if (glm_alloc_fill_and_test_pheno_covars_cc(cur_sample_include, cur_pheno_col->data.cc, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, vif_thresh, glm_info_ptr->max_corr, &g_pheno_cc, gcount_cc_col? (&g_gcount_case_interleaved_vec) : nullptr, &pheno_f, &covars_cmaj_f, &cur_covar_names, &vif_corr_check_result)) {
 	  goto glm_main_ret_NOMEM;
 	}
       } else {
-	if (glm_alloc_fill_and_test_pheno_covars_qt(cur_sample_include, cur_pheno_col->data.qt, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, vif_thresh, glm_info_ptr->max_corr, &pheno_d, &covars_cmaj_d, &cur_covar_names, &vif_corr_check_result)) {
+	if (glm_alloc_fill_and_test_pheno_covars_qt(cur_sample_include, cur_pheno_col->data.qt, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, vif_thresh, glm_info_ptr->max_corr, &g_pheno_d, &covars_cmaj_d, &cur_covar_names, &vif_corr_check_result)) {
 	  goto glm_main_ret_NOMEM;
 	}
       }
@@ -6201,7 +6239,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
       char** cur_covar_names_x = nullptr;
       if (sample_ct_x) {
 	if (is_logistic) {
-	  if (glm_alloc_fill_and_test_pheno_covars_cc(cur_sample_include_x, cur_pheno_col->data.cc, covar_include_x, covar_cols, covar_names, sample_ct_x, covar_ct_x, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, vif_thresh, glm_info_ptr->max_corr, &g_pheno_x_cc, &g_pheno_x_f, &g_covars_cmaj_x_f, &cur_covar_names_x, &vif_corr_check_result)) {
+	  if (glm_alloc_fill_and_test_pheno_covars_cc(cur_sample_include_x, cur_pheno_col->data.cc, covar_include_x, covar_cols, covar_names, sample_ct_x, covar_ct_x, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, vif_thresh, glm_info_ptr->max_corr, &g_pheno_x_cc, gcount_cc_col? (&g_gcount_case_interleaved_vec_x) : nullptr, &g_pheno_x_f, &g_covars_cmaj_x_f, &cur_covar_names_x, &vif_corr_check_result)) {
 	    goto glm_main_ret_NOMEM;
 	  }
 	} else {
@@ -6226,7 +6264,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
       char** cur_covar_names_y = nullptr;
       if (sample_ct_y) {
 	if (is_logistic) {
-	  if (glm_alloc_fill_and_test_pheno_covars_cc(cur_sample_include_y, cur_pheno_col->data.cc, covar_include_y, covar_cols, covar_names, sample_ct_y, covar_ct_y, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, vif_thresh, glm_info_ptr->max_corr, &g_pheno_y_cc, &g_pheno_y_f, &g_covars_cmaj_y_f, &cur_covar_names_y, &vif_corr_check_result)) {
+	  if (glm_alloc_fill_and_test_pheno_covars_cc(cur_sample_include_y, cur_pheno_col->data.cc, covar_include_y, covar_cols, covar_names, sample_ct_y, covar_ct_y, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, vif_thresh, glm_info_ptr->max_corr, &g_pheno_y_cc, gcount_cc_col? (&g_gcount_case_interleaved_vec_y) : nullptr, &g_pheno_y_f, &g_covars_cmaj_y_f, &cur_covar_names_y, &vif_corr_check_result)) {
 	    goto glm_main_ret_NOMEM;
 	  }
 	} else {
@@ -6409,7 +6447,6 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
       g_variant_ct = cur_variant_ct;
       char* outname_end2 = strcpya(&(outname_end[1]), cur_pheno_name);
       if (is_logistic) {
-	g_pheno_cc = pheno_cc;
 	g_pheno_f = pheno_f;
 	g_covars_cmaj_f = covars_cmaj_f;
 	if (is_always_firth) {
@@ -6420,7 +6457,6 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
 	  outname_end2 = strcpya(outname_end2, ".glm.logistic");
 	}
       } else {
-	g_pheno_d = pheno_d;
 	g_covars_cmaj_d = covars_cmaj_d;
 	outname_end2 = strcpya(outname_end2, ".glm.linear");
       }

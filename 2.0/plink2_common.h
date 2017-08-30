@@ -158,7 +158,9 @@ FLAGSET64_DEF_START()
   kfMiscNewVarIdOverflowTruncate = (1LLU << 35),
   kfMiscRequirePheno = (1LLU << 36),
   kfMiscRequireCovar = (1LLU << 37),
-  kfMiscCatPhenoFamily = (1LLU << 38)
+  kfMiscCatPhenoFamily = (1LLU << 38),
+  kfMiscRefAlleleForce = (1LLU << 39),
+  kfMiscAlt1AlleleForce = (1LLU << 40)
 FLAGSET64_DEF_END(misc_flags_t);
 
 FLAGSET64_DEF_START()
@@ -1767,6 +1769,14 @@ ENUM_U31_DEF_START()
   kSidDetectModeForce
 ENUM_U31_DEF_END(sid_detect_mode_t);
 
+
+typedef struct two_col_params_struct {
+  uint32_t colx;
+  uint32_t colid;
+  uint32_t skip_ct;
+  char skipchar;
+  char fname[];
+} two_col_params_t;
 
 typedef struct range_list_struct {
   char* names;

@@ -38,6 +38,13 @@ namespace plink2 {
 // Also sets 128k read buffer.
 pglerr_t gzopen_read_checked(const char* fname, gzFile* gzf_ptr);
 
+// This sets loadbuf[loadbuf_size - 1] to ' ', just because.
+// loadbuf_size assumed to be either exactly kMaxMediumLine (in which case
+// any longer line is treated as pathological), or strictly larger (in which
+// case we report an out-of-memory error when gzgets blows the buffer, unless
+// loadbuf_size == kMaxLongLine, which is close to 2GB).
+pglerr_t gzopen_and_skip_first_lines(const char* fname, uint32_t lines_to_skip, uintptr_t loadbuf_size, char* loadbuf, gzFile* gzf_ptr);
+
 // plink2_compress_stream interface should be used for writing .gz files.
 
 HEADER_INLINE boolerr_t gzclose_null(gzFile* gzf_ptr) {

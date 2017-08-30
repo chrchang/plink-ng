@@ -34,6 +34,30 @@ pglerr_t gzopen_read_checked(const char* fname, gzFile* gzf_ptr) {
   return kPglRetSuccess;
 }
 
+pglerr_t gzopen_and_skip_first_lines(const char* fname, uint32_t lines_to_skip, uintptr_t loadbuf_size, char* loadbuf, gzFile* gzf_ptr) {
+  pglerr_t reterr = gzopen_read_checked(fname, gzf_ptr);
+  if (reterr) {
+    return reterr;
+  }
+  loadbuf[loadbuf_size - 1] = ' ';
+  for (uint32_t line_idx = 1; line_idx <= lines_to_skip; ++line_idx) {
+    if (!gzgets(*gzf_ptr, loadbuf, loadbuf_size)) {
+      if (gzeof(*gzf_ptr)) {
+	LOGERRPRINTFWW("Error: Fewer lines than expected in %s.\n", fname);
+	return kPglRetInconsistentInput;
+      }
+      return kPglRetReadFail;
+    }
+    if (!loadbuf[loadbuf_size - 1]) {
+      if ((loadbuf_size == kMaxMediumLine) || (loadbuf_size == kMaxLongLine)) {
+	LOGERRPRINTFWW("Error: Line %u of %s is pathologically long.\n", fname);
+	return kPglRetMalformedInput;
+      }
+      return kPglRetNomem;
+    }
+  }
+}
+
 
 pglerr_t load_xid_header(const char* flag_name, sid_detect_mode_t sid_detect_mode, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, xid_mode_t* xid_mode_ptr) {
   // possible todo: support comma delimiter
