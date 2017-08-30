@@ -50,12 +50,13 @@ pglerr_t gzopen_and_skip_first_lines(const char* fname, uint32_t lines_to_skip, 
     }
     if (!loadbuf[loadbuf_size - 1]) {
       if ((loadbuf_size == kMaxMediumLine) || (loadbuf_size == kMaxLongLine)) {
-	LOGERRPRINTFWW("Error: Line %u of %s is pathologically long.\n", fname);
+	LOGERRPRINTFWW("Error: Line %u of %s is pathologically long.\n", line_idx, fname);
 	return kPglRetMalformedInput;
       }
       return kPglRetNomem;
     }
   }
+  return kPglRetSuccess;
 }
 
 
