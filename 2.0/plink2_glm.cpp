@@ -4403,10 +4403,7 @@ THREAD_FUNC_DECL glm_linear_thread(void* arg) {
 	inner_buf = (double*)arena_alloc_raw_rd(cur_constraint_ct * cur_constraint_ct * sizeof(double), &workspace_iter);
       }
       assert((uintptr_t)(workspace_iter - workspace_buf) == get_linear_workspace_size(cur_sample_ct, cur_predictor_ct, cur_constraint_ct, genod_buffer_needed));
-      double pheno_ssq_base = 0.0;
-      for (uint32_t sample_idx = 0; sample_idx < cur_sample_ct; ++sample_idx) {
-	pheno_ssq_base += cur_pheno[sample_idx] * cur_pheno[sample_idx];
-      }
+      const double pheno_ssq_base = dotprod_d(cur_pheno, cur_pheno, cur_sample_ct);
       pgr_clear_ld_cache(pgrp);
       uint32_t genocounts[4];
       for (; variant_bidx < cur_variant_bidx_end; ++variant_bidx, ++variant_uidx) {

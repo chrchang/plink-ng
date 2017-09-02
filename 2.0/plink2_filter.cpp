@@ -515,7 +515,7 @@ pglerr_t keep_or_remove(const char* fnames, const char* sample_ids, const char* 
     if (duplicate_ct) {
       // "At least" since this does not count duplicate IDs absent from the
       // .fam.
-      LOGERRPRINTF("Warning: At least %" PRIuPTR " duplicate ID%s in --%s file.(s)\n", duplicate_ct, (duplicate_ct == 1)? "" : "s", flag_name);
+      LOGERRPRINTF("Warning: At least %" PRIuPTR " duplicate ID%s in --%s file(s).\n", duplicate_ct, (duplicate_ct == 1)? "" : "s", flag_name);
     }
   }
   while (0) {

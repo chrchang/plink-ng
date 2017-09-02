@@ -40,6 +40,7 @@
 #else // not NOLAPACK
   #ifdef __APPLE__
     #include <Accelerate/Accelerate.h>
+    #define USE_CBLAS_XGEMM
   #endif
 
   #ifndef __APPLE__
@@ -72,6 +73,11 @@ extern "C" {
 }
     #endif
 
+    #ifndef _WIN32 // Linux
+      #ifdef USE_MKL
+        #define USE_CBLAS_XGEMM
+      #endif
+    #endif
   #endif // !__APPLE__
 
   typedef __CLPK_integer matrix_invert_buf1_t;
@@ -91,6 +97,22 @@ namespace plink2 {
 static const double kMatrixSingularRcond = 1e-14;
 
 #ifdef NOLAPACK
+HEADER_INLINE double dotprod_d(const double* vec1, const double* vec2, uint32_t ct) {
+  double dotprod = 0.0;
+  for (uint32_t uii = 0; uii < ct; ++uii) {
+    dotprod += vec1[uii] * vec2[uii];
+  }
+  return dotprod;
+}
+
+HEADER_INLINE float dotprod_f(const float* vec1, const float* vec2, uint32_t ct) {
+  float dotprod = 0.0;
+  for (uint32_t uii = 0; uii < ct; ++uii) {
+    dotprod += vec1[uii] * vec2[uii];
+  }
+  return dotprod;
+}
+
 boolerr_t invert_matrix(int32_t dim, double* matrix, matrix_invert_buf1_t* dbl_1d_buf, double* dbl_2d_buf);
 
 HEADER_INLINE boolerr_t invert_matrix_checked(int32_t dim, double* matrix, matrix_invert_buf1_t* dbl_1d_buf, double* dbl_2d_buf) {
@@ -107,6 +129,32 @@ boolerr_t invert_fmatrix_first_half(int32_t dim, int32_t stride, float* matrix, 
 
 void invert_fmatrix_second_half(int32_t dim, int32_t stride, float* matrix, matrix_finvert_buf1_t* flt_1d_buf, float* flt_2d_buf);
 #else
+HEADER_INLINE double dotprod_d(const double* vec1, const double* vec2, uint32_t ct) {
+  #ifndef USE_CBLAS_XGEMM
+  // probably use blas ddot, but test first
+  double dotprod = 0.0;
+  for (uint32_t uii = 0; uii < ct; ++uii) {
+    dotprod += vec1[uii] * vec2[uii];
+  }
+  return dotprod;
+  #else
+  return cblas_ddot(ct, vec1, 1, vec2, 1);
+  #endif
+}
+
+HEADER_INLINE float dotprod_f(const float* vec1, const float* vec2, uint32_t ct) {
+  #ifndef USE_CBLAS_XGEMM
+  // probably use blas ddot, but test first
+  float dotprod = 0.0;
+  for (uint32_t uii = 0; uii < ct; ++uii) {
+    dotprod += vec1[uii] * vec2[uii];
+  }
+  return dotprod;
+  #else
+  return cblas_sdot(ct, vec1, 1, vec2, 1);
+  #endif
+}
+
 boolerr_t invert_matrix(__CLPK_integer dim, double* matrix, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf);
 
 boolerr_t invert_matrix_checked(__CLPK_integer dim, double* matrix, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf);

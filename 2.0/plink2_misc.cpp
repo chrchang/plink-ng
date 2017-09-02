@@ -1145,7 +1145,9 @@ pglerr_t pheno_quantile_normalize(const char* quantnorm_flattened, const uintptr
       double* pheno_qt = cur_pheno_col->data.qt;
       uint32_t sample_uidx = 0;
       for (uint32_t sample_idx = 0; sample_idx < cur_sample_ct; ++sample_idx, ++sample_uidx) {
-	next_set_unsafe_ck(sample_include, &sample_uidx);
+	// bugfix (1 Sep 2017): this needs to iterate over pheno_nm, not
+	// sample_include
+	next_set_unsafe_ck(pheno_nm, &sample_uidx);
 	tagged_raw_pheno_vals[sample_idx].dxx = pheno_qt[sample_uidx];
 	tagged_raw_pheno_vals[sample_idx].uii = sample_uidx;
       }

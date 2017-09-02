@@ -2011,12 +2011,8 @@ double SNPHWEX(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, in
 boolerr_t linear_hypothesis_chisq_f(const float* coef, const float* constraints_con_major, const float* cov_matrix, uint32_t constraint_ct, uint32_t predictor_ct, uint32_t cov_stride, double* chisq_ptr, float* tmphxs_buf, float* h_transpose_buf, float* inner_buf, matrix_finvert_buf1_t* mi_buf, float* outer_buf) {
   const float* constraints_con_major_iter = constraints_con_major;
   for (uint32_t constraint_idx = 0; constraint_idx < constraint_ct; constraint_idx++) {
-    float cur_outer_term = 0.0;
-    const float* coef_iter = coef;
-    for (uint32_t pred_idx = 0; pred_idx < predictor_ct; ++pred_idx) {
-      cur_outer_term += (*constraints_con_major_iter++) * (*coef_iter++);
-    }
-    outer_buf[constraint_idx] = cur_outer_term;
+    outer_buf[constraint_idx] = dotprod_f(constraints_con_major_iter, coef, predictor_ct);
+    constraints_con_major_iter = &(constraints_con_major_iter[predictor_ct]);
   }
   // h-transpose does not have a special stride
   transpose_copy_float(constraints_con_major, constraint_ct, predictor_ct, predictor_ct, h_transpose_buf);
@@ -2062,12 +2058,8 @@ boolerr_t linear_hypothesis_chisq(const double* coef, const double* constraints_
   // the more general interface later.
   const double* constraints_con_major_iter = constraints_con_major;
   for (uintptr_t constraint_idx = 0; constraint_idx < constraint_ct; constraint_idx++) {
-    double cur_outer_term = 0.0;
-    const double* coef_iter = coef;
-    for (uintptr_t pred_idx = 0; pred_idx < predictor_ct; ++pred_idx) {
-      cur_outer_term += (*constraints_con_major_iter++) * (*coef_iter++);
-    }
-    outer_buf[constraint_idx] = cur_outer_term;
+    outer_buf[constraint_idx] = dotprod_d(constraints_con_major_iter, coef, predictor_ct);
+    constraints_con_major_iter = &(constraints_con_major_iter[predictor_ct]);
   }
   transpose_copy(constraints_con_major, constraint_ct, predictor_ct, h_transpose_buf);
   col_major_matrix_multiply(h_transpose_buf, cov_matrix, constraint_ct, predictor_ct, predictor_ct, tmphxs_buf);
@@ -2082,12 +2074,8 @@ boolerr_t linear_hypothesis_chisq(const double* coef, const double* constraints_
   double result = 0.0;
   const double* inner_iter = inner_buf;
   for (uintptr_t constraint_idx = 0; constraint_idx < constraint_ct; ++constraint_idx) {
-    double cur_dotprod = 0.0; // tmp2[c]
-    const double* outer_iter = outer_buf;
-    for (uintptr_t constraint_idx2 = 0; constraint_idx2 < constraint_ct; ++constraint_idx2) {
-      cur_dotprod += (*inner_iter++) * (*outer_iter++);
-    }
-    result += cur_dotprod * outer_buf[constraint_idx];
+    result += dotprod_d(inner_iter, outer_buf, constraint_ct) * outer_buf[constraint_idx];
+    inner_iter = &(inner_iter[constraint_ct]);
   }
   if (result < 0.0) {
     // guard against floating point error

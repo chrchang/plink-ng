@@ -18,9 +18,6 @@
 #include "plink2_matrix.h"
 
 #ifndef NOLAPACK
-  #ifdef __APPLE__
-    #define USE_CBLAS_XGEMM
-  #endif
   #ifndef __APPLE__
 
     #ifdef __cplusplus
@@ -57,7 +54,6 @@ extern "C" {
 
     #else // Linux
       #ifdef USE_MKL
-        #define USE_CBLAS_XGEMM
         #ifdef DYNAMIC_MKL
           #include <mkl_cblas.h>
           #include <mkl_lapack.h>
@@ -869,23 +865,18 @@ void invert_fmatrix_second_half(__CLPK_integer dim, __CLPK_integer stride, float
 
 void col_major_matrix_multiply(const double* inmatrix1, const double* inmatrix2, __CLPK_integer row1_ct, __CLPK_integer col2_ct, __CLPK_integer common_ct, double* outmatrix) {
 #ifdef NOLAPACK
-  uintptr_t row1_ct_l = row1_ct;
-  uintptr_t col2_ct_l = col2_ct;
-  uintptr_t common_ct_l = common_ct;
-  uintptr_t row_idx;
-  uintptr_t col_idx;
-  uintptr_t com_idx;
-  const double* dptr;
-  double dxx;
+  const uintptr_t row1_ct_l = row1_ct;
+  const uintptr_t col2_ct_l = col2_ct;
+  const uintptr_t common_ct_l = common_ct;
   // not optimized
-  for (col_idx = 0; col_idx < col2_ct_l; col_idx++) {
-    for (row_idx = 0; row_idx < row1_ct_l; row_idx++) {
-      dxx = 0;
-      dptr = &(inmatrix2[col_idx * common_ct]);
-      for (com_idx = 0; com_idx < common_ct_l; com_idx++) {
-        dxx += (*dptr++) * inmatrix1[com_idx * row1_ct_l + row_idx];
+  for (uintptr_t col_idx = 0; col_idx < col2_ct_l; ++col_idx) {
+    for (uintptr_t row_idx = 0; row_idx < row1_ct_l; ++row_idx) {
+      double cur_dotprod = 0.0;
+      const double* dptr = &(inmatrix2[col_idx * common_ct]);
+      for (uintptr_t com_idx = 0; com_idx < common_ct_l; ++com_idx) {
+        cur_dotprod += (*dptr++) * inmatrix1[com_idx * row1_ct_l + row_idx];
       }
-      *outmatrix++ = dxx;
+      *outmatrix++ = cur_dotprod;
     }
   }
 #else
@@ -896,7 +887,21 @@ void col_major_matrix_multiply(const double* inmatrix1, const double* inmatrix2,
   // const_cast
   dgemm_(&blas_char, &blas_char, &row1_ct, &col2_ct, &common_ct, &dyy, (double*)((uintptr_t)inmatrix1), &row1_ct, (double*)((uintptr_t)inmatrix2), &common_ct, &dzz, outmatrix, &row1_ct);
   #else
+    #ifdef LAPACK_ILP64
   cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, row1_ct, col2_ct, common_ct, 1.0, inmatrix1, row1_ct, inmatrix2, common_ct, 0.0, outmatrix, row1_ct);
+    #else
+  // bugfix (30 Aug 2017): this fails on OS X when LDB > sqrt(2^31).
+  // update: Windows does not have the same problem
+  if (common_ct <= 46340) {
+    cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, row1_ct, col2_ct, common_ct, 1.0, inmatrix1, row1_ct, inmatrix2, common_ct, 0.0, outmatrix, row1_ct);
+    return;
+  }
+  for (__CLPK_integer col_idx = 0; col_idx < col2_ct; ++col_idx) {
+    cblas_dgemv(CblasColMajor, CblasNoTrans, row1_ct, common_ct, 1.0, inmatrix1, row1_ct, inmatrix2, 1, 0.0, outmatrix, 1);
+    inmatrix2 = &(inmatrix2[(uint32_t)common_ct]);
+    outmatrix = &(outmatrix[(uint32_t)row1_ct]);
+  }
+    #endif
   #endif // USE_CBLAS_XGEMM
 #endif // !NOLAPACK
 }
@@ -1049,11 +1054,7 @@ void multiply_self_transpose(double* input_matrix, uint32_t dim, uint32_t col_ct
     double* result_row = &(result[row1_idx * dim]);
     for (uintptr_t row2_idx = 0; row2_idx <= row1_idx; ++row2_idx) {
       const double* pred_row2 = &(input_matrix[row2_idx * col_ct]);
-      double cur_dotprod = 0.0;
-      for (uint32_t col_idx = 0; col_idx < col_ct; ++col_idx) {
-	cur_dotprod += pred_row1[col_idx] * pred_row2[col_idx];
-      }
-      result_row[row2_idx] = cur_dotprod;
+      result_row[row2_idx] = dotprod_d(pred_row1, pred_row2, col_ct);
     }
   }
 #else
@@ -1066,7 +1067,26 @@ void multiply_self_transpose(double* input_matrix, uint32_t dim, uint32_t col_ct
   double beta = 0.0;
   dsyrk_(&uplo, &trans, &tmp_n, &tmp_k, &alpha, input_matrix, &tmp_k, &beta, result, &tmp_n);
   #else
+    #ifdef LAPACK_ILP64
   cblas_dsyrk(CblasColMajor, CblasUpper, CblasTrans, dim, col_ct, 1.0, input_matrix, col_ct, 0.0, result, dim);
+    #else
+  if (col_ct <= 46340) {
+    // bugfix (30 Aug 2017): for LDA > sqrt(2^31), this fails on OS X.
+    // todo: check if this is also a problem on Windows (it probably is...)
+    cblas_dsyrk(CblasColMajor, CblasUpper, CblasTrans, dim, col_ct, 1.0, input_matrix, col_ct, 0.0, result, dim);
+    return;
+  }
+  // this actually seems to be faster than dsyrk for small dim (at least on OS
+  // X), but that might change in the future so I won't "optimize" dispatch
+  for (uintptr_t row1_idx = 0; row1_idx < dim; ++row1_idx) {
+    const double* pred_row1 = &(input_matrix[row1_idx * col_ct]);
+    double* result_row = &(result[row1_idx * dim]);
+    for (uintptr_t row2_idx = 0; row2_idx <= row1_idx; ++row2_idx) {
+      const double* pred_row2 = &(input_matrix[row2_idx * col_ct]);
+      result_row[row2_idx] = dotprod_d(pred_row1, pred_row2, col_ct);
+    }
+  }
+    #endif
   #endif
 #endif
 }
