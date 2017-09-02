@@ -53,47 +53,7 @@ extern "C" {
               float* beta, float* c, int* ldc);
 
     #else // Linux
-      #ifdef USE_MKL
-        #ifdef DYNAMIC_MKL
-          #include <mkl_cblas.h>
-          #include <mkl_lapack.h>
-        #else
-          #include "/opt/intel/mkl/include/mkl_cblas.h"
-          #include "/opt/intel/mkl/include/mkl_lapack.h"
-        #endif
-        static_assert(sizeof(MKL_INT) == 8, "Unexpected MKL_INT size.");
-      #else
-        // If you want 64-bit index support, but not MKL (e.g. you're targeting
-        // an AMD processor), modify the Makefile to link to a LAPACK library
-        // recompiled with -fdefault-integer-8.
-
-        #ifdef USE_CBLAS_XGEMM
-	  #include <cblas.h>
-	#else
-	  // ARGH
-	  // cmake on Ubuntu 14 seems to require use of cblas_f77.h instead of
-	  // cblas.h.  Conversely, cblas_f77.h does not seem to be available on
-	  // the Scientific Linux ATLAS/LAPACK install, and right now that's my
-	  // only option for producing 32-bit static builds...
-          // So.  Default include is cblas.h.  To play well with cmake + Ubuntu
-          // 14 and 16 simultaneously, there is a CBLAS_F77_ON_OLD_GCC mode
-          // which picks cblas_f77.h on Ubuntu 14 and cblas.h on 16.
-          #ifdef FORCE_CBLAS_F77
-            #include <cblas_f77.h>
-          #elif !defined(CBLAS_F77_ON_OLD_GCC)
-            #include <cblas.h>
-          #else
-	    #if (__GNUC__ <= 4)
-              #include <cblas_f77.h>
-            #else
-	      #if __has_include(<cblas.h>)
-	        #include <cblas.h>
-	      #else
-	        #include <cblas_f77.h>
-	      #endif
-            #endif
-	  #endif
-	#endif
+      #ifndef USE_MKL
   int dgetrf_(__CLPK_integer* m, __CLPK_integer* n,
               __CLPK_doublereal* a, __CLPK_integer* lda,
               __CLPK_integer* ipiv, __CLPK_integer* info);
