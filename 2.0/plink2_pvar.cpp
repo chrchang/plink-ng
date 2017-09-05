@@ -728,6 +728,7 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
     const uint32_t merge_par = (misc_flags / kfMiscMergePar) & 1;
     const int32_t x_code = cip->xymt_codes[kChrOffsetX];
     const int32_t par2_code = cip->xymt_codes[kChrOffsetPAR2];
+    const char input_missing_geno_char = *g_input_missing_geno_ptr;
     int32_t parx_code = cip->xymt_codes[kChrOffsetPAR1];
     uint32_t merge_par_ct = 0;
 
@@ -740,7 +741,7 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
     }
 
     if (snps_only > 1) {
-      acgtm_bool_table[(unsigned char)(*g_input_missing_geno_ptr)] = 1;
+      acgtm_bool_table[(unsigned char)input_missing_geno_char] = 1;
     }
     
     uint32_t* cur_bps = nullptr;
@@ -1151,8 +1152,12 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 	  char* ref_allele = token_ptrs[2];
 	  const uint32_t ref_slen = token_slens[2];
 	  if (ref_slen == 1) {
+	    char geno_char = ref_allele[0];
+	    if (geno_char == input_missing_geno_char) {
+	      geno_char = '.';
+	    }
 	    // const_cast
-	    *allele_storage_iter = (char*)((uintptr_t)(&(g_one_char_strs[2 * ref_allele[0]])));
+	    *allele_storage_iter = (char*)((uintptr_t)(&(g_one_char_strs[2 * ((unsigned char)geno_char)])));
 	  } else {
 	    tmp_alloc_end -= ref_slen + 1;
 	    if (tmp_alloc_end < tmp_alloc_base) {
@@ -1173,10 +1178,13 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 		goto load_pvar_ret_NOMEM;
 	      }
 	      const uint32_t cur_allele_slen = (uintptr_t)(alt_allele_iter - loadbuf_iter);
-	      // possible todo: convert '0' to '.' here?
 	      if (cur_allele_slen == 1) {
+		char geno_char = loadbuf_iter[0];
+		if (geno_char == input_missing_geno_char) {
+		  geno_char = '.';
+		}
 		// const_cast
-		*allele_storage_iter = (char*)((uintptr_t)(&(g_one_char_strs[2 * loadbuf_iter[0]])));
+		*allele_storage_iter = (char*)((uintptr_t)(&(g_one_char_strs[2 * ((unsigned char)geno_char)])));
 	      } else {
 		if (!cur_allele_slen) {
 		  goto load_pvar_ret_EMPTY_ALLELE_CODE;
@@ -1202,7 +1210,11 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 	  }
 	  if (remaining_alt_char_ct == 1) {
 	    // const_cast
-	    *allele_storage_iter = (char*)((uintptr_t)(&(g_one_char_strs[2 * loadbuf_iter[0]])));
+	    char geno_char = loadbuf_iter[0];
+	    if (geno_char == input_missing_geno_char) {
+	      geno_char = '.';
+	    }
+	    *allele_storage_iter = (char*)((uintptr_t)(&(g_one_char_strs[2 * ((unsigned char)geno_char)])));
 	  } else {
 	    tmp_alloc_end -= remaining_alt_char_ct + 1;
 	    if (tmp_alloc_end < tmp_alloc_base) {

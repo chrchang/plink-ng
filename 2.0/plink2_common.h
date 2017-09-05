@@ -2301,6 +2301,7 @@ HEADER_INLINE boolerr_t alloc_and_fill_subset_chr_fo_vidx_start(const uintptr_t*
 
 // newval does not need to be null-terminated
 // assumes *allele_ptr is not initialized
+// (stop using these in main plink2 binary?)
 boolerr_t allele_set(const char* newval, uint32_t allele_slen, char** allele_ptr);
 
 // *allele_ptr must be initialized; frees *allele_ptr if necessary

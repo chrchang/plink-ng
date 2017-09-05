@@ -60,7 +60,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (1 Sep 2017)";
+  " (4 Sep 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -841,15 +841,15 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
       logprint("Note: No phenotype data present.\n");      
     } else {
       if (pheno_ct == 1) {
+	const uint32_t obs_ct = popcount_longs(pheno_cols[0].nonmiss, raw_sample_ctl);
 	if (pheno_cols[0].type_code == kPhenoDtypeCc) {
-	  const uint32_t obs_ct = popcount_longs(pheno_cols[0].nonmiss, raw_sample_ctl);
 	  const uint32_t case_ct = popcount_longs(pheno_cols[0].data.cc, raw_sample_ctl);
 	  const uint32_t ctrl_ct = obs_ct - case_ct;
 	  LOGPRINTF("1 binary phenotype loaded (%u case%s, %u control%s).\n", case_ct, (case_ct == 1)? "" : "s", ctrl_ct, (ctrl_ct == 1)? "" : "s");
 	} else if (pheno_cols[0].type_code == kPhenoDtypeQt) {
-	  LOGPRINTF("1 quantitative phenotype loaded.\n");
+	  LOGPRINTF("1 quantitative phenotype loaded (%u value%s).\n", obs_ct, (obs_ct == 1)? "" : "s");
 	} else {
-	  LOGPRINTF("1 categorical phenotype loaded.\n");
+	  LOGPRINTF("1 categorical phenotype loaded (%u value%s).\n", obs_ct, (obs_ct == 1)? "" : "s");
 	}
       } else {
 	uint32_t cc_ct = 0;
@@ -1140,11 +1140,18 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	} else {
 	  LOGPRINTFWW("%u sample%s (%u female%s, %u male%s, %u ambiguous; %u founder%s) remaining after main filters.\n", sample_ct, (sample_ct == 1)? "" : "s", female_ct, (female_ct == 1)? "" : "s", male_ct, (male_ct == 1)? "" : "s", nosex_ct, founder_ct, (founder_ct == 1)? "" : "s");
 	}
-	if ((pheno_ct == 1) && (pheno_cols[0].type_code == kPhenoDtypeCc)) {
-	  const uint32_t obs_ct = popcount_longs_intersect(pheno_cols[0].nonmiss, sample_include, raw_sample_ctl);
-	  const uint32_t case_ct = popcount_longs_intersect(pheno_cols[0].data.cc, sample_include, raw_sample_ctl);
-	  const uint32_t ctrl_ct = obs_ct - case_ct;
-	  LOGPRINTF("%u case%s and %u control%s remaining after main filters.\n", case_ct, (case_ct == 1)? "" : "s", ctrl_ct, (ctrl_ct == 1)? "" : "s");
+	if (pheno_ct == 1) {
+	  const pheno_dtype_t pheno_type_code = pheno_cols[0].type_code;
+	  if (pheno_type_code != kPhenoDtypeCat) {
+	    const uint32_t obs_ct = popcount_longs_intersect(pheno_cols[0].nonmiss, sample_include, raw_sample_ctl);
+	    if (pheno_type_code == kPhenoDtypeCc) {
+	      const uint32_t case_ct = popcount_longs_intersect(pheno_cols[0].data.cc, sample_include, raw_sample_ctl);
+	      const uint32_t ctrl_ct = obs_ct - case_ct;
+	      LOGPRINTF("%u case%s and %u control%s remaining after main filters.\n", case_ct, (case_ct == 1)? "" : "s", ctrl_ct, (ctrl_ct == 1)? "" : "s");
+	    } else {
+	      LOGPRINTF("%u quantitative phenotype value%s remaining after main filters.\n", obs_ct, (obs_ct == 1)? "" : "s");
+	    }
+	  }
 	}
       }
     }
@@ -1641,8 +1648,75 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	if (reterr) {
 	  goto plink2_ret_1;
 	}
-	// don't bother with --rel-cutoff for now, since --king-cutoff seems to
-	// work better...
+	// Retire --rel-cutoff, since --king-cutoff is pretty clearly better.
+	// KING-robust has significant systematic biases when interracial
+	// couples are involved, though.  Still may be okay for first-degree
+	// in that context, but something like PC-Relate should be added soon.
+	//
+	// In addition to even better kinship coefficients, PC-Relate also
+	// provides a replacement for --genome's obsolete IBD sharing
+	// estimates, and improved inbreeding coefficients.  There may still be
+	// work to do on handling of highly-inbred populations, but PC-Relate
+	// appears to be enough of an advance to warrant including now without
+	// waiting for further refinements.
+	//
+	// Assuming we follow through with PC-Relate:
+	//   1. use basic PC-AiR method to estimate top PCs in a way that's
+	//      more resistant to related samples:
+	//      a. compute KING-robust matrix.  keep in memory for now; maybe
+	//         allow this to spill to temporary file later since this is
+	//         a major scaling limitation.  probably store as floats,
+	//         because of scaling; even then, 100k samples requires over
+	//         280 GB, and it goes up quadratically from there.
+	//         (though the problem isn't actually very serious, since your
+	//         PCs will practically always be good enough if you select a
+	//         size-10k random sample)
+	//      b. also compute ancestry divergence matrix, with entries
+	//           0.5 * (1 - \frac{\sum (g_1 - g_2)^2}{hets_1 + hets_2})
+	//         main calc_king() loop doesn't need to be changed; numerator
+	//         of fraction is 4 * ibs0_ct + het1hom2_ct + het2hom1_ct,
+	//         denominator is 2 * hethet_ct + het1hom2_ct + het2hom1_ct
+	//      c. use the algorithm in Appendix B of
+	//           https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4836868/
+	//         to select an unrelated subset.  (unfortunately, step 7 is
+	//         random, so we can't always test for perfect concordance with
+	//         the R package.)
+	//      d. compute PCs on the unrelated subset, project to related
+	//         subset in the usual way.  (since overall algorithm has a
+	//         random component anyway, there's no longer much of a point
+	//         to defaulting to nonrandom PCA for >5k samples; instead,
+	//         have 'random-pca'/'nonrandom-pca' modifiers to force, and
+	//         default to switching over at 5k)
+	//         allow these PCs to be saved to disk, and later steps to
+	//         load them as input.
+	//         extra MAF cutoff should be applied here.
+	//         may want default PC count to be 6-8 rather than 10.
+	//   2. for kinship matrix:
+	//      a. for each variant,
+	//         i. estimate individual-specific allele frequencies, by
+	//            performing linear regression with y = genotype vector and
+	//            X = constant column + top PCs from step 1; clip to
+	//            [epsilon, 1 - epsilon]
+	//            (this is also a step in the computations to follow, but
+	//            we don't default to saving the intermediate result to
+	//            disk because it's huge, and quick to compute from PCs +
+	//            genotype matrix)
+	//         ii. compute vector of (g-2q)/sqrt(q(1-q)) values
+	//      b. same incremental matrix multiplies as GRM computation,
+	//         dsyrk() is our friend
+	//   3. for inbreeding coefficients, see equation 6 of
+	//        https://www.ncbi.nlm.nih.gov/pubmed/26748516
+	//   4. for IBD sharing, see equations 9 and 10 (note that inbreeding
+	//      coefficient enters in to 9, and kinship enters into 10).
+	//      when classifying first-degree relationships (probably want to
+	//      add an option to do this; can consider second-degree too if it
+	//      passes accuracy tests), parent-offspring corresponds to
+	//      P(IBD=0) < 2^{-9/2} (todo: check theoretical justification for
+	//      this threshold, if it's arbitrary it should be tunable)
+	//   5. we may want to extend other allele-frequency-dependent
+	//      commonly-used functions (--check-sex/--impute-sex is the most
+	//      important one that comes to mind) to be able to use
+	//      individual-specific allele frequencies.
 
 	// possible todo: unrelated heritability?
       }
@@ -1675,12 +1749,16 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	// force too many real-world jobs to require two plink2 runs instead of
 	// one.)
 
+	const uint32_t setting_alleles_from_file = pcp->ref_allele_flag || pcp->alt1_allele_flag;
 	char** allele_storage_backup = nullptr;
         uint32_t max_allele_slen_backup = max_allele_slen;
 	uintptr_t* nonref_flags_backup = nullptr;
 
 	alt_allele_ct_t* refalt1_select = nullptr;
-	if ((pcp->misc_flags & kfMiscMajRef) || pcp->ref_allele_flag || pcp->alt1_allele_flag) {
+	// might want a --ref-allele variant which reads a (possibly
+	// compressed) fasta file; all deletions and some other indels will be
+	// unresolvable, but it's still better than nothing
+	if ((pcp->misc_flags & kfMiscMajRef) || setting_alleles_from_file) {
 	  if (loop_cats_idx + 1 < loop_cats_ct) {
 	    // --ref-allele and --alt1-allele may alter max_allele_slen and
 	    // allele_storage[]; --loop-cats doesn't like this.  Save a backup
@@ -1712,38 +1790,46 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	    refalt1_select_ul[widx] = fill_word;
 	  }
 	  refalt1_select = (alt_allele_ct_t*)refalt1_select_ul;
+	  const uint32_t not_all_nonref = !(pgfi.gflags & kfPgenGlobalAllNonref);
+	  if ((not_all_nonref || setting_alleles_from_file) && (!nonref_flags)) {
+	    if (bigstack_end_alloc_ul(raw_variant_ctl, &nonref_flags)) {
+	      goto plink2_ret_NOMEM;
+	    }
+	    pgfi.nonref_flags = nonref_flags;
+	    fill_ulong_zero(raw_variant_ctl, nonref_flags);
+	  }
+	  uintptr_t* previously_seen = nullptr;
 	  if (pcp->ref_allele_flag) {
-	    // reterr = set_refalt1_from_file();
-	    logerrprint("Error: --ref-allele is currently under development.\n");
-	    reterr = kPglRetNotYetSupported;
+	    if (pcp->alt1_allele_flag) {
+	      if (bigstack_alloc_ul(raw_variant_ctl, &previously_seen)) {
+		goto plink2_ret_NOMEM;
+	      }
+	    }
+	    reterr = set_refalt1_from_file(variant_include, variant_ids, variant_allele_idxs, pcp->ref_allele_flag, raw_variant_ct, variant_ct, max_variant_id_slen, 0, (pcp->misc_flags / kfMiscRefAlleleForce) & 1, pcp->max_thread_ct, allele_storage, &max_allele_slen, refalt1_select, nonref_flags, previously_seen);
 	    if (reterr) {
 	      goto plink2_ret_1;
 	    }
 	  }
 	  if (pcp->alt1_allele_flag) {
-	    // reterr = set_refalt1_from_file();
-	    logerrprint("Error: --alt1-allele is currently under development.\n");
-	    reterr = kPglRetNotYetSupported;
+	    reterr = set_refalt1_from_file(variant_include, variant_ids, variant_allele_idxs, pcp->alt1_allele_flag, raw_variant_ct, variant_ct, max_variant_id_slen, 1, (pcp->misc_flags / kfMiscAlt1AlleleForce) & 1, pcp->max_thread_ct, allele_storage, &max_allele_slen, refalt1_select, nonref_flags, previously_seen);
 	    if (reterr) {
 	      goto plink2_ret_1;
 	    }
-	  }
-	  if (pcp->misc_flags & kfMiscMajRef) {
+	    if (previously_seen) {
+	      bigstack_reset(previously_seen);
+	    }
+	    // for sanity's sake, --maj-ref and --ref-allele/--alt1-allele are
+	    // mutually exclusive
+	  } else if (!setting_alleles_from_file) {
+	    // --maj-ref; misc_flags & kfMiscMajRef check may be needed later
+
 	    // Since this also sets ALT1 to the second-most-common allele, it
 	    // can't just subscribe to maj_alleles[].
 	    const uint64_t* main_allele_dosages = nonfounders? allele_dosages : founder_allele_dosages;
-	    const uint32_t not_all_nonref = !(pgfi.gflags & kfPgenGlobalAllNonref);
 	    const uint32_t skip_real_ref = not_all_nonref && (!(pcp->misc_flags & kfMiscMajRefForce));
 	    if (skip_real_ref && (!nonref_flags)) {
 	      logerrprint("Warning: --maj-ref has no effect, since no provisional reference alleles are\npresent.  (Did you forget to add the 'force' modifier?)\n");
 	    } else {
-	      if (not_all_nonref && (!nonref_flags)) {
-		if (bigstack_end_alloc_ul(raw_variant_ctl, &nonref_flags)) {
-		  goto plink2_ret_NOMEM;
-		}
-		pgfi.nonref_flags = nonref_flags;
-		fill_ulong_zero(raw_variant_ctl, nonref_flags);
-	      }
 	      uint32_t variant_uidx = 0;
 	      for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
 		next_set_unsafe_ck(variant_include, &variant_uidx);
@@ -5955,6 +6041,10 @@ int main(int argc, char** argv) {
 	  }
 	  pc.command_flags1 |= kfCommand1MissingReport;
 	} else if (!memcmp(flagname_p2, "aj-ref", 7)) {
+	  if (pc.alt1_allele_flag) {
+	    logerrprint("Error: --maj-ref cannot be used with --ref-allele/--alt1-allele.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
+	  }
 	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
 	    goto main_ret_INVALID_CMDLINE_2A;
 	  }
@@ -6859,6 +6949,10 @@ int main(int argc, char** argv) {
 	    goto main_ret_1;
 	  }
 	} else if (!memcmp(flagname_p2, "ef-allele", 10)) {
+	  if (pc.misc_flags & kfMiscMajRef) {
+	    logerrprint("Error: --maj-ref cannot be used with --ref-allele/--alt1-allele.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
+	  }
 	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 5)) {
 	    goto main_ret_INVALID_CMDLINE_2A;
 	  }

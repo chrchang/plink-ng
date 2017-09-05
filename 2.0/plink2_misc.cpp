@@ -1028,7 +1028,7 @@ pglerr_t pheno_variance_standardize(const char* vstd_flattened, const uintptr_t*
       shifted_pheno_qt[sample_uidx] = 0.0;
       const double pheno_shift = pheno_qt[sample_uidx++];
       for (uint32_t sample_idx = 1; sample_idx < cur_sample_ct; ++sample_idx, ++sample_uidx) {
-	next_set_unsafe_ck(sample_include, &sample_uidx);
+	next_set_unsafe_ck(pheno_nm, &sample_uidx);
 	const double cur_shifted_pheno_val = pheno_qt[sample_uidx] - pheno_shift;
 	shifted_pheno_sum += cur_shifted_pheno_val;
 	shifted_pheno_ssq += cur_shifted_pheno_val * cur_shifted_pheno_val;
@@ -1044,7 +1044,7 @@ pglerr_t pheno_variance_standardize(const char* vstd_flattened, const uintptr_t*
       const double cur_stdev_recip = sqrt((double)((int32_t)(cur_sample_ct - 1)) / variance_numer);
       sample_uidx = first_sample_uidx;
       for (uint32_t sample_idx = 0; sample_idx < cur_sample_ct; ++sample_idx, ++sample_uidx) {
-	next_set_unsafe_ck(sample_include, &sample_uidx);
+	next_set_unsafe_ck(pheno_nm, &sample_uidx);
 	pheno_qt[sample_uidx] = (shifted_pheno_qt[sample_uidx] - cur_shifted_mean) * cur_stdev_recip;
       }
     }

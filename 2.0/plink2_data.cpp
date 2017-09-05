@@ -15584,7 +15584,6 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
     char dosage_inttext[16]; // 4..7 = haploid, 5 should never be looked up
     memcpy(dosage_inttext, ":0:1:2:.:0:.:1:.", 16);
     const char* dot_ptr = &(g_one_char_strs[92]);
-    const char* input_missing_geno_ptr = g_input_missing_geno_ptr;
     const uint32_t sample_ctl2_m1 = sample_ctl2 - 1;
     uint32_t chr_fo_idx = 0xffffffffU;
     uint32_t chr_end = 0;
@@ -15674,7 +15673,7 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
 	  memcpy(dosage_inttext, ":2:1:0:.:1:.:0:.", 16);
 	}
       }
-      if ((cur_alleles[ref_allele_idx] != dot_ptr) && (cur_alleles[ref_allele_idx] != input_missing_geno_ptr)) {
+      if (cur_alleles[ref_allele_idx] != dot_ptr) {
         write_iter = strcpya(write_iter, cur_alleles[ref_allele_idx]);
       } else {
 	*write_iter++ = 'N';
