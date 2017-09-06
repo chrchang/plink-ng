@@ -3639,7 +3639,8 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, char* outna
         goto make_bed_ret_NOMEM;
       }
       writebuf = (uintptr_t*)g_bigstack_base;
-      pass_ct = 1 + ((sample_ctv2 * marker_ct * sizeof(intptr_t) - 1) / cur_bigstack_left);
+      // 32-bit bugfix (6 Sep 2017): necessary to cast numerator to 64-bit
+      pass_ct = 1 + ((sample_ctv2 * ((uint64_t)marker_ct) * sizeof(intptr_t) - 1) / cur_bigstack_left);
       pass_size = 1 + ((marker_ct - 1) / pass_ct);
       *outname_end = '\0';
       LOGPRINTFWW5("--make-bed to %s.bed + %s.bim + %s.fam ... ", outname, outname, outname);
