@@ -8936,7 +8936,6 @@ void unpack_hphase_subset(const uintptr_t* __restrict all_hets, const uintptr_t*
     }
     return;
   }
-  printf("phase conditionally present\n");
   const uintptr_t* phaseinfo_read_iter = &(phaseraw[1 + (raw_sample_ct / kBitsPerWord)]);
   uintptr_t* phasepresent_write_iter = *phasepresent_ptr;
   uintptr_t phaseinfo_read_word = *phaseinfo_read_iter++;
