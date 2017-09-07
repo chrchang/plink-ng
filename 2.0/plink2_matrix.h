@@ -68,11 +68,6 @@ extern "C" {
       #endif
     #endif // !__LP64__
 
-  void xerbla_(void);
-    #ifdef __cplusplus
-}
-    #endif
-
     #ifndef _WIN32 // Linux
       #ifdef USE_MKL
         #define USE_CBLAS_XGEMM
@@ -118,6 +113,12 @@ extern "C" {
 	#endif
       #endif // !USE_MKL
     #endif
+
+  void xerbla_(void);
+    #ifdef __cplusplus
+} // extern "C"
+    #endif
+
   #endif // !__APPLE__
 
   typedef __CLPK_integer matrix_invert_buf1_t;
@@ -128,7 +129,7 @@ extern "C" {
   typedef __CLPK_integer matrix_finvert_buf1_t;
   CONSTU31(kMatrixFinvertBuf1CheckedAlloc, 2 * sizeof(__CLPK_integer));
 
-#endif // NOLAPACK
+#endif // !NOLAPACK
 
 #ifdef __cplusplus
 namespace plink2 {

@@ -150,7 +150,7 @@ extern "C" {
 
   void xerbla_(void);
     #ifdef __cplusplus
-}
+} // extern "C"
     #endif // __cplusplus
     void xerbla_(void) {} // fix static linking error
   #endif // not __APPLE__
@@ -847,11 +847,15 @@ void col_major_matrix_multiply(const double* inmatrix1, const double* inmatrix2,
   // const_cast
   dgemm_(&blas_char, &blas_char, &row1_ct, &col2_ct, &common_ct, &dyy, (double*)((uintptr_t)inmatrix1), &row1_ct, (double*)((uintptr_t)inmatrix2), &common_ct, &dzz, outmatrix, &row1_ct);
   #else
-    #ifdef LAPACK_ILP64
-  cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, row1_ct, col2_ct, common_ct, 1.0, inmatrix1, row1_ct, inmatrix2, common_ct, 0.0, outmatrix, row1_ct);
-    #else
   // bugfix (30 Aug 2017): this fails on OS X when LDB > sqrt(2^31).
   // update: Windows does not have the same problem
+  // update 2 (6 Sep 2017): the OS X failure seems to have been driven by 128k
+  //   thread stack size; going up to the usual 512k appears to solve the
+  //   problem
+  // #ifdef LAPACK_ILP64
+  cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, row1_ct, col2_ct, common_ct, 1.0, inmatrix1, row1_ct, inmatrix2, common_ct, 0.0, outmatrix, row1_ct);
+  /*
+    #else
   if (common_ct <= 46340) {
     cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, row1_ct, col2_ct, common_ct, 1.0, inmatrix1, row1_ct, inmatrix2, common_ct, 0.0, outmatrix, row1_ct);
     return;
@@ -862,6 +866,7 @@ void col_major_matrix_multiply(const double* inmatrix1, const double* inmatrix2,
     outmatrix = &(outmatrix[(uint32_t)row1_ct]);
   }
     #endif
+  */
   #endif // USE_CBLAS_XGEMM
 #endif // !NOLAPACK
 }
@@ -1027,12 +1032,13 @@ void multiply_self_transpose(double* input_matrix, uint32_t dim, uint32_t col_ct
   double beta = 0.0;
   dsyrk_(&uplo, &trans, &tmp_n, &tmp_k, &alpha, input_matrix, &tmp_k, &beta, result, &tmp_n);
   #else
-    #ifdef LAPACK_ILP64
+  // see col_major_matrix_multiply() remarks; same OS X issue here.
+  // #ifdef LAPACK_ILP64
   cblas_dsyrk(CblasColMajor, CblasUpper, CblasTrans, dim, col_ct, 1.0, input_matrix, col_ct, 0.0, result, dim);
+  /*
     #else
   if (col_ct <= 46340) {
     // bugfix (30 Aug 2017): for LDA > sqrt(2^31), this fails on OS X.
-    // todo: check if this is also a problem on Windows (it probably is...)
     cblas_dsyrk(CblasColMajor, CblasUpper, CblasTrans, dim, col_ct, 1.0, input_matrix, col_ct, 0.0, result, dim);
     return;
   }
@@ -1047,6 +1053,7 @@ void multiply_self_transpose(double* input_matrix, uint32_t dim, uint32_t col_ct
     }
   }
     #endif
+  */
   #endif
 #endif
 }

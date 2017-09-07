@@ -235,8 +235,13 @@ FLAGSET64_DEF_END(exportf_flags_t);
   CONSTU31(kMaxThreads, 512);
 #endif
 
+#ifdef __APPLE__
+// cblas_dgemm may fail with 128k
+CONSTU31(kDefaultThreadStack, 524288);
+#else
 // asserts didn't seem to work properly with a setting much smaller than this
 CONSTU31(kDefaultThreadStack, 131072);
+#endif
 
 // generic maximum line byte length.  .ped/.vcf/etc. lines can of course be
 // longer
