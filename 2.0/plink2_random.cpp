@@ -113,6 +113,61 @@ pglerr_t fill_gaussian_darray(uintptr_t entry_pair_ct, uint32_t thread_ct, doubl
   return reterr;
 }
 
+
+THREAD_FUNC_DECL randomize_bigstack_thread(void* arg) {
+  const uintptr_t tidx = (uintptr_t)arg;
+  const uint32_t calc_thread_ct = g_calc_thread_ct;
+  const uint64_t bigstack_int64_ct = ((uintptr_t)(g_bigstack_end - g_bigstack_base)) / sizeof(int64_t);
+  uint64_t* bigstack_int64 = (uint64_t*)g_bigstack_base;
+  assert(bigstack_int64_ct >= calc_thread_ct);
+  const uint64_t start_idx = round_down_pow2((tidx * bigstack_int64_ct) / calc_thread_ct, kInt64PerCacheline);
+  uint64_t end_idx = ((tidx + 1) * bigstack_int64_ct) / calc_thread_ct;
+  if (tidx + 1 != calc_thread_ct) {
+    end_idx = round_down_pow2(end_idx, kInt64PerCacheline);
+  }
+  sfmt_t* sfmtp = g_sfmtp_arr[tidx];
+  for (uintptr_t ulii = start_idx; ulii < end_idx; ++ulii) {
+    bigstack_int64[ulii] = sfmt_genrand_uint64(sfmtp);
+  }
+  THREAD_RETURN;
+}
+
+pglerr_t randomize_bigstack(uint32_t thread_ct) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  pglerr_t reterr = kPglRetSuccess;
+  {
+    if (thread_ct > 16) {
+      thread_ct = 16;
+    }
+    if (bigstack_init_sfmtp(thread_ct, 1)) {
+      goto randomize_bigstack_ret_NOMEM;
+    }
+    g_calc_thread_ct = thread_ct;
+    pthread_t threads[16];
+    if (spawn_threads(randomize_bigstack_thread, thread_ct, threads)) {
+      goto randomize_bigstack_ret_THREAD_CREATE_FAIL;
+    }
+    randomize_bigstack_thread((void*)0);
+    join_threads(thread_ct, threads);
+    // now ensure the bytes reserved by bigstack_init_sfmtp() are also properly
+    // randomized (some of them already are, but there are gaps)
+    uint64_t* initial_segment_end = (uint64_t*)g_bigstack_base;
+    for (uint64_t* initial_segment_iter = (uint64_t*)bigstack_mark; initial_segment_iter != initial_segment_end; ++initial_segment_iter) {
+      *initial_segment_iter = sfmt_genrand_uint64(&g_sfmt);
+    }
+  }
+  while (0) {
+  randomize_bigstack_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  randomize_bigstack_ret_THREAD_CREATE_FAIL:
+    reterr = kPglRetThreadCreateFail;
+    break;
+  }
+  bigstack_reset(bigstack_mark);
+  return reterr;
+}
+
 #ifdef __cplusplus
 }
 #endif

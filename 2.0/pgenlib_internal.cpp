@@ -2310,7 +2310,7 @@ pglerr_t pgfi_init_phase1(const char* fname, uint32_t raw_variant_ct, uint32_t r
     }
     if (raw_sample_ct == 0xffffffffU) {
       // either .fam must be loaded first, or user must provide sample count
-      sprintf(errstr_buf, "Error: pgen_init_phase1() must be called with an accurate raw_sample_ct value, since %s is a PLINK 1 .bed file.\n", fname);
+      sprintf(errstr_buf, "Error: pgfi_init_phase1() must be called with an accurate raw_sample_ct value, since %s is a PLINK 1 .bed file.\n", fname);
       return kPglRetImproperFunctionCall;
     }
     const uint32_t const_vrec_width = QUATERCT_TO_BYTECT(raw_sample_ct);
@@ -2367,13 +2367,13 @@ pglerr_t pgfi_init_phase1(const char* fname, uint32_t raw_variant_ct, uint32_t r
   if (raw_variant_ct == 0xffffffffU) {
     raw_variant_ct = pgfip->raw_variant_ct;
   } else if (raw_variant_ct != pgfip->raw_variant_ct) {
-    sprintf(errstr_buf, "Error: pgen_init_phase1() was called with raw_variant_ct == %u, but %s contains %u variant%s.\n", raw_variant_ct, fname, pgfip->raw_variant_ct, (pgfip->raw_variant_ct == 1)? "" : "s");
+    sprintf(errstr_buf, "Error: pgfi_init_phase1() was called with raw_variant_ct == %u, but %s contains %u variant%s.\n", raw_variant_ct, fname, pgfip->raw_variant_ct, (pgfip->raw_variant_ct == 1)? "" : "s");
     return kPglRetInconsistentInput;
   }
   if (raw_sample_ct == 0xffffffffU) {
     raw_sample_ct = pgfip->raw_sample_ct;
   } else if (raw_sample_ct != pgfip->raw_sample_ct) {
-    sprintf(errstr_buf, "Error: pgen_init_phase1() was called with raw_sample_ct == %u, but %s contains %u sample%s.\n", raw_sample_ct, fname, pgfip->raw_sample_ct, (pgfip->raw_sample_ct == 1)? "" : "s");
+    sprintf(errstr_buf, "Error: pgfi_init_phase1() was called with raw_sample_ct == %u, but %s contains %u sample%s.\n", raw_sample_ct, fname, pgfip->raw_sample_ct, (pgfip->raw_sample_ct == 1)? "" : "s");
     return kPglRetInconsistentInput;
   }
   pgfip->gflags = kfPgenGlobal0;

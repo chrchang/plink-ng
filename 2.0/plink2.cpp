@@ -3603,6 +3603,7 @@ int main(int argc, char** argv) {
     uint32_t notchr_present = 0;
     uint32_t permit_multiple_inclusion_filters = 0;
     uint32_t memory_require = 0;
+    uint32_t randmem = 0;
     gendummy_info_t gendummy_info;
     init_gendummy(&gendummy_info);
     plink1_dosage_info_t plink1_dosage_info;
@@ -6990,6 +6991,9 @@ int main(int argc, char** argv) {
 	    goto main_ret_1;
 	  }
 	  pc.dependency_flags |= kfFilterPvarReq;
+        } else if (!memcmp(flagname_p2, "andmem", 7)) {
+          randmem = 1;
+          goto main_param_zero;
 	} else if (!memcmp(flagname_p2, "ice", 4)) {
 	  if (chr_info.chrset_source) {
 	    logerrprint("Error: Conflicting chromosome-set flags.\n");
@@ -7908,6 +7912,23 @@ int main(int argc, char** argv) {
 #endif
     // pigz_init(pc.max_thread_ct);
 
+    if (pc.max_thread_ct > 8) {
+      LOGPRINTF("Using up to %u threads (change this with --threads).\n", pc.max_thread_ct);
+    } else {
+      // "1 compute thread" instead of "1 thread" since, when
+      // max_thread_ct == 2, some code will use one I/O thread and one
+      // compute thread.  Not worth the trouble of writing special-case code
+      // to avoid that.  (also, with 2 cores, the I/O thread isn't
+      // sufficiently busy to justify only 1 compute thread.)
+      LOGPRINTF("Using %s%u compute thread%s.\n", (pc.max_thread_ct > 1)? "up to " : "", pc.max_thread_ct, (pc.max_thread_ct == 1)? "" : "s");
+    }
+    if (randmem) {
+      reterr = randomize_bigstack(pc.max_thread_ct);
+      if (reterr) {
+        goto main_ret_1;
+      }
+    }
+
     print_end_time = 1;
     if (0) {
       // nonstandard cases (CNV, etc.) here
@@ -7915,17 +7936,6 @@ int main(int argc, char** argv) {
       if (pc.dependency_flags && (!pc.command_flags1)) {
 	logerrprint("Error: Basic file conversions do not support regular filter or transform\noperations.  Rerun your command with --make-bed/--make-{b}pgen.\n");
 	goto main_ret_INVALID_CMDLINE;
-      }
-      // print this here since some import functions are now multithreaded
-      if (pc.max_thread_ct > 8) {
-	LOGPRINTF("Using up to %u threads (change this with --threads).\n", pc.max_thread_ct);
-      } else {
-	// "1 compute thread" instead of "1 thread" since, when
-	// max_thread_ct == 2, some code will use one I/O thread and one
-	// compute thread.  Not worth the trouble of writing special-case code
-	// to avoid that.  (also, with 2 cores, the I/O thread isn't
-	// sufficiently busy to justify only 1 compute thread.)
-	LOGPRINTF("Using %s%u compute thread%s.\n", (pc.max_thread_ct > 1)? "up to " : "", pc.max_thread_ct, (pc.max_thread_ct == 1)? "" : "s");
       }
       if (xload) {
 	char* convname_end = outname_end;
@@ -7998,7 +8008,7 @@ int main(int argc, char** argv) {
 	}
 	*outname_end = '\0';
       }
-      const uint32_t calc_all_req = (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Validate | kfCommand1WriteSnplist | kfCommand1WriteCovar | kfCommand1WriteSamples))) || ((pc.command_flags1 & kfCommand1MakePlink2) && (make_plink2_modifier & (kfMakeBed | kfMakePgen)));
+      const uint32_t calc_all_req = (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1WriteSnplist | kfCommand1WriteCovar | kfCommand1WriteSamples))) || ((pc.command_flags1 & kfCommand1MakePlink2) && (make_plink2_modifier & (kfMakeBed | kfMakePgen)));
       if (calc_all_req || (pc.dependency_flags & kfFilterAllReq)) {
 	if ((!xload) && (load_params != kfLoadParamsPfileAll)) {
 	  logerrprint("Error: A full fileset (.pgen/.bed + .pvar/.bim + .psam/.fam) is required for\nthis.\n");
@@ -8006,7 +8016,7 @@ int main(int argc, char** argv) {
 	}
       } else {
 	// no genotype file required
-	pgenname[0] = '\0';
+        pgenname[0] = '\0';
 	
 	const uint32_t calc_pvar_req = (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1WriteCovar | kfCommand1WriteSamples))) || ((pc.command_flags1 & kfCommand1MakePlink2) && (make_plink2_modifier & (kfMakeBed | kfMakeBim | kfMakePgen | kfMakePvar)));
 	if (calc_pvar_req || (pc.dependency_flags & kfFilterPvarReq)) {

@@ -39,6 +39,8 @@ boolerr_t bigstack_init_sfmtp(uint32_t thread_ct, uint32_t use_main_sfmt_as_elem
 
 pglerr_t fill_gaussian_darray(uintptr_t entry_pair_ct, uint32_t thread_ct, double* darray);
 
+pglerr_t randomize_bigstack(uint32_t thread_ct);
+
 #ifdef __cplusplus
 } // namespace plink2
 #endif

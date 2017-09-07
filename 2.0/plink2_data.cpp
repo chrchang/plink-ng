@@ -2112,6 +2112,8 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
 	  bigstack_alloc_ul(sample_ctl, &phaseinfo)) {
 	goto vcf_to_pgen_ret_NOMEM;
       }
+      // bugfix (7 Sep 2017): phasepresent can't have nonzero trailing bits
+      phasepresent[sample_ctl - 1] = 0;
     }
     uintptr_t* dosage_present = nullptr;
     dosage_t* dosage_vals = nullptr;
@@ -8934,6 +8936,7 @@ void unpack_hphase_subset(const uintptr_t* __restrict all_hets, const uintptr_t*
     }
     return;
   }
+  printf("phase conditionally present\n");
   const uintptr_t* phaseinfo_read_iter = &(phaseraw[1 + (raw_sample_ct / kBitsPerWord)]);
   uintptr_t* phasepresent_write_iter = *phasepresent_ptr;
   uintptr_t phaseinfo_read_word = *phaseinfo_read_iter++;
@@ -10802,9 +10805,9 @@ pglerr_t make_pgen_robust(const uintptr_t* sample_include, const uint32_t* new_s
 	if (read_hphase_present) {
 	  // phaseraw has two parts:
 	  // 1. vec-aligned bitarray of up to (raw_sample_ct + 1) bits.  first
-	  //    bit is set iff phasepresent is explicitly stored at all (if not,
-	  //    all hets are assumed to be phased), if yes the remaining bits
-	  //    store packed phasepresent values for all hets, if no the
+	  //    bit is set iff phasepresent is explicitly stored at all (if
+          //    not, all hets are assumed to be phased), if yes the remaining
+          //    bits store packed phasepresent values for all hets, if no the
 	  //    remaining bits store packed phaseinfo values for all hets.
 	  // 2. word-aligned bitarray of up to raw_sample_ct bits, storing
 	  //    phaseinfo values.  (end of this array is vec-aligned.)
@@ -11223,6 +11226,7 @@ pglerr_t make_plink2_no_vsort(const char* xheader, const uintptr_t* sample_inclu
 	  write_allele_idx_offsets = variant_allele_idxs;
 	}
       }
+      goto make_plink2_no_vsort_fallback;;; // temporary
       if (variant_ct == raw_variant_ct) {
 	g_write_chr_fo_vidx_start = cip->chr_fo_vidx_start;
       } else {

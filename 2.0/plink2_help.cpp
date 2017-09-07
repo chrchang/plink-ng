@@ -1662,13 +1662,15 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
     help_print("output-min-p", &help_ctrl, 0,
 "  --output-min-p [p] : Specify minimum p-value to write to reports.\n"
 	       );
-    help_print("debug", &help_ctrl, 0,
+    help_print("debug\trandmem", &help_ctrl, 0,
 "  --debug            : Use slower, more crash-resistant logging method.\n"
+"  --randmem          : Randomize initial workspace memory (helps catch\n"
+"                       uninitialized-memory bugs).\n"
 	       );
     help_print("warning-errcode", &help_ctrl, 0,
 "  --warning-errcode  : Return a nonzero error code to the OS when a run\n"
 "                       completes with warning(s).\n"
-	       );
+               );
     if (!param_ct) {
       fputs(
 "\nPrimary methods paper:\n"
