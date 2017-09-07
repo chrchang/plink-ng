@@ -25,10 +25,10 @@ run $1/pgen_compress tmp_data.bed tmp_data.pgen 2000
 for c in 1 2 4
 do
     run plink --bfile tmp_data --chr $c --make-bed --out plink_c$c
-    run $1/plink2 --bfile tmp_data --chr $c --make-bed --out plink2_c$c
+    run $1/plink2 $2 --bfile tmp_data --chr $c --make-bed --out plink2_c$c
     run diff -q plink_c$c.bim plink2_c$c.bim
     run diff -q plink_c$c.bed plink2_c$c.bed
-    run $1/plink2 --bpfile tmp_data --chr $c --make-bed --out plink2x_c$c
+    run $1/plink2 $2 --bpfile tmp_data --chr $c --make-bed --out plink2x_c$c
     run diff -q plink2x_c$c.bed plink2_c$c.bed
     run diff -q plink2x_c$c.bim plink2_c$c.bim
 done

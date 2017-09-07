@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Usage: ./run_tests.sh {plink2 + pgen_compress build dir}
+# Usage: ./run_tests.sh {plink2 + pgen_compress build dir} {--randmem}
 # Requires plink to be in the system PATH.
 
 if [[ $# -eq 0 ]]; then
@@ -26,27 +26,27 @@ function run {
 }
 
 run cd UNIT_TEST_EXTRACT_CHR
-run ./run_tests.sh $d > UNIT_TEST_EXTRACT_CHR.log
+run ./run_tests.sh $d $2 > UNIT_TEST_EXTRACT_CHR.log
 run cd ..
 echo "UNIT_TEST_EXTRACT_CHR passed."
 
 run cd UNIT_TEST_MAF_FILTER
-run ./run_tests.sh $d > UNIT_TEST_MAF_FILTER.log
+run ./run_tests.sh $d $2 > UNIT_TEST_MAF_FILTER.log
 run cd ..
 echo "UNIT_TEST_MAF_FILTER passed."
 
 run cd UNIT_TEST_PGEN_FREQ
-run ./run_tests.sh $d > UNIT_TEST_PGEN_FREQ.log
+run ./run_tests.sh $d $2 > UNIT_TEST_PGEN_FREQ.log
 run cd ..
 echo "UNIT_TEST_PGEN_FREQ passed."
 
 run cd UNIT_TEST_PHASED_VCF
-run ./run_tests.sh $d > UNIT_TEST_PHASED_VCF.log
+run ./run_tests.sh $d $2 > UNIT_TEST_PHASED_VCF.log
 run cd ..
 echo "UNIT_TEST_PHASED_VCF passed."
 
 run cd UNIT_TEST_SAMPLE_SUBSET
-run ./run_tests.sh $d > UNIT_TEST_SAMPLE_SUBSET.log
+run ./run_tests.sh $d $2 > UNIT_TEST_SAMPLE_SUBSET.log
 run cd ..
 echo "UNIT_TEST_SAMPLE_SUBSET passed."
 
