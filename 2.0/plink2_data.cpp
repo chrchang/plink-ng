@@ -8988,7 +8988,8 @@ void unpack_hphase_subset(const uintptr_t* __restrict all_hets, const uintptr_t*
 	  const uint32_t read_idx_offset = popcount_long(geno_hets & lowmask);
 	  uintptr_t shifted_phasepresent_input_word = tmp_phasepresent_input_word >> read_idx_offset;
 	  if (shifted_phasepresent_input_word & 1) {
-	    const uintptr_t cur_bit = popcount_long(cur_sample_include & lowmask);
+            // bugfix (7 Sep 2017): forgot the "k1LU << " part of this
+	    const uintptr_t cur_bit = k1LU << popcount_long(cur_sample_include & lowmask);
 	    tmp_phasepresent_write_word |= cur_bit;
 	    tmp_phaseinfo_write_word += cur_bit * ((tmp_phaseinfo_input_word >> (read_phasepresent_ct - popcount_long(shifted_phasepresent_input_word))) & 1);
 	    if (shifted_phasepresent_input_word == 1) {
