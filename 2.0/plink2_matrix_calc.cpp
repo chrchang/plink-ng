@@ -3563,7 +3563,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
 	bigstack_alloc_d((kScoreVariantBlockSize * k1LU) * sample_ct, &(g_dosages_vmaj[1])) ||
 	bigstack_alloc_d(kScoreVariantBlockSize * score_col_ct, &(g_score_coefs_cmaj[0])) ||
 	bigstack_alloc_d(kScoreVariantBlockSize * score_col_ct, &(g_score_coefs_cmaj[1])) ||
-	bigstack_alloc_d(score_col_ct * sample_ct, &g_final_scores_cmaj) ||
+	bigstack_calloc_d(score_col_ct * sample_ct, &g_final_scores_cmaj) ||
 	bigstack_alloc_ui(sample_ctl, &sample_include_cumulative_popcounts) ||
 	bigstack_alloc_ul(sample_ctl, &sex_nonmale_collapsed) ||
 	bigstack_alloc_ul(sample_ctl2, &genovec_buf) ||
@@ -3878,7 +3878,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
 		sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --score file has an invalid coefficient.\n", line_idx);
 		goto score_report_ret_MALFORMED_INPUT_2;
 	      }
-	      *cur_score_coefs_iter = raw_coef;	      
+	      *cur_score_coefs_iter = raw_coef;
 	      cur_score_coefs_iter = &(cur_score_coefs_iter[kScoreVariantBlockSize]);
 	      read_iter = token_end;
 	    }
