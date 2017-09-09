@@ -367,7 +367,7 @@ static inline uint32_t is_acgtm(unsigned char ucc) {
 }
 
 static_assert((!(kMaxIdSlen % kCacheline)), "load_pvar() must be updated.");
-pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, const char* varid_template, const char* missing_varid_match, misc_flags_t misc_flags, pvar_psam_t pvar_psam_modifier, exportf_flags_t exportf_modifier, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t split_chr_ok, chr_info_t* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, unsorted_var_t* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** variant_allele_idxs_ptr, char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, chr_idx_t** chr_idxs_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, uint32_t* xheader_info_pr_ptr, uint32_t* max_filter_slen_ptr) {
+pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, const char* varid_template, const char* missing_varid_match, misc_flags_t misc_flags, pvar_psam_t pvar_psam_modifier, exportf_flags_t exportf_modifier, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t split_chr_ok, chr_info_t* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, unsorted_var_t* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** variant_allele_idxs_ptr, char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, chr_idx_t** chr_idxs_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, uint32_t* xheader_info_pr_ptr, uint32_t* xheader_info_pr_nonflag_ptr, uint32_t* max_filter_slen_ptr) {
   // chr_info, max_variant_id_slen, and info_reload_slen are in/out; just
   // outparameters after them.  (Due to its large size in some VCFs, INFO is
   // not kept in memory for now.  This has a speed penalty, of course; maybe
@@ -421,6 +421,7 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
     char* xheader_end = ((pvar_psam_modifier & kfPvarColXheader) || (exportf_modifier & kfExportfVcf))? ((char*)bigstack_mark) : nullptr;
     uint32_t chrset_present = 0;
     uint32_t info_pr_present = 0;
+    uint32_t info_pr_nonflag_present = 0;
     uint32_t info_nonpr_present = 0;
     char* loadbuf_first_token;
     while (1) {
@@ -448,15 +449,15 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 	break;
       }
       if (!memcmp(loadbuf_first_token, "##INFO=<ID=PR,Number=", 21)) {
-	if (info_pr_present) {
+	if (info_pr_present || info_pr_nonflag_present) {
 	  sprintf(g_logbuf, "Error: Duplicate INFO:PR header line in %s.\n", pvarname);
 	  goto load_pvar_ret_MALFORMED_INPUT_WW;
 	}
-	if (memcmp(&(loadbuf_first_token[21]), "0,Type=Flag,Description=", 24)) {
-	  sprintf(g_logbuf, "Error: Header line %" PRIuPTR " of %s does not have expected INFO:PR format.\n", line_idx, pvarname);
-	  goto load_pvar_ret_MALFORMED_INPUT_WW;
+	info_pr_nonflag_present = memcmp(&(loadbuf_first_token[21]), "0,Type=Flag,Description=", 24);
+	info_pr_present = 1 - info_pr_nonflag_present;
+	if (info_pr_nonflag_present) {
+	  LOGERRPRINTFWW("Warning: Header line %" PRIuPTR " of %s has an unexpected definition of INFO:PR. This interferes with a few merge and liftover operations.\n", line_idx, pvarname);
 	}
-	info_pr_present = 1;
       } else if ((!info_nonpr_present) && (!memcmp(loadbuf_first_token, "##INFO=<ID=", 11))) {
 	info_nonpr_present = 1;
       }
@@ -499,6 +500,7 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
       }
     }
     *xheader_info_pr_ptr = info_pr_present;
+    *xheader_info_pr_nonflag_ptr = info_pr_nonflag_present;
     if (xheader_end) {
       *xheader_ptr = (char*)bigstack_mark;
       *xheader_blen_ptr = (uintptr_t)(xheader_end - (*xheader_ptr));
@@ -1553,8 +1555,8 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
     *variant_ct_ptr = raw_variant_ct - exclude_ct;
     *vpos_sortstatus_ptr = vpos_sortstatus;
     *allele_storage_ptr = allele_storage;
-    // if only INFO:PR present, no need to reload
-    *info_reload_slen_ptr = info_nonpr_present? info_reload_slen : 0;
+    // if only INFO:PR flag present, no need to reload
+    *info_reload_slen_ptr = (info_nonpr_present || info_pr_nonflag_present)? info_reload_slen : 0;
   }
 
   while (0) {
