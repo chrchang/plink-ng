@@ -2281,7 +2281,7 @@ void firth_compute_weights(const float* yy, const float* xx, const float* pp, co
 }
 #else
 void firth_compute_weights(const float* yy, const float* xx, const float* pp, const float* vv, const float* tmpnxk, uint32_t predictor_ct, uint32_t sample_ct, uint32_t sample_cta4, float* ww) {
-  for (uint32_t sample_idx = 0; sample_idx < sample_cta4; ++sample_idx) {
+  for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
     float dotprod = 0.0;
     const float* xx_row = &(xx[sample_idx]);
     const float* tmpnxk_row = &(tmpnxk[sample_idx]);
