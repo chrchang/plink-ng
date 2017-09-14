@@ -971,7 +971,143 @@ typedef struct {
   uint32_t covar_idx2; // for correlation failure only
 } vif_corr_err_t;
 
-boolerr_t glm_fill_and_test_covars(const uintptr_t* sample_include, const uintptr_t* covar_include, const pheno_col_t* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double vif_thresh, double max_corr, double* covars_smaj, double* covar_dotprod, double* covars_cmaj, char** cur_covar_names, vif_corr_err_t* vif_corr_check_result_ptr) {
+// * first_predictor_idx should be 1 if first term is constant-1 intercept, 0
+//   otherwise
+// * dbl_2d_buf[n] expected to be sum of predictor row n on input, is destroyed
+boolerr_t check_max_corr_and_vif(const double* predictor_dotprods, uint32_t first_predictor_idx, uint32_t predictor_ct, uintptr_t sample_ct, double max_corr, double vif_thresh, double* dbl_2d_buf, double* inverse_corr_buf, vif_corr_err_t* vif_corr_check_result_ptr, matrix_invert_buf1_t* matrix_invert_buf1) {
+  // we have dot products, now determine
+  //   (dotprod - sum(a)mean(b)) / (N-1)
+  // to get small-sample covariance
+  const uintptr_t relevant_predictor_ct = predictor_ct - first_predictor_idx;
+  const uintptr_t relevant_predictor_ct_p1 = relevant_predictor_ct + 1;
+  const double sample_ct_recip = 1.0 / ((double)((intptr_t)sample_ct));
+  const double sample_ct_m1_d = (double)((intptr_t)(sample_ct - 1));
+  const double sample_ct_m1_recip = 1.0 / sample_ct_m1_d;
+  for (uintptr_t pred_idx1 = 0; pred_idx1 < relevant_predictor_ct; ++pred_idx1) {
+    double* sample_corr_row = &(inverse_corr_buf[pred_idx1 * relevant_predictor_ct]);
+    const uintptr_t input_pred_idx1 = pred_idx1 + first_predictor_idx;
+    const double* predictor_dotprods_row = &(predictor_dotprods[input_pred_idx1 * predictor_ct]);
+    const double covar1_mean_adj = dbl_2d_buf[input_pred_idx1] * sample_ct_recip;
+    for (uintptr_t pred_idx2 = 0; pred_idx2 <= pred_idx1; ++pred_idx2) {
+      const uintptr_t input_pred_idx2 = pred_idx2 + first_predictor_idx;
+      sample_corr_row[pred_idx2] = (predictor_dotprods_row[input_pred_idx2] - covar1_mean_adj * dbl_2d_buf[input_pred_idx2]) * sample_ct_m1_recip;
+    }
+  }
+  // now use dbl_2d_buf to store inverse-sqrts, to get to correlation matrix
+  for (uintptr_t pred_idx = 0; pred_idx < relevant_predictor_ct; ++pred_idx) {
+    dbl_2d_buf[pred_idx] = 1.0 / sqrt(inverse_corr_buf[pred_idx * relevant_predictor_ct_p1]);
+  }
+  // only bottom right of inverse_corr_buf[] is filled before this loop
+  for (uintptr_t pred_idx1 = 1; pred_idx1 < relevant_predictor_ct; ++pred_idx1) {
+    const double inverse_stdev1 = dbl_2d_buf[pred_idx1];
+    double* corr_row_iter = &(inverse_corr_buf[pred_idx1 * relevant_predictor_ct]);
+    double* corr_col_start = &(inverse_corr_buf[pred_idx1]);
+    const double* inverse_stdev2_iter = dbl_2d_buf;
+    for (uintptr_t pred_idx2 = 0; pred_idx2 < pred_idx1; ++pred_idx2) {
+      const double cur_corr = (*corr_row_iter) * inverse_stdev1 * (*inverse_stdev2_iter++);
+      if (cur_corr > max_corr) {
+	vif_corr_check_result_ptr->errcode = kVifCorrCheckCorrFail;
+	// may as well put smaller index first
+	vif_corr_check_result_ptr->covar_idx1 = pred_idx2;
+	vif_corr_check_result_ptr->covar_idx2 = pred_idx1;
+	return 1;
+      }
+      double* corr_col_entry_ptr = &(corr_col_start[pred_idx2 * relevant_predictor_ct]);
+      *corr_col_entry_ptr = cur_corr;
+      *corr_row_iter++ = cur_corr;
+    }
+  }
+  for (uintptr_t pred_idx = 0; pred_idx < relevant_predictor_ct; ++pred_idx) {
+    inverse_corr_buf[pred_idx * relevant_predictor_ct_p1] = 1.0;
+  }
+  if (invert_matrix_checked(relevant_predictor_ct, inverse_corr_buf, matrix_invert_buf1, dbl_2d_buf)) {
+    vif_corr_check_result_ptr->errcode = kVifCorrCheckVifFail;
+    vif_corr_check_result_ptr->covar_idx1 = 0xffffffffU;
+    return 1;
+  }
+  // VIFs = diagonal elements of inverse correlation matrix
+  for (uintptr_t pred_idx = 0; pred_idx < relevant_predictor_ct; ++pred_idx) {
+    if (inverse_corr_buf[pred_idx * relevant_predictor_ct_p1] > vif_thresh) {
+      vif_corr_check_result_ptr->errcode = kVifCorrCheckVifFail;
+      vif_corr_check_result_ptr->covar_idx1 = pred_idx;
+      return 1;
+    }
+  }
+  return 0;
+}
+
+// Only called by glm_logistic_thread(), so there are the following differences
+// from check_max_corr_and_vif():
+// * predictor_dotprods is not precomputed; we start with predictors_pmaj
+//   instead.
+// * predictors_pmaj already has the intercept stripped off, so we don't need
+//   relevant_predictor_ct := predictor_ct - 1, etc.
+// * sample_stride parameter added, since predictors_pmaj has vector-aligned
+//   rather than packed rows.
+// * flt_2d_buf not assumed to be filled with row sums, we compute them here.
+//   (probably want to modify check_max_corr_and_vif() to do the same.)
+// * no need to fill vif_corr_check_result, boolerr_t return value is good
+//   enough
+boolerr_t check_max_corr_and_vif_f(const float* predictors_pmaj, uint32_t predictor_ct, uint32_t sample_ct, uint32_t sample_stride, float max_corr, float vif_thresh, float* predictor_dotprod_buf, float* flt_2d_buf, float* inverse_corr_buf, matrix_finvert_buf1_t* inv_1d_buf) {
+  multiply_self_transpose_strided_f(predictors_pmaj, predictor_ct, sample_ct, sample_stride, predictor_dotprod_buf);
+  for (uintptr_t pred_idx = 0; pred_idx < predictor_ct; ++pred_idx) {
+    const float* predictor_row = &(predictors_pmaj[pred_idx * sample_stride]);
+    float row_sum = 0.0;
+    for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
+      row_sum += predictor_row[sample_idx];
+    }
+    flt_2d_buf[pred_idx] = row_sum;
+  }
+  const uint32_t predictor_ct_p1 = predictor_ct + 1;
+  const float sample_ct_recip = 1.0 / ((float)((int32_t)sample_ct));
+  const float sample_ct_m1_d = (float)((int32_t)(sample_ct - 1));
+  const float sample_ct_m1_recip = 1.0 / sample_ct_m1_d;
+  for (uint32_t pred_idx1 = 0; pred_idx1 < predictor_ct; ++pred_idx1) {
+    float* sample_corr_row = &(inverse_corr_buf[pred_idx1 * predictor_ct]);
+    const float* predictor_dotprod_row = &(predictor_dotprod_buf[pred_idx1 * predictor_ct]);
+    const float covar1_mean_adj = flt_2d_buf[pred_idx1] * sample_ct_recip;
+    for (uint32_t pred_idx2 = 0; pred_idx2 <= pred_idx1; ++pred_idx2) {
+      sample_corr_row[pred_idx2] = (predictor_dotprod_row[pred_idx2] - covar1_mean_adj * flt_2d_buf[pred_idx2]) * sample_ct_m1_recip;
+    }
+  }
+  // now use flt_2d_buf to store inverse-sqrts, to get to correlation matrix
+  for (uint32_t pred_idx = 0; pred_idx < predictor_ct; ++pred_idx) {
+    flt_2d_buf[pred_idx] = 1.0 / sqrt(inverse_corr_buf[pred_idx * predictor_ct_p1]);
+  }
+  // only bottom right of inverse_corr_buf[] is filled before this loop
+  for (uint32_t pred_idx1 = 1; pred_idx1 < predictor_ct; ++pred_idx1) {
+    const float inverse_stdev1 = flt_2d_buf[pred_idx1];
+    float* corr_row_iter = &(inverse_corr_buf[pred_idx1 * predictor_ct]);
+    float* corr_col_start = &(inverse_corr_buf[pred_idx1]);
+    const float* inverse_stdev2_iter = flt_2d_buf;
+    for (uintptr_t pred_idx2 = 0; pred_idx2 < pred_idx1; ++pred_idx2) {
+      const float cur_corr = (*corr_row_iter) * inverse_stdev1 * (*inverse_stdev2_iter++);
+      if (cur_corr > max_corr) {
+	return 1;
+      }
+      float* corr_col_entry_ptr = &(corr_col_start[pred_idx2 * predictor_ct]);
+      *corr_col_entry_ptr = cur_corr;
+      *corr_row_iter++ = cur_corr;
+    }
+  }
+  for (uint32_t pred_idx = 0; pred_idx < predictor_ct; ++pred_idx) {
+    inverse_corr_buf[pred_idx * predictor_ct_p1] = 1.0;
+  }
+  if (invert_fmatrix_first_half(predictor_ct, predictor_ct, inverse_corr_buf, nullptr, inv_1d_buf, flt_2d_buf)) {
+    return 1;
+  }
+  invert_fmatrix_second_half(predictor_ct, predictor_ct, inverse_corr_buf, inv_1d_buf, flt_2d_buf);
+
+  // VIFs = diagonal elements of inverse correlation matrix
+  for (uint32_t pred_idx = 0; pred_idx < predictor_ct; ++pred_idx) {
+    if (inverse_corr_buf[pred_idx * predictor_ct_p1] > vif_thresh) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+boolerr_t glm_fill_and_test_covars(const uintptr_t* sample_include, const uintptr_t* covar_include, const pheno_col_t* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, double* covar_dotprod, double* covars_cmaj, char** cur_covar_names, vif_corr_err_t* vif_corr_check_result_ptr) {
   vif_corr_check_result_ptr->errcode = kVifCorrCheckOk;
   if (covar_ct == local_covar_ct) {
     return 0;
@@ -992,8 +1128,6 @@ boolerr_t glm_fill_and_test_covars(const uintptr_t* sample_include, const uintpt
   unsigned char* new_covar_name_alloc = g_bigstack_end;
   const uint32_t first_sample_uidx = next_set_unsafe(sample_include, 0);
   uint32_t covar_read_uidx = 0;
-  const double sample_ct_recip = 1.0 / ((double)((intptr_t)sample_ct));
-  const double sample_ct_m1_d = (double)((intptr_t)(sample_ct - 1));
   char** cur_covar_names_iter = cur_covar_names;
   double* covar_write_iter = covars_cmaj;
   double* sum_iter = dbl_2d_buf;
@@ -1053,76 +1187,20 @@ boolerr_t glm_fill_and_test_covars(const uintptr_t* sample_include, const uintpt
   }
   bigstack_end_set(new_covar_name_alloc);
   assert(covar_write_iter == &(covars_cmaj[new_nonlocal_covar_ct * sample_ct]));
-  transpose_copy(covars_cmaj, new_nonlocal_covar_ct, sample_ct, covars_smaj);
-  row_major_matrix_multiply(covars_cmaj, covars_smaj, new_nonlocal_covar_ct, new_nonlocal_covar_ct, sample_ct, covar_dotprod);
-  // we have dot products, now determine
-  //   (dotprod - sum(a)mean(b)) / (N-1)
-  // to get small-sample covariance
-  const uintptr_t new_nonlocal_covar_ct_p1 = new_nonlocal_covar_ct + 1;
-  const double sample_ct_m1_recip = 1.0 / sample_ct_m1_d;
-  double* covar_dotprod_iter = covar_dotprod;
-  double* sample_covariance_iter = inverse_corr_buf;
-  for (uintptr_t covar_idx1 = 0; covar_idx1 < new_nonlocal_covar_ct; ++covar_idx1) {
-    const double covar1_mean_adj = dbl_2d_buf[covar_idx1] * sample_ct_recip;
-    for (uintptr_t covar_idx2 = 0; covar_idx2 < new_nonlocal_covar_ct; ++covar_idx2) {
-      *sample_covariance_iter++ = ((*covar_dotprod_iter++) - covar1_mean_adj * dbl_2d_buf[covar_idx2]) * sample_ct_m1_recip;
-    }
-  }
-  // now use dbl_2d_buf to store inverse-sqrts, to get to correlation matrix
-  for (uintptr_t covar_idx = 0; covar_idx < new_nonlocal_covar_ct; ++covar_idx) {
-    dbl_2d_buf[covar_idx] = 1.0 / sqrt(inverse_corr_buf[covar_idx * new_nonlocal_covar_ct_p1]);
-  }
-  for (uintptr_t covar_idx1 = 1; covar_idx1 < new_nonlocal_covar_ct; ++covar_idx1) {
-    const double inverse_stdev1 = dbl_2d_buf[covar_idx1];
-    double* corr_row_iter = &(inverse_corr_buf[covar_idx1 * new_nonlocal_covar_ct]);
-    double* corr_col_start = &(inverse_corr_buf[covar_idx1]);
-    const double* inverse_stdev2_iter = dbl_2d_buf;
-    for (uintptr_t covar_idx2 = 0; covar_idx2 < covar_idx1; ++covar_idx2) {
-      double* corr_col_entry_ptr = &(corr_col_start[covar_idx2 * new_nonlocal_covar_ct]);
-      const double cur_corr = (*corr_col_entry_ptr) * inverse_stdev1 * (*inverse_stdev2_iter++);
-      if (cur_corr > max_corr) {
-	vif_corr_check_result_ptr->errcode = kVifCorrCheckCorrFail;
-	// may as well put smaller index first
-	vif_corr_check_result_ptr->covar_idx1 = covar_idx2;
-	vif_corr_check_result_ptr->covar_idx2 = covar_idx1;
-	// bigstack_reset unnecessary here, we'll reset the stack anyway before
-	// exiting or starting the next covariate
-	return 0;
-      }
-      *corr_col_entry_ptr = cur_corr;
-      *corr_row_iter++ = cur_corr;
-    }
-  }
-  for (uintptr_t covar_idx = 0; covar_idx < new_nonlocal_covar_ct; ++covar_idx) {
-    inverse_corr_buf[covar_idx * new_nonlocal_covar_ct_p1] = 1.0;
-  }
-  if (invert_matrix_checked(new_nonlocal_covar_ct, inverse_corr_buf, matrix_invert_buf1, dbl_2d_buf)) {
-    vif_corr_check_result_ptr->errcode = kVifCorrCheckVifFail;
-    vif_corr_check_result_ptr->covar_idx1 = 0xffffffffU;
-    return 0;
-  }
-  // VIFs = diagonal elements of inverse correlation matrix
-  for (uintptr_t covar_idx = 0; covar_idx < new_nonlocal_covar_ct; ++covar_idx) {
-    if (inverse_corr_buf[covar_idx * new_nonlocal_covar_ct_p1] > vif_thresh) {
-      vif_corr_check_result_ptr->errcode = kVifCorrCheckVifFail;
-      vif_corr_check_result_ptr->covar_idx1 = covar_idx + local_covar_ct;
-      return 0;
-    }
-  }
+  multiply_self_transpose(covars_cmaj, new_nonlocal_covar_ct, sample_ct, covar_dotprod);
+  check_max_corr_and_vif(covar_dotprod, 0, new_nonlocal_covar_ct, sample_ct, max_corr, vif_thresh, dbl_2d_buf, inverse_corr_buf, vif_corr_check_result_ptr, matrix_invert_buf1);
   bigstack_reset(matrix_invert_buf1);
   return 0;
 }
 
-boolerr_t glm_alloc_fill_and_test_pheno_covars_qt(const uintptr_t* sample_include, const double* pheno_qt, const uintptr_t* covar_include, const pheno_col_t* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double vif_thresh, double max_corr, double** pheno_d_ptr, double** covars_cmaj_d_ptr, char*** cur_covar_names_ptr, vif_corr_err_t* vif_corr_check_result_ptr) {
+boolerr_t glm_alloc_fill_and_test_pheno_covars_qt(const uintptr_t* sample_include, const double* pheno_qt, const uintptr_t* covar_include, const pheno_col_t* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, double** pheno_d_ptr, double** covars_cmaj_d_ptr, char*** cur_covar_names_ptr, vif_corr_err_t* vif_corr_check_result_ptr) {
   const uintptr_t new_covar_ct = covar_ct + extra_cat_ct;
   const uintptr_t new_nonlocal_covar_ct = new_covar_ct - local_covar_ct;
   double* covar_dotprod;
-  double* covars_smaj;
   if (bigstack_alloc_d(sample_ct, pheno_d_ptr) ||
       bigstack_alloc_cp(new_covar_ct, cur_covar_names_ptr) ||
       bigstack_alloc_d(new_nonlocal_covar_ct * sample_ct, covars_cmaj_d_ptr) ||
-      bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &covar_dotprod) ||
-      bigstack_alloc_d(new_nonlocal_covar_ct * sample_ct, &covars_smaj)) {
+      bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &covar_dotprod)) {
     return 1;
   }
   double* pheno_d_iter = *pheno_d_ptr;
@@ -1131,27 +1209,25 @@ boolerr_t glm_alloc_fill_and_test_pheno_covars_qt(const uintptr_t* sample_includ
     next_set_unsafe_ck(sample_include, &sample_uidx);
     *pheno_d_iter++ = pheno_qt[sample_uidx];
   }
-  if (glm_fill_and_test_covars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, vif_thresh, max_corr, covars_smaj, covar_dotprod, *covars_cmaj_d_ptr, *cur_covar_names_ptr, vif_corr_check_result_ptr)) {
+  if (glm_fill_and_test_covars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, covar_dotprod, *covars_cmaj_d_ptr, *cur_covar_names_ptr, vif_corr_check_result_ptr)) {
     return 1;
   }
   bigstack_reset(covar_dotprod);
   return 0;
 }
 
-boolerr_t glm_alloc_fill_and_test_pheno_covars_cc(const uintptr_t* sample_include, const uintptr_t* pheno_cc, const uintptr_t* covar_include, const pheno_col_t* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double vif_thresh, double max_corr, uintptr_t** pheno_cc_collapsed_ptr, uintptr_t** gcount_case_interleaved_vec_ptr, float** pheno_f_ptr, float** covars_cmaj_f_ptr, char*** cur_covar_names_ptr, vif_corr_err_t* vif_corr_check_result_ptr) {
+boolerr_t glm_alloc_fill_and_test_pheno_covars_cc(const uintptr_t* sample_include, const uintptr_t* pheno_cc, const uintptr_t* covar_include, const pheno_col_t* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uintptr_t** pheno_cc_collapsed_ptr, uintptr_t** gcount_case_interleaved_vec_ptr, float** pheno_f_ptr, float** covars_cmaj_f_ptr, char*** cur_covar_names_ptr, vif_corr_err_t* vif_corr_check_result_ptr) {
   const uintptr_t sample_cta4 = round_up_pow2(sample_ct, 4);
   const uintptr_t new_covar_ct = covar_ct + extra_cat_ct;
   const uintptr_t new_nonlocal_covar_ct = new_covar_ct - local_covar_ct;
   double* covars_cmaj_d;
-  double* covars_smaj_d;
   double* covar_dotprod;
   if (bigstack_alloc_ul(BITCT_TO_WORDCT(sample_ct), pheno_cc_collapsed_ptr) ||
       bigstack_alloc_f(sample_cta4, pheno_f_ptr) ||
       bigstack_alloc_f(new_nonlocal_covar_ct * sample_cta4, covars_cmaj_f_ptr) ||
       bigstack_alloc_cp(new_covar_ct, cur_covar_names_ptr) ||
       bigstack_alloc_d(new_nonlocal_covar_ct * sample_ct, &covars_cmaj_d) ||
-      bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &covar_dotprod) ||
-      bigstack_alloc_d(new_nonlocal_covar_ct * sample_ct, &covars_smaj_d)) {
+      bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &covar_dotprod)) {
     return 1;
   }
   uintptr_t* pheno_cc_collapsed = *pheno_cc_collapsed_ptr;
@@ -1162,7 +1238,7 @@ boolerr_t glm_alloc_fill_and_test_pheno_covars_cc(const uintptr_t* sample_includ
   }
   const uint32_t sample_rem4 = sample_cta4 - sample_ct;
   fill_float_zero(sample_rem4, pheno_f_iter);
-  if (glm_fill_and_test_covars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, vif_thresh, max_corr, covars_smaj_d, covar_dotprod, covars_cmaj_d, *cur_covar_names_ptr, vif_corr_check_result_ptr)) {
+  if (glm_fill_and_test_covars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, covar_dotprod, covars_cmaj_d, *cur_covar_names_ptr, vif_corr_check_result_ptr)) {
     return 1;
   }
   double* covar_read_iter = covars_cmaj_d;
@@ -1239,13 +1315,13 @@ uint32_t genoarr_to_floats_remove_missing(const uintptr_t* genoarr, uint32_t sam
 }
 
 // #####
-// The following code is based on the winning submissino of Pascal Pons in the
+// The following code is based on the winning submission of Pascal Pons in the
 // "GWASSpeedup" contest run in April 2013 by Babbage Analytics & Innovation
-// and TopCoder, who have donated the results to be used in PLINK.  The contest
-// was designed by Po-Ru Loh; subsequent analysis and code preparation were
-// performed by Andrew Hill, Ragu Bharadwaj, and Scott Jelinsky.  A manuscript
-// is in preparation by these authors and Iain Kilty, Kevin Boudreau, Karim
-// Lakhani and Eva Guinan.
+// and TopCoder, who have donated the results to be used in PLINK.  See:
+//   Hill A, Loh PR, Bharadwaj RB, Pons P, Shang J, Guinan E, Lakhani K,
+//   Kilty I, Jelinsky SA (2017) Stepwise Distributed Open Innovation Contests
+//   for Software Development - Acceleration of Genome-Wide Association
+//   Analysis.  Gigascience, 6.
 // #####
 
 #ifdef __LP64__
@@ -1745,7 +1821,8 @@ static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, ui
         __m128 a2 = _mm_load_ps(&(mm_ptr[col_cta4]));
         __m128 a3 = _mm_load_ps(&(mm_ptr[2 * col_cta4]));
         __m128 a4 = _mm_load_ps(&(mm_ptr[3 * col_cta4]));
-	// want to switch this to fused multiply-add...
+	// want to switch this to fused multiply-add, but Intel and AMD need to
+        // get their act together first...
         a1 = _mm_mul_ps(a1, vv);
         a2 = _mm_mul_ps(a2, vv);
         a3 = _mm_mul_ps(a3, vv);
@@ -1755,7 +1832,9 @@ static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, ui
         s3 = _mm_add_ps(s3, a3);
         s4 = _mm_add_ps(s4, a4);
       }
-      // refrain from using SSE3 _mm_hadd_ps() for now
+      // tested _mm_hadd_ps() in USE_SSE42 case, doesn't actually seem to help
+      // (just seems to use a bunch of _mm_shuffle_ps() operations which can
+      // actually be slower in practice)
       uvec.vf = s1;
       *dest++ = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
       uvec.vf = s2;
@@ -2175,6 +2254,47 @@ boolerr_t logistic_regression(const float* yy, const float* xx, uint32_t sample_
   }
 }
 
+#ifdef __LP64__
+// tmpNxK, interpreted as column-major, is sample_ct x predictor_ct
+// X, interpreted as column-major, is also sample_ct x predictor_ct
+// Hdiag[i] = V[i] (\sum_j tmpNxK[i][j] X[i][j])
+void firth_compute_weights(const float* yy, const float* xx, const float* pp, const float* vv, const float* tmpnxk, uint32_t predictor_ct, __maybe_unused uint32_t sample_ct, uint32_t sample_cta4, float* ww) {
+  const __m128 half = _mm_set1_ps(0.5);
+  for (uint32_t sample_offset = 0; sample_offset < sample_cta4; sample_offset += 4) {
+    __m128 dotprods = _mm_setzero_ps();
+    const float* xx_row = &(xx[sample_offset]);
+    const float* tmpnxk_row = &(tmpnxk[sample_offset]);
+    for (uint32_t pred_uidx = 0; pred_uidx < predictor_ct; ++pred_uidx) {
+      const __m128 cur_xx = _mm_load_ps(&(xx_row[pred_uidx * sample_cta4]));
+      const __m128 cur_tmpnxk = _mm_load_ps(&(tmpnxk_row[pred_uidx * sample_cta4]));
+      dotprods = _mm_add_ps(dotprods, _mm_mul_ps(cur_xx, cur_tmpnxk));
+    }
+    const __m128 cur_weights = _mm_load_ps(&(vv[sample_offset]));
+    const __m128 cur_pis = _mm_load_ps(&(pp[sample_offset]));
+    const __m128 cur_yy = _mm_load_ps(&(yy[sample_offset]));
+    const __m128 half_minus_cur_pis = _mm_sub_ps(half, cur_pis);
+    const __m128 yy_minus_cur_pis = _mm_sub_ps(cur_yy, cur_pis);
+    const __m128 second_term = _mm_mul_ps(half_minus_cur_pis, _mm_mul_ps(cur_weights, dotprods));
+    const __m128 cur_wws = _mm_add_ps(yy_minus_cur_pis, second_term);
+    _mm_store_ps(&(ww[sample_offset]), cur_wws);
+  }
+}
+#else
+void firth_compute_weights(const float* yy, const float* xx, const float* pp, const float* vv, const float* tmpnxk, uint32_t predictor_ct, uint32_t sample_ct, uint32_t sample_cta4, float* ww) {
+  for (uint32_t sample_idx = 0; sample_idx < sample_cta4; ++sample_idx) {
+    float dotprod = 0.0;
+    const float* xx_row = &(xx[sample_idx]);
+    const float* tmpnxk_row = &(tmpnxk[sample_idx]);
+    for (uint32_t pred_uidx = 0; pred_uidx < predictor_ct; ++pred_uidx) {
+      dotprod += xx_row[pred_uidx * sample_cta4] * tmpnxk_row[pred_uidx * sample_cta4];
+    }
+    const float cur_weight = vv[sample_idx];
+    const float cur_pi = pp[sample_idx];
+    ww[sample_idx] = (yy[sample_idx] - cur_pi) + (0.5 - cur_pi) * cur_weight * dotprod;
+  }
+}
+#endif
+
 boolerr_t firth_regression(const float* yy, const float* xx, uint32_t sample_ct, uint32_t predictor_ct, float* coef, float* hh, matrix_finvert_buf1_t* inv_1d_buf, float* flt_2d_buf, float* pp, float* vv, float* grad, float* dcoef, float* ww, float* tmpnxk_buf) {
   // This is a port of Georg Heinze's logistf R function, adapted to use many
   // of plink 1.9's optimizations; see
@@ -2261,21 +2381,8 @@ boolerr_t firth_regression(const float* yy, const float* xx, uint32_t sample_ct,
       return 0;
     }
     col_major_fmatrix_multiply_strided(xx, hh, sample_ct, sample_cta4, predictor_ct, predictor_cta4, predictor_ct, sample_cta4, tmpnxk_buf);
-    // tmpNxK, interpreted as column-major, is sample_ct x predictor_ct
-    // X, interpreted as column-major, is also sample_ct x predictor_ct
-    // Hdiag[i] = V[i] (\sum_j tmpNxK[i][j] X[i][j])
-    // (todo: vectorize this)
-    for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
-      float dotprod = 0.0;
-      const float* xx_row = &(xx[sample_idx]);
-      const float* tmpnxk_row = &(tmpnxk_buf[sample_idx]);
-      for (uint32_t pred_uidx = 0; pred_uidx < predictor_ct; ++pred_uidx) {
-	dotprod += xx_row[pred_uidx * sample_cta4] * tmpnxk_row[pred_uidx * sample_cta4];
-      }
-      const float cur_weight = vv[sample_idx];
-      const float cur_pi = pp[sample_idx];
-      ww[sample_idx] = (yy[sample_idx] - cur_pi) + (0.5 - cur_pi) * cur_weight * dotprod;
-    }
+
+    firth_compute_weights(yy, xx, pp, vv, tmpnxk_buf, predictor_ct, sample_ct, sample_cta4, ww);
     
     // gradient (Ustar in logistf) = X' W
     mult_matrix_dxn_vect_n(xx, ww, sample_ct, predictor_ct, grad);
@@ -2396,27 +2503,29 @@ uintptr_t get_logistic_workspace_size(uint32_t sample_ct, uint32_t predictor_ct,
   // (technically not needed in pure-Firth case)
   workspace_size += round_up_pow2(predictor_ct * predictor_cta4 * sizeof(float), kCacheline);
 
-  if (is_sometimes_firth || constraint_ct) {
-    // inv_1d_buf = predictor_ct * kMatrixFinvertBuf1CheckedAlloc bytes
-    workspace_size += round_up_pow2(predictor_ct * kMatrixFinvertBuf1CheckedAlloc, kCacheline);
+  // inv_1d_buf = predictor_ct * kMatrixFinvertBuf1CheckedAlloc bytes
+  workspace_size += round_up_pow2(predictor_ct * kMatrixFinvertBuf1CheckedAlloc, kCacheline);
 
-    // flt_2d_buf = predictor_ct * predictor_cta4 floats
-    workspace_size += round_up_pow2(predictor_ct * predictor_cta4 * sizeof(float), kCacheline);
+  // flt_2d_buf = predictor_ct * predictor_cta4 floats
+  workspace_size += round_up_pow2(predictor_ct * predictor_cta4 * sizeof(float), kCacheline);
 
-    if (is_sometimes_firth) {
-      // ww = sample_cta4 floats
-      workspace_size += round_up_pow2(sample_cta4 * sizeof(float), kCacheline);
+  // predictor_dotprod_buf, inverse_corr_buf
+  const uint32_t predictor_ct_m1 = predictor_ct - 1;
+  workspace_size += 2 * round_up_pow2(predictor_ct_m1 * predictor_ct_m1 * sizeof(float), kCacheline);
 
-      // tmpnxk_buf = predictor_ct * sample_cta4 floats
-      workspace_size += round_up_pow2(predictor_ct * sample_cta4 * sizeof(float), kCacheline);
-    }
-    if (constraint_ct) {
-      // tmphxs_buf, h_transpose_buf = constraint_ct * predictor_cta4 floats
-      workspace_size += 2 * round_up_pow2(constraint_ct * predictor_cta4 * sizeof(float), kCacheline);
-      
-      // inner_buf = constraint_ct * constraint_ct
-      workspace_size += round_up_pow2(constraint_ct * constraint_ct * sizeof(float), kCacheline);
-    }
+  if (is_sometimes_firth) {
+    // ww = sample_cta4 floats
+    workspace_size += round_up_pow2(sample_cta4 * sizeof(float), kCacheline);
+
+    // tmpnxk_buf = predictor_ct * sample_cta4 floats
+    workspace_size += round_up_pow2(predictor_ct * sample_cta4 * sizeof(float), kCacheline);
+  }
+  if (constraint_ct) {
+    // tmphxs_buf, h_transpose_buf = constraint_ct * predictor_cta4 floats
+    workspace_size += 2 * round_up_pow2(constraint_ct * predictor_cta4 * sizeof(float), kCacheline);
+
+    // inner_buf = constraint_ct * constraint_ct
+    workspace_size += round_up_pow2(constraint_ct * constraint_ct * sizeof(float), kCacheline);
   }
   return workspace_size;  
 }
@@ -2537,6 +2646,8 @@ static uint32_t g_calc_thread_ct = 0;
 static uint32_t g_cur_block_variant_ct = 0;
 static glm_flags_t g_glm_flags = kfGlm0;
 static uint32_t g_is_xchr_model_1 = 0;
+static double g_max_corr = 0.0;
+static double g_vif_thresh = 0.0;
 static pglerr_t g_error_ret = kPglRetSuccess;
 
 static logistic_aux_result_t* g_logistic_block_aux = nullptr;
@@ -2575,6 +2686,8 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
   const uint32_t model_recessive = (glm_flags / kfGlmRecessive) & 1;
   const uint32_t joint_genotypic = (glm_flags / kfGlmGenotypic) & 1;
   const uint32_t joint_hethom = (glm_flags / kfGlmHethom) & 1;
+  const float max_corr = (float)g_max_corr;
+  const float vif_thresh = (float)g_vif_thresh;
   const uint32_t domdev_present = joint_genotypic || joint_hethom;
   const uint32_t domdev_present_p1 = domdev_present + 1;  
   const uint32_t reported_pred_uidx_start = 1 - include_intercept;
@@ -2701,30 +2814,29 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
       float* dcoef_buf = (float*)arena_alloc_raw_rd(predictor_cta4 * sizeof(float), &workspace_iter);
       float* cholesky_decomp_return = (float*)arena_alloc_raw_rd(cur_predictor_ct * predictor_cta4 * sizeof(float), &workspace_iter);
       
-      matrix_finvert_buf1_t* inv_1d_buf = nullptr;
-      float* flt_2d_buf = nullptr;
+      matrix_finvert_buf1_t* inv_1d_buf = (matrix_finvert_buf1_t*)arena_alloc_raw_rd(cur_predictor_ct * kMatrixFinvertBuf1CheckedAlloc, &workspace_iter);
+      float* flt_2d_buf = (float*)arena_alloc_raw_rd(cur_predictor_ct * predictor_cta4 * sizeof(float), &workspace_iter);
+      float* predictor_dotprod_buf = (float*)arena_alloc_raw_rd((cur_predictor_ct - 1) * (cur_predictor_ct - 1) * sizeof(float), &workspace_iter);
+      float* inverse_corr_buf = (float*)arena_alloc_raw_rd((cur_predictor_ct - 1) * (cur_predictor_ct - 1) * sizeof(float), &workspace_iter);
 
+      // these could use the same memory, but not a big deal, use the less
+      // bug-prone approach for now
       // Firth-only
       float* score_buf = nullptr;
       float* tmpnxk_buf = nullptr;
+      if (is_sometimes_firth) {
+        score_buf = (float*)arena_alloc_raw_rd(sample_cta4 * sizeof(float), &workspace_iter);
+        tmpnxk_buf = (float*)arena_alloc_raw_rd(cur_predictor_ct * sample_cta4 * sizeof(float), &workspace_iter);
+      }
 
       // joint test only
       float* tmphxs_buf = nullptr;
       float* h_transpose_buf = nullptr;
       float* inner_buf = nullptr;
-
-      if (is_sometimes_firth || cur_constraint_ct) {
-	inv_1d_buf = (matrix_finvert_buf1_t*)arena_alloc_raw_rd(cur_predictor_ct * kMatrixFinvertBuf1CheckedAlloc, &workspace_iter);
-	flt_2d_buf = (float*)arena_alloc_raw_rd(cur_predictor_ct * predictor_cta4 * sizeof(float), &workspace_iter);
-	if (is_sometimes_firth) {
-	  score_buf = (float*)arena_alloc_raw_rd(sample_cta4 * sizeof(float), &workspace_iter);
-	  tmpnxk_buf = (float*)arena_alloc_raw_rd(cur_predictor_ct * sample_cta4 * sizeof(float), &workspace_iter);
-	}
-	if (cur_constraint_ct) {
-	  tmphxs_buf = (float*)arena_alloc_raw_rd(cur_constraint_ct * predictor_cta4 * sizeof(float), &workspace_iter);
-	  h_transpose_buf = (float*)arena_alloc_raw_rd(cur_constraint_ct * predictor_cta4 * sizeof(float), &workspace_iter);
-	  inner_buf = (float*)arena_alloc_raw_rd(cur_constraint_ct * cur_constraint_ct * sizeof(float), &workspace_iter);
-	}
+      if (cur_constraint_ct) {
+        tmphxs_buf = (float*)arena_alloc_raw_rd(cur_constraint_ct * predictor_cta4 * sizeof(float), &workspace_iter);
+        h_transpose_buf = (float*)arena_alloc_raw_rd(cur_constraint_ct * predictor_cta4 * sizeof(float), &workspace_iter);
+        inner_buf = (float*)arena_alloc_raw_rd(cur_constraint_ct * cur_constraint_ct * sizeof(float), &workspace_iter);
       }
       // assert((uintptr_t)(workspace_iter - workspace_buf) == get_logistic_workspace_size(cur_sample_ct, cur_predictor_ct, cur_constraint_ct, genof_buffer_needed, is_sometimes_firth));
       pgr_clear_ld_cache(pgrp);
@@ -2968,6 +3080,9 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
 	      }
 	    }
 	  }
+          if (check_max_corr_and_vif_f(&(nm_predictors_pmaj_buf[nm_sample_cta4]), cur_predictor_ct - 1, nm_sample_ct, nm_sample_cta4, max_corr, vif_thresh, predictor_dotprod_buf, flt_2d_buf, inverse_corr_buf, inv_1d_buf)) {
+            goto glm_logistic_thread_skip_variant;
+          }
 	  fill_float_zero(predictor_cta4, coef_return);
 	  if (!is_always_firth) {
 	    const double ref_plus_alt1_sum = dosage_ceil * ((int32_t)nm_sample_ct);
@@ -2982,7 +3097,7 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
 		goto glm_logistic_thread_firth_fallback;
 	      } else {
 		// this fails to converge >99.99% of the time, but better to
-		// explicitly detect it since that can siginificantly speed
+		// explicitly detect it since that can significantly speed
 		// things up
 		goto glm_logistic_thread_skip_variant;
 	      }
@@ -3028,6 +3143,7 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
 	    }
 	  } else {
 	  glm_logistic_thread_firth_fallback:
+            // probable todo: reintroduce VIF and max_corr checks here
 	    if (firth_regression(nm_pheno_buf, nm_predictors_pmaj_buf, nm_sample_ct, cur_predictor_ct, coef_return, hh_return, inv_1d_buf, flt_2d_buf, pp_buf, sample_variance_buf, gradient_buf, dcoef_buf, score_buf, tmpnxk_buf)) {
 	      goto glm_logistic_thread_skip_variant;
 	    }
@@ -4225,27 +4341,23 @@ uintptr_t get_linear_workspace_size(uint32_t sample_ct, uint32_t predictor_ct, u
   // predictors_pmaj = (predictor_ct + genod_buffer_needed) * sample_ct doubles
   workspace_size += round_up_pow2((predictor_ct + genod_buffer_needed) * sample_ct * sizeof(double), kCacheline);
 
-  // xtx_inv, dbl_2d_buf = predictor_ct * predictor_ct doubles
+  // xtx_inv, dbl_2d_buf = predictor_ct^2 doubles
   workspace_size += 2 * round_up_pow2(predictor_ct * predictor_ct * sizeof(double), kCacheline);
+
+  // inverse_corr_buf = (predictor_ct - 1)^2 doubles
+  workspace_size += round_up_pow2((predictor_ct - 1) * (predictor_ct - 1) * sizeof(double), kCacheline);
 
   // fitted_coefs, xt_y = predictor_ct doubles
   workspace_size += 2 * round_up_pow2(predictor_ct * sizeof(double), kCacheline);
 
-#ifdef NOLAPACK
-  // mi_buf = constraint_ct * kMatrixInvertBuf1CheckedAlloc bytes
-  workspace_size += round_up_pow2(constraint_ct * kMatrixInvertBuf1CheckedAlloc, kCacheline);
-#endif
+  // mi_buf
+  workspace_size += round_up_pow2(MAXV(predictor_ct, constraint_ct) * kMatrixInvertBuf1CheckedAlloc, kCacheline);
   if (constraint_ct) {
     // tmphxs_buf, h_transpose_buf = constraint_ct * predictor_ct doubles
     workspace_size += 2 * round_up_pow2(constraint_ct * predictor_ct * sizeof(double), kCacheline);
 
     // inner_buf = constraint_ct * constraint_ct
     workspace_size += round_up_pow2(constraint_ct * constraint_ct * sizeof(double), kCacheline);
-
-#ifndef NOLAPACK
-    // mi_buf = constraint_ct * kMatrixInvertBuf1CheckedAlloc bytes
-    workspace_size += round_up_pow2(constraint_ct * kMatrixInvertBuf1CheckedAlloc, kCacheline);
-#endif
   }
   return workspace_size;  
 }
@@ -4281,6 +4393,8 @@ THREAD_FUNC_DECL glm_linear_thread(void* arg) {
   const int32_t x_code = cip->xymt_codes[kChrOffsetX];
   const int32_t y_code = cip->xymt_codes[kChrOffsetY];
   const uint32_t is_xchr_model_1 = g_is_xchr_model_1;
+  const double max_corr = g_max_corr;
+  const double vif_thresh = g_vif_thresh;
   const uintptr_t max_reported_test_ct = g_max_reported_test_ct;
   const uintptr_t local_covar_ct = g_local_covar_ct;
   uintptr_t max_sample_ct = MAXV(g_sample_ct, g_sample_ct_x);
@@ -4383,21 +4497,18 @@ THREAD_FUNC_DECL glm_linear_thread(void* arg) {
       double* xtx_inv = (double*)arena_alloc_raw_rd(cur_predictor_ct * cur_predictor_ct * sizeof(double), &workspace_iter);
       double* fitted_coefs = (double*)arena_alloc_raw_rd(cur_predictor_ct * sizeof(double), &workspace_iter);
       double* xt_y = (double*)arena_alloc_raw_rd(cur_predictor_ct * sizeof(double), &workspace_iter);
+      matrix_invert_buf1_t* inv_1d_buf = (matrix_invert_buf1_t*)arena_alloc_raw_rd(MAXV(cur_predictor_ct, cur_constraint_ct) * kMatrixInvertBuf1CheckedAlloc, &workspace_iter);
       double* dbl_2d_buf = (double*)arena_alloc_raw_rd(cur_predictor_ct * cur_predictor_ct * sizeof(double), &workspace_iter);
+
+      // could technically have this overlap fitted_coefs/xt_y, but that sets
+      // the stage for future bugs
+      double* inverse_corr_buf = (double*)arena_alloc_raw_rd((cur_predictor_ct - 1) * (cur_predictor_ct - 1) * sizeof(double), &workspace_iter);
       
       // joint test only
-      matrix_invert_buf1_t* inv_1d_buf = nullptr;
       double* tmphxs_buf = nullptr;
       double* h_transpose_buf = nullptr;
       double* inner_buf = nullptr;
-#ifdef NOLAPACK
-      // (well, except if LAPACK is missing)
-      inv_1d_buf = (matrix_invert_buf1_t*)arena_alloc_raw_rd(cur_predictor_ct * kMatrixInvertBuf1CheckedAlloc, &workspace_iter);
-#endif
       if (cur_constraint_ct) {
-#ifndef NOLAPACK
-	inv_1d_buf = (matrix_invert_buf1_t*)arena_alloc_raw_rd(cur_predictor_ct * kMatrixInvertBuf1CheckedAlloc, &workspace_iter);
-#endif
 	tmphxs_buf = (double*)arena_alloc_raw_rd(cur_constraint_ct * cur_predictor_ct * sizeof(double), &workspace_iter);
 	h_transpose_buf = (double*)arena_alloc_raw_rd(cur_constraint_ct * cur_predictor_ct * sizeof(double), &workspace_iter);
 	inner_buf = (double*)arena_alloc_raw_rd(cur_constraint_ct * cur_constraint_ct * sizeof(double), &workspace_iter);
@@ -4618,9 +4729,26 @@ THREAD_FUNC_DECL glm_linear_thread(void* arg) {
 	      }
 	    }
 	  }
-	  if (linear_regression_inv(nm_pheno_buf, nm_predictors_pmaj_buf, cur_predictor_ct, nm_sample_ct, fitted_coefs, xtx_inv, xt_y, inv_1d_buf, dbl_2d_buf)) {
-	    goto glm_linear_thread_skip_variant;
-	  }
+
+          // bugfix (12 Sep 2017): forgot to implement per-variant VIF and
+          // max-corr checks
+          multiply_self_transpose(nm_predictors_pmaj_buf, cur_predictor_ct, nm_sample_ct, xtx_inv);
+          double* predictor_row_iter = &(nm_predictors_pmaj_buf[nm_sample_ct]);
+          for (uint32_t pred_idx = 1; pred_idx < cur_predictor_ct; ++pred_idx) {
+            double cur_sum = 0.0;
+            for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx) {
+              cur_sum += *predictor_row_iter++;
+            }
+            dbl_2d_buf[pred_idx] = cur_sum;
+          }
+          vif_corr_err_t vif_corr_check_result;
+          if (check_max_corr_and_vif(xtx_inv, 1, cur_predictor_ct, nm_sample_ct, max_corr, vif_thresh, dbl_2d_buf, inverse_corr_buf, &vif_corr_check_result, inv_1d_buf)) {
+            goto glm_linear_thread_skip_variant;
+          }
+
+          if (linear_regression_inv(nm_pheno_buf, nm_predictors_pmaj_buf, cur_predictor_ct, nm_sample_ct, xtx_inv, fitted_coefs, xt_y, inv_1d_buf, dbl_2d_buf)) {
+            goto glm_linear_thread_skip_variant;
+          }
 	  // RSS = y^T y - y^T X (X^T X)^{-1} X^T y
 	  //     = cur_pheno_ssq - xt_y * fitted_coefs
 	  // s^2 = RSS / df
@@ -5851,6 +5979,8 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
     g_parameter_subset = nullptr;
     g_parameter_subset_x = nullptr;
     g_parameter_subset_y = nullptr;
+    g_vif_thresh = vif_thresh;
+    g_max_corr = glm_info_ptr->max_corr;
     if (glm_info_ptr->parameters_range_list.name_ct) {
       if (bigstack_calloc_ul(raw_predictor_ctl, &raw_parameter_subset) ||
 	  bigstack_alloc_ul(raw_predictor_ctl, &g_parameter_subset) ||
@@ -6212,11 +6342,11 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
       char** cur_covar_names = nullptr;
       vif_corr_err_t vif_corr_check_result;
       if (is_logistic) {
-	if (glm_alloc_fill_and_test_pheno_covars_cc(cur_sample_include, cur_pheno_col->data.cc, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, vif_thresh, glm_info_ptr->max_corr, &g_pheno_cc, gcount_cc_col? (&g_gcount_case_interleaved_vec) : nullptr, &pheno_f, &covars_cmaj_f, &cur_covar_names, &vif_corr_check_result)) {
+	if (glm_alloc_fill_and_test_pheno_covars_cc(cur_sample_include, cur_pheno_col->data.cc, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, g_max_corr, vif_thresh, &g_pheno_cc, gcount_cc_col? (&g_gcount_case_interleaved_vec) : nullptr, &pheno_f, &covars_cmaj_f, &cur_covar_names, &vif_corr_check_result)) {
 	  goto glm_main_ret_NOMEM;
 	}
       } else {
-	if (glm_alloc_fill_and_test_pheno_covars_qt(cur_sample_include, cur_pheno_col->data.qt, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, vif_thresh, glm_info_ptr->max_corr, &g_pheno_d, &covars_cmaj_d, &cur_covar_names, &vif_corr_check_result)) {
+	if (glm_alloc_fill_and_test_pheno_covars_qt(cur_sample_include, cur_pheno_col->data.qt, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, g_max_corr, vif_thresh, &g_pheno_d, &covars_cmaj_d, &cur_covar_names, &vif_corr_check_result)) {
 	  goto glm_main_ret_NOMEM;
 	}
       }
@@ -6226,9 +6356,9 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
 	  LOGERRPRINTFWW("Warning: Skipping --glm regression on phenotype '%s' since covariate correlation matrix could not be inverted. You may want to remove redundant covariates and try again.\n", cur_pheno_name);
 	} else {
 	  if (vif_corr_check_result.errcode == kVifCorrCheckVifFail) {
-	    LOGERRPRINTFWW("Warning: Skipping --glm regression on phenotype '%s' since variance inflation factor for covariate '%s' is too high. You may want to remove redundant covariates and try again.\n", cur_pheno_name, cur_covar_names[vif_corr_check_result.covar_idx1]);
+	    LOGERRPRINTFWW("Warning: Skipping --glm regression on phenotype '%s' since variance inflation factor for covariate '%s' is too high. You may want to remove redundant covariates and try again.\n", cur_pheno_name, cur_covar_names[vif_corr_check_result.covar_idx1 + local_covar_ct]);
 	  } else {
-	    LOGERRPRINTFWW("Warning: Skipping --glm regression on phenotype '%s' since correlation between covariates '%s' and '%s' is too high. You may want to remove redundant covariates and try again.\n", cur_pheno_name, cur_covar_names[vif_corr_check_result.covar_idx1], cur_covar_names[vif_corr_check_result.covar_idx2]);
+	    LOGERRPRINTFWW("Warning: Skipping --glm regression on phenotype '%s' since correlation between covariates '%s' and '%s' is too high. You may want to remove redundant covariates and try again.\n", cur_pheno_name, cur_covar_names[vif_corr_check_result.covar_idx1 + local_covar_ct], cur_covar_names[vif_corr_check_result.covar_idx2 + local_covar_ct]);
 	  }
 	}
 	continue;
@@ -6236,11 +6366,11 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
       char** cur_covar_names_x = nullptr;
       if (sample_ct_x) {
 	if (is_logistic) {
-	  if (glm_alloc_fill_and_test_pheno_covars_cc(cur_sample_include_x, cur_pheno_col->data.cc, covar_include_x, covar_cols, covar_names, sample_ct_x, covar_ct_x, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, vif_thresh, glm_info_ptr->max_corr, &g_pheno_x_cc, gcount_cc_col? (&g_gcount_case_interleaved_vec_x) : nullptr, &g_pheno_x_f, &g_covars_cmaj_x_f, &cur_covar_names_x, &vif_corr_check_result)) {
+	  if (glm_alloc_fill_and_test_pheno_covars_cc(cur_sample_include_x, cur_pheno_col->data.cc, covar_include_x, covar_cols, covar_names, sample_ct_x, covar_ct_x, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, g_max_corr, vif_thresh, &g_pheno_x_cc, gcount_cc_col? (&g_gcount_case_interleaved_vec_x) : nullptr, &g_pheno_x_f, &g_covars_cmaj_x_f, &cur_covar_names_x, &vif_corr_check_result)) {
 	    goto glm_main_ret_NOMEM;
 	  }
 	} else {
-	  if (glm_alloc_fill_and_test_pheno_covars_qt(cur_sample_include_x, cur_pheno_col->data.qt, covar_include_x, covar_cols, covar_names, sample_ct_x, covar_ct_x, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, vif_thresh, glm_info_ptr->max_corr, &g_pheno_x_d, &g_covars_cmaj_x_d, &cur_covar_names_x, &vif_corr_check_result)) {
+	  if (glm_alloc_fill_and_test_pheno_covars_qt(cur_sample_include_x, cur_pheno_col->data.qt, covar_include_x, covar_cols, covar_names, sample_ct_x, covar_ct_x, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, g_max_corr, vif_thresh, &g_pheno_x_d, &g_covars_cmaj_x_d, &cur_covar_names_x, &vif_corr_check_result)) {
 	    goto glm_main_ret_NOMEM;
 	  }
 	}
@@ -6250,9 +6380,9 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
 	    LOGERRPRINTFWW("Warning: Skipping chrX in --glm regression on phenotype '%s', since covariate correlation matrix could not be inverted. You may want to remove redundant covariates and try again.\n", cur_pheno_name);
 	  } else {
 	    if (vif_corr_check_result.errcode == kVifCorrCheckVifFail) {
-	      LOGERRPRINTFWW("Warning: Skipping chrX in --glm regression on phenotype '%s', since variance inflation factor for covariate '%s' is too high. You may want to remove redundant covariates and try again.\n", cur_pheno_name, cur_covar_names_x[vif_corr_check_result.covar_idx1]);
+	      LOGERRPRINTFWW("Warning: Skipping chrX in --glm regression on phenotype '%s', since variance inflation factor for covariate '%s' is too high. You may want to remove redundant covariates and try again.\n", cur_pheno_name, cur_covar_names_x[vif_corr_check_result.covar_idx1 + local_covar_ct]);
 	    } else {
-	      LOGERRPRINTFWW("Warning: Skipping chrX in --glm regression on phenotype '%s', since correlation between covariates '%s' and '%s' is too high. You may want to remove redundant covariates and try again.\n", cur_pheno_name, cur_covar_names_x[vif_corr_check_result.covar_idx1], cur_covar_names_x[vif_corr_check_result.covar_idx2]);
+	      LOGERRPRINTFWW("Warning: Skipping chrX in --glm regression on phenotype '%s', since correlation between covariates '%s' and '%s' is too high. You may want to remove redundant covariates and try again.\n", cur_pheno_name, cur_covar_names_x[vif_corr_check_result.covar_idx1 + local_covar_ct], cur_covar_names_x[vif_corr_check_result.covar_idx2 + local_covar_ct]);
 	    }
 	  }
 	  sample_ct_x = 0;
@@ -6261,11 +6391,11 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
       char** cur_covar_names_y = nullptr;
       if (sample_ct_y) {
 	if (is_logistic) {
-	  if (glm_alloc_fill_and_test_pheno_covars_cc(cur_sample_include_y, cur_pheno_col->data.cc, covar_include_y, covar_cols, covar_names, sample_ct_y, covar_ct_y, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, vif_thresh, glm_info_ptr->max_corr, &g_pheno_y_cc, gcount_cc_col? (&g_gcount_case_interleaved_vec_y) : nullptr, &g_pheno_y_f, &g_covars_cmaj_y_f, &cur_covar_names_y, &vif_corr_check_result)) {
+	  if (glm_alloc_fill_and_test_pheno_covars_cc(cur_sample_include_y, cur_pheno_col->data.cc, covar_include_y, covar_cols, covar_names, sample_ct_y, covar_ct_y, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, g_max_corr, vif_thresh, &g_pheno_y_cc, gcount_cc_col? (&g_gcount_case_interleaved_vec_y) : nullptr, &g_pheno_y_f, &g_covars_cmaj_y_f, &cur_covar_names_y, &vif_corr_check_result)) {
 	    goto glm_main_ret_NOMEM;
 	  }
 	} else {
-	  if (glm_alloc_fill_and_test_pheno_covars_qt(cur_sample_include_y, cur_pheno_col->data.qt, covar_include_y, covar_cols, covar_names, sample_ct_y, covar_ct_y, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, vif_thresh, glm_info_ptr->max_corr, &g_pheno_y_d, &g_covars_cmaj_y_d, &cur_covar_names_y, &vif_corr_check_result)) {
+	  if (glm_alloc_fill_and_test_pheno_covars_qt(cur_sample_include_y, cur_pheno_col->data.qt, covar_include_y, covar_cols, covar_names, sample_ct_y, covar_ct_y, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, g_max_corr, vif_thresh, &g_pheno_y_d, &g_covars_cmaj_y_d, &cur_covar_names_y, &vif_corr_check_result)) {
 	    goto glm_main_ret_NOMEM;
 	  }
 	}
@@ -6274,9 +6404,9 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
 	    LOGERRPRINTFWW("Warning: Skipping chrY in --glm regression on phenotype '%s', since covariate correlation matrix could not be inverted.\n", cur_pheno_name);
 	  } else {
 	    if (vif_corr_check_result.errcode == kVifCorrCheckVifFail) {
-	      LOGERRPRINTFWW("Warning: Skipping chrY in --glm regression on phenotype '%s', since variance inflation factor for covariate '%s' is too high.\n", cur_pheno_name, cur_covar_names[vif_corr_check_result.covar_idx1]);
+	      LOGERRPRINTFWW("Warning: Skipping chrY in --glm regression on phenotype '%s', since variance inflation factor for covariate '%s' is too high.\n", cur_pheno_name, cur_covar_names[vif_corr_check_result.covar_idx1 + local_covar_ct]);
 	    } else {
-	      LOGERRPRINTFWW("Warning: Skipping chrY in --glm regression on phenotype '%s', since correlation between covariates '%s' and '%s' is too high.\n", cur_pheno_name, cur_covar_names[vif_corr_check_result.covar_idx1], cur_covar_names[vif_corr_check_result.covar_idx2]);
+	      LOGERRPRINTFWW("Warning: Skipping chrY in --glm regression on phenotype '%s', since correlation between covariates '%s' and '%s' is too high.\n", cur_pheno_name, cur_covar_names[vif_corr_check_result.covar_idx1 + local_covar_ct], cur_covar_names[vif_corr_check_result.covar_idx2 + local_covar_ct]);
 	    }
 	  }
 	  sample_ct_y = 0;

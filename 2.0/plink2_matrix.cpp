@@ -52,6 +52,10 @@ extern "C" {
               float* alpha, float* a, int* lda, float* b, int* ldb,
               float* beta, float* c, int* ldc);
 
+  void ssyrk_(char* uplo, char* trans, __CLPK_integer* n, __CLPK_integer* k,
+	      float* alpha, float* a, __CLPK_integer* lda, float* beta,
+	      float* c, __CLPK_integer* ldc);
+
     #else // Linux
       #ifndef USE_MKL
   int dgetrf_(__CLPK_integer* m, __CLPK_integer* n,
@@ -144,6 +148,10 @@ extern "C" {
 	      __CLPK_doublereal* alpha, __CLPK_doublereal* a,
 	      __CLPK_integer* lda, __CLPK_doublereal* beta,
 	      __CLPK_doublereal* c, __CLPK_integer* ldc);
+
+  void ssyrk_(char* uplo, char* trans, __CLPK_integer* n, __CLPK_integer* k,
+	      float* alpha, float* a, __CLPK_integer* lda, float* beta,
+	      float* c, __CLPK_integer* ldc);
         #endif
       #endif // !USE_MKL
     #endif // Linux
@@ -676,11 +684,13 @@ boolerr_t invert_fmatrix_first_half(int32_t dim, int32_t stride, float* matrix, 
   if (!svdcmp_float_c(dim, stride, matrix, flt_1d_buf, flt_2d_buf)) {
     return 1;
   }
-  float sv_prod = flt_1d_buf[0];
-  for (int32_t i=1; i<dim; ++i) {
-    sv_prod *= flt_1d_buf[i];
+  if (absdet_ptr) {
+    float sv_prod = flt_1d_buf[0];
+    for (int32_t i=1; i<dim; ++i) {
+      sv_prod *= flt_1d_buf[i];
+    }
+    *absdet_ptr = fabsf(sv_prod);
   }
-  *absdet_ptr = fabsf(sv_prod);
   return 0;
 }
 
@@ -807,12 +817,14 @@ boolerr_t invert_fmatrix_first_half(__CLPK_integer dim, __CLPK_integer stride, f
   if (rcond < kMatrixSingularRcond) {
     return 1;
   }
-  const uintptr_t stridep1 = stride + 1;
-  float det_u = matrix[0];
-  for (uintptr_t ulii = 1; ulii < ((uintptr_t)dim); ++ulii) {
-    det_u *= matrix[ulii * stridep1];
+  if (absdet_ptr) {
+    const uintptr_t stridep1 = stride + 1;
+    float det_u = matrix[0];
+    for (uintptr_t ulii = 1; ulii < ((uintptr_t)dim); ++ulii) {
+      det_u *= matrix[ulii * stridep1];
+    }
+    *absdet_ptr = fabsf(det_u);
   }
-  *absdet_ptr = fabsf(det_u);
   return 0;
 }
 
@@ -1012,7 +1024,7 @@ boolerr_t qr_square_factor_float(const float* input_matrix, uint32_t dim, uintpt
 
 // A(A^T), where A is row-major; result is dim x dim
 // ONLY UPDATES LOWER TRIANGLE OF result[].
-void multiply_self_transpose(double* input_matrix, uint32_t dim, uint32_t col_ct, double* result) {
+void multiply_self_transpose(const double* input_matrix, uint32_t dim, uint32_t col_ct, double* result) {
 #ifdef NOLAPACK
   for (uintptr_t row1_idx = 0; row1_idx < dim; ++row1_idx) {
     const double* pred_row1 = &(input_matrix[row1_idx * col_ct]);
@@ -1030,7 +1042,8 @@ void multiply_self_transpose(double* input_matrix, uint32_t dim, uint32_t col_ct
   __CLPK_integer tmp_k = col_ct;
   double alpha = 1.0;
   double beta = 0.0;
-  dsyrk_(&uplo, &trans, &tmp_n, &tmp_k, &alpha, input_matrix, &tmp_k, &beta, result, &tmp_n);
+  // const_cast
+  dsyrk_(&uplo, &trans, &tmp_n, &tmp_k, &alpha, (double*)((uintptr_t)input_matrix), &tmp_k, &beta, result, &tmp_n);
   #else
   // see col_major_matrix_multiply() remarks; same OS X issue here.
   // #ifdef LAPACK_ILP64
@@ -1054,6 +1067,33 @@ void multiply_self_transpose(double* input_matrix, uint32_t dim, uint32_t col_ct
   }
     #endif
   */
+  #endif
+#endif
+}
+
+void multiply_self_transpose_strided_f(const float* input_matrix, uint32_t dim, uint32_t col_ct, uint32_t stride, float* result) {
+#ifdef NOLAPACK
+  for (uintptr_t row1_idx = 0; row1_idx < dim; ++row1_idx) {
+    const float* pred_row1 = &(input_matrix[row1_idx * stride]);
+    float* result_row = &(result[row1_idx * dim]);
+    for (uintptr_t row2_idx = 0; row2_idx <= row1_idx; ++row2_idx) {
+      const float* pred_row2 = &(input_matrix[row2_idx * stride]);
+      result_row[row2_idx] = dotprod_f(pred_row1, pred_row2, col_ct);
+    }
+  }
+#else
+  #ifndef USE_CBLAS_XGEMM
+  char uplo = 'U';
+  char trans = 'T';
+  __CLPK_integer tmp_n = dim;
+  __CLPK_integer tmp_k = col_ct;
+  __CLPK_integer tmp_lda = stride;
+  float alpha = 1.0;
+  float beta = 0.0;
+  // const_cast
+  ssyrk_(&uplo, &trans, &tmp_n, &tmp_k, &alpha, (float*)((uintptr_t)input_matrix), &tmp_lda, &beta, result, &tmp_n);
+  #else
+  cblas_ssyrk(CblasColMajor, CblasUpper, CblasTrans, dim, col_ct, 1.0, input_matrix, stride, 0.0, result, dim);
   #endif
 #endif
 }
@@ -1202,9 +1242,10 @@ boolerr_t linear_regression_second_half(const double* xt_y, uint32_t predictor_c
 #endif // !NOLAPACK
 */
 
+// now assumes xtx_inv is predictors_pmaj * transpose on input
 // todo: support nrhs > 1 when permutation test implemented
-boolerr_t linear_regression_inv(const double* pheno_d, double* predictors_pmaj, uint32_t predictor_ct, uint32_t sample_ct, double* fitted_coefs, double* xtx_inv, double* xt_y, __maybe_unused matrix_invert_buf1_t* mi_buf, __maybe_unused double* dbl_2d_buf) {
-  multiply_self_transpose(predictors_pmaj, predictor_ct, sample_ct, xtx_inv);
+boolerr_t linear_regression_inv(const double* pheno_d, double* predictors_pmaj, uint32_t predictor_ct, uint32_t sample_ct, double* xtx_inv, double* fitted_coefs, double* xt_y, __maybe_unused matrix_invert_buf1_t* mi_buf, __maybe_unused double* dbl_2d_buf) {
+  // multiply_self_transpose(predictors_pmaj, predictor_ct, sample_ct, xtx_inv);
   row_major_matrix_multiply(predictors_pmaj, pheno_d, predictor_ct, 1, sample_ct, xt_y);
 #ifdef NOLAPACK
   // Need to fill the upper triangle of xtx, since linear_regression_first_half

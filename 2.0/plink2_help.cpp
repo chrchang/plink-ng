@@ -1554,13 +1554,11 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     help_print("glm\tlinear\tlogistic\tvif\tmax-corr", &help_ctrl, 0,
 "  --vif [max VIF]    : Set VIF threshold for --glm multicollinearity check\n"
-"                       (default 50).  For case/control phenotypes, only the\n"
-"                       covariates are checked, and the entire phenotype is\n"
-"                       skipped if a VIF is too high.\n"
+"                       (default 50).  (This is no longer skipped for\n"
+"                       case/control phenotypes.)\n"
 "  --max-corr [val]   : Skip --glm regression when the absolute value of the\n"
 "                       correlation between two predictors exceeds this value\n"
-"                       (default 0.999).  For case/control phenotypes, only\n"
-"                       covariates are checked.\n"
+"                       (default 0.999).\n"
 	       );
     help_print("glm\tlinear\tlogistic\tscore\txchr-model", &help_ctrl, 0,
 "  --xchr-model [m]   : Set the chrX --glm/--score model.\n"

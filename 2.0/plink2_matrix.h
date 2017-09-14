@@ -163,7 +163,7 @@ HEADER_INLINE boolerr_t invert_matrix_checked(int32_t dim, double* matrix, matri
 // if we're using float32s instead of float64s, we care enough about low-level
 // details that this split interface makes sense.
 // first half computes either LU or singular value decomposition, and
-//   determinant (could make latter optional)
+//   determinant iff absdet_ptr != nullptr
 // second half actually inverts matrix, assuming 1d_buf and 2d_buf have results
 //   from first half
 boolerr_t invert_fmatrix_first_half(int32_t dim, int32_t stride, float* matrix, float* absdet_ptr, matrix_finvert_buf1_t* flt_1d_buf, float* flt_2d_buf);
@@ -239,7 +239,10 @@ void transpose_copy_float(const float* old_matrix, uint32_t old_maj, uint32_t ne
 
 // A(A^T), where A is row-major; result is dim x dim
 // ONLY UPDATES LOWER TRIANGLE OF result[].
-void multiply_self_transpose(double* input_matrix, uint32_t dim, uint32_t col_ct, double* result);
+void multiply_self_transpose(const double* input_matrix, uint32_t dim, uint32_t col_ct, double* result);
+
+void multiply_self_transpose_strided_f(const float* input_matrix, uint32_t dim, uint32_t col_ct, uint32_t stride, float* result);
+
 
 // (A^T)A
 void transpose_multiply_self_incr(double* input_part, uint32_t dim, uint32_t partial_row_ct, double* result);
@@ -258,7 +261,9 @@ boolerr_t get_extract_eigvecs_lworks(uint32_t dim, uint32_t pc_ct, __CLPK_intege
 boolerr_t extract_eigvecs(uint32_t dim, uint32_t pc_ct, __CLPK_integer lwork, __CLPK_integer liwork, double* matrix, double* eigvals, double* reverse_eigvecs, unsigned char* extract_eigvecs_wkspace);
 #endif
 
-boolerr_t linear_regression_inv(const double* pheno_d, double* predictors_pmaj, uint32_t predictor_ct, uint32_t sample_ct, double* fitted_coefs, double* xtx_inv, double* xt_y, matrix_invert_buf1_t* mi_buf, double* dbl_2d_buf);
+// now assumes xtx_inv is predictors_pmaj * transpose on input
+// todo: support nrhs > 1 when permutation test implemented
+boolerr_t linear_regression_inv(const double* pheno_d, double* predictors_pmaj, uint32_t predictor_ct, uint32_t sample_ct, double* xtx_inv, double* fitted_coefs, double* xt_y, matrix_invert_buf1_t* mi_buf, double* dbl_2d_buf);
 
 #ifdef __cplusplus
 } // namespace plink2
