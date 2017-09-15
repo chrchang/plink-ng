@@ -167,7 +167,7 @@ HEADER_INLINE boolerr_t invert_matrix_checked(int32_t dim, double* matrix, matri
 // if we're using float32s instead of float64s, we care enough about low-level
 // details that this split interface makes sense.
 // first half computes either LU or singular value decomposition, and
-//   determinant iff absdet_ptr != nullptr
+//   determinant
 // second half actually inverts matrix, assuming 1d_buf and 2d_buf have results
 //   from first half
 boolerr_t invert_fmatrix_first_half(int32_t dim, int32_t stride, float* matrix, float* absdet_ptr, matrix_finvert_buf1_t* flt_1d_buf, float* flt_2d_buf);

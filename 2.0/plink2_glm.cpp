@@ -1045,48 +1045,50 @@ boolerr_t check_max_corr_and_vif(const double* predictor_dotprods, uint32_t firs
 //   relevant_predictor_ct := predictor_ct - 1, etc.
 // * sample_stride parameter added, since predictors_pmaj has vector-aligned
 //   rather than packed rows.
-// * flt_2d_buf not assumed to be filled with row sums, we compute them here.
+// * dbl_2d_buf not assumed to be filled with row sums, we compute them here.
 //   (probably want to modify check_max_corr_and_vif() to do the same.)
 // * no need to fill vif_corr_check_result, boolerr_t return value is good
 //   enough
-boolerr_t check_max_corr_and_vif_f(const float* predictors_pmaj, uint32_t predictor_ct, uint32_t sample_ct, uint32_t sample_stride, float max_corr, float vif_thresh, float* predictor_dotprod_buf, float* flt_2d_buf, float* inverse_corr_buf, matrix_finvert_buf1_t* inv_1d_buf) {
+// This now uses double-precision arithmetic since matrix inversion is too
+// inconsistent if we stick to single-precision.
+boolerr_t check_max_corr_and_vif_f(const float* predictors_pmaj, uint32_t predictor_ct, uint32_t sample_ct, uint32_t sample_stride, double max_corr, double vif_thresh, float* predictor_dotprod_buf, double* dbl_2d_buf, double* inverse_corr_buf, matrix_invert_buf1_t* inv_1d_buf) {
   multiply_self_transpose_strided_f(predictors_pmaj, predictor_ct, sample_ct, sample_stride, predictor_dotprod_buf);
   for (uintptr_t pred_idx = 0; pred_idx < predictor_ct; ++pred_idx) {
     const float* predictor_row = &(predictors_pmaj[pred_idx * sample_stride]);
-    float row_sum = 0.0;
+    double row_sum = 0.0;
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
-      row_sum += predictor_row[sample_idx];
+      row_sum += (double)predictor_row[sample_idx];
     }
-    flt_2d_buf[pred_idx] = row_sum;
+    dbl_2d_buf[pred_idx] = row_sum;
   }
   const uint32_t predictor_ct_p1 = predictor_ct + 1;
-  const float sample_ct_recip = 1.0 / ((float)((int32_t)sample_ct));
-  const float sample_ct_m1_f = (float)((int32_t)(sample_ct - 1));
-  const float sample_ct_m1_recip = 1.0 / sample_ct_m1_f;
+  const double sample_ct_recip = 1.0 / ((double)((int32_t)sample_ct));
+  const double sample_ct_m1_d = (double)((int32_t)(sample_ct - 1));
+  const double sample_ct_m1_recip = 1.0 / sample_ct_m1_d;
   for (uint32_t pred_idx1 = 0; pred_idx1 < predictor_ct; ++pred_idx1) {
-    float* sample_corr_row = &(inverse_corr_buf[pred_idx1 * predictor_ct]);
+    double* sample_corr_row = &(inverse_corr_buf[pred_idx1 * predictor_ct]);
     const float* predictor_dotprod_row = &(predictor_dotprod_buf[pred_idx1 * predictor_ct]);
-    const float covar1_mean_adj = flt_2d_buf[pred_idx1] * sample_ct_recip;
+    const double covar1_mean_adj = dbl_2d_buf[pred_idx1] * sample_ct_recip;
     for (uint32_t pred_idx2 = 0; pred_idx2 <= pred_idx1; ++pred_idx2) {
-      sample_corr_row[pred_idx2] = (predictor_dotprod_row[pred_idx2] - covar1_mean_adj * flt_2d_buf[pred_idx2]) * sample_ct_m1_recip;
+      sample_corr_row[pred_idx2] = ((double)predictor_dotprod_row[pred_idx2] - covar1_mean_adj * dbl_2d_buf[pred_idx2]) * sample_ct_m1_recip;
     }
   }
-  // now use flt_2d_buf to store inverse-sqrts, to get to correlation matrix
+  // now use dbl_2d_buf to store inverse-sqrts, to get to correlation matrix
   for (uint32_t pred_idx = 0; pred_idx < predictor_ct; ++pred_idx) {
-    flt_2d_buf[pred_idx] = 1.0 / sqrt(inverse_corr_buf[pred_idx * predictor_ct_p1]);
+    dbl_2d_buf[pred_idx] = 1.0 / sqrt(inverse_corr_buf[pred_idx * predictor_ct_p1]);
   }
   // only bottom left of inverse_corr_buf[] is filled before this loop
   for (uint32_t pred_idx1 = 1; pred_idx1 < predictor_ct; ++pred_idx1) {
-    const float inverse_stdev1 = flt_2d_buf[pred_idx1];
-    float* corr_row_iter = &(inverse_corr_buf[pred_idx1 * predictor_ct]);
-    float* corr_col_start = &(inverse_corr_buf[pred_idx1]);
-    const float* inverse_stdev2_iter = flt_2d_buf;
+    const double inverse_stdev1 = dbl_2d_buf[pred_idx1];
+    double* corr_row_iter = &(inverse_corr_buf[pred_idx1 * predictor_ct]);
+    double* corr_col_start = &(inverse_corr_buf[pred_idx1]);
+    const double* inverse_stdev2_iter = dbl_2d_buf;
     for (uintptr_t pred_idx2 = 0; pred_idx2 < pred_idx1; ++pred_idx2) {
-      const float cur_corr = (*corr_row_iter) * inverse_stdev1 * (*inverse_stdev2_iter++);
-      if (fabsf(cur_corr) > max_corr) {
+      const double cur_corr = (*corr_row_iter) * inverse_stdev1 * (*inverse_stdev2_iter++);
+      if (fabs(cur_corr) > max_corr) {
 	return 1;
       }
-      float* corr_col_entry_ptr = &(corr_col_start[pred_idx2 * predictor_ct]);
+      double* corr_col_entry_ptr = &(corr_col_start[pred_idx2 * predictor_ct]);
       *corr_col_entry_ptr = cur_corr;
       *corr_row_iter++ = cur_corr;
     }
@@ -1094,10 +1096,9 @@ boolerr_t check_max_corr_and_vif_f(const float* predictors_pmaj, uint32_t predic
   for (uint32_t pred_idx = 0; pred_idx < predictor_ct; ++pred_idx) {
     inverse_corr_buf[pred_idx * predictor_ct_p1] = 1.0;
   }
-  if (invert_fmatrix_first_half(predictor_ct, predictor_ct, inverse_corr_buf, nullptr, inv_1d_buf, flt_2d_buf)) {
+  if (invert_matrix_checked(predictor_ct, inverse_corr_buf, inv_1d_buf, dbl_2d_buf)) {
     return 1;
   }
-  invert_fmatrix_second_half(predictor_ct, predictor_ct, inverse_corr_buf, inv_1d_buf, flt_2d_buf);
 
   // VIFs = diagonal elements of inverse correlation matrix
   for (uint32_t pred_idx = 0; pred_idx < predictor_ct; ++pred_idx) {
@@ -2504,15 +2505,20 @@ uintptr_t get_logistic_workspace_size(uint32_t sample_ct, uint32_t predictor_ct,
   // (technically not needed in pure-Firth case)
   workspace_size += round_up_pow2(predictor_ct * predictor_cta4 * sizeof(float), kCacheline);
 
-  // inv_1d_buf = predictor_ct * kMatrixFinvertBuf1CheckedAlloc bytes
-  workspace_size += round_up_pow2(predictor_ct * kMatrixFinvertBuf1CheckedAlloc, kCacheline);
+  // inv_1d_buf; VIF always needs at least as much as Firth
+  workspace_size += round_up_pow2((predictor_ct - 1) * kMatrixInvertBuf1CheckedAlloc, kCacheline);
 
-  // flt_2d_buf = predictor_ct * predictor_cta4 floats
-  workspace_size += round_up_pow2(predictor_ct * predictor_cta4 * sizeof(float), kCacheline);
-
-  // predictor_dotprod_buf, inverse_corr_buf
   const uint32_t predictor_ct_m1 = predictor_ct - 1;
-  workspace_size += 2 * round_up_pow2(predictor_ct_m1 * predictor_ct_m1 * sizeof(float), kCacheline);
+  const uintptr_t vif_dbl_2d_byte_ct = predictor_ct_m1 * predictor_ct_m1 * sizeof(double);
+
+  // flt_2d_buf = predictor_ct * predictor_cta4 floats, or VIF dbl
+  workspace_size += round_up_pow2(MAXV(predictor_ct * predictor_cta4 * sizeof(float), vif_dbl_2d_byte_ct), kCacheline);
+
+  // predictor_dotprod_buf
+  workspace_size += round_up_pow2(predictor_ct_m1 * predictor_ct_m1 * sizeof(float), kCacheline);
+
+  // inverse_corr_buf
+  workspace_size += round_up_pow2(vif_dbl_2d_byte_ct, kCacheline);
 
   if (is_sometimes_firth) {
     // ww = sample_cta4 floats
@@ -2815,10 +2821,11 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
       float* dcoef_buf = (float*)arena_alloc_raw_rd(predictor_cta4 * sizeof(float), &workspace_iter);
       float* cholesky_decomp_return = (float*)arena_alloc_raw_rd(cur_predictor_ct * predictor_cta4 * sizeof(float), &workspace_iter);
       
-      matrix_finvert_buf1_t* inv_1d_buf = (matrix_finvert_buf1_t*)arena_alloc_raw_rd(cur_predictor_ct * kMatrixFinvertBuf1CheckedAlloc, &workspace_iter);
-      float* flt_2d_buf = (float*)arena_alloc_raw_rd(cur_predictor_ct * predictor_cta4 * sizeof(float), &workspace_iter);
+      matrix_finvert_buf1_t* inv_1d_buf = (matrix_finvert_buf1_t*)arena_alloc_raw_rd(cur_predictor_ct * kMatrixInvertBuf1CheckedAlloc, &workspace_iter);
+      const uintptr_t vif_dbl_2d_byte_ct = (cur_predictor_ct - 1) * (cur_predictor_ct - 1) * sizeof(double);
+      float* flt_2d_buf = (float*)arena_alloc_raw_rd(MAXV(cur_predictor_ct * predictor_cta4 * sizeof(float), vif_dbl_2d_byte_ct), &workspace_iter);
       float* predictor_dotprod_buf = (float*)arena_alloc_raw_rd((cur_predictor_ct - 1) * (cur_predictor_ct - 1) * sizeof(float), &workspace_iter);
-      float* inverse_corr_buf = (float*)arena_alloc_raw_rd((cur_predictor_ct - 1) * (cur_predictor_ct - 1) * sizeof(float), &workspace_iter);
+      double* inverse_corr_buf = (double*)arena_alloc_raw_rd(vif_dbl_2d_byte_ct, &workspace_iter);
 
       // these could use the same memory, but not a big deal, use the less
       // bug-prone approach for now
@@ -3081,7 +3088,7 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
 	      }
 	    }
 	  }
-          if (check_max_corr_and_vif_f(&(nm_predictors_pmaj_buf[nm_sample_cta4]), cur_predictor_ct - 1, nm_sample_ct, nm_sample_cta4, max_corr, vif_thresh, predictor_dotprod_buf, flt_2d_buf, inverse_corr_buf, inv_1d_buf)) {
+          if (check_max_corr_and_vif_f(&(nm_predictors_pmaj_buf[nm_sample_cta4]), cur_predictor_ct - 1, nm_sample_ct, nm_sample_cta4, max_corr, vif_thresh, predictor_dotprod_buf, (double*)flt_2d_buf, inverse_corr_buf, (matrix_invert_buf1_t*)inv_1d_buf)) {
             goto glm_logistic_thread_skip_variant;
           }
 	  fill_float_zero(predictor_cta4, coef_return);
@@ -3144,7 +3151,6 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
 	    }
 	  } else {
 	  glm_logistic_thread_firth_fallback:
-            // probable todo: reintroduce VIF and max_corr checks here
 	    if (firth_regression(nm_pheno_buf, nm_predictors_pmaj_buf, nm_sample_ct, cur_predictor_ct, coef_return, hh_return, inv_1d_buf, flt_2d_buf, pp_buf, sample_variance_buf, gradient_buf, dcoef_buf, score_buf, tmpnxk_buf)) {
 	      goto glm_logistic_thread_skip_variant;
 	    }

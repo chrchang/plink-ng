@@ -817,14 +817,12 @@ boolerr_t invert_fmatrix_first_half(__CLPK_integer dim, __CLPK_integer stride, f
   if (rcond < kMatrixSingularRcondF) {
     return 1;
   }
-  if (absdet_ptr) {
-    const uintptr_t stridep1 = stride + 1;
-    float det_u = matrix[0];
-    for (uintptr_t ulii = 1; ulii < ((uintptr_t)dim); ++ulii) {
-      det_u *= matrix[ulii * stridep1];
-    }
-    *absdet_ptr = fabsf(det_u);
+  const uintptr_t stridep1 = stride + 1;
+  float det_u = matrix[0];
+  for (uintptr_t ulii = 1; ulii < ((uintptr_t)dim); ++ulii) {
+    det_u *= matrix[ulii * stridep1];
   }
+  *absdet_ptr = fabsf(det_u);
   return 0;
 }
 
