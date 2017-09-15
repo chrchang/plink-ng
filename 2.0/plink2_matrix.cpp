@@ -788,7 +788,7 @@ boolerr_t invert_fmatrix_checked(__CLPK_integer dim, __CLPK_integer stride, floa
     return 1;
   }
   sgecon_(&cc, &dim, matrix, &stride, &norm, &rcond, flt_2d_buf, &(int_1d_buf[dim]), &info);
-  if (rcond < kMatrixSingularRcond) {
+  if (rcond < kMatrixSingularRcondF) {
     return 1;
   }
   if (absdet_ptr) {
@@ -814,7 +814,7 @@ boolerr_t invert_fmatrix_first_half(__CLPK_integer dim, __CLPK_integer stride, f
   }
   float rcond;
   sgecon_(&cc, &dim, matrix, &stride, &norm, &rcond, flt_2d_buf, &(int_1d_buf[(uint32_t)dim]), &info);
-  if (rcond < kMatrixSingularRcond) {
+  if (rcond < kMatrixSingularRcondF) {
     return 1;
   }
   if (absdet_ptr) {

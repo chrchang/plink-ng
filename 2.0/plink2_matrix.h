@@ -137,6 +137,10 @@ namespace plink2 {
 
 static const double kMatrixSingularRcond = 1e-14;
 
+// not just square root of kMatrixSingularRcond, since # bits of precision is
+// less than half
+static const float kMatrixSingularRcondF = 1e-6;
+
 #ifdef NOLAPACK
 HEADER_INLINE double dotprod_d(const double* vec1, const double* vec2, uint32_t ct) {
   double dotprod = 0.0;

@@ -997,7 +997,7 @@ boolerr_t check_max_corr_and_vif(const double* predictor_dotprods, uint32_t firs
   for (uintptr_t pred_idx = 0; pred_idx < relevant_predictor_ct; ++pred_idx) {
     dbl_2d_buf[pred_idx] = 1.0 / sqrt(inverse_corr_buf[pred_idx * relevant_predictor_ct_p1]);
   }
-  // only bottom right of inverse_corr_buf[] is filled before this loop
+  // only bottom left of inverse_corr_buf[] is filled before this loop
   for (uintptr_t pred_idx1 = 1; pred_idx1 < relevant_predictor_ct; ++pred_idx1) {
     const double inverse_stdev1 = dbl_2d_buf[pred_idx1];
     double* corr_row_iter = &(inverse_corr_buf[pred_idx1 * relevant_predictor_ct]);
@@ -1005,7 +1005,8 @@ boolerr_t check_max_corr_and_vif(const double* predictor_dotprods, uint32_t firs
     const double* inverse_stdev2_iter = dbl_2d_buf;
     for (uintptr_t pred_idx2 = 0; pred_idx2 < pred_idx1; ++pred_idx2) {
       const double cur_corr = (*corr_row_iter) * inverse_stdev1 * (*inverse_stdev2_iter++);
-      if (cur_corr > max_corr) {
+      // bugfix (14 Sep 2017): need to take absolute value here
+      if (fabs(cur_corr) > max_corr) {
 	vif_corr_check_result_ptr->errcode = kVifCorrCheckCorrFail;
 	// may as well put smaller index first
 	vif_corr_check_result_ptr->covar_idx1 = pred_idx2;
@@ -1060,8 +1061,8 @@ boolerr_t check_max_corr_and_vif_f(const float* predictors_pmaj, uint32_t predic
   }
   const uint32_t predictor_ct_p1 = predictor_ct + 1;
   const float sample_ct_recip = 1.0 / ((float)((int32_t)sample_ct));
-  const float sample_ct_m1_d = (float)((int32_t)(sample_ct - 1));
-  const float sample_ct_m1_recip = 1.0 / sample_ct_m1_d;
+  const float sample_ct_m1_f = (float)((int32_t)(sample_ct - 1));
+  const float sample_ct_m1_recip = 1.0 / sample_ct_m1_f;
   for (uint32_t pred_idx1 = 0; pred_idx1 < predictor_ct; ++pred_idx1) {
     float* sample_corr_row = &(inverse_corr_buf[pred_idx1 * predictor_ct]);
     const float* predictor_dotprod_row = &(predictor_dotprod_buf[pred_idx1 * predictor_ct]);
@@ -1074,7 +1075,7 @@ boolerr_t check_max_corr_and_vif_f(const float* predictors_pmaj, uint32_t predic
   for (uint32_t pred_idx = 0; pred_idx < predictor_ct; ++pred_idx) {
     flt_2d_buf[pred_idx] = 1.0 / sqrt(inverse_corr_buf[pred_idx * predictor_ct_p1]);
   }
-  // only bottom right of inverse_corr_buf[] is filled before this loop
+  // only bottom left of inverse_corr_buf[] is filled before this loop
   for (uint32_t pred_idx1 = 1; pred_idx1 < predictor_ct; ++pred_idx1) {
     const float inverse_stdev1 = flt_2d_buf[pred_idx1];
     float* corr_row_iter = &(inverse_corr_buf[pred_idx1 * predictor_ct]);
@@ -1082,7 +1083,7 @@ boolerr_t check_max_corr_and_vif_f(const float* predictors_pmaj, uint32_t predic
     const float* inverse_stdev2_iter = flt_2d_buf;
     for (uintptr_t pred_idx2 = 0; pred_idx2 < pred_idx1; ++pred_idx2) {
       const float cur_corr = (*corr_row_iter) * inverse_stdev1 * (*inverse_stdev2_iter++);
-      if (cur_corr > max_corr) {
+      if (fabsf(cur_corr) > max_corr) {
 	return 1;
       }
       float* corr_col_entry_ptr = &(corr_col_start[pred_idx2 * predictor_ct]);
