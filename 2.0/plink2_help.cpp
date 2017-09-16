@@ -1352,8 +1352,8 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "  --max-maf [freq]   : Exclude variants with MAF greater than the threshold.\n"
 "  --mac [ct]         : Exclude variants with nonmajor allele dosage lower than\n"
 "                       the given threshold.\n"
-"  --max-mac [ct]     : Exclude variants with nonmajor allele dosage greater than\n"
-"                       the given threshold.\n"
+"  --max-mac [ct]     : Exclude variants with nonmajor allele dosage greater\n"
+"                       than the given threshold.\n"
 	       );
     help_print("maf-succ", &help_ctrl, 0,
 "  --maf-succ         : Rule of succession allele frequency estimation (used in\n"
@@ -1390,7 +1390,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "                                   of [min, max] (defaults 0.1 and 2.0).\n"
 "                                   * For multiallelic variants, only the\n"
 "                                     ref-nonref dimension is considered.\n"
-"                                   * If a single parameter is provided, it is\t"
+"                                   * If a single parameter is provided, it is\n"
 "                                     treated as the minimum.\n"
 	       );
     help_print("keep-females\tkeep-males\tkeep-nosex\tremove-females\tremove-males\tremove-nosex\tfilter-males\tfilter-females", &help_ctrl, 0,
