@@ -17,8 +17,7 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
-#include "plink2_matrix.h"
+#include "plink2_common.h"
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -45,15 +44,6 @@ uint32_t SNPHWE_midp_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, dou
 double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t midp);
 
 double SNPHWEX(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, int32_t male1, int32_t male2, uint32_t midp);
-
-// (put linear_hypothesis_chisq in another file?)
-// outer_buf = constraint_ct
-// inner_buf = constraint_ct x constraint_ct
-// tmphxs_buf and h_transpose_buf are constraint_ct x predictor_ct
-// mi_buf only needs to be of length 2 * constraint_ct
-boolerr_t linear_hypothesis_chisq_f(const float* coef, const float* constraints_con_major, const float* cov_matrix, uint32_t constraint_ct, uint32_t predictor_ct, uint32_t cov_stride, double* chisq_ptr, float* tmphxs_buf, float* h_transpose_buf, float* inner_buf, matrix_finvert_buf1_t* mi_buf, float* outer_buf);
-
-boolerr_t linear_hypothesis_chisq(const double* coef, const double* constraints_con_major, const double* cov_matrix, uintptr_t constraint_ct, uintptr_t predictor_ct, double* chisq_ptr, double* tmphxs_buf, double* h_transpose_buf, double* inner_buf, matrix_invert_buf1_t* mi_buf, double* outer_buf);
 
 #ifdef __cplusplus
 }

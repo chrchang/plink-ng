@@ -2993,6 +2993,29 @@ uint32_t next_unset(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil) {
   return MINV(loc, ceil);
 }
 
+/*
+uint32_t prev_set(const uintptr_t* bitarr, uint32_t loc, uint32_t floor) {
+  const uintptr_t* bitarr_ptr = &(bitarr[loc / kBitsPerWord]);
+  uint32_t remainder = loc % kBitsPerWord;
+  uintptr_t ulii;
+  if (remainder) {
+    ulii = (*bitarr_ptr) & ((k1LU << remainder) - k1LU);
+    if (ulii) {
+      const uint32_t set_bit_loc = (loc | (kBitsPerWord - 1)) - CLZLU(ulii);
+      return MAXV(set_bit_loc, floor);
+    }
+  }
+  const uintptr_t* bitarr_stop = &(bitarr[floor / kBitsPerWord]);
+  do {
+    if (bitarr_ptr == bitarr_stop) {
+      return floor;
+    }
+    ulii = *(--bitarr_ptr);
+  } while (!ulii);
+  const uint32_t set_bit_loc = (uint32_t)(((uintptr_t)(bitarr_ptr - bitarr)) * kBitsPerWord + kBitsPerWord - 1 - CLZLU(ulii));
+  return MAXV(set_bit_loc, floor);
+}
+*/
 
 boolerr_t bigstack_calloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr) {
   *uc_arr_ptr = (unsigned char*)bigstack_alloc(ct);

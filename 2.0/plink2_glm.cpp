@@ -42,6 +42,92 @@ void cleanup_glm(glm_info_t* glm_info_ptr) {
   cleanup_range_list(&(glm_info_ptr->tests_range_list));
 }
 
+
+// refugees from plink2_stats.h; important to remove its plink2_matrix.h
+// dependency
+
+// outer_buf = constraint_ct
+// inner_buf = constraint_ct x constraint_ct
+// tmphxs_buf and h_transpose_buf are constraint_ct x predictor_ct
+// mi_buf only needs to be of length 2 * constraint_ct
+boolerr_t linear_hypothesis_chisq_f(const float* coef, const float* constraints_con_major, const float* cov_matrix, uint32_t constraint_ct, uint32_t predictor_ct, uint32_t cov_stride, double* chisq_ptr, float* tmphxs_buf, float* h_transpose_buf, float* inner_buf, matrix_finvert_buf1_t* mi_buf, float* outer_buf) {
+  const float* constraints_con_major_iter = constraints_con_major;
+  for (uint32_t constraint_idx = 0; constraint_idx < constraint_ct; constraint_idx++) {
+    outer_buf[constraint_idx] = dotprod_f(constraints_con_major_iter, coef, predictor_ct);
+    constraints_con_major_iter = &(constraints_con_major_iter[predictor_ct]);
+  }
+  // h-transpose does not have a special stride
+  transpose_copy_float(constraints_con_major, constraint_ct, predictor_ct, predictor_ct, h_transpose_buf);
+  col_major_fmatrix_multiply_strided(h_transpose_buf, cov_matrix, constraint_ct, constraint_ct, predictor_ct, cov_stride, predictor_ct, constraint_ct, tmphxs_buf);
+  // tmp[][] is now predictor-major
+  col_major_fmatrix_multiply_strided(tmphxs_buf, constraints_con_major, constraint_ct, constraint_ct, constraint_ct, predictor_ct, predictor_ct, constraint_ct, inner_buf);
+
+  // don't need H-transpose any more, so we can use h_transpose_buf for matrix
+  // inversion
+  float absdet;
+  if (invert_fmatrix_first_half(constraint_ct, constraint_ct, inner_buf, &absdet, mi_buf, h_transpose_buf)) {
+    return 1;
+  }
+  invert_fmatrix_second_half(constraint_ct, constraint_ct, inner_buf, mi_buf, h_transpose_buf);
+  double result = 0.0;
+  const float* inner_iter = inner_buf;
+  for (uint32_t constraint_idx = 0; constraint_idx < constraint_ct; ++constraint_idx) {
+    float cur_dotprod = 0.0; // tmp2[c]
+    const float* outer_iter = outer_buf;
+    for (uint32_t constraint_idx2 = 0; constraint_idx2 < constraint_ct; ++constraint_idx2) {
+      cur_dotprod += (*inner_iter++) * (*outer_iter++);
+    }
+    result += cur_dotprod * outer_buf[constraint_idx];
+  }
+  if (result < 0.0) {
+    // guard against floating point error
+    result = 0.0;
+  }
+  *chisq_ptr = result;
+  return 0;
+}
+
+boolerr_t linear_hypothesis_chisq(const double* coef, const double* constraints_con_major, const double* cov_matrix, uintptr_t constraint_ct, uintptr_t predictor_ct, double* chisq_ptr, double* tmphxs_buf, double* h_transpose_buf, double* inner_buf, matrix_invert_buf1_t* mi_buf, double* outer_buf) {
+  // See PLINK model.cpp Model::linearHypothesis().
+  //
+  // outer_buf = constraint_ct
+  // inner_buf = constraint_ct x constraint_ct
+  // tmphxs_buf and h_transpose_buf are constraint_ct x predictor_ct
+  // mi_buf only needs to be of length 2 * constraint_ct
+  //
+  // Since no PLINK function ever calls this with nonzero h[] values, this just
+  // takes a df (constraint_ct) parameter for now; it's trivial to switch to
+  // the more general interface later.
+  const double* constraints_con_major_iter = constraints_con_major;
+  for (uintptr_t constraint_idx = 0; constraint_idx < constraint_ct; constraint_idx++) {
+    outer_buf[constraint_idx] = dotprod_d(constraints_con_major_iter, coef, predictor_ct);
+    constraints_con_major_iter = &(constraints_con_major_iter[predictor_ct]);
+  }
+  transpose_copy(constraints_con_major, constraint_ct, predictor_ct, h_transpose_buf);
+  col_major_matrix_multiply(h_transpose_buf, cov_matrix, constraint_ct, predictor_ct, predictor_ct, tmphxs_buf);
+  // tmp[][] is now predictor-major
+  col_major_matrix_multiply(tmphxs_buf, constraints_con_major, constraint_ct, constraint_ct, predictor_ct, inner_buf);
+
+  // don't need H-transpose any more, so we can use h_transpose_buf for matrix
+  // inversion
+  if (invert_matrix((uint32_t)constraint_ct, inner_buf, mi_buf, h_transpose_buf)) {
+    return 1;
+  }
+  double result = 0.0;
+  const double* inner_iter = inner_buf;
+  for (uintptr_t constraint_idx = 0; constraint_idx < constraint_ct; ++constraint_idx) {
+    result += dotprod_d(inner_iter, outer_buf, constraint_ct) * outer_buf[constraint_idx];
+    inner_iter = &(inner_iter[constraint_ct]);
+  }
+  if (result < 0.0) {
+    // guard against floating point error
+    result = 0.0;
+  }
+  *chisq_ptr = result;
+  return 0;
+}
+
+
 pglerr_t glm_local_init(const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, const char* sample_ids, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const glm_info_t* glm_info_ptr, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uint32_t raw_variant_ct, const uintptr_t** sample_include_ptr, const uintptr_t** sex_nm_ptr, const uintptr_t** sex_male_ptr, const uintptr_t** variant_include_ptr, uint32_t* sample_ct_ptr, uint32_t* variant_ct_ptr, gzFile* gz_local_covar_file_ptr, uint32_t** local_sample_uidx_order_ptr, uintptr_t** local_variant_include_ptr, uint32_t* local_sample_ct_ptr, uint32_t* local_variant_ctl_ptr, uint32_t* local_covar_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;

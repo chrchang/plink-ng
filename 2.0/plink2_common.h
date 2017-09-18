@@ -821,6 +821,10 @@ HEADER_INLINE void bigstack_finalize_cp(__maybe_unused char** cpptr, uintptr_t c
 }
 
 
+HEADER_INLINE void bigstack_base_set(const void* unaligned_base) {
+  g_bigstack_base = (unsigned char*)round_up_pow2((uintptr_t)unaligned_base, kCacheline);
+}
+
 HEADER_INLINE void bigstack_shrink_top(const void* rebase, uintptr_t new_size) {
   // could assert that this doesn't go in the wrong direction?
   g_bigstack_base = (unsigned char*)round_up_pow2(((uintptr_t)rebase) + new_size, kCacheline);

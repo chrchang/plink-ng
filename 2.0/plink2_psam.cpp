@@ -232,7 +232,7 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
 	logerrprint("Error: Phenotype/covariate names are limited to " MAX_ID_SLEN_STR " characters.\n");
 	goto load_psam_ret_MALFORMED_INPUT;
       }
-      g_bigstack_base = (unsigned char*)round_up_pow2((uintptr_t)ll_alloc_base, kCacheline);
+      bigstack_base_set(ll_alloc_base);
       if (!(psam_cols_mask & 1)) {
 	sprintf(g_logbuf, "Error: No IID column on line %" PRIuPTR " of %s.\n", line_idx, psamname);
 	goto load_psam_ret_MALFORMED_INPUT_WW;
@@ -587,7 +587,8 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
       goto load_psam_ret_READ_FAIL;
     }
     const uintptr_t raw_sample_ctl = BITCT_TO_WORDCT(raw_sample_ct);
-    g_bigstack_base = (unsigned char*)round_up_pow2((uintptr_t)tmp_bigstack_base, kCacheline);
+    bigstack_base_set(tmp_bigstack_base);
+
     if (pheno_ct) {
       pheno_cols = (pheno_col_t*)malloc(pheno_ct * sizeof(pheno_col_t));
       if (!pheno_cols) {

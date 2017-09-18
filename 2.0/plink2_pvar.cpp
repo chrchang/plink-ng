@@ -504,7 +504,7 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
     if (xheader_end) {
       *xheader_ptr = (char*)bigstack_mark;
       *xheader_blen_ptr = (uintptr_t)(xheader_end - (*xheader_ptr));
-      g_bigstack_base = (unsigned char*)round_up_pow2((uintptr_t)xheader_end, kCacheline);
+      bigstack_base_set(xheader_end);
     }
     finalize_chrset(misc_flags, cip);
     char** allele_storage = (char**)g_bigstack_base;

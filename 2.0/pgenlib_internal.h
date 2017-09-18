@@ -1095,9 +1095,10 @@ void copy_bitarr_subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t*
 // need for some explicit end-of-bitarray checks.
 void copy_quaterarr_nonempty_subset(const uintptr_t* __restrict raw_quaterarr, const uintptr_t* __restrict subset_mask, uint32_t raw_quaterarr_entry_ct, uint32_t subset_entry_ct, uintptr_t* __restrict output_quaterarr);
 
+// Equivalent to popcount_bit_idx(subset_mask, 0, raw_idx).
 HEADER_INLINE uint32_t raw_to_subsetted_pos(const uintptr_t* subset_mask, const uint32_t* subset_cumulative_popcounts, uint32_t raw_idx) {
   // this should be much better than keeping a uidx_to_idx array!
-  uint32_t raw_widx = raw_idx / kBitsPerWord;
+  const uint32_t raw_widx = raw_idx / kBitsPerWord;
   return subset_cumulative_popcounts[raw_widx] + popcount_long(subset_mask[raw_widx] & ((k1LU << (raw_idx % kBitsPerWord)) - k1LU));
 }
 

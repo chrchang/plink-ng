@@ -3534,7 +3534,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
 	write_iter = uint32toa_x(score_col_idx + 1, '\0', write_iter);
       }
     }
-    g_bigstack_base = (unsigned char*)round_up_pow2((uintptr_t)write_iter, kCacheline);
+    bigstack_base_set(write_iter);
 
     g_score_col_ct = score_col_ct;
     g_sample_ct = sample_ct;
