@@ -136,7 +136,11 @@ namespace plink2 {
 #ifdef __cplusplus
   #define HEADER_INLINE inline
   #if __cplusplus <= 199711L
-    #define static_assert(cond, msg)
+    // this may be defined anyway, at least on OS X
+    #ifndef static_assert
+      // todo: check other cases
+      #define static_assert(cond, msg)
+    #endif
   #endif
 #else
   #define HEADER_INLINE static inline

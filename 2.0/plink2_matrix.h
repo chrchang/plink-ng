@@ -34,8 +34,6 @@
   CONSTU31(kMatrixInvertBuf1ElemAlloc, 2 * sizeof(double));
   CONSTU31(kMatrixInvertBuf1CheckedAlloc, 2 * sizeof(double));
   #define __CLPK_integer int
-  typedef float matrix_finvert_buf1_t;
-  CONSTU31(kMatrixFinvertBuf1CheckedAlloc, 2 * sizeof(float));
 
 #else // not NOLAPACK
   #ifdef __APPLE__
@@ -126,8 +124,6 @@ extern "C" {
   CONSTU31(kMatrixInvertBuf1ElemAlloc, sizeof(__CLPK_integer));
   // invert_matrix_checked() usually requires a larger buffer
   CONSTU31(kMatrixInvertBuf1CheckedAlloc, 2 * sizeof(__CLPK_integer));
-  typedef __CLPK_integer matrix_finvert_buf1_t;
-  CONSTU31(kMatrixFinvertBuf1CheckedAlloc, 2 * sizeof(__CLPK_integer));
 
 #endif // !NOLAPACK
 
@@ -136,10 +132,6 @@ namespace plink2 {
 #endif
 
 static const double kMatrixSingularRcond = 1e-14;
-
-// not just square root of kMatrixSingularRcond, since # bits of precision is
-// less than half
-static const float kMatrixSingularRcondF = 1e-6;
 
 #ifdef NOLAPACK
 HEADER_INLINE double dotprod_d(const double* vec1, const double* vec2, uint32_t ct) {
@@ -170,9 +162,19 @@ HEADER_INLINE boolerr_t invert_matrix_checked(int32_t dim, double* matrix, matri
 //   determinant
 // second half actually inverts matrix, assuming 1d_buf and 2d_buf have results
 //   from first half
-boolerr_t invert_fmatrix_first_half(int32_t dim, int32_t stride, float* matrix, float* absdet_ptr, matrix_finvert_buf1_t* flt_1d_buf, float* flt_2d_buf);
+boolerr_t invert_fmatrix_first_half(int32_t dim, uint32_t stride, const float* matrix, double* half_inverted, matrix_invert_buf1_t* dbl_1d_buf, double* dbl_2d_buf);
 
-void invert_fmatrix_second_half(int32_t dim, int32_t stride, float* matrix, matrix_finvert_buf1_t* flt_1d_buf, float* flt_2d_buf);
+HEADER_INLINE double half_inverted_det(__maybe_unused const double* half_inverted_iter, __maybe_unused const matrix_invert_buf1_t* dbl_1d_buf, uint32_t dim) {
+  // singular values in dbl_1d_buf
+  uint32_t dim_p1 = dim + 1;
+  double det_u = dbl_1d_buf[0];
+  for (uint32_t uii = 1; uii < dim; ++uii) {
+    det_u *= dbl_1d_buf[uii];
+  }
+  return fabs(det_u);
+}
+
+void invert_fmatrix_second_half(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, matrix_invert_buf1_t* dbl_1d_buf, double* dbl_2d_buf);
 #else
 HEADER_INLINE double dotprod_d(const double* vec1, const double* vec2, uint32_t ct) {
   #ifndef USE_CBLAS_XGEMM
@@ -204,9 +206,19 @@ boolerr_t invert_matrix(__CLPK_integer dim, double* matrix, matrix_invert_buf1_t
 
 boolerr_t invert_matrix_checked(__CLPK_integer dim, double* matrix, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf);
 
-boolerr_t invert_fmatrix_first_half(__CLPK_integer dim, __CLPK_integer stride, float* matrix, float* absdet_ptr, matrix_finvert_buf1_t* int_1d_buf, float* flt_2d_buf);
+boolerr_t invert_fmatrix_first_half(__CLPK_integer dim, uint32_t stride, const float* matrix, double* half_inverted, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf);
 
-void invert_fmatrix_second_half(__CLPK_integer dim, __CLPK_integer stride, float* matrix, matrix_finvert_buf1_t* int_1d_buf, float* flt_2d_buf);
+HEADER_INLINE double half_inverted_det(__maybe_unused const double* half_inverted_iter, __maybe_unused const matrix_invert_buf1_t* int_1d_buf, uint32_t dim) {
+  uint32_t dim_p1 = dim + 1;
+  double det_u = *half_inverted_iter;
+  for (uint32_t uii = 1; uii < dim; ++uii) {
+    half_inverted_iter = &(half_inverted_iter[dim_p1]);
+    det_u *= (*half_inverted_iter);
+  }
+  return fabs(det_u);
+}
+
+void invert_fmatrix_second_half(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf);
 #endif
 
 void col_major_matrix_multiply(const double* inmatrix1, const double* inmatrix2, __CLPK_integer row1_ct, __CLPK_integer col2_ct, __CLPK_integer common_ct, double* outmatrix);

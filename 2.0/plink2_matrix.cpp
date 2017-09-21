@@ -390,15 +390,13 @@ boolerr_t invert_matrix(int32_t dim, double* matrix, matrix_invert_buf1_t* dbl_1
   // w -> dbl_1d_buf
   // v -> dbl_2d_buf
   const double eps = 1e-24;
-  int32_t i;
-  int32_t j;
-  int32_t k;
   if (!svdcmp_c(dim, matrix, dbl_1d_buf, dbl_2d_buf)) {
     return 1;
   }
 
   // Look for singular values
   double wmax = 0;
+  int32_t i;
   for (i=0; i<dim; i++) {
     wmax = dbl_1d_buf[i] > wmax ? dbl_1d_buf[i] : wmax;
   }
@@ -407,12 +405,14 @@ boolerr_t invert_matrix(int32_t dim, double* matrix, matrix_invert_buf1_t* dbl_1
     dbl_1d_buf[i] = dbl_1d_buf[i] < wmin ? 0 : (1 / dbl_1d_buf[i]);
   }
   
+  int32_t j;
   for (i=0; i<dim; i++) {
     for (j=0; j<dim; j++) {
       matrix[i * dim + j] = matrix[i * dim + j] * dbl_1d_buf[j];
     }
   }
 
+  int32_t k;
   // [nxn].[t(v)]
   for (i=0; i<dim; i++) {
     fill_double_zero(dim, dbl_1d_buf);
@@ -435,307 +435,61 @@ boolerr_t invert_matrix(int32_t dim, double* matrix, matrix_invert_buf1_t* dbl_1
   return 0;
 }
 
-uint32_t svdcmp_float_c(int32_t m, int32_t stride, float* a, float* w, float* v) {
-  float* rv1 = &(w[(uint32_t)m]);
-  int32_t n = m;
-  int32_t flag;
-  int32_t l = 0; // suppress compile warning
-  int32_t i,its,j,jj,k,nm;
-  float anorm,c,f,g,h,s,scale,x,y,z;
-  float temp;
+boolerr_t invert_fmatrix_first_half(int32_t dim, uint32_t stride, const float* matrix, double* half_inverted, matrix_invert_buf1_t* dbl_1d_buf, double* dbl_2d_buf) {
+  const float* read_row = matrix;
+  double* write_row = half_inverted;
+  for (uint32_t row_idx = 0; row_idx < (uint32_t)dim; ++row_idx) {
+    for (uint32_t col_idx = 0; col_idx < (uint32_t)dim; ++col_idx) {
+      write_row[col_idx] = (double)read_row[col_idx];
+    }
+    read_row = &(read_row[stride]);
+    write_row = &(write_row[(uint32_t)dim]);
+  }
 
-  g=scale=anorm=0.0;
-  for (i=0;i<n;i++) {
-    l=i+2;
-    rv1[i]=scale*g;
-    g=s=scale=0.0;
-    if (i < m) {
-      for (k=i;k<m;k++) scale += fabs(a[k * stride + i]);
-      if (scale != 0.0) {
-	for (k=i;k<m;k++) {
-	  a[k * stride + i] /= scale;
-	  s += a[k * stride + i]*a[k * stride + i];
-	}
-	f=a[i * stride + i];
-	g = -SIGN(sqrt(s),f);
-	h=f*g-s;
-	a[i * stride + i]=f-g;
-	for (j=l-1;j<n;j++) {
-	  for (s=0.0,k=i;k<m;k++) s += a[k * stride + i]*a[k * stride + j];
-	  f=s/h;
-	  for (k=i;k<m;k++) a[k * stride + j] += f*a[k * stride + i];
-	}
-	for (k=i;k<m;k++) a[k * stride + i] *= scale;
-      }
-    }
-    w[i]=scale *g;
-    g=s=scale=0.0;
-    if (i+1 <= m && i+1 != n) {
-      for (k=l-1;k<n;k++) scale += fabs(a[i * stride + k]);
-      if (scale != 0.0) {
-	for (k=l-1;k<n;k++) {
-	  a[i * stride + k] /= scale;
-	  s += a[i * stride + k]*a[i * stride + k];
-	}
-	f=a[i * stride + l-1];
-	g = -SIGN(sqrt(s),f);
-	h=f*g-s;
-	a[i * stride + l-1]=f-g;
-	for (k=l-1;k<n;k++) rv1[k]=a[i * stride + k]/h;
-	for (j=l-1;j<m;j++) {
-	  for (s=0.0,k=l-1;k<n;k++) s += a[j * stride + k]*a[i * stride + k];
-	  for (k=l-1;k<n;k++) a[j * stride + k] += s*rv1[k];
-	}
-	for (k=l-1;k<n;k++) a[i * stride + k] *= scale;
-      }
-    }
-    anorm=MAXV(anorm,(fabs(w[i])+fabs(rv1[i])));
-  }
-  for (i=n-1;i>=0;i--) {
-    if (i < n-1) {
-      if (g != 0.0) {
-	for (j=l;j<n;j++)
-	  v[j * m + i]=(a[i * stride + j]/a[i * stride + l])/g;
-	for (j=l;j<n;j++) {
-	  for (s=0.0,k=l;k<n;k++) s += a[i * stride + k]*v[k * m + j];
-	  for (k=l;k<n;k++) v[k * m + j] += s*v[k * m + i];
-	}
-      }
-      for (j=l;j<n;j++) v[i * m + j]=v[j * m + i]=0.0;
-    }
-    v[i * m + i]=1.0;
-    g=rv1[i];
-    l=i;
-  }
-  for (i=MINV(m,n)-1;i>=0;i--) {
-    l=i+1;
-    g=w[i];
-    for (j=l;j<n;j++) a[i * stride + j]=0.0;
-    if (g != 0.0) {
-      g=1.0/g;
-      for (j=l;j<n;j++) {
-	for (s=0.0,k=l;k<m;k++) s += a[k * stride + i]*a[k * stride + j];
-	f=(s/a[i * stride + i])*g;
-	for (k=i;k<m;k++) a[k * stride + j] += f*a[k * stride + i];
-      }
-      for (j=i;j<m;j++) a[j * stride + i] *= g;
-    } else for (j=i;j<m;j++) a[j * stride + i]=0.0;
-    ++a[i * stride + i];
-  }
-  for (k=n-1;k>=0;k--) {
-    for (its=0;its<30;its++) {
-      flag=1;
-      for (l=k;l>=0;l--) {
-	nm=l-1;
-	temp=fabs(rv1[l])+anorm;
-	if (temp == anorm) {
-	  flag=0;
-	  break;
-	}
-	temp=fabs(w[nm])+anorm;
-	if (temp == anorm) break;
-      }
-      if (flag) {
-	c=0.0;
-	s=1.0;
-	for (i=l;i<k+1;i++) {
-	  f=s*rv1[i];
-	  rv1[i]=c*rv1[i];
-	  temp = fabs(f)+anorm;
-	  if (temp == anorm) break;
-	  g=w[i];
-	  h=pythag(f,g);
-	  w[i]=h;
-	  h=1.0/h;
-	  c=g*h;
-	  s = -f*h;
-	  for (j=0;j<m;j++) {
-	    y=a[j * stride + nm];
-	    z=a[j * stride + i];
-	    a[j * stride + nm]=y*c+z*s;
-	    a[j * stride + i]=z*c-y*s;
-	  }
-	}
-      }
-      z=w[k];
-      if (l == k) {
-	if (z < 0.0) {
-	  w[k] = -z;
-	  for (j=0;j<n;j++) v[j * m + k] = -v[j * m + k];
-	}
-	break;
-      }
-      if (its == 29) 
-	return 0; // cannot converge: multi-collinearity?
-      x=w[l];
-      nm=k-1;
-      y=w[nm];
-      g=rv1[nm];
-      h=rv1[k];
-      f=((y-z)*(y+z)+(g-h)*(g+h))/(2.0*h*y);
-      g=pythag(f,1.0);
-      f=((x-z)*(x+z)+h*((y/(f+SIGN(g,f)))-h))/x;
-      c=s=1.0;
-      for (j=l;j<=nm;j++) {
-	i=j+1;
-	g=rv1[i];
-	y=w[i];
-	h=s*g;
-	g=c*g;
-	z=pythag(f,h);
-	rv1[j]=z;
-	c=f/z;
-	s=h/z;
-	f=x*c+g*s;
-	g=g*c-x*s;
-	h=y*s;
-	y *= c;
-	for (jj=0;jj<n;jj++) {
-	  x=v[jj * m + j];
-	  z=v[jj * m + i];
-	  v[jj * m + j]=x*c+z*s;
-	  v[jj * m + i]=z*c-x*s;
-	}
-	z=pythag(f,h);
-	w[j]=z;
-	if (z) {
-	  z=1.0/z;
-	  c=f*z;
-	  s=h*z;
-	}
-	f=c*g+s*y;
-	x=c*y-s*g;
-	for (jj=0;jj<m;jj++) {
-	  y=a[jj * stride + j];
-	  z=a[jj * stride + i];
-	  a[jj * stride + j]=y*c+z*s;
-	  a[jj * stride + i]=z*c-y*s;
-	}
-      }
-      rv1[l]=0.0;
-      rv1[k]=f;
-      w[k]=x;
-    }
-  }
-  return 1;
+  return (!svdcmp_c(dim, half_inverted, dbl_1d_buf, dbl_2d_buf));
 }
 
-/*
-boolerr_t invert_fmatrix_checked(int32_t dim, int32_t stride, float* matrix, float* absdet_ptr, matrix_finvert_buf1_t* flt_1d_buf, float* flt_2d_buf) {
-  // w -> flt_1d_buf
-  // v -> flt_2d_buf
-  const float eps = 1e-24;
+void invert_fmatrix_second_half(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, matrix_invert_buf1_t* dbl_1d_buf, double* dbl_2d_buf) {
+  // Look for singular values
+  double wmax = 0;
   int32_t i;
-  int32_t j;
-  int32_t k;
-  if (!svdcmp_float_c(dim, stride, matrix, flt_1d_buf, flt_2d_buf)) {
-    return 1;
+  for (i=0; i<dim; i++) {
+    wmax = dbl_1d_buf[i] > wmax ? dbl_1d_buf[i] : wmax;
+  }
+  double wmin = wmax * eps;
+  for (i=0; i<dim; i++) {
+    dbl_1d_buf[i] = dbl_1d_buf[i] < wmin ? 0 : (1 / dbl_1d_buf[i]);
   }
 
-  if (absdet_ptr) {
-    float sv_prod = flt_1d_buf[0];
-    for (i=1; i<dim; ++i) {
-      sv_prod *= flt_1d_buf[i];
-    }
-    *absdet_ptr = fabsf(sv_prod);
-  }
-  // Look for singular values
-  float wmax = 0;
-  for (i=0; i<dim; i++) {
-    wmax = flt_1d_buf[i] > wmax ? flt_1d_buf[i] : wmax;
-  }
-  float wmin = wmax * eps;
-  for (i=0; i<dim; i++) {
-    flt_1d_buf[i] = flt_1d_buf[i] < wmin ? 0 : (1 / flt_1d_buf[i]);
-  }
-  
+  int32_t j;
   for (i=0; i<dim; i++) {
     for (j=0; j<dim; j++) {
-      matrix[i * stride + j] = matrix[i * stride + j] * flt_1d_buf[j];
+      half_inverted[i * dim + j] = half_inverted[i * dim + j] * dbl_1d_buf[j];
     }
   }
 
-  // [nxn].[t(v)] 
+  int32_t k;
+  // [nxn].[t(v)]
   for (i=0; i<dim; i++) {
-    fill_float_zero(dim, flt_1d_buf);
+    fill_double_zero(dim, dbl_1d_buf);
     for (j=0; j<dim; j++) {
       for (k=0; k<dim; k++) {
-	flt_1d_buf[j] += matrix[i * stride + k] * flt_2d_buf[j * dim + k];
+	dbl_1d_buf[j] += half_inverted[i * dim + k] * dbl_2d_buf[j * dim + k];
       }
     }
     for (j = 0; j < dim; j++) {
-      matrix[i * stride + j] = flt_1d_buf[j];
+      half_inverted[i * dim + j] = dbl_1d_buf[j];
     }
   }
+  inverted_result[0] = (float)half_inverted[0];
   for (i=1; i<dim; ++i) {
     for(j=0; j<i; ++j) {
-      const float tmp = matrix[i * stride + j];
-      matrix[i * stride + j] = matrix[j * stride + i];
-      matrix[j * stride + i] = tmp;
+      inverted_result[i * stride + j] = (float)half_inverted[j * dim + i];
+      inverted_result[j * stride + i] = (float)half_inverted[i * dim + j];
     }
+    inverted_result[i * stride + i] = (float)half_inverted[i * stride + i];
   }
   return 0;
-}
-*/
-
-boolerr_t invert_fmatrix_first_half(int32_t dim, int32_t stride, float* matrix, float* absdet_ptr, matrix_finvert_buf1_t* flt_1d_buf, float* flt_2d_buf) {
-  // w -> flt_1d_buf
-  // v -> flt_2d_buf
-  if (!svdcmp_float_c(dim, stride, matrix, flt_1d_buf, flt_2d_buf)) {
-    return 1;
-  }
-  if (absdet_ptr) {
-    float sv_prod = flt_1d_buf[0];
-    for (int32_t i=1; i<dim; ++i) {
-      sv_prod *= flt_1d_buf[i];
-    }
-    *absdet_ptr = fabsf(sv_prod);
-  }
-  return 0;
-}
-
-void invert_fmatrix_second_half(int32_t dim, int32_t stride, float* matrix, matrix_finvert_buf1_t* flt_1d_buf, float* flt_2d_buf) {
-  // w -> flt_1d_buf
-  // v -> flt_2d_buf
-  const float eps = 1e-24;
-  int32_t i;
-  int32_t j;
-  int32_t k;
-  // Look for singular values
-  float wmax = 0;
-  for (i=0; i<dim; i++) {
-    wmax = flt_1d_buf[i] > wmax ? flt_1d_buf[i] : wmax;
-  }
-  float wmin = wmax * eps;
-  for (i=0; i<dim; i++) {
-    flt_1d_buf[i] = flt_1d_buf[i] < wmin ? 0 : (1 / flt_1d_buf[i]);
-  }
-  
-  for (i=0; i<dim; i++) {
-    for (j=0; j<dim; j++) {
-      matrix[i * stride + j] = matrix[i * stride + j] * flt_1d_buf[j];
-    }
-  }
-
-  // [nxn].[t(v)] 
-  for (i=0; i<dim; i++) {
-    fill_float_zero(dim, flt_1d_buf);
-    for (j=0; j<dim; j++) {
-      for (k=0; k<dim; k++) {
-	flt_1d_buf[j] += matrix[i * stride + k] * flt_2d_buf[j * dim + k];
-      }
-    }
-    for (j = 0; j < dim; j++) {
-      matrix[i * stride + j] = flt_1d_buf[j];
-    }
-  }
-  for (i=1; i<dim; ++i) {
-    for(j=0; j<i; ++j) {
-      const float tmp = matrix[i * stride + j];
-      matrix[i * stride + j] = matrix[j * stride + i];
-      matrix[j * stride + i] = tmp;
-    }
-  }
 }
 #else // !NOLAPACK
 boolerr_t invert_matrix(__CLPK_integer dim, double* matrix, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf) {
@@ -804,32 +558,45 @@ boolerr_t invert_fmatrix_checked(__CLPK_integer dim, __CLPK_integer stride, floa
 }
 */
 
-boolerr_t invert_fmatrix_first_half(__CLPK_integer dim, __CLPK_integer stride, float* matrix, float* absdet_ptr, matrix_finvert_buf1_t* int_1d_buf, float* flt_2d_buf) {
+// quasi-bugfix (20 Sep 2017): give up on doing this with single-precision
+// numbers.  Instead, convert to double-precision, then perform the usual
+// inversion, then downcode back to single-precision.
+boolerr_t invert_fmatrix_first_half(__CLPK_integer dim, uint32_t stride, const float* matrix, double* half_inverted, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf) {
+  const float* read_row = matrix;
+  double* write_row = half_inverted;
+  for (uint32_t row_idx = 0; row_idx < (uint32_t)dim; ++row_idx) {
+    for (uint32_t col_idx = 0; col_idx < (uint32_t)dim; ++col_idx) {
+      write_row[col_idx] = (double)read_row[col_idx];
+    }
+    read_row = &(read_row[stride]);
+    write_row = &(write_row[(uint32_t)dim]);
+  }
+
   char cc = '1';
-  float norm = slange_(&cc, &dim, &dim, matrix, &stride, flt_2d_buf);
+  double norm = dlange_(&cc, &dim, &dim, half_inverted, &dim, dbl_2d_buf);
   __CLPK_integer info;
-  sgetrf_(&dim, &dim, matrix, &stride, int_1d_buf, &info);
+  dgetrf_(&dim, &dim, half_inverted, &dim, int_1d_buf, &info);
   if (info > 0) {
     return 1;
   }
-  float rcond;
-  sgecon_(&cc, &dim, matrix, &stride, &norm, &rcond, flt_2d_buf, &(int_1d_buf[(uint32_t)dim]), &info);
-  if (rcond < kMatrixSingularRcondF) {
-    return 1;
-  }
-  const uintptr_t stridep1 = stride + 1;
-  float det_u = matrix[0];
-  for (uintptr_t ulii = 1; ulii < ((uintptr_t)dim); ++ulii) {
-    det_u *= matrix[ulii * stridep1];
-  }
-  *absdet_ptr = fabsf(det_u);
-  return 0;
+  double rcond;
+  dgecon_(&cc, &dim, half_inverted, &dim, &norm, &rcond, dbl_2d_buf, &(int_1d_buf[(uint32_t)dim]), &info);
+  return (rcond < kMatrixSingularRcond);
 }
 
-void invert_fmatrix_second_half(__CLPK_integer dim, __CLPK_integer stride, float* matrix, matrix_finvert_buf1_t* int_1d_buf, float* flt_2d_buf) {
-  __CLPK_integer lwork = dim * stride;
+void invert_fmatrix_second_half(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf) {
+  __CLPK_integer lwork = dim * dim;
   __CLPK_integer info;
-  sgetri_(&dim, matrix, &stride, int_1d_buf, flt_2d_buf, &lwork, &info);
+  dgetri_(&dim, half_inverted, &dim, int_1d_buf, dbl_2d_buf, &lwork, &info);
+  const double* read_row = half_inverted;
+  float* write_row = inverted_result;
+  for (uint32_t row_idx = 0; row_idx < (uint32_t)dim; ++row_idx) {
+    for (uint32_t col_idx = 0; col_idx < (uint32_t)dim; ++col_idx) {
+      write_row[col_idx] = (float)read_row[col_idx];
+    }
+    read_row = &(read_row[(uint32_t)dim]);
+    write_row = &(write_row[stride]);
+  }
 }
 #endif // !NOLAPACK
 

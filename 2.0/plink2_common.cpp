@@ -5025,8 +5025,10 @@ uint32_t are_all_bits_zero(const uintptr_t* bitarr, uintptr_t start_idx, uintptr
   if (start_idxl == end_idxl) {
     return !(bitarr[start_idxl] & ((k1LU << end_idxlr) - (k1LU << start_idxlr)));
   }
-  if (start_idxlr && (bitarr[start_idxl++] >> start_idxlr)) {
-    return 0;
+  if (start_idxlr) {
+    if (bitarr[start_idxl++] >> start_idxlr) {
+      return 0;
+    }
   }
   for (; start_idxl < end_idxl; ++start_idxl) {
     if (bitarr[start_idxl]) {

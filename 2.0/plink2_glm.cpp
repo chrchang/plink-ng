@@ -50,7 +50,7 @@ void cleanup_glm(glm_info_t* glm_info_ptr) {
 // inner_buf = constraint_ct x constraint_ct
 // tmphxs_buf and h_transpose_buf are constraint_ct x predictor_ct
 // mi_buf only needs to be of length 2 * constraint_ct
-boolerr_t linear_hypothesis_chisq_f(const float* coef, const float* constraints_con_major, const float* cov_matrix, uint32_t constraint_ct, uint32_t predictor_ct, uint32_t cov_stride, double* chisq_ptr, float* tmphxs_buf, float* h_transpose_buf, float* inner_buf, matrix_finvert_buf1_t* mi_buf, float* outer_buf) {
+boolerr_t linear_hypothesis_chisq_f(const float* coef, const float* constraints_con_major, const float* cov_matrix, uint32_t constraint_ct, uint32_t predictor_ct, uint32_t cov_stride, double* chisq_ptr, float* tmphxs_buf, float* h_transpose_buf, float* inner_buf, double* half_inverted_buf, matrix_invert_buf1_t* mi_buf, double* dbl_2d_buf, float* outer_buf) {
   const float* constraints_con_major_iter = constraints_con_major;
   for (uint32_t constraint_idx = 0; constraint_idx < constraint_ct; constraint_idx++) {
     outer_buf[constraint_idx] = dotprod_f(constraints_con_major_iter, coef, predictor_ct);
@@ -62,13 +62,10 @@ boolerr_t linear_hypothesis_chisq_f(const float* coef, const float* constraints_
   // tmp[][] is now predictor-major
   col_major_fmatrix_multiply_strided(tmphxs_buf, constraints_con_major, constraint_ct, constraint_ct, constraint_ct, predictor_ct, predictor_ct, constraint_ct, inner_buf);
 
-  // don't need H-transpose any more, so we can use h_transpose_buf for matrix
-  // inversion
-  float absdet;
-  if (invert_fmatrix_first_half(constraint_ct, constraint_ct, inner_buf, &absdet, mi_buf, h_transpose_buf)) {
+  if (invert_fmatrix_first_half(constraint_ct, constraint_ct, inner_buf, half_inverted_buf, mi_buf, dbl_2d_buf)) {
     return 1;
   }
-  invert_fmatrix_second_half(constraint_ct, constraint_ct, inner_buf, mi_buf, h_transpose_buf);
+  invert_fmatrix_second_half(constraint_ct, constraint_ct, half_inverted_buf, inner_buf, mi_buf, dbl_2d_buf);
   double result = 0.0;
   const float* inner_iter = inner_buf;
   for (uint32_t constraint_idx = 0; constraint_idx < constraint_ct; ++constraint_idx) {
@@ -2383,13 +2380,13 @@ void firth_compute_weights(const float* yy, const float* xx, const float* pp, co
 }
 #endif
 
-boolerr_t firth_regression(const float* yy, const float* xx, uint32_t sample_ct, uint32_t predictor_ct, float* coef, float* hh, matrix_finvert_buf1_t* inv_1d_buf, float* flt_2d_buf, float* pp, float* vv, float* grad, float* dcoef, float* ww, float* tmpnxk_buf) {
+boolerr_t firth_regression(const float* yy, const float* xx, uint32_t sample_ct, uint32_t predictor_ct, float* coef, float* hh, double* half_inverted_buf, matrix_invert_buf1_t* inv_1d_buf, double* dbl_2d_buf, float* pp, float* vv, float* grad, float* dcoef, float* ww, float* tmpnxk_buf) {
   // This is a port of Georg Heinze's logistf R function, adapted to use many
   // of plink 1.9's optimizations; see
   //   http://cemsiis.meduniwien.ac.at/en/kb/science-research/software/statistical-software/fllogistf/
   //
   // Preallocated buffers (initial contents irrelevant):
-  // inv_1d_buf, flt_2d_buf = for float32 matrix inversion
+  // half_inverted_buf, inv_1d_buf, dbl_2d_buf = for matrix inversion
   // pp    = likelihoods minus Y[] (not currently used by callers)
   // vv    = sample variance buffer
   // grad  = gradient buffer (length predictor_ct)
@@ -2435,10 +2432,10 @@ boolerr_t firth_regression(const float* yy, const float* xx, uint32_t sample_ct,
   }
   // we shouldn't need to compute the log directly, since underflow <->
   // regression failure, right?  check this.
-  float dethh;
-  if (invert_fmatrix_first_half(predictor_ct, predictor_cta4, hh, &dethh, inv_1d_buf, flt_2d_buf)) {
+  if (invert_fmatrix_first_half(predictor_ct, predictor_cta4, hh, half_inverted_buf, inv_1d_buf, dbl_2d_buf)) {
     return 1;
   }
+  double dethh = half_inverted_det(half_inverted_buf, inv_1d_buf, predictor_ct);
   /*
   if (sample_ct < sample_cta4) {
     // trailing Y[] values must be zero
@@ -2464,7 +2461,7 @@ boolerr_t firth_regression(const float* yy, const float* xx, uint32_t sample_ct,
   const double lconv = 0.0001;
   uint32_t hs_bail = 0;
   while (1) {
-    invert_fmatrix_second_half(predictor_ct, predictor_cta4, hh, inv_1d_buf, flt_2d_buf);
+    invert_fmatrix_second_half(predictor_ct, predictor_cta4, half_inverted_buf, hh, inv_1d_buf, dbl_2d_buf);
     if (is_last_iter) {
       return 0;
     }
@@ -2526,9 +2523,10 @@ boolerr_t firth_regression(const float* yy, const float* xx, uint32_t sample_ct,
 	  hh[uii * predictor_cta4 + ujj] = hh[ujj * predictor_cta4 + uii];
 	}
       }
-      if (invert_fmatrix_first_half(predictor_ct, predictor_cta4, hh, &dethh, inv_1d_buf, flt_2d_buf)) {
+      if (invert_fmatrix_first_half(predictor_ct, predictor_cta4, hh, half_inverted_buf, inv_1d_buf, dbl_2d_buf)) {
 	return 1;
       }
+      dethh = half_inverted_det(half_inverted_buf, inv_1d_buf, predictor_ct);
       loglik += 0.5 * log(dethh);
       if (halfstep_idx > maxhs) {
 	break;
@@ -2591,20 +2589,19 @@ uintptr_t get_logistic_workspace_size(uint32_t sample_ct, uint32_t predictor_ct,
   // (technically not needed in pure-Firth case)
   workspace_size += round_up_pow2(predictor_ct * predictor_cta4 * sizeof(float), kCacheline);
 
-  // inv_1d_buf; VIF always needs at least as much as Firth
-  workspace_size += round_up_pow2((predictor_ct - 1) * kMatrixInvertBuf1CheckedAlloc, kCacheline);
+  // inv_1d_buf
+  workspace_size += round_up_pow2(predictor_ct * kMatrixInvertBuf1CheckedAlloc, kCacheline);
+
+  const uintptr_t dbl_2d_byte_ct = predictor_ct * predictor_ct * sizeof(double);
+  // dbl_2d_buf = predictor_ct * predictor_cta4 floats, or VIF/Firth dbl
+  workspace_size += round_up_pow2(MAXV(predictor_ct * predictor_cta4 * sizeof(float), dbl_2d_byte_ct), kCacheline);
 
   const uint32_t predictor_ct_m1 = predictor_ct - 1;
-  const uintptr_t vif_dbl_2d_byte_ct = predictor_ct_m1 * predictor_ct_m1 * sizeof(double);
-
-  // flt_2d_buf = predictor_ct * predictor_cta4 floats, or VIF dbl
-  workspace_size += round_up_pow2(MAXV(predictor_ct * predictor_cta4 * sizeof(float), vif_dbl_2d_byte_ct), kCacheline);
-
   // predictor_dotprod_buf
   workspace_size += round_up_pow2(predictor_ct_m1 * predictor_ct_m1 * sizeof(float), kCacheline);
 
-  // inverse_corr_buf
-  workspace_size += round_up_pow2(vif_dbl_2d_byte_ct, kCacheline);
+  // inverse_corr_buf/half_inverted_buf
+  workspace_size += round_up_pow2(dbl_2d_byte_ct, kCacheline);
 
   if (is_sometimes_firth) {
     // ww = sample_cta4 floats
@@ -2619,6 +2616,9 @@ uintptr_t get_logistic_workspace_size(uint32_t sample_ct, uint32_t predictor_ct,
 
     // inner_buf = constraint_ct * constraint_ct
     workspace_size += round_up_pow2(constraint_ct * constraint_ct * sizeof(float), kCacheline);
+
+    // outer_buf = constraint_ct
+    workspace_size += round_up_pow2(constraint_ct * sizeof(float), kCacheline);
   }
   return workspace_size;  
 }
@@ -2907,11 +2907,11 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
       float* dcoef_buf = (float*)arena_alloc_raw_rd(predictor_cta4 * sizeof(float), &workspace_iter);
       float* cholesky_decomp_return = (float*)arena_alloc_raw_rd(cur_predictor_ct * predictor_cta4 * sizeof(float), &workspace_iter);
       
-      matrix_finvert_buf1_t* inv_1d_buf = (matrix_finvert_buf1_t*)arena_alloc_raw_rd(cur_predictor_ct * kMatrixInvertBuf1CheckedAlloc, &workspace_iter);
-      const uintptr_t vif_dbl_2d_byte_ct = (cur_predictor_ct - 1) * (cur_predictor_ct - 1) * sizeof(double);
-      float* flt_2d_buf = (float*)arena_alloc_raw_rd(MAXV(cur_predictor_ct * predictor_cta4 * sizeof(float), vif_dbl_2d_byte_ct), &workspace_iter);
+      matrix_invert_buf1_t* inv_1d_buf = (matrix_invert_buf1_t*)arena_alloc_raw_rd(cur_predictor_ct * kMatrixInvertBuf1CheckedAlloc, &workspace_iter);
+      const uintptr_t dbl_2d_byte_ct = round_up_pow2(cur_predictor_ct * cur_predictor_ct * sizeof(double), kCacheline);
+      double* dbl_2d_buf = (double*)arena_alloc_raw(dbl_2d_byte_ct, &workspace_iter);
       float* predictor_dotprod_buf = (float*)arena_alloc_raw_rd((cur_predictor_ct - 1) * (cur_predictor_ct - 1) * sizeof(float), &workspace_iter);
-      double* inverse_corr_buf = (double*)arena_alloc_raw_rd(vif_dbl_2d_byte_ct, &workspace_iter);
+      double* inverse_corr_buf = (double*)arena_alloc_raw(dbl_2d_byte_ct, &workspace_iter);
 
       // these could use the same memory, but not a big deal, use the less
       // bug-prone approach for now
@@ -2927,10 +2927,12 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
       float* tmphxs_buf = nullptr;
       float* h_transpose_buf = nullptr;
       float* inner_buf = nullptr;
+      float* outer_buf = nullptr;
       if (cur_constraint_ct) {
         tmphxs_buf = (float*)arena_alloc_raw_rd(cur_constraint_ct * predictor_cta4 * sizeof(float), &workspace_iter);
         h_transpose_buf = (float*)arena_alloc_raw_rd(cur_constraint_ct * predictor_cta4 * sizeof(float), &workspace_iter);
         inner_buf = (float*)arena_alloc_raw_rd(cur_constraint_ct * cur_constraint_ct * sizeof(float), &workspace_iter);
+	outer_buf = (float*)arena_alloc_raw_rd(cur_constraint_ct * sizeof(float), &workspace_iter);
       }
       // assert((uintptr_t)(workspace_iter - workspace_buf) == get_logistic_workspace_size(cur_sample_ct, cur_predictor_ct, cur_constraint_ct, genof_buffer_needed, is_sometimes_firth));
       pgr_clear_ld_cache(pgrp);
@@ -3174,7 +3176,7 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
 	      }
 	    }
 	  }
-          if (check_max_corr_and_vif_f(&(nm_predictors_pmaj_buf[nm_sample_cta4]), cur_predictor_ct - 1, nm_sample_ct, nm_sample_cta4, max_corr, vif_thresh, predictor_dotprod_buf, (double*)flt_2d_buf, inverse_corr_buf, (matrix_invert_buf1_t*)inv_1d_buf)) {
+          if (check_max_corr_and_vif_f(&(nm_predictors_pmaj_buf[nm_sample_cta4]), cur_predictor_ct - 1, nm_sample_ct, nm_sample_cta4, max_corr, vif_thresh, predictor_dotprod_buf, dbl_2d_buf, inverse_corr_buf, inv_1d_buf)) {
             goto glm_logistic_thread_skip_variant;
           }
 	  fill_float_zero(predictor_cta4, coef_return);
@@ -3237,7 +3239,7 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
 	    }
 	  } else {
 	  glm_logistic_thread_firth_fallback:
-	    if (firth_regression(nm_pheno_buf, nm_predictors_pmaj_buf, nm_sample_ct, cur_predictor_ct, coef_return, hh_return, inv_1d_buf, flt_2d_buf, pp_buf, sample_variance_buf, gradient_buf, dcoef_buf, score_buf, tmpnxk_buf)) {
+	    if (firth_regression(nm_pheno_buf, nm_predictors_pmaj_buf, nm_sample_ct, cur_predictor_ct, coef_return, hh_return, inverse_corr_buf, inv_1d_buf, dbl_2d_buf, pp_buf, sample_variance_buf, gradient_buf, dcoef_buf, score_buf, tmpnxk_buf)) {
 	      goto glm_logistic_thread_skip_variant;
 	    }
 	  }
@@ -3269,7 +3271,7 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
 	  if (cur_constraint_ct) {
 	    *beta_se_iter2++ = 0.0;
 	    double chisq;
-	    if (!linear_hypothesis_chisq_f(coef_return, cur_constraints_con_major, hh_return, cur_constraint_ct, cur_predictor_ct, predictor_cta4, &chisq, tmphxs_buf, h_transpose_buf, inner_buf, inv_1d_buf, flt_2d_buf)) {
+	    if (!linear_hypothesis_chisq_f(coef_return, cur_constraints_con_major, hh_return, cur_constraint_ct, cur_predictor_ct, predictor_cta4, &chisq, tmphxs_buf, h_transpose_buf, inner_buf, inverse_corr_buf, inv_1d_buf, dbl_2d_buf, outer_buf)) {
 	      *beta_se_iter2++ = chisq;
 	    } else {
 	      *beta_se_iter2++ = -9;
