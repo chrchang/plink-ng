@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-#include "plink2_decompress.h"
 #include "plink2_filter.h"
 #include "plink2_stats.h"
 

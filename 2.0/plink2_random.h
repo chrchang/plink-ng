@@ -18,7 +18,7 @@
 // along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
 
-#include "plink2_common.h"
+#include "plink2_cmdline.h"
 #include "SFMT.h"
 
 #ifdef __cplusplus

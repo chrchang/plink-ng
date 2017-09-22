@@ -16,7 +16,6 @@
 
 
 #include "plink2_data.h"
-#include "plink2_decompress.h"
 
 #ifdef __cplusplus
 namespace plink2 {

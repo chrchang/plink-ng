@@ -16,7 +16,6 @@
 
 
 #include "plink2_data.h"
-#include "plink2_decompress.h"
 #include "plink2_filter.h"
 #include "plink2_glm.h"
 #include "plink2_ld.h"
@@ -82,46 +81,6 @@ static const char notestr_null_calc2[] = "Commands include --make-bpgen, --expor
 #else
 static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --make-king, --king-cutoff, --write-samples,\n--write-snplist, --make-grm-gz, --glm, --score, --genotyping-rate, --validate,\nand --zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
 #endif
-
-static const char errstr_nomem[] = "Error: Out of memory.  The --memory flag may be helpful.\n";
-static const char errstr_write[] = "Error: File write failure.\n";
-static const char errstr_read[] = "Error: File read failure.\n";
-static const char errstr_thread_create[] = "Error: Failed to create thread.\n";
-
-#ifndef __LP64__
-  // 2047 seems to consistently fail on both OS X and Windows
-  #ifdef _WIN32
-CONSTU31(kMalloc32bitMbMax, 1760);
-  #else
-    #ifdef __APPLE__
-CONSTU31(kMalloc32bitMbMax, 1920);
-    #else
-CONSTU31(kMalloc32bitMbMax, 2047);
-    #endif
-  #endif
-#endif
-
-// assumes logfile is open
-void disp_exit_msg(pglerr_t reterr) {
-  if (reterr) {
-    if (reterr == kPglRetNomem) {
-      logprint("\n");
-      logerrprint(errstr_nomem);
-      if (g_failed_alloc_attempt_size) {
-	LOGERRPRINTF("Failed allocation size: %" PRIuPTR "\n", g_failed_alloc_attempt_size);
-      }
-    } else if (reterr == kPglRetReadFail) {
-      logprint("\n");
-      logerrprint(errstr_read);
-    } else if (reterr == kPglRetWriteFail) {
-      logprint("\n");
-      logerrprint(errstr_write);
-    } else if (reterr == kPglRetThreadCreateFail) {
-      logprint("\n");
-      logerrprint(errstr_thread_create);
-    }
-  }
-}
 
 // covar-variance-standardize + terminating null
 CONSTU31(kMaxFlagBlen, 27);
@@ -2111,81 +2070,6 @@ pglerr_t zst_decompress(const char* in_fname, const char* out_fname) {
   return reterr;
 }
 
-// useful when there's e.g. a filename and an optional modifier, and we want to
-// permit either parmeter ordering
-boolerr_t check_extra_param(char** argv, const char* permitted_modif, uint32_t* other_idx_ptr) {
-  const uint32_t idx_base = *other_idx_ptr;
-  if (!strcmp(argv[idx_base], permitted_modif)) {
-    *other_idx_ptr = idx_base + 1;
-  } else if (strcmp(argv[idx_base + 1], permitted_modif)) {
-    LOGERRPRINTF("Error: Invalid %s parameter sequence.\n", argv[0]);
-    return 1;
-  }
-  return 0;
-}
-
-char extract_char_param(const char* ss) {
-  // maps c, 'c', and "c" to c, and anything else to the null char.  This is
-  // intended to support e.g. always using '#' to designate a # parameter
-  // without worrying about differences between shells.
-  const char cc = ss[0];
-  if (((cc == '\'') || (cc == '"')) && (ss[1]) && (ss[2] == cc) && (!ss[3])) {
-    return ss[1];
-  }
-  if (cc && (!ss[1])) {
-    return cc;
-  }
-  return '\0';
-}
-
-pglerr_t cmdline_alloc_string(const char* source, const char* flag_name, uint32_t max_slen, char** sbuf_ptr) {
-  const uint32_t slen = strlen(source);
-  if (slen > max_slen) {
-    LOGERRPRINTF("Error: %s parameter too long.\n", flag_name);
-    return kPglRetInvalidCmdline;
-  }
-  const uint32_t blen = slen + 1;
-  if (pgl_malloc(blen, sbuf_ptr)) {
-    return kPglRetNomem;
-  }
-  memcpy(*sbuf_ptr, source, blen);
-  return kPglRetSuccess;
-}
-
-pglerr_t alloc_fname(const char* source, const char* flagname_p, uint32_t extra_size, char** fnbuf_ptr) {
-  const uint32_t blen = strlen(source) + 1;
-  if (blen > (kPglFnamesize - extra_size)) {
-    LOGERRPRINTF("Error: --%s filename too long.\n", flagname_p);
-    return kPglRetOpenFail;
-  }
-  if (pgl_malloc(blen + extra_size, fnbuf_ptr)) {
-    return kPglRetNomem;
-  }
-  memcpy(*fnbuf_ptr, source, blen);
-  return kPglRetSuccess;
-}
-
-pglerr_t alloc_and_flatten(char** sources, uint32_t param_ct, uint32_t max_blen, char** flattened_buf_ptr) {
-  uintptr_t tot_blen = 1;
-  for (uint32_t param_idx = 0; param_idx < param_ct; ++param_idx) {
-    const uint32_t cur_blen = 1 + strlen(sources[param_idx]);
-    if (cur_blen > max_blen) {
-      return kPglRetInvalidCmdline;
-    }
-    tot_blen += cur_blen;
-  }
-  char* buf_iter;
-  if (pgl_malloc(tot_blen, &buf_iter)) {
-    return kPglRetNomem;
-  }
-  *flattened_buf_ptr = buf_iter;
-  for (uint32_t param_idx = 0; param_idx < param_ct; ++param_idx) {
-    buf_iter = strcpyax(buf_iter, sources[param_idx], '\0');
-  }
-  *buf_iter = '\0';
-  return kPglRetSuccess;
-}
-
 pglerr_t alloc_2col(char** sources, const char* flagname_p, uint32_t param_ct, two_col_params_t** tcbuf) {
   uint32_t fname_blen = strlen(sources[0]) + 1;
   if (fname_blen > kPglFnamesize) {
@@ -2427,190 +2311,9 @@ pglerr_t alloc_and_flatten_comma_delim(char** sources, uint32_t param_ct, char**
 }
 */
 
-void invalid_arg(const char* cur_arg) {
-  LOGPREPRINTFWW("Error: Unrecognized flag ('%s').\n", cur_arg);
-}
-
 void print_ver() {
   fputs(ver_str, stdout);
   fputs(ver_str2, stdout);
-}
-
-pglerr_t rerun(uint32_t rerun_argv_pos, uint32_t rerun_parameter_present, int32_t* argc_ptr, uint32_t* first_arg_idx_ptr, char*** argv_ptr, char*** subst_argv_ptr, char** rerun_buf_ptr) {
-  // caller is responsible for freeing rerun_buf
-  char** subst_argv2 = nullptr;
-  uintptr_t line_idx = 1;
-  pglerr_t reterr = kPglRetSuccess;
-  gzFile gz_rerunfile;
-  {
-    char** argv = *argv_ptr;
-    gz_rerunfile = gzopen(rerun_parameter_present? argv[rerun_argv_pos + 1] : (PROG_NAME_STR ".log"), FOPEN_RB);
-    if (!gz_rerunfile) {
-      goto rerun_ret_OPEN_FAIL;
-    }
-    char* textbuf = g_textbuf;
-    textbuf[kMaxMediumLine - 1] = ' ';
-    if (!gzgets(gz_rerunfile, textbuf, kMaxMediumLine)) {
-      print_ver();
-      fputs("Error: Empty log file for --rerun.\n", stderr);
-      goto rerun_ret_MALFORMED_INPUT;
-    }
-    if (!textbuf[kMaxMediumLine - 1]) {
-      goto rerun_ret_LONG_LINE;
-    }
-    if (!gzgets(gz_rerunfile, textbuf, kMaxMediumLine)) {
-      print_ver();
-      fputs("Error: Only one line in --rerun log file.\n", stderr);
-      goto rerun_ret_MALFORMED_INPUT;
-    }
-    line_idx++;
-    if (!textbuf[kMaxMediumLine - 1]) {
-      goto rerun_ret_LONG_LINE;
-    }
-    // don't bother supporting "xx arguments: --aa bb --cc --dd" format
-    while (memcmp(textbuf, "Options in effect:", 18) || (textbuf[18] >= ' ')) {
-      line_idx++;
-      if (!gzgets(gz_rerunfile, textbuf, kMaxMediumLine)) {
-	print_ver();
-	fputs("Error: Invalid log file for --rerun.\n", stderr);
-	goto rerun_ret_MALFORMED_INPUT;
-      }
-    }
-    char* all_args_write_iter = textbuf;
-    char* textbuf_limit = &(textbuf[kMaxMediumLine]);
-    uint32_t loaded_arg_ct = 0;
-    // We load each of the option lines in sequence into textbuf, always
-    // overwriting the previous line's newline.  (Note that textbuf[] has
-    // size > 2 * kMaxMediumLine; this lets us avoid additional
-    // dynamic memory allocation as long as we impose the constraint that all
-    // lines combined add up to less than kMaxMediumLine.)
-    while (1) {
-      all_args_write_iter[kMaxMediumLine - 1] = ' ';
-      if (!gzgets(gz_rerunfile, all_args_write_iter, kMaxMediumLine)) {
-	break;
-      }
-      line_idx++;
-      if (!all_args_write_iter[kMaxMediumLine - 1]) {
-	goto rerun_ret_LONG_LINE;
-      }
-      char* arg_iter = skip_initial_spaces(all_args_write_iter);
-      if (is_eoln_kns(*arg_iter)) {
-	*all_args_write_iter = '\0';
-	break;
-      }
-      char* token_end;
-      do {
-	token_end = token_endnn(arg_iter);
-	loaded_arg_ct++;
-	arg_iter = skip_initial_spaces(token_end);
-      } while (!is_eoln_kns(*arg_iter));
-      all_args_write_iter = token_end;
-      if (all_args_write_iter >= textbuf_limit) {
-	print_ver();
-	fputs("Error: --rerun argument sequence too long.\n", stderr);
-	goto rerun_ret_MALFORMED_INPUT;
-      }
-    }
-    gzclose_null(&gz_rerunfile);
-    const uint32_t line_byte_ct = 1 + (uintptr_t)(all_args_write_iter - textbuf);
-    char* rerun_buf;
-    if (pgl_malloc(line_byte_ct, &rerun_buf)) {
-      goto rerun_ret_NOMEM;
-    }
-    *rerun_buf_ptr = rerun_buf;
-    memcpy(rerun_buf, textbuf, line_byte_ct);
-    const uint32_t argc = (uint32_t)(*argc_ptr);
-    const uint32_t first_arg_idx = *first_arg_idx_ptr;
-    char* rerun_first_token = skip_initial_spaces(rerun_buf);
-    char* arg_iter = rerun_first_token;
-    // now use textbuf as a lame bitfield
-    memset(textbuf, 1, loaded_arg_ct);
-    uint32_t loaded_arg_idx = 0;
-    uint32_t duplicate_arg_ct = 0;
-    do {
-      if (no_more_tokens_kns(arg_iter)) {
-	print_ver();
-	fputs("Error: Line 2 of --rerun log file has fewer tokens than expected.\n", stderr);
-	goto rerun_ret_MALFORMED_INPUT;
-      }
-      char* flagname_p = is_flag_start(arg_iter);
-      if (flagname_p) {
-	const uint32_t slen = strlen_se(flagname_p);
-	uint32_t cmdline_arg_idx = first_arg_idx;
-	for (; cmdline_arg_idx < argc; cmdline_arg_idx++) {
-	  char* later_flagname_p = is_flag_start(argv[cmdline_arg_idx]);
-	  if (later_flagname_p) {
-	    const uint32_t slen2 = strlen(later_flagname_p);
-	    if ((slen == slen2) && (!memcmp(flagname_p, later_flagname_p, slen))) {
-	      cmdline_arg_idx = 0xffffffffU;
-	      break;
-	    }
-	  }
-	}
-	if (cmdline_arg_idx == 0xffffffffU) {
-	  // matching flag, override --rerun
-	  do {
-	    duplicate_arg_ct++;
-	    textbuf[loaded_arg_idx++] = 0;
-	    if (loaded_arg_idx == loaded_arg_ct) {
-	      break;
-	    }
-	    arg_iter = next_token(arg_iter);
-	  } while (!is_flag(arg_iter));
-	} else {
-	  loaded_arg_idx++;
-	  arg_iter = next_token(arg_iter);
-	}
-      } else {
-	loaded_arg_idx++;
-	arg_iter = next_token(arg_iter);
-      }
-    } while (loaded_arg_idx < loaded_arg_ct);
-    if (pgl_malloc((argc + loaded_arg_ct - duplicate_arg_ct - rerun_parameter_present - 1 - first_arg_idx) * sizeof(intptr_t), &subst_argv2)) {
-      goto rerun_ret_NOMEM;
-    }
-    uint32_t new_arg_idx = rerun_argv_pos - first_arg_idx;
-    memcpy(subst_argv2, &(argv[first_arg_idx]), new_arg_idx * sizeof(intptr_t));
-    arg_iter = rerun_first_token;
-    for (loaded_arg_idx = 0; loaded_arg_idx < loaded_arg_ct; ++loaded_arg_idx) {
-      arg_iter = skip_initial_spaces(arg_iter);
-      char* token_end = token_endnn(arg_iter);
-      if (textbuf[loaded_arg_idx]) {
-	subst_argv2[new_arg_idx++] = arg_iter;
-	*token_end = '\0';
-      }
-      arg_iter = &(token_end[1]);
-    }
-    const uint32_t final_copy_start_idx = rerun_argv_pos + rerun_parameter_present + 1;
-    memcpy(&(subst_argv2[new_arg_idx]), &(argv[final_copy_start_idx]), (argc - final_copy_start_idx) * sizeof(intptr_t));
-    *first_arg_idx_ptr = 0;
-    *argc_ptr = new_arg_idx + argc - final_copy_start_idx;
-    if (*subst_argv_ptr) {
-      free(*subst_argv_ptr);
-    }
-    *subst_argv_ptr = subst_argv2;
-    *argv_ptr = subst_argv2;
-    subst_argv2 = nullptr;
-  }
-  while (0) {
-  rerun_ret_NOMEM:
-    print_ver();
-    reterr = kPglRetNomem;
-    break;
-  rerun_ret_OPEN_FAIL:
-    print_ver();
-    reterr = kPglRetOpenFail;
-    break;
-  rerun_ret_LONG_LINE:
-    print_ver();
-    fprintf(stderr, "Error: Line %" PRIuPTR " of --rerun log file is pathologically long.\n", line_idx);
-  rerun_ret_MALFORMED_INPUT:
-    reterr = kPglRetMalformedInput;
-    break;
-  }
-  free_cond(subst_argv2);
-  gzclose_cond(gz_rerunfile);
-  return reterr;
 }
 
 uint32_t cmdline_single_chr(const chr_info_t* cip, misc_flags_t misc_flags) {
@@ -2981,12 +2684,9 @@ int main(int argc, char** argv) {
   }
   
   unsigned char* bigstack_ua = nullptr;
-  char** subst_argv = nullptr;
-  char* script_buf = nullptr;
-  char* rerun_buf = nullptr;
-  char* flag_buf = nullptr;
+  plink2_cmdline_meta_t pcm;
+  plink2_cmdline_meta_preinit(&pcm);
   char* flagname_p = nullptr;
-  uint32_t* flag_map = nullptr;
   char* king_cutoff_fprefix = nullptr;
   char* const_fid = nullptr;
   char* var_filter_exceptions_flattened = nullptr;
@@ -2995,7 +2695,6 @@ int main(int argc, char** argv) {
   char* import_single_chr_str = nullptr;
   char* ox_missing_code = nullptr;
   char* vcf_dosage_import_field = nullptr;
-  FILE* scriptfile = nullptr;
   uint32_t* rseeds = nullptr;
   ll_str_t* file_delete_list = nullptr;
   uint32_t arg_idx = 0;
@@ -3060,206 +2759,23 @@ int main(int argc, char** argv) {
   
   {
     // standardize strtod() behavior
+    // (not necessary any more since we use dtoa_g() instead)
     // setlocale(LC_NUMERIC, "C");
 
-    uint32_t first_arg_idx = 1;
-    for (arg_idx = 1; arg_idx < (uint32_t)argc; ++arg_idx) {
-      if ((!strcmp("-script", argv[arg_idx])) || (!strcmp("--script", argv[arg_idx]))) {
-	const uint32_t param_ct = param_count(argv, argc, arg_idx);
-	if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
-	  print_ver();
-	  fputs(g_logbuf, stderr);
-	  fputs(errstr_append, stderr);
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	for (uint32_t arg_idx2 = arg_idx + 2; arg_idx2 < (uint32_t)argc; ++arg_idx2) {
-	  if ((!strcmp("-script", argv[arg_idx2])) || (!strcmp("--script", argv[arg_idx2]))) {
-	    print_ver();
-	    fputs("Error: Multiple --script flags.  Merge the files into one.\n", stderr);
-	    fputs(errstr_append, stderr);
-	    goto main_ret_INVALID_CMDLINE;
-	  }
-	}
-	// logging not yet active, so don't use fopen_checked()
-	scriptfile = fopen(argv[arg_idx + 1], FOPEN_RB);
-	if (!scriptfile) {
-	  print_ver();
-	  fprintf(stderr, g_errstr_fopen, argv[arg_idx + 1]);
-	  goto main_ret_OPEN_FAIL;
-	}
-	if (fseeko(scriptfile, 0, SEEK_END)) {
-	  goto main_ret_READ_FAIL_NOLOG;
-	}
-	int64_t fsize = ftello(scriptfile);
-	if (fsize < 0) {
-	  goto main_ret_READ_FAIL_NOLOG;
-	}
-	if (fsize > 0x7ffffffe) {
-	  // could actually happen if user enters parameters in the wrong
-	  // order, so may as well catch it and print a somewhat informative
-	  // error message
-	  print_ver();
-	  fputs("Error: --script file too large.", stderr);
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	rewind(scriptfile);
-	const uint32_t fsize_ui = (uint64_t)fsize;
-	if (pgl_malloc(fsize_ui + 1, &script_buf)) {
-	  goto main_ret_NOMEM_NOLOG;
-	}
-	if (!fread(script_buf, fsize_ui, 1, scriptfile)) {
-	  goto main_ret_READ_FAIL_NOLOG;
-	}
-	script_buf[fsize_ui] = '\0';
-	fclose_null(&scriptfile);
-	uint32_t num_script_params = 0;
-	char* script_buf_iter = script_buf;
-	uint32_t char_code;
-	do {
-	  uint32_t char_code_m1;
-	  do {
-	    char_code_m1 = ((uint32_t)((unsigned char)(*script_buf_iter++))) - 1;
-	  } while (char_code_m1 < 32);
-	  if (char_code_m1 == 0xffffffffU) {
-	    break;
-	  }
-	  ++num_script_params;
-	  do {
-	    char_code = (uint32_t)((unsigned char)(*script_buf_iter++));
-	  } while (char_code > 32);
-	} while (char_code);
-	if (script_buf_iter != (&(script_buf[fsize_ui + 1]))) {
-	  print_ver();
-	  fputs("Error: Null byte in --script file.\n", stderr);
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	const uint32_t new_param_ct = num_script_params + argc - 3;
-	if (pgl_malloc(new_param_ct * sizeof(intptr_t), &subst_argv)) {
-	  goto main_ret_NOMEM_NOLOG;
-	}
-	memcpy(subst_argv, &(argv[1]), arg_idx * sizeof(intptr_t));
-	const uint32_t load_param_idx_end = arg_idx + num_script_params;
-	script_buf_iter = &(script_buf[-1]);
-	for (uint32_t param_idx = arg_idx; param_idx < load_param_idx_end; ++param_idx) {
-	  while (((unsigned char)(*(++script_buf_iter))) <= 32);
-	  subst_argv[param_idx] = script_buf_iter;
-	  while (((unsigned char)(*(++script_buf_iter))) > 32);
-	  // could enforce some sort of length limit here
-	  *script_buf_iter = '\0';
-	}
-	memcpy(&(subst_argv[load_param_idx_end]), &(argv[arg_idx + 2]), (argc - arg_idx - 2) * sizeof(intptr_t));
-	argc = new_param_ct;
-	first_arg_idx = 0;
-	argv = subst_argv;
-	break;
-      }
+    uint32_t first_arg_idx;
+    uint32_t flag_ct;
+    reterr = cmdline_parse_phase1(ver_str, ver_str2, PROG_NAME_STR, notestr_null_calc2, g_cmdline_format_str, errstr_append, kMaxFlagBlen, argc, disp_help, &argv, &pcm, &first_arg_idx, &flag_ct);
+    if (reterr) {
+      goto main_ret_NOLOG;
     }
-    for (arg_idx = first_arg_idx; arg_idx < (uint32_t)argc; ++arg_idx) {
-      if ((!strcmp("-rerun", argv[arg_idx])) || (!strcmp("--rerun", argv[arg_idx]))) {
-	const uint32_t param_ct = param_count(argv, argc, arg_idx);
-	if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
-	  print_ver();
-	  fputs(g_logbuf, stderr);
-	  fputs(errstr_append, stderr);
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	for (uint32_t arg_idx2 = arg_idx + param_ct + 1; arg_idx2 < (uint32_t)argc; ++arg_idx2) {
-	  if ((!strcmp("-rerun", argv[arg_idx2])) || (!strcmp("--rerun", argv[arg_idx2]))) {
-	    print_ver();
-	    fputs("Error: Duplicate --rerun flag.\n", stderr);
-	    goto main_ret_INVALID_CMDLINE;
-	  }
-	}
-	reterr = rerun(arg_idx, param_ct, &argc, &first_arg_idx, &argv, &subst_argv, &rerun_buf);
-	if (reterr) {
-	  goto main_ret_NOLOG;
-	}
-	break;
-      }
-    }
-    if ((first_arg_idx < (uint32_t)argc) && (!is_flag(argv[first_arg_idx]))) {
-      fputs("Error: First parameter must be a flag.\n", stderr);
-      fputs(errstr_append, stderr);
-      goto main_ret_INVALID_CMDLINE;
-    }
-    uint32_t flag_ct = 0;
-    uint32_t version_present = 0;
-    uint32_t silent_present = 0;
-    for (arg_idx = first_arg_idx; arg_idx < (uint32_t)argc; ++arg_idx) {
-      flagname_p = is_flag_start(argv[arg_idx]);
-      if (flagname_p) {
-	if (!strcmp("help", flagname_p)) {
-	  print_ver();
-	  if ((!first_arg_idx) || (arg_idx != 1) || subst_argv) {
-	    fputs("--help present, ignoring other flags.\n", stdout);
-	  }
-	  if ((arg_idx == ((uint32_t)argc) - 1) && flag_ct) {
-	    // make "plink [valid flags/parameters] --help" work, and skip the
-	    // parameters
-	    char** help_argv;
-	    if (pgl_malloc(flag_ct * sizeof(intptr_t), &help_argv)) {
-	      goto main_ret_NOMEM_NOLOG2;
-	    }
-	    uint32_t arg_idx2 = 0;
-	    for (uint32_t flag_idx = 0; flag_idx < flag_ct; ++flag_idx) {
-	      while (!is_flag_start(argv[++arg_idx2]));
-	      help_argv[flag_idx] = argv[arg_idx2];
-	    }
-	    reterr = disp_help(flag_ct, help_argv);
-	    free(help_argv);
-	  } else {
-	    reterr = disp_help(argc - arg_idx - 1, &(argv[arg_idx + 1]));
-	  }
-	  goto main_ret_1;
-	}
-	if ((!strcmp("h", flagname_p)) || (!strcmp("?", flagname_p))) {
-	  // these just act like the no-parameter case
-	  print_ver();
-	  if ((!first_arg_idx) || (arg_idx != 1) || subst_argv) {
-	    printf("-%c present, ignoring other flags.\n", *flagname_p);
-	  }
-	  fputs(g_cmdline_format_str, stdout);
-	  fputs(notestr_null_calc2, stdout);
-	  reterr = kPglRetHelp;
-	  goto main_ret_1;
-	}
-	if (!strcmp("version", flagname_p)) {
-	  version_present = 1;
-	} else if (!strcmp("silent", flagname_p)) {
-	  silent_present = 1;
-	}
-	if (strlen(flagname_p) >= kMaxFlagBlen) {
-	  print_ver();
-	  // shouldn't be possible for this to overflow the buffer...
-	  sprintf(g_logbuf, "Error: Unrecognized flag ('%s').\n", argv[arg_idx]);
-	  wordwrapb(0);
-	  fputs(g_logbuf, stderr);
-	  fputs(errstr_append, stderr);
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	++flag_ct;
-      }
-    }
-    if (version_present) {
-      fputs(ver_str, stdout);
-      putc_unlocked('\n', stdout);
-      goto main_ret_1;
-    }
-    if (silent_present) {
-      if (!freopen("/dev/null", "w", stdout)) {
-	fputs("Warning: --silent failed.", stderr);
-	g_stderr_written_to = 1;
-      }
-    }
-    print_ver();
     if (!flag_ct) {
       goto main_ret_NULL_CALC_0;
     }
-    if (pgl_malloc(flag_ct * kMaxFlagBlen, &flag_buf) ||
-	pgl_malloc(flag_ct * sizeof(int32_t), &flag_map)) {
+    if (pgl_malloc(flag_ct * kMaxFlagBlen, &pcm.flag_buf) ||
+	pgl_malloc(flag_ct * sizeof(int32_t), &pcm.flag_map)) {
       goto main_ret_NOMEM_NOLOG2;
     }
-    char* flagname_write_iter = flag_buf;
+    char* flagname_write_iter = pcm.flag_buf;
     uint32_t cur_flag_idx = 0;
     for (arg_idx = first_arg_idx; arg_idx < (uint32_t)argc; ++arg_idx) {
       flagname_p = is_flag_start(argv[arg_idx]);
@@ -3419,97 +2935,16 @@ int main(int argc, char** argv) {
 	  memcpy(flagname_write_iter, flagname_p, flag_slen + 1);
 	}
 	flagname_write_iter = &(flagname_write_iter[kMaxFlagBlen]);
-	flag_map[cur_flag_idx++] = arg_idx;
+	pcm.flag_map[cur_flag_idx++] = arg_idx;
       }
-    }
-    reterr = sort_cmdline_flags(kMaxFlagBlen, flag_ct, flag_buf, flag_map);
-    if (reterr) {
-      if (reterr == kPglRetNomem) {
-	goto main_ret_NOMEM_NOLOG2;
-      }
-      goto main_ret_NOLOG;
     }
     char outname[kPglFnamesize];
     memcpy(outname, "plink2", 6);
     char* outname_end = nullptr;
-    for (cur_flag_idx = 0; cur_flag_idx < flag_ct; ++cur_flag_idx) {
-      int32_t memcmp_out_result = memcmp("out", &(flag_buf[cur_flag_idx * kMaxFlagBlen]), 4);
-      if (!memcmp_out_result) {
-	arg_idx = flag_map[cur_flag_idx];
-	const uint32_t param_ct = param_count(argv, argc, arg_idx);
-	if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
-	  fputs(g_logbuf, stderr);
-	  fputs(errstr_append, stderr);
-	  goto main_ret_INVALID_CMDLINE;
-	}
-	if (strlen(argv[arg_idx + 1]) > (kPglFnamesize - kMaxOutfnameExtBlen)) {
-	  fflush(stdout);
-	  fputs("Error: --out parameter too long.\n", stderr);
-	  goto main_ret_OPEN_FAIL;
-	}
-	const uint32_t slen = strlen(argv[arg_idx + 1]);
-	memcpy(outname, argv[arg_idx + 1], slen + 1);
-	outname_end = &(outname[slen]);
-      }
-      if (memcmp_out_result <= 0) {
-	break;
-      }
-    }
-    if (init_logfile(0, outname, outname_end? outname_end : &(outname[6]))) {
-      goto main_ret_OPEN_FAIL;
-    }
-    logstr(ver_str);
-    logstr("\n");
-    logprint("Options in effect:\n");
-    for (cur_flag_idx = 0; cur_flag_idx < flag_ct; ++cur_flag_idx) {
-      logprint("  --");
-      logprint(&(flag_buf[cur_flag_idx * kMaxFlagBlen]));
-      arg_idx = flag_map[cur_flag_idx] + 1;
-      while ((arg_idx < (uint32_t)argc) && (!is_flag(argv[arg_idx]))) {
-	logprint(" ");
-	logprint(argv[arg_idx++]);
-      }
-      logprint("\n");
-    }
-    logprint("\n");
-
-#ifdef _WIN32
-    DWORD windows_dw = kTextbufSize;
-    if (GetComputerName(g_textbuf, &windows_dw))
-#else
-    if (gethostname(g_textbuf, kTextbufSize) != -1)
-#endif
-    {
-      logstr("Hostname: ");
-      logstr(g_textbuf);
-    }
-    logstr("\nWorking directory: ");
-    if (!getcwd(g_textbuf, kPglFnamesize)) {
-      goto main_ret_READ_FAIL;
-    }
-    logstr(g_textbuf);
-    logstr("\n");
-    logprint("Start time: ");
-    time_t rawtime;
-    time(&rawtime);
-    logprint(ctime(&rawtime));
-    // ctime string always has a newline at the end
-    logstr("\n");
-
     int32_t known_procs;
-#ifdef _WIN32
-    SYSTEM_INFO sysinfo;
-    GetSystemInfo(&sysinfo);
-    pc.max_thread_ct = sysinfo.dwNumberOfProcessors;
-    known_procs = pc.max_thread_ct;
-#else
-    known_procs = sysconf(_SC_NPROCESSORS_ONLN);
-    pc.max_thread_ct = (known_procs == -1)? 1 : ((uint32_t)known_procs);
-#endif
-    // don't subtract 1 any more since, when max_thread_ct > 2, one of the
-    // (virtual) cores will be dedicated to I/O and have lots of downtime.
-    if (pc.max_thread_ct > kMaxThreads) {
-      pc.max_thread_ct = kMaxThreads;
+    reterr = cmdline_parse_phase2(ver_str, errstr_append, argv, 6, kMaxFlagBlen, argc, flag_ct, &pcm, outname, &outname_end, &known_procs, &pc.max_thread_ct);
+    if (reterr) {
+      goto main_ret_NOLOG;
     }
 
     char pgenname[kPglFnamesize];
@@ -3610,13 +3045,13 @@ int main(int argc, char** argv) {
     plink1_dosage_info_t plink1_dosage_info;
     init_plink1_dosage(&plink1_dosage_info);
     do {
-      flagname_p = &(flag_buf[cur_flag_idx * kMaxFlagBlen]);
+      flagname_p = &(pcm.flag_buf[cur_flag_idx * kMaxFlagBlen]);
       if (!(*flagname_p)) {
 	// preprocessed; not relevant now, but will need --d later
 	continue;
       }
       char* flagname_p2 = &(flagname_p[1]);
-      arg_idx = flag_map[cur_flag_idx];
+      arg_idx = pcm.flag_map[cur_flag_idx];
       uint32_t param_ct = param_count(argv, argc, arg_idx);
       switch (*flagname_p) {
       case '1':
@@ -7847,16 +7282,6 @@ int main(int argc, char** argv) {
       }
     }
 
-    free_cond(subst_argv);
-    free_cond(script_buf);
-    free_cond(rerun_buf);
-    free_cond(flag_buf);
-    free_cond(flag_map);
-    subst_argv = nullptr;
-    script_buf = nullptr;
-    rerun_buf = nullptr;
-    flag_buf = nullptr;
-    flag_map = nullptr;
     if (!rseeds) {
       uint32_t seed = (uint32_t)time(nullptr);
       sprintf(g_logbuf, "Random number seed: %u\n", seed);
@@ -7871,46 +7296,12 @@ int main(int argc, char** argv) {
       free(rseeds);
       rseeds = nullptr;
     }
-    
-    uint64_t total_mb = detect_mb();
-    if (!malloc_size_mb) {
-      if (!total_mb) {
-	malloc_size_mb = kBigstackDefaultMb;
-      } else if (total_mb < (kBigstackMinMb * 2)) {
-	malloc_size_mb = kBigstackMinMb;
-      } else {
-	malloc_size_mb = total_mb / 2;
-      }
-    }
-    assert(malloc_size_mb >= (intptr_t)kBigstackMinMb);
-#ifndef __LP64__
-    if (malloc_size_mb > (intptr_t)kMalloc32bitMbMax) {
-      malloc_size_mb = kMalloc32bitMbMax;
-    }
-#endif
-    if (total_mb) {
-      sprintf(g_logbuf, "%" PRIu64 " MB RAM detected; reserving %" PRIdPTR " MB for main workspace.\n", total_mb, malloc_size_mb);
-    } else {
-      sprintf(g_logbuf, "Failed to determine total system memory.  Attempting to reserve %" PRIuPTR " MB.\n", malloc_size_mb);
-    }
-    logprintb();
-    uintptr_t malloc_mb_final;
-    if (init_bigstack(malloc_size_mb, &malloc_mb_final, &bigstack_ua)) {
+
+    if (cmdline_parse_phase3(0, malloc_size_mb, memory_require, &pcm, &bigstack_ua)) {
       goto main_ret_NOMEM;
     }
     g_input_missing_geno_ptr = &(g_one_char_strs[2 * ((unsigned char)input_missing_geno_char)]);
     g_output_missing_geno_ptr = &(g_one_char_strs[2 * ((unsigned char)output_missing_geno_char)]);
-    if (((uintptr_t)malloc_size_mb) != malloc_mb_final) {
-      if (memory_require) {
-	goto main_ret_NOMEM;
-      }
-      LOGPRINTF("Allocated %" PRIuPTR " MB successfully, after larger attempt(s) failed.\n", malloc_mb_final);
-    }
-
-#ifndef _WIN32
-    pthread_attr_init(&g_smallstack_thread_attr);
-    pthread_attr_setstacksize(&g_smallstack_thread_attr, kDefaultThreadStack);
-#endif
     // pigz_init(pc.max_thread_ct);
 
     if (pc.max_thread_ct > 8) {
@@ -8053,9 +7444,6 @@ int main(int argc, char** argv) {
   main_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  main_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
-    break;
   main_ret_INVALID_CMDLINE_UNRECOGNIZED:
     invalid_arg(argv[arg_idx]);
     logerrprintb();
@@ -8099,14 +7487,8 @@ int main(int argc, char** argv) {
     }
     reterr = kPglRetNomem;
     break;
-  main_ret_READ_FAIL_NOLOG:
-    print_ver();
-    fputs(errstr_read, stderr);
-    reterr = kPglRetReadFail;
-    break;
   }
  main_ret_NOLOG:
-  fclose_cond(scriptfile);
   free_cond(vcf_dosage_import_field);
   free_cond(ox_missing_code);
   free_cond(import_single_chr_str);
@@ -8115,11 +7497,7 @@ int main(int argc, char** argv) {
   free_cond(require_pheno_flattened);
   free_cond(var_filter_exceptions_flattened);
   free_cond(rseeds);
-  free_cond(subst_argv);
-  free_cond(script_buf);
-  free_cond(rerun_buf);
-  free_cond(flag_buf);
-  free_cond(flag_map);
+  plink2_cmdline_meta_cleanup(&pcm);
   free_cond(king_cutoff_fprefix);
   free_cond(pc.alt1_allele_flag);
   free_cond(pc.ref_allele_flag);

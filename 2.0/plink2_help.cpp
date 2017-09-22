@@ -18,6 +18,7 @@
 // necessary to include this instead of plink2_common so g_cmdline_format_str[]
 // is known to have external linkage
 #include "plink2_help.h"
+#include "plink2_common.h"  // PROG_NAME_STR
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -212,7 +213,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
   // yes, this is overkill.  But it should be a good template for other
   // command-line programs to use.
   uint32_t param_ctl = BITCT_TO_WORDCT(param_ct);
-  pglerr_t reterr = kPglRetSuccess;
+  pglerr_t reterr = kPglRetHelp;
   help_ctrl_t help_ctrl;
   uint32_t arg_uidx;
   uint32_t arg_idx;

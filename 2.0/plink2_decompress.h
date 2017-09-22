@@ -18,9 +18,9 @@
 // along with this library.  If not, see <http://www.gnu.org/licenses/>.
 
 
-// This has been separated from plink2_common due to the relatively heavyweight
-// dependence on zstd/zlibWrapper.
-#include "plink2_common.h"
+// This has been separated from plink2_cmdline due to the relatively
+// heavyweight dependence on zstd/zlibWrapper.
+#include "plink2_cmdline.h"
 
 // documentation on ZWRAP_USE_ZSTD is incorrect as of 11 Jan 2017, necessary to
 // edit zstd_zlibwrapper.c or use compile flag.
@@ -58,15 +58,6 @@ HEADER_INLINE void gzclose_cond(gzFile gz_infile) {
     gzclose(gz_infile);
   }
 }
-
-
-// may return kPglRetLongLine or kPglRetEmptyFile
-// loadbuf_iter_ptr can be nullptr
-// line_idx must be zero unless initial lines were skipped
-pglerr_t load_xid_header(const char* flag_name, sid_detect_mode_t sid_detect_mode, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, xid_mode_t* xid_mode_ptr);
-
-// sets last character of loadbuf to ' '
-pglerr_t open_and_load_xid_header(const char* fname, const char* flag_name, sid_detect_mode_t sid_detect_mode, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, xid_mode_t* xid_mode_ptr);
 
 
 // currently hardcoded to have maximum token length = kMaxMediumLine, buffer

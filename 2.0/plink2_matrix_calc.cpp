@@ -18,6 +18,7 @@
 #include "plink2_compress_stream.h"
 #include "plink2_matrix.h"
 #include "plink2_matrix_calc.h"
+#include "plink2_random.h"
 
 #ifdef __cplusplus
 namespace plink2 {

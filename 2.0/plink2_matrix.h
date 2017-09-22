@@ -26,7 +26,7 @@
 // find it for Windows.  (And even if OS X vecLib adds it soon, we can't use it
 // there anytime soon because static linking is not an option.)
 
-#include "plink2_common.h"
+#include "plink2_cmdline.h"
 
 #ifdef NOLAPACK
 

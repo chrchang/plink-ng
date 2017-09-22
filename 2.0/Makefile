@@ -22,7 +22,7 @@ ZSTD_INCLUDE = -Izstd/lib -Izstd/lib/common -Izstd/zlibWrapper
 CFLAGS += ${ZSTD_INCLUDE}
 
 CSRC = SFMT.c hfile.c bgzf.c zstd/zlibWrapper/zstd_zlibwrapper.c zstd/zlibWrapper/gzclose.c zstd/zlibWrapper/gzlib.c zstd/zlibWrapper/gzread.c zstd/zlibWrapper/gzwrite.c zstd/lib/common/entropy_common.c zstd/lib/common/zstd_common.c zstd/lib/common/error_private.c zstd/lib/common/xxhash.c zstd/lib/common/fse_decompress.c zstd/lib/common/pool.c zstd/lib/compress/fse_compress.c zstd/lib/compress/huf_compress.c zstd/lib/compress/zstd_compress.c zstd/lib/compress/zstdmt_compress.c zstd/lib/decompress/huf_decompress.c zstd/lib/decompress/zstd_decompress.c
-CPPSRC = pgenlib_internal.cpp plink2.cpp plink2_adjust.cpp plink2_common.cpp plink2_compress_stream.cpp plink2_data.cpp plink2_decompress.cpp plink2_filter.cpp plink2_glm.cpp plink2_help.cpp plink2_ld.cpp plink2_matrix.cpp plink2_matrix_calc.cpp plink2_misc.cpp plink2_psam.cpp plink2_pvar.cpp plink2_random.cpp plink2_set.cpp plink2_stats.cpp
+CPPSRC = plink2_base.cpp pgenlib_internal.cpp plink2.cpp plink2_adjust.cpp plink2_cmdline.cpp plink2_common.cpp plink2_compress_stream.cpp plink2_data.cpp plink2_decompress.cpp plink2_filter.cpp plink2_glm.cpp plink2_help.cpp plink2_ld.cpp plink2_matrix.cpp plink2_matrix_calc.cpp plink2_misc.cpp plink2_psam.cpp plink2_pvar.cpp plink2_random.cpp plink2_set.cpp plink2_stats.cpp
 
 COBJ = $(CSRC:.c=.o)
 CPPOBJ = $(CPPSRC:.cpp=.o)
@@ -39,8 +39,8 @@ plink2: $(COBJ) $(CPPOBJ)
 	g++ $(ARCH32) $(COBJ) $(CPPOBJ) -o build/plink2 $(BLASFLAGS64) $(LINKFLAGS)
 
 # basic pgenlib_internal.h usage example; also needed for tests
-pgen_compress: pgenlib_internal.o pgen_compress.o
-	g++ pgenlib_internal.o pgen_compress.o -o build/pgen_compress
+pgen_compress: plink2_base.o pgenlib_internal.o pgen_compress.o
+	g++ plink2_base.o pgenlib_internal.o pgen_compress.o -o build/pgen_compress
 
 .PHONY: clean
 clean:

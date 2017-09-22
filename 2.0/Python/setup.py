@@ -8,7 +8,7 @@ import numpy as np
 
 ext_modules = [
     Extension('pgenlib',
-              sources = ['pgenlib.pyx', '../pgenlib_python_support.cpp', '../pgenlib_internal.cpp'],
+              sources = ['pgenlib.pyx', '../pgenlib_python_support.cpp', '../pgenlib_internal.cpp', '../plink2_base.cpp'],
               language = "c++",
               # do not compile as c++11, since cython doesn't yet support
               # overload of uint32_t operator
