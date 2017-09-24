@@ -674,6 +674,12 @@ HEADER_INLINE void bigstack_finalize_ui(__maybe_unused const uint32_t* uiptr, ui
   assert(g_bigstack_base <= g_bigstack_end);
 }
 
+HEADER_INLINE void bigstack_finalize_ull(__maybe_unused const uint64_t* ullptr, uintptr_t ct) {
+  assert(ullptr == (const uint64_t*)g_bigstack_base);
+  g_bigstack_base += round_up_pow2(ct * sizeof(int64_t), kCacheline);
+  assert(g_bigstack_base <= g_bigstack_end);
+}
+
 HEADER_INLINE void bigstack_finalize_c(__maybe_unused const char* cptr, uintptr_t ct) {
   assert(cptr == (const char*)g_bigstack_base);
   g_bigstack_base += round_up_pow2(ct, kCacheline);
@@ -878,6 +884,10 @@ HEADER_INLINE boolerr_t arena_alloc_ull(unsigned char* arena_top, uintptr_t ct, 
 HEADER_INLINE boolerr_t arena_alloc_cp(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, char*** cp_arr_ptr) {
   *cp_arr_ptr = (char**)arena_alloc(arena_top, ct * sizeof(intptr_t), arena_bottom_ptr);
   return !(*cp_arr_ptr);
+}
+
+HEADER_INLINE void arena_base_set(const void* unaligned_base, unsigned char** arena_bottom_ptr) {
+  *arena_bottom_ptr = (unsigned char*)round_up_pow2((uintptr_t)unaligned_base, kCacheline);
 }
 
 HEADER_INLINE unsigned char* arena_end_alloc_raw(uintptr_t size, unsigned char** arena_top_ptr) {
