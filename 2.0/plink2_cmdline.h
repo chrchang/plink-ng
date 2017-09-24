@@ -1931,6 +1931,21 @@ pglerr_t populate_id_htable_mt(const uintptr_t* subset_mask, char** item_ids, ui
 pglerr_t alloc_and_populate_id_htable_mt(const uintptr_t* subset_mask, char** item_ids, uintptr_t item_ct, uint32_t max_thread_ct, uint32_t** id_htable_ptr, uint32_t** htable_dup_base_ptr, uint32_t* id_htable_size_ptr);
 
 
+typedef struct help_ctrl_struct {
+  uint32_t iters_left;
+  uint32_t param_ct;
+  char** argv;
+  uintptr_t unmatched_ct;
+  uintptr_t* all_match_arr;
+  uintptr_t* prefix_match_arr;
+  uintptr_t* perfect_match_arr;
+  uint32_t* param_slens;
+  uint32_t preprint_newline;
+} help_ctrl_t;
+
+void help_print(const char* cur_params, help_ctrl_t* help_ctrl_ptr, uint32_t postprint_newline, const char* payload);
+
+
 extern const char errstr_nomem[];
 extern const char errstr_write[];
 extern const char errstr_read[];

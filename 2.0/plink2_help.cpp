@@ -18,196 +18,12 @@
 // necessary to include this instead of plink2_common so g_cmdline_format_str[]
 // is known to have external linkage
 #include "plink2_help.h"
-#include "plink2_common.h"  // PROG_NAME_STR
 
 #ifdef __cplusplus
 namespace plink2 {
 #endif
 
 const char g_cmdline_format_str[] = "\n  plink2 [input flag(s)...] {command flag(s)...} {other flag(s)...}\n  plink2 --help {flag name(s)...}\n\n";
-
-uint32_t edit1_match(const char* s1, const char* s2, uint32_t len1, uint32_t len2) {
-  // permit one difference of the following forms:
-  // - inserted/deleted character
-  // - replaced character
-  // - adjacent pair of swapped characters
-  uint32_t diff_found = 0;
-  uint32_t pos = 0;
-  if (len1 == len2) {
-    while (pos < len1) {
-      if (s1[pos] != s2[pos]) {
-	if (diff_found) {
-	  if ((diff_found == 2) || (s1[pos] != s2[pos - 1]) || (s1[pos - 1] != s2[pos])) {
-	    return 0;
-	  }
-	}
-	++diff_found;
-      }
-      ++pos;
-    }
-  } else if (len1 == len2 - 1) {
-    do {
-      if (s1[pos - diff_found] != s2[pos]) {
-	if (diff_found) {
-	  return 0;
-	}
-	++diff_found;
-      }
-      ++pos;
-    } while (pos < len2);
-  } else if (len1 == len2 + 1) {
-    do {
-      if (s1[pos] != s2[pos - diff_found]) {
-	if (diff_found) {
-	  return 0;
-	}
-	++diff_found;
-      }
-      ++pos;
-    } while (pos < len1);
-  } else {
-    return 0;
-  }
-  return 1;
-}
-
-// for better or worse, when this is too small we find out quickly due to
-// segfault...
-CONSTU31(kMaxEqualHelpParams, 13);
-
-typedef struct help_ctrl_struct {
-  uint32_t iters_left;
-  uint32_t param_ct;
-  char** argv;
-  uintptr_t unmatched_ct;
-  uintptr_t* all_match_arr;
-  uintptr_t* prefix_match_arr;
-  uintptr_t* perfect_match_arr;
-  uint32_t* param_slens;
-  uint32_t preprint_newline;
-} help_ctrl_t;
-
-void help_print(const char* cur_params, help_ctrl_t* help_ctrl_ptr, uint32_t postprint_newline, const char* payload) {
-  if (help_ctrl_ptr->param_ct) {
-    strcpy(g_textbuf, cur_params);
-    uint32_t cur_param_ct = 1;
-    char* cur_param_start[kMaxEqualHelpParams];
-    cur_param_start[0] = g_textbuf;
-    char* textbuf_iter = strchr(g_textbuf, '\t');
-    while (textbuf_iter) {
-      *textbuf_iter++ = '\0';
-      cur_param_start[cur_param_ct++] = textbuf_iter;
-      textbuf_iter = strchr(textbuf_iter, '\t');
-    }
-    if (help_ctrl_ptr->iters_left) {
-      const uint32_t orig_unmatched_ct = help_ctrl_ptr->unmatched_ct;
-      if (help_ctrl_ptr->unmatched_ct) {
-	uint32_t arg_uidx = 0;
-	if (help_ctrl_ptr->iters_left == 2) {
-	  for (uint32_t arg_idx = 0; arg_idx < orig_unmatched_ct; ++arg_idx, ++arg_uidx) {
-	    arg_uidx = next_unset_unsafe(help_ctrl_ptr->all_match_arr, arg_uidx);
-	    for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
-	      if (!strcmp(cur_param_start[cur_param_idx], help_ctrl_ptr->argv[arg_uidx])) {
-		SET_BIT(arg_uidx, help_ctrl_ptr->perfect_match_arr);
-		SET_BIT(arg_uidx, help_ctrl_ptr->prefix_match_arr);
-		SET_BIT(arg_uidx, help_ctrl_ptr->all_match_arr);
-		help_ctrl_ptr->unmatched_ct -= 1;
-		break;
-	      }
-	    }
-	  }
-	} else {
-          uint32_t cur_param_slens[kMaxEqualHelpParams];
-	  for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
-	    cur_param_slens[cur_param_idx] = strlen(cur_param_start[cur_param_idx]);
-	  }
-	  for (uint32_t arg_idx = 0; arg_idx < orig_unmatched_ct; ++arg_idx, ++arg_uidx) {
-	    arg_uidx = next_unset_unsafe(help_ctrl_ptr->all_match_arr, arg_uidx);
-	    const uint32_t slen = help_ctrl_ptr->param_slens[arg_uidx];
-	    for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
-	      if (cur_param_slens[cur_param_idx] > slen) {
-		if (!memcmp(help_ctrl_ptr->argv[arg_uidx], cur_param_start[cur_param_idx], slen)) {
-		  SET_BIT(arg_uidx, help_ctrl_ptr->prefix_match_arr);
-		  SET_BIT(arg_uidx, help_ctrl_ptr->all_match_arr);
-		  help_ctrl_ptr->unmatched_ct -= 1;
-		  break;
-		}
-	      }
-	    }
-	  }
-	}
-      }
-    } else {
-      uint32_t cur_param_slens[kMaxEqualHelpParams];
-      for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
-	cur_param_slens[cur_param_idx] = strlen(cur_param_start[cur_param_idx]);
-      }
-      uint32_t print_this = 0;
-      for (uint32_t arg_uidx = 0; arg_uidx < help_ctrl_ptr->param_ct; ++arg_uidx) {
-	if (IS_SET(help_ctrl_ptr->prefix_match_arr, arg_uidx)) {
-	  if (!print_this) {
-	    if (IS_SET(help_ctrl_ptr->perfect_match_arr, arg_uidx)) {
-	      for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
-		if (!strcmp(cur_param_start[cur_param_idx], help_ctrl_ptr->argv[arg_uidx])) {
-		  print_this = 1;
-		  break;
-		}
-	      }
-	    } else {
-	      const uint32_t slen = help_ctrl_ptr->param_slens[arg_uidx];
-	      for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
-		if (cur_param_slens[cur_param_idx] > slen) {
-		  if (!memcmp(help_ctrl_ptr->argv[arg_uidx], cur_param_start[cur_param_idx], slen)) {
-		    print_this = 1;
-		    break;
-		  }
-		}
-	      }
-	    }
-	  }
-	} else {
-	  for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
-	    if (edit1_match(cur_param_start[cur_param_idx], help_ctrl_ptr->argv[arg_uidx], cur_param_slens[cur_param_idx], help_ctrl_ptr->param_slens[arg_uidx])) {
-	      print_this = 1;
-	      if (!IS_SET(help_ctrl_ptr->all_match_arr, arg_uidx)) {
-		SET_BIT(arg_uidx, help_ctrl_ptr->all_match_arr);
-		help_ctrl_ptr->unmatched_ct -= 1;
-	      }
-	      break;
-	    }
-	  }
-	}
-      }
-      if (print_this) {
-	const uint32_t payload_slen = strlen(payload);
-	const char* payload_end;
-	if (payload[payload_slen - 2] == '\n') {
-	  payload_end = &(payload[payload_slen - 1]);
-	} else {
-	  payload_end = &(payload[payload_slen]);
-	}
-	if (help_ctrl_ptr->preprint_newline) {
-	  putc_unlocked('\n', stdout);
-	}
-	help_ctrl_ptr->preprint_newline = postprint_newline;
-	const char* payload_iter = payload;
-	do {
-	  const char* line_end = (const char*)rawmemchr(payload_iter, '\n') + 1;
-	  uint32_t line_slen = (uint32_t)(line_end - payload_iter);
-	  if (line_slen > 2) {
-	    payload_iter = &(payload_iter[2]);
-	    line_slen -= 2;
-	  }
-	  memcpyx(g_textbuf, payload_iter, line_slen, 0);
-	  fputs(g_textbuf, stdout);
-	  payload_iter = line_end;
-	} while (payload_iter < payload_end);
-      }
-    }
-  } else {
-    fputs(payload, stdout);
-  }
-}
 
 pglerr_t disp_help(uint32_t param_ct, char** argv) {
   // yes, this is overkill.  But it should be a good template for other
@@ -288,7 +104,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 , stdout);
     fputs(g_cmdline_format_str, stdout);
     fputs(
-"Most " PROG_NAME_STR " runs require exactly one main input fileset.  The following flags\n"
+"Most plink2 runs require exactly one main input fileset.  The following flags\n"
 "are available for defining its form and location:\n\n"
 , stdout);
   }
@@ -406,8 +222,8 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     if (!param_ct) {
       fputs(
-"Output files have names of the form '" PROG_NAME_STR ".{extension}' by default.  You can\n"
-"change the '" PROG_NAME_STR "' prefix with\n\n"
+"Output files have names of the form 'plink2.{extension}' by default.  You can\n"
+"change the 'plink2' prefix with\n\n"
 , stdout);
     }
     help_print("out", &help_ctrl, 1,
@@ -436,7 +252,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "    Create a new PLINK binary fileset (--make-pgen = .pgen + .pvar{.zst} +\n"
 "    .psam, --make-bpgen = .pgen + .bim{.zst} + .fam).\n"
 "    * Unlike the automatic text-to-binary converters (which only heed\n"
-"      chromosome filters), this supports all of " PROG_NAME_STR "'s filtering flags.\n"
+"      chromosome filters), this supports all of plink2's filtering flags.\n"
 "    * The 'vzs' modifier causes the variant file (.pvar/.bim) to be\n"
 "      Zstd-compressed.\n"
 "    * The 'format' modifier requests an uncompressed fixed-variant-width .pgen\n"
@@ -753,7 +569,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "    and '--indep-pairwise 500kb 0.5' have the same effect.)\n"
 "    The step size now defaults to 1 if it's unspecified, and *must* be 1 if the\n"
 "    window is in kilobase units.\n"
-"    Note that you need to rerun " PROG_NAME_STR " using --extract or --exclude on the\n"
+"    Note that you need to rerun plink2 using --extract or --exclude on the\n"
 "    .prune.in/.prune.out file to apply the list to another computation.\n\n"
 	       );
     // todo: replace --indep-pairphase with method which takes fully phased
@@ -1064,7 +880,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
     }
     help_print("script\trerun", &help_ctrl, 0,
 "  --script [fname]   : Include command-line options from file.\n"
-"  --rerun {log}      : Rerun commands in log (default '" PROG_NAME_STR ".log').\n"
+"  --rerun {log}      : Rerun commands in log (default 'plink2.log').\n"
 	       );
     help_print("version", &help_ctrl, 0,
 "  --version          : Display only version number before exiting.\n"

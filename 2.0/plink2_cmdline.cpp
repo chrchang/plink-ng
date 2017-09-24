@@ -4863,6 +4863,176 @@ pglerr_t alloc_and_populate_id_htable_mt(const uintptr_t* subset_mask, char** it
 }
 
 
+uint32_t edit1_match(const char* s1, const char* s2, uint32_t len1, uint32_t len2) {
+  // permit one difference of the following forms:
+  // - inserted/deleted character
+  // - replaced character
+  // - adjacent pair of swapped characters
+  uint32_t diff_found = 0;
+  uint32_t pos = 0;
+  if (len1 == len2) {
+    while (pos < len1) {
+      if (s1[pos] != s2[pos]) {
+	if (diff_found) {
+	  if ((diff_found == 2) || (s1[pos] != s2[pos - 1]) || (s1[pos - 1] != s2[pos])) {
+	    return 0;
+	  }
+	}
+	++diff_found;
+      }
+      ++pos;
+    }
+  } else if (len1 == len2 - 1) {
+    do {
+      if (s1[pos - diff_found] != s2[pos]) {
+	if (diff_found) {
+	  return 0;
+	}
+	++diff_found;
+      }
+      ++pos;
+    } while (pos < len2);
+  } else if (len1 == len2 + 1) {
+    do {
+      if (s1[pos] != s2[pos - diff_found]) {
+	if (diff_found) {
+	  return 0;
+	}
+	++diff_found;
+      }
+      ++pos;
+    } while (pos < len1);
+  } else {
+    return 0;
+  }
+  return 1;
+}
+
+CONSTU31(kMaxEqualHelpParams, 64);
+
+void help_print(const char* cur_params, help_ctrl_t* help_ctrl_ptr, uint32_t postprint_newline, const char* payload) {
+  if (help_ctrl_ptr->param_ct) {
+    strcpy(g_textbuf, cur_params);
+    uint32_t cur_param_ct = 1;
+    char* cur_param_start[kMaxEqualHelpParams];
+    cur_param_start[0] = g_textbuf;
+    char* textbuf_iter = strchr(g_textbuf, '\t');
+    while (textbuf_iter) {
+      *textbuf_iter++ = '\0';
+      cur_param_start[cur_param_ct++] = textbuf_iter;
+      textbuf_iter = strchr(textbuf_iter, '\t');
+    }
+    if (help_ctrl_ptr->iters_left) {
+      const uint32_t orig_unmatched_ct = help_ctrl_ptr->unmatched_ct;
+      if (help_ctrl_ptr->unmatched_ct) {
+	uint32_t arg_uidx = 0;
+	if (help_ctrl_ptr->iters_left == 2) {
+	  for (uint32_t arg_idx = 0; arg_idx < orig_unmatched_ct; ++arg_idx, ++arg_uidx) {
+	    arg_uidx = next_unset_unsafe(help_ctrl_ptr->all_match_arr, arg_uidx);
+	    for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
+	      if (!strcmp(cur_param_start[cur_param_idx], help_ctrl_ptr->argv[arg_uidx])) {
+		SET_BIT(arg_uidx, help_ctrl_ptr->perfect_match_arr);
+		SET_BIT(arg_uidx, help_ctrl_ptr->prefix_match_arr);
+		SET_BIT(arg_uidx, help_ctrl_ptr->all_match_arr);
+		help_ctrl_ptr->unmatched_ct -= 1;
+		break;
+	      }
+	    }
+	  }
+	} else {
+          uint32_t cur_param_slens[kMaxEqualHelpParams];
+	  for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
+	    cur_param_slens[cur_param_idx] = strlen(cur_param_start[cur_param_idx]);
+	  }
+	  for (uint32_t arg_idx = 0; arg_idx < orig_unmatched_ct; ++arg_idx, ++arg_uidx) {
+	    arg_uidx = next_unset_unsafe(help_ctrl_ptr->all_match_arr, arg_uidx);
+	    const uint32_t slen = help_ctrl_ptr->param_slens[arg_uidx];
+	    for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
+	      if (cur_param_slens[cur_param_idx] > slen) {
+		if (!memcmp(help_ctrl_ptr->argv[arg_uidx], cur_param_start[cur_param_idx], slen)) {
+		  SET_BIT(arg_uidx, help_ctrl_ptr->prefix_match_arr);
+		  SET_BIT(arg_uidx, help_ctrl_ptr->all_match_arr);
+		  help_ctrl_ptr->unmatched_ct -= 1;
+		  break;
+		}
+	      }
+	    }
+	  }
+	}
+      }
+    } else {
+      uint32_t cur_param_slens[kMaxEqualHelpParams];
+      for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
+	cur_param_slens[cur_param_idx] = strlen(cur_param_start[cur_param_idx]);
+      }
+      uint32_t print_this = 0;
+      for (uint32_t arg_uidx = 0; arg_uidx < help_ctrl_ptr->param_ct; ++arg_uidx) {
+	if (IS_SET(help_ctrl_ptr->prefix_match_arr, arg_uidx)) {
+	  if (!print_this) {
+	    if (IS_SET(help_ctrl_ptr->perfect_match_arr, arg_uidx)) {
+	      for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
+		if (!strcmp(cur_param_start[cur_param_idx], help_ctrl_ptr->argv[arg_uidx])) {
+		  print_this = 1;
+		  break;
+		}
+	      }
+	    } else {
+	      const uint32_t slen = help_ctrl_ptr->param_slens[arg_uidx];
+	      for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
+		if (cur_param_slens[cur_param_idx] > slen) {
+		  if (!memcmp(help_ctrl_ptr->argv[arg_uidx], cur_param_start[cur_param_idx], slen)) {
+		    print_this = 1;
+		    break;
+		  }
+		}
+	      }
+	    }
+	  }
+	} else {
+	  for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
+	    if (edit1_match(cur_param_start[cur_param_idx], help_ctrl_ptr->argv[arg_uidx], cur_param_slens[cur_param_idx], help_ctrl_ptr->param_slens[arg_uidx])) {
+	      print_this = 1;
+	      if (!IS_SET(help_ctrl_ptr->all_match_arr, arg_uidx)) {
+		SET_BIT(arg_uidx, help_ctrl_ptr->all_match_arr);
+		help_ctrl_ptr->unmatched_ct -= 1;
+	      }
+	      break;
+	    }
+	  }
+	}
+      }
+      if (print_this) {
+	const uint32_t payload_slen = strlen(payload);
+	const char* payload_end;
+	if (payload[payload_slen - 2] == '\n') {
+	  payload_end = &(payload[payload_slen - 1]);
+	} else {
+	  payload_end = &(payload[payload_slen]);
+	}
+	if (help_ctrl_ptr->preprint_newline) {
+	  putc_unlocked('\n', stdout);
+	}
+	help_ctrl_ptr->preprint_newline = postprint_newline;
+	const char* payload_iter = payload;
+	do {
+	  const char* line_end = (const char*)rawmemchr(payload_iter, '\n') + 1;
+	  uint32_t line_slen = (uint32_t)(line_end - payload_iter);
+	  if (line_slen > 2) {
+	    payload_iter = &(payload_iter[2]);
+	    line_slen -= 2;
+	  }
+	  memcpyx(g_textbuf, payload_iter, line_slen, 0);
+	  fputs(g_textbuf, stdout);
+	  payload_iter = line_end;
+	} while (payload_iter < payload_end);
+      }
+    }
+  } else {
+    fputs(payload, stdout);
+  }
+}
+
+
 void plink2_cmdline_meta_preinit(plink2_cmdline_meta_t* pcmp) {
   pcmp->subst_argv = nullptr;
   pcmp->script_buf = nullptr;
@@ -5253,6 +5423,7 @@ pglerr_t cmdline_parse_phase1(const char* ver_str, const char* ver_str2, const c
 	  fputs("Error: Null byte in --script file.\n", stderr);
 	  goto cmdline_parse_phase1_ret_INVALID_CMDLINE;
 	}
+        // probable todo: detect duplicate flags in the same manner as --rerun
 	const uint32_t new_param_ct = num_script_params + argc - 3;
 	if (pgl_malloc(new_param_ct * sizeof(intptr_t), &subst_argv)) {
 	  goto cmdline_parse_phase1_ret_NOMEM;
