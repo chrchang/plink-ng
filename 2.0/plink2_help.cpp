@@ -574,7 +574,18 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 	       );
     // todo: replace --indep-pairphase with method which takes fully phased
     // haplotypes as input (unphased het treated as missing).
-    
+
+    help_print("ld", &help_ctrl, 1,
+"  --ld [variant ID] [variant ID] <hwe-midp>\n"
+"    This displays hardcall haplotype frequencies, r^2, and D' for a single pair\n"
+"    of variants.\n"
+"    * Phase information is taken into account.\n"
+"    * When there is at least one sample with unphased het calls for both\n"
+"      variants, haplotype frequencies are estimated using the Hill equation.\n"
+"      If there are multiple biologically possible local maxima, all are\n"
+"      displayed, along with HWE exact test statistics.\n"
+"    * If dosages are present, they are used to compute r^2.\n\n"
+	       );
     // for kinship estimation, LD pruning isn't really advisable (if more speed
     // is needed, the humble --bp-space may lead to a better approximation; and
     // in practice speed isn't an issue any more with --make-king)

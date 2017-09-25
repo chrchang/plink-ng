@@ -30,9 +30,13 @@ void init_ld(ld_info_t* ldip) {
   ldip->prune_window_size = 0;
   ldip->prune_window_incr = 0;
   ldip->prune_last_param = 0.0;
+  ldip->ld_flag_varids[0] = nullptr;
+  ldip->ld_flag_varids[1] = nullptr;
 }
 
-void cleanup_ld(__attribute__((unused)) ld_info_t* ldip) {
+void cleanup_ld(ld_info_t* ldip) {
+  free_cond(ldip->ld_flag_varids[0]);
+  free_cond(ldip->ld_flag_varids[1]);
 }
 
 
@@ -1463,6 +1467,17 @@ pglerr_t ld_prune(const uintptr_t* orig_variant_include, const chr_info_t* cip, 
   }
  ld_prune_ret_1:
   bigstack_double_reset(bigstack_mark, bigstack_end_mark);
+  return reterr;
+}
+
+pglerr_t ld_console(__attribute__((unused)) const uintptr_t* variant_include, __attribute__((unused)) const chr_info_t* cip, __attribute__((unused)) char** variant_ids, __attribute__((unused)) const uintptr_t* variant_allele_idxs, __attribute__((unused)) const uintptr_t* founder_info, __attribute__((unused)) const uintptr_t* sex_male, __attribute__((unused)) char** ld_flag_varids, __attribute__((unused)) uint32_t variant_ct, __attribute__((unused)) uint32_t raw_sample_ct, __attribute__((unused)) uint32_t founder_ct, __attribute__((unused)) uint32_t hwe_midp, __attribute__((unused)) pgen_reader_t* simple_pgrp, __attribute__((unused)) char* outname, __attribute__((unused)) char* outname_end) {
+  pglerr_t reterr = kPglRetSuccess;
+  {
+    logerrprint("Error: --ld is currently under development.\n");
+    reterr = kPglRetNotYetSupported;
+  }
+  while (0) {
+  }
   return reterr;
 }
 

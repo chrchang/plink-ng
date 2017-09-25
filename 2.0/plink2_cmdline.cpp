@@ -5340,10 +5340,11 @@ pglerr_t rerun(const char* ver_str, const char* ver_str2, const char* prog_name_
 
 // Handles --script, --rerun, --help, --version, and --silent.
 // subst_argv, script_buf, and rerun_buf must be initialized to nullptr.
-pglerr_t cmdline_parse_phase1(const char* ver_str, const char* ver_str2, const char* prog_name_str, const char* notestr_null_calc2, const char* cmdline_format_str, const char* errstr_append, uint32_t max_flag_blen, int argc, pglerr_t(* disp_help_fn)(uint32_t, char**), char*** argv_ptr, plink2_cmdline_meta_t* pcmp, uint32_t* first_arg_idx_ptr, uint32_t* flag_ct_ptr) {
+pglerr_t cmdline_parse_phase1(const char* ver_str, const char* ver_str2, const char* prog_name_str, const char* notestr_null_calc2, const char* cmdline_format_str, const char* errstr_append, uint32_t max_flag_blen, pglerr_t(* disp_help_fn)(uint32_t, char**), int* argc_ptr, char*** argv_ptr, plink2_cmdline_meta_t* pcmp, uint32_t* first_arg_idx_ptr, uint32_t* flag_ct_ptr) {
   FILE* scriptfile = nullptr;
   pglerr_t reterr = kPglRetSuccess;
   {
+    int argc = *argc_ptr;
     char** argv = *argv_ptr;
     char** subst_argv = nullptr;
     uint32_t first_arg_idx = 1;
@@ -5441,6 +5442,7 @@ pglerr_t cmdline_parse_phase1(const char* ver_str, const char* ver_str2, const c
 	}
 	memcpy(&(subst_argv[load_param_idx_end]), &(argv[arg_idx + 2]), (argc - arg_idx - 2) * sizeof(intptr_t));
 	argc = new_param_ct;
+	*argc_ptr = argc;
 	first_arg_idx = 0;
 	argv = subst_argv;
         *argv_ptr = subst_argv;
@@ -5469,7 +5471,9 @@ pglerr_t cmdline_parse_phase1(const char* ver_str, const char* ver_str2, const c
 	if (reterr) {
 	  goto cmdline_parse_phase1_ret_1;
 	}
+	*argc_ptr = argc;
         subst_argv = pcmp->subst_argv;
+        *argv_ptr = argv;
 	break;
       }
     }

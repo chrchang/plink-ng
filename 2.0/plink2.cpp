@@ -77,9 +77,9 @@ static const char ver_str2[] =
 static const char errstr_append[] = "For more info, try '" PROG_NAME_STR " --help [flag name]' or '" PROG_NAME_STR " --help | more'.\n";
 
 #ifndef NOLAPACK
-static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --make-king, --king-cutoff, --write-samples,\n--write-snplist, --make-grm-gz, --pca, --glm, --score, --genotyping-rate,\n--validate, and --zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --ld, --make-king, --king-cutoff, --write-samples,\n--write-snplist, --make-grm-gz, --pca, --glm, --score, --genotyping-rate,\n--validate, and --zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
 #else
-static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --make-king, --king-cutoff, --write-samples,\n--write-snplist, --make-grm-gz, --glm, --score, --genotyping-rate, --validate,\nand --zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --ld, --make-king, --king-cutoff, --write-samples,\n--write-snplist, --make-grm-gz, --glm, --score, --genotyping-rate, --validate,\nand --zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
 #endif
 
 // covar-variance-standardize + terminating null
@@ -157,7 +157,8 @@ FLAGSET64_DEF_START()
   kfCommand1GenotypingRate = (1 << 14),
   kfCommand1Score = (1 << 15),
   kfCommand1WriteCovar = (1 << 16),
-  kfCommand1WriteSamples = (1 << 17)
+  kfCommand1WriteSamples = (1 << 17),
+  kfCommand1Ld = (1 << 18)
 FLAGSET64_DEF_END(command1_flags_t);
 
 // this is a hybrid, only kfSortFileSid is actually a flag
@@ -292,7 +293,7 @@ typedef struct plink2_cmdline_struct {
 } plink2_cmdline_t;
 
 uint32_t is_single_variant_loader_needed(const char* king_cutoff_fprefix, command1_flags_t command_flags1, make_plink2_t make_plink2_modifier) {
-  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score)) || ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_modifier & kfMakePgen)) || ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix));
+  return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld)) || ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_modifier & kfMakePgen)) || ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix));
 }
 
 uint32_t are_allele_freqs_needed(command1_flags_t command_flags1, double min_maf, double max_maf) {
@@ -1939,6 +1940,13 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	}
       }
 
+      if (pcp->command_flags1 & kfCommand1Ld) {
+	reterr = ld_console(variant_include, cip, variant_ids, variant_allele_idxs, founder_info, sex_male, (char**)(pcp->ld_info.ld_flag_varids), variant_ct, raw_sample_ct, founder_ct, (pcp->misc_flags / kfMiscLdHweMidp) & 1, &simple_pgr, outname, outname_end);
+	if (reterr) {
+	  goto plink2_ret_1;
+	}
+      }
+
       if (pcp->command_flags1 & kfCommand1Score) {
 	reterr = score_report(sample_include, sample_ids, sids, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_ids, variant_allele_idxs, allele_storage, allele_freqs, &(pcp->score_info), sample_ct, max_sample_id_blen, max_sid_blen, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, pcp->xchr_model, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
 	if (reterr) {
@@ -2764,7 +2772,7 @@ int main(int argc, char** argv) {
 
     uint32_t first_arg_idx;
     uint32_t flag_ct;
-    reterr = cmdline_parse_phase1(ver_str, ver_str2, PROG_NAME_STR, notestr_null_calc2, g_cmdline_format_str, errstr_append, kMaxFlagBlen, argc, disp_help, &argv, &pcm, &first_arg_idx, &flag_ct);
+    reterr = cmdline_parse_phase1(ver_str, ver_str2, PROG_NAME_STR, notestr_null_calc2, g_cmdline_format_str, errstr_append, kMaxFlagBlen, disp_help, &argc, &argv, &pcm, &first_arg_idx, &flag_ct);
     if (reterr) {
       goto main_ret_NOLOG;
     }
@@ -4982,6 +4990,25 @@ int main(int argc, char** argv) {
 	  if (reterr) {
 	    goto main_ret_1;
 	  }
+	} else if (!memcmp(flagname_p2, "d", 2)) {
+	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 2, 3)) {
+	    goto main_ret_INVALID_CMDLINE_2A;
+	  }
+	  for (uint32_t uii = 0; uii < 2; ++uii) {
+	    reterr = cmdline_alloc_string(argv[arg_idx + uii + 1], argv[arg_idx], kMaxIdSlen, &(pc.ld_info.ld_flag_varids[uii]));
+	    if (reterr) {
+	      goto main_ret_1;
+	    }
+	  }
+	  if (param_ct == 3) {
+	    const char* cur_modif = argv[arg_idx + 3];
+	    if (strcmp(cur_modif, "hwe-midp")) {
+	      sprintf(g_logbuf, "Error: Invalid --ld parameter '%s'.\n", cur_modif);
+	      goto main_ret_INVALID_CMDLINE_WWA;
+	    }
+	    pc.misc_flags |= kfMiscLdHweMidp;
+	  }
+	  pc.command_flags1 |= kfCommand1Ld;
 	} else if (!memcmp(flagname_p2, "oop-assoc", 10)) {
 	  logerrprint("Error: --loop-assoc is retired.  Use --within + --split-cat-pheno instead.\n");
 	  goto main_ret_INVALID_CMDLINE_A;

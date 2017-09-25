@@ -90,7 +90,8 @@ FLAGSET64_DEF_START()
   kfMiscRequireCovar = (1LLU << 37),
   kfMiscCatPhenoFamily = (1LLU << 38),
   kfMiscRefAlleleForce = (1LLU << 39),
-  kfMiscAlt1AlleleForce = (1LLU << 40)
+  kfMiscAlt1AlleleForce = (1LLU << 40),
+  kfMiscLdHweMidp = (1LLU << 41)
 FLAGSET64_DEF_END(misc_flags_t);
 
 FLAGSET64_DEF_START()

@@ -1987,7 +1987,7 @@ void plink2_cmdline_meta_preinit(plink2_cmdline_meta_t* pcmp);
 
 // Handles --script, --rerun, --help, --version, and --silent.
 // subst_argv, script_buf, and rerun_buf must be initialized to nullptr.
-pglerr_t cmdline_parse_phase1(const char* ver_str, const char* ver_str2, const char* prog_name_str, const char* notestr_null_calc2, const char* cmdline_format_str, const char* errstr_append, uint32_t max_flag_blen, int argc, pglerr_t(* disp_help_fn)(uint32_t, char**), char*** argv_ptr, plink2_cmdline_meta_t* pcmp, uint32_t* first_arg_idx_ptr, uint32_t* flag_ct_ptr);
+pglerr_t cmdline_parse_phase1(const char* ver_str, const char* ver_str2, const char* prog_name_str, const char* notestr_null_calc2, const char* cmdline_format_str, const char* errstr_append, uint32_t max_flag_blen, pglerr_t(* disp_help_fn)(uint32_t, char**), int* argc_ptr, char*** argv_ptr, plink2_cmdline_meta_t* pcmp, uint32_t* first_arg_idx_ptr, uint32_t* flag_ct_ptr);
 
 // Assumes cmdline_parse_phase1() has completed, flag names have been copied to
 // flag_buf/flag_map, aliases handled, and PROG_NAME_STR has been copied to
