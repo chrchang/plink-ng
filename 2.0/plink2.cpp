@@ -59,7 +59,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (24 Sep 2017)";
+  " (25 Sep 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -6789,7 +6789,7 @@ int main(int argc, char** argv) {
 	  } else {
 	    pc.sort_vars_flags = kfSortNatural;
 	  }
-	} else {
+	} else if (memcmp(flagname_p2, "ilent", 6)) {
 	  goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
 	}
 	break;
