@@ -5677,7 +5677,7 @@ pglerr_t cmdline_parse_phase2(const char* ver_str, const char* errstr_append, ch
     SYSTEM_INFO sysinfo;
     GetSystemInfo(&sysinfo);
     *max_thread_ct_ptr = sysinfo.dwNumberOfProcessors;
-    *known_procs_ptr = pc.max_thread_ct;
+    *known_procs_ptr = *max_thread_ct_ptr;
 #else
     *known_procs_ptr = sysconf(_SC_NPROCESSORS_ONLN);
     *max_thread_ct_ptr = ((*known_procs_ptr) == -1)? 1 : ((uint32_t)(*known_procs_ptr));

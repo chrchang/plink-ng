@@ -1470,7 +1470,7 @@ pglerr_t ld_prune(const uintptr_t* orig_variant_include, const chr_info_t* cip, 
   return reterr;
 }
 
-pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uintptr_t* founder_info, const uintptr_t* sex_male, char** ld_flag_varids, uint32_t variant_ct, uint32_t founder_ct, uint32_t hwe_midp, pgen_reader_t* simple_pgrp) {
+pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, char** variant_ids, __attribute__((unused)) const uintptr_t* variant_allele_idxs, __attribute__((unused)) char** allele_storage, const uintptr_t* founder_info, const uintptr_t* sex_male, char** ld_flag_varids, uint32_t variant_ct, uint32_t founder_ct, __attribute__((unused)) uint32_t hwe_midp, pgen_reader_t* simple_pgrp) {
   pglerr_t reterr = kPglRetSuccess;
   {
     if (!founder_ct) {
