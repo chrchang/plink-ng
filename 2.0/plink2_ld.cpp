@@ -1470,14 +1470,205 @@ pglerr_t ld_prune(const uintptr_t* orig_variant_include, const chr_info_t* cip, 
   return reterr;
 }
 
-pglerr_t ld_console(__attribute__((unused)) const uintptr_t* variant_include, __attribute__((unused)) const chr_info_t* cip, __attribute__((unused)) char** variant_ids, __attribute__((unused)) const uintptr_t* variant_allele_idxs, __attribute__((unused)) const uintptr_t* founder_info, __attribute__((unused)) const uintptr_t* sex_male, __attribute__((unused)) char** ld_flag_varids, __attribute__((unused)) uint32_t variant_ct, __attribute__((unused)) uint32_t raw_sample_ct, __attribute__((unused)) uint32_t founder_ct, __attribute__((unused)) uint32_t hwe_midp, __attribute__((unused)) pgen_reader_t* simple_pgrp, __attribute__((unused)) char* outname, __attribute__((unused)) char* outname_end) {
+pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uintptr_t* founder_info, const uintptr_t* sex_male, char** ld_flag_varids, uint32_t variant_ct, uint32_t founder_ct, uint32_t hwe_midp, pgen_reader_t* simple_pgrp) {
   pglerr_t reterr = kPglRetSuccess;
   {
+    if (!founder_ct) {
+      logerrprint("Warning: Skipping --ld since there are no founders.  (--make-founders may come\nin handy here.)\n");
+      goto ld_console_ret_1;
+    }
+    const int32_t x_code = cip->xymt_codes[kChrOffsetX];
+    const int32_t mt_code = cip->xymt_codes[kChrOffsetMT];
+    // is_x: male het calls treated as missing in hardcall counts, SNPHWEX used
+    //       for HWE stats
+    // is_nonx_haploid_or_mt: all het calls treated as missing in hardcall
+    //                        counts, HWE stats reported as "n/a"
+    uint32_t var_uidxs[2];
+    uint32_t is_xs[2];
+    is_xs[0] = 0;
+    is_xs[1] = 0;
+    uint32_t is_nonx_haploid_or_mts[2];
+    for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {
+      char* cur_varid = ld_flag_varids[var_idx];
+      int32_t ii = get_variant_uidx_without_htable(cur_varid, variant_ids, variant_include, variant_ct);
+      if (ii == -1) {
+	sprintf(g_logbuf, "Error: --ld variant '%s' does not appear in dataset.\n", cur_varid);
+	goto ld_console_ret_INCONSISTENT_INPUT_WW;
+      } else if (ii == -2) {
+	sprintf(g_logbuf, "Error: --ld variant '%s' appears multiple times in dataset.\n", cur_varid);
+	goto ld_console_ret_INCONSISTENT_INPUT_WW;
+      }
+      var_uidxs[var_idx] = (uint32_t)ii;
+      const uint32_t chr_idx = get_variant_chr(cip, (uint32_t)ii);
+      uint32_t is_nonx_haploid_or_mt;
+      if (is_set(cip->haploid_mask, chr_idx)) {
+	is_nonx_haploid_or_mt = ((int32_t)chr_idx != x_code);
+	if (!is_nonx_haploid_or_mt) {
+	  is_xs[var_idx] = 1;
+	}
+      } else {
+	is_nonx_haploid_or_mt = ((int32_t)chr_idx == mt_code);
+      }
+      is_nonx_haploid_or_mts[var_idx] = is_nonx_haploid_or_mt;
+    }
+    const uint32_t founder_ctl = BITCT_TO_WORDCT(founder_ct);
+    const uint32_t founder_ctl2 = QUATERCT_TO_WORDCT(founder_ct);
+    uint32_t* founder_info_cumulative_popcounts;
+    uintptr_t* genovecs[2];
+    uintptr_t* phasepresents[2];
+    uintptr_t* phaseinfos[2];
+    uint32_t phasepresent_cts[2];
+    uintptr_t* dosage_presents[2];
+    dosage_t* dosage_vals[2];
+    uint32_t dosage_cts[2];
+    if (bigstack_alloc_ui(founder_ctl, &founder_info_cumulative_popcounts) ||
+	bigstack_alloc_ul(founder_ctl2, &(genovecs[0])) ||
+        bigstack_alloc_ul(founder_ctl2, &(genovecs[1])) ||
+	bigstack_alloc_ul(founder_ctl, &(phasepresents[0])) ||
+	bigstack_alloc_ul(founder_ctl, &(phasepresents[1])) ||
+	bigstack_alloc_ul(founder_ctl, &(phaseinfos[0])) ||
+	bigstack_alloc_ul(founder_ctl, &(phaseinfos[1])) ||
+	bigstack_alloc_ul(founder_ctl, &(dosage_presents[0])) ||
+	bigstack_alloc_ul(founder_ctl, &(dosage_presents[1])) ||
+	bigstack_alloc_dosage(founder_ct, &(dosage_vals[0])) ||
+	bigstack_alloc_dosage(founder_ct, &(dosage_vals[1]))) {
+      goto ld_console_ret_NOMEM;
+    }
+    const uint32_t x_present = (is_xs[0] || is_xs[1]);
+    const uint32_t founder_ctv = BITCT_TO_VECCT(founder_ct);
+    uintptr_t* sex_male_collapsed = nullptr;
+    uintptr_t* sex_male_collapsed_interleaved = nullptr;
+    if (x_present) {
+      const uint32_t founder_ctaw = founder_ctv * kWordsPerVec;
+      if (bigstack_alloc_ul(founder_ctaw, &sex_male_collapsed) ||
+	  bigstack_alloc_ul(founder_ctaw, &sex_male_collapsed_interleaved)) {
+	goto ld_console_ret_NOMEM;
+      }
+#ifdef __LP64__
+      fill_ulong_zero(kWordsPerVec - 1, &(sex_male_collapsed[founder_ctaw + 1 - kWordsPerVec]));
+#endif
+      copy_bitarr_subset(sex_male, founder_info, founder_ct, sex_male_collapsed);
+      fill_interleaved_mask_vec(sex_male_collapsed, founder_ctv, sex_male_collapsed_interleaved);
+    }
+    fill_cumulative_popcounts(founder_info, founder_ctl, founder_info_cumulative_popcounts);
+    // ok to ignore chr_mask here
+    pgr_clear_ld_cache(simple_pgrp);
+    for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {
+      const uint32_t variant_uidx = var_uidxs[var_idx];
+      uintptr_t* cur_genovec = genovecs[var_idx];
+      uintptr_t* cur_phasepresent = phasepresents[var_idx];
+      uintptr_t* cur_phaseinfo = phaseinfos[var_idx];
+      uintptr_t* cur_dosage_present = dosage_presents[var_idx];
+      dosage_t* cur_dosage_vals = dosage_vals[var_idx];
+      // todo: multiallelic case
+      uint32_t is_explicit_alt1;
+      reterr = pgr_read_refalt1_genovec_hphase_dosage16_subset_unsafe(founder_info, founder_info_cumulative_popcounts, founder_ct, variant_uidx, simple_pgrp, cur_genovec, cur_phasepresent, cur_phaseinfo, &(phasepresent_cts[var_idx]), cur_dosage_present, cur_dosage_vals, &(dosage_cts[var_idx]), &is_explicit_alt1);
+      if (reterr) {
+	if (reterr == kPglRetMalformedInput) {
+	  logprint("\n");
+	  logerrprint("Error: Malformed .pgen file.\n");
+	}
+	goto ld_console_ret_1;
+      }
+      if (is_nonx_haploid_or_mts[var_idx]) {
+	// may be better to consolidate hardcall_counts[] cells after the fact
+	set_het_missing(founder_ctl2, cur_genovec);
+      } else if (is_xs[var_idx]) {
+	set_male_het_missing(sex_male_collapsed_interleaved, founder_ctv, cur_genovec);
+      }
+    }
+    // nonmale/male(2), second hardcall(4), first hardcall(4)
+    uint32_t hardcall_counts[32];
+    fill_uint_zero(32, hardcall_counts);
+    const uint32_t founder_ctl2_m1 = founder_ctl2 - 1;
+    uintptr_t* genovec0 = genovecs[0];
+    uintptr_t* genovec1 = genovecs[1];
+    halfword_t* is_male_hw_alias = (halfword_t*)sex_male_collapsed;
+    uint32_t widx = 0;
+    uint32_t loop_len = kBitsPerWordD2;
+    while (1) {
+      if (widx >= founder_ctl2_m1) {
+	if (widx > founder_ctl2_m1) {
+	  break;
+	}
+	loop_len = MOD_NZ(founder_ct, kBitsPerWordD2);
+      }
+      uintptr_t cur_word0 = genovec0[widx];
+      uintptr_t cur_word1 = genovec1[widx];
+      if (!x_present) {
+	for (uint32_t uii = 0; uii < loop_len; ++uii) {
+	  hardcall_counts[(cur_word0 & 3) + (cur_word1 & 3) * 4] += 1;
+	  cur_word0 >>= 2;
+	  cur_word1 >>= 2;
+	}
+      } else {
+	uint32_t is_male_hw = (uint32_t)is_male_hw_alias[widx];
+	for (uint32_t uii = 0; uii < loop_len; ++uii) {
+	  hardcall_counts[(cur_word0 & 3) + (cur_word1 & 3) * 4 + (is_male_hw & 1) * 16] += 1;
+	  cur_word0 >>= 2;
+	  cur_word1 >>= 2;
+	  is_male_hw >>= 1;
+	}
+      }
+      ++widx;
+    }
+    uint32_t var0_marginal_counts[3];
+    for (uint32_t uii = 0; uii < 3; ++uii) {
+      const uint32_t* hardcall_counts_row = &(hardcall_counts[uii * 4]);
+      var0_marginal_counts[uii] = hardcall_counts_row[0] + hardcall_counts_row[1] + hardcall_counts_row[2];
+    }
+    uint32_t var1_marginal_counts[3];
+    for (uint32_t uii = 0; uii < 3; ++uii) {
+      const uint32_t* hardcall_counts_col = &(hardcall_counts[uii]);
+      var1_marginal_counts[uii] = hardcall_counts_col[0] + hardcall_counts_col[4] + hardcall_counts_col[8];
+    }
+    uint32_t var0_x_male_marginal_counts[3];
+    uint32_t var1_x_male_marginal_counts[3];
+    if (x_present) {
+      for (uint32_t uii = 0; uii < 3; ++uii) {
+	const uint32_t* hardcall_counts_row = &(hardcall_counts[16 + uii * 4]);
+	var0_x_male_marginal_counts[uii] = hardcall_counts_row[0] + hardcall_counts_row[1] + hardcall_counts_row[2];
+	var0_marginal_counts[uii] += var0_x_male_marginal_counts[uii];
+      }
+      for (uint32_t uii = 0; uii < 3; ++uii) {
+	const uint32_t* hardcall_counts_col = &(hardcall_counts[16 + uii]);
+	var1_x_male_marginal_counts[uii] = hardcall_counts_col[0] + hardcall_counts_col[4] + hardcall_counts_col[8];
+	var1_marginal_counts[uii] += var1_x_male_marginal_counts[uii];
+      }
+    } else {
+      fill_uint_zero(3, var0_x_male_marginal_counts);
+      fill_uint_zero(3, var1_x_male_marginal_counts);
+    }
+    const uint32_t count_total = var0_marginal_counts[0] + var0_marginal_counts[1] + var0_marginal_counts[2];
+    if (!count_total) {
+      logerrprint("Error: No valid observations for --ld.\n");
+      goto ld_console_ret_INCONSISTENT_INPUT;
+    }
+    if ((!var0_marginal_counts[1]) && ((!var0_marginal_counts[0]) || (!var0_marginal_counts[2]))) {
+      sprintf(g_logbuf, "Error: %s is monomorphic across all valid observations.\n", ld_flag_varids[0]);
+      goto ld_console_ret_INCONSISTENT_INPUT_WW;
+    }
+    if ((!var1_marginal_counts[1]) && ((!var1_marginal_counts[0]) || (!var1_marginal_counts[2]))) {
+      sprintf(g_logbuf, "Error: %s is monomorphic across all valid observations.\n", ld_flag_varids[1]);
+      goto ld_console_ret_INCONSISTENT_INPUT_WW;
+    }
     logerrprint("Error: --ld is currently under development.\n");
     reterr = kPglRetNotYetSupported;
+    logprint("\n");
+    LOGPRINTFWW("--ld %s %s:\n", ld_flag_varids[0], ld_flag_varids[1]);
   }
   while (0) {
+  ld_console_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  ld_console_ret_INCONSISTENT_INPUT_WW:
+    wordwrapb(0);
+    logerrprintb();
+  ld_console_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
   }
+ ld_console_ret_1:
   return reterr;
 }
 

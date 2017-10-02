@@ -59,10 +59,10 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (24 Sep 2017)";
+  " (1 Oct 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -1941,7 +1941,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
       }
 
       if (pcp->command_flags1 & kfCommand1Ld) {
-	reterr = ld_console(variant_include, cip, variant_ids, variant_allele_idxs, founder_info, sex_male, (char**)(pcp->ld_info.ld_flag_varids), variant_ct, raw_sample_ct, founder_ct, (pcp->misc_flags / kfMiscLdHweMidp) & 1, &simple_pgr, outname, outname_end);
+	reterr = ld_console(variant_include, cip, variant_ids, variant_allele_idxs, allele_storage, founder_info, sex_male, (char**)(pcp->ld_info.ld_flag_varids), variant_ct, founder_ct, (pcp->misc_flags / kfMiscLdHweMidp) & 1, &simple_pgr);
 	if (reterr) {
 	  goto plink2_ret_1;
 	}
@@ -6789,7 +6789,7 @@ int main(int argc, char** argv) {
 	  } else {
 	    pc.sort_vars_flags = kfSortNatural;
 	  }
-	} else {
+	} else if (memcmp(flagname_p2, "ilent", 6)) {
 	  goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
 	}
 	break;

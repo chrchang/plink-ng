@@ -1487,6 +1487,8 @@ pglerr_t calc_missing_matrix(const uintptr_t* sample_include, const uint32_t* sa
   pglerr_t reterr = kPglRetSuccess;
   {
     const uintptr_t row_end_idxl = BITCT_TO_WORDCT(row_end_idx);
+    // bugfix (1 Oct 2017): missing_vmaj rows must be vector-aligned
+    const uintptr_t row_end_idxaw = BITCT_TO_ALIGNED_WORDCT(row_end_idx);
     uintptr_t* missing_vmaj = nullptr;
     uintptr_t* genovec_buf = nullptr;
     if (bigstack_calloc_ui(row_end_idx, missing_cts_ptr) ||
@@ -1494,7 +1496,7 @@ pglerr_t calc_missing_matrix(const uintptr_t* sample_include, const uint32_t* sa
 	bigstack_calloc_ul(row_end_idxl, &g_missing_nz[0]) ||
 	bigstack_calloc_ul(row_end_idxl, &g_missing_nz[1]) ||
 	bigstack_alloc_ul(QUATERCT_TO_WORDCT(row_end_idx), &genovec_buf) ||
-	bigstack_alloc_ul(row_end_idxl * (k1LU * kDblMissingBlockSize), &missing_vmaj) ||
+	bigstack_alloc_ul(row_end_idxaw * (k1LU * kDblMissingBlockSize), &missing_vmaj) ||
 	bigstack_alloc_ul(round_up_pow2(row_end_idx, 2) * kDblMissingBlockWordCt, &g_missing_smaj[0]) ||
 	bigstack_alloc_ul(round_up_pow2(row_end_idx, 2) * kDblMissingBlockWordCt, &g_missing_smaj[1])) {
       goto calc_missing_matrix_ret_NOMEM;
@@ -1535,7 +1537,7 @@ pglerr_t calc_missing_matrix(const uintptr_t* sample_include, const uint32_t* sa
 	if (cur_variant_idx_end > variant_ct) {
 	  cur_batch_size = variant_ct - cur_variant_idx_start;
 	  cur_variant_idx_end = variant_ct;
-	  fill_ulong_zero((kDblMissingBlockSize - cur_batch_size) * row_end_idxl, &(missing_vmaj[cur_batch_size * row_end_idxl]));
+	  fill_ulong_zero((kDblMissingBlockSize - cur_batch_size) * row_end_idxaw, &(missing_vmaj[cur_batch_size * row_end_idxaw]));
 	}
 	uintptr_t* missing_vmaj_iter = missing_vmaj;
 	for (uint32_t variant_idx = cur_variant_idx_start; variant_idx < cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
@@ -1547,8 +1549,8 @@ pglerr_t calc_missing_matrix(const uintptr_t* sample_include, const uint32_t* sa
 	      logerrprint("Error: Malformed .pgen file.\n");
 	    }
 	    goto calc_missing_matrix_ret_1;
-	  }	  
-	  missing_vmaj_iter = &(missing_vmaj_iter[row_end_idxl]);
+	  }
+	  missing_vmaj_iter = &(missing_vmaj_iter[row_end_idxaw]);
 	}
 	uintptr_t* cur_missing_smaj_iter = g_missing_smaj[parity];
 	uint32_t sample_transpose_batch_idx = 0;
@@ -1562,7 +1564,7 @@ pglerr_t calc_missing_matrix(const uintptr_t* sample_include, const uint32_t* sa
 	  }
 	  // missing_smaj offset needs to be 64-bit if kDblMissingBlockWordCt
 	  // increases
-	  transpose_bitblock(&(missing_vmaj[sample_transpose_batch_idx * (kPglBitTransposeBatch / kBitsPerWord)]), row_end_idxl, kDblMissingBlockWordCt, kDblMissingBlockSize, sample_batch_size, &(cur_missing_smaj_iter[sample_transpose_batch_idx * kPglBitTransposeBatch * kDblMissingBlockWordCt]), transpose_bitblock_wkspace);
+	  transpose_bitblock(&(missing_vmaj[sample_transpose_batch_idx * (kPglBitTransposeBatch / kBitsPerWord)]), row_end_idxaw, kDblMissingBlockWordCt, kDblMissingBlockSize, sample_batch_size, &(cur_missing_smaj_iter[sample_transpose_batch_idx * kPglBitTransposeBatch * kDblMissingBlockWordCt]), transpose_bitblock_wkspace);
 	  ++sample_transpose_batch_idx;
 	}
 	uintptr_t* cur_missing_nz = g_missing_nz[parity];

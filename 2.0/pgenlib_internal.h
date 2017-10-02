@@ -933,6 +933,7 @@ pglerr_t pgr_validate(pgen_reader_t* pgrp, char* errstr_buf);
 pglerr_t pgr_read_missingness(const uintptr_t* __restrict sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, pgen_reader_t* pgrp, uintptr_t* __restrict missingness, uintptr_t* __restrict genovec_buf);
 
 // either missingness_hc (hardcall) or missingness_dosage must be non-null
+// missingness_dosage must be vector-aligned
 pglerr_t pgr_read_missingness_multi(const uintptr_t* __restrict sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, pgen_reader_t* pgrp, uintptr_t* __restrict missingness_hc, uintptr_t* __restrict missingness_dosage, uintptr_t* __restrict hets, uintptr_t* __restrict genovec_buf);
 
 

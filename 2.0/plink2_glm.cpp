@@ -1080,11 +1080,10 @@ boolerr_t check_max_corr_and_vif(const double* predictor_dotprods, uint32_t firs
   for (uintptr_t pred_idx = 0; pred_idx < relevant_predictor_ct; ++pred_idx) {
     dbl_2d_buf[pred_idx] = 1.0 / sqrt(inverse_corr_buf[pred_idx * relevant_predictor_ct_p1]);
   }
-  // only bottom left of inverse_corr_buf[] is filled before this loop
+  // invert_symm_matrix only cares about bottom left of inverse_corr_buf[]
   for (uintptr_t pred_idx1 = 1; pred_idx1 < relevant_predictor_ct; ++pred_idx1) {
     const double inverse_stdev1 = dbl_2d_buf[pred_idx1];
     double* corr_row_iter = &(inverse_corr_buf[pred_idx1 * relevant_predictor_ct]);
-    double* corr_col_start = &(inverse_corr_buf[pred_idx1]);
     const double* inverse_stdev2_iter = dbl_2d_buf;
     for (uintptr_t pred_idx2 = 0; pred_idx2 < pred_idx1; ++pred_idx2) {
       const double cur_corr = (*corr_row_iter) * inverse_stdev1 * (*inverse_stdev2_iter++);
@@ -1096,15 +1095,13 @@ boolerr_t check_max_corr_and_vif(const double* predictor_dotprods, uint32_t firs
 	vif_corr_check_result_ptr->covar_idx2 = pred_idx1;
 	return 1;
       }
-      double* corr_col_entry_ptr = &(corr_col_start[pred_idx2 * relevant_predictor_ct]);
-      *corr_col_entry_ptr = cur_corr;
       *corr_row_iter++ = cur_corr;
     }
   }
   for (uintptr_t pred_idx = 0; pred_idx < relevant_predictor_ct; ++pred_idx) {
     inverse_corr_buf[pred_idx * relevant_predictor_ct_p1] = 1.0;
   }
-  if (invert_matrix_checked(relevant_predictor_ct, inverse_corr_buf, matrix_invert_buf1, dbl_2d_buf)) {
+  if (invert_symm_matrix_checked(relevant_predictor_ct, inverse_corr_buf, matrix_invert_buf1, dbl_2d_buf)) {
     vif_corr_check_result_ptr->errcode = kVifCorrCheckVifFail;
     vif_corr_check_result_ptr->covar_idx1 = 0xffffffffU;
     return 1;
@@ -1160,26 +1157,23 @@ boolerr_t check_max_corr_and_vif_f(const float* predictors_pmaj, uint32_t predic
   for (uint32_t pred_idx = 0; pred_idx < predictor_ct; ++pred_idx) {
     dbl_2d_buf[pred_idx] = 1.0 / sqrt(inverse_corr_buf[pred_idx * predictor_ct_p1]);
   }
-  // only bottom left of inverse_corr_buf[] is filled before this loop
+  // invert_symm_matrix only cares about bottom left of inverse_corr_buf[]
   for (uint32_t pred_idx1 = 1; pred_idx1 < predictor_ct; ++pred_idx1) {
     const double inverse_stdev1 = dbl_2d_buf[pred_idx1];
     double* corr_row_iter = &(inverse_corr_buf[pred_idx1 * predictor_ct]);
-    double* corr_col_start = &(inverse_corr_buf[pred_idx1]);
     const double* inverse_stdev2_iter = dbl_2d_buf;
     for (uintptr_t pred_idx2 = 0; pred_idx2 < pred_idx1; ++pred_idx2) {
       const double cur_corr = (*corr_row_iter) * inverse_stdev1 * (*inverse_stdev2_iter++);
       if (fabs(cur_corr) > max_corr) {
 	return 1;
       }
-      double* corr_col_entry_ptr = &(corr_col_start[pred_idx2 * predictor_ct]);
-      *corr_col_entry_ptr = cur_corr;
       *corr_row_iter++ = cur_corr;
     }
   }
   for (uint32_t pred_idx = 0; pred_idx < predictor_ct; ++pred_idx) {
     inverse_corr_buf[pred_idx * predictor_ct_p1] = 1.0;
   }
-  if (invert_matrix_checked(predictor_ct, inverse_corr_buf, inv_1d_buf, dbl_2d_buf)) {
+  if (invert_symm_matrix_checked(predictor_ct, inverse_corr_buf, inv_1d_buf, dbl_2d_buf)) {
     return 1;
   }
 
@@ -2425,17 +2419,12 @@ boolerr_t firth_regression(const float* yy, const float* xx, uint32_t sample_ct,
   // note that only lower triangle is filled here
   compute_hessian(xx, vv, sample_ct, predictor_ct, hh);
 
-  for (uint32_t uii = 0; uii < predictor_ct; ++uii) {
-    for (uint32_t ujj = uii + 1; ujj < predictor_ct; ++ujj) {
-      hh[uii * predictor_cta4 + ujj] = hh[ujj * predictor_cta4 + uii];
-    }
-  }
   // we shouldn't need to compute the log directly, since underflow <->
   // regression failure, right?  check this.
-  if (invert_fmatrix_first_half(predictor_ct, predictor_cta4, hh, half_inverted_buf, inv_1d_buf, dbl_2d_buf)) {
+  if (invert_symm_fmatrix_first_half(predictor_ct, predictor_cta4, hh, half_inverted_buf, inv_1d_buf, dbl_2d_buf)) {
     return 1;
   }
-  double dethh = half_inverted_det(half_inverted_buf, inv_1d_buf, predictor_ct);
+  double dethh = half_symm_inverted_det(half_inverted_buf, inv_1d_buf, predictor_ct);
   /*
   if (sample_ct < sample_cta4) {
     // trailing Y[] values must be zero
@@ -2461,10 +2450,11 @@ boolerr_t firth_regression(const float* yy, const float* xx, uint32_t sample_ct,
   const double lconv = 0.0001;
   uint32_t hs_bail = 0;
   while (1) {
-    invert_fmatrix_second_half(predictor_ct, predictor_cta4, half_inverted_buf, hh, inv_1d_buf, dbl_2d_buf);
+    invert_symm_fmatrix_second_half(predictor_ct, predictor_cta4, half_inverted_buf, hh, inv_1d_buf, dbl_2d_buf);
     if (is_last_iter) {
       return 0;
     }
+    reflect_fmatrix(predictor_ct, predictor_cta4, hh);
     col_major_fmatrix_multiply_strided(xx, hh, sample_ct, sample_cta4, predictor_ct, predictor_cta4, predictor_ct, sample_cta4, tmpnxk_buf);
 
     firth_compute_weights(yy, xx, pp, vv, tmpnxk_buf, predictor_ct, sample_ct, sample_cta4, ww);
@@ -2518,15 +2508,10 @@ boolerr_t firth_regression(const float* yy, const float* xx, uint32_t sample_ct,
       loglik = compute_loglik(yy, pp, sample_ct);
       compute_v(pp, sample_ct, vv);
       compute_hessian(xx, vv, sample_ct, predictor_ct, hh);
-      for (uint32_t uii = 0; uii < predictor_ct; ++uii) {
-	for (uint32_t ujj = uii + 1; ujj < predictor_ct; ++ujj) {
-	  hh[uii * predictor_cta4 + ujj] = hh[ujj * predictor_cta4 + uii];
-	}
-      }
-      if (invert_fmatrix_first_half(predictor_ct, predictor_cta4, hh, half_inverted_buf, inv_1d_buf, dbl_2d_buf)) {
+      if (invert_symm_fmatrix_first_half(predictor_ct, predictor_cta4, hh, half_inverted_buf, inv_1d_buf, dbl_2d_buf)) {
 	return 1;
       }
-      dethh = half_inverted_det(half_inverted_buf, inv_1d_buf, predictor_ct);
+      dethh = half_symm_inverted_det(half_inverted_buf, inv_1d_buf, predictor_ct);
       loglik += 0.5 * log(dethh);
       if (halfstep_idx > maxhs) {
 	break;
@@ -2592,9 +2577,10 @@ uintptr_t get_logistic_workspace_size(uint32_t sample_ct, uint32_t predictor_ct,
   // inv_1d_buf
   workspace_size += round_up_pow2(predictor_ct * kMatrixInvertBuf1CheckedAlloc, kCacheline);
 
-  const uintptr_t dbl_2d_byte_ct = predictor_ct * predictor_ct * sizeof(double);
+  const uintptr_t dbl_2d_byte_ct = predictor_ct * MAXV(3, predictor_ct) * sizeof(double);
   // dbl_2d_buf = predictor_ct * predictor_cta4 floats, or VIF/Firth dbl
-  workspace_size += round_up_pow2(MAXV(predictor_ct * predictor_cta4 * sizeof(float), dbl_2d_byte_ct), kCacheline);
+  // in practice, the latter value is never smaller due to the max(3, x)
+  workspace_size += round_up_pow2(dbl_2d_byte_ct, kCacheline);
 
   const uint32_t predictor_ct_m1 = predictor_ct - 1;
   // predictor_dotprod_buf
@@ -2908,7 +2894,7 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
       float* cholesky_decomp_return = (float*)arena_alloc_raw_rd(cur_predictor_ct * predictor_cta4 * sizeof(float), &workspace_iter);
       
       matrix_invert_buf1_t* inv_1d_buf = (matrix_invert_buf1_t*)arena_alloc_raw_rd(cur_predictor_ct * kMatrixInvertBuf1CheckedAlloc, &workspace_iter);
-      const uintptr_t dbl_2d_byte_ct = round_up_pow2(cur_predictor_ct * cur_predictor_ct * sizeof(double), kCacheline);
+      const uintptr_t dbl_2d_byte_ct = round_up_pow2(cur_predictor_ct * MAXV(cur_predictor_ct, 3) * sizeof(double), kCacheline);
       double* dbl_2d_buf = (double*)arena_alloc_raw(dbl_2d_byte_ct, &workspace_iter);
       float* predictor_dotprod_buf = (float*)arena_alloc_raw_rd((cur_predictor_ct - 1) * (cur_predictor_ct - 1) * sizeof(float), &workspace_iter);
       double* inverse_corr_buf = (double*)arena_alloc_raw(dbl_2d_byte_ct, &workspace_iter);
@@ -4436,8 +4422,11 @@ uintptr_t get_linear_workspace_size(uint32_t sample_ct, uint32_t predictor_ct, u
   // predictors_pmaj = (predictor_ct + genod_buffer_needed) * sample_ct doubles
   workspace_size += round_up_pow2((predictor_ct + genod_buffer_needed) * sample_ct * sizeof(double), kCacheline);
 
-  // xtx_inv, dbl_2d_buf = predictor_ct^2 doubles
-  workspace_size += 2 * round_up_pow2(predictor_ct * predictor_ct * sizeof(double), kCacheline);
+  // xtx_inv = predictor_ct * predictor_ct doubles
+  workspace_size += round_up_pow2(predictor_ct * predictor_ct * sizeof(double), kCacheline);
+
+  // dbl_2d_buf = predictor_ct * max(predictor_ct, 3) doubles
+  workspace_size += round_up_pow2(predictor_ct * MAXV(predictor_ct, 3) * sizeof(double), kCacheline);
 
   // inverse_corr_buf = (predictor_ct - 1)^2 doubles
   workspace_size += round_up_pow2((predictor_ct - 1) * (predictor_ct - 1) * sizeof(double), kCacheline);
@@ -4593,7 +4582,7 @@ THREAD_FUNC_DECL glm_linear_thread(void* arg) {
       double* fitted_coefs = (double*)arena_alloc_raw_rd(cur_predictor_ct * sizeof(double), &workspace_iter);
       double* xt_y = (double*)arena_alloc_raw_rd(cur_predictor_ct * sizeof(double), &workspace_iter);
       matrix_invert_buf1_t* inv_1d_buf = (matrix_invert_buf1_t*)arena_alloc_raw_rd(MAXV(cur_predictor_ct, cur_constraint_ct) * kMatrixInvertBuf1CheckedAlloc, &workspace_iter);
-      double* dbl_2d_buf = (double*)arena_alloc_raw_rd(cur_predictor_ct * cur_predictor_ct * sizeof(double), &workspace_iter);
+      double* dbl_2d_buf = (double*)arena_alloc_raw_rd(cur_predictor_ct * MAXV(cur_predictor_ct, 3) * sizeof(double), &workspace_iter);
 
       // could technically have this overlap fitted_coefs/xt_y, but that sets
       // the stage for future bugs
@@ -4896,13 +4885,7 @@ THREAD_FUNC_DECL glm_linear_thread(void* arg) {
 	    *beta_se_iter2++ = 0.0;
 #ifndef NOLAPACK
 	    // xtx_inv upper triangle was not filled
-	    for (uint32_t row_idx = 0; row_idx < cur_predictor_ct; ++row_idx) {
-	      double* cur_row = &(xtx_inv[row_idx * cur_predictor_ct]);
-	      double* cur_col = &(xtx_inv[row_idx]);
-	      for (uint32_t col_idx = row_idx + 1; col_idx < cur_predictor_ct; ++col_idx) {
-		cur_row[col_idx] = cur_col[col_idx * cur_predictor_ct];
-	      }
-	    }
+	    reflect_matrix(cur_predictor_ct, xtx_inv);
 #endif
 	    double chisq;
 	    if (!linear_hypothesis_chisq(fitted_coefs, cur_constraints_con_major, xtx_inv, cur_constraint_ct, cur_predictor_ct, &chisq, tmphxs_buf, h_transpose_buf, inner_buf, inv_1d_buf, dbl_2d_buf)) {

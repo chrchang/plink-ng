@@ -171,14 +171,12 @@ static_assert(!(kMaxLongLine % kCacheline), "kMaxLongLine must be a multiple of 
 CONSTU31(kMaxOutfnameExtBlen, 39);
 
 #ifdef __LP64__
-HEADER_INLINE uint64_t round_up_pow2_ull(uint64_t val, uint64_t alignment) {
+HEADER_CINLINE uint64_t round_up_pow2_ull(uint64_t val, uint64_t alignment) {
   return round_up_pow2(val, alignment);
 }
 #else
-HEADER_INLINE uint64_t round_up_pow2_ull(uint64_t val, uint64_t alignment) {
-  uint64_t alignment_m1 = alignment - 1;
-  assert(!(alignment & alignment_m1));
-  return (val + alignment_m1) & (~alignment_m1);
+HEADER_CINLINE uint64_t round_up_pow2_ull(uint64_t val, uint64_t alignment) {
+  return (val + alignment - 1) & (~(alignment - 1));
 }
 #endif
 
@@ -229,7 +227,7 @@ void logerrprintb();
 
 // input for wordwrap/LOGPRINTFWW should have no intermediate '\n's.  If
 // suffix_len is 0, there should be a terminating \n.
-// void wordwrap(uint32_t suffix_len, char* ss);
+void wordwrap(uint32_t suffix_len, char* ss);
 
 void wordwrapb(uint32_t suffix_len);
 
@@ -966,20 +964,20 @@ typedef struct l32str_struct {
 } l32str_t;
 
 
-HEADER_INLINE int32_t is_letter(unsigned char ucc) {
+HEADER_CINLINE int32_t is_letter(unsigned char ucc) {
   return (((ucc & 192) == 64) && (((ucc - 1) & 31) < 26));
 }
 
 // if we need the digit value, better to use (unsigned char)cc - '0'...
-HEADER_INLINE int32_t is_digit(unsigned char ucc) {
+HEADER_CINLINE int32_t is_digit(unsigned char ucc) {
   return (ucc <= '9') && (ucc >= '0');
 }
 
-HEADER_INLINE int32_t is_not_digit(unsigned char ucc) {
+HEADER_CINLINE int32_t is_not_digit(unsigned char ucc) {
   return (ucc > '9') || (ucc < '0');
 }
 
-HEADER_INLINE int32_t is_not_nzdigit(unsigned char ucc) {
+HEADER_CINLINE int32_t is_not_nzdigit(unsigned char ucc) {
   return (ucc > '9') || (ucc <= '0');
 }
 
@@ -991,20 +989,20 @@ HEADER_INLINE int32_t is_eoln_kns(unsigned char ucc) {
 }
 */
 
-HEADER_INLINE int32_t is_space_or_eoln(unsigned char ucc) {
+HEADER_CINLINE int32_t is_space_or_eoln(unsigned char ucc) {
   return (ucc <= 32);
 }
 
-HEADER_INLINE int32_t is_eoln_kns(unsigned char ucc) {
+HEADER_CINLINE int32_t is_eoln_kns(unsigned char ucc) {
   // could assert ucc is not a space/tab?
   return (ucc <= 32);
 }
 
-HEADER_INLINE int32_t is_eoln_or_comment_kns(unsigned char ucc) {
+HEADER_CINLINE int32_t is_eoln_or_comment_kns(unsigned char ucc) {
   return (ucc < 32) || (ucc == '#');
 }
 
-HEADER_INLINE int32_t no_more_tokens_kns(const char* sptr) {
+HEADER_CINLINE int32_t no_more_tokens_kns(const char* sptr) {
   return ((!sptr) || is_eoln_kns(*sptr));
 }
 
@@ -1499,7 +1497,8 @@ int32_t get_variant_uidx_without_htable(const char* idstr, char** variant_ids, c
 // tried to replace this with a faster hash function, but turns out it's hard
 // to meaningfully beat (and multithreading parts of hash table construction
 // solved most of the initialization time issue, anyway)
-// eventually want this to be a C++14 constexpr?
+// eventually want this to be a constexpr?  seems painful to make that work,
+// though.
 uint32_t murmurhash3_32(const void* key, uint32_t len);
 
 // see http://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction/
@@ -1606,7 +1605,7 @@ pglerr_t string_range_list_to_bitarr(char* header_line, const range_list_t* rang
 pglerr_t string_range_list_to_bitarr_alloc(char* header_line, const range_list_t* range_list_ptr, const char* __restrict range_list_flag, const char* __restrict file_descrip, uint32_t token_ct, uint32_t fixed_len, uint32_t comma_delim, uintptr_t** bitarr_ptr);
 
 
-HEADER_INLINE uint32_t realnum(double dd) {
+HEADER_CINLINE uint32_t realnum(double dd) {
   return (dd == dd) && (dd != INFINITY) && (dd != -INFINITY);
 }
 
@@ -1655,7 +1654,7 @@ void copy_bitarr_range(const uintptr_t* __restrict src_bitarr, uintptr_t src_sta
 
 #ifdef __LP64__
 static_assert(kBytesPerVec == 16, "scramble_1_4_8_32() assumes kBytesPerVec == 16.");
-HEADER_INLINE uint32_t scramble_1_4_8_32(uint32_t orig_idx) {
+HEADER_CINLINE uint32_t scramble_1_4_8_32(uint32_t orig_idx) {
   // 1->4: 0 4 8 12 16 20 24 28 32 ... 124 1 5 9 ...
   // 4->8: 0 8 16 24 32 ... 120 4 12 20 ... 1 9 17 ...
   // 8->32: 0 32 64 96 8 40 72 104 16 48 80 112 24 56 88 120 4 36 68 ... 1 33 ...
@@ -1665,7 +1664,7 @@ HEADER_INLINE uint32_t scramble_1_4_8_32(uint32_t orig_idx) {
 // 1->4: 0 4 8 12 16 20 24 28 1 5 9 13 17 21 25 29 2 6 10 ...
 // 4->8: 0 8 16 24 4 12 20 28 1 9 17 25 5 13 21 29 2 10 18 ...
 // 8->32: 0 8 16 24 4 12 20 28 1 9 17 25 5 13 21 29 2 10 18 ...
-HEADER_INLINE uint32_t scramble_1_4_8_32(uint32_t orig_idx) {
+HEADER_CINLINE uint32_t scramble_1_4_8_32(uint32_t orig_idx) {
   return (orig_idx & (~31)) + ((orig_idx & 3) * 8) + (orig_idx & 4) + ((orig_idx & 24) / 8);
 }
 #endif

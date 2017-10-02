@@ -2623,7 +2623,7 @@ char* dtoa_f_p5_clipped(double dxx, char* start) {
 // 0.5-matches in the remainder.  So we just have generic rounding functions
 // here, with similar interfaces to the double-rounding functions to minimize
 // the need for separate reasoning about this code.
-static inline uint32_t float_round(float fxx) {
+CSINLINE uint32_t float_round(float fxx) {
   return (uint32_t)((int32_t)(fxx + 0.5));
 }
 
@@ -3282,7 +3282,7 @@ int32_t get_variant_uidx_without_htable(const char* idstr, char** variant_ids, c
 
 // MurmurHash3, from
 // https://code.google.com/p/smhasher/source/browse/trunk/MurmurHash3.cpp
-static inline uint32_t rotl32(uint32_t x, int8_t r) {
+CSINLINE uint32_t rotl32(uint32_t x, int8_t r) {
   return (x << r) | (x >> (32 - r));
 }
 
@@ -3293,7 +3293,7 @@ static inline uint32_t getblock32(const uint32_t* p, int i) {
 //-----------------------------------------------------------------------------
 // Finalization mix - force all bits of a hash block to avalanche
 
-static inline uint32_t fmix32(uint32_t h) {
+CSINLINE2 uint32_t fmix32(uint32_t h) {
   h ^= h >> 16;
   h *= 0x85ebca6b;
   h ^= h >> 13;

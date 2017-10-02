@@ -1,7 +1,7 @@
 BASEFLAGS=-Wall -Wextra -msse4.2 -DNDEBUG -DSTATIC_ZLIB
 CFLAGS=-O3 -std=gnu99
 # this actually needs to be named "CXXFLAGS"
-CXXFLAGS=-O2 -std=c++11
+CXXFLAGS=-O2 -std=c++14
 
 CFLAGS += ${BASEFLAGS}
 CXXFLAGS += ${BASEFLAGS}

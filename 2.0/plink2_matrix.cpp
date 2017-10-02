@@ -71,32 +71,21 @@ extern "C" {
                  __CLPK_doublereal* a, __CLPK_integer* lda,
                  __CLPK_doublereal* work);
 
+  double dlansy_(char* norm, char* uplo, __CLPK_integer* n,
+		 __CLPK_doublereal* a, __CLPK_integer* lda,
+		 __CLPK_doublereal* work);
+
   int dgecon_(char* norm, __CLPK_integer* n, __CLPK_doublereal* a,
               __CLPK_integer* lda, __CLPK_doublereal* anorm,
               __CLPK_doublereal* rcond, __CLPK_doublereal* work,
               __CLPK_integer* iwork, __CLPK_integer* info);
 
-  float slange_(char* norm, __CLPK_integer* m, __CLPK_integer* n, float* a,
-		__CLPK_integer* lda, float* work);
-
-  int sgetrf_(__CLPK_integer* m, __CLPK_integer* n, float* a,
-	      __CLPK_integer* lda, __CLPK_integer* ipiv, __CLPK_integer* info);
-
-  int sgecon_(char* norm, __CLPK_integer* n, float* a, __CLPK_integer* lda,
-	      float* anorm, float* rcond, float* work, __CLPK_integer* iwork,
-	      __CLPK_integer* info);
-
-  int sgetri_(__CLPK_integer* n, float* a, __CLPK_integer* lda,
-	      __CLPK_integer* ipiv, float* work, __CLPK_integer* lwork,
-	      __CLPK_integer* info);
+  int dpocon_(char* uplo, __CLPK_integer* n, __CLPK_doublereal* a,
+              __CLPK_integer* lda, __CLPK_doublereal* anorm,
+              __CLPK_doublereal* rcond, __CLPK_doublereal* work,
+              __CLPK_integer* iwork, __CLPK_integer* info);
 
   /*
-  void dgels_(char* trans, __CLPK_integer* m, __CLPK_integer* n,
-              __CLPK_integer* nrhs, __CLPK_doublereal* a, __CLPK_integer* lda,
-              __CLPK_doublereal* b, __CLPK_integer* ldb,
-              __CLPK_doublereal* work, __CLPK_integer* lwork,
-              __CLPK_integer* info);
-
   void dgesdd_(char* jobs, __CLPK_integer* m, __CLPK_integer* n,
                __CLPK_doublereal* a, __CLPK_integer* lda, __CLPK_doublereal* s,
                __CLPK_doublereal* u, __CLPK_integer* ldu,
@@ -169,6 +158,32 @@ extern "C" {
 #ifdef __cplusplus
 namespace plink2 {
 #endif
+
+void reflect_matrix(uint32_t dim, double* matrix) {
+  const uintptr_t dim_p1l = dim + 1;
+  double* write_row = matrix;
+  for (uint32_t row_idx = 0; row_idx < dim; ++row_idx) {
+    double* read_col_iter = &(matrix[dim_p1l * row_idx + dim]);
+    for (uint32_t col_idx = row_idx + 1; col_idx < dim; ++col_idx) {
+      write_row[col_idx] = *read_col_iter;
+      read_col_iter = &(read_col_iter[dim]);
+    }
+    write_row = &(write_row[dim]);
+  }
+}
+
+void reflect_fmatrix(uint32_t dim, uint32_t stride, float* matrix) {
+  const uintptr_t stride_p1l = stride + 1;
+  float* write_row = matrix;
+  for (uint32_t row_idx = 0; row_idx < dim; ++row_idx) {
+    float* read_col_iter = &(matrix[stride_p1l * row_idx + stride]);
+    for (uint32_t col_idx = row_idx + 1; col_idx < dim; ++col_idx) {
+      write_row[col_idx] = *read_col_iter;
+      read_col_iter = &(read_col_iter[stride]);
+    }
+    write_row = &(write_row[stride]);
+  }
+}
 
 inline double SQR(const double a) {
   return a * a;
@@ -493,9 +508,7 @@ void invert_fmatrix_second_half(__CLPK_integer dim, uint32_t stride, double* hal
 }
 #else // !NOLAPACK
 boolerr_t invert_matrix(__CLPK_integer dim, double* matrix, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf) {
-  // todo: dgetrf_/dgetri_ was more efficient than dpotrf_/dpotri_ on OS X the
-  // last time I checked, but is this still true?  re-benchmark this, and
-  // create a new symmetric-positive-definite-only function if appropriate.
+  // invert_symm_matrix() is noticeably faster in the symmetric case.
   __CLPK_integer info;
   dgetrf_(&dim, &dim, matrix, &dim, int_1d_buf, &info);
   if (info) {
@@ -530,33 +543,35 @@ boolerr_t invert_matrix_checked(__CLPK_integer dim, double* matrix, matrix_inver
   return 0;
 }
 
-/*
-boolerr_t invert_fmatrix_checked(__CLPK_integer dim, __CLPK_integer stride, float* matrix, float* absdet_ptr, matrix_finvert_buf1_t* int_1d_buf, float* flt_2d_buf) {
-  __CLPK_integer lwork = dim * stride;
-  char cc = '1';
-  float norm = slange_(&cc, &dim, &dim, matrix, &stride, flt_2d_buf);
+boolerr_t invert_symm_matrix(__CLPK_integer dim, double* matrix, __maybe_unused matrix_invert_buf1_t* int_1d_buf, __maybe_unused double* dbl_2d_buf) {
+  char uplo = 'U';
   __CLPK_integer info;
-  float rcond;
-  sgetrf_(&dim, &dim, matrix, &stride, int_1d_buf, &info);
+  dpotrf_(&uplo, &dim, matrix, &dim, &info);
+  if (info) {
+    return 1;
+  }
+  dpotri_(&uplo, &dim, matrix, &dim, &info);
+  assert(info == 0);
+  return 0;
+}
+
+boolerr_t invert_symm_matrix_checked(__CLPK_integer dim, double* matrix, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf) {
+  char cc = '1';
+  char uplo = 'U';
+  double norm = dlansy_(&cc, &uplo, &dim, matrix, &dim, dbl_2d_buf);
+  __CLPK_integer info;
+  dpotrf_(&uplo, &dim, matrix, &dim, &info);
   if (info > 0) {
     return 1;
   }
-  sgecon_(&cc, &dim, matrix, &stride, &norm, &rcond, flt_2d_buf, &(int_1d_buf[dim]), &info);
-  if (rcond < kMatrixSingularRcondF) {
+  double rcond;
+  dpocon_(&uplo, &dim, matrix, &dim, &norm, &rcond, dbl_2d_buf, int_1d_buf, &info);
+  if (rcond < kMatrixSingularRcond) {
     return 1;
   }
-  if (absdet_ptr) {
-    const uintptr_t stridep1 = stride + 1;
-    float det_u = matrix[0];
-    for (uintptr_t ulii = 1; ulii < ((uintptr_t)dim); ++ulii) {
-      det_u *= matrix[ulii * stridep1];
-    }
-    *absdet_ptr = fabsf(det_u);
-  }
-  sgetri_(&dim, matrix, &stride, int_1d_buf, flt_2d_buf, &lwork, &info);
+  dpotri_(&uplo, &dim, matrix, &dim, &info);
   return 0;
 }
-*/
 
 // quasi-bugfix (20 Sep 2017): give up on doing this with single-precision
 // numbers.  Instead, convert to double-precision, then perform the usual
@@ -584,6 +599,30 @@ boolerr_t invert_fmatrix_first_half(__CLPK_integer dim, uint32_t stride, const f
   return (rcond < kMatrixSingularRcond);
 }
 
+boolerr_t invert_symm_fmatrix_first_half(__CLPK_integer dim, uint32_t stride, float* matrix, double* half_inverted, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf) {
+  const float* read_row = matrix;
+  double* write_row = half_inverted;
+  for (uint32_t row_idx = 0; row_idx < (uint32_t)dim; ++row_idx) {
+    for (uint32_t col_idx = 0; col_idx <= row_idx; ++col_idx) {
+      write_row[col_idx] = (double)read_row[col_idx];
+    }
+    read_row = &(read_row[stride]);
+    write_row = &(write_row[(uint32_t)dim]);
+  }
+
+  char cc = '1';
+  char uplo = 'U';
+  double norm = dlansy_(&cc, &uplo, &dim, half_inverted, &dim, dbl_2d_buf);
+  __CLPK_integer info;
+  dpotrf_(&uplo, &dim, half_inverted, &dim, &info);
+  if (info > 0) {
+    return 1;
+  }
+  double rcond;
+  dpocon_(&uplo, &dim, half_inverted, &dim, &norm, &rcond, dbl_2d_buf, int_1d_buf, &info);
+  return (rcond < kMatrixSingularRcond);
+}
+
 void invert_fmatrix_second_half(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf) {
   __CLPK_integer lwork = dim * dim;
   __CLPK_integer info;
@@ -592,6 +631,21 @@ void invert_fmatrix_second_half(__CLPK_integer dim, uint32_t stride, double* hal
   float* write_row = inverted_result;
   for (uint32_t row_idx = 0; row_idx < (uint32_t)dim; ++row_idx) {
     for (uint32_t col_idx = 0; col_idx < (uint32_t)dim; ++col_idx) {
+      write_row[col_idx] = (float)read_row[col_idx];
+    }
+    read_row = &(read_row[(uint32_t)dim]);
+    write_row = &(write_row[stride]);
+  }
+}
+
+void invert_symm_fmatrix_second_half(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, __maybe_unused matrix_invert_buf1_t* int_1d_buf, __maybe_unused double* dbl_2d_buf) {
+  char uplo = 'U';
+  __CLPK_integer info;
+  dpotri_(&uplo, &dim, half_inverted, &dim, &info);
+  const double* read_row = half_inverted;
+  float* write_row = inverted_result;
+  for (uint32_t row_idx = 0; row_idx < (uint32_t)dim; ++row_idx) {
+    for (uint32_t col_idx = 0; col_idx <= row_idx; ++col_idx) {
       write_row[col_idx] = (float)read_row[col_idx];
     }
     read_row = &(read_row[(uint32_t)dim]);
@@ -1013,16 +1067,7 @@ boolerr_t linear_regression_inv(const double* pheno_d, double* predictors_pmaj, 
   // multiply_self_transpose(predictors_pmaj, predictor_ct, sample_ct, xtx_inv);
   row_major_matrix_multiply(predictors_pmaj, pheno_d, predictor_ct, 1, sample_ct, xt_y);
 #ifdef NOLAPACK
-  // Need to fill the upper triangle of xtx, since linear_regression_first_half
-  // didn't do it for us.
-  for (uintptr_t row_idx = 0; row_idx < predictor_ct; ++row_idx) {
-    double* cur_row = &(xtx_inv[row_idx * predictor_ct]);
-    double* cur_col = &(xtx_inv[row_idx]);
-    for (uintptr_t col_idx = row_idx + 1; col_idx < predictor_ct; ++col_idx) {
-      cur_row[col_idx] = cur_col[col_idx * predictor_ct];
-    }
-  }
-  if (invert_matrix(predictor_ct, xtx_inv, mi_buf, dbl_2d_buf)) {
+  if (invert_symm_matrix(predictor_ct, xtx_inv, mi_buf, dbl_2d_buf)) {
     return 1;
   }
   row_major_matrix_multiply(xtx_inv, xt_y, predictor_ct, 1, predictor_ct, fitted_coefs);

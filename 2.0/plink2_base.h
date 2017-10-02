@@ -87,6 +87,22 @@ namespace plink2 {
 
 #ifdef __cplusplus
   #define HEADER_INLINE inline
+  #if __cplusplus >= 201103L
+    #define HEADER_CINLINE constexpr
+    #define CSINLINE static constexpr
+    #if __cplusplus > 201103L
+      #define HEADER_CINLINE2 constexpr
+      #define CSINLINE2 static constexpr
+    #else
+      #define HEADER_CINLINE2 inline
+      #define CSINLINE2 static inline
+    #endif
+  #else
+    #define HEADER_CINLINE inline
+    #define HEADER_CINLINE2 inline
+    #define CSINLINE static inline
+    #define CSINLINE2 static inline
+  #endif
   #if __cplusplus <= 199711L
     // this may be defined anyway, at least on OS X
     #ifndef static_assert
@@ -96,6 +112,10 @@ namespace plink2 {
   #endif
 #else
   #define HEADER_INLINE static inline
+  #define HEADER_CINLINE static inline
+  #define HEADER_CINLINE2 static inline
+  #define CSINLINE static inline
+  #define CSINLINE2 static inline
   // _Static_assert() should work in gcc 4.6+
   #if (__GNUC__ <= 4) && (__GNUC_MINOR__ < 6)
     #if defined(__APPLE__) && defined(__has_feature) && defined(__has_extension)
@@ -523,7 +543,7 @@ typedef union {
 } univecf_t;
 
 // sum must fit in 16 bits
-HEADER_INLINE uintptr_t univec_hsum_16bit(univec_t uv) {
+HEADER_CINLINE uintptr_t univec_hsum_16bit(univec_t uv) {
 #ifdef __LP64__
   #ifdef USE_AVX2
   return ((uv.u8[0] + uv.u8[1] + uv.u8[2] + uv.u8[3]) * kMask0001) >> 48;
@@ -536,7 +556,7 @@ HEADER_INLINE uintptr_t univec_hsum_16bit(univec_t uv) {
 }
 
 // sum must fit in 32 bits
-HEADER_INLINE uintptr_t univec_hsum_32bit(univec_t uv) {
+HEADER_CINLINE uintptr_t univec_hsum_32bit(univec_t uv) {
 #ifdef __LP64__
   #ifdef USE_AVX2
   return ((uv.u8[0] + uv.u8[1] + uv.u8[2] + uv.u8[3]) * kMask00000001) >> 32;
@@ -548,7 +568,7 @@ HEADER_INLINE uintptr_t univec_hsum_32bit(univec_t uv) {
 #endif
 }
 
-HEADER_INLINE uintptr_t unpack_halfword_to_word(uintptr_t hw) {
+HEADER_CINLINE2 uintptr_t unpack_halfword_to_word(uintptr_t hw) {
 #ifdef __LP64__
   hw = (hw | (hw << 16)) & kMask0000FFFF;
 #endif
@@ -558,7 +578,7 @@ HEADER_INLINE uintptr_t unpack_halfword_to_word(uintptr_t hw) {
   return ((hw | (hw << 1)) & kMask5555);
 }
 
-HEADER_INLINE halfword_t pack_word_to_halfword(uintptr_t ww) {
+HEADER_CINLINE2 halfword_t pack_word_to_halfword(uintptr_t ww) {
   // assumes only even bits of ww can be set
   ww = (ww | (ww >> 1)) & kMask3333;
   ww = (ww | (ww >> 2)) & kMask0F0F;
@@ -572,22 +592,16 @@ HEADER_INLINE halfword_t pack_word_to_halfword(uintptr_t ww) {
 // alignment must be a power of 2
 // tried splitting out round_down_pow2_ui() and _up_pow2_ui() functions, no
 // practical difference
-HEADER_INLINE uintptr_t round_down_pow2(uintptr_t val, uintptr_t alignment) {
-  const uintptr_t alignment_m1 = alignment - 1;
-  assert(!(alignment & alignment_m1));
-  return val & (~alignment_m1);
+HEADER_CINLINE uintptr_t round_down_pow2(uintptr_t val, uintptr_t alignment) {
+  return val & (~(alignment - 1));
 }
 
-HEADER_INLINE uint64_t round_down_pow2_ull(uint64_t val, uint64_t alignment) {
-  const uint64_t alignment_m1 = alignment - 1;
-  assert(!(alignment & alignment_m1));
-  return val & (~alignment_m1);
+HEADER_CINLINE uint64_t round_down_pow2_ull(uint64_t val, uint64_t alignment) {
+  return val & (~(alignment - 1));
 }
 
-HEADER_INLINE uintptr_t round_up_pow2(uintptr_t val, uintptr_t alignment) {
-  const uintptr_t alignment_m1 = alignment - 1;
-  assert(!(alignment & alignment_m1));
-  return (val + alignment_m1) & (~alignment_m1);
+HEADER_CINLINE uintptr_t round_up_pow2(uintptr_t val, uintptr_t alignment) {
+  return (val + alignment - 1) & (~(alignment - 1));
 }
 
 
@@ -609,7 +623,7 @@ HEADER_INLINE uintptr_t round_up_pow2(uintptr_t val, uintptr_t alignment) {
 //   and modulus is a hardcoded power of 2)
 #define MOD_NZ(val, modulus) (1 + (((val) - 1) % (modulus)))
 
-HEADER_INLINE uint32_t abs_int32(int32_t ii) {
+HEADER_CINLINE2 uint32_t abs_int32(int32_t ii) {
   const uint32_t neg_sign_bit = -(((uint32_t)ii) >> 31);
   return (((uint32_t)ii) ^ neg_sign_bit) - neg_sign_bit;
 }
@@ -822,45 +836,48 @@ HEADER_INLINE uint32_t are_all_bits_one(const uintptr_t* bitarr, uintptr_t bit_c
   return (!trailing_bit_ct) || ((~(bitarr[fullword_ct])) << (kBitsPerWord - trailing_bit_ct));
 }
 
-HEADER_INLINE uint32_t popcount2_long(uintptr_t val) {
 #ifdef USE_SSE42
+HEADER_CINLINE uint32_t popcount2_long(uintptr_t val) {
   return __builtin_popcountll(val) + __builtin_popcountll(val & kMaskAAAA);
+}
 #else
+HEADER_CINLINE2 uint32_t popcount2_long(uintptr_t val) {
   val = (val & kMask3333) + ((val >> 2) & kMask3333);
   return (((val + (val >> 4)) & kMask0F0F) * kMask0101) >> (kBitsPerWord - 8);
-#endif
 }
+#endif
 
-HEADER_INLINE uint32_t popcount_long(uintptr_t val) {
   // the simple version, good enough for all non-time-critical stuff
   // (without SSE4.2, popcount_longs() tends to be >3x as fast on arrays.
   // with SSE4.2, there's no noticeable difference.)
 #ifdef USE_SSE42
+HEADER_CINLINE uint32_t popcount_long(uintptr_t val) {
   return __builtin_popcountll(val);
+}
 #else
+HEADER_CINLINE2 uint32_t popcount_long(uintptr_t val) {
   // sadly, this is still faster than the clang implementation of the intrinsic
   // as of 2016
   return popcount2_long(val - ((val >> 1) & kMask5555));
-#endif
 }
+#endif
 
-HEADER_INLINE uint32_t popcount_2_longs(uintptr_t val0, uintptr_t val1) {
-  // the simple version, good enough for all non-time-critical stuff
-  // (without SSE4.2, popcount_longs() tends to be >3x as fast on arrays.
-  // with SSE4.2, there's no noticeable difference.)
 #ifdef USE_SSE42
+HEADER_CINLINE uint32_t popcount_2_longs(uintptr_t val0, uintptr_t val1) {
   return __builtin_popcountll(val0) + __builtin_popcountll(val1);
+}
 #else
+HEADER_CINLINE2 uint32_t popcount_2_longs(uintptr_t val0, uintptr_t val1) {
   val0 -= (val0 >> 1) & kMask5555;
   val1 -= (val1 >> 1) & kMask5555;
   const uintptr_t four_bit = (val0 & kMask3333) + ((val0 >> 2) & kMask3333) + (val1 & kMask3333) + ((val1 >> 2) & kMask3333);
   // up to 16 values in 0..12; sum fits in 8 bits
   return (((four_bit & kMask0F0F) + ((four_bit >> 4) & kMask0F0F)) * kMask0101) >> (kBitsPerWord - 8);
-#endif
 }
+#endif
 
 #ifndef __LP64__
-HEADER_INLINE uint32_t popcount_4_longs(uintptr_t val0, uintptr_t val1, uintptr_t val2, uintptr_t val3) {
+HEADER_CINLINE2 uint32_t popcount_4_longs(uintptr_t val0, uintptr_t val1, uintptr_t val2, uintptr_t val3) {
   val0 -= (val0 >> 1) & kMask5555;
   val1 -= (val1 >> 1) & kMask5555;
   val2 -= (val2 >> 1) & kMask5555;
@@ -1035,7 +1052,7 @@ HEADER_INLINE void zero_trailing_bits(uintptr_t bit_ct, uintptr_t* bitarr) {
   }
 }
 
-HEADER_INLINE uint32_t bytes_to_represent_ui(uint32_t uii) {
+HEADER_CINLINE uint32_t bytes_to_represent_ui(uint32_t uii) {
   return (4 - (__builtin_clz(uii) / CHAR_BIT));
 }
 
