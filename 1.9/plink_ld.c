@@ -8151,10 +8151,24 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
 	  }
 	}
       } else {
+        // bugfix (6 Oct 2017):
+        // At least one of {f11, f22} is zero, and one of {f12, f21} is zero.
+        // Initially suppose that the zero-values are f11 and f12.  Then the
+        // equality becomes
+        //   x(f22 + x)(K - x) = x(K - x)(f21 + K - x)
+        //   x=0 and x=K are always solutions; the rest becomes
+        //     f22 + x = f21 + K - x
+        //     2x = K + f21 - f22
+        //     x = (K + f21 - f22)/2; in-range iff (f21 - f22) in (-K, K).
+        // So far so good.  However, this code used to *always* check
+        // (f21 - f22), when it's necessary to use all the nonzero values.
+        // (this still works if three or all four values are zero)
 	solutions[0] = 0;
-	if ((freq22 + SMALLISH_EPSILON < half_hethet_share + freq21) && (freq21 + SMALLISH_EPSILON < half_hethet_share + freq22)) {
+        const double nonzero_freq_xx = (freq11 == 0.0)? freq22 : freq11;
+        const double nonzero_freq_xy = (freq12 == 0.0)? freq21 : freq12;
+	if ((nonzero_freq_xx + SMALLISH_EPSILON < half_hethet_share + nonzero_freq_xy) && (nonzero_freq_xy + SMALLISH_EPSILON < half_hethet_share + nonzero_freq_xx)) {
 	  uljj = 3;
-	  solutions[1] = (half_hethet_share + freq21 - freq22) * 0.5;
+	  solutions[1] = (half_hethet_share + nonzero_freq_xy - nonzero_freq_xx) * 0.5;
 	  solutions[2] = half_hethet_share;
 	} else {
 	  uljj = 2;
