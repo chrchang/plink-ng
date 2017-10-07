@@ -2378,7 +2378,7 @@ int32_t scrape_extra_chroms(const char* fname, const char* file_descrip, Chrom_i
   return retval;
 }
 
-int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr) {
+int32_t annotate(const Annot_info* aip, uint32_t allow_extra_chroms, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   gzFile gz_attribfile = nullptr;
@@ -2676,6 +2676,12 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
   }
   if (need_pos) {
     if (aip->ranges_fname) {
+      if (allow_extra_chroms) {
+	retval = scrape_extra_chroms(aip->ranges_fname, "--annotate ranges file", chrom_info_ptr);
+	if (retval) {
+	  goto annotate_ret_1;
+	}
+      }
       if (aip->subset_fname) {
 	if (fopen_checked(aip->subset_fname, FOPEN_RB, &infile)) {
 	  goto annotate_ret_OPEN_FAIL;
@@ -2728,6 +2734,12 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
     }
     bigstack_end_reset(bigstack_end_mark);
     if (aip->filter_fname) {
+      if (allow_extra_chroms) {
+	retval = scrape_extra_chroms(aip->filter_fname, "--annotate filter file", chrom_info_ptr);
+	if (retval) {
+	  goto annotate_ret_1;
+	}
+      }
       retval = load_range_list_sortpos(aip->filter_fname, border, 0, nullptr, 0, chrom_info_ptr, &filter_range_ct, &filter_range_names, &max_filter_range_name_len, &chrom_filter_bounds, &filter_rangedefs, &chrom_max_filter_range_ct, "--annotate filter");
       if (retval) {
 	goto annotate_ret_1;

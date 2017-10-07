@@ -13461,7 +13461,7 @@ int32_t main(int32_t argc, char** argv) {
     }
   }
   if (annot_info.fname) {
-    retval = annotate(&annot_info, outname, outname_end, pfilter, &chrom_info);
+    retval = annotate(&annot_info, (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1, outname, outname_end, pfilter, &chrom_info);
   }
   if (gene_report_fname) {
     retval = gene_report(gene_report_fname, gene_report_glist, gene_report_subset, gene_report_border, (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1, (misc_flags & MISC_EXTRACT_RANGE)? nullptr : extractname, gene_report_snp_field, outname, outname_end, pfilter, &chrom_info);
@@ -13470,6 +13470,7 @@ int32_t main(int32_t argc, char** argv) {
     }
   }
   if (metaanal_fnames) {
+    // todo: support --aec
     retval = meta_analysis(metaanal_fnames, metaanal_snpfield_search_order, metaanal_a1field_search_order, metaanal_a2field_search_order, metaanal_pfield_search_order, metaanal_essfield_search_order, metaanal_flags, (misc_flags & MISC_EXTRACT_RANGE)? nullptr : extractname, outname, outname_end, output_min_p, &chrom_info);
     if (retval) {
       goto main_ret_1;
