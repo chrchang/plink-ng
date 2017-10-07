@@ -135,6 +135,6 @@ int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t s
 
 int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr);
 
-int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t border, char* extractname, const char* snp_field, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr);
+int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t border, uint32_t allow_extra_chroms, char* extractname, const char* snp_field, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr);
 
 #endif // __PLINK_SET_H__

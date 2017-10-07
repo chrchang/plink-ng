@@ -13464,7 +13464,7 @@ int32_t main(int32_t argc, char** argv) {
     retval = annotate(&annot_info, outname, outname_end, pfilter, &chrom_info);
   }
   if (gene_report_fname) {
-    retval = gene_report(gene_report_fname, gene_report_glist, gene_report_subset, gene_report_border, (misc_flags & MISC_EXTRACT_RANGE)? nullptr : extractname, gene_report_snp_field, outname, outname_end, pfilter, &chrom_info);
+    retval = gene_report(gene_report_fname, gene_report_glist, gene_report_subset, gene_report_border, (misc_flags / MISC_ALLOW_EXTRA_CHROMS) & 1, (misc_flags & MISC_EXTRACT_RANGE)? nullptr : extractname, gene_report_snp_field, outname, outname_end, pfilter, &chrom_info);
     if (retval) {
       goto main_ret_1;
     }

@@ -357,9 +357,14 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
 	if (marker_pos) {
 	  memcpy(ll_tmp->ss, bufptr3, uii);
 	} else {
+	  // quasi-bugfix (7 Oct 2017): forgot to check for this
+	  if (cur_chrom_code > 9999) {
+	    logerrprint("Error: This command does not support 10000+ contigs.\n");
+	    goto load_range_list_ret_INVALID_FORMAT;
+	  }
 	  uitoa_z4((uint32_t)cur_chrom_code, ll_tmp->ss);
-	  // if first character of gene name is a digit, natural sort has strange
-	  // effects unless we force [3] to be nonnumeric...
+	  // if first character of gene name is a digit, natural sort has
+	  // strange effects unless we force [3] to be nonnumeric...
 	  ll_tmp->ss[3] -= 15;
 	  memcpy(&(ll_tmp->ss[4]), bufptr3, uii - 4);
 	}
@@ -381,8 +386,7 @@ int32_t load_range_list(FILE* infile, uint32_t track_set_names, uint32_t border_
 	    } else {
 	      logerrprint("Error: Empty --gene-report file.\n");
 	    }
-	    retval = RET_INVALID_FORMAT;
-	    goto load_range_list_ret_1;
+	    goto load_range_list_ret_INVALID_FORMAT;
 	  }
 	}
 	LOGERRPRINTF("Warning: No valid ranges in %s file.\n", file_descrip);
@@ -2323,6 +2327,57 @@ int32_t load_range_list_sortpos(char* fname, uint32_t border_extend, uintptr_t s
   return retval;
 }
 
+int32_t scrape_extra_chroms(const char* fname, const char* file_descrip, Chrom_info* chrom_info_ptr) {
+  // scan first column of file, add these to chromosome names.
+  // may want to add an option for this to search for "CHR"/"#CHROM" column
+  uintptr_t line_idx = 0;
+  FILE* infile = nullptr;
+  int32_t retval = 0;
+  {
+    if (fopen_checked(fname, "r", &infile)) {
+      goto scrape_extra_chroms_ret_OPEN_FAIL;
+    }
+    g_textbuf[MAXLINELEN - 1] = ' ';
+    while (fgets(g_textbuf, MAXLINELEN, infile)) {
+      ++line_idx;
+      if (!g_textbuf[MAXLINELEN - 1]) {
+	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, file_descrip);
+	goto scrape_extra_chroms_ret_INVALID_FORMAT_2;
+      }
+      char* first_token = skip_initial_spaces(g_textbuf);
+      if (is_eoln_kns(*first_token)) {
+	continue;
+      }
+      char* first_token_end = token_endnn(first_token);
+      const uint32_t chrom_name_slen = (uintptr_t)(first_token_end - first_token);
+      *first_token_end = '\0';
+      int32_t dummy;
+      retval = get_or_add_chrom_code(first_token, file_descrip, line_idx, chrom_name_slen, 1, chrom_info_ptr, &dummy);
+      if (retval) {
+	goto scrape_extra_chroms_ret_1;
+      }
+    }
+    if (fclose_null(&infile)) {
+      goto scrape_extra_chroms_ret_READ_FAIL;
+    }
+  }
+  while (0) {
+  scrape_extra_chroms_ret_OPEN_FAIL:
+    retval = RET_OPEN_FAIL;
+    break;
+  scrape_extra_chroms_ret_READ_FAIL:
+    retval = RET_READ_FAIL;
+    break;
+  scrape_extra_chroms_ret_INVALID_FORMAT_2:
+    logerrprintb();
+    retval = RET_INVALID_FORMAT;
+    break;
+  }
+ scrape_extra_chroms_ret_1:
+  fclose_cond(infile);
+  return retval;
+}
+
 int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -3149,7 +3204,7 @@ int32_t annotate(Annot_info* aip, char* outname, char* outname_end, double pfilt
   return retval;
 }
 
-int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t border, char* extractname, const char* snp_field, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr) {
+int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t border, uint32_t allow_extra_chroms, char* extractname, const char* snp_field, char* outname, char* outname_end, double pfilter, Chrom_info* chrom_info_ptr) {
   // similar to define_sets() and --clump
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -3277,6 +3332,14 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       bigstack_shrink_top(sorted_extract_ids, extract_ct * max_extract_id_len);
     }
   }
+  if (allow_extra_chroms) {
+    // ugh, silly for this to require 'file' at the end while load_range_list()
+    // does not
+    retval = scrape_extra_chroms(glist, "--gene-report file", chrom_info_ptr);
+    if (retval) {
+      goto gene_report_ret_1;
+    }
+  }
   retval = load_range_list_sortpos(glist, 0, subset_ct, sorted_subset_ids, max_subset_id_len, chrom_info_ptr, &gene_ct, &gene_names, &max_gene_name_len, &chrom_bounds, &genedefs, &chrom_max_gene_ct, "--gene-report");
   if (retval) {
     goto gene_report_ret_1;
@@ -3321,7 +3384,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
   if (linebuf_left < MAXLINELEN + 64) {
     goto gene_report_ret_NOMEM;
   }
-  // mirror g_bigstack_base/g_bigstack_base since we'll be doing
+  // mirror g_bigstack_base/g_bigstack_end since we'll be doing
   // nonstandard-size allocations
   linebuf_top = (char*)g_bigstack_base;
   gene_match_list_end = (uint64_t*)g_bigstack_end;
@@ -3536,12 +3599,21 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       gene_idx = gene_nameidx_to_chridx[ulii];
       bufptr = &(gene_names[gene_idx * max_gene_name_len]);
       fputs(&(bufptr[4]), outfile);
-      fputs(" -- chr", outfile);
-      if (bufptr[2] != '0') {
-	putc_unlocked(bufptr[2], outfile);
+      // 53313 = ('0' * (1000 + 100 + 10)) + ('0' - 15) 
+      chrom_idx = ((unsigned char)bufptr[0]) * 1000 + ((unsigned char)bufptr[1]) * 100 + ((unsigned char)bufptr[2]) * 10 + ((unsigned char)bufptr[3]) - 53313;
+      strcpy(g_textbuf, " -- ");
+      // plink 1.07 explicitly precedes chromosome codes with "chr" here.
+      // obviously "chrchr1" doesn't look right, and neither does
+      // chr[contig name], so make the chr prefix conditional.
+      bufptr = &(g_textbuf[4]);
+      if ((!(chrom_info_ptr->output_encoding & CHR_OUTPUT_PREFIX)) && ((chrom_idx <= chrom_info_ptr->max_code) || chrom_info_ptr->zero_extra_chroms)) {
+	bufptr = memcpyl3a(bufptr, "chr");
       }
-      putc_unlocked(bufptr[3] + 15, outfile);
-      putc_unlocked(':', outfile);
+      bufptr = chrom_name_write(chrom_info_ptr, chrom_idx, bufptr);
+      *bufptr++ = ':';
+      if (fwrite_checked(g_textbuf, bufptr - g_textbuf, outfile)) {
+	goto gene_report_ret_WRITE_FAIL;
+      }
       uiptr = genedefs[gene_idx];
       range_ct = *uiptr++;
       ujj = 0; // gene length
