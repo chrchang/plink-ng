@@ -13470,7 +13470,8 @@ int32_t main(int32_t argc, char** argv) {
     }
   }
   if (metaanal_fnames) {
-    // todo: support --aec
+    // possible todo: make this support --aec (takes a bit of work since
+    // chromosome byte in data structure must be widened)
     retval = meta_analysis(metaanal_fnames, metaanal_snpfield_search_order, metaanal_a1field_search_order, metaanal_a2field_search_order, metaanal_pfield_search_order, metaanal_essfield_search_order, metaanal_flags, (misc_flags & MISC_EXTRACT_RANGE)? nullptr : extractname, outname, outname_end, output_min_p, &chrom_info);
     if (retval) {
       goto main_ret_1;
