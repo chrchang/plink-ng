@@ -105,7 +105,7 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (6 Oct 2017)";
+  " (7 Oct 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -480,7 +480,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     }
     memcpy(outname_end, ".bed", 5);
     if (realpath_identical(outname, g_textbuf, &(g_textbuf[FNAMESIZE + 64]))) {
-      logprint("Note: --make-bed input and output filenames match.  Appending '~' to input\nfilenames.\n");
+      logerrprint("Warning: --make-bed input and output filenames match.  Appending '~' to input\nfilenames.\n");
       uii = strlen(bedname);
       memcpy(g_textbuf, bedname, uii + 1);
       memcpy(&(bedname[uii]), "~", 2);
