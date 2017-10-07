@@ -3618,7 +3618,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       // obviously "chrchr1" doesn't look right, and neither does
       // chr[contig name], so make the chr prefix conditional.
       bufptr = &(g_textbuf[4]);
-      if ((!(chrom_info_ptr->output_encoding & CHR_OUTPUT_PREFIX)) && ((chrom_idx <= chrom_info_ptr->max_code) || chrom_info_ptr->zero_extra_chroms)) {
+      if ((!(chrom_info_ptr->output_encoding & CHR_OUTPUT_PREFIX)) && ((chrom_idx <= ((int32_t)chrom_info_ptr->max_code)) || chrom_info_ptr->zero_extra_chroms)) {
 	bufptr = memcpyl3a(bufptr, "chr");
       }
       bufptr = chrom_name_write(chrom_info_ptr, chrom_idx, bufptr);
