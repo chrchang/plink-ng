@@ -3295,6 +3295,7 @@ void bitvec_andnot2(const uintptr_t* __restrict include_bitvec, uintptr_t word_c
 #endif
 }
 
+/*
 void bitvec_ornot(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec) {
   // main_bitvec := main_bitvec OR (~arg_bitvec)
 #ifdef __LP64__
@@ -3331,6 +3332,7 @@ void bitvec_ornot(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uin
   }
 #endif
 }
+*/
 
 
 int32_t get_variant_uidx_without_htable(const char* idstr, char** variant_ids, const uintptr_t* variant_include, uint32_t variant_ct) {

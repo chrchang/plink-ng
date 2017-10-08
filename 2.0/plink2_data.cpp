@@ -10589,15 +10589,16 @@ pgen_global_flags_t gflags_vfilter(const uintptr_t* variant_include, const unsig
       }
 #endif
       if (vrtypes_or) {
-	if (vrtypes_or & 0x10) {
+	// bugfix (8 Oct 2017): forgot to multiply by kMask0101
+	if (vrtypes_or & (0x10 * kMask0101)) {
 	  read_phase_dosage_gflags |= kfPgenGlobalHardcallPhasePresent;
 	  mask_multiply -= 0x10;
 	}
-	if (vrtypes_or & 0x60) {
+	if (vrtypes_or & (0x60 * kMask0101)) {
 	  read_phase_dosage_gflags |= kfPgenGlobalDosagePresent;
 	  mask_multiply -= 0x60;
 	}
-	if (vrtypes_or & 0x80) {
+	if (vrtypes_or & (0x80 * kMask0101)) {
 	  read_phase_dosage_gflags |= kfPgenGlobalDosagePhasePresent;
 	  mask_multiply -= 0x80;
 	}
@@ -11202,7 +11203,6 @@ pglerr_t make_plink2_no_vsort(const char* xheader, const uintptr_t* sample_inclu
       LOGPRINTF("done.\n");
       bigstack_reset(bigstack_mark);
     } else if (make_pgen) {
-      // should be straightforward to make this sort variants...
       if ((!variant_ct) || (!sample_ct)) {
 	logerrprint("Error: Zero-variant/zero-sample .pgen writing is not currently supported.\n");
 	reterr = kPglRetNotYetSupported;

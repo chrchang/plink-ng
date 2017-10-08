@@ -2238,7 +2238,7 @@ void dosage_phaseinfo_patch(const uintptr_t* phasepresent, const uintptr_t* phas
   }
 }
 
-uint32_t dosage_phased_r2_stats(const dosage_t* dosage_vec0, const dosage_t* dosage_uhet0, const uintptr_t* nm_bitvec0, const dosage_t* dosage_vec1, const dosage_t* dosage_uhet1, const uintptr_t* nm_bitvec1, uint32_t sample_ct, uint32_t nm_ct0, uint32_t nm_ct1, uint64_t* __restrict alt_dosages, uint64_t* __restrict known_dosageprod_ptr, uint64_t* __restrict uhethet_dosageprod_ptr) {
+uint32_t dosage_phased_r2_prod(const dosage_t* dosage_vec0, const uintptr_t* nm_bitvec0, const dosage_t* dosage_vec1, const uintptr_t* nm_bitvec1, uint32_t sample_ct, uint32_t nm_ct0, uint32_t nm_ct1, uint64_t* __restrict alt_dosages, uint64_t* __restrict dosageprod_ptr) {
   const uint32_t sample_ctl = BITCT_TO_WORDCT(sample_ct);
   uint32_t nm_intersection_ct;
   if ((nm_ct0 != sample_ct) && (nm_ct1 != sample_ct)) {
@@ -2246,8 +2246,7 @@ uint32_t dosage_phased_r2_stats(const dosage_t* dosage_vec0, const dosage_t* dos
     if (!nm_intersection_ct) {
       alt_dosages[0] = 0;
       alt_dosages[1] = 0;
-      *known_dosageprod_ptr = 0;
-      *uhethet_dosageprod_ptr = 0;
+      *dosageprod_ptr = 0;
       return 0;
     }
   } else {
@@ -2261,9 +2260,8 @@ uint32_t dosage_phased_r2_stats(const dosage_t* dosage_vec0, const dosage_t* dos
     alt_dosages[1] = dense_dosage_sum_subset(dosage_vec1, dosage_vec0, vec_ct);
   }
   // could conditionally use dosage_unsigned_nomiss here
-  *known_dosageprod_ptr = dosage_unsigned_dotprod(dosage_vec0, dosage_vec1, vec_ct);
+  *dosageprod_ptr = dosage_unsigned_dotprod(dosage_vec0, dosage_vec1, vec_ct);
 
-  *uhethet_dosageprod_ptr = dosage_unsigned_nomiss_dotprod(dosage_uhet0, dosage_uhet1, vec_ct);
   return nm_intersection_ct;
 }
 
@@ -2430,23 +2428,26 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, cha
 	goto ld_console_ret_1;
       }
       zero_trailing_quaters(founder_ct, cur_genovec);
-      if (!use_dosage) {
-	if (is_nonx_haploid_or_mts[var_idx]) {
+      if (is_nonx_haploid_or_mts[var_idx]) {
+	if (!use_dosage) {
 	  set_het_missing(founder_ctl2, cur_genovec);
-	  phasepresent_cts[var_idx] = 0;
-	  // todo: erase phased dosages
-	} else if (x_male_ct && is_xs[var_idx]) {
-	  set_male_het_missing(sex_male_collapsed_interleaved, founder_ctv, cur_genovec);
-	  if (phasepresent_cts[var_idx]) {
-	    bitvec_andnot(sex_male_collapsed, founder_ctl, cur_phasepresent);
-	    phasepresent_cts[var_idx] = popcount_longs(cur_phasepresent, founder_ctl);
-	  }
-	  // todo: erase male phased dosages
 	}
+	phasepresent_cts[var_idx] = 0;
+	// todo: erase phased dosages
+      } else if (x_male_ct && is_xs[var_idx]) {
+	if (!use_dosage) {
+	  set_male_het_missing(sex_male_collapsed_interleaved, founder_ctv, cur_genovec);
+	}
+	if (phasepresent_cts[var_idx]) {
+	  bitvec_andnot(sex_male_collapsed, founder_ctl, cur_phasepresent);
+	  phasepresent_cts[var_idx] = popcount_longs(cur_phasepresent, founder_ctl);
+	}
+	// todo: erase male phased dosages
       }
     }
     const uint32_t use_phase = is_same_chr && (!is_nonx_haploid_or_mts[0]) && phasepresent_cts[0] && phasepresent_cts[1];
-    if ((!dosage_cts[0]) || (!dosage_cts[1])) {
+    const uint32_t ignore_hethet = is_nonx_haploid_or_mts[0] || is_nonx_haploid_or_mts[1];
+    if ((!dosage_cts[0]) && (!dosage_cts[1]) && (!ignore_hethet)) {
       use_dosage = 0;
     }
 
@@ -2579,45 +2580,50 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, cha
 	}
       }
       const uint64_t orig_alt_dosage1 = alt_dosages[1];
-      uint64_t known_dosageprod;
-      uint64_t uhethet_dosageprod;
-      valid_obs_ct = dosage_phased_r2_stats(dosage_vecs[0], dosage_uhets[0], nm_bitvecs[0], dosage_vecs[1], dosage_uhets[1], nm_bitvecs[1], founder_ct, nm_cts[0], nm_cts[1], alt_dosages, &known_dosageprod, &uhethet_dosageprod);
+      uint64_t dosageprod;
+      valid_obs_ct = dosage_phased_r2_prod(dosage_vecs[0], nm_bitvecs[0], dosage_vecs[1], nm_bitvecs[1], founder_ct, nm_cts[0], nm_cts[1], alt_dosages, &dosageprod);
       if (!valid_obs_ct) {
 	goto ld_console_ret_NO_VALID_OBSERVATIONS;
       }
+      uint64_t uhethet_dosageprod = 0;
+      if (!ignore_hethet) {
+        uhethet_dosageprod = dosage_unsigned_nomiss_dotprod(dosage_uhets[0], dosage_uhets[1], founder_dosagev_ct);
+      }
       hethet_present = (uhethet_dosageprod != 0);
       if (use_phase && hethet_present) {
-	known_dosageprod = ((int64_t)known_dosageprod) + dosage_signed_dotprod(dosage_diffs[0], dosage_diffs[1], founder_dosagev_ct);
+	dosageprod = ((int64_t)dosageprod) + dosage_signed_dotprod(dosage_diffs[0], dosage_diffs[1], founder_dosagev_ct);
       }
       altsums_d[0] = ((int64_t)alt_dosages[0]) * kRecipDosageMid;
       altsums_d[1] = ((int64_t)alt_dosages[1]) * kRecipDosageMid;
-      known_dotprod_d = ((int64_t)(known_dosageprod - uhethet_dosageprod)) * (kRecipDosageMidSq * 0.5);
+      known_dotprod_d = ((int64_t)(dosageprod - uhethet_dosageprod)) * (kRecipDosageMidSq * 0.5);
       unknown_hethet_d = ((int64_t)uhethet_dosageprod) * kRecipDosageMidSq;
       if (x_male_ct) {
-	dosage_t* x_male_dosage_mask;
-	if (bigstack_alloc_dosage(founder_ct, &x_male_dosage_mask)) {
+	dosage_t* x_male_dosage_invmask;
+	if (bigstack_alloc_dosage(founder_ct, &x_male_dosage_invmask)) {
 	  goto ld_console_ret_NOMEM;
 	}
-	fill_dosage_zero(founder_dosagev_ct * kDosagePerVec, x_male_dosage_mask);
+	fill_dosage_one(founder_dosagev_ct * kDosagePerVec, x_male_dosage_invmask);
 	uint32_t sample_midx = 0;
 	for (uint32_t uii = 0; uii < x_male_ct; ++uii, ++sample_midx) {
 	  next_set_unsafe_ck(sex_male_collapsed, &sample_midx);
-	  x_male_dosage_mask[sample_midx] = kDosageMissing;
+	  x_male_dosage_invmask[sample_midx] = 0;
 	}
-	bitvec_ornot((uintptr_t*)x_male_dosage_mask, founder_dosagev_ct, (uintptr_t*)dosage_vecs[0]);
-	bitvec_and((uintptr_t*)x_male_dosage_mask, founder_dosagev_ct, (uintptr_t*)dosage_uhets[0]);
+	bitvec_or((uintptr_t*)x_male_dosage_invmask, founder_dosagev_ct * kWordsPerVec, (uintptr_t*)dosage_vecs[0]);
 	bitvec_and(sex_male_collapsed, founder_ctl, nm_bitvecs[0]);
 	uint64_t x_male_alt_dosages[2];
 	x_male_alt_dosages[0] = dense_dosage_sum(dosage_vecs[0], founder_dosagev_ct);
 	x_male_alt_dosages[1] = orig_alt_dosage1;
 	const uint32_t x_male_nm_ct0 = popcount_longs(nm_bitvecs[0], founder_ctl);
-	uint64_t x_male_known_dosageprod;
-	uint64_t x_male_uhethet_dosageprod;  // ignore
-	valid_x_male_ct = dosage_phased_r2_stats(dosage_vecs[0], dosage_uhets[0], nm_bitvecs[0], dosage_vecs[1], dosage_uhets[1], nm_bitvecs[1], founder_ct, x_male_nm_ct0, nm_cts[1], x_male_alt_dosages, &x_male_known_dosageprod, &x_male_uhethet_dosageprod);
+	uint64_t x_male_dosageprod;
+	valid_x_male_ct = dosage_phased_r2_prod(dosage_vecs[0], nm_bitvecs[0], dosage_vecs[1], nm_bitvecs[1], founder_ct, x_male_nm_ct0, nm_cts[1], x_male_alt_dosages, &x_male_dosageprod);
+	if (!ignore_hethet) {
+	  bitvec_andnot((uintptr_t*)x_male_dosage_invmask, founder_dosagev_ct * kWordsPerVec, (uintptr_t*)dosage_uhets[0]);
+	  const uint64_t invalid_uhethet_dosageprod = dosage_unsigned_nomiss_dotprod(dosage_uhets[0], dosage_uhets[1], founder_dosagev_ct);
+	  unknown_hethet_d -= ((int64_t)invalid_uhethet_dosageprod) * kRecipDosageMidSq;
+	}
         x_male_altsums_d[0] = ((int64_t)x_male_alt_dosages[0]) * kRecipDosageMid;
         x_male_altsums_d[1] = ((int64_t)x_male_alt_dosages[1]) * kRecipDosageMid;
-        x_male_known_dotprod_d = ((int64_t)x_male_known_dosageprod) * (kRecipDosageMidSq * 0.5);
-	assert(!x_male_uhethet_dosageprod);
+        x_male_known_dotprod_d = ((int64_t)x_male_dosageprod) * (kRecipDosageMidSq * 0.5);
       }
     }
     double valid_obs_d = (int32_t)valid_obs_ct;

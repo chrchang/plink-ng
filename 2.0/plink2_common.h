@@ -183,6 +183,10 @@ HEADER_INLINE void fill_dosage_zero(uintptr_t entry_ct, dosage_t* dosage_arr) {
   memset(dosage_arr, 0, entry_ct * sizeof(dosage_t));
 }
 
+HEADER_INLINE void fill_dosage_one(uintptr_t entry_ct, dosage_t* dosage_arr) {
+  memset(dosage_arr, 255, entry_ct * sizeof(dosage_t));
+}
+
 void populate_dense_dosage(const uintptr_t* genovec, const uintptr_t* dosage_present, const dosage_t* dosage_vals, uint32_t sample_ct, uint32_t dosage_ct, dosage_t* dense_dosage);
 
 void set_het_missing(uintptr_t word_ct, uintptr_t* genovec);

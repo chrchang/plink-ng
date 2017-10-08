@@ -1958,10 +1958,11 @@ pglerr_t write_geno_counts(__attribute__((unused)) const uintptr_t* sample_inclu
 	  homalt1_ct = cur_raw_geno_cts[2];
 	  missing_ct = nobs_base - homref_ct - het_ct - homalt1_ct;
 	} else {
-	  homref_ct = cur_raw_geno_cts[0];
-	  het_ct = cur_raw_geno_cts[1];
-	  homalt1_ct = cur_raw_geno_cts[2];
 	  if (is_x) {
+	    // bugfix (8 Oct 2017): don't set these in haploid case
+	    homref_ct = cur_raw_geno_cts[0];
+	    het_ct = cur_raw_geno_cts[1];
+	    homalt1_ct = cur_raw_geno_cts[2];
 	    if (x_male_geno_cts) {
 	      const uint32_t* cur_male_geno_cts = &(x_male_geno_cts[(3 * k1LU) * (variant_uidx - x_start)]);
 	      hapref_ct = cur_male_geno_cts[0];
@@ -1972,7 +1973,7 @@ pglerr_t write_geno_counts(__attribute__((unused)) const uintptr_t* sample_inclu
 	    }
 	    missing_ct = nobs_base - homref_ct - het_ct - homalt1_ct - hapref_ct - hapalt1_ct;
 	  } else {
-	    // chrY or haploid
+	    // chrY or other pure-haploid
 	    hapref_ct = cur_raw_geno_cts[0];
 	    hapalt1_ct = cur_raw_geno_cts[2];
 	    missing_ct = nobs_base - hapref_ct - hapalt1_ct;
