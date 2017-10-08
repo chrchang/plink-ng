@@ -16,6 +16,7 @@
 
 
 #include "plink2_ld.h"
+#include "plink2_stats.h"
 
 #ifdef __cplusplus
 #include <functional> // std::greater
@@ -30,13 +31,14 @@ void init_ld(ld_info_t* ldip) {
   ldip->prune_window_size = 0;
   ldip->prune_window_incr = 0;
   ldip->prune_last_param = 0.0;
-  ldip->ld_flag_varids[0] = nullptr;
-  ldip->ld_flag_varids[1] = nullptr;
+  ldip->ld_console_modifier = kfLdConsole0;
+  ldip->ld_console_varids[0] = nullptr;
+  ldip->ld_console_varids[1] = nullptr;
 }
 
 void cleanup_ld(ld_info_t* ldip) {
-  free_cond(ldip->ld_flag_varids[0]);
-  free_cond(ldip->ld_flag_varids[1]);
+  free_cond(ldip->ld_console_varids[0]);
+  free_cond(ldip->ld_console_varids[1]);
 }
 
 
@@ -285,14 +287,21 @@ void genoarr_split_02nm(const uintptr_t* __restrict genoarr, uint32_t sample_ct,
     two_bitarr_alias[widx] = high_halfword & (~low_halfword);
     nm_bitarr_alias[widx] = ~(low_halfword & high_halfword);
   }
-  const uint32_t sample_ct_rem = sample_ct % kBitsPerWord;
+
+  // had code which operated directly on zero_bitarr/two_bitarr/nm_bitarr here,
+  // but that technically breaks the strict-aliasing rule, and this isn't a
+  // primary bottleneck so may as well be paranoid
+  const uint32_t sample_ct_rem = sample_ct % kBitsPerWordD2;
   if (sample_ct_rem) {
-    const uintptr_t trailing_mask = (~k0LU) >> (kBitsPerWord - sample_ct_rem);
-    // note that we don't use the halfword aliases here
-    const uint32_t last_write_word_idx = sample_ct / kBitsPerWord;
-    zero_bitarr[last_write_word_idx] &= trailing_mask;
-    two_bitarr[last_write_word_idx] &= trailing_mask;
-    nm_bitarr[last_write_word_idx] &= trailing_mask;
+    const halfword_t trailing_mask = (1U << sample_ct_rem) - 1;
+    zero_bitarr_alias[sample_ctl2 - 1] &= trailing_mask;
+    two_bitarr_alias[sample_ctl2 - 1] &= trailing_mask;
+    nm_bitarr_alias[sample_ctl2 - 1] &= trailing_mask;
+  }
+  if (sample_ctl2 % 2) {
+    zero_bitarr_alias[sample_ctl2] = 0;
+    two_bitarr_alias[sample_ctl2] = 0;
+    nm_bitarr_alias[sample_ctl2] = 0;
   }
 }
 
@@ -1470,26 +1479,850 @@ pglerr_t ld_prune(const uintptr_t* orig_variant_include, const chr_info_t* cip, 
   return reterr;
 }
 
-pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, char** variant_ids, __attribute__((unused)) const uintptr_t* variant_allele_idxs, __attribute__((unused)) char** allele_storage, const uintptr_t* founder_info, const uintptr_t* sex_male, char** ld_flag_varids, uint32_t variant_ct, uint32_t founder_ct, __attribute__((unused)) uint32_t hwe_midp, pgen_reader_t* simple_pgrp) {
+
+void genoarr_split_12nm(const uintptr_t* __restrict genoarr, uint32_t sample_ct, uintptr_t* __restrict one_bitarr, uintptr_t* __restrict two_bitarr, uintptr_t* __restrict nm_bitarr) {
+  // ok if trailing bits of genoarr are not zeroed out
+  // trailing bits of {one,two,nm}_bitarr are zeroed out
+  const uint32_t sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
+  halfword_t* one_bitarr_alias = (halfword_t*)one_bitarr;
+  halfword_t* two_bitarr_alias = (halfword_t*)two_bitarr;
+  halfword_t* nm_bitarr_alias = (halfword_t*)nm_bitarr;
+  for (uint32_t widx = 0; widx < sample_ctl2; ++widx) {
+    const uintptr_t cur_geno_word = genoarr[widx];
+    const uint32_t low_halfword = pack_word_to_halfword(cur_geno_word & kMask5555);
+    const uint32_t high_halfword = pack_word_to_halfword((cur_geno_word >> 1) & kMask5555);
+    one_bitarr_alias[widx] = low_halfword & (~high_halfword);
+    two_bitarr_alias[widx] = high_halfword & (~low_halfword);
+    nm_bitarr_alias[widx] = ~(low_halfword & high_halfword);
+  }
+
+  const uint32_t sample_ct_rem = sample_ct % kBitsPerWordD2;
+  if (sample_ct_rem) {
+    const halfword_t trailing_mask = (1U << sample_ct_rem) - 1;
+    one_bitarr_alias[sample_ctl2 - 1] &= trailing_mask;
+    two_bitarr_alias[sample_ctl2 - 1] &= trailing_mask;
+    nm_bitarr_alias[sample_ctl2 - 1] &= trailing_mask;
+  }
+  if (sample_ctl2 % 2) {
+    one_bitarr_alias[sample_ctl2] = 0;
+    two_bitarr_alias[sample_ctl2] = 0;
+    nm_bitarr_alias[sample_ctl2] = 0;
+  }
+}
+
+uint32_t geno_bitvec_sum_main(const vul_t* one_vvec, const vul_t* two_vvec, uint32_t vec_ct) {
+  // Analog of popcount_vecs.
+  const vul_t m1 = VCONST_UL(kMask5555);
+  const vul_t m2 = VCONST_UL(kMask3333);
+  const vul_t m4 = VCONST_UL(kMask0F0F);
+  const vul_t m8 = VCONST_UL(kMask00FF);
+  const vul_t* one_vvec_iter = one_vvec;
+  const vul_t* two_vvec_iter = two_vvec;
+  uint32_t tot = 0;
+  while (1) {
+    univec_t acc;
+    acc.vi = vul_setzero();
+    const vul_t* one_vvec_stop;
+    if (vec_ct < 15) {
+      if (!vec_ct) {
+        return tot;
+      }
+      one_vvec_stop = &(one_vvec_iter[vec_ct]);
+      vec_ct = 0;
+    } else {
+      one_vvec_stop = &(one_vvec_iter[15]);
+      vec_ct -= 15;
+    }
+    do {
+      vul_t one_count = *one_vvec_iter++;
+      vul_t two_count = *two_vvec_iter++;
+      one_count = one_count - (vul_rshift(one_count, 1) & m1);
+      two_count = two_count - (vul_rshift(two_count, 1) & m1);
+      one_count = (one_count & m2) + (vul_rshift(one_count, 2) & m2);
+      two_count = (two_count & m2) + (vul_rshift(two_count, 2) & m2);
+      // one_count and two_count now contain 4-bit partial bitcounts, each in
+      // the range 0..4.  finally enough room to compute
+      //   2 * two_count + one_count
+      // in parallel and add it to the accumulator.
+      one_count = vul_lshift(two_count, 1) + one_count;
+      acc.vi = acc.vi + (one_count & m4) + (vul_rshift(one_count, 4) & m4);
+    } while (one_vvec_iter < one_vvec_stop);
+    acc.vi = (acc.vi & m8) + (vul_rshift(acc.vi, 8) & m8);
+    tot += univec_hsum_16bit(acc);
+  }
+}
+
+uint32_t geno_bitvec_sum(const uintptr_t* one_bitvec, const uintptr_t* two_bitvec, uint32_t word_ct) {
+  //   popcount(one_bitvec) + 2 * popcount(two_bitvec)
+  uint32_t tot = 0;
+#ifdef __LP64__
+  if (word_ct >= kWordsPerVec) {
+#endif
+    const uint32_t remainder = word_ct % kWordsPerVec;
+    const uint32_t main_block_word_ct = word_ct - remainder;
+    word_ct = remainder;
+    tot = geno_bitvec_sum_main((const vul_t*)one_bitvec, (const vul_t*)two_bitvec, main_block_word_ct / kWordsPerVec);
+#ifdef __LP64__
+    one_bitvec = &(one_bitvec[main_block_word_ct]);
+    two_bitvec = &(two_bitvec[main_block_word_ct]);
+  }
+  for (uint32_t trailing_word_idx = 0; trailing_word_idx < word_ct; ++trailing_word_idx) {
+    tot += popcount_long(one_bitvec[trailing_word_idx]) + 2 * popcount_long(two_bitvec[trailing_word_idx]);
+  }
+#endif
+  return tot;
+}
+
+uint32_t geno_bitvec_sum_subset_main(const vul_t* subset_vvec, const vul_t* one_vvec, const vul_t* two_vvec, uint32_t vec_ct) {
+  // Same as geno_bitvec_sum_main(), just with an additional mask.
+  const vul_t m1 = VCONST_UL(kMask5555);
+  const vul_t m2 = VCONST_UL(kMask3333);
+  const vul_t m4 = VCONST_UL(kMask0F0F);
+  const vul_t m8 = VCONST_UL(kMask00FF);
+  const vul_t* subset_vvec_iter = subset_vvec;
+  const vul_t* one_vvec_iter = one_vvec;
+  const vul_t* two_vvec_iter = two_vvec;
+  uint32_t tot = 0;
+  while (1) {
+    univec_t acc;
+    acc.vi = vul_setzero();
+    const vul_t* subset_vvec_stop;
+    if (vec_ct < 15) {
+      if (!vec_ct) {
+        return tot;
+      }
+      subset_vvec_stop = &(subset_vvec_iter[vec_ct]);
+      vec_ct = 0;
+    } else {
+      subset_vvec_stop = &(subset_vvec_iter[15]);
+      vec_ct -= 15;
+    }
+    do {
+      vul_t maskv = *subset_vvec_iter++;
+      vul_t one_count = (*one_vvec_iter++) & maskv;
+      vul_t two_count = (*two_vvec_iter++) & maskv;
+      one_count = one_count - (vul_rshift(one_count, 1) & m1);
+      two_count = two_count - (vul_rshift(two_count, 1) & m1);
+      one_count = (one_count & m2) + (vul_rshift(one_count, 2) & m2);
+      two_count = (two_count & m2) + (vul_rshift(two_count, 2) & m2);
+      one_count = vul_lshift(two_count, 1) + one_count;
+      acc.vi = acc.vi + (one_count & m4) + (vul_rshift(one_count, 4) & m4);
+    } while (subset_vvec_iter < subset_vvec_stop);
+    acc.vi = (acc.vi & m8) + (vul_rshift(acc.vi, 8) & m8);
+    tot += univec_hsum_16bit(acc);
+  }
+}
+
+uint32_t geno_bitvec_sum_subset(const uintptr_t* subset_mask, const uintptr_t* one_bitvec, const uintptr_t* two_bitvec, uint32_t word_ct) {
+  //   popcount(subset_mask & one_bitvec)
+  // + 2 * popcount(subset_mask & two_bitvec)
+  uint32_t tot = 0;
+#ifdef __LP64__
+  if (word_ct >= kWordsPerVec) {
+#endif
+    const uint32_t remainder = word_ct % kWordsPerVec;
+    const uint32_t main_block_word_ct = word_ct - remainder;
+    word_ct = remainder;
+    tot = geno_bitvec_sum_subset_main((const vul_t*)subset_mask, (const vul_t*)one_bitvec, (const vul_t*)two_bitvec, main_block_word_ct / kWordsPerVec);
+#ifdef __LP64__
+    subset_mask = &(subset_mask[main_block_word_ct]);
+    one_bitvec = &(one_bitvec[main_block_word_ct]);
+    two_bitvec = &(two_bitvec[main_block_word_ct]);
+  }
+  for (uint32_t trailing_word_idx = 0; trailing_word_idx < word_ct; ++trailing_word_idx) {
+    const uintptr_t subset_word = subset_mask[trailing_word_idx];
+    tot += popcount_long(subset_word & one_bitvec[trailing_word_idx]) + 2 * popcount_long(subset_word & two_bitvec[trailing_word_idx]);
+  }
+#endif
+  return tot;
+}
+
+// phased-hardcall r^2 computation:
+//   definitely-known part of dot product is
+//     popcount((one_bitvec0 & two_bitvec1) | (two_bitvec0 & one_bitvec1))
+//   + popcount(two_bitvec0 & two_bitvec1) * 2
+//   + possible phased-het-het term
+//   possibly-unknown part is
+//     popcount(one_bitvec0 & one_bitvec1) - phased-het-het count
+//   when nm_bitvec0 isn't all-ones, also necessary to compute
+//     popcount(nm_bitvec0 & one_bitvec1)
+//   + popcount(nm_bitvec0 & two_bitvec1) * 2
+//   analogous statement is true for nm_bitvec1
+//   if both are incomplete, also need popcount of intersection (compute this
+//     first and skip rest of computation when zero).
+//
+// for possibly-unknown part, --ld reports all solutions when multiple
+// solutions exist, everything else uses EM solution
+
+void geno_bitvec_phased_dotprod_main(const vul_t* one_vvec0, const vul_t* two_vvec0, const vul_t* one_vvec1, const vul_t* two_vvec1, uint32_t vec_ct, uint32_t* __restrict known_dotprod_ptr, uint32_t* __restrict hethet_ct_ptr) {
+  const vul_t m1 = VCONST_UL(kMask5555);
+  const vul_t m2 = VCONST_UL(kMask3333);
+  const vul_t m4 = VCONST_UL(kMask0F0F);
+  const vul_t* one_vvec0_iter = one_vvec0;
+  const vul_t* two_vvec0_iter = two_vvec0;
+  const vul_t* one_vvec1_iter = one_vvec1;
+  const vul_t* two_vvec1_iter = two_vvec1;
+  uint32_t known_dotprod = 0;
+  uint32_t hethet_ct = 0;
+  while (1) {
+    univec_t dotprod_acc;
+    univec_t hethet_acc;
+    dotprod_acc.vi = vul_setzero();
+    hethet_acc.vi = vul_setzero();
+    const vul_t* one_vvec0_stop;
+    if (vec_ct < 15) {
+      if (!vec_ct) {
+        *known_dotprod_ptr = known_dotprod;
+        *hethet_ct_ptr = hethet_ct;
+        return;
+      }
+      one_vvec0_stop = &(one_vvec0_iter[vec_ct]);
+      vec_ct = 0;
+    } else {
+      one_vvec0_stop = &(one_vvec0_iter[15]);
+      vec_ct -= 15;
+    }
+    do {
+      vul_t one_vword0 = *one_vvec0_iter++;
+      vul_t two_vword0 = *two_vvec0_iter++;
+      vul_t one_vword1 = *one_vvec1_iter++;
+      vul_t two_vword1 = *two_vvec1_iter++;
+
+      vul_t dotprod_1x_bits = (one_vword0 & two_vword1) | (one_vword1 & two_vword0);
+      vul_t dotprod_2x_bits = two_vword0 & two_vword1;
+      vul_t hethet_bits = one_vword0 & one_vword1;
+      dotprod_1x_bits = dotprod_1x_bits - (vul_rshift(dotprod_1x_bits, 1) & m1);
+      dotprod_2x_bits = dotprod_2x_bits - (vul_rshift(dotprod_2x_bits, 1) & m1);
+      hethet_bits = hethet_bits - (vul_rshift(hethet_bits, 1) & m1);
+      dotprod_1x_bits = (dotprod_1x_bits & m2) + (vul_rshift(dotprod_1x_bits, 2) & m2);
+      dotprod_2x_bits = (dotprod_2x_bits & m2) + (vul_rshift(dotprod_2x_bits, 2) & m2);
+      hethet_bits = (hethet_bits & m2) + (vul_rshift(hethet_bits, 2) & m2);
+
+      // we now have 4-bit partial bitcounts in the range 0..4.  finally have
+      // enough room to compute 2 * dotprod_2x_bits + dotprod_1x_bits.      
+      dotprod_1x_bits = vul_lshift(dotprod_2x_bits, 1) + dotprod_1x_bits;
+      hethet_acc.vi = hethet_acc.vi + ((hethet_bits + vul_rshift(hethet_bits, 4)) & m4);
+      dotprod_acc.vi = dotprod_acc.vi + (dotprod_1x_bits & m4) + (vul_rshift(dotprod_1x_bits, 4) & m4);
+    } while (one_vvec0_iter < one_vvec0_stop);
+    const vul_t m8 = VCONST_UL(kMask00FF);
+    hethet_acc.vi = (hethet_acc.vi + vul_rshift(hethet_acc.vi, 8)) & m8;
+    dotprod_acc.vi = (dotprod_acc.vi & m8) + (vul_rshift(dotprod_acc.vi, 8) & m8);
+    hethet_ct += univec_hsum_16bit(hethet_acc);
+    known_dotprod += univec_hsum_16bit(dotprod_acc);
+  }
+}
+
+void geno_bitvec_phased_dotprod(const uintptr_t* one_bitvec0, const uintptr_t* two_bitvec0, const uintptr_t* one_bitvec1, const uintptr_t* two_bitvec1, uint32_t word_ct, uint32_t* __restrict known_dotprod_ptr, uint32_t* __restrict hethet_ct_ptr) {
+  // known_dotprod := popcount((one_bitvec0 & two_bitvec1) |
+  //                           (two_bitvec0 & one_bitvec1)) +
+  //                  2 * popcount(subset_mask & two_bitvec)
+  // hethet_ct := popcount(one_bitvec0 & one_bitvec1)
+  uint32_t known_dotprod = 0;
+  uint32_t hethet_ct = 0;
+#ifdef __LP64__
+  if (word_ct >= kWordsPerVec) {
+#endif
+    const uint32_t remainder = word_ct % kWordsPerVec;
+    const uint32_t main_block_word_ct = word_ct - remainder;
+    word_ct = remainder;
+    geno_bitvec_phased_dotprod_main((const vul_t*)one_bitvec0, (const vul_t*)two_bitvec0, (const vul_t*)one_bitvec1, (const vul_t*)two_bitvec1, main_block_word_ct / kWordsPerVec, &known_dotprod, &hethet_ct);
+#ifdef __LP64__
+    one_bitvec0 = &(one_bitvec0[main_block_word_ct]);
+    two_bitvec0 = &(two_bitvec0[main_block_word_ct]);
+    one_bitvec1 = &(one_bitvec1[main_block_word_ct]);
+    two_bitvec1 = &(two_bitvec1[main_block_word_ct]);
+  }
+  for (uint32_t trailing_word_idx = 0; trailing_word_idx < word_ct; ++trailing_word_idx) {
+    const uintptr_t one_word0 = one_bitvec0[trailing_word_idx];
+    const uintptr_t two_word0 = two_bitvec0[trailing_word_idx];
+    const uintptr_t one_word1 = one_bitvec1[trailing_word_idx];
+    const uintptr_t two_word1 = two_bitvec1[trailing_word_idx];
+    known_dotprod += popcount_long((one_word0 & two_word1) | (one_word1 & two_word0)) + 2 * popcount_long(two_word0 & two_word1);
+    hethet_ct += popcount_long(one_word0 & one_word1);
+  }
+#endif
+  *known_dotprod_ptr = known_dotprod;
+  *hethet_ct_ptr = hethet_ct;
+}
+
+// alt_cts[] must be initialized to correct values for
+// no-missing-values-in-other-variant case.
+uint32_t hardcall_phased_r2_stats(const uintptr_t* one_bitvec0, const uintptr_t* two_bitvec0, const uintptr_t* nm_bitvec0, const uintptr_t* one_bitvec1, const uintptr_t* two_bitvec1, const uintptr_t* nm_bitvec1, uint32_t sample_ct, uint32_t nm_ct0, uint32_t nm_ct1, uint32_t* __restrict alt_cts, uint32_t* __restrict known_dotprod_ptr, uint32_t* __restrict hethet_ct_ptr) {
+  const uint32_t sample_ctl = BITCT_TO_WORDCT(sample_ct);
+  uint32_t nm_intersection_ct;
+  if ((nm_ct0 != sample_ct) && (nm_ct1 != sample_ct)) {
+    nm_intersection_ct = popcount_longs_intersect(nm_bitvec0, nm_bitvec1, sample_ctl);
+    if (!nm_intersection_ct) {
+      alt_cts[0] = 0;
+      alt_cts[1] = 0;
+      *known_dotprod_ptr = 0;
+      *hethet_ct_ptr = 0;
+      return 0;
+    }
+  } else {
+    nm_intersection_ct = MINV(nm_ct0, nm_ct1);
+  }
+  if (nm_ct0 != nm_intersection_ct) {
+    alt_cts[0] = geno_bitvec_sum_subset(nm_bitvec1, one_bitvec0, two_bitvec0, sample_ctl);
+  }
+  if (nm_ct1 != nm_intersection_ct) {
+    alt_cts[1] = geno_bitvec_sum_subset(nm_bitvec0, one_bitvec1, two_bitvec1, sample_ctl);
+  }
+  geno_bitvec_phased_dotprod(one_bitvec0, two_bitvec0, one_bitvec1, two_bitvec1, sample_ctl, known_dotprod_ptr, hethet_ct_ptr);
+  return nm_intersection_ct;
+}
+
+void hardcall_phased_r2_refine_main(const vul_t* phasepresent0_vvec, const vul_t* phaseinfo0_vvec, const vul_t* phasepresent1_vvec, const vul_t* phaseinfo1_vvec, uint32_t vec_ct, uint32_t* __restrict hethet_decr_ptr, uint32_t* __restrict not_dotprod_ptr) {
+  // vec_ct must be a multiple of 3
+  const vul_t m1 = VCONST_UL(kMask5555);
+  const vul_t m2 = VCONST_UL(kMask3333);
+  const vul_t m4 = VCONST_UL(kMask0F0F);
+  const vul_t* phasepresent0_vvec_iter = phasepresent0_vvec;
+  const vul_t* phaseinfo0_vvec_iter = phaseinfo0_vvec;
+  const vul_t* phasepresent1_vvec_iter = phasepresent1_vvec;
+  const vul_t* phaseinfo1_vvec_iter = phaseinfo1_vvec;
+  uint32_t hethet_decr = 0;
+  uint32_t not_dotprod = 0;  // like not_hotdog, but more useful
+  while (1) {
+    univec_t hethet_decr_acc;
+    univec_t not_dotprod_acc;
+    not_dotprod_acc.vi = vul_setzero();
+    hethet_decr_acc.vi = vul_setzero();
+    const vul_t* phasepresent0_vvec_stop;
+    if (vec_ct < 30) {
+      if (!vec_ct) {
+        *hethet_decr_ptr = hethet_decr;
+        *not_dotprod_ptr = not_dotprod;
+        return;
+      }
+      phasepresent0_vvec_stop = &(phasepresent0_vvec_iter[vec_ct]);
+      vec_ct = 0;
+    } else {
+      phasepresent0_vvec_stop = &(phasepresent0_vvec_iter[30]);
+      vec_ct -= 30;
+    }
+    do {
+      // todo: benchmark against simpler one-vec-at-a-time loop
+      vul_t mask1 = (*phasepresent0_vvec_iter++) & (*phasepresent1_vvec_iter++);
+      vul_t mask2 = (*phasepresent0_vvec_iter++) & (*phasepresent1_vvec_iter++);
+      vul_t mask_half1 = (*phasepresent0_vvec_iter++) & (*phasepresent1_vvec_iter++);
+      vul_t mask_half2 = vul_rshift(mask_half1, 1) & m1;
+      mask_half1 = mask_half1 & m1;
+
+      vul_t not_dotprod_count1 = (*phaseinfo0_vvec_iter++) ^ (*phaseinfo1_vvec_iter++);
+      vul_t not_dotprod_count2 = (*phaseinfo0_vvec_iter++) ^ (*phaseinfo1_vvec_iter++);
+      vul_t not_dotprod_half1 = (*phaseinfo0_vvec_iter++) ^ (*phaseinfo1_vvec_iter++);
+      vul_t not_dotprod_half2 = vul_rshift(not_dotprod_half1, 1) & mask_half1;
+      not_dotprod_count1 = not_dotprod_count1 & mask1;
+      not_dotprod_count2 = not_dotprod_count2 & mask2;
+      not_dotprod_half1 = not_dotprod_half1 & mask_half1;
+
+      mask1 = mask1 - (vul_rshift(mask1, 1) & m1);
+      mask2 = mask2 - (vul_rshift(mask2, 1) & m1);
+      not_dotprod_count1 = not_dotprod_count1 - (vul_rshift(not_dotprod_count1, 1) & m1);
+      not_dotprod_count2 = not_dotprod_count2 - (vul_rshift(not_dotprod_count2, 1) & m1);
+      mask1 = mask1 + mask_half1;
+      mask2 = mask2 + mask_half2;
+      not_dotprod_count1 = not_dotprod_count1 + not_dotprod_half1;
+      not_dotprod_count2 = not_dotprod_count2 + not_dotprod_half2;
+
+      mask1 = (mask1 & m2) + (vul_rshift(mask1, 2) & m2);
+      not_dotprod_count1 = (not_dotprod_count1 & m2) + (vul_rshift(not_dotprod_count1, 2) & m2);
+      mask1 = mask1 + (mask2 & m2) + (vul_rshift(mask2, 2) & m2);
+      not_dotprod_count1 = not_dotprod_count1 + (not_dotprod_count2 & m2) + (vul_rshift(not_dotprod_count2, 2) & m2);
+
+      hethet_decr_acc.vi = hethet_decr_acc.vi + (mask1 & m4) + (vul_rshift(mask1, 4) & m4);
+      not_dotprod_acc.vi = not_dotprod_acc.vi + (not_dotprod_count1 & m4) + (vul_rshift(not_dotprod_count1, 4) & m4);
+    } while (phasepresent0_vvec_iter < phasepresent0_vvec_stop);
+    const vul_t m8 = VCONST_UL(kMask00FF);
+    hethet_decr_acc.vi = (hethet_decr_acc.vi & m8) + (vul_rshift(hethet_decr_acc.vi, 8) & m8);
+    not_dotprod_acc.vi = (not_dotprod_acc.vi & m8) + (vul_rshift(not_dotprod_acc.vi, 8) & m8);
+    hethet_decr += univec_hsum_16bit(hethet_decr_acc);
+    not_dotprod += univec_hsum_16bit(not_dotprod_acc);
+  }
+}
+
+// only needs to be called when hethet_ct > 0, phasepresent0_ct > 0, and
+// phasepresent1_ct > 0.
+void hardcall_phased_r2_refine(const uintptr_t* phasepresent0, const uintptr_t* phaseinfo0, const uintptr_t* phasepresent1, const uintptr_t* phaseinfo1, uint32_t word_ct, uint32_t* __restrict known_dotprod_ptr, uint32_t* __restrict unknown_hethet_ct_ptr) {
+  // unknown_hethet_ct -= popcount(phasepresent0 & phasepresent1)
+  // known_dotprod_ptr += popcount(phasepresent0 & phasepresent1 &
+  //                               (~(phaseinfo0 ^ phaseinfo1)))
+  uint32_t hethet_decr = 0;
+  uint32_t not_dotprod = 0;
+  if (word_ct >= 3 * kWordsPerVec) {
+    const uint32_t remainder = word_ct % (3 * kWordsPerVec);
+    const uint32_t main_block_word_ct = word_ct - remainder;
+    word_ct = remainder;
+    hardcall_phased_r2_refine_main((const vul_t*)phasepresent0, (const vul_t*)phaseinfo0, (const vul_t*)phasepresent1, (const vul_t*)phaseinfo1, main_block_word_ct / kWordsPerVec, &hethet_decr, &not_dotprod);
+    phasepresent0 = &(phasepresent0[main_block_word_ct]);
+    phaseinfo0 = &(phaseinfo0[main_block_word_ct]);
+    phasepresent1 = &(phasepresent1[main_block_word_ct]);
+    phaseinfo1 = &(phaseinfo1[main_block_word_ct]);
+  }
+  for (uint32_t trailing_word_idx = 0; trailing_word_idx < word_ct; ++trailing_word_idx) {
+    const uintptr_t mask = phasepresent0[trailing_word_idx] & phasepresent1[trailing_word_idx];
+    const uintptr_t xor_word = phaseinfo0[trailing_word_idx] ^ phaseinfo1[trailing_word_idx];
+    hethet_decr += popcount_long(mask);
+    not_dotprod += popcount_long(mask & xor_word);
+  }
+  *known_dotprod_ptr += hethet_decr - not_dotprod;
+  *unknown_hethet_ct_ptr -= hethet_decr;
+}
+
+// phased-dosage r^2 computation:
+//   just do brute force for now
+//   use dense dosage_sum/(optional dosage_diff phase info) representation
+//     when either dosage_diff is null, can skip that dot product
+//   also have a unphased_het_dosage array pointer.  this is null if all
+//     dosages are phased.  otherwise...
+//     suppose one unphased sample has dosage(var0)=0.2 and dosage(var1)=1.4.
+//     this is stored as strandA0[] = strandB0[] = 0.1,
+//                       strandA1[] = strandB1[] = 0.7,
+//     so the sum of the two products is 0.14.
+//     we treat this as P(var0=0/0)=0.8, P(var0=0/1)=0.2,
+//                      P(var1=0/1)=0.6, P(var1=1/1)=0.4,
+//     so the diplotype dosages are
+//       0-0: 2 * 0.9 * 0.3 = 0.54
+//       0-1: 2 * 0.9 * 0.7 = 1.26
+//       1-0: 2 * 0.1 * 0.3 = 0.06
+//       1-1: 2 * 0.1 * 0.7 = 0.14
+//     the no-phasing-error components of this are:
+//       var0=0/0, var1=0/1:
+//         0-0: 0.8 * 0.6 = 0.48
+//         0-1:           = 0.48
+//       var0=0/0, var1=1/1:
+//         0-1: 2 * 0.8 * 0.4 = 0.64
+//       var0=0/1, var1=1/1:
+//         0-1: 0.2 * 0.4 = 0.08
+//         1-1:           = 0.08
+//     the uncertain-phasing component of this is 2 * 0.2 * 0.6 = 0.24; a
+//       quarter of this contributes to the sum-of-products.
+//     if we save P(var=0/1) = (1 - abs(1 - dosagesum)) in unphased_het_dosage
+//       for each unphased dosage (and 0 for each phased dosage), subtracting
+//       half of the unphased_het_dosage dot product (0.12/2 = 0.06 in this
+//       case) from the main dot product yields the definitely-known portion.
+//       the unhalved unphased_het_dosage dot product is the maximum possible
+//       value of the unknown portion (half_hethet_share).
+
+static_assert(sizeof(dosage_t) == 2, "plink2_ld dosage-handling routines must be updated.");
+#ifdef __LP64__
+static_assert(kBytesPerVec == 16, "plink2_ld dosage-handling routines must be updated.");
+void fill_dosage_uhet(const dosage_t* dosage_vec, uint32_t dosagev_ct, dosage_t* dosage_uhet) {
+  const __m128i* dosage_vvec_iter = (const __m128i*)dosage_vec;
+  #if defined(__APPLE__) && ((!defined(__cplusplus)) || (__cplusplus < 201103L))
+  const __m128i all_n32768 = {0x8000800080008000LLU, 0x8000800080008000LLU};
+  const __m128i all_n16384 = {0xc000c000c000c000LLU, 0xc000c000c000c000LLU};
+  #else
+  const __m128i all_n32768 = {-0x7fff7fff7fff8000LL, -0x7fff7fff7fff8000LL};
+  const __m128i all_n16384 = {-0x3fff3fff3fff4000LL, -0x3fff3fff3fff4000LL};
+  #endif
+  const __m128i all0 = _mm_setzero_si128();
+  const __m128i all1 = _mm_cmpeq_epi16(all0, all0);
+  // 0-16384: leave unchanged
+  // 16385-32768: subtract from 32768
+  // 65535: set to 0
+
+  // subtract from 0, _mm_cmplt_epi16 to produce mask, add 32768
+  __m128i* dosage_uhet_iter = (__m128i*)dosage_uhet;
+  for (uint32_t vec_idx = 0; vec_idx < dosagev_ct; ++vec_idx) {
+    __m128i dosagev = *dosage_vvec_iter++;
+
+    __m128i cur_mask = _mm_cmpeq_epi16(dosagev, all1);
+    dosagev = _mm_andnot_si128(cur_mask, dosagev);  // 65535 -> 0
+
+    // xor with -32768 is same as subtracting it
+    __m128i dosagev_opp = _mm_xor_si128(dosagev, all_n32768);
+    // anything > -16384 after this subtraction was originally >16384.
+    // calling the original value x, we want to flip the sign of (x - 32768)
+    cur_mask = _mm_cmpgt_epi16(dosagev_opp, all_n16384);
+    dosagev_opp = _mm_and_si128(cur_mask, dosagev_opp);
+    dosagev = _mm_andnot_si128(cur_mask, dosagev);  // has the <= 16384 values
+    dosagev_opp = _mm_sub_epi16(all0, dosagev_opp);
+    *dosage_uhet_iter++ = _mm_add_epi16(dosagev, dosagev_opp);
+  }
+}
+
+uint64_t dense_dosage_sum(const dosage_t* dosage_vec, uint32_t vec_ct) {
+  // end of dosage_vec assumed to be missing-padded (0-padded also ok)
+  const __m128i* dosage_vvec_iter = (const __m128i*)dosage_vec;
+  const __m128i m16 = {kMask0000FFFF, kMask0000FFFF};
+  const __m128i all1 = _mm_cmpeq_epi16(m16, m16);
+  uint64_t sum = 0;
+  while (1) {
+    __m128i sumv = _mm_setzero_si128();
+    const __m128i* dosage_vvec_stop;
+    // individual values in [0..32768]
+    // 32768 * 16383 * 8 dosages per __m128i = just under 2^32
+    if (vec_ct < 16383) {
+      if (!vec_ct) {
+	return sum;
+      }
+      dosage_vvec_stop = &(dosage_vvec_iter[vec_ct]);
+      vec_ct = 0;
+    } else {
+      dosage_vvec_stop = &(dosage_vvec_iter[16383]);
+      vec_ct -= 16383;
+    }
+    do {
+      __m128i dosagev = *dosage_vvec_iter++;
+      __m128i invmask = _mm_cmpeq_epi16(dosagev, all1);
+      dosagev = _mm_andnot_si128(invmask, dosagev);
+
+      dosagev = _mm_add_epi64(_mm_and_si128(dosagev, m16), _mm_and_si128(_mm_srli_epi64(dosagev, 16), m16));
+      sumv = _mm_add_epi64(sumv, dosagev);
+    } while (dosage_vvec_iter < dosage_vvec_stop);
+    univec16_t acc;
+    acc.vi = sumv;
+    sum += univec16_hsum_32bit(acc);
+  }
+}
+
+uint64_t dense_dosage_sum_subset(const dosage_t* dosage_vec, const dosage_t* dosage_mask_vec, uint32_t vec_ct) {
+  // end of dosage_vec assumed to be missing-padded (0-padded also ok)
+  const __m128i* dosage_vvec_iter = (const __m128i*)dosage_vec;
+  const __m128i* dosage_mask_vvec_iter = (const __m128i*)dosage_mask_vec;
+  const __m128i m16 = {kMask0000FFFF, kMask0000FFFF};
+  const __m128i all1 = _mm_cmpeq_epi16(m16, m16);
+  uint64_t sum = 0;
+  while (1) {
+    __m128i sumv = _mm_setzero_si128();
+    const __m128i* dosage_vvec_stop;
+    if (vec_ct < 16383) {
+      if (!vec_ct) {
+	return sum;
+      }
+      dosage_vvec_stop = &(dosage_vvec_iter[vec_ct]);
+      vec_ct = 0;
+    } else {
+      dosage_vvec_stop = &(dosage_vvec_iter[16383]);
+      vec_ct -= 16383;
+    }
+    do {
+      __m128i invmask = *dosage_mask_vvec_iter++;
+      __m128i dosagev = *dosage_vvec_iter++;
+      invmask = _mm_cmpeq_epi16(invmask, all1);
+      invmask = _mm_or_si128(invmask, _mm_cmpeq_epi16(dosagev, all1));
+      dosagev = _mm_andnot_si128(invmask, dosagev);
+
+      dosagev = _mm_add_epi64(_mm_and_si128(dosagev, m16), _mm_and_si128(_mm_srli_epi64(dosagev, 16), m16));
+      sumv = _mm_add_epi64(sumv, dosagev);
+    } while (dosage_vvec_iter < dosage_vvec_stop);
+    univec16_t acc;
+    acc.vi = sumv;
+    sum += univec16_hsum_32bit(acc);
+  }
+}
+
+// 65535 treated as missing
+uint64_t dosage_unsigned_dotprod(const dosage_t* dosage_vec0, const dosage_t* dosage_vec1, uint32_t vec_ct) {
+  const __m128i* dosage_vvec0_iter = (const __m128i*)dosage_vec0;
+  const __m128i* dosage_vvec1_iter = (const __m128i*)dosage_vec1;
+  const __m128i m16 = {kMask0000FFFF, kMask0000FFFF};
+  const __m128i all1 = _mm_cmpeq_epi16(m16, m16);
+  uint64_t dotprod = 0;
+  while (1) {
+    __m128i dotprod_lo = _mm_setzero_si128();
+    __m128i dotprod_hi = _mm_setzero_si128();
+    const __m128i* dosage_vvec0_stop;
+    if (vec_ct < 8192) {
+      if (!vec_ct) {
+        return dotprod;
+      }
+      dosage_vvec0_stop = &(dosage_vvec0_iter[vec_ct]);
+      vec_ct = 0;
+    } else {
+      dosage_vvec0_stop = &(dosage_vvec0_iter[8192]);
+      vec_ct -= 8192;
+    }
+    do {
+      __m128i dosage0 = *dosage_vvec0_iter++;
+      __m128i dosage1 = *dosage_vvec1_iter++;
+      __m128i invmask = _mm_cmpeq_epi16(dosage0, all1);
+      invmask = _mm_or_si128(invmask, _mm_cmpeq_epi16(dosage1, all1));
+      dosage0 = _mm_andnot_si128(invmask, dosage0);
+      dosage1 = _mm_andnot_si128(invmask, dosage1);
+
+      __m128i lo16 = _mm_mullo_epi16(dosage0, dosage1);
+      __m128i hi16 = _mm_mulhi_epu16(dosage0, dosage1);
+      lo16 = _mm_add_epi64(_mm_and_si128(lo16, m16), _mm_and_si128(_mm_srli_epi64(lo16, 16), m16));
+      hi16 = _mm_and_si128(_mm_add_epi64(hi16, _mm_srli_epi64(hi16, 16)), m16);
+      dotprod_lo = _mm_add_epi64(dotprod_lo, lo16);
+      dotprod_hi = _mm_add_epi64(dotprod_hi, hi16);
+    } while (dosage_vvec0_iter < dosage_vvec0_stop);
+    univec16_t acc_lo;
+    univec16_t acc_hi;
+    acc_lo.vi = dotprod_lo;
+    acc_hi.vi = dotprod_hi;
+    dotprod += univec16_hsum_32bit(acc_lo) + 65536 * univec16_hsum_32bit(acc_hi);
+  }
+}
+
+uint64_t dosage_unsigned_nomiss_dotprod(const dosage_t* dosage_vec0, const dosage_t* dosage_vec1, uint32_t vec_ct) {
+  const __m128i* dosage_vvec0_iter = (const __m128i*)dosage_vec0;
+  const __m128i* dosage_vvec1_iter = (const __m128i*)dosage_vec1;
+  const __m128i m16 = {kMask0000FFFF, kMask0000FFFF};
+  uint64_t dotprod = 0;
+  while (1) {
+    __m128i dotprod_lo = _mm_setzero_si128();
+    __m128i dotprod_hi = _mm_setzero_si128();
+    const __m128i* dosage_vvec0_stop;
+    if (vec_ct < 8192) {
+      if (!vec_ct) {
+        return dotprod;
+      }
+      dosage_vvec0_stop = &(dosage_vvec0_iter[vec_ct]);
+      vec_ct = 0;
+    } else {
+      dosage_vvec0_stop = &(dosage_vvec0_iter[8192]);
+      vec_ct -= 8192;
+    }
+    do {
+      __m128i dosage0 = *dosage_vvec0_iter++;
+      __m128i dosage1 = *dosage_vvec1_iter++;
+
+      __m128i lo16 = _mm_mullo_epi16(dosage0, dosage1);
+      __m128i hi16 = _mm_mulhi_epu16(dosage0, dosage1);
+      lo16 = _mm_add_epi64(_mm_and_si128(lo16, m16), _mm_and_si128(_mm_srli_epi64(lo16, 16), m16));
+      hi16 = _mm_and_si128(_mm_add_epi64(hi16, _mm_srli_epi64(hi16, 16)), m16);
+      dotprod_lo = _mm_add_epi64(dotprod_lo, lo16);
+      dotprod_hi = _mm_add_epi64(dotprod_hi, hi16);
+    } while (dosage_vvec0_iter < dosage_vvec0_stop);
+    univec16_t acc_lo;
+    univec16_t acc_hi;
+    acc_lo.vi = dotprod_lo;
+    acc_hi.vi = dotprod_hi;
+    dotprod += univec16_hsum_32bit(acc_lo) + 65536 * univec16_hsum_32bit(acc_hi);
+  }
+}
+
+int64_t dosage_signed_dotprod(const dosage_t* dosage_diff0, const dosage_t* dosage_diff1, uint32_t vec_ct) {
+  const __m128i* dosage_diff0_iter = (const __m128i*)dosage_diff0;
+  const __m128i* dosage_diff1_iter = (const __m128i*)dosage_diff1;
+  const __m128i m16 = {kMask0000FFFF, kMask0000FFFF};
+  const __m128i all_4096 = {0x1000100010001000LLU, 0x1000100010001000LLU};
+  uint64_t dotprod = 0;
+  uint32_t vec_ct_rem = vec_ct;
+  while (1) {
+    __m128i dotprod_lo = _mm_setzero_si128();
+    __m128i dotprod_hi = _mm_setzero_si128();
+    const __m128i* dosage_diff0_stop;
+    if (vec_ct_rem < 8192) {
+      if (!vec_ct_rem) {
+	// this cancels out the shift-hi16-by-4096 below
+        return ((int64_t)dotprod) - (0x10000000LLU * kDosagePerVec) * vec_ct;
+      }
+      dosage_diff0_stop = &(dosage_diff0_iter[vec_ct_rem]);
+      vec_ct_rem = 0;
+    } else {
+      dosage_diff0_stop = &(dosage_diff0_iter[8192]);
+      vec_ct_rem -= 8192;
+    }
+    do {
+      __m128i dosage0 = *dosage_diff0_iter++;
+      __m128i dosage1 = *dosage_diff1_iter++;
+
+      __m128i hi16 = _mm_mulhi_epi16(dosage0, dosage1);
+      __m128i lo16 = _mm_mullo_epi16(dosage0, dosage1);
+      // original values are in [-16384, 16384]
+      // product is in [-2^28, 2^28], so hi16 is in [-4096, 4096]
+      // so if we add 4096 to hi16, we can treat it as an unsigned value in the
+      //   rest of this loop
+      hi16 = _mm_add_epi16(hi16, all_4096);
+      lo16 = _mm_add_epi64(_mm_and_si128(lo16, m16), _mm_and_si128(_mm_srli_epi64(lo16, 16), m16));
+      hi16 = _mm_and_si128(_mm_add_epi64(hi16, _mm_srli_epi64(hi16, 16)), m16);
+      dotprod_lo = _mm_add_epi64(dotprod_lo, lo16);
+      dotprod_hi = _mm_add_epi64(dotprod_hi, hi16);
+    } while (dosage_diff0_iter < dosage_diff0_stop);
+    univec16_t acc_lo;
+    univec16_t acc_hi;
+    acc_lo.vi = dotprod_lo;
+    acc_hi.vi = dotprod_hi;
+    dotprod += univec16_hsum_32bit(acc_lo) + 65536 * univec16_hsum_32bit(acc_hi);
+  }
+}
+#else
+void fill_dosage_uhet(const dosage_t* dosage_vec, uint32_t dosagev_ct, dosage_t* dosage_uhet) {
+  const uint32_t sample_cta2 = dosagev_ct * 2;
+  for (uint32_t sample_idx = 0; sample_idx < sample_cta2; ++sample_idx) {
+    const uint32_t cur_dosage = dosage_vec[sample_idx];
+    uint32_t cur_hetval = cur_dosage;
+    if (cur_hetval > 16384) {
+      if (cur_hetval == kDosageMissing) {
+        cur_hetval = 0;
+      } else {
+        cur_hetval = 32768 - cur_hetval;
+      }
+    }
+    dosage_uhet[sample_idx] = cur_hetval;
+  }
+}
+
+uint64_t dense_dosage_sum(const dosage_t* dosage_vec, uint32_t vec_ct) {
+  const uint32_t sample_cta2 = vec_ct * 2;
+  uint64_t sum = 0;
+  for (uint32_t sample_idx = 0; sample_idx < sample_cta2; ++sample_idx) {
+    const uint32_t cur_dosage = dosage_vec[sample_idx];
+    if (cur_dosage != kDosageMissing) {
+      sum += cur_dosage;
+    }
+  }
+  return sum;
+}
+
+uint64_t dense_dosage_sum_subset(const dosage_t* dosage_vec, const dosage_t* dosage_mask_vec, uint32_t vec_ct) {
+  const uint32_t sample_cta2 = vec_ct * 2;
+  uint64_t sum = 0;
+  for (uint32_t sample_idx = 0; sample_idx < sample_cta2; ++sample_idx) {
+    const uint32_t cur_dosage = dosage_vec[sample_idx];
+    const uint32_t other_dosage = dosage_mask_vec[sample_idx];
+    if ((cur_dosage != kDosageMissing) && (other_dosage != kDosageMissing)) {
+      sum += cur_dosage;
+    }
+  }
+  return sum;
+}
+
+uint64_t dosage_unsigned_dotprod(const dosage_t* dosage_vec0, const dosage_t* dosage_vec1, uint32_t vec_ct) {
+  const uint32_t sample_cta2 = vec_ct * 2;
+  uint64_t dotprod = 0;
+  for (uint32_t sample_idx = 0; sample_idx < sample_cta2; ++sample_idx) {
+    const uint32_t cur_dosage0 = dosage_vec0[sample_idx];
+    const uint32_t cur_dosage1 = dosage_vec1[sample_idx];
+    if ((cur_dosage0 != kDosageMissing) && (cur_dosage1 != kDosageMissing)) {
+      dotprod += cur_dosage0 * cur_dosage1;
+    }
+  }
+  return dotprod;
+}
+
+uint64_t dosage_unsigned_nomiss_dotprod(const dosage_t* dosage_vec0, const dosage_t* dosage_vec1, uint32_t vec_ct) {
+  const uint32_t sample_cta2 = vec_ct * 2;
+  uint64_t dotprod = 0;
+  for (uint32_t sample_idx = 0; sample_idx < sample_cta2; ++sample_idx) {
+    const uint32_t cur_dosage0 = dosage_vec0[sample_idx];
+    const uint32_t cur_dosage1 = dosage_vec1[sample_idx];
+    dotprod += cur_dosage0 * cur_dosage1;
+  }
+  return dotprod;
+}
+
+int64_t dosage_signed_dotprod(const dosage_t* dosage_diff0, const dosage_t* dosage_diff1, uint32_t vec_ct) {
+  const uint32_t sample_cta2 = vec_ct * 2;
+  int64_t dotprod = 0;
+  for (uint32_t sample_idx = 0; sample_idx < sample_cta2; ++sample_idx) {
+    const int32_t cur_diff0 = ((int16_t)dosage_diff0[sample_idx]);
+    const int32_t cur_diff1 = ((int16_t)dosage_diff1[sample_idx]);
+    dotprod += cur_diff0 * cur_diff1;
+  }
+  return dotprod;
+}
+#endif
+
+void dosage_phaseinfo_patch(const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, uint32_t sample_ct, dosage_t* dosage_uhet, dosage_t* dosage_diff) {
+  const uint32_t sample_ctl = BITCT_TO_WORDCT(sample_ct);
+  for (uint32_t widx = 0; widx < sample_ctl; ++widx) {
+    uintptr_t phasepresent_nodosage_word = phasepresent[widx] & (~dosage_present[widx]);
+    if (phasepresent_nodosage_word) {
+      const uintptr_t phaseinfo_word = phaseinfo[widx];
+      const uint32_t sample_idx_offset = widx * kBitsPerWord;
+      do {
+	const uint32_t sample_idx_lowbits = CTZLU(phasepresent_nodosage_word);
+	const uint32_t cur_diff = 49152 - ((phaseinfo_word >> sample_idx_lowbits) & 1) * 32768;
+	const uint32_t sample_idx = sample_idx_offset + sample_idx_lowbits;
+	dosage_uhet[sample_idx] = 0;
+	dosage_diff[sample_idx] = cur_diff;
+	phasepresent_nodosage_word &= phasepresent_nodosage_word - 1;
+      } while (phasepresent_nodosage_word);
+    }
+  }
+}
+
+uint32_t dosage_phased_r2_stats(const dosage_t* dosage_vec0, const dosage_t* dosage_uhet0, const uintptr_t* nm_bitvec0, const dosage_t* dosage_vec1, const dosage_t* dosage_uhet1, const uintptr_t* nm_bitvec1, uint32_t sample_ct, uint32_t nm_ct0, uint32_t nm_ct1, uint64_t* __restrict alt_dosages, uint64_t* __restrict known_dosageprod_ptr, uint64_t* __restrict uhethet_dosageprod_ptr) {
+  const uint32_t sample_ctl = BITCT_TO_WORDCT(sample_ct);
+  uint32_t nm_intersection_ct;
+  if ((nm_ct0 != sample_ct) && (nm_ct1 != sample_ct)) {
+    nm_intersection_ct = popcount_longs_intersect(nm_bitvec0, nm_bitvec1, sample_ctl);
+    if (!nm_intersection_ct) {
+      alt_dosages[0] = 0;
+      alt_dosages[1] = 0;
+      *known_dosageprod_ptr = 0;
+      *uhethet_dosageprod_ptr = 0;
+      return 0;
+    }
+  } else {
+    nm_intersection_ct = MINV(nm_ct0, nm_ct1);
+  }
+  const uint32_t vec_ct = DIV_UP(sample_ct, kDosagePerVec);
+  if (nm_ct0 != nm_intersection_ct) {
+    alt_dosages[0] = dense_dosage_sum_subset(dosage_vec0, dosage_vec1, vec_ct);
+  }
+  if (nm_ct1 != nm_intersection_ct) {
+    alt_dosages[1] = dense_dosage_sum_subset(dosage_vec1, dosage_vec0, vec_ct);
+  }
+  // could conditionally use dosage_unsigned_nomiss here
+  *known_dosageprod_ptr = dosage_unsigned_dotprod(dosage_vec0, dosage_vec1, vec_ct);
+
+  *uhethet_dosageprod_ptr = dosage_unsigned_nomiss_dotprod(dosage_uhet0, dosage_uhet1, vec_ct);
+  return nm_intersection_ct;
+}
+
+
+// "unscaled" because you need to multiply by allele count to get the proper
+// log-likelihood
+double em_phase_unscaled_lnlike(double freq11, double freq12, double freq21, double freq22, double half_hethet_share, double freq11_incr) {
+  freq11 += freq11_incr;
+  freq22 += freq11_incr;
+  freq12 += half_hethet_share - freq11_incr;
+  freq21 += half_hethet_share - freq11_incr;
+  const double cross_sum = freq11 * freq22 + freq12 * freq21;
+  double lnlike = 0.0;
+  if (cross_sum != 0.0) {
+    lnlike = half_hethet_share * log(cross_sum);
+  }
+  if (freq11 != 0.0) {
+    lnlike += freq11 * log(freq11);
+  }
+  if (freq12 != 0.0) {
+    lnlike += freq12 * log(freq12);
+  }
+  if (freq21 != 0.0) {
+    lnlike += freq21 * log(freq21);
+  }
+  if (freq22 != 0.0) {
+    lnlike += freq22 * log(freq22);
+  }
+  return lnlike;
+}
+
+pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const ld_info_t* ldip, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, pgen_reader_t* simple_pgrp) {
+  unsigned char* bigstack_mark = g_bigstack_base;
   pglerr_t reterr = kPglRetSuccess;
   {
     if (!founder_ct) {
       logerrprint("Warning: Skipping --ld since there are no founders.  (--make-founders may come\nin handy here.)\n");
       goto ld_console_ret_1;
     }
+    char** ld_console_varids = (char**)ldip->ld_console_varids;
+    // ok to ignore chr_mask here
     const int32_t x_code = cip->xymt_codes[kChrOffsetX];
+    const int32_t y_code = cip->xymt_codes[kChrOffsetY];
     const int32_t mt_code = cip->xymt_codes[kChrOffsetMT];
-    // is_x: male het calls treated as missing in hardcall counts, SNPHWEX used
-    //       for HWE stats
-    // is_nonx_haploid_or_mt: all het calls treated as missing in hardcall
-    //                        counts, HWE stats reported as "n/a"
+    // is_x:
+    // * male het calls treated as missing hardcalls
+    // * males only have half weight in all computations (or sqrt(0.5) if one
+    //   variant on chrX and one variant elsewhere)
+    // * SNPHWEX used for HWE stats
+    //
+    // is_nonx_haploid_or_mt:
+    // * all het calls treated as missing hardcalls
     uint32_t var_uidxs[2];
+    uint32_t chr_idxs[2];
     uint32_t is_xs[2];
-    is_xs[0] = 0;
-    is_xs[1] = 0;
     uint32_t is_nonx_haploid_or_mts[2];
+    uint32_t y_ct = 0;
     for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {
-      char* cur_varid = ld_flag_varids[var_idx];
+      char* cur_varid = ld_console_varids[var_idx];
       int32_t ii = get_variant_uidx_without_htable(cur_varid, variant_ids, variant_include, variant_ct);
       if (ii == -1) {
 	sprintf(g_logbuf, "Error: --ld variant '%s' does not appear in dataset.\n", cur_varid);
@@ -1500,16 +2333,34 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, cha
       }
       var_uidxs[var_idx] = (uint32_t)ii;
       const uint32_t chr_idx = get_variant_chr(cip, (uint32_t)ii);
+      chr_idxs[var_idx] = chr_idx;
+      const uint32_t is_x = ((int32_t)chr_idx == x_code);
+      is_xs[var_idx] = is_x;
       uint32_t is_nonx_haploid_or_mt;
       if (is_set(cip->haploid_mask, chr_idx)) {
-	is_nonx_haploid_or_mt = ((int32_t)chr_idx != x_code);
-	if (!is_nonx_haploid_or_mt) {
-	  is_xs[var_idx] = 1;
-	}
+	is_nonx_haploid_or_mt = 1 - is_x;
+        y_ct += ((int32_t)chr_idx == y_code);
       } else {
 	is_nonx_haploid_or_mt = ((int32_t)chr_idx == mt_code);
       }
       is_nonx_haploid_or_mts[var_idx] = is_nonx_haploid_or_mt;
+    }
+    const uint32_t raw_sample_ctl = BITCT_TO_WORDCT(raw_sample_ct);
+    // if both unplaced, don't count as same-chromosome
+    const uint32_t is_same_chr = chr_idxs[0] && (chr_idxs[0] == chr_idxs[1]);
+    if (y_ct) {
+      // only keep male founders
+      uintptr_t* founder_info_tmp;
+      if (bigstack_alloc_ul(raw_sample_ctl, &founder_info_tmp)) {
+        goto ld_console_ret_NOMEM;
+      }
+      bitvec_and_copy(founder_info, sex_male, raw_sample_ctl, founder_info_tmp);
+      founder_info = founder_info_tmp;
+      founder_ct = popcount_longs(founder_info, raw_sample_ctl);
+      if (!founder_ct) {
+        LOGERRPRINTFWW("Warning: Skipping --ld since there are no male founders, and %s specified. (--make-founders may come in handy here.)\n", is_same_chr? "chrY variants were" : "a chrY variant was");
+        goto ld_console_ret_1;
+      }
     }
     const uint32_t founder_ctl = BITCT_TO_WORDCT(founder_ct);
     const uint32_t founder_ctl2 = QUATERCT_TO_WORDCT(founder_ct);
@@ -1536,10 +2387,11 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, cha
     }
     const uint32_t x_present = (is_xs[0] || is_xs[1]);
     const uint32_t founder_ctv = BITCT_TO_VECCT(founder_ct);
+    const uint32_t founder_ctaw = founder_ctv * kWordsPerVec;
     uintptr_t* sex_male_collapsed = nullptr;
     uintptr_t* sex_male_collapsed_interleaved = nullptr;
+    uint32_t x_male_ct = 0;
     if (x_present) {
-      const uint32_t founder_ctaw = founder_ctv * kWordsPerVec;
       if (bigstack_alloc_ul(founder_ctaw, &sex_male_collapsed) ||
 	  bigstack_alloc_ul(founder_ctaw, &sex_male_collapsed_interleaved)) {
 	goto ld_console_ret_NOMEM;
@@ -1549,9 +2401,11 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, cha
 #endif
       copy_bitarr_subset(sex_male, founder_info, founder_ct, sex_male_collapsed);
       fill_interleaved_mask_vec(sex_male_collapsed, founder_ctv, sex_male_collapsed_interleaved);
+      x_male_ct = popcount_longs(sex_male_collapsed, founder_ctaw);
     }
     fill_cumulative_popcounts(founder_info, founder_ctl, founder_info_cumulative_popcounts);
-    // ok to ignore chr_mask here
+    uint32_t use_dosage = ldip->ld_console_modifier & kfLdConsoleDosage;
+
     pgr_clear_ld_cache(simple_pgrp);
     for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {
       const uint32_t variant_uidx = var_uidxs[var_idx];
@@ -1560,6 +2414,11 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, cha
       uintptr_t* cur_phaseinfo = phaseinfos[var_idx];
       uintptr_t* cur_dosage_present = dosage_presents[var_idx];
       dosage_t* cur_dosage_vals = dosage_vals[var_idx];
+      // (unconditionally allocating phaseinfo/dosage_vals and using the most
+      // general-purpose loader makes sense when this loop only executes twice,
+      // but --r2 will want to use different pgenlib loaders depending on
+      // context.)
+
       // todo: multiallelic case
       uint32_t is_explicit_alt1;
       reterr = pgr_read_refalt1_genovec_hphase_dosage16_subset_unsafe(founder_info, founder_info_cumulative_popcounts, founder_ct, variant_uidx, simple_pgrp, cur_genovec, cur_phasepresent, cur_phaseinfo, &(phasepresent_cts[var_idx]), cur_dosage_present, cur_dosage_vals, &(dosage_cts[var_idx]), &is_explicit_alt1);
@@ -1570,92 +2429,582 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, cha
 	}
 	goto ld_console_ret_1;
       }
-      if (is_nonx_haploid_or_mts[var_idx]) {
-	// may be better to consolidate hardcall_counts[] cells after the fact
-	set_het_missing(founder_ctl2, cur_genovec);
-      } else if (is_xs[var_idx]) {
-	set_male_het_missing(sex_male_collapsed_interleaved, founder_ctv, cur_genovec);
-      }
-    }
-    // nonmale/male(2), second hardcall(4), first hardcall(4)
-    uint32_t hardcall_counts[32];
-    fill_uint_zero(32, hardcall_counts);
-    const uint32_t founder_ctl2_m1 = founder_ctl2 - 1;
-    uintptr_t* genovec0 = genovecs[0];
-    uintptr_t* genovec1 = genovecs[1];
-    halfword_t* is_male_hw_alias = (halfword_t*)sex_male_collapsed;
-    uint32_t widx = 0;
-    uint32_t loop_len = kBitsPerWordD2;
-    while (1) {
-      if (widx >= founder_ctl2_m1) {
-	if (widx > founder_ctl2_m1) {
-	  break;
-	}
-	loop_len = MOD_NZ(founder_ct, kBitsPerWordD2);
-      }
-      uintptr_t cur_word0 = genovec0[widx];
-      uintptr_t cur_word1 = genovec1[widx];
-      if (!x_present) {
-	for (uint32_t uii = 0; uii < loop_len; ++uii) {
-	  hardcall_counts[(cur_word0 & 3) + (cur_word1 & 3) * 4] += 1;
-	  cur_word0 >>= 2;
-	  cur_word1 >>= 2;
-	}
-      } else {
-	uint32_t is_male_hw = (uint32_t)is_male_hw_alias[widx];
-	for (uint32_t uii = 0; uii < loop_len; ++uii) {
-	  hardcall_counts[(cur_word0 & 3) + (cur_word1 & 3) * 4 + (is_male_hw & 1) * 16] += 1;
-	  cur_word0 >>= 2;
-	  cur_word1 >>= 2;
-	  is_male_hw >>= 1;
+      zero_trailing_quaters(founder_ct, cur_genovec);
+      if (!use_dosage) {
+	if (is_nonx_haploid_or_mts[var_idx]) {
+	  set_het_missing(founder_ctl2, cur_genovec);
+	  phasepresent_cts[var_idx] = 0;
+	  // todo: erase phased dosages
+	} else if (x_male_ct && is_xs[var_idx]) {
+	  set_male_het_missing(sex_male_collapsed_interleaved, founder_ctv, cur_genovec);
+	  if (phasepresent_cts[var_idx]) {
+	    bitvec_andnot(sex_male_collapsed, founder_ctl, cur_phasepresent);
+	    phasepresent_cts[var_idx] = popcount_longs(cur_phasepresent, founder_ctl);
+	  }
+	  // todo: erase male phased dosages
 	}
       }
-      ++widx;
     }
-    uint32_t var0_marginal_counts[3];
-    for (uint32_t uii = 0; uii < 3; ++uii) {
-      const uint32_t* hardcall_counts_row = &(hardcall_counts[uii * 4]);
-      var0_marginal_counts[uii] = hardcall_counts_row[0] + hardcall_counts_row[1] + hardcall_counts_row[2];
+    const uint32_t use_phase = is_same_chr && (!is_nonx_haploid_or_mts[0]) && phasepresent_cts[0] && phasepresent_cts[1];
+    if ((!dosage_cts[0]) || (!dosage_cts[1])) {
+      use_dosage = 0;
     }
-    uint32_t var1_marginal_counts[3];
-    for (uint32_t uii = 0; uii < 3; ++uii) {
-      const uint32_t* hardcall_counts_col = &(hardcall_counts[uii]);
-      var1_marginal_counts[uii] = hardcall_counts_col[0] + hardcall_counts_col[4] + hardcall_counts_col[8];
-    }
-    uint32_t var0_x_male_marginal_counts[3];
-    uint32_t var1_x_male_marginal_counts[3];
-    if (x_present) {
-      for (uint32_t uii = 0; uii < 3; ++uii) {
-	const uint32_t* hardcall_counts_row = &(hardcall_counts[16 + uii * 4]);
-	var0_x_male_marginal_counts[uii] = hardcall_counts_row[0] + hardcall_counts_row[1] + hardcall_counts_row[2];
-	var0_marginal_counts[uii] += var0_x_male_marginal_counts[uii];
+
+    // values of interest:
+    //   mutually-nonmissing observation count
+    //   (all other values computed over mutually-nonmissing set)
+    //   4 known-diplotype dosages (0..2 for each sample, in unphased het-het)
+    //   (unphased het-het fractional count can be inferred)
+    //   dosage sum for each variant
+    double x_male_known_dotprod_d = 0.0;
+    uint32_t valid_x_male_ct = 0;
+    double altsums_d[2];
+    double x_male_altsums_d[2];
+    double known_dotprod_d;
+    double unknown_hethet_d;
+    uint32_t valid_obs_ct;
+    uint32_t hethet_present;
+    if (!use_dosage) {
+      // While we could theoretically optimize around the fact that we only
+      // need to make a single phased-r^2 computation, that's silly; it makes a
+      // lot more sense to use this as a testing ground for algorithms and data
+      // representations suitable for --r/--r2, etc.
+      uintptr_t* one_bitvecs[2];
+      uintptr_t* two_bitvecs[2];
+      uintptr_t* nm_bitvecs[2];
+      if (bigstack_alloc_ul(founder_ctaw, &one_bitvecs[0]) ||
+          bigstack_alloc_ul(founder_ctaw, &two_bitvecs[0]) ||
+          bigstack_alloc_ul(founder_ctaw, &nm_bitvecs[0]) ||
+          bigstack_alloc_ul(founder_ctaw, &one_bitvecs[1]) ||
+          bigstack_alloc_ul(founder_ctaw, &two_bitvecs[1]) ||
+          bigstack_alloc_ul(founder_ctaw, &nm_bitvecs[1])) {
+        goto ld_console_ret_NOMEM;
       }
-      for (uint32_t uii = 0; uii < 3; ++uii) {
-	const uint32_t* hardcall_counts_col = &(hardcall_counts[16 + uii]);
-	var1_x_male_marginal_counts[uii] = hardcall_counts_col[0] + hardcall_counts_col[4] + hardcall_counts_col[8];
-	var1_marginal_counts[uii] += var1_x_male_marginal_counts[uii];
+      uint32_t alt_cts[2];
+      uint32_t nm_cts[2];
+      for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {
+        genoarr_split_12nm(genovecs[var_idx], founder_ct, one_bitvecs[var_idx], two_bitvecs[var_idx], nm_bitvecs[var_idx]);
+        alt_cts[var_idx] = geno_bitvec_sum(one_bitvecs[var_idx], two_bitvecs[var_idx], founder_ctl);
+	nm_cts[var_idx] = popcount_longs(nm_bitvecs[var_idx], founder_ctl);
+      }
+      const uint32_t orig_alt_ct1 = alt_cts[1];
+      uint32_t known_dotprod;
+      uint32_t unknown_hethet_ct;
+      valid_obs_ct = hardcall_phased_r2_stats(one_bitvecs[0], two_bitvecs[0], nm_bitvecs[0], one_bitvecs[1], two_bitvecs[1], nm_bitvecs[1], founder_ct, nm_cts[0], nm_cts[1], alt_cts, &known_dotprod, &unknown_hethet_ct);
+      if (!valid_obs_ct) {
+        goto ld_console_ret_NO_VALID_OBSERVATIONS;
+      }
+      hethet_present = (unknown_hethet_ct != 0);
+      if (use_phase && hethet_present) {
+        // all that's needed for the hardcall-phase correction is:
+        //   popcount(phasepresent0 & phasepresent1)
+        //   popcount(phasepresent0 & phasepresent1 &
+        //            (phaseinfo0 ^ phaseinfo1))
+        hardcall_phased_r2_refine(phasepresents[0], phaseinfos[0], phasepresents[1], phaseinfos[1], founder_ctl, &known_dotprod, &unknown_hethet_ct);
+      }
+      altsums_d[0] = (int32_t)alt_cts[0];
+      altsums_d[1] = (int32_t)alt_cts[1];
+      known_dotprod_d = known_dotprod;
+      unknown_hethet_d = (int32_t)unknown_hethet_ct;
+      if (x_male_ct) {
+        // on chrX, store separate full-size copies of one_bitvec, two_bitvec,
+        //   and nm_bitvec with nonmales masked out
+        // (we can bitvec-and here because we're not doing any further
+        // calculations.  it suffices to bitvec-and one side)
+        bitvec_and(sex_male_collapsed, founder_ctl, one_bitvecs[0]);
+        bitvec_and(sex_male_collapsed, founder_ctl, two_bitvecs[0]);
+        bitvec_and(sex_male_collapsed, founder_ctl, nm_bitvecs[0]);
+        uint32_t x_male_alt_cts[2];
+        x_male_alt_cts[0] = geno_bitvec_sum(one_bitvecs[0], two_bitvecs[0], founder_ctl);
+
+        x_male_alt_cts[1] = orig_alt_ct1;
+
+        const uint32_t x_male_nm_ct0 = popcount_longs(nm_bitvecs[0], founder_ctl);
+        uint32_t x_male_known_dotprod;
+        uint32_t x_male_unknown_hethet_ct;  // ignore
+        valid_x_male_ct = hardcall_phased_r2_stats(one_bitvecs[0], two_bitvecs[0], nm_bitvecs[0], one_bitvecs[1], two_bitvecs[1], nm_bitvecs[1], founder_ct, x_male_nm_ct0, nm_cts[1], x_male_alt_cts, &x_male_known_dotprod, &x_male_unknown_hethet_ct);
+        x_male_altsums_d[0] = (int32_t)x_male_alt_cts[0];
+        x_male_altsums_d[1] = (int32_t)x_male_alt_cts[1];
+        x_male_known_dotprod_d = x_male_known_dotprod;
+        // hethet impossible for chrX males
+        assert(!x_male_unknown_hethet_ct);
       }
     } else {
-      fill_uint_zero(3, var0_x_male_marginal_counts);
-      fill_uint_zero(3, var1_x_male_marginal_counts);
+      // Current brute-force strategy:
+      // 1. Expand each variant to all-dosage_t format, with an optional
+      //    phased dosage signed-difference track.
+      // 2. Given (a0+b0), (a0-b0), (a1+b1), and (a1-b1)
+      //    We wish to compute a0*a1 + b0*b1
+      //      (a0+b0) * (a1+b1) = a0*a1 + b0*b1 + a0*b1 + a1*b0
+      //      (a0-b0) * (a1-b1) = a0*a1 + b0*b1 - a0*b1 - a1*b0
+      //      so halving the sum of these two dot products works.
+      const uint32_t founder_dosagev_ct = DIV_UP(founder_ct, kDosagePerVec);
+      dosage_t* dosage_vecs[2];
+      dosage_t* dosage_uhets[2];
+      uintptr_t* nm_bitvecs[2];
+      // founder_ct automatically rounded up as necessary
+      if (bigstack_alloc_dosage(founder_ct, &dosage_vecs[0]) ||
+          bigstack_alloc_dosage(founder_ct, &dosage_vecs[1]) ||
+          bigstack_alloc_dosage(founder_ct, &dosage_uhets[0]) ||
+          bigstack_alloc_dosage(founder_ct, &dosage_uhets[1]) ||
+	  bigstack_alloc_ul(founder_ctl, &nm_bitvecs[0]) ||
+	  bigstack_alloc_ul(founder_ctl, &nm_bitvecs[1])) {
+        goto ld_console_ret_NOMEM;
+      }
+      uint64_t alt_dosages[2];
+      uint32_t nm_cts[2];
+      for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {
+        populate_dense_dosage(genovecs[var_idx], dosage_presents[var_idx], dosage_vals[var_idx], founder_ct, dosage_cts[var_idx], dosage_vecs[var_idx]);
+        alt_dosages[var_idx] = dense_dosage_sum(dosage_vecs[var_idx], founder_dosagev_ct);
+        fill_dosage_uhet(dosage_vecs[var_idx], founder_dosagev_ct, dosage_uhets[var_idx]);
+	genovec_to_nonmissingness_unsafe(genovecs[var_idx], founder_ct, nm_bitvecs[var_idx]);
+	zero_trailing_bits(founder_ct, nm_bitvecs[var_idx]);
+	bitvec_or(dosage_presents[var_idx], founder_ctl, nm_bitvecs[var_idx]);
+	nm_cts[var_idx] = popcount_longs(nm_bitvecs[var_idx], founder_ctl);
+      }
+      dosage_t* dosage_diffs[2];
+      dosage_diffs[0] = nullptr;
+      dosage_diffs[1] = nullptr;
+      if (use_phase) {
+	if (bigstack_alloc_dosage(founder_ct, &dosage_diffs[0]) ||
+	    bigstack_alloc_dosage(founder_ct, &dosage_diffs[1])) {
+	  goto ld_console_ret_NOMEM;
+	}
+	for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {
+	  fill_dosage_zero(founder_dosagev_ct * kDosagePerVec, dosage_diffs[var_idx]);
+	  if (phasepresent_cts[var_idx]) {
+	    dosage_phaseinfo_patch(phasepresents[var_idx], phaseinfos[var_idx], dosage_presents[var_idx], founder_ct, dosage_uhets[var_idx], dosage_diffs[var_idx]);
+	  }
+	  // todo: patch in phased-dosage values
+	}
+      }
+      const uint64_t orig_alt_dosage1 = alt_dosages[1];
+      uint64_t known_dosageprod;
+      uint64_t uhethet_dosageprod;
+      valid_obs_ct = dosage_phased_r2_stats(dosage_vecs[0], dosage_uhets[0], nm_bitvecs[0], dosage_vecs[1], dosage_uhets[1], nm_bitvecs[1], founder_ct, nm_cts[0], nm_cts[1], alt_dosages, &known_dosageprod, &uhethet_dosageprod);
+      if (!valid_obs_ct) {
+	goto ld_console_ret_NO_VALID_OBSERVATIONS;
+      }
+      if (use_phase) {
+	known_dosageprod = ((int64_t)known_dosageprod) + dosage_signed_dotprod(dosage_diffs[0], dosage_diffs[1], founder_dosagev_ct);
+      }
+      altsums_d[0] = ((int64_t)alt_dosages[0]) * kRecipDosageMid;
+      altsums_d[1] = ((int64_t)alt_dosages[1]) * kRecipDosageMid;
+      known_dotprod_d = ((int64_t)known_dosageprod) * (kRecipDosageMidSq * 0.5);
+      unknown_hethet_d = ((int64_t)uhethet_dosageprod) * kRecipDosageMidSq;
+      if (x_male_ct) {
+	dosage_t* x_male_dosage_mask;
+	if (bigstack_alloc_dosage(founder_ct, &x_male_dosage_mask)) {
+	  goto ld_console_ret_NOMEM;
+	}
+	fill_dosage_zero(founder_dosagev_ct * kDosagePerVec, x_male_dosage_mask);
+	uint32_t sample_midx = 0;
+	for (uint32_t uii = 0; uii < x_male_ct; ++uii, ++sample_midx) {
+	  next_set_unsafe_ck(sex_male_collapsed, &sample_midx);
+	  x_male_dosage_mask[sample_midx] = kDosageMissing;
+	}
+	bitvec_ornot((uintptr_t*)x_male_dosage_mask, founder_dosagev_ct, (uintptr_t*)dosage_vecs[0]);
+	bitvec_and((uintptr_t*)x_male_dosage_mask, founder_dosagev_ct, (uintptr_t*)dosage_uhets[0]);
+	bitvec_and(sex_male_collapsed, founder_ctl, nm_bitvecs[0]);
+	uint64_t x_male_alt_dosages[2];
+	x_male_alt_dosages[0] = dense_dosage_sum(dosage_vecs[0], founder_dosagev_ct);
+	x_male_alt_dosages[1] = orig_alt_dosage1;
+	const uint32_t x_male_nm_ct0 = popcount_longs(nm_bitvecs[0], founder_ctl);
+	uint64_t x_male_known_dosageprod;
+	uint64_t x_male_uhethet_dosageprod;  // ignore
+	valid_x_male_ct = dosage_phased_r2_stats(dosage_vecs[0], dosage_uhets[0], nm_bitvecs[0], dosage_vecs[1], dosage_uhets[1], nm_bitvecs[1], founder_ct, x_male_nm_ct0, nm_cts[1], x_male_alt_dosages, &x_male_known_dosageprod, &x_male_uhethet_dosageprod);
+        x_male_altsums_d[0] = ((int64_t)x_male_alt_dosages[0]) * kRecipDosageMid;
+        x_male_altsums_d[1] = ((int64_t)x_male_alt_dosages[1]) * kRecipDosageMid;
+        x_male_known_dotprod_d = ((int64_t)x_male_known_dosageprod) * (kRecipDosageMidSq * 0.5);
+	assert(!x_male_uhethet_dosageprod);
+      }
     }
-    const uint32_t count_total = var0_marginal_counts[0] + var0_marginal_counts[1] + var0_marginal_counts[2];
-    if (!count_total) {
-      logerrprint("Error: No valid observations for --ld.\n");
-      goto ld_console_ret_INCONSISTENT_INPUT;
+    double valid_obs_d = (int32_t)valid_obs_ct;
+    if (valid_x_male_ct) {
+      // males have sqrt(0.5) weight if one variant is chrX, half-weight if
+      // both are chrX
+      const double male_decr = (is_xs[0] && is_xs[1])? 0.5 : (1.0 - 0.5 * kSqrt2);
+      altsums_d[0] -= male_decr * x_male_altsums_d[0];
+      altsums_d[1] -= male_decr * x_male_altsums_d[1];
+      known_dotprod_d -= male_decr * x_male_known_dotprod_d;
+      valid_obs_d -= male_decr * ((int32_t)valid_x_male_ct);
     }
-    if ((!var0_marginal_counts[1]) && ((!var0_marginal_counts[0]) || (!var0_marginal_counts[2]))) {
-      sprintf(g_logbuf, "Error: %s is monomorphic across all valid observations.\n", ld_flag_varids[0]);
-      goto ld_console_ret_INCONSISTENT_INPUT_WW;
+
+    const double twice_tot_recip = 0.5 / valid_obs_d;
+    // in plink 1.9, "freq12" refers to first variant=1, second variant=2
+    // this most closely corresponds to freq_ra here
+
+    // known-diplotype dosages (sum is 2 * (valid_obs_d - unknown_hethet_d)):
+    //   var0  var1
+    //     0  -  0 : 2 * valid_obs_d - altsums[0] - altsums[1] + known_dotprod
+    //     1  -  0 : altsums[0] - known_dotprod - unknown_hethet_d
+    //     0  -  1 : altsums[1] - known_dotprod - unknown_hethet_d
+    //     1  -  1 : known_dotprod
+    double freq_rr = 1.0 - (altsums_d[0] + altsums_d[1] - known_dotprod_d) * twice_tot_recip;
+    double freq_ra = (altsums_d[1] - known_dotprod_d - unknown_hethet_d) * twice_tot_recip;
+    double freq_ar = (altsums_d[0] - known_dotprod_d - unknown_hethet_d) * twice_tot_recip;
+    double freq_aa = known_dotprod_d * twice_tot_recip;
+    const double half_unphased_hethet_share = unknown_hethet_d * twice_tot_recip;
+    const double freq_rx = freq_rr + freq_ra + half_unphased_hethet_share;
+    const double freq_ax = 1.0 - freq_rx;
+    const double freq_xr = freq_rr + freq_ar + half_unphased_hethet_share;
+    const double freq_xa = 1.0 - freq_xr;
+    // frequency of ~2^{-46} is actually possible with dosages and 2 billion
+    // samples, so set this threshold at 2^{-47}
+    if ((freq_rx < (kSmallEpsilon * 0.125)) || (freq_ax < (kSmallEpsilon * 0.125))) {
+      LOGERRPRINTFWW("Warning: Skipping --ld since %s is monomorphic across all valid observations.\n", ld_console_varids[0]);
+      goto ld_console_ret_1;
     }
-    if ((!var1_marginal_counts[1]) && ((!var1_marginal_counts[0]) || (!var1_marginal_counts[2]))) {
-      sprintf(g_logbuf, "Error: %s is monomorphic across all valid observations.\n", ld_flag_varids[1]);
-      goto ld_console_ret_INCONSISTENT_INPUT_WW;
+    if ((freq_xr < (kSmallEpsilon * 0.125)) || (freq_xa < (kSmallEpsilon * 0.125))) {
+      LOGERRPRINTFWW("Warning: Skipping --ld since %s is monomorphic across all valid observations.\n", ld_console_varids[1]);
+      goto ld_console_ret_1;
     }
-    logerrprint("Error: --ld is currently under development.\n");
-    reterr = kPglRetNotYetSupported;
     logprint("\n");
-    LOGPRINTFWW("--ld %s %s:\n", ld_flag_varids[0], ld_flag_varids[1]);
+    LOGPRINTFWW("--ld %s %s:\n", ld_console_varids[0], ld_console_varids[1]);
+    logprint("\n");
+    
+    char* write_poststop = &(g_logbuf[80]);
+    uint32_t varid_slens[2];
+    uint32_t cur_allele_ct = 2;
+    for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {
+      const uint32_t cur_variant_uidx = var_uidxs[var_idx];
+      uintptr_t variant_allele_idx_base = cur_variant_uidx * 2;
+      if (variant_allele_idxs) {
+        variant_allele_idx_base = variant_allele_idxs[cur_variant_uidx];
+        cur_allele_ct = variant_allele_idxs[cur_variant_uidx + 1] - variant_allele_idx_base;
+      }
+      char** cur_alleles = &(allele_storage[variant_allele_idx_base]);
+
+      const char* cur_varid = ld_console_varids[var_idx];
+      const uint32_t cur_varid_slen = strlen(ld_console_varids[var_idx]);
+      varid_slens[var_idx] = cur_varid_slen;
+      char* write_iter = memcpya(g_logbuf, cur_varid, cur_varid_slen);
+      write_iter = strcpya(write_iter, " alleles:\n");
+      *write_iter = '\0';
+      wordwrapb(0);
+      logprintb();
+      write_iter = strcpya(g_logbuf, "  REF = ");
+      const char* ref_allele = cur_alleles[0];
+      const uint32_t ref_slen = strlen(ref_allele);
+      if (ref_slen < 72) {
+        write_iter = memcpyax(write_iter, ref_allele, ref_slen, '\n');
+      } else {
+        write_iter = memcpya(write_iter, ref_allele, 69);
+        write_iter = strcpya(write_iter, "...\n");
+      }
+      *write_iter = '\0';
+      logprintb();
+      write_iter = strcpya(g_logbuf, "  ALT = ");
+      uint32_t allele_idx = 1;
+      while (1) {
+        const char* cur_allele = cur_alleles[allele_idx];
+        const uint32_t cur_slen = strlen(cur_allele);
+        if ((uintptr_t)(write_poststop - write_iter) <= cur_slen) {
+          char* write_ellipsis_start = &(g_logbuf[76]);
+          if (write_ellipsis_start > write_iter) {
+            const uint32_t final_char_ct = (uintptr_t)(write_ellipsis_start - write_iter);
+            memcpy(write_iter, cur_allele, final_char_ct);
+          }
+          write_iter = memcpyl3a(write_ellipsis_start, "...");
+          break;
+        }
+        write_iter = memcpya(write_iter, cur_allele, cur_slen);
+        if (++allele_idx == cur_allele_ct) {
+          break;
+        }
+        *write_iter++ = ',';
+      }
+      *write_iter++ = '\n';
+      *write_iter = '\0';
+      logprintb();
+    }
+    logprint("\n");
+    char* write_iter = uint32toa(valid_obs_ct, g_logbuf);
+    write_iter = strcpya(write_iter, " valid");
+    if (y_ct) {
+      write_iter = strcpya(write_iter, " male");
+    }
+    write_iter = strcpya(write_iter, " sample");
+    if (valid_obs_ct != 1) {
+      *write_iter++ = 's';
+    }
+    if (valid_x_male_ct && (!y_ct)) {
+      write_iter = strcpya(write_iter, " (");
+      write_iter = uint32toa(valid_x_male_ct, write_iter);
+      write_iter = strcpya(write_iter, " male)");
+    }
+    if ((!is_nonx_haploid_or_mts[0]) && (!is_nonx_haploid_or_mts[1])) {
+      write_iter = strcpya(write_iter, "; ");
+      if (unknown_hethet_d == 0.0) {
+        if (hethet_present) {
+          write_iter = strcpya(write_iter, "all phased");
+        } else {
+          write_iter = strcpya(write_iter, "no het pairs present");
+        }
+      } else {
+        // print_dosage assumes kDosageMax rather than kDosageMid multiplier
+        const uint64_t unknown_hethet_int_dosage = (int64_t)(unknown_hethet_d * kDosageMax);
+        write_iter = print_dosage(unknown_hethet_int_dosage, write_iter);
+        write_iter = strcpya(write_iter, " het pair");
+        if (unknown_hethet_int_dosage != kDosageMax) {
+          *write_iter++ = 's';
+        }
+        write_iter = strcpya(write_iter, " statistically phased");
+      }
+    }
+    strcpy(write_iter, ".\n");
+    logprintb();
+
+    uint32_t cubic_sol_ct = 0;
+    uint32_t first_relevant_sol_idx = 0;
+    uint32_t best_lnlike_idx = 3;
+    double cubic_sols[3];
+    if (half_unphased_hethet_share) {
+      // detect degenerate cases to avoid e-17 ugliness
+      // possible todo: when there are multiple solutions, mark the EM solution
+      //   in some manner
+      if ((freq_rr * freq_aa != 0.0) || (freq_ra * freq_ar != 0.0)) {
+	// (f11 + x)(f22 + x)(K - x) = x(f12 + K - x)(f21 + K - x)
+	// (x - K)(x + f11)(x + f22) + x(x - K - f12)(x - K - f21) = 0
+	//   x^3 + (f11 + f22 - K)x^2 + (f11*f22 - K*f11 - K*f22)x
+	// - K*f11*f22 + x^3 - (2K + f12 + f21)x^2 + (K + f12)(K + f21)x = 0
+	cubic_sol_ct = cubic_real_roots(0.5 * (freq_rr + freq_aa - freq_ra - freq_ar - 3 * half_unphased_hethet_share), 0.5 * (freq_rr * freq_aa + freq_ra * freq_ar + half_unphased_hethet_share * (freq_ra + freq_ar - freq_rr - freq_aa + half_unphased_hethet_share)), -0.5 * half_unphased_hethet_share * freq_rr * freq_aa, cubic_sols);
+        if (cubic_sol_ct > 1) {
+          while (cubic_sols[cubic_sol_ct - 1] > half_unphased_hethet_share + kSmallishEpsilon) {
+            --cubic_sol_ct;
+          }
+          if (cubic_sols[cubic_sol_ct - 1] > half_unphased_hethet_share - kSmallishEpsilon) {
+            cubic_sols[cubic_sol_ct - 1] = half_unphased_hethet_share;
+          }
+          while (cubic_sols[first_relevant_sol_idx] < -kSmallishEpsilon) {
+            ++first_relevant_sol_idx;
+          }
+          if (cubic_sols[first_relevant_sol_idx] < kSmallishEpsilon) {
+            cubic_sols[first_relevant_sol_idx] = 0.0;
+          }
+        }
+      } else {
+        // At least one of {f11, f22} is zero, and one of {f12, f21} is zero.
+        // Initially suppose that the zero-values are f11 and f12.  Then the
+        // equality becomes
+        //   x(f22 + x)(K - x) = x(K - x)(f21 + K - x)
+        //   x=0 and x=K are always solutions; the rest becomes
+        //     f22 + x = f21 + K - x
+        //     2x = K + f21 - f22
+        //     x = (K + f21 - f22)/2; in-range iff (f21 - f22) in (-K, K).
+        // So far so good.  However, plink 1.9 incorrectly *always* checked
+        // (f21 - f22) before 6 Oct 2017, when it needed to use all the nonzero
+        // values.
+        cubic_sols[0] = 0.0;
+        const double nonzero_freq_xx = freq_rr + freq_aa;
+        const double nonzero_freq_xy = freq_ra + freq_ar;
+        // (current code still works if three or all four values are zero)
+        if ((nonzero_freq_xx + kSmallishEpsilon < half_unphased_hethet_share + nonzero_freq_xy) && (nonzero_freq_xy + kSmallishEpsilon < half_unphased_hethet_share + nonzero_freq_xx)) {
+          cubic_sol_ct = 3;
+          cubic_sols[1] = (half_unphased_hethet_share + nonzero_freq_xy - nonzero_freq_xx) * 0.5;
+          cubic_sols[2] = half_unphased_hethet_share;
+        } else {
+          cubic_sol_ct = 2;
+          cubic_sols[1] = half_unphased_hethet_share;
+        }
+      }
+      // cubic_sol_ct does not contain trailing too-large solutions
+      if (cubic_sol_ct > first_relevant_sol_idx + 1) {
+        logprint("Multiple phasing solutions; sample size, HWE, or random mating assumption may\nbe violated.\n\nHWE exact test p-values\n-----------------------\n");
+        // (can't actually get here in nonx_haploid_or_mt case, impossible to
+        // have a hethet)
+
+        const uint32_t hwe_midp = (ldip->ld_console_modifier / kfLdConsoleHweMidp) & 1;
+        uint32_t x_nosex_ct = 0; // usually shouldn't exist, but...
+        uintptr_t* nosex_collapsed = nullptr;
+        if (x_present) {
+          x_nosex_ct = founder_ct - popcount_longs_intersect(founder_info, sex_nm, raw_sample_ctl);
+          if (x_nosex_ct) {
+            if (bigstack_alloc_ul(founder_ctl, &nosex_collapsed)) {
+              goto ld_console_ret_NOMEM;
+            }
+            copy_bitarr_subset(sex_nm, founder_info, founder_ct, nosex_collapsed);
+            bitarr_invert(founder_ct, nosex_collapsed);
+          }
+        }
+        // Unlike plink 1.9, we don't restrict these HWE computations to the
+        // nonmissing intersection.
+        for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {
+          const uintptr_t* cur_genovec = genovecs[var_idx];
+          uint32_t genocounts[4];
+          genovec_count_freqs_unsafe(cur_genovec, founder_ct, genocounts);
+          double hwe_pval;
+          if (!is_xs[var_idx]) {
+            hwe_pval = SNPHWE2(genocounts[1], genocounts[0], genocounts[2], hwe_midp);
+          } else {
+            uint32_t male_genocounts[4];
+            genovec_count_subset_freqs(cur_genovec, sex_male_collapsed_interleaved, founder_ct, x_male_ct, male_genocounts);
+            assert(!male_genocounts[1]);
+            if (x_nosex_ct) {
+              uint32_t nosex_genocounts[4];
+              genoarr_count_subset_freqs2(cur_genovec, nosex_collapsed, founder_ct, x_nosex_ct, nosex_genocounts);
+              genocounts[0] -= nosex_genocounts[0];
+              genocounts[1] -= nosex_genocounts[1];
+              genocounts[2] -= nosex_genocounts[2];
+            }
+            hwe_pval = SNPHWEX(genocounts[1], genocounts[0] - male_genocounts[0], genocounts[2] - male_genocounts[2], male_genocounts[0], male_genocounts[2], hwe_midp);
+          }
+          LOGPRINTF("  %s: %g\n", ld_console_varids[var_idx], hwe_pval);
+        }
+
+        double best_unscaled_lnlike = -DBL_MAX;
+        for (uint32_t sol_idx = first_relevant_sol_idx; sol_idx < cubic_sol_ct; ++sol_idx) {
+          const double cur_unscaled_lnlike = em_phase_unscaled_lnlike(freq_rr, freq_ra, freq_ar, freq_aa, half_unphased_hethet_share, cubic_sols[sol_idx]);
+          if (cur_unscaled_lnlike > best_unscaled_lnlike) {
+            best_unscaled_lnlike = cur_unscaled_lnlike;
+            best_lnlike_idx = sol_idx;
+          } else if (cur_unscaled_lnlike == best_unscaled_lnlike) {
+            ;;;
+            best_lnlike_idx = 3;
+          }
+        }
+      }
+    } else {
+      cubic_sol_ct = 1;
+      cubic_sols[0] = 0.0;
+    }
+    logprint("\n");
+
+    for (uint32_t sol_idx = first_relevant_sol_idx; sol_idx < cubic_sol_ct; ++sol_idx) {
+      if (cubic_sol_ct - first_relevant_sol_idx > 1) {
+        write_iter = strcpya(g_logbuf, "Solution #");
+        write_iter = uint32toa(sol_idx + 1 - first_relevant_sol_idx, write_iter);
+        if (sol_idx == best_lnlike_idx) {
+          write_iter = strcpya(write_iter, " (best likelihood)");
+        }
+        strcpy(write_iter, ":\n");
+        logprintb();
+      }
+      const double cur_sol_xx = cubic_sols[sol_idx];
+      double dd = freq_rr + cur_sol_xx - freq_rx * freq_xr;
+      if (fabs(dd) < kSmallEpsilon) {
+        dd = 0.0;
+      }
+      write_iter = strcpya(g_logbuf, "  r^2 = ");
+      write_iter = dtoa_g(dd * dd / (freq_rx * freq_xr * freq_ax * freq_xa), write_iter);
+      write_iter = strcpya(write_iter, "    D' = ");
+      double d_prime;
+      if (dd >= 0.0) {
+        d_prime = dd / MINV(freq_xr * freq_ax, freq_xa * freq_rx);
+      } else {
+        d_prime = -dd / MINV(freq_xr * freq_rx, freq_xa * freq_ax);
+      }
+      write_iter = dtoa_g(d_prime, write_iter);
+      strcpy(write_iter, "\n");
+      logprintb();
+
+      logprint("\n");
+
+      // Default layout:
+      // [8 spaces]Frequencies      :        [centered varID[1]]
+      //     (expectations under LE)           REF         ALT
+      //                                    ----------  ----------
+      //                               REF   a.bcdefg    a.bcdefg
+      //                                    (a.bcdefg)  (a.bcdefg)
+      //       [r-justified varID[0]]
+      //                               ALT   a.bcdefg    a.bcdefg
+      //                                    (a.bcdefg)  (a.bcdefg)
+      //
+      // (decimals are fixed-point, and trailing zeroes are erased iff there is
+      // an exact match to ~13-digit precision; this is slightly more stringent
+      // than plink 1.9's dtoa_f_w9p6_spaced() since there isn't much room here
+      // for floating-point error to accumulate)
+      // As for long variant IDs:
+      // The default layout uses 54 columns, and stops working when
+      // strlen(varID[0]) > 26.  So the right half can be shifted up to 25
+      // characters before things get ugly in terminal windows.  Thus, once
+      // string length > 51, we print only the first 48 characters of varID and
+      // follow it with "...".
+      // Similarly, when strlen(varID[1]) <= 51, centering is pretty
+      // straightforward; beyond that, we also print only the first 48 chars.
+      uint32_t extra_initial_spaces = 0;
+      const uint32_t varid_slen0 = varid_slens[0];
+      if (varid_slen0 > 26) {
+        extra_initial_spaces = MINV(varid_slen0 - 26, 51);
+      }
+      write_iter = strcpya(g_logbuf, "        Frequencies      :  ");
+      // default center column index is 43 + extra_initial_spaces; we're
+      //   currently at column 28
+      // for length-1, we want to occupy just the center column index; for
+      //   length-2, both center and (center + 1), etc.
+      // ((16 + extra_initial_spaces) * 2 - strlen(varID[1])) / 2
+      const uint32_t varid_slen1 = varid_slens[1];
+      if (varid_slen1 > 51) {
+        write_iter = memcpya(write_iter, ld_console_varids[1], 48);
+        write_iter = memcpyl3a(write_iter, "...");
+      } else {
+        uint32_t offset_x2 = (16 + extra_initial_spaces) * 2;
+        if (offset_x2 > varid_slen1) {
+          uint32_t varid1_padding = (offset_x2 - varid_slen1) / 2;
+          if (varid1_padding + varid_slen1 > 51) {
+            varid1_padding = 51 - varid_slen1;
+          }
+          write_iter = (char*)memseta(write_iter, 32, varid1_padding);
+        }
+        write_iter = memcpya(write_iter, ld_console_varids[1], varid_slen1);
+      }
+      strcpy(write_iter, "\n");
+      logprintb();
+
+      write_iter = strcpya(g_logbuf, "  (expectations under LE)");
+      write_iter = (char*)memseta(write_iter, 32, extra_initial_spaces + 11);
+      strcpy(write_iter, "REF         ALT\n");
+      logprintb();
+
+      write_iter = (char*)memseta(g_logbuf, 32, extra_initial_spaces + 33);
+      strcpy(write_iter, "----------  ----------\n");
+      logprintb();
+
+      write_iter = strcpya(&(g_logbuf[28 + extra_initial_spaces]), "REF   ");
+      write_iter = dtoa_f_probp6_spaced(freq_rr + cur_sol_xx, write_iter);
+      write_iter = strcpya(write_iter, "    ");
+      const double cur_sol_xy = half_unphased_hethet_share - cur_sol_xx;
+      write_iter = dtoa_f_probp6_clipped(freq_ra + cur_sol_xy, write_iter);
+      strcpy(write_iter, "\n");
+      logprintb();
+
+      write_iter = strcpya(&(g_logbuf[28 + extra_initial_spaces]), "     (");
+      write_iter = dtoa_f_probp6_spaced(freq_xr * freq_rx, write_iter);
+      write_iter = strcpya(write_iter, ")  (");
+      write_iter = dtoa_f_probp6_clipped(freq_xa * freq_rx, write_iter);
+      strcpy(write_iter, ")\n");
+      logprintb();
+
+      write_iter = g_logbuf;
+      if (varid_slen0 < 26) {
+        write_iter = &(write_iter[26 - varid_slen0]);
+      }
+      write_iter = memcpya(write_iter, ld_console_varids[0], varid_slen0);
+      strcpy(write_iter, "\n");
+      logprintb();
+
+      write_iter = (char*)memseta(g_logbuf, 32, 28 + extra_initial_spaces);
+      write_iter = strcpya(write_iter, "ALT   ");
+      write_iter = dtoa_f_probp6_spaced(freq_ar + cur_sol_xy, write_iter);
+      write_iter = strcpya(write_iter, "    ");
+      write_iter = dtoa_f_probp6_clipped(freq_aa + cur_sol_xx, write_iter);
+      strcpy(write_iter, "\n");
+      logprintb();
+
+      write_iter = strcpya(&(g_logbuf[28 + extra_initial_spaces]), "     (");
+      write_iter = dtoa_f_probp6_spaced(freq_xr * freq_ax, write_iter);
+      write_iter = strcpya(write_iter, ")  (");
+      write_iter = dtoa_f_probp6_clipped(freq_xa * freq_ax, write_iter);
+      strcpy(write_iter, ")\n");
+      logprintb();
+
+      logprint("\n");
+      if (dd > 0.0) {
+        logprint("  REF alleles are in phase with each other.\n\n");
+      } else if (dd < 0.0) {
+        logprint("  REF alleles are out of phase with each other.\n\n");
+      }
+    }
   }
   while (0) {
   ld_console_ret_NOMEM:
@@ -1664,11 +3013,15 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, cha
   ld_console_ret_INCONSISTENT_INPUT_WW:
     wordwrapb(0);
     logerrprintb();
-  ld_console_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  ld_console_ret_NO_VALID_OBSERVATIONS:
+    logerrprint("Error: No valid observations for --ld.\n");
     reterr = kPglRetInconsistentInput;
     break;
   }
  ld_console_ret_1:
+  bigstack_reset(bigstack_mark);
   return reterr;
 }
 

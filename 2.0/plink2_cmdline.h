@@ -465,12 +465,16 @@ CONSTU31(kBigstackMinMb, 640);
 CONSTU31(kBigstackDefaultMb, 2048);
 
 static const double kPi = 3.1415926535897932;
+static const double kSqrt2 = 1.4142135623730951;
 static const double kRecipE = 0.36787944117144233;
 static const double kRecip2m53 = 0.00000000000000011102230246251565404236316680908203125;
 static const double kRecip2m32 = 0.00000000023283064365386962890625;
 static const double k2m64 = 18446744073709551616.0;
 
-// 2^{-44}
+// floating point comparison-to-nonzero tolerance, currently 2^{-30}
+static const double kEpsilon = 0.000000000931322574615478515625;
+// less tolerant versions (2^{-35}, 2^{-44}) for some exact calculations
+static const double kSmallishEpsilon = 0.00000000002910383045673370361328125;
 static const double kSmallEpsilon = 0.00000000000005684341886080801486968994140625;
 
 // 2^{-21}, must be >= sqrt(kSmallEpsilon)
@@ -1274,7 +1278,7 @@ char* uint32toa(uint32_t uii, char* start);
 
 char* int32toa(int32_t ii, char* start);
 
-char* uitoa_z4(uint32_t uii, char* start);
+char* uitoa_z5(uint32_t uii, char* start);
 
 char* int64toa(int64_t llii, char* start);
 
@@ -1291,6 +1295,31 @@ char* dtoa_g(double dxx, char* start);
 // represented as 32768ths).
 // (may want to replace _p8 with _p10 for perfect int32 handling.)
 char* dtoa_g_p8(double dxx, char* start);
+
+HEADER_INLINE void trailing_zeroes_to_spaces(char* start) {
+  --start;
+  while (*start == '0') {
+    *start-- = ' ';
+  }
+  if (*start == '.') {
+    *start = ' ';
+  }
+}
+
+HEADER_INLINE char* clip_trailing_zeroes(char* start) {
+  char cc;
+  do {
+    cc = *(--start);
+  } while (cc == '0');
+  return &(start[(cc != '.')]);
+}
+
+// "prob" means that the number is guaranteed to be in [0, 1].
+// no leading space is printed.  trailing zeroes (/decimal point) are erased
+//   iff there is equality to ~13 decimal places.
+char* dtoa_f_probp6_spaced(double dxx, char* start);
+
+char* dtoa_f_probp6_clipped(double dxx, char* start);
 
 // char* dtoa_f_p5_clipped(double dxx, char* start);
 
@@ -1477,6 +1506,8 @@ void bitvec_andnot_copy(const uintptr_t* __restrict source_bitvec, const uintptr
 void bitvec_or(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec);
 
 void bitvec_andnot2(const uintptr_t* __restrict include_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec);
+
+void bitvec_ornot(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec);
 
 
 // basic linear scan
@@ -1820,6 +1851,12 @@ HEADER_INLINE uint32_t is_nan_str(const char* ss, uint32_t slen) {
 boolerr_t parse_next_range(char** argv, uint32_t param_ct, char range_delim, uint32_t* cur_param_idx_ptr, char** cur_arg_pptr, char** range_start_ptr, uint32_t* rs_len_ptr, char** range_end_ptr, uint32_t* re_len_ptr);
 
 pglerr_t parse_name_ranges(char** argv, const char* errstr_append, uint32_t param_ct, uint32_t require_posint, char range_delim, range_list_t* range_list_ptr);
+
+
+// Analytically finds all real roots of x^3 + ax^2 + bx + c, saving them in
+// solutions[] (sorted from smallest to largest), and returning the count.
+// Multiple roots are only returned/counted once.
+uint32_t cubic_real_roots(double coef_a, double coef_b, double coef_c, double* solutions);
 
 
 // For pure computations, where the launcher thread joins in as thread 0.

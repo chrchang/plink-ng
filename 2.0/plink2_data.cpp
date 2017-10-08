@@ -4949,6 +4949,9 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
 	// computation doesn't seem to saturate when decompression is involved
 	calc_thread_ct = 2;
       }
+      if (calc_thread_ct > raw_variant_ct) {
+	calc_thread_ct = raw_variant_ct;
+      }
       if (bigstack_alloc_thread(calc_thread_ct, &ts.threads) ||
 	  bigstack_alloc_usip(calc_thread_ct, &g_bgen_geno_bufs)) {
 	goto ox_bgen_to_pgen_ret_NOMEM;
@@ -5168,10 +5171,20 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
 	variant_ct = raw_variant_ct;
       } else {
 	variant_ct += block_vidx;
-        if (!variant_ct) {
-	  logprint("\n");
-	  LOGERRPRINTFWW("Error: All %u variant%s in .bgen file skipped due to chromosome filter.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s");
-	  goto ox_bgen_to_pgen_ret_INCONSISTENT_INPUT;
+	if (variant_ct < calc_thread_ct) {
+	  if (!variant_ct) {
+	    logprint("\n");
+	    LOGERRPRINTFWW("Error: All %u variant%s in .bgen file skipped due to chromosome filter.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s");
+	    goto ox_bgen_to_pgen_ret_INCONSISTENT_INPUT;
+	  }
+	  // bugfix (7 Oct 2017): with fewer variants than threads, need to
+	  // force initial launch here
+	  g_cur_block_write_ct = variant_ct;
+	  ts.thread_func_ptr = bgen11_dosage_scan_thread;
+	  if (spawn_threads3z(0, &ts)) {
+	    goto ox_bgen_to_pgen_ret_THREAD_CREATE_FAIL;
+	  }
+	  block_vidx = 0;
 	}
       }
       if (ts.thread_func_ptr) {
@@ -5501,7 +5514,6 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
 
       uintptr_t* allele_idx_offsets;
       if (bigstack_end_alloc_ul(raw_variant_ct + 1, &allele_idx_offsets)) {
-	logerrprint("error path 1\n");
 	goto ox_bgen_to_pgen_ret_NOMEM;
       }
 
@@ -5515,9 +5527,11 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       }
       // bugfix (2 Jul 2017): if max_thread_ct == 1 but there's >12GB memory,
       //   limit to 1 thread rather than (max_thread_ct - 1)...
-      const uint32_t calc_thread_ct_limit = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
+      uint32_t calc_thread_ct_limit = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
+      if (calc_thread_ct_limit > raw_variant_ct) {
+	calc_thread_ct_limit = raw_variant_ct;
+      }
       if (bigstack_alloc_thread(calc_thread_ct_limit, &ts.threads)) {
-	logerrprint("error path 2\n");
 	goto ox_bgen_to_pgen_ret_NOMEM;
       }
 
@@ -5530,13 +5544,11 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
 	  bigstack_alloc_usi(main_block_size, &(g_bgen_allele_cts[1])) ||
 	  bigstack_alloc_ucp(main_block_size + 1, &(g_compressed_geno_starts[0])) ||
 	  bigstack_alloc_ucp(main_block_size + 1, &(g_compressed_geno_starts[1]))) {
-	logerrprint("error path 3\n");
 	goto ox_bgen_to_pgen_ret_NOMEM;
       }
       if (compression_mode) {
 	if (bigstack_alloc_ui(main_block_size, &(g_uncompressed_genodata_byte_cts[0])) ||
 	    bigstack_alloc_ui(main_block_size, &(g_uncompressed_genodata_byte_cts[1]))) {
-	  logerrprint("error path 4\n");
 	  goto ox_bgen_to_pgen_ret_NOMEM;
 	}
       } else {
@@ -6019,8 +6031,6 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
 	// with multiple threads, there's no guarantee that even the first
 	// decompression job has launched (e.g. there's only 1 variant on the
 	// relevant chromosome in the entire .bgen, and calc_thread_ct == 2).
-	// (this is not an issue with the bgen-1.1 converter because we error
-	// out on variant_ct == 0, and the first block size is 1.)
 	thread_bidxs[cur_thread_fill_idx + 1] = block_vidx;
 	ts.thread_func_ptr = bgen13_dosage_or_phase_scan_thread;
 	if (spawn_threads3z(variant_ct, &ts)) {
@@ -6078,7 +6088,6 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       loadbuf = bigstack_alloc_raw_rd(kMaxIdBlen);
       unsigned char* spgw_alloc;
       if (bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc)) {
-	logerrprint("error path 5\n");
 	goto ox_bgen_to_pgen_ret_NOMEM;
       }
       // Now that we know max_geno_blen, try to increase calc_thread_ct, and
@@ -6179,19 +6188,12 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
 	  bigstack_alloc_dosage(sample_ct * 2 * main_block_size, &(g_write_dosage_val_bufs[0])) ||
 	  bigstack_alloc_dosage(sample_ct * 2 * main_block_size, &(g_write_dosage_val_bufs[1]))) {
 	// this should be impossible
-	logerrprint("error path 6\n");
-	LOGERRPRINTF("main_block_size: %" PRIuPTR "\n", main_block_size);
-	LOGERRPRINTF("mainbuf_size: %" PRIuPTR "\n", mainbuf_size);
-	LOGERRPRINTF("sample_ctaw: %u\n", sample_ctaw);
-	LOGERRPRINTF("cachelines_avail_m24: %" PRIuPTR "\n", cachelines_avail_m24);
-	LOGERRPRINTF("bytes_req_per_in_block_variant: %" PRIuPTR "\n", bytes_req_per_in_block_variant);
 	assert(0);
 	goto ox_bgen_to_pgen_ret_NOMEM;
       }
       if (compression_mode) {
 	if (bigstack_alloc_ui(main_block_size, &(g_uncompressed_genodata_byte_cts[0])) ||
 	    bigstack_alloc_ui(main_block_size, &(g_uncompressed_genodata_byte_cts[1]))) {
-	  logerrprint("error path 7\n");
 	  assert(0);
 	  goto ox_bgen_to_pgen_ret_NOMEM;
 	}

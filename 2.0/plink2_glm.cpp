@@ -1080,7 +1080,7 @@ boolerr_t check_max_corr_and_vif(const double* predictor_dotprods, uint32_t firs
   for (uintptr_t pred_idx = 0; pred_idx < relevant_predictor_ct; ++pred_idx) {
     dbl_2d_buf[pred_idx] = 1.0 / sqrt(inverse_corr_buf[pred_idx * relevant_predictor_ct_p1]);
   }
-  // invert_symm_matrix only cares about bottom left of inverse_corr_buf[]
+  // invert_symmdef_matrix only cares about bottom left of inverse_corr_buf[]
   for (uintptr_t pred_idx1 = 1; pred_idx1 < relevant_predictor_ct; ++pred_idx1) {
     const double inverse_stdev1 = dbl_2d_buf[pred_idx1];
     double* corr_row_iter = &(inverse_corr_buf[pred_idx1 * relevant_predictor_ct]);
@@ -1101,7 +1101,7 @@ boolerr_t check_max_corr_and_vif(const double* predictor_dotprods, uint32_t firs
   for (uintptr_t pred_idx = 0; pred_idx < relevant_predictor_ct; ++pred_idx) {
     inverse_corr_buf[pred_idx * relevant_predictor_ct_p1] = 1.0;
   }
-  if (invert_symm_matrix_checked(relevant_predictor_ct, inverse_corr_buf, matrix_invert_buf1, dbl_2d_buf)) {
+  if (invert_symmdef_matrix_checked(relevant_predictor_ct, inverse_corr_buf, matrix_invert_buf1, dbl_2d_buf)) {
     vif_corr_check_result_ptr->errcode = kVifCorrCheckVifFail;
     vif_corr_check_result_ptr->covar_idx1 = 0xffffffffU;
     return 1;
@@ -1157,7 +1157,7 @@ boolerr_t check_max_corr_and_vif_f(const float* predictors_pmaj, uint32_t predic
   for (uint32_t pred_idx = 0; pred_idx < predictor_ct; ++pred_idx) {
     dbl_2d_buf[pred_idx] = 1.0 / sqrt(inverse_corr_buf[pred_idx * predictor_ct_p1]);
   }
-  // invert_symm_matrix only cares about bottom left of inverse_corr_buf[]
+  // invert_symmdef_matrix only cares about bottom left of inverse_corr_buf[]
   for (uint32_t pred_idx1 = 1; pred_idx1 < predictor_ct; ++pred_idx1) {
     const double inverse_stdev1 = dbl_2d_buf[pred_idx1];
     double* corr_row_iter = &(inverse_corr_buf[pred_idx1 * predictor_ct]);
@@ -1173,7 +1173,7 @@ boolerr_t check_max_corr_and_vif_f(const float* predictors_pmaj, uint32_t predic
   for (uint32_t pred_idx = 0; pred_idx < predictor_ct; ++pred_idx) {
     inverse_corr_buf[pred_idx * predictor_ct_p1] = 1.0;
   }
-  if (invert_symm_matrix_checked(predictor_ct, inverse_corr_buf, inv_1d_buf, dbl_2d_buf)) {
+  if (invert_symmdef_matrix_checked(predictor_ct, inverse_corr_buf, inv_1d_buf, dbl_2d_buf)) {
     return 1;
   }
 
@@ -1874,18 +1874,13 @@ static inline void mult_tmatrix_nxd_vect_d(const float* tm, const float* vect, u
 
 // This code was hand-optimized by others for 16-byte float vectors.  Exempt it
 // from the rest of the codebase's attempt at vector-size-agnosticism for now.
-typedef union {
-  __m128 vf;
-  float f4[4];
-} __old_univecf_t;
-
 static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, uint32_t col_ct, uint32_t row_ct, float* dest) {
   const uintptr_t col_cta4 = round_up_pow2(col_ct, 4);
   uint32_t row_idx = 0;
   __m128 s1;
   __m128 s2;
   __m128 s3;
-  __old_univecf_t uvec;
+  univec16f_t uvec;
   if (row_ct > 3) {
     const uint32_t row_ctm3 = row_ct - 3;
     for (; row_idx < row_ctm3; row_idx += 4) {
@@ -1986,7 +1981,7 @@ static inline float triple_product(const float* v1, const float* v2, const float
     const __m128 cc = _mm_load_ps(&(v3[uii]));
     sum = _mm_add_ps(sum, _mm_mul_ps(_mm_mul_ps(aa, bb), cc));
   }
-  __old_univecf_t uvec;
+  univec16f_t uvec;
   uvec.vf = sum;
   return uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
 }
@@ -2005,7 +2000,7 @@ static inline void compute_two_diag_triple_product(const float* aa, const float*
     sab = _mm_add_ps(sab, _mm_mul_ps(atmp, bv));
     sbb = _mm_add_ps(sbb, _mm_mul_ps(btmp, bv));
   }
-  __old_univecf_t uvec;
+  univec16f_t uvec;
   uvec.vf = saa;
   *raa_ptr = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
   uvec.vf = sab;
@@ -2029,7 +2024,7 @@ static inline void compute_three_triple_product(const float* bb, const float* a1
     s2 = _mm_add_ps(s2, _mm_mul_ps(a2tmp, btmp));
     s3 = _mm_add_ps(s3, _mm_mul_ps(a3tmp, btmp));
   }
-  __old_univecf_t uvec;
+  univec16f_t uvec;
   uvec.vf = s1;
   *r1_ptr = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
   uvec.vf = s2;
@@ -2052,7 +2047,7 @@ static inline void compute_two_plus_one_triple_product(const float* bb, const fl
     s2 = _mm_add_ps(s2, _mm_mul_ps(a1tmp, bv));
     s3 = _mm_add_ps(s3, _mm_mul_ps(a2tmp, bv));
   }
-  __old_univecf_t uvec;
+  univec16f_t uvec;
   uvec.vf = s1;
   *r1_ptr = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
   uvec.vf = s2;
@@ -2421,7 +2416,7 @@ boolerr_t firth_regression(const float* yy, const float* xx, uint32_t sample_ct,
 
   // we shouldn't need to compute the log directly, since underflow <->
   // regression failure, right?  check this.
-  if (invert_symm_fmatrix_first_half(predictor_ct, predictor_cta4, hh, half_inverted_buf, inv_1d_buf, dbl_2d_buf)) {
+  if (invert_symmdef_fmatrix_first_half(predictor_ct, predictor_cta4, hh, half_inverted_buf, inv_1d_buf, dbl_2d_buf)) {
     return 1;
   }
   double dethh = half_symm_inverted_det(half_inverted_buf, inv_1d_buf, predictor_ct);
@@ -2450,7 +2445,7 @@ boolerr_t firth_regression(const float* yy, const float* xx, uint32_t sample_ct,
   const double lconv = 0.0001;
   uint32_t hs_bail = 0;
   while (1) {
-    invert_symm_fmatrix_second_half(predictor_ct, predictor_cta4, half_inverted_buf, hh, inv_1d_buf, dbl_2d_buf);
+    invert_symmdef_fmatrix_second_half(predictor_ct, predictor_cta4, half_inverted_buf, hh, inv_1d_buf, dbl_2d_buf);
     if (is_last_iter) {
       return 0;
     }
@@ -2508,7 +2503,7 @@ boolerr_t firth_regression(const float* yy, const float* xx, uint32_t sample_ct,
       loglik = compute_loglik(yy, pp, sample_ct);
       compute_v(pp, sample_ct, vv);
       compute_hessian(xx, vv, sample_ct, predictor_ct, hh);
-      if (invert_symm_fmatrix_first_half(predictor_ct, predictor_cta4, hh, half_inverted_buf, inv_1d_buf, dbl_2d_buf)) {
+      if (invert_symmdef_fmatrix_first_half(predictor_ct, predictor_cta4, hh, half_inverted_buf, inv_1d_buf, dbl_2d_buf)) {
 	return 1;
       }
       dethh = half_symm_inverted_det(half_inverted_buf, inv_1d_buf, predictor_ct);

@@ -32,15 +32,18 @@ namespace plink2 {
 
 #define PROG_NAME_STR "plink2"
 
-// leave the door open to 32-bit dosages (or 31?  24?)
+// leave the door semi-open to 32-bit dosages (or 31?  24?)
 typedef uint16_t dosage_t;
 typedef uint32_t dosage_prod_t;
 #define kDosageMax (1U << (8 * sizeof(dosage_t) - 1))
 CONSTU31(kDosageMid, kDosageMax / 2);
 CONSTU31(kDosage4th, kDosageMax / 4);
+CONSTU31(kDosageMissing, kDosageMax * 2 - 1);
 static const double kRecipDosageMax = 0.000030517578125;
 static const double kRecipDosageMid = 0.00006103515625;
+static const double kRecipDosageMidSq = 0.000000000931322574615478515625;
 static const float kRecipDosageMidf = 0.00006103515625;
+CONSTU31(kDosagePerVec, kBytesPerVec / sizeof(dosage_t));
 
 // this is a bit arbitrary
 CONSTU31(kMaxPhenoCt, 524287);
@@ -90,8 +93,7 @@ FLAGSET64_DEF_START()
   kfMiscRequireCovar = (1LLU << 37),
   kfMiscCatPhenoFamily = (1LLU << 38),
   kfMiscRefAlleleForce = (1LLU << 39),
-  kfMiscAlt1AlleleForce = (1LLU << 40),
-  kfMiscLdHweMidp = (1LLU << 41)
+  kfMiscAlt1AlleleForce = (1LLU << 40)
 FLAGSET64_DEF_END(misc_flags_t);
 
 FLAGSET64_DEF_START()
@@ -177,6 +179,11 @@ HEADER_INLINE boolerr_t bigstack_end_alloc_dosage(uintptr_t ct, dosage_t** dosag
 
 char* print_dosage(uint64_t dosage, char* start);
 
+HEADER_INLINE void fill_dosage_zero(uintptr_t entry_ct, dosage_t* dosage_arr) {
+  memset(dosage_arr, 0, entry_ct * sizeof(dosage_t));
+}
+
+void populate_dense_dosage(const uintptr_t* genovec, const uintptr_t* dosage_present, const dosage_t* dosage_vals, uint32_t sample_ct, uint32_t dosage_ct, dosage_t* dense_dosage);
 
 void set_het_missing(uintptr_t word_ct, uintptr_t* genovec);
 
@@ -262,6 +269,7 @@ pglerr_t open_and_load_xid_header(const char* fname, const char* flag_name, sid_
 
 // note that this is no longer divisible by 64
 CONSTU31(kMaxContigs, 65274);
+CONSTU31(kMaxChrCodeDigits, 5);
 
 // change chr_idx_t to uint32_t if (kMaxContigs + kChrOffsetCt) > 65536
 typedef uint16_t chr_idx_t;

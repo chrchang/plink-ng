@@ -3342,7 +3342,8 @@ void fill_cur_dosage_ints(const uintptr_t* genovec_buf, const uintptr_t* dosage_
       if (widx > sample_ctl2_m1) {
 	break;
       }
-      loop_len = 1 + MOD_NZ(sample_ct, kBitsPerWordD2);
+      // bugfix (6 Oct 2017): this needs to be MOD_NZ, not 1 + MOD_NZ
+      loop_len = MOD_NZ(sample_ct, kBitsPerWordD2);
     }
     uintptr_t cur_geno_word = genovec_buf[widx];
     for (uint32_t uii = 0; uii < loop_len; ++uii) {

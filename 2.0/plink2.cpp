@@ -59,7 +59,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (1 Oct 2017)";
+  " (7 Oct 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -530,7 +530,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	pgen_rename = realpath_identical(outname, g_textbuf, &(g_textbuf[kPglFnamesize + 64]));
       }
       if (pgen_rename) {
-	LOGPRINTF("Note: --make-%s input and output filenames match.  Appending '~' to input\nfilenames.\n", (make_plink2_modifier & kfMakeBed)? "bed" : ((make_plink2_modifier & kfMakePvar)? "pgen" : "bpgen"));
+	LOGERRPRINTF("Warning: --make-%s input and output filenames match.  Appending '~' to input\nfilenames.\n", (make_plink2_modifier & kfMakeBed)? "bed" : ((make_plink2_modifier & kfMakePvar)? "pgen" : "bpgen"));
 	fname_slen = strlen(pgenname);
 	memcpy(g_textbuf, pgenname, fname_slen);
 	strcpy(&(pgenname[fname_slen]), "~");
@@ -645,7 +645,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	  }
 	  pvar_renamed = realpath_identical(outname, g_textbuf, &(g_textbuf[kPglFnamesize + 64]));
 	  if (pvar_renamed) {
-	    logprint("Note: .bim input and output filenames match.  Appending '~' to input filename.\n");
+	    logerrprint("Warning: .bim input and output filenames match.  Appending '~' to input\nfilename.\n");
 	    fname_slen = strlen(pvarname);
 	    memcpy(g_textbuf, pvarname, fname_slen);
 	    strcpy(&(pvarname[fname_slen]), "~");
@@ -662,7 +662,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	  }
 	  // pvar_renamed = realpath_identical();
 	  if (realpath_identical(outname, g_textbuf, &(g_textbuf[kPglFnamesize + 64]))) {
-	    logprint("Note: .pvar input and output filenames match.  Appending '~' to input filename.\n");
+	    logerrprint("Warning: .pvar input and output filenames match.  Appending '~' to input\nfilename.\n");
 	    fname_slen = strlen(pvarname);
 	    memcpy(g_textbuf, pvarname, fname_slen);
 	    strcpy(&(pvarname[fname_slen]), "~");
@@ -1941,7 +1941,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
       }
 
       if (pcp->command_flags1 & kfCommand1Ld) {
-	reterr = ld_console(variant_include, cip, variant_ids, variant_allele_idxs, allele_storage, founder_info, sex_male, (char**)(pcp->ld_info.ld_flag_varids), variant_ct, founder_ct, (pcp->misc_flags / kfMiscLdHweMidp) & 1, &simple_pgr);
+	reterr = ld_console(variant_include, cip, variant_ids, variant_allele_idxs, allele_storage, founder_info, sex_nm, sex_male, &(pcp->ld_info), variant_ct, raw_sample_ct, founder_ct, &simple_pgr);
 	if (reterr) {
 	  goto plink2_ret_1;
 	}
@@ -4991,23 +4991,26 @@ int main(int argc, char** argv) {
 	    goto main_ret_1;
 	  }
 	} else if (!memcmp(flagname_p2, "d", 2)) {
-	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 2, 3)) {
+	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 2, 4)) {
 	    goto main_ret_INVALID_CMDLINE_2A;
 	  }
 	  for (uint32_t uii = 0; uii < 2; ++uii) {
-	    reterr = cmdline_alloc_string(argv[arg_idx + uii + 1], argv[arg_idx], kMaxIdSlen, &(pc.ld_info.ld_flag_varids[uii]));
+	    reterr = cmdline_alloc_string(argv[arg_idx + uii + 1], argv[arg_idx], kMaxIdSlen, &(pc.ld_info.ld_console_varids[uii]));
 	    if (reterr) {
 	      goto main_ret_1;
 	    }
 	  }
-	  if (param_ct == 3) {
-	    const char* cur_modif = argv[arg_idx + 3];
-	    if (strcmp(cur_modif, "hwe-midp")) {
-	      sprintf(g_logbuf, "Error: Invalid --ld parameter '%s'.\n", cur_modif);
-	      goto main_ret_INVALID_CMDLINE_WWA;
-	    }
-	    pc.misc_flags |= kfMiscLdHweMidp;
-	  }
+	  for (uint32_t param_idx = 3; param_idx <= param_ct; ++param_idx) {
+	    const char* cur_modif = argv[arg_idx + param_idx];
+            if (!strcmp(cur_modif, "dosage")) {
+              pc.ld_info.ld_console_modifier |= kfLdConsoleDosage;
+            } else if (!strcmp(cur_modif, "hwe-midp")) {
+              pc.ld_info.ld_console_modifier |= kfLdConsoleHweMidp;
+            } else {
+              sprintf(g_logbuf, "Error: Invalid --ld parameter '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
 	  pc.command_flags1 |= kfCommand1Ld;
 	} else if (!memcmp(flagname_p2, "oop-assoc", 10)) {
 	  logerrprint("Error: --loop-assoc is retired.  Use --within + --split-cat-pheno instead.\n");

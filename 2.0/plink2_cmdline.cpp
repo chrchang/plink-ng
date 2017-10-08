@@ -1835,6 +1835,12 @@ char* uitoa_z4(uint32_t uii, char* start) {
   return memcpya(start, &(kDigitPair[uii]), 2);
 }
 
+char* uitoa_z5(uint32_t uii, char* start) {
+  uint32_t quotient = uii / 10000;
+  *start++ = '0' + quotient;
+  return uitoa_z4(uii - 10000 * quotient, start);
+}
+
 char* uitoa_z6(uint32_t uii, char* start) {
   uint32_t quotient = uii / 10000;
   start = memcpya(start, &(kDigitPair[quotient]), 2);
@@ -2564,6 +2570,34 @@ char* dtoa_g_p8(double dxx, char* start) {
   return memcpya(start, wbuf, remainder);
 }
 
+// "prob" means that the number is guaranteed to be in [0, 1].
+// no leading space is printed.  trailing zeroes (/decimal point) are erased
+//   iff there is equality to ~13 decimal places.
+char* dtoa_f_probp6_spaced(double dxx, char* start) {
+  double dxx_10_6 = dxx * 1000000;
+  const uint32_t dec_digits = double_bround(dxx_10_6, kBankerRound8);
+  *start++ = '0' + (dec_digits == 1000000);
+  *start++ = '.';
+  start = uitoa_z6(dec_digits, start);
+  if (fabs(dxx_10_6 - (double)((int32_t)dec_digits)) >= 0.00000005) {
+    return start;
+  }
+  trailing_zeroes_to_spaces(start);
+  return start;
+}
+
+char* dtoa_f_probp6_clipped(double dxx, char* start) {
+  double dxx_10_6 = dxx * 1000000;
+  const uint32_t dec_digits = double_bround(dxx_10_6, kBankerRound8);
+  *start++ = '0' + (dec_digits == 1000000);
+  *start++ = '.';
+  start = uitoa_z6(dec_digits, start);
+  if (fabs(dxx_10_6 - (double)((int32_t)dec_digits)) >= 0.00000005) {
+    return start;
+  }
+  return clip_trailing_zeroes(start);
+}
+
 /*
 char* dtoa_f_p5_clipped(double dxx, char* start) {
   if (dxx != dxx) {
@@ -3257,6 +3291,43 @@ void bitvec_andnot2(const uintptr_t* __restrict include_bitvec, uintptr_t word_c
 #else
   for (uintptr_t widx = 0; widx < word_ct; ++widx) {
     main_bitvec[widx] = (~main_bitvec[widx]) & include_bitvec[widx];
+  }
+#endif
+}
+
+void bitvec_ornot(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec) {
+  // main_bitvec := main_bitvec OR (~arg_bitvec)
+#ifdef __LP64__
+  vul_t* main_bitvvec_iter = (vul_t*)main_bitvec;
+  const vul_t* arg_bitvvec_iter = (const vul_t*)arg_bitvec;
+  const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
+  if (full_vec_ct & 1) {
+    // todo: verify the compiler isn't dumb here
+    *main_bitvvec_iter++ |= ~(*arg_bitvvec_iter++);
+  }
+  if (full_vec_ct & 2) {
+    *main_bitvvec_iter++ |= ~(*arg_bitvvec_iter++);
+    *main_bitvvec_iter++ |= ~(*arg_bitvvec_iter++);
+  }
+  for (uintptr_t ulii = 3; ulii < full_vec_ct; ulii += 4) {
+    *main_bitvvec_iter++ |= ~(*arg_bitvvec_iter++);
+    *main_bitvvec_iter++ |= ~(*arg_bitvvec_iter++);
+    *main_bitvvec_iter++ |= ~(*arg_bitvvec_iter++);
+    *main_bitvvec_iter++ |= ~(*arg_bitvvec_iter++);
+  }
+  #ifdef USE_AVX2
+  if (word_ct & 2) {
+    const uintptr_t base_idx = full_vec_ct * kWordsPerVec;
+    main_bitvec[base_idx] |= ~arg_bitvec[base_idx];
+    main_bitvec[base_idx + 1] |= ~arg_bitvec[base_idx + 1]
+  }
+  #endif
+  if (word_ct & 1) {
+    main_bitvec[word_ct - 1] |= ~arg_bitvec[word_ct - 1];
+  }
+#else
+  for (uintptr_t widx = 0; widx < word_ct; ++widx) {
+    main_bitvec[widx] |= ~arg_bitvec[widx];
   }
 #endif
 }
@@ -4365,6 +4436,75 @@ pglerr_t parse_name_ranges(char** argv, const char* errstr_append, uint32_t para
     }
   }
 }
+
+
+uint32_t cubic_real_roots(double coef_a, double coef_b, double coef_c, double* solutions) {
+  // Additional research into numerical stability may be in order here...
+  double a2 = coef_a * coef_a;
+  double qq = (a2 - 3 * coef_b) * (1.0 / 9.0);
+  double rr = (2 * a2 * coef_a - 9 * coef_a * coef_b + 27 * coef_c) * (1.0 / 54.0);
+  double r2 = rr * rr;
+  double q3 = qq * qq * qq;
+  double adiv3 = coef_a * (1.0 / 3.0);
+  double sq;
+  double dxx;
+  if (r2 < q3) {
+    // three real roots
+    sq = sqrt(qq);
+    dxx = acos(rr / (qq * sq)) * (1.0 / 3.0);
+    sq *= -2;
+    solutions[0] = sq * cos(dxx) - adiv3;
+    solutions[1] = sq * cos(dxx + (2.0 * kPi / 3.0)) - adiv3;
+    solutions[2] = sq * cos(dxx - (2.0 * kPi / 3.0)) - adiv3;
+    // now sort and check for within-epsilon equality
+    if (solutions[0] > solutions[1]) {
+      dxx = solutions[0];
+      solutions[0] = solutions[1];
+      if (dxx > solutions[2]) {
+        solutions[1] = solutions[2];
+	solutions[2] = dxx;
+      } else {
+	solutions[1] = dxx;
+      }
+      if (solutions[0] > solutions[1]) {
+	dxx = solutions[0];
+	solutions[0] = solutions[1];
+	solutions[1] = dxx;
+      }
+    } else if (solutions[1] > solutions[2]) {
+      dxx = solutions[1];
+      solutions[1] = solutions[2];
+      solutions[2] = dxx;
+    }
+    if (solutions[1] - solutions[0] < kEpsilon) {
+      solutions[1] = solutions[2];
+      return 2 - (solutions[1] - solutions[0] < kEpsilon);
+    }
+    return 3 - (solutions[2] - solutions[1] < kEpsilon);
+  }
+  dxx = -pow(fabs(rr) + sqrt(r2 - q3), 1.0 / 3.0);
+  if (dxx == 0.0) {
+    solutions[0] = -adiv3;
+    return 1;
+  }
+  if (rr < 0.0) {
+    dxx = -dxx;
+  }
+  sq = qq / dxx;
+  solutions[0] = dxx + sq - adiv3;
+  // use of regular epsilon here has actually burned us
+  if (fabs(dxx - sq) >= (kEpsilon * 8)) {
+    return 1;
+  }
+  if (dxx >= 0.0) {
+    solutions[1] = solutions[0];
+    solutions[0] = -dxx - adiv3;
+  } else {
+    solutions[1] = -dxx - adiv3;
+  }
+  return 2;
+}
+
 
 void join_threads(uint32_t ctp1, pthread_t* threads) {
   if (!(--ctp1)) {
@@ -5511,6 +5651,9 @@ pglerr_t cmdline_parse_phase1(const char* ver_str, const char* ver_str2, const c
 	  } else {
 	    reterr = disp_help_fn(argc - arg_idx - 1, &(argv[arg_idx + 1]));
 	  }
+          if (!reterr) {
+            reterr = kPglRetHelp;
+          }
 	  goto cmdline_parse_phase1_ret_1;
 	}
 	if ((!strcmp("h", flagname_p)) || (!strcmp("?", flagname_p))) {

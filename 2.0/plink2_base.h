@@ -426,11 +426,15 @@ static const uintptr_t k1LU = (uintptr_t)1;
     // bleah, have to define these here, vector_size doesn't see enum values
     typedef uintptr_t vul_t __attribute__ ((vector_size (32)));
     typedef float vf_t __attribute__ ((vector_size (32)));
+    typedef short vs_t __attribute__ ((vector_size (32)));
+    typedef char vc_t __attibute__ ((vector_size (32)));
   #else
     CONSTU31(kBytesPerVec, 16);
     CONSTU31(kBytesPerFVec, 16);
     typedef uintptr_t vul_t __attribute__ ((vector_size (16)));
     typedef float vf_t __attribute__ ((vector_size (16)));
+    typedef short vs_t __attribute__ ((vector_size (16)));
+    typedef char vc_t __attribute__ ((vector_size (16)));
   #endif
   CONSTU31(kBitsPerWord, 64);
   CONSTU31(kBitsPerWordLog2, 6);
@@ -440,11 +444,15 @@ static const uintptr_t k1LU = (uintptr_t)1;
 
   #ifdef USE_AVX2
     #define VCONST_UL(xx) {xx, xx, xx, xx}
+    #define VCONST_S(xx) {xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx}
+    #define VCONST_C(xx) {xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx}
     #define vul_setzero() (vul_t)_mm256_setzero_si256()
     #define vul_rshift(vv, ct) ((vul_t)_mm256_srli_epi64((__m256i)(vv), ct))
     #define vul_lshift(vv, ct) ((vul_t)_mm256_slli_epi64((__m256i)(vv), ct))
   #else
     #define VCONST_UL(xx) {xx, xx}
+    #define VCONST_S(xx) {xx, xx, xx, xx, xx, xx, xx, xx}
+    #define VCONST_C(xx) {xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx}
     // vv = VCONST_UL(k0LU) doesn't work (only ok for initialization)
     #define vul_setzero() (vul_t)_mm_setzero_si128()
     // "vv >> ct" doesn't work, and Scientific Linux gcc 4.4 might not optimize
@@ -463,6 +471,7 @@ static const uintptr_t k1LU = (uintptr_t)1;
 
   typedef uintptr_t vul_t;
   typedef float vf_t;
+  // vs_t and vc_t aren't worth the trouble of scaling down to 32-bit
 
   #define VCONST_UL(xx) (xx)
   #define vul_setzero() k0LU
@@ -533,7 +542,10 @@ static_assert(kPglFnamesize >= PATH_MAX, "plink2_base assumes PATH_MAX <= 4096. 
 
 typedef union {
   vul_t vi;
+
+  // not actually 8 bytes in 32-bit builds
   uintptr_t u8[kBitsPerVec / kBitsPerWord];
+
   uint32_t u4[kBytesPerVec / sizeof(int32_t)];
 } univec_t;
 
@@ -541,6 +553,24 @@ typedef union {
   vf_t vf;
   float f4[kBytesPerFVec / sizeof(float)];
 } univecf_t;
+
+#ifdef __LP64__
+// Still need this for access to _mm_mul{lo,hi}_epi16?
+typedef union {
+  __m128i vi;
+  uintptr_t u8[2];
+} univec16_t;
+
+// Needed for hand-optimized logistic regression.
+typedef union {
+  __m128 vf;
+  float f4[4];
+} univec16f_t;
+
+HEADER_CINLINE uintptr_t univec16_hsum_32bit(univec16_t uv) {
+  return ((uv.u8[0] + uv.u8[1]) * kMask00000001) >> 32;
+}
+#endif
 
 // sum must fit in 16 bits
 HEADER_CINLINE uintptr_t univec_hsum_16bit(univec_t uv) {

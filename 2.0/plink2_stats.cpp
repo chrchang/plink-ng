@@ -115,7 +115,6 @@ double finite_gamma_q(uint32_t aa, double xx, double* p_derivative) {
 }
 
 static const double kSqrtPi = 1.7724538509055159;
-static const double kSqrt2 = 1.4142135623730951;
 
 double lower_gamma_series(double aa, double zz, double init_value) {
   // z must not be much larger than a

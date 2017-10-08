@@ -21,6 +21,7 @@
 namespace plink2 {
 #endif
 
+static_assert(kMaxChrCodeDigits == 5, "load_range_list() must be updated.");
 pglerr_t load_range_list(const chr_info_t* cip, const uint32_t* variant_bps, const char* sorted_subset_ids, const char* file_descrip, uint32_t track_set_names, uint32_t border_extend, uint32_t collapse_group, uint32_t fail_on_no_sets, uint32_t c_prefix, uint32_t allow_no_variants, uintptr_t subset_ct, uintptr_t max_subset_id_blen, gzFile gz_infile, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_id_blen_ptr, uint64_t** range_sort_buf_ptr, make_set_range_t*** make_set_range_arr_ptr) {
   // In plink 1.9, called directly by extract_exclude_range(), define_sets(),
   // and indirectly by annotate(), gene_report(), and clump_reports().
@@ -38,7 +39,7 @@ pglerr_t load_range_list(const chr_info_t* cip, const uint32_t* variant_bps, con
       while (gzgets(gz_infile, g_textbuf, kMaxMediumLine)) {
 	++line_idx;
 	if (!g_textbuf[kMaxMediumLine - 1]) {
-	  sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s file is pathologically long.\n", line_idx, file_descrip);
+	  sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, file_descrip);
 	  goto load_range_list_ret_MALFORMED_INPUT_2;
 	}
 	char* textbuf_first_token = skip_initial_spaces(g_textbuf);
@@ -54,14 +55,14 @@ pglerr_t load_range_list(const chr_info_t* cip, const uint32_t* variant_bps, con
 	  last_token = next_token(cur_set_id);
 	}
 	if (no_more_tokens_kns(last_token)) {
-	  sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s file has fewer tokens than expected.\n", line_idx, file_descrip);
+	  sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, file_descrip);
 	  goto load_range_list_ret_MALFORMED_INPUT_2;
 	}
 	const uint32_t chr_name_slen = (uintptr_t)(first_token_end - textbuf_first_token);
 	*first_token_end = '\0';
 	const int32_t cur_chr_code = get_chr_code(textbuf_first_token, cip, chr_name_slen);
 	if (cur_chr_code < 0) {
-	  sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
+	  sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
 	  goto load_range_list_ret_MALFORMED_INPUT_2;
 	}
 	// chr_mask check removed, we want to track empty sets
@@ -86,7 +87,7 @@ pglerr_t load_range_list(const chr_info_t* cip, const uint32_t* variant_bps, con
 	// index in that case (with leading zeroes) and treat cross-chromosome
 	// sets as distinct.
 	if (!variant_bps) {
-	  set_id_blen += 4;
+	  set_id_blen += kMaxChrCodeDigits;
 	}
 	if (set_id_blen > max_set_id_blen) {
 	  max_set_id_blen = set_id_blen;
@@ -99,11 +100,11 @@ pglerr_t load_range_list(const chr_info_t* cip, const uint32_t* variant_bps, con
 	if (variant_bps) {
 	  memcpy(ll_tmp->ss, last_token, set_id_blen);
 	} else {
-	  uitoa_z4((uint32_t)cur_chr_code, ll_tmp->ss);
+	  uitoa_z5((uint32_t)cur_chr_code, ll_tmp->ss);
 	  // if first character of gene name is a digit, natural sort has
 	  // strange effects unless we force [3] to be nonnumeric...
-	  ll_tmp->ss[3] -= 15;
-	  memcpy(&(ll_tmp->ss[4]), last_token, set_id_blen - 4);
+	  ll_tmp->ss[kMaxChrCodeDigits - 1] -= 15;
+	  memcpy(&(ll_tmp->ss[kMaxChrCodeDigits]), last_token, set_id_blen - kMaxChrCodeDigits);
 	}
 	make_set_ll = ll_tmp;
 	++set_ct;
@@ -131,7 +132,7 @@ pglerr_t load_range_list(const chr_info_t* cip, const uint32_t* variant_bps, con
 	    goto load_range_list_ret_1;
 	  }
 	}
-	LOGERRPRINTF("Warning: No valid ranges in %s file.\n", file_descrip);
+	LOGERRPRINTF("Warning: No valid ranges in %s.\n", file_descrip);
 	goto load_range_list_ret_1;
       }
       // c_prefix is 0 or 2
@@ -175,7 +176,7 @@ pglerr_t load_range_list(const chr_info_t* cip, const uint32_t* variant_bps, con
     while (gzgets(gz_infile, g_textbuf, kMaxMediumLine)) {
       ++line_idx;
       if (!g_textbuf[kMaxMediumLine - 1]) {
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s file is pathologically long.\n", line_idx, file_descrip);
+	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, file_descrip);
 	goto load_range_list_ret_MALFORMED_INPUT_2;
       }
       char* textbuf_first_token = skip_initial_spaces(g_textbuf);
@@ -191,14 +192,14 @@ pglerr_t load_range_list(const chr_info_t* cip, const uint32_t* variant_bps, con
 	last_token = next_token(cur_set_id);
       }
       if (no_more_tokens_kns(last_token)) {
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s file has fewer tokens than expected.\n", line_idx, file_descrip);
+	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, file_descrip);
 	goto load_range_list_ret_MALFORMED_INPUT_2;
       }
       const uint32_t chr_name_slen = (uintptr_t)(first_token_end - textbuf_first_token);
       *first_token_end = '\0';
       const int32_t cur_chr_code = get_chr_code(textbuf_first_token, cip, chr_name_slen);
       if (cur_chr_code < 0) {
-	sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
+	sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
 	goto load_range_list_ret_MALFORMED_INPUT_2;
       }
       if (!is_set(cip->chr_mask, cur_chr_code)) {
@@ -219,17 +220,17 @@ pglerr_t load_range_list(const chr_info_t* cip, const uint32_t* variant_bps, con
       char* textbuf_iter = skip_initial_spaces(&(first_token_end[1]));
       uint32_t range_first;
       if (scanadv_uint_defcap(&textbuf_iter, &range_first)) {
-	sprintf(g_logbuf, "Error: Invalid range start position on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
+	sprintf(g_logbuf, "Error: Invalid range start position on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
 	goto load_range_list_ret_MALFORMED_INPUT_2;
       }
       textbuf_iter = next_token(textbuf_iter);
       uint32_t range_last;
       if (scanadv_uint_defcap(&textbuf_iter, &range_last)) {
-	sprintf(g_logbuf, "Error: Invalid range end position on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
+	sprintf(g_logbuf, "Error: Invalid range end position on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
 	goto load_range_list_ret_MALFORMED_INPUT_2;
       }
       if (range_last < range_first) {
-	sprintf(g_logbuf, "Error: Range end position smaller than range start on line %" PRIuPTR " of %s file.\n", line_idx, file_descrip);
+	sprintf(g_logbuf, "Error: Range end position smaller than range start on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
 	wordwrapb(0);
 	goto load_range_list_ret_MALFORMED_INPUT_2;
       }
@@ -248,9 +249,9 @@ pglerr_t load_range_list(const chr_info_t* cip, const uint32_t* variant_bps, con
 	  last_token = &(last_token[-2]);
 	  memcpy(last_token, "C_", 2);
 	} else if (!variant_bps) {
-	  last_token = &(last_token[-4]);
-	  uitoa_z4((uint32_t)cur_chr_code, last_token);
-	  last_token[3] -= 15;
+	  last_token = &(last_token[-((int32_t)kMaxChrCodeDigits)]);
+	  uitoa_z5((uint32_t)cur_chr_code, last_token);
+	  last_token[kMaxChrCodeDigits - 1] -= 15;
 	}
 	// this should never fail
 	cur_set_idx = (uint32_t)bsearch_str_natural(last_token, set_names, max_set_id_blen, set_ct);
@@ -353,7 +354,7 @@ pglerr_t extract_exclude_range(const char* fnames, const chr_info_t* cip, const 
 	goto extract_exclude_range_ret_1;
       }
       make_set_range_t** range_arr = nullptr;
-      reterr = load_range_list(cip, variant_bps, nullptr, do_exclude? "--exclude range" : "--extract range", 0, 0, 0, 0, 0, 1, 0, 0, gz_infile, nullptr, nullptr, nullptr, nullptr, &range_arr);
+      reterr = load_range_list(cip, variant_bps, nullptr, do_exclude? "--exclude range file" : "--extract range file", 0, 0, 0, 0, 0, 1, 0, 0, gz_infile, nullptr, nullptr, nullptr, nullptr, &range_arr);
       if (reterr) {
 	goto extract_exclude_range_ret_1;
       }

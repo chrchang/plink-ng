@@ -76,7 +76,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 603
+#define PGENLIB_INTERNAL_VERNUM 604
 
 
 // other configuration-ish values needed by plink2_common subset
@@ -267,6 +267,8 @@ void transpose_quaterblock(const uintptr_t* read_iter, uint32_t read_ul_stride, 
 void biallelic_dosage16_invert(uint32_t dosage_ct, uint16_t* dosage_vals);
 
 void genovec_to_missingness_unsafe(const uintptr_t* __restrict genovec, uint32_t sample_ct, uintptr_t* __restrict missingness);
+
+void genovec_to_nonmissingness_unsafe(const uintptr_t* __restrict genovec, uint32_t sample_ct, uintptr_t* __restrict nonmissingness);
 
 // ----- end plink2_common subset -----
 
@@ -492,17 +494,17 @@ struct Pgen_file_info_struct {
   // bits 5-6:
   //   00 = no dosage data.
   //   01 = dosage list.  auxiliary data track #3 contains a delta-encoded list
-  //        of sample IDs (like a difflist, but with no genotypes).  if dosage
-  //        is unphased, track #5 contains a 16-bit (0..2^15; 65535 missing
-  //        value is only permitted in unconditional-dosage case) value for
-  //        each allele except the last alt; if it's phased, it uses the order
-  //          [hap1 ref prob] [hap2 ref prob] [hap1 alt1 prob] ...
-  //        where the values are in 0..2^14 (to minimize rounding headaches).
+  //        of sample IDs (like a difflist, but with no genotypes).  track #4
+  //        contains a 16-bit (0..2^15; 65535 missing value is only permitted
+  //        in unconditional-dosage case) value for each allele except the ref
+  //        (intended to omit the last alt instead, but forgot, and it's too
+  //        late now, oops).  When the variant is multiallelic, order is
+  //        [sample0 alt1 prob] [sample0 alt2 prob] ... [sample1 alt1 prob] ...
   //        Note that this and the other dosage modes are in ADDITION to
   //        hardcalls.  This increases filesize by up to 12.5%, but makes the
   //        reader substantially simpler; --hard-call-threshold logic is nicely
   //        compartmentalized.
-  //   10 = unconditional dosage (just track #5).
+  //   10 = unconditional dosage (just track #4).
   //   11 = dosage bitarray.  in this case, auxiliary data track #3 contains an
   //        array of 1-bit values indicating which samples have dosages.
   //   bgen 1.2 format no longer permits fractional missingness, so no good
@@ -512,13 +514,19 @@ struct Pgen_file_info_struct {
   //   unconditional dosages, but it doesn't work well when only some samples
   //   have dosage data.
   // bit 7: some dosages phased?  if yes, and dosages are not unconditionally
-  //        present, auxiliary data track #4 is either a single zero byte
+  //        present, auxiliary data track #5 is either a single zero byte
   //        (indicating that all dosages are phased), or a bitarray of length
   //        (dosage_ct + 1) where the first bit is set, and the other bits
   //        indicate whether phase info is present for that sample (unset = no
   //        phasing info)
   //        note that this is independent of bit 4; either can be set without
   //        the other.
+  //        when phased dosages are present, track #6 contains values
+  //        representing [(hap1 alt1 prob) - (hap2 alt1 prob)],
+  //        [(hap1 alt2 prob) - (hap2 alt2 prob)], etc., where the underlying
+  //        values are represented in [0..16384] (so the signed difference is
+  //        in [-16384..16384]).  track #4 contains the corresponding sums;
+  //        parity should always match.
   //
   // Representation of variable ploidy (MT) was considered, but rejected since
   // dosages should be at least as appropriate for MT.

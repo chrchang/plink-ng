@@ -29,7 +29,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
   // yes, this is overkill.  But it should be a good template for other
   // command-line programs to use.
   uint32_t param_ctl = BITCT_TO_WORDCT(param_ct);
-  pglerr_t reterr = kPglRetHelp;
+  pglerr_t reterr = kPglRetSuccess;
   help_ctrl_t help_ctrl;
   uint32_t arg_uidx;
   uint32_t arg_idx;
@@ -562,7 +562,8 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "    The default is chrom,ref,alt,gcounts,hetfreq,sexaf,p.\n\n"
 	       );
     help_print("indep\tindep-pairwise", &help_ctrl, 1,
-"  --indep-pairwise [window size]<kb> {step size (variant ct)} [r^2 threshold]\n"
+"  --indep-pairwise [window size]<kb> {step size (variant ct)}\n"
+"                   [unphased-hardcall-r^2 threshold]\n"
 "    Generate a list of variants in approximate linkage equilibrium.  With the\n"
 "    'kb' modifier, the window size is in kilobase instead of variant count\n"
 "    units.  (Pre-'kb' space is optional, i.e. '--indep-pairwise 500 kb 0.5' and\n"
@@ -572,23 +573,29 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "    Note that you need to rerun plink2 using --extract or --exclude on the\n"
 "    .prune.in/.prune.out file to apply the list to another computation.\n\n"
 	       );
-    // todo: replace --indep-pairphase with method which takes fully phased
-    // haplotypes as input (unphased het treated as missing).
-
+    // todo: replace --indep-pairphase with new --ld approach (possibly with
+    // its optional dosage support?)
     help_print("ld", &help_ctrl, 1,
-"  --ld [variant ID] [variant ID] <hwe-midp>\n"
-"    This displays hardcall haplotype frequencies, r^2, and D' for a single pair\n"
-"    of variants.\n"
-"    * Phase information is taken into account.\n"
+"  --ld [variant ID] [variant ID] <dosage> <hwe-midp>\n"
+"    This displays diplotype frequencies, r^2, and D' for a single pair of\n"
+"    variants.\n"
+"    * Phase information is used when both variants are on the same chromosome.\n"
 "    * When there is at least one sample with unphased het calls for both\n"
-"      variants, haplotype frequencies are estimated using the Hill equation.\n"
+"      variants, diplotype frequencies are estimated using the Hill equation.\n"
 "      If there are multiple biologically possible local maxima, all are\n"
 "      displayed, along with HWE exact test statistics.\n"
-"    * If dosages are present, they are used to compute r^2.\n\n"
+"    * By default, only hardcalls are considered.  Add the 'dosage' modifier if\n"
+"      you want dosages to be taken into account.  (In the diploid case, an\n"
+"      unphased dosage of x is interpreted as P(0/0) = 1 - x, P(0/1) = x when x\n"
+"      is in 0..1.)  Note that when both an unphased dosage and a phased\n"
+"      hardcall are present, this ignores the phased hardcall, which may not be\n"
+"      what you want when the dosage is e.g. 0.95...\n\n"
 	       );
     // for kinship estimation, LD pruning isn't really advisable (if more speed
     // is needed, the humble --bp-space may lead to a better approximation; and
-    // in practice speed isn't an issue any more with --make-king)
+    // in practice speed isn't an issue any more with --make-king, though
+    // there's more work to do re: not blowing the cache when there are 100k+
+    // samples)
     help_print("make-king\tmake-king-table", &help_ctrl, 1,
 "  --make-king <square | square0 | triangle> <zs | bin | bin4>\n"
 "    KING-robust kinship estimator, described by Manichaikul A, Mychaleckyj JC,\n"

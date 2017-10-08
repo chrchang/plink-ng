@@ -1246,6 +1246,15 @@ void genovec_to_missingness_unsafe(const uintptr_t* __restrict genovec, uint32_t
   }
 }
 
+void genovec_to_nonmissingness_unsafe(const uintptr_t* __restrict genovec, uint32_t sample_ct, uintptr_t* __restrict nonmissingness) {
+  const uint32_t sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
+  halfword_t* nonmissingness_alias = (halfword_t*)nonmissingness;
+  for (uint32_t widx = 0; widx < sample_ctl2; ++widx) {
+    const uintptr_t cur_geno_word = genovec[widx];
+    nonmissingness_alias[widx] = pack_word_to_halfword((~(cur_geno_word & (cur_geno_word >> 1))) & kMask5555);
+  }
+}
+
 
 void pgfi_preinit(pgen_file_info_t* pgfip) {
   pgfip->shared_ff = nullptr;
@@ -1330,14 +1339,14 @@ uint32_t count_pgr_alloc_cachelines_required(uint32_t raw_sample_ct, pgen_global
     // (may be stored on disk as a dosage list)
     cachelines_required += bitvec_cacheline_req;
     if (gflags & kfPgenGlobalDosagePhasePresent) {
-      // aux track #4: bitarray tracking which dosage entries are phased
+      // aux track #5: bitarray tracking which dosage entries are phased
       cachelines_required += bitvec_cacheline_req;
-      
-      // phased aux track #5: max_alt_allele_ct * 4 bytes per sample
+
+      // phased aux tracks #4,6: max_alt_allele_ct * 4 bytes per sample
       // (commented out since caller always provides this buffer for now)
       // cachelines_required += DIV_UP(max_alt_allele_ct * 4 * k1LU * raw_sample_ct, kCacheline);
     }
-    // unphased aux track #5: max_alt_allele_ct * 2 bytes per sample
+    // unphased aux track #4: max_alt_allele_ct * 2 bytes per sample
     // cachelines_required += DIV_UP(max_alt_allele_ct * 2 * k1LU * raw_sample_ct, kCacheline);
   }
   return cachelines_required;
@@ -8528,6 +8537,8 @@ pglerr_t spgw_append_biallelic_genovec_hphase_dosage16(const uintptr_t* __restri
 }
 
 /*
+// need to rewrite these to reflect reordering of tracks #4-5, and addition of
+// track #6.
 void append_dphase16(const uintptr_t* __restrict dosage_present, const uintptr_t* __restrict dphase_present, const uint16_t* __restrict dosage_vals, uint32_t dosage_ct, uint32_t dphase_ct, pgen_writer_common_t* pwcp, unsigned char* vrtype_ptr, uint32_t* vrec_len_ptr) {
   if (!dphase_ct) {
     append_dosage16(dosage_present, dosage_vals, dosage_ct, pwcp, vrtype_ptr, vrec_len_ptr);

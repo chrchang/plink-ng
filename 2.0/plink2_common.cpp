@@ -54,6 +54,45 @@ char* print_dosage(uint64_t dosage, char* start) {
   return start;
 }
 
+void populate_dense_dosage(const uintptr_t* genovec, const uintptr_t* dosage_present, const dosage_t* dosage_vals, uint32_t sample_ct, uint32_t dosage_ct, dosage_t* dense_dosage) {
+  // see also fill_cur_dosage_ints in plink2_matrix_calc
+  const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
+  dosage_t lookup_table[4];
+  lookup_table[0] = 0;
+  lookup_table[1] = kDosageMid;
+  lookup_table[2] = kDosageMax;
+  lookup_table[3] = kDosageMissing;
+  uint32_t loop_len = kBitsPerWordD2;
+  uint32_t widx = 0;
+  dosage_t* dense_dosage_iter = dense_dosage;
+  while (1) {
+    if (widx >= sample_ctl2_m1) {
+      if (widx > sample_ctl2_m1) {
+        break;
+      }
+      loop_len = MOD_NZ(sample_ct, kBitsPerWordD2);
+    }
+    uintptr_t cur_geno_word = genovec[widx];
+    for (uint32_t uii = 0; uii < loop_len; ++uii) {
+      const uintptr_t cur_geno = cur_geno_word & 3;
+      *dense_dosage_iter++ = lookup_table[cur_geno];
+      cur_geno_word >>= 2;
+    }
+    ++widx;
+  }
+  // fill trailing bits with missing values so vector operations work
+  const uint32_t trailing_entry_ct = (-sample_ct) % kDosagePerVec;
+  for (uint32_t uii = 0; uii < trailing_entry_ct; ++uii) {
+    dense_dosage_iter[uii] = kDosageMissing;
+  }
+
+  uint32_t sample_idx = 0;
+  for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_idx) {
+    next_set_unsafe_ck(dosage_present, &sample_idx);
+    dense_dosage[sample_idx] = dosage_vals[dosage_idx];
+  }
+}
+
 void set_het_missing(uintptr_t word_ct, uintptr_t* genovec) {
   // 01 -> 11, nothing else changes
 #ifdef __LP64__

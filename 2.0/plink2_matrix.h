@@ -161,12 +161,12 @@ HEADER_INLINE boolerr_t invert_matrix_checked(int32_t dim, double* matrix, matri
   return invert_matrix(dim, matrix, dbl_1d_buf, dbl_2d_buf);
 }
 
-HEADER_INLINE boolerr_t invert_symm_matrix(int32_t dim, double* matrix, matrix_invert_buf1_t* dbl_1d_buf, double* dbl_2d_buf) {
+HEADER_INLINE boolerr_t invert_symmdef_matrix(int32_t dim, double* matrix, matrix_invert_buf1_t* dbl_1d_buf, double* dbl_2d_buf) {
   reflect_matrix(dim, matrix);
   return invert_matrix(dim, matrix, dbl_1d_buf, dbl_2d_buf);
 }
 
-HEADER_INLINE boolerr_t invert_symm_matrix_checked(int32_t dim, double* matrix, matrix_invert_buf1_t* dbl_1d_buf, double* dbl_2d_buf) {
+HEADER_INLINE boolerr_t invert_symmdef_matrix_checked(int32_t dim, double* matrix, matrix_invert_buf1_t* dbl_1d_buf, double* dbl_2d_buf) {
   reflect_matrix(dim, matrix);
   return invert_matrix(dim, matrix, dbl_1d_buf, dbl_2d_buf);
 }
@@ -179,7 +179,7 @@ HEADER_INLINE boolerr_t invert_symm_matrix_checked(int32_t dim, double* matrix, 
 //   from first half
 boolerr_t invert_fmatrix_first_half(int32_t dim, uint32_t stride, const float* matrix, double* half_inverted, matrix_invert_buf1_t* dbl_1d_buf, double* dbl_2d_buf);
 
-HEADER_INLINE boolerr_t invert_symm_fmatrix_first_half(int32_t dim, uint32_t stride, float* matrix, double* half_inverted, matrix_invert_buf1_t* dbl_1d_buf, double* dbl_2d_buf) {
+HEADER_INLINE boolerr_t invert_symmdef_fmatrix_first_half(int32_t dim, uint32_t stride, float* matrix, double* half_inverted, matrix_invert_buf1_t* dbl_1d_buf, double* dbl_2d_buf) {
   reflect_fmatrix(dim, stride, );
   return invert_fmatrix_first_half(dim, stride, matrix, half_inverted, dbl_1d_buf, dbl_2d_buf);
 }
@@ -200,7 +200,7 @@ HEADER_INLINE double half_symm_inverted_det(__maybe_unused const double* half_in
 
 void invert_fmatrix_second_half(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, matrix_invert_buf1_t* dbl_1d_buf, double* dbl_2d_buf);
 
-HEADER_INLINE void invert_symm_fmatrix_second_half(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, matrix_invert_buf1_t* dbl_1d_buf, double* dbl_2d_buf) {
+HEADER_INLINE void invert_symmdef_fmatrix_second_half(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, matrix_invert_buf1_t* dbl_1d_buf, double* dbl_2d_buf) {
   invert_fmatrix_second_half(dim, stride, half_inverted, inverted_result, dbl_1d_buf, dbl_2d_buf);
 }
 #else
@@ -235,17 +235,17 @@ boolerr_t invert_matrix(__CLPK_integer dim, double* matrix, matrix_invert_buf1_t
 boolerr_t invert_matrix_checked(__CLPK_integer dim, double* matrix, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf);
 
 
-// invert_symm_... functions only assume (C-order) lower left of matrix is
+// invert_symmdef_... functions only assume (C-order) lower left of matrix is
 // filled, and only the lower left of the return matrix is valid.
-boolerr_t invert_symm_matrix(__CLPK_integer dim, double* matrix, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf);
+boolerr_t invert_symmdef_matrix(__CLPK_integer dim, double* matrix, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf);
 
 // dbl_2d_buf must have room for at least max(dim, 3) * dim elements.
-boolerr_t invert_symm_matrix_checked(__CLPK_integer dim, double* matrix, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf);
+boolerr_t invert_symmdef_matrix_checked(__CLPK_integer dim, double* matrix, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf);
 
 
 boolerr_t invert_fmatrix_first_half(__CLPK_integer dim, uint32_t stride, const float* matrix, double* half_inverted, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf);
 
-boolerr_t invert_symm_fmatrix_first_half(__CLPK_integer dim, uint32_t stride, float* matrix, double* half_inverted, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf);
+boolerr_t invert_symmdef_fmatrix_first_half(__CLPK_integer dim, uint32_t stride, float* matrix, double* half_inverted, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf);
 
 HEADER_INLINE double half_inverted_det(__maybe_unused const double* half_inverted_iter, __maybe_unused const matrix_invert_buf1_t* int_1d_buf, uint32_t dim) {
   uint32_t dim_p1 = dim + 1;
@@ -269,7 +269,7 @@ HEADER_INLINE double half_symm_inverted_det(__maybe_unused const double* half_in
 
 void invert_fmatrix_second_half(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf);
 
-void invert_symm_fmatrix_second_half(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf);
+void invert_symmdef_fmatrix_second_half(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf);
 #endif
 
 void col_major_matrix_multiply(const double* inmatrix1, const double* inmatrix2, __CLPK_integer row1_ct, __CLPK_integer col2_ct, __CLPK_integer common_ct, double* outmatrix);
