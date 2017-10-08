@@ -2585,7 +2585,8 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, cha
       if (!valid_obs_ct) {
 	goto ld_console_ret_NO_VALID_OBSERVATIONS;
       }
-      if (use_phase) {
+      hethet_present = (uhethet_dosageprod != 0);
+      if (use_phase && hethet_present) {
 	known_dosageprod = ((int64_t)known_dosageprod) + dosage_signed_dotprod(dosage_diffs[0], dosage_diffs[1], founder_dosagev_ct);
       }
       altsums_d[0] = ((int64_t)alt_dosages[0]) * kRecipDosageMid;
