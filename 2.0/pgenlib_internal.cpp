@@ -5721,7 +5721,7 @@ pglerr_t pgr_read_refalt1_genovec_dosage16_subset_unsafe(const uintptr_t* __rest
     return kPglRetSuccess;
   }
   const uint32_t vrtype = get_pgfi_vrtype(&(pgrp->fi), vidx);
-  if (!vrtype_dosage(vrtype)) {
+  if ((!vrtype_dosage(vrtype)) || (!dosage_present)) {
     pglerr_t reterr = read_refalt1_genovec_subset_unsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, nullptr, nullptr, genovec);
     *dosage_ct_ptr = 0;
     return reterr;

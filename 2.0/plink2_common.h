@@ -41,7 +41,7 @@ CONSTU31(kDosage4th, kDosageMax / 4);
 CONSTU31(kDosageMissing, kDosageMax * 2 - 1);
 static const double kRecipDosageMax = 0.000030517578125;
 static const double kRecipDosageMid = 0.00006103515625;
-static const double kRecipDosageMidSq = 0.000000000931322574615478515625;
+static const double kRecipDosageMidSq = 0.0000000037252902984619140625;
 static const float kRecipDosageMidf = 0.00006103515625;
 CONSTU31(kDosagePerVec, kBytesPerVec / sizeof(dosage_t));
 

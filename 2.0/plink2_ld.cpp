@@ -2591,7 +2591,7 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, cha
       }
       altsums_d[0] = ((int64_t)alt_dosages[0]) * kRecipDosageMid;
       altsums_d[1] = ((int64_t)alt_dosages[1]) * kRecipDosageMid;
-      known_dotprod_d = ((int64_t)known_dosageprod) * (kRecipDosageMidSq * 0.5);
+      known_dotprod_d = ((int64_t)(known_dosageprod - uhethet_dosageprod)) * (kRecipDosageMidSq * 0.5);
       unknown_hethet_d = ((int64_t)uhethet_dosageprod) * kRecipDosageMidSq;
       if (x_male_ct) {
 	dosage_t* x_male_dosage_mask;
@@ -2758,7 +2758,7 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, cha
 
     uint32_t cubic_sol_ct = 0;
     uint32_t first_relevant_sol_idx = 0;
-    uint32_t best_lnlike_idx = 3;
+    uint32_t best_lnlike_mask = 0;
     double cubic_sols[3];
     if (half_unphased_hethet_share) {
       // detect degenerate cases to avoid e-17 ugliness
@@ -2858,10 +2858,9 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, cha
           const double cur_unscaled_lnlike = em_phase_unscaled_lnlike(freq_rr, freq_ra, freq_ar, freq_aa, half_unphased_hethet_share, cubic_sols[sol_idx]);
           if (cur_unscaled_lnlike > best_unscaled_lnlike) {
             best_unscaled_lnlike = cur_unscaled_lnlike;
-            best_lnlike_idx = sol_idx;
+            best_lnlike_mask = 1 << sol_idx;
           } else if (cur_unscaled_lnlike == best_unscaled_lnlike) {
-            ;;;
-            best_lnlike_idx = 3;
+            best_lnlike_mask |= 1 << sol_idx;
           }
         }
       }
@@ -2875,8 +2874,12 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, cha
       if (cubic_sol_ct - first_relevant_sol_idx > 1) {
         write_iter = strcpya(g_logbuf, "Solution #");
         write_iter = uint32toa(sol_idx + 1 - first_relevant_sol_idx, write_iter);
-        if (sol_idx == best_lnlike_idx) {
-          write_iter = strcpya(write_iter, " (best likelihood)");
+        if ((best_lnlike_mask >> sol_idx) & 1) {
+	  write_iter = strcpya(write_iter, " (");
+	  if (best_lnlike_mask & ((1 << sol_idx) - 1)) {
+	    write_iter = strcpya(write_iter, "tied for ");
+	  }
+          write_iter = strcpya(write_iter, "best likelihood)");
         }
         strcpy(write_iter, ":\n");
         logprintb();
