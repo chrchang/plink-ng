@@ -288,6 +288,7 @@ typedef struct plink2_cmdline_struct {
   char* quantnorm_flattened;
   char* covar_quantnorm_flattened;
   char* loop_cats_phenoname;
+  char* ref_from_fa_fname;
   two_col_params_t* ref_allele_flag;
   two_col_params_t* alt1_allele_flag;
 } plink2_cmdline_t;
@@ -430,7 +431,7 @@ pglerr_t apply_variant_bp_filters(const char* extract_fnames, const char* exclud
   // todo: add --from-bp/--to-bp
   if ((from_bp != -1) || (to_bp != -1)) {
     if (vpos_sortstatus & kfUnsortedVarBp) {
-      logerrprint("Error: --from-bp and --to-bp require a sorted .pvar/.bim.  Retry this command\nafter using e.g. plink 1.9 --make-bed to sort your data.\n");
+      logerrprint("Error: --from-bp and --to-bp require a sorted .pvar/.bim.  Retry this command\nafter using --make-pgen/--make-bed + --sort-vars to sort your data.\n");
       return kPglRetInconsistentInput;
     }
     const uint32_t chr_idx = next_set(cip->chr_mask, 0, kChrRawEnd);
@@ -459,7 +460,7 @@ pglerr_t apply_variant_bp_filters(const char* extract_fnames, const char* exclud
   }
   if (extract_fnames && (misc_flags & kfMiscExtractRange)) {
     if (vpos_sortstatus & kfUnsortedVarBp) {
-      logerrprint("Error: '--extract range' requires a sorted .pvar/.bim.  Retry this command\nafter using e.g. plink 1.9 --make-bed to sort your data.\n");
+      logerrprint("Error: '--extract range' requires a sorted .pvar/.bim.  Retry this command\nafter using --make-pgen/--make-bed + --sort-vars to sort your data.\n");
       return kPglRetInconsistentInput;
     }
     pglerr_t reterr = extract_exclude_range(extract_fnames, cip, variant_bps, raw_variant_ct, 0, variant_include, variant_ct_ptr);
@@ -469,7 +470,7 @@ pglerr_t apply_variant_bp_filters(const char* extract_fnames, const char* exclud
   }
   if (exclude_fnames && (misc_flags & kfMiscExcludeRange)) {
     if (vpos_sortstatus & kfUnsortedVarBp) {
-      logerrprint("Error: '--exclude range' requires a sorted .pvar/.bim.  Retry this command\nafter using e.g. plink 1.9 --make-bed to sort your data.\n");
+      logerrprint("Error: '--exclude range' requires a sorted .pvar/.bim.  Retry this command\nafter using --make-pgen/--make-bed + --sort-vars to sort your data.\n");
       return kPglRetInconsistentInput;
     }
     pglerr_t reterr = extract_exclude_range(exclude_fnames, cip, variant_bps, raw_variant_ct, 1, variant_include, variant_ct_ptr);
@@ -879,11 +880,11 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
       }
       if (vpos_sortstatus & kfUnsortedVarBp) {
 	if (pcp->varid_from || pcp->varid_to) {
-	  logerrprint("Error: --from/--to require a sorted .pvar/.bim.  Retry this command after using\ne.g. plink 1.9 --make-bed to sort your data.\n");
+	  logerrprint("Error: --from/--to require a sorted .pvar/.bim.  Retry this command after using\n--make-pgen/--make-bed + --sort-vars to sort your data.\n");
 	  goto plink2_ret_INCONSISTENT_INPUT;
 	}
 	if (pcp->window_bp != -1) {
-	  logerrprint("Error: --window requires a sorted .pvar/.bim.  Retry this command\nafter using e.g. plink 1.9 --make-bed to sort your data.\n");
+	  logerrprint("Error: --window requires a sorted .pvar/.bim.  Retry this command after using\n--make-pgen/--make-bed + --sort-vars to sort your data.\n");
 	  goto plink2_ret_INCONSISTENT_INPUT;
 	}
       }
@@ -1720,7 +1721,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	// force too many real-world jobs to require two plink2 runs instead of
 	// one.)
 
-	const uint32_t setting_alleles_from_file = pcp->ref_allele_flag || pcp->alt1_allele_flag;
+	const uint32_t setting_alleles_from_file = pcp->ref_allele_flag || pcp->alt1_allele_flag || pcp->ref_from_fa_fname;
 	char** allele_storage_backup = nullptr;
         uint32_t max_allele_slen_backup = max_allele_slen;
 	uintptr_t* nonref_flags_backup = nullptr;
@@ -1740,7 +1741,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	      }
 	      memcpy(allele_storage_backup, allele_storage, raw_allele_ct * sizeof(intptr_t));
 	    }
-	    // nonref_flags may be altered by all three flags.
+	    // nonref_flags may be altered by all four flags.
 	    if (nonref_flags) {
 	      if (bigstack_end_alloc_ul(raw_variant_ctl, &nonref_flags_backup)) {
 		goto plink2_ret_NOMEM;
@@ -1789,8 +1790,18 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	    if (previously_seen) {
 	      bigstack_reset(previously_seen);
 	    }
-	    // for sanity's sake, --maj-ref and --ref-allele/--alt1-allele are
-	    // mutually exclusive
+	    // for sanity's sake, --maj-ref, --ref-allele/--alt1-allele, and
+	    // --ref-from-fa are mutually exclusive
+	    // (though --ref-from-fa + --alt1-allele may be permitted later)
+	  } else if (pcp->ref_from_fa_fname) {
+	    if (vpos_sortstatus & kfUnsortedVarBp) {
+	      logerrprint("Error: --ref-from-fa requires a sorted .pvar/.bim.  Retry this command after\nusing --make-pgen/--make-bed + --sort-vars to sort your data.\n");
+	      goto plink2_ret_INCONSISTENT_INPUT;
+            }
+	    reterr = ref_from_fa(variant_include, variant_bps, variant_allele_idxs, allele_storage, cip, pcp->ref_from_fa_fname, variant_ct, (pcp->misc_flags / kfMiscRefFromFaForce) & 1, refalt1_select, nonref_flags);
+	    if (reterr) {
+	      goto plink2_ret_1;
+	    }
 	  } else if (!setting_alleles_from_file) {
 	    // --maj-ref; misc_flags & kfMiscMajRef check may be needed later
 
@@ -1931,7 +1942,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 
       if (pcp->command_flags1 & kfCommand1LdPrune) {
 	if ((pcp->ld_info.prune_modifier & kfLdPruneWindowBp) && (vpos_sortstatus & kfUnsortedVarBp)) {
-	  logerrprint("Error: When the window size is in kb units, LD-based pruning requires a sorted\n.pvar/.bim.  Retry this command after using e.g. plink 1.9 --make-bed to sort\nyour data.\n");
+	  logerrprint("Error: When the window size is in kb units, LD-based pruning requires a sorted\n.pvar/.bim.  Retry this command after using --make-pgen/--make-bed +\n--sort-vars to sort your data.\n");
 	  goto plink2_ret_INCONSISTENT_INPUT;
 	}
 	reterr = ld_prune(variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, maj_alleles, allele_freqs, founder_info, sex_male, &(pcp->ld_info), raw_variant_ct, variant_ct, raw_sample_ct, founder_ct, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
@@ -2748,6 +2759,7 @@ int main(int argc, char** argv) {
   pc.quantnorm_flattened = nullptr;
   pc.covar_quantnorm_flattened = nullptr;
   pc.loop_cats_phenoname = nullptr;
+  pc.ref_from_fa_fname = nullptr;
   pc.ref_allele_flag = nullptr;
   pc.alt1_allele_flag = nullptr;
   init_range_list(&pc.snps_range_list);
@@ -6457,6 +6469,27 @@ int main(int argc, char** argv) {
 	    goto main_ret_1;
 	  }
 	  pc.dependency_flags |= kfFilterPvarReq;
+	} else if (!memcmp(flagname_p2, "ef-from-fa", 11)) {
+	  if ((pc.misc_flags & kfMiscMajRef) || pc.alt1_allele_flag) {
+	    // could allow --alt1-allele later, but keep this simpler for now
+	    logerrprint("Error: --ref-from-fa cannot be used with --maj-ref or\n--ref-allele/--alt1-allele.\n");
+	    goto main_ret_INVALID_CMDLINE_A;
+	  }
+	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
+	    goto main_ret_INVALID_CMDLINE_2A;
+	  }
+	  uint32_t fname_modif_idx = 1;
+	  if (param_ct == 2) {
+	    if (check_extra_param(&(argv[arg_idx]), "force", &fname_modif_idx)) {
+	      goto main_ret_INVALID_CMDLINE_A;
+	    }
+	    pc.misc_flags |= kfMiscRefFromFaForce;
+	  }
+	  reterr = alloc_fname(argv[arg_idx + fname_modif_idx], flagname_p, 0, &pc.ref_from_fa_fname);
+	  if (reterr) {
+	    goto main_ret_1;
+	  }
+	  pc.dependency_flags |= kfFilterPvarReq;
         } else if (!memcmp(flagname_p2, "andmem", 7)) {
           randmem = 1;
           goto main_param_zero;
@@ -7249,8 +7282,8 @@ int main(int argc, char** argv) {
       logerrprint("Error: When the 'multiallelics=', 'trim-alts', and/or 'erase-...' modifier is\npresent, --make-bed/--make-{b}pgen cannot be combined with other commands.\n(Other filters are fine.)\n");
       goto main_ret_INVALID_CMDLINE;
     }
-    if (((pc.misc_flags & kfMiscMajRef) || pc.ref_allele_flag || pc.alt1_allele_flag) && (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Exportf)))) {
-      logerrprint("Error: Flags which alter REF/ALT1 allele settings (--maj-ref, --ref-allele,\n--alt1-allele) must be used with --make-bed/--make-{b}pgen/--export and no\nother commands.\n");
+    if (((pc.misc_flags & kfMiscMajRef) || pc.ref_allele_flag || pc.alt1_allele_flag || pc.ref_from_fa_fname) && (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Exportf)))) {
+      logerrprint("Error: Flags which alter REF/ALT1 allele settings (--maj-ref, --ref-allele,\n--alt1-allele, --ref-from-fa) must be used with\n--make-bed/--make-{b}pgen/--export and no other commands.\n");
       goto main_ret_INVALID_CMDLINE;
     }
     if (pc.keep_cat_phenoname && (!pc.keep_cat_names_flattened) && (!pc.keep_cats_fname)) {
@@ -7531,6 +7564,7 @@ int main(int argc, char** argv) {
   free_cond(king_cutoff_fprefix);
   free_cond(pc.alt1_allele_flag);
   free_cond(pc.ref_allele_flag);
+  free_cond(pc.ref_from_fa_fname);
   free_cond(pc.loop_cats_phenoname);
   free_cond(pc.covar_quantnorm_flattened);
   free_cond(pc.quantnorm_flattened);

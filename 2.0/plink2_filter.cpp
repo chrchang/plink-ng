@@ -3211,6 +3211,21 @@ pglerr_t set_refalt1_from_file(const uintptr_t* variant_include, char** variant_
   return reterr;
 }
 
+pglerr_t ref_from_fa(__attribute__((unused)) const uintptr_t* variant_include, __attribute__((unused)) const uint32_t* variant_bps, __attribute__((unused)) const uintptr_t* variant_allele_idxs, __attribute__((unused)) char** allele_storage, __attribute__((unused)) const chr_info_t* cip, __attribute__((unused)) const char* fname, __attribute__((unused)) uint32_t variant_ct, __attribute__((unused)) uint32_t force, __attribute__((unused)) alt_allele_ct_t* refalt1_select, __attribute__((unused)) uintptr_t* nonref_flags) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  gzFile gz_infile = nullptr;
+  pglerr_t reterr = kPglRetSuccess;
+  {
+    logerrprint("Error: --ref-from-fa is currently under development.\n");
+    reterr = kPglRetNotYetSupported;
+  }
+  while (0) {
+  }
+  gzclose_cond(gz_infile);
+  bigstack_reset(bigstack_mark);
+  return reterr;
+}
+
 #ifdef __cplusplus
 } // namespace plink2
 #endif

@@ -1349,6 +1349,14 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "    * When --alt1-allele changes the previous ref allele to alt1, the previous\n"
 "      alt1 allele is set to reference and marked as provisional.\n"
 	       );
+    help_print("ref-from-fa\tmaj-ref\tref-allele\treference-allele\tupdate-ref-allele\ta2-allele\tkeep-allele-order", &help_ctrl, 0,
+"  --ref-from-fa [fn] <force> : This sets reference alleles from the given FASTA\n"
+"                               file when it can be done unambiguously (note\n"
+"                               that it's never possible for deletions or some\n"
+"                               insertions).  By default, it errors out when\n"
+"                               asked to change a 'known' reference allele; add\n"
+"                               the 'force' modifier to permit this.\n"
+	       );
     help_print("indiv-sort", &help_ctrl, 0,
 "  --indiv-sort [m] <sid> {f} : Specify FID/IID(/SID) sort order for merge and\n"
 "                               --make-{b}pgen/--make-bed.  The following four\n"
