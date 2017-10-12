@@ -105,10 +105,10 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (7 Oct 2017)";
+  " (12 Oct 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has a trailing letter)
 #else
@@ -326,7 +326,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   uintptr_t* marker_exclude = nullptr;
   uintptr_t marker_exclude_ct = 0;
   uintptr_t marker_ct = 0;
-  uintptr_t max_marker_id_len = 0;
+  uintptr_t max_marker_id_blen = 0;
   // set_allele_freqs = .bed set bit frequency in middle of loading process, A2
   //   allele frequency later.
   double* set_allele_freqs = nullptr;
@@ -554,7 +554,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   if (bimname[0]) {
     if (update_name) {
       ulii = 0;
-      retval = scan_max_strlen(update_name->fname, update_name->colid, update_name->colx, update_name->skip, update_name->skipchar, &max_marker_id_len, &ulii);
+      retval = scan_max_strlen(update_name->fname, update_name->colid, update_name->colx, update_name->skip, update_name->skipchar, &max_marker_id_blen, &ulii);
       if (retval) {
 	goto plink_ret_1;
       }
@@ -564,14 +564,14 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	// fixing the problem, so we shouldn't spam them.
 	logerrprint("Warning: Unusually long new variant ID(s) in --update-name file.  Double-check\nyour file and command-line parameters, and consider changing your naming\nscheme if you encounter memory problems.\n");
       }
-      if (ulii > max_marker_id_len) {
-	max_marker_id_len = ulii;
+      if (ulii > max_marker_id_blen) {
+	max_marker_id_blen = ulii;
       }
     }
     if (!marker_alleles_needed) {
       allelexxxx = 0;
     }
-    retval = load_bim(bimname, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_len, &marker_exclude, &set_allele_freqs, nchrobs_needed? (&nchrobs) : nullptr, &marker_allele_ptrs, &max_marker_allele_blen, &marker_ids, missing_mid_template, new_id_max_allele_len, missing_marker_id_match, chrom_info_ptr, &marker_cms, &marker_pos, misc_flags, filter_flags, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, snps_range_list_ptr, &map_is_unsorted, marker_pos_needed, marker_cms_needed, marker_alleles_needed, ((!(calculation_type & (~(CALC_MAKE_BED | CALC_MAKE_BIM | CALC_MAKE_FAM)))) && (mind_thresh == 1.0) && (geno_thresh == 1.0) && (hwe_thresh == 0.0) && (!update_map) && (!freqname))? nullptr : "make-bed", ".bim file", &max_bim_linelen);
+    retval = load_bim(bimname, &unfiltered_marker_ct, &marker_exclude_ct, &max_marker_id_blen, &marker_exclude, &set_allele_freqs, nchrobs_needed? (&nchrobs) : nullptr, &marker_allele_ptrs, &max_marker_allele_blen, &marker_ids, missing_mid_template, new_id_max_allele_len, missing_marker_id_match, chrom_info_ptr, &marker_cms, &marker_pos, misc_flags, filter_flags, marker_pos_start, marker_pos_end, snp_window_size, markername_from, markername_to, markername_snp, &map_is_unsorted, marker_pos_needed, marker_cms_needed, marker_alleles_needed, ((!(calculation_type & (~(CALC_MAKE_BED | CALC_MAKE_BIM | CALC_MAKE_FAM)))) && (mind_thresh == 1.0) && (geno_thresh == 1.0) && (hwe_thresh == 0.0) && (!update_map) && (!freqname))? nullptr : "make-bed", ".bim file", &max_bim_linelen);
     if (retval) {
       goto plink_ret_1;
     }
@@ -785,33 +785,44 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   }
 
   if (unfiltered_marker_ct != marker_exclude_ct) {
-    uii = update_cm || update_map || update_name || (marker_alleles_needed && (update_alleles_fname || (flip_fname && (!flip_subset_fname)))) || filter_attrib_fname || qual_filter;
+    // bugfix (12 Oct 2017): Previous plink 1.9 implementation of
+    // --{exclude-}snps could affect unwanted variants at the same position as
+    // named variant(s).  Backport plink 2.0's safe implementation.  This has
+    // the drawback of sometimes increasing the overhead associated with
+    // --snps, but we can live with that.
+    uii = update_cm || update_map || update_name || (marker_alleles_needed && (update_alleles_fname || (flip_fname && (!flip_subset_fname)))) || filter_attrib_fname || qual_filter || snps_range_list_ptr->names;
     if (uii || extractname || excludename) {
       // only permit duplicate marker IDs for --extract/--exclude
       bigstack_mark = g_bigstack_base;
-      retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, !uii, &marker_id_htable_size, &marker_id_htable);
+      retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_blen, !uii, &marker_id_htable_size, &marker_id_htable);
       if (retval) {
 	goto plink_ret_1;
       }
+      if (snps_range_list_ptr->names) {
+        retval = snps_flag(marker_ids, marker_id_htable, snps_range_list_ptr, unfiltered_marker_ct, max_marker_id_blen, marker_id_htable_size, (filter_flags / FILTER_EXCLUDE_MARKERNAME_SNP) & 1, marker_exclude, &marker_exclude_ct);
+        if (retval) {
+          goto plink_ret_1;
+        }
+      }
       if (update_cm) {
-	retval = update_marker_cms(update_cm, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_cms);
+	retval = update_marker_cms(update_cm, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_blen, unfiltered_marker_ct, marker_cms);
 	if (retval) {
 	  goto plink_ret_1;
 	}
       }
       if (update_map) {
-	retval = update_marker_pos(update_map, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, marker_pos, &map_is_unsorted, chrom_info_ptr);
+	retval = update_marker_pos(update_map, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_blen, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, marker_pos, &map_is_unsorted, chrom_info_ptr);
 	if (retval) {
 	  goto plink_ret_1;
 	}
       } else if (update_name) {
-	retval = update_marker_names(update_name, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len, unfiltered_marker_ct);
+	retval = update_marker_names(update_name, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_blen, unfiltered_marker_ct);
 	if (retval) {
 	  goto plink_ret_1;
 	}
 	if (update_alleles_fname || (marker_alleles_needed && flip_fname && (!flip_subset_fname)) || extractname || excludename) {
 	  bigstack_reset(bigstack_mark);
-	  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, 0, &marker_id_htable_size, &marker_id_htable);
+	  retval = alloc_and_populate_id_htable(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_blen, 0, &marker_id_htable_size, &marker_id_htable);
 	  if (retval) {
 	    goto plink_ret_1;
 	  }
@@ -819,13 +830,13 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       }
       if (marker_alleles_needed) {
 	if (update_alleles_fname) {
-	  retval = update_marker_alleles(update_alleles_fname, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, marker_allele_ptrs, &max_marker_allele_blen, outname, outname_end);
+	  retval = update_marker_alleles(update_alleles_fname, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_blen, unfiltered_marker_ct, marker_exclude, marker_allele_ptrs, &max_marker_allele_blen, outname, outname_end);
 	  if (retval) {
 	    goto plink_ret_1;
 	  }
 	}
 	if (flip_fname && (!flip_subset_fname)) {
-	  retval = flip_strand(flip_fname, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, marker_allele_ptrs);
+	  retval = flip_strand(flip_fname, marker_id_htable, marker_id_htable_size, marker_ids, max_marker_id_blen, unfiltered_marker_ct, marker_exclude, marker_allele_ptrs);
 	  if (retval) {
 	    goto plink_ret_1;
 	  }
@@ -833,7 +844,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       }
       if (extractname) {
 	if (!(misc_flags & MISC_EXTRACT_RANGE)) {
-	  retval = extract_exclude_flag_norange(extractname, marker_id_htable, marker_id_htable_size, 0, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, allow_no_variants);
+	  retval = extract_exclude_flag_norange(extractname, marker_id_htable, marker_id_htable_size, 0, marker_ids, max_marker_id_blen, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, allow_no_variants);
 	  if (retval) {
 	    goto plink_ret_1;
 	  }
@@ -852,7 +863,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       }
       if (excludename) {
 	if (!(misc_flags & MISC_EXCLUDE_RANGE)) {
-	  retval = extract_exclude_flag_norange(excludename, marker_id_htable, marker_id_htable_size, 1, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, allow_no_variants);
+	  retval = extract_exclude_flag_norange(excludename, marker_id_htable, marker_id_htable_size, 1, marker_ids, max_marker_id_blen, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, allow_no_variants);
 	  if (retval) {
 	    goto plink_ret_1;
 	  }
@@ -870,13 +881,13 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	}
       }
       if (filter_attrib_fname) {
-	retval = filter_attrib(filter_attrib_fname, filter_attrib_liststr, marker_id_htable, marker_id_htable_size, allow_no_variants, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct);
+	retval = filter_attrib(filter_attrib_fname, filter_attrib_liststr, marker_id_htable, marker_id_htable_size, allow_no_variants, marker_ids, max_marker_id_blen, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct);
 	if (retval) {
 	  goto plink_ret_1;
 	}
       }
       if (qual_filter) {
-	retval = filter_qual_scores(qual_filter, qual_min_thresh, qual_max_thresh, marker_id_htable, marker_id_htable_size, allow_no_variants, marker_ids, max_marker_id_len, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct);
+	retval = filter_qual_scores(qual_filter, qual_min_thresh, qual_max_thresh, marker_id_htable, marker_id_htable_size, allow_no_variants, marker_ids, max_marker_id_blen, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct);
 	if (retval) {
 	  goto plink_ret_1;
 	}
@@ -1035,7 +1046,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	om_ip->cluster_ct = 0;
 	om_ip->entry_ct = 0;
       } else {
-	retval = load_oblig_missing(bedfile, bed_offset, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, cptr, unfiltered_sample_ct, max_sample_id_len, uiptr, unfiltered_sample_ct, sex_male, chrom_info_ptr, om_ip);
+	retval = load_oblig_missing(bedfile, bed_offset, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_blen, cptr, unfiltered_sample_ct, max_sample_id_len, uiptr, unfiltered_sample_ct, sex_male, chrom_info_ptr, om_ip);
 	if (retval) {
 	  goto plink_ret_1;
 	}
@@ -1278,13 +1289,13 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   }
 
   if (bimname[0] && (unfiltered_marker_ct != marker_exclude_ct)) {
-    plink_maxsnp = calc_plink_maxsnp(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len);
+    plink_maxsnp = calc_plink_maxsnp(unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_blen);
     uii = BITCT_TO_WORDCT(unfiltered_marker_ct);
     if (bigstack_calloc_ul(uii, &marker_reverse)) {
       goto plink_ret_NOMEM;
     }
     if (bedfile && sample_ct) {
-      retval = calc_freqs_and_hwe(bedfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_len, unfiltered_sample_ct, sample_exclude, sample_exclude_ct, sample_ids, max_sample_id_len, founder_info, nonfounders, (misc_flags / MISC_MAF_SUCC) & 1, set_allele_freqs, bed_offset, (hwe_thresh > 0.0) || (calculation_type & CALC_HARDY), hwe_modifier & HWE_THRESH_ALL, (pheno_nm_ct && pheno_c)? ((calculation_type / CALC_HARDY) & 1) : 0, min_ac, max_ac, geno_thresh, pheno_nm, pheno_nm_ct? pheno_c : nullptr, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_cases, &hwe_lh_cases, &hwe_hh_cases, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &hwe_hapl_allfs, &hwe_haph_allfs, &geno_excl_bitfield, &ac_excl_bitfield, &sample_male_ct, &sample_f_ct, &sample_f_male_ct, chrom_info_ptr, om_ip, sex_nm, sex_male, map_is_unsorted & UNSORTED_SPLIT_CHROM, &hh_exists);
+      retval = calc_freqs_and_hwe(bedfile, outname, outname_end, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, marker_ids, max_marker_id_blen, unfiltered_sample_ct, sample_exclude, sample_exclude_ct, sample_ids, max_sample_id_len, founder_info, nonfounders, (misc_flags / MISC_MAF_SUCC) & 1, set_allele_freqs, bed_offset, (hwe_thresh > 0.0) || (calculation_type & CALC_HARDY), hwe_modifier & HWE_THRESH_ALL, (pheno_nm_ct && pheno_c)? ((calculation_type / CALC_HARDY) & 1) : 0, min_ac, max_ac, geno_thresh, pheno_nm, pheno_nm_ct? pheno_c : nullptr, &hwe_lls, &hwe_lhs, &hwe_hhs, &hwe_ll_cases, &hwe_lh_cases, &hwe_hh_cases, &hwe_ll_allfs, &hwe_lh_allfs, &hwe_hh_allfs, &hwe_hapl_allfs, &hwe_haph_allfs, &geno_excl_bitfield, &ac_excl_bitfield, &sample_male_ct, &sample_f_ct, &sample_f_male_ct, chrom_info_ptr, om_ip, sex_nm, sex_male, map_is_unsorted & UNSORTED_SPLIT_CHROM, &hh_exists);
       if (retval) {
 	goto plink_ret_1;
       }
@@ -1295,7 +1306,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     }
 
     if (freqname) {
-      retval = read_external_freqs(freqname, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, chrom_info_ptr, marker_allele_ptrs, set_allele_freqs, nchrobs, (misc_flags / MISC_MAF_SUCC) & 1);
+      retval = read_external_freqs(freqname, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_blen, chrom_info_ptr, marker_allele_ptrs, set_allele_freqs, nchrobs, (misc_flags / MISC_MAF_SUCC) & 1);
       if (retval) {
 	goto plink_ret_1;
       }
@@ -1307,7 +1318,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     }
 
     if (a1alleles || a2alleles) {
-      retval = load_ax_alleles(a1alleles? a1alleles : a2alleles, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_allele_ptrs, &max_marker_allele_blen, marker_reverse, marker_ids, max_marker_id_len, set_allele_freqs, a2alleles? 1 : 0);
+      retval = load_ax_alleles(a1alleles? a1alleles : a2alleles, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_allele_ptrs, &max_marker_allele_blen, marker_reverse, marker_ids, max_marker_id_blen, set_allele_freqs, a2alleles? 1 : 0);
       if (retval) {
 	goto plink_ret_1;
       }
@@ -1324,18 +1335,18 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	  if (misc_flags & MISC_FREQ_COUNTS) {
 	    logprint("Note: --freq 'counts' modifier has no effect on cluster-stratified report.\n");
 	  }
-	  retval = write_stratified_freqs(bedfile, bed_offset, outname, outname_end, (misc_flags / MISC_FREQ_GZ) & 1, plink_maxsnp, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, marker_ids, max_marker_id_len, marker_allele_ptrs, max_marker_allele_blen, unfiltered_sample_ct, sample_ct, sample_f_ct, founder_info, nonfounders, sex_male, sample_f_male_ct, marker_reverse, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len);
+	  retval = write_stratified_freqs(bedfile, bed_offset, outname, outname_end, (misc_flags / MISC_FREQ_GZ) & 1, plink_maxsnp, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, marker_ids, max_marker_id_blen, marker_allele_ptrs, max_marker_allele_blen, unfiltered_sample_ct, sample_ct, sample_f_ct, founder_info, nonfounders, sex_male, sample_f_male_ct, marker_reverse, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len);
 	} else if (misc_flags & MISC_FREQ_CC) {
-	  retval = write_cc_freqs(bedfile, bed_offset, outname, outname_end, (misc_flags / MISC_FREQ_GZ) & 1, plink_maxsnp, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, marker_ids, max_marker_id_len, marker_allele_ptrs, max_marker_allele_blen, unfiltered_sample_ct, founder_info, nonfounders, sex_male, marker_reverse, pheno_nm, pheno_c);
+	  retval = write_cc_freqs(bedfile, bed_offset, outname, outname_end, (misc_flags / MISC_FREQ_GZ) & 1, plink_maxsnp, unfiltered_marker_ct, marker_exclude, chrom_info_ptr, marker_ids, max_marker_id_blen, marker_allele_ptrs, max_marker_allele_blen, unfiltered_sample_ct, founder_info, nonfounders, sex_male, marker_reverse, pheno_nm, pheno_c);
 	} else {
-	  retval = write_freqs(outname, outname_end, plink_maxsnp, unfiltered_marker_ct, marker_exclude, set_allele_freqs, chrom_info_ptr, marker_ids, max_marker_id_len, marker_allele_ptrs, max_marker_allele_blen, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, hwe_hapl_allfs, hwe_haph_allfs, sample_f_ct, sample_f_male_ct, nonfounders, misc_flags, marker_reverse);
+	  retval = write_freqs(outname, outname_end, plink_maxsnp, unfiltered_marker_ct, marker_exclude, set_allele_freqs, chrom_info_ptr, marker_ids, max_marker_id_blen, marker_allele_ptrs, max_marker_allele_blen, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, hwe_hapl_allfs, hwe_haph_allfs, sample_f_ct, sample_f_male_ct, nonfounders, misc_flags, marker_reverse);
 	}
 	if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER | CALC_FREQ))))) {
 	  goto plink_ret_1;
 	}
       }
       if (calculation_type & CALC_MISSING_REPORT) {
-	retval = write_missingness_reports(bedfile, bed_offset, outname, outname_end, (misc_flags / MISC_MISSING_GZ) & 1, plink_maxfid, plink_maxiid, plink_maxsnp, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, chrom_info_ptr, om_ip, marker_ids, max_marker_id_len, unfiltered_sample_ct, sample_ct, sample_exclude, pheno_nm, sex_male, sample_male_ct, sample_ids, max_sample_id_len, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, hh_exists);
+	retval = write_missingness_reports(bedfile, bed_offset, outname, outname_end, (misc_flags / MISC_MISSING_GZ) & 1, plink_maxfid, plink_maxiid, plink_maxsnp, unfiltered_marker_ct, marker_exclude, unfiltered_marker_ct - marker_exclude_ct, chrom_info_ptr, om_ip, marker_ids, max_marker_id_blen, unfiltered_sample_ct, sample_ct, sample_exclude, pheno_nm, sex_male, sample_male_ct, sample_ids, max_sample_id_len, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, hh_exists);
 	if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER | CALC_FREQ | CALC_MISSING_REPORT))))) {
 	  goto plink_ret_1;
 	}
@@ -1357,7 +1368,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     oblig_missing_cleanup(om_ip);
     if (sample_ct) {
       if (calculation_type & CALC_HARDY) {
-	retval = hardy_report(outname, outname_end, output_min_p, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_blen, marker_reverse, hwe_lls, hwe_lhs, hwe_hhs, hwe_modifier, nonfounders, hwe_ll_cases, hwe_lh_cases, hwe_hh_cases, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, pheno_nm_ct, pheno_c, chrom_info_ptr);
+	retval = hardy_report(outname, outname_end, output_min_p, unfiltered_marker_ct, marker_exclude, marker_exclude_ct, marker_ids, max_marker_id_blen, plink_maxsnp, marker_allele_ptrs, max_marker_allele_blen, marker_reverse, hwe_lls, hwe_lhs, hwe_hhs, hwe_modifier, nonfounders, hwe_ll_cases, hwe_lh_cases, hwe_hh_cases, hwe_ll_allfs, hwe_lh_allfs, hwe_hh_allfs, pheno_nm_ct, pheno_c, chrom_info_ptr);
 	if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER | CALC_FREQ | CALC_HARDY))))) {
 	  goto plink_ret_1;
 	}
@@ -1383,7 +1394,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 
     if (bedfile && sample_ct && (unfiltered_marker_ct > marker_exclude_ct)) {
       if ((calculation_type & CALC_MENDEL) || (fam_ip->mendel_modifier & MENDEL_FILTER)) {
-	retval = mendel_error_scan(fam_ip, bedfile, bed_offset, outname, outname_end, plink_maxfid, plink_maxiid, plink_maxsnp, allow_no_variants, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, marker_reverse, marker_ids, max_marker_id_len, marker_allele_ptrs, max_marker_allele_blen, unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, hh_exists, chrom_info_ptr, (calculation_type / CALC_MENDEL) & 1);
+	retval = mendel_error_scan(fam_ip, bedfile, bed_offset, outname, outname_end, plink_maxfid, plink_maxiid, plink_maxsnp, allow_no_variants, unfiltered_marker_ct, marker_exclude, &marker_exclude_ct, marker_reverse, marker_ids, max_marker_id_blen, marker_allele_ptrs, max_marker_allele_blen, unfiltered_sample_ct, sample_exclude, &sample_exclude_ct, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, hh_exists, chrom_info_ptr, (calculation_type / CALC_MENDEL) & 1);
 	if (retval || (!(calculation_type & (~(CALC_MERGE | CALC_WRITE_CLUSTER | CALC_FREQ | CALC_MISSING_REPORT | CALC_MENDEL))))) {
 	  goto plink_ret_1;
 	}
@@ -1410,7 +1421,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	logerrprint("Error: --set/--make-set requires a sorted .bim file.  Retry this command after\nusing --make-bed to sort your data.\n");
 	goto plink_ret_INVALID_FORMAT;
       }
-      retval = define_sets(sip, unfiltered_marker_ct, marker_exclude, marker_pos, &marker_exclude_ct, marker_ids, max_marker_id_len, chrom_info_ptr, allow_no_variants);
+      retval = define_sets(sip, unfiltered_marker_ct, marker_exclude, marker_pos, &marker_exclude_ct, marker_ids, max_marker_id_blen, chrom_info_ptr, allow_no_variants);
       if (retval) {
 	goto plink_ret_1;
       }
@@ -1472,7 +1483,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	    ulii = unfiltered_sample_ct - pca_sample_ct;
 	  }
 	}
-	retval = calc_rel(threads, parallel_idx, parallel_tot, calculation_type, relip, bedfile, bed_offset, outname, outname_end, distance_wts_fname, (dist_calc_type & DISTANCE_WTS_NOHEADER), unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ct, marker_ids, max_marker_id_len, unfiltered_sample_ct, pca_sample_exclude? pca_sample_exclude : sample_exclude, pca_sample_exclude? (&ulii) : (&sample_exclude_ct), sample_ids, max_sample_id_len, set_allele_freqs, &rel_ibc, chrom_info_ptr);
+	retval = calc_rel(threads, parallel_idx, parallel_tot, calculation_type, relip, bedfile, bed_offset, outname, outname_end, distance_wts_fname, (dist_calc_type & DISTANCE_WTS_NOHEADER), unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ct, marker_ids, max_marker_id_blen, unfiltered_sample_ct, pca_sample_exclude? pca_sample_exclude : sample_exclude, pca_sample_exclude? (&ulii) : (&sample_exclude_ct), sample_ids, max_sample_id_len, set_allele_freqs, &rel_ibc, chrom_info_ptr);
 	if (retval) {
 	  goto plink_ret_1;
 	}
@@ -1507,7 +1518,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	}
 #ifndef NOLAPACK
 	if (calculation_type & CALC_PCA) {
-	  retval = calc_pca(bedfile, bed_offset, outname, outname_end, calculation_type, relip, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_allele_ptrs, marker_reverse, unfiltered_sample_ct, sample_exclude, sample_ct, pca_sample_exclude? pca_sample_exclude : sample_exclude, pca_sample_exclude? pca_sample_ct : sample_ct, sample_ids, max_sample_id_len, set_allele_freqs, chrom_info_ptr, rel_ibc);
+	  retval = calc_pca(bedfile, bed_offset, outname, outname_end, calculation_type, relip, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, marker_allele_ptrs, marker_reverse, unfiltered_sample_ct, sample_exclude, sample_ct, pca_sample_exclude? pca_sample_exclude : sample_exclude, pca_sample_exclude? pca_sample_ct : sample_ct, sample_ids, max_sample_id_len, set_allele_freqs, chrom_info_ptr, rel_ibc);
 	} else if (calculation_type & CALC_UNRELATED_HERITABILITY) {
 	  if (sample_ct != pheno_nm_ct) {
 	    logerrprint("Error: --unrelated-heritability requires phenotype data for all samples.\n(--prune should help.)\n");
@@ -1532,7 +1543,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       }
 
       if (calculation_type & CALC_TUCC) {
-	retval = make_pseudocontrols(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_cms, marker_pos, marker_allele_ptrs, max_marker_allele_blen, marker_reverse, unfiltered_sample_ct, sample_exclude, sample_ct, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, chrom_info_ptr, fam_ip);
+	retval = make_pseudocontrols(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, marker_cms, marker_pos, marker_allele_ptrs, max_marker_allele_blen, marker_reverse, unfiltered_sample_ct, sample_exclude, sample_ct, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, chrom_info_ptr, fam_ip);
 	if (retval) {
 	  goto plink_ret_1;
 	}
@@ -1558,28 +1569,28 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 
   if (marker_ct) {
     if (calculation_type & CALC_WRITE_SET) {
-      retval = write_set(sip, outname, outname_end, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_pos, chrom_info_ptr);
+      retval = write_set(sip, outname, outname_end, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_blen, marker_pos, chrom_info_ptr);
       if (retval) {
 	goto plink_ret_1;
       }
     }
 
     if (calculation_type & CALC_WRITE_SNPLIST) {
-      retval = write_snplist(outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, nullptr, 0);
+      retval = write_snplist(outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, nullptr, 0);
       if (retval) {
 	goto plink_ret_1;
       }
     }
 
     if (calculation_type & CALC_WRITE_VAR_RANGES) {
-      retval = write_var_ranges(outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, write_var_range_ct);
+      retval = write_var_ranges(outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, write_var_range_ct);
       if (retval) {
 	goto plink_ret_1;
       }
     }
 
     if (calculation_type & CALC_LIST_23_INDELS) {
-      retval = write_snplist(outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_allele_ptrs, 1);
+      retval = write_snplist(outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, marker_allele_ptrs, 1);
       if (retval) {
 	goto plink_ret_1;
       }
@@ -1590,7 +1601,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	logerrprint("Error: --list-duplicate-vars requires a sorted .bim file.  Retry this command\nafter using --make-bed to sort your data.\n");
 	goto plink_ret_INVALID_FORMAT;
       }
-      retval = list_duplicate_vars(outname, outname_end, dupvar_modifier, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_pos, chrom_info_ptr, marker_allele_ptrs);
+      retval = list_duplicate_vars(outname, outname_end, dupvar_modifier, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, marker_pos, chrom_info_ptr, marker_allele_ptrs);
       if (retval) {
 	goto plink_ret_1;
       }
@@ -1612,13 +1623,13 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       }
     }
     if (calculation_type & (CALC_MAKE_BED | CALC_MAKE_BIM | CALC_MAKE_FAM)) {
-      retval = make_bed(bedfile, bed_offset, bimname, outname, outname_end, calculation_type, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_cms, marker_pos, marker_allele_ptrs, marker_reverse, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, founder_info, sex_nm, sex_male, pheno_nm_datagen? pheno_nm_datagen : pheno_nm, pheno_c, pheno_d, output_missing_pheno, map_is_unsorted & (UNSORTED_CHROM | UNSORTED_BP | UNSORTED_SPLIT_CHROM), sample_sort_map, misc_flags, splitx_bound1, splitx_bound2, update_chr, flip_fname, flip_subset_fname, cluster_ptr->zerofname, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, hh_exists, chrom_info_ptr, fam_ip->mendel_modifier, max_bim_linelen);
+      retval = make_bed(bedfile, bed_offset, bimname, outname, outname_end, calculation_type, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, marker_cms, marker_pos, marker_allele_ptrs, marker_reverse, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, founder_info, sex_nm, sex_male, pheno_nm_datagen? pheno_nm_datagen : pheno_nm, pheno_c, pheno_d, output_missing_pheno, map_is_unsorted & (UNSORTED_CHROM | UNSORTED_BP | UNSORTED_SPLIT_CHROM), sample_sort_map, misc_flags, splitx_bound1, splitx_bound2, update_chr, flip_fname, flip_subset_fname, cluster_ptr->zerofname, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, hh_exists, chrom_info_ptr, fam_ip->mendel_modifier, max_bim_linelen);
       if (retval) {
         goto plink_ret_1;
       }
     }
     if (calculation_type & CALC_RECODE) {
-      retval = recode(recode_modifier, bedfile, bed_offset, outname, outname_end, recode_allele_name, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_sample_ct, sample_exclude, sample_ct, marker_ids, max_marker_id_len, marker_cms, marker_allele_ptrs, max_marker_allele_blen, marker_pos, marker_reverse, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nm_datagen? pheno_nm_datagen : pheno_nm, pheno_c, pheno_d, output_missing_pheno, map_is_unsorted & (UNSORTED_CHROM | UNSORTED_BP | UNSORTED_SPLIT_CHROM), misc_flags, hh_exists, chrom_info_ptr);
+      retval = recode(recode_modifier, bedfile, bed_offset, outname, outname_end, recode_allele_name, unfiltered_marker_ct, marker_exclude, marker_ct, unfiltered_sample_ct, sample_exclude, sample_ct, marker_ids, max_marker_id_blen, marker_cms, marker_allele_ptrs, max_marker_allele_blen, marker_pos, marker_reverse, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, sex_nm, sex_male, pheno_nm_datagen? pheno_nm_datagen : pheno_nm, pheno_c, pheno_d, output_missing_pheno, map_is_unsorted & (UNSORTED_CHROM | UNSORTED_BP | UNSORTED_SPLIT_CHROM), misc_flags, hh_exists, chrom_info_ptr);
       if (retval) {
         goto plink_ret_1;
       }
@@ -1631,7 +1642,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   }
 
   if ((calculation_type & CALC_EPI) && epi_ip->twolocus_mkr1) {
-    retval = twolocus(epi_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, chrom_info_ptr, unfiltered_sample_ct, sample_exclude, sample_ct, pheno_nm, pheno_nm_ct, pheno_ctrl_ct, pheno_c, sex_male, outname, outname_end, hh_exists);
+    retval = twolocus(epi_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_blen, plink_maxsnp, marker_allele_ptrs, chrom_info_ptr, unfiltered_sample_ct, sample_exclude, sample_ct, pheno_nm, pheno_nm_ct, pheno_ctrl_ct, pheno_c, sex_male, outname, outname_end, hh_exists);
     if (retval) {
       goto plink_ret_1;
     }
@@ -1642,7 +1653,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       logerrprint("Error: --show-tags requires a sorted .bim file.  Retry this command after using\n--make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
-    retval = show_tags(ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, chrom_info_ptr, unfiltered_sample_ct, founder_info, sex_male, outname, outname_end, hh_exists);
+    retval = show_tags(ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_blen, plink_maxsnp, marker_pos, chrom_info_ptr, unfiltered_sample_ct, founder_info, sex_male, outname, outname_end, hh_exists);
     if (retval) {
       goto plink_ret_1;
     }
@@ -1653,7 +1664,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       logerrprint("Error: --blocks requires a sorted .bim file.  Retry this command after using\n--make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
-    retval = haploview_blocks(ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, marker_pos, chrom_info_ptr, set_allele_freqs, unfiltered_sample_ct, founder_info, pheno_nm, sex_male, outname, outname_end, hh_exists);
+    retval = haploview_blocks(ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_blen, marker_pos, chrom_info_ptr, set_allele_freqs, unfiltered_sample_ct, founder_info, pheno_nm, sex_male, outname, outname_end, hh_exists);
     if (retval) {
       goto plink_ret_1;
     }
@@ -1664,7 +1675,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       logerrprint("Error: Run-of-homozygosity scanning requires a sorted .bim.  Retry this command\nafter using --make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
-    retval = calc_homozyg(homozyg_ptr, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_blen, marker_reverse, chrom_info_ptr, marker_pos, sample_ct, unfiltered_sample_ct, sample_exclude, sample_ids, plink_maxfid, plink_maxiid, max_sample_id_len, outname, outname_end, pheno_nm, pheno_c, pheno_d, output_missing_pheno, sex_male);
+    retval = calc_homozyg(homozyg_ptr, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_ids, max_marker_id_blen, plink_maxsnp, marker_allele_ptrs, max_marker_allele_blen, marker_reverse, chrom_info_ptr, marker_pos, sample_ct, unfiltered_sample_ct, sample_exclude, sample_ids, plink_maxfid, plink_maxiid, max_sample_id_len, outname, outname_end, pheno_nm, pheno_c, pheno_d, output_missing_pheno, sex_male);
     if (retval) {
       goto plink_ret_1;
     }
@@ -1676,9 +1687,9 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       goto plink_ret_INVALID_CMDLINE;
     }
     if (!(ldip->modifier & LD_PRUNE_PAIRPHASE)) {
-      retval = ld_prune(ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, chrom_info_ptr, set_allele_freqs, marker_pos, unfiltered_sample_ct, founder_info, sex_male, outname, outname_end, hh_exists);
+      retval = ld_prune(ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_blen, chrom_info_ptr, set_allele_freqs, marker_pos, unfiltered_sample_ct, founder_info, sex_male, outname, outname_end, hh_exists);
     } else {
-      retval = indep_pairphase(ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, chrom_info_ptr, set_allele_freqs, marker_pos, unfiltered_sample_ct, founder_info, sex_male, outname, outname_end, hh_exists);
+      retval = indep_pairphase(ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_blen, chrom_info_ptr, set_allele_freqs, marker_pos, unfiltered_sample_ct, founder_info, sex_male, outname, outname_end, hh_exists);
     }
     if (retval) {
       goto plink_ret_1;
@@ -1690,14 +1701,14 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       logerrprint("Error: LD-based strand flip scanning requires a sorted .bim.  Retry this\ncommand after using --make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
-    retval = flipscan(ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_blen, chrom_info_ptr, set_allele_freqs, marker_pos, unfiltered_sample_ct, pheno_nm, pheno_c, founder_info, sex_male, outname, outname_end, hh_exists);
+    retval = flipscan(ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_blen, plink_maxsnp, marker_allele_ptrs, max_marker_allele_blen, chrom_info_ptr, set_allele_freqs, marker_pos, unfiltered_sample_ct, pheno_nm, pheno_c, founder_info, sex_male, outname, outname_end, hh_exists);
     if (retval) {
       goto plink_ret_1;
     }
   }
 
   if ((calculation_type & CALC_EPI) && epi_ip->ld_mkr1) {
-    retval = twolocus(epi_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, chrom_info_ptr, unfiltered_sample_ct, founder_info, 0, nullptr, 0, 0, nullptr, sex_male, nullptr, nullptr, hh_exists);
+    retval = twolocus(epi_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_blen, plink_maxsnp, marker_allele_ptrs, chrom_info_ptr, unfiltered_sample_ct, founder_info, 0, nullptr, 0, 0, nullptr, sex_male, nullptr, nullptr, hh_exists);
     if (retval) {
       goto plink_ret_1;
     }
@@ -1714,7 +1725,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	goto plink_ret_INVALID_CMDLINE;
       }
     }
-    retval = ld_report(threads, ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_blen, set_allele_freqs, chrom_info_ptr, marker_pos, marker_cms, unfiltered_sample_ct, founder_info, parallel_idx, parallel_tot, sex_male, outname, outname_end, hh_exists);
+    retval = ld_report(threads, ldip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_blen, plink_maxsnp, marker_allele_ptrs, max_marker_allele_blen, set_allele_freqs, chrom_info_ptr, marker_pos, marker_cms, unfiltered_sample_ct, founder_info, parallel_idx, parallel_tot, sex_male, outname, outname_end, hh_exists);
     if (retval) {
       goto plink_ret_1;
     }
@@ -1724,7 +1735,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       logerrprint("Error: --test-mishap requires a sorted .bim.  Retry this command after using\n--make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
-    retval = test_mishap(bedfile, bed_offset, outname, outname_end, output_min_p, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, min_maf, chrom_info_ptr, unfiltered_sample_ct, sample_exclude, sample_ct);
+    retval = test_mishap(bedfile, bed_offset, outname, outname_end, output_min_p, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ct, marker_ids, max_marker_id_blen, plink_maxsnp, marker_allele_ptrs, min_maf, chrom_info_ptr, unfiltered_sample_ct, sample_exclude, sample_ct);
     if (retval) {
       goto plink_ret_1;
     }
@@ -1732,7 +1743,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 
   /*
   if (calculation_type & CALC_REGRESS_PCS) {
-    retval = calc_regress_pcs(evecname, regress_pcs_modifier, max_pcs, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, marker_allele_ptrs, chrom_info_ptr, marker_pos, sample_ct, unfiltered_sample_ct, sample_exclude, sample_ids, max_sample_id_len, sex_nm, sex_male, pheno_d, missing_phenod, outname, outname_end, hh_exists);
+    retval = calc_regress_pcs(evecname, regress_pcs_modifier, max_pcs, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_blen, marker_allele_ptrs, chrom_info_ptr, marker_pos, sample_ct, unfiltered_sample_ct, sample_exclude, sample_ids, max_sample_id_len, sex_nm, sex_male, pheno_d, missing_phenod, outname, outname_end, hh_exists);
     if (retval) {
       goto plink_ret_1;
     }
@@ -1808,7 +1819,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   }
   */
   if (distance_req(read_dists_fname, calculation_type)) {
-    retval = calc_distance(threads, parallel_idx, parallel_tot, bedfile, bed_offset, outname, outname_end, read_dists_fname, distance_wts_fname, distance_exp, calculation_type, dist_calc_type, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, set_allele_freqs, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, chrom_info_ptr);
+    retval = calc_distance(threads, parallel_idx, parallel_tot, bedfile, bed_offset, outname, outname_end, read_dists_fname, distance_wts_fname, distance_exp, calculation_type, dist_calc_type, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, set_allele_freqs, unfiltered_sample_ct, sample_exclude, sample_ct, sample_ids, max_sample_id_len, chrom_info_ptr);
     if (retval) {
       goto plink_ret_1;
     }
@@ -1877,7 +1888,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
   }
 
   if (calculation_type & CALC_FST) {
-    retval = fst_report(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_pos, chrom_info_ptr, unfiltered_sample_ct, sample_exclude, pheno_nm, (misc_flags & MISC_FST_CC)? pheno_c : nullptr, cluster_ct, cluster_map, cluster_starts);
+    retval = fst_report(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, marker_pos, chrom_info_ptr, unfiltered_sample_ct, sample_exclude, pheno_nm, (misc_flags & MISC_FST_CC)? pheno_c : nullptr, cluster_ct, cluster_map, cluster_starts);
     if (retval) {
       goto plink_ret_1;
     }
@@ -1895,14 +1906,14 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       logerrprint("Error: --fast-epistasis case-only requires a sorted .bim.  Retry this command\nafter using --make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
-    retval = epistasis_report(threads, epi_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, marker_pos, plink_maxsnp, chrom_info_ptr, unfiltered_sample_ct, pheno_nm, pheno_nm_ct, pheno_ctrl_ct, pheno_c, pheno_d, parallel_idx, parallel_tot, outname, outname_end, output_min_p, glm_vif_thresh, sip);
+    retval = epistasis_report(threads, epi_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_blen, marker_pos, plink_maxsnp, chrom_info_ptr, unfiltered_sample_ct, pheno_nm, pheno_nm_ct, pheno_ctrl_ct, pheno_c, pheno_d, parallel_idx, parallel_tot, outname, outname_end, output_min_p, glm_vif_thresh, sip);
     if (retval) {
       goto plink_ret_1;
     }
   }
 
   if (calculation_type & CALC_SCORE) {
-    retval = score_report(sc_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, marker_allele_ptrs, set_allele_freqs, sample_ct, unfiltered_sample_ct, sample_exclude, sample_ids, plink_maxfid, plink_maxiid, max_sample_id_len, sex_male, pheno_nm, pheno_c, pheno_d, output_missing_pheno, hh_exists, chrom_info_ptr, outname, outname_end);
+    retval = score_report(sc_ip, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_blen, marker_allele_ptrs, set_allele_freqs, sample_ct, unfiltered_sample_ct, sample_exclude, sample_ids, plink_maxfid, plink_maxiid, max_sample_id_len, sex_male, pheno_nm, pheno_c, pheno_d, output_missing_pheno, hh_exists, chrom_info_ptr, outname, outname_end);
     if (retval) {
       goto plink_ret_1;
     }
@@ -1910,7 +1921,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 
 #if defined __cplusplus && !defined _WIN32
   if (calculation_type & CALC_RPLUGIN) {
-    retval = rserve_call(rplugin_fname, rplugin_host_or_socket, rplugin_port, (misc_flags / MISC_RPLUGIN_DEBUG) & 1, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_len, marker_allele_ptrs, marker_pos, plink_maxsnp, chrom_info_ptr, unfiltered_sample_ct, pheno_nm, pheno_nm_ct, pheno_c, pheno_d, cluster_ct, cluster_map, cluster_starts, covar_ct, covar_d, outname, outname_end);
+    retval = rserve_call(rplugin_fname, rplugin_host_or_socket, rplugin_port, (misc_flags / MISC_RPLUGIN_DEBUG) & 1, bedfile, bed_offset, marker_ct, unfiltered_marker_ct, marker_exclude, marker_reverse, marker_ids, max_marker_id_blen, marker_allele_ptrs, marker_pos, plink_maxsnp, chrom_info_ptr, unfiltered_sample_ct, pheno_nm, pheno_nm_ct, pheno_c, pheno_d, cluster_ct, cluster_map, cluster_starts, covar_ct, covar_d, outname, outname_end);
     if (retval) {
       goto plink_ret_1;
     }
@@ -2033,10 +2044,10 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       if (calculation_type & CALC_MODEL) {
 	if (pheno_d) {
 	  if (model_modifier & MODEL_ASSOC) {
-	    retval = qassoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_mperm_val, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, cluster_ct, cluster_map, cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_d, founder_info, sex_male, hh_exists, ldip->modifier & LD_IGNORE_X, perm_batch_size, sip);
+	    retval = qassoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_mperm_val, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, cluster_ct, cluster_map, cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_d, founder_info, sex_male, hh_exists, ldip->modifier & LD_IGNORE_X, perm_batch_size, sip);
 	  }
 	} else {
-	  retval = model_assoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_cell_ct, model_mperm_val, ci_size, ci_zt, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_blen, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, cluster_ct, cluster_map, loop_assoc_fname? nullptr : cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, founder_info, sex_male, hh_exists, ldip->modifier & LD_IGNORE_X, perm_batch_size, sip);
+	  retval = model_assoc(threads, bedfile, bed_offset, outname, outname_end2, model_modifier, model_cell_ct, model_mperm_val, ci_size, ci_zt, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_blen, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, cluster_ct, cluster_map, loop_assoc_fname? nullptr : cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, founder_info, sex_male, hh_exists, ldip->modifier & LD_IGNORE_X, perm_batch_size, sip);
 	}
 	if (retval) {
 	  goto plink_ret_1;
@@ -2046,23 +2057,23 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	if (!(glm_modifier & GLM_NO_SNP)) {
 	  if (pheno_d) {
 #ifndef NOLAPACK
-	    retval = glm_linear_assoc(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_blen, marker_reverse, condition_mname, condition_fname, chrom_info_ptr, unfiltered_sample_ct, sample_ct, sample_exclude, cluster_ct, cluster_map, cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_d, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, founder_info, sex_nm, sex_male, ldip->modifier & LD_IGNORE_X, hh_exists, perm_batch_size, sip);
+	    retval = glm_linear_assoc(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_blen, marker_reverse, condition_mname, condition_fname, chrom_info_ptr, unfiltered_sample_ct, sample_ct, sample_exclude, cluster_ct, cluster_map, cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_d, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, founder_info, sex_nm, sex_male, ldip->modifier & LD_IGNORE_X, hh_exists, perm_batch_size, sip);
 #else
             logerrprint("Warning: Skipping --logistic on --all-pheno QT since this is a no-LAPACK " PROG_NAME_CAPS"\nbuild.\n");
 #endif
 	  } else {
-	    retval = glm_logistic_assoc(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_blen, marker_reverse, condition_mname, condition_fname, chrom_info_ptr, unfiltered_sample_ct, sample_ct, sample_exclude, cluster_ct, cluster_map, cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, founder_info, sex_nm, sex_male, ldip->modifier & LD_IGNORE_X, hh_exists, perm_batch_size, sip);
+	    retval = glm_logistic_assoc(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_blen, marker_reverse, condition_mname, condition_fname, chrom_info_ptr, unfiltered_sample_ct, sample_ct, sample_exclude, cluster_ct, cluster_map, cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, founder_info, sex_nm, sex_male, ldip->modifier & LD_IGNORE_X, hh_exists, perm_batch_size, sip);
 	  }
 	} else {
 	  if (pheno_d) {
 #ifndef NOLAPACK
-	    retval = glm_linear_nosnp(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, output_min_p, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, condition_mname, condition_fname, chrom_info_ptr, unfiltered_sample_ct, sample_ct, sample_exclude, cluster_ct, cluster_map, cluster_starts, mperm_save, pheno_nm_ct, pheno_nm, pheno_d, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_nm, sex_male, hh_exists, perm_batch_size, sip);
+	    retval = glm_linear_nosnp(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, output_min_p, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, marker_reverse, condition_mname, condition_fname, chrom_info_ptr, unfiltered_sample_ct, sample_ct, sample_exclude, cluster_ct, cluster_map, cluster_starts, mperm_save, pheno_nm_ct, pheno_nm, pheno_d, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_nm, sex_male, hh_exists, perm_batch_size, sip);
 #else
             logerrprint("Warning: Skipping --logistic on --all-pheno QT since this is a no-LAPACK " PROG_NAME_CAPS"\nbuild.\n");
 #endif
 
 	  } else {
-	    retval = glm_logistic_nosnp(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, output_min_p, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, condition_mname, condition_fname, chrom_info_ptr, unfiltered_sample_ct, sample_ct, sample_exclude, cluster_ct, cluster_map, cluster_starts, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_nm, sex_male, hh_exists, perm_batch_size, sip);
+	    retval = glm_logistic_nosnp(threads, bedfile, bed_offset, outname, outname_end2, glm_modifier, glm_vif_thresh, glm_xchr_model, glm_mperm_val, parameters_range_list_ptr, tests_range_list_ptr, ci_size, ci_zt, pfilter, output_min_p, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, marker_reverse, condition_mname, condition_fname, chrom_info_ptr, unfiltered_sample_ct, sample_ct, sample_exclude, cluster_ct, cluster_map, cluster_starts, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_nm, sex_male, hh_exists, perm_batch_size, sip);
 	  }
 	}
 	if (retval) {
@@ -2071,47 +2082,47 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       }
       // if case/control phenotype loaded with --all-pheno, skip --gxe
       if ((calculation_type & CALC_GXE) && pheno_d) {
-	retval = gxe_assoc(bedfile, bed_offset, outname, outname_end2, output_min_p, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, sample_ct, sample_exclude, pheno_nm, pheno_d, gxe_covar_nm, gxe_covar_c, sex_male, hh_exists);
+	retval = gxe_assoc(bedfile, bed_offset, outname, outname_end2, output_min_p, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, plink_maxsnp, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, sample_ct, sample_exclude, pheno_nm, pheno_d, gxe_covar_nm, gxe_covar_c, sex_male, hh_exists);
 	if (retval) {
 	  goto plink_ret_1;
 	}
       }
       if (calculation_type & CALC_LASSO) {
-	retval = lasso(threads, bedfile, bed_offset, outname, outname_end2, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_allele_ptrs, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, sample_ct, pheno_nm_ct, lasso_h2, lasso_minlambda, lasso_select_covars_range_list_ptr, misc_flags, sample_exclude, pheno_nm, pheno_c, pheno_d, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_male, hh_exists);
+	retval = lasso(threads, bedfile, bed_offset, outname, outname_end2, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, marker_allele_ptrs, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, sample_ct, pheno_nm_ct, lasso_h2, lasso_minlambda, lasso_select_covars_range_list_ptr, misc_flags, sample_exclude, pheno_nm, pheno_c, pheno_d, covar_ct, covar_names, max_covar_name_len, covar_nm, covar_d, sex_male, hh_exists);
 	if (retval) {
 	  goto plink_ret_1;
 	}
       }
       if ((calculation_type & CALC_CMH) && pheno_c) {
 	if (!(cluster_ptr->modifier & CLUSTER_CMH2)) {
-          retval = cmh_assoc(threads, bedfile, bed_offset, outname, outname_end2, cluster_ptr->cmh_mperm_val, cluster_ptr->modifier, ci_size, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, chrom_info_ptr, set_allele_freqs, unfiltered_sample_ct, cluster_ct, cluster_map, cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists, sip);
+          retval = cmh_assoc(threads, bedfile, bed_offset, outname, outname_end2, cluster_ptr->cmh_mperm_val, cluster_ptr->modifier, ci_size, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, chrom_info_ptr, set_allele_freqs, unfiltered_sample_ct, cluster_ct, cluster_map, cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists, sip);
 	} else {
-          retval = cmh2_assoc(bedfile, bed_offset, outname, outname_end, output_min_p, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, cluster_ct, cluster_map, cluster_starts, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists);
+          retval = cmh2_assoc(bedfile, bed_offset, outname, outname_end, output_min_p, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, cluster_ct, cluster_map, cluster_starts, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists);
 	}
         if (retval) {
           goto plink_ret_1;
 	}
       }
       if ((calculation_type & CALC_HOMOG) && pheno_c) {
-	retval = homog_assoc(bedfile, bed_offset, outname, outname_end, output_min_p, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_blen, marker_reverse, chrom_info_ptr, set_allele_freqs, unfiltered_sample_ct, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists);
+	retval = homog_assoc(bedfile, bed_offset, outname, outname_end, output_min_p, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, plink_maxsnp, marker_allele_ptrs, max_marker_allele_blen, marker_reverse, chrom_info_ptr, set_allele_freqs, unfiltered_sample_ct, cluster_ct, cluster_map, cluster_starts, cluster_ids, max_cluster_id_len, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists);
         if (retval) {
           goto plink_ret_1;
 	}
       }
       if ((calculation_type & CALC_TESTMISS) && pheno_c) {
-        retval = testmiss(threads, bedfile, bed_offset, outname, outname_end2, testmiss_mperm_val, testmiss_modifier, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, chrom_info_ptr, unfiltered_sample_ct, cluster_ct, cluster_map, loop_assoc_fname? nullptr : cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists);
+        retval = testmiss(threads, bedfile, bed_offset, outname, outname_end2, testmiss_mperm_val, testmiss_modifier, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, plink_maxsnp, chrom_info_ptr, unfiltered_sample_ct, cluster_ct, cluster_map, loop_assoc_fname? nullptr : cluster_starts, apip, mperm_save, pheno_nm_ct, pheno_nm, pheno_c, sex_male, hh_exists);
         if (retval) {
 	  goto plink_ret_1;
 	}
       }
       if ((calculation_type & CALC_TDT) && pheno_c) {
-	retval = tdt(threads, bedfile, bed_offset, outname, outname_end2, ci_size, ci_zt, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_blen, marker_reverse, unfiltered_sample_ct, sample_exclude, sample_ct, apip, mperm_save, pheno_nm, pheno_c, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, chrom_info_ptr, hh_exists, fam_ip);
+	retval = tdt(threads, bedfile, bed_offset, outname, outname_end2, ci_size, ci_zt, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, plink_maxsnp, marker_pos, marker_allele_ptrs, max_marker_allele_blen, marker_reverse, unfiltered_sample_ct, sample_exclude, sample_ct, apip, mperm_save, pheno_nm, pheno_c, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, chrom_info_ptr, hh_exists, fam_ip);
 	if (retval) {
 	  goto plink_ret_1;
 	}
       }
       if ((calculation_type & CALC_DFAM) && pheno_c) {
-	retval = dfam(threads, bedfile, bed_offset, outname, outname_end2, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_allele_ptrs, max_marker_allele_blen, marker_reverse, unfiltered_sample_ct, sample_exclude, sample_ct, cluster_ct, cluster_map, loop_assoc_fname? nullptr : cluster_starts, apip, mperm_save, pheno_c, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, chrom_info_ptr, hh_exists, (cluster_ptr->fname != nullptr), perm_batch_size, fam_ip, sip);
+	retval = dfam(threads, bedfile, bed_offset, outname, outname_end2, pfilter, output_min_p, mtest_adjust, adjust_lambda, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, plink_maxsnp, marker_allele_ptrs, max_marker_allele_blen, marker_reverse, unfiltered_sample_ct, sample_exclude, sample_ct, cluster_ct, cluster_map, loop_assoc_fname? nullptr : cluster_starts, apip, mperm_save, pheno_c, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, chrom_info_ptr, hh_exists, (cluster_ptr->fname != nullptr), perm_batch_size, fam_ip, sip);
 	if (retval) {
 	  goto plink_ret_1;
 	}
@@ -2127,7 +2138,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	if (mtest_adjust && (fam_ip->qfam_modifier & QFAM_PERM)) {
 	  logerrprint("Warning: The QFAM test does not support --adjust.  Use max(T) permutation to\nobtain multiple-testing corrected p-values.\n");
 	}
-        retval = qfam(threads, bedfile, bed_offset, outname, outname_end2, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, unfiltered_sample_ct, sample_exclude, sample_ct, apip, pheno_nm, pheno_d, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, chrom_info_ptr, hh_exists, perm_batch_size, fam_ip);
+        retval = qfam(threads, bedfile, bed_offset, outname, outname_end2, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, unfiltered_sample_ct, sample_exclude, sample_ct, apip, pheno_nm, pheno_d, founder_info, sex_nm, sex_male, sample_ids, max_sample_id_len, paternal_ids, max_paternal_id_len, maternal_ids, max_maternal_id_len, chrom_info_ptr, hh_exists, perm_batch_size, fam_ip);
         if (retval) {
 	  goto plink_ret_1;
 	}
@@ -2140,7 +2151,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
       logerrprint("Error: --clump requires a sorted .bim.  Retry this command after using\n--make-bed to sort your data.\n");
       goto plink_ret_INVALID_CMDLINE;
     }
-    retval = clump_reports(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, founder_info, clump_ip, sex_male, hh_exists);
+    retval = clump_reports(bedfile, bed_offset, outname, outname_end, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_blen, plink_maxsnp, marker_pos, marker_allele_ptrs, marker_reverse, chrom_info_ptr, unfiltered_sample_ct, founder_info, clump_ip, sex_male, hh_exists);
     if (retval) {
       goto plink_ret_1;
     }
