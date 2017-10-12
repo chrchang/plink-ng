@@ -194,16 +194,14 @@ int32_t keep_or_remove(char* fname, char* sorted_ids, uintptr_t sorted_ids_ct, u
 }
 
 // backported from plink 2.0
-int32_t snps_flag(const char* variant_id_strbox, const uint32_t* variant_id_htable, const Range_list* snps_range_list_ptr, uint32_t raw_variant_ct, uintptr_t max_variant_id_blen, uintptr_t variant_id_htable_size, uint32_t do_exclude, uintptr_t* variant_exclude, uintptr_t* exclude_ct_ptr) {
+int32_t snps_flag(const char* variant_ids, const uint32_t* variant_id_htable, const Range_list* snps_range_list_ptr, uint32_t raw_variant_ct, uintptr_t max_variant_id_blen, uintptr_t variant_id_htable_size, uint32_t do_exclude, uintptr_t* variant_exclude, uintptr_t* exclude_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   int32_t reterr = 0;
-  /*
   {
-    const uint32_t* htable_dup_base = &(variant_id_htable[round_up_pow2(variant_id_htable_size, kInt32PerCacheline)]);
     const char* varid_strbox = snps_range_list_ptr->names;
     const unsigned char* starts_range = snps_range_list_ptr->starts_range;
     const uint32_t varid_ct = snps_range_list_ptr->name_ct;
-    const uintptr_t varid_max_blen = snps_range_list_ptr->name_max_blen;
+    const uintptr_t varid_max_blen = snps_range_list_ptr->name_max_len;
     const uint32_t raw_variant_ctl = BITCT_TO_WORDCT(raw_variant_ct);
     uintptr_t* seen_uidxs;
     if (bigstack_calloc_ul(raw_variant_ctl, &seen_uidxs)) {
@@ -212,63 +210,48 @@ int32_t snps_flag(const char* variant_id_strbox, const uint32_t* variant_id_htab
     uint32_t range_start_vidx = 0xffffffffU;
     for (uint32_t varid_idx = 0; varid_idx < varid_ct; ++varid_idx) {
       const char* cur_varid = &(varid_strbox[varid_idx * varid_max_blen]);
-      uint32_t cur_llidx;
-      uint32_t variant_uidx = variant_id_dup_htable_find(cur_varid, variant_ids, variant_id_htable, htable_dup_base, strlen(cur_varid), variant_id_htable_size, max_variant_id_slen, &cur_llidx);
+      uint32_t variant_uidx = id_htable_find(cur_varid, strlen(cur_varid), variant_id_htable, variant_id_htable_size, variant_ids, max_variant_id_blen);
       if (variant_uidx == 0xffffffffU) {
 	sprintf(g_logbuf, "Error: --%ssnps variant '%s' not found.\n", do_exclude? "exclude-" : "", cur_varid);
-	goto snps_flag_ret_INCONSISTENT_INPUT_WW;
+	goto snps_flag_ret_INVALID_FORMAT_WW;
       }
       if (starts_range[varid_idx]) {
-	if (cur_llidx != 0xffffffffU) {
-	  sprintf(g_logbuf, "Error: --%ssnps range-starting variant ID '%s' appears multiple times.\n", do_exclude? "exclude-" : "", cur_varid);
-	  goto snps_flag_ret_INCONSISTENT_INPUT_WW;
-	}
 	range_start_vidx = variant_uidx;
       } else {
 	if (range_start_vidx != 0xffffffffU) {
-	  if (cur_llidx != 0xffffffffU) {
-	    sprintf(g_logbuf, "Error: --%ssnps range-ending variant ID '%s' appears multiple times.\n", do_exclude? "exclude-" : "", cur_varid);
-	    goto snps_flag_ret_INCONSISTENT_INPUT_WW;
-	  }
 	  if (variant_uidx < range_start_vidx) {
 	    const uint32_t uii = variant_uidx;
 	    variant_uidx = range_start_vidx;
 	    range_start_vidx = uii;
 	  }
-	  fill_bits_nz(range_start_vidx, variant_uidx + 1, seen_uidxs);
+	  fill_bits(range_start_vidx, variant_uidx + 1 - range_start_vidx, seen_uidxs);
 	} else {
-	  while (1) {
-	    set_bit(variant_uidx, seen_uidxs);
-	    if (cur_llidx == 0xffffffffU) {
-	      break;
-	    }
-	    variant_uidx = htable_dup_base[cur_llidx];
-	    cur_llidx = htable_dup_base[cur_llidx + 1];
-	  }
+          set_bit(variant_uidx, seen_uidxs);
 	}
 	range_start_vidx = 0xffffffffU;
       }
     }
     if (do_exclude) {
-      bitvec_andnot(seen_uidxs, raw_variant_ctl, variant_include);
+      bitvec_or(seen_uidxs, raw_variant_ctl, variant_exclude);
     } else {
-      bitvec_and(seen_uidxs, raw_variant_ctl, variant_include);
+      bitvec_ornot(seen_uidxs, raw_variant_ctl, variant_exclude);
+      zero_trailing_bits(raw_variant_ct, variant_exclude);
     }
-    const uint32_t new_variant_ct = popcount_longs(variant_include, raw_variant_ctl);
+    const uint32_t new_exclude_ct = popcount_longs(variant_exclude, raw_variant_ctl);
+    const uint32_t new_variant_ct = raw_variant_ct - new_exclude_ct;
     LOGPRINTF("--%ssnps: %u variant%s remaining.\n", do_exclude? "exclude-" : "", new_variant_ct, (new_variant_ct == 1)? "" : "s");
-    *variant_ct_ptr = new_variant_ct;
+    *exclude_ct_ptr = new_exclude_ct;
   }
   while (0) {
   snps_flag_ret_NOMEM:
-    reterr = kPglRetNomem;
+    reterr = RET_NOMEM;
     break;
-  snps_flag_ret_INCONSISTENT_INPUT_WW:
+  snps_flag_ret_INVALID_FORMAT_WW:
     wordwrapb(0);
     logerrprintb();
-    reterr = kPglRetInconsistentInput;
+    reterr = RET_INVALID_FORMAT;
     break;
   }
-  */
   bigstack_reset(bigstack_mark);
   return reterr;
 }
