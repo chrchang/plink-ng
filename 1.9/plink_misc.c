@@ -2947,8 +2947,11 @@ int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uin
 	  *pzwritep++ = ' ';
 	  pzwritep = fw_strcpy(4, major_ptr, pzwritep);
 	  *pzwritep++ = ' ';
-          pzwritep = uint32toa_w6x(2 * ll_cts[marker_uidx] + lh_cts[marker_uidx] + hapl_cts[marker_uidx], ' ', pzwritep);
-	  pzwritep = uint32toa_w6x(2 * hh_cts[marker_uidx] + lh_cts[marker_uidx] + haph_cts[marker_uidx], ' ', pzwritep);
+          // bugfix (13 Oct 2017): did not take reverse into account here.
+          const uint32_t l_ct = 2 * ll_cts[marker_uidx] + lh_cts[marker_uidx] + hapl_cts[marker_uidx];
+          const uint32_t h_ct = 2 * hh_cts[marker_uidx] + lh_cts[marker_uidx] + haph_cts[marker_uidx];
+          pzwritep = uint32toa_w6x(reverse? h_ct : l_ct, ' ', pzwritep);
+	  pzwritep = uint32toa_w6x(reverse? l_ct : h_ct, ' ', pzwritep);
 	  pzwritep = uint32toa_w6(missing_ct, pzwritep);
 	}
       } else {
@@ -2961,6 +2964,7 @@ int32_t write_freqs(char* outname, char* outname_end, uint32_t plink_maxsnp, uin
 	pzwritep = fw_strcpy(4, major_ptr, pzwritep);
 	*pzwritep++ = ' ';
 	uii = 2 * (ll_cts[marker_uidx] + lh_cts[marker_uidx] + hh_cts[marker_uidx]) + hapl_cts[marker_uidx] + haph_cts[marker_uidx];
+        // set_allele_freqs[] already takes reverse into account.
 	if (maf_succ || uii || (set_allele_freqs[marker_uidx] != 0.5)) {
 	  pzwritep = dtoa_g_wxp4(1.0 - set_allele_freqs[marker_uidx], 12, pzwritep);
 	} else {
