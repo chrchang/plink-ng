@@ -2674,10 +2674,7 @@ pglerr_t ox_sample_to_psam(const char* samplename, const char* ox_missing_code, 
 	  break;
 	}
 	++mc_ct;
-	const char* token_end = strchr(missing_code_iter, ',');
-	if (!token_end) {
-	  token_end = (const char*)rawmemchr(missing_code_iter, '\0');
-	}
+	const char* token_end = strchrnul(missing_code_iter, ',');
 	uintptr_t token_slen = (uintptr_t)(token_end - missing_code_iter);
 	if (token_slen >= max_mc_blen) {
 	  max_mc_blen = token_slen + 1;
@@ -2693,10 +2690,7 @@ pglerr_t ox_sample_to_psam(const char* samplename, const char* ox_missing_code, 
 	  while (*missing_code_iter == ',') {
 	    ++missing_code_iter;
 	  }
-	  const char* token_end = strchr(missing_code_iter, ',');
-	  if (!token_end) {
-	    token_end = (const char*)rawmemchr(missing_code_iter, '\0');
-	  }
+	  const char* token_end = strchrnul(missing_code_iter, ',');
 	  uintptr_t token_slen = (uintptr_t)(token_end - missing_code_iter);
 	  memcpyx(&(sorted_mc[mc_idx * max_mc_blen]), missing_code_iter, token_slen, '\0');
 	  missing_code_iter = token_end;

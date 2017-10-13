@@ -115,9 +115,35 @@ extern "C" {
 namespace plink2 {
 #endif
 
-#ifndef _GNU_SOURCE
-  #define rawmemchr(ss, cc) memchr((ss), (cc), (0x80000000U - kBytesPerVec))
-#endif
+#ifdef _GNU_SOURCE
+// There was some recent (2016) discussion on the gcc mailing list on strlen()
+// vs. rawmemchr(., 0), where it was claimed that rawmemchr(., 0) could be
+// compiled to something slower than &(.[strlen(.)]), rather than being at
+// least as good.  However, this didn't happen when I tried to benchmark this,
+// so I'll stick to the function that returns the right type (except when
+// rawmemchr itself has to be emulated).
+HEADER_INLINE char* strnul(const char* ss) {
+  return (char*)rawmemchr(ss, 0);
+}
+#else
+  #ifdef __cplusplus
+    #define rawmemchr(ss, cc) memchr((ss), (cc), (0x80000000U - plink2::kBytesPerVec))
+  #else
+    #define rawmemchr(ss, cc) memchr((ss), (cc), (0x80000000U - kBytesPerVec))
+  #endif
+
+HEADER_INLINE char* strnul(const char* ss) {
+  return (char*)(&(ss[strlen(ss)]));
+}
+
+HEADER_INLINE char* strchrnul(const char* ss, int cc) {
+  const char* strchr_result = strchr(ss, cc);
+  if (strchr_result) {
+    return (char*)strchr_result;
+  }
+  return strnul(ss);
+}
+#endif // !_GNU_SOURCE
 
 #ifdef _WIN32
 // if MAX_THREADS > 64, single WaitForMultipleObjects calls must be converted
@@ -1537,14 +1563,16 @@ HEADER_INLINE uint32_t hashceil(const char* idstr, uint32_t idlen, uint32_t htab
   return (((uint64_t)murmurhash3_32(idstr, idlen)) * htable_size) >> 32;
 }
 
-uintptr_t geqprime(uintptr_t floor);
+// uintptr_t geqprime(uintptr_t floor);
 
 // assumes ceil is odd and greater than 4.  Returns the first prime <= ceil.
-uintptr_t leqprime(uintptr_t ceil);
+// uintptr_t leqprime(uintptr_t ceil);
 
 HEADER_INLINE uint32_t get_htable_min_size(uintptr_t item_ct) {
   if (item_ct > 6) {
-    return geqprime(item_ct * 2 + 1);
+    // Don't actually need primes any more.
+    // return geqprime(item_ct * 2 + 1);
+    return item_ct * 2;
   }
   return 13;
 }
@@ -1552,8 +1580,11 @@ HEADER_INLINE uint32_t get_htable_min_size(uintptr_t item_ct) {
 // load factor ~20% seems to yield the best speed/space tradeoff on my test
 // machines
 HEADER_INLINE uint32_t get_htable_fast_size(uint32_t item_ct) {
-  if (item_ct < 858993456) {
-    return geqprime(round_up_pow2(item_ct * 5, 2) + 1);
+  // if (item_ct < 858993456) {
+  //   return geqprime(round_up_pow2(item_ct * 5, 2) + 1);
+  // }
+  if (item_ct < 858993459) {
+    return item_ct * 5;
   }
   return 4294967291U;
 }

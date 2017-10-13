@@ -46,7 +46,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#define __STDC_FORMAT_MACROS 1
+#ifndef __STDC_FORMAT_MACROS
+  #define __STDC_FORMAT_MACROS 1
+#endif
 #include <inttypes.h>
 #include <limits.h> // CHAR_BIT, PATH_MAX
 

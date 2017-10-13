@@ -322,7 +322,7 @@ pglerr_t extract_exclude_flag_norange(char** variant_ids, const uint32_t* varian
       if (gz_token_stream_close(&gts)) {
 	goto extract_exclude_flag_norange_ret_READ_FAIL;
       }
-      fnames_iter = (const char*)rawmemchr(fnames_iter, '\0');
+      fnames_iter = strnul(fnames_iter);
       ++fnames_iter;
     } while (*fnames_iter);
     if (do_exclude) {
@@ -500,7 +500,7 @@ pglerr_t keep_or_remove(const char* fnames, const char* sample_ids, const char* 
 	goto keep_or_remove_ret_READ_FAIL;
       }
       bigstack_reset(bigstack_mark2);
-      fnames_iter = (const char*)rawmemchr(fnames_iter, '\0');
+      fnames_iter = strnul(fnames_iter);
       ++fnames_iter;
     } while (*fnames_iter);
     if (flags & kfKeepRemove) {

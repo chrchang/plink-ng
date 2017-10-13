@@ -59,10 +59,10 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (9 Oct 2017)";
+  " (13 Oct 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -2366,13 +2366,12 @@ pglerr_t parse_col_descriptor(const char* col_descriptor_iter, const char* suppo
     // allocations/deallocations, but this is cheap enough that I'd rather make
     // it easier to extend functionality.
     do {
-      const char* tok_end = (const char*)rawmemchr(supported_ids_iter, '\0');
-      const uint32_t slen = (uintptr_t)(tok_end - supported_ids_iter);
-      if (slen >= max_id_blen) {
-        max_id_blen = slen + 1;
+      const uint32_t blen = 1 + strlen(supported_ids_iter);
+      if (blen > max_id_blen) {
+        max_id_blen = blen;
       }
       ++id_ct;
-      supported_ids_iter = &(tok_end[1]);
+      supported_ids_iter = &(supported_ids_iter[blen]);
     } while (*supported_ids_iter);
     // max_id_blen + 4 extra bytes at the end, to support a "maybe" search
     // (yes, this can also be precomputed)
@@ -2398,13 +2397,8 @@ pglerr_t parse_col_descriptor(const char* col_descriptor_iter, const char* suppo
       memcpy(maybebuf, "maybe", 5);
       while (1) {
 	const char* id_start = &(col_descriptor_iter[1]);
-	const char* tok_end = strchr(id_start, ',');
-	uint32_t slen;
-	if (!tok_end) {
-	  slen = strlen(id_start);
-	} else {
-	  slen = (uintptr_t)(tok_end - id_start);
-	}
+	const char* tok_end = strchrnul(id_start, ',');
+	const uint32_t slen = (uintptr_t)(tok_end - id_start);
 	int32_t alpha_idx = bsearch_str(id_start, sorted_ids, slen, max_id_blen, id_ct);
 	if (alpha_idx == -1) {
 	  char* write_iter = strcpya(g_logbuf, "Error: Unrecognized ID '");
@@ -2441,14 +2435,9 @@ pglerr_t parse_col_descriptor(const char* col_descriptor_iter, const char* suppo
       }
     } else if (*col_descriptor_iter) {
       while (1) {
-	const char* tok_end = strchr(col_descriptor_iter, ',');
-	uint32_t slen;
-	if (!tok_end) {
-	  slen = strlen(col_descriptor_iter);
-	} else {
-	  slen = (uintptr_t)(tok_end - col_descriptor_iter);
-	}
-	int32_t alpha_idx = bsearch_str(col_descriptor_iter, sorted_ids, slen, max_id_blen, id_ct);
+	const char* tok_end = strchrnul(col_descriptor_iter, ',');
+	const uint32_t slen = (uintptr_t)(tok_end - col_descriptor_iter);
+	const int32_t alpha_idx = bsearch_str(col_descriptor_iter, sorted_ids, slen, max_id_blen, id_ct);
 	if (alpha_idx == -1) {
 	  char* write_iter = strcpya(g_logbuf, "Error: Unrecognized ID '");
 	  write_iter = memcpya(write_iter, col_descriptor_iter, slen);

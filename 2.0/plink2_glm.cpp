@@ -1787,7 +1787,7 @@ static inline void mult_tmatrix_nxd_vect_d(const float* tm, const float* vect, u
   const uintptr_t col_cta4 = round_up_pow2(col_ct, 4);
   uint32_t row_idx = 0;
   if (row_ct < 4) {
-    memset(dest, 0, col_ct * sizeof(float));
+    memset(dest, 0, col_cta4 * sizeof(float));
   } else {
     w1 = _mm_load1_ps(vect);
     w2 = _mm_load1_ps(&(vect[1]));
@@ -1874,6 +1874,9 @@ static inline void mult_tmatrix_nxd_vect_d(const float* tm, const float* vect, u
 
 // This code was hand-optimized by others for 16-byte float vectors.  Exempt it
 // from the rest of the codebase's attempt at vector-size-agnosticism for now.
+//
+// N.B. This requires all mm[] rows to be zero-padded at the end, and there
+// can't be nan values at the end of vect[].  (The other way around works too.)
 static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, uint32_t col_ct, uint32_t row_ct, float* dest) {
   const uintptr_t col_cta4 = round_up_pow2(col_ct, 4);
   uint32_t row_idx = 0;
@@ -2261,7 +2264,7 @@ boolerr_t logistic_regression(const float* yy, const float* xx, uint32_t sample_
   // Inputs:
   // xx    = covariate (and usually genotype) matrix, covariate-major, rows are
   //         16-byte aligned, trailing row elements must be zeroed out
-  // yy    = case/control phenotype
+  // yy    = case/control phenotype; trailing elements must be zeroed out
   //
   // Input/output:
   // coef  = starting point, overwritten with logistic regression betas.  Must
@@ -2449,11 +2452,16 @@ boolerr_t firth_regression(const float* yy, const float* xx, uint32_t sample_ct,
     if (is_last_iter) {
       return 0;
     }
-    reflect_fmatrix(predictor_ct, predictor_cta4, hh);
+    // bugfix (13 Oct 2017): trailing elements of hh[] rows can't be arbitrary
+    // for later mult_matrix_dxn_vect_n() call
+    reflect_fmatrixz(predictor_ct, predictor_cta4, hh);
+
     col_major_fmatrix_multiply_strided(xx, hh, sample_ct, sample_cta4, predictor_ct, predictor_cta4, predictor_ct, sample_cta4, tmpnxk_buf);
 
     firth_compute_weights(yy, xx, pp, vv, tmpnxk_buf, predictor_ct, sample_ct, sample_cta4, ww);
-    
+
+    // trailing elements of ww cannot be nan for mult_matrix_dxn_vect_n()
+    fill_float_zero(sample_cta4 - sample_ct, &(ww[sample_ct]));
     // gradient (Ustar in logistf) = X' W
     mult_matrix_dxn_vect_n(xx, ww, sample_ct, predictor_ct, grad);
     float grad_max = 0.0;
@@ -3104,6 +3112,11 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
 	    next_set_unsafe_ck(sample_nm, &sample_midx);
 	    nm_pheno_buf[sample_idx] = cur_pheno[sample_midx];
 	  }
+          // bugfix (13 Oct 2017): must guarantee trailing phenotype values are
+          // valid (exact contents don't matter since they are multiplied by
+          // zero, but they can't be nan)
+          const uint32_t trail_ct = (-nm_sample_ct) & 3;
+          fill_float_zero(trail_ct, &(nm_pheno_buf[nm_sample_ct]));
 	  
 	  // fill covariates
 	  uint32_t parameter_uidx = 2 + domdev_present;

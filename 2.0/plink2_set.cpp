@@ -373,7 +373,7 @@ pglerr_t extract_exclude_range(const char* fnames, const chr_info_t* cip, const 
 	  msr_tmp = msr_tmp->next;
 	}
       }
-      fnames_iter = (const char*)rawmemchr(fnames_iter, '\0');
+      fnames_iter = strnul(fnames_iter);
       ++fnames_iter;
     } while (*fnames_iter);
     if (!do_exclude) {

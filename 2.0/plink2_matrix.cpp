@@ -185,6 +185,20 @@ void reflect_fmatrix(uint32_t dim, uint32_t stride, float* matrix) {
   }
 }
 
+void reflect_fmatrixz(uint32_t dim, uint32_t stride, float* matrix) {
+  const uintptr_t stride_p1l = stride + 1;
+  float* write_row = matrix;
+  for (uint32_t row_idx = 0; row_idx < dim; ++row_idx) {
+    float* read_col_iter = &(matrix[stride_p1l * row_idx + stride]);
+    for (uint32_t col_idx = row_idx + 1; col_idx < dim; ++col_idx) {
+      write_row[col_idx] = *read_col_iter;
+      read_col_iter = &(read_col_iter[stride]);
+    }
+    fill_float_zero(stride - dim, &(write_row[dim]));
+    write_row = &(write_row[stride]);
+  }
+}
+
 inline double SQR(const double a) {
   return a * a;
 }

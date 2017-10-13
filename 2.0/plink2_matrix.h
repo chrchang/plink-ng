@@ -138,6 +138,9 @@ void reflect_matrix(uint32_t dim, double* matrix);
 
 void reflect_fmatrix(uint32_t dim, uint32_t stride, float* matrix);
 
+// If dim < stride, this zeroes out the trailing elements of each row.
+void reflect_fmatrixz(uint32_t dim, uint32_t stride, float* matrix);
+
 #ifdef NOLAPACK
 HEADER_INLINE double dotprod_d(const double* vec1, const double* vec2, uint32_t ct) {
   double dotprod = 0.0;
@@ -180,7 +183,7 @@ HEADER_INLINE boolerr_t invert_symmdef_matrix_checked(int32_t dim, double* matri
 boolerr_t invert_fmatrix_first_half(int32_t dim, uint32_t stride, const float* matrix, double* half_inverted, matrix_invert_buf1_t* dbl_1d_buf, double* dbl_2d_buf);
 
 HEADER_INLINE boolerr_t invert_symmdef_fmatrix_first_half(int32_t dim, uint32_t stride, float* matrix, double* half_inverted, matrix_invert_buf1_t* dbl_1d_buf, double* dbl_2d_buf) {
-  reflect_fmatrix(dim, stride, );
+  reflect_fmatrix(dim, stride, matrix);
   return invert_fmatrix_first_half(dim, stride, matrix, half_inverted, dbl_1d_buf, dbl_2d_buf);
 }
 

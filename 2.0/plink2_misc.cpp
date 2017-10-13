@@ -1295,16 +1295,12 @@ pglerr_t init_histogram_from_file_or_commalist(const char* binstr, uint32_t is_f
       // const_cast
       char* binstr_iter = (char*)((uintptr_t)binstr);
       while (1) {
-	char* tok_end = strchr(binstr_iter, ',');
-	const uint32_t is_last_token = (tok_end == nullptr);
-	if (is_last_token) {
-	  tok_end = (char*)rawmemchr(binstr_iter, '\0');
-	}
+	char* tok_end = strchrnul(binstr_iter, ',');
 	reterr = process_boundary_token(binstr_iter, tok_end, "--freq {ref,alt1}bins= list", max_boundary_ct, kPglRetInvalidCmdline, &prev_boundary, &boundary_ct, freq_bounds_ptr, dosage_bounds_ptr);
 	if (reterr) {
 	  goto init_histogram_from_file_or_commalist_ret_1;
 	}
-	if (is_last_token) {
+	if (!(*tok_end)) {
 	  break;
 	}
 	binstr_iter = &(tok_end[1]);

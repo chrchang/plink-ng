@@ -132,7 +132,7 @@ void wordwrap(uint32_t suffix_len, char* ss) {
       if (&(token_start[79]) == line_end) {
 	return;
       }
-      token_end = (char*)rawmemchr(token_start, '\0');
+      token_end = strnul(token_start);
       if (!suffix_len) {
 	if (token_end <= &(line_end[1])) {
 	  // okay if end-of-string is one past the end, because function
@@ -3436,6 +3436,7 @@ uint32_t murmurhash3_32(const void* key, uint32_t len) {
 }
 
 
+/*
 uint32_t is_composite6(uintptr_t num) {
   // assumes num is congruent to 1 or 5 mod 6.
   // can speed this up by ~50% by hardcoding avoidance of multiples of 5/7,
@@ -3495,6 +3496,7 @@ uintptr_t leqprime(uintptr_t ceil) {
   }
   return ceil;
 }
+*/
 
 boolerr_t htable_good_size_alloc(uint32_t item_ct, uintptr_t bytes_avail, uint32_t** htable_ptr, uint32_t* htable_size_ptr) {
   bytes_avail &= (~(kCacheline - k1LU));
@@ -3503,7 +3505,8 @@ boolerr_t htable_good_size_alloc(uint32_t item_ct, uintptr_t bytes_avail, uint32
     if (!bytes_avail) {
       return 1;
     }
-    htable_size = leqprime((bytes_avail / sizeof(int32_t)) - 1);
+    htable_size = bytes_avail / sizeof(int32_t);
+    // htable_size = leqprime((bytes_avail / sizeof(int32_t)) - 1);
     if (htable_size < item_ct * 2) {
       return 1;
     }
@@ -4985,12 +4988,14 @@ pglerr_t alloc_and_populate_id_htable_mt(const uintptr_t* subset_mask, char** it
   const uintptr_t nonhtable_alloc = round_up_pow2(item_ct * sizeof(int32_t), kCacheline) + store_all_dups * round_up_pow2(item_ct * 2 * sizeof(int32_t), kCacheline);
   uintptr_t max_bytes = round_down_pow2(bigstack_left(), kCacheline);
   // force max_bytes >= 5 so leqprime() doesn't fail
+  // (not actually relevant any more, but whatever)
   if (nonhtable_alloc + (item_ct + 6) * sizeof(int32_t) > max_bytes) {
     return kPglRetNomem;
   }
   max_bytes -= nonhtable_alloc;
   if (id_htable_size * sizeof(int32_t) > max_bytes) {
-    id_htable_size = leqprime((max_bytes / sizeof(int32_t)) - 1);
+    id_htable_size = max_bytes / sizeof(int32_t);
+    // id_htable_size = leqprime((max_bytes / sizeof(int32_t)) - 1);
     const uint32_t min_htable_size = get_htable_min_size(item_ct);
     if (id_htable_size < min_htable_size) {
       id_htable_size = min_htable_size;
