@@ -1055,7 +1055,7 @@ static inline void mult_tmatrix_nxd_vect_d(const float* tm, const float* vect, f
   uint32_t row_ctm3;
   uint32_t col_idx;
   if (row_ct < 4) {
-    memset(dest, 0, col_ct * sizeof(float));
+    memset(dest, 0, col_cta4 * sizeof(float));
   } else {
     w1 = _mm_load1_ps(vect);
     w2 = _mm_load1_ps(&(vect[1]));
@@ -1140,6 +1140,8 @@ static inline void mult_tmatrix_nxd_vect_d(const float* tm, const float* vect, f
   }
 }
 
+// N.B. This requires all mm[] rows to be zero-padded at the end, and there
+// can't be nan values at the end of vect[].  (The other way around works too.)
 static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, float* dest, uint32_t col_ct, uint32_t row_ct) {
   uintptr_t col_cta4 = round_up_pow2(col_ct, 4);
   uint32_t row_idx = 0;
@@ -1599,7 +1601,7 @@ uint32_t logistic_regression(uint32_t sample_ct, uint32_t param_ct, float* vv, f
   // Inputs:
   // xx    = covariate (and usually genotype) matrix, covariate-major, rows are
   //         16-byte aligned, trailing row elements must be zeroed out
-  // yy    = case/control phenotype
+  // yy    = case/control phenotype; trailing elements must be zeroed out
   //
   // Input/output:
   // coef  = starting point, overwritten with logistic regression result.  Must
@@ -1719,6 +1721,11 @@ uint32_t glm_logistic(uintptr_t cur_batch_size, uintptr_t param_ct, uintptr_t sa
         *fptr++ = (float)((int32_t)is_set_ul(perm_vecs, sample_uidx));
       }
     }
+    // bugfix (13 Oct 2017): must guarantee trailing phenotype values are valid
+    // (exact contents don't matter since they are multipled by zero, but they
+    // can't be nan)
+    const uint32_t trail_ct = (-sample_valid_ct) & 3;
+    fill_float_zero(trail_ct, fptr);
     if (logistic_regression(sample_valid_ct, param_ct, sample_1d_buf, param_2d_buf, param_1d_buf, param_2d_buf2, param_1d_buf2, covars_cov_major, pheno_buf, coef, pp)) {
       goto glm_logistic_fail;
     }
