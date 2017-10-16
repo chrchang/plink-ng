@@ -59,7 +59,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (13 Oct 2017)";
+  " (15 Oct 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -291,6 +291,7 @@ typedef struct plink2_cmdline_struct {
   char* ref_from_fa_fname;
   two_col_params_t* ref_allele_flag;
   two_col_params_t* alt1_allele_flag;
+  two_col_params_t* update_name_flag;
 } plink2_cmdline_t;
 
 uint32_t is_single_variant_loader_needed(const char* king_cutoff_fprefix, command1_flags_t command_flags1, make_plink2_t make_plink2_modifier) {
@@ -428,7 +429,6 @@ void report_genotyping_rate(const uintptr_t* variant_include, const chr_info_t* 
 }
 
 pglerr_t apply_variant_bp_filters(const char* extract_fnames, const char* exclude_fnames, const chr_info_t* cip, const uint32_t* variant_bps, int32_t from_bp, int32_t to_bp, uint32_t raw_variant_ct, misc_flags_t misc_flags, unsorted_var_t vpos_sortstatus, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
-  // todo: add --from-bp/--to-bp
   if ((from_bp != -1) || (to_bp != -1)) {
     if (vpos_sortstatus & kfUnsortedVarBp) {
       logerrprint("Error: --from-bp and --to-bp require a sorted .pvar/.bim.  Retry this command\nafter using --make-pgen/--make-bed + --sort-vars to sort your data.\n");
@@ -859,7 +859,12 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	}
       }
     }
-    const uint32_t full_variant_id_htable_needed = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct);
+    // If something like --snps is combined with a position-based filter which
+    // may remove some of the named variants, we need to apply --snps first.
+    // Otherwise, it may be very advantageous to apply the position-based
+    // filters before constructing the variant ID hash table.  So we split this
+    // into two cases.
+    const uint32_t full_variant_id_htable_needed = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct || pcp->update_name_flag);
     if (variant_ct && (!full_variant_id_htable_needed)) {
       reterr = apply_variant_bp_filters(pcp->extract_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, raw_variant_ct, pcp->misc_flags, vpos_sortstatus, variant_include, &variant_ct);
       if (reterr) {
@@ -916,6 +921,21 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	reterr = snps_flag(variant_ids, variant_id_htable, &(pcp->exclude_snps_range_list), raw_variant_ct, max_variant_id_slen, variant_id_htable_size, 1, variant_include, &variant_ct);
 	if (reterr) {
 	  goto plink2_ret_1;
+	}
+      }
+
+      if (pcp->update_name_flag) {
+	reterr = update_var_names(variant_include, variant_id_htable, pcp->update_name_flag, raw_variant_ct, variant_id_htable_size, variant_ids, &max_variant_id_slen);
+	if (reterr) {
+	  goto plink2_ret_1;
+	}
+	if ((pcp->extract_fnames && (!(pcp->misc_flags & kfMiscExtractRange))) || (pcp->exclude_fnames && (!(pcp->misc_flags & kfMiscExcludeRange)))) {
+	  // Must reconstruct the hash table in this case.
+	  bigstack_reset(bigstack_mark);
+	  reterr = alloc_and_populate_id_htable_mt(variant_include, variant_ids, variant_ct, pcp->max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size);
+	  if (reterr) {
+	    goto plink2_ret_1;
+	  }
 	}
       }
 
@@ -1725,11 +1745,9 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	char** allele_storage_backup = nullptr;
         uint32_t max_allele_slen_backup = max_allele_slen;
 	uintptr_t* nonref_flags_backup = nullptr;
+	uint32_t nonref_flags_was_null = (nonref_flags == nullptr);
 
 	alt_allele_ct_t* refalt1_select = nullptr;
-	// might want a --ref-allele variant which reads a (possibly
-	// compressed) fasta file; all deletions and some other indels will be
-	// unresolvable, but it's still better than nothing
 	if ((pcp->misc_flags & kfMiscMajRef) || setting_alleles_from_file) {
 	  if (loop_cats_idx + 1 < loop_cats_ct) {
 	    // --ref-allele and --alt1-allele may alter max_allele_slen and
@@ -1768,7 +1786,11 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	      goto plink2_ret_NOMEM;
 	    }
 	    pgfi.nonref_flags = nonref_flags;
-	    fill_ulong_zero(raw_variant_ctl, nonref_flags);
+	    if (not_all_nonref) {
+	      fill_ulong_zero(raw_variant_ctl, nonref_flags);
+	    } else {
+	      fill_all_bits(raw_variant_ct, nonref_flags);
+	    }
 	  }
 	  uintptr_t* previously_seen = nullptr;
 	  if (pcp->ref_allele_flag) {
@@ -1798,7 +1820,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	      logerrprint("Error: --ref-from-fa requires a sorted .pvar/.bim.  Retry this command after\nusing --make-pgen/--make-bed + --sort-vars to sort your data.\n");
 	      goto plink2_ret_INCONSISTENT_INPUT;
             }
-	    reterr = ref_from_fa(variant_include, variant_bps, variant_allele_idxs, allele_storage, cip, pcp->ref_from_fa_fname, variant_ct, (pcp->misc_flags / kfMiscRefFromFaForce) & 1, refalt1_select, nonref_flags);
+	    reterr = ref_from_fa(variant_include, variant_bps, variant_allele_idxs, allele_storage, cip, pcp->ref_from_fa_fname, max_allele_slen, (pcp->misc_flags / kfMiscRefFromFaForce) & 1, refalt1_select, nonref_flags);
 	    if (reterr) {
 	      goto plink2_ret_1;
 	    }
@@ -1936,6 +1958,9 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 	}
 	if (nonref_flags_backup) {
 	  memcpy(nonref_flags, nonref_flags_backup, raw_variant_ctl * sizeof(intptr_t));
+	} else if (nonref_flags_was_null) {
+	  nonref_flags = nullptr;
+	  pgfi.nonref_flags = nullptr;
 	}
       }
       bigstack_reset(bigstack_mark_allele_dosages);
@@ -2751,6 +2776,7 @@ int main(int argc, char** argv) {
   pc.ref_from_fa_fname = nullptr;
   pc.ref_allele_flag = nullptr;
   pc.alt1_allele_flag = nullptr;
+  pc.update_name_flag = nullptr;
   init_range_list(&pc.snps_range_list);
   init_range_list(&pc.exclude_snps_range_list);
   init_range_list(&pc.pheno_range_list);
@@ -6929,6 +6955,15 @@ int main(int argc, char** argv) {
 	    }
 	  }
 	  pc.dependency_flags |= kfFilterPsamReq;
+	} else if (!memcmp(flagname_p2, "pdate-name", 11)) {
+	  if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 4)) {
+	    goto main_ret_INVALID_CMDLINE_2A;
+	  }
+	  reterr = alloc_2col(&(argv[arg_idx + 1]), flagname_p, param_ct, &pc.update_name_flag);
+	  if (reterr) {
+	    goto main_ret_1;
+	  }
+	  pc.dependency_flags |= kfFilterPvarReq;
 	} else {
 	  goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
 	}
@@ -7551,6 +7586,7 @@ int main(int argc, char** argv) {
   free_cond(rseeds);
   plink2_cmdline_meta_cleanup(&pcm);
   free_cond(king_cutoff_fprefix);
+  free_cond(pc.update_name_flag);
   free_cond(pc.alt1_allele_flag);
   free_cond(pc.ref_allele_flag);
   free_cond(pc.ref_from_fa_fname);

@@ -1313,6 +1313,9 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "  --missing-var-code [str]   : Change unnamed variant code for\n"
 "                               --set-[missing/all]-var-ids (default '.').\n"
 	       );
+    help_print("update-name", &help_ctrl, 0,
+"  --update-name [f] {newcol} {oldcol} {skip} : Update variant IDs.\n"
+	       );
     help_print("update-sex", &help_ctrl, 0,
 "  --update-sex [f] {n} : Update sexes.  Sex (1/M/m = male, 2/F/f = female, 0 =\n"
 "                         missing) is loaded from column n+2 (default n is 1).\n"

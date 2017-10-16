@@ -18,6 +18,8 @@
 #include "plink2_filter.h"
 #include "plink2_stats.h"
 
+#include <strings.h> // strncasecmp()
+
 #ifdef __cplusplus
 namespace plink2 {
 #endif
@@ -2886,7 +2888,8 @@ pglerr_t set_refalt1_from_file(const uintptr_t* variant_include, char** variant_
   // temporary allocations on bottom, "permanent" allocations on top (so we
   // don't reset g_bigstack_end).
   // previously_seen[] should be preallocated iff both --ref-allele and
-  // --alt1-allele are present in the same run.  when it is, ;;;
+  // --alt1-allele are present in the same run.  when it is, this errors out
+  // when the flags produce conflicting results.
   unsigned char* bigstack_mark = g_bigstack_base;
 
   // unaligned in middle of loop
@@ -3211,16 +3214,315 @@ pglerr_t set_refalt1_from_file(const uintptr_t* variant_include, char** variant_
   return reterr;
 }
 
-pglerr_t ref_from_fa(__attribute__((unused)) const uintptr_t* variant_include, __attribute__((unused)) const uint32_t* variant_bps, __attribute__((unused)) const uintptr_t* variant_allele_idxs, __attribute__((unused)) char** allele_storage, __attribute__((unused)) const chr_info_t* cip, __attribute__((unused)) const char* fname, __attribute__((unused)) uint32_t variant_ct, __attribute__((unused)) uint32_t force, __attribute__((unused)) alt_allele_ct_t* refalt1_select, __attribute__((unused)) uintptr_t* nonref_flags) {
+pglerr_t ref_from_fa_process_contig(const uintptr_t* variant_include, const uint32_t* variant_bps, const uintptr_t* variant_allele_idxs, char** allele_storage, const chr_info_t* cip, uint32_t force, uint32_t chr_fo_idx, uint32_t variant_uidx_last, char* seqbuf, char* seqbuf_end, alt_allele_ct_t* refalt1_select, uintptr_t* nonref_flags, uint32_t* changed_ct_ptr, uint32_t* validated_ct_ptr, uint32_t* downgraded_ct_ptr) {
+  uint32_t variant_uidx = next_set_unsafe(variant_include, cip->chr_fo_vidx_start[chr_fo_idx]);
+  const uint32_t bp_end = (uintptr_t)(seqbuf_end - seqbuf);
+  if (variant_bps[variant_uidx_last] >= bp_end) {
+    const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+    if (!force) {
+      char* write_iter = strcpya(g_logbuf, "Error: Contig '");
+      write_iter = chr_name_write(cip, chr_idx, write_iter);
+      strcpy(write_iter, "' in --ref-from-fa file is too short; it is likely to be mismatched with your data. Add the 'force' modifier if this wasn't a mistake, and you just want to mark all reference alleles past the end as provisional.\n");
+      wordwrapb(0);
+      logerrprintb();
+      return kPglRetInconsistentInput;
+    } else {
+      char* write_iter = strcpya(g_logbuf, "Warning: Contig '");
+      write_iter = chr_name_write(cip, chr_idx, write_iter);
+      strcpy(write_iter, "' in --ref-from-fa file is too short; it is likely to be mismatched with your data.\n");
+      wordwrapb(0);
+      logerrprintb();
+    }
+    uint32_t offset = uint32arr_greater_than(&(variant_bps[variant_uidx]), variant_uidx_last - variant_uidx, bp_end);
+
+    const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+    // set all bits in [variant_uidx + offset, chr_vidx_end), and count how
+    // many relevant bits were set.
+    const uint32_t widx_full_end = chr_vidx_end / kBitsPerWord;
+    const uint32_t trailing_bit_ct = chr_vidx_end % kBitsPerWord;
+    const uint32_t chr_vidx_truncate = variant_uidx + offset;
+    uint32_t widx = chr_vidx_truncate / kBitsPerWord;
+    uint32_t downgraded_incr;
+    if (widx == widx_full_end) {
+      const uintptr_t cur_mask = (k1LU << trailing_bit_ct) - (k1LU << (chr_vidx_truncate % kBitsPerWord));
+      downgraded_incr = popcount_long(variant_include[widx] & (~nonref_flags[widx]) & cur_mask);
+      nonref_flags[widx] |= cur_mask;
+    } else {
+      downgraded_incr = 0;
+      if (chr_vidx_truncate % kBitsPerWord) {
+	const uintptr_t cur_mask = (~k0LU) << (chr_vidx_truncate % kBitsPerWord);
+	downgraded_incr = popcount_long(variant_include[widx] & (~nonref_flags[widx]) & cur_mask);
+	nonref_flags[widx] |= cur_mask;
+	++widx;
+      }
+      for (; widx < widx_full_end; ++widx) {
+	downgraded_incr += popcount_long(variant_include[widx] & (~nonref_flags[widx]));
+	nonref_flags[widx] = ~k0LU;
+      }
+      if (trailing_bit_ct) {
+	const uintptr_t cur_mask = (k1LU << trailing_bit_ct) - k1LU;
+	downgraded_incr += popcount_long(variant_include[widx] & (~nonref_flags[widx]) & cur_mask);
+	nonref_flags[widx] |= cur_mask;
+      }
+    }
+    *downgraded_ct_ptr += downgraded_incr;
+    if (!offset) {
+      return kPglRetSuccess;
+    }
+    // We know that variant_bps[variant_uidx + offset - 1] < bp_end,
+    // variant_bps[variant_uidx + offset] >= bp_end, and that at least one
+    // variant_include[] bit is set in [variant_uidx, variant_uidx + offset)
+    // (since offset > 0).  Find the last such bit.
+    variant_uidx_last = prev_set_unsafe(variant_include, chr_vidx_truncate);
+  }
+  *seqbuf_end = '\0';
+  uint32_t changed_ct = *changed_ct_ptr;
+  uint32_t validated_ct = *validated_ct_ptr;
+  uint32_t cur_allele_ct = 2;
+  while (1) {
+    const uint32_t cur_bp = variant_bps[variant_uidx];
+    uintptr_t variant_allele_idx_base = variant_uidx * 2;
+    if (variant_allele_idxs) {
+      variant_allele_idx_base = variant_allele_idxs[variant_uidx];
+      cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - variant_allele_idx_base;
+    }
+    char** cur_alleles = &(allele_storage[variant_allele_idx_base]);
+    const char* cur_ref = &(seqbuf[cur_bp]);
+    int32_t consistent_allele_idx = -1;
+    for (uint32_t allele_idx = 0; allele_idx < cur_allele_ct; ++allele_idx) {
+      const char* cur_allele = cur_alleles[allele_idx];
+      const uint32_t cur_allele_slen = strlen(cur_allele);
+      if (!strncasecmp(cur_ref, cur_allele, cur_allele_slen)) {
+	if (consistent_allele_idx != -1) {
+	  // Multiple alleles could be ref (this always happens for deletions).
+	  // Don't try to do anything.
+	  consistent_allele_idx = -2;
+	  break;
+	}
+	consistent_allele_idx = allele_idx;
+      }
+    }
+    if (consistent_allele_idx >= 0) {
+      if (consistent_allele_idx) {
+	if ((!is_set(nonref_flags, variant_uidx)) && (!force)) {
+	  const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+	  char* write_iter = strcpya(g_logbuf, "Error: --ref-from-fa wants to change reference allele assignment at ");
+	  write_iter = chr_name_write(cip, chr_idx, write_iter);
+	  *write_iter++ = ':';
+	  write_iter = uint32toa(cur_bp, write_iter);
+	  strcpy(write_iter, ", but it's marked as 'known'. Add the 'force' modifier to force this change through.\n");
+	  wordwrapb(0);
+	  logerrprintb();
+	  return kPglRetInconsistentInput;
+	}
+	refalt1_select[2 * variant_uidx] = (uint32_t)consistent_allele_idx;
+	refalt1_select[2 * variant_uidx + 1] = 0;
+	++changed_ct;
+      } else {
+	++validated_ct;
+      }
+      clear_bit(variant_uidx, nonref_flags);
+    } else if ((consistent_allele_idx == -1) && (!is_set(nonref_flags, variant_uidx))) {
+      // okay to have multiple matches, but not zero matches
+      if (!force) {
+	const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+	char* write_iter = strcpya(g_logbuf, "Error: Reference allele at ");
+	write_iter = chr_name_write(cip, chr_idx, write_iter);
+	*write_iter++ = ':';
+	write_iter = uint32toa(cur_bp, write_iter);
+	strcpy(write_iter, " is marked as 'known', but is inconsistent with .fa file. Add the 'force' modifier to downgrade it to provisional.\n");
+	wordwrapb(0);
+	logerrprintb();
+	return kPglRetInconsistentInput;
+      }
+      set_bit(variant_uidx, nonref_flags);
+      *downgraded_ct_ptr += 1;
+    }
+    if (variant_uidx == variant_uidx_last) {
+      *changed_ct_ptr = changed_ct;
+      *validated_ct_ptr = validated_ct;
+      return kPglRetSuccess;
+    }
+    ++variant_uidx;
+    next_set_unsafe_ck(variant_include, &variant_uidx);
+  }
+}
+
+pglerr_t ref_from_fa(const uintptr_t* variant_include, const uint32_t* variant_bps, const uintptr_t* variant_allele_idxs, char** allele_storage, const chr_info_t* cip, const char* fname, uint32_t max_allele_slen, uint32_t force, alt_allele_ct_t* refalt1_select, uintptr_t* nonref_flags) {
   unsigned char* bigstack_mark = g_bigstack_base;
   gzFile gz_infile = nullptr;
+  uintptr_t line_idx = 0;
   pglerr_t reterr = kPglRetSuccess;
   {
-    logerrprint("Error: --ref-from-fa is currently under development.\n");
-    reterr = kPglRetNotYetSupported;
+    if (gzopen_read_checked(fname, &gz_infile)) {
+      goto ref_from_fa_ret_OPEN_FAIL;
+    }
+    const uint32_t chr_ct = cip->chr_ct;
+    char* chr_name_buf;
+    uintptr_t* chr_already_seen;
+    if (bigstack_calloc_ul(BITCT_TO_WORDCT(chr_ct), &chr_already_seen) ||
+	bigstack_alloc_c(kMaxIdBlen, &chr_name_buf)) {
+      goto ref_from_fa_ret_NOMEM;
+    }
+
+    // To simplify indel/complex-variant handling, we load an entire contig at
+    // a time.  Determine an upper bound for the size of this buffer.
+    const uintptr_t* chr_mask = cip->chr_mask;
+    uint32_t seqbuf_size = 0;
+    for (uint32_t chr_fo_idx = 0; chr_fo_idx < chr_ct; ++chr_fo_idx) {
+      if (!is_set(chr_mask, cip->chr_file_order[chr_fo_idx])) {
+	continue;
+      }
+      const int32_t chr_vidx_start_m1 = ((int32_t)cip->chr_fo_vidx_start[chr_fo_idx]) - 1;
+      const int32_t chr_vidx_last = prev_set(variant_include, cip->chr_fo_vidx_start[chr_fo_idx + 1], chr_vidx_start_m1);
+      if (chr_vidx_last != chr_vidx_start_m1) {
+        const uint32_t cur_bp = variant_bps[(uint32_t)chr_vidx_last];
+	if (cur_bp > seqbuf_size) {
+	  seqbuf_size = cur_bp;
+	}
+      }
+    }
+    seqbuf_size += max_allele_slen + 1;
+    char* seqbuf;
+    if (bigstack_alloc_c(seqbuf_size, &seqbuf)) {
+      goto ref_from_fa_ret_NOMEM;
+    }
+    // May as well handle insertion before first contig base, and deletion of
+    // first base, correctly.
+    seqbuf[0] = 'N';
+
+    uintptr_t loadbuf_size = bigstack_left();
+    if (loadbuf_size > kMaxLongLine) {
+      loadbuf_size = kMaxLongLine;
+    } else {
+      loadbuf_size &= ~(kCacheline - 1);
+      if (loadbuf_size <= kMaxMediumLine) {
+	goto ref_from_fa_ret_NOMEM;
+      }
+    }
+    char* loadbuf = (char*)bigstack_alloc_raw(loadbuf_size);
+    loadbuf[loadbuf_size - 1] = ' ';
+
+    char* seqbuf_end = nullptr;
+    char* seq_iter = nullptr;
+    // possible but low-priority todo: exploit .fai when it's present
+    uint32_t chr_fo_idx = 0xffffffffU;
+    uint32_t cur_vidx_last = 0;
+    uint32_t skip_chr = 1;
+    uint32_t changed_ct = 0;
+    uint32_t validated_ct = 0;
+    uint32_t downgraded_ct = 0;
+    while (gzgets(gz_infile, loadbuf, loadbuf_size)) {
+      ++line_idx;
+      if (!loadbuf[loadbuf_size - 1]) {
+	if (loadbuf_size == kMaxLongLine) {
+	  sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --ref-from-fa file is pathologically long.\n", line_idx);
+	  goto ref_from_fa_ret_MALFORMED_INPUT_2;
+	}
+	goto ref_from_fa_ret_NOMEM;
+      }
+      unsigned char ucc = loadbuf[0];
+      if (ucc < 'A') {
+	// > = ascii 62
+	// ; = ascii 59
+	if ((ucc == ';') || (ucc <= '\r')) {
+	  continue;
+	}
+	if (ucc != '>') {
+	  sprintf(g_logbuf, "Error: Unexpected character at beginning of line %" PRIuPTR " of --ref-from-fa file.\n", line_idx);
+	  goto ref_from_fa_ret_MALFORMED_INPUT_WW;
+	}
+	if (chr_fo_idx != 0xffffffffU) {
+	  reterr = ref_from_fa_process_contig(variant_include, variant_bps, variant_allele_idxs, allele_storage, cip, force, chr_fo_idx, cur_vidx_last, seqbuf, seq_iter, refalt1_select, nonref_flags, &changed_ct, &validated_ct, &downgraded_ct);
+	  if (reterr) {
+	    goto ref_from_fa_ret_1;
+	  }
+	}
+	char* chr_name_start = &(loadbuf[1]);
+	if (is_space_or_eoln(*chr_name_start)) {
+	  sprintf(g_logbuf, "Error: Invalid contig description on line %" PRIuPTR " of --ref-from-fa file.%s\n", line_idx, (*chr_name_start == ' ')? " (Spaces are not permitted between the leading '>' and the contig name.)" : "");
+	  goto ref_from_fa_ret_MALFORMED_INPUT_WW;
+	}
+	char* chr_name_end = token_endnn(chr_name_start);
+	*chr_name_end = '\0';
+	const uint32_t chr_name_slen = (uintptr_t)(chr_name_end - chr_name_start);
+	chr_fo_idx = 0xffffffffU;
+	const int32_t chr_idx = get_chr_code(chr_name_start, cip, chr_name_slen);
+	if ((chr_idx >= 0) && is_set(cip->chr_mask, chr_idx)) {
+	  chr_fo_idx = cip->chr_idx_to_foidx[(uint32_t)chr_idx];
+	  if (is_set(chr_already_seen, chr_fo_idx)) {
+	    sprintf(g_logbuf, "Error: Duplicate contig name '%s' in --ref-from-fa file.\n", chr_name_start);
+	    goto ref_from_fa_ret_MALFORMED_INPUT_WW;
+	  }
+	  set_bit(chr_fo_idx, chr_already_seen);
+	  const int32_t chr_vidx_start_m1 = ((int32_t)cip->chr_fo_vidx_start[chr_fo_idx]) - 1;
+	  const int32_t chr_vidx_last = prev_set(variant_include, cip->chr_fo_vidx_start[chr_fo_idx + 1], chr_vidx_start_m1);
+	  if (chr_vidx_last == chr_vidx_start_m1) {
+	    chr_fo_idx = 0xffffffffU;
+	  } else {
+	    cur_vidx_last = chr_vidx_last;
+	    seqbuf_end = &(seqbuf[variant_bps[cur_vidx_last] + max_allele_slen]);
+	    seq_iter = &(seqbuf[1]);
+	  }
+	}
+	skip_chr = (chr_fo_idx == 0xffffffffU);
+	continue;
+      }
+      if (skip_chr) {
+	continue;
+      }
+      char* seqline_end = token_endnn(loadbuf);
+      ucc = *seqline_end;
+      if ((ucc == ' ') || (ucc == '\t')) {
+	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --ref-from-fa file is malformed.\n", line_idx);
+	goto ref_from_fa_ret_MALFORMED_INPUT_2;
+      }
+      uint32_t cur_seq_slen = (uintptr_t)(seqline_end - loadbuf);
+      const uint32_t seq_rem = (uintptr_t)(seqbuf_end - seq_iter);
+      if (seq_rem <= cur_seq_slen) {
+	cur_seq_slen = seq_rem;
+	skip_chr = 1;
+      }
+      char* gap_start = (char*)memchr(loadbuf, '-', cur_seq_slen);
+      if (gap_start) {
+	LOGERRPRINTFWW("Warning: Indeterminate-length gap present on line %" PRIuPTR " of --ref-from-fa file. Ignoring remainder of contig.\n", line_idx);
+	cur_seq_slen = (uintptr_t)(gap_start - loadbuf);
+	skip_chr = 1;
+      }
+      seq_iter = memcpya(seq_iter, loadbuf, cur_seq_slen);
+    }
+    if ((!gzeof(gz_infile)) || gzclose_null(&gz_infile)) {
+      goto ref_from_fa_ret_READ_FAIL;
+    }
+    if (chr_fo_idx != 0xffffffffU) {
+      reterr = ref_from_fa_process_contig(variant_include, variant_bps, variant_allele_idxs, allele_storage, cip, force, chr_fo_idx, cur_vidx_last, seqbuf, seq_iter, refalt1_select, nonref_flags, &changed_ct, &validated_ct, &downgraded_ct);
+      if (reterr) {
+	goto ref_from_fa_ret_1;
+      }
+    }
+    LOGPRINTF("--ref-from-fa%s: %u variant%s changed, %u validated.\n", force? " force" : "", changed_ct, (changed_ct == 1)? "" : "s", validated_ct);
+    if (downgraded_ct) {
+      LOGERRPRINTFWW("Warning: %u reference allele%s downgraded from 'known' to 'provisional'.\n", downgraded_ct, (downgraded_ct == 1)? "" : "s");
+    }
   }
   while (0) {
+  ref_from_fa_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  ref_from_fa_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  ref_from_fa_ret_READ_FAIL:
+    reterr = kPglRetReadFail;
+    break;
+  ref_from_fa_ret_MALFORMED_INPUT_WW:
+    wordwrapb(0);
+  ref_from_fa_ret_MALFORMED_INPUT_2:
+    logerrprintb();
+    reterr = kPglRetMalformedInput;
+    break;
   }
+ ref_from_fa_ret_1:
   gzclose_cond(gz_infile);
   bigstack_reset(bigstack_mark);
   return reterr;

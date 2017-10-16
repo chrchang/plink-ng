@@ -1453,6 +1453,9 @@ HEADER_INLINE void next_set_ul_unsafe_ck(const uintptr_t* __restrict bitarr, uin
 
 uint32_t next_unset(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil);
 
+// floor permitted to be -1, though not smaller than that.
+int32_t prev_set(const uintptr_t* bitarr, uint32_t loc, int32_t floor);
+
 HEADER_INLINE uint32_t are_all_words_identical(const uintptr_t* word_arr1, const uintptr_t* word_arr2, uintptr_t word_ct) {
   for (uintptr_t widx = 0; widx < word_ct; ++widx) {
     if (word_arr1[widx] ^ word_arr2[widx]) {

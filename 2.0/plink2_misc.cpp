@@ -24,6 +24,165 @@
 namespace plink2 {
 #endif
 
+pglerr_t update_var_names(const uintptr_t* variant_include, const uint32_t* variant_id_htable, const two_col_params_t* params, uint32_t raw_variant_ct, uint32_t htable_size, char** variant_ids, uint32_t* max_variant_id_slen_ptr) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  gzFile gz_infile = nullptr;
+  uintptr_t line_idx = 0;
+  pglerr_t reterr = kPglRetSuccess;
+  {
+    const uint32_t orig_max_variant_id_slen = *max_variant_id_slen_ptr;
+    uint32_t max_variant_id_slen = orig_max_variant_id_slen;
+    char** variant_ids_copy;
+    uintptr_t* already_seen;
+    if (bigstack_alloc_cp(raw_variant_ct, &variant_ids_copy) ||
+	bigstack_calloc_ul(BITCT_TO_WORDCT(raw_variant_ct), &already_seen)) {
+      goto update_var_names_ret_NOMEM;
+    }
+    memcpy(variant_ids_copy, variant_ids, raw_variant_ct * sizeof(intptr_t));
+    // This could be pointed at a file containing allele codes, so don't limit
+    // line length to 128kb.
+    // On the other hand, new variant IDs are allocated off the end of
+    // bigstack, and that could result in a lot of memory pressure.
+    uintptr_t loadbuf_size = bigstack_left() / 4;
+    if (loadbuf_size > kMaxLongLine) {
+      loadbuf_size = kMaxLongLine;
+    } else if (loadbuf_size <= kMaxMediumLine) {
+      goto update_var_names_ret_NOMEM;
+    }
+    char* loadbuf = (char*)bigstack_alloc_raw(loadbuf_size);
+    reterr = gzopen_and_skip_first_lines(params->fname, params->skip_ct, loadbuf_size, loadbuf, &gz_infile);
+    if (reterr) {
+      goto update_var_names_ret_1;
+    }
+    // ok, this should be a parameter instead...
+    const uint32_t* htable_dup_base = &(variant_id_htable[round_up_pow2(htable_size, kInt32PerCacheline)]);
+    const uint32_t colold_first = (params->colid < params->colx);
+    uint32_t colmin;
+    uint32_t coldiff;
+    if (colold_first) {
+      colmin = params->colid - 1;
+      coldiff = params->colx - params->colid;
+    } else {
+      colmin = params->colx - 1;
+      coldiff = params->colid - params->colx;
+    }
+    const char skipchar = params->skipchar;
+    char* alloc_base = (char*)g_bigstack_base;
+    char* alloc_end = (char*)g_bigstack_end;
+    uintptr_t miss_ct = 0;
+    uint32_t hit_ct = 0;
+    while (gzgets(gz_infile, loadbuf, loadbuf_size)) {
+      ++line_idx;
+      if (!loadbuf[loadbuf_size - 1]) {
+	if (loadbuf_size == kMaxLongLine) {
+	  sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --update-name file is pathologically long.\n", line_idx);
+	  goto update_var_names_ret_MALFORMED_INPUT_2;
+	}
+	goto update_var_names_ret_NOMEM;
+      }
+      char* loadbuf_first_token = skip_initial_spaces(loadbuf);
+      char cc = *loadbuf_first_token;
+      if (is_eoln_kns(cc) || (cc == skipchar)) {
+	continue;
+      }
+      char* colold_ptr;
+      char* colnew_ptr;
+      if (colold_first) {
+	colold_ptr = next_token_multz(loadbuf_first_token, colmin);
+	colnew_ptr = next_token_mult(colold_ptr, coldiff);
+	if (!colnew_ptr) {
+	  goto update_var_names_ret_MISSING_TOKENS;
+	}
+      } else {
+	colnew_ptr = next_token_multz(loadbuf_first_token, colmin);
+	colold_ptr = next_token_mult(colnew_ptr, coldiff);
+	if (!colold_ptr) {
+	  goto update_var_names_ret_MISSING_TOKENS;
+	}
+      }
+      const uint32_t colold_slen = strlen_se(colold_ptr);
+      uint32_t cur_llidx;
+      uint32_t variant_uidx = variant_id_dup_htable_find(colold_ptr, variant_ids_copy, variant_id_htable, htable_dup_base, colold_slen, htable_size, orig_max_variant_id_slen, &cur_llidx);
+      if (variant_uidx == 0xffffffffU) {
+	++miss_ct;
+	continue;
+      }
+      char* cur_var_id = variant_ids_copy[variant_uidx];
+      if (cur_llidx != 0xffffffffU) {
+	// we could check if some copies have been filtered out after hash
+	// table construction?
+	sprintf(g_logbuf, "Error: --update-name variant ID '%s' appears multiple times in dataset.\n", cur_var_id);
+	goto update_var_names_ret_INCONSISTENT_INPUT_WW;
+      }
+      if (!is_set(variant_include, variant_uidx)) {
+	continue;
+      }
+      if (is_set(already_seen, variant_uidx)) {
+	sprintf(g_logbuf, "Error: Variant ID '%s' appears multiple times in --update-name file.\n", cur_var_id);
+	goto update_var_names_ret_INCONSISTENT_INPUT_WW;
+      }
+      set_bit(variant_uidx, already_seen);
+      ++hit_ct;
+      const uint32_t colnew_slen = strlen_se(colnew_ptr);
+      if (colnew_slen <= colold_slen) {
+	const uint32_t colold_blen = colold_slen + 1;
+	if ((uintptr_t)(alloc_end - alloc_base) < colold_blen) {
+	  goto update_var_names_ret_NOMEM;
+	}
+	memcpy(alloc_base, cur_var_id, colold_blen);
+	variant_ids_copy[variant_uidx] = alloc_base;
+	alloc_base = &(alloc_base[colold_blen]);
+	memcpyx(variant_ids[variant_uidx], colnew_ptr, colnew_slen, '\0');
+      } else {
+	if (colnew_slen > max_variant_id_slen) {
+	  max_variant_id_slen = colnew_slen;
+	}
+	const uint32_t colnew_blen = colnew_slen + 1;
+	if ((uintptr_t)(alloc_end - alloc_base) < colnew_blen) {
+	  goto update_var_names_ret_NOMEM;
+	}
+	alloc_end -= colnew_blen;
+	memcpyx(alloc_end, colnew_ptr, colnew_slen, '\0');
+	variant_ids[variant_uidx] = alloc_end;
+      }
+    }
+    if ((!gzeof(gz_infile)) || gzclose_null(&gz_infile)) {
+      goto update_var_names_ret_READ_FAIL;
+    }
+    bigstack_end_set(alloc_end);
+    if (miss_ct) {
+      sprintf(g_logbuf, "--update-name: %u value%s updated, %" PRIuPTR " variant ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+    } else {
+      sprintf(g_logbuf, "--update-name: %u value%s updated.\n", hit_ct, (hit_ct == 1)? "" : "s");
+    }
+    logprintb();
+    *max_variant_id_slen_ptr = max_variant_id_slen;
+  }
+  while (0) {
+  update_var_names_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  update_var_names_ret_READ_FAIL:
+    reterr = kPglRetReadFail;
+    break;
+  update_var_names_ret_MALFORMED_INPUT_2:
+    logerrprintb();
+    reterr = kPglRetMalformedInput;
+    break;
+  update_var_names_ret_MISSING_TOKENS:
+    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --update-name file has fewer tokens than expected.\n", line_idx);
+  update_var_names_ret_INCONSISTENT_INPUT_WW:
+    wordwrapb(0);
+    logerrprintb();
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ update_var_names_ret_1:
+  gzclose_cond(gz_infile);
+  bigstack_reset(bigstack_mark);
+  return reterr;
+}
+
 pglerr_t plink1_cluster_import(const char* within_fname, const char* catpheno_name, const char* family_missing_catname, const uintptr_t* sample_include, const char* sample_ids, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uint32_t mwithin_val, pheno_col_t** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
 
@@ -103,6 +262,9 @@ pglerr_t plink1_cluster_import(const char* within_fname, const char* catpheno_na
     const uint32_t missing_catname_hval = hashceil(missing_catname, missing_catname_slen, cat_htable_size);
     if (within_fname) {
       reterr = gzopen_read_checked(within_fname, &gz_infile);
+      if (reterr) {
+	goto plink1_cluster_import_ret_1;
+      }
       uintptr_t* already_seen;
       uint32_t* sorted_cat_idxs;
       char* idbuf;
@@ -450,6 +612,7 @@ pglerr_t plink1_cluster_import(const char* within_fname, const char* catpheno_na
     reterr = kPglRetInconsistentInput;
     break;
   }
+ plink1_cluster_import_ret_1:
   gzclose_cond(gz_infile);
   bigstack_reset(bigstack_mark);
   if (reterr) {

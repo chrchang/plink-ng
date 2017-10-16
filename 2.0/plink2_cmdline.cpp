@@ -786,7 +786,7 @@ uint32_t uint32arr_greater_than(const uint32_t* sorted_uint32_arr, uint32_t arr_
   // -O2 optimization, but can become much slower with -O3?)
   
   // assumes arr_length is nonzero, and sorted_uint32_arr is in nondecreasing
-  // order.  (useful for searching marker_pos.)
+  // order.  (useful for searching variant_bps[].)
   // also assumes arr_length < 2^31.
   // uii guaranteed to be larger than sorted_uint32_arr[min_idx - 1] if it
   // exists, but NOT necessarily sorted_uint32_arr[min_idx].
@@ -2997,8 +2997,8 @@ uint32_t next_unset(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil) {
   return MINV(loc, ceil);
 }
 
-/*
-uint32_t prev_set(const uintptr_t* bitarr, uint32_t loc, uint32_t floor) {
+// floor permitted to be -1, though not smaller than that.
+int32_t prev_set(const uintptr_t* bitarr, uint32_t loc, int32_t floor) {
   const uintptr_t* bitarr_ptr = &(bitarr[loc / kBitsPerWord]);
   uint32_t remainder = loc % kBitsPerWord;
   uintptr_t ulii;
@@ -3006,20 +3006,19 @@ uint32_t prev_set(const uintptr_t* bitarr, uint32_t loc, uint32_t floor) {
     ulii = (*bitarr_ptr) & ((k1LU << remainder) - k1LU);
     if (ulii) {
       const uint32_t set_bit_loc = (loc | (kBitsPerWord - 1)) - CLZLU(ulii);
-      return MAXV(set_bit_loc, floor);
+      return MAXV(((int32_t)set_bit_loc), floor);
     }
   }
-  const uintptr_t* bitarr_stop = &(bitarr[floor / kBitsPerWord]);
+  const uintptr_t* bitarr_last = &(bitarr[((uint32_t)(floor + 1)) / kBitsPerWord]);
   do {
-    if (bitarr_ptr == bitarr_stop) {
+    if (bitarr_ptr <= bitarr_last) {
       return floor;
     }
     ulii = *(--bitarr_ptr);
   } while (!ulii);
   const uint32_t set_bit_loc = (uint32_t)(((uintptr_t)(bitarr_ptr - bitarr)) * kBitsPerWord + kBitsPerWord - 1 - CLZLU(ulii));
-  return MAXV(set_bit_loc, floor);
+  return MAXV(((int32_t)set_bit_loc), floor);
 }
-*/
 
 boolerr_t bigstack_calloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr) {
   *uc_arr_ptr = (unsigned char*)bigstack_alloc(ct);
@@ -3644,7 +3643,7 @@ uint32_t variant_id_dup_htable_find(const char* idbuf, char** variant_ids, const
   // - Returns 0xffffffffU on failure (llidx currently unset in that case),
   //   otherwise returns the index of the first match (which will have the
   //   highest index, due to how the linked list is constructed)
-  // - Sets second_llidx to 0xffffffffU if not a duplicate, otherwise it's the
+  // - Sets llidx to 0xffffffffU if not a duplicate, otherwise it's the
   //   position in htable_dup_base[] of the next {variant_uidx, next_llidx}
   //   linked list entry.
   // - idbuf does not need to be null-terminated.
