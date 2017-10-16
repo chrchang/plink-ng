@@ -59,7 +59,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (15 Oct 2017)";
+  " (16 Oct 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -2450,7 +2450,9 @@ pglerr_t parse_col_descriptor(const char* col_descriptor_iter, const char* suppo
 	    }
 	  }
 	}
-	if (!tok_end) {
+        // bugfix (16 Oct 2017): forgot to switch from !tok_end to !(*tok_end)
+        // after use of strchrnul().
+	if (!(*tok_end)) {
 	  break;
 	}
 	col_descriptor_iter = &(tok_end[1]);
@@ -2473,7 +2475,7 @@ pglerr_t parse_col_descriptor(const char* col_descriptor_iter, const char* suppo
 	}
 	uint32_t shift = id_map[(uint32_t)alpha_idx];
 	result |= first_col_shifted << shift;
-	if (!tok_end) {
+	if (!(*tok_end)) {
 	  break;
 	}
 	col_descriptor_iter = &(tok_end[1]);
