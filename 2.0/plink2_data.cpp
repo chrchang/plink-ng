@@ -8660,6 +8660,10 @@ pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t m
       assert(0);
       goto generate_dummy_ret_NOMEM;
     }
+    // bugfix (3 Nov 2017): forgot to handle hard_call_thresh default value
+    if (hard_call_thresh == 0xffffffffU) {
+      hard_call_thresh = kDosageMid / 10;
+    }
     g_hard_call_halfdist = kDosage4th - hard_call_thresh;
     g_dosage_erase_halfdist = kDosage4th - dosage_erase_thresh;
 
@@ -16620,6 +16624,10 @@ pglerr_t export_012_smaj(const char* outname, const uintptr_t* orig_sample_inclu
 	  fflush(stdout);
 	  next_print_batch_idx = (pct * ((uint64_t)read_sample_ct)) / 100;
 	}
+      }
+      // bugfix (3 Nov 2017): forgot reinit
+      if (pass_idx + 1 < pass_ct) {
+        reinit_threads3z(&ts);
       }
       sample_uidx_start = sample_uidx_end;
       if (pct > 10) {
