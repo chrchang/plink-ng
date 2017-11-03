@@ -16108,6 +16108,10 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     goto merge_datasets_ret_INVALID_FORMAT_2;
   }
 #endif
+  if (max_sample_id_len > 2 * MAX_ID_BLEN) {
+    logerrprint("Error: FIDs and IIDs are limited to " MAX_ID_SLEN_STR " characters.\n");
+    goto merge_datasets_ret_INVALID_FORMAT;
+  }
   tot_sample_ct = ullxx;
   if (sample_sort & (SAMPLE_SORT_NONE | SAMPLE_SORT_FILE)) {
     if (bigstack_alloc_ui(tot_sample_ct, &sample_nsmap)) {
@@ -16344,6 +16348,12 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     goto merge_datasets_ret_INVALID_FORMAT;
   }
 #endif
+  if (max_marker_id_len > MAX_ID_BLEN) {
+    logerrprint("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
+    goto merge_datasets_ret_INVALID_FORMAT;
+  } else if (max_marker_id_len > 80) {
+    logerrprint("Warning: Unusually long variant ID(s) present.  PLINK 1.9 does not scale well\nto length-80+ variant IDs; consider using a different naming scheme for long\nindels and the like.\n");
+  }
   if (non_biallelics) {
     bigstack_reset(bigstack_mark);
     retval = report_non_biallelics(outname, outname_end, non_biallelics);
