@@ -10178,6 +10178,7 @@ FLAGSET_DEF_START()
 FLAGSET_DEF_END(plink2_write_flags_t);
 // todo: add .pgen-specific stuff
 
+// more multithread globals
 static plink2_write_flags_t g_plink2_write_flags = kfPlink2Write0;
 
 THREAD_FUNC_DECL make_bedlike_thread(void* arg) {
@@ -10275,6 +10276,8 @@ THREAD_FUNC_DECL make_bedlike_thread(void* arg) {
     parity = 1 - parity;
   }
 }
+
+// more multithread globals
 
 // combine existing chr_mask/xymt_codes/haploid_mask/chr_idx_to_foidx with new
 // collapsed chromosome boundary table
@@ -12900,6 +12903,7 @@ pglerr_t export_012_vmaj(const char* outname, const uintptr_t* sample_include, c
   return reterr;
 }
 
+// more multithread globals
 static uintptr_t* g_vmaj_readbuf = nullptr;
 
 THREAD_FUNC_DECL transpose_to_smaj_read_thread(void* arg) {
@@ -12943,6 +12947,7 @@ THREAD_FUNC_DECL transpose_to_smaj_read_thread(void* arg) {
   }
 }
 
+// more multithread globals
 static uintptr_t* g_smaj_writebufs[2] = {nullptr, nullptr};
 static uint32_t g_variant_ct = 0;
 static uint32_t g_sample_batch_size = 0;
@@ -13933,6 +13938,7 @@ pglerr_t export_ox_hapslegend(const uintptr_t* sample_include, const uint32_t* s
   return reterr;
 }
 
+// more multithread globals
 static uintptr_t** g_missing_acc2 = nullptr;
 static uint32_t* g_variant_bytects[2] = {nullptr, nullptr};
 static uint32_t g_ref_allele_second = 0;
@@ -16195,8 +16201,9 @@ pglerr_t export_vcf(char* xheader, const uintptr_t* sample_include, const uint32
   return reterr;
 }
 
-static uint32_t* g_dosage_ct_bufs[2] = {nullptr, nullptr};
+// more multithread globals
 static dosage_t* g_smaj_dosagebuf = nullptr;
+static uint32_t* g_write_vidx_starts = nullptr;
 static const dosage_t kGenoToDosage[4] = {0, 16384, 32768, 65535};
 
 THREAD_FUNC_DECL dosage_transpose_thread(void* arg) {
@@ -16204,84 +16211,120 @@ THREAD_FUNC_DECL dosage_transpose_thread(void* arg) {
   const uint32_t sample_ct = g_sample_ct;
   const uint32_t sample_ctd4 = sample_ct / 4;
   const uint32_t sample_rem = sample_ct % 4;
-  const uint32_t sample_ctab2 = kBytesPerVec * QUATERCT_TO_VECCT(sample_ct);
   const uintptr_t sample_ctaw = BITCT_TO_ALIGNED_WORDCT(sample_ct);
+  const uint32_t sample_ctaw2 = QUATERCT_TO_ALIGNED_WORDCT(sample_ct);
+  const uint32_t sample_ctab2 = kBytesPerWord * sample_ctaw2;
   const uintptr_t stride = g_stride;
-  dosage_t* smaj_dosagebuf_iter = &(g_smaj_dosagebuf[tidx * kDosagePerCacheline]);
-  uint32_t parity = 0;
+  const uintptr_t* variant_include = g_variant_include;
+  const alt_allele_ct_t* refalt1_select = g_refalt1_select;
+  const uintptr_t* sample_include = g_sample_include;
+  const uint32_t* sample_include_cumulative_popcounts = g_sample_include_cumulative_popcounts;
+  pgen_reader_t* pgrp = g_pgr_ptrs[tidx];
+  uintptr_t* genovec_buf = g_thread_write_genovecs[tidx];
+  uintptr_t* dosagepresent_buf = g_thread_write_dosagepresents[tidx];
+  dosage_t* dosagevals_buf = g_thread_write_dosagevals[tidx];
   while (1) {
     const uint32_t is_last_block = g_is_last_thread_block;
     const uint32_t cur_block_write_ct = g_cur_block_write_ct;
-    const uint32_t vidx_start = tidx * kDosagePerCacheline;
-    const uint32_t vidx_end = MINV((tidx + 1) * kDosagePerCacheline, cur_block_write_ct);
-    // vidx_end may be less than vidx_start, so don't start with vidx_ct
-    if (vidx_end > vidx_start) {
-      const unsigned char* geno_read_iter = (const unsigned char*)g_genovecs[parity];
-      geno_read_iter = &(geno_read_iter[vidx_start * ((uintptr_t)sample_ctab2)]);
-      const uint32_t* cur_dosage_cts = &(g_dosage_ct_bufs[parity][vidx_start]);
-      const uintptr_t* cur_dosage_presents = &(g_dosage_presents[parity][vidx_start * sample_ctaw]);
-      const dosage_t* cur_dosage_vals = &(g_dosage_val_bufs[parity][vidx_start * sample_ct]);
-      // pass 1: process 4 genovec samples at a time
-      const uint32_t vidx_ct = vidx_end - vidx_start;
-      dosage_t* dosagebuf_write_iter0 = smaj_dosagebuf_iter;
-      for (uint32_t sample4_idx = 0; sample4_idx < sample_ctd4; ++sample4_idx) {
-        dosage_t* dosagebuf_write_iter1 = &(dosagebuf_write_iter0[stride]);
-        dosage_t* dosagebuf_write_iter2 = &(dosagebuf_write_iter1[stride]);
-        dosage_t* dosagebuf_write_iter3 = &(dosagebuf_write_iter2[stride]);
-        const unsigned char* geno_read_iter2 = &(geno_read_iter[sample4_idx]);
-        for (uint32_t vidx_offset = 0; vidx_offset < vidx_ct; ++vidx_offset) {
-          uint32_t cur_geno = *geno_read_iter2;
-          dosagebuf_write_iter0[vidx_offset] = kGenoToDosage[cur_geno & 3];
-          dosagebuf_write_iter1[vidx_offset] = kGenoToDosage[(cur_geno >> 2) & 3];
-          dosagebuf_write_iter2[vidx_offset] = kGenoToDosage[(cur_geno >> 4) & 3];
-          dosagebuf_write_iter3[vidx_offset] = kGenoToDosage[(cur_geno >> 6) & 3];
-          geno_read_iter2 = &(geno_read_iter2[sample_ctab2]);
+    const uint32_t vidx_end = g_write_vidx_starts[tidx + 1];
+    uint32_t vidx_start = g_write_vidx_starts[tidx];
+    if (cur_block_write_ct && (vidx_end != vidx_start)) {
+      uint32_t variant_uidx = g_read_variant_uidx_starts[tidx];
+      dosage_t* smaj_dosagebuf_iter = &(g_smaj_dosagebuf[vidx_start]);
+      uint32_t dosage_cts[kDosagePerCacheline];
+      do {
+        uint32_t vidx_block_end = round_down_pow2(vidx_start, kDosagePerCacheline) + kDosagePerCacheline;
+        if (vidx_block_end > vidx_end) {
+          vidx_block_end = vidx_end;
         }
-        dosagebuf_write_iter0 = &(dosagebuf_write_iter3[stride]);
-      }
-      if (sample_rem) {
-        const unsigned char* geno_read_iter2 = &(geno_read_iter[sample_ctd4]);
-        for (uint32_t vidx_offset = 0; vidx_offset < vidx_ct; ++vidx_offset) {
-          uint32_t cur_geno = *geno_read_iter2;
-          dosage_t* dosagebuf_write_iterx = &(dosagebuf_write_iter0[vidx_offset]);
-          uint32_t sample_idx_lowbits = 0;
-          while (1) {
-            *dosagebuf_write_iterx = kGenoToDosage[cur_geno & 3];
-            if (++sample_idx_lowbits == sample_rem) {
-              break;
+        const uint32_t vidx_block_size = vidx_block_end - vidx_start;
+
+        // part 1: decompress data
+        uintptr_t* genovec_iter = genovec_buf;
+        uintptr_t* dosage_present_iter = dosagepresent_buf;
+        dosage_t* dosage_vals_iter = dosagevals_buf;
+        for (uint32_t vidx_offset = 0; vidx_offset < vidx_block_size; ++vidx_offset, ++variant_uidx) {
+          next_set_unsafe_ck(variant_include, &variant_uidx);
+          // todo: multiallelic case
+          uint32_t dosage_ct;
+          uint32_t is_explicit_alt1;
+          const pglerr_t reterr = pgr_read_refalt1_genovec_dosage16_subset_unsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec_iter, dosage_present_iter, (uint16_t*)dosage_vals_iter, &dosage_ct, &is_explicit_alt1);
+          if (reterr) {
+            g_error_ret = reterr;
+            goto dosage_transpose_thread_fail;
+          }
+          if ((!refalt1_select) || (!refalt1_select[variant_uidx * 2])) {
+            genovec_invert_unsafe(sample_ct, genovec_iter);
+            biallelic_dosage16_invert(dosage_ct, dosage_vals_iter);
+          }
+          genovec_iter = &(genovec_iter[sample_ctaw2]);
+          dosage_present_iter = &(dosage_present_iter[sample_ctaw]);
+          dosage_vals_iter = &(dosage_vals_iter[sample_ct]);
+          dosage_cts[vidx_offset] = dosage_ct;
+        }
+
+        // part 2: process hardcalls for 4 samples at a time
+        dosage_t* dosagebuf_write_iter0 = smaj_dosagebuf_iter;
+        for (uint32_t sample4_idx = 0; sample4_idx < sample_ctd4; ++sample4_idx) {
+          dosage_t* dosagebuf_write_iter1 = &(dosagebuf_write_iter0[stride]);
+          dosage_t* dosagebuf_write_iter2 = &(dosagebuf_write_iter1[stride]);
+          dosage_t* dosagebuf_write_iter3 = &(dosagebuf_write_iter2[stride]);
+          const unsigned char* geno_read_iter = &(((const unsigned char*)genovec_buf)[sample4_idx]);
+          for (uint32_t vidx_offset = 0; vidx_offset < vidx_block_size; ++vidx_offset) {
+            uint32_t cur_geno = *geno_read_iter;
+            dosagebuf_write_iter0[vidx_offset] = kGenoToDosage[cur_geno & 3];
+            dosagebuf_write_iter1[vidx_offset] = kGenoToDosage[(cur_geno >> 2) & 3];
+            dosagebuf_write_iter2[vidx_offset] = kGenoToDosage[(cur_geno >> 4) & 3];
+            dosagebuf_write_iter3[vidx_offset] = kGenoToDosage[(cur_geno >> 6) & 3];
+            geno_read_iter = &(geno_read_iter[sample_ctab2]);
+          }
+          dosagebuf_write_iter0 = &(dosagebuf_write_iter3[stride]);
+        }
+        if (sample_rem) {
+          const unsigned char* geno_read_iter = &(((const unsigned char*)genovec_buf)[sample_ctd4]);
+          for (uint32_t vidx_offset = 0; vidx_offset < vidx_block_size; ++vidx_offset) {
+            uint32_t cur_geno = *geno_read_iter;
+            dosage_t* dosagebuf_write_iterx = &(dosagebuf_write_iter0[vidx_offset]);
+            uint32_t sample_idx_lowbits = 0;
+            while (1) {
+              *dosagebuf_write_iterx = kGenoToDosage[cur_geno & 3];
+              if (++sample_idx_lowbits == sample_rem) {
+                break;
+              }
+              cur_geno >>= 2;
+              dosagebuf_write_iterx = &(dosagebuf_write_iterx[stride]);
             }
-            cur_geno >>= 2;
-            dosagebuf_write_iterx = &(dosagebuf_write_iterx[stride]);
-          }
-          geno_read_iter2 = &(geno_read_iter2[sample_ctab2]);
-        }
-      }
-      // pass 2: patch in dosages
-      for (uint32_t vidx_offset = 0; vidx_offset < vidx_ct; ++vidx_offset) {
-        const uint32_t cur_dosage_ct = cur_dosage_cts[vidx_offset];
-        if (cur_dosage_ct) {
-          const uintptr_t* dosage_present = &(cur_dosage_presents[vidx_offset * sample_ctaw]);
-          const dosage_t* dosage_vals = &(cur_dosage_vals[vidx_offset * sample_ct]);
-          dosage_t* cur_dosage_write = &(smaj_dosagebuf_iter[vidx_offset]);
-          uint32_t sample_idx = 0;
-          for (uint32_t dosage_idx = 0; dosage_idx < cur_dosage_ct; ++dosage_idx, ++sample_idx) {
-            next_set_unsafe_ck(dosage_present, &sample_idx);
-            cur_dosage_write[sample_idx * stride] = dosage_vals[dosage_idx];
+            geno_read_iter = &(geno_read_iter[sample_ctab2]);
           }
         }
-      }
+        // part 3: patch in dosages
+        for (uint32_t vidx_offset = 0; vidx_offset < vidx_block_size; ++vidx_offset) {
+          const uint32_t cur_dosage_ct = dosage_cts[vidx_offset];
+          if (cur_dosage_ct) {
+            const uintptr_t* dosage_present = &(dosagepresent_buf[vidx_offset * sample_ctaw]);
+            const dosage_t* dosage_vals = &(dosagevals_buf[vidx_offset * sample_ct]);
+            dosage_t* cur_dosage_write = &(smaj_dosagebuf_iter[vidx_offset]);
+            uint32_t sample_idx = 0;
+            for (uint32_t dosage_idx = 0; dosage_idx < cur_dosage_ct; ++dosage_idx, ++sample_idx) {
+              next_set_unsafe_ck(dosage_present, &sample_idx);
+              cur_dosage_write[sample_idx * stride] = dosage_vals[dosage_idx];
+            }
+          }
+        }
+        vidx_start = vidx_block_end;
+        smaj_dosagebuf_iter = &(smaj_dosagebuf_iter[vidx_block_size]);
+      } while (vidx_start != vidx_end);
     }
+  dosage_transpose_thread_fail:
     if (is_last_block) {
       THREAD_RETURN;
     }
     THREAD_BLOCK_FINISH(tidx);
-    parity = 1 - parity;
-    smaj_dosagebuf_iter = &(smaj_dosagebuf_iter[cur_block_write_ct]);
   }
 }
 
 static_assert(sizeof(dosage_t) == 2, "export_012_smaj() needs to be updated.");
-pglerr_t export_012_smaj(const char* outname, const uintptr_t* orig_sample_include, const char* sample_ids, const char* paternal_ids, const char* maternal_ids, const uintptr_t* sex_nm, const uintptr_t* sex_male, const pheno_col_t* pheno_cols, const uintptr_t* variant_include, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const alt_allele_ct_t* refalt1_select, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_paternal_id_blen, uintptr_t max_maternal_id_blen, uint32_t pheno_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t include_dom, uint32_t include_uncounted, uint32_t max_thread_ct, char exportf_delim, pgen_reader_t* simple_pgrp) {
+pglerr_t export_012_smaj(const char* outname, const uintptr_t* orig_sample_include, const char* sample_ids, const char* paternal_ids, const char* maternal_ids, const uintptr_t* sex_nm, const uintptr_t* sex_male, const pheno_col_t* pheno_cols, const uintptr_t* variant_include, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const alt_allele_ct_t* refalt1_select, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_paternal_id_blen, uintptr_t max_maternal_id_blen, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t include_dom, uint32_t include_uncounted, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, char exportf_delim, pgen_file_info_t* pgfip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   threads_state_t ts;
   init_threads3z(&ts);
@@ -16391,57 +16434,69 @@ pglerr_t export_012_smaj(const char* outname, const uintptr_t* orig_sample_inclu
     const char* legacy_output_missing_pheno = g_legacy_output_missing_pheno;
     const uint32_t lomp_slen = strlen(legacy_output_missing_pheno);
 
+    // Initially had the main read thread also perform decompression and
+    // inversion, and the worker threads only unpacked/transposed the data to a
+    // sample-major dosage matrix; but this made it pointless to have more than
+    // 1 worker thread.
+    //
+    // So, moving closer to export_ind_major_bed() strategy:
+    // * Main read thread only loads raw bytes with pgfi_multiread().
+    // * Worker thread(s) select subsets of the loaded variants to process in a
+    //   cacheline-aware manner: first worker's interval ends with variant_idx
+    //   divisible by (kCacheline / sizeof(dosage_t)) == 32 (unless it's the
+    //   only active worker), and all other interval(s) start with variant_idx
+    //   divisible by 32.
+
+    // todo: check when this saturates
+    uint32_t calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
+    if (calc_thread_ct * kDosagePerCacheline > variant_ct) {
+      calc_thread_ct = DIV_UP(variant_ct, kDosagePerCacheline);
+    }
+    unsigned char* main_loadbufs[2];
+    uint32_t read_block_size;
+
+    // temporarily hide 3/4 of memory
+    unsigned char* bigstack_end_mark = g_bigstack_end;
+    g_bigstack_end = &(g_bigstack_base[round_down_pow2(((uintptr_t)(g_bigstack_end - g_bigstack_base)) / 4, kCacheline)]);
+    if (multithread_load_init(variant_include, raw_sample_ct, variant_ct, pgr_alloc_cacheline_ct, 0, 0, pgfip, &calc_thread_ct, nullptr, nullptr, nullptr, &read_block_size, main_loadbufs, &ts.threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
+      goto export_012_smaj_ret_NOMEM;
+    }
+    g_bigstack_end = bigstack_end_mark;
+
     const uint32_t raw_sample_ctl = BITCT_TO_WORDCT(raw_sample_ct);
     uintptr_t* sample_include;
     uint32_t* sample_include_cumulative_popcounts;
     if (bigstack_alloc_ul(raw_sample_ctl, &sample_include) ||
-	bigstack_alloc_ui(raw_sample_ctl, &sample_include_cumulative_popcounts)) {
+	bigstack_alloc_ui(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+        bigstack_alloc_ui(calc_thread_ct + 1, &g_write_vidx_starts) ||
+        bigstack_alloc_ulp(calc_thread_ct, &g_thread_write_genovecs) ||
+        bigstack_alloc_ulp(calc_thread_ct, &g_thread_write_dosagepresents) ||
+        bigstack_alloc_dosagep(calc_thread_ct, &g_thread_write_dosagevals)) {
       goto export_012_smaj_ret_NOMEM;
     }
+
     // Remaining memory byte requirements:
-    //   2 * calc_thread_ct * kDosagePerCacheline * kBytesPerWord *
-    //     read_sample_ctaw2 for genovecs double-buffer
-    //   2 * calc_thread_ct * kDosagePerCacheline * kBytesPerWord *
-    //     read_sample_ctaw for dosage_presents double-buffer
-    //   2 * calc_thread_ct * kDosagePerCacheline * read_sample_ct *
-    //     sizeof(dosage_t) for dosage_vals double-buffer
-    //   2 * calc_thread_ct * kDosagePerCacheline * sizeof(int32_t) for
-    //     g_dosage_ct_bufs
+    //   calc_thread_ct * kDosagePerCacheline * kBytesPerWord *
+    //     read_sample_ctaw2 for per-thread genovecs buffers
+    //   calc_thread_ct * kDosagePerCacheline * kBytesPerWord *
+    //     read_sample_ctaw for per-thread dosage_presents buffers
+    //   calc_thread_ct * kDosagePerCacheline * read_sample_ct *
+    //     sizeof(dosage_t) for per-thread dosage_vals buffers
+    //   (dosage_ct buffers just go on the thread stacks)
     //   read_sample_ct * variant_ct * sizeof(dosage_t) for g_smaj_dosagebuf
-    //   (we make worker threads process kDosagePerCacheline variants at a time
-    //   so they don't step on each others' toes writing to g_smaj_dosagebuf)
     // This is about
     //   read_sample_ct *
-    //     (calc_thread_ct * kDosagePerCacheline * 4.75 +
-    //      variant_ct * 2)
-    // Todo: estimate where more threads stops being useful here.  For now,
-    // I'll cap calc_thread_ct at 8.
-    uint32_t calc_thread_ct = max_thread_ct;
-    if (calc_thread_ct > 8) {
-      calc_thread_ct = 8;
-    }
-    if (calc_thread_ct * kDosagePerCacheline > variant_ct) {
-      calc_thread_ct = DIV_UP(variant_ct, kDosagePerCacheline);
-    }
-    if (bigstack_alloc_thread(calc_thread_ct, &ts.threads) ||
-	bigstack_alloc_ulp(2, &g_genovecs) ||
-	bigstack_alloc_ulp(2, &g_dosage_presents)) {
-      goto export_012_smaj_ret_NOMEM;
-    }
+    //     (calc_thread_ct * kDosagePerCacheline * 2.375 + variant_ct * 2)
     ts.calc_thread_ct = calc_thread_ct;
-    g_dosage_val_bufs = (dosage_t**)bigstack_alloc_raw_rd(2 * sizeof(intptr_t));
-    if (!g_dosage_val_bufs) {
-      goto export_012_smaj_ret_NOMEM;
-    }
     uintptr_t bytes_avail = bigstack_left();
     // account for rounding
-    if (bytes_avail < kCacheline + calc_thread_ct * 2 * kDosagePerCacheline * (2 * kCacheline + sizeof(int32_t))) {
+    if (bytes_avail < kCacheline + calc_thread_ct * kDosagePerCacheline * (2 * kCacheline)) {
       goto export_012_smaj_ret_NOMEM;
     }
-    bytes_avail -= kCacheline + calc_thread_ct * 2 * kDosagePerCacheline * (2 * kCacheline + sizeof(int32_t));
+    bytes_avail -= kCacheline + calc_thread_ct * kDosagePerCacheline * (2 * kCacheline);
     uint32_t read_sample_ct = sample_ct;
     uint32_t pass_ct = 1;
-    const uintptr_t bytes_per_sample = calc_thread_ct * (kDosagePerCacheline / 4) * (3LLU + 8 * sizeof(dosage_t)) + variant_ct * sizeof(dosage_t);
+    const uintptr_t bytes_per_sample = calc_thread_ct * (kDosagePerCacheline / 8) * (3LLU + 8 * sizeof(dosage_t)) + variant_ct * sizeof(dosage_t);
     if ((sample_ct * ((uint64_t)bytes_per_sample)) > bytes_avail) {
       read_sample_ct = bytes_avail / bytes_per_sample;
       if (!read_sample_ct) {
@@ -16454,21 +16509,21 @@ pglerr_t export_012_smaj(const char* outname, const uintptr_t* orig_sample_inclu
     }
     uintptr_t read_sample_ctaw = BITCT_TO_ALIGNED_WORDCT(read_sample_ct);
     uintptr_t read_sample_ctaw2 = QUATERCT_TO_ALIGNED_WORDCT(read_sample_ct);
-    g_genovecs[0] = (uintptr_t*)bigstack_alloc_raw_rd(calc_thread_ct * kDosagePerCacheline * kBytesPerWord * read_sample_ctaw2);
-    g_dosage_presents[0] = (uintptr_t*)bigstack_alloc_raw_rd(calc_thread_ct * kDosagePerCacheline * kBytesPerWord * read_sample_ctaw);
-    g_dosage_val_bufs[0] = (dosage_t*)bigstack_alloc_raw_rd(calc_thread_ct * kDosagePerCacheline * sizeof(dosage_t) * read_sample_ct);
-    g_dosage_ct_bufs[0] = (uint32_t*)bigstack_alloc_raw_rd(calc_thread_ct * kDosagePerCacheline * sizeof(int32_t));
-    g_genovecs[1] = (uintptr_t*)bigstack_alloc_raw_rd(calc_thread_ct * kDosagePerCacheline * kBytesPerWord * read_sample_ctaw2);
-    g_dosage_presents[1] = (uintptr_t*)bigstack_alloc_raw_rd(calc_thread_ct * kDosagePerCacheline * kBytesPerWord * read_sample_ctaw);
-    g_dosage_val_bufs[1] = (dosage_t*)bigstack_alloc_raw_rd(calc_thread_ct * kDosagePerCacheline * sizeof(dosage_t) * read_sample_ct);
-    g_dosage_ct_bufs[1] = (uint32_t*)bigstack_alloc_raw_rd(calc_thread_ct * kDosagePerCacheline * sizeof(int32_t));
+    for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
+      g_thread_write_genovecs[tidx] = (uintptr_t*)bigstack_alloc_raw(kDosagePerCacheline * sizeof(intptr_t) * read_sample_ctaw2);
+      g_thread_write_dosagepresents[tidx] = (uintptr_t*)bigstack_alloc_raw(kDosagePerCacheline * sizeof(intptr_t) * read_sample_ctaw);
+      g_thread_write_dosagevals[tidx] = (dosage_t*)bigstack_alloc_raw(kDosagePerCacheline * sizeof(dosage_t) * read_sample_ct);
+    }
+    g_variant_include = variant_include;
+    g_refalt1_select = refalt1_select;
     g_calc_thread_ct = calc_thread_ct;
     g_sample_ct = read_sample_ct;
-    g_stride = round_up_pow2(variant_ct, kCacheline / sizeof(dosage_t));
+    g_stride = round_up_pow2(variant_ct, kDosagePerCacheline);
     g_smaj_dosagebuf = (dosage_t*)bigstack_alloc_raw_rd(read_sample_ct * ((uintptr_t)g_stride) * sizeof(dosage_t));
+    g_error_ret = kPglRetSuccess;
 
-    const uint32_t batch_ct_m1 = (variant_ct - 1) / (calc_thread_ct * kDosagePerCacheline);
-    const uint32_t batch_ct = batch_ct_m1 + 1;
+    const uint32_t read_block_sizel = BITCT_TO_WORDCT(read_block_size);
+    const uint32_t read_block_ct_m1 = (raw_variant_ct - 1) / read_block_size;
     uint32_t sample_uidx_start = next_set_unsafe(orig_sample_include, 0);
     for (uint32_t pass_idx = 0; pass_idx < pass_ct; ++pass_idx) {
       memcpy(sample_include, orig_sample_include, raw_sample_ctl * sizeof(intptr_t));
@@ -16487,6 +16542,17 @@ pglerr_t export_012_smaj(const char* outname, const uintptr_t* orig_sample_inclu
 	clear_bits_nz(sample_uidx_end, raw_sample_ct, sample_include);
       }
       fill_cumulative_popcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
+      g_sample_include = sample_include;
+      g_sample_include_cumulative_popcounts = sample_include_cumulative_popcounts;
+      if (pass_idx) {
+        reinit_threads3z(&ts);
+        pgfip->block_base = main_loadbufs[0];
+        for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
+          pgr_clear_ld_cache(g_pgr_ptrs[tidx]);
+          g_pgr_ptrs[tidx]->fi.block_base = main_loadbufs[0];
+          g_pgr_ptrs[tidx]->fi.block_offset = 0;
+        }
+      }
       putc_unlocked('\r', stdout);
       printf("--export A%s pass %u/%u: loading... 0%%", include_dom? "D" : "", pass_idx + 1, pass_ct);
       fflush(stdout);
@@ -16499,69 +16565,71 @@ pglerr_t export_012_smaj(const char* outname, const uintptr_t* orig_sample_inclu
       // 4. Join threads
       // 5. Increment n by 1
       // 6. Goto step 2 unless eof
-      uint32_t pct = 0;
       uint32_t parity = 0;
-      uint32_t read_batch_idx = 0;
-      uint32_t cur_batch_size = calc_thread_ct * kDosagePerCacheline;
-      uint32_t next_print_batch_idx = batch_ct / 100;
-      uint32_t read_variant_uidx = 0;
-      pgr_clear_ld_cache(simple_pgrp);
+      uint32_t read_block_idx = 0;
+      uint32_t variant_idx = 0;
+      uint32_t cur_read_block_size = read_block_size;
+      uint32_t pct = 0;
+      uint32_t next_print_idx = variant_ct / 100;
       while (1) {
+        uintptr_t cur_block_write_ct = 0;
         if (!ts.is_last_block) {
-	  if (read_batch_idx == batch_ct_m1) {
-	    cur_batch_size = variant_ct - (read_batch_idx * calc_thread_ct * kDosagePerCacheline);
-	  }
-	  uintptr_t* genovec_iter = g_genovecs[parity];
-	  uintptr_t* dosage_present_iter = g_dosage_presents[parity];
-	  dosage_t* dosage_vals_iter = g_dosage_val_bufs[parity];
-	  uint32_t* dosage_cts_iter = g_dosage_ct_bufs[parity];
-	  for (uint32_t uii = 0; uii < cur_batch_size; ++uii, ++read_variant_uidx) {
-	    next_set_unsafe_ck(variant_include, &read_variant_uidx);
-	    uint32_t is_explicit_alt1; // ignore for now
-	    reterr = pgr_read_refalt1_genovec_dosage16_subset_unsafe(sample_include, sample_include_cumulative_popcounts, read_sample_ct, read_variant_uidx, simple_pgrp, genovec_iter, dosage_present_iter, (uint16_t*)dosage_vals_iter, dosage_cts_iter, &is_explicit_alt1);
-	    if (reterr) {
-	      if (reterr == kPglRetMalformedInput) {
-		logprint("\n");
-		logerrprint("Error: Malformed .pgen file.\n");
-	      }
-	      goto export_012_smaj_ret_1;
-	    }
-            // todo: multiallelic case
-            if ((!refalt1_select) || (!refalt1_select[read_variant_uidx * 2])) {
-              genovec_invert_unsafe(read_sample_ct, genovec_iter);
-              biallelic_dosage16_invert(*dosage_cts_iter, dosage_vals_iter);
+          while (read_block_idx < read_block_ct_m1) {
+            cur_block_write_ct = popcount_longs(&(variant_include[read_block_idx * read_block_sizel]), read_block_sizel);
+            if (cur_block_write_ct) {
+              break;
             }
-	    genovec_iter = &(genovec_iter[read_sample_ctaw2]);
-	    dosage_present_iter = &(dosage_present_iter[read_sample_ctaw]);
-	    dosage_vals_iter = &(dosage_vals_iter[read_sample_ct]);
-	    ++dosage_cts_iter;
-	  }
-	}
-	if (read_batch_idx) {
+            ++read_block_idx;
+          }
+          if (read_block_idx == read_block_ct_m1) {
+            cur_read_block_size = raw_variant_ct - (read_block_idx * read_block_size);
+            cur_block_write_ct = popcount_longs(&(variant_include[read_block_idx * read_block_sizel]), BITCT_TO_WORDCT(cur_read_block_size));
+          }
+          if (pgfi_multiread(variant_include, read_block_idx * read_block_size, read_block_idx * read_block_size + cur_read_block_size, cur_block_write_ct, pgfip)) {
+            goto export_012_smaj_ret_THREAD_CREATE_FAIL;
+          }
+        }
+        if (variant_idx) {
 	  join_threads3z(&ts);
-	}
-	if (!ts.is_last_block) {
-	  g_cur_block_write_ct = cur_batch_size;
-	  ts.is_last_block = (read_batch_idx == batch_ct_m1);
+          reterr = g_error_ret;
+          if (reterr) {
+            if (reterr == kPglRetMalformedInput) {
+              logprint("\n");
+              logerrprint("Error: Malformed .pgen file.\n");
+            }
+            goto export_012_smaj_ret_1;
+          }
+        }
+        if (!ts.is_last_block) {
+          g_cur_block_write_ct = cur_block_write_ct;
+          compute_partition_aligned(variant_include, calc_thread_ct, read_block_idx * read_block_size, variant_idx, cur_block_write_ct, kDosagePerCacheline, g_read_variant_uidx_starts, g_write_vidx_starts);
+          for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
+            g_pgr_ptrs[tidx]->fi.block_base = pgfip->block_base;
+            g_pgr_ptrs[tidx]->fi.block_offset = pgfip->block_offset;
+          }
+          ts.is_last_block = (variant_idx + cur_block_write_ct == variant_ct);
 	  ts.thread_func_ptr = dosage_transpose_thread;
-	  if (spawn_threads3z(read_batch_idx, &ts)) {
+	  if (spawn_threads3z(read_block_idx, &ts)) {
 	    goto export_012_smaj_ret_THREAD_CREATE_FAIL;
 	  }
-	}
-	parity = 1 - parity;
-	if (read_batch_idx == batch_ct) {
-	  break;
-	}
-	if (read_batch_idx >= next_print_batch_idx) {
+        }
+        parity = 1 - parity;
+        if (variant_idx == variant_ct) {
+          break;
+        }
+        if (variant_idx >= next_print_idx) {
           if (pct > 10) {
             putc_unlocked('\b', stdout);
           }
-	  pct = (read_batch_idx * 100LLU) / batch_ct;
-	  printf("\b\b%u%%", pct++);
-	  fflush(stdout);
-	  next_print_batch_idx = (pct * ((uint64_t)batch_ct)) / 100;
-	}
-	++read_batch_idx;
+          pct = (variant_idx * 100LLU) / variant_ct;
+          printf("\b\b%u%%", pct++);
+          fflush(stdout);
+          next_print_idx = (pct * ((uint64_t)variant_ct)) / 100;
+        }
+
+        ++read_block_idx;
+        variant_idx += cur_block_write_ct;
+        pgfip->block_base = main_loadbufs[parity];
       }
       if (pct > 10) {
         fputs("\b \b", stdout);
@@ -16569,7 +16637,7 @@ pglerr_t export_012_smaj(const char* outname, const uintptr_t* orig_sample_inclu
       fputs("\b\b\b\b\b\b\b\b\b\b\b\b\bwriting... 0%", stdout);
       fflush(stdout);
       pct = 0;
-      next_print_batch_idx = read_sample_ct / 100;
+      next_print_idx = read_sample_ct / 100;
       uint32_t sample_uidx = sample_uidx_start;
       const dosage_t* cur_dosage_row = g_smaj_dosagebuf;
       for (uint32_t sample_idx = 0; sample_idx < read_sample_ct; ++sample_idx, ++sample_uidx) {
@@ -16615,19 +16683,15 @@ pglerr_t export_012_smaj(const char* outname, const uintptr_t* orig_sample_inclu
         }
         append_binary_eoln(&write_iter);
         cur_dosage_row = &(cur_dosage_row[g_stride]);
-	if (sample_idx >= next_print_batch_idx) {
+	if (sample_idx >= next_print_idx) {
           if (pct > 10) {
             putc_unlocked('\b', stdout);
           }
 	  pct = (sample_idx * 100LLU) / read_sample_ct;
 	  printf("\b\b%u%%", pct++);
 	  fflush(stdout);
-	  next_print_batch_idx = (pct * ((uint64_t)read_sample_ct)) / 100;
+	  next_print_idx = (pct * ((uint64_t)read_sample_ct)) / 100;
 	}
-      }
-      // bugfix (3 Nov 2017): forgot reinit
-      if (pass_idx + 1 < pass_ct) {
-        reinit_threads3z(&ts);
       }
       sample_uidx_start = sample_uidx_end;
       if (pct > 10) {
@@ -16661,6 +16725,7 @@ pglerr_t export_012_smaj(const char* outname, const uintptr_t* orig_sample_inclu
  export_012_smaj_ret_1:
   threads3z_cleanup(&ts, &g_cur_block_write_ct);
   fclose_cond(outfile);
+  pgfip->block_base = nullptr;
   bigstack_reset(bigstack_mark);
   return reterr;
 }
@@ -16770,7 +16835,7 @@ pglerr_t exportf(char* xheader, const uintptr_t* sample_include, const char* sam
     // routine
     if (exportf_modifier & (kfExportfA | kfExportfAD)) {
       strcpy(outname_end, ".raw");
-      reterr = export_012_smaj(outname, sample_include, sample_ids, paternal_ids, maternal_ids, sex_nm, sex_male, pheno_cols, variant_include, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, raw_sample_ct, sample_ct, max_sample_id_blen, max_paternal_id_blen, max_maternal_id_blen, pheno_ct, variant_ct, max_allele_slen, (exportf_modifier / kfExportfAD) & 1, (exportf_modifier / kfExportfIncludeAlt) & 1, max_thread_ct, exportf_delim, simple_pgrp);
+      reterr = export_012_smaj(outname, sample_include, sample_ids, paternal_ids, maternal_ids, sex_nm, sex_male, pheno_cols, variant_include, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, raw_sample_ct, sample_ct, max_sample_id_blen, max_paternal_id_blen, max_maternal_id_blen, pheno_ct, raw_variant_ct, variant_ct, max_allele_slen, (exportf_modifier / kfExportfAD) & 1, (exportf_modifier / kfExportfIncludeAlt) & 1, max_thread_ct, pgr_alloc_cacheline_ct, exportf_delim, pgfip);
       if (reterr) {
 	goto exportf_ret_1;
       }

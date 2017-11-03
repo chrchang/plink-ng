@@ -4268,6 +4268,72 @@ void compute_uidx_start_partition(const uintptr_t* variant_include, uint64_t var
   }
 }
 
+void compute_partition_aligned(const uintptr_t* variant_include, uint32_t orig_thread_ct, uint32_t first_variant_uidx, uint32_t cur_variant_idx, uint32_t cur_variant_ct, uint32_t alignment, uint32_t* variant_uidx_starts, uint32_t* vidx_starts) {
+  // Minimize size of the largest chunk, under the condition that all
+  // intermediate variant_idx values are divisible by alignment.
+  //
+  // There are three possibilities:
+  // 1. The straightforward solution one gets from rounding cur_variant_idx
+  //    down, and (cur_variant_idx + variant_ct) up, is optimal.  Call this
+  //    chunk size C.
+  // 2. C - leading_idx_ct is ideal.
+  // 3. C - trailing_idx_ct is ideal.
+
+  assert(cur_variant_ct);
+  const uint32_t variant_idx_end = cur_variant_idx + cur_variant_ct;
+  const uint32_t log2_align = __builtin_ctz(alignment);
+  const uint32_t leading_idx_ct = cur_variant_idx % alignment;
+  const uint32_t trailing_idx_ct = (-variant_idx_end) % alignment;
+  const uint32_t block_ct = (cur_variant_ct + leading_idx_ct + trailing_idx_ct) >> log2_align;
+  uint32_t cur_variant_uidx_start = next_set_unsafe(variant_include, first_variant_uidx);
+  variant_uidx_starts[0] = cur_variant_uidx_start;
+  vidx_starts[0] = cur_variant_idx;
+  const uint32_t thread_ct = MINV(orig_thread_ct, block_ct);
+  if (thread_ct > 1) {
+    const uint32_t std_blocks_per_thread = 1 + (block_ct - 1) / thread_ct;
+    // Possibilities 2 and 3 are only live if
+    //   block_ct == (std_blocks_per_thread - 1) * thread_ct + 1, or
+    //   block_ct == (std_blocks_per_thread - 1) * thread_ct + 2,
+    // In the first situation, the best solution is
+    //    min(possibility 2, possibility 3).
+    // In the second situation, the best solution is
+    //    max(possibility 2, possibility 3).
+    uint32_t central_variant_ct = std_blocks_per_thread * alignment;
+    uint32_t first_block_variant_ct = central_variant_ct - leading_idx_ct;
+    const uint32_t remainder_m1 = block_ct - (std_blocks_per_thread - 1) * thread_ct - 1;
+    if (remainder_m1 <= 1) {
+      central_variant_ct -= alignment;
+      if ((!remainder_m1) && (leading_idx_ct < trailing_idx_ct)) {
+        first_block_variant_ct -= alignment;
+      }
+    }
+    cur_variant_uidx_start = jump_forward_set_unsafe(variant_include, cur_variant_uidx_start + 1, first_block_variant_ct);
+    cur_variant_idx += first_block_variant_ct;
+    variant_uidx_starts[1] = cur_variant_uidx_start;
+    vidx_starts[1] = cur_variant_idx;
+    for (uint32_t tidx = 2; tidx < thread_ct; ++tidx) {
+      if (tidx == remainder_m1) {
+        central_variant_ct -= alignment;
+      }
+      cur_variant_uidx_start = jump_forward_set_unsafe(variant_include, cur_variant_uidx_start + 1, central_variant_ct);
+      cur_variant_idx += central_variant_ct;
+      variant_uidx_starts[tidx] = cur_variant_uidx_start;
+      vidx_starts[tidx] = cur_variant_idx;
+    }
+  }
+  if (thread_ct < orig_thread_ct) {
+    uint32_t last_vidx_ct = variant_idx_end - vidx_starts[thread_ct - 1];
+    cur_variant_uidx_start = jump_forward_set_unsafe(variant_include, cur_variant_uidx_start + 1, last_vidx_ct);
+    for (uint32_t tidx = thread_ct; tidx < orig_thread_ct; ++tidx) {
+      variant_uidx_starts[tidx] = cur_variant_uidx_start;
+    }
+    for (uint32_t tidx = thread_ct; tidx < orig_thread_ct; ++tidx) {
+      vidx_starts[tidx] = variant_idx_end;
+    }
+  }
+  vidx_starts[orig_thread_ct] = variant_idx_end;
+}
+
 boolerr_t parse_next_range(char** argv, uint32_t param_ct, char range_delim, uint32_t* cur_param_idx_ptr, char** cur_arg_pptr, char** range_start_ptr, uint32_t* rs_len_ptr, char** range_end_ptr, uint32_t* re_len_ptr) {
   // Starts reading from argv[cur_param_idx][cur_pos].  If a valid range is
   // next, range_start + rs_len + range_end + re_len are updated.  If only a

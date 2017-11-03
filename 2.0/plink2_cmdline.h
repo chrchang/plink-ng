@@ -1863,6 +1863,8 @@ HEADER_INLINE uint32_t idx_to_uidx_basic(const uintptr_t* bitvec, uint32_t idx) 
 // variant_ct must be positive, but can be smaller than thread_ct
 void compute_uidx_start_partition(const uintptr_t* variant_include, uint64_t variant_ct, uint32_t thread_ct, uint32_t first_uidx, uint32_t* variant_uidx_starts);
 
+void compute_partition_aligned(const uintptr_t* variant_include, uint32_t orig_thread_ct, uint32_t first_variant_uidx, uint32_t cur_variant_idx, uint32_t cur_variant_ct, uint32_t alignment, uint32_t* variant_uidx_starts, uint32_t* vidx_starts);
+
 #ifdef __arm__
   #error "Unaligned accesses in is_nan_str()."
 #endif
