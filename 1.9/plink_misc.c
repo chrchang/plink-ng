@@ -5283,7 +5283,8 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
   {
     // 1. Construct header search dictionary.  Similar to clump_reports().
     if (snpfield_search_order) {
-      header_dict_ct = count_and_measure_multistr(snpfield_search_order, &max_header_len);
+      // bugfix (3 Nov 2017): this needs to be +=, not =
+      header_dict_ct += count_and_measure_multistr(snpfield_search_order, &max_header_len);
     } else {
       max_header_len = 4; // 'SNP' + null terminator
       header_dict_ct++;
