@@ -5371,7 +5371,8 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	header_id_map[ulii++] = 0x20000000;
       }
       if (essfield_search_order) {
-	bufptr = pfield_search_order;
+        // bugfix (3 Nov 2017): had pfield_search_order here
+	bufptr = essfield_search_order;
 	uii = 0x30000000;
 	do {
 	  slen = strlen(bufptr) + 1;
