@@ -429,7 +429,7 @@ static const uintptr_t k1LU = (uintptr_t)1;
     typedef uintptr_t vul_t __attribute__ ((vector_size (32)));
     typedef float vf_t __attribute__ ((vector_size (32)));
     typedef short vs_t __attribute__ ((vector_size (32)));
-    typedef char vc_t __attibute__ ((vector_size (32)));
+    typedef char vc_t __attribute__ ((vector_size (32)));
   #else
     CONSTU31(kBytesPerVec, 16);
     CONSTU31(kBytesPerFVec, 16);
@@ -932,6 +932,15 @@ HEADER_INLINE uintptr_t popcount_longs(const uintptr_t* bitvec, uintptr_t word_c
   // index.
   // No need for a separate USE_SSE42 implementation, there's no noticeable
   // speed difference.
+  // Update (27 Oct 2017): Actually, this is kind of obsolete now, at least
+  // when AVX2 is available.  See github.com/CountOnes/hamming_weight/ ; clang
+  // has automatically transformed the basic __builtin_popcountll() loop into
+  // something like this since v3.7.
+  // So it's time to change the "higher-performance, but still highly
+  // compatible" compilation target from SSE4.2 to AVX2.  Fortunately, there's
+  // almost no SSE4.2-specific code right now; there's no real maintenance
+  // burden associated with continuing to support -msse4.2 compilation and
+  // generating a distinct version string in that case.
   uintptr_t tot = 0;
   if (word_ct >= (3 * kWordsPerVec)) {
     assert(IS_VEC_ALIGNED(bitvec));
@@ -946,6 +955,122 @@ HEADER_INLINE uintptr_t popcount_longs(const uintptr_t* bitvec, uintptr_t word_c
   }
   return tot;
 }
+
+// Turns out memcpy(&cur_word, bytearr, ct) can't be trusted to be fast when ct
+// isn't known at compile time.
+//
+// ct must be less than sizeof(intptr_t).  ct == 0 handled correctly, albeit
+// inefficiently.
+HEADER_INLINE uintptr_t nonfull_word_load(const void* bytearr, uint32_t ct) {
+  const unsigned char* bytearr_iter = (const unsigned char*)bytearr;
+  bytearr_iter = &(bytearr_iter[ct]);
+  uintptr_t cur_word = 0;
+  if (ct & 1) {
+    cur_word = *(--bytearr_iter);
+  }
+#ifdef __LP64__
+  if (ct & 2) {
+    cur_word <<= 16;
+    bytearr_iter = &(bytearr_iter[-2]);
+    cur_word |= *((uint16_t*)bytearr_iter);
+  }
+  if (ct & 4) {
+    cur_word <<= 32;
+    cur_word |= *((uint32_t*)bytearr);
+  }
+#else
+  if (ct & 2) {
+    cur_word <<= 16;
+    cur_word |= *((uint16_t*)bytearr);
+  }
+#endif
+  return cur_word;
+}
+
+HEADER_INLINE uintptr_t partial_word_load(const void* bytearr, uint32_t ct) {
+  if (ct == kBytesPerWord) {
+    return *((uintptr_t*)bytearr);
+  }
+  return nonfull_word_load(bytearr, ct);
+}
+
+// ct must be in 1..4.
+HEADER_INLINE uint32_t partial_uint_load(const void* bytearr, uint32_t ct) {
+  if (ct & 1) {
+    const unsigned char* bytearr_iter = (const unsigned char*)bytearr;
+    uint32_t cur_uint = *bytearr_iter;
+    if (ct == 3) {
+      ++bytearr_iter;
+      cur_uint |= ((uint32_t)(*((uint16_t*)bytearr_iter))) << 8;
+    }
+    return cur_uint;    
+  }
+  if (ct == 2) {
+    return *((uint16_t*)bytearr);
+  }
+  return *((uint32_t*)bytearr);
+}
+
+// tried making this non-inline, loop took more than 50% longer
+HEADER_INLINE void nonfull_word_store(uintptr_t cur_word, uint32_t byte_ct, void* target) {
+  unsigned char* target_iter = (unsigned char*)target;
+  if (byte_ct & 1) {
+    *target_iter++ = cur_word;
+    cur_word >>= 8;
+  }
+#ifdef __LP64__
+  if (byte_ct & 2) {
+    *((uint16_t*)target_iter) = cur_word;
+    cur_word >>= 16;
+    target_iter = &(target_iter[2]);
+  }
+  if (byte_ct & 4) {
+    *((uint32_t*)target_iter) = cur_word;
+  }
+#else
+  if (byte_ct & 2) {
+    *((uint16_t*)target_iter) = cur_word;
+  }
+#endif
+}
+
+HEADER_INLINE void partial_word_store(uintptr_t cur_word, uint32_t byte_ct, void* target) {
+  if (byte_ct == kBytesPerWord) {
+    *((uintptr_t*)target) = cur_word;
+    return;
+  }
+  nonfull_word_store(cur_word, byte_ct, target);
+}
+
+HEADER_INLINE void partial_word_store_adv(uintptr_t cur_word, uint32_t byte_ct, unsigned char** targetp) {
+  partial_word_store(cur_word, byte_ct, *targetp);
+  *targetp += byte_ct;
+}
+
+// byte_ct must be in 1..4.
+HEADER_INLINE void partial_uint_store(uint32_t cur_uint, uint32_t byte_ct, void* target) {
+  if (byte_ct & 1) {
+    unsigned char* target_iter = (unsigned char*)target;
+    *target_iter = cur_uint;
+    if (byte_ct == 1) {
+      return;
+    }
+    ++target_iter;
+    *((uint16_t*)target_iter) = cur_uint >> 8;
+  }
+  if (byte_ct == 2) {
+    *((uint16_t*)target) = cur_uint;
+    return;
+  }
+  *((uint32_t*)target) = cur_uint;
+  return;
+}
+
+HEADER_INLINE void partial_uint_store_adv(uint32_t cur_uint, uint32_t byte_ct, unsigned char** targetp) {
+  partial_uint_store(cur_uint, byte_ct, *targetp);
+  *targetp += byte_ct;
+}
+
 
 // these don't read past the end of bitarr
 uintptr_t popcount_bytes(const unsigned char* bitarr, uintptr_t byte_ct);

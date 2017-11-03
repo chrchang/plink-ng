@@ -44,6 +44,7 @@ static const double kRecipDosageMid = 0.00006103515625;
 static const double kRecipDosageMidSq = 0.0000000037252902984619140625;
 static const float kRecipDosageMidf = 0.00006103515625;
 CONSTU31(kDosagePerVec, kBytesPerVec / sizeof(dosage_t));
+CONSTU31(kDosagePerCacheline, kCacheline / sizeof(dosage_t));
 
 // this is a bit arbitrary
 CONSTU31(kMaxPhenoCt, 524287);

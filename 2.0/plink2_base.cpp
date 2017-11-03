@@ -550,9 +550,7 @@ uintptr_t popcount_bytes(const unsigned char* bitarr, uintptr_t byte_ct) {
 #ifdef __LP64__
     const uint32_t word_rem = lead_byte_ct % kBytesPerWord;
     if (word_rem) {
-      uintptr_t cur_word = 0;
-      memcpy(&cur_word, bitarr, word_rem);
-      tot = popcount_long(cur_word);
+      tot = popcount_long(nonfull_word_load(bitarr, word_rem));
     }
     bitarr_iter = (const uintptr_t*)(&(bitarr[word_rem]));
     if (lead_byte_ct / kBytesPerWord) {
@@ -560,9 +558,7 @@ uintptr_t popcount_bytes(const unsigned char* bitarr, uintptr_t byte_ct) {
     }
 #else
     if (lead_byte_ct) {
-      uintptr_t cur_word = 0;
-      memcpy(&cur_word, bitarr, lead_byte_ct);
-      tot = popcount_long(cur_word);
+      tot = popcount_long(nonfull_word_load(bitarr, lead_byte_ct));
     }
     bitarr_iter = (const uintptr_t*)(&(bitarr[lead_byte_ct]));
 #endif
@@ -583,8 +579,7 @@ uintptr_t popcount_bytes(const unsigned char* bitarr, uintptr_t byte_ct) {
       if (!trail_byte_ct) {
 	return tot;
       }
-      cur_word = 0;
-      memcpy(&cur_word, bitarr_iter, trail_byte_ct);
+      cur_word = nonfull_word_load(bitarr_iter, trail_byte_ct);
       trail_byte_ct = 0;
     } else {
       cur_word = *bitarr_iter++;
@@ -605,8 +600,7 @@ uintptr_t popcount_bytes_masked(const unsigned char* bitarr, const uintptr_t* ma
   }
   const uint32_t trail_byte_ct = byte_ct % kBytesPerWord;
   if (trail_byte_ct) {
-    uintptr_t cur_word = 0;
-    memcpy(&cur_word, &(bitarr_alias[word_ct]), trail_byte_ct);
+    uintptr_t cur_word = nonfull_word_load(&(bitarr_alias[word_ct]), trail_byte_ct);
     tot += popcount_long(cur_word & mask_arr[word_ct]);
   }
   return tot;
@@ -654,8 +648,7 @@ uintptr_t popcount_bytes_masked(const unsigned char* bitarr, const uintptr_t* ma
       if (!trail_byte_ct) {
 	return tot;
       }
-      cur_word = 0;
-      memcpy(&cur_word, bitarr_iter, trail_byte_ct);
+      cur_word = nonfull_word_load(bitarr_iter, trail_byte_ct);
       trail_byte_ct = 0;
     } else {
       cur_word = *bitarr_iter++;

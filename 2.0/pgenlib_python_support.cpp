@@ -39,7 +39,7 @@ void genoarr_to_bytes_minus9(const uintptr_t* genoarr, uint32_t sample_ct, int8_
     const uintptr_t geno_missing = qw & (qw >> 1) & kMask0101;
     qw += geno_missing * 244;
     if (widx == word_ct_m1) {
-      memcpy(&(write_walias[widx]), &qw, MOD_NZ(sample_ct, kBytesPerWord));
+      partial_word_store(qw, MOD_NZ(sample_ct, kBytesPerWord), &(write_walias[widx]));
       return;
     }
     write_walias[widx++] = qw;
@@ -147,7 +147,7 @@ void genoarr_phased_to_allele_codes(const uintptr_t* genoarr, const uintptr_t* p
     qw = (qw | (qw << 12)) & kMask000F;
     qw = (~(qw | (qw << 6))) & kMask0101;
     if (widx == word_ct_m1) {
-      memcpy(&(write_walias[widx]), &qw, MOD_NZ(sample_ct, kBytesPerWord));
+      partial_word_store(qw, MOD_NZ(sample_ct, kBytesPerWord), &(write_walias[widx]));
       break;
     }
     write_walias[widx++] = qw;
@@ -266,8 +266,7 @@ void bytes_to_bits_unsafe(const uint8_t* boolbytes, uint32_t sample_ct, uintptr_
       if (ullidx > ull_ct_m1) {
 	return;
       }
-      cur_ull = 0;
-      memcpy(&cur_ull, &(read_alias[ullidx]), MOD_NZ(sample_ct, 8));
+      cur_ull = partial_word_load(&(read_alias[ullidx]), MOD_NZ(sample_ct, 8));
     } else {
       cur_ull = read_alias[ullidx];
     }
@@ -292,8 +291,7 @@ void bytes_to_genoarr_unsafe(const int8_t* genobytes, uint32_t sample_ct, uintpt
       if (widx > word_ct_m1) {
 	return;
       }
-      ww = 0;
-      memcpy(&ww, &(read_walias[widx]), MOD_NZ(sample_ct, kBytesPerWord));
+      ww = partial_word_load(&(read_walias[widx]), MOD_NZ(sample_ct, kBytesPerWord));
     } else {
       ww = read_walias[widx];
     }

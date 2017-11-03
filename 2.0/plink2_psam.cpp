@@ -914,8 +914,10 @@ pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_li
 	goto load_phenos_ret_MALFORMED_INPUT;
       }
       if (pheno_range_list_ptr->names && pheno_col_ct) {
+        // bugfix (20 Oct 2017): forgot to make error message different in
+        // --covar case
 	uintptr_t* bitarr;
-	reterr = string_range_list_to_bitarr_alloc(pheno_start, pheno_range_list_ptr, "pheno-name", "--pheno file", pheno_col_ct, 0, comma_delim, &bitarr);
+	reterr = string_range_list_to_bitarr_alloc(pheno_start, pheno_range_list_ptr, (affection_01 == 2)? "covar-name" : "pheno-name", (affection_01 == 2)? "--covar file" : "--pheno file", pheno_col_ct, 0, comma_delim, &bitarr);
 	if (reterr) {
 	  goto load_phenos_ret_1;
 	}

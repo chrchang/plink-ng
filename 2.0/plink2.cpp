@@ -59,10 +59,10 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (16 Oct 2017)";
+  " (2 Nov 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -3848,6 +3848,10 @@ int main(int argc, char** argv) {
 	  }
 	  if ((pc.exportf_modifier & (kfExportfHaps | kfExportfHapsLegend)) == (kfExportfHaps | kfExportfHapsLegend)) {
 	    logerrprint("Error: 'haps' and 'hapslegend' formats cannot be exported simultaneously.\n");
+	    goto main_ret_INVALID_CMDLINE;
+	  }
+	  if ((pc.exportf_modifier & (kfExportfA | kfExportfAD)) == (kfExportfA | kfExportfAD)) {
+	    logerrprint("Error: 'A' and 'AD' formats cannot be exported simultaneously.\n");
 	    goto main_ret_INVALID_CMDLINE;
 	  }
 	  for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
