@@ -1679,7 +1679,7 @@ int32_t flipscan(Ld_info* ldip, FILE* bedfile, uintptr_t bed_offset, uintptr_t m
     *wptr_start++ = ' ';
     is_haploid = is_set(chrom_info_ptr->haploid_mask, chrom_idx);
     is_x = (chrom_idx == ((uint32_t)chrom_info_ptr->xymt_codes[X_OFFSET]));
-    is_y = (chrom_idx == ((uint32_t)chrom_info_ptr->xymt_codes[Y_OFFSET]));    
+    is_y = (chrom_idx == ((uint32_t)chrom_info_ptr->xymt_codes[Y_OFFSET]));
     if (fseeko(bedfile, bed_offset + (marker_uidx * ((uint64_t)unfiltered_sample_ct4)), SEEK_SET)) {
       goto flipscan_ret_READ_FAIL;
     }
@@ -3727,7 +3727,7 @@ double fepi_counts_to_boost_chisq(uint32_t* counts, double* p_bc, double* p_ca, 
   }
   if (interaction_measure >= alpha2sq_ptr[df_adj]) {
     *sig_ct1_ptr += 1;
-    *sig_ct2_ptr += 1;    
+    *sig_ct2_ptr += 1;
   }
   return interaction_measure;
 }
@@ -7958,7 +7958,7 @@ int32_t twolocus(Epi_info* epi_ip, FILE* bedfile, uintptr_t bed_offset, uintptr_
   }
   if (marker_idx == marker_ct) {
     goto twolocus_ret_MARKER_NOT_FOUND;
-  }  
+  }
   if (bigstack_alloc_ul(unfiltered_sample_ctl2, &loadbuf_raw) ||
       bigstack_alloc_ul(sample_ctl2, &loadbufs[0]) ||
       bigstack_alloc_ul(sample_ctl2, &loadbufs[1])) {
@@ -9844,7 +9844,7 @@ int32_t epistasis_report(pthread_t* threads, Epi_info* epi_ip, FILE* bedfile, ui
     wptr = memcpya(wptr, " to ", 4);
     wptr = strcpya(wptr, outname);
     memcpy(wptr, " ... ", 6);
-    wordwrapb(16); // strlen("99% [processing]") 
+    wordwrapb(16); // strlen("99% [processing]")
     logprintb();
     fputs("0%", stdout);
     do {
@@ -12012,7 +12012,7 @@ int32_t construct_ld_map(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
 	  bitvec_or(&(tmp_set_bitfield[firstw]), wlen - firstw, &(load2_bitfield[firstw]));
 	}
       }
-    }    
+    }
     load_idx2_tot = popcount_longs(load2_bitfield, marker_ctv);
     if (!load_idx2_tot) {
       // no new r^2 computations to make at all!
@@ -12843,7 +12843,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
   // P-value, 2 or more = annotation).
   // In the main loop, cur_parse_info[2k] stores the in-loadbuft offset of the
   // the string with that parse_table[2k] index, and cur_parse_info[2k + 1]
-  // stores string length. 
+  // stores string length.
   annot_ct_p2 = 2 + annot_ct;
   annot_ct_p2_ctl = (annot_ct + (BITCT + 1)) / BITCT;
   if (bigstack_alloc_c(max_header_len * header_dict_ct, &sorted_header_dict) ||
@@ -13217,7 +13217,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     index_data[uii * founder_ctv2 - 1] = 0;
   }
   if (alloc_collapsed_haploid_filters(founder_info, sex_male, unfiltered_sample_ct, founder_ct, Y_FIX_NEEDED, 1, &founder_include2, &founder_male_include2)) {
-    goto clump_reports_ret_NOMEM; 
+    goto clump_reports_ret_NOMEM;
  }
   if (clump_verbose && rg_setdefs) {
     if (bigstack_alloc_ul(BITCT_TO_WORDCT(range_chrom_max), &rangematch_bitfield)) {
@@ -13487,7 +13487,7 @@ int32_t clump_reports(FILE* bedfile, uintptr_t bed_offset, char* outname, char* 
     // iff
     //   i. there were co-located entries in the first place, and either
     //     ii-a. overlaps are permitted or
-    //     ii-b. index variant position was not previously clumped 
+    //     ii-b. index variant position was not previously clumped
     if ((uii || nsig_arr[ivar_idx]) && (allow_overlap || (!is_set(cur_bitfield, ivar_idx)))) {
       histo[0] += nsig_arr[ivar_idx];
       set_bit(ivar_idx, cur_bitfield);
