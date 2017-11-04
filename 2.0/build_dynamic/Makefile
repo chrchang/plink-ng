@@ -9,8 +9,10 @@
 #   Link to MKL with 64-bit indexes (dynamically): DYNAMIC_MKL
 #     (this also requires MKLROOT and MKL_IOMP5_DIR to be defined, and
 #     LD_LIBRARY_PATH to include the appropriate directories)
-#   32-bit binary (also sets STATIC_ZLIB, ZSTD_O2, and NO_SSE42): FORCE_32BIT
-#     (warning: you may need to add a zconf.h symlink to make that work)
+#   32-bit binary (also sets STATIC_ZLIB, ZSTD_O2, NO_AVX2, and NO_SSE42):
+#     FORCE_32BIT (warning: you may need to add a zconf.h symlink to make that
+#     work)
+NO_AVX2 =
 NO_SSE42 =
 NO_LAPACK =
 PREFER_CBLAS_F77 =
@@ -30,6 +32,7 @@ ARCH32=
 
 ifdef FORCE_32BIT
   # this is targeted at Scientific Linux 6.
+  NO_AVX2 = 1
   NO_SSE42 = 1
   STATIC_ZLIB = 1
   ZSTD_O2 = 1
@@ -51,8 +54,12 @@ endif
 # this actually needs to be named "CXXFLAGS"
 CXXFLAGS += -O2
 
-ifndef NO_SSE42
-  BASEFLAGS += -msse4.2
+ifndef NO_AVX2
+  BASEFLAGS += -mavx2
+else
+  ifndef NO_SSE42
+    BASEFLAGS += -msse4.2
+  endif
 endif
 
 ifdef FORCE_CBLAS_F77

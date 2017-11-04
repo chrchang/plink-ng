@@ -57,7 +57,7 @@ void genoarr_to_int32s_minus9(const uintptr_t* genoarr, uint32_t sample_ct, int3
   while (1) {
     if (widx >= word_ct_m1) {
       if (widx > word_ct_m1) {
-	return;
+        return;
       }
       subgroup_len = MOD_NZ(sample_ct, kBitsPerWordD2);
     }
@@ -80,7 +80,7 @@ void genoarr_to_int64s_minus9(const uintptr_t* genoarr, uint32_t sample_ct, int6
   while (1) {
     if (widx >= word_ct_m1) {
       if (widx > word_ct_m1) {
-	return;
+        return;
       }
       subgroup_len = MOD_NZ(sample_ct, kBitsPerWordD2);
     }
@@ -104,7 +104,7 @@ void genoarr_to_allele_codes(const uintptr_t* genoarr, uint32_t sample_ct, int32
   while (1) {
     if (widx >= word_ct_m1) {
       if (widx > word_ct_m1) {
-	return;
+        return;
       }
       subgroup_len = MOD_NZ(sample_ct, kBitsPerWordD2);
     }
@@ -126,8 +126,8 @@ void genoarr_phased_to_allele_codes(const uintptr_t* genoarr, const uintptr_t* p
     for (uint32_t phased_idx = 0; phased_idx < phasepresent_ct; ++phased_idx, ++sample_uidx) {
       next_set_unsafe_ck(phasepresent, &sample_uidx);
       if (IS_SET(phaseinfo, sample_uidx)) {
-	// 1|0
-	allele_codes_alias64[sample_uidx] = 1;
+        // 1|0
+        allele_codes_alias64[sample_uidx] = 1;
       }
     }
     return;
@@ -175,7 +175,7 @@ void genoarr_phased_to_hap_codes(const uintptr_t* genoarr, const uintptr_t* phas
   while (1) {
     if (widx >= word_ct_m1) {
       if (widx > word_ct_m1) {
-	return;
+        return;
       }
       subgroup_len = MOD_NZ(variant_batch_size, kBitsPerWordD2);
     }
@@ -202,7 +202,7 @@ void dosage16_to_floats_minus9(const uintptr_t* genoarr, const uintptr_t* dosage
   while (1) {
     if (widx >= word_ct_m1) {
       if (widx > word_ct_m1) {
-	break;
+        break;
       }
       subgroup_len = MOD_NZ(sample_ct, kBitsPerWordD2);
     }
@@ -234,7 +234,7 @@ void dosage16_to_doubles_minus9(const uintptr_t* genoarr, const uintptr_t* dosag
   while (1) {
     if (widx >= word_ct_m1) {
       if (widx > word_ct_m1) {
-	break;
+        break;
       }
       subgroup_len = MOD_NZ(sample_ct, kBitsPerWordD2);
     }
@@ -264,7 +264,7 @@ void bytes_to_bits_unsafe(const uint8_t* boolbytes, uint32_t sample_ct, uintptr_
     uint64_t cur_ull;
     if (ullidx >= ull_ct_m1) {
       if (ullidx > ull_ct_m1) {
-	return;
+        return;
       }
       cur_ull = partial_word_load(&(read_alias[ullidx]), MOD_NZ(sample_ct, 8));
     } else {
@@ -289,7 +289,7 @@ void bytes_to_genoarr_unsafe(const int8_t* genobytes, uint32_t sample_ct, uintpt
     uintptr_t ww;
     if (widx >= word_ct_m1) {
       if (widx > word_ct_m1) {
-	return;
+        return;
       }
       ww = partial_word_load(&(read_walias[widx]), MOD_NZ(sample_ct, kBytesPerWord));
     } else {
@@ -321,49 +321,49 @@ void allele_codes_to_genoarr_unsafe(const int32_t* allele_codes, const unsigned 
   if (!phasepresent_bytes) {
     while (1) {
       if (widx >= word_ct_m1) {
-	if (widx > word_ct_m1) {
-	  return;
-	}
-	subgroup_len = MOD_NZ(sample_ct, kBitsPerWordD2);
+        if (widx > word_ct_m1) {
+          return;
+        }
+        subgroup_len = MOD_NZ(sample_ct, kBitsPerWordD2);
       }
       uintptr_t geno_write_word = 0;
       if (!phaseinfo) {
-	for (uint32_t uii = 0; uii < subgroup_len; ++uii) {
-	  // 0,0 -> 0
-	  // 0,1 or 1,0 -> 1
-	  // 1,1 -> 2
-	  // -9,-9 -> 3
-	  // undefined behavior on e.g. 0,2
-	  const uint32_t first_code = (uint32_t)(*read_alias++);
-	  const uint32_t second_code = (uint32_t)(*read_alias++);
-	  uintptr_t cur_geno;
-	  if (first_code <= 1) {
-	    cur_geno = first_code + second_code;
-	  } else {
-	    // todo: test whether branchless is better
-	    // (in practice, this will usually be predictable?)
-	    cur_geno = 3;
-	  }
-	  geno_write_word |= (cur_geno << (uii * 2));
-	}
+        for (uint32_t uii = 0; uii < subgroup_len; ++uii) {
+          // 0,0 -> 0
+          // 0,1 or 1,0 -> 1
+          // 1,1 -> 2
+          // -9,-9 -> 3
+          // undefined behavior on e.g. 0,2
+          const uint32_t first_code = (uint32_t)(*read_alias++);
+          const uint32_t second_code = (uint32_t)(*read_alias++);
+          uintptr_t cur_geno;
+          if (first_code <= 1) {
+            cur_geno = first_code + second_code;
+          } else {
+            // todo: test whether branchless is better
+            // (in practice, this will usually be predictable?)
+            cur_geno = 3;
+          }
+          geno_write_word |= (cur_geno << (uii * 2));
+        }
       } else {
-	halfword_t phaseinfo_write_hw = 0;
-	for (uint32_t uii = 0; uii < subgroup_len; ++uii) {
-	  // set phaseinfo_write_hw bit iff 1,0
-	  const uint32_t first_code = (uint32_t)(*read_alias++);
-	  const uint32_t second_code = (uint32_t)(*read_alias++);
-	  uintptr_t cur_geno;
-	  if (first_code <= 1) {
-	    cur_geno = first_code + second_code;
-	    phaseinfo_write_hw |= (cur_geno & first_code) << uii;
-	  } else {
-	    // todo: test whether branchless is better
-	    // (in practice, this will usually be predictable?)
-	    cur_geno = 3;
-	  }
-	  geno_write_word |= (cur_geno << (uii * 2));
-	}
-	phaseinfo_alias[widx] = phaseinfo_write_hw;
+        halfword_t phaseinfo_write_hw = 0;
+        for (uint32_t uii = 0; uii < subgroup_len; ++uii) {
+          // set phaseinfo_write_hw bit iff 1,0
+          const uint32_t first_code = (uint32_t)(*read_alias++);
+          const uint32_t second_code = (uint32_t)(*read_alias++);
+          uintptr_t cur_geno;
+          if (first_code <= 1) {
+            cur_geno = first_code + second_code;
+            phaseinfo_write_hw |= (cur_geno & first_code) << uii;
+          } else {
+            // todo: test whether branchless is better
+            // (in practice, this will usually be predictable?)
+            cur_geno = 3;
+          }
+          geno_write_word |= (cur_geno << (uii * 2));
+        }
+        phaseinfo_alias[widx] = phaseinfo_write_hw;
       }
       genoarr[widx] = geno_write_word;
       ++widx;
@@ -374,7 +374,7 @@ void allele_codes_to_genoarr_unsafe(const int32_t* allele_codes, const unsigned 
   while (1) {
     if (widx >= word_ct_m1) {
       if (widx > word_ct_m1) {
-	return;
+        return;
       }
       subgroup_len = MOD_NZ(sample_ct, kBitsPerWordD2);
     }
@@ -386,12 +386,12 @@ void allele_codes_to_genoarr_unsafe(const int32_t* allele_codes, const unsigned 
       const uint32_t second_code = (uint32_t)(*read_alias++);
       uintptr_t cur_geno;
       if (first_code <= 1) {
-	cur_geno = first_code + second_code;
-	const uint32_t cur_phasepresent = cur_geno & phasepresent_bytes_iter[uii];
-	phasepresent_write_hw |= cur_phasepresent << uii;
-	phaseinfo_write_hw |= (cur_phasepresent & first_code) << uii;
+        cur_geno = first_code + second_code;
+        const uint32_t cur_phasepresent = cur_geno & phasepresent_bytes_iter[uii];
+        phasepresent_write_hw |= cur_phasepresent << uii;
+        phaseinfo_write_hw |= (cur_phasepresent & first_code) << uii;
       } else {
-	cur_geno = 3;
+        cur_geno = 3;
       }
       geno_write_word |= (cur_geno << (uii * 2));
     }
@@ -418,7 +418,7 @@ void floats_to_dosage16(const float* floatarr, uint32_t sample_ct, uint32_t hard
   while (1) {
     if (widx >= word_ct_m1) {
       if (widx > word_ct_m1) {
-	break;
+        break;
       }
       subgroup_len = MOD_NZ(sample_ct, kBitsPerWordD2);
     }
@@ -429,15 +429,15 @@ void floats_to_dosage16(const float* floatarr, uint32_t sample_ct, uint32_t hard
       const float fxx = (*read_iter++) * 16384 + 0.5;
       uintptr_t cur_geno = 3;
       if ((fxx >= 0.0) && (fxx < 32769)) {
-	uint32_t dosage_int = (int32_t)fxx;
-	const uint32_t cur_halfdist = biallelic_dosage_halfdist(dosage_int);
-	if (cur_halfdist >= hard_call_halfdist) {
-	  cur_geno = (dosage_int + (8192 * k1LU)) / 16384;
-	}
-	if (cur_halfdist != 8192) {
-	  dosage_present_hw |= 1U << sample_idx_lowbits;
-	  *dosage_vals_iter++ = dosage_int;
-	}
+        uint32_t dosage_int = (int32_t)fxx;
+        const uint32_t cur_halfdist = biallelic_dosage_halfdist(dosage_int);
+        if (cur_halfdist >= hard_call_halfdist) {
+          cur_geno = (dosage_int + (8192 * k1LU)) / 16384;
+        }
+        if (cur_halfdist != 8192) {
+          dosage_present_hw |= 1U << sample_idx_lowbits;
+          *dosage_vals_iter++ = dosage_int;
+        }
       }
       geno_word |= cur_geno << (2 * sample_idx_lowbits);
     }
@@ -461,7 +461,7 @@ void doubles_to_dosage16(const double* doublearr, uint32_t sample_ct, uint32_t h
   while (1) {
     if (widx >= word_ct_m1) {
       if (widx > word_ct_m1) {
-	break;
+        break;
       }
       subgroup_len = MOD_NZ(sample_ct, kBitsPerWordD2);
     }
@@ -472,15 +472,15 @@ void doubles_to_dosage16(const double* doublearr, uint32_t sample_ct, uint32_t h
       const double dxx = (*read_iter++) * 16384 + 0.5;
       uintptr_t cur_geno = 3;
       if ((dxx >= 0.0) && (dxx < 32769)) {
-	uint32_t dosage_int = (int32_t)dxx;
-	const uint32_t cur_halfdist = biallelic_dosage_halfdist(dosage_int);
-	if (cur_halfdist >= hard_call_halfdist) {
-	  cur_geno = (dosage_int + (8192 * k1LU)) / 16384;
-	}
-	if (cur_halfdist != 8192) {
-	  dosage_present_hw |= 1U << sample_idx_lowbits;
-	  *dosage_vals_iter++ = dosage_int;
-	}
+        uint32_t dosage_int = (int32_t)dxx;
+        const uint32_t cur_halfdist = biallelic_dosage_halfdist(dosage_int);
+        if (cur_halfdist >= hard_call_halfdist) {
+          cur_geno = (dosage_int + (8192 * k1LU)) / 16384;
+        }
+        if (cur_halfdist != 8192) {
+          dosage_present_hw |= 1U << sample_idx_lowbits;
+          *dosage_vals_iter++ = dosage_int;
+        }
       }
       geno_word |= cur_geno << (2 * sample_idx_lowbits);
     }

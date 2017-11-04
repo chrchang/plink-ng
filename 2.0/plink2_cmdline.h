@@ -52,11 +52,11 @@
       #define PRIdPTR PRId64
     #else
       #if __cplusplus < 201103L
-	#define PRIuPTR "lu"
-	#define PRIdPTR "ld"
+        #define PRIuPTR "lu"
+        #define PRIdPTR "ld"
       #else
-	#define PRIuPTR "u"
-	#define PRIdPTR "d"
+        #define PRIuPTR "u"
+        #define PRIdPTR "d"
       #endif
     #endif
   #endif
@@ -528,7 +528,7 @@ extern unsigned char* g_bigstack_end;
 uintptr_t detect_mb();
 
 uintptr_t get_default_alloc_mb();
- 
+
 // caller is responsible for freeing bigstack_ua
 pglerr_t init_bigstack(uintptr_t malloc_size_mb, uintptr_t* malloc_mb_final_ptr, unsigned char** bigstack_ua_ptr);
 
@@ -1477,7 +1477,7 @@ boolerr_t bigstack_calloc_usi(uintptr_t ct, uint16_t** usi_arr_ptr);
 boolerr_t bigstack_calloc_ui(uintptr_t ct, uint32_t** ui_arr_ptr);
 
 boolerr_t bigstack_calloc_ul(uintptr_t ct, uintptr_t** ul_arr_ptr);
- 
+
 boolerr_t bigstack_calloc_ull(uintptr_t ct, uint64_t** ull_arr_ptr);
 
 HEADER_INLINE boolerr_t bigstack_calloc_c(uintptr_t ct, char** c_arr_ptr) {
@@ -1681,9 +1681,9 @@ HEADER_INLINE uintptr_t popcount_longs_nzbase(const uintptr_t* bitvec, uintptr_t
   #ifdef USE_AVX2
   while (start_idx & 3) {
     if (end_idx == start_idx) {
-      return 0;
+      return prefix_ct;
     }
-    prefix_ct = popcount_long(bitvec[start_idx++]);
+    prefix_ct += popcount_long(bitvec[start_idx++]);
   }
   #else
   if (start_idx & 1) {
@@ -1718,13 +1718,21 @@ void copy_bitarr_range(const uintptr_t* __restrict src_bitarr, uintptr_t src_sta
 // arrays; scramble_2_4_8_32() is more plink-specific
 
 #ifdef __LP64__
-static_assert(kBytesPerVec == 16, "scramble_1_4_8_32() assumes kBytesPerVec == 16.");
+  #ifdef USE_AVX2
+HEADER_CINLINE uint32_t scramble_1_4_8_32(uint32_t orig_idx) {
+  // 1->4: 0 4 8 12 16 20 24 28 32 ... 252 1 5 9 ...
+  // 4->8: 0 8 16 24 32 ... 248 4 12 20 ... 1 9 17 ...
+  // 8->32: 0 32 ... 224 8 40 ... 232 ... 248 4 36 ... 252 1 33 ...
+  return (orig_idx & (~255)) + ((orig_idx & 3) * 64) + ((orig_idx & 4) * 8) + (orig_idx & 24) + ((orig_idx & 224) / 32);
+}
+  #else
 HEADER_CINLINE uint32_t scramble_1_4_8_32(uint32_t orig_idx) {
   // 1->4: 0 4 8 12 16 20 24 28 32 ... 124 1 5 9 ...
   // 4->8: 0 8 16 24 32 ... 120 4 12 20 ... 1 9 17 ...
   // 8->32: 0 32 64 96 8 40 72 104 16 48 80 112 24 56 88 120 4 36 68 ... 1 33 ...
   return (orig_idx & (~127)) + ((orig_idx & 3) * 32) + ((orig_idx & 4) * 4) + ((orig_idx & 24) / 2) + ((orig_idx & 96) / 32);
 }
+  #endif
 #else
 // 1->4: 0 4 8 12 16 20 24 28 1 5 9 13 17 21 25 29 2 6 10 ...
 // 4->8: 0 8 16 24 4 12 20 28 1 9 17 25 5 13 21 29 2 10 18 ...
@@ -1999,7 +2007,7 @@ HEADER_INLINE void threads3z_cleanup(threads_state_t* tsp, uint32_t* cur_block_s
     }
     if (!tsp->is_last_block) {
       if (cur_block_sizep) {
-	*cur_block_sizep = 0;
+        *cur_block_sizep = 0;
       }
       error_cleanup_threads2z(tsp->thread_func_ptr, tsp->calc_thread_ct, tsp->threads);
     }
@@ -2098,5 +2106,5 @@ CONSTU31(kMalloc32bitMbMax, 2047);
 #ifdef __cplusplus
 } // namespace plink2
 #endif
- 
+
 #endif // __PLINK2_CMDLINE_H__

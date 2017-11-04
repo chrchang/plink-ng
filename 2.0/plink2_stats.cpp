@@ -313,16 +313,16 @@ double regularized_gamma_prefix(double aa, double zz) {
       const double amza = amz / aa;
       double sq;
       if ((cur_minv > 2 * log_min_value) && (MAXV(alz, amz) < 2 * log_max_value)) {
-	sq = pow(zz * agh_recip, aa * 0.5) * exp(amz * 0.5);
-	prefix = sq * sq;
+        sq = pow(zz * agh_recip, aa * 0.5) * exp(amz * 0.5);
+        prefix = sq * sq;
       } else if ((cur_minv > 4 * log_min_value) && (MAXV(alz, amz) < 4 * log_max_value) && (zz > aa)) {
-	sq = pow(zz * agh_recip, aa * 0.25) * exp(amz * 0.25);
-	prefix = sq * sq;
-	prefix *= prefix;
+        sq = pow(zz * agh_recip, aa * 0.25) * exp(amz * 0.25);
+        prefix = sq * sq;
+        prefix *= prefix;
       } else if ((amza > log_min_value) && (amza < log_max_value)) {
-	prefix = pow((zz * exp(amza)) * agh_recip, aa);
+        prefix = pow((zz * exp(amza)) * agh_recip, aa);
       } else {
-	prefix = exp(alz + amz);
+        prefix = exp(alz + amz);
       }
     } else {
       prefix = pow(zz * agh_recip, aa) * exp(amz);
@@ -403,12 +403,12 @@ double gamma_incomplete_imp2(uint32_t df, double xx, uint32_t invert, double* p_
       // sigma = abs((x - a) / a);
       // igamma_temme_large() assumes abs(sigma) < 0.95
       if (aa > 200) {
-	// abs(sigma) < sqrt(20 / a) < 0.316...
-	use_temme = (20 * aa > x_minus_a * x_minus_a);
+        // abs(sigma) < sqrt(20 / a) < 0.316...
+        use_temme = (20 * aa > x_minus_a * x_minus_a);
       } else {
-	// abs(sigma) < 0.4
+        // abs(sigma) < 0.4
         const double sigma_times_a = fabs(x_minus_a);
-	use_temme = (sigma_times_a < 0.4 * aa);
+        use_temme = (sigma_times_a < 0.4 * aa);
       }
     }
     if (use_temme) {
@@ -419,10 +419,10 @@ double gamma_incomplete_imp2(uint32_t df, double xx, uint32_t invert, double* p_
       // x * x - a * x < 1/3
       // x * (x - a) < 1/3
       if (xx * x_minus_a < (1.0 / 3.0)) {
-	eval_method = 2;
+        eval_method = 2;
       } else {
-	eval_method = 4;
-	invert = !invert;
+        eval_method = 4;
+        invert = !invert;
       }
     }
   }
@@ -448,14 +448,14 @@ double gamma_incomplete_imp2(uint32_t df, double xx, uint32_t invert, double* p_
       // uint32_t optimized_invert = 0;
       double init_value = 0;
       if (invert) {
-	init_value = -aa / result;
-	// optimized_invert = 1;
+        init_value = -aa / result;
+        // optimized_invert = 1;
       }
       result *= lower_gamma_series(aa, xx, init_value) / aa;
       // if (optimized_invert) {
       if (invert) {
-	invert = 0;
-	result = -result;
+        invert = 0;
+        result = -result;
       }
     }
     break;
@@ -533,33 +533,33 @@ double find_inverse_gamma2(uint32_t df, double pp, double qq, uint32_t* has_10_d
     } else {
       const double yy = -log(bb);
       if (bb > 0.1) {
-	const double uu = yy - 0.5 * log(yy);
-	if (bb > 0.15) {
-	  return (yy - 0.5 * log(uu) - log(1 + 0.5 / uu));
-	}
-	return (yy - 0.5 * log(uu) - log(((uu + 5) * uu + 3.75) / ((uu + 4.5) * uu + 2)));
+        const double uu = yy - 0.5 * log(yy);
+        if (bb > 0.15) {
+          return (yy - 0.5 * log(uu) - log(1 + 0.5 / uu));
+        }
+        return (yy - 0.5 * log(uu) - log(((uu + 5) * uu + 3.75) / ((uu + 4.5) * uu + 2)));
       } else {
-	const double c1 = -0.5 * log(yy);
-	const double c1_2 = c1 * c1;
-	const double c1_3 = c1_2 * c1;
-	const double c1_4 = c1_2 * c1_2;
-	// a_2 = 0.25
-	// a_3 = 0.125
+        const double c1 = -0.5 * log(yy);
+        const double c1_2 = c1 * c1;
+        const double c1_3 = c1_2 * c1;
+        const double c1_4 = c1_2 * c1_2;
+        // a_2 = 0.25
+        // a_3 = 0.125
 
-	const double c2 = -0.5 * (1 + c1);
-	const double c3 = 0.25 * c1_2 + 0.75 * c1 + 0.875;
-	const double c4 = c1_3 * (-1.0 / 6.0) - 0.875 * c1_2 - 1.875 * c1 - (26.75 / 12.0);
-	const double c5 = 0.125 * c1_4 + (5.75 / 6.0) * c1_3 + 3.625 * c1_2 + 7.75 * c1 + (83.0625 / 12.0);
+        const double c2 = -0.5 * (1 + c1);
+        const double c3 = 0.25 * c1_2 + 0.75 * c1 + 0.875;
+        const double c4 = c1_3 * (-1.0 / 6.0) - 0.875 * c1_2 - 1.875 * c1 - (26.75 / 12.0);
+        const double c5 = 0.125 * c1_4 + (5.75 / 6.0) * c1_3 + 3.625 * c1_2 + 7.75 * c1 + (83.0625 / 12.0);
 
-	const double y_recip = 1.0 / yy;
-	const double y_recip_2 = y_recip * y_recip;
-	const double y_recip_3 = y_recip_2 * y_recip;
-	const double y_recip_4 = y_recip_2 * y_recip_2;
-	if (bb < 1e-28) {
-	  *has_10_digits_ptr = 1;
-	}
-	// er, I'd think this should just use Horner's instead?
-	return (yy + c1 + c2 * y_recip + c3 * y_recip_2 + c4 * y_recip_3 + c5 * y_recip_4);
+        const double y_recip = 1.0 / yy;
+        const double y_recip_2 = y_recip * y_recip;
+        const double y_recip_3 = y_recip_2 * y_recip;
+        const double y_recip_4 = y_recip_2 * y_recip_2;
+        if (bb < 1e-28) {
+          *has_10_digits_ptr = 1;
+        }
+        // er, I'd think this should just use Horner's instead?
+        return (yy + c1 + c2 * y_recip + c3 * y_recip_2 + c4 * y_recip_3 + c5 * y_recip_4);
       }
     }
   }
@@ -629,21 +629,21 @@ double gamma_p_inv_imp2(uint32_t df, double qq) {
       const double denom = 2 * f0;
       const double numer = 2 * f1 - f0 * (f2 / f1);
       if ((fabs(numer) >= 1) || (fabs(denom) < fabs(numer) * DBL_MAX)) {
-	const double halley_step = denom / numer;
-	if (halley_step / delta < 0) {
-	  if (fabs(delta) > 2 * fabs(guess)) {
-	    delta = ((delta < 0)? -1 : 1) * 2 * fabs(guess);
-	  }
-	} else {
-	  delta = halley_step;
-	}
+        const double halley_step = denom / numer;
+        if (halley_step / delta < 0) {
+          if (fabs(delta) > 2 * fabs(guess)) {
+            delta = ((delta < 0)? -1 : 1) * 2 * fabs(guess);
+          }
+        } else {
+          delta = halley_step;
+        }
       }
     }
     double convergence = fabs(delta / delta2);
     if ((convergence > 0.8) && (convergence < 2)) {
       delta = (delta > 0)? (0.5 * (result - min_guess)) : (0.5 * (result - max_guess));
       if (fabs(delta) > result) {
-	delta = ((delta > 0)? 1 : -1) * result;
+        delta = ((delta > 0)? 1 : -1) * result;
       }
       // delta2 = delta * 3;
     }
@@ -653,34 +653,34 @@ double gamma_p_inv_imp2(uint32_t df, double qq) {
     if (result < min_guess) {
       double diff = ((fabs(min_guess) < 1) && (fabs(result) > 1) && ((DBL_MAX / fabs(result)) < fabs(min_guess)))? 1000 : (result / min_guess);
       if (fabs(diff) < 1) {
-	diff = 1 / diff;
+        diff = 1 / diff;
       }
       if ((!out_of_bounds_sentry) && (diff > 0) && (diff < 3)) {
-	delta = 0.99 * (guess - min_guess);
-	result = guess - delta;
-	out_of_bounds_sentry = 1;
+        delta = 0.99 * (guess - min_guess);
+        result = guess - delta;
+        out_of_bounds_sentry = 1;
       } else {
-	delta = (guess - min_guess) * 0.5;
-	result = guess - delta;
-	if ((result == min_guess) || (result == max_guess)) {
-	  break;
-	}
+        delta = (guess - min_guess) * 0.5;
+        result = guess - delta;
+        if ((result == min_guess) || (result == max_guess)) {
+          break;
+        }
       }
     } else if (result > max_guess) {
       double diff = ((fabs(max_guess) < 1) && (fabs(result) > 1) && ((DBL_MAX / fabs(result)) < fabs(max_guess)))? 1000 : (result / max_guess);
       if (fabs(diff) < 1) {
-	diff = 1 / diff;
+        diff = 1 / diff;
       }
       if ((!out_of_bounds_sentry) && (diff > 0) && (diff < 3)) {
-	delta = 0.99 * (guess - max_guess);
-	result = guess - delta;
-	out_of_bounds_sentry = 1;
+        delta = 0.99 * (guess - max_guess);
+        result = guess - delta;
+        out_of_bounds_sentry = 1;
       } else {
-	delta = (guess - max_guess) * 0.5;
-	result = guess - delta;
-	if ((result == min_guess) || (result == max_guess)) {
-	  break;
-	}
+        delta = (guess - max_guess) * 0.5;
+        result = guess - delta;
+        if ((result == min_guess) || (result == max_guess)) {
+          break;
+        }
       }
     }
     if (delta > 0) {
@@ -734,7 +734,7 @@ double betacf_slow(double aa, double bb, double xx) {
 
     // d_{2m+1}
     tmp_aa = -(aa + mm) * (qab + mm) * xx / ((aa + m2) * (qap + m2));
-    
+
     dd = 1.0 + tmp_aa * dd;
     if (fabs(dd) < kLentzFpmin) {
       dd = kLentzFpmin;
@@ -758,7 +758,7 @@ double betai_slow(double aa, double bb, double xx) {
   if ((xx < 0.0) || (xx > 1.0)) {
     return -9;
   }
-  uint32_t do_invert = (xx * (aa + bb + 2.0)) >= (aa + 1.0);  
+  uint32_t do_invert = (xx * (aa + bb + 2.0)) >= (aa + 1.0);
   if ((xx == 0.0) || (xx == 1.0)) {
     return (double)((int32_t)do_invert);
   }
@@ -957,15 +957,15 @@ double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mi
       lastp2 *= (curr_hets_t2 * (curr_hets_t2 - 1)) / (4 * curr_homr_t2 * curr_homc_t2);
       curr_hets_t2 -= 2;
       if (lastp2 < kExactTestBias) {
-	tie_ct += (lastp2 > (1 - 2 * kSmallEpsilon) * kExactTestBias);
-	tailp += lastp2;
-	break;
+        tie_ct += (lastp2 > (1 - 2 * kSmallEpsilon) * kExactTestBias);
+        tailp += lastp2;
+        break;
       }
       centerp += lastp2;
       // doesn't seem to make a difference, but seems best to minimize use of
       // INFINITY
       if (centerp > DBL_MAX) {
-	return 0;
+        return 0;
       }
     }
     if ((centerp == 0) && (!midp)) {
@@ -979,7 +979,7 @@ double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mi
       const double preaddp = tailp;
       tailp += lastp2;
       if (tailp <= preaddp) {
-	break;
+        break;
       }
     }
     double curr_hets_t1 = obs_hets + 2;
@@ -991,7 +991,7 @@ double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mi
       const double preaddp = tailp;
       tailp += lastp1;
       if (tailp <= preaddp) {
-	break;
+        break;
       }
       curr_hets_t1 += 2;
       curr_homr_t1 -= 1;
@@ -1005,13 +1005,13 @@ double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mi
       curr_homr_t2 -= 1;
       curr_homc_t2 -= 1;
       if (lastp2 < kExactTestBias) {
-	tie_ct += (lastp2 > (1 - 2 * kSmallEpsilon) * kExactTestBias);
-	tailp += lastp2;
-	break;
+        tie_ct += (lastp2 > (1 - 2 * kSmallEpsilon) * kExactTestBias);
+        tailp += lastp2;
+        break;
       }
       centerp += lastp2;
       if (centerp > DBL_MAX) {
-	return 0;
+        return 0;
       }
     }
     if ((centerp == 0) && (!midp)) {
@@ -1025,7 +1025,7 @@ double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mi
       const double preaddp = tailp;
       tailp += lastp2;
       if (tailp <= preaddp) {
-	break;
+        break;
       }
     }
     double curr_hets_t1 = obs_hets;
@@ -1038,7 +1038,7 @@ double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mi
       const double preaddp = tailp;
       tailp += lastp1;
       if (tailp <= preaddp) {
-	break;
+        break;
       }
       curr_hets_t1 -= 2;
     }
@@ -1115,7 +1115,7 @@ uint32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double t
   // = 2 * (rare_copies / (2 * genotypes)) * (1 - rarefreq) * genotypes
   // = rare_copies * (1 - (rare_copies / (2 * genotypes)))
   // = (rare_copies * (2 * genotypes - rare_copies)) / (2 * genotypes)
-  // 
+  //
   // The computational identity is
   //   P(nhets == n) := P(nhets == n+2) * (n+2) * (n+1) /
   //                    (4 * homr(n) * homc(n))
@@ -1145,12 +1145,12 @@ uint32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double t
       lastp2 *= (curr_hets_t2 * (curr_hets_t2 - 1)) / (4 * curr_homr_t2 * curr_homc_t2);
       curr_hets_t2 -= 2;
       if (lastp2 < kExactTestBias) {
-	tailp2 = lastp2;
-	break;
+        tailp2 = lastp2;
+        break;
       }
       centerp += lastp2;
       if (centerp > exit_thresh) {
-	return 1;
+        return 1;
       }
     } while (curr_hets_t2 > 1.5);
     exit_thresh = centerp / thresh;
@@ -1176,18 +1176,18 @@ uint32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double t
       // het_probs[curr_hets + 2] = het_probs[curr_hets] * 4 * curr_homr * curr_homc / ((curr_hets + 2) * (curr_hets + 1))
       exit_threshx = exit_thresh - tailp2;
       do {
-	curr_hets_t1 += 2;
-	curr_homr_t1 -= 1;
-	curr_homc_t1 -= 1;
-	lastp1 *= (4 * curr_homr_t1 * curr_homc_t1) / (curr_hets_t1 * (curr_hets_t1 - 1));
-	preaddp = tailp1;
-	tailp1 += lastp1;
-	if (tailp1 > exit_threshx) {
-	  return 0;
-	}
-	if (tailp1 <= preaddp) {
-	  break;
-	}
+        curr_hets_t1 += 2;
+        curr_homr_t1 -= 1;
+        curr_homc_t1 -= 1;
+        lastp1 *= (4 * curr_homr_t1 * curr_homc_t1) / (curr_hets_t1 * (curr_hets_t1 - 1));
+        preaddp = tailp1;
+        tailp1 += lastp1;
+        if (tailp1 > exit_threshx) {
+          return 0;
+        }
+        if (tailp1 <= preaddp) {
+          break;
+        }
       } while (curr_homr_t1 > 1.5);
     }
     if (tailp1 + tail2_ceil < exit_thresh) {
@@ -1201,10 +1201,10 @@ uint32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double t
       preaddp = tailp2;
       tailp2 += lastp2;
       if (tailp2 >= exit_threshx) {
-	return 0;
+        return 0;
       }
       if (tailp2 <= preaddp) {
-	return 1;
+        return 1;
       }
       curr_hets_t2 -= 2;
     }
@@ -1256,10 +1256,10 @@ uint32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double t
       preaddp = tailp1;
       tailp1 += lastp1;
       if (tailp1 > exit_threshx) {
-	return 0;
+        return 0;
       }
       if (tailp1 <= preaddp) {
-	break;
+        break;
       }
     } while (curr_hets_t1 > 3.5);
   }
@@ -1331,19 +1331,19 @@ uint32_t SNPHWE_midp_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, dou
       lastp2 *= (curr_hets_t2 * (curr_hets_t2 - 1)) / (4 * curr_homr_t2 * curr_homc_t2);
       curr_hets_t2 -= 2;
       if (lastp2 < kExactTestBias) {
-	if (lastp2 > (1 - 2 * kSmallEpsilon) * kExactTestBias) {
-	  // tie with original contingency table, apply mid-p correction here
-	  // too
+        if (lastp2 > (1 - 2 * kSmallEpsilon) * kExactTestBias) {
+          // tie with original contingency table, apply mid-p correction here
+          // too
           tailp2 = tailp1;
           centerp += tailp1;
-	} else {
-	  tailp2 = lastp2;
-	}
-	break;
+        } else {
+          tailp2 = lastp2;
+        }
+        break;
       }
       centerp += lastp2;
       if (centerp > exit_thresh) {
-	return 1;
+        return 1;
       }
     } while (curr_hets_t2 > 1.5);
     exit_thresh = centerp / thresh;
@@ -1368,18 +1368,18 @@ uint32_t SNPHWE_midp_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, dou
     if (obs_homr > 1) {
       exit_threshx = exit_thresh - tailp2;
       do {
-	curr_hets_t1 += 2;
-	curr_homr_t1 -= 1;
-	curr_homc_t1 -= 1;
-	lastp1 *= (4 * curr_homr_t1 * curr_homc_t1) / (curr_hets_t1 * (curr_hets_t1 - 1));
-	preaddp = tailp1;
-	tailp1 += lastp1;
-	if (tailp1 > exit_threshx) {
-	  return 0;
-	}
-	if (tailp1 <= preaddp) {
-	  break;
-	}
+        curr_hets_t1 += 2;
+        curr_homr_t1 -= 1;
+        curr_homc_t1 -= 1;
+        lastp1 *= (4 * curr_homr_t1 * curr_homc_t1) / (curr_hets_t1 * (curr_hets_t1 - 1));
+        preaddp = tailp1;
+        tailp1 += lastp1;
+        if (tailp1 > exit_threshx) {
+          return 0;
+        }
+        if (tailp1 <= preaddp) {
+          break;
+        }
       } while (curr_homr_t1 > 1.5);
     }
     if (tailp1 + tail2_ceil < exit_thresh) {
@@ -1393,10 +1393,10 @@ uint32_t SNPHWE_midp_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, dou
       preaddp = tailp2;
       tailp2 += lastp2;
       if (tailp2 >= exit_threshx) {
-	return 0;
+        return 0;
       }
       if (tailp2 <= preaddp) {
-	return 1;
+        return 1;
       }
       curr_hets_t2 -= 2;
     }
@@ -1413,10 +1413,10 @@ uint32_t SNPHWE_midp_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, dou
     curr_homc_t2 -= 1;
     if (lastp2 < kExactTestBias) {
       if (lastp2 > (1 - 2 * kSmallEpsilon) * kExactTestBias) {
-	tailp2 = tailp1;
-	centerp += tailp1;
+        tailp2 = tailp1;
+        centerp += tailp1;
       } else {
-	tailp2 = lastp2;
+        tailp2 = lastp2;
       }
       break;
     }
@@ -1452,10 +1452,10 @@ uint32_t SNPHWE_midp_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, dou
       preaddp = tailp1;
       tailp1 += lastp1;
       if (tailp1 > exit_threshx) {
-	return 0;
+        return 0;
       }
       if (tailp1 <= preaddp) {
-	break;
+        break;
       }
     } while (curr_hets_t1 > 3.5);
   }
@@ -1567,8 +1567,8 @@ double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t
       tprob += cur_prob;
       if (tprob <= preaddp) {
         if (!midp) {
-	  return preaddp / (cprob + preaddp);
-	}
+          return preaddp / (cprob + preaddp);
+        }
         return (preaddp - ((1 - kExactTestEpsilon2) * kExactTestBias * 0.5) * tie_ct) / (cprob + preaddp);
       }
     } while (cur11 > 0.5);
@@ -1594,14 +1594,14 @@ int32_t SNPHWEX_tailsum(uint32_t high_het_side, double* base_probp, double* save
     if (cur_prob > kExactTestBias) {
       double prev_prob = tmp_hom1 * tmp_hom2;
       while (prev_prob > 0.5) {
-	tmp_hets += 2;
-	cur_prob *= (4 * prev_prob) / (tmp_hets * (tmp_hets - 1));
-	tmp_hom1 -= 1;
-	tmp_hom2 -= 1;
-	if (cur_prob <= kExactTestBias) {
-	  break;
-	}
-	prev_prob = tmp_hom1 * tmp_hom2;
+        tmp_hets += 2;
+        cur_prob *= (4 * prev_prob) / (tmp_hets * (tmp_hets - 1));
+        tmp_hom1 -= 1;
+        tmp_hom2 -= 1;
+        if (cur_prob <= kExactTestBias) {
+          break;
+        }
+        prev_prob = tmp_hom1 * tmp_hom2;
       }
       *base_probp = cur_prob;
       tmps_hets = tmp_hets;
@@ -1612,26 +1612,26 @@ int32_t SNPHWEX_tailsum(uint32_t high_het_side, double* base_probp, double* save
       tmps_hom1 = tmp_hom1;
       tmps_hom2 = tmp_hom2;
       while (1) {
-	const double prev_prob = cur_prob;
-	tmp_hom1 += 1;
-	tmp_hom2 += 1;
-	cur_prob *= (tmp_hets * (tmp_hets - 1)) / (4 * tmp_hom1 * tmp_hom2);
-	if (cur_prob < prev_prob) {
-	  // this should never happen, but better to play it safe re: rounding
-	  // error
-	  return 1;
-	}
-	tmp_hets -= 2;
-	if (cur_prob > (1 - 2 * kExactTestEpsilon2) * kExactTestBias) {
-	  // throw in extra (1 - kSmallEpsilon) multiplier to prevent rounding
-	  // errors from causing this to keep going when the left-side test
-	  // stopped
-	  if (cur_prob > (1 - kSmallEpsilon) * kExactTestBias) {
-	    break;
-	  }
+        const double prev_prob = cur_prob;
+        tmp_hom1 += 1;
+        tmp_hom2 += 1;
+        cur_prob *= (tmp_hets * (tmp_hets - 1)) / (4 * tmp_hom1 * tmp_hom2);
+        if (cur_prob < prev_prob) {
+          // this should never happen, but better to play it safe re: rounding
+          // error
+          return 1;
+        }
+        tmp_hets -= 2;
+        if (cur_prob > (1 - 2 * kExactTestEpsilon2) * kExactTestBias) {
+          // throw in extra (1 - kSmallEpsilon) multiplier to prevent rounding
+          // errors from causing this to keep going when the left-side test
+          // stopped
+          if (cur_prob > (1 - kSmallEpsilon) * kExactTestBias) {
+            break;
+          }
           *tie_ctp += 1;
-	}
-	total += cur_prob;
+        }
+        total += cur_prob;
       }
       const double prev_prob = cur_prob;
       cur_prob = *base_probp;
@@ -1640,13 +1640,13 @@ int32_t SNPHWEX_tailsum(uint32_t high_het_side, double* base_probp, double* save
   } else {
     if (cur_prob > kExactTestBias) {
       while (tmp_hets > 1.5) {
-	tmp_hom1 += 1;
-	tmp_hom2 += 1;
-	cur_prob *= (tmp_hets * (tmp_hets - 1)) / (4 * tmp_hom1 * tmp_hom2);
-	tmp_hets -= 2;
-	if (cur_prob <= kExactTestBias) {
-	  break;
-	}
+        tmp_hom1 += 1;
+        tmp_hom2 += 1;
+        cur_prob *= (tmp_hets * (tmp_hets - 1)) / (4 * tmp_hom1 * tmp_hom2);
+        tmp_hets -= 2;
+        if (cur_prob <= kExactTestBias) {
+          break;
+        }
       }
       *base_probp = cur_prob;
       tmps_hets = tmp_hets;
@@ -1657,21 +1657,21 @@ int32_t SNPHWEX_tailsum(uint32_t high_het_side, double* base_probp, double* save
       tmps_hom1 = tmp_hom1;
       tmps_hom2 = tmp_hom2;
       while (1) {
-	const double prev_prob = cur_prob;
-	tmp_hets += 2;
-	cur_prob *= (4 * tmp_hom1 * tmp_hom2) / (tmp_hets * (tmp_hets - 1));
-	if (cur_prob < prev_prob) {
-	  return 1;
-	}
-	tmp_hom1 -= 1;
-	tmp_hom2 -= 1;
-	if (cur_prob > (1 - 2 * kExactTestEpsilon2) * kExactTestBias) {
-	  if (cur_prob > kExactTestBias) {
-	    break;
-	  }
+        const double prev_prob = cur_prob;
+        tmp_hets += 2;
+        cur_prob *= (4 * tmp_hom1 * tmp_hom2) / (tmp_hets * (tmp_hets - 1));
+        if (cur_prob < prev_prob) {
+          return 1;
+        }
+        tmp_hom1 -= 1;
+        tmp_hom2 -= 1;
+        if (cur_prob > (1 - 2 * kExactTestEpsilon2) * kExactTestBias) {
+          if (cur_prob > kExactTestBias) {
+            break;
+          }
           *tie_ctp += 1;
-	}
-	total += cur_prob;
+        }
+        total += cur_prob;
       }
       const double prev_prob = cur_prob;
       cur_prob = *base_probp;
@@ -1695,7 +1695,7 @@ int32_t SNPHWEX_tailsum(uint32_t high_het_side, double* base_probp, double* save
       const double prev_tot = total;
       total += cur_prob;
       if (total <= prev_tot) {
-	break;
+        break;
       }
       tmps_hets += 2;
       cur_prob *= (4 * tmps_hom1 * tmps_hom2) / (tmps_hets * (tmps_hets - 1));
@@ -1707,7 +1707,7 @@ int32_t SNPHWEX_tailsum(uint32_t high_het_side, double* base_probp, double* save
       const double prev_tot = total;
       total += cur_prob;
       if (total <= prev_tot) {
-	break;
+        break;
       }
       tmps_hom1 += 1;
       tmps_hom2 += 1;
@@ -1764,13 +1764,13 @@ double SNPHWEX(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, in
       cur_prob *= (tmp_hets * (tmp_hets - 1)) / (4 * tmp_hom1 * tmp_hom2);
       tmp_hets -= 2;
       if (cur_prob < kExactTestBias) {
-	tie_ct += (cur_prob > (1 - 2 * kExactTestEpsilon2) * kExactTestBias);
-	tailp += cur_prob;
-	break;
+        tie_ct += (cur_prob > (1 - 2 * kExactTestEpsilon2) * kExactTestBias);
+        tailp += cur_prob;
+        break;
       }
       centerp += cur_prob;
       if (centerp > DBL_MAX) {
-	return 0;
+        return 0;
       }
     }
     orig_saved_lhets = tmp_hets;
@@ -1785,7 +1785,7 @@ double SNPHWEX(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, in
       const double preaddp = tailp;
       tailp += cur_prob;
       if (tailp <= preaddp) {
-	break;
+        break;
       }
     }
     tmp_hets = cur_female_hetd;
@@ -1798,7 +1798,7 @@ double SNPHWEX(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, in
       const double preaddp = tailp;
       tailp += cur_prob;
       if (tailp <= preaddp) {
-	break;
+        break;
       }
       tmp_hom1 -= 1;
       tmp_hom2 -= 1;
@@ -1817,21 +1817,21 @@ double SNPHWEX(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, in
     while (1) {
       quarter_numer = tmp_hom1 * tmp_hom2;
       if (quarter_numer <= 0.5) {
-	break;
+        break;
       }
       tmp_hets += 2;
       cur_prob *= (4 * quarter_numer) / (tmp_hets * (tmp_hets - 1));
       tmp_hom1 -= 1;
       tmp_hom2 -= 1;
       if (cur_prob < kExactTestBias) {
-	tie_ct += (cur_prob > (1 - 2 * kExactTestEpsilon2) * kExactTestBias);
-	tailp += cur_prob;
-	quarter_numer = tmp_hom1 * tmp_hom2;
-	break;
+        tie_ct += (cur_prob > (1 - 2 * kExactTestEpsilon2) * kExactTestBias);
+        tailp += cur_prob;
+        quarter_numer = tmp_hom1 * tmp_hom2;
+        break;
       }
       centerp += cur_prob;
       if (centerp > DBL_MAX) {
-	return 0;
+        return 0;
       }
     }
     orig_saved_rhets = tmp_hets;
@@ -1846,7 +1846,7 @@ double SNPHWEX(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, in
       const double preaddp = tailp;
       tailp += cur_prob;
       if (tailp <= preaddp) {
-	break;
+        break;
       }
       quarter_numer = tmp_hom1 * tmp_hom2;
     }
@@ -1861,7 +1861,7 @@ double SNPHWEX(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, in
       const double preaddp = tailp;
       tailp += cur_prob;
       if (tailp <= preaddp) {
-	break;
+        break;
       }
       tmp_hets -= 2;
     }
@@ -1886,118 +1886,118 @@ double SNPHWEX(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, in
     if (male1_decreasing) {
       iter_ct = 2 * female_hom2 + female_hets;
       if (iter_ct > ((uint32_t)male1)) {
-	iter_ct = male1;
+        iter_ct = male1;
       }
     } else {
       iter_ct = 2 * female_hom1 + female_hets;
       if (iter_ct > ((uint32_t)male2)) {
-	iter_ct = male2;
+        iter_ct = male2;
       }
     }
     for (uint32_t iter_idx = 0; iter_idx < iter_ct; ++iter_idx) {
       if (male1_decreasing) {
-	const double old_male1 = cur_male1;
-	const double old_female2 = n2 - cur_male2;
-	cur_male2 += 1;
-	cur_male1 -= 1;
-	// row likelihood is ((n1 choose male1) * (n2 choose male2)) /
-	//   ((n1 + n2) choose (male1 + male2))
-	row_prob *= (old_male1 * old_female2) / (cur_male2 * (n1 - cur_male1));
-	// bugfix (19 Apr 2017): We cannot move to the right of the mode here.
-	// Otherwise, if the mode itself is more probable than our initial
-	// table, but the table to the immediate right of the mode is not,
-	// we'll fail to count the mode.
-	// ("right" = high het count, "left" = low het count.)
-	if (cur_lhets) {
-	  cur_lhom1 += 1;
-	  base_probl *= (old_male1 * cur_lhets) / (2 * cur_male2 * cur_lhom1);
-	  cur_lhets -= 1;
-	} else {
-	  cur_lhets += 1;
-	  base_probl *= (2 * old_male1 * cur_lhom2) / (cur_male2 * cur_lhets);
-	  cur_lhom2 -= 1;
-	}
+        const double old_male1 = cur_male1;
+        const double old_female2 = n2 - cur_male2;
+        cur_male2 += 1;
+        cur_male1 -= 1;
+        // row likelihood is ((n1 choose male1) * (n2 choose male2)) /
+        //   ((n1 + n2) choose (male1 + male2))
+        row_prob *= (old_male1 * old_female2) / (cur_male2 * (n1 - cur_male1));
+        // bugfix (19 Apr 2017): We cannot move to the right of the mode here.
+        // Otherwise, if the mode itself is more probable than our initial
+        // table, but the table to the immediate right of the mode is not,
+        // we'll fail to count the mode.
+        // ("right" = high het count, "left" = low het count.)
+        if (cur_lhets) {
+          cur_lhom1 += 1;
+          base_probl *= (old_male1 * cur_lhets) / (2 * cur_male2 * cur_lhom1);
+          cur_lhets -= 1;
+        } else {
+          cur_lhets += 1;
+          base_probl *= (2 * old_male1 * cur_lhom2) / (cur_male2 * cur_lhets);
+          cur_lhom2 -= 1;
+        }
       } else {
-	const double old_male2 = cur_male2;
-	const double old_female1 = n1 - cur_male1;
-	cur_male1 += 1;
-	cur_male2 -= 1;
-	row_prob *= (old_male2 * old_female1) / (cur_male1 * (n2 - cur_male2));
-	if (cur_lhets) {
-	  cur_lhom2 += 1;
-	  base_probl *= (old_male2 * cur_lhets) / (2 * cur_male1 * cur_lhom2);
-	  cur_lhets -= 1;
-	} else {
-	  cur_lhets += 1;
-	  base_probl *= (2 * old_male2 * cur_lhom1) / (cur_male1 * cur_lhets);
-	  cur_lhom1 -= 1;
-	}
+        const double old_male2 = cur_male2;
+        const double old_female1 = n1 - cur_male1;
+        cur_male1 += 1;
+        cur_male2 -= 1;
+        row_prob *= (old_male2 * old_female1) / (cur_male1 * (n2 - cur_male2));
+        if (cur_lhets) {
+          cur_lhom2 += 1;
+          base_probl *= (old_male2 * cur_lhets) / (2 * cur_male1 * cur_lhom2);
+          cur_lhets -= 1;
+        } else {
+          cur_lhets += 1;
+          base_probl *= (2 * old_male2 * cur_lhom1) / (cur_male1 * cur_lhets);
+          cur_lhom1 -= 1;
+        }
       }
       double tail_incr1;
       if (SNPHWEX_tailsum(0, &base_probl, &cur_lhets, &cur_lhom1, &cur_lhom2, &tie_ct, &tail_incr1)) {
-	// all tables in this row, and all subsequent rows, are less probable
-	// than the initial table.
-	double cur_female1 = n1 - cur_male1;
-	double cur_female2 = n2 - cur_male2;
-	if (male1_decreasing) {
-	  while (1) {
-	    const double preaddp = tailp;
-	    tailp += row_prob;
-	    if (tailp == preaddp) {
-	      break;
-	    }
-	    cur_male2 += 1;
-	    cur_female1 += 1;
-	    row_prob *= (cur_male1 * cur_female2) / (cur_male2 * cur_female1);
-	    cur_male1 -= 1;
-	    cur_female2 -= 1;
-	  }
-	} else {
-	  while (1) {
-	    const double preaddp = tailp;
-	    tailp += row_prob;
-	    if (tailp == preaddp) {
-	      break;
-	    }
-	    cur_male1 += 1;
-	    cur_female2 += 1;
-	    row_prob *= (cur_male2 * cur_female1) / (cur_male1 * cur_female2);
-	    cur_male2 -= 1;
-	    cur_female1 -= 1;
-	  }
-	}
-	break;
+        // all tables in this row, and all subsequent rows, are less probable
+        // than the initial table.
+        double cur_female1 = n1 - cur_male1;
+        double cur_female2 = n2 - cur_male2;
+        if (male1_decreasing) {
+          while (1) {
+            const double preaddp = tailp;
+            tailp += row_prob;
+            if (tailp == preaddp) {
+              break;
+            }
+            cur_male2 += 1;
+            cur_female1 += 1;
+            row_prob *= (cur_male1 * cur_female2) / (cur_male2 * cur_female1);
+            cur_male1 -= 1;
+            cur_female2 -= 1;
+          }
+        } else {
+          while (1) {
+            const double preaddp = tailp;
+            tailp += row_prob;
+            if (tailp == preaddp) {
+              break;
+            }
+            cur_male1 += 1;
+            cur_female2 += 1;
+            row_prob *= (cur_male2 * cur_female1) / (cur_male1 * cur_female2);
+            cur_male2 -= 1;
+            cur_female1 -= 1;
+          }
+        }
+        break;
       }
       tailp += tail_incr1;
       if (male1_decreasing) {
-	const double old_male1 = cur_male1 + 1;
-	if (cur_rhom2) {
-	  cur_rhets += 1;
-	  base_probr *= (2 * old_male1 * cur_rhom2) / (cur_male2 * cur_rhets);
-	  cur_rhom2 -= 1;
-	} else {
-	  cur_rhom1 += 1;
-	  base_probr *= (old_male1 * cur_rhets) / (2 * cur_male2 * cur_rhom1);
-	  cur_rhets -= 1;
-	}
+        const double old_male1 = cur_male1 + 1;
+        if (cur_rhom2) {
+          cur_rhets += 1;
+          base_probr *= (2 * old_male1 * cur_rhom2) / (cur_male2 * cur_rhets);
+          cur_rhom2 -= 1;
+        } else {
+          cur_rhom1 += 1;
+          base_probr *= (old_male1 * cur_rhets) / (2 * cur_male2 * cur_rhom1);
+          cur_rhets -= 1;
+        }
       } else {
-	const double old_male2 = cur_male2 + 1;
-	if (cur_rhom1) {
-	  cur_rhets += 1;
-	  base_probr *= (2 * old_male2 * cur_rhom1) / (cur_male1 * cur_rhets);
-	  cur_rhom1 -= 1;
-	} else {
-	  cur_rhom2 += 1;
-	  base_probr *= (old_male2 * cur_rhets) / (2 * cur_male1 * cur_rhom2);
-	  cur_rhets -= 1;
-	}
+        const double old_male2 = cur_male2 + 1;
+        if (cur_rhom1) {
+          cur_rhets += 1;
+          base_probr *= (2 * old_male2 * cur_rhom1) / (cur_male1 * cur_rhets);
+          cur_rhom1 -= 1;
+        } else {
+          cur_rhom2 += 1;
+          base_probr *= (old_male2 * cur_rhets) / (2 * cur_male1 * cur_rhom2);
+          cur_rhets -= 1;
+        }
       }
       double tail_incr2 = 0.0; // maybe-uninitialized warning
       SNPHWEX_tailsum(1, &base_probr, &cur_rhets, &cur_rhom1, &cur_rhom2, &tie_ct, &tail_incr2);
       tailp += tail_incr2;
       centerp += row_prob - tail_incr1 - tail_incr2;
       if (centerp > DBL_MAX) {
-	return 0;
+        return 0;
       }
     }
   }

@@ -235,7 +235,7 @@ HEADER_INLINE double get_allele_freq(const double* cur_allele_freqs, uint32_t al
 
 FLAGSET_DEF_START()
   kfXidMode0,
-  
+
   kfXidModeFlagOneTokenOk = (1 << 0),
   kfXidModeFlagNeverFid = (1 << 1),
   kfXidModeFlagSid = (1 << 2),
@@ -299,7 +299,7 @@ ENUM_U31_DEF_START()
   // old way of representing pseudo-autosomal regions.  clumsy since this
   // required changing chromosome order
   kChrOffsetXY,
-  
+
   kChrOffsetMT,
 
   // plink 2.x pseudo-autosomal regions.
@@ -358,7 +358,7 @@ typedef struct {
   // currently tolerates out-of-order chromosomes, as long as all variants for
   // any given chromosome are together
   uint32_t* chr_file_order;
-  
+
   // if the second chromosome in the dataset is chr5, chr_file_order[1] == 5,
   // the raw variant indexes for chr5 are in [chr_fo_vidx_start[1],
   // chr_fo_vidx_start[2]). and chr_idx_to_foidx[5] == 1.
@@ -501,15 +501,23 @@ void mask_genovec_hets_unsafe(const uintptr_t* __restrict genovec, uint32_t raw_
 // vertical popcount support
 // scramble_1_4_8_32() and friends in plink2_cmdline
 #ifdef __LP64__
-static_assert(kBytesPerVec == 16, "scramble_2_4_8_32() assumes kBytesPerVec == 16.");
-HEADER_INLINE uint32_t scramble_2_4_8_32(uint32_t orig_idx) {
+  #ifdef USE_AVX2
+// 2->4: 0 2 ... 126 1 3 ... 127
+// 4->8: 0 4 ... 124 2 6 ... 126 1 5 ... 125 3 7 ... 127
+// 8->32: 0 16 ... 112 4 20 ... 116 ... 124 2 18 ... 114 6 22 ... 118 ... 126 1 17 ...
+HEADER_CINLINE uint32_t scramble_2_4_8_32(uint32_t orig_idx) {
+  return (orig_idx & (~127)) + ((orig_idx & 1) * 64) + ((orig_idx & 2) * 16) + ((orig_idx & 12) * 2) + ((orig_idx & 112) / 16);
+}
+  #else
+HEADER_CINLINE uint32_t scramble_2_4_8_32(uint32_t orig_idx) {
   return (orig_idx & (~63)) + ((orig_idx & 1) * 32) + ((orig_idx & 2) * 8) + (orig_idx & 12) + ((orig_idx & 48) / 16);
 }
+  #endif
 #else
 // 2->4: 0 2 4 6 8 10 12 14 1 3 5 ...
 // 4->8: 0 4 8 12 2 6 10 14 1 5 9 ...
 // 8->32: 0 4 8 12 2 6 10 14 1 5 9 13 3 7 11 15
-HEADER_INLINE uint32_t scramble_2_4_8_32(uint32_t orig_idx) {
+HEADER_CINLINE uint32_t scramble_2_4_8_32(uint32_t orig_idx) {
   return (orig_idx & (~15)) + ((orig_idx & 1) * 8) + ((orig_idx & 2) * 2) + ((orig_idx & 12) / 4);
 }
 #endif
@@ -656,13 +664,13 @@ typedef struct {
   // * When .sample categorical variables are imported, 'P' is added in front
   //   of the integers.
   char** category_names;
-  
+
   uintptr_t* nonmiss; // bitvector
 
   // essentially a tagged union; part of the same allocation as nonmiss
   phenodata_t data;
   pheno_dtype_t type_code;
-  
+
   uint32_t nonnull_category_ct;
 } pheno_col_t;
 
@@ -698,5 +706,5 @@ pglerr_t write_sample_ids(const uintptr_t* sample_include, const char* sample_id
 #ifdef __cplusplus
 } // namespace plink2
 #endif
- 
+
 #endif // __PLINK2_COMMON_H__

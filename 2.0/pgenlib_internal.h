@@ -76,7 +76,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 604
+#define PGENLIB_INTERNAL_VERNUM 700
 
 
 // other configuration-ish values needed by plink2_common subset
@@ -167,7 +167,7 @@ HEADER_INLINE uint32_t get_vint31(const unsigned char* buf_end, const unsigned c
       uint32_t uii = *((*bufpp)++);
       vint32 |= (uii & 127) << shift;
       if (uii <= 127) {
-	return vint32;
+        return vint32;
       }
       shift += 7;
       // currently don't check for shift >= 32 (that's what validate_vint31()
@@ -212,7 +212,7 @@ HEADER_INLINE uint32_t peek_vint31(const unsigned char* buf_ptr, const unsigned 
       uint32_t uii = *buf_ptr++;
       vint32 |= (uii & 127) << shift;
       if (uii <= 127) {
-	return vint32;
+        return vint32;
       }
       shift += 7;
     }
@@ -433,7 +433,7 @@ struct Pgen_file_info_struct {
   uint64_t const_fpos_offset;
 
   uint32_t const_vrec_width;
-  
+
   // see below.  positioned here instead of slightly later due to struct
   // packing behavior.
   uint32_t const_vrtype; // 256 for plink 1 encoding, 0xffffffffU for nonconst
@@ -571,7 +571,7 @@ struct Pgen_file_info_struct {
   // If pgr.nonref_flags is nullptr and kfPgenGlobalAllNonref is unset, all
   // reference alleles are assumed to be correct.
   pgen_global_flags_t gflags;
-  
+
   uint32_t max_alt_allele_ct;
   uint32_t max_dosage_alt_allele_ct;
 
@@ -580,7 +580,7 @@ struct Pgen_file_info_struct {
   //   initialization, but it's then "moved" to the first Pgen_reader and set
   //   to nullptr.
   FILE* shared_ff;
-  
+
   const unsigned char* block_base; // nullptr if using per-variant fread()
   uint64_t block_offset; // 0 for mmap
 #ifndef NO_MMAP
@@ -594,7 +594,7 @@ struct Pgen_reader_struct {
   // would like to make this const, but that makes initialization really
   // annoying in C99
   struct Pgen_file_info_struct fi;
-  
+
   // ----- Mutable state -----
   // If we don't fseek, what's the next variant we'd read?  (Still relevant
   // with mmap due to how LD decompression is implemented.)
@@ -604,13 +604,13 @@ struct Pgen_reader_struct {
   FILE* ff;
   unsigned char* fread_buf;
   // ** end per-variant fread()-only **
-  
+
   // if LD compression is present, cache the last non-LD-compressed variant
   uint32_t ldbase_vidx;
 
   // flags indicating which base_variant buffers are populated
   pgr_ldcache_flags_t ldbase_stypes;
-  
+
   uint32_t ldbase_difflist_len;
 
   // these should be treated as private after initial allocation.
@@ -623,13 +623,13 @@ struct Pgen_reader_struct {
   uint32_t* ldbase_difflist_sample_ids;
 
   uintptr_t* ldbase_all_hets;
-  
+
   // common genotype can be looked up from vrtypes[]
 
   uint32_t ldbase_refalt1_genocounts[4];
-  
+
   uintptr_t* workspace_vec; // must hold raw_sample_ct entries
-  
+
   // currently must hold (raw_sample_ct / kPglMaxDifflistLenDivisor)
   // entries; may need to double the sizes later
   // some top-level interface functions use these, so several lower-level
@@ -649,9 +649,9 @@ struct Pgen_reader_struct {
   uint32_t* workspace_ambig_sample_ids;
   uint32_t workspace_ambig_id_ct;
 
-  uintptr_t* workspace_dosage_present;  
+  uintptr_t* workspace_dosage_present;
   uintptr_t* workspace_dosage_phased;
-  
+
   // phase set loading (mode 0x11) unimplemented for now; should be a sequence
   // of (sample ID, [uint32_t phase set begin, set end), [set begin, set end),
   // ...).
@@ -967,34 +967,34 @@ struct Pgen_writer_common_struct {
   // it with ldbase_genovec when appropriate; don't think that's worth
   // supporting, given the messier API.
   // uintptr_t* genovec;
-  
+
   uint32_t ldbase_genocounts[4];
 
   // should match ftello() return value in singlethreaded case, but be set to
   // zero in multithreaded case
   uint64_t vblock_fpos_offset;
-  
+
   // these must hold sample_ct entries (could be fewer if not subsetting, but
   // let's play it safe)
   // genovec_invert_buf also used as phaseinfo and dphase_present temporary
   // storage
   uintptr_t* genovec_invert_buf;
   uintptr_t* ldbase_genovec;
-  
+
   // these must hold 2 * (sample_ct / kPglMaxDifflistLenDivisor) entries
   uintptr_t* ldbase_raregeno;
   uint32_t* ldbase_difflist_sample_ids; // 1 extra entry, == sample_ct
-  
+
   // this must fit 64k variants in multithreaded case
   unsigned char* fwrite_buf;
   unsigned char* fwrite_bufp;
 
   uint32_t ldbase_common_geno; // 0xffffffffU if ldbase_genovec present
   uint32_t ldbase_difflist_len;
-  
+
   // I'll cache this for now
   uintptr_t vrec_len_byte_ct;
-  
+
   uint32_t vidx;
 };
 
@@ -1016,7 +1016,7 @@ CONSTU31(kPglFwriteBlockSize, 131072);
 
 struct Singlethreaded_pgen_writer_struct {
   struct Pgen_writer_common_struct pwc;
-  FILE* pgen_outfile;  
+  FILE* pgen_outfile;
 };
 
 struct Multithreaded_pgen_writer_struct {

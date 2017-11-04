@@ -32,14 +32,14 @@ int32_t main(int32_t argc, char** argv) {
 "pgen_compress [input .bed or .pgen] [output filename] {sample_ct}\n"
 "  (sample_ct is required when loading a .bed file)\n"
 "pgen_compress -u [input .pgen] [output .bed]\n"
-	    , stdout);
+            , stdout);
       goto main_ret_INVALID_CMDLINE;
     }
     const uint32_t decompress = (argv[1][0] == '-') && (argv[1][1] == 'u') && (argv[1][2] == '\0');
     uint32_t sample_ct = 0xffffffffU;
     if (((uint32_t)argc) == 4 + decompress) {
       if (scan_posint_defcap(argv[3 + decompress], &sample_ct)) {
-	goto main_ret_INVALID_CMDLINE;
+        goto main_ret_INVALID_CMDLINE;
       }
     }
     char errstr_buf[kPglErrstrBufBlen];
@@ -91,31 +91,31 @@ int32_t main(int32_t argc, char** argv) {
     if (decompress) {
       outfile = fopen(argv[3], FOPEN_WB);
       if (!outfile) {
-	goto main_ret_OPEN_FAIL;
+        goto main_ret_OPEN_FAIL;
       }
       const uintptr_t final_mask = (k1LU << ((sample_ct % kBitsPerWordD2) * 2)) - k1LU;
       const uint32_t final_widx = QUATERCT_TO_WORDCT(sample_ct) - 1;
       const uint32_t variant_byte_ct = (sample_ct + 3) / 4;
       fwrite("l\x1b\x01", 3, 1, outfile);
       for (uint32_t vidx = 0; vidx < variant_ct;) {
-	reterr = pgr_read_refalt1_genovec_subset_unsafe(nullptr, nullptr, sample_ct, vidx, &pgr, genovec);
-	if (reterr) {
-	  fprintf(stderr, "\nread error %u, vidx=%u\n", (uint32_t)reterr, vidx);
-	  goto main_ret_1;
-	}
-	pgr_plink2_to_plink1_inplace_unsafe(sample_ct, genovec);
-	if (final_mask) {
-	  genovec[final_widx] &= final_mask;
-	}
-	fwrite(genovec, variant_byte_ct, 1, outfile);
-	++vidx;
-	if (!(vidx % 100000)) {
-	  printf("\r%u.%um variants decompressed.", vidx / 1000000, (vidx / 100000) % 10);
-	  fflush(stdout);
-	}
+        reterr = pgr_read_refalt1_genovec_subset_unsafe(nullptr, nullptr, sample_ct, vidx, &pgr, genovec);
+        if (reterr) {
+          fprintf(stderr, "\nread error %u, vidx=%u\n", (uint32_t)reterr, vidx);
+          goto main_ret_1;
+        }
+        pgr_plink2_to_plink1_inplace_unsafe(sample_ct, genovec);
+        if (final_mask) {
+          genovec[final_widx] &= final_mask;
+        }
+        fwrite(genovec, variant_byte_ct, 1, outfile);
+        ++vidx;
+        if (!(vidx % 100000)) {
+          printf("\r%u.%um variants decompressed.", vidx / 1000000, (vidx / 100000) % 10);
+          fflush(stdout);
+        }
       }
       if (fclose_null(&outfile)) {
-	goto main_ret_WRITE_FAIL;
+        goto main_ret_WRITE_FAIL;
       }
       printf("\n");
       goto main_ret_1;
@@ -142,8 +142,8 @@ int32_t main(int32_t argc, char** argv) {
     const uint32_t max_difflist_len = 2 * (write_sample_ct / kPglMaxDifflistLenDivisor);
     if (cachealigned_malloc(round_up_pow2((max_returned_difflist_len + 3) / 4, kCacheline), &raregeno) ||
         cachealigned_malloc(round_up_pow2((sample_ct + 7) / 8, kCacheline), &sample_include) ||
-	cachealigned_malloc(round_up_pow2((1 + (sample_ct / kBitsPerWord)) * sizeof(int32_t), kCacheline), &sample_include_cumulative_popcounts) ||
-	cachealigned_malloc(round_up_pow2((max_returned_difflist_len + 1) * sizeof(int32_t), kCacheline), &difflist_sample_ids)) {
+        cachealigned_malloc(round_up_pow2((1 + (sample_ct / kBitsPerWord)) * sizeof(int32_t), kCacheline), &sample_include_cumulative_popcounts) ||
+        cachealigned_malloc(round_up_pow2((max_returned_difflist_len + 1) * sizeof(int32_t), kCacheline), &difflist_sample_ids)) {
       goto main_ret_NOMEM;
     }
     fill_all_bits(sample_ct, sample_include);
@@ -162,33 +162,33 @@ int32_t main(int32_t argc, char** argv) {
       uint32_t difflist_len;
       reterr = pgr_read_refalt1_difflist_or_genovec_subset_unsafe(sample_include, sample_include_cumulative_popcounts, write_sample_ct, max_simple_difflist_len, vidx, &pgr, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
       if (reterr) {
-	fprintf(stderr, "\nread error %u, vidx=%u\n", (uint32_t)reterr, vidx);
-	goto main_ret_1;
+        fprintf(stderr, "\nread error %u, vidx=%u\n", (uint32_t)reterr, vidx);
+        goto main_ret_1;
       }
       if (difflist_common_geno == 0xffffffffU) {
         zero_trailing_bits(write_sample_ct * 2, genovec);
-	reterr = spgw_append_biallelic_genovec(genovec, &spgw);
+        reterr = spgw_append_biallelic_genovec(genovec, &spgw);
       } else if (difflist_len <= max_difflist_len) {
-	zero_trailing_bits(2 * difflist_len, raregeno);
-	difflist_sample_ids[difflist_len] = write_sample_ct;
-	reterr = spgw_append_biallelic_difflist_limited(raregeno, difflist_sample_ids, difflist_common_geno, difflist_len, &spgw);
+        zero_trailing_bits(2 * difflist_len, raregeno);
+        difflist_sample_ids[difflist_len] = write_sample_ct;
+        reterr = spgw_append_biallelic_difflist_limited(raregeno, difflist_sample_ids, difflist_common_geno, difflist_len, &spgw);
       } else {
-	pgr_difflist_to_genovec_unsafe(raregeno, difflist_sample_ids, difflist_common_geno, write_sample_ct, difflist_len, genovec);
+        pgr_difflist_to_genovec_unsafe(raregeno, difflist_sample_ids, difflist_common_geno, write_sample_ct, difflist_len, genovec);
         zero_trailing_bits(write_sample_ct * 2, genovec);
-	reterr = spgw_append_biallelic_genovec(genovec, &spgw);
+        reterr = spgw_append_biallelic_genovec(genovec, &spgw);
       }
       if (reterr) {
-	fprintf(stderr, "\ncompress/write error %u, vidx=%u\n", (uint32_t)reterr, vidx);
-	goto main_ret_1;
+        fprintf(stderr, "\ncompress/write error %u, vidx=%u\n", (uint32_t)reterr, vidx);
+        goto main_ret_1;
       }
       ++vidx;
       if (!(vidx % 100000)) {
-	printf("\r%u.%um variants compressed.", vidx / 1000000, (vidx / 100000) % 10);
-	fflush(stdout);
+        printf("\r%u.%um variants compressed.", vidx / 1000000, (vidx / 100000) % 10);
+        fflush(stdout);
       }
     }
   }
-  printf("\n");  
+  printf("\n");
 
   spgw_finish(&spgw);
   while (0) {

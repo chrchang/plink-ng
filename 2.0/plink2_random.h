@@ -44,5 +44,5 @@ pglerr_t randomize_bigstack(uint32_t thread_ct);
 #ifdef __cplusplus
 } // namespace plink2
 #endif
- 
+
 #endif // __PLINK2_RANDOM_H__

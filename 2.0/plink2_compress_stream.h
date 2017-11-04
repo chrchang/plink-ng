@@ -99,5 +99,5 @@ HEADER_INLINE void cswrite_close_cond(compress_stream_state_t* css_ptr, char* wr
 #ifdef __cplusplus
 } // namespace plink2
 #endif
- 
+
 #endif // __PLINK2_COMPRESS_STREAM_H__

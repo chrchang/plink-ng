@@ -83,5 +83,5 @@ boolerr_t gz_token_stream_close(gz_token_stream_t* gtsp);
 #ifdef __cplusplus
 } // namespace plink2
 #endif
- 
+
 #endif // __PLINK2_DECOMPRESS_H__

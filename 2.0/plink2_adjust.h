@@ -57,5 +57,5 @@ void init_adjust(adjust_info_t* adjust_info_ptr);
 #ifdef __cplusplus
 } // namespace plink2
 #endif
- 
+
 #endif // __PLINK2_ADJUST_H__

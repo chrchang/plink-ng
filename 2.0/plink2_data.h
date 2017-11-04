@@ -89,7 +89,7 @@ FLAGSET_DEF_END(make_plink2_t);
 FLAGSET_DEF_START()
   kfPvarPsam0,
   kfPvarZs = (1 << 0),
-  
+
   kfPvarColXheader = (1 << 1),
   kfPvarColMaybequal = (1 << 2),
   kfPvarColQual = (1 << 3),

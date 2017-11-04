@@ -207,7 +207,7 @@ void copy_when_nonmissing(const uintptr_t* loadbuf, const void* source, uintptr_
       const uintptr_t new_missing_idx = sample_idx_offset + (CTZLU(cur_word) / 2);
       if (new_missing_idx != copy_start_idx) {
         const uintptr_t diff = new_missing_idx - copy_start_idx;
-	dest_iter = memcpya(dest_iter, &(source_alias[copy_start_idx * elem_size]), diff * elem_size);
+        dest_iter = memcpya(dest_iter, &(source_alias[copy_start_idx * elem_size]), diff * elem_size);
       }
       copy_start_idx = new_missing_idx + 1;
       cur_word &= cur_word - 1;
@@ -232,7 +232,7 @@ uint32_t sid_col_required(const uintptr_t* sample_include, const char* sids, uin
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
       next_set_unsafe_ck(sample_include, &sample_uidx);
       if (memcmp(&(sids[sample_uidx * max_sid_blen]), "0", 2)) {
-	return 1;
+        return 1;
       }
     }
   }
@@ -323,12 +323,12 @@ boolerr_t sorted_xidbox_read_find(const char* __restrict sorted_xidbox, const ui
     unsigned char ucc = (unsigned char)(*token_iter);
     while (ucc != ',') {
       if (ucc < 32) {
-	if (!(xid_mode & kfXidModeFlagOneTokenOk)) {
-	  *read_pp = nullptr;
-	  return 1;
-	}
-	slen_fid = (uintptr_t)(token_iter - first_token_start);
-	goto sorted_xidbox_read_find_comma_single_token;
+        if (!(xid_mode & kfXidModeFlagOneTokenOk)) {
+          *read_pp = nullptr;
+          return 1;
+        }
+        slen_fid = (uintptr_t)(token_iter - first_token_start);
+        goto sorted_xidbox_read_find_comma_single_token;
       }
       ucc = (unsigned char)(*(++token_iter));
     }
@@ -339,31 +339,31 @@ boolerr_t sorted_xidbox_read_find(const char* __restrict sorted_xidbox, const ui
       slen_iid = slen_fid;
     } else {
       do {
-	ucc = (unsigned char)(*(++token_iter));
+        ucc = (unsigned char)(*(++token_iter));
       } while ((ucc == ' ') || (ucc == '\t'));
       iid_ptr = token_iter;
       while ((ucc >= 32) && (ucc != ',')) {
-	ucc = (unsigned char)(*(++token_iter));
+        ucc = (unsigned char)(*(++token_iter));
       }
       slen_iid = (uintptr_t)(token_iter - iid_ptr);
     }
     // token_iter now points to comma/eoln at end of IID
     if (xid_mode & kfXidModeFlagSid) {
       if (*token_iter != ',') {
-	return 1;
+        return 1;
       }
       do {
-	ucc = (unsigned char)(*(++token_iter));
+        ucc = (unsigned char)(*(++token_iter));
       } while ((ucc == ' ') || (ucc == '\t'));
       sid_ptr = token_iter;
       while ((ucc >= 32) && (ucc != ',')) {
-	ucc = (unsigned char)(*(++token_iter));
+        ucc = (unsigned char)(*(++token_iter));
       }
       blen_sid = 1 + (uintptr_t)(token_iter - sid_ptr);
       if (token_iter == sid_ptr) {
-	// special case: treat missing SID as '0'
-	blen_sid = 2;
-	// const_cast, since token_endnn doesn't return const pointer
+        // special case: treat missing SID as '0'
+        blen_sid = 2;
+        // const_cast, since token_endnn doesn't return const pointer
         // function is too long for me to be comfortable just turning off
         // -Wcast-qual...
         sid_ptr = (char*)((uintptr_t)(&(g_one_char_strs[96])));
@@ -380,13 +380,13 @@ boolerr_t sorted_xidbox_read_find(const char* __restrict sorted_xidbox, const ui
     } else {
       token_iter = skip_initial_spaces(token_iter);
       if (is_eoln_kns(*token_iter)) {
-	if (!(xid_mode & kfXidModeFlagOneTokenOk)) {
-	  *read_pp = nullptr;
-	  return 1;
-	}
-	// need to backtrack
-	token_iter = &(first_token_start[slen_fid]);
-	goto sorted_xidbox_read_find_space_single_token;
+        if (!(xid_mode & kfXidModeFlagOneTokenOk)) {
+          *read_pp = nullptr;
+          return 1;
+        }
+        // need to backtrack
+        token_iter = &(first_token_start[slen_fid]);
+        goto sorted_xidbox_read_find_space_single_token;
       }
       iid_ptr = token_iter;
       token_iter = token_endnn(iid_ptr);
@@ -396,8 +396,8 @@ boolerr_t sorted_xidbox_read_find(const char* __restrict sorted_xidbox, const ui
     if (xid_mode & kfXidModeFlagSid) {
       token_iter = skip_initial_spaces(token_iter);
       if (is_eoln_kns(*token_iter)) {
-	*read_pp = nullptr;
-	return 1;
+        *read_pp = nullptr;
+        return 1;
       }
       sid_ptr = token_iter;
       token_iter = token_endnn(sid_ptr);
@@ -428,7 +428,7 @@ pglerr_t load_xid_header(const char* flag_name, sid_detect_mode_t sid_detect_mod
     ++line_idx;
     if (!gzgets(*gz_infile_ptr, loadbuf, loadbuf_size)) {
       if (!gzeof(*gz_infile_ptr)) {
-	return kPglRetReadFail;
+        return kPglRetReadFail;
       }
       return kPglRetEmptyFile;
     }
@@ -452,15 +452,15 @@ pglerr_t load_xid_header(const char* flag_name, sid_detect_mode_t sid_detect_mod
     } else {
       loadbuf_iter = skip_initial_spaces(loadbuf_iter);
       if (strcmp_se(loadbuf_iter, "IID", 3)) {
-	LOGERRPRINTF("Error: No IID column on line %" PRIuPTR " of --%s file.\n", line_idx, flag_name);
-	return kPglRetMalformedInput;
+        LOGERRPRINTF("Error: No IID column on line %" PRIuPTR " of --%s file.\n", line_idx, flag_name);
+        return kPglRetMalformedInput;
       }
       loadbuf_iter = &(loadbuf_iter[3]);
     }
     loadbuf_iter = skip_initial_spaces(loadbuf_iter);
     if (!strcmp_se(loadbuf_iter, "SID", 3)) {
       if ((uint32_t)sid_detect_mode >= kSidDetectModeLoaded) {
-	xid_mode |= kfXidModeFlagSid;
+        xid_mode |= kfXidModeFlagSid;
       }
       loadbuf_iter = skip_initial_spaces(&(loadbuf_iter[3]));
     } else if (sid_detect_mode == kSidDetectModeForce) {
@@ -532,7 +532,7 @@ pglerr_t init_chr_info(chr_info_t* cip) {
   // while the latter doesn't match any major resource.  no "chr" to reduce
   // file sizes and reduce the impact of this change.
   cip->output_encoding = kfChrOutputMT;
-  
+
   cip->zero_extra_chrs = 0;
   cip->is_include_stack = 0;
   cip->chrset_source = kChrsetSourceDefault;
@@ -565,10 +565,10 @@ void finalize_chrset(misc_flags_t misc_flags, chr_info_t* cip) {
       break;
     }
   }
-  
+
   // could initialize haploid_mask bits (after the first) here, instead of
   // earlier...
-  
+
   cip->max_numeric_code = MINV(max_code, autosome_ct + 4);
   cip->max_code = max_code;
   uintptr_t* chr_mask = cip->chr_mask;
@@ -583,7 +583,7 @@ void finalize_chrset(misc_flags_t misc_flags, chr_info_t* cip) {
       const uint32_t xymt_idx = __builtin_ctz(xymt_include);
       const int32_t cur_chr_code = xymt_codes[xymt_idx];
       if (cur_chr_code >= 0) {
-	set_bit(cur_chr_code, chr_mask);
+        set_bit(cur_chr_code, chr_mask);
       }
       xymt_include &= xymt_include - 1;
     } while (xymt_include);
@@ -593,7 +593,7 @@ void finalize_chrset(misc_flags_t misc_flags, chr_info_t* cip) {
     for (uint32_t xymt_idx = 0; xymt_idx < kChrOffsetCt; ++xymt_idx) {
       const int32_t cur_chr_code = cip->xymt_codes[xymt_idx];
       if (cur_chr_code >= 0) {
-	set_bit(cur_chr_code, chr_mask);
+        set_bit(cur_chr_code, chr_mask);
       }
     }
   } else if (misc_flags & (kfMiscAutosomePar | kfMiscAutosomeOnly)) {
@@ -602,19 +602,19 @@ void finalize_chrset(misc_flags_t misc_flags, chr_info_t* cip) {
     if (misc_flags & kfMiscAutosomePar) {
       int32_t par_chr_code = cip->xymt_codes[kChrOffsetXY];
       if (par_chr_code >= 0) {
-	set_bit(par_chr_code, chr_mask);
+        set_bit(par_chr_code, chr_mask);
       }
       par_chr_code = cip->xymt_codes[kChrOffsetPAR1];
       if (par_chr_code >= 0) {
-	set_bit(par_chr_code, chr_mask);
+        set_bit(par_chr_code, chr_mask);
       }
       par_chr_code = cip->xymt_codes[kChrOffsetPAR2];
       if (par_chr_code >= 0) {
-	set_bit(par_chr_code, chr_mask);
+        set_bit(par_chr_code, chr_mask);
       }
     }
   }
-  
+
   uintptr_t* chr_exclude = cip->chr_exclude;
   uintptr_t last_chr_exclude_word = chr_exclude[kChrExcludeWords - 1];
   uint32_t xymt_exclude = last_chr_exclude_word >> (kBitsPerWord - kChrOffsetCt);
@@ -628,7 +628,7 @@ void finalize_chrset(misc_flags_t misc_flags, chr_info_t* cip) {
       const uint32_t xymt_idx = __builtin_ctz(xymt_exclude);
       const int32_t cur_chr_code = xymt_codes[xymt_idx];
       if (cur_chr_code >= 0) {
-	clear_bit(cur_chr_code, chr_mask);
+        clear_bit(cur_chr_code, chr_mask);
       }
       xymt_exclude &= xymt_exclude - 1;
     } while (xymt_exclude);
@@ -739,17 +739,17 @@ char* chr_name_std(const chr_info_t* cip, uint32_t chr_idx, char* buf) {
     if (output_encoding == kfChrOutput0M) {
       // force two chars
       if (chr_idx <= cip->autosome_ct) {
-	buf = memcpya(buf, &(kDigitPair[chr_idx]), 2);
+        buf = memcpya(buf, &(kDigitPair[chr_idx]), 2);
       } else if ((int32_t)chr_idx == cip->xymt_codes[kChrOffsetY]) {
-	buf = strcpya(buf, "XY");
+        buf = strcpya(buf, "XY");
       } else {
-	*buf++ = '0';
-	if ((int32_t)chr_idx == cip->xymt_codes[kChrOffsetX]) {
-	  *buf++ = 'X';
-	} else {
-	  // assumes only X/Y/XY/MT defined
-	  *buf++ = ((int32_t)chr_idx == cip->xymt_codes[kChrOffsetY])? 'Y' : 'M';
-	}
+        *buf++ = '0';
+        if ((int32_t)chr_idx == cip->xymt_codes[kChrOffsetX]) {
+          *buf++ = 'X';
+        } else {
+          // assumes only X/Y/XY/MT defined
+          *buf++ = ((int32_t)chr_idx == cip->xymt_codes[kChrOffsetY])? 'Y' : 'M';
+        }
       }
       return buf;
     }
@@ -808,7 +808,7 @@ uint32_t get_max_chr_slen(const chr_info_t* cip) {
     if (chr_idx > max_code) {
       const uint32_t name_slen = strlen(cip->nonstd_names[chr_idx]);
       if (name_slen > max_chr_slen) {
-	max_chr_slen = name_slen;
+        max_chr_slen = name_slen;
       }
     }
   }
@@ -854,17 +854,17 @@ int32_t get_chr_code_raw(const char* sptr) {
     if (first_char_toi < 10) {
       const uint32_t second_char_code = (unsigned char)sptr[1];
       if (second_char_code <= ' ') {
-	return first_char_toi;
+        return first_char_toi;
       }
       if (((unsigned char)sptr[2]) <= ' ') {
-	const uint32_t second_char_toi = second_char_code - '0';
-	if (second_char_toi < 10) {
-	  return first_char_toi * 10 + second_char_toi;
-	}
-	if (!first_char_toi) {
-	  // accept '0X', '0Y', '0M' emitted by Oxford software
-	  return single_cap_letter_chrom(second_char_code & 0xdf);
-	}
+        const uint32_t second_char_toi = second_char_code - '0';
+        if (second_char_toi < 10) {
+          return first_char_toi * 10 + second_char_toi;
+        }
+        if (!first_char_toi) {
+          // accept '0X', '0Y', '0M' emitted by Oxford software
+          return single_cap_letter_chrom(second_char_code & 0xdf);
+        }
       }
     }
     return -1;
@@ -879,7 +879,7 @@ int32_t get_chr_code_raw(const char* sptr) {
     if (((second_char_code & 0xdf) == 'A') && ((((unsigned char)sptr[2]) & 0xdf) == 'R')) {
       const uint32_t par_idx_m1 = ((unsigned char)sptr[3]) - '1';
       if ((par_idx_m1 < 2) && (((unsigned char)sptr[4]) <= ' ')) {
-	return kChrRawPAR1 + par_idx_m1;
+        return kChrRawPAR1 + par_idx_m1;
       }
     }
     return -1;
@@ -979,7 +979,7 @@ pglerr_t try_to_add_chr_name(const char* chr_name, const char* file_descrip, uin
   }
 
   // quasi-bugfix: remove redundant hash table check
-  
+
   if (chr_name[0] == '#') {
     // redundant with some of the comment-skipping loaders, but this isn't
     // performance-critical
@@ -1063,10 +1063,10 @@ uintptr_t count_11_vecs(const vul_t* geno_vvec, uintptr_t vec_ct) {
 
     univec_t acc;
     acc.vi = vul_setzero();
-    
+
     if (geno_vvec_stop > geno_vvec_end) {
       if (geno_vvec_iter == geno_vvec_end) {
-	return tot;
+        return tot;
       }
       geno_vvec_stop = geno_vvec_end;
     }
@@ -1074,7 +1074,7 @@ uintptr_t count_11_vecs(const vul_t* geno_vvec, uintptr_t vec_ct) {
       vul_t cur_geno_vword = *geno_vvec_iter++;
       vul_t count1 = cur_geno_vword & m1;
       count1 = count1 & vul_rshift(cur_geno_vword, 1);
-      
+
       cur_geno_vword = *geno_vvec_iter++;
       vul_t cur_11 = cur_geno_vword & m1;
       cur_11 = cur_11 & vul_rshift(cur_geno_vword, 1);
@@ -1089,7 +1089,7 @@ uintptr_t count_11_vecs(const vul_t* geno_vvec, uintptr_t vec_ct) {
       cur_geno_vword = *geno_vvec_iter++;
       vul_t count2 = cur_geno_vword & m1;
       count2 = count2 & vul_rshift(cur_geno_vword, 1);
-      
+
       cur_geno_vword = *geno_vvec_iter++;
       vul_t cur_11 = cur_geno_vword & m1;
       cur_11 = cur_11 & vul_rshift(cur_geno_vword, 1);
@@ -1215,9 +1215,9 @@ void set_male_het_missing(const uintptr_t* __restrict sex_male_interleaved, uint
     const vul_t sex_male_first = sex_male_vvec & m1;
     const vul_t sex_male_second_shifted = (~m1) & sex_male_vvec;
     vul_t cur_geno_vword = *genovvec_iter;
-    
+
     const vul_t missing_male_vword = sex_male_first & cur_geno_vword;
-    
+
     *genovvec_iter++ = cur_geno_vword | vul_lshift(missing_male_vword, 1);
     cur_geno_vword = *genovvec_iter;
     *genovvec_iter++ = cur_geno_vword | (sex_male_second_shifted & vul_lshift(cur_geno_vword, 1));
@@ -1250,7 +1250,7 @@ void set_male_het_missing(const uintptr_t* __restrict sex_male_interleaved, uint
 // Assumes that either trailing bits of bitarr are already zero, or trailing
 // bits of genovec are zero.
 //
-// Similar to pgr_detect_genovec_hets_unsafe(). 
+// Similar to pgr_detect_genovec_hets_unsafe().
 void mask_genovec_hets_unsafe(const uintptr_t* __restrict genovec, uint32_t raw_sample_ctl2, uintptr_t* __restrict bitarr) {
   halfword_t* bitarr_alias = (halfword_t*)bitarr;
   for (uint32_t widx = 0; widx < raw_sample_ctl2; ++widx) {
@@ -1291,7 +1291,7 @@ uint32_t chr_window_max(const uintptr_t* variant_include, const chr_info_t* cip,
       } while (variant_bp_thresh > window_bp_first);
     } else if (variant_idx - window_idx_first == cur_window_max) {
       if (++cur_window_max == ct_max) {
-	return cur_window_max;
+        return cur_window_max;
       }
     }
   }
@@ -1430,7 +1430,7 @@ void cleanup_allele_storage(uint32_t max_allele_slen, uintptr_t allele_storage_e
   // Now doesn't improperly free bigstack allocations (as long as they aren't
   // past g_bigstack_end), and doesn't need to be called at all most of the
   // time.
-  
+
   // An alternative representation: have a separate bitarray which indicates
   // whether the allele_storage[] element should be interpreted as a heap
   // pointer or an in-place zero-terminated string (i.e. string length can be
@@ -1445,7 +1445,7 @@ void cleanup_allele_storage(uint32_t max_allele_slen, uintptr_t allele_storage_e
       assert(cur_entry);
       // take advantage of unsigned wraparound
       if ((((uintptr_t)cur_entry) - bigstack_end_addr) >= maxdiff) {
-	free(cur_entry);
+        free(cur_entry);
       }
     }
   }
@@ -1541,7 +1541,7 @@ uint32_t is_const_covar(const pheno_col_t* covar_col, const uintptr_t* sample_in
       ++sample_uidx;
       next_set_unsafe_ck(sample_include, &sample_uidx);
       if (covar_vals[sample_uidx] != first_covar_val) {
-	return 0;
+        return 0;
       }
     }
     return 1;
@@ -1606,55 +1606,55 @@ pglerr_t parse_chr_ranges(const char* flagname_p, const char* errstr_append, uin
     while (1) {
       char* range_start;
       if (parse_next_range(argv, param_ct, range_delim, &cur_param_idx, &cur_arg_ptr, &range_start, &rs_len, &range_end, &re_len)) {
-	sprintf(g_logbuf, "Error: Invalid --%s parameter '%s'.\n", flagname_p, argv[cur_param_idx]);
-	goto parse_chr_ranges_ret_INVALID_CMDLINE_WWA;
+        sprintf(g_logbuf, "Error: Invalid --%s parameter '%s'.\n", flagname_p, argv[cur_param_idx]);
+        goto parse_chr_ranges_ret_INVALID_CMDLINE_WWA;
       }
       if (!range_start) {
-	break;
+        break;
       }
       const char cc = range_start[rs_len];
       range_start[rs_len] = '\0';
       int32_t chr_code_start = get_chr_code_raw(range_start);
       if (chr_code_start < 0) {
-	if (!allow_extra_chrs) {
-	  sprintf(g_logbuf, "Error: Invalid --%s chromosome code '%s'.\n", flagname_p, range_start);
-	  goto parse_chr_ranges_ret_INVALID_CMDLINE_WWA;
-	}
-	if (range_end) {
-	  goto parse_chr_ranges_ret_INVALID_CMDLINE_NONSTD;
-	}
+        if (!allow_extra_chrs) {
+          sprintf(g_logbuf, "Error: Invalid --%s chromosome code '%s'.\n", flagname_p, range_start);
+          goto parse_chr_ranges_ret_INVALID_CMDLINE_WWA;
+        }
+        if (range_end) {
+          goto parse_chr_ranges_ret_INVALID_CMDLINE_NONSTD;
+        }
         if (push_llstr(range_start, &(cip->incl_excl_name_stack))) {
-	  goto parse_chr_ranges_ret_NOMEM;
-	}
+          goto parse_chr_ranges_ret_NOMEM;
+        }
       } else {
-	if (chr_code_start >= ((int32_t)kMaxContigs)) {
-	  chr_code_start -= xymt_subtract;
-	}
-	if (range_end) {
-	  const char cc2 = range_end[re_len];
-	  range_end[re_len] = '\0';
-	  int32_t chr_code_end = get_chr_code_raw(range_end);
-	  if (chr_code_end < 0) {
-	    if (!allow_extra_chrs) {
-	      sprintf(g_logbuf, "Error: Invalid --%s chromosome code '%s'.\n", flagname_p, range_end);
-	      goto parse_chr_ranges_ret_INVALID_CMDLINE_WWA;
-	    }
-	    goto parse_chr_ranges_ret_INVALID_CMDLINE_NONSTD;
-	  }
-	  if (chr_code_end >= ((int32_t)kMaxContigs)) {
-	    // prohibit stuff like "--chr par1-par2", "--chr x-y", "--chr x-26"
-	    sprintf(g_logbuf, "Error: --%s chromosome code '%s' cannot be the end of a range.\n", flagname_p, range_end);
-	    goto parse_chr_ranges_ret_INVALID_CMDLINE_WWA;
-	  }
-	  if (chr_code_end <= chr_code_start) {
-	    sprintf(g_logbuf, "Error: --%s chromosome code '%s' is not greater than '%s'.\n", flagname_p, range_end, range_start);
-	    goto parse_chr_ranges_ret_INVALID_CMDLINE_WWA;
-	  }
-	  range_end[re_len] = cc2;
-	  fill_bits_nz(chr_code_start, chr_code_end + 1, chr_mask);
-	} else {
+        if (chr_code_start >= ((int32_t)kMaxContigs)) {
+          chr_code_start -= xymt_subtract;
+        }
+        if (range_end) {
+          const char cc2 = range_end[re_len];
+          range_end[re_len] = '\0';
+          int32_t chr_code_end = get_chr_code_raw(range_end);
+          if (chr_code_end < 0) {
+            if (!allow_extra_chrs) {
+              sprintf(g_logbuf, "Error: Invalid --%s chromosome code '%s'.\n", flagname_p, range_end);
+              goto parse_chr_ranges_ret_INVALID_CMDLINE_WWA;
+            }
+            goto parse_chr_ranges_ret_INVALID_CMDLINE_NONSTD;
+          }
+          if (chr_code_end >= ((int32_t)kMaxContigs)) {
+            // prohibit stuff like "--chr par1-par2", "--chr x-y", "--chr x-26"
+            sprintf(g_logbuf, "Error: --%s chromosome code '%s' cannot be the end of a range.\n", flagname_p, range_end);
+            goto parse_chr_ranges_ret_INVALID_CMDLINE_WWA;
+          }
+          if (chr_code_end <= chr_code_start) {
+            sprintf(g_logbuf, "Error: --%s chromosome code '%s' is not greater than '%s'.\n", flagname_p, range_end, range_start);
+            goto parse_chr_ranges_ret_INVALID_CMDLINE_WWA;
+          }
+          range_end[re_len] = cc2;
+          fill_bits_nz(chr_code_start, chr_code_end + 1, chr_mask);
+        } else {
           set_bit(chr_code_start, chr_mask);
-	}
+        }
       }
       range_start[rs_len] = cc;
     }
@@ -1728,7 +1728,7 @@ pglerr_t multithread_load_init(const uintptr_t* variant_include, uint32_t sample
 
   const uint32_t sample_ctcl2 = QUATERCT_TO_CLCT(sample_ct);
   const uint32_t sample_ctcl = BITCT_TO_CLCT(sample_ct);
-  
+
   // todo: increase in multiallelic case
   const uintptr_t dosage_vals_cl = DIV_UP(sample_ct, (kCacheline / sizeof(dosage_t)));
   if (genovecs_ptr) {
@@ -1770,8 +1770,8 @@ pglerr_t multithread_load_init(const uintptr_t* variant_include, uint32_t sample
     for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
       (*genovecs_ptr)[tidx] = (uintptr_t*)bigstack_alloc_raw(genovec_alloc);
       if (dosage_present_ptr) {
-	(*dosage_present_ptr)[tidx] = (uintptr_t*)bigstack_alloc_raw(dosage_present_alloc);
-	(*dosage_val_bufs_ptr)[tidx] = (dosage_t*)bigstack_alloc_raw(dosage_vals_alloc);
+        (*dosage_present_ptr)[tidx] = (uintptr_t*)bigstack_alloc_raw(dosage_present_alloc);
+        (*dosage_val_bufs_ptr)[tidx] = (dosage_t*)bigstack_alloc_raw(dosage_vals_alloc);
       }
     }
   }
@@ -1792,12 +1792,12 @@ pglerr_t write_sample_ids(const uintptr_t* sample_include, const char* sample_id
       next_set_ul_unsafe_ck(sample_include, &sample_uidx);
       write_iter = strcpya(write_iter, &(sample_ids[sample_uidx * max_sample_id_blen]));
       if (sids) {
-	*write_iter++ = '\t';
-	write_iter = strcpya(write_iter, &(sids[sample_uidx * max_sid_blen]));
+        *write_iter++ = '\t';
+        write_iter = strcpya(write_iter, &(sids[sample_uidx * max_sid_blen]));
       }
       append_binary_eoln(&write_iter);
       if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
-	goto write_sample_ids_ret_WRITE_FAIL;
+        goto write_sample_ids_ret_WRITE_FAIL;
       }
     }
     if (fclose_flush_null(textbuf_flush, write_iter, &outfile)) {

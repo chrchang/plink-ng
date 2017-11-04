@@ -37,130 +37,130 @@ pglerr_t load_range_list(const chr_info_t* cip, const uint32_t* variant_bps, con
     if (track_set_names) {
       uintptr_t line_idx = 0;
       while (gzgets(gz_infile, g_textbuf, kMaxMediumLine)) {
-	++line_idx;
-	if (!g_textbuf[kMaxMediumLine - 1]) {
-	  sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, file_descrip);
-	  goto load_range_list_ret_MALFORMED_INPUT_2;
-	}
-	char* textbuf_first_token = skip_initial_spaces(g_textbuf);
-	if (is_eoln_kns(*textbuf_first_token)) {
-	  continue;
-	}
-	char* first_token_end = token_endnn(textbuf_first_token);
-	char* cur_set_id = next_token_mult(first_token_end, 3);
-	char* last_token;
-	if (!collapse_group) {
-	  last_token = cur_set_id;
-	} else {
-	  last_token = next_token(cur_set_id);
-	}
-	if (no_more_tokens_kns(last_token)) {
-	  sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, file_descrip);
-	  goto load_range_list_ret_MALFORMED_INPUT_2;
-	}
-	const uint32_t chr_name_slen = (uintptr_t)(first_token_end - textbuf_first_token);
-	*first_token_end = '\0';
-	const int32_t cur_chr_code = get_chr_code(textbuf_first_token, cip, chr_name_slen);
-	if (cur_chr_code < 0) {
-	  sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
-	  goto load_range_list_ret_MALFORMED_INPUT_2;
-	}
-	// chr_mask check removed, we want to track empty sets
-	uint32_t set_id_slen = strlen_se(cur_set_id);
-	cur_set_id[set_id_slen] = '\0';
-	if (subset_ct) {
-	  if (bsearch_str(cur_set_id, sorted_subset_ids, set_id_slen, max_subset_id_blen, subset_ct) == -1) {
-	    continue;
-	  }
-	}
-	if (collapse_group) {
-	  set_id_slen = strlen_se(last_token);
-	  last_token[set_id_slen] = '\0';
-	}
-	// when there are repeats, they are likely to be next to each other
-	if (make_set_ll && (!strcmp(make_set_ll->ss, last_token))) {
-	  continue;
-	}
-	uint32_t set_id_blen = set_id_slen + 1;
-	// argh, --clump counts positional overlaps which don't include any
-	// variants in the dataset.  So we prefix set IDs with a chromosome
-	// index in that case (with leading zeroes) and treat cross-chromosome
-	// sets as distinct.
-	if (!variant_bps) {
-	  set_id_blen += kMaxChrCodeDigits;
-	}
-	if (set_id_blen > max_set_id_blen) {
-	  max_set_id_blen = set_id_blen;
-	}
-	ll_str_t* ll_tmp;
-	if (bigstack_end_alloc_llstr(set_id_blen, &ll_tmp)) {
-	  goto load_range_list_ret_NOMEM;
-	}
-	ll_tmp->next = make_set_ll;
-	if (variant_bps) {
-	  memcpy(ll_tmp->ss, last_token, set_id_blen);
-	} else {
-	  uitoa_z5((uint32_t)cur_chr_code, ll_tmp->ss);
-	  // if first character of gene name is a digit, natural sort has
-	  // strange effects unless we force [3] to be nonnumeric...
-	  ll_tmp->ss[kMaxChrCodeDigits - 1] -= 15;
-	  memcpy(&(ll_tmp->ss[kMaxChrCodeDigits]), last_token, set_id_blen - kMaxChrCodeDigits);
-	}
-	make_set_ll = ll_tmp;
-	++set_ct;
+        ++line_idx;
+        if (!g_textbuf[kMaxMediumLine - 1]) {
+          sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, file_descrip);
+          goto load_range_list_ret_MALFORMED_INPUT_2;
+        }
+        char* textbuf_first_token = skip_initial_spaces(g_textbuf);
+        if (is_eoln_kns(*textbuf_first_token)) {
+          continue;
+        }
+        char* first_token_end = token_endnn(textbuf_first_token);
+        char* cur_set_id = next_token_mult(first_token_end, 3);
+        char* last_token;
+        if (!collapse_group) {
+          last_token = cur_set_id;
+        } else {
+          last_token = next_token(cur_set_id);
+        }
+        if (no_more_tokens_kns(last_token)) {
+          sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, file_descrip);
+          goto load_range_list_ret_MALFORMED_INPUT_2;
+        }
+        const uint32_t chr_name_slen = (uintptr_t)(first_token_end - textbuf_first_token);
+        *first_token_end = '\0';
+        const int32_t cur_chr_code = get_chr_code(textbuf_first_token, cip, chr_name_slen);
+        if (cur_chr_code < 0) {
+          sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
+          goto load_range_list_ret_MALFORMED_INPUT_2;
+        }
+        // chr_mask check removed, we want to track empty sets
+        uint32_t set_id_slen = strlen_se(cur_set_id);
+        cur_set_id[set_id_slen] = '\0';
+        if (subset_ct) {
+          if (bsearch_str(cur_set_id, sorted_subset_ids, set_id_slen, max_subset_id_blen, subset_ct) == -1) {
+            continue;
+          }
+        }
+        if (collapse_group) {
+          set_id_slen = strlen_se(last_token);
+          last_token[set_id_slen] = '\0';
+        }
+        // when there are repeats, they are likely to be next to each other
+        if (make_set_ll && (!strcmp(make_set_ll->ss, last_token))) {
+          continue;
+        }
+        uint32_t set_id_blen = set_id_slen + 1;
+        // argh, --clump counts positional overlaps which don't include any
+        // variants in the dataset.  So we prefix set IDs with a chromosome
+        // index in that case (with leading zeroes) and treat cross-chromosome
+        // sets as distinct.
+        if (!variant_bps) {
+          set_id_blen += kMaxChrCodeDigits;
+        }
+        if (set_id_blen > max_set_id_blen) {
+          max_set_id_blen = set_id_blen;
+        }
+        ll_str_t* ll_tmp;
+        if (bigstack_end_alloc_llstr(set_id_blen, &ll_tmp)) {
+          goto load_range_list_ret_NOMEM;
+        }
+        ll_tmp->next = make_set_ll;
+        if (variant_bps) {
+          memcpy(ll_tmp->ss, last_token, set_id_blen);
+        } else {
+          uitoa_z5((uint32_t)cur_chr_code, ll_tmp->ss);
+          // if first character of gene name is a digit, natural sort has
+          // strange effects unless we force [3] to be nonnumeric...
+          ll_tmp->ss[kMaxChrCodeDigits - 1] -= 15;
+          memcpy(&(ll_tmp->ss[kMaxChrCodeDigits]), last_token, set_id_blen - kMaxChrCodeDigits);
+        }
+        make_set_ll = ll_tmp;
+        ++set_ct;
       }
       if (!gzeof(gz_infile)) {
-	goto load_range_list_ret_READ_FAIL;
+        goto load_range_list_ret_READ_FAIL;
       }
       if (!set_ct) {
-	if (fail_on_no_sets) {
-	  if (variant_bps) {
-	    if (!allow_no_variants) {
-	      // okay, this is a kludge
-	      logerrprint("Error: All variants excluded by --gene{-all}, since no sets were defined from\n--make-set file.\n");
-	      reterr = kPglRetMalformedInput;
-	      goto load_range_list_ret_1;
-	    }
-	  } else {
-	    if (subset_ct) {
-	      logerrprint("Error: No --gene-subset genes present in --gene-report file.\n");
-	      reterr = kPglRetInconsistentInput;
-	    } else {
-	      logerrprint("Error: Empty --gene-report file.\n");
-	      reterr = kPglRetMalformedInput;
-	    }
-	    goto load_range_list_ret_1;
-	  }
-	}
-	LOGERRPRINTF("Warning: No valid ranges in %s.\n", file_descrip);
-	goto load_range_list_ret_1;
+        if (fail_on_no_sets) {
+          if (variant_bps) {
+            if (!allow_no_variants) {
+              // okay, this is a kludge
+              logerrprint("Error: All variants excluded by --gene{-all}, since no sets were defined from\n--make-set file.\n");
+              reterr = kPglRetMalformedInput;
+              goto load_range_list_ret_1;
+            }
+          } else {
+            if (subset_ct) {
+              logerrprint("Error: No --gene-subset genes present in --gene-report file.\n");
+              reterr = kPglRetInconsistentInput;
+            } else {
+              logerrprint("Error: Empty --gene-report file.\n");
+              reterr = kPglRetMalformedInput;
+            }
+            goto load_range_list_ret_1;
+          }
+        }
+        LOGERRPRINTF("Warning: No valid ranges in %s.\n", file_descrip);
+        goto load_range_list_ret_1;
       }
       // c_prefix is 0 or 2
       max_set_id_blen += c_prefix;
       if (max_set_id_blen > kMaxIdBlen) {
-	logerrprint("Error: Set IDs are limited to " MAX_ID_SLEN_STR " characters.\n");
-	goto load_range_list_ret_MALFORMED_INPUT;
+        logerrprint("Error: Set IDs are limited to " MAX_ID_SLEN_STR " characters.\n");
+        goto load_range_list_ret_MALFORMED_INPUT;
       }
       char** strptr_arr;
       if (bigstack_alloc_c(set_ct * max_set_id_blen, set_names_ptr) ||
-	  bigstack_alloc_cp(set_ct, &strptr_arr)) {
-	goto load_range_list_ret_NOMEM;
+          bigstack_alloc_cp(set_ct, &strptr_arr)) {
+        goto load_range_list_ret_NOMEM;
       }
       set_names = *set_names_ptr;
       for (uintptr_t set_idx = 0; set_idx < set_ct; ++set_idx) {
-	strptr_arr[set_idx] = make_set_ll->ss;
-	make_set_ll = make_set_ll->next;
+        strptr_arr[set_idx] = make_set_ll->ss;
+        make_set_ll = make_set_ll->next;
       }
       strptr_arr_nsort(set_ct, strptr_arr);
       set_ct = copy_and_dedup_sorted_strptrs_to_strbox(strptr_arr, set_ct, max_set_id_blen, &(set_names[c_prefix]));
       if (c_prefix) {
-	for (uintptr_t set_idx = 0; set_idx < set_ct; ++set_idx) {
-	  memcpy(&(set_names[set_idx * max_set_id_blen]), "C_", 2);
-	}
+        for (uintptr_t set_idx = 0; set_idx < set_ct; ++set_idx) {
+          memcpy(&(set_names[set_idx * max_set_id_blen]), "C_", 2);
+        }
       }
       bigstack_shrink_top(set_names, set_ct * max_set_id_blen);
       if (gzrewind(gz_infile)) {
-	goto load_range_list_ret_READ_FAIL;
+        goto load_range_list_ret_READ_FAIL;
       }
     } else {
       set_ct = 1;
@@ -176,112 +176,112 @@ pglerr_t load_range_list(const chr_info_t* cip, const uint32_t* variant_bps, con
     while (gzgets(gz_infile, g_textbuf, kMaxMediumLine)) {
       ++line_idx;
       if (!g_textbuf[kMaxMediumLine - 1]) {
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, file_descrip);
-	goto load_range_list_ret_MALFORMED_INPUT_2;
+        sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, file_descrip);
+        goto load_range_list_ret_MALFORMED_INPUT_2;
       }
       char* textbuf_first_token = skip_initial_spaces(g_textbuf);
       if (is_eoln_kns(*textbuf_first_token)) {
-	continue;
+        continue;
       }
       char* first_token_end = token_endnn(textbuf_first_token);
       char* cur_set_id = next_token_mult(first_token_end, 3);
       char* last_token;
       if (!collapse_group) {
-	last_token = cur_set_id;
+        last_token = cur_set_id;
       } else {
-	last_token = next_token(cur_set_id);
+        last_token = next_token(cur_set_id);
       }
       if (no_more_tokens_kns(last_token)) {
-	sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, file_descrip);
-	goto load_range_list_ret_MALFORMED_INPUT_2;
+        sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, file_descrip);
+        goto load_range_list_ret_MALFORMED_INPUT_2;
       }
       const uint32_t chr_name_slen = (uintptr_t)(first_token_end - textbuf_first_token);
       *first_token_end = '\0';
       const int32_t cur_chr_code = get_chr_code(textbuf_first_token, cip, chr_name_slen);
       if (cur_chr_code < 0) {
-	sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
-	goto load_range_list_ret_MALFORMED_INPUT_2;
+        sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
+        goto load_range_list_ret_MALFORMED_INPUT_2;
       }
       if (!is_set(cip->chr_mask, cur_chr_code)) {
-	continue;
+        continue;
       }
       if (variant_bps) {
-	const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[(uint32_t)cur_chr_code];
-	chr_start = cip->chr_fo_vidx_start[chr_fo_idx];
-	chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-	if (chr_end == chr_start) {
-	  continue;
-	}
-	// might need to move this outside the if-statement later
-	if (subset_ct && (bsearch_str(cur_set_id, sorted_subset_ids, strlen_se(cur_set_id), max_subset_id_blen, subset_ct) == -1)) {
-	  continue;
-	}
+        const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[(uint32_t)cur_chr_code];
+        chr_start = cip->chr_fo_vidx_start[chr_fo_idx];
+        chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+        if (chr_end == chr_start) {
+          continue;
+        }
+        // might need to move this outside the if-statement later
+        if (subset_ct && (bsearch_str(cur_set_id, sorted_subset_ids, strlen_se(cur_set_id), max_subset_id_blen, subset_ct) == -1)) {
+          continue;
+        }
       }
       char* textbuf_iter = skip_initial_spaces(&(first_token_end[1]));
       uint32_t range_first;
       if (scanadv_uint_defcap(&textbuf_iter, &range_first)) {
-	sprintf(g_logbuf, "Error: Invalid range start position on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
-	goto load_range_list_ret_MALFORMED_INPUT_2;
+        sprintf(g_logbuf, "Error: Invalid range start position on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
+        goto load_range_list_ret_MALFORMED_INPUT_2;
       }
       textbuf_iter = next_token(textbuf_iter);
       uint32_t range_last;
       if (scanadv_uint_defcap(&textbuf_iter, &range_last)) {
-	sprintf(g_logbuf, "Error: Invalid range end position on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
-	goto load_range_list_ret_MALFORMED_INPUT_2;
+        sprintf(g_logbuf, "Error: Invalid range end position on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
+        goto load_range_list_ret_MALFORMED_INPUT_2;
       }
       if (range_last < range_first) {
-	sprintf(g_logbuf, "Error: Range end position smaller than range start on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
-	wordwrapb(0);
-	goto load_range_list_ret_MALFORMED_INPUT_2;
+        sprintf(g_logbuf, "Error: Range end position smaller than range start on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
+        wordwrapb(0);
+        goto load_range_list_ret_MALFORMED_INPUT_2;
       }
       if (border_extend > range_first) {
-	range_first = 0;
+        range_first = 0;
       } else {
-	range_first -= border_extend;
+        range_first -= border_extend;
       }
       range_last += border_extend;
       uint32_t cur_set_idx = 0;
       if (set_ct > 1) {
-	// bugfix: bsearch_str_natural requires null-terminated string
-	const uint32_t last_token_slen = strlen_se(last_token);
-	last_token[last_token_slen] = '\0';
-	if (c_prefix) {
-	  last_token = &(last_token[-2]);
-	  memcpy(last_token, "C_", 2);
-	} else if (!variant_bps) {
-	  last_token = &(last_token[-((int32_t)kMaxChrCodeDigits)]);
-	  uitoa_z5((uint32_t)cur_chr_code, last_token);
-	  last_token[kMaxChrCodeDigits - 1] -= 15;
-	}
-	// this should never fail
-	cur_set_idx = (uint32_t)bsearch_str_natural(last_token, set_names, max_set_id_blen, set_ct);
+        // bugfix: bsearch_str_natural requires null-terminated string
+        const uint32_t last_token_slen = strlen_se(last_token);
+        last_token[last_token_slen] = '\0';
+        if (c_prefix) {
+          last_token = &(last_token[-2]);
+          memcpy(last_token, "C_", 2);
+        } else if (!variant_bps) {
+          last_token = &(last_token[-((int32_t)kMaxChrCodeDigits)]);
+          uitoa_z5((uint32_t)cur_chr_code, last_token);
+          last_token[kMaxChrCodeDigits - 1] -= 15;
+        }
+        // this should never fail
+        cur_set_idx = (uint32_t)bsearch_str_natural(last_token, set_names, max_set_id_blen, set_ct);
       }
       if (variant_bps) {
-	// translate to within-chromosome uidx
-	range_first = uint32arr_greater_than(&(variant_bps[chr_start]), chr_end - chr_start, range_first);
-	range_last = uint32arr_greater_than(&(variant_bps[chr_start]), chr_end - chr_start, range_last + 1);
-	if (range_last > range_first) {
-	  make_set_range_t* msr_tmp = (make_set_range_t*)bigstack_end_alloc(sizeof(make_set_range_t));
-	  if (!msr_tmp) {
-	    goto load_range_list_ret_NOMEM;
-	  }
-	  msr_tmp->next = make_set_range_arr[cur_set_idx];
-	  // normally, I'd keep chr_idx here since that enables by-chromosome
-	  // sorting, but that's probably not worth bloating make_set_range_t
-	  // from 16 to 32 bytes
-	  msr_tmp->uidx_start = chr_start + range_first;
-	  msr_tmp->uidx_end = chr_start + range_last;
-	  make_set_range_arr[cur_set_idx] = msr_tmp;
-	}
+        // translate to within-chromosome uidx
+        range_first = uint32arr_greater_than(&(variant_bps[chr_start]), chr_end - chr_start, range_first);
+        range_last = uint32arr_greater_than(&(variant_bps[chr_start]), chr_end - chr_start, range_last + 1);
+        if (range_last > range_first) {
+          make_set_range_t* msr_tmp = (make_set_range_t*)bigstack_end_alloc(sizeof(make_set_range_t));
+          if (!msr_tmp) {
+            goto load_range_list_ret_NOMEM;
+          }
+          msr_tmp->next = make_set_range_arr[cur_set_idx];
+          // normally, I'd keep chr_idx here since that enables by-chromosome
+          // sorting, but that's probably not worth bloating make_set_range_t
+          // from 16 to 32 bytes
+          msr_tmp->uidx_start = chr_start + range_first;
+          msr_tmp->uidx_end = chr_start + range_last;
+          make_set_range_arr[cur_set_idx] = msr_tmp;
+        }
       } else {
-	make_set_range_t* msr_tmp = (make_set_range_t*)bigstack_end_alloc(sizeof(make_set_range_t));
-	if (!msr_tmp) {
-	  goto load_range_list_ret_NOMEM;
-	}
-	msr_tmp->next = make_set_range_arr[cur_set_idx];
-	msr_tmp->uidx_start = range_first;
-	msr_tmp->uidx_end = range_last + 1;
-	make_set_range_arr[cur_set_idx] = msr_tmp;
+        make_set_range_t* msr_tmp = (make_set_range_t*)bigstack_end_alloc(sizeof(make_set_range_t));
+        if (!msr_tmp) {
+          goto load_range_list_ret_NOMEM;
+        }
+        msr_tmp->next = make_set_range_arr[cur_set_idx];
+        msr_tmp->uidx_start = range_first;
+        msr_tmp->uidx_end = range_last + 1;
+        make_set_range_arr[cur_set_idx] = msr_tmp;
       }
     }
     if (!gzeof(gz_infile)) {
@@ -293,16 +293,16 @@ pglerr_t load_range_list(const chr_info_t* cip, const uint32_t* variant_bps, con
       uint32_t cur_set_range_ct = 0;
       make_set_range_t* msr_tmp = make_set_range_arr[set_idx];
       while (msr_tmp) {
-	++cur_set_range_ct;
-	msr_tmp = msr_tmp->next;
+        ++cur_set_range_ct;
+        msr_tmp = msr_tmp->next;
       }
       if (cur_set_range_ct > max_set_range_ct) {
-	max_set_range_ct = cur_set_range_ct;
+        max_set_range_ct = cur_set_range_ct;
       }
     }
     if (range_sort_buf_ptr) {
       if (bigstack_end_alloc_ull(max_set_range_ct, range_sort_buf_ptr)) {
-	goto load_range_list_ret_NOMEM;
+        goto load_range_list_ret_NOMEM;
       }
     }
     if (set_ct_ptr) {
@@ -344,34 +344,34 @@ pglerr_t extract_exclude_range(const char* fnames, const chr_info_t* cip, const 
     uintptr_t* variant_include_mask = nullptr;
     if (!do_exclude) {
       if (bigstack_calloc_ul(raw_variant_ctl, &variant_include_mask)) {
-	goto extract_exclude_range_ret_NOMEM;
+        goto extract_exclude_range_ret_NOMEM;
       }
     }
     const char* fnames_iter = fnames;
     do {
       reterr = gzopen_read_checked(fnames_iter, &gz_infile);
       if (reterr) {
-	goto extract_exclude_range_ret_1;
+        goto extract_exclude_range_ret_1;
       }
       make_set_range_t** range_arr = nullptr;
       reterr = load_range_list(cip, variant_bps, nullptr, do_exclude? "--exclude range file" : "--extract range file", 0, 0, 0, 0, 0, 1, 0, 0, gz_infile, nullptr, nullptr, nullptr, nullptr, &range_arr);
       if (reterr) {
-	goto extract_exclude_range_ret_1;
+        goto extract_exclude_range_ret_1;
       }
       if (gzclose_null(&gz_infile)) {
-	goto extract_exclude_range_ret_READ_FAIL;
+        goto extract_exclude_range_ret_READ_FAIL;
       }
       make_set_range_t* msr_tmp = range_arr[0];
       if (do_exclude) {
-	while (msr_tmp) {
-	  clear_bits_nz(msr_tmp->uidx_start, msr_tmp->uidx_end, variant_include);
-	  msr_tmp = msr_tmp->next;
-	}
+        while (msr_tmp) {
+          clear_bits_nz(msr_tmp->uidx_start, msr_tmp->uidx_end, variant_include);
+          msr_tmp = msr_tmp->next;
+        }
       } else {
-	while (msr_tmp) {
-	  fill_bits_nz(msr_tmp->uidx_start, msr_tmp->uidx_end, variant_include_mask);
-	  msr_tmp = msr_tmp->next;
-	}
+        while (msr_tmp) {
+          fill_bits_nz(msr_tmp->uidx_start, msr_tmp->uidx_end, variant_include_mask);
+          msr_tmp = msr_tmp->next;
+        }
       }
       fnames_iter = strnul(fnames_iter);
       ++fnames_iter;

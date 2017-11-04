@@ -184,7 +184,7 @@ typedef enum
   ;
 
   pglerr_t() {}
-  
+
   pglerr_t(const pglerr_t& source) : value_(source.value_) {}
 
   pglerr_t(ec source) : value_(source) {}
@@ -196,7 +196,7 @@ typedef enum
   explicit operator uint32_t() const {
     return static_cast<uint32_t>(value_);
   }
-  
+
   explicit operator bool() const {
     return (static_cast<uint32_t>(value_) != 0);
   }
@@ -236,17 +236,17 @@ const pglerr_t kPglRetEmptyFile = pglerr_t::ec::kPglRetEmptyFile;
 // expected to be integer-valued, but not necessarily 0/1 or positive
 struct interr_t {
   interr_t() {}
-  
+
   interr_t(int32_t source) : value_(source) {}
 
   explicit operator int32_t() const {
     return static_cast<int32_t>(value_);
   }
-  
+
   explicit operator bool() const {
     return (value_ != 0);
   }
-  
+
 private:
   int32_t value_;
 };
@@ -254,17 +254,17 @@ private:
 // expected to be 0/1-valued
 struct boolerr_t {
   boolerr_t() {}
-  
+
   boolerr_t(uint32_t source) : value_(source) {}
 
   explicit operator uint32_t() const {
     return static_cast<uint32_t>(value_);
   }
-  
+
   explicit operator bool() const {
     return (value_ != 0);
   }
-  
+
 private:
   uint32_t value_;
 };
@@ -323,12 +323,12 @@ private:
     // needed to prevent GCC 6 build failure
     #if (__GNUC__ <= 4) && (__GNUC_MINOR__ < 8)
       #if (__cplusplus < 201103L) && !defined(__APPLE__)
-	#ifndef uintptr_t
-	  #define uintptr_t unsigned long
-	#endif
-	#ifndef intptr_t
-	  #define intptr_t long
-	#endif
+        #ifndef uintptr_t
+          #define uintptr_t unsigned long
+        #endif
+        #ifndef intptr_t
+          #define intptr_t long
+        #endif
       #endif
     #endif
   #endif
@@ -366,7 +366,7 @@ private:
     #define PRIuPTR "lu"
     #define PRIdPTR "ld"
   #endif
-  
+
   #define PRIxPTR2 "08lx"
 
 #endif
@@ -558,10 +558,17 @@ typedef union {
 
 #ifdef __LP64__
 // Still need this for access to _mm_mul{lo,hi}_epi16?
+  #ifdef USE_AVX2
+typedef union {
+  __m256i vi;
+  uintptr_t u8[4];
+} univec16_t;
+  #else
 typedef union {
   __m128i vi;
   uintptr_t u8[2];
 } univec16_t;
+  #endif
 
 // Needed for hand-optimized logistic regression.
 typedef union {
@@ -570,7 +577,11 @@ typedef union {
 } univec16f_t;
 
 HEADER_CINLINE uintptr_t univec16_hsum_32bit(univec16_t uv) {
+  #ifdef USE_AVX2
+  return ((uv.u8[0] + uv.u8[1] + uv.u8[2] + uv.u8[3]) * kMask00000001) >> 32;
+  #else
   return ((uv.u8[0] + uv.u8[1]) * kMask00000001) >> 32;
+  #endif
 }
 #endif
 
@@ -920,33 +931,78 @@ HEADER_CINLINE2 uint32_t popcount_4_longs(uintptr_t val0, uintptr_t val1, uintpt
 }
 #endif
 
-// assumes vec_ct is a multiple of 3
-uintptr_t popcount_vecs(const vul_t* bit_vvec, uintptr_t vec_ct);
-
 #define IS_VEC_ALIGNED(addr) (!(((uintptr_t)(addr)) % kBytesPerVec))
+
+// Updated popcount_longs() code is based on
+// https://github.com/kimwalisch/libpopcnt .  libpopcnt license text follows.
+
+/*
+ * libpopcnt.h - C/C++ library for counting the number of 1 bits (bit
+ * population count) in an array as quickly as possible using
+ * specialized CPU instructions i.e. POPCNT, AVX2, AVX512, NEON.
+ *
+ * Copyright (c) 2016 - 2017, Kim Walisch
+ * Copyright (c) 2016 - 2017, Wojciech Mula
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this
+ *    list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+#ifdef USE_AVX2
+// assumes vec_ct is a multiple of 16
+uintptr_t popcount_avx2(const vul_t* bit_vvec, uintptr_t vec_ct);
 
 HEADER_INLINE uintptr_t popcount_longs(const uintptr_t* bitvec, uintptr_t word_ct) {
   // Efficiently popcounts bitvec[0..(word_ct - 1)].  In the 64-bit case,
   // bitvec[] must be 16-byte aligned.
   // The popcount_longs_nzbase() wrapper takes care of starting from a later
   // index.
-  // No need for a separate USE_SSE42 implementation, there's no noticeable
-  // speed difference.
-  // Update (27 Oct 2017): Actually, this is kind of obsolete now, at least
-  // when AVX2 is available.  See github.com/CountOnes/hamming_weight/ ; clang
-  // has automatically transformed the basic __builtin_popcountll() loop into
-  // something like this since v3.7.
-  // So it's time to change the "higher-performance, but still highly
-  // compatible" compilation target from SSE4.2 to AVX2.  Fortunately, there's
-  // almost no SSE4.2-specific code right now; there's no real maintenance
-  // burden associated with continuing to support -msse4.2 compilation and
-  // generating a distinct version string in that case.
+  uintptr_t tot = 0;
+  if (word_ct >= (16 * kWordsPerVec)) {
+    assert(IS_VEC_ALIGNED(bitvec));
+    const uintptr_t remainder = word_ct % (16 * kWordsPerVec);
+    const uintptr_t main_block_word_ct = word_ct - remainder;
+    tot = popcount_avx2((const vul_t*)bitvec, main_block_word_ct / kWordsPerVec);
+    word_ct = remainder;
+    bitvec = &(bitvec[main_block_word_ct]);
+  }
+  // todo: check if libpopcnt manual-4x-unroll makes a difference on any test
+  // machine (I'd prefer to trust the compiler to take care of that...)
+  for (uintptr_t trailing_word_idx = 0; trailing_word_idx < word_ct; ++trailing_word_idx) {
+    tot += popcount_long(bitvec[trailing_word_idx]);
+  }
+  return tot;
+}
+#else // !USE_AVX2
+// assumes vec_ct is a multiple of 3
+uintptr_t popcount_vecs_old(const vul_t* bit_vvec, uintptr_t vec_ct);
+
+HEADER_INLINE uintptr_t popcount_longs(const uintptr_t* bitvec, uintptr_t word_ct) {
   uintptr_t tot = 0;
   if (word_ct >= (3 * kWordsPerVec)) {
     assert(IS_VEC_ALIGNED(bitvec));
     const uintptr_t remainder = word_ct % (3 * kWordsPerVec);
     const uintptr_t main_block_word_ct = word_ct - remainder;
-    tot = popcount_vecs((const vul_t*)bitvec, main_block_word_ct / kWordsPerVec);
+    tot = popcount_vecs_old((const vul_t*)bitvec, main_block_word_ct / kWordsPerVec);
     word_ct = remainder;
     bitvec = &(bitvec[main_block_word_ct]);
   }
@@ -955,6 +1011,7 @@ HEADER_INLINE uintptr_t popcount_longs(const uintptr_t* bitvec, uintptr_t word_c
   }
   return tot;
 }
+#endif // !USE_AVX2
 
 // Turns out memcpy(&cur_word, bytearr, ct) can't be trusted to be fast when ct
 // isn't known at compile time.
@@ -1003,7 +1060,7 @@ HEADER_INLINE uint32_t partial_uint_load(const void* bytearr, uint32_t ct) {
       ++bytearr_iter;
       cur_uint |= ((uint32_t)(*((uint16_t*)bytearr_iter))) << 8;
     }
-    return cur_uint;    
+    return cur_uint;
   }
   if (ct == 2) {
     return *((uint16_t*)bytearr);
@@ -1087,12 +1144,16 @@ void uidxs_to_idxs(const uintptr_t* subset_mask, const uint32_t* subset_cumulati
 
 
 HEADER_INLINE boolerr_t vecaligned_malloc(uintptr_t size, void* aligned_pp) {
-#if defined(__APPLE__) || !defined(__LP64__)
+#ifdef USE_AVX2
+  return aligned_malloc(size, kBytesPerVec, aligned_pp);
+#else
+  #if defined(__APPLE__) || !defined(__LP64__)
   const boolerr_t ret_boolerr = pgl_malloc(size, aligned_pp);
   assert(IS_VEC_ALIGNED(*((uintptr_t*)aligned_pp)));
   return ret_boolerr;
-#else
+  #else
   return aligned_malloc(size, kBytesPerVec, aligned_pp);
+  #endif
 #endif
 }
 
@@ -1115,22 +1176,14 @@ HEADER_INLINE void free_const(const void* memptr) {
   // const_cast
   free((void*)((uintptr_t)memptr));
 }
- 
+
 HEADER_INLINE void free_cond(const void* memptr) {
   if (memptr) {
     free_const(memptr);
   }
 }
 
-#if defined(__APPLE__) || !defined(__LP64__)
-HEADER_INLINE void vecaligned_free(void* aligned_ptr) {
-  free(aligned_ptr);
-}
-
-HEADER_INLINE void vecaligned_free_cond(void* aligned_ptr) {
-  free_cond(aligned_ptr);
-}
-#else
+#ifdef USE_AVX2
 HEADER_INLINE void vecaligned_free(void* aligned_ptr) {
   aligned_free(aligned_ptr);
 }
@@ -1138,6 +1191,24 @@ HEADER_INLINE void vecaligned_free(void* aligned_ptr) {
 HEADER_INLINE void vecaligned_free_cond(void* aligned_ptr) {
   aligned_free_cond(aligned_ptr);
 }
+#else
+  #if defined(__APPLE__) || !defined(__LP64__)
+HEADER_INLINE void vecaligned_free(void* aligned_ptr) {
+  free(aligned_ptr);
+}
+
+HEADER_INLINE void vecaligned_free_cond(void* aligned_ptr) {
+  free_cond(aligned_ptr);
+}
+  #else
+HEADER_INLINE void vecaligned_free(void* aligned_ptr) {
+  aligned_free(aligned_ptr);
+}
+
+HEADER_INLINE void vecaligned_free_cond(void* aligned_ptr) {
+  aligned_free_cond(aligned_ptr);
+}
+  #endif
 #endif
 
 // now compiling with gcc >= 4.4 (or clang equivalent) on all platforms, so
@@ -1212,6 +1283,18 @@ HEADER_INLINE void zero_trailing_bits(uintptr_t bit_ct, uintptr_t* bitarr) {
 HEADER_CINLINE uint32_t bytes_to_represent_ui(uint32_t uii) {
   return (4 - (__builtin_clz(uii) / CHAR_BIT));
 }
+
+#ifdef __LP64__
+HEADER_INLINE void zero_trailing_words(uint32_t word_ct, uintptr_t* bitvec) {
+  const uint32_t remainder = word_ct % kWordsPerVec;
+  if (remainder) {
+    fill_ulong_zero(kWordsPerVec - remainder, &(bitvec[word_ct]));
+  }
+}
+#else
+HEADER_INLINE void zero_trailing_words(__maybe_unused uint32_t word_ct, __maybe_unused uintptr_t* bitvec) {
+}
+#endif
 
 
 // transpose_quaterblock(), which is more plink-specific, is in

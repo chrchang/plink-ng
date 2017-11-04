@@ -70,13 +70,13 @@ void logstr(const char* ss) {
     } else {
       fputs(ss, g_logfile);
       if (ferror(g_logfile)) {
-	putchar('\n');
-	fflush(stdout);
+        putchar('\n');
+        fflush(stdout);
         fprintf(stderr, "Error: Debug logging failure.  Dumping to stderr:\n%s", ss);
-	g_log_failed = 1;
-	g_stderr_written_to = 1;
+        g_log_failed = 1;
+        g_stderr_written_to = 1;
       } else {
-	fflush(g_logfile);
+        fflush(g_logfile);
       }
     }
   }
@@ -123,49 +123,49 @@ void wordwrap(uint32_t suffix_len, char* ss) {
     }
     if (token_start > line_end) {
       do {
-	*line_end = '\n';
-	line_end = &(line_end[80]);
+        *line_end = '\n';
+        line_end = &(line_end[80]);
       } while (token_start > line_end);
     }
     token_end = strchr(token_start, ' ');
     if (!token_end) {
       if (&(token_start[79]) == line_end) {
-	return;
+        return;
       }
       token_end = strnul(token_start);
       if (!suffix_len) {
-	if (token_end <= &(line_end[1])) {
-	  // okay if end-of-string is one past the end, because function
-	  // assumes last character is \n in suffix_len == 0 case
-	  assert(token_end[-1] == '\n');
-	  return;
-	}
+        if (token_end <= &(line_end[1])) {
+          // okay if end-of-string is one past the end, because function
+          // assumes last character is \n in suffix_len == 0 case
+          assert(token_end[-1] == '\n');
+          return;
+        }
       } else {
         if (&(token_end[suffix_len]) <= line_end) {
-	  return;
-	}
-	// because of terminal space assumption, token_start actually points
-	// to the end of the string
-	assert(token_start[-1] == ' ');
+          return;
+        }
+        // because of terminal space assumption, token_start actually points
+        // to the end of the string
+        assert(token_start[-1] == ' ');
       }
       token_start[-1] = '\n';
       return;
     }
     if (token_end > line_end) {
       if (&(token_start[79]) != line_end) {
-	token_start[-1] = '\n';
+        token_start[-1] = '\n';
         line_end = &(token_start[79]);
-	if (token_end > line_end) {
-	  // single really long token, can't do anything beyond putting it on
-	  // its own line
+        if (token_end > line_end) {
+          // single really long token, can't do anything beyond putting it on
+          // its own line
           *token_end = '\n';
-	  line_end = &(token_end[80]);
-	}
+          line_end = &(token_end[80]);
+        }
       } else {
-	// single really long token, *and* previous token was either
-	// nonexistent or long
-	*token_end = '\n';
-	line_end = &(token_end[80]);
+        // single really long token, *and* previous token was either
+        // nonexistent or long
+        *token_end = '\n';
+        line_end = &(token_end[80]);
       }
     }
     token_start = &(token_end[1]);
@@ -284,16 +284,16 @@ int32_t strcmp_natural_tiebroken(const unsigned char* s1, const unsigned char* s
   strcmp_natural_tiebroken_state_2:
     if (c1 != c2) {
       if ((c1 >= 'a') && (c1 <= 'z')) {
-	c1 -= 32;
+        c1 -= 32;
       }
       if ((c2 >= 'a') && (c2 <= 'z')) {
-	c2 -= 32;
+        c2 -= 32;
       }
       if (c1 < c2) {
-	return -1;
+        return -1;
       }
       if (c1 > c2) {
-	return 1;
+        return 1;
       }
     } else if (!c1) {
       return -1;
@@ -308,10 +308,10 @@ int32_t strcmp_natural_tiebroken(const unsigned char* s1, const unsigned char* s
     // state 3
     if (c1 != c2) {
       if (is_digit(c2)) {
-	if (c1 < c2) {
-	  return strcmp_natural_scan_forward(s1, s2);
-	}
-	return -strcmp_natural_scan_forward(s2, s1);
+        if (c1 < c2) {
+          return strcmp_natural_scan_forward(s1, s2);
+        }
+        return -strcmp_natural_scan_forward(s2, s1);
       }
       return 1;
     }
@@ -333,17 +333,17 @@ static inline int32_t strcmp_natural_uncasted(const unsigned char* s1, const uns
   strcmp_natural_uncasted_state_0:
     if (c1 != c2) {
       if ((c1 >= 'a') && (c1 <= 'z')) {
-	if (c2 + 32 == c1) {
-	  return -strcmp_natural_tiebroken(s2, s1);
-	}
-	if ((c2 < 'a') || (c2 > 'z')) {
-	  c1 -= 32;
-	}
+        if (c2 + 32 == c1) {
+          return -strcmp_natural_tiebroken(s2, s1);
+        }
+        if ((c2 < 'a') || (c2 > 'z')) {
+          c1 -= 32;
+        }
       } else if ((c2 >= 'a') && (c2 <= 'z')) {
-	c2 -= 32;
-	if (c1 == c2) {
-	  return strcmp_natural_tiebroken(s1, s2);
-	}
+        c2 -= 32;
+        if (c1 == c2) {
+          return strcmp_natural_tiebroken(s1, s2);
+        }
       }
       return (c1 < c2)? -1 : 1;
     }
@@ -360,10 +360,10 @@ static inline int32_t strcmp_natural_uncasted(const unsigned char* s1, const uns
     // state 1
     if (c1 != c2) {
       if (is_digit(c2)) {
-	if (c1 < c2) {
-	  return strcmp_natural_scan_forward(s1, s2);
-	}
-	return -strcmp_natural_scan_forward(s2, s1);
+        if (c1 < c2) {
+          return strcmp_natural_scan_forward(s1, s2);
+        }
+        return -strcmp_natural_scan_forward(s2, s1);
       }
       return 1;
     }
@@ -605,10 +605,10 @@ typedef struct word_cmp40b_struct {
       const uintptr_t cur_word = words[idx];
       const uintptr_t rhs_word = rhs.words[idx];
       if (cur_word != rhs_word) {
-	// could pre-reverse the strings?
+        // could pre-reverse the strings?
         const uintptr_t xor_word = cur_word ^ rhs_word;
-	const uint32_t lshift = (kBitsPerWord - 8) - (CTZLU(xor_word) & (kBitsPerWord - 8));
-	return (cur_word << lshift) < (rhs_word << lshift);
+        const uint32_t lshift = (kBitsPerWord - 8) - (CTZLU(xor_word) & (kBitsPerWord - 8));
+        return (cur_word << lshift) < (rhs_word << lshift);
       }
     } while (++idx < (40 / kBytesPerWord));
     return false;
@@ -624,8 +624,8 @@ typedef struct word_cmp64b_struct {
       const uintptr_t rhs_word = rhs.words[idx];
       if (cur_word != rhs_word) {
         const uintptr_t xor_word = cur_word ^ rhs_word;
-	const uint32_t lshift = (kBitsPerWord - 8) - (CTZLU(xor_word) & (kBitsPerWord - 8));
-	return (cur_word << lshift) < (rhs_word << lshift);
+        const uint32_t lshift = (kBitsPerWord - 8) - (CTZLU(xor_word) & (kBitsPerWord - 8));
+        return (cur_word << lshift) < (rhs_word << lshift);
       }
     } while (++idx < (64 / kBytesPerWord));
     return false;
@@ -784,7 +784,7 @@ boolerr_t strptr_arr_indexed_sort(char** unsorted_strptrs, uint32_t str_ct, uint
 uint32_t uint32arr_greater_than(const uint32_t* sorted_uint32_arr, uint32_t arr_length, uint32_t uii) {
   // (strangely, this seems to be equal to or better than std::lower_bound with
   // -O2 optimization, but can become much slower with -O3?)
-  
+
   // assumes arr_length is nonzero, and sorted_uint32_arr is in nondecreasing
   // order.  (useful for searching variant_bps[].)
   // also assumes arr_length < 2^31.
@@ -939,9 +939,9 @@ boolerr_t cleanup_logfile(uint32_t print_end_time) {
       logstr("\n");
       logstr(g_logbuf);
       if (fclose(g_logfile)) {
-	fflush(stdout);
-	fputs("Error: Failed to finish writing to log.\n", stderr);
-	ret_boolerr = 1;
+        fflush(stdout);
+        fputs("Error: Failed to finish writing to log.\n", stderr);
+        ret_boolerr = 1;
       }
     } else {
       fclose(g_logfile);
@@ -1045,7 +1045,7 @@ pglerr_t init_bigstack(uintptr_t malloc_size_mb, uintptr_t* malloc_mb_final_ptr,
   // plink2_common benefit from this
   g_input_missing_geno_ptr = (const char*)(&(g_one_char_strs[96]));
   g_output_missing_geno_ptr = (const char*)(&(g_one_char_strs[92]));
-  
+
   *malloc_mb_final_ptr = malloc_size_mb;
   *bigstack_ua_ptr = bigstack_ua;
   return kPglRetSuccess;
@@ -1178,7 +1178,7 @@ boolerr_t scan_posintptr(const char* ss, uintptr_t* valp) {
     const uintptr_t cur_digit2 = (uintptr_t)((unsigned char)(*ss++)) - 48;
     if (ss == ss_limit) {
       if ((cur_digit2 < 10) || ((val >= (~k0LU) / 10) && ((val > (~k0LU) / 10) || (cur_digit > (~k0LU) % 10)))) {
-	return 1;
+        return 1;
       }
       *valp = val * 10 + cur_digit;
       return 0;
@@ -1206,7 +1206,7 @@ static inline boolerr_t scanadv_uint_capped_finish(uint64_t cap, char** ss_ptr, 
     if (cur_digit2 >= 10) {
       val = val * 10 + cur_digit;
       if (val > cap) {
-	return 1;
+        return 1;
       }
       break;
     }
@@ -1249,7 +1249,7 @@ boolerr_t scanadv_uint_capped(uint64_t cap, char** ss_ptr, uint32_t* valp) {
     if (*valp != 0xfffffffbU) {
       // '-' has ascii code 45, so unsigned 45 - 48 = 0xfffffffdU
       if ((*valp != 0xfffffffdU) || (*ss != '0')) {
-	return 1;
+        return 1;
       }
       // accept "-0", "-00", etc.
       while (*(++ss) == '0');
@@ -1305,7 +1305,7 @@ boolerr_t scanadv_uint_capped32(uint32_t cap_div_10, uint32_t cap_mod_10, char**
   if (val >= 10) {
     if (val != 0xfffffffbU) {
       if ((val != 0xfffffffd) || (*ss != '0')) {
-	return 1;
+        return 1;
       }
       while (*(++ss) == '0');
       *valp = 0;
@@ -1362,11 +1362,11 @@ char* scanadv_double(char* ss, double* valp) {
     do {
       cur_digit = ((uint32_t)((unsigned char)(*(++ss)))) - 48;
       if (cur_digit >= 10) {
-	if (cur_digit == 0xfffffffeU) {
-	  dot_ptr = ss;
-	  goto scanadv_double_parse_decimal;
-	}
-	goto scanadv_double_parse_exponent;
+        if (cur_digit == 0xfffffffeU) {
+          dot_ptr = ss;
+          goto scanadv_double_parse_decimal;
+        }
+        goto scanadv_double_parse_exponent;
       }
       digits = digits * 10 + cur_digit;
       // this check should work differently in 32-bit version
@@ -1382,7 +1382,7 @@ char* scanadv_double(char* ss, double* valp) {
     e10 = (int32_t)((uint32_t)((uintptr_t)(ss - last_sig_fig_ptr))) - 1;
     if (cur_digit == 0xfffffffeU) {
       do {
-	cur_digit = ((uint32_t)((unsigned char)(*(++ss)))) - 48;
+        cur_digit = ((uint32_t)((unsigned char)(*(++ss)))) - 48;
       } while (cur_digit < 10);
     }
     goto scanadv_double_parse_exponent;
@@ -1408,7 +1408,7 @@ char* scanadv_double(char* ss, double* valp) {
     if (digits >= 10000000000000000LL) {
       e10 = -(int32_t)((uint32_t)((uintptr_t)(ss - dot_ptr)));
       do {
-	cur_digit = ((uint32_t)((unsigned char)(*(++ss)))) - 48;
+        cur_digit = ((uint32_t)((unsigned char)(*(++ss)))) - 48;
       } while (cur_digit < 10);
       break;
     }
@@ -1424,15 +1424,15 @@ char* scanadv_double(char* ss, double* valp) {
     int32_t cur_exp = 0;
     while (cur_digit < 10) {
       if (cur_exp >= 107374182) {
-	// may as well guard against exponent overflow
-	if (!exp_is_negative) {
-	  return nullptr;
-	}
-	*valp = 0;
-	do {
-	  cur_digit = ((unsigned char)(*(++ss))) - 48;
-	} while (cur_digit < 10);
-	return ss;
+        // may as well guard against exponent overflow
+        if (!exp_is_negative) {
+          return nullptr;
+        }
+        *valp = 0;
+        do {
+          cur_digit = ((unsigned char)(*(++ss))) - 48;
+        } while (cur_digit < 10);
+        return ss;
       }
       cur_exp = cur_exp * 10 + cur_digit;
       cur_digit = ((unsigned char)(*(++ss))) - 48;
@@ -1452,12 +1452,12 @@ char* scanadv_double(char* ss, double* valp) {
     do {
       cur_digit = ((uint32_t)((unsigned char)(*(++ss)))) - 48;
       if (cur_digit >= 10) {
-	if (cur_digit == 0xfffffffeU) {
-	  dot_ptr = ss;
-	  goto scanadv_double_parse_decimal;
-	}
-	digits = digits_short;
-	goto scanadv_double_parse_exponent;
+        if (cur_digit == 0xfffffffeU) {
+          dot_ptr = ss;
+          goto scanadv_double_parse_decimal;
+        }
+        digits = digits_short;
+        goto scanadv_double_parse_exponent;
       }
       digits_short = digits_short * 10 + cur_digit;
     } while (digits_short < 100000000);
@@ -1465,11 +1465,11 @@ char* scanadv_double(char* ss, double* valp) {
     do {
       cur_digit = ((uint32_t)((unsigned char)(*(++ss)))) - 48;
       if (cur_digit >= 10) {
-	if (cur_digit == 0xfffffffeU) {
-	  dot_ptr = ss;
-	  goto scanadv_double_parse_decimal_long;
-	}
-	goto scanadv_double_parse_exponent;
+        if (cur_digit == 0xfffffffeU) {
+          dot_ptr = ss;
+          goto scanadv_double_parse_decimal_long;
+        }
+        goto scanadv_double_parse_exponent;
       }
       digits = digits * 10 + cur_digit;
     } while (digits < 10000000000000000LL);
@@ -1482,7 +1482,7 @@ char* scanadv_double(char* ss, double* valp) {
     e10 = (int32_t)((uint32_t)((uintptr_t)(ss - last_sig_fig_ptr))) - 1;
     if (cur_digit == 0xfffffffeU) {
       do {
-	cur_digit = ((uint32_t)((unsigned char)(*(++ss)))) - 48;
+        cur_digit = ((uint32_t)((unsigned char)(*(++ss)))) - 48;
       } while (cur_digit < 10);
     }
     goto scanadv_double_parse_exponent;
@@ -1510,19 +1510,19 @@ char* scanadv_double(char* ss, double* valp) {
       digits = digits_short;
     scanadv_double_parse_decimal_long:
       while (1) {
-	cur_digit = ((uint32_t)((unsigned char)(*(++ss)))) - 48;
-	if (cur_digit >= 10) {
-	  e10 = 1 - (int32_t)((uint32_t)((uintptr_t)(ss - dot_ptr)));
-	  goto scanadv_double_parse_exponent;
-	}
-	digits = digits * 10 + cur_digit;
-	if (digits >= 10000000000000000LL) {
-	  e10 = -(int32_t)((uint32_t)((uintptr_t)(ss - dot_ptr)));
-	  do {
-	    cur_digit = ((uint32_t)((unsigned char)(*(++ss)))) - 48;
-	  } while (cur_digit < 10);
-	  goto scanadv_double_parse_exponent;
-	}
+        cur_digit = ((uint32_t)((unsigned char)(*(++ss)))) - 48;
+        if (cur_digit >= 10) {
+          e10 = 1 - (int32_t)((uint32_t)((uintptr_t)(ss - dot_ptr)));
+          goto scanadv_double_parse_exponent;
+        }
+        digits = digits * 10 + cur_digit;
+        if (digits >= 10000000000000000LL) {
+          e10 = -(int32_t)((uint32_t)((uintptr_t)(ss - dot_ptr)));
+          do {
+            cur_digit = ((uint32_t)((unsigned char)(*(++ss)))) - 48;
+          } while (cur_digit < 10);
+          goto scanadv_double_parse_exponent;
+        }
       }
     }
   }
@@ -1537,15 +1537,15 @@ char* scanadv_double(char* ss, double* valp) {
     int32_t cur_exp = 0;
     while (cur_digit < 10) {
       if (cur_exp >= 107374182) {
-	// may as well guard against exponent overflow
-	if (!exp_is_negative) {
-	  return nullptr;
-	}
-	*valp = 0;
-	do {
-	  cur_digit = ((unsigned char)(*(++ss))) - 48;
-	} while (cur_digit < 10);
-	return ss;
+        // may as well guard against exponent overflow
+        if (!exp_is_negative) {
+          return nullptr;
+        }
+        *valp = 0;
+        do {
+          cur_digit = ((unsigned char)(*(++ss))) - 48;
+        } while (cur_digit < 10);
+        return ss;
       }
       cur_exp = cur_exp * 10 + cur_digit;
       cur_digit = ((unsigned char)(*(++ss))) - 48;
@@ -1570,32 +1570,32 @@ char* scanadv_double(char* ss, double* valp) {
       dxx *= kNegativePow10[pos_exp & 15];
       pos_exp /= 16;
       if (pos_exp) {
-	dxx *= kNegativePowTen16[pos_exp & 7];
-	if (pos_exp > 7) {
-	  if (pos_exp > 23) {
-	    dxx = 0;
-	  } else if (pos_exp > 15) {
-	    dxx *= 1.0e-256;
-	  } else {
-	    dxx *= 1.0e-128;
-	  }
-	}
+        dxx *= kNegativePowTen16[pos_exp & 7];
+        if (pos_exp > 7) {
+          if (pos_exp > 23) {
+            dxx = 0;
+          } else if (pos_exp > 15) {
+            dxx *= 1.0e-256;
+          } else {
+            dxx *= 1.0e-128;
+          }
+        }
       }
     } else {
       uint32_t pos_exp = (uint32_t)e10;
       dxx *= kPositivePow10[pos_exp & 15];
       pos_exp /= 16;
       if (pos_exp) {
-	dxx *= kPositivePowTen16[pos_exp & 15];
-	if (pos_exp > 15) {
-	  // overflow check
-	  // last digits are "54" instead of "57" since that's the threshold
-	  // beyond which multiply-by-1e256 overflows
-	  if ((pos_exp > 31) || (dxx > 1.7976931348623154e52)) {
-	    return nullptr;
-	  }
-	  dxx *= 1.0e256;
-	}
+        dxx *= kPositivePowTen16[pos_exp & 15];
+        if (pos_exp > 15) {
+          // overflow check
+          // last digits are "54" instead of "57" since that's the threshold
+          // beyond which multiply-by-1e256 overflows
+          if ((pos_exp > 31) || (dxx > 1.7976931348623154e52)) {
+            return nullptr;
+          }
+          dxx *= 1.0e256;
+        }
       }
     }
   }
@@ -1615,13 +1615,13 @@ void get_top_two_ui(const uint32_t* __restrict uint_arr, uintptr_t uia_size, uin
     cur_val = uint_arr[cur_idx];
     if (cur_val > second_val) {
       if (cur_val > top_val) {
-	second_val = top_val;
-	second_idx = top_idx;
-	top_val = cur_val;
-	top_idx = cur_idx;
+        second_val = top_val;
+        second_idx = top_idx;
+        top_val = cur_val;
+        top_idx = cur_idx;
       } else {
-	second_val = cur_val;
-	second_idx = cur_idx;
+        second_val = cur_val;
+        second_idx = cur_idx;
       }
     }
   }
@@ -1652,10 +1652,10 @@ char* comma_or_space_next_token_mult(char* sptr, uint32_t ct, uint32_t comma_del
     }
     if (ucc == ',') {
       do {
-	ucc = (unsigned char)(*(++sptr));
+        ucc = (unsigned char)(*(++sptr));
       } while ((ucc == ' ') || (ucc == '\t'));
       if (!(--ct)) {
-	return sptr;
+        return sptr;
       }
       continue;
     }
@@ -1687,15 +1687,15 @@ uint32_t comma_or_space_count_tokens(const char* bufptr, uint32_t comma_delim) {
     unsigned char ucc = (unsigned char)(*bufptr++);
     while (1) {
       if (ucc < 32) {
-	return token_ct;
+        return token_ct;
       }
       if (ucc == ',') {
-	// spelled out due to const qualifier
-	do {
-	  ucc = (unsigned char)(*bufptr++);
-	} while ((ucc == ' ') || (ucc == '\t'));
-	token_ct++;
-	continue;
+        // spelled out due to const qualifier
+        do {
+          ucc = (unsigned char)(*bufptr++);
+        } while ((ucc == ' ') || (ucc == '\t'));
+        token_ct++;
+        continue;
       }
       ucc = (unsigned char)(*bufptr++);
     }
@@ -1776,27 +1776,27 @@ char* uint32toa(uint32_t uii, char* start) {
   } else {
     if (uii < 10000000) {
       if (uii >= 100000) {
-	if (uii < 1000000) {
-	  goto uint32toa_6;
-	}
-	quotient = uii / 1000000;
-	*start++ = '0' + quotient;
-	goto uint32toa_6b;
+        if (uii < 1000000) {
+          goto uint32toa_6;
+        }
+        quotient = uii / 1000000;
+        *start++ = '0' + quotient;
+        goto uint32toa_6b;
       }
       if (uii < 10000) {
-	goto uint32toa_4;
+        goto uint32toa_4;
       }
       quotient = uii / 10000;
       *start++ = '0' + quotient;
     } else {
       if (uii >= 100000000) {
-	quotient = uii / 100000000;
-	if (uii >= 1000000000) {
-	  start = memcpya(start, &(kDigitPair[quotient]), 2);
-	} else {
-	  *start++ = '0' + quotient;
-	}
-	uii -= 100000000 * quotient;
+        quotient = uii / 100000000;
+        if (uii >= 1000000000) {
+          start = memcpya(start, &(kDigitPair[quotient]), 2);
+        } else {
+          *start++ = '0' + quotient;
+        }
+        uii -= 100000000 * quotient;
       }
       quotient = uii / 1000000;
       start = memcpya(start, &(kDigitPair[quotient]), 2);
@@ -1928,8 +1928,8 @@ static inline char* uitoa_trunc8(uint32_t uii, char* start) {
       memcpy(start, &(kDigitPair[quotient]), 2);
       uii -= 100 * quotient;
       if (uii) {
-	start += 2;
-	memcpy(start, &(kDigitPair[uii]), 2);
+        start += 2;
+        memcpy(start, &(kDigitPair[uii]), 2);
       }
     }
   }
@@ -1988,8 +1988,8 @@ static inline char* qrtoa_1p7(uint32_t quotient, uint32_t remainder, char* start
       memcpy(start, &(kDigitPair[quotient]), 2);
       remainder -= 10 * quotient;
       if (remainder) {
-	start[2] = '0' + remainder;
-	return &(start[3]);
+        start[2] = '0' + remainder;
+        return &(start[3]);
       }
     }
   }
@@ -2023,7 +2023,7 @@ static inline void double_bround1(double dxx, const double* banker_round, uint32
   uint32_t remainder = (int32_t)dxx;
   remainder += (int32_t)((dxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
   *quotientp = remainder / 10;
-  *remainderp = remainder - (*quotientp) * 10; 
+  *remainderp = remainder - (*quotientp) * 10;
 }
 
 static inline void double_bround2(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
@@ -2031,7 +2031,7 @@ static inline void double_bround2(double dxx, const double* banker_round, uint32
   uint32_t remainder = (int32_t)dxx;
   remainder += (int32_t)((dxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
   *quotientp = remainder / 100;
-  *remainderp = remainder - (*quotientp) * 100; 
+  *remainderp = remainder - (*quotientp) * 100;
 }
 
 static inline void double_bround3(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
@@ -2039,7 +2039,7 @@ static inline void double_bround3(double dxx, const double* banker_round, uint32
   uint32_t remainder = (int32_t)dxx;
   remainder += (int32_t)((dxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
   *quotientp = remainder / 1000;
-  *remainderp = remainder - (*quotientp) * 1000; 
+  *remainderp = remainder - (*quotientp) * 1000;
 }
 
 static inline void double_bround4(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
@@ -2047,7 +2047,7 @@ static inline void double_bround4(double dxx, const double* banker_round, uint32
   uint32_t remainder = (int32_t)dxx;
   remainder += (int32_t)((dxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
   *quotientp = remainder / 10000;
-  *remainderp = remainder - (*quotientp) * 10000; 
+  *remainderp = remainder - (*quotientp) * 10000;
 }
 
 static inline void double_bround5(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
@@ -2055,7 +2055,7 @@ static inline void double_bround5(double dxx, const double* banker_round, uint32
   uint32_t remainder = (int32_t)dxx;
   remainder += (int32_t)((dxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
   *quotientp = remainder / 100000;
-  *remainderp = remainder - (*quotientp) * 100000; 
+  *remainderp = remainder - (*quotientp) * 100000;
 }
 
 static inline void double_bround6(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
@@ -2063,7 +2063,7 @@ static inline void double_bround6(double dxx, const double* banker_round, uint32
   uint32_t remainder = (int32_t)dxx;
   remainder += (int32_t)((dxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
   *quotientp = remainder / 1000000;
-  *remainderp = remainder - (*quotientp) * 1000000; 
+  *remainderp = remainder - (*quotientp) * 1000000;
 }
 
 static inline void double_bround7(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
@@ -2071,7 +2071,7 @@ static inline void double_bround7(double dxx, const double* banker_round, uint32
   uint32_t remainder = (int32_t)dxx;
   remainder += (int32_t)((dxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
   *quotientp = remainder / 10000000;
-  *remainderp = remainder - (*quotientp) * 10000000; 
+  *remainderp = remainder - (*quotientp) * 10000000;
 }
 
 char* dtoa_so6(double dxx, char* start) {
@@ -2114,7 +2114,7 @@ char* dtoa_so6(double dxx, char* start) {
       quotient = uii - 100 * quotient;
       start = memcpya(start, &(kDigitPair[quotient]), 2);
       if (!remainder) {
-	return start;
+        return start;
       }
       *start++ = '.';
       quotient = remainder / 10;
@@ -2182,7 +2182,7 @@ char* dtoa_so8(double dxx, char* start) {
       memcpy(start, &(kDigitPair[quotient]), 2);
       remainder -= 100 * quotient;
       if (remainder) {
-	start += 2;
+        start += 2;
       dtoa_so8_pretail2:
         memcpy(start, &(kDigitPair[remainder]), 2);
       }
@@ -2201,7 +2201,7 @@ char* dtoa_so8(double dxx, char* start) {
       quotient = uii - 100 * quotient;
       start = memcpya(start, &(kDigitPair[quotient]), 2);
       if (!remainder) {
-	return start;
+        return start;
       }
       *start++ = '.';
       quotient = remainder / 1000;
@@ -2216,7 +2216,7 @@ char* dtoa_so8(double dxx, char* start) {
       memcpy(start, &(kDigitPair[quotient]), 2);
       remainder -= quotient * 10;
       if (!remainder) {
-	goto dtoa_so8_tail;
+        goto dtoa_so8_tail;
       }
       start[2] = '0' + remainder;
       return &(start[3]);
@@ -2243,7 +2243,7 @@ char* dtoa_so8(double dxx, char* start) {
       uii -= 100 * quotient;
       start = memcpya(start, &(kDigitPair[uii]), 2);
       if (!remainder) {
-	return start;
+        return start;
       }
       *start++ = '.';
       goto dtoa_so8_pretail3;
@@ -2299,29 +2299,29 @@ char* dtoa_g(double dxx, char* start) {
     // 6 sig fig exponential notation, small
     if (dxx < 9.9999949999999e-16) {
       if (dxx < 9.9999949999999e-128) {
-	if (dxx == 0.0) {
-	  *start = '0';
-	  return &(start[1]);
-	}
-	if (dxx < 9.9999949999999e-256) {
-	  dxx *= 1.0e256;
-	  xp10 |= 256;
-	} else {
-	  dxx *= 1.0e128;
-	  xp10 |= 128;
-	}
+        if (dxx == 0.0) {
+          *start = '0';
+          return &(start[1]);
+        }
+        if (dxx < 9.9999949999999e-256) {
+          dxx *= 1.0e256;
+          xp10 |= 256;
+        } else {
+          dxx *= 1.0e128;
+          xp10 |= 128;
+        }
       }
       if (dxx < 9.9999949999999e-64) {
-	dxx *= 1.0e64;
-	xp10 |= 64;
+        dxx *= 1.0e64;
+        xp10 |= 64;
       }
       if (dxx < 9.9999949999999e-32) {
-	dxx *= 1.0e32;
-	xp10 |= 32;
+        dxx *= 1.0e32;
+        xp10 |= 32;
       }
       if (dxx < 9.9999949999999e-16) {
-	dxx *= 1.0e16;
-	xp10 |= 16;
+        dxx *= 1.0e16;
+        xp10 |= 16;
       }
     }
     if (dxx < 9.9999949999999e-8) {
@@ -2353,28 +2353,28 @@ char* dtoa_g(double dxx, char* start) {
     // 6 sig fig exponential notation, large
     if (dxx >= 9.9999949999999e15) {
       if (dxx >= 9.9999949999999e127) {
-	if (dxx > DBL_MAX) {
-	  return memcpyl3a(start, "inf");
-	}
-	if (dxx >= 9.9999949999999e255) {
-	  dxx *= 1.0e-256;
-	  xp10 |= 256;
-	} else {
-	  dxx *= 1.0e-128;
-	  xp10 |= 128;
-	}
+        if (dxx > DBL_MAX) {
+          return memcpyl3a(start, "inf");
+        }
+        if (dxx >= 9.9999949999999e255) {
+          dxx *= 1.0e-256;
+          xp10 |= 256;
+        } else {
+          dxx *= 1.0e-128;
+          xp10 |= 128;
+        }
       }
       if (dxx >= 9.9999949999999e63) {
-	dxx *= 1.0e-64;
-	xp10 |= 64;
+        dxx *= 1.0e-64;
+        xp10 |= 64;
       }
       if (dxx >= 9.9999949999999e31) {
-	dxx *= 1.0e-32;
-	xp10 |= 32;
+        dxx *= 1.0e-32;
+        xp10 |= 32;
       }
       if (dxx >= 9.9999949999999e15) {
-	dxx *= 1.0e-16;
-	xp10 |= 16;
+        dxx *= 1.0e-16;
+        xp10 |= 16;
       }
     }
     if (dxx >= 9.9999949999999e7) {
@@ -2435,29 +2435,29 @@ char* dtoa_g_p8(double dxx, char* start) {
     // 8 sig fig exponential notation, small
     if (dxx < 9.9999999499999e-16) {
       if (dxx < 9.9999999499999e-128) {
-	if (dxx == 0.0) {
-	  *start = '0';
-	  return &(start[1]);
+        if (dxx == 0.0) {
+          *start = '0';
+          return &(start[1]);
         }
-	if (dxx < 9.9999999499999e-256) {
-	  dxx *= 1.0e256;
-	  xp10 |= 256;
-	} else {
-	  dxx *= 1.0e128;
-	  xp10 |= 128;
-	}
+        if (dxx < 9.9999999499999e-256) {
+          dxx *= 1.0e256;
+          xp10 |= 256;
+        } else {
+          dxx *= 1.0e128;
+          xp10 |= 128;
+        }
       }
       if (dxx < 9.9999999499999e-64) {
-	dxx *= 1.0e64;
-	xp10 |= 64;
+        dxx *= 1.0e64;
+        xp10 |= 64;
       }
       if (dxx < 9.9999999499999e-32) {
-	dxx *= 1.0e32;
-	xp10 |= 32;
+        dxx *= 1.0e32;
+        xp10 |= 32;
       }
       if (dxx < 9.9999999499999e-16) {
-	dxx *= 1.0e16;
-	xp10 |= 16;
+        dxx *= 1.0e16;
+        xp10 |= 16;
       }
     }
     if (dxx < 9.9999999499999e-8) {
@@ -2494,31 +2494,31 @@ char* dtoa_g_p8(double dxx, char* start) {
     // 8 sig fig exponential notation, large
     if (dxx >= 9.9999999499999e15) {
       if (dxx >= 9.9999999499999e127) {
-	if (dxx > DBL_MAX) {
-	  if (wpos == wbuf) {
-	    return memcpya(start, " inf", 4);
-	  }
-	  return memcpya(start, "-inf", 4);
-	}
-	if (dxx >= 9.9999999499999e255) {
-	  dxx *= 1.0e-256;
-	  xp10 |= 256;
-	} else {
-	  dxx *= 1.0e-128;
-	  xp10 |= 128;
-	}
+        if (dxx > DBL_MAX) {
+          if (wpos == wbuf) {
+            return memcpya(start, " inf", 4);
+          }
+          return memcpya(start, "-inf", 4);
+        }
+        if (dxx >= 9.9999999499999e255) {
+          dxx *= 1.0e-256;
+          xp10 |= 256;
+        } else {
+          dxx *= 1.0e-128;
+          xp10 |= 128;
+        }
       }
       if (dxx >= 9.9999999499999e63) {
-	dxx *= 1.0e-64;
-	xp10 |= 64;
+        dxx *= 1.0e-64;
+        xp10 |= 64;
       }
       if (dxx >= 9.9999999499999e31) {
-	dxx *= 1.0e-32;
-	xp10 |= 32;
+        dxx *= 1.0e-32;
+        xp10 |= 32;
       }
       if (dxx >= 9.9999999499999e15) {
-	dxx *= 1.0e-16;
-	xp10 |= 16;
+        dxx *= 1.0e-16;
+        xp10 |= 16;
       }
     }
     if (dxx >= 9.9999999499999e7) {
@@ -2734,7 +2734,7 @@ char* ftoa_so6(float fxx, char* start) {
       quotient = uii - 100 * quotient;
       start = memcpya(&(start[1]), &(kDigitPair[quotient]), 2);
       if (!remainder) {
-	return start;
+        return start;
       }
       *start++ = '.';
       quotient = remainder / 10;
@@ -2790,15 +2790,15 @@ char* ftoa_g(float fxx, char* start) {
   if (fxx < 9.9999944e-5) {
     if (fxx < 9.9999944e-16) {
       if (fxx == 0.0) {
-	*start = '0';
-	return &(start[1]);
+        *start = '0';
+        return &(start[1]);
       }
       if (fxx < 9.9999944e-32) {
-	fxx *= 1.0e32;
-	xp10 |= 32;
+        fxx *= 1.0e32;
+        xp10 |= 32;
       } else {
-	fxx *= 1.0e16;
-	xp10 |= 16;
+        fxx *= 1.0e16;
+        xp10 |= 16;
       }
     }
     if (fxx < 9.9999944e-8) {
@@ -2823,14 +2823,14 @@ char* ftoa_g(float fxx, char* start) {
   if (fxx >= 999999.44) {
     if (fxx >= 9.9999944e15) {
       if (fxx > FLT_MAX) {
-	return memcpyl3a(start, "inf");
+        return memcpyl3a(start, "inf");
       }
       if (fxx >= 9.9999944e31) {
-	fxx *= 1.0e-32;
-	xp10 |= 32;
+        fxx *= 1.0e-32;
+        xp10 |= 32;
       } else {
-	fxx *= 1.0e-16;
-	xp10 |= 16;
+        fxx *= 1.0e-16;
+        xp10 |= 16;
       }
     }
     if (fxx >= 9.9999944e7) {
@@ -3237,7 +3237,7 @@ void bitvec_or(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintpt
   if (word_ct & 2) {
     const uintptr_t base_idx = full_vec_ct * kWordsPerVec;
     main_bitvec[base_idx] |= arg_bitvec[base_idx];
-    main_bitvec[base_idx + 1] |= arg_bitvec[base_idx + 1]
+    main_bitvec[base_idx + 1] |= arg_bitvec[base_idx + 1];
   }
   #endif
   if (word_ct & 1) {
@@ -3342,8 +3342,8 @@ int32_t get_variant_uidx_without_htable(const char* idstr, char** variant_ids, c
     next_set_unsafe_ck(variant_include, &variant_uidx);
     if (!memcmp(idstr, variant_ids[variant_uidx], id_blen)) {
       if (retval != -1) {
-	// duplicate
-	return -2;
+        // duplicate
+        return -2;
       }
       retval = (int32_t)variant_uidx;
     }
@@ -3398,7 +3398,7 @@ uint32_t murmurhash3_32(const void* key, uint32_t len) {
       k1 *= c1;
       k1 = rotl32(k1,15);
       k1 *= c2;
-   
+
       h1 ^= k1;
       h1 = rotl32(h1,13);
       h1 = h1*5+0xe6546b64;
@@ -3528,23 +3528,23 @@ uint32_t populate_strbox_htable(const char* strbox, uintptr_t str_ct, uintptr_t 
     while (1) {
       const uint32_t cur_htable_entry = str_htable[hashval];
       if (cur_htable_entry == 0xffffffffU) {
-	str_htable[hashval] = str_idx;
-	break;
+        str_htable[hashval] = str_idx;
+        break;
       }
       if (!memcmp(strbox_iter, &(strbox[cur_htable_entry * max_str_blen]), slen + 1)) {
-	// guaranteed to be positive
-	return str_idx;
+        // guaranteed to be positive
+        return str_idx;
       }
       if (++hashval == str_htable_size) {
-	hashval = 0;
+        hashval = 0;
       }
       /*
       // defend against overflow
       const uint32_t top_diff = str_htable_size - hashval;
       if (top_diff > next_incr) {
-	hashval += next_incr;
+        hashval += next_incr;
       } else {
-	hashval = next_incr - top_diff;
+        hashval = next_incr - top_diff;
       }
       next_incr += 2;
       */
@@ -3568,15 +3568,15 @@ uint32_t populate_strbox_subset_htable(const uintptr_t* __restrict subset_mask, 
     while (1) {
       const uint32_t cur_htable_entry = str_htable[hashval];
       if (cur_htable_entry == 0xffffffffU) {
-	str_htable[hashval] = str_uidx;
-	break;
+        str_htable[hashval] = str_uidx;
+        break;
       }
       if (!memcmp(cur_str, &(strbox[cur_htable_entry * max_str_blen]), slen + 1)) {
-	// guaranteed to be positive
-	return str_uidx;
+        // guaranteed to be positive
+        return str_uidx;
       }
       if (++hashval == str_htable_size) {
-	hashval = 0;
+        hashval = 0;
       }
     }
   }
@@ -3660,7 +3660,7 @@ uint32_t variant_id_dup_htable_find(const char* idbuf, char** variant_ids, const
       // 0xffffffffU empty-entry code has high bit set, so only need to check
       // here
       if (cur_htable_idval == 0xffffffffU) {
-	return 0xffffffffU;
+        return 0xffffffffU;
       }
       cur_llidx = cur_htable_idval << 1;
       variant_uidx = htable_dup_base[cur_llidx];
@@ -3703,28 +3703,28 @@ uint32_t collapse_duplicate_ids(uintptr_t id_ct, uintptr_t max_id_blen, char* so
     id_starts[0] = 0;
     for (; read_idx < id_ct; ++read_idx) {
       if (!strcmp(&(sorted_ids[(read_idx - 1) * max_id_blen]), &(sorted_ids[read_idx * max_id_blen]))) {
-	break;
+        break;
       }
       id_starts[read_idx] = read_idx;
     }
     write_idx = read_idx;
     while (++read_idx < id_ct) {
       if (strcmp(&(sorted_ids[(write_idx - 1) * max_id_blen]), &(sorted_ids[read_idx * max_id_blen]))) {
-	strcpy(&(sorted_ids[write_idx * max_id_blen]), &(sorted_ids[read_idx * max_id_blen]));
-	id_starts[write_idx++] = read_idx;
+        strcpy(&(sorted_ids[write_idx * max_id_blen]), &(sorted_ids[read_idx * max_id_blen]));
+        id_starts[write_idx++] = read_idx;
       }
     }
   } else {
     for (; read_idx < id_ct; ++read_idx) {
       if (!strcmp(&(sorted_ids[(read_idx - 1) * max_id_blen]), &(sorted_ids[read_idx * max_id_blen]))) {
-	break;
+        break;
       }
     }
     write_idx = read_idx;
     while (++read_idx < id_ct) {
       if (strcmp(&(sorted_ids[(write_idx - 1) * max_id_blen]), &(sorted_ids[read_idx * max_id_blen]))) {
-	strcpy(&(sorted_ids[write_idx * max_id_blen]), &(sorted_ids[read_idx * max_id_blen]));
-	++write_idx;
+        strcpy(&(sorted_ids[write_idx * max_id_blen]), &(sorted_ids[read_idx * max_id_blen]));
+        ++write_idx;
       }
     }
   }
@@ -3750,42 +3750,42 @@ pglerr_t copy_sort_strbox_subset_noalloc(const uintptr_t* __restrict subset_mask
       uintptr_t wkspace_entry_blen = (max_str_blen > 36)? sizeof(Strbuf60_ui) : sizeof(Strbuf36_ui);
       char* sort_wkspace;
       if (bigstack_alloc_c(str_ct * wkspace_entry_blen, &sort_wkspace)) {
-	goto copy_sort_strbox_subset_noalloc_ret_NOMEM;
+        goto copy_sort_strbox_subset_noalloc_ret_NOMEM;
       }
       uint32_t str_uidx = 0;
       const uint32_t wkspace_entry_blen_m4 = wkspace_entry_blen - 4;
       char* sort_wkspace_iter = sort_wkspace;
       for (uint32_t str_idx = 0; str_idx < str_ct; ++str_idx, ++str_uidx) {
-	next_set_unsafe_ck(subset_mask, &str_uidx);
-	strcpy(sort_wkspace_iter, &(orig_strbox[str_uidx * max_str_blen]));
-	sort_wkspace_iter = &(sort_wkspace_iter[wkspace_entry_blen_m4]);
-	if (collapse_idxs) {
-	  *((uint32_t*)sort_wkspace_iter) = str_idx;
-	} else {
-	  *((uint32_t*)sort_wkspace_iter) = str_uidx;
-	}
-	sort_wkspace_iter = &(sort_wkspace_iter[sizeof(int32_t)]);
+        next_set_unsafe_ck(subset_mask, &str_uidx);
+        strcpy(sort_wkspace_iter, &(orig_strbox[str_uidx * max_str_blen]));
+        sort_wkspace_iter = &(sort_wkspace_iter[wkspace_entry_blen_m4]);
+        if (collapse_idxs) {
+          *((uint32_t*)sort_wkspace_iter) = str_idx;
+        } else {
+          *((uint32_t*)sort_wkspace_iter) = str_uidx;
+        }
+        sort_wkspace_iter = &(sort_wkspace_iter[sizeof(int32_t)]);
       }
       if (wkspace_entry_blen == 40) {
-	sort_strbox_40b_finish(str_ct, max_str_blen, use_nsort, (Strbuf36_ui*)sort_wkspace, sorted_strbox, id_map);
+        sort_strbox_40b_finish(str_ct, max_str_blen, use_nsort, (Strbuf36_ui*)sort_wkspace, sorted_strbox, id_map);
       } else {
-	sort_strbox_64b_finish(str_ct, max_str_blen, use_nsort, (Strbuf60_ui*)sort_wkspace, sorted_strbox, id_map);
+        sort_strbox_64b_finish(str_ct, max_str_blen, use_nsort, (Strbuf60_ui*)sort_wkspace, sorted_strbox, id_map);
       }
     } else {
 #endif
       str_sort_indexed_deref_t* sort_wkspace = (str_sort_indexed_deref_t*)bigstack_alloc(str_ct * sizeof(str_sort_indexed_deref_t));
       if (!sort_wkspace) {
-	goto copy_sort_strbox_subset_noalloc_ret_NOMEM;
+        goto copy_sort_strbox_subset_noalloc_ret_NOMEM;
       }
       uint32_t str_uidx = 0;
       for (uint32_t str_idx = 0; str_idx < str_ct; ++str_idx, ++str_uidx) {
-	next_set_unsafe_ck(subset_mask, &str_uidx);
-	sort_wkspace[str_idx].strptr = (const char*)(&(orig_strbox[str_uidx * max_str_blen]));
-	if (collapse_idxs) {
-	  sort_wkspace[str_idx].orig_idx = str_idx;
-	} else {
-	  sort_wkspace[str_idx].orig_idx = str_uidx;
-	}
+        next_set_unsafe_ck(subset_mask, &str_uidx);
+        sort_wkspace[str_idx].strptr = (const char*)(&(orig_strbox[str_uidx * max_str_blen]));
+        if (collapse_idxs) {
+          sort_wkspace[str_idx].orig_idx = str_idx;
+        } else {
+          sort_wkspace[str_idx].orig_idx = str_uidx;
+        }
       }
       if (!use_nsort) {
 #ifdef __cplusplus
@@ -3795,15 +3795,15 @@ pglerr_t copy_sort_strbox_subset_noalloc(const uintptr_t* __restrict subset_mask
 #endif
       } else {
 #ifdef __cplusplus
-	str_nsort_indexed_deref_t* wkspace_alias = (str_nsort_indexed_deref_t*)sort_wkspace;
-	std::sort(wkspace_alias, &(wkspace_alias[str_ct]));
+        str_nsort_indexed_deref_t* wkspace_alias = (str_nsort_indexed_deref_t*)sort_wkspace;
+        std::sort(wkspace_alias, &(wkspace_alias[str_ct]));
 #else
-	qsort(sort_wkspace, str_ct, sizeof(str_sort_indexed_deref_t), strcmp_natural_deref);
+        qsort(sort_wkspace, str_ct, sizeof(str_sort_indexed_deref_t), strcmp_natural_deref);
 #endif
       }
       for (uintptr_t str_idx = 0; str_idx < str_ct; ++str_idx) {
-	strcpy(&(sorted_strbox[str_idx * max_str_blen]), sort_wkspace[str_idx].strptr);
-	id_map[str_idx] = sort_wkspace[str_idx].orig_idx;
+        strcpy(&(sorted_strbox[str_idx * max_str_blen]), sort_wkspace[str_idx].strptr);
+        id_map[str_idx] = sort_wkspace[str_idx].orig_idx;
       }
 #ifdef __cplusplus
     }
@@ -3811,16 +3811,16 @@ pglerr_t copy_sort_strbox_subset_noalloc(const uintptr_t* __restrict subset_mask
     if (!allow_dups) {
       char* dup_id = scan_for_duplicate_ids(sorted_strbox, str_ct, max_str_blen);
       if (dup_id) {
-	char* tptr = dup_id;
-	while (1) {
-	  tptr = strchr(tptr, '\t');
-	  if (!tptr) {
-	    break;
-	  }
-	  *tptr++ = ' ';
-	}
-	LOGERRPRINTFWW("Error: Duplicate ID '%s'.\n", dup_id);
-	goto copy_sort_strbox_subset_noalloc_ret_MALFORMED_INPUT;
+        char* tptr = dup_id;
+        while (1) {
+          tptr = strchr(tptr, '\t');
+          if (!tptr) {
+            break;
+          }
+          *tptr++ = ' ';
+        }
+        LOGERRPRINTFWW("Error: Duplicate ID '%s'.\n", dup_id);
+        goto copy_sort_strbox_subset_noalloc_ret_MALFORMED_INPUT;
       }
     }
   }
@@ -3924,7 +3924,7 @@ boolerr_t numeric_range_list_to_bitarr(const range_list_t* range_list_ptr, uint3
     uint32_t idx1;
     if (scan_uint_capped(&(names[name_idx * name_max_blen]), idx_max, &idx1)) {
       if (ignore_overflow) {
-	continue;
+        continue;
       }
       return 1;
     }
@@ -3932,9 +3932,9 @@ boolerr_t numeric_range_list_to_bitarr(const range_list_t* range_list_ptr, uint3
       ++name_idx;
       uint32_t idx2;
       if (scan_uint_capped(&(names[name_idx * name_max_blen]), idx_max, &idx2)) {
-	if (!ignore_overflow) {
-	  return 1;
-	}
+        if (!ignore_overflow) {
+          return 1;
+        }
         idx2 = idx_max - 1;
       }
       fill_bits_nz(idx1 - offset, (idx2 - offset) + 1, bitarr);
@@ -3961,33 +3961,33 @@ pglerr_t string_range_list_to_bitarr(char* header_line, const range_list_t* rang
       char* token_end = comma_or_space_token_end(header_line_iter, comma_delim);
       uint32_t cmdline_pos;
       if (!sorted_idbox_find(header_line_iter, sorted_ids, id_map, (uintptr_t)(token_end - header_line_iter), max_id_blen, name_ct, &cmdline_pos)) {
-	if (seen_idxs[cmdline_pos] != -1) {
-	  sprintf(g_logbuf, "Error: Duplicate --%s token in %s.\n", range_list_flag, file_descrip);
-	  goto string_range_list_to_bitarr_ret_MALFORMED_INPUT_2;
-	}
-	seen_idxs[cmdline_pos] = item_idx;
-	if (cmdline_pos && range_list_ptr->starts_range[cmdline_pos - 1]) {
-	  if (seen_idxs[cmdline_pos - 1] == -1) {
-	    LOGPREPRINTFWW("Error: Second element of --%s range appears before first element in %s.\n", range_list_flag, file_descrip);
-	    goto string_range_list_to_bitarr_ret_INVALID_CMDLINE_2;
-	  }
-	  fill_bits_nz(seen_idxs[cmdline_pos - 1], item_idx + 1, bitarr);
-	} else if (!(range_list_ptr->starts_range[cmdline_pos])) {
-	  SET_BIT(item_idx, bitarr);
-	}
+        if (seen_idxs[cmdline_pos] != -1) {
+          sprintf(g_logbuf, "Error: Duplicate --%s token in %s.\n", range_list_flag, file_descrip);
+          goto string_range_list_to_bitarr_ret_MALFORMED_INPUT_2;
+        }
+        seen_idxs[cmdline_pos] = item_idx;
+        if (cmdline_pos && range_list_ptr->starts_range[cmdline_pos - 1]) {
+          if (seen_idxs[cmdline_pos - 1] == -1) {
+            LOGPREPRINTFWW("Error: Second element of --%s range appears before first element in %s.\n", range_list_flag, file_descrip);
+            goto string_range_list_to_bitarr_ret_INVALID_CMDLINE_2;
+          }
+          fill_bits_nz(seen_idxs[cmdline_pos - 1], item_idx + 1, bitarr);
+        } else if (!(range_list_ptr->starts_range[cmdline_pos])) {
+          SET_BIT(item_idx, bitarr);
+        }
       }
       if (++item_idx == token_ct) {
-	break;
+        break;
       }
       if (fixed_len) {
-	header_line_iter = &(header_line_iter[fixed_len]);
+        header_line_iter = &(header_line_iter[fixed_len]);
       } else {
-	header_line_iter = skip_initial_spaces(&(token_end[1]));
+        header_line_iter = skip_initial_spaces(&(token_end[1]));
       }
     }
     for (uint32_t cmdline_pos = 0; cmdline_pos < name_ct; ++cmdline_pos) {
       if (seen_idxs[cmdline_pos] == -1) {
-	goto string_range_list_to_bitarr_ret_INVALID_CMDLINE_3;
+        goto string_range_list_to_bitarr_ret_INVALID_CMDLINE_3;
       }
     }
   }
@@ -4065,7 +4065,7 @@ static inline uintptr_t popcount_vecs_intersect(const vul_t* __restrict vvec1_it
     const vul_t* vvec1_stop;
     if (vec_ct < 30) {
       if (!vec_ct) {
-	return tot;
+        return tot;
       }
       vvec1_stop = &(vvec1_iter[vec_ct]);
       vec_ct = 0;
@@ -4160,9 +4160,9 @@ void copy_bitarr_range(const uintptr_t* __restrict src_bitarr, uintptr_t src_sta
       const uint32_t src_lshift = kBitsPerWord - src_rshift;
       cur_src_word = *src_bitarr_iter;
       for (uintptr_t widx = 0; widx < fullword_ct; ++widx) {
-	const uintptr_t next_src_word = *(++src_bitarr_iter);
-	*target_bitarr_iter++ = (cur_src_word >> src_rshift) | (next_src_word << src_lshift);
-	cur_src_word = next_src_word;
+        const uintptr_t next_src_word = *(++src_bitarr_iter);
+        *target_bitarr_iter++ = (cur_src_word >> src_rshift) | (next_src_word << src_lshift);
+        cur_src_word = next_src_word;
       }
     }
   }
@@ -4223,12 +4223,21 @@ uintptr_t jump_forward_set_unsafe(const uintptr_t* bitvec, uintptr_t cur_pos, ui
     ++bptr;
   }
   vptr = (const vul_t*)bptr;
-  while (forward_ct > kBitsPerWord * (3 * kWordsPerVec)) {
-    uljj = ((forward_ct - 1) / (kBitsPerWord * (3 * kWordsPerVec))) * 3;
-    ulkk = popcount_vecs(vptr, uljj);
+#ifdef USE_AVX2
+  while (forward_ct > kBitsPerWord * (16 * kWordsPerVec)) {
+    uljj = ((forward_ct - 1) / (kBitsPerWord * (16 * kWordsPerVec))) * 16;
+    ulkk = popcount_avx2(vptr, uljj);
     vptr = &(vptr[uljj]);
     forward_ct -= ulkk;
   }
+#else
+  while (forward_ct > kBitsPerWord * (3 * kWordsPerVec)) {
+    uljj = ((forward_ct - 1) / (kBitsPerWord * (3 * kWordsPerVec))) * 3;
+    ulkk = popcount_vecs_old(vptr, uljj);
+    vptr = &(vptr[uljj]);
+    forward_ct -= ulkk;
+  }
+#endif
   bptr = (const uintptr_t*)vptr;
   while (forward_ct > kBitsPerWord) {
     forward_ct -= popcount_long(*bptr++);
@@ -4351,8 +4360,8 @@ boolerr_t parse_next_range(char** argv, uint32_t param_ct, char range_delim, uin
     if (!cc) {
       *cur_param_idx_ptr = ++cur_param_idx;
       if (cur_param_idx > param_ct) {
-	*range_start_ptr = nullptr;
-	return 0;
+        *range_start_ptr = nullptr;
+        return 0;
       }
       cur_arg_ptr = argv[cur_param_idx];
       cc = *cur_arg_ptr;
@@ -4413,22 +4422,22 @@ pglerr_t parse_name_ranges(char** argv, const char* errstr_append, uint32_t para
     cur_arg_ptr = argv[1];
     while (1) {
       if (parse_next_range(argv, param_ct, range_delim, &cur_param_idx, &cur_arg_ptr, &range_start, &rs_len, &range_end, &re_len)) {
-	LOGERRPRINTFWW("Error: Invalid %s parameter '%s'.\n", argv[0], argv[cur_param_idx]);
-	logerrprint(errstr_append);
+        LOGERRPRINTFWW("Error: Invalid %s parameter '%s'.\n", argv[0], argv[cur_param_idx]);
+        logerrprint(errstr_append);
         return kPglRetInvalidCmdline;
       }
       if (!range_start) {
-	break;
+        break;
       }
       ++name_ct;
       if (rs_len > name_max_blen) {
-	name_max_blen = rs_len; // does NOT include trailing null yet
+        name_max_blen = rs_len; // does NOT include trailing null yet
       }
       if (range_end) {
-	++name_ct;
-	if (re_len > name_max_blen) {
-	  name_max_blen = re_len;
-	}
+        ++name_ct;
+        if (re_len > name_max_blen) {
+          name_max_blen = re_len;
+        }
       }
     }
   }
@@ -4451,30 +4460,30 @@ pglerr_t parse_name_ranges(char** argv, const char* errstr_append, uint32_t para
     parse_next_range(argv, param_ct, range_delim, &cur_param_idx, &cur_arg_ptr, &range_start, &rs_len, &range_end, &re_len);
     if (!range_start) {
       if (require_posint) {
-	last_val = 0;
-	for (cur_param_idx = 0; cur_param_idx < name_ct; ++cur_param_idx) {
-	  cur_name_str = &(range_list_ptr->names[cur_param_idx * ((uintptr_t)name_max_blen)]);
-	  dup_check = cur_name_str; // actually a numeric check
-	  do {
-	    if (is_not_digit(*dup_check)) {
-	      LOGERRPRINTFWW("Error: Invalid %s parameter '%s'.\n", argv[0], cur_name_str);
-	      return kPglRetInvalidCmdline;
-	    }
-	  } while (*(++dup_check));
-	  if (scan_posint_defcap(cur_name_str, &cur_val)) {
-	    LOGERRPRINTFWW("Error: Invalid %s parameter '%s'.\n", argv[0], cur_name_str);
-	    return kPglRetInvalidCmdline;
-	  }
-	  if (range_list_ptr->starts_range[cur_param_idx]) {
-	    last_val = cur_val;
-	  } else {
-	    if (cur_val <= last_val) {
-	      LOGERRPRINTFWW("Error: Invalid %s range '%s-%s'.\n", argv[0], &(range_list_ptr->names[(cur_param_idx - 1) * name_max_blen]), cur_name_str);
-	      return kPglRetInvalidCmdline;
-	    }
-	    last_val = 0;
-	  }
-	}
+        last_val = 0;
+        for (cur_param_idx = 0; cur_param_idx < name_ct; ++cur_param_idx) {
+          cur_name_str = &(range_list_ptr->names[cur_param_idx * ((uintptr_t)name_max_blen)]);
+          dup_check = cur_name_str; // actually a numeric check
+          do {
+            if (is_not_digit(*dup_check)) {
+              LOGERRPRINTFWW("Error: Invalid %s parameter '%s'.\n", argv[0], cur_name_str);
+              return kPglRetInvalidCmdline;
+            }
+          } while (*(++dup_check));
+          if (scan_posint_defcap(cur_name_str, &cur_val)) {
+            LOGERRPRINTFWW("Error: Invalid %s parameter '%s'.\n", argv[0], cur_name_str);
+            return kPglRetInvalidCmdline;
+          }
+          if (range_list_ptr->starts_range[cur_param_idx]) {
+            last_val = cur_val;
+          } else {
+            if (cur_val <= last_val) {
+              LOGERRPRINTFWW("Error: Invalid %s range '%s-%s'.\n", argv[0], &(range_list_ptr->names[(cur_param_idx - 1) * name_max_blen]), cur_name_str);
+              return kPglRetInvalidCmdline;
+            }
+            last_val = 0;
+          }
+        }
       }
       return kPglRetSuccess;
     }
@@ -4482,8 +4491,8 @@ pglerr_t parse_name_ranges(char** argv, const char* errstr_append, uint32_t para
     dup_check = range_list_ptr->names;
     while (dup_check < cur_name_str) {
       if (!memcmp(dup_check, cur_name_str, rs_len + 1)) {
-	LOGERRPRINTFWW("Error: Duplicate %s parameter '%s'.\n", argv[0], cur_name_str);
-	return kPglRetInvalidCmdline;
+        LOGERRPRINTFWW("Error: Duplicate %s parameter '%s'.\n", argv[0], cur_name_str);
+        return kPglRetInvalidCmdline;
       }
       dup_check = &(dup_check[name_max_blen]);
     }
@@ -4493,10 +4502,10 @@ pglerr_t parse_name_ranges(char** argv, const char* errstr_append, uint32_t para
       memcpyx(cur_name_str, range_end, re_len, 0);
       dup_check = range_list_ptr->names;
       while (dup_check < cur_name_str) {
-	if (!memcmp(dup_check, cur_name_str, rs_len + 1)) {
-	  LOGERRPRINTFWW("Error: Duplicate %s parameter '%s'.\n", argv[0], cur_name_str);
-	  return kPglRetInvalidCmdline;
-	}
+        if (!memcmp(dup_check, cur_name_str, rs_len + 1)) {
+          LOGERRPRINTFWW("Error: Duplicate %s parameter '%s'.\n", argv[0], cur_name_str);
+          return kPglRetInvalidCmdline;
+        }
         dup_check = &(dup_check[name_max_blen]);
       }
       cur_name_str = &(cur_name_str[name_max_blen]);
@@ -4532,14 +4541,14 @@ uint32_t cubic_real_roots(double coef_a, double coef_b, double coef_c, double* s
       solutions[0] = solutions[1];
       if (dxx > solutions[2]) {
         solutions[1] = solutions[2];
-	solutions[2] = dxx;
+        solutions[2] = dxx;
       } else {
-	solutions[1] = dxx;
+        solutions[1] = dxx;
       }
       if (solutions[0] > solutions[1]) {
-	dxx = solutions[0];
-	solutions[0] = solutions[1];
-	solutions[1] = dxx;
+        dxx = solutions[0];
+        solutions[0] = solutions[1];
+        solutions[1] = dxx;
       }
     } else if (solutions[1] > solutions[2]) {
       dxx = solutions[1];
@@ -4700,7 +4709,7 @@ void join_threads2z(uint32_t ct, uint32_t is_last_block, pthread_t* threads) {
     for (uint32_t uii = 0; uii < ct; ++uii) {
       // fix handle leak?
       CloseHandle(threads[uii]);
-      
+
       CloseHandle(g_thread_start_next_event[uii]);
       CloseHandle(g_thread_cur_block_done_events[uii]);
     }
@@ -4746,26 +4755,26 @@ boolerr_t spawn_threads2z(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, uint32_
     for (uintptr_t ulii = 0; ulii < ct; ++ulii) {
       threads[ulii] = (HANDLE)_beginthreadex(nullptr, kDefaultThreadStack, start_routine, (void*)ulii, 0, nullptr);
       if (!threads[ulii]) {
-	if (ulii) {
-	  join_threads2z(ulii, is_last_block, threads);
-	  if (!is_last_block) {
-	    for (uintptr_t uljj = 0; uljj < ulii; ++uljj) {
-	      TerminateThread(threads[uljj], 0);
-	    }
-	    // fix handle leak?
-	    for (uintptr_t uljj = 0; uljj < ulii; ++uljj) {
-	      CloseHandle(threads[uljj]);
-	    }
-	  }
-	}
-	if ((!is_last_block) || (!ulii)) {
-	  for (uint32_t uii = 0; uii < ct; ++uii) {
-	    CloseHandle(g_thread_start_next_event[uii]);
-	    CloseHandle(g_thread_cur_block_done_events[uii]);
-	  }
-	  g_thread_mutex_initialized = 0;
-	}
-	return 1;
+        if (ulii) {
+          join_threads2z(ulii, is_last_block, threads);
+          if (!is_last_block) {
+            for (uintptr_t uljj = 0; uljj < ulii; ++uljj) {
+              TerminateThread(threads[uljj], 0);
+            }
+            // fix handle leak?
+            for (uintptr_t uljj = 0; uljj < ulii; ++uljj) {
+              CloseHandle(threads[uljj]);
+            }
+          }
+        }
+        if ((!is_last_block) || (!ulii)) {
+          for (uint32_t uii = 0; uii < ct; ++uii) {
+            CloseHandle(g_thread_start_next_event[uii]);
+            CloseHandle(g_thread_cur_block_done_events[uii]);
+          }
+          g_thread_mutex_initialized = 0;
+        }
+        return 1;
       }
     }
   } else {
@@ -4788,35 +4797,35 @@ boolerr_t spawn_threads2z(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, uint32_
     }
     for (uintptr_t ulii = 0; ulii < ct; ++ulii) {
       if (pthread_create(&(threads[ulii]), &g_smallstack_thread_attr, start_routine, (void*)ulii)) {
-	if (ulii) {
-	  if (is_last_block) {
-	    join_threads2z(ulii, 1, threads);
-	  } else {
-	    const uintptr_t unstarted_thread_ct = ct - ulii;
-	    pthread_mutex_lock(&g_thread_sync_mutex);
-	    // minor bugfix (21 Aug 2017): join_threads2z hangs forever if not
-	    //   last block, since cur_block_done_condvar is only signaled
-	    //   when g_thread_active_ct decreased to zero
-	    g_thread_active_ct -= unstarted_thread_ct;
-	    while (g_thread_active_ct) {
-	      pthread_cond_wait(&g_thread_cur_block_done_condvar, &g_thread_sync_mutex);
-	    }
-	    // not worth the trouble of demanding that all callers handle
-	    // pthread_create() failure cleanly
-	    // (in contrast, error_cleanup_threads2z is relevant when an input
-	    // .pgen is malformed, which could happen a lot)
-	    for (uintptr_t uljj = 0; uljj < ulii; ++uljj) {
-	      pthread_cancel(threads[uljj]);
-	    }
-	  }
-	}
-	if ((!is_last_block) || (!ulii)) {
-	  pthread_mutex_destroy(&g_thread_sync_mutex);
-	  pthread_cond_destroy(&g_thread_cur_block_done_condvar);
-	  pthread_cond_destroy(&g_thread_start_next_condvar);
-	  g_thread_mutex_initialized = 0;
-	}
-	return 1;
+        if (ulii) {
+          if (is_last_block) {
+            join_threads2z(ulii, 1, threads);
+          } else {
+            const uintptr_t unstarted_thread_ct = ct - ulii;
+            pthread_mutex_lock(&g_thread_sync_mutex);
+            // minor bugfix (21 Aug 2017): join_threads2z hangs forever if not
+            //   last block, since cur_block_done_condvar is only signaled
+            //   when g_thread_active_ct decreased to zero
+            g_thread_active_ct -= unstarted_thread_ct;
+            while (g_thread_active_ct) {
+              pthread_cond_wait(&g_thread_cur_block_done_condvar, &g_thread_sync_mutex);
+            }
+            // not worth the trouble of demanding that all callers handle
+            // pthread_create() failure cleanly
+            // (in contrast, error_cleanup_threads2z is relevant when an input
+            // .pgen is malformed, which could happen a lot)
+            for (uintptr_t uljj = 0; uljj < ulii; ++uljj) {
+              pthread_cancel(threads[uljj]);
+            }
+          }
+        }
+        if ((!is_last_block) || (!ulii)) {
+          pthread_mutex_destroy(&g_thread_sync_mutex);
+          pthread_cond_destroy(&g_thread_cur_block_done_condvar);
+          pthread_cond_destroy(&g_thread_start_next_condvar);
+          g_thread_mutex_initialized = 0;
+        }
+        return 1;
       }
     }
   } else {
@@ -4897,7 +4906,7 @@ pglerr_t populate_id_htable_mt(const uintptr_t* subset_mask, char** item_ids, ui
     if (thread_ct > item_ct / 65536) {
       thread_ct = item_ct / 65536;
       if (!thread_ct) {
-	thread_ct = 1;
+        thread_ct = 1;
       }
     }
     if (bigstack_end_alloc_ui(item_ct, &g_item_id_hashes)) {
@@ -4915,10 +4924,10 @@ pglerr_t populate_id_htable_mt(const uintptr_t* subset_mask, char** item_ids, ui
       uint32_t item_idx = 0;
       g_item_uidx_starts[0] = item_uidx;
       for (uintptr_t tidx = 1; tidx < thread_ct; ++tidx) {
-	const uint32_t item_idx_new = (item_ct * ((uint64_t)tidx)) / thread_ct;
-	item_uidx = jump_forward_set_unsafe(subset_mask, item_uidx + 1, item_idx_new - item_idx);
-	g_item_uidx_starts[tidx] = item_uidx;
-	item_idx = item_idx_new;
+        const uint32_t item_idx_new = (item_ct * ((uint64_t)tidx)) / thread_ct;
+        item_uidx = jump_forward_set_unsafe(subset_mask, item_uidx + 1, item_idx_new - item_idx);
+        g_item_uidx_starts[tidx] = item_uidx;
+        item_idx = item_idx_new;
       }
     }
     if (spawn_threads(calc_id_hash_thread, thread_ct, threads)) {
@@ -4933,46 +4942,46 @@ pglerr_t populate_id_htable_mt(const uintptr_t* subset_mask, char** item_ids, ui
     uint32_t item_uidx = 0;
     if (!store_all_dups) {
       for (uint32_t item_idx = 0; item_idx < item_ct; ++item_uidx, ++item_idx) {
-	next_set_unsafe_ck(subset_mask, &item_uidx);
-	uint32_t hashval = g_item_id_hashes[item_idx];
-	uint32_t cur_htable_entry = id_htable[hashval];
-	if (cur_htable_entry == 0xffffffffU) {
-	  id_htable[hashval] = item_uidx;
-	} else {
-	  const char* sptr = item_ids[item_uidx];
-	  while (1) {
-	    // could also use memcmp, guaranteed to be safe due to where
-	    // variant IDs are allocated
-	    if (!strcmp(sptr, item_ids[cur_htable_entry & 0x7fffffff])) {
-	      if (!(cur_htable_entry >> 31)) {
-	        id_htable[hashval] |= 0x80000000U;
-	      }
-	      break;
-	    }
-	    if (++hashval == id_htable_size) {
-	      hashval = 0;
-	    }
-	    cur_htable_entry = id_htable[hashval];
-	    if (cur_htable_entry == 0xffffffffU) {
-	      id_htable[hashval] = item_uidx;
-	      break;
-	    }
-	  }
-	}
+        next_set_unsafe_ck(subset_mask, &item_uidx);
+        uint32_t hashval = g_item_id_hashes[item_idx];
+        uint32_t cur_htable_entry = id_htable[hashval];
+        if (cur_htable_entry == 0xffffffffU) {
+          id_htable[hashval] = item_uidx;
+        } else {
+          const char* sptr = item_ids[item_uidx];
+          while (1) {
+            // could also use memcmp, guaranteed to be safe due to where
+            // variant IDs are allocated
+            if (!strcmp(sptr, item_ids[cur_htable_entry & 0x7fffffff])) {
+              if (!(cur_htable_entry >> 31)) {
+                id_htable[hashval] |= 0x80000000U;
+              }
+              break;
+            }
+            if (++hashval == id_htable_size) {
+              hashval = 0;
+            }
+            cur_htable_entry = id_htable[hashval];
+            if (cur_htable_entry == 0xffffffffU) {
+              id_htable[hashval] = item_uidx;
+              break;
+            }
+          }
+        }
       }
     } else {
       const uintptr_t cur_bigstack_left = bigstack_left();
       uint32_t max_extra_alloc_m4;
 #ifdef __LP64__
       if (cur_bigstack_left >= 0x400000000LLU) {
-	// this can never be hit
-	max_extra_alloc_m4 = 0xfffffffaU;
+        // this can never be hit
+        max_extra_alloc_m4 = 0xfffffffaU;
       } else {
 #endif
-	if (cur_bigstack_left < 4 * sizeof(int32_t)) {
-	  goto populate_id_htable_mt_ret_NOMEM;
-	}
-	max_extra_alloc_m4 = (cur_bigstack_left / sizeof(int32_t)) - 4;
+        if (cur_bigstack_left < 4 * sizeof(int32_t)) {
+          goto populate_id_htable_mt_ret_NOMEM;
+        }
+        max_extra_alloc_m4 = (cur_bigstack_left / sizeof(int32_t)) - 4;
 #ifdef __LP64__
       }
 #endif
@@ -4982,53 +4991,53 @@ pglerr_t populate_id_htable_mt(const uintptr_t* subset_mask, char** item_ids, ui
       // multithread this?
       uint32_t* htable_dup_base = (uint32_t*)g_bigstack_base;
       for (uint32_t item_idx = 0; item_idx < item_ct; ++item_uidx, ++item_idx) {
-	next_set_unsafe_ck(subset_mask, &item_uidx);
-	uint32_t hashval = g_item_id_hashes[item_idx];
-	uint32_t cur_htable_entry = id_htable[hashval];
-	if (cur_htable_entry == 0xffffffffU) {
-	  id_htable[hashval] = item_uidx;
-	} else {
-	  const char* sptr = item_ids[item_uidx];
-	  while (1) {
-	    const uint32_t cur_dup = cur_htable_entry >> 31;
-	    uint32_t prev_uidx;
-	    if (cur_dup) {
-	      prev_llidx = cur_htable_entry * 2;
-	      prev_uidx = htable_dup_base[prev_llidx];
-	    } else {
-	      prev_uidx = cur_htable_entry;
-	    }
-	    if (!strcmp(sptr, item_ids[prev_uidx])) {
-	      if (extra_alloc > max_extra_alloc_m4) {
-		goto populate_id_htable_mt_ret_NOMEM;
-	      }
-	      // point to linked list entry instead
-	      if (!cur_dup) {
-		htable_dup_base[extra_alloc] = cur_htable_entry;
-		htable_dup_base[extra_alloc + 1] = 0xffffffffU; // list end
-		prev_llidx = extra_alloc;
-		extra_alloc += 2;
-	      }
-	      htable_dup_base[extra_alloc] = item_uidx;
-	      htable_dup_base[extra_alloc + 1] = prev_llidx;
-	      id_htable[hashval] = 0x80000000U | (extra_alloc >> 1);
-	      extra_alloc += 2;
-	      break; // bugfix
-	    }
-	    if (++hashval == id_htable_size) {
-	      hashval = 0;
-	    }
-	    cur_htable_entry = id_htable[hashval];
-	    if (cur_htable_entry == 0xffffffffU) {
-	      id_htable[hashval] = item_uidx;
-	      break;
-	    }
-	  }
-	}
+        next_set_unsafe_ck(subset_mask, &item_uidx);
+        uint32_t hashval = g_item_id_hashes[item_idx];
+        uint32_t cur_htable_entry = id_htable[hashval];
+        if (cur_htable_entry == 0xffffffffU) {
+          id_htable[hashval] = item_uidx;
+        } else {
+          const char* sptr = item_ids[item_uidx];
+          while (1) {
+            const uint32_t cur_dup = cur_htable_entry >> 31;
+            uint32_t prev_uidx;
+            if (cur_dup) {
+              prev_llidx = cur_htable_entry * 2;
+              prev_uidx = htable_dup_base[prev_llidx];
+            } else {
+              prev_uidx = cur_htable_entry;
+            }
+            if (!strcmp(sptr, item_ids[prev_uidx])) {
+              if (extra_alloc > max_extra_alloc_m4) {
+                goto populate_id_htable_mt_ret_NOMEM;
+              }
+              // point to linked list entry instead
+              if (!cur_dup) {
+                htable_dup_base[extra_alloc] = cur_htable_entry;
+                htable_dup_base[extra_alloc + 1] = 0xffffffffU; // list end
+                prev_llidx = extra_alloc;
+                extra_alloc += 2;
+              }
+              htable_dup_base[extra_alloc] = item_uidx;
+              htable_dup_base[extra_alloc + 1] = prev_llidx;
+              id_htable[hashval] = 0x80000000U | (extra_alloc >> 1);
+              extra_alloc += 2;
+              break; // bugfix
+            }
+            if (++hashval == id_htable_size) {
+              hashval = 0;
+            }
+            cur_htable_entry = id_htable[hashval];
+            if (cur_htable_entry == 0xffffffffU) {
+              id_htable[hashval] = item_uidx;
+              break;
+            }
+          }
+        }
       }
       if (extra_alloc) {
-	// bugfix: forgot to align this
-	bigstack_alloc_raw_rd(extra_alloc * sizeof(int32_t));
+        // bugfix: forgot to align this
+        bigstack_alloc_raw_rd(extra_alloc * sizeof(int32_t));
       }
     }
   }
@@ -5085,32 +5094,32 @@ uint32_t edit1_match(const char* s1, const char* s2, uint32_t len1, uint32_t len
   if (len1 == len2) {
     while (pos < len1) {
       if (s1[pos] != s2[pos]) {
-	if (diff_found) {
-	  if ((diff_found == 2) || (s1[pos] != s2[pos - 1]) || (s1[pos - 1] != s2[pos])) {
-	    return 0;
-	  }
-	}
-	++diff_found;
+        if (diff_found) {
+          if ((diff_found == 2) || (s1[pos] != s2[pos - 1]) || (s1[pos - 1] != s2[pos])) {
+            return 0;
+          }
+        }
+        ++diff_found;
       }
       ++pos;
     }
   } else if (len1 == len2 - 1) {
     do {
       if (s1[pos - diff_found] != s2[pos]) {
-	if (diff_found) {
-	  return 0;
-	}
-	++diff_found;
+        if (diff_found) {
+          return 0;
+        }
+        ++diff_found;
       }
       ++pos;
     } while (pos < len2);
   } else if (len1 == len2 + 1) {
     do {
       if (s1[pos] != s2[pos - diff_found]) {
-	if (diff_found) {
-	  return 0;
-	}
-	++diff_found;
+        if (diff_found) {
+          return 0;
+        }
+        ++diff_found;
       }
       ++pos;
     } while (pos < len1);
@@ -5137,106 +5146,106 @@ void help_print(const char* cur_params, help_ctrl_t* help_ctrl_ptr, uint32_t pos
     if (help_ctrl_ptr->iters_left) {
       const uint32_t orig_unmatched_ct = help_ctrl_ptr->unmatched_ct;
       if (help_ctrl_ptr->unmatched_ct) {
-	uint32_t arg_uidx = 0;
-	if (help_ctrl_ptr->iters_left == 2) {
-	  for (uint32_t arg_idx = 0; arg_idx < orig_unmatched_ct; ++arg_idx, ++arg_uidx) {
-	    arg_uidx = next_unset_unsafe(help_ctrl_ptr->all_match_arr, arg_uidx);
-	    for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
-	      if (!strcmp(cur_param_start[cur_param_idx], help_ctrl_ptr->argv[arg_uidx])) {
-		SET_BIT(arg_uidx, help_ctrl_ptr->perfect_match_arr);
-		SET_BIT(arg_uidx, help_ctrl_ptr->prefix_match_arr);
-		SET_BIT(arg_uidx, help_ctrl_ptr->all_match_arr);
-		help_ctrl_ptr->unmatched_ct -= 1;
-		break;
-	      }
-	    }
-	  }
-	} else {
+        uint32_t arg_uidx = 0;
+        if (help_ctrl_ptr->iters_left == 2) {
+          for (uint32_t arg_idx = 0; arg_idx < orig_unmatched_ct; ++arg_idx, ++arg_uidx) {
+            arg_uidx = next_unset_unsafe(help_ctrl_ptr->all_match_arr, arg_uidx);
+            for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
+              if (!strcmp(cur_param_start[cur_param_idx], help_ctrl_ptr->argv[arg_uidx])) {
+                SET_BIT(arg_uidx, help_ctrl_ptr->perfect_match_arr);
+                SET_BIT(arg_uidx, help_ctrl_ptr->prefix_match_arr);
+                SET_BIT(arg_uidx, help_ctrl_ptr->all_match_arr);
+                help_ctrl_ptr->unmatched_ct -= 1;
+                break;
+              }
+            }
+          }
+        } else {
           uint32_t cur_param_slens[kMaxEqualHelpParams];
-	  for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
-	    cur_param_slens[cur_param_idx] = strlen(cur_param_start[cur_param_idx]);
-	  }
-	  for (uint32_t arg_idx = 0; arg_idx < orig_unmatched_ct; ++arg_idx, ++arg_uidx) {
-	    arg_uidx = next_unset_unsafe(help_ctrl_ptr->all_match_arr, arg_uidx);
-	    const uint32_t slen = help_ctrl_ptr->param_slens[arg_uidx];
-	    for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
-	      if (cur_param_slens[cur_param_idx] > slen) {
-		if (!memcmp(help_ctrl_ptr->argv[arg_uidx], cur_param_start[cur_param_idx], slen)) {
-		  SET_BIT(arg_uidx, help_ctrl_ptr->prefix_match_arr);
-		  SET_BIT(arg_uidx, help_ctrl_ptr->all_match_arr);
-		  help_ctrl_ptr->unmatched_ct -= 1;
-		  break;
-		}
-	      }
-	    }
-	  }
-	}
+          for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
+            cur_param_slens[cur_param_idx] = strlen(cur_param_start[cur_param_idx]);
+          }
+          for (uint32_t arg_idx = 0; arg_idx < orig_unmatched_ct; ++arg_idx, ++arg_uidx) {
+            arg_uidx = next_unset_unsafe(help_ctrl_ptr->all_match_arr, arg_uidx);
+            const uint32_t slen = help_ctrl_ptr->param_slens[arg_uidx];
+            for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
+              if (cur_param_slens[cur_param_idx] > slen) {
+                if (!memcmp(help_ctrl_ptr->argv[arg_uidx], cur_param_start[cur_param_idx], slen)) {
+                  SET_BIT(arg_uidx, help_ctrl_ptr->prefix_match_arr);
+                  SET_BIT(arg_uidx, help_ctrl_ptr->all_match_arr);
+                  help_ctrl_ptr->unmatched_ct -= 1;
+                  break;
+                }
+              }
+            }
+          }
+        }
       }
     } else {
       uint32_t cur_param_slens[kMaxEqualHelpParams];
       for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
-	cur_param_slens[cur_param_idx] = strlen(cur_param_start[cur_param_idx]);
+        cur_param_slens[cur_param_idx] = strlen(cur_param_start[cur_param_idx]);
       }
       uint32_t print_this = 0;
       for (uint32_t arg_uidx = 0; arg_uidx < help_ctrl_ptr->param_ct; ++arg_uidx) {
-	if (IS_SET(help_ctrl_ptr->prefix_match_arr, arg_uidx)) {
-	  if (!print_this) {
-	    if (IS_SET(help_ctrl_ptr->perfect_match_arr, arg_uidx)) {
-	      for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
-		if (!strcmp(cur_param_start[cur_param_idx], help_ctrl_ptr->argv[arg_uidx])) {
-		  print_this = 1;
-		  break;
-		}
-	      }
-	    } else {
-	      const uint32_t slen = help_ctrl_ptr->param_slens[arg_uidx];
-	      for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
-		if (cur_param_slens[cur_param_idx] > slen) {
-		  if (!memcmp(help_ctrl_ptr->argv[arg_uidx], cur_param_start[cur_param_idx], slen)) {
-		    print_this = 1;
-		    break;
-		  }
-		}
-	      }
-	    }
-	  }
-	} else {
-	  for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
-	    if (edit1_match(cur_param_start[cur_param_idx], help_ctrl_ptr->argv[arg_uidx], cur_param_slens[cur_param_idx], help_ctrl_ptr->param_slens[arg_uidx])) {
-	      print_this = 1;
-	      if (!IS_SET(help_ctrl_ptr->all_match_arr, arg_uidx)) {
-		SET_BIT(arg_uidx, help_ctrl_ptr->all_match_arr);
-		help_ctrl_ptr->unmatched_ct -= 1;
-	      }
-	      break;
-	    }
-	  }
-	}
+        if (IS_SET(help_ctrl_ptr->prefix_match_arr, arg_uidx)) {
+          if (!print_this) {
+            if (IS_SET(help_ctrl_ptr->perfect_match_arr, arg_uidx)) {
+              for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
+                if (!strcmp(cur_param_start[cur_param_idx], help_ctrl_ptr->argv[arg_uidx])) {
+                  print_this = 1;
+                  break;
+                }
+              }
+            } else {
+              const uint32_t slen = help_ctrl_ptr->param_slens[arg_uidx];
+              for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
+                if (cur_param_slens[cur_param_idx] > slen) {
+                  if (!memcmp(help_ctrl_ptr->argv[arg_uidx], cur_param_start[cur_param_idx], slen)) {
+                    print_this = 1;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        } else {
+          for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
+            if (edit1_match(cur_param_start[cur_param_idx], help_ctrl_ptr->argv[arg_uidx], cur_param_slens[cur_param_idx], help_ctrl_ptr->param_slens[arg_uidx])) {
+              print_this = 1;
+              if (!IS_SET(help_ctrl_ptr->all_match_arr, arg_uidx)) {
+                SET_BIT(arg_uidx, help_ctrl_ptr->all_match_arr);
+                help_ctrl_ptr->unmatched_ct -= 1;
+              }
+              break;
+            }
+          }
+        }
       }
       if (print_this) {
-	const uint32_t payload_slen = strlen(payload);
-	const char* payload_end;
-	if (payload[payload_slen - 2] == '\n') {
-	  payload_end = &(payload[payload_slen - 1]);
-	} else {
-	  payload_end = &(payload[payload_slen]);
-	}
-	if (help_ctrl_ptr->preprint_newline) {
-	  putc_unlocked('\n', stdout);
-	}
-	help_ctrl_ptr->preprint_newline = postprint_newline;
-	const char* payload_iter = payload;
-	do {
-	  const char* line_end = (const char*)rawmemchr(payload_iter, '\n') + 1;
-	  uint32_t line_slen = (uint32_t)(line_end - payload_iter);
-	  if (line_slen > 2) {
-	    payload_iter = &(payload_iter[2]);
-	    line_slen -= 2;
-	  }
-	  memcpyx(g_textbuf, payload_iter, line_slen, 0);
-	  fputs(g_textbuf, stdout);
-	  payload_iter = line_end;
-	} while (payload_iter < payload_end);
+        const uint32_t payload_slen = strlen(payload);
+        const char* payload_end;
+        if (payload[payload_slen - 2] == '\n') {
+          payload_end = &(payload[payload_slen - 1]);
+        } else {
+          payload_end = &(payload[payload_slen]);
+        }
+        if (help_ctrl_ptr->preprint_newline) {
+          putc_unlocked('\n', stdout);
+        }
+        help_ctrl_ptr->preprint_newline = postprint_newline;
+        const char* payload_iter = payload;
+        do {
+          const char* line_end = (const char*)rawmemchr(payload_iter, '\n') + 1;
+          uint32_t line_slen = (uint32_t)(line_end - payload_iter);
+          if (line_slen > 2) {
+            payload_iter = &(payload_iter[2]);
+            line_slen -= 2;
+          }
+          memcpyx(g_textbuf, payload_iter, line_slen, 0);
+          fputs(g_textbuf, stdout);
+          payload_iter = line_end;
+        } while (payload_iter < payload_end);
       }
     }
   } else {
@@ -5265,7 +5274,7 @@ void disp_exit_msg(pglerr_t reterr) {
       logprint("\n");
       logerrprint(errstr_nomem);
       if (g_failed_alloc_attempt_size) {
-	LOGERRPRINTF("Failed allocation size: %" PRIuPTR "\n", g_failed_alloc_attempt_size);
+        LOGERRPRINTF("Failed allocation size: %" PRIuPTR "\n", g_failed_alloc_attempt_size);
       }
     } else if (reterr == kPglRetReadFail) {
       logprint("\n");
@@ -5402,8 +5411,8 @@ pglerr_t rerun(const char* ver_str, const char* ver_str2, const char* prog_name_
       if (!fgets(textbuf, kMaxMediumLine, rerunfile)) {
         fputs(ver_str, stdout);
         fputs(ver_str2, stdout);
-	fputs("Error: Invalid log file for --rerun.\n", stderr);
-	goto rerun_ret_MALFORMED_INPUT;
+        fputs("Error: Invalid log file for --rerun.\n", stderr);
+        goto rerun_ret_MALFORMED_INPUT;
       }
     }
     char* all_args_write_iter = textbuf;
@@ -5417,29 +5426,29 @@ pglerr_t rerun(const char* ver_str, const char* ver_str2, const char* prog_name_
     while (1) {
       all_args_write_iter[kMaxMediumLine - 1] = ' ';
       if (!fgets(all_args_write_iter, kMaxMediumLine, rerunfile)) {
-	break;
+        break;
       }
       ++line_idx;
       if (!all_args_write_iter[kMaxMediumLine - 1]) {
-	goto rerun_ret_LONG_LINE;
+        goto rerun_ret_LONG_LINE;
       }
       char* arg_iter = skip_initial_spaces(all_args_write_iter);
       if (is_eoln_kns(*arg_iter)) {
-	*all_args_write_iter = '\0';
-	break;
+        *all_args_write_iter = '\0';
+        break;
       }
       char* token_end;
       do {
-	token_end = token_endnn(arg_iter);
-	++loaded_arg_ct;
-	arg_iter = skip_initial_spaces(token_end);
+        token_end = token_endnn(arg_iter);
+        ++loaded_arg_ct;
+        arg_iter = skip_initial_spaces(token_end);
       } while (!is_eoln_kns(*arg_iter));
       all_args_write_iter = token_end;
       if (all_args_write_iter >= textbuf_limit) {
         fputs(ver_str, stdout);
         fputs(ver_str2, stdout);
-	fputs("Error: --rerun argument sequence too long.\n", stderr);
-	goto rerun_ret_MALFORMED_INPUT;
+        fputs("Error: --rerun argument sequence too long.\n", stderr);
+        goto rerun_ret_MALFORMED_INPUT;
       }
     }
     fclose_null(&rerunfile);
@@ -5462,40 +5471,40 @@ pglerr_t rerun(const char* ver_str, const char* ver_str2, const char* prog_name_
       if (no_more_tokens_kns(arg_iter)) {
         fputs(ver_str, stdout);
         fputs(ver_str2, stdout);
-	fputs("Error: Line 2 of --rerun log file has fewer tokens than expected.\n", stderr);
-	goto rerun_ret_MALFORMED_INPUT;
+        fputs("Error: Line 2 of --rerun log file has fewer tokens than expected.\n", stderr);
+        goto rerun_ret_MALFORMED_INPUT;
       }
       char* flagname_p = is_flag_start(arg_iter);
       if (flagname_p) {
-	const uint32_t slen = strlen_se(flagname_p);
-	uint32_t cmdline_arg_idx = first_arg_idx;
-	for (; cmdline_arg_idx < argc; cmdline_arg_idx++) {
-	  char* later_flagname_p = is_flag_start(argv[cmdline_arg_idx]);
-	  if (later_flagname_p) {
-	    const uint32_t slen2 = strlen(later_flagname_p);
-	    if ((slen == slen2) && (!memcmp(flagname_p, later_flagname_p, slen))) {
-	      cmdline_arg_idx = 0xffffffffU;
-	      break;
-	    }
-	  }
-	}
-	if (cmdline_arg_idx == 0xffffffffU) {
-	  // matching flag, override --rerun
-	  do {
-	    ++duplicate_arg_ct;
-	    textbuf[loaded_arg_idx++] = 0;
-	    if (loaded_arg_idx == loaded_arg_ct) {
-	      break;
-	    }
-	    arg_iter = next_token(arg_iter);
-	  } while (!is_flag(arg_iter));
-	} else {
-	  ++loaded_arg_idx;
-	  arg_iter = next_token(arg_iter);
-	}
+        const uint32_t slen = strlen_se(flagname_p);
+        uint32_t cmdline_arg_idx = first_arg_idx;
+        for (; cmdline_arg_idx < argc; cmdline_arg_idx++) {
+          char* later_flagname_p = is_flag_start(argv[cmdline_arg_idx]);
+          if (later_flagname_p) {
+            const uint32_t slen2 = strlen(later_flagname_p);
+            if ((slen == slen2) && (!memcmp(flagname_p, later_flagname_p, slen))) {
+              cmdline_arg_idx = 0xffffffffU;
+              break;
+            }
+          }
+        }
+        if (cmdline_arg_idx == 0xffffffffU) {
+          // matching flag, override --rerun
+          do {
+            ++duplicate_arg_ct;
+            textbuf[loaded_arg_idx++] = 0;
+            if (loaded_arg_idx == loaded_arg_ct) {
+              break;
+            }
+            arg_iter = next_token(arg_iter);
+          } while (!is_flag(arg_iter));
+        } else {
+          ++loaded_arg_idx;
+          arg_iter = next_token(arg_iter);
+        }
       } else {
-	++loaded_arg_idx;
-	arg_iter = next_token(arg_iter);
+        ++loaded_arg_idx;
+        arg_iter = next_token(arg_iter);
       }
     } while (loaded_arg_idx < loaded_arg_ct);
     if (pgl_malloc((argc + loaded_arg_ct - duplicate_arg_ct - rerun_parameter_present - 1 - first_arg_idx) * sizeof(intptr_t), &subst_argv2)) {
@@ -5508,8 +5517,8 @@ pglerr_t rerun(const char* ver_str, const char* ver_str2, const char* prog_name_
       arg_iter = skip_initial_spaces(arg_iter);
       char* token_end = token_endnn(arg_iter);
       if (textbuf[loaded_arg_idx]) {
-	subst_argv2[new_arg_idx++] = arg_iter;
-	*token_end = '\0';
+        subst_argv2[new_arg_idx++] = arg_iter;
+        *token_end = '\0';
       }
       arg_iter = &(token_end[1]);
     }
@@ -5562,131 +5571,131 @@ pglerr_t cmdline_parse_phase1(const char* ver_str, const char* ver_str2, const c
     uint32_t first_arg_idx = 1;
     for (uint32_t arg_idx = 1; arg_idx < (uint32_t)argc; ++arg_idx) {
       if ((!strcmp("-script", argv[arg_idx])) || (!strcmp("--script", argv[arg_idx]))) {
-	const uint32_t param_ct = param_count(argv, argc, arg_idx);
-	if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+        const uint32_t param_ct = param_count(argv, argc, arg_idx);
+        if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
           fputs(ver_str, stdout);
           fputs(ver_str2, stdout);
-	  fputs(g_logbuf, stderr);
-	  fputs(errstr_append, stderr);
-	  goto cmdline_parse_phase1_ret_INVALID_CMDLINE;
-	}
-	for (uint32_t arg_idx2 = arg_idx + 2; arg_idx2 < (uint32_t)argc; ++arg_idx2) {
-	  if ((!strcmp("-script", argv[arg_idx2])) || (!strcmp("--script", argv[arg_idx2]))) {
+          fputs(g_logbuf, stderr);
+          fputs(errstr_append, stderr);
+          goto cmdline_parse_phase1_ret_INVALID_CMDLINE;
+        }
+        for (uint32_t arg_idx2 = arg_idx + 2; arg_idx2 < (uint32_t)argc; ++arg_idx2) {
+          if ((!strcmp("-script", argv[arg_idx2])) || (!strcmp("--script", argv[arg_idx2]))) {
             fputs(ver_str, stdout);
             fputs(ver_str2, stdout);
-	    fputs("Error: Multiple --script flags.  Merge the files into one.\n", stderr);
-	    fputs(errstr_append, stderr);
-	    goto cmdline_parse_phase1_ret_INVALID_CMDLINE;
-	  }
-	}
-	// logging not yet active, so don't use fopen_checked()
-	scriptfile = fopen(argv[arg_idx + 1], FOPEN_RB);
-	if (!scriptfile) {
+            fputs("Error: Multiple --script flags.  Merge the files into one.\n", stderr);
+            fputs(errstr_append, stderr);
+            goto cmdline_parse_phase1_ret_INVALID_CMDLINE;
+          }
+        }
+        // logging not yet active, so don't use fopen_checked()
+        scriptfile = fopen(argv[arg_idx + 1], FOPEN_RB);
+        if (!scriptfile) {
           fputs(ver_str, stdout);
           fputs(ver_str2, stdout);
-	  fprintf(stderr, g_errstr_fopen, argv[arg_idx + 1]);
-	  goto cmdline_parse_phase1_ret_OPEN_FAIL;
-	}
-	if (fseeko(scriptfile, 0, SEEK_END)) {
-	  goto cmdline_parse_phase1_ret_READ_FAIL;
-	}
-	int64_t fsize = ftello(scriptfile);
-	if (fsize < 0) {
-	  goto cmdline_parse_phase1_ret_READ_FAIL;
-	}
-	if (fsize > 0x7ffffffe) {
-	  // could actually happen if user enters parameters in the wrong
-	  // order, so may as well catch it and print a somewhat informative
-	  // error message
+          fprintf(stderr, g_errstr_fopen, argv[arg_idx + 1]);
+          goto cmdline_parse_phase1_ret_OPEN_FAIL;
+        }
+        if (fseeko(scriptfile, 0, SEEK_END)) {
+          goto cmdline_parse_phase1_ret_READ_FAIL;
+        }
+        int64_t fsize = ftello(scriptfile);
+        if (fsize < 0) {
+          goto cmdline_parse_phase1_ret_READ_FAIL;
+        }
+        if (fsize > 0x7ffffffe) {
+          // could actually happen if user enters parameters in the wrong
+          // order, so may as well catch it and print a somewhat informative
+          // error message
           fputs(ver_str, stdout);
           fputs(ver_str2, stdout);
-	  fputs("Error: --script file too large.", stderr);
-	  goto cmdline_parse_phase1_ret_INVALID_CMDLINE;
-	}
-	rewind(scriptfile);
-	const uint32_t fsize_ui = (uint64_t)fsize;
-	if (pgl_malloc(fsize_ui + 1, &pcmp->script_buf)) {
-	  goto cmdline_parse_phase1_ret_NOMEM;
-	}
+          fputs("Error: --script file too large.", stderr);
+          goto cmdline_parse_phase1_ret_INVALID_CMDLINE;
+        }
+        rewind(scriptfile);
+        const uint32_t fsize_ui = (uint64_t)fsize;
+        if (pgl_malloc(fsize_ui + 1, &pcmp->script_buf)) {
+          goto cmdline_parse_phase1_ret_NOMEM;
+        }
         char* script_buf = pcmp->script_buf;
-	if (!fread(script_buf, fsize_ui, 1, scriptfile)) {
-	  goto cmdline_parse_phase1_ret_READ_FAIL;
-	}
-	script_buf[fsize_ui] = '\0';
-	fclose_null(&scriptfile);
-	uint32_t num_script_params = 0;
-	char* script_buf_iter = script_buf;
-	uint32_t char_code;
-	do {
-	  uint32_t char_code_m1;
-	  do {
-	    char_code_m1 = ((uint32_t)((unsigned char)(*script_buf_iter++))) - 1;
-	  } while (char_code_m1 < 32);
-	  if (char_code_m1 == 0xffffffffU) {
-	    break;
-	  }
-	  ++num_script_params;
-	  do {
-	    char_code = (uint32_t)((unsigned char)(*script_buf_iter++));
-	  } while (char_code > 32);
-	} while (char_code);
-	if (script_buf_iter != (&(script_buf[fsize_ui + 1]))) {
+        if (!fread(script_buf, fsize_ui, 1, scriptfile)) {
+          goto cmdline_parse_phase1_ret_READ_FAIL;
+        }
+        script_buf[fsize_ui] = '\0';
+        fclose_null(&scriptfile);
+        uint32_t num_script_params = 0;
+        char* script_buf_iter = script_buf;
+        uint32_t char_code;
+        do {
+          uint32_t char_code_m1;
+          do {
+            char_code_m1 = ((uint32_t)((unsigned char)(*script_buf_iter++))) - 1;
+          } while (char_code_m1 < 32);
+          if (char_code_m1 == 0xffffffffU) {
+            break;
+          }
+          ++num_script_params;
+          do {
+            char_code = (uint32_t)((unsigned char)(*script_buf_iter++));
+          } while (char_code > 32);
+        } while (char_code);
+        if (script_buf_iter != (&(script_buf[fsize_ui + 1]))) {
           fputs(ver_str, stdout);
           fputs(ver_str2, stdout);
-	  fputs("Error: Null byte in --script file.\n", stderr);
-	  goto cmdline_parse_phase1_ret_INVALID_CMDLINE;
-	}
+          fputs("Error: Null byte in --script file.\n", stderr);
+          goto cmdline_parse_phase1_ret_INVALID_CMDLINE;
+        }
         // probable todo: detect duplicate flags in the same manner as --rerun
-	const uint32_t new_param_ct = num_script_params + argc - 3;
-	if (pgl_malloc(new_param_ct * sizeof(intptr_t), &subst_argv)) {
-	  goto cmdline_parse_phase1_ret_NOMEM;
-	}
+        const uint32_t new_param_ct = num_script_params + argc - 3;
+        if (pgl_malloc(new_param_ct * sizeof(intptr_t), &subst_argv)) {
+          goto cmdline_parse_phase1_ret_NOMEM;
+        }
         pcmp->subst_argv = subst_argv;
-	memcpy(subst_argv, &(argv[1]), arg_idx * sizeof(intptr_t));
-	const uint32_t load_param_idx_end = arg_idx + num_script_params;
-	script_buf_iter = &(script_buf[-1]);
-	for (uint32_t param_idx = arg_idx; param_idx < load_param_idx_end; ++param_idx) {
-	  while (((unsigned char)(*(++script_buf_iter))) <= 32);
-	  subst_argv[param_idx] = script_buf_iter;
-	  while (((unsigned char)(*(++script_buf_iter))) > 32);
-	  // could enforce some sort of length limit here
-	  *script_buf_iter = '\0';
-	}
-	memcpy(&(subst_argv[load_param_idx_end]), &(argv[arg_idx + 2]), (argc - arg_idx - 2) * sizeof(intptr_t));
-	argc = new_param_ct;
-	*argc_ptr = argc;
-	first_arg_idx = 0;
-	argv = subst_argv;
+        memcpy(subst_argv, &(argv[1]), arg_idx * sizeof(intptr_t));
+        const uint32_t load_param_idx_end = arg_idx + num_script_params;
+        script_buf_iter = &(script_buf[-1]);
+        for (uint32_t param_idx = arg_idx; param_idx < load_param_idx_end; ++param_idx) {
+          while (((unsigned char)(*(++script_buf_iter))) <= 32);
+          subst_argv[param_idx] = script_buf_iter;
+          while (((unsigned char)(*(++script_buf_iter))) > 32);
+          // could enforce some sort of length limit here
+          *script_buf_iter = '\0';
+        }
+        memcpy(&(subst_argv[load_param_idx_end]), &(argv[arg_idx + 2]), (argc - arg_idx - 2) * sizeof(intptr_t));
+        argc = new_param_ct;
+        *argc_ptr = argc;
+        first_arg_idx = 0;
+        argv = subst_argv;
         *argv_ptr = subst_argv;
-	break;
+        break;
       }
     }
     for (uint32_t arg_idx = first_arg_idx; arg_idx < (uint32_t)argc; ++arg_idx) {
       if ((!strcmp("-rerun", argv[arg_idx])) || (!strcmp("--rerun", argv[arg_idx]))) {
-	const uint32_t param_ct = param_count(argv, argc, arg_idx);
-	if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
+        const uint32_t param_ct = param_count(argv, argc, arg_idx);
+        if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
           fputs(ver_str, stdout);
           fputs(ver_str2, stdout);
-	  fputs(g_logbuf, stderr);
-	  fputs(errstr_append, stderr);
-	  goto cmdline_parse_phase1_ret_INVALID_CMDLINE;
-	}
-	for (uint32_t arg_idx2 = arg_idx + param_ct + 1; arg_idx2 < (uint32_t)argc; ++arg_idx2) {
-	  if ((!strcmp("-rerun", argv[arg_idx2])) || (!strcmp("--rerun", argv[arg_idx2]))) {
+          fputs(g_logbuf, stderr);
+          fputs(errstr_append, stderr);
+          goto cmdline_parse_phase1_ret_INVALID_CMDLINE;
+        }
+        for (uint32_t arg_idx2 = arg_idx + param_ct + 1; arg_idx2 < (uint32_t)argc; ++arg_idx2) {
+          if ((!strcmp("-rerun", argv[arg_idx2])) || (!strcmp("--rerun", argv[arg_idx2]))) {
             fputs(ver_str, stdout);
             fputs(ver_str2, stdout);
-	    fputs("Error: Duplicate --rerun flag.\n", stderr);
-	    goto cmdline_parse_phase1_ret_INVALID_CMDLINE;
-	  }
-	}
-	reterr = rerun(ver_str, ver_str2, prog_name_str, arg_idx, param_ct, &argc, &first_arg_idx, &argv, &pcmp->subst_argv, &pcmp->rerun_buf);
-	if (reterr) {
-	  goto cmdline_parse_phase1_ret_1;
-	}
-	*argc_ptr = argc;
+            fputs("Error: Duplicate --rerun flag.\n", stderr);
+            goto cmdline_parse_phase1_ret_INVALID_CMDLINE;
+          }
+        }
+        reterr = rerun(ver_str, ver_str2, prog_name_str, arg_idx, param_ct, &argc, &first_arg_idx, &argv, &pcmp->subst_argv, &pcmp->rerun_buf);
+        if (reterr) {
+          goto cmdline_parse_phase1_ret_1;
+        }
+        *argc_ptr = argc;
         subst_argv = pcmp->subst_argv;
         *argv_ptr = argv;
-	break;
+        break;
       }
     }
     if ((first_arg_idx < (uint32_t)argc) && (!is_flag(argv[first_arg_idx]))) {
@@ -5700,62 +5709,62 @@ pglerr_t cmdline_parse_phase1(const char* ver_str, const char* ver_str2, const c
     for (uint32_t arg_idx = first_arg_idx; arg_idx < (uint32_t)argc; ++arg_idx) {
       char* flagname_p = is_flag_start(argv[arg_idx]);
       if (flagname_p) {
-	if (!strcmp("help", flagname_p)) {
+        if (!strcmp("help", flagname_p)) {
           fputs(ver_str, stdout);
           fputs(ver_str2, stdout);
-	  if ((!first_arg_idx) || (arg_idx != 1) || subst_argv) {
-	    fputs("--help present, ignoring other flags.\n", stdout);
-	  }
-	  if ((arg_idx == ((uint32_t)argc) - 1) && flag_ct) {
-	    // make "plink [valid flags/parameters] --help" work, and skip the
-	    // parameters
-	    char** help_argv;
-	    if (pgl_malloc(flag_ct * sizeof(intptr_t), &help_argv)) {
-	      goto cmdline_parse_phase1_ret_NOMEM2;
-	    }
-	    uint32_t arg_idx2 = 0;
-	    for (uint32_t flag_idx = 0; flag_idx < flag_ct; ++flag_idx) {
-	      while (!is_flag_start(argv[++arg_idx2]));
-	      help_argv[flag_idx] = argv[arg_idx2];
-	    }
-	    reterr = disp_help_fn(flag_ct, help_argv);
-	    free(help_argv);
-	  } else {
-	    reterr = disp_help_fn(argc - arg_idx - 1, &(argv[arg_idx + 1]));
-	  }
+          if ((!first_arg_idx) || (arg_idx != 1) || subst_argv) {
+            fputs("--help present, ignoring other flags.\n", stdout);
+          }
+          if ((arg_idx == ((uint32_t)argc) - 1) && flag_ct) {
+            // make "plink [valid flags/parameters] --help" work, and skip the
+            // parameters
+            char** help_argv;
+            if (pgl_malloc(flag_ct * sizeof(intptr_t), &help_argv)) {
+              goto cmdline_parse_phase1_ret_NOMEM2;
+            }
+            uint32_t arg_idx2 = 0;
+            for (uint32_t flag_idx = 0; flag_idx < flag_ct; ++flag_idx) {
+              while (!is_flag_start(argv[++arg_idx2]));
+              help_argv[flag_idx] = argv[arg_idx2];
+            }
+            reterr = disp_help_fn(flag_ct, help_argv);
+            free(help_argv);
+          } else {
+            reterr = disp_help_fn(argc - arg_idx - 1, &(argv[arg_idx + 1]));
+          }
           if (!reterr) {
             reterr = kPglRetHelp;
           }
-	  goto cmdline_parse_phase1_ret_1;
-	}
-	if ((!strcmp("h", flagname_p)) || (!strcmp("?", flagname_p))) {
-	  // these just act like the no-parameter case
+          goto cmdline_parse_phase1_ret_1;
+        }
+        if ((!strcmp("h", flagname_p)) || (!strcmp("?", flagname_p))) {
+          // these just act like the no-parameter case
           fputs(ver_str, stdout);
           fputs(ver_str2, stdout);
-	  if ((!first_arg_idx) || (arg_idx != 1) || subst_argv) {
-	    printf("-%c present, ignoring other flags.\n", *flagname_p);
-	  }
-	  fputs(cmdline_format_str, stdout);
-	  fputs(notestr_null_calc2, stdout);
-	  reterr = kPglRetHelp;
-	  goto cmdline_parse_phase1_ret_1;
-	}
-	if (!strcmp("version", flagname_p)) {
-	  version_present = 1;
-	} else if (!strcmp("silent", flagname_p)) {
-	  silent_present = 1;
-	}
-	if (strlen(flagname_p) >= max_flag_blen) {
+          if ((!first_arg_idx) || (arg_idx != 1) || subst_argv) {
+            printf("-%c present, ignoring other flags.\n", *flagname_p);
+          }
+          fputs(cmdline_format_str, stdout);
+          fputs(notestr_null_calc2, stdout);
+          reterr = kPglRetHelp;
+          goto cmdline_parse_phase1_ret_1;
+        }
+        if (!strcmp("version", flagname_p)) {
+          version_present = 1;
+        } else if (!strcmp("silent", flagname_p)) {
+          silent_present = 1;
+        }
+        if (strlen(flagname_p) >= max_flag_blen) {
           fputs(ver_str, stdout);
           fputs(ver_str2, stdout);
-	  // shouldn't be possible for this to overflow the buffer...
-	  sprintf(g_logbuf, "Error: Unrecognized flag ('%s').\n", argv[arg_idx]);
-	  wordwrapb(0);
-	  fputs(g_logbuf, stderr);
-	  fputs(errstr_append, stderr);
-	  goto cmdline_parse_phase1_ret_INVALID_CMDLINE;
-	}
-	++flag_ct;
+          // shouldn't be possible for this to overflow the buffer...
+          sprintf(g_logbuf, "Error: Unrecognized flag ('%s').\n", argv[arg_idx]);
+          wordwrapb(0);
+          fputs(g_logbuf, stderr);
+          fputs(errstr_append, stderr);
+          goto cmdline_parse_phase1_ret_INVALID_CMDLINE;
+        }
+        ++flag_ct;
       }
     }
     if (version_present) {
@@ -5766,8 +5775,8 @@ pglerr_t cmdline_parse_phase1(const char* ver_str, const char* ver_str2, const c
     }
     if (silent_present) {
       if (!freopen("/dev/null", "w", stdout)) {
-	fputs("Warning: --silent failed.", stderr);
-	g_stderr_written_to = 1;
+        fputs("Warning: --silent failed.", stderr);
+        g_stderr_written_to = 1;
       }
     }
     fputs(ver_str, stdout);
@@ -5819,32 +5828,32 @@ pglerr_t cmdline_parse_phase2(const char* ver_str, const char* errstr_append, ch
     reterr = sort_cmdline_flags(max_flag_blen, flag_ct, flag_buf, flag_map);
     if (reterr) {
       if (reterr == kPglRetNomem) {
-	goto cmdline_parse_phase2_ret_NOMEM_NOLOG;
+        goto cmdline_parse_phase2_ret_NOMEM_NOLOG;
       }
       goto cmdline_parse_phase2_ret_1;
     }
-    
+
     for (uint32_t cur_flag_idx = 0; cur_flag_idx < flag_ct; ++cur_flag_idx) {
       const int32_t memcmp_out_result = memcmp("out", &(flag_buf[cur_flag_idx * max_flag_blen]), 4);
       if (!memcmp_out_result) {
-	const uint32_t arg_idx = flag_map[cur_flag_idx];
-	const uint32_t param_ct = param_count(argv, argc, arg_idx);
-	if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
-	  fputs(g_logbuf, stderr);
-	  fputs(errstr_append, stderr);
-	  goto cmdline_parse_phase2_ret_INVALID_CMDLINE;
-	}
-	if (strlen(argv[arg_idx + 1]) > (kPglFnamesize - kMaxOutfnameExtBlen)) {
-	  fflush(stdout);
-	  fputs("Error: --out parameter too long.\n", stderr);
-	  goto cmdline_parse_phase2_ret_OPEN_FAIL;
-	}
-	const uint32_t slen = strlen(argv[arg_idx + 1]);
-	memcpy(outname, argv[arg_idx + 1], slen + 1);
-	*outname_end_ptr = &(outname[slen]);
+        const uint32_t arg_idx = flag_map[cur_flag_idx];
+        const uint32_t param_ct = param_count(argv, argc, arg_idx);
+        if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          fputs(g_logbuf, stderr);
+          fputs(errstr_append, stderr);
+          goto cmdline_parse_phase2_ret_INVALID_CMDLINE;
+        }
+        if (strlen(argv[arg_idx + 1]) > (kPglFnamesize - kMaxOutfnameExtBlen)) {
+          fflush(stdout);
+          fputs("Error: --out parameter too long.\n", stderr);
+          goto cmdline_parse_phase2_ret_OPEN_FAIL;
+        }
+        const uint32_t slen = strlen(argv[arg_idx + 1]);
+        memcpy(outname, argv[arg_idx + 1], slen + 1);
+        *outname_end_ptr = &(outname[slen]);
       }
       if (memcmp_out_result <= 0) {
-	break;
+        break;
       }
     }
     if (init_logfile(0, outname, (*outname_end_ptr)? (*outname_end_ptr) : &(outname[prog_name_str_slen]))) {
@@ -5858,8 +5867,8 @@ pglerr_t cmdline_parse_phase2(const char* ver_str, const char* errstr_append, ch
       logprint(&(flag_buf[cur_flag_idx * max_flag_blen]));
       uint32_t arg_idx = flag_map[cur_flag_idx] + 1;
       while ((arg_idx < (uint32_t)argc) && (!is_flag(argv[arg_idx]))) {
-	logprint(" ");
-	logprint(argv[arg_idx++]);
+        logprint(" ");
+        logprint(argv[arg_idx++]);
       }
       logprint("\n");
     }
@@ -5951,15 +5960,15 @@ pglerr_t cmdline_parse_phase3(uintptr_t max_default_mb, uintptr_t malloc_size_mb
       free(pcmp->flag_map);
       pcmp->flag_map = nullptr;
     }
-    
+
     uint64_t total_mb = detect_mb();
     if (!malloc_size_mb) {
       if (!total_mb) {
-	malloc_size_mb = max_default_mb? max_default_mb : kBigstackDefaultMb;
+        malloc_size_mb = max_default_mb? max_default_mb : kBigstackDefaultMb;
       } else if (total_mb < (kBigstackMinMb * 2)) {
-	malloc_size_mb = kBigstackMinMb;
+        malloc_size_mb = kBigstackMinMb;
       } else {
-	malloc_size_mb = total_mb / 2;
+        malloc_size_mb = total_mb / 2;
         if (max_default_mb && (malloc_size_mb > max_default_mb)) {
           malloc_size_mb = max_default_mb;
         }
@@ -5983,7 +5992,7 @@ pglerr_t cmdline_parse_phase3(uintptr_t max_default_mb, uintptr_t malloc_size_mb
     }
     if (malloc_size_mb != malloc_mb_final) {
       if (memory_require) {
-	goto cmdline_parse_phase3_ret_NOMEM;
+        goto cmdline_parse_phase3_ret_NOMEM;
       }
       LOGPRINTF("Allocated %" PRIuPTR " MB successfully, after larger attempt(s) failed.\n", malloc_mb_final);
     }
@@ -5994,7 +6003,7 @@ pglerr_t cmdline_parse_phase3(uintptr_t max_default_mb, uintptr_t malloc_size_mb
 #endif
   }
   while (0) {
-  cmdline_parse_phase3_ret_NOMEM:    
+  cmdline_parse_phase3_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
   }

@@ -88,7 +88,7 @@ FLAGSET_DEF_START()
   kfMissingRptZs = (1 << 0),
   kfMissingRptSampleOnly = (1 << 1),
   kfMissingRptVariantOnly = (1 << 2),
-  
+
   kfMissingRptScolMaybesid = (1 << 3),
   kfMissingRptScolSid = (1 << 4),
   kfMissingRptScolMisspheno1 = (1 << 5),
@@ -125,7 +125,7 @@ FLAGSET_DEF_END(missing_rpt_t);
 FLAGSET_DEF_START()
   kfGenoCounts0,
   kfGenoCountsZs = (1 << 0),
-  
+
   kfGenoCountsColChrom = (1 << 1),
   kfGenoCountsColPos = (1 << 2),
   kfGenoCountsColRef = (1 << 3),
@@ -146,7 +146,7 @@ FLAGSET_DEF_START()
   kfGenoCountsColNobs = (1 << 18),
   kfGenoCountsColDefault = (kfGenoCountsColChrom | kfGenoCountsColRef | kfGenoCountsColAlt | kfGenoCountsColHomref | kfGenoCountsColRefalt | kfGenoCountsColAltxy | kfGenoCountsColHapref | kfGenoCountsColHapalt | kfGenoCountsColMissing),
   kfGenoCountsColAll = ((kfGenoCountsColNobs * 2) - kfGenoCountsColChrom),
-  
+
   kfGenoCountsColPairex = (kfGenoCountsColHapalt | kfGenoCountsColHap),
   kfGenoCountsColMutex = (kfGenoCountsColAltxy | kfGenoCountsColXy | kfGenoCountsColNumeq)
 FLAGSET_DEF_END(geno_counts_t);
@@ -155,7 +155,7 @@ FLAGSET_DEF_START()
   kfHardy0,
   kfHardyZs = (1 << 0),
   kfHardyMidp = (1 << 1),
-  
+
   kfHardyColChrom = (1 << 2),
   kfHardyColPos = (1 << 3),
   kfHardyColRef = (1 << 4),

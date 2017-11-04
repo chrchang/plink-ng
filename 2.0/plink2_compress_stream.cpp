@@ -85,11 +85,11 @@ boolerr_t csputs_std(const char* ss, uint32_t sslen, compress_stream_state_t* cs
     memcpy(writep, readp, cur_write_space);
     if (is_uncompressed_cswrite(css_ptr)) {
       if (!fwrite(css_ptr->overflow_buf, 2 * kCompressStreamBlock, 1, css_ptr->outfile)) {
-	return 1;
+        return 1;
       }
     } else {
       if (!gzwrite(css_ptr->z_outfile, css_ptr->overflow_buf, 2 * kCompressStreamBlock)) {
-	return 1;
+        return 1;
       }
     }
     writep = css_ptr->overflow_buf;

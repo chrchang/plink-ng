@@ -43,15 +43,15 @@ pglerr_t gzopen_and_skip_first_lines(const char* fname, uint32_t lines_to_skip, 
   for (uint32_t line_idx = 1; line_idx <= lines_to_skip; ++line_idx) {
     if (!gzgets(*gzf_ptr, loadbuf, loadbuf_size)) {
       if (gzeof(*gzf_ptr)) {
-	LOGERRPRINTFWW("Error: Fewer lines than expected in %s.\n", fname);
-	return kPglRetInconsistentInput;
+        LOGERRPRINTFWW("Error: Fewer lines than expected in %s.\n", fname);
+        return kPglRetInconsistentInput;
       }
       return kPglRetReadFail;
     }
     if (!loadbuf[loadbuf_size - 1]) {
       if ((loadbuf_size == kMaxMediumLine) || (loadbuf_size == kMaxLongLine)) {
-	LOGERRPRINTFWW("Error: Line %u of %s is pathologically long.\n", line_idx, fname);
-	return kPglRetMalformedInput;
+        LOGERRPRINTFWW("Error: Line %u of %s is pathologically long.\n", line_idx, fname);
+        return kPglRetMalformedInput;
       }
       return kPglRetNomem;
     }
@@ -87,17 +87,17 @@ char* gz_token_stream_advance(gz_token_stream_t* gtsp, uint32_t* token_slen_ptr)
     if (token_start < buf_end) {
       char* token_end = &(token_start[1]);
       while ((unsigned char)(*token_end) > ' ') {
-	++token_end;
+        ++token_end;
       }
       const uint32_t token_slen = (uintptr_t)(token_end - token_start);
       if (token_end < buf_end) {
-	*token_slen_ptr = token_slen;
-	gtsp->read_iter = &(token_end[1]);
-	return token_start;
+        *token_slen_ptr = token_slen;
+        gtsp->read_iter = &(token_end[1]);
+        return token_start;
       }
       if (token_slen > kMaxMediumLine) {
-	*token_slen_ptr = 0xffffffffU;
-	return nullptr;
+        *token_slen_ptr = 0xffffffffU;
+        return nullptr;
       }
       char* new_token_start = &(gtsp->buf_start[kMaxMediumLine - token_slen]);
       memcpy(new_token_start, token_start, token_slen);
@@ -117,13 +117,13 @@ char* gz_token_stream_advance(gz_token_stream_t* gtsp, uint32_t* token_slen_ptr)
     gtsp->buf_end = buf_end;
     if (!bufsize) {
       if (!gzeof(gtsp->gz_infile)) {
-	*token_slen_ptr = 0xfffffffeU;
-	return nullptr;
+        *token_slen_ptr = 0xfffffffeU;
+        return nullptr;
       }
       // bufsize == 0, eof
       if (token_start == load_start) {
-	*token_slen_ptr = 0;
-	return nullptr;
+        *token_slen_ptr = 0;
+        return nullptr;
       }
       gtsp->read_iter = load_start;
       *token_slen_ptr = (uintptr_t)(load_start - token_start);

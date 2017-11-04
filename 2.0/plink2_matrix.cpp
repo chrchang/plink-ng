@@ -23,7 +23,7 @@
     #ifdef __cplusplus
 extern "C" {
     #endif
-  
+
     #ifdef _WIN32
       // openblas is easy enough to set up on Windows nowadays.
       // not worth the trouble of ripping out vector extensions, etc. just so
@@ -44,17 +44,17 @@ extern "C" {
                __CLPK_integer* ipiv, __CLPK_integer* info);
 
   void dsyrk_(char* uplo, char* trans, __CLPK_integer* n, __CLPK_integer* k,
-	      __CLPK_doublereal* alpha, __CLPK_doublereal* a,
-	      __CLPK_integer* lda, __CLPK_doublereal* beta,
-	      __CLPK_doublereal* c, __CLPK_integer* ldc);
+              __CLPK_doublereal* alpha, __CLPK_doublereal* a,
+              __CLPK_integer* lda, __CLPK_doublereal* beta,
+              __CLPK_doublereal* c, __CLPK_integer* ldc);
 
   void sgemm_(char* transa, char* transb, int* m, int* n, int* k,
               float* alpha, float* a, int* lda, float* b, int* ldb,
               float* beta, float* c, int* ldc);
 
   void ssyrk_(char* uplo, char* trans, __CLPK_integer* n, __CLPK_integer* k,
-	      float* alpha, float* a, __CLPK_integer* lda, float* beta,
-	      float* c, __CLPK_integer* ldc);
+              float* alpha, float* a, __CLPK_integer* lda, float* beta,
+              float* c, __CLPK_integer* ldc);
 
     #else // Linux
       #ifndef USE_MKL
@@ -72,8 +72,8 @@ extern "C" {
                  __CLPK_doublereal* work);
 
   double dlansy_(char* norm, char* uplo, __CLPK_integer* n,
-		 __CLPK_doublereal* a, __CLPK_integer* lda,
-		 __CLPK_doublereal* work);
+                 __CLPK_doublereal* a, __CLPK_integer* lda,
+                 __CLPK_doublereal* work);
 
   int dgecon_(char* norm, __CLPK_integer* n, __CLPK_doublereal* a,
               __CLPK_integer* lda, __CLPK_doublereal* anorm,
@@ -95,11 +95,11 @@ extern "C" {
   */
 
   void dgesvd_(char* jobu, char* jobvt, __CLPK_integer* m, __CLPK_integer* n,
-	       __CLPK_doublereal* a, __CLPK_integer* lda, __CLPK_doublereal* s,
-	       __CLPK_doublereal* u, __CLPK_integer* ldu,
-	       __CLPK_doublereal* vt, __CLPK_integer* ldvt,
-	       __CLPK_doublereal* work, __CLPK_integer* lwork,
-	       __CLPK_integer* info);
+               __CLPK_doublereal* a, __CLPK_integer* lda, __CLPK_doublereal* s,
+               __CLPK_doublereal* u, __CLPK_integer* ldu,
+               __CLPK_doublereal* vt, __CLPK_integer* ldvt,
+               __CLPK_doublereal* work, __CLPK_integer* lwork,
+               __CLPK_integer* info);
 
   int dsyevr_(char* jobz, char* range, char* uplo, __CLPK_integer* n,
               __CLPK_doublereal* a, __CLPK_integer* lda, __CLPK_doublereal* vl,
@@ -116,7 +116,7 @@ extern "C" {
 
   void dpotrs_(char* uplo, __CLPK_integer* n, __CLPK_integer* nrhs,
                __CLPK_doublereal* a, __CLPK_integer* lda, __CLPK_doublereal* b,
-	       __CLPK_integer* ldb, __CLPK_integer* info);
+               __CLPK_integer* ldb, __CLPK_integer* info);
 
   int dpotri_(char* uplo, __CLPK_integer* n, __CLPK_doublereal* a,
               __CLPK_integer* lda, __CLPK_integer* info);
@@ -134,13 +134,13 @@ extern "C" {
               __CLPK_integer* ldc);
 
   void dsyrk_(char* uplo, char* trans, __CLPK_integer* n, __CLPK_integer* k,
-	      __CLPK_doublereal* alpha, __CLPK_doublereal* a,
-	      __CLPK_integer* lda, __CLPK_doublereal* beta,
-	      __CLPK_doublereal* c, __CLPK_integer* ldc);
+              __CLPK_doublereal* alpha, __CLPK_doublereal* a,
+              __CLPK_integer* lda, __CLPK_doublereal* beta,
+              __CLPK_doublereal* c, __CLPK_integer* ldc);
 
   void ssyrk_(char* uplo, char* trans, __CLPK_integer* n, __CLPK_integer* k,
-	      float* alpha, float* a, __CLPK_integer* lda, float* beta,
-	      float* c, __CLPK_integer* ldc);
+              float* alpha, float* a, __CLPK_integer* lda, float* beta,
+              float* c, __CLPK_integer* ldc);
         #endif
       #endif // !USE_MKL
     #endif // Linux
@@ -218,7 +218,7 @@ inline double SIGN(const double a, const double b) {
 double pythag(const double a, const double b) {
   // PLINK stats.cpp pythag().
   double absa,absb;
- 
+
   absa=fabs(a);
   absb=fabs(b);
   if (absa > absb) return absa*sqrt(1.0+SQR(absb/absa));
@@ -245,20 +245,20 @@ uint32_t svdcmp_c(int32_t m, double* a, double* w, double* v) {
     if (i < m) {
       for (k=i;k<m;k++) scale += fabs(a[k * m + i]);
       if (scale != 0.0) {
-	for (k=i;k<m;k++) {
-	  a[k * m + i] /= scale;
-	  s += a[k * m + i]*a[k * m + i];
-	}
-	f=a[i * m + i];
-	g = -SIGN(sqrt(s),f);
-	h=f*g-s;
-	a[i * m + i]=f-g;
-	for (j=l-1;j<n;j++) {
-	  for (s=0.0,k=i;k<m;k++) s += a[k * m + i]*a[k * m + j];
-	  f=s/h;
-	  for (k=i;k<m;k++) a[k * m + j] += f*a[k * m + i];
-	}
-	for (k=i;k<m;k++) a[k * m + i] *= scale;
+        for (k=i;k<m;k++) {
+          a[k * m + i] /= scale;
+          s += a[k * m + i]*a[k * m + i];
+        }
+        f=a[i * m + i];
+        g = -SIGN(sqrt(s),f);
+        h=f*g-s;
+        a[i * m + i]=f-g;
+        for (j=l-1;j<n;j++) {
+          for (s=0.0,k=i;k<m;k++) s += a[k * m + i]*a[k * m + j];
+          f=s/h;
+          for (k=i;k<m;k++) a[k * m + j] += f*a[k * m + i];
+        }
+        for (k=i;k<m;k++) a[k * m + i] *= scale;
       }
     }
     w[i]=scale *g;
@@ -266,20 +266,20 @@ uint32_t svdcmp_c(int32_t m, double* a, double* w, double* v) {
     if (i+1 <= m && i+1 != n) {
       for (k=l-1;k<n;k++) scale += fabs(a[i * m + k]);
       if (scale != 0.0) {
-	for (k=l-1;k<n;k++) {
-	  a[i * m + k] /= scale;
-	  s += a[i * m + k]*a[i * m + k];
-	}
-	f=a[i * m + l-1];
-	g = -SIGN(sqrt(s),f);
-	h=f*g-s;
-	a[i * m + l-1]=f-g;
-	for (k=l-1;k<n;k++) rv1[k]=a[i * m + k]/h;
-	for (j=l-1;j<m;j++) {
-	  for (s=0.0,k=l-1;k<n;k++) s += a[j * m + k]*a[i * m + k];
-	  for (k=l-1;k<n;k++) a[j * m + k] += s*rv1[k];
-	}
-	for (k=l-1;k<n;k++) a[i * m + k] *= scale;
+        for (k=l-1;k<n;k++) {
+          a[i * m + k] /= scale;
+          s += a[i * m + k]*a[i * m + k];
+        }
+        f=a[i * m + l-1];
+        g = -SIGN(sqrt(s),f);
+        h=f*g-s;
+        a[i * m + l-1]=f-g;
+        for (k=l-1;k<n;k++) rv1[k]=a[i * m + k]/h;
+        for (j=l-1;j<m;j++) {
+          for (s=0.0,k=l-1;k<n;k++) s += a[j * m + k]*a[i * m + k];
+          for (k=l-1;k<n;k++) a[j * m + k] += s*rv1[k];
+        }
+        for (k=l-1;k<n;k++) a[i * m + k] *= scale;
       }
     }
     anorm=MAXV(anorm,(fabs(w[i])+fabs(rv1[i])));
@@ -287,12 +287,12 @@ uint32_t svdcmp_c(int32_t m, double* a, double* w, double* v) {
   for (i=n-1;i>=0;i--) {
     if (i < n-1) {
       if (g != 0.0) {
-	for (j=l;j<n;j++)
-	  v[j * m + i]=(a[i * m + j]/a[i * m + l])/g;
-	for (j=l;j<n;j++) {
-	  for (s=0.0,k=l;k<n;k++) s += a[i * m + k]*v[k * m + j];
-	  for (k=l;k<n;k++) v[k * m + j] += s*v[k * m + i];
-	}
+        for (j=l;j<n;j++)
+          v[j * m + i]=(a[i * m + j]/a[i * m + l])/g;
+        for (j=l;j<n;j++) {
+          for (s=0.0,k=l;k<n;k++) s += a[i * m + k]*v[k * m + j];
+          for (k=l;k<n;k++) v[k * m + j] += s*v[k * m + i];
+        }
       }
       for (j=l;j<n;j++) v[i * m + j]=v[j * m + i]=0.0;
     }
@@ -307,9 +307,9 @@ uint32_t svdcmp_c(int32_t m, double* a, double* w, double* v) {
     if (g != 0.0) {
       g=1.0/g;
       for (j=l;j<n;j++) {
-	for (s=0.0,k=l;k<m;k++) s += a[k * m + i]*a[k * m + j];
-	f=(s/a[i * m + i])*g;
-	for (k=i;k<m;k++) a[k * m + j] += f*a[k * m + i];
+        for (s=0.0,k=l;k<m;k++) s += a[k * m + i]*a[k * m + j];
+        f=(s/a[i * m + i])*g;
+        for (k=i;k<m;k++) a[k * m + j] += f*a[k * m + i];
       }
       for (j=i;j<m;j++) a[j * m + i] *= g;
     } else for (j=i;j<m;j++) a[j * m + i]=0.0;
@@ -319,47 +319,47 @@ uint32_t svdcmp_c(int32_t m, double* a, double* w, double* v) {
     for (its=0;its<30;its++) {
       flag=1;
       for (l=k;l>=0;l--) {
-	nm=l-1;
-	temp=fabs(rv1[l])+anorm;
-	if (temp == anorm) {
-	  flag=0;
-	  break;
-	}
-	temp=fabs(w[nm])+anorm;
-	if (temp == anorm) break;
+        nm=l-1;
+        temp=fabs(rv1[l])+anorm;
+        if (temp == anorm) {
+          flag=0;
+          break;
+        }
+        temp=fabs(w[nm])+anorm;
+        if (temp == anorm) break;
       }
       if (flag) {
-	c=0.0;
-	s=1.0;
-	for (i=l;i<k+1;i++) {
-	  f=s*rv1[i];
-	  rv1[i]=c*rv1[i];
-	  temp = fabs(f)+anorm;
-	  if (temp == anorm) break;
-	  g=w[i];
-	  h=pythag(f,g);
-	  w[i]=h;
-	  h=1.0/h;
-	  c=g*h;
-	  s = -f*h;
-	  for (j=0;j<m;j++) {
-	    y=a[j * m + nm];
-	    z=a[j * m + i];
-	    a[j * m + nm]=y*c+z*s;
-	    a[j * m + i]=z*c-y*s;
-	  }
-	}
+        c=0.0;
+        s=1.0;
+        for (i=l;i<k+1;i++) {
+          f=s*rv1[i];
+          rv1[i]=c*rv1[i];
+          temp = fabs(f)+anorm;
+          if (temp == anorm) break;
+          g=w[i];
+          h=pythag(f,g);
+          w[i]=h;
+          h=1.0/h;
+          c=g*h;
+          s = -f*h;
+          for (j=0;j<m;j++) {
+            y=a[j * m + nm];
+            z=a[j * m + i];
+            a[j * m + nm]=y*c+z*s;
+            a[j * m + i]=z*c-y*s;
+          }
+        }
       }
       z=w[k];
       if (l == k) {
-	if (z < 0.0) {
-	  w[k] = -z;
-	  for (j=0;j<n;j++) v[j * m + k] = -v[j * m + k];
-	}
-	break;
+        if (z < 0.0) {
+          w[k] = -z;
+          for (j=0;j<n;j++) v[j * m + k] = -v[j * m + k];
+        }
+        break;
       }
-      if (its == 29) 
-	return 0; // cannot converge: multi-collinearity?
+      if (its == 29)
+        return 0; // cannot converge: multi-collinearity?
       x=w[l];
       nm=k-1;
       y=w[nm];
@@ -370,40 +370,40 @@ uint32_t svdcmp_c(int32_t m, double* a, double* w, double* v) {
       f=((x-z)*(x+z)+h*((y/(f+SIGN(g,f)))-h))/x;
       c=s=1.0;
       for (j=l;j<=nm;j++) {
-	i=j+1;
-	g=rv1[i];
-	y=w[i];
-	h=s*g;
-	g=c*g;
-	z=pythag(f,h);
-	rv1[j]=z;
-	c=f/z;
-	s=h/z;
-	f=x*c+g*s;
-	g=g*c-x*s;
-	h=y*s;
-	y *= c;
-	for (jj=0;jj<n;jj++) {
-	  x=v[jj * m + j];
-	  z=v[jj * m + i];
-	  v[jj * m + j]=x*c+z*s;
-	  v[jj * m + i]=z*c-x*s;
-	}
-	z=pythag(f,h);
-	w[j]=z;
-	if (z) {
-	  z=1.0/z;
-	  c=f*z;
-	  s=h*z;
-	}
-	f=c*g+s*y;
-	x=c*y-s*g;
-	for (jj=0;jj<m;jj++) {
-	  y=a[jj * m + j];
-	  z=a[jj * m + i];
-	  a[jj * m + j]=y*c+z*s;
-	  a[jj * m + i]=z*c-y*s;
-	}
+        i=j+1;
+        g=rv1[i];
+        y=w[i];
+        h=s*g;
+        g=c*g;
+        z=pythag(f,h);
+        rv1[j]=z;
+        c=f/z;
+        s=h/z;
+        f=x*c+g*s;
+        g=g*c-x*s;
+        h=y*s;
+        y *= c;
+        for (jj=0;jj<n;jj++) {
+          x=v[jj * m + j];
+          z=v[jj * m + i];
+          v[jj * m + j]=x*c+z*s;
+          v[jj * m + i]=z*c-x*s;
+        }
+        z=pythag(f,h);
+        w[j]=z;
+        if (z) {
+          z=1.0/z;
+          c=f*z;
+          s=h*z;
+        }
+        f=c*g+s*y;
+        x=c*y-s*g;
+        for (jj=0;jj<m;jj++) {
+          y=a[jj * m + j];
+          z=a[jj * m + i];
+          a[jj * m + j]=y*c+z*s;
+          a[jj * m + i]=z*c-y*s;
+        }
       }
       rv1[l]=0.0;
       rv1[k]=f;
@@ -433,7 +433,7 @@ boolerr_t invert_matrix(int32_t dim, double* matrix, matrix_invert_buf1_t* dbl_1
   for (i=0; i<dim; i++) {
     dbl_1d_buf[i] = dbl_1d_buf[i] < wmin ? 0 : (1 / dbl_1d_buf[i]);
   }
-  
+
   int32_t j;
   for (i=0; i<dim; i++) {
     for (j=0; j<dim; j++) {
@@ -447,7 +447,7 @@ boolerr_t invert_matrix(int32_t dim, double* matrix, matrix_invert_buf1_t* dbl_1
     fill_double_zero(dim, dbl_1d_buf);
     for (j=0; j<dim; j++) {
       for (k=0; k<dim; k++) {
-	dbl_1d_buf[j] += matrix[i * dim + k] * dbl_2d_buf[j * dim + k];
+        dbl_1d_buf[j] += matrix[i * dim + k] * dbl_2d_buf[j * dim + k];
       }
     }
     for (j = 0; j < dim; j++) {
@@ -503,7 +503,7 @@ void invert_fmatrix_second_half(__CLPK_integer dim, uint32_t stride, double* hal
     fill_double_zero(dim, dbl_1d_buf);
     for (j=0; j<dim; j++) {
       for (k=0; k<dim; k++) {
-	dbl_1d_buf[j] += half_inverted[i * dim + k] * dbl_2d_buf[j * dim + k];
+        dbl_1d_buf[j] += half_inverted[i * dim + k] * dbl_2d_buf[j * dim + k];
       }
     }
     for (j = 0; j < dim; j++) {
@@ -944,7 +944,7 @@ void transpose_multiply_self_incr(double* input_part, uint32_t dim, uint32_t par
       double cur_dotprod = *write_iter;
       const double* col2 = &(input_part[idx2]);
       for (uintptr_t row_idx = 0; row_idx < row_ct_l; ++row_idx) {
-	cur_dotprod += col1[row_idx * dim_l] * col2[row_idx * dim_l];
+        cur_dotprod += col1[row_idx * dim_l] * col2[row_idx * dim_l];
       }
       *write_iter = cur_dotprod;
       ++write_iter;

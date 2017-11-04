@@ -55,12 +55,12 @@ extern "C" {
       #endif
     #else
       #ifdef LAPACK_ILP64
-	#error "Invalid compile flags."
+        #error "Invalid compile flags."
       #else
-	#ifdef _WIN32
+        #ifdef _WIN32
   // probably don't need this?
   typedef int32_t __CLPK_integer;
-	#else
+        #else
   typedef long int __CLPK_integer;
         #endif
       #endif
@@ -83,13 +83,13 @@ extern "C" {
         // recompiled with -fdefault-integer-8.
 
         #ifdef USE_CBLAS_XGEMM
-	  #include <cblas.h>
-	#else
-	  // ARGH
-	  // cmake on Ubuntu 14 seems to require use of cblas_f77.h instead of
-	  // cblas.h.  Conversely, cblas_f77.h does not seem to be available on
-	  // the Scientific Linux ATLAS/LAPACK install, and right now that's my
-	  // only option for producing 32-bit static builds...
+          #include <cblas.h>
+        #else
+          // ARGH
+          // cmake on Ubuntu 14 seems to require use of cblas_f77.h instead of
+          // cblas.h.  Conversely, cblas_f77.h does not seem to be available on
+          // the Scientific Linux ATLAS/LAPACK install, and right now that's my
+          // only option for producing 32-bit static builds...
           // So.  Default include is cblas.h.  To play well with cmake + Ubuntu
           // 14 and 16 simultaneously, there is a CBLAS_F77_ON_OLD_GCC mode
           // which picks cblas_f77.h on Ubuntu 14 and cblas.h on 16.
@@ -98,17 +98,17 @@ extern "C" {
           #elif !defined(CBLAS_F77_ON_OLD_GCC)
             #include <cblas.h>
           #else
-	    #if (__GNUC__ <= 4)
+            #if (__GNUC__ <= 4)
               #include <cblas_f77.h>
             #else
-	      #if __has_include(<cblas.h>)
-	        #include <cblas.h>
-	      #else
-	        #include <cblas_f77.h>
-	      #endif
+              #if __has_include(<cblas.h>)
+                #include <cblas.h>
+              #else
+                #include <cblas_f77.h>
+              #endif
             #endif
-	  #endif
-	#endif
+          #endif
+        #endif
       #endif // !USE_MKL
     #endif
 

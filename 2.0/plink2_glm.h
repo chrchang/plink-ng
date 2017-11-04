@@ -73,7 +73,7 @@ FLAGSET_DEF_START()
   // if beta specified, ignore orbeta
   kfGlmColBeta = (1 << 16),
   kfGlmColOrbeta = (1 << 17),
-  
+
   kfGlmColSe = (1 << 18),
   kfGlmColCi = (1 << 19),
   kfGlmColT = (1 << 20),
@@ -109,5 +109,5 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
 #ifdef __cplusplus
 } // namespace plink2
 #endif
- 
+
 #endif // __PLINK2_GLM_H__
