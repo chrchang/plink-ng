@@ -556,7 +556,7 @@ uintptr_t popcount_avx2(const vul_t* bit_vvec, uintptr_t vec_ct) {
     csa256(fours, fours_a, fours_b, &eights_b, &fours);
     csa256(eights, eights_a, eights_b, &sixteens, &eights);
 
-    cnt = cnt + (vul_t)popcnt256((__m256i)sixteens);
+    cnt = cnt + popcnt256(sixteens);
   }
   cnt = vul_lshift(cnt, 4);
   cnt = cnt + vul_lshift(popcnt256(eights), 3);
