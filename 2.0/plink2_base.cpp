@@ -490,7 +490,7 @@ void copy_bitarr_subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t*
   }
 }
 
-#ifdef __LP64__
+#ifdef USE_AVX2
 static inline void csa256(vul_t aa, vul_t bb, vul_t cc, vul_t* hp, vul_t* lp) {
   const vul_t uu = aa ^ bb;
   *hp = (aa & bb) | (uu & cc);
