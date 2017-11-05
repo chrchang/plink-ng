@@ -96,7 +96,7 @@ clean:
 # includes a C++ header and exposed functions will need to be declared with
 # extern "C".
 %.o: %.c
-	$(CXX) -c $(CFLAGS) $< -o $@
+	$(CXX) -c $(CPPFLAGS) $(CFLAGS) $< -o $@
 
 %.o: %.cc
-	$(CXX) -x c++ -c $(CXXFLAGS) $< -o $@
+	$(CXX) -x c++ -c $(CPPFLAGS) $(CXXFLAGS) $< -o $@
