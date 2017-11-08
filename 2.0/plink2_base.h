@@ -81,6 +81,11 @@
   #endif
 #endif
 
+#ifndef UINT32_MAX
+  // can theoretically be undefined in C++03
+  #define UINT32_MAX 0xffffffffU
+#endif
+
 
 // done with #includes, can start C++ namespace
 #ifdef __cplusplus
@@ -968,6 +973,45 @@ HEADER_CINLINE2 uint32_t popcount_4_longs(uintptr_t val0, uintptr_t val1, uintpt
  */
 
 #ifdef USE_AVX2
+HEADER_INLINE vul_t csa256(vul_t bb, vul_t cc, vul_t* lp) {
+  const vul_t aa = *lp;
+  const vul_t uu = aa ^ bb;
+  *lp = uu ^ cc;
+  return (aa & bb) | (uu & cc);
+}
+
+HEADER_INLINE vul_t popcount_avx2_single(vul_t vv) {
+  const __m256i vi = (__m256i)vv;
+  __m256i lookup1 = _mm256_setr_epi8(
+                                     4, 5, 5, 6, 5, 6, 6, 7,
+                                     5, 6, 6, 7, 6, 7, 7, 8,
+                                     4, 5, 5, 6, 5, 6, 6, 7,
+                                     5, 6, 6, 7, 6, 7, 7, 8
+                                     );
+
+  __m256i lookup2 = _mm256_setr_epi8(
+                                     4, 3, 3, 2, 3, 2, 2, 1,
+                                     3, 2, 2, 1, 2, 1, 1, 0,
+                                     4, 3, 3, 2, 3, 2, 2, 1,
+                                     3, 2, 2, 1, 2, 1, 1, 0
+                                     );
+
+  __m256i low_mask = _mm256_set1_epi8(0x0f);
+  __m256i lo = _mm256_and_si256(vi, low_mask);
+  __m256i hi = _mm256_and_si256(_mm256_srli_epi16(vi, 4), low_mask);
+  __m256i popcnt1 = _mm256_shuffle_epi8(lookup1, lo);
+  __m256i popcnt2 = _mm256_shuffle_epi8(lookup2, hi);
+
+  return (vul_t)_mm256_sad_epu8(popcnt1, popcnt2);
+}
+
+HEADER_INLINE uint64_t hsum64(vul_t vv) {
+  univec_t vu;
+  vu.vi = vv;
+  return vu.u8[0] + vu.u8[1] + vu.u8[2] + vu.u8[3];
+  // return _mm256_extract_epi64((__m256i)vv, 0) + _mm256_extract_epi64((__m256i)vv, 1) + _mm256_extract_epi64((__m256i)vv, 2) + _mm256_extract_epi64((__m256i)vv, 3);
+}
+
 // assumes vec_ct is a multiple of 16
 uintptr_t popcount_avx2(const vul_t* bit_vvec, uintptr_t vec_ct);
 
@@ -998,6 +1042,7 @@ uintptr_t popcount_vecs_old(const vul_t* bit_vvec, uintptr_t vec_ct);
 
 HEADER_INLINE uintptr_t popcount_longs(const uintptr_t* bitvec, uintptr_t word_ct) {
   uintptr_t tot = 0;
+  #ifndef USE_SSE42
   if (word_ct >= (3 * kWordsPerVec)) {
     assert(IS_VEC_ALIGNED(bitvec));
     const uintptr_t remainder = word_ct % (3 * kWordsPerVec);
@@ -1006,6 +1051,7 @@ HEADER_INLINE uintptr_t popcount_longs(const uintptr_t* bitvec, uintptr_t word_c
     word_ct = remainder;
     bitvec = &(bitvec[main_block_word_ct]);
   }
+  #endif
   for (uintptr_t trailing_word_idx = 0; trailing_word_idx < word_ct; ++trailing_word_idx) {
     tot += popcount_long(bitvec[trailing_word_idx]);
   }
@@ -1301,13 +1347,37 @@ HEADER_INLINE void zero_trailing_words(__maybe_unused uint32_t word_ct, __maybe_
 // pgenlib_internal
 CONSTU31(kPglBitTransposeBatch, kBitsPerCacheline);
 CONSTU31(kPglBitTransposeWords, kWordsPerCacheline);
-CONSTU31(kPglBitTransposeBufbytes, (kPglBitTransposeBatch * kPglBitTransposeBatch) / (CHAR_BIT / 2));
-CONSTU31(kPglBitTransposeBufwords, kPglBitTransposeBufbytes / kBytesPerWord);
-// up to 512x512; vecaligned_buf must have size 64k
-// write_iter must be allocated up to at least
+// * Up to 512x512; vecaligned_buf must have size 64k
+// * write_iter must be allocated up to at least
 //   round_up_pow2(write_batch_size, 2) rows
-void transpose_bitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, vul_t* vecaligned_buf);
+// * write_ul_stride currently must be divisible by 2 in AVX2 case; may want to
+//   lift this restriction.
+// * We use pointers with different types to read from and write to buf0/buf1,
+//   so defining the base type as unsigned char* is theoretically necessary to
+//   avoid breaking strict-aliasing rules, while the restrict qualifiers should
+//   tell the compiler it doesn't need to be paranoid about writes to one of
+//   the buffers screwing with reads from the other.
+#ifdef __LP64__
+CONSTU31(kPglBitTransposeBufbytes, (kPglBitTransposeBatch * kPglBitTransposeBatch) / CHAR_BIT);
+void transpose_bitblock_internal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, unsigned char* __restrict buf0);
 
+HEADER_INLINE void transpose_bitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, vul_t* vecaligned_buf) {
+  #ifdef USE_AVX2
+  assert(!(write_ul_stride % 2));
+  #endif
+  transpose_bitblock_internal(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, (unsigned char*)vecaligned_buf);
+}
+
+#else // !__LP64__
+CONSTU31(kPglBitTransposeBufbytes, (kPglBitTransposeBatch * kPglBitTransposeBatch) / (CHAR_BIT / 2));
+void transpose_bitblock_internal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, unsigned char* __restrict buf0, unsigned char* __restrict buf1);
+
+HEADER_INLINE void transpose_bitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, vul_t* vecaligned_buf) {
+  transpose_bitblock_internal(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, (unsigned char*)vecaligned_buf, &(((unsigned char*)vecaligned_buf)[kPglBitTransposeBufbytes / 2]));
+}
+#endif
+
+CONSTU31(kPglBitTransposeBufwords, kPglBitTransposeBufbytes / kBytesPerWord);
 
 // Flagset conventions:
 // * Each 32-bit and 64-bit flagset has its own type, which is guaranteed to be

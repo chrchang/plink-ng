@@ -437,7 +437,7 @@ pglerr_t load_xid_header(const char* flag_name, sid_detect_mode_t sid_detect_mod
     }
     loadbuf_first_token = skip_initial_spaces(loadbuf);
     is_header_line = (loadbuf_first_token[0] == '#');
-  } while (is_header_line && strcmp_se(&(loadbuf_first_token[1]), "FID", 3) && strcmp_se(&(loadbuf_first_token[1]), "IID", 3));
+  } while (is_eoln_kns(*loadbuf_first_token) || (is_header_line && (!tokequal_k(&(loadbuf_first_token[1]), "FID")) && (!tokequal_k(&(loadbuf_first_token[1]), "IID"))));
   xid_mode_t xid_mode = kfXidMode0;
   char* loadbuf_iter;
   if (is_header_line) {
@@ -451,14 +451,14 @@ pglerr_t load_xid_header(const char* flag_name, sid_detect_mode_t sid_detect_mod
       xid_mode = kfXidModeFlagNeverFid;
     } else {
       loadbuf_iter = skip_initial_spaces(loadbuf_iter);
-      if (strcmp_se(loadbuf_iter, "IID", 3)) {
+      if (!tokequal_k(loadbuf_iter, "IID")) {
         LOGERRPRINTF("Error: No IID column on line %" PRIuPTR " of --%s file.\n", line_idx, flag_name);
         return kPglRetMalformedInput;
       }
       loadbuf_iter = &(loadbuf_iter[3]);
     }
     loadbuf_iter = skip_initial_spaces(loadbuf_iter);
-    if (!strcmp_se(loadbuf_iter, "SID", 3)) {
+    if (tokequal_k(loadbuf_iter, "SID")) {
       if ((uint32_t)sid_detect_mode >= kSidDetectModeLoaded) {
         xid_mode |= kfXidModeFlagSid;
       }
@@ -929,7 +929,7 @@ int32_t get_chr_code(const char* chr_name, const chr_info_t* cip, uint32_t name_
   if (!cip->name_ct) {
     return -1;
   }
-  // 0xffffffffU gets casted to -1
+  // UINT32_MAX gets casted to -1
   return (int32_t)id_htable_find(chr_name, cip->nonstd_names, cip->nonstd_id_htable, name_slen, kChrHtableSize);
 }
 
@@ -1034,7 +1034,7 @@ pglerr_t try_to_add_chr_name(const char* chr_name, const char* file_descrip, uin
   uint32_t* id_htable = cip->nonstd_id_htable;
   uint32_t hashval = hashceil(chr_name, name_slen, kChrHtableSize);
   while (1) {
-    if (id_htable[hashval] == 0xffffffffU) {
+    if (id_htable[hashval] == UINT32_MAX) {
       id_htable[hashval] = chr_code_end;
       return kPglRetSuccess;
     }
@@ -1526,7 +1526,7 @@ uint32_t first_cc_or_qt_pheno_idx(const pheno_col_t* pheno_cols, uint32_t pheno_
       return pheno_idx;
     }
   }
-  return 0xffffffffU;
+  return UINT32_MAX;
 }
 
 uint32_t is_const_covar(const pheno_col_t* covar_col, const uintptr_t* sample_include, uint32_t sample_ct) {

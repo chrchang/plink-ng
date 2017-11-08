@@ -56,9 +56,9 @@ pglerr_t read_chrset_header_line(char* chrset_iter, const char* file_descrip, mi
     for (uint32_t uii = 0; uii < kChrOffsetCt; ++uii) {
       cip->xymt_codes[uii] = -2;
     }
-    if (!memcmp(chrset_iter, "haploidAutosomeCt=", 18)) {
+    if (str_startswith2(chrset_iter, "haploidAutosomeCt=")) {
       uint32_t explicit_haploid_ct;
-      if (scan_posint_capped(&(chrset_iter[18]), kMaxChrTextnum, &explicit_haploid_ct)) {
+      if (scan_posint_capped(&(chrset_iter[strlen("haploidAutosomeCt=")]), kMaxChrTextnum, &explicit_haploid_ct)) {
         sprintf(g_logbuf, "Error: Header line %" PRIuPTR " of %s has an invalid ##chrSet haploid count (max %u).\n", line_idx, file_descrip, kMaxChrTextnum);
         goto read_chrset_header_line_ret_MALFORMED_INPUT_WW;
       }
@@ -76,11 +76,11 @@ pglerr_t read_chrset_header_line(char* chrset_iter, const char* file_descrip, mi
       cip->autosome_ct = explicit_haploid_ct;
       fill_all_bits(explicit_haploid_ct + 1, cip->haploid_mask);
     } else {
-      if (memcmp(chrset_iter, "autosomePairCt=", 15)) {
+      if (!str_startswith2(chrset_iter, "autosomePairCt=")) {
         sprintf(g_logbuf, "Error: Header line %" PRIuPTR " of %s does not have expected ##chrSet format.\n", line_idx, file_descrip);
         goto read_chrset_header_line_ret_MALFORMED_INPUT_WW;
       }
-      chrset_iter = &(chrset_iter[15]);
+      chrset_iter = &(chrset_iter[strlen("autosomePairCt=")]);
       uint32_t explicit_autosome_ct;
       if (scanadv_posint_capped(kMaxChrTextnum, &chrset_iter, &explicit_autosome_ct)) {
         sprintf(g_logbuf, "Error: Header line %" PRIuPTR " of %s has an invalid ##chrSet autosome count (max %u).\n", line_idx, file_descrip, kMaxChrTextnum);
@@ -444,30 +444,33 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
         goto load_pvar_ret_NOMEM;
       }
       loadbuf_first_token = skip_initial_spaces(loadbuf);
-      if ((loadbuf_first_token[0] != '#') || (!strcmp_se(loadbuf_first_token, "#CHROM", 6))) {
+      if ((*loadbuf_first_token != '#') || tokequal_k(loadbuf_first_token, "#CHROM")) {
+        if (is_eoln_kns(*loadbuf_first_token)) {
+          continue;
+        }
         break;
       }
-      if (!memcmp(loadbuf_first_token, "##INFO=<ID=PR,Number=", 21)) {
+      if (str_startswith2(loadbuf_first_token, "##INFO=<ID=PR,Number=")) {
         if (info_pr_present || info_pr_nonflag_present) {
           sprintf(g_logbuf, "Error: Duplicate INFO:PR header line in %s.\n", pvarname);
           goto load_pvar_ret_MALFORMED_INPUT_WW;
         }
-        info_pr_nonflag_present = memcmp(&(loadbuf_first_token[21]), "0,Type=Flag,Description=", 24);
+        info_pr_nonflag_present = !str_startswith2(&(loadbuf_first_token[strlen("##INFO=<ID=PR,Number=")]), "0,Type=Flag,Description=");
         info_pr_present = 1 - info_pr_nonflag_present;
         if (info_pr_nonflag_present) {
           LOGERRPRINTFWW("Warning: Header line %" PRIuPTR " of %s has an unexpected definition of INFO:PR. This interferes with a few merge and liftover operations.\n", line_idx, pvarname);
         }
-      } else if ((!info_nonpr_present) && (!memcmp(loadbuf_first_token, "##INFO=<ID=", 11))) {
+      } else if ((!info_nonpr_present) && str_startswith2(loadbuf_first_token, "##INFO=<ID=")) {
         info_nonpr_present = 1;
       }
-      if (!memcmp(loadbuf_first_token, "##chrSet=<", 10)) {
+      if (str_startswith2(loadbuf_first_token, "##chrSet=<")) {
         if (chrset_present) {
           sprintf(g_logbuf, "Error: Multiple ##chrSet header lines in %s.\n", pvarname);
           goto load_pvar_ret_MALFORMED_INPUT_WW;
         }
         chrset_present = 1;
         const uint32_t cmdline_chrset = (cip->chrset_source == kChrsetSourceCmdline) && (!(misc_flags & kfMiscChrOverrideFile));
-        reterr = read_chrset_header_line(&(loadbuf_first_token[10]), pvarname, misc_flags, line_idx, cip);
+        reterr = read_chrset_header_line(&(loadbuf_first_token[strlen("##INFO=<ID=")]), pvarname, misc_flags, line_idx, cip);
         if (reterr) {
           goto load_pvar_ret_1;
         }
@@ -482,7 +485,10 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
       } else if (xheader_end) {
         // if the "pvar file" was actually a VCF, suppress the same lines we'd
         // suppress when importing with --vcf.
-        if (memcmp(loadbuf_first_token, "##fileformat=", 13) && memcmp(loadbuf_first_token, "##fileDate=", 11) && memcmp(loadbuf_first_token, "##source=", 9) && memcmp(loadbuf_first_token, "##FORMAT=", 9)) {
+        if ((!str_startswith2(loadbuf_first_token, "##fileformat=")) &&
+            (!str_startswith2(loadbuf_first_token, "##fileDate=")) &&
+            (!str_startswith2(loadbuf_first_token, "##source=")) &&
+            (!str_startswith2(loadbuf_first_token, "##FORMAT="))) {
           uint32_t line_slen = strlen(loadbuf_first_token);
           if (loadbuf_first_token[line_slen - 1] == '\n') {
             --line_slen;
@@ -570,13 +576,13 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
           } else {
             continue;
           }
-        } else if ((token_slen == 4) && (!memcmp(loadbuf_iter, "QUAL", 4))) {
+        } else if (strequal_k(loadbuf_iter, "QUAL", token_slen)) {
           load_qual_col = 2 * ((pvar_psam_modifier & (kfPvarColMaybequal | kfPvarColQual)) || (exportf_modifier & kfExportfVcf)) + (var_min_qual != -1);
           if (!load_qual_col) {
             continue;
           }
           cur_col_type = 4;
-        } else if ((token_slen == 4) && (!memcmp(loadbuf_iter, "INFO", 4))) {
+        } else if (strequal_k(loadbuf_iter, "INFO", token_slen)) {
           cur_col_type = 6;
           info_col_present = 1;
         } else if (token_slen == 6) {
@@ -654,8 +660,8 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
     // done with header, loadbuf_first_token now points to beginning of first
     // real line.
     uint32_t max_variant_id_slen = *max_variant_id_slen_ptr;
-    uint32_t chrs_encountered_m1 = 0xffffffffU; // intentional overflow
-    uint32_t prev_chr_code = 0xffffffffU; // force initial mismatch
+    uint32_t chrs_encountered_m1 = UINT32_MAX; // intentional overflow
+    uint32_t prev_chr_code = UINT32_MAX; // force initial mismatch
     uint32_t raw_variant_ct = 0;
     uintptr_t* chr_mask = cip->chr_mask;
     const char* missing_allele_str = &(g_one_char_strs[92]);
@@ -768,10 +774,10 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
     const uint32_t new_variant_id_overflow_missing = (misc_flags / kfMiscNewVarIdOverflowMissing) & 1;
     uintptr_t new_variant_id_allele_len_overflow = 0;
     double* cur_cms = nullptr;
-    uint32_t cms_start_block = 0xffffffffU;
+    uint32_t cms_start_block = UINT32_MAX;
 
     chr_idx_t* cur_chr_idxs = nullptr;
-    uint32_t chr_idxs_start_block = 0xffffffffU;
+    uint32_t chr_idxs_start_block = UINT32_MAX;
     uint32_t is_split_chr = 0;
     unsorted_var_t vpos_sortstatus = kfUnsortedVar0;
 
@@ -997,7 +1003,7 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
             char* filter_token = token_ptrs[5];
             const uint32_t filter_slen = token_slens[5];
             if ((filter_slen > 1) || (filter_token[0] != '.')) {
-              if ((filter_slen != 4) || memcmp(filter_token, "PASS", 4)) {
+              if (!strequal_k(filter_token, "PASS", filter_slen)) {
                 if (load_filter_col & 1) {
                   if (!fexcept_ct) {
                     goto load_pvar_skip_variant;

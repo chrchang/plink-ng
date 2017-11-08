@@ -131,6 +131,10 @@ void copy_quaterarr_nonempty_subset(const uintptr_t* __restrict raw_quaterarr, c
   }
 }
 
+// Harley-Seal algorithm only works for bitarrays, not quaterarrays, so don't
+// add an AVX2 specialization here.
+// ...unless something like the interleaved_vec strategy is used?  hmm.  should
+// test this on basic frequency counter.
 void count_2freq_3xvec(const vul_t* geno_vvec, uint32_t vec_ct, uint32_t* __restrict alt1_plus_bothset_ctp, uint32_t* __restrict bothset_ctp) {
   assert(!(vec_ct % 3));
   // Increments bothset_ct by the number of 0b11 in the current block, and
@@ -1067,13 +1071,13 @@ void difflist_count_subset_freqs(const uintptr_t* __restrict sample_include, con
 
 static_assert(kPglQuaterTransposeBatch == ((uint32_t)kQuatersPerCacheline), "transpose_quaterblock() needs to be updated.");
 #ifdef USE_AVX2
-void transpose_quaterblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, vul_t* vecaligned_buf) {
+void transpose_quaterblock_internal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, unsigned char* __restrict buf0, unsigned char* __restrict buf1) {
   // buf must be vector-aligned and have size 32k
   const uint32_t initial_read_byte_ct = QUATERCT_TO_BYTECT(write_batch_size);
   // fold the first 6 shuffles into the initial ingestion loop
   const unsigned char* initial_read_iter = (const unsigned char*)read_iter;
   const unsigned char* initial_read_end = &(initial_read_iter[initial_read_byte_ct]);
-  unsigned char* initial_target_iter = (unsigned char*)vecaligned_buf;
+  unsigned char* initial_target_iter = buf0;
   const uint32_t read_byte_stride = read_ul_stride * kBytesPerWord;
   const uint32_t read_batch_rem = kQuatersPerCacheline - read_batch_size;
   for (; initial_read_iter < initial_read_end; ++initial_read_iter) {
@@ -1086,8 +1090,8 @@ void transpose_quaterblock(const uintptr_t* read_iter, uint32_t read_ul_stride, 
   }
 
   // second-to-last shuffle, 8 bit spacing -> 4
-  const vul_t* source_iter = vecaligned_buf;
-  uintptr_t* target_iter0 = (uintptr_t*)(&(vecaligned_buf[kPglQuaterTransposeBufwords / (2 * kWordsPerVec)]));
+  const vul_t* source_iter = (vul_t*)buf0;
+  uintptr_t* target_iter0 = (uintptr_t*)buf1;
   const vul_t m4 = VCONST_UL(kMask0F0F);
   const vul_t m8 = VCONST_UL(kMask00FF);
   const vul_t m16 = VCONST_UL(kMask0000FFFF);
@@ -1119,7 +1123,7 @@ void transpose_quaterblock(const uintptr_t* read_iter, uint32_t read_ul_stride, 
   }
 
   // last shuffle, 4 bit spacing -> 2
-  source_iter = (&(vecaligned_buf[kPglQuaterTransposeBufwords / (2 * kWordsPerVec)]));
+  source_iter = (vul_t*)buf1;
   target_iter0 = write_iter;
   const vul_t m2 = VCONST_UL(kMask3333);
   const uint32_t last_loop_iter_ct = DIV_UP(write_batch_size, 2);
@@ -1154,13 +1158,13 @@ static_assert(kWordsPerVec == 2, "transpose_quaterblock() needs to be updated.")
   #else
 static_assert(kWordsPerVec == 1, "transpose_quaterblock() needs to be updated.");
   #endif
-void transpose_quaterblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, vul_t* vecaligned_buf) {
+void transpose_quaterblock_internal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, unsigned char* __restrict buf0, unsigned char* __restrict buf1) {
   // buf must be vector-aligned and have size 32k
   const uint32_t initial_read_byte_ct = QUATERCT_TO_BYTECT(write_batch_size);
   // fold the first 6 shuffles into the initial ingestion loop
   const unsigned char* initial_read_iter = (const unsigned char*)read_iter;
   const unsigned char* initial_read_end = &(initial_read_iter[initial_read_byte_ct]);
-  unsigned char* initial_target_iter = (unsigned char*)vecaligned_buf;
+  unsigned char* initial_target_iter = buf0;
   const uint32_t read_byte_stride = read_ul_stride * kBytesPerWord;
   const uint32_t read_batch_rem = kQuatersPerCacheline - read_batch_size;
   for (; initial_read_iter < initial_read_end; ++initial_read_iter) {
@@ -1173,8 +1177,8 @@ void transpose_quaterblock(const uintptr_t* read_iter, uint32_t read_ul_stride, 
   }
 
   // second-to-last shuffle, 8 bit spacing -> 4
-  const vul_t* source_iter = vecaligned_buf;
-  uintptr_t* target_iter0 = (uintptr_t*)(&(vecaligned_buf[kPglQuaterTransposeBufwords / (2 * kWordsPerVec)]));
+  const vul_t* source_iter = (vul_t*)buf0;
+  uintptr_t* target_iter0 = (uintptr_t*)buf1;
   #ifdef __LP64__
   const vul_t m4 = VCONST_UL(kMask0F0F);
   const vul_t m8 = VCONST_UL(kMask00FF);
@@ -1229,7 +1233,7 @@ void transpose_quaterblock(const uintptr_t* read_iter, uint32_t read_ul_stride, 
   }
 
   // last shuffle, 4 bit spacing -> 2
-  source_iter = (&(vecaligned_buf[kPglQuaterTransposeBufwords / (2 * kWordsPerVec)]));
+  source_iter = (vul_t*)buf1;
   target_iter0 = write_iter;
   #ifdef __LP64__
   const vul_t m2 = VCONST_UL(kMask3333);
@@ -1519,7 +1523,7 @@ pglerr_t pgfi_init_phase1(const char* fname, uint32_t raw_variant_ct, uint32_t r
     // plink 1 binary
     if (!file_type_code) {
       // sample-major.  validate file size here so we don't have to recheck it
-      if ((raw_sample_ct != 0xffffffffU) && (raw_variant_ct != 0xffffffffU)) {
+      if ((raw_sample_ct != UINT32_MAX) && (raw_variant_ct != UINT32_MAX)) {
         const uint64_t fsize_expected = 3 + ((uint64_t)raw_sample_ct) * QUATERCT_TO_BYTECT(raw_variant_ct);
         if (fsize != fsize_expected) {
           sprintf(errstr_buf, "Error: Unexpected PLINK 1 sample-major .bed file size (%" PRIu64 " bytes expected).\n", fsize_expected);
@@ -1529,13 +1533,13 @@ pglerr_t pgfi_init_phase1(const char* fname, uint32_t raw_variant_ct, uint32_t r
       strcpy(errstr_buf, "Error: pgenlib does not support sample-major PLINK 1 .bed files.\n");
       return kPglRetSampleMajorBed;
     }
-    if (raw_sample_ct == 0xffffffffU) {
+    if (raw_sample_ct == UINT32_MAX) {
       // either .fam must be loaded first, or user must provide sample count
       sprintf(errstr_buf, "Error: pgfi_init_phase1() must be called with an accurate raw_sample_ct value, since %s is a PLINK 1 .bed file.\n", fname);
       return kPglRetImproperFunctionCall;
     }
     const uint32_t const_vrec_width = QUATERCT_TO_BYTECT(raw_sample_ct);
-    if (raw_variant_ct == 0xffffffffU) {
+    if (raw_variant_ct == UINT32_MAX) {
       if (!raw_sample_ct) {
         raw_variant_ct = 0;
       } else {
@@ -1585,13 +1589,13 @@ pglerr_t pgfi_init_phase1(const char* fname, uint32_t raw_variant_ct, uint32_t r
   }
 #endif
   pgen_header_ctrl_t header_ctrl = *header_ctrl_ptr;
-  if (raw_variant_ct == 0xffffffffU) {
+  if (raw_variant_ct == UINT32_MAX) {
     raw_variant_ct = pgfip->raw_variant_ct;
   } else if (raw_variant_ct != pgfip->raw_variant_ct) {
     sprintf(errstr_buf, "Error: pgfi_init_phase1() was called with raw_variant_ct == %u, but %s contains %u variant%s.\n", raw_variant_ct, fname, pgfip->raw_variant_ct, (pgfip->raw_variant_ct == 1)? "" : "s");
     return kPglRetInconsistentInput;
   }
-  if (raw_sample_ct == 0xffffffffU) {
+  if (raw_sample_ct == UINT32_MAX) {
     raw_sample_ct = pgfip->raw_sample_ct;
   } else if (raw_sample_ct != pgfip->raw_sample_ct) {
     sprintf(errstr_buf, "Error: pgfi_init_phase1() was called with raw_sample_ct == %u, but %s contains %u sample%s.\n", raw_sample_ct, fname, pgfip->raw_sample_ct, (pgfip->raw_sample_ct == 1)? "" : "s");
@@ -1645,7 +1649,7 @@ pglerr_t pgfi_init_phase1(const char* fname, uint32_t raw_variant_ct, uint32_t r
     return kPglRetNotYetSupported;
   }
   // plink 2 binary, general-purpose
-  pgfip->const_vrtype = 0xffffffffU;
+  pgfip->const_vrtype = UINT32_MAX;
   pgfip->const_vrec_width = 0;
   const uintptr_t alt_allele_ct_byte_ct = (header_ctrl >> 4) & 3;
   if (alt_allele_ct_byte_ct > 1) {
@@ -2449,7 +2453,7 @@ pglerr_t pgr_init(const char* fname, uint32_t max_vrec_width, pgen_file_info_t* 
     pgr_alloc_iter = &(pgr_alloc_iter[round_up_pow2(max_vrec_width, kCacheline)]);
   }
   pgrp->fp_vidx = 0;
-  pgrp->ldbase_vidx = 0xffffffffU;
+  pgrp->ldbase_vidx = UINT32_MAX;
   pgrp->ldbase_stypes = kfPgrLdcache0;
   pgrp->ldbase_genovec = nullptr;
   pgrp->ldbase_raregeno = nullptr;
@@ -3665,7 +3669,7 @@ pglerr_t read_refalt1_difflist_or_genovec_subset_unsafe(const uintptr_t* __restr
       return kPglRetSuccess;
     }
     assert(pgrp->ldbase_stypes & kfPgrLdcacheQuater);
-    *difflist_common_geno_ptr = 0xffffffffU;
+    *difflist_common_geno_ptr = UINT32_MAX;
     copy_quaterarr(pgrp->ldbase_genovec, sample_ct, genovec);
     reterr = parse_and_apply_difflist_subset(fread_end, sample_include, sample_include_cumulative_popcounts, sample_ct, multiallelic_relevant, &fread_ptr, pgrp, genovec);
     if (reterr) {
@@ -3692,7 +3696,7 @@ pglerr_t read_refalt1_difflist_or_genovec_subset_unsafe(const uintptr_t* __restr
   // the large test dataset (/64 is slightly worse than /32)
   // no limit is best on the small test dataset
   if (saved_difflist_len > max_simple_difflist_len) {
-    *difflist_common_geno_ptr = 0xffffffffU;
+    *difflist_common_geno_ptr = UINT32_MAX;
     pglerr_t reterr = parse_non_ld_genovec_subset_unsafe(fread_end, sample_include, sample_include_cumulative_popcounts, sample_ct, vrtype, multiallelic_relevant, &fread_ptr, pgrp, genovec);
     if (reterr) {
       return reterr;
@@ -3732,7 +3736,7 @@ pglerr_t read_refalt1_difflist_or_genovec_subset_unsafe(const uintptr_t* __restr
 pglerr_t pgr_read_refalt1_difflist_or_genovec_subset_unsafe(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t max_simple_difflist_len, uint32_t vidx, pgen_reader_t* pgrp, uintptr_t* __restrict genovec, uint32_t* difflist_common_geno_ptr, uintptr_t* __restrict main_raregeno, uint32_t* __restrict difflist_sample_ids, uint32_t* __restrict difflist_len_ptr) {
   assert(vidx < pgrp->fi.raw_variant_ct);
   if (!sample_ct) {
-    *difflist_common_geno_ptr = 0xffffffffU;
+    *difflist_common_geno_ptr = UINT32_MAX;
     return kPglRetSuccess;
   }
   return read_refalt1_difflist_or_genovec_subset_unsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, max_simple_difflist_len, vidx, pgrp, nullptr, nullptr, genovec, difflist_common_geno_ptr, main_raregeno, difflist_sample_ids, difflist_len_ptr);
@@ -6881,7 +6885,7 @@ pglerr_t pgr_validate(pgen_reader_t* pgrp, char* errstr_buf) {
   const uint32_t variant_ct = pgrp->fi.raw_variant_ct;
   const uint32_t sample_ct = pgrp->fi.raw_sample_ct;
   const uint32_t const_vrtype = pgrp->fi.const_vrtype;
-  if (const_vrtype != 0xffffffffU) {
+  if (const_vrtype != UINT32_MAX) {
     if (allele_idx_offsets && (allele_idx_offsets[variant_ct] != 2 * variant_ct)) {
       sprintf(errstr_buf, "Error: .pvar file contains multiallelic variant(s), but .%s file does not.\n", (const_vrtype == kPglVrtypePlink1)? "bed" : "pgen");
       return kPglRetInconsistentInput;
@@ -7987,7 +7991,7 @@ uint32_t pwc_append_biallelic_genovec_main(const uintptr_t* __restrict genovec, 
         // unpack to ldbase_genovec
         pgr_difflist_to_genovec_unsafe(pwcp->ldbase_raregeno, pwcp->ldbase_difflist_sample_ids, pwcp->ldbase_common_geno, sample_ct, pwcp->ldbase_difflist_len, ldbase_genovec);
         zero_trailing_quaters(sample_ct, ldbase_genovec);
-        pwcp->ldbase_common_geno = 0xffffffffU;
+        pwcp->ldbase_common_geno = UINT32_MAX;
       }
       count_ld_and_inverted_ld_diffs(ldbase_genovec, genovec, sample_ct, &ld_diff_ct, &ld_inv_diff_ct);
       if ((ld_diff_ct < ld_diff_threshold) || (ld_inv_diff_ct < ld_diff_threshold)) {
@@ -8003,7 +8007,7 @@ uint32_t pwc_append_biallelic_genovec_main(const uintptr_t* __restrict genovec, 
   }
   const uint32_t genovec_word_ct = QUATERCT_TO_WORDCT(sample_ct);
   memcpy(ldbase_genocounts, genocounts, 4 * sizeof(int32_t));
-  pwcp->ldbase_common_geno = 0xffffffffU;
+  pwcp->ldbase_common_geno = UINT32_MAX;
   if ((!difflist_viable) && (rare_2_geno_ct_sum < sample_ct / (2 * kPglMaxDifflistLenDivisor))) {
     *vrtype_ptr = 1;
     uint32_t larger_common_geno = second_most_common_geno;
@@ -8287,7 +8291,7 @@ uint32_t pwc_append_biallelic_difflist_limited_main(const uintptr_t* __restrict 
     pwcp->ldbase_difflist_len = difflist_len;
     return save_ld_input_list(pwcp);
   }
-  pwcp->ldbase_common_geno = 0xffffffffU;
+  pwcp->ldbase_common_geno = UINT32_MAX;
   const uint32_t use_onebit = (rare_2_geno_ct_sum < sample_ct / (2 * kPglMaxDifflistLenDivisor));
   uintptr_t* genobuf = use_onebit? pwcp->genovec_invert_buf : pwcp->ldbase_genovec;
   pgr_difflist_to_genovec_unsafe(raregeno, difflist_sample_ids, difflist_common_geno, sample_ct, difflist_len, genobuf);

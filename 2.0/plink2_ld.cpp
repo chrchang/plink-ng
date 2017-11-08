@@ -42,6 +42,187 @@ void cleanup_ld(ld_info_t* ldip) {
 }
 
 
+#ifdef USE_AVX2
+// todo: see if either approach in avx_jaccard_index.c in
+// github.com/CountOnes/hamming_weight helps here.
+
+// don't bother with popcount_avx2_3intersect for now, but test later
+
+static inline void popcount_avx2_2intersect(const vul_t* __restrict vvec1_iter, const vul_t* __restrict vvec2a_iter, const vul_t* __restrict vvec2b_iter, uintptr_t vec_ct, uint32_t* popcount_1_2a_ptr, uint32_t* popcount_1_2b_ptr) {
+  // popcounts (vvec1 AND vvec2a[0..(ct-1)]) as well as (vvec1 AND vvec2b).  ct
+  // is a multiple of 8.
+  vul_t cnt_2a = vul_setzero();
+  vul_t cnt_2b = vul_setzero();
+  vul_t ones_2a = vul_setzero();
+  vul_t ones_2b = vul_setzero();
+  vul_t twos_2a = vul_setzero();
+  vul_t twos_2b = vul_setzero();
+  vul_t fours_2a = vul_setzero();
+  vul_t fours_2b = vul_setzero();
+  for (uintptr_t vec_idx = 0; vec_idx < vec_ct; vec_idx += 8) {
+    vul_t loader1 = vvec1_iter[vec_idx];
+    vul_t count1_2a = loader1 & vvec2a_iter[vec_idx];
+    vul_t count1_2b = loader1 & vvec2b_iter[vec_idx];
+
+    loader1 = vvec1_iter[vec_idx + 1];
+    vul_t count2_2a = loader1 & vvec2a_iter[vec_idx + 1];
+    vul_t count2_2b = loader1 & vvec2b_iter[vec_idx + 1];
+    vul_t twos_2a_a = csa256(count1_2a, count2_2a, &ones_2a);
+    vul_t twos_2b_a = csa256(count1_2b, count2_2b, &ones_2b);
+
+    loader1 = vvec1_iter[vec_idx + 2];
+    count1_2a = loader1 & vvec2a_iter[vec_idx + 2];
+    count1_2b = loader1 & vvec2b_iter[vec_idx + 2];
+
+    loader1 = vvec1_iter[vec_idx + 3];
+    count2_2a = loader1 & vvec2a_iter[vec_idx + 3];
+    count2_2b = loader1 & vvec2b_iter[vec_idx + 3];
+    vul_t twos_2a_b = csa256(count1_2a, count2_2a, &ones_2a);
+    vul_t twos_2b_b = csa256(count1_2b, count2_2b, &ones_2b);
+    const vul_t fours_2a_a = csa256(twos_2a_a, twos_2a_b, &twos_2a);
+    const vul_t fours_2b_a = csa256(twos_2b_a, twos_2b_b, &twos_2b);
+
+    loader1 = vvec1_iter[vec_idx + 4];
+    count1_2a = loader1 & vvec2a_iter[vec_idx + 4];
+    count1_2b = loader1 & vvec2b_iter[vec_idx + 4];
+
+    loader1 = vvec1_iter[vec_idx + 5];
+    count2_2a = loader1 & vvec2a_iter[vec_idx + 5];
+    count2_2b = loader1 & vvec2b_iter[vec_idx + 5];
+    twos_2a_a = csa256(count1_2a, count2_2a, &ones_2a);
+    twos_2b_a = csa256(count1_2b, count2_2b, &ones_2b);
+
+    loader1 = vvec1_iter[vec_idx + 6];
+    count1_2a = loader1 & vvec2a_iter[vec_idx + 6];
+    count1_2b = loader1 & vvec2b_iter[vec_idx + 6];
+
+    loader1 = vvec1_iter[vec_idx + 7];
+    count2_2a = loader1 & vvec2a_iter[vec_idx + 7];
+    count2_2b = loader1 & vvec2b_iter[vec_idx + 7];
+    twos_2a_b = csa256(count1_2a, count2_2a, &ones_2a);
+    twos_2b_b = csa256(count1_2b, count2_2b, &ones_2b);
+    const vul_t fours_2a_b = csa256(twos_2a_a, twos_2a_b, &twos_2a);
+    const vul_t fours_2b_b = csa256(twos_2b_a, twos_2b_b, &twos_2b);
+    const vul_t eights_2a = csa256(fours_2a_a, fours_2a_b, &fours_2a);
+    const vul_t eights_2b = csa256(fours_2b_a, fours_2b_b, &fours_2b);
+    // negligible benefit from going to sixteens here
+    cnt_2a = cnt_2a + popcount_avx2_single(eights_2a);
+    cnt_2b = cnt_2b + popcount_avx2_single(eights_2b);
+  }
+  cnt_2a = vul_lshift(cnt_2a, 3);
+  cnt_2b = vul_lshift(cnt_2b, 3);
+  cnt_2a = cnt_2a + vul_lshift(popcount_avx2_single(fours_2a), 2);
+  cnt_2b = cnt_2b + vul_lshift(popcount_avx2_single(fours_2b), 2);
+  cnt_2a = cnt_2a + vul_lshift(popcount_avx2_single(twos_2a), 1);
+  cnt_2b = cnt_2b + vul_lshift(popcount_avx2_single(twos_2b), 1);
+  cnt_2a = cnt_2a + popcount_avx2_single(ones_2a);
+  cnt_2b = cnt_2b + popcount_avx2_single(ones_2b);
+  *popcount_1_2a_ptr = hsum64(cnt_2a);
+  *popcount_1_2b_ptr = hsum64(cnt_2b);
+}
+
+// don't bother with popcount_avx2_3intersect for now, but test later
+
+void popcount_longs_2intersect(const uintptr_t* __restrict bitvec1_iter, const uintptr_t* __restrict bitvec2a_iter, const uintptr_t* __restrict bitvec2b_iter, uintptr_t word_ct, uint32_t* popcount_1_2a_ptr, uint32_t* popcount_1_2b_ptr) {
+  const uintptr_t* bitvec1_end = &(bitvec1_iter[word_ct]);
+  uint32_t popcount_1_2a = 0;
+  uint32_t popcount_1_2b = 0;
+  if (word_ct >= 16) {
+    // this has high constant overhead at the end, so require more than 1 block
+    const uintptr_t block_ct = word_ct / (8 * kWordsPerVec);
+    popcount_avx2_2intersect((const vul_t*)bitvec1_iter, (const vul_t*)bitvec2a_iter, (const vul_t*)bitvec2b_iter, block_ct * 8, &popcount_1_2a, &popcount_1_2b);
+    bitvec1_iter = &(bitvec1_iter[block_ct * (8 * kWordsPerVec)]);
+    bitvec2a_iter = &(bitvec2a_iter[block_ct * (8 * kWordsPerVec)]);
+    bitvec2b_iter = &(bitvec2b_iter[block_ct * (8 * kWordsPerVec)]);
+  }
+  while (bitvec1_iter < bitvec1_end) {
+    const uintptr_t loader1 = *bitvec1_iter++;
+    popcount_1_2a += popcount_long(loader1 & (*bitvec2a_iter++));
+    popcount_1_2b += popcount_long(loader1 & (*bitvec2b_iter++));
+  }
+  *popcount_1_2a_ptr = popcount_1_2a;
+  *popcount_1_2b_ptr = popcount_1_2b;
+}
+
+static inline int32_t dotprod_avx2(const vul_t* __restrict vvec1a_iter, const vul_t* __restrict vvec1b_iter, const vul_t* __restrict vvec2a_iter, const vul_t* __restrict vvec2b_iter, uintptr_t vec_ct) {
+  // assumes vvec1a/vvec2a represesent +1s, vvec1b/vvec2b represent -1s, and
+  // everything else is 0.  computes
+  //   popcount(vvec1a & vvec2a) + popcount(vvec1b & vvec2b)
+  //   - popcount(vvec1a & vvec2b) - popcount(vvec1b & vvec2a).
+  // ct must be a multiple of 4.
+  vul_t cnt = vul_setzero();
+  vul_t ones_pos = vul_setzero();
+  vul_t ones_neg = vul_setzero();
+  vul_t twos_pos = vul_setzero();
+  vul_t twos_neg = vul_setzero();
+  for (uintptr_t vec_idx = 0; vec_idx < vec_ct; vec_idx += 4) {
+    vul_t loader1a = vvec1a_iter[vec_idx];
+    vul_t loader1b = vvec1b_iter[vec_idx];
+    vul_t loader2a = vvec2a_iter[vec_idx];
+    vul_t loader2b = vvec2b_iter[vec_idx];
+    // loader1a and loader1b are disjoint, etc.; take advantage of that
+    vul_t count1_pos = (loader1a & loader2a) | (loader1b & loader2b);
+    vul_t count1_neg = (loader1a & loader2b) | (loader1b & loader2a);
+
+    loader1a = vvec1a_iter[vec_idx + 1];
+    loader1b = vvec1b_iter[vec_idx + 1];
+    loader2a = vvec2a_iter[vec_idx + 1];
+    loader2b = vvec2b_iter[vec_idx + 1];
+    vul_t count2_pos = (loader1a & loader2a) | (loader1b & loader2b);
+    vul_t count2_neg = (loader1a & loader2b) | (loader1b & loader2a);
+    const vul_t twos_pos_a = csa256(count1_pos, count2_pos, &ones_pos);
+    const vul_t twos_neg_a = csa256(count1_neg, count2_neg, &ones_neg);
+
+    loader1a = vvec1a_iter[vec_idx + 2];
+    loader1b = vvec1b_iter[vec_idx + 2];
+    loader2a = vvec2a_iter[vec_idx + 2];
+    loader2b = vvec2b_iter[vec_idx + 2];
+    count1_pos = (loader1a & loader2a) | (loader1b & loader2b);
+    count1_neg = (loader1a & loader2b) | (loader1b & loader2a);
+
+    loader1a = vvec1a_iter[vec_idx + 3];
+    loader1b = vvec1b_iter[vec_idx + 3];
+    loader2a = vvec2a_iter[vec_idx + 3];
+    loader2b = vvec2b_iter[vec_idx + 3];
+    count2_pos = (loader1a & loader2a) | (loader1b & loader2b);
+    count2_neg = (loader1a & loader2b) | (loader1b & loader2a);
+    const vul_t twos_pos_b = csa256(count1_pos, count2_pos, &ones_pos);
+    const vul_t twos_neg_b = csa256(count1_neg, count2_neg, &ones_neg);
+    const vul_t fours_pos = csa256(twos_pos_a, twos_pos_b, &twos_pos);
+    const vul_t fours_neg = csa256(twos_neg_a, twos_neg_b, &twos_neg);
+    // tried continuing to eights, not worth it
+    // deliberate unsigned-int64 overflow here
+    cnt = cnt + popcount_avx2_single(fours_pos) - popcount_avx2_single(fours_neg);
+  }
+  cnt = vul_lshift(cnt, 2);
+  const vul_t twos_sum = popcount_avx2_single(twos_pos) - popcount_avx2_single(twos_neg);
+  cnt = cnt + vul_lshift(twos_sum, 1);
+  cnt = cnt + popcount_avx2_single(ones_pos) - popcount_avx2_single(ones_neg);
+  return hsum64(cnt);
+}
+
+int32_t dotprod_longs(const uintptr_t* __restrict bitvec1a_iter, const uintptr_t* __restrict bitvec1b_iter, const uintptr_t* __restrict bitvec2a_iter, const uintptr_t* __restrict bitvec2b_iter, uintptr_t word_ct) {
+  const uintptr_t* bitvec1a_end = &(bitvec1a_iter[word_ct]);
+  int32_t tot = 0;
+  if (word_ct >= 8) {
+    const uintptr_t block_ct = word_ct / (kWordsPerVec * 4);
+    tot = dotprod_avx2((const vul_t*)bitvec1a_iter, (const vul_t*)bitvec1b_iter, (const vul_t*)bitvec2a_iter, (const vul_t*)bitvec2b_iter, block_ct * 4);
+    bitvec1a_iter = &(bitvec1a_iter[block_ct * (4 * kWordsPerVec)]);
+    bitvec1b_iter = &(bitvec1b_iter[block_ct * (4 * kWordsPerVec)]);
+    bitvec2a_iter = &(bitvec2a_iter[block_ct * (4 * kWordsPerVec)]);
+    bitvec2b_iter = &(bitvec2b_iter[block_ct * (4 * kWordsPerVec)]);
+  }
+  while (bitvec1a_iter < bitvec1a_end) {
+    uintptr_t loader1a = *bitvec1a_iter++;
+    uintptr_t loader1b = *bitvec1b_iter++;
+    uintptr_t loader2a = *bitvec2a_iter++;
+    uintptr_t loader2b = *bitvec2b_iter++;
+    tot += popcount_long((loader1a & loader2a) | (loader1b & loader2b));
+    tot -= popcount_long((loader1a & loader2b) | (loader1b & loader2a));
+  }
+  return tot;
+}
+#else // !USE_AVX2
 static inline void popcount_vecs_2intersect(const vul_t* __restrict vvec1_iter, const vul_t* __restrict vvec2a_iter, const vul_t* __restrict vvec2b_iter, uintptr_t vec_ct, uint32_t* popcount_1_2a_ptr, uint32_t* popcount_1_2b_ptr) {
   // popcounts (vvec1 AND vvec2a[0..(ct-1)]) as well as (vvec1 AND vvec2b).  ct
   // is a multiple of 3.
@@ -130,7 +311,6 @@ void popcount_longs_2intersect(const uintptr_t* __restrict bitvec1_iter, const u
   *popcount_1_2a_ptr = popcount_1_2a;
   *popcount_1_2b_ptr = popcount_1_2b;
 }
-
 
 static inline int32_t dotprod_vecs(const vul_t* __restrict vvec1a_iter, const vul_t* __restrict vvec1b_iter, const vul_t* __restrict vvec2a_iter, const vul_t* __restrict vvec2b_iter, uintptr_t vec_ct) {
   // assumes vvec1a/vvec2a represesent +1s, vvec1b/vvec2b represent -1s, and
@@ -227,6 +407,7 @@ int32_t dotprod_longs(const uintptr_t* __restrict bitvec1a_iter, const uintptr_t
   }
   return tot;
 }
+#endif // !USE_AVX2
 
 void ldprune_next_subcontig(const uintptr_t* variant_include, const uint32_t* variant_bps, const uint32_t* subcontig_info, const uint32_t* subcontig_thread_assignments, uint32_t x_start, uint32_t x_len, uint32_t y_start, uint32_t y_len, uint32_t founder_ct, uint32_t founder_male_ct, uint32_t prune_window_size, uint32_t thread_idx, uint32_t* subcontig_idx_ptr, uint32_t* subcontig_end_tvidx_ptr, uint32_t* next_window_end_tvidx_ptr, uint32_t* is_x_ptr, uint32_t* is_y_ptr, uint32_t* cur_founder_ct_ptr, uint32_t* cur_founder_ctaw_ptr, uint32_t* cur_founder_ctl_ptr, uintptr_t* entire_variant_buf_word_ct_ptr, uint32_t* variant_uidx_winstart_ptr, uint32_t* variant_uidx_winend_ptr) {
   uint32_t subcontig_idx = *subcontig_idx_ptr;
@@ -298,7 +479,6 @@ void genoarr_split_02nm(const uintptr_t* __restrict genoarr, uint32_t sample_ct,
     two_bitarr_alias[sample_ctl2 - 1] &= trailing_mask;
     nm_bitarr_alias[sample_ctl2 - 1] &= trailing_mask;
   }
-  ;;;
   if (sample_ctl2 % 2) {
     zero_bitarr_alias[sample_ctl2] = 0;
     two_bitarr_alias[sample_ctl2] = 0;
@@ -461,7 +641,7 @@ THREAD_FUNC_DECL indep_pairwise_thread(void* arg) {
   uint32_t* first_unchecked_tvidx = g_first_unchecked_tvidx[tidx];
 
   uint32_t subcontig_end_tvidx = 0;
-  uint32_t subcontig_idx = 0xffffffffU; // deliberate overflow
+  uint32_t subcontig_idx = UINT32_MAX; // deliberate overflow
   uint32_t window_start_tvidx = 0;
   uint32_t next_window_end_tvidx = 0;
   uint32_t write_slot_idx = 0;
@@ -2130,6 +2310,7 @@ int64_t dosage_signed_dotprod(const dosage_t* dosage_diff0, const dosage_t* dosa
       // product is in [-2^28, 2^28], so hi16 is in [-4096, 4096]
       // so if we add 4096 to hi16, we can treat it as an unsigned value in the
       //   rest of this loop
+      // ...or rewrite all these dot products to use _mm256_madd_epi16()?
       hi16 = _mm256_add_epi16(hi16, all_4096);
       lo16 = _mm256_add_epi64(_mm256_and_si256(lo16, m16), _mm256_and_si256(_mm256_srli_epi64(lo16, 16), m16));
       hi16 = _mm256_and_si256(_mm256_add_epi64(hi16, _mm256_srli_epi64(hi16, 16)), m16);

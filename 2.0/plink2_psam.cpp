@@ -37,7 +37,7 @@ typedef struct psam_info_ll_struct {
 pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_ptr, fam_col_t fam_cols, uint32_t pheno_ct_max, int32_t missing_pheno, uint32_t affection_01, uintptr_t* max_sample_id_blen_ptr, uintptr_t* max_sid_blen_ptr, uintptr_t* max_paternal_id_blen_ptr, uintptr_t* max_maternal_id_blen_ptr, uintptr_t** sample_include_ptr, char** sample_ids_ptr, char** sids_ptr, char** paternal_ids_ptr, char** maternal_ids_ptr, uintptr_t** founder_info_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, pheno_col_t** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* raw_sample_ct_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
   // outparameter pointers assumed to be initialized to nullptr
   //
-  // pheno_ct_max should default to something like 0x7fffffff, not 0xffffffffU
+  // pheno_ct_max should default to something like 0x7fffffff, not UINT32_MAX
   //
   // max_{sample,sid,paternal,maternal}_id_blen are in/out, to support data
   // management operations which change these values
@@ -89,7 +89,7 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
         goto load_psam_ret_NOMEM;
       }
       loadbuf_first_token = skip_initial_spaces(loadbuf);
-    } while (is_eoln_kns(*loadbuf_first_token) || ((loadbuf_first_token[0] == '#') && strcmp_se(&(loadbuf_first_token[1]), "FID", 3) && strcmp_se(&(loadbuf_first_token[1]), "IID", 3)));
+    } while (is_eoln_kns(*loadbuf_first_token) || ((loadbuf_first_token[0] == '#') && (!tokequal_k(&(loadbuf_first_token[1]), "FID")) && (!tokequal_k(&(loadbuf_first_token[1]), "IID"))));
     const uint32_t pheno_name_subset = pheno_range_list_ptr && pheno_range_list_ptr->names;
     uint32_t* col_skips = nullptr;
     uint32_t* col_types = nullptr;
@@ -159,7 +159,7 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
         token_end = token_endnn(loadbuf_iter);
         const uint32_t token_slen = (uintptr_t)(token_end - loadbuf_iter);
         if (token_slen == 3) {
-          uint32_t cur_col_type = 0xffffffffU;
+          uint32_t cur_col_type = UINT32_MAX;
           if (!memcmp(loadbuf_iter, "IID", 3)) {
             cur_col_type = 0;
           } else if (!memcmp(loadbuf_iter, "SID", 3)) {
@@ -174,7 +174,7 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
             sprintf(g_logbuf, "Error: 'FID' column header on line %" PRIuPTR " of %s is not at the beginning.\n", line_idx, psamname);
             goto load_psam_ret_MALFORMED_INPUT_WW;
           }
-          if (cur_col_type != 0xffffffffU) {
+          if (cur_col_type != UINT32_MAX) {
             const uint32_t cur_col_type_shifted = 1 << cur_col_type;
             if (psam_cols_mask & cur_col_type_shifted) {
               *token_end = '\0';
@@ -892,7 +892,7 @@ pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_li
       if (!xid_mode) {
         iid_end = comma_or_space_token_end(loadbuf_iter, comma_delim);
         const uintptr_t token_slen = (uintptr_t)(iid_end - loadbuf_iter);
-        if ((token_slen != 3) || memcmp(loadbuf_iter, "IID", 3)) {
+        if (!strequal_k(loadbuf_iter, "IID", token_slen)) {
           sprintf(g_logbuf, "Error: Second column header in %s must be 'IID'.\n", pheno_fname);
           goto load_phenos_ret_MALFORMED_INPUT_WW;
         }

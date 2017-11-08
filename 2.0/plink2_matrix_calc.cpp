@@ -273,7 +273,7 @@ pglerr_t king_cutoff_batch(const char* sample_ids, const char* sids, uint32_t ra
       char* loadbuf_iter = loadbuf_first_token;
       uint32_t sample_uidx;
       if (!sorted_xidbox_read_find(sorted_xidbox, xid_map, max_xid_blen, sample_ct, 0, xid_mode, &loadbuf_iter, &sample_uidx, idbuf)) {
-        if (sample_uidx_to_king_uidx[sample_uidx] != 0xffffffffU) {
+        if (sample_uidx_to_king_uidx[sample_uidx] != UINT32_MAX) {
           char* first_tab = (char*)rawmemchr(idbuf, '\t');
           char* second_tab = strchr(&(first_tab[1]), '\t');
           *first_tab = ' ';
@@ -321,7 +321,7 @@ pglerr_t king_cutoff_batch(const char* sample_ids, const char* sids, uint32_t ra
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
       next_set_unsafe_ck(sample_include, &sample_uidx);
       const uint32_t king_uidx = sample_uidx_to_king_uidx[sample_uidx];
-      if (king_uidx != 0xffffffffU) {
+      if (king_uidx != UINT32_MAX) {
         SET_BIT(king_uidx, king_include);
         king_uidx_to_sample_idx[king_uidx] = sample_idx;
       }
@@ -463,9 +463,11 @@ static uint32_t* g_king_counts = nullptr;
 
 #ifdef __LP64__
   // must be multiple of 192 for SSE2, 384 for AVX2; max 1920
-  // (1920 yields slightly higher performance than smaller values on my Mac)
   // more precisely, must be multiple of both 3 and (kBitsPerVec / 2)
-  CONSTU31(kKingMultiplex, 1920);
+
+  // actually, when there are lots of samples, we want this to be smaller so we
+  // don't blow the cache... need to rethink this.
+  CONSTU31(kKingMultiplex, 1536);
 #else
   CONSTU31(kKingMultiplex, 1008);
 #endif
@@ -629,9 +631,9 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
       goto calc_king_ret_INCONSISTENT_INPUT;
     }
 #ifdef __LP64__
-    if (sample_ct > 71582788) {
+    if (sample_ct > 89478485) {
       // may as well document (kKingMultiplex / kBitsPerWordD2) limit
-      LOGERRPRINTF("Error: %s does not support > 71582788 samples.\n", flagname);
+      LOGERRPRINTF("Error: %s does not support > 89478485 samples.\n", flagname);
       reterr = kPglRetNotYetSupported;
       goto calc_king_ret_1;
     }
@@ -719,7 +721,7 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
         cur_block_size = kKingMultiplex;
       }
       uint32_t write_batch_idx = 0;
-      // "block" = distance computation granularity, usually 1920 variants
+      // "block" = distance computation granularity, usually 1536 variants
       // "batch" = variant-major-to-sample-major transpose granularity,
       //           currently 256 variants
       uint32_t variant_batch_size = kPglQuaterTransposeBatch;
@@ -3083,7 +3085,7 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
       uint32_t variant_uidx_load = variant_uidx;
       uint32_t parity = 0;
       reinit_threads3z(&ts);
-      uint32_t chr_fo_idx = 0xffffffffU;
+      uint32_t chr_fo_idx = UINT32_MAX;
       uint32_t chr_end = 0;
       uint32_t chr_buf_blen = 0;
       while (1) {
@@ -3681,7 +3683,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
           char** cur_alleles = &(allele_storage[variant_allele_idx_base]);
           uint32_t cur_allele_idx = 0;
           for (; cur_allele_idx < cur_allele_ct; ++cur_allele_idx) {
-            // for very long alleles, strcmp_se might read past the end of the
+            // for very long alleles, tokequal_k might read past the end of the
             // workspace, so just use plain strcmp.
             if (!strcmp(allele_start, cur_alleles[cur_allele_idx])) {
               break;
@@ -3925,7 +3927,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
             ++missing_allele_code_ct;
           }
         } else {
-          if (variant_uidx != 0xffffffffU) {
+          if (variant_uidx != UINT32_MAX) {
             sprintf(g_logbuf, "Error: --score variant ID '%s' appears multiple times in main dataset.\n", variant_ids[variant_uidx & 0x7fffffff]);
             goto score_report_ret_INCONSISTENT_INPUT_WW;
           }

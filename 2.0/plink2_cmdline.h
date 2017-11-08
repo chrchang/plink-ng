@@ -299,8 +299,56 @@ HEADER_INLINE void fclose_cond(FILE* fptr) {
 
 uint32_t int_slen(int32_t num);
 
-// assumes it's safe to read first s_const_len bytes of s_read
-int32_t strcmp_se(const char* s_read, const char* s_const, uint32_t s_const_len);
+HEADER_INLINE int32_t strequal_k(const char* s1, const char* k_s2, uint32_t s1_slen) {
+  // any sane compiler should compute s2_slen at compile-time if k_s2 is a
+  // constant string
+  const uint32_t s2_slen = strlen(k_s2);
+  return (s1_slen == s2_slen) && (!memcmp(s1, k_s2, s2_slen));
+}
+
+// Can use this when it's always safe to read first (1 + strlen(k_s2)) bytes of
+// s1.
+HEADER_INLINE int32_t strequal_k2(const char* s1, const char* k_s2) {
+  const uint32_t s2_blen = 1 + strlen(k_s2);
+  return !memcmp(s1, k_s2, s2_blen);
+}
+
+HEADER_CINLINE int32_t is_space_or_eoln(unsigned char ucc) {
+  return (ucc <= 32);
+}
+
+// Assumes it's safe to read first 1 + strlen(s_const) bytes of s_read.
+// Differs from strequal_k() since strings are not considered equal when
+// s_read[strlen(s_const)] isn't a token-ender.
+HEADER_INLINE int32_t tokequal_k(const char* s_read, const char* s_const) {
+  const uint32_t s_const_slen = strlen(s_const);
+  return (!memcmp(s_read, s_const, s_const_slen)) && is_space_or_eoln(s_read[s_const_slen]);
+}
+
+// s_prefix must be strictly contained.
+HEADER_INLINE int32_t str_startswith(const char* s_read, const char* s_prefix_const, uint32_t s_read_slen) {
+  const uint32_t s_const_slen = strlen(s_prefix_const);
+  return (s_read_slen > s_const_slen) && (!memcmp(s_read, s_prefix_const, s_const_slen));
+}
+
+// permits s_read and s_prefix to be equal.
+HEADER_INLINE int32_t str_startswithz(const char* s_read, const char* s_prefix_const, uint32_t s_read_slen) {
+  const uint32_t s_const_slen = strlen(s_prefix_const);
+  return (s_read_slen >= s_const_slen) && (!memcmp(s_read, s_prefix_const, s_const_slen));
+}
+
+// Can use this when it's always safe to read first strlen(s_prefix_const)
+// bytes of s_read.
+HEADER_INLINE int32_t str_startswith2(const char* s_read, const char* s_prefix_const) {
+  const uint32_t s_const_slen = strlen(s_prefix_const);
+  return !memcmp(s_read, s_prefix_const, s_const_slen);
+}
+
+// s_suffix must be strictly contained.
+HEADER_INLINE int32_t str_endswith(const char* s_read, const char* s_suffix_const, uint32_t s_read_slen) {
+  const uint32_t s_const_slen = strlen(s_suffix_const);
+  return (s_read_slen > s_const_slen) && (!memcmp(&(s_read[s_read_slen - s_const_slen]), s_suffix_const, s_const_slen));
+}
 
 int32_t strcmp_casted(const void* s1, const void* s2);
 
@@ -1019,10 +1067,6 @@ HEADER_INLINE int32_t is_eoln_kns(unsigned char ucc) {
 }
 */
 
-HEADER_CINLINE int32_t is_space_or_eoln(unsigned char ucc) {
-  return (ucc <= 32);
-}
-
 HEADER_CINLINE int32_t is_eoln_kns(unsigned char ucc) {
   // could assert ucc is not a space/tab?
   return (ucc <= 32);
@@ -1089,6 +1133,18 @@ HEADER_INLINE char* comma_or_space_next_token(char* token_end_iter, uint32_t com
 // uint32_t match_upper(const char* ss, const char* fixed_str);
 
 uint32_t match_upper_counted(const char* ss, const char* fixed_str, uint32_t ct);
+
+HEADER_INLINE uint32_t match_upper_k(const char* ss, const char* fixed_str, uint32_t ss_slen) {
+  const uint32_t fixed_slen = strlen(fixed_str);
+  if (ss_slen != fixed_slen) {
+    return 0;
+  }
+  return match_upper_counted(ss, fixed_str, fixed_slen);
+}
+
+HEADER_INLINE uint32_t match_upper_k2(const char* ss, const char* fixed_str) {
+  return match_upper_counted(ss, fixed_str, strlen(fixed_str));
+}
 
 /*
 void str_toupper(char* ss);

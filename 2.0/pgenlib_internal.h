@@ -152,7 +152,7 @@ HEADER_INLINE unsigned char* vint32_append(uint32_t uii, unsigned char* buf) {
   return buf;
 }
 
-// Returns 0x80000000U instead of 0xffffffffU so overflow check works properly
+// Returns 0x80000000U instead of UINT32_MAX so overflow check works properly
 // in 32-bit build.  Named "get_vint31" to make it more obvious that a 2^31
 // return value can't be legitimate.
 HEADER_INLINE uint32_t get_vint31(const unsigned char* buf_end, const unsigned char** bufpp) {
@@ -259,7 +259,15 @@ CONSTU31(kPglQuaterTransposeBufwords, kPglQuaterTransposeBufbytes / kBytesPerWor
 // up to 256x256; vecaligned_buf must have size 32k
 // write_iter must be allocated up to at least
 //   round_up_pow2(write_batch_size, 2) rows
-void transpose_quaterblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, vul_t* vecaligned_buf);
+// write_ul_stride must be divisible by 2 in AVX2 case
+void transpose_quaterblock_internal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, unsigned char* __restrict buf0, unsigned char* __restrict buf1);
+
+HEADER_INLINE void transpose_quaterblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, vul_t* vecaligned_buf) {
+#ifdef USE_AVX2
+  assert(!(write_ul_stride % 2));
+#endif
+  transpose_quaterblock_internal(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, (unsigned char*)vecaligned_buf, &(((unsigned char*)vecaligned_buf)[kPglQuaterTransposeBufbytes / 2]));
+}
 
 
 // replaces each x with (32768 - x)
@@ -436,7 +444,7 @@ struct Pgen_file_info_struct {
 
   // see below.  positioned here instead of slightly later due to struct
   // packing behavior.
-  uint32_t const_vrtype; // 256 for plink 1 encoding, 0xffffffffU for nonconst
+  uint32_t const_vrtype; // 256 for plink 1 encoding, UINT32_MAX for nonconst
 
   // size (raw_variant_ct + 1), so that the number of bytes of (zero-based)
   // variant n is var_fpos[n+1] - var_fpos[n].  nullptr if
@@ -537,7 +545,7 @@ struct Pgen_file_info_struct {
   // it least.  However, this is subject to reevaluation if (i) changes.
   //
   //
-  // base pointer is null if mode is 0x01-0x04 (const_vrtype != 0xffffffffU).
+  // base pointer is null if mode is 0x01-0x04 (const_vrtype != UINT32_MAX).
   // if not nullptr, required to be length >=
   //   max(raw_variant_ct + 1, round_up_pow2(raw_variant_ct, kBytesPerWord))
   unsigned char* vrtypes;
@@ -684,7 +692,7 @@ HEADER_INLINE uint32_t get_pgfi_vrec_width(const pgen_file_info_t* pgfip, uint32
 }
 
 HEADER_INLINE uint32_t pgfi_is_simple_format(const pgen_file_info_t* pgfip) {
-  return (pgfip->const_vrtype != 0xffffffffU);
+  return (pgfip->const_vrtype != UINT32_MAX);
 }
 
 HEADER_INLINE uint32_t vrtype_difflist(uint32_t vrtype) {
@@ -742,7 +750,7 @@ HEADER_INLINE uintptr_t get_aux1_allele_bytect(uint32_t alt_allele_ct, uint32_t 
 //   pgfi.var_fpos is set to nullptr if pgfi.const_vrec_width is nonzero.
 //   pgfi.vrtypes/var_allele_cts are set to nullptr in the plink1-format case.
 //
-//   raw_sample_ct and raw_variant_ct should be 0xffffffffU if not previously
+//   raw_sample_ct and raw_variant_ct should be UINT32_MAX if not previously
 //   known.
 //
 // Intermission: Caller obtains a block of pgfi_alloc_cacheline_ct * 64 bytes,
@@ -857,7 +865,7 @@ pglerr_t pgr_read_refalt1_genovec_subset_unsafe(const uintptr_t* __restrict samp
 
 // Loads the specified variant as a difflist if that's more efficient, setting
 // difflist_common_geno to the common genotype value in that case.  Otherwise,
-// genovec is populated and difflist_common_geno is set to 0xffffffffU.
+// genovec is populated and difflist_common_geno is set to UINT32_MAX.
 //
 // Note that the returned difflist_len can be much larger than
 // max_simple_difflist_len when the variant is LD-encoded; it's bounded by
@@ -989,7 +997,7 @@ struct Pgen_writer_common_struct {
   unsigned char* fwrite_buf;
   unsigned char* fwrite_bufp;
 
-  uint32_t ldbase_common_geno; // 0xffffffffU if ldbase_genovec present
+  uint32_t ldbase_common_geno; // UINT32_MAX if ldbase_genovec present
   uint32_t ldbase_difflist_len;
 
   // I'll cache this for now

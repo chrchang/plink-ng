@@ -225,9 +225,11 @@ uint32_t int_slen(int32_t num) {
   return slen;
 }
 
-int32_t strcmp_se(const char* s_read, const char* s_const, uint32_t s_const_len) {
-  return memcmp(s_read, s_const, s_const_len) || (!is_space_or_eoln(s_read[s_const_len]));
+/*
+int32_t strcmp_se(const char* s_read, const char* s_const, uint32_t s_const_slen) {
+  return memcmp(s_read, s_const, s_const_slen) || (!is_space_or_eoln(s_read[s_const_slen]));
 }
+*/
 
 int32_t strcmp_casted(const void* s1, const void* s2) {
   return strcmp((const char*)s1, (const char*)s2);
@@ -725,7 +727,7 @@ uint32_t copy_and_dedup_sorted_strptrs_to_strbox(char** sorted_strptrs, uintptr_
   char** sorted_strptrs_iter = sorted_strptrs;
   char** sorted_strptrs_end = &(sorted_strptrs[str_ct]);
   uintptr_t write_idx = 0;
-  uint32_t prev_slen = 0xffffffffU;
+  uint32_t prev_slen = UINT32_MAX;
   char* prev_str = nullptr;
   do {
     char* cur_str = *sorted_strptrs_iter++;
@@ -3527,7 +3529,7 @@ uint32_t populate_strbox_htable(const char* strbox, uintptr_t str_ct, uintptr_t 
     // uint32_t next_incr = 1;
     while (1) {
       const uint32_t cur_htable_entry = str_htable[hashval];
-      if (cur_htable_entry == 0xffffffffU) {
+      if (cur_htable_entry == UINT32_MAX) {
         str_htable[hashval] = str_idx;
         break;
       }
@@ -3567,7 +3569,7 @@ uint32_t populate_strbox_subset_htable(const uintptr_t* __restrict subset_mask, 
     uint32_t hashval = hashceil(cur_str, slen, str_htable_size);
     while (1) {
       const uint32_t cur_htable_entry = str_htable[hashval];
-      if (cur_htable_entry == 0xffffffffU) {
+      if (cur_htable_entry == UINT32_MAX) {
         str_htable[hashval] = str_uidx;
         break;
       }
@@ -3585,11 +3587,11 @@ uint32_t populate_strbox_subset_htable(const uintptr_t* __restrict subset_mask, 
 */
 
 uint32_t id_htable_find(const char* cur_id, char** item_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size) {
-  // returns 0xffffffffU on failure
+  // returns UINT32_MAX on failure
   uint32_t hashval = hashceil(cur_id, cur_id_slen, id_htable_size);
   while (1) {
     const uint32_t cur_htable_idval = id_htable[hashval];
-    if ((cur_htable_idval == 0xffffffffU) || (!strcmp(cur_id, item_ids[cur_htable_idval]))) {
+    if ((cur_htable_idval == UINT32_MAX) || (!strcmp(cur_id, item_ids[cur_htable_idval]))) {
       return cur_htable_idval;
     }
     if (++hashval == id_htable_size) {
@@ -3605,7 +3607,7 @@ uint32_t strbox_htable_find(const char* cur_id, const char* strbox, const uint32
   const uint32_t cur_id_blen = cur_id_slen + 1;
   while (1) {
     const uint32_t cur_htable_idval = id_htable[hashval];
-    if ((cur_htable_idval == 0xffffffffU) || (!memcmp(cur_id, &(strbox[cur_htable_idval * max_str_blen]), cur_id_blen))) {
+    if ((cur_htable_idval == UINT32_MAX) || (!memcmp(cur_id, &(strbox[cur_htable_idval * max_str_blen]), cur_id_blen))) {
       return cur_htable_idval;
     }
     if (++hashval == id_htable_size) {
@@ -3621,14 +3623,14 @@ uint32_t variant_id_dupflag_htable_find(const char* idbuf, char** variant_ids, c
   // achieved in a way that forces variant_ids[] entries to not be too close
   // to the end of bigstack, otherwise memcmp behavior is potentially
   // undefined)
-  // returns 0xffffffffU on failure, value with bit 31 set on duplicate
+  // returns UINT32_MAX on failure, value with bit 31 set on duplicate
   if (cur_id_slen > max_id_slen) {
-    return 0xffffffffU;
+    return UINT32_MAX;
   }
   uint32_t hashval = hashceil(idbuf, cur_id_slen, id_htable_size);
   while (1) {
     const uint32_t cur_htable_idval = id_htable[hashval];
-    if ((cur_htable_idval == 0xffffffffU) || ((!memcmp(idbuf, variant_ids[cur_htable_idval & 0x7fffffff], cur_id_slen)) && (!variant_ids[cur_htable_idval & 0x7fffffff][cur_id_slen]))) {
+    if ((cur_htable_idval == UINT32_MAX) || ((!memcmp(idbuf, variant_ids[cur_htable_idval & 0x7fffffff], cur_id_slen)) && (!variant_ids[cur_htable_idval & 0x7fffffff][cur_id_slen]))) {
       return cur_htable_idval;
     }
     if (++hashval == id_htable_size) {
@@ -3640,15 +3642,15 @@ uint32_t variant_id_dupflag_htable_find(const char* idbuf, char** variant_ids, c
 uint32_t variant_id_dup_htable_find(const char* idbuf, char** variant_ids, const uint32_t* id_htable, const uint32_t* htable_dup_base, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_slen, uint32_t* llidx_ptr) {
   // Permits duplicate entries.  Similar to plink 1.9
   // extract_exclude_process_token().
-  // - Returns 0xffffffffU on failure (llidx currently unset in that case),
+  // - Returns UINT32_MAX on failure (llidx currently unset in that case),
   //   otherwise returns the index of the first match (which will have the
   //   highest index, due to how the linked list is constructed)
-  // - Sets llidx to 0xffffffffU if not a duplicate, otherwise it's the
+  // - Sets llidx to UINT32_MAX if not a duplicate, otherwise it's the
   //   position in htable_dup_base[] of the next {variant_uidx, next_llidx}
   //   linked list entry.
   // - idbuf does not need to be null-terminated.
   if (cur_id_slen > max_id_slen) {
-    return 0xffffffffU;
+    return UINT32_MAX;
   }
   uint32_t hashval = hashceil(idbuf, cur_id_slen, id_htable_size);
   while (1) {
@@ -3657,15 +3659,15 @@ uint32_t variant_id_dup_htable_find(const char* idbuf, char** variant_ids, const
     uint32_t cur_llidx;
     uint32_t variant_uidx;
     if (cur_dup) {
-      // 0xffffffffU empty-entry code has high bit set, so only need to check
+      // UINT32_MAX empty-entry code has high bit set, so only need to check
       // here
-      if (cur_htable_idval == 0xffffffffU) {
-        return 0xffffffffU;
+      if (cur_htable_idval == UINT32_MAX) {
+        return UINT32_MAX;
       }
       cur_llidx = cur_htable_idval << 1;
       variant_uidx = htable_dup_base[cur_llidx];
     } else {
-      cur_llidx = 0xffffffffU;
+      cur_llidx = UINT32_MAX;
       variant_uidx = cur_htable_idval;
     }
     const char* sptr = variant_ids[variant_uidx];
@@ -4051,6 +4053,58 @@ uintptr_t popcount_bit_idx(const uintptr_t* bitvec, uintptr_t start_idx, uintptr
   return ct;
 }
 
+#ifdef USE_AVX2
+uintptr_t popcount_avx2_intersect(const vul_t* __restrict vvec1_iter, const vul_t* __restrict vvec2_iter, uintptr_t vec_ct) {
+  // See popcnt_avx2() in libpopcnt.  vec_ct must be a multiple of 16.
+  vul_t cnt = vul_setzero();
+  vul_t ones = vul_setzero();
+  vul_t twos = vul_setzero();
+  vul_t fours = vul_setzero();
+  vul_t eights = vul_setzero();
+  for (uintptr_t vec_idx = 0; vec_idx < vec_ct; vec_idx += 16) {
+    vul_t twos_a = csa256(vvec1_iter[vec_idx + 0] & vvec2_iter[vec_idx + 0], vvec1_iter[vec_idx + 1] & vvec2_iter[vec_idx + 1], &ones);
+    vul_t twos_b = csa256(vvec1_iter[vec_idx + 2] & vvec2_iter[vec_idx + 2], vvec1_iter[vec_idx + 3] & vvec2_iter[vec_idx + 3], &ones);
+    vul_t fours_a = csa256(twos_a, twos_b, &twos);
+
+    twos_a = csa256(vvec1_iter[vec_idx + 4] & vvec2_iter[vec_idx + 4], vvec1_iter[vec_idx + 5] & vvec2_iter[vec_idx + 5], &ones);
+    twos_b = csa256(vvec1_iter[vec_idx + 6] & vvec2_iter[vec_idx + 6], vvec1_iter[vec_idx + 7] & vvec2_iter[vec_idx + 7], &ones);
+    vul_t fours_b = csa256(twos_a, twos_b, &twos);
+    const vul_t eights_a = csa256(fours_a, fours_b, &fours);
+
+    twos_a = csa256(vvec1_iter[vec_idx + 8] & vvec2_iter[vec_idx + 8], vvec1_iter[vec_idx + 9] & vvec2_iter[vec_idx + 9], &ones);
+    twos_b = csa256(vvec1_iter[vec_idx + 10] & vvec2_iter[vec_idx + 10], vvec1_iter[vec_idx + 11] & vvec2_iter[vec_idx + 11], &ones);
+    fours_a = csa256(twos_a, twos_b, &twos);
+
+    twos_a = csa256(vvec1_iter[vec_idx + 12] & vvec2_iter[vec_idx + 12], vvec1_iter[vec_idx + 13] & vvec2_iter[vec_idx + 13], &ones);
+    twos_b = csa256(vvec1_iter[vec_idx + 14] & vvec2_iter[vec_idx + 14], vvec1_iter[vec_idx + 15] & vvec2_iter[vec_idx + 15], &ones);
+    fours_b = csa256(twos_a, twos_b, &twos);
+    const vul_t eights_b = csa256(fours_a, fours_b, &fours);
+    const vul_t sixteens = csa256(eights_a, eights_b, &eights);
+    cnt = cnt + popcount_avx2_single(sixteens);
+  }
+  cnt = vul_lshift(cnt, 4);
+  cnt = cnt + vul_lshift(popcount_avx2_single(eights), 3);
+  cnt = cnt + vul_lshift(popcount_avx2_single(fours), 2);
+  cnt = cnt + vul_lshift(popcount_avx2_single(twos), 1);
+  cnt = cnt + popcount_avx2_single(ones);
+  return hsum64(cnt);
+}
+
+uintptr_t popcount_longs_intersect(const uintptr_t* __restrict bitvec1_iter, const uintptr_t* __restrict bitvec2_iter, uintptr_t word_ct) {
+  const uintptr_t* bitvec1_end = &(bitvec1_iter[word_ct]);
+  const uintptr_t block_ct = word_ct / (16 * kWordsPerVec);
+  uintptr_t tot = 0;
+  if (block_ct) {
+    tot = popcount_avx2_intersect((const vul_t*)bitvec1_iter, (const vul_t*)bitvec2_iter, block_ct * 16);
+    bitvec1_iter = &(bitvec1_iter[block_ct * (16 * kWordsPerVec)]);
+    bitvec2_iter = &(bitvec2_iter[block_ct * (16 * kWordsPerVec)]);
+  }
+  while (bitvec1_iter < bitvec1_end) {
+    tot += popcount_long((*bitvec1_iter++) & (*bitvec2_iter++));
+  }
+  return tot;
+}
+#else
 static inline uintptr_t popcount_vecs_intersect(const vul_t* __restrict vvec1_iter, const vul_t* __restrict vvec2_iter, uintptr_t vec_ct) {
   // popcounts vvec1 AND vvec2[0..(ct-1)].  ct is a multiple of 3.
   assert(!(vec_ct % 3));
@@ -4104,6 +4158,7 @@ uintptr_t popcount_longs_intersect(const uintptr_t* __restrict bitvec1_iter, con
   }
   return tot;
 }
+#endif
 
 uint32_t are_all_bits_zero(const uintptr_t* bitarr, uintptr_t start_idx, uintptr_t end_idx) {
   uintptr_t start_idxl = start_idx / kBitsPerWord;
@@ -4945,7 +5000,7 @@ pglerr_t populate_id_htable_mt(const uintptr_t* subset_mask, char** item_ids, ui
         next_set_unsafe_ck(subset_mask, &item_uidx);
         uint32_t hashval = g_item_id_hashes[item_idx];
         uint32_t cur_htable_entry = id_htable[hashval];
-        if (cur_htable_entry == 0xffffffffU) {
+        if (cur_htable_entry == UINT32_MAX) {
           id_htable[hashval] = item_uidx;
         } else {
           const char* sptr = item_ids[item_uidx];
@@ -4962,7 +5017,7 @@ pglerr_t populate_id_htable_mt(const uintptr_t* subset_mask, char** item_ids, ui
               hashval = 0;
             }
             cur_htable_entry = id_htable[hashval];
-            if (cur_htable_entry == 0xffffffffU) {
+            if (cur_htable_entry == UINT32_MAX) {
               id_htable[hashval] = item_uidx;
               break;
             }
@@ -4994,7 +5049,7 @@ pglerr_t populate_id_htable_mt(const uintptr_t* subset_mask, char** item_ids, ui
         next_set_unsafe_ck(subset_mask, &item_uidx);
         uint32_t hashval = g_item_id_hashes[item_idx];
         uint32_t cur_htable_entry = id_htable[hashval];
-        if (cur_htable_entry == 0xffffffffU) {
+        if (cur_htable_entry == UINT32_MAX) {
           id_htable[hashval] = item_uidx;
         } else {
           const char* sptr = item_ids[item_uidx];
@@ -5014,7 +5069,7 @@ pglerr_t populate_id_htable_mt(const uintptr_t* subset_mask, char** item_ids, ui
               // point to linked list entry instead
               if (!cur_dup) {
                 htable_dup_base[extra_alloc] = cur_htable_entry;
-                htable_dup_base[extra_alloc + 1] = 0xffffffffU; // list end
+                htable_dup_base[extra_alloc + 1] = UINT32_MAX; // list end
                 prev_llidx = extra_alloc;
                 extra_alloc += 2;
               }
@@ -5028,7 +5083,7 @@ pglerr_t populate_id_htable_mt(const uintptr_t* subset_mask, char** item_ids, ui
               hashval = 0;
             }
             cur_htable_entry = id_htable[hashval];
-            if (cur_htable_entry == 0xffffffffU) {
+            if (cur_htable_entry == UINT32_MAX) {
               id_htable[hashval] = item_uidx;
               break;
             }
@@ -5406,7 +5461,7 @@ pglerr_t rerun(const char* ver_str, const char* ver_str2, const char* prog_name_
       goto rerun_ret_LONG_LINE;
     }
     // don't bother supporting "xx arguments: --aa bb --cc --dd" format
-    while (memcmp(textbuf, "Options in effect:", 18) || (textbuf[18] >= ' ')) {
+    while ((!str_startswith2(textbuf, "Options in effect:")) || (textbuf[strlen("Options in effect")] >= ' ')) {
       ++line_idx;
       if (!fgets(textbuf, kMaxMediumLine, rerunfile)) {
         fputs(ver_str, stdout);
@@ -5483,12 +5538,12 @@ pglerr_t rerun(const char* ver_str, const char* ver_str2, const char* prog_name_
           if (later_flagname_p) {
             const uint32_t slen2 = strlen(later_flagname_p);
             if ((slen == slen2) && (!memcmp(flagname_p, later_flagname_p, slen))) {
-              cmdline_arg_idx = 0xffffffffU;
+              cmdline_arg_idx = UINT32_MAX;
               break;
             }
           }
         }
-        if (cmdline_arg_idx == 0xffffffffU) {
+        if (cmdline_arg_idx == UINT32_MAX) {
           // matching flag, override --rerun
           do {
             ++duplicate_arg_ct;
@@ -5631,7 +5686,7 @@ pglerr_t cmdline_parse_phase1(const char* ver_str, const char* ver_str2, const c
           do {
             char_code_m1 = ((uint32_t)((unsigned char)(*script_buf_iter++))) - 1;
           } while (char_code_m1 < 32);
-          if (char_code_m1 == 0xffffffffU) {
+          if (char_code_m1 == UINT32_MAX) {
             break;
           }
           ++num_script_params;

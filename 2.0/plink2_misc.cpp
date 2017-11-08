@@ -103,12 +103,12 @@ pglerr_t update_var_names(const uintptr_t* variant_include, const uint32_t* vari
       const uint32_t colold_slen = strlen_se(colold_ptr);
       uint32_t cur_llidx;
       uint32_t variant_uidx = variant_id_dup_htable_find(colold_ptr, variant_ids_copy, variant_id_htable, htable_dup_base, colold_slen, htable_size, orig_max_variant_id_slen, &cur_llidx);
-      if (variant_uidx == 0xffffffffU) {
+      if (variant_uidx == UINT32_MAX) {
         ++miss_ct;
         continue;
       }
       char* cur_var_id = variant_ids_copy[variant_uidx];
-      if (cur_llidx != 0xffffffffU) {
+      if (cur_llidx != UINT32_MAX) {
         // we could check if some copies have been filtered out after hash
         // table construction?
         sprintf(g_logbuf, "Error: --update-name variant ID '%s' appears multiple times in dataset.\n", cur_var_id);
@@ -363,7 +363,7 @@ pglerr_t plink1_cluster_import(const char* within_fname, const char* catpheno_na
         uint32_t cur_htable_entry;
         while (1) {
           cur_htable_entry = cat_htable[hashval];
-          if (cur_htable_entry == 0xffffffffU) {
+          if (cur_htable_entry == UINT32_MAX) {
             if (main_token_blen > (uintptr_t)(cat_name_write_max - cat_name_iter)) {
               goto plink1_cluster_import_ret_NOMEM;
             }
@@ -484,7 +484,7 @@ pglerr_t plink1_cluster_import(const char* within_fname, const char* catpheno_na
       if (family_missing_catname) {
         family_missing_catname_slen = strlen(family_missing_catname);
         uint32_t family_missing_catname_hval = hashceil(family_missing_catname, family_missing_catname_slen, cat_htable_size);
-        if (cat_htable[family_missing_catname_hval] == 0xffffffffU) {
+        if (cat_htable[family_missing_catname_hval] == UINT32_MAX) {
           cat_htable[family_missing_catname_hval] = 0xfffffffeU;
         } else if ((missing_catname_slen != family_missing_catname_slen) || memcmp(family_missing_catname, missing_catname, missing_catname_slen)) {
           if (++family_missing_catname_hval == cat_htable_size) {
@@ -507,7 +507,7 @@ pglerr_t plink1_cluster_import(const char* within_fname, const char* catpheno_na
         while (1) {
           const uint32_t cur_htable_entry = cat_htable[hashval];
           if (cur_htable_entry >= 0xfffffffdU) {
-            if (cur_htable_entry == 0xffffffffU) {
+            if (cur_htable_entry == UINT32_MAX) {
               cat_htable[hashval] = sample_uidx;
               total_catname_blen += blen;
               cat_idx_m1_to_first_sample_uidx[nonnull_cat_ct] = sample_uidx;
@@ -852,7 +852,7 @@ pglerr_t split_cat_pheno(const char* split_cat_phenonames_flattened, const uintp
           const uint32_t cur_phenoname_slen = strlen(split_cat_phenonames_iter);
           if (cur_phenoname_slen < old_max_pheno_name_blen) {
             uint32_t pheno_idx = strbox_htable_find(split_cat_phenonames_iter, old_pheno_names, id_htable, old_max_pheno_name_blen, cur_phenoname_slen, id_htable_size);
-            if (pheno_idx != 0xffffffffU) {
+            if (pheno_idx != UINT32_MAX) {
               if (old_pheno_cols[pheno_idx].type_code != kPhenoDtypeCat) {
                 sprintf(g_logbuf, "Error: '%s' is not a categorical %s.\n", split_cat_phenonames_iter, is_covar? "covariate" : "phenotype");
                 goto split_cat_pheno_ret_INCONSISTENT_INPUT_WW;
@@ -1148,7 +1148,7 @@ pglerr_t pheno_variance_standardize(const char* vstd_flattened, const uintptr_t*
         const uint32_t cur_phenoname_slen = strlen(vstd_phenonames_iter);
         if (cur_phenoname_slen < max_pheno_name_blen) {
           uint32_t pheno_idx = strbox_htable_find(vstd_phenonames_iter, pheno_names, id_htable, max_pheno_name_blen, cur_phenoname_slen, id_htable_size);
-          if (pheno_idx != 0xffffffffU) {
+          if (pheno_idx != UINT32_MAX) {
             if (pheno_cols[pheno_idx].type_code != kPhenoDtypeQt) {
               sprintf(g_logbuf, "Error: '%s' is not a quantitative %s.\n", vstd_phenonames_iter, is_covar? "covariate" : "phenotype");
               goto pheno_variance_standardize_ret_INCONSISTENT_INPUT_WW;
@@ -1274,7 +1274,7 @@ pglerr_t pheno_quantile_normalize(const char* quantnorm_flattened, const uintptr
         const uint32_t cur_phenoname_slen = strlen(quantnorm_phenonames_iter);
         if (cur_phenoname_slen < max_pheno_name_blen) {
           uint32_t pheno_idx = strbox_htable_find(quantnorm_phenonames_iter, pheno_names, id_htable, max_pheno_name_blen, cur_phenoname_slen, id_htable_size);
-          if (pheno_idx != 0xffffffffU) {
+          if (pheno_idx != UINT32_MAX) {
             if (pheno_cols[pheno_idx].type_code != kPhenoDtypeQt) {
               sprintf(g_logbuf, "Error: '%s' is not a quantitative %s.\n", quantnorm_phenonames_iter, is_covar? "covariate" : "phenotype");
               goto pheno_quantile_normalize_ret_INCONSISTENT_INPUT_WW;
@@ -1447,7 +1447,7 @@ pglerr_t init_histogram_from_file_or_commalist(const char* binstr, uint32_t is_f
         }
       }
       if (token_slen) {
-        if (token_slen == 0xffffffffU) {
+        if (token_slen == UINT32_MAX) {
           sprintf(g_logbuf, "Error: Excessively long token in %s.\n", binstr);
           goto init_histogram_from_file_or_commalist_ret_MALFORMED_INPUT_2;
         } else {
@@ -1597,7 +1597,7 @@ pglerr_t write_allele_freqs(const uintptr_t* variant_include, const chr_info_t* 
 
       const int32_t mt_code = cip->xymt_codes[kChrOffsetMT];
       uint32_t variant_uidx = 0;
-      uint32_t chr_fo_idx = 0xffffffffU;
+      uint32_t chr_fo_idx = UINT32_MAX;
       uint32_t chr_end = 0;
       uint32_t chr_buf_blen = 0;
       uint32_t suppress_mach_r2 = 0;
@@ -2033,7 +2033,7 @@ pglerr_t write_geno_counts(__attribute__((unused)) const uintptr_t* sample_inclu
     uint32_t is_autosomal_diploid = 0; // also includes MT for now
     uint32_t is_x = 0;
     uint32_t nobs_base = 0;
-    uint32_t chr_fo_idx = 0xffffffffU;
+    uint32_t chr_fo_idx = UINT32_MAX;
     uint32_t chr_end = 0;
     uint32_t chr_buf_blen = 0;
     uint32_t variant_uidx = 0;
@@ -2503,7 +2503,7 @@ pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintpt
       const int32_t y_code = cip->xymt_codes[kChrOffsetY];
       uint32_t nobs_slen = 0;
       uint32_t variant_uidx = 0;
-      uint32_t chr_fo_idx = 0xffffffffU;
+      uint32_t chr_fo_idx = UINT32_MAX;
       uint32_t chr_end = 0;
       uint32_t chr_buf_blen = 0;
       uint32_t pct = 0;
@@ -2877,7 +2877,7 @@ pglerr_t hardy_report(const uintptr_t* variant_include, const chr_info_t* cip, c
       }
       append_binary_eoln(&cswritep);
       uint32_t variant_uidx = 0;
-      uint32_t chr_fo_idx = 0xffffffffU;
+      uint32_t chr_fo_idx = UINT32_MAX;
       uint32_t chr_end = 0;
       uint32_t chr_buf_blen = 0;
       uint32_t pct = 0;
@@ -3270,11 +3270,11 @@ pglerr_t write_covar(const uintptr_t* sample_include, const char* sample_ids, co
         uint32_t hashval = hashceil("SEX", 3, covar_name_htable_size);
         while (1) {
           const uint32_t cur_htable_entry = covar_name_htable[hashval];
-          if (cur_htable_entry == 0xffffffffU) {
+          if (cur_htable_entry == UINT32_MAX) {
             covar_name_htable[hashval] = covar_ct;
             break;
           }
-          if (!memcmp("SEX", &(covar_names[cur_htable_entry * max_covar_name_blen]), 4)) {
+          if (strequal_k2(&(covar_names[cur_htable_entry * max_covar_name_blen]), "SEX")) {
             logerrprint("Error: .cov file cannot have both a regular SEX column and a covariate named\n'SEX'.  Exclude or rename one of these columns.\n");
             goto write_covar_ret_INCONSISTENT_INPUT;
           }
@@ -3297,10 +3297,10 @@ pglerr_t write_covar(const uintptr_t* sample_include, const char* sample_ids, co
             while (1) {
               uint32_t cur_htable_idval = covar_name_htable[hashval];
               if (cur_htable_idval >= covar_ct) {
-                if (cur_htable_idval == 0xffffffffU) {
+                if (cur_htable_idval == UINT32_MAX) {
                   break;
                 }
-                if (!memcmp(pheno_name_iter, "SEX", 4)) {
+                if (strequal_k2(pheno_name_iter, "SEX")) {
                   logerrprint(write_sex? "Error: .cov file cannot have both a regular SEX column and a phenotype named\n'SEX'.  Exclude or rename one of these columns.\n" : "Error: .cov file cannot have a phenotype and a covariate with the same name.\n");
                   goto write_covar_ret_INCONSISTENT_INPUT;
                 }
@@ -3327,11 +3327,11 @@ pglerr_t write_covar(const uintptr_t* sample_include, const char* sample_ids, co
           while (1) {
             uint32_t cur_htable_idval = covar_name_htable[hashval];
             if (cur_htable_idval >= covar_ct) {
-              if (cur_htable_idval == 0xffffffffU) {
+              if (cur_htable_idval == UINT32_MAX) {
                 break;
               }
             } else {
-              if (!memcmp("PHENO1", &(covar_names[cur_htable_idval * max_covar_name_blen]), 7)) {
+              if (strequal_k2(&(covar_names[cur_htable_idval * max_covar_name_blen]), "PHENO1")) {
                 logerrprint("Error: .cov file cannot have a phenotype and a covariate with the same name.\n");
                 goto write_covar_ret_INCONSISTENT_INPUT;
               }

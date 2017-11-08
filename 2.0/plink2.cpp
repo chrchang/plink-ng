@@ -60,7 +60,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (4 Nov 2017)";
+  " (7 Nov 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -325,7 +325,7 @@ uint32_t get_first_haploid_uidx(const chr_info_t* cip, unsorted_var_t vpos_sorts
 }
 
 uint32_t are_allele_dosages_needed(misc_flags_t misc_flags, make_plink2_t make_plink2_modifier, uint32_t afreq_needed, uint64_t min_allele_dosage, uint64_t max_allele_dosage) {
-  return (make_plink2_modifier & kfMakePlink2TrimAlts) || ((misc_flags & kfMiscNonfounders) && (afreq_needed || (misc_flags & kfMiscMajRef) || min_allele_dosage || (max_allele_dosage != 0xffffffffU)));
+  return (make_plink2_modifier & kfMakePlink2TrimAlts) || ((misc_flags & kfMiscNonfounders) && (afreq_needed || (misc_flags & kfMiscMajRef) || min_allele_dosage || (max_allele_dosage != UINT32_MAX)));
 }
 
 uint32_t are_founder_allele_dosages_needed(misc_flags_t misc_flags, uint32_t afreq_needed, uint64_t min_allele_dosage, uint64_t max_allele_dosage) {
@@ -374,8 +374,8 @@ void report_genotyping_rate(const uintptr_t* variant_include, const chr_info_t* 
   uint64_t tot_nony_missing = 0;
   uint64_t tot_y_missing = 0;
   uint64_t cur_tot_missing = 0;
-  uint32_t y_start = 0xffffffffU;
-  uint32_t y_end = 0xffffffffU;
+  uint32_t y_start = UINT32_MAX;
+  uint32_t y_end = UINT32_MAX;
   uint32_t variant_ct_y = 0;
   int32_t y_code;
   if (xymt_exists(cip, kChrOffsetY, &y_code)) {
@@ -400,7 +400,7 @@ void report_genotyping_rate(const uintptr_t* variant_include, const chr_info_t* 
       if (is_y) {
         y_thresh = y_end;
       } else {
-        y_thresh = 0xffffffffU;
+        y_thresh = UINT32_MAX;
       }
     }
     cur_tot_missing += variant_missing_cts[variant_uidx];
@@ -2488,7 +2488,7 @@ pglerr_t parse_col_descriptor(const char* col_descriptor_iter, const char* suppo
         }
       }
     }
-    if (prohibit_empty && (!(result & (first_col_shifted * (0xffffffffU >> (32 - id_ct)))))) {
+    if (prohibit_empty && (!(result & (first_col_shifted * (UINT32_MAX >> (32 - id_ct)))))) {
       char* write_iter = strcpya(g_logbuf, "Error: All columns excluded by --");
       write_iter = strcpya(write_iter, cur_flag_name);
       write_iter = strcpya(write_iter, " column set descriptor.\n");
@@ -2828,14 +2828,14 @@ int main(int argc, char** argv) {
           fputs("Error: Unrecognized flag ('--').\n", stderr);
           goto main_ret_INVALID_CMDLINE;
         case 'a':
-          if ((flag_slen == 3) && (!memcmp(flagname_p, "aec", 3))) {
+          if (strequal_k(flagname_p, "aec", flag_slen)) {
             strcpy(flagname_write_iter, "allow-extra-chr");
-          } else if ((flag_slen == 11) && (!memcmp(flagname_p, "autosome-xy", 11))) {
+          } else if (strequal_k(flagname_p, "autosome-xy", flag_slen)) {
             strcpy(flagname_write_iter, "autosome-par");
-          } else if ((flag_slen == 9) && (!memcmp(flagname_p, "a1-allele", 9))) {
+          } else if (strequal_k(flagname_p, "a1-allele", flag_slen)) {
             fputs("Warning: --a1-allele flag deprecated.  Use --alt1-allele instead.\n", stderr);
             strcpy(flagname_write_iter, "alt1-allele");
-          } else if ((flag_slen == 9) && (!memcmp(flagname_p, "a2-allele", 9))) {
+          } else if (strequal_k(flagname_p, "a2-allele", flag_slen)) {
             fputs("Warning: --a2-allele flag deprecated.  Use --ref-allele instead.\n", stderr);
             strcpy(flagname_write_iter, "ref-allele");
           } else {
@@ -2843,32 +2843,32 @@ int main(int argc, char** argv) {
           }
           break;
         case 'b':
-          if ((flag_slen == 3) && (!memcmp(flagname_p, "bed", 3))) {
+          if (strequal_k(flagname_p, "bed", flag_slen)) {
             strcpy(flagname_write_iter, "pgen");
-          } else if ((flag_slen == 3) && (!memcmp(flagname_p, "bim", 3))) {
+          } else if (strequal_k(flagname_p, "bim", flag_slen)) {
             strcpy(flagname_write_iter, "pvar");
           } else {
             goto main_flag_copy;
           }
           break;
         case 'f':
-          if ((flag_slen == 3) && (!memcmp(flagname_p, "fam", 3))) {
+          if (strequal_k(flagname_p, "fam", flag_slen)) {
             strcpy(flagname_write_iter, "psam");
-          } else if ((flag_slen == 12) && (!memcmp(flagname_p, "filter-males", 12))) {
+          } else if (strequal_k(flagname_p, "filter-males", flag_slen)) {
             strcpy(flagname_write_iter, "keep-males");
-          } else if ((flag_slen == 14) && (!memcmp(flagname_p, "filter-females", 14))) {
+          } else if (strequal_k(flagname_p, "filter-females", flag_slen)) {
             fputs("Note: --filter-females flag deprecated.  Use --keep-females or --remove-males\ninstead.\n", stdout);
             strcpy(flagname_write_iter, "remove-males");
-          } else if ((flag_slen == 15) && (!memcmp(flagname_p, "filter-founders", 15))) {
+          } else if (strequal_k(flagname_p, "filter-founders", flag_slen)) {
             strcpy(flagname_write_iter, "keep-founders");
-          } else if ((flag_slen == 17) && (!memcmp(flagname_p, "filter-nonfounders", 17))) {
+          } else if (strequal_k(flagname_p, "filter-nonfounders", flag_slen)) {
             strcpy(flagname_write_iter, "keep-nonfounders");
           } else {
             goto main_flag_copy;
           }
           break;
         case 'h':
-          if ((flag_slen == 5) && (!memcmp(flagname_p, "hound", 5))) {
+          if (strequal_k(flagname_p, "hound", flag_slen)) {
             // the creature type should be Dog.
             strcpy(flagname_write_iter, "dog");
           } else {
@@ -2876,10 +2876,10 @@ int main(int argc, char** argv) {
           }
           break;
         case 'k':
-          if ((flag_slen == 13) && (!memcmp(flagname_p, "keep-clusters", 13))) {
+          if (strequal_k(flagname_p, "keep-clusters", flag_slen)) {
             fputs("Note: --keep-clusters flag deprecated.  Use --keep-cats instead.\n", stdout);
             strcpy(flagname_write_iter, "keep-cats");
-          } else if ((flag_slen == 18) && (!memcmp(flagname_p, "keep-cluster-names", 18))) {
+          } else if (strequal_k(flagname_p, "keep-cluster-names", flag_slen)) {
             fputs("Note: --keep-cluster-names flag deprecated.  Use --keep-cat-names instead.\n", stdout);
             strcpy(flagname_write_iter, "keep-cat-names");
           } else {
@@ -2887,45 +2887,45 @@ int main(int argc, char** argv) {
           }
           break;
         case 'l':
-          if (((flag_slen == 6) && (!memcmp(flagname_p, "linear", 6))) || ((flag_slen == 8) && (!memcmp(flagname_p, "logistic", 8)))) {
+          if (strequal_k(flagname_p, "linear", flag_slen) || strequal_k(flagname_p, "logistic", flag_slen)) {
             strcpy(flagname_write_iter, "glm");
           } else {
             goto main_flag_copy;
           }
           break;
         case 'm':
-          if ((flag_slen == 6) && (!memcmp(flagname_p, "min-ac", 6))) {
+          if (strequal_k(flagname_p, "min-ac", flag_slen)) {
             strcpy(flagname_write_iter, "mac");
-          } else if ((flag_slen == 6) && (!memcmp(flagname_p, "max-ac", 6))) {
+          } else if (strequal_k(flagname_p, "max-ac", flag_slen)) {
             strcpy(flagname_write_iter, "max-mac");
-          } else if ((flag_slen == 10) && (!memcmp(flagname_p, "make-bfile", 10))) {
+          } else if (strequal_k(flagname_p, "make-bfile", flag_slen)) {
             strcpy(flagname_write_iter, "make-bed");
-          } else if ((flag_slen == 11) && (!memcmp(flagname_p, "make-bpfile", 11))) {
+          } else if (strequal_k(flagname_p, "make-bpfile", flag_slen)) {
             strcpy(flagname_write_iter, "make-bpgen");
-          } else if ((flag_slen == 10) && (!memcmp(flagname_p, "make-pfile", 10))) {
+          } else if (strequal_k(flagname_p, "make-pfile", flag_slen)) {
             strcpy(flagname_write_iter, "make-pgen");
-          } else if ((flag_slen == 12) && (!memcmp(flagname_p, "missing_code", 12))) {
+          } else if (strequal_k(flagname_p, "missing_code", flag_slen)) {
             strcpy(flagname_write_iter, "missing-code");
           } else {
             goto main_flag_copy;
           }
           break;
         case 'n':
-          if ((flag_slen == 11) && (!memcmp(flagname_p, "num_threads", 11))) {
+          if (strequal_k(flagname_p, "num_threads", flag_slen)) {
             strcpy(flagname_write_iter, "threads");
           } else {
             goto main_flag_copy;
           }
           break;
         case 'p':
-          if ((flag_slen == 5) && (!memcmp(flagname_p, "prune", 5))) {
+          if (strequal_k(flagname_p, "prune", flag_slen)) {
             strcpy(flagname_write_iter, "require-pheno");
           } else {
             goto main_flag_copy;
           }
           break;
         case 'r':
-          if ((flag_slen == 6) && (!memcmp(flagname_p, "recode", 6))) {
+          if (strequal_k(flagname_p, "recode", flag_slen)) {
             // special case: translate to "export ped" if no format specified
             const uint32_t param_ct = param_count(argv, argc, arg_idx);
             if (param_ct > 4) {
@@ -2941,14 +2941,14 @@ int main(int argc, char** argv) {
             } else {
               strcpy(flagname_write_iter, "export");
             }
-          } else if ((flag_slen == 15) && (!memcmp(flagname_p, "remove-founders", 15))) {
+          } else if (strequal_k(flagname_p, "remove-founders", flag_slen)) {
             strcpy(flagname_write_iter, "keep-founders");
-          } else if ((flag_slen == 17) && (!memcmp(flagname_p, "remove-nonfounders", 17))) {
+          } else if (strequal_k(flagname_p, "remove-nonfounders", flag_slen)) {
             strcpy(flagname_write_iter, "keep-nonfounders");
-          } else if ((flag_slen == 15) && (!memcmp(flagname_p, "remove-clusters", 15))) {
+          } else if (strequal_k(flagname_p, "remove-clusters", flag_slen)) {
             fputs("Note: --remove-clusters flag deprecated.  Use --remove-cats instead.\n", stdout);
             strcpy(flagname_write_iter, "remove-cats");
-          } else if ((flag_slen == 20) && (!memcmp(flagname_p, "remove-cluster-names", 20))) {
+          } else if (strequal_k(flagname_p, "remove-cluster-names", flag_slen)) {
             fputs("Note: --remove-cluster-names flag deprecated.  Use --remove-cat-names instead.\n", stdout);
             strcpy(flagname_write_iter, "remove-cat-names");
           } else {
@@ -2956,16 +2956,16 @@ int main(int argc, char** argv) {
           }
           break;
         case 't':
-          if ((flag_slen == 10) && (!memcmp(flagname_p, "thread-num", 10))) {
+          if (strequal_k(flagname_p, "thread-num", flag_slen)) {
             strcpy(flagname_write_iter, "threads");
           } else {
             goto main_flag_copy;
           }
           break;
         case 'v':
-          if ((flag_slen == 10) && (!memcmp(flagname_p, "vcf-filter", 10))) {
+          if (strequal_k(flagname_p, "vcf-filter", flag_slen)) {
             strcpy(flagname_write_iter, "var-filter");
-          } else if ((flag_slen == 12) && (!memcmp(flagname_p, "vcf-min-qual", 12))) {
+          } else if (strequal_k(flagname_p, "vcf-min-qual", flag_slen)) {
             strcpy(flagname_write_iter, "var-min-qual");
           } else {
             goto main_flag_copy;
@@ -3030,7 +3030,7 @@ int main(int argc, char** argv) {
     // explicit --hard-call-threshold will cause the hardcall set to be
     // regenerated, and that won't happen without --hard-call-threshold.  So we
     // need to distinguish between --hard-call-threshold 0.1 and no flag.
-    pc.hard_call_thresh = 0xffffffffU;
+    pc.hard_call_thresh = UINT32_MAX;
 
     pc.dosage_erase_thresh = 0;
     pc.pfilter = 2.0; // make --pfilter 1 still filter out NAs
@@ -3105,24 +3105,24 @@ int main(int argc, char** argv) {
         break;
 
       case 'a':
-        if (!memcmp(flagname_p2, "llow-extra-chr", 15)) {
+        if (strequal_k2(flagname_p2, "llow-extra-chr")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct) {
             const char* cur_modif = argv[arg_idx + 1];
-            if (memcmp("0", cur_modif, 2)) {
+            if (!strequal_k2(cur_modif, "0")) {
               sprintf(g_logbuf, "Error: Invalid --allow-extra-chr parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
             chr_info.zero_extra_chrs = 1;
           }
           pc.misc_flags |= kfMiscAllowExtraChrs;
-        } else if (!memcmp(flagname_p2, "utosome", 8)) {
+        } else if (strequal_k2(flagname_p2, "utosome")) {
           pc.misc_flags |= kfMiscAutosomeOnly;
           chr_info.is_include_stack = 1;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "utosome-par", 12)) {
+        } else if (strequal_k2(flagname_p2, "utosome-par")) {
           if (pc.misc_flags & kfMiscAutosomeOnly) {
             logerrprint("Error: --autosome-par cannot be used with --autosome.\n");
             goto main_ret_INVALID_CMDLINE;
@@ -3130,31 +3130,31 @@ int main(int argc, char** argv) {
           pc.misc_flags |= kfMiscAutosomePar;
           chr_info.is_include_stack = 1;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "llow-no-samples", 16)) {
+        } else if (strequal_k2(flagname_p2, "llow-no-samples")) {
           // er, lock these out until they're at least close to fully supported
           logerrprint("Error: --allow-no-samples is not implemented yet.\n");
           reterr = kPglRetNotYetSupported;
           goto main_ret_1;
           pc.misc_flags |= kfMiscAllowNoSamples;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "llow-no-vars", 13)) {
+        } else if (strequal_k2(flagname_p2, "llow-no-vars")) {
           logerrprint("Error: --allow-no-vars is not implemented yet.\n");
           reterr = kPglRetNotYetSupported;
           goto main_ret_1;
           pc.misc_flags |= kfMiscAllowNoVars;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "djust", 6)) {
+        } else if (strequal_k2(flagname_p2, "djust")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 3)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argv[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
-            if ((cur_modif_slen == 2) && (!memcmp(cur_modif, "gc", 2))) {
+            if (strequal_k(cur_modif, "gc", cur_modif_slen)) {
               pc.adjust_info.flags |= kfAdjustGc;
-            } else if ((cur_modif_slen == 4) && (!memcmp(cur_modif, "log10", 5))) {
+            } else if (strequal_k(cur_modif, "log10", cur_modif_slen)) {
               pc.adjust_info.flags |= kfAdjustLog10;
-            } else if ((cur_modif_slen > 5) && (!memcmp(cur_modif, "cols=", 5))) {
+            } else if (str_startswith(cur_modif, "cols=", cur_modif_slen)) {
               if (pc.adjust_info.flags & kfAdjustColAll) {
                 logerrprint("Error: Multiple --adjust cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
@@ -3171,7 +3171,7 @@ int main(int argc, char** argv) {
           if (!(pc.adjust_info.flags & kfAdjustColAll)) {
             pc.adjust_info.flags |= kfAdjustColDefault;
           }
-        } else if (!memcmp(flagname_p2, "perm", 5)) {
+        } else if (strequal_k2(flagname_p2, "perm")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 6)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -3225,7 +3225,7 @@ int main(int argc, char** argv) {
               }
             }
           }
-        } else if (!memcmp(flagname_p2, "utosome-num", 12)) {
+        } else if (strequal_k2(flagname_p2, "utosome-num")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -3247,7 +3247,7 @@ int main(int argc, char** argv) {
           }
           chr_info.haploid_mask[0] = 0;
           set_bit(autosome_ct + 1, chr_info.haploid_mask);
-        } else if (!memcmp(flagname_p2, "lt1-allele", 11)) {
+        } else if (strequal_k2(flagname_p2, "lt1-allele")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 5)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -3266,7 +3266,7 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.dependency_flags |= kfFilterPvarReq;
-        } else if (!memcmp(flagname_p2, "llow-no-sex", 12)) {
+        } else if (strequal_k2(flagname_p2, "llow-no-sex")) {
           logprint("Note: --allow-no-sex no longer has any effect.  (Missing-sex samples are\nautomatically excluded from association analysis when sex is a covariate, and\ntreated normally otherwise.)\n");
           goto main_param_zero;
         } else {
@@ -3275,7 +3275,7 @@ int main(int argc, char** argv) {
         break;
 
       case 'b':
-        if (!memcmp(flagname_p2, "file", 5)) {
+        if (strequal_k2(flagname_p2, "file")) {
           if (xload) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
@@ -3303,7 +3303,7 @@ int main(int argc, char** argv) {
             strcpy(bimname_end, ".zst");
           }
           load_params |= kfLoadParamsPfileAll;
-        } else if (!memcmp(flagname_p2, "pfile", 6)) {
+        } else if (strequal_k2(flagname_p2, "pfile")) {
           if (load_params || xload) {
             // currently only possible with --bcf, --bfile
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
@@ -3331,7 +3331,7 @@ int main(int argc, char** argv) {
             strcpy(bimname_end, ".zst");
           }
           load_params |= kfLoadParamsPfileAll;
-        } else if (!memcmp(flagname_p2, "iallelic-only", 14)) {
+        } else if (strequal_k2(flagname_p2, "iallelic-only")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -3350,18 +3350,18 @@ int main(int argc, char** argv) {
           logerrprint("Error: --biallelic-only is not implemented yet.\n");
           reterr = kPglRetNotYetSupported;
           goto main_ret_1;
-        } else if (!memcmp(flagname_p2, "cf", 3)) {
+        } else if (strequal_k2(flagname_p2, "cf")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct == 2) {
             const char* cur_modif = argv[arg_idx + 2];
             const uint32_t cur_modif_slen = strlen(cur_modif);
-            if ((cur_modif_slen < 8) || memcmp(cur_modif, "dosage=", 7)) {
+            if (!str_startswith(cur_modif, "dosage=", cur_modif_slen)) {
               sprintf(g_logbuf, "Error: Invalid --bcf parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
-            reterr = cmdline_alloc_string(&(cur_modif[7]), argv[arg_idx], 4095, &vcf_dosage_import_field);
+            reterr = cmdline_alloc_string(&(cur_modif[strlen("dosage=")]), argv[arg_idx], 4095, &vcf_dosage_import_field);
             if (reterr) {
               goto main_ret_1;
             }
@@ -3382,7 +3382,7 @@ int main(int argc, char** argv) {
           }
           memcpy(pgenname, cur_modif, slen + 1);
           xload = kfXloadBcf;
-        } else if (!memcmp(flagname_p2, "gen", 4)) {
+        } else if (strequal_k2(flagname_p2, "gen")) {
           if (load_params || xload) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
@@ -3416,7 +3416,7 @@ int main(int argc, char** argv) {
         break;
 
       case 'c':
-        if (!memcmp(flagname_p2, "hr", 3)) {
+        if (strequal_k2(flagname_p2, "hr")) {
           if (pc.misc_flags & (kfMiscAutosomePar | kfMiscAutosomeOnly)) {
             logerrprint("Error: --chr cannot be used with --autosome{-par}.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -3429,7 +3429,7 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           chr_info.is_include_stack = 1;
-        } else if (!memcmp(flagname_p2, "ovar", 5)) {
+        } else if (strequal_k2(flagname_p2, "ovar")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -3438,14 +3438,14 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.dependency_flags |= kfFilterPsamReq;
-        } else if (!memcmp(flagname_p2, "ovar-name", 10)) {
+        } else if (strequal_k2(flagname_p2, "ovar-name")) {
           // can now be used without --covar
           reterr = parse_name_ranges(&(argv[arg_idx]), errstr_append, param_ct, 0, range_delim, &pc.covar_range_list);
           if (reterr) {
             goto main_ret_1;
           }
           pc.dependency_flags |= kfFilterPsamReq;
-        } else if (!memcmp(flagname_p2, "onst-fid", 9)) {
+        } else if (strequal_k2(flagname_p2, "onst-fid")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -3453,7 +3453,7 @@ int main(int argc, char** argv) {
           if (reterr) {
             goto main_ret_1;
           }
-        } else if (!memcmp(flagname_p2, "i", 2)) {
+        } else if (strequal_k2(flagname_p2, "i")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -3465,7 +3465,7 @@ int main(int argc, char** argv) {
             logerrprint("Error: --ci confidence interval size must be in [0.01, 1).\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-        } else if (!memcmp(flagname_p2, "ondition", 9)) {
+        } else if (strequal_k2(flagname_p2, "ondition")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -3491,7 +3491,7 @@ int main(int argc, char** argv) {
           if (reterr) {
             goto main_ret_1;
           }
-        } else if (!memcmp(flagname_p2, "ondition-list", 14)) {
+        } else if (strequal_k2(flagname_p2, "ondition-list")) {
           if (pc.glm_info.condition_varname) {
             logerrprint("Error: --condition-list cannot be used with --condition.\n");
             goto main_ret_INVALID_CMDLINE;
@@ -3521,7 +3521,7 @@ int main(int argc, char** argv) {
           if (reterr) {
             goto main_ret_1;
           }
-        } else if (!memcmp(flagname_p2, "ow", 3)) {
+        } else if (strequal_k2(flagname_p2, "ow")) {
           if (chr_info.chrset_source) {
             logerrprint("Error: Conflicting chromosome-set flags.\n");
             goto main_ret_INVALID_CMDLINE;
@@ -3538,7 +3538,7 @@ int main(int argc, char** argv) {
           chr_info.xymt_codes[5] = -2;
           chr_info.haploid_mask[0] = 0xc0000000U;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "hr-set", 7)) {
+        } else if (strequal_k2(flagname_p2, "hr-set")) {
           if (chr_info.chrset_source) {
             logerrprint("Error: Conflicting chromosome-set flags.\n");
             goto main_ret_INVALID_CMDLINE;
@@ -3597,7 +3597,7 @@ int main(int argc, char** argv) {
               }
             }
           }
-        } else if (!memcmp(flagname_p2, "hr-override", 12)) {
+        } else if (strequal_k2(flagname_p2, "hr-override")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -3612,7 +3612,7 @@ int main(int argc, char** argv) {
           } else {
             pc.misc_flags |= kfMiscChrOverrideCmdline;
           }
-        } else if (!memcmp(flagname_p2, "ovar-quantile-normalize", 24)) {
+        } else if (strequal_k2(flagname_p2, "ovar-quantile-normalize")) {
           if (param_ct) {
             reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &pc.covar_quantnorm_flattened);
             if (reterr) {
@@ -3621,7 +3621,7 @@ int main(int argc, char** argv) {
           }
           pc.pheno_transform_flags |= kfPhenoTransformQuantnormCovar;
           pc.dependency_flags |= kfFilterPsamReq;
-        } else if (!memcmp(flagname_p2, "ovar-variance-standardize", 26)) {
+        } else if (strequal_k2(flagname_p2, "ovar-variance-standardize")) {
           if (param_ct) {
             reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &pc.vstd_flattened);
             if (reterr) {
@@ -3636,17 +3636,17 @@ int main(int argc, char** argv) {
         break;
 
       case 'd':
-        if (!memcmp(flagname_p2, "ouble-id", 9)) {
+        if (strequal_k2(flagname_p2, "ouble-id")) {
           if (const_fid) {
             logerrprint("Error: --double-id cannot be used with --const-fid.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           pc.misc_flags |= kfMiscDoubleId;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "ebug", 5)) {
+        } else if (strequal_k2(flagname_p2, "ebug")) {
           g_debug_on = 1;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "ata", 4)) {
+        } else if (strequal_k2(flagname_p2, "ata")) {
           if (load_params || (xload & (~kfXloadOxBgen))) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
@@ -3689,7 +3689,7 @@ int main(int argc, char** argv) {
           }
           strcpy(memcpya(psamname, fname_prefix, slen), ".sample");
           xload |= kfXloadOxSample;
-        } else if (!memcmp(flagname_p2, "osage-erase-threshold", 22)) {
+        } else if (strequal_k2(flagname_p2, "osage-erase-threshold")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -3700,7 +3700,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.dosage_erase_thresh = (int32_t)(dosage_erase_frac * ((1 + kSmallEpsilon) * kDosageMid));
-        } else if (!memcmp(flagname_p2, "ummy", 5)) {
+        } else if (strequal_k2(flagname_p2, "ummy")) {
           if (load_params || xload) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
@@ -3720,22 +3720,22 @@ int main(int argc, char** argv) {
           for (uint32_t param_idx = 3; param_idx <= param_ct; ++param_idx) {
             char* cur_modif = argv[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
-            if ((cur_modif_slen == 4) && match_upper_counted(cur_modif, "ACGT", 4)) {
+            if (match_upper_k(cur_modif, "ACGT", cur_modif_slen)) {
               gendummy_info.flags |= kfGenDummyAcgt;
-            } else if ((cur_modif_slen == 4) && (!memcmp(cur_modif, "1234", 4))) {
+            } else if (strequal_k(cur_modif, "1234", cur_modif_slen)) {
               gendummy_info.flags |= kfGenDummy1234;
-            } else if ((cur_modif_slen == 2) && (!memcmp(cur_modif, "12", 2))) {
+            } else if (strequal_k(cur_modif, "12", cur_modif_slen)) {
               gendummy_info.flags |= kfGenDummy12;
-            } else if ((cur_modif_slen > 9) && (!memcmp(cur_modif, "pheno-ct=", 9))) {
-              const char* pheno_ct_start = &(cur_modif[9]);
+            } else if (str_startswith(cur_modif, "pheno-ct=", cur_modif_slen)) {
+              const char* pheno_ct_start = &(cur_modif[strlen("pheno-ct=")]);
               if (scan_uint_capped(pheno_ct_start, kMaxPhenoCt, &gendummy_info.pheno_ct)) {
                 sprintf(g_logbuf, "Error: Invalid --dummy pheno-ct= parameter '%s'.\n", pheno_ct_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
-            } else if ((cur_modif_slen == 12) && (!memcmp(cur_modif, "scalar-pheno", 12))) {
+            } else if (strequal_k(cur_modif, "scalar-pheno", cur_modif_slen)) {
               gendummy_info.flags |= kfGenDummyScalarPheno;
-            } else if ((cur_modif_slen > 12) && (!memcmp(cur_modif, "dosage-freq=", 12))) {
-              char* dosage_freq_start = &(cur_modif[12]);
+            } else if (str_startswith(cur_modif, "dosage-freq=", cur_modif_slen)) {
+              char* dosage_freq_start = &(cur_modif[strlen("dosage-freq=")]);
               double dxx;
               if ((!scanadv_double(dosage_freq_start, &dxx)) || (dxx < 0.0) || (dxx > 1.0)) {
                 sprintf(g_logbuf, "Error: Invalid --dummy dosage-freq= parameter '%s'.\n", dosage_freq_start);
@@ -3762,10 +3762,10 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_A;
           }
           xload |= kfXloadGenDummy;
-        } else if (!memcmp(flagname_p2, "ummy-coding", 12)) {
+        } else if (strequal_k2(flagname_p2, "ummy-coding")) {
           logerrprint("Error: --dummy-coding is retired.  Use --split-cat-pheno instead.\n");
           goto main_ret_INVALID_CMDLINE_A;
-        } else if (!memcmp(flagname_p2, "og", 3)) {
+        } else if (strequal_k2(flagname_p2, "og")) {
           if (chr_info.chrset_source) {
             logerrprint("Error: Conflicting chromosome-set flags.\n");
             goto main_ret_INVALID_CMDLINE;
@@ -3791,7 +3791,7 @@ int main(int argc, char** argv) {
         break;
 
       case 'e':
-        if (!memcmp(flagname_p2, "xtract", 7)) {
+        if (strequal_k2(flagname_p2, "xtract")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -3809,7 +3809,7 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPvarReq;
-        } else if (!memcmp(flagname_p2, "xclude", 7)) {
+        } else if (strequal_k2(flagname_p2, "xclude")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -3827,7 +3827,7 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPvarReq;
-        } else if ((!memcmp(flagname_p2, "xport", 6)) || (!memcmp(flagname_p2, "xport ped", 10))) {
+        } else if (strequal_k2(flagname_p2, "xport") || strequal_k2(flagname_p2, "xport ped")) {
           // todo: determine actual limit
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 50)) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -3865,87 +3865,85 @@ int main(int argc, char** argv) {
             }
             const char* cur_modif = argv[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
-            if (cur_modif_slen > 9) {
-              if (!memcmp(cur_modif, "id-paste=", 9)) {
-                if (!(pc.exportf_modifier & (kfExportfVcf | kfExportfBgen12 | kfExportfBgen13))) {
-                  // todo: bcf
-                  logerrprint("Error: The 'id-paste' modifier only applies to --export's vcf, bgen-1.2, and\nbgen-1.3 output formats.\n");
-                  goto main_ret_INVALID_CMDLINE_A;
-                }
-                if (pc.exportf_id_paste) {
-                  logerrprint("Error: Multiple --export id-paste= modifiers.\n");
-                  goto main_ret_INVALID_CMDLINE;
-                }
-                reterr = parse_col_descriptor(&(cur_modif[9]), "fid\0iid\0maybesid\0sid\0", "export", kfIdpasteFid, kfIdpasteDefault, 1, &pc.exportf_id_paste);
-                if (reterr) {
-                  goto main_ret_1;
-                }
-              } else if (!memcmp(cur_modif, "id-delim=", 9)) {
-                if (!(pc.exportf_modifier & (kfExportfVcf | kfExportfBgen12 | kfExportfBgen13))) {
-                  logerrprint("Error: The 'id-delim' modifier only applies to --export's vcf, bgen-1.2, and\nbgen-1.3 output formats.\n");
-                  goto main_ret_INVALID_CMDLINE_A;
-                }
-                if (pc.exportf_id_delim) {
-                  logerrprint("Error: Multiple --export id-delim= modifiers.\n");
-                  goto main_ret_INVALID_CMDLINE;
-                }
-                pc.exportf_id_delim = extract_char_param(&(cur_modif[9]));
-                if (!pc.exportf_id_delim) {
-                  logerrprint("Error: --export id-delim= value must be a single character.\n");
-                  goto main_ret_INVALID_CMDLINE_A;
-                }
-                if ((((unsigned char)pc.exportf_id_delim) < ' ') || (pc.exportf_id_delim == '0')) {
-                  logerrprint("Error: --export id-delim= value cannot be tab, newline, '0', or a nonprinting\ncharacter.\n");
-                  goto main_ret_INVALID_CMDLINE;
-                }
-              } else if (!memcmp(cur_modif, "vcf-dosage=", 11)) {
-                if (!(pc.exportf_modifier & kfExportfVcf)) {
-                  logerrprint("Error: The 'vcf-dosage' modifier only applies to --export's vcf output format.\n");
-                  goto main_ret_INVALID_CMDLINE_A;
-                }
-                if (pc.exportf_modifier & (kfExportfVcfDosageGp | kfExportfVcfDosageDs)) {
-                  logerrprint("Error: Multiple --export vcf-dosage= modifiers.\n");
-                  goto main_ret_INVALID_CMDLINE;
-                }
-                const char* vcf_dosage_start = &(cur_modif[11]);
-                if (!strcmp(vcf_dosage_start, "GP")) {
-                  pc.exportf_modifier |= kfExportfVcfDosageGp;
-                } else if (!strcmp(vcf_dosage_start, "DS")) {
-                  pc.exportf_modifier |= kfExportfVcfDosageDs;
-                } else if (!strcmp(vcf_dosage_start, "DS-force")) {
-                  pc.exportf_modifier |= kfExportfVcfDosageDs | kfExportfVcfDosageForce;
-                } else {
-                  sprintf(g_logbuf, "Error: Invalid --export vcf-dosage= parameter '%s'.\n", vcf_dosage_start);
-                  goto main_ret_INVALID_CMDLINE_WWA;
-                }
-              } else if (!memcmp(cur_modif, "bits=", 5)) {
-                if (!(pc.exportf_modifier & (kfExportfBgen12 | kfExportfBgen13))) {
-                  logerrprint("Error: The 'bits' modifier only applies to --export's bgen-1.2 and bgen-1.3\noutput formats.\n");
-                  goto main_ret_INVALID_CMDLINE_A;
-                }
-                if (pc.exportf_bits) {
-                  logerrprint("Error: Multiple --export bits= modifiers.\n");
-                  goto main_ret_INVALID_CMDLINE;
-                }
-                const char* bits_start = &(cur_modif[5]);
-                if (scan_posint_capped(bits_start, 32, &pc.exportf_bits)) {
-                  sprintf(g_logbuf, "Error: Invalid --export bits= parameter '%s'.\n", bits_start);
-                  goto main_ret_INVALID_CMDLINE_WWA;
-                }
-              } else if ((cur_modif_slen == 11) && (!memcmp(cur_modif, "include-alt", 11))) {
-                if (!(pc.exportf_modifier & (kfExportfA | kfExportfAD))) {
-                  logerrprint("Error: The 'include-alt' modifier only applies to --export's A and AD output\nformats.\n");
-                  goto main_ret_INVALID_CMDLINE_A;
-                }
-                pc.exportf_modifier |= kfExportfIncludeAlt;
-              } else if ((cur_modif_slen == 14) && (!memcmp(cur_modif, "omit-nonmale-y", 14))) {
-                if (!(pc.exportf_modifier & (kfExportfList | kfExportfRlist))) {
-                  logerrprint("Error: The 'omit-nonmale-y' modifier only applies to --export's list and rlist\noutput formats.\n");
-                  goto main_ret_INVALID_CMDLINE_A;
-                }
-                pc.exportf_modifier |= kfExportfOmitNonmaleY;
+            if (str_startswith(cur_modif, "id-paste=", cur_modif_slen)) {
+              if (!(pc.exportf_modifier & (kfExportfVcf | kfExportfBgen12 | kfExportfBgen13))) {
+                // todo: bcf
+                logerrprint("Error: The 'id-paste' modifier only applies to --export's vcf, bgen-1.2, and\nbgen-1.3 output formats.\n");
+                goto main_ret_INVALID_CMDLINE_A;
               }
-            } else if ((cur_modif_slen == 2) && ((!memcmp(cur_modif, "01", 2)) || (!memcmp(cur_modif, "12", 2)))) {
+              if (pc.exportf_id_paste) {
+                logerrprint("Error: Multiple --export id-paste= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              reterr = parse_col_descriptor(&(cur_modif[strlen("id-paste=")]), "fid\0iid\0maybesid\0sid\0", "export", kfIdpasteFid, kfIdpasteDefault, 1, &pc.exportf_id_paste);
+              if (reterr) {
+                goto main_ret_1;
+              }
+            } else if (str_startswith(cur_modif, "id-delim=", cur_modif_slen)) {
+              if (!(pc.exportf_modifier & (kfExportfVcf | kfExportfBgen12 | kfExportfBgen13))) {
+                logerrprint("Error: The 'id-delim' modifier only applies to --export's vcf, bgen-1.2, and\nbgen-1.3 output formats.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              if (pc.exportf_id_delim) {
+                logerrprint("Error: Multiple --export id-delim= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              pc.exportf_id_delim = extract_char_param(&(cur_modif[strlen("id-delim=")]));
+              if (!pc.exportf_id_delim) {
+                logerrprint("Error: --export id-delim= value must be a single character.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              if ((((unsigned char)pc.exportf_id_delim) < ' ') || (pc.exportf_id_delim == '0')) {
+                logerrprint("Error: --export id-delim= value cannot be tab, newline, '0', or a nonprinting\ncharacter.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+            } else if (str_startswith(cur_modif, "vcf-dosage=", cur_modif_slen)) {
+              if (!(pc.exportf_modifier & kfExportfVcf)) {
+                logerrprint("Error: The 'vcf-dosage' modifier only applies to --export's vcf output format.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              if (pc.exportf_modifier & (kfExportfVcfDosageGp | kfExportfVcfDosageDs)) {
+                logerrprint("Error: Multiple --export vcf-dosage= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              const char* vcf_dosage_start = &(cur_modif[strlen("vcf-dosage=")]);
+              if (!strcmp(vcf_dosage_start, "GP")) {
+                pc.exportf_modifier |= kfExportfVcfDosageGp;
+              } else if (!strcmp(vcf_dosage_start, "DS")) {
+                pc.exportf_modifier |= kfExportfVcfDosageDs;
+              } else if (!strcmp(vcf_dosage_start, "DS-force")) {
+                pc.exportf_modifier |= kfExportfVcfDosageDs | kfExportfVcfDosageForce;
+              } else {
+                sprintf(g_logbuf, "Error: Invalid --export vcf-dosage= parameter '%s'.\n", vcf_dosage_start);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+            } else if (str_startswith(cur_modif, "bits=", cur_modif_slen)) {
+              if (!(pc.exportf_modifier & (kfExportfBgen12 | kfExportfBgen13))) {
+                logerrprint("Error: The 'bits' modifier only applies to --export's bgen-1.2 and bgen-1.3\noutput formats.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              if (pc.exportf_bits) {
+                logerrprint("Error: Multiple --export bits= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              const char* bits_start = &(cur_modif[strlen("bits=")]);
+              if (scan_posint_capped(bits_start, 32, &pc.exportf_bits)) {
+                sprintf(g_logbuf, "Error: Invalid --export bits= parameter '%s'.\n", bits_start);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+            } else if (strequal_k(cur_modif, "include-alt", cur_modif_slen)) {
+              if (!(pc.exportf_modifier & (kfExportfA | kfExportfAD))) {
+                logerrprint("Error: The 'include-alt' modifier only applies to --export's A and AD output\nformats.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              pc.exportf_modifier |= kfExportfIncludeAlt;
+            } else if (strequal_k(cur_modif, "omit-nonmale-y", cur_modif_slen)) {
+              if (!(pc.exportf_modifier & (kfExportfList | kfExportfRlist))) {
+                logerrprint("Error: The 'omit-nonmale-y' modifier only applies to --export's list and rlist\noutput formats.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              pc.exportf_modifier |= kfExportfOmitNonmaleY;
+            } else if (strequal_k(cur_modif, "01", cur_modif_slen) || strequal_k(cur_modif, "12", cur_modif_slen)) {
               if (pc.exportf_modifier & (kfExportfA | kfExportfAD)) {
                 sprintf(g_logbuf, "Error: The '%s' modifier does not apply to --export's A and AD output formats.\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_2A;
@@ -3967,15 +3965,15 @@ int main(int argc, char** argv) {
                 }
                 pc.exportf_modifier |= kfExportf12;
               }
-            } else if ((cur_modif_slen == 3) && (!memcmp(cur_modif, "bgz", 3))) {
+            } else if (strequal_k(cur_modif, "bgz", cur_modif_slen)) {
               if (!(pc.exportf_modifier & kfExportfVcf)) {
                 logerrprint("Error: The 'bgz' modifier only applies to --export's vcf output format.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.exportf_modifier |= kfExportfBgz;
-            } else if ((cur_modif_slen == 6) && (!memcmp(cur_modif, "spaces", 6))) {
+            } else if (strequal_k(cur_modif, "spaces", cur_modif_slen)) {
               pc.exportf_modifier |= kfExportfSpaces;
-            } else if ((cur_modif_slen == 9) && (!memcmp(cur_modif, "ref-first", 9))) {
+            } else if (strequal_k(cur_modif, "ref-first", cur_modif_slen)) {
               pc.exportf_modifier |= kfExportfRefFirst;
             } else {
               sprintf(g_logbuf, "Error: Invalid --export parameter '%s'.%s\n", cur_modif, ((param_idx == param_ct) && (!outname_end))? " (Did you forget '--out'?)" : "");
@@ -3988,7 +3986,7 @@ int main(int argc, char** argv) {
             }
           }
           pc.command_flags1 |= kfCommand1Exportf;
-        } else if (!memcmp(flagname_p2, "xclude-snp", 11)) {
+        } else if (strequal_k2(flagname_p2, "xclude-snp")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -3997,7 +3995,7 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPvarReq;
-        } else if (!memcmp(flagname_p2, "xclude-snps", 12)) {
+        } else if (strequal_k2(flagname_p2, "xclude-snps")) {
           reterr = parse_name_ranges(&(argv[arg_idx]), errstr_append, param_ct, 0, range_delim, &pc.exclude_snps_range_list);
           if (reterr) {
             goto main_ret_1;
@@ -4009,7 +4007,7 @@ int main(int argc, char** argv) {
         break;
 
       case 'f':
-        if (!memcmp(flagname_p2, "req", 4)) {
+        if (strequal_k2(flagname_p2, "req")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 5)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -4017,13 +4015,13 @@ int main(int argc, char** argv) {
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             char* cur_modif = argv[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
-            if ((cur_modif_slen == 2) && (!memcmp(cur_modif, "zs", 2))) {
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               pc.allele_freq_modifier |= kfAlleleFreqZs;
-            } else if ((cur_modif_slen == 6) && (!memcmp(cur_modif, "counts", 6))) {
+            } else if (strequal_k(cur_modif, "counts", cur_modif_slen)) {
               pc.allele_freq_modifier |= kfAlleleFreqCounts;
-            } else if ((cur_modif_slen == 12) && (!memcmp(cur_modif, "case-control", 12))) {
+            } else if (strequal_k(cur_modif, "case-control", cur_modif_slen)) {
               logerrprint("Error: --freq 'case-control' modifier has been retired.  Use\n--keep-if/--remove-if in conjunction with Unix text-processing utilities\ninstead.\n");
-            } else if ((cur_modif_slen > 5) && (!memcmp(cur_modif, "cols=", 5))) {
+            } else if (str_startswith(cur_modif, "cols=", cur_modif_slen)) {
               if (pc.allele_freq_modifier & kfAlleleFreqColAll) {
                 logerrprint("Error: Multiple --freq cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
@@ -4037,9 +4035,12 @@ int main(int argc, char** argv) {
                 logerrprint("Error: --freq's altfreq, freq, eq, eqz, alteq, alteqz, numeq, and altnumeq\ncolumns are mutually exclusive.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
-            } else if ((cur_modif_slen == 9) && (!memcmp(cur_modif, "bins-only", 9))) {
+            } else if (strequal_k(cur_modif, "bins-only", cur_modif_slen)) {
               bins_only = 1;
-            } else if (((cur_modif_slen > 8) && (!memcmp(cur_modif, "refbins=", 8))) || ((cur_modif_slen > 13) && (!memcmp(cur_modif, "refbins-file=", 13))) || ((cur_modif_slen > 9) && (!memcmp(cur_modif, "alt1bins=", 9))) || ((cur_modif_slen > 14) && (!memcmp(cur_modif, "alt1bins-file=", 14)))) {
+            } else if (str_startswith(cur_modif, "refbins=", cur_modif_slen) ||
+                       str_startswith(cur_modif, "refbins-file=", cur_modif_slen) ||
+                       str_startswith(cur_modif, "alt1bins=", cur_modif_slen) ||
+                       str_startswith(cur_modif, "alt1bins-file=", cur_modif_slen)) {
               const uint32_t is_alt1 = (cur_modif[0] == 'a');
               char** binstr_ptr = is_alt1? (&pc.freq_alt1_binstr) : (&pc.freq_ref_binstr);
               if (*binstr_ptr) {
@@ -4047,8 +4048,10 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE;
               }
               if (cur_modif[7 + is_alt1] == '=') {
+                // "refbins=", "alt1bins="
                 reterr = cmdline_alloc_string(&(cur_modif[8 + is_alt1]), is_alt1? "--freq alt1bins=" : "--freq refbins=", 0x7fffffff, binstr_ptr);
               } else {
+                // "refbins-file=", "alt1bins-file="
                 pc.allele_freq_modifier |= is_alt1? kfAlleleFreqBinsAlt1Fname : kfAlleleFreqBinsRefFname;
                 reterr = alloc_fname(&(cur_modif[13 + is_alt1]), is_alt1? "freq alt1bins-file=" : "freq refbins-file=", 0, binstr_ptr);
               }
@@ -4075,7 +4078,7 @@ int main(int argc, char** argv) {
             pc.allele_freq_modifier |= kfAlleleFreqColDefault;
           }
           pc.command_flags1 |= kfCommand1AlleleFreq;
-        } else if (!memcmp(flagname_p2, "rom", 4)) {
+        } else if (strequal_k2(flagname_p2, "rom")) {
           if (chr_info.is_include_stack) {
             logerrprint("Error: --from/--to cannot be used with --autosome{-par} or --{not-}chr.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -4088,7 +4091,9 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPvarReq | kfFilterNoSplitChr;
-        } else if ((!memcmp(flagname_p2, "rom-bp", 7)) || (!memcmp(flagname_p2, "rom-kb", 7)) || (!memcmp(flagname_p2, "rom-mb", 7))) {
+        } else if (strequal_k2(flagname_p2, "rom-bp") ||
+                   strequal_k2(flagname_p2, "rom-kb") ||
+                   strequal_k2(flagname_p2, "rom-mb")) {
           if (!cmdline_single_chr(&chr_info, pc.misc_flags)) {
             logerrprint("Error: --from-bp/-kb/-mb and --to-bp/-kb/-mb must be used with --chr, and only\none chromosome.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -4126,10 +4131,10 @@ int main(int argc, char** argv) {
             pc.from_bp = 1 + (int32_t)(dxx * (1 - kSmallEpsilon));
           }
           pc.filter_flags |= kfFilterPvarReq | kfFilterNoSplitChr;
-        } else if (!memcmp(flagname_p2, "orce-intersect", 15)) {
+        } else if (strequal_k2(flagname_p2, "orce-intersect")) {
           permit_multiple_inclusion_filters = 1;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "amily", 6)) {
+        } else if (strequal_k2(flagname_p2, "amily")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -4147,7 +4152,7 @@ int main(int argc, char** argv) {
           }
           pc.misc_flags |= kfMiscCatPhenoFamily;
           pc.dependency_flags |= kfFilterPsamReq;
-        } else if (!memcmp(flagname_p2, "amily-missing-catname", 22)) {
+        } else if (strequal_k2(flagname_p2, "amily-missing-catname")) {
           if (!(pc.misc_flags & kfMiscCatPhenoFamily)) {
             logerrprint("Error: --family-missing-catname must be used with --family.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -4159,10 +4164,10 @@ int main(int argc, char** argv) {
           if (reterr) {
             goto main_ret_1;
           }
-        } else if ((!memcmp(flagname_p2, "ilter-cases", 12)) || (!memcmp(flagname_p2, "ilter-controls", 15))) {
+        } else if (strequal_k2(flagname_p2, "ilter-cases") || strequal_k2(flagname_p2, "ilter-controls")) {
           logerrprint("Error: --filter-cases and --filter-controls have been retired.  Use\n--keep-if/--remove-if instead.\n");
           goto main_ret_INVALID_CMDLINE_A;
-        } else if ((!memcmp(flagname_p2, "rqx", 4)) || (!memcmp(flagname_p2, "reqx", 5))) {
+        } else if (strequal_k2(flagname_p2, "rqx") || strequal_k2(flagname_p2, "reqx")) {
           logerrprint("Error: --freqx has been retired.  Use --geno-counts instead.\n");
           goto main_ret_INVALID_CMDLINE_A;
         } else {
@@ -4171,7 +4176,7 @@ int main(int argc, char** argv) {
         break;
 
       case 'g':
-        if (!memcmp(flagname_p2, "eno", 4)) {
+        if (strequal_k2(flagname_p2, "eno")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -4202,16 +4207,16 @@ int main(int argc, char** argv) {
             pc.filter_flags |= kfFilterPvarReq;
             pc.dependency_flags = kfFilterAllReq | kfFilterNoSplitChr;
           }
-        } else if (!memcmp(flagname_p2, "eno-counts", 11)) {
+        } else if (strequal_k2(flagname_p2, "eno-counts")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argv[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
-            if ((cur_modif_slen == 2) && (!memcmp(cur_modif, "zs", 2))) {
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               pc.geno_counts_modifier |= kfGenoCountsZs;
-            } else if ((cur_modif_slen > 5) && (!memcmp(cur_modif, "cols=", 5))) {
+            } else if (str_startswith(cur_modif, "cols=", cur_modif_slen)) {
               if (pc.geno_counts_modifier & kfGenoCountsColAll) {
                 logerrprint("Error: Multiple --geno-counts cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
@@ -4238,45 +4243,45 @@ int main(int argc, char** argv) {
             pc.geno_counts_modifier |= kfGenoCountsColDefault;
           }
           pc.command_flags1 |= kfCommand1GenoCounts;
-        } else if (!memcmp(flagname_p2, "lm", 3)) {
+        } else if (strequal_k2(flagname_p2, "lm")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 15)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argv[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
-            if ((cur_modif_slen == 2) && (!memcmp(cur_modif, "zs", 2))) {
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmZs;
-            } else if ((cur_modif_slen == 3) && (!memcmp(cur_modif, "sex", 3))) {
+            } else if (strequal_k(cur_modif, "sex", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmSex;
-            } else if ((cur_modif_slen == 8) && (!memcmp(cur_modif, "no-x-sex", 8))) {
+            } else if (strequal_k(cur_modif, "no-x-sex", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmNoXSex;
-            } else if ((cur_modif_slen == 9) && (!memcmp(cur_modif, "genotypic", 9))) {
+            } else if (strequal_k(cur_modif, "genotypic", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmGenotypic;
-            } else if ((cur_modif_slen == 6) && (!memcmp(cur_modif, "hethom", 6))) {
+            } else if (strequal_k(cur_modif, "hethom", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmHethom;
-            } else if ((cur_modif_slen == 8) && (!memcmp(cur_modif, "dominant", 8))) {
+            } else if (strequal_k(cur_modif, "dominant", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmDominant;
-            } else if ((cur_modif_slen == 9) && (!memcmp(cur_modif, "recessive", 9))) {
+            } else if (strequal_k(cur_modif, "recessive", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmRecessive;
-            } else if ((cur_modif_slen == 11) && (!memcmp(cur_modif, "interaction", 11))) {
+            } else if (strequal_k(cur_modif, "interaction", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmInteraction;
-            } else if ((cur_modif_slen == 10) && (!memcmp(cur_modif, "hide-covar", 10))) {
+            } else if (strequal_k(cur_modif, "hide-covar", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmHideCovar;
-            } else if ((cur_modif_slen == 9) && (!memcmp(cur_modif, "intercept", 9))) {
+            } else if (strequal_k(cur_modif, "intercept", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmIntercept;
-            } else if ((cur_modif_slen == 14) && (!memcmp(cur_modif, "firth-fallback", 14))) {
+            } else if (strequal_k(cur_modif, "firth-fallback", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmFirthFallback;
-            } else if ((cur_modif_slen == 5) && (!memcmp(cur_modif, "firth", 5))) {
+            } else if (strequal_k(cur_modif, "firth", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmFirth;
-            } else if ((cur_modif_slen == 13) && (!memcmp(cur_modif, "standard-beta", 13))) {
+            } else if (strequal_k(cur_modif, "standard-beta", cur_modif_slen)) {
               logerrprint("Error: --glm 'standard-beta' modifier has been retired.  Use\n--{covar-}variance-standardize instead.\n");
               goto main_ret_INVALID_CMDLINE_A;
-            } else if ((cur_modif_slen == 4) && (!memcmp(cur_modif, "perm", 4))) {
+            } else if (strequal_k(cur_modif, "perm", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmPerm;
-            } else if ((cur_modif_slen == 10) && (!memcmp(cur_modif, "perm-count", 10))) {
+            } else if (strequal_k(cur_modif, "perm-count", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmPermCount;
-            } else if ((cur_modif_slen > 5) && (!memcmp(cur_modif, "cols=", 5))) {
+            } else if (str_startswith(cur_modif, "cols=", cur_modif_slen)) {
               if (pc.glm_info.cols) {
                 logerrprint("Error: Multiple --glm cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
@@ -4289,7 +4294,7 @@ int main(int argc, char** argv) {
                 logerrprint("Error: --glm's 'se' and 'ci' columns require beta/orbeta to be included.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
-            } else if ((cur_modif_slen >= 5) && (!memcmp(cur_modif, "mperm", 5))) {
+            } else if (str_startswithz(cur_modif, "mperm", cur_modif_slen)) {
               if ((cur_modif_slen < 7) || (cur_modif[5] != '=')) {
                 logerrprint("Error: Improper --glm mperm syntax.  (Use --glm mperm=[value]'.)\n");
                 goto main_ret_INVALID_CMDLINE_A;
@@ -4298,16 +4303,17 @@ int main(int argc, char** argv) {
                 sprintf(g_logbuf, "Error: Invalid --glm mperm parameter '%s'.\n", &(cur_modif[6]));
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
-            } else if ((cur_modif_slen > 12) && (!memcmp(cur_modif, "local-covar=", 12))) {
+            } else if (str_startswith(cur_modif, "local-covar=", cur_modif_slen)) {
               if (pc.glm_local_covar_fname) {
                 logerrprint("Error: Multiple --glm local-covar= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = alloc_fname(&(cur_modif[12]), "glm local-covar=", 0, &pc.glm_local_covar_fname);
+              reterr = alloc_fname(&(cur_modif[strlen("local-covar=")]), "glm local-covar=", 0, &pc.glm_local_covar_fname);
               if (reterr) {
                 goto main_ret_1;
               }
-            } else if ((cur_modif_slen > 10) && ((!memcmp(cur_modif, "local-bim=", 10)) || ((cur_modif_slen > 11) && (!memcmp(cur_modif, "local-pvar=", 11))))) {
+            } else if (str_startswith(cur_modif, "local-bim=", cur_modif_slen) ||
+                       str_startswith(cur_modif, "local-pvar=", cur_modif_slen)) {
               if (pc.glm_local_pvar_fname) {
                 logerrprint("Error: Multiple --glm local-pvar= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
@@ -4317,7 +4323,8 @@ int main(int argc, char** argv) {
               if (reterr) {
                 goto main_ret_1;
               }
-            } else if ((cur_modif_slen > 10) && ((!memcmp(cur_modif, "local-fam=", 10)) || ((cur_modif_slen > 11) && (!memcmp(cur_modif, "local-psam=", 11))))) {
+            } else if (str_startswith(cur_modif, "local-fam=", cur_modif_slen) ||
+                       str_startswith(cur_modif, "local-psam=", cur_modif_slen)) {
               if (pc.glm_local_psam_fname) {
                 logerrprint("Error: Multiple --glm local-psam= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
@@ -4327,14 +4334,15 @@ int main(int argc, char** argv) {
               if (reterr) {
                 goto main_ret_1;
               }
-            } else if ((cur_modif_slen == 15) && (!memcmp(cur_modif, "local-omit-last", 15))) {
+            } else if (strequal_k(cur_modif, "local-omit-last", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmLocalOmitLast;
-            } else if ((cur_modif_slen > 11) && (!memcmp(cur_modif, "local-cats=", 11))) {
+            } else if (str_startswith(cur_modif, "local-cats=", cur_modif_slen)) {
               if (pc.glm_info.local_cat_ct) {
                 logerrprint("Error: Multiple --glm local-cats= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              if (scan_posint_capped(cur_modif, 4095, &pc.glm_info.local_cat_ct) || (pc.glm_info.local_cat_ct == 1)) {
+              // bugfix (7 Nov 2017): forgot to offset by strlen("local-cats=")
+              if (scan_posint_capped(&(cur_modif[strlen("local-cats=")]), 4095, &pc.glm_info.local_cat_ct) || (pc.glm_info.local_cat_ct == 1)) {
                 logerrprint("Error: Invalid --glm local-cats= category count (must be in [2, 4095]).\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
@@ -4386,7 +4394,7 @@ int main(int argc, char** argv) {
             }
           }
           pc.command_flags1 |= kfCommand1Glm;
-        } else if (!memcmp(flagname_p2, "en", 3)) {
+        } else if (strequal_k2(flagname_p2, "en")) {
           if (load_params || (xload & (~kfXloadOxSample))) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
@@ -4412,7 +4420,7 @@ int main(int argc, char** argv) {
           }
           memcpy(pgenname, cur_fname, slen + 1);
           xload |= kfXloadOxGen;
-        } else if (!memcmp(flagname_p2, "enotyping-rate", 15)) {
+        } else if (strequal_k2(flagname_p2, "enotyping-rate")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -4431,17 +4439,18 @@ int main(int argc, char** argv) {
         break;
 
       case 'h':
-        if (!memcmp(flagname_p2, "ardy", 5)) {
+        if (strequal_k2(flagname_p2, "ardy")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 3)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argv[arg_idx + param_idx];
-            if (!strcmp(cur_modif, "zs")) {
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               pc.hardy_modifier |= kfHardyZs;
-            } else if (!strcmp(cur_modif, "midp")) {
+            } else if (strequal_k(cur_modif, "midp", cur_modif_slen)) {
               pc.hardy_modifier |= kfHardyMidp;
-            } else if ((strlen(cur_modif) > 5) && (!memcmp(cur_modif, "cols=", 5))) {
+            } else if (str_startswith(cur_modif, "cols=", cur_modif_slen)) {
               if (pc.hardy_modifier & kfHardyColAll) {
                 logerrprint("Error: Multiple --hardy cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
@@ -4463,7 +4472,7 @@ int main(int argc, char** argv) {
             pc.hardy_modifier |= kfHardyColDefault;
           }
           pc.command_flags1 |= kfCommand1Hardy;
-        } else if (!memcmp(flagname_p2, "we", 3)) {
+        } else if (strequal_k2(flagname_p2, "we")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 3)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -4493,7 +4502,7 @@ int main(int argc, char** argv) {
           }
           pc.filter_flags |= kfFilterPvarReq;
           pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
-        } else if (!memcmp(flagname_p2, "ard-call-threshold", 19)) {
+        } else if (strequal_k2(flagname_p2, "ard-call-threshold")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -4504,7 +4513,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.hard_call_thresh = (int32_t)(hard_call_frac * ((1 + kSmallEpsilon) * kDosageMid));
-        } else if (!memcmp(flagname_p2, "orse", 5)) {
+        } else if (strequal_k2(flagname_p2, "orse")) {
           if (chr_info.chrset_source) {
             logerrprint("Error: Conflicting chromosome-set flags.\n");
             goto main_ret_INVALID_CMDLINE;
@@ -4524,14 +4533,14 @@ int main(int argc, char** argv) {
           chr_info.haploid_mask[1] = 3;
 #endif
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "uman", 5)) {
+        } else if (strequal_k2(flagname_p2, "uman")) {
           if (chr_info.chrset_source) {
             logerrprint("Error: Conflicting chromosome-set flags.\n");
             goto main_ret_INVALID_CMDLINE;
           }
           chr_info.chrset_source = kChrsetSourceCmdline;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "aps", 4)) {
+        } else if (strequal_k2(flagname_p2, "aps")) {
           if (load_params || xload) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
@@ -4563,7 +4572,7 @@ int main(int argc, char** argv) {
         break;
 
       case 'i':
-        if (!memcmp(flagname_p2, "ndiv-sort", 10)) {
+        if (strequal_k2(flagname_p2, "ndiv-sort")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 3)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -4601,7 +4610,7 @@ int main(int argc, char** argv) {
             sprintf(g_logbuf, "Error: '--indiv-sort %s' does not accept additional parameters.\n", indiv_sort_mode_str);
             goto main_ret_INVALID_CMDLINE_2A;
           }
-        } else if (!memcmp(flagname_p2, "d-delim", 8)) {
+        } else if (strequal_k2(flagname_p2, "d-delim")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -4618,7 +4627,7 @@ int main(int argc, char** argv) {
           } else {
             id_delim = '_';
           }
-        } else if ((!memcmp(flagname_p2, "ndep-pairwise", 14)) || (!memcmp(flagname_p2, "ndep-pairphase", 15))) {
+        } else if (strequal_k2(flagname_p2, "ndep-pairwise") || strequal_k2(flagname_p2, "ndep-pairphase")) {
           if (pc.command_flags1 & kfCommand1LdPrune) {
             logerrprint("Error: Multiple LD pruning commands.\n");
             goto main_ret_INVALID_CMDLINE;
@@ -4635,9 +4644,9 @@ int main(int argc, char** argv) {
           }
           uint32_t is_kb = 0;
           uint32_t next_param_idx = 2;
-          if (match_upper_counted(first_param_end, "KB", 2) && (!first_param_end[2])) {
+          if (match_upper_k2(first_param_end, "KB") && (!first_param_end[2])) {
             is_kb = 1;
-          } else if (match_upper_counted(argv[arg_idx + 2], "KB", 2) && (!argv[arg_idx + 2][2])) {
+          } else if (match_upper_k2(argv[arg_idx + 2], "KB") && (!argv[arg_idx + 2][2])) {
             is_kb = 1;
             next_param_idx = 3;
           }
@@ -4693,7 +4702,7 @@ int main(int argc, char** argv) {
           } else {
             pc.ld_info.prune_modifier |= kfLdPrunePairwise;
           }
-        } else if (!memcmp(flagname_p2, "nput-missing-genotype", 22)) {
+        } else if (strequal_k2(flagname_p2, "nput-missing-genotype")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -4703,7 +4712,7 @@ int main(int argc, char** argv) {
             sprintf(g_logbuf, "Error: Invalid --input-missing-genotype parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-        } else if (!memcmp(flagname_p2, "nput-missing-phenotype", 23)) {
+        } else if (strequal_k2(flagname_p2, "nput-missing-phenotype")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -4713,7 +4722,7 @@ int main(int argc, char** argv) {
             sprintf(g_logbuf, "Error: Invalid --input-missing-phenotype parameter '%s' (must be an integer in [-2147483647, -1] or [3, 2147483647]).\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-        } else if (!memcmp(flagname_p2, "mport-dosage-certainty", 23)) {
+        } else if (strequal_k2(flagname_p2, "mport-dosage-certainty")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -4723,7 +4732,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           import_dosage_certainty *= 1.0 - kSmallEpsilon;
-        } else if (!memcmp(flagname_p2, "mport-dosage", 13)) {
+        } else if (strequal_k2(flagname_p2, "mport-dosage")) {
           if (load_params || xload) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
@@ -4734,9 +4743,9 @@ int main(int argc, char** argv) {
           for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argv[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
-            if ((cur_modif_slen == 8) && (!memcmp(cur_modif, "noheader", 8))) {
+            if (strequal_k(cur_modif, "noheader", cur_modif_slen)) {
               plink1_dosage_info.flags |= kfPlink1DosageNoheader;
-            } else if ((cur_modif_slen > 6) && (!memcmp(cur_modif, "skip", 4)) && (cur_modif[4] >= '0') && (cur_modif[4] <= '2') && (cur_modif[5] == '=')) {
+            } else if ((cur_modif_slen > 6) && str_startswith2(cur_modif, "skip") && (cur_modif[4] >= '0') && (cur_modif[4] <= '2') && (cur_modif[5] == '=')) {
               const uint32_t skip_idx = (uint32_t)((unsigned char)cur_modif[4]) - 48;
               if (plink1_dosage_info.skips[skip_idx]) {
                 LOGERRPRINTF("Error: Multiple --import-dosage skip%u= modifiers.\n", skip_idx);
@@ -4746,9 +4755,10 @@ int main(int argc, char** argv) {
                 sprintf(g_logbuf, "Error: Invalid --import-dosage skip%u= parameter '%s'.\n", skip_idx, &(cur_modif[6]));
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
-            } else if ((cur_modif_slen == 5) && (!memcmp(cur_modif, "dose1", 5))) {
+            } else if (strequal_k(cur_modif, "dose1", cur_modif_slen)) {
               plink1_dosage_info.flags |= kfPlink1DosageFormatSingle01;
-            } else if ((cur_modif_slen == 8) && (!memcmp(cur_modif, "format=", 7))) {
+            } else if ((cur_modif_slen == 8) && str_startswith2(cur_modif, "format=")) {
+              // strequal_k() and str_startswith() both suboptimal here
               if (format_num_m1 != 3) {
                 logerrprint("Error: Multiple --import-dosage format= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
@@ -4758,16 +4768,16 @@ int main(int argc, char** argv) {
                 sprintf(g_logbuf, "Error: Invalid --import-dosage format= parameter '%c'.\n", cur_modif[7]);
                 goto main_ret_INVALID_CMDLINE_2A;
               }
-            } else if ((cur_modif_slen == 9) && (!memcmp(cur_modif, "ref-first", 9))) {
+            } else if (strequal_k(cur_modif, "ref-first", cur_modif_slen)) {
               plink1_dosage_info.flags |= kfPlink1DosageRefFirst;
-            } else if ((cur_modif_slen == 10) && (!memcmp(cur_modif, "ref-second", 10))) {
+            } else if (strequal_k(cur_modif, "ref-second", cur_modif_slen)) {
               plink1_dosage_info.flags |= kfPlink1DosageRefSecond;
-            } else if ((cur_modif_slen > 11) && (!memcmp(cur_modif, "single-chr=", 11))) {
+            } else if (str_startswith(cur_modif, "single-chr=", cur_modif_slen)) {
               if (import_single_chr_str) {
                 logerrprint("Error: Multiple --import-dosage single-chr= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              const char* chr_code = &(cur_modif[11]);
+              const char* chr_code = &(cur_modif[strlen("single-chr=")]);
               if (!(pc.misc_flags & kfMiscAllowExtraChrs)) {
                 if (get_chr_code_raw(chr_code) < 0) {
                   sprintf(g_logbuf, "Error: Invalid --import-dosage single-chr= chromosome code '%s'. (Did you forget --allow-extra-chr?)\n", chr_code);
@@ -4778,25 +4788,27 @@ int main(int argc, char** argv) {
               if (reterr) {
                 goto main_ret_1;
               }
-            } else if ((cur_modif_slen > 12) && (!memcmp(cur_modif, "chr-col-num=", 12))) {
-              if (plink1_dosage_info.chr_col_idx != 0xffffffffU) {
+            } else if (str_startswith(cur_modif, "chr-col-num=", cur_modif_slen)) {
+              if (plink1_dosage_info.chr_col_idx != UINT32_MAX) {
                 logerrprint("Error: Multiple --import-dosage chr-col-num= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
+              const char* chr_col_num_start = &(cur_modif[strlen("chr-col-num=")]);
               uint32_t uii;
-              if (scan_posint_capped(&(cur_modif[12]), kMaxLongLine / 2, &uii)) {
-                sprintf(g_logbuf, "Error: Invalid --import-dosage chr-col-num= parameter '%s'.\n", &(cur_modif[12]));
+              if (scan_posint_capped(chr_col_num_start, kMaxLongLine / 2, &uii)) {
+                sprintf(g_logbuf, "Error: Invalid --import-dosage chr-col-num= parameter '%s'.\n", chr_col_num_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
               plink1_dosage_info.chr_col_idx = uii - 1;
-            } else if ((cur_modif_slen > 12) && (!memcmp(cur_modif, "pos-col-num=", 12))) {
-              if (plink1_dosage_info.pos_col_idx != 0xffffffffU) {
+            } else if (str_startswith(cur_modif, "pos-col-num=", cur_modif_slen)) {
+              if (plink1_dosage_info.pos_col_idx != UINT32_MAX) {
                 logerrprint("Error: Multiple --import-dosage pos-col-num= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
+              const char* pos_col_num_start = &(cur_modif[strlen("pos-col-num=")]);
               uint32_t uii;
-              if (scan_posint_capped(&(cur_modif[12]), kMaxLongLine / 2, &uii)) {
-                sprintf(g_logbuf, "Error: Invalid --import-dosage pos-col-num= parameter '%s'.\n", &(cur_modif[12]));
+              if (scan_posint_capped(pos_col_num_start, kMaxLongLine / 2, &uii)) {
+                sprintf(g_logbuf, "Error: Invalid --import-dosage pos-col-num= parameter '%s'.\n", pos_col_num_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
               plink1_dosage_info.pos_col_idx = uii - 1;
@@ -4825,7 +4837,7 @@ int main(int argc, char** argv) {
           const uint32_t a1_col_idx = id_col_idx + plink1_dosage_info.skips[1] + 1;
           const uint32_t data_col_idx = a1_col_idx + plink1_dosage_info.skips[2] + 2;
           const uint32_t chr_col_idx = plink1_dosage_info.chr_col_idx;
-          if (chr_col_idx != 0xffffffffU) {
+          if (chr_col_idx != UINT32_MAX) {
             if (import_single_chr_str) {
               logerrprint("Error: --import-dosage 'single-chr=' and 'chr-col-num=' modifiers cannot be\nused together.\n");
               goto main_ret_INVALID_CMDLINE_A;
@@ -4839,7 +4851,7 @@ int main(int argc, char** argv) {
             }
           }
           const uint32_t pos_col_idx = plink1_dosage_info.pos_col_idx;
-          if (pos_col_idx != 0xffffffffU) {
+          if (pos_col_idx != UINT32_MAX) {
             if ((pos_col_idx == id_col_idx) || (pos_col_idx == a1_col_idx) || (pos_col_idx == a1_col_idx + 1) || (pos_col_idx == chr_col_idx)) {
               logerrprint("Error: --import-dosage pos-col-num= value collides with another column.\n");
               goto main_ret_INVALID_CMDLINE_A;
@@ -4862,7 +4874,7 @@ int main(int argc, char** argv) {
         break;
 
       case 'k':
-        if (!memcmp(flagname_p2, "eep", 4)) {
+        if (strequal_k2(flagname_p2, "eep")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -4879,7 +4891,7 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPsamReq;
-        } else if (!memcmp(flagname_p2, "eep-fam", 8)) {
+        } else if (strequal_k2(flagname_p2, "eep-fam")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -4888,29 +4900,29 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPsamReq;
-        } else if (!memcmp(flagname_p2, "eep-autoconv", 13)) {
+        } else if (strequal_k2(flagname_p2, "eep-autoconv")) {
           pc.misc_flags |= kfMiscKeepAutoconv;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "eep-females", 12)) {
+        } else if (strequal_k2(flagname_p2, "eep-females")) {
           pc.filter_flags |= kfFilterPsamReq | kfFilterExclMales | kfFilterExclNosex;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "eep-males", 10)) {
+        } else if (strequal_k2(flagname_p2, "eep-males")) {
           pc.filter_flags |= kfFilterPsamReq | kfFilterExclFemales | kfFilterExclNosex;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "eep-nosex", 10)) {
+        } else if (strequal_k2(flagname_p2, "eep-nosex")) {
           pc.filter_flags |= kfFilterPsamReq | kfFilterExclFemales | kfFilterExclMales;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "eep-founders", 13)) {
+        } else if (strequal_k2(flagname_p2, "eep-founders")) {
           pc.filter_flags |= kfFilterPsamReq | kfFilterExclNonfounders;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "eep-nonfounders", 16)) {
+        } else if (strequal_k2(flagname_p2, "eep-nonfounders")) {
           if (pc.filter_flags & kfFilterExclNonfounders) {
             logerrprint("Error: --keep-nonfounders cannot be used with --keep-founders.\n");
             goto main_ret_INVALID_CMDLINE;
           }
           pc.filter_flags |= kfFilterPsamReq | kfFilterExclFounders;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "ing-cutoff", 11)) {
+        } else if (strequal_k2(flagname_p2, "ing-cutoff")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -4927,7 +4939,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.command_flags1 |= kfCommand1KingCutoff;
-        } else if (!memcmp(flagname_p2, "ing-table-filter", 17)) {
+        } else if (strequal_k2(flagname_p2, "ing-table-filter")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -4936,13 +4948,13 @@ int main(int argc, char** argv) {
             sprintf(g_logbuf, "Error: Invalid --king-table-filter parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-        } else if (!memcmp(flagname_p2, "eep-if", 7)) {
+        } else if (strequal_k2(flagname_p2, "eep-if")) {
           reterr = validate_and_alloc_cmp_expr(&(argv[arg_idx + 1]), argv[arg_idx], param_ct, &pc.keep_if_expr);
           if (reterr) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPsamReq;
-        } else if (!memcmp(flagname_p2, "eep-cats", 9)) {
+        } else if (strequal_k2(flagname_p2, "eep-cats")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -4951,7 +4963,7 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPsamReq;
-        } else if (!memcmp(flagname_p2, "eep-cat-names", 14)) {
+        } else if (strequal_k2(flagname_p2, "eep-cat-names")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -4960,7 +4972,7 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPsamReq;
-        } else if (!memcmp(flagname_p2, "eep-cat-pheno", 14)) {
+        } else if (strequal_k2(flagname_p2, "eep-cat-pheno")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -4968,7 +4980,7 @@ int main(int argc, char** argv) {
           if (reterr) {
             goto main_ret_1;
           }
-        } else if (!memcmp(flagname_p2, "eep-allele-order", 17)) {
+        } else if (strequal_k2(flagname_p2, "eep-allele-order")) {
           logprint("Note: --keep-allele-order no longer has any effect.\n");
           goto main_param_zero;
         } else {
@@ -4977,7 +4989,7 @@ int main(int argc, char** argv) {
         break;
 
       case 'l':
-        if (!memcmp(flagname_p2, "ambda", 6)) {
+        if (strequal_k2(flagname_p2, "ambda")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -4989,7 +5001,7 @@ int main(int argc, char** argv) {
             logprint("Note: --lambda parameter set to 1.\n");
             pc.adjust_info.lambda = 1.0;
           }
-        } else if (!memcmp(flagname_p2, "egend", 6)) {
+        } else if (strequal_k2(flagname_p2, "egend")) {
           if (load_params || (xload & (~kfXloadOxHaps))) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
@@ -5019,7 +5031,7 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           xload |= kfXloadOxLegend;
-        } else if (!memcmp(flagname_p2, "oop-cats", 9)) {
+        } else if (strequal_k2(flagname_p2, "oop-cats")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -5027,7 +5039,7 @@ int main(int argc, char** argv) {
           if (reterr) {
             goto main_ret_1;
           }
-        } else if (!memcmp(flagname_p2, "d", 2)) {
+        } else if (strequal_k2(flagname_p2, "d")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 2, 4)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -5049,7 +5061,7 @@ int main(int argc, char** argv) {
             }
           }
           pc.command_flags1 |= kfCommand1Ld;
-        } else if (!memcmp(flagname_p2, "oop-assoc", 10)) {
+        } else if (strequal_k2(flagname_p2, "oop-assoc")) {
           logerrprint("Error: --loop-assoc is retired.  Use --within + --split-cat-pheno instead.\n");
           goto main_ret_INVALID_CMDLINE_A;
         } else {
@@ -5058,7 +5070,7 @@ int main(int argc, char** argv) {
         break;
 
       case 'm':
-        if (!memcmp(flagname_p2, "emory", 6)) {
+        if (strequal_k2(flagname_p2, "emory")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -5084,7 +5096,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE;
           }
 #endif
-        } else if (!memcmp(flagname_p2, "ake-bed", 8)) {
+        } else if (strequal_k2(flagname_p2, "ake-bed")) {
           if (pc.exportf_modifier & kfExportfIndMajorBed) {
             logerrprint("Error: --make-bed cannot be used with --export ind-major-bed.\n");
             goto main_ret_INVALID_CMDLINE;
@@ -5095,16 +5107,17 @@ int main(int argc, char** argv) {
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argv[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
-            if ((cur_modif_slen == 3) && (!memcmp(cur_modif, "vzs", 3))) {
+            if (strequal_k(cur_modif, "vzs", cur_modif_slen)) {
               make_plink2_modifier |= kfMakeBimZs;
-            } else if ((cur_modif_slen == 9) && (!memcmp(cur_modif, "trim-alts", 9))) {
+            } else if (strequal_k(cur_modif, "trim-alts", cur_modif_slen)) {
               make_plink2_modifier |= kfMakePlink2TrimAlts;
-            } else if (((cur_modif_slen > 2) && (!memcmp(cur_modif, "m=", 2))) || ((cur_modif_slen > 14) && (!memcmp(cur_modif, "multiallelics=", 14)))) {
+            } else if (str_startswith(cur_modif, "m=", cur_modif_slen) ||
+                       str_startswith(cur_modif, "multiallelics=", cur_modif_slen)) {
               if (make_plink2_modifier & kfMakePlink2MMask) {
                 logerrprint("Error: Multiple --make-bed multiallelics= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              const char* mode_start = (cur_modif[1] == '=')? (&(cur_modif[2])) : (&(cur_modif[14]));
+              const char* mode_start = (cur_modif[1] == '=')? (&(cur_modif[strlen("m=")])) : (&(cur_modif[strlen("multiallelics=")]));
               if (!strcmp(mode_start, "-")) {
                 make_plink2_modifier |= kfMakePlink2MSplitAll;
               } else if (!strcmp(mode_start, "-snps")) {
@@ -5135,7 +5148,7 @@ int main(int argc, char** argv) {
           }
           make_plink2_modifier |= kfMakeBed | kfMakeBim | kfMakeFam;
           pc.command_flags1 |= kfCommand1MakePlink2;
-        } else if (!memcmp(flagname_p2, "ake-bpgen", 10)) {
+        } else if (strequal_k2(flagname_p2, "ake-bpgen")) {
           if (make_plink2_modifier & kfMakeBed) {
             logerrprint("Error: --make-bpgen cannot be used with --make-bed.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -5150,9 +5163,9 @@ int main(int argc, char** argv) {
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argv[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
-            if ((cur_modif_slen == 3) && (!memcmp(cur_modif, "vzs", 3))) {
+            if (strequal_k(cur_modif, "vzs", cur_modif_slen)) {
               make_plink2_modifier |= kfMakeBimZs;
-            } else if ((cur_modif_slen > 7) && (!memcmp(cur_modif, "format=", 7))) {
+            } else if (str_startswith(cur_modif, "format=", cur_modif_slen)) {
               if (make_plink2_modifier & (kfMakePgenFormatBase * 3)) {
                 logerrprint("Error: Multiple --make-bpgen format= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
@@ -5168,12 +5181,13 @@ int main(int argc, char** argv) {
                 goto main_ret_1;
               }
               make_plink2_modifier = (make_plink2_t)(make_plink2_modifier | (kfMakePgenFormatBase * (1 + fcode_minus_2)));
-            } else if (((cur_modif_slen > 2) && (!memcmp(cur_modif, "m=", 2))) && ((cur_modif_slen > 14) && (!memcmp(cur_modif, "multiallelics=", 14)))) {
+            } else if (str_startswith(cur_modif, "m=", cur_modif_slen) ||
+                       str_startswith(cur_modif, "multiallelics=", cur_modif_slen)) {
               if (make_plink2_modifier & kfMakePlink2MMask) {
                 logerrprint("Error: Multiple --make-bpgen multiallelics= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              const char* mode_start = (cur_modif[1] == '=')? (&(cur_modif[2])) : (&(cur_modif[14]));
+              const char* mode_start = (cur_modif[1] == '=')? (&(cur_modif[strlen("m=")])) : (&(cur_modif[strlen("multiallelics=")]));
               if (!strcmp(mode_start, "-")) {
                 make_plink2_modifier |= kfMakePlink2MSplitAll;
               } else if (!strcmp(mode_start, "-snps")) {
@@ -5188,13 +5202,13 @@ int main(int argc, char** argv) {
                 sprintf(g_logbuf, "Error: Invalid --make-bpgen multiallelics= mode '%s'.\n", mode_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
-            } else if ((cur_modif_slen == 9) && (!memcmp(cur_modif, "trim-alts", 9))) {
+            } else if (strequal_k(cur_modif, "trim-alts", cur_modif_slen)) {
               make_plink2_modifier |= kfMakePlink2TrimAlts;
-            } else if ((cur_modif_slen == 11) && (!memcmp(cur_modif, "erase-alt2+", 11))) {
+            } else if (strequal_k(cur_modif, "erase-alt2+", cur_modif_slen)) {
               make_plink2_modifier |= kfMakePgenEraseAlt2Plus;
-            } else if ((cur_modif_slen == 11) && (!memcmp(cur_modif, "erase-phase", 11))) {
+            } else if (strequal_k(cur_modif, "erase-phase", cur_modif_slen)) {
               make_plink2_modifier |= kfMakePgenErasePhase;
-            } else if ((cur_modif_slen == 12) && (!memcmp(cur_modif, "erase-dosage", 12))) {
+            } else if (strequal_k(cur_modif, "erase-dosage", cur_modif_slen)) {
               make_plink2_modifier |= kfMakePgenEraseDosage;
             } else {
               sprintf(g_logbuf, "Error: Invalid --make-bpgen parameter '%s'.\n", cur_modif);
@@ -5203,7 +5217,7 @@ int main(int argc, char** argv) {
           }
           make_plink2_modifier |= kfMakePgen | kfMakeBim | kfMakeFam;
           pc.command_flags1 |= kfCommand1MakePlink2;
-        } else if (!memcmp(flagname_p2, "ake-pgen", 9)) {
+        } else if (strequal_k2(flagname_p2, "ake-pgen")) {
           if (make_plink2_modifier & (kfMakeBed | kfMakePgen)) {
             logerrprint("Error: --make-pgen cannot be used with --make-bed/--make-bpgen.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -5224,15 +5238,15 @@ int main(int argc, char** argv) {
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argv[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
-            if ((cur_modif_slen == 3) && (!memcmp(cur_modif, "vzs", 3))) {
+            if (strequal_k(cur_modif, "vzs", cur_modif_slen)) {
               pc.pvar_psam_modifier |= kfPvarZs;
-            } else if ((cur_modif_slen >= 10) && (!memcmp(cur_modif, "pvar-cols=", 10))) {
+            } else if (str_startswithz(cur_modif, "pvar-cols=", cur_modif_slen)) {
               if (explicit_pvar_cols) {
                 logerrprint("Error: Multiple --make-pgen pvar-cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
               explicit_pvar_cols = 1;
-              reterr = parse_col_descriptor(&(cur_modif[10]), "xheader\0maybequal\0qual\0maybefilter\0filter\0maybeinfo\0info\0maybecm\0cm\0", "--make-pgen pvar-cols", kfPvarColXheader, kfPvarColDefault, 0, &pc.pvar_psam_modifier);
+              reterr = parse_col_descriptor(&(cur_modif[strlen("pvar-cols=")]), "xheader\0maybequal\0qual\0maybefilter\0filter\0maybeinfo\0info\0maybecm\0cm\0", "--make-pgen pvar-cols", kfPvarColXheader, kfPvarColDefault, 0, &pc.pvar_psam_modifier);
               if (reterr) {
                 goto main_ret_1;
               }
@@ -5240,7 +5254,7 @@ int main(int argc, char** argv) {
                 logerrprint("Error: --make-pgen pvar-cols= expression cannot exclude xheader when info is\npresent.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
-            } else if ((cur_modif_slen > 7) && (!memcmp(cur_modif, "format=", 7))) {
+            } else if (str_startswith(cur_modif, "format=", cur_modif_slen)) {
               if (make_plink2_modifier & (kfMakePgenFormatBase * 3)) {
                 logerrprint("Error: Multiple --make-pgen format= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
@@ -5256,7 +5270,8 @@ int main(int argc, char** argv) {
                 goto main_ret_1;
               }
               make_plink2_modifier = (make_plink2_t)(make_plink2_modifier | (kfMakePgenFormatBase * (1 + fcode_minus_2)));
-            } else if (((cur_modif_slen > 2) && (!memcmp(cur_modif, "m=", 2))) && ((cur_modif_slen > 14) && (!memcmp(cur_modif, "multiallelics=", 14)))) {
+            } else if (str_startswith(cur_modif, "m=", cur_modif_slen) ||
+                       str_startswith(cur_modif, "multiallelics=", cur_modif_slen)) {
               if (make_plink2_modifier & kfMakePlink2MMask) {
                 logerrprint("Error: Multiple --make-pgen multiallelics= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
@@ -5276,21 +5291,21 @@ int main(int argc, char** argv) {
                 sprintf(g_logbuf, "Error: Invalid --make-pgen multiallelics= mode '%s'.\n", mode_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
-            } else if ((cur_modif_slen == 9) && (!memcmp(cur_modif, "trim-alts", 9))) {
+            } else if (strequal_k(cur_modif, "trim-alts", cur_modif_slen)) {
               make_plink2_modifier |= kfMakePlink2TrimAlts;
-            } else if ((cur_modif_slen == 11) && (!memcmp(cur_modif, "erase-alt2+", 11))) {
+            } else if (strequal_k(cur_modif, "erase-alt2+", cur_modif_slen)) {
               make_plink2_modifier |= kfMakePgenEraseAlt2Plus;
-            } else if ((cur_modif_slen == 11) && (!memcmp(cur_modif, "erase-phase", 11))) {
+            } else if (strequal_k(cur_modif, "erase-phase", cur_modif_slen)) {
               make_plink2_modifier |= kfMakePgenErasePhase;
-            } else if ((cur_modif_slen == 12) && (!memcmp(cur_modif, "erase-dosage", 12))) {
+            } else if (strequal_k(cur_modif, "erase-dosage", cur_modif_slen)) {
               make_plink2_modifier |= kfMakePgenEraseDosage;
-            } else if ((cur_modif_slen >= 10) && (!memcmp(cur_modif, "psam-cols=", 10))) {
+            } else if (str_startswithz(cur_modif, "psam-cols=", cur_modif_slen)) {
               if (explicit_psam_cols) {
                 logerrprint("Error: Multiple --make-pgen psam-cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
               explicit_psam_cols = 1;
-              reterr = parse_col_descriptor(&(cur_modif[10]), "maybesid\0sid\0maybeparents\0parents\0sex\0pheno1\0phenos\0", "make-pgen psam-cols", kfPsamColMaybesid, kfPsamColDefault, 0, &pc.pvar_psam_modifier);
+              reterr = parse_col_descriptor(&(cur_modif[strlen("psam-cols=")]), "maybesid\0sid\0maybeparents\0parents\0sex\0pheno1\0phenos\0", "make-pgen psam-cols", kfPsamColMaybesid, kfPsamColDefault, 0, &pc.pvar_psam_modifier);
               if (reterr) {
                 goto main_ret_1;
               }
@@ -5307,7 +5322,7 @@ int main(int argc, char** argv) {
           }
           make_plink2_modifier |= kfMakePgen | kfMakePvar | kfMakePsam;
           pc.command_flags1 |= kfCommand1MakePlink2;
-        } else if (!memcmp(flagname_p2, "ake-just-bim", 13)) {
+        } else if (strequal_k2(flagname_p2, "ake-just-bim")) {
           if (make_plink2_modifier & (kfMakeBed | kfMakePgen)) {
             logerrprint("Error: --make-just-... cannot be used with --make-bed/--make-{b}pgen.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -5326,7 +5341,7 @@ int main(int argc, char** argv) {
           }
           make_plink2_modifier |= kfMakeBim;
           pc.command_flags1 |= kfCommand1MakePlink2;
-        } else if (!memcmp(flagname_p2, "ake-just-fam", 13)) {
+        } else if (strequal_k2(flagname_p2, "ake-just-fam")) {
           if (make_plink2_modifier & (kfMakeBed | kfMakePgen)) {
             logerrprint("Error: --make-just-... cannot be used with --make-bed/--make-{b}pgen.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -5334,7 +5349,7 @@ int main(int argc, char** argv) {
           make_plink2_modifier |= kfMakeFam;
           pc.command_flags1 |= kfCommand1MakePlink2;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "ake-just-pvar", 14)) {
+        } else if (strequal_k2(flagname_p2, "ake-just-pvar")) {
           if (make_plink2_modifier & (kfMakeBed | kfMakePgen)) {
             logerrprint("Error: --make-just-... cannot be used with --make-bed/--make-{b}pgen.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -5346,9 +5361,9 @@ int main(int argc, char** argv) {
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argv[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
-            if ((cur_modif_slen == 2) && (!memcmp(cur_modif, "zs", 2))) {
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               pc.pvar_psam_modifier |= kfPvarZs;
-            } else if ((cur_modif_slen >= 5) && (!memcmp(cur_modif, "cols=", 5))) {
+            } else if (str_startswithz(cur_modif, "cols=", cur_modif_slen)) {
               if (explicit_cols) {
                 logerrprint("Error: Multiple --make-just-pvar cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
@@ -5372,7 +5387,7 @@ int main(int argc, char** argv) {
           }
           make_plink2_modifier |= kfMakePvar;
           pc.command_flags1 |= kfCommand1MakePlink2;
-        } else if (!memcmp(flagname_p2, "ake-just-psam", 14)) {
+        } else if (strequal_k2(flagname_p2, "ake-just-psam")) {
           if (make_plink2_modifier & (kfMakeBed | kfMakePgen)) {
             logerrprint("Error: --make-just-... cannot be used with --make-bed/--make-{b}pgen.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -5382,7 +5397,8 @@ int main(int argc, char** argv) {
           }
           if (param_ct) {
             const char* cur_modif = argv[arg_idx + 1];
-            if ((strlen(cur_modif) >= 5) && (!memcmp(cur_modif, "cols=", 5))) {
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (str_startswithz(cur_modif, "cols=", cur_modif_slen)) {
               reterr = parse_col_descriptor(&(cur_modif[5]), "maybesid\0sid\0maybeparents\0parents\0sex\0pheno1\0phenos\0", "make-just-psam", kfPsamColMaybesid, kfPsamColDefault, 0, &pc.pvar_psam_modifier);
               if (reterr) {
                 goto main_ret_1;
@@ -5396,7 +5412,7 @@ int main(int argc, char** argv) {
           }
           make_plink2_modifier |= kfMakePsam;
           pc.command_flags1 |= kfCommand1MakePlink2;
-        } else if (!memcmp(flagname_p2, "ake-king", 9)) {
+        } else if (strequal_k2(flagname_p2, "ake-king")) {
           // may want to add options for handling X/Y/MT
           if (king_cutoff_fprefix) {
             logerrprint("Error: --make-king cannot be used with a --king-cutoff input fileset.\n");
@@ -5456,7 +5472,7 @@ int main(int argc, char** argv) {
             }
           }
           pc.command_flags1 |= kfCommand1MakeKing;
-        } else if (!memcmp(flagname_p2, "ake-king-table", 15)) {
+        } else if (strequal_k2(flagname_p2, "ake-king-table")) {
           if (king_cutoff_fprefix) {
             logerrprint("Error: --make-king-table cannot be used with a --king-cutoff input fileset.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -5466,11 +5482,12 @@ int main(int argc, char** argv) {
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argv[arg_idx + param_idx];
-            if (!strcmp(cur_modif, "zs")) {
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               pc.king_modifier |= kfKingTableZs;
-            } else if (!strcmp(cur_modif, "counts")) {
+            } else if (strequal_k(cur_modif, "counts", cur_modif_slen)) {
               pc.king_modifier |= kfKingCounts;
-            } else if ((strlen(cur_modif) > 5) && (!memcmp(cur_modif, "cols=", 5))) {
+            } else if (str_startswith(cur_modif, "cols=", cur_modif_slen)) {
               if (pc.king_modifier & kfKingColAll) {
                 logerrprint("Error: Multiple --make-king-table cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
@@ -5492,42 +5509,42 @@ int main(int argc, char** argv) {
             pc.king_modifier |= kfKingColDefault;
           }
           pc.command_flags1 |= kfCommand1MakeKing;
-        } else if (!memcmp(flagname_p2, "issing", 7)) {
+        } else if (strequal_k2(flagname_p2, "issing")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 4)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argv[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
-            if ((cur_modif_slen == 2) && (!memcmp(cur_modif, "zs", 2))) {
+            if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               pc.missing_rpt_modifier |= kfMissingRptZs;
-            } else if ((cur_modif_slen == 11) && (!memcmp(cur_modif, "sample-only", 11))) {
+            } else if (strequal_k(cur_modif, "sample-only", cur_modif_slen)) {
               if (pc.missing_rpt_modifier & kfMissingRptVariantOnly) {
                 logerrprint("Error: --missing 'sample-only' and 'variant-only' cannot be used together.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
               pc.missing_rpt_modifier |= kfMissingRptSampleOnly;
-            } else if ((cur_modif_slen == 12) && (!memcmp(cur_modif, "variant-only", 12))) {
+            } else if (strequal_k(cur_modif, "variant-only", cur_modif_slen)) {
               if (pc.missing_rpt_modifier & kfMissingRptSampleOnly) {
                 logerrprint("Error: --missing 'sample-only' and 'variant-only' cannot be used together.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
               pc.missing_rpt_modifier |= kfMissingRptVariantOnly;
-            } else if ((cur_modif_slen > 6) && (!memcmp(cur_modif, "scols=", 6))) {
+            } else if (str_startswith(cur_modif, "scols=", cur_modif_slen)) {
               if (pc.missing_rpt_modifier & kfMissingRptScolAll) {
                 logerrprint("Error: Multiple --missing scols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = parse_col_descriptor(&(cur_modif[6]), "maybesid\0sid\0misspheno1\0missphenos\0nmissdosage\0nmiss\0nmisshh\0hethap\0nobs\0fmissdosage\0fmiss\0fmisshh\0", "missing scols", kfMissingRptScolMaybesid, kfMissingRptScolDefault, 1, &pc.missing_rpt_modifier);
+              reterr = parse_col_descriptor(&(cur_modif[strlen("scols=")]), "maybesid\0sid\0misspheno1\0missphenos\0nmissdosage\0nmiss\0nmisshh\0hethap\0nobs\0fmissdosage\0fmiss\0fmisshh\0", "missing scols", kfMissingRptScolMaybesid, kfMissingRptScolDefault, 1, &pc.missing_rpt_modifier);
               if (reterr) {
                 goto main_ret_1;
               }
-            } else if ((cur_modif_slen > 6) && (!memcmp(cur_modif, "vcols=", 6))) {
+            } else if (str_startswith(cur_modif, "vcols=", cur_modif_slen)) {
               if (pc.missing_rpt_modifier & kfMissingRptVcolAll) {
                 logerrprint("Error: Multiple --missing vcols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = parse_col_descriptor(&(cur_modif[6]), "chrom\0pos\0ref\0alt1\0alt\0nmissdosage\0nmiss\0nmisshh\0hethap\0nobs\0fmissdosage\0fmiss\0fmisshh\0fhethap\0", "missing vcols", kfMissingRptVcolChrom, kfMissingRptVcolDefault, 1, &pc.missing_rpt_modifier);
+              reterr = parse_col_descriptor(&(cur_modif[strlen("vcols=")]), "chrom\0pos\0ref\0alt1\0alt\0nmissdosage\0nmiss\0nmisshh\0hethap\0nobs\0fmissdosage\0fmiss\0fmisshh\0fhethap\0", "missing vcols", kfMissingRptVcolChrom, kfMissingRptVcolDefault, 1, &pc.missing_rpt_modifier);
               if (reterr) {
                 goto main_ret_1;
               }
@@ -5557,7 +5574,7 @@ int main(int argc, char** argv) {
             pc.missing_rpt_modifier |= kfMissingRptVcolDefault;
           }
           pc.command_flags1 |= kfCommand1MissingReport;
-        } else if (!memcmp(flagname_p2, "aj-ref", 7)) {
+        } else if (strequal_k2(flagname_p2, "aj-ref")) {
           if (pc.alt1_allele_flag) {
             logerrprint("Error: --maj-ref cannot be used with --ref-allele/--alt1-allele.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -5576,7 +5593,7 @@ int main(int argc, char** argv) {
           }
           pc.misc_flags |= kfMiscMajRef;
           pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
-        } else if (!memcmp(flagname_p2, "af", 3)) {
+        } else if (strequal_k2(flagname_p2, "af")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -5600,7 +5617,7 @@ int main(int argc, char** argv) {
             pc.filter_flags |= kfFilterPvarReq;
             pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
           }
-        } else if (!memcmp(flagname_p2, "ax-maf", 7)) {
+        } else if (strequal_k2(flagname_p2, "ax-maf")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -5618,7 +5635,7 @@ int main(int argc, char** argv) {
           }
           pc.filter_flags |= kfFilterPvarReq;
           pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
-        } else if (!memcmp(flagname_p2, "ac", 3)) {
+        } else if (strequal_k2(flagname_p2, "ac")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -5639,7 +5656,7 @@ int main(int argc, char** argv) {
             pc.filter_flags |= kfFilterPvarReq;
             pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
           }
-        } else if (!memcmp(flagname_p2, "ax-mac", 7)) {
+        } else if (strequal_k2(flagname_p2, "ax-mac")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -5658,7 +5675,7 @@ int main(int argc, char** argv) {
           }
           pc.filter_flags |= kfFilterPvarReq;
           pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
-        } else if (!memcmp(flagname_p2, "ind", 4)) {
+        } else if (strequal_k2(flagname_p2, "ind")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -5689,7 +5706,7 @@ int main(int argc, char** argv) {
             pc.filter_flags |= kfFilterPsamReq;
             pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
           }
-        } else if (!memcmp(flagname_p2, "issing-var-code", 16)) {
+        } else if (strequal_k2(flagname_p2, "issing-var-code")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -5697,17 +5714,17 @@ int main(int argc, char** argv) {
           if (reterr) {
             goto main_ret_1;
           }
-        } else if (!memcmp(flagname_p2, "erge-par", 9)) {
+        } else if (strequal_k2(flagname_p2, "erge-par")) {
           if (pc.exportf_modifier & kfExportfVcf) {
             logerrprint("Warning: --merge-par should not be used with VCF export.  (The VCF export\nroutine automatically converts PAR1/PAR2 chromosome codes to X, while using\nthe PAR boundaries to get male ploidy right; --merge-par causes VCF export to\nget male ploidy wrong.)\n");
           }
           pc.misc_flags |= kfMiscMergePar;
           pc.dependency_flags |= kfFilterPvarReq | kfFilterNoSplitChr;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "af-succ", 8)) {
+        } else if (strequal_k2(flagname_p2, "af-succ")) {
           pc.misc_flags |= kfMiscMafSucc;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "ax-corr", 8)) {
+        } else if (strequal_k2(flagname_p2, "ax-corr")) {
           if (!(pc.command_flags1 & kfCommand1Glm)) {
             logerrprint("Error: --max-corr must be used with --glm.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -5724,7 +5741,7 @@ int main(int argc, char** argv) {
             sprintf(g_logbuf, "Error: Invalid --max-corr parameter '%s' (must be in [0, 1]).\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-        } else if (!memcmp(flagname_p2, "ach-r2-filter", 14)) {
+        } else if (strequal_k2(flagname_p2, "ach-r2-filter")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -5756,7 +5773,7 @@ int main(int argc, char** argv) {
           }
           pc.filter_flags |= kfFilterPvarReq;
           pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
-        } else if (!memcmp(flagname_p2, "issing-code", 12)) {
+        } else if (strequal_k2(flagname_p2, "issing-code")) {
           if (!(xload & (kfXloadOxGen | kfXloadOxBgen))) {
             // could technically support pure .sample -> .fam/.psam, but let's
             // keep this simple
@@ -5770,13 +5787,13 @@ int main(int argc, char** argv) {
           if (reterr) {
             goto main_ret_1;
           }
-        } else if (!memcmp(flagname_p2, "issing-genotype", 16)) {
+        } else if (strequal_k2(flagname_p2, "issing-genotype")) {
           logerrprint("Error: --missing-genotype flag retired.  Use --input-missing-genotype and/or\n--output-missing-genotype.\n");
           goto main_ret_INVALID_CMDLINE;
-        } else if (!memcmp(flagname_p2, "issing-phenotype", 17)) {
+        } else if (strequal_k2(flagname_p2, "issing-phenotype")) {
           logerrprint("Error: --missing-phenotype flag retired.  Use --input-missing-phenotype and/or\n--output-missing-phenotype.\n");
           goto main_ret_INVALID_CMDLINE;
-        } else if (!memcmp(flagname_p2, "issing-catname", 15)) {
+        } else if (strequal_k2(flagname_p2, "issing-catname")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -5792,7 +5809,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_A;
           }
           memcpy(g_missing_catname, cur_modif, cur_modif_slen + 1);
-        } else if (!memcmp(flagname_p2, "ouse", 5)) {
+        } else if (strequal_k2(flagname_p2, "ouse")) {
           if (chr_info.chrset_source) {
             logerrprint("Error: Conflicting chromosome-set flags.\n");
             goto main_ret_INVALID_CMDLINE;
@@ -5807,10 +5824,10 @@ int main(int argc, char** argv) {
           chr_info.xymt_codes[5] = -2;
           chr_info.haploid_mask[0] = 0x300000;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "ake-grm", 8)) {
+        } else if (strequal_k2(flagname_p2, "ake-grm")) {
           logerrprint("Error: --make-grm has been retired due to inconsistent meaning across GCTA\nversions.  Use --make-grm-gz or --make-grm-bin.\n");
           goto main_ret_INVALID_CMDLINE;
-        } else if (!memcmp(flagname_p2, "ake-grm-bin", 12)) {
+        } else if (strequal_k2(flagname_p2, "ake-grm-bin")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -5827,7 +5844,7 @@ int main(int argc, char** argv) {
           }
           pc.grm_flags |= kfGrmBin;
           pc.command_flags1 |= kfCommand1MakeRel;
-        } else if (!memcmp(flagname_p2, "ake-grm-gz", 11)) {
+        } else if (strequal_k2(flagname_p2, "ake-grm-gz")) {
           if (pc.command_flags1 & kfCommand1MakeRel) {
             logerrprint("Error: --make-grm-gz cannot be used with --make-grm-bin.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -5865,7 +5882,7 @@ int main(int argc, char** argv) {
             pc.grm_flags |= kfGrmTableGz;
           }
           pc.command_flags1 |= kfCommand1MakeRel;
-        } else if (!memcmp(flagname_p2, "ake-rel", 8)) {
+        } else if (strequal_k2(flagname_p2, "ake-rel")) {
           if (pc.command_flags1 & kfCommand1MakeRel) {
             logerrprint("Error: --make-rel cannot be used with --make-grm-gz/--make-grm-bin.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -5928,7 +5945,7 @@ int main(int argc, char** argv) {
             }
           }
           pc.command_flags1 |= kfCommand1MakeRel;
-        } else if (!memcmp(flagname_p2, "ap", 3)) {
+        } else if (strequal_k2(flagname_p2, "ap")) {
           if (load_params || (xload & (~kfXloadPlink1Dosage))) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
@@ -5943,7 +5960,7 @@ int main(int argc, char** argv) {
           }
           memcpy(pvarname, cur_modif, slen + 1);
           xload |= kfXloadMap;
-        } else if (!memcmp(flagname_p2, "within", 7)) {
+        } else if (strequal_k2(flagname_p2, "within")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -5958,22 +5975,22 @@ int main(int argc, char** argv) {
         break;
 
       case 'n':
-        if (!memcmp(flagname_p2, "o-fid", 6)) {
+        if (strequal_k2(flagname_p2, "o-fid")) {
           pc.fam_cols &= ~kfFamCol1;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "o-parents", 10)) {
+        } else if (strequal_k2(flagname_p2, "o-parents")) {
           pc.fam_cols &= ~kfFamCol34;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "o-sex", 6)) {
+        } else if (strequal_k2(flagname_p2, "o-sex")) {
           pc.fam_cols &= ~kfFamCol5;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "o-pheno", 8)) {
+        } else if (strequal_k2(flagname_p2, "o-pheno")) {
           pc.fam_cols &= ~kfFamCol6;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "onfounders", 11)) {
+        } else if (strequal_k2(flagname_p2, "onfounders")) {
           pc.misc_flags |= kfMiscNonfounders;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "ot-chr", 7)) {
+        } else if (strequal_k2(flagname_p2, "ot-chr")) {
           if (pc.varid_from) {
             logerrprint("Error: --from/--to cannot be used with --autosome{-par} or --{not-}chr.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -6001,7 +6018,7 @@ int main(int argc, char** argv) {
           }
           notchr_present = 1;
           // remaining processing now postponed to finalize_chrset()
-        } else if (!memcmp(flagname_p2, "ew-id-max-allele-len", 21)) {
+        } else if (strequal_k2(flagname_p2, "ew-id-max-allele-len")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -6027,7 +6044,7 @@ int main(int argc, char** argv) {
         break;
 
       case 'o':
-        if (!memcmp(flagname_p2, "utput-chr", 10)) {
+        if (strequal_k2(flagname_p2, "utput-chr")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -6050,7 +6067,7 @@ int main(int argc, char** argv) {
             sprintf(g_logbuf, "Error: Invalid --output-chr parameter '%s'.\n", mt_code);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-        } else if (!memcmp(flagname_p2, "utput-min-p", 12)) {
+        } else if (strequal_k2(flagname_p2, "utput-min-p")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -6059,7 +6076,7 @@ int main(int argc, char** argv) {
             sprintf(g_logbuf, "Error: Invalid --output-min-p parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-        } else if (!memcmp(flagname_p2, "xford-single-chr", 17)) {
+        } else if (strequal_k2(flagname_p2, "xford-single-chr")) {
           if (!(xload & kfXloadOxGen)) {
             if (xload & kfXloadOxBgen) {
               logerrprint("Error: --oxford-single-chr must be used with .gen input.  (Single-chromosome\n.bgen files do not require this, since they still contain chromosome codes.)\n");
@@ -6082,7 +6099,7 @@ int main(int argc, char** argv) {
           if (reterr) {
             goto main_ret_1;
           }
-        } else if (!memcmp(flagname_p2, "utput-missing-genotype", 23)) {
+        } else if (strequal_k2(flagname_p2, "utput-missing-genotype")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -6092,7 +6109,7 @@ int main(int argc, char** argv) {
             sprintf(g_logbuf, "Error: Invalid --output-missing-genotype parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-        } else if (!memcmp(flagname_p2, "utput-missing-phenotype", 24)) {
+        } else if (strequal_k2(flagname_p2, "utput-missing-phenotype")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -6103,14 +6120,14 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE;
           }
           memcpy(g_output_missing_pheno, cur_modif, cur_modif_slen + 1);
-        } else if (memcmp(flagname_p2, "ut", 3)) {
+        } else if (!strequal_k2(flagname_p2, "ut")) {
           // --out is a special case due to logging
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
         break;
 
       case 'p':
-        if (!memcmp(flagname_p2, "file", 5)) {
+        if (strequal_k2(flagname_p2, "file")) {
           if (load_params || xload) {
             // currently only possible with --bcf, --bfile, --pfile
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
@@ -6138,7 +6155,7 @@ int main(int argc, char** argv) {
             strcpy(pvarname_end, ".zst");
           }
           load_params |= kfLoadParamsPfileAll;
-        } else if (!memcmp(flagname_p2, "gen", 4)) {
+        } else if (strequal_k2(flagname_p2, "gen")) {
           if (xload) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
@@ -6153,7 +6170,7 @@ int main(int argc, char** argv) {
             goto main_ret_OPEN_FAIL;
           }
           memcpy(pgenname, fname, slen + 1);
-        } else if (!memcmp(flagname_p2, "sam", 4)) {
+        } else if (strequal_k2(flagname_p2, "sam")) {
           if (xload & (~(kfXloadVcf | kfXloadBcf | kfXloadPlink1Dosage | kfXloadMap))) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
@@ -6168,7 +6185,7 @@ int main(int argc, char** argv) {
             goto main_ret_OPEN_FAIL;
           }
           memcpy(psamname, fname, slen + 1);
-        } else if (!memcmp(flagname_p2, "var", 4)) {
+        } else if (strequal_k2(flagname_p2, "var")) {
           if (xload) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
@@ -6183,7 +6200,7 @@ int main(int argc, char** argv) {
             goto main_ret_OPEN_FAIL;
           }
           memcpy(pvarname, fname, slen + 1);
-        } else if (!memcmp(flagname_p2, "heno", 5)) {
+        } else if (strequal_k2(flagname_p2, "heno")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -6192,13 +6209,13 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.dependency_flags |= kfFilterPsamReq;
-        } else if (!memcmp(flagname_p2, "heno-name", 10)) {
+        } else if (strequal_k2(flagname_p2, "heno-name")) {
           // can now be used without --pheno
           reterr = parse_name_ranges(&(argv[arg_idx]), errstr_append, param_ct, 0, range_delim, &pc.pheno_range_list);
           if (reterr) {
             goto main_ret_1;
           }
-        } else if (!memcmp(flagname_p2, "arallel", 8)) {
+        } else if (strequal_k2(flagname_p2, "arallel")) {
           if (pc.king_modifier & kfKingMatrixSq) {
             logerrprint("Error: --parallel cannot be used with '--make-king square'.  Use '--make-king\nsquare0' or plain --make-king instead.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -6223,7 +6240,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           --pc.parallel_idx; // internal 0..(n-1) indexing
-        } else if (!memcmp(flagname_p2, "arameters", 10)) {
+        } else if (strequal_k2(flagname_p2, "arameters")) {
           if (!(pc.command_flags1 & kfCommand1Glm)) {
             logerrprint("Error: --parameters must be used with --glm.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -6232,7 +6249,7 @@ int main(int argc, char** argv) {
           if (reterr) {
             goto main_ret_1;
           }
-        } else if (!memcmp(flagname_p2, "filter", 7)) {
+        } else if (strequal_k2(flagname_p2, "filter")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -6245,7 +6262,7 @@ int main(int argc, char** argv) {
             logerrprint("Error: --pfilter threshold must be in (0, 1].\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-        } else if (!memcmp(flagname_p2, "ca", 3)) {
+        } else if (strequal_k2(flagname_p2, "ca")) {
 #ifdef NOLAPACK
           logerrprint("Error: --pca requires " PROG_NAME_STR " to be built with LAPACK.\n");
           goto main_ret_INVALID_CMDLINE;
@@ -6257,22 +6274,22 @@ int main(int argc, char** argv) {
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argv[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
-            if ((cur_modif_slen == 6) && (!memcmp(cur_modif, "approx", 6))) {
+            if (strequal_k(cur_modif, "approx", cur_modif_slen)) {
               pc.pca_flags |= kfPcaApprox;
-            } else if ((cur_modif_slen == 10) && (!memcmp(cur_modif, "meanimpute", 10))) {
+            } else if (strequal_k(cur_modif, "meanimpute", cur_modif_slen)) {
               pc.pca_flags |= kfPcaMeanimpute;
-            } else if ((cur_modif_slen == 3) && (!memcmp(cur_modif, "sid", 3))) {
+            } else if (strequal_k(cur_modif, "sid", cur_modif_slen)) {
               pc.pca_flags |= kfPcaSid;
-            } else if ((cur_modif_slen == 7) && (!memcmp(cur_modif, "var-wts", 7))) {
+            } else if (strequal_k(cur_modif, "var-wts", cur_modif_slen)) {
               is_var_wts = 1;
-            } else if ((cur_modif_slen == 3) && (!memcmp(cur_modif, "vzs", 3))) {
+            } else if (strequal_k(cur_modif, "vzs", cur_modif_slen)) {
               pc.pca_flags |= kfPcaVarZs;
-            } else if ((cur_modif_slen > 6) && (!memcmp(cur_modif, "vcols=", 6))) {
+            } else if (str_startswith(cur_modif, "vcols=", cur_modif_slen)) {
               if (pc.pca_flags & kfPcaVcolAll) {
                 logerrprint("Error: Multiple --pca vcols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = parse_col_descriptor(&(cur_modif[6]), "chrom\0pos\0ref\0alt1\0alt\0maj\0nonmaj\0", "pca vcols", kfPcaVcolChrom, kfPcaVcolDefault, 1, &pc.pca_flags);
+              reterr = parse_col_descriptor(&(cur_modif[strlen("vcols=")]), "chrom\0pos\0ref\0alt1\0alt\0maj\0nonmaj\0", "pca vcols", kfPcaVcolChrom, kfPcaVcolDefault, 1, &pc.pca_flags);
               if (reterr) {
                 goto main_ret_1;
               }
@@ -6336,7 +6353,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE;
           }
           pc.command_flags1 |= kfCommand1Pca;
-        } else if (!memcmp(flagname_p2, "heno-quantile-normalize", 24)) {
+        } else if (strequal_k2(flagname_p2, "heno-quantile-normalize")) {
           if (param_ct) {
             reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &pc.quantnorm_flattened);
             if (reterr) {
@@ -6351,7 +6368,7 @@ int main(int argc, char** argv) {
         break;
 
       case 'q':
-        if (!memcmp(flagname_p2, "uantile-normalize", 18)) {
+        if (strequal_k2(flagname_p2, "uantile-normalize")) {
           if (pc.pheno_transform_flags & (kfPhenoTransformQuantnormPheno | kfPhenoTransformQuantnormCovar)) {
             logerrprint("Error: --quantile-normalize cannot be used with --pheno-quantile-normalize or\n--covar-quantile-normalize.\n");
             goto main_ret_INVALID_CMDLINE;
@@ -6370,14 +6387,14 @@ int main(int argc, char** argv) {
         break;
 
       case 'r':
-        if (!memcmp(flagname_p2, "eal-ref-alleles", 16)) {
+        if (strequal_k2(flagname_p2, "eal-ref-alleles")) {
           if (pc.misc_flags & kfMiscMajRef) {
             logerrprint("Error: --real-ref-alleles cannot be used with --maj-ref.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           pc.misc_flags |= kfMiscRealRefAlleles;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "emove", 6)) {
+        } else if (strequal_k2(flagname_p2, "emove")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -6394,7 +6411,7 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPsamReq;
-        } else if (!memcmp(flagname_p2, "emove-fam", 10)) {
+        } else if (strequal_k2(flagname_p2, "emove-fam")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -6403,16 +6420,16 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPsamReq;
-        } else if (!memcmp(flagname_p2, "emove-females", 14)) {
+        } else if (strequal_k2(flagname_p2, "emove-females")) {
           pc.filter_flags |= kfFilterPsamReq | kfFilterExclFemales;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "emove-males", 12)) {
+        } else if (strequal_k2(flagname_p2, "emove-males")) {
           pc.filter_flags |= kfFilterPsamReq | kfFilterExclMales;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "emove-nosex", 12)) {
+        } else if (strequal_k2(flagname_p2, "emove-nosex")) {
           pc.filter_flags |= kfFilterPsamReq | kfFilterExclNosex;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "ead-freq", 9)) {
+        } else if (strequal_k2(flagname_p2, "ead-freq")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -6421,7 +6438,7 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.dependency_flags |= kfFilterAllReq;
-        } else if (!memcmp(flagname_p2, "equire-pheno", 13)) {
+        } else if (strequal_k2(flagname_p2, "equire-pheno")) {
           if (param_ct) {
             reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &require_pheno_flattened);
             if (reterr) {
@@ -6430,7 +6447,7 @@ int main(int argc, char** argv) {
           }
           pc.misc_flags |= kfMiscRequirePheno;
           pc.filter_flags |= kfFilterPsamReq;
-        } else if (!memcmp(flagname_p2, "equire-covar", 13)) {
+        } else if (strequal_k2(flagname_p2, "equire-covar")) {
           if (param_ct) {
             reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &require_covar_flattened);
             if (reterr) {
@@ -6439,13 +6456,13 @@ int main(int argc, char** argv) {
           }
           pc.misc_flags |= kfMiscRequireCovar;
           pc.filter_flags |= kfFilterPsamReq;
-        } else if (!memcmp(flagname_p2, "emove-if", 9)) {
+        } else if (strequal_k2(flagname_p2, "emove-if")) {
           reterr = validate_and_alloc_cmp_expr(&(argv[arg_idx + 1]), argv[arg_idx], param_ct, &pc.remove_if_expr);
           if (reterr) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPsamReq;
-        } else if (!memcmp(flagname_p2, "emove-cats", 11)) {
+        } else if (strequal_k2(flagname_p2, "emove-cats")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -6454,7 +6471,7 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPsamReq;
-        } else if (!memcmp(flagname_p2, "emove-cat-names", 16)) {
+        } else if (strequal_k2(flagname_p2, "emove-cat-names")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -6463,7 +6480,7 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPsamReq;
-        } else if (!memcmp(flagname_p2, "emove-cat-pheno", 14)) {
+        } else if (strequal_k2(flagname_p2, "emove-cat-pheno")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -6471,7 +6488,7 @@ int main(int argc, char** argv) {
           if (reterr) {
             goto main_ret_1;
           }
-        } else if (!memcmp(flagname_p2, "ef-allele", 10)) {
+        } else if (strequal_k2(flagname_p2, "ef-allele")) {
           if (pc.misc_flags & kfMiscMajRef) {
             logerrprint("Error: --maj-ref cannot be used with --ref-allele/--alt1-allele.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -6494,7 +6511,7 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.dependency_flags |= kfFilterPvarReq;
-        } else if (!memcmp(flagname_p2, "ef-from-fa", 11)) {
+        } else if (strequal_k2(flagname_p2, "ef-from-fa")) {
           if ((pc.misc_flags & kfMiscMajRef) || pc.alt1_allele_flag) {
             // could allow --alt1-allele later, but keep this simpler for now
             logerrprint("Error: --ref-from-fa cannot be used with --maj-ref or\n--ref-allele/--alt1-allele.\n");
@@ -6515,10 +6532,10 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.dependency_flags |= kfFilterPvarReq;
-        } else if (!memcmp(flagname_p2, "andmem", 7)) {
+        } else if (strequal_k2(flagname_p2, "andmem")) {
           randmem = 1;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "ice", 4)) {
+        } else if (strequal_k2(flagname_p2, "ice")) {
           if (chr_info.chrset_source) {
             logerrprint("Error: Conflicting chromosome-set flags.\n");
             goto main_ret_INVALID_CMDLINE;
@@ -6539,7 +6556,7 @@ int main(int argc, char** argv) {
         break;
 
       case 's':
-        if (!memcmp(flagname_p2, "eed", 4)) {
+        if (strequal_k2(flagname_p2, "eed")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -6549,12 +6566,12 @@ int main(int argc, char** argv) {
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argv[arg_idx + param_idx];
-            if (scan_uint_capped(cur_modif, 0xffffffffU, &(rseeds[param_idx - 1]))) {
+            if (scan_uint_capped(cur_modif, UINT32_MAX, &(rseeds[param_idx - 1]))) {
               sprintf(g_logbuf, "Error: Invalid --seed parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
-        } else if (!memcmp(flagname_p2, "plit-par", 9)) {
+        } else if (strequal_k2(flagname_p2, "plit-par")) {
           if (pc.misc_flags & kfMiscMergePar) {
             logerrprint("Error: --split-par cannot be used with --merge-par.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -6588,7 +6605,7 @@ int main(int argc, char** argv) {
             }
           }
           pc.dependency_flags |= kfFilterPvarReq | kfFilterNoSplitChr;
-        } else if ((!memcmp(flagname_p2, "et-all-var-ids", 15)) || (!memcmp(flagname_p2, "et-missing-var-ids", 19))) {
+        } else if (strequal_k2(flagname_p2, "et-all-var-ids") || strequal_k2(flagname_p2, "et-missing-var-ids")) {
           if (flagname_p2[3] == 'm') {
             if (pc.varid_template) {
               logerrprint("Error: --set-missing-var-ids cannot be used with --set-all-var-ids.\n");
@@ -6607,21 +6624,21 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.dependency_flags |= kfFilterPvarReq;
-        } else if (!memcmp(flagname_p2, "et-hh-missing", 14)) {
+        } else if (strequal_k2(flagname_p2, "et-hh-missing")) {
           if (!(pc.command_flags1 & kfCommand1MakePlink2)) {
             logerrprint("Error: --set-hh-missing must be used with --make-{b}pgen/--make-bed.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           make_plink2_modifier |= kfMakePlink2SetHhMissing;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "et-mixed-mt-missing", 20)) {
+        } else if (strequal_k2(flagname_p2, "et-mixed-mt-missing")) {
           if (!(pc.command_flags1 & kfCommand1MakePlink2)) {
             logerrprint("Error: --set-mixed-mt-missing must be used with --make-{b}pgen/--make-bed.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           make_plink2_modifier |= kfMakePlink2SetMixedMtMissing;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "ample", 6)) {
+        } else if (strequal_k2(flagname_p2, "ample")) {
           if (load_params || (xload & (~(kfXloadOxGen | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxLegend | kfXloadOxSample)))) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
@@ -6640,7 +6657,7 @@ int main(int argc, char** argv) {
           }
           memcpy(psamname, cur_fname, slen + 1);
           xload |= kfXloadOxSample;
-        } else if (!memcmp(flagname_p2, "heep", 5)) {
+        } else if (strequal_k2(flagname_p2, "heep")) {
           if (chr_info.chrset_source) {
             logerrprint("Error: Conflicting chromosome-set flags.\n");
             goto main_ret_INVALID_CMDLINE;
@@ -6655,7 +6672,7 @@ int main(int argc, char** argv) {
           chr_info.xymt_codes[5] = -2;
           chr_info.haploid_mask[0] = 0x18000000;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "np", 3)) {
+        } else if (strequal_k2(flagname_p2, "np")) {
           if (pc.varid_exclude_snp) {
             // problematic due to --window
             logerrprint("Error: --snp cannot be used with --exclude-snp.\n");
@@ -6669,13 +6686,13 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPvarReq;
-        } else if (!memcmp(flagname_p2, "nps", 4)) {
+        } else if (strequal_k2(flagname_p2, "nps")) {
           reterr = parse_name_ranges(&(argv[arg_idx]), errstr_append, param_ct, 0, range_delim, &pc.snps_range_list);
           if (reterr) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPvarReq;
-        } else if (!memcmp(flagname_p2, "nps-only", 9)) {
+        } else if (strequal_k2(flagname_p2, "nps-only")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -6689,7 +6706,7 @@ int main(int argc, char** argv) {
             }
           }
           pc.filter_flags |= kfFilterPvarReq | kfFilterSnpsOnly;
-        } else if (!memcmp(flagname_p2, "core", 5)) {
+        } else if (strequal_k2(flagname_p2, "core")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 11)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -6702,28 +6719,28 @@ int main(int argc, char** argv) {
           for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argv[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
-            if ((cur_modif_slen == 6) && (!memcmp(cur_modif, "header", 6))) {
+            if (strequal_k(cur_modif, "header", cur_modif_slen)) {
               pc.score_info.flags |= kfScoreHeaderIgnore;
-            } else if ((cur_modif_slen == 11) && (!memcmp(cur_modif, "header-read", 11))) {
+            } else if (strequal_k(cur_modif, "header-read", cur_modif_slen)) {
               pc.score_info.flags |= kfScoreHeaderRead;
-            } else if ((cur_modif_slen == 18) && (!memcmp(cur_modif, "no-mean-imputation", 18))) {
+            } else if (strequal_k(cur_modif, "no-mean-imputation", cur_modif_slen)) {
               pc.score_info.flags |= kfScoreNoMeanimpute;
-            } else if ((cur_modif_slen == 6) && (!memcmp(cur_modif, "center", 6))) {
+            } else if (strequal_k(cur_modif, "center", cur_modif_slen)) {
               pc.score_info.flags |= kfScoreCenter;
-            } else if ((cur_modif_slen == 20) && (!memcmp(cur_modif, "variance-standardize", 20))) {
+            } else if (strequal_k(cur_modif, "variance-standardize", cur_modif_slen)) {
               pc.score_info.flags |= kfScoreVarianceStandardize;
-            } else if ((cur_modif_slen == 18) && (!memcmp(cur_modif, "variance-normalize", 18))) {
+            } else if (strequal_k(cur_modif, "variance-normalize", cur_modif_slen)) {
               logerrprint("Note: --score's 'variance-normalize' modifier has been renamed to the more\nprecise 'variance-standardize'.\n");
               pc.score_info.flags |= kfScoreVarianceStandardize;
-            } else if ((cur_modif_slen == 2) && (!memcmp(cur_modif, "se", 2))) {
+            } else if (strequal_k(cur_modif, "se", cur_modif_slen)) {
               pc.score_info.flags |= kfScoreSe;
-            } else if ((cur_modif_slen == 2) && (!memcmp(cur_modif, "zs", 2))) {
+            } else if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               pc.score_info.flags |= kfScoreZs;
-            } else if ((cur_modif_slen == 13) && (!memcmp(cur_modif, "list-variants", 13))) {
+            } else if (strequal_k(cur_modif, "list-variants", cur_modif_slen)) {
               pc.score_info.flags |= kfScoreListVariants;
-            } else if ((cur_modif_slen == 16) && (!memcmp(cur_modif, "list-variants-zs", 16))) {
+            } else if (strequal_k(cur_modif, "list-variants-zs", cur_modif_slen)) {
               pc.score_info.flags |= kfScoreListVariants | kfScoreListVariantsZs;
-            } else if ((cur_modif_slen > 5) && (!memcmp(cur_modif, "cols=", 5))) {
+            } else if (str_startswith(cur_modif, "cols=", cur_modif_slen)) {
               if (pc.score_info.flags & kfScoreColAll) {
                 logerrprint("Error: Multiple --score cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
@@ -6780,7 +6797,7 @@ int main(int argc, char** argv) {
             pc.score_info.input_col_idx_range_list.starts_range = (unsigned char*)(&(new_buf[col_idx_blen]));
           }
           pc.command_flags1 |= kfCommand1Score;
-        } else if (!memcmp(flagname_p2, "core-col-nums", 14)) {
+        } else if (strequal_k2(flagname_p2, "core-col-nums")) {
           if (!(pc.command_flags1 & kfCommand1Score)) {
             logerrprint("Error: --score-col-nums must be used with --score.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -6793,7 +6810,7 @@ int main(int argc, char** argv) {
           if (reterr) {
             goto main_ret_1;
           }
-        } else if (!memcmp(flagname_p2, "plit-cat-pheno", 15)) {
+        } else if (strequal_k2(flagname_p2, "plit-cat-pheno")) {
           uint32_t first_phenoname_idx = 1;
           for (; first_phenoname_idx <= param_ct; ++first_phenoname_idx) {
             const char* cur_modif = argv[arg_idx + first_phenoname_idx];
@@ -6826,7 +6843,7 @@ int main(int argc, char** argv) {
           }
           pc.pheno_transform_flags |= kfPhenoTransformSplitCat;
           pc.dependency_flags |= kfFilterPsamReq;
-        } else if (!memcmp(flagname_p2, "ort-vars", 9)) {
+        } else if (strequal_k2(flagname_p2, "ort-vars")) {
           if (!(pc.command_flags1 & kfCommand1MakePlink2)) {
             // todo: permit merge
             logerrprint("Error: --sort-vars must be used with --make-{b}pgen/--make-bed or dataset\nmerging.\n");
@@ -6850,13 +6867,13 @@ int main(int argc, char** argv) {
           } else {
             pc.sort_vars_flags = kfSortNatural;
           }
-        } else if (memcmp(flagname_p2, "ilent", 6)) {
+        } else if (!strequal_k2(flagname_p2, "ilent")) {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
         break;
 
       case 't':
-        if (!memcmp(flagname_p2, "hreads", 7)) {
+        if (strequal_k2(flagname_p2, "hreads")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -6871,7 +6888,7 @@ int main(int argc, char** argv) {
             // trigger BLAS/LAPACK warning?
             known_procs = 0;
           }
-        } else if (!memcmp(flagname_p2, "o", 2)) {
+        } else if (strequal_k2(flagname_p2, "o")) {
           if (chr_info.is_include_stack || notchr_present) {
             logerrprint("Error: --from/--to cannot be used with --autosome{-par} or --{not-}chr.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -6884,7 +6901,7 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPvarReq | kfFilterNoSplitChr;
-        } else if ((!memcmp(flagname_p2, "o-bp", 5)) || (!memcmp(flagname_p2, "o-kb", 5)) || (!memcmp(flagname_p2, "o-mb", 5))) {
+        } else if (strequal_k2(flagname_p2, "o-bp") || strequal_k2(flagname_p2, "o-kb") || strequal_k2(flagname_p2, "o-mb")) {
           if (!cmdline_single_chr(&chr_info, pc.misc_flags)) {
             logerrprint("Error: --from-bp/-kb/-mb and --to-bp/-kb/-mb must be used with --chr, and only\none chromosome.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -6927,7 +6944,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE;
           }
           pc.filter_flags |= kfFilterPvarReq;
-        } else if (!memcmp(flagname_p2, "ests", 5)) {
+        } else if (strequal_k2(flagname_p2, "ests")) {
           if (!(pc.command_flags1 & kfCommand1Glm)) {
             logerrprint("Error: --tests must be used with --glm.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -6949,7 +6966,7 @@ int main(int argc, char** argv) {
         break;
 
       case 'u':
-        if (!memcmp(flagname_p2, "pdate-sex", 10)) {
+        if (strequal_k2(flagname_p2, "pdate-sex")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -6965,7 +6982,7 @@ int main(int argc, char** argv) {
             }
           }
           pc.dependency_flags |= kfFilterPsamReq;
-        } else if (!memcmp(flagname_p2, "pdate-name", 11)) {
+        } else if (strequal_k2(flagname_p2, "pdate-name")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 4)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -6980,7 +6997,7 @@ int main(int argc, char** argv) {
         break;
 
       case 'v':
-        if (!memcmp(flagname_p2, "ar-min-qual", 12)) {
+        if (strequal_k2(flagname_p2, "ar-min-qual")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -6990,7 +7007,7 @@ int main(int argc, char** argv) {
           }
           pc.var_min_qual *= 1 - kSmallEpsilon;
           pc.filter_flags |= kfFilterPvarReq;
-        } else if (!memcmp(flagname_p2, "ar-filter", 10)) {
+        } else if (strequal_k2(flagname_p2, "ar-filter")) {
           if (param_ct) {
             reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &var_filter_exceptions_flattened);
             if (reterr) {
@@ -6999,7 +7016,7 @@ int main(int argc, char** argv) {
           }
           pc.misc_flags |= kfMiscExcludePvarFilterFail;
           pc.filter_flags |= kfFilterPvarReq;
-        } else if (!memcmp(flagname_p2, "cf", 3)) {
+        } else if (strequal_k2(flagname_p2, "cf")) {
           // permit accompanying .fam/.psam
           // IIDs must match VCF sample line order
           if ((load_params & (~kfLoadParamsPsam)) || xload) {
@@ -7011,11 +7028,11 @@ int main(int argc, char** argv) {
           if (param_ct == 2) {
             const char* cur_modif = argv[arg_idx + 2];
             const uint32_t cur_modif_slen = strlen(cur_modif);
-            if ((cur_modif_slen < 8) || memcmp(cur_modif, "dosage=", 7)) {
+            if (!str_startswith(cur_modif, "dosage=", cur_modif_slen)) {
               sprintf(g_logbuf, "Error: Invalid --vcf parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
-            reterr = cmdline_alloc_string(&(cur_modif[7]), argv[arg_idx], 4095, &vcf_dosage_import_field);
+            reterr = cmdline_alloc_string(&(cur_modif[strlen("dosage=")]), argv[arg_idx], 4095, &vcf_dosage_import_field);
             if (reterr) {
               goto main_ret_1;
             }
@@ -7036,10 +7053,10 @@ int main(int argc, char** argv) {
           }
           memcpy(pgenname, cur_modif, slen + 1);
           xload = kfXloadVcf;
-        } else if (!memcmp(flagname_p2, "cf-min-gp", 10)) {
+        } else if (strequal_k2(flagname_p2, "cf-min-gp")) {
           logerrprint("Error: --vcf-min-gp is no longer supported.  Use --import-dosage-certainty\ninstead.\n");
           goto main_ret_INVALID_CMDLINE_A;
-        } else if ((!memcmp(flagname_p2, "cf-min-gq", 10)) || (!memcmp(flagname_p2, "cf-min-dp", 10))) {
+        } else if (strequal_k2(flagname_p2, "cf-min-gq") || strequal_k2(flagname_p2, "cf-min-dp")) {
           if (!(xload & kfXloadVcf)) {
             // todo: support BCF too
             LOGERRPRINTF("Error: --%s must be used with --vcf.\n", flagname_p);
@@ -7059,7 +7076,7 @@ int main(int argc, char** argv) {
           } else {
             vcf_min_dp = uii;
           }
-        } else if (!memcmp(flagname_p2, "cf-idspace-to", 14)) {
+        } else if (strequal_k2(flagname_p2, "cf-idspace-to")) {
           if (!(xload & (kfXloadVcf | kfXloadBcf))) {
             logerrprint("Error: --vcf-idspace-to must be used with --vcf/--bcf.\n");
             goto main_ret_INVALID_CMDLINE;
@@ -7080,7 +7097,7 @@ int main(int argc, char** argv) {
             logerrprint("Error: --vcf-idspace-to parameter must be a nonspace character.\n");
             goto main_ret_INVALID_CMDLINE;
           }
-        } else if (!memcmp(flagname_p2, "cf-half-call", 13)) {
+        } else if (strequal_k2(flagname_p2, "cf-half-call")) {
           if (!(xload & kfXloadVcf)) {
             logerrprint("Error: --vcf-half-call must be used with --vcf.\n");
             goto main_ret_INVALID_CMDLINE;
@@ -7103,14 +7120,14 @@ int main(int argc, char** argv) {
             sprintf(g_logbuf, "Error: '%s' is not a valid mode for --vcf-half-call.\n", half_call_mode_str);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-        } else if (!memcmp(flagname_p2, "cf-require-gt", 14)) {
+        } else if (strequal_k2(flagname_p2, "cf-require-gt")) {
           if (!(xload & (kfXloadVcf | kfXloadBcf))) {
             logerrprint("Error: --vcf-require-gt must be used with --vcf/--bcf.\n");
             goto main_ret_INVALID_CMDLINE;
           }
           pc.misc_flags |= kfMiscVcfRequireGt;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "if", 3)) {
+        } else if (strequal_k2(flagname_p2, "if")) {
           if (!(pc.command_flags1 & kfCommand1Glm)) {
             logerrprint("Error: --vif must be used with --glm/--epistasis.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -7127,7 +7144,7 @@ int main(int argc, char** argv) {
             sprintf(g_logbuf, "Error: --glm/--epistasis VIF threshold '%s' too small (must be >= 1).\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-        } else if (!memcmp(flagname_p2, "ariance-standardize", 20)) {
+        } else if (strequal_k2(flagname_p2, "ariance-standardize")) {
           if (pc.pheno_transform_flags & kfPhenoTransformVstdCovar) {
             logerrprint("Error: --variance-standardize cannot be used with --covar-variance-standardize.\n");
             goto main_ret_INVALID_CMDLINE;
@@ -7140,7 +7157,7 @@ int main(int argc, char** argv) {
           }
           pc.pheno_transform_flags |= kfPhenoTransformVstdAll;
           pc.dependency_flags |= kfFilterPsamReq;
-        } else if (!memcmp(flagname_p2, "alidate", 8)) {
+        } else if (strequal_k2(flagname_p2, "alidate")) {
           pc.command_flags1 |= kfCommand1Validate;
           goto main_param_zero;
         } else {
@@ -7149,7 +7166,7 @@ int main(int argc, char** argv) {
         break;
 
       case 'w':
-        if (!memcmp(flagname_p2, "rite-snplist", 13)) {
+        if (strequal_k2(flagname_p2, "rite-snplist")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
@@ -7162,10 +7179,10 @@ int main(int argc, char** argv) {
             pc.misc_flags |= kfMiscWriteSnplistZs;
           }
           pc.command_flags1 |= kfCommand1WriteSnplist;
-        } else if (!memcmp(flagname_p2, "rite-samples", 13)) {
+        } else if (strequal_k2(flagname_p2, "rite-samples")) {
           pc.command_flags1 |= kfCommand1WriteSamples;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "indow", 6)) {
+        } else if (strequal_k2(flagname_p2, "indow")) {
           if (!(pc.varid_snp || pc.varid_exclude_snp)) {
             logerrprint("Error: --window must be used with --snp or --exclude-snp.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -7187,7 +7204,7 @@ int main(int argc, char** argv) {
           }
           pc.filter_flags |= kfFilterNoSplitChr;
           // no need to set kfFilterPvarReq due to --snp/--exclude-snp req.
-        } else if (!memcmp(flagname_p2, "ithin", 6)) {
+        } else if (strequal_k2(flagname_p2, "ithin")) {
           if (pc.misc_flags & kfMiscCatPhenoFamily) {
             logerrprint("Error: --within cannot be used with --family.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -7198,7 +7215,7 @@ int main(int argc, char** argv) {
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argv[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
-            if ((cur_modif_slen == 7) && (!memcmp(cur_modif, "keep-", 5)) && match_upper_counted(&(cur_modif[5]), "NA", 2)) {
+            if ((cur_modif_slen == 7) && str_startswith2(cur_modif, "keep-") && match_upper_k2(&(cur_modif[5]), "NA")) {
               logerrprint("Error: --within's keep-NA modifier has been retired.  Rename that category in\nthe input file if you wish to keep it.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
@@ -7216,14 +7233,14 @@ int main(int argc, char** argv) {
             }
           }
           pc.dependency_flags |= kfFilterPsamReq;
-        } else if (!memcmp(flagname_p2, "rite-covar", 11)) {
+        } else if (strequal_k2(flagname_p2, "rite-covar")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct) {
             const char* cur_modif = argv[arg_idx + 1];
             const uint32_t cur_modif_slen = strlen(cur_modif);
-            if ((cur_modif_slen >= 5) && (!memcmp(cur_modif, "cols=", 5))) {
+            if (str_startswithz(cur_modif, "cols=", cur_modif_slen)) {
               reterr = parse_col_descriptor(&(cur_modif[5]), "maybesid\0sid\0maybeparents\0parents\0sex\0pheno1\0phenos\0", "write-covar", kfWriteCovarColMaybesid, kfWriteCovarColDefault, 0, &pc.write_covar_flags);
               if (reterr) {
                 goto main_ret_1;
@@ -7236,13 +7253,13 @@ int main(int argc, char** argv) {
             pc.write_covar_flags |= kfWriteCovarColDefault;
           }
           pc.command_flags1 |= kfCommand1WriteCovar;
-        } else if (!memcmp(flagname_p2, "arning-errcode", 15)) {
+        } else if (strequal_k2(flagname_p2, "arning-errcode")) {
           warning_errcode = 1;
           goto main_param_zero;
-        } else if (!memcmp(flagname_p2, "rite-cluster", 13)) {
+        } else if (strequal_k2(flagname_p2, "rite-cluster")) {
           logerrprint("Error: --write-cluster is retired.  Use e.g. --make-just-psam.\n");
           goto main_ret_INVALID_CMDLINE_A;
-        } else if (!memcmp(flagname_p2, "ith-phenotype", 14)) {
+        } else if (strequal_k2(flagname_p2, "ith-phenotype")) {
           logerrprint("Error: --with-phenotype is retired.  Use --write-covar cols=... instead.\n");
           goto main_ret_INVALID_CMDLINE_A;
         } else {
@@ -7251,7 +7268,7 @@ int main(int argc, char** argv) {
         break;
 
       case 'x':
-        if (!memcmp(flagname_p2, "chr-model", 10)) {
+        if (strequal_k2(flagname_p2, "chr-model")) {
           if (!(pc.command_flags1 & (kfCommand1Glm | kfCommand1Score))) {
             logerrprint("Error: --xchr-model must be used with --glm or --score.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -7334,7 +7351,7 @@ int main(int argc, char** argv) {
       // user may want to use --script with different --aperm defaults.)
       logerrprint("Warning: --aperm only controls the settings for adaptive permutation tests; it\ndoes not cause such a test to be performed.  (Did you forget to add the 'perm'\nmodifier to an association analysis flag?)\n");
     }
-    if ((pc.hard_call_thresh == 0xffffffffU) && (xload & (kfXloadVcf | kfXloadBcf | kfXloadOxGen | kfXloadOxBgen))) {
+    if ((pc.hard_call_thresh == UINT32_MAX) && (xload & (kfXloadVcf | kfXloadBcf | kfXloadOxGen | kfXloadOxBgen))) {
       if (pc.dosage_erase_thresh > (kDosageMid / 10)) {
         logerrprint("Error: --dosage-erase-threshold value cannot be larger than (default)\n--hard-call-threshold value.\n");
         goto main_ret_INVALID_CMDLINE_A;
@@ -7478,7 +7495,7 @@ int main(int argc, char** argv) {
         }
 
         // todo: we have to skip this when merging is involved
-        pc.hard_call_thresh = 0xffffffffU;
+        pc.hard_call_thresh = UINT32_MAX;
 
         strcpy(memcpya(pgenname, outname, convname_slen), ".pgen");
         strcpy(memcpya(pvarname, outname, convname_slen), ".pvar");

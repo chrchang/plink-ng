@@ -165,7 +165,7 @@ pglerr_t glm_local_init(const char* local_covar_fname, const char* local_pvar_fn
       }
       loadbuf_first_token = skip_initial_spaces(loadbuf);
       is_header_line = (loadbuf_first_token[0] == '#');
-    } while (is_header_line && strcmp_se(&(loadbuf_first_token[1]), "FID", 3) && strcmp_se(&(loadbuf_first_token[1]), "IID", 3));
+    } while (is_eoln_kns(*loadbuf_first_token) || (is_header_line && (!tokequal_k(&(loadbuf_first_token[1]), "FID")) && (!tokequal_k(&(loadbuf_first_token[1]), "IID"))));
     xid_mode_t xid_mode = kfXidModeFidiid;
     if (is_header_line) {
       if (loadbuf_first_token[1] == 'I') {
@@ -226,7 +226,7 @@ pglerr_t glm_local_init(const char* local_covar_fname, const char* local_pvar_fn
             sprintf(g_logbuf, "Error: Fewer tokens than expected on line %" PRIuPTR " of %s.\n", line_idx, local_psam_fname);
             goto glm_local_init_ret_MALFORMED_INPUT_WW;
           }
-          local_sample_uidx_order[local_sample_ct] = 0xffffffffU;
+          local_sample_uidx_order[local_sample_ct] = UINT32_MAX;
         }
         ++local_sample_ct;
       }
@@ -300,7 +300,7 @@ pglerr_t glm_local_init(const char* local_covar_fname, const char* local_pvar_fn
       }
       loadbuf_first_token = skip_initial_spaces(loadbuf);
       is_header_line = (loadbuf_first_token[0] == '#');
-    } while (is_header_line && strcmp_se(&(loadbuf_first_token[1]), "CHROM", 5));
+    } while (is_eoln_kns(*loadbuf_first_token) || (is_header_line && (!tokequal_k(loadbuf_first_token, "#CHROM"))));
     uint32_t col_skips[2];
     uint32_t col_types[2];
     // uint32_t relevant_postchr_col_ct = 2;
@@ -324,9 +324,9 @@ pglerr_t glm_local_init(const char* local_covar_fname, const char* local_pvar_fn
         token_end = token_endnn(loadbuf_iter);
         const uint32_t token_slen = (uintptr_t)(token_end - loadbuf_iter);
         uint32_t cur_col_type;
-        if ((token_slen == 3) && (!memcmp(loadbuf_iter, "POS", 3))) {
+        if (strequal_k(loadbuf_iter, "POS", token_slen)) {
           cur_col_type = 0;
-        } else if ((token_slen == 2) && (!memcmp(loadbuf_iter, "ID", 2))) {
+        } else if (strequal_k(loadbuf_iter, "ID", token_slen)) {
           cur_col_type = 1;
         } else {
           continue;
@@ -884,12 +884,12 @@ boolerr_t glm_determine_covars(const uintptr_t* pheno_cc, const uintptr_t* initi
               }
               sample_idx = 3;
             } else {
-              sample_uidx_remove = 0xffffffffU;
+              sample_uidx_remove = UINT32_MAX;
             }
             for (; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
               next_set_unsafe_ck(cur_sample_include, &sample_uidx);
               if (pheno_vals[sample_uidx] != common_pheno_val) {
-                if (sample_uidx_remove == 0xffffffffU) {
+                if (sample_uidx_remove == UINT32_MAX) {
                   sample_uidx_remove = sample_uidx;
                 } else {
                   break;
@@ -897,7 +897,7 @@ boolerr_t glm_determine_covars(const uintptr_t* pheno_cc, const uintptr_t* initi
               }
             }
             if (sample_idx == sample_ct) {
-              if (sample_uidx_remove != 0xffffffffU) {
+              if (sample_uidx_remove != UINT32_MAX) {
                 if (--sample_ct == 2) {
                   goto glm_determine_covars_ret_SKIP;
                 }
@@ -1103,7 +1103,7 @@ boolerr_t check_max_corr_and_vif(const double* predictor_dotprods, uint32_t firs
   }
   if (invert_symmdef_matrix_checked(relevant_predictor_ct, inverse_corr_buf, matrix_invert_buf1, dbl_2d_buf)) {
     vif_corr_check_result_ptr->errcode = kVifCorrCheckVifFail;
-    vif_corr_check_result_ptr->covar_idx1 = 0xffffffffU;
+    vif_corr_check_result_ptr->covar_idx1 = UINT32_MAX;
     return 1;
   }
   // VIFs = diagonal elements of inverse correlation matrix
@@ -1428,7 +1428,7 @@ uint32_t genoarr_to_floats_remove_missing(const uintptr_t* genoarr, uint32_t sam
 //     printf(",\n");
 //   }
 // }
-const uint32_t float_exp_lookup_int[] __attribute__((aligned(16))) = {
+const uint32_t float_exp_lookup_int[] __attribute__((aligned(kBytesPerVec))) = {
 0x00000000, 0x00001630, 0x00002c64, 0x0000429c,
 0x000058d8, 0x00006f17, 0x0000855b, 0x00009ba2,
 0x0000b1ed, 0x0000c83c, 0x0000de8f, 0x0000f4e6,
@@ -1689,6 +1689,38 @@ const uint32_t float_exp_lookup_int[] __attribute__((aligned(16))) = {
 
 const float* const float_exp_lookup = (const float*)float_exp_lookup_int;
 
+/*
+  #ifdef USE_AVX2
+static inline __m256 fmath_exp_ps256(__m256 xx) {
+  const __m256i mask7ff = {0x7fffffff7fffffffLLU, 0x7fffffff7fffffffLLU, 0x7fffffff7fffffffLLU, 0x7fffffff7fffffffLLU};
+  // 88
+  const __m256i max_x = {0x42b0000042b00000LLU, 0x42b0000042b00000LLU, 0x42b0000042b00000LLU, 0x42b0000042b00000LLU};
+  // -88
+  // more sensible 0xc2b00000... not used here due to "narrowing conversion"
+  // warning
+  const __m256i min_x = {-0x3d4fffff3d500000LL, -0x3d4fffff3d500000LL, -0x3d4fffff3d500000LL, -0x3d4fffff3d500000LL};
+  // 2^10 / log(2)
+  const __m256i const_aa = {0x44b8aa3b44b8aa3bLLU, 0x44b8aa3b44b8aa3bLLU, 0x44b8aa3b44b8aa3bLLU, 0x44b8aa3b44b8aa3bLLU};
+  // log(2) / 2^10
+  const __m256i const_bb = {0x3a3172183a317218LLU, 0x3a3172183a317218LLU, 0x3a3172183a317218LLU, 0x3a3172183a317218LLU};
+  const __m256i f1 = {0x3f8000003f800000LLU, 0x3f8000003f800000LLU, 0x3f8000003f800000LLU, 0x3f8000003f800000LLU};
+  const __m256i mask_s = {0x3ff000003ffLLU, 0x3ff000003ffLLU, 0x3ff000003ffLLU, 0x3ff000003ffLLU};
+  const __m256i i127s = {0x1fc000001fc00LLU, 0x1fc000001fc00LLU, 0x1fc000001fc00LLU, 0x1fc000001fc00LLU};
+  const __m256i limit = _mm_castps_si256(_mm256_and_ps(xx, (__m256)mask7ff));
+  const int32_t over = _mm256_movemask_epi8(_mm256_cmpgt_epi32(limit, max_x));
+  if (over) {
+    xx = _mm256_min_ps(xx, (__m256)max_x);
+    xx = _mm256_max_ps(xx, (__m256)min_x);
+  }
+  const __m256i rr = _mm256_cvtps_epi32(_mm256_mul_ps(xx, (__m256)const_aa));
+  __m256 tt = _mm256_sub_ps(xx, _mm256_mul_ps(_mm_cvtepi32_ps(rr), (__m256)const_bb));
+  tt = _mm256_add_ps(tt, (__m256)f1);
+  const __m256i v8 = _mm256_and_si256(rr, mask_s);
+  __m256i u8 = _mm256_add_epi32(rr, i127s);
+  u8 = _mm256_srli_epi32(u8, 10);
+  u8 = _mm256_slli_epi32(u8, 23);
+  #else // !USE_AVX2
+*/
 static inline __m128 fmath_exp_ps(__m128 xx) {
   const __m128i mask7ff = {0x7fffffff7fffffffLLU, 0x7fffffff7fffffffLLU};
 
@@ -2059,6 +2091,9 @@ static inline void compute_two_plus_one_triple_product(const float* bb, const fl
   uvec.vf = s3;
   *r3_ptr = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
 }
+/*
+  #endif // !USE_AVX2
+*/
 #else // no __LP64__ (and hence, unsafe to assume presence of SSE2)
 static inline void logistic_sse(uint32_t nn, float* vect) {
   for (uint32_t uii = 0; uii < nn; ++uii) {
@@ -3542,8 +3577,8 @@ pglerr_t read_local_covar_block(const uintptr_t* sample_include, const uintptr_t
     if (new_local_xy != *local_xy_ptr) {
       for (uint32_t uii = 0; uii < local_sample_ct; ++uii) {
         const uint32_t cur_uidx = local_sample_uidx_order[uii];
-        uint32_t cur_idx = 0xffffffffU;
-        if ((cur_uidx != 0xffffffffU) && is_set(cur_sample_include, cur_uidx)) {
+        uint32_t cur_idx = UINT32_MAX;
+        if ((cur_uidx != UINT32_MAX) && is_set(cur_sample_include, cur_uidx)) {
           cur_idx = raw_to_subsetted_pos(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_uidx);
         }
         local_sample_idx_order[uii] = cur_idx;
@@ -3572,7 +3607,7 @@ pglerr_t read_local_covar_block(const uintptr_t* sample_include, const uintptr_t
       uint32_t sample_idx = 0;
       for (uint32_t local_sample_idx = 0; sample_idx < cur_sample_ct; ++local_sample_idx) {
         const uint32_t cur_sample_idx = local_sample_idx_order[local_sample_idx];
-        if (cur_sample_idx == 0xffffffffU) {
+        if (cur_sample_idx == UINT32_MAX) {
           loadbuf_iter = next_token_mult(loadbuf_iter, tokens_per_sample);
           if (!loadbuf_iter) {
             logprint("\n");
@@ -3696,8 +3731,8 @@ pglerr_t glm_logistic(const char* cur_pheno_name, char** test_names, char** test
       }
       for (uint32_t uii = 0; uii < local_sample_ct; ++uii) {
         const uint32_t cur_uidx = local_sample_uidx_order[uii];
-        uint32_t cur_idx = 0xffffffffU;
-        if ((cur_uidx != 0xffffffffU) && is_set(g_sample_include, cur_uidx)) {
+        uint32_t cur_idx = UINT32_MAX;
+        if ((cur_uidx != UINT32_MAX) && is_set(g_sample_include, cur_uidx)) {
           cur_idx = raw_to_subsetted_pos(g_sample_include, g_sample_include_cumulative_popcounts, cur_uidx);
         }
         local_sample_idx_order[uii] = cur_idx;
@@ -3969,7 +4004,7 @@ pglerr_t glm_logistic(const char* cur_pheno_name, char** test_names, char** test
     uint32_t parity = 0;
     uint32_t read_block_idx = 0;
     uint32_t write_variant_uidx = 0;
-    uint32_t chr_fo_idx = 0xffffffffU;
+    uint32_t chr_fo_idx = UINT32_MAX;
     uint32_t chr_end = 0;
     uint32_t chr_buf_blen = 0;
     uint32_t suppress_mach_r2 = 0;
@@ -4965,8 +5000,8 @@ pglerr_t glm_linear(const char* cur_pheno_name, char** test_names, char** test_n
       }
       for (uint32_t uii = 0; uii < local_sample_ct; ++uii) {
         const uint32_t cur_uidx = local_sample_uidx_order[uii];
-        uint32_t cur_idx = 0xffffffffU;
-        if ((cur_uidx != 0xffffffffU) && is_set(g_sample_include, cur_uidx)) {
+        uint32_t cur_idx = UINT32_MAX;
+        if ((cur_uidx != UINT32_MAX) && is_set(g_sample_include, cur_uidx)) {
           cur_idx = raw_to_subsetted_pos(g_sample_include, g_sample_include_cumulative_popcounts, cur_uidx);
         }
         local_sample_idx_order[uii] = cur_idx;
@@ -5203,7 +5238,7 @@ pglerr_t glm_linear(const char* cur_pheno_name, char** test_names, char** test_n
     uint32_t parity = 0;
     uint32_t read_block_idx = 0;
     uint32_t write_variant_uidx = 0;
-    uint32_t chr_fo_idx = 0xffffffffU;
+    uint32_t chr_fo_idx = UINT32_MAX;
     uint32_t chr_end = 0;
     uint32_t chr_buf_blen = 0;
     uint32_t suppress_mach_r2 = 0;
@@ -5838,7 +5873,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
             }
             uint32_t cur_variant_uidx = variant_id_dupflag_htable_find(token_start, variant_ids, variant_id_htable, token_slen, variant_id_htable_size, max_variant_id_slen);
             if (cur_variant_uidx >> 31) {
-              if (cur_variant_uidx != 0xffffffffU) {
+              if (cur_variant_uidx != UINT32_MAX) {
                 LOGERRPRINTFWW("Error: --condition-list variant ID '%s' appears multiple times.\n", variant_ids[cur_variant_uidx & 0x7fffffff]);
                 goto glm_main_ret_INCONSISTENT_INPUT;
               }
@@ -5859,7 +5894,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
           }
           if (token_slen) {
             // error code
-            if (token_slen == 0xffffffffU) {
+            if (token_slen == UINT32_MAX) {
               logerrprint("Error: Excessively long ID in --condition-list file.\n");
               goto glm_main_ret_MALFORMED_INPUT;
             }
@@ -6441,7 +6476,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
         }
       }
       if (vif_corr_check_result.errcode) {
-        if (vif_corr_check_result.covar_idx1 == 0xffffffffU) {
+        if (vif_corr_check_result.covar_idx1 == UINT32_MAX) {
           // must be correlation matrix inversion failure
           LOGERRPRINTFWW("Warning: Skipping --glm regression on phenotype '%s' since covariate correlation matrix could not be inverted. You may want to remove redundant covariates and try again.\n", cur_pheno_name);
         } else {
@@ -6466,7 +6501,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
         }
         if (vif_corr_check_result.errcode) {
           // maybe these prints should be in a separate function...
-          if (vif_corr_check_result.covar_idx1 == 0xffffffffU) {
+          if (vif_corr_check_result.covar_idx1 == UINT32_MAX) {
             LOGERRPRINTFWW("Warning: Skipping chrX in --glm regression on phenotype '%s', since covariate correlation matrix could not be inverted. You may want to remove redundant covariates and try again.\n", cur_pheno_name);
           } else {
             if (vif_corr_check_result.errcode == kVifCorrCheckVifFail) {
@@ -6490,7 +6525,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
           }
         }
         if (vif_corr_check_result.errcode) {
-          if (vif_corr_check_result.covar_idx1 == 0xffffffffU) {
+          if (vif_corr_check_result.covar_idx1 == UINT32_MAX) {
             LOGERRPRINTFWW("Warning: Skipping chrY in --glm regression on phenotype '%s', since covariate correlation matrix could not be inverted.\n", cur_pheno_name);
           } else {
             if (vif_corr_check_result.errcode == kVifCorrCheckVifFail) {

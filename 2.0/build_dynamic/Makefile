@@ -1,7 +1,6 @@
 # Linux/OS X Makefile for PLINK 2.00.
 #
 # Compilation options (leave blank after "=" to disable, put "= 1" to enable):
-#   Do not use SSE 4.2 instructions: NO_SSE42
 #   Do not link to LAPACK: NO_LAPACK
 #   Use cblas_f77 instead of cblas: FORCE_CBLAS_F77
 #   Use only -O2 optimization for zstd (may be necessary for gcc 4.x): ZSTD_O2
@@ -9,11 +8,9 @@
 #   Link to MKL with 64-bit indexes (dynamically): DYNAMIC_MKL
 #     (this also requires MKLROOT and MKL_IOMP5_DIR to be defined, and
 #     LD_LIBRARY_PATH to include the appropriate directories)
-#   32-bit binary (also sets STATIC_ZLIB, ZSTD_O2, NO_AVX2, and NO_SSE42):
+#   32-bit binary (also sets STATIC_ZLIB, ZSTD_O2):
 #     FORCE_32BIT (warning: you may need to add a zconf.h symlink to make that
 #     work)
-NO_AVX2 =
-NO_SSE42 =
 NO_LAPACK =
 PREFER_CBLAS_F77 =
 ZSTD_O2 = 1
@@ -32,13 +29,12 @@ ARCH32=
 
 ifdef FORCE_32BIT
   # this is targeted at Scientific Linux 6.
-  NO_AVX2 = 1
-  NO_SSE42 = 1
   STATIC_ZLIB = 1
   ZSTD_O2 = 1
   ARCH32 = -m32 -march=i686
   CXXFLAGS = -std=c++0x
 else
+  BASEFLAGS = -march=native
   CXXFLAGS = -std=c++11
 endif
 BASEFLAGS += ${ARCH32}
@@ -53,14 +49,6 @@ else
 endif
 # this actually needs to be named "CXXFLAGS"
 CXXFLAGS += -O2
-
-ifndef NO_AVX2
-  BASEFLAGS += -mavx2
-else
-  ifndef NO_SSE42
-    BASEFLAGS += -msse4.2
-  endif
-endif
 
 ifdef FORCE_CBLAS_F77
   BASEFLAGS += -DFORCE_CBLAS_F77

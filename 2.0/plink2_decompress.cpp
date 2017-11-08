@@ -96,7 +96,7 @@ char* gz_token_stream_advance(gz_token_stream_t* gtsp, uint32_t* token_slen_ptr)
         return token_start;
       }
       if (token_slen > kMaxMediumLine) {
-        *token_slen_ptr = 0xffffffffU;
+        *token_slen_ptr = UINT32_MAX;
         return nullptr;
       }
       char* new_token_start = &(gtsp->buf_start[kMaxMediumLine - token_slen]);

@@ -438,7 +438,7 @@ void copy_bitarr_subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t*
   uintptr_t* output_bitarr_iter = output_bitarr;
   uintptr_t* output_bitarr_last = &(output_bitarr[subset_size / kBitsPerWord]);
   uintptr_t cur_output_word = 0;
-  uint32_t read_widx = 0xffffffffU; // deliberate overflow
+  uint32_t read_widx = UINT32_MAX; // deliberate overflow
   uint32_t write_idx_lowbits = 0;
   while ((output_bitarr_iter != output_bitarr_last) || (write_idx_lowbits != subset_size_lowbits)) {
     uintptr_t cur_mask_word;
@@ -491,37 +491,6 @@ void copy_bitarr_subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t*
 }
 
 #ifdef USE_AVX2
-static inline void csa256(vul_t aa, vul_t bb, vul_t cc, vul_t* hp, vul_t* lp) {
-  const vul_t uu = aa ^ bb;
-  *hp = (aa & bb) | (uu & cc);
-  *lp = uu ^ cc;
-}
-
-static inline vul_t popcnt256(vul_t vv) {
-  const __m256i vi = (__m256i)vv;
-  __m256i lookup1 = _mm256_setr_epi8(
-                                     4, 5, 5, 6, 5, 6, 6, 7,
-                                     5, 6, 6, 7, 6, 7, 7, 8,
-                                     4, 5, 5, 6, 5, 6, 6, 7,
-                                     5, 6, 6, 7, 6, 7, 7, 8
-                                     );
-
-  __m256i lookup2 = _mm256_setr_epi8(
-                                     4, 3, 3, 2, 3, 2, 2, 1,
-                                     3, 2, 2, 1, 2, 1, 1, 0,
-                                     4, 3, 3, 2, 3, 2, 2, 1,
-                                     3, 2, 2, 1, 2, 1, 1, 0
-                                     );
-
-  __m256i low_mask = _mm256_set1_epi8(0x0f);
-  __m256i lo = _mm256_and_si256(vi, low_mask);
-  __m256i hi = _mm256_and_si256(_mm256_srli_epi16(vi, 4), low_mask);
-  __m256i popcnt1 = _mm256_shuffle_epi8(lookup1, lo);
-  __m256i popcnt2 = _mm256_shuffle_epi8(lookup2, hi);
-
-  return (vul_t)_mm256_sad_epu8(popcnt1, popcnt2);
-}
-
 uintptr_t popcount_avx2(const vul_t* bit_vvec, uintptr_t vec_ct) {
   // See popcnt_avx2() in libpopcnt.
   vul_t cnt = vul_setzero();
@@ -529,43 +498,33 @@ uintptr_t popcount_avx2(const vul_t* bit_vvec, uintptr_t vec_ct) {
   vul_t twos = vul_setzero();
   vul_t fours = vul_setzero();
   vul_t eights = vul_setzero();
-  vul_t sixteens = vul_setzero();
   for (uintptr_t vec_idx = 0; vec_idx < vec_ct; vec_idx += 16) {
-    vul_t twos_a;
-    vul_t twos_b;
-    csa256(ones, bit_vvec[vec_idx + 0], bit_vvec[vec_idx + 1], &twos_a, &ones);
-    csa256(ones, bit_vvec[vec_idx + 2], bit_vvec[vec_idx + 3], &twos_b, &ones);
-    vul_t fours_a;
-    vul_t fours_b;
-    csa256(twos, twos_a, twos_b, &fours_a, &twos);
+    vul_t twos_a = csa256(bit_vvec[vec_idx + 0], bit_vvec[vec_idx + 1], &ones);
+    vul_t twos_b = csa256(bit_vvec[vec_idx + 2], bit_vvec[vec_idx + 3], &ones);
+    vul_t fours_a = csa256(twos_a, twos_b, &twos);
 
-    csa256(ones, bit_vvec[vec_idx + 4], bit_vvec[vec_idx + 5], &twos_a, &ones);
-    csa256(ones, bit_vvec[vec_idx + 6], bit_vvec[vec_idx + 7], &twos_b, &ones);
-    csa256(twos, twos_a, twos_b, &fours_b, &twos);
-    vul_t eights_a;
-    vul_t eights_b;
-    csa256(fours, fours_a, fours_b, &eights_a, &fours);
+    twos_a = csa256(bit_vvec[vec_idx + 4], bit_vvec[vec_idx + 5], &ones);
+    twos_b = csa256(bit_vvec[vec_idx + 6], bit_vvec[vec_idx + 7], &ones);
+    vul_t fours_b = csa256(twos_a, twos_b, &twos);
+    const vul_t eights_a = csa256(fours_a, fours_b, &fours);
 
-    csa256(ones, bit_vvec[vec_idx + 8], bit_vvec[vec_idx + 9], &twos_a, &ones);
-    csa256(ones, bit_vvec[vec_idx + 10], bit_vvec[vec_idx + 11], &twos_b, &ones);
-    csa256(twos, twos_a, twos_b, &fours_a, &twos);
+    twos_a = csa256(bit_vvec[vec_idx + 8], bit_vvec[vec_idx + 9], &ones);
+    twos_b = csa256(bit_vvec[vec_idx + 10], bit_vvec[vec_idx + 11], &ones);
+    fours_a = csa256(twos_a, twos_b, &twos);
 
-    csa256(ones, bit_vvec[vec_idx + 12], bit_vvec[vec_idx + 13], &twos_a, &ones);
-    csa256(ones, bit_vvec[vec_idx + 14], bit_vvec[vec_idx + 15], &twos_b, &ones);
-    csa256(twos, twos_a, twos_b, &fours_b, &twos);
-    csa256(fours, fours_a, fours_b, &eights_b, &fours);
-    csa256(eights, eights_a, eights_b, &sixteens, &eights);
-
-    cnt = cnt + popcnt256(sixteens);
+    twos_a = csa256(bit_vvec[vec_idx + 12], bit_vvec[vec_idx + 13], &ones);
+    twos_b = csa256(bit_vvec[vec_idx + 14], bit_vvec[vec_idx + 15], &ones);
+    fours_b = csa256(twos_a, twos_b, &twos);
+    const vul_t eights_b = csa256(fours_a, fours_b, &fours);
+    const vul_t sixteens = csa256(eights_a, eights_b, &eights);
+    cnt = cnt + popcount_avx2_single(sixteens);
   }
   cnt = vul_lshift(cnt, 4);
-  cnt = cnt + vul_lshift(popcnt256(eights), 3);
-  cnt = cnt + vul_lshift(popcnt256(fours), 2);
-  cnt = cnt + vul_lshift(popcnt256(twos), 1);
-  cnt = cnt + popcnt256(ones);
-  univec_t cnt64;
-  cnt64.vi = cnt;
-  return cnt64.u8[0] + cnt64.u8[1] + cnt64.u8[2] + cnt64.u8[3];
+  cnt = cnt + vul_lshift(popcount_avx2_single(eights), 3);
+  cnt = cnt + vul_lshift(popcount_avx2_single(fours), 2);
+  cnt = cnt + vul_lshift(popcount_avx2_single(twos), 1);
+  cnt = cnt + popcount_avx2_single(ones);
+  return hsum64(cnt);
 }
 #else // !USE_AVX2
 // Basic SSE2 implementation of Lauradoux/Walisch popcount.
@@ -765,15 +724,16 @@ void uidxs_to_idxs(const uintptr_t* subset_mask, const uint32_t* subset_cumulati
 }
 
 
-static_assert(kPglBitTransposeBatch == ((uint32_t)kBitsPerCacheline), "transpose_bitblock() needs to be updated.");
-#ifdef USE_AVX2
-void transpose_bitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, vul_t* vecaligned_buf) {
+static_assert(kPglBitTransposeBatch == ((uint32_t)kBitsPerCacheline), "transpose_bitblock_internal() needs to be updated.");
+#ifdef __LP64__
+  #ifdef USE_AVX2
+void transpose_bitblock_internal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, unsigned char* __restrict buf0) {
   // buf must be vector-aligned and have size 64k
   const uint32_t initial_read_byte_ct = DIV_UP(write_batch_size, CHAR_BIT);
   // fold the first 6 shuffles into the initial ingestion loop
   const unsigned char* initial_read_iter = (const unsigned char*)read_iter;
   const unsigned char* initial_read_end = &(initial_read_iter[initial_read_byte_ct]);
-  unsigned char* initial_target_iter = (unsigned char*)vecaligned_buf;
+  unsigned char* initial_target_iter = buf0;
   const uint32_t read_byte_stride = read_ul_stride * kBytesPerWord;
   const uint32_t read_batch_rem = kBitsPerCacheline - read_batch_size;
   for (; initial_read_iter < initial_read_end; ++initial_read_iter) {
@@ -785,116 +745,146 @@ void transpose_bitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uin
     initial_target_iter = memseta(initial_target_iter, 0, read_batch_rem);
   }
 
-  // third-to-last shuffle, 8 bit spacing -> 4
-  const vul_t* source_iter = vecaligned_buf;
-  uintptr_t* target_iter0 = (uintptr_t*)(&(vecaligned_buf[kPglBitTransposeBufwords / (2 * kWordsPerVec)]));
-  const vul_t m4 = VCONST_UL(kMask0F0F);
-  const vul_t m8 = VCONST_UL(kMask00FF);
-  const vul_t m16 = VCONST_UL(kMask0000FFFF);
-  const uint32_t write_dword_ct = DIV_UP(read_batch_size, 2 * kBitsPerWord);
-  const uint32_t first_inner_loop_iter_ct = 4 * write_dword_ct;
-  uint32_t cur_write_skip = 2 * kWordsPerCacheline - first_inner_loop_iter_ct;
-  // coincidentally, this also needs to run DIV_UP(write_batch_size, CHAR_BIT)
-  // times
-  for (uint32_t uii = 0; uii < initial_read_byte_ct; ++uii) {
-    uintptr_t* target_iter1 = &(target_iter0[kWordsPerCacheline * 4]);
-    for (uint32_t ujj = 0; ujj < first_inner_loop_iter_ct; ++ujj) {
-      const vul_t loader = *source_iter++;
-      vul_t target0 = loader & m4;
-      vul_t target1 = (vul_rshift(loader, 4)) & m4;
-      target0 = (target0 | (vul_rshift(target0, 4))) & m8;
-      target1 = (target1 | (vul_rshift(target1, 4))) & m8;
-      target0 = (target0 | (vul_rshift(target0, 8))) & m16;
-      target1 = (target1 | (vul_rshift(target1, 8))) & m16;
-      univec_t target0u;
-      univec_t target1u;
-      target0u.vi = target0 | (vul_rshift(target0, 16));
-      target1u.vi = target1 | (vul_rshift(target1, 16));
-      *target_iter0++ = ((uint32_t)target0u.u8[0]) | (target0u.u8[1] << 32);
-      *target_iter0++ = ((uint32_t)target0u.u8[2]) | (target0u.u8[3] << 32);
-      *target_iter1++ = ((uint32_t)target1u.u8[0]) | (target1u.u8[1] << 32);
-      *target_iter1++ = ((uint32_t)target1u.u8[2]) | (target1u.u8[3] << 32);
+  // er, why didn't I look at movemask earlier...
+  const uint32_t loop_vec_ct = 4 * DIV_UP(read_batch_size, 2 * kBitsPerWord);
+  const uint32_t cur_write_skip = 2 * kWordsPerCacheline - loop_vec_ct;
+  const uint32_t write_ui_stride = 2 * write_ul_stride;
+  const uint32_t full_block_ct = write_batch_size / 8;
+  const vul_t* source_iter = (vul_t*)buf0;
+  uint32_t* target_iter0 = (uint32_t*)write_iter;
+  for (uint32_t block_idx = 0; block_idx < full_block_ct; ++block_idx) {
+    uint32_t* target_iter1 = &(target_iter0[write_ui_stride]);
+    uint32_t* target_iter2 = &(target_iter1[write_ui_stride]);
+    uint32_t* target_iter3 = &(target_iter2[write_ui_stride]);
+    uint32_t* target_iter4 = &(target_iter3[write_ui_stride]);
+    uint32_t* target_iter5 = &(target_iter4[write_ui_stride]);
+    uint32_t* target_iter6 = &(target_iter5[write_ui_stride]);
+    uint32_t* target_iter7 = &(target_iter6[write_ui_stride]);
+    for (uint32_t vec_idx = 0; vec_idx < loop_vec_ct; ++vec_idx) {
+      vul_t loader = *source_iter++;
+      target_iter7[vec_idx] = _mm256_movemask_epi8((__m256i)loader);
+      loader = vul_lshift(loader, 1);
+      target_iter6[vec_idx] = _mm256_movemask_epi8((__m256i)loader);
+      loader = vul_lshift(loader, 1);
+      target_iter5[vec_idx] = _mm256_movemask_epi8((__m256i)loader);
+      loader = vul_lshift(loader, 1);
+      target_iter4[vec_idx] = _mm256_movemask_epi8((__m256i)loader);
+      loader = vul_lshift(loader, 1);
+      target_iter3[vec_idx] = _mm256_movemask_epi8((__m256i)loader);
+      loader = vul_lshift(loader, 1);
+      target_iter2[vec_idx] = _mm256_movemask_epi8((__m256i)loader);
+      loader = vul_lshift(loader, 1);
+      target_iter1[vec_idx] = _mm256_movemask_epi8((__m256i)loader);
+      loader = vul_lshift(loader, 1);
+      target_iter0[vec_idx] = _mm256_movemask_epi8((__m256i)loader);
     }
     source_iter = &(source_iter[cur_write_skip]);
-    target_iter0 = &(target_iter1[2 * cur_write_skip]);
+    target_iter0 = &(target_iter7[write_ui_stride]);
   }
-
-  // second-to-last shuffle, 4 bit spacing -> 2
-  source_iter = (&(vecaligned_buf[kPglBitTransposeBufwords / (2 * kWordsPerVec)]));
-  target_iter0 = (uintptr_t*)vecaligned_buf;
-  const vul_t m2 = VCONST_UL(kMask3333);
-  const uint32_t second_outer_loop_iter_ct = DIV_UP(write_batch_size, 4);
-  const uint32_t second_inner_loop_iter_ct = 2 * write_dword_ct;
-  cur_write_skip = kWordsPerCacheline - second_inner_loop_iter_ct;
-  for (uint32_t uii = 0; uii < second_outer_loop_iter_ct; ++uii) {
-    uintptr_t* target_iter1 = &(target_iter0[kWordsPerCacheline * 2]);
-    for (uint32_t ujj = 0; ujj < second_inner_loop_iter_ct; ++ujj) {
-      const vul_t loader = *source_iter++;
-      vul_t target0 = loader & m2;
-      vul_t target1 = (vul_rshift(loader, 2)) & m2;
-      target0 = (target0 | (vul_rshift(target0, 2))) & m4;
-      target1 = (target1 | (vul_rshift(target1, 2))) & m4;
-      target0 = (target0 | (vul_rshift(target0, 4))) & m8;
-      target1 = (target1 | (vul_rshift(target1, 4))) & m8;
-      target0 = (target0 | (vul_rshift(target0, 8))) & m16;
-      target1 = (target1 | (vul_rshift(target1, 8))) & m16;
-      univec_t target0u;
-      univec_t target1u;
-      target0u.vi = target0 | (vul_rshift(target0, 16));
-      target1u.vi = target1 | (vul_rshift(target1, 16));
-      *target_iter0++ = ((uint32_t)target0u.u8[0]) | (target0u.u8[1] << 32);
-      *target_iter0++ = ((uint32_t)target0u.u8[2]) | (target0u.u8[3] << 32);
-      *target_iter1++ = ((uint32_t)target1u.u8[0]) | (target1u.u8[1] << 32);
-      *target_iter1++ = ((uint32_t)target1u.u8[2]) | (target1u.u8[3] << 32);
+  const uint32_t remainder = write_batch_size % 8;
+  if (remainder) {
+    const uint32_t remainder_from8 = 8 - remainder;
+    const uint32_t remainder_m1 = remainder - 1;
+    for (uint32_t vec_idx = 0; vec_idx < loop_vec_ct; ++vec_idx) {
+      vul_t loader = *source_iter++;
+      loader = vul_lshift(loader, remainder_from8);
+      uint32_t write_idx_lowbits = remainder_m1;
+      while (1) {
+        target_iter0[write_ui_stride * write_idx_lowbits] = (uint32_t)_mm256_movemask_epi8((__m256i)loader);
+        if (!write_idx_lowbits) {
+          break;
+        }
+        loader = vul_lshift(loader, 1);
+        --write_idx_lowbits;
+      }
+      ++target_iter0;
     }
-    source_iter = &(source_iter[cur_write_skip]);
-    target_iter0 = &(target_iter1[2 * cur_write_skip]);
-  }
-  // last shuffle, 2 bit spacing -> 1
-  source_iter = vecaligned_buf;
-  target_iter0 = write_iter;
-  const vul_t m1 = VCONST_UL(kMask5555);
-  const uint32_t last_loop_iter_ct = DIV_UP(write_batch_size, 2);
-  for (uint32_t uii = 0; uii < last_loop_iter_ct; ++uii) {
-    uintptr_t* target_iter1 = &(target_iter0[write_ul_stride]);
-    for (uint32_t ujj = 0; ujj < write_dword_ct; ++ujj) {
-      const vul_t loader = *source_iter++;
-      vul_t target0 = loader & m1;
-      vul_t target1 = (vul_rshift(loader, 1)) & m1;
-      target0 = (target0 | (vul_rshift(target0, 1))) & m2;
-      target1 = (target1 | (vul_rshift(target1, 1))) & m2;
-      target0 = (target0 | (vul_rshift(target0, 2))) & m4;
-      target1 = (target1 | (vul_rshift(target1, 2))) & m4;
-      target0 = (target0 | (vul_rshift(target0, 4))) & m8;
-      target1 = (target1 | (vul_rshift(target1, 4))) & m8;
-      target0 = (target0 | (vul_rshift(target0, 8))) & m16;
-      target1 = (target1 | (vul_rshift(target1, 8))) & m16;
-      univec_t target0u;
-      univec_t target1u;
-      target0u.vi = target0 | (vul_rshift(target0, 16));
-      target1u.vi = target1 | (vul_rshift(target1, 16));
-      target_iter0[2 * ujj] = ((uint32_t)target0u.u8[0]) | (target0u.u8[1] << 32);
-      target_iter0[2 * ujj + 1] = ((uint32_t)target0u.u8[2]) | (target0u.u8[3] << 32);
-      target_iter1[2 * ujj] = ((uint32_t)target1u.u8[0]) | (target1u.u8[1] << 32);
-      target_iter1[2 * ujj + 1] = ((uint32_t)target1u.u8[2]) | (target1u.u8[3] << 32);
-    }
-    source_iter = &(source_iter[(kWordsPerCacheline / 2) - write_dword_ct]);
-    target_iter0 = &(target_iter1[write_ul_stride]);
   }
 }
-#else // !USE_AVX2
-  #ifdef __LP64__
-static_assert(kWordsPerVec == 2, "transpose_bitblock() needs to be updated.");
-  #else
-static_assert(kWordsPerVec == 1, "transpose_bitblock() needs to be updated.");
-  #endif
-void transpose_bitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, vul_t* vecaligned_buf) {
+  #else // !USE_AVX2
+void transpose_bitblock_internal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, unsigned char* __restrict buf0) {
   // buf must be vector-aligned and have size 64k
   const uint32_t initial_read_byte_ct = DIV_UP(write_batch_size, CHAR_BIT);
   // fold the first 6 shuffles into the initial ingestion loop
   const unsigned char* initial_read_iter = (const unsigned char*)read_iter;
   const unsigned char* initial_read_end = &(initial_read_iter[initial_read_byte_ct]);
-  unsigned char* initial_target_iter = (unsigned char*)vecaligned_buf;
+  unsigned char* initial_target_iter = buf0;
+  const uint32_t read_byte_stride = read_ul_stride * kBytesPerWord;
+  const uint32_t read_batch_rem = kBitsPerCacheline - read_batch_size;
+  for (; initial_read_iter < initial_read_end; ++initial_read_iter) {
+    const unsigned char* read_iter_tmp = initial_read_iter;
+    for (uint32_t ujj = 0; ujj < read_batch_size; ++ujj) {
+      *initial_target_iter++ = *read_iter_tmp;
+      read_iter_tmp = &(read_iter_tmp[read_byte_stride]);
+    }
+    initial_target_iter = memseta(initial_target_iter, 0, read_batch_rem);
+  }
+
+  const uint32_t loop_vec_ct = 4 * BITCT_TO_WORDCT(read_batch_size);
+  const uint32_t cur_write_skip = 4 * kWordsPerCacheline - loop_vec_ct;
+  const uint32_t write_us_stride = 4 * write_ul_stride;
+  const uint32_t full_block_ct = write_batch_size / 8;
+  const vul_t* source_iter = (vul_t*)buf0;
+  uint16_t* target_iter0 = (uint16_t*)write_iter;
+  for (uint32_t block_idx = 0; block_idx < full_block_ct; ++block_idx) {
+    uint16_t* target_iter1 = &(target_iter0[write_us_stride]);
+    uint16_t* target_iter2 = &(target_iter1[write_us_stride]);
+    uint16_t* target_iter3 = &(target_iter2[write_us_stride]);
+    uint16_t* target_iter4 = &(target_iter3[write_us_stride]);
+    uint16_t* target_iter5 = &(target_iter4[write_us_stride]);
+    uint16_t* target_iter6 = &(target_iter5[write_us_stride]);
+    uint16_t* target_iter7 = &(target_iter6[write_us_stride]);
+    for (uint32_t vec_idx = 0; vec_idx < loop_vec_ct; ++vec_idx) {
+      vul_t loader = *source_iter++;
+      target_iter7[vec_idx] = (uint32_t)_mm_movemask_epi8((__m128i)loader);
+      loader = vul_lshift(loader, 1);
+      target_iter6[vec_idx] = (uint32_t)_mm_movemask_epi8((__m128i)loader);
+      loader = vul_lshift(loader, 1);
+      target_iter5[vec_idx] = (uint32_t)_mm_movemask_epi8((__m128i)loader);
+      loader = vul_lshift(loader, 1);
+      target_iter4[vec_idx] = (uint32_t)_mm_movemask_epi8((__m128i)loader);
+      loader = vul_lshift(loader, 1);
+      target_iter3[vec_idx] = (uint32_t)_mm_movemask_epi8((__m128i)loader);
+      loader = vul_lshift(loader, 1);
+      target_iter2[vec_idx] = (uint32_t)_mm_movemask_epi8((__m128i)loader);
+      loader = vul_lshift(loader, 1);
+      target_iter1[vec_idx] = (uint32_t)_mm_movemask_epi8((__m128i)loader);
+      loader = vul_lshift(loader, 1);
+      target_iter0[vec_idx] = (uint32_t)_mm_movemask_epi8((__m128i)loader);
+    }
+    source_iter = &(source_iter[cur_write_skip]);
+    target_iter0 = &(target_iter7[write_us_stride]);
+  }
+  const uint32_t remainder = write_batch_size % 8;
+  if (remainder) {
+    const uint32_t remainder_from8 = 8 - remainder;
+    const uint32_t remainder_m1 = remainder - 1;
+    for (uint32_t vec_idx = 0; vec_idx < loop_vec_ct; ++vec_idx) {
+      vul_t loader = *source_iter++;
+      loader = vul_lshift(loader, remainder_from8);
+      uint32_t write_idx_lowbits = remainder_m1;
+      while (1) {
+        target_iter0[write_us_stride * write_idx_lowbits] = (uint32_t)_mm_movemask_epi8((__m128i)loader);
+        if (!write_idx_lowbits) {
+          break;
+        }
+        loader = vul_lshift(loader, 1);
+        --write_idx_lowbits;
+      }
+      ++target_iter0;
+    }
+  }
+}
+  #endif
+#else // !__LP64__
+static_assert(kWordsPerVec == 1, "transpose_bitblock_internal() needs to be updated.");
+void transpose_bitblock_internal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, unsigned char* __restrict buf0, unsigned char* __restrict buf1) {
+  // buf must be vector-aligned and have size 64k
+  const uint32_t initial_read_byte_ct = DIV_UP(write_batch_size, CHAR_BIT);
+  // fold the first 6 shuffles into the initial ingestion loop
+  const unsigned char* initial_read_iter = (const unsigned char*)read_iter;
+  const unsigned char* initial_read_end = &(initial_read_iter[initial_read_byte_ct]);
+  unsigned char* initial_target_iter = buf0;
   const uint32_t read_byte_stride = read_ul_stride * kBytesPerWord;
   const uint32_t read_batch_rem = kBitsPerCacheline - read_batch_size;
   for (; initial_read_iter < initial_read_end; ++initial_read_iter) {
@@ -907,13 +897,8 @@ void transpose_bitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uin
   }
 
   // third-to-last shuffle, 8 bit spacing -> 4
-  const vul_t* source_iter = vecaligned_buf;
-  uintptr_t* target_iter0 = (uintptr_t*)(&(vecaligned_buf[kPglBitTransposeBufwords / (2 * kWordsPerVec)]));
-  #ifdef __LP64__
-  const vul_t m4 = VCONST_UL(kMask0F0F);
-  const vul_t m8 = VCONST_UL(kMask00FF);
-  const vul_t m16 = VCONST_UL(kMask0000FFFF);
-  #endif
+  const vul_t* source_iter = (vul_t*)buf0;
+  uintptr_t* target_iter0 = (uintptr_t*)buf1;
   const uint32_t write_word_ct = BITCT_TO_WORDCT(read_batch_size);
   const uint32_t first_inner_loop_iter_ct = 4 * write_word_ct;
   uint32_t cur_write_skip = 4 * kWordsPerCacheline - first_inner_loop_iter_ct;
@@ -922,21 +907,6 @@ void transpose_bitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uin
   for (uint32_t uii = 0; uii < initial_read_byte_ct; ++uii) {
     uintptr_t* target_iter1 = &(target_iter0[kWordsPerCacheline * 4]);
     for (uint32_t ujj = 0; ujj < first_inner_loop_iter_ct; ++ujj) {
-  #ifdef __LP64__
-      const vul_t loader = *source_iter++;
-      vul_t target0 = loader & m4;
-      vul_t target1 = (vul_rshift(loader, 4)) & m4;
-      target0 = (target0 | (vul_rshift(target0, 4))) & m8;
-      target1 = (target1 | (vul_rshift(target1, 4))) & m8;
-      target0 = (target0 | (vul_rshift(target0, 8))) & m16;
-      target1 = (target1 | (vul_rshift(target1, 8))) & m16;
-      univec_t target0u;
-      univec_t target1u;
-      target0u.vi = target0 | (vul_rshift(target0, 16));
-      target1u.vi = target1 | (vul_rshift(target1, 16));
-      *target_iter0++ = ((uint32_t)target0u.u8[0]) | (target0u.u8[1] << 32);
-      *target_iter1++ = ((uint32_t)target1u.u8[0]) | (target1u.u8[1] << 32);
-  #else
       const uintptr_t source_word_lo = (uintptr_t)(*source_iter++);
       const uintptr_t source_word_hi = (uintptr_t)(*source_iter++);
       uintptr_t target_word0_lo = source_word_lo & kMask0F0F;
@@ -953,46 +923,20 @@ void transpose_bitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uin
       target_word1_hi = target_word1_hi | (target_word1_hi >> kBitsPerWordD4);
       *target_iter0++ = ((halfword_t)target_word0_lo) | (target_word0_hi << kBitsPerWordD2);
       *target_iter1++ = ((halfword_t)target_word1_lo) | (target_word1_hi << kBitsPerWordD2);
-  #endif
     }
-  #ifdef __LP64__
-    source_iter = &(source_iter[cur_write_skip]);
-  #else
     source_iter = &(source_iter[2 * cur_write_skip]);
-  #endif
     target_iter0 = &(target_iter1[cur_write_skip]);
   }
 
   // second-to-last shuffle, 4 bit spacing -> 2
-  source_iter = (&(vecaligned_buf[kPglBitTransposeBufwords / (2 * kWordsPerVec)]));
-  target_iter0 = (uintptr_t*)vecaligned_buf;
-  #ifdef __LP64__
-  const vul_t m2 = VCONST_UL(kMask3333);
-  #endif
+  source_iter = (vul_t*)buf1;
+  target_iter0 = (uintptr_t*)buf0;
   const uint32_t second_outer_loop_iter_ct = DIV_UP(write_batch_size, 4);
   const uint32_t second_inner_loop_iter_ct = 2 * write_word_ct;
   cur_write_skip = 2 * kWordsPerCacheline - second_inner_loop_iter_ct;
   for (uint32_t uii = 0; uii < second_outer_loop_iter_ct; ++uii) {
     uintptr_t* target_iter1 = &(target_iter0[kWordsPerCacheline * 2]);
     for (uint32_t ujj = 0; ujj < second_inner_loop_iter_ct; ++ujj) {
-  #ifdef __LP64__
-      // in AVX2 case, use write_dword_ct instead of write_word_ct, etc.
-      const vul_t loader = *source_iter++;
-      vul_t target0 = loader & m2;
-      vul_t target1 = (vul_rshift(loader, 2)) & m2;
-      target0 = (target0 | (vul_rshift(target0, 2))) & m4;
-      target1 = (target1 | (vul_rshift(target1, 2))) & m4;
-      target0 = (target0 | (vul_rshift(target0, 4))) & m8;
-      target1 = (target1 | (vul_rshift(target1, 4))) & m8;
-      target0 = (target0 | (vul_rshift(target0, 8))) & m16;
-      target1 = (target1 | (vul_rshift(target1, 8))) & m16;
-      univec_t target0u;
-      univec_t target1u;
-      target0u.vi = target0 | (vul_rshift(target0, 16));
-      target1u.vi = target1 | (vul_rshift(target1, 16));
-      *target_iter0++ = ((uint32_t)target0u.u8[0]) | (target0u.u8[1] << 32);
-      *target_iter1++ = ((uint32_t)target1u.u8[0]) | (target1u.u8[1] << 32);
-  #else
       const uintptr_t source_word_lo = (uintptr_t)(*source_iter++);
       const uintptr_t source_word_hi = (uintptr_t)(*source_iter++);
       uintptr_t target_word0_lo = source_word_lo & kMask3333;
@@ -1013,45 +957,17 @@ void transpose_bitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uin
       target_word1_hi = target_word1_hi | (target_word1_hi >> kBitsPerWordD4);
       *target_iter0++ = ((halfword_t)target_word0_lo) | (target_word0_hi << kBitsPerWordD2);
       *target_iter1++ = ((halfword_t)target_word1_lo) | (target_word1_hi << kBitsPerWordD2);
-  #endif
     }
-  #ifdef __LP64__
-    source_iter = &(source_iter[cur_write_skip]);
-  #else
     source_iter = &(source_iter[2 * cur_write_skip]);
-  #endif
     target_iter0 = &(target_iter1[cur_write_skip]);
   }
   // last shuffle, 2 bit spacing -> 1
-  source_iter = vecaligned_buf;
+  source_iter = (vul_t*)buf0;
   target_iter0 = write_iter;
-  #ifdef __LP64__
-  const vul_t m1 = VCONST_UL(kMask5555);
-  #endif
   const uint32_t last_loop_iter_ct = DIV_UP(write_batch_size, 2);
   for (uint32_t uii = 0; uii < last_loop_iter_ct; ++uii) {
     uintptr_t* target_iter1 = &(target_iter0[write_ul_stride]);
     for (uint32_t ujj = 0; ujj < write_word_ct; ++ujj) {
-  #ifdef __LP64__
-      // in AVX2 case, use write_dword_ct instead of write_word_ct, etc.
-      const vul_t loader = *source_iter++;
-      vul_t target0 = loader & m1;
-      vul_t target1 = (vul_rshift(loader, 1)) & m1;
-      target0 = (target0 | (vul_rshift(target0, 1))) & m2;
-      target1 = (target1 | (vul_rshift(target1, 1))) & m2;
-      target0 = (target0 | (vul_rshift(target0, 2))) & m4;
-      target1 = (target1 | (vul_rshift(target1, 2))) & m4;
-      target0 = (target0 | (vul_rshift(target0, 4))) & m8;
-      target1 = (target1 | (vul_rshift(target1, 4))) & m8;
-      target0 = (target0 | (vul_rshift(target0, 8))) & m16;
-      target1 = (target1 | (vul_rshift(target1, 8))) & m16;
-      univec_t target0u;
-      univec_t target1u;
-      target0u.vi = target0 | (vul_rshift(target0, 16));
-      target1u.vi = target1 | (vul_rshift(target1, 16));
-      target_iter0[ujj] = ((uint32_t)target0u.u8[0]) | (target0u.u8[1] << 32);
-      target_iter1[ujj] = ((uint32_t)target1u.u8[0]) | (target1u.u8[1] << 32);
-  #else
       const uintptr_t source_word_lo = (uintptr_t)(*source_iter++);
       const uintptr_t source_word_hi = (uintptr_t)(*source_iter++);
       uintptr_t target_word0_lo = source_word_lo & kMask5555;
@@ -1076,17 +992,12 @@ void transpose_bitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uin
       target_word1_hi = target_word1_hi | (target_word1_hi >> kBitsPerWordD4);
       target_iter0[ujj] = ((halfword_t)target_word0_lo) | (target_word0_hi << kBitsPerWordD2);
       target_iter1[ujj] = ((halfword_t)target_word1_lo) | (target_word1_hi << kBitsPerWordD2);
-  #endif
     }
-  #ifdef __LP64__
-    source_iter = &(source_iter[kWordsPerCacheline - write_word_ct]);
-  #else
     source_iter = &(source_iter[2 * (kWordsPerCacheline - write_word_ct)]);
-  #endif
     target_iter0 = &(target_iter1[write_ul_stride]);
   }
 }
-#endif // !USE_AVX2
+#endif // !__LP64__
 
 #ifdef __cplusplus
 } // namespace plink2
