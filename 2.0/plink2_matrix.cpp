@@ -52,6 +52,9 @@ extern "C" {
               float* alpha, float* a, int* lda, float* b, int* ldb,
               float* beta, float* c, int* ldc);
 
+  void sgemv_(char* trans, int* m, int* n, float* alpha, float* a, int* lda,
+              float* x, int* incx, float* beta, real* y, int* incy);
+
   void ssyrk_(char* uplo, char* trans, __CLPK_integer* n, __CLPK_integer* k,
               float* alpha, float* a, __CLPK_integer* lda, float* beta,
               float* c, __CLPK_integer* ldc);
@@ -132,6 +135,10 @@ extern "C" {
               __CLPK_integer* k, float* alpha, float* a, __CLPK_integer* lda,
               float* b, __CLPK_integer* ldb, float* beta, float* c,
               __CLPK_integer* ldc);
+
+  void sgemv_(char* trans, __CLPK_integer* m, __CLPK_integer* n, float* alpha,
+              float* a, __CLPK_integer* lda, float* x, __CLPK_integer* incx,
+              float* beta, real* y, __CLPK_integer* incy);
 
   void dsyrk_(char* uplo, char* trans, __CLPK_integer* n, __CLPK_integer* k,
               __CLPK_doublereal* alpha, __CLPK_doublereal* a,
@@ -777,6 +784,60 @@ void col_major_fmatrix_multiply_strided(const float* inmatrix1, const float* inm
   sgemm_(&blas_char, &blas_char, &row1_ct, &col2_ct, &common_ct, &fyy, (float*)((uintptr_t)inmatrix1), &stride1, (float*)((uintptr_t)inmatrix2), &stride2, &fzz, outmatrix, &stride3);
   #else
   cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, row1_ct, col2_ct, common_ct, 1.0, inmatrix1, stride1, inmatrix2, stride2, 0.0, outmatrix, stride3);
+  #endif // USE_CBLAS_XGEMM
+#endif // !NOLAPACK
+}
+
+void col_major_fmatrix_vector_multiply_strided(const float* inmatrix1, const float* in_fvec2, __CLPK_integer row1_ct, __CLPK_integer stride1, __CLPK_integer common_ct, float* out_fvec) {
+#ifdef NOLAPACK
+  fill_float_zero(row1_ct, out_fvec);
+  const uintptr_t row1_ct_l = row1_ct;
+  const uintptr_t common_ct_l = common_ct;
+  const uintptr_t stride_l = stride1;
+  for (uintptr_t common_idx = 0; common_idx < common_ct_l; ++common_idx) {
+    const float fxx = in_fvec2[common_idx];
+    const float* col_iter = &(inmatrix1[common_idx * stride_l]);
+    for (uintptr_t row1_idx = 0; row1_idx < row1_ct_l; ++row1_idx) {
+      out_fvec[row1_idx] += (*col_iter++) * fxx;
+    }
+  }
+#else
+  #ifndef USE_CBLAS_XGEMM
+  char trans = 'N';
+  __CLPK_integer incxy = 1;
+  float fyy = 1;
+  float fzz = 0;
+  // const_cast
+  sgemv_(&trans, &row1_ct, &common_ct, &fyy, (float*)((uintptr_t)inmatrix1), &stride1, in_fvec2, &incxy, &fzz, out_fvec, &incxy);
+  #else
+  cblas_sgemv(CblasColMajor, CblasNoTrans, row1_ct, common_ct, 1.0, inmatrix1, stride1, in_fvec2, 1, 0.0, out_fvec, 1);
+  #endif // USE_CBLAS_XGEMM
+#endif // !NOLAPACK
+}
+
+void col_major_fvector_matrix_multiply_strided(const float* in_fvec1, const float* inmatrix2, __CLPK_integer common_ct, __CLPK_integer stride2, __CLPK_integer col2_ct, float* out_fvec) {
+#ifdef NOLAPACK
+  const uintptr_t col2_ct_l = col2_ct;
+  const uintptr_t common_ct_l = common_ct;
+  const uintptr_t stride_l = stride2;
+  for (uintptr_t col_idx = 0; col_idx < col2_ct_l; ++col_idx) {
+    float fxx = 0.0;
+    const float* cur_col = &(inmatrix2[col_idx * stride_l]);
+    for (uintptr_t row_idx = 0; row_idx < common_ct_l; ++row_idx) {
+      fxx += in_fvec1[row_idx] * cur_col[row_idx];
+    }
+    out_fvec[col_idx] = fxx;
+  }
+#else
+  #ifndef USE_CBLAS_XGEMM
+  char trans = 'T';
+  __CLPK_integer incxy = 1;
+  float fyy = 1;
+  float fzz = 0;
+  // const_cast
+  sgemv_(&trans, &common_ct, &col2_ct, &fyy, (float*)((uintptr_t)inmatrix2), &stride2, in_fvec1, &incxy, &fzz, out_fvec, &incxy);
+  #else
+  cblas_sgemv(CblasColMajor, CblasTrans, common_ct, col2_ct, 1.0, inmatrix2, stride2, in_fvec1, 1, 0.0, out_fvec, 1);
   #endif // USE_CBLAS_XGEMM
 #endif // !NOLAPACK
 }

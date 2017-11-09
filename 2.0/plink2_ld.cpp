@@ -2154,9 +2154,9 @@ uint64_t dense_dosage_sum(const dosage_t* dosage_vec, uint32_t vec_ct) {
       dosagev = _mm256_add_epi64(_mm256_and_si256(dosagev, m16), _mm256_and_si256(_mm256_srli_epi64(dosagev, 16), m16));
       sumv = _mm256_add_epi64(sumv, dosagev);
     } while (dosage_vvec_iter < dosage_vvec_stop);
-    univec16_t acc;
-    acc.vi = sumv;
-    sum += univec16_hsum_32bit(acc);
+    univec_t acc;
+    acc.vi = (vul_t)sumv;
+    sum += univec_hsum_32bit(acc);
   }
 }
 
@@ -2190,9 +2190,9 @@ uint64_t dense_dosage_sum_subset(const dosage_t* dosage_vec, const dosage_t* dos
       dosagev = _mm256_add_epi64(_mm256_and_si256(dosagev, m16), _mm256_and_si256(_mm256_srli_epi64(dosagev, 16), m16));
       sumv = _mm256_add_epi64(sumv, dosagev);
     } while (dosage_vvec_iter < dosage_vvec_stop);
-    univec16_t acc;
-    acc.vi = sumv;
-    sum += univec16_hsum_32bit(acc);
+    univec_t acc;
+    acc.vi = (vul_t)sumv;
+    sum += univec_hsum_32bit(acc);
   }
 }
 
@@ -2232,11 +2232,11 @@ uint64_t dosage_unsigned_dotprod(const dosage_t* dosage_vec0, const dosage_t* do
       dotprod_lo = _mm256_add_epi64(dotprod_lo, lo16);
       dotprod_hi = _mm256_add_epi64(dotprod_hi, hi16);
     } while (dosage_vvec0_iter < dosage_vvec0_stop);
-    univec16_t acc_lo;
-    univec16_t acc_hi;
-    acc_lo.vi = dotprod_lo;
-    acc_hi.vi = dotprod_hi;
-    dotprod += univec16_hsum_32bit(acc_lo) + 65536 * univec16_hsum_32bit(acc_hi);
+    univec_t acc_lo;
+    univec_t acc_hi;
+    acc_lo.vi = (vul_t)dotprod_lo;
+    acc_hi.vi = (vul_t)dotprod_hi;
+    dotprod += univec_hsum_32bit(acc_lo) + 65536 * univec_hsum_32bit(acc_hi);
   }
 }
 
@@ -2270,11 +2270,11 @@ uint64_t dosage_unsigned_nomiss_dotprod(const dosage_t* dosage_vec0, const dosag
       dotprod_lo = _mm256_add_epi64(dotprod_lo, lo16);
       dotprod_hi = _mm256_add_epi64(dotprod_hi, hi16);
     } while (dosage_vvec0_iter < dosage_vvec0_stop);
-    univec16_t acc_lo;
-    univec16_t acc_hi;
-    acc_lo.vi = dotprod_lo;
-    acc_hi.vi = dotprod_hi;
-    dotprod += univec16_hsum_32bit(acc_lo) + 65536 * univec16_hsum_32bit(acc_hi);
+    univec_t acc_lo;
+    univec_t acc_hi;
+    acc_lo.vi = (vul_t)dotprod_lo;
+    acc_hi.vi = (vul_t)dotprod_hi;
+    dotprod += univec_hsum_32bit(acc_lo) + 65536 * univec_hsum_32bit(acc_hi);
   }
 }
 
@@ -2317,11 +2317,11 @@ int64_t dosage_signed_dotprod(const dosage_t* dosage_diff0, const dosage_t* dosa
       dotprod_lo = _mm256_add_epi64(dotprod_lo, lo16);
       dotprod_hi = _mm256_add_epi64(dotprod_hi, hi16);
     } while (dosage_diff0_iter < dosage_diff0_stop);
-    univec16_t acc_lo;
-    univec16_t acc_hi;
-    acc_lo.vi = dotprod_lo;
-    acc_hi.vi = dotprod_hi;
-    dotprod += univec16_hsum_32bit(acc_lo) + 65536 * univec16_hsum_32bit(acc_hi);
+    univec_t acc_lo;
+    univec_t acc_hi;
+    acc_lo.vi = (vul_t)dotprod_lo;
+    acc_hi.vi = (vul_t)dotprod_hi;
+    dotprod += univec_hsum_32bit(acc_lo) + 65536 * univec_hsum_32bit(acc_hi);
   }
 }
   #else // !USE_AVX2
@@ -2389,9 +2389,9 @@ uint64_t dense_dosage_sum(const dosage_t* dosage_vec, uint32_t vec_ct) {
       dosagev = _mm_add_epi64(_mm_and_si128(dosagev, m16), _mm_and_si128(_mm_srli_epi64(dosagev, 16), m16));
       sumv = _mm_add_epi64(sumv, dosagev);
     } while (dosage_vvec_iter < dosage_vvec_stop);
-    univec16_t acc;
-    acc.vi = sumv;
-    sum += univec16_hsum_32bit(acc);
+    univec_t acc;
+    acc.vi = (vul_t)sumv;
+    sum += univec_hsum_32bit(acc);
   }
 }
 
@@ -2425,9 +2425,9 @@ uint64_t dense_dosage_sum_subset(const dosage_t* dosage_vec, const dosage_t* dos
       dosagev = _mm_add_epi64(_mm_and_si128(dosagev, m16), _mm_and_si128(_mm_srli_epi64(dosagev, 16), m16));
       sumv = _mm_add_epi64(sumv, dosagev);
     } while (dosage_vvec_iter < dosage_vvec_stop);
-    univec16_t acc;
-    acc.vi = sumv;
-    sum += univec16_hsum_32bit(acc);
+    univec_t acc;
+    acc.vi = (vul_t)sumv;
+    sum += univec_hsum_32bit(acc);
   }
 }
 
@@ -2467,11 +2467,11 @@ uint64_t dosage_unsigned_dotprod(const dosage_t* dosage_vec0, const dosage_t* do
       dotprod_lo = _mm_add_epi64(dotprod_lo, lo16);
       dotprod_hi = _mm_add_epi64(dotprod_hi, hi16);
     } while (dosage_vvec0_iter < dosage_vvec0_stop);
-    univec16_t acc_lo;
-    univec16_t acc_hi;
-    acc_lo.vi = dotprod_lo;
-    acc_hi.vi = dotprod_hi;
-    dotprod += univec16_hsum_32bit(acc_lo) + 65536 * univec16_hsum_32bit(acc_hi);
+    univec_t acc_lo;
+    univec_t acc_hi;
+    acc_lo.vi = (vul_t)dotprod_lo;
+    acc_hi.vi = (vul_t)dotprod_hi;
+    dotprod += univec_hsum_32bit(acc_lo) + 65536 * univec_hsum_32bit(acc_hi);
   }
 }
 
@@ -2505,11 +2505,11 @@ uint64_t dosage_unsigned_nomiss_dotprod(const dosage_t* dosage_vec0, const dosag
       dotprod_lo = _mm_add_epi64(dotprod_lo, lo16);
       dotprod_hi = _mm_add_epi64(dotprod_hi, hi16);
     } while (dosage_vvec0_iter < dosage_vvec0_stop);
-    univec16_t acc_lo;
-    univec16_t acc_hi;
-    acc_lo.vi = dotprod_lo;
-    acc_hi.vi = dotprod_hi;
-    dotprod += univec16_hsum_32bit(acc_lo) + 65536 * univec16_hsum_32bit(acc_hi);
+    univec_t acc_lo;
+    univec_t acc_hi;
+    acc_lo.vi = (vul_t)dotprod_lo;
+    acc_hi.vi = (vul_t)dotprod_hi;
+    dotprod += univec_hsum_32bit(acc_lo) + 65536 * univec_hsum_32bit(acc_hi);
   }
 }
 
@@ -2551,11 +2551,11 @@ int64_t dosage_signed_dotprod(const dosage_t* dosage_diff0, const dosage_t* dosa
       dotprod_lo = _mm_add_epi64(dotprod_lo, lo16);
       dotprod_hi = _mm_add_epi64(dotprod_hi, hi16);
     } while (dosage_diff0_iter < dosage_diff0_stop);
-    univec16_t acc_lo;
-    univec16_t acc_hi;
-    acc_lo.vi = dotprod_lo;
-    acc_hi.vi = dotprod_hi;
-    dotprod += univec16_hsum_32bit(acc_lo) + 65536 * univec16_hsum_32bit(acc_hi);
+    univec_t acc_lo;
+    univec_t acc_hi;
+    acc_lo.vi = (vul_t)dotprod_lo;
+    acc_hi.vi = (vul_t)dotprod_hi;
+    dotprod += univec_hsum_32bit(acc_lo) + 65536 * univec_hsum_32bit(acc_hi);
   }
 }
   #endif // !USE_AVX2

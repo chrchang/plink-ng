@@ -8,7 +8,7 @@
 #   Link to MKL with 64-bit indexes (dynamically): DYNAMIC_MKL
 #     (this also requires MKLROOT and MKL_IOMP5_DIR to be defined, and
 #     LD_LIBRARY_PATH to include the appropriate directories)
-#   32-bit binary (also sets STATIC_ZLIB, ZSTD_O2):
+#   32-bit binary (also sets STATIC_ZLIB and ZSTD_O2):
 #     FORCE_32BIT (warning: you may need to add a zconf.h symlink to make that
 #     work)
 NO_LAPACK =

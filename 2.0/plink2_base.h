@@ -429,10 +429,19 @@ static const uintptr_t k1LU = (uintptr_t)1;
 #ifdef __LP64__
   #ifdef USE_AVX2
     CONSTU31(kBytesPerVec, 32);
-    CONSTU31(kBytesPerFVec, 32);
+
+    // 16 still seems to noticeably outperform 32 on recent MacBook Pros, but
+    // libraries (and my AVX2 code...) for the latter should improve over time.
+    CONSTU31(kBytesPerFVec, 16);
+
     // bleah, have to define these here, vector_size doesn't see enum values
     typedef uintptr_t vul_t __attribute__ ((vector_size (32)));
-    typedef float vf_t __attribute__ ((vector_size (32)));
+    typedef float vf_t __attribute__ ((vector_size (kBytesPerFVec)));
+    #if kBytesPerFVec == 32
+      #ifndef __FMA__
+        #error "32-byte-float-vector builds require FMA3 as well."
+      #endif
+    #endif
     typedef short vs_t __attribute__ ((vector_size (32)));
     typedef char vc_t __attribute__ ((vector_size (32)));
   #else
@@ -450,12 +459,19 @@ static const uintptr_t k1LU = (uintptr_t)1;
   typedef uint16_t quarterword_t;
 
   #ifdef USE_AVX2
+    // todo: check if _mm256_set1_... makes a difference, and if yes, which
+    // direction
     #define VCONST_UL(xx) {xx, xx, xx, xx}
     #define VCONST_S(xx) {xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx}
     #define VCONST_C(xx) {xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx}
     #define vul_setzero() (vul_t)_mm256_setzero_si256()
     #define vul_rshift(vv, ct) ((vul_t)_mm256_srli_epi64((__m256i)(vv), ct))
     #define vul_lshift(vv, ct) ((vul_t)_mm256_slli_epi64((__m256i)(vv), ct))
+    #if kBytesPerFVec == 32
+      #define vf_setzero() (vf_t)_mm256_setzero_ps()
+    #else
+      #define vf_setzero() (vf_t)_mm_setzero_ps()
+    #endif
   #else
     #define VCONST_UL(xx) {xx, xx}
     #define VCONST_S(xx) {xx, xx, xx, xx, xx, xx, xx, xx}
@@ -466,6 +482,7 @@ static const uintptr_t k1LU = (uintptr_t)1;
     // VCONST_UL shift properly (todo: test this)
     #define vul_rshift(vv, ct) ((vul_t)_mm_srli_epi64((__m128i)(vv), ct))
     #define vul_lshift(vv, ct) ((vul_t)_mm_slli_epi64((__m128i)(vv), ct))
+    #define vf_setzero() (vf_t)_mm_setzero_ps()
   #endif
 #else // not __LP64__
   CONSTU31(kBytesPerVec, 4);
@@ -518,6 +535,8 @@ static_assert(sizeof(intptr_t) == kBytesPerWord, "plink2_base requires sizeof(in
 CONSTU31(kWordsPerVec, kBytesPerVec / kBytesPerWord);
 CONSTU31(kInt32PerVec, kBytesPerVec / 4);
 
+CONSTU31(kFloatPerFVec, kBytesPerFVec / 4);
+
 CONSTU31(kCacheline, 64);
 
 CONSTU31(kBitsPerCacheline, kCacheline * CHAR_BIT);
@@ -550,45 +569,16 @@ static_assert(kPglFnamesize >= PATH_MAX, "plink2_base assumes PATH_MAX <= 4096. 
 typedef union {
   vul_t vi;
 
-  // not actually 8 bytes in 32-bit builds
-  uintptr_t u8[kBitsPerVec / kBitsPerWord];
+  // not actually 8 bytes in 32-bit builds, probably want to rename
+  uintptr_t u8[kWordsPerVec];
 
-  uint32_t u4[kBytesPerVec / sizeof(int32_t)];
+  uint32_t u4[kInt32PerVec];
 } univec_t;
 
 typedef union {
   vf_t vf;
-  float f4[kBytesPerFVec / sizeof(float)];
+  float f4[kFloatPerFVec];
 } univecf_t;
-
-#ifdef __LP64__
-// Still need this for access to _mm_mul{lo,hi}_epi16?
-  #ifdef USE_AVX2
-typedef union {
-  __m256i vi;
-  uintptr_t u8[4];
-} univec16_t;
-  #else
-typedef union {
-  __m128i vi;
-  uintptr_t u8[2];
-} univec16_t;
-  #endif
-
-// Needed for hand-optimized logistic regression.
-typedef union {
-  __m128 vf;
-  float f4[4];
-} univec16f_t;
-
-HEADER_CINLINE uintptr_t univec16_hsum_32bit(univec16_t uv) {
-  #ifdef USE_AVX2
-  return ((uv.u8[0] + uv.u8[1] + uv.u8[2] + uv.u8[3]) * kMask00000001) >> 32;
-  #else
-  return ((uv.u8[0] + uv.u8[1]) * kMask00000001) >> 32;
-  #endif
-}
-#endif
 
 // sum must fit in 16 bits
 HEADER_CINLINE uintptr_t univec_hsum_16bit(univec_t uv) {
@@ -613,6 +603,21 @@ HEADER_CINLINE uintptr_t univec_hsum_32bit(univec_t uv) {
   #endif
 #else
   return uv.u8[0];
+#endif
+}
+
+HEADER_INLINE float vf_hsum(vf_t vecf) {
+  univecf_t uvf;
+  uvf.vf = vecf;
+#ifdef __LP64__
+  #if kBytesPerFVec == 32
+  // tested various uses of _mm256_hadd_ps, couldn't get them to be faster
+  return uvf.f4[0] + uvf.f4[1] + uvf.f4[2] + uvf.f4[3] + uvf.f4[4] + uvf.f4[5] + uvf.f4[6] + uvf.f4[7];
+  #else
+  return uvf.f4[0] + uvf.f4[1] + uvf.f4[2] + uvf.f4[3];
+  #endif
+#else
+  return uvf.f4[0];
 #endif
 }
 
@@ -1135,6 +1140,11 @@ HEADER_INLINE void nonfull_word_store(uintptr_t cur_word, uint32_t byte_ct, void
     *((uint16_t*)target_iter) = cur_word;
   }
 #endif
+}
+
+HEADER_INLINE void nonfull_word_store_adv(uintptr_t cur_word, uint32_t byte_ct, unsigned char** targetp) {
+  nonfull_word_store(cur_word, byte_ct, *targetp);
+  *targetp += byte_ct;
 }
 
 HEADER_INLINE void partial_word_store(uintptr_t cur_word, uint32_t byte_ct, void* target) {

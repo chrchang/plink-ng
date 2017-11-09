@@ -1296,15 +1296,15 @@ boolerr_t glm_alloc_fill_and_test_pheno_covars_qt(const uintptr_t* sample_includ
 }
 
 boolerr_t glm_alloc_fill_and_test_pheno_covars_cc(const uintptr_t* sample_include, const uintptr_t* pheno_cc, const uintptr_t* covar_include, const pheno_col_t* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uintptr_t** pheno_cc_collapsed_ptr, uintptr_t** gcount_case_interleaved_vec_ptr, float** pheno_f_ptr, float** covars_cmaj_f_ptr, char*** cur_covar_names_ptr, vif_corr_err_t* vif_corr_check_result_ptr) {
-  const uintptr_t sample_cta4 = round_up_pow2(sample_ct, 4);
+  const uintptr_t sample_ctav = round_up_pow2(sample_ct, kFloatPerFVec);
   const uintptr_t new_covar_ct = covar_ct + extra_cat_ct;
   const uintptr_t new_nonlocal_covar_ct = new_covar_ct - local_covar_ct;
   const uint32_t sample_ctv = BITCT_TO_VECCT(sample_ct);
   double* covars_cmaj_d;
   double* covar_dotprod;
   if (bigstack_alloc_ul(sample_ctv * kWordsPerVec, pheno_cc_collapsed_ptr) ||
-      bigstack_alloc_f(sample_cta4, pheno_f_ptr) ||
-      bigstack_alloc_f(new_nonlocal_covar_ct * sample_cta4, covars_cmaj_f_ptr) ||
+      bigstack_alloc_f(sample_ctav, pheno_f_ptr) ||
+      bigstack_alloc_f(new_nonlocal_covar_ct * sample_ctav, covars_cmaj_f_ptr) ||
       bigstack_alloc_cp(new_covar_ct, cur_covar_names_ptr) ||
       bigstack_alloc_d(new_nonlocal_covar_ct * sample_ct, &covars_cmaj_d) ||
       bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &covar_dotprod)) {
@@ -1316,8 +1316,8 @@ boolerr_t glm_alloc_fill_and_test_pheno_covars_cc(const uintptr_t* sample_includ
   for (uintptr_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
     *pheno_f_iter++ = (float)((int32_t)is_set(pheno_cc_collapsed, sample_idx));
   }
-  const uint32_t sample_rem4 = sample_cta4 - sample_ct;
-  fill_float_zero(sample_rem4, pheno_f_iter);
+  const uint32_t sample_remv = sample_ctav - sample_ct;
+  fill_float_zero(sample_remv, pheno_f_iter);
   if (glm_fill_and_test_covars(sample_include, covar_include, covar_cols, covar_names, sample_ct, covar_ct, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct, max_covar_name_blen, max_corr, vif_thresh, covar_dotprod, covars_cmaj_d, *cur_covar_names_ptr, vif_corr_check_result_ptr)) {
     return 1;
   }
@@ -1327,8 +1327,8 @@ boolerr_t glm_alloc_fill_and_test_pheno_covars_cc(const uintptr_t* sample_includ
     for (uintptr_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
       *covar_write_iter++ = (float)(*covar_read_iter++);
     }
-    fill_float_zero(sample_rem4, covar_write_iter);
-    covar_write_iter = &(covar_write_iter[sample_rem4]);
+    fill_float_zero(sample_remv, covar_write_iter);
+    covar_write_iter = &(covar_write_iter[sample_remv]);
   }
   bigstack_reset(covars_cmaj_d);
   if (gcount_case_interleaved_vec_ptr) {
@@ -1405,8 +1405,8 @@ uint32_t genoarr_to_floats_remove_missing(const uintptr_t* genoarr, uint32_t sam
 // #####
 
 #ifdef __LP64__
-// fmath_exp_ps is a C port of Shigeo Mitsunari's fast math library function
-// posted at https://github.com/herumi/fmath .  License is
+// fmath_exp_ps and fmath_exp_ps256 are C ports of Shigeo Mitsunari's fast math
+// library functions posted at https://github.com/herumi/fmath .  License is
 // http://opensource.org/licenses/BSD-3-Clause .
 // (I tried porting fmath_log_ps, but it turns out that Firth regression needs
 // double-precision log accuracy; logf() actually interferes with convergence.)
@@ -1687,10 +1687,7 @@ const uint32_t float_exp_lookup_int[] __attribute__((aligned(kBytesPerVec))) = {
 0x007f4ecb, 0x007f7b0d, 0x007fa756, 0x007fd3a7
 };
 
-const float* const float_exp_lookup = (const float*)float_exp_lookup_int;
-
-/*
-  #ifdef USE_AVX2
+  #if kBytesPerFVec == 32
 static inline __m256 fmath_exp_ps256(__m256 xx) {
   const __m256i mask7ff = {0x7fffffff7fffffffLLU, 0x7fffffff7fffffffLLU, 0x7fffffff7fffffffLLU, 0x7fffffff7fffffffLLU};
   // 88
@@ -1706,21 +1703,218 @@ static inline __m256 fmath_exp_ps256(__m256 xx) {
   const __m256i f1 = {0x3f8000003f800000LLU, 0x3f8000003f800000LLU, 0x3f8000003f800000LLU, 0x3f8000003f800000LLU};
   const __m256i mask_s = {0x3ff000003ffLLU, 0x3ff000003ffLLU, 0x3ff000003ffLLU, 0x3ff000003ffLLU};
   const __m256i i127s = {0x1fc000001fc00LLU, 0x1fc000001fc00LLU, 0x1fc000001fc00LLU, 0x1fc000001fc00LLU};
-  const __m256i limit = _mm_castps_si256(_mm256_and_ps(xx, (__m256)mask7ff));
+  const __m256i limit = _mm256_castps_si256(_mm256_and_ps(xx, (__m256)mask7ff));
   const int32_t over = _mm256_movemask_epi8(_mm256_cmpgt_epi32(limit, max_x));
   if (over) {
     xx = _mm256_min_ps(xx, (__m256)max_x);
     xx = _mm256_max_ps(xx, (__m256)min_x);
   }
   const __m256i rr = _mm256_cvtps_epi32(_mm256_mul_ps(xx, (__m256)const_aa));
-  __m256 tt = _mm256_sub_ps(xx, _mm256_mul_ps(_mm_cvtepi32_ps(rr), (__m256)const_bb));
-  tt = _mm256_add_ps(tt, (__m256)f1);
+  __m256 tt = _mm256_fnmadd_ps(_mm256_cvtepi32_ps(rr), (__m256)const_bb, xx);
+  tt = _mm256_add_ps((__m256)f1, tt);
   const __m256i v8 = _mm256_and_si256(rr, mask_s);
   __m256i u8 = _mm256_add_epi32(rr, i127s);
   u8 = _mm256_srli_epi32(u8, 10);
   u8 = _mm256_slli_epi32(u8, 23);
-  #else // !USE_AVX2
-*/
+  __m256i ti = _mm256_i32gather_epi32(float_exp_lookup_int, v8, 4);
+  __m256 t0 = _mm256_castsi256_ps(ti);
+  t0 = _mm256_or_ps(t0, _mm256_castsi256_ps(u8));
+  return _mm256_mul_ps(tt, t0);
+}
+
+// This code was originally hand-optimized by others for 16-byte float vectors.
+// It should be made more vector-size-agnostic.
+
+// For equivalent "normal" C/C++ code, see the non-__LP64__ versions of these
+// functions.
+// todo: replace these functions with BLAS/LAPACK calls when there's no
+// noticeable performance penalty.
+static inline void logistic_sse(uint32_t nn, float* vect) {
+  const __m256 zero = _mm256_setzero_ps();
+  const __m256 one = _mm256_set1_ps(1.0);
+  for (uint32_t uii = 0; uii < nn; uii += kFloatPerFVec) {
+    __m256 aa = _mm256_load_ps(&(vect[uii]));
+    aa = _mm256_sub_ps(zero, aa);
+    aa = fmath_exp_ps256(aa);
+    aa = _mm256_add_ps(aa, one);
+    // aa = _mm256_rcp_ps(aa); // tried this, too inaccurate
+    aa = _mm256_div_ps(one, aa);
+    _mm256_store_ps(&(vect[uii]), aa);
+  }
+}
+
+static inline void compute_v_and_p_minus_y(const float* yy, uint32_t nn, float* pp, float* vv) {
+  for (uint32_t uii = 0; uii < nn; uii += kFloatPerFVec) {
+    __m256 ptmp = _mm256_load_ps(&(pp[uii]));
+    __m256 p_minus_psq = _mm256_fnmadd_ps(ptmp, ptmp, ptmp);
+    _mm256_store_ps(&(vv[uii]), p_minus_psq);
+    __m256 ytmp = _mm256_load_ps(&(yy[uii]));
+    _mm256_store_ps(&(pp[uii]), _mm256_sub_ps(ptmp, ytmp));
+  }
+}
+
+static inline void compute_v(const float* pp, uint32_t nn, float* vv) {
+  // there might be a small benefit to unrolling this, but doesn't seem to be
+  // more than ~3%, which is much smaller than measurement noise
+  for (uint32_t sample_idx = 0; sample_idx < nn; sample_idx += kFloatPerFVec) {
+    __m256 ptmp = _mm256_load_ps(&(pp[sample_idx]));
+    __m256 p_minus_psq = _mm256_fnmadd_ps(ptmp, ptmp, ptmp);
+    _mm256_store_ps(&(vv[sample_idx]), p_minus_psq);
+  }
+}
+
+// N.B. This requires all mm[] rows to be zero-padded at the end, and there
+// can't be nan values at the end of vect[].  (The other way around works too.)
+//
+// This is currently a bit faster than sgemm and sgemv on my Mac, so it isn't
+// appropriate to throw out this code yet.
+static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, uint32_t col_ct, uint32_t row_ct, float* dest) {
+  const uintptr_t col_ctav = round_up_pow2(col_ct, kFloatPerFVec);
+  uint32_t row_idx = 0;
+  __m256 s1;
+  __m256 s2;
+  __m256 s3;
+  if (row_ct > 3) {
+    const uint32_t row_ctm3 = row_ct - 3;
+    // Handle 4 rows at a time in this loop, regardless of vector size.
+    for (; row_idx < row_ctm3; row_idx += 4) {
+      s1 = _mm256_setzero_ps();
+      s2 = _mm256_setzero_ps();
+      s3 = _mm256_setzero_ps();
+      __m256 s4 = _mm256_setzero_ps();
+      for (uint32_t col_idx = 0; col_idx < col_ct; col_idx += kFloatPerFVec) {
+        const float* mm_ptr = &(mm[row_idx * col_ctav + col_idx]);
+        const __m256 vv = _mm256_load_ps(&(vect[col_idx]));
+        __m256 a1 = _mm256_load_ps(mm_ptr);
+        __m256 a2 = _mm256_load_ps(&(mm_ptr[col_ctav]));
+        __m256 a3 = _mm256_load_ps(&(mm_ptr[2 * col_ctav]));
+        __m256 a4 = _mm256_load_ps(&(mm_ptr[3 * col_ctav]));
+        s1 = _mm256_fmadd_ps(a1, vv, s1);
+        s2 = _mm256_fmadd_ps(a2, vv, s2);
+        s3 = _mm256_fmadd_ps(a3, vv, s3);
+        s4 = _mm256_fmadd_ps(a4, vv, s4);
+      }
+      *dest++ = vf_hsum((vf_t)s1);
+      *dest++ = vf_hsum((vf_t)s2);
+      *dest++ = vf_hsum((vf_t)s3);
+      *dest++ = vf_hsum((vf_t)s4);
+    }
+  }
+  s1 = _mm256_setzero_ps();
+  s2 = _mm256_setzero_ps();
+  s3 = _mm256_setzero_ps();
+  switch (row_ct % 4) {
+  case 3:
+    for (uint32_t col_idx = 0; col_idx < col_ct; col_idx += kFloatPerFVec) {
+      const float* mm_ptr = &(mm[row_idx * col_ctav + col_idx]);
+      const __m256 vv = _mm256_load_ps(&(vect[col_idx]));
+      __m256 a1 = _mm256_load_ps(mm_ptr);
+      __m256 a2 = _mm256_load_ps(&(mm_ptr[col_ctav]));
+      __m256 a3 = _mm256_load_ps(&(mm_ptr[2 * col_ctav]));
+      s1 = _mm256_fmadd_ps(a1, vv, s1);
+      s2 = _mm256_fmadd_ps(a2, vv, s2);
+      s3 = _mm256_fmadd_ps(a3, vv, s3);
+    }
+    *dest++ = vf_hsum((vf_t)s1);
+    *dest++ = vf_hsum((vf_t)s2);
+    *dest = vf_hsum((vf_t)s3);
+    break;
+  case 2:
+    for (uint32_t col_idx = 0; col_idx < col_ct; col_idx += kFloatPerFVec) {
+      const float* mm_ptr = &(mm[row_idx * col_ctav + col_idx]);
+      const __m256 vv = _mm256_load_ps(&(vect[col_idx]));
+      __m256 a1 = _mm256_load_ps(mm_ptr);
+      __m256 a2 = _mm256_load_ps(&(mm_ptr[col_ctav]));
+      s1 = _mm256_fmadd_ps(a1, vv, s1);
+      s2 = _mm256_fmadd_ps(a2, vv, s2);
+    }
+    *dest++ = vf_hsum((vf_t)s1);
+    *dest = vf_hsum((vf_t)s2);
+    break;
+  case 1:
+    for (uint32_t col_idx = 0; col_idx < col_ct; col_idx += kFloatPerFVec) {
+      const __m256 vv = _mm256_load_ps(&(vect[col_idx]));
+      __m256 a1 = _mm256_load_ps(&(mm[row_idx * col_ctav + col_idx]));
+      s1 = _mm256_fmadd_ps(a1, vv, s1);
+    }
+    *dest = vf_hsum((vf_t)s1);
+    break;
+  }
+}
+
+static inline float triple_product(const float* v1, const float* v2, const float* v3, uint32_t nn) {
+  __m256 sum = _mm256_setzero_ps();
+  for (uint32_t uii = 0; uii < nn; uii += kFloatPerFVec) {
+    const __m256 aa = _mm256_load_ps(&(v1[uii]));
+    const __m256 bb = _mm256_load_ps(&(v2[uii]));
+    const __m256 cc = _mm256_load_ps(&(v3[uii]));
+    const __m256 aa_x_bb = _mm256_mul_ps(aa, bb);
+    sum = _mm256_fmadd_ps(aa_x_bb, cc, sum);
+  }
+  return vf_hsum((vf_t)sum);
+}
+
+static inline void compute_two_diag_triple_product(const float* aa, const float* bb, const float* vv, uint32_t nn, float* raa_ptr, float* rab_ptr, float* rbb_ptr) {
+  __m256 saa = _mm256_setzero_ps();
+  __m256 sab = _mm256_setzero_ps();
+  __m256 sbb = _mm256_setzero_ps();
+  for (uint32_t uii = 0; uii < nn; uii += kFloatPerFVec) {
+    const __m256 vtmp = _mm256_load_ps(&(vv[uii]));
+    const __m256 atmp = _mm256_load_ps(&(aa[uii]));
+    const __m256 btmp = _mm256_load_ps(&(bb[uii]));
+    const __m256 av = _mm256_mul_ps(atmp, vtmp);
+    const __m256 bv = _mm256_mul_ps(btmp, vtmp);
+    saa = _mm256_fmadd_ps(atmp, av, saa);
+    sab = _mm256_fmadd_ps(atmp, bv, sab);
+    sbb = _mm256_fmadd_ps(btmp, bv, sbb);
+  }
+  *raa_ptr = vf_hsum((vf_t)saa);
+  *rab_ptr = vf_hsum((vf_t)sab);
+  *rbb_ptr = vf_hsum((vf_t)sbb);
+}
+
+static inline void compute_three_triple_product(const float* bb, const float* a1, const float* a2, const float* a3, const float* vv, uint32_t nn, float* r1_ptr, float* r2_ptr, float* r3_ptr) {
+  __m256 s1 = _mm256_setzero_ps();
+  __m256 s2 = _mm256_setzero_ps();
+  __m256 s3 = _mm256_setzero_ps();
+  for (uint32_t uii = 0; uii < nn; uii += kFloatPerFVec) {
+    const __m256 vtmp = _mm256_load_ps(&(vv[uii]));
+    __m256 btmp = _mm256_load_ps(&(bb[uii]));
+    btmp = _mm256_mul_ps(btmp, vtmp);
+    const __m256 a1tmp = _mm256_load_ps(&(a1[uii]));
+    const __m256 a2tmp = _mm256_load_ps(&(a2[uii]));
+    const __m256 a3tmp = _mm256_load_ps(&(a3[uii]));
+    s1 = _mm256_fmadd_ps(a1tmp, btmp, s1);
+    s2 = _mm256_fmadd_ps(a2tmp, btmp, s2);
+    s3 = _mm256_fmadd_ps(a3tmp, btmp, s3);
+  }
+  *r1_ptr = vf_hsum((vf_t)s1);
+  *r2_ptr = vf_hsum((vf_t)s2);
+  *r3_ptr = vf_hsum((vf_t)s3);
+}
+
+static inline void compute_two_plus_one_triple_product(const float* bb, const float* a1, const float* a2, const float* vv, uint32_t nn, float* r1_ptr, float* r2_ptr, float* r3_ptr) {
+  __m256 s1 = _mm256_setzero_ps();
+  __m256 s2 = _mm256_setzero_ps();
+  __m256 s3 = _mm256_setzero_ps();
+  for (uint32_t uii = 0; uii < nn; uii += kFloatPerFVec) {
+    const __m256 btmp = _mm256_load_ps(&(bb[uii]));
+    const __m256 vtmp = _mm256_load_ps(&(vv[uii]));
+    const __m256 bv = _mm256_mul_ps(btmp, vtmp);
+    const __m256 a1tmp = _mm256_load_ps(&(a1[uii]));
+    const __m256 a2tmp = _mm256_load_ps(&(a2[uii]));
+    s1 = _mm256_fmadd_ps(btmp, bv, s1);
+    s2 = _mm256_fmadd_ps(a1tmp, bv, s2);
+    s3 = _mm256_fmadd_ps(a2tmp, bv, s3);
+  }
+  *r1_ptr = vf_hsum((vf_t)s1);
+  *r2_ptr = vf_hsum((vf_t)s2);
+  *r3_ptr = vf_hsum((vf_t)s3);
+}
+
+  #else // kBytesPerFVec != 32
+const float* const float_exp_lookup = (const float*)float_exp_lookup_int;
+
 static inline __m128 fmath_exp_ps(__m128 xx) {
   const __m128i mask7ff = {0x7fffffff7fffffffLLU, 0x7fffffff7fffffffLLU};
 
@@ -1773,8 +1967,6 @@ static inline __m128 fmath_exp_ps(__m128 xx) {
   return tt;
 }
 
-// For equivalent "normal" C/C++ code, see the non-__LP64__ versions of these
-// functions.
 static inline void logistic_sse(uint32_t nn, float* vect) {
   const __m128 zero = _mm_setzero_ps();
   const __m128 one = _mm_set1_ps(1.0);
@@ -1808,205 +2000,19 @@ static inline void compute_v(const float* pp, uint32_t nn, float* vv) {
   }
 }
 
-static inline void mult_tmatrix_nxd_vect_d(const float* tm, const float* vect, uint32_t col_ct, uint32_t row_ct, float* dest) {
-  // tm is row-major, cols are packed to 16-byte alignment
-  // "col_cta4" = col_ct, aligned to multiple of 4.  Since 16-byte blocks
-  // contain 4 floats each, this is the actual length (in floats) of each tm
-  // row.  (Yes, I need to standardize a zillion other variable names of this
-  // sort...)
-  __m128 w1;
-  __m128 w2;
-  __m128 w3;
-  const uintptr_t col_cta4 = round_up_pow2(col_ct, 4);
-  uint32_t row_idx = 0;
-  if (row_ct < 4) {
-    memset(dest, 0, col_cta4 * sizeof(float));
-  } else {
-    w1 = _mm_load1_ps(vect);
-    w2 = _mm_load1_ps(&(vect[1]));
-    w3 = _mm_load1_ps(&(vect[2]));
-    __m128 w4 = _mm_load1_ps(&(vect[3]));
-    for (uint32_t col_idx = 0; col_idx < col_ct; col_idx += 4) {
-      __m128 r1 = _mm_load_ps(&(tm[col_idx]));
-      __m128 r2 = _mm_load_ps(&(tm[col_idx + col_cta4]));
-      __m128 r3 = _mm_load_ps(&(tm[col_idx + 2 * col_cta4]));
-      __m128 r4 = _mm_load_ps(&(tm[col_idx + 3 * col_cta4]));
-      r1 = _mm_mul_ps(r1, w1);
-      r2 = _mm_mul_ps(r2, w2);
-      r3 = _mm_mul_ps(r3, w3);
-      r4 = _mm_mul_ps(r4, w4);
-      r1 = _mm_add_ps(r1, r2);
-      r3 = _mm_add_ps(r3, r4);
-      r1 = _mm_add_ps(r1, r3);
-      _mm_store_ps(&(dest[col_idx]), r1);
-    }
-    const uint32_t row_ctm3 = row_ct - 3;
-    for (row_idx = 4; row_idx < row_ctm3; row_idx += 4) {
-      w1 = _mm_load1_ps(&(vect[row_idx]));
-      w2 = _mm_load1_ps(&(vect[row_idx + 1]));
-      w3 = _mm_load1_ps(&(vect[row_idx + 2]));
-      w4 = _mm_load1_ps(&(vect[row_idx + 3]));
-      for (uint32_t col_idx = 0; col_idx < col_ct; col_idx += 4) {
-        __m128 r1 = _mm_load_ps(&(tm[col_idx + row_idx * col_cta4]));
-        __m128 r2 = _mm_load_ps(&(tm[col_idx + (row_idx + 1) * col_cta4]));
-        __m128 r3 = _mm_load_ps(&(tm[col_idx + (row_idx + 2) * col_cta4]));
-        __m128 r4 = _mm_load_ps(&(tm[col_idx + (row_idx + 3) * col_cta4]));
-        r1 = _mm_mul_ps(r1, w1);
-        r2 = _mm_mul_ps(r2, w2);
-        r3 = _mm_mul_ps(r3, w3);
-        r4 = _mm_mul_ps(r4, w4);
-        r1 = _mm_add_ps(r1, r2);
-        r3 = _mm_add_ps(r3, r4);
-        r1 = _mm_add_ps(r1, r3);
-        r1 = _mm_add_ps(r1, _mm_load_ps(&(dest[col_idx])));
-        _mm_store_ps(&(dest[col_idx]), r1);
-      }
-    }
-  }
-  switch(row_ct % 4) {
-  case 3:
-    w1 = _mm_load1_ps(&(vect[row_idx]));
-    w2 = _mm_load1_ps(&(vect[row_idx + 1]));
-    w3 = _mm_load1_ps(&(vect[row_idx + 2]));
-    for (uint32_t col_idx = 0; col_idx < col_ct; col_idx += 4) {
-      __m128 r1 = _mm_load_ps(&(tm[col_idx + row_idx * col_cta4]));
-      __m128 r2 = _mm_load_ps(&(tm[col_idx + (row_idx + 1) * col_cta4]));
-      __m128 r3 = _mm_load_ps(&(tm[col_idx + (row_idx + 2) * col_cta4]));
-      r1 = _mm_mul_ps(r1, w1);
-      r2 = _mm_mul_ps(r2, w2);
-      r3 = _mm_mul_ps(r3, w3);
-      r1 = _mm_add_ps(r1, r2);
-      r3 = _mm_add_ps(r3, _mm_load_ps(&(dest[col_idx])));
-      r1 = _mm_add_ps(r1, r3);
-      _mm_store_ps(&(dest[col_idx]), r1);
-    }
-    break;
-  case 2:
-    w1 = _mm_load1_ps(&(vect[row_idx]));
-    w2 = _mm_load1_ps(&(vect[row_idx + 1]));
-    for (uint32_t col_idx = 0; col_idx < col_ct; col_idx += 4) {
-      __m128 r1 = _mm_load_ps(&(tm[col_idx + row_idx * col_cta4]));
-      __m128 r2 = _mm_load_ps(&(tm[col_idx + (row_idx + 1) * col_cta4]));
-      r1 = _mm_mul_ps(r1, w1);
-      r2 = _mm_mul_ps(r2, w2);
-      r1 = _mm_add_ps(r1, r2);
-      r1 = _mm_add_ps(r1, _mm_load_ps(&(dest[col_idx])));
-      _mm_store_ps(&(dest[col_idx]), r1);
-    }
-    break;
-  case 1:
-    w1 = _mm_load1_ps(&(vect[row_idx]));
-    for (uint32_t col_idx = 0; col_idx < col_ct; col_idx += 4) {
-      __m128 r1 = _mm_load_ps(&(tm[col_idx + row_idx * col_cta4]));
-      r1 = _mm_mul_ps(r1, w1);
-      r1 = _mm_add_ps(r1, _mm_load_ps(&(dest[col_idx])));
-      _mm_store_ps(&(dest[col_idx]), r1);
-    }
-  }
-}
+// (comment for deleted mult_tmatrix_nxd_vect_d() follows)
+// tm is row-major, cols are packed to 16-byte alignment
+// "col_cta4" = col_ct, aligned to multiple of 4.  Since 16-byte blocks
+// contain 4 floats each, this is the actual length (in floats) of each tm
+// row.  (Yes, I need to standardize a zillion other variable names of this
+// sort...)
 
-// This code was hand-optimized by others for 16-byte float vectors.  Exempt it
-// from the rest of the codebase's attempt at vector-size-agnosticism for now.
-//
-// N.B. This requires all mm[] rows to be zero-padded at the end, and there
-// can't be nan values at the end of vect[].  (The other way around works too.)
+// (Most/all remaining instances of col_cta4 should be replaced with
+// col_ctav.)
+
 static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, uint32_t col_ct, uint32_t row_ct, float* dest) {
-  const uintptr_t col_cta4 = round_up_pow2(col_ct, 4);
-  uint32_t row_idx = 0;
-  __m128 s1;
-  __m128 s2;
-  __m128 s3;
-  univec16f_t uvec;
-  if (row_ct > 3) {
-    const uint32_t row_ctm3 = row_ct - 3;
-    for (; row_idx < row_ctm3; row_idx += 4) {
-      s1 = _mm_setzero_ps();
-      s2 = _mm_setzero_ps();
-      s3 = _mm_setzero_ps();
-      __m128 s4 = _mm_setzero_ps();
-      for (uint32_t col_idx = 0; col_idx < col_ct; col_idx += 4) {
-        const float* mm_ptr = &(mm[row_idx * col_cta4 + col_idx]);
-        const __m128 vv = _mm_load_ps(&(vect[col_idx]));
-        __m128 a1 = _mm_load_ps(mm_ptr);
-        __m128 a2 = _mm_load_ps(&(mm_ptr[col_cta4]));
-        __m128 a3 = _mm_load_ps(&(mm_ptr[2 * col_cta4]));
-        __m128 a4 = _mm_load_ps(&(mm_ptr[3 * col_cta4]));
-        // want to switch this to fused multiply-add, but Intel and AMD need to
-        // get their act together first...
-        a1 = _mm_mul_ps(a1, vv);
-        a2 = _mm_mul_ps(a2, vv);
-        a3 = _mm_mul_ps(a3, vv);
-        a4 = _mm_mul_ps(a4, vv);
-        s1 = _mm_add_ps(s1, a1);
-        s2 = _mm_add_ps(s2, a2);
-        s3 = _mm_add_ps(s3, a3);
-        s4 = _mm_add_ps(s4, a4);
-      }
-      // tested _mm_hadd_ps() in USE_SSE42 case, doesn't actually seem to help
-      // (just seems to use a bunch of _mm_shuffle_ps() operations which can
-      // actually be slower in practice)
-      uvec.vf = s1;
-      *dest++ = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
-      uvec.vf = s2;
-      *dest++ = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
-      uvec.vf = s3;
-      *dest++ = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
-      uvec.vf = s4;
-      *dest++ = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
-    }
-  }
-  s1 = _mm_setzero_ps();
-  s2 = _mm_setzero_ps();
-  s3 = _mm_setzero_ps();
-  switch (row_ct % 4) {
-  case 3:
-    for (uint32_t col_idx = 0; col_idx < col_ct; col_idx += 4) {
-      const float* mm_ptr = &(mm[row_idx * col_cta4 + col_idx]);
-      const __m128 vv = _mm_load_ps(&(vect[col_idx]));
-      __m128 a1 = _mm_load_ps(mm_ptr);
-      __m128 a2 = _mm_load_ps(&(mm_ptr[col_cta4]));
-      __m128 a3 = _mm_load_ps(&(mm_ptr[2 * col_cta4]));
-      a1 = _mm_mul_ps(a1, vv);
-      a2 = _mm_mul_ps(a2, vv);
-      a3 = _mm_mul_ps(a3, vv);
-      s1 = _mm_add_ps(s1, a1);
-      s2 = _mm_add_ps(s2, a2);
-      s3 = _mm_add_ps(s3, a3);
-    }
-    uvec.vf = s1;
-    *dest++ = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
-    uvec.vf = s2;
-    *dest++ = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
-    uvec.vf = s3;
-    *dest = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
-    break;
-  case 2:
-    for (uint32_t col_idx = 0; col_idx < col_ct; col_idx += 4) {
-      const float* mm_ptr = &(mm[row_idx * col_cta4 + col_idx]);
-      const __m128 vv = _mm_load_ps(&(vect[col_idx]));
-      __m128 a1 = _mm_load_ps(mm_ptr);
-      __m128 a2 = _mm_load_ps(&(mm_ptr[col_cta4]));
-      a1 = _mm_mul_ps(a1, vv);
-      a2 = _mm_mul_ps(a2, vv);
-      s1 = _mm_add_ps(s1, a1);
-      s2 = _mm_add_ps(s2, a2);
-    }
-    uvec.vf = s1;
-    *dest++ = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
-    uvec.vf = s2;
-    *dest = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
-    break;
-  case 1:
-    for (uint32_t col_idx = 0; col_idx < col_ct; col_idx += 4) {
-      const __m128 vv = _mm_load_ps(&(vect[col_idx]));
-      __m128 a1 = _mm_load_ps(&(mm[row_idx * col_cta4 + col_idx]));
-      a1 = _mm_mul_ps(a1, vv);
-      s1 = _mm_add_ps(s1, a1);
-    }
-    uvec.vf = s1;
-    *dest = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
-    break;
-  }
+  const uint32_t col_ctav = round_up_pow2(col_ct, kFloatPerFVec);
+  col_major_fvector_matrix_multiply_strided(vect, mm, col_ct, col_ctav, row_ct, dest);
 }
 
 static inline float triple_product(const float* v1, const float* v2, const float* v3, uint32_t nn) {
@@ -2017,9 +2023,7 @@ static inline float triple_product(const float* v1, const float* v2, const float
     const __m128 cc = _mm_load_ps(&(v3[uii]));
     sum = _mm_add_ps(sum, _mm_mul_ps(_mm_mul_ps(aa, bb), cc));
   }
-  univec16f_t uvec;
-  uvec.vf = sum;
-  return uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
+  return vf_hsum((vf_t)sum);
 }
 
 static inline void compute_two_diag_triple_product(const float* aa, const float* bb, const float* vv, uint32_t nn, float* raa_ptr, float* rab_ptr, float* rbb_ptr) {
@@ -2036,13 +2040,9 @@ static inline void compute_two_diag_triple_product(const float* aa, const float*
     sab = _mm_add_ps(sab, _mm_mul_ps(atmp, bv));
     sbb = _mm_add_ps(sbb, _mm_mul_ps(btmp, bv));
   }
-  univec16f_t uvec;
-  uvec.vf = saa;
-  *raa_ptr = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
-  uvec.vf = sab;
-  *rab_ptr = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
-  uvec.vf = sbb;
-  *rbb_ptr = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
+  *raa_ptr = vf_hsum((vf_t)saa);
+  *rab_ptr = vf_hsum((vf_t)sab);
+  *rbb_ptr = vf_hsum((vf_t)sbb);
 }
 
 static inline void compute_three_triple_product(const float* bb, const float* a1, const float* a2, const float* a3, const float* vv, uint32_t nn, float* r1_ptr, float* r2_ptr, float* r3_ptr) {
@@ -2060,13 +2060,9 @@ static inline void compute_three_triple_product(const float* bb, const float* a1
     s2 = _mm_add_ps(s2, _mm_mul_ps(a2tmp, btmp));
     s3 = _mm_add_ps(s3, _mm_mul_ps(a3tmp, btmp));
   }
-  univec16f_t uvec;
-  uvec.vf = s1;
-  *r1_ptr = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
-  uvec.vf = s2;
-  *r2_ptr = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
-  uvec.vf = s3;
-  *r3_ptr = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
+  *r1_ptr = vf_hsum((vf_t)s1);
+  *r2_ptr = vf_hsum((vf_t)s2);
+  *r3_ptr = vf_hsum((vf_t)s3);
 }
 
 static inline void compute_two_plus_one_triple_product(const float* bb, const float* a1, const float* a2, const float* vv, uint32_t nn, float* r1_ptr, float* r2_ptr, float* r3_ptr) {
@@ -2083,17 +2079,11 @@ static inline void compute_two_plus_one_triple_product(const float* bb, const fl
     s2 = _mm_add_ps(s2, _mm_mul_ps(a1tmp, bv));
     s3 = _mm_add_ps(s3, _mm_mul_ps(a2tmp, bv));
   }
-  univec16f_t uvec;
-  uvec.vf = s1;
-  *r1_ptr = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
-  uvec.vf = s2;
-  *r2_ptr = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
-  uvec.vf = s3;
-  *r3_ptr = uvec.f4[0] + uvec.f4[1] + uvec.f4[2] + uvec.f4[3];
+  *r1_ptr = vf_hsum((vf_t)s1);
+  *r2_ptr = vf_hsum((vf_t)s2);
+  *r3_ptr = vf_hsum((vf_t)s3);
 }
-/*
-  #endif // !USE_AVX2
-*/
+  #endif // kBytesPerFVec != 32
 #else // no __LP64__ (and hence, unsafe to assume presence of SSE2)
 static inline void logistic_sse(uint32_t nn, float* vect) {
   for (uint32_t uii = 0; uii < nn; ++uii) {
@@ -2114,29 +2104,9 @@ static inline void compute_v(const float* pp, uint32_t nn, float* vv) {
   }
 }
 
-static inline void mult_tmatrix_nxd_vect_d(const float* tm, const float* vect, uint32_t col_ct, uint32_t row_ct, float* dest) {
-  const uintptr_t col_cta4 = round_up_pow2(col_ct, 4);
-  fill_float_zero(col_ct, dest);
-  for (uint32_t row_idx = 0; row_idx < row_ct; ++row_idx) {
-    const float vect_val = vect[row_idx];
-    const float* tm_ptr = &(tm[row_idx * col_cta4]);
-    for (uint32_t col_idx = 0; col_idx < col_ct; ++col_idx) {
-      dest[col_idx] += (*tm_ptr++) * vect_val;
-    }
-  }
-}
-
 static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, uint32_t col_ct, uint32_t row_ct, float* dest) {
-  const uintptr_t col_cta4 = round_up_pow2(col_ct, 4);
-  for (uint32_t row_idx = 0; row_idx < row_ct; ++row_idx) {
-    float fxx = 0.0;
-    const float* vect_ptr = vect;
-    const float* mm_ptr = &(mm[row_idx * col_cta4]);
-    for (uint32_t col_idx = 0; col_idx < col_ct; ++col_idx) {
-      fxx += (*mm_ptr++) * (*vect_ptr++);
-    }
-    *dest++ = fxx;
-  }
+  const uint32_t col_ctav = round_up_pow2(col_ct, kFloatPerFVec);
+  col_major_fvector_matrix_multiply_strided(vect, mm, col_ct, col_ctav, row_ct, dest);
 }
 
 static inline float triple_product(const float* v1, const float* v2, const float* v3, uint32_t nn) {
@@ -2197,6 +2167,7 @@ static inline void compute_two_plus_one_triple_product(const float* bb, const fl
 }
 #endif
 double compute_loglik(const float* yy, const float* pp, uint32_t sample_ct) {
+  // possible todo: look for a high-precision way to accelerate this.
   double loglik = 0.0;
   for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
     const float new_pi = pp[sample_idx];
@@ -2205,39 +2176,40 @@ double compute_loglik(const float* yy, const float* pp, uint32_t sample_ct) {
   return loglik;
 }
 
-static inline void compute_hessian(const float* mm, const float* vv, uint32_t col_ct, uint32_t row_ct, float* dest) {
-  const uintptr_t col_cta4 = round_up_pow2(col_ct, 4);
-  const uintptr_t row_cta4 = round_up_pow2(row_ct, 4);
-  const uintptr_t row_cta4p1 = row_cta4 + 1;
+// Tried to replace this with sqrt(v) followed by ssyrk, but that was slower.
+void compute_hessian(const float* mm, const float* vv, uint32_t col_ct, uint32_t row_ct, float* dest) {
+  const uintptr_t col_ctav = round_up_pow2(col_ct, kFloatPerFVec);
+  const uintptr_t row_ctav = round_up_pow2(row_ct, kFloatPerFVec);
+  const uintptr_t row_ctavp1 = row_ctav + 1;
   if (row_ct > 3) {
     const uint32_t row_ctm3 = row_ct - 3;
     for (uint32_t row_idx = 0; row_idx < row_ctm3; row_idx += 3) {
-      const float* mm_cur = &(mm[row_idx * col_cta4]);
-      compute_two_diag_triple_product(mm_cur, &(mm_cur[col_cta4]), vv, col_ct, &(dest[row_idx * row_cta4p1]), &(dest[(row_idx + 1) * row_cta4p1 - 1]), &(dest[(row_idx + 1) * row_cta4p1]));
-      compute_two_plus_one_triple_product(&(mm_cur[2 * col_cta4]), &(mm_cur[col_cta4]), mm_cur, vv, col_ct, &(dest[(row_idx + 2) * row_cta4p1]), &(dest[(row_idx + 2) * row_cta4p1 - 1]), &(dest[(row_idx + 2) * row_cta4p1 - 2]));
+      const float* mm_cur = &(mm[row_idx * col_ctav]);
+      compute_two_diag_triple_product(mm_cur, &(mm_cur[col_ctav]), vv, col_ct, &(dest[row_idx * row_ctavp1]), &(dest[(row_idx + 1) * row_ctavp1 - 1]), &(dest[(row_idx + 1) * row_ctavp1]));
+      compute_two_plus_one_triple_product(&(mm_cur[2 * col_ctav]), &(mm_cur[col_ctav]), mm_cur, vv, col_ct, &(dest[(row_idx + 2) * row_ctavp1]), &(dest[(row_idx + 2) * row_ctavp1 - 1]), &(dest[(row_idx + 2) * row_ctavp1 - 2]));
       for (uint32_t row_idx2 = row_idx + 3; row_idx2 < row_ct; row_idx2++) {
-        compute_three_triple_product(&(mm[row_idx2 * col_cta4]), mm_cur, &(mm_cur[col_cta4]), &(mm_cur[2 * col_cta4]), vv, col_ct, &(dest[row_idx2 * row_cta4 + row_idx]), &(dest[row_idx2 * row_cta4 + row_idx + 1]), &(dest[row_idx2 * row_cta4 + row_idx + 2]));
+        compute_three_triple_product(&(mm[row_idx2 * col_ctav]), mm_cur, &(mm_cur[col_ctav]), &(mm_cur[2 * col_ctav]), vv, col_ct, &(dest[row_idx2 * row_ctav + row_idx]), &(dest[row_idx2 * row_ctav + row_idx + 1]), &(dest[row_idx2 * row_ctav + row_idx + 2]));
       }
     }
   }
   switch (row_ct % 3) {
   case 0:
-    compute_two_plus_one_triple_product(&(mm[(row_ct - 3) * col_cta4]), &(mm[(row_ct - 2) * col_cta4]), &(mm[(row_ct - 1) * col_cta4]), vv, col_ct, &(dest[(row_ct - 3) * row_cta4p1]), &(dest[(row_ct - 2) * row_cta4p1 - 1]), &(dest[(row_ct - 1) * row_cta4p1 - 2]));
+    compute_two_plus_one_triple_product(&(mm[(row_ct - 3) * col_ctav]), &(mm[(row_ct - 2) * col_ctav]), &(mm[(row_ct - 1) * col_ctav]), vv, col_ct, &(dest[(row_ct - 3) * row_ctavp1]), &(dest[(row_ct - 2) * row_ctavp1 - 1]), &(dest[(row_ct - 1) * row_ctavp1 - 2]));
     // fall through
   case 2:
-    compute_two_diag_triple_product(&(mm[(row_ct - 2) * col_cta4]), &(mm[(row_ct - 1) * col_cta4]), vv, col_ct, &(dest[(row_ct - 2) * row_cta4p1]), &(dest[(row_ct - 1) * row_cta4p1 - 1]), &(dest[(row_ct - 1) * row_cta4p1]));
+    compute_two_diag_triple_product(&(mm[(row_ct - 2) * col_ctav]), &(mm[(row_ct - 1) * col_ctav]), vv, col_ct, &(dest[(row_ct - 2) * row_ctavp1]), &(dest[(row_ct - 1) * row_ctavp1 - 1]), &(dest[(row_ct - 1) * row_ctavp1]));
     break;
   case 1:
-    dest[(row_ct - 1) * row_cta4p1] = triple_product(&(mm[(row_ct - 1) * col_cta4]), &(mm[(row_ct - 1) * col_cta4]), vv, col_ct);
+    dest[(row_ct - 1) * row_ctavp1] = triple_product(&(mm[(row_ct - 1) * col_ctav]), &(mm[(row_ct - 1) * col_ctav]), vv, col_ct);
   }
 }
 
 void cholesky_decomposition(const float* aa, uint32_t predictor_ct, float* ll) {
-  const uintptr_t predictor_cta4 = round_up_pow2(predictor_ct, 4);
-  const uintptr_t predictor_cta4p1 = predictor_cta4 + 1;
+  const uintptr_t predictor_ctav = round_up_pow2(predictor_ct, kFloatPerFVec);
+  const uintptr_t predictor_ctavp1 = predictor_ctav + 1;
   for (uint32_t row_idx = 0; row_idx < predictor_ct; ++row_idx) {
-    float fxx = aa[row_idx * predictor_cta4p1];
-    float* ll_row_iter = &(ll[row_idx * predictor_cta4]);
+    float fxx = aa[row_idx * predictor_ctavp1];
+    float* ll_row_iter = &(ll[row_idx * predictor_ctav]);
     for (uint32_t col_idx = 0; col_idx < row_idx; ++col_idx) {
       const float fyy = (*ll_row_iter++);
       fxx -= fyy * fyy;
@@ -2248,16 +2220,16 @@ void cholesky_decomposition(const float* aa, uint32_t predictor_ct, float* ll) {
     } else {
       fyy = 1e-6;
     }
-    ll[row_idx * predictor_cta4p1] = fyy;
+    ll[row_idx * predictor_ctavp1] = fyy;
     fyy = 1.0 / fyy; // now 1.0 / L[j][j]
     for (uint32_t row_idx2 = row_idx + 1; row_idx2 < predictor_ct; ++row_idx2) {
-      float fxx2 = aa[row_idx2 * predictor_cta4 + row_idx];
-      float* ll_row_iter2 = &(ll[row_idx * predictor_cta4]);
-      float* ll_row_iter3 = &(ll[row_idx2 * predictor_cta4]);
+      float fxx2 = aa[row_idx2 * predictor_ctav + row_idx];
+      float* ll_row_iter2 = &(ll[row_idx * predictor_ctav]);
+      float* ll_row_iter3 = &(ll[row_idx2 * predictor_ctav]);
       for (uint32_t col_idx = 0; col_idx < row_idx; ++col_idx) {
         fxx2 -= (*ll_row_iter2++) * (*ll_row_iter3++);
       }
-      ll[row_idx2 * predictor_cta4 + row_idx] = fxx2 * fyy;
+      ll[row_idx2 * predictor_ctav + row_idx] = fxx2 * fyy;
     }
   }
 }
@@ -2267,10 +2239,10 @@ void solve_linear_system(const float* ll, const float* yy, uint32_t predictor_ct
   //
   // might want to use this in NOLAPACK case only, since we can now produce
   // 32-bit Linux builds with statically linked LAPACK
-  const uintptr_t predictor_cta4 = round_up_pow2(predictor_ct, 4);
+  const uintptr_t predictor_ctav = round_up_pow2(predictor_ct, kFloatPerFVec);
   for (uint32_t row_idx = 0; row_idx < predictor_ct; ++row_idx) {
     float fxx = yy[row_idx];
-    const float* ll_row_iter = &(ll[row_idx * predictor_cta4]);
+    const float* ll_row_iter = &(ll[row_idx * predictor_ctav]);
     float* xx_iter = xx;
     for (uint32_t col_idx = 0; col_idx < row_idx; ++col_idx) {
       fxx -= (*ll_row_iter++) * (*xx_iter++);
@@ -2281,9 +2253,9 @@ void solve_linear_system(const float* ll, const float* yy, uint32_t predictor_ct
     float fxx = xx[--col_idx];
     float* xx_iter = &(xx[predictor_ct - 1]);
     for (uint32_t row_idx = predictor_ct - 1; row_idx > col_idx; --row_idx) {
-      fxx -= ll[row_idx * predictor_cta4 + col_idx] * (*xx_iter--);
+      fxx -= ll[row_idx * predictor_ctav + col_idx] * (*xx_iter--);
     }
-    *xx_iter = fxx / ll[col_idx * (predictor_cta4 + 1)];
+    *xx_iter = fxx / ll[col_idx * (predictor_ctav + 1)];
   }
 }
 
@@ -2293,35 +2265,35 @@ boolerr_t logistic_regression(const float* yy, const float* xx, uint32_t sample_
   //
   // Preallocated buffers (initial contents irrelevant):
   // vv    = sample variance buffer
-  // hh    = hessian matrix buffer, predictor_ct^2, rows 16-byte aligned
+  // hh    = hessian matrix buffer, predictor_ct^2, rows vector-aligned
   // grad  = gradient buffer Y[] (length predictor_ct)
   // dcoef = current coefficient change buffer (length predictor_ct)
   //
   // Inputs:
   // xx    = covariate (and usually genotype) matrix, covariate-major, rows are
-  //         16-byte aligned, trailing row elements must be zeroed out
+  //         vector-aligned, trailing row elements must be zeroed out
   // yy    = case/control phenotype; trailing elements must be zeroed out
   //
   // Input/output:
   // coef  = starting point, overwritten with logistic regression betas.  Must
-  //         be 16-byte aligned.
+  //         be vector-16-byte waligned.
   //
   // Outputs:
-  // ll    = cholesky decomposition matrix, predictor_ct^2, rows 16-byte
-  //         aligned
+  // ll    = cholesky decomposition matrix, predictor_ct^2, rows vector-aligned
   // pp    = final likelihoods minus Y[] (not currently used by callers)
   //
   // Returns 0 on success, 1 on convergence failure.
-  const uintptr_t predictor_cta4 = round_up_pow2(predictor_ct, 4);
+  const uintptr_t sample_ctav = round_up_pow2(sample_ct, kFloatPerFVec);
+  const uintptr_t predictor_ctav = round_up_pow2(predictor_ct, kFloatPerFVec);
   uint32_t iteration = 0;
   float min_delta_coef = 1e9;
 
-  fill_float_zero(predictor_ct * predictor_cta4, ll);
+  fill_float_zero(predictor_ct * predictor_ctav, ll);
   while (1) {
     ++iteration;
 
-    // P[i] = \sum_j coef[j] * X[i][j];
-    mult_tmatrix_nxd_vect_d(xx, coef, sample_ct, predictor_ct, pp);
+    // P[i] = \sum_j X[i][j] * coef[j];
+    col_major_fmatrix_vector_multiply_strided(xx, coef, sample_ct, sample_ctav, predictor_ct, pp);
 
     // P[i] = 1 / (1 + exp(-P[i]));
     logistic_sse(sample_ct, pp);
@@ -2332,6 +2304,7 @@ boolerr_t logistic_regression(const float* yy, const float* xx, uint32_t sample_
 
     compute_hessian(xx, vv, sample_ct, predictor_ct, hh);
 
+    // grad = X^T P
     mult_matrix_dxn_vect_n(xx, pp, sample_ct, predictor_ct, grad);
 
     cholesky_decomposition(hh, predictor_ct, ll);
@@ -2368,9 +2341,31 @@ boolerr_t logistic_regression(const float* yy, const float* xx, uint32_t sample_
 }
 
 #ifdef __LP64__
+  #if kBytesPerFVec == 32
 // tmpNxK, interpreted as column-major, is sample_ct x predictor_ct
 // X, interpreted as column-major, is also sample_ct x predictor_ct
 // Hdiag[i] = V[i] (\sum_j tmpNxK[i][j] X[i][j])
+void firth_compute_weights(const float* yy, const float* xx, const float* pp, const float* vv, const float* tmpnxk, uint32_t predictor_ct, __maybe_unused uint32_t sample_ct, uint32_t sample_ctav, float* ww) {
+  const __m256 half = _mm256_set1_ps(0.5);
+  for (uint32_t sample_offset = 0; sample_offset < sample_ctav; sample_offset += kFloatPerFVec) {
+    __m256 dotprods = _mm256_setzero_ps();
+    const float* xx_row = &(xx[sample_offset]);
+    const float* tmpnxk_row = &(tmpnxk[sample_offset]);
+    for (uint32_t pred_uidx = 0; pred_uidx < predictor_ct; ++pred_uidx) {
+      const __m256 cur_xx = _mm256_load_ps(&(xx_row[pred_uidx * sample_ctav]));
+      const __m256 cur_tmpnxk = _mm256_load_ps(&(tmpnxk_row[pred_uidx * sample_ctav]));
+      dotprods = _mm256_fmadd_ps(cur_xx, cur_tmpnxk, dotprods);
+    }
+    const __m256 cur_weights = _mm256_load_ps(&(vv[sample_offset]));
+    const __m256 cur_pis = _mm256_load_ps(&(pp[sample_offset]));
+    const __m256 cur_yy = _mm256_load_ps(&(yy[sample_offset]));
+    const __m256 half_minus_cur_pis = _mm256_sub_ps(half, cur_pis);
+    const __m256 yy_minus_cur_pis = _mm256_sub_ps(cur_yy, cur_pis);
+    const __m256 cur_wws = _mm256_fmadd_ps(half_minus_cur_pis, _mm256_mul_ps(cur_weights, dotprods), yy_minus_cur_pis);
+    _mm256_store_ps(&(ww[sample_offset]), cur_wws);
+  }
+}
+  #else  // kBytesPerFVec != 32
 void firth_compute_weights(const float* yy, const float* xx, const float* pp, const float* vv, const float* tmpnxk, uint32_t predictor_ct, __maybe_unused uint32_t sample_ct, uint32_t sample_cta4, float* ww) {
   const __m128 half = _mm_set1_ps(0.5);
   for (uint32_t sample_offset = 0; sample_offset < sample_cta4; sample_offset += 4) {
@@ -2392,14 +2387,15 @@ void firth_compute_weights(const float* yy, const float* xx, const float* pp, co
     _mm_store_ps(&(ww[sample_offset]), cur_wws);
   }
 }
+  #endif  // !USE_AVX2
 #else
-void firth_compute_weights(const float* yy, const float* xx, const float* pp, const float* vv, const float* tmpnxk, uint32_t predictor_ct, uint32_t sample_ct, uint32_t sample_cta4, float* ww) {
+void firth_compute_weights(const float* yy, const float* xx, const float* pp, const float* vv, const float* tmpnxk, uint32_t predictor_ct, uint32_t sample_ct, uint32_t sample_ctav, float* ww) {
   for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
     float dotprod = 0.0;
     const float* xx_row = &(xx[sample_idx]);
     const float* tmpnxk_row = &(tmpnxk[sample_idx]);
     for (uint32_t pred_uidx = 0; pred_uidx < predictor_ct; ++pred_uidx) {
-      dotprod += xx_row[pred_uidx * sample_cta4] * tmpnxk_row[pred_uidx * sample_cta4];
+      dotprod += xx_row[pred_uidx * sample_ctav] * tmpnxk_row[pred_uidx * sample_ctav];
     }
     const float cur_weight = vv[sample_idx];
     const float cur_pi = pp[sample_idx];
@@ -2423,26 +2419,27 @@ boolerr_t firth_regression(const float* yy, const float* xx, uint32_t sample_ct,
   //
   // Inputs:
   // xx    = covariate (and usually genotype) matrix, covariate-major, rows are
-  //         16-byte aligned, trailing row elements must be zeroed out
+  //         vector-aligned, trailing row elements must be zeroed out
   // yy    = case/control phenotype
   //
   // Input/output:
   // coef  = starting point, overwritten with logistic regression betas.  Must
-  //         be 16-byte aligned.
+  //         be vector-aligned.
   //
   // Outputs:
-  // hh    = variance-covariance matrix buffer, predictor_ct^2, rows 16-byte
-  //         aligned.  (spends some time as pre-inversion Hessian matrix too)
+  // hh    = variance-covariance matrix buffer, predictor_ct^2, rows
+  //         vector-aligned.  (spends some time as pre-inversion Hessian matrix
+  //         too)
   //
   // Returns 0 on success, 1 on convergence failure.
-  const uintptr_t predictor_cta4 = round_up_pow2(predictor_ct, 4);
-  const uintptr_t sample_cta4 = round_up_pow2(sample_ct, 4);
+  const uintptr_t predictor_ctav = round_up_pow2(predictor_ct, kFloatPerFVec);
+  const uintptr_t sample_ctav = round_up_pow2(sample_ct, kFloatPerFVec);
   uint32_t is_last_iter = 0;
 
   // pull these out of the start of the loop, since they happen again in the
   // log-likelihood update
   // P[i] = \sum_j coef[j] * X[i][j];
-  mult_tmatrix_nxd_vect_d(xx, coef, sample_ct, predictor_ct, pp);
+  col_major_fmatrix_vector_multiply_strided(xx, coef, sample_ct, sample_ctav, predictor_ct, pp);
   // P[i] = 1 / (1 + exp(-P[i]));
   logistic_sse(sample_ct, pp);
   // V[i] = P[i] * (1 - P[i]);
@@ -2455,14 +2452,14 @@ boolerr_t firth_regression(const float* yy, const float* xx, uint32_t sample_ct,
 
   // we shouldn't need to compute the log directly, since underflow <->
   // regression failure, right?  check this.
-  if (invert_symmdef_fmatrix_first_half(predictor_ct, predictor_cta4, hh, half_inverted_buf, inv_1d_buf, dbl_2d_buf)) {
+  if (invert_symmdef_fmatrix_first_half(predictor_ct, predictor_ctav, hh, half_inverted_buf, inv_1d_buf, dbl_2d_buf)) {
     return 1;
   }
   double dethh = half_symm_inverted_det(half_inverted_buf, inv_1d_buf, predictor_ct);
   /*
-  if (sample_ct < sample_cta4) {
+  if (sample_ct < sample_ctav) {
     // trailing Y[] values must be zero
-    fill_float_zero(sample_cta4 - sample_ct, &(pp[sample_ct]));
+    fill_float_zero(sample_ctav - sample_ct, &(pp[sample_ct]));
   }
   */
   double loglik = compute_loglik(yy, pp, sample_ct);
@@ -2470,7 +2467,7 @@ boolerr_t firth_regression(const float* yy, const float* xx, uint32_t sample_ct,
   loglik += 0.5 * log(dethh);
 
   // bugfix (4 Nov 2017): grad[] trailing elements must be zeroed out
-  fill_float_zero(predictor_cta4 - predictor_ct, &(grad[predictor_ct]));
+  fill_float_zero(predictor_ctav - predictor_ct, &(grad[predictor_ct]));
 
   uint32_t iter_idx = 0;
   // start with 80% of logistf convergence defaults (some reduction is
@@ -2487,20 +2484,21 @@ boolerr_t firth_regression(const float* yy, const float* xx, uint32_t sample_ct,
   const double lconv = 0.0001;
   uint32_t hs_bail = 0;
   while (1) {
-    invert_symmdef_fmatrix_second_half(predictor_ct, predictor_cta4, half_inverted_buf, hh, inv_1d_buf, dbl_2d_buf);
+    invert_symmdef_fmatrix_second_half(predictor_ct, predictor_ctav, half_inverted_buf, hh, inv_1d_buf, dbl_2d_buf);
     if (is_last_iter) {
       return 0;
     }
     // bugfix (13 Oct 2017): trailing elements of hh[] rows can't be arbitrary
     // for later mult_matrix_dxn_vect_n() call
-    reflect_fmatrixz(predictor_ct, predictor_cta4, hh);
+    reflect_fmatrixz(predictor_ct, predictor_ctav, hh);
 
-    col_major_fmatrix_multiply_strided(xx, hh, sample_ct, sample_cta4, predictor_ct, predictor_cta4, predictor_ct, sample_cta4, tmpnxk_buf);
+    col_major_fmatrix_multiply_strided(xx, hh, sample_ct, sample_ctav, predictor_ct, predictor_ctav, predictor_ct, sample_ctav, tmpnxk_buf);
 
-    firth_compute_weights(yy, xx, pp, vv, tmpnxk_buf, predictor_ct, sample_ct, sample_cta4, ww);
+    firth_compute_weights(yy, xx, pp, vv, tmpnxk_buf, predictor_ct, sample_ct, sample_ctav, ww);
 
-    // trailing elements of ww cannot be nan for mult_matrix_dxn_vect_n()
-    fill_float_zero(sample_cta4 - sample_ct, &(ww[sample_ct]));
+    // trailing elements of ww can't be nan for mult_matrix_dxn_vect_n()
+    fill_float_zero(sample_ctav - sample_ct, &(ww[sample_ct]));
+
     // gradient (Ustar in logistf) = X' W
     mult_matrix_dxn_vect_n(xx, ww, sample_ct, predictor_ct, grad);
     float grad_max = 0.0;
@@ -2545,12 +2543,12 @@ boolerr_t firth_regression(const float* yy, const float* xx, uint32_t sample_ct,
     uint32_t maxhs = 5;
     uint32_t halfstep_idx = 1;
     while (1) {
-      mult_tmatrix_nxd_vect_d(xx, coef, sample_ct, predictor_ct, pp);
+      col_major_fmatrix_vector_multiply_strided(xx, coef, sample_ct, sample_ctav, predictor_ct, pp);
       logistic_sse(sample_ct, pp);
       loglik = compute_loglik(yy, pp, sample_ct);
       compute_v(pp, sample_ct, vv);
       compute_hessian(xx, vv, sample_ct, predictor_ct, hh);
-      if (invert_symmdef_fmatrix_first_half(predictor_ct, predictor_cta4, hh, half_inverted_buf, inv_1d_buf, dbl_2d_buf)) {
+      if (invert_symmdef_fmatrix_first_half(predictor_ct, predictor_ctav, hh, half_inverted_buf, inv_1d_buf, dbl_2d_buf)) {
         return 1;
       }
       dethh = half_symm_inverted_det(half_inverted_buf, inv_1d_buf, predictor_ct);
@@ -2589,38 +2587,38 @@ boolerr_t firth_regression(const float* yy, const float* xx, uint32_t sample_ct,
 }
 
 uintptr_t get_logistic_workspace_size(uint32_t sample_ct, uint32_t predictor_ct, uint32_t constraint_ct, uint32_t genof_buffer_needed, uint32_t is_sometimes_firth) {
-  // sample_cta4 * predictor_ct < 2^31, and sample_ct >= predictor_ct, so no
+  // sample_ctav * predictor_ct < 2^31, and sample_ct >= predictor_ct, so no
   // overflows
   // could round everything up to multiples of 16 instead of 64
-  const uint32_t sample_cta4 = round_up_pow2(sample_ct, 4);
-  const uint32_t predictor_cta4 = round_up_pow2(predictor_ct, 4);
+  const uint32_t sample_ctav = round_up_pow2(sample_ct, kFloatPerFVec);
+  const uint32_t predictor_ctav = round_up_pow2(predictor_ct, kFloatPerFVec);
   // sample_nm, pheno_cc_nm, male_nm = sample_ctl words
   uintptr_t workspace_size = 3 * round_up_pow2(BITCT_TO_WORDCT(sample_ct) * sizeof(intptr_t), kCacheline);
 
-  // yy = sample_cta4 floats
-  workspace_size += round_up_pow2(sample_cta4 * sizeof(float), kCacheline);
+  // yy = sample_ctav floats
+  workspace_size += round_up_pow2(sample_ctav * sizeof(float), kCacheline);
 
-  // xx = (predictor_ct + genof_buffer_needed) * sample_cta4 floats
-  workspace_size += round_up_pow2((predictor_ct + genof_buffer_needed) * sample_cta4 * sizeof(float), kCacheline);
+  // xx = (predictor_ct + genof_buffer_needed) * sample_ctav floats
+  workspace_size += round_up_pow2((predictor_ct + genof_buffer_needed) * sample_ctav * sizeof(float), kCacheline);
 
-  // hh = predictor_ct * predictor_cta4 floats
-  workspace_size += round_up_pow2(predictor_ct * predictor_cta4 * sizeof(float), kCacheline);
+  // hh = predictor_ct * predictor_ctav floats
+  workspace_size += round_up_pow2(predictor_ct * predictor_ctav * sizeof(float), kCacheline);
 
-  // pp, vv = sample_cta4 floats
-  workspace_size += 2 * round_up_pow2(sample_cta4 * sizeof(float), kCacheline);
+  // pp, vv = sample_ctav floats
+  workspace_size += 2 * round_up_pow2(sample_ctav * sizeof(float), kCacheline);
 
-  // coef, grad, dcoef = predictor_cta4 floats
-  workspace_size += 3 * round_up_pow2(predictor_cta4 * sizeof(float), kCacheline);
+  // coef, grad, dcoef = predictor_ctav floats
+  workspace_size += 3 * round_up_pow2(predictor_ctav * sizeof(float), kCacheline);
 
-  // ll = predictor_ct * predictor_cta4 floats
+  // ll = predictor_ct * predictor_ctav floats
   // (technically not needed in pure-Firth case)
-  workspace_size += round_up_pow2(predictor_ct * predictor_cta4 * sizeof(float), kCacheline);
+  workspace_size += round_up_pow2(predictor_ct * predictor_ctav * sizeof(float), kCacheline);
 
   // inv_1d_buf
   workspace_size += round_up_pow2(predictor_ct * kMatrixInvertBuf1CheckedAlloc, kCacheline);
 
   const uintptr_t dbl_2d_byte_ct = predictor_ct * MAXV(3, predictor_ct) * sizeof(double);
-  // dbl_2d_buf = predictor_ct * predictor_cta4 floats, or VIF/Firth dbl
+  // dbl_2d_buf = predictor_ct * predictor_ctav floats, or VIF/Firth dbl
   // in practice, the latter value is never smaller due to the max(3, x)
   workspace_size += round_up_pow2(dbl_2d_byte_ct, kCacheline);
 
@@ -2632,15 +2630,15 @@ uintptr_t get_logistic_workspace_size(uint32_t sample_ct, uint32_t predictor_ct,
   workspace_size += round_up_pow2(dbl_2d_byte_ct, kCacheline);
 
   if (is_sometimes_firth) {
-    // ww = sample_cta4 floats
-    workspace_size += round_up_pow2(sample_cta4 * sizeof(float), kCacheline);
+    // ww = sample_ctav floats
+    workspace_size += round_up_pow2(sample_ctav * sizeof(float), kCacheline);
 
-    // tmpnxk_buf = predictor_ct * sample_cta4 floats
-    workspace_size += round_up_pow2(predictor_ct * sample_cta4 * sizeof(float), kCacheline);
+    // tmpnxk_buf = predictor_ct * sample_ctav floats
+    workspace_size += round_up_pow2(predictor_ct * sample_ctav * sizeof(float), kCacheline);
   }
   if (constraint_ct) {
-    // tmphxs_buf, h_transpose_buf = constraint_ct * predictor_cta4 floats
-    workspace_size += 2 * round_up_pow2(constraint_ct * predictor_cta4 * sizeof(float), kCacheline);
+    // tmphxs_buf, h_transpose_buf = constraint_ct * predictor_ctav floats
+    workspace_size += 2 * round_up_pow2(constraint_ct * predictor_ctav * sizeof(float), kCacheline);
 
     // inner_buf = constraint_ct * constraint_ct
     workspace_size += round_up_pow2(constraint_ct * constraint_ct * sizeof(float), kCacheline);
@@ -2897,15 +2895,15 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
         cur_constraint_ct = g_constraint_ct;
       }
       const uint32_t sample_ctl = BITCT_TO_WORDCT(cur_sample_ct);
-      const uint32_t sample_cta4 = round_up_pow2(cur_sample_ct, 4);
+      const uint32_t sample_ctav = round_up_pow2(cur_sample_ct, kFloatPerFVec);
       const uint32_t cur_case_ct = popcount_longs(cur_pheno_cc, sample_ctl);
       const uint32_t cur_predictor_ct_base = 2 + domdev_present + cur_covar_ct * (1 + add_interactions * domdev_present_p1);
       uint32_t cur_predictor_ct = cur_predictor_ct_base;
       if (cur_parameter_subset) {
         cur_predictor_ct = popcount_longs(cur_parameter_subset, BITCT_TO_WORDCT(cur_predictor_ct_base));
       }
-      const uint32_t predictor_cta4 = round_up_pow2(cur_predictor_ct, 4);
-      const uint32_t predictor_cta4p1 = predictor_cta4 + 1;
+      const uint32_t predictor_ctav = round_up_pow2(cur_predictor_ct, kFloatPerFVec);
+      const uint32_t predictor_ctavp1 = predictor_ctav + 1;
       uint32_t reported_pred_uidx_end;
       if (hide_covar) {
         if (!cur_parameter_subset) {
@@ -2925,15 +2923,15 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
       uintptr_t* sample_nm = (uintptr_t*)arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter);
       uintptr_t* pheno_cc_nm = (uintptr_t*)arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter);
       uintptr_t* male_nm = (uintptr_t*)arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter);
-      float* nm_pheno_buf = (float*)arena_alloc_raw_rd(sample_cta4 * sizeof(float), &workspace_iter);
-      float* nm_predictors_pmaj_buf = (float*)arena_alloc_raw_rd((cur_predictor_ct + genof_buffer_needed) * sample_cta4 * sizeof(float), &workspace_iter);
-      float* coef_return = (float*)arena_alloc_raw_rd(predictor_cta4 * sizeof(float), &workspace_iter);
-      float* hh_return = (float*)arena_alloc_raw_rd(cur_predictor_ct * predictor_cta4 * sizeof(float), &workspace_iter);
-      float* pp_buf = (float*)arena_alloc_raw_rd(sample_cta4 * sizeof(float), &workspace_iter);
-      float* sample_variance_buf = (float*)arena_alloc_raw_rd(sample_cta4 * sizeof(float), &workspace_iter);
-      float* gradient_buf = (float*)arena_alloc_raw_rd(predictor_cta4 * sizeof(float), &workspace_iter);
-      float* dcoef_buf = (float*)arena_alloc_raw_rd(predictor_cta4 * sizeof(float), &workspace_iter);
-      float* cholesky_decomp_return = (float*)arena_alloc_raw_rd(cur_predictor_ct * predictor_cta4 * sizeof(float), &workspace_iter);
+      float* nm_pheno_buf = (float*)arena_alloc_raw_rd(sample_ctav * sizeof(float), &workspace_iter);
+      float* nm_predictors_pmaj_buf = (float*)arena_alloc_raw_rd((cur_predictor_ct + genof_buffer_needed) * sample_ctav * sizeof(float), &workspace_iter);
+      float* coef_return = (float*)arena_alloc_raw_rd(predictor_ctav * sizeof(float), &workspace_iter);
+      float* hh_return = (float*)arena_alloc_raw_rd(cur_predictor_ct * predictor_ctav * sizeof(float), &workspace_iter);
+      float* pp_buf = (float*)arena_alloc_raw_rd(sample_ctav * sizeof(float), &workspace_iter);
+      float* sample_variance_buf = (float*)arena_alloc_raw_rd(sample_ctav * sizeof(float), &workspace_iter);
+      float* gradient_buf = (float*)arena_alloc_raw_rd(predictor_ctav * sizeof(float), &workspace_iter);
+      float* dcoef_buf = (float*)arena_alloc_raw_rd(predictor_ctav * sizeof(float), &workspace_iter);
+      float* cholesky_decomp_return = (float*)arena_alloc_raw_rd(cur_predictor_ct * predictor_ctav * sizeof(float), &workspace_iter);
 
       matrix_invert_buf1_t* inv_1d_buf = (matrix_invert_buf1_t*)arena_alloc_raw_rd(cur_predictor_ct * kMatrixInvertBuf1CheckedAlloc, &workspace_iter);
       const uintptr_t dbl_2d_byte_ct = round_up_pow2(cur_predictor_ct * MAXV(cur_predictor_ct, 3) * sizeof(double), kCacheline);
@@ -2947,8 +2945,8 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
       float* score_buf = nullptr;
       float* tmpnxk_buf = nullptr;
       if (is_sometimes_firth) {
-        score_buf = (float*)arena_alloc_raw_rd(sample_cta4 * sizeof(float), &workspace_iter);
-        tmpnxk_buf = (float*)arena_alloc_raw_rd(cur_predictor_ct * sample_cta4 * sizeof(float), &workspace_iter);
+        score_buf = (float*)arena_alloc_raw_rd(sample_ctav * sizeof(float), &workspace_iter);
+        tmpnxk_buf = (float*)arena_alloc_raw_rd(cur_predictor_ct * sample_ctav * sizeof(float), &workspace_iter);
       }
 
       // joint test only
@@ -2957,8 +2955,8 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
       float* inner_buf = nullptr;
       float* outer_buf = nullptr;
       if (cur_constraint_ct) {
-        tmphxs_buf = (float*)arena_alloc_raw_rd(cur_constraint_ct * predictor_cta4 * sizeof(float), &workspace_iter);
-        h_transpose_buf = (float*)arena_alloc_raw_rd(cur_constraint_ct * predictor_cta4 * sizeof(float), &workspace_iter);
+        tmphxs_buf = (float*)arena_alloc_raw_rd(cur_constraint_ct * predictor_ctav * sizeof(float), &workspace_iter);
+        h_transpose_buf = (float*)arena_alloc_raw_rd(cur_constraint_ct * predictor_ctav * sizeof(float), &workspace_iter);
         inner_buf = (float*)arena_alloc_raw_rd(cur_constraint_ct * cur_constraint_ct * sizeof(float), &workspace_iter);
         outer_buf = (float*)arena_alloc_raw_rd(cur_constraint_ct * sizeof(float), &workspace_iter);
       }
@@ -3001,8 +2999,8 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
           uint32_t nm_sample_ct = cur_sample_ct - missing_ct;
           // todo: alt2/alt3/etc. dosage > 0.5 -> missing
           const uint32_t nm_sample_ctl = BITCT_TO_WORDCT(nm_sample_ct);
-          const uint32_t nm_sample_cta4 = round_up_pow2(nm_sample_ct, 4);
-          const uint32_t nm_sample_ct_rem = nm_sample_cta4 - nm_sample_ct;
+          const uint32_t nm_sample_ctav = round_up_pow2(nm_sample_ct, kFloatPerFVec);
+          const uint32_t nm_sample_ct_rem = nm_sample_ctav - nm_sample_ct;
           float* nm_predictors_pmaj_iter = nm_predictors_pmaj_buf;
           // first predictor column: intercept
           for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx) {
@@ -3010,11 +3008,11 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
           }
           fill_float_zero(nm_sample_ct_rem, nm_predictors_pmaj_iter);
           // second predictor column: genotype
-          float* genotype_vals = &(nm_predictors_pmaj_buf[nm_sample_cta4]);
+          float* genotype_vals = &(nm_predictors_pmaj_buf[nm_sample_ctav]);
           if (genof_buffer_needed) {
             // special case: --parameters excludes the main genotype column,
             // but does care about an interaction
-            genotype_vals = &(nm_predictors_pmaj_buf[cur_predictor_ct * nm_sample_cta4]);
+            genotype_vals = &(nm_predictors_pmaj_buf[cur_predictor_ct * nm_sample_ctav]);
           }
           nm_predictors_pmaj_iter = genotype_vals;
           if (!missing_ct) {
@@ -3111,7 +3109,7 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
           }
           float* domdev_vals = nullptr;
           if (genof_buffer_needed) {
-            nm_predictors_pmaj_iter = &(nm_predictors_pmaj_buf[nm_sample_cta4]);
+            nm_predictors_pmaj_iter = &(nm_predictors_pmaj_buf[nm_sample_ctav]);
           } else if (joint_genotypic || joint_hethom) {
             // in hethom case, do this before clobbering genotype data
             domdev_vals = nm_predictors_pmaj_iter;
@@ -3154,8 +3152,7 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
           // bugfix (13 Oct 2017): must guarantee trailing phenotype values are
           // valid (exact contents don't matter since they are multiplied by
           // zero, but they can't be nan)
-          const uint32_t trail_ct = (-nm_sample_ct) & 3;
-          fill_float_zero(trail_ct, &(nm_pheno_buf[nm_sample_ct]));
+          fill_float_zero(nm_sample_ct_rem, &(nm_pheno_buf[nm_sample_ct]));
 
           // fill covariates
           uint32_t parameter_uidx = 2 + domdev_present;
@@ -3169,7 +3166,7 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
             if (covar_idx < local_covar_ct) {
               cur_covar_col = &(local_covars_iter[covar_idx * max_sample_ct]);
             } else {
-              cur_covar_col = &(cur_covars_cmaj[(covar_idx - local_covar_ct) * sample_cta4]);
+              cur_covar_col = &(cur_covars_cmaj[(covar_idx - local_covar_ct) * sample_ctav]);
             }
             sample_midx = 0;
             for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx, ++sample_midx) {
@@ -3185,7 +3182,7 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
               if (covar_idx < local_covar_ct) {
                 cur_covar_col = &(local_covars_iter[covar_idx * max_sample_ct]);
               } else {
-                cur_covar_col = &(cur_covars_cmaj[covar_idx * sample_cta4]);
+                cur_covar_col = &(cur_covars_cmaj[covar_idx * sample_ctav]);
               }
               if ((!cur_parameter_subset) || is_set(cur_parameter_subset, parameter_uidx)) {
                 sample_midx = 0;
@@ -3209,10 +3206,10 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
               }
             }
           }
-          if (check_max_corr_and_vif_f(&(nm_predictors_pmaj_buf[nm_sample_cta4]), cur_predictor_ct - 1, nm_sample_ct, nm_sample_cta4, max_corr, vif_thresh, predictor_dotprod_buf, dbl_2d_buf, inverse_corr_buf, inv_1d_buf)) {
+          if (check_max_corr_and_vif_f(&(nm_predictors_pmaj_buf[nm_sample_ctav]), cur_predictor_ct - 1, nm_sample_ct, nm_sample_ctav, max_corr, vif_thresh, predictor_dotprod_buf, dbl_2d_buf, inverse_corr_buf, inv_1d_buf)) {
             goto glm_logistic_thread_skip_variant;
           }
-          fill_float_zero(predictor_cta4, coef_return);
+          fill_float_zero(predictor_ctav, coef_return);
           if (!is_always_firth) {
             const double ref_plus_alt1_sum = dosage_ceil * ((int32_t)nm_sample_ct);
             // "dosage_sum" = alt1 sum
@@ -3233,7 +3230,7 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
             }
             if (logistic_regression(nm_pheno_buf, nm_predictors_pmaj_buf, nm_sample_ct, cur_predictor_ct, coef_return, cholesky_decomp_return, pp_buf, sample_variance_buf, hh_return, gradient_buf, dcoef_buf)) {
               if (is_sometimes_firth) {
-                fill_float_zero(predictor_cta4, coef_return);
+                fill_float_zero(predictor_ctav, coef_return);
                 block_aux_iter->firth_fallback = 1;
                 goto glm_logistic_thread_firth_fallback;
               }
@@ -3242,7 +3239,7 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
             // unlike firth_regression(), hh_return isn't inverted yet, do that
             // here
             for (uint32_t pred_uidx = 0; pred_uidx < cur_predictor_ct; ++pred_uidx) {
-              float* hh_inv_row = &(hh_return[pred_uidx * predictor_cta4]);
+              float* hh_inv_row = &(hh_return[pred_uidx * predictor_ctav]);
               // fill_float_zero(cur_predictor_ct, gradient_buf);
               // gradient_buf[pred_uidx] = 1.0;
               // (y is gradient_buf, x is dcoef_buf)
@@ -3254,7 +3251,7 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
 
               float fxx = 1.0;
               for (uint32_t row_idx = pred_uidx; row_idx < cur_predictor_ct; ++row_idx) {
-                const float* ll_row = &(cholesky_decomp_return[row_idx * predictor_cta4]);
+                const float* ll_row = &(cholesky_decomp_return[row_idx * predictor_ctav]);
                 for (uint32_t col_idx = pred_uidx; col_idx < row_idx; ++col_idx) {
                   fxx -= ll_row[col_idx] * hh_inv_row[col_idx];
                 }
@@ -3265,9 +3262,9 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
                 fxx = hh_inv_row[--col_idx];
                 float* hh_inv_row_iter = &(hh_inv_row[cur_predictor_ct - 1]);
                 for (uint32_t row_idx = cur_predictor_ct - 1; row_idx > col_idx; --row_idx) {
-                  fxx -= cholesky_decomp_return[row_idx * predictor_cta4 + col_idx] * (*hh_inv_row_iter--);
+                  fxx -= cholesky_decomp_return[row_idx * predictor_ctav + col_idx] * (*hh_inv_row_iter--);
                 }
-                *hh_inv_row_iter = fxx / cholesky_decomp_return[col_idx * predictor_cta4p1];
+                *hh_inv_row_iter = fxx / cholesky_decomp_return[col_idx * predictor_ctavp1];
               }
             }
           } else {
@@ -3278,7 +3275,7 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
           }
           // validParameters() check
           for (uint32_t pred_uidx = 1; pred_uidx < cur_predictor_ct; ++pred_uidx) {
-            const float hh_inv_diag_element = hh_return[pred_uidx * predictor_cta4p1];
+            const float hh_inv_diag_element = hh_return[pred_uidx * predictor_ctavp1];
             if ((hh_inv_diag_element < 1e-20) || (!realnum(hh_inv_diag_element))) {
               goto glm_logistic_thread_skip_variant;
             }
@@ -3288,7 +3285,7 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
           sample_variance_buf[0] = sqrtf(hh_return[0]);
           for (uint32_t pred_uidx = 1; pred_uidx < cur_predictor_ct; ++pred_uidx) {
             const float cur_hh_inv_diag_sqrt = 0.99999 * sample_variance_buf[pred_uidx];
-            const float* hh_inv_row_iter = &(hh_return[pred_uidx * predictor_cta4]);
+            const float* hh_inv_row_iter = &(hh_return[pred_uidx * predictor_ctav]);
             const float* hh_inv_diag_sqrts_iter = sample_variance_buf;
             for (uint32_t pred_uidx2 = 0; pred_uidx2 < pred_uidx; ++pred_uidx2) {
               if ((*hh_inv_row_iter++) > cur_hh_inv_diag_sqrt * (*hh_inv_diag_sqrts_iter++)) {
@@ -3304,7 +3301,7 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
           if (cur_constraint_ct) {
             *beta_se_iter2++ = 0.0;
             double chisq;
-            if (!linear_hypothesis_chisq_f(coef_return, cur_constraints_con_major, hh_return, cur_constraint_ct, cur_predictor_ct, predictor_cta4, &chisq, tmphxs_buf, h_transpose_buf, inner_buf, inverse_corr_buf, inv_1d_buf, dbl_2d_buf, outer_buf)) {
+            if (!linear_hypothesis_chisq_f(coef_return, cur_constraints_con_major, hh_return, cur_constraint_ct, cur_predictor_ct, predictor_ctav, &chisq, tmphxs_buf, h_transpose_buf, inner_buf, inverse_corr_buf, inv_1d_buf, dbl_2d_buf, outer_buf)) {
               *beta_se_iter2++ = chisq;
             } else {
               *beta_se_iter2++ = -9;
