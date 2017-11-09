@@ -11,6 +11,8 @@
 #   32-bit binary (also sets STATIC_ZLIB and ZSTD_O2):
 #     FORCE_32BIT (warning: you may need to add a zconf.h symlink to make that
 #     work)
+NO_AVX2 = 1
+NO_SSE42 =
 NO_LAPACK =
 PREFER_CBLAS_F77 =
 ZSTD_O2 = 1
@@ -34,7 +36,13 @@ ifdef FORCE_32BIT
   ARCH32 = -m32 -march=i686
   CXXFLAGS = -std=c++0x
 else
-  BASEFLAGS = -march=native
+  ifdef NO_AVX2
+    ifndef NO_SSE42
+      BASEFLAGS += -msse4.2
+    endif
+  else
+    BASEFLAGS += -mavx2
+  endif
   CXXFLAGS = -std=c++11
 endif
 BASEFLAGS += ${ARCH32}

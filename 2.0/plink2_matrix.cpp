@@ -138,7 +138,7 @@ extern "C" {
 
   void sgemv_(char* trans, __CLPK_integer* m, __CLPK_integer* n, float* alpha,
               float* a, __CLPK_integer* lda, float* x, __CLPK_integer* incx,
-              float* beta, real* y, __CLPK_integer* incy);
+              float* beta, float* y, __CLPK_integer* incy);
 
   void dsyrk_(char* uplo, char* trans, __CLPK_integer* n, __CLPK_integer* k,
               __CLPK_doublereal* alpha, __CLPK_doublereal* a,
@@ -808,7 +808,7 @@ void col_major_fmatrix_vector_multiply_strided(const float* inmatrix1, const flo
   float fyy = 1;
   float fzz = 0;
   // const_cast
-  sgemv_(&trans, &row1_ct, &common_ct, &fyy, (float*)((uintptr_t)inmatrix1), &stride1, in_fvec2, &incxy, &fzz, out_fvec, &incxy);
+  sgemv_(&trans, &row1_ct, &common_ct, &fyy, (float*)((uintptr_t)inmatrix1), &stride1, (float*)((uintptr_t)in_fvec2), &incxy, &fzz, out_fvec, &incxy);
   #else
   cblas_sgemv(CblasColMajor, CblasNoTrans, row1_ct, common_ct, 1.0, inmatrix1, stride1, in_fvec2, 1, 0.0, out_fvec, 1);
   #endif // USE_CBLAS_XGEMM
@@ -835,7 +835,7 @@ void col_major_fvector_matrix_multiply_strided(const float* in_fvec1, const floa
   float fyy = 1;
   float fzz = 0;
   // const_cast
-  sgemv_(&trans, &common_ct, &col2_ct, &fyy, (float*)((uintptr_t)inmatrix2), &stride2, in_fvec1, &incxy, &fzz, out_fvec, &incxy);
+  sgemv_(&trans, &common_ct, &col2_ct, &fyy, (float*)((uintptr_t)inmatrix2), &stride2, (float*)((uintptr_t)in_fvec1), &incxy, &fzz, out_fvec, &incxy);
   #else
   cblas_sgemv(CblasColMajor, CblasTrans, common_ct, col2_ct, 1.0, inmatrix2, stride2, in_fvec1, 1, 0.0, out_fvec, 1);
   #endif // USE_CBLAS_XGEMM
