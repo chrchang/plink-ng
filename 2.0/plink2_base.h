@@ -430,14 +430,15 @@ static const uintptr_t k1LU = (uintptr_t)1;
   #ifdef USE_AVX2
     CONSTU31(kBytesPerVec, 32);
 
-    // 16 still seems to noticeably outperform 32 on recent MacBook Pros, but
-    // libraries (and my AVX2 code...) for the latter should improve over time.
+    // 16 still seems to noticeably outperform 32 on both my Mac and linux test
+    // machines, but libraries (and my AVX2 code...) for the latter should
+    // improve over time.  Define FVEC_32 once it's time to switch over.
     CONSTU31(kBytesPerFVec, 16);
 
     // bleah, have to define these here, vector_size doesn't see enum values
     typedef uintptr_t vul_t __attribute__ ((vector_size (32)));
     typedef float vf_t __attribute__ ((vector_size (kBytesPerFVec)));
-    #if kBytesPerFVec == 32
+    #ifdef FVEC_32
       #ifndef __FMA__
         #error "32-byte-float-vector builds require FMA3 as well."
       #endif
@@ -467,7 +468,7 @@ static const uintptr_t k1LU = (uintptr_t)1;
     #define vul_setzero() (vul_t)_mm256_setzero_si256()
     #define vul_rshift(vv, ct) ((vul_t)_mm256_srli_epi64((__m256i)(vv), ct))
     #define vul_lshift(vv, ct) ((vul_t)_mm256_slli_epi64((__m256i)(vv), ct))
-    #if kBytesPerFVec == 32
+    #ifdef FVEC_32
       #define vf_setzero() (vf_t)_mm256_setzero_ps()
     #else
       #define vf_setzero() (vf_t)_mm_setzero_ps()
@@ -610,7 +611,7 @@ HEADER_INLINE float vf_hsum(vf_t vecf) {
   univecf_t uvf;
   uvf.vf = vecf;
 #ifdef __LP64__
-  #if kBytesPerFVec == 32
+  #ifdef FVEC_32
   // tested various uses of _mm256_hadd_ps, couldn't get them to be faster
   return uvf.f4[0] + uvf.f4[1] + uvf.f4[2] + uvf.f4[3] + uvf.f4[4] + uvf.f4[5] + uvf.f4[6] + uvf.f4[7];
   #else

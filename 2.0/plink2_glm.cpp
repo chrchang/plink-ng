@@ -1687,7 +1687,7 @@ const uint32_t float_exp_lookup_int[] __attribute__((aligned(kBytesPerVec))) = {
 0x007f4ecb, 0x007f7b0d, 0x007fa756, 0x007fd3a7
 };
 
-  #if kBytesPerFVec == 32
+  #ifdef FVEC_32
 static inline __m256 fmath_exp_ps256(__m256 xx) {
   const __m256i mask7ff = {0x7fffffff7fffffffLLU, 0x7fffffff7fffffffLLU, 0x7fffffff7fffffffLLU, 0x7fffffff7fffffffLLU};
   // 88
@@ -1716,7 +1716,7 @@ static inline __m256 fmath_exp_ps256(__m256 xx) {
   __m256i u8 = _mm256_add_epi32(rr, i127s);
   u8 = _mm256_srli_epi32(u8, 10);
   u8 = _mm256_slli_epi32(u8, 23);
-  __m256i ti = _mm256_i32gather_epi32(float_exp_lookup_int, v8, 4);
+  __m256i ti = _mm256_i32gather_epi32((const int*)float_exp_lookup_int, v8, 4);
   __m256 t0 = _mm256_castsi256_ps(ti);
   t0 = _mm256_or_ps(t0, _mm256_castsi256_ps(u8));
   return _mm256_mul_ps(tt, t0);
@@ -2341,7 +2341,7 @@ boolerr_t logistic_regression(const float* yy, const float* xx, uint32_t sample_
 }
 
 #ifdef __LP64__
-  #if kBytesPerFVec == 32
+  #ifdef FVEC_32
 // tmpNxK, interpreted as column-major, is sample_ct x predictor_ct
 // X, interpreted as column-major, is also sample_ct x predictor_ct
 // Hdiag[i] = V[i] (\sum_j tmpNxK[i][j] X[i][j])

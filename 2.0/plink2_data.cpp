@@ -4721,7 +4721,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
         // check if three-part IDs are present
         sample_id_block_iter = sample_id_block_main;
         for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
-          const uint16_t input_id_slen = *((uint16_t*)sample_id_block_iter);
+          const uint32_t input_id_slen = *((uint16_t*)sample_id_block_iter);
           if ((uintptr_t)(sample_id_block_end - sample_id_block_iter) < input_id_slen + 2) {
             logerrprint("Error: Invalid .bgen header.\n");
             goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
@@ -4745,7 +4745,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       char* textbuf_flush = &(textbuf[kMaxMediumLine]);
       sample_id_block_iter = sample_id_block_main;
       for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
-        const uint16_t input_id_slen = *((uint16_t*)sample_id_block_iter);
+        const uint32_t input_id_slen = *((uint16_t*)sample_id_block_iter);
         if ((uintptr_t)(sample_id_block_end - sample_id_block_iter) < input_id_slen + 2) {
           logerrprint("Error: Invalid .bgen header.\n");
           goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
