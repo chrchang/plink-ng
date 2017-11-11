@@ -222,7 +222,7 @@ HEADER_INLINE double dotprod_d(const double* vec1, const double* vec2, uint32_t 
 
 HEADER_INLINE float dotprod_f(const float* vec1, const float* vec2, uint32_t ct) {
   #ifndef USE_CBLAS_XGEMM
-  // probably use blas ddot, but test first
+  // probably use blas sdot, but test first
   float dotprod = 0.0;
   for (uint32_t uii = 0; uii < ct; ++uii) {
     dotprod += vec1[uii] * vec2[uii];

@@ -1405,9 +1405,9 @@ uint32_t genoarr_to_floats_remove_missing(const uintptr_t* genoarr, uint32_t sam
 // #####
 
 #ifdef __LP64__
-// fmath_exp_ps and fmath_exp_ps256 are C ports of Shigeo Mitsunari's fast math
-// library functions posted at https://github.com/herumi/fmath .  License is
-// http://opensource.org/licenses/BSD-3-Clause .
+// The two instances of fmath_exp_ps() are C ports of Shigeo Mitsunari's fast
+// math library functions posted at https://github.com/herumi/fmath .  License
+// is http://opensource.org/licenses/BSD-3-Clause .
 // (I tried porting fmath_log_ps, but it turns out that Firth regression needs
 // double-precision log accuracy; logf() actually interferes with convergence.)
 
@@ -1688,7 +1688,8 @@ const uint32_t float_exp_lookup_int[] __attribute__((aligned(kBytesPerVec))) = {
 };
 
   #ifdef FVEC_32
-static inline __m256 fmath_exp_ps256(__m256 xx) {
+static inline vf_t fmath_exp_ps(vf_t xxv) {
+  __m256 xx = (__m256)xxv;
   const __m256i mask7ff = {0x7fffffff7fffffffLLU, 0x7fffffff7fffffffLLU, 0x7fffffff7fffffffLLU, 0x7fffffff7fffffffLLU};
   // 88
   const __m256i max_x = {0x42b0000042b00000LLU, 0x42b0000042b00000LLU, 0x42b0000042b00000LLU, 0x42b0000042b00000LLU};
@@ -1719,7 +1720,7 @@ static inline __m256 fmath_exp_ps256(__m256 xx) {
   __m256i ti = _mm256_i32gather_epi32((const int*)float_exp_lookup_int, v8, 4);
   __m256 t0 = _mm256_castsi256_ps(ti);
   t0 = _mm256_or_ps(t0, _mm256_castsi256_ps(u8));
-  return _mm256_mul_ps(tt, t0);
+  return (vf_t)_mm256_mul_ps(tt, t0);
 }
 
 // This code was originally hand-optimized by others for 16-byte float vectors.
@@ -1727,41 +1728,6 @@ static inline __m256 fmath_exp_ps256(__m256 xx) {
 
 // For equivalent "normal" C/C++ code, see the non-__LP64__ versions of these
 // functions.
-// todo: replace these functions with BLAS/LAPACK calls when there's no
-// noticeable performance penalty.
-static inline void logistic_sse(uint32_t nn, float* vect) {
-  const __m256 zero = _mm256_setzero_ps();
-  const __m256 one = _mm256_set1_ps(1.0);
-  for (uint32_t uii = 0; uii < nn; uii += kFloatPerFVec) {
-    __m256 aa = _mm256_load_ps(&(vect[uii]));
-    aa = _mm256_sub_ps(zero, aa);
-    aa = fmath_exp_ps256(aa);
-    aa = _mm256_add_ps(aa, one);
-    // aa = _mm256_rcp_ps(aa); // tried this, too inaccurate
-    aa = _mm256_div_ps(one, aa);
-    _mm256_store_ps(&(vect[uii]), aa);
-  }
-}
-
-static inline void compute_v_and_p_minus_y(const float* yy, uint32_t nn, float* pp, float* vv) {
-  for (uint32_t uii = 0; uii < nn; uii += kFloatPerFVec) {
-    __m256 ptmp = _mm256_load_ps(&(pp[uii]));
-    __m256 p_minus_psq = _mm256_fnmadd_ps(ptmp, ptmp, ptmp);
-    _mm256_store_ps(&(vv[uii]), p_minus_psq);
-    __m256 ytmp = _mm256_load_ps(&(yy[uii]));
-    _mm256_store_ps(&(pp[uii]), _mm256_sub_ps(ptmp, ytmp));
-  }
-}
-
-static inline void compute_v(const float* pp, uint32_t nn, float* vv) {
-  // there might be a small benefit to unrolling this, but doesn't seem to be
-  // more than ~3%, which is much smaller than measurement noise
-  for (uint32_t sample_idx = 0; sample_idx < nn; sample_idx += kFloatPerFVec) {
-    __m256 ptmp = _mm256_load_ps(&(pp[sample_idx]));
-    __m256 p_minus_psq = _mm256_fnmadd_ps(ptmp, ptmp, ptmp);
-    _mm256_store_ps(&(vv[sample_idx]), p_minus_psq);
-  }
-}
 
 // N.B. This requires all mm[] rows to be zero-padded at the end, and there
 // can't be nan values at the end of vect[].  (The other way around works too.)
@@ -1842,80 +1808,11 @@ static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, ui
   }
 }
 
-static inline float triple_product(const float* v1, const float* v2, const float* v3, uint32_t nn) {
-  __m256 sum = _mm256_setzero_ps();
-  for (uint32_t uii = 0; uii < nn; uii += kFloatPerFVec) {
-    const __m256 aa = _mm256_load_ps(&(v1[uii]));
-    const __m256 bb = _mm256_load_ps(&(v2[uii]));
-    const __m256 cc = _mm256_load_ps(&(v3[uii]));
-    const __m256 aa_x_bb = _mm256_mul_ps(aa, bb);
-    sum = _mm256_fmadd_ps(aa_x_bb, cc, sum);
-  }
-  return vf_hsum((vf_t)sum);
-}
-
-static inline void compute_two_diag_triple_product(const float* aa, const float* bb, const float* vv, uint32_t nn, float* raa_ptr, float* rab_ptr, float* rbb_ptr) {
-  __m256 saa = _mm256_setzero_ps();
-  __m256 sab = _mm256_setzero_ps();
-  __m256 sbb = _mm256_setzero_ps();
-  for (uint32_t uii = 0; uii < nn; uii += kFloatPerFVec) {
-    const __m256 vtmp = _mm256_load_ps(&(vv[uii]));
-    const __m256 atmp = _mm256_load_ps(&(aa[uii]));
-    const __m256 btmp = _mm256_load_ps(&(bb[uii]));
-    const __m256 av = _mm256_mul_ps(atmp, vtmp);
-    const __m256 bv = _mm256_mul_ps(btmp, vtmp);
-    saa = _mm256_fmadd_ps(atmp, av, saa);
-    sab = _mm256_fmadd_ps(atmp, bv, sab);
-    sbb = _mm256_fmadd_ps(btmp, bv, sbb);
-  }
-  *raa_ptr = vf_hsum((vf_t)saa);
-  *rab_ptr = vf_hsum((vf_t)sab);
-  *rbb_ptr = vf_hsum((vf_t)sbb);
-}
-
-static inline void compute_three_triple_product(const float* bb, const float* a1, const float* a2, const float* a3, const float* vv, uint32_t nn, float* r1_ptr, float* r2_ptr, float* r3_ptr) {
-  __m256 s1 = _mm256_setzero_ps();
-  __m256 s2 = _mm256_setzero_ps();
-  __m256 s3 = _mm256_setzero_ps();
-  for (uint32_t uii = 0; uii < nn; uii += kFloatPerFVec) {
-    const __m256 vtmp = _mm256_load_ps(&(vv[uii]));
-    __m256 btmp = _mm256_load_ps(&(bb[uii]));
-    btmp = _mm256_mul_ps(btmp, vtmp);
-    const __m256 a1tmp = _mm256_load_ps(&(a1[uii]));
-    const __m256 a2tmp = _mm256_load_ps(&(a2[uii]));
-    const __m256 a3tmp = _mm256_load_ps(&(a3[uii]));
-    s1 = _mm256_fmadd_ps(a1tmp, btmp, s1);
-    s2 = _mm256_fmadd_ps(a2tmp, btmp, s2);
-    s3 = _mm256_fmadd_ps(a3tmp, btmp, s3);
-  }
-  *r1_ptr = vf_hsum((vf_t)s1);
-  *r2_ptr = vf_hsum((vf_t)s2);
-  *r3_ptr = vf_hsum((vf_t)s3);
-}
-
-static inline void compute_two_plus_one_triple_product(const float* bb, const float* a1, const float* a2, const float* vv, uint32_t nn, float* r1_ptr, float* r2_ptr, float* r3_ptr) {
-  __m256 s1 = _mm256_setzero_ps();
-  __m256 s2 = _mm256_setzero_ps();
-  __m256 s3 = _mm256_setzero_ps();
-  for (uint32_t uii = 0; uii < nn; uii += kFloatPerFVec) {
-    const __m256 btmp = _mm256_load_ps(&(bb[uii]));
-    const __m256 vtmp = _mm256_load_ps(&(vv[uii]));
-    const __m256 bv = _mm256_mul_ps(btmp, vtmp);
-    const __m256 a1tmp = _mm256_load_ps(&(a1[uii]));
-    const __m256 a2tmp = _mm256_load_ps(&(a2[uii]));
-    s1 = _mm256_fmadd_ps(btmp, bv, s1);
-    s2 = _mm256_fmadd_ps(a1tmp, bv, s2);
-    s3 = _mm256_fmadd_ps(a2tmp, bv, s3);
-  }
-  *r1_ptr = vf_hsum((vf_t)s1);
-  *r2_ptr = vf_hsum((vf_t)s2);
-  *r3_ptr = vf_hsum((vf_t)s3);
-}
-
-  #else // kBytesPerFVec != 32
+  #else // !FVEC_32
 const float* const float_exp_lookup = (const float*)float_exp_lookup_int;
 
-static inline __m128 fmath_exp_ps(__m128 xx) {
+static inline vf_t fmath_exp_ps(vf_t xxv) {
+  __m128 xx = xxv;
   const __m128i mask7ff = {0x7fffffff7fffffffLLU, 0x7fffffff7fffffffLLU};
 
   // 88
@@ -1964,126 +1861,117 @@ static inline __m128 fmath_exp_ps(__m128 xx) {
   t0 = _mm_or_ps(t0, t1);
   t0 = _mm_or_ps(t0, _mm_castsi128_ps(u4));
   tt = _mm_mul_ps(tt, t0);
-  return tt;
+  return (vf_t)tt;
 }
-
-static inline void logistic_sse(uint32_t nn, float* vect) {
-  const __m128 zero = _mm_setzero_ps();
-  const __m128 one = _mm_set1_ps(1.0);
-  for (uint32_t uii = 0; uii < nn; uii += 4) {
-    __m128 aa = _mm_load_ps(&(vect[uii]));
-    aa = _mm_sub_ps(zero, aa);
-    aa = fmath_exp_ps(aa);
-    aa = _mm_add_ps(aa, one);
-    aa = _mm_div_ps(one, aa);
-    _mm_store_ps(&(vect[uii]), aa);
-  }
-}
-
-static inline void compute_v_and_p_minus_y(const float* yy, uint32_t nn, float* pp, float* vv) {
-  const __m128 one = _mm_set1_ps(1.0);
-  for (uint32_t uii = 0; uii < nn; uii += 4) {
-    __m128 ptmp = _mm_load_ps(&(pp[uii]));
-    __m128 one_minus_ptmp = _mm_sub_ps(one, ptmp);
-    _mm_store_ps(&(vv[uii]), _mm_mul_ps(ptmp, one_minus_ptmp));
-    __m128 ytmp = _mm_load_ps(&(yy[uii]));
-    _mm_store_ps(&(pp[uii]), _mm_sub_ps(ptmp, ytmp));
-  }
-}
-
-static inline void compute_v(const float* pp, uint32_t nn, float* vv) {
-  const __m128 one = _mm_set1_ps(1.0);
-  for (uint32_t uii = 0; uii < nn; uii += 4) {
-    __m128 ptmp = _mm_load_ps(&(pp[uii]));
-    __m128 one_minus_ptmp = _mm_sub_ps(one, ptmp);
-    _mm_store_ps(&(vv[uii]), _mm_mul_ps(ptmp, one_minus_ptmp));
-  }
-}
-
-// (comment for deleted mult_tmatrix_nxd_vect_d() follows)
-// tm is row-major, cols are packed to 16-byte alignment
-// "col_cta4" = col_ct, aligned to multiple of 4.  Since 16-byte blocks
-// contain 4 floats each, this is the actual length (in floats) of each tm
-// row.  (Yes, I need to standardize a zillion other variable names of this
-// sort...)
-
-// (Most/all remaining instances of col_cta4 should be replaced with
-// col_ctav.)
 
 static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, uint32_t col_ct, uint32_t row_ct, float* dest) {
   const uint32_t col_ctav = round_up_pow2(col_ct, kFloatPerFVec);
   col_major_fvector_matrix_multiply_strided(vect, mm, col_ct, col_ctav, row_ct, dest);
 }
 
+  #endif // !FVEC_32
+
+static inline void logistic_sse(uint32_t nn, float* vect) {
+  const vf_t zero = vf_setzero();
+  const vf_t one = VCONST_F(1.0);
+  for (uint32_t uii = 0; uii < nn; uii += kFloatPerFVec) {
+    vf_t aa = *((vf_t*)(&(vect[uii])));
+    aa = zero - aa;
+    aa = fmath_exp_ps(aa);
+    aa = aa + one;
+    aa = one / aa;
+    *((vf_t*)(&(vect[uii]))) = aa;
+  }
+}
+
+static inline void compute_v_and_p_minus_y(const float* yy, uint32_t nn, float* pp, float* vv) {
+  const vf_t one = VCONST_F(1.0);
+  for (uint32_t uii = 0; uii < nn; uii += kFloatPerFVec) {
+    vf_t ptmp = *((vf_t*)(&(pp[uii])));
+    vf_t one_minus_ptmp = one - ptmp;
+    *((vf_t*)(&(vv[uii]))) = ptmp * one_minus_ptmp;
+    vf_t ytmp = *((vf_t*)(&(yy[uii])));
+    *((vf_t*)(&(pp[uii]))) = ptmp - ytmp;
+  }
+}
+
+static inline void compute_v(const float* pp, uint32_t nn, float* vv) {
+  const vf_t one = VCONST_F(1.0);
+  for (uint32_t uii = 0; uii < nn; uii += kFloatPerFVec) {
+    vf_t ptmp = *((vf_t*)(&(pp[uii])));
+    vf_t one_minus_ptmp = one - ptmp;
+    *((vf_t*)(&(vv[uii]))) = ptmp * one_minus_ptmp;
+  }
+}
+
 static inline float triple_product(const float* v1, const float* v2, const float* v3, uint32_t nn) {
-  __m128 sum = _mm_setzero_ps();
-  for (uint32_t uii = 0; uii < nn; uii += 4) {
-    const __m128 aa = _mm_load_ps(&(v1[uii]));
-    const __m128 bb = _mm_load_ps(&(v2[uii]));
-    const __m128 cc = _mm_load_ps(&(v3[uii]));
-    sum = _mm_add_ps(sum, _mm_mul_ps(_mm_mul_ps(aa, bb), cc));
+  vf_t sum = vf_setzero();
+  for (uint32_t uii = 0; uii < nn; uii += kFloatPerFVec) {
+    vf_t aa = *((vf_t*)(&(v1[uii])));
+    vf_t bb = *((vf_t*)(&(v2[uii])));
+    vf_t cc = *((vf_t*)(&(v3[uii])));
+    sum = sum + aa * bb * cc;
   }
-  return vf_hsum((vf_t)sum);
+  return vf_hsum(sum);
 }
 
-static inline void compute_two_diag_triple_product(const float* aa, const float* bb, const float* vv, uint32_t nn, float* raa_ptr, float* rab_ptr, float* rbb_ptr) {
-  __m128 saa = _mm_setzero_ps();
-  __m128 sab = _mm_setzero_ps();
-  __m128 sbb = _mm_setzero_ps();
-  for (uint32_t uii = 0; uii < nn; uii += 4) {
-    const __m128 vtmp = _mm_load_ps(&(vv[uii]));
-    const __m128 atmp = _mm_load_ps(&(aa[uii]));
-    const __m128 btmp = _mm_load_ps(&(bb[uii]));
-    const __m128 av = _mm_mul_ps(atmp, vtmp);
-    const __m128 bv = _mm_mul_ps(btmp, vtmp);
-    saa = _mm_add_ps(saa, _mm_mul_ps(atmp, av));
-    sab = _mm_add_ps(sab, _mm_mul_ps(atmp, bv));
-    sbb = _mm_add_ps(sbb, _mm_mul_ps(btmp, bv));
+static inline void compute_two_diag_triple_product(const float* aa, const float* bb, const float* vv, uint32_t nn, float* __restrict raa_ptr, float* __restrict rab_ptr, float* __restrict rbb_ptr) {
+  vf_t saa = vf_setzero();
+  vf_t sab = vf_setzero();
+  vf_t sbb = vf_setzero();
+  for (uint32_t uii = 0; uii < nn; uii += kFloatPerFVec) {
+    const vf_t vtmp = *((vf_t*)(&(vv[uii])));
+    const vf_t atmp = *((vf_t*)(&(aa[uii])));
+    const vf_t btmp = *((vf_t*)(&(bb[uii])));
+    const vf_t av = atmp * vtmp;
+    const vf_t bv = btmp * vtmp;
+    saa = saa + atmp * av;
+    sab = sab + atmp * bv;
+    sbb = sbb + btmp * bv;
   }
-  *raa_ptr = vf_hsum((vf_t)saa);
-  *rab_ptr = vf_hsum((vf_t)sab);
-  *rbb_ptr = vf_hsum((vf_t)sbb);
+  *raa_ptr = vf_hsum(saa);
+  *rab_ptr = vf_hsum(sab);
+  *rbb_ptr = vf_hsum(sbb);
 }
 
-static inline void compute_three_triple_product(const float* bb, const float* a1, const float* a2, const float* a3, const float* vv, uint32_t nn, float* r1_ptr, float* r2_ptr, float* r3_ptr) {
-  __m128 s1 = _mm_setzero_ps();
-  __m128 s2 = _mm_setzero_ps();
-  __m128 s3 = _mm_setzero_ps();
-  for (uint32_t uii = 0; uii < nn; uii += 4) {
-    const __m128 a1tmp = _mm_load_ps(&(a1[uii]));
-    const __m128 a2tmp = _mm_load_ps(&(a2[uii]));
-    const __m128 a3tmp = _mm_load_ps(&(a3[uii]));
-    const __m128 vtmp = _mm_load_ps(&(vv[uii]));
-    __m128 btmp = _mm_load_ps(&(bb[uii]));
-    btmp = _mm_mul_ps(btmp, vtmp);
-    s1 = _mm_add_ps(s1, _mm_mul_ps(a1tmp, btmp));
-    s2 = _mm_add_ps(s2, _mm_mul_ps(a2tmp, btmp));
-    s3 = _mm_add_ps(s3, _mm_mul_ps(a3tmp, btmp));
+static inline void compute_three_triple_product(const float* bb, const float* a1, const float* a2, const float* a3, const float* vv, uint32_t nn, float* __restrict r1_ptr, float* __restrict r2_ptr, float* __restrict r3_ptr) {
+  vf_t s1 = vf_setzero();
+  vf_t s2 = vf_setzero();
+  vf_t s3 = vf_setzero();
+  for (uint32_t uii = 0; uii < nn; uii += kFloatPerFVec) {
+    const vf_t a1tmp = *((vf_t*)(&(a1[uii])));
+    const vf_t a2tmp = *((vf_t*)(&(a2[uii])));
+    const vf_t a3tmp = *((vf_t*)(&(a3[uii])));
+    const vf_t vtmp = *((vf_t*)(&(vv[uii])));
+    vf_t btmp = *((vf_t*)(&(bb[uii])));
+    btmp = btmp * vtmp;
+    s1 = s1 + a1tmp * btmp;
+    s2 = s2 + a2tmp * btmp;
+    s3 = s3 + a3tmp * btmp;
   }
-  *r1_ptr = vf_hsum((vf_t)s1);
-  *r2_ptr = vf_hsum((vf_t)s2);
-  *r3_ptr = vf_hsum((vf_t)s3);
+  *r1_ptr = vf_hsum(s1);
+  *r2_ptr = vf_hsum(s2);
+  *r3_ptr = vf_hsum(s3);
 }
 
-static inline void compute_two_plus_one_triple_product(const float* bb, const float* a1, const float* a2, const float* vv, uint32_t nn, float* r1_ptr, float* r2_ptr, float* r3_ptr) {
-  __m128 s1 = _mm_setzero_ps();
-  __m128 s2 = _mm_setzero_ps();
-  __m128 s3 = _mm_setzero_ps();
-  for (uint32_t uii = 0; uii < nn; uii += 4) {
-    const __m128 a1tmp = _mm_load_ps(&(a1[uii]));
-    const __m128 a2tmp = _mm_load_ps(&(a2[uii]));
-    const __m128 btmp = _mm_load_ps(&(bb[uii]));
-    const __m128 vtmp = _mm_load_ps(&(vv[uii]));
-    const __m128 bv = _mm_mul_ps(btmp, vtmp);
-    s1 = _mm_add_ps(s1, _mm_mul_ps(btmp, bv));
-    s2 = _mm_add_ps(s2, _mm_mul_ps(a1tmp, bv));
-    s3 = _mm_add_ps(s3, _mm_mul_ps(a2tmp, bv));
+static inline void compute_two_plus_one_triple_product(const float* bb, const float* a1, const float* a2, const float* vv, uint32_t nn, float* __restrict r1_ptr, float* __restrict r2_ptr, float* __restrict r3_ptr) {
+  vf_t s1 = vf_setzero();
+  vf_t s2 = vf_setzero();
+  vf_t s3 = vf_setzero();
+  for (uint32_t uii = 0; uii < nn; uii += kFloatPerFVec) {
+    const vf_t a1tmp = *((vf_t*)(&(a1[uii])));
+    const vf_t a2tmp = *((vf_t*)(&(a2[uii])));
+    const vf_t btmp = *((vf_t*)(&(bb[uii])));
+    const vf_t vtmp = *((vf_t*)(&(vv[uii])));
+    const vf_t bv = btmp * vtmp;
+    s1 = s1 + btmp * bv;
+    s2 = s2 + a1tmp * bv;
+    s3 = s3 + a2tmp * bv;
   }
-  *r1_ptr = vf_hsum((vf_t)s1);
-  *r2_ptr = vf_hsum((vf_t)s2);
-  *r3_ptr = vf_hsum((vf_t)s3);
+  *r1_ptr = vf_hsum(s1);
+  *r2_ptr = vf_hsum(s2);
+  *r3_ptr = vf_hsum(s3);
 }
-  #endif // kBytesPerFVec != 32
 #else // no __LP64__ (and hence, unsafe to assume presence of SSE2)
 static inline void logistic_sse(uint32_t nn, float* vect) {
   for (uint32_t uii = 0; uii < nn; ++uii) {
@@ -2176,7 +2064,10 @@ double compute_loglik(const float* yy, const float* pp, uint32_t sample_ct) {
   return loglik;
 }
 
+// M V M^T
 // Tried to replace this with sqrt(v) followed by ssyrk, but that was slower.
+// Also tried to take advantage of the first row of M being constant-1, and
+// managed to fail.
 void compute_hessian(const float* mm, const float* vv, uint32_t col_ct, uint32_t row_ct, float* dest) {
   const uintptr_t col_ctav = round_up_pow2(col_ct, kFloatPerFVec);
   const uintptr_t row_ctav = round_up_pow2(row_ct, kFloatPerFVec);
@@ -2341,53 +2232,30 @@ boolerr_t logistic_regression(const float* yy, const float* xx, uint32_t sample_
 }
 
 #ifdef __LP64__
-  #ifdef FVEC_32
 // tmpNxK, interpreted as column-major, is sample_ct x predictor_ct
 // X, interpreted as column-major, is also sample_ct x predictor_ct
 // Hdiag[i] = V[i] (\sum_j tmpNxK[i][j] X[i][j])
 void firth_compute_weights(const float* yy, const float* xx, const float* pp, const float* vv, const float* tmpnxk, uint32_t predictor_ct, __maybe_unused uint32_t sample_ct, uint32_t sample_ctav, float* ww) {
-  const __m256 half = _mm256_set1_ps(0.5);
+  const vf_t half = VCONST_F(0.5);
   for (uint32_t sample_offset = 0; sample_offset < sample_ctav; sample_offset += kFloatPerFVec) {
-    __m256 dotprods = _mm256_setzero_ps();
+    vf_t dotprods = vf_setzero();
     const float* xx_row = &(xx[sample_offset]);
     const float* tmpnxk_row = &(tmpnxk[sample_offset]);
     for (uint32_t pred_uidx = 0; pred_uidx < predictor_ct; ++pred_uidx) {
-      const __m256 cur_xx = _mm256_load_ps(&(xx_row[pred_uidx * sample_ctav]));
-      const __m256 cur_tmpnxk = _mm256_load_ps(&(tmpnxk_row[pred_uidx * sample_ctav]));
-      dotprods = _mm256_fmadd_ps(cur_xx, cur_tmpnxk, dotprods);
+      const vf_t cur_xx = *((vf_t*)(&(xx_row[pred_uidx * sample_ctav])));
+      const vf_t cur_tmpnxk = *((vf_t*)(&(tmpnxk_row[pred_uidx * sample_ctav])));
+      dotprods = dotprods + cur_xx * cur_tmpnxk;
     }
-    const __m256 cur_weights = _mm256_load_ps(&(vv[sample_offset]));
-    const __m256 cur_pis = _mm256_load_ps(&(pp[sample_offset]));
-    const __m256 cur_yy = _mm256_load_ps(&(yy[sample_offset]));
-    const __m256 half_minus_cur_pis = _mm256_sub_ps(half, cur_pis);
-    const __m256 yy_minus_cur_pis = _mm256_sub_ps(cur_yy, cur_pis);
-    const __m256 cur_wws = _mm256_fmadd_ps(half_minus_cur_pis, _mm256_mul_ps(cur_weights, dotprods), yy_minus_cur_pis);
-    _mm256_store_ps(&(ww[sample_offset]), cur_wws);
+    const vf_t cur_weights = *((vf_t*)(&(vv[sample_offset])));
+    const vf_t cur_pis = *((vf_t*)(&(pp[sample_offset])));
+    const vf_t cur_yy = *((vf_t*)(&(yy[sample_offset])));
+    const vf_t half_minus_cur_pis = half - cur_pis;
+    const vf_t yy_minus_cur_pis = cur_yy - cur_pis;
+    const vf_t second_term = half_minus_cur_pis * (cur_weights * dotprods);
+    const vf_t cur_wws = yy_minus_cur_pis + second_term;
+    *((vf_t*)(&(ww[sample_offset]))) = cur_wws;
   }
 }
-  #else  // kBytesPerFVec != 32
-void firth_compute_weights(const float* yy, const float* xx, const float* pp, const float* vv, const float* tmpnxk, uint32_t predictor_ct, __maybe_unused uint32_t sample_ct, uint32_t sample_cta4, float* ww) {
-  const __m128 half = _mm_set1_ps(0.5);
-  for (uint32_t sample_offset = 0; sample_offset < sample_cta4; sample_offset += 4) {
-    __m128 dotprods = _mm_setzero_ps();
-    const float* xx_row = &(xx[sample_offset]);
-    const float* tmpnxk_row = &(tmpnxk[sample_offset]);
-    for (uint32_t pred_uidx = 0; pred_uidx < predictor_ct; ++pred_uidx) {
-      const __m128 cur_xx = _mm_load_ps(&(xx_row[pred_uidx * sample_cta4]));
-      const __m128 cur_tmpnxk = _mm_load_ps(&(tmpnxk_row[pred_uidx * sample_cta4]));
-      dotprods = _mm_add_ps(dotprods, _mm_mul_ps(cur_xx, cur_tmpnxk));
-    }
-    const __m128 cur_weights = _mm_load_ps(&(vv[sample_offset]));
-    const __m128 cur_pis = _mm_load_ps(&(pp[sample_offset]));
-    const __m128 cur_yy = _mm_load_ps(&(yy[sample_offset]));
-    const __m128 half_minus_cur_pis = _mm_sub_ps(half, cur_pis);
-    const __m128 yy_minus_cur_pis = _mm_sub_ps(cur_yy, cur_pis);
-    const __m128 second_term = _mm_mul_ps(half_minus_cur_pis, _mm_mul_ps(cur_weights, dotprods));
-    const __m128 cur_wws = _mm_add_ps(yy_minus_cur_pis, second_term);
-    _mm_store_ps(&(ww[sample_offset]), cur_wws);
-  }
-}
-  #endif  // !USE_AVX2
 #else
 void firth_compute_weights(const float* yy, const float* xx, const float* pp, const float* vv, const float* tmpnxk, uint32_t predictor_ct, uint32_t sample_ct, uint32_t sample_ctav, float* ww) {
   for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {

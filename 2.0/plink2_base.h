@@ -430,26 +430,19 @@ static const uintptr_t k1LU = (uintptr_t)1;
   #ifdef USE_AVX2
     CONSTU31(kBytesPerVec, 32);
 
-    // 16 still seems to noticeably outperform 32 on both my Mac and linux test
-    // machines, but libraries (and my AVX2 code...) for the latter should
-    // improve over time.  Define FVEC_32 once it's time to switch over.
-    CONSTU31(kBytesPerFVec, 16);
+    // 16 still seems to noticeably outperform 32 on my Mac test machine, and
+    // is about equal on my Linux test machine, but libraries (and my AVX2
+    // code...) for the latter should improve over time.  Define FVEC_32 once
+    // it's time to switch over.
+    // #define FVEC_32
 
     // bleah, have to define these here, vector_size doesn't see enum values
     typedef uintptr_t vul_t __attribute__ ((vector_size (32)));
-    typedef float vf_t __attribute__ ((vector_size (kBytesPerFVec)));
-    #ifdef FVEC_32
-      #ifndef __FMA__
-        #error "32-byte-float-vector builds require FMA3 as well."
-      #endif
-    #endif
     typedef short vs_t __attribute__ ((vector_size (32)));
     typedef char vc_t __attribute__ ((vector_size (32)));
   #else
     CONSTU31(kBytesPerVec, 16);
-    CONSTU31(kBytesPerFVec, 16);
     typedef uintptr_t vul_t __attribute__ ((vector_size (16)));
-    typedef float vf_t __attribute__ ((vector_size (16)));
     typedef short vs_t __attribute__ ((vector_size (16)));
     typedef char vc_t __attribute__ ((vector_size (16)));
   #endif
@@ -468,11 +461,6 @@ static const uintptr_t k1LU = (uintptr_t)1;
     #define vul_setzero() (vul_t)_mm256_setzero_si256()
     #define vul_rshift(vv, ct) ((vul_t)_mm256_srli_epi64((__m256i)(vv), ct))
     #define vul_lshift(vv, ct) ((vul_t)_mm256_slli_epi64((__m256i)(vv), ct))
-    #ifdef FVEC_32
-      #define vf_setzero() (vf_t)_mm256_setzero_ps()
-    #else
-      #define vf_setzero() (vf_t)_mm_setzero_ps()
-    #endif
   #else
     #define VCONST_UL(xx) {xx, xx}
     #define VCONST_S(xx) {xx, xx, xx, xx, xx, xx, xx, xx}
@@ -483,6 +471,20 @@ static const uintptr_t k1LU = (uintptr_t)1;
     // VCONST_UL shift properly (todo: test this)
     #define vul_rshift(vv, ct) ((vul_t)_mm_srli_epi64((__m128i)(vv), ct))
     #define vul_lshift(vv, ct) ((vul_t)_mm_slli_epi64((__m128i)(vv), ct))
+  #endif
+
+  #ifdef FVEC_32
+    #ifndef __FMA__
+      #error "32-byte-float-vector builds require FMA3 as well."
+    #endif
+    CONSTU31(kBytesPerFVec, 32);
+    typedef float vf_t __attribute__ ((vector_size (32)));
+    #define VCONST_F(xx) {xx, xx, xx, xx, xx, xx, xx, xx}
+    #define vf_setzero() (vf_t)_mm256_setzero_ps()
+  #else
+    CONSTU31(kBytesPerFVec, 16);
+    typedef float vf_t __attribute__ ((vector_size (16)));
+    #define VCONST_F(xx) {xx, xx, xx, xx}
     #define vf_setzero() (vf_t)_mm_setzero_ps()
   #endif
 #else // not __LP64__
