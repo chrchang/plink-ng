@@ -271,7 +271,7 @@ unsigned char* bigstack_end_alloc_presized(uintptr_t size) {
   } else {
     g_bigstack_end -= size;
     return g_bigstack_end;
-  }  
+  }
 }
 
 uint32_t match_upper(const char* ss, const char* fixed_str) {
@@ -344,7 +344,7 @@ uint32_t scan_posint_capped(const char* ss, uint64_t cap, uint32_t* valp) {
 }
 
 uint32_t scan_uint_capped(const char* ss, uint64_t cap, uint32_t* valp) {
-  // Reads an integer in [0, cap].  Assumes first character is nonspace. 
+  // Reads an integer in [0, cap].  Assumes first character is nonspace.
   uint32_t val = (uint32_t)((unsigned char)(*ss++)) - 48;
   if (val >= 10) {
     if (val != 0xfffffffbU) {
@@ -355,7 +355,7 @@ uint32_t scan_uint_capped(const char* ss, uint64_t cap, uint32_t* valp) {
       // accept "-0", "-00", etc.
       while (*(++ss) == '0');
       *valp = 0;
-      return ((uint32_t)((unsigned char)(*ss)) - 48) < 10;      
+      return ((uint32_t)((unsigned char)(*ss)) - 48) < 10;
     }
     // accept leading '+'
     val = (uint32_t)((unsigned char)(*ss++)) - 48;
@@ -422,7 +422,7 @@ uint32_t scan_posint_capped32(const char* ss, uint32_t cap_div_10, uint32_t cap_
 }
 
 uint32_t scan_uint_capped32(const char* ss, uint32_t cap_div_10, uint32_t cap_mod_10, uint32_t* valp) {
-  // Reads an integer in [0, cap].  Assumes first character is nonspace. 
+  // Reads an integer in [0, cap].  Assumes first character is nonspace.
   uint32_t val = (uint32_t)((unsigned char)(*ss++)) - 48;
   if (val >= 10) {
     if (val != 0xfffffffbU) {
@@ -482,7 +482,7 @@ uint32_t scan_int_abs_bounded32(const char* ss, uint32_t bound_div_10, uint32_t 
 
 uint32_t scan_posintptr(const char* ss, uintptr_t* valp) {
   // Reads an integer in [1, 2^BITCT - 1].  Assumes first character is
-  // nonspace. 
+  // nonspace.
   uintptr_t val = (uintptr_t)((unsigned char)(*ss++)) - 48;
   if (val >= 10) {
 #ifdef __LP64__
@@ -1512,7 +1512,7 @@ static inline void double_bround1(double dxx, const double* banker_round, uint32
   uint32_t remainder = (int32_t)dxx;
   remainder += (int32_t)((dxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
   *quotientp = remainder / 10;
-  *remainderp = remainder - (*quotientp) * 10; 
+  *remainderp = remainder - (*quotientp) * 10;
 }
 
 static inline void double_bround2(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
@@ -1520,7 +1520,7 @@ static inline void double_bround2(double dxx, const double* banker_round, uint32
   uint32_t remainder = (int32_t)dxx;
   remainder += (int32_t)((dxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
   *quotientp = remainder / 100;
-  *remainderp = remainder - (*quotientp) * 100; 
+  *remainderp = remainder - (*quotientp) * 100;
 }
 
 static inline void double_bround3(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
@@ -1528,7 +1528,7 @@ static inline void double_bround3(double dxx, const double* banker_round, uint32
   uint32_t remainder = (int32_t)dxx;
   remainder += (int32_t)((dxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
   *quotientp = remainder / 1000;
-  *remainderp = remainder - (*quotientp) * 1000; 
+  *remainderp = remainder - (*quotientp) * 1000;
 }
 
 static inline void double_bround4(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
@@ -1536,7 +1536,7 @@ static inline void double_bround4(double dxx, const double* banker_round, uint32
   uint32_t remainder = (int32_t)dxx;
   remainder += (int32_t)((dxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
   *quotientp = remainder / 10000;
-  *remainderp = remainder - (*quotientp) * 10000; 
+  *remainderp = remainder - (*quotientp) * 10000;
 }
 
 static inline void double_bround5(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
@@ -1544,7 +1544,7 @@ static inline void double_bround5(double dxx, const double* banker_round, uint32
   uint32_t remainder = (int32_t)dxx;
   remainder += (int32_t)((dxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
   *quotientp = remainder / 100000;
-  *remainderp = remainder - (*quotientp) * 100000; 
+  *remainderp = remainder - (*quotientp) * 100000;
 }
 
 static inline void double_bround6(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
@@ -1552,7 +1552,7 @@ static inline void double_bround6(double dxx, const double* banker_round, uint32
   uint32_t remainder = (int32_t)dxx;
   remainder += (int32_t)((dxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
   *quotientp = remainder / 1000000;
-  *remainderp = remainder - (*quotientp) * 1000000; 
+  *remainderp = remainder - (*quotientp) * 1000000;
 }
 
 static inline void double_bround7(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
@@ -1560,7 +1560,7 @@ static inline void double_bround7(double dxx, const double* banker_round, uint32
   uint32_t remainder = (int32_t)dxx;
   remainder += (int32_t)((dxx - ((int32_t)remainder)) + banker_round[remainder & 1]);
   *quotientp = remainder / 10000000;
-  *remainderp = remainder - (*quotientp) * 10000000; 
+  *remainderp = remainder - (*quotientp) * 10000000;
 }
 
 char* dtoa_so6(double dxx, char* start) {
@@ -3804,7 +3804,7 @@ uint32_t murmurhash3_32(const void* key, uint32_t len) {
       k1 *= c1;
       k1 = rotl32(k1,15);
       k1 *= c2;
-   
+
       h1 ^= k1;
       h1 = rotl32(h1,13);
       h1 = h1*5+0xe6546b64;
@@ -4785,7 +4785,7 @@ int32_t try_to_add_chrom_name(const char* chrom_name, const char* file_descrip, 
   }
 
   // quasi-bugfix: remove redundant hash table check
-  
+
   if (chrom_name[0] == '#') {
     // redundant with some of the comment-skipping loaders, but this isn't
     // performance-critical
@@ -5651,7 +5651,8 @@ uint32_t bsearch_read_fam_indiv(char* __restrict read_ptr, const char* __restric
     *retval_ptr = -1;
     return 0;
   }
-  memcpy(memcpyax(id_buf, read_ptr, slen_fid, '\t'), iid_ptr, slen_iid);
+  // error message bugfix: null-terminate this string
+  memcpyx(memcpyax(id_buf, read_ptr, slen_fid, '\t'), iid_ptr, slen_iid, '\0');
   *retval_ptr = bsearch_str(id_buf, slen_final, lptr, max_id_len, filter_line_ct);
   return 0;
 }
@@ -6454,7 +6455,7 @@ uint32_t window_back(const uint32_t* __restrict marker_pos, const double* __rest
     }
     remaining_count -= uii;
     marker_uidx_last = marker_uwidx_cur;
-  window_back_zstart:  
+  window_back_zstart:
     cur_word = ~(*(--marker_exclude_cur));
     marker_uwidx_cur -= BITCT;
   }
@@ -8395,7 +8396,7 @@ void copy_quaterarr_nonempty_subset_excl(const uintptr_t* __restrict raw_quatera
       if (subset_excl_widx == subset_excl_widx_last) {
 	cur_include_word &= (ONELU << (raw_quaterarr_size % BITCT)) - ONELU;
       }
-      
+
       if (cur_include_word) {
 	uint32_t wordhalf_idx = 0;
 #ifdef __LP64__
@@ -8436,7 +8437,7 @@ void copy_quaterarr_nonempty_subset_excl(const uintptr_t* __restrict raw_quatera
 	  }
 	}
       }
-      subset_excl_widx++;	
+      subset_excl_widx++;
     }
   }
   // blocked copy
@@ -8569,7 +8570,7 @@ void copy_quaterarr_nonempty_subset(const uintptr_t* __restrict raw_quaterarr, c
 	  }
 	}
       }
-      subset_mask_widx++;	
+      subset_mask_widx++;
     }
   }
   // blocked copy
@@ -8694,7 +8695,7 @@ void inplace_quaterarr_proper_subset(const uintptr_t* __restrict subset_mask, ui
 	  }
 	}
       }
-      subset_mask_widx++;	
+      subset_mask_widx++;
     }
   }
   // blocked copy
@@ -9244,7 +9245,7 @@ void vec_rotate_plink1_to_plink2(uintptr_t* lptr, uint32_t word_ct) {
   __m128i vjj;
   do {
     // new high bit set iff old low bit was set
-    // new low bit set iff old bits differed 
+    // new low bit set iff old bits differed
     vii = *vptr;
     vjj = _mm_and_si128(vii, m1); // old low bit
     vii = _mm_and_si128(_mm_srli_epi64(vii, 1), m1); // old high bit, shifted
@@ -10161,10 +10162,10 @@ void copy_bitarr_subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t*
   }
   while (item_idx < subset_size) {
     item_uidx = next_set_unsafe(subset_mask, item_uidx);
-    
+
     // can speed this up a bit once we have a guaranteed unset bit at the end
     item_uidx_stop = next_unset(subset_mask, item_uidx, raw_bitarr_size);
-    
+
     item_idx += item_uidx_stop - item_uidx;
     do {
       cur_output_word |= ((raw_bitarr[item_uidx / BITCT] >> (item_uidx % BITCT)) & 1) << word_write_shift;

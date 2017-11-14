@@ -105,10 +105,10 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (3 Nov 2017)";
+  " (13 Nov 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifdef STABLE_BUILD
   "" // (don't want this when version number has a trailing letter)
 #else
@@ -2201,7 +2201,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 
 static inline int32_t is_flag(char* param) {
   unsigned char ucc = param[1];
-  return ((*param == '-') && ((ucc > '9') || ((ucc < '0') && (ucc != '.') && (ucc != '\0')))); 
+  return ((*param == '-') && ((ucc > '9') || ((ucc < '0') && (ucc != '.') && (ucc != '\0'))));
 }
 
 static inline char* is_flag_start(char* param) {
@@ -7492,7 +7492,7 @@ int32_t main(int32_t argc, char** argv) {
 	    goto main_ret_INVALID_CMDLINE_WWA;
 	  } else if (dxx > (0.5 + SMALLISH_EPSILON)) {
 	    sprintf(g_logbuf, "Error: The --hard-call-threshold parameter must be smaller than 0.5.  (Did you\nmean '--hard-call-threshold %g'?)\n", 1.0 - dxx);
-	    goto main_ret_INVALID_CMDLINE_2A; 
+	    goto main_ret_INVALID_CMDLINE_2A;
 	  } else if (dxx > (0.5 - SMALLISH_EPSILON)) {
 	    logerrprint("Error: The --hard-call-threshold parameter must be smaller than 0.5, to prevent\nties.\n");
 	    goto main_ret_INVALID_CMDLINE_A;

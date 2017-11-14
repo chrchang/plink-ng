@@ -186,7 +186,7 @@ int32_t makepheno_load(FILE* phenofile, char* makepheno_str, uintptr_t unfiltere
     fill_all_bits(unfiltered_sample_ct, pheno_nm);
   }
   // probably want to permit long lines here
-  g_textbuf[MAXLINELEN - 1] = ' '; 
+  g_textbuf[MAXLINELEN - 1] = ' ';
   while (fgets(g_textbuf, MAXLINELEN, phenofile) != nullptr) {
     line_idx++;
     if (!g_textbuf[MAXLINELEN - 1]) {
@@ -363,7 +363,7 @@ int32_t load_pheno(FILE* phenofile, uintptr_t unfiltered_sample_ct, uintptr_t sa
 	if (ss == bufptr) {
 	  dxx = missing_phenod;
 	}
-	
+
 	if (affection) {
 	  if (dxx == pheno_cased) {
 	    set_bit(sample_idx, pheno_c);
@@ -5102,7 +5102,7 @@ int32_t meta_analysis_open_and_read_header(const char* fname, char* loadbuf, uin
     col_sequence[uii] = ujj & 15;
   }
   *token_ct_ptr = token_ct;
-  
+
   while (0) {
   meta_analysis_open_and_read_header_ret_NOMEM:
     retval = RET_NOMEM;
