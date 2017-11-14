@@ -5911,9 +5911,11 @@ int32_t ped_to_bed(char* pedname, char* mapname, char* outname, char* outname_en
     }
     // provisionally assume max_marker_allele_blen == 2
     // bugfix: allocate this after map_reverse
+    // quasi-bugfix (14 Nov 2017): need to zero-initialize marker_allele_cts
+    //   for consistent allele ordering
     if (bigstack_alloc_c(marker_ct * 2, &marker_alleles_f) ||
 	bigstack_calloc_c(marker_ct * 4, &marker_alleles) ||
-	bigstack_alloc_ui(marker_ct * 4, &marker_allele_cts)) {
+	bigstack_calloc_ui(marker_ct * 4, &marker_allele_cts)) {
       goto ped_to_bed_ret_NOMEM;
     }
 
@@ -15704,7 +15706,7 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 	      ukk = uii * 2;
 	    } else if (marker_allele_ptrs[uii * 2 + 1] == missing_geno_ptr) {
               ukk = uii * 2 + 1;
-              // bugfix (14 Nov 2017): forgot to increment the A1 allele count!
+              // bugfix (14 Nov 2017): forgot to increment the A2 allele count!
               ++ucc2;
 	    } else {
 	      goto merge_main_ret_NOT_BIALLELIC;
