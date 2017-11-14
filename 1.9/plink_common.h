@@ -40,7 +40,7 @@
 
 // Uncomment this to prevent all unstable features from being accessible from
 // the command line.
-// #define STABLE_BUILD
+#define STABLE_BUILD
 
 #define SPECIES_HUMAN 0
 #define SPECIES_COW 1
@@ -2122,7 +2122,7 @@ typedef struct {
   // currently tolerates out-of-order chromosomes, as long as all variants for
   // any given chromosome are together
   uint32_t* chrom_file_order;
-  
+
   // if the second chromosome in the dataset is chr5, chrom_file_order[1] == 5,
   // the raw variant indexes for chr5 are in [chrom_fo_vidx_start[1],
   // chrom_fo_vidx_start[2]). and chrom_idx_to_foidx[5] == 1.

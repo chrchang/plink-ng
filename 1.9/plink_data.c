@@ -3593,7 +3593,7 @@ int32_t make_bed(FILE* bedfile, uintptr_t bed_offset, char* bimname, char* outna
     bigstack_reset(map_reverse);
     if (calculation_type & CALC_MAKE_BIM) {
       logprint("done.\n");
-    }    
+    }
   }
 
   if (calculation_type & (CALC_MAKE_BED | CALC_MAKE_FAM)) {
@@ -4102,17 +4102,17 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
     } while (is_eoln_kns(*bufptr));
     bufptr2 = token_endnn(bufptr);
     if ((((uintptr_t)(bufptr2 - bufptr)) != 4) || memcmp(bufptr, "ID_1", 4)) {
-      goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1; 
+      goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1;
     }
     bufptr = skip_initial_spaces(bufptr2);
     slen = strlen_se(bufptr);
     if ((slen != 4) || memcmp(bufptr, "ID_2", 4)) {
-      goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1; 
+      goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1;
     }
     bufptr = skip_initial_spaces(&(bufptr[4]));
     slen = strlen_se(bufptr);
     if ((slen != 7) || (!match_upper_counted(bufptr, "MISSING", 7))) {
-      goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1; 
+      goto oxford_to_bed_ret_INVALID_SAMPLE_HEADER_1;
     }
     bufptr = skip_initial_spaces(&(bufptr[7]));
     if (pheno_name) {
@@ -4412,7 +4412,7 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	  // maybe add a warning?
 	  fwrite(bufptr2, 1, strlen_se(bufptr2), outfile_bim);
 	  fputs(" 0 ", outfile_bim);
-	  fwrite(bufptr3, 1, bufptr4 - bufptr3, outfile_bim);        
+	  fwrite(bufptr3, 1, bufptr4 - bufptr3, outfile_bim);
 	} else {
 	  fwrite(bufptr2, 1, bufptr4 - bufptr2, outfile_bim);
 	}
@@ -8014,7 +8014,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
       if ((uii > 4) && (!memcmp(&(vcfname[uii - 4]), ".vcf", 4))) {
 	LOGERRPRINTFWW("Error: Failed to open %s.\n", vcfname);
       } else {
-	LOGERRPRINTFWW("Error: Failed to open %s. (--vcf expects a complete filename; did you forget '.vcf' at the end?)\n", vcfname);	
+	LOGERRPRINTFWW("Error: Failed to open %s. (--vcf expects a complete filename; did you forget '.vcf' at the end?)\n", vcfname);
       }
       goto vcf_to_bed_ret_OPEN_FAIL;
     }
@@ -8218,7 +8218,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	  break;
 	}
 	cc = *(++bufptr);
-	alt_ct++;      
+	alt_ct++;
       }
       if (cc != '\t') {
 	sprintf(g_logbuf, "Error: Malformed ALT field on line %" PRIuPTR " of .vcf file.\n", line_idx);
@@ -8342,7 +8342,7 @@ int32_t vcf_to_bed(char* vcfname, char* outname, char* outname_end, int32_t miss
 	    // other things, providing a useful error message instead of
 	    // segfaulting on an invalid GT field, to help other tool
 	    // developers.
-	    
+
 	    if (uii <= 9) {
 	      // no GQ field with ./. calls, so this check cannot occur earlier
 	      if (gq_field_pos) {
@@ -12425,7 +12425,7 @@ int32_t recode(uint32_t recode_modifier, FILE* bedfile, uintptr_t bed_offset, ch
       // to the output header line.  If that's not what the user wants,
       // they can do a two-step recode.
       // (--recode12 simply overrode --recodeA/--recodeAD in PLINK 1.07; no
-      // need to replicate that.) 
+      // need to replicate that.)
       retval = recode_allele_load((char*)loadbuf, ulii, recode_allele_name, &allele_missing, unfiltered_marker_ct, marker_exclude, marker_ct, marker_ids, max_marker_id_len, marker_allele_ptrs, max_marker_allele_len, recode_allele_reverse, recode_allele_extra);
       bigstack_end_reset(bigstack_end_mark);
       if (retval) {
@@ -14925,7 +14925,7 @@ int32_t merge_bim_scan(char* bimname, uint32_t is_binary, uint32_t allow_no_vari
     *cur_marker_ct_ptr = cur_marker_ct;
     *position_warning_ct_ptr = position_warning_ct;
   }
-  
+
   while (0) {
   merge_bim_scan_ret_NOMEM:
     retval = RET_NOMEM;
@@ -15704,6 +15704,8 @@ int32_t merge_main(char* bedname, char* bimname, char* famname, char* bim_loadbu
 	      ukk = uii * 2;
 	    } else if (marker_allele_ptrs[uii * 2 + 1] == missing_geno_ptr) {
               ukk = uii * 2 + 1;
+              // bugfix (14 Nov 2017): forgot to increment the A1 allele count!
+              ++ucc2;
 	    } else {
 	      goto merge_main_ret_NOT_BIALLELIC;
 	    }
