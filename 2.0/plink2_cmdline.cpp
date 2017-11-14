@@ -4376,11 +4376,12 @@ void compute_partition_aligned(const uintptr_t* variant_include, uint32_t orig_t
     variant_uidx_starts[1] = cur_variant_uidx_start;
     vidx_starts[1] = cur_variant_idx;
     for (uint32_t tidx = 2; tidx < thread_ct; ++tidx) {
+      cur_variant_uidx_start = jump_forward_set_unsafe(variant_include, cur_variant_uidx_start + 1, central_variant_ct);
+      cur_variant_idx += central_variant_ct;
+      // bugfix (14 Nov 2017): this decrement was in the wrong place
       if (tidx == remainder_m1) {
         central_variant_ct -= alignment;
       }
-      cur_variant_uidx_start = jump_forward_set_unsafe(variant_include, cur_variant_uidx_start + 1, central_variant_ct);
-      cur_variant_idx += central_variant_ct;
       variant_uidx_starts[tidx] = cur_variant_uidx_start;
       vidx_starts[tidx] = cur_variant_idx;
     }
