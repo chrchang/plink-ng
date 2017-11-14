@@ -110,7 +110,7 @@ static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
 #ifdef STABLE_BUILD
-  "" // (don't want this when version number has a trailing letter)
+  "   " // (don't want this when version number has a trailing letter)
 #else
   "    " // (don't want this when version number has e.g. "b3" before "p")
 #endif
