@@ -53,7 +53,7 @@ extern "C" {
               float* beta, float* c, int* ldc);
 
   void sgemv_(char* trans, int* m, int* n, float* alpha, float* a, int* lda,
-              float* x, int* incx, float* beta, real* y, int* incy);
+              float* x, int* incx, float* beta, float* y, int* incy);
 
   void ssyrk_(char* uplo, char* trans, __CLPK_integer* n, __CLPK_integer* k,
               float* alpha, float* a, __CLPK_integer* lda, float* beta,
