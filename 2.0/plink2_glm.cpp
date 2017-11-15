@@ -1428,7 +1428,14 @@ uint32_t genoarr_to_floats_remove_missing(const uintptr_t* genoarr, uint32_t sam
 //     printf(",\n");
 //   }
 // }
-const uint32_t float_exp_lookup_int[] __attribute__((aligned(kBytesPerVec))) = {
+
+const uint32_t float_exp_lookup_int[]
+#ifdef FVEC_32
+  __attribute__((aligned(32)))
+#else
+  __attribute__((aligned(16)))
+#endif
+  = {
 0x00000000, 0x00001630, 0x00002c64, 0x0000429c,
 0x000058d8, 0x00006f17, 0x0000855b, 0x00009ba2,
 0x0000b1ed, 0x0000c83c, 0x0000de8f, 0x0000f4e6,
