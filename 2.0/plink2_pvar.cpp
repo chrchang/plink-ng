@@ -470,7 +470,7 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
         }
         chrset_present = 1;
         const uint32_t cmdline_chrset = (cip->chrset_source == kChrsetSourceCmdline) && (!(misc_flags & kfMiscChrOverrideFile));
-        reterr = read_chrset_header_line(&(loadbuf_first_token[strlen("##INFO=<ID=")]), pvarname, misc_flags, line_idx, cip);
+        reterr = read_chrset_header_line(&(loadbuf_first_token[strlen("##chrSet=<")]), pvarname, misc_flags, line_idx, cip);
         if (reterr) {
           goto load_pvar_ret_1;
         }
