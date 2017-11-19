@@ -9448,6 +9448,11 @@ pglerr_t plink1_sample_major_to_pgen(const char* pgenname, uintptr_t variant_ct,
       assert(load_multiplier);
       cur_vidx_ct = load_multiplier * calc_thread_ct * kPglVblockSize;
       plink1_smaj_loadbuf = (uintptr_t*)bigstack_alloc_raw_rd((cur_vidx_ct / 4) * ((uintptr_t)sample_ct));
+      // bugfix (18 Nov 2017): this may be larger than variant_ct
+      if (cur_vidx_ct > variant_ct) {
+        cur_vidx_ct = variant_ct;
+        load_multiplier = 1 + (cur_vidx_ct - 1) / (kPglVblockSize * calc_thread_ct);
+      }
     } else {
       load_multiplier = 1 + ((variant_ct - 1) / (calc_thread_ct * kPglVblockSize));
       cur_vidx_ct = variant_ct;
