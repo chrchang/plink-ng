@@ -1508,7 +1508,7 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
           logerrprint("Error: Duplicate FORMAT:GT header line in --vcf file.\n");
           goto vcf_to_pgen_ret_MALFORMED_INPUT;
         }
-        if (str_startswith2(&(loadbuf_iter[2 + strlen("FORMAT=<ID=GT,Number=")]), "1,Type=String,Description=")) {
+        if (!str_startswith2(&(loadbuf_iter[2 + strlen("FORMAT=<ID=GT,Number=")]), "1,Type=String,Description=")) {
           sprintf(g_logbuf, "Error: Header line %" PRIuPTR " of --vcf file does not have expected FORMAT:GT format.\n", line_idx);
           goto vcf_to_pgen_ret_MALFORMED_INPUT_WW;
         }
@@ -9413,7 +9413,7 @@ pglerr_t plink1_sample_major_to_pgen(const char* pgenname, uintptr_t variant_ct,
     // 1. Load next calc_thread_ct * load_multiplier * kPglVblockSize
     //    variants.
     //    calc_thread_ct is reduced as necessary to ensure the compression
-    //    write buffers use <= 1/8 of total workspace.
+    //    write buffers use <= 1/6 of total workspace.
     //    with calc_thread_ct determined, load_multiplier is then chosen to use
     //    as much of the remaining workspace as possible.
     // 2. Repeat load_multiplier times:
@@ -9424,12 +9424,14 @@ pglerr_t plink1_sample_major_to_pgen(const char* pgenname, uintptr_t variant_ct,
     //    iteration.)
     // No double-buffering here since main bottleneck is how many variants we
     // can load at once.
-    if ((cachelines_avail / 8) < alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct * calc_thread_ct) {
-      if ((cachelines_avail / 8) < alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct) {
+    if ((cachelines_avail / 6) < alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct * calc_thread_ct) {
+      if ((cachelines_avail / 6) < alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct) {
         // possible todo: simple single-threaded fallback
+        // report this value since it can plausibly come up
+        g_failed_alloc_attempt_size = (alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct) * kCacheline * 6;
         goto plink1_sample_major_to_pgen_ret_NOMEM;
       }
-      calc_thread_ct = ((cachelines_avail / 8) - alloc_base_cacheline_ct) / mpgw_per_thread_cacheline_ct;
+      calc_thread_ct = ((cachelines_avail / 6) - alloc_base_cacheline_ct) / mpgw_per_thread_cacheline_ct;
     }
     // todo: determine appropriate calc_thread_ct limit.  (should not be less
     // than 7-8.)
