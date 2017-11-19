@@ -1363,8 +1363,6 @@ CONSTU31(kPglBitTransposeWords, kWordsPerCacheline);
 // * Up to 512x512; vecaligned_buf must have size 64k
 // * write_iter must be allocated up to at least
 //   round_up_pow2(write_batch_size, 2) rows
-// * write_ul_stride currently must be divisible by 2 in AVX2 case; may want to
-//   lift this restriction.
 // * We use pointers with different types to read from and write to buf0/buf1,
 //   so defining the base type as unsigned char* is theoretically necessary to
 //   avoid breaking strict-aliasing rules, while the restrict qualifiers should
@@ -1375,9 +1373,6 @@ CONSTU31(kPglBitTransposeBufbytes, (kPglBitTransposeBatch * kPglBitTransposeBatc
 void transpose_bitblock_internal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, unsigned char* __restrict buf0);
 
 HEADER_INLINE void transpose_bitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, vul_t* vecaligned_buf) {
-  #ifdef USE_AVX2
-  assert(!(write_ul_stride % 2));
-  #endif
   transpose_bitblock_internal(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, (unsigned char*)vecaligned_buf);
 }
 

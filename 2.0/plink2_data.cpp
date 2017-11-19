@@ -16624,7 +16624,6 @@ pglerr_t export_012_smaj(const char* outname, const uintptr_t* orig_sample_inclu
           }
         }
         parity = 1 - parity;
-        printf("step 4\n");
         if (variant_idx == variant_ct) {
           break;
         }

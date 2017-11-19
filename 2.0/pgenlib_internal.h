@@ -135,6 +135,13 @@ HEADER_INLINE void zero_trailing_quaters(uintptr_t quater_ct, uintptr_t* bitarr)
   zero_trailing_bits(quater_ct * 2, bitarr);
 }
 
+HEADER_INLINE void set_trailing_quaters(uintptr_t quater_ct, uintptr_t* bitarr) {
+  uintptr_t trail_ct = quater_ct % kBitsPerWordD2;
+  if (trail_ct) {
+    bitarr[quater_ct / kBitsPerWordD2] |= (~k0LU) << (quater_ct * 2);
+  }
+}
+
 // A VINT is a sequence of bytes where each byte stores just 7 bits of an
 // an integer, and the high bit is set when the integer has more nonzero bits.
 // See e.g.

@@ -456,137 +456,297 @@ pglerr_t king_cutoff_batch(const char* sample_ids, const char* sids, uint32_t ra
 }
 
 // multithread globals
-static uintptr_t* g_smaj_genobuf[2] = {nullptr, nullptr};
-static uintptr_t* g_smaj_maskbuf[2] = {nullptr, nullptr};
+static uintptr_t* g_smaj_hom[2] = {nullptr, nullptr};
+static uintptr_t* g_smaj_ref2het[2] = {nullptr, nullptr};
 static uint32_t* g_thread_start = nullptr;
 static uint32_t* g_king_counts = nullptr;
+static uint32_t g_homhom_needed = 0;
 
-#ifdef __LP64__
-  // must be multiple of 192 for SSE2, 384 for AVX2; max 1920
-  // more precisely, must be multiple of both 3 and (kBitsPerVec / 2)
+#ifdef USE_SSE42
+CONSTU31(kKingMultiplex, 1024);
+CONSTU31(kKingMultiplexWords, kKingMultiplex / kBitsPerWord);
+void incr_king(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t start_idx, uint32_t end_idx, uint32_t* king_counts_iter) {
+  // Tried adding another level of blocking, but couldn't get it to make a
+  // difference.
+  for (uint32_t second_idx = start_idx; second_idx < end_idx; ++second_idx) {
+    // technically overflows for huge sample_ct
+    const uint32_t second_offset = second_idx * kKingMultiplexWords;
+    const uintptr_t* second_hom = &(smaj_hom[second_offset]);
+    const uintptr_t* second_ref2het = &(smaj_ref2het[second_offset]);
+    const uintptr_t* first_hom_iter = smaj_hom;
+    const uintptr_t* first_ref2het_iter = smaj_ref2het;
+    while (first_hom_iter < second_hom) {
+      uint32_t acc_ibs0 = 0;
+      uint32_t acc_hethet = 0;
+      uint32_t acc_het2hom1 = 0;
+      uint32_t acc_het1hom2 = 0;
+      for (uint32_t widx = 0; widx < kKingMultiplexWords; ++widx) {
+        const uintptr_t hom1 = first_hom_iter[widx];
+        const uintptr_t hom2 = second_hom[widx];
+        const uintptr_t ref2het1 = first_ref2het_iter[widx];
+        const uintptr_t ref2het2 = second_ref2het[widx];
+        const uintptr_t homhom = hom1 & hom2;
+        const uintptr_t het1 = ref2het1 & (~hom1);
+        const uintptr_t het2 = ref2het2 & (~hom2);
+        acc_ibs0 += popcount_long((ref2het1 ^ ref2het2) & homhom);
+        acc_hethet += popcount_long(het1 & het2);
+        acc_het2hom1 += popcount_long(hom1 & het2);
+        acc_het1hom2 += popcount_long(hom2 & het1);
+      }
+      *king_counts_iter++ += acc_ibs0;
+      *king_counts_iter++ += acc_hethet;
+      *king_counts_iter++ += acc_het2hom1;
+      *king_counts_iter++ += acc_het1hom2;
 
-  // actually, when there are lots of samples, we want this to be smaller so we
-  // don't blow the cache... need to rethink this.
-  CONSTU31(kKingMultiplex, 1536);
-#else
-  CONSTU31(kKingMultiplex, 1008);
-#endif
+      first_hom_iter = &(first_hom_iter[kKingMultiplexWords]);
+      first_ref2het_iter = &(first_ref2het_iter[kKingMultiplexWords]);
+    }
+  }
+}
 
-void incr_king(const uintptr_t* smaj_genobuf, const uintptr_t* smaj_maskbuf, uint32_t start_idx, uint32_t end_idx, uint32_t* king_counts_iter) {
-  // const vul_t m1 = VCONST_UL(kMask5555);
+void incr_king_homhom(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t start_idx, uint32_t end_idx, uint32_t* king_counts_iter) {
+  for (uint32_t second_idx = start_idx; second_idx < end_idx; ++second_idx) {
+    // technically overflows for huge sample_ct
+    const uint32_t second_offset = second_idx * kKingMultiplexWords;
+    const uintptr_t* second_hom = &(smaj_hom[second_offset]);
+    const uintptr_t* second_ref2het = &(smaj_ref2het[second_offset]);
+    const uintptr_t* first_hom_iter = smaj_hom;
+    const uintptr_t* first_ref2het_iter = smaj_ref2het;
+    while (first_hom_iter < second_hom) {
+      uint32_t acc_homhom = 0;
+      uint32_t acc_ibs0 = 0;
+      uint32_t acc_hethet = 0;
+      uint32_t acc_het2hom1 = 0;
+      uint32_t acc_het1hom2 = 0;
+      for (uint32_t widx = 0; widx < kKingMultiplexWords; ++widx) {
+        const uintptr_t hom1 = first_hom_iter[widx];
+        const uintptr_t hom2 = second_hom[widx];
+        const uintptr_t ref2het1 = first_ref2het_iter[widx];
+        const uintptr_t ref2het2 = second_ref2het[widx];
+        const uintptr_t homhom = hom1 & hom2;
+        const uintptr_t het1 = ref2het1 & (~hom1);
+        const uintptr_t het2 = ref2het2 & (~hom2);
+        acc_homhom += popcount_long(homhom);
+        acc_ibs0 += popcount_long((ref2het1 ^ ref2het2) & homhom);
+        acc_hethet += popcount_long(het1 & het2);
+        acc_het2hom1 += popcount_long(hom1 & het2);
+        acc_het1hom2 += popcount_long(hom2 & het1);
+      }
+      *king_counts_iter++ += acc_ibs0;
+      *king_counts_iter++ += acc_hethet;
+      *king_counts_iter++ += acc_het2hom1;
+      *king_counts_iter++ += acc_het1hom2;
+
+      // can make this conditional
+      *king_counts_iter++ += acc_homhom;
+
+      first_hom_iter = &(first_hom_iter[kKingMultiplexWords]);
+      first_ref2het_iter = &(first_ref2het_iter[kKingMultiplexWords]);
+    }
+  }
+}
+#else // !USE_SSE42
+  #ifdef __LP64__
+CONSTU31(kKingMultiplex, 1536);
+  #else
+CONSTU31(kKingMultiplex, 960);
+  #endif
+static_assert(kKingMultiplex % (3 * kBitsPerVec) == 0, "Invalid kKingMultiplex value.");
+CONSTU31(kKingMultiplexWords, kKingMultiplex / kBitsPerWord);
+CONSTU31(kKingMultiplexVecs, kKingMultiplex / kBitsPerVec);
+// expensive popcount_long().  Use Lauradoux/Walisch accumulators, since
+// Harley-Seal requires too many variables.
+void incr_king(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t start_idx, uint32_t end_idx, uint32_t* king_counts_iter) {
+  const vul_t m1 = VCONST_UL(kMask5555);
   const vul_t m2 = VCONST_UL(kMask3333);
   const vul_t m4 = VCONST_UL(kMask0F0F);
   for (uint32_t second_idx = start_idx; second_idx < end_idx; ++second_idx) {
     // technically overflows for huge sample_ct
-    const uint32_t second_offset = second_idx * (kKingMultiplex / kBitsPerWordD2);
-    const vul_t* second_geno_vvec = (const vul_t*)(&(smaj_genobuf[second_offset]));
-    const vul_t* second_geno_vvec_end = (const vul_t*)(&(smaj_genobuf[second_offset + (kKingMultiplex / kBitsPerWordD2)]));
-    const vul_t* second_mask_vvec = (const vul_t*)(&(smaj_maskbuf[second_offset]));
-    const vul_t* first_geno_vvec_iter = (const vul_t*)smaj_genobuf;
-    const vul_t* first_mask_vvec_iter = (const vul_t*)smaj_maskbuf;
-    // tried special-casing the situation where second_mask_vvec has no missing
-    // calls; turns out it doesn't help
-    while (first_geno_vvec_iter < second_geno_vvec) {
-      const vul_t* second_geno_vvec_iter = second_geno_vvec;
-      const vul_t* second_mask_vvec_iter = second_mask_vvec;
-      univec_t acc_nonmiss;
-      univec_t acc_hom_match;
+    const uint32_t second_offset = second_idx * kKingMultiplexWords;
+    const vul_t* second_hom = (const vul_t*)(&(smaj_hom[second_offset]));
+    const vul_t* second_ref2het = (const vul_t*)(&(smaj_ref2het[second_offset]));
+    const vul_t* first_hom_iter = (const vul_t*)smaj_hom;
+    const vul_t* first_ref2het_iter = (const vul_t*)smaj_ref2het;
+    while (first_hom_iter < second_hom) {
       univec_t acc_ibs0;
-      univec_t acc_het2hom1_or_ibs0;
-      univec_t acc_het1hom2_or_ibs0;
-      acc_nonmiss.vi = vul_setzero();
-      acc_hom_match.vi = vul_setzero();
+      univec_t acc_hethet;
+      univec_t acc_het2hom1;
+      univec_t acc_het1hom2;
       acc_ibs0.vi = vul_setzero();
-      acc_het2hom1_or_ibs0.vi = vul_setzero();
-      acc_het1hom2_or_ibs0.vi = vul_setzero();
-      do {
-        // could use alternating mask, but we'd have to process 6 16-byte
-        // blocks at a time
-        vul_t geno1_vmask = *first_mask_vvec_iter++;
-        vul_t geno2_vmask = *second_mask_vvec_iter++;
-        vul_t geno1_vword = *first_geno_vvec_iter++;
-        vul_t geno2_vword = *second_geno_vvec_iter++;
-
-        vul_t agg_nonmiss = geno1_vmask & geno2_vmask;
-        vul_t geno_and = geno1_vword & geno2_vword;
-        vul_t geno_xor = geno1_vword ^ geno2_vword;
-        // could use m1 in place of agg_nonmiss
-        vul_t agg_hom_match = (geno_and | vul_rshift(geno_and, 1)) & agg_nonmiss;
-        vul_t agg_ibs0 = geno_xor & vul_rshift(geno_xor, 1) & agg_nonmiss;
-        vul_t geno2_and_not1 = (~geno1_vword) & geno2_vword;
-        vul_t geno1_and_not2 = geno1_vword & (~geno2_vword);
-        vul_t agg_het1hom2_or_ibs0 = (geno2_and_not1 | vul_rshift(geno2_and_not1, 1)) & agg_nonmiss;
-        vul_t agg_het2hom1_or_ibs0 = (geno1_and_not2 | vul_rshift(geno1_and_not2, 1)) & agg_nonmiss;
-
-        geno1_vmask = *first_mask_vvec_iter++;
-        geno2_vmask = *second_mask_vvec_iter++;
-        geno1_vword = *first_geno_vvec_iter++;
-        geno2_vword = *second_geno_vvec_iter++;
-
-        vul_t geno_nonmiss = geno1_vmask & geno2_vmask;
-        geno_and = geno1_vword & geno2_vword;
-        geno_xor = geno1_vword ^ geno2_vword;
-        agg_nonmiss += geno_nonmiss;
-        agg_hom_match += (geno_and | vul_rshift(geno_and, 1)) & geno_nonmiss;
-        agg_ibs0 += geno_xor & vul_rshift(geno_xor, 1) & geno_nonmiss;
-        geno2_and_not1 = (~geno1_vword) & geno2_vword;
-        geno1_and_not2 = geno1_vword & (~geno2_vword);
-        agg_het1hom2_or_ibs0 += (geno2_and_not1 | vul_rshift(geno2_and_not1, 1)) & geno_nonmiss;
-        agg_het2hom1_or_ibs0 += (geno1_and_not2 | vul_rshift(geno1_and_not2, 1)) & geno_nonmiss;
-
-        geno1_vmask = *first_mask_vvec_iter++;
-        geno2_vmask = *second_mask_vvec_iter++;
-        geno1_vword = *first_geno_vvec_iter++;
-        geno2_vword = *second_geno_vvec_iter++;
-
-        geno_nonmiss = geno1_vmask & geno2_vmask;
-        geno_and = geno1_vword & geno2_vword;
-        geno_xor = geno1_vword ^ geno2_vword;
-        agg_nonmiss += geno_nonmiss;
-        agg_hom_match += (geno_and | vul_rshift(geno_and, 1)) & geno_nonmiss;
-        agg_ibs0 += geno_xor & vul_rshift(geno_xor, 1) & geno_nonmiss;
-        geno2_and_not1 = (~geno1_vword) & geno2_vword;
-        geno1_and_not2 = geno1_vword & (~geno2_vword);
-        agg_het1hom2_or_ibs0 += (geno2_and_not1 | vul_rshift(geno2_and_not1, 1)) & geno_nonmiss;
-        agg_het2hom1_or_ibs0 += (geno1_and_not2 | vul_rshift(geno1_and_not2, 1)) & geno_nonmiss;
-
-        agg_nonmiss = (agg_nonmiss & m2) + (vul_rshift(agg_nonmiss, 2) & m2);
-        agg_hom_match = (agg_hom_match & m2) + (vul_rshift(agg_hom_match, 2) & m2);
+      acc_hethet.vi = vul_setzero();
+      acc_het2hom1.vi = vul_setzero();
+      acc_het1hom2.vi = vul_setzero();
+      for (uint32_t vec_idx = 0; vec_idx < kKingMultiplexVecs; vec_idx += 3) {
+        vul_t hom1 = first_hom_iter[vec_idx];
+        vul_t hom2 = second_hom[vec_idx];
+        vul_t ref2het1 = first_ref2het_iter[vec_idx];
+        vul_t ref2het2 = second_ref2het[vec_idx];
+        vul_t het1 = ref2het1 & (~hom1);
+        vul_t het2 = ref2het2 & (~hom2);
+        vul_t agg_ibs0 = (ref2het1 ^ ref2het2) & (hom1 & hom2);
+        vul_t agg_hethet = het1 & het2;
+        vul_t agg_het2hom1 = hom1 & het2;
+        vul_t agg_het1hom2 = hom2 & het1;
+        agg_ibs0 = agg_ibs0 - (vul_rshift(agg_ibs0, 1) & m1);
+        agg_hethet = agg_hethet - (vul_rshift(agg_hethet, 1) & m1);
+        agg_het2hom1 = agg_het2hom1 - (vul_rshift(agg_het2hom1, 1) & m1);
+        agg_het1hom2 = agg_het1hom2 - (vul_rshift(agg_het1hom2, 1) & m1);
         agg_ibs0 = (agg_ibs0 & m2) + (vul_rshift(agg_ibs0, 2) & m2);
-        agg_het1hom2_or_ibs0 = (agg_het1hom2_or_ibs0 & m2) + (vul_rshift(agg_het1hom2_or_ibs0, 2) & m2);
-        agg_het2hom1_or_ibs0 = (agg_het2hom1_or_ibs0 & m2) + (vul_rshift(agg_het2hom1_or_ibs0, 2) & m2);
+        agg_hethet = (agg_hethet & m2) + (vul_rshift(agg_hethet, 2) & m2);
+        agg_het2hom1 = (agg_het2hom1 & m2) + (vul_rshift(agg_het2hom1, 2) & m2);
+        agg_het1hom2 = (agg_het1hom2 & m2) + (vul_rshift(agg_het1hom2, 2) & m2);
 
-        acc_nonmiss.vi += (agg_nonmiss + vul_rshift(agg_nonmiss, 4)) & m4;
-        acc_hom_match.vi += (agg_hom_match + vul_rshift(agg_hom_match, 4)) & m4;
-        acc_ibs0.vi += (agg_ibs0 + vul_rshift(agg_ibs0, 4)) & m4;
-        acc_het1hom2_or_ibs0.vi += (agg_het1hom2_or_ibs0 + vul_rshift(agg_het1hom2_or_ibs0, 4)) & m4;
-        acc_het2hom1_or_ibs0.vi += (agg_het2hom1_or_ibs0 + vul_rshift(agg_het2hom1_or_ibs0, 4)) & m4;
-      } while (second_geno_vvec_iter < second_geno_vvec_end);
+        for (uint32_t offset = 1; offset < 3; ++offset) {
+          hom1 = first_hom_iter[vec_idx + offset];
+          hom2 = second_hom[vec_idx + offset];
+          ref2het1 = first_ref2het_iter[vec_idx + offset];
+          ref2het2 = second_ref2het[vec_idx + offset];
+          het1 = ref2het1 & (~hom1);
+          het2 = ref2het2 & (~hom2);
+          vul_t cur_ibs0 = (ref2het1 ^ ref2het2) & (hom1 & hom2);
+          vul_t cur_hethet = het1 & het2;
+          vul_t cur_het2hom1 = hom1 & het2;
+          vul_t cur_het1hom2 = hom2 & het1;
+          cur_ibs0 = cur_ibs0 - (vul_rshift(cur_ibs0, 1) & m1);
+          cur_hethet = cur_hethet - (vul_rshift(cur_hethet, 1) & m1);
+          cur_het2hom1 = cur_het2hom1 - (vul_rshift(cur_het2hom1, 1) & m1);
+          cur_het1hom2 = cur_het1hom2 - (vul_rshift(cur_het1hom2, 1) & m1);
+          agg_ibs0 += (cur_ibs0 & m2) + (vul_rshift(cur_ibs0, 2) & m2);
+          agg_hethet += (cur_hethet & m2) + (vul_rshift(cur_hethet, 2) & m2);
+          agg_het2hom1 += (cur_het2hom1 & m2) + (vul_rshift(cur_het2hom1, 2) & m2);
+          agg_het1hom2 += (cur_het1hom2 & m2) + (vul_rshift(cur_het1hom2, 2) & m2);
+        }
+        acc_ibs0.vi = acc_ibs0.vi + (agg_ibs0 & m4) + (vul_rshift(agg_ibs0, 4) & m4);
+        acc_hethet.vi = acc_hethet.vi + (agg_hethet & m4) + (vul_rshift(agg_hethet, 4) & m4);
+        acc_het2hom1.vi = acc_het2hom1.vi + (agg_het2hom1 & m4) + (vul_rshift(agg_het2hom1, 4) & m4);
+        acc_het1hom2.vi = acc_het1hom2.vi + (agg_het1hom2 & m4) + (vul_rshift(agg_het1hom2, 4) & m4);
+      }
       const vul_t m8 = VCONST_UL(kMask00FF);
-      // can add before masking instead if kKingMultiplex <= 960
-      acc_nonmiss.vi = (acc_nonmiss.vi & m8) + (vul_rshift(acc_nonmiss.vi, 8) & m8);
-      acc_hom_match.vi = (acc_hom_match.vi & m8) + (vul_rshift(acc_hom_match.vi, 8) & m8);
       acc_ibs0.vi = (acc_ibs0.vi & m8) + (vul_rshift(acc_ibs0.vi, 8) & m8);
-      acc_het1hom2_or_ibs0.vi = (acc_het1hom2_or_ibs0.vi & m8) + (vul_rshift(acc_het1hom2_or_ibs0.vi, 8) & m8);
-      acc_het2hom1_or_ibs0.vi = (acc_het2hom1_or_ibs0.vi & m8) + (vul_rshift(acc_het2hom1_or_ibs0.vi, 8) & m8);
-      *king_counts_iter++ += univec_hsum_16bit(acc_nonmiss);
-      *king_counts_iter++ += univec_hsum_16bit(acc_hom_match);
+      acc_hethet.vi = (acc_hethet.vi & m8) + (vul_rshift(acc_hethet.vi, 8) & m8);
+      acc_het2hom1.vi = (acc_het2hom1.vi & m8) + (vul_rshift(acc_het2hom1.vi, 8) & m8);
+      acc_het1hom2.vi = (acc_het1hom2.vi & m8) + (vul_rshift(acc_het1hom2.vi, 8) & m8);
       *king_counts_iter++ += univec_hsum_16bit(acc_ibs0);
-      *king_counts_iter++ += univec_hsum_16bit(acc_het1hom2_or_ibs0);
-      *king_counts_iter++ += univec_hsum_16bit(acc_het2hom1_or_ibs0);
+      *king_counts_iter++ += univec_hsum_16bit(acc_hethet);
+      *king_counts_iter++ += univec_hsum_16bit(acc_het2hom1);
+      *king_counts_iter++ += univec_hsum_16bit(acc_het1hom2);
+
+      first_hom_iter = &(first_hom_iter[kKingMultiplexVecs]);
+      first_ref2het_iter = &(first_ref2het_iter[kKingMultiplexVecs]);
     }
   }
 }
+
+void incr_king_homhom(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t start_idx, uint32_t end_idx, uint32_t* king_counts_iter) {
+  const vul_t m1 = VCONST_UL(kMask5555);
+  const vul_t m2 = VCONST_UL(kMask3333);
+  const vul_t m4 = VCONST_UL(kMask0F0F);
+  for (uint32_t second_idx = start_idx; second_idx < end_idx; ++second_idx) {
+    // technically overflows for huge sample_ct
+    const uint32_t second_offset = second_idx * kKingMultiplexWords;
+    const vul_t* second_hom = (const vul_t*)(&(smaj_hom[second_offset]));
+    const vul_t* second_ref2het = (const vul_t*)(&(smaj_ref2het[second_offset]));
+    const vul_t* first_hom_iter = (const vul_t*)smaj_hom;
+    const vul_t* first_ref2het_iter = (const vul_t*)smaj_ref2het;
+    while (first_hom_iter < second_hom) {
+      univec_t acc_homhom;
+      univec_t acc_ibs0;
+      univec_t acc_hethet;
+      univec_t acc_het2hom1;
+      univec_t acc_het1hom2;
+      acc_homhom.vi = vul_setzero();
+      acc_ibs0.vi = vul_setzero();
+      acc_hethet.vi = vul_setzero();
+      acc_het2hom1.vi = vul_setzero();
+      acc_het1hom2.vi = vul_setzero();
+      for (uint32_t vec_idx = 0; vec_idx < kKingMultiplexVecs; vec_idx += 3) {
+        vul_t hom1 = first_hom_iter[vec_idx];
+        vul_t hom2 = second_hom[vec_idx];
+        vul_t ref2het1 = first_ref2het_iter[vec_idx];
+        vul_t ref2het2 = second_ref2het[vec_idx];
+        vul_t agg_homhom = hom1 & hom2;
+        vul_t het1 = ref2het1 & (~hom1);
+        vul_t het2 = ref2het2 & (~hom2);
+        vul_t agg_ibs0 = (ref2het1 ^ ref2het2) & agg_homhom;
+        vul_t agg_hethet = het1 & het2;
+        vul_t agg_het2hom1 = hom1 & het2;
+        vul_t agg_het1hom2 = hom2 & het1;
+        agg_homhom = agg_homhom - (vul_rshift(agg_homhom, 1) & m1);
+        agg_ibs0 = agg_ibs0 - (vul_rshift(agg_ibs0, 1) & m1);
+        agg_hethet = agg_hethet - (vul_rshift(agg_hethet, 1) & m1);
+        agg_het2hom1 = agg_het2hom1 - (vul_rshift(agg_het2hom1, 1) & m1);
+        agg_het1hom2 = agg_het1hom2 - (vul_rshift(agg_het1hom2, 1) & m1);
+        agg_homhom = (agg_homhom & m2) + (vul_rshift(agg_homhom, 2) & m2);
+        agg_ibs0 = (agg_ibs0 & m2) + (vul_rshift(agg_ibs0, 2) & m2);
+        agg_hethet = (agg_hethet & m2) + (vul_rshift(agg_hethet, 2) & m2);
+        agg_het2hom1 = (agg_het2hom1 & m2) + (vul_rshift(agg_het2hom1, 2) & m2);
+        agg_het1hom2 = (agg_het1hom2 & m2) + (vul_rshift(agg_het1hom2, 2) & m2);
+
+        for (uint32_t offset = 1; offset < 3; ++offset) {
+          hom1 = first_hom_iter[vec_idx + offset];
+          hom2 = second_hom[vec_idx + offset];
+          ref2het1 = first_ref2het_iter[vec_idx + offset];
+          ref2het2 = second_ref2het[vec_idx + offset];
+          vul_t cur_homhom = hom1 & hom2;
+          het1 = ref2het1 & (~hom1);
+          het2 = ref2het2 & (~hom2);
+          vul_t cur_ibs0 = (ref2het1 ^ ref2het2) & cur_homhom;
+          vul_t cur_hethet = het1 & het2;
+          vul_t cur_het2hom1 = hom1 & het2;
+          vul_t cur_het1hom2 = hom2 & het1;
+          cur_homhom = cur_homhom - (vul_rshift(cur_homhom, 1) & m1);
+          cur_ibs0 = cur_ibs0 - (vul_rshift(cur_ibs0, 1) & m1);
+          cur_hethet = cur_hethet - (vul_rshift(cur_hethet, 1) & m1);
+          cur_het2hom1 = cur_het2hom1 - (vul_rshift(cur_het2hom1, 1) & m1);
+          cur_het1hom2 = cur_het1hom2 - (vul_rshift(cur_het1hom2, 1) & m1);
+          agg_homhom += (cur_homhom & m2) + (vul_rshift(cur_homhom, 2) & m2);
+          agg_ibs0 += (cur_ibs0 & m2) + (vul_rshift(cur_ibs0, 2) & m2);
+          agg_hethet += (cur_hethet & m2) + (vul_rshift(cur_hethet, 2) & m2);
+          agg_het2hom1 += (cur_het2hom1 & m2) + (vul_rshift(cur_het2hom1, 2) & m2);
+          agg_het1hom2 += (cur_het1hom2 & m2) + (vul_rshift(cur_het1hom2, 2) & m2);
+        }
+        acc_homhom.vi = acc_homhom.vi + (agg_homhom & m4) + (vul_rshift(agg_homhom, 4) & m4);
+        acc_ibs0.vi = acc_ibs0.vi + (agg_ibs0 & m4) + (vul_rshift(agg_ibs0, 4) & m4);
+        acc_hethet.vi = acc_hethet.vi + (agg_hethet & m4) + (vul_rshift(agg_hethet, 4) & m4);
+        acc_het2hom1.vi = acc_het2hom1.vi + (agg_het2hom1 & m4) + (vul_rshift(agg_het2hom1, 4) & m4);
+        acc_het1hom2.vi = acc_het1hom2.vi + (agg_het1hom2 & m4) + (vul_rshift(agg_het1hom2, 4) & m4);
+      }
+      const vul_t m8 = VCONST_UL(kMask00FF);
+      acc_homhom.vi = (acc_homhom.vi & m8) + (vul_rshift(acc_homhom.vi, 8) & m8);
+      acc_ibs0.vi = (acc_ibs0.vi & m8) + (vul_rshift(acc_ibs0.vi, 8) & m8);
+      acc_hethet.vi = (acc_hethet.vi & m8) + (vul_rshift(acc_hethet.vi, 8) & m8);
+      acc_het2hom1.vi = (acc_het2hom1.vi & m8) + (vul_rshift(acc_het2hom1.vi, 8) & m8);
+      acc_het1hom2.vi = (acc_het1hom2.vi & m8) + (vul_rshift(acc_het1hom2.vi, 8) & m8);
+      *king_counts_iter++ += univec_hsum_16bit(acc_ibs0);
+      *king_counts_iter++ += univec_hsum_16bit(acc_hethet);
+      *king_counts_iter++ += univec_hsum_16bit(acc_het2hom1);
+      *king_counts_iter++ += univec_hsum_16bit(acc_het1hom2);
+
+      // can make this conditional
+      *king_counts_iter++ += univec_hsum_16bit(acc_homhom);
+
+      first_hom_iter = &(first_hom_iter[kKingMultiplexVecs]);
+      first_ref2het_iter = &(first_ref2het_iter[kKingMultiplexVecs]);
+    }
+  }
+}
+#endif
+static_assert(!(kKingMultiplexWords % 2), "kKingMultiplexWords must be even for safe bit-transpose.");
 
 THREAD_FUNC_DECL calc_king_thread(void* arg) {
   const uintptr_t tidx = (uintptr_t)arg;
   const uintptr_t mem_start_idx = g_thread_start[0];
   const uintptr_t start_idx = g_thread_start[tidx];
   const uint32_t end_idx = g_thread_start[tidx + 1];
+  const uint32_t homhom_needed = g_homhom_needed;
   uint32_t parity = 0;
   while (1) {
     const uint32_t is_last_block = g_is_last_thread_block;
-    incr_king(g_smaj_genobuf[parity], g_smaj_maskbuf[parity], start_idx, end_idx, &(g_king_counts[((start_idx * (start_idx - 1) - mem_start_idx * (mem_start_idx - 1)) / 2) * 5]));
+    if (homhom_needed) {
+      incr_king_homhom(g_smaj_hom[parity], g_smaj_ref2het[parity], start_idx, end_idx, &(g_king_counts[((start_idx * (start_idx - 1) - mem_start_idx * (mem_start_idx - 1)) / 2) * 5]));
+    } else {
+      incr_king(g_smaj_hom[parity], g_smaj_ref2het[parity], start_idx, end_idx, &(g_king_counts[(start_idx * (start_idx - 1) - mem_start_idx * (mem_start_idx - 1)) * 2]));
+    }
     if (is_last_block) {
       THREAD_RETURN;
     }
@@ -596,17 +756,27 @@ THREAD_FUNC_DECL calc_king_thread(void* arg) {
 }
 
 double compute_kinship(const uint32_t* king_counts_entry) {
-  const uint32_t nonmiss_ct = king_counts_entry[0];
-  const uint32_t hom_match_ct = king_counts_entry[1];
-  const uint32_t ibs0_ct = king_counts_entry[2];
-  const uint32_t het2hom1_ct = king_counts_entry[3] - ibs0_ct;
-  const uint32_t het1hom2_ct = king_counts_entry[4] - ibs0_ct;
-
-  const uint32_t hethet_ct = nonmiss_ct - ibs0_ct - het1hom2_ct - het2hom1_ct - hom_match_ct;
+  const uint32_t ibs0_ct = king_counts_entry[0];
+  const uint32_t hethet_ct = king_counts_entry[1];
+  const uint32_t het2hom1_ct = king_counts_entry[2];
+  const uint32_t het1hom2_ct = king_counts_entry[3];
+  // const uint32_t homhom_ct = king_counts_entry[4];
   const intptr_t smaller_het_ct = (intptr_t)(hethet_ct + MINV(het1hom2_ct, het2hom1_ct));
   return 0.5 - ((double)(4 * ((intptr_t)ibs0_ct) + het1hom2_ct + het2hom1_ct)) / ((double)(4 * smaller_het_ct));
 }
 
+// N.B. assumes trailing bits have been filled with 1s, not 0s
+static inline void split_hom_ref2het(const uintptr_t* loadbuf, uint32_t word_ct, unsigned char* hom_buf, unsigned char* ref2het_buf) {
+  halfword_t* hom_alias = (halfword_t*)hom_buf;
+  halfword_t* ref2het_alias = (halfword_t*)ref2het_buf;
+  for (uint32_t widx = 0; widx < word_ct; ++widx) {
+    const uintptr_t geno_word = loadbuf[widx];
+    hom_alias[widx] = pack_word_to_halfword(kMask5555 & (~geno_word));
+    ref2het_alias[widx] = pack_word_to_halfword(kMask5555 & (~(geno_word >> 1)));
+  }
+}
+
+// probable todo: automatic multipass when insufficient memory is available
 pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_include, const chr_info_t* cip, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, double king_cutoff, double king_table_filter, king_flags_t king_modifier, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, pgen_reader_t* simple_pgrp, uintptr_t* sample_include, uint32_t* sample_ct_ptr, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
@@ -631,12 +801,20 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
       goto calc_king_ret_INCONSISTENT_INPUT;
     }
 #ifdef __LP64__
-    if (sample_ct > 89478485) {
-      // may as well document (kKingMultiplex / kBitsPerWordD2) limit
-      LOGERRPRINTF("Error: %s does not support > 89478485 samples.\n", flagname);
+  #ifdef USE_SSE42
+    if (sample_ct > 268435455) {
+      // may as well document kKingMultiplexWords limit
+      LOGERRPRINTF("Error: %s does not support > 268435455 samples.\n", flagname);
       reterr = kPglRetNotYetSupported;
       goto calc_king_ret_1;
     }
+  #else
+    if (sample_ct > 178956970) {
+      LOGERRPRINTF("Error: %s does not support > 178956970 samples.\n", flagname);
+      reterr = kPglRetNotYetSupported;
+      goto calc_king_ret_1;
+    }
+  #endif
 #endif
     uint32_t calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
     if (calc_thread_ct > sample_ct / 32) {
@@ -652,7 +830,6 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
     const uint32_t row_start_idx = g_thread_start[0];
     const uint32_t row_end_idx = g_thread_start[calc_thread_ct];
     const uintptr_t tot_cells = (((uint64_t)row_end_idx) * (row_end_idx - 1) - ((uint64_t)row_start_idx) * (row_start_idx - 1)) / 2;
-    const uint32_t sample_ctaw2 = QUATERCT_TO_ALIGNED_WORDCT(sample_ct);
     pthread_t* threads = (pthread_t*)bigstack_alloc(calc_thread_ct * sizeof(pthread_t));
     if (!threads) {
       goto calc_king_ret_NOMEM;
@@ -665,19 +842,40 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
       }
     }
     const uint32_t raw_sample_ctl = BITCT_TO_WORDCT(raw_sample_ct);
+    const uint32_t sample_ctaw = BITCT_TO_ALIGNED_WORDCT(sample_ct);
+    const uint32_t sample_ctaw2 = QUATERCT_TO_ALIGNED_WORDCT(sample_ct);
+    g_homhom_needed = (king_modifier & kfKingColNsnp) || ((!(king_modifier & kfKingCounts)) && (king_modifier & (kfKingColHethet | kfKingColIbs0 | kfKingColIbs1)));
+    const uint32_t king_bufsizew = kKingMultiplexWords * row_end_idx;
+    const uint32_t homhom_needed_p4 = g_homhom_needed + 4;
     uint32_t* sample_include_cumulative_popcounts;
     uintptr_t* loadbuf;
+    uintptr_t* splitbuf_hom;
+    uintptr_t* splitbuf_ref2het;
     if (bigstack_alloc_ui(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
-        bigstack_alloc_ul(kQuatersPerCacheline * sample_ctaw2, &loadbuf) ||
-        bigstack_alloc_ul((kKingMultiplex / kBitsPerWordD2) * row_end_idx, &(g_smaj_genobuf[0])) ||
-        bigstack_alloc_ul((kKingMultiplex / kBitsPerWordD2) * row_end_idx, &(g_smaj_maskbuf[0])) ||
-        bigstack_alloc_ul((kKingMultiplex / kBitsPerWordD2) * row_end_idx, &(g_smaj_genobuf[1])) ||
-        bigstack_alloc_ul((kKingMultiplex / kBitsPerWordD2) * row_end_idx, &(g_smaj_maskbuf[1])) ||
-        bigstack_calloc_ui(tot_cells * 5, &g_king_counts)) {
+        bigstack_alloc_ul(sample_ctaw2, &loadbuf) ||
+        bigstack_alloc_ul(kPglBitTransposeBatch * sample_ctaw, &splitbuf_hom) ||
+        bigstack_alloc_ul(kPglBitTransposeBatch * sample_ctaw, &splitbuf_ref2het) ||
+        bigstack_alloc_ul(king_bufsizew, &(g_smaj_hom[0])) ||
+        bigstack_alloc_ul(king_bufsizew, &(g_smaj_ref2het[0])) ||
+        bigstack_alloc_ul(king_bufsizew, &(g_smaj_hom[1])) ||
+        bigstack_alloc_ul(king_bufsizew, &(g_smaj_ref2het[1])) ||
+        bigstack_calloc_ui(tot_cells * homhom_needed_p4, &g_king_counts)) {
       goto calc_king_ret_NOMEM;
     }
+    if (sample_ctaw % 2) {
+      uintptr_t* smaj_hom0_last = &(g_smaj_hom[0][kKingMultiplexWords - 1]);
+      uintptr_t* smaj_ref2het0_last = &(g_smaj_ref2het[0][kKingMultiplexWords - 1]);
+      uintptr_t* smaj_hom1_last = &(g_smaj_hom[1][kKingMultiplexWords - 1]);
+      uintptr_t* smaj_ref2het1_last = &(g_smaj_ref2het[1][kKingMultiplexWords - 1]);
+      for (uint32_t offset = 0; offset < king_bufsizew; offset += kKingMultiplexWords) {
+        smaj_hom0_last[offset] = 0;
+        smaj_ref2het0_last[offset] = 0;
+        smaj_hom1_last[offset] = 0;
+        smaj_ref2het1_last[offset] = 0;
+      }
+    }
     // force this to be cacheline-aligned
-    vul_t* vecaligned_buf = (vul_t*)bigstack_alloc(2 * kQuatersPerCacheline * kCacheline);
+    vul_t* vecaligned_buf = (vul_t*)bigstack_alloc(kPglBitTransposeBufbytes);
     if (!vecaligned_buf) {
       goto calc_king_ret_NOMEM;
     }
@@ -685,7 +883,7 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
     uint32_t variant_uidx = 0;
     uint32_t variants_completed = 0;
     uint32_t parity = 0;
-    const uint32_t sample_batch_ct_m1 = (row_end_idx - 1) / kQuatersPerCacheline;
+    const uint32_t sample_batch_ct_m1 = (row_end_idx - 1) / kPglBitTransposeBatch;
     uint32_t is_last_block;
     // Similar to plink 1.9 --genome.  For each pair of samples S1-S2, we need
     // to determine counts of the following:
@@ -714,90 +912,85 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
     pgr_clear_ld_cache(simple_pgrp);
     do {
       uint32_t cur_block_size = variant_ct - variants_completed;
-      uintptr_t* cur_smaj_genobuf = g_smaj_genobuf[parity];
-      uintptr_t* cur_smaj_maskbuf = g_smaj_maskbuf[parity];
+      uintptr_t* cur_smaj_hom = g_smaj_hom[parity];
+      uintptr_t* cur_smaj_ref2het = g_smaj_ref2het[parity];
       is_last_block = (cur_block_size <= kKingMultiplex);
       if (!is_last_block) {
         cur_block_size = kKingMultiplex;
       }
       uint32_t write_batch_idx = 0;
-      // "block" = distance computation granularity, usually 1536 variants
+      // "block" = distance computation granularity, usually 1024 variants
       // "batch" = variant-major-to-sample-major transpose granularity,
-      //           currently 256 variants
-      uint32_t variant_batch_size = kPglQuaterTransposeBatch;
-      uint32_t variant_batch_size_rounded_up = kPglQuaterTransposeBatch;
-      const uint32_t write_batch_ct_m1 = (cur_block_size - 1) / kPglQuaterTransposeBatch;
+      //           currently 512 variants
+      uint32_t variant_batch_size = kPglBitTransposeBatch;
+      uint32_t variant_batch_size_rounded_up = kPglBitTransposeBatch;
+      const uint32_t write_batch_ct_m1 = (cur_block_size - 1) / kPglBitTransposeBatch;
       while (1) {
         if (write_batch_idx >= write_batch_ct_m1) {
           if (write_batch_idx > write_batch_ct_m1) {
             break;
           }
-          variant_batch_size = MOD_NZ(cur_block_size, kPglQuaterTransposeBatch);
+          variant_batch_size = MOD_NZ(cur_block_size, kPglBitTransposeBatch);
           variant_batch_size_rounded_up = variant_batch_size;
-          const uint32_t variant_batch_size_rem = variant_batch_size % kBitsPerWordD2;
+          const uint32_t variant_batch_size_rem = variant_batch_size % kBitsPerWord;
           if (variant_batch_size_rem) {
-            const uint32_t trailing_variant_ct = kBitsPerWordD2 - variant_batch_size_rem;
+            const uint32_t trailing_variant_ct = kBitsPerWord - variant_batch_size_rem;
             variant_batch_size_rounded_up += trailing_variant_ct;
-            fill_ulong_one(trailing_variant_ct * sample_ctaw2, &(loadbuf[variant_batch_size * sample_ctaw2]));
+            fill_ulong_zero(trailing_variant_ct * sample_ctaw, &(splitbuf_hom[variant_batch_size * sample_ctaw]));
+            fill_ulong_zero(trailing_variant_ct * sample_ctaw, &(splitbuf_ref2het[variant_batch_size * sample_ctaw]));
           }
         }
-        uintptr_t* loadbuf_iter = loadbuf;
+        uintptr_t* hom_iter = splitbuf_hom;
+        uintptr_t* ref2het_iter = splitbuf_ref2het;
         for (uint32_t uii = 0; uii < variant_batch_size; ++uii, ++variant_uidx) {
           next_set_unsafe_ck(variant_include, &variant_uidx);
-          reterr = pgr_read_refalt1_genovec_subset_unsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, loadbuf_iter);
+          reterr = pgr_read_refalt1_genovec_subset_unsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, loadbuf);
           if (reterr) {
             goto calc_king_ret_PGR_FAIL;
           }
-          loadbuf_iter = &(loadbuf_iter[sample_ctaw2]);
+          set_trailing_quaters(sample_ct, loadbuf);
+          split_hom_ref2het(loadbuf, sample_ctaw2, (unsigned char*)hom_iter, (unsigned char*)ref2het_iter);
+          hom_iter = &(hom_iter[sample_ctaw]);
+          ref2het_iter = &(ref2het_iter[sample_ctaw]);
         }
         // uintptr_t* read_iter = loadbuf;
-        uintptr_t* write_iter = &(cur_smaj_genobuf[write_batch_idx * kPglQuaterTransposeWords]);
+        uintptr_t* write_hom_iter = &(cur_smaj_hom[write_batch_idx * kPglBitTransposeWords]);
+        uintptr_t* write_ref2het_iter = &(cur_smaj_ref2het[write_batch_idx * kPglBitTransposeWords]);
         uint32_t sample_batch_idx = 0;
-        uint32_t write_batch_size = kPglQuaterTransposeBatch;
+        uint32_t write_batch_size = kPglBitTransposeBatch;
         while (1) {
           if (sample_batch_idx >= sample_batch_ct_m1) {
             if (sample_batch_idx > sample_batch_ct_m1) {
               break;
             }
-            write_batch_size = MOD_NZ(row_end_idx, kPglQuaterTransposeBatch);
+            write_batch_size = MOD_NZ(row_end_idx, kPglBitTransposeBatch);
           }
           // bugfix: read_batch_size must be rounded up to word boundary, since
           // we want to one-out instead of zero-out the trailing bits
           //
-          // bugfix: if we always use kPglQuaterTransposeBatch instead of
+          // bugfix: if we always use kPglBitTransposeBatch instead of
           // variant_batch_size_rounded_up, we read/write past the
           // kKingMultiplex limit and clobber the first variants of the next
           // sample with garbage.
-          transpose_quaterblock(&(loadbuf[sample_batch_idx * kPglQuaterTransposeWords]), sample_ctaw2, kKingMultiplex / kBitsPerWordD2, variant_batch_size_rounded_up, write_batch_size, write_iter, vecaligned_buf);
+          transpose_bitblock(&(splitbuf_hom[sample_batch_idx * kPglBitTransposeWords]), sample_ctaw, kKingMultiplexWords, variant_batch_size_rounded_up, write_batch_size, write_hom_iter, vecaligned_buf);
+          transpose_bitblock(&(splitbuf_ref2het[sample_batch_idx * kPglBitTransposeWords]), sample_ctaw, kKingMultiplexWords, variant_batch_size_rounded_up, write_batch_size, write_ref2het_iter, vecaligned_buf);
           ++sample_batch_idx;
-          write_iter = &(write_iter[kKingMultiplex * kPglQuaterTransposeWords]);
+          write_hom_iter = &(write_hom_iter[kKingMultiplex * kPglBitTransposeWords]);
+          write_ref2het_iter = &(write_ref2het_iter[kKingMultiplex * kPglBitTransposeWords]);
         }
         ++write_batch_idx;
       }
-      const uint32_t cur_block_sizew = QUATERCT_TO_WORDCT(cur_block_size);
-      if (cur_block_sizew < (kKingMultiplex / kBitsPerWordD2)) {
-        uintptr_t* write_iter = &(cur_smaj_genobuf[cur_block_sizew]);
-        const uint32_t write_word_ct = (kKingMultiplex / kBitsPerWordD2) - cur_block_sizew;
+      const uint32_t cur_block_sizew = BITCT_TO_WORDCT(cur_block_size);
+      if (cur_block_sizew < kKingMultiplexWords) {
+        uintptr_t* write_hom_iter = &(cur_smaj_hom[cur_block_sizew]);
+        uintptr_t* write_ref2het_iter = &(cur_smaj_ref2het[cur_block_sizew]);
+        const uint32_t write_word_ct = kKingMultiplexWords - cur_block_sizew;
         for (uint32_t sample_idx = 0; sample_idx < row_end_idx; ++sample_idx) {
-          fill_ulong_one(write_word_ct, write_iter);
-          write_iter = &(write_iter[kKingMultiplex / kBitsPerWordD2]);
+          fill_ulong_zero(write_word_ct, write_hom_iter);
+          fill_ulong_zero(write_word_ct, write_ref2het_iter);
+          write_hom_iter = &(write_hom_iter[kKingMultiplexWords]);
+          write_ref2het_iter = &(write_ref2het_iter[kKingMultiplexWords]);
         }
-      }
-
-      vul_t* geno_viter = (vul_t*)cur_smaj_genobuf;
-      vul_t* mask_viter = (vul_t*)cur_smaj_maskbuf;
-      const uint32_t vec_ct = row_end_idx * (kKingMultiplex / kQuatersPerVec);
-      const vul_t m1 = VCONST_UL(kMask5555);
-      for (uint32_t vec_idx = 0; vec_idx < vec_ct; ++vec_idx) {
-        const vul_t raw_genov = *geno_viter;
-        const vul_t rshifted_genov = vul_rshift(raw_genov, 1);
-        const vul_t cur_maskv = (~(raw_genov & rshifted_genov)) & m1;
-        *mask_viter++ = cur_maskv;
-        // goal: 00 -> 01, 01 -> 00, 10 -> 10, 11 -> 00
-        // mask: 01 01 01 00
-        // + (rshifted_genov & m1): 01 01 10 01
-        // - (raw_genov & m1): 01 00 10 00
-        *geno_viter++ = cur_maskv + (rshifted_genov & m1) - (raw_genov & m1);
       }
       if (variants_completed) {
         join_threads2z(calc_thread_ct, 0, threads);
@@ -857,7 +1050,7 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
               }
               cswritep = dtoa_g(kinship_coeff, cswritep);
               *cswritep++ = '\t';
-              results_iter = &(results_iter[5]);
+              results_iter = &(results_iter[homhom_needed_p4]);
             }
             if (is_squarex) {
               cswritep = memcpyl3a(cswritep, "0.5");
@@ -877,7 +1070,7 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
                 }
                 cswritep = &(cswritep[zcount * 2]);
               } else {
-                const uint32_t* results_iter2 = &(results_iter[sample_idx1 * 5]);
+                const uint32_t* results_iter2 = &(results_iter[sample_idx1 * homhom_needed_p4]);
                 // 0
                 // 1  2
                 // 3  4  5
@@ -891,7 +1084,7 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
                 for (uint32_t sample_idx2 = sample_idx1 + 1; sample_idx2 < sample_ct; ++sample_idx2) {
                   *cswritep++ = '\t';
                   cswritep = dtoa_g(compute_kinship(results_iter2), cswritep);
-                  results_iter2 = &(results_iter2[sample_idx2 * 5]);
+                  results_iter2 = &(results_iter2[sample_idx2 * homhom_needed_p4]);
                 }
               }
               ++cswritep;
@@ -938,7 +1131,7 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
                   SET_BIT(sample_idx1, &(kinship_table[sample_idx2 * sample_ctl]));
                 }
                 write_row[sample_idx2] = (float)kinship_coeff;
-                results_iter = &(results_iter[5]);
+                results_iter = &(results_iter[homhom_needed_p4]);
               }
               if (is_squarex) {
                 write_row[sample_idx1] = 0.5f;
@@ -946,10 +1139,10 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
                   const uint32_t right_fill_idx = sample_idx1 + 1;
                   fill_float_zero(sample_ct - right_fill_idx, &(write_row[right_fill_idx]));
                 } else {
-                  const uint32_t* results_iter2 = &(results_iter[sample_idx1 * 5]);
+                  const uint32_t* results_iter2 = &(results_iter[sample_idx1 * homhom_needed_p4]);
                   for (uint32_t sample_idx2 = sample_idx1 + 1; sample_idx2 < sample_ct; ++sample_idx2) {
                     write_row[sample_idx2] = (float)compute_kinship(results_iter2);
-                    results_iter2 = &(results_iter2[sample_idx2 * 5]);
+                    results_iter2 = &(results_iter2[sample_idx2 * homhom_needed_p4]);
                   }
                 }
               } else {
@@ -973,7 +1166,7 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
                   SET_BIT(sample_idx1, &(kinship_table[sample_idx2 * sample_ctl]));
                 }
                 write_row[sample_idx2] = kinship_coeff;
-                results_iter = &(results_iter[5]);
+                results_iter = &(results_iter[homhom_needed_p4]);
               }
               if (is_squarex) {
                 write_row[sample_idx1] = 0.5;
@@ -981,10 +1174,10 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
                   const uint32_t right_fill_idx = sample_idx1 + 1;
                   fill_double_zero(sample_ct - right_fill_idx, &(write_row[right_fill_idx]));
                 } else {
-                  const uint32_t* results_iter2 = &(results_iter[sample_idx1 * 5]);
+                  const uint32_t* results_iter2 = &(results_iter[sample_idx1 * homhom_needed_p4]);
                   for (uint32_t sample_idx2 = sample_idx1 + 1; sample_idx2 < sample_ct; ++sample_idx2) {
                     write_row[sample_idx2] = compute_kinship(results_iter2);
-                    results_iter2 = &(results_iter2[sample_idx2 * 5]);
+                    results_iter2 = &(results_iter2[sample_idx2 * homhom_needed_p4]);
                   }
                 }
               } else {
@@ -1093,25 +1286,25 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
         }
         uintptr_t king_table_filter_ct = 0;
         uint32_t* results_iter = g_king_counts;
+        double nonmiss_recip = 0.0;
         for (uint32_t sample_idx1 = row_start_idx; sample_idx1 < row_end_idx; ++sample_idx1) {
           const char* sample_augid1 = &(collapsed_sample_augids[max_sample_augid_blen * sample_idx1]);
           uint32_t sample_augid1_len = strlen(sample_augid1);
-          for (uint32_t sample_idx2 = 0; sample_idx2 < sample_idx1; ++sample_idx2) {
-            const uint32_t nonmiss_ct = *results_iter++;
-            const uint32_t hom_match_ct = *results_iter++;
-            const uint32_t ibs0_ct = *results_iter++;
-            // order is reversed
-            const uint32_t het2hom1_ct = (*results_iter++) - ibs0_ct;
-            const uint32_t het1hom2_ct = (*results_iter++) - ibs0_ct;
-
-            const uint32_t hethet_ct = nonmiss_ct - ibs0_ct - het1hom2_ct - het2hom1_ct - hom_match_ct;
+          for (uint32_t sample_idx2 = 0; sample_idx2 < sample_idx1; ++sample_idx2, results_iter = &(results_iter[homhom_needed_p4])) {
+            const uint32_t ibs0_ct = results_iter[0];
+            const uint32_t hethet_ct = results_iter[1];
+            const uint32_t het2hom1_ct = results_iter[2];
+            const uint32_t het1hom2_ct = results_iter[3];
             const intptr_t smaller_het_ct = (intptr_t)(hethet_ct + MINV(het1hom2_ct, het2hom1_ct));
             const double kinship_coeff = 0.5 - ((double)(4 * ((intptr_t)ibs0_ct) + het1hom2_ct + het2hom1_ct)) / ((double)(4 * smaller_het_ct));
             if (kinship_table && (kinship_coeff > king_cutoff)) {
               SET_BIT(sample_idx2, &(kinship_table[sample_idx1 * sample_ctl]));
               SET_BIT(sample_idx1, &(kinship_table[sample_idx2 * sample_ctl]));
             }
-            if (kinship_coeff < king_table_filter) {
+            // edge case fix (18 Nov 2017): kinship_coeff can be -inf when
+            // smaller_het_ct is zero.  Don't filter those lines out when
+            // --king-table-filter wasn't specified.
+            if ((king_table_filter != -DBL_MAX) && (kinship_coeff < king_table_filter)) {
               ++king_table_filter_ct;
               continue;
             }
@@ -1119,12 +1312,15 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
               cswritep = memcpyax(cswritep, sample_augid1, sample_augid1_len, '\t');
               cswritep = strcpyax(cswritep, &(collapsed_sample_augids[max_sample_augid_blen * sample_idx2]), '\t');
             }
-            if (king_col_nsnp) {
-              cswritep = uint32toa_x(nonmiss_ct, '\t', cswritep);
-            }
-            double nonmiss_recip = 0.0;
-            if (!report_counts) {
-              nonmiss_recip = 1.0 / ((double)((int32_t)nonmiss_ct));
+            if (homhom_needed_p4 == 5) {
+              const uint32_t homhom_ct = results_iter[4];
+              const uint32_t nonmiss_ct = het1hom2_ct + het2hom1_ct + homhom_ct + hethet_ct;
+              if (king_col_nsnp) {
+                cswritep = uint32toa_x(nonmiss_ct, '\t', cswritep);
+              }
+              if (!report_counts) {
+                nonmiss_recip = 1.0 / ((double)((int32_t)nonmiss_ct));
+              }
             }
             if (king_col_hethet) {
               if (report_counts) {
@@ -1203,7 +1399,7 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
             SET_BIT(sample_idx2, &(kinship_table[sample_idx1 * sample_ctl]));
             SET_BIT(sample_idx1, &(kinship_table[sample_idx2 * sample_ctl]));
           }
-          results_iter = &(results_iter[5]);
+          results_iter = &(results_iter[homhom_needed_p4]);
         }
       }
     }
