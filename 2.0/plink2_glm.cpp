@@ -52,9 +52,16 @@ void cleanup_glm(glm_info_t* glm_info_ptr) {
 // mi_buf only needs to be of length 2 * constraint_ct
 boolerr_t linear_hypothesis_chisq_f(const float* coef, const float* constraints_con_major, const float* cov_matrix, uint32_t constraint_ct, uint32_t predictor_ct, uint32_t cov_stride, double* chisq_ptr, float* tmphxs_buf, float* h_transpose_buf, float* inner_buf, double* half_inverted_buf, matrix_invert_buf1_t* mi_buf, double* dbl_2d_buf, float* outer_buf) {
   const float* constraints_con_major_iter = constraints_con_major;
-  for (uint32_t constraint_idx = 0; constraint_idx < constraint_ct; constraint_idx++) {
-    outer_buf[constraint_idx] = dotprod_f(constraints_con_major_iter, coef, predictor_ct);
-    constraints_con_major_iter = &(constraints_con_major_iter[predictor_ct]);
+  if (predictor_ct > kDotprodFThresh) {
+    for (uint32_t constraint_idx = 0; constraint_idx < constraint_ct; constraint_idx++) {
+      outer_buf[constraint_idx] = dotprod_f(constraints_con_major_iter, coef, predictor_ct);
+      constraints_con_major_iter = &(constraints_con_major_iter[predictor_ct]);
+    }
+  } else {
+    for (uint32_t constraint_idx = 0; constraint_idx < constraint_ct; constraint_idx++) {
+      outer_buf[constraint_idx] = dotprod_f_short(constraints_con_major_iter, coef, predictor_ct);
+      constraints_con_major_iter = &(constraints_con_major_iter[predictor_ct]);
+    }
   }
   // h-transpose does not have a special stride
   transpose_copy_float(constraints_con_major, constraint_ct, predictor_ct, predictor_ct, h_transpose_buf);
@@ -68,13 +75,16 @@ boolerr_t linear_hypothesis_chisq_f(const float* coef, const float* constraints_
   invert_fmatrix_second_half(constraint_ct, constraint_ct, half_inverted_buf, inner_buf, mi_buf, dbl_2d_buf);
   double result = 0.0;
   const float* inner_iter = inner_buf;
-  for (uint32_t constraint_idx = 0; constraint_idx < constraint_ct; ++constraint_idx) {
-    float cur_dotprod = 0.0; // tmp2[c]
-    const float* outer_iter = outer_buf;
-    for (uint32_t constraint_idx2 = 0; constraint_idx2 < constraint_ct; ++constraint_idx2) {
-      cur_dotprod += (*inner_iter++) * (*outer_iter++);
+  if (constraint_ct > kDotprodFThresh) {
+    for (uint32_t constraint_idx = 0; constraint_idx < constraint_ct; ++constraint_idx) {
+      result += dotprod_f(inner_iter, outer_buf, constraint_ct) * outer_buf[constraint_idx];
+      inner_iter = &(inner_iter[constraint_ct]);
     }
-    result += cur_dotprod * outer_buf[constraint_idx];
+  } else {
+    for (uint32_t constraint_idx = 0; constraint_idx < constraint_ct; ++constraint_idx) {
+      result += dotprod_f_short(inner_iter, outer_buf, constraint_ct) * outer_buf[constraint_idx];
+      inner_iter = &(inner_iter[constraint_ct]);
+    }
   }
   if (result < 0.0) {
     // guard against floating point error
@@ -96,9 +106,16 @@ boolerr_t linear_hypothesis_chisq(const double* coef, const double* constraints_
   // takes a df (constraint_ct) parameter for now; it's trivial to switch to
   // the more general interface later.
   const double* constraints_con_major_iter = constraints_con_major;
-  for (uintptr_t constraint_idx = 0; constraint_idx < constraint_ct; constraint_idx++) {
-    outer_buf[constraint_idx] = dotprod_d(constraints_con_major_iter, coef, predictor_ct);
-    constraints_con_major_iter = &(constraints_con_major_iter[predictor_ct]);
+  if (predictor_ct > kDotprodDThresh) {
+    for (uintptr_t constraint_idx = 0; constraint_idx < constraint_ct; constraint_idx++) {
+      outer_buf[constraint_idx] = dotprod_d(constraints_con_major_iter, coef, predictor_ct);
+      constraints_con_major_iter = &(constraints_con_major_iter[predictor_ct]);
+    }
+  } else {
+    for (uintptr_t constraint_idx = 0; constraint_idx < constraint_ct; constraint_idx++) {
+      outer_buf[constraint_idx] = dotprod_d_short(constraints_con_major_iter, coef, predictor_ct);
+      constraints_con_major_iter = &(constraints_con_major_iter[predictor_ct]);
+    }
   }
   transpose_copy(constraints_con_major, constraint_ct, predictor_ct, h_transpose_buf);
   col_major_matrix_multiply(h_transpose_buf, cov_matrix, constraint_ct, predictor_ct, predictor_ct, tmphxs_buf);
@@ -112,9 +129,16 @@ boolerr_t linear_hypothesis_chisq(const double* coef, const double* constraints_
   }
   double result = 0.0;
   const double* inner_iter = inner_buf;
-  for (uintptr_t constraint_idx = 0; constraint_idx < constraint_ct; ++constraint_idx) {
-    result += dotprod_d(inner_iter, outer_buf, constraint_ct) * outer_buf[constraint_idx];
-    inner_iter = &(inner_iter[constraint_ct]);
+  if (constraint_ct > kDotprodDThresh) {
+    for (uintptr_t constraint_idx = 0; constraint_idx < constraint_ct; ++constraint_idx) {
+      result += dotprod_d(inner_iter, outer_buf, constraint_ct) * outer_buf[constraint_idx];
+      inner_iter = &(inner_iter[constraint_ct]);
+    }
+  } else {
+    for (uintptr_t constraint_idx = 0; constraint_idx < constraint_ct; ++constraint_idx) {
+      result += dotprod_d_short(inner_iter, outer_buf, constraint_ct) * outer_buf[constraint_idx];
+      inner_iter = &(inner_iter[constraint_ct]);
+    }
   }
   if (result < 0.0) {
     // guard against floating point error
@@ -5265,7 +5289,7 @@ THREAD_FUNC_DECL glm_linear_thread(void* arg) {
           // s^2 = RSS / df
           // possible todo: improve numerical stability of this computation in
           // non-mean-centered phenotype case
-          const double sigma = (cur_pheno_ssq - dotprod_d(xt_y, fitted_coefs, cur_predictor_ct)) / ((int32_t)(nm_sample_ct - cur_predictor_ct));
+          const double sigma = (cur_pheno_ssq - dotprodx_d(xt_y, fitted_coefs, cur_predictor_ct)) / ((int32_t)(nm_sample_ct - cur_predictor_ct));
           for (uint32_t uii = 0; uii < cur_predictor_ct; ++uii) {
             double* s_iter = &(xtx_inv[uii * cur_predictor_ct]);
 #ifdef NOLAPACK

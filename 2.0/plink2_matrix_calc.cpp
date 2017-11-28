@@ -3891,7 +3891,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
         bigstack_alloc_ul(45 * acc1_vec_ct * kWordsPerVec, &missing_acc1) ||
         bigstack_alloc_ul(45 * acc1_vec_ct * kWordsPerVec, &missing_male_acc1) ||
         bigstack_calloc_ull(sample_ct, &dosage_sums) ||
-        bigstack_alloc_ull(sample_ct, &dosage_incrs) ||
+        bigstack_calloc_ull(sample_ct, &dosage_incrs) ||
         bigstack_calloc_ul(raw_variant_ctl, &already_seen) ||
         bigstack_alloc_uc((score_col_ct * (write_score_avgs + write_score_sums) + pheno_ct) * 16 + 3 * kMaxIdSlen + kCompressStreamBlock + 64, &overflow_buf)) {
       goto score_report_ret_NOMEM;

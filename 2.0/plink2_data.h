@@ -45,9 +45,10 @@ FLAGSET_DEF_START()
   kfPlink1DosageNoheader = (1 << 0),
   kfPlink1DosageFormatSingle = (1 << 1),
   kfPlink1DosageFormatSingle01 = (1 << 2),
-  kfPlink1DosageFormatTriple = (1 << 3),
-  kfPlink1DosageRefFirst = (1 << 4),
-  kfPlink1DosageRefSecond = (1 << 5)
+  kfPlink1DosageFormatDouble = (1 << 3),
+  kfPlink1DosageFormatTriple = (1 << 4),
+  kfPlink1DosageRefFirst = (1 << 5),
+  kfPlink1DosageRefSecond = (1 << 6)
 FLAGSET_DEF_END(plink1_dosage_flags_t);
 
 FLAGSET_DEF_START()
@@ -127,6 +128,7 @@ typedef struct plink1_dosage_info_struct {
   uint32_t skips[3];
   uint32_t chr_col_idx; // 0-based
   uint32_t pos_col_idx;
+  char id_delim;
 } plink1_dosage_info_t;
 
 typedef struct gendummy_info_struct {

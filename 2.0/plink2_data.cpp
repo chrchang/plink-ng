@@ -35,6 +35,7 @@ void init_plink1_dosage(plink1_dosage_info_t* plink1_dosage_info_ptr) {
   fill_uint_zero(3, plink1_dosage_info_ptr->skips);
   plink1_dosage_info_ptr->chr_col_idx = UINT32_MAX;
   plink1_dosage_info_ptr->pos_col_idx = UINT32_MAX;
+  plink1_dosage_info_ptr->id_delim = '\0';
 }
 
 void init_gendummy(gendummy_info_t* gendummy_info_ptr) {
@@ -7478,7 +7479,7 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
     if (bigstack_end_alloc_ui(raw_sample_ct, &dosage_sample_idx_to_fam_uidx)) {
       goto plink1_dosage_to_pgen_ret_NOMEM;
     }
-    const plink1_dosage_flags_t flags = pdip->flags;
+    plink1_dosage_flags_t flags = pdip->flags;
     if (flags & kfPlink1DosageNoheader) {
       sample_ct = raw_sample_ct;
       for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
@@ -7530,15 +7531,34 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
       if (!loadbuf_iter) {
         goto plink1_dosage_to_pgen_ret_MISSING_TOKENS;
       }
+      const char id_delim = pdip->id_delim;
       do {
         char* fid_end = token_endnn(loadbuf_iter);
-        char* iid_start = skip_initial_spaces(fid_end);
-        if (is_eoln_kns(*iid_start)) {
-          goto plink1_dosage_to_pgen_ret_MISSING_TOKENS;
+        char* iid_start;
+        char* iid_end;
+        uint32_t iid_slen;
+        if (id_delim) {
+          iid_end = fid_end;
+          fid_end = (char*)memchr(loadbuf_iter, (unsigned char)id_delim, (uintptr_t)(iid_end - loadbuf_iter));
+          if (!fid_end) {
+            sprintf(g_logbuf, "Error: Sample ID in --import-dosage file does not contain '%c' delimiter.\n", id_delim);
+            goto plink1_dosage_to_pgen_ret_INCONSISTENT_INPUT_2;
+          }
+          iid_start = &(fid_end[1]);
+          iid_slen = (uintptr_t)(iid_end - iid_start);
+          if (memchr(iid_start, (unsigned char)id_delim, (uintptr_t)(iid_end - iid_start))) {
+            sprintf(g_logbuf, "Error: Sample ID in --import-dosage file has multiple instances of '%c'.\n", id_delim);
+            goto plink1_dosage_to_pgen_ret_INCONSISTENT_INPUT_2;
+          }
+        } else {
+          iid_start = skip_initial_spaces(fid_end);
+          if (is_eoln_kns(*iid_start)) {
+            goto plink1_dosage_to_pgen_ret_MISSING_TOKENS;
+          }
+          iid_end = token_endnn(iid_start);
+          iid_slen = (uintptr_t)(iid_end - iid_start);
         }
-        char* iid_end = token_endnn(iid_start);
         const uint32_t fid_slen = (uintptr_t)(fid_end - loadbuf_iter);
-        const uint32_t iid_slen = (uintptr_t)(iid_end - iid_start);
         const uint32_t cur_id_slen = fid_slen + iid_slen + 1;
         if (cur_id_slen >= max_sample_id_blen) {
           logerrprint("Error: .fam file does not contain all sample IDs in dosage file.\n");
@@ -7782,7 +7802,8 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
       dosage_multiplier = kDosageMax;
       dosage_ceil = 32767.5 / 32768.0;
     }
-    const uint32_t format_triple = (flags / kfPlink1DosageFormatTriple) & 1;
+    uint32_t format_triple = (flags / kfPlink1DosageFormatTriple) & 1;
+    uint32_t format_infer = !(flags & (kfPlink1DosageFormatSingle | kfPlink1DosageFormatDouble | kfPlink1DosageFormatTriple));
     const uint32_t dosage_erase_halfdist = kDosage4th - dosage_erase_thresh;
     uint32_t dosage_is_present = 0;
     uint32_t variant_ct = 0;
@@ -7893,6 +7914,18 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
       }
       if (!dosage_is_present) {
         loadbuf_iter = token_ptrs[5];
+        if (format_infer) {
+          const uint32_t remaining_col_ct = count_tokens(loadbuf_iter);
+          if (remaining_col_ct == sample_ct) {
+            flags |= kfPlink1DosageFormatSingle;
+          } else if (remaining_col_ct == sample_ct * 3) {
+            format_triple = 1;
+          } else if (remaining_col_ct != sample_ct * 2) {
+            sprintf(g_logbuf, "Error: Unexpected format=infer column count in --import-dosage file (%u; should be %u, %u, or %u).\n", remaining_col_ct, sample_ct, sample_ct * 2, sample_ct * 3);
+            goto plink1_dosage_to_pgen_ret_INCONSISTENT_INPUT_WW;
+          }
+          format_infer = 0;
+        }
         if (flags & kfPlink1DosageFormatSingle) {
           for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
             if (!loadbuf_iter) {
@@ -8079,7 +8112,7 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
             }
             double a1_dosage;
             char* str_end = scanadv_double(loadbuf_iter, &a1_dosage);
-            if ((!loadbuf_iter) || (a1_dosage < 0.0) || (a1_dosage > dosage_ceil)) {
+            if ((!str_end) || (a1_dosage < 0.0) || (a1_dosage > dosage_ceil)) {
               genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
               loadbuf_iter = next_token(loadbuf_iter);
               continue;
@@ -8228,6 +8261,7 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
     break;
   plink1_dosage_to_pgen_ret_INCONSISTENT_INPUT_WW:
     wordwrapb(0);
+  plink1_dosage_to_pgen_ret_INCONSISTENT_INPUT_2:
     logerrprintb();
   plink1_dosage_to_pgen_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;

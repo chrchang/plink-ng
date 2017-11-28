@@ -141,8 +141,7 @@ void reflect_fmatrix(uint32_t dim, uint32_t stride, float* matrix);
 // If dim < stride, this zeroes out the trailing elements of each row.
 void reflect_fmatrixz(uint32_t dim, uint32_t stride, float* matrix);
 
-#ifdef NOLAPACK
-HEADER_INLINE double dotprod_d(const double* vec1, const double* vec2, uint32_t ct) {
+HEADER_INLINE double dotprod_d_short(const double* vec1, const double* vec2, uint32_t ct) {
   double dotprod = 0.0;
   for (uint32_t uii = 0; uii < ct; ++uii) {
     dotprod += vec1[uii] * vec2[uii];
@@ -150,12 +149,28 @@ HEADER_INLINE double dotprod_d(const double* vec1, const double* vec2, uint32_t 
   return dotprod;
 }
 
-HEADER_INLINE float dotprod_f(const float* vec1, const float* vec2, uint32_t ct) {
+HEADER_INLINE float dotprod_f_short(const float* vec1, const float* vec2, uint32_t ct) {
   float dotprod = 0.0;
   for (uint32_t uii = 0; uii < ct; ++uii) {
     dotprod += vec1[uii] * vec2[uii];
   }
   return dotprod;
+}
+
+CONSTU31(kDotprodDThresh, 17);
+CONSTU31(kDotprodFThresh, 15);
+
+#ifdef NOLAPACK
+HEADER_INLINE double dotprod_d(const double* vec1, const double* vec2, uint32_t ct) {
+  return dotprod_d_short(vec1, vec2, ct);
+}
+
+HEADER_INLINE double dotprodx_d(const double* vec1, const double* vec2, uint32_t ct) {
+  return dotprod_d_short(vec1, vec2, ct);
+}
+
+HEADER_INLINE float dotprod_f(const float* vec1, const float* vec2, uint32_t ct) {
+  return dotprod_f_short(vec1, vec2, ct);
 }
 
 boolerr_t invert_matrix(int32_t dim, double* matrix, matrix_invert_buf1_t* dbl_1d_buf, double* dbl_2d_buf);
@@ -209,29 +224,37 @@ HEADER_INLINE void invert_symmdef_fmatrix_second_half(__CLPK_integer dim, uint32
 #else
 HEADER_INLINE double dotprod_d(const double* vec1, const double* vec2, uint32_t ct) {
   #ifndef USE_CBLAS_XGEMM
-  // probably use blas ddot, but test first
-  double dotprod = 0.0;
-  for (uint32_t uii = 0; uii < ct; ++uii) {
-    dotprod += vec1[uii] * vec2[uii];
-  }
-  return dotprod;
+  __CLPK_integer cti = ct;
+  __CLPK_integer incxy = 1;
+  // const_cast
+  return ddot_(&cti, (double*)((uintptr_t)vec1), &incxy, (double*)((uintptr_t)vec2), &incxy);
   #else
   return cblas_ddot(ct, vec1, 1, vec2, 1);
   #endif
 }
 
+HEADER_INLINE double dotprodx_d(const double* vec1, const double* vec2, uint32_t ct) {
+  if (ct > kDotprodDThresh) {
+    // best threshold is machine-dependent; this is what I got on my MacBook
+    return dotprod_d(vec1, vec2, ct);
+  }
+  return dotprod_d_short(vec1, vec2, ct);
+}
+
+// not worthwhile for ct < 16.
 HEADER_INLINE float dotprod_f(const float* vec1, const float* vec2, uint32_t ct) {
   #ifndef USE_CBLAS_XGEMM
-  // probably use blas sdot, but test first
-  float dotprod = 0.0;
-  for (uint32_t uii = 0; uii < ct; ++uii) {
-    dotprod += vec1[uii] * vec2[uii];
-  }
-  return dotprod;
+  __CLPK_integer cti = ct;
+  __CLPK_integer incxy = 1;
+  // const_cast
+  return (float)sdot_(&cti, (float*)((uintptr_t)vec1), &incxy, (float*)((uintptr_t)vec2), &incxy);
   #else
   return cblas_sdot(ct, vec1, 1, vec2, 1);
   #endif
 }
+
+// extra if-statement in dotprodx_f() seems disproportionally expensive in
+// test?... guess I won't have auto-branch for now.
 
 boolerr_t invert_matrix(__CLPK_integer dim, double* matrix, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf);
 

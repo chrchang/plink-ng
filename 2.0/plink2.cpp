@@ -26,6 +26,9 @@
 #include "plink2_random.h"
 #include "plink2_set.h"
 
+// temporary
+#include "plink2_matrix.h"
+
 // #include <locale.h>
 #include <time.h>
 #include <unistd.h> // getcwd(), gethostname(), sysconf(), unlink()
@@ -60,7 +63,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (27 Nov 2017)";
+  " (28 Nov 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -2922,6 +2925,9 @@ int main(int argc, char** argv) {
         case 'n':
           if (strequal_k(flagname_p, "num_threads", flag_slen)) {
             strcpy(flagname_write_iter, "threads");
+          } else if (strequal_k(flagname_p, "no-pheno", flag_slen) ||
+                     strequal_k(flagname_p, "no-fam-pheno", flag_slen)) {
+            strcpy(flagname_write_iter, "no-psam-pheno");
           } else {
             goto main_flag_copy;
           }
@@ -4745,10 +4751,10 @@ int main(int argc, char** argv) {
           if (load_params || xload) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 10)) {
+          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 11)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          uint32_t format_num_m1 = 3;
+          uint32_t format_num_m1 = 4;
           for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argv[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
@@ -4766,21 +4772,40 @@ int main(int argc, char** argv) {
               }
             } else if (strequal_k(cur_modif, "dose1", cur_modif_slen)) {
               plink1_dosage_info.flags |= kfPlink1DosageFormatSingle01;
-            } else if ((cur_modif_slen == 8) && str_startswith2(cur_modif, "format=")) {
+            } else if (str_startswith2(cur_modif, "format=")) {
               // strequal_k() and str_startswith() both suboptimal here
-              if (format_num_m1 != 3) {
+              if (format_num_m1 != 4) {
                 logerrprint("Error: Multiple --import-dosage format= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              format_num_m1 = (uint32_t)((unsigned char)cur_modif[7]) - 49;
-              if (format_num_m1 >= 3) {
-                sprintf(g_logbuf, "Error: Invalid --import-dosage format= parameter '%c'.\n", cur_modif[7]);
-                goto main_ret_INVALID_CMDLINE_2A;
+              if (cur_modif_slen == 8) {
+                format_num_m1 = (uint32_t)((unsigned char)cur_modif[7]) - 49;
+                if (format_num_m1 >= 3) {
+                  sprintf(g_logbuf, "Error: Invalid --import-dosage format= parameter '%c'.\n", cur_modif[7]);
+                  goto main_ret_INVALID_CMDLINE_2A;
+                }
+              } else if (strequal_k(&(cur_modif[7]), "infer", cur_modif_slen - 7)) {
+                format_num_m1 = 3;
+              } else {
+                sprintf(g_logbuf, "Error: Invalid --import-dosage format= parameter '%s'.\n", &(cur_modif[7]));
+                goto main_ret_INVALID_CMDLINE_WWA;
               }
             } else if (strequal_k(cur_modif, "ref-first", cur_modif_slen)) {
               plink1_dosage_info.flags |= kfPlink1DosageRefFirst;
             } else if (strequal_k(cur_modif, "ref-second", cur_modif_slen)) {
               plink1_dosage_info.flags |= kfPlink1DosageRefSecond;
+            } else if (str_startswith(cur_modif, "id-delim=", cur_modif_slen)) {
+              if (plink1_dosage_info.id_delim) {
+                logerrprint("Error: Multiple --import-dosage id-delim= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              const char* id_delim_str = &(cur_modif[strlen("id-delim=")]);
+              char cc = extract_char_param(id_delim_str);
+              if (!cc) {
+                sprintf(g_logbuf, "Error: Invalid --import-dosage id-delim= parameter '%s'.\n", id_delim_str);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+              plink1_dosage_info.id_delim = cc;
             } else if (str_startswith(cur_modif, "single-chr=", cur_modif_slen)) {
               if (import_single_chr_str) {
                 logerrprint("Error: Multiple --import-dosage single-chr= modifiers.\n");
@@ -4831,11 +4856,18 @@ int main(int argc, char** argv) {
             plink1_dosage_info.flags |= kfPlink1DosageFormatSingle;
           } else {
             if (plink1_dosage_info.flags & kfPlink1DosageFormatSingle01) {
-              logerrprint("Error: --import-dosage 'dose1' modifier must be used with 'format=1'.\n");
-              goto main_ret_INVALID_CMDLINE_A;
-            }
-            if (format_num_m1 == 2) {
-              plink1_dosage_info.flags |= kfPlink1DosageFormatTriple;
+              if (format_num_m1 != 3) {
+                logerrprint("Error: --import-dosage 'dose1' modifier must be used with 'format=1'.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              // format_num_m1 = 0;
+              plink1_dosage_info.flags |= kfPlink1DosageFormatSingle;
+            } else {
+              if (format_num_m1 == 1) {
+                plink1_dosage_info.flags |= kfPlink1DosageFormatDouble;
+              } else if (format_num_m1 == 2) {
+                plink1_dosage_info.flags |= kfPlink1DosageFormatTriple;
+              }
             }
           }
           if ((plink1_dosage_info.flags & (kfPlink1DosageRefFirst | kfPlink1DosageRefSecond)) == (kfPlink1DosageRefFirst | kfPlink1DosageRefSecond)) {
@@ -5993,7 +6025,8 @@ int main(int argc, char** argv) {
         } else if (strequal_k2(flagname_p2, "o-sex")) {
           pc.fam_cols &= ~kfFamCol5;
           goto main_param_zero;
-        } else if (strequal_k2(flagname_p2, "o-pheno")) {
+        } else if (strequal_k2(flagname_p2, "o-psam-pheno")) {
+          // move this out of fam_cols?
           pc.fam_cols &= ~kfFamCol6;
           goto main_param_zero;
         } else if (strequal_k2(flagname_p2, "onfounders")) {

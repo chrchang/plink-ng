@@ -65,6 +65,13 @@ extern "C" {
               float* alpha, float* a, __CLPK_integer* lda, float* beta,
               float* c, __CLPK_integer* ldc);
 
+  __CLPK_doublereal ddot_(__CLPK_integer* n, __CLPK_doublereal* dx,
+                          __CLPK_integer* incx, __CLPK_doublereal* dy,
+                          __CLPK_integer* incy);
+
+  __CLPK_doublereal sdot_(__CLPK_integer* n, float* sx, __CLPK_integer* incx,
+                          float* sy, __CLPK_integer* incy);
+
     #else // Linux
       #ifndef USE_MKL
   int dgetrf_(__CLPK_integer* m, __CLPK_integer* n,
@@ -160,6 +167,13 @@ extern "C" {
   void ssyrk_(char* uplo, char* trans, __CLPK_integer* n, __CLPK_integer* k,
               float* alpha, float* a, __CLPK_integer* lda, float* beta,
               float* c, __CLPK_integer* ldc);
+
+  __CLPK_doublereal ddot_(__CLPK_integer* n, __CLPK_doublereal* dx,
+                          __CLPK_integer* incx, __CLPK_doublereal* dy,
+                          __CLPK_integer* incy);
+
+  __CLPK_doublereal sdot_(__CLPK_integer* n, float* sx, __CLPK_integer* incx,
+                          float* sy, __CLPK_integer* incy);
         #endif
       #endif // !USE_MKL
     #endif // Linux
@@ -1172,7 +1186,7 @@ boolerr_t invert_rank1_symm_start(const double* a_inv, const double* bb, __CLPK_
   cblas_dgemv(CblasColMajor, CblasNoTrans, orig_dim, orig_dim, 1.0, a_inv, orig_dim, bb, 1, 0.0, ainv_b, 1);
   #endif // USE_CBLAS_XGEMM
 #endif
-  const double kk = cc - dotprod_d(bb, ainv_b, orig_dim);
+  const double kk = cc - dotprodx_d(bb, ainv_b, orig_dim);
   if (fabs(kk) < kMatrixSingularRcond) {
     return 1;
   }
@@ -1236,14 +1250,22 @@ boolerr_t invert_rank1_symm_diag(const double* a_inv, const double* bb, __CLPK_i
 }
 
 boolerr_t invert_rank2_symm_start(const double* a_inv, const double* bb, __CLPK_integer orig_dim, __CLPK_integer b_stride, double d11, double d12, double d22, double* __restrict b_ainv, double* __restrict s_b_ainv, double* __restrict schur11_ptr, double* __restrict schur12_ptr, double* __restrict schur22_ptr) {
+  const uintptr_t orig_dim_l = orig_dim;
   if (orig_dim) {
-    // matrix may be too small to justify call overhead, test later
+    // (have confirmed that dgemm is better than per-row multiplies even for
+    // just 2 rows)
     row_major_matrix_multiply_strided(bb, a_inv, 2, b_stride, orig_dim, orig_dim, orig_dim, orig_dim, b_ainv);
 
     // Schur complement = (D - B A^{-1} B^T)^{-1}
-    d11 -= dotprod_d(bb, b_ainv, orig_dim);
-    d12 -= dotprod_d(bb, &(b_ainv[orig_dim]), orig_dim);
-    d22 -= dotprod_d(&(bb[b_stride]), &(b_ainv[orig_dim]), orig_dim);
+    if (orig_dim_l > kDotprodDThresh) {
+      d11 -= dotprod_d(bb, b_ainv, orig_dim);
+      d12 -= dotprod_d(bb, &(b_ainv[orig_dim_l]), orig_dim);
+      d22 -= dotprod_d(&(bb[b_stride]), &(b_ainv[orig_dim_l]), orig_dim);
+    } else {
+      d11 -= dotprod_d_short(bb, b_ainv, orig_dim);
+      d12 -= dotprod_d_short(bb, &(b_ainv[orig_dim_l]), orig_dim);
+      d22 -= dotprod_d_short(&(bb[b_stride]), &(b_ainv[orig_dim_l]), orig_dim);
+    }
   }
 
   // [ a b ]^{-1} = [ d  -b ] / (ad - b^2)
@@ -1256,7 +1278,6 @@ boolerr_t invert_rank2_symm_start(const double* a_inv, const double* bb, __CLPK_
   const double schur11 = d22 * det_recip;
   const double schur12 = -d12 * det_recip;
   const double schur22 = d11 * det_recip;
-  const uintptr_t orig_dim_l = orig_dim;
   for (uintptr_t col_idx = 0; col_idx < orig_dim_l; ++col_idx) {
     const double b_ainv_1 = b_ainv[col_idx];
     const double b_ainv_2 = b_ainv[col_idx + orig_dim_l];
