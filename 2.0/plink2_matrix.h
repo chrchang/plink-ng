@@ -66,7 +66,25 @@ extern "C" {
       #endif
     #endif // !__LP64__
 
-    #ifndef _WIN32 // Linux
+    #ifdef _WIN32
+      // openblas is easy enough to set up on Windows nowadays.
+      // not worth the trouble of ripping out vector extensions, etc. just so
+      // we can compile with Visual Studio and gain access to MKL
+      #ifndef USE_OPENBLAS
+        #error "Windows build currently requires OpenBLAS's LAPACK."
+      #endif
+      #define HAVE_LAPACK_CONFIG_H
+      #define LAPACK_COMPLEX_STRUCTURE
+      #include "lapacke.h"
+
+  __CLPK_doublereal ddot_(__CLPK_integer* n, __CLPK_doublereal* dx,
+                          __CLPK_integer* incx, __CLPK_doublereal* dy,
+                          __CLPK_integer* incy);
+
+  __CLPK_doublereal sdot_(__CLPK_integer* n, float* sx, __CLPK_integer* incx,
+                          float* sy, __CLPK_integer* incy);
+
+    #else // Linux
       #ifdef USE_MKL
         #define USE_CBLAS_XGEMM
         #ifdef DYNAMIC_MKL
@@ -108,6 +126,12 @@ extern "C" {
               #endif
             #endif
           #endif
+  __CLPK_doublereal ddot_(__CLPK_integer* n, __CLPK_doublereal* dx,
+                          __CLPK_integer* incx, __CLPK_doublereal* dy,
+                          __CLPK_integer* incy);
+
+  __CLPK_doublereal sdot_(__CLPK_integer* n, float* sx, __CLPK_integer* incx,
+                          float* sy, __CLPK_integer* incy);
         #endif
       #endif // !USE_MKL
     #endif
