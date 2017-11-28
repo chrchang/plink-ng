@@ -29,6 +29,66 @@
 namespace plink2 {
 #endif
 
+#ifdef USE_AVX2
+void copy_quaterarr_nonempty_subset(const uintptr_t* __restrict raw_quaterarr, const uintptr_t* __restrict subset_mask, uint32_t raw_quaterarr_entry_ct, uint32_t subset_entry_ct, uintptr_t* __restrict output_quaterarr) {
+  if (subset_entry_ct == raw_quaterarr_entry_ct) {
+    memcpy(output_quaterarr, raw_quaterarr, DIV_UP(subset_entry_ct, kBitsPerWordD2) * sizeof(intptr_t));
+    zero_trailing_quaters(subset_entry_ct, output_quaterarr);
+    return;
+  }
+  assert(subset_entry_ct);
+  uintptr_t cur_output_word = 0;
+
+  uintptr_t* output_quaterarr_iter = output_quaterarr;
+
+  uintptr_t* output_quaterarr_last = &(output_quaterarr[subset_entry_ct / kBitsPerWordD2]);
+  const uint32_t word_write_shift_end = 2 * (subset_entry_ct % kBitsPerWordD2);
+  uint32_t word_write_shift = 0;
+  uint32_t subset_mask_widx = 0;
+  while (1) {
+    const uintptr_t cur_include_word = subset_mask[subset_mask_widx];
+    if (cur_include_word) {
+      uint32_t wordhalf_idx = 0;
+      uint32_t cur_include_halfword = (halfword_t)cur_include_word;
+      while (1) {
+        if (cur_include_halfword) {
+          uintptr_t extracted_bits = raw_quaterarr[subset_mask_widx * 2 + wordhalf_idx];
+          uint32_t set_bit_ct = kBitsPerWord;
+          if (cur_include_halfword != UINT32_MAX) {
+            const uintptr_t pext_mask = 3 * unpack_halfword_to_word(cur_include_halfword);
+            extracted_bits = _pext_u64(extracted_bits, pext_mask);
+            set_bit_ct = popcount_long(pext_mask);
+          }
+          cur_output_word |= extracted_bits << word_write_shift;
+          word_write_shift += set_bit_ct;
+          if (word_write_shift >= kBitsPerWord) {
+            *output_quaterarr_iter++ = cur_output_word;
+            word_write_shift -= kBitsPerWord;
+            cur_output_word = 0;
+            if (word_write_shift) {
+              cur_output_word = extracted_bits >> (set_bit_ct - word_write_shift);
+            }
+          }
+        }
+        if (wordhalf_idx) {
+          break;
+        }
+        ++wordhalf_idx;
+        cur_include_halfword = cur_include_word >> kBitsPerWordD2;
+      }
+      if (output_quaterarr_iter == output_quaterarr_last) {
+        if (word_write_shift == word_write_shift_end) {
+          if (word_write_shift_end) {
+            *output_quaterarr_last = cur_output_word;
+          }
+          return;
+        }
+      }
+    }
+    ++subset_mask_widx;
+  }
+}
+#else // !USE_AVX2
 void copy_quaterarr_nonempty_subset(const uintptr_t* __restrict raw_quaterarr, const uintptr_t* __restrict subset_mask, uint32_t raw_quaterarr_entry_ct, uint32_t subset_entry_ct, uintptr_t* __restrict output_quaterarr) {
   // in plink 2.0, we probably want (0-based) bit raw_quaterarr_entry_ct of
   // subset_mask to be always allocated and unset.  This removes a few special
@@ -130,6 +190,7 @@ void copy_quaterarr_nonempty_subset(const uintptr_t* __restrict raw_quaterarr, c
     }
   }
 }
+#endif
 
 // Harley-Seal algorithm only works for bitarrays, not quaterarrays, so don't
 // add an AVX2 specialization here.
@@ -409,6 +470,7 @@ void count_subset_3freq_6xvec(const vul_t* __restrict geno_vvec, const vul_t* __
   }
 }
 
+// possible todo: AVX2
 uint32_t count_01_vecs(const vul_t* geno_vvec, uint32_t vec_ct) {
   assert(!(vec_ct % 6));
   const vul_t m1 = VCONST_UL(kMask5555);
@@ -1336,6 +1398,25 @@ void genovec_to_nonmissingness_unsafe(const uintptr_t* __restrict genovec, uint3
   for (uint32_t widx = 0; widx < sample_ctl2; ++widx) {
     const uintptr_t cur_geno_word = genovec[widx];
     nonmissingness_alias[widx] = pack_word_to_halfword((~(cur_geno_word & (cur_geno_word >> 1))) & kMask5555);
+  }
+}
+
+void split_hom_ref2het(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t* hom_buf, uintptr_t* ref2het_buf) {
+  const uint32_t full_outword_ct = sample_ct / kBitsPerWord;
+  split_hom_ref2het_unsafew(genoarr, full_outword_ct * 2, (unsigned char*)hom_buf, (unsigned char*)ref2het_buf);
+  const uint32_t remainder = sample_ct % kBitsPerWord;
+  if (remainder) {
+    uintptr_t geno_word = genoarr[full_outword_ct * 2];
+    uintptr_t hom_word = pack_word_to_halfword(kMask5555 & (~geno_word));
+    uintptr_t ref2het_word = pack_word_to_halfword(kMask5555 & (~(geno_word >> 1)));
+    if (remainder > kBitsPerWordD2) {
+      geno_word = genoarr[full_outword_ct * 2 + 1];
+      hom_word |= ((uintptr_t)pack_word_to_halfword(kMask5555 & (~geno_word))) << kBitsPerWordD2;
+      ref2het_word |= ((uintptr_t)pack_word_to_halfword(kMask5555 & (~(geno_word >> 1)))) << kBitsPerWordD2;
+    }
+    const uintptr_t cur_mask = (k1LU << remainder) - 1;
+    hom_buf[full_outword_ct] = hom_word & cur_mask;
+    ref2het_buf[full_outword_ct] = ref2het_word & cur_mask;
   }
 }
 
@@ -7003,19 +7084,20 @@ pglerr_t pgr_validate(pgen_reader_t* pgrp, char* errstr_buf) {
     if (vrtype_and_fpos_storage == 8) {
       const uint32_t variant_ct_mod4 = variant_ct % 4;
       if (variant_ct_mod4) {
-        last_vrtype_byte_offset = 20 + (vblock_ct - 1) * (vblock_index_byte_ct + sizeof(int64_t));
+        last_vrtype_byte_offset = 20 + (vblock_ct - 1) * (vblock_index_byte_ct + sizeof(int64_t)) + ((variant_ct % kPglVblockSize) / 4);
         trailing_shift = variant_ct_mod4 * 2;
       }
     } else {
       assert(vrtype_and_fpos_storage == 9);
       if (variant_ct % 2) {
-        last_vrtype_byte_offset = 20 + (vblock_ct - 1) * (vblock_index_byte_ct + sizeof(int64_t));
+        last_vrtype_byte_offset = 20 + (vblock_ct - 1) * (vblock_index_byte_ct + sizeof(int64_t)) + ((variant_ct % kPglVblockSize) / 2);
       }
     }
   } else if (!(vrtype_and_fpos_storage & 4)) {
     vblock_index_byte_ct += kPglVblockSize / 2;
     if (variant_ct % 2) {
-      last_vrtype_byte_offset = 20 + (vblock_ct - 1) * (vblock_index_byte_ct + sizeof(int64_t));
+      // bugfix (22 Nov 2017): forgot to add offset in last block
+      last_vrtype_byte_offset = 20 + (vblock_ct - 1) * (vblock_index_byte_ct + sizeof(int64_t)) + ((variant_ct % kPglVblockSize) / 2);
     }
     /*
   } else {

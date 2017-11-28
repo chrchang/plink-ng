@@ -132,7 +132,9 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "  --no-fid           : .fam file does not contain column 1 (family ID).\n"
 "  --no-parents       : .fam file does not contain columns 3-4 (parents).\n"
 "  --no-sex           : .fam file does not contain column 5 (sex).\n"
-"  --no-pheno         : .fam file does not contain column 6 (phenotype).\n\n"
+               );
+    help_print("bfile\tfam\tpsam", &help_ctrl, 1,
+"  --no-pheno         : Ignore phenotype(s) in .psam/.fam file.\n\n"
                );
     // todo: allele fraction import.  but first need to see how it's
     // represented in practice, since it isn't in the spec...

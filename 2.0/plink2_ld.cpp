@@ -46,277 +46,152 @@ void cleanup_ld(ld_info_t* ldip) {
 // todo: see if either approach in avx_jaccard_index.c in
 // github.com/CountOnes/hamming_weight helps here.
 
-// don't bother with popcount_avx2_3intersect for now, but test later
-
-static inline void popcount_avx2_2intersect(const vul_t* __restrict vvec1_iter, const vul_t* __restrict vvec2a_iter, const vul_t* __restrict vvec2b_iter, uintptr_t vec_ct, uint32_t* popcount_1_2a_ptr, uint32_t* popcount_1_2b_ptr) {
-  // popcounts (vvec1 AND vvec2a[0..(ct-1)]) as well as (vvec1 AND vvec2b).  ct
-  // is a multiple of 8.
-  vul_t cnt_2a = vul_setzero();
-  vul_t cnt_2b = vul_setzero();
-  vul_t ones_2a = vul_setzero();
-  vul_t ones_2b = vul_setzero();
-  vul_t twos_2a = vul_setzero();
-  vul_t twos_2b = vul_setzero();
-  vul_t fours_2a = vul_setzero();
-  vul_t fours_2b = vul_setzero();
-  for (uintptr_t vec_idx = 0; vec_idx < vec_ct; vec_idx += 8) {
-    vul_t loader1 = vvec1_iter[vec_idx];
-    vul_t count1_2a = loader1 & vvec2a_iter[vec_idx];
-    vul_t count1_2b = loader1 & vvec2b_iter[vec_idx];
-
-    loader1 = vvec1_iter[vec_idx + 1];
-    vul_t count2_2a = loader1 & vvec2a_iter[vec_idx + 1];
-    vul_t count2_2b = loader1 & vvec2b_iter[vec_idx + 1];
-    vul_t twos_2a_a = csa256(count1_2a, count2_2a, &ones_2a);
-    vul_t twos_2b_a = csa256(count1_2b, count2_2b, &ones_2b);
-
-    loader1 = vvec1_iter[vec_idx + 2];
-    count1_2a = loader1 & vvec2a_iter[vec_idx + 2];
-    count1_2b = loader1 & vvec2b_iter[vec_idx + 2];
-
-    loader1 = vvec1_iter[vec_idx + 3];
-    count2_2a = loader1 & vvec2a_iter[vec_idx + 3];
-    count2_2b = loader1 & vvec2b_iter[vec_idx + 3];
-    vul_t twos_2a_b = csa256(count1_2a, count2_2a, &ones_2a);
-    vul_t twos_2b_b = csa256(count1_2b, count2_2b, &ones_2b);
-    const vul_t fours_2a_a = csa256(twos_2a_a, twos_2a_b, &twos_2a);
-    const vul_t fours_2b_a = csa256(twos_2b_a, twos_2b_b, &twos_2b);
-
-    loader1 = vvec1_iter[vec_idx + 4];
-    count1_2a = loader1 & vvec2a_iter[vec_idx + 4];
-    count1_2b = loader1 & vvec2b_iter[vec_idx + 4];
-
-    loader1 = vvec1_iter[vec_idx + 5];
-    count2_2a = loader1 & vvec2a_iter[vec_idx + 5];
-    count2_2b = loader1 & vvec2b_iter[vec_idx + 5];
-    twos_2a_a = csa256(count1_2a, count2_2a, &ones_2a);
-    twos_2b_a = csa256(count1_2b, count2_2b, &ones_2b);
-
-    loader1 = vvec1_iter[vec_idx + 6];
-    count1_2a = loader1 & vvec2a_iter[vec_idx + 6];
-    count1_2b = loader1 & vvec2b_iter[vec_idx + 6];
-
-    loader1 = vvec1_iter[vec_idx + 7];
-    count2_2a = loader1 & vvec2a_iter[vec_idx + 7];
-    count2_2b = loader1 & vvec2b_iter[vec_idx + 7];
-    twos_2a_b = csa256(count1_2a, count2_2a, &ones_2a);
-    twos_2b_b = csa256(count1_2b, count2_2b, &ones_2b);
-    const vul_t fours_2a_b = csa256(twos_2a_a, twos_2a_b, &twos_2a);
-    const vul_t fours_2b_b = csa256(twos_2b_a, twos_2b_b, &twos_2b);
-    const vul_t eights_2a = csa256(fours_2a_a, fours_2a_b, &fours_2a);
-    const vul_t eights_2b = csa256(fours_2b_a, fours_2b_b, &fours_2b);
-    // negligible benefit from going to sixteens here
-    cnt_2a = cnt_2a + popcount_avx2_single(eights_2a);
-    cnt_2b = cnt_2b + popcount_avx2_single(eights_2b);
-  }
-  cnt_2a = vul_lshift(cnt_2a, 3);
-  cnt_2b = vul_lshift(cnt_2b, 3);
-  cnt_2a = cnt_2a + vul_lshift(popcount_avx2_single(fours_2a), 2);
-  cnt_2b = cnt_2b + vul_lshift(popcount_avx2_single(fours_2b), 2);
-  cnt_2a = cnt_2a + vul_lshift(popcount_avx2_single(twos_2a), 1);
-  cnt_2b = cnt_2b + vul_lshift(popcount_avx2_single(twos_2b), 1);
-  cnt_2a = cnt_2a + popcount_avx2_single(ones_2a);
-  cnt_2b = cnt_2b + popcount_avx2_single(ones_2b);
-  *popcount_1_2a_ptr = hsum64(cnt_2a);
-  *popcount_1_2b_ptr = hsum64(cnt_2b);
-}
-
-// don't bother with popcount_avx2_3intersect for now, but test later
-
-void popcount_longs_2intersect(const uintptr_t* __restrict bitvec1_iter, const uintptr_t* __restrict bitvec2a_iter, const uintptr_t* __restrict bitvec2b_iter, uintptr_t word_ct, uint32_t* popcount_1_2a_ptr, uint32_t* popcount_1_2b_ptr) {
-  const uintptr_t* bitvec1_end = &(bitvec1_iter[word_ct]);
-  uint32_t popcount_1_2a = 0;
-  uint32_t popcount_1_2b = 0;
-  if (word_ct >= 16) {
-    // this has high constant overhead at the end, so require more than 1 block
-    const uintptr_t block_ct = word_ct / (8 * kWordsPerVec);
-    popcount_avx2_2intersect((const vul_t*)bitvec1_iter, (const vul_t*)bitvec2a_iter, (const vul_t*)bitvec2b_iter, block_ct * 8, &popcount_1_2a, &popcount_1_2b);
-    bitvec1_iter = &(bitvec1_iter[block_ct * (8 * kWordsPerVec)]);
-    bitvec2a_iter = &(bitvec2a_iter[block_ct * (8 * kWordsPerVec)]);
-    bitvec2b_iter = &(bitvec2b_iter[block_ct * (8 * kWordsPerVec)]);
-  }
-  while (bitvec1_iter < bitvec1_end) {
-    const uintptr_t loader1 = *bitvec1_iter++;
-    popcount_1_2a += popcount_long(loader1 & (*bitvec2a_iter++));
-    popcount_1_2b += popcount_long(loader1 & (*bitvec2b_iter++));
-  }
-  *popcount_1_2a_ptr = popcount_1_2a;
-  *popcount_1_2b_ptr = popcount_1_2b;
-}
-
-static inline int32_t dotprod_avx2(const vul_t* __restrict vvec1a_iter, const vul_t* __restrict vvec1b_iter, const vul_t* __restrict vvec2a_iter, const vul_t* __restrict vvec2b_iter, uintptr_t vec_ct) {
-  // assumes vvec1a/vvec2a represesent +1s, vvec1b/vvec2b represent -1s, and
-  // everything else is 0.  computes
-  //   popcount(vvec1a & vvec2a) + popcount(vvec1b & vvec2b)
-  //   - popcount(vvec1a & vvec2b) - popcount(vvec1b & vvec2a).
+static inline int32_t dotprod_avx2(const vul_t* __restrict hom1_iter, const vul_t* __restrict ref2het1_iter, const vul_t* __restrict hom2_iter, const vul_t* __restrict ref2het2_iter, uintptr_t vec_ct) {
+  // popcount(hom1 & hom2) - 2 * popcount(hom1 & hom2 & (ref2het1 ^ ref2het2))
   // ct must be a multiple of 4.
   vul_t cnt = vul_setzero();
-  vul_t ones_pos = vul_setzero();
+  vul_t ones_both = vul_setzero();
   vul_t ones_neg = vul_setzero();
-  vul_t twos_pos = vul_setzero();
+  vul_t twos_both = vul_setzero();
   vul_t twos_neg = vul_setzero();
   for (uintptr_t vec_idx = 0; vec_idx < vec_ct; vec_idx += 4) {
-    vul_t loader1a = vvec1a_iter[vec_idx];
-    vul_t loader1b = vvec1b_iter[vec_idx];
-    vul_t loader2a = vvec2a_iter[vec_idx];
-    vul_t loader2b = vvec2b_iter[vec_idx];
-    // loader1a and loader1b are disjoint, etc.; take advantage of that
-    vul_t count1_pos = (loader1a & loader2a) | (loader1b & loader2b);
-    vul_t count1_neg = (loader1a & loader2b) | (loader1b & loader2a);
+    vul_t count1_both = hom1_iter[vec_idx] & hom2_iter[vec_idx];
+    vul_t cur_xor = ref2het1_iter[vec_idx] ^ ref2het2_iter[vec_idx];
+    vul_t count1_neg = count1_both & cur_xor;
 
-    loader1a = vvec1a_iter[vec_idx + 1];
-    loader1b = vvec1b_iter[vec_idx + 1];
-    loader2a = vvec2a_iter[vec_idx + 1];
-    loader2b = vvec2b_iter[vec_idx + 1];
-    vul_t count2_pos = (loader1a & loader2a) | (loader1b & loader2b);
-    vul_t count2_neg = (loader1a & loader2b) | (loader1b & loader2a);
-    const vul_t twos_pos_a = csa256(count1_pos, count2_pos, &ones_pos);
+    vul_t count2_both = hom1_iter[vec_idx + 1] & hom2_iter[vec_idx + 1];
+    cur_xor = ref2het1_iter[vec_idx + 1] ^ ref2het2_iter[vec_idx + 1];
+    vul_t count2_neg = count2_both & cur_xor;
+    const vul_t twos_both_a = csa256(count1_both, count2_both, &ones_both);
     const vul_t twos_neg_a = csa256(count1_neg, count2_neg, &ones_neg);
 
-    loader1a = vvec1a_iter[vec_idx + 2];
-    loader1b = vvec1b_iter[vec_idx + 2];
-    loader2a = vvec2a_iter[vec_idx + 2];
-    loader2b = vvec2b_iter[vec_idx + 2];
-    count1_pos = (loader1a & loader2a) | (loader1b & loader2b);
-    count1_neg = (loader1a & loader2b) | (loader1b & loader2a);
+    count1_both = hom1_iter[vec_idx + 2] & hom2_iter[vec_idx + 2];
+    cur_xor = ref2het1_iter[vec_idx + 2] ^ ref2het2_iter[vec_idx + 2];
+    count1_neg = count1_both & cur_xor;
 
-    loader1a = vvec1a_iter[vec_idx + 3];
-    loader1b = vvec1b_iter[vec_idx + 3];
-    loader2a = vvec2a_iter[vec_idx + 3];
-    loader2b = vvec2b_iter[vec_idx + 3];
-    count2_pos = (loader1a & loader2a) | (loader1b & loader2b);
-    count2_neg = (loader1a & loader2b) | (loader1b & loader2a);
-    const vul_t twos_pos_b = csa256(count1_pos, count2_pos, &ones_pos);
+    count2_both = hom1_iter[vec_idx + 3] & hom2_iter[vec_idx + 3];
+    cur_xor = ref2het1_iter[vec_idx + 3] ^ ref2het2_iter[vec_idx + 3];
+    count2_neg = count2_both & cur_xor;
+    const vul_t twos_both_b = csa256(count1_both, count2_both, &ones_both);
     const vul_t twos_neg_b = csa256(count1_neg, count2_neg, &ones_neg);
-    const vul_t fours_pos = csa256(twos_pos_a, twos_pos_b, &twos_pos);
+    const vul_t fours_both = csa256(twos_both_a, twos_both_b, &twos_both);
     const vul_t fours_neg = csa256(twos_neg_a, twos_neg_b, &twos_neg);
     // tried continuing to eights, not worth it
     // deliberate unsigned-int64 overflow here
-    cnt = cnt + popcount_avx2_single(fours_pos) - popcount_avx2_single(fours_neg);
+    cnt = cnt + popcount_avx2_single(fours_both) - vul_lshift(popcount_avx2_single(fours_neg), 1);
   }
+  cnt = cnt - popcount_avx2_single(twos_neg);
   cnt = vul_lshift(cnt, 2);
-  const vul_t twos_sum = popcount_avx2_single(twos_pos) - popcount_avx2_single(twos_neg);
+  const vul_t twos_sum = popcount_avx2_single(twos_both) - popcount_avx2_single(ones_neg);
   cnt = cnt + vul_lshift(twos_sum, 1);
-  cnt = cnt + popcount_avx2_single(ones_pos) - popcount_avx2_single(ones_neg);
+  cnt = cnt + popcount_avx2_single(ones_both);
   return hsum64(cnt);
 }
 
-int32_t dotprod_longs(const uintptr_t* __restrict bitvec1a_iter, const uintptr_t* __restrict bitvec1b_iter, const uintptr_t* __restrict bitvec2a_iter, const uintptr_t* __restrict bitvec2b_iter, uintptr_t word_ct) {
-  const uintptr_t* bitvec1a_end = &(bitvec1a_iter[word_ct]);
-  int32_t tot = 0;
-  if (word_ct >= 8) {
+int32_t dotprod_longs(const uintptr_t* __restrict hom1, const uintptr_t* __restrict ref2het1, const uintptr_t* __restrict hom2, const uintptr_t* __restrict ref2het2, uintptr_t word_ct) {
+  int32_t tot_both = 0;
+  uint32_t widx = 0;
+  if (word_ct >= 16) { // this already pays off with a single block
     const uintptr_t block_ct = word_ct / (kWordsPerVec * 4);
-    tot = dotprod_avx2((const vul_t*)bitvec1a_iter, (const vul_t*)bitvec1b_iter, (const vul_t*)bitvec2a_iter, (const vul_t*)bitvec2b_iter, block_ct * 4);
-    bitvec1a_iter = &(bitvec1a_iter[block_ct * (4 * kWordsPerVec)]);
-    bitvec1b_iter = &(bitvec1b_iter[block_ct * (4 * kWordsPerVec)]);
-    bitvec2a_iter = &(bitvec2a_iter[block_ct * (4 * kWordsPerVec)]);
-    bitvec2b_iter = &(bitvec2b_iter[block_ct * (4 * kWordsPerVec)]);
+    tot_both = dotprod_avx2((const vul_t*)hom1, (const vul_t*)ref2het1, (const vul_t*)hom2, (const vul_t*)ref2het2, block_ct * 4);
+    widx = block_ct * (4 * kWordsPerVec);
   }
-  while (bitvec1a_iter < bitvec1a_end) {
-    uintptr_t loader1a = *bitvec1a_iter++;
-    uintptr_t loader1b = *bitvec1b_iter++;
-    uintptr_t loader2a = *bitvec2a_iter++;
-    uintptr_t loader2b = *bitvec2b_iter++;
-    tot += popcount_long((loader1a & loader2a) | (loader1b & loader2b));
-    tot -= popcount_long((loader1a & loader2b) | (loader1b & loader2a));
+  uint32_t tot_neg = 0;
+  for (; widx < word_ct; ++widx) {
+    const uintptr_t hom_word = hom1[widx] & hom2[widx];
+    const uintptr_t xor_word = ref2het1[widx] ^ ref2het2[widx];
+    tot_both += popcount_long(hom_word);
+    tot_neg += popcount_long(hom_word & xor_word);
   }
-  return tot;
+  return tot_both - 2 * tot_neg;
+}
+
+static inline void sum_ssq_avx2(const vul_t* __restrict hom1_iter, const vul_t* __restrict ref2het1_iter, const vul_t* __restrict hom2_iter, const vul_t* __restrict ref2het2_iter, uintptr_t vec_ct, uint32_t* __restrict ssq2_ptr, uint32_t* __restrict plus2_ptr) {
+  // popcounts (nm1 & hom2) and (nm1 & hom2 & ref2het2).  ct is multiple of 8.
+  vul_t cnt_ssq = vul_setzero();
+  vul_t cnt_plus = vul_setzero();
+  vul_t ones_ssq = vul_setzero();
+  vul_t ones_plus = vul_setzero();
+  vul_t twos_ssq = vul_setzero();
+  vul_t twos_plus = vul_setzero();
+  vul_t fours_ssq = vul_setzero();
+  vul_t fours_plus = vul_setzero();
+  for (uintptr_t vec_idx = 0; vec_idx < vec_ct; vec_idx += 8) {
+    vul_t count1_ssq = (hom1_iter[vec_idx] | ref2het1_iter[vec_idx]) & hom2_iter[vec_idx];
+    vul_t count1_plus = count1_ssq & ref2het2_iter[vec_idx];
+
+    vul_t count2_ssq = (hom1_iter[vec_idx + 1] | ref2het1_iter[vec_idx + 1]) & hom2_iter[vec_idx + 1];
+    vul_t count2_plus = count2_ssq & ref2het2_iter[vec_idx + 1];
+    vul_t twos_ssq_a = csa256(count1_ssq, count2_ssq, &ones_ssq);
+    vul_t twos_plus_a = csa256(count1_plus, count2_plus, &ones_plus);
+
+    count1_ssq = (hom1_iter[vec_idx + 2] | ref2het1_iter[vec_idx + 2]) & hom2_iter[vec_idx + 2];
+    count1_plus = count1_ssq & ref2het2_iter[vec_idx + 2];
+
+    count2_ssq = (hom1_iter[vec_idx + 3] | ref2het1_iter[vec_idx + 3]) & hom2_iter[vec_idx + 3];
+    count2_plus = count2_ssq & ref2het2_iter[vec_idx + 3];
+    vul_t twos_ssq_b = csa256(count1_ssq, count2_ssq, &ones_ssq);
+    vul_t twos_plus_b = csa256(count1_plus, count2_plus, &ones_plus);
+    const vul_t fours_ssq_a = csa256(twos_ssq_a, twos_ssq_b, &twos_ssq);
+    const vul_t fours_plus_a = csa256(twos_plus_a, twos_plus_b, &twos_plus);
+
+    count1_ssq = (hom1_iter[vec_idx + 4] | ref2het1_iter[vec_idx + 4]) & hom2_iter[vec_idx + 4];
+    count1_plus = count1_ssq & ref2het2_iter[vec_idx + 4];
+
+    count2_ssq = (hom1_iter[vec_idx + 5] | ref2het1_iter[vec_idx + 5]) & hom2_iter[vec_idx + 5];
+    count2_plus = count2_ssq & ref2het2_iter[vec_idx + 5];
+    twos_ssq_a = csa256(count1_ssq, count2_ssq, &ones_ssq);
+    twos_plus_a = csa256(count1_plus, count2_plus, &ones_plus);
+
+    count1_ssq = (hom1_iter[vec_idx + 6] | ref2het1_iter[vec_idx + 6]) & hom2_iter[vec_idx + 6];
+    count1_plus = count1_ssq & ref2het2_iter[vec_idx + 6];
+
+    count2_ssq = (hom1_iter[vec_idx + 7] | ref2het1_iter[vec_idx + 7]) & hom2_iter[vec_idx + 7];
+    count2_plus = count2_ssq & ref2het2_iter[vec_idx + 7];
+    twos_ssq_b = csa256(count1_ssq, count2_ssq, &ones_ssq);
+    twos_plus_b = csa256(count1_plus, count2_plus, &ones_plus);
+    const vul_t fours_ssq_b = csa256(twos_ssq_a, twos_ssq_b, &twos_ssq);
+    const vul_t fours_plus_b = csa256(twos_plus_a, twos_plus_b, &twos_plus);
+    const vul_t eights_ssq = csa256(fours_ssq_a, fours_ssq_b, &fours_ssq);
+    const vul_t eights_plus = csa256(fours_plus_a, fours_plus_b, &fours_plus);
+    // negligible benefit from going to sixteens here
+    cnt_ssq = cnt_ssq + popcount_avx2_single(eights_ssq);
+    cnt_plus = cnt_plus + popcount_avx2_single(eights_plus);
+  }
+  cnt_ssq = vul_lshift(cnt_ssq, 3);
+  cnt_plus = vul_lshift(cnt_plus, 3);
+  cnt_ssq = cnt_ssq + vul_lshift(popcount_avx2_single(fours_ssq), 2);
+  cnt_plus = cnt_plus + vul_lshift(popcount_avx2_single(fours_plus), 2);
+  cnt_ssq = cnt_ssq + vul_lshift(popcount_avx2_single(twos_ssq), 1);
+  cnt_plus = cnt_plus + vul_lshift(popcount_avx2_single(twos_plus), 1);
+  cnt_ssq = cnt_ssq + popcount_avx2_single(ones_ssq);
+  cnt_plus = cnt_plus + popcount_avx2_single(ones_plus);
+  *ssq2_ptr = hsum64(cnt_ssq);
+  *plus2_ptr = hsum64(cnt_plus);
+}
+
+void sum_ssq_longs(const uintptr_t* hom1, const uintptr_t* ref2het1, const uintptr_t* hom2, const uintptr_t* ref2het2, uint32_t word_ct, int32_t* sum2_ptr, uint32_t* ssq2_ptr) {
+  uint32_t ssq2 = 0;
+  uint32_t plus2 = 0;
+  uint32_t widx = 0;
+  // this has high constant overhead at the end; may want to require more than
+  // one block?
+  if (word_ct >= 32) {
+    const uintptr_t block_ct = word_ct / (8 * kWordsPerVec);
+    sum_ssq_avx2((const vul_t*)hom1, (const vul_t*)ref2het1, (const vul_t*)hom2, (const vul_t*)ref2het2, block_ct * 8, &ssq2, &plus2);
+    widx = block_ct * (8 * kWordsPerVec);
+  }
+  for (; widx < word_ct; ++widx) {
+    const uintptr_t ssq2_word = (hom1[widx] | ref2het1[widx]) & hom2[widx];
+    ssq2 += popcount_long(ssq2_word);
+    plus2 += popcount_long(ssq2_word & ref2het2[widx]);
+  }
+  *sum2_ptr = (int32_t)(2 * plus2 - ssq2); // deliberate overflow
+  *ssq2_ptr = ssq2;
 }
 #else // !USE_AVX2
-static inline void popcount_vecs_2intersect(const vul_t* __restrict vvec1_iter, const vul_t* __restrict vvec2a_iter, const vul_t* __restrict vvec2b_iter, uintptr_t vec_ct, uint32_t* popcount_1_2a_ptr, uint32_t* popcount_1_2b_ptr) {
-  // popcounts (vvec1 AND vvec2a[0..(ct-1)]) as well as (vvec1 AND vvec2b).  ct
-  // is a multiple of 3.
-  assert(!(vec_ct % 3));
-  const vul_t m1 = VCONST_UL(kMask5555);
-  const vul_t m2 = VCONST_UL(kMask3333);
-  const vul_t m4 = VCONST_UL(kMask0F0F);
-
-  // todo: check if moving this right before usage is better, looks like we
-  // barely have enough registers...
-  const vul_t m8 = VCONST_UL(kMask00FF);
-  uint32_t popcount_1_2a = 0;
-  uint32_t popcount_1_2b = 0;
-
-  while (1) {
-    univec_t acc_a;
-    univec_t acc_b;
-    acc_a.vi = vul_setzero();
-    acc_b.vi = vul_setzero();
-
-    const vul_t* vvec1_stop;
-    if (vec_ct < 30) {
-      if (!vec_ct) {
-        *popcount_1_2a_ptr = popcount_1_2a;
-        *popcount_1_2b_ptr = popcount_1_2b;
-        return;
-      }
-      vvec1_stop = &(vvec1_iter[vec_ct]);
-      vec_ct = 0;
-    } else {
-      vvec1_stop = &(vvec1_iter[30]);
-      vec_ct -= 30;
-    }
-    do {
-      vul_t loader = *vvec1_iter++;
-      vul_t count1a = loader & (*vvec2a_iter++);
-      vul_t count1b = loader & (*vvec2b_iter++);
-      loader = *vvec1_iter++;
-      vul_t count2a = loader & (*vvec2a_iter++);
-      vul_t count2b = loader & (*vvec2b_iter++);
-      loader = *vvec1_iter++;
-      vul_t half1a = loader & (*vvec2a_iter++);
-      vul_t half1b = loader & (*vvec2b_iter++);
-      const vul_t half2a = vul_rshift(half1a, 1) & m1;
-      const vul_t half2b = vul_rshift(half1b, 1) & m1;
-      half1a = half1a & m1;
-      half1b = half1b & m1;
-      count1a = count1a - (vul_rshift(count1a, 1) & m1);
-      count1b = count1b - (vul_rshift(count1b, 1) & m1);
-      count2a = count2a - (vul_rshift(count2a, 1) & m1);
-      count2b = count2b - (vul_rshift(count2b, 1) & m1);
-      count1a = count1a + half1a;
-      count1b = count1b + half1b;
-      count2a = count2a + half2a;
-      count2b = count2b + half2b;
-      count1a = (count1a & m2) + (vul_rshift(count1a, 2) & m2);
-      count1b = (count1b & m2) + (vul_rshift(count1b, 2) & m2);
-      count1a = count1a + (count2a & m2) + (vul_rshift(count2a, 2) & m2);
-      count1b = count1b + (count2b & m2) + (vul_rshift(count2b, 2) & m2);
-      acc_a.vi = acc_a.vi + (count1a & m4) + (vul_rshift(count1a, 4) & m4);
-      acc_b.vi = acc_b.vi + (count1b & m4) + (vul_rshift(count1b, 4) & m4);
-    } while (vvec1_iter < vvec1_stop);
-    acc_a.vi = (acc_a.vi & m8) + (vul_rshift(acc_a.vi, 8) & m8);
-    acc_b.vi = (acc_b.vi & m8) + (vul_rshift(acc_b.vi, 8) & m8);
-    popcount_1_2a += univec_hsum_16bit(acc_a);
-    popcount_1_2b += univec_hsum_16bit(acc_b);
-  }
-}
-
-// don't bother with popcount_vecs_3intersect for now, but test later
-
-void popcount_longs_2intersect(const uintptr_t* __restrict bitvec1_iter, const uintptr_t* __restrict bitvec2a_iter, const uintptr_t* __restrict bitvec2b_iter, uintptr_t word_ct, uint32_t* popcount_1_2a_ptr, uint32_t* popcount_1_2b_ptr) {
-  const uintptr_t* bitvec1_end = &(bitvec1_iter[word_ct]);
-  uintptr_t trivec_ct = word_ct / (3 * kWordsPerVec);
-  uint32_t popcount_1_2a;
-  uint32_t popcount_1_2b;
-  popcount_vecs_2intersect((const vul_t*)bitvec1_iter, (const vul_t*)bitvec2a_iter, (const vul_t*)bitvec2b_iter, trivec_ct * 3, &popcount_1_2a, &popcount_1_2b);
-  bitvec1_iter = &(bitvec1_iter[trivec_ct * (3 * kWordsPerVec)]);
-  bitvec2a_iter = &(bitvec2a_iter[trivec_ct * (3 * kWordsPerVec)]);
-  bitvec2b_iter = &(bitvec2b_iter[trivec_ct * (3 * kWordsPerVec)]);
-  while (bitvec1_iter < bitvec1_end) {
-    const uintptr_t loader1 = *bitvec1_iter++;
-    popcount_1_2a += popcount_long(loader1 & (*bitvec2a_iter++));
-    popcount_1_2b += popcount_long(loader1 & (*bitvec2b_iter++));
-  }
-  *popcount_1_2a_ptr = popcount_1_2a;
-  *popcount_1_2b_ptr = popcount_1_2b;
-}
-
-static inline int32_t dotprod_vecs(const vul_t* __restrict vvec1a_iter, const vul_t* __restrict vvec1b_iter, const vul_t* __restrict vvec2a_iter, const vul_t* __restrict vvec2b_iter, uintptr_t vec_ct) {
-  // assumes vvec1a/vvec2a represesent +1s, vvec1b/vvec2b represent -1s, and
-  // everything else is 0.  computes
-  //   popcount(vvec1a & vvec2a) + popcount(vvec1b & vvec2b)
-  //   - popcount(vvec1a & vvec2b) - popcount(vvec1b & vvec2a).
+static inline int32_t dotprod_vecs_nm(const vul_t* __restrict hom1_iter, const vul_t* __restrict ref2het1_iter, const vul_t* __restrict hom2_iter, const vul_t* __restrict ref2het2_iter, uintptr_t vec_ct) {
+  // popcount(hom1 & hom2) - 2 * popcount(hom1 & hom2 & (ref2het1 ^ ref2het2))
   // ct must be a multiple of 3.
   assert(!(vec_ct % 3));
   const vul_t m1 = VCONST_UL(kMask5555);
@@ -324,90 +199,287 @@ static inline int32_t dotprod_vecs(const vul_t* __restrict vvec1a_iter, const vu
   const vul_t m4 = VCONST_UL(kMask0F0F);
   int32_t tot = 0;
   while (1) {
-    univec_t acc_plus;
-    univec_t acc_minus;
-    acc_plus.vi = vul_setzero();
-    acc_minus.vi = vul_setzero();
+    univec_t acc_both;
+    univec_t acc_neg;
+    acc_both.vi = vul_setzero();
+    acc_neg.vi = vul_setzero();
 
-    const vul_t* vvec1a_stop;
+    const vul_t* hom1_stop;
     if (vec_ct < 30) {
       if (!vec_ct) {
         return tot;
       }
-      vvec1a_stop = &(vvec1a_iter[vec_ct]);
+      hom1_stop = &(hom1_iter[vec_ct]);
       vec_ct = 0;
     } else {
-      vvec1a_stop = &(vvec1a_iter[30]);
+      hom1_stop = &(hom1_iter[30]);
       vec_ct -= 30;
     }
     do {
-      vul_t loader1a = *vvec1a_iter++;
-      vul_t loader1b = *vvec1b_iter++;
-      vul_t loader2a = *vvec2a_iter++;
-      vul_t loader2b = *vvec2b_iter++;
-      // loader1a and loader1b are disjoint, etc.; take advantage of that
-      vul_t count1_plus = (loader1a & loader2a) | (loader1b & loader2b);
-      vul_t count1_minus = (loader1a & loader2b) | (loader1b & loader2a);
+      vul_t count1_both = (*hom1_iter++) & (*hom2_iter++);
+      vul_t cur_xor = (*ref2het1_iter++) ^ (*ref2het2_iter++);
+      vul_t count1_neg = count1_both & cur_xor;
 
-      loader1a = *vvec1a_iter++;
-      loader1b = *vvec1b_iter++;
-      loader2a = *vvec2a_iter++;
-      loader2b = *vvec2b_iter++;
-      vul_t count2_plus = (loader1a & loader2a) | (loader1b & loader2b);
-      vul_t count2_minus = (loader1a & loader2b) | (loader1b & loader2a);
+      vul_t count2_both = (*hom1_iter++) & (*hom2_iter++);
+      cur_xor = (*ref2het1_iter++) ^ (*ref2het2_iter++);
+      vul_t count2_neg = count2_both & cur_xor;
 
-      loader1a = *vvec1a_iter++;
-      loader1b = *vvec1b_iter++;
-      loader2a = *vvec2a_iter++;
-      loader2b = *vvec2b_iter++;
-      vul_t half1_plus = (loader1a & loader2a) | (loader1b & loader2b);
-      vul_t half1_minus = (loader1a & loader2b) | (loader1b & loader2a);
-      const vul_t half2_plus = vul_rshift(half1_plus, 1) & m1;
-      const vul_t half2_minus = vul_rshift(half1_minus, 1) & m1;
-      half1_plus = half1_plus & m1;
-      half1_minus = half1_minus & m1;
-      count1_plus = count1_plus - (vul_rshift(count1_plus, 1) & m1);
-      count1_minus = count1_minus - (vul_rshift(count1_minus, 1) & m1);
-      count2_plus = count2_plus - (vul_rshift(count2_plus, 1) & m1);
-      count2_minus = count2_minus - (vul_rshift(count2_minus, 1) & m1);
-      count1_plus = count1_plus + half1_plus;
-      count1_minus = count1_minus + half1_minus;
-      count2_plus = count2_plus + half2_plus;
-      count2_minus = count2_minus + half2_minus;
-      count1_plus = (count1_plus & m2) + (vul_rshift(count1_plus, 2) & m2);
-      count1_minus = (count1_minus & m2) + (vul_rshift(count1_minus, 2) & m2);
-      count1_plus = count1_plus + (count2_plus & m2) + (vul_rshift(count2_plus, 2) & m2);
-      count1_minus = count1_minus + (count2_minus & m2) + (vul_rshift(count2_minus, 2) & m2);
-      acc_plus.vi = acc_plus.vi + (count1_plus & m4) + (vul_rshift(count1_plus, 4) & m4);
-      acc_minus.vi = acc_minus.vi + (count1_minus & m4) + (vul_rshift(count1_minus, 4) & m4);
-    } while (vvec1a_iter < vvec1a_stop);
+      vul_t cur_hom = (*hom1_iter++) & (*hom2_iter++);
+      cur_xor = (*ref2het1_iter++) ^ (*ref2het2_iter++);
+      vul_t half1_neg = cur_hom & cur_xor;
+      const vul_t half2_both = vul_rshift(cur_hom, 1) & m1;
+      const vul_t half2_neg = vul_rshift(half1_neg, 1) & m1;
+      const vul_t half1_both = cur_hom & m1;
+      half1_neg = half1_neg & m1;
+      count1_both = count1_both - (vul_rshift(count1_both, 1) & m1);
+      count1_neg = count1_neg - (vul_rshift(count1_neg, 1) & m1);
+      count2_both = count2_both - (vul_rshift(count2_both, 1) & m1);
+      count2_neg = count2_neg - (vul_rshift(count2_neg, 1) & m1);
+      count1_both = count1_both + half1_both;
+      count1_neg = count1_neg + half1_neg;
+      count2_both = count2_both + half2_both;
+      count2_neg = count2_neg + half2_neg;
+      count1_both = (count1_both & m2) + (vul_rshift(count1_both, 2) & m2);
+      count1_neg = (count1_neg & m2) + (vul_rshift(count1_neg, 2) & m2);
+      count1_both = count1_both + (count2_both & m2) + (vul_rshift(count2_both, 2) & m2);
+      count1_neg = count1_neg + (count2_neg & m2) + (vul_rshift(count2_neg, 2) & m2);
+      acc_both.vi = acc_both.vi + (count1_both & m4) + (vul_rshift(count1_both, 4) & m4);
+      acc_neg.vi = acc_neg.vi + (count1_neg & m4) + (vul_rshift(count1_neg, 4) & m4);
+    } while (hom1_iter < hom1_stop);
     const vul_t m8 = VCONST_UL(kMask00FF);
-    acc_plus.vi = (acc_plus.vi & m8) + (vul_rshift(acc_plus.vi, 8) & m8);
-    acc_minus.vi = (acc_minus.vi & m8) + (vul_rshift(acc_minus.vi, 8) & m8);
-    tot += (uint32_t)univec_hsum_16bit(acc_plus);
-    tot -= (uint32_t)univec_hsum_16bit(acc_minus);
+    acc_both.vi = (acc_both.vi & m8) + (vul_rshift(acc_both.vi, 8) & m8);
+    acc_neg.vi = (acc_neg.vi & m8) + (vul_rshift(acc_neg.vi, 8) & m8);
+    tot += (uint32_t)univec_hsum_16bit(acc_both);
+    tot -= 2 * (uint32_t)univec_hsum_16bit(acc_neg);
   }
 }
 
-int32_t dotprod_longs(const uintptr_t* __restrict bitvec1a_iter, const uintptr_t* __restrict bitvec1b_iter, const uintptr_t* __restrict bitvec2a_iter, const uintptr_t* __restrict bitvec2b_iter, uintptr_t word_ct) {
-  const uintptr_t* bitvec1a_end = &(bitvec1a_iter[word_ct]);
-  uintptr_t trivec_ct = word_ct / (kWordsPerVec * 3);
-  int32_t tot = dotprod_vecs((const vul_t*)bitvec1a_iter, (const vul_t*)bitvec1b_iter, (const vul_t*)bitvec2a_iter, (const vul_t*)bitvec2b_iter, trivec_ct * 3);
-  bitvec1a_iter = &(bitvec1a_iter[trivec_ct * (3 * kWordsPerVec)]);
-  bitvec1b_iter = &(bitvec1b_iter[trivec_ct * (3 * kWordsPerVec)]);
-  bitvec2a_iter = &(bitvec2a_iter[trivec_ct * (3 * kWordsPerVec)]);
-  bitvec2b_iter = &(bitvec2b_iter[trivec_ct * (3 * kWordsPerVec)]);
-  while (bitvec1a_iter < bitvec1a_end) {
-    uintptr_t loader1a = *bitvec1a_iter++;
-    uintptr_t loader1b = *bitvec1b_iter++;
-    uintptr_t loader2a = *bitvec2a_iter++;
-    uintptr_t loader2b = *bitvec2b_iter++;
-    tot += popcount_long((loader1a & loader2a) | (loader1b & loader2b));
-    tot -= popcount_long((loader1a & loader2b) | (loader1b & loader2a));
+int32_t dotprod_longs(const uintptr_t* __restrict hom1, const uintptr_t* __restrict ref2het1, const uintptr_t* __restrict hom2, const uintptr_t* __restrict ref2het2, uintptr_t word_ct) {
+  int32_t tot_both = 0;
+  uint32_t widx = 0;
+  if (word_ct >= kWordsPerVec * 3) {
+    const uintptr_t block_ct = word_ct / (kWordsPerVec * 3);
+    tot_both = dotprod_vecs_nm((const vul_t*)hom1, (const vul_t*)ref2het1, (const vul_t*)hom2, (const vul_t*)ref2het2, block_ct * 3);
+    widx = block_ct * (3 * kWordsPerVec);
   }
-  return tot;
+  uint32_t tot_neg = 0;
+  for (; widx < word_ct; ++widx) {
+    const uintptr_t hom_word = hom1[widx] & hom2[widx];
+    const uintptr_t xor_word = ref2het1[widx] ^ ref2het2[widx];
+    tot_both += popcount_long(hom_word);
+    tot_neg += popcount_long(hom_word & xor_word);
+  }
+  return tot_both - 2 * tot_neg;
+}
+
+#ifndef USE_SSE42
+static inline void sum_ssq_vecs(const vul_t* __restrict hom1_iter, const vul_t* __restrict ref2het1_iter, const vul_t* __restrict hom2_iter, const vul_t* __restrict ref2het2_iter, uintptr_t vec_ct, uint32_t* __restrict ssq2_ptr, uint32_t* __restrict plus2_ptr) {
+  // popcounts (nm1 & hom2) and (nm1 & hom2 & ref2het2).  ct is multiple of 3.
+  assert(!(vec_ct % 3));
+  const vul_t m1 = VCONST_UL(kMask5555);
+  const vul_t m2 = VCONST_UL(kMask3333);
+  const vul_t m4 = VCONST_UL(kMask0F0F);
+  uint32_t ssq2 = 0;
+  uint32_t plus2 = 0;
+  uint32_t cur_vec_ct = 30;
+  while (1) {
+    univec_t acc_ssq;
+    univec_t acc_plus;
+    acc_ssq.vi = vul_setzero();
+    acc_plus.vi = vul_setzero();
+
+    if (vec_ct < 30) {
+      if (!vec_ct) {
+        *ssq2_ptr = ssq2;
+        *plus2_ptr = plus2;
+        return;
+      }
+      cur_vec_ct = vec_ct;
+      vec_ct = 0;
+    } else {
+      vec_ct -= 30;
+    }
+    for (uint32_t vec_idx = 0; vec_idx < cur_vec_ct; vec_idx += 3) {
+      vul_t count1_ssq = (hom1_iter[vec_idx] | ref2het1_iter[vec_idx]) & hom2_iter[vec_idx];
+      vul_t count1_plus = count1_ssq & ref2het2_iter[vec_idx];
+
+      vul_t count2_ssq = (hom1_iter[vec_idx + 1] | ref2het1_iter[vec_idx + 1]) & hom2_iter[vec_idx + 1];
+      vul_t count2_plus = count2_ssq & ref2het2_iter[vec_idx + 1];
+
+      vul_t half1_ssq = (hom1_iter[vec_idx + 2] | ref2het1_iter[vec_idx + 2]) & hom2_iter[vec_idx + 2];
+      vul_t half1_plus = half1_ssq & ref2het2_iter[vec_idx + 2];
+      vul_t half2_ssq = vul_rshift(half1_ssq, 1) & m1;
+      vul_t half2_plus = vul_rshift(half1_plus, 1) & m1;
+      half1_ssq = half1_ssq & m1;
+      half1_plus = half1_plus & m1;
+      count1_ssq = count1_ssq - (vul_rshift(count1_ssq, 1) & m1);
+      count1_plus = count1_plus - (vul_rshift(count1_plus, 1) & m1);
+      count2_ssq = count2_ssq - (vul_rshift(count2_ssq, 1) & m1);
+      count2_plus = count2_plus - (vul_rshift(count2_plus, 1) & m1);
+      count1_ssq = count1_ssq + half1_ssq;
+      count1_plus = count1_plus + half1_plus;
+      count2_ssq = count2_ssq + half2_ssq;
+      count2_plus = count2_plus + half2_plus;
+      count1_ssq = (count1_ssq & m2) + (vul_rshift(count1_ssq, 2) & m2);
+      count1_plus = (count1_plus & m2) + (vul_rshift(count1_plus, 2) & m2);
+      count1_ssq = count1_ssq + (count2_ssq & m2) + (vul_rshift(count2_ssq, 2) & m2);
+      count1_plus = count1_plus + (count2_plus & m2) + (vul_rshift(count2_plus, 2) & m2);
+      acc_ssq.vi = acc_ssq.vi + (count1_ssq & m4) + (vul_rshift(count1_ssq, 4) & m4);
+      acc_plus.vi = acc_plus.vi + (count1_plus & m4) + (vul_rshift(count1_plus, 4) & m4);
+    }
+    hom1_iter = &(hom1_iter[cur_vec_ct]);
+    ref2het1_iter = &(ref2het1_iter[cur_vec_ct]);
+    hom2_iter = &(hom2_iter[cur_vec_ct]);
+    ref2het2_iter = &(ref2het2_iter[cur_vec_ct]);
+    const vul_t m8 = VCONST_UL(kMask00FF);
+    acc_ssq.vi = (acc_ssq.vi & m8) + (vul_rshift(acc_ssq.vi, 8) & m8);
+    acc_plus.vi = (acc_plus.vi & m8) + (vul_rshift(acc_plus.vi, 8) & m8);
+    ssq2 += univec_hsum_16bit(acc_ssq);
+    plus2 += univec_hsum_16bit(acc_plus);
+  }
+}
+#endif
+
+void sum_ssq_longs(const uintptr_t* hom1, const uintptr_t* ref2het1, const uintptr_t* hom2, const uintptr_t* ref2het2, uint32_t word_ct, int32_t* sum2_ptr, uint32_t* ssq2_ptr) {
+  uint32_t ssq2 = 0;
+  uint32_t plus2 = 0;
+  uint32_t widx = 0;
+#ifndef USE_SSE42
+  if (word_ct >= kWordsPerVec * 3) {
+    const uintptr_t block_ct = word_ct / (kWordsPerVec * 3);
+    sum_ssq_vecs((const vul_t*)hom1, (const vul_t*)ref2het1, (const vul_t*)hom2, (const vul_t*)ref2het2, block_ct * 3, &ssq2, &plus2);
+    widx = block_ct * (3 * kWordsPerVec);
+  }
+#endif
+  for (; widx < word_ct; ++widx) {
+    const uintptr_t ssq2_word = (hom1[widx] | ref2het1[widx]) & hom2[widx];
+    ssq2 += popcount_long(ssq2_word);
+    plus2 += popcount_long(ssq2_word & ref2het2[widx]);
+  }
+  *sum2_ptr = (int32_t)(2 * plus2 - ssq2); // deliberate overflow
+  *ssq2_ptr = ssq2;
 }
 #endif // !USE_AVX2
+
+#if defined(USE_AVX2) || !defined(USE_SSE42)
+static inline void sum_ssq_nm_vecs(const vul_t* __restrict hom1_iter, const vul_t* __restrict ref2het1_iter, const vul_t* __restrict hom2_iter, const vul_t* __restrict ref2het2_iter, uintptr_t vec_ct, uint32_t* __restrict nm_ptr, uint32_t* __restrict ssq2_ptr, uint32_t* __restrict plus2_ptr) {
+  // vec_ct must be a multiple of 3.
+  assert(!(vec_ct % 3));
+  const vul_t m1 = VCONST_UL(kMask5555);
+  const vul_t m2 = VCONST_UL(kMask3333);
+  const vul_t m4 = VCONST_UL(kMask0F0F);
+  uint32_t nm = 0;
+  uint32_t ssq2 = 0;
+  uint32_t plus2 = 0;
+  uint32_t cur_vec_ct = 30;
+  while (1) {
+    univec_t acc_nm;
+    univec_t acc_ssq;
+    univec_t acc_plus;
+    acc_nm.vi = vul_setzero();
+    acc_ssq.vi = vul_setzero();
+    acc_plus.vi = vul_setzero();
+    if (vec_ct < 30) {
+      if (!vec_ct) {
+        *nm_ptr = nm;
+        *ssq2_ptr = ssq2;
+        *plus2_ptr = plus2;
+        return;
+      }
+      cur_vec_ct = vec_ct;
+      vec_ct = 0;
+    } else {
+      vec_ct -= 30;
+    }
+    for (uint32_t vec_idx = 0; vec_idx < cur_vec_ct; vec_idx += 3) {
+      vul_t nm1 = hom1_iter[vec_idx] | ref2het1_iter[vec_idx];
+      vul_t hom2 = hom2_iter[vec_idx];
+      vul_t ref2het2 = ref2het2_iter[vec_idx];
+      vul_t count1_ssq = nm1 & hom2;
+      vul_t count1_nm = nm1 & (hom2 | ref2het2);
+      vul_t count1_plus = count1_ssq & ref2het2;
+
+      nm1 = hom1_iter[vec_idx + 1] | ref2het1_iter[vec_idx + 1];
+      hom2 = hom2_iter[vec_idx + 1];
+      ref2het2 = ref2het2_iter[vec_idx + 1];
+      vul_t count2_ssq = nm1 & hom2;
+      vul_t count2_nm = nm1 & (hom2 | ref2het2);
+      vul_t count2_plus = count2_ssq & ref2het2;
+
+      nm1 = hom1_iter[vec_idx + 2] | ref2het1_iter[vec_idx + 2];
+      hom2 = hom2_iter[vec_idx + 2];
+      ref2het2 = ref2het2_iter[vec_idx + 2];
+      vul_t half_a_ssq = nm1 & hom2;
+      vul_t half_a_nm = nm1 & (hom2 | ref2het2);
+      vul_t half_a_plus = half_a_ssq & ref2het2;
+      const vul_t half_b_ssq = vul_rshift(half_a_ssq, 1) & m1;
+      const vul_t half_b_nm = vul_rshift(half_a_nm, 1) & m1;
+      const vul_t half_b_plus = vul_rshift(half_a_plus, 1) & m1;
+      half_a_ssq = half_a_ssq & m1;
+      half_a_nm = half_a_nm & m1;
+      half_a_plus = half_a_plus & m1;
+      count1_ssq = count1_ssq - (vul_rshift(count1_ssq, 1) & m1);
+      count1_nm = count1_nm - (vul_rshift(count1_nm, 1) & m1);
+      count1_plus = count1_plus - (vul_rshift(count1_plus, 1) & m1);
+      count2_ssq = count2_ssq - (vul_rshift(count2_ssq, 1) & m1);
+      count2_nm = count2_nm - (vul_rshift(count2_nm, 1) & m1);
+      count2_plus = count2_plus - (vul_rshift(count2_plus, 1) & m1);
+      count1_ssq = count1_ssq + half_a_ssq;
+      count1_nm = count1_nm + half_a_nm;
+      count1_plus = count1_plus + half_a_plus;
+      count2_ssq = count2_ssq + half_b_ssq;
+      count2_nm = count2_nm + half_b_nm;
+      count2_plus = count2_plus + half_b_plus;
+      count1_ssq = (count1_ssq & m2) + (vul_rshift(count1_ssq, 2) & m2);
+      count1_nm = (count1_nm & m2) + (vul_rshift(count1_nm, 2) & m2);
+      count1_plus = (count1_plus & m2) + (vul_rshift(count1_plus, 2) & m2);
+      count1_ssq = count1_ssq + (count2_ssq & m2) + (vul_rshift(count2_ssq, 2) & m2);
+      count1_nm = count1_nm + (count2_nm & m2) + (vul_rshift(count2_nm, 2) & m2);
+      count1_plus = count1_plus + (count2_plus & m2) + (vul_rshift(count2_plus, 2) & m2);
+      acc_nm.vi = acc_nm.vi + (count1_nm & m4) + (vul_rshift(count1_nm, 4) & m4);
+      acc_ssq.vi = acc_ssq.vi + (count1_ssq & m4) + (vul_rshift(count1_ssq, 4) & m4);
+      acc_plus.vi = acc_plus.vi + (count1_plus & m4) + (vul_rshift(count1_plus, 4) & m4);
+    }
+    hom1_iter = &(hom1_iter[cur_vec_ct]);
+    ref2het1_iter = &(ref2het1_iter[cur_vec_ct]);
+    hom2_iter = &(hom2_iter[cur_vec_ct]);
+    ref2het2_iter = &(ref2het2_iter[cur_vec_ct]);
+    const vul_t m8 = VCONST_UL(kMask00FF);
+    acc_nm.vi = (acc_nm.vi & m8) + (vul_rshift(acc_nm.vi, 8) & m8);
+    acc_ssq.vi = (acc_ssq.vi & m8) + (vul_rshift(acc_ssq.vi, 8) & m8);
+    acc_plus.vi = (acc_plus.vi & m8) + (vul_rshift(acc_plus.vi, 8) & m8);
+    nm += (uint32_t)univec_hsum_16bit(acc_nm);
+    ssq2 += (uint32_t)univec_hsum_16bit(acc_ssq);
+    plus2 += (uint32_t)univec_hsum_16bit(acc_plus);
+  }
+}
+#endif // __LP64__
+
+void sum_ssq_nm_longs(const uintptr_t* hom1, const uintptr_t* ref2het1, const uintptr_t* hom2, const uintptr_t* ref2het2, uint32_t word_ct, uint32_t* __restrict nm_ptr, int32_t* sum2_ptr, uint32_t* __restrict ssq2_ptr) {
+  uint32_t nm = 0;
+  uint32_t ssq2 = 0;
+  uint32_t plus2 = 0;
+  uint32_t widx = 0;
+#if defined(USE_AVX2) || !defined(USE_SSE42)
+  if (word_ct >= 3 * kWordsPerVec) {
+    const uintptr_t block_ct = word_ct / (3 * kWordsPerVec);
+    sum_ssq_nm_vecs((const vul_t*)hom1, (const vul_t*)ref2het1, (const vul_t*)hom2, (const vul_t*)ref2het2, block_ct * 3, &nm, &ssq2, &plus2);
+    widx = block_ct * (3 * kWordsPerVec);
+  }
+#endif
+  for (; widx < word_ct; ++widx) {
+    const uintptr_t nm1_word = hom1[widx] | ref2het1[widx];
+    const uintptr_t hom2_word = hom2[widx];
+    const uintptr_t ref2het2_word = ref2het2[widx];
+    nm += popcount_long(nm1_word & (hom2_word | ref2het2_word));
+    const uintptr_t ssq2_word = nm1_word & hom2_word;
+    ssq2 += popcount_long(ssq2_word);
+    plus2 += popcount_long(ssq2_word & ref2het2_word);
+  }
+  *nm_ptr = nm;
+  *sum2_ptr = (int32_t)(2 * plus2 - ssq2); // deliberate overflow
+  *ssq2_ptr = ssq2;
+}
 
 void ldprune_next_subcontig(const uintptr_t* variant_include, const uint32_t* variant_bps, const uint32_t* subcontig_info, const uint32_t* subcontig_thread_assignments, uint32_t x_start, uint32_t x_len, uint32_t y_start, uint32_t y_len, uint32_t founder_ct, uint32_t founder_male_ct, uint32_t prune_window_size, uint32_t thread_idx, uint32_t* subcontig_idx_ptr, uint32_t* subcontig_end_tvidx_ptr, uint32_t* next_window_end_tvidx_ptr, uint32_t* is_x_ptr, uint32_t* is_y_ptr, uint32_t* cur_founder_ct_ptr, uint32_t* cur_founder_ctaw_ptr, uint32_t* cur_founder_ctl_ptr, uintptr_t* entire_variant_buf_word_ct_ptr, uint32_t* variant_uidx_winstart_ptr, uint32_t* variant_uidx_winend_ptr) {
   uint32_t subcontig_idx = *subcontig_idx_ptr;
@@ -446,43 +518,10 @@ void ldprune_next_subcontig(const uintptr_t* variant_include, const uint32_t* va
     *cur_founder_ct_ptr = cur_founder_ct;
     *cur_founder_ctaw_ptr = cur_founder_ctaw;
     *cur_founder_ctl_ptr = BITCT_TO_WORDCT(cur_founder_ct);
-    *entire_variant_buf_word_ct_ptr = 3 * cur_founder_ctaw;
+    *entire_variant_buf_word_ct_ptr = 2 * cur_founder_ctaw;
     if (is_x) {
-      *entire_variant_buf_word_ct_ptr += 3 * BITCT_TO_ALIGNED_WORDCT(founder_ct - founder_male_ct);
+      *entire_variant_buf_word_ct_ptr += 2 * BITCT_TO_ALIGNED_WORDCT(founder_ct - founder_male_ct);
     }
-  }
-}
-
-void genoarr_split_02nm(const uintptr_t* __restrict genoarr, uint32_t sample_ct, uintptr_t* __restrict zero_bitarr, uintptr_t* __restrict two_bitarr, uintptr_t* __restrict nm_bitarr) {
-  // ok if trailing bits of genoarr are not zeroed out
-  // trailing bits of {zero,two,nm}_bitarr are zeroed out
-  const uint32_t sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
-  halfword_t* zero_bitarr_alias = (halfword_t*)zero_bitarr;
-  halfword_t* two_bitarr_alias = (halfword_t*)two_bitarr;
-  halfword_t* nm_bitarr_alias = (halfword_t*)nm_bitarr;
-  for (uint32_t widx = 0; widx < sample_ctl2; ++widx) {
-    const uintptr_t cur_geno_word = genoarr[widx];
-    const uint32_t low_halfword = pack_word_to_halfword(cur_geno_word & kMask5555);
-    const uint32_t high_halfword = pack_word_to_halfword((cur_geno_word >> 1) & kMask5555);
-    zero_bitarr_alias[widx] = ~(low_halfword | high_halfword);
-    two_bitarr_alias[widx] = high_halfword & (~low_halfword);
-    nm_bitarr_alias[widx] = ~(low_halfword & high_halfword);
-  }
-
-  // had code which operated directly on zero_bitarr/two_bitarr/nm_bitarr here,
-  // but that technically breaks the strict-aliasing rule, and this isn't a
-  // primary bottleneck so may as well be paranoid
-  const uint32_t sample_ct_rem = sample_ct % kBitsPerWordD2;
-  if (sample_ct_rem) {
-    const halfword_t trailing_mask = (1U << sample_ct_rem) - 1;
-    zero_bitarr_alias[sample_ctl2 - 1] &= trailing_mask;
-    two_bitarr_alias[sample_ctl2 - 1] &= trailing_mask;
-    nm_bitarr_alias[sample_ctl2 - 1] &= trailing_mask;
-  }
-  if (sample_ctl2 % 2) {
-    zero_bitarr_alias[sample_ctl2] = 0;
-    two_bitarr_alias[sample_ctl2] = 0;
-    nm_bitarr_alias[sample_ctl2] = 0;
   }
 }
 
@@ -543,13 +582,13 @@ void ldprune_next_window(const uintptr_t* __restrict variant_include, const uint
 void compute_indep_pairwise_r2_components(const uintptr_t* __restrict first_genobufs, const uintptr_t* __restrict second_genobufs, const int32_t* __restrict second_vstats, uint32_t founder_ct, uint32_t* cur_nm_ct_ptr, int32_t* cur_first_sum_ptr, uint32_t* cur_first_ssq_ptr, int32_t* second_sum_ptr, uint32_t* second_ssq_ptr, int32_t* cur_dotprod_ptr) {
   const uint32_t founder_ctaw = BITCT_TO_ALIGNED_WORDCT(founder_ct);
   const uint32_t founder_ctl = BITCT_TO_WORDCT(founder_ct);
+  // Three cases:
+  // 1. Just need dot product.
+  // 2. Also need {first_sum, first_ssq} xor {second_sum, second_ssq}.
+  // 3. Need all six variables.
   *cur_dotprod_ptr = dotprod_longs(first_genobufs, &(first_genobufs[founder_ctaw]), second_genobufs, &(second_genobufs[founder_ctaw]), founder_ctl);
   if (*cur_nm_ct_ptr != founder_ct) {
-    uint32_t plusone_ct;
-    uint32_t minusone_ct;
-    popcount_longs_2intersect(&(first_genobufs[2 * founder_ctaw]), second_genobufs, &(second_genobufs[founder_ctaw]), founder_ctl, &plusone_ct, &minusone_ct);
-    *second_sum_ptr = ((int32_t)plusone_ct) - ((int32_t)minusone_ct);
-    *second_ssq_ptr = plusone_ct + minusone_ct;
+    sum_ssq_longs(first_genobufs, &(first_genobufs[founder_ctaw]), second_genobufs, &(second_genobufs[founder_ctaw]), founder_ctl, second_sum_ptr, second_ssq_ptr);
   } else {
     *second_sum_ptr = second_vstats[1];
     *second_ssq_ptr = second_vstats[2];
@@ -560,16 +599,27 @@ void compute_indep_pairwise_r2_components(const uintptr_t* __restrict first_geno
     // initialized to first_vstats[1], cur_first_ssq to first_vstats[2]
     return;
   }
-  uint32_t plusone_ct;
-  uint32_t minusone_ct;
-  popcount_longs_2intersect(&(second_genobufs[2 * founder_ctaw]), first_genobufs, &(first_genobufs[founder_ctaw]), founder_ctl, &plusone_ct, &minusone_ct);
-  *cur_first_sum_ptr = ((int32_t)plusone_ct) - ((int32_t)minusone_ct);
-  *cur_first_ssq_ptr = plusone_ct + minusone_ct;
-  if (*cur_nm_ct_ptr == founder_ct) {
+  if (*cur_nm_ct_ptr != founder_ct) {
+    sum_ssq_nm_longs(second_genobufs, &(second_genobufs[founder_ctaw]), first_genobufs, &(first_genobufs[founder_ctaw]), founder_ctl, cur_nm_ct_ptr, cur_first_sum_ptr, cur_first_ssq_ptr);
+  } else {
+    sum_ssq_longs(second_genobufs, &(second_genobufs[founder_ctaw]), first_genobufs, &(first_genobufs[founder_ctaw]), founder_ctl, cur_first_sum_ptr, cur_first_ssq_ptr);
     *cur_nm_ct_ptr = second_nm_ct;
-    return;
   }
-  *cur_nm_ct_ptr = popcount_longs_intersect(&(first_genobufs[2 * founder_ctaw]), &(second_genobufs[2 * founder_ctaw]), founder_ctl);
+}
+
+void fill_vstats(const uintptr_t* hom_vec, const uintptr_t* ref2het_vec, uintptr_t word_ct, int32_t* vstats, uint32_t* nm_ct_ptr, uint32_t* plusone_ct_ptr, uint32_t* minusone_ct_ptr) {
+  uint32_t hom_ct;
+  uint32_t ref2het_ct;
+  uint32_t ref2_ct;
+  popcount_longs_intersect_3val(hom_vec, ref2het_vec, word_ct, &hom_ct, &ref2het_ct, &ref2_ct);
+  const uint32_t alt2_ct = hom_ct - ref2_ct;
+  const uint32_t nm_ct = alt2_ct + ref2het_ct;
+  vstats[0] = nm_ct;
+  vstats[1] = (int32_t)(ref2_ct - alt2_ct); // deliberate overflow
+  vstats[2] = hom_ct;
+  *nm_ct_ptr = nm_ct;
+  *plusone_ct_ptr = ref2_ct;
+  *minusone_ct_ptr = alt2_ct;
 }
 
 // multithread globals
@@ -655,7 +705,7 @@ THREAD_FUNC_DECL indep_pairwise_thread(void* arg) {
   uint32_t variant_uidx = 0;
   uint32_t variant_uidx_winstart = 0;
   uint32_t variant_uidx_winend = 0;
-  uintptr_t entire_variant_buf_word_ct = 3 * cur_founder_ctaw;
+  uintptr_t entire_variant_buf_word_ct = 2 * cur_founder_ctaw;
   uint32_t cur_allele_ct = 2;
   uint32_t parity = 0;
   while (1) {
@@ -677,26 +727,22 @@ THREAD_FUNC_DECL indep_pairwise_thread(void* arg) {
       uintptr_t tvidx_offset = cur_tvidx - tvidx_start;
       const uintptr_t* cur_raw_tgenovecs = &(raw_tgenovecs[tvidx_offset * raw_tgenovec_single_variant_word_ct]);
       uintptr_t* cur_genobuf = &(genobufs[write_slot_idx * entire_variant_buf_word_ct]);
-      uintptr_t* cur_genobuf_minus = &(cur_genobuf[cur_founder_ctaw]);
-      uintptr_t* cur_genobuf_nm = &(cur_genobuf_minus[cur_founder_ctaw]);
-      genoarr_split_02nm(cur_raw_tgenovecs, cur_founder_ct, cur_genobuf, cur_genobuf_minus, cur_genobuf_nm);
-      uint32_t nm_ct = popcount_longs(cur_genobuf_nm, cur_founder_ctl);
-      uint32_t plusone_ct = popcount_longs(cur_genobuf, cur_founder_ctl);
-      uint32_t minusone_ct = popcount_longs(cur_genobuf_minus, cur_founder_ctl);
-      vstats[3 * write_slot_idx] = nm_ct;
-      vstats[3 * write_slot_idx + 1] = ((int32_t)plusone_ct) - ((int32_t)minusone_ct);
-      vstats[3 * write_slot_idx + 2] = plusone_ct + minusone_ct;
+      uintptr_t* cur_genobuf_ref2het = &(cur_genobuf[cur_founder_ctaw]);
+      // need local genobuf anyway due to halts, so may as well perform split
+      // here.
+      split_hom_ref2het(cur_raw_tgenovecs, cur_founder_ct, cur_genobuf, cur_genobuf_ref2het);
+      uint32_t nm_ct;
+      uint32_t plusone_ct;
+      uint32_t minusone_ct;
+      fill_vstats(cur_genobuf, cur_genobuf_ref2het, cur_founder_ctl, &(vstats[3 * write_slot_idx]), &nm_ct, &plusone_ct, &minusone_ct);
       if (is_x) {
-        cur_genobuf = &(cur_genobuf[3 * cur_founder_ctaw]);
-        cur_genobuf_minus = &(cur_genobuf[nonmale_ctaw]);
-        cur_genobuf_nm = &(cur_genobuf_minus[nonmale_ctaw]);
-        genoarr_split_02nm(&(cur_raw_tgenovecs[founder_male_ctl2]), nonmale_ct, cur_genobuf, cur_genobuf_minus, cur_genobuf_nm);
-        const uint32_t x_nonmale_nm_ct = popcount_longs(cur_genobuf_nm, nonmale_ctl);
-        const uint32_t x_nonmale_plusone_ct = popcount_longs(cur_genobuf, nonmale_ctl);
-        const uint32_t x_nonmale_minusone_ct = popcount_longs(cur_genobuf_minus, nonmale_ctl);
-        nonmale_vstats[3 * write_slot_idx] = x_nonmale_nm_ct;
-        nonmale_vstats[3 * write_slot_idx + 1] = ((int32_t)x_nonmale_plusone_ct) - ((int32_t)x_nonmale_minusone_ct);
-        nonmale_vstats[3 * write_slot_idx + 2] = x_nonmale_plusone_ct + x_nonmale_minusone_ct;
+        cur_genobuf = &(cur_genobuf[2 * cur_founder_ctaw]);
+        cur_genobuf_ref2het = &(cur_genobuf[nonmale_ctaw]);
+        split_hom_ref2het(&(cur_raw_tgenovecs[founder_male_ctl2]), nonmale_ct, cur_genobuf, cur_genobuf_ref2het);
+        uint32_t x_nonmale_nm_ct;
+        uint32_t x_nonmale_plusone_ct;
+        uint32_t x_nonmale_minusone_ct;
+        fill_vstats(cur_genobuf, cur_genobuf_ref2het, nonmale_ctl, &(nonmale_vstats[3 * write_slot_idx]), &x_nonmale_nm_ct, &x_nonmale_plusone_ct, &x_nonmale_minusone_ct);
         nm_ct += 2 * x_nonmale_nm_ct;
         plusone_ct += 2 * x_nonmale_plusone_ct;
         minusone_ct += 2 * x_nonmale_minusone_ct;
@@ -766,7 +812,7 @@ THREAD_FUNC_DECL indep_pairwise_thread(void* arg) {
                     int32_t nonmale_dotprod;
                     int32_t nonmale_second_sum;
                     uint32_t nonmale_second_ssq;
-                    compute_indep_pairwise_r2_components(&(first_genobufs[3 * cur_founder_ctaw]), &(second_genobufs[3 * cur_founder_ctaw]), &(nonmale_vstats[3 * second_slot_idx]), nonmale_ct, &nonmale_nm_ct, &nonmale_first_sum, &nonmale_first_ssq, &nonmale_second_sum, &nonmale_second_ssq, &nonmale_dotprod);
+                    compute_indep_pairwise_r2_components(&(first_genobufs[2 * cur_founder_ctaw]), &(second_genobufs[2 * cur_founder_ctaw]), &(nonmale_vstats[3 * second_slot_idx]), nonmale_ct, &nonmale_nm_ct, &nonmale_first_sum, &nonmale_first_ssq, &nonmale_second_sum, &nonmale_second_ssq, &nonmale_dotprod);
                     // only --ld-xchr 3 for now
                     // assumes founder_ct < 2^30
                     cur_nm_ct += 2 * nonmale_nm_ct;
@@ -865,7 +911,7 @@ pglerr_t indep_pairwise(const uintptr_t* variant_include, const chr_info_t* cip,
     // - if pos-based window, tvidx_batch_size * sizeof(int32_t)
     // - All of the above again, to allow loader thread to operate
     //     independently
-    // - window_max * 3 * (founder_nonmale_ctaw + founder_male_ctaw) *
+    // - window_max * 2 * (founder_nonmale_ctaw + founder_male_ctaw) *
     //     kBytesPerVec for split genotype data
     // - max_loadl * sizeof(intptr_t) for removed-variant bitarray
     // - window_max * 3 * sizeof(int32_t) for main missing_ct, sum(x_i),
@@ -908,7 +954,7 @@ pglerr_t indep_pairwise(const uintptr_t* variant_include, const chr_info_t* cip,
       const uint32_t cur_thread_idx = subcontig_thread_assignments[subcontig_idx];
       g_tvidx_end[cur_thread_idx] += subcontig_info[3 * subcontig_idx];
     }
-    const uintptr_t entire_variant_buf_word_ct = 3 * (founder_nonmale_ctaw + founder_male_ctaw);
+    const uintptr_t entire_variant_buf_word_ct = 2 * (founder_nonmale_ctaw + founder_male_ctaw);
     const uint32_t window_maxl = BITCT_TO_WORDCT(window_max);
     const uint32_t max_loadl = BITCT_TO_WORDCT(max_load);
     const uintptr_t genobuf_alloc = round_up_pow2(window_max * entire_variant_buf_word_ct * sizeof(intptr_t), kCacheline);
@@ -1600,7 +1646,7 @@ pglerr_t ld_prune(const uintptr_t* orig_variant_include, const chr_info_t* cip, 
     if (is_pairphase) {
       // todo
     } else {
-      const uintptr_t entire_variant_buf_word_ct = 3 * (BITCT_TO_ALIGNED_WORDCT(founder_ct - founder_male_ct) + BITCT_TO_ALIGNED_WORDCT(founder_male_ct));
+      const uintptr_t entire_variant_buf_word_ct = 2 * (BITCT_TO_ALIGNED_WORDCT(founder_ct - founder_male_ct) + BITCT_TO_ALIGNED_WORDCT(founder_male_ct));
       // reserve ~1/2 of space for main variant data buffer,
       //   removed_variant_write
       // everything else:
@@ -1661,6 +1707,7 @@ pglerr_t ld_prune(const uintptr_t* orig_variant_include, const chr_info_t* cip, 
 }
 
 
+// todo: see if this can also be usefully condensed into two bitarrays
 void genoarr_split_12nm(const uintptr_t* __restrict genoarr, uint32_t sample_ct, uintptr_t* __restrict one_bitarr, uintptr_t* __restrict two_bitarr, uintptr_t* __restrict nm_bitarr) {
   // ok if trailing bits of genoarr are not zeroed out
   // trailing bits of {one,two,nm}_bitarr are zeroed out

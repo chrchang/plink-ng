@@ -431,9 +431,84 @@ uint32_t prev_set_unsafe(const uintptr_t* bitarr, uint32_t loc) {
   return (uint32_t)(((uintptr_t)(bitarr_ptr - bitarr)) * kBitsPerWord + kBitsPerWord - 1 - CLZLU(ulii));
 }
 
+#ifdef USE_AVX2
+// todo: use _pext_u64()
 void copy_bitarr_subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t subset_size, uintptr_t* __restrict output_bitarr) {
-  // could try exploiting _pext_u64() intrinsic, but probably not worthwhile
-  // until 2020ish
+  const uint32_t subset_size_lowbits = subset_size % kBitsPerWord;
+  uintptr_t* output_bitarr_iter = output_bitarr;
+  uintptr_t* output_bitarr_last = &(output_bitarr[subset_size / kBitsPerWord]);
+  uintptr_t cur_output_word = 0;
+  uint32_t read_widx = UINT32_MAX; // deliberate overflow
+  uint32_t write_idx_lowbits = 0;
+  while ((output_bitarr_iter != output_bitarr_last) || (write_idx_lowbits != subset_size_lowbits)) {
+    uintptr_t cur_mask_word;
+    // sparse subset_mask optimization
+    // guaranteed to terminate since there's at least one more set bit
+    do {
+      cur_mask_word = subset_mask[++read_widx];
+    } while (!cur_mask_word);
+    uintptr_t extracted_bits = raw_bitarr[read_widx];
+    uint32_t set_bit_ct = kBitsPerWord;
+    if (cur_mask_word != ~k0LU) {
+      extracted_bits = _pext_u64(extracted_bits, cur_mask_word);
+      set_bit_ct = popcount_long(cur_mask_word);
+    }
+    cur_output_word |= extracted_bits << write_idx_lowbits;
+    const uint32_t new_write_idx_lowbits = write_idx_lowbits + set_bit_ct;
+    if (new_write_idx_lowbits >= kBitsPerWord) {
+      *output_bitarr_iter++ = cur_output_word;
+      // ...and these are the bits that fell off
+      // bugfix: unsafe to right-shift 64
+      if (write_idx_lowbits) {
+        cur_output_word = extracted_bits >> (kBitsPerWord - write_idx_lowbits);
+      } else {
+        cur_output_word = 0;
+      }
+    }
+    write_idx_lowbits = new_write_idx_lowbits % kBitsPerWord;
+  }
+  if (write_idx_lowbits) {
+    *output_bitarr_iter = cur_output_word;
+  }
+}
+
+uintptr_t popcount_avx2(const vul_t* bit_vvec, uintptr_t vec_ct) {
+  // See popcnt_avx2() in libpopcnt.
+  vul_t cnt = vul_setzero();
+  vul_t ones = vul_setzero();
+  vul_t twos = vul_setzero();
+  vul_t fours = vul_setzero();
+  vul_t eights = vul_setzero();
+  for (uintptr_t vec_idx = 0; vec_idx < vec_ct; vec_idx += 16) {
+    vul_t twos_a = csa256(bit_vvec[vec_idx + 0], bit_vvec[vec_idx + 1], &ones);
+    vul_t twos_b = csa256(bit_vvec[vec_idx + 2], bit_vvec[vec_idx + 3], &ones);
+    vul_t fours_a = csa256(twos_a, twos_b, &twos);
+
+    twos_a = csa256(bit_vvec[vec_idx + 4], bit_vvec[vec_idx + 5], &ones);
+    twos_b = csa256(bit_vvec[vec_idx + 6], bit_vvec[vec_idx + 7], &ones);
+    vul_t fours_b = csa256(twos_a, twos_b, &twos);
+    const vul_t eights_a = csa256(fours_a, fours_b, &fours);
+
+    twos_a = csa256(bit_vvec[vec_idx + 8], bit_vvec[vec_idx + 9], &ones);
+    twos_b = csa256(bit_vvec[vec_idx + 10], bit_vvec[vec_idx + 11], &ones);
+    fours_a = csa256(twos_a, twos_b, &twos);
+
+    twos_a = csa256(bit_vvec[vec_idx + 12], bit_vvec[vec_idx + 13], &ones);
+    twos_b = csa256(bit_vvec[vec_idx + 14], bit_vvec[vec_idx + 15], &ones);
+    fours_b = csa256(twos_a, twos_b, &twos);
+    const vul_t eights_b = csa256(fours_a, fours_b, &fours);
+    const vul_t sixteens = csa256(eights_a, eights_b, &eights);
+    cnt = cnt + popcount_avx2_single(sixteens);
+  }
+  cnt = vul_lshift(cnt, 4);
+  cnt = cnt + vul_lshift(popcount_avx2_single(eights), 3);
+  cnt = cnt + vul_lshift(popcount_avx2_single(fours), 2);
+  cnt = cnt + vul_lshift(popcount_avx2_single(twos), 1);
+  cnt = cnt + popcount_avx2_single(ones);
+  return hsum64(cnt);
+}
+#else // !USE_AVX2
+void copy_bitarr_subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t subset_size, uintptr_t* __restrict output_bitarr) {
   const uint32_t subset_size_lowbits = subset_size % kBitsPerWord;
   uintptr_t* output_bitarr_iter = output_bitarr;
   uintptr_t* output_bitarr_last = &(output_bitarr[subset_size / kBitsPerWord]);
@@ -490,43 +565,6 @@ void copy_bitarr_subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t*
   }
 }
 
-#ifdef USE_AVX2
-uintptr_t popcount_avx2(const vul_t* bit_vvec, uintptr_t vec_ct) {
-  // See popcnt_avx2() in libpopcnt.
-  vul_t cnt = vul_setzero();
-  vul_t ones = vul_setzero();
-  vul_t twos = vul_setzero();
-  vul_t fours = vul_setzero();
-  vul_t eights = vul_setzero();
-  for (uintptr_t vec_idx = 0; vec_idx < vec_ct; vec_idx += 16) {
-    vul_t twos_a = csa256(bit_vvec[vec_idx + 0], bit_vvec[vec_idx + 1], &ones);
-    vul_t twos_b = csa256(bit_vvec[vec_idx + 2], bit_vvec[vec_idx + 3], &ones);
-    vul_t fours_a = csa256(twos_a, twos_b, &twos);
-
-    twos_a = csa256(bit_vvec[vec_idx + 4], bit_vvec[vec_idx + 5], &ones);
-    twos_b = csa256(bit_vvec[vec_idx + 6], bit_vvec[vec_idx + 7], &ones);
-    vul_t fours_b = csa256(twos_a, twos_b, &twos);
-    const vul_t eights_a = csa256(fours_a, fours_b, &fours);
-
-    twos_a = csa256(bit_vvec[vec_idx + 8], bit_vvec[vec_idx + 9], &ones);
-    twos_b = csa256(bit_vvec[vec_idx + 10], bit_vvec[vec_idx + 11], &ones);
-    fours_a = csa256(twos_a, twos_b, &twos);
-
-    twos_a = csa256(bit_vvec[vec_idx + 12], bit_vvec[vec_idx + 13], &ones);
-    twos_b = csa256(bit_vvec[vec_idx + 14], bit_vvec[vec_idx + 15], &ones);
-    fours_b = csa256(twos_a, twos_b, &twos);
-    const vul_t eights_b = csa256(fours_a, fours_b, &fours);
-    const vul_t sixteens = csa256(eights_a, eights_b, &eights);
-    cnt = cnt + popcount_avx2_single(sixteens);
-  }
-  cnt = vul_lshift(cnt, 4);
-  cnt = cnt + vul_lshift(popcount_avx2_single(eights), 3);
-  cnt = cnt + vul_lshift(popcount_avx2_single(fours), 2);
-  cnt = cnt + vul_lshift(popcount_avx2_single(twos), 1);
-  cnt = cnt + popcount_avx2_single(ones);
-  return hsum64(cnt);
-}
-#else // !USE_AVX2
 // Basic SSE2 implementation of Lauradoux/Walisch popcount.
 uintptr_t popcount_vecs_old(const vul_t* bit_vvec, uintptr_t vec_ct) {
   // popcounts vptr[0..(vec_ct-1)].  Assumes vec_ct is a multiple of 3 (0 ok).

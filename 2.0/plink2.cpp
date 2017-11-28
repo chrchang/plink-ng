@@ -60,7 +60,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (19 Nov 2017)";
+  " (27 Nov 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -577,7 +577,8 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
     uint32_t raw_sample_ctl = 0;
     uint32_t sample_ct = 0;
     if (psamname[0]) {
-      reterr = load_psam(psamname, pcp->pheno_fname? nullptr : &(pcp->pheno_range_list), pcp->fam_cols, (pcp->pheno_fname && pcp->pheno_range_list.name_ct)? 0 : 0x7fffffff, pcp->missing_pheno, (pcp->misc_flags / kfMiscAffection01) & 1, &max_sample_id_blen, &max_sid_blen, &max_paternal_id_blen, &max_maternal_id_blen, &sample_include, &sample_ids, &sids, &paternal_ids, &maternal_ids, &founder_info, &sex_nm, &sex_male, &pheno_cols, &pheno_names, &raw_sample_ct, &pheno_ct, &max_pheno_name_blen);
+      // update (26 Nov 2017): change --no-pheno to also apply to .psam file
+      reterr = load_psam(psamname, pcp->pheno_fname? nullptr : &(pcp->pheno_range_list), pcp->fam_cols, ((!(pcp->fam_cols & kfFamCol6)) || (pcp->pheno_fname && pcp->pheno_range_list.name_ct))? 0 : 0x7fffffff, pcp->missing_pheno, (pcp->misc_flags / kfMiscAffection01) & 1, &max_sample_id_blen, &max_sid_blen, &max_paternal_id_blen, &max_maternal_id_blen, &sample_include, &sample_ids, &sids, &paternal_ids, &maternal_ids, &founder_info, &sex_nm, &sex_male, &pheno_cols, &pheno_names, &raw_sample_ct, &pheno_ct, &max_pheno_name_blen);
       if (reterr) {
         goto plink2_ret_1;
       }
@@ -1476,7 +1477,15 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 
           // possible todo: "free" these arrays early in some cases
           // todo: oblig-missing
-          reterr = load_allele_and_geno_counts(sample_include, founder_info, sex_nm, sex_male, variant_include, cip, variant_allele_idxs, raw_sample_ct, sample_ct, founder_ct, male_ct, nosex_ct, raw_variant_ct, variant_ct, first_hap_uidx, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, allele_dosages, founder_allele_dosages, variant_missing_hc_cts, (pgfi.gflags & kfPgenGlobalDosagePresent)? variant_missing_dosage_cts : nullptr, variant_hethap_cts, raw_geno_cts, founder_raw_geno_cts, x_male_geno_cts, founder_x_male_geno_cts, x_nosex_geno_cts, founder_x_nosex_geno_cts, mach_r2_vals);
+
+          // bugfix (22 Nov 2017): given "--genotyping-rate dosage" on a file
+          // with no dosage data, variant_missing_hc_cts may be nullptr while
+          // variant_missing_dosage_cts is zero-initialized.  In this case,
+          // it's fine to pass variant_missing_dosage_cts in the
+          // hardcall-missing-count slot... and it's NOT fine to pass in
+          // nullptrs for both missing-count arrays...
+          const uint32_t dosageless_file = !(pgfi.gflags & kfPgenGlobalDosagePresent);
+          reterr = load_allele_and_geno_counts(sample_include, founder_info, sex_nm, sex_male, variant_include, cip, variant_allele_idxs, raw_sample_ct, sample_ct, founder_ct, male_ct, nosex_ct, raw_variant_ct, variant_ct, first_hap_uidx, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, allele_dosages, founder_allele_dosages, ((!variant_missing_hc_cts) && dosageless_file)? variant_missing_dosage_cts : variant_missing_hc_cts, dosageless_file? nullptr : variant_missing_dosage_cts, variant_hethap_cts, raw_geno_cts, founder_raw_geno_cts, x_male_geno_cts, founder_x_male_geno_cts, x_nosex_geno_cts, founder_x_nosex_geno_cts, mach_r2_vals);
           if (reterr) {
             goto plink2_ret_1;
           }

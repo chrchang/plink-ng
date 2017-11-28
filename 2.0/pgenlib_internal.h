@@ -76,7 +76,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 700
+#define PGENLIB_INTERNAL_VERNUM 701
 
 
 // other configuration-ish values needed by plink2_common subset
@@ -136,7 +136,7 @@ HEADER_INLINE void zero_trailing_quaters(uintptr_t quater_ct, uintptr_t* bitarr)
 }
 
 HEADER_INLINE void set_trailing_quaters(uintptr_t quater_ct, uintptr_t* bitarr) {
-  uintptr_t trail_ct = quater_ct % kBitsPerWordD2;
+  const uintptr_t trail_ct = quater_ct % kBitsPerWordD2;
   if (trail_ct) {
     bitarr[quater_ct / kBitsPerWordD2] |= (~k0LU) << (quater_ct * 2);
   }
@@ -281,9 +281,25 @@ HEADER_INLINE void transpose_quaterblock(const uintptr_t* read_iter, uint32_t re
 // okay for dosage_vals to be nullptr if dosage_ct == 0
 void biallelic_dosage16_invert(uint32_t dosage_ct, uint16_t* dosage_vals);
 
+// currently does zero trailing halfword
 void genovec_to_missingness_unsafe(const uintptr_t* __restrict genovec, uint32_t sample_ct, uintptr_t* __restrict missingness);
 
+// currently does not zero trailing halfword
 void genovec_to_nonmissingness_unsafe(const uintptr_t* __restrict genovec, uint32_t sample_ct, uintptr_t* __restrict nonmissingness);
+
+// N.B. assumes trailing bits of loadbuf have been filled with 1s, not 0s
+// Also takes genoarr word count instead of sample count.
+HEADER_INLINE void split_hom_ref2het_unsafew(const uintptr_t* genoarr, uint32_t inword_ct, unsigned char* hom_buf, unsigned char* ref2het_buf) {
+  halfword_t* hom_alias = (halfword_t*)hom_buf;
+  halfword_t* ref2het_alias = (halfword_t*)ref2het_buf;
+  for (uint32_t widx = 0; widx < inword_ct; ++widx) {
+    const uintptr_t geno_word = genoarr[widx];
+    hom_alias[widx] = pack_word_to_halfword(kMask5555 & (~geno_word));
+    ref2het_alias[widx] = pack_word_to_halfword(kMask5555 & (~(geno_word >> 1)));
+  }
+}
+
+void split_hom_ref2het(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t* hom_buf, uintptr_t* ref2het_buf);
 
 // ----- end plink2_common subset -----
 

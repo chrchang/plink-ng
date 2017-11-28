@@ -48,6 +48,12 @@ extern "C" {
               __CLPK_integer* lda, __CLPK_doublereal* beta,
               __CLPK_doublereal* c, __CLPK_integer* ldc);
 
+  void dgemv_(char* trans, __CLPK_integer* m, __CLPK_integer* n,
+              __CLPK_doublereal* alpha, __CLPK_doublereal* a,
+              __CLPK_integer* lda, __CLPK_doublereal* x, __CLPK_integer* incx,
+              __CLPK_doublereal* beta, __CLPK_doublereal* y,
+              __CLPK_integer* incy);
+
   void sgemm_(char* transa, char* transb, int* m, int* n, int* k,
               float* alpha, float* a, int* lda, float* b, int* ldb,
               float* beta, float* c, int* ldc);
@@ -130,6 +136,12 @@ extern "C" {
               __CLPK_doublereal* a, __CLPK_integer* lda, __CLPK_doublereal* b,
               __CLPK_integer* ldb, __CLPK_doublereal* beta,
               __CLPK_doublereal* c, __CLPK_integer* ldc);
+
+  void dgemv_(char* trans, __CLPK_integer* m, __CLPK_integer* n,
+              __CLPK_doublereal* alpha, __CLPK_doublereal* a,
+              __CLPK_integer* lda, __CLPK_doublereal* x, __CLPK_integer* incx,
+              __CLPK_doublereal* beta, __CLPK_doublereal* y,
+              __CLPK_integer* incy);
 
   void sgemm_(char* transa, char* transb, __CLPK_integer* m, __CLPK_integer* n,
               __CLPK_integer* k, float* alpha, float* a, __CLPK_integer* lda,
@@ -757,6 +769,33 @@ void col_major_matrix_multiply_strided_addassign(const double* inmatrix1, const 
 #endif // !NOLAPACK
 }
 
+void col_major_vector_matrix_multiply_strided(const double* in_dvec1, const double* inmatrix2, __CLPK_integer common_ct, __CLPK_integer stride2, __CLPK_integer col2_ct, double* out_dvec) {
+#ifdef NOLAPACK
+  const uintptr_t col2_ct_l = col2_ct;
+  const uintptr_t common_ct_l = common_ct;
+  const uintptr_t stride_l = stride2;
+  for (uintptr_t col_idx = 0; col_idx < col2_ct_l; ++col_idx) {
+    double dxx = 0.0;
+    const double* cur_col = &(inmatrix2[col_idx * stride_l]);
+    for (uintptr_t row_idx = 0; row_idx < common_ct_l; ++row_idx) {
+      dxx += in_dvec1[row_idx] * cur_col[row_idx];
+    }
+    out_dvec[col_idx] = dxx;
+  }
+#else
+  #ifndef USE_CBLAS_XGEMM
+  char trans = 'T';
+  __CLPK_integer incxy = 1;
+  double dyy = 1;
+  double dzz = 0;
+  // const_cast
+  dgemv_(&trans, &common_ct, &col2_ct, &dyy, (double*)((uintptr_t)inmatrix2), &stride2, (double*)((uintptr_t)in_dvec1), &incxy, &dzz, out_dvec, &incxy);
+  #else
+  cblas_dgemv(CblasColMajor, CblasTrans, common_ct, col2_ct, 1.0, inmatrix2, stride2, in_dvec1, 1, 0.0, out_dvec, 1);
+  #endif // USE_CBLAS_XGEMM
+#endif // !NOLAPACK
+}
+
 // er, should make this _addassign for consistency...
 void col_major_fmatrix_multiply_strided(const float* inmatrix1, const float* inmatrix2, __CLPK_integer row1_ct, __CLPK_integer stride1, __CLPK_integer col2_ct, __CLPK_integer stride2, __CLPK_integer common_ct, __CLPK_integer stride3, float* outmatrix) {
 #ifdef NOLAPACK
@@ -1113,42 +1152,207 @@ boolerr_t extract_eigvecs(uint32_t dim, uint32_t pc_ct, __CLPK_integer lwork, __
 }
 #endif // !NOLAPACK
 
-// can't use this, since we need (X^T X)^{-1} for validParameters() check
-/*
-void linear_regression_first_half(uint32_t sample_ct, uint32_t predictor_ct, double* pheno_d, double* predictors_pmaj, double* xt_y, double* xtx) {
-  // Note that only the lower triangle of X^T X is filled.  (well, upper
-  // triangle in column-major Fortran notation.)
-  multiply_self_transpose(predictors_pmaj, predictor_ct, sample_ct, xtx);
-  row_major_matrix_multiply(predictors_pmaj, pheno_d, predictor_ct, 1, sample_ct, xt_y);
+boolerr_t invert_rank1_symm_start(const double* a_inv, const double* bb, __CLPK_integer orig_dim, double cc, double* __restrict ainv_b, double* k_recip_ptr) {
+#ifdef NOLAPACK
+  const uintptr_t orig_dim_l = orig_dim;
+  const double* a_inv_iter = a_inv;
+  for (uintptr_t ulii = 0; ulii < orig_dim_l; ++ulii) {
+    ainv_b[ulii] = dotprod_d(bb, &a_inv_iter, orig_dim_l);
+    a_inv_iter = &(a_inv_iter[orig_dim_l]);
+  }
+#else
+  #ifndef USE_CBLAS_XGEMM
+  char trans = 'N';
+  __CLPK_integer incxy = 1;
+  double dyy = 1.0;
+  double dzz = 0.0;
+  // const_cast
+  dgemv_(&trans, &orig_dim, &orig_dim, &dyy, (double*)((uintptr_t)a_inv), &orig_dim, (double*)((uintptr_t)bb), &incxy, &dzz, ainv_b, &incxy);
+  #else
+  cblas_dgemv(CblasColMajor, CblasNoTrans, orig_dim, orig_dim, 1.0, a_inv, orig_dim, bb, 1, 0.0, ainv_b, 1);
+  #endif // USE_CBLAS_XGEMM
+#endif
+  const double kk = cc - dotprod_d(bb, ainv_b, orig_dim);
+  if (fabs(kk) < kMatrixSingularRcond) {
+    return 1;
+  }
+  *k_recip_ptr = 1.0 / kk;
+  return 0;
 }
 
-#ifndef NOLAPACK
-boolerr_t linear_regression_second_half(const double* xt_y, uint32_t predictor_ct, double* xtx_destroy, double* fitted_coefs) {
-  // See e.g. wls.c in Alex Blocker's go-lm code
-  // (https://github.com/awblocker/go-lm ).
-  char uplo = 'U';
-  __CLPK_integer tmp_n = predictor_ct;
-  memcpy(fitted_coefs, xt_y, predictor_ct * sizeof(double));
-  __CLPK_integer nrhs = 1;
-  __CLPK_integer info;
-  dposv_(&uplo, &tmp_n, &nrhs, xtx_destroy, &tmp_n, fitted_coefs, &tmp_n, &info);
-  return (info != 0);
+boolerr_t invert_rank1_symm(const double* a_inv, const double* bb, __CLPK_integer orig_dim, uint32_t insert_idx, double cc, double* __restrict outmatrix, double* __restrict ainv_b_buf) {
+  double k_recip;
+  if (invert_rank1_symm_start(a_inv, bb, orig_dim, cc, ainv_b_buf, &k_recip)) {
+    return 1;
+  }
+  // [ A^{-1} + k_recip * outer_prod(ainv_b, ainv_b)   -k_recip * ainv_b ]
+  // [         -k_recip * ainv_b                            k_recip      ]
+  const uintptr_t orig_dim_l = orig_dim;
+  const uintptr_t final_dim = orig_dim_l + 1;
+  uintptr_t orig_row_idx = 0;
+  const double* a_inv_row = a_inv;
+  double* outmatrix_row = outmatrix;
+  for (; orig_row_idx < insert_idx; ++orig_row_idx) {
+    const double ainv_b_div_k = k_recip * ainv_b_buf[orig_row_idx];
+    for (uintptr_t col_idx = 0; col_idx <= orig_row_idx; ++col_idx) {
+      outmatrix_row[col_idx] = a_inv_row[col_idx] + ainv_b_div_k * ainv_b_buf[col_idx];
+    }
+    a_inv_row = &(a_inv_row[orig_dim_l]);
+    outmatrix_row = &(outmatrix_row[final_dim]);
+  }
+  for (uintptr_t col_idx = 0; col_idx < insert_idx; ++col_idx) {
+    outmatrix_row[col_idx] = -k_recip * ainv_b_buf[col_idx];
+  }
+  outmatrix_row[insert_idx] = k_recip;
+  for (; orig_row_idx < orig_dim_l; ++orig_row_idx) {
+    outmatrix_row = &(outmatrix_row[final_dim]);
+    const double ainv_b_div_k = k_recip * ainv_b_buf[orig_row_idx];
+    for (uintptr_t col_idx = 0; col_idx < insert_idx; ++col_idx) {
+      outmatrix_row[col_idx] = a_inv_row[col_idx] + ainv_b_div_k * ainv_b_buf[col_idx];
+    }
+    outmatrix_row[insert_idx] = -ainv_b_div_k;
+    double* outmatrix_write_base = &(outmatrix_row[1]);
+    for (uintptr_t orig_col_idx = insert_idx; orig_col_idx <= orig_row_idx; ++orig_col_idx) {
+      outmatrix_write_base[orig_col_idx] = a_inv_row[orig_col_idx] + ainv_b_div_k * ainv_b_buf[orig_col_idx];
+    }
+    a_inv_row = &(a_inv_row[orig_dim_l]);
+  }
+  return 0;
 }
-#endif // !NOLAPACK
-*/
+
+boolerr_t invert_rank1_symm_diag(const double* a_inv, const double* bb, __CLPK_integer orig_dim, double cc, double* __restrict outdiag, double* __restrict ainv_b_buf) {
+  double k_recip;
+  if (invert_rank1_symm_start(a_inv, bb, orig_dim, cc, ainv_b_buf, &k_recip)) {
+    return 1;
+  }
+  const uintptr_t orig_dim_l = orig_dim;
+  const uintptr_t orig_dim_p1 = orig_dim_l + 1;
+  for (uintptr_t ulii = 0; ulii < orig_dim_l; ++ulii) {
+    const double dxx = ainv_b_buf[ulii];
+    outdiag[ulii] = a_inv[ulii * orig_dim_p1] + k_recip * dxx * dxx;
+  }
+  outdiag[orig_dim_l] = k_recip;
+  return 0;
+}
+
+boolerr_t invert_rank2_symm_start(const double* a_inv, const double* bb, __CLPK_integer orig_dim, __CLPK_integer b_stride, double d11, double d12, double d22, double* __restrict b_ainv, double* __restrict s_b_ainv, double* __restrict schur11_ptr, double* __restrict schur12_ptr, double* __restrict schur22_ptr) {
+  if (orig_dim) {
+    // matrix may be too small to justify call overhead, test later
+    row_major_matrix_multiply_strided(bb, a_inv, 2, b_stride, orig_dim, orig_dim, orig_dim, orig_dim, b_ainv);
+
+    // Schur complement = (D - B A^{-1} B^T)^{-1}
+    d11 -= dotprod_d(bb, b_ainv, orig_dim);
+    d12 -= dotprod_d(bb, &(b_ainv[orig_dim]), orig_dim);
+    d22 -= dotprod_d(&(bb[b_stride]), &(b_ainv[orig_dim]), orig_dim);
+  }
+
+  // [ a b ]^{-1} = [ d  -b ] / (ad - b^2)
+  // [ b d ]        [ -b a  ]
+  const double det = d11 * d22 - d12 * d12;
+  if (fabs(det) < kMatrixSingularRcond) {
+    return 1;
+  }
+  const double det_recip = 1.0 / det;
+  const double schur11 = d22 * det_recip;
+  const double schur12 = -d12 * det_recip;
+  const double schur22 = d11 * det_recip;
+  const uintptr_t orig_dim_l = orig_dim;
+  for (uintptr_t col_idx = 0; col_idx < orig_dim_l; ++col_idx) {
+    const double b_ainv_1 = b_ainv[col_idx];
+    const double b_ainv_2 = b_ainv[col_idx + orig_dim_l];
+    s_b_ainv[col_idx] = schur11 * b_ainv_1 + schur12 * b_ainv_2;
+    s_b_ainv[col_idx + orig_dim_l] = schur12 * b_ainv_1 + schur22 * b_ainv_2;
+  }
+  *schur11_ptr = schur11;
+  *schur12_ptr = schur12;
+  *schur22_ptr = schur22;
+  return 0;
+}
+
+boolerr_t invert_rank2_symm(const double* a_inv, const double* bb, __CLPK_integer orig_dim, __CLPK_integer b_stride, uint32_t insert_idx, double d11, double d12, double d22, double* __restrict outmatrix, double* __restrict b_ainv_buf, double* __restrict s_b_ainv_buf) {
+  double schur11;
+  double schur12;
+  double schur22;
+  if (invert_rank2_symm_start(a_inv, bb, orig_dim, b_stride, d11, d12, d22, b_ainv_buf, s_b_ainv_buf, &schur11, &schur12, &schur22)) {
+    return 1;
+  }
+  // [ A^{-1} + A{-1}B^T S B A{-1}   -A^{-1}B^T S ]
+  // [         -S B A{-1}                  S      ]
+  const uintptr_t orig_dim_l = orig_dim;
+  const uintptr_t final_dim = orig_dim_l + 2;
+  uintptr_t orig_row_idx = 0;
+  const double* a_inv_row = a_inv;
+  const double* b_ainv_row2 = &(b_ainv_buf[orig_dim_l]);
+  const double* s_b_ainv_row2 = &(s_b_ainv_buf[orig_dim_l]);
+  double* outmatrix_row = outmatrix;
+  for (; orig_row_idx < insert_idx; ++orig_row_idx) {
+    const double b_ainv_1 = b_ainv_buf[orig_row_idx];
+    const double b_ainv_2 = b_ainv_row2[orig_row_idx];
+    for (uintptr_t col_idx = 0; col_idx <= orig_row_idx; ++col_idx) {
+      outmatrix_row[col_idx] = a_inv_row[col_idx] + b_ainv_1 * s_b_ainv_buf[col_idx] + b_ainv_2 * s_b_ainv_row2[col_idx];
+    }
+    a_inv_row = &(a_inv_row[orig_dim_l]);
+    outmatrix_row = &(outmatrix_row[final_dim]);
+  }
+  for (uintptr_t col_idx = 0; col_idx < insert_idx; ++col_idx) {
+    outmatrix_row[col_idx] = -s_b_ainv_buf[col_idx];
+  }
+  outmatrix_row[insert_idx] = schur11;
+  outmatrix_row = &(outmatrix_row[final_dim]);
+  for (uintptr_t col_idx = 0; col_idx < insert_idx; ++col_idx) {
+    outmatrix_row[col_idx] = -s_b_ainv_row2[col_idx];
+  }
+  outmatrix_row[insert_idx] = schur12;
+  outmatrix_row[insert_idx + 1] = schur22;
+  for (; orig_row_idx < orig_dim_l; ++orig_row_idx) {
+    outmatrix_row = &(outmatrix_row[final_dim]);
+    const double b_ainv_1 = b_ainv_buf[orig_row_idx];
+    const double b_ainv_2 = b_ainv_row2[orig_row_idx];
+    for (uintptr_t col_idx = 0; col_idx < insert_idx; ++col_idx) {
+      outmatrix_row[col_idx] = a_inv_row[col_idx] + b_ainv_1 * s_b_ainv_buf[col_idx] + b_ainv_2 * s_b_ainv_row2[col_idx];
+    }
+    outmatrix_row[insert_idx] = -s_b_ainv_buf[orig_row_idx];
+    outmatrix_row[insert_idx + 1] = -s_b_ainv_row2[orig_row_idx];
+    double* outmatrix_write_base = &(outmatrix_row[2]);
+    for (uintptr_t orig_col_idx = insert_idx; orig_col_idx <= orig_row_idx; ++orig_col_idx) {
+      outmatrix_write_base[orig_col_idx] = a_inv_row[orig_col_idx] + b_ainv_1 * s_b_ainv_buf[orig_col_idx] + b_ainv_2 * s_b_ainv_row2[orig_col_idx];
+    }
+    a_inv_row = &(a_inv_row[orig_dim_l]);
+  }
+  return 0;
+}
+
+boolerr_t invert_rank2_symm_diag(const double* a_inv, const double* bb, __CLPK_integer orig_dim, double d11, double d12, double d22, double* __restrict outdiag, double* __restrict b_ainv_buf, double* __restrict s_b_ainv_buf) {
+  double schur11;
+  double schur12;
+  double schur22;
+  if (invert_rank2_symm_start(a_inv, bb, orig_dim, orig_dim, d11, d12, d22, b_ainv_buf, s_b_ainv_buf, &schur11, &schur12, &schur22)) {
+    return 1;
+  }
+  const uintptr_t orig_dim_l = orig_dim;
+  const uintptr_t orig_dim_p1 = orig_dim_l + 1;
+  const double* b_ainv_row2 = &(b_ainv_buf[orig_dim_l]);
+  const double* s_b_ainv_row2 = &(s_b_ainv_buf[orig_dim_l]);
+  for (uintptr_t ulii = 0; ulii < orig_dim_l; ++ulii) {
+    outdiag[ulii] = a_inv[ulii * orig_dim_p1] + b_ainv_buf[ulii] * s_b_ainv_buf[ulii] + b_ainv_row2[ulii] * s_b_ainv_row2[ulii];
+  }
+  outdiag[orig_dim_l] = schur11;
+  outdiag[orig_dim_l + 1] = schur22;
+  return 0;
+}
 
 // now assumes xtx_inv is predictors_pmaj * transpose on input
 // todo: support nrhs > 1 when permutation test implemented
-boolerr_t linear_regression_inv(const double* pheno_d, double* predictors_pmaj, uint32_t predictor_ct, uint32_t sample_ct, double* xtx_inv, double* fitted_coefs, double* xt_y, __maybe_unused matrix_invert_buf1_t* mi_buf, __maybe_unused double* dbl_2d_buf) {
-  // multiply_self_transpose(predictors_pmaj, predictor_ct, sample_ct, xtx_inv);
-  row_major_matrix_multiply(predictors_pmaj, pheno_d, predictor_ct, 1, sample_ct, xt_y);
 #ifdef NOLAPACK
+boolerr_t linear_regression_inv_main(const double* xt_y, uint32_t predictor_ct, double* xtx_inv, double* fitted_coefs, matrix_invert_buf1_t* mi_buf, double* dbl_2d_buf) {
   if (invert_symmdef_matrix(predictor_ct, xtx_inv, mi_buf, dbl_2d_buf)) {
     return 1;
   }
-  row_major_matrix_multiply(xtx_inv, xt_y, predictor_ct, 1, predictor_ct, fitted_coefs);
+  col_major_vector_matrix_multiply_strided(xt_y, xtx_inv, predictor_ct, predictor_ct, predictor_ct, fitted_coefs);
   return 0;
+}
 #else
+boolerr_t linear_regression_inv_main(const double* xt_y, uint32_t predictor_ct, double* xtx_inv, double* fitted_coefs) {
   char uplo = 'U';
   __CLPK_integer tmp_n = predictor_ct;
   __CLPK_integer info;
@@ -1162,8 +1366,8 @@ boolerr_t linear_regression_inv(const double* pheno_d, double* predictors_pmaj, 
   assert(!info);
   dpotri_(&uplo, &tmp_n, xtx_inv, &tmp_n, &info);
   return (info != 0);
-#endif // !NOLAPACK
 }
+#endif // !NOLAPACK
 
 #ifdef __cplusplus
 } // namespace plink2

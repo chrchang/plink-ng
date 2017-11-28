@@ -76,6 +76,9 @@
     #define USE_SSE42
     #ifdef __AVX2__
       #include <immintrin.h>
+      #ifndef __BMI2__
+        #error "AVX2 builds require -mbmi2 as well."
+      #endif
       #define USE_AVX2
     #endif
   #endif
@@ -624,10 +627,20 @@ HEADER_INLINE float vf_hsum(vf_t vecf) {
 #endif
 }
 
+#ifdef USE_AVX2
+HEADER_INLINE uintptr_t unpack_halfword_to_word(uintptr_t hw) {
+  return _pdep_u64(hw, kMask5555);
+}
+
+HEADER_INLINE halfword_t pack_word_to_halfword(uintptr_t ww) {
+  // assumes only even bits of ww can be set
+  return (halfword_t)_pext_u64(ww, kMask5555);
+}
+#else // !USE_AVX2
 HEADER_CINLINE2 uintptr_t unpack_halfword_to_word(uintptr_t hw) {
-#ifdef __LP64__
+  #ifdef __LP64__
   hw = (hw | (hw << 16)) & kMask0000FFFF;
-#endif
+  #endif
   hw = (hw | (hw << 8)) & kMask00FF;
   hw = (hw | (hw << 4)) & kMask0F0F;
   hw = (hw | (hw << 2)) & kMask3333;
@@ -639,11 +652,12 @@ HEADER_CINLINE2 halfword_t pack_word_to_halfword(uintptr_t ww) {
   ww = (ww | (ww >> 1)) & kMask3333;
   ww = (ww | (ww >> 2)) & kMask0F0F;
   ww = (ww | (ww >> 4)) & kMask00FF;
-#ifdef __LP64__
+  #ifdef __LP64__
   ww = (ww | (ww >> 8)) & kMask0000FFFF;
-#endif
+  #endif
   return (halfword_t)(ww | (ww >> kBitsPerWordD4));
 }
+#endif // !USE_AVX2
 
 // alignment must be a power of 2
 // tried splitting out round_down_pow2_ui() and _up_pow2_ui() functions, no

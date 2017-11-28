@@ -38,23 +38,21 @@ void cleanup_score(score_info_t* score_info_ptr) {
 }
 
 
-uint32_t triangle_divide(int64_t cur_prod, int32_t modif) {
+uint32_t triangle_divide(int64_t cur_prod_x2, int32_t modif) {
   // return smallest integer vv for which (vv * (vv + modif)) is no smaller
-  // than cur_prod, and neither term in the product is negative.  (Note the
-  // lack of a divide by two; cur_prod should also be double its "true" value
-  // as a result.)
+  // than cur_prod_x2, and neither term in the product is negative.
   int64_t vv;
-  if (cur_prod == 0) {
+  if (cur_prod_x2 == 0) {
     if (modif < 0) {
       return -modif;
     }
     return 0;
   }
-  vv = (int64_t)sqrt((double)cur_prod);
-  while ((vv - 1) * (vv + modif - 1) >= cur_prod) {
+  vv = (int64_t)sqrt((double)cur_prod_x2);
+  while ((vv - 1) * (vv + modif - 1) >= cur_prod_x2) {
     vv--;
   }
-  while (vv * (vv + modif) < cur_prod) {
+  while (vv * (vv + modif) < cur_prod_x2) {
     vv++;
   }
   return vv;
@@ -70,7 +68,7 @@ void parallel_bounds(uint32_t ct, int32_t start, uint32_t parallel_idx, uint32_t
 // set align to 1 for no alignment
 void triangle_fill(uint32_t ct, uint32_t piece_ct, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t start, uint32_t align, uint32_t* target_arr) {
   int32_t modif = 1 - start * 2;
-  int64_t cur_prod;
+  int64_t cur_prod_x2;
   int32_t lbound;
   int32_t ubound;
   uint32_t uii;
@@ -81,11 +79,11 @@ void triangle_fill(uint32_t ct, uint32_t piece_ct, uint32_t parallel_idx, uint32
   align_m1 = align - 1;
   target_arr[0] = lbound;
   target_arr[piece_ct] = ubound;
-  cur_prod = ((int64_t)lbound) * (lbound + modif);
-  const int64_t ct_tr = (((int64_t)ubound) * (ubound + modif) - cur_prod) / piece_ct;
+  cur_prod_x2 = ((int64_t)lbound) * (lbound + modif);
+  const int64_t ct_tr = (((int64_t)ubound) * (ubound + modif) - cur_prod_x2) / piece_ct;
   for (uint32_t piece_idx = 1; piece_idx < piece_ct; ++piece_idx) {
-    cur_prod += ct_tr;
-    lbound = triangle_divide(cur_prod, modif);
+    cur_prod_x2 += ct_tr;
+    lbound = triangle_divide(cur_prod_x2, modif);
     uii = (lbound - ((int32_t)start)) & align_m1;
     if ((uii) && (uii != align_m1)) {
       lbound = start + ((lbound - ((int32_t)start)) | align_m1);
@@ -95,6 +93,71 @@ void triangle_fill(uint32_t ct, uint32_t piece_ct, uint32_t parallel_idx, uint32
       lbound = ct;
     }
     target_arr[piece_idx] = lbound;
+  }
+}
+
+// Returns 0 if cells_avail is insufficient.
+uint32_t count_triangle_passes(uintptr_t start_idx, uintptr_t end_idx, uintptr_t is_no_diag, uintptr_t cells_avail) {
+  start_idx -= is_no_diag;
+  end_idx -= is_no_diag;
+  if (cells_avail < end_idx) {
+    return 0;
+  }
+  cells_avail *= 2; // don't want to worry about /2 in triangular numbers
+  const uint64_t end_tri = ((uint64_t)end_idx) * (end_idx + 1);
+  uint64_t start_tri = ((uint64_t)start_idx) * (start_idx + 1);
+  uint32_t pass_ct = 0;
+  while (1) {
+    ++pass_ct;
+    const uint64_t delta_tri = end_tri - start_tri;
+    if (delta_tri <= cells_avail) {
+      return pass_ct;
+    }
+    const uint64_t next_target = start_tri + cells_avail;
+    start_idx = (int64_t)sqrt((double)((int64_t)next_target));
+    start_tri = ((uint64_t)start_idx) * (start_idx + 1);
+    if (start_tri > next_target) {
+      --start_idx;
+      start_tri = ((uint64_t)start_idx) * (start_idx + 1);
+      assert(start_tri <= next_target);
+    }
+  }
+}
+
+uint64_t next_triangle_pass(uintptr_t start_idx, uintptr_t grand_end_idx, uintptr_t is_no_diag, uintptr_t cells_avail) {
+  cells_avail *= 2;
+  start_idx -= is_no_diag;
+  grand_end_idx -= is_no_diag;
+  const uint64_t end_tri = ((uint64_t)grand_end_idx) * (grand_end_idx + 1);
+  uint64_t start_tri = ((uint64_t)start_idx) * (start_idx + 1);
+  const uint64_t delta_tri = end_tri - start_tri;
+  if (delta_tri <= cells_avail) {
+    return grand_end_idx + is_no_diag;
+  }
+  const uint64_t next_target = start_tri + cells_avail;
+  start_idx = (int64_t)sqrt((double)((int64_t)next_target));
+  start_tri = ((uint64_t)start_idx) * (start_idx + 1);
+  return start_idx + is_no_diag - (start_tri > next_target);
+}
+
+void triangle_load_balance(uint32_t piece_ct, uintptr_t start_idx, uintptr_t end_idx, uint32_t is_no_diag, uint32_t* target_arr) {
+  target_arr[0] = start_idx;
+  target_arr[piece_ct] = end_idx;
+  start_idx -= is_no_diag;
+  end_idx -= is_no_diag;
+  const uint64_t end_tri = ((uint64_t)end_idx) * (end_idx + 1);
+  uint64_t cur_target = ((uint64_t)start_idx) * (start_idx + 1);
+  const uint64_t std_size = (end_tri - cur_target) / piece_ct;
+  for (uint32_t piece_idx = 1; piece_idx < piece_ct; ++piece_idx) {
+    // don't use cur_target = start_tri + (piece_idx * delta_tri) / piece_ct
+    // because of potential overflow
+    cur_target += std_size;
+    start_idx = (int64_t)sqrt((double)((int64_t)cur_target));
+    const uint64_t start_tri = ((uint64_t)start_idx) * (start_idx + 1);
+    if (start_tri > cur_target) {
+      --start_idx;
+    }
+    target_arr[piece_idx] = start_idx + is_no_diag;
   }
 }
 
@@ -735,8 +798,8 @@ static_assert(!(kKingMultiplexWords % 2), "kKingMultiplexWords must be even for 
 
 THREAD_FUNC_DECL calc_king_thread(void* arg) {
   const uintptr_t tidx = (uintptr_t)arg;
-  const uintptr_t mem_start_idx = g_thread_start[0];
-  const uintptr_t start_idx = g_thread_start[tidx];
+  const uint64_t mem_start_idx = g_thread_start[0];
+  const uint64_t start_idx = g_thread_start[tidx];
   const uint32_t end_idx = g_thread_start[tidx + 1];
   const uint32_t homhom_needed = g_homhom_needed;
   uint32_t parity = 0;
@@ -765,25 +828,54 @@ double compute_kinship(const uint32_t* king_counts_entry) {
   return 0.5 - ((double)(4 * ((intptr_t)ibs0_ct) + het1hom2_ct + het2hom1_ct)) / ((double)(4 * smaller_het_ct));
 }
 
-// N.B. assumes trailing bits have been filled with 1s, not 0s
-static inline void split_hom_ref2het(const uintptr_t* loadbuf, uint32_t word_ct, unsigned char* hom_buf, unsigned char* ref2het_buf) {
-  halfword_t* hom_alias = (halfword_t*)hom_buf;
-  halfword_t* ref2het_alias = (halfword_t*)ref2het_buf;
-  for (uint32_t widx = 0; widx < word_ct; ++widx) {
-    const uintptr_t geno_word = loadbuf[widx];
-    hom_alias[widx] = pack_word_to_halfword(kMask5555 & (~geno_word));
-    ref2het_alias[widx] = pack_word_to_halfword(kMask5555 & (~(geno_word >> 1)));
+// could also return pointer to end?
+void set_king_matrix_fname(king_flags_t king_modifier, uint32_t parallel_idx, uint32_t parallel_tot, char* outname_end) {
+  if (!(king_modifier & (kfKingMatrixBin | kfKingMatrixBin4))) {
+    char* outname_end2 = strcpya(outname_end, ".king");
+    const uint32_t output_zst = king_modifier & kfKingMatrixZs;
+    if (parallel_tot != 1) {
+      *outname_end2++ = '.';
+      outname_end2 = uint32toa(parallel_idx + 1, outname_end2);
+    }
+    if (output_zst) {
+      outname_end2 = strcpya(outname_end2, ".zst");
+    }
+    *outname_end2 = '\0';
+    return;
   }
+  char* outname_end2 = strcpya(outname_end, ".king.bin");
+  if (parallel_tot != 1) {
+    *outname_end2++ = '.';
+    outname_end2 = uint32toa(parallel_idx + 1, outname_end2);
+  }
+  *outname_end2 = '\0';
 }
 
-// probable todo: automatic multipass when insufficient memory is available
+void set_king_table_fname(king_flags_t king_modifier, uint32_t parallel_idx, uint32_t parallel_tot, char* outname_end) {
+  char* outname_end2 = strcpya(outname_end, ".kin0");
+  const uint32_t output_zst = king_modifier & kfKingTableZs;
+  if (parallel_tot != 1) {
+    *outname_end2++ = '.';
+    outname_end2 = uint32toa(parallel_idx + 1, outname_end2);
+  }
+  if (output_zst) {
+    outname_end2 = strcpya(outname_end2, ".zst");
+  }
+  *outname_end2 = '\0';
+}
+
 pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_include, const chr_info_t* cip, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, double king_cutoff, double king_table_filter, king_flags_t king_modifier, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, pgen_reader_t* simple_pgrp, uintptr_t* sample_include, uint32_t* sample_ct_ptr, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
+  char* cswritetp = nullptr;
   compress_stream_state_t css;
+  compress_stream_state_t csst;
+  threads_state_t ts;
   pglerr_t reterr = kPglRetSuccess;
   cswrite_init_null(&css);
+  cswrite_init_null(&csst);
+  init_threads3z(&ts);
   {
     const king_flags_t matrix_shape = king_modifier & kfKingMatrixShapemask;
     const char* flagname = matrix_shape? "--make-king" : ((king_modifier & kfKingColAll)? "--make-king-table" : "--king-cutoff");
@@ -801,20 +893,14 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
       goto calc_king_ret_INCONSISTENT_INPUT;
     }
 #ifdef __LP64__
-  #ifdef USE_SSE42
-    if (sample_ct > 268435455) {
-      // may as well document kKingMultiplexWords limit
-      LOGERRPRINTF("Error: %s does not support > 268435455 samples.\n", flagname);
+    // there's also a UINT32_MAX / kKingMultiplexWords limit, but that's not
+    // relevant for now
+    if (sample_ct > 134000000) {
+      // for text output, 134m * 16 is just below kMaxLongLine
+      LOGERRPRINTF("Error: %s does not support > 134000000 samples.\n", flagname);
       reterr = kPglRetNotYetSupported;
       goto calc_king_ret_1;
     }
-  #else
-    if (sample_ct > 178956970) {
-      LOGERRPRINTF("Error: %s does not support > 178956970 samples.\n", flagname);
-      reterr = kPglRetNotYetSupported;
-      goto calc_king_ret_1;
-    }
-  #endif
 #endif
     uint32_t calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
     if (calc_thread_ct > sample_ct / 32) {
@@ -823,15 +909,10 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
     if (!calc_thread_ct) {
       calc_thread_ct = 1;
     }
-    if (bigstack_alloc_ui(calc_thread_ct + 1, &g_thread_start)) {
-      goto calc_king_ret_NOMEM;
-    }
-    triangle_fill(sample_ct, calc_thread_ct, parallel_idx, parallel_tot, 1, 1, g_thread_start);
-    const uint32_t row_start_idx = g_thread_start[0];
-    const uint32_t row_end_idx = g_thread_start[calc_thread_ct];
-    const uintptr_t tot_cells = (((uint64_t)row_end_idx) * (row_end_idx - 1) - ((uint64_t)row_start_idx) * (row_start_idx - 1)) / 2;
-    pthread_t* threads = (pthread_t*)bigstack_alloc(calc_thread_ct * sizeof(pthread_t));
-    if (!threads) {
+    // possible todo: allow this to change between passes
+    ts.calc_thread_ct = calc_thread_ct;
+    if (bigstack_alloc_ui(calc_thread_ct + 1, &g_thread_start) ||
+        bigstack_alloc_thread(calc_thread_ct, &ts.threads)) {
       goto calc_king_ret_NOMEM;
     }
     const uintptr_t sample_ctl = BITCT_TO_WORDCT(sample_ct);
@@ -845,284 +926,297 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
     const uint32_t sample_ctaw = BITCT_TO_ALIGNED_WORDCT(sample_ct);
     const uint32_t sample_ctaw2 = QUATERCT_TO_ALIGNED_WORDCT(sample_ct);
     g_homhom_needed = (king_modifier & kfKingColNsnp) || ((!(king_modifier & kfKingCounts)) && (king_modifier & (kfKingColHethet | kfKingColIbs0 | kfKingColIbs1)));
-    const uint32_t king_bufsizew = kKingMultiplexWords * row_end_idx;
+    uint32_t grand_row_start_idx;
+    uint32_t grand_row_end_idx;
+    parallel_bounds(sample_ct, 1, parallel_idx, parallel_tot, (int32_t*)(&grand_row_start_idx), (int32_t*)(&grand_row_end_idx));
+    const uint32_t king_bufsizew = kKingMultiplexWords * grand_row_end_idx;
     const uint32_t homhom_needed_p4 = g_homhom_needed + 4;
+    uintptr_t* cur_sample_include;
     uint32_t* sample_include_cumulative_popcounts;
     uintptr_t* loadbuf;
     uintptr_t* splitbuf_hom;
     uintptr_t* splitbuf_ref2het;
-    if (bigstack_alloc_ui(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+    if (bigstack_alloc_ul(raw_sample_ctl, &cur_sample_include) ||
+        bigstack_alloc_ui(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
         bigstack_alloc_ul(sample_ctaw2, &loadbuf) ||
         bigstack_alloc_ul(kPglBitTransposeBatch * sample_ctaw, &splitbuf_hom) ||
         bigstack_alloc_ul(kPglBitTransposeBatch * sample_ctaw, &splitbuf_ref2het) ||
         bigstack_alloc_ul(king_bufsizew, &(g_smaj_hom[0])) ||
         bigstack_alloc_ul(king_bufsizew, &(g_smaj_ref2het[0])) ||
         bigstack_alloc_ul(king_bufsizew, &(g_smaj_hom[1])) ||
-        bigstack_alloc_ul(king_bufsizew, &(g_smaj_ref2het[1])) ||
-        bigstack_calloc_ui(tot_cells * homhom_needed_p4, &g_king_counts)) {
+        bigstack_alloc_ul(king_bufsizew, &(g_smaj_ref2het[1]))) {
       goto calc_king_ret_NOMEM;
-    }
-    if (sample_ctaw % 2) {
-      uintptr_t* smaj_hom0_last = &(g_smaj_hom[0][kKingMultiplexWords - 1]);
-      uintptr_t* smaj_ref2het0_last = &(g_smaj_ref2het[0][kKingMultiplexWords - 1]);
-      uintptr_t* smaj_hom1_last = &(g_smaj_hom[1][kKingMultiplexWords - 1]);
-      uintptr_t* smaj_ref2het1_last = &(g_smaj_ref2het[1][kKingMultiplexWords - 1]);
-      for (uint32_t offset = 0; offset < king_bufsizew; offset += kKingMultiplexWords) {
-        smaj_hom0_last[offset] = 0;
-        smaj_ref2het0_last[offset] = 0;
-        smaj_hom1_last[offset] = 0;
-        smaj_ref2het1_last[offset] = 0;
-      }
     }
     // force this to be cacheline-aligned
     vul_t* vecaligned_buf = (vul_t*)bigstack_alloc(kPglBitTransposeBufbytes);
     if (!vecaligned_buf) {
       goto calc_king_ret_NOMEM;
     }
-    fill_cumulative_popcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
-    uint32_t variant_uidx = 0;
-    uint32_t variants_completed = 0;
-    uint32_t parity = 0;
-    const uint32_t sample_batch_ct_m1 = (row_end_idx - 1) / kPglBitTransposeBatch;
-    uint32_t is_last_block;
-    // Similar to plink 1.9 --genome.  For each pair of samples S1-S2, we need
-    // to determine counts of the following:
-    //   * S1 hom-S2 het
-    //   * S2 hom-S1 het
-    //   * S1 hom-S2 opposite hom
-    //   * S1 hom-S2 same hom
-    //   * nonmissing
-    //   * (het-het determined via subtraction)
-    // We handle this as follows:
-    //   1. set n=0, reader thread loads first kKingMultiplex variants and
-    //      converts+transposes the data to a sample-major format suitable for
-    //      multithreaded computation.
-    //   2. spawn threads
-    //
-    //   3. increment n by 1
-    //   4. load block n unless eof
-    //   5. permit threads to continue to next block (join_threads2()/respawn
-    //      seems suboptimal?), unless eof
-    //   6. goto step 3 unless eof
-    //
-    //   7. write results
-    // Results are always reported in lower-triangular order, rather than
-    // KING's upper-triangular order, since the former plays more nicely with
-    // incremental addition of samples.
-    pgr_clear_ld_cache(simple_pgrp);
-    do {
-      uint32_t cur_block_size = variant_ct - variants_completed;
-      uintptr_t* cur_smaj_hom = g_smaj_hom[parity];
-      uintptr_t* cur_smaj_ref2het = g_smaj_ref2het[parity];
-      is_last_block = (cur_block_size <= kKingMultiplex);
-      if (!is_last_block) {
-        cur_block_size = kKingMultiplex;
+
+    // Make this automatically multipass when there's insufficient memory.  So
+    // we open the output file(s) here, and just append in the main loop.
+    unsigned char* numbuf = nullptr;
+    if (matrix_shape) {
+      set_king_matrix_fname(king_modifier, parallel_idx, parallel_tot, outname_end);
+      if (!(king_modifier & (kfKingMatrixBin | kfKingMatrixBin4))) {
+        unsigned char* overflow_buf;
+        // text matrix
+        // won't be >2gb since sample_ct <= 134m
+        const uint32_t overflow_buf_size = kCompressStreamBlock + 16 * sample_ct;
+        if (bigstack_alloc_uc(overflow_buf_size, &overflow_buf)) {
+          goto calc_king_ret_NOMEM;
+        }
+        if (cswrite_init(outname, 0, king_modifier & kfKingMatrixZs, overflow_buf, &css)) {
+          goto calc_king_ret_OPEN_FAIL;
+        }
+        cswritep = (char*)overflow_buf;
+      } else {
+        if (fopen_checked(outname, FOPEN_WB, &outfile)) {
+          goto calc_king_ret_OPEN_FAIL;
+        }
+        if (bigstack_alloc_uc(sample_ct * 4 * (2 - ((king_modifier / kfKingMatrixBin4) & 1)), &numbuf)) {
+          goto calc_king_ret_OPEN_FAIL;
+        }
       }
-      uint32_t write_batch_idx = 0;
-      // "block" = distance computation granularity, usually 1024 variants
-      // "batch" = variant-major-to-sample-major transpose granularity,
-      //           currently 512 variants
-      uint32_t variant_batch_size = kPglBitTransposeBatch;
-      uint32_t variant_batch_size_rounded_up = kPglBitTransposeBatch;
-      const uint32_t write_batch_ct_m1 = (cur_block_size - 1) / kPglBitTransposeBatch;
-      while (1) {
-        if (write_batch_idx >= write_batch_ct_m1) {
-          if (write_batch_idx > write_batch_ct_m1) {
-            break;
-          }
-          variant_batch_size = MOD_NZ(cur_block_size, kPglBitTransposeBatch);
-          variant_batch_size_rounded_up = variant_batch_size;
-          const uint32_t variant_batch_size_rem = variant_batch_size % kBitsPerWord;
-          if (variant_batch_size_rem) {
-            const uint32_t trailing_variant_ct = kBitsPerWord - variant_batch_size_rem;
-            variant_batch_size_rounded_up += trailing_variant_ct;
-            fill_ulong_zero(trailing_variant_ct * sample_ctaw, &(splitbuf_hom[variant_batch_size * sample_ctaw]));
-            fill_ulong_zero(trailing_variant_ct * sample_ctaw, &(splitbuf_ref2het[variant_batch_size * sample_ctaw]));
+    }
+    uint32_t king_col_sid = 0;
+    uintptr_t max_sample_augid_blen = max_sample_id_blen;
+    char* collapsed_sample_augids = nullptr;
+    if (king_modifier & kfKingColAll) {
+      const uint32_t overflow_buf_size = kCompressStreamBlock + kMaxMediumLine;
+      unsigned char* overflow_buf;
+      if (bigstack_alloc_uc(overflow_buf_size, &overflow_buf)) {
+        goto calc_king_ret_NOMEM;
+      }
+      set_king_table_fname(king_modifier, parallel_idx, parallel_tot, outname_end);
+      if (cswrite_init(outname, 0, king_modifier & kfKingTableZs, overflow_buf, &csst)) {
+        goto calc_king_ret_OPEN_FAIL;
+      }
+      cswritetp = (char*)overflow_buf;
+
+      king_col_sid = sid_col_required(sample_include, sids, sample_ct, max_sid_blen, king_modifier / kfKingColMaybesid);
+      if (!parallel_idx) {
+        *cswritetp++ = '#';
+        if (king_modifier & kfKingColId) {
+          cswritetp = strcpya(cswritetp, "FID1\tID1\t");
+          if (king_col_sid) {
+            cswritetp = strcpya(cswritetp, "SID1\tFID2\tID2\tSID2\t");
+          } else {
+            cswritetp = strcpya(cswritetp, "FID2\tID2\t");
           }
         }
-        uintptr_t* hom_iter = splitbuf_hom;
-        uintptr_t* ref2het_iter = splitbuf_ref2het;
-        for (uint32_t uii = 0; uii < variant_batch_size; ++uii, ++variant_uidx) {
-          next_set_unsafe_ck(variant_include, &variant_uidx);
-          reterr = pgr_read_refalt1_genovec_subset_unsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, loadbuf);
-          if (reterr) {
-            goto calc_king_ret_PGR_FAIL;
-          }
-          set_trailing_quaters(sample_ct, loadbuf);
-          split_hom_ref2het(loadbuf, sample_ctaw2, (unsigned char*)hom_iter, (unsigned char*)ref2het_iter);
-          hom_iter = &(hom_iter[sample_ctaw]);
-          ref2het_iter = &(ref2het_iter[sample_ctaw]);
+        if (king_modifier & kfKingColNsnp) {
+          cswritetp = strcpya(cswritetp, "NSNP\t");
         }
-        // uintptr_t* read_iter = loadbuf;
-        uintptr_t* write_hom_iter = &(cur_smaj_hom[write_batch_idx * kPglBitTransposeWords]);
-        uintptr_t* write_ref2het_iter = &(cur_smaj_ref2het[write_batch_idx * kPglBitTransposeWords]);
-        uint32_t sample_batch_idx = 0;
-        uint32_t write_batch_size = kPglBitTransposeBatch;
+        if (king_modifier & kfKingColHethet) {
+          cswritetp = strcpya(cswritetp, "HETHET\t");
+        }
+        if (king_modifier & kfKingColIbs0) {
+          cswritetp = strcpya(cswritetp, "IBS0\t");
+        }
+        if (king_modifier & kfKingColIbs1) {
+          cswritetp = strcpya(cswritetp, "HET1_HOM2\tHET2_HOM1\t");
+        }
+        if (king_modifier & kfKingColKinship) {
+          cswritetp = strcpya(cswritetp, "KINSHIP\t");
+        }
+        decr_append_binary_eoln(&cswritetp);
+      }
+      if (king_col_sid) {
+        if (augid_init_alloc(sample_include, sample_ids, sids, grand_row_end_idx, max_sample_id_blen, max_sid_blen, nullptr, &collapsed_sample_augids, &max_sample_augid_blen)) {
+          goto calc_king_ret_NOMEM;
+        }
+      } else {
+        if (bigstack_alloc_c(grand_row_end_idx * max_sample_augid_blen, &collapsed_sample_augids)) {
+          goto calc_king_ret_NOMEM;
+        }
+        uint32_t sample_uidx = 0;
+        for (uint32_t sample_idx = 0; sample_idx < grand_row_end_idx; ++sample_idx, ++sample_uidx) {
+          next_set_unsafe_ck(sample_include, &sample_uidx);
+          strcpy(&(collapsed_sample_augids[sample_idx * max_sample_augid_blen]), &(sample_ids[sample_uidx * max_sample_id_blen]));
+        }
+      }
+    }
+    uint64_t king_table_filter_ct = 0;
+    const uintptr_t cells_avail = bigstack_left() / (sizeof(int32_t) * homhom_needed_p4);
+    const uint32_t pass_ct = count_triangle_passes(grand_row_start_idx, grand_row_end_idx, 1, cells_avail);
+    if (!pass_ct) {
+      goto calc_king_ret_NOMEM;
+    }
+    if ((pass_ct > 1) && (king_modifier & kfKingMatrixSq)) {
+      logerrprint("Insufficient memory for --make-king square output.  Try square0 or triangle\nshape instead.\n");
+      goto calc_king_ret_NOMEM;
+    }
+    uint32_t row_end_idx = grand_row_start_idx;
+    g_king_counts = (uint32_t*)g_bigstack_base;
+    for (uint32_t pass_idx_p1 = 1; pass_idx_p1 <= pass_ct; ++pass_idx_p1) {
+      const uint32_t row_start_idx = row_end_idx;
+      row_end_idx = next_triangle_pass(row_start_idx, grand_row_end_idx, 1, cells_avail);
+      triangle_load_balance(calc_thread_ct, row_start_idx, row_end_idx, 1, g_thread_start);
+      const uintptr_t tot_cells = (((uint64_t)row_end_idx) * (row_end_idx - 1) - ((uint64_t)row_start_idx) * (row_start_idx - 1)) / 2;
+      fill_uint_zero(tot_cells * homhom_needed_p4, g_king_counts);
+
+      const uint32_t row_end_idxaw = BITCT_TO_ALIGNED_WORDCT(row_end_idx);
+      const uint32_t row_end_idxaw2 = QUATERCT_TO_ALIGNED_WORDCT(row_end_idx);
+      if (row_end_idxaw % 2) {
+        const uint32_t cur_king_bufsizew = kKingMultiplexWords * row_end_idx;
+        uintptr_t* smaj_hom0_last = &(g_smaj_hom[0][kKingMultiplexWords - 1]);
+        uintptr_t* smaj_ref2het0_last = &(g_smaj_ref2het[0][kKingMultiplexWords - 1]);
+        uintptr_t* smaj_hom1_last = &(g_smaj_hom[1][kKingMultiplexWords - 1]);
+        uintptr_t* smaj_ref2het1_last = &(g_smaj_ref2het[1][kKingMultiplexWords - 1]);
+        for (uint32_t offset = 0; offset < cur_king_bufsizew; offset += kKingMultiplexWords) {
+          smaj_hom0_last[offset] = 0;
+          smaj_ref2het0_last[offset] = 0;
+          smaj_hom1_last[offset] = 0;
+          smaj_ref2het1_last[offset] = 0;
+        }
+      }
+      memcpy(cur_sample_include, sample_include, raw_sample_ctl * sizeof(intptr_t));
+      if (row_end_idx != grand_row_end_idx) {
+        uint32_t sample_uidx_end = idx_to_uidx_basic(sample_include, row_end_idx);
+        clear_bits_nz(sample_uidx_end, raw_sample_ct, cur_sample_include);
+      }
+      fill_cumulative_popcounts(cur_sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
+      if (pass_idx_p1 != 1) {
+        reinit_threads3z(&ts);
+      }
+      uint32_t variant_uidx = 0;
+      uint32_t variants_completed = 0;
+      uint32_t parity = 0;
+      const uint32_t sample_batch_ct_m1 = (row_end_idx - 1) / kPglBitTransposeBatch;
+      // Similar to plink 1.9 --genome.  For each pair of samples S1-S2, we
+      // need to determine counts of the following:
+      //   * S1 hom-S2 opposite hom
+      //   * het-het
+      //   * S1 hom-S2 het
+      //   * S2 hom-S1 het
+      //   * sometimes S1 hom-S2 same hom
+      //   * (nonmissing determined via subtraction)
+      // We handle this as follows:
+      //   1. set n=0, reader thread loads first kKingMultiplex variants and
+      //      converts+transposes the data to a sample-major format suitable
+      //      for multithreaded computation.
+      //   2. spawn threads
+      //
+      //   3. increment n by 1
+      //   4. load block n unless eof
+      //   5. permit threads to continue to next block, unless eof
+      //   6. goto step 3 unless eof
+      //
+      //   7. write results
+      // Results are always reported in lower-triangular order, rather than
+      // KING's upper-triangular order, since the former plays more nicely with
+      // incremental addition of samples.
+      pgr_clear_ld_cache(simple_pgrp);
+      do {
+        const uint32_t cur_block_size = MINV(variant_ct - variants_completed, kKingMultiplex);
+        uintptr_t* cur_smaj_hom = g_smaj_hom[parity];
+        uintptr_t* cur_smaj_ref2het = g_smaj_ref2het[parity];
+        uint32_t write_batch_idx = 0;
+        // "block" = distance computation granularity, usually 1024 or 1536
+        //           variants
+        // "batch" = variant-major-to-sample-major transpose granularity,
+        //           currently 512 variants
+        uint32_t variant_batch_size = kPglBitTransposeBatch;
+        uint32_t variant_batch_size_rounded_up = kPglBitTransposeBatch;
+        const uint32_t write_batch_ct_m1 = (cur_block_size - 1) / kPglBitTransposeBatch;
         while (1) {
-          if (sample_batch_idx >= sample_batch_ct_m1) {
-            if (sample_batch_idx > sample_batch_ct_m1) {
+          if (write_batch_idx >= write_batch_ct_m1) {
+            if (write_batch_idx > write_batch_ct_m1) {
               break;
             }
-            write_batch_size = MOD_NZ(row_end_idx, kPglBitTransposeBatch);
+            variant_batch_size = MOD_NZ(cur_block_size, kPglBitTransposeBatch);
+            variant_batch_size_rounded_up = variant_batch_size;
+            const uint32_t variant_batch_size_rem = variant_batch_size % kBitsPerWord;
+            if (variant_batch_size_rem) {
+              const uint32_t trailing_variant_ct = kBitsPerWord - variant_batch_size_rem;
+              variant_batch_size_rounded_up += trailing_variant_ct;
+              fill_ulong_zero(trailing_variant_ct * row_end_idxaw, &(splitbuf_hom[variant_batch_size * row_end_idxaw]));
+              fill_ulong_zero(trailing_variant_ct * row_end_idxaw, &(splitbuf_ref2het[variant_batch_size * row_end_idxaw]));
+            }
           }
-          // bugfix: read_batch_size must be rounded up to word boundary, since
-          // we want to one-out instead of zero-out the trailing bits
-          //
-          // bugfix: if we always use kPglBitTransposeBatch instead of
-          // variant_batch_size_rounded_up, we read/write past the
-          // kKingMultiplex limit and clobber the first variants of the next
-          // sample with garbage.
-          transpose_bitblock(&(splitbuf_hom[sample_batch_idx * kPglBitTransposeWords]), sample_ctaw, kKingMultiplexWords, variant_batch_size_rounded_up, write_batch_size, write_hom_iter, vecaligned_buf);
-          transpose_bitblock(&(splitbuf_ref2het[sample_batch_idx * kPglBitTransposeWords]), sample_ctaw, kKingMultiplexWords, variant_batch_size_rounded_up, write_batch_size, write_ref2het_iter, vecaligned_buf);
-          ++sample_batch_idx;
-          write_hom_iter = &(write_hom_iter[kKingMultiplex * kPglBitTransposeWords]);
-          write_ref2het_iter = &(write_ref2het_iter[kKingMultiplex * kPglBitTransposeWords]);
-        }
-        ++write_batch_idx;
-      }
-      const uint32_t cur_block_sizew = BITCT_TO_WORDCT(cur_block_size);
-      if (cur_block_sizew < kKingMultiplexWords) {
-        uintptr_t* write_hom_iter = &(cur_smaj_hom[cur_block_sizew]);
-        uintptr_t* write_ref2het_iter = &(cur_smaj_ref2het[cur_block_sizew]);
-        const uint32_t write_word_ct = kKingMultiplexWords - cur_block_sizew;
-        for (uint32_t sample_idx = 0; sample_idx < row_end_idx; ++sample_idx) {
-          fill_ulong_zero(write_word_ct, write_hom_iter);
-          fill_ulong_zero(write_word_ct, write_ref2het_iter);
-          write_hom_iter = &(write_hom_iter[kKingMultiplexWords]);
-          write_ref2het_iter = &(write_ref2het_iter[kKingMultiplexWords]);
-        }
-      }
-      if (variants_completed) {
-        join_threads2z(calc_thread_ct, 0, threads);
-      }
-      if (spawn_threads2z(calc_king_thread, calc_thread_ct, is_last_block, threads)) {
-        goto calc_king_ret_THREAD_CREATE_FAIL;
-      }
-      printf("\r%u variants complete.", variants_completed);
-      fflush(stdout);
-      variants_completed += cur_block_size;
-      parity = 1 - parity;
-    } while (!is_last_block);
-    join_threads2z(calc_thread_ct, 1, threads);
-    putc_unlocked('\r', stdout);
-    LOGPRINTF("%s: %u variant%s processed.\n", flagname, variant_ct, (variant_ct == 1)? "" : "s");
-    if (matrix_shape || (king_modifier & kfKingColAll)) {
-      // allow simultaneous --make-king + --make-king-table
-      if (matrix_shape) {
-        fputs("--make-king: Writing...", stdout);
-        fflush(stdout);
-        if (!(king_modifier & (kfKingMatrixBin | kfKingMatrixBin4))) {
-          // text matrix
-          char* outname_end2 = strcpya(outname_end, ".king");
-          // won't be >2gb since sample_ct < 79m
-          const uint32_t overflow_buf_size = kCompressStreamBlock + 16 * sample_ct;
-          unsigned char* overflow_buf;
-          if (bigstack_alloc_uc(overflow_buf_size, &overflow_buf)) {
-            goto calc_king_ret_NOMEM;
+          uintptr_t* hom_iter = splitbuf_hom;
+          uintptr_t* ref2het_iter = splitbuf_ref2het;
+          for (uint32_t uii = 0; uii < variant_batch_size; ++uii, ++variant_uidx) {
+            next_set_unsafe_ck(variant_include, &variant_uidx);
+            reterr = pgr_read_refalt1_genovec_subset_unsafe(cur_sample_include, sample_include_cumulative_popcounts, row_end_idx, variant_uidx, simple_pgrp, loadbuf);
+            if (reterr) {
+              goto calc_king_ret_PGR_FAIL;
+            }
+            set_trailing_quaters(row_end_idx, loadbuf);
+            split_hom_ref2het_unsafew(loadbuf, row_end_idxaw2, (unsigned char*)hom_iter, (unsigned char*)ref2het_iter);
+            hom_iter = &(hom_iter[row_end_idxaw]);
+            ref2het_iter = &(ref2het_iter[row_end_idxaw]);
           }
-          const uint32_t output_zst = king_modifier & kfKingMatrixZs;
-          if (parallel_tot != 1) {
-            *outname_end2++ = '.';
-            outname_end2 = uint32toa(parallel_idx + 1, outname_end2);
-          }
-          if (output_zst) {
-            outname_end2 = strcpya(outname_end2, ".zst");
-          }
-          *outname_end2 = '\0';
-          if (cswrite_init(outname, 0, output_zst, overflow_buf, &css)) {
-            goto calc_king_ret_OPEN_FAIL;
-          }
-          cswritep = (char*)overflow_buf;
-          const uint32_t is_squarex = king_modifier & (kfKingMatrixSq | kfKingMatrixSq0);
-          const uint32_t is_square0 = king_modifier & kfKingMatrixSq0;
-          uint32_t* results_iter = g_king_counts;
-          uint32_t sample_idx1 = row_start_idx;
-          if (is_squarex && (!parallel_idx)) {
-            // dump "empty" first row
-            sample_idx1 = 0;
-          }
-          for (; sample_idx1 < row_end_idx; ++sample_idx1) {
-            for (uint32_t sample_idx2 = 0; sample_idx2 < sample_idx1; ++sample_idx2) {
-              const double kinship_coeff = compute_kinship(results_iter);
-              if (kinship_table && (kinship_coeff > king_cutoff)) {
-                SET_BIT(sample_idx2, &(kinship_table[sample_idx1 * sample_ctl]));
-                SET_BIT(sample_idx1, &(kinship_table[sample_idx2 * sample_ctl]));
+          // uintptr_t* read_iter = loadbuf;
+          uintptr_t* write_hom_iter = &(cur_smaj_hom[write_batch_idx * kPglBitTransposeWords]);
+          uintptr_t* write_ref2het_iter = &(cur_smaj_ref2het[write_batch_idx * kPglBitTransposeWords]);
+          uint32_t sample_batch_idx = 0;
+          uint32_t write_batch_size = kPglBitTransposeBatch;
+          while (1) {
+            if (sample_batch_idx >= sample_batch_ct_m1) {
+              if (sample_batch_idx > sample_batch_ct_m1) {
+                break;
               }
-              cswritep = dtoa_g(kinship_coeff, cswritep);
-              *cswritep++ = '\t';
-              results_iter = &(results_iter[homhom_needed_p4]);
+              write_batch_size = MOD_NZ(row_end_idx, kPglBitTransposeBatch);
             }
-            if (is_squarex) {
-              cswritep = memcpyl3a(cswritep, "0.5");
-              if (is_square0) {
-                // (roughly same performance as creating a tab-zero constant
-                // buffer in advance)
-                const uint32_t zcount = sample_ct - sample_idx1 - 1;
-                const uint32_t wct = DIV_UP(zcount, kBytesPerWord / 2);
-                // assumes little-endian
-                const uintptr_t tabzero_word = 0x3009 * kMask0001;
-#ifdef __arm__
-  #error "Unaligned accesses in calc_king()."
-#endif
-                uintptr_t* writep_alias = (uintptr_t*)cswritep;
-                for (uintptr_t widx = 0; widx < wct; ++widx) {
-                  *writep_alias++ = tabzero_word;
-                }
-                cswritep = &(cswritep[zcount * 2]);
-              } else {
-                const uint32_t* results_iter2 = &(results_iter[sample_idx1 * homhom_needed_p4]);
-                // 0
-                // 1  2
-                // 3  4  5
-                // 6  7  8  9
-                // 10 11 12 13 14
-
-                // sample_idx1 = 0: [0] 0 1 3 6 10...
-                // sample_idx1 = 1: [1] 2 4 7 11...
-                // sample_idx1 = 2: [3] 5 8 12...
-                // sample_idx1 = 3: [6] 9 13...
-                for (uint32_t sample_idx2 = sample_idx1 + 1; sample_idx2 < sample_ct; ++sample_idx2) {
-                  *cswritep++ = '\t';
-                  cswritep = dtoa_g(compute_kinship(results_iter2), cswritep);
-                  results_iter2 = &(results_iter2[sample_idx2 * homhom_needed_p4]);
-                }
-              }
-              ++cswritep;
-            }
-            decr_append_binary_eoln(&cswritep);
-            if (cswrite(&css, &cswritep)) {
-              goto calc_king_ret_WRITE_FAIL;
-            }
+            // bugfix: read_batch_size must be rounded up to word boundary,
+            // since we want to one-out instead of zero-out the trailing bits
+            //
+            // bugfix: if we always use kPglBitTransposeBatch instead of
+            // variant_batch_size_rounded_up, we read/write past the
+            // kKingMultiplex limit and clobber the first variants of the next
+            // sample with garbage.
+            transpose_bitblock(&(splitbuf_hom[sample_batch_idx * kPglBitTransposeWords]), row_end_idxaw, kKingMultiplexWords, variant_batch_size_rounded_up, write_batch_size, write_hom_iter, vecaligned_buf);
+            transpose_bitblock(&(splitbuf_ref2het[sample_batch_idx * kPglBitTransposeWords]), row_end_idxaw, kKingMultiplexWords, variant_batch_size_rounded_up, write_batch_size, write_ref2het_iter, vecaligned_buf);
+            ++sample_batch_idx;
+            write_hom_iter = &(write_hom_iter[kKingMultiplex * kPglBitTransposeWords]);
+            write_ref2het_iter = &(write_ref2het_iter[kKingMultiplex * kPglBitTransposeWords]);
           }
-          if (cswrite_close_null(&css, cswritep)) {
-            goto calc_king_ret_WRITE_FAIL;
+          ++write_batch_idx;
+        }
+        const uint32_t cur_block_sizew = BITCT_TO_WORDCT(cur_block_size);
+        if (cur_block_sizew < kKingMultiplexWords) {
+          uintptr_t* write_hom_iter = &(cur_smaj_hom[cur_block_sizew]);
+          uintptr_t* write_ref2het_iter = &(cur_smaj_ref2het[cur_block_sizew]);
+          const uint32_t write_word_ct = kKingMultiplexWords - cur_block_sizew;
+          for (uint32_t sample_idx = 0; sample_idx < row_end_idx; ++sample_idx) {
+            fill_ulong_zero(write_word_ct, write_hom_iter);
+            fill_ulong_zero(write_word_ct, write_ref2het_iter);
+            write_hom_iter = &(write_hom_iter[kKingMultiplexWords]);
+            write_ref2het_iter = &(write_ref2het_iter[kKingMultiplexWords]);
           }
+        }
+        if (variants_completed) {
+          join_threads3z(&ts);
         } else {
-          // binary matrix output
-          char* outname_end2 = strcpya(outname_end, ".king.bin");
-          if (parallel_tot != 1) {
-            *outname_end2++ = '.';
-            outname_end2 = uint32toa(parallel_idx + 1, outname_end2);
-          }
-          *outname_end2 = '\0';
-          if (fopen_checked(outname, FOPEN_WB, &outfile)) {
-            goto calc_king_ret_OPEN_FAIL;
-          }
-          // er, probably want to revise this so there's less duplicated code
-          // from text matrix output...
-          const uint32_t is_squarex = king_modifier & (kfKingMatrixSq | kfKingMatrixSq0);
-          const uint32_t is_square0 = king_modifier & kfKingMatrixSq0;
-          uint32_t* results_iter = g_king_counts;
-          uint32_t sample_idx1 = row_start_idx;
-          if (is_squarex && (!parallel_idx)) {
-            sample_idx1 = 0;
-          }
-          if (king_modifier & kfKingMatrixBin4) {
-            float* write_row;
-            if (bigstack_alloc_f(sample_ct, &write_row)) {
-              goto calc_king_ret_NOMEM;
+          ts.thread_func_ptr = calc_king_thread;
+        }
+        // this update must occur after join_threads3z() call
+        ts.is_last_block = (variants_completed + cur_block_size == variant_ct);
+        if (spawn_threads3z(variants_completed, &ts)) {
+          goto calc_king_ret_THREAD_CREATE_FAIL;
+        }
+        printf("\r%s pass %u/%u: %u variants complete.", flagname, pass_idx_p1, pass_ct, variants_completed);
+        fflush(stdout);
+        variants_completed += cur_block_size;
+        parity = 1 - parity;
+      } while (!ts.is_last_block);
+      join_threads3z(&ts);
+      if (matrix_shape || (king_modifier & kfKingColAll)) {
+        printf("\r%s pass %u/%u: Writing...                   \b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b", flagname, pass_idx_p1, pass_ct);
+        fflush(stdout);
+        // allow simultaneous --make-king + --make-king-table
+        if (matrix_shape) {
+          if (!(king_modifier & (kfKingMatrixBin | kfKingMatrixBin4))) {
+            const uint32_t is_squarex = king_modifier & (kfKingMatrixSq | kfKingMatrixSq0);
+            const uint32_t is_square0 = king_modifier & kfKingMatrixSq0;
+            uint32_t* results_iter = g_king_counts;
+            uint32_t sample_idx1 = row_start_idx;
+            if (is_squarex && (!parallel_idx) && (pass_idx_p1)) {
+              // dump "empty" first row
+              sample_idx1 = 0;
             }
-            uintptr_t row_byte_ct = sample_ct * sizeof(float);
             for (; sample_idx1 < row_end_idx; ++sample_idx1) {
               for (uint32_t sample_idx2 = 0; sample_idx2 < sample_idx1; ++sample_idx2) {
                 const double kinship_coeff = compute_kinship(results_iter);
@@ -1130,277 +1224,296 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
                   SET_BIT(sample_idx2, &(kinship_table[sample_idx1 * sample_ctl]));
                   SET_BIT(sample_idx1, &(kinship_table[sample_idx2 * sample_ctl]));
                 }
-                write_row[sample_idx2] = (float)kinship_coeff;
+                cswritep = dtoa_g(kinship_coeff, cswritep);
+                *cswritep++ = '\t';
                 results_iter = &(results_iter[homhom_needed_p4]);
               }
               if (is_squarex) {
-                write_row[sample_idx1] = 0.5f;
+                cswritep = memcpyl3a(cswritep, "0.5");
                 if (is_square0) {
-                  const uint32_t right_fill_idx = sample_idx1 + 1;
-                  fill_float_zero(sample_ct - right_fill_idx, &(write_row[right_fill_idx]));
+                  // (roughly same performance as creating a tab-zero constant
+                  // buffer in advance)
+                  const uint32_t zcount = sample_ct - sample_idx1 - 1;
+                  const uint32_t wct = DIV_UP(zcount, kBytesPerWord / 2);
+                  // assumes little-endian
+                  const uintptr_t tabzero_word = 0x3009 * kMask0001;
+#ifdef __arm__
+  #error "Unaligned accesses in calc_king()."
+#endif
+                  uintptr_t* writep_alias = (uintptr_t*)cswritep;
+                  for (uintptr_t widx = 0; widx < wct; ++widx) {
+                    *writep_alias++ = tabzero_word;
+                  }
+                  cswritep = &(cswritep[zcount * 2]);
                 } else {
                   const uint32_t* results_iter2 = &(results_iter[sample_idx1 * homhom_needed_p4]);
+                  // 0
+                  // 1  2
+                  // 3  4  5
+                  // 6  7  8  9
+                  // 10 11 12 13 14
+
+                  // sample_idx1 = 0: [0] 0 1 3 6 10...
+                  // sample_idx1 = 1: [1] 2 4 7 11...
+                  // sample_idx1 = 2: [3] 5 8 12...
+                  // sample_idx1 = 3: [6] 9 13...
                   for (uint32_t sample_idx2 = sample_idx1 + 1; sample_idx2 < sample_ct; ++sample_idx2) {
-                    write_row[sample_idx2] = (float)compute_kinship(results_iter2);
+                    *cswritep++ = '\t';
+                    cswritep = dtoa_g(compute_kinship(results_iter2), cswritep);
                     results_iter2 = &(results_iter2[sample_idx2 * homhom_needed_p4]);
                   }
                 }
-              } else {
-                row_byte_ct = sample_idx1 * sizeof(float);
+                ++cswritep;
               }
-              if (fwrite_checked(write_row, row_byte_ct, outfile)) {
+              decr_append_binary_eoln(&cswritep);
+              if (cswrite(&css, &cswritep)) {
                 goto calc_king_ret_WRITE_FAIL;
               }
             }
           } else {
-            double* write_row;
-            if (bigstack_alloc_d(sample_ct, &write_row)) {
-              goto calc_king_ret_NOMEM;
+            // binary matrix output
+            // er, probably want to revise this so there's less duplicated code
+            // from text matrix output...
+            const uint32_t is_squarex = king_modifier & (kfKingMatrixSq | kfKingMatrixSq0);
+            const uint32_t is_square0 = king_modifier & kfKingMatrixSq0;
+            uint32_t* results_iter = g_king_counts;
+            uint32_t sample_idx1 = row_start_idx;
+            if (is_squarex && (!parallel_idx)) {
+              sample_idx1 = 0;
             }
-            uintptr_t row_byte_ct = sample_ct * sizeof(double);
-            for (; sample_idx1 < row_end_idx; ++sample_idx1) {
-              for (uint32_t sample_idx2 = 0; sample_idx2 < sample_idx1; ++sample_idx2) {
-                const double kinship_coeff = compute_kinship(results_iter);
-                if (kinship_table && (kinship_coeff > king_cutoff)) {
-                  SET_BIT(sample_idx2, &(kinship_table[sample_idx1 * sample_ctl]));
-                  SET_BIT(sample_idx1, &(kinship_table[sample_idx2 * sample_ctl]));
-                }
-                write_row[sample_idx2] = kinship_coeff;
-                results_iter = &(results_iter[homhom_needed_p4]);
-              }
-              if (is_squarex) {
-                write_row[sample_idx1] = 0.5;
-                if (is_square0) {
-                  const uint32_t right_fill_idx = sample_idx1 + 1;
-                  fill_double_zero(sample_ct - right_fill_idx, &(write_row[right_fill_idx]));
-                } else {
-                  const uint32_t* results_iter2 = &(results_iter[sample_idx1 * homhom_needed_p4]);
-                  for (uint32_t sample_idx2 = sample_idx1 + 1; sample_idx2 < sample_ct; ++sample_idx2) {
-                    write_row[sample_idx2] = compute_kinship(results_iter2);
-                    results_iter2 = &(results_iter2[sample_idx2 * homhom_needed_p4]);
+            if (king_modifier & kfKingMatrixBin4) {
+              float* write_row = (float*)numbuf;
+              uintptr_t row_byte_ct = sample_ct * sizeof(float);
+              for (; sample_idx1 < row_end_idx; ++sample_idx1) {
+                for (uint32_t sample_idx2 = 0; sample_idx2 < sample_idx1; ++sample_idx2) {
+                  const double kinship_coeff = compute_kinship(results_iter);
+                  if (kinship_table && (kinship_coeff > king_cutoff)) {
+                    SET_BIT(sample_idx2, &(kinship_table[sample_idx1 * sample_ctl]));
+                    SET_BIT(sample_idx1, &(kinship_table[sample_idx2 * sample_ctl]));
                   }
+                  write_row[sample_idx2] = (float)kinship_coeff;
+                  results_iter = &(results_iter[homhom_needed_p4]);
                 }
-              } else {
-                row_byte_ct = sample_idx1 * sizeof(double);
+                if (is_squarex) {
+                  write_row[sample_idx1] = 0.5f;
+                  if (is_square0) {
+                    const uint32_t right_fill_idx = sample_idx1 + 1;
+                    fill_float_zero(sample_ct - right_fill_idx, &(write_row[right_fill_idx]));
+                  } else {
+                    const uint32_t* results_iter2 = &(results_iter[sample_idx1 * homhom_needed_p4]);
+                    for (uint32_t sample_idx2 = sample_idx1 + 1; sample_idx2 < sample_ct; ++sample_idx2) {
+                      write_row[sample_idx2] = (float)compute_kinship(results_iter2);
+                      results_iter2 = &(results_iter2[sample_idx2 * homhom_needed_p4]);
+                    }
+                  }
+                } else {
+                  row_byte_ct = sample_idx1 * sizeof(float);
+                }
+                if (fwrite_checked(write_row, row_byte_ct, outfile)) {
+                  goto calc_king_ret_WRITE_FAIL;
+                }
               }
-              if (fwrite_checked(write_row, row_byte_ct, outfile)) {
+            } else {
+              double* write_row = (double*)numbuf;
+              uintptr_t row_byte_ct = sample_ct * sizeof(double);
+              for (; sample_idx1 < row_end_idx; ++sample_idx1) {
+                for (uint32_t sample_idx2 = 0; sample_idx2 < sample_idx1; ++sample_idx2) {
+                  const double kinship_coeff = compute_kinship(results_iter);
+                  if (kinship_table && (kinship_coeff > king_cutoff)) {
+                    SET_BIT(sample_idx2, &(kinship_table[sample_idx1 * sample_ctl]));
+                    SET_BIT(sample_idx1, &(kinship_table[sample_idx2 * sample_ctl]));
+                  }
+                  write_row[sample_idx2] = kinship_coeff;
+                  results_iter = &(results_iter[homhom_needed_p4]);
+                }
+                if (is_squarex) {
+                  write_row[sample_idx1] = 0.5;
+                  if (is_square0) {
+                    const uint32_t right_fill_idx = sample_idx1 + 1;
+                    fill_double_zero(sample_ct - right_fill_idx, &(write_row[right_fill_idx]));
+                  } else {
+                    const uint32_t* results_iter2 = &(results_iter[sample_idx1 * homhom_needed_p4]);
+                    for (uint32_t sample_idx2 = sample_idx1 + 1; sample_idx2 < sample_ct; ++sample_idx2) {
+                      write_row[sample_idx2] = compute_kinship(results_iter2);
+                      results_iter2 = &(results_iter2[sample_idx2 * homhom_needed_p4]);
+                    }
+                  }
+                } else {
+                  row_byte_ct = sample_idx1 * sizeof(double);
+                }
+                if (fwrite_checked(write_row, row_byte_ct, outfile)) {
+                  goto calc_king_ret_WRITE_FAIL;
+                }
+              }
+            }
+          }
+        }
+        if (king_modifier & kfKingColAll) {
+          uintptr_t* kinship_table_backup = nullptr;
+          if (matrix_shape) {
+            // We already updated the table; don't do it again.
+            kinship_table_backup = kinship_table;
+            kinship_table = nullptr;
+          }
+          const uint32_t king_col_id = king_modifier & kfKingColId;
+          const uint32_t king_col_nsnp = king_modifier & kfKingColNsnp;
+          const uint32_t king_col_hethet = king_modifier & kfKingColHethet;
+          const uint32_t king_col_ibs0 = king_modifier & kfKingColIbs0;
+          const uint32_t king_col_ibs1 = king_modifier & kfKingColIbs1;
+          const uint32_t king_col_kinship = king_modifier & kfKingColKinship;
+          const uint32_t report_counts = king_modifier & kfKingCounts;
+          uint32_t* results_iter = g_king_counts;
+          double nonmiss_recip = 0.0;
+          for (uint32_t sample_idx1 = row_start_idx; sample_idx1 < row_end_idx; ++sample_idx1) {
+            const char* sample_augid1 = &(collapsed_sample_augids[max_sample_augid_blen * sample_idx1]);
+            uint32_t sample_augid1_len = strlen(sample_augid1);
+            for (uint32_t sample_idx2 = 0; sample_idx2 < sample_idx1; ++sample_idx2, results_iter = &(results_iter[homhom_needed_p4])) {
+              const uint32_t ibs0_ct = results_iter[0];
+              const uint32_t hethet_ct = results_iter[1];
+              const uint32_t het2hom1_ct = results_iter[2];
+              const uint32_t het1hom2_ct = results_iter[3];
+              const intptr_t smaller_het_ct = (intptr_t)(hethet_ct + MINV(het1hom2_ct, het2hom1_ct));
+              const double kinship_coeff = 0.5 - ((double)(4 * ((intptr_t)ibs0_ct) + het1hom2_ct + het2hom1_ct)) / ((double)(4 * smaller_het_ct));
+              if (kinship_table && (kinship_coeff > king_cutoff)) {
+                SET_BIT(sample_idx2, &(kinship_table[sample_idx1 * sample_ctl]));
+                SET_BIT(sample_idx1, &(kinship_table[sample_idx2 * sample_ctl]));
+              }
+              // edge case fix (18 Nov 2017): kinship_coeff can be -inf when
+              // smaller_het_ct is zero.  Don't filter those lines out when
+              // --king-table-filter wasn't specified.
+              if ((king_table_filter != -DBL_MAX) && (kinship_coeff < king_table_filter)) {
+                ++king_table_filter_ct;
+                continue;
+              }
+              if (king_col_id) {
+                cswritetp = memcpyax(cswritetp, sample_augid1, sample_augid1_len, '\t');
+                cswritetp = strcpyax(cswritetp, &(collapsed_sample_augids[max_sample_augid_blen * sample_idx2]), '\t');
+              }
+              if (homhom_needed_p4 == 5) {
+                const uint32_t homhom_ct = results_iter[4];
+                const uint32_t nonmiss_ct = het1hom2_ct + het2hom1_ct + homhom_ct + hethet_ct;
+                if (king_col_nsnp) {
+                  cswritetp = uint32toa_x(nonmiss_ct, '\t', cswritetp);
+                }
+                if (!report_counts) {
+                  nonmiss_recip = 1.0 / ((double)((int32_t)nonmiss_ct));
+                }
+              }
+              if (king_col_hethet) {
+                if (report_counts) {
+                  cswritetp = uint32toa(hethet_ct, cswritetp);
+                } else {
+                  cswritetp = dtoa_g(nonmiss_recip * ((double)((int32_t)hethet_ct)), cswritetp);
+                }
+                *cswritetp++ = '\t';
+              }
+              if (king_col_ibs0) {
+                if (report_counts) {
+                  cswritetp = uint32toa(ibs0_ct, cswritetp);
+                } else {
+                  cswritetp = dtoa_g(nonmiss_recip * ((double)((int32_t)ibs0_ct)), cswritetp);
+                }
+                *cswritetp++ = '\t';
+              }
+              if (king_col_ibs1) {
+                if (report_counts) {
+                  cswritetp = uint32toa_x(het1hom2_ct, '\t', cswritetp);
+                  cswritetp = uint32toa(het2hom1_ct, cswritetp);
+                } else {
+                  cswritetp = dtoa_g(nonmiss_recip * ((double)((int32_t)het1hom2_ct)), cswritetp);
+                  *cswritetp++ = '\t';
+                  cswritetp = dtoa_g(nonmiss_recip * ((double)((int32_t)het2hom1_ct)), cswritetp);
+                }
+                *cswritetp++ = '\t';
+              }
+              if (king_col_kinship) {
+                cswritetp = dtoa_g(kinship_coeff, cswritetp);
+                ++cswritetp;
+              }
+              decr_append_binary_eoln(&cswritetp);
+              if (cswrite(&csst, &cswritetp)) {
                 goto calc_king_ret_WRITE_FAIL;
               }
             }
           }
-          if (fclose_null(&outfile)) {
-            goto calc_king_ret_WRITE_FAIL;
+
+          if (matrix_shape) {
+            kinship_table = kinship_table_backup;
           }
         }
-        putc_unlocked('\r', stdout);
-        char* write_iter = strcpya(g_logbuf, "--make-king: Results written to ");
-        write_iter = strcpya(write_iter, outname);
+      } else {
+        printf("\r%s pass %u/%u: Condensing...                \b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b", flagname, pass_idx_p1, pass_ct);
+        fflush(stdout);
+        uint32_t* results_iter = g_king_counts;
+        for (uint32_t sample_idx1 = row_start_idx; sample_idx1 < row_end_idx; ++sample_idx1) {
+          for (uint32_t sample_idx2 = 0; sample_idx2 < sample_idx1; ++sample_idx2) {
+            const double kinship_coeff = compute_kinship(results_iter);
+            if (kinship_coeff > king_cutoff) {
+              SET_BIT(sample_idx2, &(kinship_table[sample_idx1 * sample_ctl]));
+              SET_BIT(sample_idx1, &(kinship_table[sample_idx2 * sample_ctl]));
+            }
+            results_iter = &(results_iter[homhom_needed_p4]);
+          }
+        }
+      }
+    }
+    putc_unlocked('\n', stdout);
+    LOGPRINTF("%s: %u variant%s processed.\n", flagname, variant_ct, (variant_ct == 1)? "" : "s");
+    // end-of-loop operations
+    if (matrix_shape) {
+      if (!(king_modifier & (kfKingMatrixBin | kfKingMatrixBin4))) {
+        if (cswrite_close_null(&css, cswritep)) {
+          goto calc_king_ret_WRITE_FAIL;
+        }
+      } else {
+        if (fclose_null(&outfile)) {
+          goto calc_king_ret_WRITE_FAIL;
+        }
+      }
+      // Necessary to regenerate filename since it may have been overwritten by
+      // --make-king-table.
+      set_king_matrix_fname(king_modifier, parallel_idx, parallel_tot, outname_end);
+
+      char* write_iter = strcpya(g_logbuf, "Results written to ");
+      write_iter = strcpya(write_iter, outname);
+      write_iter = strcpya(write_iter, " and ");
+      strcpy(&(outname_end[5]), ".id");
+      write_iter = strcpya(write_iter, outname);
+      strcpy(write_iter, " .\n");
+      wordwrapb(0);
+      logprintb();
+      reterr = write_sample_ids(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen);
+      if (reterr) {
+        goto calc_king_ret_1;
+      }
+    }
+    if (king_modifier & kfKingColAll) {
+      if (cswrite_close_null(&csst, cswritetp)) {
+        goto calc_king_ret_WRITE_FAIL;
+      }
+      set_king_table_fname(king_modifier, parallel_idx, parallel_tot, outname_end);
+      char* write_iter = strcpya(g_logbuf, "Results written to ");
+      write_iter = strcpya(write_iter, outname);
+      if ((!parallel_idx) && (!(king_modifier & kfKingColId))) {
         write_iter = strcpya(write_iter, " and ");
-        strcpy(&(outname_end[5]), ".id");
+        strcpya(&(outname_end[5]), ".id");
         write_iter = strcpya(write_iter, outname);
-        strcpy(write_iter, " .\n");
+        strcpya(write_iter, " .\n");
         wordwrapb(0);
         logprintb();
         reterr = write_sample_ids(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen);
         if (reterr) {
           goto calc_king_ret_1;
         }
+      } else {
+        strcpy(write_iter, " .\n");
+        wordwrapb(0);
+        logprintb();
       }
-      if (king_modifier & kfKingColAll) {
-        fputs("--make-king-table: Writing...", stdout);
-        fflush(stdout);
-        uintptr_t* kinship_table_backup = nullptr;
-        if (matrix_shape) {
-          kinship_table_backup = kinship_table;
-          kinship_table = nullptr;
-        }
-        const uint32_t overflow_buf_size = kCompressStreamBlock + kMaxMediumLine;
-        char* outname_end2 = strcpya(outname_end, ".kin0");
-        unsigned char* overflow_buf;
-        if (bigstack_alloc_uc(overflow_buf_size, &overflow_buf)) {
-          goto calc_king_ret_NOMEM;
-        }
-        const uint32_t output_zst = king_modifier & kfKingTableZs;
-        if (parallel_tot != 1) {
-          *outname_end2++ = '.';
-          outname_end2 = uint32toa(parallel_idx + 1, outname_end2);
-        }
-        if (output_zst) {
-          outname_end2 = strcpya(outname_end2, ".zst");
-        }
-        *outname_end2 = '\0';
-        if (cswrite_init(outname, 0, output_zst, overflow_buf, &css)) {
-          goto calc_king_ret_OPEN_FAIL;
-        }
-        cswritep = (char*)overflow_buf;
-        const uint32_t king_col_id = king_modifier & kfKingColId;
-        const uint32_t king_col_sid = sid_col_required(sample_include, sids, sample_ct, max_sid_blen, king_modifier / kfKingColMaybesid);
-        const uint32_t king_col_nsnp = king_modifier & kfKingColNsnp;
-        const uint32_t king_col_hethet = king_modifier & kfKingColHethet;
-        const uint32_t king_col_ibs0 = king_modifier & kfKingColIbs0;
-        const uint32_t king_col_ibs1 = king_modifier & kfKingColIbs1;
-        const uint32_t king_col_kinship = king_modifier & kfKingColKinship;
-        const uint32_t report_counts = king_modifier & kfKingCounts;
-        if (!parallel_idx) {
-          *cswritep++ = '#';
-          if (king_col_id) {
-            cswritep = strcpya(cswritep, "FID1\tID1\t");
-            if (king_col_sid) {
-              cswritep = strcpya(cswritep, "SID1\tFID2\tID2\tSID2\t");
-            } else {
-              cswritep = strcpya(cswritep, "FID2\tID2\t");
-            }
-          }
-          if (king_col_nsnp) {
-            cswritep = strcpya(cswritep, "NSNP\t");
-          }
-          if (king_col_hethet) {
-            cswritep = strcpya(cswritep, "HETHET\t");
-          }
-          if (king_col_ibs0) {
-            cswritep = strcpya(cswritep, "IBS0\t");
-          }
-          if (king_col_ibs1) {
-            cswritep = strcpya(cswritep, "HET1_HOM2\tHET2_HOM1\t");
-          }
-          if (king_col_kinship) {
-            cswritep = strcpya(cswritep, "KINSHIP\t");
-          }
-          decr_append_binary_eoln(&cswritep);
-        }
-        uintptr_t max_sample_augid_blen = max_sample_id_blen;
-        char* collapsed_sample_augids;
-        if (king_col_sid) {
-          if (augid_init_alloc(sample_include, sample_ids, sids, row_end_idx, max_sample_id_blen, max_sid_blen, nullptr, &collapsed_sample_augids, &max_sample_augid_blen)) {
-            goto calc_king_ret_NOMEM;
-          }
-        } else {
-          if (bigstack_alloc_c(row_end_idx * max_sample_augid_blen, &collapsed_sample_augids)) {
-            goto calc_king_ret_NOMEM;
-          }
-          uint32_t sample_uidx = 0;
-          for (uint32_t sample_idx = 0; sample_idx < row_end_idx; ++sample_idx, ++sample_uidx) {
-            next_set_unsafe_ck(sample_include, &sample_uidx);
-            strcpy(&(collapsed_sample_augids[sample_idx * max_sample_augid_blen]), &(sample_ids[sample_uidx * max_sample_id_blen]));
-          }
-        }
-        uintptr_t king_table_filter_ct = 0;
-        uint32_t* results_iter = g_king_counts;
-        double nonmiss_recip = 0.0;
-        for (uint32_t sample_idx1 = row_start_idx; sample_idx1 < row_end_idx; ++sample_idx1) {
-          const char* sample_augid1 = &(collapsed_sample_augids[max_sample_augid_blen * sample_idx1]);
-          uint32_t sample_augid1_len = strlen(sample_augid1);
-          for (uint32_t sample_idx2 = 0; sample_idx2 < sample_idx1; ++sample_idx2, results_iter = &(results_iter[homhom_needed_p4])) {
-            const uint32_t ibs0_ct = results_iter[0];
-            const uint32_t hethet_ct = results_iter[1];
-            const uint32_t het2hom1_ct = results_iter[2];
-            const uint32_t het1hom2_ct = results_iter[3];
-            const intptr_t smaller_het_ct = (intptr_t)(hethet_ct + MINV(het1hom2_ct, het2hom1_ct));
-            const double kinship_coeff = 0.5 - ((double)(4 * ((intptr_t)ibs0_ct) + het1hom2_ct + het2hom1_ct)) / ((double)(4 * smaller_het_ct));
-            if (kinship_table && (kinship_coeff > king_cutoff)) {
-              SET_BIT(sample_idx2, &(kinship_table[sample_idx1 * sample_ctl]));
-              SET_BIT(sample_idx1, &(kinship_table[sample_idx2 * sample_ctl]));
-            }
-            // edge case fix (18 Nov 2017): kinship_coeff can be -inf when
-            // smaller_het_ct is zero.  Don't filter those lines out when
-            // --king-table-filter wasn't specified.
-            if ((king_table_filter != -DBL_MAX) && (kinship_coeff < king_table_filter)) {
-              ++king_table_filter_ct;
-              continue;
-            }
-            if (king_col_id) {
-              cswritep = memcpyax(cswritep, sample_augid1, sample_augid1_len, '\t');
-              cswritep = strcpyax(cswritep, &(collapsed_sample_augids[max_sample_augid_blen * sample_idx2]), '\t');
-            }
-            if (homhom_needed_p4 == 5) {
-              const uint32_t homhom_ct = results_iter[4];
-              const uint32_t nonmiss_ct = het1hom2_ct + het2hom1_ct + homhom_ct + hethet_ct;
-              if (king_col_nsnp) {
-                cswritep = uint32toa_x(nonmiss_ct, '\t', cswritep);
-              }
-              if (!report_counts) {
-                nonmiss_recip = 1.0 / ((double)((int32_t)nonmiss_ct));
-              }
-            }
-            if (king_col_hethet) {
-              if (report_counts) {
-                cswritep = uint32toa(hethet_ct, cswritep);
-              } else {
-                cswritep = dtoa_g(nonmiss_recip * ((double)((int32_t)hethet_ct)), cswritep);
-              }
-              *cswritep++ = '\t';
-            }
-            if (king_col_ibs0) {
-              if (report_counts) {
-                cswritep = uint32toa(ibs0_ct, cswritep);
-              } else {
-                cswritep = dtoa_g(nonmiss_recip * ((double)((int32_t)ibs0_ct)), cswritep);
-              }
-              *cswritep++ = '\t';
-            }
-            if (king_col_ibs1) {
-              if (report_counts) {
-                cswritep = uint32toa_x(het1hom2_ct, '\t', cswritep);
-                cswritep = uint32toa(het2hom1_ct, cswritep);
-              } else {
-                cswritep = dtoa_g(nonmiss_recip * ((double)((int32_t)het1hom2_ct)), cswritep);
-                *cswritep++ = '\t';
-                cswritep = dtoa_g(nonmiss_recip * ((double)((int32_t)het2hom1_ct)), cswritep);
-              }
-              *cswritep++ = '\t';
-            }
-            if (king_col_kinship) {
-              cswritep = dtoa_g(kinship_coeff, cswritep);
-              ++cswritep;
-            }
-            decr_append_binary_eoln(&cswritep);
-            if (cswrite(&css, &cswritep)) {
-              goto calc_king_ret_WRITE_FAIL;
-            }
-          }
-        }
-        if (cswrite_close_null(&css, cswritep)) {
-          goto calc_king_ret_WRITE_FAIL;
-        }
-        putc_unlocked('\r', stdout);
-        char* write_iter = strcpya(g_logbuf, "--make-king-table: Results written to ");
-        write_iter = strcpya(write_iter, outname);
-        if ((!parallel_idx) && (!(king_modifier & kfKingColId))) {
-          write_iter = strcpya(write_iter, " and ");
-          strcpy(&(outname_end[5]), ".id");
-          write_iter = strcpya(write_iter, outname);
-          strcpy(write_iter, " .\n");
-          wordwrapb(0);
-          logprintb();
-          reterr = write_sample_ids(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen);
-          if (reterr) {
-            goto calc_king_ret_1;
-          }
-        } else {
-          strcpy(write_iter, " .\n");
-          wordwrapb(0);
-          logprintb();
-        }
-        if (king_table_filter != -DBL_MAX) {
-          const uintptr_t reported_ct = tot_cells - king_table_filter_ct;
-          LOGPRINTF("--king-table-filter: %" PRIuPTR " relationship%s reported (%" PRIuPTR " filtered out).\n", reported_ct, (reported_ct == 1)? "" : "s", king_table_filter_ct);
-        }
-
-        if (matrix_shape) {
-          kinship_table = kinship_table_backup;
-        }
-      }
-    } else {
-      uint32_t* results_iter = g_king_counts;
-      for (uint32_t sample_idx1 = row_start_idx; sample_idx1 < row_end_idx; ++sample_idx1) {
-        for (uint32_t sample_idx2 = 0; sample_idx2 < sample_idx1; ++sample_idx2) {
-          const double kinship_coeff = compute_kinship(results_iter);
-          if (kinship_coeff > king_cutoff) {
-            SET_BIT(sample_idx2, &(kinship_table[sample_idx1 * sample_ctl]));
-            SET_BIT(sample_idx1, &(kinship_table[sample_idx2 * sample_ctl]));
-          }
-          results_iter = &(results_iter[homhom_needed_p4]);
-        }
+      if (king_table_filter != -DBL_MAX) {
+        const uint64_t grand_tot_cells = (((uint64_t)grand_row_end_idx) * (grand_row_end_idx - 1) - ((uint64_t)grand_row_start_idx) * (grand_row_start_idx - 1)) / 2;
+        const uint64_t reported_ct = grand_tot_cells - king_table_filter_ct;
+        LOGPRINTF("--king-table-filter: %" PRIu64 " relationship%s reported (%" PRIu64 " filtered out).\n", reported_ct, (reported_ct == 1)? "" : "s", king_table_filter_ct);
       }
     }
     if (kinship_table) {
@@ -1434,6 +1547,8 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
     break;
   }
  calc_king_ret_1:
+  threads3z_cleanup(&ts, nullptr);
+  cswrite_close_cond(&csst, cswritetp);
   cswrite_close_cond(&css, cswritep);
   fclose_cond(outfile);
   bigstack_reset(bigstack_mark);
@@ -1762,7 +1877,7 @@ pglerr_t calc_missing_matrix(const uintptr_t* sample_include, const uint32_t* sa
           }
           // missing_smaj offset needs to be 64-bit if kDblMissingBlockWordCt
           // increases
-          transpose_bitblock(&(missing_vmaj[sample_transpose_batch_idx * (kPglBitTransposeBatch / kBitsPerWord)]), row_end_idxaw, kDblMissingBlockWordCt, kDblMissingBlockSize, sample_batch_size, &(cur_missing_smaj_iter[sample_transpose_batch_idx * kPglBitTransposeBatch * kDblMissingBlockWordCt]), transpose_bitblock_wkspace);
+          transpose_bitblock(&(missing_vmaj[sample_transpose_batch_idx * kPglBitTransposeWords]), row_end_idxaw, kDblMissingBlockWordCt, kDblMissingBlockSize, sample_batch_size, &(cur_missing_smaj_iter[sample_transpose_batch_idx * kPglBitTransposeBatch * kDblMissingBlockWordCt]), transpose_bitblock_wkspace);
           ++sample_transpose_batch_idx;
         }
         uintptr_t* cur_missing_nz = g_missing_nz[parity];

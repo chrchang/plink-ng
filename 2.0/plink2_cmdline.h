@@ -1761,6 +1761,8 @@ uintptr_t popcount_bit_idx(const uintptr_t* bitvec, uintptr_t start_idx, uintptr
 
 uintptr_t popcount_longs_intersect(const uintptr_t* __restrict bitvec1_iter, const uintptr_t* __restrict bitvec2_iter, uintptr_t word_ct);
 
+void popcount_longs_intersect_3val(const uintptr_t* __restrict bitvec1, const uintptr_t* __restrict bitvec2, uint32_t word_ct, uint32_t* __restrict popcount1_ptr, uint32_t* __restrict popcount2_ptr, uint32_t* __restrict popcount_intersect_ptr);
+
 // uintptr_t count_11_longs(const uintptr_t* genovec, uintptr_t word_ct);
 
 uint32_t are_all_bits_zero(const uintptr_t* bitarr, uintptr_t start_idx, uintptr_t end_idx);

@@ -9413,7 +9413,7 @@ pglerr_t plink1_sample_major_to_pgen(const char* pgenname, uintptr_t variant_ct,
     // 1. Load next calc_thread_ct * load_multiplier * kPglVblockSize
     //    variants.
     //    calc_thread_ct is reduced as necessary to ensure the compression
-    //    write buffers use <= 1/6 of total workspace.
+    //    write buffers use <= 1/8 of total workspace.
     //    with calc_thread_ct determined, load_multiplier is then chosen to use
     //    as much of the remaining workspace as possible.
     // 2. Repeat load_multiplier times:
@@ -9424,14 +9424,17 @@ pglerr_t plink1_sample_major_to_pgen(const char* pgenname, uintptr_t variant_ct,
     //    iteration.)
     // No double-buffering here since main bottleneck is how many variants we
     // can load at once.
-    if ((cachelines_avail / 6) < alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct * calc_thread_ct) {
-      if ((cachelines_avail / 6) < alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct) {
+    if ((cachelines_avail / 8) < alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct * calc_thread_ct) {
+      if ((cachelines_avail / 8) >= alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct) {
+        calc_thread_ct = ((cachelines_avail / 8) - alloc_base_cacheline_ct) / mpgw_per_thread_cacheline_ct;
+      } else if ((cachelines_avail / 3) >= alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct) {
+        calc_thread_ct = 1;
+      } else {
         // possible todo: simple single-threaded fallback
         // report this value since it can plausibly come up
-        g_failed_alloc_attempt_size = (alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct) * kCacheline * 6;
+        g_failed_alloc_attempt_size = (alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct) * kCacheline * 3;
         goto plink1_sample_major_to_pgen_ret_NOMEM;
       }
-      calc_thread_ct = ((cachelines_avail / 6) - alloc_base_cacheline_ct) / mpgw_per_thread_cacheline_ct;
     }
     // todo: determine appropriate calc_thread_ct limit.  (should not be less
     // than 7-8.)
@@ -11079,9 +11082,13 @@ pglerr_t make_plink2_no_vsort(const char* xheader, const uintptr_t* sample_inclu
         uint32_t calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
         g_collapsed_sort_map = new_sample_idx_to_old;
         if (!new_sample_idx_to_old) {
-          // subsetting is most expensive with sample_ct near 2/3 of
-          // raw_sample_ct; up to ~7 compute threads are useful in that case.
-          // (see copy_quaterarr_nonempty_subset().)
+          // Without BMI2 instructions, subsetting is most expensive with
+          // sample_ct near 2/3 of raw_sample_ct; up to ~7 compute threads are
+          // useful in that case.  (See copy_quaterarr_nonempty_subset().)
+          // With them, 1-2 compute threads appear to suffice.
+#ifdef USE_AVX2
+          const uint32_t calc_thread_max = 2;
+#else
           uint64_t numer;
           if (sample_ct * (3 * k1LU) <= raw_sample_ct * (2 * k1LU)) {
             numer = sample_ct * (9 * k1LU);
@@ -11089,6 +11096,7 @@ pglerr_t make_plink2_no_vsort(const char* xheader, const uintptr_t* sample_inclu
             numer = (raw_sample_ct - sample_ct) * (18 * k1LU);
           }
           const uint32_t calc_thread_max = 1 + (numer / raw_sample_ct);
+#endif
           if (calc_thread_max < calc_thread_ct) {
             calc_thread_ct = calc_thread_max;
           }
@@ -11342,7 +11350,11 @@ pglerr_t make_plink2_no_vsort(const char* xheader, const uintptr_t* sample_inclu
       const uint32_t subsetting_required = (sample_ct != raw_sample_ct);
       if (!new_sample_idx_to_old) {
         // hphase doesn't seem to affect read:write ratio much
+#ifdef USE_AVX2
+        const uint32_t max_calc_thread_ct = 2;
+#else
         const uint32_t max_calc_thread_ct = 2 + subsetting_required;
+#endif
         if (calc_thread_ct > max_calc_thread_ct) {
           calc_thread_ct = max_calc_thread_ct;
         }

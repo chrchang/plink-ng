@@ -4104,7 +4104,7 @@ uintptr_t popcount_longs_intersect(const uintptr_t* __restrict bitvec1_iter, con
   }
   return tot;
 }
-#else
+#else // !USE_AVX2
 static inline uintptr_t popcount_vecs_intersect(const vul_t* __restrict vvec1_iter, const vul_t* __restrict vvec2_iter, uintptr_t vec_ct) {
   // popcounts vvec1 AND vvec2[0..(ct-1)].  ct is a multiple of 3.
   assert(!(vec_ct % 3));
@@ -4157,6 +4157,123 @@ uintptr_t popcount_longs_intersect(const uintptr_t* __restrict bitvec1_iter, con
     tot += popcount_long((*bitvec1_iter++) & (*bitvec2_iter++));
   }
   return tot;
+}
+#endif // !USE_AVX2
+
+#ifdef USE_SSE42
+void popcount_longs_intersect_3val(const uintptr_t* __restrict bitvec1, const uintptr_t* __restrict bitvec2, uint32_t word_ct, uint32_t* __restrict popcount1_ptr, uint32_t* __restrict popcount2_ptr, uint32_t* __restrict popcount_intersect_ptr) {
+  uint32_t ct1 = 0;
+  uint32_t ct2 = 0;
+  uint32_t ct3 = 0;
+  for (uint32_t widx = 0; widx < word_ct; ++widx) {
+    const uintptr_t word1 = bitvec1[widx];
+    const uintptr_t word2 = bitvec2[widx];
+    ct1 += popcount_long(word1);
+    ct2 += popcount_long(word2);
+    ct3 += popcount_long(word1 & word2);
+  }
+  *popcount1_ptr = ct1;
+  *popcount2_ptr = ct2;
+  *popcount_intersect_ptr = ct3;
+}
+#else
+static inline void popcount_vecs_intersect_3val(const vul_t* __restrict vvec1_iter, const vul_t* __restrict vvec2_iter, uint32_t vec_ct, uint32_t* __restrict popcount1_ptr, uint32_t* popcount2_ptr, uint32_t* __restrict popcount_intersect_ptr) {
+  // ct must be a multiple of 3.
+  assert(!(vec_ct % 3));
+  const vul_t m1 = VCONST_UL(kMask5555);
+  const vul_t m2 = VCONST_UL(kMask3333);
+  const vul_t m4 = VCONST_UL(kMask0F0F);
+  uint32_t ct1 = 0;
+  uint32_t ct2 = 0;
+  uint32_t ct3 = 0;
+  while (1) {
+    univec_t acc1;
+    univec_t acc2;
+    univec_t acc3;
+    acc1.vi = vul_setzero();
+    acc2.vi = vul_setzero();
+    acc3.vi = vul_setzero();
+    const vul_t* vvec1_stop;
+    if (vec_ct < 30) {
+      if (!vec_ct) {
+        *popcount1_ptr = ct1;
+        *popcount2_ptr = ct2;
+        *popcount_intersect_ptr = ct3;
+        return;
+      }
+      vvec1_stop = &(vvec1_iter[vec_ct]);
+      vec_ct = 0;
+    } else {
+      vvec1_stop = &(vvec1_iter[30]);
+      vec_ct -= 30;
+    }
+    do {
+      vul_t count1a = *vvec1_iter++;
+      vul_t count2a = *vvec2_iter++;
+      vul_t count3a = count1a & count2a;
+      vul_t count1b = *vvec1_iter++;
+      vul_t count2b = *vvec2_iter++;
+      vul_t count3b = count1b & count2b;
+      vul_t half1a = *vvec1_iter++;
+      vul_t half2a = *vvec2_iter++;
+      const vul_t half1b = vul_rshift(half1a, 1) & m1;
+      const vul_t half2b = vul_rshift(half2a, 1) & m1;
+      half1a = half1a & m1;
+      half2a = half2a & m1;
+
+      count1a = count1a - (vul_rshift(count1a, 1) & m1);
+      count2a = count2a - (vul_rshift(count2a, 1) & m1);
+      count3a = count3a - (vul_rshift(count3a, 1) & m1);
+      count1b = count1b - (vul_rshift(count1b, 1) & m1);
+      count2b = count2b - (vul_rshift(count2b, 1) & m1);
+      count3b = count3b - (vul_rshift(count3b, 1) & m1);
+      count1a = count1a + half1a;
+      count2a = count2a + half2a;
+      count3a = count3a + (half1a & half2a);
+      count1b = count1b + half1b;
+      count2b = count2b + half2b;
+      count3b = count3b + (half1b & half2b);
+
+      count1a = (count1a & m2) + (vul_rshift(count1a, 2) & m2);
+      count2a = (count2a & m2) + (vul_rshift(count2a, 2) & m2);
+      count3a = (count3a & m2) + (vul_rshift(count3a, 2) & m2);
+      count1a = count1a + (count1b & m2) + (vul_rshift(count1b, 2) & m2);
+      count2a = count2a + (count2b & m2) + (vul_rshift(count2b, 2) & m2);
+      count3a = count3a + (count3b & m2) + (vul_rshift(count3b, 2) & m2);
+      acc1.vi = acc1.vi + (count1a & m4) + (vul_rshift(count1a, 4) & m4);
+      acc2.vi = acc2.vi + (count2a & m4) + (vul_rshift(count2a, 4) & m4);
+      acc3.vi = acc3.vi + (count3a & m4) + (vul_rshift(count3a, 4) & m4);
+    } while (vvec1_iter < vvec1_stop);
+    const vul_t m8 = VCONST_UL(kMask00FF);
+    acc1.vi = (acc1.vi & m8) + (vul_rshift(acc1.vi, 8) & m8);
+    acc2.vi = (acc2.vi & m8) + (vul_rshift(acc2.vi, 8) & m8);
+    acc3.vi = (acc3.vi & m8) + (vul_rshift(acc3.vi, 8) & m8);
+    ct1 += univec_hsum_16bit(acc1);
+    ct2 += univec_hsum_16bit(acc2);
+    ct3 += univec_hsum_16bit(acc3);
+  }
+}
+
+void popcount_longs_intersect_3val(const uintptr_t* __restrict bitvec1, const uintptr_t* __restrict bitvec2, uint32_t word_ct, uint32_t* __restrict popcount1_ptr, uint32_t* __restrict popcount2_ptr, uint32_t* __restrict popcount_intersect_ptr) {
+  const uint32_t trivec_ct = word_ct / (3 * kWordsPerVec);
+  uint32_t ct1;
+  uint32_t ct2;
+  uint32_t ct3;
+  popcount_vecs_intersect_3val((const vul_t*)bitvec1, (const vul_t*)bitvec2, trivec_ct * 3, &ct1, &ct2, &ct3);
+  const uint32_t words_consumed = trivec_ct * (3 * kWordsPerVec);
+  bitvec1 = &(bitvec1[words_consumed]);
+  bitvec2 = &(bitvec2[words_consumed]);
+  const uint32_t remainder = word_ct - words_consumed;
+  for (uint32_t widx = 0; widx < remainder; ++widx) {
+    const uintptr_t word1 = bitvec1[widx];
+    const uintptr_t word2 = bitvec2[widx];
+    ct1 += popcount_long(word1);
+    ct2 += popcount_long(word2);
+    ct3 += popcount_long(word1 & word2);
+  }
+  *popcount1_ptr = ct1;
+  *popcount2_ptr = ct2;
+  *popcount_intersect_ptr = ct3;
 }
 #endif
 

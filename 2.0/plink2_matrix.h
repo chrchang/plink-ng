@@ -300,6 +300,10 @@ HEADER_INLINE void row_major_matrix_multiply_strided_incr(const double* inmatrix
   return col_major_matrix_multiply_strided_addassign(inmatrix2, inmatrix1, col2_ct, stride2, row1_ct, stride1, common_ct, stride3, 1.0, outmatrix);
 }
 
+// out^T := V^T * M
+// out := M^T * V
+void col_major_vector_matrix_multiply_strided(const double* in_dvec1, const double* inmatrix2, __CLPK_integer common_ct, __CLPK_integer stride2, __CLPK_integer col2_ct, double* out_dvec);
+
 void col_major_fmatrix_multiply_strided(const float* inmatrix1, const float* inmatrix2, __CLPK_integer row1_ct, __CLPK_integer stride1, __CLPK_integer col2_ct, __CLPK_integer stride2, __CLPK_integer common_ct, __CLPK_integer stride3, float* outmatrix);
 
 // out := M * V
@@ -338,9 +342,72 @@ boolerr_t get_extract_eigvecs_lworks(uint32_t dim, uint32_t pc_ct, __CLPK_intege
 boolerr_t extract_eigvecs(uint32_t dim, uint32_t pc_ct, __CLPK_integer lwork, __CLPK_integer liwork, double* matrix, double* eigvals, double* reverse_eigvecs, unsigned char* extract_eigvecs_wkspace);
 #endif
 
+// Computes inverse of
+//   [ A   b^T ]
+//   [ b   c   ]
+// given precomputed A^{-1} (must be fully filled out, not just lower left).
+// See e.g.
+//   https://en.wikipedia.org/wiki/Invertible_matrix#Blockwise_inversion .
+// Only fills lower left of outmatrix.
+// insert_idx specifies the zero-based row/column number of b/c in outmatrix.
+boolerr_t invert_rank1_symm(const double* a_inv, const double* bb, __CLPK_integer orig_dim, uint32_t insert_idx, double cc, double* __restrict outmatrix, double* __restrict ainv_b_buf);
+
+// When you only need the diagonal from invert_rank1_symm().  insert_idx
+// assumed to be orig_dim.
+boolerr_t invert_rank1_symm_diag(const double* a_inv, const double* bb, __CLPK_integer orig_dim, double cc, double* __restrict outdiag, double* __restrict ainv_b_buf);
+
+//   [ A   B^T ]
+//   [ B   D   ]
+// B is row-major.
+boolerr_t invert_rank2_symm(const double* a_inv, const double* bb, __CLPK_integer orig_dim, __CLPK_integer b_stride, uint32_t insert_idx, double d11, double d12, double d22, double* __restrict outmatrix, double* __restrict b_ainv_buf, double* __restrict s_b_ainv_buf);
+
+boolerr_t invert_rank2_symm_diag(const double* a_inv, const double* bb, __CLPK_integer orig_dim, double d11, double d12, double d22, double* __restrict outdiag, double* __restrict b_ainv_buf, double* __restrict s_b_ainv_buf);
+
+#ifdef NOLAPACK
+boolerr_t linear_regression_inv_main(const double* xt_y, uint32_t predictor_ct, double* xtx_inv, double* fitted_coefs, matrix_invert_buf1_t* mi_buf, double* dbl_2d_buf);
+#else
+boolerr_t linear_regression_inv_main(const double* xt_y, uint32_t predictor_ct, double* xtx_inv, double* fitted_coefs);
+#endif
+
 // now assumes xtx_inv is predictors_pmaj * transpose on input
 // todo: support nrhs > 1 when permutation test implemented
-boolerr_t linear_regression_inv(const double* pheno_d, double* predictors_pmaj, uint32_t predictor_ct, uint32_t sample_ct, double* xtx_inv, double* fitted_coefs, double* xt_y, matrix_invert_buf1_t* mi_buf, double* dbl_2d_buf);
+HEADER_INLINE boolerr_t linear_regression_inv(const double* pheno_d, double* predictors_pmaj, uint32_t predictor_ct, uint32_t sample_ct, double* xtx_inv, double* fitted_coefs, double* xt_y, __maybe_unused matrix_invert_buf1_t* mi_buf, __maybe_unused double* dbl_2d_buf) {
+  // multiply_self_transpose(predictors_pmaj, predictor_ct, sample_ct, xtx_inv);
+  row_major_matrix_multiply(predictors_pmaj, pheno_d, predictor_ct, 1, sample_ct, xt_y);
+#ifdef NOLAPACK
+  return linear_regression_inv_main(xt_y, predictor_ct, xtx_inv, fitted_coefs, mi_buf, dbl_2d_buf);
+#else
+  return linear_regression_inv_main(xt_y, predictor_ct, xtx_inv, fitted_coefs);
+#endif
+}
+
+// just for debugging
+HEADER_INLINE void print_symm_matrix(const double* matrix, uint32_t dim) {
+  for (uint32_t uii = 0; uii < dim; ++uii) {
+    for (uint32_t ujj = 0; ujj <= uii; ++ujj) {
+      printf("%g ", matrix[uii * dim + ujj]);
+    }
+    printf("\n");
+  }
+}
+
+HEADER_INLINE void print_symm_fmatrix(const float* matrix, uint32_t dim) {
+  for (uint32_t uii = 0; uii < dim; ++uii) {
+    for (uint32_t ujj = 0; ujj <= uii; ++ujj) {
+      printf("%g ", matrix[uii * dim + ujj]);
+    }
+    printf("\n");
+  }
+}
+
+HEADER_INLINE void print_matrix(const double* matrix, uint32_t dim) {
+  for (uint32_t uii = 0; uii < dim; ++uii) {
+    for (uint32_t ujj = 0; ujj < dim; ++ujj) {
+      printf("%g ", matrix[uii * dim + ujj]);
+    }
+    printf("\n");
+  }
+}
 
 #ifdef __cplusplus
 } // namespace plink2
