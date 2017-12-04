@@ -93,7 +93,7 @@
 
 static const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b5"
+  "PLINK v1.90b5.1"
 #else
   "PLINK v1.90p"
 #endif
@@ -105,12 +105,12 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (14 Nov 2017)";
+  " (4 Dec 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifdef STABLE_BUILD
-  "   " // (don't want this when version number has a trailing letter)
+  " " // (don't want this when version number has two trailing digits)
 #else
   "    " // (don't want this when version number has e.g. "b3" before "p")
 #endif
@@ -1441,7 +1441,7 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
     } else {
       LOGPRINTFWW("%" PRIuPTR " variant%s filters and QC.\n", marker_ct, (marker_ct == 1)? " passes" : "s pass");
     }
-  } else if (!allow_no_variants) {
+  } else if ((!allow_no_variants) && ((calculation_type & (~CALC_ONLY_FAM)) || (filter_flags & FILTER_BIM_REQ))) {
     // defensive
     logerrprint("Error: No variants remaining.\n");
     goto plink_ret_ALL_MARKERS_EXCLUDED;
