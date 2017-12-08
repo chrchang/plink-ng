@@ -33,7 +33,7 @@ ifdef NO_AVX2
     BASEFLAGS += -msse4.2
   endif
 else
-  BASEFLAGS += -mavx2 -mbmi -mbmi2
+  BASEFLAGS += -mavx2 -mbmi2
 endif
 
 ifdef ZSTD_O2
@@ -44,8 +44,13 @@ endif
 
 BASEFLAGS += -I${OPENBLAS_ROOT}/include
 
-CFLAGS += ${BASEFLAGS}
 ZCFLAGS += ${BASEFLAGS}
+
+ifndef NO_AVX2
+  BASEFLAGS += -mbmi
+endif
+
+CFLAGS += ${BASEFLAGS}
 CXXFLAGS += ${BASEFLAGS}
 
 ZSTD_INCLUDE = -I../zstd/lib -I../zstd/lib/common -I../zstd/zlibWrapper

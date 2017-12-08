@@ -41,7 +41,7 @@ else
       BASEFLAGS += -msse4.2
     endif
   else
-    BASEFLAGS += -mavx2 -mbmi -mbmi2
+    BASEFLAGS += -mavx2 -mbmi2
   endif
   CXXFLAGS = -std=c++11
 endif
@@ -103,8 +103,13 @@ endif
 ZSTD_INCLUDE = -I../zstd/lib -I../zstd/lib/common -I../zstd/zlibWrapper
 ZCFLAGS += ${ZSTD_INCLUDE}
 
-CFLAGS += ${BASEFLAGS}
 ZCFLAGS += ${BASEFLAGS}
+
+ifndef NO_AVX2
+  BASEFLAGS += -mbmi
+endif
+
+CFLAGS += ${BASEFLAGS}
 CXXFLAGS += ${BASEFLAGS}
 
 CSRC = ../SFMT.c ../hfile.c ../bgzf.c
