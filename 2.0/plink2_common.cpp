@@ -618,7 +618,7 @@ void finalize_chrset(misc_flags_t misc_flags, chr_info_t* cip) {
   uintptr_t* chr_exclude = cip->chr_exclude;
   uintptr_t last_chr_exclude_word = chr_exclude[kChrExcludeWords - 1];
   uint32_t xymt_exclude = last_chr_exclude_word >> (kBitsPerWord - kChrOffsetCt);
-  last_chr_exclude_word &= (k1LU << (kBitsPerWord - kChrOffsetCt)) - k1LU;
+  last_chr_exclude_word = bzhi(last_chr_exclude_word, kBitsPerWord - kChrOffsetCt);
   for (uint32_t widx = 0; widx < kChrExcludeWords - 1; ++widx) {
     chr_mask[widx] &= ~chr_exclude[widx];
   }
@@ -1814,6 +1814,15 @@ pglerr_t write_sample_ids(const uintptr_t* sample_include, const char* sample_id
   }
   fclose_cond(outfile);
   return reterr;
+}
+
+uint32_t realpath_identical(const char* outname, const char* read_realpath, char* write_realpath_buf) {
+#ifdef _WIN32
+  const uint32_t fname_slen = GetFullPathName(outname, kPglFnamesize, write_realpath_buf, nullptr);
+  return (fname_slen && (fname_slen <= kPglFnamesize) && (!strcmp(read_realpath, write_realpath_buf)));
+#else
+  return (realpath(outname, write_realpath_buf) && (!strcmp(read_realpath, write_realpath_buf)));
+#endif
 }
 
 #ifdef __cplusplus

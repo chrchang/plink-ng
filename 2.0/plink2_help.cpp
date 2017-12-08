@@ -598,10 +598,10 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "      what you want when the dosage is e.g. 0.95...\n\n"
                );
     // for kinship estimation, LD pruning isn't really advisable (if more speed
-    // is needed, the humble --bp-space may lead to a better approximation; and
-    // in practice speed isn't an issue any more with --make-king, though
-    // there's more work to do re: not blowing the cache when there are 100k+
-    // samples)
+    // is needed, the humble --bp-space may lead to a better approximation?
+    // and in practice speed isn't an issue any more with --make-king, though
+    // there may be more work to do re: not blowing the cache when there are
+    // 100k+ samples)
     help_print("make-king\tmake-king-table", &help_ctrl, 1,
 "  --make-king <square | square0 | triangle> <zs | bin | bin4>\n"
 "    KING-robust kinship estimator, described by Manichaikul A, Mychaleckyj JC,\n"
@@ -635,10 +635,6 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "      (FID and IID are always present, and positioned here.)\n"
 "      maybesid: SID, if at least one nonmissing value is present.\n"
 "      sid: Force SID column to be written even when empty.\n"
-"      misspheno1: First active phenotype missing (Y/N)?  Always 'Y' if no\n"
-"                  phenotypes are loaded.\n"
-"      missphenos: A Y/N column for each loaded phenotype.  (Can be combined\n"
-"                  with misspheno1 to force at least one such column.)\n"
 "      id: FID1/ID1/FID2/ID2.\n"
 "      maybesid: SID1/SID2, if at least one value is nonmissing.  Must be used\n"
 "                with 'id'.\n"
@@ -673,7 +669,8 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 #ifndef NOLAPACK
     // GRM, PCA, etc. based on major vs. nonmajor alleles
     // possible todo: have an 'approx2' mode which implements the flashpca 2.0
-    //   algorithm, which does not require memory quadratic in the # of PCs
+    //   algorithm, which does not require memory quadratic in the # of PCs.
+    //   but probably not, don't see any real application for that many PCs?
     help_print("pca", &help_ctrl, 1,
 "  --pca {count} <approx | meanimpute> <sid>\n"
 "  --pca var-wts {count} <approx | meanimpute> <sid> <vzs>\n"
@@ -958,7 +955,8 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "                                    parameter to --hard-call-threshold.\n"
 "                                    You can also use this with --make-{b}pgen\n"
 "                                    to alter the saved hardcalls while leaving\n"
-"                                    the dosages untouched.\n"
+"                                    the dosages untouched, or --make-bed to\n"
+"                                    tweak hardcall export.\n"
                );
     help_print("dosage-erase-threshold\timport-dosage-certainty\tgen\tbgen\tdata\tvcf\tbcf\timport-dosage", &help_ctrl, 0,
 "  --dosage-erase-threshold [val]  : --hard-call-threshold normally preserves\n"
@@ -1381,9 +1379,17 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "                                 modifier has the usual effect when this mode\n"
 "                                 is requested.\n"
                );
-    help_print("make-king\tmake-king-table\tking-table-filter", &help_ctrl, 0,
-"  --king-table-filter [min]  : Specify minimum kinship coefficient for\n"
-"                               inclusion in --make-king-table report.\n"
+    // todo: add citation for 2018 KING update paper, which should discuss the
+    // two-stage screen + refine workflow supported by --king-table-subset,
+    // when it comes out
+    help_print("make-king\tmake-king-table\tking-table-filter\tking-table-subset", &help_ctrl, 0,
+"  --king-table-filter [min]      : Specify minimum kinship coefficient for\n"
+"                                   inclusion in --make-king-table report.\n"
+"  --king-table-subset [f] {kmin} : Restrict current --make-king-table run to\n"
+"                                   sample pairs listed in the given .kin0 file.\n"
+"                                   If a second parameter is provided, only\n"
+"                                   sample pairs with kinship >= that threshold\n"
+"                                   (in the input .kin0) are processed.\n"
                );
     help_print("glm\tlinear\tlogistic\tcondition\tcondition-list\tparameters\ttests", &help_ctrl, 0,
 "  --condition [var ID] <dominant | recessive> : Add one variant's alt1 dosages\n"

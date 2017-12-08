@@ -703,6 +703,8 @@ pglerr_t multithread_load_init(const uintptr_t* variant_include, uint32_t sample
 
 pglerr_t write_sample_ids(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const char* outname, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen);
 
+uint32_t realpath_identical(const char* outname, const char* read_realpath, char* write_realpath_buf);
+
 #ifdef __cplusplus
 } // namespace plink2
 #endif

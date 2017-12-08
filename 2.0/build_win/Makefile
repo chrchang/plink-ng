@@ -4,7 +4,8 @@
 #   Do not use SSE 4.2 instructions: NO_SSE42
 #   Do not link to OpenBLAS: NO_OPENBLAS
 #   Use only -O2 optimization for zstd: ZSTD_O2
-NO_SSE42 = 1
+NO_AVX2 = 1
+NO_SSE42 =
 NO_OPENBLAS =
 ZSTD_O2 = 1
 
@@ -27,8 +28,12 @@ endif
 CFLAGS=-O2 -std=gnu99
 CXXFLAGS=-O2 -std=gnu++11
 
-ifndef NO_SSE42
-  BASEFLAGS += -msse4.2
+ifdef NO_AVX2
+  ifndef NO_SSE42
+    BASEFLAGS += -msse4.2
+  endif
+else
+  BASEFLAGS += -mavx2 -mbmi -mbmi2
 endif
 
 ifdef ZSTD_O2

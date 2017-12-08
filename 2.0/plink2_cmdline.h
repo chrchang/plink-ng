@@ -270,17 +270,17 @@ boolerr_t fopen_checked(const char* fname, const char* mode, FILE** target_ptr);
 
 HEADER_INLINE interr_t putc_checked(int32_t ii, FILE* outfile) {
   putc_unlocked(ii, outfile);
-  return ferror(outfile);
+  return ferror_unlocked(outfile);
 }
 
 HEADER_INLINE interr_t fputs_checked(const char* ss, FILE* outfile) {
   fputs(ss, outfile);
-  return ferror(outfile);
+  return ferror_unlocked(outfile);
 }
 
-interr_t fwrite_flush2(char* buf_flush, FILE* outfile, char** write_iter_ptr);
+boolerr_t fwrite_flush2(char* buf_flush, FILE* outfile, char** write_iter_ptr);
 
-HEADER_INLINE interr_t fwrite_ck(char* buf_flush, FILE* outfile, char** write_iter_ptr) {
+HEADER_INLINE boolerr_t fwrite_ck(char* buf_flush, FILE* outfile, char** write_iter_ptr) {
   if ((*write_iter_ptr) < buf_flush) {
     return 0;
   }

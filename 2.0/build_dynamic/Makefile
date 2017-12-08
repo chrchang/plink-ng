@@ -41,7 +41,7 @@ else
       BASEFLAGS += -msse4.2
     endif
   else
-    BASEFLAGS += -mavx2 -mbmi2
+    BASEFLAGS += -mavx2 -mbmi -mbmi2
   endif
   CXXFLAGS = -std=c++11
 endif

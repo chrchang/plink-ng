@@ -63,10 +63,10 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (28 Nov 2017)";
+  " (7 Dec 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -117,15 +117,6 @@ FLAGSET_DEF_END(xload_t);
 // maximum number of usable cluster computers, this is arbitrary though it
 // shouldn't be larger than 2^32 - 1
 CONSTU31(kParallelMax, 32768);
-
-uint32_t realpath_identical(const char* outname, const char* read_realpath, char* write_realpath_buf) {
-#ifdef _WIN32
-  const uint32_t fname_slen = GetFullPathName(outname, kPglFnamesize, write_realpath_buf, nullptr);
-  return (fname_slen && (fname_slen <= kPglFnamesize) && (!strcmp(read_realpath, write_realpath_buf)));
-#else
-  return (realpath(outname, write_realpath_buf) && (!strcmp(read_realpath, write_realpath_buf)));
-#endif
-}
 
 
 // assume for now that .pgen must always be accompanied by both .pvar and .psam
@@ -211,6 +202,7 @@ typedef struct plink2_cmdline_struct {
   king_flags_t king_modifier;
   double king_cutoff;
   double king_table_filter;
+  double king_table_subset_thresh;
   allele_freq_t allele_freq_modifier;
   missing_rpt_t missing_rpt_modifier;
   geno_counts_t geno_counts_modifier;
@@ -296,6 +288,7 @@ typedef struct plink2_cmdline_struct {
   char* covar_quantnorm_flattened;
   char* loop_cats_phenoname;
   char* ref_from_fa_fname;
+  char* king_table_subset_fname;
   two_col_params_t* ref_allele_flag;
   two_col_params_t* alt1_allele_flag;
   two_col_params_t* update_name_flag;
@@ -1623,31 +1616,41 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
             }
             memcpy(prev_sample_include, sample_include, raw_sample_ctl * sizeof(intptr_t));
           }
-          if (king_cutoff_fprefix) {
-            reterr = king_cutoff_batch(sample_ids, sids, raw_sample_ct, max_sample_id_blen, max_sid_blen, pcp->king_cutoff, sample_include, king_cutoff_fprefix, &sample_ct);
+          if (pcp->king_table_subset_fname) {
+            // command-line parser currently guarantees --king-table-subset
+            // isn't used with --king-cutoff or --make-king
+            // probable todo: --king-cutoff-table which can use .kin0 as input
+            reterr = calc_king_table_subset(sample_include, sample_ids, sids, variant_include, cip, pcp->king_table_subset_fname, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, raw_variant_ct, variant_ct, pcp->king_table_filter, pcp->king_table_subset_thresh, pcp->king_modifier, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+            if (reterr) {
+              goto plink2_ret_1;
+            }
           } else {
-            reterr = calc_king(sample_ids, sids, variant_include, cip, raw_sample_ct, max_sample_id_blen, max_sid_blen, raw_variant_ct, variant_ct, pcp->king_cutoff, pcp->king_table_filter, pcp->king_modifier, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, sample_include, &sample_ct, outname, outname_end);
-          }
-          if (reterr) {
-            goto plink2_ret_1;
-          }
-          if (pcp->king_cutoff != -1) {
-            strcpy(outname_end, ".king.cutoff.in");
-            reterr = write_sample_ids(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen);
+            if (king_cutoff_fprefix) {
+              reterr = king_cutoff_batch(sample_ids, sids, raw_sample_ct, max_sample_id_blen, max_sid_blen, pcp->king_cutoff, sample_include, king_cutoff_fprefix, &sample_ct);
+            } else {
+              reterr = calc_king(sample_ids, sids, variant_include, cip, raw_sample_ct, max_sample_id_blen, max_sid_blen, raw_variant_ct, variant_ct, pcp->king_cutoff, pcp->king_table_filter, pcp->king_modifier, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, sample_include, &sample_ct, outname, outname_end);
+            }
             if (reterr) {
               goto plink2_ret_1;
             }
-            strcpy(&(outname_end[13]), "out");
-            bitvec_andnot(sample_include, raw_sample_ctl, prev_sample_include);
-            const uint32_t removed_sample_ct = prev_sample_ct - sample_ct;
-            reterr = write_sample_ids(prev_sample_include, sample_ids, sids, outname, removed_sample_ct, max_sample_id_blen, max_sid_blen);
-            if (reterr) {
-              goto plink2_ret_1;
+            if (pcp->king_cutoff != -1) {
+              strcpy(outname_end, ".king.cutoff.in");
+              reterr = write_sample_ids(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen);
+              if (reterr) {
+                goto plink2_ret_1;
+              }
+              strcpy(&(outname_end[13]), "out");
+              bitvec_andnot(sample_include, raw_sample_ctl, prev_sample_include);
+              const uint32_t removed_sample_ct = prev_sample_ct - sample_ct;
+              reterr = write_sample_ids(prev_sample_include, sample_ids, sids, outname, removed_sample_ct, max_sample_id_blen, max_sid_blen);
+              if (reterr) {
+                goto plink2_ret_1;
+              }
+              bigstack_reset(prev_sample_include);
+              outname_end[13] = '\0';
+              LOGPRINTFWW("--king-cutoff: Excluded sample ID%s written to %sout, and %u remaining sample ID%s written to %sin .\n", (removed_sample_ct == 1)? "" : "s", outname, sample_ct, (sample_ct == 1)? "" : "s", outname);
+              update_sample_subsets(sample_include, raw_sample_ct, sample_ct, founder_info, &founder_ct, sex_nm, sex_male, &male_ct, &nosex_ct);
             }
-            bigstack_reset(prev_sample_include);
-            outname_end[13] = '\0';
-            LOGPRINTFWW("--king-cutoff: Excluded sample ID%s written to %sout, and %u remaining sample ID%s written to %sin .\n", (removed_sample_ct == 1)? "" : "s", outname, sample_ct, (sample_ct == 1)? "" : "s", outname);
-            update_sample_subsets(sample_include, raw_sample_ct, sample_ct, founder_info, &founder_ct, sex_nm, sex_male, &male_ct, &nosex_ct);
           }
         }
       }
@@ -2088,7 +2091,7 @@ pglerr_t zst_decompress(const char* in_fname, const char* out_fname) {
         }
         goto zst_decompress_ret_READ_FAIL;
       }
-      if (!fwrite(buf, bytes_read, 1, outfile)) {
+      if (!fwrite_unlocked(buf, bytes_read, 1, outfile)) {
         goto zst_decompress_ret_WRITE_FAIL;
       }
       fflush(outfile);
@@ -2792,6 +2795,7 @@ int main(int argc, char** argv) {
   pc.covar_quantnorm_flattened = nullptr;
   pc.loop_cats_phenoname = nullptr;
   pc.ref_from_fa_fname = nullptr;
+  pc.king_table_subset_fname = nullptr;
   pc.ref_allele_flag = nullptr;
   pc.alt1_allele_flag = nullptr;
   pc.update_name_flag = nullptr;
@@ -4989,6 +4993,27 @@ int main(int argc, char** argv) {
             sprintf(g_logbuf, "Error: Invalid --king-table-filter parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
+        } else if (strequal_k2(flagname_p2, "ing-table-subset")) {
+          if (pc.king_cutoff != -1) {
+            logerrprint("Error: --king-table-subset cannot be used with --king-cutoff.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = alloc_fname(argv[arg_idx + 1], flagname_p, 0, &pc.king_table_subset_fname);
+          if (reterr) {
+            goto main_ret_1;
+          }
+          if (param_ct == 2) {
+            char* cur_modif = argv[arg_idx + 2];
+            if ((!scanadv_double(cur_modif, &pc.king_table_subset_thresh)) || (pc.king_table_subset_thresh > 0.5)) {
+              sprintf(g_logbuf, "Error: Invalid --king-table-subset threshold '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          } else {
+            pc.king_table_subset_thresh = -DBL_MAX;
+          }
         } else if (strequal_k2(flagname_p2, "eep-if")) {
           reterr = validate_and_alloc_cmp_expr(&(argv[arg_idx + 1]), argv[arg_idx], param_ct, &pc.keep_if_expr);
           if (reterr) {
@@ -5458,6 +5483,9 @@ int main(int argc, char** argv) {
           if (king_cutoff_fprefix) {
             logerrprint("Error: --make-king cannot be used with a --king-cutoff input fileset.\n");
             goto main_ret_INVALID_CMDLINE_A;
+          } else if (pc.king_table_subset_fname) {
+            logerrprint("Error: --make-king cannot be used with --king-table-subset.\n");
+            goto main_ret_INVALID_CMDLINE_A;
           }
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -5537,9 +5565,19 @@ int main(int argc, char** argv) {
               if (reterr) {
                 goto main_ret_1;
               }
-              if ((pc.king_modifier & (kfKingColMaybesid | kfKingColSid)) && (!(pc.king_modifier & kfKingColId))) {
-                logerrprint("Error: Invalid --make-king-table column set descriptor ('maybesid' and 'sid'\nrequire 'id').\n");
-                goto main_ret_INVALID_CMDLINE_A;
+              if (!(pc.king_modifier & kfKingColId)) {
+                if (pc.king_modifier & (kfKingColMaybesid | kfKingColSid)) {
+                  logerrprint("Error: Invalid --make-king-table column set descriptor ('maybesid' and 'sid'\nrequire 'id').\n");
+                  goto main_ret_INVALID_CMDLINE_A;
+                }
+                if (pc.king_table_filter != -DBL_MAX) {
+                  logerrprint("Error: --king-table-filter requires --make-king-table cols= to include the 'id'\ncolumn set.\n");
+                  goto main_ret_INVALID_CMDLINE_A;
+                }
+                if (pc.king_table_subset_fname) {
+                  logerrprint("Error: --king-table-subset requires --make-king-table cols= to include the 'id'\ncolumn set.\n");
+                  goto main_ret_INVALID_CMDLINE_A;
+                }
               }
             } else {
               sprintf(g_logbuf, "Error: Invalid --make-king-table parameter '%s'.\n", cur_modif);
@@ -7658,6 +7696,7 @@ int main(int argc, char** argv) {
   free_cond(pc.update_name_flag);
   free_cond(pc.alt1_allele_flag);
   free_cond(pc.ref_allele_flag);
+  free_cond(pc.king_table_subset_fname);
   free_cond(pc.ref_from_fa_fname);
   free_cond(pc.loop_cats_phenoname);
   free_cond(pc.covar_quantnorm_flattened);

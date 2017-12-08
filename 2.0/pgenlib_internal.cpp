@@ -1046,7 +1046,7 @@ void genovec_count_freqs(const uintptr_t* genovec, uint32_t sample_ct, uint32_t*
   const uint32_t sample_ct_remainder = sample_ct % kBitsPerWordD2;
   genovec_count_freqs_unsafe(genovec, sample_ct - sample_ct_remainder, genocounts);
   if (sample_ct_remainder) {
-    uintptr_t cur_geno_word = genovec[sample_ct / kBitsPerWordD2] & ((k1LU << (2 * sample_ct_remainder)) - k1LU);
+    uintptr_t cur_geno_word = bzhi(genovec[sample_ct / kBitsPerWordD2], 2 * sample_ct_remainder);
     const uintptr_t cur_geno_word_high = kMask5555 & (cur_geno_word >> 1);
     const uint32_t even_ct = popcount01_long(cur_geno_word & kMask5555);
     const uint32_t odd_ct = popcount01_long(cur_geno_word_high);
@@ -1133,85 +1133,77 @@ void difflist_count_subset_freqs(const uintptr_t* __restrict sample_include, con
 
 static_assert(kPglQuaterTransposeBatch == ((uint32_t)kQuatersPerCacheline), "transpose_quaterblock() needs to be updated.");
 #ifdef USE_AVX2
-void transpose_quaterblock_internal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, unsigned char* __restrict buf0, unsigned char* __restrict buf1) {
-  // buf must be vector-aligned and have size 32k
-  const uint32_t initial_read_byte_ct = QUATERCT_TO_BYTECT(write_batch_size);
+void transpose_quaterblock_avx2(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, unsigned char* __restrict buf0) {
+  // buf must be vector-aligned and have size 16k
+  const uint32_t block_ct = QUATERCT_TO_BYTECT(write_batch_size);
   // fold the first 6 shuffles into the initial ingestion loop
-  const unsigned char* initial_read_iter = (const unsigned char*)read_iter;
-  const unsigned char* initial_read_end = &(initial_read_iter[initial_read_byte_ct]);
-  unsigned char* initial_target_iter = buf0;
   const uint32_t read_byte_stride = read_ul_stride * kBytesPerWord;
-  const uint32_t read_batch_rem = kQuatersPerCacheline - read_batch_size;
-  for (; initial_read_iter < initial_read_end; ++initial_read_iter) {
-    const unsigned char* read_iter_tmp = initial_read_iter;
+  const uint32_t write_ul_ct = QUATERCT_TO_WORDCT(read_batch_size);
+  const uint32_t read_batch_rem = write_ul_ct * 32 - read_batch_size;
+  uintptr_t* target_iter0 = write_iter;
+  const uint32_t full_block_ct = write_batch_size / 4;
+  // Tried _pext_u64() too, that was slightly worse.
+  // Tried _mm256_i32gather_epi32(), didn't help.
+  // But seems to be fine to just process 4 write-rows at a time.
+  for (uint32_t block_idx = 0; block_idx < block_ct; ++block_idx) {
+    const unsigned char* read_iter_tmp = (const unsigned char*)read_iter;
+    read_iter_tmp = &(read_iter_tmp[block_idx]);
+    unsigned char* initial_target_iter = buf0;
     for (uint32_t ujj = 0; ujj < read_batch_size; ++ujj) {
       *initial_target_iter++ = *read_iter_tmp;
       read_iter_tmp = &(read_iter_tmp[read_byte_stride]);
     }
-    initial_target_iter = memseta(initial_target_iter, 0, read_batch_rem);
-  }
-
-  // second-to-last shuffle, 8 bit spacing -> 4
-  const vul_t* source_iter = (vul_t*)buf0;
-  uintptr_t* target_iter0 = (uintptr_t*)buf1;
-  const vul_t m4 = VCONST_UL(kMask0F0F);
-  const vul_t m8 = VCONST_UL(kMask00FF);
-  const vul_t m16 = VCONST_UL(kMask0000FFFF);
-  const uint32_t write_dword_ct = BITCT_TO_WORDCT(read_batch_size);
-  const uint32_t penult_inner_loop_iter_ct = 2 * write_dword_ct;
-  const uint32_t cur_write_skip = kWordsPerCacheline - penult_inner_loop_iter_ct;
-  // coincidentally, this also needs to run DIV_UP(write_batch_size, 4) times
-  for (uint32_t uii = 0; uii < initial_read_byte_ct; ++uii) {
-    uintptr_t* target_iter1 = &(target_iter0[kWordsPerCacheline * 2]);
-    for (uint32_t ujj = 0; ujj < penult_inner_loop_iter_ct; ++ujj) {
-      const vul_t loader = *source_iter++;
-      vul_t target0 = loader & m4;
-      vul_t target1 = (vul_rshift(loader, 4)) & m4;
-      target0 = (target0 | (vul_rshift(target0, 4))) & m8;
-      target1 = (target1 | (vul_rshift(target1, 4))) & m8;
-      target0 = (target0 | (vul_rshift(target0, 8))) & m16;
-      target1 = (target1 | (vul_rshift(target1, 8))) & m16;
-      univec_t target0u;
-      univec_t target1u;
-      target0u.vi = target0 | (vul_rshift(target0, 16));
-      target1u.vi = target1 | (vul_rshift(target1, 16));
-      *target_iter0++ = ((uint32_t)target0u.u8[0]) | (target0u.u8[1] << 32);
-      *target_iter0++ = ((uint32_t)target0u.u8[2]) | (target0u.u8[3] << 32);
-      *target_iter1++ = ((uint32_t)target1u.u8[0]) | (target1u.u8[1] << 32);
-      *target_iter1++ = ((uint32_t)target1u.u8[2]) | (target1u.u8[3] << 32);
+    memset(initial_target_iter, 0, read_batch_rem);
+    const vul_t* source_iter = (vul_t*)buf0;
+    if (block_idx == full_block_ct) {
+      const uint32_t remainder = write_batch_size % 4;
+      const uint32_t initial_lshift = 2 * (4 - remainder);
+      for (uint32_t widx = 0; widx < write_ul_ct; ++widx) {
+        vul_t loader = *source_iter++;
+        loader = vul_lshift(loader, initial_lshift);
+        uint32_t write_idx_lowbits = remainder - 1;
+        while (1) {
+          uintptr_t uint_hi = _mm256_movemask_epi8((__m256i)loader);
+          loader = vul_lshift(loader, 1);
+          uintptr_t uint_lo = _mm256_movemask_epi8((__m256i)loader);
+          target_iter0[write_ul_stride * write_idx_lowbits] = _pdep_u64(uint_hi, kMaskAAAA) | _pdep_u64(uint_lo, kMask5555);
+          if (!write_idx_lowbits) {
+            break;
+          }
+          loader = vul_lshift(loader, 1);
+          --write_idx_lowbits;
+        }
+        ++target_iter0;
+      }
+      break;
     }
-    source_iter = &(source_iter[cur_write_skip]);
-    target_iter0 = &(target_iter1[2 * cur_write_skip]);
-  }
 
-  // last shuffle, 4 bit spacing -> 2
-  source_iter = (vul_t*)buf1;
-  target_iter0 = write_iter;
-  const vul_t m2 = VCONST_UL(kMask3333);
-  const uint32_t last_loop_iter_ct = DIV_UP(write_batch_size, 2);
-  for (uint32_t uii = 0; uii < last_loop_iter_ct; ++uii) {
     uintptr_t* target_iter1 = &(target_iter0[write_ul_stride]);
-    for (uint32_t ujj = 0; ujj < write_dword_ct; ++ujj) {
-      const vul_t loader = *source_iter++;
-      vul_t target0 = loader & m2;
-      vul_t target1 = (vul_rshift(loader, 2)) & m2;
-      target0 = (target0 | (vul_rshift(target0, 2))) & m4;
-      target1 = (target1 | (vul_rshift(target1, 2))) & m4;
-      target0 = (target0 | (vul_rshift(target0, 4))) & m8;
-      target1 = (target1 | (vul_rshift(target1, 4))) & m8;
-      target0 = (target0 | (vul_rshift(target0, 8))) & m16;
-      target1 = (target1 | (vul_rshift(target1, 8))) & m16;
-      univec_t target0u;
-      univec_t target1u;
-      target0u.vi = target0 | (vul_rshift(target0, 16));
-      target1u.vi = target1 | (vul_rshift(target1, 16));
-      target_iter0[2 * ujj] = ((uint32_t)target0u.u8[0]) | (target0u.u8[1] << 32);
-      target_iter0[2 * ujj + 1] = ((uint32_t)target0u.u8[2]) | (target0u.u8[3] << 32);
-      target_iter1[2 * ujj] = ((uint32_t)target1u.u8[0]) | (target1u.u8[1] << 32);
-      target_iter1[2 * ujj + 1] = ((uint32_t)target1u.u8[2]) | (target1u.u8[3] << 32);
+    uintptr_t* target_iter2 = &(target_iter1[write_ul_stride]);
+    uintptr_t* target_iter3 = &(target_iter2[write_ul_stride]);
+    for (uint32_t widx = 0; widx < write_ul_ct; ++widx) {
+      vul_t loader = source_iter[widx];
+      uintptr_t uint_hi = _mm256_movemask_epi8((__m256i)loader);
+      loader = vul_lshift(loader, 1);
+      uintptr_t uint_lo = _mm256_movemask_epi8((__m256i)loader);
+      target_iter3[widx] = _pdep_u64(uint_hi, kMaskAAAA) | _pdep_u64(uint_lo, kMask5555);
+      loader = vul_lshift(loader, 1);
+      uint_hi = _mm256_movemask_epi8((__m256i)loader);
+      loader = vul_lshift(loader, 1);
+      uint_lo = _mm256_movemask_epi8((__m256i)loader);
+      target_iter2[widx] = _pdep_u64(uint_hi, kMaskAAAA) | _pdep_u64(uint_lo, kMask5555);
+      loader = vul_lshift(loader, 1);
+      uint_hi = _mm256_movemask_epi8((__m256i)loader);
+      loader = vul_lshift(loader, 1);
+      uint_lo = _mm256_movemask_epi8((__m256i)loader);
+      target_iter1[widx] = _pdep_u64(uint_hi, kMaskAAAA) | _pdep_u64(uint_lo, kMask5555);
+      loader = vul_lshift(loader, 1);
+      uint_hi = _mm256_movemask_epi8((__m256i)loader);
+      loader = vul_lshift(loader, 1);
+      uint_lo = _mm256_movemask_epi8((__m256i)loader);
+      target_iter0[widx] = _pdep_u64(uint_hi, kMaskAAAA) | _pdep_u64(uint_lo, kMask5555);
     }
-    source_iter = &(source_iter[(kWordsPerCacheline / 2) - write_dword_ct]);
-    target_iter0 = &(target_iter1[write_ul_stride]);
+    target_iter0 = &(target_iter3[write_ul_stride]);
   }
 }
 #else // !USE_AVX2
@@ -1220,7 +1212,7 @@ static_assert(kWordsPerVec == 2, "transpose_quaterblock() needs to be updated.")
   #else
 static_assert(kWordsPerVec == 1, "transpose_quaterblock() needs to be updated.");
   #endif
-void transpose_quaterblock_internal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, unsigned char* __restrict buf0, unsigned char* __restrict buf1) {
+void transpose_quaterblock_internal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, unsigned char* __restrict buf0, unsigned char* __restrict buf1) {
   // buf must be vector-aligned and have size 32k
   const uint32_t initial_read_byte_ct = QUATERCT_TO_BYTECT(write_batch_size);
   // fold the first 6 shuffles into the initial ingestion loop
@@ -1534,6 +1526,7 @@ pglerr_t pgfi_init_phase1(const char* fname, uint32_t raw_variant_ct, uint32_t r
   uint64_t fsize;
   const unsigned char* fread_ptr;
   FILE* shared_ff = nullptr;
+  unsigned char small_readbuf[3];
   if (use_mmap) {
     pgfip->shared_ff = nullptr; // this must be initialized before block_base
 #ifdef NO_MMAP
@@ -1587,8 +1580,7 @@ pglerr_t pgfi_init_phase1(const char* fname, uint32_t raw_variant_ct, uint32_t r
       return kPglRetMalformedInput;
     }
     rewind(shared_ff);
-    unsigned char small_readbuf[3];
-    if (!fread(small_readbuf, 3, 1, shared_ff)) {
+    if (!fread_unlocked(small_readbuf, 3, 1, shared_ff)) {
       strcpy(errstr_buf, "Error: File read failure.\n");
       return kPglRetReadFail;
     }
@@ -1660,9 +1652,9 @@ pglerr_t pgfi_init_phase1(const char* fname, uint32_t raw_variant_ct, uint32_t r
     memcpy(header_ctrl_ptr, &(fread_ptr[11]), 1);
   } else {
 #endif
-    if ((!fread(&(pgfip->raw_variant_ct), sizeof(int32_t), 1, shared_ff)) ||
-        (!fread(&(pgfip->raw_sample_ct), sizeof(int32_t), 1, shared_ff)) ||
-        (!fread(header_ctrl_ptr, 1, 1, shared_ff))) {
+    if ((!fread_unlocked(&(pgfip->raw_variant_ct), sizeof(int32_t), 1, shared_ff)) ||
+        (!fread_unlocked(&(pgfip->raw_sample_ct), sizeof(int32_t), 1, shared_ff)) ||
+        (!fread_unlocked(header_ctrl_ptr, 1, 1, shared_ff))) {
       strcpy(errstr_buf, "Error: File read failure.\n");
       return kPglRetReadFail;
     }
@@ -1877,7 +1869,7 @@ pglerr_t pgfi_init_phase2(pgen_header_ctrl_t header_ctrl, uint32_t allele_cts_al
         cur_byte_ct = 1 + ((raw_variant_ct - 1) % (kPglVblockSize * 32)) / CHAR_BIT;
       }
       unsigned char* loadptr = nonref_flags_already_loaded? loadbuf : nonref_flags_iter;
-      if (!fread(loadptr, cur_byte_ct, 1, shared_ff)) {
+      if (!fread_unlocked(loadptr, cur_byte_ct, 1, shared_ff)) {
         strcpy(errstr_buf, "Error: File read failure.\n");
         return kPglRetReadFail;
       }
@@ -1918,7 +1910,7 @@ pglerr_t pgfi_init_phase2(pgen_header_ctrl_t header_ctrl, uint32_t allele_cts_al
         return kPglRetReadFail;
       }
     }
-    if (!fread(&cur_fpos, sizeof(int64_t), 1, shared_ff)) {
+    if (!fread_unlocked(&cur_fpos, sizeof(int64_t), 1, shared_ff)) {
       strcpy(errstr_buf, "Error: File read failure.\n");
       return kPglRetReadFail;
     }
@@ -2006,8 +1998,9 @@ pglerr_t pgfi_init_phase2(pgen_header_ctrl_t header_ctrl, uint32_t allele_cts_al
             vrtypes_alias_start = &(vrtypes_alias_start[vblock_idx_start * (kPglVblockSize / kBytesPerWord)]);
           }
           uintptr_t* vrtypes_alias_iter = vrtypes_alias_start;
-          if (vidx_end & (kBytesPerWord - 1)) {
-            vrtypes_alias_end[-1] &= (k1LU << ((vidx_end & (kBytesPerWord - 1)) * CHAR_BIT)) - k1LU;
+          const uint32_t trailing_byte_ct = vidx_end & (kBytesPerWord - 1);
+          if (trailing_byte_ct) {
+            vrtypes_alias_end[-1] = bzhi(vrtypes_alias_end[-1], trailing_byte_ct * CHAR_BIT);
           }
           for (; vrtypes_alias_iter < vrtypes_alias_end; ++vrtypes_alias_iter) {
             const uintptr_t cur_word = *vrtypes_alias_iter;
@@ -2081,7 +2074,7 @@ pglerr_t pgfi_init_phase2(pgen_header_ctrl_t header_ctrl, uint32_t allele_cts_al
         fread_ptr = &(fread_ptr[cur_byte_ct]);
       } else {
 #endif
-        if (!fread(loadbuf, cur_byte_ct, 1, shared_ff)) {
+        if (!fread_unlocked(loadbuf, cur_byte_ct, 1, shared_ff)) {
           strcpy(errstr_buf, "Error: File read failure.\n");
           return kPglRetReadFail;
         }
@@ -2115,7 +2108,7 @@ pglerr_t pgfi_init_phase2(pgen_header_ctrl_t header_ctrl, uint32_t allele_cts_al
 #ifndef NO_MMAP
         if (shared_ff) {
 #endif
-          if (!fread(loadbuf, cur_byte_ct, 1, shared_ff)) {
+          if (!fread_unlocked(loadbuf, cur_byte_ct, 1, shared_ff)) {
             strcpy(errstr_buf, "Error: File read failure.\n");
             return kPglRetReadFail;
           }
@@ -2152,7 +2145,7 @@ pglerr_t pgfi_init_phase2(pgen_header_ctrl_t header_ctrl, uint32_t allele_cts_al
 #ifndef NO_MMAP
         if (shared_ff) {
 #endif
-          if (!fread(vrtypes_iter, cur_vblock_variant_ct, 1, shared_ff)) {
+          if (!fread_unlocked(vrtypes_iter, cur_vblock_variant_ct, 1, shared_ff)) {
             strcpy(errstr_buf, "Error: File read failure.\n");
             return kPglRetReadFail;
           }
@@ -2180,7 +2173,7 @@ pglerr_t pgfi_init_phase2(pgen_header_ctrl_t header_ctrl, uint32_t allele_cts_al
 #ifndef NO_MMAP
       if (shared_ff) {
 #endif
-        if (!fread(loadbuf, cur_byte_ct, 1, shared_ff)) {
+        if (!fread_unlocked(loadbuf, cur_byte_ct, 1, shared_ff)) {
           strcpy(errstr_buf, "Error: File read failure.\n");
           return kPglRetReadFail;
         }
@@ -2248,7 +2241,7 @@ pglerr_t pgfi_init_phase2(pgen_header_ctrl_t header_ctrl, uint32_t allele_cts_al
 #ifndef NO_MMAP
       if (shared_ff) {
 #endif
-        if (!fread(loadbuf, cur_vblock_variant_ct * alt_allele_ct_byte_ct, 1, shared_ff)) {
+        if (!fread_unlocked(loadbuf, cur_vblock_variant_ct * alt_allele_ct_byte_ct, 1, shared_ff)) {
           strcpy(errstr_buf, "Error: File read failure.\n");
           return kPglRetReadFail;
         }
@@ -2303,7 +2296,7 @@ pglerr_t pgfi_init_phase2(pgen_header_ctrl_t header_ctrl, uint32_t allele_cts_al
       } else {
 #endif
         unsigned char* loadptr = nonref_flags_already_loaded? loadbuf : nonref_flags_iter;
-        if (!fread(loadptr, cur_byte_ct, 1, shared_ff)) {
+        if (!fread_unlocked(loadptr, cur_byte_ct, 1, shared_ff)) {
           strcpy(errstr_buf, "Error: File read failure.\n");
           return kPglRetReadFail;
         }
@@ -2328,7 +2321,7 @@ uint32_t get_ldbase_vidx(const unsigned char* vrtypes, uint32_t cur_vidx) {
   uintptr_t cur_vrtypes_word = vrtypes_walias[vidx_word_idx];
   if (cur_vidx_orig_remainder) {
     // make sure we don't detect a byte after the current position.
-    cur_vrtypes_word &= (k1LU << (CHAR_BIT * cur_vidx_orig_remainder)) - k1LU;
+    cur_vrtypes_word = bzhi(cur_vrtypes_word, CHAR_BIT * cur_vidx_orig_remainder);
     cur_vrtypes_word |= (kMask0101 * 2) << (CHAR_BIT * cur_vidx_orig_remainder);
   }
   while (1) {
@@ -3409,6 +3402,10 @@ pglerr_t parse_non_ld_genovec_subset_unsafe(const unsigned char* fread_end, cons
   assert((!difflist_ambig_ids_needed) || vrtype_multiallelic(vrtype));
   const uint32_t vrtype_low2 = vrtype & 3;
   const uint32_t vec_ct = QUATERCT_TO_VECCT(sample_ct);
+
+  // This memset is frequently the limiting operation.  Probably not worth
+  // worrying about before 2019 or so, but it suggests that the
+  // _difflist_or_genovec interface shouldn't be abandoned.
   memset(genovec, vrtype_low2 * 0x55, vec_ct * kBytesPerVec);
   return parse_and_apply_difflist_subset(fread_end, sample_include, sample_include_cumulative_popcounts, sample_ct, difflist_ambig_ids_needed, fread_pp, pgrp, genovec);
 }
@@ -3435,7 +3432,7 @@ pglerr_t init_read_ptrs(uint32_t vidx, pgen_reader_t* pgrp, const unsigned char*
   }
 #else
   // cur_vrec_width < 2^31 since otherwise we error out on initialization
-  if (!fread(pgrp->fread_buf, cur_vrec_width, 1, pgrp->ff)) {
+  if (!fread_unlocked(pgrp->fread_buf, cur_vrec_width, 1, pgrp->ff)) {
     return kPglRetReadFail;
   }
 #endif
@@ -3465,7 +3462,7 @@ uint32_t ld_load_necessary(uint32_t cur_vidx, pgen_reader_t* pgrp) {
   uintptr_t cur_vrtypes_word = vrtypes_walias[vidx_word_idx];
   if (cur_vidx_orig_remainder) {
     // make sure we don't detect a byte after the current position.
-    cur_vrtypes_word &= (k1LU << (CHAR_BIT * cur_vidx_orig_remainder)) - k1LU;
+    cur_vrtypes_word = bzhi(cur_vrtypes_word, CHAR_BIT * cur_vidx_orig_remainder);
     cur_vrtypes_word |= (kMask0101 * 2) << (CHAR_BIT * cur_vidx_orig_remainder);
   }
   const uint32_t vidx_word_stop = (fp_vidx < cur_vidx)? (fp_vidx / kBytesPerWord) : 0;
@@ -3674,13 +3671,13 @@ pglerr_t ld_load_minimal_subset_if_necessary(const uintptr_t* __restrict sample_
     pgrp->ldbase_stypes = kfPgrLdcacheQuater;
     if (!(ldbase_vrtype & 7)) {
       // don't actually need to fread the whole record in this case
-      if (!fread(raw_genovec, QUATERCT_TO_BYTECT(raw_sample_ct), 1, pgrp->ff)) {
+      if (!fread_unlocked(raw_genovec, QUATERCT_TO_BYTECT(raw_sample_ct), 1, pgrp->ff)) {
         return kPglRetReadFail;
       }
       goto ld_load_minimal_subset_if_necessary_genovec_finish;
     }
     const uintptr_t cur_vrec_width = (uintptr_t)(pgrp->fi.var_fpos[ldbase_vidx + 1] - cur_vidx_fpos);
-    if (!fread(pgrp->fread_buf, cur_vrec_width, 1, pgrp->ff)) {
+    if (!fread_unlocked(pgrp->fread_buf, cur_vrec_width, 1, pgrp->ff)) {
       return kPglRetReadFail;
     }
     fread_ptr = pgrp->fread_buf;
@@ -5571,7 +5568,6 @@ pglerr_t read_refalt1_genovec_hphase_subset_unsafe(const uintptr_t* __restrict s
   if (fread_pp) {
     *fread_endp = fread_end;
   }
-  const uint32_t het_ctdl = het_ct / kBitsPerWord;
   const uint32_t sample_ctl = BITCT_TO_WORDCT(sample_ct);
   if (!(fread_ptr[0] & 1)) {
     // phase always present
@@ -5582,72 +5578,25 @@ pglerr_t read_refalt1_genovec_hphase_subset_unsafe(const uintptr_t* __restrict s
         return kPglRetSuccess;
       }
     }
-    fill_ulong_zero(raw_sample_ctl, phaseinfo);
-    const uintptr_t* aux2_raw_phaseinfo_iter = (const uintptr_t*)fread_ptr;
-    uint32_t phaseinfo_widx = 0;
-    uint32_t phaseinfo_idx_lowbits = 1; // skip first bit
-    uint32_t loop_len = kBitsPerWord;
-    uint32_t sample_uidx = 0;
     if (!subsetting_required) {
       memcpy(phasepresent, all_hets, raw_sample_ctl * kBytesPerWord);
       *phasepresent_ct_ptr = het_ct;
-      while (1) {
-        uintptr_t phaseinfo_word;
-        if (phaseinfo_widx >= het_ctdl) {
-          if (phaseinfo_widx > het_ctdl) {
-            return kPglRetSuccess;
-          }
-          loop_len = 1 + (het_ct % kBitsPerWord);
-          // avoid possible segfault
-          phaseinfo_word = partial_word_load(&(aux2_raw_phaseinfo_iter[phaseinfo_widx]), DIV_UP(loop_len, CHAR_BIT));
-        } else {
-#ifdef __arm__
-  #error "Unaligned accesses in read_refalt1_genovec_hphase_subset_unsafe()."
-#endif
-          phaseinfo_word = aux2_raw_phaseinfo_iter[phaseinfo_widx];
-        }
-        for (; phaseinfo_idx_lowbits < loop_len; ++phaseinfo_idx_lowbits, ++sample_uidx) {
-          sample_uidx = next_set_unsafe(all_hets, sample_uidx);
-          // bugfix: can't just use (phaseinfo_word & 1) and phaseinfo_word
-          // >>= 1, since we skip the first bit on the first loop iteration
-          if ((phaseinfo_word >> phaseinfo_idx_lowbits) & 1) {
-            SET_BIT(sample_uidx, phaseinfo);
-          }
-        }
-        phaseinfo_idx_lowbits = 0;
-        ++phaseinfo_widx;
-      }
+      expand_bytearr(fread_ptr, all_hets, raw_sample_ctl, het_ct, 1, phaseinfo);
     } else {
       // we could drop the "phasepresent bit can only be set at hets" guarantee
       // and speed up this case, but I doubt it's worth it
       copy_bitarr_subset(all_hets, sample_include, sample_ct, phasepresent);
       *phasepresent_ct_ptr = (uint32_t)popcount_longs(phasepresent, sample_ctl);
       if (!(*phasepresent_ct_ptr)) {
-        return kPglRetSuccess;
-      }
-      while (1) {
-        uintptr_t phaseinfo_word;
-        if (phaseinfo_widx >= het_ctdl) {
-          if (phaseinfo_widx > het_ctdl) {
-            return kPglRetSuccess;
-          }
-          loop_len = 1 + (het_ct % kBitsPerWord);
-          phaseinfo_word = partial_word_load(&(aux2_raw_phaseinfo_iter[phaseinfo_widx]), DIV_UP(loop_len, CHAR_BIT));
-        } else {
-          phaseinfo_word = aux2_raw_phaseinfo_iter[phaseinfo_widx];
-        }
-        for (; phaseinfo_idx_lowbits < loop_len; ++phaseinfo_idx_lowbits, ++sample_uidx) {
-          sample_uidx = next_set_unsafe(all_hets, sample_uidx);
-          if (((phaseinfo_word >> phaseinfo_idx_lowbits) & 1) && IS_SET(sample_include, sample_uidx)) {
-            const uint32_t sample_idx = raw_to_subsetted_pos(sample_include, sample_include_cumulative_popcounts, sample_uidx);
-            SET_BIT(sample_idx, phaseinfo);
-          }
-        }
-        phaseinfo_idx_lowbits = 0;
-        ++phaseinfo_widx;
+        // bugfix (7 Dec 2017): clear sample_ctl words here, not raw_sample_ctl
+        fill_ulong_zero(sample_ctl, phaseinfo);
+      } else {
+        expand_then_subset_bytearr(fread_ptr, all_hets, sample_include, sample_include_cumulative_popcounts, het_ct, sample_ct, 1, phaseinfo);
       }
     }
+    return kPglRetSuccess;
   }
+  const uint32_t het_ctdl = het_ct / kBitsPerWord;
 
   // explicit phasepresent
   const uintptr_t* aux2_first_half = (const uintptr_t*)fread_ptr;
@@ -5665,62 +5614,15 @@ pglerr_t read_refalt1_genovec_hphase_subset_unsafe(const uintptr_t* __restrict s
       return kPglRetSuccess;
     }
   }
-  fill_ulong_zero(sample_ctl, phasepresent);
-  fill_ulong_zero(sample_ctl, phaseinfo);
-  const uint32_t raw_phasepresent_ctl_m1 = BITCT_TO_WORDCT(raw_phasepresent_ct) - 1;
-  const uintptr_t* aux2_second_half = (const uintptr_t*)(&(fread_ptr[1 + (het_ct / CHAR_BIT)]));
-
-  uint32_t phasepresent_idx = 1;
-  uint32_t phaseinfo_widx = 0;
-  uint32_t loop_len = kBitsPerWord;
-  uint32_t sample_uidx = 0;
-  uint32_t phasepresent_ct = (1 - subsetting_required) * raw_phasepresent_ct;
-  while (1) {
-    uintptr_t phaseinfo_word;
-    if (phaseinfo_widx >= raw_phasepresent_ctl_m1) {
-      if (phaseinfo_widx > raw_phasepresent_ctl_m1) {
-        *phasepresent_ct_ptr = phasepresent_ct;
-        return kPglRetSuccess;
-      }
-      loop_len = MOD_NZ(raw_phasepresent_ct, kBitsPerWord);
-      // avoid possible segfault
-      phaseinfo_word = partial_word_load(&(aux2_second_half[phaseinfo_widx]), DIV_UP(loop_len, CHAR_BIT));
-    } else {
-      phaseinfo_word = aux2_second_half[phaseinfo_widx];
-    }
-    if (!subsetting_required) {
-      for (uint32_t phaseinfo_idx_lowbits = 0; phaseinfo_idx_lowbits < loop_len; ++phasepresent_idx, ++sample_uidx) {
-        // could conditionally use jump_forward_set_unsafe, if we need more
-        // efficient handling of merged datasets with only a few phased hets
-        sample_uidx = next_set_unsafe(all_hets, sample_uidx);
-        if (IS_SET(aux2_first_half_copy, phasepresent_idx)) {
-          const uintptr_t new_bit = k1LU << (sample_uidx % kBitsPerWord);
-          const uint32_t sample_widx = sample_uidx / kBitsPerWord;
-          phasepresent[sample_widx] |= new_bit;
-          phaseinfo[sample_widx] |= new_bit * (phaseinfo_word & 1);
-          phaseinfo_word >>= 1;
-          ++phaseinfo_idx_lowbits;
-        }
-      }
-    } else {
-      for (uint32_t phaseinfo_idx_lowbits = 0; phaseinfo_idx_lowbits < loop_len; ++phasepresent_idx, ++sample_uidx) {
-        sample_uidx = next_set_unsafe(all_hets, sample_uidx);
-        if (IS_SET(aux2_first_half_copy, phasepresent_idx)) {
-          if (IS_SET(sample_include, sample_uidx)) {
-            const uint32_t sample_idx = raw_to_subsetted_pos(sample_include, sample_include_cumulative_popcounts, sample_uidx);
-            const uintptr_t new_bit = k1LU << (sample_idx % kBitsPerWord);
-            const uint32_t sample_widx = sample_idx / kBitsPerWord;
-            phasepresent[sample_widx] |= new_bit;
-            phaseinfo[sample_widx] |= new_bit * (phaseinfo_word & 1);
-            ++phasepresent_ct;
-          }
-          phaseinfo_word >>= 1;
-          ++phaseinfo_idx_lowbits;
-        }
-      }
-    }
-    ++phaseinfo_widx;
+  const unsigned char* aux2_second_half = &(fread_ptr[1 + (het_ct / CHAR_BIT)]);
+  if (!subsetting_required) {
+    expand_bytearr_nested(aux2_second_half, aux2_first_half_copy, all_hets, sample_ctl, raw_phasepresent_ct, 1, phasepresent, phaseinfo);
+    *phasepresent_ct_ptr = raw_phasepresent_ct;
+  } else {
+    uint32_t phasepresent_ct = expand_then_subset_bytearr_nested(aux2_second_half, aux2_first_half_copy, all_hets, sample_include, sample_include_cumulative_popcounts, sample_ct, raw_phasepresent_ct, 1, phasepresent, phaseinfo);
+    *phasepresent_ct_ptr = phasepresent_ct;
   }
+  return kPglRetSuccess;
 }
 
 pglerr_t pgr_read_refalt1_genovec_hphase_subset_unsafe(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, pgen_reader_t* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr) {
@@ -7057,7 +6959,7 @@ pglerr_t pgr_validate(pgen_reader_t* pgrp, char* errstr_buf) {
     }
     for (uint32_t vblock_idx = 0; vblock_idx < vblock_ct; ++vblock_idx) {
       uint64_t vblock_start_fpos;
-      if (!fread(&vblock_start_fpos, sizeof(int64_t), 1, ff)) {
+      if (!fread_unlocked(&vblock_start_fpos, sizeof(int64_t), 1, ff)) {
         return kPglRetReadFail;
       }
       if (vblock_start_fpos != pgrp->fi.var_fpos[vblock_idx * kPglVblockSize]) {
@@ -7249,13 +7151,13 @@ pglerr_t pwc_init_phase1(const char* __restrict fname, const uintptr_t* __restri
   if (!pgen_outfile) {
     return kPglRetOpenFail;
   }
-  fwrite("l\x1b\x10", 3, 1, pgen_outfile);
-  fwrite(&(pwcp->variant_ct), sizeof(int32_t), 1, pgen_outfile);
-  fwrite(&(pwcp->sample_ct), sizeof(int32_t), 1, pgen_outfile);
+  fwrite_unlocked("l\x1b\x10", 3, 1, pgen_outfile);
+  fwrite_unlocked(&(pwcp->variant_ct), sizeof(int32_t), 1, pgen_outfile);
+  fwrite_unlocked(&(pwcp->sample_ct), sizeof(int32_t), 1, pgen_outfile);
 
   const unsigned char control_byte = (vrec_len_byte_ct - 1) + (4 * (phase_dosage_gflags != 0)) + (nonref_flags_storage << 6);
   pwcp->vrec_len_byte_ct = vrec_len_byte_ct;
-  fwrite(&control_byte, 1, 1, pgen_outfile);
+  fwrite_unlocked(&control_byte, 1, 1, pgen_outfile);
   const uint32_t vblock_ct = DIV_UP(variant_ct, kPglVblockSize);
   uintptr_t header_bytes_left = vblock_ct * sizeof(int64_t) + variant_ct * vrec_len_byte_ct;
   if (phase_dosage_gflags) {
@@ -7280,7 +7182,7 @@ pglerr_t pwc_init_phase1(const char* __restrict fname, const uintptr_t* __restri
   unsigned char zerobuf[kPglFwriteBlockSize];
   memset(zerobuf, 0, zeroed_cachelines_needed * kCacheline);
   while (header_bytes_left > kPglFwriteBlockSize) {
-    fwrite(zerobuf, kPglFwriteBlockSize, 1, pgen_outfile);
+    fwrite_unlocked(zerobuf, kPglFwriteBlockSize, 1, pgen_outfile);
     header_bytes_left -= kPglFwriteBlockSize;
   }
   if (fwrite_checked(zerobuf, header_bytes_left, pgen_outfile)) {
@@ -8461,7 +8363,7 @@ void append_hphase(const uintptr_t* __restrict genovec, const uintptr_t* __restr
             phaseinfo_write_word = 0;
             phaseinfo_write_idx_lowbits = 0;
           }
-          geno_hets &= geno_hets - k1LU;
+          geno_hets &= geno_hets - 1;
         } while (geno_hets);
       }
     }
@@ -8495,7 +8397,7 @@ void append_hphase(const uintptr_t* __restrict genovec, const uintptr_t* __restr
               phasepresent_write_word = 0;
               phasepresent_write_idx_lowbits = 0;
             }
-            geno_hets &= geno_hets - k1LU;
+            geno_hets &= geno_hets - 1;
           } while (geno_hets);
         } else {
           phasepresent_write_idx_lowbits += popcount_long(geno_hets);
@@ -8792,7 +8694,7 @@ pglerr_t pwc_finish(pgen_writer_common_t* pwcp, FILE** pgen_outfile_ptr) {
     return kPglRetWriteFail;
   }
   const uint32_t vblock_ct = DIV_UP(variant_ct, kPglVblockSize);
-  fwrite(pwcp->vblock_fpos, vblock_ct * sizeof(int64_t), 1, pgen_outfile);
+  fwrite_unlocked(pwcp->vblock_fpos, vblock_ct * sizeof(int64_t), 1, pgen_outfile);
   const unsigned char* vrtype_buf_iter = (unsigned char*)pwcp->vrtype_buf;
   const uint32_t vrec_len_byte_ct = (uint32_t)pwcp->vrec_len_byte_ct;
   const unsigned char* vrec_len_buf_iter = pwcp->vrec_len_buf;
@@ -8814,7 +8716,7 @@ pglerr_t pwc_finish(pgen_writer_common_t* pwcp, FILE** pgen_outfile_ptr) {
       nonref_flags_write_byte_ct = DIV_UP(vblock_size, CHAR_BIT);
     }
     // 4b(i): array of 4-bit or 1-byte vrtypes
-    fwrite(vrtype_buf_iter, vrtype_buf_iter_incr, 1, pgen_outfile);
+    fwrite_unlocked(vrtype_buf_iter, vrtype_buf_iter_incr, 1, pgen_outfile);
     vrtype_buf_iter = &(vrtype_buf_iter[vrtype_buf_iter_incr]);
 
     // 4b(ii): array of variant record lengths

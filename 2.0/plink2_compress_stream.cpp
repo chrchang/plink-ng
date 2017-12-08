@@ -58,7 +58,7 @@ boolerr_t cswrite_init(const char* out_fname, uint32_t do_append, uint32_t outpu
 boolerr_t force_uncompressed_cswrite(compress_stream_state_t* css_ptr, char** writep_ptr) {
   unsigned char* writep = (unsigned char*)(*writep_ptr);
   if (css_ptr->overflow_buf != writep) {
-    if (!fwrite(css_ptr->overflow_buf, writep - css_ptr->overflow_buf, 1, css_ptr->outfile)) {
+    if (!fwrite_unlocked(css_ptr->overflow_buf, writep - css_ptr->overflow_buf, 1, css_ptr->outfile)) {
       return 1;
     }
     *writep_ptr = (char*)(css_ptr->overflow_buf);
@@ -84,7 +84,7 @@ boolerr_t csputs_std(const char* ss, uint32_t sslen, compress_stream_state_t* cs
   while (sslen > cur_write_space) {
     memcpy(writep, readp, cur_write_space);
     if (is_uncompressed_cswrite(css_ptr)) {
-      if (!fwrite(css_ptr->overflow_buf, 2 * kCompressStreamBlock, 1, css_ptr->outfile)) {
+      if (!fwrite_unlocked(css_ptr->overflow_buf, 2 * kCompressStreamBlock, 1, css_ptr->outfile)) {
         return 1;
       }
     } else {
@@ -105,7 +105,7 @@ boolerr_t csputs_std(const char* ss, uint32_t sslen, compress_stream_state_t* cs
 boolerr_t uncompressed_cswrite_close_null(compress_stream_state_t* css_ptr, char* writep) {
   force_uncompressed_cswrite(css_ptr, &writep);
   css_ptr->overflow_buf = nullptr;
-  int32_t ii = ferror(css_ptr->outfile);
+  int32_t ii = ferror_unlocked(css_ptr->outfile);
   int32_t jj = fclose(css_ptr->outfile);
   return ii || jj;
 }

@@ -228,7 +228,6 @@ HEADER_INLINE boolerr_t invert_symmdef_fmatrix_first_half(int32_t dim, uint32_t 
 
 HEADER_INLINE double half_inverted_det(__maybe_unused const double* half_inverted_iter, __maybe_unused const matrix_invert_buf1_t* dbl_1d_buf, uint32_t dim) {
   // singular values in dbl_1d_buf
-  uint32_t dim_p1 = dim + 1;
   double det_u = dbl_1d_buf[0];
   for (uint32_t uii = 1; uii < dim; ++uii) {
     det_u *= dbl_1d_buf[uii];
@@ -379,7 +378,7 @@ void transpose_multiply_self_incr(double* input_part, uint32_t dim, uint32_t par
 boolerr_t get_svd_rect_lwork(uint32_t major_ct, uint32_t minor_ct, __CLPK_integer* lwork_ptr);
 
 // currently a wrapper for dgesvd_().
-boolerr_t svd_rect(uint32_t major_ct, uint32_t minor_ct, __CLPK_integer lwork, double* matrix, double* ss, unsigned char* svd_rect_wkspace);
+interr_t svd_rect(uint32_t major_ct, uint32_t minor_ct, __CLPK_integer lwork, double* matrix, double* ss, unsigned char* svd_rect_wkspace);
 
 boolerr_t get_extract_eigvecs_lworks(uint32_t dim, uint32_t pc_ct, __CLPK_integer* lwork_ptr, __CLPK_integer* liwork_ptr, uintptr_t* wkspace_byte_ct_ptr);
 

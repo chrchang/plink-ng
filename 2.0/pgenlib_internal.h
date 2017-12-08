@@ -76,7 +76,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 701
+#define PGENLIB_INTERNAL_VERNUM 702
 
 
 // other configuration-ish values needed by plink2_common subset
@@ -261,19 +261,27 @@ CONSTU31(kPglQuaterTransposeBatch, kQuatersPerCacheline);
 // word width of each matrix row
 CONSTU31(kPglQuaterTransposeWords, kWordsPerCacheline);
 
+#ifdef USE_AVX2
+CONSTU31(kPglQuaterTransposeBufbytes, kPglQuaterTransposeBatch);
+
+void transpose_quaterblock_avx2(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, unsigned char* __restrict buf0);
+#else
 CONSTU31(kPglQuaterTransposeBufbytes, (kPglQuaterTransposeBatch * kPglQuaterTransposeBatch) / 2);
+
+void transpose_quaterblock_internal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, unsigned char* __restrict buf0, unsigned char* __restrict buf1);
+#endif
 CONSTU31(kPglQuaterTransposeBufwords, kPglQuaterTransposeBufbytes / kBytesPerWord);
-// up to 256x256; vecaligned_buf must have size 32k
+// up to 256x256; vecaligned_buf must have size 32k (256 bytes in AVX2 case)
 // write_iter must be allocated up to at least
 //   round_up_pow2(write_batch_size, 2) rows
-// write_ul_stride must be divisible by 2 in AVX2 case
-void transpose_quaterblock_internal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, unsigned char* __restrict buf0, unsigned char* __restrict buf1);
 
 HEADER_INLINE void transpose_quaterblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, vul_t* vecaligned_buf) {
 #ifdef USE_AVX2
-  assert(!(write_ul_stride % 2));
-#endif
+  // assert(!(write_ul_stride % 2));
+  transpose_quaterblock_avx2(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, (unsigned char*)vecaligned_buf);
+#else
   transpose_quaterblock_internal(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, (unsigned char*)vecaligned_buf, &(((unsigned char*)vecaligned_buf)[kPglQuaterTransposeBufbytes / 2]));
+#endif
 }
 
 
@@ -557,7 +565,9 @@ struct Pgen_file_info_struct {
   //        [(hap1 alt2 prob) - (hap2 alt2 prob)], etc., where the underlying
   //        values are represented in [0..16384] (so the signed difference is
   //        in [-16384..16384]).  track #4 contains the corresponding sums;
-  //        parity should always match.
+  //        parity should always match.  In fixed-width case, -32768 should be
+  //        stored in track #6 when the entire call is missing; may use this to
+  //        also represent missing-phase later, but postpone that decision.
   //
   // Representation of variable ploidy (MT) was considered, but rejected since
   // dosages should be at least as appropriate for MT.

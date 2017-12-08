@@ -76,6 +76,10 @@
     #define USE_SSE42
     #ifdef __AVX2__
       #include <immintrin.h>
+      #include <x86intrin.h>
+      #ifndef __BMI__
+        #error "AVX2 builds require -mbmi as well."
+      #endif
       #ifndef __BMI2__
         #error "AVX2 builds require -mbmi2 as well."
       #endif
@@ -293,12 +297,19 @@ private:
   #define FOPEN_RB "rb"
   #define FOPEN_WB "wb"
   #define FOPEN_AB "ab"
+  #define ferror_unlocked ferror
   #ifdef __LP64__
     #define getc_unlocked _fgetc_nolock
     #define putc_unlocked _fputc_nolock
+    // todo: find mingw-w64 build which properly links _fread_nolock, and
+    // conditional-compile
+    #define fread_unlocked fread
+    #define fwrite_unlocked fwrite
   #else
     #define getc_unlocked getc
     #define putc_unlocked putc
+    #define fread_unlocked fread
+    #define fwrite_unlocked fwrite
   #endif
   #if __cplusplus < 201103L
     #define uint64_t unsigned long long
@@ -308,9 +319,15 @@ private:
   #define FOPEN_RB "r"
   #define FOPEN_WB "w"
   #define FOPEN_AB "a"
+  #ifdef __APPLE__
+    #define fread_unlocked fread
+    #define fwrite_unlocked fwrite
+  #endif
 #endif
 
 #ifdef _WIN32
+  #undef PRId64
+  #undef PRIu64
   #define PRId64 "I64d"
   #define PRIu64 "I64u"
 #else
@@ -721,20 +738,15 @@ HEADER_INLINE boolerr_t pgl_malloc(uintptr_t size, void* pp) {
 // This must be used for all fwrite() calls where len could be >= 2^31, since
 // OS X raw fwrite() doesn't work in that case.
 static_assert(sizeof(size_t) == sizeof(intptr_t), "plink2_base assumes size_t and intptr_t are synonymous.");
-interr_t fwrite_checked(const void* buf, uintptr_t len, FILE* outfile);
+boolerr_t fwrite_checked(const void* buf, uintptr_t len, FILE* outfile);
 
-interr_t fread_checked2(void* buf, uintptr_t len, FILE* infile, uintptr_t* bytes_read_ptr);
+// Only use this if loading < len bytes is not an error.
+// interr_t fread_checked2(void* buf, uintptr_t len, FILE* infile, uintptr_t* bytes_read_ptr);
 
-HEADER_INLINE boolerr_t fread_checked(void* buf, uintptr_t len, FILE* infile) {
-  uintptr_t bytes_read;
-  if (fread_checked2(buf, len, infile, &bytes_read)) {
-    return 1;
-  }
-  return (bytes_read != len);
-}
+boolerr_t fread_checked(void* buf, uintptr_t len, FILE* infile);
 
 HEADER_INLINE boolerr_t fclose_null(FILE** fptr_ptr) {
-  int32_t ii = ferror(*fptr_ptr);
+  int32_t ii = ferror_unlocked(*fptr_ptr);
   int32_t jj = fclose(*fptr_ptr);
   *fptr_ptr = nullptr;
   return ii || jj;
@@ -1201,11 +1213,6 @@ HEADER_INLINE void partial_uint_store_adv(uint32_t cur_uint, uint32_t byte_ct, u
   *targetp += byte_ct;
 }
 
-
-// these don't read past the end of bitarr
-uintptr_t popcount_bytes(const unsigned char* bitarr, uintptr_t byte_ct);
-uintptr_t popcount_bytes_masked(const unsigned char* bitarr, const uintptr_t* mask_arr, uintptr_t byte_ct);
-
 // requires positive word_ct
 // stay agnostic a bit longer re: word_ct := DIV_UP(entry_ct, kBitsPerWord)
 // vs. word_ct := 1 + (entry_ct / kBitsPerWord)
@@ -1337,19 +1344,34 @@ HEADER_INLINE void next_nonmissing_unsafe_ck(const uintptr_t* __restrict genoarr
 }
 */
 
-void copy_bitarr_subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t subset_size, uintptr_t* __restrict output_bitarr);
+// tried _bzhi_u64() in AVX2 case, it was actually worse on my Mac (more
+// opaque to compiler?)
+// This is undefined if idx == kBitsPerWord.
+HEADER_INLINE uintptr_t bzhi(uintptr_t ww, uint32_t idx) {
+  return ww & ((k1LU << idx) - k1LU);
+}
+
+// This is undefined if idx == 0.
+HEADER_INLINE uintptr_t bzhi_max(uintptr_t ww, uint32_t idx) {
+  return ww & ((~k0LU) >> (kBitsPerWord - idx));
+}
+
+// Don't bother defining blsr(), compiler will automatically use the
+// instruction under -mbmi and regular code is more readable.
 
 // Equivalent to popcount_bit_idx(subset_mask, 0, raw_idx).
 HEADER_INLINE uint32_t raw_to_subsetted_pos(const uintptr_t* subset_mask, const uint32_t* subset_cumulative_popcounts, uint32_t raw_idx) {
   // this should be much better than keeping a uidx_to_idx array!
+  // (update: there are more compact indexes, but postpone for now, this is
+  // is nice and simple and gets us most of what we need.))
   const uint32_t raw_widx = raw_idx / kBitsPerWord;
-  return subset_cumulative_popcounts[raw_widx] + popcount_long(subset_mask[raw_widx] & ((k1LU << (raw_idx % kBitsPerWord)) - k1LU));
+  return subset_cumulative_popcounts[raw_widx] + popcount_long(bzhi(subset_mask[raw_widx], raw_idx % kBitsPerWord));
 }
 
 HEADER_INLINE void zero_trailing_bits(uintptr_t bit_ct, uintptr_t* bitarr) {
   uintptr_t trail_ct = bit_ct % kBitsPerWord;
   if (trail_ct) {
-    bitarr[bit_ct / kBitsPerWord] &= (k1LU << trail_ct) - k1LU;
+    bitarr[bit_ct / kBitsPerWord] = bzhi(bitarr[bit_ct / kBitsPerWord], trail_ct);
   }
 }
 
@@ -1369,12 +1391,28 @@ HEADER_INLINE void zero_trailing_words(__maybe_unused uint32_t word_ct, __maybe_
 }
 #endif
 
+void copy_bitarr_subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t subset_size, uintptr_t* __restrict output_bitarr);
+
+void expand_bytearr(const unsigned char* __restrict compact_bitarr, const uintptr_t* __restrict expand_mask, uint32_t word_ct, uint32_t expand_size, uint32_t read_start_bit, uintptr_t* __restrict target);
+
+// equivalent to calling expand_bytearr() followed by copy_bitarr_subset()
+void expand_then_subset_bytearr(const unsigned char* __restrict compact_bitarr, const uintptr_t* __restrict expand_mask, const uintptr_t* __restrict subset_mask, __maybe_unused const uint32_t* subset_cumulative_popcounts, uint32_t expand_size, uint32_t subset_size, uint32_t read_start_bit, uintptr_t* __restrict target);
+
+void expand_bytearr_nested(const unsigned char* __restrict compact_bitarr, const uintptr_t* __restrict mid_bitarr, const uintptr_t* __restrict top_expand_mask, uint32_t word_ct, uint32_t mid_expand_size, uint32_t mid_start_bit, uintptr_t* __restrict mid_target, uintptr_t* __restrict compact_target);
+
+uint32_t expand_then_subset_bytearr_nested(const unsigned char* __restrict compact_bitarr, const uintptr_t* __restrict mid_bitarr, const uintptr_t* __restrict top_expand_mask, const uintptr_t* __restrict subset_mask, __maybe_unused const uint32_t* subset_cumulative_popcounts, uint32_t subset_size, uint32_t mid_expand_size, uint32_t mid_start_bit, uintptr_t* __restrict mid_target, uintptr_t* __restrict compact_target);
+
+// these don't read past the end of bitarr
+uintptr_t popcount_bytes(const unsigned char* bitarr, uintptr_t byte_ct);
+uintptr_t popcount_bytes_masked(const unsigned char* bitarr, const uintptr_t* mask_arr, uintptr_t byte_ct);
+
 
 // transpose_quaterblock(), which is more plink-specific, is in
 // pgenlib_internal
 CONSTU31(kPglBitTransposeBatch, kBitsPerCacheline);
 CONSTU31(kPglBitTransposeWords, kWordsPerCacheline);
-// * Up to 512x512; vecaligned_buf must have size 64k
+// * Up to 512x512; vecaligned_buf must have size 32k (64k in 32-bit case)
+//   (er, can reduce buffer size to 512 bytes in 64-bit case...)
 // * write_iter must be allocated up to at least
 //   round_up_pow2(write_batch_size, 2) rows
 // * We use pointers with different types to read from and write to buf0/buf1,
@@ -1383,7 +1421,7 @@ CONSTU31(kPglBitTransposeWords, kWordsPerCacheline);
 //   tell the compiler it doesn't need to be paranoid about writes to one of
 //   the buffers screwing with reads from the other.
 #ifdef __LP64__
-CONSTU31(kPglBitTransposeBufbytes, (kPglBitTransposeBatch * kPglBitTransposeBatch) / CHAR_BIT);
+CONSTU31(kPglBitTransposeBufbytes, kPglBitTransposeBatch);
 void transpose_bitblock_internal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, unsigned char* __restrict buf0);
 
 HEADER_INLINE void transpose_bitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, vul_t* vecaligned_buf) {

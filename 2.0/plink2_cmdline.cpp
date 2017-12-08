@@ -57,7 +57,7 @@ uint32_t g_stderr_written_to = 0;
 void logstr(const char* ss) {
   if (!g_debug_on) {
     fputs(ss, g_logfile);
-    if (ferror(g_logfile)) {
+    if (ferror_unlocked(g_logfile)) {
       putchar('\n');
       fflush(stdout);
       fprintf(stderr, "Warning: Logging failure on:\n%s\nFurther logging will not be attempted in this run.\n", ss);
@@ -69,7 +69,7 @@ void logstr(const char* ss) {
       fputs(ss, stderr);
     } else {
       fputs(ss, g_logfile);
-      if (ferror(g_logfile)) {
+      if (ferror_unlocked(g_logfile)) {
         putchar('\n');
         fflush(stdout);
         fprintf(stderr, "Error: Debug logging failure.  Dumping to stderr:\n%s", ss);
@@ -187,7 +187,7 @@ boolerr_t fopen_checked(const char* fname, const char* mode, FILE** target_ptr) 
   return 0;
 }
 
-interr_t fwrite_flush2(char* buf_flush, FILE* outfile, char** write_iter_ptr) {
+boolerr_t fwrite_flush2(char* buf_flush, FILE* outfile, char** write_iter_ptr) {
   char* buf = &(buf_flush[-((int32_t)kMaxMediumLine)]);
   char* buf_end = *write_iter_ptr;
   *write_iter_ptr = buf;
@@ -2957,7 +2957,7 @@ void clear_bits_nz(uintptr_t start_idx, uintptr_t end_idx, uintptr_t* bitarr) {
   if (maj_start == maj_end) {
     bitarr[maj_start] &= ~((k1LU << (end_idx % kBitsPerWord)) - (k1LU << (start_idx % kBitsPerWord)));
   } else {
-    bitarr[maj_start] &= ((k1LU << (start_idx % kBitsPerWord)) - k1LU);
+    bitarr[maj_start] = bzhi(bitarr[maj_start], start_idx % kBitsPerWord);
     fill_ulong_zero(maj_end - maj_start - 1, &(bitarr[maj_start + 1]));
     minor = end_idx % kBitsPerWord;
     if (minor) {
@@ -3005,7 +3005,7 @@ int32_t prev_set(const uintptr_t* bitarr, uint32_t loc, int32_t floor) {
   uint32_t remainder = loc % kBitsPerWord;
   uintptr_t ulii;
   if (remainder) {
-    ulii = (*bitarr_ptr) & ((k1LU << remainder) - k1LU);
+    ulii = bzhi(*bitarr_ptr, remainder);
     if (ulii) {
       const uint32_t set_bit_loc = (loc | (kBitsPerWord - 1)) - CLZLU(ulii);
       return MAXV(((int32_t)set_bit_loc), floor);
@@ -3148,7 +3148,7 @@ void bitarr_invert(uintptr_t bit_ct, uintptr_t* bitarr) {
   }
   const uint32_t trailing_bit_ct = bit_ct % kBitsPerWord;
   if (trailing_bit_ct) {
-    *bitarr = (~(*bitarr)) & ((k1LU << trailing_bit_ct) - k1LU);
+    *bitarr = bzhi(~(*bitarr), trailing_bit_ct);
   }
 }
 
@@ -3159,7 +3159,7 @@ void bitarr_invert_copy(const uintptr_t* __restrict source_bitarr, uintptr_t bit
   }
   const uint32_t trailing_bit_ct = bit_ct % kBitsPerWord;
   if (trailing_bit_ct) {
-    *target_bitarr = (~(*source_bitarr)) & ((k1LU << trailing_bit_ct) - k1LU);
+    *target_bitarr = bzhi(~(*source_bitarr), trailing_bit_ct);
   }
 }
 
@@ -4048,7 +4048,7 @@ uintptr_t popcount_bit_idx(const uintptr_t* bitvec, uintptr_t start_idx, uintptr
     ct += popcount_longs_nzbase(bitvec, start_idxl, end_idxl);
   }
   if (end_idxlr) {
-    ct += popcount_long(bitvec[end_idxl] & ((k1LU << end_idxlr) - k1LU));
+    ct += popcount_long(bzhi(bitvec[end_idxl], end_idxlr));
   }
   return ct;
 }
@@ -4298,7 +4298,7 @@ uint32_t are_all_bits_zero(const uintptr_t* bitarr, uintptr_t start_idx, uintptr
   if (!end_idxlr) {
     return 1;
   }
-  return !(bitarr[end_idxl] & ((k1LU << end_idxlr) - k1LU));
+  return !bzhi(bitarr[end_idxl], end_idxlr);
 }
 
 void copy_bitarr_range(const uintptr_t* __restrict src_bitarr, uintptr_t src_start_bitidx, uintptr_t target_start_bitidx, uintptr_t len, uintptr_t* __restrict target_bitarr) {
@@ -4371,11 +4371,10 @@ uintptr_t jump_forward_set_unsafe(const uintptr_t* bitvec, uintptr_t cur_pos, ui
     ulkk = popcount_long(uljj);
     if (ulkk >= forward_ct) {
     jump_forward_set_unsafe_finish:
-      ulkk = CTZLU(uljj);
       while (--forward_ct) {
         uljj &= uljj - 1;
-        ulkk = CTZLU(uljj);
       }
+      ulkk = CTZLU(uljj);
       return widx * kBitsPerWord + ulii + ulkk;
     }
     forward_ct -= ulkk;
@@ -5791,7 +5790,7 @@ pglerr_t cmdline_parse_phase1(const char* ver_str, const char* ver_str2, const c
           goto cmdline_parse_phase1_ret_NOMEM;
         }
         char* script_buf = pcmp->script_buf;
-        if (!fread(script_buf, fsize_ui, 1, scriptfile)) {
+        if (!fread_unlocked(script_buf, fsize_ui, 1, scriptfile)) {
           goto cmdline_parse_phase1_ret_READ_FAIL;
         }
         script_buf[fsize_ui] = '\0';

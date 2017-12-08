@@ -490,6 +490,7 @@ boolerr_t invert_fmatrix_first_half(int32_t dim, uint32_t stride, const float* m
 
 void invert_fmatrix_second_half(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, matrix_invert_buf1_t* dbl_1d_buf, double* dbl_2d_buf) {
   // Look for singular values
+  const double eps = 1e-24;
   double wmax = 0;
   int32_t i;
   for (i=0; i<dim; i++) {
@@ -528,7 +529,6 @@ void invert_fmatrix_second_half(__CLPK_integer dim, uint32_t stride, double* hal
     }
     inverted_result[i * stride + i] = (float)half_inverted[i * stride + i];
   }
-  return 0;
 }
 #else // !NOLAPACK
 boolerr_t invert_matrix(__CLPK_integer dim, double* matrix, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf) {
@@ -1079,7 +1079,7 @@ boolerr_t get_svd_rect_lwork(uint32_t major_ct, uint32_t minor_ct, __CLPK_intege
   return 0;
 }
 
-boolerr_t svd_rect(uint32_t major_ct, uint32_t minor_ct, __CLPK_integer lwork, double* matrix, double* ss, unsigned char* svd_rect_wkspace) {
+interr_t svd_rect(uint32_t major_ct, uint32_t minor_ct, __CLPK_integer lwork, double* matrix, double* ss, unsigned char* svd_rect_wkspace) {
   double* work = (double*)svd_rect_wkspace;
   double* vv_buf = &(work[lwork]);
   char jobu = 'S';
@@ -1088,7 +1088,7 @@ boolerr_t svd_rect(uint32_t major_ct, uint32_t minor_ct, __CLPK_integer lwork, d
   __CLPK_integer tmp_n = major_ct;
   __CLPK_integer info;
   dgesvd_(&jobu, &jobvt, &tmp_m, &tmp_n, matrix, &tmp_m, ss, vv_buf, &tmp_m, nullptr, &tmp_m, work, &lwork, &info);
-  return (info != 0);
+  return (interr_t)info;
 }
 
 // dsyevr_ takes ~30% less time than dsyevd_ on OS X dev machine.  todo: retest
@@ -1148,7 +1148,7 @@ boolerr_t invert_rank1_symm_start(const double* a_inv, const double* bb, __CLPK_
   const uintptr_t orig_dim_l = orig_dim;
   const double* a_inv_iter = a_inv;
   for (uintptr_t ulii = 0; ulii < orig_dim_l; ++ulii) {
-    ainv_b[ulii] = dotprod_d(bb, &a_inv_iter, orig_dim_l);
+    ainv_b[ulii] = dotprod_d(bb, a_inv_iter, orig_dim_l);
     a_inv_iter = &(a_inv_iter[orig_dim_l]);
   }
 #else

@@ -425,7 +425,7 @@ pglerr_t king_cutoff_batch(const char* sample_ids, const char* sids, uint32_t ra
             goto king_cutoff_batch_ret_READ_FAIL;
           }
         }
-        if (!fread(king_drow, king_uidx * sizeof(double), 1, binfile)) {
+        if (!fread_unlocked(king_drow, king_uidx * sizeof(double), 1, binfile)) {
           goto king_cutoff_batch_ret_READ_FAIL;
         }
         const uintptr_t sample_idx = king_uidx_to_sample_idx[king_uidx];
@@ -464,7 +464,7 @@ pglerr_t king_cutoff_batch(const char* sample_ids, const char* sids, uint32_t ra
             goto king_cutoff_batch_ret_READ_FAIL;
           }
         }
-        if (!fread(king_frow, king_uidx * sizeof(float), 1, binfile)) {
+        if (!fread_unlocked(king_frow, king_uidx * sizeof(float), 1, binfile)) {
           goto king_cutoff_batch_ret_READ_FAIL;
         }
         const uintptr_t sample_idx = king_uidx_to_sample_idx[king_uidx];
@@ -864,6 +864,35 @@ void set_king_table_fname(king_flags_t king_modifier, uint32_t parallel_idx, uin
   *outname_end2 = '\0';
 }
 
+char* append_king_table_header(king_flags_t king_modifier, uint32_t king_col_sid, char* cswritep) {
+  *cswritep++ = '#';
+  if (king_modifier & kfKingColId) {
+    cswritep = strcpya(cswritep, "FID1\tID1\t");
+    if (king_col_sid) {
+      cswritep = strcpya(cswritep, "SID1\tFID2\tID2\tSID2\t");
+    } else {
+      cswritep = strcpya(cswritep, "FID2\tID2\t");
+    }
+  }
+  if (king_modifier & kfKingColNsnp) {
+    cswritep = strcpya(cswritep, "NSNP\t");
+  }
+  if (king_modifier & kfKingColHethet) {
+    cswritep = strcpya(cswritep, "HETHET\t");
+  }
+  if (king_modifier & kfKingColIbs0) {
+    cswritep = strcpya(cswritep, "IBS0\t");
+  }
+  if (king_modifier & kfKingColIbs1) {
+    cswritep = strcpya(cswritep, "HET1_HOM2\tHET2_HOM1\t");
+  }
+  if (king_modifier & kfKingColKinship) {
+    cswritep = strcpya(cswritep, "KINSHIP\t");
+  }
+  decr_append_binary_eoln(&cswritep);
+  return cswritep;
+}
+
 pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_include, const chr_info_t* cip, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, double king_cutoff, double king_table_filter, king_flags_t king_modifier, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, pgen_reader_t* simple_pgrp, uintptr_t* sample_include, uint32_t* sample_ct_ptr, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
@@ -996,31 +1025,7 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
 
       king_col_sid = sid_col_required(sample_include, sids, sample_ct, max_sid_blen, king_modifier / kfKingColMaybesid);
       if (!parallel_idx) {
-        *cswritetp++ = '#';
-        if (king_modifier & kfKingColId) {
-          cswritetp = strcpya(cswritetp, "FID1\tID1\t");
-          if (king_col_sid) {
-            cswritetp = strcpya(cswritetp, "SID1\tFID2\tID2\tSID2\t");
-          } else {
-            cswritetp = strcpya(cswritetp, "FID2\tID2\t");
-          }
-        }
-        if (king_modifier & kfKingColNsnp) {
-          cswritetp = strcpya(cswritetp, "NSNP\t");
-        }
-        if (king_modifier & kfKingColHethet) {
-          cswritetp = strcpya(cswritetp, "HETHET\t");
-        }
-        if (king_modifier & kfKingColIbs0) {
-          cswritetp = strcpya(cswritetp, "IBS0\t");
-        }
-        if (king_modifier & kfKingColIbs1) {
-          cswritetp = strcpya(cswritetp, "HET1_HOM2\tHET2_HOM1\t");
-        }
-        if (king_modifier & kfKingColKinship) {
-          cswritetp = strcpya(cswritetp, "KINSHIP\t");
-        }
-        decr_append_binary_eoln(&cswritetp);
+        cswritetp = append_king_table_header(king_modifier, king_col_sid, cswritetp);
       }
       if (king_col_sid) {
         if (augid_init_alloc(sample_include, sample_ids, sids, grand_row_end_idx, max_sample_id_blen, max_sid_blen, nullptr, &collapsed_sample_augids, &max_sample_augid_blen)) {
@@ -1549,6 +1554,314 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
  calc_king_ret_1:
   threads3z_cleanup(&ts, nullptr);
   cswrite_close_cond(&csst, cswritetp);
+  cswrite_close_cond(&css, cswritep);
+  fclose_cond(outfile);
+  bigstack_reset(bigstack_mark);
+  return reterr;
+}
+
+
+/*
+pglerr_t king_table_subset_load(const char* sorted_xidbox, const uint32_t* xid_map, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, xid_mode_t xid_mode, uint32_t id2_skip, uint32_t kinship_skip, gzFile* gz_infilep, uint64_t* pair_ct_ptr, char* textbuf, char* idbuf) {
+  uintptr_t line_idx = 1;
+  pglerr_t reterr = kPglRetSuccess;
+  {
+    uint64_t pair_ct = *pair_ct_ptr;
+    if (pair_ct) {
+      gzrewind(*gz_infilep);
+      if (!gzgets(*gz_infilep, textbuf, kMaxMediumLine)) {
+        goto king_table_subset_load_ret_READ_FAIL;
+      }
+    }
+    // Assumes header line already read on first pass.
+    // Assumes textbuf[kMaxMediumLine - 1] initialized to ' '.
+    while (!gzgets(*gz_infilep, textbuf, kMaxMediumLine)) {
+      ++line_idx;
+      if (!textbuf[kMaxMediumLine - 1]) {
+        goto king_table_subset_load_ret_LONG_LINE;
+      }
+      char* textbuf_iter = skip_initial_spaces(textbuf);
+      if (is_eoln_kns(*textbuf_iter)) {
+        continue;
+      }
+      uint32_t sample_uidx1;
+      if (sorted_xidbox_read_find(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, xid_mode, &textbuf_iter, &sample_uidx1, idbuf)) {
+        if (!textbuf_iter) {
+          goto king_table_subset_load_ret_MISSING_TOKENS;
+        }
+        continue;
+      }
+      textbuf_iter = skip_initial_spaces(textbuf_iter);
+      if (id2_skip) {
+        if (is_eoln_kns(*textbuf_iter)) {
+          goto king_table_subset_load_ret_MISSING_TOKENS;
+        }
+        textbuf_iter = skip_initial_spaces(token_endnn(textbuf_iter));
+      }
+      uint32_t sample_uidx2;
+      if (sorted_xidbox_read_find(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, xid_mode, &textbuf_iter, &sample_uidx2, idbuf)) {
+        if (!textbuf_iter) {
+          goto king_table_subset_load_ret_MISSING_TOKENS;
+        }
+        continue;
+      }
+      if (sample_uidx1 == sample_uidx2) {
+        // could technically be due to unloaded SID, so use inconsistent-input
+        // error code
+        sprintf(g_logbuf, "Error: Identical sample IDs on line %" PRIuPTR " of --king-table-subset file.\n", line_idx);
+        goto king_table_subset_ret_INCONSISTENT_INPUT_WW;
+      }
+      if (king_table_subset_thresh) {
+        textbuf_iter = skip_initial_spaces(textbuf_iter);
+        textbuf_iter = next_token_multz(kinship_skip);
+        if (!textbuf_iter) {
+          goto king_table_subset_load_ret_MISSING_TOKENS;
+        }
+        double cur_kinship;
+        if ((!scanadv_double(textbuf_iter, &cur_kinship)) || (cur_kinship < king_table_subset_thresh)) {
+          continue;
+        }
+      }
+      ;;;
+    }
+  }
+  while (0) {
+  king_table_subset_load_ret_READ_FAIL:
+    reterr = kPglRetReadFail;
+    break;
+  king_cutoff_batch_ret_LONG_LINE:
+    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --king-table-subset file is pathologically long.\n", line_idx);
+    wordwrapb(0);
+    logerrprintb();
+    reterr = kPglRetMalformedInput;
+    break;
+  king_cutoff_batch_ret_MISSING_TOKENS:
+    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --king-table-subset file has fewer tokens than expected.\n", line_idx);
+  king_cutoff_batch_ret_INCONSISTENT_INPUT_WW:
+    wordwrapb(0);
+    logerrprintb();
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+  return reterr;
+}
+*/
+
+pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char* sample_ids, const char* sids, uintptr_t* variant_include, const chr_info_t* cip, const char* subset_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, __maybe_unused double king_table_filter, double king_table_subset_thresh, king_flags_t king_modifier, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, __maybe_unused pgen_reader_t* simple_pgrp, char* outname, char* outname_end) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  FILE* outfile = nullptr;
+  char* cswritep = nullptr;
+  gzFile gz_infile = nullptr;
+  compress_stream_state_t css;
+  threads_state_t ts;
+  pglerr_t reterr = kPglRetSuccess;
+  cswrite_init_null(&css);
+  init_threads3z(&ts);
+  {
+    logerrprint("Error: --king-table-subset is currently under development.\n");
+    reterr = kPglRetNotYetSupported;
+    goto calc_king_table_subset_ret_1;
+    if (is_set(cip->haploid_mask, 0)) {
+      logerrprint("Error: --make-king-table cannot be used on haploid genomes.\n");
+      goto calc_king_table_subset_ret_INCONSISTENT_INPUT;
+    }
+    reterr = conditional_allocate_non_autosomal_variants(cip, "--make-king-table", raw_variant_ct, &variant_include, &variant_ct);
+    if (reterr) {
+      goto calc_king_table_subset_ret_1;
+    }
+    // 1. Write output header line if necessary.
+    // 2. Count number of relevant sample pairs (higher uidx in high 32 bits),
+    //    and load as much as may be useful during first pass (usually there
+    //    will be only one pass).
+    // 3. If list is empty, error out.
+    // 4. If --parallel, discard part of the list, then exit if remainder
+    //    empty.
+    // 5. If remainder of list is too large to process in one pass, determine
+    //    number of necessary passes.  If output filename refers to the same
+    //    thing as input file, append ~ to input filename.
+    // Loop:
+    // * Determine which sample indexes appear in this part of the list.
+    //   Compute current cumulative_popcounts, perform uidx -> idx conversion.
+    //   (Don't bother sorting the pairs, since that prevents
+    //   --parallel/multipass mode from delivering the same results.)
+    // * Execute usual KING-robust computation, write .kin0 entries.
+    // * If not last pass, reload input .kin0, etc.
+    //
+    // Could store the pairs in a more compact manner, but can live with 50%
+    // space bloat for now.
+    const uint32_t raw_sample_ctl = BITCT_TO_WORDCT(raw_sample_ct);
+    uintptr_t* cur_sample_include;
+    uint32_t* cur_sample_include_cumulative_popcounts;
+    unsigned char* overflow_buf;
+    if (bigstack_alloc_ul(raw_sample_ctl, &cur_sample_include) ||
+        bigstack_alloc_ui(raw_sample_ctl, &cur_sample_include_cumulative_popcounts) ||
+        bigstack_alloc_uc(kCompressStreamBlock + kMaxMediumLine, &overflow_buf)) {
+      goto calc_king_table_subset_ret_NOMEM;
+    }
+    set_king_table_fname(king_modifier, parallel_idx, parallel_tot, outname_end);
+    uint32_t fname_slen;
+#ifdef _WIN32
+    fname_slen = GetFullPathName(subset_fname, kPglFnamesize, g_textbuf, nullptr);
+    if ((!fname_slen) || (fname_slen > kPglFnamesize))
+#else
+    if (!realpath(subset_fname, g_textbuf))
+#endif
+    {
+      LOGERRPRINTFWW(g_errstr_fopen, subset_fname);
+      goto calc_king_table_subset_ret_OPEN_FAIL;
+    }
+    if (realpath_identical(outname, g_textbuf, &(g_textbuf[kPglFnamesize + 64]))) {
+      logerrprint("Warning: --king-table-subset input filename matches --make-king-table output\nfilename.  Appending '~' to input filename.\n");
+      fname_slen = strlen(subset_fname);
+      memcpy(g_textbuf, subset_fname, fname_slen);
+      strcpy(&(g_textbuf[fname_slen]), "~");
+      if (rename(subset_fname, g_textbuf)) {
+        logerrprint("Error: Failed to append '~' to --king-table-subset input filename.\n");
+        goto calc_king_table_subset_ret_OPEN_FAIL;
+      }
+      reterr = gzopen_read_checked(g_textbuf, &gz_infile);
+    } else {
+      reterr = gzopen_read_checked(subset_fname, &gz_infile);
+    }
+    if (reterr) {
+      goto calc_king_table_subset_ret_1;
+    }
+
+    // Safe to "write" the header line now, if necessary.
+    cswritep = (char*)overflow_buf;
+    const uint32_t king_col_sid = sid_col_required(orig_sample_include, sids, orig_sample_ct, max_sid_blen, king_modifier / kfKingColMaybesid);
+    if (!parallel_idx) {
+      cswritep = append_king_table_header(king_modifier, king_col_sid, cswritep);
+    }
+    uint32_t calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
+    if (calc_thread_ct > orig_sample_ct / 32) {
+      calc_thread_ct = orig_sample_ct / 32;
+    }
+    if (!calc_thread_ct) {
+      calc_thread_ct = 1;
+    }
+    // possible todo: allow this to change between passes
+    ts.calc_thread_ct = calc_thread_ct;
+    // could eventually have 64-bit g_thread_start?
+    if (bigstack_alloc_ui(calc_thread_ct + 1, &g_thread_start) ||
+        bigstack_alloc_thread(calc_thread_ct, &ts.threads)) {
+      goto calc_king_table_subset_ret_NOMEM;
+    }
+
+    g_textbuf[kMaxMediumLine - 1] = ' ';
+    if (!gzgets(gz_infile, g_textbuf, kMaxMediumLine)) {
+      if (!gzeof(gz_infile)) {
+        goto calc_king_table_subset_ret_READ_FAIL;
+      }
+      logerrprint("Error: Empty --king-table-subset file.\n");
+      goto calc_king_table_subset_ret_MALFORMED_INPUT;
+    }
+    if (!g_textbuf[kMaxMediumLine - 1]) {
+      logerrprint("Error: Line 1 of --king-table-subset file is pathologically long.\n");
+      goto calc_king_table_subset_ret_MALFORMED_INPUT;
+    }
+    char* textbuf_iter = skip_initial_spaces(g_textbuf);
+    if (is_eoln_kns(*textbuf_iter)) {
+      goto calc_king_table_subset_ret_INVALID_HEADER;
+    }
+    char* token_end = token_endnn(textbuf_iter);
+    uint32_t token_slen = (uintptr_t)(token_end - textbuf_iter);
+    // Make this work with both KING- and plink2-generated .kin0 files.
+    if ((!strequal_k(textbuf_iter, "#FID1", token_slen)) && (!strequal_k(textbuf_iter, "FID", token_slen))) {
+      goto calc_king_table_subset_ret_INVALID_HEADER;
+    }
+    textbuf_iter = skip_initial_spaces(token_end);
+    token_end = token_endnn(textbuf_iter);
+    token_slen = (uintptr_t)(token_end - textbuf_iter);
+    if (!strequal_k(textbuf_iter, "ID1", token_slen)) {
+      goto calc_king_table_subset_ret_INVALID_HEADER;
+    }
+    textbuf_iter = skip_initial_spaces(token_end);
+    token_end = token_endnn(textbuf_iter);
+    token_slen = (uintptr_t)(token_end - textbuf_iter);
+    uint32_t id2_skip = 0;
+    xid_mode_t xid_mode;
+    if (strequal_k(textbuf_iter, "SID1", token_slen)) {
+      if (sids) {
+        xid_mode = kfXidModeFidiidSid;
+      } else {
+        id2_skip = 1;
+      }
+      textbuf_iter = skip_initial_spaces(token_end);
+      token_end = token_endnn(textbuf_iter);
+      token_slen = (uintptr_t)(token_end - textbuf_iter);
+    } else {
+      xid_mode = kfXidModeFidiid;
+    }
+    if (!strequal_k(textbuf_iter, "FID2", token_slen)) {
+      goto calc_king_table_subset_ret_INVALID_HEADER;
+    }
+    textbuf_iter = skip_initial_spaces(token_end);
+    token_end = token_endnn(textbuf_iter);
+    token_slen = (uintptr_t)(token_end - textbuf_iter);
+    if (!strequal_k(textbuf_iter, "ID2", token_slen)) {
+      goto calc_king_table_subset_ret_INVALID_HEADER;
+    }
+    if (xid_mode == kfXidModeFidiidSid) {
+      // technically don't need to check this in id2_skip case
+      textbuf_iter = skip_initial_spaces(token_end);
+      token_end = token_endnn(textbuf_iter);
+      token_slen = (uintptr_t)(token_end - textbuf_iter);
+      if (!strequal_k(textbuf_iter, "SID2", token_slen)) {
+        goto calc_king_table_subset_ret_INVALID_HEADER;
+      }
+    }
+    uint32_t kinship_skip = 0;
+    if (king_table_subset_thresh != -DBL_MAX) {
+      king_table_subset_thresh *= 1.0 - kSmallEpsilon;
+      while (1) {
+        textbuf_iter = skip_initial_spaces(token_end);
+        token_end = token_endnn(textbuf_iter);
+        token_slen = (uintptr_t)(token_end - textbuf_iter);
+        if (!token_slen) {
+          logerrprint("Error: No kinship-coefficient column in --king-table-subset file.\n");
+          goto calc_king_table_subset_ret_INCONSISTENT_INPUT;
+        }
+        if ((!strequal_k(textbuf_iter, "KINSHIP", token_slen)) || (!strequal_k(textbuf_iter, "Kinship", token_slen))) {
+          break;
+        }
+        ++kinship_skip;
+      }
+    }
+
+    uint32_t* xid_map; // IDs not collapsed
+    char* sorted_xidbox;
+    uintptr_t max_xid_blen;
+    reterr = sorted_xidbox_init_alloc(orig_sample_include, sample_ids, sids, orig_sample_ct, max_sample_id_blen, max_sid_blen, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+    if (reterr) {
+      goto calc_king_table_subset_ret_1;
+    }
+
+    // uint64_t pair_ct = 0;
+    // reterr = king_table_subset_load(sorted_xidbox, xid_map, max_xid_blen, &gz_infile, &pair_ct);
+  }
+  while (0) {
+  calc_king_table_subset_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  calc_king_table_subset_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  calc_king_table_subset_ret_READ_FAIL:
+    reterr = kPglRetReadFail;
+    break;
+  calc_king_table_subset_ret_INVALID_HEADER:
+    logerrprint("Error: Invalid header line in --king-table-subset file.\n");
+  calc_king_table_subset_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  calc_king_table_subset_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ calc_king_table_subset_ret_1:
+  threads3z_cleanup(&ts, nullptr);
+  gzclose_cond(gz_infile);
   cswrite_close_cond(&css, cswritep);
   fclose_cond(outfile);
   bigstack_reset(bigstack_mark);
@@ -3114,10 +3427,11 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
       logprint("Computing SVD of Krylov matrix... ");
       fflush(stdout);
       BLAS_SET_NUM_THREADS(max_thread_ct);
-      if (svd_rect(variant_ct, qq_col_ct, svd_rect_lwork, qq, ss, svd_rect_wkspace)) {
+      interr_t svd_rect_err = svd_rect(variant_ct, qq_col_ct, svd_rect_lwork, qq, ss, svd_rect_wkspace);
+      if (svd_rect_err) {
         logprint("\n");
-        logerrprint("Error: Failed to compute SVD of Krylov matrix.\n");
-        goto calc_pca_ret_INCONSISTENT_INPUT;
+        sprintf(g_logbuf, "Error: Failed to compute SVD of Krylov matrix (DGESVD info=%d).\n", (int32_t)svd_rect_err);
+        goto calc_pca_ret_INCONSISTENT_INPUT_2;
       }
       BLAS_SET_NUM_THREADS(1);
       logprint("done.\nRecovering top PCs from range approximation... ");
@@ -3206,9 +3520,11 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
         }
       }
       BLAS_SET_NUM_THREADS(max_thread_ct);
-      if (svd_rect(pca_sample_ct, qq_col_ct, svd_rect_lwork, bb, ss, svd_rect_wkspace)) {
-        logerrprint("Error: Failed to compute SVD of final matrix.\n");
-        goto calc_pca_ret_INCONSISTENT_INPUT;
+      svd_rect_err = svd_rect(pca_sample_ct, qq_col_ct, svd_rect_lwork, bb, ss, svd_rect_wkspace);
+      if (svd_rect_err) {
+        logprint("\n");
+        sprintf(g_logbuf, "Error: Failed to compute SVD of final matrix (DGESVD info=%d).\n", (int32_t)svd_rect_err);
+        goto calc_pca_ret_INCONSISTENT_INPUT_2;
       }
       BLAS_SET_NUM_THREADS(1);
       logprint("done.\n");
@@ -3616,6 +3932,8 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
   calc_pca_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
+  calc_pca_ret_INCONSISTENT_INPUT_2:
+    logerrprintb();
   calc_pca_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
