@@ -50,6 +50,12 @@ CONSTU31(kDosagePerCacheline, kCacheline / sizeof(dosage_t));
 CONSTU31(kMaxPhenoCt, 524287);
 #define MAX_PHENO_CT_STR "524287"
 
+// maximum number of usable cluster computers, this is arbitrary though it
+// shouldn't be larger than 2^32 - 1
+// (actually, there's an overflow danger: [work units] * parallel_idx may not
+// fit in a uint64 if parallel_tot is too high.)
+CONSTU31(kParallelMax, 32768);
+
 // unnecessary to use e.g. (1LLU << 0), the FLAGSET64 macros should force the
 // integer type to 64-bit.
 FLAGSET64_DEF_START()

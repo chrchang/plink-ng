@@ -5591,7 +5591,7 @@ pglerr_t read_refalt1_genovec_hphase_subset_unsafe(const uintptr_t* __restrict s
         // bugfix (7 Dec 2017): clear sample_ctl words here, not raw_sample_ctl
         fill_ulong_zero(sample_ctl, phaseinfo);
       } else {
-        expand_then_subset_bytearr(fread_ptr, all_hets, sample_include, sample_include_cumulative_popcounts, het_ct, sample_ct, 1, phaseinfo);
+        expand_then_subset_bytearr(fread_ptr, all_hets, sample_include, het_ct, sample_ct, 1, phaseinfo);
       }
     }
     return kPglRetSuccess;
@@ -5619,8 +5619,8 @@ pglerr_t read_refalt1_genovec_hphase_subset_unsafe(const uintptr_t* __restrict s
     expand_bytearr_nested(aux2_second_half, aux2_first_half_copy, all_hets, sample_ctl, raw_phasepresent_ct, 1, phasepresent, phaseinfo);
     *phasepresent_ct_ptr = raw_phasepresent_ct;
   } else {
-    uint32_t phasepresent_ct = expand_then_subset_bytearr_nested(aux2_second_half, aux2_first_half_copy, all_hets, sample_include, sample_include_cumulative_popcounts, sample_ct, raw_phasepresent_ct, 1, phasepresent, phaseinfo);
-    *phasepresent_ct_ptr = phasepresent_ct;
+    expand_then_subset_bytearr_nested(aux2_second_half, aux2_first_half_copy, all_hets, sample_include, sample_ct, raw_phasepresent_ct, 1, phasepresent, phaseinfo);
+    *phasepresent_ct_ptr = popcount_longs(phasepresent, sample_ctl);
   }
   return kPglRetSuccess;
 }

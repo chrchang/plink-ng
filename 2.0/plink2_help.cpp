@@ -1156,6 +1156,10 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "                         --force-intersect allows the run to proceed; the set\n"
 "                         intersection will be taken.\n"
                );
+    help_print("bp-space\tthin", &help_ctrl, 0,
+"  --bp-space [bps]     : Remove variants so that each pair is no closer than\n"
+"                         the given bp distance.\n"
+               );
     help_print("geno\tmind\toblig-clusters\toblig-missing", &help_ctrl, 0,
 "  --geno {val} <dosage | hh-missing>\n"
 "  --mind {val} <dosage | hh-missing> : \n"

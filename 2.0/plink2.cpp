@@ -15,9 +15,10 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-#include "plink2_data.h"
+#include "plink2_export.h"
 #include "plink2_filter.h"
 #include "plink2_glm.h"
+#include "plink2_import.h"
 #include "plink2_ld.h"
 #include "plink2_matrix_calc.h"
 #include "plink2_misc.h"
@@ -63,10 +64,10 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (7 Dec 2017)";
+  " (11 Dec 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -113,10 +114,6 @@ FLAGSET_DEF_START()
   kfXloadMap = (1 << 8),
   kfXloadGenDummy = (1 << 9)
 FLAGSET_DEF_END(xload_t);
-
-// maximum number of usable cluster computers, this is arbitrary though it
-// shouldn't be larger than 2^32 - 1
-CONSTU31(kParallelMax, 32768);
 
 
 // assume for now that .pgen must always be accompanied by both .pvar and .psam
@@ -249,6 +246,7 @@ typedef struct plink2_cmdline_struct {
   uint32_t parallel_tot;
   uint32_t exportf_bits;
   uint32_t mwithin_val;
+  uint32_t min_bp_space;
   char exportf_id_delim;
 
   char* varid_template;
@@ -1598,15 +1596,24 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
           }
           bigstack_reset(mach_r2_vals);
         }
+      }
 
+      if (pcp->min_bp_space) {
+        if (vpos_sortstatus & kfUnsortedVarBp) {
+          logerrprint("Error: --bp-space requires a sorted .pvar/.bim.  Retry this command after using\n--make-pgen/--make-bed + --sort-vars to sort your data.\n");
+        }
+        enforce_min_bp_space(cip, variant_bps, pcp->min_bp_space, variant_include, &variant_ct);
+      }
+
+      if (pcp->filter_flags & kfFilterPvarReq) {
         if ((!variant_ct) && (!(pcp->misc_flags & kfMiscAllowNoVars))) {
           logerrprint("Error: No variants remaining after main filters.  (Add --allow-no-vars to\npermit this.)\n");
           goto plink2_ret_INCONSISTENT_INPUT;
         }
-        if (pcp->filter_flags & kfFilterPvarReq) {
-          LOGPRINTF("%u variant%s remaining after main filters.\n", variant_ct, (variant_ct == 1)? "" : "s");
-        }
+        LOGPRINTF("%u variant%s remaining after main filters.\n", variant_ct, (variant_ct == 1)? "" : "s");
+      }
 
+      if (pgenname[0]) {
         if (pcp->command_flags1 & (kfCommand1MakeKing | kfCommand1KingCutoff)) {
           uintptr_t* prev_sample_include = nullptr;
           const uint32_t prev_sample_ct = sample_ct;
@@ -3079,6 +3086,7 @@ int main(int argc, char** argv) {
     pc.parallel_tot = 1;
     pc.exportf_bits = 0;
     pc.mwithin_val = 1;
+    pc.min_bp_space = 0;
     pc.exportf_id_delim = '\0';
     double import_dosage_certainty = 0.0;
     int32_t vcf_min_gq = -1;
@@ -3429,6 +3437,16 @@ int main(int argc, char** argv) {
           }
           memcpy(pgenname, cur_fname, slen + 1);
           xload = kfXloadOxBgen;
+        } else if (strequal_k2(flagname_p2, "p-space")) {
+          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argv[arg_idx + 1];
+          if (scan_posint_defcap(cur_modif, &pc.min_bp_space)) {
+            sprintf(g_logbuf, "Error: Invalid --bp-space minimum bp distance '%s'.\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.filter_flags |= kfFilterPvarReq | kfFilterNoSplitChr;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }

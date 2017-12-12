@@ -91,6 +91,8 @@ void enforce_minor_freq_constraints(const uintptr_t* variant_allele_idxs, const 
 
 void enforce_mach_r2_thresh(const chr_info_t* cip, const double* mach_r2_vals, double mach_r2_min, double mach_r2_max, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
 
+void enforce_min_bp_space(const chr_info_t* cip, const uint32_t* variant_bps, uint32_t min_bp_space, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
+
 pglerr_t set_refalt1_from_file(const uintptr_t* variant_include, char** variant_ids, const uintptr_t* variant_allele_idxs, const two_col_params_t* allele_flag_info, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t is_alt1, uint32_t force, uint32_t max_thread_ct, char** allele_storage, uint32_t* max_allele_slen_ptr, alt_allele_ct_t* refalt1_select, uintptr_t* nonref_flags, uintptr_t* previously_seen);
 
 pglerr_t ref_from_fa(const uintptr_t* variant_include, const uint32_t* variant_bps, const uintptr_t* variant_allele_idxs, char** allele_storage, const chr_info_t* cip, const char* fname, uint32_t max_allele_slen, uint32_t force, alt_allele_ct_t* refalt1_select, uintptr_t* nonref_flags);

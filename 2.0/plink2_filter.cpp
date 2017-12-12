@@ -2873,6 +2873,35 @@ void enforce_mach_r2_thresh(const chr_info_t* cip, const double* mach_r2_vals, d
   *variant_ct_ptr -= removed_ct;
 }
 
+void enforce_min_bp_space(const chr_info_t* cip, const uint32_t* variant_bps, uint32_t min_bp_space, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+  const uint32_t orig_variant_ct = *variant_ct_ptr;
+  uint32_t variant_uidx = 0;
+  uint32_t chr_fo_idx_p1 = 0;
+  uint32_t chr_end = 0;
+  uint32_t last_bp = 0;
+  uint32_t removed_ct = 0;
+  for (uint32_t variant_idx = 0; variant_idx < orig_variant_ct; ++variant_idx, ++variant_uidx) {
+    next_set_unsafe_ck(variant_include, &variant_uidx);
+    const uint32_t cur_bp = variant_bps[variant_uidx];
+    if (variant_uidx >= chr_end) {
+      do {
+        chr_end = cip->chr_fo_vidx_start[++chr_fo_idx_p1];
+      } while (variant_uidx >= chr_end);
+      last_bp = cur_bp;
+    } else {
+      if (cur_bp < last_bp + min_bp_space) {
+        CLEAR_BIT(variant_uidx, variant_include);
+        ++removed_ct;
+      } else {
+        last_bp = cur_bp;
+      }
+    }
+  }
+  const uint32_t new_variant_ct = orig_variant_ct - removed_ct;
+  LOGPRINTF("--bp-space: %u variant%s removed (%u remaining).\n", removed_ct, (removed_ct == 1)? "" : "s", new_variant_ct);
+  *variant_ct_ptr = new_variant_ct;
+}
+
 // Generalization of plink 1.9 load_ax_alleles().
 //
 // Note that, when a variant has 2 (or more) nonmissing allele codes, we print

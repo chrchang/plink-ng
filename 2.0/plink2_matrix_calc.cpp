@@ -523,6 +523,7 @@ static uintptr_t* g_smaj_hom[2] = {nullptr, nullptr};
 static uintptr_t* g_smaj_ref2het[2] = {nullptr, nullptr};
 static uint32_t* g_thread_start = nullptr;
 static uint32_t* g_king_counts = nullptr;
+static uint32_t* g_loaded_sample_idx_pairs = nullptr;
 static uint32_t g_homhom_needed = 0;
 
 #ifdef USE_SSE42
@@ -599,8 +600,6 @@ void incr_king_homhom(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, 
       *king_counts_iter++ += acc_hethet;
       *king_counts_iter++ += acc_het2hom1;
       *king_counts_iter++ += acc_het1hom2;
-
-      // can make this conditional
       *king_counts_iter++ += acc_homhom;
 
       first_hom_iter = &(first_hom_iter[kKingMultiplexWords]);
@@ -784,8 +783,6 @@ void incr_king_homhom(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, 
       *king_counts_iter++ += univec_hsum_16bit(acc_hethet);
       *king_counts_iter++ += univec_hsum_16bit(acc_het2hom1);
       *king_counts_iter++ += univec_hsum_16bit(acc_het1hom2);
-
-      // can make this conditional
       *king_counts_iter++ += univec_hsum_16bit(acc_homhom);
 
       first_hom_iter = &(first_hom_iter[kKingMultiplexVecs]);
@@ -1560,22 +1557,291 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
   return reterr;
 }
 
+#ifdef USE_SSE42
+void incr_king_subset(const uint32_t* loaded_sample_idx_pairs, const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t start_idx, uint32_t end_idx, uint32_t* king_counts) {
+  const uint32_t* sample_idx_pair_iter = &(loaded_sample_idx_pairs[(2 * k1LU) * start_idx]);
+  const uint32_t* sample_idx_pair_stop = &(loaded_sample_idx_pairs[(2 * k1LU) * end_idx]);
+  uint32_t* king_counts_iter = &(king_counts[(4 * k1LU) * start_idx]);
+  while (sample_idx_pair_iter != sample_idx_pair_stop) {
+    // technically overflows for huge sample_ct
+    const uint32_t first_offset = (*sample_idx_pair_iter++) * kKingMultiplexWords;
+    const uint32_t second_offset = (*sample_idx_pair_iter++) * kKingMultiplexWords;
+    const uintptr_t* first_hom = &(smaj_hom[first_offset]);
+    const uintptr_t* first_ref2het = &(smaj_ref2het[first_offset]);
+    const uintptr_t* second_hom = &(smaj_hom[second_offset]);
+    const uintptr_t* second_ref2het = &(smaj_ref2het[second_offset]);
+    uint32_t acc_ibs0 = 0;
+    uint32_t acc_hethet = 0;
+    uint32_t acc_het2hom1 = 0;
+    uint32_t acc_het1hom2 = 0;
+    for (uint32_t widx = 0; widx < kKingMultiplexWords; ++widx) {
+      const uintptr_t hom1 = first_hom[widx];
+      const uintptr_t hom2 = second_hom[widx];
+      const uintptr_t ref2het1 = first_ref2het[widx];
+      const uintptr_t ref2het2 = second_ref2het[widx];
+      const uintptr_t homhom = hom1 & hom2;
+      const uintptr_t het1 = ref2het1 & (~hom1);
+      const uintptr_t het2 = ref2het2 & (~hom2);
+      acc_ibs0 += popcount_long((ref2het1 ^ ref2het2) & homhom);
+      acc_hethet += popcount_long(het1 & het2);
+      acc_het2hom1 += popcount_long(hom1 & het2);
+      acc_het1hom2 += popcount_long(hom2 & het1);
+    }
+    *king_counts_iter++ += acc_ibs0;
+    *king_counts_iter++ += acc_hethet;
+    *king_counts_iter++ += acc_het2hom1;
+    *king_counts_iter++ += acc_het1hom2;
+  }
+}
 
-/*
-pglerr_t king_table_subset_load(const char* sorted_xidbox, const uint32_t* xid_map, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, xid_mode_t xid_mode, uint32_t id2_skip, uint32_t kinship_skip, gzFile* gz_infilep, uint64_t* pair_ct_ptr, char* textbuf, char* idbuf) {
+void incr_king_subset_homhom(const uint32_t* loaded_sample_idx_pairs, const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t start_idx, uint32_t end_idx, uint32_t* king_counts) {
+  const uint32_t* sample_idx_pair_iter = &(loaded_sample_idx_pairs[(2 * k1LU) * start_idx]);
+  const uint32_t* sample_idx_pair_stop = &(loaded_sample_idx_pairs[(2 * k1LU) * end_idx]);
+  uint32_t* king_counts_iter = &(king_counts[(5 * k1LU) * start_idx]);
+  while (sample_idx_pair_iter != sample_idx_pair_stop) {
+    // technically overflows for huge sample_ct
+    const uint32_t first_offset = (*sample_idx_pair_iter++) * kKingMultiplexWords;
+    const uint32_t second_offset = (*sample_idx_pair_iter++) * kKingMultiplexWords;
+    const uintptr_t* first_hom = &(smaj_hom[first_offset]);
+    const uintptr_t* first_ref2het = &(smaj_ref2het[first_offset]);
+    const uintptr_t* second_hom = &(smaj_hom[second_offset]);
+    const uintptr_t* second_ref2het = &(smaj_ref2het[second_offset]);
+    uint32_t acc_homhom = 0;
+    uint32_t acc_ibs0 = 0;
+    uint32_t acc_hethet = 0;
+    uint32_t acc_het2hom1 = 0;
+    uint32_t acc_het1hom2 = 0;
+    for (uint32_t widx = 0; widx < kKingMultiplexWords; ++widx) {
+      const uintptr_t hom1 = first_hom[widx];
+      const uintptr_t hom2 = second_hom[widx];
+      const uintptr_t ref2het1 = first_ref2het[widx];
+      const uintptr_t ref2het2 = second_ref2het[widx];
+      const uintptr_t homhom = hom1 & hom2;
+      const uintptr_t het1 = ref2het1 & (~hom1);
+      const uintptr_t het2 = ref2het2 & (~hom2);
+      acc_homhom += popcount_long(homhom);
+      acc_ibs0 += popcount_long((ref2het1 ^ ref2het2) & homhom);
+      acc_hethet += popcount_long(het1 & het2);
+      acc_het2hom1 += popcount_long(hom1 & het2);
+      acc_het1hom2 += popcount_long(hom2 & het1);
+    }
+    *king_counts_iter++ += acc_ibs0;
+    *king_counts_iter++ += acc_hethet;
+    *king_counts_iter++ += acc_het2hom1;
+    *king_counts_iter++ += acc_het1hom2;
+    *king_counts_iter++ += acc_homhom;
+  }
+}
+#else
+void incr_king_subset(const uint32_t* loaded_sample_idx_pairs, const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t start_idx, uint32_t end_idx, uint32_t* king_counts) {
+  const vul_t m1 = VCONST_UL(kMask5555);
+  const vul_t m2 = VCONST_UL(kMask3333);
+  const vul_t m4 = VCONST_UL(kMask0F0F);
+  const uint32_t* sample_idx_pair_iter = &(loaded_sample_idx_pairs[(2 * k1LU) * start_idx]);
+  const uint32_t* sample_idx_pair_stop = &(loaded_sample_idx_pairs[(2 * k1LU) * end_idx]);
+  uint32_t* king_counts_iter = &(king_counts[(4 * k1LU) * start_idx]);
+  while (sample_idx_pair_iter != sample_idx_pair_stop) {
+    // technically overflows for huge sample_ct
+    const uint32_t first_offset = (*sample_idx_pair_iter++) * kKingMultiplexWords;
+    const uint32_t second_offset = (*sample_idx_pair_iter++) * kKingMultiplexWords;
+    const vul_t* first_hom = (const vul_t*)(&(smaj_hom[first_offset]));
+    const vul_t* first_ref2het = (const vul_t*)(&(smaj_ref2het[first_offset]));
+    const vul_t* second_hom = (const vul_t*)(&(smaj_hom[second_offset]));
+    const vul_t* second_ref2het = (const vul_t*)(&(smaj_ref2het[second_offset]));
+    univec_t acc_ibs0;
+    univec_t acc_hethet;
+    univec_t acc_het2hom1;
+    univec_t acc_het1hom2;
+    acc_ibs0.vi = vul_setzero();
+    acc_hethet.vi = vul_setzero();
+    acc_het2hom1.vi = vul_setzero();
+    acc_het1hom2.vi = vul_setzero();
+    for (uint32_t vec_idx = 0; vec_idx < kKingMultiplexVecs; vec_idx += 3) {
+      vul_t hom1 = first_hom[vec_idx];
+      vul_t hom2 = second_hom[vec_idx];
+      vul_t ref2het1 = first_ref2het[vec_idx];
+      vul_t ref2het2 = second_ref2het[vec_idx];
+      vul_t het1 = ref2het1 & (~hom1);
+      vul_t het2 = ref2het2 & (~hom2);
+      vul_t agg_ibs0 = (ref2het1 ^ ref2het2) & (hom1 & hom2);
+      vul_t agg_hethet = het1 & het2;
+      vul_t agg_het2hom1 = hom1 & het2;
+      vul_t agg_het1hom2 = hom2 & het1;
+      agg_ibs0 = agg_ibs0 - (vul_rshift(agg_ibs0, 1) & m1);
+      agg_hethet = agg_hethet - (vul_rshift(agg_hethet, 1) & m1);
+      agg_het2hom1 = agg_het2hom1 - (vul_rshift(agg_het2hom1, 1) & m1);
+      agg_het1hom2 = agg_het1hom2 - (vul_rshift(agg_het1hom2, 1) & m1);
+      agg_ibs0 = (agg_ibs0 & m2) + (vul_rshift(agg_ibs0, 2) & m2);
+      agg_hethet = (agg_hethet & m2) + (vul_rshift(agg_hethet, 2) & m2);
+      agg_het2hom1 = (agg_het2hom1 & m2) + (vul_rshift(agg_het2hom1, 2) & m2);
+      agg_het1hom2 = (agg_het1hom2 & m2) + (vul_rshift(agg_het1hom2, 2) & m2);
+
+      for (uint32_t offset = 1; offset < 3; ++offset) {
+        hom1 = first_hom[vec_idx + offset];
+        hom2 = second_hom[vec_idx + offset];
+        ref2het1 = first_ref2het[vec_idx + offset];
+        ref2het2 = second_ref2het[vec_idx + offset];
+        het1 = ref2het1 & (~hom1);
+        het2 = ref2het2 & (~hom2);
+        vul_t cur_ibs0 = (ref2het1 ^ ref2het2) & (hom1 & hom2);
+        vul_t cur_hethet = het1 & het2;
+        vul_t cur_het2hom1 = hom1 & het2;
+        vul_t cur_het1hom2 = hom2 & het1;
+        cur_ibs0 = cur_ibs0 - (vul_rshift(cur_ibs0, 1) & m1);
+        cur_hethet = cur_hethet - (vul_rshift(cur_hethet, 1) & m1);
+        cur_het2hom1 = cur_het2hom1 - (vul_rshift(cur_het2hom1, 1) & m1);
+        cur_het1hom2 = cur_het1hom2 - (vul_rshift(cur_het1hom2, 1) & m1);
+        agg_ibs0 += (cur_ibs0 & m2) + (vul_rshift(cur_ibs0, 2) & m2);
+        agg_hethet += (cur_hethet & m2) + (vul_rshift(cur_hethet, 2) & m2);
+        agg_het2hom1 += (cur_het2hom1 & m2) + (vul_rshift(cur_het2hom1, 2) & m2);
+        agg_het1hom2 += (cur_het1hom2 & m2) + (vul_rshift(cur_het1hom2, 2) & m2);
+      }
+      acc_ibs0.vi = acc_ibs0.vi + (agg_ibs0 & m4) + (vul_rshift(agg_ibs0, 4) & m4);
+      acc_hethet.vi = acc_hethet.vi + (agg_hethet & m4) + (vul_rshift(agg_hethet, 4) & m4);
+      acc_het2hom1.vi = acc_het2hom1.vi + (agg_het2hom1 & m4) + (vul_rshift(agg_het2hom1, 4) & m4);
+      acc_het1hom2.vi = acc_het1hom2.vi + (agg_het1hom2 & m4) + (vul_rshift(agg_het1hom2, 4) & m4);
+    }
+    const vul_t m8 = VCONST_UL(kMask00FF);
+    acc_ibs0.vi = (acc_ibs0.vi & m8) + (vul_rshift(acc_ibs0.vi, 8) & m8);
+    acc_hethet.vi = (acc_hethet.vi & m8) + (vul_rshift(acc_hethet.vi, 8) & m8);
+    acc_het2hom1.vi = (acc_het2hom1.vi & m8) + (vul_rshift(acc_het2hom1.vi, 8) & m8);
+    acc_het1hom2.vi = (acc_het1hom2.vi & m8) + (vul_rshift(acc_het1hom2.vi, 8) & m8);
+    *king_counts_iter++ += univec_hsum_16bit(acc_ibs0);
+    *king_counts_iter++ += univec_hsum_16bit(acc_hethet);
+    *king_counts_iter++ += univec_hsum_16bit(acc_het2hom1);
+    *king_counts_iter++ += univec_hsum_16bit(acc_het1hom2);
+  }
+}
+
+void incr_king_subset_homhom(const uint32_t* loaded_sample_idx_pairs, const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t start_idx, uint32_t end_idx, uint32_t* king_counts) {
+  const vul_t m1 = VCONST_UL(kMask5555);
+  const vul_t m2 = VCONST_UL(kMask3333);
+  const vul_t m4 = VCONST_UL(kMask0F0F);
+  const uint32_t* sample_idx_pair_iter = &(loaded_sample_idx_pairs[(2 * k1LU) * start_idx]);
+  const uint32_t* sample_idx_pair_stop = &(loaded_sample_idx_pairs[(2 * k1LU) * end_idx]);
+  uint32_t* king_counts_iter = &(king_counts[(5 * k1LU) * start_idx]);
+  while (sample_idx_pair_iter != sample_idx_pair_stop) {
+    // technically overflows for huge sample_ct
+    const uint32_t first_offset = (*sample_idx_pair_iter++) * kKingMultiplexWords;
+    const uint32_t second_offset = (*sample_idx_pair_iter++) * kKingMultiplexWords;
+    const vul_t* first_hom = (const vul_t*)(&(smaj_hom[first_offset]));
+    const vul_t* first_ref2het = (const vul_t*)(&(smaj_ref2het[first_offset]));
+    const vul_t* second_hom = (const vul_t*)(&(smaj_hom[second_offset]));
+    const vul_t* second_ref2het = (const vul_t*)(&(smaj_ref2het[second_offset]));
+    univec_t acc_homhom;
+    univec_t acc_ibs0;
+    univec_t acc_hethet;
+    univec_t acc_het2hom1;
+    univec_t acc_het1hom2;
+    acc_homhom.vi = vul_setzero();
+    acc_ibs0.vi = vul_setzero();
+    acc_hethet.vi = vul_setzero();
+    acc_het2hom1.vi = vul_setzero();
+    acc_het1hom2.vi = vul_setzero();
+    for (uint32_t vec_idx = 0; vec_idx < kKingMultiplexVecs; vec_idx += 3) {
+      vul_t hom1 = first_hom[vec_idx];
+      vul_t hom2 = second_hom[vec_idx];
+      vul_t ref2het1 = first_ref2het[vec_idx];
+      vul_t ref2het2 = second_ref2het[vec_idx];
+      vul_t agg_homhom = hom1 & hom2;
+      vul_t het1 = ref2het1 & (~hom1);
+      vul_t het2 = ref2het2 & (~hom2);
+      vul_t agg_ibs0 = (ref2het1 ^ ref2het2) & agg_homhom;
+      vul_t agg_hethet = het1 & het2;
+      vul_t agg_het2hom1 = hom1 & het2;
+      vul_t agg_het1hom2 = hom2 & het1;
+      agg_homhom = agg_homhom - (vul_rshift(agg_homhom, 1) & m1);
+      agg_ibs0 = agg_ibs0 - (vul_rshift(agg_ibs0, 1) & m1);
+      agg_hethet = agg_hethet - (vul_rshift(agg_hethet, 1) & m1);
+      agg_het2hom1 = agg_het2hom1 - (vul_rshift(agg_het2hom1, 1) & m1);
+      agg_het1hom2 = agg_het1hom2 - (vul_rshift(agg_het1hom2, 1) & m1);
+      agg_homhom = (agg_homhom & m2) + (vul_rshift(agg_homhom, 2) & m2);
+      agg_ibs0 = (agg_ibs0 & m2) + (vul_rshift(agg_ibs0, 2) & m2);
+      agg_hethet = (agg_hethet & m2) + (vul_rshift(agg_hethet, 2) & m2);
+      agg_het2hom1 = (agg_het2hom1 & m2) + (vul_rshift(agg_het2hom1, 2) & m2);
+      agg_het1hom2 = (agg_het1hom2 & m2) + (vul_rshift(agg_het1hom2, 2) & m2);
+
+      for (uint32_t offset = 1; offset < 3; ++offset) {
+        hom1 = first_hom[vec_idx + offset];
+        hom2 = second_hom[vec_idx + offset];
+        ref2het1 = first_ref2het[vec_idx + offset];
+        ref2het2 = second_ref2het[vec_idx + offset];
+        vul_t cur_homhom = hom1 & hom2;
+        het1 = ref2het1 & (~hom1);
+        het2 = ref2het2 & (~hom2);
+        vul_t cur_ibs0 = (ref2het1 ^ ref2het2) & cur_homhom;
+        vul_t cur_hethet = het1 & het2;
+        vul_t cur_het2hom1 = hom1 & het2;
+        vul_t cur_het1hom2 = hom2 & het1;
+        cur_homhom = cur_homhom - (vul_rshift(cur_homhom, 1) & m1);
+        cur_ibs0 = cur_ibs0 - (vul_rshift(cur_ibs0, 1) & m1);
+        cur_hethet = cur_hethet - (vul_rshift(cur_hethet, 1) & m1);
+        cur_het2hom1 = cur_het2hom1 - (vul_rshift(cur_het2hom1, 1) & m1);
+        cur_het1hom2 = cur_het1hom2 - (vul_rshift(cur_het1hom2, 1) & m1);
+        agg_homhom += (cur_homhom & m2) + (vul_rshift(cur_homhom, 2) & m2);
+        agg_ibs0 += (cur_ibs0 & m2) + (vul_rshift(cur_ibs0, 2) & m2);
+        agg_hethet += (cur_hethet & m2) + (vul_rshift(cur_hethet, 2) & m2);
+        agg_het2hom1 += (cur_het2hom1 & m2) + (vul_rshift(cur_het2hom1, 2) & m2);
+        agg_het1hom2 += (cur_het1hom2 & m2) + (vul_rshift(cur_het1hom2, 2) & m2);
+      }
+      acc_homhom.vi = acc_homhom.vi + (agg_homhom & m4) + (vul_rshift(agg_homhom, 4) & m4);
+      acc_ibs0.vi = acc_ibs0.vi + (agg_ibs0 & m4) + (vul_rshift(agg_ibs0, 4) & m4);
+      acc_hethet.vi = acc_hethet.vi + (agg_hethet & m4) + (vul_rshift(agg_hethet, 4) & m4);
+      acc_het2hom1.vi = acc_het2hom1.vi + (agg_het2hom1 & m4) + (vul_rshift(agg_het2hom1, 4) & m4);
+      acc_het1hom2.vi = acc_het1hom2.vi + (agg_het1hom2 & m4) + (vul_rshift(agg_het1hom2, 4) & m4);
+    }
+    const vul_t m8 = VCONST_UL(kMask00FF);
+    acc_homhom.vi = (acc_homhom.vi & m8) + (vul_rshift(acc_homhom.vi, 8) & m8);
+    acc_ibs0.vi = (acc_ibs0.vi & m8) + (vul_rshift(acc_ibs0.vi, 8) & m8);
+    acc_hethet.vi = (acc_hethet.vi & m8) + (vul_rshift(acc_hethet.vi, 8) & m8);
+    acc_het2hom1.vi = (acc_het2hom1.vi & m8) + (vul_rshift(acc_het2hom1.vi, 8) & m8);
+    acc_het1hom2.vi = (acc_het1hom2.vi & m8) + (vul_rshift(acc_het1hom2.vi, 8) & m8);
+    *king_counts_iter++ += univec_hsum_16bit(acc_ibs0);
+    *king_counts_iter++ += univec_hsum_16bit(acc_hethet);
+    *king_counts_iter++ += univec_hsum_16bit(acc_het2hom1);
+    *king_counts_iter++ += univec_hsum_16bit(acc_het1hom2);
+    *king_counts_iter++ += univec_hsum_16bit(acc_homhom);
+  }
+}
+#endif
+
+THREAD_FUNC_DECL calc_king_table_subset_thread(void* arg) {
+  const uintptr_t tidx = (uintptr_t)arg;
+  const uint32_t start_idx = g_thread_start[tidx];
+  const uint32_t end_idx = g_thread_start[tidx + 1];
+  const uint32_t homhom_needed = g_homhom_needed;
+  uint32_t parity = 0;
+  while (1) {
+    const uint32_t is_last_block = g_is_last_thread_block;
+    if (homhom_needed) {
+      incr_king_subset_homhom(g_loaded_sample_idx_pairs, g_smaj_hom[parity], g_smaj_ref2het[parity], start_idx, end_idx, g_king_counts);
+    } else {
+      incr_king_subset(g_loaded_sample_idx_pairs, g_smaj_hom[parity], g_smaj_ref2het[parity], start_idx, end_idx, g_king_counts);
+    }
+    if (is_last_block) {
+      THREAD_RETURN;
+    }
+    THREAD_BLOCK_FINISH(tidx);
+    parity = 1 - parity;
+  }
+}
+
+pglerr_t king_table_subset_load(const char* sorted_xidbox, const uint32_t* xid_map, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, double king_table_subset_thresh, xid_mode_t xid_mode, uint32_t id2_skip, uint32_t kinship_skip, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, gzFile* gz_infilep, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* textbuf, char* idbuf) {
   uintptr_t line_idx = 1;
   pglerr_t reterr = kPglRetSuccess;
   {
-    uint64_t pair_ct = *pair_ct_ptr;
-    if (pair_ct) {
-      gzrewind(*gz_infilep);
-      if (!gzgets(*gz_infilep, textbuf, kMaxMediumLine)) {
-        goto king_table_subset_load_ret_READ_FAIL;
-      }
-    }
-    // Assumes header line already read on first pass.
+    uint64_t pair_idx = *pair_idx_ptr;
+    // Assumes header line already read if pair_idx == 0, and if pair_idx is
+    // positive, we're that far into the file.
     // Assumes textbuf[kMaxMediumLine - 1] initialized to ' '.
-    while (!gzgets(*gz_infilep, textbuf, kMaxMediumLine)) {
+    uint32_t* loaded_sample_idx_pairs_iter = loaded_sample_idx_pairs;
+    while (1) {
+      if (!gzgets(*gz_infilep, textbuf, kMaxMediumLine)) {
+        if (!gzeof(*gz_infilep)) {
+          goto king_table_subset_load_ret_READ_FAIL;
+        }
+        break;
+      }
       ++line_idx;
       if (!textbuf[kMaxMediumLine - 1]) {
         goto king_table_subset_load_ret_LONG_LINE;
@@ -1609,11 +1875,11 @@ pglerr_t king_table_subset_load(const char* sorted_xidbox, const uint32_t* xid_m
         // could technically be due to unloaded SID, so use inconsistent-input
         // error code
         sprintf(g_logbuf, "Error: Identical sample IDs on line %" PRIuPTR " of --king-table-subset file.\n", line_idx);
-        goto king_table_subset_ret_INCONSISTENT_INPUT_WW;
+        goto king_table_subset_load_ret_INCONSISTENT_INPUT_WW;
       }
-      if (king_table_subset_thresh) {
+      if (king_table_subset_thresh != -DBL_MAX) {
         textbuf_iter = skip_initial_spaces(textbuf_iter);
-        textbuf_iter = next_token_multz(kinship_skip);
+        textbuf_iter = next_token_multz(textbuf_iter, kinship_skip);
         if (!textbuf_iter) {
           goto king_table_subset_load_ret_MISSING_TOKENS;
         }
@@ -1622,22 +1888,37 @@ pglerr_t king_table_subset_load(const char* sorted_xidbox, const uint32_t* xid_m
           continue;
         }
       }
-      ;;;
+      if (pair_idx < pair_idx_start) {
+        ++pair_idx;
+        continue;
+      }
+      *loaded_sample_idx_pairs_iter++ = sample_uidx1;
+      *loaded_sample_idx_pairs_iter++ = sample_uidx2;
+      ++pair_idx;
+      if (pair_idx == pair_idx_stop) {
+        if (!is_first_parallel_scan) {
+          break;
+        }
+        // large --parallel job, first pass: count number of valid pairs, don't
+        // save the remainder
+        pair_idx_start = ~0LLU;
+      }
     }
+    *pair_idx_ptr = pair_idx;
   }
   while (0) {
   king_table_subset_load_ret_READ_FAIL:
     reterr = kPglRetReadFail;
     break;
-  king_cutoff_batch_ret_LONG_LINE:
+  king_table_subset_load_ret_LONG_LINE:
     sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --king-table-subset file is pathologically long.\n", line_idx);
     wordwrapb(0);
     logerrprintb();
     reterr = kPglRetMalformedInput;
     break;
-  king_cutoff_batch_ret_MISSING_TOKENS:
+  king_table_subset_load_ret_MISSING_TOKENS:
     sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --king-table-subset file has fewer tokens than expected.\n", line_idx);
-  king_cutoff_batch_ret_INCONSISTENT_INPUT_WW:
+  king_table_subset_load_ret_INCONSISTENT_INPUT_WW:
     wordwrapb(0);
     logerrprintb();
     reterr = kPglRetInconsistentInput;
@@ -1645,9 +1926,8 @@ pglerr_t king_table_subset_load(const char* sorted_xidbox, const uint32_t* xid_m
   }
   return reterr;
 }
-*/
 
-pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char* sample_ids, const char* sids, uintptr_t* variant_include, const chr_info_t* cip, const char* subset_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, __maybe_unused double king_table_filter, double king_table_subset_thresh, king_flags_t king_modifier, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, __maybe_unused pgen_reader_t* simple_pgrp, char* outname, char* outname_end) {
+pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char* sample_ids, const char* sids, uintptr_t* variant_include, const chr_info_t* cip, const char* subset_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, double king_table_filter, double king_table_subset_thresh, king_flags_t king_modifier, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, pgen_reader_t* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -1658,9 +1938,6 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
   cswrite_init_null(&css);
   init_threads3z(&ts);
   {
-    logerrprint("Error: --king-table-subset is currently under development.\n");
-    reterr = kPglRetNotYetSupported;
-    goto calc_king_table_subset_ret_1;
     if (is_set(cip->haploid_mask, 0)) {
       logerrprint("Error: --make-king-table cannot be used on haploid genomes.\n");
       goto calc_king_table_subset_ret_INCONSISTENT_INPUT;
@@ -1690,12 +1967,31 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
     // Could store the pairs in a more compact manner, but can live with 50%
     // space bloat for now.
     const uint32_t raw_sample_ctl = BITCT_TO_WORDCT(raw_sample_ct);
+    uint32_t sample_ctaw = BITCT_TO_ALIGNED_WORDCT(orig_sample_ct);
+    uint32_t sample_ctaw2 = QUATERCT_TO_ALIGNED_WORDCT(orig_sample_ct);
+    uint32_t king_bufsizew = kKingMultiplexWords * orig_sample_ct;
     uintptr_t* cur_sample_include;
-    uint32_t* cur_sample_include_cumulative_popcounts;
+    uint32_t* sample_include_cumulative_popcounts;
+    uintptr_t* loadbuf;
+    uintptr_t* splitbuf_hom;
+    uintptr_t* splitbuf_ref2het;
     unsigned char* overflow_buf;
+    // ok if allocations are a bit oversized
     if (bigstack_alloc_ul(raw_sample_ctl, &cur_sample_include) ||
-        bigstack_alloc_ui(raw_sample_ctl, &cur_sample_include_cumulative_popcounts) ||
+        bigstack_alloc_ui(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+        bigstack_alloc_ul(sample_ctaw2, &loadbuf) ||
+        bigstack_alloc_ul(kPglBitTransposeBatch * sample_ctaw, &splitbuf_hom) ||
+        bigstack_alloc_ul(kPglBitTransposeBatch * sample_ctaw, &splitbuf_ref2het) ||
+        bigstack_alloc_ul(king_bufsizew, &(g_smaj_hom[0])) ||
+        bigstack_alloc_ul(king_bufsizew, &(g_smaj_ref2het[0])) ||
+        bigstack_alloc_ul(king_bufsizew, &(g_smaj_hom[1])) ||
+        bigstack_alloc_ul(king_bufsizew, &(g_smaj_ref2het[1])) ||
         bigstack_alloc_uc(kCompressStreamBlock + kMaxMediumLine, &overflow_buf)) {
+      goto calc_king_table_subset_ret_NOMEM;
+    }
+    // force this to be cacheline-aligned
+    vul_t* vecaligned_buf = (vul_t*)bigstack_alloc(kPglBitTransposeBufbytes);
+    if (!vecaligned_buf) {
       goto calc_king_table_subset_ret_NOMEM;
     }
     set_king_table_fname(king_modifier, parallel_idx, parallel_tot, outname_end);
@@ -1728,10 +2024,24 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
     }
 
     // Safe to "write" the header line now, if necessary.
+    if (cswrite_init(outname, 0, king_modifier & kfKingTableZs, overflow_buf, &css)) {
+      goto calc_king_table_subset_ret_OPEN_FAIL;
+    }
     cswritep = (char*)overflow_buf;
     const uint32_t king_col_sid = sid_col_required(orig_sample_include, sids, orig_sample_ct, max_sid_blen, king_modifier / kfKingColMaybesid);
     if (!parallel_idx) {
       cswritep = append_king_table_header(king_modifier, king_col_sid, cswritep);
+    }
+    if (!sids) {
+      max_sid_blen = 2;
+    }
+    uintptr_t max_sample_augid_blen = max_sample_id_blen;
+    if (king_col_sid) {
+      max_sample_augid_blen += max_sid_blen;
+    }
+    char* collapsed_sample_augids;
+    if (bigstack_alloc_c(max_sample_augid_blen * orig_sample_ct, &collapsed_sample_augids)) {
+      goto calc_king_table_subset_ret_NOMEM;
     }
     uint32_t calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
     if (calc_thread_ct > orig_sample_ct / 32) {
@@ -1822,7 +2132,7 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
           logerrprint("Error: No kinship-coefficient column in --king-table-subset file.\n");
           goto calc_king_table_subset_ret_INCONSISTENT_INPUT;
         }
-        if ((!strequal_k(textbuf_iter, "KINSHIP", token_slen)) || (!strequal_k(textbuf_iter, "Kinship", token_slen))) {
+        if (strequal_k(textbuf_iter, "KINSHIP", token_slen) || strequal_k(textbuf_iter, "Kinship", token_slen)) {
           break;
         }
         ++kinship_skip;
@@ -1836,9 +2146,311 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
     if (reterr) {
       goto calc_king_table_subset_ret_1;
     }
+    char* idbuf;
+    if (bigstack_alloc_c(max_xid_blen, &idbuf)) {
+      goto calc_king_table_subset_ret_NOMEM;
+    }
 
-    // uint64_t pair_ct = 0;
-    // reterr = king_table_subset_load(sorted_xidbox, xid_map, max_xid_blen, &gz_infile, &pair_ct);
+    g_homhom_needed = (king_modifier & kfKingColNsnp) || ((!(king_modifier & kfKingCounts)) && (king_modifier & (kfKingColHethet | kfKingColIbs0 | kfKingColIbs1)));
+    const uint32_t homhom_needed_p4 = g_homhom_needed + 4;
+    // if homhom_needed, 8 + 20 bytes per pair, otherwise 8 + 16
+    uintptr_t pair_buf_capacity = bigstack_left();
+    if (pair_buf_capacity < 2 * kCacheline) {
+      goto calc_king_table_subset_ret_NOMEM;
+    }
+    // adverse rounding
+    pair_buf_capacity = (pair_buf_capacity - 2 * kCacheline) / (24 + 4 * g_homhom_needed);
+    if (pair_buf_capacity > 0xffffffffU) {
+      // 32-bit g_thread_start[] for now
+      pair_buf_capacity = 0xffffffffU;
+    }
+    g_loaded_sample_idx_pairs = (uint32_t*)bigstack_alloc_raw_rd(pair_buf_capacity * 2 * sizeof(int32_t));
+    g_king_counts = (uint32_t*)g_bigstack_base;
+    uint64_t pair_idx = 0;
+    fputs("Scanning --king-table-subset file...", stdout);
+    fflush(stdout);
+    reterr = king_table_subset_load(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, id2_skip, kinship_skip, (parallel_tot != 1), 0, pair_buf_capacity, &gz_infile, &pair_idx, g_loaded_sample_idx_pairs, g_textbuf, idbuf);
+    if (reterr) {
+      goto calc_king_table_subset_ret_1;
+    }
+    uint64_t pair_idx_global_start = 0;
+    uint64_t pair_idx_global_stop = ~0LLU;
+    if (parallel_tot != 1) {
+      const uint64_t parallel_pair_ct = pair_idx;
+      pair_idx_global_start = (parallel_idx * parallel_pair_ct) / parallel_tot;
+      pair_idx_global_stop = ((parallel_idx + 1) * parallel_pair_ct) / parallel_tot;
+      if (pair_idx > pair_buf_capacity) {
+        // may as well document possible overflow
+        if (parallel_pair_ct > ((~0LLU) / kParallelMax)) {
+          logerrprint("Error: Too many --king-table-subset sample pairs for this " PROG_NAME_STR " build.\n");
+          reterr = kPglRetNotYetSupported;
+          goto calc_king_table_subset_ret_1;
+        }
+        if (pair_idx_global_stop > pair_buf_capacity) {
+          // large --parallel job
+          gzrewind(gz_infile);
+          if (!gzgets(gz_infile, g_textbuf, kMaxMediumLine)) {
+            goto calc_king_table_subset_ret_READ_FAIL;
+          }
+          reterr = king_table_subset_load(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, id2_skip, kinship_skip, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), &gz_infile, &pair_idx, g_loaded_sample_idx_pairs, g_textbuf, idbuf);
+          if (reterr) {
+            goto calc_king_table_subset_ret_1;
+          }
+        } else {
+          pair_idx = pair_idx_global_stop;
+          if (pair_idx_global_start) {
+            memmove(g_loaded_sample_idx_pairs, &(g_loaded_sample_idx_pairs[pair_idx_global_start * 2]), (pair_idx_global_stop - pair_idx_global_start) * 2 * sizeof(int32_t));
+          }
+        }
+      } else {
+        pair_idx = pair_idx_global_stop;
+        if (pair_idx_global_start) {
+          memmove(g_loaded_sample_idx_pairs, &(g_loaded_sample_idx_pairs[pair_idx_global_start * 2]), (pair_idx_global_stop - pair_idx_global_start) * 2 * sizeof(int32_t));
+        }
+      }
+    }
+    uint64_t pair_idx_cur_start = pair_idx_global_start;
+    uint64_t king_table_filter_ct = 0;
+    uintptr_t pass_idx = 1;
+    while (pair_idx_cur_start < pair_idx) {
+      fill_ulong_zero(raw_sample_ctl, cur_sample_include);
+      const uintptr_t cur_pair_ct = pair_idx - pair_idx_cur_start;
+      const uintptr_t cur_pair_ct_x2 = 2 * cur_pair_ct;
+      for (uintptr_t ulii = 0; ulii < cur_pair_ct_x2; ++ulii) {
+        set_bit(g_loaded_sample_idx_pairs[ulii], cur_sample_include);
+      }
+      fill_cumulative_popcounts(cur_sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
+      const uint32_t cur_sample_ct = sample_include_cumulative_popcounts[raw_sample_ctl - 1] + popcount_long(cur_sample_include[raw_sample_ctl - 1]);
+      const uint32_t cur_sample_ctaw = BITCT_TO_ALIGNED_WORDCT(cur_sample_ct);
+      const uint32_t cur_sample_ctaw2 = QUATERCT_TO_ALIGNED_WORDCT(cur_sample_ct);
+      if (cur_sample_ct != raw_sample_ct) {
+        for (uintptr_t ulii = 0; ulii < cur_pair_ct_x2; ++ulii) {
+          g_loaded_sample_idx_pairs[ulii] = raw_to_subsetted_pos(cur_sample_include, sample_include_cumulative_popcounts, g_loaded_sample_idx_pairs[ulii]);
+        }
+      }
+      fill_uint_zero(cur_pair_ct * homhom_needed_p4, g_king_counts);
+      char* sample_augids_iter = collapsed_sample_augids;
+      uint32_t sample_uidx = 0;
+      for (uint32_t sample_idx = 0; sample_idx < cur_sample_ct; ++sample_idx, ++sample_uidx) {
+        next_set_unsafe_ck(cur_sample_include, &sample_uidx);
+        char* write_iter = strcpya(sample_augids_iter, &(sample_ids[sample_uidx * max_sample_id_blen]));
+        if (king_col_sid) {
+          *write_iter++ = '\t';
+          if (sids) {
+            strcpy(write_iter, &(sids[sample_uidx * max_sid_blen]));
+          } else {
+            strcpy(write_iter, "0");
+          }
+        } else {
+          *write_iter = '\0';
+        }
+        sample_augids_iter = &(sample_augids_iter[max_sample_augid_blen]);
+      }
+      for (uint32_t tidx = 0; tidx <= calc_thread_ct; ++tidx) {
+        g_thread_start[tidx] = (tidx * ((uint64_t)cur_pair_ct)) / calc_thread_ct;
+      }
+      if (pass_idx != 1) {
+        reinit_threads3z(&ts);
+      }
+      uint32_t variant_uidx = 0;
+      uint32_t variants_completed = 0;
+      uint32_t parity = 0;
+      const uint32_t sample_batch_ct_m1 = (cur_sample_ct - 1) / kPglBitTransposeBatch;
+      pgr_clear_ld_cache(simple_pgrp);
+      do {
+        const uint32_t cur_block_size = MINV(variant_ct - variants_completed, kKingMultiplex);
+        uintptr_t* cur_smaj_hom = g_smaj_hom[parity];
+        uintptr_t* cur_smaj_ref2het = g_smaj_ref2het[parity];
+        uint32_t write_batch_idx = 0;
+        // "block" = distance computation granularity, usually 1024 or 1536
+        //           variants
+        // "batch" = variant-major-to-sample-major transpose granularity,
+        //           currently 512 variants
+        uint32_t variant_batch_size = kPglBitTransposeBatch;
+        uint32_t variant_batch_size_rounded_up = kPglBitTransposeBatch;
+        const uint32_t write_batch_ct_m1 = (cur_block_size - 1) / kPglBitTransposeBatch;
+        while (1) {
+          if (write_batch_idx >= write_batch_ct_m1) {
+            if (write_batch_idx > write_batch_ct_m1) {
+              break;
+            }
+            variant_batch_size = MOD_NZ(cur_block_size, kPglBitTransposeBatch);
+            variant_batch_size_rounded_up = variant_batch_size;
+            const uint32_t variant_batch_size_rem = variant_batch_size % kBitsPerWord;
+            if (variant_batch_size_rem) {
+              const uint32_t trailing_variant_ct = kBitsPerWord - variant_batch_size_rem;
+              variant_batch_size_rounded_up += trailing_variant_ct;
+              fill_ulong_zero(trailing_variant_ct * cur_sample_ctaw, &(splitbuf_hom[variant_batch_size * cur_sample_ctaw]));
+              fill_ulong_zero(trailing_variant_ct * cur_sample_ctaw, &(splitbuf_ref2het[variant_batch_size * cur_sample_ctaw]));
+            }
+          }
+          uintptr_t* hom_iter = splitbuf_hom;
+          uintptr_t* ref2het_iter = splitbuf_ref2het;
+          for (uint32_t uii = 0; uii < variant_batch_size; ++uii, ++variant_uidx) {
+            next_set_unsafe_ck(variant_include, &variant_uidx);
+            reterr = pgr_read_refalt1_genovec_subset_unsafe(cur_sample_include, sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, simple_pgrp, loadbuf);
+            if (reterr) {
+              goto calc_king_table_subset_ret_PGR_FAIL;
+            }
+            set_trailing_quaters(cur_sample_ct, loadbuf);
+            split_hom_ref2het_unsafew(loadbuf, cur_sample_ctaw2, (unsigned char*)hom_iter, (unsigned char*)ref2het_iter);
+            hom_iter = &(hom_iter[cur_sample_ctaw]);
+            ref2het_iter = &(ref2het_iter[cur_sample_ctaw]);
+          }
+          // uintptr_t* read_iter = loadbuf;
+          uintptr_t* write_hom_iter = &(cur_smaj_hom[write_batch_idx * kPglBitTransposeWords]);
+          uintptr_t* write_ref2het_iter = &(cur_smaj_ref2het[write_batch_idx * kPglBitTransposeWords]);
+          uint32_t sample_batch_idx = 0;
+          uint32_t write_batch_size = kPglBitTransposeBatch;
+          while (1) {
+            if (sample_batch_idx >= sample_batch_ct_m1) {
+              if (sample_batch_idx > sample_batch_ct_m1) {
+                break;
+              }
+              write_batch_size = MOD_NZ(cur_sample_ct, kPglBitTransposeBatch);
+            }
+            // bugfix: read_batch_size must be rounded up to word boundary,
+            // since we want to one-out instead of zero-out the trailing bits
+            //
+            // bugfix: if we always use kPglBitTransposeBatch instead of
+            // variant_batch_size_rounded_up, we read/write past the
+            // kKingMultiplex limit and clobber the first variants of the next
+            // sample with garbage.
+            transpose_bitblock(&(splitbuf_hom[sample_batch_idx * kPglBitTransposeWords]), cur_sample_ctaw, kKingMultiplexWords, variant_batch_size_rounded_up, write_batch_size, write_hom_iter, vecaligned_buf);
+            transpose_bitblock(&(splitbuf_ref2het[sample_batch_idx * kPglBitTransposeWords]), cur_sample_ctaw, kKingMultiplexWords, variant_batch_size_rounded_up, write_batch_size, write_ref2het_iter, vecaligned_buf);
+            ++sample_batch_idx;
+            write_hom_iter = &(write_hom_iter[kKingMultiplex * kPglBitTransposeWords]);
+            write_ref2het_iter = &(write_ref2het_iter[kKingMultiplex * kPglBitTransposeWords]);
+          }
+          ++write_batch_idx;
+        }
+        const uint32_t cur_block_sizew = BITCT_TO_WORDCT(cur_block_size);
+        if (cur_block_sizew < kKingMultiplexWords) {
+          uintptr_t* write_hom_iter = &(cur_smaj_hom[cur_block_sizew]);
+          uintptr_t* write_ref2het_iter = &(cur_smaj_ref2het[cur_block_sizew]);
+          const uint32_t write_word_ct = kKingMultiplexWords - cur_block_sizew;
+          for (uint32_t sample_idx = 0; sample_idx < cur_sample_ct; ++sample_idx) {
+            fill_ulong_zero(write_word_ct, write_hom_iter);
+            fill_ulong_zero(write_word_ct, write_ref2het_iter);
+            write_hom_iter = &(write_hom_iter[kKingMultiplexWords]);
+            write_ref2het_iter = &(write_ref2het_iter[kKingMultiplexWords]);
+          }
+        }
+        if (variants_completed) {
+          join_threads3z(&ts);
+        } else {
+          ts.thread_func_ptr = calc_king_table_subset_thread;
+        }
+        // this update must occur after join_threads3z() call
+        ts.is_last_block = (variants_completed + cur_block_size == variant_ct);
+        if (spawn_threads3z(variants_completed, &ts)) {
+          goto calc_king_table_subset_ret_THREAD_CREATE_FAIL;
+        }
+        printf("\r--make-king-table pass %" PRIuPTR ": %u variants complete.", pass_idx, variants_completed);
+        fflush(stdout);
+        variants_completed += cur_block_size;
+        parity = 1 - parity;
+      } while (!ts.is_last_block);
+      join_threads3z(&ts);
+      printf("\r--make-king-table pass %" PRIuPTR ": Writing...                   \b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b", pass_idx);
+      fflush(stdout);
+
+      const uint32_t king_col_id = king_modifier & kfKingColId;
+      const uint32_t king_col_nsnp = king_modifier & kfKingColNsnp;
+      const uint32_t king_col_hethet = king_modifier & kfKingColHethet;
+      const uint32_t king_col_ibs0 = king_modifier & kfKingColIbs0;
+      const uint32_t king_col_ibs1 = king_modifier & kfKingColIbs1;
+      const uint32_t king_col_kinship = king_modifier & kfKingColKinship;
+      const uint32_t report_counts = king_modifier & kfKingCounts;
+      uint32_t* results_iter = g_king_counts;
+      double nonmiss_recip = 0.0;
+      for (uintptr_t cur_pair_idx = 0; cur_pair_idx < cur_pair_ct; ++cur_pair_idx, results_iter = &(results_iter[homhom_needed_p4])) {
+        const uint32_t ibs0_ct = results_iter[0];
+        const uint32_t hethet_ct = results_iter[1];
+        const uint32_t het2hom1_ct = results_iter[2];
+        const uint32_t het1hom2_ct = results_iter[3];
+        const intptr_t smaller_het_ct = (intptr_t)(hethet_ct + MINV(het1hom2_ct, het2hom1_ct));
+        const double kinship_coeff = 0.5 - ((double)(4 * ((intptr_t)ibs0_ct) + het1hom2_ct + het2hom1_ct)) / ((double)(4 * smaller_het_ct));
+        if ((king_table_filter != -DBL_MAX) && (kinship_coeff < king_table_filter)) {
+          ++king_table_filter_ct;
+          continue;
+        }
+        const uint32_t sample_idx1 = g_loaded_sample_idx_pairs[2 * cur_pair_idx];
+        const uint32_t sample_idx2 = g_loaded_sample_idx_pairs[2 * cur_pair_idx + 1];
+        if (king_col_id) {
+          cswritep = strcpyax(cswritep, &(collapsed_sample_augids[max_sample_augid_blen * sample_idx1]), '\t');
+          cswritep = strcpyax(cswritep, &(collapsed_sample_augids[max_sample_augid_blen * sample_idx2]), '\t');
+        }
+        if (homhom_needed_p4 == 5) {
+          const uint32_t homhom_ct = results_iter[4];
+          const uint32_t nonmiss_ct = het1hom2_ct + het2hom1_ct + homhom_ct + hethet_ct;
+          if (king_col_nsnp) {
+            cswritep = uint32toa_x(nonmiss_ct, '\t', cswritep);
+          }
+          if (!report_counts) {
+            nonmiss_recip = 1.0 / ((double)((int32_t)nonmiss_ct));
+          }
+        }
+        if (king_col_hethet) {
+          if (report_counts) {
+            cswritep = uint32toa(hethet_ct, cswritep);
+          } else {
+            cswritep = dtoa_g(nonmiss_recip * ((double)((int32_t)hethet_ct)), cswritep);
+          }
+          *cswritep++ = '\t';
+        }
+        if (king_col_ibs0) {
+          if (report_counts) {
+            cswritep = uint32toa(ibs0_ct, cswritep);
+          } else {
+            cswritep = dtoa_g(nonmiss_recip * ((double)((int32_t)ibs0_ct)), cswritep);
+          }
+          *cswritep++ = '\t';
+        }
+        if (king_col_ibs1) {
+          if (report_counts) {
+            cswritep = uint32toa_x(het1hom2_ct, '\t', cswritep);
+            cswritep = uint32toa(het2hom1_ct, cswritep);
+          } else {
+            cswritep = dtoa_g(nonmiss_recip * ((double)((int32_t)het1hom2_ct)), cswritep);
+            *cswritep++ = '\t';
+            cswritep = dtoa_g(nonmiss_recip * ((double)((int32_t)het2hom1_ct)), cswritep);
+          }
+          *cswritep++ = '\t';
+        }
+        if (king_col_kinship) {
+          cswritep = dtoa_g(kinship_coeff, cswritep);
+          ++cswritep;
+        }
+        decr_append_binary_eoln(&cswritep);
+        if (cswrite(&css, &cswritep)) {
+          goto calc_king_table_subset_ret_WRITE_FAIL;
+        }
+      }
+
+      putc_unlocked('\r', stdout);
+      const uint64_t pair_complete_ct = pair_idx - pair_idx_global_start;
+      LOGPRINTF("Subsetted --make-king-table: %" PRIu64 " pair%s complete.\n", pair_complete_ct, (pair_complete_ct == 1)? "" : "s");
+      if (gzeof(gz_infile)) {
+        break;
+      }
+      pair_idx_cur_start = pair_idx;
+      fputs("Scanning --king-table-subset file...", stdout);
+      fflush(stdout);
+      reterr = king_table_subset_load(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, id2_skip, kinship_skip, 0, pair_idx_cur_start, MINV(pair_idx_global_stop, pair_idx_cur_start + pair_buf_capacity), &gz_infile, &pair_idx, g_loaded_sample_idx_pairs, g_textbuf, idbuf);
+      if (reterr) {
+        goto calc_king_table_subset_ret_1;
+      }
+      ++pass_idx;
+    }
+    if (cswrite_close_null(&css, cswritep)) {
+      goto calc_king_table_subset_ret_WRITE_FAIL;
+    }
+    LOGPRINTFWW("Results written to %s .\n", outname);
+    if (king_table_filter != -DBL_MAX) {
+      const uint64_t reported_ct = pair_idx - pair_idx_global_start - king_table_filter_ct;
+      LOGPRINTF("--king-table-filter: %" PRIu64 " relationship%s reported (%" PRIu64 " filtered out).\n", reported_ct, (reported_ct == 1)? "" : "s", king_table_filter_ct);
+    }
   }
   while (0) {
   calc_king_table_subset_ret_NOMEM:
@@ -1850,6 +2462,14 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
   calc_king_table_subset_ret_READ_FAIL:
     reterr = kPglRetReadFail;
     break;
+  calc_king_table_subset_ret_PGR_FAIL:
+    if (reterr != kPglRetReadFail) {
+      logerrprint("Error: Malformed .pgen file.\n");
+    }
+    break;
+  calc_king_table_subset_ret_WRITE_FAIL:
+    reterr = kPglRetReadFail;
+    break;
   calc_king_table_subset_ret_INVALID_HEADER:
     logerrprint("Error: Invalid header line in --king-table-subset file.\n");
   calc_king_table_subset_ret_MALFORMED_INPUT:
@@ -1857,6 +2477,9 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
     break;
   calc_king_table_subset_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
+    break;
+  calc_king_table_subset_ret_THREAD_CREATE_FAIL:
+    reterr = kPglRetThreadCreateFail;
     break;
   }
  calc_king_table_subset_ret_1:

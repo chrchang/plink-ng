@@ -76,7 +76,6 @@
     #define USE_SSE42
     #ifdef __AVX2__
       #include <immintrin.h>
-      #include <x86intrin.h>
       #ifndef __BMI__
         #error "AVX2 builds require -mbmi as well."
       #endif
@@ -1393,14 +1392,18 @@ HEADER_INLINE void zero_trailing_words(__maybe_unused uint32_t word_ct, __maybe_
 
 void copy_bitarr_subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t subset_size, uintptr_t* __restrict output_bitarr);
 
+// expand_size + read_start_bit must be positive.
 void expand_bytearr(const unsigned char* __restrict compact_bitarr, const uintptr_t* __restrict expand_mask, uint32_t word_ct, uint32_t expand_size, uint32_t read_start_bit, uintptr_t* __restrict target);
 
 // equivalent to calling expand_bytearr() followed by copy_bitarr_subset()
-void expand_then_subset_bytearr(const unsigned char* __restrict compact_bitarr, const uintptr_t* __restrict expand_mask, const uintptr_t* __restrict subset_mask, __maybe_unused const uint32_t* subset_cumulative_popcounts, uint32_t expand_size, uint32_t subset_size, uint32_t read_start_bit, uintptr_t* __restrict target);
+void expand_then_subset_bytearr(const unsigned char* __restrict compact_bitarr, const uintptr_t* __restrict expand_mask, const uintptr_t* __restrict subset_mask, uint32_t expand_size, uint32_t subset_size, uint32_t read_start_bit, uintptr_t* __restrict target);
 
-void expand_bytearr_nested(const unsigned char* __restrict compact_bitarr, const uintptr_t* __restrict mid_bitarr, const uintptr_t* __restrict top_expand_mask, uint32_t word_ct, uint32_t mid_expand_size, uint32_t mid_start_bit, uintptr_t* __restrict mid_target, uintptr_t* __restrict compact_target);
+// mid_popcount must be positive
+void expand_bytearr_nested(const unsigned char* __restrict compact_bitarr, const uintptr_t* __restrict mid_bitarr, const uintptr_t* __restrict top_expand_mask, uint32_t word_ct, uint32_t mid_popcount, uint32_t mid_start_bit, uintptr_t* __restrict mid_target, uintptr_t* __restrict compact_target);
 
-uint32_t expand_then_subset_bytearr_nested(const unsigned char* __restrict compact_bitarr, const uintptr_t* __restrict mid_bitarr, const uintptr_t* __restrict top_expand_mask, const uintptr_t* __restrict subset_mask, __maybe_unused const uint32_t* subset_cumulative_popcounts, uint32_t subset_size, uint32_t mid_expand_size, uint32_t mid_start_bit, uintptr_t* __restrict mid_target, uintptr_t* __restrict compact_target);
+// mid_popcount must be positive
+// if mid_start_bit == 1, mid_popcount should not include that bit
+void expand_then_subset_bytearr_nested(const unsigned char* __restrict compact_bitarr, const uintptr_t* __restrict mid_bitarr, const uintptr_t* __restrict top_expand_mask, const uintptr_t* __restrict subset_mask, uint32_t subset_size, uint32_t mid_popcount, uint32_t mid_start_bit, uintptr_t* __restrict mid_target, uintptr_t* __restrict compact_target);
 
 // these don't read past the end of bitarr
 uintptr_t popcount_bytes(const unsigned char* bitarr, uintptr_t byte_ct);
