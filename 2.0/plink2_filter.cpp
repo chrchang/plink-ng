@@ -709,6 +709,9 @@ pglerr_t keep_remove_if(const cmp_expr_t* cmp_expr, const pheno_col_t* pheno_col
           }
         }
         break;
+      case kCmpOperatorExists:
+        // should be impossible
+        break;
       }
     } else {
       if ((binary_op != kCmpOperatorNoteq) && (binary_op != kCmpOperatorEq)) {
