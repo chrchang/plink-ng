@@ -64,7 +64,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (13 Dec 2017)";
+  " (14 Dec 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -289,6 +289,7 @@ typedef struct plink2_cmdline_struct {
   char* loop_cats_phenoname;
   char* ref_from_fa_fname;
   char* king_table_subset_fname;
+  char* require_info_flattened;
   two_col_params_t* ref_allele_flag;
   two_col_params_t* alt1_allele_flag;
   two_col_params_t* update_name_flag;
@@ -618,7 +619,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
     double* variant_cms = nullptr;
     chr_idx_t* chr_idxs = nullptr; // split-chromosome case only
     if (pvarname[0]) {
-      reterr = load_pvar(pvarname, var_filter_exceptions_flattened, pcp->varid_template, pcp->missing_varid_match, pcp->keep_if_info_expr, pcp->remove_if_info_expr, pcp->misc_flags, pcp->pvar_psam_modifier, pcp->exportf_modifier, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->dependency_flags & kfFilterNoSplitChr), cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids, &variant_allele_idxs, &allele_storage, &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_slen, &xheader_blen, &xheader_info_pr, &xheader_info_pr_nonflag, &max_filter_slen);
+      reterr = load_pvar(pvarname, var_filter_exceptions_flattened, pcp->varid_template, pcp->missing_varid_match, pcp->require_info_flattened, pcp->keep_if_info_expr, pcp->remove_if_info_expr, pcp->misc_flags, pcp->pvar_psam_modifier, pcp->exportf_modifier, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->dependency_flags & kfFilterNoSplitChr), cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids, &variant_allele_idxs, &allele_storage, &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_slen, &xheader_blen, &xheader_info_pr, &xheader_info_pr_nonflag, &max_filter_slen);
       if (reterr) {
         goto plink2_ret_1;
       }
@@ -2660,6 +2661,7 @@ int main(int argc, char** argv) {
   pc.loop_cats_phenoname = nullptr;
   pc.ref_from_fa_fname = nullptr;
   pc.king_table_subset_fname = nullptr;
+  pc.require_info_flattened = nullptr;
   pc.ref_allele_flag = nullptr;
   pc.alt1_allele_flag = nullptr;
   pc.update_name_flag = nullptr;
@@ -2729,6 +2731,15 @@ int main(int argc, char** argv) {
             strcpy(flagname_write_iter, "pgen");
           } else if (strequal_k(flagname_p, "bim", flag_slen)) {
             strcpy(flagname_write_iter, "pvar");
+          } else {
+            goto main_flag_copy;
+          }
+          break;
+        case 'e':
+          if (strequal_k(flagname_p, "extract-if", flag_slen)) {
+            strcpy(flagname_write_iter, "keep-if-info");
+          } else if (strequal_k(flagname_p, "exclude-if", flag_slen)) {
+            strcpy(flagname_write_iter, "remove-if-info");
           } else {
             goto main_flag_copy;
           }
@@ -4892,13 +4903,13 @@ int main(int argc, char** argv) {
             pc.king_table_subset_thresh = -DBL_MAX;
           }
         } else if (strequal_k2(flagname_p2, "eep-if")) {
-          reterr = validate_and_alloc_cmp_expr(&(argv[arg_idx + 1]), argv[arg_idx], param_ct, 0, &pc.keep_if_expr);
+          reterr = validate_and_alloc_cmp_expr(&(argv[arg_idx + 1]), argv[arg_idx], param_ct, &pc.keep_if_expr);
           if (reterr) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPsamReq;
         } else if (strequal_k2(flagname_p2, "eep-if-info")) {
-          reterr = validate_and_alloc_cmp_expr(&(argv[arg_idx + 1]), argv[arg_idx], param_ct, 1, &pc.keep_if_info_expr);
+          reterr = validate_and_alloc_cmp_expr(&(argv[arg_idx + 1]), argv[arg_idx], param_ct, &pc.keep_if_info_expr);
           if (reterr) {
             goto main_ret_1;
           }
@@ -6426,14 +6437,23 @@ int main(int argc, char** argv) {
           }
           pc.misc_flags |= kfMiscRequireCovar;
           pc.filter_flags |= kfFilterPsamReq;
+        } else if (strequal_k2(flagname_p2, "equire-info")) {
+          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 0x7fffffff)) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &pc.require_info_flattened);
+          if (reterr) {
+            goto main_ret_1;
+          }
+          pc.filter_flags |= kfFilterPvarReq;
         } else if (strequal_k2(flagname_p2, "emove-if")) {
-          reterr = validate_and_alloc_cmp_expr(&(argv[arg_idx + 1]), argv[arg_idx], param_ct, 0, &pc.remove_if_expr);
+          reterr = validate_and_alloc_cmp_expr(&(argv[arg_idx + 1]), argv[arg_idx], param_ct, &pc.remove_if_expr);
           if (reterr) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPsamReq;
         } else if (strequal_k2(flagname_p2, "emove-if-info")) {
-          reterr = validate_and_alloc_cmp_expr(&(argv[arg_idx + 1]), argv[arg_idx], param_ct, 1, &pc.remove_if_info_expr);
+          reterr = validate_and_alloc_cmp_expr(&(argv[arg_idx + 1]), argv[arg_idx], param_ct, &pc.remove_if_info_expr);
           if (reterr) {
             goto main_ret_1;
           }
@@ -7363,8 +7383,8 @@ int main(int argc, char** argv) {
     }
     if (!permit_multiple_inclusion_filters) {
       // Permit only one position- or ID-based variant inclusion filter, since
-      // it's not immediately obvious whether the union or intersection should be
-      // taken with multiple inclusion filters.
+      // it's not immediately obvious whether the union or intersection should
+      // be taken with multiple inclusion filters.
       // However, multiple exclusion filters are fine.  (Also,
       // --autosome{-par}/--chr is exempted since it's more obvious how they
       // interact with other filters.)
@@ -7599,6 +7619,7 @@ int main(int argc, char** argv) {
   free_cond(pc.update_name_flag);
   free_cond(pc.alt1_allele_flag);
   free_cond(pc.ref_allele_flag);
+  free_cond(pc.require_info_flattened);
   free_cond(pc.king_table_subset_fname);
   free_cond(pc.ref_from_fa_fname);
   free_cond(pc.loop_cats_phenoname);

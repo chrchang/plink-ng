@@ -628,6 +628,8 @@ pglerr_t keep_remove_if(const cmp_expr_t* cmp_expr, const pheno_col_t* pheno_col
       }
     }
     if (!cur_pheno_col) {
+      // could no-op for --remove-if?  don't implement that unless/until
+      // someone asks for it, though.
       sprintf(g_logbuf, "Error: --%s-if phenotype/covariate not loaded.\n", is_remove? "remove" : "keep");
       goto keep_remove_if_ret_INCONSISTENT_INPUT_2;
     }
@@ -652,7 +654,7 @@ pglerr_t keep_remove_if(const cmp_expr_t* cmp_expr, const pheno_col_t* pheno_col
     if (cur_pheno_col->type_code == kPhenoDtypeQt) {
       double val;
       if (!scanadv_double((char*)cur_val_str, &val)) {
-        sprintf(g_logbuf, "Error: Invalid --%s-if value (number expected).\n", is_remove? "remove" : "keep");
+        sprintf(g_logbuf, "Error: Invalid --%s-if value (finite number expected).\n", is_remove? "remove" : "keep");
         goto keep_remove_if_ret_INCONSISTENT_INPUT_2;
       }
       if (is_remove) {
@@ -661,57 +663,54 @@ pglerr_t keep_remove_if(const cmp_expr_t* cmp_expr, const pheno_col_t* pheno_col
       const double* pheno_vals = cur_pheno_col->data.qt;
       uint32_t sample_uidx = 0;
       switch (binary_op) {
-      case kCmpOperatorNoteq:
-        for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-          next_set_unsafe_ck(sample_include_intersect, &sample_uidx);
-          if (pheno_vals[sample_uidx] == val) {
-            clear_bit(sample_uidx, sample_include);
+        case kCmpOperatorNoteq:
+          for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
+            next_set_unsafe_ck(sample_include_intersect, &sample_uidx);
+            if (pheno_vals[sample_uidx] == val) {
+              clear_bit(sample_uidx, sample_include);
+            }
           }
-        }
-        break;
-      case kCmpOperatorLe:
-        for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-          next_set_unsafe_ck(sample_include_intersect, &sample_uidx);
-          if (pheno_vals[sample_uidx] >= val) {
-            clear_bit(sample_uidx, sample_include);
+          break;
+        case kCmpOperatorLe:
+          for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
+            next_set_unsafe_ck(sample_include_intersect, &sample_uidx);
+            if (pheno_vals[sample_uidx] >= val) {
+              clear_bit(sample_uidx, sample_include);
+            }
           }
-        }
-        break;
-      case kCmpOperatorLeq:
-        for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-          next_set_unsafe_ck(sample_include_intersect, &sample_uidx);
-          if (pheno_vals[sample_uidx] > val) {
-            clear_bit(sample_uidx, sample_include);
+          break;
+        case kCmpOperatorLeq:
+          for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
+            next_set_unsafe_ck(sample_include_intersect, &sample_uidx);
+            if (pheno_vals[sample_uidx] > val) {
+              clear_bit(sample_uidx, sample_include);
+            }
           }
-        }
-        break;
-      case kCmpOperatorGe:
-        for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-          next_set_unsafe_ck(sample_include_intersect, &sample_uidx);
-          if (pheno_vals[sample_uidx] <= val) {
-            clear_bit(sample_uidx, sample_include);
+          break;
+        case kCmpOperatorGe:
+          for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
+            next_set_unsafe_ck(sample_include_intersect, &sample_uidx);
+            if (pheno_vals[sample_uidx] <= val) {
+              clear_bit(sample_uidx, sample_include);
+            }
           }
-        }
-        break;
-      case kCmpOperatorGeq:
-        for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-          next_set_unsafe_ck(sample_include_intersect, &sample_uidx);
-          if (pheno_vals[sample_uidx] < val) {
-            clear_bit(sample_uidx, sample_include);
+          break;
+        case kCmpOperatorGeq:
+          for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
+            next_set_unsafe_ck(sample_include_intersect, &sample_uidx);
+            if (pheno_vals[sample_uidx] < val) {
+              clear_bit(sample_uidx, sample_include);
+            }
           }
-        }
-        break;
-      case kCmpOperatorEq:
-        for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-          next_set_unsafe_ck(sample_include_intersect, &sample_uidx);
-          if (pheno_vals[sample_uidx] != val) {
-            clear_bit(sample_uidx, sample_include);
+          break;
+        case kCmpOperatorEq:
+          for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
+            next_set_unsafe_ck(sample_include_intersect, &sample_uidx);
+            if (pheno_vals[sample_uidx] != val) {
+              clear_bit(sample_uidx, sample_include);
+            }
           }
-        }
-        break;
-      case kCmpOperatorExists:
-        // should be impossible
-        break;
+          break;
       }
     } else {
       if ((binary_op != kCmpOperatorNoteq) && (binary_op != kCmpOperatorEq)) {

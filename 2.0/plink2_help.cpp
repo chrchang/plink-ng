@@ -1009,16 +1009,16 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "  --var-min-qual [val]             : Skip variants with low/missing QUAL.\n"
 "  --var-filter {exception(s)...}   : Skip variants which have FILTER failures.\n"
                );
-    help_print("keep-if-info\tremove-if-info\tvar-min-qual\tvar-filter\tvcf-min-qual\tvcf-filter", &help_ctrl, 0,
+    help_print("keep-if-info\tremove-if-info\textract-if\texclude-if\trequire-info\tvar-min-qual\tvar-filter\tvcf-min-qual\tvcf-filter", &help_ctrl, 0,
 "  --keep-if-info [key] [op] [val]  : Exclude variants which don't/do satisfy a\n"
 "  --remove-if-info [key] [op] [v]    comparison predicate on an INFO key, e.g.\n"
-"                                       --keep-if-info \"VT == SNP\"\n"
-"                                     Unless the operator is !=, the predicate\n"
+"  (aliases: --extract-if,              --keep-if-info \"VT == SNP\"\n"
+"  --exclude-if)                      Unless the operator is !=, the predicate\n"
 "                                     always evaluates to false when the key is\n"
 "                                     missing.\n"
-"  --keep-if-info [key]             : Exclude variants based on nonexistence or\n"
-"  --remove-if-info [key]             existence of an INFO key.  \"[key]=.\" is\n"
-"                                     treated as nonexistence.\n"
+"  --require-info [key(s)...]       : Exclude variants based on nonexistence of\n"
+"                                     an INFO key.  \"[key]=.\" is treated as\n"
+"                                     nonexistence.\n"
                );
     /*
     help_print("allow-no-samples\tallow-no-vars", &help_ctrl, 0,
@@ -1194,7 +1194,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "                              second, and block IDs in the third.\n"
                );
     */
-    help_print("require-pheno\trequire-covar\tprune", &help_ctrl, 0,
+    help_print("require-pheno\trequire-covar\tkeep-if\tremove-if\tprune", &help_ctrl, 0,
 "  --require-pheno {name(s)...} : Remove samples missing any of the named\n"
 "  --require-covar {name(s)...}   phenotype(s)/covariate(s).  If no parameters\n"
 "                                 are provided, all phenotype(s)/covariate(s)\n"
@@ -1262,7 +1262,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
     // possible todo: allow or/and of multiple predicates
     // best if syntax allows for '=' character inside phenotype/covariate
     // names, though...
-    help_print("keep-if\tremove-if\tfilter-cases\tfilter-controls", &help_ctrl, 0,
+    help_print("keep-if\tremove-if\tfilter-cases\tfilter-controls\tprune", &help_ctrl, 0,
 "  --keep-if [pheno/covar] [op] [val] : Exclude samples which don't/do satisfy a\n"
 "  --remove-if [pheno/covar] [op] [v]   comparison predicate, e.g.\n"
 "                                         --keep-if \"PHENO1 == case\"\n"

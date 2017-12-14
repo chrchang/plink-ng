@@ -6274,9 +6274,18 @@ char* parse_next_binary_op(char* expr_str, uint32_t expr_slen, char** op_start_p
   return &(next_gt[1]);
 }
 
-pglerr_t validate_and_alloc_cmp_expr(char** sources, const char* flag_name, uint32_t param_ct, uint32_t allow_exists, cmp_expr_t* cmp_expr_ptr) {
-  // restrict to [pheno/covar name] [operator] [pheno val] for now.  could
-  // support or/and, parentheses, etc. later.
+pglerr_t validate_and_alloc_cmp_expr(char** sources, const char* flag_name, uint32_t param_ct, cmp_expr_t* cmp_expr_ptr) {
+  // Currently four use cases:
+  //   [pheno/covar name] [operator] [pheno val]: regular comparison
+  //   [pheno/covar name]: existence check
+  //   [INFO key] [operator] [val]: regular comparison
+  //   [INFO key]: existence check
+  // Some key/value validation is deferred to load_pvar()/keep_remove_if(),
+  // since the requirements are different (e.g. no semicolons in anything
+  // INFO-related, categorical phenotypes can be assumed to not start with a
+  // valid number).
+  // May support or/and, parentheses later, but need to be careful to not slow
+  // down load_pvar() too much in the no-INFO-filter case.
   pglerr_t reterr = kPglRetSuccess;
   {
     if ((param_ct != 1) && (param_ct != 3)) {
@@ -6310,23 +6319,7 @@ pglerr_t validate_and_alloc_cmp_expr(char** sources, const char* flag_name, uint
       uint32_t expr_slen = strlen(pheno_name_start);
       char* op_start;
       pheno_val_start = parse_next_binary_op(pheno_name_start, expr_slen, &op_start, &cmp_expr_ptr->binary_op);
-      if (!pheno_val_start) {
-        // er, probably want --keep-if and --remove-if to permit existence
-        // check too, that's the logical successor of --prune...
-        if ((!allow_exists) || memchr(pheno_name_start, ' ', expr_slen)) {
-          goto validate_and_alloc_cmp_expr_ret_INVALID_EXPR_GENERIC;
-        }
-        // alternate exit
-        char* new_pheno_name_buf;
-        if (pgl_malloc(1 + expr_slen, &new_pheno_name_buf)) {
-          goto validate_and_alloc_cmp_expr_ret_NOMEM;
-        }
-        memcpy(new_pheno_name_buf, pheno_name_start, expr_slen + 1);
-        cmp_expr_ptr->pheno_name = new_pheno_name_buf;
-        cmp_expr_ptr->binary_op = kCmpOperatorExists;
-        goto validate_and_alloc_cmp_expr_ret_1;
-      }
-      if ((!(*pheno_val_start)) || (op_start == pheno_name_start)) {
+      if ((!pheno_val_start) || (!(*pheno_val_start)) || (op_start == pheno_name_start)) {
         goto validate_and_alloc_cmp_expr_ret_INVALID_EXPR_GENERIC;
       }
       pheno_name_slen = (uintptr_t)(op_start - pheno_name_start);
@@ -6388,7 +6381,6 @@ pglerr_t validate_and_alloc_cmp_expr(char** sources, const char* flag_name, uint
     reterr = kPglRetInvalidCmdline;
     break;
   }
- validate_and_alloc_cmp_expr_ret_1:
   return reterr;
 }
 
