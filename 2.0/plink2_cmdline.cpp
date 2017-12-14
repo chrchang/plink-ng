@@ -6190,6 +6190,208 @@ void plink2_cmdline_meta_cleanup(plink2_cmdline_meta_t* pcmp) {
   free_cond(pcmp->flag_map);
 }
 
+
+void init_cmp_expr(cmp_expr_t* cmp_expr_ptr) {
+  cmp_expr_ptr->pheno_name = nullptr;
+}
+
+void cleanup_cmp_expr(cmp_expr_t* cmp_expr_ptr) {
+  free_cond(cmp_expr_ptr->pheno_name);
+}
+
+char* parse_next_binary_op(char* expr_str, uint32_t expr_slen, char** op_start_ptr, cmp_binary_op_t* binary_op_ptr) {
+  // !=, <>: kCmpOperatorNoteq
+  // <: kCmpOperatorLe
+  // <=: kCmpOperatorLeq
+  // =, ==: kCmpOperatorEq
+  // >=: kCmpOperatorGeq
+  // >: kCmpOperatorGe
+  char* next_eq = (char*)memchr(expr_str, '=', expr_slen);
+  char* next_lt = (char*)memchr(expr_str, '<', expr_slen);
+  char* next_gt = (char*)memchr(expr_str, '>', expr_slen);
+  if (!next_eq) {
+    if (!next_lt) {
+      if (!next_gt) {
+        return nullptr;
+      }
+      *op_start_ptr = next_gt;
+      *binary_op_ptr = kCmpOperatorGe;
+      return &(next_gt[1]);
+    }
+    if (next_gt == (&(next_lt[1]))) {
+      *op_start_ptr = next_lt;
+      *binary_op_ptr = kCmpOperatorNoteq;
+      return &(next_lt[2]);
+    }
+    if ((!next_gt) || (next_gt > next_lt)) {
+      *op_start_ptr = next_lt;
+      *binary_op_ptr = kCmpOperatorLe;
+      return &(next_lt[1]);
+    }
+    *op_start_ptr = next_gt;
+    *binary_op_ptr = kCmpOperatorGe;
+    return &(next_gt[1]);
+  }
+  if ((!next_lt) || (next_lt > next_eq)) {
+    if ((!next_gt) || (next_gt > next_eq)) {
+      if ((next_eq != expr_str) && (next_eq[-1] == '!')) {
+        *op_start_ptr = &(next_eq[-1]);
+        *binary_op_ptr = kCmpOperatorNoteq;
+        return &(next_eq[1]);
+      }
+      *op_start_ptr = next_eq;
+      *binary_op_ptr = kCmpOperatorEq;
+      return (next_eq[1] == '=')? (&(next_eq[2])) : (&(next_eq[1]));
+    }
+    *op_start_ptr = next_gt;
+    if (next_eq == (&(next_gt[1]))) {
+      *binary_op_ptr = kCmpOperatorGeq;
+      return &(next_gt[2]);
+    }
+    *binary_op_ptr = kCmpOperatorGe;
+    return &(next_gt[1]);
+  }
+  if (next_gt == (&(next_lt[1]))) {
+    *op_start_ptr = next_lt;
+    *binary_op_ptr = kCmpOperatorNoteq;
+    return &(next_lt[2]);
+  }
+  if ((!next_gt) || (next_gt > next_lt)) {
+    *op_start_ptr = next_lt;
+    if (next_eq == (&(next_lt[1]))) {
+      *binary_op_ptr = kCmpOperatorLeq;
+      return &(next_lt[2]);
+    }
+    *binary_op_ptr = kCmpOperatorLe;
+    return &(next_lt[1]);
+  }
+  *op_start_ptr = next_gt;
+  if (next_eq == (&(next_gt[1]))) {
+    *binary_op_ptr = kCmpOperatorGeq;
+    return &(next_gt[2]);
+  }
+  *binary_op_ptr = kCmpOperatorGe;
+  return &(next_gt[1]);
+}
+
+pglerr_t validate_and_alloc_cmp_expr(char** sources, const char* flag_name, uint32_t param_ct, uint32_t allow_exists, cmp_expr_t* cmp_expr_ptr) {
+  // restrict to [pheno/covar name] [operator] [pheno val] for now.  could
+  // support or/and, parentheses, etc. later.
+  pglerr_t reterr = kPglRetSuccess;
+  {
+    if ((param_ct != 1) && (param_ct != 3)) {
+      goto validate_and_alloc_cmp_expr_ret_INVALID_EXPR_GENERIC;
+    }
+    char* pheno_name_start = sources[0];
+    char* pheno_val_start;
+    uint32_t pheno_name_slen;
+    uint32_t pheno_val_slen;
+    if (param_ct == 3) {
+      pheno_name_slen = strlen(pheno_name_start);
+      char* op_str = sources[1];
+      uint32_t op_slen = strlen(op_str);
+      // ok to have single/double quotes around operator
+      if (op_slen > 2) {
+        const char cc = op_str[0];
+        if (((cc == '\'') || (cc == '"')) && (op_str[op_slen - 1] == cc)) {
+          ++op_str;
+          op_slen -= 2;
+        }
+      }
+      char* op_start;
+      char* op_end = parse_next_binary_op(op_str, op_slen, &op_start, &cmp_expr_ptr->binary_op);
+      if ((!op_end) || (*op_end) || (op_start != op_str)) {
+        goto validate_and_alloc_cmp_expr_ret_INVALID_EXPR_GENERIC;
+      }
+      pheno_val_start = sources[2];
+      pheno_val_slen = strlen(pheno_val_start);
+    } else {
+      // permit param_ct == 1 as long as tokens are unambiguous
+      uint32_t expr_slen = strlen(pheno_name_start);
+      char* op_start;
+      pheno_val_start = parse_next_binary_op(pheno_name_start, expr_slen, &op_start, &cmp_expr_ptr->binary_op);
+      if (!pheno_val_start) {
+        // er, probably want --keep-if and --remove-if to permit existence
+        // check too, that's the logical successor of --prune...
+        if ((!allow_exists) || memchr(pheno_name_start, ' ', expr_slen)) {
+          goto validate_and_alloc_cmp_expr_ret_INVALID_EXPR_GENERIC;
+        }
+        // alternate exit
+        char* new_pheno_name_buf;
+        if (pgl_malloc(1 + expr_slen, &new_pheno_name_buf)) {
+          goto validate_and_alloc_cmp_expr_ret_NOMEM;
+        }
+        memcpy(new_pheno_name_buf, pheno_name_start, expr_slen + 1);
+        cmp_expr_ptr->pheno_name = new_pheno_name_buf;
+        cmp_expr_ptr->binary_op = kCmpOperatorExists;
+        goto validate_and_alloc_cmp_expr_ret_1;
+      }
+      if ((!(*pheno_val_start)) || (op_start == pheno_name_start)) {
+        goto validate_and_alloc_cmp_expr_ret_INVALID_EXPR_GENERIC;
+      }
+      pheno_name_slen = (uintptr_t)(op_start - pheno_name_start);
+      // quasi-bugfix (13 Dec 2017): allow single argument to contain internal
+      // spaces;
+      //   --keep-if "PHENO1 > 1"
+      // is more intuitive and consistent with usage of other command-line
+      // tools than
+      //   --keep-if PHENO1 '>' 1
+      //
+      // To prevent --rerun from breaking, if there's a space after the
+      // operator, there must be a space before the operator as well, etc.
+      if (*pheno_val_start == ' ') {
+        if (pheno_name_start[pheno_name_slen - 1] != ' ') {
+          goto validate_and_alloc_cmp_expr_ret_INVALID_EXPR_GENERIC;
+        }
+        do {
+          ++pheno_val_start;
+        } while (*pheno_val_start == ' ');
+        do {
+          --pheno_name_slen;
+          if (!pheno_name_slen) {
+            goto validate_and_alloc_cmp_expr_ret_INVALID_EXPR_GENERIC;
+          }
+        } while (pheno_name_start[pheno_name_slen - 1] == ' ');
+      }
+      pheno_val_slen = expr_slen - ((uintptr_t)(pheno_val_start - pheno_name_start));
+    }
+    if (memchr(pheno_name_start, ' ', pheno_name_slen) || memchr(pheno_val_start, ' ', pheno_val_slen)) {
+      goto validate_and_alloc_cmp_expr_ret_INVALID_EXPR_GENERIC;
+    }
+    if ((pheno_name_slen > kMaxIdSlen) || (pheno_val_slen > kMaxIdSlen)) {
+      LOGERRPRINTF("Error: ID too long in %s expression.\n", flag_name);
+      goto validate_and_alloc_cmp_expr_ret_INVALID_CMDLINE;
+    }
+    if ((cmp_expr_ptr->binary_op != kCmpOperatorNoteq) && (cmp_expr_ptr->binary_op != kCmpOperatorEq)) {
+      double dxx;
+      if (!scanadv_double(pheno_val_start, &dxx)) {
+        LOGERRPRINTFWW("Error: Invalid %s value '%s' (finite number expected).\n", flag_name, pheno_val_start);
+        goto validate_and_alloc_cmp_expr_ret_INVALID_CMDLINE;
+      }
+    }
+    char* new_pheno_name_buf;
+    if (pgl_malloc(2 + pheno_name_slen + pheno_val_slen, &new_pheno_name_buf)) {
+      goto validate_and_alloc_cmp_expr_ret_NOMEM;
+    }
+    memcpyx(new_pheno_name_buf, pheno_name_start, pheno_name_slen, '\0');
+    // pheno_val_start guaranteed to be null-terminated for now
+    memcpy(&(new_pheno_name_buf[pheno_name_slen + 1]), pheno_val_start, pheno_val_slen + 1);
+    cmp_expr_ptr->pheno_name = new_pheno_name_buf;
+  }
+  while (0) {
+  validate_and_alloc_cmp_expr_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  validate_and_alloc_cmp_expr_ret_INVALID_EXPR_GENERIC:
+    LOGERRPRINTF("Error: Invalid %s expression.\n", flag_name);
+  validate_and_alloc_cmp_expr_ret_INVALID_CMDLINE:
+    reterr = kPglRetInvalidCmdline;
+    break;
+  }
+ validate_and_alloc_cmp_expr_ret_1:
+  return reterr;
+}
+
 #ifdef __cplusplus
 } // namespace plink2
 #endif

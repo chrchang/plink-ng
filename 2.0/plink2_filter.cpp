@@ -24,14 +24,6 @@
 namespace plink2 {
 #endif
 
-void init_cmp_expr(cmp_expr_t* cmp_expr_ptr) {
-  cmp_expr_ptr->pheno_name = nullptr;
-}
-
-void cleanup_cmp_expr(cmp_expr_t* cmp_expr_ptr) {
-  free_cond(cmp_expr_ptr->pheno_name);
-}
-
 pglerr_t from_to_flag(char** variant_ids, const uint32_t* variant_id_htable, const char* varid_from, const char* varid_to, uint32_t raw_variant_ct, uintptr_t max_variant_id_slen, uintptr_t variant_id_htable_size, uintptr_t* variant_include, chr_info_t* cip, uint32_t* variant_ct_ptr) {
   pglerr_t reterr = kPglRetSuccess;
   {

@@ -1009,6 +1009,17 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "  --var-min-qual [val]             : Skip variants with low/missing QUAL.\n"
 "  --var-filter {exception(s)...}   : Skip variants which have FILTER failures.\n"
                );
+    help_print("keep-if-info\tremove-if-info\tvar-min-qual\tvar-filter\tvcf-min-qual\tvcf-filter", &help_ctrl, 0,
+"  --keep-if-info [key] [op] [val]  : Exclude variants which don't/do satisfy a\n"
+"  --remove-if-info [key] [op] [v]    comparison predicate on an INFO key, e.g.\n"
+"                                       --keep-if-info \"VT == SNP\"\n"
+"                                     Unless the operator is !=, the predicate\n"
+"                                     always evaluates to false when the key is\n"
+"                                     missing.\n"
+"  --keep-if-info [key]             : Exclude variants based on nonexistence or\n"
+"  --remove-if-info [key]             existence of an INFO key.  \"[key]=.\" is\n"
+"                                     treated as nonexistence.\n"
+               );
     /*
     help_print("allow-no-samples\tallow-no-vars", &help_ctrl, 0,
 "  --allow-no-samples : Allow the input fileset to contain no samples.\n"
@@ -1254,7 +1265,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
     help_print("keep-if\tremove-if\tfilter-cases\tfilter-controls", &help_ctrl, 0,
 "  --keep-if [pheno/covar] [op] [val] : Exclude samples which don't/do satisfy a\n"
 "  --remove-if [pheno/covar] [op] [v]   comparison predicate, e.g.\n"
-"                                         --keep-if PHENO1 == case\n"
+"                                         --keep-if \"PHENO1 == case\"\n"
 "                                       Unless the operator is !=, the predicate\n"
 "                                       always evaluates to false when the\n"
 "                                       phenotype/covariate is missing.\n"

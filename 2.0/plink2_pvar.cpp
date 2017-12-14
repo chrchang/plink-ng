@@ -366,7 +366,7 @@ static inline uint32_t is_acgtm(unsigned char ucc) {
 }
 
 static_assert((!(kMaxIdSlen % kCacheline)), "load_pvar() must be updated.");
-pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, const char* varid_template, const char* missing_varid_match, misc_flags_t misc_flags, pvar_psam_t pvar_psam_modifier, exportf_flags_t exportf_modifier, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t split_chr_ok, chr_info_t* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, unsorted_var_t* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** variant_allele_idxs_ptr, char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, chr_idx_t** chr_idxs_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, uint32_t* xheader_info_pr_ptr, uint32_t* xheader_info_pr_nonflag_ptr, uint32_t* max_filter_slen_ptr) {
+pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, const char* varid_template, const char* missing_varid_match, const cmp_expr_t keep_if_info_expr, const cmp_expr_t remove_if_info_expr, misc_flags_t misc_flags, pvar_psam_t pvar_psam_modifier, exportf_flags_t exportf_modifier, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t split_chr_ok, chr_info_t* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, unsorted_var_t* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** variant_allele_idxs_ptr, char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, chr_idx_t** chr_idxs_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, uint32_t* xheader_info_pr_ptr, uint32_t* xheader_info_pr_nonflag_ptr, uint32_t* max_filter_slen_ptr) {
   // chr_info, max_variant_id_slen, and info_reload_slen are in/out; just
   // outparameters after them.  (Due to its large size in some VCFs, INFO is
   // not kept in memory for now.  This has a speed penalty, of course; maybe
@@ -651,12 +651,7 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
       }
     }
     uint32_t info_reload_slen = *info_reload_slen_ptr;
-    if (!info_col_present) {
-      info_pr_present = 0;
-      info_reload_slen = 0;
-    } else if ((!info_pr_present) && (!info_reload_slen)) {
-      info_col_present = 0;
-    }
+
     // done with header, loadbuf_first_token now points to beginning of first
     // real line.
     uint32_t max_variant_id_slen = *max_variant_id_slen_ptr;
@@ -674,10 +669,99 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
 
     unsigned char* tmp_alloc_base = (unsigned char*)(&(loadbuf[loadbuf_size]));
     uintptr_t* loaded_chr_mask = (uintptr_t*)tmp_alloc_base;
+    unsigned char* tmp_alloc_end = bigstack_end_mark;
+    if ((uintptr_t)(tmp_alloc_end - tmp_alloc_base) < round_up_pow2(kChrMaskWords * sizeof(intptr_t), kCacheline)) {
+      goto load_pvar_ret_NOMEM;
+    }
+    tmp_alloc_base = &(tmp_alloc_base[round_up_pow2(kChrMaskWords * sizeof(intptr_t), kCacheline)]);
     // bugfix (2 Jun 2017): forgot to zero-initialize loaded_chr_mask
     fill_ulong_zero(kChrMaskWords, loaded_chr_mask);
-    tmp_alloc_base = &(tmp_alloc_base[round_up_pow2(kChrMaskWords * sizeof(intptr_t), kCacheline)]);
-    unsigned char* tmp_alloc_end = bigstack_end_mark;
+
+    char* info_keep_key = nullptr;
+    char* info_keep_val_str = nullptr;
+    uint32_t info_keep_key_slen = 0;
+    uint32_t info_keep_val_slen = 0;
+    const cmp_binary_op_t keep_binary_op = keep_if_info_expr.binary_op;
+    double info_keep_val = 0.0;
+    if (keep_if_info_expr.pheno_name) {
+      // todo: also print warning (or optionally error out?) if header line is
+      // missing or doesn't match type expectation
+      info_keep_key_slen = strlen(keep_if_info_expr.pheno_name);
+      const uint32_t need_value = (keep_binary_op != kCmpOperatorExists);
+      const uintptr_t cur_alloc = round_up_pow2(2 + need_value + info_keep_key_slen, kCacheline);
+      if ((uintptr_t)(tmp_alloc_end - tmp_alloc_base) < cur_alloc) {
+        goto load_pvar_ret_NOMEM;
+      }
+      *tmp_alloc_base = ';';
+      info_keep_key = (char*)(&(tmp_alloc_base[1]));
+      char* keep_key_iter = memcpya(info_keep_key, keep_if_info_expr.pheno_name, info_keep_key_slen);
+      if (need_value) {
+        strcpy(keep_key_iter, "=");
+      } else {
+        *keep_key_iter = '\0';
+      }
+      tmp_alloc_base = &(tmp_alloc_base[cur_alloc]);
+
+      if (need_value) {
+        ++info_keep_key_slen;
+        info_keep_val_str = &(keep_if_info_expr.pheno_name[info_keep_key_slen]);
+        if (scanadv_double(info_keep_val_str, &info_keep_val)) {
+          info_keep_val_str = nullptr;
+        } else {
+          info_keep_val_slen = strlen(info_keep_val_str);
+          if (memchr(info_keep_val_str, ';', info_keep_val_slen)) {
+            sprintf(g_logbuf, "Error: Invalid --keep-if-info value '%s' (semicolon prohibited).\n", info_keep_val_str);
+            goto load_pvar_ret_INVALID_CMDLINE_WW;
+          }
+          // having a '=' in the value string is horrible practice, but it
+          // doesn't break parsing for now
+        }
+      }
+    }
+    char* info_remove_key = nullptr;
+    char* info_remove_val_str = nullptr;
+    uint32_t info_remove_key_slen = 0;
+    uint32_t info_remove_val_slen = 0;
+    const cmp_binary_op_t remove_binary_op = remove_if_info_expr.binary_op;
+    double info_remove_val = 0.0;
+    if (remove_if_info_expr.pheno_name) {
+      info_remove_key_slen = strlen(remove_if_info_expr.pheno_name);
+      const uint32_t need_value = (remove_binary_op != kCmpOperatorExists);
+      const uintptr_t cur_alloc = round_up_pow2(2 + need_value + info_remove_key_slen, kCacheline);
+      if ((uintptr_t)(tmp_alloc_end - tmp_alloc_base) < cur_alloc) {
+        goto load_pvar_ret_NOMEM;
+      }
+      *tmp_alloc_base = ';';
+      info_remove_key = (char*)(&(tmp_alloc_base[1]));
+      char* remove_key_iter = memcpya(info_remove_key, remove_if_info_expr.pheno_name, info_remove_key_slen);
+      if (need_value) {
+        strcpy(remove_key_iter, "=");
+      } else {
+        *remove_key_iter = '\0';
+      }
+      tmp_alloc_base = &(tmp_alloc_base[cur_alloc]);
+
+      if (need_value) {
+        ++info_remove_key_slen;
+        info_remove_val_str = &(remove_if_info_expr.pheno_name[info_remove_key_slen]);
+        if (scanadv_double(info_remove_val_str, &info_remove_val)) {
+          info_remove_val_str = nullptr;
+        } else {
+          info_remove_val_slen = strlen(info_remove_val_str);
+          if (memchr(info_remove_val_str, ';', info_remove_val_slen)) {
+            sprintf(g_logbuf, "Error: Invalid --remove-if-info value '%s' (semicolon prohibited).\n", info_remove_val_str);
+            goto load_pvar_ret_INVALID_CMDLINE_WW;
+          }
+        }
+      }
+    }
+    if (!info_col_present) {
+      info_pr_present = 0;
+      info_reload_slen = 0;
+    } else if ((!info_pr_present) && (!info_reload_slen) && (!info_keep_key) && (!info_remove_key)) {
+      info_col_present = 0;
+    }
+
     uint32_t fexcept_ct = 0;
     uintptr_t max_fexcept_blen = 2;
     char* sorted_fexcepts = nullptr;
@@ -913,12 +997,10 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
             if (info_slen > info_reload_slen) {
               info_reload_slen = info_slen;
             }
+            char* info_token = token_ptrs[6];
             if (info_pr_present) {
               // always load all nonref_flags entries so they can be compared
               // against .pgen for now.
-
-              // (todo: general INFO filtering code)
-              char* info_token = token_ptrs[6];
               if (((!memcmp(info_token, "PR", 2)) && ((info_slen == 2) || (info_token[2] == ';'))) || (!memcmp(&(info_token[((int32_t)info_slen) - 3]), ";PR", 3))) {
                 SET_BIT(variant_idx_lowbits, cur_nonref_flags);
               } else {
@@ -932,7 +1014,180 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
                 goto load_pvar_skip_variant;
               }
             }
+            if (info_keep_key) {
+              info_token[info_slen] = '\0';
+              // existence: similar logic to hardcoded PR, except key can also
+              //   be followed by '=', and if it is there can't be a lone '.'
+              //   after the equals
+              if (keep_binary_op == kCmpOperatorExists) {
+                char* possible_hit;
+                if (!memcmp(info_token, info_keep_key, info_keep_key_slen)) {
+                  possible_hit = &(info_token[info_keep_key_slen]);
+                } else {
+                  possible_hit = strstr(info_token, &(info_keep_key[-1]));
+                  if (!possible_hit) {
+                    goto load_pvar_skip_variant;
+                  }
+                  possible_hit = &(possible_hit[info_keep_key_slen + 1]);
+                }
+                while (1) {
+                  const char cc = *possible_hit;
+                  if ((!cc) || (cc == ';')) {
+                    break;
+                  }
+                  if (cc == '=') {
+                    if ((possible_hit[1] == '.') && ((!possible_hit[2]) || (possible_hit[2] == ';'))) {
+                      goto load_pvar_skip_variant;
+                    }
+                    break;
+                  }
+                  possible_hit = strstr(possible_hit, &(info_keep_key[-1]));
+                  if (!possible_hit) {
+                    goto load_pvar_skip_variant;
+                  }
+                  possible_hit = &(possible_hit[info_keep_key_slen + 1]);
+                }
+              } else {
+                // otherwise, search for [key]= at start or ;[key]= later
+                // info_keep_key_slen includes the trailing = in this case
+                char* possible_hit;
+                if (!memcmp(info_token, info_keep_key, info_keep_key_slen)) {
+                  possible_hit = &(info_token[info_keep_key_slen]);
+                } else {
+                  possible_hit = strstr(info_token, &(info_keep_key[-1]));
+                  if (!possible_hit) {
+                    if (keep_binary_op != kCmpOperatorNoteq) {
+                      goto load_pvar_skip_variant;
+                    }
+                    goto load_pvar_skip_keep;
+                  }
+                  possible_hit = &(possible_hit[info_keep_key_slen + 1]);
+                }
+                uint32_t is_false = 0;
+                if (info_keep_val_str) {
+                  is_false = (memcmp(possible_hit, info_keep_val_str, info_keep_val_slen) || (possible_hit[info_keep_val_slen] && (possible_hit[info_keep_val_slen] != ';')));
+                  is_false = is_false ^ (keep_binary_op == kCmpOperatorNoteq);
+                } else {
+                  double dxx;
+                  if (!scanadv_double(possible_hit, &dxx)) {
+                    is_false = (keep_binary_op != kCmpOperatorNoteq);
+                  } else {
+                    switch (keep_binary_op) {
+                    case kCmpOperatorNoteq:
+                      is_false = (dxx == info_keep_val);
+                      break;
+                    case kCmpOperatorLe:
+                      is_false = (dxx >= info_keep_val);
+                      break;
+                    case kCmpOperatorLeq:
+                      is_false = (dxx > info_keep_val);
+                      break;
+                    case kCmpOperatorGe:
+                      is_false = (dxx <= info_keep_val);
+                      break;
+                    case kCmpOperatorGeq:
+                      is_false = (dxx < info_keep_val);
+                      break;
+                    case kCmpOperatorEq:
+                      is_false = (dxx != info_keep_val);
+                      break;
+                    case kCmpOperatorExists:
+                      // should be impossible
+                      break;
+                    }
+                  }
+                }
+                if (is_false) {
+                  goto load_pvar_skip_variant;
+                }
+              }
+            }
+          load_pvar_skip_keep:
+            if (info_remove_key) {
+              info_token[info_slen] = '\0';
+              if (remove_binary_op == kCmpOperatorExists) {
+                char* possible_hit;
+                if (!memcmp(info_token, info_remove_key, info_remove_key_slen)) {
+                  possible_hit = &(info_token[info_remove_key_slen]);
+                } else {
+                  possible_hit = strstr(info_token, &(info_remove_key[-1]));
+                  if (!possible_hit) {
+                    goto load_pvar_skip_remove;
+                  }
+                  possible_hit = &(possible_hit[info_remove_key_slen + 1]);
+                }
+                while (1) {
+                  const char cc = *possible_hit;
+                  if ((!cc) || (cc == ';')) {
+                    goto load_pvar_skip_variant;
+                  }
+                  if (cc == '=') {
+                    if ((possible_hit[1] == '.') && ((!possible_hit[2]) || (possible_hit[2] == ';'))) {
+                      break;
+                    }
+                    goto load_pvar_skip_variant;
+                  }
+                  possible_hit = strstr(possible_hit, &(info_remove_key[-1]));
+                  if (!possible_hit) {
+                    break;
+                  }
+                  possible_hit = &(possible_hit[info_remove_key_slen + 1]);
+                }
+              } else {
+                char* possible_hit;
+                if (!memcmp(info_token, info_remove_key, info_remove_key_slen)) {
+                  possible_hit = &(info_token[info_remove_key_slen]);
+                } else {
+                  possible_hit = strstr(info_token, &(info_remove_key[-1]));
+                  if (!possible_hit) {
+                    if (remove_binary_op != kCmpOperatorNoteq) {
+                      goto load_pvar_skip_remove;
+                    }
+                    goto load_pvar_skip_variant;
+                  }
+                  possible_hit = &(possible_hit[info_remove_key_slen + 1]);
+                }
+                uint32_t is_false = 0;
+                if (info_remove_val_str) {
+                  is_false = (memcmp(possible_hit, info_remove_val_str, info_remove_val_slen) || (possible_hit[info_remove_val_slen] && (possible_hit[info_remove_val_slen] != ';')));
+                  is_false = is_false ^ (remove_binary_op == kCmpOperatorNoteq);
+                } else {
+                  double dxx;
+                  if (!scanadv_double(possible_hit, &dxx)) {
+                    is_false = (remove_binary_op != kCmpOperatorNoteq);
+                  } else {
+                    switch (remove_binary_op) {
+                    case kCmpOperatorNoteq:
+                      is_false = (dxx == info_remove_val);
+                      break;
+                    case kCmpOperatorLe:
+                      is_false = (dxx >= info_remove_val);
+                      break;
+                    case kCmpOperatorLeq:
+                      is_false = (dxx > info_remove_val);
+                      break;
+                    case kCmpOperatorGe:
+                      is_false = (dxx <= info_remove_val);
+                      break;
+                    case kCmpOperatorGeq:
+                      is_false = (dxx < info_remove_val);
+                      break;
+                    case kCmpOperatorEq:
+                      is_false = (dxx != info_remove_val);
+                      break;
+                    case kCmpOperatorExists:
+                      // should be impossible
+                      break;
+                    }
+                  }
+                }
+                if (!is_false) {
+                  goto load_pvar_skip_variant;
+                }
+              }
+            }
           }
+        load_pvar_skip_remove:
 
           // POS
           int32_t cur_bp;
@@ -1570,6 +1825,11 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
     break;
   load_pvar_ret_READ_FAIL:
     reterr = kPglRetReadFail;
+    break;
+  load_pvar_ret_INVALID_CMDLINE_WW:
+    wordwrapb(0);
+    logerrprintb();
+    reterr = kPglRetInvalidCmdline;
     break;
   load_pvar_ret_EMPTY_ALLELE_CODE:
     LOGERRPRINTFWW("Error: Empty allele code on line %" PRIuPTR " of %s.\n", line_idx, pvarname);

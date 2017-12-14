@@ -24,32 +24,6 @@
 namespace plink2 {
 #endif
 
-// order is such that (kCmpOperatorEq - x) is the inverse of x
-ENUM_U31_DEF_START()
-  kCmpOperatorNoteq,
-  kCmpOperatorLe,
-  kCmpOperatorLeq,
-
-  kCmpOperatorGe,
-  kCmpOperatorGeq,
-  kCmpOperatorEq
-ENUM_U31_DEF_END(cmp_binary_op_t);
-
-typedef struct {
-  // Restrict to [pheno/covar name] [operator] [pheno val] for now.  could
-  // support or/and, parentheses, etc. later.
-
-  // Currently stores null-terminated pheno/covar name, followed by
-  // null-terminated value string.  Storage format needs to be synced with
-  // plink2.cpp validate_and_alloc_cmp_expr().
-  char* pheno_name;
-  cmp_binary_op_t binary_op;
-} cmp_expr_t;
-
-void init_cmp_expr(cmp_expr_t* cmp_expr_ptr);
-
-void cleanup_cmp_expr(cmp_expr_t* cmp_expr_ptr);
-
 pglerr_t from_to_flag(char** variant_ids, const uint32_t* variant_id_htable, const char* varid_from, const char* varid_to, uint32_t raw_variant_ct, uintptr_t max_variant_id_slen, uintptr_t variant_id_htable_size, uintptr_t* variant_include, chr_info_t* cip, uint32_t* variant_ct_ptr);
 
 pglerr_t snp_flag(const uint32_t* variant_bps, char** variant_ids, const uint32_t* variant_id_htable, const char* varid_snp, uint32_t raw_variant_ct, uintptr_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t do_exclude, int32_t window_bp, uintptr_t* variant_include, chr_info_t* cip, uint32_t* variant_ct_ptr);

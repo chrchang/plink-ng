@@ -2144,6 +2144,35 @@ pglerr_t cmdline_parse_phase3(uintptr_t max_default_mb, uintptr_t malloc_size_mb
 
 void plink2_cmdline_meta_cleanup(plink2_cmdline_meta_t* pcmp);
 
+// order is such that (kCmpOperatorEq - x) is the inverse of x
+ENUM_U31_DEF_START()
+  kCmpOperatorNoteq,
+  kCmpOperatorLe,
+  kCmpOperatorLeq,
+
+  kCmpOperatorGe,
+  kCmpOperatorGeq,
+  kCmpOperatorEq,
+  kCmpOperatorExists
+ENUM_U31_DEF_END(cmp_binary_op_t);
+
+typedef struct {
+  // Restrict to [pheno/covar name] [operator] [pheno val] for now.  could
+  // support or/and, parentheses, etc. later.
+
+  // Currently stores null-terminated pheno/covar name, followed by
+  // null-terminated value string.  Storage format needs to be synced with
+  // plink2.cpp validate_and_alloc_cmp_expr().
+  char* pheno_name;
+  cmp_binary_op_t binary_op;
+} cmp_expr_t;
+
+void init_cmp_expr(cmp_expr_t* cmp_expr_ptr);
+
+void cleanup_cmp_expr(cmp_expr_t* cmp_expr_ptr);
+
+pglerr_t validate_and_alloc_cmp_expr(char** sources, const char* flag_name, uint32_t param_ct, uint32_t allow_exists, cmp_expr_t* cmp_expr_ptr);
+
 // this is technically application-dependent, but let's keep this simple for
 // now
 #ifndef __LP64__

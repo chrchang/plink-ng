@@ -64,7 +64,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (11 Dec 2017)";
+  " (13 Dec 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -210,6 +210,8 @@ typedef struct plink2_cmdline_struct {
   aperm_t aperm;
   cmp_expr_t keep_if_expr;
   cmp_expr_t remove_if_expr;
+  cmp_expr_t keep_if_info_expr;
+  cmp_expr_t remove_if_info_expr;
   double ci_size;
   float var_min_qual;
   uint32_t splitpar_bound1;
@@ -616,7 +618,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
     double* variant_cms = nullptr;
     chr_idx_t* chr_idxs = nullptr; // split-chromosome case only
     if (pvarname[0]) {
-      reterr = load_pvar(pvarname, var_filter_exceptions_flattened, pcp->varid_template, pcp->missing_varid_match, pcp->misc_flags, pcp->pvar_psam_modifier, pcp->exportf_modifier, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->dependency_flags & kfFilterNoSplitChr), cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids, &variant_allele_idxs, &allele_storage, &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_slen, &xheader_blen, &xheader_info_pr, &xheader_info_pr_nonflag, &max_filter_slen);
+      reterr = load_pvar(pvarname, var_filter_exceptions_flattened, pcp->varid_template, pcp->missing_varid_match, pcp->keep_if_info_expr, pcp->remove_if_info_expr, pcp->misc_flags, pcp->pvar_psam_modifier, pcp->exportf_modifier, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->dependency_flags & kfFilterNoSplitChr), cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids, &variant_allele_idxs, &allele_storage, &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_slen, &xheader_blen, &xheader_info_pr, &xheader_info_pr_nonflag, &max_filter_slen);
       if (reterr) {
         goto plink2_ret_1;
       }
@@ -2193,151 +2195,6 @@ pglerr_t alloc_2col(char** sources, const char* flagname_p, uint32_t param_ct, t
   return kPglRetSuccess;
 }
 
-
-// may move these to plink2_common or plink2_filter
-char* parse_next_binary_op(char* expr_str, uint32_t expr_slen, char** op_start_ptr, cmp_binary_op_t* binary_op_ptr) {
-  // !=, <>: kCmpOperatorNoteq
-  // <: kCmpOperatorLe
-  // <=: kCmpOperatorLeq
-  // =, ==: kCmpOperatorEq
-  // >=: kCmpOperatorGeq
-  // >: kCmpOperatorGe
-  char* next_eq = (char*)memchr(expr_str, '=', expr_slen);
-  char* next_lt = (char*)memchr(expr_str, '<', expr_slen);
-  char* next_gt = (char*)memchr(expr_str, '>', expr_slen);
-  if (!next_eq) {
-    if (!next_lt) {
-      if (!next_gt) {
-        return nullptr;
-      }
-      *op_start_ptr = next_gt;
-      *binary_op_ptr = kCmpOperatorGe;
-      return &(next_gt[1]);
-    }
-    if (next_gt == (&(next_lt[1]))) {
-      *op_start_ptr = next_lt;
-      *binary_op_ptr = kCmpOperatorNoteq;
-      return &(next_lt[2]);
-    }
-    if ((!next_gt) || (next_gt > next_lt)) {
-      *op_start_ptr = next_lt;
-      *binary_op_ptr = kCmpOperatorLe;
-      return &(next_lt[1]);
-    }
-    *op_start_ptr = next_gt;
-    *binary_op_ptr = kCmpOperatorGe;
-    return &(next_gt[1]);
-  }
-  if ((!next_lt) || (next_lt > next_eq)) {
-    if ((!next_gt) || (next_gt > next_eq)) {
-      if ((next_eq != expr_str) && (next_eq[-1] == '!')) {
-        *op_start_ptr = &(next_eq[-1]);
-        *binary_op_ptr = kCmpOperatorNoteq;
-        return &(next_eq[1]);
-      }
-      *op_start_ptr = next_eq;
-      *binary_op_ptr = kCmpOperatorEq;
-      return (next_eq[1] == '=')? (&(next_eq[2])) : (&(next_eq[1]));
-    }
-    *op_start_ptr = next_gt;
-    if (next_eq == (&(next_gt[1]))) {
-      *binary_op_ptr = kCmpOperatorGeq;
-      return &(next_gt[2]);
-    }
-    *binary_op_ptr = kCmpOperatorGe;
-    return &(next_gt[1]);
-  }
-  if (next_gt == (&(next_lt[1]))) {
-    *op_start_ptr = next_lt;
-    *binary_op_ptr = kCmpOperatorNoteq;
-    return &(next_lt[2]);
-  }
-  if ((!next_gt) || (next_gt > next_lt)) {
-    *op_start_ptr = next_lt;
-    if (next_eq == (&(next_lt[1]))) {
-      *binary_op_ptr = kCmpOperatorLeq;
-      return &(next_lt[2]);
-    }
-    *binary_op_ptr = kCmpOperatorLe;
-    return &(next_lt[1]);
-  }
-  *op_start_ptr = next_gt;
-  if (next_eq == (&(next_gt[1]))) {
-    *binary_op_ptr = kCmpOperatorGeq;
-    return &(next_gt[2]);
-  }
-  *binary_op_ptr = kCmpOperatorGe;
-  return &(next_gt[1]);
-}
-
-pglerr_t validate_and_alloc_cmp_expr(char** sources, const char* flag_name, uint32_t param_ct, cmp_expr_t* cmp_expr_ptr) {
-  // restrict to [pheno/covar name] [operator] [pheno val] for now.  could
-  // support or/and, parentheses, etc. later.
-  pglerr_t reterr = kPglRetSuccess;
-  {
-    if ((param_ct != 1) && (param_ct != 3)) {
-      goto validate_and_alloc_cmp_expr_ret_INVALID_EXPR_GENERIC;
-    }
-    char* pheno_name_start = sources[0];
-    char* pheno_val_start;
-    uint32_t pheno_name_slen;
-    uint32_t pheno_val_slen;
-    if (param_ct == 3) {
-      pheno_name_slen = strlen(pheno_name_start);
-      char* op_str = sources[1];
-      uint32_t op_slen = strlen(op_str);
-      // ok to have single/double quotes around operator
-      if (op_slen > 2) {
-        const char cc = op_str[0];
-        if (((cc == '\'') || (cc == '"')) && (op_str[op_slen - 1] == cc)) {
-          ++op_str;
-          op_slen -= 2;
-        }
-      }
-      char* op_start;
-      char* op_end = parse_next_binary_op(op_str, op_slen, &op_start, &cmp_expr_ptr->binary_op);
-      if ((!op_end) || (*op_end) || (op_start != op_str)) {
-        goto validate_and_alloc_cmp_expr_ret_INVALID_EXPR_GENERIC;
-      }
-      pheno_val_start = sources[2];
-      pheno_val_slen = strlen(pheno_val_start);
-    } else {
-      // permit param_ct == 1 as long as tokens are unambiguous
-      uint32_t expr_slen = strlen(pheno_name_start);
-      char* op_start;
-      pheno_val_start = parse_next_binary_op(pheno_name_start, expr_slen, &op_start, &cmp_expr_ptr->binary_op);
-      if ((!pheno_val_start) || (!(*pheno_val_start)) || (op_start == pheno_name_start)) {
-        goto validate_and_alloc_cmp_expr_ret_INVALID_EXPR_GENERIC;
-      }
-      pheno_name_slen = (uintptr_t)(op_start - pheno_name_start);
-      pheno_val_slen = expr_slen - ((uintptr_t)(pheno_val_start - pheno_name_start));
-    }
-    if ((pheno_name_slen > kMaxIdSlen) || (pheno_val_slen > kMaxIdSlen)) {
-      LOGERRPRINTF("Error: ID too long in %s expression.\n", flag_name);
-      goto validate_and_alloc_cmp_expr_ret_INVALID_CMDLINE;
-    }
-    char* new_pheno_name_buf;
-    if (pgl_malloc(2 + pheno_name_slen + pheno_val_slen, &new_pheno_name_buf)) {
-      goto validate_and_alloc_cmp_expr_ret_NOMEM;
-    }
-    memcpyx(new_pheno_name_buf, pheno_name_start, pheno_name_slen, '\0');
-    // pheno_val_start guaranteed to be null-terminated for now
-    memcpy(&(new_pheno_name_buf[pheno_name_slen + 1]), pheno_val_start, pheno_val_slen + 1);
-    cmp_expr_ptr->pheno_name = new_pheno_name_buf;
-  }
-  while (0) {
-  validate_and_alloc_cmp_expr_ret_NOMEM:
-    reterr = kPglRetNomem;
-    break;
-  validate_and_alloc_cmp_expr_ret_INVALID_EXPR_GENERIC:
-    LOGERRPRINTF("Error: Invalid %s expression.\n", flag_name);
-  validate_and_alloc_cmp_expr_ret_INVALID_CMDLINE:
-    reterr = kPglRetInvalidCmdline;
-    break;
-  }
-  return reterr;
-}
-
 /*
 pglerr_t alloc_and_flatten_comma_delim(char** sources, uint32_t param_ct, char** flattened_buf_ptr) {
   uint32_t totlen = 1;
@@ -2816,6 +2673,8 @@ int main(int argc, char** argv) {
   init_score(&pc.score_info);
   init_cmp_expr(&pc.keep_if_expr);
   init_cmp_expr(&pc.remove_if_expr);
+  init_cmp_expr(&pc.keep_if_info_expr);
+  init_cmp_expr(&pc.remove_if_info_expr);
   chr_info_t chr_info;
   if (init_chr_info(&chr_info)) {
     goto main_ret_NOMEM_NOLOG;
@@ -5033,11 +4892,24 @@ int main(int argc, char** argv) {
             pc.king_table_subset_thresh = -DBL_MAX;
           }
         } else if (strequal_k2(flagname_p2, "eep-if")) {
-          reterr = validate_and_alloc_cmp_expr(&(argv[arg_idx + 1]), argv[arg_idx], param_ct, &pc.keep_if_expr);
+          reterr = validate_and_alloc_cmp_expr(&(argv[arg_idx + 1]), argv[arg_idx], param_ct, 0, &pc.keep_if_expr);
           if (reterr) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPsamReq;
+        } else if (strequal_k2(flagname_p2, "eep-if-info")) {
+          reterr = validate_and_alloc_cmp_expr(&(argv[arg_idx + 1]), argv[arg_idx], param_ct, 1, &pc.keep_if_info_expr);
+          if (reterr) {
+            goto main_ret_1;
+          }
+          // validator doesn't currently check for ';'.  also theoretically
+          // possible for '=' to be in key
+          if (strchr(pc.keep_if_info_expr.pheno_name, ';') || strchr(pc.keep_if_info_expr.pheno_name, '=')) {
+            logerrprint("Error: Invalid --keep-if-info expression.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          // load_pvar() currently checks value string if nonnumeric
+          pc.filter_flags |= kfFilterPvarReq;
         } else if (strequal_k2(flagname_p2, "eep-cats")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -6555,11 +6427,24 @@ int main(int argc, char** argv) {
           pc.misc_flags |= kfMiscRequireCovar;
           pc.filter_flags |= kfFilterPsamReq;
         } else if (strequal_k2(flagname_p2, "emove-if")) {
-          reterr = validate_and_alloc_cmp_expr(&(argv[arg_idx + 1]), argv[arg_idx], param_ct, &pc.remove_if_expr);
+          reterr = validate_and_alloc_cmp_expr(&(argv[arg_idx + 1]), argv[arg_idx], param_ct, 0, &pc.remove_if_expr);
           if (reterr) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPsamReq;
+        } else if (strequal_k2(flagname_p2, "emove-if-info")) {
+          reterr = validate_and_alloc_cmp_expr(&(argv[arg_idx + 1]), argv[arg_idx], param_ct, 1, &pc.remove_if_info_expr);
+          if (reterr) {
+            goto main_ret_1;
+          }
+          // validator doesn't currently check for ';'.  also theoretically
+          // possible for '=' to be in key
+          if (strchr(pc.remove_if_info_expr.pheno_name, ';') || strchr(pc.remove_if_info_expr.pheno_name, '=')) {
+            logerrprint("Error: Invalid --remove-if-info expression.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          // load_pvar() currently checks value string if nonnumeric
+          pc.filter_flags |= kfFilterPvarReq;
         } else if (strequal_k2(flagname_p2, "emove-cats")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -7760,6 +7645,8 @@ int main(int argc, char** argv) {
       file_delete_list = llstr_ptr;
     } while (file_delete_list);
   }
+  cleanup_cmp_expr(&pc.remove_if_info_expr);
+  cleanup_cmp_expr(&pc.keep_if_info_expr);
   cleanup_cmp_expr(&pc.remove_if_expr);
   cleanup_cmp_expr(&pc.keep_if_expr);
   cleanup_score(&pc.score_info);
