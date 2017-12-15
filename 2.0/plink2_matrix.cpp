@@ -605,6 +605,7 @@ boolerr_t invert_fmatrix_first_half(__CLPK_integer dim, uint32_t stride, const f
   const float* read_row = matrix;
   double* write_row = half_inverted;
   for (uint32_t row_idx = 0; row_idx < (uint32_t)dim; ++row_idx) {
+    // could use _mm256_cvtps_pd() here
     for (uint32_t col_idx = 0; col_idx < (uint32_t)dim; ++col_idx) {
       write_row[col_idx] = (double)read_row[col_idx];
     }
@@ -628,6 +629,7 @@ boolerr_t invert_symmdef_fmatrix_first_half(__CLPK_integer dim, uint32_t stride,
   const float* read_row = matrix;
   double* write_row = half_inverted;
   for (uint32_t row_idx = 0; row_idx < (uint32_t)dim; ++row_idx) {
+    // could use _mm256_cvtps_pd() here
     for (uint32_t col_idx = 0; col_idx <= row_idx; ++col_idx) {
       write_row[col_idx] = (double)read_row[col_idx];
     }
@@ -655,6 +657,7 @@ void invert_fmatrix_second_half(__CLPK_integer dim, uint32_t stride, double* hal
   const double* read_row = half_inverted;
   float* write_row = inverted_result;
   for (uint32_t row_idx = 0; row_idx < (uint32_t)dim; ++row_idx) {
+    // could use _mm256_cvtpd_ps() here
     for (uint32_t col_idx = 0; col_idx < (uint32_t)dim; ++col_idx) {
       write_row[col_idx] = (float)read_row[col_idx];
     }
@@ -670,6 +673,7 @@ void invert_symmdef_fmatrix_second_half(__CLPK_integer dim, uint32_t stride, dou
   const double* read_row = half_inverted;
   float* write_row = inverted_result;
   for (uint32_t row_idx = 0; row_idx < (uint32_t)dim; ++row_idx) {
+    // could use _mm256_cvtpd_ps() here
     for (uint32_t col_idx = 0; col_idx <= row_idx; ++col_idx) {
       write_row[col_idx] = (float)read_row[col_idx];
     }

@@ -419,6 +419,7 @@ boolerr_t linear_regression_inv_main(const double* xt_y, uint32_t predictor_ct, 
 // todo: support nrhs > 1 when permutation test implemented
 HEADER_INLINE boolerr_t linear_regression_inv(const double* pheno_d, double* predictors_pmaj, uint32_t predictor_ct, uint32_t sample_ct, double* xtx_inv, double* fitted_coefs, double* xt_y, __maybe_unused matrix_invert_buf1_t* mi_buf, __maybe_unused double* dbl_2d_buf) {
   // multiply_self_transpose(predictors_pmaj, predictor_ct, sample_ct, xtx_inv);
+  // categorical optimization possible here
   row_major_matrix_multiply(predictors_pmaj, pheno_d, predictor_ct, 1, sample_ct, xt_y);
 #ifdef NOLAPACK
   return linear_regression_inv_main(xt_y, predictor_ct, xtx_inv, fitted_coefs, mi_buf, dbl_2d_buf);

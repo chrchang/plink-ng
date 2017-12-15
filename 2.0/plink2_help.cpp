@@ -1009,16 +1009,16 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "  --var-min-qual [val]             : Skip variants with low/missing QUAL.\n"
 "  --var-filter {exception(s)...}   : Skip variants which have FILTER failures.\n"
                );
-    help_print("keep-if-info\tremove-if-info\textract-if\texclude-if\trequire-info\tvar-min-qual\tvar-filter\tvcf-min-qual\tvcf-filter", &help_ctrl, 0,
+    help_print("keep-if-info\tremove-if-info\trequire-info\trequire-no-info\textract-if\texclude-if\tvar-min-qual\tvar-filter\tvcf-min-qual\tvcf-filter", &help_ctrl, 0,
 "  --keep-if-info [key] [op] [val]  : Exclude variants which don't/do satisfy a\n"
 "  --remove-if-info [key] [op] [v]    comparison predicate on an INFO key, e.g.\n"
 "  (aliases: --extract-if,              --keep-if-info \"VT == SNP\"\n"
 "  --exclude-if)                      Unless the operator is !=, the predicate\n"
 "                                     always evaluates to false when the key is\n"
 "                                     missing.\n"
-"  --require-info [key(s)...]       : Exclude variants based on nonexistence of\n"
-"                                     an INFO key.  \"[key]=.\" is treated as\n"
-"                                     nonexistence.\n"
+"  --require-info [key(s)...]       : Exclude variants based on nonexistence or\n"
+"  --require-no-info [key(s)...]      existence of an INFO key.  \"[key]=.\" is\n"
+"                                     treated as nonexistence.\n"
                );
     /*
     help_print("allow-no-samples\tallow-no-vars", &help_ctrl, 0,

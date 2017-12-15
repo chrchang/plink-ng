@@ -2462,6 +2462,13 @@ boolerr_t logistic_regression(const float* yy, const float* xx, uint32_t sample_
 
     // P[i] = \sum_j X[i][j] * coef[j];
     col_major_fmatrix_vector_multiply_strided(xx, coef, sample_ct, sample_ctav, predictor_ct, pp);
+    // Suppose categorical covariates are represented as
+    // categorical-covariate-major uint16_t* kk, indicating for each sample
+    // which raw covariate index is 1 (with one "fallow" covariate index at the
+    // end).
+    // Then the above expression becomes
+    // P[i] = \sum_j^{regular} X[i][j] * coef[j] +
+    //        \sum_j^{cats} coef[K[i][j]]
 
     // P[i] = 1 / (1 + exp(-P[i]));
     logistic_sse(sample_ct, pp);
@@ -2470,9 +2477,18 @@ boolerr_t logistic_regression(const float* yy, const float* xx, uint32_t sample_
     // P[i] -= Y[i];
     compute_v_and_p_minus_y(yy, sample_ct, pp, vv);
 
+    // Possible categorical optimizations:
+    // 1. skip terms between different categories of the same covariate
+    // 2. all same-category terms within the same covariate can be handled with
+    //    a single loop over the samples
+    // 3. terms involving a regular covariate and a categorical covariate can
+    //    be handled with one loop over the samples; covers all categories
+    // 4. similarly, one loop over the samples is enough to update all category
+    //    pairs between two categorical covariates
     compute_hessian(xx, vv, sample_ct, predictor_ct, hh);
 
     // grad = X^T P
+    // Separate categorical loop also possible here
     mult_matrix_dxn_vect_n(xx, pp, sample_ct, predictor_ct, grad);
 
     cholesky_decomposition(hh, predictor_ct, ll);
@@ -2523,6 +2539,8 @@ void firth_compute_weights(const float* yy, const float* xx, const float* pp, co
       const vf_t cur_tmpnxk = *((vf_t*)(&(tmpnxk_row[pred_uidx * sample_ctav])));
       dotprods = dotprods + cur_xx * cur_tmpnxk;
     }
+    // Can handle categorical covariates in a separate loop here, and load the
+    // dotprods increment into a union, etc.
     const vf_t cur_weights = *((vf_t*)(&(vv[sample_offset])));
     const vf_t cur_pis = *((vf_t*)(&(pp[sample_offset])));
     const vf_t cur_yy = *((vf_t*)(&(yy[sample_offset])));
@@ -2584,6 +2602,7 @@ boolerr_t firth_regression(const float* yy, const float* xx, uint32_t sample_ct,
   // pull these out of the start of the loop, since they happen again in the
   // log-likelihood update
   // P[i] = \sum_j coef[j] * X[i][j];
+  // categorical optimization possible here
   col_major_fmatrix_vector_multiply_strided(xx, coef, sample_ct, sample_ctav, predictor_ct, pp);
   // P[i] = 1 / (1 + exp(-P[i]));
   logistic_sse(sample_ct, pp);
@@ -2637,6 +2656,7 @@ boolerr_t firth_regression(const float* yy, const float* xx, uint32_t sample_ct,
     // for later mult_matrix_dxn_vect_n() call
     reflect_fmatrixz(predictor_ct, predictor_ctav, hh);
 
+    // categorical optimization possible here
     col_major_fmatrix_multiply_strided(xx, hh, sample_ct, sample_ctav, predictor_ct, predictor_ctav, predictor_ct, sample_ctav, tmpnxk_buf);
 
     firth_compute_weights(yy, xx, pp, vv, tmpnxk_buf, predictor_ct, sample_ct, sample_ctav, ww);
@@ -2645,6 +2665,7 @@ boolerr_t firth_regression(const float* yy, const float* xx, uint32_t sample_ct,
     fill_float_zero(sample_ctav - sample_ct, &(ww[sample_ct]));
 
     // gradient (Ustar in logistf) = X' W
+    // categorical optimization possible here
     mult_matrix_dxn_vect_n(xx, ww, sample_ct, predictor_ct, grad);
     float grad_max = 0.0;
     for (uint32_t pred_uidx = 0; pred_uidx < predictor_ct; ++pred_uidx) {
@@ -2688,7 +2709,9 @@ boolerr_t firth_regression(const float* yy, const float* xx, uint32_t sample_ct,
     uint32_t maxhs = 5;
     uint32_t halfstep_idx = 1;
     while (1) {
+      // categorical optimization possible here
       col_major_fmatrix_vector_multiply_strided(xx, coef, sample_ct, sample_ctav, predictor_ct, pp);
+
       logistic_sse(sample_ct, pp);
       loglik = compute_loglik(yy, pp, sample_ct);
       compute_v(pp, sample_ct, vv);
@@ -5209,6 +5232,8 @@ THREAD_FUNC_DECL glm_linear_thread(void* arg) {
                     for (uintptr_t pred_idx = domdev_present + 2; pred_idx < cur_predictor_ct; ++pred_idx) {
                       geno_dotprod_row[pred_idx] += geno_d * nm_predictors_pmaj_buf[pred_idx * nm_sample_ct + sample_idx];
                     }
+                    // can have a separate categorical loop here
+
                     if (domdev_present && (!(lowest_set_bit & 1))) {
                       // domdev = 1
                       domdev_pheno_prod += cur_pheno;
@@ -5216,6 +5241,7 @@ THREAD_FUNC_DECL glm_linear_thread(void* arg) {
                       for (uintptr_t pred_idx = 3; pred_idx < cur_predictor_ct; ++pred_idx) {
                         domdev_dotprod_row[pred_idx] += nm_predictors_pmaj_buf[pred_idx * nm_sample_ct + sample_idx];
                       }
+                      // categorical optimization possible here
                     }
                     geno_word = geno_word & (geno_word - 1);
                   } while (geno_word);
@@ -5241,10 +5267,12 @@ THREAD_FUNC_DECL glm_linear_thread(void* arg) {
                 xtx_inv[cur_predictor_ct + 1] = dosage_ssq;
               }
               if (cur_predictor_ct > start_pred_idx) {
+                // categorical optimization possible here
                 col_major_vector_matrix_multiply_strided(&(nm_predictors_pmaj_buf[nm_sample_ct]), &(nm_predictors_pmaj_buf[start_pred_idx * nm_sample_ct]), nm_sample_ct, nm_sample_ct, cur_predictor_ct - start_pred_idx, &(xtx_inv[cur_predictor_ct + start_pred_idx]));
               }
               if (domdev_present) {
                 xt_y[2] = dotprod_d(&(nm_predictors_pmaj_buf[2 * nm_sample_ct]), nm_pheno_buf, nm_sample_ct);
+                // categorical optimization possible here
                 col_major_vector_matrix_multiply_strided(&(nm_predictors_pmaj_buf[2 * nm_sample_ct]), nm_predictors_pmaj_buf, nm_sample_ct, nm_sample_ct, cur_predictor_ct, &(xtx_inv[2 * cur_predictor_ct]));
                 xtx_inv[cur_predictor_ct + 2] = xtx_inv[2 * cur_predictor_ct + 1];
               }
@@ -5272,7 +5300,9 @@ THREAD_FUNC_DECL glm_linear_thread(void* arg) {
             reflect_matrix(cur_predictor_ct, xtx_inv);
             col_major_vector_matrix_multiply_strided(xt_y, xtx_inv, cur_predictor_ct, cur_predictor_ct, cur_predictor_ct, fitted_coefs);
           } else {
+            // major categorical optimization possible here
             multiply_self_transpose(nm_predictors_pmaj_buf, cur_predictor_ct, nm_sample_ct, xtx_inv);
+
             for (uint32_t pred_idx = 1; pred_idx < cur_predictor_ct; ++pred_idx) {
               dbl_2d_buf[pred_idx] = xtx_inv[pred_idx * cur_predictor_ct];
             }
