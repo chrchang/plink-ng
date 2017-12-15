@@ -64,7 +64,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (14 Dec 2017)";
+  " (15 Dec 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -2197,9 +2197,8 @@ pglerr_t alloc_2col(char** sources, const char* flagname_p, uint32_t param_ct, t
   return kPglRetSuccess;
 }
 
-/*
 pglerr_t alloc_and_flatten_comma_delim(char** sources, uint32_t param_ct, char** flattened_buf_ptr) {
-  uint32_t totlen = 1;
+  uint32_t tot_blen = 1;
   for (uint32_t param_idx = 0; param_idx < param_ct; ++param_idx) {
     const char* cur_param_iter = sources[param_idx];
     while (1) {
@@ -2210,13 +2209,13 @@ pglerr_t alloc_and_flatten_comma_delim(char** sources, uint32_t param_ct, char**
       if (!cur_token_end) {
         break;
       }
-      totlen += 1 + (uintptr_t)(cur_token_end - cur_param_iter);
+      tot_blen += 1 + (uintptr_t)(cur_token_end - cur_param_iter);
       cur_param_iter = &(cur_token_end[1]);
     }
-    totlen += 1 + strlen(cur_param_iter);
+    tot_blen += 1 + strlen(cur_param_iter);
   }
   char* write_iter;
-  if (pgl_malloc(totlen, &write_iter)) {
+  if (pgl_malloc(tot_blen, &write_iter)) {
     return kPglRetNomem;
   }
   *flattened_buf_ptr = write_iter;
@@ -2238,7 +2237,6 @@ pglerr_t alloc_and_flatten_comma_delim(char** sources, uint32_t param_ct, char**
   *write_iter = '\0';
   return kPglRetSuccess;
 }
-*/
 
 void print_ver() {
   fputs(ver_str, stdout);
@@ -6443,7 +6441,7 @@ int main(int argc, char** argv) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &pc.require_info_flattened);
+          reterr = alloc_and_flatten_comma_delim(&(argv[arg_idx + 1]), param_ct, &pc.require_info_flattened);
           if (reterr) {
             goto main_ret_1;
           }
@@ -6452,7 +6450,7 @@ int main(int argc, char** argv) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &pc.require_no_info_flattened);
+          reterr = alloc_and_flatten_comma_delim(&(argv[arg_idx + 1]), param_ct, &pc.require_no_info_flattened);
           if (reterr) {
             goto main_ret_1;
           }

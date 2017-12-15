@@ -270,13 +270,21 @@ typedef struct {
   uint32_t key_slens[];
 } info_exist_t;
 
-pglerr_t info_exist_init(const unsigned char* arena_end, const char* require_info_flattened, unsigned char** arena_base_ptr, info_exist_t* existp) {
+pglerr_t info_exist_init(const unsigned char* arena_end, const char* require_info_flattened, const char* flagname, unsigned char** arena_base_ptr, info_exist_t** existpp) {
   const char* read_iter = require_info_flattened;
   uintptr_t prekeys_blen = 0;
   do {
-    const uintptr_t blen = strlen(read_iter) + 1;
-    prekeys_blen += blen + 1; // +1 for preceding semicolon
-    read_iter = &(read_iter[blen]);
+    const uintptr_t slen = strlen(read_iter);
+    if (memchr(read_iter, ';', slen)) {
+      LOGERRPRINTFWW("Error: Invalid --%s key '%s' (semicolon prohibited).\n", flagname, read_iter);
+      return kPglRetInvalidCmdline;
+    }
+    if (memchr(read_iter, '=', slen)) {
+      LOGERRPRINTFWW("Error: Invalid --%s key '%s' ('=' prohibited).\n", flagname, read_iter);
+      return kPglRetInvalidCmdline;
+    }
+    prekeys_blen += slen + 2; // +1 for preceding semicolon
+    read_iter = &(read_iter[slen + 1]);
   } while (*read_iter);
   const uint32_t key_ct = prekeys_blen - ((uintptr_t)(read_iter - require_info_flattened));
   const uintptr_t bytes_used = offsetof(info_exist_t, key_slens) + key_ct * sizeof(int32_t) + prekeys_blen;
@@ -284,15 +292,16 @@ pglerr_t info_exist_init(const unsigned char* arena_end, const char* require_inf
   if ((uintptr_t)(arena_end - (*arena_base_ptr)) < cur_alloc) {
     return kPglRetNomem;
   }
-  existp->prekeys = (char*)(&((*arena_base_ptr)[bytes_used - prekeys_blen]));
+  *existpp = (info_exist_t*)(*arena_base_ptr);
+  (*existpp)->prekeys = (char*)(&((*arena_base_ptr)[bytes_used - prekeys_blen]));
   (*arena_base_ptr) += cur_alloc;
-  existp->key_ct = key_ct;
+  (*existpp)->key_ct = key_ct;
   read_iter = require_info_flattened;
-  char* write_iter = existp->prekeys;
+  char* write_iter = (*existpp)->prekeys;
   for (uint32_t kidx = 0; kidx < key_ct; ++kidx) {
     *write_iter++ = ';';
     const uintptr_t slen = strlen(read_iter);
-    existp->key_slens[kidx] = slen;
+    (*existpp)->key_slens[kidx] = slen;
     const uintptr_t blen = slen + 1;
     write_iter = memcpya(write_iter, read_iter, blen);
     read_iter = &(read_iter[blen]);
@@ -389,6 +398,19 @@ typedef struct {
 
 pglerr_t info_filter_init(const unsigned char* arena_end, const cmp_expr_t filter_expr, const char* flagname, unsigned char** arena_base_ptr, info_filter_t* filterp) {
   uint32_t key_slen = strlen(filter_expr.pheno_name);
+  // can also use strpbrk()
+  if (memchr(filter_expr.pheno_name, ';', key_slen)) {
+    LOGERRPRINTFWW("Error: Invalid --%s key '%s' (semicolon prohibited).\n", flagname, filter_expr.pheno_name);
+    return kPglRetInvalidCmdline;
+  }
+  if (memchr(filter_expr.pheno_name, '=', key_slen)) {
+    LOGERRPRINTFWW("Error: Invalid --%s key '%s' ('=' prohibited).\n", flagname, filter_expr.pheno_name);
+    return kPglRetInvalidCmdline;
+  }
+  if (memchr(filter_expr.pheno_name, ',', key_slen)) {
+    LOGERRPRINTFWW("Error: Invalid --%s key '%s' (comma prohibited).\n", flagname, filter_expr.pheno_name);
+    return kPglRetInvalidCmdline;
+  }
   const uintptr_t cur_alloc = round_up_pow2(3 + key_slen, kCacheline);
   if ((uintptr_t)(arena_end - (*arena_base_ptr)) < cur_alloc) {
     return kPglRetNomem;
@@ -423,8 +445,10 @@ pglerr_t info_filter_init(const unsigned char* arena_end, const cmp_expr_t filte
     LOGERRPRINTFWW("Error: Invalid --%s value '%s' (semicolon prohibited).\n", flagname, val_str);
     return kPglRetInvalidCmdline;
   }
-  // having a '=' in the value string is horrible practice, but it
-  // doesn't break parsing for now
+  if (memchr(val_str, '=', filterp->val_slen)) {
+    LOGERRPRINTFWW("Error: Invalid --%s value '%s' ('=' prohibited).\n", flagname, val_str);
+    return kPglRetInvalidCmdline;
+  }
   return kPglRetSuccess;
 }
 
@@ -468,6 +492,8 @@ uint32_t info_condition_satisfied(char* info_token, const info_filter_t* filterp
   case kCmpOperatorEq:
     return (dxx == val);
   }
+  // should be unreachable, but some gcc versions complain
+  return 0;
 }
 
 pglerr_t splitpar(const uint32_t* variant_bps, unsorted_var_t vpos_sortstatus, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uintptr_t* variant_include, uintptr_t* loaded_chr_mask, chr_info_t* cip, uint32_t* chrs_encountered_m1_ptr, uint32_t* exclude_ct_ptr) {
@@ -886,18 +912,16 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
     // bugfix (2 Jun 2017): forgot to zero-initialize loaded_chr_mask
     fill_ulong_zero(kChrMaskWords, loaded_chr_mask);
 
-    info_exist_t info_exist;
-    info_exist.prekeys = nullptr;
+    info_exist_t* info_existp = nullptr;
     if (require_info_flattened) {
-      reterr = info_exist_init(tmp_alloc_end, require_info_flattened, &tmp_alloc_base, &info_exist);
+      reterr = info_exist_init(tmp_alloc_end, require_info_flattened, "require-info", &tmp_alloc_base, &info_existp);
       if (reterr) {
         goto load_pvar_ret_1;
       }
     }
-    info_exist_t info_nonexist;
-    info_nonexist.prekeys = nullptr;
+    info_exist_t* info_nonexistp = nullptr;
     if (require_no_info_flattened) {
-      reterr = info_exist_init(tmp_alloc_end, require_no_info_flattened, &tmp_alloc_base, &info_nonexist);
+      reterr = info_exist_init(tmp_alloc_end, require_no_info_flattened, "require-no-info", &tmp_alloc_base, &info_nonexistp);
       if (reterr) {
         goto load_pvar_ret_1;
       }
@@ -928,7 +952,7 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
       }
       info_pr_present = 0;
       info_reload_slen = 0;
-    } else if ((!info_pr_present) && (!info_reload_slen) && (!info_exist.prekeys) && (!info_nonexist.prekeys) && (!info_keep.prekey) && (!info_remove.prekey)) {
+    } else if ((!info_pr_present) && (!info_reload_slen) && (!info_existp) && (!info_nonexistp) && (!info_keep.prekey) && (!info_remove.prekey)) {
       info_col_present = 0;
     }
 
@@ -1184,13 +1208,13 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
                 goto load_pvar_skip_variant;
               }
             }
-            if (info_exist.prekeys) {
-              if (!info_exist_check(info_token, &info_exist)) {
+            if (info_existp) {
+              if (!info_exist_check(info_token, info_existp)) {
                 goto load_pvar_skip_variant;
               }
             }
-            if (info_nonexist.prekeys) {
-              if (!info_nonexist_check(info_token, &info_nonexist)) {
+            if (info_nonexistp) {
+              if (!info_nonexist_check(info_token, info_nonexistp)) {
                 goto load_pvar_skip_variant;
               }
             }
@@ -1479,7 +1503,7 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
               }
               ++allele_storage_iter;
               remaining_alt_char_ct -= cur_allele_slen + 1;
-              loadbuf_iter = alt_allele_iter;
+              loadbuf_iter = &(alt_allele_iter[1]);
               alt_allele_iter = (char*)memchr(loadbuf_iter, ',', remaining_alt_char_ct);
             } while (alt_allele_iter);
             if (!remaining_alt_char_ct) {
