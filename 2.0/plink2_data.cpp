@@ -35,16 +35,14 @@ pglerr_t write_map_or_bim(const char* outname, const uintptr_t* variant_include,
     const uint32_t max_chr_blen = get_max_chr_slen(cip) + 1;
     // includes trailing tab
     char* chr_buf;
-
-    unsigned char* overflow_buf;
-    if (bigstack_alloc_c(max_chr_blen, &chr_buf) ||
-        bigstack_alloc_uc(kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen, &overflow_buf)) {
+    if (bigstack_alloc_c(max_chr_blen, &chr_buf)) {
       goto write_map_or_bim_ret_NOMEM;
     }
-    if (cswrite_init(outname, 0, output_zst, overflow_buf, &css)) {
-      goto write_map_or_bim_ret_OPEN_FAIL;
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen;
+    reterr = cswrite_init2(outname, 0, output_zst, overflow_buf_size, &css, &cswritep);
+    if (reterr) {
+      goto write_map_or_bim_ret_1;
     }
-    cswritep = (char*)overflow_buf;
 
     const char output_missing_geno_char = *g_output_missing_geno_ptr;
     uint32_t variant_uidx = 0;
@@ -109,13 +107,11 @@ pglerr_t write_map_or_bim(const char* outname, const uintptr_t* variant_include,
   write_map_or_bim_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  write_map_or_bim_ret_OPEN_FAIL:
-    reterr = kPglRetOpenFail;
-    break;
   write_map_or_bim_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
   }
+ write_map_or_bim_ret_1:
   cswrite_close_cond(&css, cswritep);
   bigstack_reset(bigstack_mark);
   return reterr;
@@ -267,22 +263,20 @@ pglerr_t write_pvar(const char* outname, const char* xheader, const uintptr_t* v
     // includes trailing tab
     char* chr_buf;
 
+    uintptr_t* allele_include;
+    if (bigstack_alloc_c(max_chr_blen, &chr_buf) ||
+        bigstack_alloc_ul(BITCT_TO_WORDCT(kPglMaxAltAlleleCt), &allele_include)) {
+      goto write_pvar_ret_NOMEM;
+    }
     uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen + max_filter_slen + info_reload_slen;
     if (overflow_buf_size < 2 * kCompressStreamBlock) {
       overflow_buf_size = 2 * kCompressStreamBlock;
     }
-    unsigned char* overflow_buf;
-    uintptr_t* allele_include;
-    if (bigstack_alloc_c(max_chr_blen, &chr_buf) ||
-        bigstack_alloc_uc(overflow_buf_size, &overflow_buf) ||
-        bigstack_alloc_ul(BITCT_TO_WORDCT(kPglMaxAltAlleleCt), &allele_include)) {
-      goto write_pvar_ret_NOMEM;
-    }
     const uint32_t output_zst = (pvar_psam_modifier / kfPvarZs) & 1;
-    if (cswrite_init(outname, 0, output_zst, overflow_buf, &css)) {
-      goto write_pvar_ret_OPEN_FAIL;
+    reterr = cswrite_init2(outname, 0, output_zst, overflow_buf_size, &css, &cswritep);
+    if (reterr) {
+      goto write_pvar_ret_1;
     }
-    cswritep = (char*)overflow_buf;
     const uint32_t raw_variant_ctl = BITCT_TO_WORDCT(raw_variant_ct);
     const uint32_t all_nonref = (nonref_flags_storage == 2);
     uint32_t write_info_pr = all_nonref;
@@ -497,9 +491,6 @@ pglerr_t write_pvar(const char* outname, const char* xheader, const uintptr_t* v
   while (0) {
   write_pvar_ret_NOMEM:
     reterr = kPglRetNomem;
-    break;
-  write_pvar_ret_OPEN_FAIL:
-    reterr = kPglRetOpenFail;
     break;
   write_pvar_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
@@ -3399,15 +3390,14 @@ pglerr_t write_bim_resorted(const char* outname, const chr_info_t* write_cip, co
     // includes trailing tab
     char* chr_buf;
 
-    unsigned char* overflow_buf;
-    if (bigstack_alloc_c(max_chr_blen, &chr_buf) ||
-        bigstack_alloc_uc(kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen, &overflow_buf)) {
+    if (bigstack_alloc_c(max_chr_blen, &chr_buf)) {
       goto write_bim_resorted_ret_NOMEM;
     }
-    if (cswrite_init(outname, 0, output_zst, overflow_buf, &css)) {
-      goto write_bim_resorted_ret_OPEN_FAIL;
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen;
+    reterr = cswrite_init2(outname, 0, output_zst, overflow_buf_size, &css, &cswritep);
+    if (reterr) {
+      goto write_bim_resorted_ret_1;
     }
-    cswritep = (char*)overflow_buf;
 
     const char output_missing_geno_char = *g_output_missing_geno_ptr;
     uint32_t chr_fo_idx = UINT32_MAX;
@@ -3469,13 +3459,11 @@ pglerr_t write_bim_resorted(const char* outname, const chr_info_t* write_cip, co
   write_bim_resorted_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  write_bim_resorted_ret_OPEN_FAIL:
-    reterr = kPglRetOpenFail;
-    break;
   write_bim_resorted_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
   }
+ write_bim_resorted_ret_1:
   cswrite_close_cond(&css, cswritep);
   bigstack_reset(bigstack_mark);
   return reterr;
@@ -3667,22 +3655,20 @@ pglerr_t write_pvar_resorted(const char* outname, const char* xheader, const uin
     // includes trailing tab
     char* chr_buf;
 
+    uintptr_t* allele_include;
+    if (bigstack_alloc_c(max_chr_blen, &chr_buf) ||
+        bigstack_alloc_ul(BITCT_TO_WORDCT(kPglMaxAltAlleleCt), &allele_include)) {
+      goto write_pvar_resorted_ret_NOMEM;
+    }
     uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen + max_filter_slen + info_reload_slen;
     if (overflow_buf_size < 2 * kCompressStreamBlock) {
       overflow_buf_size = 2 * kCompressStreamBlock;
     }
-    unsigned char* overflow_buf;
-    uintptr_t* allele_include;
-    if (bigstack_alloc_c(max_chr_blen, &chr_buf) ||
-        bigstack_alloc_uc(overflow_buf_size, &overflow_buf) ||
-        bigstack_alloc_ul(BITCT_TO_WORDCT(kPglMaxAltAlleleCt), &allele_include)) {
-      goto write_pvar_resorted_ret_NOMEM;
-    }
     const uint32_t output_zst = (pvar_psam_modifier / kfPvarZs) & 1;
-    if (cswrite_init(outname, 0, output_zst, overflow_buf, &css)) {
-      goto write_pvar_resorted_ret_OPEN_FAIL;
+    reterr = cswrite_init2(outname, 0, output_zst, overflow_buf_size, &css, &cswritep);
+    if (reterr) {
+      goto write_pvar_resorted_ret_1;
     }
-    cswritep = (char*)overflow_buf;
     const uint32_t raw_variant_ctl = BITCT_TO_WORDCT(raw_variant_ct);
     const uint32_t all_nonref = (nonref_flags_storage == 2);
     uint32_t write_info_pr = all_nonref;
@@ -3837,9 +3823,6 @@ pglerr_t write_pvar_resorted(const char* outname, const char* xheader, const uin
   while (0) {
   write_pvar_resorted_ret_NOMEM:
     reterr = kPglRetNomem;
-    break;
-  write_pvar_resorted_ret_OPEN_FAIL:
-    reterr = kPglRetOpenFail;
     break;
   write_pvar_resorted_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;

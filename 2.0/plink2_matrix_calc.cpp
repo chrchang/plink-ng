@@ -985,17 +985,13 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
     if (matrix_shape) {
       set_king_matrix_fname(king_modifier, parallel_idx, parallel_tot, outname_end);
       if (!(king_modifier & (kfKingMatrixBin | kfKingMatrixBin4))) {
-        unsigned char* overflow_buf;
         // text matrix
         // won't be >2gb since sample_ct <= 134m
         const uint32_t overflow_buf_size = kCompressStreamBlock + 16 * sample_ct;
-        if (bigstack_alloc_uc(overflow_buf_size, &overflow_buf)) {
-          goto calc_king_ret_NOMEM;
+        reterr = cswrite_init2(outname, 0, king_modifier & kfKingMatrixZs, overflow_buf_size, &css, &cswritep);
+        if (reterr) {
+          goto calc_king_ret_1;
         }
-        if (cswrite_init(outname, 0, king_modifier & kfKingMatrixZs, overflow_buf, &css)) {
-          goto calc_king_ret_OPEN_FAIL;
-        }
-        cswritep = (char*)overflow_buf;
       } else {
         if (fopen_checked(outname, FOPEN_WB, &outfile)) {
           goto calc_king_ret_OPEN_FAIL;
@@ -1010,15 +1006,11 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
     char* collapsed_sample_augids = nullptr;
     if (king_modifier & kfKingColAll) {
       const uint32_t overflow_buf_size = kCompressStreamBlock + kMaxMediumLine;
-      unsigned char* overflow_buf;
-      if (bigstack_alloc_uc(overflow_buf_size, &overflow_buf)) {
-        goto calc_king_ret_NOMEM;
-      }
       set_king_table_fname(king_modifier, parallel_idx, parallel_tot, outname_end);
-      if (cswrite_init(outname, 0, king_modifier & kfKingTableZs, overflow_buf, &csst)) {
-        goto calc_king_ret_OPEN_FAIL;
+      reterr = cswrite_init2(outname, 0, king_modifier & kfKingTableZs, overflow_buf_size, &csst, &cswritetp);
+      if (reterr) {
+        goto calc_king_ret_1;
       }
-      cswritetp = (char*)overflow_buf;
 
       king_col_sid = sid_col_required(sample_include, sids, sample_ct, max_sid_blen, king_modifier / kfKingColMaybesid);
       if (!parallel_idx) {
@@ -1975,7 +1967,6 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
     uintptr_t* loadbuf;
     uintptr_t* splitbuf_hom;
     uintptr_t* splitbuf_ref2het;
-    unsigned char* overflow_buf;
     // ok if allocations are a bit oversized
     if (bigstack_alloc_ul(raw_sample_ctl, &cur_sample_include) ||
         bigstack_alloc_ui(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
@@ -1985,8 +1976,7 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
         bigstack_alloc_ul(king_bufsizew, &(g_smaj_hom[0])) ||
         bigstack_alloc_ul(king_bufsizew, &(g_smaj_ref2het[0])) ||
         bigstack_alloc_ul(king_bufsizew, &(g_smaj_hom[1])) ||
-        bigstack_alloc_ul(king_bufsizew, &(g_smaj_ref2het[1])) ||
-        bigstack_alloc_uc(kCompressStreamBlock + kMaxMediumLine, &overflow_buf)) {
+        bigstack_alloc_ul(king_bufsizew, &(g_smaj_ref2het[1]))) {
       goto calc_king_table_subset_ret_NOMEM;
     }
     // force this to be cacheline-aligned
@@ -2024,10 +2014,10 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
     }
 
     // Safe to "write" the header line now, if necessary.
-    if (cswrite_init(outname, 0, king_modifier & kfKingTableZs, overflow_buf, &css)) {
-      goto calc_king_table_subset_ret_OPEN_FAIL;
+    reterr = cswrite_init2(outname, 0, king_modifier & kfKingTableZs, kMaxMediumLine + kCompressStreamBlock, &css, &cswritep);
+    if (reterr) {
+      goto calc_king_table_subset_ret_1;
     }
-    cswritep = (char*)overflow_buf;
     const uint32_t king_col_sid = sid_col_required(orig_sample_include, sids, orig_sample_ct, max_sid_blen, king_modifier / kfKingColMaybesid);
     if (!parallel_idx) {
       cswritep = append_king_table_header(king_modifier, king_col_sid, cswritep);
@@ -3232,10 +3222,6 @@ pglerr_t calc_grm(const uintptr_t* orig_sample_include, const char* sample_ids, 
             goto calc_grm_ret_WRITE_FAIL;
           }
         } else {
-          unsigned char* overflow_buf;
-          if (bigstack_alloc_uc(kCompressStreamBlock + 16 * row_end_idx, &overflow_buf)) {
-            goto calc_grm_ret_NOMEM;
-          }
           char* outname_end2 = strcpya(outname_end, ".rel");
           if (parallel_tot != 1) {
             *outname_end2++ = '.';
@@ -3246,10 +3232,10 @@ pglerr_t calc_grm(const uintptr_t* orig_sample_include, const char* sample_ids, 
             outname_end2 = strcpya(outname_end2, ".zst");
           }
           *outname_end2 = '\0';
-          if (cswrite_init(outname, 0, output_zst, overflow_buf, &css)) {
-            goto calc_grm_ret_OPEN_FAIL;
+          reterr = cswrite_init2(outname, 0, output_zst, kCompressStreamBlock + 16 * row_end_idx, &css, &cswritep);
+          if (reterr) {
+            goto calc_grm_ret_1;
           }
-          cswritep = (char*)overflow_buf;
           uintptr_t row_idx = row_start_idx;
           do {
             const double* grm_iter = &(grm[(row_idx - row_start_idx) * row_end_idx]);
@@ -3396,10 +3382,6 @@ pglerr_t calc_grm(const uintptr_t* orig_sample_include, const char* sample_ids, 
           log_write_iter = memcpya(log_write_iter, outname, (uintptr_t)(outname_end2 - outname));
         } else {
           // --make-grm-gz
-          unsigned char* overflow_buf;
-          if (bigstack_alloc_uc(kCompressStreamBlock + kMaxMediumLine, &overflow_buf)) {
-            goto calc_grm_ret_NOMEM;
-          }
           char* outname_end2 = strcpya(outname_end, ".grm");
           if (parallel_tot != 1) {
             *outname_end2++ = '.';
@@ -3408,16 +3390,22 @@ pglerr_t calc_grm(const uintptr_t* orig_sample_include, const char* sample_ids, 
           if (grm_flags & kfGrmTableGz) {
             // since the flag is named --make-grm-gz, we maintain support for
             // gzipped output, but it's deprecated (no longer parallel).
-            ZWRAP_useZSTDcompression(0);
-            outname_end2 = strcpya(outname_end2, ".gz");
+
+            // actually, temporarily disable this while we add support for
+            // multithreaded .zst compression
+            logerrprint("Error: --make-grm-gz .gz output is currently disabled.  Add 'no-gz' or 'zs'.\n");
+            reterr = kPglRetNotYetSupported;
+            goto calc_grm_ret_1;
+            // ZWRAP_useZSTDcompression(0);
+            // outname_end2 = strcpya(outname_end2, ".gz");
           } else if (grm_flags & kfGrmTableZs) {
             outname_end2 = strcpya(outname_end2, ".zst");
           }
           *outname_end2 = '\0';
-          if (cswrite_init(outname, 0, !(grm_flags & kfGrmTableNoGz), overflow_buf, &css)) {
-            goto calc_grm_ret_OPEN_FAIL;
+          reterr = cswrite_init2(outname, 0, !(grm_flags & kfGrmTableNoGz), kCompressStreamBlock + kMaxMediumLine, &css, &cswritep);
+          if (reterr) {
+            goto calc_grm_ret_1;
           }
-          cswritep = (char*)overflow_buf;
           fputs("--make-grm-gz: Writing...", stdout);
           fflush(stdout);
           for (uintptr_t row_idx = row_start_idx; row_idx < row_end_idx; ++row_idx) {
@@ -3803,7 +3791,7 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
     double* cur_var_wts = nullptr;
     double* eigval_inv_sqrts = nullptr;
     char* chr_buf = nullptr;
-    uintptr_t writebuf_alloc = 3 * kMaxMediumLine;
+    uintptr_t overflow_buf_size = 3 * kMaxMediumLine;
     if (var_wts) {
       if (bigstack_alloc_d(pc_ct, &cur_var_wts) ||
           bigstack_alloc_d(pc_ct, &eigval_inv_sqrts)) {
@@ -3816,10 +3804,14 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
           goto calc_pca_ret_NOMEM;
         }
       }
-      const uintptr_t writebuf_alloc2 = kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 2 * max_allele_slen + 32 + 16 * pc_ct;
-      if (writebuf_alloc2 > writebuf_alloc) {
-        writebuf_alloc = writebuf_alloc2;
+      const uintptr_t overflow_buf_size2 = round_up_pow2(kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 2 * max_allele_slen + 32 + 16 * pc_ct, kCacheline);
+      if (overflow_buf_size2 > overflow_buf_size) {
+        overflow_buf_size = overflow_buf_size2;
       }
+    }
+    uintptr_t writebuf_alloc = overflow_buf_size;
+    if (pca_flags & kfPcaVarZs) {
+      writebuf_alloc += css_wkspace_req(overflow_buf_size);
     }
     // temporary
     // todo: additional --pca-clusters allocations
@@ -4224,8 +4216,9 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
       if (output_zst) {
         strcpy(outname_end2, ".zst");
       }
-      if (cswrite_init(outname, 0, output_zst, (unsigned char*)writebuf, &css)) {
-        goto calc_pca_ret_OPEN_FAIL;
+      reterr = cswrite_init(outname, 0, output_zst, overflow_buf_size, (unsigned char*)writebuf, (unsigned char*)(&(writebuf[overflow_buf_size])), &css);
+      if (reterr) {
+        goto calc_pca_ret_1;
       }
       cswritep = writebuf;
       *cswritep++ = '#';
@@ -4474,6 +4467,11 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
               cswritep = dtoa_g((*var_wts_iter++) * eigval_inv_sqrts[pc_idx], cswritep);
             }
             append_binary_eoln(&cswritep);
+            if (cswrite(&css, &cswritep)) {
+              // bugfix (15 Dec 2017): prevent buffer overflow when ALT, MAJ,
+              // and NONMAJ columns all missing.
+              goto calc_pca_ret_WRITE_FAIL;
+            }
           }
         }
         if (cur_variant_idx_start == variant_ct) {
@@ -4806,6 +4804,11 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
     const uint32_t acc8_vec_ct = acc1_vec_ct * 8;
     const uint32_t write_score_avgs = (score_flags / kfScoreColScoreAvgs) & 1;
     const uint32_t write_score_sums = (score_flags / kfScoreColScoreSums) & 1;
+    const uintptr_t overflow_buf_size = round_up_pow2((score_col_ct * (write_score_avgs + write_score_sums) + pheno_ct) * 16 + 3 * kMaxIdSlen + kCompressStreamBlock + 64, kCacheline);
+    uintptr_t overflow_buf_alloc = overflow_buf_size;
+    if (score_flags & (kfScoreZs | kfScoreListVariantsZs)) {
+      overflow_buf_alloc += css_wkspace_req(overflow_buf_size);
+    }
     uint32_t* sample_include_cumulative_popcounts = nullptr;
     uintptr_t* sex_nonmale_collapsed = nullptr;
     uintptr_t* genovec_buf = nullptr;
@@ -4834,7 +4837,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
         bigstack_calloc_ull(sample_ct, &dosage_sums) ||
         bigstack_calloc_ull(sample_ct, &dosage_incrs) ||
         bigstack_calloc_ul(raw_variant_ctl, &already_seen) ||
-        bigstack_alloc_uc((score_col_ct * (write_score_avgs + write_score_sums) + pheno_ct) * 16 + 3 * kMaxIdSlen + kCompressStreamBlock + 64, &overflow_buf)) {
+        bigstack_alloc_uc(overflow_buf_alloc, &overflow_buf)) {
       goto score_report_ret_NOMEM;
     }
     uintptr_t* missing_diploid_acc4 = &(missing_acc1[acc1_vec_ct * kWordsPerVec]);
@@ -4868,8 +4871,9 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
       if (output_zst) {
         strcpy(outname_end2, ".zst");
       }
-      if (cswrite_init(outname, 0, output_zst, overflow_buf, &css)) {
-        goto score_report_ret_OPEN_FAIL;
+      reterr = cswrite_init(outname, 0, output_zst, overflow_buf_size, overflow_buf, &(overflow_buf[overflow_buf_size]), &css);
+      if (reterr) {
+        goto score_report_ret_1;
       }
       cswritep = (char*)overflow_buf;
     }
@@ -5267,8 +5271,9 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
     if (output_zst) {
       strcpy(outname_end2, ".zst");
     }
-    if (cswrite_init(outname, 0, output_zst, overflow_buf, &css)) {
-      goto score_report_ret_OPEN_FAIL;
+    reterr = cswrite_init(outname, 0, output_zst, overflow_buf_size, overflow_buf, &(overflow_buf[overflow_buf_size]), &css);
+    if (reterr) {
+      goto score_report_ret_1;
     }
     cswritep = (char*)overflow_buf;
     // see e.g. write_psam() in plink2_data.cpp
@@ -5420,9 +5425,6 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
     }
   score_report_ret_NOMEM:
     reterr = kPglRetNomem;
-    break;
-  score_report_ret_OPEN_FAIL:
-    reterr = kPglRetOpenFail;
     break;
   score_report_ret_READ_FAIL:
     reterr = kPglRetReadFail;

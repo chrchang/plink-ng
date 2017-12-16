@@ -3938,7 +3938,7 @@ pglerr_t read_local_covar_block(const uintptr_t* sample_include, const uintptr_t
 
 // only pass the parameters which aren't also needed by the compute threads,
 // for now
-pglerr_t glm_logistic(const char* cur_pheno_name, char** test_names, char** test_names_x, char** test_names_y, const uint32_t* variant_bps, char** variant_ids, char** allele_storage, const glm_info_t* glm_info_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const char* outname, uint32_t raw_variant_ct, uint32_t max_chr_blen, double ci_size, double pfilter, double output_min_p, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uint32_t local_sample_ct, uint32_t local_loadbuf_size, pgen_file_info_t* pgfip, gzFile gz_local_covar_file, uintptr_t* valid_variants, double* orig_pvals, double* orig_chisq, unsigned char* overflow_buf, char* local_loadbuf) {
+pglerr_t glm_logistic(const char* cur_pheno_name, char** test_names, char** test_names_x, char** test_names_y, const uint32_t* variant_bps, char** variant_ids, char** allele_storage, const glm_info_t* glm_info_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const char* outname, uint32_t raw_variant_ct, uint32_t max_chr_blen, double ci_size, double pfilter, double output_min_p, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, uint32_t local_loadbuf_size, pgen_file_info_t* pgfip, gzFile gz_local_covar_file, uintptr_t* valid_variants, double* orig_pvals, double* orig_chisq, char* local_loadbuf) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   compress_stream_state_t css;
@@ -3990,8 +3990,9 @@ pglerr_t glm_logistic(const char* cur_pheno_name, char** test_names, char** test
     // er, do not want to use multithreaded compression here... make sure to
     // add a forced-singlethreaded mode when multithreaded compression is
     // implemented.
-    if (cswrite_init(outname, 0, output_zst, overflow_buf, &css)) {
-      goto glm_logistic_ret_OPEN_FAIL;
+    reterr = cswrite_init2(outname, 0, output_zst, overflow_buf_size, &css, &cswritep);
+    if (reterr) {
+      goto glm_logistic_ret_1;
     }
     const uint32_t add_interactions = (glm_flags / kfGlmInteraction) & 1;
     const uint32_t domdev_present = (glm_flags & (kfGlmGenotypic | kfGlmHethom))? 1 : 0;
@@ -4148,7 +4149,6 @@ pglerr_t glm_logistic(const char* cur_pheno_name, char** test_names, char** test
     const uint32_t ci_col = (ci_size != 0.0) && (glm_cols & kfGlmColCi);
     const uint32_t t_col = glm_cols & kfGlmColT;
     const uint32_t p_col = glm_cols & kfGlmColP;
-    cswritep = (char*)overflow_buf;
     *cswritep++ = '#';
     if (chr_col) {
       cswritep = strcpya(cswritep, "CHROM\t");
@@ -4623,9 +4623,6 @@ pglerr_t glm_logistic(const char* cur_pheno_name, char** test_names, char** test
   while (0) {
   glm_logistic_ret_NOMEM:
     reterr = kPglRetNomem;
-    break;
-  glm_logistic_ret_OPEN_FAIL:
-    reterr = kPglRetOpenFail;
     break;
   glm_logistic_ret_READ_FAIL:
     reterr = kPglRetReadFail;
@@ -5391,7 +5388,7 @@ THREAD_FUNC_DECL glm_linear_thread(void* arg) {
   }
 }
 
-pglerr_t glm_linear(const char* cur_pheno_name, char** test_names, char** test_names_x, char** test_names_y, const uint32_t* variant_bps, char** variant_ids, char** allele_storage, const glm_info_t* glm_info_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const char* outname, uint32_t raw_variant_ct, uint32_t max_chr_blen, double ci_size, double pfilter, double output_min_p, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uint32_t local_sample_ct, uint32_t local_loadbuf_size, pgen_file_info_t* pgfip, gzFile gz_local_covar_file, uintptr_t* valid_variants, double* orig_pvals, double* orig_chisq, unsigned char* overflow_buf, char* local_loadbuf) {
+pglerr_t glm_linear(const char* cur_pheno_name, char** test_names, char** test_names_x, char** test_names_y, const uint32_t* variant_bps, char** variant_ids, char** allele_storage, const glm_info_t* glm_info_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const char* outname, uint32_t raw_variant_ct, uint32_t max_chr_blen, double ci_size, double pfilter, double output_min_p, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, uint32_t local_loadbuf_size, pgen_file_info_t* pgfip, gzFile gz_local_covar_file, uintptr_t* valid_variants, double* orig_pvals, double* orig_chisq, char* local_loadbuf) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   compress_stream_state_t css;
@@ -5440,8 +5437,9 @@ pglerr_t glm_linear(const char* cur_pheno_name, char** test_names, char** test_n
 
     const glm_flags_t glm_flags = glm_info_ptr->flags;
     const uint32_t output_zst = (glm_flags / kfGlmZs) & 1;
-    if (cswrite_init(outname, 0, output_zst, overflow_buf, &css)) {
-      goto glm_linear_ret_OPEN_FAIL;
+    reterr = cswrite_init2(outname, 0, output_zst, overflow_buf_size, &css, &cswritep);
+    if (reterr) {
+      goto glm_linear_ret_1;
     }
     const uint32_t add_interactions = (glm_flags / kfGlmInteraction) & 1;
     const uint32_t domdev_present = (glm_flags & (kfGlmGenotypic | kfGlmHethom))? 1 : 0;
@@ -5585,7 +5583,6 @@ pglerr_t glm_linear(const char* cur_pheno_name, char** test_names, char** test_n
     const uint32_t ci_col = (ci_size != 0.0) && (glm_cols & kfGlmColCi);
     const uint32_t t_col = glm_cols & kfGlmColT;
     const uint32_t p_col = glm_cols & kfGlmColP;
-    cswritep = (char*)overflow_buf;
     *cswritep++ = '#';
     if (chr_col) {
       cswritep = strcpya(cswritep, "CHROM\t");
@@ -6010,9 +6007,6 @@ pglerr_t glm_linear(const char* cur_pheno_name, char** test_names, char** test_n
   glm_linear_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  glm_linear_ret_OPEN_FAIL:
-    reterr = kPglRetOpenFail;
-    break;
   glm_linear_ret_READ_FAIL:
     reterr = kPglRetReadFail;
     break;
@@ -6112,11 +6106,12 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
     *outname_end = '.';
     const uint32_t raw_sample_ctl = BITCT_TO_WORDCT(raw_sample_ct);
     const uint32_t max_chr_blen = get_max_chr_slen(cip) + 1;
-    unsigned char* overflow_buf;
-    uintptr_t* cur_sample_include;
+
     // synthetic categorical covariate name could be ~twice max ID length?
-    if (bigstack_alloc_uc(kCompressStreamBlock + 2 * kMaxIdSlen + max_chr_blen + kMaxIdSlen + 1024 + 2 * max_allele_slen, &overflow_buf) ||
-        bigstack_alloc_ul(raw_sample_ctl, &cur_sample_include) ||
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + 2 * kMaxIdSlen + max_chr_blen + kMaxIdSlen + 1024 + 2 * max_allele_slen;
+
+    uintptr_t* cur_sample_include;
+    if (bigstack_alloc_ul(raw_sample_ctl, &cur_sample_include) ||
         bigstack_alloc_ui(raw_sample_ctl, &g_sample_include_cumulative_popcounts)) {
       goto glm_main_ret_NOMEM;
     }
@@ -7167,9 +7162,9 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
       *outname_end2 = '\0';
 
       if (is_logistic) {
-        reterr = glm_logistic(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, outname, raw_variant_ct, max_chr_blen, ci_size, pfilter, output_min_p, max_thread_ct, pgr_alloc_cacheline_ct, local_sample_ct, local_loadbuf_size, pgfip, gz_local_covar_file, valid_variants, orig_pvals, orig_chisq, overflow_buf, local_loadbuf);
+        reterr = glm_logistic(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, outname, raw_variant_ct, max_chr_blen, ci_size, pfilter, output_min_p, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, local_loadbuf_size, pgfip, gz_local_covar_file, valid_variants, orig_pvals, orig_chisq, local_loadbuf);
       } else {
-        reterr = glm_linear(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, outname, raw_variant_ct, max_chr_blen, ci_size, pfilter, output_min_p, max_thread_ct, pgr_alloc_cacheline_ct, local_sample_ct, local_loadbuf_size, pgfip, gz_local_covar_file, valid_variants, orig_pvals, orig_chisq, overflow_buf, local_loadbuf);
+        reterr = glm_linear(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, outname, raw_variant_ct, max_chr_blen, ci_size, pfilter, output_min_p, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, local_loadbuf_size, pgfip, gz_local_covar_file, valid_variants, orig_pvals, orig_chisq, local_loadbuf);
       }
       if (reterr) {
         goto glm_main_ret_1;

@@ -1507,18 +1507,15 @@ pglerr_t write_allele_freqs(const uintptr_t* variant_include, const chr_info_t* 
     }
     if (!(allele_freq_modifier & kfAlleleFreqBinsOnly)) {
       const uint32_t max_chr_blen = get_max_chr_slen(cip) + 1;
-      unsigned char* overflow_buf;
-      if (bigstack_alloc_uc(kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 512 + max_alt_allele_ct * (24 * k1LU) + 2 * max_allele_slen, &overflow_buf)) {
-        goto write_allele_freqs_ret_NOMEM;
-      }
+      const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 512 + max_alt_allele_ct * (24 * k1LU) + 2 * max_allele_slen;
       const uint32_t output_zst = allele_freq_modifier & kfAlleleFreqZs;
       if (output_zst) {
         strcpy(&(outname_end[6 + counts]), ".zst");
       }
-      if (cswrite_init(outname, 0, output_zst, overflow_buf, &css)) {
-        goto write_allele_freqs_ret_OPEN_FAIL;
+      reterr = cswrite_init2(outname, 0, output_zst, overflow_buf_size, &css, &cswritep);
+      if (reterr) {
+        goto write_allele_freqs_ret_1;
       }
-      cswritep = (char*)overflow_buf;
       *cswritep++ = '#';
       const uint32_t chr_col = allele_freq_modifier & kfAlleleFreqColChrom;
 
@@ -1908,10 +1905,8 @@ pglerr_t write_geno_counts(__attribute__((unused)) const uintptr_t* sample_inclu
   cswrite_init_null(&css);
   {
     const uint32_t max_chr_blen = get_max_chr_slen(cip) + 1;
-    unsigned char* overflow_buf;
     char* chr_buf;
-    if (bigstack_alloc_uc(kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 512 + simple_pgrp->fi.max_alt_allele_ct * (24 * k1LU) + 2 * max_allele_slen, &overflow_buf) ||
-        bigstack_alloc_c(max_chr_blen, &chr_buf)) {
+    if (bigstack_alloc_c(max_chr_blen, &chr_buf)) {
       goto write_geno_counts_ret_NOMEM;
     }
     /*
@@ -1938,15 +1933,16 @@ pglerr_t write_geno_counts(__attribute__((unused)) const uintptr_t* sample_inclu
       pgr_clear_ld_cache(simple_pgrp);
     }
     */
+    const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 512 + simple_pgrp->fi.max_alt_allele_ct * (24 * k1LU) + 2 * max_allele_slen;
     const uint32_t output_zst = geno_counts_modifier & kfGenoCountsZs;
     char* outname_end2 = strcpya0(outname_end, ".gcount");
     if (output_zst) {
       strcpy(outname_end2, ".zst");
     }
-    if (cswrite_init(outname, 0, output_zst, overflow_buf, &css)) {
-      goto write_geno_counts_ret_OPEN_FAIL;
+    reterr = cswrite_init2(outname, 0, output_zst, overflow_buf_size, &css, &cswritep);
+    if (reterr) {
+      goto write_geno_counts_ret_1;
     }
-    cswritep = (char*)overflow_buf;
     *cswritep++ = '#';
     const uint32_t chr_col = geno_counts_modifier & kfGenoCountsColChrom;
 
@@ -2243,14 +2239,11 @@ pglerr_t write_geno_counts(__attribute__((unused)) const uintptr_t* sample_inclu
   write_geno_counts_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  write_geno_counts_ret_OPEN_FAIL:
-    reterr = kPglRetOpenFail;
-    break;
   write_geno_counts_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
   }
-  // write_geno_counts_ret_1:
+ write_geno_counts_ret_1:
   cswrite_close_cond(&css, cswritep);
   bigstack_reset(bigstack_mark);
   return reterr;
@@ -2265,18 +2258,16 @@ pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintpt
   {
     const uint32_t output_zst = missing_rpt_modifier & kfMissingRptZs;
     if (!(missing_rpt_modifier & kfMissingRptVariantOnly)) {
-      unsigned char* overflow_buf;
-      if (bigstack_alloc_uc(kCompressStreamBlock + kMaxMediumLine + pheno_ct * 2, &overflow_buf)) {
-        goto write_missingness_reports_ret_NOMEM;
-      }
+      const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxMediumLine + pheno_ct * 2;
       char* outname_end2 = strcpya0(outname_end, ".smiss");
       if (output_zst) {
         strcpy(outname_end2, ".zst");
       }
-      if (cswrite_init(outname, 0, output_zst, overflow_buf, &css)) {
-        goto write_missingness_reports_ret_OPEN_FAIL;
+      reterr = cswrite_init2(outname, 0, output_zst, overflow_buf_size, &css, &cswritep);
+      if (reterr) {
+        goto write_missingness_reports_ret_1;
       }
-      cswritep = strcpya((char*)overflow_buf, "#FID\tIID");
+      cswritep = strcpya(cswritep, "#FID\tIID");
       const uint32_t scol_sid = sid_col_required(sample_include, sids, sample_ct, max_sid_blen, missing_rpt_modifier / kfMissingRptScolMaybesid);
       if (scol_sid) {
         cswritep = strcpya(cswritep, "\tSID");
@@ -2423,20 +2414,19 @@ pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintpt
     }
     if (!(missing_rpt_modifier & kfMissingRptSampleOnly)) {
       const uint32_t max_chr_blen = get_max_chr_slen(cip) + 1;
-      unsigned char* overflow_buf;
       char* chr_buf; // includes trailing tab
-      if (bigstack_alloc_uc(kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 512 + 2 * max_allele_slen, &overflow_buf) ||
-          bigstack_alloc_c(max_chr_blen, &chr_buf)) {
+      if (bigstack_alloc_c(max_chr_blen, &chr_buf)) {
         goto write_missingness_reports_ret_NOMEM;
       }
+      const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 512 + 2 * max_allele_slen;
       char* outname_end2 = strcpya0(outname_end, ".vmiss");
       if (output_zst) {
         strcpy(outname_end2, ".zst");
       }
-      if (cswrite_init(outname, 0, output_zst, overflow_buf, &css)) {
-        goto write_missingness_reports_ret_OPEN_FAIL;
+      reterr = cswrite_init2(outname, 0, output_zst, overflow_buf_size, &css, &cswritep);
+      if (reterr) {
+        goto write_missingness_reports_ret_1;
       }
-      cswritep = (char*)overflow_buf;
       *cswritep++ = '#';
       const uint32_t chr_col = missing_rpt_modifier & kfMissingRptVcolChrom;
 
@@ -2634,13 +2624,11 @@ pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintpt
   write_missingness_reports_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  write_missingness_reports_ret_OPEN_FAIL:
-    reterr = kPglRetOpenFail;
-    break;
   write_missingness_reports_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
   }
+write_missingness_reports_ret_1:
   bigstack_reset(bigstack_mark);
   cswrite_close_cond(&css, cswritep);
   return reterr;
@@ -2786,9 +2774,15 @@ pglerr_t hardy_report(const uintptr_t* variant_include, const chr_info_t* cip, c
     const uint32_t max_chr_blen = get_max_chr_slen(cip) + 1;
     const uint32_t chr_code_end = cip->max_code + 1 + cip->name_ct;
     const uint32_t chr_code_endl = BITCT_TO_WORDCT(chr_code_end);
+    const uintptr_t overflow_buf_size = round_up_pow2(kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 512 + 2 * max_allele_slen, kCacheline);
+    const uint32_t output_zst = hardy_modifier & kfHardyZs;
+    uintptr_t overflow_buf_alloc = overflow_buf_size;
+    if (output_zst) {
+      overflow_buf_alloc += css_wkspace_req(overflow_buf_size);
+    }
     unsigned char* overflow_buf;
     uintptr_t* chr_skips;
-    if (bigstack_alloc_uc(kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 512 + 2 * max_allele_slen, &overflow_buf) ||
+    if (bigstack_alloc_uc(overflow_buf_alloc, &overflow_buf) ||
         bigstack_alloc_ul(chr_code_endl, &chr_skips)) {
       goto hardy_report_ret_NOMEM;
     }
@@ -2812,7 +2806,6 @@ pglerr_t hardy_report(const uintptr_t* variant_include, const chr_info_t* cip, c
       LOGPRINTF("--hardy: Skipping %u haploid/chrM variant%s.\n", variant_skip_ct - hwe_x_ct, (variant_skip_ct - hwe_x_ct == 1)? "" : "s");
     }
     variant_ct -= variant_skip_ct;
-    const uint32_t output_zst = hardy_modifier & kfHardyZs;
     const uint32_t midp = (hardy_modifier / kfHardyMidp) & 1;
     const uint32_t chr_col = hardy_modifier & kfHardyColChrom;
     const uint32_t ref_col = hardy_modifier & kfHardyColRef;
@@ -2828,8 +2821,9 @@ pglerr_t hardy_report(const uintptr_t* variant_include, const chr_info_t* cip, c
       if (output_zst) {
         strcpy(outname_end2, ".zst");
       }
-      if (cswrite_init(outname, 0, output_zst, overflow_buf, &css)) {
-        goto hardy_report_ret_OPEN_FAIL;
+      reterr = cswrite_init(outname, 0, output_zst, overflow_buf_size, overflow_buf, &(overflow_buf[overflow_buf_size]), &css);
+      if (reterr) {
+        goto hardy_report_ret_1;
       }
       cswritep = (char*)overflow_buf;
       *cswritep++ = '#';
@@ -2979,8 +2973,9 @@ pglerr_t hardy_report(const uintptr_t* variant_include, const chr_info_t* cip, c
       if (output_zst) {
         strcpy(outname_end2, ".zst");
       }
-      if (cswrite_init(outname, 0, output_zst, overflow_buf, &css)) {
-        goto hardy_report_ret_OPEN_FAIL;
+      reterr = cswrite_init(outname, 0, output_zst, overflow_buf_size, overflow_buf, &(overflow_buf[overflow_buf_size]), &css);
+      if (reterr) {
+        goto hardy_report_ret_1;
       }
       cswritep = (char*)overflow_buf;
       *cswritep++ = '#';
@@ -3152,9 +3147,6 @@ pglerr_t hardy_report(const uintptr_t* variant_include, const chr_info_t* cip, c
   hardy_report_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  hardy_report_ret_OPEN_FAIL:
-    reterr = kPglRetOpenFail;
-    break;
   hardy_report_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
@@ -3162,6 +3154,7 @@ pglerr_t hardy_report(const uintptr_t* variant_include, const chr_info_t* cip, c
     reterr = kPglRetInconsistentInput;
     break;
   }
+ hardy_report_ret_1:
   cswrite_close_cond(&css, cswritep);
   bigstack_reset(bigstack_mark);
   return reterr;
@@ -3174,18 +3167,14 @@ pglerr_t write_snplist(const uintptr_t* variant_include, char** variant_ids, uin
   pglerr_t reterr = kPglRetSuccess;
   cswrite_init_null(&css);
   {
-    unsigned char* overflow_buf;
-    if (bigstack_alloc_uc(kCompressStreamBlock + kMaxIdSlen + 2, &overflow_buf)) {
-      goto write_snplist_ret_NOMEM;
-    }
     char* outname_end2 = strcpy(outname_end, ".snplist");
     if (output_zst) {
       strcpy(outname_end2, ".zst");
     }
-    if (cswrite_init(outname, 0, output_zst, overflow_buf, &css)) {
-      goto write_snplist_ret_OPEN_FAIL;
+    reterr = cswrite_init2(outname, 0, output_zst, kCompressStreamBlock + kMaxIdSlen + 2, &css, &cswritep);
+    if (reterr) {
+      goto write_snplist_ret_1;
     }
-    cswritep = (char*)overflow_buf;
     uint32_t variant_uidx = 0;
     for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
       next_set_unsafe_ck(variant_include, &variant_uidx);
@@ -3201,16 +3190,11 @@ pglerr_t write_snplist(const uintptr_t* variant_include, char** variant_ids, uin
     LOGPRINTFWW("--write-snplist%s: Variant IDs written to %s .\n", output_zst? " zs" : "", outname);
   }
   while (0) {
-  write_snplist_ret_NOMEM:
-    reterr = kPglRetNomem;
-    break;
-  write_snplist_ret_OPEN_FAIL:
-    reterr = kPglRetOpenFail;
-    break;
   write_snplist_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
   }
+ write_snplist_ret_1:
   cswrite_close_cond(&css, cswritep);
   bigstack_reset(bigstack_mark);
   return reterr;

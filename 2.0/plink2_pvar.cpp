@@ -1630,7 +1630,7 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
       } else if (misc_flags & kfMiscNewVarIdOverflowTruncate) {
         LOGERRPRINTF("Warning: %" PRIuPTR " allele code%s truncated by --set-%s-var-ids.\n", new_variant_id_allele_len_overflow, (new_variant_id_allele_len_overflow == 1)? "" : "s", missing_varid_match_slen? "missing" : "all");
       } else {
-        LOGERRPRINTFWW("Error: %" PRIuPTR " allele code%s too long for --set-%s-var-ids. You should either switch to a different allele/variant naming scheme for long indels, or use --new-id-max-allele-len to raise the length limit.\n", new_variant_id_allele_len_overflow, (new_variant_id_allele_len_overflow == 1)? "" : "s", missing_varid_match_slen? "missing" : "all");
+        LOGERRPRINTFWW("Error: %" PRIuPTR " allele code%s too long for --set-%s-var-ids. Use '--new-id-max-allele-len [len] missing' to set the IDs of all variants with an allele code longer than the given length to '.' (and then process those variants with another script, if necessary).\n", new_variant_id_allele_len_overflow, (new_variant_id_allele_len_overflow == 1)? "" : "s", missing_varid_match_slen? "missing" : "all");
         goto load_pvar_ret_INCONSISTENT_INPUT;
       }
     }
