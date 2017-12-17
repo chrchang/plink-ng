@@ -64,7 +64,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (15 Dec 2017)";
+  " (16 Dec 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -85,9 +85,9 @@ static const char ver_str2[] =
 static const char errstr_append[] = "For more info, try '" PROG_NAME_STR " --help [flag name]' or '" PROG_NAME_STR " --help | more'.\n";
 
 #ifndef NOLAPACK
-static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --ld, --make-king, --king-cutoff, --write-samples,\n--write-snplist, --make-grm-gz, --pca, --glm, --score, --genotyping-rate,\n--validate, and --zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --ld, --make-king, --king-cutoff, --write-samples,\n--write-snplist, --make-grm-list, --pca, --glm, --score, --genotyping-rate,\n--validate, and --zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
 #else
-static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --ld, --make-king, --king-cutoff, --write-samples,\n--write-snplist, --make-grm-gz, --glm, --score, --genotyping-rate, --validate,\nand --zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --ld, --make-king, --king-cutoff, --write-samples,\n--write-snplist, --make-grm-list, --glm, --score, --genotyping-rate,\n--validate, and --zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
 #endif
 
 // covar-variance-standardize + terminating null
@@ -1512,7 +1512,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
         }
 
         if (pcp->command_flags1 & kfCommand1AlleleFreq) {
-          reterr = write_allele_freqs(variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, nonfounders? allele_dosages : founder_allele_dosages, mach_r2_vals, pcp->freq_ref_binstr, pcp->freq_alt1_binstr, variant_ct, pgfi.max_alt_allele_ct, max_allele_slen, pcp->allele_freq_modifier, nonfounders, outname, outname_end);
+          reterr = write_allele_freqs(variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, nonfounders? allele_dosages : founder_allele_dosages, mach_r2_vals, pcp->freq_ref_binstr, pcp->freq_alt1_binstr, variant_ct, pgfi.max_alt_allele_ct, max_allele_slen, pcp->allele_freq_modifier, pcp->max_thread_ct, nonfounders, outname, outname_end);
           if (reterr) {
             goto plink2_ret_1;
           }
@@ -1521,7 +1521,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
           }
         }
         if (pcp->command_flags1 & kfCommand1GenoCounts) {
-          reterr = write_geno_counts(sample_include, sex_male, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, raw_geno_cts, x_male_geno_cts, raw_sample_ct, sample_ct, male_ct, variant_ct, x_start, max_allele_slen, pcp->geno_counts_modifier, &simple_pgr, outname, outname_end);
+          reterr = write_geno_counts(sample_include, sex_male, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, raw_geno_cts, x_male_geno_cts, raw_sample_ct, sample_ct, male_ct, variant_ct, x_start, max_allele_slen, pcp->geno_counts_modifier, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
           if (reterr) {
             goto plink2_ret_1;
           }
@@ -1531,7 +1531,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
         }
 
         if (pcp->command_flags1 & kfCommand1MissingReport) {
-          reterr = write_missingness_reports(sample_include, sex_male, sample_ids, sids, pheno_cols, pheno_names, sample_missing_hc_cts, sample_missing_dosage_cts, sample_hethap_cts, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, variant_missing_hc_cts, variant_missing_dosage_cts, variant_hethap_cts, sample_ct, male_ct, max_sample_id_blen, max_sid_blen, pheno_ct, max_pheno_name_blen, variant_ct, max_allele_slen, variant_hethap_cts? first_hap_uidx : 0x7fffffff, pcp->missing_rpt_modifier, outname, outname_end);
+          reterr = write_missingness_reports(sample_include, sex_male, sample_ids, sids, pheno_cols, pheno_names, sample_missing_hc_cts, sample_missing_dosage_cts, sample_hethap_cts, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, variant_missing_hc_cts, variant_missing_dosage_cts, variant_hethap_cts, sample_ct, male_ct, max_sample_id_blen, max_sid_blen, pheno_ct, max_pheno_name_blen, variant_ct, max_allele_slen, variant_hethap_cts? first_hap_uidx : 0x7fffffff, pcp->missing_rpt_modifier, pcp->max_thread_ct, outname, outname_end);
           if (reterr) {
             goto plink2_ret_1;
           }
@@ -1575,7 +1575,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
           }
         }
         if (pcp->command_flags1 & kfCommand1Hardy) {
-          reterr = hardy_report(variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, nonfounders? raw_geno_cts : founder_raw_geno_cts, nonfounders? x_male_geno_cts : founder_x_male_geno_cts, nonfounders? x_nosex_geno_cts : founder_x_nosex_geno_cts, hwe_x_pvals, variant_ct, hwe_x_ct, max_allele_slen, pcp->output_min_p, pcp->hardy_modifier, nonfounders, outname, outname_end);
+          reterr = hardy_report(variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, nonfounders? raw_geno_cts : founder_raw_geno_cts, nonfounders? x_male_geno_cts : founder_x_male_geno_cts, nonfounders? x_nosex_geno_cts : founder_x_nosex_geno_cts, hwe_x_pvals, variant_ct, hwe_x_ct, max_allele_slen, pcp->output_min_p, pcp->hardy_modifier, pcp->max_thread_ct, nonfounders, outname, outname_end);
           if (reterr) {
             goto plink2_ret_1;
           }
@@ -1753,7 +1753,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
 #endif
 
       if (pcp->command_flags1 & kfCommand1WriteSnplist) {
-        reterr = write_snplist(variant_include, variant_ids, variant_ct, (pcp->misc_flags / kfMiscWriteSnplistZs) & 1, outname, outname_end);
+        reterr = write_snplist(variant_include, variant_ids, variant_ct, (pcp->misc_flags / kfMiscWriteSnplistZs) & 1, pcp->max_thread_ct, outname, outname_end);
         if (reterr) {
           goto plink2_ret_1;
         }
@@ -1962,7 +1962,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
         if (pcp->command_flags1 & kfCommand1MakePlink2) {
           // todo: unsorted case (--update-chr, etc.)
           if (pcp->sort_vars_flags != kfSort0) {
-            reterr = make_plink2_vsort(xheader, sample_include, sample_ids, sids, paternal_ids, maternal_ids, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, allele_dosages, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, chr_idxs, xheader_blen, xheader_info_pr, xheader_info_pr_nonflag, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, max_paternal_id_blen, max_maternal_id_blen, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->hard_call_thresh, pcp->dosage_erase_thresh, make_plink2_modifier, (pcp->sort_vars_flags == kfSortNatural), pcp->pvar_psam_modifier, &simple_pgr, outname, outname_end);
+            reterr = make_plink2_vsort(xheader, sample_include, sample_ids, sids, paternal_ids, maternal_ids, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, allele_dosages, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, chr_idxs, xheader_blen, xheader_info_pr, xheader_info_pr_nonflag, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, max_paternal_id_blen, max_maternal_id_blen, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, make_plink2_modifier, (pcp->sort_vars_flags == kfSortNatural), pcp->pvar_psam_modifier, &simple_pgr, outname, outname_end);
           } else {
             if (vpos_sortstatus & kfUnsortedVarBp) {
               logerrprint("Warning: Variants are not sorted by position.  Consider rerunning with the\n--sort-vars flag added to remedy this.\n");
@@ -5805,7 +5805,7 @@ int main(int argc, char** argv) {
           chr_info.haploid_mask[0] = 0x300000;
           goto main_param_zero;
         } else if (strequal_k2(flagname_p2, "ake-grm")) {
-          logerrprint("Error: --make-grm has been retired due to inconsistent meaning across GCTA\nversions.  Use --make-grm-gz or --make-grm-bin.\n");
+          logerrprint("Error: --make-grm has been retired due to inconsistent meaning across GCTA\nversions.  Use --make-grm-list or --make-grm-bin.\n");
           goto main_ret_INVALID_CMDLINE;
         } else if (strequal_k2(flagname_p2, "ake-grm-bin")) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 2)) {
@@ -5824,9 +5824,13 @@ int main(int argc, char** argv) {
           }
           pc.grm_flags |= kfGrmBin;
           pc.command_flags1 |= kfCommand1MakeRel;
-        } else if (strequal_k2(flagname_p2, "ake-grm-gz")) {
+        } else if (strequal_k2(flagname_p2, "ake-grm-gz") || strequal_k2(flagname_p2, "ake-grm-list")) {
           if (pc.command_flags1 & kfCommand1MakeRel) {
-            logerrprint("Error: --make-grm-gz cannot be used with --make-grm-bin.\n");
+            if (pc.grm_flags & kfGrmBin) {
+              logerrprint("Error: --make-grm-list cannot be used with --make-grm-bin.\n");
+            } else {
+              logerrprint("Error: --make-grm-list cannot be used with --make-grm-gz.\n");
+            }
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 3)) {
@@ -5841,30 +5845,38 @@ int main(int argc, char** argv) {
               pc.grm_flags |= kfGrmMeanimpute;
             } else if (!strcmp(cur_modif, "no-gz")) {
               if (compress_stream_type) {
-                logerrprint("Error: Multiple --make-grm-gz compression type modifiers.\n");
+                logerrprint("Error: Multiple --make-grm-list compression type modifiers.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               compress_stream_type = 1;
-              pc.grm_flags |= kfGrmTableNoGz;
+              pc.grm_flags |= kfGrmListNoGz;
             } else if (!strcmp(cur_modif, "zs")) {
               if (compress_stream_type) {
-                logerrprint("Error: Multiple --make-grm-gz compression type modifiers.\n");
+                logerrprint("Error: Multiple --make-grm-list compression type modifiers.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               compress_stream_type = 2;
-              pc.grm_flags |= kfGrmTableZs;
+              pc.grm_flags |= kfGrmListZs;
             } else {
-              sprintf(g_logbuf, "Error: Invalid --make-grm-gz parameter '%s'.\n", cur_modif);
+              sprintf(g_logbuf, "Error: Invalid --make-grm-list parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
-          if (!compress_stream_type) {
-            pc.grm_flags |= kfGrmTableGz;
+          if (flagname_p2[8] == 'g') {
+            if (!compress_stream_type) {
+              // screw it, life is too much better with multithreaded .zst
+              logerrprint("Error: --make-grm-list no longer supports gzipped output.  Use 'zs' for\nzstd-compressed output (much faster), or use PLINK 1.9 for this function.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            logerrprint("Warning: --make-grm-gz has been renamed to --make-grm-list.\n");
+          } else if (!compress_stream_type) {
+            compress_stream_type = 1;
+            pc.grm_flags |= kfGrmListNoGz;
           }
           pc.command_flags1 |= kfCommand1MakeRel;
         } else if (strequal_k2(flagname_p2, "ake-rel")) {
           if (pc.command_flags1 & kfCommand1MakeRel) {
-            logerrprint("Error: --make-rel cannot be used with --make-grm-gz/--make-grm-bin.\n");
+            logerrprint("Error: --make-rel cannot be used with --make-grm-list/--make-grm-bin.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 4)) {
@@ -6303,11 +6315,11 @@ int main(int argc, char** argv) {
             const uint32_t pca_meanimpute = (pc.pca_flags / kfPcaMeanimpute) & 1;
             if (pc.command_flags1 & kfCommand1MakeRel) {
               if (((pc.grm_flags / kfGrmMeanimpute) & 1) != pca_meanimpute) {
-                logerrprint("Error: --make-rel/--make-grm-gz/--make-grm-bin meanimpute setting must match\n--pca meanimpute setting.\n");
+                logerrprint("Error: --make-rel/--make-grm-list/--make-grm-bin meanimpute setting must match\n--pca meanimpute setting.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
               if (pc.grm_flags & kfGrmCov) {
-                logerrprint("Error: --make-rel/--make-grm-gz/--make-grm-bin cannot be used to compute a\ncovariance matrix in the same run as non-approximate --pca.\n");
+                logerrprint("Error: --make-rel/--make-grm-list/--make-grm-bin cannot be used to compute a\ncovariance matrix in the same run as non-approximate --pca.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
             } else {

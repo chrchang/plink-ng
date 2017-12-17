@@ -34,20 +34,19 @@
 namespace plink2 {
 #endif
 
+// This should be at least as large as zstd's internal block size.
 // todo: test different values, may want to increase on at least OS X...
 CONSTU31(kCompressStreamBlock, 131072);
 
 typedef struct {
   unsigned char* overflow_buf;
   FILE* outfile;
-  // gzFile z_outfile;
   ZSTD_CCtx* cctx;
   ZSTD_outBuffer output;
 } compress_stream_state_t;
 
 HEADER_INLINE uint32_t is_uncompressed_cswrite(const compress_stream_state_t* css_ptr) {
   return (css_ptr->cctx == nullptr);
-  // return (css_ptr->z_outfile == nullptr);
 }
 
 HEADER_INLINE void cswrite_init_null(compress_stream_state_t* css_ptr) {
@@ -57,20 +56,22 @@ HEADER_INLINE void cswrite_init_null(compress_stream_state_t* css_ptr) {
 pglerr_t uncompressed_cswrite_init(const char* out_fname, uint32_t do_append, unsigned char* overflow_buf, compress_stream_state_t* css_ptr);
 
 HEADER_INLINE uintptr_t css_wkspace_req(uintptr_t overflow_buf_size) {
-  return ZSTD_compressBound(overflow_buf_size);
+  return kCompressStreamBlock + MAXV(ZSTD_compressBound(overflow_buf_size), ZSTD_CStreamOutSize());
 }
 
 // overflow_buf must have space for at least kCompressStreamBlock + [max bytes
 // added between cswrite() calls] bytes.
 // compress_wkspace can be nullptr in no-compression case; otherwise it must
 // have space for cswrite_wkspace_req(overflow_buf size) bytes.
-pglerr_t cswrite_init(const char* out_fname, uint32_t do_append, uint32_t output_zst, uintptr_t overflow_buf_size, unsigned char* overflow_buf, unsigned char* compress_wkspace, compress_stream_state_t* css_ptr);
+pglerr_t cswrite_init(const char* out_fname, uint32_t do_append, uint32_t output_zst, uint32_t thread_ct, uintptr_t overflow_buf_size, unsigned char* overflow_buf, unsigned char* compress_wkspace, compress_stream_state_t* css_ptr);
 
 // Convenience interface which allocates from the bottom of g_bigstack.
-pglerr_t cswrite_init2(const char* out_fname, uint32_t do_append, uint32_t output_zst, uintptr_t overflow_buf_size, compress_stream_state_t* css_ptr, char** cswritepp);
+pglerr_t cswrite_init2(const char* out_fname, uint32_t do_append, uint32_t output_zst, uint32_t thread_ct, uintptr_t overflow_buf_size, compress_stream_state_t* css_ptr, char** cswritepp);
 
 boolerr_t force_uncompressed_cswrite(compress_stream_state_t* css_ptr, char** writep_ptr);
 
+// No longer guaranteed to consume entire input buffer, only reduces it to
+// <128k.
 boolerr_t force_compressed_cswrite(compress_stream_state_t* css_ptr, char** writep_ptr);
 
 HEADER_INLINE boolerr_t cswrite(compress_stream_state_t* css_ptr, char** writep_ptr) {

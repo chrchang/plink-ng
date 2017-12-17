@@ -648,7 +648,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "    values are proportions unless the 'counts' modifier is present.  If id is\n"
 "    omitted, a .kin0.id file is also written.\n\n"
                );
-    help_print("make-rel\tmake-grm\tmake-grm-bin\tmake-grm-gz", &help_ctrl, 1,
+    help_print("make-rel\tmake-grm\tmake-grm-bin\tmake-grm-list\tmake-grm-gz", &help_ctrl, 1,
 "  --make-rel <cov> <meanimpute> <square | square0 | triangle> <zs | bin | bin4>\n"
 "    Write a lower-triangular variance-standardized relationship matrix to\n"
 "    {output prefix}.rel, and corresponding IDs to {output prefix}.rel.id.\n"
@@ -657,14 +657,14 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "    * The 'cov' modifier removes the variance standardization step, causing a\n"
 "      covariance matrix to be calculated instead.\n"
 "    * The computation can be subdivided with --parallel.\n"
-"  --make-grm-gz <cov> <meanimpute> <no-gz | zs>\n"
+"  --make-grm-list <cov> <meanimpute> <zs>\n"
 "  --make-grm-bin <cov> <meanimpute>\n"
-"    --make-grm-gz causes the relationships to be written to GCTA's original\n"
-"    gzipped list format, which describes one pair per line, while\n"
-"    --make-grm-bin writes them in GCTA 1.1+'s single-precision triangular\n"
-"    binary format.  Note that these formats explicitly report the number of\n"
-"    valid observations (where neither sample has a missing call) for each pair,\n"
-"    which is useful input for some scripts.\n\n"
+"    --make-grm-list causes the relationships to be written to GCTA's original\n"
+"    list format, which describes one pair per line, while --make-grm-bin writes\n"
+"    them in GCTA 1.1+'s single-precision triangular binary format.  Note that\n"
+"    these formats explicitly report the number of valid observations (where\n"
+"    neither sample has a missing call) for each pair, which is useful input for\n"
+"    some scripts.\n\n"
                );
 #ifndef NOLAPACK
     // GRM, PCA, etc. based on major vs. nonmajor alleles

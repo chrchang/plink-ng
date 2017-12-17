@@ -60,14 +60,13 @@ FLAGSET_DEF_START()
   kfGrmMatrixSq0 = (1 << 4),
   kfGrmMatrixTri = (1 << 5),
   kfGrmMatrixShapemask = (kfGrmMatrixSq0 | kfGrmMatrixSq | kfGrmMatrixTri),
-  kfGrmTableGz = (1 << 6),
-  kfGrmTableNoGz = (1 << 7),
-  kfGrmTableZs = (1 << 8),
-  kfGrmTablemask = (kfGrmTableGz | kfGrmTableNoGz | kfGrmTableZs),
-  kfGrmBin = (1 << 9),
+  kfGrmListNoGz = (1 << 6),
+  kfGrmListZs = (1 << 7),
+  kfGrmListmask = (kfGrmListNoGz | kfGrmListZs),
+  kfGrmBin = (1 << 8),
 
-  kfGrmMeanimpute = (1 << 10),
-  kfGrmCov = (1 << 11)
+  kfGrmMeanimpute = (1 << 9),
+  kfGrmCov = (1 << 10)
 FLAGSET_DEF_END(grm_flags_t);
 
 FLAGSET_DEF_START()

@@ -1491,7 +1491,7 @@ pglerr_t init_histogram_from_file_or_commalist(const char* binstr, uint32_t is_f
   return reterr;
 }
 
-pglerr_t write_allele_freqs(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint64_t* founder_allele_dosages, const double* mach_r2_vals, const char* ref_binstr, const char* alt1_binstr, uint32_t variant_ct, uint32_t max_alt_allele_ct, uint32_t max_allele_slen, allele_freq_t allele_freq_modifier, uint32_t nonfounders, char* outname, char* outname_end) {
+pglerr_t write_allele_freqs(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint64_t* founder_allele_dosages, const double* mach_r2_vals, const char* ref_binstr, const char* alt1_binstr, uint32_t variant_ct, uint32_t max_alt_allele_ct, uint32_t max_allele_slen, allele_freq_t allele_freq_modifier, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -1512,7 +1512,7 @@ pglerr_t write_allele_freqs(const uintptr_t* variant_include, const chr_info_t* 
       if (output_zst) {
         strcpy(&(outname_end[6 + counts]), ".zst");
       }
-      reterr = cswrite_init2(outname, 0, output_zst, overflow_buf_size, &css, &cswritep);
+      reterr = cswrite_init2(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
       if (reterr) {
         goto write_allele_freqs_ret_1;
       }
@@ -1897,7 +1897,7 @@ pglerr_t write_allele_freqs(const uintptr_t* variant_include, const chr_info_t* 
   return reterr;
 }
 
-pglerr_t write_geno_counts(__attribute__((unused)) const uintptr_t* sample_include, __attribute__((unused)) const uintptr_t* sex_male, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint32_t* raw_geno_cts, const uint32_t* x_male_geno_cts, __attribute__((unused)) uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t male_ct, uint32_t variant_ct, uint32_t x_start, uint32_t max_allele_slen, geno_counts_t geno_counts_modifier, pgen_reader_t* simple_pgrp, char* outname, char* outname_end) {
+pglerr_t write_geno_counts(__attribute__((unused)) const uintptr_t* sample_include, __attribute__((unused)) const uintptr_t* sex_male, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint32_t* raw_geno_cts, const uint32_t* x_male_geno_cts, __attribute__((unused)) uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t male_ct, uint32_t variant_ct, uint32_t x_start, uint32_t max_allele_slen, geno_counts_t geno_counts_modifier, uint32_t max_thread_ct, pgen_reader_t* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   compress_stream_state_t css;
@@ -1939,7 +1939,7 @@ pglerr_t write_geno_counts(__attribute__((unused)) const uintptr_t* sample_inclu
     if (output_zst) {
       strcpy(outname_end2, ".zst");
     }
-    reterr = cswrite_init2(outname, 0, output_zst, overflow_buf_size, &css, &cswritep);
+    reterr = cswrite_init2(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
     if (reterr) {
       goto write_geno_counts_ret_1;
     }
@@ -2249,7 +2249,7 @@ pglerr_t write_geno_counts(__attribute__((unused)) const uintptr_t* sample_inclu
   return reterr;
 }
 
-pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintptr_t* sex_male, const char* sample_ids, const char* sids, const pheno_col_t* pheno_cols, const char* pheno_names, const uint32_t* sample_missing_hc_cts, const uint32_t* sample_missing_dosage_cts, const uint32_t* sample_hethap_cts, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint32_t* variant_missing_hc_cts, const uint32_t* variant_missing_dosage_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t male_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t variant_ct, uintptr_t max_allele_slen, uint32_t first_hap_uidx, missing_rpt_t missing_rpt_modifier, char* outname, char* outname_end) {
+pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintptr_t* sex_male, const char* sample_ids, const char* sids, const pheno_col_t* pheno_cols, const char* pheno_names, const uint32_t* sample_missing_hc_cts, const uint32_t* sample_missing_dosage_cts, const uint32_t* sample_hethap_cts, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint32_t* variant_missing_hc_cts, const uint32_t* variant_missing_dosage_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t male_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t variant_ct, uintptr_t max_allele_slen, uint32_t first_hap_uidx, missing_rpt_t missing_rpt_modifier, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   compress_stream_state_t css;
@@ -2263,7 +2263,7 @@ pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintpt
       if (output_zst) {
         strcpy(outname_end2, ".zst");
       }
-      reterr = cswrite_init2(outname, 0, output_zst, overflow_buf_size, &css, &cswritep);
+      reterr = cswrite_init2(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
       if (reterr) {
         goto write_missingness_reports_ret_1;
       }
@@ -2423,7 +2423,7 @@ pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintpt
       if (output_zst) {
         strcpy(outname_end2, ".zst");
       }
-      reterr = cswrite_init2(outname, 0, output_zst, overflow_buf_size, &css, &cswritep);
+      reterr = cswrite_init2(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
       if (reterr) {
         goto write_missingness_reports_ret_1;
       }
@@ -2760,7 +2760,7 @@ pglerr_t compute_hwe_x_pvals(const uintptr_t* variant_include, const uint32_t* f
   return reterr;
 }
 
-pglerr_t hardy_report(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint32_t* founder_raw_geno_cts, const uint32_t* founder_x_male_geno_cts, const uint32_t* founder_x_nosex_geno_cts, const double* hwe_x_pvals, uint32_t variant_ct, uint32_t hwe_x_ct, uint32_t max_allele_slen, double output_min_p, hardy_flags_t hardy_modifier, uint32_t nonfounders, char* outname, char* outname_end) {
+pglerr_t hardy_report(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint32_t* founder_raw_geno_cts, const uint32_t* founder_x_male_geno_cts, const uint32_t* founder_x_nosex_geno_cts, const double* hwe_x_pvals, uint32_t variant_ct, uint32_t hwe_x_ct, uint32_t max_allele_slen, double output_min_p, hardy_flags_t hardy_modifier, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   compress_stream_state_t css;
@@ -2821,7 +2821,7 @@ pglerr_t hardy_report(const uintptr_t* variant_include, const chr_info_t* cip, c
       if (output_zst) {
         strcpy(outname_end2, ".zst");
       }
-      reterr = cswrite_init(outname, 0, output_zst, overflow_buf_size, overflow_buf, &(overflow_buf[overflow_buf_size]), &css);
+      reterr = cswrite_init(outname, 0, output_zst, max_thread_ct, overflow_buf_size, overflow_buf, &(overflow_buf[overflow_buf_size]), &css);
       if (reterr) {
         goto hardy_report_ret_1;
       }
@@ -2973,7 +2973,7 @@ pglerr_t hardy_report(const uintptr_t* variant_include, const chr_info_t* cip, c
       if (output_zst) {
         strcpy(outname_end2, ".zst");
       }
-      reterr = cswrite_init(outname, 0, output_zst, overflow_buf_size, overflow_buf, &(overflow_buf[overflow_buf_size]), &css);
+      reterr = cswrite_init(outname, 0, output_zst, max_thread_ct, overflow_buf_size, overflow_buf, &(overflow_buf[overflow_buf_size]), &css);
       if (reterr) {
         goto hardy_report_ret_1;
       }
@@ -3160,7 +3160,7 @@ pglerr_t hardy_report(const uintptr_t* variant_include, const chr_info_t* cip, c
   return reterr;
 }
 
-pglerr_t write_snplist(const uintptr_t* variant_include, char** variant_ids, uint32_t variant_ct, uint32_t output_zst, char* outname, char* outname_end) {
+pglerr_t write_snplist(const uintptr_t* variant_include, char** variant_ids, uint32_t variant_ct, uint32_t output_zst, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   compress_stream_state_t css;
@@ -3171,7 +3171,7 @@ pglerr_t write_snplist(const uintptr_t* variant_include, char** variant_ids, uin
     if (output_zst) {
       strcpy(outname_end2, ".zst");
     }
-    reterr = cswrite_init2(outname, 0, output_zst, kCompressStreamBlock + kMaxIdSlen + 2, &css, &cswritep);
+    reterr = cswrite_init2(outname, 0, output_zst, max_thread_ct, kCompressStreamBlock + kMaxIdSlen + 2, &css, &cswritep);
     if (reterr) {
       goto write_snplist_ret_1;
     }

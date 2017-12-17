@@ -3987,10 +3987,8 @@ pglerr_t glm_logistic(const char* cur_pheno_name, char** test_names, char** test
 
     const glm_flags_t glm_flags = glm_info_ptr->flags;
     const uint32_t output_zst = (glm_flags / kfGlmZs) & 1;
-    // er, do not want to use multithreaded compression here... make sure to
-    // add a forced-singlethreaded mode when multithreaded compression is
-    // implemented.
-    reterr = cswrite_init2(outname, 0, output_zst, overflow_buf_size, &css, &cswritep);
+    // forced-singlethreaded
+    reterr = cswrite_init2(outname, 0, output_zst, 1, overflow_buf_size, &css, &cswritep);
     if (reterr) {
       goto glm_logistic_ret_1;
     }
@@ -5437,7 +5435,8 @@ pglerr_t glm_linear(const char* cur_pheno_name, char** test_names, char** test_n
 
     const glm_flags_t glm_flags = glm_info_ptr->flags;
     const uint32_t output_zst = (glm_flags / kfGlmZs) & 1;
-    reterr = cswrite_init2(outname, 0, output_zst, overflow_buf_size, &css, &cswritep);
+    // forced-singlethreaded
+    reterr = cswrite_init2(outname, 0, output_zst, 1, overflow_buf_size, &css, &cswritep);
     if (reterr) {
       goto glm_linear_ret_1;
     }

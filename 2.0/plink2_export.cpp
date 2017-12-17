@@ -4288,7 +4288,7 @@ pglerr_t exportf(char* xheader, const uintptr_t* sample_include, const char* sam
       strcpy(outname_end, ".bim");
       LOGPRINTFWW5("Writing %s ... ", outname);
       fflush(stdout);
-      reterr = write_map_or_bim(outname, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, nullptr, refalt1_select, variant_cms, variant_ct, max_allele_slen, exportf_delim, 0);
+      reterr = write_map_or_bim(outname, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, nullptr, refalt1_select, variant_cms, variant_ct, max_allele_slen, exportf_delim, 0, max_thread_ct);
       if (reterr) {
         goto exportf_ret_1;
       }

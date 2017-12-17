@@ -35,22 +35,19 @@ pglerr_t uncompressed_cswrite_init(const char* out_fname, uint32_t do_append, un
   return kPglRetSuccess;
 }
 
-pglerr_t zstd_cswrite_init(const char* out_fname, uint32_t do_append, uintptr_t overflow_buf_size, unsigned char* overflow_buf, unsigned char* compress_wkspace, compress_stream_state_t* css_ptr) {
+pglerr_t zstd_cswrite_init(const char* out_fname, uint32_t do_append, __maybe_unused uint32_t thread_ct, uintptr_t overflow_buf_size, unsigned char* overflow_buf, unsigned char* compress_wkspace, compress_stream_state_t* css_ptr) {
   css_ptr->outfile = nullptr;
   css_ptr->cctx = ZSTD_createCCtx();
   if (!css_ptr->cctx) {
     return kPglRetNomem;
   }
-  /*
-  // todo:
-  // (i) profile and figure out why this is slower than single-thread on my Mac
-  // (ii) once that's resolved, make thread count configurable
-  size_t retval = ZSTD_CCtx_setParameter(css_ptr->cctx, ZSTD_p_nbThreads, 4);
+#ifdef ZSTD_MULTITHREAD
+  size_t retval = ZSTD_CCtx_setParameter(css_ptr->cctx, ZSTD_p_nbThreads, thread_ct);
   if (ZSTD_isError(retval)) {
     ZSTD_freeCCtx(css_ptr->cctx);
     return kPglRetNomem;
   }
-  */
+#endif
   css_ptr->outfile = fopen(out_fname, do_append? FOPEN_AB : FOPEN_WB);
   if (!css_ptr->outfile) {
     logprint("\n");
@@ -61,28 +58,19 @@ pglerr_t zstd_cswrite_init(const char* out_fname, uint32_t do_append, uintptr_t 
   css_ptr->output.dst = compress_wkspace;
   css_ptr->output.size = css_wkspace_req(overflow_buf_size);
   css_ptr->output.pos = 0;
-  /*
-  css_ptr->z_outfile = gzopen(out_fname, do_append? FOPEN_AB : FOPEN_WB);
-  if (!css_ptr->z_outfile) {
-    logprint("\n");
-    LOGERRPRINTFWW(g_errstr_fopen, out_fname);
-    return kPglRetOpenFail;
-  }
-  */
   css_ptr->overflow_buf = overflow_buf;
   return kPglRetSuccess;
 }
 
 // possible todo: replace output_zst with an enum which permits gzipping
-pglerr_t cswrite_init(const char* out_fname, uint32_t do_append, uint32_t output_zst, uintptr_t overflow_buf_size, unsigned char* overflow_buf, unsigned char* compress_wkspace, compress_stream_state_t* css_ptr) {
+pglerr_t cswrite_init(const char* out_fname, uint32_t do_append, uint32_t output_zst, uint32_t thread_ct, uintptr_t overflow_buf_size, unsigned char* overflow_buf, unsigned char* compress_wkspace, compress_stream_state_t* css_ptr) {
   if (!output_zst) {
     return uncompressed_cswrite_init(out_fname, do_append, overflow_buf, css_ptr);
-  } else {
-    return zstd_cswrite_init(out_fname, do_append, overflow_buf_size, overflow_buf, compress_wkspace, css_ptr);
   }
+  return zstd_cswrite_init(out_fname, do_append, thread_ct, overflow_buf_size, overflow_buf, compress_wkspace, css_ptr);
 }
 
-pglerr_t cswrite_init2(const char* out_fname, uint32_t do_append, uint32_t output_zst, uintptr_t overflow_buf_size, compress_stream_state_t* css_ptr, char** cswritepp) {
+pglerr_t cswrite_init2(const char* out_fname, uint32_t do_append, uint32_t output_zst, uint32_t thread_ct, uintptr_t overflow_buf_size, compress_stream_state_t* css_ptr, char** cswritepp) {
   unsigned char* overflow_buf;
   if (bigstack_alloc_uc(overflow_buf_size, &overflow_buf)) {
     return kPglRetNomem;
@@ -93,7 +81,7 @@ pglerr_t cswrite_init2(const char* out_fname, uint32_t do_append, uint32_t outpu
       return kPglRetNomem;
     }
   }
-  pglerr_t reterr = cswrite_init(out_fname, do_append, output_zst, overflow_buf_size, overflow_buf, compress_wkspace, css_ptr);
+  pglerr_t reterr = cswrite_init(out_fname, do_append, output_zst, thread_ct, overflow_buf_size, overflow_buf, compress_wkspace, css_ptr);
   *cswritepp = (char*)overflow_buf;
   return reterr;
 }
@@ -113,11 +101,13 @@ boolerr_t force_compressed_cswrite(compress_stream_state_t* css_ptr, char** writ
   unsigned char* overflow_buf = css_ptr->overflow_buf;
   unsigned char* writep = (unsigned char*)(*writep_ptr);
   if (overflow_buf != writep) {
-    ZSTD_inBuffer input = {overflow_buf, (uintptr_t)(writep - overflow_buf), 0};
+    const uintptr_t in_size = (uintptr_t)(writep - overflow_buf);
+    ZSTD_inBuffer input = {overflow_buf, in_size, 0};
     while (1) {
-      // todo: compare with ZSTD_e_continue
-      size_t retval = ZSTD_compress_generic(css_ptr->cctx, &css_ptr->output, &input, ZSTD_e_flush);
+      // todo: conditionally support seekable files
+      size_t retval = ZSTD_compress_generic(css_ptr->cctx, &css_ptr->output, &input, ZSTD_e_continue);
       if (ZSTD_isError(retval)) {
+        // is this actually possible?  well, play it safe for now
         return 1;
       }
       if (css_ptr->output.pos >= kCompressStreamBlock) {
@@ -126,35 +116,40 @@ boolerr_t force_compressed_cswrite(compress_stream_state_t* css_ptr, char** writ
         }
         css_ptr->output.pos = 0;
       }
-      if (!retval) {
+      const uintptr_t bytes_left = (uintptr_t)(input.size - input.pos);
+      if (bytes_left < kCompressStreamBlock) {
+        memmove(overflow_buf, &(overflow_buf[in_size - bytes_left]), bytes_left);
+        *writep_ptr = (char*)(&(overflow_buf[bytes_left]));
         break;
       }
     }
-    /*
-    if (!gzwrite(css_ptr->z_outfile, css_ptr->overflow_buf, writep - css_ptr->overflow_buf)) {
-      return 1;
-    }
-    */
-    *writep_ptr = (char*)overflow_buf;
   }
   return 0;
 }
 
 boolerr_t csputs_std(const char* ss, uint32_t sslen, compress_stream_state_t* css_ptr, char** writep_ptr) {
-  unsigned char* writep = (unsigned char*)(*writep_ptr);
   const unsigned char* readp = (const unsigned char*)ss;
-  uint32_t cur_write_space = 2 * kCompressStreamBlock - ((uintptr_t)(writep - css_ptr->overflow_buf));
-  while (sslen > cur_write_space) {
-    memcpy(writep, readp, cur_write_space);
-    if (is_uncompressed_cswrite(css_ptr)) {
-      if (!fwrite_unlocked(css_ptr->overflow_buf, 2 * kCompressStreamBlock, 1, css_ptr->outfile)) {
+  unsigned char* writep = (unsigned char*)(*writep_ptr);
+  unsigned char* overflow_buf = css_ptr->overflow_buf;
+  uint32_t cur_write_space = 2 * kCompressStreamBlock - ((uintptr_t)(writep - overflow_buf));
+  if (is_uncompressed_cswrite(css_ptr)) {
+    while (sslen > cur_write_space) {
+      memcpy(writep, readp, cur_write_space);
+      if (!fwrite_unlocked(overflow_buf, 2 * kCompressStreamBlock, 1, css_ptr->outfile)) {
         return 1;
       }
-    } else {
-      ZSTD_inBuffer input = {css_ptr->overflow_buf, 2 * kCompressStreamBlock, 0};
+      writep = overflow_buf;
+      readp = &(readp[cur_write_space]);
+      sslen -= cur_write_space;
+      cur_write_space = 2 * kCompressStreamBlock;
+    }
+  } else {
+    while (sslen > cur_write_space) {
+      memcpy(writep, readp, cur_write_space);
+      ZSTD_inBuffer input = {overflow_buf, 2 * kCompressStreamBlock, 0};
       while (1) {
-        // todo: compare with ZSTD_e_continue
-        size_t retval = ZSTD_compress_generic(css_ptr->cctx, &css_ptr->output, &input, ZSTD_e_flush);
+        // todo: conditionally support seekable files
+        size_t retval = ZSTD_compress_generic(css_ptr->cctx, &css_ptr->output, &input, ZSTD_e_continue);
         if (ZSTD_isError(retval)) {
           return 1;
         }
@@ -164,20 +159,17 @@ boolerr_t csputs_std(const char* ss, uint32_t sslen, compress_stream_state_t* cs
           }
           css_ptr->output.pos = 0;
         }
-        if (!retval) {
+        const uintptr_t bytes_left = (uintptr_t)(input.size - input.pos);
+        if (bytes_left < kCompressStreamBlock) {
+          memmove(overflow_buf, &(overflow_buf[2 * kCompressStreamBlock - bytes_left]), bytes_left);
+          writep = &(overflow_buf[retval]);
           break;
         }
       }
-      /*
-      if (!gzwrite(css_ptr->z_outfile, css_ptr->overflow_buf, 2 * kCompressStreamBlock)) {
-        return 1;
-      }
-      */
+      readp = &(readp[cur_write_space]);
+      sslen -= cur_write_space;
+      cur_write_space = 2 * kCompressStreamBlock - ((uintptr_t)(writep - overflow_buf));
     }
-    writep = css_ptr->overflow_buf;
-    readp = &(readp[cur_write_space]);
-    sslen -= cur_write_space;
-    cur_write_space = 2 * kCompressStreamBlock;
   }
   memcpy(writep, readp, sslen);
   *writep_ptr = (char*)(&(writep[sslen]));
@@ -193,13 +185,24 @@ boolerr_t uncompressed_cswrite_close_null(compress_stream_state_t* css_ptr, char
 }
 
 boolerr_t compressed_cswrite_close_null(compress_stream_state_t* css_ptr, char* writep) {
-  boolerr_t reterr = force_compressed_cswrite(css_ptr, &writep);
-  ZSTD_inBuffer input = {css_ptr->overflow_buf, 0, 0};
-  size_t retval = ZSTD_compress_generic(css_ptr->cctx, &css_ptr->output, &input, ZSTD_e_end);
-  reterr = reterr || ZSTD_isError(retval);
-  if (css_ptr->output.pos) {
-    if (!fwrite_unlocked(css_ptr->output.dst, css_ptr->output.pos, 1, css_ptr->outfile)) {
+  unsigned char* overflow_buf = css_ptr->overflow_buf;
+  const uintptr_t in_size = (uintptr_t)(((unsigned char*)writep) - overflow_buf);
+  ZSTD_inBuffer input = {overflow_buf, in_size, 0};
+  boolerr_t reterr = 0;
+  while (1) {
+    size_t retval = ZSTD_compress_generic(css_ptr->cctx, &css_ptr->output, &input, ZSTD_e_end);
+    if (ZSTD_isError(retval)) {
       reterr = 1;
+      break;
+    }
+    if (css_ptr->output.pos) {
+      if (!fwrite_unlocked(css_ptr->output.dst, css_ptr->output.pos, 1, css_ptr->outfile)) {
+        reterr = 1;
+      }
+      css_ptr->output.pos = 0;
+    }
+    if (!retval) {
+      break;
     }
   }
   ZSTD_freeCCtx(css_ptr->cctx);  // might return an error later?
@@ -207,7 +210,6 @@ boolerr_t compressed_cswrite_close_null(compress_stream_state_t* css_ptr, char* 
   int32_t ii = ferror_unlocked(css_ptr->outfile);
   int32_t jj = fclose(css_ptr->outfile);
   return reterr || ii || jj;
-  // return (gzclose(css_ptr->z_outfile) != Z_OK);
 }
 
 boolerr_t cswrite_close_null(compress_stream_state_t* css_ptr, char* writep) {

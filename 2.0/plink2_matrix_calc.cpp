@@ -988,7 +988,7 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
         // text matrix
         // won't be >2gb since sample_ct <= 134m
         const uint32_t overflow_buf_size = kCompressStreamBlock + 16 * sample_ct;
-        reterr = cswrite_init2(outname, 0, king_modifier & kfKingMatrixZs, overflow_buf_size, &css, &cswritep);
+        reterr = cswrite_init2(outname, 0, king_modifier & kfKingMatrixZs, max_thread_ct, overflow_buf_size, &css, &cswritep);
         if (reterr) {
           goto calc_king_ret_1;
         }
@@ -1007,7 +1007,7 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
     if (king_modifier & kfKingColAll) {
       const uint32_t overflow_buf_size = kCompressStreamBlock + kMaxMediumLine;
       set_king_table_fname(king_modifier, parallel_idx, parallel_tot, outname_end);
-      reterr = cswrite_init2(outname, 0, king_modifier & kfKingTableZs, overflow_buf_size, &csst, &cswritetp);
+      reterr = cswrite_init2(outname, 0, king_modifier & kfKingTableZs, max_thread_ct, overflow_buf_size, &csst, &cswritetp);
       if (reterr) {
         goto calc_king_ret_1;
       }
@@ -2014,7 +2014,7 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
     }
 
     // Safe to "write" the header line now, if necessary.
-    reterr = cswrite_init2(outname, 0, king_modifier & kfKingTableZs, kMaxMediumLine + kCompressStreamBlock, &css, &cswritep);
+    reterr = cswrite_init2(outname, 0, king_modifier & kfKingTableZs, max_thread_ct, kMaxMediumLine + kCompressStreamBlock, &css, &cswritep);
     if (reterr) {
       goto calc_king_table_subset_ret_1;
     }
@@ -3116,10 +3116,10 @@ pglerr_t calc_grm(const uintptr_t* orig_sample_include, const char* sample_ids, 
     // N.B. Only the lower right of grm[] is valid when parallel_tot == 1.
 
     // possible todo: allow simultaneous --make-rel and
-    // --make-grm-gz/--make-grm-bin
+    // --make-grm-list/--make-grm-bin
     // (note that this routine may also be called by --pca, which may not write
     // a matrix to disk at all.)
-    if (grm_flags & (kfGrmMatrixShapemask | kfGrmTablemask | kfGrmBin)) {
+    if (grm_flags & (kfGrmMatrixShapemask | kfGrmListmask | kfGrmBin)) {
       const grm_flags_t matrix_shape = grm_flags & kfGrmMatrixShapemask;
       char* log_write_iter;
       if (matrix_shape) {
@@ -3232,7 +3232,7 @@ pglerr_t calc_grm(const uintptr_t* orig_sample_include, const char* sample_ids, 
             outname_end2 = strcpya(outname_end2, ".zst");
           }
           *outname_end2 = '\0';
-          reterr = cswrite_init2(outname, 0, output_zst, kCompressStreamBlock + 16 * row_end_idx, &css, &cswritep);
+          reterr = cswrite_init2(outname, 0, output_zst, max_thread_ct, kCompressStreamBlock + 16 * row_end_idx, &css, &cswritep);
           if (reterr) {
             goto calc_grm_ret_1;
           }
@@ -3381,32 +3381,21 @@ pglerr_t calc_grm(const uintptr_t* orig_sample_include, const char* sample_ids, 
           log_write_iter = strcpya(log_write_iter, "observation counts to ");
           log_write_iter = memcpya(log_write_iter, outname, (uintptr_t)(outname_end2 - outname));
         } else {
-          // --make-grm-gz
+          // --make-grm-list
           char* outname_end2 = strcpya(outname_end, ".grm");
           if (parallel_tot != 1) {
             *outname_end2++ = '.';
             outname_end2 = uint32toa(parallel_idx + 1, outname_end2);
           }
-          if (grm_flags & kfGrmTableGz) {
-            // since the flag is named --make-grm-gz, we maintain support for
-            // gzipped output, but it's deprecated (no longer parallel).
-
-            // actually, temporarily disable this while we add support for
-            // multithreaded .zst compression
-            logerrprint("Error: --make-grm-gz .gz output is currently disabled.  Add 'no-gz' or 'zs'.\n");
-            reterr = kPglRetNotYetSupported;
-            goto calc_grm_ret_1;
-            // ZWRAP_useZSTDcompression(0);
-            // outname_end2 = strcpya(outname_end2, ".gz");
-          } else if (grm_flags & kfGrmTableZs) {
+          if (grm_flags & kfGrmListZs) {
             outname_end2 = strcpya(outname_end2, ".zst");
           }
           *outname_end2 = '\0';
-          reterr = cswrite_init2(outname, 0, !(grm_flags & kfGrmTableNoGz), kCompressStreamBlock + kMaxMediumLine, &css, &cswritep);
+          reterr = cswrite_init2(outname, 0, !(grm_flags & kfGrmListNoGz), max_thread_ct, kCompressStreamBlock + kMaxMediumLine, &css, &cswritep);
           if (reterr) {
             goto calc_grm_ret_1;
           }
-          fputs("--make-grm-gz: Writing...", stdout);
+          fputs("--make-grm-list: Writing...", stdout);
           fflush(stdout);
           for (uintptr_t row_idx = row_start_idx; row_idx < row_end_idx; ++row_idx) {
             uint32_t variant_ct_base = variant_ct;
@@ -3438,7 +3427,7 @@ pglerr_t calc_grm(const uintptr_t* orig_sample_include, const char* sample_ids, 
             goto calc_grm_ret_WRITE_FAIL;
           }
           putc_unlocked('\r', stdout);
-          log_write_iter = strcpya(g_logbuf, "--make-grm-gz: GRM ");
+          log_write_iter = strcpya(g_logbuf, "--make-grm-list: GRM ");
           if (parallel_tot != 1) {
             log_write_iter = strcpya(log_write_iter, "component ");
           }
@@ -4216,7 +4205,7 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
       if (output_zst) {
         strcpy(outname_end2, ".zst");
       }
-      reterr = cswrite_init(outname, 0, output_zst, overflow_buf_size, (unsigned char*)writebuf, (unsigned char*)(&(writebuf[overflow_buf_size])), &css);
+      reterr = cswrite_init(outname, 0, output_zst, max_thread_ct, overflow_buf_size, (unsigned char*)writebuf, (unsigned char*)(&(writebuf[overflow_buf_size])), &css);
       if (reterr) {
         goto calc_pca_ret_1;
       }
@@ -4871,7 +4860,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
       if (output_zst) {
         strcpy(outname_end2, ".zst");
       }
-      reterr = cswrite_init(outname, 0, output_zst, overflow_buf_size, overflow_buf, &(overflow_buf[overflow_buf_size]), &css);
+      reterr = cswrite_init(outname, 0, output_zst, max_thread_ct, overflow_buf_size, overflow_buf, &(overflow_buf[overflow_buf_size]), &css);
       if (reterr) {
         goto score_report_ret_1;
       }
@@ -5271,7 +5260,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
     if (output_zst) {
       strcpy(outname_end2, ".zst");
     }
-    reterr = cswrite_init(outname, 0, output_zst, overflow_buf_size, overflow_buf, &(overflow_buf[overflow_buf_size]), &css);
+    reterr = cswrite_init(outname, 0, output_zst, max_thread_ct, overflow_buf_size, overflow_buf, &(overflow_buf[overflow_buf_size]), &css);
     if (reterr) {
       goto score_report_ret_1;
     }
