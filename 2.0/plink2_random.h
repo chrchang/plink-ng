@@ -41,6 +41,11 @@ pglerr_t fill_gaussian_darray(uintptr_t entry_pair_ct, uint32_t thread_ct, doubl
 
 pglerr_t randomize_bigstack(uint32_t thread_ct);
 
+// might not need plink 1.9-style interleaving, but I'll postpone ripping that
+// out.
+// currently requires tot_bit_ct > 1, due to quotient operation.
+void generate_perm1_interleaved(uint32_t tot_bit_ct, uint32_t set_bit_ct, uintptr_t perm_start_idx, uintptr_t perm_end_idx, uintptr_t* perm_buf, sfmt_t* sfmtp);
+
 #ifdef __cplusplus
 } // namespace plink2
 #endif

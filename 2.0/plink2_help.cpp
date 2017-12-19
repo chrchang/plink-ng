@@ -133,9 +133,6 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "  --no-parents       : .fam file does not contain columns 3-4 (parents).\n"
 "  --no-sex           : .fam file does not contain column 5 (sex).\n"
                );
-    help_print("bfile\tfam\tpsam\tno-psam-pheno\tno-fam-pheno\tno-pheno", &help_ctrl, 1,
-"  --no-psam-pheno    : Ignore phenotype(s) in .psam/.fam file.\n\n"
-               );
     // todo: allele fraction import.  but first need to see how it's
     // represented in practice, since it isn't in the spec...
     help_print("vcf\tbcf\tpsam", &help_ctrl, 1,
@@ -649,10 +646,15 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "  --make-rel <cov> <meanimpute> <square | square0 | triangle> <zs | bin | bin4>\n"
 "    Write a lower-triangular variance-standardized relationship matrix to\n"
 "    {output prefix}.rel, and corresponding IDs to {output prefix}.rel.id.\n"
-"    * It is usually best to perform this calculation on a variant set in\n"
-"      approximate linkage equilibrium, with no very-low-MAF variants.\n"
-"    * The 'cov' modifier removes the variance standardization step, causing a\n"
-"      covariance matrix to be calculated instead.\n"
+"    * This computation assumes that variants do not have very low MAF, or\n"
+"      deviate greatly from Hardy-Weinberg equilibrium.\n"
+// depending on what your original variant set looks like, you can occasionally
+// get a better variant-weighting without LD-pruning, but it's the right
+// default recommendation
+"    * Also, it's usually best to perform this calculation on a variant set in\n"
+"      approximate linkage equilibrium.\n"
+"    * The 'cov' modifier replaces the variance-standardization step with basic\n"
+"      mean-centering, causing a covariance matrix to be calculated instead.\n"
 "    * The computation can be subdivided with --parallel.\n"
 "  --make-grm-list <cov> <meanimpute> <zs>\n"
 "  --make-grm-bin <cov> <meanimpute>\n"
@@ -821,7 +823,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "                then controls (case/control only).\n"
 "      altfreq: alt allele frequency.\n"
 "      altfreqcc: alt frequency in cases, then controls (case/control only).\n"
-"      machr2: Empirical divided by theoretical variance quality metric.\n"
+"      machr2: MaCH imputation quality metric (frequently labeled as 'INFO').\n"
 "      firth: Reports whether Firth regression was used (firth-fallback only).\n"
 "      test: Test identifier.  (Required unless only one test is run.)\n"
 "      nobs: Number of samples in the regression.\n"
@@ -833,6 +835,8 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "      p: Asymptotic p-value for t-statistic.\n"
 "    The default is chrom,pos,ref,alt,firth,test,nobs,orbeta,se,ci,t,p.\n\n"
                );
+    // todo: probably no more --clump, have either built-in LDpred or ensure
+    // interoperation is very convenient
     help_print("score", &help_ctrl, 1,
 "  --score [filename] {i} {j} {k} <header | header-read> <no-mean-imputation>\n"
 "          <center | variance-standardize> <se> <zs>\n"
@@ -906,12 +910,6 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
     help_print("silent", &help_ctrl, 0,
 "  --silent           : Suppress output to console.\n"
                );
-    help_print("input-missing-genotype\tmissing-genotype", &help_ctrl, 0,
-"  --input-missing-genotype [c] : '.' is always interpreted as a missing\n"
-"                                 genotype code in input files.  By default, '0'\n"
-"                                 also is; you can change this second missing\n"
-"                                 code with --input-missing-genotype.\n"
-               );
     help_print("vcf\tbcf\tbgen\tdouble-id\tconst-fid\tid-delim", &help_ctrl, 0,
 "  --double-id        : Set both FIDs and IIDs to the VCF/.bgen sample ID.\n"
 "  --const-fid {ID}   : Set all FIDs to the given constant (default '0').\n"
@@ -939,6 +937,11 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
     help_print("oxford-single-chr\tdata\tgen", &help_ctrl, 0,
 "  --oxford-single-chr [chr name]  : Specify single-chromosome .gen file with\n"
 "                                    ignorable first column.\n"
+               );
+    help_print("missing-code\tmissing_code\tdata\tsample", &help_ctrl, 0,
+"  --missing-code {string list}    : Comma-delimited list of missing phenotype\n"
+"    (alias: --missing_code)         values for Oxford-format import (default\n"
+"                                    'NA').\n"
                );
     // any need to keep --hard-call-threshold random?  postpone it for now...
     help_print("hard-call-threshold\tgen\tbgen\tdata\timport-dosage", &help_ctrl, 0,
@@ -974,10 +977,11 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "                                    largest probability is less than a\n"
 "                                    threshold, use --import-dosage-certainty.\n"
                );
-    help_print("missing-code\tmissing_code\tdata\tsample", &help_ctrl, 0,
-"  --missing-code {string list}    : Comma-delimited list of missing phenotype\n"
-"    (alias: --missing_code)         values for Oxford-format import (default\n"
-"                                    'NA').\n"
+    help_print("input-missing-genotype\tmissing-genotype", &help_ctrl, 0,
+"  --input-missing-genotype [c] : '.' is always interpreted as a missing\n"
+"                                 genotype code in input files.  By default, '0'\n"
+"                                 also is; you can change this second missing\n"
+"                                 code with --input-missing-genotype.\n"
                );
     help_print("allow-extra-chr\taec", &help_ctrl, 0,
 "  --allow-extra-chr  : Permit unrecognized chromosome codes (alias --aec).\n"
@@ -1001,7 +1005,8 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "                          parameter causes the command line to take precedence;\n"
 "                          '--chr-override file' defers to the file.\n"
                );
-    help_print("biallelic-only\tvar-min-qual\tvar-filter\tvcf-min-qual\tvcf-filter", &help_ctrl, 0,
+    // possible todo: --var-max-qual
+    help_print("biallelic-only\tvar-min-qual\tvar-filter\tvcf-min-qual\tvcf-filter\tqual-scores\tqual-threshold\tqual-max-threshold", &help_ctrl, 0,
 "  --biallelic-only <strict> <list> : Skip variants with 2+ alt. alleles.\n"
 "  --var-min-qual [val]             : Skip variants with low/missing QUAL.\n"
 "  --var-filter {exception(s)...}   : Skip variants which have FILTER failures.\n"
@@ -1029,6 +1034,9 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "                       --pheno (if one was specified) or .psam (if no --pheno)\n"
 "                       file.  Separate multiple names with spaces or commas,\n"
 "                       and use dashes to designate ranges.\n"
+               );
+    help_print("bfile\tfam\tpsam\tno-psam-pheno\tno-fam-pheno\tno-pheno\tpheno\tpheno-name", &help_ctrl, 0,
+"  --no-psam-pheno    : Ignore phenotype(s) in .psam/.fam file.\n"
                );
     help_print("input-missing-phenotype\t1\tmissing-catname\tmissing-phenotype", &help_ctrl, 0,
 "  --input-missing-phenotype [v] : Set number to treat as a missing phenotype in\n"
@@ -1066,8 +1074,16 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "  --remove-fam [fn...]  : Exclude all families named in a file.\n"
                );
     help_print("extract\texclude\trange", &help_ctrl, 0,
-"  --extract <range> [f...] : Exclude all variants not named in a file.\n"
-"  --exclude <range> [f...] : Exclude all variants named in a file.\n"
+"  --extract <ibed0 | ibed1> [f...] : Usually excludes all variants (not) named\n"
+"  --exclude <ibed0 | ibed1> [f...]   in the given file(s).\n"
+"                                     With the 'ibed0' or 'ibed1' modifier,\n"
+"                                     variants outside/inside the positional\n"
+"                                     ranges in the interval-BED file(s) are\n"
+"                                     excluded instead.  'ibed0' tells PLINK 2\n"
+"                                     to assume the interval bounds follow the\n"
+"                                     UCSC 0-based half-open convention, while\n"
+"                                     'ibed1' (equivalent to PLINK 1.9 'range')\n"
+"                                     specifies 1-based fully-closed.\n"
                );
     help_print("keep-cats\tkeep-cat-names\tkeep-cat-pheno\tremove-cats\tremove-cat-names\tremove-cat-pheno\tkeep-clusters\tkeep-cluster-names\tremove-clusters\tremove-cluster-names", &help_ctrl, 0,
 "  --keep-cats [filename]   : These can be used individually or in combination\n"
@@ -1164,9 +1180,17 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "                         --force-intersect allows the run to proceed; the set\n"
 "                         intersection will be taken.\n"
                );
+    help_print("thin\tthin-count", &help_ctrl, 0,
+"  --thin [p]           : Randomly remove variants, retaining each with prob. p.\n"
+"  --thin-count [n]     : Randomly remove variants until n of them remain.\n"
+               );
     help_print("bp-space\tthin", &help_ctrl, 0,
 "  --bp-space [bps]     : Remove variants so that each pair is no closer than\n"
 "                         the given bp distance.\n"
+               );
+    help_print("thin-indiv\tthin-indiv-count\tmax-indv", &help_ctrl, 0,
+"  --thin-indiv [p]       : Randomly remove samples, retaining with prob. p.\n"
+"  --thin-indiv-count [n] : Randomly remove samples until n of them remain.\n"
                );
     help_print("geno\tmind\toblig-clusters\toblig-missing", &help_ctrl, 0,
 "  --geno {val} <dosage | hh-missing>\n"
@@ -1236,11 +1260,9 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "                                     and the female-only p-value.)\n"
 "                                   * There is currently no special handling of\n"
 "                                     case/control phenotypes.\n"
-"  --mach-r2-filter {min} {max}   : Exclude variants with MaCH\n"
-"                                   empirical-theoretical variance ratio outside\n"
-"                                   of [min, max] (defaults 0.1 and 2.0).\n"
-"                                   * For multiallelic variants, only the\n"
-"                                     ref-nonref dimension is considered.\n"
+"  --mach-r2-filter {min} {max}   : Exclude variants with MaCH imputation\n"
+"                                   quality metric outside of [min, max]\n"
+"                                   (defaults 0.1 and 2.0).\n"
 "                                   * If a single parameter is provided, it is\n"
 "                                     treated as the minimum.\n"
                );
@@ -1312,6 +1334,8 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "                            \"--export vcf\", since it causes male\n"
 "                            homozygous/missing calls in PAR1/PAR2 to be\n"
 "                            reported as haploid.)\n"
+"  --merge-x               : Merge XY back with X.  This usually has to be\n"
+"                            combined with --sort-vars.\n"
                );
     help_print("set-all-var-ids\tset-missing-var-ids\tnew-id-max-allele-len\tmissing-var-code", &help_ctrl, 0,
 "  --set-missing-var-ids [t]  : Given a template string with a '@' where the\n"
@@ -1442,7 +1466,8 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
     help_print("adjust", &help_ctrl, 0,
 "  --adjust <gc> <log10> <cols=[column set descriptor]> :\n"
 "    For each association test, report some multiple-testing corrections, sorted\n"
-"    in increasing-p-value order.\n"
+"    in increasing-p-value order.  (Note that these are practically always\n"
+"    overly conservative.)\n"
 "    * 'gc' causes genomic-controlled p-values to be used in the formulas.\n"
 "    * 'log10' causes negative base 10 logs of p-values to be reported, instead\n"
 "      of raw p-values.\n"

@@ -76,7 +76,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 702
+#define PGENLIB_INTERNAL_VERNUM 703
 
 
 // other configuration-ish values needed by plink2_common subset

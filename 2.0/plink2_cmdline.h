@@ -1413,6 +1413,8 @@ HEADER_INLINE char* uint32toa_x(uint32_t uii, char extra_char, char* start) {
   return &(penult[1]);
 }
 
+void magic_num(uint32_t divisor, uint64_t* multp, uint32_t* __restrict pre_shiftp, uint32_t* __restrict post_shiftp, uint32_t* __restrict incrp);
+
 // fill_uint_zero, fill_ulong_zero, fill_ull_zero, fill_ulong_one currently
 // defined in plink2_base.h
 

@@ -1010,11 +1010,15 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
       tmp_alloc_end = (unsigned char*)((uintptr_t)(&(g_one_char_strs[512 - kMaxIdSlen])));
     }
     const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
-    const uint32_t merge_par = (misc_flags / kfMiscMergePar) & 1;
+    const uint32_t merge_par = ((misc_flags & (kfMiscMergePar | kfMiscMergeX)) != 0);
     const int32_t x_code = cip->xymt_codes[kChrOffsetX];
-    const int32_t par2_code = cip->xymt_codes[kChrOffsetPAR2];
     const char input_missing_geno_char = *g_input_missing_geno_ptr;
     int32_t parx_code = cip->xymt_codes[kChrOffsetPAR1];
+    int32_t par2_code = cip->xymt_codes[kChrOffsetPAR2];
+    if (misc_flags & kfMiscMergeX) {
+      parx_code = cip->xymt_codes[kChrOffsetXY];
+      par2_code = -2;
+    }
     uint32_t merge_par_ct = 0;
 
     // Corner case: with --split-par + --not-chr x, we should keep the
@@ -1814,12 +1818,6 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
         if (reterr) {
           goto load_pvar_ret_1;
         }
-      } else if (merge_par) {
-        if (merge_par_ct) {
-          LOGPRINTF("--merge-par: %u chromosome code%s changed.\n", merge_par_ct, (merge_par_ct == 1)? "" : "s");
-        } else {
-          logerrprint("Warning: --merge-par had no effect (no PAR1/PAR2 chromosome codes present).\n");
-        }
       }
       cip->chr_ct = chrs_encountered_m1 + 1;
     } else {
@@ -1847,6 +1845,16 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
       }
       memcpy(&(chr_idxs[full_block_ct * kLoadPvarBlockSize]), chr_idxs_read_iter, raw_variant_ct_lowbits * sizeof(chr_idx_t));
       cip->chr_ct = popcount_longs(loaded_chr_mask, DIV_UP(cip->max_code + cip->name_ct + 1, kBitsPerWord));
+    }
+    if (merge_par) {
+      const uint32_t is_plink2_par = (misc_flags / kfMiscMergePar) & 1;
+      if (merge_par_ct) {
+        LOGPRINTF("--merge-%s: %u chromosome code%s changed.\n", is_plink2_par? "par" : "x", merge_par_ct, (merge_par_ct == 1)? "" : "s");
+      } else if (is_plink2_par) {
+        logerrprint("Warning: --merge-par had no effect (no PAR1/PAR2 chromosome codes present).\n");
+      } else {
+        logerrprint("Warning: --merge-x had no effect (no XY chromosome codes present).\n");
+      }
     }
     const uint32_t last_chr_code = cip->max_code + cip->name_ct;
     const uint32_t chr_word_ct = BITCT_TO_WORDCT(last_chr_code + 1);

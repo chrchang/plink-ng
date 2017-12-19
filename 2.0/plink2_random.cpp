@@ -168,6 +168,76 @@ pglerr_t randomize_bigstack(uint32_t thread_ct) {
   return reterr;
 }
 
+void generate_perm1_interleaved(uint32_t tot_bit_ct, uint32_t set_bit_ct, uintptr_t perm_start_idx, uintptr_t perm_end_idx, uintptr_t* perm_buf, sfmt_t* sfmtp) {
+  assert(tot_bit_ct > 1);
+  const uintptr_t tot_bit_ctl = BITCT_TO_WORDCT(tot_bit_ct);
+  const uintptr_t perm_ct = perm_end_idx - perm_start_idx;
+  const uint32_t tot_quotient = (uint32_t)(0x100000000LLU / tot_bit_ct);
+  const uint32_t upper_bound = tot_bit_ct * tot_quotient - 1;
+  uint32_t totq_preshift;
+  uint64_t totq_magic;
+  uint32_t totq_postshift;
+  uint32_t totq_incr;
+  // seeing as how we're gonna divide by the same number a billion times or so,
+  // it just might be worth optimizing that division...
+  magic_num(tot_quotient, &totq_magic, &totq_preshift, &totq_postshift, &totq_incr);
+  if (set_bit_ct * 2 < tot_bit_ct) {
+    for (uintptr_t widx = 0; widx < tot_bit_ctl; ++widx) {
+      fill_ulong_zero(perm_ct, &(perm_buf[perm_start_idx + (widx * perm_end_idx)]));
+    }
+    for (uintptr_t perm_idx = perm_start_idx; perm_idx < perm_end_idx; ++perm_idx) {
+      uintptr_t* pbptr = &(perm_buf[perm_idx]);
+      for (uint32_t num_set = 0; num_set < set_bit_ct; ++num_set) {
+        uintptr_t widx;
+        uintptr_t lowbits;
+	do {
+          uint32_t urand;
+	  do {
+	    urand = sfmt_genrand_uint32(sfmtp);
+	  } while (urand > upper_bound);
+	  // this is identical to lowbits = urand / tot_quotient
+	  lowbits = (totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift;
+	  widx = lowbits / kBitsPerWord;
+	  lowbits &= (kBitsPerWord - 1);
+	} while ((pbptr[widx * perm_end_idx] >> lowbits) & 1);
+	pbptr[widx * perm_end_idx] |= (k1LU << lowbits);
+      }
+    }
+  } else {
+    for (uintptr_t widx = 0; widx < tot_bit_ctl; ++widx) {
+      fill_ulong_one(perm_ct, &(perm_buf[perm_start_idx + (widx * perm_end_idx)]));
+    }
+    // "set" has reversed meaning here
+    set_bit_ct = tot_bit_ct - set_bit_ct;
+    for (uintptr_t perm_idx = perm_start_idx; perm_idx < perm_end_idx; ++perm_idx) {
+      uintptr_t* pbptr = &(perm_buf[perm_idx]);
+      for (uint32_t num_set = 0; num_set < set_bit_ct; num_set++) {
+        uintptr_t widx;
+        uintptr_t lowbits;
+	do {
+          uint32_t urand;
+	  do {
+	    urand = sfmt_genrand_uint32(sfmtp);
+	  } while (urand > upper_bound);
+	  lowbits = (totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift;
+	  widx = lowbits / kBitsPerWord;
+	  lowbits &= (kBitsPerWord - 1);
+	} while (!((pbptr[widx * perm_end_idx] >> lowbits) & 1));
+	pbptr[widx * perm_end_idx] &= ~(k1LU << lowbits);
+      }
+    }
+    const uint32_t remaining_bit_ct = tot_bit_ct % kBitsPerWord;
+    if (remaining_bit_ct) {
+      const uintptr_t final_mask = (~k0LU) >> (kBitsPerWord - remaining_bit_ct);
+      uintptr_t* pbptr = &(perm_buf[(tot_bit_ctl - 1) * perm_end_idx + perm_start_idx]);
+      for (uintptr_t perm_idx = perm_start_idx; perm_idx < perm_end_idx; ++perm_idx) {
+	*pbptr &= final_mask;
+	pbptr++;
+      }
+    }
+  }
+}
+
 #ifdef __cplusplus
 }
 #endif

@@ -725,16 +725,19 @@ void cleanup_chr_info(chr_info_t* cip) {
 }
 
 char* chr_name_std(const chr_info_t* cip, uint32_t chr_idx, char* buf) {
-  if (chr_idx > cip->max_numeric_code) {
-    // this is encoding-independent.  users who require all numbers should use
-    // 25 == XY instead.
-    // this code will probably need to be changed later if we add more standard
-    // nonnumeric codes.
-    memcpyl3(buf, "PAR");
-    buf[3] = '0' + (((int32_t)chr_idx) - cip->max_numeric_code);
-    return &(buf[4]);
-  }
   const uint32_t output_encoding = cip->output_encoding;
+  if (chr_idx > cip->max_numeric_code) {
+    // This is usually encoding-independent; no real numeric representation of
+    // PAR1/PAR2 is defined.  However, since there'd otherwise be no way to
+    // include the pseudoautosomal regions in e.g. ADMIXTURE, we render them
+    // them as 25 (in the human case) when "--output-chr 26" is specified.
+    if (output_encoding & (kfChrOutputPrefix | kfChrOutputM | kfChrOutputMT)) {
+      memcpyl3(buf, "PAR");
+      buf[3] = '0' + (((int32_t)chr_idx) - cip->max_numeric_code);
+      return &(buf[4]);
+    }
+    return uint32toa(cip->autosome_ct + (kChrOffsetXY + 1), buf);
+  }
   if (output_encoding & (kfChrOutputPrefix | kfChrOutput0M)) {
     if (output_encoding == kfChrOutput0M) {
       // force two chars

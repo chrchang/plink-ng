@@ -2871,7 +2871,6 @@ char* ftoa_g(float fxx, char* start) {
 }
 
 
-/*
 void magic_num(uint32_t divisor, uint64_t* multp, uint32_t* __restrict pre_shiftp, uint32_t* __restrict post_shiftp, uint32_t* __restrict incrp) {
   // Enables fast integer division by a constant not known until runtime.  See
   // http://ridiculousfish.com/blog/posts/labor-of-division-episode-iii.html .
@@ -2929,7 +2928,6 @@ void magic_num(uint32_t divisor, uint64_t* multp, uint32_t* __restrict pre_shift
   uint32_t dummy;
   magic_num(divisor >> (*pre_shiftp), multp, &dummy, post_shiftp, incrp);
 }
-*/
 
 
 void fill_bits_nz(uintptr_t start_idx, uintptr_t end_idx, uintptr_t* bitarr) {

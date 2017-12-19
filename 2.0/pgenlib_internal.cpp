@@ -1416,6 +1416,10 @@ void split_hom_ref2het(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t* 
 void pgfi_preinit(pgen_file_info_t* pgfip) {
   pgfip->shared_ff = nullptr;
   pgfip->block_base = nullptr;
+
+  // might remove this later, but we currently want this for proper handling of
+  // e.g. sites-only VCFs
+  pgfip->nonref_flags = nullptr;
 }
 
 uint32_t count_pgfi_alloc_cachelines_required(uint32_t raw_variant_ct) {

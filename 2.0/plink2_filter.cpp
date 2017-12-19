@@ -16,9 +16,10 @@
 
 
 #include "plink2_filter.h"
-#include "plink2_stats.h"
+#include "plink2_random.h"
+#include "plink2_stats.h"  // SNPHWE_t(), etc.
 
-#include <strings.h> // strncasecmp()
+#include <strings.h>  // strncasecmp()
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -345,6 +346,79 @@ pglerr_t extract_exclude_flag_norange(char** variant_ids, const uint32_t* varian
   }
  extract_exclude_flag_norange_ret_1:
   gz_token_stream_close(&gts);
+  bigstack_reset(bigstack_mark);
+  return reterr;
+}
+
+boolerr_t random_thin_prob(const char* flagname, const char* unitname, double thin_keep_prob, uint32_t raw_item_ct, uint32_t allow_none, uintptr_t* item_include, uint32_t* item_ct_ptr) {
+  const uint32_t uint32_thresh = (uint32_t)(thin_keep_prob * 4294967296.0 + 0.5);
+  // possible todo: try using truncated geometric distribution, like --dummy
+  // can also parallelize this
+  const uint32_t orig_item_ct = *item_ct_ptr;
+  uint32_t item_uidx = 0;
+  for (uint32_t item_idx = 0; item_idx < orig_item_ct; ++item_idx, ++item_uidx) {
+    next_set_unsafe_ck(item_include, &item_uidx);
+    if (sfmt_genrand_uint32(&g_sfmt) >= uint32_thresh) {
+      CLEAR_BIT(item_uidx, item_include);
+    }
+  }
+  const uint32_t new_item_ct = popcount_longs(item_include, BITCT_TO_WORDCT(raw_item_ct));
+  *item_ct_ptr = new_item_ct;
+  if ((!allow_none) && (!new_item_ct)) {
+    LOGERRPRINTF("Error: All %ss removed by --%s.  Try a higher probability.\n", flagname, unitname);
+    return 1;
+  }
+  const uint32_t removed_ct = orig_item_ct - new_item_ct;
+  LOGPRINTF("--%s: %u %s%s removed (%u remaining).\n", flagname, removed_ct, unitname, (removed_ct == 1)? "" : "s", new_item_ct);
+  return 0;
+}
+
+pglerr_t random_thin_ct(const char* flagname, const char* unitname, uint32_t thin_keep_ct, uint32_t raw_item_ct, uintptr_t* item_include, uint32_t* item_ct_ptr) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  pglerr_t reterr = kPglRetSuccess;
+  {
+    const uint32_t orig_item_ct = *item_ct_ptr;
+    if (thin_keep_ct > orig_item_ct) {
+      LOGERRPRINTF("Error: --%s parameter exceeds number of remaining %ss.\n", flagname, unitname);
+      goto random_thin_ct_ret_INCONSISTENT_INPUT;
+    }
+    const uint32_t removed_ct = orig_item_ct - thin_keep_ct;
+    if (removed_ct) {
+      /*
+      if (orig_item_ct > 1) {
+      */
+        const uint32_t raw_item_ctl = BITCT_TO_WORDCT(raw_item_ct);
+        uintptr_t* perm_buf;
+        uintptr_t* new_item_include;
+        if (bigstack_alloc_ul(BITCT_TO_WORDCT(orig_item_ct), &perm_buf) ||
+            bigstack_alloc_ul(raw_item_ctl, &new_item_include)) {
+          goto random_thin_ct_ret_NOMEM;
+        }
+        // no actual interleaving here, but may as well use this function
+        // note that this requires marker_ct >= 2
+        generate_perm1_interleaved(orig_item_ct, thin_keep_ct, 0, 1, perm_buf, &g_sfmt);
+        expand_bytearr((unsigned char*)perm_buf, item_include, raw_item_ctl, orig_item_ct, 0, new_item_include);
+        memcpy(item_include, new_item_include, raw_item_ctl * sizeof(intptr_t));
+        /*
+      } else {
+        // orig_item_ct == 1, thin_keep_ct == 0
+        // not actually possible until --allow-no-{samples/vars} enabled
+        const uint32_t item_uidx = next_set_unsafe(item_include, 0);
+        clear_bit(item_uidx, item_include);
+      }
+        */
+      *item_ct_ptr = thin_keep_ct;
+    }
+    LOGPRINTF("--%s: %u %s%s removed (%u remaining).\n", flagname, removed_ct, unitname, (removed_ct == 1)? "" : "s", thin_keep_ct);
+  }
+  while (0) {
+  random_thin_ct_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  random_thin_ct_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
   bigstack_reset(bigstack_mark);
   return reterr;
 }

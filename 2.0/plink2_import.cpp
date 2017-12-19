@@ -784,7 +784,7 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
     }
     // todo: allow_no_samples exception
     if (!sample_ct) {
-      logerrprint("Error: No samples in --vcf file.\n");
+      logerrprint("Error: No samples in --vcf file.  (You may be able to process it with --pvar\ninstead.)\n");
       goto vcf_to_pgen_ret_INCONSISTENT_INPUT;
     }
 

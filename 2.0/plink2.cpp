@@ -64,7 +64,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (16 Dec 2017)";
+  " (18 Dec 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -130,7 +130,11 @@ FLAGSET64_DEF_START()
   kfFilterExclFounders = (1 << 7),
   kfFilterExclNonfounders = (1 << 8),
   kfFilterSnpsOnly = (1 << 9),
-  kfFilterSnpsOnlyJustAcgt = (1 << 10)
+  kfFilterSnpsOnlyJustAcgt = (1 << 10),
+  kfFilterExtractIbed0 = (1 << 11),
+  kfFilterExtractIbed1 = (1 << 12),
+  kfFilterExcludeIbed0 = (1 << 13),
+  kfFilterExcludeIbed1 = (1 << 14)
 FLAGSET64_DEF_END(filter_flags_t);
 
 FLAGSET64_DEF_START()
@@ -235,6 +239,8 @@ typedef struct plink2_cmdline_struct {
   double mach_r2_max;
   double min_maf;
   double max_maf;
+  double thin_keep_prob;
+  double thin_keep_sample_prob;
   uint64_t min_allele_dosage;
   uint64_t max_allele_dosage;
   int32_t missing_pheno;
@@ -249,6 +255,8 @@ typedef struct plink2_cmdline_struct {
   uint32_t exportf_bits;
   uint32_t mwithin_val;
   uint32_t min_bp_space;
+  uint32_t thin_keep_ct;
+  uint32_t thin_keep_sample_ct;
   char exportf_id_delim;
 
   char* varid_template;
@@ -430,7 +438,7 @@ void report_genotyping_rate(const uintptr_t* variant_include, const chr_info_t* 
   }
 }
 
-pglerr_t apply_variant_bp_filters(const char* extract_fnames, const char* exclude_fnames, const chr_info_t* cip, const uint32_t* variant_bps, int32_t from_bp, int32_t to_bp, uint32_t raw_variant_ct, misc_flags_t misc_flags, unsorted_var_t vpos_sortstatus, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+pglerr_t apply_variant_bp_filters(const char* extract_fnames, const char* exclude_fnames, const chr_info_t* cip, const uint32_t* variant_bps, int32_t from_bp, int32_t to_bp, uint32_t raw_variant_ct, filter_flags_t filter_flags, unsorted_var_t vpos_sortstatus, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   if ((from_bp != -1) || (to_bp != -1)) {
     if (vpos_sortstatus & kfUnsortedVarBp) {
       logerrprint("Error: --from-bp and --to-bp require a sorted .pvar/.bim.  Retry this command\nafter using --make-pgen/--make-bed + --sort-vars to sort your data.\n");
@@ -460,22 +468,22 @@ pglerr_t apply_variant_bp_filters(const char* extract_fnames, const char* exclud
     }
     *variant_ct_ptr = popcount_bit_idx(variant_include, variant_uidx_start, variant_uidx_end);
   }
-  if (extract_fnames && (misc_flags & kfMiscExtractRange)) {
+  if (extract_fnames && (filter_flags & (kfFilterExtractIbed0 | kfFilterExtractIbed1))) {
     if (vpos_sortstatus & kfUnsortedVarBp) {
-      logerrprint("Error: '--extract range' requires a sorted .pvar/.bim.  Retry this command\nafter using --make-pgen/--make-bed + --sort-vars to sort your data.\n");
+      logerrprint("Error: '--extract ibed0'/'--extract ibed1' requires a sorted .pvar/.bim.  Retry\nthis command after using --make-pgen/--make-bed + --sort-vars to sort your\ndata.\n");
       return kPglRetInconsistentInput;
     }
-    pglerr_t reterr = extract_exclude_range(extract_fnames, cip, variant_bps, raw_variant_ct, 0, variant_include, variant_ct_ptr);
+    pglerr_t reterr = extract_exclude_range(extract_fnames, cip, variant_bps, raw_variant_ct, 0, (filter_flags / kfFilterExtractIbed0) & 1, variant_include, variant_ct_ptr);
     if (reterr) {
       return reterr;
     }
   }
-  if (exclude_fnames && (misc_flags & kfMiscExcludeRange)) {
+  if (exclude_fnames && (filter_flags & (kfFilterExcludeIbed0 | kfFilterExcludeIbed1))) {
     if (vpos_sortstatus & kfUnsortedVarBp) {
-      logerrprint("Error: '--exclude range' requires a sorted .pvar/.bim.  Retry this command\nafter using --make-pgen/--make-bed + --sort-vars to sort your data.\n");
+      logerrprint("Error: '--exclude ibed0'/'--exclude ibed1' requires a sorted .pvar/.bim.  Retry\nthis commandafter using --make-pgen/--make-bed + --sort-vars to sort your\ndata.\n");
       return kPglRetInconsistentInput;
     }
-    pglerr_t reterr = extract_exclude_range(exclude_fnames, cip, variant_bps, raw_variant_ct, 1, variant_include, variant_ct_ptr);
+    pglerr_t reterr = extract_exclude_range(exclude_fnames, cip, variant_bps, raw_variant_ct, 1, (filter_flags / kfFilterExcludeIbed0) & 1, variant_include, variant_ct_ptr);
     if (reterr) {
       return reterr;
     }
@@ -869,12 +877,12 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
     // into two cases.
     const uint32_t full_variant_id_htable_needed = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct || pcp->update_name_flag);
     if (variant_ct && (!full_variant_id_htable_needed)) {
-      reterr = apply_variant_bp_filters(pcp->extract_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, raw_variant_ct, pcp->misc_flags, vpos_sortstatus, variant_include, &variant_ct);
+      reterr = apply_variant_bp_filters(pcp->extract_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, raw_variant_ct, pcp->filter_flags, vpos_sortstatus, variant_include, &variant_ct);
       if (reterr) {
         goto plink2_ret_1;
       }
     }
-    if (variant_ct && (full_variant_id_htable_needed || (pcp->extract_fnames && (!(pcp->misc_flags & kfMiscExtractRange))) || (pcp->exclude_fnames && (!(pcp->misc_flags & kfMiscExcludeRange))))) {
+    if (variant_ct && (full_variant_id_htable_needed || (pcp->extract_fnames && (!(pcp->filter_flags & (kfFilterExtractIbed0 | kfFilterExtractIbed1)))) || (pcp->exclude_fnames && (!(pcp->filter_flags & (kfFilterExcludeIbed0 | kfFilterExcludeIbed1)))))) {
       // don't bother with having different allow_dups vs. no allow_dups hash
       // table structures, just check specific IDs for duplication in the
       // no-duplicates-allowed cases
@@ -932,7 +940,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
         if (reterr) {
           goto plink2_ret_1;
         }
-        if ((pcp->extract_fnames && (!(pcp->misc_flags & kfMiscExtractRange))) || (pcp->exclude_fnames && (!(pcp->misc_flags & kfMiscExcludeRange)))) {
+        if ((pcp->extract_fnames && (!(pcp->filter_flags & (kfFilterExtractIbed0 | kfFilterExtractIbed1)))) || (pcp->exclude_fnames && (!(pcp->filter_flags & (kfFilterExcludeIbed0 | kfFilterExcludeIbed1))))) {
           // Must reconstruct the hash table in this case.
           bigstack_reset(bigstack_mark);
           reterr = alloc_and_populate_id_htable_mt(variant_include, variant_ids, variant_ct, pcp->max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size);
@@ -942,13 +950,13 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
         }
       }
 
-      if (pcp->extract_fnames && (!(pcp->misc_flags & kfMiscExtractRange))) {
+      if (pcp->extract_fnames && (!(pcp->filter_flags & (kfFilterExtractIbed0 | kfFilterExtractIbed1)))) {
         reterr = extract_exclude_flag_norange(variant_ids, variant_id_htable, pcp->extract_fnames, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, 0, variant_include, &variant_ct);
         if (reterr) {
           goto plink2_ret_1;
         }
       }
-      if (pcp->exclude_fnames && (!(pcp->misc_flags & kfMiscExcludeRange))) {
+      if (pcp->exclude_fnames && (!(pcp->filter_flags & (kfFilterExcludeIbed0 | kfFilterExcludeIbed1)))) {
         reterr = extract_exclude_flag_norange(variant_ids, variant_id_htable, pcp->exclude_fnames, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, 1, variant_include, &variant_ct);
         if (reterr) {
           goto plink2_ret_1;
@@ -956,10 +964,23 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
       }
       bigstack_reset(bigstack_mark);
       if (variant_ct && full_variant_id_htable_needed) {
-        reterr = apply_variant_bp_filters(pcp->extract_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, raw_variant_ct, pcp->misc_flags, vpos_sortstatus, variant_include, &variant_ct);
+        reterr = apply_variant_bp_filters(pcp->extract_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, raw_variant_ct, pcp->filter_flags, vpos_sortstatus, variant_include, &variant_ct);
         if (reterr) {
           goto plink2_ret_1;
         }
+      }
+      // todo: --attrib; although it isn't a "standard" file format, it can be
+      // more convenient than forcing users to generate full-blown sites-only
+      // VCF files, etc.
+    }
+    if (pcp->thin_keep_prob != 1.0) {
+      if (random_thin_prob("thin", "variant", pcp->thin_keep_prob, raw_variant_ct, (pcp->misc_flags / kfMiscAllowNoVars) & 1, variant_include, &variant_ct)) {
+        goto plink2_ret_INCONSISTENT_INPUT;
+      }
+    } else if (pcp->thin_keep_ct != UINT32_MAX) {
+      reterr = random_thin_ct("thin-count", "variant", pcp->thin_keep_ct, raw_variant_ct, variant_include, &variant_ct);
+      if (reterr) {
+        goto plink2_ret_1;
       }
     }
     // xid_mode may vary between these operations in a single run, and
@@ -995,6 +1016,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
         goto plink2_ret_1;
       }
     }
+    // todo: --attrib-indiv
     uint32_t* sample_missing_dosage_cts = nullptr;
     uint32_t* sample_missing_hc_cts = nullptr;
     uint32_t* sample_hethap_cts = nullptr;
@@ -1035,6 +1057,18 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
         const uint32_t removed_ct = old_sample_ct - sample_ct;
         LOGPRINTF("--keep-%sfounders: %u sample%s removed.\n", keep_founders? "" : "non", removed_ct, (removed_ct == 1)? "" : "s");
       }
+
+      if (pcp->thin_keep_sample_prob != 1.0) {
+        if (random_thin_prob("thin-indiv", "sample", pcp->thin_keep_sample_prob, raw_sample_ct, (pcp->misc_flags / kfMiscAllowNoSamples) & 1, sample_include, &sample_ct)) {
+          goto plink2_ret_INCONSISTENT_INPUT;
+        }
+      } else if (pcp->thin_keep_sample_ct != UINT32_MAX) {
+        reterr = random_thin_ct("thin-indiv-count", "sample", pcp->thin_keep_sample_ct, raw_sample_ct, sample_include, &sample_ct);
+        if (reterr) {
+          goto plink2_ret_1;
+        }
+      }
+
       const uint32_t smaj_missing_geno_report_requested = (pcp->command_flags1 & kfCommand1MissingReport) && (!(pcp->missing_rpt_modifier & kfMissingRptVariantOnly));
       if ((pcp->mind_thresh < 1.0) || smaj_missing_geno_report_requested) {
         if (bigstack_alloc_ui(raw_sample_ct, &sample_missing_hc_cts) ||
@@ -2799,6 +2833,8 @@ int main(int argc, char** argv) {
             strcpy(flagname_write_iter, "make-pgen");
           } else if (strequal_k(flagname_p, "missing_code", flag_slen)) {
             strcpy(flagname_write_iter, "missing-code");
+          } else if (strequal_k(flagname_p, "max-indv", flag_slen)) {
+            strcpy(flagname_write_iter, "thin-indiv-count");
           } else {
             goto main_flag_copy;
           }
@@ -2939,6 +2975,8 @@ int main(int argc, char** argv) {
     pc.mach_r2_max = 0.0;
     pc.min_maf = 0.0;
     pc.max_maf = 1.0;
+    pc.thin_keep_prob = 1.0;
+    pc.thin_keep_sample_prob = 1.0;
     pc.min_allele_dosage = 0;
     pc.max_allele_dosage = (~0LLU);
     pc.var_min_qual = -1;
@@ -2957,6 +2995,8 @@ int main(int argc, char** argv) {
     pc.exportf_bits = 0;
     pc.mwithin_val = 1;
     pc.min_bp_space = 0;
+    pc.thin_keep_ct = UINT32_MAX;
+    pc.thin_keep_sample_ct = UINT32_MAX;
     pc.exportf_id_delim = '\0';
     double import_dosage_certainty = 0.0;
     int32_t vcf_min_gq = -1;
@@ -3702,16 +3742,27 @@ int main(int argc, char** argv) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const uint32_t is_range = !strcmp(argv[arg_idx + 1], "range");
-          if (is_range) {
-            if (param_ct == 1) {
-              logerrprint("Error: '--extract range' requires at least one filename.\n");
-              goto main_ret_INVALID_CMDLINE_A;
+          const char* cur_modif = argv[arg_idx + 1];
+          const uint32_t cur_modif_slen = strlen(cur_modif);
+          uint32_t is_ibed = 0;
+          if (cur_modif_slen == 5) {
+            if (!memcmp(cur_modif, "ibed0", 5)) {
+              if (param_ct == 1) {
+                logerrprint("Error: '--extract ibed0' requires at least one filename.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              pc.filter_flags |= kfFilterExtractIbed0 | kfFilterNoSplitChr;
+              is_ibed = 1;
+            } else if ((!memcmp(cur_modif, "ibed1", 5)) || (!memcmp(cur_modif, "range", 5))) {
+              if (param_ct == 1) {
+                logerrprint("Error: '--extract ibed1' requires at least one filename.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              pc.filter_flags |= kfFilterExtractIbed1 | kfFilterNoSplitChr;
+              is_ibed = 1;
             }
-            pc.misc_flags |= kfMiscExtractRange;
-            pc.filter_flags |= kfFilterNoSplitChr;
           }
-          reterr = alloc_and_flatten(&(argv[arg_idx + 1 + is_range]), param_ct - is_range, kPglFnamesize, &pc.extract_fnames);
+          reterr = alloc_and_flatten(&(argv[arg_idx + 1 + is_ibed]), param_ct - is_ibed, kPglFnamesize, &pc.extract_fnames);
           if (reterr) {
             goto main_ret_1;
           }
@@ -3720,16 +3771,27 @@ int main(int argc, char** argv) {
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const uint32_t is_range = !strcmp(argv[arg_idx + 1], "range");
-          if (is_range) {
-            if (param_ct == 1) {
-              logerrprint("Error: '--exclude range' requires at least one filename.\n");
-              goto main_ret_INVALID_CMDLINE_A;
+          const char* cur_modif = argv[arg_idx + 1];
+          const uint32_t cur_modif_slen = strlen(cur_modif);
+          uint32_t is_ibed = 0;
+          if (cur_modif_slen == 5) {
+            if (!memcmp(cur_modif, "ibed0", 5)) {
+              if (param_ct == 1) {
+                logerrprint("Error: '--exclude ibed0' requires at least one filename.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              pc.filter_flags |= kfFilterExcludeIbed0 | kfFilterNoSplitChr;
+              is_ibed = 1;
+            } else if ((!memcmp(cur_modif, "ibed1", 5)) || (!memcmp(cur_modif, "range", 5))) {
+              if (param_ct == 1) {
+                logerrprint("Error: '--exclude ibed1' requires at least one filename.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              pc.filter_flags |= kfFilterExcludeIbed1 | kfFilterNoSplitChr;
+              is_ibed = 1;
             }
-            pc.misc_flags |= kfMiscExcludeRange;
-            pc.filter_flags |= kfFilterNoSplitChr;
           }
-          reterr = alloc_and_flatten(&(argv[arg_idx + 1 + is_range]), param_ct - is_range, kPglFnamesize, &pc.exclude_fnames);
+          reterr = alloc_and_flatten(&(argv[arg_idx + 1 + is_ibed]), param_ct - is_ibed, kPglFnamesize, &pc.exclude_fnames);
           if (reterr) {
             goto main_ret_1;
           }
@@ -5701,6 +5763,17 @@ int main(int argc, char** argv) {
           pc.misc_flags |= kfMiscMergePar;
           pc.dependency_flags |= kfFilterPvarReq | kfFilterNoSplitChr;
           goto main_param_zero;
+        } else if (strequal_k2(flagname_p2, "erge-x")) {
+          if (pc.misc_flags & kfMiscMergePar) {
+            logerrprint("Error: --merge-par cannot be used with --merge-x.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (pc.exportf_modifier & kfExportfVcf) {
+            logerrprint("Warning: --merge-x should not be used in the same run as VCF export; this\ncauses some ploidies to be wrong.  Instead, use --merge-x + --sort-vars +\n--make-{b}pgen in one run, and follow up with --split-par + --export vcf.\n");
+          }
+          pc.misc_flags |= kfMiscMergeX;
+          pc.dependency_flags |= kfFilterPvarReq;
+          goto main_param_zero;
         } else if (strequal_k2(flagname_p2, "af-succ")) {
           pc.misc_flags |= kfMiscMafSucc;
           goto main_param_zero;
@@ -6596,8 +6669,8 @@ int main(int argc, char** argv) {
             }
           }
         } else if (strequal_k2(flagname_p2, "plit-par")) {
-          if (pc.misc_flags & kfMiscMergePar) {
-            logerrprint("Error: --split-par cannot be used with --merge-par.\n");
+          if (pc.misc_flags & (kfMiscMergePar | kfMiscMergeX)) {
+            logerrprint("Error: --split-par cannot be used with --merge-par/--merge-x.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
@@ -6968,6 +7041,76 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE;
           }
           pc.filter_flags |= kfFilterPvarReq;
+        } else if (strequal_k2(flagname_p2, "hin")) {
+          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          char* cur_modif = argv[arg_idx + 1];
+          if (!scanadv_double(cur_modif, &pc.thin_keep_prob)) {
+            sprintf(g_logbuf, "Error: Invalid --thin variant retention probability '%s'.\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          if (pc.thin_keep_prob < (0.5 / 4294967296.0)) {
+            logerrprint("Error: --thin variant retention probability too small.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          } else if (pc.thin_keep_prob >= (4294967295.5 / 4294967296.0)) {
+            uint32_t uii;
+            if (scan_uint_defcap(cur_modif, &uii)) {
+              logerrprint("Error: --thin variant retention probability too large.\n");
+            } else {
+              // VCFtools --thin = --bp-space...
+              logerrprint("Error: --thin variant retention probability too large.  (Did you mean\n--bp-space?)\n");
+            }
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          pc.filter_flags |= kfFilterPvarReq;
+        } else if (strequal_k2(flagname_p2, "hin-count")) {
+          if (pc.thin_keep_prob != 1.0) {
+            logerrprint("Error: --thin cannot be used with --thin-count.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          char* cur_modif = argv[arg_idx + 1];
+          if (scan_uint_defcap(cur_modif, &pc.thin_keep_ct) || (!pc.thin_keep_ct)) {
+            // todo: allow 0 if --allow-no-variants
+            sprintf(g_logbuf, "Error: Invalid --thin-count parameter '%s'.\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.filter_flags |= kfFilterPvarReq;
+        } else if (strequal_k2(flagname_p2, "hin-indiv")) {
+          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          char* cur_modif = argv[arg_idx + 1];
+          if (!scanadv_double(cur_modif, &pc.thin_keep_sample_prob)) {
+            sprintf(g_logbuf, "Error: Invalid --thin-indiv sample retention probability '%s'.\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          if (pc.thin_keep_sample_prob < (0.5 / 4294967296.0)) {
+            logerrprint("Error: --thin-indiv sample retention probability too small.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          } else if (pc.thin_keep_sample_prob >= (4294967295.5 / 4294967296.0)) {
+            logerrprint("Error: --thin-indiv sample retention probability too large.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          pc.filter_flags |= kfFilterPsamReq;
+        } else if (strequal_k2(flagname_p2, "hin-indiv-count")) {
+          if (pc.thin_keep_sample_prob != 1.0) {
+            logerrprint("Error: --thin-indiv cannot be used with --thin-indiv-count.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          char* cur_modif = argv[arg_idx + 1];
+          if (scan_uint_defcap(cur_modif, &pc.thin_keep_sample_ct) || (!pc.thin_keep_sample_ct)) {
+            // todo: allow 0 if --allow-no-samples
+            sprintf(g_logbuf, "Error: Invalid --thin-indiv-count parameter '%s'.\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.filter_flags |= kfFilterPsamReq;
         } else if (strequal_k2(flagname_p2, "ests")) {
           if (!(pc.command_flags1 & kfCommand1Glm)) {
             logerrprint("Error: --tests must be used with --glm.\n");
