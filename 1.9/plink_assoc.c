@@ -509,9 +509,9 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
       } else {
 	// for very large dct, we might want to include the p^3 term of the
 	// binomial expansion as well
-	pv_sidak_ss = pval * (dct - pval * (dct - 1));
+	pv_sidak_ss = pval * dct * (1 - 0.5 * pval * (dct - 1));
 	dyy = dct - (double)((int32_t)cur_idx);
-	dyy = pval * (dyy - pval * (dyy - 1));
+	dyy = pval * dyy * (1 - 0.5 * pval * (dyy - 1));
       }
       if (pv_sidak_sd < dyy) {
 	pv_sidak_sd = dyy;
