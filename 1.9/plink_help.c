@@ -1223,7 +1223,7 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "    * 'study' causes study-specific effect estimates to be collated in the\n"
 "      meta-analysis report.\n"
 "    * 'report-all' causes variants present in only a single input file to be\n"
-"      included in the meta-analysis report.\n"
+"      included in the meta-analysis report (all statistics will be 'NA').\n"
 "    * 'weighted-z' requests weighted Z-score-based p-values (as computed by the\n"
 "      Abecasis Lab's METAL software) in addition to the usual inverse\n"
 "      variance-based analysis.  This requires P and effective sample size\n"
