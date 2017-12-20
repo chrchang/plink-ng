@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
+#include "plink2_compress_stream.h"
 #include "plink2_export.h"
 #include "plink2_filter.h"
 #include "plink2_glm.h"
@@ -26,9 +27,6 @@
 #include "plink2_pvar.h"
 #include "plink2_random.h"
 #include "plink2_set.h"
-
-// temporary
-#include "plink2_matrix.h"
 
 // #include <locale.h>
 #include <time.h>
@@ -64,7 +62,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (18 Dec 2017)";
+  " (19 Dec 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -3091,6 +3089,11 @@ int main(int argc, char** argv) {
               pc.adjust_info.flags |= kfAdjustGc;
             } else if (strequal_k(cur_modif, "log10", cur_modif_slen)) {
               pc.adjust_info.flags |= kfAdjustLog10;
+            } else if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              pc.adjust_info.flags |= kfAdjustZs;
+            } else if (strequal_k(cur_modif, "qq-plot", cur_modif_slen)) {
+              logerrprint("Error: 'qq-plot' modifier retired.  Use e.g. \"--adjust cols=+qq\" instead.\n");
+              goto main_ret_INVALID_CMDLINE_A;
             } else if (str_startswith(cur_modif, "cols=", cur_modif_slen)) {
               if (pc.adjust_info.flags & kfAdjustColAll) {
                 logerrprint("Error: Multiple --adjust cols= modifiers.\n");
@@ -7451,6 +7454,21 @@ int main(int argc, char** argv) {
           pc.xchr_model = ((uint32_t)extract_char_param(cur_modif)) - 48;
           if (pc.xchr_model > 2) {
             sprintf(g_logbuf, "Error: Invalid --xchr-model parameter '%s'.\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+        } else {
+          goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
+        }
+        break;
+
+      case 'z':
+        if (strequal_k2(flagname_p2, "st-level")) {
+          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argv[arg_idx + 1];
+          if (scan_posint_capped(cur_modif, 22, &g_zst_level)) {
+            sprintf(g_logbuf, "Error: Invalid --zst-level parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else {

@@ -23,6 +23,9 @@
 namespace plink2 {
 #endif
 
+// result of current inverse_chiprob(5e-324, 1)
+const double kMaxInverseChiprob1df = 1480.8852530551483;
+
 // now thread-safe!
 double chiprob_p(double chisq, uint32_t df);
 

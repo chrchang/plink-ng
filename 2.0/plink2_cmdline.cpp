@@ -5576,7 +5576,7 @@ pglerr_t rerun(const char* ver_str, const char* ver_str2, const char* prog_name_
       goto rerun_ret_LONG_LINE;
     }
     // don't bother supporting "xx arguments: --aa bb --cc --dd" format
-    while ((!str_startswith2(textbuf, "Options in effect:")) || (textbuf[strlen("Options in effect")] >= ' ')) {
+    while ((!str_startswith2(textbuf, "Options in effect:")) || (textbuf[strlen("Options in effect:")] >= ' ')) {
       ++line_idx;
       if (!fgets(textbuf, kMaxMediumLine, rerunfile)) {
         fputs(ver_str, stdout);

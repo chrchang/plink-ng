@@ -731,7 +731,7 @@ char* chr_name_std(const chr_info_t* cip, uint32_t chr_idx, char* buf) {
     // PAR1/PAR2 is defined.  However, since there'd otherwise be no way to
     // include the pseudoautosomal regions in e.g. ADMIXTURE, we render them
     // them as 25 (in the human case) when "--output-chr 26" is specified.
-    if (output_encoding & (kfChrOutputPrefix | kfChrOutputM | kfChrOutputMT)) {
+    if (output_encoding) {
       memcpyl3(buf, "PAR");
       buf[3] = '0' + (((int32_t)chr_idx) - cip->max_numeric_code);
       return &(buf[4]);

@@ -835,8 +835,6 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "      p: Asymptotic p-value for t-statistic.\n"
 "    The default is chrom,pos,ref,alt,firth,test,nobs,orbeta,se,ci,t,p.\n\n"
                );
-    // todo: probably no more --clump, have either built-in LDpred or ensure
-    // interoperation is very convenient
     help_print("score", &help_ctrl, 1,
 "  --score [filename] {i} {j} {k} <header | header-read> <no-mean-imputation>\n"
 "          <center | variance-standardize> <se> <zs>\n"
@@ -1462,13 +1460,16 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "                       (Use the --glm 'interaction' modifier to test for\n"
 "                       interaction between genotype and sex.)\n"
                );
-    /*
+    // obvious todo: add mode for postprocessing file
     help_print("adjust", &help_ctrl, 0,
-"  --adjust <gc> <log10> <cols=[column set descriptor]> :\n"
-"    For each association test, report some multiple-testing corrections, sorted\n"
-"    in increasing-p-value order.  (Note that these are practically always\n"
-"    overly conservative.)\n"
+"  --adjust <zs> <gc> <log10> <cols=[column set descriptor]> :\n"
+"    For each association test, report some basic multiple-testing corrections,\n"
+"    sorted in increasing-p-value order.\n"
 "    * 'gc' causes genomic-controlled p-values to be used in the formulas.\n"
+"      (This tends to be overly conservative.  We note that LD Score regression\n"
+"      usually does a better job of calibrating --lambda; see Lee JJ, Chow CC\n"
+"      (2017) LD Score regression as an estimator of confounding and genetic\n"
+"      correlations in genome-wide association studies.)\n"
 "    * 'log10' causes negative base 10 logs of p-values to be reported, instead\n"
 "      of raw p-values.\n"
 "    The following column sets are supported:\n"
@@ -1493,7 +1494,6 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
     help_print("adjust\tlambda", &help_ctrl, 0,
 "  --lambda           : Set genomic control lambda for --adjust.\n"
                );
-    */
     help_print("ci\tlinear\tlogistic", &help_ctrl, 0,
 "  --ci [size]        : Report confidence ratios for odds ratios/betas.\n"
                );
@@ -1563,6 +1563,10 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
     help_print("warning-errcode", &help_ctrl, 0,
 "  --warning-errcode  : Return a nonzero error code to the OS when a run\n"
 "                       completes with warning(s).\n"
+               );
+    // possible todo: --zst-block {block size} to generate seekable files
+    help_print("zst-level", &help_ctrl, 0,
+"  --zst-level [level] : Set the Zstd compression level (1-22, default 3).\n"
                );
     if (!param_ct) {
       fputs(

@@ -82,8 +82,6 @@ pglerr_t load_ibed(const chr_info_t* cip, const uint32_t* variant_bps, const cha
         // variants in the dataset.  So we prefix set IDs with a chromosome
         // index in that case (with leading zeroes) and treat cross-chromosome
         // sets as distinct.
-        // (er, we may not care any more if --clump is being retired in favor
-        // of LDpred.)
         if (!variant_bps) {
           set_id_blen += kMaxChrCodeDigits;
         }

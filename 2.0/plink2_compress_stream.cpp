@@ -21,6 +21,8 @@
 namespace plink2 {
 #endif
 
+uint32_t g_zst_level = 0;
+
 pglerr_t uncompressed_cswrite_init(const char* out_fname, uint32_t do_append, unsigned char* overflow_buf, compress_stream_state_t* css_ptr) {
   // css_ptr->z_outfile = nullptr;
   css_ptr->cctx = nullptr;
@@ -41,8 +43,10 @@ pglerr_t zstd_cswrite_init(const char* out_fname, uint32_t do_append, __maybe_un
   if (!css_ptr->cctx) {
     return kPglRetNomem;
   }
+  size_t retval = ZSTD_CCtx_setParameter(css_ptr->cctx, ZSTD_p_compressionLevel, g_zst_level);
+  assert(!ZSTD_isError(retval));
 #ifdef ZSTD_MULTITHREAD
-  size_t retval = ZSTD_CCtx_setParameter(css_ptr->cctx, ZSTD_p_nbThreads, thread_ct);
+  retval = ZSTD_CCtx_setParameter(css_ptr->cctx, ZSTD_p_nbThreads, thread_ct);
   if (ZSTD_isError(retval)) {
     ZSTD_freeCCtx(css_ptr->cctx);
     return kPglRetNomem;

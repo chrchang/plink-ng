@@ -28,21 +28,22 @@ FLAGSET_DEF_START()
   kfAdjust0,
   kfAdjustGc = (1 << 0),
   kfAdjustLog10 = (1 << 1),
+  kfAdjustZs = (1 << 2),
 
-  kfAdjustColChrom = (1 << 2),
-  kfAdjustColPos = (1 << 3),
-  kfAdjustColRef = (1 << 4),
-  kfAdjustColAlt1 = (1 << 5),
-  kfAdjustColAlt = (1 << 6),
-  kfAdjustColUnadj = (1 << 7),
-  kfAdjustColGc = (1 << 8),
-  kfAdjustColQq = (1 << 9),
-  kfAdjustColBonf = (1 << 10),
-  kfAdjustColHolm = (1 << 11),
-  kfAdjustColSidakss = (1 << 12),
-  kfAdjustColSidaksd = (1 << 13),
-  kfAdjustColFdrbh = (1 << 14),
-  kfAdjustColFdrby = (1 << 15),
+  kfAdjustColChrom = (1 << 3),
+  kfAdjustColPos = (1 << 4),
+  kfAdjustColRef = (1 << 5),
+  kfAdjustColAlt1 = (1 << 6),
+  kfAdjustColAlt = (1 << 7),
+  kfAdjustColUnadj = (1 << 8),
+  kfAdjustColGc = (1 << 9),
+  kfAdjustColQq = (1 << 10),
+  kfAdjustColBonf = (1 << 11),
+  kfAdjustColHolm = (1 << 12),
+  kfAdjustColSidakss = (1 << 13),
+  kfAdjustColSidaksd = (1 << 14),
+  kfAdjustColFdrbh = (1 << 15),
+  kfAdjustColFdrby = (1 << 16),
   kfAdjustColDefault = (kfAdjustColChrom | kfAdjustColUnadj | kfAdjustColGc | kfAdjustColBonf | kfAdjustColHolm | kfAdjustColSidakss | kfAdjustColSidaksd | kfAdjustColFdrbh | kfAdjustColFdrby),
   kfAdjustColAll = ((kfAdjustColFdrby * 2) - kfAdjustColChrom)
 FLAGSET_DEF_END(adjust_flags_t);
@@ -53,6 +54,8 @@ typedef struct adjust_info_struct {
 } adjust_info_t;
 
 void init_adjust(adjust_info_t* adjust_info_ptr);
+
+pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const adjust_info_t* adjust_info_ptr, double* pvals, double* chisqs, uint32_t orig_variant_ct, uint32_t max_allele_slen, double pfilter, double output_min_p, uint32_t skip_gc, uint32_t max_thread_ct, char* outname, char* outname_end);
 
 #ifdef __cplusplus
 } // namespace plink2
