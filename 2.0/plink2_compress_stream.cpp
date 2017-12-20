@@ -43,7 +43,7 @@ pglerr_t zstd_cswrite_init(const char* out_fname, uint32_t do_append, __maybe_un
   if (!css_ptr->cctx) {
     return kPglRetNomem;
   }
-  size_t retval = ZSTD_CCtx_setParameter(css_ptr->cctx, ZSTD_p_compressionLevel, g_zst_level);
+  __maybe_unused size_t retval = ZSTD_CCtx_setParameter(css_ptr->cctx, ZSTD_p_compressionLevel, g_zst_level);
   assert(!ZSTD_isError(retval));
 #ifdef ZSTD_MULTITHREAD
   retval = ZSTD_CCtx_setParameter(css_ptr->cctx, ZSTD_p_nbThreads, thread_ct);
