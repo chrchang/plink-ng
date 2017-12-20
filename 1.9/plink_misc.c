@@ -5787,10 +5787,10 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
     if (!final_variant_ct) {
       logerrprint("Error: No --meta-analysis variants.\n");
       goto meta_analysis_ret_INVALID_CMDLINE;
-  #ifdef __LP64__
+#ifdef __LP64__
     } else if (final_variant_ct > 0x7fffffff) {
       logerrprint("Error: Too many distinct --meta-analysis variants (max 2^31 - 1).\n");
-  #endif
+#endif
     }
     if (!no_allele) {
       combined_allele_len_byte_width = 4 - (__builtin_clz(max_combined_allele_len) / 8);
@@ -5923,11 +5923,11 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	memcpy(&cur_file_ct_m1, bufptr2, file_ct_byte_width);
 	cur_data_slots = 0;
 	if (report_study_specific) {
-  #ifdef __LP64__
+#ifdef __LP64__
 	  cur_data_slots += file_ct64;
-  #else
+#else
 	  cur_data_slots += 2 * file_ct64;
-  #endif
+#endif
 	}
 	if (!no_allele) {
 	  cur_combined_allele_len = 0;
@@ -6102,9 +6102,9 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	    if (ii == -1) {
 	      continue;
 	    }
-  #ifdef __LP64__
+#ifdef __LP64__
 	    cur_var_idx = 0; // clear high 32 bits
-  #endif
+#endif
 	    memcpy(&cur_var_idx, &(cur_window_marker_ids[(((uint32_t)ii) * max_var_id_len_p5) + max_var_id_len_p1]), 4);
 	  } else {
 	    bufptr[var_id_len] = '\0';
@@ -6310,7 +6310,32 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
 	    wptr = dtoa_g_wxp4(MAXV(dxx, output_min_p), 11, wptr);
 	  }
 	} else {
-	  wptr = memcpya(wptr, "          NA          NA      NA      NA      NA      NA", 56);
+          // quasi-bugfix (20 Dec 2017): under 'report-all', report basic
+          // p/beta values when n=1 instead of forcing user to re-scrape their
+          // input files.
+          if (cur_file_ct) {
+            ii = ((int32_t)(1 + weighted_z)) * (-2);
+            cur_beta = cur_data_ptr[ii];
+            cur_se = cur_data_ptr[ii + 1];
+            summtest = cur_beta / cur_se;
+            p1 = chiprob_p(summtest * summtest, 1);
+            *wptr++ = ' ';
+            if (p1 >= 0.0) {
+              p1 = MAXV(p1, output_min_p);
+              wptr = dtoa_g_wxp4x(p1, 11, ' ', wptr);
+              wptr = dtoa_g_wxp4x(p1, 11, ' ', wptr);
+            } else {
+              wptr = memcpya(wptr, "         NA          NA ", 24);
+            }
+            if (!output_beta) {
+              cur_beta = exp(cur_beta);
+            }
+            wptr = dtoa_f_w7p4x(cur_beta, ' ', wptr);
+            wptr = dtoa_f_w7p4x(cur_beta, ' ', wptr);
+          } else {
+	    wptr = memcpya(wptr, "          NA          NA      NA      NA ", 41);
+          }
+	  wptr = memcpya(wptr, "     NA      NA", 15);
 	  if (weighted_z) {
 	    wptr = memcpya(wptr, "          NA          NA", 24);
 	  }
