@@ -6332,13 +6332,22 @@ int32_t meta_analysis(char* input_fnames, char* snpfield_search_order, char* a1f
             }
             wptr = dtoa_f_w7p4x(cur_beta, ' ', wptr);
             wptr = dtoa_f_w7p4x(cur_beta, ' ', wptr);
+	    wptr = memcpya(wptr, "     NA      NA", 15);
+            if (weighted_z) {
+              numer = cur_data_ptr[-2];
+              denom2 = cur_data_ptr[-1];
+              dxx = numer / sqrt(denom2);
+              *wptr++ = ' ';
+              wptr = dtoa_g_wxp4x(dxx, 11, ' ', wptr);
+              dxx = 1.0 - 2 * fabs(normdist(fabs(dxx)) - 0.5);
+              wptr = dtoa_g_wxp4(MAXV(dxx, output_min_p), 11, wptr);
+            }
           } else {
-	    wptr = memcpya(wptr, "          NA          NA      NA      NA ", 41);
+	    wptr = memcpya(wptr, "          NA          NA      NA      NA      NA      NA", 56);
+            if (weighted_z) {
+	      wptr = memcpya(wptr, "          NA          NA", 24);
+            }
           }
-	  wptr = memcpya(wptr, "     NA      NA", 15);
-	  if (weighted_z) {
-	    wptr = memcpya(wptr, "          NA          NA", 24);
-	  }
 	}
 	if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	  goto meta_analysis_ret_WRITE_FAIL;
