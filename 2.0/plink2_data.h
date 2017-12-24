@@ -45,11 +45,13 @@ FLAGSET_DEF_START()
   kfMakePlink2TrimAlts = (1 << 10),
   kfMakePlink2MMask = kfMakePlink2TrimAlts - kfMakePlink2MSplitBase,
   kfMakePlink2SetHhMissing = (1 << 11),
-  kfMakePlink2SetMixedMtMissing = (1 << 12),
-  kfMakePgenFormatBase = (1 << 13), // two bits
-  kfMakePgenEraseAlt2Plus = (1 << 15),
-  kfMakePgenErasePhase = (1 << 16),
-  kfMakePgenEraseDosage = (1 << 17)
+  kfMakePlink2SetHhMissingKeepDosage = (1 << 12),
+  kfMakePlink2SetMixedMtMissing = (1 << 13),
+  kfMakePlink2SetMixedMtMissingKeepDosage = (1 << 14),
+  kfMakePgenFormatBase = (1 << 15), // two bits
+  kfMakePgenEraseAlt2Plus = (1 << 16),
+  kfMakePgenErasePhase = (1 << 17),
+  kfMakePgenEraseDosage = (1 << 18)
 FLAGSET_DEF_END(make_plink2_t);
 
 FLAGSET_DEF_START()

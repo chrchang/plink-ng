@@ -147,6 +147,84 @@ void set_het_missing(uintptr_t word_ct, uintptr_t* genovec) {
 #endif
 }
 
+void set_het_missing_cleardosage(uintptr_t word_ct, uintptr_t* __restrict genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, dosage_t* dosage_vals) {
+  const uint32_t orig_write_dosage_ct = *write_dosage_ct_ptr;
+  if (orig_write_dosage_ct) {
+    uint32_t sample_uidx = 0;
+    uint32_t dosage_read_idx = 0;
+    for (; dosage_read_idx < orig_write_dosage_ct; ++dosage_read_idx, ++sample_uidx) {
+      next_set_unsafe_ck(dosagepresent, &sample_uidx);
+      if (GET_QUATERARR_ENTRY(genovec, sample_uidx) == 1) {
+        clear_bit(sample_uidx, dosagepresent);
+        uint32_t dosage_write_idx = dosage_read_idx;
+        while (1) {
+          if (++dosage_read_idx == orig_write_dosage_ct) {
+            break;
+          }
+          ++sample_uidx;
+          next_set_unsafe_ck(dosagepresent, &sample_uidx);
+          if (GET_QUATERARR_ENTRY(genovec, sample_uidx) == 1) {
+            clear_bit(sample_uidx, dosagepresent);
+          } else {
+            dosage_vals[dosage_write_idx++] = dosage_vals[dosage_read_idx];
+          }
+        }
+        *write_dosage_ct_ptr = dosage_write_idx;
+        break;
+      }
+    }
+  }
+  set_het_missing(word_ct, genovec);
+}
+
+void set_het_missing_keepdosage(uintptr_t word_ct, uintptr_t* __restrict genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, dosage_t* dosage_vals) {
+  // count # of 1.00000 dosages we need to insert, and then rewrite dosage_vals
+  // from back to front so we don't need temporary buffers.
+
+  const uint32_t orig_dosage_ct = *write_dosage_ct_ptr;
+  // can't assume dosagepresent is initialized in this case
+  if (!orig_dosage_ct) {
+    fill_ulong_zero(DIV_UP(word_ct, 2), dosagepresent);
+  }
+  halfword_t* dosagepresent_alias = (halfword_t*)dosagepresent;
+  uint32_t new_dosage_ct = 0;
+  for (uintptr_t widx = 0; widx < word_ct; ++widx) {
+    const uintptr_t geno_word = genovec[widx];
+    const uintptr_t dosagepresent_word = unpack_halfword_to_word(dosagepresent_alias[widx]);
+    const uintptr_t geno_hets = geno_word & (~(geno_word >> 1)) & kMask5555;
+    new_dosage_ct += popcount01_long(geno_hets & (~dosagepresent_word));
+  }
+  if (!new_dosage_ct) {
+    set_het_missing(word_ct, genovec);
+    return;
+  }
+  uint32_t dosage_write_idx = orig_dosage_ct + new_dosage_ct;
+  uint32_t dosage_read_idx = orig_dosage_ct;
+  uint32_t widx = word_ct;
+  *write_dosage_ct_ptr = dosage_write_idx;
+  do {
+    --widx;
+    const uintptr_t geno_word = genovec[widx];
+    const uintptr_t dosagepresent_word = unpack_halfword_to_word(dosagepresent_alias[widx]);
+    const uintptr_t geno_hets = geno_word & (~(geno_word >> 1)) & kMask5555;
+    uintptr_t new_dosagepresent_word = dosagepresent_word | geno_hets;
+    if (new_dosagepresent_word) {
+      dosagepresent_alias[widx] = pack_word_to_halfword(new_dosagepresent_word);
+      do {
+        const uint32_t leading_zeroes = CLZLU(new_dosagepresent_word);
+        const uintptr_t cur_bit_word = (k1LU << (kBitsPerWord - 1)) >> leading_zeroes;
+        dosage_t cur_dosage = kDosageMid;
+        if (cur_bit_word & dosagepresent_word) {
+          cur_dosage = dosage_vals[--dosage_read_idx];
+        }
+        dosage_vals[--dosage_write_idx] = cur_dosage;
+        new_dosagepresent_word -= cur_bit_word;
+      } while (new_dosagepresent_word);
+      genovec[widx] = geno_word | (geno_hets << 1);
+    }
+  } while (widx);
+}
+
 void genoarr_to_nonmissing(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t* nonmissing_bitarr) {
   const uint32_t sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
   const uintptr_t* genoarr_iter = genoarr;
@@ -1206,6 +1284,36 @@ void interleaved_set_missing(const uintptr_t* __restrict interleaved_set, uintpt
 #endif
 }
 
+void interleaved_set_missing_cleardosage(const uintptr_t* __restrict orig_set, const uintptr_t* __restrict interleaved_set, uintptr_t vec_ct, uintptr_t* __restrict genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, dosage_t* dosage_vals) {
+  const uint32_t orig_write_dosage_ct = *write_dosage_ct_ptr;
+  if (orig_write_dosage_ct) {
+    uint32_t sample_uidx = 0;
+    uint32_t dosage_read_idx = 0;
+    for (; dosage_read_idx < orig_write_dosage_ct; ++dosage_read_idx, ++sample_uidx) {
+      next_set_unsafe_ck(dosagepresent, &sample_uidx);
+      if (is_set(orig_set, sample_uidx)) {
+        clear_bit(sample_uidx, dosagepresent);
+        uint32_t dosage_write_idx = dosage_read_idx;
+        while (1) {
+          if (++dosage_read_idx == orig_write_dosage_ct) {
+            break;
+          }
+          ++sample_uidx;
+          next_set_unsafe_ck(dosagepresent, &sample_uidx);
+          if (is_set(orig_set, sample_uidx)) {
+            clear_bit(sample_uidx, dosagepresent);
+          } else {
+            dosage_vals[dosage_write_idx++] = dosage_vals[dosage_read_idx];
+          }
+        }
+        *write_dosage_ct_ptr = dosage_write_idx;
+        break;
+      }
+    }
+  }
+  interleaved_set_missing(interleaved_set, vec_ct, genovec);
+}
+
 void set_male_het_missing(const uintptr_t* __restrict sex_male_interleaved, uint32_t vec_ct, uintptr_t* __restrict genovec) {
   const uint32_t twovec_ct = vec_ct / 2;
 #ifdef __LP64__
@@ -1247,6 +1355,84 @@ void set_male_het_missing(const uintptr_t* __restrict sex_male_interleaved, uint
     *genovec_iter = cur_geno_word | ((sex_male_word & kMask5555 & cur_geno_word) << 1);
   }
 #endif
+}
+
+void set_male_het_missing_cleardosage(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sex_male_interleaved, uint32_t vec_ct, uintptr_t* __restrict genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, dosage_t* dosage_vals) {
+  const uint32_t orig_write_dosage_ct = *write_dosage_ct_ptr;
+  if (orig_write_dosage_ct) {
+    uint32_t sample_uidx = 0;
+    uint32_t dosage_read_idx = 0;
+    for (; dosage_read_idx < orig_write_dosage_ct; ++dosage_read_idx, ++sample_uidx) {
+      next_set_unsafe_ck(dosagepresent, &sample_uidx);
+      if (is_set(sex_male, sample_uidx) && (GET_QUATERARR_ENTRY(genovec, sample_uidx) == 1)) {
+        clear_bit(sample_uidx, dosagepresent);
+        uint32_t dosage_write_idx = dosage_read_idx;
+        while (1) {
+          if (++dosage_read_idx == orig_write_dosage_ct) {
+            break;
+          }
+          ++sample_uidx;
+          next_set_unsafe_ck(dosagepresent, &sample_uidx);
+          if (is_set(sex_male, sample_uidx) && (GET_QUATERARR_ENTRY(genovec, sample_uidx) == 1)) {
+            clear_bit(sample_uidx, dosagepresent);
+          } else {
+            dosage_vals[dosage_write_idx++] = dosage_vals[dosage_read_idx];
+          }
+        }
+        *write_dosage_ct_ptr = dosage_write_idx;
+        break;
+      }
+    }
+  }
+  set_male_het_missing(sex_male_interleaved, vec_ct, genovec);
+}
+
+void set_male_het_missing_keepdosage(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sex_male_interleaved, uint32_t word_ct, uintptr_t* __restrict genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, dosage_t* dosage_vals) {
+  // count # of 1.00000 dosages we need to insert, and then rewrite dosage_vals
+  // from back to front so we don't need temporary buffers.
+  const uint32_t orig_dosage_ct = *write_dosage_ct_ptr;
+  if (!orig_dosage_ct) {
+    // can't assume dosagepresent is initialized in this case
+    fill_ulong_zero(DIV_UP(word_ct, 2), dosagepresent);
+  }
+  const halfword_t* sex_male_alias = (halfword_t*)sex_male;
+  halfword_t* dosagepresent_alias = (halfword_t*)dosagepresent;
+  uint32_t new_dosage_ct = 0;
+  for (uintptr_t widx = 0; widx < word_ct; ++widx) {
+    const uintptr_t geno_word = genovec[widx];
+    const uintptr_t male_nodosage_word = unpack_halfword_to_word(sex_male_alias[widx] & (~dosagepresent_alias[widx]));
+    const uintptr_t geno_hets = geno_word & (~(geno_word >> 1)) & kMask5555;
+    new_dosage_ct += popcount01_long(geno_hets & male_nodosage_word);
+  }
+  if (!new_dosage_ct) {
+    set_male_het_missing(sex_male_interleaved, DIV_UP(word_ct, kWordsPerVec), genovec);
+    return;
+  }
+  uint32_t dosage_write_idx = orig_dosage_ct + new_dosage_ct;
+  uint32_t dosage_read_idx = orig_dosage_ct;
+  uint32_t widx = word_ct;
+  *write_dosage_ct_ptr = dosage_write_idx;
+  do {
+    --widx;
+    const uintptr_t geno_word = genovec[widx];
+    const uintptr_t male_geno_hets = geno_word & (~(geno_word >> 1)) & unpack_halfword_to_word(sex_male_alias[widx]);
+    const uintptr_t dosagepresent_word = unpack_halfword_to_word(dosagepresent_alias[widx]);
+    uintptr_t new_dosagepresent_word = dosagepresent_word | male_geno_hets;
+    if (new_dosagepresent_word) {
+      dosagepresent_alias[widx] = pack_word_to_halfword(new_dosagepresent_word);
+      do {
+        const uint32_t leading_zeroes = CLZLU(new_dosagepresent_word);
+        const uintptr_t cur_bit_word = (k1LU << (kBitsPerWord - 1)) >> leading_zeroes;
+        dosage_t cur_dosage = kDosageMid;
+        if (cur_bit_word & dosagepresent_word) {
+          cur_dosage = dosage_vals[--dosage_read_idx];
+        }
+        dosage_vals[--dosage_write_idx] = cur_dosage;
+        new_dosagepresent_word -= cur_bit_word;
+      } while (new_dosagepresent_word);
+      genovec[widx] = geno_word | (male_geno_hets << 1);
+    }
+  } while (widx);
 }
 
 // Clears each bit in bitarr which doesn't correspond to a genovec het.

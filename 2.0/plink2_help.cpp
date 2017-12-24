@@ -1311,12 +1311,16 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "                            This must be used with --make-{b}pgen/--make-bed.\n"
                );
     help_print("set-hh-missing\tset-mixed-mt-missing", &help_ctrl, 0,
-"  --set-hh-missing        : Make --make-{b}pgen/--make-bed set heterozygous\n"
-"                            haploid and female chrY genotypes to missing.\n"
-"                            (Unlike PLINK 1.x, this does not change unknown-sex\n"
-"                            chrY genotypes.)\n"
-"  --set-mixed-mt-missing  : Make --make-{b}pgen/--make-bed set mixed MT\n"
-"                            genotypes to missing.\n"
+"  --set-hh-missing <keep-dosage>       : Make --make-{b}pgen/--make-bed set\n"
+"                                         heterozygous haploid hardcalls and all\n"
+"                                         female chrY calls to missing.  (Unlike\n"
+"                                         PLINK 1.x, this does not change\n"
+"                                         unknown-sex chrY genotypes.)\n"
+"                                         By default, all associated dosages are\n"
+"                                         are also erased; use 'keep-dosage' to\n"
+"                                         keep them all.\n"
+"  --set-mixed-mt-missing <keep-dosage> : Make --make-{b}pgen/--make-bed set\n"
+"                                         mixed MT hardcalls to missing.\n"
                );
     help_print("split-par\tmerge-par\tsplit-x\tmerge-x", &help_ctrl, 0,
 "  --split-par [bp1] [bp2] : Changes chromosome code of all X chromosome\n"

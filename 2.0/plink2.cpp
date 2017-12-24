@@ -62,7 +62,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (19 Dec 2017)";
+  " (24 Dec 2017)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -6729,15 +6729,45 @@ int main(int argc, char** argv) {
             logerrprint("Error: --set-hh-missing must be used with --make-{b}pgen/--make-bed.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
+          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (param_ct) {
+            const char* cur_modif = argv[arg_idx + 1];
+            if (!strcmp(cur_modif, "keep-dosage")) {
+              if (make_plink2_modifier & kfMakePgenEraseDosage) {
+                logerrprint("Error: --set-hh-missing 'keep-dosage' modifier cannot be used with\n--make-{b}pgen erase-dosage.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              make_plink2_modifier |= kfMakePlink2SetHhMissingKeepDosage;
+            } else {
+              sprintf(g_logbuf, "Error: Invalid --set-hh-missing parameter '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
           make_plink2_modifier |= kfMakePlink2SetHhMissing;
-          goto main_param_zero;
         } else if (strequal_k2(flagname_p2, "et-mixed-mt-missing")) {
           if (!(pc.command_flags1 & kfCommand1MakePlink2)) {
             logerrprint("Error: --set-mixed-mt-missing must be used with --make-{b}pgen/--make-bed.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
+          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (param_ct) {
+            const char* cur_modif = argv[arg_idx + 1];
+            if (!strcmp(cur_modif, "keep-dosage")) {
+              if (make_plink2_modifier & kfMakePgenEraseDosage) {
+                logerrprint("Error: --set-mixed-mt-missing 'keep-dosage' modifier cannot be used with\n--make-{b}pgen erase-dosage.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              make_plink2_modifier |= kfMakePlink2SetMixedMtMissingKeepDosage;
+            } else {
+              sprintf(g_logbuf, "Error: Invalid --set-mixed-mt-missing parameter '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
           make_plink2_modifier |= kfMakePlink2SetMixedMtMissing;
-          goto main_param_zero;
         } else if (strequal_k2(flagname_p2, "ample")) {
           if (load_params || (xload & (~(kfXloadOxGen | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxLegend | kfXloadOxSample)))) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;

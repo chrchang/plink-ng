@@ -198,6 +198,10 @@ void populate_dense_dosage(const uintptr_t* genovec, const uintptr_t* dosage_pre
 
 void set_het_missing(uintptr_t word_ct, uintptr_t* genovec);
 
+void set_het_missing_cleardosage(uintptr_t word_ct, uintptr_t* genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* dosagepresent, dosage_t* dosage_vals);
+
+void set_het_missing_keepdosage(uintptr_t word_ct, uintptr_t* genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* dosagepresent, dosage_t* dosage_vals);
+
 void genoarr_to_nonmissing(const uintptr_t* genoarr, uint32_t sample_ctl2, uintptr_t* nonmissing_bitarr);
 
 uint32_t genoarr_count_missing_notsubset_unsafe(const uintptr_t* genoarr, const uintptr_t* exclude_mask, uint32_t sample_ct);
@@ -496,7 +500,13 @@ void interleaved_mask_zero(const uintptr_t* __restrict interleaved_mask, uintptr
 // sets samples in the mask to missing (0b11)
 void interleaved_set_missing(const uintptr_t* __restrict interleaved_set, uintptr_t vec_ct, uintptr_t* __restrict genovec);
 
+void interleaved_set_missing_cleardosage(const uintptr_t* __restrict orig_set, const uintptr_t* __restrict interleaved_set, uintptr_t vec_ct, uintptr_t* __restrict genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, dosage_t* dosage_vals);
+
 void set_male_het_missing(const uintptr_t* __restrict sex_male_interleaved, uint32_t vec_ct, uintptr_t* __restrict genovec);
+
+void set_male_het_missing_cleardosage(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sex_male_interleaved, uint32_t vec_ct, uintptr_t* __restrict genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, dosage_t* dosage_vals);
+
+void set_male_het_missing_keepdosage(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sex_male_interleaved, uint32_t word_ct, uintptr_t* __restrict genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, dosage_t* dosage_vals);
 
 // Clears each bit in bitarr which doesn't correspond to a genovec het.
 // Assumes that either trailing bits of bitarr are already zero, or trailing

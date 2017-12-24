@@ -1119,6 +1119,7 @@ static uint32_t* g_sample_include_cumulative_popcounts = nullptr;
 static uintptr_t* g_sex_male = nullptr;
 static uintptr_t* g_sex_male_interleaved_vec = nullptr;
 static uintptr_t* g_sex_male_collapsed_interleaved = nullptr;
+static uintptr_t* g_sex_female_collapsed = nullptr;
 static uintptr_t* g_sex_female_collapsed_interleaved = nullptr;
 static uint32_t* g_sex_male_cumulative_popcounts = nullptr;
 static uintptr_t* g_nosex_interleaved_vec = nullptr;
@@ -1752,13 +1753,15 @@ void apply_hard_call_thresh(const uintptr_t* dosage_present, const dosage_t* dos
 FLAGSET_DEF_START()
   kfPlink2Write0,
   kfPlink2WriteSetHhMissing = (1 << 0),
-  kfPlink2WriteSetMixedMtMissing = (1 << 1),
-  kfPlink2WriteMeMissing = (1 << 2),
-  kfPlink2WriteZeroCluster = (1 << 3),
-  kfPlink2WriteFillRef = (1 << 4),
-  kfPlink2WriteLateDosageErase = (1 << 5),
+  kfPlink2WriteSetHhMissingKeepDosage = (1 << 1),
+  kfPlink2WriteSetMixedMtMissing = (1 << 2),
+  kfPlink2WriteSetMixedMtMissingKeepDosage = (1 << 3),
+  kfPlink2WriteMeMissing = (1 << 4),
+  kfPlink2WriteZeroCluster = (1 << 5),
+  kfPlink2WriteFillRef = (1 << 6),
+  kfPlink2WriteLateDosageErase = (1 << 7),
   // no need for sample_sort, determined by g_collapsed_sort_map != nullptr?
-  kfPlink2WritePlink1 = (1 << 6)
+  kfPlink2WritePlink1 = (1 << 8)
 FLAGSET_DEF_END(plink2_write_flags_t);
 // todo: add .pgen-specific stuff
 
@@ -1897,7 +1900,12 @@ THREAD_FUNC_DECL make_pgen_thread(void* arg) {
   const uint32_t* write_chr_fo_vidx_start = g_write_chr_fo_vidx_start;
   const alt_allele_ct_t* refalt1_select_iter = g_refalt1_select;
   const uintptr_t* sample_include = g_sample_include;
+
+  // er, this global should be named g_sex_male_collapsed...
+  const uintptr_t* sex_male_collapsed = g_sex_male;
+
   const uintptr_t* sex_male_collapsed_interleaved = g_sex_male_collapsed_interleaved;
+  const uintptr_t* sex_female_collapsed = g_sex_female_collapsed;
   const uintptr_t* sex_female_collapsed_interleaved = g_sex_female_collapsed_interleaved;
   const uint32_t raw_sample_ct = g_raw_sample_ct;
   const uint32_t sample_ct = g_sample_ct;
@@ -1910,7 +1918,9 @@ THREAD_FUNC_DECL make_pgen_thread(void* arg) {
   const int32_t mt_code = cip->xymt_codes[kChrOffsetMT];
 
   const uint32_t set_hh_missing = g_plink2_write_flags & kfPlink2WriteSetHhMissing;
+  const uint32_t set_hh_missing_keep_dosage = g_plink2_write_flags & kfPlink2WriteSetHhMissingKeepDosage;
   const uint32_t set_mixed_mt_missing = g_plink2_write_flags & kfPlink2WriteSetMixedMtMissing;
+  const uint32_t set_mixed_mt_missing_keep_dosage = g_plink2_write_flags & kfPlink2WriteSetMixedMtMissingKeepDosage;
   const uint32_t late_dosage_erase = g_plink2_write_flags & kfPlink2WriteLateDosageErase;
 
   const uint32_t hphase_present = (g_read_phase_dosage_gflags / kfPgenGlobalHardcallPhasePresent) & 1;
@@ -1945,7 +1955,7 @@ THREAD_FUNC_DECL make_pgen_thread(void* arg) {
   uintptr_t* write_dosagepresent = nullptr;
   dosage_t* write_dosagevals = nullptr;
   uint32_t* cumulative_popcount_buf = nullptr;
-  if (dosage_present) {
+  if (dosage_present || set_hh_missing_keep_dosage || set_mixed_mt_missing_keep_dosage) {
     write_dosagepresent = g_thread_write_dosagepresents[tidx];
     write_dosagevals = g_thread_write_dosagevals[tidx];
     if (new_sample_idx_to_old) {
@@ -2098,24 +2108,43 @@ THREAD_FUNC_DECL make_pgen_thread(void* arg) {
         // immediately erase fresh het haploid calls
         if (set_hh_missing && is_haploid) {
           if (is_x_or_y) {
-            // male hets to missing
-            set_male_het_missing(sex_male_collapsed_interleaved, sample_ctv2, write_genovec);
-            if (is_y) {
-              // all female calls to missing; unknown-sex calls now left alone
-              interleaved_set_missing(sex_female_collapsed_interleaved, sample_ctv2, write_genovec);
+            if (!set_hh_missing_keep_dosage) {
+              // need to erase dosages associated with the hardcalls we're
+              // about to clear
+
+              // male hets to missing
+              set_male_het_missing_cleardosage(sex_male_collapsed, sex_male_collapsed_interleaved, sample_ctv2, write_genovec, &write_dosage_ct, write_dosagepresent, write_dosagevals);
+            } else {
+              // need to generate a new unphased dosage for each cleared
+              // hardcall lacking a dosage entry
+              set_male_het_missing_keepdosage(sex_male_collapsed, sex_male_collapsed_interleaved, sample_ctl2, write_genovec, &write_dosage_ct, write_dosagepresent, write_dosagevals);
             }
-            if (is_hphase && cur_write_phasepresent) {
+            if (is_y) {
+              // all female calls to missing; unknown-sex calls now left
+              // alone
+              interleaved_set_missing_cleardosage(sex_female_collapsed, sex_female_collapsed_interleaved, sample_ctv2, write_genovec, &write_dosage_ct, write_dosagepresent, write_dosagevals);
+              is_hphase = 0;
+            } else if (is_hphase && cur_write_phasepresent) {
               mask_genovec_hets_unsafe(write_genovec, sample_ctl2, cur_write_phasepresent);
             }
           } else {
             // all hets to missing
             // may want to move is_hphase zeroing in front
-            set_het_missing(sample_ctl2, write_genovec);
+            if (!set_hh_missing_keep_dosage) {
+              set_het_missing_cleardosage(sample_ctl2, write_genovec, &write_dosage_ct, write_dosagepresent, write_dosagevals);
+            } else {
+              set_het_missing_keepdosage(sample_ctl2, write_genovec, &write_dosage_ct, write_dosagepresent, write_dosagevals);
+            }
             is_hphase = 0;
           }
         } else if (set_mixed_mt_missing && is_mt) {
-          // all hets to missing
-          set_het_missing(sample_ctl2, write_genovec);
+          if (!set_mixed_mt_missing_keep_dosage) {
+            // all hets to missing
+            set_het_missing_cleardosage(sample_ctl2, write_genovec, &write_dosage_ct, write_dosagepresent, write_dosagevals);
+          } else {
+            // todo: keep dosage-phase information
+            set_het_missing_keepdosage(sample_ctl2, write_genovec, &write_dosage_ct, write_dosagepresent, write_dosagevals);
+          }
           is_hphase = 0;
         }
         zero_trailing_quaters(sample_ct, write_genovec);
@@ -2320,8 +2349,22 @@ pglerr_t make_pgen_robust(const uintptr_t* sample_include, const uint32_t* new_s
       const uint32_t read_hphase_present = (read_phase_dosage_gflags / kfPgenGlobalHardcallPhasePresent) & 1;
       const uint32_t read_dosage_present = (read_phase_dosage_gflags & (kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent))? 1 : 0;
       pgen_global_flags_t write_phase_dosage_gflags = read_phase_dosage_gflags;
+      uint32_t read_or_write_dosage_present = read_dosage_present;
       if (g_plink2_write_flags & kfPlink2WriteLateDosageErase) {
         write_phase_dosage_gflags &= ~(kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent);
+      } else if (make_plink2_modifier & (kfPlink2WriteSetHhMissingKeepDosage | kfPlink2WriteSetMixedMtMissingKeepDosage)) {
+        // command-line parser guarantees erase-dosage and
+        // --set-hh-missing/--set-mixed-mt-missing keep-dosage aren't used
+        // together
+        read_or_write_dosage_present = 1;
+
+        // could verify at least one het haploid is present before setting this
+        // flag...
+        write_phase_dosage_gflags |= kfPgenGlobalDosagePresent;
+        if (make_plink2_modifier & kfPlink2WriteSetMixedMtMissingKeepDosage) {
+          // todo: keep MT phasing when phased dosage supported
+          // write_phase_dosage_gflags |= kfPgenGlobalDosagePhasePresent;
+        }
       }
 
       uint32_t nonref_flags_storage = 3;
@@ -2381,14 +2424,14 @@ pglerr_t make_pgen_robust(const uintptr_t* sample_include, const uint32_t* new_s
           goto make_pgen_robust_ret_NOMEM;
         }
       }
-      if (read_dosage_present) {
+      if (read_or_write_dosage_present) {
         if (bigstack_alloc_dosagep(1, &g_thread_write_dosagevals) ||
             bigstack_alloc_ulp(1, &g_thread_write_dosagepresents) ||
             bigstack_alloc_ul(sample_ctl, &(g_thread_write_dosagepresents[0])) ||
             bigstack_alloc_dosage(sample_ct, &(g_thread_write_dosagevals[0]))) {
           goto make_pgen_robust_ret_NOMEM;
         }
-        if (new_sample_idx_to_old) {
+        if (read_dosage_present && new_sample_idx_to_old) {
           if (bigstack_alloc_uip(1, &g_thread_cumulative_popcount_bufs) ||
               bigstack_alloc_ui(raw_sample_ctl, &(g_thread_cumulative_popcount_bufs[0]))) {
             goto make_pgen_robust_ret_NOMEM;
@@ -2593,27 +2636,33 @@ pglerr_t make_plink2_no_vsort(const char* xheader, const uintptr_t* sample_inclu
     const uint32_t raw_sample_ctl = BITCT_TO_WORDCT(raw_sample_ct);
     if (make_plink2_modifier & kfMakePlink2SetHhMissing) {
       const uint32_t sample_ctv = BITCT_TO_VECCT(sample_ct);
-      uintptr_t* sex_collapsed_tmp;
       uintptr_t* sex_female;
-      if (bigstack_alloc_ul(sample_ctv * kWordsPerVec, &g_sex_male_collapsed_interleaved) ||
+      if (bigstack_alloc_ul(sample_ctv * kWordsPerVec, &g_sex_male) ||
+          bigstack_alloc_ul(sample_ctv * kWordsPerVec, &g_sex_male_collapsed_interleaved) ||
+          bigstack_alloc_ul(sample_ctv * kWordsPerVec, &g_sex_female_collapsed) ||
           bigstack_alloc_ul(sample_ctv * kWordsPerVec, &g_sex_female_collapsed_interleaved) ||
-          bigstack_alloc_ul(sample_ctv * kWordsPerVec, &sex_collapsed_tmp) ||
           bigstack_alloc_ul(raw_sample_ctl, &sex_female)) {
         goto make_plink2_no_vsort_ret_NOMEM;
       }
-      copy_bitarr_subset(sex_male, sample_include, sample_ct, sex_collapsed_tmp);
-      zero_trailing_words(BITCT_TO_WORDCT(sample_ct), sex_collapsed_tmp);
-      fill_interleaved_mask_vec(sex_collapsed_tmp, sample_ctv, g_sex_male_collapsed_interleaved);
+      copy_bitarr_subset(sex_male, sample_include, sample_ct, g_sex_male);
+      zero_trailing_words(BITCT_TO_WORDCT(sample_ct), g_sex_male);
+      fill_interleaved_mask_vec(g_sex_male, sample_ctv, g_sex_male_collapsed_interleaved);
 
       bitvec_andnot_copy(sex_nm, sex_male, raw_sample_ctl, sex_female);
-      copy_bitarr_subset(sex_female, sample_include, sample_ct, sex_collapsed_tmp);
-      fill_interleaved_mask_vec(sex_collapsed_tmp, sample_ctv, g_sex_female_collapsed_interleaved);
+      copy_bitarr_subset(sex_female, sample_include, sample_ct, g_sex_female_collapsed);
+      fill_interleaved_mask_vec(g_sex_female_collapsed, sample_ctv, g_sex_female_collapsed_interleaved);
 
-      bigstack_reset(sex_collapsed_tmp);
+      bigstack_reset(sex_female);
       g_plink2_write_flags |= kfPlink2WriteSetHhMissing;
+      if (make_plink2_modifier & kfMakePlink2SetHhMissingKeepDosage) {
+        g_plink2_write_flags |= kfPlink2WriteSetHhMissingKeepDosage;
+      }
     }
     if (make_plink2_modifier & kfMakePlink2SetMixedMtMissing) {
       g_plink2_write_flags |= kfPlink2WriteSetMixedMtMissing;
+      if (make_plink2_modifier & kfMakePlink2SetMixedMtMissingKeepDosage) {
+        g_plink2_write_flags |= kfPlink2WriteSetMixedMtMissingKeepDosage;
+      }
     }
     g_cip = cip;
     unsigned char* bigstack_mark2 = g_bigstack_base;
@@ -2886,8 +2935,16 @@ pglerr_t make_plink2_no_vsort(const char* xheader, const uintptr_t* sample_inclu
       const uint32_t read_hphase_present = (read_phase_dosage_gflags / kfPgenGlobalHardcallPhasePresent) & 1;
       const uint32_t read_dosage_present = (read_phase_dosage_gflags & (kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent))? 1 : 0;
       pgen_global_flags_t write_phase_dosage_gflags = read_phase_dosage_gflags;
+      uint32_t read_or_write_dosage_present = read_dosage_present;
       if (g_plink2_write_flags & kfPlink2WriteLateDosageErase) {
         write_phase_dosage_gflags &= ~(kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent);
+      } else if (g_plink2_write_flags & (kfPlink2WriteSetHhMissingKeepDosage | kfPlink2WriteSetMixedMtMissingKeepDosage)) {
+        read_or_write_dosage_present = 1;
+        write_phase_dosage_gflags |= kfPgenGlobalDosagePresent;
+        if (g_plink2_write_flags & kfPlink2WriteSetMixedMtMissingKeepDosage) {
+          // todo: keep MT phasing when phased dosage supported
+          // write_phase_dosage_gflags |= kfPgenGlobalDosagePhasePresent;
+        }
       }
       uintptr_t alloc_base_cacheline_ct;
       uint64_t mpgw_per_thread_cacheline_ct;
@@ -3012,7 +3069,7 @@ pglerr_t make_plink2_no_vsort(const char* xheader, const uintptr_t* sample_inclu
           other_per_thread_cacheline_ct += DIV_UP(2 * sample_ct * sizeof(alt_allele_ct_t), kCacheline);
         }
       }
-      if (read_hphase_present || read_dosage_present) {
+      if (read_hphase_present || read_or_write_dosage_present) {
         if (read_hphase_present) {
           if (bigstack_alloc_ulp(calc_thread_ct, &g_thread_write_phasepresents) ||
               bigstack_alloc_ulp(calc_thread_ct, &g_thread_write_phaseinfos) ||
@@ -3025,12 +3082,12 @@ pglerr_t make_plink2_no_vsort(const char* xheader, const uintptr_t* sample_inclu
           // all_hets
           other_per_thread_cacheline_ct += BITCT_TO_CLCT(raw_sample_ct);
         }
-        if (read_dosage_present) {
+        if (read_or_write_dosage_present) {
           if (bigstack_alloc_dosagep(calc_thread_ct, &g_thread_write_dosagevals) ||
               bigstack_alloc_ulp(calc_thread_ct, &g_thread_write_dosagepresents)) {
             goto make_plink2_no_vsort_fallback;
           }
-          if (new_sample_idx_to_old) {
+          if (read_dosage_present && new_sample_idx_to_old) {
             if (bigstack_alloc_uip(calc_thread_ct, &g_thread_cumulative_popcount_bufs)) {
               goto make_plink2_no_vsort_fallback;
             }
@@ -3054,9 +3111,11 @@ pglerr_t make_plink2_no_vsort(const char* xheader, const uintptr_t* sample_inclu
       uintptr_t* main_loadbufs[2];
       main_loadbufs[0] = (uintptr_t*)bigstack_alloc_raw(load_vblock_cacheline_ct * calc_thread_ct * kCacheline);
       main_loadbufs[1] = (uintptr_t*)bigstack_alloc_raw(load_vblock_cacheline_ct * calc_thread_ct * kCacheline);
-      if (read_hphase_present || read_dosage_present) {
-        g_loaded_vrtypes[0] = bigstack_alloc_raw(kPglVblockSize * calc_thread_ct);
-        g_loaded_vrtypes[1] = bigstack_alloc_raw(kPglVblockSize * calc_thread_ct);
+      if (read_hphase_present || read_or_write_dosage_present) {
+        if (read_hphase_present || read_dosage_present) {
+          g_loaded_vrtypes[0] = bigstack_alloc_raw(kPglVblockSize * calc_thread_ct);
+          g_loaded_vrtypes[1] = bigstack_alloc_raw(kPglVblockSize * calc_thread_ct);
+        }
         const uint32_t bitvec_writebuf_byte_ct = BITCT_TO_CLCT(sample_ct) * kCacheline;
         const uintptr_t dosagevals_writebuf_byte_ct = DIV_UP(sample_ct, (kCacheline / 2)) * kCacheline;
         for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
@@ -3066,10 +3125,10 @@ pglerr_t make_plink2_no_vsort(const char* xheader, const uintptr_t* sample_inclu
 
             g_thread_all_hets[tidx] = (uintptr_t*)bigstack_alloc_raw(BITCT_TO_CLCT(raw_sample_ct) * kCacheline);
           }
-          if (read_dosage_present) {
+          if (read_or_write_dosage_present) {
             g_thread_write_dosagepresents[tidx] = (uintptr_t*)bigstack_alloc_raw(bitvec_writebuf_byte_ct);
             g_thread_write_dosagevals[tidx] = (dosage_t*)bigstack_alloc_raw(dosagevals_writebuf_byte_ct);
-            if (new_sample_idx_to_old) {
+            if (read_dosage_present && new_sample_idx_to_old) {
               g_thread_cumulative_popcount_bufs[tidx] = (uint32_t*)bigstack_alloc_raw(INT32CT_TO_CLCT(raw_sample_ctl) * kCacheline);
             }
           }
@@ -4087,23 +4146,23 @@ pglerr_t make_plink2_vsort(const char* xheader, const uintptr_t* sample_include,
       const uint32_t raw_sample_ctl = BITCT_TO_WORDCT(raw_sample_ct);
       if (make_plink2_modifier & kfMakePlink2SetHhMissing) {
         const uint32_t sample_ctv = BITCT_TO_VECCT(sample_ct);
-        uintptr_t* sex_collapsed_tmp;
         uintptr_t* sex_female;
-        if (bigstack_alloc_ul(sample_ctv * kWordsPerVec, &g_sex_male_collapsed_interleaved) ||
+        if (bigstack_alloc_ul(sample_ctv * kWordsPerVec, &g_sex_male) ||
+            bigstack_alloc_ul(sample_ctv * kWordsPerVec, &g_sex_male_collapsed_interleaved) ||
+            bigstack_alloc_ul(sample_ctv * kWordsPerVec, &g_sex_female_collapsed) ||
             bigstack_alloc_ul(sample_ctv * kWordsPerVec, &g_sex_female_collapsed_interleaved) ||
-            bigstack_alloc_ul(sample_ctv * kWordsPerVec, &sex_collapsed_tmp) ||
             bigstack_alloc_ul(raw_sample_ctl, &sex_female)) {
           goto make_plink2_vsort_ret_NOMEM;
         }
-        copy_bitarr_subset(sex_male, sample_include, sample_ct, sex_collapsed_tmp);
-        zero_trailing_words(BITCT_TO_WORDCT(sample_ct), sex_collapsed_tmp);
-        fill_interleaved_mask_vec(sex_collapsed_tmp, sample_ctv, g_sex_male_collapsed_interleaved);
+        copy_bitarr_subset(sex_male, sample_include, sample_ct, g_sex_male);
+        zero_trailing_words(BITCT_TO_WORDCT(sample_ct), g_sex_male);
+        fill_interleaved_mask_vec(g_sex_male, sample_ctv, g_sex_male_collapsed_interleaved);
 
         bitvec_andnot_copy(sex_nm, sex_male, raw_sample_ctl, sex_female);
-        copy_bitarr_subset(sex_female, sample_include, sample_ct, sex_collapsed_tmp);
-        fill_interleaved_mask_vec(sex_collapsed_tmp, sample_ctv, g_sex_female_collapsed_interleaved);
+        copy_bitarr_subset(sex_female, sample_include, sample_ct, g_sex_female_collapsed);
+        fill_interleaved_mask_vec(g_sex_female_collapsed, sample_ctv, g_sex_female_collapsed_interleaved);
 
-        bigstack_reset(sex_collapsed_tmp);
+        bigstack_reset(g_sex_female_collapsed);
         g_plink2_write_flags |= kfPlink2WriteSetHhMissing;
       }
       if (make_plink2_modifier & kfMakePlink2SetMixedMtMissing) {

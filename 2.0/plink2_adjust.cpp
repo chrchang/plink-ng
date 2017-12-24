@@ -336,32 +336,23 @@ pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const
       }
       if (sidakss_col) {
         // avoid catastrophic cancellation for small p-values
-        // 1 - (1-p)^c = 1 - (1 - cp + (c(c-1) / 2)p^2 - (c(c-1)(c-2) / 6)p^3 +
-        //               ...)
-        //             = cp - (c(c-1) / 2)p^2 + (c(c-1)(c-2) / 6)p^3 -
-        //               [stuff smaller than (c^4p^4)/24]
-        // current threshold is chosen to ensure at least 6 digits of precision
-        // in (1 - pval) if pow() is used, since 6 significant digits are
-        // printed in the .adjusted file.  but in theory we should take
-        // valid_variant_ct into account too: small valid_variant_ct lets us
-        // use a higher threshold.
+        // 1 - (1-p)^c = 1 - e^{c log(1-p)}
+        // 2^{-7} threshold is arbitrary
         double pv_sidak_ss;
-        if (pval >= kRecip2m53 * 2097152) {
+        if (pval >= 0.0078125) {
           pv_sidak_ss = 1 - pow(1 - pval, valid_variant_ctd);
         } else {
-          pv_sidak_ss = pval * valid_variant_ctd * (1 + pval * (valid_variant_ctd - 1) * (-0.5 + pval * (valid_variant_ctd - 2) * (1.0 / 6.0)));
+          pv_sidak_ss = 1 - exp(valid_variant_ctd * log1p(-pval));
         }
         adjust_print(output_min_p_buf, pv_sidak_ss, output_min_p, output_min_p_slen, is_log10, &cswritep);
       }
       if (sidaksd_col) {
         double pv_sidak_sd_new;
-        if (pval >= kRecip2m53 * 2097152) {
+        if (pval >= 0.0078125) {
           pv_sidak_sd_new = 1 - pow(1 - pval, valid_variant_ctd - ((double)((int32_t)vidx)));
         } else {
-          // for very large valid_variant_ct, we might want to include the p^3
-          // term of the binomial expansion as well
           const double cur_exp = valid_variant_ctd - (double)((int32_t)vidx);
-          pv_sidak_sd_new = pval * cur_exp * (1 + pval * (cur_exp - 1) * (-0.5 + pval * (cur_exp - 2) * (1.0 / 6.0)));
+          pv_sidak_sd_new = 1 - exp(cur_exp * log1p(-pval));
         }
         if (pv_sidak_sd < pv_sidak_sd_new) {
           pv_sidak_sd = pv_sidak_sd_new;
