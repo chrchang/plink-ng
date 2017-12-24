@@ -497,21 +497,15 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
 	}
       }
       // avoid catastrophic cancellation for small p-values
-      // 1 - (1-p)^c = 1 - (1 - cp + (c(c-1) / 2)p^2 + ...)
-      //             = cp - (c(c-1) / 2)p^2 + [stuff smaller than (c^3p^3)/6]
-      // current threshold is chosen to ensure at least 4 digits of precision
-      // in (1 - pval) if pow() is used, since 4 significant digits are printed
-      // in the .adjusted file.  but in theory we should take dct into account
-      // too: small dct lets us use a higher threshold.
-      if (pval >= RECIP_2_53 * 16384) {
+      // 1 - (1-p)^c = 1 - e^{c log(1-p)}
+      // 2^{-7} threshold is arbitrary
+      if (pval >= 0.0078125) {
 	pv_sidak_ss = 1 - pow(1 - pval, dct);
 	dyy = 1 - pow(1 - pval, dct - ((double)((int32_t)cur_idx)));
       } else {
-	// for very large dct, we might want to include the p^3 term of the
-	// binomial expansion as well
-	pv_sidak_ss = pval * dct * (1 - 0.5 * pval * (dct - 1));
+	pv_sidak_ss = 1 - exp(dct * log1p(-pval));
 	dyy = dct - (double)((int32_t)cur_idx);
-	dyy = pval * dyy * (1 - 0.5 * pval * (dyy - 1));
+	dyy = 1 - exp(dyy * log1p(-pval));
       }
       if (pv_sidak_sd < dyy) {
 	pv_sidak_sd = dyy;
