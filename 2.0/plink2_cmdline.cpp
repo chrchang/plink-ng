@@ -1,4 +1,4 @@
-// This library is part of PLINK 2.00, copyright (C) 2005-2017 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2018 Shaun Purcell,
 // Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it
@@ -1743,6 +1743,27 @@ boolerr_t count_and_measure_multistr_reverse_alloc(char* multistr, uintptr_t max
   *str_ct_ptr = ct;
   *max_blen_ptr = max_blen;
   *strptr_arrp = strptr_arr_iter;
+  return 0;
+}
+
+boolerr_t multistr_to_strbox_dedup_arena_alloc(unsigned char* arena_top, const char* multistr, unsigned char** arena_bottom_ptr, char** sorted_strbox_ptr, uint32_t* str_ct_ptr, uintptr_t* max_blen_ptr) {
+  char** strptr_arr = (char**)arena_top;
+  uintptr_t max_str_blen = 0;
+  uint32_t str_ct;
+  // const_cast
+  if (count_and_measure_multistr_reverse_alloc((char*)((uintptr_t)multistr), (arena_top - (*arena_bottom_ptr)) / sizeof(intptr_t), &str_ct, &max_str_blen, &strptr_arr)) {
+    return 1;
+  }
+  const uintptr_t strbox_byte_ct = round_up_pow2(str_ct * max_str_blen, kCacheline);
+  if ((uintptr_t)(((unsigned char*)strptr_arr) - (*arena_bottom_ptr)) < strbox_byte_ct) {
+    return 1;
+  }
+  strptr_arr_sort(str_ct, strptr_arr);
+  *sorted_strbox_ptr = (char*)(*arena_bottom_ptr);
+  str_ct = copy_and_dedup_sorted_strptrs_to_strbox(strptr_arr, str_ct, max_str_blen, *sorted_strbox_ptr);
+  *arena_bottom_ptr += round_up_pow2(str_ct * max_str_blen, kCacheline);
+  *str_ct_ptr = str_ct;
+  *max_blen_ptr = max_str_blen;
   return 0;
 }
 
@@ -3889,6 +3910,29 @@ uintptr_t bsearch_str_lb(const char* idbuf, const char* sorted_strbox, uintptr_t
     cur_id_slen = max_id_blen;
   }
   uintptr_t start_idx = 0;
+  while (start_idx < end_idx) {
+    const uintptr_t mid_idx = (start_idx + end_idx) / 2;
+    if (memcmp(idbuf, &(sorted_strbox[mid_idx * max_id_blen]), cur_id_slen) > 0) {
+      start_idx = mid_idx + 1;
+    } else {
+      end_idx = mid_idx;
+    }
+  }
+  return start_idx;
+}
+
+uintptr_t fwdsearch_str_lb(const char* idbuf, const char* sorted_strbox, uintptr_t cur_id_slen, uintptr_t max_id_blen, uintptr_t end_idx, uintptr_t cur_idx) {
+  uintptr_t next_incr = 1;
+  uintptr_t start_idx = cur_idx;
+  while (cur_idx < end_idx) {
+    if (memcmp(idbuf, &(sorted_strbox[cur_idx * max_id_blen]), cur_id_slen) <= 0) {
+      end_idx = cur_idx;
+      break;
+    }
+    start_idx = cur_idx + 1;
+    cur_idx += next_incr;
+    next_incr *= 2;
+  }
   while (start_idx < end_idx) {
     const uintptr_t mid_idx = (start_idx + end_idx) / 2;
     if (memcmp(idbuf, &(sorted_strbox[mid_idx * max_id_blen]), cur_id_slen) > 0) {

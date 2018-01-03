@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.00, copyright (C) 2005-2017 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2018 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -877,6 +877,9 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "      scoresums: Score sums.\n"
 "    The default is maybesid,phenos,nmissallele,dosagesum,scoreavgs.\n\n"
                );
+    // todo: reimplement most/all of PLINK 1.x's other automatic checks (het
+    // haploids, missing sex, etc. with corresponding output files) and have a
+    // flag (--qc1?) which invokes them all.
     help_print("genotyping-rate", &help_ctrl, 1,
 "  --genotyping-rate <dosage>\n"
 "    Report genotyping rate in log (this was automatic in PLINK 1.x).\n\n"
@@ -1190,6 +1193,14 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "  --thin-indiv [p]       : Randomly remove samples, retaining with prob. p.\n"
 "  --thin-indiv-count [n] : Randomly remove samples until n of them remain.\n"
                );
+    help_print("keep-fcol\tkeep-fcol-name\tkeep-fcol-num\tfilter\tmfilter", &help_ctrl, 0,
+"  --keep-fcol <sid> [f] [val(s)...] : Exclude all samples without a 3rd column\n"
+"                                      entry in the given file exactly matching\n"
+"                                      one of the given strings.  (Separate\n"
+"                                      multiple strings with spaces.)\n"
+"  --keep-fcol-name [col name]       : Check column with given name instead.\n"
+"  --keep-fcol-num [n]               : Check nth column instead.\n"
+               );
     help_print("geno\tmind\toblig-clusters\toblig-missing", &help_ctrl, 0,
 "  --geno {val} <dosage | hh-missing>\n"
 "  --mind {val} <dosage | hh-missing> : \n"
@@ -1389,7 +1400,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "    * \"--ref-allele [VCF filename] 4 3 '#'\", which scrapes reference allele\n"
 "      assignments from a VCF file, is especially useful.\n"
 "    * By default, these error out when asked to change a 'known' reference\n"
-"      allele.  Add 'force' to permit this (when e.g. switching to a new\n"
+"      allele.  Add 'force' to permit that (when e.g. switching to a new\n"
 "      reference genome).\n"
 "    * When --alt1-allele changes the previous ref allele to alt1, the previous\n"
 "      alt1 allele is set to reference and marked as provisional.\n"
@@ -1400,7 +1411,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "                               that it's never possible for deletions or some\n"
 "                               insertions).  By default, it errors out when\n"
 "                               asked to change a 'known' reference allele; add\n"
-"                               the 'force' modifier to permit this.\n"
+"                               the 'force' modifier to permit that.\n"
                );
     help_print("indiv-sort", &help_ctrl, 0,
 "  --indiv-sort [m] <sid> {f} : Specify FID/IID(/SID) sort order for merge and\n"

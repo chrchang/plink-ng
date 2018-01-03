@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.00, copyright (C) 2005-2017 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2018 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -4230,11 +4230,14 @@ pglerr_t sample_sort_file_map(const uintptr_t* sample_include, const char* sampl
     uint32_t* xid_map;
     char* sorted_xidbox;
     uintptr_t max_xid_blen;
-    reterr = sorted_xidbox_init_alloc(sample_include, sample_ids, sids, sample_ct, max_sample_id_blen, max_sid_blen, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+    reterr = sorted_xidbox_init_alloc(sample_include, sample_ids, sids, sample_ct, max_sample_id_blen, max_sid_blen, 0, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
     if (reterr) {
       goto sample_sort_file_map_ret_1;
     }
     uint32_t* new_sample_idx_to_old_iter = *new_sample_idx_to_old_ptr;
+    if (*loadbuf_first_token == '#') {
+      *loadbuf_first_token = '\0';
+    }
     while (1) {
       if (!is_eoln_kns(*loadbuf_first_token)) {
         char* loadbuf_iter = loadbuf_first_token;

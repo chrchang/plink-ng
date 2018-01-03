@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.00, copyright (C) 2005-2017 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2018 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -190,6 +190,9 @@ pglerr_t plink1_cluster_import(const char* within_fname, const char* catpheno_na
   uintptr_t line_idx = 0;
   pglerr_t reterr = kPglRetSuccess;
   {
+    if (!sample_ct) {
+      goto plink1_cluster_import_ret_1;
+    }
     const char catpheno_name_default[] = "CATPHENO";
     uint32_t catpheno_name_blen;
     if (!catpheno_name) {
@@ -633,6 +636,9 @@ pglerr_t update_sample_sexes(const char* update_sex_fname, const uintptr_t* samp
   uintptr_t line_idx = 0;
   pglerr_t reterr = kPglRetSuccess;
   {
+    if (!sample_ct) {
+      goto update_sample_sexes_ret_1;
+    }
     reterr = gzopen_read_checked(update_sex_fname, &gz_infile);
     if (reterr) {
       goto update_sample_sexes_ret_1;
@@ -1246,7 +1252,7 @@ pglerr_t pheno_quantile_normalize(const char* quantnorm_flattened, const uintptr
   const char* flag_prefix = is_subset_flag? (is_covar? "covar-" : "pheno-") : "";
   pglerr_t reterr = kPglRetSuccess;
   {
-    if (!pheno_ct) {
+    if ((!pheno_ct) || (!sample_ct)) {
       goto pheno_quantile_normalize_ret_SKIP;
     }
     // this boilerplate probably belongs in its own function

@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.00, copyright (C) 2005-2017 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2018 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -323,7 +323,7 @@ pglerr_t king_cutoff_batch(const char* sample_ids, const char* sids, uint32_t ra
     uint32_t* xid_map; // IDs not collapsed
     char* sorted_xidbox;
     uintptr_t max_xid_blen;
-    reterr = sorted_xidbox_init_alloc(sample_include, sample_ids, sids, sample_ct, max_sample_id_blen, max_sid_blen, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+    reterr = sorted_xidbox_init_alloc(sample_include, sample_ids, sids, sample_ct, max_sample_id_blen, max_sid_blen, 0, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
     if (reterr) {
       goto king_cutoff_batch_ret_1;
     }
@@ -2132,7 +2132,7 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
     uint32_t* xid_map; // IDs not collapsed
     char* sorted_xidbox;
     uintptr_t max_xid_blen;
-    reterr = sorted_xidbox_init_alloc(orig_sample_include, sample_ids, sids, orig_sample_ct, max_sample_id_blen, max_sid_blen, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+    reterr = sorted_xidbox_init_alloc(orig_sample_include, sample_ids, sids, orig_sample_ct, max_sample_id_blen, max_sid_blen, 0, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
     if (reterr) {
       goto calc_king_table_subset_ret_1;
     }

@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.00, copyright (C) 2005-2017 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2018 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -833,6 +833,9 @@ pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_li
   uintptr_t line_idx = 0;
   pglerr_t reterr = kPglRetSuccess;
   {
+    if (!sample_ct) {
+      goto load_phenos_ret_1;
+    }
     reterr = gzopen_read_checked(pheno_fname, &gz_infile);
     if (reterr) {
       goto load_phenos_ret_1;

@@ -1,7 +1,7 @@
 #ifndef __PLINK2_CMDLINE_H__
 #define __PLINK2_CMDLINE_H__
 
-// This library is part of PLINK 2.00, copyright (C) 2005-2017 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2018 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -1354,6 +1354,12 @@ HEADER_INLINE char* fw_strcpy(const char* source, uint32_t min_width, char* dest
 
 boolerr_t count_and_measure_multistr_reverse_alloc(char* multistr, uintptr_t max_str_ct, uint32_t* str_ct_ptr, uintptr_t* max_blen_ptr, char*** strptr_arrp);
 
+boolerr_t multistr_to_strbox_dedup_arena_alloc(unsigned char* arena_top, const char* multistr, unsigned char** arena_bottom_ptr, char** sorted_strbox_ptr, uint32_t* str_ct_ptr, uintptr_t* max_blen_ptr);
+
+HEADER_INLINE boolerr_t multistr_to_strbox_dedup_alloc(const char* multistr, char** sorted_strbox_ptr, uint32_t* str_ct_ptr, uintptr_t* max_blen_ptr) {
+  return multistr_to_strbox_dedup_arena_alloc(g_bigstack_end, multistr, &g_bigstack_base, sorted_strbox_ptr, str_ct_ptr, max_blen_ptr);
+}
+
 extern const uint16_t kDigitPair[];
 
 char* uint32toa(uint32_t uii, char* start);
@@ -1694,6 +1700,11 @@ int32_t bsearch_str_natural(const char* idbuf, const char* sorted_strbox, uintpt
 
 // returns number of elements in sorted_strbox[] less than idbuf.
 uintptr_t bsearch_str_lb(const char* idbuf, const char* sorted_strbox, uintptr_t cur_id_slen, uintptr_t max_id_blen, uintptr_t end_idx);
+
+// same result as bsearch_str_lb(), but checks against [cur_idx],
+// [cur_idx + 1], [cur_idx + 3], [cur_idx + 7], etc. before finishing with a
+// binary search, and assumes cur_id_slen <= max_id_blen and end_idx > 0.
+uintptr_t fwdsearch_str_lb(const char* idbuf, const char* sorted_strbox, uintptr_t cur_id_slen, uintptr_t max_id_blen, uintptr_t end_idx, uintptr_t cur_idx);
 
 // this is frequently preferable to bsearch_str(), since it's way too easy to
 // forget to convert the sorted-stringbox index to the final index

@@ -1,7 +1,7 @@
 #ifndef __PLINK2_COMMON_H__
 #define __PLINK2_COMMON_H__
 
-// This library is part of PLINK 2.00, copyright (C) 2005-2017 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2018 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -100,7 +100,8 @@ FLAGSET64_DEF_START()
   kfMiscRefAlleleForce = (1LLU << 37),
   kfMiscAlt1AlleleForce = (1LLU << 38),
   kfMiscRefFromFaForce = (1LLU << 39),
-  kfMiscMergeX = (1LLU << 40)
+  kfMiscMergeX = (1LLU << 40),
+  kfMiscKeepFileStrsSid = (1LLU << 41)
 FLAGSET64_DEF_END(misc_flags_t);
 
 FLAGSET64_DEF_START()
@@ -257,7 +258,10 @@ FLAGSET_DEF_START()
 FLAGSET_DEF_END(xid_mode_t);
 
 // sample_xid_map allocated on bottom, to play well with --indiv-sort
-pglerr_t sorted_xidbox_init_alloc(const uintptr_t* sample_include, const char* sample_ids, const char* sids, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, xid_mode_t xid_mode, uint32_t use_nsort, char** sorted_xidbox_ptr, uint32_t** xid_map_ptr, uintptr_t* max_xid_blen_ptr);
+pglerr_t sorted_xidbox_init_alloc(const uintptr_t* sample_include, const char* sample_ids, const char* sids, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t allow_dups, xid_mode_t xid_mode, uint32_t use_nsort, char** sorted_xidbox_ptr, uint32_t** xid_map_ptr, uintptr_t* max_xid_blen_ptr);
+
+// returns slen for ID, or 0 on parse failure.
+uint32_t xid_read(uintptr_t max_xid_blen, uint32_t comma_delim, xid_mode_t xid_mode, char** read_pp, char* __restrict idbuf);
 
 // returns 1 on missing token *or* if the sample ID is not present.  cases can
 // be distinguished by checking whether *read_pp_new == nullptr: if it is, a
@@ -265,7 +269,20 @@ pglerr_t sorted_xidbox_init_alloc(const uintptr_t* sample_include, const char* s
 // sample_id_map == nullptr is permitted
 // *read_pp is now set to point to the end of IID/SID instead of the beginning
 // of the next token; this is a change from plink 1.9.
-boolerr_t sorted_xidbox_read_find(const char* __restrict sorted_xidbox, const uint32_t* __restrict xid_map, uintptr_t max_xid_blen, uintptr_t end_idx, uint32_t comma_delim, xid_mode_t xid_mode, char** read_pp, uint32_t* sample_uidx_ptr, char* __restrict idbuf);
+HEADER_INLINE boolerr_t sorted_xidbox_read_find(const char* __restrict sorted_xidbox, const uint32_t* __restrict xid_map, uintptr_t max_xid_blen, uintptr_t xid_ct, uint32_t comma_delim, xid_mode_t xid_mode, char** read_pp, uint32_t* sample_uidx_ptr, char* __restrict idbuf) {
+  const uint32_t slen_final = xid_read(max_xid_blen, comma_delim, xid_mode, read_pp, idbuf);
+  if (!slen_final) {
+    return 1;
+  }
+  return sorted_idbox_find(idbuf, sorted_xidbox, xid_map, slen_final, max_xid_blen, xid_ct, sample_uidx_ptr);
+}
+
+// Matches a sample ID *prefix*.  Thus, if FID/IID/SID is loaded, but the input
+// file contains just FID/IID, and there are some FID/IID pairs which
+// correspond to multiple samples, this lets you iterate over all of them.
+// (Caller is responsible for looking up xid_map[] to perform xid_idx ->
+// sample_uidx conversions.)
+boolerr_t sorted_xidbox_read_multifind(const char* __restrict sorted_xidbox, uintptr_t max_xid_blen, uintptr_t xid_ct, uint32_t comma_delim, xid_mode_t xid_mode, char** read_pp, uint32_t* xid_idx_start_ptr, uint32_t* xid_idx_end_ptr, char* __restrict idbuf);
 
 ENUM_U31_DEF_START()
   kSidDetectModeNotLoaded,
@@ -276,6 +293,13 @@ ENUM_U31_DEF_END(sid_detect_mode_t);
 // may return kPglRetLongLine or kPglRetEmptyFile
 // loadbuf_iter_ptr can be nullptr
 // line_idx must be zero unless initial lines were skipped
+// Follow this up with
+//   if (xid_mode == kfXidModeFidiidOrIid) {
+//     xid_mode = kfXidModeFidiid;
+//   }
+// when using this on a regular .tsv-like file.  (Otherwise, xid_read() will
+// tolerate a mix of single-token and multitoken lines, where --double-id
+// interpretation is applied to single-token lines.)
 pglerr_t load_xid_header(const char* flag_name, sid_detect_mode_t sid_detect_mode, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, xid_mode_t* xid_mode_ptr);
 
 // sets last character of loadbuf to ' '

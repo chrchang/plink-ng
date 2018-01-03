@@ -1,4 +1,4 @@
-// This library is part of PLINK 2.00, copyright (C) 2005-2017 Shaun Purcell,
+// This library is part of PLINK 2.00, copyright (C) 2005-2018 Shaun Purcell,
 // Christopher Chang.
 //
 // This library is free software: you can redistribute it and/or modify it
@@ -352,11 +352,11 @@ pglerr_t augid_init_alloc(const uintptr_t* sample_include, const char* sample_id
   return kPglRetSuccess;
 }
 
-pglerr_t sorted_xidbox_init_alloc(const uintptr_t* sample_include, const char* sample_ids, const char* sids, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, xid_mode_t xid_mode, uint32_t use_nsort, char** sorted_xidbox_ptr, uint32_t** xid_map_ptr, uintptr_t* max_xid_blen_ptr) {
+pglerr_t sorted_xidbox_init_alloc(const uintptr_t* sample_include, const char* sample_ids, const char* sids, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t allow_dups, xid_mode_t xid_mode, uint32_t use_nsort, char** sorted_xidbox_ptr, uint32_t** xid_map_ptr, uintptr_t* max_xid_blen_ptr) {
   if (!(xid_mode & kfXidModeFlagSid)) {
     // two fields
     *max_xid_blen_ptr = max_sample_id_blen;
-    return copy_sort_strbox_subset(sample_include, sample_ids, sample_ct, max_sample_id_blen, 0, 0, use_nsort, sorted_xidbox_ptr, xid_map_ptr);
+    return copy_sort_strbox_subset(sample_include, sample_ids, sample_ct, max_sample_id_blen, allow_dups, 0, use_nsort, sorted_xidbox_ptr, xid_map_ptr);
   }
   // three fields
   if (augid_init_alloc(sample_include, sample_ids, sids, sample_ct, max_sample_id_blen, max_sid_blen, xid_map_ptr, sorted_xidbox_ptr, max_xid_blen_ptr)) {
@@ -365,19 +365,21 @@ pglerr_t sorted_xidbox_init_alloc(const uintptr_t* sample_include, const char* s
   if (sort_strbox_indexed(sample_ct, *max_xid_blen_ptr, use_nsort, *sorted_xidbox_ptr, *xid_map_ptr)) {
     return kPglRetNomem;
   }
-  char* dup_id = scan_for_duplicate_ids(*sorted_xidbox_ptr, sample_ct, *max_xid_blen_ptr);
-  if (dup_id) {
-    char* tptr = (char*)rawmemchr(dup_id, '\t');
-    *tptr = ' ';
-    tptr = (char*)rawmemchr(&(tptr[1]), '\t');
-    *tptr = ' ';
-    LOGERRPRINTFWW("Error: Duplicate ID '%s'.\n", dup_id);
-    return kPglRetMalformedInput;
+  if (!allow_dups) {
+    char* dup_id = scan_for_duplicate_ids(*sorted_xidbox_ptr, sample_ct, *max_xid_blen_ptr);
+    if (dup_id) {
+      char* tptr = (char*)rawmemchr(dup_id, '\t');
+      *tptr = ' ';
+      tptr = (char*)rawmemchr(&(tptr[1]), '\t');
+      *tptr = ' ';
+      LOGERRPRINTFWW("Error: Duplicate ID '%s'.\n", dup_id);
+      return kPglRetMalformedInput;
+    }
   }
   return kPglRetSuccess;
 }
 
-boolerr_t sorted_xidbox_read_find(const char* __restrict sorted_xidbox, const uint32_t* __restrict xid_map, uintptr_t max_xid_blen, uintptr_t end_idx, uint32_t comma_delim, xid_mode_t xid_mode, char** read_pp, uint32_t* sample_uidx_ptr, char* __restrict idbuf) {
+uint32_t xid_read(uintptr_t max_xid_blen, uint32_t comma_delim, xid_mode_t xid_mode, char** read_pp, char* __restrict idbuf) {
   // idbuf = workspace
   // sorted_xidbox = packed, sorted list of ID strings to search over.
   //
@@ -391,9 +393,9 @@ boolerr_t sorted_xidbox_read_find(const char* __restrict sorted_xidbox, const ui
   // can be distinguished by checking whether *read_pp == nullptr.
   char* first_token_start = *read_pp;
   uintptr_t blen_sid = 0;
+  char* sid_ptr = nullptr;
   char* token_iter;
   char* iid_ptr;
-  char* sid_ptr = nullptr;
   uintptr_t slen_fid;
   uintptr_t slen_iid;
   if (comma_delim) {
@@ -403,16 +405,16 @@ boolerr_t sorted_xidbox_read_find(const char* __restrict sorted_xidbox, const ui
       if (ucc < 32) {
         if (!(xid_mode & kfXidModeFlagOneTokenOk)) {
           *read_pp = nullptr;
-          return 1;
+          return 0;
         }
         slen_fid = (uintptr_t)(token_iter - first_token_start);
-        goto sorted_xidbox_read_find_comma_single_token;
+        goto sorted_xidbox_read_comma_single_token;
       }
       ucc = (unsigned char)(*(++token_iter));
     }
     slen_fid = (uintptr_t)(token_iter - first_token_start);
     if (xid_mode & kfXidModeFlagNeverFid) {
-    sorted_xidbox_read_find_comma_single_token:
+    sorted_xidbox_read_comma_single_token:
       iid_ptr = first_token_start;
       slen_iid = slen_fid;
     } else {
@@ -428,7 +430,7 @@ boolerr_t sorted_xidbox_read_find(const char* __restrict sorted_xidbox, const ui
     // token_iter now points to comma/eoln at end of IID
     if (xid_mode & kfXidModeFlagSid) {
       if (*token_iter != ',') {
-        return 1;
+        return 0;
       }
       do {
         ucc = (unsigned char)(*(++token_iter));
@@ -452,7 +454,7 @@ boolerr_t sorted_xidbox_read_find(const char* __restrict sorted_xidbox, const ui
     token_iter = token_endnn(first_token_start);
     slen_fid = (uintptr_t)(token_iter - first_token_start);
     if (xid_mode & kfXidModeFlagNeverFid) {
-    sorted_xidbox_read_find_space_single_token:
+    sorted_xidbox_read_space_single_token:
       iid_ptr = first_token_start;
       slen_iid = slen_fid;
     } else {
@@ -460,11 +462,11 @@ boolerr_t sorted_xidbox_read_find(const char* __restrict sorted_xidbox, const ui
       if (is_eoln_kns(*token_iter)) {
         if (!(xid_mode & kfXidModeFlagOneTokenOk)) {
           *read_pp = nullptr;
-          return 1;
+          return 0;
         }
         // need to backtrack
         token_iter = &(first_token_start[slen_fid]);
-        goto sorted_xidbox_read_find_space_single_token;
+        goto sorted_xidbox_read_space_single_token;
       }
       iid_ptr = token_iter;
       token_iter = token_endnn(iid_ptr);
@@ -475,7 +477,7 @@ boolerr_t sorted_xidbox_read_find(const char* __restrict sorted_xidbox, const ui
       token_iter = skip_initial_spaces(token_iter);
       if (is_eoln_kns(*token_iter)) {
         *read_pp = nullptr;
-        return 1;
+        return 0;
       }
       sid_ptr = token_iter;
       token_iter = token_endnn(sid_ptr);
@@ -486,16 +488,31 @@ boolerr_t sorted_xidbox_read_find(const char* __restrict sorted_xidbox, const ui
   uintptr_t slen_final = slen_fid + slen_iid + blen_sid + 1;
   if (slen_final >= max_xid_blen) {
     // avoid buffer overflow
-    return 1;
+    return 0;
   }
   char* idbuf_end = memcpya(memcpyax(idbuf, first_token_start, slen_fid, '\t'), iid_ptr, slen_iid);
   if (blen_sid) {
     *idbuf_end++ = '\t';
     memcpy(idbuf_end, sid_ptr, blen_sid - 1);
   }
-  return sorted_idbox_find(idbuf, sorted_xidbox, xid_map, slen_final, max_xid_blen, end_idx, sample_uidx_ptr);
+  return slen_final;
 }
 
+boolerr_t sorted_xidbox_read_multifind(const char* __restrict sorted_xidbox, uintptr_t max_xid_blen, uintptr_t xid_ct, uint32_t comma_delim, xid_mode_t xid_mode, char** read_pp, uint32_t* xid_idx_start_ptr, uint32_t* xid_idx_end_ptr, char* __restrict idbuf) {
+  const uint32_t slen_final = xid_read(max_xid_blen, comma_delim, xid_mode, read_pp, idbuf);
+  if (!slen_final) {
+    return 1;
+  }
+  const uint32_t lb_idx = bsearch_str_lb(idbuf, sorted_xidbox, slen_final, max_xid_blen, xid_ct);
+  idbuf[slen_final] = ' ';
+  const uint32_t ub_idx = fwdsearch_str_lb(idbuf, sorted_xidbox, slen_final + 1, max_xid_blen, xid_ct, lb_idx);
+  if (lb_idx == ub_idx) {
+    return 1;
+  }
+  *xid_idx_start_ptr = lb_idx;
+  *xid_idx_end_ptr = ub_idx;
+  return 0;
+}
 
 pglerr_t load_xid_header(const char* flag_name, sid_detect_mode_t sid_detect_mode, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, xid_mode_t* xid_mode_ptr) {
   // possible todo: support comma delimiter

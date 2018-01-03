@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.00, copyright (C) 2005-2017 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2018 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -28,6 +28,9 @@ namespace plink2 {
 pglerr_t from_to_flag(char** variant_ids, const uint32_t* variant_id_htable, const char* varid_from, const char* varid_to, uint32_t raw_variant_ct, uintptr_t max_variant_id_slen, uintptr_t variant_id_htable_size, uintptr_t* variant_include, chr_info_t* cip, uint32_t* variant_ct_ptr) {
   pglerr_t reterr = kPglRetSuccess;
   {
+    if (!(*variant_ct_ptr)) {
+      goto from_to_flag_ret_1;
+    }
     const uint32_t* htable_dup_base = &(variant_id_htable[round_up_pow2(variant_id_htable_size, kInt32PerCacheline)]);
     uint32_t chr_fo_idx = UINT32_MAX;
     uint32_t variant_uidx_start = UINT32_MAX;
@@ -98,6 +101,7 @@ pglerr_t from_to_flag(char** variant_ids, const uint32_t* variant_id_htable, con
     reterr = kPglRetInconsistentInput;
     break;
   }
+ from_to_flag_ret_1:
   return reterr;
 }
 
@@ -105,6 +109,9 @@ pglerr_t snp_flag(const uint32_t* variant_bps, char** variant_ids, const uint32_
   unsigned char* bigstack_mark = g_bigstack_base;
   pglerr_t reterr = kPglRetSuccess;
   {
+    if (!(*variant_ct_ptr)) {
+      goto snp_flag_ret_1;
+    }
     const uint32_t* htable_dup_base = &(variant_id_htable[round_up_pow2(variant_id_htable_size, kInt32PerCacheline)]);
     const uint32_t raw_variant_ctl = BITCT_TO_WORDCT(raw_variant_ct);
     uint32_t cur_llidx;
@@ -177,6 +184,7 @@ pglerr_t snp_flag(const uint32_t* variant_bps, char** variant_ids, const uint32_
     reterr = kPglRetInconsistentInput;
     break;
   }
+ snp_flag_ret_1:
   bigstack_reset(bigstack_mark);
   return reterr;
 }
@@ -185,6 +193,9 @@ pglerr_t snps_flag(char** variant_ids, const uint32_t* variant_id_htable, const 
   unsigned char* bigstack_mark = g_bigstack_base;
   pglerr_t reterr = kPglRetSuccess;
   {
+    if (!(*variant_ct_ptr)) {
+      goto snps_flag_ret_1;
+    }
     const uint32_t* htable_dup_base = &(variant_id_htable[round_up_pow2(variant_id_htable_size, kInt32PerCacheline)]);
     const char* varid_strbox = snps_range_list_ptr->names;
     const unsigned char* starts_range = snps_range_list_ptr->starts_range;
@@ -254,6 +265,7 @@ pglerr_t snps_flag(char** variant_ids, const uint32_t* variant_id_htable, const 
     reterr = kPglRetInconsistentInput;
     break;
   }
+ snps_flag_ret_1:
   bigstack_reset(bigstack_mark);
   return reterr;
 }
@@ -284,6 +296,9 @@ pglerr_t extract_exclude_flag_norange(char** variant_ids, const uint32_t* varian
   gz_token_stream_preinit(&gts);
   pglerr_t reterr = kPglRetSuccess;
   {
+    if (!(*variant_ct_ptr)) {
+      goto extract_exclude_flag_norange_ret_1;
+    }
     // possible todo: multithreaded read/htable lookup
     const uint32_t raw_variant_ctl = BITCT_TO_WORDCT(raw_variant_ct);
     uintptr_t* already_seen;
@@ -350,11 +365,14 @@ pglerr_t extract_exclude_flag_norange(char** variant_ids, const uint32_t* varian
   return reterr;
 }
 
-boolerr_t random_thin_prob(const char* flagname, const char* unitname, double thin_keep_prob, uint32_t raw_item_ct, uint32_t allow_none, uintptr_t* item_include, uint32_t* item_ct_ptr) {
-  const uint32_t uint32_thresh = (uint32_t)(thin_keep_prob * 4294967296.0 + 0.5);
+void random_thin_prob(const char* flagname, const char* unitname, double thin_keep_prob, uint32_t raw_item_ct, uintptr_t* item_include, uint32_t* item_ct_ptr) {
   // possible todo: try using truncated geometric distribution, like --dummy
   // can also parallelize this
   const uint32_t orig_item_ct = *item_ct_ptr;
+  if (!orig_item_ct) {
+    return;
+  }
+  const uint32_t uint32_thresh = (uint32_t)(thin_keep_prob * 4294967296.0 + 0.5);
   uint32_t item_uidx = 0;
   for (uint32_t item_idx = 0; item_idx < orig_item_ct; ++item_idx, ++item_uidx) {
     next_set_unsafe_ck(item_include, &item_uidx);
@@ -364,13 +382,9 @@ boolerr_t random_thin_prob(const char* flagname, const char* unitname, double th
   }
   const uint32_t new_item_ct = popcount_longs(item_include, BITCT_TO_WORDCT(raw_item_ct));
   *item_ct_ptr = new_item_ct;
-  if ((!allow_none) && (!new_item_ct)) {
-    LOGERRPRINTF("Error: All %ss removed by --%s.  Try a higher probability.\n", flagname, unitname);
-    return 1;
-  }
   const uint32_t removed_ct = orig_item_ct - new_item_ct;
   LOGPRINTF("--%s: %u %s%s removed (%u remaining).\n", flagname, removed_ct, unitname, (removed_ct == 1)? "" : "s", new_item_ct);
-  return 0;
+  return;
 }
 
 pglerr_t random_thin_ct(const char* flagname, const char* unitname, uint32_t thin_keep_ct, uint32_t raw_item_ct, uintptr_t* item_include, uint32_t* item_ct_ptr) {
@@ -378,47 +392,43 @@ pglerr_t random_thin_ct(const char* flagname, const char* unitname, uint32_t thi
   pglerr_t reterr = kPglRetSuccess;
   {
     const uint32_t orig_item_ct = *item_ct_ptr;
-    if (thin_keep_ct > orig_item_ct) {
-      LOGERRPRINTF("Error: --%s parameter exceeds number of remaining %ss.\n", flagname, unitname);
-      goto random_thin_ct_ret_INCONSISTENT_INPUT;
+    if (thin_keep_ct >= orig_item_ct) {
+      LOGERRPRINTF("Warning: --%s parameter exceeds # of remaining %ss; skipping.\n", flagname, unitname);
+      goto random_thin_ct_ret_1;
     }
     const uint32_t removed_ct = orig_item_ct - thin_keep_ct;
-    if (removed_ct) {
-      /*
-      if (orig_item_ct > 1) {
-      */
-        const uint32_t raw_item_ctl = BITCT_TO_WORDCT(raw_item_ct);
-        uintptr_t* perm_buf;
-        uintptr_t* new_item_include;
-        if (bigstack_alloc_ul(BITCT_TO_WORDCT(orig_item_ct), &perm_buf) ||
-            bigstack_alloc_ul(raw_item_ctl, &new_item_include)) {
-          goto random_thin_ct_ret_NOMEM;
-        }
-        // no actual interleaving here, but may as well use this function
-        // note that this requires marker_ct >= 2
-        generate_perm1_interleaved(orig_item_ct, thin_keep_ct, 0, 1, perm_buf, &g_sfmt);
-        expand_bytearr((unsigned char*)perm_buf, item_include, raw_item_ctl, orig_item_ct, 0, new_item_include);
-        memcpy(item_include, new_item_include, raw_item_ctl * sizeof(intptr_t));
-        /*
-      } else {
-        // orig_item_ct == 1, thin_keep_ct == 0
-        // not actually possible until --allow-no-{samples/vars} enabled
-        const uint32_t item_uidx = next_set_unsafe(item_include, 0);
-        clear_bit(item_uidx, item_include);
+    /*
+    if (orig_item_ct > 1) {
+    */
+      const uint32_t raw_item_ctl = BITCT_TO_WORDCT(raw_item_ct);
+      uintptr_t* perm_buf;
+      uintptr_t* new_item_include;
+      if (bigstack_alloc_ul(BITCT_TO_WORDCT(orig_item_ct), &perm_buf) ||
+          bigstack_alloc_ul(raw_item_ctl, &new_item_include)) {
+        goto random_thin_ct_ret_NOMEM;
       }
-        */
-      *item_ct_ptr = thin_keep_ct;
+      // no actual interleaving here, but may as well use this function
+      // note that this requires marker_ct >= 2
+      generate_perm1_interleaved(orig_item_ct, thin_keep_ct, 0, 1, perm_buf, &g_sfmt);
+      expand_bytearr((unsigned char*)perm_buf, item_include, raw_item_ctl, orig_item_ct, 0, new_item_include);
+      memcpy(item_include, new_item_include, raw_item_ctl * sizeof(intptr_t));
+      /*
+    } else {
+      // orig_item_ct == 1, thin_keep_ct == 0
+      // not actually possible until --allow-no-{samples/vars} enabled
+      const uint32_t item_uidx = next_set_unsafe(item_include, 0);
+      clear_bit(item_uidx, item_include);
     }
+      */
+    *item_ct_ptr = thin_keep_ct;
     LOGPRINTF("--%s: %u %s%s removed (%u remaining).\n", flagname, removed_ct, unitname, (removed_ct == 1)? "" : "s", thin_keep_ct);
   }
   while (0) {
   random_thin_ct_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  random_thin_ct_ret_INCONSISTENT_INPUT:
-    reterr = kPglRetInconsistentInput;
-    break;
   }
+ random_thin_ct_ret_1:
   bigstack_reset(bigstack_mark);
   return reterr;
 }
@@ -432,6 +442,10 @@ pglerr_t keep_or_remove(const char* fnames, const char* sample_ids, const char* 
   uintptr_t line_idx = 0;
   pglerr_t reterr = kPglRetSuccess;
   {
+    const uint32_t orig_sample_ct = *sample_ct_ptr;
+    if (!orig_sample_ct) {
+      goto keep_or_remove_ret_1;
+    }
     const uint32_t raw_sample_ctl = BITCT_TO_WORDCT(raw_sample_ct);
     uintptr_t* seen_uidxs;
     if (bigstack_calloc_ul(raw_sample_ctl, &seen_uidxs)) {
@@ -450,7 +464,6 @@ pglerr_t keep_or_remove(const char* fnames, const char* sample_ids, const char* 
     loadbuf[loadbuf_size - 1] = ' ';
 
     const uint32_t families_only = flags & kfKeepFam;
-    const uint32_t orig_sample_ct = *sample_ct_ptr;
     char* idbuf = nullptr;
     uint32_t* xid_map = nullptr;
     char* sorted_xidbox = nullptr;
@@ -500,12 +513,16 @@ pglerr_t keep_or_remove(const char* fnames, const char* sample_ids, const char* 
           }
           goto keep_or_remove_ret_1;
         }
-        reterr = sorted_xidbox_init_alloc(sample_include, sample_ids, sids, orig_sample_ct, max_sample_id_blen, max_sid_blen, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+        const uint32_t allow_dups = sids && (!(xid_mode & kfXidModeFlagSid));
+        reterr = sorted_xidbox_init_alloc(sample_include, sample_ids, sids, orig_sample_ct, max_sample_id_blen, max_sid_blen, allow_dups, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
         if (reterr) {
           goto keep_or_remove_ret_1;
         }
         if (bigstack_alloc_c(max_xid_blen, &idbuf)) {
           goto keep_or_remove_ret_NOMEM;
+        }
+        if (*loadbuf_first_token == '#') {
+          *loadbuf_first_token = '\0';
         }
       } else {
         loadbuf_first_token = loadbuf;
@@ -515,12 +532,20 @@ pglerr_t keep_or_remove(const char* fnames, const char* sample_ids, const char* 
         if (!is_eoln_kns(*loadbuf_first_token)) {
           if (!families_only) {
             char* loadbuf_iter = loadbuf_first_token;
-            uint32_t sample_uidx;
-            if (!sorted_xidbox_read_find(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, xid_mode, &loadbuf_iter, &sample_uidx, idbuf)) {
+            uint32_t xid_idx_start;
+            uint32_t xid_idx_end;
+            if (!sorted_xidbox_read_multifind(sorted_xidbox, max_xid_blen, orig_sample_ct, 0, xid_mode, &loadbuf_iter, &xid_idx_start, &xid_idx_end, idbuf)) {
+              uint32_t sample_uidx = xid_map[xid_idx_start];
               if (IS_SET(seen_uidxs, sample_uidx)) {
                 ++duplicate_ct;
               } else {
-                SET_BIT(sample_uidx, seen_uidxs);
+                while (1) {
+                  SET_BIT(sample_uidx, seen_uidxs);
+                  if (++xid_idx_start == xid_idx_end) {
+                    break;
+                  }
+                  sample_uidx = xid_map[xid_idx_start];
+                }
               }
             } else if (!loadbuf_iter) {
               goto keep_or_remove_ret_MISSING_TOKENS;
@@ -553,7 +578,7 @@ pglerr_t keep_or_remove(const char* fnames, const char* sample_ids, const char* 
           if (!gzeof(gz_infile)) {
             goto keep_or_remove_ret_READ_FAIL;
           }
-          goto keep_or_remove_empty_file;
+          break;
         }
         if (!loadbuf[loadbuf_size - 1]) {
           if (loadbuf_size == kMaxLongLine) {
@@ -607,28 +632,227 @@ pglerr_t keep_or_remove(const char* fnames, const char* sample_ids, const char* 
   return reterr;
 }
 
-pglerr_t require_pheno(const pheno_col_t* pheno_cols, const char* pheno_names, char* require_pheno_flattened, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t is_covar, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
+// Minor extension of PLINK 1.x --filter.  (Renamed since --filter is not
+// sufficiently self-describing; PLINK has lots of other filters on both
+// samples and variants.  --filter is automatically be converted to --keep-fcol
+// for backward compatibility, though.)
+pglerr_t keep_fcol(const char* fname, const char* sample_ids, const char* sids, const char* strs_flattened, const char* col_name, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t force_sid, uint32_t col_num, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  gzFile gz_infile = nullptr;
+  uintptr_t loadbuf_size = 0;
+  uintptr_t line_idx = 0;
+  pglerr_t reterr = kPglRetSuccess;
+  {
+    const uint32_t orig_sample_ct = *sample_ct_ptr;
+    if (!orig_sample_ct) {
+      goto keep_fcol_ret_1;
+    }
+    const uint32_t raw_sample_ctl = BITCT_TO_WORDCT(raw_sample_ct);
+    uintptr_t* seen_xid_idxs;
+    uintptr_t* keep_uidxs;
+    if (bigstack_calloc_ul(BITCT_TO_WORDCT(orig_sample_ct), &seen_xid_idxs) ||
+        bigstack_calloc_ul(raw_sample_ctl, &keep_uidxs)) {
+      goto keep_fcol_ret_NOMEM;
+    }
+
+    char* sorted_strbox;
+    uintptr_t max_str_blen;
+    uint32_t str_ct;
+    if (multistr_to_strbox_dedup_alloc(strs_flattened, &sorted_strbox, &str_ct, &max_str_blen)) {
+      goto keep_fcol_ret_NOMEM;
+    }
+
+    loadbuf_size = bigstack_left();
+    loadbuf_size -= loadbuf_size / 4;
+    if (loadbuf_size > kMaxLongLine) {
+      loadbuf_size = kMaxLongLine;
+    } else if (loadbuf_size <= kMaxMediumLine) {
+      goto keep_fcol_ret_NOMEM;
+    } else {
+      loadbuf_size = round_up_pow2(loadbuf_size, kCacheline);
+    }
+    char* loadbuf = (char*)bigstack_alloc_raw(loadbuf_size);
+    loadbuf[loadbuf_size - 1] = ' ';
+
+    reterr = gzopen_read_checked(fname, &gz_infile);
+    if (reterr) {
+      goto keep_fcol_ret_1;
+    }
+    char* loadbuf_first_token;
+    xid_mode_t xid_mode;
+    reterr = load_xid_header("keep-fcol", force_sid? kSidDetectModeForce : (sids? kSidDetectModeLoaded : kSidDetectModeNotLoaded), loadbuf_size, loadbuf, nullptr, &line_idx, &loadbuf_first_token, &gz_infile, &xid_mode);
+    if (reterr) {
+      if (reterr == kPglRetEmptyFile) {
+        logerrprint("Error: Empty --keep-fcol file.\n");
+        goto keep_fcol_ret_MALFORMED_INPUT;
+      }
+      if (reterr == kPglRetLongLine) {
+        goto keep_fcol_ret_LONG_LINE;
+      }
+      goto keep_fcol_ret_1;
+    }
+    if (xid_mode == kfXidModeFidiidOrIid) {
+      xid_mode = kfXidModeFidiid;
+    }
+    uint32_t id_col_ct;
+    if (xid_mode == kfXidModeIid) {
+      id_col_ct = 1;
+    } else {
+      id_col_ct = 2 + (xid_mode == kfXidModeFidiidSid);
+    }
+    uint32_t postid_col_idx = 0;
+    if (!col_name) {
+      if (!col_num) {
+        if (id_col_ct == 3) {
+          logerrprint("Error: You must specify a --keep-fcol column with --keep-fcol-name or\n--keep-fcol-num.\n");
+          goto keep_fcol_ret_INCONSISTENT_INPUT;
+        }
+        col_num = 3;
+      }
+      if (id_col_ct >= col_num) {
+        logerrprint("Error: --keep-fcol-num parameter too small (it refers to a sample ID column in\nthe --keep-fcol file).\n");
+        goto keep_fcol_ret_INCONSISTENT_INPUT;
+      }
+      postid_col_idx = col_num - id_col_ct;
+    } else {
+      if (*loadbuf_first_token != '#') {
+        logerrprint("Error: --keep-fcol-name requires the --keep-fcol file to have a header line\nstarting with #FID or #IID.\n");
+        goto keep_fcol_ret_INCONSISTENT_INPUT;
+      }
+      char* loadbuf_iter = next_token_mult(loadbuf_first_token, id_col_ct);
+      if (!loadbuf_iter) {
+        logerrprint("Error: --keep-fcol-name column not found in --keep-fcol file.\n");
+        goto keep_fcol_ret_INCONSISTENT_INPUT;
+      }
+      const uint32_t col_name_slen = strlen(col_name);
+      uint32_t already_found = 0;
+      do {
+        ++postid_col_idx;
+        char* token_end = token_endnn(loadbuf_iter);
+        if (((uintptr_t)(token_end - loadbuf_iter) == col_name_slen) && (!memcmp(loadbuf_iter, col_name, col_name_slen))) {
+          if (already_found) {
+            sprintf(g_logbuf, "Error: Multiple columns in --keep-fcol file are named '%s'.\n", col_name);
+            goto keep_fcol_ret_INCONSISTENT_INPUT_WW;
+          }
+          already_found = 1;
+        }
+        loadbuf_iter = skip_initial_spaces(token_end);
+      } while (!is_eoln_kns(*loadbuf_iter));
+      if (!already_found) {
+        logerrprint("Error: --keep-fcol-name column not found in --keep-fcol file.\n");
+        goto keep_fcol_ret_INCONSISTENT_INPUT;
+      }
+    }
+    uint32_t* xid_map = nullptr;
+    char* sorted_xidbox = nullptr;
+    const uint32_t allow_dups = sids && (!(xid_mode & kfXidModeFlagSid));
+    uintptr_t max_xid_blen;
+    reterr = sorted_xidbox_init_alloc(sample_include, sample_ids, sids, orig_sample_ct, max_sample_id_blen, max_sid_blen, allow_dups, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+    if (reterr) {
+      goto keep_fcol_ret_1;
+    }
+    char* idbuf = nullptr;
+    if (bigstack_alloc_c(max_xid_blen, &idbuf)) {
+      goto keep_fcol_ret_NOMEM;
+    }
+    if (*loadbuf_first_token == '#') {
+      *loadbuf_first_token = '\0';
+    }
+    while (1) {
+      if (!is_eoln_kns(*loadbuf_first_token)) {
+        char* loadbuf_iter = loadbuf_first_token;
+        uint32_t xid_idx_start;
+        uint32_t xid_idx_end;
+        if (!sorted_xidbox_read_multifind(sorted_xidbox, max_xid_blen, orig_sample_ct, 0, xid_mode, &loadbuf_iter, &xid_idx_start, &xid_idx_end, idbuf)) {
+          if (IS_SET(seen_xid_idxs, xid_idx_start)) {
+            LOGERRPRINTFWW("Error: Sample ID on line %" PRIuPTR " of --keep-fcol file duplicates one earlier in the file.\n", line_idx);
+            goto keep_fcol_ret_MALFORMED_INPUT;
+          }
+          SET_BIT(xid_idx_start, seen_xid_idxs);
+          loadbuf_iter = next_token_mult(loadbuf_iter, postid_col_idx);
+          if (!loadbuf_iter) {
+            goto keep_fcol_ret_MISSING_TOKENS;
+          }
+          char* token_end = token_endnn(loadbuf_iter);
+          const int32_t ii = bsearch_str(loadbuf_iter, sorted_strbox, (uintptr_t)(token_end - loadbuf_iter), max_str_blen, str_ct);
+          if (ii != -1) {
+            for (; xid_idx_start < xid_idx_end; ++xid_idx_start) {
+              const uint32_t sample_uidx = xid_map[xid_idx_start];
+              set_bit(sample_uidx, keep_uidxs);
+            }
+          }
+        } else if (!loadbuf_iter) {
+          goto keep_fcol_ret_MISSING_TOKENS;
+        }
+      }
+      ++line_idx;
+      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
+        if (!gzeof(gz_infile)) {
+          goto keep_fcol_ret_READ_FAIL;
+        }
+        break;
+      }
+      if (!loadbuf[loadbuf_size - 1]) {
+        goto keep_fcol_ret_LONG_LINE;
+      }
+      loadbuf_first_token = skip_initial_spaces(loadbuf);
+    }
+    if (gzclose_null(&gz_infile)) {
+      goto keep_fcol_ret_READ_FAIL;
+    }
+    memcpy(sample_include, keep_uidxs, raw_sample_ctl * sizeof(intptr_t));
+    const uint32_t sample_ct = popcount_longs(sample_include, raw_sample_ctl);
+    *sample_ct_ptr = sample_ct;
+    LOGPRINTF("--keep-fcol: %u sample%s remaining.\n", sample_ct, (sample_ct == 1)? "" : "s");
+  }
+  while (0) {
+  keep_fcol_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  keep_fcol_ret_READ_FAIL:
+    reterr = kPglRetReadFail;
+    break;
+  keep_fcol_ret_LONG_LINE:
+    if (loadbuf_size == kMaxLongLine) {
+      reterr = kPglRetNomem;
+      break;
+    }
+    LOGERRPRINTF("Error: Line %" PRIuPTR " of --keep-fcol file is pathologically long.\n", line_idx);
+  keep_fcol_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  keep_fcol_ret_MISSING_TOKENS:
+    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --keep-fcol file has fewer tokens than expected.\n", line_idx);
+  keep_fcol_ret_INCONSISTENT_INPUT_WW:
+    wordwrapb(0);
+    logerrprintb();
+  keep_fcol_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+ keep_fcol_ret_1:
+  bigstack_reset(bigstack_mark);
+  gzclose_cond(gz_infile);
+  return reterr;
+}
+
+pglerr_t require_pheno(const pheno_col_t* pheno_cols, const char* pheno_names, const char* require_pheno_flattened, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t is_covar, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   pglerr_t reterr = kPglRetSuccess;
   {
+    const uint32_t orig_sample_ct = *sample_ct_ptr;
+    if (!orig_sample_ct) {
+      goto require_pheno_ret_1;
+    }
     uint32_t required_pheno_ct = 0;
     uintptr_t max_required_pheno_blen = 2;
     uintptr_t* matched_phenos = nullptr;
     char* sorted_required_pheno_names = nullptr;
     if (require_pheno_flattened) {
-      char** strptr_arr = (char**)bigstack_end_mark;
-      if (count_and_measure_multistr_reverse_alloc(require_pheno_flattened, bigstack_left() / sizeof(intptr_t), &required_pheno_ct, &max_required_pheno_blen, &strptr_arr)) {
+      if (multistr_to_strbox_dedup_alloc(require_pheno_flattened, &sorted_required_pheno_names, &required_pheno_ct, &max_required_pheno_blen)) {
         goto require_pheno_ret_NOMEM;
       }
-      if ((uintptr_t)(((unsigned char*)strptr_arr) - g_bigstack_base) < required_pheno_ct * max_required_pheno_blen) {
-        goto require_pheno_ret_NOMEM;
-      }
-      strptr_arr_sort(required_pheno_ct, strptr_arr);
-      sorted_required_pheno_names = (char*)g_bigstack_base;
-      required_pheno_ct = copy_and_dedup_sorted_strptrs_to_strbox(strptr_arr, required_pheno_ct, max_required_pheno_blen, sorted_required_pheno_names);
-      bigstack_end_reset(bigstack_end_mark);
-      bigstack_finalize_c(sorted_required_pheno_names, required_pheno_ct * max_required_pheno_blen);
       if (bigstack_calloc_ul(1 + (required_pheno_ct / kBitsPerWord), &matched_phenos)) {
         goto require_pheno_ret_NOMEM;
       }
@@ -659,7 +883,7 @@ pglerr_t require_pheno(const pheno_col_t* pheno_cols, const char* pheno_names, c
       }
     }
     const uint32_t new_sample_ct = popcount_longs(sample_include, raw_sample_ctl);
-    const uint32_t removed_sample_ct = (*sample_ct_ptr) - new_sample_ct;
+    const uint32_t removed_sample_ct = orig_sample_ct - new_sample_ct;
     LOGPRINTF("--require-%s: %u sample%s removed.\n", is_covar? "covar" : "pheno", removed_sample_ct, (removed_sample_ct == 1)? "" : "s");
     *sample_ct_ptr = new_sample_ct;
   }
@@ -680,6 +904,10 @@ pglerr_t keep_remove_if(const cmp_expr_t* cmp_expr, const pheno_col_t* pheno_col
   unsigned char* bigstack_mark = g_bigstack_base;
   pglerr_t reterr = kPglRetSuccess;
   {
+    const uint32_t orig_sample_ct = *sample_ct_ptr;
+    if (!orig_sample_ct) {
+      goto keep_remove_if_ret_1;
+    }
     const char* cur_name = cmp_expr->pheno_name;
     const uintptr_t name_blen = 1 + strlen(cur_name);
     const pheno_col_t* cur_pheno_col = nullptr;
@@ -860,7 +1088,7 @@ pglerr_t keep_remove_if(const cmp_expr_t* cmp_expr, const pheno_col_t* pheno_col
     }
 
     const uint32_t new_sample_ct = popcount_longs(sample_include, raw_sample_ctl);
-    const uint32_t removed_sample_ct = (*sample_ct_ptr) - new_sample_ct;
+    const uint32_t removed_sample_ct = orig_sample_ct - new_sample_ct;
     LOGPRINTF("--%s-if: %u sample%s removed.\n", is_remove? "remove" : "keep", removed_sample_ct, (removed_sample_ct == 1)? "" : "s");
     *sample_ct_ptr = new_sample_ct;
   }
@@ -875,6 +1103,7 @@ pglerr_t keep_remove_if(const cmp_expr_t* cmp_expr, const pheno_col_t* pheno_col
     reterr = kPglRetInconsistentInput;
     break;
   }
+ keep_remove_if_ret_1:
   bigstack_reset(bigstack_mark);
   return reterr;
 }
@@ -885,6 +1114,10 @@ pglerr_t keep_remove_cats_internal(const pheno_col_t* cur_pheno_col, const char*
   gz_token_stream_preinit(&gts);
   pglerr_t reterr = kPglRetSuccess;
   {
+    const uint32_t orig_sample_ct = *sample_ct_ptr;
+    if (!orig_sample_ct) {
+      goto keep_remove_cats_internal_ret_1;
+    }
     const uint32_t raw_sample_ctl = BITCT_TO_WORDCT(raw_sample_ct);
     const uint32_t cat_ct = cur_pheno_col->nonnull_category_ct + 1;
     const uint32_t cat_ctl = BITCT_TO_WORDCT(cat_ct);
@@ -960,7 +1193,6 @@ pglerr_t keep_remove_cats_internal(const pheno_col_t* cur_pheno_col, const char*
       LOGERRPRINTF("Warning: No matching --%s-cat-names category names.\n", is_remove? "remove-cats/--remove" : "keep-cats/--keep");
     } else {
       const uint32_t* cur_cats = cur_pheno_col->data.cat;
-      const uint32_t orig_sample_ct = *sample_ct_ptr;
       uint32_t sample_uidx = 0;
       for (uint32_t sample_idx = 0; sample_idx < orig_sample_ct; ++sample_idx, ++sample_uidx) {
         next_set_unsafe_ck(sample_include, &sample_uidx);
@@ -975,7 +1207,7 @@ pglerr_t keep_remove_cats_internal(const pheno_col_t* cur_pheno_col, const char*
         bitvec_and(affected_samples, raw_sample_ctl, sample_include);
       }
       const uint32_t new_sample_ct = popcount_longs(sample_include, raw_sample_ctl);
-      const uint32_t removed_sample_ct = (*sample_ct_ptr) - new_sample_ct;
+      const uint32_t removed_sample_ct = orig_sample_ct - new_sample_ct;
       LOGPRINTFWW("--%s-cat-names: %u categor%s selected, %u sample%s removed.\n", is_remove? "remove-cats/--remove" : "keep-cats/--keep", selected_cat_ct, (selected_cat_ct == 1)? "y" : "ies", removed_sample_ct, (removed_sample_ct == 1)? "" : "s");
       *sample_ct_ptr = new_sample_ct;
     }
@@ -1001,6 +1233,9 @@ pglerr_t keep_remove_cats_internal(const pheno_col_t* cur_pheno_col, const char*
 pglerr_t keep_remove_cats(const char* cats_fname, const char* cat_names_flattened, const char* cat_phenoname, const pheno_col_t* pheno_cols, const char* pheno_names, const pheno_col_t* covar_cols, const char* covar_names, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, uint32_t is_remove, uint32_t max_thread_ct, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
   pglerr_t reterr = kPglRetSuccess;
   {
+    if (!(*sample_ct_ptr)) {
+      goto keep_remove_cats_ret_1;
+    }
     if (!cat_phenoname) {
       // Default behavior:
       // 1. If at least one categorical phenotype exists, fail on >= 2, select

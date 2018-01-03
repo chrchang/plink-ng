@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.00, copyright (C) 2005-2017 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2018 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -598,7 +598,7 @@ static inline uint32_t is_acgtm(unsigned char ucc) {
 }
 
 static_assert((!(kMaxIdSlen % kCacheline)), "load_pvar() must be updated.");
-pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, const char* varid_template, const char* missing_varid_match, const char* require_info_flattened, const char* require_no_info_flattened, const cmp_expr_t keep_if_info_expr, const cmp_expr_t remove_if_info_expr, misc_flags_t misc_flags, pvar_psam_t pvar_psam_modifier, exportf_flags_t exportf_modifier, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t split_chr_ok, chr_info_t* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, unsorted_var_t* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** variant_allele_idxs_ptr, char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, chr_idx_t** chr_idxs_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, uint32_t* xheader_info_pr_ptr, uint32_t* xheader_info_pr_nonflag_ptr, uint32_t* max_filter_slen_ptr) {
+pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flattened, const char* varid_template, const char* missing_varid_match, const char* require_info_flattened, const char* require_no_info_flattened, const cmp_expr_t keep_if_info_expr, const cmp_expr_t remove_if_info_expr, misc_flags_t misc_flags, pvar_psam_t pvar_psam_modifier, exportf_flags_t exportf_modifier, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t split_chr_ok, chr_info_t* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, unsorted_var_t* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** variant_allele_idxs_ptr, char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, chr_idx_t** chr_idxs_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, uint32_t* xheader_info_pr_ptr, uint32_t* xheader_info_pr_nonflag_ptr, uint32_t* max_filter_slen_ptr) {
   // chr_info, max_variant_id_slen, and info_reload_slen are in/out; just
   // outparameters after them.  (Due to its large size in some VCFs, INFO is
   // not kept in memory for now.  This has a speed penalty, of course; maybe
@@ -960,17 +960,9 @@ pglerr_t load_pvar(const char* pvarname, char* var_filter_exceptions_flattened, 
     uintptr_t max_fexcept_blen = 2;
     char* sorted_fexcepts = nullptr;
     if (var_filter_exceptions_flattened) {
-      char** strptr_arr = (char**)tmp_alloc_end;
-      if (count_and_measure_multistr_reverse_alloc(var_filter_exceptions_flattened, ((uintptr_t)(tmp_alloc_end - tmp_alloc_base)) / sizeof(intptr_t), &fexcept_ct, &max_fexcept_blen, &strptr_arr)) {
+      if (multistr_to_strbox_dedup_arena_alloc(tmp_alloc_end, var_filter_exceptions_flattened, &tmp_alloc_base, &sorted_fexcepts, &fexcept_ct, &max_fexcept_blen)) {
         goto load_pvar_ret_NOMEM;
       }
-      if ((uintptr_t)(((unsigned char*)strptr_arr) - tmp_alloc_base) < fexcept_ct * max_fexcept_blen) {
-        goto load_pvar_ret_NOMEM;
-      }
-      strptr_arr_sort(fexcept_ct, strptr_arr);
-      sorted_fexcepts = (char*)tmp_alloc_base;
-      fexcept_ct = copy_and_dedup_sorted_strptrs_to_strbox(strptr_arr, fexcept_ct, max_fexcept_blen, sorted_fexcepts);
-      tmp_alloc_base = &(tmp_alloc_base[round_up_pow2(fexcept_ct * max_fexcept_blen, kCacheline)]);
     }
     char* chr_output_name_buf = nullptr;
     const char* varid_template_segs[5];

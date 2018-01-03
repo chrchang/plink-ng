@@ -1,4 +1,4 @@
-// This file is part of PLINK 2.00, copyright (C) 2005-2017 Shaun Purcell,
+// This file is part of PLINK 2.00, copyright (C) 2005-2018 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify it
@@ -62,10 +62,10 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (24 Dec 2017)";
+  " (2 Jan 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -79,7 +79,7 @@ static const char ver_str2[] =
   "  "
 #endif
   "    www.cog-genomics.org/plink/2.0/\n"
-  "(C) 2005-2017 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
+  "(C) 2005-2018 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
 static const char errstr_append[] = "For more info, try '" PROG_NAME_STR " --help [flag name]' or '" PROG_NAME_STR " --help | more'.\n";
 
 #ifndef NOLAPACK
@@ -255,8 +255,10 @@ typedef struct plink2_cmdline_struct {
   uint32_t min_bp_space;
   uint32_t thin_keep_ct;
   uint32_t thin_keep_sample_ct;
+  uint32_t keep_fcol_num;
   char exportf_id_delim;
 
+  char* var_filter_exceptions_flattened;
   char* varid_template;
   char* missing_varid_match;
   char* varid_from;
@@ -289,6 +291,8 @@ typedef struct plink2_cmdline_struct {
   char* remove_cat_names_flattened;
   char* remove_cat_phenoname;
   char* split_cat_phenonames_flattened;
+  char* require_pheno_flattened;
+  char* require_covar_flattened;
   char* vstd_flattened;
   char* quantnorm_flattened;
   char* covar_quantnorm_flattened;
@@ -297,6 +301,9 @@ typedef struct plink2_cmdline_struct {
   char* king_table_subset_fname;
   char* require_info_flattened;
   char* require_no_info_flattened;
+  char* keep_fcol_fname;
+  char* keep_fcol_flattened;
+  char* keep_fcol_name;
   two_col_params_t* ref_allele_flag;
   two_col_params_t* alt1_allele_flag;
   two_col_params_t* update_name_flag;
@@ -437,6 +444,9 @@ void report_genotyping_rate(const uintptr_t* variant_include, const chr_info_t* 
 }
 
 pglerr_t apply_variant_bp_filters(const char* extract_fnames, const char* exclude_fnames, const chr_info_t* cip, const uint32_t* variant_bps, int32_t from_bp, int32_t to_bp, uint32_t raw_variant_ct, filter_flags_t filter_flags, unsorted_var_t vpos_sortstatus, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+  if (!(*variant_ct_ptr)) {
+    return kPglRetSuccess;
+  }
   if ((from_bp != -1) || (to_bp != -1)) {
     if (vpos_sortstatus & kfUnsortedVarBp) {
       logerrprint("Error: --from-bp and --to-bp require a sorted .pvar/.bim.  Retry this command\nafter using --make-pgen/--make-bed + --sort-vars to sort your data.\n");
@@ -501,7 +511,7 @@ void update_sample_subsets(const uintptr_t* sample_include, uint32_t raw_sample_
 
 // command_flags2 will probably be needed before we're done
 static_assert(kPglMaxAltAlleleCt == 254, "plink2() --maj-ref needs to be updated.");
-pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_flattened, char* require_covar_flattened, const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modifier, char* pgenname, char* psamname, char* pvarname, char* outname, char* outname_end, char* king_cutoff_fprefix, chr_info_t* cip) {
+pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modifier, char* pgenname, char* psamname, char* pvarname, char* outname, char* outname_end, char* king_cutoff_fprefix, chr_info_t* cip) {
   pheno_col_t* pheno_cols = nullptr;
   pheno_col_t* covar_cols = nullptr;
   pheno_col_t* loop_cats_pheno_col = nullptr;
@@ -626,7 +636,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
     double* variant_cms = nullptr;
     chr_idx_t* chr_idxs = nullptr; // split-chromosome case only
     if (pvarname[0]) {
-      reterr = load_pvar(pvarname, var_filter_exceptions_flattened, pcp->varid_template, pcp->missing_varid_match, pcp->require_info_flattened, pcp->require_no_info_flattened, pcp->keep_if_info_expr, pcp->remove_if_info_expr, pcp->misc_flags, pcp->pvar_psam_modifier, pcp->exportf_modifier, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->dependency_flags & kfFilterNoSplitChr), cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids, &variant_allele_idxs, &allele_storage, &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_slen, &xheader_blen, &xheader_info_pr, &xheader_info_pr_nonflag, &max_filter_slen);
+      reterr = load_pvar(pvarname, pcp->var_filter_exceptions_flattened, pcp->varid_template, pcp->missing_varid_match, pcp->require_info_flattened, pcp->require_no_info_flattened, pcp->keep_if_info_expr, pcp->remove_if_info_expr, pcp->misc_flags, pcp->pvar_psam_modifier, pcp->exportf_modifier, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->dependency_flags & kfFilterNoSplitChr), cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids, &variant_allele_idxs, &allele_storage, &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_slen, &xheader_blen, &xheader_info_pr, &xheader_info_pr_nonflag, &max_filter_slen);
       if (reterr) {
         goto plink2_ret_1;
       }
@@ -874,7 +884,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
     // filters before constructing the variant ID hash table.  So we split this
     // into two cases.
     const uint32_t full_variant_id_htable_needed = variant_ct && (pcp->varid_from || pcp->varid_to || pcp->varid_snp || pcp->varid_exclude_snp || pcp->snps_range_list.name_ct || pcp->exclude_snps_range_list.name_ct || pcp->update_name_flag);
-    if (variant_ct && (!full_variant_id_htable_needed)) {
+    if (!full_variant_id_htable_needed) {
       reterr = apply_variant_bp_filters(pcp->extract_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, raw_variant_ct, pcp->filter_flags, vpos_sortstatus, variant_include, &variant_ct);
       if (reterr) {
         goto plink2_ret_1;
@@ -933,7 +943,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
         }
       }
 
-      if (pcp->update_name_flag) {
+      if (pcp->update_name_flag && variant_ct) {
         reterr = update_var_names(variant_include, variant_id_htable, pcp->update_name_flag, raw_variant_ct, variant_id_htable_size, variant_ids, &max_variant_id_slen);
         if (reterr) {
           goto plink2_ret_1;
@@ -961,7 +971,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
         }
       }
       bigstack_reset(bigstack_mark);
-      if (variant_ct && full_variant_id_htable_needed) {
+      if (full_variant_id_htable_needed) {
         reterr = apply_variant_bp_filters(pcp->extract_fnames, pcp->exclude_fnames, cip, variant_bps, pcp->from_bp, pcp->to_bp, raw_variant_ct, pcp->filter_flags, vpos_sortstatus, variant_include, &variant_ct);
         if (reterr) {
           goto plink2_ret_1;
@@ -972,56 +982,62 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
       // VCF files, etc.
     }
     if (pcp->thin_keep_prob != 1.0) {
-      if (random_thin_prob("thin", "variant", pcp->thin_keep_prob, raw_variant_ct, (pcp->misc_flags / kfMiscAllowNoVars) & 1, variant_include, &variant_ct)) {
-        goto plink2_ret_INCONSISTENT_INPUT;
-      }
+      random_thin_prob("thin", "variant", pcp->thin_keep_prob, raw_variant_ct, variant_include, &variant_ct);
     } else if (pcp->thin_keep_ct != UINT32_MAX) {
       reterr = random_thin_ct("thin-count", "variant", pcp->thin_keep_ct, raw_variant_ct, variant_include, &variant_ct);
       if (reterr) {
         goto plink2_ret_1;
       }
     }
-    // xid_mode may vary between these operations in a single run, and
-    // sample-sort is relatively cheap, so we abandon plink 1.9's "construct
-    // sample ID map only once" optimization.
-    if (pcp->update_sex_fname) {
-      reterr = update_sample_sexes(pcp->update_sex_fname, sample_include, sample_ids, raw_sample_ct, sample_ct, max_sample_id_blen, pcp->update_sex_colm2, sex_nm, sex_male);
-      if (reterr) {
-        goto plink2_ret_1;
-      }
-    }
-    if (pcp->keepfam_fnames) {
-      reterr = keep_or_remove(pcp->keepfam_fnames, sample_ids, sids, raw_sample_ct, max_sample_id_blen, max_sid_blen, kfKeepFam, sample_include, &sample_ct);
-      if (reterr) {
-        goto plink2_ret_1;
-      }
-    }
-    if (pcp->keep_fnames) {
-      reterr = keep_or_remove(pcp->keep_fnames, sample_ids, sids, raw_sample_ct, max_sample_id_blen, max_sid_blen, (keep_flags_t)(kfKeepForceSid * ((pcp->misc_flags / kfMiscKeepfileSid) & 1)), sample_include, &sample_ct);
-      if (reterr) {
-        goto plink2_ret_1;
-      }
-    }
-    if (pcp->removefam_fnames) {
-      reterr = keep_or_remove(pcp->removefam_fnames, sample_ids, sids, raw_sample_ct, max_sample_id_blen, max_sid_blen, kfKeepRemove | kfKeepFam, sample_include, &sample_ct);
-      if (reterr) {
-        goto plink2_ret_1;
-      }
-    }
-    if (pcp->remove_fnames) {
-      reterr = keep_or_remove(pcp->remove_fnames, sample_ids, sids, raw_sample_ct, max_sample_id_blen, max_sid_blen, kfKeepRemove | ((keep_flags_t)(kfKeepForceSid * ((pcp->misc_flags / kfMiscRemovefileSid) & 1))), sample_include, &sample_ct);
-      if (reterr) {
-        goto plink2_ret_1;
-      }
-    }
-    // todo: --attrib-indiv
     uint32_t* sample_missing_dosage_cts = nullptr;
     uint32_t* sample_missing_hc_cts = nullptr;
     uint32_t* sample_hethap_cts = nullptr;
     uintptr_t max_covar_name_blen = 0;
     if (psamname[0]) {
+      // xid_mode may vary between these operations in a single run, and
+      // sample-sort is relatively cheap, so we abandon plink 1.9's "construct
+      // sample ID map only once" optimization.
+      if (pcp->update_sex_fname) {
+        reterr = update_sample_sexes(pcp->update_sex_fname, sample_include, sample_ids, raw_sample_ct, sample_ct, max_sample_id_blen, pcp->update_sex_colm2, sex_nm, sex_male);
+        if (reterr) {
+          goto plink2_ret_1;
+        }
+      }
+      if (pcp->keepfam_fnames) {
+        reterr = keep_or_remove(pcp->keepfam_fnames, sample_ids, sids, raw_sample_ct, max_sample_id_blen, max_sid_blen, kfKeepFam, sample_include, &sample_ct);
+        if (reterr) {
+          goto plink2_ret_1;
+        }
+      }
+      if (pcp->keep_fnames) {
+        reterr = keep_or_remove(pcp->keep_fnames, sample_ids, sids, raw_sample_ct, max_sample_id_blen, max_sid_blen, (keep_flags_t)(kfKeepForceSid * ((pcp->misc_flags / kfMiscKeepfileSid) & 1)), sample_include, &sample_ct);
+        if (reterr) {
+          goto plink2_ret_1;
+        }
+      }
+      if (pcp->removefam_fnames) {
+        reterr = keep_or_remove(pcp->removefam_fnames, sample_ids, sids, raw_sample_ct, max_sample_id_blen, max_sid_blen, kfKeepRemove | kfKeepFam, sample_include, &sample_ct);
+        if (reterr) {
+          goto plink2_ret_1;
+        }
+      }
+      if (pcp->remove_fnames) {
+        reterr = keep_or_remove(pcp->remove_fnames, sample_ids, sids, raw_sample_ct, max_sample_id_blen, max_sid_blen, kfKeepRemove | ((keep_flags_t)(kfKeepForceSid * ((pcp->misc_flags / kfMiscRemovefileSid) & 1))), sample_include, &sample_ct);
+        if (reterr) {
+          goto plink2_ret_1;
+        }
+      }
+
+      // todo: --attrib-indiv
+
+      if (pcp->keep_fcol_fname) {
+        reterr = keep_fcol(pcp->keep_fcol_fname, sample_ids, sids, pcp->keep_fcol_flattened, pcp->keep_fcol_name, raw_sample_ct, max_sample_id_blen, max_sid_blen, (pcp->misc_flags / kfMiscKeepFileStrsSid) & 1, pcp->keep_fcol_num, sample_include, &sample_ct);
+        if (reterr) {
+          goto plink2_ret_1;
+        }
+      }
       if (pcp->misc_flags & kfMiscRequirePheno) {
-        reterr = require_pheno(pheno_cols, pheno_names, require_pheno_flattened, raw_sample_ct, pheno_ct, max_pheno_name_blen, 0, sample_include, &sample_ct);
+        reterr = require_pheno(pheno_cols, pheno_names, pcp->require_pheno_flattened, raw_sample_ct, pheno_ct, max_pheno_name_blen, 0, sample_include, &sample_ct);
         if (reterr) {
           goto plink2_ret_1;
         }
@@ -1057,9 +1073,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
       }
 
       if (pcp->thin_keep_sample_prob != 1.0) {
-        if (random_thin_prob("thin-indiv", "sample", pcp->thin_keep_sample_prob, raw_sample_ct, (pcp->misc_flags / kfMiscAllowNoSamples) & 1, sample_include, &sample_ct)) {
-          goto plink2_ret_INCONSISTENT_INPUT;
-        }
+        random_thin_prob("thin-indiv", "sample", pcp->thin_keep_sample_prob, raw_sample_ct, sample_include, &sample_ct);
       } else if (pcp->thin_keep_sample_ct != UINT32_MAX) {
         reterr = random_thin_ct("thin-indiv-count", "sample", pcp->thin_keep_sample_ct, raw_sample_ct, sample_include, &sample_ct);
         if (reterr) {
@@ -1120,7 +1134,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
       }
 
       if (pcp->misc_flags & kfMiscRequireCovar) {
-        reterr = require_pheno(covar_cols, covar_names, require_covar_flattened, raw_sample_ct, covar_ct, max_covar_name_blen, 1, sample_include, &sample_ct);
+        reterr = require_pheno(covar_cols, covar_names, pcp->require_covar_flattened, raw_sample_ct, covar_ct, max_covar_name_blen, 1, sample_include, &sample_ct);
         if (reterr) {
           goto plink2_ret_1;
         }
@@ -1972,7 +1986,7 @@ pglerr_t plink2_core(char* var_filter_exceptions_flattened, char* require_pheno_
               // to spare here, so keep the code simpler for now
               char* sorted_xidbox_tmp;
               uintptr_t max_xid_blen;
-              reterr = sorted_xidbox_init_alloc(sample_include, sample_ids, sids, sample_ct, max_sample_id_blen, max_sid_blen, sids? kfXidModeFidiidSid : kfXidModeFidiid, (pcp->sample_sort_flags == kfSortNatural), &sorted_xidbox_tmp, &new_sample_idx_to_old, &max_xid_blen);
+              reterr = sorted_xidbox_init_alloc(sample_include, sample_ids, sids, sample_ct, max_sample_id_blen, max_sid_blen, 0, sids? kfXidModeFidiidSid : kfXidModeFidiid, (pcp->sample_sort_flags == kfSortNatural), &sorted_xidbox_tmp, &new_sample_idx_to_old, &max_xid_blen);
               if (reterr) {
                 goto plink2_ret_1;
               }
@@ -2639,9 +2653,6 @@ int main(int argc, char** argv) {
   char* flagname_p = nullptr;
   char* king_cutoff_fprefix = nullptr;
   char* const_fid = nullptr;
-  char* var_filter_exceptions_flattened = nullptr;
-  char* require_pheno_flattened = nullptr;
-  char* require_covar_flattened = nullptr;
   char* import_single_chr_str = nullptr;
   char* ox_missing_code = nullptr;
   char* vcf_dosage_import_field = nullptr;
@@ -2654,6 +2665,7 @@ int main(int argc, char** argv) {
   plink2_cmdline_t pc;
   pc.filter_flags = kfFilter0;
   pc.dependency_flags = kfFilter0;
+  pc.var_filter_exceptions_flattened = nullptr;
   pc.varid_template = nullptr;
   pc.missing_varid_match = nullptr;
   pc.varid_from = nullptr;
@@ -2686,6 +2698,8 @@ int main(int argc, char** argv) {
   pc.remove_cat_names_flattened = nullptr;
   pc.remove_cat_phenoname = nullptr;
   pc.split_cat_phenonames_flattened = nullptr;
+  pc.require_pheno_flattened = nullptr;
+  pc.require_covar_flattened = nullptr;
   pc.vstd_flattened = nullptr;
   pc.quantnorm_flattened = nullptr;
   pc.covar_quantnorm_flattened = nullptr;
@@ -2694,6 +2708,9 @@ int main(int argc, char** argv) {
   pc.king_table_subset_fname = nullptr;
   pc.require_info_flattened = nullptr;
   pc.require_no_info_flattened = nullptr;
+  pc.keep_fcol_fname = nullptr;
+  pc.keep_fcol_flattened = nullptr;
+  pc.keep_fcol_name = nullptr;
   pc.ref_allele_flag = nullptr;
   pc.alt1_allele_flag = nullptr;
   pc.update_name_flag = nullptr;
@@ -2788,6 +2805,8 @@ int main(int argc, char** argv) {
             strcpy(flagname_write_iter, "keep-founders");
           } else if (strequal_k(flagname_p, "filter-nonfounders", flag_slen)) {
             strcpy(flagname_write_iter, "keep-nonfounders");
+          } else if (strequal_k(flagname_p, "filter", flag_slen)) {
+            strcpy(flagname_write_iter, "keep-fcol");
           } else {
             goto main_flag_copy;
           }
@@ -2995,6 +3014,7 @@ int main(int argc, char** argv) {
     pc.min_bp_space = 0;
     pc.thin_keep_ct = UINT32_MAX;
     pc.thin_keep_sample_ct = UINT32_MAX;
+    pc.keep_fcol_num = 0;
     pc.exportf_id_delim = '\0';
     double import_dosage_certainty = 0.0;
     int32_t vcf_min_gq = -1;
@@ -5012,6 +5032,56 @@ int main(int argc, char** argv) {
           if (reterr) {
             goto main_ret_1;
           }
+        } else if (strequal_k2(flagname_p2, "eep-fcol")) {
+          if (enforce_param_ct_range(argv[arg_idx], param_ct, 2, 0x7fffffff)) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const uint32_t sid_present = !strcmp(argv[arg_idx + 1], "sid");
+          if (sid_present) {
+            if (param_ct == 2) {
+              logerrprint("Error: '--keep-fcol sid' requires at least 2 more parameters.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            pc.misc_flags |= kfMiscKeepFileStrsSid;
+          }
+          reterr = alloc_fname(argv[arg_idx + 1 + sid_present], flagname_p, 0, &pc.keep_fcol_fname);
+          if (reterr) {
+            goto main_ret_1;
+          }
+          reterr = alloc_and_flatten(&(argv[arg_idx + 2 + sid_present]), param_ct - 1 - sid_present, kMaxIdBlen, &pc.keep_fcol_flattened);
+          if (reterr) {
+            goto main_ret_1;
+          }
+          pc.filter_flags |= kfFilterPsamReq;
+        } else if (strequal_k2(flagname_p2, "eep-fcol-name")) {
+          if (!pc.keep_fcol_fname) {
+            logerrprint("Error: --keep-fcol-name must be used with --keep-fcol.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = cmdline_alloc_string(argv[arg_idx + 1], argv[arg_idx], kMaxIdSlen, &pc.keep_fcol_name);
+          if (reterr) {
+            goto main_ret_1;
+          }
+        } else if (strequal_k2(flagname_p2, "eep-fcol-num")) {
+          if (!pc.keep_fcol_fname) {
+            logerrprint("Error: --keep-fcol-num must be used with --keep-fcol.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (pc.keep_fcol_name) {
+            logerrprint("Error: --keep-fcol-num can't be used with --keep-fcol-name.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argv[arg_idx + 1];
+          if (scan_posint_defcap(cur_modif, &pc.keep_fcol_num) || (pc.keep_fcol_num == 1)) {
+            sprintf(g_logbuf, "Error: Invalid --keep-fcol-num parameter '%s'.\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
         } else if (strequal_k2(flagname_p2, "eep-allele-order")) {
           logprint("Note: --keep-allele-order no longer has any effect.\n");
           goto main_param_zero;
@@ -6037,6 +6107,30 @@ int main(int argc, char** argv) {
             sprintf(g_logbuf, "Error: Invalid --mwithin parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
+        } else if (strequal_k2(flagname_p2, "filter")) {
+          if (!pc.keep_fcol_fname) {
+            logerrprint("Error: --mfilter must be used with --keep-fcol.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (pc.keep_fcol_name) {
+            logerrprint("Error: --mfilter can't be used with --keep-fcol-name.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (pc.keep_fcol_num) {
+            logerrprint("Error: --mfilter can't be used with --keep-fcol-num.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          logerrprint("Warning: --mfilter flag deprecated.  Use --keep-fcol-num or --keep-fcol-name\ninstead.  (Note that --keep-fcol-num does not add 2 to the column number.)\n");
+          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argv[arg_idx + 1];
+          uint32_t mfilter_arg;
+          if (scan_posint_defcap(cur_modif, &mfilter_arg)) {
+            sprintf(g_logbuf, "Error: Invalid --mfilter parameter '%s'.\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          pc.keep_fcol_num = mfilter_arg + 2;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
@@ -6509,7 +6603,7 @@ int main(int argc, char** argv) {
           pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k2(flagname_p2, "equire-pheno")) {
           if (param_ct) {
-            reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &require_pheno_flattened);
+            reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &pc.require_pheno_flattened);
             if (reterr) {
               goto main_ret_1;
             }
@@ -6518,7 +6612,7 @@ int main(int argc, char** argv) {
           pc.filter_flags |= kfFilterPsamReq;
         } else if (strequal_k2(flagname_p2, "equire-covar")) {
           if (param_ct) {
-            reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &require_covar_flattened);
+            reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &pc.require_covar_flattened);
             if (reterr) {
               goto main_ret_1;
             }
@@ -7209,7 +7303,7 @@ int main(int argc, char** argv) {
           pc.filter_flags |= kfFilterPvarReq;
         } else if (strequal_k2(flagname_p2, "ar-filter")) {
           if (param_ct) {
-            reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &var_filter_exceptions_flattened);
+            reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &pc.var_filter_exceptions_flattened);
             if (reterr) {
               goto main_ret_1;
             }
@@ -7763,7 +7857,7 @@ int main(int argc, char** argv) {
       }
 
       BLAS_SET_NUM_THREADS(1);
-      reterr = plink2_core(var_filter_exceptions_flattened, require_pheno_flattened, require_covar_flattened, &pc, make_plink2_modifier, pgenname, psamname, pvarname, outname, outname_end, king_cutoff_fprefix, &chr_info);
+      reterr = plink2_core(&pc, make_plink2_modifier, pgenname, psamname, pvarname, outname, outname_end, king_cutoff_fprefix, &chr_info);
     }
   }
   while (0) {
@@ -7822,15 +7916,15 @@ int main(int argc, char** argv) {
   free_cond(ox_missing_code);
   free_cond(import_single_chr_str);
   free_cond(const_fid);
-  free_cond(require_covar_flattened);
-  free_cond(require_pheno_flattened);
-  free_cond(var_filter_exceptions_flattened);
   free_cond(rseeds);
   plink2_cmdline_meta_cleanup(&pcm);
   free_cond(king_cutoff_fprefix);
   free_cond(pc.update_name_flag);
   free_cond(pc.alt1_allele_flag);
   free_cond(pc.ref_allele_flag);
+  free_cond(pc.keep_fcol_name);
+  free_cond(pc.keep_fcol_flattened);
+  free_cond(pc.keep_fcol_fname);
   free_cond(pc.require_no_info_flattened);
   free_cond(pc.require_info_flattened);
   free_cond(pc.king_table_subset_fname);
@@ -7839,6 +7933,8 @@ int main(int argc, char** argv) {
   free_cond(pc.covar_quantnorm_flattened);
   free_cond(pc.quantnorm_flattened);
   free_cond(pc.vstd_flattened);
+  free_cond(pc.require_covar_flattened);
+  free_cond(pc.require_pheno_flattened);
   free_cond(pc.split_cat_phenonames_flattened);
   free_cond(pc.remove_cat_phenoname);
   free_cond(pc.remove_cat_names_flattened);
@@ -7871,6 +7967,7 @@ int main(int argc, char** argv) {
   free_cond(pc.varid_from);
   free_cond(pc.missing_varid_match);
   free_cond(pc.varid_template);
+  free_cond(pc.var_filter_exceptions_flattened);
   if (file_delete_list) {
     do {
       ll_str_t* llstr_ptr = file_delete_list->next;
