@@ -25,11 +25,12 @@ namespace plink2 {
 
 const char g_cmdline_format_str[] = "\n  plink2 [input flag(s)...] {command flag(s)...} {other flag(s)...}\n  plink2 --help {flag name(s)...}\n\n";
 
-pglerr_t disp_help(uint32_t param_ct, char** argv) {
+pglerr_t disp_help(uint32_t param_ct, const char* const* argvc) {
   // yes, this is overkill.  But it should be a good template for other
   // command-line programs to use.
   uint32_t param_ctl = BITCT_TO_WORDCT(param_ct);
   pglerr_t reterr = kPglRetSuccess;
+  const char** new_argv = nullptr;
   help_ctrl_t help_ctrl;
   uint32_t arg_uidx;
   uint32_t arg_idx;
@@ -38,7 +39,6 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
   int32_t leading_dashes;
   help_ctrl.iters_left = param_ct? 2 : 0;
   help_ctrl.param_ct = param_ct;
-  help_ctrl.argv = argv;
   help_ctrl.unmatched_ct = param_ct;
   help_ctrl.param_slens = nullptr;
   help_ctrl.all_match_arr = nullptr;
@@ -50,28 +50,29 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
     }
     leading_dashes = 0;
     for (arg_uidx = 0; arg_uidx < param_ct; arg_uidx++) {
-      if (argv[arg_uidx][0] == '-') {
+      if (argvc[arg_uidx][0] == '-') {
         leading_dashes = 1;
         break;
       }
     }
     if (leading_dashes) {
-      if (pgl_malloc(param_ct * sizeof(intptr_t), &help_ctrl.argv)) {
+      if (pgl_malloc(param_ct * sizeof(intptr_t), &new_argv)) {
         goto disp_help_ret_NOMEM;
       }
       for (arg_uidx = 0; arg_uidx < param_ct; arg_uidx++) {
-        if (argv[arg_uidx][0] == '-') {
-          if (argv[arg_uidx][1] == '-') {
-            help_ctrl.argv[arg_uidx] = &(argv[arg_uidx][2]);
+        if (argvc[arg_uidx][0] == '-') {
+          if (argvc[arg_uidx][1] == '-') {
+            new_argv[arg_uidx] = &(argvc[arg_uidx][2]);
           } else {
-            help_ctrl.argv[arg_uidx] = &(argv[arg_uidx][1]);
+            new_argv[arg_uidx] = &(argvc[arg_uidx][1]);
           }
         } else {
-          help_ctrl.argv[arg_uidx] = argv[arg_uidx];
+          new_argv[arg_uidx] = argvc[arg_uidx];
         }
       }
+      help_ctrl.argv = new_argv;
     } else {
-      help_ctrl.argv = argv;
+      help_ctrl.argv = argvc;
     }
     for (arg_idx = 0; arg_idx < param_ct; arg_idx++) {
       help_ctrl.param_slens[arg_idx] = strlen(help_ctrl.argv[arg_idx]);
@@ -1012,16 +1013,17 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "  --var-min-qual [val]             : Skip variants with low/missing QUAL.\n"
 "  --var-filter {exception(s)...}   : Skip variants which have FILTER failures.\n"
                );
-    help_print("keep-if-info\tremove-if-info\trequire-info\trequire-no-info\textract-if\texclude-if\tvar-min-qual\tvar-filter\tvcf-min-qual\tvcf-filter", &help_ctrl, 0,
-"  --keep-if-info [key] [op] [val]  : Exclude variants which don't/do satisfy a\n"
-"  --remove-if-info [key] [op] [v]    comparison predicate on an INFO key, e.g.\n"
-"  (aliases: --extract-if,              --keep-if-info \"VT == SNP\"\n"
-"  --exclude-if)                      Unless the operator is !=, the predicate\n"
-"                                     always evaluates to false when the key is\n"
-"                                     missing.\n"
-"  --require-info [key(s)...]       : Exclude variants based on nonexistence or\n"
-"  --require-no-info [key(s)...]      existence of an INFO key.  \"[key]=.\" is\n"
-"                                     treated as nonexistence.\n"
+    help_print("extract-if-info\texclude-if-info\trequire-info\trequire-no-info\textract-if\texclude-if\tkeep-if-info\tremove-if-info\tvar-min-qual\tvar-filter\tvcf-min-qual\tvcf-filter", &help_ctrl, 0,
+"  --extract-if-info [key] [op] [val] : Exclude variants which don't/do satisfy\n"
+"  --exclude-if-info [key] [op] [val]   a comparison predicate on an INFO key,\n"
+"  (aliases: --extract-if,              e.g.\n"
+"  --exclude-if)                          --extract-if-info \"VT == SNP\"\n"
+"                                       Unless the operator is !=, the predicate\n"
+"                                       always evaluates to false when the key\n"
+"                                       is missing.\n"
+"  --require-info [key(s)...]         : Exclude variants based on nonexistence\n"
+"  --require-no-info [key(s)...]        or existence of an INFO key.  \"[key]=.\"\n"
+"                                       is treated as nonexistence.\n"
                );
     /*
     help_print("allow-no-samples\tallow-no-vars", &help_ctrl, 0,
@@ -1029,12 +1031,16 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "  --allow-no-vars    : Allow the input fileset to contain no variants.\n"
                );
     */
-    help_print("pheno\tpheno-name", &help_ctrl, 0,
-"  --pheno [filename] : Specify additional phenotype/covariate file.\n"
-"  --pheno-name [...] : Only load the designated phenotype(s) from the\n"
-"                       --pheno (if one was specified) or .psam (if no --pheno)\n"
-"                       file.  Separate multiple names with spaces or commas,\n"
-"                       and use dashes to designate ranges.\n"
+    help_print("pheno\tpheno-name\tpheno-col-nums\tmpheno", &help_ctrl, 0,
+"  --pheno [filename]     : Specify additional phenotype/covariate file.\n"
+"                           Comma-delimited files with a header line are now\n"
+"                           permitted.\n"
+"  --pheno-name [...]     : Only load the designated phenotype(s) from the\n"
+"                           --pheno (if one was specified) or .psam (if no\n"
+"                           --pheno) file.  Separate multiple names with spaces\n"
+"                           or commas, and use dashes to designate ranges.\n"
+"  --pheno-col-nums [...] : Only load the phenotype(s) in the designated column\n"
+"                           number(s) from the --pheno file.\n"
                );
     help_print("bfile\tfam\tpsam\tno-psam-pheno\tno-fam-pheno\tno-pheno\tpheno\tpheno-name", &help_ctrl, 0,
 "  --no-psam-pheno    : Ignore phenotype(s) in .psam/.fam file.\n"
@@ -1048,11 +1054,15 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
 "  --missing-catname [str]       : Set missing-categorical-phenotype string\n"
 "                                  (case-sensitive, default 'NONE').\n"
                );
-    help_print("covar\tcovar-name", &help_ctrl, 0,
-"  --covar [filename] : Specify additional covariate file.\n"
-"  --covar-name [...] : Only load the designated covariate(s) from the\n"
-"                       --covar (if one was specified), --pheno (if no --covar),\n"
-"                       or .psam (if no --covar or --pheno) file.\n"
+    help_print("covar\tcovar-name\tcovar-col-nums\tcovar-number", &help_ctrl, 0,
+"  --covar [filename]     : Specify additional covariate file.  Comma-delimited\n"
+"                           files with a header line are now permitted.\n"
+"  --covar-name [...]     : Only load the designated covariate(s) from the\n"
+"                           --covar (if one was specified), --pheno (if no\n"
+"                           --covar), or .psam (if no --covar or --pheno) file.\n"
+"  --covar-col-nums [...] : Only load the covariate(s) in the designated column\n"
+"                           number(s) from the --covar (if one was specified) or\n"
+"                           --pheno (if no --covar) file.\n"
                );
     help_print("within\tmwithin\tfamily\tfamily-missing-catname", &help_ctrl, 0,
 "  --within [f] {new pheno name} : Import a PLINK 1.x categorical phenotype.\n"
@@ -1611,7 +1621,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
             col_num += 3 + help_ctrl.param_slens[arg_uidx];
           }
           putc_unlocked('\'', stdout);
-          fputs(argv[arg_uidx], stdout);
+          fputs(argvc[arg_uidx], stdout);
           putc_unlocked('\'', stdout);
         } else {
           if (help_ctrl.param_slens[arg_uidx] + col_num > 75) {
@@ -1622,7 +1632,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
             col_num += 4 + help_ctrl.param_slens[arg_uidx];
           }
           putc_unlocked('\'', stdout);
-          fputs(argv[arg_uidx], stdout);
+          fputs(argvc[arg_uidx], stdout);
           fputs("',", stdout);
         }
         if (help_ctrl.unmatched_ct == 1) {
@@ -1637,7 +1647,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
       } else {
         putc_unlocked((help_ctrl.param_slens[arg_uidx] + col_num > 75)? '\n' : ' ', stdout);
         putc_unlocked('\'', stdout);
-        fputs(argv[arg_uidx], stdout);
+        fputs(argvc[arg_uidx], stdout);
         fputs("\'.\n", stdout);
       }
       arg_uidx++;
@@ -1650,9 +1660,7 @@ pglerr_t disp_help(uint32_t param_ct, char** argv) {
     }
     free_cond(help_ctrl.param_slens);
     free_cond(help_ctrl.all_match_arr);
-    if (help_ctrl.argv && (help_ctrl.argv != argv)) {
-      free(help_ctrl.argv);
-    }
+    free_cond(new_argv);
   }
   return reterr;
 }

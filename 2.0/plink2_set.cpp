@@ -44,7 +44,7 @@ pglerr_t load_ibed(const chr_info_t* cip, const uint32_t* variant_bps, const cha
       while (gzgets(gz_infile, g_textbuf, kMaxMediumLine)) {
         ++line_idx;
         if (!g_textbuf[kMaxMediumLine - 1]) {
-          sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, file_descrip);
+          snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, file_descrip);
           goto load_ibed_ret_MALFORMED_INPUT_2;
         }
         char* textbuf_first_token = skip_initial_spaces(g_textbuf);
@@ -55,14 +55,14 @@ pglerr_t load_ibed(const chr_info_t* cip, const uint32_t* variant_bps, const cha
         char* cur_set_id = next_token_mult(first_token_end, 3);
         char* last_token = cur_set_id;
         if (no_more_tokens_kns(last_token)) {
-          sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, file_descrip);
+          snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, file_descrip);
           goto load_ibed_ret_MALFORMED_INPUT_2;
         }
         const uint32_t chr_name_slen = (uintptr_t)(first_token_end - textbuf_first_token);
         *first_token_end = '\0';
         const int32_t cur_chr_code = get_chr_code(textbuf_first_token, cip, chr_name_slen);
         if (cur_chr_code < 0) {
-          sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
+          snprintf(g_logbuf, kLogbufSize, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
           goto load_ibed_ret_MALFORMED_INPUT_2;
         }
         // chr_mask check removed, we want to track empty sets
@@ -147,8 +147,8 @@ pglerr_t load_ibed(const chr_info_t* cip, const uint32_t* variant_bps, const cha
         strptr_arr[set_idx] = make_set_ll->ss;
         make_set_ll = make_set_ll->next;
       }
-      strptr_arr_nsort(set_ct, strptr_arr);
-      set_ct = copy_and_dedup_sorted_strptrs_to_strbox(strptr_arr, set_ct, max_set_id_blen, &(set_names[c_prefix]));
+      strptr_arr_nsort(set_ct, TO_CONSTCPP(strptr_arr));
+      set_ct = copy_and_dedup_sorted_strptrs_to_strbox(TO_CONSTCPCONSTP(strptr_arr), set_ct, max_set_id_blen, &(set_names[c_prefix]));
       if (c_prefix) {
         for (uintptr_t set_idx = 0; set_idx < set_ct; ++set_idx) {
           memcpy(&(set_names[set_idx * max_set_id_blen]), "C_", 2);
@@ -172,7 +172,7 @@ pglerr_t load_ibed(const chr_info_t* cip, const uint32_t* variant_bps, const cha
     while (gzgets(gz_infile, g_textbuf, kMaxMediumLine)) {
       ++line_idx;
       if (!g_textbuf[kMaxMediumLine - 1]) {
-        sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, file_descrip);
+        snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, file_descrip);
         goto load_ibed_ret_MALFORMED_INPUT_2;
       }
       char* textbuf_first_token = skip_initial_spaces(g_textbuf);
@@ -182,14 +182,14 @@ pglerr_t load_ibed(const chr_info_t* cip, const uint32_t* variant_bps, const cha
       char* first_token_end = token_endnn(textbuf_first_token);
       char* last_token = next_token_mult(first_token_end, 2 + track_set_names);
       if (no_more_tokens_kns(last_token)) {
-        sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, file_descrip);
+        snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, file_descrip);
         goto load_ibed_ret_MALFORMED_INPUT_2;
       }
       const uint32_t chr_name_slen = (uintptr_t)(first_token_end - textbuf_first_token);
       *first_token_end = '\0';
       const int32_t cur_chr_code = get_chr_code(textbuf_first_token, cip, chr_name_slen);
       if (cur_chr_code < 0) {
-        sprintf(g_logbuf, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
+        snprintf(g_logbuf, kLogbufSize, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
         goto load_ibed_ret_MALFORMED_INPUT_2;
       }
       if (!is_set(cip->chr_mask, cur_chr_code)) {
@@ -208,21 +208,21 @@ pglerr_t load_ibed(const chr_info_t* cip, const uint32_t* variant_bps, const cha
           continue;
         }
       }
-      char* textbuf_iter = skip_initial_spaces(&(first_token_end[1]));
+      const char* textbuf_iter = skip_initial_spaces(&(first_token_end[1]));
       uint32_t range_first;
       if (scanadv_uint_defcap(&textbuf_iter, &range_first)) {
-        sprintf(g_logbuf, "Error: Invalid range start position on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
+        snprintf(g_logbuf, kLogbufSize, "Error: Invalid range start position on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
         goto load_ibed_ret_MALFORMED_INPUT_2;
       }
       range_first += ibed0;
       textbuf_iter = next_token(textbuf_iter);
       uint32_t range_last;
       if (scanadv_uint_defcap(&textbuf_iter, &range_last)) {
-        sprintf(g_logbuf, "Error: Invalid range end position on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
+        snprintf(g_logbuf, kLogbufSize, "Error: Invalid range end position on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
         goto load_ibed_ret_MALFORMED_INPUT_2;
       }
       if (range_last < range_first) {
-        sprintf(g_logbuf, "Error: Range end position smaller than range start on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
+        snprintf(g_logbuf, kLogbufSize, "Error: Range end position smaller than range start on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
         wordwrapb(0);
         goto load_ibed_ret_MALFORMED_INPUT_2;
       }

@@ -82,7 +82,7 @@ HEADER_INLINE boolerr_t is_reserved_pheno_name(const char* pheno_name, uint32_t 
 }
 
 // also for loading covariates.  set affection_01 to 2 to prohibit case/control
-pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_list_ptr, const uintptr_t* sample_include, const char* sample_ids, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, int32_t missing_pheno, uint32_t affection_01, pheno_col_t** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr);
+pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_list_ptr, const uintptr_t* sample_include, const char* sample_ids, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, int32_t missing_pheno, uint32_t affection_01, uint32_t numeric_ranges, pheno_col_t** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr);
 
 #ifdef __cplusplus
 } // namespace plink2

@@ -1484,7 +1484,7 @@ pglerr_t load_balance(const uint32_t* task_weights, uint32_t task_ct, uint32_t* 
   return kPglRetSuccess;
 }
 
-pglerr_t ld_prune_write(const uintptr_t* variant_include, const uintptr_t* removed_variants_collapsed, char** variant_ids, uint32_t variant_ct, char* outname, char* outname_end) {
+pglerr_t ld_prune_write(const uintptr_t* variant_include, const uintptr_t* removed_variants_collapsed, const char* const* variant_ids, uint32_t variant_ct, char* outname, char* outname_end) {
   FILE* outfile = nullptr;
   pglerr_t reterr = kPglRetSuccess;
   {
@@ -1548,7 +1548,7 @@ pglerr_t ld_prune_write(const uintptr_t* variant_include, const uintptr_t* remov
   return reterr;
 }
 
-pglerr_t ld_prune(const uintptr_t* orig_variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, const alt_allele_ct_t* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_male, const ld_info_t* ldip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_thread_ct, pgen_reader_t* simple_pgrp, char* outname, char* outname_end) {
+pglerr_t ld_prune(const uintptr_t* orig_variant_include, const chr_info_t* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const alt_allele_ct_t* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_male, const ld_info_t* ldip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_thread_ct, pgen_reader_t* simple_pgrp, char* outname, char* outname_end) {
   // common initialization between --indep-pairwise and --indep-pairphase
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
@@ -2758,7 +2758,7 @@ double em_phase_unscaled_lnlike(double freq11, double freq12, double freq21, dou
   return lnlike;
 }
 
-pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const ld_info_t* ldip, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, pgen_reader_t* simple_pgrp) {
+pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const ld_info_t* ldip, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, pgen_reader_t* simple_pgrp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   pglerr_t reterr = kPglRetSuccess;
   {
@@ -2766,7 +2766,7 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, cha
       logerrprint("Warning: Skipping --ld since there are no founders.  (--make-founders may come\nin handy here.)\n");
       goto ld_console_ret_1;
     }
-    char** ld_console_varids = (char**)ldip->ld_console_varids;
+    char* const* ld_console_varids = ldip->ld_console_varids;
     // ok to ignore chr_mask here
     const int32_t x_code = cip->xymt_codes[kChrOffsetX];
     const int32_t y_code = cip->xymt_codes[kChrOffsetY];
@@ -2785,13 +2785,13 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, cha
     uint32_t is_nonx_haploid_or_mts[2];
     uint32_t y_ct = 0;
     for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {
-      char* cur_varid = ld_console_varids[var_idx];
+      const char* cur_varid = ld_console_varids[var_idx];
       int32_t ii = get_variant_uidx_without_htable(cur_varid, variant_ids, variant_include, variant_ct);
       if (ii == -1) {
-        sprintf(g_logbuf, "Error: --ld variant '%s' does not appear in dataset.\n", cur_varid);
+        snprintf(g_logbuf, kLogbufSize, "Error: --ld variant '%s' does not appear in dataset.\n", cur_varid);
         goto ld_console_ret_INCONSISTENT_INPUT_WW;
       } else if (ii == -2) {
-        sprintf(g_logbuf, "Error: --ld variant '%s' appears multiple times in dataset.\n", cur_varid);
+        snprintf(g_logbuf, kLogbufSize, "Error: --ld variant '%s' appears multiple times in dataset.\n", cur_varid);
         goto ld_console_ret_INCONSISTENT_INPUT_WW;
       }
       var_uidxs[var_idx] = (uint32_t)ii;
@@ -3143,7 +3143,7 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, cha
         variant_allele_idx_base = variant_allele_idxs[cur_variant_uidx];
         cur_allele_ct = variant_allele_idxs[cur_variant_uidx + 1] - variant_allele_idx_base;
       }
-      char** cur_alleles = &(allele_storage[variant_allele_idx_base]);
+      const char* const* cur_alleles = &(allele_storage[variant_allele_idx_base]);
 
       const char* cur_varid = ld_console_varids[var_idx];
       const uint32_t cur_varid_slen = strlen(ld_console_varids[var_idx]);

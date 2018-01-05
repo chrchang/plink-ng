@@ -101,7 +101,9 @@ FLAGSET64_DEF_START()
   kfMiscAlt1AlleleForce = (1LLU << 38),
   kfMiscRefFromFaForce = (1LLU << 39),
   kfMiscMergeX = (1LLU << 40),
-  kfMiscKeepFileStrsSid = (1LLU << 41)
+  kfMiscKeepFileStrsSid = (1LLU << 41),
+  kfMiscPhenoColNums = (1LLU << 42),
+  kfMiscCovarColNums = (1LLU << 43)
 FLAGSET64_DEF_END(misc_flags_t);
 
 FLAGSET64_DEF_START()
@@ -257,11 +259,20 @@ FLAGSET_DEF_START()
   kfXidModeIidSid = (kfXidModeFlagNeverFid | kfXidModeFlagSid)
 FLAGSET_DEF_END(xid_mode_t);
 
+// Assumes fixed-width.
+HEADER_INLINE uint32_t get_xid_col_ct(xid_mode_t xid_mode) {
+  if (xid_mode == kfXidModeIid) {
+    return 1;
+  } else {
+    return 2 + (xid_mode == kfXidModeFidiidSid);
+  }
+}
+
 // sample_xid_map allocated on bottom, to play well with --indiv-sort
 pglerr_t sorted_xidbox_init_alloc(const uintptr_t* sample_include, const char* sample_ids, const char* sids, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t allow_dups, xid_mode_t xid_mode, uint32_t use_nsort, char** sorted_xidbox_ptr, uint32_t** xid_map_ptr, uintptr_t* max_xid_blen_ptr);
 
 // returns slen for ID, or 0 on parse failure.
-uint32_t xid_read(uintptr_t max_xid_blen, uint32_t comma_delim, xid_mode_t xid_mode, char** read_pp, char* __restrict idbuf);
+uint32_t xid_read(uintptr_t max_xid_blen, uint32_t comma_delim, xid_mode_t xid_mode, const char** read_pp, char* __restrict idbuf);
 
 // returns 1 on missing token *or* if the sample ID is not present.  cases can
 // be distinguished by checking whether *read_pp_new == nullptr: if it is, a
@@ -269,7 +280,7 @@ uint32_t xid_read(uintptr_t max_xid_blen, uint32_t comma_delim, xid_mode_t xid_m
 // sample_id_map == nullptr is permitted
 // *read_pp is now set to point to the end of IID/SID instead of the beginning
 // of the next token; this is a change from plink 1.9.
-HEADER_INLINE boolerr_t sorted_xidbox_read_find(const char* __restrict sorted_xidbox, const uint32_t* __restrict xid_map, uintptr_t max_xid_blen, uintptr_t xid_ct, uint32_t comma_delim, xid_mode_t xid_mode, char** read_pp, uint32_t* sample_uidx_ptr, char* __restrict idbuf) {
+HEADER_INLINE boolerr_t sorted_xidbox_read_find(const char* __restrict sorted_xidbox, const uint32_t* __restrict xid_map, uintptr_t max_xid_blen, uintptr_t xid_ct, uint32_t comma_delim, xid_mode_t xid_mode, const char** read_pp, uint32_t* sample_uidx_ptr, char* __restrict idbuf) {
   const uint32_t slen_final = xid_read(max_xid_blen, comma_delim, xid_mode, read_pp, idbuf);
   if (!slen_final) {
     return 1;
@@ -282,7 +293,7 @@ HEADER_INLINE boolerr_t sorted_xidbox_read_find(const char* __restrict sorted_xi
 // correspond to multiple samples, this lets you iterate over all of them.
 // (Caller is responsible for looking up xid_map[] to perform xid_idx ->
 // sample_uidx conversions.)
-boolerr_t sorted_xidbox_read_multifind(const char* __restrict sorted_xidbox, uintptr_t max_xid_blen, uintptr_t xid_ct, uint32_t comma_delim, xid_mode_t xid_mode, char** read_pp, uint32_t* xid_idx_start_ptr, uint32_t* xid_idx_end_ptr, char* __restrict idbuf);
+boolerr_t sorted_xidbox_read_multifind(const char* __restrict sorted_xidbox, uintptr_t max_xid_blen, uintptr_t xid_ct, uint32_t comma_delim, xid_mode_t xid_mode, const char** read_pp, uint32_t* __restrict xid_idx_start_ptr, uint32_t* __restrict xid_idx_end_ptr, char* __restrict idbuf);
 
 ENUM_U31_DEF_START()
   kSidDetectModeNotLoaded,
@@ -399,7 +410,7 @@ typedef struct {
   uint32_t* chr_idx_to_foidx;
 
   // --allow-extra-chr support
-  char** nonstd_names;
+  const char** nonstd_names;
   uint32_t* nonstd_id_htable;
   // end main dynamic block
 
@@ -638,6 +649,7 @@ HEADER_INLINE boolerr_t alloc_and_fill_subset_chr_fo_vidx_start(const uintptr_t*
   return 0;
 }
 
+/*
 // newval does not need to be null-terminated
 // assumes *allele_ptr is not initialized
 // (stop using these in main plink2 binary?)
@@ -646,7 +658,8 @@ boolerr_t allele_set(const char* newval, uint32_t allele_slen, char** allele_ptr
 // *allele_ptr must be initialized; frees *allele_ptr if necessary
 boolerr_t allele_reset(const char* newval, uint32_t allele_slen, char** allele_ptr);
 
-void cleanup_allele_storage(uint32_t max_allele_slen, uintptr_t allele_storage_entry_ct, char** allele_storage);
+void cleanup_allele_storage(uint32_t max_allele_slen, uintptr_t allele_storage_entry_ct, const char** allele_storage);
+*/
 
 CONSTU31(kMaxMissingPhenostrBlen, 32);
 // might want g_input_missing_catname and/or g_output_missing_catname later,
@@ -702,7 +715,7 @@ typedef struct {
   //   Otherwise, this is nullptr.
   // * When .sample categorical variables are imported, 'P' is added in front
   //   of the integers.
-  char** category_names;
+  const char** category_names;
 
   uintptr_t* nonmiss; // bitvector
 
@@ -734,7 +747,7 @@ uint32_t get_is_cat_include(const uintptr_t* sample_include_base, const pheno_co
 // simple free_cond().
 void cleanup_pheno_cols(uint32_t pheno_ct, pheno_col_t* pheno_cols);
 
-pglerr_t parse_chr_ranges(const char* flagname_p, const char* errstr_append, uint32_t param_ct, uint32_t allow_extra_chrs, uint32_t xymt_subtract, char range_delim, char** argv, chr_info_t* cip, uintptr_t* chr_mask);
+pglerr_t parse_chr_ranges(const char* const* argvc, const char* flagname_p, const char* errstr_append, uint32_t param_ct, uint32_t allow_extra_chrs, uint32_t xymt_subtract, char range_delim, chr_info_t* cip, uintptr_t* chr_mask);
 
 
 // sample_ct not relevant if genovecs_ptr == nullptr

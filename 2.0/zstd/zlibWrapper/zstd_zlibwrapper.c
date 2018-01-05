@@ -5,11 +5,11 @@
  * This source code is licensed under both the BSD-style license (found in the
  * LICENSE file in the root directory of this source tree) and the GPLv2 (found
  * in the COPYING file in the root directory of this source tree).
+ * You may select, at your option, one of the above-listed licenses.
  */
 
 
 /* ===   Tuning parameters   === */
-#define ZWRAP_USE_ZSTD 1
 #ifndef ZWRAP_USE_ZSTD
     #define ZWRAP_USE_ZSTD 0
 #endif
@@ -24,7 +24,7 @@
 #ifdef STATIC_ZLIB
   #include "../../../zlib-1.2.11/zlib.h"
 #else
-  #include <zlib.h>
+  #include <zlib.h>                /* without #define Z_PREFIX */
 #endif
 #include "zstd_zlibwrapper.h"
 #define ZSTD_STATIC_LINKING_ONLY   /* ZSTD_isFrame, ZSTD_MAGICNUMBER */
@@ -274,7 +274,7 @@ ZEXTERN int ZEXPORT z_deflateSetDictionary OF((z_streamp strm,
             zwc->zbc = ZSTD_createCStream_advanced(zwc->customMem);
             if (zwc->zbc == NULL) return ZWRAPC_finishWithError(zwc, strm, 0);
         }
-        { int res = ZWRAP_initializeCStream(zwc, dictionary, dictLength, 0);
+        { int res = ZWRAP_initializeCStream(zwc, dictionary, dictLength, ZSTD_CONTENTSIZE_UNKNOWN);
           if (res != Z_OK) return ZWRAPC_finishWithError(zwc, strm, res); }
         zwc->comprState = ZWRAP_useReset;
     }
@@ -299,7 +299,7 @@ ZEXTERN int ZEXPORT z_deflate OF((z_streamp strm, int flush))
     if (zwc->zbc == NULL) {
         zwc->zbc = ZSTD_createCStream_advanced(zwc->customMem);
         if (zwc->zbc == NULL) return ZWRAPC_finishWithError(zwc, strm, 0);
-        { int const initErr = ZWRAP_initializeCStream(zwc, NULL, 0, (flush == Z_FINISH) ? strm->avail_in : 0);
+        { int const initErr = ZWRAP_initializeCStream(zwc, NULL, 0, (flush == Z_FINISH) ? strm->avail_in : ZSTD_CONTENTSIZE_UNKNOWN);
           if (initErr != Z_OK) return ZWRAPC_finishWithError(zwc, strm, initErr); }
         if (flush != Z_FINISH) zwc->comprState = ZWRAP_useReset;
     } else {
@@ -312,7 +312,7 @@ ZEXTERN int ZEXPORT z_deflate OF((z_streamp strm, int flush))
                     return ZWRAPC_finishWithError(zwc, strm, 0);
                 }
             } else {
-                int const res = ZWRAP_initializeCStream(zwc, NULL, 0, (flush == Z_FINISH) ? strm->avail_in : 0);
+                int const res = ZWRAP_initializeCStream(zwc, NULL, 0, (flush == Z_FINISH) ? strm->avail_in : ZSTD_CONTENTSIZE_UNKNOWN);
                 if (res != Z_OK) return ZWRAPC_finishWithError(zwc, strm, res);
                 if (flush != Z_FINISH) zwc->comprState = ZWRAP_useReset;
             }

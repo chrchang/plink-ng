@@ -181,6 +181,7 @@ HEADER_INLINE float dotprod_f_short(const float* vec1, const float* vec2, uint32
   return dotprod;
 }
 
+// todo: benchmark again after Spectre/Meltdown mitigation is deployed
 CONSTU31(kDotprodDThresh, 17);
 CONSTU31(kDotprodFThresh, 15);
 

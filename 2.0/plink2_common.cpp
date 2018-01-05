@@ -379,7 +379,7 @@ pglerr_t sorted_xidbox_init_alloc(const uintptr_t* sample_include, const char* s
   return kPglRetSuccess;
 }
 
-uint32_t xid_read(uintptr_t max_xid_blen, uint32_t comma_delim, xid_mode_t xid_mode, char** read_pp, char* __restrict idbuf) {
+uint32_t xid_read(uintptr_t max_xid_blen, uint32_t comma_delim, xid_mode_t xid_mode, const char** read_pp, char* __restrict idbuf) {
   // idbuf = workspace
   // sorted_xidbox = packed, sorted list of ID strings to search over.
   //
@@ -391,11 +391,11 @@ uint32_t xid_read(uintptr_t max_xid_blen, uint32_t comma_delim, xid_mode_t xid_m
   //
   // returns 1 on missing token *or* if the sample ID is not present.  cases
   // can be distinguished by checking whether *read_pp == nullptr.
-  char* first_token_start = *read_pp;
+  const char* first_token_start = *read_pp;
   uintptr_t blen_sid = 0;
-  char* sid_ptr = nullptr;
-  char* token_iter;
-  char* iid_ptr;
+  const char* sid_ptr = nullptr;
+  const char* token_iter;
+  const char* iid_ptr;
   uintptr_t slen_fid;
   uintptr_t slen_iid;
   if (comma_delim) {
@@ -443,10 +443,7 @@ uint32_t xid_read(uintptr_t max_xid_blen, uint32_t comma_delim, xid_mode_t xid_m
       if (token_iter == sid_ptr) {
         // special case: treat missing SID as '0'
         blen_sid = 2;
-        // const_cast, since token_endnn doesn't return const pointer
-        // function is too long for me to be comfortable just turning off
-        // -Wcast-qual...
-        sid_ptr = (char*)((uintptr_t)(&(g_one_char_strs[96])));
+        sid_ptr = &(g_one_char_strs[96]);
       }
     }
   } else {
@@ -469,7 +466,7 @@ uint32_t xid_read(uintptr_t max_xid_blen, uint32_t comma_delim, xid_mode_t xid_m
         goto sorted_xidbox_read_space_single_token;
       }
       iid_ptr = token_iter;
-      token_iter = token_endnn(iid_ptr);
+      token_iter = token_endnn(token_iter);
       slen_iid = (uintptr_t)(token_iter - iid_ptr);
     }
     // token_iter now points to space/eoln at end of IID
@@ -480,7 +477,7 @@ uint32_t xid_read(uintptr_t max_xid_blen, uint32_t comma_delim, xid_mode_t xid_m
         return 0;
       }
       sid_ptr = token_iter;
-      token_iter = token_endnn(sid_ptr);
+      token_iter = token_endnn(token_iter);
       blen_sid = 1 + (uintptr_t)(token_iter - sid_ptr);
     }
   }
@@ -498,7 +495,7 @@ uint32_t xid_read(uintptr_t max_xid_blen, uint32_t comma_delim, xid_mode_t xid_m
   return slen_final;
 }
 
-boolerr_t sorted_xidbox_read_multifind(const char* __restrict sorted_xidbox, uintptr_t max_xid_blen, uintptr_t xid_ct, uint32_t comma_delim, xid_mode_t xid_mode, char** read_pp, uint32_t* xid_idx_start_ptr, uint32_t* xid_idx_end_ptr, char* __restrict idbuf) {
+boolerr_t sorted_xidbox_read_multifind(const char* __restrict sorted_xidbox, uintptr_t max_xid_blen, uintptr_t xid_ct, uint32_t comma_delim, xid_mode_t xid_mode, const char** read_pp, uint32_t* __restrict xid_idx_start_ptr, uint32_t* __restrict xid_idx_end_ptr, char* __restrict idbuf) {
   const uint32_t slen_final = xid_read(max_xid_blen, comma_delim, xid_mode, read_pp, idbuf);
   if (!slen_final) {
     return 1;
@@ -614,7 +611,7 @@ pglerr_t init_chr_info(chr_info_t* cip) {
   alloc_iter = &(alloc_iter[((kChrRawEnd / kInt32PerVec) + 1) * kWordsPerVec]);
   cip->chr_idx_to_foidx = (uint32_t*)alloc_iter;
   alloc_iter = &(alloc_iter[(kChrRawEnd / kInt32PerVec) * kWordsPerVec]);
-  cip->nonstd_names = (char**)alloc_iter;
+  cip->nonstd_names = (const char**)alloc_iter;
   alloc_iter = &(alloc_iter[kChrRawEnd]);
   cip->nonstd_id_htable = (uint32_t*)alloc_iter;
   // alloc_iter = &(alloc_iter[((kChrHtableSize + (kInt32PerVec - 1)) / kInt32PerVec) * kWordsPerVec]);
@@ -734,10 +731,10 @@ void finalize_chrset(misc_flags_t misc_flags, chr_info_t* cip) {
 void forget_extra_chr_names(uint32_t reinitialize, chr_info_t* cip) {
   const uint32_t name_ct = cip->name_ct;
   if (name_ct) {
-    char** nonstd_names = cip->nonstd_names;
+    const char** nonstd_names = cip->nonstd_names;
     const uint32_t chr_idx_end = cip->max_code + 1 + name_ct;
     for (uint32_t chr_idx = cip->max_code + 1; chr_idx < chr_idx_end; ++chr_idx) {
-      free(nonstd_names[chr_idx]);
+      free_const(nonstd_names[chr_idx]);
       nonstd_names[chr_idx] = nullptr;
     }
     if (reinitialize) {
@@ -794,7 +791,7 @@ pglerr_t finalize_chr_info(chr_info_t* cip) {
     new_alloc_iter = &(new_alloc_iter[chr_code_end_int32vec_ct * kWordsPerVec]);
 
     memcpy(new_alloc_iter, cip->nonstd_names, chr_code_end_wordvec_ct * kBytesPerVec);
-    cip->nonstd_names = (char**)new_alloc_iter;
+    cip->nonstd_names = (const char**)new_alloc_iter;
     new_alloc_iter = &(new_alloc_iter[chr_code_end_wordvec_ct * kWordsPerVec]);
 
     memcpy(new_alloc_iter, cip->nonstd_id_htable, kChrHtableSize * sizeof(int32_t));
@@ -1033,6 +1030,8 @@ int32_t get_chr_code(const char* chr_name, const chr_info_t* cip, uint32_t name_
 
 int32_t get_chr_code_counted(const chr_info_t* cip, uint32_t name_slen, char* chr_name) {
   // when the chromosome name isn't null-terminated
+  // (yeah, probably want to revise the called functions so that chr_name
+  // doesn't need to be mutable here)
   char* s_end = &(chr_name[name_slen]);
   const char tmpc = *s_end;
   *s_end = '\0';
@@ -1106,8 +1105,8 @@ pglerr_t try_to_add_chr_name(const char* chr_name, const char* file_descrip, uin
     // lazy initialization
     fill_uint_one(kChrHtableSize, cip->nonstd_id_htable);
   }
-  char** nonstd_names = cip->nonstd_names;
-  if (pgl_malloc(name_slen + 1, &(nonstd_names[chr_code_end]))) {
+  char* new_nonstd_name;
+  if (pgl_malloc(name_slen + 1, &new_nonstd_name)) {
     return kPglRetNomem;
   }
   ll_str_t* name_stack_ptr = cip->incl_excl_name_stack;
@@ -1126,7 +1125,8 @@ pglerr_t try_to_add_chr_name(const char* chr_name, const char* file_descrip, uin
       SET_BIT(chr_code_end, cip->haploid_mask);
     }
   }
-  memcpy(nonstd_names[chr_code_end], chr_name, name_slen + 1);
+  memcpy(new_nonstd_name, chr_name, name_slen + 1);
+  cip->nonstd_names[chr_code_end] = new_nonstd_name;
   *chr_idx_ptr = (int32_t)chr_code_end;
   cip->name_ct = name_ct + 1;
   uint32_t* id_htable = cip->nonstd_id_htable;
@@ -1592,6 +1592,7 @@ void fill_subset_chr_fo_vidx_start(const uintptr_t* variant_include, const chr_i
   }
 }
 
+/*
 boolerr_t allele_set(const char* newval, uint32_t allele_slen, char** allele_ptr) {
   char* newptr;
   if (allele_slen == 1) {
@@ -1632,7 +1633,7 @@ boolerr_t allele_reset(const char* newval, uint32_t allele_slen, char** allele_p
   return 0;
 }
 
-void cleanup_allele_storage(uint32_t max_allele_slen, uintptr_t allele_storage_entry_ct, char** allele_storage) {
+void cleanup_allele_storage(uint32_t max_allele_slen, uintptr_t allele_storage_entry_ct, const char** allele_storage) {
   // Now doesn't improperly free bigstack allocations (as long as they aren't
   // past g_bigstack_end), and doesn't need to be called at all most of the
   // time.
@@ -1647,15 +1648,16 @@ void cleanup_allele_storage(uint32_t max_allele_slen, uintptr_t allele_storage_e
     const uintptr_t bigstack_end_addr = (uintptr_t)g_bigstack_end;
     const uintptr_t maxdiff = ((uintptr_t)(&(g_one_char_strs[512]))) - bigstack_end_addr;
     for (uintptr_t idx = 0; idx < allele_storage_entry_ct; ++idx) {
-      char* cur_entry = allele_storage[idx];
+      const char* cur_entry = allele_storage[idx];
       assert(cur_entry);
       // take advantage of unsigned wraparound
       if ((((uintptr_t)cur_entry) - bigstack_end_addr) >= maxdiff) {
-        free(cur_entry);
+        free_const(cur_entry);
       }
     }
   }
 }
+*/
 
 char g_missing_catname[kMaxMissingPhenostrBlen];
 char g_output_missing_pheno[kMaxMissingPhenostrBlen];
@@ -1801,35 +1803,40 @@ void cleanup_pheno_cols(uint32_t pheno_ct, pheno_col_t* pheno_cols) {
   }
 }
 
-pglerr_t parse_chr_ranges(const char* flagname_p, const char* errstr_append, uint32_t param_ct, uint32_t allow_extra_chrs, uint32_t xymt_subtract, char range_delim, char** argv, chr_info_t* cip, uintptr_t* chr_mask) {
+pglerr_t parse_chr_ranges(const char* const* argvc, const char* flagname_p, const char* errstr_append, uint32_t param_ct, uint32_t allow_extra_chrs, uint32_t xymt_subtract, char range_delim, chr_info_t* cip, uintptr_t* chr_mask) {
   pglerr_t reterr = kPglRetSuccess;
   {
-    char* cur_arg_ptr = argv[1];
-    char* range_end = nullptr;
+    const char* cur_arg_ptr = argvc[1];
+    char* token_buf = g_textbuf;
+    const char* range_end = nullptr;
     uint32_t cur_param_idx = 1;
     uint32_t rs_len = 0;
     uint32_t re_len = 0;
     while (1) {
-      char* range_start;
-      if (parse_next_range(argv, param_ct, range_delim, &cur_param_idx, &cur_arg_ptr, &range_start, &rs_len, &range_end, &re_len)) {
-        sprintf(g_logbuf, "Error: Invalid --%s parameter '%s'.\n", flagname_p, argv[cur_param_idx]);
+      const char* range_start;
+      if (parse_next_range(argvc, param_ct, range_delim, &cur_param_idx, &cur_arg_ptr, &range_start, &rs_len, &range_end, &re_len)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s parameter '%s'.\n", flagname_p, argvc[cur_param_idx]);
         goto parse_chr_ranges_ret_INVALID_CMDLINE_WWA;
       }
       if (!range_start) {
         break;
       }
-      const char cc = range_start[rs_len];
-      range_start[rs_len] = '\0';
-      int32_t chr_code_start = get_chr_code_raw(range_start);
+      // Could avoid this copy, but only at the cost of mutating argv.  Which
+      // isn't actually problematic--it's not like we have multiple threads
+      // parsing the command line--but it's not like this is a performance
+      // bottleneck either.
+      // parse_next_range() prevents buffer overflow.
+      memcpyx(token_buf, range_start, rs_len, '\0');
+      int32_t chr_code_start = get_chr_code_raw(token_buf);
       if (chr_code_start < 0) {
         if (!allow_extra_chrs) {
-          sprintf(g_logbuf, "Error: Invalid --%s chromosome code '%s'.\n", flagname_p, range_start);
+          snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s chromosome code '%s'.\n", flagname_p, token_buf);
           goto parse_chr_ranges_ret_INVALID_CMDLINE_WWA;
         }
         if (range_end) {
           goto parse_chr_ranges_ret_INVALID_CMDLINE_NONSTD;
         }
-        if (push_llstr(range_start, &(cip->incl_excl_name_stack))) {
+        if (push_llstr(token_buf, &(cip->incl_excl_name_stack))) {
           goto parse_chr_ranges_ret_NOMEM;
         }
       } else {
@@ -1837,32 +1844,29 @@ pglerr_t parse_chr_ranges(const char* flagname_p, const char* errstr_append, uin
           chr_code_start -= xymt_subtract;
         }
         if (range_end) {
-          const char cc2 = range_end[re_len];
-          range_end[re_len] = '\0';
-          int32_t chr_code_end = get_chr_code_raw(range_end);
+          memcpyx(token_buf, range_end, re_len, '\0');
+          int32_t chr_code_end = get_chr_code_raw(token_buf);
           if (chr_code_end < 0) {
             if (!allow_extra_chrs) {
-              sprintf(g_logbuf, "Error: Invalid --%s chromosome code '%s'.\n", flagname_p, range_end);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s chromosome code '%s'.\n", flagname_p, range_end);
               goto parse_chr_ranges_ret_INVALID_CMDLINE_WWA;
             }
             goto parse_chr_ranges_ret_INVALID_CMDLINE_NONSTD;
           }
           if (chr_code_end >= ((int32_t)kMaxContigs)) {
             // prohibit stuff like "--chr par1-par2", "--chr x-y", "--chr x-26"
-            sprintf(g_logbuf, "Error: --%s chromosome code '%s' cannot be the end of a range.\n", flagname_p, range_end);
+            snprintf(g_logbuf, kLogbufSize, "Error: --%s chromosome code '%s' cannot be the end of a range.\n", flagname_p, range_end);
             goto parse_chr_ranges_ret_INVALID_CMDLINE_WWA;
           }
           if (chr_code_end <= chr_code_start) {
-            sprintf(g_logbuf, "Error: --%s chromosome code '%s' is not greater than '%s'.\n", flagname_p, range_end, range_start);
+            snprintf(g_logbuf, kLogbufSize, "Error: --%s chromosome code '%s' is not greater than '%s'.\n", flagname_p, range_end, range_start);
             goto parse_chr_ranges_ret_INVALID_CMDLINE_WWA;
           }
-          range_end[re_len] = cc2;
           fill_bits_nz(chr_code_start, chr_code_end + 1, chr_mask);
         } else {
           set_bit(chr_code_start, chr_mask);
         }
       }
-      range_start[rs_len] = cc;
     }
     // no compelling reason to prohibit "--not-chr ,"
   }

@@ -538,10 +538,10 @@ uintptr_t get_strboxsort_wentry_blen(uintptr_t max_str_blen) {
 }
 
 typedef struct str_nsort_indexed_deref_struct {
-  char* strptr;
+  const char* strptr;
   uint32_t orig_idx;
   bool operator<(const struct str_nsort_indexed_deref_struct& rhs) const {
-    return (strcmp_natural_uncasted((unsigned char*)strptr, (unsigned char*)(rhs.strptr)) < 0);
+    return (strcmp_natural_uncasted((const unsigned char*)strptr, (const unsigned char*)(rhs.strptr)) < 0);
   }
 } str_nsort_indexed_deref_t;
 #else
@@ -720,17 +720,17 @@ boolerr_t sort_strbox_indexed_malloc(uintptr_t str_ct, uintptr_t max_str_blen, c
 }
 
 
-uint32_t copy_and_dedup_sorted_strptrs_to_strbox(char** sorted_strptrs, uintptr_t str_ct, uintptr_t max_str_blen, char* strbox) {
+uint32_t copy_and_dedup_sorted_strptrs_to_strbox(const char* const* sorted_strptrs, uintptr_t str_ct, uintptr_t max_str_blen, char* strbox) {
   if (!str_ct) {
     return 0;
   }
-  char** sorted_strptrs_iter = sorted_strptrs;
-  char** sorted_strptrs_end = &(sorted_strptrs[str_ct]);
+  const char* const* sorted_strptrs_iter = sorted_strptrs;
+  const char* const* sorted_strptrs_end = &(sorted_strptrs[str_ct]);
   uintptr_t write_idx = 0;
   uint32_t prev_slen = UINT32_MAX;
-  char* prev_str = nullptr;
+  const char* prev_str = nullptr;
   do {
-    char* cur_str = *sorted_strptrs_iter++;
+    const char* cur_str = *sorted_strptrs_iter++;
     const uint32_t cur_slen = strlen(cur_str);
     if ((cur_slen != prev_slen) || memcmp(cur_str, prev_str, prev_slen)) {
       memcpy(&(strbox[write_idx * max_str_blen]), cur_str, cur_slen + 1);
@@ -759,7 +759,7 @@ void strptr_arr_sort_main(uintptr_t str_ct, uint32_t use_nsort, str_sort_indexed
   }
 }
 
-boolerr_t strptr_arr_indexed_sort(char** unsorted_strptrs, uint32_t str_ct, uint32_t use_nsort, uint32_t* id_map) {
+boolerr_t strptr_arr_indexed_sort(const char* const* unsorted_strptrs, uint32_t str_ct, uint32_t use_nsort, uint32_t* id_map) {
   if (str_ct < 2) {
     if (str_ct) {
       id_map[0] = 0;
@@ -851,13 +851,13 @@ uintptr_t uint64arr_geq(const uint64_t* sorted_uint64_arr, uintptr_t arr_length,
   return min_idx + (ullii >= sorted_uint64_arr[((uintptr_t)min_idx)]);
 }
 
-uint32_t param_count(char** argv, uint32_t argc, uint32_t flag_idx) {
+uint32_t param_count(const char* const* argvc, uint32_t argc, uint32_t flag_idx) {
   // Counts the number of optional parameters given to the flag at position
   // flag_idx, treating any nonnumeric parameter beginning with "-" as
   // optional.
   ++flag_idx;
   uint32_t cur_idx = flag_idx;
-  while ((cur_idx < argc) && (!is_flag(argv[cur_idx]))) {
+  while ((cur_idx < argc) && (!is_flag(argvc[cur_idx]))) {
     ++cur_idx;
   }
   return cur_idx - flag_idx;
@@ -866,9 +866,9 @@ uint32_t param_count(char** argv, uint32_t argc, uint32_t flag_idx) {
 boolerr_t enforce_param_ct_range(const char* flag_name, uint32_t param_ct, uint32_t min_ct, uint32_t max_ct) {
   if (param_ct > max_ct) {
     if (max_ct > min_ct) {
-      sprintf(g_logbuf, "Error: %s accepts at most %u parameter%s.\n", flag_name, max_ct, (max_ct == 1)? "" : "s");
+      snprintf(g_logbuf, kLogbufSize, "Error: %s accepts at most %u parameter%s.\n", flag_name, max_ct, (max_ct == 1)? "" : "s");
     } else {
-      sprintf(g_logbuf, "Error: %s only accepts %u parameter%s.\n", flag_name, max_ct, (max_ct == 1)? "" : "s");
+      snprintf(g_logbuf, kLogbufSize, "Error: %s only accepts %u parameter%s.\n", flag_name, max_ct, (max_ct == 1)? "" : "s");
     }
     return 1;
   }
@@ -876,9 +876,9 @@ boolerr_t enforce_param_ct_range(const char* flag_name, uint32_t param_ct, uint3
     return 0;
   }
   if (min_ct == 1) {
-    sprintf(g_logbuf, "Error: Missing %s parameter.\n", flag_name);
+    snprintf(g_logbuf, kLogbufSize, "Error: Missing %s parameter.\n", flag_name);
   } else {
-    sprintf(g_logbuf, "Error: %s requires %s%u parameters.\n", flag_name, (min_ct < max_ct)? "at least " : "", min_ct);
+    snprintf(g_logbuf, kLogbufSize, "Error: %s requires %s%u parameters.\n", flag_name, (min_ct < max_ct)? "at least " : "", min_ct);
   }
   return 1;
 }
@@ -1066,8 +1066,19 @@ boolerr_t push_llstr(const char* ss, ll_str_t** ll_stack_ptr) {
   return 0;
 }
 
-
 /*
+boolerr_t push_llstr_counted(const char* ss, uint32_t slen, ll_str_t** ll_stack_ptr) {
+  ll_str_t* new_llstr;
+  if (pgl_malloc(sizeof(ll_str_t) + slen + 1, &new_llstr)) {
+    return 1;
+  }
+  new_llstr->next = *ll_stack_ptr;
+  memcpy(new_llstr->ss, ss, slen);
+  new_llstr->ss[slen] = '\0';
+  *ll_stack_ptr = new_llstr;
+  return 0;
+}
+
 uint32_t match_upper(const char* ss, const char* fixed_str) {
   char cc = *fixed_str++;
   do {
@@ -1194,8 +1205,8 @@ boolerr_t scan_posintptr(const char* ss, uintptr_t* valp) {
 }
 
 #ifdef __LP64__
-static inline boolerr_t scanadv_uint_capped_finish(uint64_t cap, char** ss_ptr, uint32_t* valp) {
-  unsigned char* ss = (unsigned char*)(*ss_ptr);
+static inline boolerr_t scanadv_uint_capped_finish(uint64_t cap, const char** ss_ptr, uint32_t* valp) {
+  const unsigned char* ss = (const unsigned char*)(*ss_ptr);
   uint64_t val = *valp;
   while (1) {
     // a little bit of unrolling seems to help
@@ -1218,12 +1229,12 @@ static inline boolerr_t scanadv_uint_capped_finish(uint64_t cap, char** ss_ptr, 
     }
   }
   *valp = val;
-  *ss_ptr = (char*)(&(ss[-1]));
+  *ss_ptr = (const char*)(&(ss[-1]));
   return 0;
 }
 
-boolerr_t scanadv_posint_capped(uint64_t cap, char** ss_ptr, uint32_t* valp) {
-  unsigned char* ss = (unsigned char*)(*ss_ptr);
+boolerr_t scanadv_posint_capped(uint64_t cap, const char** ss_ptr, uint32_t* valp) {
+  const unsigned char* ss = (const unsigned char*)(*ss_ptr);
   *valp = (uint32_t)(*ss++) - 48;
   if (*valp >= 10) {
     if (*valp != 0xfffffffbU) {
@@ -1240,12 +1251,12 @@ boolerr_t scanadv_posint_capped(uint64_t cap, char** ss_ptr, uint32_t* valp) {
       return 1;
     }
   }
-  *ss_ptr = (char*)ss;
+  *ss_ptr = (const char*)ss;
   return scanadv_uint_capped_finish(cap, ss_ptr, valp);
 }
 
-boolerr_t scanadv_uint_capped(uint64_t cap, char** ss_ptr, uint32_t* valp) {
-  unsigned char* ss = (unsigned char*)(*ss_ptr);
+boolerr_t scanadv_uint_capped(uint64_t cap, const char** ss_ptr, uint32_t* valp) {
+  const unsigned char* ss = (const unsigned char*)(*ss_ptr);
   *valp = (uint32_t)(*ss++) - 48;
   if (*valp >= 10) {
     if (*valp != 0xfffffffbU) {
@@ -1256,7 +1267,7 @@ boolerr_t scanadv_uint_capped(uint64_t cap, char** ss_ptr, uint32_t* valp) {
       // accept "-0", "-00", etc.
       while (*(++ss) == '0');
       *valp = 0;
-      *ss_ptr = (char*)ss;
+      *ss_ptr = (const char*)ss;
       return ((uint32_t)((unsigned char)(*ss)) - 48) < 10;
     }
     // accept leading '+'
@@ -1265,12 +1276,12 @@ boolerr_t scanadv_uint_capped(uint64_t cap, char** ss_ptr, uint32_t* valp) {
       return 1;
     }
   }
-  *ss_ptr = (char*)ss;
+  *ss_ptr = (const char*)ss;
   return scanadv_uint_capped_finish(cap, ss_ptr, valp);
 }
 #else
-boolerr_t scanadv_posint_capped32(uint32_t cap_div_10, uint32_t cap_mod_10, char** ss_ptr, uint32_t* valp) {
-  unsigned char* ss = (unsigned char*)ss_ptr;
+boolerr_t scanadv_posint_capped32(uint32_t cap_div_10, uint32_t cap_mod_10, const char** ss_ptr, uint32_t* valp) {
+  const unsigned char* ss = (const unsigned char*)ss_ptr;
   uint32_t val = (uint32_t)(*ss++) - 48;
   if (val >= 10) {
     if (val != 0xfffffffbU) {
@@ -1291,7 +1302,7 @@ boolerr_t scanadv_posint_capped32(uint32_t cap_div_10, uint32_t cap_mod_10, char
     const uint32_t cur_digit = (uint32_t)(*ss++) - 48;
     if (cur_digit >= 10) {
       *valp = val;
-      *ss_ptr = (char*)(&(ss[-1]));
+      *ss_ptr = (const char*)(&(ss[-1]));
       return 0;
     }
     if ((val >= cap_div_10) && ((val > cap_div_10) || (cur_digit > cap_mod_10))) {
@@ -1301,8 +1312,8 @@ boolerr_t scanadv_posint_capped32(uint32_t cap_div_10, uint32_t cap_mod_10, char
   }
 }
 
-boolerr_t scanadv_uint_capped32(uint32_t cap_div_10, uint32_t cap_mod_10, char** ss_ptr, uint32_t* valp) {
-  unsigned char* ss = (unsigned char*)ss_ptr;
+boolerr_t scanadv_uint_capped32(uint32_t cap_div_10, uint32_t cap_mod_10, const char** ss_ptr, uint32_t* valp) {
+  const unsigned char* ss = (const unsigned char*)ss_ptr;
   uint32_t val = (uint32_t)(*ss++) - 48;
   if (val >= 10) {
     if (val != 0xfffffffbU) {
@@ -1311,7 +1322,7 @@ boolerr_t scanadv_uint_capped32(uint32_t cap_div_10, uint32_t cap_mod_10, char**
       }
       while (*(++ss) == '0');
       *valp = 0;
-      *ss_ptr = (char*)ss;
+      *ss_ptr = (const char*)ss;
       return ((uint32_t)((unsigned char)(*ss)) - 48) < 10;
     }
     val = (uint32_t)((unsigned char)(*ss++)) - 48;
@@ -1323,7 +1334,7 @@ boolerr_t scanadv_uint_capped32(uint32_t cap_div_10, uint32_t cap_mod_10, char**
     const uint32_t cur_digit = (uint32_t)(*ss++) - 48;
     if (cur_digit >= 10) {
       *valp = val;
-      *ss_ptr = (char*)(&(ss[-1]));
+      *ss_ptr = (const char*)(&(ss[-1]));
       return 0;
     }
     if ((val >= cap_div_10) && ((val > cap_div_10) || (cur_digit > cap_mod_10))) {
@@ -1339,7 +1350,7 @@ static const double kPositivePowTen16[16] = {1, 1.0e16, 1.0e32, 1.0e48, 1.0e64, 
 static const double kNegativePow10[16] = {1, 1.0e-1, 1.0e-2, 1.0e-3, 1.0e-4, 1.0e-5, 1.0e-6, 1.0e-7, 1.0e-8, 1.0e-9, 1.0e-10, 1.0e-11, 1.0e-12, 1.0e-13, 1.0e-14, 1.0e-15};
 static const double kNegativePowTen16[8] = {1, 1.0e-16, 1.0e-32, 1.0e-48, 1.0e-64, 1.0e-80, 1.0e-96, 1.0e-112};
 
-char* scanadv_double(char* ss, double* valp) {
+CXXCONST_CP scanadv_double(const char* ss, double* valp) {
   // requires first character to be nonspace (to succeed; it fails without
   //   segfaulting on space/eoln/null)
   // don't care about hexadecimal
@@ -1353,7 +1364,7 @@ char* scanadv_double(char* ss, double* valp) {
   }
   uint32_t cur_digit = cur_char_code - 48;
   int32_t e10 = 0;
-  char* dot_ptr;
+  const char* dot_ptr;
   int64_t digits;
 #ifdef __LP64__
   if (cur_digit < 10) {
@@ -1377,7 +1388,7 @@ char* scanadv_double(char* ss, double* valp) {
     // contents
     // (could keep ~19 instead, but if we're systematically losing the last two
     // bits of precision anyway...)
-    char* last_sig_fig_ptr = ss;
+    const char* last_sig_fig_ptr = ss;
     do {
       cur_digit = ((uint32_t)((unsigned char)(*(++ss)))) - 48;
     } while (cur_digit < 10);
@@ -1434,7 +1445,7 @@ char* scanadv_double(char* ss, double* valp) {
         do {
           cur_digit = ((unsigned char)(*(++ss))) - 48;
         } while (cur_digit < 10);
-        return ss;
+        return (CXXCONST_CP)ss;
       }
       cur_exp = cur_exp * 10 + cur_digit;
       cur_digit = ((unsigned char)(*(++ss))) - 48;
@@ -1477,7 +1488,7 @@ char* scanadv_double(char* ss, double* valp) {
     } while (digits < 10000000000000000LL);
     // we have 17 significant digits; count the rest, but don't worry about
     // contents
-    char* last_sig_fig_ptr = ss;
+    const char* last_sig_fig_ptr = ss;
     do {
       cur_digit = ((uint32_t)((unsigned char)(*(++ss)))) - 48;
     } while (cur_digit < 10);
@@ -1547,7 +1558,7 @@ char* scanadv_double(char* ss, double* valp) {
         do {
           cur_digit = ((unsigned char)(*(++ss))) - 48;
         } while (cur_digit < 10);
-        return ss;
+        return (CXXCONST_CP)ss;
       }
       cur_exp = cur_exp * 10 + cur_digit;
       cur_digit = ((unsigned char)(*(++ss))) - 48;
@@ -1560,7 +1571,7 @@ char* scanadv_double(char* ss, double* valp) {
 #endif
   if (digits == 0) {
     *valp = 0;
-    return ss;
+    return (CXXCONST_CP)ss;
   }
   if (is_negative) {
     digits = -digits;
@@ -1602,7 +1613,7 @@ char* scanadv_double(char* ss, double* valp) {
     }
   }
   *valp = dxx;
-  return ss;
+  return (CXXCONST_CP)ss;
 }
 
 void get_top_two_ui(const uint32_t* __restrict uint_arr, uintptr_t uia_size, uintptr_t* __restrict top_idx_ptr, uintptr_t* __restrict second_idx_ptr) {
@@ -1631,10 +1642,10 @@ void get_top_two_ui(const uint32_t* __restrict uint_arr, uintptr_t uia_size, uin
   *second_idx_ptr = second_idx;
 }
 
-char* comma_or_space_next_token_mult(char* sptr, uint32_t ct, uint32_t comma_delim) {
+CXXCONST_CP comma_or_space_next_token_mult(const char* sptr, uint32_t ct, uint32_t comma_delim) {
   assert(ct);
   if (!comma_delim) {
-    return next_token_mult(sptr, ct);
+    return (CXXCONST_CP)next_token_mult(sptr, ct);
   }
   if (!sptr) {
     return nullptr;
@@ -1657,7 +1668,7 @@ char* comma_or_space_next_token_mult(char* sptr, uint32_t ct, uint32_t comma_del
         ucc = (unsigned char)(*(++sptr));
       } while ((ucc == ' ') || (ucc == '\t'));
       if (!(--ct)) {
-        return sptr;
+        return (CXXCONST_CP)sptr;
       }
       continue;
     }
@@ -1723,12 +1734,12 @@ uint32_t count_and_measure_multistr(const char* multistr, uintptr_t* max_blen_pt
 }
 */
 
-boolerr_t count_and_measure_multistr_reverse_alloc(char* multistr, uintptr_t max_str_ct, uint32_t* str_ct_ptr, uintptr_t* max_blen_ptr, char*** strptr_arrp) {
+boolerr_t count_and_measure_multistr_reverse_alloc(const char* multistr, uintptr_t max_str_ct, uint32_t* str_ct_ptr, uintptr_t* max_blen_ptr, const char*** strptr_arrp) {
   // assumes multistr is nonempty
   assert(multistr[0]);
   uintptr_t ct = 0;
   uintptr_t max_blen = *max_blen_ptr;
-  char** strptr_arr_iter = *strptr_arrp;
+  const char** strptr_arr_iter = *strptr_arrp;
   do {
     if (++ct > max_str_ct) {
       return 1;
@@ -1747,18 +1758,17 @@ boolerr_t count_and_measure_multistr_reverse_alloc(char* multistr, uintptr_t max
 }
 
 boolerr_t multistr_to_strbox_dedup_arena_alloc(unsigned char* arena_top, const char* multistr, unsigned char** arena_bottom_ptr, char** sorted_strbox_ptr, uint32_t* str_ct_ptr, uintptr_t* max_blen_ptr) {
-  char** strptr_arr = (char**)arena_top;
+  const char** strptr_arr = (const char**)arena_top;
   uintptr_t max_str_blen = 0;
   uint32_t str_ct;
-  // const_cast
-  if (count_and_measure_multistr_reverse_alloc((char*)((uintptr_t)multistr), (arena_top - (*arena_bottom_ptr)) / sizeof(intptr_t), &str_ct, &max_str_blen, &strptr_arr)) {
+  if (count_and_measure_multistr_reverse_alloc(multistr, (arena_top - (*arena_bottom_ptr)) / sizeof(intptr_t), &str_ct, &max_str_blen, &strptr_arr)) {
     return 1;
   }
   const uintptr_t strbox_byte_ct = round_up_pow2(str_ct * max_str_blen, kCacheline);
-  if ((uintptr_t)(((unsigned char*)strptr_arr) - (*arena_bottom_ptr)) < strbox_byte_ct) {
+  if ((((uintptr_t)strptr_arr) - ((uintptr_t)(*arena_bottom_ptr))) < strbox_byte_ct) {
     return 1;
   }
-  strptr_arr_sort(str_ct, strptr_arr);
+  strptr_arr_sort(str_ct, TO_CONSTCPP(strptr_arr));
   *sorted_strbox_ptr = (char*)(*arena_bottom_ptr);
   str_ct = copy_and_dedup_sorted_strptrs_to_strbox(strptr_arr, str_ct, max_str_blen, *sorted_strbox_ptr);
   *arena_bottom_ptr += round_up_pow2(str_ct * max_str_blen, kCacheline);
@@ -3355,7 +3365,7 @@ void bitvec_ornot(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uin
 */
 
 
-int32_t get_variant_uidx_without_htable(const char* idstr, char** variant_ids, const uintptr_t* variant_include, uint32_t variant_ct) {
+int32_t get_variant_uidx_without_htable(const char* idstr, const char* const* variant_ids, const uintptr_t* variant_include, uint32_t variant_ct) {
   const uint32_t id_blen = strlen(idstr) + 1;
   uint32_t variant_uidx = 0;
   int32_t retval = -1;
@@ -3605,7 +3615,7 @@ uint32_t populate_strbox_subset_htable(const uintptr_t* __restrict subset_mask, 
 }
 */
 
-uint32_t id_htable_find(const char* cur_id, char** item_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size) {
+uint32_t id_htable_find(const char* cur_id, const char* const* item_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size) {
   // returns UINT32_MAX on failure
   uint32_t hashval = hashceil(cur_id, cur_id_slen, id_htable_size);
   while (1) {
@@ -3635,7 +3645,7 @@ uint32_t strbox_htable_find(const char* cur_id, const char* strbox, const uint32
   }
 }
 
-uint32_t variant_id_dupflag_htable_find(const char* idbuf, char** variant_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_slen) {
+uint32_t variant_id_dupflag_htable_find(const char* idbuf, const char* const* variant_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_slen) {
   // assumes duplicate variant IDs are flagged, but full variant_uidx linked
   // lists are not stored
   // idbuf does not need to be null-terminated (note that this is currently
@@ -3658,7 +3668,7 @@ uint32_t variant_id_dupflag_htable_find(const char* idbuf, char** variant_ids, c
   }
 }
 
-uint32_t variant_id_dup_htable_find(const char* idbuf, char** variant_ids, const uint32_t* id_htable, const uint32_t* htable_dup_base, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_slen, uint32_t* llidx_ptr) {
+uint32_t variant_id_dup_htable_find(const char* idbuf, const char* const* variant_ids, const uint32_t* id_htable, const uint32_t* htable_dup_base, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_slen, uint32_t* llidx_ptr) {
   // Permits duplicate entries.  Similar to plink 1.9
   // extract_exclude_process_token().
   // - Returns UINT32_MAX on failure (llidx currently unset in that case),
@@ -3700,11 +3710,11 @@ uint32_t variant_id_dup_htable_find(const char* idbuf, char** variant_ids, const
   }
 }
 
-char* scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_blen) {
+CXXCONST_CP scan_for_duplicate_ids(const char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_blen) {
   --id_ct;
   for (uintptr_t id_idx = 0; id_idx < id_ct; ++id_idx) {
     if (!strcmp(&(sorted_ids[id_idx * max_id_blen]), &(sorted_ids[(id_idx + 1) * max_id_blen]))) {
-      return &(sorted_ids[id_idx * max_id_blen]);
+      return (CXXCONST_CP)(&(sorted_ids[id_idx * max_id_blen]));
     }
   }
   return nullptr;
@@ -3972,6 +3982,9 @@ boolerr_t numeric_range_list_to_bitarr(const range_list_t* range_list_ptr, uint3
       }
       return 1;
     }
+    if (idx1 < offset) {
+      return 1;
+    }
     if (starts_range[name_idx]) {
       ++name_idx;
       uint32_t idx2;
@@ -3989,7 +4002,7 @@ boolerr_t numeric_range_list_to_bitarr(const range_list_t* range_list_ptr, uint3
   return 0;
 }
 
-pglerr_t string_range_list_to_bitarr(char* header_line, const range_list_t* range_list_ptr, const char* __restrict sorted_ids, const uint32_t* __restrict id_map, const char* __restrict range_list_flag, const char* __restrict file_descrip, uint32_t token_ct, uint32_t fixed_len, uint32_t comma_delim, uintptr_t* bitarr, int32_t* __restrict seen_idxs) {
+pglerr_t string_range_list_to_bitarr(const char* header_line, const range_list_t* range_list_ptr, const char* __restrict sorted_ids, const uint32_t* __restrict id_map, const char* __restrict range_list_flag, const char* __restrict file_descrip, uint32_t token_ct, uint32_t fixed_len, uint32_t comma_delim, uintptr_t* bitarr, int32_t* __restrict seen_idxs) {
   // bitarr assumed to be zero-initialized
   // if fixed_len is zero, header_line is assumed to be a list of
   // space-delimited unequal-length names
@@ -3997,16 +4010,16 @@ pglerr_t string_range_list_to_bitarr(char* header_line, const range_list_t* rang
   assert(!popcount_longs(bitarr, BITCT_TO_WORDCT(token_ct)));
   pglerr_t reterr = kPglRetSuccess;
   {
-    char* header_line_iter = header_line;
+    const char* header_line_iter = header_line;
     const uintptr_t name_ct = range_list_ptr->name_ct;
     const uintptr_t max_id_blen = range_list_ptr->name_max_blen;
     uint32_t item_idx = 0;
     while (1) {
-      char* token_end = comma_or_space_token_end(header_line_iter, comma_delim);
+      const char* token_end = comma_or_space_token_end(header_line_iter, comma_delim);
       uint32_t cmdline_pos;
       if (!sorted_idbox_find(header_line_iter, sorted_ids, id_map, (uintptr_t)(token_end - header_line_iter), max_id_blen, name_ct, &cmdline_pos)) {
         if (seen_idxs[cmdline_pos] != -1) {
-          sprintf(g_logbuf, "Error: Duplicate --%s token in %s.\n", range_list_flag, file_descrip);
+          snprintf(g_logbuf, kLogbufSize, "Error: Duplicate --%s token in %s.\n", range_list_flag, file_descrip);
           goto string_range_list_to_bitarr_ret_MALFORMED_INPUT_2;
         }
         seen_idxs[cmdline_pos] = item_idx;
@@ -4037,7 +4050,7 @@ pglerr_t string_range_list_to_bitarr(char* header_line, const range_list_t* rang
   }
   while (0) {
   string_range_list_to_bitarr_ret_INVALID_CMDLINE_3:
-    sprintf(g_logbuf, "Error: Missing --%s token in %s.\n", range_list_flag, file_descrip);
+    snprintf(g_logbuf, kLogbufSize, "Error: Missing --%s token in %s.\n", range_list_flag, file_descrip);
   string_range_list_to_bitarr_ret_INVALID_CMDLINE_2:
     logerrprintb();
     reterr = kPglRetInvalidCmdline;
@@ -4050,7 +4063,7 @@ pglerr_t string_range_list_to_bitarr(char* header_line, const range_list_t* rang
   return reterr;
 }
 
-pglerr_t string_range_list_to_bitarr_alloc(char* header_line, const range_list_t* range_list_ptr, const char* __restrict range_list_flag, const char* __restrict file_descrip, uint32_t token_ct, uint32_t fixed_len, uint32_t comma_delim, uintptr_t** bitarr_ptr) {
+pglerr_t string_range_list_to_bitarr_alloc(const char* header_line, const range_list_t* range_list_ptr, const char* __restrict range_list_flag, const char* __restrict file_descrip, uint32_t token_ct, uint32_t fixed_len, uint32_t comma_delim, uintptr_t** bitarr_ptr) {
   // wrapper for string_range_list_to_bitarr which allocates the bitfield and
   // temporary buffers on the heap
   uintptr_t token_ctl = BITCT_TO_WORDCT(token_ct);
@@ -4557,7 +4570,7 @@ void compute_partition_aligned(const uintptr_t* variant_include, uint32_t orig_t
   vidx_starts[orig_thread_ct] = variant_idx_end;
 }
 
-boolerr_t parse_next_range(char** argv, uint32_t param_ct, char range_delim, uint32_t* cur_param_idx_ptr, char** cur_arg_pptr, char** range_start_ptr, uint32_t* rs_len_ptr, char** range_end_ptr, uint32_t* re_len_ptr) {
+boolerr_t parse_next_range(const char* const* argvc, uint32_t param_ct, char range_delim, uint32_t* cur_param_idx_ptr, const char** cur_arg_pptr, const char** range_start_ptr, uint32_t* rs_len_ptr, const char** range_end_ptr, uint32_t* re_len_ptr) {
   // Starts reading from argv[cur_param_idx][cur_pos].  If a valid range is
   // next, range_start + rs_len + range_end + re_len are updated.  If only a
   // single item is next, range_end is set to nullptr and range_start + rs_len
@@ -4568,7 +4581,7 @@ boolerr_t parse_next_range(char** argv, uint32_t param_ct, char range_delim, uin
     *cur_arg_pptr = nullptr;
     return 0;
   }
-  char* cur_arg_ptr = *cur_arg_pptr;
+  const char* cur_arg_ptr = *cur_arg_pptr;
   while (1) {
     char cc = *cur_arg_ptr;
     if (!cc) {
@@ -4577,7 +4590,7 @@ boolerr_t parse_next_range(char** argv, uint32_t param_ct, char range_delim, uin
         *range_start_ptr = nullptr;
         return 0;
       }
-      cur_arg_ptr = argv[cur_param_idx];
+      cur_arg_ptr = argvc[cur_param_idx];
       cc = *cur_arg_ptr;
     }
     if (cc == range_delim) {
@@ -4601,7 +4614,7 @@ boolerr_t parse_next_range(char** argv, uint32_t param_ct, char range_delim, uin
   } while (cc != range_delim);
   *rs_len_ptr = (uintptr_t)(cur_arg_ptr - (*range_start_ptr));
   cc = *(++cur_arg_ptr);
-  if ((!cc) || (cc == ',') || (cc == range_delim)) {
+  if (((*rs_len_ptr) > kMaxIdSlen) || (!cc) || (cc == ',') || (cc == range_delim)) {
     return 1;
   }
   *range_end_ptr = cur_arg_ptr;
@@ -4612,31 +4625,32 @@ boolerr_t parse_next_range(char** argv, uint32_t param_ct, char range_delim, uin
     }
   } while (cc && (cc != ','));
   *re_len_ptr = (uintptr_t)(cur_arg_ptr - (*range_end_ptr));
+  if ((*re_len_ptr) > kMaxIdSlen) {
+    return 1;
+  }
   *cur_arg_pptr = cur_arg_ptr;
   return 0;
 }
 
-pglerr_t parse_name_ranges(char** argv, const char* errstr_append, uint32_t param_ct, uint32_t require_posint, char range_delim, range_list_t* range_list_ptr) {
+pglerr_t parse_name_ranges(const char* const* argvc, const char* errstr_append, uint32_t param_ct, uint32_t require_posint, char range_delim, range_list_t* range_list_ptr) {
   uint32_t name_ct = 0;
   uint32_t cur_param_idx = 1;
   uint32_t name_max_blen = 0;
-  char* cur_arg_ptr;
-  char* range_start;
+  const char* cur_arg_ptr;
+  const char* range_start;
   uint32_t rs_len;
-  char* range_end;
+  const char* range_end;
   uint32_t re_len;
-  char* cur_name_str;
-  char* dup_check;
   unsigned char* cur_name_starts_range;
   uint32_t last_val;
   uint32_t cur_val;
   // two passes.  first pass: count parameters, determine name_max_blen;
   // then allocate memory; then fill it.
   if (param_ct) {
-    cur_arg_ptr = argv[1];
+    cur_arg_ptr = argvc[1];
     while (1) {
-      if (parse_next_range(argv, param_ct, range_delim, &cur_param_idx, &cur_arg_ptr, &range_start, &rs_len, &range_end, &re_len)) {
-        LOGERRPRINTFWW("Error: Invalid %s parameter '%s'.\n", argv[0], argv[cur_param_idx]);
+      if (parse_next_range(argvc, param_ct, range_delim, &cur_param_idx, &cur_arg_ptr, &range_start, &rs_len, &range_end, &re_len)) {
+        LOGERRPRINTFWW("Error: Invalid %s parameter '%s'.\n", argvc[0], argvc[cur_param_idx]);
         logerrprint(errstr_append);
         return kPglRetInvalidCmdline;
       }
@@ -4656,7 +4670,7 @@ pglerr_t parse_name_ranges(char** argv, const char* errstr_append, uint32_t para
     }
   }
   if (!name_ct) {
-    LOGERRPRINTF("Error: %s requires at least one value.\n%s", argv[0], errstr_append);
+    LOGERRPRINTF("Error: %s requires at least one value.\n%s", argvc[0], errstr_append);
     return kPglRetInvalidCmdline;
   }
   range_list_ptr->name_max_blen = ++name_max_blen;
@@ -4665,34 +4679,34 @@ pglerr_t parse_name_ranges(char** argv, const char* errstr_append, uint32_t para
     return kPglRetNomem;
   }
   range_list_ptr->starts_range = (unsigned char*)(&(range_list_ptr->names[name_ct * ((uintptr_t)name_max_blen)]));
-  cur_name_str = range_list_ptr->names;
+  char* cur_name_str = range_list_ptr->names;
   cur_name_starts_range = range_list_ptr->starts_range;
   cur_param_idx = 1;
-  cur_arg_ptr = argv[1];
+  cur_arg_ptr = argvc[1];
   while (1) {
     // second pass; this can't fail since we already validated
-    parse_next_range(argv, param_ct, range_delim, &cur_param_idx, &cur_arg_ptr, &range_start, &rs_len, &range_end, &re_len);
+    parse_next_range(argvc, param_ct, range_delim, &cur_param_idx, &cur_arg_ptr, &range_start, &rs_len, &range_end, &re_len);
     if (!range_start) {
       if (require_posint) {
         last_val = 0;
         for (cur_param_idx = 0; cur_param_idx < name_ct; ++cur_param_idx) {
           cur_name_str = &(range_list_ptr->names[cur_param_idx * ((uintptr_t)name_max_blen)]);
-          dup_check = cur_name_str; // actually a numeric check
+          const char* dup_check = cur_name_str; // actually a numeric check
           do {
             if (is_not_digit(*dup_check)) {
-              LOGERRPRINTFWW("Error: Invalid %s parameter '%s'.\n", argv[0], cur_name_str);
+              LOGERRPRINTFWW("Error: Invalid %s parameter '%s'.\n", argvc[0], cur_name_str);
               return kPglRetInvalidCmdline;
             }
           } while (*(++dup_check));
           if (scan_posint_defcap(cur_name_str, &cur_val)) {
-            LOGERRPRINTFWW("Error: Invalid %s parameter '%s'.\n", argv[0], cur_name_str);
+            LOGERRPRINTFWW("Error: Invalid %s parameter '%s'.\n", argvc[0], cur_name_str);
             return kPglRetInvalidCmdline;
           }
           if (range_list_ptr->starts_range[cur_param_idx]) {
             last_val = cur_val;
           } else {
             if (cur_val <= last_val) {
-              LOGERRPRINTFWW("Error: Invalid %s range '%s-%s'.\n", argv[0], &(range_list_ptr->names[(cur_param_idx - 1) * name_max_blen]), cur_name_str);
+              LOGERRPRINTFWW("Error: Invalid %s range '%s-%s'.\n", argvc[0], &(range_list_ptr->names[(cur_param_idx - 1) * name_max_blen]), cur_name_str);
               return kPglRetInvalidCmdline;
             }
             last_val = 0;
@@ -4702,10 +4716,10 @@ pglerr_t parse_name_ranges(char** argv, const char* errstr_append, uint32_t para
       return kPglRetSuccess;
     }
     memcpyx(cur_name_str, range_start, rs_len, 0);
-    dup_check = range_list_ptr->names;
+    const char* dup_check = range_list_ptr->names;
     while (dup_check < cur_name_str) {
       if (!memcmp(dup_check, cur_name_str, rs_len + 1)) {
-        LOGERRPRINTFWW("Error: Duplicate %s parameter '%s'.\n", argv[0], cur_name_str);
+        LOGERRPRINTFWW("Error: Duplicate %s parameter '%s'.\n", argvc[0], cur_name_str);
         return kPglRetInvalidCmdline;
       }
       dup_check = &(dup_check[name_max_blen]);
@@ -4717,7 +4731,7 @@ pglerr_t parse_name_ranges(char** argv, const char* errstr_append, uint32_t para
       dup_check = range_list_ptr->names;
       while (dup_check < cur_name_str) {
         if (!memcmp(dup_check, cur_name_str, rs_len + 1)) {
-          LOGERRPRINTFWW("Error: Duplicate %s parameter '%s'.\n", argv[0], cur_name_str);
+          LOGERRPRINTFWW("Error: Duplicate %s parameter '%s'.\n", argvc[0], cur_name_str);
           return kPglRetInvalidCmdline;
         }
         dup_check = &(dup_check[name_max_blen]);
@@ -5061,7 +5075,7 @@ void error_cleanup_threads2z(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, pthr
 
 // multithread globals
 static const uintptr_t* g_subset_mask = nullptr;
-static char** g_item_ids;
+static const char* const* g_item_ids;
 static uint32_t* g_id_htable = nullptr;
 
 // currently by item_idx, not item_uidx
@@ -5074,7 +5088,7 @@ static uint32_t g_item_uidx_starts[16];
 THREAD_FUNC_DECL calc_id_hash_thread(void* arg) {
   const uintptr_t tidx = (uintptr_t)arg;
   const uintptr_t* subset_mask = g_subset_mask;
-  char** item_ids = g_item_ids;
+  const char* const* item_ids = g_item_ids;
   uint32_t* item_id_hashes = g_item_id_hashes;
   const uint32_t id_htable_size = g_id_htable_size;
   const uint32_t calc_thread_ct = g_calc_thread_ct;
@@ -5099,7 +5113,7 @@ THREAD_FUNC_DECL calc_id_hash_thread(void* arg) {
   THREAD_RETURN;
 }
 
-pglerr_t populate_id_htable_mt(const uintptr_t* subset_mask, char** item_ids, uintptr_t item_ct, uint32_t store_all_dups, uint32_t id_htable_size, uint32_t thread_ct, uint32_t* id_htable) {
+pglerr_t populate_id_htable_mt(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uint32_t store_all_dups, uint32_t id_htable_size, uint32_t thread_ct, uint32_t* id_htable) {
   // Change from plink 1.9: if store_all_dups is false, we don't error out on
   // the first encountered duplicate ID; instead, we just flag it in the hash
   // table.  So if '.' is the only duplicate ID, and it never appears in a
@@ -5267,7 +5281,7 @@ pglerr_t populate_id_htable_mt(const uintptr_t* subset_mask, char** item_ids, ui
   return reterr;
 }
 
-pglerr_t alloc_and_populate_id_htable_mt(const uintptr_t* subset_mask, char** item_ids, uintptr_t item_ct, uint32_t max_thread_ct, uint32_t** id_htable_ptr, uint32_t** htable_dup_base_ptr, uint32_t* id_htable_size_ptr) {
+pglerr_t alloc_and_populate_id_htable_mt(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uint32_t max_thread_ct, uint32_t** id_htable_ptr, uint32_t** htable_dup_base_ptr, uint32_t* id_htable_size_ptr) {
   uint32_t id_htable_size = get_htable_fast_size(item_ct);
   // 4 bytes per variant for hash buffer
   // if store_all_dups, up to 8 bytes per variant in extra_alloc for duplicate
@@ -5505,12 +5519,12 @@ void disp_exit_msg(pglerr_t reterr) {
 
 // useful when there's e.g. a filename and an optional modifier, and we want to
 // permit either parmeter ordering
-boolerr_t check_extra_param(char** argv, const char* permitted_modif, uint32_t* other_idx_ptr) {
+boolerr_t check_extra_param(const char* const* argvc, const char* permitted_modif, uint32_t* other_idx_ptr) {
   const uint32_t idx_base = *other_idx_ptr;
-  if (!strcmp(argv[idx_base], permitted_modif)) {
+  if (!strcmp(argvc[idx_base], permitted_modif)) {
     *other_idx_ptr = idx_base + 1;
-  } else if (strcmp(argv[idx_base + 1], permitted_modif)) {
-    LOGERRPRINTF("Error: Invalid %s parameter sequence.\n", argv[0]);
+  } else if (strcmp(argvc[idx_base + 1], permitted_modif)) {
+    LOGERRPRINTF("Error: Invalid %s parameter sequence.\n", argvc[0]);
     return 1;
   }
   return 0;
@@ -5557,7 +5571,7 @@ pglerr_t alloc_fname(const char* source, const char* flagname_p, uint32_t extra_
   return kPglRetSuccess;
 }
 
-pglerr_t alloc_and_flatten(char** sources, uint32_t param_ct, uint32_t max_blen, char** flattened_buf_ptr) {
+pglerr_t alloc_and_flatten(const char* const* sources, uint32_t param_ct, uint32_t max_blen, char** flattened_buf_ptr) {
   uintptr_t tot_blen = 1;
   for (uint32_t param_idx = 0; param_idx < param_ct; ++param_idx) {
     const uint32_t cur_blen = 1 + strlen(sources[param_idx]);
@@ -5676,7 +5690,7 @@ pglerr_t rerun(const char* ver_str, const char* ver_str2, const char* prog_name_
     const uint32_t argc = (uint32_t)(*argc_ptr);
     const uint32_t first_arg_idx = *first_arg_idx_ptr;
     char* rerun_first_token = skip_initial_spaces(rerun_buf);
-    char* arg_iter = rerun_first_token;
+    const char* arg_iter = rerun_first_token;
     // now use textbuf as a lame bitfield
     memset(textbuf, 1, loaded_arg_ct);
     uint32_t loaded_arg_idx = 0;
@@ -5688,12 +5702,12 @@ pglerr_t rerun(const char* ver_str, const char* ver_str2, const char* prog_name_
         fputs("Error: Line 2 of --rerun log file has fewer tokens than expected.\n", stderr);
         goto rerun_ret_MALFORMED_INPUT;
       }
-      char* flagname_p = is_flag_start(arg_iter);
+      const char* flagname_p = is_flag_start(arg_iter);
       if (flagname_p) {
         const uint32_t slen = strlen_se(flagname_p);
         uint32_t cmdline_arg_idx = first_arg_idx;
         for (; cmdline_arg_idx < argc; cmdline_arg_idx++) {
-          char* later_flagname_p = is_flag_start(argv[cmdline_arg_idx]);
+          const char* later_flagname_p = is_flag_start(argv[cmdline_arg_idx]);
           if (later_flagname_p) {
             const uint32_t slen2 = strlen(later_flagname_p);
             if ((slen == slen2) && (!memcmp(flagname_p, later_flagname_p, slen))) {
@@ -5726,15 +5740,15 @@ pglerr_t rerun(const char* ver_str, const char* ver_str2, const char* prog_name_
     }
     uint32_t new_arg_idx = rerun_argv_pos - first_arg_idx;
     memcpy(subst_argv2, &(argv[first_arg_idx]), new_arg_idx * sizeof(intptr_t));
-    arg_iter = rerun_first_token;
+    char* arg_nullterminate_iter = rerun_first_token;
     for (loaded_arg_idx = 0; loaded_arg_idx < loaded_arg_ct; ++loaded_arg_idx) {
-      arg_iter = skip_initial_spaces(arg_iter);
-      char* token_end = token_endnn(arg_iter);
+      arg_nullterminate_iter = skip_initial_spaces(arg_nullterminate_iter);
+      char* token_end = token_endnn(arg_nullterminate_iter);
       if (textbuf[loaded_arg_idx]) {
-        subst_argv2[new_arg_idx++] = arg_iter;
+        subst_argv2[new_arg_idx++] = arg_nullterminate_iter;
         *token_end = '\0';
       }
-      arg_iter = &(token_end[1]);
+      arg_nullterminate_iter = &(token_end[1]);
     }
     const uint32_t final_copy_start_idx = rerun_argv_pos + rerun_parameter_present + 1;
     memcpy(&(subst_argv2[new_arg_idx]), &(argv[final_copy_start_idx]), (argc - final_copy_start_idx) * sizeof(intptr_t));
@@ -5775,18 +5789,18 @@ pglerr_t rerun(const char* ver_str, const char* ver_str2, const char* prog_name_
 
 // Handles --script, --rerun, --help, --version, and --silent.
 // subst_argv, script_buf, and rerun_buf must be initialized to nullptr.
-pglerr_t cmdline_parse_phase1(const char* ver_str, const char* ver_str2, const char* prog_name_str, const char* notestr_null_calc2, const char* cmdline_format_str, const char* errstr_append, uint32_t max_flag_blen, pglerr_t(* disp_help_fn)(uint32_t, char**), int* argc_ptr, char*** argv_ptr, plink2_cmdline_meta_t* pcmp, uint32_t* first_arg_idx_ptr, uint32_t* flag_ct_ptr) {
+pglerr_t cmdline_parse_phase1(const char* ver_str, const char* ver_str2, const char* prog_name_str, const char* notestr_null_calc2, const char* cmdline_format_str, const char* errstr_append, uint32_t max_flag_blen, pglerr_t(* disp_help_fn)(uint32_t, const char* const*), int* argc_ptr, char*** argv_ptr, plink2_cmdline_meta_t* pcmp, uint32_t* first_arg_idx_ptr, uint32_t* flag_ct_ptr) {
   FILE* scriptfile = nullptr;
   pglerr_t reterr = kPglRetSuccess;
   {
     int argc = *argc_ptr;
-    char** argv = *argv_ptr;
+    const char* const* argvc = TO_CONSTCPCONSTP(*argv_ptr);
     char** subst_argv = nullptr;
     uint32_t first_arg_idx = 1;
     for (uint32_t arg_idx = 1; arg_idx < (uint32_t)argc; ++arg_idx) {
-      if ((!strcmp("-script", argv[arg_idx])) || (!strcmp("--script", argv[arg_idx]))) {
-        const uint32_t param_ct = param_count(argv, argc, arg_idx);
-        if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+      if ((!strcmp("-script", argvc[arg_idx])) || (!strcmp("--script", argvc[arg_idx]))) {
+        const uint32_t param_ct = param_count(argvc, argc, arg_idx);
+        if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
           fputs(ver_str, stdout);
           fputs(ver_str2, stdout);
           fputs(g_logbuf, stderr);
@@ -5794,7 +5808,7 @@ pglerr_t cmdline_parse_phase1(const char* ver_str, const char* ver_str2, const c
           goto cmdline_parse_phase1_ret_INVALID_CMDLINE;
         }
         for (uint32_t arg_idx2 = arg_idx + 2; arg_idx2 < (uint32_t)argc; ++arg_idx2) {
-          if ((!strcmp("-script", argv[arg_idx2])) || (!strcmp("--script", argv[arg_idx2]))) {
+          if ((!strcmp("-script", argvc[arg_idx2])) || (!strcmp("--script", argvc[arg_idx2]))) {
             fputs(ver_str, stdout);
             fputs(ver_str2, stdout);
             fputs("Error: Multiple --script flags.  Merge the files into one.\n", stderr);
@@ -5803,11 +5817,11 @@ pglerr_t cmdline_parse_phase1(const char* ver_str, const char* ver_str2, const c
           }
         }
         // logging not yet active, so don't use fopen_checked()
-        scriptfile = fopen(argv[arg_idx + 1], FOPEN_RB);
+        scriptfile = fopen(argvc[arg_idx + 1], FOPEN_RB);
         if (!scriptfile) {
           fputs(ver_str, stdout);
           fputs(ver_str2, stdout);
-          fprintf(stderr, g_errstr_fopen, argv[arg_idx + 1]);
+          fprintf(stderr, g_errstr_fopen, argvc[arg_idx + 1]);
           goto cmdline_parse_phase1_ret_OPEN_FAIL;
         }
         if (fseeko(scriptfile, 0, SEEK_END)) {
@@ -5865,7 +5879,7 @@ pglerr_t cmdline_parse_phase1(const char* ver_str, const char* ver_str2, const c
           goto cmdline_parse_phase1_ret_NOMEM;
         }
         pcmp->subst_argv = subst_argv;
-        memcpy(subst_argv, &(argv[1]), arg_idx * sizeof(intptr_t));
+        memcpy(subst_argv, &(argvc[1]), arg_idx * sizeof(intptr_t));
         const uint32_t load_param_idx_end = arg_idx + num_script_params;
         script_buf_iter = &(script_buf[-1]);
         for (uint32_t param_idx = arg_idx; param_idx < load_param_idx_end; ++param_idx) {
@@ -5875,19 +5889,19 @@ pglerr_t cmdline_parse_phase1(const char* ver_str, const char* ver_str2, const c
           // could enforce some sort of length limit here
           *script_buf_iter = '\0';
         }
-        memcpy(&(subst_argv[load_param_idx_end]), &(argv[arg_idx + 2]), (argc - arg_idx - 2) * sizeof(intptr_t));
+        memcpy(&(subst_argv[load_param_idx_end]), &(argvc[arg_idx + 2]), (argc - arg_idx - 2) * sizeof(intptr_t));
         argc = new_param_ct;
         *argc_ptr = argc;
         first_arg_idx = 0;
-        argv = subst_argv;
+        argvc = TO_CONSTCPCONSTP(subst_argv);
         *argv_ptr = subst_argv;
         break;
       }
     }
     for (uint32_t arg_idx = first_arg_idx; arg_idx < (uint32_t)argc; ++arg_idx) {
-      if ((!strcmp("-rerun", argv[arg_idx])) || (!strcmp("--rerun", argv[arg_idx]))) {
-        const uint32_t param_ct = param_count(argv, argc, arg_idx);
-        if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
+      if ((!strcmp("-rerun", argvc[arg_idx])) || (!strcmp("--rerun", argvc[arg_idx]))) {
+        const uint32_t param_ct = param_count(argvc, argc, arg_idx);
+        if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 1)) {
           fputs(ver_str, stdout);
           fputs(ver_str2, stdout);
           fputs(g_logbuf, stderr);
@@ -5895,24 +5909,24 @@ pglerr_t cmdline_parse_phase1(const char* ver_str, const char* ver_str2, const c
           goto cmdline_parse_phase1_ret_INVALID_CMDLINE;
         }
         for (uint32_t arg_idx2 = arg_idx + param_ct + 1; arg_idx2 < (uint32_t)argc; ++arg_idx2) {
-          if ((!strcmp("-rerun", argv[arg_idx2])) || (!strcmp("--rerun", argv[arg_idx2]))) {
+          if ((!strcmp("-rerun", argvc[arg_idx2])) || (!strcmp("--rerun", argvc[arg_idx2]))) {
             fputs(ver_str, stdout);
             fputs(ver_str2, stdout);
             fputs("Error: Duplicate --rerun flag.\n", stderr);
             goto cmdline_parse_phase1_ret_INVALID_CMDLINE;
           }
         }
-        reterr = rerun(ver_str, ver_str2, prog_name_str, arg_idx, param_ct, &argc, &first_arg_idx, &argv, &pcmp->subst_argv, &pcmp->rerun_buf);
+        reterr = rerun(ver_str, ver_str2, prog_name_str, arg_idx, param_ct, &argc, &first_arg_idx, argv_ptr, &pcmp->subst_argv, &pcmp->rerun_buf);
         if (reterr) {
           goto cmdline_parse_phase1_ret_1;
         }
         *argc_ptr = argc;
         subst_argv = pcmp->subst_argv;
-        *argv_ptr = argv;
+        argvc = TO_CONSTCPCONSTP(*argv_ptr);
         break;
       }
     }
-    if ((first_arg_idx < (uint32_t)argc) && (!is_flag(argv[first_arg_idx]))) {
+    if ((first_arg_idx < (uint32_t)argc) && (!is_flag(argvc[first_arg_idx]))) {
       fputs("Error: First parameter must be a flag.\n", stderr);
       fputs(errstr_append, stderr);
       goto cmdline_parse_phase1_ret_INVALID_CMDLINE;
@@ -5921,7 +5935,7 @@ pglerr_t cmdline_parse_phase1(const char* ver_str, const char* ver_str2, const c
     uint32_t version_present = 0;
     uint32_t silent_present = 0;
     for (uint32_t arg_idx = first_arg_idx; arg_idx < (uint32_t)argc; ++arg_idx) {
-      char* flagname_p = is_flag_start(argv[arg_idx]);
+      const char* flagname_p = is_flag_start(argvc[arg_idx]);
       if (flagname_p) {
         if (!strcmp("help", flagname_p)) {
           fputs(ver_str, stdout);
@@ -5932,19 +5946,19 @@ pglerr_t cmdline_parse_phase1(const char* ver_str, const char* ver_str2, const c
           if ((arg_idx == ((uint32_t)argc) - 1) && flag_ct) {
             // make "plink [valid flags/parameters] --help" work, and skip the
             // parameters
-            char** help_argv;
+            const char** help_argv;
             if (pgl_malloc(flag_ct * sizeof(intptr_t), &help_argv)) {
               goto cmdline_parse_phase1_ret_NOMEM2;
             }
             uint32_t arg_idx2 = 0;
             for (uint32_t flag_idx = 0; flag_idx < flag_ct; ++flag_idx) {
-              while (!is_flag_start(argv[++arg_idx2]));
-              help_argv[flag_idx] = argv[arg_idx2];
+              while (!is_flag_start(argvc[++arg_idx2]));
+              help_argv[flag_idx] = argvc[arg_idx2];
             }
             reterr = disp_help_fn(flag_ct, help_argv);
             free(help_argv);
           } else {
-            reterr = disp_help_fn(argc - arg_idx - 1, &(argv[arg_idx + 1]));
+            reterr = disp_help_fn(argc - arg_idx - 1, &(argvc[arg_idx + 1]));
           }
           if (!reterr) {
             reterr = kPglRetHelp;
@@ -5972,7 +5986,7 @@ pglerr_t cmdline_parse_phase1(const char* ver_str, const char* ver_str2, const c
           fputs(ver_str, stdout);
           fputs(ver_str2, stdout);
           // shouldn't be possible for this to overflow the buffer...
-          sprintf(g_logbuf, "Error: Unrecognized flag ('%s').\n", argv[arg_idx]);
+          snprintf(g_logbuf, kLogbufSize, "Error: Unrecognized flag ('%s').\n", argvc[arg_idx]);
           wordwrapb(0);
           fputs(g_logbuf, stderr);
           fputs(errstr_append, stderr);
@@ -6034,7 +6048,7 @@ pglerr_t cmdline_parse_phase1(const char* ver_str, const char* ver_str2, const c
 // This sorts the flag names so they're processed in a predictable order,
 // handles --out if present, initializes the log, and determines the number of
 // processors the OS wants us to think the machine has.
-pglerr_t cmdline_parse_phase2(const char* ver_str, const char* errstr_append, char** argv, uint32_t prog_name_str_slen, uint32_t max_flag_blen, int32_t argc, uint32_t flag_ct, plink2_cmdline_meta_t* pcmp, char* outname, char** outname_end_ptr, int32_t* known_procs_ptr, uint32_t* max_thread_ct_ptr) {
+pglerr_t cmdline_parse_phase2(const char* ver_str, const char* errstr_append, const char* const* argvc, uint32_t prog_name_str_slen, uint32_t max_flag_blen, int32_t argc, uint32_t flag_ct, plink2_cmdline_meta_t* pcmp, char* outname, char** outname_end_ptr, int32_t* known_procs_ptr, uint32_t* max_thread_ct_ptr) {
   pglerr_t reterr = kPglRetSuccess;
   {
     char* flag_buf = pcmp->flag_buf;
@@ -6051,19 +6065,19 @@ pglerr_t cmdline_parse_phase2(const char* ver_str, const char* errstr_append, ch
       const int32_t memcmp_out_result = memcmp("out", &(flag_buf[cur_flag_idx * max_flag_blen]), 4);
       if (!memcmp_out_result) {
         const uint32_t arg_idx = flag_map[cur_flag_idx];
-        const uint32_t param_ct = param_count(argv, argc, arg_idx);
-        if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+        const uint32_t param_ct = param_count(argvc, argc, arg_idx);
+        if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
           fputs(g_logbuf, stderr);
           fputs(errstr_append, stderr);
           goto cmdline_parse_phase2_ret_INVALID_CMDLINE;
         }
-        if (strlen(argv[arg_idx + 1]) > (kPglFnamesize - kMaxOutfnameExtBlen)) {
+        if (strlen(argvc[arg_idx + 1]) > (kPglFnamesize - kMaxOutfnameExtBlen)) {
           fflush(stdout);
           fputs("Error: --out parameter too long.\n", stderr);
           goto cmdline_parse_phase2_ret_OPEN_FAIL;
         }
-        const uint32_t slen = strlen(argv[arg_idx + 1]);
-        memcpy(outname, argv[arg_idx + 1], slen + 1);
+        const uint32_t slen = strlen(argvc[arg_idx + 1]);
+        memcpy(outname, argvc[arg_idx + 1], slen + 1);
         *outname_end_ptr = &(outname[slen]);
       }
       if (memcmp_out_result <= 0) {
@@ -6080,9 +6094,9 @@ pglerr_t cmdline_parse_phase2(const char* ver_str, const char* errstr_append, ch
       logprint("  --");
       logprint(&(flag_buf[cur_flag_idx * max_flag_blen]));
       uint32_t arg_idx = flag_map[cur_flag_idx] + 1;
-      while ((arg_idx < (uint32_t)argc) && (!is_flag(argv[arg_idx]))) {
+      while ((arg_idx < (uint32_t)argc) && (!is_flag(argvc[arg_idx]))) {
         logprint(" ");
-        logprint(argv[arg_idx++]);
+        logprint(argvc[arg_idx++]);
       }
       logprint("\n");
     }
@@ -6195,9 +6209,9 @@ pglerr_t cmdline_parse_phase3(uintptr_t max_default_mb, uintptr_t malloc_size_mb
     }
 #endif
     if (total_mb) {
-      sprintf(g_logbuf, "%" PRIu64 " MB RAM detected; reserving %" PRIuPTR " MB for main workspace.\n", total_mb, malloc_size_mb);
+      snprintf(g_logbuf, kLogbufSize, "%" PRIu64 " MB RAM detected; reserving %" PRIuPTR " MB for main workspace.\n", total_mb, malloc_size_mb);
     } else {
-      sprintf(g_logbuf, "Failed to determine total system memory.  Attempting to reserve %" PRIuPTR " MB.\n", malloc_size_mb);
+      snprintf(g_logbuf, kLogbufSize, "Failed to determine total system memory.  Attempting to reserve %" PRIuPTR " MB.\n", malloc_size_mb);
     }
     logprintb();
     uintptr_t malloc_mb_final;
@@ -6241,16 +6255,17 @@ void cleanup_cmp_expr(cmp_expr_t* cmp_expr_ptr) {
   free_cond(cmp_expr_ptr->pheno_name);
 }
 
-char* parse_next_binary_op(char* expr_str, uint32_t expr_slen, char** op_start_ptr, cmp_binary_op_t* binary_op_ptr) {
+// may want CXXCONST_CP treatment later
+const char* parse_next_binary_op(const char* expr_str, uint32_t expr_slen, const char** op_start_ptr, cmp_binary_op_t* binary_op_ptr) {
   // !=, <>: kCmpOperatorNoteq
   // <: kCmpOperatorLe
   // <=: kCmpOperatorLeq
   // =, ==: kCmpOperatorEq
   // >=: kCmpOperatorGeq
   // >: kCmpOperatorGe
-  char* next_eq = (char*)memchr(expr_str, '=', expr_slen);
-  char* next_lt = (char*)memchr(expr_str, '<', expr_slen);
-  char* next_gt = (char*)memchr(expr_str, '>', expr_slen);
+  const char* next_eq = (char*)memchr(expr_str, '=', expr_slen);
+  const char* next_lt = (char*)memchr(expr_str, '<', expr_slen);
+  const char* next_gt = (char*)memchr(expr_str, '>', expr_slen);
   if (!next_eq) {
     if (!next_lt) {
       if (!next_gt) {
@@ -6316,7 +6331,7 @@ char* parse_next_binary_op(char* expr_str, uint32_t expr_slen, char** op_start_p
   return &(next_gt[1]);
 }
 
-pglerr_t validate_and_alloc_cmp_expr(char** sources, const char* flag_name, uint32_t param_ct, cmp_expr_t* cmp_expr_ptr) {
+pglerr_t validate_and_alloc_cmp_expr(const char* const* sources, const char* flag_name, uint32_t param_ct, cmp_expr_t* cmp_expr_ptr) {
   // Currently four use cases:
   //   [pheno/covar name] [operator] [pheno val]: regular comparison
   //   [pheno/covar name]: existence check
@@ -6333,13 +6348,13 @@ pglerr_t validate_and_alloc_cmp_expr(char** sources, const char* flag_name, uint
     if ((param_ct != 1) && (param_ct != 3)) {
       goto validate_and_alloc_cmp_expr_ret_INVALID_EXPR_GENERIC;
     }
-    char* pheno_name_start = sources[0];
-    char* pheno_val_start;
+    const char* pheno_name_start = sources[0];
+    const char* pheno_val_start;
     uint32_t pheno_name_slen;
     uint32_t pheno_val_slen;
     if (param_ct == 3) {
       pheno_name_slen = strlen(pheno_name_start);
-      char* op_str = sources[1];
+      const char* op_str = sources[1];
       uint32_t op_slen = strlen(op_str);
       // ok to have single/double quotes around operator
       if (op_slen > 2) {
@@ -6349,8 +6364,8 @@ pglerr_t validate_and_alloc_cmp_expr(char** sources, const char* flag_name, uint
           op_slen -= 2;
         }
       }
-      char* op_start;
-      char* op_end = parse_next_binary_op(op_str, op_slen, &op_start, &cmp_expr_ptr->binary_op);
+      const char* op_start;
+      const char* op_end = parse_next_binary_op(op_str, op_slen, &op_start, &cmp_expr_ptr->binary_op);
       if ((!op_end) || (*op_end) || (op_start != op_str)) {
         goto validate_and_alloc_cmp_expr_ret_INVALID_EXPR_GENERIC;
       }
@@ -6359,7 +6374,7 @@ pglerr_t validate_and_alloc_cmp_expr(char** sources, const char* flag_name, uint
     } else {
       // permit param_ct == 1 as long as tokens are unambiguous
       uint32_t expr_slen = strlen(pheno_name_start);
-      char* op_start;
+      const char* op_start;
       pheno_val_start = parse_next_binary_op(pheno_name_start, expr_slen, &op_start, &cmp_expr_ptr->binary_op);
       if ((!pheno_val_start) || (!(*pheno_val_start)) || (op_start == pheno_name_start)) {
         goto validate_and_alloc_cmp_expr_ret_INVALID_EXPR_GENERIC;

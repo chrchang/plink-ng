@@ -26,7 +26,7 @@ namespace plink2 {
 
 extern const char g_cmdline_format_str[];
 
-pglerr_t disp_help(uint32_t param_ct, char** argv);
+pglerr_t disp_help(uint32_t param_ct, const char* const* argvc);
 
 #ifdef __cplusplus
 }

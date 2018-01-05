@@ -5624,7 +5624,7 @@ pglerr_t read_refalt1_genovec_hphase_subset_unsafe(const uintptr_t* __restrict s
     *phasepresent_ct_ptr = raw_phasepresent_ct;
   } else {
     expand_then_subset_bytearr_nested(aux2_second_half, aux2_first_half_copy, all_hets, sample_include, sample_ct, raw_phasepresent_ct, 1, phasepresent, phaseinfo);
-    *phasepresent_ct_ptr = popcount_longs(phasepresent, sample_ctl);
+    *phasepresent_ct_ptr = (uint32_t)popcount_longs(phasepresent, sample_ctl);
   }
   return kPglRetSuccess;
 }
@@ -8026,7 +8026,7 @@ void pwc_append_biallelic_genovec(const uintptr_t* __restrict genovec, pgen_writ
   const uint32_t vrec_len = pwc_append_biallelic_genovec_main(genovec, vidx, pwcp, &het_ct, &vrtype);
   const uintptr_t vrec_len_byte_ct = pwcp->vrec_len_byte_ct;
   pwcp->vidx += 1;
-  partial_uint_store(vrec_len, vrec_len_byte_ct, &(pwcp->vrec_len_buf[vidx * pwcp->vrec_len_byte_ct]));
+  partial_uint_store(vrec_len, (uint32_t)vrec_len_byte_ct, &(pwcp->vrec_len_buf[vidx * pwcp->vrec_len_byte_ct]));
   // could have a single expression which branchlessly handles both cases, but
   // doubt that's worthwhile
   if (!pwcp->phase_dosage_gflags) {
@@ -8307,7 +8307,7 @@ void pwc_append_biallelic_difflist_limited(const uintptr_t* __restrict raregeno,
   const uint32_t vrec_len = pwc_append_biallelic_difflist_limited_main(raregeno, difflist_sample_ids, vidx, difflist_common_geno, difflist_len, pwcp, &vrtype);
   const uintptr_t vrec_len_byte_ct = pwcp->vrec_len_byte_ct;
   pwcp->vidx += 1;
-  partial_uint_store(vrec_len, vrec_len_byte_ct, &(pwcp->vrec_len_buf[vidx * pwcp->vrec_len_byte_ct]));
+  partial_uint_store(vrec_len, (uint32_t)vrec_len_byte_ct, &(pwcp->vrec_len_buf[vidx * pwcp->vrec_len_byte_ct]));
   if (!pwcp->phase_dosage_gflags) {
     pwcp->vrtype_buf[vidx / kBitsPerWordD4] |= ((uintptr_t)vrtype) << (4 * (vidx % kBitsPerWordD4));
   } else {
@@ -8446,7 +8446,7 @@ void pwc_append_biallelic_genovec_hphase(const uintptr_t* __restrict genovec, co
   if (phasepresent_ct) {
     append_hphase(genovec, phasepresent, phaseinfo, het_ct, phasepresent_ct, pwcp, vrtype_dest, &vrec_len);
   }
-  partial_uint_store(vrec_len, vrec_len_byte_ct, vrec_len_dest);
+  partial_uint_store(vrec_len, (uint32_t)vrec_len_byte_ct, vrec_len_dest);
 }
 
 pglerr_t spgw_append_biallelic_genovec_hphase(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, st_pgen_writer_t* spgwp) {
@@ -8529,7 +8529,7 @@ void pwc_append_biallelic_genovec_dosage16(const uintptr_t* __restrict genovec, 
   if (dosage_ct) {
     append_dosage16(dosage_present, dosage_vals, dosage_ct, pwcp, &vrtype, &vrec_len);
   }
-  partial_uint_store(vrec_len, vrec_len_byte_ct, vrec_len_dest);
+  partial_uint_store(vrec_len, (uint32_t)vrec_len_byte_ct, vrec_len_dest);
   if (!pwcp->phase_dosage_gflags) {
     pwcp->vrtype_buf[vidx / kBitsPerWordD4] |= ((uintptr_t)vrtype) << (4 * (vidx % kBitsPerWordD4));
   } else {
@@ -8573,7 +8573,7 @@ void pwc_append_biallelic_genovec_hphase_dosage16(const uintptr_t* __restrict ge
   if (dosage_ct) {
     append_dosage16(dosage_present, dosage_vals, dosage_ct, pwcp, vrtype_dest, &vrec_len);
   }
-  partial_uint_store(vrec_len, vrec_len_byte_ct, vrec_len_dest);
+  partial_uint_store(vrec_len, (uint32_t)vrec_len_byte_ct, vrec_len_dest);
 }
 
 pglerr_t spgw_append_biallelic_genovec_hphase_dosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_vals, uint32_t dosage_ct, st_pgen_writer_t* spgwp) {

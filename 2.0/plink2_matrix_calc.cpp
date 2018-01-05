@@ -314,7 +314,7 @@ pglerr_t king_cutoff_batch(const char* sample_ids, const char* sids, uint32_t ra
     if (!loadbuf[kMaxMediumLine - 1]) {
       goto king_cutoff_batch_ret_LONG_LINE;
     }
-    char* loadbuf_first_token = skip_initial_spaces(loadbuf);
+    const char* loadbuf_first_token = skip_initial_spaces(loadbuf);
     if (is_eoln_kns(*loadbuf_first_token)) {
       goto king_cutoff_batch_ret_MISSING_TOKENS;
     }
@@ -333,7 +333,7 @@ pglerr_t king_cutoff_batch(const char* sample_ids, const char* sids, uint32_t ra
     }
     fill_uint_one(raw_sample_ct, sample_uidx_to_king_uidx);
     while (1) {
-      char* loadbuf_iter = loadbuf_first_token;
+      const char* loadbuf_iter = loadbuf_first_token;
       uint32_t sample_uidx;
       if (!sorted_xidbox_read_find(sorted_xidbox, xid_map, max_xid_blen, sample_ct, 0, xid_mode, &loadbuf_iter, &sample_uidx, idbuf)) {
         if (sample_uidx_to_king_uidx[sample_uidx] != UINT32_MAX) {
@@ -343,7 +343,7 @@ pglerr_t king_cutoff_batch(const char* sample_ids, const char* sids, uint32_t ra
           if (second_tab) {
             *second_tab = ' ';
           }
-          sprintf(g_logbuf, "Error: Duplicate ID '%s' in %s .\n", idbuf, king_cutoff_fprefix);
+          snprintf(g_logbuf, kLogbufSize, "Error: Duplicate ID '%s' in %s .\n", idbuf, king_cutoff_fprefix);
           goto king_cutoff_batch_ret_MALFORMED_INPUT_WW;
         }
         sample_uidx_to_king_uidx[sample_uidx] = line_idx - 1;
@@ -503,7 +503,7 @@ pglerr_t king_cutoff_batch(const char* sample_ids, const char* sids, uint32_t ra
     LOGERRPRINTFWW("Error: Fewer tokens than expected on line %" PRIuPTR " of %s .\n", line_idx, king_cutoff_fprefix);
     break;
   king_cutoff_batch_ret_LONG_LINE:
-    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, king_cutoff_fprefix);
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, king_cutoff_fprefix);
   king_cutoff_batch_ret_MALFORMED_INPUT_WW:
     wordwrapb(0);
     logerrprintb();
@@ -1838,7 +1838,7 @@ pglerr_t king_table_subset_load(const char* sorted_xidbox, const uint32_t* xid_m
       if (!textbuf[kMaxMediumLine - 1]) {
         goto king_table_subset_load_ret_LONG_LINE;
       }
-      char* textbuf_iter = skip_initial_spaces(textbuf);
+      const char* textbuf_iter = skip_initial_spaces(textbuf);
       if (is_eoln_kns(*textbuf_iter)) {
         continue;
       }
@@ -1866,7 +1866,7 @@ pglerr_t king_table_subset_load(const char* sorted_xidbox, const uint32_t* xid_m
       if (sample_uidx1 == sample_uidx2) {
         // could technically be due to unloaded SID, so use inconsistent-input
         // error code
-        sprintf(g_logbuf, "Error: Identical sample IDs on line %" PRIuPTR " of --king-table-subset file.\n", line_idx);
+        snprintf(g_logbuf, kLogbufSize, "Error: Identical sample IDs on line %" PRIuPTR " of --king-table-subset file.\n", line_idx);
         goto king_table_subset_load_ret_INCONSISTENT_INPUT_WW;
       }
       if (king_table_subset_thresh != -DBL_MAX) {
@@ -1903,13 +1903,13 @@ pglerr_t king_table_subset_load(const char* sorted_xidbox, const uint32_t* xid_m
     reterr = kPglRetReadFail;
     break;
   king_table_subset_load_ret_LONG_LINE:
-    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --king-table-subset file is pathologically long.\n", line_idx);
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --king-table-subset file is pathologically long.\n", line_idx);
     wordwrapb(0);
     logerrprintb();
     reterr = kPglRetMalformedInput;
     break;
   king_table_subset_load_ret_MISSING_TOKENS:
-    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --king-table-subset file has fewer tokens than expected.\n", line_idx);
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --king-table-subset file has fewer tokens than expected.\n", line_idx);
   king_table_subset_load_ret_INCONSISTENT_INPUT_WW:
     wordwrapb(0);
     logerrprintb();
@@ -2060,11 +2060,11 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
       logerrprint("Error: Line 1 of --king-table-subset file is pathologically long.\n");
       goto calc_king_table_subset_ret_MALFORMED_INPUT;
     }
-    char* textbuf_iter = skip_initial_spaces(g_textbuf);
+    const char* textbuf_iter = skip_initial_spaces(g_textbuf);
     if (is_eoln_kns(*textbuf_iter)) {
       goto calc_king_table_subset_ret_INVALID_HEADER;
     }
-    char* token_end = token_endnn(textbuf_iter);
+    const char* token_end = token_endnn(textbuf_iter);
     uint32_t token_slen = (uintptr_t)(token_end - textbuf_iter);
     // Make this work with both KING- and plink2-generated .kin0 files.
     if ((!strequal_k(textbuf_iter, "#FID1", token_slen)) && (!strequal_k(textbuf_iter, "FID", token_slen))) {
@@ -3713,7 +3713,7 @@ THREAD_FUNC_DECL calc_pca_var_wts_thread(void* arg) {
   }
 }
 
-pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const char* sids, uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const alt_allele_ct_t* maj_alleles, const double* allele_freqs, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t pc_ct, pca_flags_t pca_flags, uint32_t max_thread_ct, pgen_reader_t* simple_pgrp, double* grm, char* outname, char* outname_end) {
+pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const char* sids, uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const alt_allele_ct_t* maj_alleles, const double* allele_freqs, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t pc_ct, pca_flags_t pca_flags, uint32_t max_thread_ct, pgen_reader_t* simple_pgrp, double* grm, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -3759,10 +3759,10 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
     if (pc_ct > pca_sample_ct) {
       if (pca_sample_ct <= variant_ct) {
         pc_ct = pca_sample_ct;
-        sprintf(g_logbuf, "Warning: calculating %u PCs, since there are only %u samples.\n", pc_ct, pc_ct);
+        snprintf(g_logbuf, kLogbufSize, "Warning: calculating %u PCs, since there are only %u samples.\n", pc_ct, pc_ct);
       } else {
         pc_ct = variant_ct;
-        sprintf(g_logbuf, "Warning: calculating %u PCs, since there are only %u autosomal variants.\n", pc_ct, pc_ct);
+        snprintf(g_logbuf, kLogbufSize, "Warning: calculating %u PCs, since there are only %u autosomal variants.\n", pc_ct, pc_ct);
       }
       if (pc_ct < 2) {
         logerrprint("Error: Too few samples or autosomal variants for PCA.\n");
@@ -4034,7 +4034,7 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
       interr_t svd_rect_err = svd_rect(variant_ct, qq_col_ct, svd_rect_lwork, qq, ss, svd_rect_wkspace);
       if (svd_rect_err) {
         logprint("\n");
-        sprintf(g_logbuf, "Error: Failed to compute SVD of Krylov matrix (DGESVD info=%d).\n", (int32_t)svd_rect_err);
+        snprintf(g_logbuf, kLogbufSize, "Error: Failed to compute SVD of Krylov matrix (DGESVD info=%d).\n", (int32_t)svd_rect_err);
         goto calc_pca_ret_INCONSISTENT_INPUT_2;
       }
       BLAS_SET_NUM_THREADS(1);
@@ -4127,7 +4127,7 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
       svd_rect_err = svd_rect(pca_sample_ct, qq_col_ct, svd_rect_lwork, bb, ss, svd_rect_wkspace);
       if (svd_rect_err) {
         logprint("\n");
-        sprintf(g_logbuf, "Error: Failed to compute SVD of final matrix (DGESVD info=%d).\n", (int32_t)svd_rect_err);
+        snprintf(g_logbuf, kLogbufSize, "Error: Failed to compute SVD of final matrix (DGESVD info=%d).\n", (int32_t)svd_rect_err);
         goto calc_pca_ret_INCONSISTENT_INPUT_2;
       }
       BLAS_SET_NUM_THREADS(1);
@@ -4409,7 +4409,7 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
               variant_allele_idx_base = variant_allele_idxs[variant_uidx];
               cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - variant_allele_idx_base;
             }
-            char** cur_alleles = &(allele_storage[variant_allele_idx_base]);
+            const char* const* cur_alleles = &(allele_storage[variant_allele_idx_base]);
             if (ref_col) {
               *cswritep++ = '\t';
               cswritep = strcpya(cswritep, cur_alleles[0]);
@@ -4630,7 +4630,7 @@ THREAD_FUNC_DECL calc_score_thread(void* arg) {
   }
 }
 
-pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const uintptr_t* sex_male, const pheno_col_t* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const chr_info_t* cip, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const double* allele_freqs, const score_info_t* score_info_ptr, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t xchr_model, uint32_t max_thread_ct, pgen_reader_t* simple_pgrp, char* outname, char* outname_end) {
+pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const uintptr_t* sex_male, const pheno_col_t* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const chr_info_t* cip, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const double* allele_freqs, const score_info_t* score_info_ptr, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t xchr_model, uint32_t max_thread_ct, pgen_reader_t* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   gzFile gz_infile = nullptr;
@@ -4907,7 +4907,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
         uint32_t variant_uidx = variant_id_dupflag_htable_find(variant_id_start, variant_ids, variant_id_htable, variant_id_slen, variant_id_htable_size, max_variant_id_slen);
         if (!(variant_uidx >> 31)) {
           if (is_set(already_seen, variant_uidx)) {
-            sprintf(g_logbuf, "Error: Variant ID '%s' appears multiple times in --score file.\n", variant_ids[variant_uidx]);
+            snprintf(g_logbuf, kLogbufSize, "Error: Variant ID '%s' appears multiple times in --score file.\n", variant_ids[variant_uidx]);
             goto score_report_ret_MALFORMED_INPUT_WW;
           }
           set_bit(variant_uidx, already_seen);
@@ -4925,7 +4925,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
           char* allele_end = token_endnn(allele_start);
           char allele_end_char = *allele_end;
           *allele_end = '\0';
-          char** cur_alleles = &(allele_storage[variant_allele_idx_base]);
+          const char* const* cur_alleles = &(allele_storage[variant_allele_idx_base]);
           uint32_t cur_allele_idx = 0;
           for (; cur_allele_idx < cur_allele_ct; ++cur_allele_idx) {
             // for very long alleles, tokequal_k might read past the end of the
@@ -5047,7 +5047,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
                   uint32_t genocounts[4];
                   genovec_count_freqs_unsafe(genovec_buf, sample_ct, genocounts);
                   if (dosage_ct || genocounts[1] || genocounts[2]) {
-                    sprintf(g_logbuf, "Error: --score variance-standardize failure for ID '%s': estimated allele frequency is zero, but not all dosages are zero. (This is possible when e.g. allele frequencies are estimated from founders, but the allele is only observed in nonfounders.)\n", variant_ids[variant_uidx]);
+                    snprintf(g_logbuf, kLogbufSize, "Error: --score variance-standardize failure for ID '%s': estimated allele frequency is zero, but not all dosages are zero. (This is possible when e.g. allele frequencies are estimated from founders, but the allele is only observed in nonfounders.)\n", variant_ids[variant_uidx]);
                     goto score_report_ret_INCONSISTENT_INPUT_WW;
                   }
                   geno_slope = 0.0;
@@ -5122,13 +5122,13 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
 
             *allele_end = allele_end_char;
             double* cur_score_coefs_iter = &(cur_score_coefs_cmaj[block_vidx]);
-            char* read_iter = loadbuf_first_token;
+            const char* read_iter = loadbuf_first_token;
             for (uint32_t score_col_idx = 0; score_col_idx < score_col_ct; ++score_col_idx) {
               read_iter = next_token_multz(read_iter, score_col_idx_deltas[score_col_idx]);
               double raw_coef;
-              char* token_end = scanadv_double(read_iter, &raw_coef);
+              const char* token_end = scanadv_double(read_iter, &raw_coef);
               if (!token_end) {
-                sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --score file has an invalid coefficient.\n", line_idx);
+                snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --score file has an invalid coefficient.\n", line_idx);
                 goto score_report_ret_MALFORMED_INPUT_2;
               }
               *cur_score_coefs_iter = raw_coef;
@@ -5173,7 +5173,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
           }
         } else {
           if (variant_uidx != UINT32_MAX) {
-            sprintf(g_logbuf, "Error: --score variant ID '%s' appears multiple times in main dataset.\n", variant_ids[variant_uidx & 0x7fffffff]);
+            snprintf(g_logbuf, kLogbufSize, "Error: --score variant ID '%s' appears multiple times in main dataset.\n", variant_ids[variant_uidx & 0x7fffffff]);
             goto score_report_ret_INCONSISTENT_INPUT_WW;
           }
           ++missing_var_id_ct;
@@ -5199,11 +5199,11 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
     putc_unlocked('\r', stdout);
     if (missing_var_id_ct || missing_allele_code_ct) {
       if (!missing_var_id_ct) {
-        sprintf(g_logbuf, "Warning: %" PRIuPTR " --score file entr%s.\n", missing_allele_code_ct, (missing_allele_code_ct == 1)? "y was skipped due to a mismatching allele code" : "ies were skipped due to mismatching allele codes");
+        snprintf(g_logbuf, kLogbufSize, "Warning: %" PRIuPTR " --score file entr%s.\n", missing_allele_code_ct, (missing_allele_code_ct == 1)? "y was skipped due to a mismatching allele code" : "ies were skipped due to mismatching allele codes");
       } else if (!missing_allele_code_ct) {
-        sprintf(g_logbuf, "Warning: %" PRIuPTR " --score file entr%s.\n", missing_var_id_ct, (missing_var_id_ct == 1)? "y was skipped due to a missing variant ID" : "ies were skipped due to missing variant IDs");
+        snprintf(g_logbuf, kLogbufSize, "Warning: %" PRIuPTR " --score file entr%s.\n", missing_var_id_ct, (missing_var_id_ct == 1)? "y was skipped due to a missing variant ID" : "ies were skipped due to missing variant IDs");
       } else {
-        sprintf(g_logbuf, "Warning: %" PRIuPTR " --score file entr%s, and %" PRIuPTR " %s.\n", missing_var_id_ct, (missing_var_id_ct == 1)? "y was skipped due to a missing variant ID" : "ies were skipped due to missing variant IDs", missing_allele_code_ct, (missing_allele_code_ct == 1)? "was skipped due to a mismatching allele code" : "were skipped due to mismatching allele codes");
+        snprintf(g_logbuf, kLogbufSize, "Warning: %" PRIuPTR " --score file entr%s, and %" PRIuPTR " %s.\n", missing_var_id_ct, (missing_var_id_ct == 1)? "y was skipped due to a missing variant ID" : "ies were skipped due to missing variant IDs", missing_allele_code_ct, (missing_allele_code_ct == 1)? "was skipped due to a mismatching allele code" : "were skipped due to mismatching allele codes");
       }
       wordwrapb(0);
       logerrprintb();

@@ -115,6 +115,44 @@ extern "C" {
 namespace plink2 {
 #endif
 
+// A bunch of library functions operating on char*s don't modify the buffer
+// themselves, but return a char* which should inherit the constness of the
+// input parameter.  We want them to
+//   1. check const-correctness when this is compiled as C++
+//   2. still be valid C99
+// and the method of achieving this should be minimally bug-prone.
+//
+// Current hack:
+//   1. First declare the const char*-accepting version, with return type of
+//      CXXCONST_CP.  Make all return statements include a C-style cast, even
+//      when not strictly necessary (e.g. relaying the return value of another
+//      function of this sort), unless nullptr is being returned.
+//   2. Then declare the char*-accepting version in an immediately following
+//      #ifdef __cplusplus block, which is simply a wrapper that uses
+//      const_cast twice.
+// This is kind of ugly, so I may not use this approach in non-library source
+// code.
+//
+// There are related issues with const char** and const char* const*.
+// Unfortunately, while C99 implicitly converts char* to const char*, it does
+// not permit char** -> const char* const*, so caller-side casts are required.
+// (And char** -> const char** isn't permitted in C++ either for good reason,
+// see http://c-faq.com/ansi/constmismatch.html .  Use of TO_CONSTCPP() is a
+// bit of a red flag.)  The "good" news is that this removes the need for
+// duplicate C++ function prototypes, but it's generally an even worse
+// situation than the single-indirection case; these macro names are
+// intentionally verbose to encourage assignment to the appropriate-qualified
+// type as soon as possible.
+#ifdef __cplusplus
+  #define CXXCONST_CP const char*
+  #define TO_CONSTCPP(char_pp) const_cast<const char**>(char_pp)
+  #define TO_CONSTCPCONSTP(char_pp) (char_pp)
+#else
+  #define CXXCONST_CP char*
+  #define TO_CONSTCPP(char_pp) ((const char**)(char_pp))
+  #define TO_CONSTCPCONSTP(char_pp) ((const char* const*)(char_pp))
+#endif
+
 #ifdef _GNU_SOURCE
 // There was some recent (2016) discussion on the gcc mailing list on strlen()
 // vs. rawmemchr(., 0), where it was claimed that rawmemchr(., 0) could be
@@ -122,9 +160,16 @@ namespace plink2 {
 // least as good.  However, this didn't happen when I tried to benchmark this,
 // so I'll stick to the function that returns the right type (except when
 // rawmemchr itself has to be emulated).
-HEADER_INLINE char* strnul(const char* ss) {
-  return (char*)rawmemchr(ss, 0);
+HEADER_INLINE CXXCONST_CP strnul(const char* ss) {
+  return (CXXCONST_CP)rawmemchr(ss, 0);
 }
+
+  #ifdef __cplusplus
+HEADER_INLINE char* strnul(char* ss) {
+  return const_cast<char*>(strnul(const_cast<const char*>(ss)));
+}
+  #endif
+
 #else
   #ifdef __cplusplus
     #define rawmemchr(ss, cc) memchr((ss), (cc), (0x80000000U - plink2::kBytesPerVec))
@@ -132,17 +177,30 @@ HEADER_INLINE char* strnul(const char* ss) {
     #define rawmemchr(ss, cc) memchr((ss), (cc), (0x80000000U - kBytesPerVec))
   #endif
 
-HEADER_INLINE char* strnul(const char* ss) {
-  return (char*)(&(ss[strlen(ss)]));
+HEADER_INLINE CXXCONST_CP strnul(const char* ss) {
+  return (CXXCONST_CP)(&(ss[strlen(ss)]));
 }
 
-HEADER_INLINE char* strchrnul(const char* ss, int cc) {
+  #ifdef __cplusplus
+HEADER_INLINE char* strnul(char* ss) {
+  return const_cast<char*>(strnul(const_cast<const char*>(ss)));
+}
+  #endif
+
+HEADER_INLINE CXXCONST_CP strchrnul(const char* ss, int cc) {
   const char* strchr_result = strchr(ss, cc);
   if (strchr_result) {
-    return (char*)strchr_result;
+    return (CXXCONST_CP)strchr_result;
   }
-  return strnul(ss);
+  return (CXXCONST_CP)strnul(ss);
 }
+
+  #ifdef __cplusplus
+HEADER_INLINE char* strchrnul(char* ss, int cc) {
+  return const_cast<char*>(strchrnul(const_cast<const char*>(ss), cc));
+}
+  #endif
+
 #endif // !_GNU_SOURCE
 
 #ifdef _WIN32
@@ -247,9 +305,9 @@ void logprintb();
 
 void logerrprintb();
 
-#define LOGPRINTF(...) sprintf(g_logbuf, __VA_ARGS__); logprintb();
+#define LOGPRINTF(...) snprintf(g_logbuf, kLogbufSize, __VA_ARGS__); logprintb();
 
-#define LOGERRPRINTF(...) sprintf(g_logbuf, __VA_ARGS__); logerrprintb();
+#define LOGERRPRINTF(...) snprintf(g_logbuf, kLogbufSize, __VA_ARGS__); logerrprintb();
 
 // input for wordwrap/LOGPRINTFWW should have no intermediate '\n's.  If
 // suffix_len is 0, there should be a terminating \n.
@@ -257,14 +315,14 @@ void wordwrap(uint32_t suffix_len, char* ss);
 
 void wordwrapb(uint32_t suffix_len);
 
-#define LOGPREPRINTFWW(...) sprintf(g_logbuf, __VA_ARGS__); wordwrapb(0);
+#define LOGPREPRINTFWW(...) snprintf(g_logbuf, kLogbufSize, __VA_ARGS__); wordwrapb(0);
 
-#define LOGPRINTFWW(...) sprintf(g_logbuf, __VA_ARGS__); wordwrapb(0); logprintb();
+#define LOGPRINTFWW(...) snprintf(g_logbuf, kLogbufSize, __VA_ARGS__); wordwrapb(0); logprintb();
 
-#define LOGERRPRINTFWW(...) sprintf(g_logbuf, __VA_ARGS__); wordwrapb(0); logerrprintb();
+#define LOGERRPRINTFWW(...) snprintf(g_logbuf, kLogbufSize, __VA_ARGS__); wordwrapb(0); logerrprintb();
 
 // 5 = length of "done." suffix, which is commonly used
-#define LOGPRINTFWW5(...) sprintf(g_logbuf, __VA_ARGS__); wordwrapb(5); logprintb();
+#define LOGPRINTFWW5(...) snprintf(g_logbuf, kLogbufSize, __VA_ARGS__); wordwrapb(5); logprintb();
 
 boolerr_t fopen_checked(const char* fname, const char* mode, FILE** target_ptr);
 
@@ -431,34 +489,34 @@ uintptr_t get_strboxsort_wentry_blen(uintptr_t max_str_blen);
 
 #ifdef __cplusplus
 typedef struct str_sort_deref_struct {
-  char* strptr;
+  const char* strptr;
   bool operator<(const struct str_sort_deref_struct& rhs) const {
     return (strcmp(strptr, rhs.strptr) < 0);
   }
 } str_sort_deref_t;
 
 typedef struct str_nsort_deref_struct {
-  char* strptr;
+  const char* strptr;
   bool operator<(const struct str_nsort_deref_struct& rhs) const {
     return (strcmp_natural(strptr, rhs.strptr) < 0);
   }
 } str_nsort_deref_t;
 
-HEADER_INLINE void strptr_arr_sort(uintptr_t ct, char** strptr_arr) {
+HEADER_INLINE void strptr_arr_sort(uintptr_t ct, const char** strptr_arr) {
   std::sort((str_sort_deref_t*)strptr_arr, &(((str_sort_deref_t*)strptr_arr)[ct]));
 }
 
-HEADER_INLINE void strptr_arr_nsort(uintptr_t ct, char** strptr_arr) {
+HEADER_INLINE void strptr_arr_nsort(uintptr_t ct, const char** strptr_arr) {
   std::sort((str_nsort_deref_t*)strptr_arr, &(((str_nsort_deref_t*)strptr_arr)[ct]));
 }
 
 void sort_strbox_indexed2(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_nsort, char* strbox, uint32_t* id_map, void* sort_wkspace);
 #else
-HEADER_INLINE void strptr_arr_sort(uintptr_t ct, char** strptr_arr) {
+HEADER_INLINE void strptr_arr_sort(uintptr_t ct, const char** strptr_arr) {
   qsort(strptr_arr, ct, sizeof(intptr_t), strcmp_deref);
 }
 
-HEADER_INLINE void strptr_arr_nsort(uintptr_t ct, char** strptr_arr) {
+HEADER_INLINE void strptr_arr_nsort(uintptr_t ct, const char** strptr_arr) {
   qsort(strptr_arr, ct, sizeof(intptr_t), strcmp_natural_deref);
 }
 
@@ -476,7 +534,7 @@ boolerr_t sort_strbox_indexed(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t
 boolerr_t sort_strbox_indexed_malloc(uintptr_t str_ct, uintptr_t max_str_blen, char* strbox, uint32_t* id_map);
 
 // Returns dedup'd strbox entry count.
-uint32_t copy_and_dedup_sorted_strptrs_to_strbox(char** sorted_strptrs, uintptr_t str_ct, uintptr_t max_str_blen, char* strbox);
+uint32_t copy_and_dedup_sorted_strptrs_to_strbox(const char* const* sorted_strptrs, uintptr_t str_ct, uintptr_t max_str_blen, char* strbox);
 
 
 // note that this can be expected to have size 16 bytes, not 12, on 64-bit
@@ -494,7 +552,7 @@ typedef struct str_sort_indexed_deref_struct {
 void strptr_arr_sort_main(uintptr_t str_ct, uint32_t use_nsort, str_sort_indexed_deref_t* wkspace_alias);
 
 // This makes a temporary g_bigstack allocation.
-boolerr_t strptr_arr_indexed_sort(char** unsorted_strptrs, uint32_t str_ct, uint32_t use_nsort, uint32_t* id_map);
+boolerr_t strptr_arr_indexed_sort(const char* const* unsorted_strptrs, uint32_t str_ct, uint32_t use_nsort, uint32_t* id_map);
 
 /*
 void qsort_ext2(void* main_arr, uintptr_t arr_length, uintptr_t item_length, int(* comparator_deref)(const void*, const void*), void* secondary_arr, uintptr_t secondary_item_len, unsigned char* proxy_arr, uintptr_t proxy_len);
@@ -517,15 +575,21 @@ HEADER_INLINE uint32_t is_flag(const char* param) {
   return ((*param == '-') && ((ucc > '9') || ((ucc < '0') && (ucc != '.') && (ucc != '\0'))));
 }
 
-HEADER_INLINE char* is_flag_start(char* param) {
+HEADER_INLINE CXXCONST_CP is_flag_start(const char* param) {
   unsigned char ucc = param[1];
   if ((*param == '-') && ((ucc > '9') || ((ucc < '0') && (ucc != '.') && (ucc != '\0')))) {
-    return (ucc == '-')? (&(param[2])) : (&(param[1]));
+    return (CXXCONST_CP)(&(param[1 + (ucc == '-')]));
   }
   return nullptr;
 }
 
-uint32_t param_count(char** argv, uint32_t argc, uint32_t flag_idx);
+#ifdef __cplusplus
+HEADER_INLINE char* is_flag_start(char* param) {
+  return const_cast<char*>(is_flag_start(const_cast<const char*>(param)));
+}
+#endif
+
+uint32_t param_count(const char* const* argvc, uint32_t argc, uint32_t flag_idx);
 
 boolerr_t enforce_param_ct_range(const char* flag_name, uint32_t param_ct, uint32_t min_ct, uint32_t max_ct);
 
@@ -681,6 +745,11 @@ HEADER_INLINE boolerr_t bigstack_alloc_ulp(uintptr_t ct, uintptr_t*** ulp_arr_pt
 HEADER_INLINE boolerr_t bigstack_alloc_cp(uintptr_t ct, char*** cp_arr_ptr) {
   *cp_arr_ptr = (char**)bigstack_alloc(ct * sizeof(intptr_t));
   return !(*cp_arr_ptr);
+}
+
+HEADER_INLINE boolerr_t bigstack_alloc_kcp(uintptr_t ct, const char*** kcp_arr_ptr) {
+  *kcp_arr_ptr = (const char**)bigstack_alloc(ct * sizeof(intptr_t));
+  return !(*kcp_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_alloc_sip(uintptr_t ct, int16_t*** sip_arr_ptr) {
@@ -877,6 +946,11 @@ HEADER_INLINE boolerr_t bigstack_end_alloc_cp(uintptr_t ct, char*** cp_arr_ptr) 
   return !(*cp_arr_ptr);
 }
 
+HEADER_INLINE boolerr_t bigstack_end_alloc_kcp(uintptr_t ct, const char*** kcp_arr_ptr) {
+  *kcp_arr_ptr = (const char**)bigstack_end_alloc(ct * sizeof(intptr_t));
+  return !(*kcp_arr_ptr);
+}
+
 HEADER_INLINE boolerr_t bigstack_end_alloc_ucp(uintptr_t ct, unsigned char*** ucp_arr_ptr) {
   *ucp_arr_ptr = (unsigned char**)bigstack_end_alloc(ct * sizeof(intptr_t));
   return !(*ucp_arr_ptr);
@@ -1036,6 +1110,9 @@ HEADER_INLINE boolerr_t arena_end_alloc_cp(unsigned char* arena_bottom, uintptr_
 
 boolerr_t push_llstr(const char* ss, ll_str_t** ll_stack_ptr);
 
+// Does not require null-termination.
+// boolerr_t push_llstr_counted(const char* ss, uint32_t slen, ll_str_t** ll_stack_ptr);
+
 typedef struct l32str_struct {
   uint32_t len;
   char ss[];
@@ -1080,40 +1157,63 @@ HEADER_CINLINE int32_t no_more_tokens_kns(const char* sptr) {
   return ((!sptr) || is_eoln_kns(*sptr));
 }
 
-HEADER_INLINE char* skip_initial_spaces(char* sptr) {
+HEADER_INLINE CXXCONST_CP skip_initial_spaces(const char* sptr) {
   while ((*sptr == ' ') || (*sptr == '\t')) {
     ++sptr;
   }
-  return sptr;
+  return (CXXCONST_CP)sptr;
 }
+
+#ifdef __cplusplus
+HEADER_INLINE char* skip_initial_spaces(char* sptr) {
+  return const_cast<char*>(skip_initial_spaces(const_cast<const char*>(sptr)));
+}
+#endif
 
 // assumes we are currently in a token -- UNSAFE OTHERWISE
-HEADER_INLINE char* token_endnn(char* sptr) {
+HEADER_INLINE CXXCONST_CP token_endnn(const char* sptr) {
   // assert(((unsigned char)(*sptr)) > 32);
   while (!is_space_or_eoln(*(++sptr)));
-  return sptr;
+  return (CXXCONST_CP)sptr;
 }
 
-HEADER_INLINE char* next_prespace(char* sptr) {
+#ifdef __cplusplus
+HEADER_INLINE char* token_endnn(char* sptr) {
+  return const_cast<char*>(token_endnn(const_cast<const char*>(sptr)));
+}
+#endif
+
+HEADER_INLINE CXXCONST_CP next_prespace(const char* sptr) {
   while (((unsigned char)(*(++sptr))) >= 32);
-  return sptr;
+  return (CXXCONST_CP)sptr;
 }
 
+#ifdef __cplusplus
+HEADER_INLINE char* next_prespace(char* sptr) {
+  return const_cast<char*>(next_prespace(const_cast<const char*>(sptr)));
+}
+#endif
 
 // length-zero tokens and non-leading spaces are permitted in the
 // comma-delimiter case
-HEADER_INLINE char* comma_or_space_token_end(char* token_iter, uint32_t comma_delim) {
+HEADER_INLINE CXXCONST_CP comma_or_space_token_end(const char* token_iter, uint32_t comma_delim) {
   if (comma_delim) {
     unsigned char ucc = (unsigned char)(*token_iter);
     while ((ucc >= ' ') && (ucc != ',')) {
       ucc = *(++token_iter);
     }
-    return token_iter;
+    return (CXXCONST_CP)token_iter;
   }
-  return token_endnn(token_iter);
+  return (CXXCONST_CP)token_endnn(token_iter);
 }
 
-HEADER_INLINE char* comma_or_space_next_token(char* token_end_iter, uint32_t comma_delim) {
+#ifdef __cplusplus
+HEADER_INLINE char* comma_or_space_token_end(char* token_iter, uint32_t comma_delim) {
+  return const_cast<char*>(comma_or_space_token_end(const_cast<const char*>(token_iter), comma_delim));
+}
+#endif
+
+HEADER_INLINE CXXCONST_CP comma_or_space_next_token(const char* token_end_iter, uint32_t comma_delim) {
   // assumes token_end_iter is non-null, returns nullptr if there are no more
   // tokens
   // assert(token_end_iter);
@@ -1121,11 +1221,17 @@ HEADER_INLINE char* comma_or_space_next_token(char* token_end_iter, uint32_t com
     if ((*token_end_iter) != ',') {
       return nullptr;
     }
-    return skip_initial_spaces(&(token_end_iter[1]));
+    return (CXXCONST_CP)skip_initial_spaces(&(token_end_iter[1]));
   }
-  char* ss = skip_initial_spaces(token_end_iter);
-  return is_eoln_kns(*ss)? nullptr : ss;
+  const char* ss = skip_initial_spaces(token_end_iter);
+  return is_eoln_kns(*ss)? nullptr : ((CXXCONST_CP)(ss));
 }
+
+#ifdef __cplusplus
+HEADER_INLINE char* comma_or_space_next_token(char* token_end_iter, uint32_t comma_delim) {
+  return const_cast<char*>(comma_or_space_next_token(const_cast<const char*>(token_end_iter), comma_delim));
+}
+#endif
 
 
 // Returns whether uppercased ss matches nonempty fixed_str.  Assumes fixed_str
@@ -1163,24 +1269,24 @@ uint32_t is_alphanumeric(const char* ss);
 boolerr_t scan_posintptr(const char* ss, uintptr_t* valp);
 
 #ifdef __LP64__
-boolerr_t scanadv_posint_capped(uint64_t cap, char** ss_ptr, uint32_t* valp);
+boolerr_t scanadv_posint_capped(uint64_t cap, const char** ss_ptr, uint32_t* valp);
 
-boolerr_t scanadv_uint_capped(uint64_t cap, char** ss_ptr, uint32_t* valp);
+boolerr_t scanadv_uint_capped(uint64_t cap, const char** ss_ptr, uint32_t* valp);
 #else
-boolerr_t scanadv_posint_capped32(uint32_t cap_div_10, uint32_t cap_mod_10, char** ss_ptr, uint32_t* valp);
+boolerr_t scanadv_posint_capped32(uint32_t cap_div_10, uint32_t cap_mod_10, const char** ss_ptr, uint32_t* valp);
 
-boolerr_t scanadv_uint_capped32(uint32_t cap_div_10, uint32_t cap_mod_10, char** ss_ptr, uint32_t* valp);
+boolerr_t scanadv_uint_capped32(uint32_t cap_div_10, uint32_t cap_mod_10, const char** ss_ptr, uint32_t* valp);
 
-HEADER_INLINE boolerr_t scanadv_posint_capped(uint32_t cap, char** ss_ptr, uint32_t* valp) {
+HEADER_INLINE boolerr_t scanadv_posint_capped(uint32_t cap, const char** ss_ptr, uint32_t* valp) {
  return scanadv_posint_capped32(cap / 10, cap % 10, ss_ptr, valp);
 }
 
-HEADER_INLINE boolerr_t scanadv_uint_capped(uint32_t cap, char** ss_ptr, uint32_t* valp) {
+HEADER_INLINE boolerr_t scanadv_uint_capped(uint32_t cap, const char** ss_ptr, uint32_t* valp) {
  return scanadv_uint_capped32(cap / 10, cap % 10, ss_ptr, valp);
 }
 #endif
 
-HEADER_INLINE boolerr_t scanadv_uint_defcap(char** ss_ptr, uint32_t* valp) {
+HEADER_INLINE boolerr_t scanadv_uint_defcap(const char** ss_ptr, uint32_t* valp) {
   return scanadv_uint_capped(0x7ffffffe, ss_ptr, valp);
 }
 
@@ -1188,7 +1294,13 @@ HEADER_INLINE boolerr_t scanadv_uint_defcap(char** ss_ptr, uint32_t* valp) {
 // readers don't take much code (so it's fine to have a bunch of similar
 // functions, optimized for slightly different use cases), but we only want one
 // floating point reader
-char* scanadv_double(char* ss, double* valp);
+CXXCONST_CP scanadv_double(const char* ss, double* valp);
+
+#ifdef __cplusplus
+HEADER_INLINE char* scanadv_double(char* ss, double* valp) {
+  return const_cast<char*>(scanadv_double(const_cast<const char*>(ss), valp));
+}
+#endif
 
 HEADER_INLINE boolerr_t scan_float(const char* ss, float* valp) {
   double dxx;
@@ -1287,7 +1399,7 @@ HEADER_INLINE uintptr_t strlen_se(const char* ss) {
 }
 
 // ok if sptr is at end of current token
-HEADER_INLINE char* next_token(char* sptr) {
+HEADER_INLINE CXXCONST_CP next_token(const char* sptr) {
   if (!sptr) {
     return nullptr;
   }
@@ -1298,10 +1410,16 @@ HEADER_INLINE char* next_token(char* sptr) {
   while ((ucc == ' ') || (ucc == '\t')) {
     ucc = *(++sptr);
   }
-  return (ucc > 32)? sptr : nullptr;
+  return (ucc > 32)? ((CXXCONST_CP)sptr) : nullptr;
 }
 
-HEADER_INLINE char* next_token_mult(char* sptr, uint32_t ct) {
+#ifdef __cplusplus
+HEADER_INLINE char* next_token(char* sptr) {
+  return const_cast<char*>(next_token(const_cast<const char*>(sptr)));
+}
+#endif
+
+HEADER_INLINE CXXCONST_CP next_token_mult(const char* sptr, uint32_t ct) {
   // assert(ct);
   if (!sptr) {
     return nullptr;
@@ -1318,20 +1436,38 @@ HEADER_INLINE char* next_token_mult(char* sptr, uint32_t ct) {
       return nullptr;
     }
   } while (--ct);
-  return sptr;
+  return (CXXCONST_CP)sptr;
 }
 
-HEADER_INLINE char* next_token_multz(char* sptr, uint32_t ct) {
+#ifdef __cplusplus
+HEADER_INLINE char* next_token_mult(char* sptr, uint32_t ct) {
+  return const_cast<char*>(next_token_mult(const_cast<const char*>(sptr), ct));
+}
+#endif
+
+HEADER_INLINE CXXCONST_CP next_token_multz(const char* sptr, uint32_t ct) {
   // tried replacing this with ternary operator, but that actually seemed to
   // slow things down a bit under gcc 4.2.1 (tail call optimization issue?).
   // todo: recheck this under newer gcc/clang.
   if (ct) {
-    return next_token_mult(sptr, ct);
+    return (CXXCONST_CP)next_token_mult(sptr, ct);
   }
-  return sptr;
+  return (CXXCONST_CP)sptr;
 }
 
-char* comma_or_space_next_token_mult(char* sptr, uint32_t ct, uint32_t comma_delim);
+#ifdef __cplusplus
+HEADER_INLINE char* next_token_multz(char* sptr, uint32_t ct) {
+  return const_cast<char*>(next_token_multz(const_cast<const char*>(sptr), ct));
+}
+#endif
+
+CXXCONST_CP comma_or_space_next_token_mult(const char* sptr, uint32_t ct, uint32_t comma_delim);
+
+#ifdef __cplusplus
+HEADER_INLINE char* comma_or_space_next_token_mult(char* sptr, uint32_t ct, uint32_t comma_delim) {
+  return const_cast<char*>(comma_or_space_next_token_mult(const_cast<const char*>(sptr), ct, comma_delim));
+}
+#endif
 
 uint32_t count_tokens(const char* bufptr);
 
@@ -1352,7 +1488,7 @@ HEADER_INLINE char* fw_strcpy(const char* source, uint32_t min_width, char* dest
 
 // uint32_t count_and_measure_multistr(const char* multistr, uintptr_t* max_blen_ptr);
 
-boolerr_t count_and_measure_multistr_reverse_alloc(char* multistr, uintptr_t max_str_ct, uint32_t* str_ct_ptr, uintptr_t* max_blen_ptr, char*** strptr_arrp);
+boolerr_t count_and_measure_multistr_reverse_alloc(const char* multistr, uintptr_t max_str_ct, uint32_t* str_ct_ptr, uintptr_t* max_blen_ptr, const char*** strptr_arrp);
 
 boolerr_t multistr_to_strbox_dedup_arena_alloc(unsigned char* arena_top, const char* multistr, unsigned char** arena_bottom_ptr, char** sorted_strbox_ptr, uint32_t* str_ct_ptr, uintptr_t* max_blen_ptr);
 
@@ -1369,6 +1505,17 @@ char* int32toa(int32_t ii, char* start);
 char* uitoa_z5(uint32_t uii, char* start);
 
 char* int64toa(int64_t llii, char* start);
+
+#ifdef __LP64__
+// really just for printing line numbers
+HEADER_INLINE char* pintptrtoa(uintptr_t ulii, char* start) {
+  return int64toa(ulii, start);
+}
+#else
+HEADER_INLINE char* pintptrtoa(uintptr_t ulii, char* start) {
+  return uint32toa(ulii, start);
+}
+#endif
 
 char* uitoa_trunc4(uint32_t uii, char* start);
 
@@ -1605,7 +1752,7 @@ void bitvec_andnot2(const uintptr_t* __restrict include_bitvec, uintptr_t word_c
 
 // basic linear scan
 // returns -1 on failure to find, -2 if duplicate
-int32_t get_variant_uidx_without_htable(const char* idstr, char** variant_ids, const uintptr_t* variant_include, uint32_t variant_ct);
+int32_t get_variant_uidx_without_htable(const char* idstr, const char* const* variant_ids, const uintptr_t* variant_include, uint32_t variant_ct);
 
 // copy_subset() doesn't exist since a loop of the form
 //   uint32_t uidx = 0;
@@ -1666,7 +1813,7 @@ uint32_t populate_strbox_htable(const char* strbox, uintptr_t str_ct, uintptr_t 
 // uint32_t populate_strbox_subset_htable(const uintptr_t* __restrict subset_mask, const char* strbox, uintptr_t raw_str_ct, uintptr_t str_ct, uintptr_t max_str_blen, uint32_t str_htable_size, uint32_t* str_htable);
 
 // cur_id DOES need to be null-terminated
-uint32_t id_htable_find(const char* cur_id, char** item_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size);
+uint32_t id_htable_find(const char* cur_id, const char* const* item_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size);
 
 // assumes cur_id_slen < max_str_blen.
 // requires cur_id to be null-terminated.
@@ -1674,11 +1821,17 @@ uint32_t strbox_htable_find(const char* cur_id, const char* strbox, const uint32
 
 // last variant_ids entry must be at least kMaxIdBlen bytes before end of
 // bigstack
-uint32_t variant_id_dupflag_htable_find(const char* idbuf, char** variant_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_slen);
+uint32_t variant_id_dupflag_htable_find(const char* idbuf, const char* const* variant_ids, const uint32_t* id_htable, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_slen);
 
-uint32_t variant_id_dup_htable_find(const char* idbuf, char** variant_ids, const uint32_t* id_htable, const uint32_t* htable_dup_base, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_slen, uint32_t* llidx_ptr);
+uint32_t variant_id_dup_htable_find(const char* idbuf, const char* const* variant_ids, const uint32_t* id_htable, const uint32_t* htable_dup_base, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_slen, uint32_t* llidx_ptr);
 
-char* scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_blen);
+CXXCONST_CP scan_for_duplicate_ids(const char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_blen);
+
+#ifdef __cplusplus
+HEADER_INLINE char* scan_for_duplicate_ids(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_blen) {
+  return const_cast<char*>(scan_for_duplicate_ids(const_cast<const char*>(sorted_ids), id_ct, max_id_blen));
+}
+#endif
 
 // Collapses array of sorted IDs to remove duplicates, and writes pre-collapse
 // positions to id_starts (so e.g. duplication count of any sample ID can be
@@ -1734,9 +1887,9 @@ void cleanup_range_list(range_list_t* range_list_ptr);
 // bitarr assumed to be initialized (but not necessarily zero-initialized)
 boolerr_t numeric_range_list_to_bitarr(const range_list_t* range_list_ptr, uint32_t bitarr_size, uint32_t offset, uint32_t ignore_overflow, uintptr_t* bitarr);
 
-pglerr_t string_range_list_to_bitarr(char* header_line, const range_list_t* range_list_ptr, const char* __restrict sorted_ids, const uint32_t* __restrict id_map, const char* __restrict range_list_flag, const char* __restrict file_descrip, uint32_t token_ct, uint32_t fixed_len, uint32_t comma_delim, uintptr_t* bitarr, int32_t* __restrict seen_idxs);
+pglerr_t string_range_list_to_bitarr(const char* header_line, const range_list_t* range_list_ptr, const char* __restrict sorted_ids, const uint32_t* __restrict id_map, const char* __restrict range_list_flag, const char* __restrict file_descrip, uint32_t token_ct, uint32_t fixed_len, uint32_t comma_delim, uintptr_t* bitarr, int32_t* __restrict seen_idxs);
 
-pglerr_t string_range_list_to_bitarr_alloc(char* header_line, const range_list_t* range_list_ptr, const char* __restrict range_list_flag, const char* __restrict file_descrip, uint32_t token_ct, uint32_t fixed_len, uint32_t comma_delim, uintptr_t** bitarr_ptr);
+pglerr_t string_range_list_to_bitarr_alloc(const char* header_line, const range_list_t* range_list_ptr, const char* __restrict range_list_flag, const char* __restrict file_descrip, uint32_t token_ct, uint32_t fixed_len, uint32_t comma_delim, uintptr_t** bitarr_ptr);
 
 
 HEADER_CINLINE uint32_t realnum(double dd) {
@@ -1963,9 +2116,9 @@ HEADER_INLINE uint32_t is_nan_str(const char* ss, uint32_t slen) {
   return (slen == 2) || ((((unsigned char)ss[2]) & 0xdf) == 78);
 }
 
-boolerr_t parse_next_range(char** argv, uint32_t param_ct, char range_delim, uint32_t* cur_param_idx_ptr, char** cur_arg_pptr, char** range_start_ptr, uint32_t* rs_len_ptr, char** range_end_ptr, uint32_t* re_len_ptr);
+boolerr_t parse_next_range(const char* const* argvc, uint32_t param_ct, char range_delim, uint32_t* cur_param_idx_ptr, const char** cur_arg_pptr, const char** range_start_ptr, uint32_t* rs_len_ptr, const char** range_end_ptr, uint32_t* re_len_ptr);
 
-pglerr_t parse_name_ranges(char** argv, const char* errstr_append, uint32_t param_ct, uint32_t require_posint, char range_delim, range_list_t* range_list_ptr);
+pglerr_t parse_name_ranges(const char* const* argvc, const char* errstr_append, uint32_t param_ct, uint32_t require_posint, char range_delim, range_list_t* range_list_ptr);
 
 
 // Analytically finds all real roots of x^3 + ax^2 + bx + c, saving them in
@@ -2086,16 +2239,16 @@ HEADER_INLINE void threads3z_cleanup(threads_state_t* tsp, uint32_t* cur_block_s
 }
 
 
-pglerr_t populate_id_htable_mt(const uintptr_t* subset_mask, char** item_ids, uintptr_t item_ct, uint32_t store_all_dups, uint32_t id_htable_size, uint32_t thread_ct, uint32_t* id_htable);
+pglerr_t populate_id_htable_mt(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uint32_t store_all_dups, uint32_t id_htable_size, uint32_t thread_ct, uint32_t* id_htable);
 
 // pass in htable_dup_base_ptr == nullptr if not storing all duplicate IDs
-pglerr_t alloc_and_populate_id_htable_mt(const uintptr_t* subset_mask, char** item_ids, uintptr_t item_ct, uint32_t max_thread_ct, uint32_t** id_htable_ptr, uint32_t** htable_dup_base_ptr, uint32_t* id_htable_size_ptr);
+pglerr_t alloc_and_populate_id_htable_mt(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uint32_t max_thread_ct, uint32_t** id_htable_ptr, uint32_t** htable_dup_base_ptr, uint32_t* id_htable_size_ptr);
 
 
 typedef struct help_ctrl_struct {
   uint32_t iters_left;
   uint32_t param_ct;
-  char** argv;
+  const char* const* argv;
   uintptr_t unmatched_ct;
   uintptr_t* all_match_arr;
   uintptr_t* prefix_match_arr;
@@ -2115,7 +2268,7 @@ extern const char errstr_thread_create[];
 // assumes logfile is open
 void disp_exit_msg(pglerr_t reterr);
 
-boolerr_t check_extra_param(char** argv, const char* permitted_modif, uint32_t* other_idx_ptr);
+boolerr_t check_extra_param(const char* const* argvc, const char* permitted_modif, uint32_t* other_idx_ptr);
 
 char extract_char_param(const char* ss);
 
@@ -2123,11 +2276,13 @@ pglerr_t cmdline_alloc_string(const char* source, const char* flag_name, uint32_
 
 pglerr_t alloc_fname(const char* source, const char* flagname_p, uint32_t extra_size, char** fnbuf_ptr);
 
-pglerr_t alloc_and_flatten(char** sources, uint32_t param_ct, uint32_t max_blen, char** flattened_buf_ptr);
+pglerr_t alloc_and_flatten(const char* const* sources, uint32_t param_ct, uint32_t max_blen, char** flattened_buf_ptr);
 
 
 typedef struct plink2_cmdline_meta_struct {
+  // need to be able to assign this to argv, so don't make it const char**
   char** subst_argv;
+
   char* script_buf;
   char* rerun_buf;
   char* flag_buf;
@@ -2138,7 +2293,7 @@ void plink2_cmdline_meta_preinit(plink2_cmdline_meta_t* pcmp);
 
 // Handles --script, --rerun, --help, --version, and --silent.
 // subst_argv, script_buf, and rerun_buf must be initialized to nullptr.
-pglerr_t cmdline_parse_phase1(const char* ver_str, const char* ver_str2, const char* prog_name_str, const char* notestr_null_calc2, const char* cmdline_format_str, const char* errstr_append, uint32_t max_flag_blen, pglerr_t(* disp_help_fn)(uint32_t, char**), int* argc_ptr, char*** argv_ptr, plink2_cmdline_meta_t* pcmp, uint32_t* first_arg_idx_ptr, uint32_t* flag_ct_ptr);
+pglerr_t cmdline_parse_phase1(const char* ver_str, const char* ver_str2, const char* prog_name_str, const char* notestr_null_calc2, const char* cmdline_format_str, const char* errstr_append, uint32_t max_flag_blen, pglerr_t(* disp_help_fn)(uint32_t, const char* const*), int* argc_ptr, char*** argv_ptr, plink2_cmdline_meta_t* pcmp, uint32_t* first_arg_idx_ptr, uint32_t* flag_ct_ptr);
 
 // Assumes cmdline_parse_phase1() has completed, flag names have been copied to
 // flag_buf/flag_map, aliases handled, and PROG_NAME_STR has been copied to
@@ -2147,7 +2302,7 @@ pglerr_t cmdline_parse_phase1(const char* ver_str, const char* ver_str2, const c
 // This sorts the flag names so they're processed in a predictable order,
 // handles --out if present, initializes the log, and determines the number of
 // processors the OS wants us to think the machine has.
-pglerr_t cmdline_parse_phase2(const char* ver_str, const char* errstr_append, char** argv, uint32_t prog_name_str_slen, uint32_t max_flag_blen, int32_t argc, uint32_t flag_ct, plink2_cmdline_meta_t* pcmp, char* outname, char** outname_end_ptr, int32_t* known_procs_ptr, uint32_t* max_thread_ct_ptr);
+pglerr_t cmdline_parse_phase2(const char* ver_str, const char* errstr_append, const char* const* argvc, uint32_t prog_name_str_slen, uint32_t max_flag_blen, int32_t argc, uint32_t flag_ct, plink2_cmdline_meta_t* pcmp, char* outname, char** outname_end_ptr, int32_t* known_procs_ptr, uint32_t* max_thread_ct_ptr);
 
 HEADER_INLINE void invalid_arg(const char* cur_arg) {
   LOGPREPRINTFWW("Error: Unrecognized flag ('%s').\n", cur_arg);
@@ -2183,7 +2338,7 @@ void init_cmp_expr(cmp_expr_t* cmp_expr_ptr);
 
 void cleanup_cmp_expr(cmp_expr_t* cmp_expr_ptr);
 
-pglerr_t validate_and_alloc_cmp_expr(char** sources, const char* flag_name, uint32_t param_ct, cmp_expr_t* cmp_expr_ptr);
+pglerr_t validate_and_alloc_cmp_expr(const char* const* sources, const char* flag_name, uint32_t param_ct, cmp_expr_t* cmp_expr_ptr);
 
 // this is technically application-dependent, but let's keep this simple for
 // now

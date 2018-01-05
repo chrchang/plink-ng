@@ -62,7 +62,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (2 Jan 2018)";
+  " (5 Jan 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -212,8 +212,8 @@ typedef struct plink2_cmdline_struct {
   aperm_t aperm;
   cmp_expr_t keep_if_expr;
   cmp_expr_t remove_if_expr;
-  cmp_expr_t keep_if_info_expr;
-  cmp_expr_t remove_if_info_expr;
+  cmp_expr_t extract_if_info_expr;
+  cmp_expr_t exclude_if_info_expr;
   double ci_size;
   float var_min_qual;
   uint32_t splitpar_bound1;
@@ -592,7 +592,8 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
     uint32_t sample_ct = 0;
     if (psamname[0]) {
       // update (26 Nov 2017): change --no-pheno to also apply to .psam file
-      reterr = load_psam(psamname, pcp->pheno_fname? nullptr : &(pcp->pheno_range_list), pcp->fam_cols, ((!(pcp->fam_cols & kfFamCol6)) || (pcp->pheno_fname && pcp->pheno_range_list.name_ct))? 0 : 0x7fffffff, pcp->missing_pheno, (pcp->misc_flags / kfMiscAffection01) & 1, &max_sample_id_blen, &max_sid_blen, &max_paternal_id_blen, &max_maternal_id_blen, &sample_include, &sample_ids, &sids, &paternal_ids, &maternal_ids, &founder_info, &sex_nm, &sex_male, &pheno_cols, &pheno_names, &raw_sample_ct, &pheno_ct, &max_pheno_name_blen);
+      const uint32_t ignore_psam_phenos = (!(pcp->fam_cols & kfFamCol6)) || (pcp->pheno_fname && pcp->pheno_range_list.name_ct);
+      reterr = load_psam(psamname, pcp->pheno_fname? nullptr : &(pcp->pheno_range_list), pcp->fam_cols, ignore_psam_phenos? 0 : 0x7fffffff, pcp->missing_pheno, (pcp->misc_flags / kfMiscAffection01) & 1, &max_sample_id_blen, &max_sid_blen, &max_paternal_id_blen, &max_maternal_id_blen, &sample_include, &sample_ids, &sids, &paternal_ids, &maternal_ids, &founder_info, &sex_nm, &sex_male, &pheno_cols, &pheno_names, &raw_sample_ct, &pheno_ct, &max_pheno_name_blen);
       if (reterr) {
         goto plink2_ret_1;
       }
@@ -620,13 +621,13 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
     uintptr_t xheader_blen = 0;
     uintptr_t* variant_include = nullptr;
     uint32_t* variant_bps = nullptr;
-    char** variant_ids = nullptr;
-    char** allele_storage = nullptr;
+    char** variant_ids_mutable = nullptr;
+    char** allele_storage_mutable = nullptr;
     uintptr_t* pvar_qual_present = nullptr;
     float* pvar_quals = nullptr;
     uintptr_t* pvar_filter_present = nullptr;
     uintptr_t* pvar_filter_npass = nullptr;
-    char** pvar_filter_storage = nullptr;
+    const char* const* pvar_filter_storage = nullptr;
     uintptr_t* nonref_flags = nullptr;
     uint32_t xheader_info_pr = 0;
     uint32_t xheader_info_pr_nonflag = 0;
@@ -636,10 +637,12 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
     double* variant_cms = nullptr;
     chr_idx_t* chr_idxs = nullptr; // split-chromosome case only
     if (pvarname[0]) {
-      reterr = load_pvar(pvarname, pcp->var_filter_exceptions_flattened, pcp->varid_template, pcp->missing_varid_match, pcp->require_info_flattened, pcp->require_no_info_flattened, pcp->keep_if_info_expr, pcp->remove_if_info_expr, pcp->misc_flags, pcp->pvar_psam_modifier, pcp->exportf_modifier, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->dependency_flags & kfFilterNoSplitChr), cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids, &variant_allele_idxs, &allele_storage, &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_slen, &xheader_blen, &xheader_info_pr, &xheader_info_pr_nonflag, &max_filter_slen);
+      char** pvar_filter_storage_mutable = nullptr;
+      reterr = load_pvar(pvarname, pcp->var_filter_exceptions_flattened, pcp->varid_template, pcp->missing_varid_match, pcp->require_info_flattened, pcp->require_no_info_flattened, pcp->extract_if_info_expr, pcp->exclude_if_info_expr, pcp->misc_flags, pcp->pvar_psam_modifier, pcp->exportf_modifier, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->dependency_flags & kfFilterNoSplitChr), cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids_mutable, &variant_allele_idxs, &allele_storage_mutable, &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage_mutable, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_slen, &xheader_blen, &xheader_info_pr, &xheader_info_pr_nonflag, &max_filter_slen);
       if (reterr) {
         goto plink2_ret_1;
       }
+      pvar_filter_storage = TO_CONSTCPCONSTP(pvar_filter_storage_mutable);
       if (variant_ct == raw_variant_ct) {
         LOGPRINTFWW("%u variant%s loaded from %s.\n", variant_ct, (variant_ct == 1)? "" : "s", pvarname);
       } else {
@@ -815,7 +818,7 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
       // any functions using blockload must perform its own pgr_init(), etc.
     }
     if (pcp->pheno_fname) {
-      reterr = load_phenos(pcp->pheno_fname, &(pcp->pheno_range_list), sample_include, sample_ids, raw_sample_ct, sample_ct, max_sample_id_blen, pcp->missing_pheno, (pcp->misc_flags / kfMiscAffection01) & 1, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen);
+      reterr = load_phenos(pcp->pheno_fname, &(pcp->pheno_range_list), sample_include, sample_ids, raw_sample_ct, sample_ct, max_sample_id_blen, pcp->missing_pheno, (pcp->misc_flags / kfMiscAffection01) & 1, (pcp->misc_flags / kfMiscPhenoColNums) & 1, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen);
       if (reterr) {
         goto plink2_ret_1;
       }
@@ -898,7 +901,7 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
       uint32_t* variant_id_htable = nullptr;
       uint32_t* htable_dup_base = nullptr;
       uint32_t variant_id_htable_size;
-      reterr = alloc_and_populate_id_htable_mt(variant_include, variant_ids, variant_ct, pcp->max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size);
+      reterr = alloc_and_populate_id_htable_mt(variant_include, TO_CONSTCPCONSTP(variant_ids_mutable), variant_ct, pcp->max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size);
       if (reterr) {
         goto plink2_ret_1;
       }
@@ -913,45 +916,45 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
         }
       }
       if (pcp->varid_from || pcp->varid_to) {
-        reterr = from_to_flag(variant_ids, variant_id_htable, pcp->varid_from, pcp->varid_to, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, variant_include, cip, &variant_ct);
+        reterr = from_to_flag(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, pcp->varid_from, pcp->varid_to, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, variant_include, cip, &variant_ct);
         if (reterr) {
           goto plink2_ret_1;
         }
       }
       if (pcp->varid_snp) {
-        reterr = snp_flag(variant_bps, variant_ids, variant_id_htable, pcp->varid_snp, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, 0, pcp->window_bp, variant_include, cip, &variant_ct);
+        reterr = snp_flag(variant_bps, TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, pcp->varid_snp, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, 0, pcp->window_bp, variant_include, cip, &variant_ct);
         if (reterr) {
           goto plink2_ret_1;
         }
       }
       if (pcp->snps_range_list.name_ct) {
-        reterr = snps_flag(variant_ids, variant_id_htable, &(pcp->snps_range_list), raw_variant_ct, max_variant_id_slen, variant_id_htable_size, 0, variant_include, &variant_ct);
+        reterr = snps_flag(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, &(pcp->snps_range_list), raw_variant_ct, max_variant_id_slen, variant_id_htable_size, 0, variant_include, &variant_ct);
         if (reterr) {
           goto plink2_ret_1;
         }
       }
       if (pcp->varid_exclude_snp) {
-        reterr = snp_flag(variant_bps, variant_ids, variant_id_htable, pcp->varid_exclude_snp, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, 1, pcp->window_bp, variant_include, cip, &variant_ct);
+        reterr = snp_flag(variant_bps, TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, pcp->varid_exclude_snp, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, 1, pcp->window_bp, variant_include, cip, &variant_ct);
         if (reterr) {
           goto plink2_ret_1;
         }
       }
       if (pcp->exclude_snps_range_list.name_ct) {
-        reterr = snps_flag(variant_ids, variant_id_htable, &(pcp->exclude_snps_range_list), raw_variant_ct, max_variant_id_slen, variant_id_htable_size, 1, variant_include, &variant_ct);
+        reterr = snps_flag(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, &(pcp->exclude_snps_range_list), raw_variant_ct, max_variant_id_slen, variant_id_htable_size, 1, variant_include, &variant_ct);
         if (reterr) {
           goto plink2_ret_1;
         }
       }
 
       if (pcp->update_name_flag && variant_ct) {
-        reterr = update_var_names(variant_include, variant_id_htable, pcp->update_name_flag, raw_variant_ct, variant_id_htable_size, variant_ids, &max_variant_id_slen);
+        reterr = update_var_names(variant_include, variant_id_htable, pcp->update_name_flag, raw_variant_ct, variant_id_htable_size, variant_ids_mutable, &max_variant_id_slen);
         if (reterr) {
           goto plink2_ret_1;
         }
         if ((pcp->extract_fnames && (!(pcp->filter_flags & (kfFilterExtractIbed0 | kfFilterExtractIbed1)))) || (pcp->exclude_fnames && (!(pcp->filter_flags & (kfFilterExcludeIbed0 | kfFilterExcludeIbed1))))) {
           // Must reconstruct the hash table in this case.
           bigstack_reset(bigstack_mark);
-          reterr = alloc_and_populate_id_htable_mt(variant_include, variant_ids, variant_ct, pcp->max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size);
+          reterr = alloc_and_populate_id_htable_mt(variant_include, TO_CONSTCPCONSTP(variant_ids_mutable), variant_ct, pcp->max_thread_ct, &variant_id_htable, &htable_dup_base, &variant_id_htable_size);
           if (reterr) {
             goto plink2_ret_1;
           }
@@ -959,13 +962,13 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
       }
 
       if (pcp->extract_fnames && (!(pcp->filter_flags & (kfFilterExtractIbed0 | kfFilterExtractIbed1)))) {
-        reterr = extract_exclude_flag_norange(variant_ids, variant_id_htable, pcp->extract_fnames, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, 0, variant_include, &variant_ct);
+        reterr = extract_exclude_flag_norange(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, pcp->extract_fnames, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, 0, variant_include, &variant_ct);
         if (reterr) {
           goto plink2_ret_1;
         }
       }
       if (pcp->exclude_fnames && (!(pcp->filter_flags & (kfFilterExcludeIbed0 | kfFilterExcludeIbed1)))) {
-        reterr = extract_exclude_flag_norange(variant_ids, variant_id_htable, pcp->exclude_fnames, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, 1, variant_include, &variant_ct);
+        reterr = extract_exclude_flag_norange(TO_CONSTCPCONSTP(variant_ids_mutable), variant_id_htable, pcp->exclude_fnames, raw_variant_ct, max_variant_id_slen, variant_id_htable_size, 1, variant_include, &variant_ct);
         if (reterr) {
           goto plink2_ret_1;
         }
@@ -977,10 +980,19 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
           goto plink2_ret_1;
         }
       }
+      // todo: --update-alleles
+
       // todo: --attrib; although it isn't a "standard" file format, it can be
       // more convenient than forcing users to generate full-blown sites-only
       // VCF files, etc.
     }
+    // variant_ids[] is fixed from this point on.
+    const char* const* variant_ids = TO_CONSTCPCONSTP(variant_ids_mutable);
+    // set_refalt1_from_file() can alter pointers-to-missing in
+    // allele_storage[] so we can't make this a const char* const*, but nothing
+    // alters the pointed-to strings after this point.
+    const char** allele_storage = TO_CONSTCPP(allele_storage_mutable);
+
     if (pcp->thin_keep_prob != 1.0) {
       random_thin_prob("thin", "variant", pcp->thin_keep_prob, raw_variant_ct, variant_include, &variant_ct);
     } else if (pcp->thin_keep_ct != UINT32_MAX) {
@@ -1121,7 +1133,7 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
       }
       if (pcp->covar_fname || pcp->covar_range_list.name_ct) {
         const char* cur_covar_fname = pcp->covar_fname? pcp->covar_fname : (pcp->pheno_fname? pcp->pheno_fname : psamname);
-        reterr = load_phenos(cur_covar_fname, &(pcp->covar_range_list), sample_include, sample_ids, raw_sample_ct, sample_ct, max_sample_id_blen, pcp->missing_pheno, 2, &covar_cols, &covar_names, &covar_ct, &max_covar_name_blen);
+        reterr = load_phenos(cur_covar_fname, &(pcp->covar_range_list), sample_include, sample_ids, raw_sample_ct, sample_ct, max_sample_id_blen, pcp->missing_pheno, 2, (pcp->misc_flags / kfMiscCovarColNums) & 1, &covar_cols, &covar_names, &covar_ct, &max_covar_name_blen);
         if (reterr) {
           goto plink2_ret_1;
         }
@@ -1818,7 +1830,7 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
         // one.)
 
         const uint32_t setting_alleles_from_file = pcp->ref_allele_flag || pcp->alt1_allele_flag || pcp->ref_from_fa_fname;
-        char** allele_storage_backup = nullptr;
+        const char** allele_storage_backup = nullptr;
         uint32_t max_allele_slen_backup = max_allele_slen;
         uintptr_t* nonref_flags_backup = nullptr;
         uint32_t nonref_flags_was_null = (nonref_flags == nullptr);
@@ -1830,7 +1842,7 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
             // allele_storage[]; --loop-cats doesn't like this.  Save a backup
             // copy.
             if (pcp->ref_allele_flag || pcp->alt1_allele_flag) {
-              if (bigstack_end_alloc_cp(raw_allele_ct, &allele_storage_backup)) {
+              if (bigstack_end_alloc_kcp(raw_allele_ct, &allele_storage_backup)) {
                 goto plink2_ret_NOMEM;
               }
               memcpy(allele_storage_backup, allele_storage, raw_allele_ct * sizeof(intptr_t));
@@ -2022,7 +2034,7 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
         }
 
         if (pcp->command_flags1 & kfCommand1Exportf) {
-          reterr = exportf(xheader, sample_include, sample_ids, sids, paternal_ids, maternal_ids, sex_nm, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, xheader_blen, xheader_info_pr, xheader_info_pr_nonflag, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, max_paternal_id_blen, max_maternal_id_blen, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, make_plink2_modifier, pcp->exportf_modifier, pcp->exportf_id_paste, pcp->exportf_id_delim, pcp->exportf_bits, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
+          reterr = exportf(sample_include, sample_ids, sids, paternal_ids, maternal_ids, sex_nm, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, xheader_blen, xheader_info_pr, xheader_info_pr_nonflag, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, max_paternal_id_blen, max_maternal_id_blen, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, make_plink2_modifier, pcp->exportf_modifier, pcp->exportf_id_paste, pcp->exportf_id_delim, pcp->exportf_bits, pgr_alloc_cacheline_ct, xheader, &pgfi, &simple_pgr, outname, outname_end);
           if (reterr) {
             goto plink2_ret_1;
           }
@@ -2190,7 +2202,7 @@ pglerr_t zst_decompress(const char* in_fname, const char* out_fname) {
   return reterr;
 }
 
-pglerr_t alloc_2col(char** sources, const char* flagname_p, uint32_t param_ct, two_col_params_t** tcbuf) {
+pglerr_t alloc_2col(const char* const* sources, const char* flagname_p, uint32_t param_ct, two_col_params_t** tcbuf) {
   uint32_t fname_blen = strlen(sources[0]) + 1;
   if (fname_blen > kPglFnamesize) {
     LOGERRPRINTF("Error: --%s filename too long.\n", flagname_p);
@@ -2243,7 +2255,7 @@ pglerr_t alloc_2col(char** sources, const char* flagname_p, uint32_t param_ct, t
   return kPglRetSuccess;
 }
 
-pglerr_t alloc_and_flatten_comma_delim(char** sources, uint32_t param_ct, char** flattened_buf_ptr) {
+pglerr_t alloc_and_flatten_comma_delim(const char* const* sources, uint32_t param_ct, char** flattened_buf_ptr) {
   uint32_t tot_blen = 1;
   for (uint32_t param_idx = 0; param_idx < param_ct; ++param_idx) {
     const char* cur_param_iter = sources[param_idx];
@@ -2426,7 +2438,7 @@ pglerr_t parse_col_descriptor(const char* col_descriptor_iter, const char* suppo
     reterr = kPglRetNomem;
     break;
   parse_col_descriptor_ret_MIXED_SIGN:
-    sprintf(g_logbuf, "Error: Invalid --%s column set descriptor (either all column set IDs must be preceded by +/-, or none of them can be).\n", cur_flag_name);
+    snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s column set descriptor (either all column set IDs must be preceded by +/-, or none of them can be).\n", cur_flag_name);
   parse_col_descriptor_ret_INVALID_CMDLINE_WW:
     wordwrapb(0);
     logerrprintb();
@@ -2437,13 +2449,13 @@ pglerr_t parse_col_descriptor(const char* col_descriptor_iter, const char* suppo
   return reterr;
 }
 
-void get_exportf_targets(char** argv, uint32_t param_ct, exportf_flags_t* exportf_modifier_ptr, idpaste_t* exportf_id_paste_ptr, uint32_t* format_param_idxs_ptr) {
+void get_exportf_targets(const char* const* argvc, uint32_t param_ct, exportf_flags_t* exportf_modifier_ptr, idpaste_t* exportf_id_paste_ptr, uint32_t* format_param_idxs_ptr) {
   // does not error out if no format present, since this is needed for --recode
   // translation
   // supports multiple formats
   uint32_t format_param_idxs = 0;
   for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-    const char* cur_modif = argv[param_idx];
+    const char* cur_modif = argvc[param_idx];
     const char* cur_modif2 = &(cur_modif[1]);
     exportf_flags_t cur_format = kfExportf0;
     switch (*cur_modif) {
@@ -2553,7 +2565,7 @@ void get_exportf_targets(char** argv, uint32_t param_ct, exportf_flags_t* export
         if (!cur_modif2[2]) {
           cur_format = kfExportfVcf;
         } else if ((!strcmp(&(cur_modif2[2]), "-fid")) || (!strcmp(&(cur_modif2[2]), "-iid"))) {
-          sprintf(g_logbuf, "Note: --export 'v%s' modifier is deprecated.  Use 'vcf' + 'id-paste=%s'.\n", cur_modif2, &(cur_modif2[3]));
+          snprintf(g_logbuf, kLogbufSize, "Note: --export 'v%s' modifier is deprecated.  Use 'vcf' + 'id-paste=%s'.\n", cur_modif2, &(cur_modif2[3]));
           cur_format = kfExportfVcf;
           *exportf_id_paste_ptr = (cur_modif2[3] == 'f')? kfIdpasteFid : kfIdpasteIid;
         }
@@ -2568,9 +2580,9 @@ void get_exportf_targets(char** argv, uint32_t param_ct, exportf_flags_t* export
   *format_param_idxs_ptr = format_param_idxs;
 }
 
-uint32_t varid_template_is_valid(char* varid_str, const char* flagname_p) {
-  char* sptr = strchr(varid_str, '@');
-  char* sptr2 = strchr(varid_str, '#');
+uint32_t varid_template_is_valid(const char* varid_str, const char* flagname_p) {
+  const char* sptr = strchr(varid_str, '@');
+  const char* sptr2 = strchr(varid_str, '#');
   if ((!sptr) || (!sptr2) || strchr(&(sptr[1]), '@') || strchr(&(sptr2[1]), '#')) {
     LOGERRPRINTFWW("Error: The --%s template string requires exactly one '@' and one '#'.\n", flagname_p);
     return 0;
@@ -2650,7 +2662,7 @@ int main(int argc, char** argv) {
   unsigned char* bigstack_ua = nullptr;
   plink2_cmdline_meta_t pcm;
   plink2_cmdline_meta_preinit(&pcm);
-  char* flagname_p = nullptr;
+  const char* flagname_p = nullptr;
   char* king_cutoff_fprefix = nullptr;
   char* const_fid = nullptr;
   char* import_single_chr_str = nullptr;
@@ -2724,8 +2736,8 @@ int main(int argc, char** argv) {
   init_score(&pc.score_info);
   init_cmp_expr(&pc.keep_if_expr);
   init_cmp_expr(&pc.remove_if_expr);
-  init_cmp_expr(&pc.keep_if_info_expr);
-  init_cmp_expr(&pc.remove_if_info_expr);
+  init_cmp_expr(&pc.extract_if_info_expr);
+  init_cmp_expr(&pc.exclude_if_info_expr);
   chr_info_t chr_info;
   if (init_chr_info(&chr_info)) {
     goto main_ret_NOMEM_NOLOG;
@@ -2749,10 +2761,14 @@ int main(int argc, char** argv) {
         pgl_malloc(flag_ct * sizeof(int32_t), &pcm.flag_map)) {
       goto main_ret_NOMEM_NOLOG2;
     }
+
+    // No modifications to argv past this point.
+    const char* const* argvc = TO_CONSTCPCONSTP(argv);
+
     char* flagname_write_iter = pcm.flag_buf;
     uint32_t cur_flag_idx = 0;
     for (arg_idx = first_arg_idx; arg_idx < (uint32_t)argc; ++arg_idx) {
-      flagname_p = is_flag_start(argv[arg_idx]);
+      flagname_p = is_flag_start(argvc[arg_idx]);
       if (flagname_p) {
         const uint32_t flag_slen = strlen(flagname_p);
         switch (*flagname_p) {
@@ -2780,6 +2796,13 @@ int main(int argc, char** argv) {
             strcpy(flagname_write_iter, "pgen");
           } else if (strequal_k(flagname_p, "bim", flag_slen)) {
             strcpy(flagname_write_iter, "pvar");
+          } else {
+            goto main_flag_copy;
+          }
+          break;
+        case 'c':
+          if (strequal_k(flagname_p, "covar-number", flag_slen)) {
+            strcpy(flagname_write_iter, "covar-col-nums");
           } else {
             goto main_flag_copy;
           }
@@ -2826,6 +2849,9 @@ int main(int argc, char** argv) {
           } else if (strequal_k(flagname_p, "keep-cluster-names", flag_slen)) {
             fputs("Note: --keep-cluster-names flag deprecated.  Use --keep-cat-names instead.\n", stdout);
             strcpy(flagname_write_iter, "keep-cat-names");
+          } else if (strequal_k(flagname_p, "keep-if-info", flag_slen)) {
+            fputs("Note: --keep-if-info renamed to --extract-if-info, for consistency with other\nsample/variant filters (keep/remove = sample filter; extract/exclude = variant\nfilter).\n", stdout);
+            strcpy(flagname_write_iter, "extract-if-info");
           } else {
             goto main_flag_copy;
           }
@@ -2876,7 +2902,7 @@ int main(int argc, char** argv) {
         case 'r':
           if (strequal_k(flagname_p, "recode", flag_slen)) {
             // special case: translate to "export ped" if no format specified
-            const uint32_t param_ct = param_count(argv, argc, arg_idx);
+            const uint32_t param_ct = param_count(argvc, argc, arg_idx);
             if (param_ct > 4) {
               fputs("Error: --recode accepts at most 4 parameters.\n", stderr);
               goto main_ret_INVALID_CMDLINE;
@@ -2884,7 +2910,7 @@ int main(int argc, char** argv) {
             exportf_flags_t dummy;
             idpaste_t dummy2;
             uint32_t format_param_idxs;
-            get_exportf_targets(&(argv[arg_idx]), param_ct, &dummy, &dummy2, &format_param_idxs);
+            get_exportf_targets(&(argvc[arg_idx]), param_ct, &dummy, &dummy2, &format_param_idxs);
             if (!format_param_idxs) {
               strcpy(flagname_write_iter, "export ped");
             } else {
@@ -2900,6 +2926,9 @@ int main(int argc, char** argv) {
           } else if (strequal_k(flagname_p, "remove-cluster-names", flag_slen)) {
             fputs("Note: --remove-cluster-names flag deprecated.  Use --remove-cat-names instead.\n", stdout);
             strcpy(flagname_write_iter, "remove-cat-names");
+          } else if (strequal_k(flagname_p, "remove-if-info", flag_slen)) {
+            fputs("Note: --remove-if-info renamed to --exclude-if-info, for consistency with other\nsample/variant filters (keep/remove = sample filter; extract/exclude = variant\nfilter).\n", stdout);
+            strcpy(flagname_write_iter, "exclude-if-info");
           } else {
             goto main_flag_copy;
           }
@@ -2932,7 +2961,7 @@ int main(int argc, char** argv) {
     memcpy(outname, "plink2", 6);
     char* outname_end = nullptr;
     int32_t known_procs;
-    reterr = cmdline_parse_phase2(ver_str, errstr_append, argv, 6, kMaxFlagBlen, argc, flag_ct, &pcm, outname, &outname_end, &known_procs, &pc.max_thread_ct);
+    reterr = cmdline_parse_phase2(ver_str, errstr_append, argvc, 6, kMaxFlagBlen, argc, flag_ct, &pcm, outname, &outname_end, &known_procs, &pc.max_thread_ct);
     if (reterr) {
       goto main_ret_NOLOG;
     }
@@ -3046,9 +3075,9 @@ int main(int argc, char** argv) {
         // preprocessed; not relevant now, but will need --d later
         continue;
       }
-      char* flagname_p2 = &(flagname_p[1]);
+      const char* flagname_p2 = &(flagname_p[1]);
       arg_idx = pcm.flag_map[cur_flag_idx];
-      uint32_t param_ct = param_count(argv, argc, arg_idx);
+      uint32_t param_ct = param_count(argvc, argc, arg_idx);
       switch (*flagname_p) {
       case '1':
         if (*flagname_p2 == '\0') {
@@ -3061,13 +3090,13 @@ int main(int argc, char** argv) {
 
       case 'a':
         if (strequal_k2(flagname_p2, "llow-extra-chr")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct) {
-            const char* cur_modif = argv[arg_idx + 1];
+            const char* cur_modif = argvc[arg_idx + 1];
             if (!strequal_k2(cur_modif, "0")) {
-              sprintf(g_logbuf, "Error: Invalid --allow-extra-chr parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --allow-extra-chr parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
             chr_info.zero_extra_chrs = 1;
@@ -3099,11 +3128,11 @@ int main(int argc, char** argv) {
           pc.misc_flags |= kfMiscAllowNoVars;
           goto main_param_zero;
         } else if (strequal_k2(flagname_p2, "djust")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 3)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 3)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            const char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "gc", cur_modif_slen)) {
               pc.adjust_info.flags |= kfAdjustGc;
@@ -3124,7 +3153,7 @@ int main(int argc, char** argv) {
                 goto main_ret_1;
               }
             } else {
-              sprintf(g_logbuf, "Error: Invalid --adjust parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --adjust parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -3132,19 +3161,19 @@ int main(int argc, char** argv) {
             pc.adjust_info.flags |= kfAdjustColDefault;
           }
         } else if (strequal_k2(flagname_p2, "perm")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 6)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 6)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           if (scan_posint_defcap(cur_modif, &pc.aperm.min)) {
-            sprintf(g_logbuf, "Error: Invalid --aperm min permutation count '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --aperm min permutation count '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           ++pc.aperm.min;
           if (param_ct > 1) {
-            cur_modif = argv[arg_idx + 2];
+            cur_modif = argvc[arg_idx + 2];
             if (scan_posint_capped(cur_modif, kApermMax, &pc.aperm.max)) {
-              sprintf(g_logbuf, "Error: Invalid --aperm max permutation count '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --aperm max permutation count '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -3154,31 +3183,31 @@ int main(int argc, char** argv) {
           }
           aperm_present = 1;
           if (param_ct > 2) {
-            cur_modif = argv[arg_idx + 3];
+            cur_modif = argvc[arg_idx + 3];
             if (!scanadv_double(cur_modif, &pc.aperm.alpha)) {
-              sprintf(g_logbuf, "Error: Invalid --aperm alpha threshold '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --aperm alpha threshold '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
             if (param_ct > 3) {
-              cur_modif = argv[arg_idx + 4];
+              cur_modif = argvc[arg_idx + 4];
               if ((!scanadv_double(cur_modif, &pc.aperm.beta)) || (pc.aperm.beta <= 0.0)) {
-                sprintf(g_logbuf, "Error: Invalid --aperm beta '%s'.\n", cur_modif);
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --aperm beta '%s'.\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
               if (param_ct > 4) {
-                cur_modif = argv[arg_idx + 5];
+                cur_modif = argvc[arg_idx + 5];
                 if (!scanadv_double(cur_modif, &pc.aperm.init_interval)) {
-                  sprintf(g_logbuf, "Error: Invalid --aperm initial pruning interval '%s'.\n", cur_modif);
+                  snprintf(g_logbuf, kLogbufSize, "Error: Invalid --aperm initial pruning interval '%s'.\n", cur_modif);
                   goto main_ret_INVALID_CMDLINE_WWA;
                 }
                 if ((pc.aperm.init_interval < 1.0) || (pc.aperm.init_interval > 1000000.0)) {
-                  sprintf(g_logbuf, "Error: Invalid --aperm initial pruning interval '%s'.\n", cur_modif);
+                  snprintf(g_logbuf, kLogbufSize, "Error: Invalid --aperm initial pruning interval '%s'.\n", cur_modif);
                   goto main_ret_INVALID_CMDLINE_WWA;
                 }
                 if (param_ct == 6) {
-                  cur_modif = argv[arg_idx + 6];
+                  cur_modif = argvc[arg_idx + 6];
                   if (!scanadv_double(cur_modif, &pc.aperm.interval_slope) || (pc.aperm.interval_slope < 0.0) || (pc.aperm.interval_slope > 1.0)) {
-                    sprintf(g_logbuf, "Error: Invalid --aperm pruning interval slope '%s'.\n", cur_modif);
+                    snprintf(g_logbuf, kLogbufSize, "Error: Invalid --aperm pruning interval slope '%s'.\n", cur_modif);
                     goto main_ret_INVALID_CMDLINE_WWA;
                   }
                 }
@@ -3186,13 +3215,13 @@ int main(int argc, char** argv) {
             }
           }
         } else if (strequal_k2(flagname_p2, "utosome-num")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           uint32_t autosome_ct;
           if (scan_posint_capped(cur_modif, kMaxChrTextnum, &autosome_ct)) {
-            sprintf(g_logbuf, "Error: Invalid --autosome-num parameter '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --autosome-num parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           // see plink2_common finalize_chrset()
@@ -3208,10 +3237,10 @@ int main(int argc, char** argv) {
           chr_info.haploid_mask[0] = 0;
           set_bit(autosome_ct + 1, chr_info.haploid_mask);
         } else if (strequal_k2(flagname_p2, "lt1-allele")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 5)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 5)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          char** sources = &(argv[arg_idx + 1]);
+          const char* const* sources = &(argvc[arg_idx + 1]);
           if (!strcmp(sources[0], "force")) {
             --param_ct;
             if (!param_ct) {
@@ -3239,16 +3268,16 @@ int main(int argc, char** argv) {
           if (xload) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t fname_modif_idx = 1;
           if (param_ct == 2) {
-            if (check_extra_param(&(argv[arg_idx]), "vzs", &fname_modif_idx)) {
+            if (check_extra_param(&(argvc[arg_idx]), "vzs", &fname_modif_idx)) {
               goto main_ret_INVALID_CMDLINE_A;
             }
           }
-          const char* fname_prefix = argv[arg_idx + fname_modif_idx];
+          const char* fname_prefix = argvc[arg_idx + fname_modif_idx];
           const uint32_t slen = strlen(fname_prefix);
           if (slen > (kPglFnamesize - 9)) {
             // could use kPglFnamesize - 2 - 3 * param_ct, but that's pointless
@@ -3268,16 +3297,16 @@ int main(int argc, char** argv) {
             // currently only possible with --bcf, --bfile
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t fname_modif_idx = 1;
           if (param_ct == 2) {
-            if (check_extra_param(&(argv[arg_idx]), "vzs", &fname_modif_idx)) {
+            if (check_extra_param(&(argvc[arg_idx]), "vzs", &fname_modif_idx)) {
               goto main_ret_INVALID_CMDLINE_A;
             }
           }
-          const char* fname_prefix = argv[arg_idx + fname_modif_idx];
+          const char* fname_prefix = argvc[arg_idx + fname_modif_idx];
           const uint32_t slen = strlen(fname_prefix);
           if (slen > (kPglFnamesize - 9)) {
             logerrprint("Error: --bpfile parameter too long.\n");
@@ -3292,17 +3321,17 @@ int main(int argc, char** argv) {
           }
           load_params |= kfLoadParamsPfileAll;
         } else if (strequal_k2(flagname_p2, "iallelic-only")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            const char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             if (!strcmp(cur_modif, "strict")) {
               pc.misc_flags |= kfMiscBiallelicOnlyStrict;
             } else if (!strcmp(cur_modif, "list")) {
               pc.misc_flags |= kfMiscBiallelicOnlyList;
             } else {
-              sprintf(g_logbuf, "Error: Invalid --biallelic-only parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --biallelic-only parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -3311,17 +3340,17 @@ int main(int argc, char** argv) {
           reterr = kPglRetNotYetSupported;
           goto main_ret_1;
         } else if (strequal_k2(flagname_p2, "cf")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct == 2) {
-            const char* cur_modif = argv[arg_idx + 2];
+            const char* cur_modif = argvc[arg_idx + 2];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (!str_startswith(cur_modif, "dosage=", cur_modif_slen)) {
-              sprintf(g_logbuf, "Error: Invalid --bcf parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --bcf parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
-            reterr = cmdline_alloc_string(&(cur_modif[strlen("dosage=")]), argv[arg_idx], 4095, &vcf_dosage_import_field);
+            reterr = cmdline_alloc_string(&(cur_modif[strlen("dosage=")]), argvc[arg_idx], 4095, &vcf_dosage_import_field);
             if (reterr) {
               goto main_ret_1;
             }
@@ -3334,7 +3363,7 @@ int main(int argc, char** argv) {
               goto main_ret_INVALID_CMDLINE;
             }
           }
-          const char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           const uint32_t slen = strlen(cur_modif);
           if (slen > kPglFnamesize - 1) {
             logerrprint("Error: --bcf filename too long.\n");
@@ -3346,11 +3375,11 @@ int main(int argc, char** argv) {
           if (load_params || xload) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 3)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 3)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
-            const char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             if (!strcmp(cur_modif, "snpid-chr")) {
               oxford_import_flags |= kfOxfordImportBgenSnpIdChr;
             } else if (!strcmp(cur_modif, "ref-first")) {
@@ -3358,11 +3387,11 @@ int main(int argc, char** argv) {
             } else if (!strcmp(cur_modif, "ref-second")) {
               oxford_import_flags |= kfOxfordImportRefSecond;
             } else {
-              sprintf(g_logbuf, "Error: Invalid --bgen parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --bgen parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
-          const char* cur_fname = argv[arg_idx + 1];
+          const char* cur_fname = argvc[arg_idx + 1];
           const uint32_t slen = strlen(cur_fname);
           if (slen > kPglFnamesize - 1) {
             logerrprint("Error: --bgen filename too long.\n");
@@ -3371,12 +3400,12 @@ int main(int argc, char** argv) {
           memcpy(pgenname, cur_fname, slen + 1);
           xload = kfXloadOxBgen;
         } else if (strequal_k2(flagname_p2, "p-space")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           if (scan_posint_defcap(cur_modif, &pc.min_bp_space)) {
-            sprintf(g_logbuf, "Error: Invalid --bp-space minimum bp distance '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --bp-space minimum bp distance '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.filter_flags |= kfFilterPvarReq | kfFilterNoSplitChr;
@@ -3391,44 +3420,56 @@ int main(int argc, char** argv) {
             logerrprint("Error: --chr cannot be used with --autosome{-par}.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 0x7fffffff)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = parse_chr_ranges(flagname_p, errstr_append, param_ct, (pc.misc_flags / kfMiscAllowExtraChrs) & 1, 0, '-', &(argv[arg_idx]), &chr_info, chr_info.chr_mask);
+          reterr = parse_chr_ranges(&(argvc[arg_idx]), flagname_p, errstr_append, param_ct, (pc.misc_flags / kfMiscAllowExtraChrs) & 1, 0, '-', &chr_info, chr_info.chr_mask);
           if (reterr) {
             goto main_ret_1;
           }
           chr_info.is_include_stack = 1;
         } else if (strequal_k2(flagname_p2, "ovar")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = alloc_fname(argv[arg_idx + 1], flagname_p, 0, &pc.covar_fname);
+          reterr = alloc_fname(argvc[arg_idx + 1], flagname_p, 0, &pc.covar_fname);
           if (reterr) {
             goto main_ret_1;
           }
           pc.dependency_flags |= kfFilterPsamReq;
+        } else if (strequal_k2(flagname_p2, "ovar-col-nums")) {
+          // requires --covar or --pheno, but --pheno hasn't been parsed yet so
+          // we don't enforce the condition here
+          reterr = parse_name_ranges(&(argvc[arg_idx]), errstr_append, param_ct, 1, range_delim, &pc.covar_range_list);
+          if (reterr) {
+            goto main_ret_1;
+          }
+          pc.misc_flags |= kfMiscCovarColNums;
         } else if (strequal_k2(flagname_p2, "ovar-name")) {
+          if (pc.covar_range_list.name_ct) {
+            logerrprint("Error: --covar-name can't be used with --covar-col-nums.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           // can now be used without --covar
-          reterr = parse_name_ranges(&(argv[arg_idx]), errstr_append, param_ct, 0, range_delim, &pc.covar_range_list);
+          reterr = parse_name_ranges(&(argvc[arg_idx]), errstr_append, param_ct, 0, range_delim, &pc.covar_range_list);
           if (reterr) {
             goto main_ret_1;
           }
           pc.dependency_flags |= kfFilterPsamReq;
         } else if (strequal_k2(flagname_p2, "onst-fid")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = cmdline_alloc_string(param_ct? argv[arg_idx + 1] : "0", argv[arg_idx], kMaxIdSlen, &const_fid);
+          reterr = cmdline_alloc_string(param_ct? argvc[arg_idx + 1] : "0", argvc[arg_idx], kMaxIdSlen, &const_fid);
           if (reterr) {
             goto main_ret_1;
           }
         } else if (strequal_k2(flagname_p2, "i")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          if (!scanadv_double(argv[arg_idx + 1], &pc.ci_size)) {
-            sprintf(g_logbuf, "Error: Invalid --ci parameter '%s'.\n", argv[arg_idx + 1]);
+          if (!scanadv_double(argvc[arg_idx + 1], &pc.ci_size)) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --ci parameter '%s'.\n", argvc[arg_idx + 1]);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           if ((pc.ci_size < 0.01) || (pc.ci_size >= 1.0)) {
@@ -3436,20 +3477,20 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_A;
           }
         } else if (strequal_k2(flagname_p2, "ondition")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t fname_modif_idx = 1;
           if (param_ct == 2) {
-            if (!strcmp("dominant", argv[arg_idx + 2])) {
+            if (!strcmp("dominant", argvc[arg_idx + 2])) {
               pc.glm_info.flags |= kfGlmConditionDominant;
-            } else if (!strcmp("recessive", argv[arg_idx + 2])) {
+            } else if (!strcmp("recessive", argvc[arg_idx + 2])) {
               pc.glm_info.flags |= kfGlmConditionRecessive;
             } else {
               fname_modif_idx = 2;
-              if (!strcmp("dominant", argv[arg_idx + 1])) {
+              if (!strcmp("dominant", argvc[arg_idx + 1])) {
                 pc.glm_info.flags |= kfGlmConditionDominant;
-              } else if (!strcmp("recessive", argv[arg_idx + 1])) {
+              } else if (!strcmp("recessive", argvc[arg_idx + 1])) {
                 pc.glm_info.flags |= kfGlmConditionRecessive;
               } else {
                 logerrprint("Error: Invalid --condition parameter sequence.\n");
@@ -3457,7 +3498,7 @@ int main(int argc, char** argv) {
               }
             }
           }
-          reterr = cmdline_alloc_string(argv[arg_idx + fname_modif_idx], argv[arg_idx], kMaxIdSlen, &pc.glm_info.condition_varname);
+          reterr = cmdline_alloc_string(argvc[arg_idx + fname_modif_idx], argvc[arg_idx], kMaxIdSlen, &pc.glm_info.condition_varname);
           if (reterr) {
             goto main_ret_1;
           }
@@ -3466,20 +3507,20 @@ int main(int argc, char** argv) {
             logerrprint("Error: --condition-list cannot be used with --condition.\n");
             goto main_ret_INVALID_CMDLINE;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t fname_modif_idx = 1;
           if (param_ct == 2) {
-            if (!strcmp("dominant", argv[arg_idx + 2])) {
+            if (!strcmp("dominant", argvc[arg_idx + 2])) {
               pc.glm_info.flags |= kfGlmConditionDominant;
-            } else if (!strcmp("recessive", argv[arg_idx + 2])) {
+            } else if (!strcmp("recessive", argvc[arg_idx + 2])) {
               pc.glm_info.flags |= kfGlmConditionRecessive;
             } else {
               fname_modif_idx = 2;
-              if (!strcmp("dominant", argv[arg_idx + 1])) {
+              if (!strcmp("dominant", argvc[arg_idx + 1])) {
                 pc.glm_info.flags |= kfGlmConditionDominant;
-              } else if (!strcmp("recessive", argv[arg_idx + 1])) {
+              } else if (!strcmp("recessive", argvc[arg_idx + 1])) {
                 pc.glm_info.flags |= kfGlmConditionRecessive;
               } else {
                 logerrprint("Error: Invalid --condition-list parameter sequence.\n");
@@ -3487,7 +3528,7 @@ int main(int argc, char** argv) {
               }
             }
           }
-          reterr = alloc_fname(argv[arg_idx + fname_modif_idx], flagname_p, 0, &pc.glm_info.condition_list_fname);
+          reterr = alloc_fname(argvc[arg_idx + fname_modif_idx], flagname_p, 0, &pc.glm_info.condition_list_fname);
           if (reterr) {
             goto main_ret_1;
           }
@@ -3513,13 +3554,13 @@ int main(int argc, char** argv) {
             logerrprint("Error: Conflicting chromosome-set flags.\n");
             goto main_ret_INVALID_CMDLINE;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 5)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 5)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           int32_t signed_autosome_ct;
           if (scan_int_abs_bounded(cur_modif, kMaxChrTextnum, &signed_autosome_ct) || (!signed_autosome_ct)) {
-            sprintf(g_logbuf, "Error: Invalid --chr-set parameter '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --chr-set parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           // see plink2_common finalize_chrset()
@@ -3550,7 +3591,7 @@ int main(int argc, char** argv) {
             set_bit(autosome_ct + 1, chr_info.haploid_mask);
             set_bit(autosome_ct + 2, chr_info.haploid_mask);
             for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
-              cur_modif = argv[arg_idx + param_idx];
+              cur_modif = argvc[arg_idx + param_idx];
               if (!strcmp(cur_modif, "no-x")) {
                 chr_info.xymt_codes[0] = -2;
                 clear_bit(autosome_ct + 1, chr_info.haploid_mask);
@@ -3562,21 +3603,21 @@ int main(int argc, char** argv) {
               } else if (!strcmp(cur_modif, "no-mt")) {
                 chr_info.xymt_codes[3] = -2;
               } else {
-                sprintf(g_logbuf, "Error: Invalid --chr-set parameter '%s'.\n", cur_modif);
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --chr-set parameter '%s'.\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
             }
           }
         } else if (strequal_k2(flagname_p2, "hr-override")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 1)) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           if (param_ct) {
-            const char* cur_modif = argv[arg_idx + 1];
+            const char* cur_modif = argvc[arg_idx + 1];
             if (!strcmp(cur_modif, "file")) {
               pc.misc_flags |= kfMiscChrOverrideFile;
             } else {
-              sprintf(g_logbuf, "Error: Invalid --chr-override parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --chr-override parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           } else {
@@ -3584,7 +3625,7 @@ int main(int argc, char** argv) {
           }
         } else if (strequal_k2(flagname_p2, "ovar-quantile-normalize")) {
           if (param_ct) {
-            reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &pc.covar_quantnorm_flattened);
+            reterr = alloc_and_flatten(&(argvc[arg_idx + 1]), param_ct, 0x7fffffff, &pc.covar_quantnorm_flattened);
             if (reterr) {
               goto main_ret_1;
             }
@@ -3593,7 +3634,7 @@ int main(int argc, char** argv) {
           pc.dependency_flags |= kfFilterPsamReq;
         } else if (strequal_k2(flagname_p2, "ovar-variance-standardize")) {
           if (param_ct) {
-            reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &pc.vstd_flattened);
+            reterr = alloc_and_flatten(&(argvc[arg_idx + 1]), param_ct, 0x7fffffff, &pc.vstd_flattened);
             if (reterr) {
               goto main_ret_1;
             }
@@ -3620,12 +3661,12 @@ int main(int argc, char** argv) {
           if (load_params || (xload & (~kfXloadOxBgen))) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 3)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 3)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t is_gzs = 0;
           for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
-            const char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             if (!strcmp(cur_modif, "ref-first")) {
               oxford_import_flags |= kfOxfordImportRefFirst;
             } else if (!strcmp(cur_modif, "ref-second")) {
@@ -3638,11 +3679,11 @@ int main(int argc, char** argv) {
               }
               is_gzs = 1;
             } else {
-              sprintf(g_logbuf, "Error: Invalid --data parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --data parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
-          const char* fname_prefix = argv[arg_idx + 1];
+          const char* fname_prefix = argvc[arg_idx + 1];
           const uint32_t slen = strlen(fname_prefix);
           if (slen > (kPglFnamesize - 9)) {
             logerrprint("Error: --data parameter too long.\n");
@@ -3660,13 +3701,13 @@ int main(int argc, char** argv) {
           strcpy(memcpya(psamname, fname_prefix, slen), ".sample");
           xload |= kfXloadOxSample;
         } else if (strequal_k2(flagname_p2, "osage-erase-threshold")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           double dosage_erase_frac;
           if ((!scanadv_double(cur_modif, &dosage_erase_frac)) || (dosage_erase_frac < 0.0) || (dosage_erase_frac >= (0.5 - kSmallEpsilon))) {
-            sprintf(g_logbuf, "Error: Invalid --dosage-erase-threshold parameter '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --dosage-erase-threshold parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.dosage_erase_thresh = (int32_t)(dosage_erase_frac * ((1 + kSmallEpsilon) * kDosageMid));
@@ -3674,21 +3715,21 @@ int main(int argc, char** argv) {
           if (load_params || xload) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 2, 8)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 2, 8)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           // todo: support --allow-no-samples/--allow-no-vars
-          if (scan_posint_defcap(argv[arg_idx + 1], &gendummy_info.sample_ct)) {
+          if (scan_posint_defcap(argvc[arg_idx + 1], &gendummy_info.sample_ct)) {
             logerrprint("Error: Invalid --dummy sample count.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (scan_posint_defcap(argv[arg_idx + 2], &gendummy_info.variant_ct)) {
+          if (scan_posint_defcap(argvc[arg_idx + 2], &gendummy_info.variant_ct)) {
             logerrprint("Error: Invalid --dummy SNP count.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           uint32_t extra_numeric_param_ct = 0;
           for (uint32_t param_idx = 3; param_idx <= param_ct; ++param_idx) {
-            char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (match_upper_k(cur_modif, "ACGT", cur_modif_slen)) {
               gendummy_info.flags |= kfGenDummyAcgt;
@@ -3699,23 +3740,23 @@ int main(int argc, char** argv) {
             } else if (str_startswith(cur_modif, "pheno-ct=", cur_modif_slen)) {
               const char* pheno_ct_start = &(cur_modif[strlen("pheno-ct=")]);
               if (scan_uint_capped(pheno_ct_start, kMaxPhenoCt, &gendummy_info.pheno_ct)) {
-                sprintf(g_logbuf, "Error: Invalid --dummy pheno-ct= parameter '%s'.\n", pheno_ct_start);
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --dummy pheno-ct= parameter '%s'.\n", pheno_ct_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
             } else if (strequal_k(cur_modif, "scalar-pheno", cur_modif_slen)) {
               gendummy_info.flags |= kfGenDummyScalarPheno;
             } else if (str_startswith(cur_modif, "dosage-freq=", cur_modif_slen)) {
-              char* dosage_freq_start = &(cur_modif[strlen("dosage-freq=")]);
+              const char* dosage_freq_start = &(cur_modif[strlen("dosage-freq=")]);
               double dxx;
               if ((!scanadv_double(dosage_freq_start, &dxx)) || (dxx < 0.0) || (dxx > 1.0)) {
-                sprintf(g_logbuf, "Error: Invalid --dummy dosage-freq= parameter '%s'.\n", dosage_freq_start);
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --dummy dosage-freq= parameter '%s'.\n", dosage_freq_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
               gendummy_info.dosage_freq = dxx;
             } else {
               double dxx;
               if ((extra_numeric_param_ct == 2) || (!scanadv_double(cur_modif, &dxx)) || (dxx < 0.0) || (dxx > 1.0)) {
-                sprintf(g_logbuf, "Error: Invalid --dummy parameter '%s'.\n", cur_modif);
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --dummy parameter '%s'.\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
               if (!extra_numeric_param_ct) {
@@ -3762,10 +3803,10 @@ int main(int argc, char** argv) {
 
       case 'e':
         if (strequal_k2(flagname_p2, "xtract")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 0x7fffffff)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           const uint32_t cur_modif_slen = strlen(cur_modif);
           uint32_t is_ibed = 0;
           if (cur_modif_slen == 5) {
@@ -3785,16 +3826,16 @@ int main(int argc, char** argv) {
               is_ibed = 1;
             }
           }
-          reterr = alloc_and_flatten(&(argv[arg_idx + 1 + is_ibed]), param_ct - is_ibed, kPglFnamesize, &pc.extract_fnames);
+          reterr = alloc_and_flatten(&(argvc[arg_idx + 1 + is_ibed]), param_ct - is_ibed, kPglFnamesize, &pc.extract_fnames);
           if (reterr) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPvarReq;
         } else if (strequal_k2(flagname_p2, "xclude")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 0x7fffffff)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           const uint32_t cur_modif_slen = strlen(cur_modif);
           uint32_t is_ibed = 0;
           if (cur_modif_slen == 5) {
@@ -3814,19 +3855,19 @@ int main(int argc, char** argv) {
               is_ibed = 1;
             }
           }
-          reterr = alloc_and_flatten(&(argv[arg_idx + 1 + is_ibed]), param_ct - is_ibed, kPglFnamesize, &pc.exclude_fnames);
+          reterr = alloc_and_flatten(&(argvc[arg_idx + 1 + is_ibed]), param_ct - is_ibed, kPglFnamesize, &pc.exclude_fnames);
           if (reterr) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPvarReq;
         } else if (strequal_k2(flagname_p2, "xport") || strequal_k2(flagname_p2, "xport ped")) {
           // todo: determine actual limit
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 50)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 50)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t format_param_idxs = 0;
           if (!flagname_p2[5]) {
-            get_exportf_targets(&(argv[arg_idx]), param_ct, &pc.exportf_modifier, &pc.exportf_id_paste, &format_param_idxs);
+            get_exportf_targets(&(argvc[arg_idx]), param_ct, &pc.exportf_modifier, &pc.exportf_id_paste, &format_param_idxs);
             if (!format_param_idxs) {
               logerrprint("Error: --export requires at least one output format.  (Did you forget 'ped' or\n'vcf'?)\n");
               goto main_ret_INVALID_CMDLINE_A;
@@ -3855,7 +3896,7 @@ int main(int argc, char** argv) {
             if ((format_param_idxs >> param_idx) & 1) {
               continue;
             }
-            const char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (str_startswith(cur_modif, "id-paste=", cur_modif_slen)) {
               if (!(pc.exportf_modifier & (kfExportfVcf | kfExportfBgen12 | kfExportfBgen13))) {
@@ -3906,7 +3947,7 @@ int main(int argc, char** argv) {
               } else if (!strcmp(vcf_dosage_start, "DS-force")) {
                 pc.exportf_modifier |= kfExportfVcfDosageDs | kfExportfVcfDosageForce;
               } else {
-                sprintf(g_logbuf, "Error: Invalid --export vcf-dosage= parameter '%s'.\n", vcf_dosage_start);
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --export vcf-dosage= parameter '%s'.\n", vcf_dosage_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
             } else if (str_startswith(cur_modif, "bits=", cur_modif_slen)) {
@@ -3920,7 +3961,7 @@ int main(int argc, char** argv) {
               }
               const char* bits_start = &(cur_modif[strlen("bits=")]);
               if (scan_posint_capped(bits_start, 32, &pc.exportf_bits)) {
-                sprintf(g_logbuf, "Error: Invalid --export bits= parameter '%s'.\n", bits_start);
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --export bits= parameter '%s'.\n", bits_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
             } else if (strequal_k(cur_modif, "include-alt", cur_modif_slen)) {
@@ -3937,7 +3978,7 @@ int main(int argc, char** argv) {
               pc.exportf_modifier |= kfExportfOmitNonmaleY;
             } else if (strequal_k(cur_modif, "01", cur_modif_slen) || strequal_k(cur_modif, "12", cur_modif_slen)) {
               if (pc.exportf_modifier & (kfExportfA | kfExportfAD)) {
-                sprintf(g_logbuf, "Error: The '%s' modifier does not apply to --export's A and AD output formats.\n", cur_modif);
+                snprintf(g_logbuf, kLogbufSize, "Error: The '%s' modifier does not apply to --export's A and AD output formats.\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_2A;
               }
               if (pc.exportf_modifier & kfExportfVcf) {
@@ -3968,7 +4009,7 @@ int main(int argc, char** argv) {
             } else if (strequal_k(cur_modif, "ref-first", cur_modif_slen)) {
               pc.exportf_modifier |= kfExportfRefFirst;
             } else {
-              sprintf(g_logbuf, "Error: Invalid --export parameter '%s'.%s\n", cur_modif, ((param_idx == param_ct) && (!outname_end))? " (Did you forget '--out'?)" : "");
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --export parameter '%s'.%s\n", cur_modif, ((param_idx == param_ct) && (!outname_end))? " (Did you forget '--out'?)" : "");
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -3979,19 +4020,45 @@ int main(int argc, char** argv) {
           }
           pc.command_flags1 |= kfCommand1Exportf;
         } else if (strequal_k2(flagname_p2, "xclude-snp")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = cmdline_alloc_string(argv[arg_idx + 1], argv[arg_idx], kMaxIdSlen, &pc.varid_exclude_snp);
+          reterr = cmdline_alloc_string(argvc[arg_idx + 1], argvc[arg_idx], kMaxIdSlen, &pc.varid_exclude_snp);
           if (reterr) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPvarReq;
         } else if (strequal_k2(flagname_p2, "xclude-snps")) {
-          reterr = parse_name_ranges(&(argv[arg_idx]), errstr_append, param_ct, 0, range_delim, &pc.exclude_snps_range_list);
+          reterr = parse_name_ranges(&(argvc[arg_idx]), errstr_append, param_ct, 0, range_delim, &pc.exclude_snps_range_list);
           if (reterr) {
             goto main_ret_1;
           }
+          pc.filter_flags |= kfFilterPvarReq;
+        } else if (strequal_k2(flagname_p2, "xtract-if-info")) {
+          reterr = validate_and_alloc_cmp_expr(&(argvc[arg_idx + 1]), argvc[arg_idx], param_ct, &pc.extract_if_info_expr);
+          if (reterr) {
+            goto main_ret_1;
+          }
+          // validator doesn't currently check for ';'.  also theoretically
+          // possible for '=' to be in key
+          if (strchr(pc.extract_if_info_expr.pheno_name, ';') || strchr(pc.extract_if_info_expr.pheno_name, '=')) {
+            logerrprint("Error: Invalid --extract-if-info expression.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          // load_pvar() currently checks value string if nonnumeric
+          pc.filter_flags |= kfFilterPvarReq;
+        } else if (strequal_k2(flagname_p2, "xclude-if-info")) {
+          reterr = validate_and_alloc_cmp_expr(&(argvc[arg_idx + 1]), argvc[arg_idx], param_ct, &pc.exclude_if_info_expr);
+          if (reterr) {
+            goto main_ret_1;
+          }
+          // validator doesn't currently check for ';'.  also theoretically
+          // possible for '=' to be in key
+          if (strchr(pc.exclude_if_info_expr.pheno_name, ';') || strchr(pc.exclude_if_info_expr.pheno_name, '=')) {
+            logerrprint("Error: Invalid --exclude-if-info expression.\n");
+            goto main_ret_INVALID_CMDLINE;
+          }
+          // load_pvar() currently checks value string if nonnumeric
           pc.filter_flags |= kfFilterPvarReq;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
@@ -4000,12 +4067,12 @@ int main(int argc, char** argv) {
 
       case 'f':
         if (strequal_k2(flagname_p2, "req")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 5)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 5)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t bins_only = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               pc.allele_freq_modifier |= kfAlleleFreqZs;
@@ -4051,7 +4118,7 @@ int main(int argc, char** argv) {
                 goto main_ret_1;
               }
             } else {
-              sprintf(g_logbuf, "Error: Invalid --freq parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --freq parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -4075,10 +4142,10 @@ int main(int argc, char** argv) {
             logerrprint("Error: --from/--to cannot be used with --autosome{-par} or --{not-}chr.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = cmdline_alloc_string(argv[arg_idx + 1], argv[arg_idx], kMaxIdSlen, &pc.varid_from);
+          reterr = cmdline_alloc_string(argvc[arg_idx + 1], argvc[arg_idx], kMaxIdSlen, &pc.varid_from);
           if (reterr) {
             goto main_ret_1;
           }
@@ -4090,7 +4157,7 @@ int main(int argc, char** argv) {
             logerrprint("Error: --from-bp/-kb/-mb and --to-bp/-kb/-mb must be used with --chr, and only\none chromosome.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (pc.from_bp != -1) {
@@ -4098,10 +4165,10 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE;
           }
           // permit negative numbers, to simplify shell script windowing logic
-          char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           double dxx;
           if (!scanadv_double(cur_modif, &dxx)) {
-            sprintf(g_logbuf, "Error: Invalid --from-bp/-kb/-mb parameter '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --from-bp/-kb/-mb parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           const char unit_char = flagname_p2[4];
@@ -4127,17 +4194,17 @@ int main(int argc, char** argv) {
           permit_multiple_inclusion_filters = 1;
           goto main_param_zero;
         } else if (strequal_k2(flagname_p2, "amily")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct) {
-            const char* cur_modif = argv[arg_idx + 1];
+            const char* cur_modif = argvc[arg_idx + 1];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (is_reserved_pheno_name(cur_modif, cur_modif_slen)) {
-              sprintf(g_logbuf, "Error: '%s' cannot be used as a categorical phenotype name.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: '%s' cannot be used as a categorical phenotype name.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_2A;
             }
-            reterr = cmdline_alloc_string(cur_modif, argv[arg_idx], kMaxIdSlen, &pc.catpheno_name);
+            reterr = cmdline_alloc_string(cur_modif, argvc[arg_idx], kMaxIdSlen, &pc.catpheno_name);
             if (reterr) {
               goto main_ret_1;
             }
@@ -4149,10 +4216,10 @@ int main(int argc, char** argv) {
             logerrprint("Error: --family-missing-catname must be used with --family.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = cmdline_alloc_string(argv[arg_idx + 1], argv[arg_idx], kMaxIdSlen, &pc.family_missing_catname);
+          reterr = cmdline_alloc_string(argvc[arg_idx + 1], argvc[arg_idx], kMaxIdSlen, &pc.family_missing_catname);
           if (reterr) {
             goto main_ret_1;
           }
@@ -4169,12 +4236,12 @@ int main(int argc, char** argv) {
 
       case 'g':
         if (strequal_k2(flagname_p2, "eno")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t geno_thresh_present = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             if (!strcmp(cur_modif, "dosage")) {
               pc.misc_flags |= kfMiscGenoDosage;
             } else if (!strcmp(cur_modif, "hh-missing")) {
@@ -4183,10 +4250,10 @@ int main(int argc, char** argv) {
               logerrprint("Error: Invalid --geno parameter sequence.\n");
               goto main_ret_INVALID_CMDLINE_A;
             } else if (!scanadv_double(cur_modif, &pc.geno_thresh)) {
-              sprintf(g_logbuf, "Error: Invalid --geno parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --geno parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             } else if ((pc.geno_thresh < 0.0) || (pc.geno_thresh > 1.0)) {
-              sprintf(g_logbuf, "Error: Invalid --geno parameter '%s' (must be in [0, 1]).\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --geno parameter '%s' (must be in [0, 1]).\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             } else {
               geno_thresh_present = 1;
@@ -4200,11 +4267,11 @@ int main(int argc, char** argv) {
             pc.dependency_flags = kfFilterAllReq | kfFilterNoSplitChr;
           }
         } else if (strequal_k2(flagname_p2, "eno-counts")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            const char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               pc.geno_counts_modifier |= kfGenoCountsZs;
@@ -4227,7 +4294,7 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE_A;
               }
             } else {
-              sprintf(g_logbuf, "Error: Invalid --geno-counts parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --geno-counts parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -4236,11 +4303,11 @@ int main(int argc, char** argv) {
           }
           pc.command_flags1 |= kfCommand1GenoCounts;
         } else if (strequal_k2(flagname_p2, "lm")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 15)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 15)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            const char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmZs;
@@ -4292,7 +4359,7 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE_A;
               }
               if (scan_posint_defcap(cur_modif, &pc.glm_info.mperm_ct)) {
-                sprintf(g_logbuf, "Error: Invalid --glm mperm parameter '%s'.\n", &(cur_modif[6]));
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --glm mperm parameter '%s'.\n", &(cur_modif[6]));
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
             } else if (str_startswith(cur_modif, "local-covar=", cur_modif_slen)) {
@@ -4339,7 +4406,7 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE_A;
               }
             } else {
-              sprintf(g_logbuf, "Error: Invalid --glm parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --glm parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -4390,21 +4457,21 @@ int main(int argc, char** argv) {
           if (load_params || (xload & (~kfXloadOxSample))) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct == 2) {
-            const char* cur_modif = argv[arg_idx + 2];
+            const char* cur_modif = argvc[arg_idx + 2];
             if (!strcmp(cur_modif, "ref-first")) {
               oxford_import_flags |= kfOxfordImportRefFirst;
             } else if (!strcmp(cur_modif, "ref-second")) {
               oxford_import_flags |= kfOxfordImportRefSecond;
             } else {
-              sprintf(g_logbuf, "Error: Invalid --gen parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --gen parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
-          const char* cur_fname = argv[arg_idx + 1];
+          const char* cur_fname = argvc[arg_idx + 1];
           const uint32_t slen = strlen(cur_fname);
           if (slen > kPglFnamesize - 1) {
             logerrprint("Error: --gen filename too long.\n");
@@ -4413,13 +4480,13 @@ int main(int argc, char** argv) {
           memcpy(pgenname, cur_fname, slen + 1);
           xload |= kfXloadOxGen;
         } else if (strequal_k2(flagname_p2, "enotyping-rate")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct) {
-            const char* cur_modif = argv[arg_idx + 1];
+            const char* cur_modif = argvc[arg_idx + 1];
             if (strcmp("dosage", cur_modif)) {
-              sprintf(g_logbuf, "Error: Invalid --genotyping-rate parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --genotyping-rate parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
             pc.misc_flags |= kfMiscGenotypingRateDosage;
@@ -4432,11 +4499,11 @@ int main(int argc, char** argv) {
 
       case 'h':
         if (strequal_k2(flagname_p2, "ardy")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 3)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 3)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            const char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               pc.hardy_modifier |= kfHardyZs;
@@ -4456,7 +4523,7 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE_A;
               }
             } else {
-              sprintf(g_logbuf, "Error: Invalid --hardy parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --hardy parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -4465,11 +4532,11 @@ int main(int argc, char** argv) {
           }
           pc.command_flags1 |= kfCommand1Hardy;
         } else if (strequal_k2(flagname_p2, "we")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 3)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 3)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             if (!strcmp(cur_modif, "midp")) {
               pc.misc_flags |= kfMiscHweMidp;
             } else if (!strcmp(cur_modif, "keep-fewhet")) {
@@ -4480,7 +4547,7 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE_A;
               }
               if ((pc.hwe_thresh < 0.0) || (pc.hwe_thresh >= 1.0)) {
-                sprintf(g_logbuf, "Error: Invalid --hwe threshold '%s' (must be in [0, 1)).\n", cur_modif);
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --hwe threshold '%s' (must be in [0, 1)).\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
             }
@@ -4495,13 +4562,13 @@ int main(int argc, char** argv) {
           pc.filter_flags |= kfFilterPvarReq;
           pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
         } else if (strequal_k2(flagname_p2, "ard-call-threshold")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           double hard_call_frac;
           if ((!scanadv_double(cur_modif, &hard_call_frac)) || (hard_call_frac < 0.0) || (hard_call_frac >= (0.5 - kSmallEpsilon))) {
-            sprintf(g_logbuf, "Error: Invalid --hard-call-threshold parameter '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --hard-call-threshold parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.hard_call_thresh = (int32_t)(hard_call_frac * ((1 + kSmallEpsilon) * kDosageMid));
@@ -4536,21 +4603,21 @@ int main(int argc, char** argv) {
           if (load_params || xload) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct == 2) {
-            const char* cur_modif = argv[arg_idx + 2];
+            const char* cur_modif = argvc[arg_idx + 2];
             if (!strcmp(cur_modif, "ref-first")) {
               oxford_import_flags |= kfOxfordImportRefFirst;
             } else if (!strcmp(cur_modif, "ref-second")) {
               oxford_import_flags |= kfOxfordImportRefSecond;
             } else {
-              sprintf(g_logbuf, "Error: Invalid --haps parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --haps parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
-          const char* cur_fname = argv[arg_idx + 1];
+          const char* cur_fname = argvc[arg_idx + 1];
           const uint32_t slen = strlen(cur_fname);
           if (slen > kPglFnamesize - 1) {
             logerrprint("Error: --haps filename too long.\n");
@@ -4565,10 +4632,10 @@ int main(int argc, char** argv) {
 
       case 'i':
         if (strequal_k2(flagname_p2, "ndiv-sort")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 3)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 3)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const char* indiv_sort_mode_str = argv[arg_idx + 1];
+          const char* indiv_sort_mode_str = argvc[arg_idx + 1];
           const char first_char_upcase_match = indiv_sort_mode_str[0] & 0xdf;
           const uint32_t is_short_name = (indiv_sort_mode_str[1] == '\0');
           if ((is_short_name && (indiv_sort_mode_str[0] == '0')) || (!strcmp(indiv_sort_mode_str, "none")))  {
@@ -4579,35 +4646,35 @@ int main(int argc, char** argv) {
             pc.sample_sort_flags = kfSortAscii;
           } else if ((is_short_name && ((indiv_sort_mode_str[0] & 0xdf) == 'F')) || (!strcmp(indiv_sort_mode_str, "file"))) {
             if (param_ct == 1) {
-              sprintf(g_logbuf, "Error: Missing '--indiv-sort %s' filename.\n", indiv_sort_mode_str);
+              snprintf(g_logbuf, kLogbufSize, "Error: Missing '--indiv-sort %s' filename.\n", indiv_sort_mode_str);
               goto main_ret_INVALID_CMDLINE_2A;
             }
             pc.sample_sort_flags = kfSortFile;
             uint32_t fname_modif_idx = 2;
             if (param_ct == 3) {
-              if (check_extra_param(&(argv[arg_idx]), "sid", &fname_modif_idx)) {
+              if (check_extra_param(&(argvc[arg_idx]), "sid", &fname_modif_idx)) {
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.sample_sort_flags |= kfSortFileSid;
             }
-            reterr = alloc_fname(argv[arg_idx + fname_modif_idx], flagname_p, 0, &pc.sample_sort_fname);
+            reterr = alloc_fname(argvc[arg_idx + fname_modif_idx], flagname_p, 0, &pc.sample_sort_fname);
             if (reterr) {
               goto main_ret_1;
             }
           } else {
-            sprintf(g_logbuf, "Error: '%s' is not a valid mode for --indiv-sort.\n", indiv_sort_mode_str);
+            snprintf(g_logbuf, kLogbufSize, "Error: '%s' is not a valid mode for --indiv-sort.\n", indiv_sort_mode_str);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           if ((param_ct > 1) && (!(pc.sample_sort_flags & kfSortFile))) {
-            sprintf(g_logbuf, "Error: '--indiv-sort %s' does not accept additional parameters.\n", indiv_sort_mode_str);
+            snprintf(g_logbuf, kLogbufSize, "Error: '--indiv-sort %s' does not accept additional parameters.\n", indiv_sort_mode_str);
             goto main_ret_INVALID_CMDLINE_2A;
           }
         } else if (strequal_k2(flagname_p2, "d-delim")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct) {
-            id_delim = extract_char_param(argv[arg_idx + 1]);
+            id_delim = extract_char_param(argvc[arg_idx + 1]);
             if (!id_delim) {
               logerrprint("Error: --id-delim parameter must be a single character.\n");
               goto main_ret_INVALID_CMDLINE_A;
@@ -4624,21 +4691,21 @@ int main(int argc, char** argv) {
             logerrprint("Error: Multiple LD pruning commands.\n");
             goto main_ret_INVALID_CMDLINE;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 2, 4)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 2, 4)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           double first_paramd;
-          char* first_param_end = scanadv_double(cur_modif, &first_paramd);
+          const char* first_param_end = scanadv_double(cur_modif, &first_paramd);
           if ((!first_param_end) || (first_paramd < 0.0)) {
-            sprintf(g_logbuf, "Error: Invalid --%s window size '%s'.\n", flagname_p, cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s window size '%s'.\n", flagname_p, cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           uint32_t is_kb = 0;
           uint32_t next_param_idx = 2;
           if (match_upper_k2(first_param_end, "KB") && (!first_param_end[2])) {
             is_kb = 1;
-          } else if (match_upper_k2(argv[arg_idx + 2], "KB") && (!argv[arg_idx + 2][2])) {
+          } else if (match_upper_k2(argvc[arg_idx + 2], "KB") && (!argvc[arg_idx + 2][2])) {
             is_kb = 1;
             next_param_idx = 3;
           }
@@ -4649,7 +4716,7 @@ int main(int argc, char** argv) {
             } else {
               pc.ld_info.prune_window_size = ((int32_t)(first_paramd * 1000 * (1 + kSmallEpsilon)));
               if (pc.ld_info.prune_window_size < 2) {
-                sprintf(g_logbuf, "Error: --%s window size cannot be smaller than 2.\n", flagname_p);
+                snprintf(g_logbuf, kLogbufSize, "Error: --%s window size cannot be smaller than 2.\n", flagname_p);
                 goto main_ret_INVALID_CMDLINE_2A;
               }
             }
@@ -4661,31 +4728,31 @@ int main(int argc, char** argv) {
             }
           }
           if (next_param_idx + 2 == param_ct) {
-            sprintf(g_logbuf, "Error: Invalid --%s parameter sequence.\n", flagname_p);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s parameter sequence.\n", flagname_p);
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (next_param_idx < param_ct) {
             // explicit step size
-            cur_modif = argv[arg_idx + next_param_idx];
+            cur_modif = argvc[arg_idx + next_param_idx];
             if (scan_posint_defcap(cur_modif, &pc.ld_info.prune_window_incr)) {
-              sprintf(g_logbuf, "Error: Invalid --%s window-increment '%s'.\n", flagname_p, cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s window-increment '%s'.\n", flagname_p, cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
             if (!is_kb) {
               if (pc.ld_info.prune_window_incr > pc.ld_info.prune_window_size) {
-                sprintf(g_logbuf, "Error: --%s window-increment cannot be larger than window size.\n", flagname_p);
+                snprintf(g_logbuf, kLogbufSize, "Error: --%s window-increment cannot be larger than window size.\n", flagname_p);
                 goto main_ret_INVALID_CMDLINE_2A;
               }
             } else if (pc.ld_info.prune_window_incr != 1) {
-              sprintf(g_logbuf, "Error: --%s window-increment must be 1 when window size is in\nkilobase units.\n", flagname_p);
+              snprintf(g_logbuf, kLogbufSize, "Error: --%s window-increment must be 1 when window size is in\nkilobase units.\n", flagname_p);
               goto main_ret_INVALID_CMDLINE_2A;
             }
           } else {
             pc.ld_info.prune_window_incr = 1;
           }
-          cur_modif = argv[arg_idx + param_ct];
+          cur_modif = argvc[arg_idx + param_ct];
           if ((!scanadv_double(cur_modif, &pc.ld_info.prune_last_param)) || (pc.ld_info.prune_last_param < 0.0) || (pc.ld_info.prune_last_param >= 1.0)) {
-            sprintf(g_logbuf, "Error: Invalid --%s r^2 threshold '%s'.\n", flagname_p2, cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s r^2 threshold '%s'.\n", flagname_p2, cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.command_flags1 |= kfCommand1LdPrune;
@@ -4695,32 +4762,32 @@ int main(int argc, char** argv) {
             pc.ld_info.prune_modifier |= kfLdPrunePairwise;
           }
         } else if (strequal_k2(flagname_p2, "nput-missing-genotype")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           input_missing_geno_char = extract_char_param(cur_modif);
           if (((unsigned char)input_missing_geno_char) <= ' ') {
-            sprintf(g_logbuf, "Error: Invalid --input-missing-genotype parameter '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --input-missing-genotype parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else if (strequal_k2(flagname_p2, "nput-missing-phenotype")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           double dxx;
           if (scan_int32(cur_modif, &pc.missing_pheno) || ((pc.missing_pheno >= 0) && (pc.missing_pheno <= 2)) || (!scanadv_double(cur_modif, &dxx)) || (dxx != ((double)pc.missing_pheno))) {
-            sprintf(g_logbuf, "Error: Invalid --input-missing-phenotype parameter '%s' (must be an integer in [-2147483647, -1] or [3, 2147483647]).\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --input-missing-phenotype parameter '%s' (must be an integer in [-2147483647, -1] or [3, 2147483647]).\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else if (strequal_k2(flagname_p2, "mport-dosage-certainty")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           if ((!scanadv_double(cur_modif, &import_dosage_certainty)) || (import_dosage_certainty < 0.0) || (import_dosage_certainty > 1.0)) {
-            sprintf(g_logbuf, "Error: Invalid --import-dosage-certainty parameter '%s' (must be in [0, 1]).\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --import-dosage-certainty parameter '%s' (must be in [0, 1]).\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           import_dosage_certainty *= 1.0 - kSmallEpsilon;
@@ -4728,12 +4795,12 @@ int main(int argc, char** argv) {
           if (load_params || xload) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 11)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 11)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t format_num_m1 = 4;
           for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
-            const char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "noheader", cur_modif_slen)) {
               plink1_dosage_info.flags |= kfPlink1DosageNoheader;
@@ -4744,7 +4811,7 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE;
               }
               if (scan_uint_capped(&(cur_modif[6]), kMaxLongLine / 2, &(plink1_dosage_info.skips[skip_idx]))) {
-                sprintf(g_logbuf, "Error: Invalid --import-dosage skip%u= parameter '%s'.\n", skip_idx, &(cur_modif[6]));
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --import-dosage skip%u= parameter '%s'.\n", skip_idx, &(cur_modif[6]));
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
             } else if (strequal_k(cur_modif, "dose1", cur_modif_slen)) {
@@ -4758,13 +4825,13 @@ int main(int argc, char** argv) {
               if (cur_modif_slen == 8) {
                 format_num_m1 = (uint32_t)((unsigned char)cur_modif[7]) - 49;
                 if (format_num_m1 >= 3) {
-                  sprintf(g_logbuf, "Error: Invalid --import-dosage format= parameter '%c'.\n", cur_modif[7]);
+                  snprintf(g_logbuf, kLogbufSize, "Error: Invalid --import-dosage format= parameter '%c'.\n", cur_modif[7]);
                   goto main_ret_INVALID_CMDLINE_2A;
                 }
               } else if (strequal_k(&(cur_modif[7]), "infer", cur_modif_slen - 7)) {
                 format_num_m1 = 3;
               } else {
-                sprintf(g_logbuf, "Error: Invalid --import-dosage format= parameter '%s'.\n", &(cur_modif[7]));
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --import-dosage format= parameter '%s'.\n", &(cur_modif[7]));
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
             } else if (strequal_k(cur_modif, "ref-first", cur_modif_slen)) {
@@ -4779,7 +4846,7 @@ int main(int argc, char** argv) {
               const char* id_delim_str = &(cur_modif[strlen("id-delim=")]);
               char cc = extract_char_param(id_delim_str);
               if (!cc) {
-                sprintf(g_logbuf, "Error: Invalid --import-dosage id-delim= parameter '%s'.\n", id_delim_str);
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --import-dosage id-delim= parameter '%s'.\n", id_delim_str);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
               plink1_dosage_info.id_delim = cc;
@@ -4791,11 +4858,11 @@ int main(int argc, char** argv) {
               const char* chr_code = &(cur_modif[strlen("single-chr=")]);
               if (!(pc.misc_flags & kfMiscAllowExtraChrs)) {
                 if (get_chr_code_raw(chr_code) < 0) {
-                  sprintf(g_logbuf, "Error: Invalid --import-dosage single-chr= chromosome code '%s'. (Did you forget --allow-extra-chr?)\n", chr_code);
+                  snprintf(g_logbuf, kLogbufSize, "Error: Invalid --import-dosage single-chr= chromosome code '%s'. (Did you forget --allow-extra-chr?)\n", chr_code);
                   goto main_ret_INVALID_CMDLINE_WWA;
                 }
               }
-              reterr = cmdline_alloc_string(chr_code, argv[arg_idx], kMaxIdSlen, &import_single_chr_str);
+              reterr = cmdline_alloc_string(chr_code, argvc[arg_idx], kMaxIdSlen, &import_single_chr_str);
               if (reterr) {
                 goto main_ret_1;
               }
@@ -4807,7 +4874,7 @@ int main(int argc, char** argv) {
               const char* chr_col_num_start = &(cur_modif[strlen("chr-col-num=")]);
               uint32_t uii;
               if (scan_posint_capped(chr_col_num_start, kMaxLongLine / 2, &uii)) {
-                sprintf(g_logbuf, "Error: Invalid --import-dosage chr-col-num= parameter '%s'.\n", chr_col_num_start);
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --import-dosage chr-col-num= parameter '%s'.\n", chr_col_num_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
               plink1_dosage_info.chr_col_idx = uii - 1;
@@ -4819,12 +4886,12 @@ int main(int argc, char** argv) {
               const char* pos_col_num_start = &(cur_modif[strlen("pos-col-num=")]);
               uint32_t uii;
               if (scan_posint_capped(pos_col_num_start, kMaxLongLine / 2, &uii)) {
-                sprintf(g_logbuf, "Error: Invalid --import-dosage pos-col-num= parameter '%s'.\n", pos_col_num_start);
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --import-dosage pos-col-num= parameter '%s'.\n", pos_col_num_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
               plink1_dosage_info.pos_col_idx = uii - 1;
             } else {
-              sprintf(g_logbuf, "Error: Invalid --import-dosage parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --import-dosage parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -4878,7 +4945,7 @@ int main(int argc, char** argv) {
               goto main_ret_INVALID_CMDLINE_A;
             }
           }
-          char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           const uint32_t slen = strlen(cur_modif);
           if (slen > kPglFnamesize - 1) {
             logerrprint("Error: --import-dosage filename too long.\n");
@@ -4893,10 +4960,10 @@ int main(int argc, char** argv) {
 
       case 'k':
         if (strequal_k2(flagname_p2, "eep")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 0x7fffffff)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const uint32_t sid_present = !strcmp(argv[arg_idx + 1], "sid");
+          const uint32_t sid_present = !strcmp(argvc[arg_idx + 1], "sid");
           if (sid_present) {
             if (param_ct == 1) {
               logerrprint("Error: '--keep sid' requires at least one filename.\n");
@@ -4904,16 +4971,16 @@ int main(int argc, char** argv) {
             }
             pc.misc_flags |= kfMiscKeepfileSid;
           }
-          reterr = alloc_and_flatten(&(argv[arg_idx + 1 + sid_present]), param_ct - sid_present, kPglFnamesize, &pc.keep_fnames);
+          reterr = alloc_and_flatten(&(argvc[arg_idx + 1 + sid_present]), param_ct - sid_present, kPglFnamesize, &pc.keep_fnames);
           if (reterr) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPsamReq;
         } else if (strequal_k2(flagname_p2, "eep-fam")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 0x7fffffff)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, kPglFnamesize, &pc.keepfam_fnames);
+          reterr = alloc_and_flatten(&(argvc[arg_idx + 1]), param_ct, kPglFnamesize, &pc.keepfam_fnames);
           if (reterr) {
             goto main_ret_1;
           }
@@ -4941,29 +5008,29 @@ int main(int argc, char** argv) {
           pc.filter_flags |= kfFilterPsamReq | kfFilterExclFounders;
           goto main_param_zero;
         } else if (strequal_k2(flagname_p2, "ing-cutoff")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct == 2) {
             // .king.id, .king.bin appended
-            reterr = alloc_fname(argv[arg_idx + 1], flagname_p, 9, &king_cutoff_fprefix);
+            reterr = alloc_fname(argvc[arg_idx + 1], flagname_p, 9, &king_cutoff_fprefix);
             if (reterr) {
               goto main_ret_1;
             }
           }
-          char* cur_modif = argv[arg_idx + param_ct];
+          const char* cur_modif = argvc[arg_idx + param_ct];
           if ((!scanadv_double(cur_modif, &pc.king_cutoff)) || (pc.king_cutoff < 0.0) || (pc.king_cutoff >= 0.5)) {
-            sprintf(g_logbuf, "Error: Invalid --king-cutoff parameter '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --king-cutoff parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.command_flags1 |= kfCommand1KingCutoff;
         } else if (strequal_k2(flagname_p2, "ing-table-filter")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           if ((!scanadv_double(cur_modif, &pc.king_table_filter)) || (pc.king_table_filter > 0.5)) {
-            sprintf(g_logbuf, "Error: Invalid --king-table-filter parameter '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --king-table-filter parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else if (strequal_k2(flagname_p2, "ing-table-subset")) {
@@ -4971,72 +5038,59 @@ int main(int argc, char** argv) {
             logerrprint("Error: --king-table-subset cannot be used with --king-cutoff.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = alloc_fname(argv[arg_idx + 1], flagname_p, 0, &pc.king_table_subset_fname);
+          reterr = alloc_fname(argvc[arg_idx + 1], flagname_p, 0, &pc.king_table_subset_fname);
           if (reterr) {
             goto main_ret_1;
           }
           if (param_ct == 2) {
-            char* cur_modif = argv[arg_idx + 2];
+            const char* cur_modif = argvc[arg_idx + 2];
             if ((!scanadv_double(cur_modif, &pc.king_table_subset_thresh)) || (pc.king_table_subset_thresh > 0.5)) {
-              sprintf(g_logbuf, "Error: Invalid --king-table-subset threshold '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --king-table-subset threshold '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           } else {
             pc.king_table_subset_thresh = -DBL_MAX;
           }
         } else if (strequal_k2(flagname_p2, "eep-if")) {
-          reterr = validate_and_alloc_cmp_expr(&(argv[arg_idx + 1]), argv[arg_idx], param_ct, &pc.keep_if_expr);
+          reterr = validate_and_alloc_cmp_expr(&(argvc[arg_idx + 1]), argvc[arg_idx], param_ct, &pc.keep_if_expr);
           if (reterr) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPsamReq;
-        } else if (strequal_k2(flagname_p2, "eep-if-info")) {
-          reterr = validate_and_alloc_cmp_expr(&(argv[arg_idx + 1]), argv[arg_idx], param_ct, &pc.keep_if_info_expr);
-          if (reterr) {
-            goto main_ret_1;
-          }
-          // validator doesn't currently check for ';'.  also theoretically
-          // possible for '=' to be in key
-          if (strchr(pc.keep_if_info_expr.pheno_name, ';') || strchr(pc.keep_if_info_expr.pheno_name, '=')) {
-            logerrprint("Error: Invalid --keep-if-info expression.\n");
-            goto main_ret_INVALID_CMDLINE;
-          }
-          // load_pvar() currently checks value string if nonnumeric
-          pc.filter_flags |= kfFilterPvarReq;
         } else if (strequal_k2(flagname_p2, "eep-cats")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = alloc_fname(argv[arg_idx + 1], flagname_p, 0, &pc.keep_cats_fname);
+          reterr = alloc_fname(argvc[arg_idx + 1], flagname_p, 0, &pc.keep_cats_fname);
           if (reterr) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPsamReq;
         } else if (strequal_k2(flagname_p2, "eep-cat-names")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 0x7fffffff)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, kMaxIdBlen, &pc.keep_cat_names_flattened);
+          reterr = alloc_and_flatten(&(argvc[arg_idx + 1]), param_ct, kMaxIdBlen, &pc.keep_cat_names_flattened);
           if (reterr) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPsamReq;
         } else if (strequal_k2(flagname_p2, "eep-cat-pheno")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = cmdline_alloc_string(argv[arg_idx + 1], argv[arg_idx], kMaxIdSlen, &pc.keep_cat_phenoname);
+          reterr = cmdline_alloc_string(argvc[arg_idx + 1], argvc[arg_idx], kMaxIdSlen, &pc.keep_cat_phenoname);
           if (reterr) {
             goto main_ret_1;
           }
         } else if (strequal_k2(flagname_p2, "eep-fcol")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 2, 0x7fffffff)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 2, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const uint32_t sid_present = !strcmp(argv[arg_idx + 1], "sid");
+          const uint32_t sid_present = !strcmp(argvc[arg_idx + 1], "sid");
           if (sid_present) {
             if (param_ct == 2) {
               logerrprint("Error: '--keep-fcol sid' requires at least 2 more parameters.\n");
@@ -5044,11 +5098,11 @@ int main(int argc, char** argv) {
             }
             pc.misc_flags |= kfMiscKeepFileStrsSid;
           }
-          reterr = alloc_fname(argv[arg_idx + 1 + sid_present], flagname_p, 0, &pc.keep_fcol_fname);
+          reterr = alloc_fname(argvc[arg_idx + 1 + sid_present], flagname_p, 0, &pc.keep_fcol_fname);
           if (reterr) {
             goto main_ret_1;
           }
-          reterr = alloc_and_flatten(&(argv[arg_idx + 2 + sid_present]), param_ct - 1 - sid_present, kMaxIdBlen, &pc.keep_fcol_flattened);
+          reterr = alloc_and_flatten(&(argvc[arg_idx + 2 + sid_present]), param_ct - 1 - sid_present, kMaxIdBlen, &pc.keep_fcol_flattened);
           if (reterr) {
             goto main_ret_1;
           }
@@ -5058,10 +5112,10 @@ int main(int argc, char** argv) {
             logerrprint("Error: --keep-fcol-name must be used with --keep-fcol.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = cmdline_alloc_string(argv[arg_idx + 1], argv[arg_idx], kMaxIdSlen, &pc.keep_fcol_name);
+          reterr = cmdline_alloc_string(argvc[arg_idx + 1], argvc[arg_idx], kMaxIdSlen, &pc.keep_fcol_name);
           if (reterr) {
             goto main_ret_1;
           }
@@ -5074,12 +5128,12 @@ int main(int argc, char** argv) {
             logerrprint("Error: --keep-fcol-num can't be used with --keep-fcol-name.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           if (scan_posint_defcap(cur_modif, &pc.keep_fcol_num) || (pc.keep_fcol_num == 1)) {
-            sprintf(g_logbuf, "Error: Invalid --keep-fcol-num parameter '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --keep-fcol-num parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else if (strequal_k2(flagname_p2, "eep-allele-order")) {
@@ -5092,11 +5146,11 @@ int main(int argc, char** argv) {
 
       case 'l':
         if (strequal_k2(flagname_p2, "ambda")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          if (!scanadv_double(argv[arg_idx + 1], &pc.adjust_info.lambda)) {
-            sprintf(g_logbuf, "Error: Invalid --lambda parameter '%s'.\n", argv[arg_idx + 1]);
+          if (!scanadv_double(argvc[arg_idx + 1], &pc.adjust_info.lambda)) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --lambda parameter '%s'.\n", argvc[arg_idx + 1]);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           if (pc.adjust_info.lambda < 1.0) {
@@ -5111,54 +5165,54 @@ int main(int argc, char** argv) {
             logerrprint("Error: --legend must be used with --haps.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 2, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 2, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const char* cur_fname = argv[arg_idx + 1];
+          const char* cur_fname = argvc[arg_idx + 1];
           uint32_t slen = strlen(cur_fname);
           if (slen > kPglFnamesize - 1) {
             logerrprint("Error: --legend filename too long.\n");
             goto main_ret_OPEN_FAIL;
           }
           memcpy(pvarname, cur_fname, slen + 1);
-          const char* chr_code = argv[arg_idx + 2];
+          const char* chr_code = argvc[arg_idx + 2];
           if (!(pc.misc_flags & kfMiscAllowExtraChrs)) {
             if (get_chr_code_raw(chr_code) < 0) {
-              sprintf(g_logbuf, "Error: Invalid --legend chromosome code '%s'. (Did you forget --allow-extra-chr?)\n", chr_code);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --legend chromosome code '%s'. (Did you forget --allow-extra-chr?)\n", chr_code);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
-          reterr = cmdline_alloc_string(chr_code, argv[arg_idx], kMaxIdSlen, &import_single_chr_str);
+          reterr = cmdline_alloc_string(chr_code, argvc[arg_idx], kMaxIdSlen, &import_single_chr_str);
           if (reterr) {
             goto main_ret_1;
           }
           xload |= kfXloadOxLegend;
         } else if (strequal_k2(flagname_p2, "oop-cats")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = cmdline_alloc_string(argv[arg_idx + 1], argv[arg_idx], kMaxIdSlen, &pc.loop_cats_phenoname);
+          reterr = cmdline_alloc_string(argvc[arg_idx + 1], argvc[arg_idx], kMaxIdSlen, &pc.loop_cats_phenoname);
           if (reterr) {
             goto main_ret_1;
           }
         } else if (strequal_k2(flagname_p2, "d")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 2, 4)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 2, 4)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t uii = 0; uii < 2; ++uii) {
-            reterr = cmdline_alloc_string(argv[arg_idx + uii + 1], argv[arg_idx], kMaxIdSlen, &(pc.ld_info.ld_console_varids[uii]));
+            reterr = cmdline_alloc_string(argvc[arg_idx + uii + 1], argvc[arg_idx], kMaxIdSlen, &(pc.ld_info.ld_console_varids[uii]));
             if (reterr) {
               goto main_ret_1;
             }
           }
           for (uint32_t param_idx = 3; param_idx <= param_ct; ++param_idx) {
-            const char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             if (!strcmp(cur_modif, "dosage")) {
               pc.ld_info.ld_console_modifier |= kfLdConsoleDosage;
             } else if (!strcmp(cur_modif, "hwe-midp")) {
               pc.ld_info.ld_console_modifier |= kfLdConsoleHweMidp;
             } else {
-              sprintf(g_logbuf, "Error: Invalid --ld parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --ld parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -5173,23 +5227,23 @@ int main(int argc, char** argv) {
 
       case 'm':
         if (strequal_k2(flagname_p2, "emory")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t mb_modif_idx = 1;
           if (param_ct == 2) {
-            if (check_extra_param(&(argv[arg_idx]), "require", &mb_modif_idx)) {
+            if (check_extra_param(&(argvc[arg_idx]), "require", &mb_modif_idx)) {
               goto main_ret_INVALID_CMDLINE_A;
             }
             memory_require = 1;
           }
-          const char* mb_modif = argv[arg_idx + mb_modif_idx];
+          const char* mb_modif = argvc[arg_idx + mb_modif_idx];
           if (scan_posintptr(mb_modif, (uintptr_t*)(&malloc_size_mb))) {
-            sprintf(g_logbuf, "Error: Invalid --memory parameter '%s'.\n", mb_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --memory parameter '%s'.\n", mb_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           if (malloc_size_mb < (intptr_t)kBigstackMinMb) {
-            sprintf(g_logbuf, "Error: Invalid --memory parameter '%s' (minimum %u).\n", mb_modif, kBigstackMinMb);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --memory parameter '%s' (minimum %u).\n", mb_modif, kBigstackMinMb);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
 #ifndef __LP64__
@@ -5203,11 +5257,11 @@ int main(int argc, char** argv) {
             logerrprint("Error: --make-bed cannot be used with --export ind-major-bed.\n");
             goto main_ret_INVALID_CMDLINE;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 3)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 3)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            const char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "vzs", cur_modif_slen)) {
               make_plink2_modifier |= kfMakeBimZs;
@@ -5231,7 +5285,7 @@ int main(int argc, char** argv) {
               } else if (!strcmp(mode_start, "+any")) {
                 make_plink2_modifier |= kfMakePlink2MMergeAny;
               } else {
-                sprintf(g_logbuf, "Error: Invalid --make-bed multiallelics= mode '%s'.\n", mode_start);
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-bed multiallelics= mode '%s'.\n", mode_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
             } else {
@@ -5259,11 +5313,11 @@ int main(int argc, char** argv) {
             logerrprint("Error: --make-bpgen cannot be used with --keep-autoconv.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            const char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "vzs", cur_modif_slen)) {
               make_plink2_modifier |= kfMakeBimZs;
@@ -5274,7 +5328,7 @@ int main(int argc, char** argv) {
               }
               const uint32_t fcode_minus_2 = ((uint32_t)((unsigned char)cur_modif[7])) - 50;
               if ((fcode_minus_2 > 2) || cur_modif[8]) {
-                sprintf(g_logbuf, "Error: Invalid --make-bpgen format code '%s'.\n", &(cur_modif[7]));
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-bpgen format code '%s'.\n", &(cur_modif[7]));
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
               if (fcode_minus_2) {
@@ -5301,7 +5355,7 @@ int main(int argc, char** argv) {
               } else if (!strcmp(mode_start, "+any")) {
                 make_plink2_modifier |= kfMakePlink2MMergeAny;
               } else {
-                sprintf(g_logbuf, "Error: Invalid --make-bpgen multiallelics= mode '%s'.\n", mode_start);
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-bpgen multiallelics= mode '%s'.\n", mode_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
             } else if (strequal_k(cur_modif, "trim-alts", cur_modif_slen)) {
@@ -5313,7 +5367,7 @@ int main(int argc, char** argv) {
             } else if (strequal_k(cur_modif, "erase-dosage", cur_modif_slen)) {
               make_plink2_modifier |= kfMakePgenEraseDosage;
             } else {
-              sprintf(g_logbuf, "Error: Invalid --make-bpgen parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-bpgen parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -5332,13 +5386,13 @@ int main(int argc, char** argv) {
             logerrprint("Error: --make-pgen cannot be used with --keep-autoconv.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 4)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 4)) {
             goto main_ret_INVALID_CMDLINE_A;
           }
           uint32_t explicit_pvar_cols = 0;
           uint32_t explicit_psam_cols = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            const char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "vzs", cur_modif_slen)) {
               pc.pvar_psam_modifier |= kfPvarZs;
@@ -5363,7 +5417,7 @@ int main(int argc, char** argv) {
               }
               const uint32_t fcode_minus_2 = ((uint32_t)((unsigned char)cur_modif[7])) - 50;
               if ((fcode_minus_2 > 2) || cur_modif[8]) {
-                sprintf(g_logbuf, "Error: Invalid --make-pgen format code '%s'.\n", &(cur_modif[7]));
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-pgen format code '%s'.\n", &(cur_modif[7]));
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
               if (fcode_minus_2) {
@@ -5390,7 +5444,7 @@ int main(int argc, char** argv) {
               } else if (!strcmp(mode_start, "+any")) {
                 make_plink2_modifier |= kfMakePlink2MMergeAny;
               } else {
-                sprintf(g_logbuf, "Error: Invalid --make-pgen multiallelics= mode '%s'.\n", mode_start);
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-pgen multiallelics= mode '%s'.\n", mode_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
             } else if (strequal_k(cur_modif, "trim-alts", cur_modif_slen)) {
@@ -5412,7 +5466,7 @@ int main(int argc, char** argv) {
                 goto main_ret_1;
               }
             } else {
-              sprintf(g_logbuf, "Error: Invalid --make-pgen parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-pgen parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -5429,15 +5483,15 @@ int main(int argc, char** argv) {
             logerrprint("Error: --make-just-... cannot be used with --make-bed/--make-{b}pgen.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct) {
-            const char* cur_modif = argv[arg_idx + 1];
+            const char* cur_modif = argvc[arg_idx + 1];
             if (!strcmp(cur_modif, "zs")) {
               make_plink2_modifier |= kfMakeBimZs;
             } else {
-              sprintf(g_logbuf, "Error: Invalid --make-just-bim parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-just-bim parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -5456,12 +5510,12 @@ int main(int argc, char** argv) {
             logerrprint("Error: --make-just-... cannot be used with --make-bed/--make-{b}pgen.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t explicit_cols = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            const char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               pc.pvar_psam_modifier |= kfPvarZs;
@@ -5480,7 +5534,7 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE_A;
               }
             } else {
-              sprintf(g_logbuf, "Error: Invalid --make-just-pvar parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-just-pvar parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -5494,11 +5548,11 @@ int main(int argc, char** argv) {
             logerrprint("Error: --make-just-... cannot be used with --make-bed/--make-{b}pgen.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct) {
-            const char* cur_modif = argv[arg_idx + 1];
+            const char* cur_modif = argvc[arg_idx + 1];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (str_startswithz(cur_modif, "cols=", cur_modif_slen)) {
               reterr = parse_col_descriptor(&(cur_modif[5]), "maybesid\0sid\0maybeparents\0parents\0sex\0pheno1\0phenos\0", "make-just-psam", kfPsamColMaybesid, kfPsamColDefault, 0, &pc.pvar_psam_modifier);
@@ -5506,7 +5560,7 @@ int main(int argc, char** argv) {
                 goto main_ret_1;
               }
             } else {
-              sprintf(g_logbuf, "Error: Invalid --make-just-psam parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-just-psam parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           } else {
@@ -5523,11 +5577,11 @@ int main(int argc, char** argv) {
             logerrprint("Error: --make-king cannot be used with --king-table-subset.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            const char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             if (!strcmp(cur_modif, "zs")) {
               if (pc.king_modifier & kfKingMatrixEncodemask) {
                 logerrprint("Error: Multiple --make-king encoding modifiers.\n");
@@ -5565,7 +5619,7 @@ int main(int argc, char** argv) {
               }
               pc.king_modifier |= kfKingMatrixTri;
             } else {
-              sprintf(g_logbuf, "Error: Invalid --make-king parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-king parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -5582,11 +5636,11 @@ int main(int argc, char** argv) {
             logerrprint("Error: --make-king-table cannot be used with a --king-cutoff input fileset.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 3)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 3)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            const char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               pc.king_modifier |= kfKingTableZs;
@@ -5616,7 +5670,7 @@ int main(int argc, char** argv) {
                 }
               }
             } else {
-              sprintf(g_logbuf, "Error: Invalid --make-king-table parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-king-table parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -5625,11 +5679,11 @@ int main(int argc, char** argv) {
           }
           pc.command_flags1 |= kfCommand1MakeKing;
         } else if (strequal_k2(flagname_p2, "issing")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 4)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 4)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            const char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               pc.missing_rpt_modifier |= kfMissingRptZs;
@@ -5664,7 +5718,7 @@ int main(int argc, char** argv) {
                 goto main_ret_1;
               }
             } else {
-              sprintf(g_logbuf, "Error: Invalid --missing parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --missing parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -5694,35 +5748,35 @@ int main(int argc, char** argv) {
             logerrprint("Error: --maj-ref cannot be used with --ref-allele/--alt1-allele.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct) {
-            const char* cur_modif = argv[arg_idx + 1];
+            const char* cur_modif = argvc[arg_idx + 1];
             if (!strcmp(cur_modif, "force")) {
               pc.misc_flags |= kfMiscMajRefForce;
             } else {
-              sprintf(g_logbuf, "Error: Invalid --maj-ref parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --maj-ref parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
           pc.misc_flags |= kfMiscMajRef;
           pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
         } else if (strequal_k2(flagname_p2, "af")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct) {
-            char* cur_modif = argv[arg_idx + 1];
+            const char* cur_modif = argvc[arg_idx + 1];
             if (!scanadv_double(cur_modif, &pc.min_maf)) {
-              sprintf(g_logbuf, "Error: Invalid --maf parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --maf parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
             if (pc.min_maf < 0.0) {
-              sprintf(g_logbuf, "Error: --maf parameter '%s' too small (must be >= 0).\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: --maf parameter '%s' too small (must be >= 0).\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             } else if (pc.min_maf >= 1.0) {
-              sprintf(g_logbuf, "Error: --maf parameter '%s' too large (must be < 1).\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: --maf parameter '%s' too large (must be < 1).\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           } else {
@@ -5733,31 +5787,31 @@ int main(int argc, char** argv) {
             pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
           }
         } else if (strequal_k2(flagname_p2, "ax-maf")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           if (!scanadv_double(cur_modif, &pc.max_maf)) {
-            sprintf(g_logbuf, "Error: Invalid --max-maf parameter '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --max-maf parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           if (pc.max_maf < pc.min_maf) {
-            sprintf(g_logbuf, "Error: --max-maf parameter '%s' too small (must be >= %g).\n", cur_modif, pc.min_maf);
+            snprintf(g_logbuf, kLogbufSize, "Error: --max-maf parameter '%s' too small (must be >= %g).\n", cur_modif, pc.min_maf);
             goto main_ret_INVALID_CMDLINE_WWA;
           } else if (pc.max_maf >= 1.0) {
-            sprintf(g_logbuf, "Error: --max-maf parameter '%s' too large (must be < 1).\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: --max-maf parameter '%s' too large (must be < 1).\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.filter_flags |= kfFilterPvarReq;
           pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
         } else if (strequal_k2(flagname_p2, "ac")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           double dxx;
           if ((!scanadv_double(cur_modif, &dxx)) || (dxx < 0.0) || (dxx > 2147483646.0)) {
-            sprintf(g_logbuf, "Error: Invalid --mac parameter '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mac parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE;
           }
           if (dxx > 0.0) {
@@ -5772,13 +5826,13 @@ int main(int argc, char** argv) {
             pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
           }
         } else if (strequal_k2(flagname_p2, "ax-mac")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           double dxx;
           if ((!scanadv_double(cur_modif, &dxx)) || (dxx < 0.0) || (dxx > 2147483646.0)) {
-            sprintf(g_logbuf, "Error: Invalid --max-mac parameter '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --max-mac parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           // round down
@@ -5791,12 +5845,12 @@ int main(int argc, char** argv) {
           pc.filter_flags |= kfFilterPvarReq;
           pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
         } else if (strequal_k2(flagname_p2, "ind")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t mind_thresh_present = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             if (!strcmp(cur_modif, "dosage")) {
               pc.misc_flags |= kfMiscMindDosage;
             } else if (!strcmp(cur_modif, "hh-missing")) {
@@ -5805,10 +5859,10 @@ int main(int argc, char** argv) {
               logerrprint("Error: Invalid --mind parameter sequence.\n");
               goto main_ret_INVALID_CMDLINE_A;
             } else if (!scanadv_double(cur_modif, &pc.mind_thresh)) {
-              sprintf(g_logbuf, "Error: Invalid --mind parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mind parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             } else if ((pc.mind_thresh < 0.0) || (pc.mind_thresh > 1.0)) {
-              sprintf(g_logbuf, "Error: Invalid --mind parameter '%s' (must be in [0, 1]).\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mind parameter '%s' (must be in [0, 1]).\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             } else {
               mind_thresh_present = 1;
@@ -5822,10 +5876,10 @@ int main(int argc, char** argv) {
             pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
           }
         } else if (strequal_k2(flagname_p2, "issing-var-code")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = cmdline_alloc_string(argv[arg_idx + 1], argv[arg_idx], kMaxIdSlen, &pc.missing_varid_match);
+          reterr = cmdline_alloc_string(argvc[arg_idx + 1], argvc[arg_idx], kMaxIdSlen, &pc.missing_varid_match);
           if (reterr) {
             goto main_ret_1;
           }
@@ -5855,36 +5909,36 @@ int main(int argc, char** argv) {
             logerrprint("Error: --max-corr must be used with --glm.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           if (!scanadv_double(cur_modif, &pc.glm_info.max_corr)) {
-            sprintf(g_logbuf, "Error: Invalid --max-corr parameter '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --max-corr parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           if ((pc.glm_info.max_corr < 0.0) || (pc.glm_info.max_corr > 1.0)) {
-            sprintf(g_logbuf, "Error: Invalid --max-corr parameter '%s' (must be in [0, 1]).\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --max-corr parameter '%s' (must be in [0, 1]).\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else if (strequal_k2(flagname_p2, "ach-r2-filter")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct) {
-            char* cur_modif = argv[arg_idx + 1];
+            const char* cur_modif = argvc[arg_idx + 1];
             if (!scanadv_double(cur_modif, &pc.mach_r2_min)) {
-              sprintf(g_logbuf, "Error: Invalid --mach-r2-filter min parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mach-r2-filter min parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
             if (pc.mach_r2_min < 0.0) {
-              sprintf(g_logbuf, "Error: Invalid --mach-r2-filter min parameter '%s' (must be nonnegative).\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mach-r2-filter min parameter '%s' (must be nonnegative).\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
             if (param_ct == 2) {
-              cur_modif = argv[arg_idx + 2];
+              cur_modif = argvc[arg_idx + 2];
               if (!scanadv_double(cur_modif, &pc.mach_r2_max)) {
-                sprintf(g_logbuf, "Error: Invalid --mach-r2-filter max parameter '%s'.\n", cur_modif);
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mach-r2-filter max parameter '%s'.\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
             } else {
@@ -5906,10 +5960,10 @@ int main(int argc, char** argv) {
             logerrprint("Error: --missing-code must be used with --data/--gen/--bgen.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = cmdline_alloc_string(param_ct? argv[arg_idx + 1] : "", argv[arg_idx], 0x7fffffff, &ox_missing_code);
+          reterr = cmdline_alloc_string(param_ct? argvc[arg_idx + 1] : "", argvc[arg_idx], 0x7fffffff, &ox_missing_code);
           if (reterr) {
             goto main_ret_1;
           }
@@ -5920,10 +5974,10 @@ int main(int argc, char** argv) {
           logerrprint("Error: --missing-phenotype flag retired.  Use --input-missing-phenotype and/or\n--output-missing-phenotype.\n");
           goto main_ret_INVALID_CMDLINE;
         } else if (strequal_k2(flagname_p2, "issing-catname")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           const uint32_t cur_modif_slen = strlen(cur_modif);
           double dxx;
           if (scanadv_double(cur_modif, &dxx) || is_nan_str(cur_modif, cur_modif_slen)) {
@@ -5954,17 +6008,17 @@ int main(int argc, char** argv) {
           logerrprint("Error: --make-grm has been retired due to inconsistent meaning across GCTA\nversions.  Use --make-grm-list or --make-grm-bin.\n");
           goto main_ret_INVALID_CMDLINE;
         } else if (strequal_k2(flagname_p2, "ake-grm-bin")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            const char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             if (!strcmp(cur_modif, "cov")) {
               pc.grm_flags |= kfGrmCov;
             } else if (!strcmp(cur_modif, "meanimpute")) {
               pc.grm_flags |= kfGrmMeanimpute;
             } else {
-              sprintf(g_logbuf, "Error: Invalid --make-grm-bin parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-grm-bin parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -5979,12 +6033,12 @@ int main(int argc, char** argv) {
             }
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 3)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 3)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t compress_stream_type = 0; // 1 = no-gz, 2 = zs
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            const char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             if (!strcmp(cur_modif, "cov")) {
               pc.grm_flags |= kfGrmCov;
             } else if (!strcmp(cur_modif, "meanimpute")) {
@@ -6004,7 +6058,7 @@ int main(int argc, char** argv) {
               compress_stream_type = 2;
               pc.grm_flags |= kfGrmListZs;
             } else {
-              sprintf(g_logbuf, "Error: Invalid --make-grm-list parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-grm-list parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -6025,11 +6079,11 @@ int main(int argc, char** argv) {
             logerrprint("Error: --make-rel cannot be used with --make-grm-list/--make-grm-bin.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 4)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 4)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            const char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             if (!strcmp(cur_modif, "cov")) {
               pc.grm_flags |= kfGrmCov;
             } else if (!strcmp(cur_modif, "meanimpute")) {
@@ -6071,7 +6125,7 @@ int main(int argc, char** argv) {
               }
               pc.grm_flags |= kfGrmMatrixTri;
             } else {
-              sprintf(g_logbuf, "Error: Invalid --make-rel parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-rel parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -6087,10 +6141,10 @@ int main(int argc, char** argv) {
           if (load_params || (xload & (~kfXloadPlink1Dosage))) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           const uint32_t slen = strlen(cur_modif);
           if (slen > kPglFnamesize - 1) {
             logerrprint("Error: --map filename too long.\n");
@@ -6099,12 +6153,12 @@ int main(int argc, char** argv) {
           memcpy(pvarname, cur_modif, slen + 1);
           xload |= kfXloadMap;
         } else if (strequal_k2(flagname_p2, "within")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           if (scan_posint_capped(cur_modif, kMaxLongLine / 2, &pc.mwithin_val)) {
-            sprintf(g_logbuf, "Error: Invalid --mwithin parameter '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mwithin parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else if (strequal_k2(flagname_p2, "filter")) {
@@ -6121,16 +6175,41 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_A;
           }
           logerrprint("Warning: --mfilter flag deprecated.  Use --keep-fcol-num or --keep-fcol-name\ninstead.  (Note that --keep-fcol-num does not add 2 to the column number.)\n");
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           uint32_t mfilter_arg;
           if (scan_posint_defcap(cur_modif, &mfilter_arg)) {
-            sprintf(g_logbuf, "Error: Invalid --mfilter parameter '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mfilter parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.keep_fcol_num = mfilter_arg + 2;
+        } else if (strequal_k2(flagname_p2, "pheno")) {
+          logerrprint("Warning: --mpheno flag deprecated.  Use --pheno-col-nums instead.  (Note that\n--pheno-col-nums does not add 2 to the column number(s).)\n");
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          const char* cur_modif = argvc[arg_idx + 1];
+          uint32_t mpheno_arg;
+          if (scan_posint_defcap(cur_modif, &mpheno_arg)) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --mpheno parameter '%s'.\n", cur_modif);
+            goto main_ret_INVALID_CMDLINE_WWA;
+          }
+          // add two to the number, convert it back to a string, and act as if
+          // --pheno-col-nums was used.  See parse_name_ranges().
+          const uint32_t pheno_col_nums_arg = mpheno_arg + 2;
+          const uint32_t name_max_blen = int_slen(pheno_col_nums_arg) + 1;
+          if (pgl_malloc(name_max_blen + 1, pc.pheno_range_list.names)) {
+            goto main_ret_NOMEM;
+          }
+          pc.pheno_range_list.name_max_blen = name_max_blen;
+          pc.pheno_range_list.name_ct = 1;
+          char* write_iter = uint32toa(pheno_col_nums_arg, pc.pheno_range_list.names);
+          *write_iter++ = '\0';
+          pc.pheno_range_list.starts_range = (unsigned char*)write_iter;
+          *write_iter = '\0';
+          pc.misc_flags |= kfMiscPhenoColNums;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
@@ -6169,35 +6248,35 @@ int main(int argc, char** argv) {
           //   --allow-extra-chr --not-chr 12-17 bobs_chrom
           // does not make sense, disallowed:
           //   --allow-extra-chr --chr 5-22 --not-chr bobs_chrom
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 0x7fffffff)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
 
           // --allow-extra-chr present, --chr/--autosome{-xy} not present
           const uint32_t aec_and_no_chr_include = ((pc.misc_flags / kfMiscAllowExtraChrs) & 1) && (!chr_info.is_include_stack);
-          reterr = parse_chr_ranges(flagname_p, errstr_append, param_ct, aec_and_no_chr_include, kChrRawEnd - (kChrExcludeWords * kBitsPerWord), '-', &(argv[arg_idx]), &chr_info, chr_info.chr_exclude);
+          reterr = parse_chr_ranges(&(argvc[arg_idx]), flagname_p, errstr_append, param_ct, aec_and_no_chr_include, kChrRawEnd - (kChrExcludeWords * kBitsPerWord), '-', &chr_info, chr_info.chr_exclude);
           if (reterr) {
             goto main_ret_1;
           }
           notchr_present = 1;
           // remaining processing now postponed to finalize_chrset()
         } else if (strequal_k2(flagname_p2, "ew-id-max-allele-len")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           if (scan_posint_capped(cur_modif, kMaxIdSlen - 2, &pc.new_variant_id_max_allele_slen)) {
-            sprintf(g_logbuf, "Error: Invalid --new-id-max-allele-len length parameter '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --new-id-max-allele-len length parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           if (param_ct == 2) {
-            cur_modif = argv[arg_idx + 2];
+            cur_modif = argvc[arg_idx + 2];
             if (!strcmp(cur_modif, "missing")) {
               pc.misc_flags |= kfMiscNewVarIdOverflowMissing;
             } else if (!strcmp(cur_modif, "truncate")) {
               pc.misc_flags |= kfMiscNewVarIdOverflowTruncate;
             } else if (strcmp(cur_modif, "error")) {
-              sprintf(g_logbuf, "Error: Invalid --new-id-max-allele-len parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --new-id-max-allele-len parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -6208,10 +6287,10 @@ int main(int argc, char** argv) {
 
       case 'o':
         if (strequal_k2(flagname_p2, "utput-chr")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const char* mt_code = argv[arg_idx + 1];
+          const char* mt_code = argvc[arg_idx + 1];
           if (!strcmp(mt_code, "M")) {
             chr_info.output_encoding = kfChrOutputM;
           } else if (!strcmp(mt_code, "MT")) {
@@ -6227,16 +6306,16 @@ int main(int argc, char** argv) {
           } else if (!strcmp(mt_code, "26")) {
             chr_info.output_encoding = kfChrOutput0;
           } else {
-            sprintf(g_logbuf, "Error: Invalid --output-chr parameter '%s'.\n", mt_code);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --output-chr parameter '%s'.\n", mt_code);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else if (strequal_k2(flagname_p2, "utput-min-p")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           if ((!scanadv_double(cur_modif, &pc.output_min_p)) || (!(pc.output_min_p >= 0.0)) || (pc.output_min_p >= 1.0)) {
-            sprintf(g_logbuf, "Error: Invalid --output-min-p parameter '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --output-min-p parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else if (strequal_k2(flagname_p2, "xford-single-chr")) {
@@ -6248,35 +6327,35 @@ int main(int argc, char** argv) {
             }
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           if (!(pc.misc_flags & kfMiscAllowExtraChrs)) {
             if (get_chr_code_raw(cur_modif) < 0) {
-              sprintf(g_logbuf, "Error: Invalid --oxford-single-chr chromosome code '%s'. (Did you forget --allow-extra-chr?)\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --oxford-single-chr chromosome code '%s'. (Did you forget --allow-extra-chr?)\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
-          reterr = cmdline_alloc_string(cur_modif, argv[arg_idx], kMaxIdSlen, &import_single_chr_str);
+          reterr = cmdline_alloc_string(cur_modif, argvc[arg_idx], kMaxIdSlen, &import_single_chr_str);
           if (reterr) {
             goto main_ret_1;
           }
         } else if (strequal_k2(flagname_p2, "utput-missing-genotype")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           output_missing_geno_char = extract_char_param(cur_modif);
           if (((unsigned char)output_missing_geno_char) <= ' ') {
-            sprintf(g_logbuf, "Error: Invalid --output-missing-genotype parameter '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --output-missing-genotype parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else if (strequal_k2(flagname_p2, "utput-missing-phenotype")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           const uint32_t cur_modif_slen = strlen(cur_modif);
           if (cur_modif_slen > 31) {
             logerrprint("Error: --output-missing-phenotype string too long (max 31 chars).\n");
@@ -6295,16 +6374,16 @@ int main(int argc, char** argv) {
             // currently only possible with --bcf, --bfile, --pfile
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t fname_modif_idx = 1;
           if (param_ct == 2) {
-            if (check_extra_param(&(argv[arg_idx]), "vzs", &fname_modif_idx)) {
+            if (check_extra_param(&(argvc[arg_idx]), "vzs", &fname_modif_idx)) {
               goto main_ret_INVALID_CMDLINE_A;
             }
           }
-          const char* fname_prefix = argv[arg_idx + fname_modif_idx];
+          const char* fname_prefix = argvc[arg_idx + fname_modif_idx];
           const uint32_t slen = strlen(fname_prefix);
           if (slen > (kPglFnamesize - 10)) {
             logerrprint("Error: --pfile parameter too long.\n");
@@ -6322,11 +6401,11 @@ int main(int argc, char** argv) {
           if (xload) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           load_params |= kfLoadParamsPgen;
-          char* fname = argv[arg_idx + 1];
+          const char* fname = argvc[arg_idx + 1];
           const uint32_t slen = strlen(fname);
           if (slen > (kPglFnamesize - 1)) {
             logerrprint("Error: --pgen parameter too long.\n");
@@ -6337,11 +6416,11 @@ int main(int argc, char** argv) {
           if (xload & (~(kfXloadVcf | kfXloadBcf | kfXloadPlink1Dosage | kfXloadMap))) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           load_params |= kfLoadParamsPsam;
-          char* fname = argv[arg_idx + 1];
+          const char* fname = argvc[arg_idx + 1];
           const uint32_t slen = strlen(fname);
           if (slen > (kPglFnamesize - 1)) {
             logerrprint("Error: --psam parameter too long.\n");
@@ -6352,11 +6431,11 @@ int main(int argc, char** argv) {
           if (xload) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           load_params |= kfLoadParamsPvar;
-          char* fname = argv[arg_idx + 1];
+          const char* fname = argvc[arg_idx + 1];
           const uint32_t slen = strlen(fname);
           if (slen > (kPglFnamesize - 1)) {
             logerrprint("Error: --pvar parameter too long.\n");
@@ -6364,17 +6443,35 @@ int main(int argc, char** argv) {
           }
           memcpy(pvarname, fname, slen + 1);
         } else if (strequal_k2(flagname_p2, "heno")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = alloc_fname(argv[arg_idx + 1], flagname_p, 0, &pc.pheno_fname);
+          reterr = alloc_fname(argvc[arg_idx + 1], flagname_p, 0, &pc.pheno_fname);
           if (reterr) {
             goto main_ret_1;
           }
           pc.dependency_flags |= kfFilterPsamReq;
+        } else if (strequal_k2(flagname_p2, "heno-col-nums")) {
+          if (!pc.pheno_fname) {
+            logerrprint("Error: --pheno-col-nums must be used with --pheno.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (pc.pheno_range_list.name_ct) {
+            logerrprint("Error: --pheno-col-nums can't be used with --mpheno.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          reterr = parse_name_ranges(&(argvc[arg_idx]), errstr_append, param_ct, 1, range_delim, &pc.pheno_range_list);
+          if (reterr) {
+            goto main_ret_1;
+          }
+          pc.misc_flags |= kfMiscPhenoColNums;
         } else if (strequal_k2(flagname_p2, "heno-name")) {
+          if (pc.pheno_range_list.name_ct) {
+            logerrprint("Error: --pheno-name can't be used with --pheno-col-nums.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           // can now be used without --pheno
-          reterr = parse_name_ranges(&(argv[arg_idx]), errstr_append, param_ct, 0, range_delim, &pc.pheno_range_list);
+          reterr = parse_name_ranges(&(argvc[arg_idx]), errstr_append, param_ct, 0, range_delim, &pc.pheno_range_list);
           if (reterr) {
             goto main_ret_1;
           }
@@ -6391,15 +6488,15 @@ int main(int argc, char** argv) {
             logerrprint("Error: --parallel cannot be used with '--make-rel square'.  Use '--make-rel\nsquare0' or plain --make-rel instead.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 2, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 2, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          if (scan_posint_capped(argv[arg_idx + 1], kParallelMax, &pc.parallel_idx)) {
-            sprintf(g_logbuf, "Error: Invalid --parallel job index '%s'.\n", argv[arg_idx + 1]);
+          if (scan_posint_capped(argvc[arg_idx + 1], kParallelMax, &pc.parallel_idx)) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --parallel job index '%s'.\n", argvc[arg_idx + 1]);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-          if (scan_posint_capped(argv[arg_idx + 2], kParallelMax, &pc.parallel_tot) || (pc.parallel_tot == 1) || (pc.parallel_tot < pc.parallel_idx)) {
-            sprintf(g_logbuf, "Error: Invalid --parallel total job count '%s'.\n", argv[arg_idx + 2]);
+          if (scan_posint_capped(argvc[arg_idx + 2], kParallelMax, &pc.parallel_tot) || (pc.parallel_tot == 1) || (pc.parallel_tot < pc.parallel_idx)) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --parallel total job count '%s'.\n", argvc[arg_idx + 2]);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           --pc.parallel_idx; // internal 0..(n-1) indexing
@@ -6408,17 +6505,17 @@ int main(int argc, char** argv) {
             logerrprint("Error: --parameters must be used with --glm.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          reterr = parse_name_ranges(&(argv[arg_idx]), errstr_append, param_ct, 1, '-', &pc.glm_info.parameters_range_list);
+          reterr = parse_name_ranges(&(argvc[arg_idx]), errstr_append, param_ct, 1, '-', &pc.glm_info.parameters_range_list);
           if (reterr) {
             goto main_ret_1;
           }
         } else if (strequal_k2(flagname_p2, "filter")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           if (!scanadv_double(cur_modif, &pc.pfilter)) {
-            sprintf(g_logbuf, "Error: Invalid --pfilter parameter '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --pfilter parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           if ((pc.pfilter <= 0.0) || (pc.pfilter > 1.0)) {
@@ -6430,12 +6527,12 @@ int main(int argc, char** argv) {
           logerrprint("Error: --pca requires " PROG_NAME_STR " to be built with LAPACK.\n");
           goto main_ret_INVALID_CMDLINE;
 #endif
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 6)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 6)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t is_var_wts = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            const char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "approx", cur_modif_slen)) {
               pc.pca_flags |= kfPcaApprox;
@@ -6518,7 +6615,7 @@ int main(int argc, char** argv) {
           pc.command_flags1 |= kfCommand1Pca;
         } else if (strequal_k2(flagname_p2, "heno-quantile-normalize")) {
           if (param_ct) {
-            reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &pc.quantnorm_flattened);
+            reterr = alloc_and_flatten(&(argvc[arg_idx + 1]), param_ct, 0x7fffffff, &pc.quantnorm_flattened);
             if (reterr) {
               goto main_ret_1;
             }
@@ -6537,7 +6634,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE;
           }
           if (param_ct) {
-            reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &pc.quantnorm_flattened);
+            reterr = alloc_and_flatten(&(argvc[arg_idx + 1]), param_ct, 0x7fffffff, &pc.quantnorm_flattened);
             if (reterr) {
               goto main_ret_1;
             }
@@ -6558,10 +6655,10 @@ int main(int argc, char** argv) {
           pc.misc_flags |= kfMiscRealRefAlleles;
           goto main_param_zero;
         } else if (strequal_k2(flagname_p2, "emove")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 0x7fffffff)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const uint32_t sid_present = !strcmp(argv[arg_idx + 1], "sid");
+          const uint32_t sid_present = !strcmp(argvc[arg_idx + 1], "sid");
           if (sid_present) {
             if (param_ct == 1) {
               logerrprint("Error: '--remove sid' requires at least one filename.\n");
@@ -6569,16 +6666,16 @@ int main(int argc, char** argv) {
             }
             pc.misc_flags |= kfMiscRemovefileSid;
           }
-          reterr = alloc_and_flatten(&(argv[arg_idx + 1 + sid_present]), param_ct - sid_present, kPglFnamesize, &pc.remove_fnames);
+          reterr = alloc_and_flatten(&(argvc[arg_idx + 1 + sid_present]), param_ct - sid_present, kPglFnamesize, &pc.remove_fnames);
           if (reterr) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPsamReq;
         } else if (strequal_k2(flagname_p2, "emove-fam")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 0x7fffffff)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, kPglFnamesize, &pc.removefam_fnames);
+          reterr = alloc_and_flatten(&(argvc[arg_idx + 1]), param_ct, kPglFnamesize, &pc.removefam_fnames);
           if (reterr) {
             goto main_ret_1;
           }
@@ -6593,17 +6690,17 @@ int main(int argc, char** argv) {
           pc.filter_flags |= kfFilterPsamReq | kfFilterExclNosex;
           goto main_param_zero;
         } else if (strequal_k2(flagname_p2, "ead-freq")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = alloc_fname(argv[arg_idx + 1], flagname_p, 0, &pc.read_freq_fname);
+          reterr = alloc_fname(argvc[arg_idx + 1], flagname_p, 0, &pc.read_freq_fname);
           if (reterr) {
             goto main_ret_1;
           }
           pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k2(flagname_p2, "equire-pheno")) {
           if (param_ct) {
-            reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &pc.require_pheno_flattened);
+            reterr = alloc_and_flatten(&(argvc[arg_idx + 1]), param_ct, 0x7fffffff, &pc.require_pheno_flattened);
             if (reterr) {
               goto main_ret_1;
             }
@@ -6612,7 +6709,7 @@ int main(int argc, char** argv) {
           pc.filter_flags |= kfFilterPsamReq;
         } else if (strequal_k2(flagname_p2, "equire-covar")) {
           if (param_ct) {
-            reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &pc.require_covar_flattened);
+            reterr = alloc_and_flatten(&(argvc[arg_idx + 1]), param_ct, 0x7fffffff, &pc.require_covar_flattened);
             if (reterr) {
               goto main_ret_1;
             }
@@ -6620,65 +6717,52 @@ int main(int argc, char** argv) {
           pc.misc_flags |= kfMiscRequireCovar;
           pc.filter_flags |= kfFilterPsamReq;
         } else if (strequal_k2(flagname_p2, "equire-info")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 0x7fffffff)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = alloc_and_flatten_comma_delim(&(argv[arg_idx + 1]), param_ct, &pc.require_info_flattened);
+          reterr = alloc_and_flatten_comma_delim(&(argvc[arg_idx + 1]), param_ct, &pc.require_info_flattened);
           if (reterr) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPvarReq;
         } else if (strequal_k2(flagname_p2, "equire-no-info")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 0x7fffffff)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = alloc_and_flatten_comma_delim(&(argv[arg_idx + 1]), param_ct, &pc.require_no_info_flattened);
+          reterr = alloc_and_flatten_comma_delim(&(argvc[arg_idx + 1]), param_ct, &pc.require_no_info_flattened);
           if (reterr) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPvarReq;
         } else if (strequal_k2(flagname_p2, "emove-if")) {
-          reterr = validate_and_alloc_cmp_expr(&(argv[arg_idx + 1]), argv[arg_idx], param_ct, &pc.remove_if_expr);
+          reterr = validate_and_alloc_cmp_expr(&(argvc[arg_idx + 1]), argvc[arg_idx], param_ct, &pc.remove_if_expr);
           if (reterr) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPsamReq;
-        } else if (strequal_k2(flagname_p2, "emove-if-info")) {
-          reterr = validate_and_alloc_cmp_expr(&(argv[arg_idx + 1]), argv[arg_idx], param_ct, &pc.remove_if_info_expr);
-          if (reterr) {
-            goto main_ret_1;
-          }
-          // validator doesn't currently check for ';'.  also theoretically
-          // possible for '=' to be in key
-          if (strchr(pc.remove_if_info_expr.pheno_name, ';') || strchr(pc.remove_if_info_expr.pheno_name, '=')) {
-            logerrprint("Error: Invalid --remove-if-info expression.\n");
-            goto main_ret_INVALID_CMDLINE;
-          }
-          // load_pvar() currently checks value string if nonnumeric
-          pc.filter_flags |= kfFilterPvarReq;
         } else if (strequal_k2(flagname_p2, "emove-cats")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = alloc_fname(argv[arg_idx + 1], flagname_p, 0, &pc.remove_cats_fname);
+          reterr = alloc_fname(argvc[arg_idx + 1], flagname_p, 0, &pc.remove_cats_fname);
           if (reterr) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPsamReq;
         } else if (strequal_k2(flagname_p2, "emove-cat-names")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 0x7fffffff)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, kMaxIdBlen, &pc.remove_cat_names_flattened);
+          reterr = alloc_and_flatten(&(argvc[arg_idx + 1]), param_ct, kMaxIdBlen, &pc.remove_cat_names_flattened);
           if (reterr) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPsamReq;
         } else if (strequal_k2(flagname_p2, "emove-cat-pheno")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = cmdline_alloc_string(argv[arg_idx + 1], argv[arg_idx], kMaxIdSlen, &pc.remove_cat_phenoname);
+          reterr = cmdline_alloc_string(argvc[arg_idx + 1], argvc[arg_idx], kMaxIdSlen, &pc.remove_cat_phenoname);
           if (reterr) {
             goto main_ret_1;
           }
@@ -6687,10 +6771,10 @@ int main(int argc, char** argv) {
             logerrprint("Error: --maj-ref cannot be used with --ref-allele/--alt1-allele.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 5)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 5)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          char** sources = &(argv[arg_idx + 1]);
+          const char* const* sources = &(argvc[arg_idx + 1]);
           if (!strcmp(sources[0], "force")) {
             --param_ct;
             if (!param_ct) {
@@ -6711,17 +6795,17 @@ int main(int argc, char** argv) {
             logerrprint("Error: --ref-from-fa cannot be used with --maj-ref or\n--ref-allele/--alt1-allele.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t fname_modif_idx = 1;
           if (param_ct == 2) {
-            if (check_extra_param(&(argv[arg_idx]), "force", &fname_modif_idx)) {
+            if (check_extra_param(&(argvc[arg_idx]), "force", &fname_modif_idx)) {
               goto main_ret_INVALID_CMDLINE_A;
             }
             pc.misc_flags |= kfMiscRefFromFaForce;
           }
-          reterr = alloc_fname(argv[arg_idx + fname_modif_idx], flagname_p, 0, &pc.ref_from_fa_fname);
+          reterr = alloc_fname(argvc[arg_idx + fname_modif_idx], flagname_p, 0, &pc.ref_from_fa_fname);
           if (reterr) {
             goto main_ret_1;
           }
@@ -6751,7 +6835,7 @@ int main(int argc, char** argv) {
 
       case 's':
         if (strequal_k2(flagname_p2, "eed")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 0x7fffffff)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           rseed_ct = param_ct;
@@ -6759,9 +6843,9 @@ int main(int argc, char** argv) {
             goto main_ret_NOMEM;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            const char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             if (scan_uint_capped(cur_modif, UINT32_MAX, &(rseeds[param_idx - 1]))) {
-              sprintf(g_logbuf, "Error: Invalid --seed parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --seed parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -6770,11 +6854,11 @@ int main(int argc, char** argv) {
             logerrprint("Error: --split-par cannot be used with --merge-par/--merge-x.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct == 1) {
-            const char* build_code = argv[arg_idx + 1];
+            const char* build_code = argvc[arg_idx + 1];
             if ((!strcmp(build_code, "b38")) || (!strcmp(build_code, "hg38"))) {
               pc.splitpar_bound1 = 2781479;
               pc.splitpar_bound2 = 155701383;
@@ -6785,16 +6869,16 @@ int main(int argc, char** argv) {
               pc.splitpar_bound1 = 2709521;
               pc.splitpar_bound2 = 154584237;
             } else {
-              sprintf(g_logbuf, "Error: Unrecognized --split-par build code '%s'.\n", build_code);
+              snprintf(g_logbuf, kLogbufSize, "Error: Unrecognized --split-par build code '%s'.\n", build_code);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           } else {
-            if (scan_uint_defcap(argv[arg_idx + 1], &pc.splitpar_bound1)) {
-              sprintf(g_logbuf, "Error: Invalid --split-par parameter '%s'.\n", argv[arg_idx + 1]);
+            if (scan_uint_defcap(argvc[arg_idx + 1], &pc.splitpar_bound1)) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --split-par parameter '%s'.\n", argvc[arg_idx + 1]);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
-            if (scan_uint_defcap(argv[arg_idx + 2], &pc.splitpar_bound2) || (pc.splitpar_bound2 <= pc.splitpar_bound1)) {
-              sprintf(g_logbuf, "Error: Invalid --split-par parameter '%s'.\n", argv[arg_idx + 2]);
+            if (scan_uint_defcap(argvc[arg_idx + 2], &pc.splitpar_bound2) || (pc.splitpar_bound2 <= pc.splitpar_bound1)) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --split-par parameter '%s'.\n", argvc[arg_idx + 2]);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -6807,13 +6891,13 @@ int main(int argc, char** argv) {
             }
             pc.misc_flags |= kfMiscSetMissingVarIds;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          if (!varid_template_is_valid(argv[arg_idx + 1], flagname_p)) {
+          if (!varid_template_is_valid(argvc[arg_idx + 1], flagname_p)) {
             goto main_ret_INVALID_CMDLINE_A;
           }
-          reterr = cmdline_alloc_string(argv[arg_idx + 1], argv[arg_idx], kMaxIdSlen, &pc.varid_template);
+          reterr = cmdline_alloc_string(argvc[arg_idx + 1], argvc[arg_idx], kMaxIdSlen, &pc.varid_template);
           if (reterr) {
             goto main_ret_1;
           }
@@ -6823,11 +6907,11 @@ int main(int argc, char** argv) {
             logerrprint("Error: --set-hh-missing must be used with --make-{b}pgen/--make-bed.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct) {
-            const char* cur_modif = argv[arg_idx + 1];
+            const char* cur_modif = argvc[arg_idx + 1];
             if (!strcmp(cur_modif, "keep-dosage")) {
               if (make_plink2_modifier & kfMakePgenEraseDosage) {
                 logerrprint("Error: --set-hh-missing 'keep-dosage' modifier cannot be used with\n--make-{b}pgen erase-dosage.\n");
@@ -6835,7 +6919,7 @@ int main(int argc, char** argv) {
               }
               make_plink2_modifier |= kfMakePlink2SetHhMissingKeepDosage;
             } else {
-              sprintf(g_logbuf, "Error: Invalid --set-hh-missing parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --set-hh-missing parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -6845,11 +6929,11 @@ int main(int argc, char** argv) {
             logerrprint("Error: --set-mixed-mt-missing must be used with --make-{b}pgen/--make-bed.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct) {
-            const char* cur_modif = argv[arg_idx + 1];
+            const char* cur_modif = argvc[arg_idx + 1];
             if (!strcmp(cur_modif, "keep-dosage")) {
               if (make_plink2_modifier & kfMakePgenEraseDosage) {
                 logerrprint("Error: --set-mixed-mt-missing 'keep-dosage' modifier cannot be used with\n--make-{b}pgen erase-dosage.\n");
@@ -6857,7 +6941,7 @@ int main(int argc, char** argv) {
               }
               make_plink2_modifier |= kfMakePlink2SetMixedMtMissingKeepDosage;
             } else {
-              sprintf(g_logbuf, "Error: Invalid --set-mixed-mt-missing parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --set-mixed-mt-missing parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -6870,10 +6954,10 @@ int main(int argc, char** argv) {
             logerrprint("Error: --sample must be used with --gen/--bgen/--data/--haps.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const char* cur_fname = argv[arg_idx + 1];
+          const char* cur_fname = argvc[arg_idx + 1];
           const uint32_t slen = strlen(cur_fname);
           if (slen > kPglFnamesize - 1) {
             logerrprint("Error: --sample filename too long.\n");
@@ -6902,46 +6986,46 @@ int main(int argc, char** argv) {
             logerrprint("Error: --snp cannot be used with --exclude-snp.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = cmdline_alloc_string(argv[arg_idx + 1], argv[arg_idx], kMaxIdSlen, &pc.varid_snp);
+          reterr = cmdline_alloc_string(argvc[arg_idx + 1], argvc[arg_idx], kMaxIdSlen, &pc.varid_snp);
           if (reterr) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPvarReq;
         } else if (strequal_k2(flagname_p2, "nps")) {
-          reterr = parse_name_ranges(&(argv[arg_idx]), errstr_append, param_ct, 0, range_delim, &pc.snps_range_list);
+          reterr = parse_name_ranges(&(argvc[arg_idx]), errstr_append, param_ct, 0, range_delim, &pc.snps_range_list);
           if (reterr) {
             goto main_ret_1;
           }
           pc.filter_flags |= kfFilterPvarReq;
         } else if (strequal_k2(flagname_p2, "nps-only")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct) {
-            const char* cur_modif = argv[arg_idx + 1];
+            const char* cur_modif = argvc[arg_idx + 1];
             if (!strcmp(cur_modif, "just-acgt")) {
               pc.filter_flags |= kfFilterSnpsOnlyJustAcgt;
             } else {
-              sprintf(g_logbuf, "Error: Invalid --snps-only parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --snps-only parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
           pc.filter_flags |= kfFilterPvarReq | kfFilterSnpsOnly;
         } else if (strequal_k2(flagname_p2, "core")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 11)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 11)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = alloc_fname(argv[arg_idx + 1], flagname_p, 0, &pc.score_info.input_fname);
+          reterr = alloc_fname(argvc[arg_idx + 1], flagname_p, 0, &pc.score_info.input_fname);
           if (reterr) {
             goto main_ret_1;
           }
           uint32_t numeric_param_ct = 0;
           uint32_t score_cols[3];
           for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
-            const char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "header", cur_modif_slen)) {
               pc.score_info.flags |= kfScoreHeaderIgnore;
@@ -6978,7 +7062,7 @@ int main(int argc, char** argv) {
               goto main_ret_INVALID_CMDLINE_A;
             } else {
               if (scan_posint_capped(cur_modif, kMaxLongLine / 2, &(score_cols[numeric_param_ct]))) {
-                sprintf(g_logbuf, "Error: Invalid --score parameter '%s'.\n", cur_modif);
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --score parameter '%s'.\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
               for (uint32_t uii = 0; uii < numeric_param_ct; ++uii) {
@@ -7030,14 +7114,14 @@ int main(int argc, char** argv) {
             logerrprint("Error: --score-col-nums cannot be used when three numeric parameters are\nprovided to --score.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          reterr = parse_name_ranges(&(argv[arg_idx]), errstr_append, param_ct, 1, '-', &pc.score_info.input_col_idx_range_list);
+          reterr = parse_name_ranges(&(argvc[arg_idx]), errstr_append, param_ct, 1, '-', &pc.score_info.input_col_idx_range_list);
           if (reterr) {
             goto main_ret_1;
           }
         } else if (strequal_k2(flagname_p2, "plit-cat-pheno")) {
           uint32_t first_phenoname_idx = 1;
           for (; first_phenoname_idx <= param_ct; ++first_phenoname_idx) {
-            const char* cur_modif = argv[arg_idx + first_phenoname_idx];
+            const char* cur_modif = argvc[arg_idx + first_phenoname_idx];
             if (!strcmp(cur_modif, "omit-last")) {
               pc.pheno_transform_flags |= kfPhenoTransformSplitCatOmitLast;
             } else if (!strcmp(cur_modif, "covar-01")) {
@@ -7047,12 +7131,12 @@ int main(int argc, char** argv) {
             }
           }
           if (first_phenoname_idx <= param_ct) {
-            reterr = alloc_and_flatten(&(argv[arg_idx + first_phenoname_idx]), param_ct + 1 - first_phenoname_idx, kMaxIdSlen - 1, &pc.split_cat_phenonames_flattened);
+            reterr = alloc_and_flatten(&(argvc[arg_idx + first_phenoname_idx]), param_ct + 1 - first_phenoname_idx, kMaxIdSlen - 1, &pc.split_cat_phenonames_flattened);
             if (reterr) {
               goto main_ret_1;
             }
             // may as well verify that no phenotype name has an '=' in it
-            char* phenonames_iter = pc.split_cat_phenonames_flattened;
+            const char* phenonames_iter = pc.split_cat_phenonames_flattened;
             do {
               const uint32_t cur_phenoname_slen = strlen(phenonames_iter);
               if (memchr(phenonames_iter, '=', cur_phenoname_slen)) {
@@ -7073,11 +7157,11 @@ int main(int argc, char** argv) {
             logerrprint("Error: --sort-vars must be used with --make-{b}pgen/--make-bed or dataset\nmerging.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct) {
-            const char* sort_vars_mode_str = argv[arg_idx + 1];
+            const char* sort_vars_mode_str = argvc[arg_idx + 1];
             const char first_char_upcase_match = sort_vars_mode_str[0] & 0xdf;
             const uint32_t is_short_name = (sort_vars_mode_str[1] == '\0');
             if ((is_short_name && (first_char_upcase_match == 'N')) || (!strcmp(sort_vars_mode_str, "natural"))) {
@@ -7085,7 +7169,7 @@ int main(int argc, char** argv) {
             } else if ((is_short_name && (first_char_upcase_match == 'A')) || (!strcmp(sort_vars_mode_str, "ascii"))) {
               pc.sort_vars_flags = kfSortAscii;
             } else {
-              sprintf(g_logbuf, "Error: '%s' is not a valid mode for --sort-vars.\n", sort_vars_mode_str);
+              snprintf(g_logbuf, kLogbufSize, "Error: '%s' is not a valid mode for --sort-vars.\n", sort_vars_mode_str);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           } else {
@@ -7098,11 +7182,11 @@ int main(int argc, char** argv) {
 
       case 't':
         if (strequal_k2(flagname_p2, "hreads")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          if (scan_posint_defcap(argv[arg_idx + 1], &pc.max_thread_ct)) {
-            sprintf(g_logbuf, "Error: Invalid --threads parameter '%s'.\n", argv[arg_idx + 1]);
+          if (scan_posint_defcap(argvc[arg_idx + 1], &pc.max_thread_ct)) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --threads parameter '%s'.\n", argvc[arg_idx + 1]);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           if (pc.max_thread_ct > kMaxThreads) {
@@ -7117,10 +7201,10 @@ int main(int argc, char** argv) {
             logerrprint("Error: --from/--to cannot be used with --autosome{-par} or --{not-}chr.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = cmdline_alloc_string(argv[arg_idx + 1], argv[arg_idx], kMaxIdSlen, &pc.varid_to);
+          reterr = cmdline_alloc_string(argvc[arg_idx + 1], argvc[arg_idx], kMaxIdSlen, &pc.varid_to);
           if (reterr) {
             goto main_ret_1;
           }
@@ -7134,17 +7218,17 @@ int main(int argc, char** argv) {
             logerrprint("Error: --from-bp/-kb/-mb and --to-bp/-kb/-mb cannot be used with --not-chr.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (pc.to_bp != -1) {
             logerrprint("Error: Multiple --to-bp/-kb/-mb values.\n");
             goto main_ret_INVALID_CMDLINE;
           }
-          char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           double dxx;
           if (!scanadv_double(cur_modif, &dxx)) {
-            sprintf(g_logbuf, "Error: Invalid --to-bp/-kb/-mb parameter '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --to-bp/-kb/-mb parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           const char unit_char = flagname_p2[2];
@@ -7169,12 +7253,12 @@ int main(int argc, char** argv) {
           }
           pc.filter_flags |= kfFilterPvarReq;
         } else if (strequal_k2(flagname_p2, "hin")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           if (!scanadv_double(cur_modif, &pc.thin_keep_prob)) {
-            sprintf(g_logbuf, "Error: Invalid --thin variant retention probability '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --thin variant retention probability '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           if (pc.thin_keep_prob < (0.5 / 4294967296.0)) {
@@ -7196,23 +7280,23 @@ int main(int argc, char** argv) {
             logerrprint("Error: --thin cannot be used with --thin-count.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           if (scan_uint_defcap(cur_modif, &pc.thin_keep_ct) || (!pc.thin_keep_ct)) {
             // todo: allow 0 if --allow-no-variants
-            sprintf(g_logbuf, "Error: Invalid --thin-count parameter '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --thin-count parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.filter_flags |= kfFilterPvarReq;
         } else if (strequal_k2(flagname_p2, "hin-indiv")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           if (!scanadv_double(cur_modif, &pc.thin_keep_sample_prob)) {
-            sprintf(g_logbuf, "Error: Invalid --thin-indiv sample retention probability '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --thin-indiv sample retention probability '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           if (pc.thin_keep_sample_prob < (0.5 / 4294967296.0)) {
@@ -7228,13 +7312,13 @@ int main(int argc, char** argv) {
             logerrprint("Error: --thin-indiv cannot be used with --thin-indiv-count.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           if (scan_uint_defcap(cur_modif, &pc.thin_keep_sample_ct) || (!pc.thin_keep_sample_ct)) {
             // todo: allow 0 if --allow-no-samples
-            sprintf(g_logbuf, "Error: Invalid --thin-indiv-count parameter '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --thin-indiv-count parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.filter_flags |= kfFilterPsamReq;
@@ -7243,10 +7327,10 @@ int main(int argc, char** argv) {
             logerrprint("Error: --tests must be used with --glm.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if ((param_ct == 1) && (!strcmp(argv[arg_idx + 1], "all"))) {
+          if ((param_ct == 1) && (!strcmp(argvc[arg_idx + 1], "all"))) {
             pc.glm_info.flags |= kfGlmTestsAll;
           } else {
-            reterr = parse_name_ranges(&(argv[arg_idx]), errstr_append, param_ct, 1, '-', &pc.glm_info.tests_range_list);
+            reterr = parse_name_ranges(&(argvc[arg_idx]), errstr_append, param_ct, 1, '-', &pc.glm_info.tests_range_list);
             if (reterr) {
               goto main_ret_1;
             }
@@ -7261,26 +7345,26 @@ int main(int argc, char** argv) {
 
       case 'u':
         if (strequal_k2(flagname_p2, "pdate-sex")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = alloc_fname(argv[arg_idx + 1], flagname_p, 0, &pc.update_sex_fname);
+          reterr = alloc_fname(argvc[arg_idx + 1], flagname_p, 0, &pc.update_sex_fname);
           if (reterr) {
             goto main_ret_1;
           }
           if (param_ct == 2) {
-            const char* cur_modif = argv[arg_idx + 2];
+            const char* cur_modif = argvc[arg_idx + 2];
             if (scan_posint_defcap(cur_modif, &pc.update_sex_colm2)) {
-              sprintf(g_logbuf, "Error: Invalid --update-sex column parameter '%s'. (This must be a positive integer.)\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --update-sex column parameter '%s'. (This must be a positive integer.)\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
           pc.dependency_flags |= kfFilterPsamReq;
         } else if (strequal_k2(flagname_p2, "pdate-name")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 4)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 4)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = alloc_2col(&(argv[arg_idx + 1]), flagname_p, param_ct, &pc.update_name_flag);
+          reterr = alloc_2col(&(argvc[arg_idx + 1]), flagname_p, param_ct, &pc.update_name_flag);
           if (reterr) {
             goto main_ret_1;
           }
@@ -7292,18 +7376,18 @@ int main(int argc, char** argv) {
 
       case 'v':
         if (strequal_k2(flagname_p2, "ar-min-qual")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          if (scan_float(argv[arg_idx + 1], &pc.var_min_qual) || (pc.var_min_qual < 0.0)) {
-            sprintf(g_logbuf, "Error: Invalid --var-min-qual parameter '%s'.\n", argv[arg_idx + 1]);
+          if (scan_float(argvc[arg_idx + 1], &pc.var_min_qual) || (pc.var_min_qual < 0.0)) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --var-min-qual parameter '%s'.\n", argvc[arg_idx + 1]);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.var_min_qual *= 1 - kSmallEpsilon;
           pc.filter_flags |= kfFilterPvarReq;
         } else if (strequal_k2(flagname_p2, "ar-filter")) {
           if (param_ct) {
-            reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &pc.var_filter_exceptions_flattened);
+            reterr = alloc_and_flatten(&(argvc[arg_idx + 1]), param_ct, 0x7fffffff, &pc.var_filter_exceptions_flattened);
             if (reterr) {
               goto main_ret_1;
             }
@@ -7316,17 +7400,17 @@ int main(int argc, char** argv) {
           if ((load_params & (~kfLoadParamsPsam)) || xload) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct == 2) {
-            const char* cur_modif = argv[arg_idx + 2];
+            const char* cur_modif = argvc[arg_idx + 2];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (!str_startswith(cur_modif, "dosage=", cur_modif_slen)) {
-              sprintf(g_logbuf, "Error: Invalid --vcf parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --vcf parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
-            reterr = cmdline_alloc_string(&(cur_modif[strlen("dosage=")]), argv[arg_idx], 4095, &vcf_dosage_import_field);
+            reterr = cmdline_alloc_string(&(cur_modif[strlen("dosage=")]), argvc[arg_idx], 4095, &vcf_dosage_import_field);
             if (reterr) {
               goto main_ret_1;
             }
@@ -7339,7 +7423,7 @@ int main(int argc, char** argv) {
               goto main_ret_INVALID_CMDLINE;
             }
           }
-          const char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           const uint32_t slen = strlen(cur_modif);
           if (slen > kPglFnamesize - 1) {
             logerrprint("Error: --vcf filename too long.\n");
@@ -7356,13 +7440,13 @@ int main(int argc, char** argv) {
             LOGERRPRINTF("Error: --%s must be used with --vcf.\n", flagname_p);
             goto main_ret_INVALID_CMDLINE;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           uint32_t uii;
           if (scan_uint_defcap(cur_modif, &uii)) {
-            sprintf(g_logbuf, "Error: Invalid --%s parameter '%s'.\n", flagname_p, cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s parameter '%s'.\n", flagname_p, cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           if (flagname_p2[7] == 'g') {
@@ -7379,10 +7463,10 @@ int main(int argc, char** argv) {
             logerrprint("Error: --vcf-idspace-to cannot be used when the --id-delim character is space.\n");
             goto main_ret_INVALID_CMDLINE;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          idspace_to = extract_char_param(argv[arg_idx + 1]);
+          idspace_to = extract_char_param(argvc[arg_idx + 1]);
           if (!idspace_to) {
             logerrprint("Error: --vcf-idspace-to parameter must be a single character.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -7396,10 +7480,10 @@ int main(int argc, char** argv) {
             logerrprint("Error: --vcf-half-call must be used with --vcf.\n");
             goto main_ret_INVALID_CMDLINE;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const char* half_call_mode_str = argv[arg_idx + 1];
+          const char* half_call_mode_str = argvc[arg_idx + 1];
           const char first_char_upcase_match = half_call_mode_str[0] & 0xdf;
           const uint32_t is_short_name = (half_call_mode_str[1] == '\0');
           if ((is_short_name && (first_char_upcase_match == 'H')) || (!strcmp(half_call_mode_str, "haploid"))) {
@@ -7411,7 +7495,7 @@ int main(int argc, char** argv) {
           } else if ((is_short_name && (first_char_upcase_match == 'R')) || (!strcmp(half_call_mode_str, "reference"))) {
             vcf_half_call = kVcfHalfCallError;
           } else {
-            sprintf(g_logbuf, "Error: '%s' is not a valid mode for --vcf-half-call.\n", half_call_mode_str);
+            snprintf(g_logbuf, kLogbufSize, "Error: '%s' is not a valid mode for --vcf-half-call.\n", half_call_mode_str);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else if (strequal_k2(flagname_p2, "cf-require-gt")) {
@@ -7426,16 +7510,16 @@ int main(int argc, char** argv) {
             logerrprint("Error: --vif must be used with --glm/--epistasis.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           if (!scanadv_double(cur_modif, &pc.vif_thresh)) {
-            sprintf(g_logbuf, "Error: Invalid --glm/--epistasis VIF threshold '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --glm/--epistasis VIF threshold '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           if (pc.vif_thresh < 1.0) {
-            sprintf(g_logbuf, "Error: --glm/--epistasis VIF threshold '%s' too small (must be >= 1).\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: --glm/--epistasis VIF threshold '%s' too small (must be >= 1).\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else if (strequal_k2(flagname_p2, "ariance-standardize")) {
@@ -7444,7 +7528,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE;
           }
           if (param_ct) {
-            reterr = alloc_and_flatten(&(argv[arg_idx + 1]), param_ct, 0x7fffffff, &pc.vstd_flattened);
+            reterr = alloc_and_flatten(&(argvc[arg_idx + 1]), param_ct, 0x7fffffff, &pc.vstd_flattened);
             if (reterr) {
               goto main_ret_1;
             }
@@ -7461,13 +7545,13 @@ int main(int argc, char** argv) {
 
       case 'w':
         if (strequal_k2(flagname_p2, "rite-snplist")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct) {
-            const char* cur_modif = argv[arg_idx + 1];
+            const char* cur_modif = argvc[arg_idx + 1];
             if (strcmp(cur_modif, "zs")) {
-              sprintf(g_logbuf, "Error: Invalid --write-snplist parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --write-snplist parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
             pc.misc_flags |= kfMiscWriteSnplistZs;
@@ -7481,13 +7565,13 @@ int main(int argc, char** argv) {
             logerrprint("Error: --window must be used with --snp or --exclude-snp.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           double dxx;
           if (!scanadv_double(cur_modif, &dxx) || (dxx < 0)) {
-            sprintf(g_logbuf, "Error: Invalid --window parameter '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --window parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           dxx *= 500 * (1 + kSmallEpsilon);
@@ -7503,11 +7587,11 @@ int main(int argc, char** argv) {
             logerrprint("Error: --within cannot be used with --family.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            const char* cur_modif = argv[arg_idx + param_idx];
+            const char* cur_modif = argvc[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if ((cur_modif_slen == 7) && str_startswith2(cur_modif, "keep-") && match_upper_k2(&(cur_modif[5]), "NA")) {
               logerrprint("Error: --within's keep-NA modifier has been retired.  Rename that category in\nthe input file if you wish to keep it.\n");
@@ -7517,10 +7601,10 @@ int main(int argc, char** argv) {
               reterr = alloc_fname(cur_modif, flagname_p, 0, &pc.within_fname);
             } else {
               if (is_reserved_pheno_name(cur_modif, cur_modif_slen)) {
-                sprintf(g_logbuf, "Error: '%s' cannot be used as a categorical phenotype name.\n", cur_modif);
+                snprintf(g_logbuf, kLogbufSize, "Error: '%s' cannot be used as a categorical phenotype name.\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_2A;
               }
-              reterr = cmdline_alloc_string(cur_modif, argv[arg_idx], kMaxIdSlen, &pc.catpheno_name);
+              reterr = cmdline_alloc_string(cur_modif, argvc[arg_idx], kMaxIdSlen, &pc.catpheno_name);
             }
             if (reterr) {
               goto main_ret_1;
@@ -7528,11 +7612,11 @@ int main(int argc, char** argv) {
           }
           pc.dependency_flags |= kfFilterPsamReq;
         } else if (strequal_k2(flagname_p2, "rite-covar")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 0, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           if (param_ct) {
-            const char* cur_modif = argv[arg_idx + 1];
+            const char* cur_modif = argvc[arg_idx + 1];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (str_startswithz(cur_modif, "cols=", cur_modif_slen)) {
               reterr = parse_col_descriptor(&(cur_modif[5]), "maybesid\0sid\0maybeparents\0parents\0sex\0pheno1\0phenos\0", "write-covar", kfWriteCovarColMaybesid, kfWriteCovarColDefault, 0, &pc.write_covar_flags);
@@ -7540,7 +7624,7 @@ int main(int argc, char** argv) {
                 goto main_ret_1;
               }
             } else {
-              sprintf(g_logbuf, "Error: Invalid --write-covar parameter '%s'.\n", cur_modif);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --write-covar parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           } else {
@@ -7568,16 +7652,16 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (pc.glm_info.flags & (kfGlmGenotypic | kfGlmHethom | kfGlmDominant | kfGlmRecessive)) {
-            sprintf(g_logbuf, "Error: --xchr-model cannot be used with --glm %s.\n", (pc.glm_info.flags & kfGlmGenotypic)? "genotypic" : ((pc.glm_info.flags & kfGlmHethom)? "hethom" : ((pc.glm_info.flags & kfGlmDominant)? "dominant" : "recessive")));
+            snprintf(g_logbuf, kLogbufSize, "Error: --xchr-model cannot be used with --glm %s.\n", (pc.glm_info.flags & kfGlmGenotypic)? "genotypic" : ((pc.glm_info.flags & kfGlmHethom)? "hethom" : ((pc.glm_info.flags & kfGlmDominant)? "dominant" : "recessive")));
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           pc.xchr_model = ((uint32_t)extract_char_param(cur_modif)) - 48;
           if (pc.xchr_model > 2) {
-            sprintf(g_logbuf, "Error: Invalid --xchr-model parameter '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --xchr-model parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else {
@@ -7587,12 +7671,12 @@ int main(int argc, char** argv) {
 
       case 'z':
         if (strequal_k2(flagname_p2, "st-level")) {
-          if (enforce_param_ct_range(argv[arg_idx], param_ct, 1, 1)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const char* cur_modif = argv[arg_idx + 1];
+          const char* cur_modif = argvc[arg_idx + 1];
           if (scan_posint_capped(cur_modif, 22, &g_zst_level)) {
-            sprintf(g_logbuf, "Error: Invalid --zst-level parameter '%s'.\n", cur_modif);
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --zst-level parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else {
@@ -7604,7 +7688,7 @@ int main(int argc, char** argv) {
         goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
       main_param_zero:
         if (param_ct) {
-          sprintf(g_logbuf, "Error: --%s doesn't accept parameters.\n", flagname_p);
+          snprintf(g_logbuf, kLogbufSize, "Error: --%s doesn't accept parameters.\n", flagname_p);
           goto main_ret_INVALID_CMDLINE_2A;
         }
       }
@@ -7687,6 +7771,10 @@ int main(int argc, char** argv) {
       logerrprint("Error: --import-dosage requires a .fam file.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
+    if ((pc.misc_flags & kfMiscCovarColNums) && (!pc.covar_fname) && (!pc.pheno_fname)) {
+      logerrprint("Error: --covar-col-nums requires --covar or --pheno.\n");
+      goto main_ret_INVALID_CMDLINE_A;
+    }
     if (!permit_multiple_inclusion_filters) {
       // Permit only one position- or ID-based variant inclusion filter, since
       // it's not immediately obvious whether the union or intersection should
@@ -7707,7 +7795,7 @@ int main(int argc, char** argv) {
 
     if (!rseeds) {
       uint32_t seed = (uint32_t)time(nullptr);
-      sprintf(g_logbuf, "Random number seed: %u\n", seed);
+      snprintf(g_logbuf, kLogbufSize, "Random number seed: %u\n", seed);
       logstr(g_logbuf);
       sfmt_init_gen_rand(&g_sfmt, seed);
     } else {
@@ -7976,8 +8064,8 @@ int main(int argc, char** argv) {
       file_delete_list = llstr_ptr;
     } while (file_delete_list);
   }
-  cleanup_cmp_expr(&pc.remove_if_info_expr);
-  cleanup_cmp_expr(&pc.keep_if_info_expr);
+  cleanup_cmp_expr(&pc.exclude_if_info_expr);
+  cleanup_cmp_expr(&pc.extract_if_info_expr);
   cleanup_cmp_expr(&pc.remove_if_expr);
   cleanup_cmp_expr(&pc.keep_if_expr);
   cleanup_score(&pc.score_info);

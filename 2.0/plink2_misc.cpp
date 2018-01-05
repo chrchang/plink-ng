@@ -75,18 +75,18 @@ pglerr_t update_var_names(const uintptr_t* variant_include, const uint32_t* vari
       ++line_idx;
       if (!loadbuf[loadbuf_size - 1]) {
         if (loadbuf_size == kMaxLongLine) {
-          sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --update-name file is pathologically long.\n", line_idx);
+          snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --update-name file is pathologically long.\n", line_idx);
           goto update_var_names_ret_MALFORMED_INPUT_2;
         }
         goto update_var_names_ret_NOMEM;
       }
-      char* loadbuf_first_token = skip_initial_spaces(loadbuf);
+      const char* loadbuf_first_token = skip_initial_spaces(loadbuf);
       char cc = *loadbuf_first_token;
       if (is_eoln_kns(cc) || (cc == skipchar)) {
         continue;
       }
-      char* colold_ptr;
-      char* colnew_ptr;
+      const char* colold_ptr;
+      const char* colnew_ptr;
       if (colold_first) {
         colold_ptr = next_token_multz(loadbuf_first_token, colmin);
         colnew_ptr = next_token_mult(colold_ptr, coldiff);
@@ -102,23 +102,23 @@ pglerr_t update_var_names(const uintptr_t* variant_include, const uint32_t* vari
       }
       const uint32_t colold_slen = strlen_se(colold_ptr);
       uint32_t cur_llidx;
-      uint32_t variant_uidx = variant_id_dup_htable_find(colold_ptr, variant_ids_copy, variant_id_htable, htable_dup_base, colold_slen, htable_size, orig_max_variant_id_slen, &cur_llidx);
+      uint32_t variant_uidx = variant_id_dup_htable_find(colold_ptr, TO_CONSTCPCONSTP(variant_ids_copy), variant_id_htable, htable_dup_base, colold_slen, htable_size, orig_max_variant_id_slen, &cur_llidx);
       if (variant_uidx == UINT32_MAX) {
         ++miss_ct;
         continue;
       }
-      char* cur_var_id = variant_ids_copy[variant_uidx];
+      const char* cur_var_id = variant_ids_copy[variant_uidx];
       if (cur_llidx != UINT32_MAX) {
         // we could check if some copies have been filtered out after hash
         // table construction?
-        sprintf(g_logbuf, "Error: --update-name variant ID '%s' appears multiple times in dataset.\n", cur_var_id);
+        snprintf(g_logbuf, kLogbufSize, "Error: --update-name variant ID '%s' appears multiple times in dataset.\n", cur_var_id);
         goto update_var_names_ret_INCONSISTENT_INPUT_WW;
       }
       if (!is_set(variant_include, variant_uidx)) {
         continue;
       }
       if (is_set(already_seen, variant_uidx)) {
-        sprintf(g_logbuf, "Error: Variant ID '%s' appears multiple times in --update-name file.\n", cur_var_id);
+        snprintf(g_logbuf, kLogbufSize, "Error: Variant ID '%s' appears multiple times in --update-name file.\n", cur_var_id);
         goto update_var_names_ret_INCONSISTENT_INPUT_WW;
       }
       set_bit(variant_uidx, already_seen);
@@ -151,9 +151,9 @@ pglerr_t update_var_names(const uintptr_t* variant_include, const uint32_t* vari
     }
     bigstack_end_set(alloc_end);
     if (miss_ct) {
-      sprintf(g_logbuf, "--update-name: %u value%s updated, %" PRIuPTR " variant ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+      snprintf(g_logbuf, kLogbufSize, "--update-name: %u value%s updated, %" PRIuPTR " variant ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
     } else {
-      sprintf(g_logbuf, "--update-name: %u value%s updated.\n", hit_ct, (hit_ct == 1)? "" : "s");
+      snprintf(g_logbuf, kLogbufSize, "--update-name: %u value%s updated.\n", hit_ct, (hit_ct == 1)? "" : "s");
     }
     logprintb();
     *max_variant_id_slen_ptr = max_variant_id_slen;
@@ -170,7 +170,7 @@ pglerr_t update_var_names(const uintptr_t* variant_include, const uint32_t* vari
     reterr = kPglRetMalformedInput;
     break;
   update_var_names_ret_MISSING_TOKENS:
-    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --update-name file has fewer tokens than expected.\n", line_idx);
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --update-name file has fewer tokens than expected.\n", line_idx);
   update_var_names_ret_INCONSISTENT_INPUT_WW:
     wordwrapb(0);
     logerrprintb();
@@ -203,13 +203,13 @@ pglerr_t plink1_cluster_import(const char* within_fname, const char* catpheno_na
     }
     const uintptr_t old_max_pheno_name_blen = *max_pheno_name_blen_ptr;
     const uint32_t old_pheno_ct = *pheno_ct_ptr;
-    char* old_pheno_names = *pheno_names_ptr;
+    const char* old_pheno_names = *pheno_names_ptr;
     uintptr_t new_max_pheno_name_blen;
     if (old_pheno_names && (catpheno_name_blen <= old_max_pheno_name_blen)) {
       new_max_pheno_name_blen = old_max_pheno_name_blen;
       for (uint32_t pheno_idx = 0; pheno_idx < old_pheno_ct; ++pheno_idx) {
         if (!memcmp(catpheno_name, &(old_pheno_names[pheno_idx * old_max_pheno_name_blen]), catpheno_name_blen)) {
-          sprintf(g_logbuf, "Error: Cannot create a new categorical phenotype named '%s', since another phenotype of the same name already exists.\n", catpheno_name);
+          snprintf(g_logbuf, kLogbufSize, "Error: Cannot create a new categorical phenotype named '%s', since another phenotype of the same name already exists.\n", catpheno_name);
           goto plink1_cluster_import_ret_INCONSISTENT_INPUT_WW;
         }
       }
@@ -259,7 +259,7 @@ pglerr_t plink1_cluster_import(const char* within_fname, const char* catpheno_na
       goto plink1_cluster_import_ret_NOMEM;
     }
     fill_uint_one(cat_htable_size, cat_htable);
-    char* missing_catname = g_missing_catname;
+    const char* missing_catname = g_missing_catname;
     const uintptr_t data_vec_ct = INT32CT_TO_VECCT(raw_sample_ct);
     const uint32_t missing_catname_slen = strlen(missing_catname);
     const uint32_t missing_catname_hval = hashceil(missing_catname, missing_catname_slen, cat_htable_size);
@@ -271,16 +271,16 @@ pglerr_t plink1_cluster_import(const char* within_fname, const char* catpheno_na
       uintptr_t* already_seen;
       uint32_t* sorted_cat_idxs;
       char* idbuf;
-      char** cur_cat_names;
+      const char** cur_cat_names;
       if (bigstack_calloc_ul(BITCT_TO_WORDCT(sample_ct), &already_seen) ||
           bigstack_calloc_ui(sample_ct, &sorted_cat_idxs) ||
           bigstack_alloc_c(max_sample_id_blen, &idbuf) ||
-          bigstack_alloc_cp(sample_ct + 2, &cur_cat_names)) {
+          bigstack_alloc_kcp(sample_ct + 2, &cur_cat_names)) {
         goto plink1_cluster_import_ret_NOMEM;
       }
       cat_htable[missing_catname_hval] = 0;
       cur_cat_names[0] = missing_catname;
-      char na_str[] = "NA";
+      const char na_str[] = "NA";
       uint32_t na_hashval = hashceil(na_str, 2, cat_htable_size);
       if (na_hashval == missing_catname_hval) {
         if (++na_hashval == cat_htable_size) {
@@ -288,7 +288,7 @@ pglerr_t plink1_cluster_import(const char* within_fname, const char* catpheno_na
         }
       }
       cat_htable[na_hashval] = sample_ct + 1;
-      cur_cat_names[sample_ct + 1] = (char*)na_str;
+      cur_cat_names[sample_ct + 1] = na_str;
 
       uint32_t* id_map;
       char* sorted_idbox;
@@ -318,7 +318,7 @@ pglerr_t plink1_cluster_import(const char* within_fname, const char* catpheno_na
         ++line_idx;
         if (!loadbuf[loadbuf_size - 1]) {
           if (loadbuf_size == kMaxLongLine) {
-            sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --within file is pathologically long.\n", line_idx);
+            snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --within file is pathologically long.\n", line_idx);
             goto plink1_cluster_import_ret_MALFORMED_INPUT_2;
           }
           goto plink1_cluster_import_ret_NOMEM;
@@ -370,8 +370,9 @@ pglerr_t plink1_cluster_import(const char* within_fname, const char* catpheno_na
             if (main_token_blen > (uintptr_t)(cat_name_write_max - cat_name_iter)) {
               goto plink1_cluster_import_ret_NOMEM;
             }
-            cur_cat_names[++nonnull_cat_ct] = cat_name_iter;
+            char* cat_name_start = cat_name_iter;
             cat_name_iter = memcpya(cat_name_iter, main_token_start, main_token_blen);
+            cur_cat_names[++nonnull_cat_ct] = cat_name_start;
             cur_htable_entry = nonnull_cat_ct;
             cat_htable[hashval] = cur_htable_entry;
             break;
@@ -454,18 +455,19 @@ pglerr_t plink1_cluster_import(const char* within_fname, const char* catpheno_na
         cat_idxs[cur_sample_uidx] = cur_cat_idx;
       }
 
-      char** cur_name_ptrs = (char**)catdata_iter;
+      const char** cur_name_ptrs = (const char**)catdata_iter;
       new_pheno_cols[old_pheno_ct].category_names = cur_name_ptrs;
       *cur_name_ptrs++ = missing_catname;
       char* name_storage_iter = (char*)(&(catdata_iter[catname_vec_ct * kWordsPerVec]));
       cat_name_iter = cat_name_write_start;
       for (uint32_t uii = 0; uii < nonnull_cat_ct; ++uii) {
-        *cur_name_ptrs++ = name_storage_iter;
+        char* cur_name_start = name_storage_iter;
         if (prepend_c) {
           *name_storage_iter++ = 'C';
         }
         const uint32_t cur_catname_blen = 1 + strlen(cat_name_iter);
         name_storage_iter = memcpya(name_storage_iter, cat_name_iter, cur_catname_blen);
+        *cur_name_ptrs++ = cur_name_start;
         cat_name_iter = &(cat_name_iter[cur_catname_blen]);
       }
 
@@ -473,10 +475,10 @@ pglerr_t plink1_cluster_import(const char* within_fname, const char* catpheno_na
         LOGPRINTFWW("Note: %" PRIuPTR " duplicate sample ID%s) in --within file.\n", duplicate_ct, (duplicate_ct == 1)? " (with a consistent category assignment" : "s (with consistent category assignments");
       }
       if (miss_ct) {
-        sprintf(g_logbuf, "--within: %u non-null categories present, %" PRIuPTR " sample ID%s skipped.\n", nonnull_cat_ct, miss_ct, (miss_ct == 1)? "" : "s");
+        snprintf(g_logbuf, kLogbufSize, "--within: %u non-null categories present, %" PRIuPTR " sample ID%s skipped.\n", nonnull_cat_ct, miss_ct, (miss_ct == 1)? "" : "s");
         wordwrapb(0);
       } else {
-        sprintf(g_logbuf, "--within: %u non-null categories present.\n", nonnull_cat_ct);
+        snprintf(g_logbuf, kLogbufSize, "--within: %u non-null categories present.\n", nonnull_cat_ct);
       }
       logprintb();
     } else {
@@ -579,18 +581,19 @@ pglerr_t plink1_cluster_import(const char* within_fname, const char* catpheno_na
       memcpy(catdata_iter, cat_idxs, data_vec_ct * kBytesPerVec);
       catdata_iter = &(catdata_iter[data_vec_ct * kWordsPerVec]);
 
-      char** cur_name_ptrs = (char**)catdata_iter;
+      const char** cur_name_ptrs = (const char**)catdata_iter;
       new_pheno_cols[old_pheno_ct].category_names = cur_name_ptrs;
       *cur_name_ptrs++ = missing_catname;
       char* name_storage_iter = (char*)(&(catdata_iter[catname_vec_ct * kWordsPerVec]));
       for (uint32_t uii = 0; uii < nonnull_cat_ct; ++uii) {
-        *cur_name_ptrs++ = name_storage_iter;
+        char* cur_name_start = name_storage_iter;
         if (prepend_c) {
           *name_storage_iter++ = 'C';
         }
         const char* cur_fid = &(sample_ids[cat_idx_m1_to_first_sample_uidx[uii] * max_sample_id_blen]);
         const char* cur_fid_end = (const char*)rawmemchr(cur_fid, '\t');
         name_storage_iter = memcpyax(name_storage_iter, cur_fid, (uintptr_t)(cur_fid_end - cur_fid), '\0');
+        *cur_name_ptrs++ = cur_name_start;
       }
       LOGPRINTF("--family: %u non-null categor%s present.\n", nonnull_cat_ct, (nonnull_cat_ct == 1)? "y" : "ies");
     }
@@ -603,7 +606,7 @@ pglerr_t plink1_cluster_import(const char* within_fname, const char* catpheno_na
     reterr = kPglRetReadFail;
     break;
   plink1_cluster_import_ret_MISSING_TOKENS:
-    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --within file has fewer tokens than expected.\n", line_idx);
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --within file has fewer tokens than expected.\n", line_idx);
   plink1_cluster_import_ret_MALFORMED_INPUT_2:
     logerrprintb();
     reterr = kPglRetMalformedInput;
@@ -630,7 +633,7 @@ pglerr_t plink1_cluster_import(const char* within_fname, const char* catpheno_na
   return reterr;
 }
 
-pglerr_t update_sample_sexes(const char* update_sex_fname, const uintptr_t* sample_include, char* sample_ids, uint32_t raw_sample_ct, uintptr_t sample_ct, uintptr_t max_sample_id_blen, uint32_t update_sex_colm2, uintptr_t* sex_nm, uintptr_t* sex_male) {
+pglerr_t update_sample_sexes(const char* update_sex_fname, const uintptr_t* sample_include, const char* sample_ids, uint32_t raw_sample_ct, uintptr_t sample_ct, uintptr_t max_sample_id_blen, uint32_t update_sex_colm2, uintptr_t* sex_nm, uintptr_t* sex_male) {
   unsigned char* bigstack_mark = g_bigstack_base;
   gzFile gz_infile = nullptr;
   uintptr_t line_idx = 0;
@@ -674,21 +677,21 @@ pglerr_t update_sample_sexes(const char* update_sex_fname, const uintptr_t* samp
       ++line_idx;
       if (!loadbuf[loadbuf_size - 1]) {
         if (loadbuf_size == kMaxLongLine) {
-          sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --update-sex file is pathologically long.\n", line_idx);
+          snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --update-sex file is pathologically long.\n", line_idx);
           goto update_sample_sexes_ret_MALFORMED_INPUT_2;
         }
         goto update_sample_sexes_ret_NOMEM;
       }
-      char* fid_start = skip_initial_spaces(loadbuf);
+      const char* fid_start = skip_initial_spaces(loadbuf);
       if (is_eoln_kns(*fid_start)) {
         continue;
       }
-      char* fid_end = token_endnn(fid_start);
-      char* iid_start = skip_initial_spaces(fid_end);
+      const char* fid_end = token_endnn(fid_start);
+      const char* iid_start = skip_initial_spaces(fid_end);
       if (is_eoln_kns(*iid_start)) {
         goto update_sample_sexes_ret_MISSING_TOKENS;
       }
-      char* iid_end = token_endnn(iid_start);
+      const char* iid_end = token_endnn(iid_start);
       const uint32_t fid_slen = (uintptr_t)(fid_end - fid_start);
       const uint32_t iid_slen = (uintptr_t)(iid_end - iid_start);
       const uint32_t id_blen = fid_slen + iid_slen + 2;
@@ -706,7 +709,7 @@ pglerr_t update_sample_sexes(const char* update_sex_fname, const uintptr_t* samp
         ++miss_ct;
         continue;
       }
-      char* sex_start = next_token_mult(iid_end, update_sex_colm2);
+      const char* sex_start = next_token_mult(iid_end, update_sex_colm2);
       if (!sex_start) {
         goto update_sample_sexes_ret_MISSING_TOKENS;
       }
@@ -721,7 +724,7 @@ pglerr_t update_sample_sexes(const char* update_sex_fname, const uintptr_t* samp
           // 'F'/'f'
           sexval = 2;
         } else {
-          sprintf(g_logbuf, "Error: Invalid sex value on line %" PRIuPTR " of --update-sex file. (Acceptable values: 1/M/m = male, 2/F/f = female, 0 = missing.)\n", line_idx);
+          snprintf(g_logbuf, kLogbufSize, "Error: Invalid sex value on line %" PRIuPTR " of --update-sex file. (Acceptable values: 1/M/m = male, 2/F/f = female, 0 = missing.)\n", line_idx);
           wordwrapb(0);
           goto update_sample_sexes_ret_MALFORMED_INPUT_2;
         }
@@ -765,9 +768,9 @@ pglerr_t update_sample_sexes(const char* update_sex_fname, const uintptr_t* samp
       LOGPRINTFWW("Note: %" PRIuPTR " duplicate sample ID%s) in --update-sex file.\n", duplicate_ct, (duplicate_ct == 1)? " (with a consistent sex assignment" : "s (with consistent sex assignments");
     }
     if (miss_ct) {
-      sprintf(g_logbuf, "--update-sex: %u sample%s updated, %" PRIuPTR " ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
+      snprintf(g_logbuf, kLogbufSize, "--update-sex: %u sample%s updated, %" PRIuPTR " ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
     } else {
-      sprintf(g_logbuf, "--update-sex: %u sample%s updated.\n", hit_ct, (hit_ct == 1)? "" : "s");
+      snprintf(g_logbuf, kLogbufSize, "--update-sex: %u sample%s updated.\n", hit_ct, (hit_ct == 1)? "" : "s");
     }
     logprintb();
   }
@@ -779,7 +782,7 @@ pglerr_t update_sample_sexes(const char* update_sex_fname, const uintptr_t* samp
     reterr = kPglRetReadFail;
     break;
   update_sample_sexes_ret_MISSING_TOKENS:
-    sprintf(g_logbuf, "Error: Line %" PRIuPTR " of --update-sex file has fewer tokens than expected.\n", line_idx);
+    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --update-sex file has fewer tokens than expected.\n", line_idx);
   update_sample_sexes_ret_MALFORMED_INPUT_2:
     logerrprintb();
     reterr = kPglRetMalformedInput;
@@ -793,7 +796,7 @@ pglerr_t update_sample_sexes(const char* update_sex_fname, const uintptr_t* samp
 
 pglerr_t split_cat_pheno(const char* split_cat_phenonames_flattened, const uintptr_t* sample_include, uint32_t raw_sample_ct, pheno_transform_flags_t pheno_transform_flags, pheno_col_t** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr, pheno_col_t** covar_cols_ptr, char** covar_names_ptr, uint32_t* covar_ct_ptr, uintptr_t* max_covar_name_blen_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  char* doomed_pheno_names = nullptr;
+  const char* doomed_pheno_names = nullptr;
   pheno_col_t* doomed_pheno_cols = nullptr;
   uint32_t doomed_pheno_ct = 0;
   pglerr_t reterr = kPglRetSuccess;
@@ -829,7 +832,7 @@ pglerr_t split_cat_pheno(const char* split_cat_phenonames_flattened, const uintp
       const uint32_t old_pheno_ctl = BITCT_TO_WORDCT(old_pheno_ct);
       const uintptr_t old_max_pheno_name_blen = *max_xpheno_name_blen_ptr;
       pheno_col_t* old_pheno_cols = *xpheno_cols_ptr;
-      char* old_pheno_names = *xpheno_names_ptr;
+      const char* old_pheno_names = *xpheno_names_ptr;
       uintptr_t* phenos_to_split;
       if (bigstack_calloc_ul(old_pheno_ctl, &phenos_to_split)) {
         goto split_cat_pheno_ret_NOMEM;
@@ -860,7 +863,7 @@ pglerr_t split_cat_pheno(const char* split_cat_phenonames_flattened, const uintp
             uint32_t pheno_idx = strbox_htable_find(split_cat_phenonames_iter, old_pheno_names, id_htable, old_max_pheno_name_blen, cur_phenoname_slen, id_htable_size);
             if (pheno_idx != UINT32_MAX) {
               if (old_pheno_cols[pheno_idx].type_code != kPhenoDtypeCat) {
-                sprintf(g_logbuf, "Error: '%s' is not a categorical %s.\n", split_cat_phenonames_iter, is_covar? "covariate" : "phenotype");
+                snprintf(g_logbuf, kLogbufSize, "Error: '%s' is not a categorical %s.\n", split_cat_phenonames_iter, is_covar? "covariate" : "phenotype");
                 goto split_cat_pheno_ret_INCONSISTENT_INPUT_WW;
               }
               set_bit(pheno_idx, phenos_to_split);
@@ -906,7 +909,7 @@ pglerr_t split_cat_pheno(const char* split_cat_phenonames_flattened, const uintp
           cur_observed_cat_ct -= omit_last;
           // old phenotype name, '=' character, null terminator
           const uintptr_t blen_base = strlen(&(old_pheno_names[split_pheno_uidx * old_max_pheno_name_blen])) + 2;
-          char** cat_names = cur_pheno_col->category_names;
+          const char* const* cat_names = cur_pheno_col->category_names;
           uint32_t cat_uidx = 0;
           for (uint32_t cat_idx = 0; cat_idx < cur_observed_cat_ct; ++cat_idx, ++cat_uidx) {
             next_set_unsafe_ck(cur_observed_cats, &cat_uidx);
@@ -1002,7 +1005,7 @@ pglerr_t split_cat_pheno(const char* split_cat_phenonames_flattened, const uintp
         bitvec_and_copy(sample_include, old_pheno_col->nonmiss, raw_sample_ctaw, sample_include_intersect);
         const char* old_pheno_name = &(old_pheno_names[pheno_read_idx * old_max_pheno_name_blen]);
         const uint32_t old_pheno_name_slen = strlen(old_pheno_name);
-        char** old_cat_names = old_pheno_col->category_names;
+        const char* const* old_cat_names = old_pheno_col->category_names;
         uint32_t orig_cat_idx = 1;
         for (uint32_t uii = 0; uii < cur_pheno_write_ct; ++uii, ++orig_cat_idx, ++pheno_write_idx) {
           next_set_unsafe_ck(cur_observed_cats, &orig_cat_idx);
@@ -1063,7 +1066,7 @@ pglerr_t split_cat_pheno(const char* split_cat_phenonames_flattened, const uintp
       // if any preexisting phenotype names contain a single copy of the '='
       // character, verify that we didn't create any duplicate IDs
       for (uint32_t pheno_idx = 0; pheno_idx < copy_pheno_ct; ++pheno_idx) {
-        char* first_eq = strchr(&(new_pheno_names[pheno_idx * new_max_pheno_name_blen]), '=');
+        const char* first_eq = strchr(&(new_pheno_names[pheno_idx * new_max_pheno_name_blen]), '=');
         if (first_eq && (!strchr(&(first_eq[1]), '='))) {
           uint32_t* id_htable;
           uint32_t id_htable_size;
@@ -1072,14 +1075,14 @@ pglerr_t split_cat_pheno(const char* split_cat_phenonames_flattened, const uintp
           }
           uint32_t duplicate_idx = populate_strbox_htable(new_pheno_names, new_pheno_ct, new_max_pheno_name_blen, id_htable_size, id_htable);
           if (duplicate_idx) {
-            sprintf(g_logbuf, "Error: Duplicate %s '%s' created by --split-cat-pheno.\n", is_covar? "covariate" : "phenotype", &(new_pheno_names[duplicate_idx * new_max_pheno_name_blen]));
+            snprintf(g_logbuf, kLogbufSize, "Error: Duplicate %s '%s' created by --split-cat-pheno.\n", is_covar? "covariate" : "phenotype", &(new_pheno_names[duplicate_idx * new_max_pheno_name_blen]));
             goto split_cat_pheno_ret_INCONSISTENT_INPUT_WW;
           }
           break;
         }
       }
 
-      free(doomed_pheno_names);
+      free_const(doomed_pheno_names);
       doomed_pheno_names = nullptr;
       cleanup_pheno_cols(doomed_pheno_ct, doomed_pheno_cols);
       doomed_pheno_cols = nullptr;
@@ -1156,7 +1159,7 @@ pglerr_t pheno_variance_standardize(const char* vstd_flattened, const uintptr_t*
           uint32_t pheno_idx = strbox_htable_find(vstd_phenonames_iter, pheno_names, id_htable, max_pheno_name_blen, cur_phenoname_slen, id_htable_size);
           if (pheno_idx != UINT32_MAX) {
             if (pheno_cols[pheno_idx].type_code != kPhenoDtypeQt) {
-              sprintf(g_logbuf, "Error: '%s' is not a quantitative %s.\n", vstd_phenonames_iter, is_covar? "covariate" : "phenotype");
+              snprintf(g_logbuf, kLogbufSize, "Error: '%s' is not a quantitative %s.\n", vstd_phenonames_iter, is_covar? "covariate" : "phenotype");
               goto pheno_variance_standardize_ret_INCONSISTENT_INPUT_WW;
             }
             set_bit(pheno_idx, phenos_to_transform);
@@ -1282,7 +1285,7 @@ pglerr_t pheno_quantile_normalize(const char* quantnorm_flattened, const uintptr
           uint32_t pheno_idx = strbox_htable_find(quantnorm_phenonames_iter, pheno_names, id_htable, max_pheno_name_blen, cur_phenoname_slen, id_htable_size);
           if (pheno_idx != UINT32_MAX) {
             if (pheno_cols[pheno_idx].type_code != kPhenoDtypeQt) {
-              sprintf(g_logbuf, "Error: '%s' is not a quantitative %s.\n", quantnorm_phenonames_iter, is_covar? "covariate" : "phenotype");
+              snprintf(g_logbuf, kLogbufSize, "Error: '%s' is not a quantitative %s.\n", quantnorm_phenonames_iter, is_covar? "covariate" : "phenotype");
               goto pheno_quantile_normalize_ret_INCONSISTENT_INPUT_WW;
             }
             set_bit(pheno_idx, phenos_to_transform);
@@ -1360,9 +1363,9 @@ pglerr_t pheno_quantile_normalize(const char* quantnorm_flattened, const uintptr
 }
 
 
-pglerr_t process_boundary_token(char* tok_start, char* tok_end, const char* token_source_str, uint32_t max_boundary_ct, pglerr_t err_type, double* prev_boundary_ptr, uint32_t* boundary_ct_ptr, double** freq_bounds_ptr, uint64_t** dosage_bounds_ptr) {
+pglerr_t process_boundary_token(const char* tok_start, const char* tok_end, const char* token_source_str, uint32_t max_boundary_ct, pglerr_t err_type, double* prev_boundary_ptr, uint32_t* boundary_ct_ptr, double** freq_bounds_ptr, uint64_t** dosage_bounds_ptr) {
   double cur_boundary;
-  char* scan_end = scanadv_double(tok_start, &cur_boundary);
+  const char* scan_end = scanadv_double(tok_start, &cur_boundary);
   if ((!scan_end) || (scan_end != tok_end)) {
     LOGERRPRINTF("Error: Invalid token in %s.\n", token_source_str);
     return err_type;
@@ -1443,7 +1446,7 @@ pglerr_t init_histogram_from_file_or_commalist(const char* binstr, uint32_t is_f
       }
       uint32_t token_slen;
       while (1) {
-        char* token_start = gz_token_stream_advance(&gts, &token_slen);
+        const char* token_start = gz_token_stream_advance(&gts, &token_slen);
         if (!token_start) {
           break;
         }
@@ -1454,17 +1457,16 @@ pglerr_t init_histogram_from_file_or_commalist(const char* binstr, uint32_t is_f
       }
       if (token_slen) {
         if (token_slen == UINT32_MAX) {
-          sprintf(g_logbuf, "Error: Excessively long token in %s.\n", binstr);
+          snprintf(g_logbuf, kLogbufSize, "Error: Excessively long token in %s.\n", binstr);
           goto init_histogram_from_file_or_commalist_ret_MALFORMED_INPUT_2;
         } else {
           goto init_histogram_from_file_or_commalist_ret_READ_FAIL;
         }
       }
     } else {
-      // const_cast
-      char* binstr_iter = (char*)((uintptr_t)binstr);
+      const char* binstr_iter = binstr;
       while (1) {
-        char* tok_end = strchrnul(binstr_iter, ',');
+        const char* tok_end = strchrnul(binstr_iter, ',');
         reterr = process_boundary_token(binstr_iter, tok_end, "--freq {ref,alt1}bins= list", max_boundary_ct, kPglRetInvalidCmdline, &prev_boundary, &boundary_ct, freq_bounds_ptr, dosage_bounds_ptr);
         if (reterr) {
           goto init_histogram_from_file_or_commalist_ret_1;
@@ -1497,7 +1499,7 @@ pglerr_t init_histogram_from_file_or_commalist(const char* binstr, uint32_t is_f
   return reterr;
 }
 
-pglerr_t write_allele_freqs(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint64_t* founder_allele_dosages, const double* mach_r2_vals, const char* ref_binstr, const char* alt1_binstr, uint32_t variant_ct, uint32_t max_alt_allele_ct, uint32_t max_allele_slen, allele_freq_t allele_freq_modifier, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end) {
+pglerr_t write_allele_freqs(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const uint64_t* founder_allele_dosages, const double* mach_r2_vals, const char* ref_binstr, const char* alt1_binstr, uint32_t variant_ct, uint32_t max_alt_allele_ct, uint32_t max_allele_slen, allele_freq_t allele_freq_modifier, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -1634,7 +1636,7 @@ pglerr_t write_allele_freqs(const uintptr_t* variant_include, const chr_info_t* 
           variant_allele_idx_base = variant_allele_idxs[variant_uidx];
           cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - variant_allele_idx_base;
         }
-        char** cur_alleles = &(allele_storage[variant_allele_idx_base]);
+        const char* const* cur_alleles = &(allele_storage[variant_allele_idx_base]);
         if (ref_col) {
           *cswritep++ = '\t';
           cswritep = strcpya(cswritep, cur_alleles[0]);
@@ -1903,7 +1905,7 @@ pglerr_t write_allele_freqs(const uintptr_t* variant_include, const chr_info_t* 
   return reterr;
 }
 
-pglerr_t write_geno_counts(__attribute__((unused)) const uintptr_t* sample_include, __attribute__((unused)) const uintptr_t* sex_male, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint32_t* raw_geno_cts, const uint32_t* x_male_geno_cts, __attribute__((unused)) uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t male_ct, uint32_t variant_ct, uint32_t x_start, uint32_t max_allele_slen, geno_counts_t geno_counts_modifier, uint32_t max_thread_ct, pgen_reader_t* simple_pgrp, char* outname, char* outname_end) {
+pglerr_t write_geno_counts(__attribute__((unused)) const uintptr_t* sample_include, __attribute__((unused)) const uintptr_t* sex_male, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const uint32_t* raw_geno_cts, const uint32_t* x_male_geno_cts, __attribute__((unused)) uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t male_ct, uint32_t variant_ct, uint32_t x_start, uint32_t max_allele_slen, geno_counts_t geno_counts_modifier, uint32_t max_thread_ct, pgen_reader_t* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   compress_stream_state_t css;
@@ -2091,7 +2093,7 @@ pglerr_t write_geno_counts(__attribute__((unused)) const uintptr_t* sample_inclu
         variant_allele_idx_base = variant_allele_idxs[variant_uidx];
         cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - variant_allele_idx_base;
       }
-      char** cur_alleles = &(allele_storage[variant_allele_idx_base]);
+      const char* const* cur_alleles = &(allele_storage[variant_allele_idx_base]);
       if (ref_col) {
         *cswritep++ = '\t';
         cswritep = strcpya(cswritep, cur_alleles[0]);
@@ -2255,7 +2257,7 @@ pglerr_t write_geno_counts(__attribute__((unused)) const uintptr_t* sample_inclu
   return reterr;
 }
 
-pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintptr_t* sex_male, const char* sample_ids, const char* sids, const pheno_col_t* pheno_cols, const char* pheno_names, const uint32_t* sample_missing_hc_cts, const uint32_t* sample_missing_dosage_cts, const uint32_t* sample_hethap_cts, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint32_t* variant_missing_hc_cts, const uint32_t* variant_missing_dosage_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t male_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t variant_ct, uintptr_t max_allele_slen, uint32_t first_hap_uidx, missing_rpt_t missing_rpt_modifier, uint32_t max_thread_ct, char* outname, char* outname_end) {
+pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintptr_t* sex_male, const char* sample_ids, const char* sids, const pheno_col_t* pheno_cols, const char* pheno_names, const uint32_t* sample_missing_hc_cts, const uint32_t* sample_missing_dosage_cts, const uint32_t* sample_hethap_cts, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const uint32_t* variant_missing_hc_cts, const uint32_t* variant_missing_dosage_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t male_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t variant_ct, uintptr_t max_allele_slen, uint32_t first_hap_uidx, missing_rpt_t missing_rpt_modifier, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   compress_stream_state_t css;
@@ -2544,7 +2546,7 @@ pglerr_t write_missingness_reports(const uintptr_t* sample_include, const uintpt
           variant_allele_idx_base = variant_allele_idxs[variant_uidx];
           cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - variant_allele_idx_base;
         }
-        char** cur_alleles = &(allele_storage[variant_allele_idx_base]);
+        const char* const* cur_alleles = &(allele_storage[variant_allele_idx_base]);
         if (ref_col) {
           *cswritep++ = '\t';
           cswritep = strcpya(cswritep, cur_alleles[0]);
@@ -2766,7 +2768,7 @@ pglerr_t compute_hwe_x_pvals(const uintptr_t* variant_include, const uint32_t* f
   return reterr;
 }
 
-pglerr_t hardy_report(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, char** variant_ids, const uintptr_t* variant_allele_idxs, char** allele_storage, const uint32_t* founder_raw_geno_cts, const uint32_t* founder_x_male_geno_cts, const uint32_t* founder_x_nosex_geno_cts, const double* hwe_x_pvals, uint32_t variant_ct, uint32_t hwe_x_ct, uint32_t max_allele_slen, double output_min_p, hardy_flags_t hardy_modifier, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end) {
+pglerr_t hardy_report(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const uint32_t* founder_raw_geno_cts, const uint32_t* founder_x_male_geno_cts, const uint32_t* founder_x_nosex_geno_cts, const double* hwe_x_pvals, uint32_t variant_ct, uint32_t hwe_x_ct, uint32_t max_allele_slen, double output_min_p, hardy_flags_t hardy_modifier, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   compress_stream_state_t css;
@@ -2911,7 +2913,7 @@ pglerr_t hardy_report(const uintptr_t* variant_include, const chr_info_t* cip, c
           variant_allele_idx_base = variant_allele_idxs[variant_uidx];
           cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - variant_allele_idx_base;
         }
-        char** cur_alleles = &(allele_storage[variant_allele_idx_base]);
+        const char* const* cur_alleles = &(allele_storage[variant_allele_idx_base]);
         if (ref_col) {
           *cswritep++ = '\t';
           cswritep = strcpya(cswritep, cur_alleles[0]);
@@ -3063,7 +3065,7 @@ pglerr_t hardy_report(const uintptr_t* variant_include, const chr_info_t* cip, c
           variant_allele_idx_base = variant_allele_idxs[variant_uidx];
           cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - variant_allele_idx_base;
         }
-        char** cur_alleles = &(allele_storage[variant_allele_idx_base]);
+        const char* const* cur_alleles = &(allele_storage[variant_allele_idx_base]);
         if (ref_col) {
           *cswritep++ = '\t';
           cswritep = strcpya(cswritep, cur_alleles[0]);
@@ -3166,7 +3168,7 @@ pglerr_t hardy_report(const uintptr_t* variant_include, const chr_info_t* cip, c
   return reterr;
 }
 
-pglerr_t write_snplist(const uintptr_t* variant_include, char** variant_ids, uint32_t variant_ct, uint32_t output_zst, uint32_t max_thread_ct, char* outname, char* outname_end) {
+pglerr_t write_snplist(const uintptr_t* variant_include, const char* const* variant_ids, uint32_t variant_ct, uint32_t output_zst, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   compress_stream_state_t css;

@@ -59,10 +59,11 @@ namespace plink2 {
 // is about to terminate.)
 
 
-pglerr_t read_chrset_header_line(char* chrset_iter, const char* file_descrip, misc_flags_t misc_flags, uintptr_t line_idx, chr_info_t* cip);
+pglerr_t read_chrset_header_line(const char* chrset_iter, const char* file_descrip, misc_flags_t misc_flags, uintptr_t line_idx, chr_info_t* cip);
 
 // assumes info_token[-1] is safe to read
-// may set info_token[info_slen] to \0
+// may set info_token[info_slen] to \0, since it needs to use strstr()
+// (todo: try memmem()... except it isn't available on 32-bit mingw?)
 char* pr_in_info_token(uint32_t info_slen, char* info_token);
 
 // cip, max_variant_id_slen, and info_reload are in/out parameters.

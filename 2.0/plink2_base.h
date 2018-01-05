@@ -1161,7 +1161,7 @@ HEADER_INLINE void nonfull_word_store(uintptr_t cur_word, uint32_t byte_ct, void
     target_iter = &(target_iter[2]);
   }
   if (byte_ct & 4) {
-    *((uint32_t*)target_iter) = cur_word;
+    *((uint32_t*)target_iter) = (uint32_t)cur_word;
   }
 #else
   if (byte_ct & 2) {
@@ -1250,7 +1250,7 @@ HEADER_INLINE void aligned_free_cond(void* aligned_ptr) {
   }
 }
 
-// C spec is a bit broken here
+// C spec is slightly broken here
 HEADER_INLINE void free_const(const void* memptr) {
   // const_cast
   free((void*)((uintptr_t)memptr));
@@ -1368,7 +1368,7 @@ HEADER_INLINE uint32_t raw_to_subsetted_pos(const uintptr_t* subset_mask, const 
 }
 
 HEADER_INLINE void zero_trailing_bits(uintptr_t bit_ct, uintptr_t* bitarr) {
-  uintptr_t trail_ct = bit_ct % kBitsPerWord;
+  uint32_t trail_ct = bit_ct % kBitsPerWord;
   if (trail_ct) {
     bitarr[bit_ct / kBitsPerWord] = bzhi(bitarr[bit_ct / kBitsPerWord], trail_ct);
   }
