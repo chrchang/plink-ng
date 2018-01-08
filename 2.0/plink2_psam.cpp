@@ -78,9 +78,8 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
         if (!gzeof(gz_infile)) {
           goto load_psam_ret_READ_FAIL;
         }
-        loadbuf_first_token = loadbuf;
-        loadbuf_first_token[0] = '\0';
-        break;
+        LOGERRPRINTFWW("Error: No samples in %s.\n", psamname);
+        goto load_psam_ret_MALFORMED_INPUT;
       }
       if (!loadbuf[loadbuf_size - 1]) {
         if (loadbuf_size == kMaxLongLine) {
@@ -591,6 +590,10 @@ pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_pt
     if (gzclose_null(&gz_infile)) {
       goto load_psam_ret_READ_FAIL;
     }
+    if (!raw_sample_ct) {
+      LOGERRPRINTFWW("Error: No samples in %s.\n", psamname);
+      goto load_psam_ret_MALFORMED_INPUT;
+    }
     const uintptr_t raw_sample_ctl = BITCT_TO_WORDCT(raw_sample_ct);
     bigstack_base_set(tmp_bigstack_base);
 
@@ -1039,7 +1042,7 @@ pglerr_t load_phenos(const char* pheno_fname, const range_list_t* pheno_range_li
         }
       }
       final_pheno_ct = new_pheno_ct + old_pheno_ct;
-      const uintptr_t max_new_name_blen = 6 + int_slen(final_pheno_ct - 1);
+      const uintptr_t max_new_name_blen = 6 + uint_slen(final_pheno_ct - 1);
       if (max_new_name_blen > max_pheno_name_blen) {
         max_pheno_name_blen = max_new_name_blen;
       }

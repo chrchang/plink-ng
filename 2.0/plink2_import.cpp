@@ -568,7 +568,7 @@ boolerr_t parse_vcf_dosage(const char* gtext_iter, const char* gtext_end, uint32
 
 static_assert(!kVcfHalfCallReference, "vcf_to_pgen() assumes kVcfHalfCallReference == 0.");
 static_assert(kVcfHalfCallHaploid == 1, "vcf_to_pgen() assumes kVcfHalfCallHaploid == 1.");
-pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, misc_flags_t misc_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, vcf_half_call_t vcf_half_call, fam_col_t fam_cols, char* outname, char* outname_end, chr_info_t* cip) {
+pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, misc_flags_t misc_flags, uint32_t no_samples_ok, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, vcf_half_call_t vcf_half_call, fam_col_t fam_cols, char* outname, char* outname_end, chr_info_t* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
   // Now performs a 2-pass load.  Yes, this can be slower than plink 1.9, but
   // it's necessary to use the Pgen_writer classes for now (since we need to
   // know upfront how many variants there are, and whether phase/dosage is
@@ -773,23 +773,13 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
       if (reterr) {
         goto vcf_to_pgen_ret_1;
       }
-      /*
-    } else if (allow_no_samples) {
-      strcpy(outname_end, ".psam");
-      if (fopen_checked(outname, "w", &outfile)) {
-        goto vcf_to_pgen_ret_OPEN_FAIL;
-      }
-      fputs("#FID\tIID\n", outfile);
-      if (fclose_null(&outfile)) {
-        goto vcf_to_pgen_ret_WRITE_FAIL;
-      }
-      */
     }
-    // todo: allow_no_samples exception
-    if (!sample_ct) {
-      logerrprint("Error: No samples in --vcf file.  (You may be able to process it with --pvar\ninstead.)\n");
+    if ((!sample_ct) && (!no_samples_ok)) {
+      logerrprint("Error: No samples in --vcf file.  (This is only permitted when you haven't\nspecified another operation which requires genotype or sample information.)\n");
       goto vcf_to_pgen_ret_INCONSISTENT_INPUT;
     }
+    // possible todo: single-pass fast path for no_samples_ok case.  but there
+    // are much higher priorities.
 
     uint32_t variant_ct = 0;
     uint32_t max_alt_ct = 1;
@@ -946,15 +936,22 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
 
       // possibly check for FORMAT:GT before proceeding
       char* info_start = &(loadbuf_iter[1]);
-      char* info_end = strchr(info_start, '\t');
-      if (!info_end) {
-        goto vcf_to_pgen_ret_MISSING_TOKENS;
-      }
-      loadbuf_iter = &(info_end[1]);
-      const uint32_t gt_missing = memcmp(loadbuf_iter, "GT", 2) || ((loadbuf_iter[2] != ':') && (loadbuf_iter[2] != '\t'));
-      if (require_gt && gt_missing) {
-        ++variant_skip_ct;
-        continue;
+      char* info_end;
+      uint32_t gt_missing;
+      if (sample_ct) {
+        info_end = strchr(info_start, '\t');
+        if (!info_end) {
+          goto vcf_to_pgen_ret_MISSING_TOKENS;
+        }
+        loadbuf_iter = &(info_end[1]);
+        gt_missing = memcmp(loadbuf_iter, "GT", 2) || ((loadbuf_iter[2] != ':') && (loadbuf_iter[2] != '\t'));
+        if (require_gt && gt_missing) {
+          ++variant_skip_ct;
+          continue;
+        }
+      } else {
+        info_end = token_endnn(info_start);
+        gt_missing = 1;
       }
       const uint32_t cur_qualfilterinfo_slen = (uintptr_t)(info_end - qual_start_m1);
 
@@ -994,7 +991,6 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
         }
       }
       if (!gt_missing) {
-        // todo: sample_ct == 0 case
         // possible todo: import dosages when GT missing
 
         // loadbuf_iter currently points to beginning of FORMAT field
@@ -1141,7 +1137,6 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
         *nonref_flags_iter = nonref_word;
       }
     } else if (!variant_ct) {
-      // todo: allow_no_variants exception
       logerrprint("Error: No variants in --vcf file.\n");
       goto vcf_to_pgen_ret_INCONSISTENT_INPUT;
     }
@@ -1284,47 +1279,49 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
         bigstack_end_reset(phasing_flags);
       }
     }
-    strcpy(outname_end, ".pgen");
-    uintptr_t spgw_alloc_cacheline_ct;
-    uint32_t max_vrec_len;
-    reterr = spgw_init_phase1(outname, variant_allele_idxs, nonref_flags, variant_ct, sample_ct, phase_dosage_gflags, nonref_flags_storage, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
-    if (reterr) {
-      goto vcf_to_pgen_ret_1;
-    }
-    unsigned char* spgw_alloc;
-    if (bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc)) {
-      goto vcf_to_pgen_ret_NOMEM;
-    }
-    spgw_init_phase2(max_vrec_len, &spgw, spgw_alloc);
-
     const uint32_t sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
-    uintptr_t* genovec;
-    // if we weren't using bigstack_alloc, this would need to be sample_ctaw2
-    if (bigstack_alloc_ul(sample_ctl2, &genovec)) {
-      goto vcf_to_pgen_ret_NOMEM;
-    }
-    // nothing should go wrong if trailing word is garbage, but keep an eye on
-    // this
-    // fill_ulong_zero(sample_ctaw2 - sample_ctl2, &(genovec[sample_ctl2]));
     const uint32_t sample_ctl = BITCT_TO_WORDCT(sample_ct);
+    uintptr_t* genovec = nullptr;
     uintptr_t* phasepresent = nullptr;
     uintptr_t* phaseinfo = nullptr;
-    if (phase_dosage_gflags & kfPgenGlobalHardcallPhasePresent) {
-      if (bigstack_alloc_ul(sample_ctl, &phasepresent) ||
-          bigstack_alloc_ul(sample_ctl, &phaseinfo)) {
-        goto vcf_to_pgen_ret_NOMEM;
-      }
-      // bugfix (7 Sep 2017): phasepresent can't have nonzero trailing bits
-      phasepresent[sample_ctl - 1] = 0;
-    }
     uintptr_t* dosage_present = nullptr;
     dosage_t* dosage_vals = nullptr;
-    if (phase_dosage_gflags & kfPgenGlobalDosagePresent) {
-      if (bigstack_alloc_ul(sample_ctl, &dosage_present) ||
-          bigstack_alloc_dosage(sample_ct, &dosage_vals)) {
+    if (sample_ct) {
+      strcpy(outname_end, ".pgen");
+      uintptr_t spgw_alloc_cacheline_ct;
+      uint32_t max_vrec_len;
+      reterr = spgw_init_phase1(outname, variant_allele_idxs, nonref_flags, variant_ct, sample_ct, phase_dosage_gflags, nonref_flags_storage, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+      if (reterr) {
+        goto vcf_to_pgen_ret_1;
+      }
+      unsigned char* spgw_alloc;
+      if (bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc)) {
         goto vcf_to_pgen_ret_NOMEM;
       }
-      dosage_present[sample_ctl - 1] = 0;
+      spgw_init_phase2(max_vrec_len, &spgw, spgw_alloc);
+
+      // if we weren't using bigstack_alloc, this would need to be sample_ctaw2
+      if (bigstack_alloc_ul(sample_ctl2, &genovec)) {
+        goto vcf_to_pgen_ret_NOMEM;
+      }
+      // nothing should go wrong if trailing word is garbage, but keep an eye
+      // on this
+      // fill_ulong_zero(sample_ctaw2 - sample_ctl2, &(genovec[sample_ctl2]));
+      if (phase_dosage_gflags & kfPgenGlobalHardcallPhasePresent) {
+        if (bigstack_alloc_ul(sample_ctl, &phasepresent) ||
+            bigstack_alloc_ul(sample_ctl, &phaseinfo)) {
+          goto vcf_to_pgen_ret_NOMEM;
+        }
+        // bugfix (7 Sep 2017): phasepresent can't have nonzero trailing bits
+        phasepresent[sample_ctl - 1] = 0;
+      }
+      if (phase_dosage_gflags & kfPgenGlobalDosagePresent) {
+        if (bigstack_alloc_ul(sample_ctl, &dosage_present) ||
+            bigstack_alloc_dosage(sample_ct, &dosage_vals)) {
+          goto vcf_to_pgen_ret_NOMEM;
+        }
+        dosage_present[sample_ctl - 1] = 0;
+      }
     }
 
     char* writebuf;
@@ -1385,11 +1382,19 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
       for (uint32_t uii = 0; uii < 3; ++uii) {
         filter_end = (char*)rawmemchr(&(filter_end[1]), '\t');
       }
-      char* info_end = (char*)rawmemchr(&(filter_end[1]), '\t');
-      char* format_start = &(info_end[1]);
-      const uint32_t gt_missing = memcmp(format_start, "GT", 2) || ((format_start[2] != ':') && (format_start[2] != '\t'));
-      if (require_gt && gt_missing) {
-        continue;
+      char* format_start = nullptr;
+      char* info_end;
+      uint32_t gt_missing;
+      if (sample_ct) {
+        info_end = (char*)rawmemchr(&(filter_end[1]), '\t');
+        format_start = &(info_end[1]);
+        gt_missing = memcmp(format_start, "GT", 2) || ((format_start[2] != ':') && (format_start[2] != '\t'));
+        if (require_gt && gt_missing) {
+          continue;
+        }
+      } else {
+        info_end = token_endnn(&(filter_end[1]));
+        gt_missing = 1;
       }
 
       // make sure POS starts with an integer, apply --output-chr setting
@@ -1449,13 +1454,14 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
         goto vcf_to_pgen_ret_WRITE_FAIL;
       }
 
-      write_iter = memcpya(write_iter, loadbuf_iter, (uintptr_t)((info_nonpr_present ? info_end : filter_end) - loadbuf_iter));
+      write_iter = memcpya(write_iter, loadbuf_iter, (uintptr_t)((info_nonpr_present? info_end : filter_end) - loadbuf_iter));
       append_binary_eoln(&write_iter);
-
       if (gt_missing) {
-        fill_all_bits(2 * sample_ct, genovec);
-        if (spgw_append_biallelic_genovec(genovec, &spgw)) {
-          goto vcf_to_pgen_ret_WRITE_FAIL;
+        if (sample_ct) {
+          fill_all_bits(2 * sample_ct, genovec);
+          if (spgw_append_biallelic_genovec(genovec, &spgw)) {
+            goto vcf_to_pgen_ret_WRITE_FAIL;
+          }
         }
       } else {
         loadbuf_iter = (char*)rawmemchr(format_start, '\t');
@@ -1555,11 +1561,11 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
                   if (!parse_vcf_dosage(loadbuf_iter, cur_gtext_end, dosage_field_idx, is_haploid, dosage_is_gp, import_dosage_certainty, &is_missing, &dosage_int)) {
                     const uint32_t cur_halfdist = biallelic_dosage_halfdist(dosage_int);
                     if ((cur_geno == 3) && (cur_halfdist >= hard_call_halfdist)) {
-                      // only overwrite GT if (i) it was missing, and (ii) the
-                      // dosage's distance from the nearest hardcall doesn't
-                      // exceed the --hard-call-threshold value.
-                      // (possible todo: warn or error out if dosage and GT are
-                      // inconsistent)
+                      // only overwrite GT if (i) it was missing, and (ii)
+                      // the dosage's distance from the nearest hardcall
+                      // doesn't exceed the --hard-call-threshold value.
+                      // (possible todo: warn or error out if dosage and GT
+                      // are inconsistent)
                       cur_geno = (dosage_int + (kDosage4th * k1LU)) / kDosageMid;
                     }
                     if (cur_halfdist < dosage_erase_halfdist) {
@@ -1730,20 +1736,32 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
     if (fclose_flush_null(writebuf_flush, write_iter, &pvarfile)) {
       goto vcf_to_pgen_ret_WRITE_FAIL;
     }
-    spgw_finish(&spgw);
+    if (sample_ct) {
+      spgw_finish(&spgw);
+    }
     putc_unlocked('\r', stdout);
     write_iter = strcpya(g_logbuf, "--vcf: ");
     const uint32_t outname_base_slen = (uintptr_t)(outname_end - outname);
-    write_iter = memcpya(write_iter, outname, outname_base_slen + 5);
-    write_iter = memcpyl3a(write_iter, " + ");
+    if (sample_ct) {
+      write_iter = memcpya(write_iter, outname, outname_base_slen + 5);
+      write_iter = memcpyl3a(write_iter, " + ");
+    } else {
+      *pgen_generated_ptr = 0;
+    }
     write_iter = memcpya(write_iter, outname, outname_base_slen);
     write_iter = strcpya(write_iter, ".pvar");
-    if (!preexisting_psamname) {
+    if (sample_ct && (!preexisting_psamname)) {
       write_iter = memcpyl3a(write_iter, " + ");
       write_iter = memcpya(write_iter, outname, outname_base_slen);
       write_iter = strcpya(write_iter, ".psam");
+    } else {
+      *psam_generated_ptr = 0;
     }
-    strcpy(write_iter, " written.\n");
+    write_iter = strcpya(write_iter, " written");
+    if (!sample_ct) {
+      write_iter = strcpya(write_iter, " (no samples present)");
+    }
+    memcpyl3a(write_iter, ".\n");
     wordwrapb(0);
     logprintb();
   }
@@ -2239,7 +2257,7 @@ pglerr_t ox_sample_to_psam(const char* samplename, const char* ox_missing_code, 
       goto ox_sample_to_psam_ret_WRITE_FAIL;
     }
     const uint32_t sample_ct = sample_ct_p2 - 2;
-    if ((!sample_ct) && (!(misc_flags & kfMiscAllowNoSamples))) {
+    if (!sample_ct) {
       logerrprint("Error: No samples in .sample file.\n");
       goto ox_sample_to_psam_ret_INCONSISTENT_INPUT;
     }
@@ -2425,7 +2443,6 @@ pglerr_t ox_gen_to_pgen(const char* genname, const char* samplename, const char*
           }
         }
         if (!is_set(cip->chr_mask, chr_code)) {
-          // could permit this in --allow-no-vars case, but it's silly
           logerrprint("Error: --oxford-single-chr chromosome code is excluded by chromosome filter.\n");
           goto ox_gen_to_pgen_ret_INVALID_CMDLINE;
         }
@@ -2636,7 +2653,6 @@ pglerr_t ox_gen_to_pgen(const char* genname, const char* samplename, const char*
     }
     if (!variant_ct) {
       if (!variant_skip_ct) {
-        // permit this in --allow-no-vars case?
         logerrprint("Error: Empty .gen file.\n");
         goto ox_gen_to_pgen_ret_INCONSISTENT_INPUT;
       }
@@ -3770,7 +3786,6 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
     }
     const uint32_t raw_variant_ct = initial_uints[2];
     if (!raw_variant_ct) {
-      // permit this in --allow-no-vars case?
       logerrprint("Error: Empty .bgen file.\n");
       goto ox_bgen_to_pgen_ret_INCONSISTENT_INPUT;
     }
@@ -6917,7 +6932,6 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
             }
           }
           if (!is_set(cip->chr_mask, chr_code)) {
-            // could permit this in --allow-no-vars case, but it's silly
             logerrprint("Error: --import-dosage single-chr= code is excluded by chromosome filter.\n");
             goto plink1_dosage_to_pgen_ret_INVALID_CMDLINE;
           }

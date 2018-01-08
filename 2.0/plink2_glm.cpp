@@ -6055,7 +6055,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
       }
       uint64_t ullii = local_sample_ct;
       if (glm_info_ptr->local_cat_ct) {
-        ullii *= 1 + int_slen(glm_info_ptr->local_cat_ct);
+        ullii *= 1 + uint_slen(glm_info_ptr->local_cat_ct);
       } else {
         // permit 24 characters per floating point number instead of 16, since
         // some tools dump 15-17 significant digits
@@ -6228,8 +6228,8 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
       if (add_sex_covar && (new_max_covar_name_blen < 4)) {
         new_max_covar_name_blen = 4;
       }
-      if (local_covar_ct && (new_max_covar_name_blen < 6 + int_slen(local_covar_ct + 1))) {
-        new_max_covar_name_blen = 6 + int_slen(local_covar_ct + 1);
+      if (local_covar_ct && (new_max_covar_name_blen < 6 + uint_slen(local_covar_ct + 1))) {
+        new_max_covar_name_blen = 6 + uint_slen(local_covar_ct + 1);
       }
       if (glm_info_ptr->condition_varname || glm_info_ptr->condition_list_fname) {
         assert(g_bigstack_end == bigstack_end_mark);

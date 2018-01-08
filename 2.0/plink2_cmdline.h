@@ -355,7 +355,13 @@ HEADER_INLINE void fclose_cond(FILE* fptr) {
   }
 }
 
-uint32_t int_slen(int32_t num);
+uint32_t uint_slen(uint32_t num);
+
+HEADER_INLINE uint32_t int_slen(int32_t num) {
+  // see abs_int32()
+  const uint32_t neg_sign_bit = -(((uint32_t)num) >> 31);
+  return uint_slen((((uint32_t)num) ^ neg_sign_bit) - neg_sign_bit) - neg_sign_bit;
+}
 
 HEADER_INLINE int32_t strequal_k(const char* s1, const char* k_s2, uint32_t s1_slen) {
   // any sane compiler should compute s2_slen at compile-time if k_s2 is a

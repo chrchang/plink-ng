@@ -205,24 +205,25 @@ boolerr_t fclose_flush_null(char* buf_flush, char* write_iter, FILE** outfile_pt
 }
 
 
-uint32_t int_slen(int32_t num) {
-  int32_t slen = 1;
-  uint32_t absnum;
-  if (num < 0) {
-    absnum = -num;
-    ++slen;
-  } else {
-    absnum = num;
+uint32_t uint_slen(uint32_t num) {
+  // tried divide-by-10 and divide-by-100 loops, they were slower
+  // also tried making the first check "num < 1000000", that seemed to also be
+  // slower
+  if (num < 10000) {
+    if (num < 100) {
+      // (compiler generates the same code on my Mac if an if-statement is used
+      // for the final compare)
+      return 1 + (num > 9);
+    }
+    return 3 + (num > 999);
   }
-  while (absnum > 99) {
-    // division by a constant is faster for unsigned ints
-    absnum /= 100;
-    slen += 2;
+  if (num < 1000000) {
+    return 5 + (num > 99999);
   }
-  if (absnum > 9) {
-    ++slen;
+  if (num < 100000000) {
+    return 7 + (num > 9999999);
   }
-  return slen;
+  return 9 + (num > 999999999);
 }
 
 /*
@@ -970,14 +971,14 @@ uintptr_t detect_mb() {
   sysctl(mib, 2, &llxx, &sztmp, nullptr, 0);
   llxx /= 1048576;
 #else
-#ifdef _WIN32
+  #ifdef _WIN32
   MEMORYSTATUSEX memstatus;
   memstatus.dwLength = sizeof(memstatus);
   GlobalMemoryStatusEx(&memstatus);
   llxx = memstatus.ullTotalPhys / 1048576;
-#else
+  #else
   llxx = ((uint64_t)sysconf(_SC_PHYS_PAGES)) * ((size_t)sysconf(_SC_PAGESIZE)) / 1048576;
-#endif
+  #endif
 #endif
   return llxx;
 }
@@ -2907,7 +2908,6 @@ void magic_num(uint32_t divisor, uint64_t* multp, uint32_t* __restrict pre_shift
   // http://ridiculousfish.com/blog/posts/labor-of-division-episode-iii.html .
   // Assumes divisor is not zero, of course.
   // May want to populate a struct instead.
-  // (May not need this any more?)
   assert(divisor);
   if (!(divisor & (divisor - 1))) {
     // power of 2

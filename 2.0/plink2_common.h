@@ -78,8 +78,8 @@ FLAGSET64_DEF_START()
   kfMiscAutosomePar = (1 << 15),
   kfMiscAutosomeOnly = (1 << 16),
   kfMiscMergePar = (1 << 17),
-  kfMiscAllowNoSamples = (1 << 18),
-  kfMiscAllowNoVars = (1 << 19),
+  kfMiscPhenoColNums = (1 << 18),
+  kfMiscCovarColNums = (1 << 19),
   kfMiscHweMidp = (1 << 20),
   kfMiscHweKeepFewhet = (1 << 21),
   kfMiscWriteSnplistZs = (1 << 22),
@@ -101,9 +101,7 @@ FLAGSET64_DEF_START()
   kfMiscAlt1AlleleForce = (1LLU << 38),
   kfMiscRefFromFaForce = (1LLU << 39),
   kfMiscMergeX = (1LLU << 40),
-  kfMiscKeepFileStrsSid = (1LLU << 41),
-  kfMiscPhenoColNums = (1LLU << 42),
-  kfMiscCovarColNums = (1LLU << 43)
+  kfMiscKeepFileStrsSid = (1LLU << 41)
 FLAGSET64_DEF_END(misc_flags_t);
 
 FLAGSET64_DEF_START()
@@ -261,11 +259,7 @@ FLAGSET_DEF_END(xid_mode_t);
 
 // Assumes fixed-width.
 HEADER_INLINE uint32_t get_xid_col_ct(xid_mode_t xid_mode) {
-  if (xid_mode == kfXidModeIid) {
-    return 1;
-  } else {
-    return 2 + (xid_mode == kfXidModeFidiidSid);
-  }
+  return 2 + (xid_mode == kfXidModeFidiidSid) - (xid_mode == kfXidModeIid);
 }
 
 // sample_xid_map allocated on bottom, to play well with --indiv-sort

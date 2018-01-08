@@ -397,29 +397,18 @@ pglerr_t random_thin_ct(const char* flagname, const char* unitname, uint32_t thi
       goto random_thin_ct_ret_1;
     }
     const uint32_t removed_ct = orig_item_ct - thin_keep_ct;
-    /*
-    if (orig_item_ct > 1) {
-    */
-      const uint32_t raw_item_ctl = BITCT_TO_WORDCT(raw_item_ct);
-      uintptr_t* perm_buf;
-      uintptr_t* new_item_include;
-      if (bigstack_alloc_ul(BITCT_TO_WORDCT(orig_item_ct), &perm_buf) ||
-          bigstack_alloc_ul(raw_item_ctl, &new_item_include)) {
-        goto random_thin_ct_ret_NOMEM;
-      }
-      // no actual interleaving here, but may as well use this function
-      // note that this requires marker_ct >= 2
-      generate_perm1_interleaved(orig_item_ct, thin_keep_ct, 0, 1, perm_buf, &g_sfmt);
-      expand_bytearr((unsigned char*)perm_buf, item_include, raw_item_ctl, orig_item_ct, 0, new_item_include);
-      memcpy(item_include, new_item_include, raw_item_ctl * sizeof(intptr_t));
-      /*
-    } else {
-      // orig_item_ct == 1, thin_keep_ct == 0
-      // not actually possible until --allow-no-{samples/vars} enabled
-      const uint32_t item_uidx = next_set_unsafe(item_include, 0);
-      clear_bit(item_uidx, item_include);
+    const uint32_t raw_item_ctl = BITCT_TO_WORDCT(raw_item_ct);
+    uintptr_t* perm_buf;
+    uintptr_t* new_item_include;
+    if (bigstack_alloc_ul(BITCT_TO_WORDCT(orig_item_ct), &perm_buf) ||
+        bigstack_alloc_ul(raw_item_ctl, &new_item_include)) {
+      goto random_thin_ct_ret_NOMEM;
     }
-      */
+    // no actual interleaving here, but may as well use this function
+    // note that this requires marker_ct >= 2
+    generate_perm1_interleaved(orig_item_ct, thin_keep_ct, 0, 1, perm_buf, &g_sfmt);
+    expand_bytearr((unsigned char*)perm_buf, item_include, raw_item_ctl, orig_item_ct, 0, new_item_include);
+    memcpy(item_include, new_item_include, raw_item_ctl * sizeof(intptr_t));
     *item_ct_ptr = thin_keep_ct;
     LOGPRINTF("--%s: %u %s%s removed (%u remaining).\n", flagname, removed_ct, unitname, (removed_ct == 1)? "" : "s", thin_keep_ct);
   }

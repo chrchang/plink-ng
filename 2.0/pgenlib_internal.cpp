@@ -1561,7 +1561,9 @@ pglerr_t pgfi_init_phase1(const char* fname, uint32_t raw_variant_ct, uint32_t r
     // try MAP_POPULATE on Linux?
     // madvise((unsigned char*)(pgfip->block_base), fsize, MADV_SEQUENTIAL);
     close(file_handle);
-    if (fsize < 3) {
+    // update (7 Jan 2018): drop support for zero-sample and zero-variant
+    // files, not worth the development cost
+    if (fsize < 4) {
       sprintf(errstr_buf, "Error: %s is too small to be a valid .pgen file.\n", fname);
       return kPglRetMalformedInput;
     }
@@ -1579,7 +1581,7 @@ pglerr_t pgfi_init_phase1(const char* fname, uint32_t raw_variant_ct, uint32_t r
       return kPglRetReadFail;
     }
     fsize = ftello(shared_ff);
-    if (fsize < 3) {
+    if (fsize < 4) {
       sprintf(errstr_buf, "Error: %s is too small to be a valid .pgen file.\n", fname);
       return kPglRetMalformedInput;
     }
@@ -1589,6 +1591,15 @@ pglerr_t pgfi_init_phase1(const char* fname, uint32_t raw_variant_ct, uint32_t r
       return kPglRetReadFail;
     }
     fread_ptr = small_readbuf;
+  }
+  // deliberate underflow
+  if (((raw_variant_ct - 1) > 0x7ffffffc) && (raw_variant_ct != UINT32_MAX)) {
+    strcpy(errstr_buf, "Error: Invalid raw_variant_ct function parameter.\n");
+    return kPglRetImproperFunctionCall;
+  }
+  if (((raw_sample_ct - 1) > 0x7ffffffd) && (raw_sample_ct != UINT32_MAX)) {
+    strcpy(errstr_buf, "Error: Invalid raw_sample_ct function parameter.\n");
+    return kPglRetImproperFunctionCall;
   }
   if (memcmp(fread_ptr, "l\x1b", 2)) {
     sprintf(errstr_buf, "Error: %s is not a .pgen file (first two bytes don't match the magic number).\n", fname);
@@ -1607,7 +1618,7 @@ pglerr_t pgfi_init_phase1(const char* fname, uint32_t raw_variant_ct, uint32_t r
           return kPglRetMalformedInput;
         }
       }
-      strcpy(errstr_buf, "Error: pgenlib does not support sample-major PLINK 1 .bed files.\n");
+      strcpy(errstr_buf, "Error: pgenlib does not directly support sample-major PLINK 1 .bed files.\n(However, PLINK 2 automatically transposes and compresses them for you.)\n");
       return kPglRetSampleMajorBed;
     }
     if (raw_sample_ct == UINT32_MAX) {
@@ -1617,17 +1628,13 @@ pglerr_t pgfi_init_phase1(const char* fname, uint32_t raw_variant_ct, uint32_t r
     }
     const uint32_t const_vrec_width = QUATERCT_TO_BYTECT(raw_sample_ct);
     if (raw_variant_ct == UINT32_MAX) {
-      if (!raw_sample_ct) {
-        raw_variant_ct = 0;
-      } else {
-        // allow raw_variant_ct to be inferred
-        uint64_t quotient = (fsize - 3) / const_vrec_width;
-        if ((quotient > 0x7fffffffU) || (quotient * const_vrec_width + 3 != fsize)) {
-          sprintf(errstr_buf, "Error: Unexpected PLINK 1 .bed file size (since raw_sample_ct was %u, [file size - 3] should be divisible by %u and the quotient should be smaller than 2^31).\n", raw_sample_ct, const_vrec_width);
-          return kPglRetMalformedInput;
-        }
-        raw_variant_ct = (uint32_t)quotient;
+      // allow raw_variant_ct to be inferred
+      uint64_t quotient = (fsize - 3) / const_vrec_width;
+      if ((quotient > 0x7fffffffU) || (quotient * const_vrec_width + 3 != fsize)) {
+        sprintf(errstr_buf, "Error: Unexpected PLINK 1 .bed file size (since raw_sample_ct was %u, [file size - 3] should be divisible by %u and the quotient should be smaller than 2^31).\n", raw_sample_ct, const_vrec_width);
+        return kPglRetMalformedInput;
       }
+      raw_variant_ct = (uint32_t)quotient;
     } else {
       if (((uint64_t)raw_variant_ct) * const_vrec_width + 3 != fsize) {
         sprintf(errstr_buf, "Error: Unexpected PLINK 1 .bed file size (expected %" PRIu64 " bytes).\n", ((uint64_t)raw_variant_ct) * const_vrec_width + 3);
@@ -1668,12 +1675,22 @@ pglerr_t pgfi_init_phase1(const char* fname, uint32_t raw_variant_ct, uint32_t r
   pgen_header_ctrl_t header_ctrl = *header_ctrl_ptr;
   if (raw_variant_ct == UINT32_MAX) {
     raw_variant_ct = pgfip->raw_variant_ct;
+    // deliberate underflow
+    if ((raw_variant_ct - 1) > 0x7ffffffc) {
+      strcpy(errstr_buf, "Error: Invalid variant count in .pgen file.\n");
+      return kPglRetMalformedInput;
+    }
   } else if (raw_variant_ct != pgfip->raw_variant_ct) {
     sprintf(errstr_buf, "Error: pgfi_init_phase1() was called with raw_variant_ct == %u, but %s contains %u variant%s.\n", raw_variant_ct, fname, pgfip->raw_variant_ct, (pgfip->raw_variant_ct == 1)? "" : "s");
     return kPglRetInconsistentInput;
   }
   if (raw_sample_ct == UINT32_MAX) {
     raw_sample_ct = pgfip->raw_sample_ct;
+    // deliberate underflow
+    if ((raw_sample_ct - 1) > 0x7ffffffd) {
+      strcpy(errstr_buf, "Error: Invalid sample count in .pgen file.\n");
+      return kPglRetMalformedInput;
+    }
   } else if (raw_sample_ct != pgfip->raw_sample_ct) {
     sprintf(errstr_buf, "Error: pgfi_init_phase1() was called with raw_sample_ct == %u, but %s contains %u sample%s.\n", raw_sample_ct, fname, pgfip->raw_sample_ct, (pgfip->raw_sample_ct == 1)? "" : "s");
     return kPglRetInconsistentInput;

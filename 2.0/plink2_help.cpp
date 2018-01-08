@@ -1025,12 +1025,6 @@ pglerr_t disp_help(uint32_t param_ct, const char* const* argvc) {
 "  --require-no-info [key(s)...]        or existence of an INFO key.  \"[key]=.\"\n"
 "                                       is treated as nonexistence.\n"
                );
-    /*
-    help_print("allow-no-samples\tallow-no-vars", &help_ctrl, 0,
-"  --allow-no-samples : Allow the input fileset to contain no samples.\n"
-"  --allow-no-vars    : Allow the input fileset to contain no variants.\n"
-               );
-    */
     help_print("pheno\tpheno-name\tpheno-col-nums\tmpheno", &help_ctrl, 0,
 "  --pheno [filename]     : Specify additional phenotype/covariate file.\n"
 "                           Comma-delimited files with a header line are now\n"

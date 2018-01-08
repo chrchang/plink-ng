@@ -81,7 +81,7 @@ void init_plink1_dosage(plink1_dosage_info_t* plink1_dosage_info_ptr);
 
 void init_gendummy(gendummy_info_t* gendummy_info_ptr);
 
-pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, misc_flags_t misc_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, vcf_half_call_t vcf_half_call, fam_col_t fam_cols, char* outname, char* outname_end, chr_info_t* cip);
+pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, misc_flags_t misc_flags, uint32_t no_samples_ok, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, vcf_half_call_t vcf_half_call, fam_col_t fam_cols, char* outname, char* outname_end, chr_info_t* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr);
 
 pglerr_t ox_gen_to_pgen(const char* genname, const char* samplename, const char* ox_single_chr_str, const char* ox_missing_code, misc_flags_t misc_flags, oxford_import_t oxford_import_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char* outname, char* outname_end, chr_info_t* cip);
 

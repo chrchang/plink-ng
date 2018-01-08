@@ -1368,7 +1368,7 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
             }
             memcpyx(tmp_alloc_end, token_ptrs[1], id_slen, '\0');
           } else {
-            insert_slens[1] = int_slen(cur_bp);
+            insert_slens[1] = uint_slen(cur_bp);
             uint32_t ref_slen = 0;
             uint32_t cur_overflow = 0;
             char* tmp_allele_ptrs[2];

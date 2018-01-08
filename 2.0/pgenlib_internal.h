@@ -76,7 +76,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 703
+#define PGENLIB_INTERNAL_VERNUM 704
 
 
 // other configuration-ish values needed by plink2_common subset
@@ -828,6 +828,9 @@ void pgfi_preinit(pgen_file_info_t* pgfip);
 //   phase2.
 // To specify mode 3, pass in use_mmap == 0 here, and use_blockload == 0 during
 //   phase2.
+//
+// Update (7 Jan 2018): raw_variant_ct must be in [1, 2^31 - 3], and
+//   raw_sample_ct must be in [1, 2^31 - 2].
 pglerr_t pgfi_init_phase1(const char* fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, uint32_t use_mmap, pgen_header_ctrl_t* header_ctrl_ptr, pgen_file_info_t* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf);
 
 // If allele_cts_already_loaded is set, but they're present in the file,

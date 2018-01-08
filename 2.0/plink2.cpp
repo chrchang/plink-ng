@@ -62,7 +62,7 @@ static const char ver_str[] = "PLINK v2.00a"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (5 Jan 2018)";
+  " (7 Jan 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -1183,8 +1183,8 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
     uint32_t male_ct = 0;
     uint32_t nosex_ct = 0;
     if (psamname[0]) {
-      if ((!sample_ct) && (!(pcp->misc_flags & kfMiscAllowNoSamples))) {
-        logerrprint("Error: No samples remaining after main filters.  (Add --allow-no-samples to\npermit this.)\n");
+      if (!sample_ct) {
+        logerrprint("Error: No samples remaining after main filters.\n");
         goto plink2_ret_INCONSISTENT_INPUT;
       }
       update_sample_subsets(sample_include, raw_sample_ct, sample_ct, founder_info, &founder_ct, sex_nm, sex_male, &male_ct, &nosex_ct);
@@ -1668,8 +1668,8 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
       }
 
       if (pcp->filter_flags & kfFilterPvarReq) {
-        if ((!variant_ct) && (!(pcp->misc_flags & kfMiscAllowNoVars))) {
-          logerrprint("Error: No variants remaining after main filters.  (Add --allow-no-vars to\npermit this.)\n");
+        if (!variant_ct) {
+          logerrprint("Error: No variants remaining after main filters.\n");
           goto plink2_ret_INCONSISTENT_INPUT;
         }
         LOGPRINTF("%u variant%s remaining after main filters.\n", variant_ct, (variant_ct == 1)? "" : "s");
@@ -3115,18 +3115,11 @@ int main(int argc, char** argv) {
           chr_info.is_include_stack = 1;
           goto main_param_zero;
         } else if (strequal_k2(flagname_p2, "llow-no-samples")) {
-          // er, lock these out until they're at least close to fully supported
-          logerrprint("Error: --allow-no-samples is not implemented yet.\n");
-          reterr = kPglRetNotYetSupported;
-          goto main_ret_1;
-          pc.misc_flags |= kfMiscAllowNoSamples;
-          goto main_param_zero;
+          logerrprint("Error: --allow-no-samples is retired.  (If you are performing a set of\noperations which doesn't require sample information, the sample file won't be\nloaded at all.)\n");
+          goto main_ret_INVALID_CMDLINE;
         } else if (strequal_k2(flagname_p2, "llow-no-vars")) {
-          logerrprint("Error: --allow-no-vars is not implemented yet.\n");
-          reterr = kPglRetNotYetSupported;
-          goto main_ret_1;
-          pc.misc_flags |= kfMiscAllowNoVars;
-          goto main_param_zero;
+          logerrprint("Error: --allow-no-vars is retired.  (If you are performing a set of operations\nwhich doesn't require variant information, the variant file won't be loaded at\nall.)\n");
+          goto main_ret_INVALID_CMDLINE;
         } else if (strequal_k2(flagname_p2, "djust")) {
           if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 3)) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -3718,7 +3711,6 @@ int main(int argc, char** argv) {
           if (enforce_param_ct_range(argvc[arg_idx], param_ct, 2, 8)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          // todo: support --allow-no-samples/--allow-no-vars
           if (scan_posint_defcap(argvc[arg_idx + 1], &gendummy_info.sample_ct)) {
             logerrprint("Error: Invalid --dummy sample count.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -4019,6 +4011,7 @@ int main(int argc, char** argv) {
             }
           }
           pc.command_flags1 |= kfCommand1Exportf;
+          pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k2(flagname_p2, "xclude-snp")) {
           if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -4137,6 +4130,7 @@ int main(int argc, char** argv) {
             pc.allele_freq_modifier |= kfAlleleFreqColDefault;
           }
           pc.command_flags1 |= kfCommand1AlleleFreq;
+          pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k2(flagname_p2, "rom")) {
           if (chr_info.is_include_stack) {
             logerrprint("Error: --from/--to cannot be used with --autosome{-par} or --{not-}chr.\n");
@@ -4302,6 +4296,7 @@ int main(int argc, char** argv) {
             pc.geno_counts_modifier |= kfGenoCountsColDefault;
           }
           pc.command_flags1 |= kfCommand1GenoCounts;
+          pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k2(flagname_p2, "lm")) {
           if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 15)) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -4453,6 +4448,7 @@ int main(int argc, char** argv) {
             }
           }
           pc.command_flags1 |= kfCommand1Glm;
+          pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k2(flagname_p2, "en")) {
           if (load_params || (xload & (~kfXloadOxSample))) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
@@ -4492,6 +4488,7 @@ int main(int argc, char** argv) {
             pc.misc_flags |= kfMiscGenotypingRateDosage;
           }
           pc.command_flags1 |= kfCommand1GenotypingRate;
+          pc.dependency_flags |= kfFilterAllReq;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
@@ -4531,6 +4528,7 @@ int main(int argc, char** argv) {
             pc.hardy_modifier |= kfHardyColDefault;
           }
           pc.command_flags1 |= kfCommand1Hardy;
+          pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k2(flagname_p2, "we")) {
           if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 3)) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -4756,6 +4754,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.command_flags1 |= kfCommand1LdPrune;
+          pc.dependency_flags |= kfFilterAllReq;
           if (flagname_p2[9] == 'p') {
             pc.ld_info.prune_modifier |= kfLdPrunePairphase;
           } else {
@@ -5024,6 +5023,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.command_flags1 |= kfCommand1KingCutoff;
+          pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k2(flagname_p2, "ing-table-filter")) {
           if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -5217,6 +5217,7 @@ int main(int argc, char** argv) {
             }
           }
           pc.command_flags1 |= kfCommand1Ld;
+          pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k2(flagname_p2, "oop-assoc")) {
           logerrprint("Error: --loop-assoc is retired.  Use --within + --split-cat-pheno instead.\n");
           goto main_ret_INVALID_CMDLINE_A;
@@ -5304,6 +5305,7 @@ int main(int argc, char** argv) {
           }
           make_plink2_modifier |= kfMakeBed | kfMakeBim | kfMakeFam;
           pc.command_flags1 |= kfCommand1MakePlink2;
+          pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k2(flagname_p2, "ake-bpgen")) {
           if (make_plink2_modifier & kfMakeBed) {
             logerrprint("Error: --make-bpgen cannot be used with --make-bed.\n");
@@ -5373,6 +5375,7 @@ int main(int argc, char** argv) {
           }
           make_plink2_modifier |= kfMakePgen | kfMakeBim | kfMakeFam;
           pc.command_flags1 |= kfCommand1MakePlink2;
+          pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k2(flagname_p2, "ake-pgen")) {
           if (make_plink2_modifier & (kfMakeBed | kfMakePgen)) {
             logerrprint("Error: --make-pgen cannot be used with --make-bed/--make-bpgen.\n");
@@ -5478,6 +5481,7 @@ int main(int argc, char** argv) {
           }
           make_plink2_modifier |= kfMakePgen | kfMakePvar | kfMakePsam;
           pc.command_flags1 |= kfCommand1MakePlink2;
+          pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k2(flagname_p2, "ake-just-bim")) {
           if (make_plink2_modifier & (kfMakeBed | kfMakePgen)) {
             logerrprint("Error: --make-just-... cannot be used with --make-bed/--make-{b}pgen.\n");
@@ -5497,6 +5501,7 @@ int main(int argc, char** argv) {
           }
           make_plink2_modifier |= kfMakeBim;
           pc.command_flags1 |= kfCommand1MakePlink2;
+          pc.dependency_flags |= kfFilterPvarReq;
         } else if (strequal_k2(flagname_p2, "ake-just-fam")) {
           if (make_plink2_modifier & (kfMakeBed | kfMakePgen)) {
             logerrprint("Error: --make-just-... cannot be used with --make-bed/--make-{b}pgen.\n");
@@ -5504,6 +5509,7 @@ int main(int argc, char** argv) {
           }
           make_plink2_modifier |= kfMakeFam;
           pc.command_flags1 |= kfCommand1MakePlink2;
+          pc.dependency_flags |= kfFilterPsamReq;
           goto main_param_zero;
         } else if (strequal_k2(flagname_p2, "ake-just-pvar")) {
           if (make_plink2_modifier & (kfMakeBed | kfMakePgen)) {
@@ -5543,6 +5549,7 @@ int main(int argc, char** argv) {
           }
           make_plink2_modifier |= kfMakePvar;
           pc.command_flags1 |= kfCommand1MakePlink2;
+          pc.dependency_flags |= kfFilterPvarReq;
         } else if (strequal_k2(flagname_p2, "ake-just-psam")) {
           if (make_plink2_modifier & (kfMakeBed | kfMakePgen)) {
             logerrprint("Error: --make-just-... cannot be used with --make-bed/--make-{b}pgen.\n");
@@ -5568,6 +5575,7 @@ int main(int argc, char** argv) {
           }
           make_plink2_modifier |= kfMakePsam;
           pc.command_flags1 |= kfCommand1MakePlink2;
+          pc.dependency_flags |= kfFilterPsamReq;
         } else if (strequal_k2(flagname_p2, "ake-king")) {
           // may want to add options for handling X/Y/MT
           if (king_cutoff_fprefix) {
@@ -5631,6 +5639,7 @@ int main(int argc, char** argv) {
             }
           }
           pc.command_flags1 |= kfCommand1MakeKing;
+          pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k2(flagname_p2, "ake-king-table")) {
           if (king_cutoff_fprefix) {
             logerrprint("Error: --make-king-table cannot be used with a --king-cutoff input fileset.\n");
@@ -5678,6 +5687,7 @@ int main(int argc, char** argv) {
             pc.king_modifier |= kfKingColDefault;
           }
           pc.command_flags1 |= kfCommand1MakeKing;
+          pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k2(flagname_p2, "issing")) {
           if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 4)) {
             goto main_ret_INVALID_CMDLINE_2A;
@@ -5743,6 +5753,7 @@ int main(int argc, char** argv) {
             pc.missing_rpt_modifier |= kfMissingRptVcolDefault;
           }
           pc.command_flags1 |= kfCommand1MissingReport;
+          pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k2(flagname_p2, "aj-ref")) {
           if (pc.alt1_allele_flag) {
             logerrprint("Error: --maj-ref cannot be used with --ref-allele/--alt1-allele.\n");
@@ -6024,6 +6035,7 @@ int main(int argc, char** argv) {
           }
           pc.grm_flags |= kfGrmBin;
           pc.command_flags1 |= kfCommand1MakeRel;
+          pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k2(flagname_p2, "ake-grm-gz") || strequal_k2(flagname_p2, "ake-grm-list")) {
           if (pc.command_flags1 & kfCommand1MakeRel) {
             if (pc.grm_flags & kfGrmBin) {
@@ -6074,6 +6086,7 @@ int main(int argc, char** argv) {
             pc.grm_flags |= kfGrmListNoGz;
           }
           pc.command_flags1 |= kfCommand1MakeRel;
+          pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k2(flagname_p2, "ake-rel")) {
           if (pc.command_flags1 & kfCommand1MakeRel) {
             logerrprint("Error: --make-rel cannot be used with --make-grm-list/--make-grm-bin.\n");
@@ -6137,6 +6150,7 @@ int main(int argc, char** argv) {
             }
           }
           pc.command_flags1 |= kfCommand1MakeRel;
+          pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k2(flagname_p2, "ap")) {
           if (load_params || (xload & (~kfXloadPlink1Dosage))) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
@@ -6199,7 +6213,7 @@ int main(int argc, char** argv) {
           // add two to the number, convert it back to a string, and act as if
           // --pheno-col-nums was used.  See parse_name_ranges().
           const uint32_t pheno_col_nums_arg = mpheno_arg + 2;
-          const uint32_t name_max_blen = int_slen(pheno_col_nums_arg) + 1;
+          const uint32_t name_max_blen = uint_slen(pheno_col_nums_arg) + 1;
           if (pgl_malloc(name_max_blen + 1, pc.pheno_range_list.names)) {
             goto main_ret_NOMEM;
           }
@@ -6613,6 +6627,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE;
           }
           pc.command_flags1 |= kfCommand1Pca;
+          pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k2(flagname_p2, "heno-quantile-normalize")) {
           if (param_ct) {
             reterr = alloc_and_flatten(&(argvc[arg_idx + 1]), param_ct, 0x7fffffff, &pc.quantnorm_flattened);
@@ -7092,7 +7107,7 @@ int main(int argc, char** argv) {
           if (numeric_param_ct == 3) {
             // a bit artificial, but it works
             const uint32_t col_idx = score_cols[2];
-            const uint32_t col_idx_blen = 1 + int_slen(col_idx);
+            const uint32_t col_idx_blen = 1 + uint_slen(col_idx);
             char* new_buf;
             if (pgl_malloc(col_idx_blen + 1, &new_buf)) {
               goto main_ret_NOMEM;
@@ -7105,6 +7120,7 @@ int main(int argc, char** argv) {
             pc.score_info.input_col_idx_range_list.starts_range = (unsigned char*)(&(new_buf[col_idx_blen]));
           }
           pc.command_flags1 |= kfCommand1Score;
+          pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k2(flagname_p2, "core-col-nums")) {
           if (!(pc.command_flags1 & kfCommand1Score)) {
             logerrprint("Error: --score-col-nums must be used with --score.\n");
@@ -7285,7 +7301,6 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvc[arg_idx + 1];
           if (scan_uint_defcap(cur_modif, &pc.thin_keep_ct) || (!pc.thin_keep_ct)) {
-            // todo: allow 0 if --allow-no-variants
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --thin-count parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -7317,7 +7332,6 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvc[arg_idx + 1];
           if (scan_uint_defcap(cur_modif, &pc.thin_keep_sample_ct) || (!pc.thin_keep_sample_ct)) {
-            // todo: allow 0 if --allow-no-samples
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --thin-indiv-count parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -7504,6 +7518,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE;
           }
           pc.misc_flags |= kfMiscVcfRequireGt;
+          pc.dependency_flags |= kfFilterAllReq;
           goto main_param_zero;
         } else if (strequal_k2(flagname_p2, "if")) {
           if (!(pc.command_flags1 & kfCommand1Glm)) {
@@ -7537,6 +7552,7 @@ int main(int argc, char** argv) {
           pc.dependency_flags |= kfFilterPsamReq;
         } else if (strequal_k2(flagname_p2, "alidate")) {
           pc.command_flags1 |= kfCommand1Validate;
+          pc.dependency_flags |= kfFilterAllReq;
           goto main_param_zero;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
@@ -7557,8 +7573,10 @@ int main(int argc, char** argv) {
             pc.misc_flags |= kfMiscWriteSnplistZs;
           }
           pc.command_flags1 |= kfCommand1WriteSnplist;
+          pc.dependency_flags |= kfFilterPvarReq;
         } else if (strequal_k2(flagname_p2, "rite-samples")) {
           pc.command_flags1 |= kfCommand1WriteSamples;
+          pc.dependency_flags |= kfFilterPsamReq;
           goto main_param_zero;
         } else if (strequal_k2(flagname_p2, "indow")) {
           if (!(pc.varid_snp || pc.varid_exclude_snp)) {
@@ -7631,6 +7649,7 @@ int main(int argc, char** argv) {
             pc.write_covar_flags |= kfWriteCovarColDefault;
           }
           pc.command_flags1 |= kfCommand1WriteCovar;
+          pc.dependency_flags |= kfFilterPsamReq;
         } else if (strequal_k2(flagname_p2, "arning-errcode")) {
           warning_errcode = 1;
           goto main_param_zero;
@@ -7870,9 +7889,18 @@ int main(int argc, char** argv) {
           pc.misc_flags |= kfMiscKeepAutoconv;
         }
         const uint32_t convname_slen = (uintptr_t)(convname_end - outname);
-        const uint32_t psam_specified = (load_params & kfLoadParamsPsam);
+        uint32_t pgen_generated = 1;
+        uint32_t psam_generated = 1;
         if (xload & kfXloadVcf) {
-          reterr = vcf_to_pgen(pgenname, psam_specified? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_half_call, pc.fam_cols, outname, convname_end, &chr_info);
+          const uint32_t no_samples_ok = !(pc.dependency_flags & (kfFilterAllReq | kfFilterPsamReq));
+          if (no_samples_ok && (!(pc.misc_flags & kfMiscKeepAutoconv)) && pc.command_flags1) {
+            // special case: just treat the VCF as a .pvar file
+            strcpy(pvarname, pgenname);
+            pgenname[0] = '\0';
+            goto main_reinterpret_vcf_instead_of_converting;
+          } else {
+            reterr = vcf_to_pgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, no_samples_ok, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_half_call, pc.fam_cols, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
+          }
         } else if (xload & kfXloadVcf) {
           logerrprint("Error: --bcf is not implemented yet.\n");
           reterr = kPglRetNotYetSupported;
@@ -7894,16 +7922,23 @@ int main(int argc, char** argv) {
         // todo: we have to skip this when merging is involved
         pc.hard_call_thresh = UINT32_MAX;
 
-        strcpy(memcpya(pgenname, outname, convname_slen), ".pgen");
+        if (pgen_generated) {
+          strcpy(memcpya(pgenname, outname, convname_slen), ".pgen");
+        }
         strcpy(memcpya(pvarname, outname, convname_slen), ".pvar");
-        if (!psam_specified) {
+        if (psam_generated) {
           strcpy(memcpya(psamname, outname, convname_slen), ".psam");
         }
         if (!(pc.misc_flags & kfMiscKeepAutoconv)) {
-          if (push_llstr(pgenname, &file_delete_list) || push_llstr(pvarname, &file_delete_list)) {
+          if (pgen_generated) {
+            if (push_llstr(pgenname, &file_delete_list)) {
+              goto main_ret_NOMEM;
+            }
+          }
+          if (push_llstr(pvarname, &file_delete_list)) {
             goto main_ret_NOMEM;
           }
-          if (!psam_specified) {
+          if (psam_generated) {
             if (push_llstr(psamname, &file_delete_list)) {
               goto main_ret_NOMEM;
             }
@@ -7911,8 +7946,8 @@ int main(int argc, char** argv) {
         }
         *outname_end = '\0';
       }
-      const uint32_t calc_all_req = (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1WriteSnplist | kfCommand1WriteCovar | kfCommand1WriteSamples))) || ((pc.command_flags1 & kfCommand1MakePlink2) && (make_plink2_modifier & (kfMakeBed | kfMakePgen)));
-      if (calc_all_req || (pc.dependency_flags & kfFilterAllReq)) {
+    main_reinterpret_vcf_instead_of_converting:
+      if (pc.dependency_flags & kfFilterAllReq) {
         if ((!xload) && (load_params != kfLoadParamsPfileAll)) {
           logerrprint("Error: A full fileset (.pgen/.bed + .pvar/.bim + .psam/.fam) is required for\nthis.\n");
           goto main_ret_INVALID_CMDLINE_A;
@@ -7921,8 +7956,7 @@ int main(int argc, char** argv) {
         // no genotype file required
         pgenname[0] = '\0';
 
-        const uint32_t calc_pvar_req = (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1WriteCovar | kfCommand1WriteSamples))) || ((pc.command_flags1 & kfCommand1MakePlink2) && (make_plink2_modifier & (kfMakeBed | kfMakeBim | kfMakePgen | kfMakePvar)));
-        if (calc_pvar_req || (pc.dependency_flags & kfFilterPvarReq)) {
+        if (pc.dependency_flags & kfFilterPvarReq) {
           if ((!xload) && (!(load_params & kfLoadParamsPvar))) {
             logerrprint("Error: A .pvar/.bim file is required for this.\n");
             goto main_ret_INVALID_CMDLINE_A;
@@ -7930,8 +7964,7 @@ int main(int argc, char** argv) {
         } else {
           pvarname[0] = '\0';
         }
-        const uint32_t calc_psam_req = (pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1WriteSnplist))) || ((pc.command_flags1 & kfCommand1MakePlink2) && (make_plink2_modifier & (kfMakeBed | kfMakeFam | kfMakePgen | kfMakePsam)));
-        if (calc_psam_req || (pc.dependency_flags & kfFilterPsamReq)) {
+        if (pc.dependency_flags & kfFilterPsamReq) {
           if ((!xload) && (!(load_params & kfLoadParamsPsam))) {
             logerrprint("Error: A .psam/.fam file is required for this.\n");
             goto main_ret_INVALID_CMDLINE_A;
