@@ -739,9 +739,10 @@ pglerr_t disp_help(uint32_t param_ct, const char* const* argvc) {
 "    The default is just maybesid.\n\n"
                );
     help_print("write-samples\twrite-snplist", &help_ctrl, 1,
-"  --write-samples\n"
+"  --write-samples <noheader>\n"
 "    Report FID/IID (or FID/IID/SID, iff the input .psam file had a SID column)\n"
-"    of all samples which pass your filters/inclusion thresholds.\n\n"
+"    of all samples which pass your filters/inclusion thresholds.  By default,\n"
+"    the output file contains a header line; remove it with 'noheader'.\n\n"
                );
     help_print("write-snplist", &help_ctrl, 1,
 "  --write-snplist <zs>\n"

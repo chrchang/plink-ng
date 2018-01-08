@@ -7132,20 +7132,22 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
       }
       // write IDs
       strcpy(outname_end2, ".id");
-      reterr = write_sample_ids(cur_sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen);
+      reterr = write_sample_ids(cur_sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, 0);
       if (reterr) {
         goto glm_main_ret_1;
       }
       if (sample_ct_x && x_samples_are_different) {
-        strcpy(&(outname_end2[3]), ".x");
-        reterr = write_sample_ids(cur_sample_include_x, sample_ids, sids, outname, sample_ct_x, max_sample_id_blen, max_sid_blen);
+        // quasi-bugfix (7 Jan 2017): use ".x.id" suffix instead of ".id.x",
+        // since the last part of the file extension should indicate format
+        strcpy(outname_end2, ".x.id");
+        reterr = write_sample_ids(cur_sample_include_x, sample_ids, sids, outname, sample_ct_x, max_sample_id_blen, max_sid_blen, 0);
         if (reterr) {
           goto glm_main_ret_1;
         }
       }
       if (sample_ct_y && y_samples_are_different) {
-        strcpy(&(outname_end2[3]), ".y");
-        reterr = write_sample_ids(cur_sample_include_y, sample_ids, sids, outname, sample_ct_y, max_sample_id_blen, max_sid_blen);
+        strcpy(outname_end2, ".y.id");
+        reterr = write_sample_ids(cur_sample_include_y, sample_ids, sids, outname, sample_ct_y, max_sample_id_blen, max_sid_blen, 0);
         if (reterr) {
           goto glm_main_ret_1;
         }

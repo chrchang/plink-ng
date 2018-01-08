@@ -38,7 +38,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.00a"
+static const char ver_str[] = "PLINK v2.00a1"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -78,7 +78,7 @@ static const char ver_str2[] =
 #ifndef NOLAPACK
   "  "
 #endif
-  "    www.cog-genomics.org/plink/2.0/\n"
+  "   www.cog-genomics.org/plink/2.0/\n"
   "(C) 2005-2018 Shaun Purcell, Christopher Chang   GNU General Public License v3\n";
 static const char errstr_append[] = "For more info, try '" PROG_NAME_STR " --help [flag name]' or '" PROG_NAME_STR " --help | more'.\n";
 
@@ -1373,7 +1373,7 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
 
       if (pcp->command_flags1 & kfCommand1WriteSamples) {
         strcpy(outname_end, ".id");
-        reterr = write_sample_ids(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen);
+        reterr = write_sample_ids(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, (pcp->misc_flags / kfMiscWriteSamplesNoheader) & 1);
         if (reterr) {
           goto plink2_ret_1;
         }
@@ -1704,14 +1704,14 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
             }
             if (pcp->king_cutoff != -1) {
               strcpy(outname_end, ".king.cutoff.in");
-              reterr = write_sample_ids(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen);
+              reterr = write_sample_ids(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, 0);
               if (reterr) {
                 goto plink2_ret_1;
               }
               strcpy(&(outname_end[13]), "out");
               bitvec_andnot(sample_include, raw_sample_ctl, prev_sample_include);
               const uint32_t removed_sample_ct = prev_sample_ct - sample_ct;
-              reterr = write_sample_ids(prev_sample_include, sample_ids, sids, outname, removed_sample_ct, max_sample_id_blen, max_sid_blen);
+              reterr = write_sample_ids(prev_sample_include, sample_ids, sids, outname, removed_sample_ct, max_sample_id_blen, max_sid_blen, 0);
               if (reterr) {
                 goto plink2_ret_1;
               }
@@ -7575,9 +7575,19 @@ int main(int argc, char** argv) {
           pc.command_flags1 |= kfCommand1WriteSnplist;
           pc.dependency_flags |= kfFilterPvarReq;
         } else if (strequal_k2(flagname_p2, "rite-samples")) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 1)) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (param_ct) {
+            const char* cur_modif = argvc[arg_idx + 1];
+            if (strcmp(cur_modif, "noheader")) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --write-samples parameter '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            pc.misc_flags |= kfMiscWriteSamplesNoheader;
+          }
           pc.command_flags1 |= kfCommand1WriteSamples;
           pc.dependency_flags |= kfFilterPsamReq;
-          goto main_param_zero;
         } else if (strequal_k2(flagname_p2, "indow")) {
           if (!(pc.varid_snp || pc.varid_exclude_snp)) {
             logerrprint("Error: --window must be used with --snp or --exclude-snp.\n");

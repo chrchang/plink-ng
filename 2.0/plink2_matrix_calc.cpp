@@ -1476,7 +1476,7 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
       strcpy(write_iter, " .\n");
       wordwrapb(0);
       logprintb();
-      reterr = write_sample_ids(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen);
+      reterr = write_sample_ids(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, 0);
       if (reterr) {
         goto calc_king_ret_1;
       }
@@ -1495,7 +1495,7 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
         strcpya(write_iter, " .\n");
         wordwrapb(0);
         logprintb();
-        reterr = write_sample_ids(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen);
+        reterr = write_sample_ids(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, 0);
         if (reterr) {
           goto calc_king_ret_1;
         }
@@ -3437,7 +3437,7 @@ pglerr_t calc_grm(const uintptr_t* orig_sample_include, const char* sample_ids, 
       }
       if (!parallel_idx) {
         strcpy(&(outname_end[4]), ".id");
-        reterr = write_sample_ids(orig_sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen);
+        reterr = write_sample_ids(orig_sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, 0);
         if (reterr) {
           goto calc_grm_ret_1;
         }

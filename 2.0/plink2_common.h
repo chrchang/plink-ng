@@ -101,7 +101,8 @@ FLAGSET64_DEF_START()
   kfMiscAlt1AlleleForce = (1LLU << 38),
   kfMiscRefFromFaForce = (1LLU << 39),
   kfMiscMergeX = (1LLU << 40),
-  kfMiscKeepFileStrsSid = (1LLU << 41)
+  kfMiscKeepFileStrsSid = (1LLU << 41),
+  kfMiscWriteSamplesNoheader = (1LLU << 42)
 FLAGSET64_DEF_END(misc_flags_t);
 
 FLAGSET64_DEF_START()
@@ -747,7 +748,7 @@ pglerr_t parse_chr_ranges(const char* const* argvc, const char* flagname_p, cons
 // sample_ct not relevant if genovecs_ptr == nullptr
 pglerr_t multithread_load_init(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, pgen_file_info_t* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** dosage_present_ptr, dosage_t*** dosage_val_bufs_ptr, uint32_t* read_block_size_ptr, unsigned char** main_loadbufs, pthread_t** threads_ptr, pgen_reader_t*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr);
 
-pglerr_t write_sample_ids(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const char* outname, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen);
+pglerr_t write_sample_ids(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const char* outname, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t noheader);
 
 uint32_t realpath_identical(const char* outname, const char* read_realpath, char* write_realpath_buf);
 

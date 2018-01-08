@@ -1988,7 +1988,7 @@ pglerr_t multithread_load_init(const uintptr_t* variant_include, uint32_t sample
   return kPglRetSuccess;
 }
 
-pglerr_t write_sample_ids(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const char* outname, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen) {
+pglerr_t write_sample_ids(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const char* outname, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t noheader) {
   FILE* outfile = nullptr;
   pglerr_t reterr = kPglRetSuccess;
   {
@@ -1997,6 +1997,13 @@ pglerr_t write_sample_ids(const uintptr_t* sample_include, const char* sample_id
     }
     char* write_iter = g_textbuf;
     char* textbuf_flush = &(write_iter[kMaxMediumLine]);
+    if (!noheader) {
+      write_iter = strcpya(write_iter, "#FID\tIID");
+      if (sids) {
+        write_iter = strcpya(write_iter, "\tSID");
+      }
+      append_binary_eoln(&write_iter);
+    }
     uintptr_t sample_uidx = 0;
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
       next_set_ul_unsafe_ck(sample_include, &sample_uidx);
