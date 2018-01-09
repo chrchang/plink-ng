@@ -1,5 +1,4 @@
-
-// This file is part of PLINK 1.90, copyright (C) 2005-2017 Shaun Purcell,
+// This file is part of PLINK 1.90, copyright (C) 2005-2018 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify
@@ -1315,7 +1314,7 @@ void assign_allelic_match_groups(uint32_t pool_size, uint32_t* allelic_match_cts
       cur_pool[2 * pool_idx] = 0x80000000U | (group_idx++);
 #endif
     }
-  }  
+  }
 }
 
 char* roh_pool_write_middle(char* wptr, char* marker_ids, uintptr_t max_marker_id_len, uint32_t plink_maxsnp, uint32_t* marker_pos, uint32_t is_new_lengths, uint32_t marker_uidx1, uint32_t marker_uidx2) {

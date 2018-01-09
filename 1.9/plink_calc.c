@@ -1,4 +1,4 @@
-// This file is part of PLINK 1.90, copyright (C) 2005-2017 Shaun Purcell,
+// This file is part of PLINK 1.90, copyright (C) 2005-2018 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify
@@ -3255,7 +3255,7 @@ int32_t calc_regress_pcs(char* evecname, uint32_t regress_pcs_modifier, uint32_t
   if (alloc_collapsed_haploid_filters(sample_exclude, sex_male, unfiltered_sample_ct, sample_ct, hh_exists, 0, &sample_include2, &sample_male_include2)) {
     goto calc_regress_pcs_ret_NOMEM;
   }
-  
+
   // try unaltered filename.  If that fails and the unaltered filename didn't
   // have an .evec or .eigenvec extension, then also try appending .evec and
   // appending .eigenvec.
@@ -5563,7 +5563,7 @@ int32_t do_rel_cutoff(uint64_t calculation_type, double rel_cutoff, double* rel_
   int32_t kk;
   int32_t mm;
   int32_t retval;
-  
+
   // Algorithm:
   // - Whenever there is at least one sample with exactly one remaining
   //   too-close relation, prune the other side of that relationship, because
@@ -5786,7 +5786,7 @@ uint32_t rel_cutoff_batch_emitn(uint32_t overflow_ct, unsigned char* readbuf) {
       fflush(stdout);
     }
     col = 0;
-  }  
+  }
  rel_cutoff_batch_emitn_ret:
   g_rcb_row = row;
   g_rcb_col = col;
@@ -5868,7 +5868,7 @@ uint32_t rel_cutoff_batch_rbin_emitn(uint32_t overflow_ct, unsigned char* readbu
       fflush(stdout);
     }
     col = 0;
-  }  
+  }
  rel_cutoff_batch_rbin_emitn_ret:
   g_rcb_row = row;
   g_rcb_col = col;

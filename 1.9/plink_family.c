@@ -1,4 +1,4 @@
-// This file is part of PLINK 1.90, copyright (C) 2005-2017 Shaun Purcell,
+// This file is part of PLINK 1.90, copyright (C) 2005-2018 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify
@@ -4356,7 +4356,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     }
     g_perm_is_1bit = 1;
   }
-  
+
   fputs("0%", stdout);
   fflush(stdout);
   // ----- begin main loop -----
@@ -4924,7 +4924,7 @@ int32_t dfam(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset, char* outn
     LOGPRINTFWW("Permutation test report written to %s .\n", outname);
   }
   // ...
-  
+
   while (0) {
   dfam_ret_NOMEM:
     retval = RET_NOMEM;

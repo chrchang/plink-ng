@@ -1,4 +1,4 @@
-// This file is part of PLINK 1.90, copyright (C) 2005-2017 Shaun Purcell,
+// This file is part of PLINK 1.90, copyright (C) 2005-2018 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify
@@ -1510,7 +1510,7 @@ int32_t cluster_enforce_match(Cluster_info* cp, int32_t missing_pheno, uintptr_t
   if (retval) {
     goto cluster_enforce_match_ret_1;
   }
-  
+
   bigstack_mark2 = g_bigstack_base;
   g_textbuf[MAXLINELEN - 1] = ' ';
   if (cp->match_fname) {

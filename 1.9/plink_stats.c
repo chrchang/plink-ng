@@ -1,4 +1,4 @@
-// This file is part of PLINK 1.90, copyright (C) 2005-2017 Shaun Purcell,
+// This file is part of PLINK 1.90, copyright (C) 2005-2018 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify
@@ -54,7 +54,7 @@ double inverse_chiprob(double qq, double df) {
   return xx;
 }
 
-double calc_tprob(double tt, double df) {  
+double calc_tprob(double tt, double df) {
   int32_t st = 0;
   int32_t ww = 1;
   double bnd = 1;
@@ -398,7 +398,7 @@ int32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double th
   // = 2 * (rare_copies / (2 * genotypes)) * (1 - rarefreq) * genotypes
   // = rare_copies * (1 - (rare_copies / (2 * genotypes)))
   // = (rare_copies * (2 * genotypes - rare_copies)) / (2 * genotypes)
-  // 
+  //
   // The computational identity is
   //   P(nhets == n) := P(nhets == n+2) * (n+2) * (n+1) /
   //                    (4 * homr(n) * homc(n))

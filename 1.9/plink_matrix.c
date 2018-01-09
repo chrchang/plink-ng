@@ -1,4 +1,4 @@
-// This file is part of PLINK 1.90, copyright (C) 2005-2017 Shaun Purcell,
+// This file is part of PLINK 1.90, copyright (C) 2005-2018 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify
@@ -32,7 +32,7 @@ static inline double SQR(const double a) {
 double pythag(const double a, const double b) {
   // PLINK stats.cpp pythag().
   double absa,absb;
- 
+
   absa=fabs(a);
   absb=fabs(b);
   if (absa > absb) return absa*sqrt(1.0+SQR(absb/absa));
@@ -184,7 +184,7 @@ int32_t svdcmp_c(int32_t m, double* a, double* w, double* v) {
 	}
 	break;
       }
-      if (its == 29) 
+      if (its == 29)
 	return 0; // cannot converge: multi-collinearity?
       x=w[l];
       nm=k-1;
@@ -265,14 +265,14 @@ int32_t invert_matrix(int32_t dim, double* matrix, MATRIX_INVERT_BUF1_TYPE* dbl_
   for (i=0; i<dim; i++) {
     dbl_1d_buf[i] = dbl_1d_buf[i] < wmin ? 0 : (1 / dbl_1d_buf[i]);
   }
-  
+
   for (i=0; i<dim; i++) {
     for (j=0; j<dim; j++) {
       matrix[i * dim + j] = matrix[i * dim + j] * dbl_1d_buf[j];
     }
   }
 
-  // [nxn].[t(v)] 
+  // [nxn].[t(v)]
   for (i=0; i<dim; i++) {
     fill_double_zero(dim, dbl_1d_buf);
     for (j=0; j<dim; j++) {

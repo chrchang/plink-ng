@@ -1,4 +1,4 @@
-// This file is part of PLINK 1.90, copyright (C) 2005-2017 Shaun Purcell,
+// This file is part of PLINK 1.90, copyright (C) 2005-2018 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify
@@ -454,7 +454,7 @@ int32_t filter_attrib(char* fname, char* condition_str, uint32_t* id_htable, uin
   uint32_t item_uidx;
   uint32_t pos_match_needed;
   int32_t sorted_idx;
-  
+
   if (bigstack_alloc_ul(unfiltered_ctl, &exclude_arr_new) ||
       bigstack_calloc_ul(unfiltered_ctl, &already_seen)) {
     goto filter_attrib_ret_NOMEM;
@@ -689,7 +689,7 @@ int32_t filter_attrib_sample(char* fname, char* condition_str, char* sorted_ids,
 
   if (bigstack_alloc_ul(unfiltered_ctl, &exclude_arr_new) ||
       bigstack_calloc_ul(unfiltered_ctl, &already_seen) ||
-      bigstack_alloc_c(max_id_len, &id_buf)) { 
+      bigstack_alloc_c(max_id_len, &id_buf)) {
     goto filter_attrib_sample_ret_NOMEM;
   }
   fill_all_bits(unfiltered_ct, exclude_arr_new);
@@ -1301,7 +1301,7 @@ int32_t load_oblig_missing(FILE* bedfile, uintptr_t bed_offset, uintptr_t unfilt
     if (ii == -1) {
       continue;
     }
-    sample_uidx = sample_id_map[(uint32_t)ii];    
+    sample_uidx = sample_id_map[(uint32_t)ii];
     slen = strlen_se(bufptr2);
     // guaranteed to succeed
     ii = bsearch_str(bufptr2, slen, cluster_ids, max_cluster_id_len, cluster_ct);

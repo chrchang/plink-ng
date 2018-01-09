@@ -1,4 +1,4 @@
-// This file is part of PLINK 1.90, copyright (C) 2005-2017 Shaun Purcell,
+// This file is part of PLINK 1.90, copyright (C) 2005-2018 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify
@@ -2956,7 +2956,7 @@ int32_t annotate(const Annot_info* aip, uint32_t allow_extra_chroms, char* outna
     if (!bufptr) {
       continue;
     }
-        
+
     if (need_pos) {
       // CHR
       // can't use get_chrom_code_destructive() due to later
@@ -3512,7 +3512,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
     if (!bufptr) {
       goto gene_report_load_loop;
     }
-    
+
     // CHR
     chrom_idx = get_chrom_code_counted(chrom_info_ptr, strlen_se(token_ptrs[0]), token_ptrs[0]);
     if (chrom_idx < 0) {
@@ -3611,7 +3611,7 @@ int32_t gene_report(char* fname, char* glist, char* subset_fname, uint32_t borde
       gene_idx = gene_nameidx_to_chridx[ulii];
       bufptr = &(gene_names[gene_idx * max_gene_name_len]);
       fputs(&(bufptr[4]), outfile);
-      // 53313 = ('0' * (1000 + 100 + 10)) + ('0' - 15) 
+      // 53313 = ('0' * (1000 + 100 + 10)) + ('0' - 15)
       chrom_idx = ((unsigned char)bufptr[0]) * 1000 + ((unsigned char)bufptr[1]) * 100 + ((unsigned char)bufptr[2]) * 10 + ((unsigned char)bufptr[3]) - 53313;
       strcpy(g_textbuf, " -- ");
       // plink 1.07 explicitly precedes chromosome codes with "chr" here.

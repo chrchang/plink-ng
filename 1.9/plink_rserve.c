@@ -1,4 +1,4 @@
-// This file is part of PLINK 1.90, copyright (C) 2005-2017 Shaun Purcell,
+// This file is part of PLINK 1.90, copyright (C) 2005-2018 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify
@@ -191,7 +191,7 @@ int32_t rserve_call(char* rplugin_fname, char* rplugin_host_or_socket, int32_t r
       goto rserve_call_ret_NETWORK;
     }
     rc->eval("options(echo=F)");
-    
+
     r_s = new Rinteger(sample_to_cluster, pheno_nm_ct);
     r_p = new Rdouble(pheno_d2, pheno_nm_ct);
     r_n = new Rinteger((int32_t*)(&pheno_nm_ct), 1);

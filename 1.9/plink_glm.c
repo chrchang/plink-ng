@@ -1,4 +1,4 @@
-// This file is part of PLINK 1.90, copyright (C) 2005-2017 Shaun Purcell,
+// This file is part of PLINK 1.90, copyright (C) 2005-2018 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify
@@ -466,7 +466,7 @@ int32_t glm_check_vif(double vif_thresh, uintptr_t param_ct, uintptr_t sample_va
   for (param_idx = 0; param_idx < param_ct_m1; param_idx++) {
     param_2d_buf[param_idx * param_ct] = 1;
   }
-  
+
   if (invert_matrix(dim, param_2d_buf, mi_buf, param_2d_buf2)) {
     return 1;
   }
@@ -1597,7 +1597,7 @@ uint32_t logistic_regression(uint32_t sample_ct, uint32_t param_ct, float* vv, f
   // grad  = gradient buffer (length param_ct)
   // ll    = linear system buffer, param_ct x param_ct, rows 16-byte aligned
   // dcoef = current coefficient change buffer (length param_ct)
-  // 
+  //
   // Inputs:
   // xx    = covariate (and usually genotype) matrix, covariate-major, rows are
   //         16-byte aligned, trailing row elements must be zeroed out
@@ -1860,7 +1860,7 @@ uint32_t glm_fill_design(uintptr_t* loadbuf_collapsed, double* fixed_covars_cov_
 	}
 	ulptr_end++;
 	sample_idx_stop = sample_valid_ct;
-      }      
+      }
     } else if ((!(coding_flags & (GLM_HETHOM | GLM_RECESSIVE))) && (!is_nonx_haploid)) {
       if (!male_x_01) {
 	while (1) {
@@ -2280,7 +2280,7 @@ uint32_t glm_fill_design_float(uintptr_t* loadbuf_collapsed, float* fixed_covars
 	}
 	ulptr_end++;
 	sample_idx_stop = sample_valid_ct;
-      }      
+      }
     } else if ((!(coding_flags & (GLM_HETHOM | GLM_RECESSIVE))) && (!is_nonx_haploid)) {
       if (!male_x_01) {
 	while (1) {
@@ -3463,7 +3463,7 @@ THREAD_RET_TYPE glm_linear_set_thread(void* arg) {
       *msa_ptr++ = dxx;
     }
   }
-  THREAD_RETURN;  
+  THREAD_RETURN;
 }
 #endif
 
@@ -4288,7 +4288,7 @@ int32_t glm_linear_assoc_set_test(pthread_t* threads, FILE* bedfile, uintptr_t b
 	    dxx = MAX_INVERSE_CHIPROB_1DF;
 	  } else {
 	    dxx = inverse_chiprob(dxx, 1);
-	  }	  
+	  }
 	}
 	// this is cache-unfriendly, may want to update in-place instead and
 	// separate out the transpose
@@ -7629,7 +7629,7 @@ int32_t glm_linear_nosnp(pthread_t* threads, FILE* bedfile, uintptr_t bed_offset
       if (fwrite_checked(g_textbuf, wptr - g_textbuf, outfile)) {
 	goto glm_linear_nosnp_ret_WRITE_FAIL;
       }
-    }      
+    }
   }
   if (report_intercept) {
     wptr = memcpya(g_textbuf, " INTERCEPT ", 11);

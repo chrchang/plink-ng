@@ -1,4 +1,4 @@
-// This file is part of PLINK 1.90, copyright (C) 2005-2017 Shaun Purcell,
+// This file is part of PLINK 1.90, copyright (C) 2005-2018 Shaun Purcell,
 // Christopher Chang.
 //
 // This program is free software: you can redistribute it and/or modify
@@ -98,7 +98,7 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
   if (retval) {
     goto dosage_load_score_files_ret_1;
   }
-  
+
   if (sc_ip->varid_col < sc_ip->allele_col) {
     first_col_m1 = sc_ip->varid_col;
     varid_idx = 0;
@@ -307,7 +307,7 @@ int32_t dosage_load_score_files(Score_info* sc_ip, char* outname, char* outname_
     if (is_eoln_kns(*bufptr)) {
       goto dosage_load_score_files_next3;
     }
-  }  
+  }
   if (fclose_null(&infile)) {
     goto dosage_load_score_files_ret_READ_FAIL;
   }
@@ -1947,7 +1947,7 @@ int32_t plink1_dosage(Dosage_info* doip, char* famname, char* mapname, char* out
 	      is_valid = glm_linear_dosage(sample_ct, cur_samples, sample_valid_ct, pheno_nm_collapsed, pheno_d_collapsed, perm_fails, covar_ct, covar_d, cur_dosages, pheno_d2, covars_cov_major_buf, covars_sample_major_buf, param_2d_buf, mi_buf, param_2d_buf2, regression_results, dgels_a, dgels_b, dgels_work, dgels_lwork, standard_beta, glm_vif_thresh, &beta, &se, &pval);
 	      if (is_valid == 2) {
 		// NOMEM special case
-		goto plink1_dosage_ret_NOMEM;              
+		goto plink1_dosage_ret_NOMEM;
 	      }
 	    } else {
 #endif
