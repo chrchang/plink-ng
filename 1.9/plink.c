@@ -2001,8 +2001,10 @@ int32_t plink(char* outname, char* outname_end, char* bedname, char* bimname, ch
 	    pheno_d = nullptr;
 	  }
 	}
-	uii++;
+        // bugfix (9 Jan 2018): forgot to increment phenotype index when
+        // skipping empty pheno
       plink_skip_empty_pheno:
+	uii++;
 	rewind(phenofile);
 	outname_end[1] = '\0';
 	retval = load_pheno(phenofile, unfiltered_sample_ct, sample_exclude_ct, cptr, max_sample_id_len, uiptr, missing_pheno, (misc_flags / MISC_AFFECTION_01) & 1, uii, nullptr, pheno_nm, &pheno_c, &pheno_d, &(outname_end[1]), (uintptr_t)((&(outname[FNAMESIZE - 32])) - outname_end));
