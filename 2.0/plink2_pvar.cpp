@@ -270,17 +270,17 @@ typedef struct {
   uint32_t key_slens[];
 } info_exist_t;
 
-pglerr_t info_exist_init(const unsigned char* arena_end, const char* require_info_flattened, const char* flagname, unsigned char** arena_base_ptr, info_exist_t** existpp) {
+pglerr_t info_exist_init(const unsigned char* arena_end, const char* require_info_flattened, const char* flagname_p, unsigned char** arena_base_ptr, info_exist_t** existpp) {
   const char* read_iter = require_info_flattened;
   uintptr_t prekeys_blen = 0;
   do {
     const uintptr_t slen = strlen(read_iter);
     if (memchr(read_iter, ';', slen)) {
-      LOGERRPRINTFWW("Error: Invalid --%s key '%s' (semicolon prohibited).\n", flagname, read_iter);
+      LOGERRPRINTFWW("Error: Invalid --%s key '%s' (semicolon prohibited).\n", flagname_p, read_iter);
       return kPglRetInvalidCmdline;
     }
     if (memchr(read_iter, '=', slen)) {
-      LOGERRPRINTFWW("Error: Invalid --%s key '%s' ('=' prohibited).\n", flagname, read_iter);
+      LOGERRPRINTFWW("Error: Invalid --%s key '%s' ('=' prohibited).\n", flagname_p, read_iter);
       return kPglRetInvalidCmdline;
     }
     prekeys_blen += slen + 2; // +1 for preceding semicolon
@@ -396,19 +396,19 @@ typedef struct {
   double val;
 } info_filter_t;
 
-pglerr_t info_filter_init(const unsigned char* arena_end, const cmp_expr_t filter_expr, const char* flagname, unsigned char** arena_base_ptr, info_filter_t* filterp) {
+pglerr_t info_filter_init(const unsigned char* arena_end, const cmp_expr_t filter_expr, const char* flagname_p, unsigned char** arena_base_ptr, info_filter_t* filterp) {
   uint32_t key_slen = strlen(filter_expr.pheno_name);
   // can also use strpbrk()
   if (memchr(filter_expr.pheno_name, ';', key_slen)) {
-    LOGERRPRINTFWW("Error: Invalid --%s key '%s' (semicolon prohibited).\n", flagname, filter_expr.pheno_name);
+    LOGERRPRINTFWW("Error: Invalid --%s key '%s' (semicolon prohibited).\n", flagname_p, filter_expr.pheno_name);
     return kPglRetInvalidCmdline;
   }
   if (memchr(filter_expr.pheno_name, '=', key_slen)) {
-    LOGERRPRINTFWW("Error: Invalid --%s key '%s' ('=' prohibited).\n", flagname, filter_expr.pheno_name);
+    LOGERRPRINTFWW("Error: Invalid --%s key '%s' ('=' prohibited).\n", flagname_p, filter_expr.pheno_name);
     return kPglRetInvalidCmdline;
   }
   if (memchr(filter_expr.pheno_name, ',', key_slen)) {
-    LOGERRPRINTFWW("Error: Invalid --%s key '%s' (comma prohibited).\n", flagname, filter_expr.pheno_name);
+    LOGERRPRINTFWW("Error: Invalid --%s key '%s' (comma prohibited).\n", flagname_p, filter_expr.pheno_name);
     return kPglRetInvalidCmdline;
   }
   const uintptr_t cur_alloc = round_up_pow2(3 + key_slen, kCacheline);
@@ -436,17 +436,17 @@ pglerr_t info_filter_init(const unsigned char* arena_end, const cmp_expr_t filte
     return kPglRetSuccess;
   }
   if ((filter_expr.binary_op != kCmpOperatorNoteq) && (filter_expr.binary_op != kCmpOperatorEq)) {
-    LOGERRPRINTFWW("Error: Invalid --%s value '%s' (finite number expected).\n", flagname, val_str);
+    LOGERRPRINTFWW("Error: Invalid --%s value '%s' (finite number expected).\n", flagname_p, val_str);
     return kPglRetInvalidCmdline;
   }
   filterp->val_str = val_str;
   filterp->val_slen = strlen(val_str);
   if (memchr(val_str, ';', filterp->val_slen)) {
-    LOGERRPRINTFWW("Error: Invalid --%s value '%s' (semicolon prohibited).\n", flagname, val_str);
+    LOGERRPRINTFWW("Error: Invalid --%s value '%s' (semicolon prohibited).\n", flagname_p, val_str);
     return kPglRetInvalidCmdline;
   }
   if (memchr(val_str, '=', filterp->val_slen)) {
-    LOGERRPRINTFWW("Error: Invalid --%s value '%s' ('=' prohibited).\n", flagname, val_str);
+    LOGERRPRINTFWW("Error: Invalid --%s value '%s' ('=' prohibited).\n", flagname_p, val_str);
     return kPglRetInvalidCmdline;
   }
   return kPglRetSuccess;

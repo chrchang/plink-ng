@@ -62,7 +62,7 @@ static const char ver_str[] = "PLINK v2.00a1"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (7 Jan 2018)";
+  " (9 Jan 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -83,9 +83,9 @@ static const char ver_str2[] =
 static const char errstr_append[] = "For more info, try '" PROG_NAME_STR " --help [flag name]' or '" PROG_NAME_STR " --help | more'.\n";
 
 #ifndef NOLAPACK
-static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --ld, --make-king, --king-cutoff, --write-samples,\n--write-snplist, --make-grm-list, --pca, --glm, --score, --genotyping-rate,\n--validate, and --zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --ld, --make-king, --king-cutoff, --write-samples,\n--write-snplist, --make-grm-list, --pca, --glm, --adjust-file, --score,\n--genotyping-rate, --validate, and --zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
 #else
-static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --ld, --make-king, --king-cutoff, --write-samples,\n--write-snplist, --make-grm-list, --glm, --score, --genotyping-rate,\n--validate, and --zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
+static const char notestr_null_calc2[] = "Commands include --make-bpgen, --export, --freq, --geno-counts, --missing,\n--hardy, --indep-pairwise, --ld, --make-king, --king-cutoff, --write-samples,\n--write-snplist, --make-grm-list, --glm, --adjust-file, --score,\n--genotyping-rate, --validate, and --zst-decompress.\n\n'" PROG_NAME_STR " --help | more' describes all functions.\n";
 #endif
 
 // covar-variance-standardize + terminating null
@@ -2732,12 +2732,13 @@ int main(int argc, char** argv) {
   init_range_list(&pc.covar_range_list);
   init_ld(&pc.ld_info);
   init_glm(&pc.glm_info);
-  init_adjust(&pc.adjust_info);
   init_score(&pc.score_info);
   init_cmp_expr(&pc.keep_if_expr);
   init_cmp_expr(&pc.remove_if_expr);
   init_cmp_expr(&pc.extract_if_info_expr);
   init_cmp_expr(&pc.exclude_if_info_expr);
+  adjust_file_info_t adjust_file_info;
+  init_adjust(&pc.adjust_info, &adjust_file_info);
   chr_info_t chr_info;
   if (init_chr_info(&chr_info)) {
     goto main_ret_NOMEM_NOLOG;
@@ -3121,7 +3122,7 @@ int main(int argc, char** argv) {
           logerrprint("Error: --allow-no-vars is retired.  (If you are performing a set of operations\nwhich doesn't require variant information, the variant file won't be loaded at\nall.)\n");
           goto main_ret_INVALID_CMDLINE;
         } else if (strequal_k2(flagname_p2, "djust")) {
-          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 3)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 4)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
@@ -3152,6 +3153,123 @@ int main(int argc, char** argv) {
           }
           if (!(pc.adjust_info.flags & kfAdjustColAll)) {
             pc.adjust_info.flags |= kfAdjustColDefault;
+          }
+        } else if (strequal_k2(flagname_p2, "djust-file")) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 7)) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = alloc_fname(argvc[arg_idx + 1], flagname_p, 0, &adjust_file_info.fname);
+          if (reterr) {
+            goto main_ret_1;
+          }
+          for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvc[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "gc", cur_modif_slen)) {
+              adjust_file_info.base.flags |= kfAdjustGc;
+            } else if (strequal_k(cur_modif, "log10", cur_modif_slen)) {
+              adjust_file_info.base.flags |= kfAdjustLog10;
+            } else if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
+              adjust_file_info.base.flags |= kfAdjustZs;
+            } else if (str_startswith(cur_modif, "cols=", cur_modif_slen)) {
+              if (adjust_file_info.base.flags & kfAdjustColAll) {
+                logerrprint("Error: Multiple --adjust-file cols= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              reterr = parse_col_descriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0unadj\0gc\0qq\0bonf\0holm\0sidakss\0sidaksd\0fdrbh\0fdrby\0", "adjust-file", kfAdjustColChrom, kfAdjustColDefault, 1, &adjust_file_info.base.flags);
+              if (reterr) {
+                goto main_ret_1;
+              }
+            } else if (str_startswith(cur_modif, "test=", cur_modif_slen)) {
+              reterr = cmdline_alloc_string(&(cur_modif[5]), "--adjust-file test=", kMaxIdSlen, &adjust_file_info.test_name);
+              if (reterr) {
+                goto main_ret_1;
+              }
+            } else if (strequal_k(cur_modif, "input-log10", cur_modif_slen)) {
+              adjust_file_info.base.flags |= kfAdjustInputLog10;
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --adjust-file parameter '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+          }
+          if (!(adjust_file_info.base.flags & kfAdjustColAll)) {
+            adjust_file_info.base.flags |= kfAdjustColDefault;
+          }
+        } else if (strequal_k2(flagname_p2, "djust-chr-field")) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 0x7fffffff)) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = alloc_and_flatten(&(argvc[arg_idx + 1]), param_ct, 0x7fffffff, &adjust_file_info.chr_field);
+          if (reterr) {
+            goto main_ret_1;
+          }
+        } else if (strequal_k2(flagname_p2, "djust-alt-field")) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 0x7fffffff)) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = alloc_and_flatten(&(argvc[arg_idx + 1]), param_ct, 0x7fffffff, &adjust_file_info.alt_field);
+          if (reterr) {
+            goto main_ret_1;
+          }
+        } else if (strequal_k2(flagname_p2, "djust-pos-field")) {
+          if (!adjust_file_info.fname) {
+            logerrprint("Error: --adjust-pos-field must be used with --adjust-file.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 0x7fffffff)) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = alloc_and_flatten(&(argvc[arg_idx + 1]), param_ct, 0x7fffffff, &adjust_file_info.pos_field);
+          if (reterr) {
+            goto main_ret_1;
+          }
+        } else if (strequal_k2(flagname_p2, "djust-id-field")) {
+          if (!adjust_file_info.fname) {
+            logerrprint("Error: --adjust-id-field must be used with --adjust-file.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 0x7fffffff)) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = alloc_and_flatten(&(argvc[arg_idx + 1]), param_ct, 0x7fffffff, &adjust_file_info.id_field);
+          if (reterr) {
+            goto main_ret_1;
+          }
+        } else if (strequal_k2(flagname_p2, "djust-ref-field")) {
+          if (!adjust_file_info.fname) {
+            logerrprint("Error: --adjust-ref-field must be used with --adjust-file.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 0x7fffffff)) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = alloc_and_flatten(&(argvc[arg_idx + 1]), param_ct, 0x7fffffff, &adjust_file_info.ref_field);
+          if (reterr) {
+            goto main_ret_1;
+          }
+        } else if (strequal_k2(flagname_p2, "djust-test-field")) {
+          if (!adjust_file_info.fname) {
+            logerrprint("Error: --adjust-test-field must be used with --adjust-file.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 0x7fffffff)) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = alloc_and_flatten(&(argvc[arg_idx + 1]), param_ct, 0x7fffffff, &adjust_file_info.test_field);
+          if (reterr) {
+            goto main_ret_1;
+          }
+        } else if (strequal_k2(flagname_p2, "djust-p-field")) {
+          if (!adjust_file_info.fname) {
+            logerrprint("Error: --adjust-p-field must be used with --adjust-file.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 0x7fffffff)) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          reterr = alloc_and_flatten(&(argvc[arg_idx + 1]), param_ct, 0x7fffffff, &adjust_file_info.p_field);
+          if (reterr) {
+            goto main_ret_1;
           }
         } else if (strequal_k2(flagname_p2, "perm")) {
           if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 6)) {
@@ -5149,14 +5267,17 @@ int main(int argc, char** argv) {
           if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          if (!scanadv_double(argvc[arg_idx + 1], &pc.adjust_info.lambda)) {
+          double lambda;
+          if (!scanadv_double(argvc[arg_idx + 1], &lambda)) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --lambda parameter '%s'.\n", argvc[arg_idx + 1]);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-          if (pc.adjust_info.lambda < 1.0) {
+          if (lambda < 1.0) {
             logprint("Note: --lambda parameter set to 1.\n");
-            pc.adjust_info.lambda = 1.0;
+            lambda = 1.0;
           }
+          pc.adjust_info.lambda = lambda;
+          adjust_file_info.base.lambda = lambda;
         } else if (strequal_k2(flagname_p2, "egend")) {
           if (load_params || (xload & (~kfXloadOxHaps))) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
@@ -5585,7 +5706,7 @@ int main(int argc, char** argv) {
             logerrprint("Error: --make-king cannot be used with --king-table-subset.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 3)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
@@ -5596,6 +5717,8 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.king_modifier |= kfKingMatrixZs;
+            } else if (!strcmp(cur_modif, "no-idheader")) {
+              pc.king_modifier |= kfKingNoIdheader;
             } else if (!strcmp(cur_modif, "bin")) {
               if (pc.king_modifier & kfKingMatrixEncodemask) {
                 logerrprint("Error: Multiple --make-king encoding modifiers.\n");
@@ -5645,7 +5768,7 @@ int main(int argc, char** argv) {
             logerrprint("Error: --make-king-table cannot be used with a --king-cutoff input fileset.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 3)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 4)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
@@ -5655,6 +5778,8 @@ int main(int argc, char** argv) {
               pc.king_modifier |= kfKingTableZs;
             } else if (strequal_k(cur_modif, "counts", cur_modif_slen)) {
               pc.king_modifier |= kfKingCounts;
+            } else if (strequal_k(cur_modif, "no-idheader", cur_modif_slen)) {
+              pc.king_modifier |= kfKingNoIdheader;
             } else if (str_startswith(cur_modif, "cols=", cur_modif_slen)) {
               if (pc.king_modifier & kfKingColAll) {
                 logerrprint("Error: Multiple --make-king-table cols= modifiers.\n");
@@ -6019,21 +6144,24 @@ int main(int argc, char** argv) {
           logerrprint("Error: --make-grm has been retired due to inconsistent meaning across GCTA\nversions.  Use --make-grm-list or --make-grm-bin.\n");
           goto main_ret_INVALID_CMDLINE;
         } else if (strequal_k2(flagname_p2, "ake-grm-bin")) {
-          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 2)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 3)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
+          pc.grm_flags |= kfGrmNoIdheader | kfGrmBin;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvc[arg_idx + param_idx];
             if (!strcmp(cur_modif, "cov")) {
               pc.grm_flags |= kfGrmCov;
             } else if (!strcmp(cur_modif, "meanimpute")) {
               pc.grm_flags |= kfGrmMeanimpute;
-            } else {
+            } else if (!strcmp(cur_modif, "idheader")) {
+              pc.grm_flags &= ~kfGrmNoIdheader;
+            } else if (strcmp(cur_modif, "no-idheader")) {
+              // may as well accept no-idheader for consistency
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-grm-bin parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
-          pc.grm_flags |= kfGrmBin;
           pc.command_flags1 |= kfCommand1MakeRel;
           pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k2(flagname_p2, "ake-grm-gz") || strequal_k2(flagname_p2, "ake-grm-list")) {
@@ -6045,10 +6173,11 @@ int main(int argc, char** argv) {
             }
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 3)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 4)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t compress_stream_type = 0; // 1 = no-gz, 2 = zs
+          pc.grm_flags |= kfGrmNoIdheader;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvc[arg_idx + param_idx];
             if (!strcmp(cur_modif, "cov")) {
@@ -6069,7 +6198,9 @@ int main(int argc, char** argv) {
               }
               compress_stream_type = 2;
               pc.grm_flags |= kfGrmListZs;
-            } else {
+            } else if (!strcmp(cur_modif, "idheader")) {
+              pc.grm_flags &= ~kfGrmNoIdheader;
+            } else if (strcmp(cur_modif, "no-idheader")) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-grm-list parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
@@ -6092,7 +6223,7 @@ int main(int argc, char** argv) {
             logerrprint("Error: --make-rel cannot be used with --make-grm-list/--make-grm-bin.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 4)) {
+          if (enforce_param_ct_range(argvc[arg_idx], param_ct, 0, 5)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
@@ -6107,6 +6238,8 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.grm_flags |= kfGrmMatrixZs;
+            } else if (!strcmp(cur_modif, "no-idheader")) {
+              pc.grm_flags |= kfGrmNoIdheader;
             } else if (!strcmp(cur_modif, "bin")) {
               if (pc.grm_flags & kfGrmMatrixEncodemask) {
                 logerrprint("Error: Multiple --make-rel encoding modifiers.\n");
@@ -7727,11 +7860,12 @@ int main(int argc, char** argv) {
     }
 
     pc.dependency_flags |= pc.filter_flags;
-    if ((!pc.command_flags1) && (!(xload & (kfXloadVcf | kfXloadBcf | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxSample | kfXloadPlink1Dosage | kfXloadGenDummy)))) {
+    const uint32_t batch_job = (adjust_file_info.fname != nullptr);
+    if ((!pc.command_flags1) && (!(xload & (kfXloadVcf | kfXloadBcf | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxSample | kfXloadPlink1Dosage | kfXloadGenDummy))) && (!batch_job)) {
       // add command_flags2 when needed
       goto main_ret_NULL_CALC;
     }
-    if (!(load_params || xload)) {
+    if (!(load_params || xload || batch_job)) {
       logerrprint("Error: No input dataset.\n");
       goto main_ret_INVALID_CMDLINE_A;
     }
@@ -7862,6 +7996,17 @@ int main(int argc, char** argv) {
     }
 
     print_end_time = 1;
+
+    if (batch_job) {
+      if (adjust_file_info.fname) {
+        // pglerr_t adjust_file(const adjust_file_info_t* afip, double pfilter, double output_min_p, uint32_t max_thread_ct, char* outname, char* outname_end) {
+        reterr = adjust_file(&adjust_file_info, pc.pfilter, pc.output_min_p, pc.max_thread_ct, outname, outname_end);
+        if (reterr) {
+          goto main_ret_1;
+        }
+      }
+    }
+
     if (0) {
       // nonstandard cases (CNV, etc.) here
     } else {
@@ -8049,6 +8194,7 @@ int main(int argc, char** argv) {
   free_cond(const_fid);
   free_cond(rseeds);
   plink2_cmdline_meta_cleanup(&pcm);
+  cleanup_adjust(&adjust_file_info);
   free_cond(king_cutoff_fprefix);
   free_cond(pc.update_name_flag);
   free_cond(pc.alt1_allele_flag);

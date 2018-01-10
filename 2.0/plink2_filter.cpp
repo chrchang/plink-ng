@@ -365,7 +365,7 @@ pglerr_t extract_exclude_flag_norange(const char* const* variant_ids, const uint
   return reterr;
 }
 
-void random_thin_prob(const char* flagname, const char* unitname, double thin_keep_prob, uint32_t raw_item_ct, uintptr_t* item_include, uint32_t* item_ct_ptr) {
+void random_thin_prob(const char* flagname_p, const char* unitname, double thin_keep_prob, uint32_t raw_item_ct, uintptr_t* item_include, uint32_t* item_ct_ptr) {
   // possible todo: try using truncated geometric distribution, like --dummy
   // can also parallelize this
   const uint32_t orig_item_ct = *item_ct_ptr;
@@ -383,17 +383,17 @@ void random_thin_prob(const char* flagname, const char* unitname, double thin_ke
   const uint32_t new_item_ct = popcount_longs(item_include, BITCT_TO_WORDCT(raw_item_ct));
   *item_ct_ptr = new_item_ct;
   const uint32_t removed_ct = orig_item_ct - new_item_ct;
-  LOGPRINTF("--%s: %u %s%s removed (%u remaining).\n", flagname, removed_ct, unitname, (removed_ct == 1)? "" : "s", new_item_ct);
+  LOGPRINTF("--%s: %u %s%s removed (%u remaining).\n", flagname_p, removed_ct, unitname, (removed_ct == 1)? "" : "s", new_item_ct);
   return;
 }
 
-pglerr_t random_thin_ct(const char* flagname, const char* unitname, uint32_t thin_keep_ct, uint32_t raw_item_ct, uintptr_t* item_include, uint32_t* item_ct_ptr) {
+pglerr_t random_thin_ct(const char* flagname_p, const char* unitname, uint32_t thin_keep_ct, uint32_t raw_item_ct, uintptr_t* item_include, uint32_t* item_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   pglerr_t reterr = kPglRetSuccess;
   {
     const uint32_t orig_item_ct = *item_ct_ptr;
     if (thin_keep_ct >= orig_item_ct) {
-      LOGERRPRINTF("Warning: --%s parameter exceeds # of remaining %ss; skipping.\n", flagname, unitname);
+      LOGERRPRINTF("Warning: --%s parameter exceeds # of remaining %ss; skipping.\n", flagname_p, unitname);
       goto random_thin_ct_ret_1;
     }
     const uint32_t removed_ct = orig_item_ct - thin_keep_ct;
@@ -410,7 +410,7 @@ pglerr_t random_thin_ct(const char* flagname, const char* unitname, uint32_t thi
     expand_bytearr((unsigned char*)perm_buf, item_include, raw_item_ctl, orig_item_ct, 0, new_item_include);
     memcpy(item_include, new_item_include, raw_item_ctl * sizeof(intptr_t));
     *item_ct_ptr = thin_keep_ct;
-    LOGPRINTF("--%s: %u %s%s removed (%u remaining).\n", flagname, removed_ct, unitname, (removed_ct == 1)? "" : "s", thin_keep_ct);
+    LOGPRINTF("--%s: %u %s%s removed (%u remaining).\n", flagname_p, removed_ct, unitname, (removed_ct == 1)? "" : "s", thin_keep_ct);
   }
   while (0) {
   random_thin_ct_ret_NOMEM:

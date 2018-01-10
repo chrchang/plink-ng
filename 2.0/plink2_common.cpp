@@ -2003,6 +2003,8 @@ pglerr_t write_sample_ids(const uintptr_t* sample_include, const char* sample_id
         write_iter = strcpya(write_iter, "\tSID");
       }
       append_binary_eoln(&write_iter);
+    } else {
+      sids = nullptr;
     }
     uintptr_t sample_uidx = 0;
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {

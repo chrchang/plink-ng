@@ -6441,6 +6441,29 @@ pglerr_t validate_and_alloc_cmp_expr(const char* const* sources, const char* fla
   return reterr;
 }
 
+// See e.g. meta_analysis_open_and_read_header() in plink 1.9.
+/*
+pglerr_t get_header_line_col_nums(const char* header_line, const char* const* search_multistrs, const char* flagname_p, uint32_t search_col_ct, uint32_t* found_col_ct_ptr, uint32_t* found_type_bitset_ptr, uint32_t* col_skips, uint32_t* col_types) {
+  unsigned char* bigstack_mark = g_bigstack_base;
+  pglerr_t reterr = kPglRetSuccess;
+  {
+    uint32_t found_type_bitset = 0;
+    *found_type_bitset_ptr = found_type_bitset;
+  }
+  while (0) {
+  get_header_line_col_nums_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  get_header_line_col_nums_ret_DUPLICATE_ID:
+    LOGERRPRINTF("Error: Duplicate ID in --%s column search order.\n", flagname_p);
+    reterr = kPglRetInvalidCmdline;
+    break;
+  }
+  bigstack_reset(bigstack_mark);
+  return reterr;
+}
+*/
+
 #ifdef __cplusplus
 } // namespace plink2
 #endif

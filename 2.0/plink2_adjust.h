@@ -29,21 +29,22 @@ FLAGSET_DEF_START()
   kfAdjustGc = (1 << 0),
   kfAdjustLog10 = (1 << 1),
   kfAdjustZs = (1 << 2),
+  kfAdjustInputLog10 = (1 << 3),
 
-  kfAdjustColChrom = (1 << 3),
-  kfAdjustColPos = (1 << 4),
-  kfAdjustColRef = (1 << 5),
-  kfAdjustColAlt1 = (1 << 6),
-  kfAdjustColAlt = (1 << 7),
-  kfAdjustColUnadj = (1 << 8),
-  kfAdjustColGc = (1 << 9),
-  kfAdjustColQq = (1 << 10),
-  kfAdjustColBonf = (1 << 11),
-  kfAdjustColHolm = (1 << 12),
-  kfAdjustColSidakss = (1 << 13),
-  kfAdjustColSidaksd = (1 << 14),
-  kfAdjustColFdrbh = (1 << 15),
-  kfAdjustColFdrby = (1 << 16),
+  kfAdjustColChrom = (1 << 4),
+  kfAdjustColPos = (1 << 5),
+  kfAdjustColRef = (1 << 6),
+  kfAdjustColAlt1 = (1 << 7),
+  kfAdjustColAlt = (1 << 8),
+  kfAdjustColUnadj = (1 << 9),
+  kfAdjustColGc = (1 << 10),
+  kfAdjustColQq = (1 << 11),
+  kfAdjustColBonf = (1 << 12),
+  kfAdjustColHolm = (1 << 13),
+  kfAdjustColSidakss = (1 << 14),
+  kfAdjustColSidaksd = (1 << 15),
+  kfAdjustColFdrbh = (1 << 16),
+  kfAdjustColFdrby = (1 << 17),
   kfAdjustColDefault = (kfAdjustColChrom | kfAdjustColUnadj | kfAdjustColGc | kfAdjustColBonf | kfAdjustColHolm | kfAdjustColSidakss | kfAdjustColSidaksd | kfAdjustColFdrbh | kfAdjustColFdrby),
   kfAdjustColAll = ((kfAdjustColFdrby * 2) - kfAdjustColChrom)
 FLAGSET_DEF_END(adjust_flags_t);
@@ -53,9 +54,27 @@ typedef struct adjust_info_struct {
   double lambda;
 } adjust_info_t;
 
-void init_adjust(adjust_info_t* adjust_info_ptr);
+typedef struct adjust_file_info_struct {
+  adjust_info_t base;
+  char* fname;
+  char* test_name;
+  char* chr_field;
+  char* pos_field;
+  char* id_field;
+  char* ref_field;
+  char* alt_field;
+  char* test_field;
+  char* p_field;
+  char* chisq_field;
+} adjust_file_info_t;
 
-pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const adjust_info_t* adjust_info_ptr, double* pvals, double* chisqs, uint32_t orig_variant_ct, uint32_t max_allele_slen, double pfilter, double output_min_p, uint32_t skip_gc, uint32_t max_thread_ct, char* outname, char* outname_end);
+void init_adjust(adjust_info_t* adjust_info_ptr, adjust_file_info_t* adjust_file_info_ptr);
+
+void cleanup_adjust(adjust_file_info_t* adjust_file_info_ptr);
+
+pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const char* const* chr_ids, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const adjust_info_t* adjust_info_ptr, const double* pvals, const double* chisqs, uint32_t orig_variant_ct, uint32_t max_allele_slen, double pfilter, double output_min_p, uint32_t skip_gc, uint32_t max_thread_ct, char* outname, char* outname_end);
+
+pglerr_t adjust_file(const adjust_file_info_t* afip, double pfilter, double output_min_p, uint32_t max_thread_ct, char* outname, char* outname_end);
 
 #ifdef __cplusplus
 } // namespace plink2

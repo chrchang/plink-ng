@@ -601,7 +601,7 @@ pglerr_t disp_help(uint32_t param_ct, const char* const* argvc) {
     // there may be more work to do re: not blowing the cache when there are
     // 100k+ samples)
     help_print("make-king\tmake-king-table", &help_ctrl, 1,
-"  --make-king <square | square0 | triangle> <zs | bin | bin4>\n"
+"  --make-king <square | square0 | triangle> <zs | bin | bin4> <no-idheader>\n"
 "    KING-robust kinship estimator, described by Manichaikul A, Mychaleckyj JC,\n"
 "    Rich SS, Daly K, Sale M, Chen WM (2010) Robust relationship inference in\n"
 "    genome-wide association studies.  By default, this writes a\n"
@@ -623,8 +623,10 @@ pglerr_t disp_help(uint32_t param_ct, const char* const* argvc) {
 "      single-precision numbers instead.)  This can be combined with 'square0'\n"
 "      if you still want the upper right zeroed out, or 'triangle' if you don't\n"
 "      want to pad the upper right at all.\n"
+"    * By default, the .id file contains a header line; the 'no-idheader'\n"
+"      removes it and forces FID/IID output.\n"
 "    * The computation can be subdivided with --parallel.\n"
-"  --make-king-table <zs> <counts> <cols=[column set descriptor]>\n"
+"  --make-king-table <zs> <counts> <cols=[column set descriptor]> <no-idheader>\n"
 "    Similar to --make-king, except results are reported in the original .kin0\n"
 "    text table format (with minor changes, e.g. row order is more friendly to\n"
 "    incremental addition of samples), and --king-table-filter can be used to\n"
@@ -645,6 +647,7 @@ pglerr_t disp_help(uint32_t param_ct, const char* const* argvc) {
                );
     help_print("make-rel\tmake-grm\tmake-grm-bin\tmake-grm-list\tmake-grm-gz", &help_ctrl, 1,
 "  --make-rel <cov> <meanimpute> <square | square0 | triangle> <zs | bin | bin4>\n"
+"             <no-idheader>\n"
 "    Write a lower-triangular variance-standardized relationship matrix to\n"
 "    {output prefix}.rel, and corresponding IDs to {output prefix}.rel.id.\n"
 "    * This computation assumes that variants do not have very low MAF, or\n"
@@ -656,9 +659,11 @@ pglerr_t disp_help(uint32_t param_ct, const char* const* argvc) {
 "      approximate linkage equilibrium.\n"
 "    * The 'cov' modifier replaces the variance-standardization step with basic\n"
 "      mean-centering, causing a covariance matrix to be calculated instead.\n"
+"    * By default, the .id file contains a header line; the 'no-idheader'\n"
+"      modifier removes it and forces FID/IID output.\n"
 "    * The computation can be subdivided with --parallel.\n"
-"  --make-grm-list <cov> <meanimpute> <zs>\n"
-"  --make-grm-bin <cov> <meanimpute>\n"
+"  --make-grm-list <cov> <meanimpute> <zs> <idheader>\n"
+"  --make-grm-bin <cov> <meanimpute> <idheader>\n"
 "    --make-grm-list causes the relationships to be written to GCTA's original\n"
 "    list format, which describes one pair per line, while --make-grm-bin writes\n"
 "    them in GCTA 1.1+'s single-precision triangular binary format.  Note that\n"
@@ -741,8 +746,9 @@ pglerr_t disp_help(uint32_t param_ct, const char* const* argvc) {
     help_print("write-samples\twrite-snplist", &help_ctrl, 1,
 "  --write-samples <noheader>\n"
 "    Report FID/IID (or FID/IID/SID, iff the input .psam file had a SID column)\n"
-"    of all samples which pass your filters/inclusion thresholds.  By default,\n"
-"    the output file contains a header line; remove it with 'noheader'.\n\n"
+"    of all samples which pass your filters/inclusion thresholds.\n"
+"    By default, the output file contains a header line.  'noheader' removes it\n"
+"    and forces FID/IID output.\n\n"
                );
     help_print("write-snplist", &help_ctrl, 1,
 "  --write-snplist <zs>\n"
@@ -878,6 +884,41 @@ pglerr_t disp_help(uint32_t param_ct, const char* const* argvc) {
 "      scoreavgs: Score averages.\n"
 "      scoresums: Score sums.\n"
 "    The default is maybesid,phenos,nmissallele,dosagesum,scoreavgs.\n\n"
+               );
+    help_print("adjust-file\tadjust", &help_ctrl, 1,
+"  --adjust-file [filename] <zs> <gc> <log10> <cols=[column set descriptor]>\n"
+"                <input-log10> <test=[test name, case-sensitive]>\n"
+"    Given a file with unfiltered association test results, report some basic\n"
+"    multiple-testing corrections, sorted in increasing-p-value order.\n"
+"    * 'gc' causes genomic-controlled p-values to be used in the formulas.\n"
+"      (This tends to be overly conservative.  We note that LD Score regression\n"
+"      usually does a better job of calibrating --lambda; see Lee JJ, Chow CC\n"
+"      (2017) LD Score regression as an estimator of confounding and genetic\n"
+"      correlations in genome-wide association studies.)\n"
+"    * 'log10' causes negative base 10 logs of p-values to be reported, instead\n"
+"      of raw p-values.  'input-log10' specifies that the input file contains\n"
+"      -log10(p) values.\n"
+"    * If the input file contains multiple tests per variant which are\n"
+"      distinguished by a 'TEST' column (true for --linear/--logistic/--glm),\n"
+"      you must use 'test=' to select the test to process.\n"
+"    The following column sets are supported:\n"
+"      chrom: Chromosome ID.\n"
+"      pos: Base-pair coordinate.\n"
+"      (ID is always present, and positioned here.)\n"
+"      ref: Reference allele.\n"
+"      alt1: Alternate allele 1.\n"
+"      alt: All alternate alleles, comma-separated.\n"
+"      unadj: Unadjusted p-value.\n"
+"      gc: Devlin & Roeder (1999) genomic control corrected p-value (additive\n"
+"          models only).\n"
+"      qq: P-value quantile.\n"
+"      bonf: Bonferroni correction.\n"
+"      holm: Holm-Bonferroni (1979) adjusted p-value.\n"
+"      sidakss: Sidak single-step adjusted p-value.\n"
+"      sidaksd: Sidak step-down adjusted p-value.\n"
+"      fdrbh: Benjamini & Hochberg (1995) step-up false discovery control.\n"
+"      fdrby: Benjamini & Yekutieli (2001) step-up false discovery control.\n"
+"    Default set is chrom,unadj,gc,bonf,holm,sidakss,sidaksd,fdrbh,fdrby.\n"
                );
     // todo: reimplement most/all of PLINK 1.x's other automatic checks (het
     // haploids, missing sex, etc. with corresponding output files) and have a
@@ -1480,39 +1521,23 @@ pglerr_t disp_help(uint32_t param_ct, const char* const* argvc) {
 "                       (Use the --glm 'interaction' modifier to test for\n"
 "                       interaction between genotype and sex.)\n"
                );
-    // obvious todo: add mode for postprocessing file
     help_print("adjust", &help_ctrl, 0,
 "  --adjust <zs> <gc> <log10> <cols=[column set descriptor]> :\n"
-"    For each association test, report some basic multiple-testing corrections,\n"
-"    sorted in increasing-p-value order.\n"
-"    * 'gc' causes genomic-controlled p-values to be used in the formulas.\n"
-"      (This tends to be overly conservative.  We note that LD Score regression\n"
-"      usually does a better job of calibrating --lambda; see Lee JJ, Chow CC\n"
-"      (2017) LD Score regression as an estimator of confounding and genetic\n"
-"      correlations in genome-wide association studies.)\n"
-"    * 'log10' causes negative base 10 logs of p-values to be reported, instead\n"
-"      of raw p-values.\n"
-"    The following column sets are supported:\n"
-"      chrom: Chromosome ID.\n"
-"      pos: Base-pair coordinate.\n"
-"      (ID is always present, and positioned here.)\n"
-"      ref: Reference allele.\n"
-"      alt1: Alternate allele 1.\n"
-"      alt: All alternate alleles, comma-separated.\n"
-"      unadj: Unadjusted p-value.\n"
-"      gc: Devlin & Roeder (1999) genomic control corrected p-value (additive\n"
-"          models only).\n"
-"      qq: P-value quantile.\n"
-"      bonf: Bonferroni correction.\n"
-"      holm: Holm-Bonferroni (1979) adjusted p-value.\n"
-"      sidakss: Sidak single-step adjusted p-value.\n"
-"      sidaksd: Sidak step-down adjusted p-value.\n"
-"      fdrbh: Benjamini & Hochberg (1995) step-up false discovery control.\n"
-"      fdrby: Benjamini & Yekutieli (2001) step-up false discovery control.\n"
-"    Default set is chrom,unadj,gc,bonf,holm,sidakss,sidaksd,fdrbh,fdrby.\n"
+"    For each association test in this run, report some basic multiple-testing\n"
+"    corrections, sorted in increasing-p-value order.  Modifiers work the same\n"
+"    way as they do on --adjust-file.\n"
                );
-    help_print("adjust\tlambda", &help_ctrl, 0,
-"  --lambda           : Set genomic control lambda for --adjust.\n"
+    help_print("adjust\tadjust-file\tlambda", &help_ctrl, 0,
+"  --lambda                    : Set genomic control lambda for --adjust{-file}.\n"
+               );
+    help_print("adjust-file", &help_ctrl, 0,
+"  --adjust-chr-field [n...]  : Set --adjust-file input field names.  When\n"
+"  --adjust-pos-field [n...]    multiple parameters are given to these flags,\n"
+"  --adjust-id-field [n...]     earlier names take precedence over later ones.\n"
+"  --adjust-ref-field [n...]\n"
+"  --adjust-alt-field [n...]\n"
+"  --adjust-test-field [n...]\n"
+"  --adjust-p-field [n...]\n"
                );
     help_print("ci\tlinear\tlogistic", &help_ctrl, 0,
 "  --ci [size]        : Report confidence ratios for odds ratios/betas.\n"

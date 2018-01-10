@@ -22,9 +22,33 @@
 namespace plink2 {
 #endif
 
-void init_adjust(adjust_info_t* adjust_info_ptr) {
+void init_adjust(adjust_info_t* adjust_info_ptr, adjust_file_info_t* adjust_file_info_ptr) {
   adjust_info_ptr->flags = kfAdjust0;
   adjust_info_ptr->lambda = 0.0;
+  adjust_file_info_ptr->base.flags = kfAdjust0;
+  adjust_file_info_ptr->base.lambda = 0.0;
+  adjust_file_info_ptr->fname = nullptr;
+  adjust_file_info_ptr->test_name = nullptr;
+  adjust_file_info_ptr->chr_field = nullptr;
+  adjust_file_info_ptr->pos_field = nullptr;
+  adjust_file_info_ptr->id_field = nullptr;
+  adjust_file_info_ptr->ref_field = nullptr;
+  adjust_file_info_ptr->alt_field = nullptr;
+  adjust_file_info_ptr->p_field = nullptr;
+}
+
+void cleanup_adjust(adjust_file_info_t* adjust_file_info_ptr) {
+  free_cond(adjust_file_info_ptr->alt_field);
+  free_cond(adjust_file_info_ptr->chr_field);
+  if (adjust_file_info_ptr->fname) {
+    free(adjust_file_info_ptr->fname);
+    free_cond(adjust_file_info_ptr->fname);
+    free_cond(adjust_file_info_ptr->pos_field);
+    free_cond(adjust_file_info_ptr->id_field);
+    free_cond(adjust_file_info_ptr->ref_field);
+    free_cond(adjust_file_info_ptr->test_field);
+    free_cond(adjust_file_info_ptr->p_field);
+  }
 }
 
 typedef struct adj_assoc_result_struct {
@@ -52,7 +76,7 @@ static inline void adjust_print(const char* output_min_p_str, double pval, doubl
   }
 }
 
-pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const adjust_info_t* adjust_info_ptr, double* pvals, double* chisqs, uint32_t orig_variant_ct, uint32_t max_allele_slen, double pfilter, double output_min_p, uint32_t skip_gc, uint32_t max_thread_ct, char* outname, char* outname_end) {
+pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const char* const* chr_ids, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const adjust_info_t* adjust_info_ptr, const double* pvals, const double* chisqs, uint32_t orig_variant_ct, uint32_t max_allele_slen, double pfilter, double output_min_p, uint32_t skip_gc, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   compress_stream_state_t css;
@@ -278,7 +302,11 @@ pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const
       }
       const uint32_t variant_uidx = sortbuf[vidx].variant_uidx;
       if (chr_col) {
-        cswritep = chr_name_write(cip, get_variant_chr(cip, variant_uidx), cswritep);
+        if (cip) {
+          cswritep = chr_name_write(cip, get_variant_chr(cip, variant_uidx), cswritep);
+        } else {
+          cswritep = strcpya(cswritep, chr_ids[variant_uidx]);
+        }
         *cswritep++ = '\t';
       }
       if (variant_bps) {
@@ -374,7 +402,7 @@ pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const
       goto multcomp_ret_WRITE_FAIL;
     }
     // don't use valid_variant_ct due to --pfilter
-    LOGPRINTFWW("--adjust values (%u variant%s) written to %s .\n", vidx, (vidx == 1)? "" : "s", outname);
+    LOGPRINTFWW("--adjust%s values (%u variant%s) written to %s .\n", cip? "" : "-file", vidx, (vidx == 1)? "" : "s", outname);
   }
   while (0) {
   multcomp_ret_NOMEM:
@@ -388,6 +416,162 @@ pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const
   cswrite_close_cond(&css, cswritep);
   bigstack_reset(bigstack_mark);
   return reterr;
+}
+
+pglerr_t adjust_file(__maybe_unused const adjust_file_info_t* afip, __maybe_unused double pfilter, __maybe_unused double output_min_p, __maybe_unused uint32_t max_thread_ct, __maybe_unused char* outname, __maybe_unused char* outname_end) {
+  logerrprint("Error: --adjust-file is currently under development.\n");
+  return kPglRetNotYetSupported;
+    /*
+  unsigned char* bigstack_mark = g_bigstack_base;
+  unsigned char* bigstack_end_mark = g_bigstack_end;
+  gzFile gz_infile = nullptr;
+  uintptr_t loadbuf_size = 0;
+  uintptr_t line_idx = 0;
+  pglerr_t reterr = kPglRetSuccess;
+  {
+    // Two-pass load.
+    // 1. Parse header line, count # of variants.
+    // intermission. Allocate top-level arrays.
+    // 2. Rewind and fill arrays.
+    // (some overlap with load_pvar(), though that's one-pass.)
+    reterr = gzopen_read_checked(afip->fname, &gz_infile);
+    if (reterr) {
+      goto adjust_file_ret_1;
+    }
+    loadbuf_size = bigstack_left() / 4;
+    if (loadbuf_size > kMaxLongLine) {
+      loadbuf_size = kMaxLongLine;
+    } else if (loadbuf_size >= kMaxMediumLine + kCacheline) {
+      loadbuf_size = round_down_pow2(loadbuf_size, kCacheline);
+    } else {
+      goto adjust_file_ret_NOMEM;
+    }
+    char* loadbuf = (char*)bigstack_end_alloc_raw(loadbuf_size);
+    loadbuf[loadbuf_size - 1] = ' ';
+
+    char* loadbuf_first_token;
+    do {
+      ++line_idx;
+      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
+        if (!gzeof(gz_infile)) {
+          goto adjust_file_ret_READ_FAIL;
+        }
+        snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", afip->fname);
+        goto adjust_file_ret_MALFORMED_INPUT_WW;
+      }
+      if (!loadbuf[loadbuf_size - 1]) {
+        goto adjust_file_ret_LONG_LINE;
+      }
+      loadbuf_first_token = skip_initial_spaces(loadbuf);
+    } while (strequal_k2(loadbuf_first_token, "##"));
+    if (*loadbuf_first_token == '#') {
+      ++loadbuf_first_token;
+    }
+
+    const adjust_flags_t flags = afip->base.flags;
+    // [0] = CHROM
+    // [1] = POS
+    // [2] = ID (required)
+    // [3] = REF
+    // [4] = ALT
+    // [5] = TEST (always scan)
+    // [6] = P (required)
+    const char* col_search_order[7];
+    col_search_order[0] = (flags & kfAdjustColChrom)? (afip->chr_field? afip->chr_field : "CHROM\0CHR\0") : "";
+    col_search_order[1] = (flags & kfAdjustColPos)? (afip->pos_field? afip->pos_field : "POS\0BP\0") : "";
+    col_search_order[2] = afip->id_field? afip->id_field : "ID\0SNP\0";
+    col_search_order[3] = (flags & kfAdjustColRef)? (afip->ref_field? afip->ref_field : "REF\0A2\0") : "";
+    col_search_order[4] = (flags & (kfAdjustColAlt1 | kfAdjustColAlt))? (afip->alt_field? afip->alt_field : "ALT\0ALT1\0A1\0") : "";
+    col_search_order[5] = afip->test_field? afip->test_field : "TEST\0";
+    col_search_order[6] = afip->p_field? afip->p_field : "P\0";
+
+    uint32_t col_skips[7];
+    uint32_t col_types[7];
+    uint32_t relevant_col_ct;
+    uint32_t found_type_bitset;
+    reterr = get_header_line_col_nums(loadbuf_first_token, col_search_order, "adjust-file", 7, &relevant_col_ct, &found_type_bitset, col_skips, col_types);
+    if (reterr) {
+      goto adjust_file_ret_1;
+    }
+    if ((found_type_bitset & 0x44) != 0x44) {
+      logerrprint("Error: --adjust-file requires ID and P columns.\n");
+      goto adjust_file_ret_INCONSISTENT_INPUT;
+    }
+    uint32_t variant_ct = 0;
+    uint32_t max_allele_slen = 1;
+
+    if (gzrewind(gz_infile)) {
+      goto adjust_file_ret_READ_FAIL;
+    }
+    line_idx = 0;
+    const uint32_t variant_ctl = BITCT_TO_WORDCT(variant_ct);
+    uintptr_t* variant_include_dummy;
+    if (bigstack_alloc_ul(variant_ctl, &variant_include_dummy)) {
+      goto adjust_file_ret_NOMEM;
+    }
+    fill_all_bits(variant_ct, variant_include_dummy);
+    char** chr_ids = nullptr;
+    uint32_t* variant_bps = nullptr;
+    char** variant_ids = nullptr;
+    uintptr_t* variant_allele_idxs = nullptr;
+    char** allele_storage = nullptr;
+    double* pvals = nullptr;
+    do {
+      ++line_idx;
+      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
+        goto adjust_file_ret_READ_FAIL;
+      }
+      if (!loadbuf[loadbuf_size - 1]) {
+        goto adjust_file_ret_READ_FAIL;
+      }
+      loadbuf_first_token = skip_initial_spaces(loadbuf);
+    } while (strequal_k2(loadbuf_first_token, "##"));
+    while (gzgets(gz_infile, loadbuf, loadbuf_size)) {
+      ++line_idx;
+      if (!loadbuf[loadbuf_size - 1]) {
+        goto adjust_file_ret_READ_FAIL;
+      }
+      const char* loadbuf_iter = skip_initial_spaces(loadbuf);
+      if (is_eoln_kns(*loadbuf_iter)) {
+        continue;
+      }
+    }
+    if ((!gzeof(gz_infile)) || gzclose_null(&gz_infile)) {
+      goto adjust_file_ret_READ_FAIL;
+    }
+    bigstack_end_reset(bigstack_end_mark);
+    reterr = multcomp(variant_include_dummy, nullptr, TO_CONSTCPCONSTP(chr_ids), variant_bps, TO_CONSTCPCONSTP(variant_ids), variant_allele_idxs, TO_CONSTCPCONSTP(allele_storage), &(afip->base), pvals, nullptr, variant_ct, max_allele_slen, pfilter, output_min_p, 0, max_thread_ct, outname, outname_end);
+    if (reterr) {
+      goto adjust_file_ret_1;
+    }
+  }
+ adjust_file_ret_1:
+  while (0) {
+  adjust_file_ret_LONG_LINE:
+    if (loadbuf_size == kMaxLongLine) {
+      LOGERRPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, afip->fname);
+      reterr = kPglRetMalformedInput;
+      break;
+    }
+  adjust_file_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  adjust_file_ret_READ_FAIL:
+    reterr = kPglRetReadFail;
+    break;
+  adjust_file_ret_MALFORMED_INPUT_WW:
+    wordwrapb(0);
+    logerrprintb();
+    reterr = kPglRetMalformedInput;
+    break;
+  adjust_file_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+  gzclose_cond(gz_infile);
+  bigstack_double_reset(bigstack_mark, bigstack_end_mark);
+  return reterr;
+    */
 }
 
 #ifdef __cplusplus

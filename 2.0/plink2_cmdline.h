@@ -2346,6 +2346,8 @@ void cleanup_cmp_expr(cmp_expr_t* cmp_expr_ptr);
 
 pglerr_t validate_and_alloc_cmp_expr(const char* const* sources, const char* flag_name, uint32_t param_ct, cmp_expr_t* cmp_expr_ptr);
 
+// pglerr_t get_header_line_col_nums(const char* header_line, const char* const* search_multistrs, const char* flag_nodash, uint32_t search_col_ct, uint32_t* found_col_ct_ptr, uint32_t* found_type_bitset_ptr, uint32_t* col_skips, uint32_t* col_types);
+
 // this is technically application-dependent, but let's keep this simple for
 // now
 #ifndef __LP64__

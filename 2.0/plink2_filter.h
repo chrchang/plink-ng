@@ -32,9 +32,9 @@ pglerr_t snps_flag(const char* const* variant_ids, const uint32_t* variant_id_ht
 
 pglerr_t extract_exclude_flag_norange(const char* const* variant_ids, const uint32_t* variant_id_htable, const char* fname, uint32_t raw_variant_ct, uintptr_t max_variant_id_slen, uintptr_t variant_id_htable_size, uint32_t do_exclude, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
 
-void random_thin_prob(const char* flagname, const char* unitname, double thin_keep_prob, uint32_t raw_item_ct, uintptr_t* item_include, uint32_t* item_ct_ptr);
+void random_thin_prob(const char* flagname_p, const char* unitname, double thin_keep_prob, uint32_t raw_item_ct, uintptr_t* item_include, uint32_t* item_ct_ptr);
 
-pglerr_t random_thin_ct(const char* flagname, const char* unitname, uint32_t thin_keep_ct, uint32_t raw_item_ct, uintptr_t* item_include, uint32_t* item_ct_ptr);
+pglerr_t random_thin_ct(const char* flagname_p, const char* unitname, uint32_t thin_keep_ct, uint32_t raw_item_ct, uintptr_t* item_include, uint32_t* item_ct_ptr);
 
 FLAGSET_DEF_START()
   kfKeep0,

@@ -38,14 +38,16 @@ FLAGSET_DEF_START()
   kfKingTableZs = (1 << 6),
   kfKingCounts = (1 << 7),
 
-  kfKingColId = (1 << 8),
-  kfKingColMaybesid = (1 << 9),
-  kfKingColSid = (1 << 10),
-  kfKingColNsnp = (1 << 11),
-  kfKingColHethet = (1 << 12),
-  kfKingColIbs0 = (1 << 13),
-  kfKingColIbs1 = (1 << 14),
-  kfKingColKinship = (1 << 15),
+  kfKingNoIdheader = (1 << 8),
+
+  kfKingColId = (1 << 9),
+  kfKingColMaybesid = (1 << 10),
+  kfKingColSid = (1 << 11),
+  kfKingColNsnp = (1 << 12),
+  kfKingColHethet = (1 << 13),
+  kfKingColIbs0 = (1 << 14),
+  kfKingColIbs1 = (1 << 15),
+  kfKingColKinship = (1 << 16),
   kfKingColDefault = (kfKingColId | kfKingColMaybesid | kfKingColNsnp | kfKingColHethet | kfKingColIbs0 | kfKingColKinship),
   kfKingColAll = ((kfKingColKinship * 2) - kfKingColId)
 FLAGSET_DEF_END(king_flags_t);
@@ -66,7 +68,8 @@ FLAGSET_DEF_START()
   kfGrmBin = (1 << 8),
 
   kfGrmMeanimpute = (1 << 9),
-  kfGrmCov = (1 << 10)
+  kfGrmCov = (1 << 10),
+  kfGrmNoIdheader = (1 << 11)
 FLAGSET_DEF_END(grm_flags_t);
 
 FLAGSET_DEF_START()

@@ -7169,7 +7169,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
         goto glm_main_ret_1;
       }
       if (report_adjust) {
-        reterr = multcomp(valid_variants, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, adjust_info_ptr, orig_pvals, nullptr, valid_variant_ct, max_allele_slen, pfilter, output_min_p, joint_test, max_thread_ct, outname, outname_end2);
+        reterr = multcomp(valid_variants, cip, nullptr, variant_bps, variant_ids, variant_allele_idxs, allele_storage, adjust_info_ptr, orig_pvals, nullptr, valid_variant_ct, max_allele_slen, pfilter, output_min_p, joint_test, max_thread_ct, outname, outname_end2);
         if (reterr) {
           goto glm_main_ret_1;
         }
