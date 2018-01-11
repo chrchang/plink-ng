@@ -1528,7 +1528,7 @@ pglerr_t disp_help(uint32_t param_ct, const char* const* argvc) {
 "    way as they do on --adjust-file.\n"
                );
     help_print("adjust\tadjust-file\tlambda", &help_ctrl, 0,
-"  --lambda                    : Set genomic control lambda for --adjust{-file}.\n"
+"  --lambda                   : Set genomic control lambda for --adjust{-file}.\n"
                );
     help_print("adjust-file", &help_ctrl, 0,
 "  --adjust-chr-field [n...]  : Set --adjust-file input field names.  When\n"

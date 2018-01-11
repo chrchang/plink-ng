@@ -760,6 +760,7 @@ void strptr_arr_sort_main(uintptr_t str_ct, uint32_t use_nsort, str_sort_indexed
   }
 }
 
+/*
 boolerr_t strptr_arr_indexed_sort(const char* const* unsorted_strptrs, uint32_t str_ct, uint32_t use_nsort, uint32_t* id_map) {
   if (str_ct < 2) {
     if (str_ct) {
@@ -782,6 +783,7 @@ boolerr_t strptr_arr_indexed_sort(const char* const* unsorted_strptrs, uint32_t 
   bigstack_reset(wkspace_alias);
   return 0;
 }
+*/
 
 
 uint32_t uint32arr_greater_than(const uint32_t* sorted_uint32_arr, uint32_t arr_length, uint32_t uii) {
@@ -1716,13 +1718,12 @@ uint32_t comma_or_space_count_tokens(const char* bufptr, uint32_t comma_delim) {
   }
   return count_tokens(bufptr);
 }
+*/
 
 uint32_t count_and_measure_multistr(const char* multistr, uintptr_t* max_blen_ptr) {
-  // assumes multistr is nonempty
-  assert(multistr[0]);
   uint32_t ct = 0;
   uintptr_t max_blen = *max_blen_ptr;
-  do {
+  while (*multistr) {
     const uintptr_t blen = strlen(multistr) + 1;
     if (blen > max_blen) {
       max_blen = blen;
@@ -1733,7 +1734,6 @@ uint32_t count_and_measure_multistr(const char* multistr, uintptr_t* max_blen_pt
   *max_blen_ptr = max_blen;
   return ct;
 }
-*/
 
 boolerr_t count_and_measure_multistr_reverse_alloc(const char* multistr, uintptr_t max_str_ct, uint32_t* str_ct_ptr, uintptr_t* max_blen_ptr, const char*** strptr_arrp) {
   // assumes multistr is nonempty
@@ -3768,8 +3768,7 @@ pglerr_t copy_sort_strbox_subset_noalloc(const uintptr_t* __restrict subset_mask
   // include excluded markers/samples in the list.
   // Assumes sorted_strbox and id_map have been allocated; use the
   // copy_sort_strbox_subset() wrapper if they haven't been.
-  // Note that this DOES still perform a "stack" allocation (in the qsort_ext()
-  // call).
+  // Note that this DOES still perform a "stack" allocation.
   if (!str_ct) {
     return kPglRetSuccess;
   }
@@ -6442,27 +6441,117 @@ pglerr_t validate_and_alloc_cmp_expr(const char* const* sources, const char* fla
 }
 
 // See e.g. meta_analysis_open_and_read_header() in plink 1.9.
-/*
-pglerr_t get_header_line_col_nums(const char* header_line, const char* const* search_multistrs, const char* flagname_p, uint32_t search_col_ct, uint32_t* found_col_ct_ptr, uint32_t* found_type_bitset_ptr, uint32_t* col_skips, uint32_t* col_types) {
+// Assumes at least one search term.
+pglerr_t search_header_line(const char* header_line_iter, const char* const* search_multistrs, const char* flagname_p, uint32_t search_col_ct, uint32_t* found_col_ct_ptr, uint32_t* found_type_bitset_ptr, uint32_t* col_skips, uint32_t* col_types) {
+  assert(search_col_ct <= 32);
   unsigned char* bigstack_mark = g_bigstack_base;
   pglerr_t reterr = kPglRetSuccess;
   {
+    uint32_t search_term_ct = 0;
+    uintptr_t max_blen = 0;
+    for (uint32_t search_col_idx = 0; search_col_idx < search_col_ct; ++search_col_idx) {
+      const uint32_t cur_search_term_ct = count_and_measure_multistr(search_multistrs[search_col_idx], &max_blen);
+      assert(cur_search_term_ct <= (1 << 26));
+      search_term_ct += cur_search_term_ct;
+    }
+    char* merged_strbox;
+    uint32_t* id_map;
+    uint32_t* priority_vals;
+    uint64_t* cols_and_types;
+    if (bigstack_alloc_c(search_term_ct * max_blen, &merged_strbox) ||
+        bigstack_alloc_ui(search_term_ct, &id_map) ||
+        bigstack_alloc_ui(search_col_ct, &priority_vals) ||
+        bigstack_alloc_ull(search_col_ct, &cols_and_types)) {
+      goto search_header_line_ret_NOMEM;
+    }
+    uint32_t search_term_idx = 0;
+    for (uint32_t search_col_idx = 0; search_col_idx < search_col_ct; ++search_col_idx) {
+      const char* multistr_iter = search_multistrs[search_col_idx];
+      uint32_t priority_idx = 0;  // 0 = highest priority
+      while (*multistr_iter) {
+        const uint32_t cur_blen = strlen(multistr_iter) + 1;
+        memcpy(&(merged_strbox[search_term_idx * max_blen]), multistr_iter, cur_blen);
+        id_map[search_term_idx] = search_col_idx + (priority_idx * 32);
+        ++search_term_idx;
+        ++priority_idx;
+        multistr_iter = &(multistr_iter[cur_blen]);
+      }
+    }
+    sort_strbox_indexed(search_term_ct, max_blen, 0, merged_strbox, id_map);
+    assert(search_term_ct);
+    const char* duplicate_search_term = scan_for_duplicate_ids(merged_strbox, search_term_ct, max_blen);
+    if (duplicate_search_term) {
+      LOGERRPRINTFWW("Error: Duplicate term '%s' in --%s column search order.\n", duplicate_search_term, flagname_p);
+      goto search_header_line_ret_INVALID_CMDLINE;
+    }
+
+    fill_uint_one(search_col_ct, priority_vals);
+    fill_ull_one(search_col_ct, cols_and_types);
+    uint32_t col_idx = 0;
+    while (1) {
+      const char* token_end = token_endnn(header_line_iter);
+      const uint32_t token_slen = (uintptr_t)(token_end - header_line_iter);
+      int32_t ii = bsearch_str(header_line_iter, merged_strbox, token_slen, max_blen, search_term_ct);
+      if (ii != -1) {
+        const uint32_t cur_map_idx = id_map[(uint32_t)ii];
+        const uint32_t search_col_idx = cur_map_idx & 31;
+        const uint32_t priority_idx = cur_map_idx >> 5;
+        if (priority_vals[search_col_idx] >= priority_idx) {
+          if (priority_vals[search_col_idx] == priority_idx) {
+            LOGERRPRINTFWW("Error: Duplicate column header '%s' in --%s file.\n", &(merged_strbox[max_blen * cur_map_idx]), flagname_p);
+            goto search_header_line_ret_MALFORMED_INPUT;
+          }
+          priority_vals[search_col_idx] = priority_idx;
+          cols_and_types[search_col_idx] = (((uint64_t)col_idx) << 32) | search_col_idx;
+        }
+      }
+      header_line_iter = skip_initial_spaces(token_end);
+      if (is_eoln_kns(*header_line_iter)) {
+        break;
+      }
+      ++col_idx;
+    }
     uint32_t found_type_bitset = 0;
+    for (uint32_t search_col_idx = 0; search_col_idx < search_col_ct; ++search_col_idx) {
+      if (priority_vals[search_col_idx] != UINT32_MAX) {
+        found_type_bitset |= 1U << search_col_idx;
+      }
+    }
+    const uint32_t found_col_ct = popcount_long(found_type_bitset);
+    *found_col_ct_ptr = found_col_ct;
     *found_type_bitset_ptr = found_type_bitset;
+    if (found_col_ct) {
+#ifdef __cplusplus
+      std::sort(cols_and_types, &(cols_and_types[search_col_ct]));
+#else
+      qsort(cols_and_types, search_col_ct, sizeof(int64_t), uint64cmp);
+#endif
+      uint32_t prev_col_idx = cols_and_types[0] >> 32;
+      col_skips[0] = prev_col_idx;
+      col_types[0] = (uint32_t)cols_and_types[0];
+      for (uint32_t found_col_idx = 1; found_col_idx < found_col_ct; ++found_col_idx) {
+        const uint64_t cur_col_and_type = cols_and_types[found_col_idx];
+        const uint32_t cur_col_idx = cur_col_and_type >> 32;
+        col_skips[found_col_idx] = cur_col_idx - prev_col_idx;
+        col_types[found_col_idx] = (uint32_t)cur_col_and_type;
+        prev_col_idx = cur_col_idx;
+      }
+    }
   }
   while (0) {
-  get_header_line_col_nums_ret_NOMEM:
+  search_header_line_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  get_header_line_col_nums_ret_DUPLICATE_ID:
-    LOGERRPRINTF("Error: Duplicate ID in --%s column search order.\n", flagname_p);
+  search_header_line_ret_INVALID_CMDLINE:
     reterr = kPglRetInvalidCmdline;
+    break;
+  search_header_line_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
     break;
   }
   bigstack_reset(bigstack_mark);
   return reterr;
 }
-*/
 
 #ifdef __cplusplus
 } // namespace plink2

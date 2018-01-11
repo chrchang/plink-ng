@@ -558,7 +558,7 @@ typedef struct str_sort_indexed_deref_struct {
 void strptr_arr_sort_main(uintptr_t str_ct, uint32_t use_nsort, str_sort_indexed_deref_t* wkspace_alias);
 
 // This makes a temporary g_bigstack allocation.
-boolerr_t strptr_arr_indexed_sort(const char* const* unsorted_strptrs, uint32_t str_ct, uint32_t use_nsort, uint32_t* id_map);
+// boolerr_t strptr_arr_indexed_sort(const char* const* unsorted_strptrs, uint32_t str_ct, uint32_t use_nsort, uint32_t* id_map);
 
 /*
 void qsort_ext2(void* main_arr, uintptr_t arr_length, uintptr_t item_length, int(* comparator_deref)(const void*, const void*), void* secondary_arr, uintptr_t secondary_item_len, unsigned char* proxy_arr, uintptr_t proxy_len);
@@ -611,6 +611,7 @@ CONSTU31(kBigstackDefaultMb, 2048);
 static const double kPi = 3.1415926535897932;
 static const double kSqrt2 = 1.4142135623730951;
 static const double kRecipE = 0.36787944117144233;
+static const double kLn10 = 2.3025850929940457;
 static const double kRecip2m53 = 0.00000000000000011102230246251565404236316680908203125;
 static const double kRecip2m32 = 0.00000000023283064365386962890625;
 static const double k2m64 = 18446744073709551616.0;
@@ -1492,8 +1493,10 @@ HEADER_INLINE char* fw_strcpy(const char* source, uint32_t min_width, char* dest
   return fw_strcpyn(source, min_width, strlen(source), dest);
 }
 
-// uint32_t count_and_measure_multistr(const char* multistr, uintptr_t* max_blen_ptr);
+// empty multistr ok
+uint32_t count_and_measure_multistr(const char* multistr, uintptr_t* max_blen_ptr);
 
+// assumes multistr is nonempty
 boolerr_t count_and_measure_multistr_reverse_alloc(const char* multistr, uintptr_t max_str_ct, uint32_t* str_ct_ptr, uintptr_t* max_blen_ptr, const char*** strptr_arrp);
 
 boolerr_t multistr_to_strbox_dedup_arena_alloc(unsigned char* arena_top, const char* multistr, unsigned char** arena_bottom_ptr, char** sorted_strbox_ptr, uint32_t* str_ct_ptr, uintptr_t* max_blen_ptr);
@@ -2346,7 +2349,7 @@ void cleanup_cmp_expr(cmp_expr_t* cmp_expr_ptr);
 
 pglerr_t validate_and_alloc_cmp_expr(const char* const* sources, const char* flag_name, uint32_t param_ct, cmp_expr_t* cmp_expr_ptr);
 
-// pglerr_t get_header_line_col_nums(const char* header_line, const char* const* search_multistrs, const char* flag_nodash, uint32_t search_col_ct, uint32_t* found_col_ct_ptr, uint32_t* found_type_bitset_ptr, uint32_t* col_skips, uint32_t* col_types);
+pglerr_t search_header_line(const char* header_line_iter, const char* const* search_multistrs, const char* flag_nodash, uint32_t search_col_ct, uint32_t* found_col_ct_ptr, uint32_t* found_type_bitset_ptr, uint32_t* col_skips, uint32_t* col_types);
 
 // this is technically application-dependent, but let's keep this simple for
 // now

@@ -62,10 +62,10 @@ static const char ver_str[] = "PLINK v2.00a1"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (9 Jan 2018)";
+  " (10 Jan 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -7860,8 +7860,9 @@ int main(int argc, char** argv) {
     }
 
     pc.dependency_flags |= pc.filter_flags;
+    const uint32_t skip_main = (!pc.command_flags1) && (!(xload & (kfXloadVcf | kfXloadBcf | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxSample | kfXloadPlink1Dosage | kfXloadGenDummy)));
     const uint32_t batch_job = (adjust_file_info.fname != nullptr);
-    if ((!pc.command_flags1) && (!(xload & (kfXloadVcf | kfXloadBcf | kfXloadOxBgen | kfXloadOxHaps | kfXloadOxSample | kfXloadPlink1Dosage | kfXloadGenDummy))) && (!batch_job)) {
+    if (skip_main && (!batch_job)) {
       // add command_flags2 when needed
       goto main_ret_NULL_CALC;
     }
@@ -8004,6 +8005,9 @@ int main(int argc, char** argv) {
         if (reterr) {
           goto main_ret_1;
         }
+      }
+      if (skip_main) {
+        goto main_ret_1;
       }
     }
 
