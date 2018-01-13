@@ -62,7 +62,7 @@ static const char ver_str[] = "PLINK v2.00a1"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (10 Jan 2018)";
+  " (12 Jan 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -6347,7 +6347,7 @@ int main(int argc, char** argv) {
           // --pheno-col-nums was used.  See parse_name_ranges().
           const uint32_t pheno_col_nums_arg = mpheno_arg + 2;
           const uint32_t name_max_blen = uint_slen(pheno_col_nums_arg) + 1;
-          if (pgl_malloc(name_max_blen + 1, pc.pheno_range_list.names)) {
+          if (pgl_malloc(name_max_blen + 1, &pc.pheno_range_list.names)) {
             goto main_ret_NOMEM;
           }
           pc.pheno_range_list.name_max_blen = name_max_blen;

@@ -3402,6 +3402,8 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
             } else {
               parameter_uidx += cur_covar_ct;
             }
+            // bugfix (12 Jan 2018): forgot t update nm_predictors_pmaj_iter
+            nm_predictors_pmaj_iter = &(nm_predictors_pmaj_iter[cur_covar_ct * nm_sample_ctav]);
           }
           // fill interaction terms
           if (add_interactions) {
@@ -5171,6 +5173,8 @@ THREAD_FUNC_DECL glm_linear_thread(void* arg) {
               } else {
                 parameter_uidx += cur_covar_ct;
               }
+              // bugfix (12 Jan 2018): forgot t update nm_predictors_pmaj_iter
+              nm_predictors_pmaj_iter = &(nm_predictors_pmaj_iter[cur_covar_ct * nm_sample_ct]);
             }
             // fill interaction terms
             if (add_interactions) {
