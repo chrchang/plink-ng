@@ -62,7 +62,7 @@ static const char ver_str[] = "PLINK v2.00a1"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (12 Jan 2018)";
+  " (21 Jan 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -4458,7 +4458,7 @@ int main(int argc, char** argv) {
                 logerrprint("Error: Multiple --glm cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = parse_col_descriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0altcount\0totallele\0altcountcc\0totallelecc\0gcountcc\0altfreq\0altfreqcc\0machr2\0firth\0test\0nobs\0beta\0orbeta\0se\0ci\0t\0p\0", flagname_p, kfGlmColChrom, kfGlmColDefault, 1, &pc.glm_info.cols);
+              reterr = parse_col_descriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0a0\0a1count\0totallele\0a1countcc\0totallelecc\0gcountcc\0a1freq\0a1freqcc\0machr2\0firth\0test\0nobs\0beta\0orbeta\0se\0ci\0t\0p\0", flagname_p, kfGlmColChrom, kfGlmColDefault, 1, &pc.glm_info.cols);
               if (reterr) {
                 goto main_ret_1;
               }

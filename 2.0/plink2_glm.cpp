@@ -2844,11 +2844,11 @@ typedef struct {
   uint32_t sample_obs_ct;
 
   uint32_t allele_obs_ct;
-  double alt_dosage;
+  double a1_dosage;
 
   uint32_t firth_fallback;
   uint32_t case_allele_obs_ct;
-  double alt_case_dosage;
+  double a1_case_dosage;
 
   double mach_r2;
 
@@ -2867,7 +2867,7 @@ typedef struct {
   uint32_t sample_obs_ct;
 
   uint32_t allele_obs_ct;
-  double alt_dosage;
+  double a1_dosage;
 
   double mach_r2;
 } linear_aux_result_t;
@@ -3262,7 +3262,7 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
           copy_bitarr_subset(cur_pheno_cc, sample_nm, nm_sample_ct, pheno_cc_nm);
           const uint32_t nm_case_ct = popcount_longs(pheno_cc_nm, nm_sample_ctl);
           // usually need to save some of {sample_obs_ct, allele_obs_ct,
-          // alt_dosage, case_allele_obs_ct, alt_case_dosage, mach_r2 even
+          // a1_dosage, case_allele_obs_ct, a1_case_dosage, mach_r2 even
           // for skipped variants
           // compute them all for now, could conditionally skip later
           block_aux_iter->sample_obs_ct = nm_sample_ct;
@@ -3308,8 +3308,8 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
             alt_case_dosage += cur_genotype_val * ((double)((int32_t)is_set(pheno_cc_nm, sample_idx)));
           }
           block_aux_iter->firth_fallback = 0;
-          block_aux_iter->alt_dosage = dosage_sum;
-          block_aux_iter->alt_case_dosage = alt_case_dosage;
+          block_aux_iter->a1_dosage = dosage_sum;
+          block_aux_iter->a1_case_dosage = alt_case_dosage;
 
           const double dosage_avg = dosage_sum / ((double)((int32_t)nm_sample_ct));
           const double dosage_variance = dosage_ssq - dosage_sum * dosage_avg;
@@ -4139,13 +4139,14 @@ pglerr_t glm_logistic(const char* cur_pheno_name, const char* const* test_names,
     const uint32_t ref_col = glm_cols & kfGlmColRef;
     const uint32_t alt1_col = glm_cols & kfGlmColAlt1;
     const uint32_t alt_col = glm_cols & kfGlmColAlt;
-    const uint32_t alt_ct_col = glm_cols & kfGlmColAltcount;
+    const uint32_t a0_col = glm_cols & kfGlmColA0;
+    const uint32_t a1_ct_col = glm_cols & kfGlmColA1count;
     const uint32_t tot_allele_col = glm_cols & kfGlmColTotallele;
-    const uint32_t alt_ct_cc_col = glm_cols & kfGlmColAltcountcc;
+    const uint32_t a1_ct_cc_col = glm_cols & kfGlmColA1countcc;
     const uint32_t tot_allele_cc_col = glm_cols & kfGlmColTotallelecc;
     const uint32_t gcount_cc_col = glm_cols & kfGlmColGcountcc;
-    const uint32_t alt_freq_col = glm_cols & kfGlmColAltfreq;
-    const uint32_t alt_freq_cc_col = glm_cols & kfGlmColAltfreqcc;
+    const uint32_t a1_freq_col = glm_cols & kfGlmColA1freq;
+    const uint32_t a1_freq_cc_col = glm_cols & kfGlmColA1freqcc;
     const uint32_t mach_r2_col = glm_cols & kfGlmColMachR2;
     const uint32_t firth_yn_col = (glm_cols & kfGlmColFirthYn) && is_sometimes_firth && (!is_always_firth);
     const uint32_t nobs_col = glm_cols & kfGlmColNobs;
@@ -4172,14 +4173,18 @@ pglerr_t glm_logistic(const char* cur_pheno_name, const char* const* test_names,
     if (alt_col) {
       cswritep = strcpya(cswritep, "\tALT");
     }
-    if (alt_ct_col) {
-      cswritep = strcpya(cswritep, "\tALT_CT");
+    if (a0_col) {
+      cswritep = memcpyl3a(cswritep, "\tA0");
+    }
+    cswritep = memcpyl3a(cswritep, "\tA1");
+    if (a1_ct_col) {
+      cswritep = strcpya(cswritep, "\tA1_CT");
     }
     if (tot_allele_col) {
       cswritep = strcpya(cswritep, "\tALLELE_CT");
     }
-    if (alt_ct_cc_col) {
-      cswritep = strcpya(cswritep, "\tALT_CASE_CT\tALT_CTRL_CT");
+    if (a1_ct_cc_col) {
+      cswritep = strcpya(cswritep, "\tA1_CASE_CT\tA1_CTRL_CT");
     }
     if (tot_allele_cc_col) {
       cswritep = strcpya(cswritep, "\tCASE_ALLELE_CT\tCTRL_ALLELE_CT");
@@ -4187,11 +4192,11 @@ pglerr_t glm_logistic(const char* cur_pheno_name, const char* const* test_names,
     if (gcount_cc_col) {
       cswritep = strcpya(cswritep, "\tCASE_HOM_REF_CT\tCASE_HET_REF_CT\tCASE_NONREF_CT\tCTRL_HOM_REF_CT\tCTRL_HET_REF_CT\tCTRL_NONREF_CT");
     }
-    if (alt_freq_col) {
-      cswritep = strcpya(cswritep, "\tALT_FREQ");
+    if (a1_freq_col) {
+      cswritep = strcpya(cswritep, "\tA1_FREQ");
     }
-    if (alt_freq_cc_col) {
-      cswritep = strcpya(cswritep, "\tALT_CASE_FREQ\tALT_CTRL_FREQ");
+    if (a1_freq_cc_col) {
+      cswritep = strcpya(cswritep, "\tA1_CASE_FREQ\tA1_CTRL_FREQ");
     }
     if (mach_r2_col) {
       cswritep = strcpya(cswritep, "\tMACH_R2");
@@ -4436,19 +4441,31 @@ pglerr_t glm_logistic(const char* cur_pheno_name, const char* const* test_names,
               }
               --cswritep;
             }
-            if (alt_ct_col) {
+            if (a0_col) {
               *cswritep++ = '\t';
-              cswritep = dtoa_g(auxp->alt_dosage, cswritep);
+              cswritep = strcpya(cswritep, cur_alleles[0]);
+            }
+            *cswritep++ = '\t';
+            for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct; ++allele_idx) {
+              if (cswrite(&css, &cswritep)) {
+                goto glm_logistic_ret_WRITE_FAIL;
+              }
+              cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
+            }
+            --cswritep;
+            if (a1_ct_col) {
+              *cswritep++ = '\t';
+              cswritep = dtoa_g(auxp->a1_dosage, cswritep);
             }
             if (tot_allele_col) {
               *cswritep++ = '\t';
               cswritep = uint32toa(auxp->allele_obs_ct, cswritep);
             }
-            if (alt_ct_cc_col) {
+            if (a1_ct_cc_col) {
               *cswritep++ = '\t';
-              cswritep = dtoa_g(auxp->alt_case_dosage, cswritep);
+              cswritep = dtoa_g(auxp->a1_case_dosage, cswritep);
               *cswritep++ = '\t';
-              cswritep = dtoa_g(auxp->alt_dosage - auxp->alt_case_dosage, cswritep);
+              cswritep = dtoa_g(auxp->a1_dosage - auxp->a1_case_dosage, cswritep);
             }
             if (tot_allele_cc_col) {
               *cswritep++ = '\t';
@@ -4462,15 +4479,15 @@ pglerr_t glm_logistic(const char* cur_pheno_name, const char* const* test_names,
                 cswritep = uint32toa(cur_geno_hardcall_cts[uii], cswritep);
               }
             }
-            if (alt_freq_col) {
+            if (a1_freq_col) {
               *cswritep++ = '\t';
-              cswritep = dtoa_g(auxp->alt_dosage / ((double)auxp->allele_obs_ct), cswritep);
+              cswritep = dtoa_g(auxp->a1_dosage / ((double)auxp->allele_obs_ct), cswritep);
             }
-            if (alt_freq_cc_col) {
+            if (a1_freq_cc_col) {
               *cswritep++ = '\t';
-              cswritep = dtoa_g(auxp->alt_case_dosage / ((double)auxp->case_allele_obs_ct), cswritep);
+              cswritep = dtoa_g(auxp->a1_case_dosage / ((double)auxp->case_allele_obs_ct), cswritep);
               *cswritep++ = '\t';
-              cswritep = dtoa_g((auxp->alt_dosage - auxp->alt_case_dosage) / ((double)(auxp->allele_obs_ct - auxp->case_allele_obs_ct)), cswritep);
+              cswritep = dtoa_g((auxp->a1_dosage - auxp->a1_case_dosage) / ((double)(auxp->allele_obs_ct - auxp->case_allele_obs_ct)), cswritep);
             }
             if (mach_r2_col) {
               *cswritep++ = '\t';
@@ -5039,7 +5056,7 @@ THREAD_FUNC_DECL glm_linear_thread(void* arg) {
           }
           nm_predictors_pmaj_iter = &(nm_predictors_pmaj_iter[nm_sample_ct]);
           // usually need to save some of {sample_obs_ct, allele_obs_ct,
-          // alt_dosage, mach_r2 even for skipped variants
+          // a1_dosage, mach_r2 even for skipped variants
           // compute them all for now, could conditionally skip later
           block_aux_iter->sample_obs_ct = nm_sample_ct;
           double dosage_ceil = 2.0;
@@ -5086,7 +5103,7 @@ THREAD_FUNC_DECL glm_linear_thread(void* arg) {
               dosage_ssq += cur_genotype_val * cur_genotype_val;
             }
           }
-          block_aux_iter->alt_dosage = dosage_sum;
+          block_aux_iter->a1_dosage = dosage_sum;
 
           const double dosage_avg = dosage_sum / ((double)((int32_t)nm_sample_ct));
           const double dosage_variance = dosage_ssq - dosage_sum * dosage_avg;
@@ -5581,9 +5598,10 @@ pglerr_t glm_linear(const char* cur_pheno_name, const char* const* test_names, c
     const uint32_t ref_col = glm_cols & kfGlmColRef;
     const uint32_t alt1_col = glm_cols & kfGlmColAlt1;
     const uint32_t alt_col = glm_cols & kfGlmColAlt;
-    const uint32_t alt_ct_col = glm_cols & kfGlmColAltcount;
+    const uint32_t a0_col = glm_cols & kfGlmColA0;
+    const uint32_t a1_ct_col = glm_cols & kfGlmColA1count;
     const uint32_t tot_allele_col = glm_cols & kfGlmColTotallele;
-    const uint32_t alt_freq_col = glm_cols & kfGlmColAltfreq;
+    const uint32_t a1_freq_col = glm_cols & kfGlmColA1freq;
     const uint32_t mach_r2_col = glm_cols & kfGlmColMachR2;
     const uint32_t nobs_col = glm_cols & kfGlmColNobs;
     const uint32_t beta_col = glm_cols & (kfGlmColBeta | kfGlmColOrbeta);
@@ -5608,14 +5626,18 @@ pglerr_t glm_linear(const char* cur_pheno_name, const char* const* test_names, c
     if (alt_col) {
       cswritep = strcpya(cswritep, "\tALT");
     }
-    if (alt_ct_col) {
-      cswritep = strcpya(cswritep, "\tALT1_CT");
+    if (a0_col) {
+      cswritep = memcpyl3a(cswritep, "\tA0");
+    }
+    cswritep = memcpyl3a(cswritep, "\tA1");
+    if (a1_ct_col) {
+      cswritep = strcpya(cswritep, "\tA1_CT");
     }
     if (tot_allele_col) {
       cswritep = strcpya(cswritep, "\tALLELE_CT");
     }
-    if (alt_freq_col) {
-      cswritep = strcpya(cswritep, "\tALT_FREQ");
+    if (a1_freq_col) {
+      cswritep = strcpya(cswritep, "\tA1_FREQ");
     }
     if (mach_r2_col) {
       cswritep = strcpya(cswritep, "\tMACH_R2");
@@ -5849,17 +5871,29 @@ pglerr_t glm_linear(const char* cur_pheno_name, const char* const* test_names, c
               }
               --cswritep;
             }
-            if (alt_ct_col) {
+            if (a0_col) {
               *cswritep++ = '\t';
-              cswritep = dtoa_g(auxp->alt_dosage, cswritep);
+              cswritep = strcpya(cswritep, cur_alleles[0]);
+            }
+            *cswritep++ = '\t';
+            for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct; ++allele_idx) {
+              if (cswrite(&css, &cswritep)) {
+                goto glm_linear_ret_WRITE_FAIL;
+              }
+              cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
+            }
+            --cswritep;
+            if (a1_ct_col) {
+              *cswritep++ = '\t';
+              cswritep = dtoa_g(auxp->a1_dosage, cswritep);
             }
             if (tot_allele_col) {
               *cswritep++ = '\t';
               cswritep = uint32toa(auxp->allele_obs_ct, cswritep);
             }
-            if (alt_freq_col) {
+            if (a1_freq_col) {
               *cswritep++ = '\t';
-              cswritep = dtoa_g(auxp->alt_dosage / ((double)auxp->allele_obs_ct), cswritep);
+              cswritep = dtoa_g(auxp->a1_dosage / ((double)auxp->allele_obs_ct), cswritep);
             }
             if (mach_r2_col) {
               *cswritep++ = '\t';
