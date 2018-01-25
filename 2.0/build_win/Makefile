@@ -34,7 +34,7 @@ ifdef NO_AVX2
     BASEFLAGS += -msse4.2
   endif
 else
-  BASEFLAGS += -mavx2 -mbmi2
+  BASEFLAGS += -mavx2 -mbmi2 -mlzcnt
 endif
 
 ifdef ZSTD_O2

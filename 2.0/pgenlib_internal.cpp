@@ -518,6 +518,12 @@ uint32_t count_01_vecs(const vul_t* geno_vvec, uint32_t vec_ct) {
   }
 }
 
+// This type of code can probably be improved; see
+//   https://lemire.me/blog/2018/01/09/how-fast-can-you-bit-interleave-32-bit-integers-simd-edition/ .
+// (Also, it may be worthwhile to add a compilation option which generates AVX2
+// instructions but mostly avoids _pdep_u64() and _pext_u64(); apparently even
+// the latest AMD processors have poor implementations of those two
+// operations?)
 void fill_interleaved_mask_vec(const uintptr_t* __restrict subset_mask, uint32_t base_vec_ct, uintptr_t* interleaved_mask_vec) {
 #ifdef __LP64__
   const uintptr_t* subset_mask_iter = subset_mask;

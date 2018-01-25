@@ -62,7 +62,7 @@ static const char ver_str[] = "PLINK v2.00a1"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (21 Jan 2018)";
+  " (24 Jan 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -4109,8 +4109,8 @@ int main(int argc, char** argv) {
                 pc.exportf_modifier |= kfExportf12;
               }
             } else if (strequal_k(cur_modif, "bgz", cur_modif_slen)) {
-              if (!(pc.exportf_modifier & kfExportfVcf)) {
-                logerrprint("Error: The 'bgz' modifier only applies to --export's vcf output format.\n");
+              if (!(pc.exportf_modifier & (kfExportfOxGen | kfExportfVcf))) {
+                logerrprint("Error: The 'bgz' modifier only applies to --export's oxford and vcf output\nformats.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.exportf_modifier |= kfExportfBgz;
@@ -4118,6 +4118,9 @@ int main(int argc, char** argv) {
               pc.exportf_modifier |= kfExportfSpaces;
             } else if (strequal_k(cur_modif, "ref-first", cur_modif_slen)) {
               pc.exportf_modifier |= kfExportfRefFirst;
+            } else if (strequal_k(cur_modif, "gen-gz", cur_modif_slen)) {
+              logerrprint("Error: 'gen-gz' modifier retired.  Use '--export oxford bgz' instead.\n");
+              goto main_ret_INVALID_CMDLINE_WWA;
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --export parameter '%s'.%s\n", cur_modif, ((param_idx == param_ct) && (!outname_end))? " (Did you forget '--out'?)" : "");
               goto main_ret_INVALID_CMDLINE_WWA;

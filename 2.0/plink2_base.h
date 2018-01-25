@@ -82,6 +82,9 @@
       #ifndef __BMI2__
         #error "AVX2 builds require -mbmi2 as well."
       #endif
+      #ifndef __LZCNT__
+        #error "AVX2 builds require -mlzcnt as well."
+      #endif
       #define USE_AVX2
     #endif
   #endif
@@ -1374,6 +1377,7 @@ HEADER_INLINE void zero_trailing_bits(uintptr_t bit_ct, uintptr_t* bitarr) {
   }
 }
 
+// requires nonzero uii
 HEADER_CINLINE uint32_t bytes_to_represent_ui(uint32_t uii) {
   return (4 - (__builtin_clz(uii) / CHAR_BIT));
 }

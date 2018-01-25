@@ -205,26 +205,53 @@ boolerr_t fclose_flush_null(char* buf_flush, char* write_iter, FILE** outfile_pt
 }
 
 
+static const uint32_t kPow10[] =
+{1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000};
+
+#ifdef USE_AVX2
+static const unsigned char kLzUintSlenBase[] =
+{9, 9, 9, 8,
+ 8, 8, 7, 7,
+ 7, 6, 6, 6,
+ 6, 5, 5, 5,
+ 4, 4, 4, 3,
+ 3, 3, 3, 2,
+ 2, 2, 1, 1,
+ 1, 0, 0, 0,
+ 1};  // uint_slen(0) needs to be 1, not zero
+
+uint32_t uint_slen(uint32_t num) {
+  const uint32_t lz_ct = _lzcnt_u32(num);
+  const uint32_t slen_base = kLzUintSlenBase[lz_ct];
+  return slen_base + (num >= kPow10[slen_base]);
+}
+#else
+// could also use something like ((32 - lz_ct) * 77) >> 8, since 77/256 is a
+// sufficiently good approximation of ln(2)/ln(10), but that's a bit slower and
+// this table doesn't take much space
+static const unsigned char kLzUintSlenBase[] =
+{9, 9, 9, 8,
+ 8, 8, 7, 7,
+ 7, 6, 6, 6,
+ 6, 5, 5, 5,
+ 4, 4, 4, 3,
+ 3, 3, 3, 2,
+ 2, 2, 1, 1,
+ 1};
+
 uint32_t uint_slen(uint32_t num) {
   // tried divide-by-10 and divide-by-100 loops, they were slower
-  // also tried making the first check "num < 1000000", that seemed to also be
-  // slower
-  if (num < 10000) {
-    if (num < 100) {
-      // (compiler generates the same code on my Mac if an if-statement is used
-      // for the final compare)
-      return 1 + (num > 9);
-    }
-    return 3 + (num > 999);
+  // also tried a hardcoded binary tree, it was better but still slower
+
+  // __builtin_clz(0) is undefined
+  if (num < 10) {
+    return 1;
   }
-  if (num < 1000000) {
-    return 5 + (num > 99999);
-  }
-  if (num < 100000000) {
-    return 7 + (num > 9999999);
-  }
-  return 9 + (num > 999999999);
+  const uint32_t lz_ct = __builtin_clz(num);
+  const uint32_t slen_base = kLzUintSlenBase[lz_ct];
+  return slen_base + (num >= kPow10[slen_base]);
 }
+#endif
 
 /*
 int32_t strcmp_se(const char* s_read, const char* s_const, uint32_t s_const_slen) {

@@ -782,9 +782,34 @@ static inline void incr_missing_row(const uintptr_t* genovec, uint32_t acc2_vec_
   }
 }
 
-pglerr_t export_ox_gen(const char* outname, const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* sex_male, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const alt_allele_ct_t* refalt1_select, uint32_t sample_ct, uint32_t variant_ct, uint32_t max_allele_slen, exportf_flags_t exportf_modifier, pgen_reader_t* simple_pgrp, uint32_t* sample_missing_geno_cts) {
+boolerr_t flexbwrite_flush(char* buf, size_t len, FILE* outfile, BGZF* bgz_outfile) {
+  if (outfile) {
+    return fwrite_checked(buf, len, outfile);
+  }
+  return (bgzf_write(bgz_outfile, buf, len) < 0);
+}
+
+
+// these assume buf_flush - buf = kMaxMediumLine
+// outfile should be nullptr iff we're doing bgzf compression
+boolerr_t flexbwrite_flush2(char* buf_flush, FILE* outfile, BGZF* bgz_outfile, char** write_iter_ptr) {
+  char* buf = &(buf_flush[-((int32_t)kMaxMediumLine)]);
+  char* buf_end = *write_iter_ptr;
+  *write_iter_ptr = buf;
+  return flexbwrite_flush(buf, (uintptr_t)(buf_end - buf), outfile, bgz_outfile);
+}
+
+static inline boolerr_t flexbwrite_ck(char* buf_flush, FILE* outfile, BGZF* bgz_outfile, char** write_iter_ptr) {
+  if ((*write_iter_ptr) < buf_flush) {
+    return 0;
+  }
+  return flexbwrite_flush2(buf_flush, outfile, bgz_outfile, write_iter_ptr);
+}
+
+pglerr_t export_ox_gen(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const uintptr_t* sex_male, const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const alt_allele_ct_t* refalt1_select, uint32_t sample_ct, uint32_t variant_ct, uint32_t max_allele_slen, __maybe_unused uint32_t max_thread_ct, exportf_flags_t exportf_modifier, pgen_reader_t* simple_pgrp, char* outname, char* outname_end, uint32_t* sample_missing_geno_cts) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
+  BGZF* bgz_outfile = nullptr;
   pglerr_t reterr = kPglRetSuccess;
   {
     const uint32_t sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
@@ -840,8 +865,26 @@ pglerr_t export_ox_gen(const char* outname, const uintptr_t* sample_include, con
         bigstack_alloc_c(kMaxMediumLine + max_chr_blen + kMaxIdSlen + 16 + 2 * max_allele_slen + max_geno_slen * sample_ct, &writebuf)) {
       goto export_ox_gen_ret_NOMEM;
     }
-    if (fopen_checked(outname, FOPEN_WB, &outfile)) {
-      goto export_ox_gen_ret_OPEN_FAIL;
+    if (!(exportf_modifier & kfExportfBgz)) {
+      strcpy(outname_end, ".gen");
+      if (fopen_checked(outname, FOPEN_WB, &outfile)) {
+        goto export_ox_gen_ret_OPEN_FAIL;
+      }
+    } else {
+      strcpy(outname_end, ".gen.gz");
+      // may want to move the next few lines of boilerplate into its own
+      // function
+      bgz_outfile = bgzf_open(outname, "w");
+      if (!bgz_outfile) {
+        goto export_ox_gen_ret_OPEN_FAIL;
+      }
+#ifndef _WIN32
+      if (max_thread_ct > 1) {
+        if (bgzf_mt2(g_bigstack_end, MINV(128, max_thread_ct), 128, &g_bigstack_base, bgz_outfile)) {
+          goto export_ox_gen_ret_NOMEM;
+        }
+      }
+#endif
     }
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
     char* write_iter = writebuf;
@@ -992,7 +1035,7 @@ pglerr_t export_ox_gen(const char* outname, const uintptr_t* sample_include, con
         }
       }
       append_binary_eoln(&write_iter);
-      if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
+      if (flexbwrite_ck(writebuf_flush, outfile, bgz_outfile, &write_iter)) {
         goto export_ox_gen_ret_WRITE_FAIL;
       }
       if (is_y) {
@@ -1021,8 +1064,22 @@ pglerr_t export_ox_gen(const char* outname, const uintptr_t* sample_include, con
         next_print_variant_idx = (pct * ((uint64_t)variant_ct)) / 100;
       }
     }
-    if (fclose_flush_null(writebuf_flush, write_iter, &outfile)) {
-      goto export_ox_gen_ret_WRITE_FAIL;
+    if (write_iter != writebuf) {
+      // this should be wrapped...
+      if (flexbwrite_flush(writebuf, write_iter - writebuf, outfile, bgz_outfile)) {
+        goto export_ox_gen_ret_WRITE_FAIL;
+      }
+    }
+    if (bgz_outfile) {
+      if (bgzf_close(bgz_outfile)) {
+        bgz_outfile = nullptr;
+        goto export_ox_gen_ret_WRITE_FAIL;
+      }
+      bgz_outfile = nullptr;
+    } else {
+      if (fclose_null(&outfile)) {
+        goto export_ox_gen_ret_WRITE_FAIL;
+      }
     }
     if (pct > 10) {
       putc_unlocked('\b', stdout);
@@ -1051,6 +1108,9 @@ pglerr_t export_ox_gen(const char* outname, const uintptr_t* sample_include, con
   }
  export_ox_gen_ret_1:
   fclose_cond(outfile);
+  if (bgz_outfile) {
+    bgzf_close(bgz_outfile);
+  }
   bigstack_reset(bigstack_mark);
   return reterr;
 }
@@ -2674,30 +2734,6 @@ char* haploid_dosage_print(uint32_t rawval, char* start) {
   return start;
 }
 
-boolerr_t flexbwrite_flush(char* buf, size_t len, FILE* outfile, BGZF* bgz_outfile) {
-  if (outfile) {
-    return fwrite_checked(buf, len, outfile);
-  }
-  return (bgzf_write(bgz_outfile, buf, len) < 0);
-}
-
-
-// these assume buf_flush - buf = kMaxMediumLine
-// outfile should be nullptr iff we're doing bgzf compression
-boolerr_t flexbwrite_flush2(char* buf_flush, FILE* outfile, BGZF* bgz_outfile, char** write_iter_ptr) {
-  char* buf = &(buf_flush[-((int32_t)kMaxMediumLine)]);
-  char* buf_end = *write_iter_ptr;
-  *write_iter_ptr = buf;
-  return flexbwrite_flush(buf, (uintptr_t)(buf_end - buf), outfile, bgz_outfile);
-}
-
-static inline boolerr_t flexbwrite_ck(char* buf_flush, FILE* outfile, BGZF* bgz_outfile, char** write_iter_ptr) {
-  if ((*write_iter_ptr) < buf_flush) {
-    return 0;
-  }
-  return flexbwrite_flush2(buf_flush, outfile, bgz_outfile, write_iter_ptr);
-}
-
 
 #ifdef __arm__
   #error "Unaligned accesses in export_vcf()."
@@ -4211,9 +4247,8 @@ pglerr_t exportf(const uintptr_t* sample_include, const char* sample_ids, const 
       }
     }
     if (exportf_modifier & kfExportfOxGen) {
-      strcpy(outname_end, ".gen");
       pgr_clear_ld_cache(simple_pgrp);
-      reterr = export_ox_gen(outname, sample_include, sample_include_cumulative_popcounts, sex_male, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, sample_ct, variant_ct, max_allele_slen, exportf_modifier, simple_pgrp, sample_missing_geno_cts);
+      reterr = export_ox_gen(sample_include, sample_include_cumulative_popcounts, sex_male, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, sample_ct, variant_ct, max_allele_slen, max_thread_ct, exportf_modifier, simple_pgrp, outname, outname_end, sample_missing_geno_cts);
       if (reterr) {
         goto exportf_ret_1;
       }
