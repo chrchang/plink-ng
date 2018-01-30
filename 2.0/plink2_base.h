@@ -1196,11 +1196,11 @@ HEADER_INLINE void partial_uint_store(uint32_t cur_uint, uint32_t byte_ct, void*
   if (byte_ct & 1) {
     unsigned char* target_iter = (unsigned char*)target;
     *target_iter = cur_uint;
-    if (byte_ct == 1) {
-      return;
+    if (byte_ct == 3) {
+      ++target_iter;
+      *((uint16_t*)target_iter) = cur_uint >> 8;
     }
-    ++target_iter;
-    *((uint16_t*)target_iter) = cur_uint >> 8;
+    return;
   }
   if (byte_ct == 2) {
     *((uint16_t*)target) = cur_uint;

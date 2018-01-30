@@ -26,6 +26,9 @@
 /* The BGZF library was originally written by Bob Handsaker from the Broad
  * Institute. It was later improved by the SAMtools developers. */
 
+// todo: update htslib files once they integrate libdeflate; see
+//   https://github.com/samtools/htslib/pull/581
+
 #ifndef HTSLIB_BGZF_H
 #define HTSLIB_BGZF_H
 
@@ -94,7 +97,7 @@ extern "C" {
      * @param mode  mode matching /[rwag][u0-9]+/: 'r' for reading, 'w' for
      *              writing, 'a' for appending, 'g' for gzip rather than BGZF
      *              compression (with 'w' only), and digit specifies the zlib
-     *              compression level. 
+     *              compression level.
      *              Note that there is a distinction between 'u' and '0': the
      *              first yields plain uncompressed output whereas the latter
      *              outputs uncompressed data wrapped in the zlib format.

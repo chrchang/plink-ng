@@ -7551,6 +7551,7 @@ void spgw_init_phase2(uint32_t max_vrec_len, st_pgen_writer_t* spgwp, unsigned c
   uintptr_t fwrite_cacheline_ct = DIV_UP(max_vrec_len + kPglFwriteBlockSize - 1, kCacheline);
   pgen_writer_common_t* pwcp = &(spgwp->pwc);
   if (pwcp->phase_dosage_gflags & kfPgenGlobalHardcallPhasePresent) {
+    // er, why do we need this extra space?  Document this.
     fwrite_cacheline_ct += 2 * BITCT_TO_CLCT(pwcp->sample_ct);
   }
   pwc_init_phase2(fwrite_cacheline_ct, 1, &pwcp, spgw_alloc);
@@ -8713,6 +8714,9 @@ pglerr_t spgw_append_biallelic_genovec_dphase16(const uintptr_t* __restrict geno
 }
 */
 
+// DEBUG
+uint64_t g_final_write_pos = 0;
+
 pglerr_t pwc_finish(pgen_writer_common_t* pwcp, FILE** pgen_outfile_ptr) {
   const uint32_t variant_ct = pwcp->variant_ct;
   assert(pwcp->vidx == variant_ct);
@@ -8735,6 +8739,8 @@ pglerr_t pwc_finish(pgen_writer_common_t* pwcp, FILE** pgen_outfile_ptr) {
   while (1) {
     if (vrec_len_buf_iter >= vrec_len_buf_last) {
       if (vrec_len_buf_iter > vrec_len_buf_last) {
+        // DEBUG
+        g_final_write_pos = ftello(*pgen_outfile_ptr);
         return fclose_null(pgen_outfile_ptr)? kPglRetWriteFail : kPglRetSuccess;
       }
       const uint32_t vblock_size = MOD_NZ(variant_ct, kPglVblockSize);

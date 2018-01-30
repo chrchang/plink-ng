@@ -309,6 +309,8 @@ void logerrprintb();
 
 #define LOGERRPRINTF(...) snprintf(g_logbuf, kLogbufSize, __VA_ARGS__); logerrprintb();
 
+#define DPRINTF(...) if (g_debug_on) { LOGPRINTF(__VA_ARGS__); }
+
 // input for wordwrap/LOGPRINTFWW should have no intermediate '\n's.  If
 // suffix_len is 0, there should be a terminating \n.
 void wordwrap(uint32_t suffix_len, char* ss);

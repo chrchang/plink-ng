@@ -76,7 +76,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 704
+#define PGENLIB_INTERNAL_VERNUM 705
 
 
 // other configuration-ish values needed by plink2_common subset
@@ -1139,6 +1139,9 @@ pglerr_t spgw_append_biallelic_genovec_hphase_dosage16(const uintptr_t* __restri
 // dosage_vals[] has length dosage_ct + dphase_ct
 // pglerr_t spgw_append_biallelic_genovec_dphase16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uintptr_t* dphase_present, const uint16_t* dosage_vals, uint32_t dosage_ct, uint32_t dphase_ct, st_pgen_writer_t* spgwp);
 
+
+// DEBUG
+extern uint64_t g_final_write_pos;
 
 // Backfills header info, then closes the file.
 pglerr_t spgw_finish(st_pgen_writer_t* spgwp);
