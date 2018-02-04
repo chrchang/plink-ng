@@ -850,7 +850,7 @@ pglerr_t disp_help(uint32_t param_ct, const char* const* argvc) {
                );
     help_print("score", &help_ctrl, 1,
 "  --score [filename] {i} {j} {k} <header | header-read> <no-mean-imputation>\n"
-"          <center | variance-standardize> <se> <zs>\n"
+"          <center | variance-standardize | dominant | recessive> <se> <zs>\n"
 "          <list-variants | list-variants-zs> <cols=[col set descriptor]>\n"
 "    Apply linear scoring system(s) to each sample.\n"
 "    The input file should have one line per scored variant.  Variant IDs are\n"
@@ -869,7 +869,11 @@ pglerr_t disp_help(uint32_t param_ct, const char* const* argvc) {
 "      when this happens), use the 'no-mean-imputation' modifier.\n"
 "    * You can use the 'center' modifier to shift all genotypes to mean zero, or\n"
 "      'variance-standardize' to linearly transform the genotypes to mean-0,\n"
-"      variance-1.  ('variance-standardize' cannot be used with chrX or MT.)\n"
+"      variance-1.\n"
+"    * The 'dominant' modifier causes dosages greater than 1 to be treated as 1,\n"
+"      while 'recessive' uses min(dosage - 1, 0) on diploid chromosomes.\n"
+"      ('dominant', 'recessive', and 'variance-standardize' cannot be used with\n"
+"      chrX or MT.)\n"
 "    * The 'se' modifier causes the score coefficients to be treated as\n"
 "      independent standard errors; in this case, standard errors for the score\n"
 "      average/sum are reported.  (Note that this will systematically\n"

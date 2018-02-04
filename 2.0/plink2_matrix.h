@@ -33,49 +33,49 @@
   typedef double matrix_invert_buf1_t;
   CONSTU31(kMatrixInvertBuf1ElemAlloc, 2 * sizeof(double));
   CONSTU31(kMatrixInvertBuf1CheckedAlloc, 2 * sizeof(double));
-  #define __CLPK_integer int
+#  define __CLPK_integer int
 
 #else // not NOLAPACK
-  #ifdef __APPLE__
-    #include <Accelerate/Accelerate.h>
-    #define USE_CBLAS_XGEMM
-  #endif
+#  ifdef __APPLE__
+#    include <Accelerate/Accelerate.h>
+#    define USE_CBLAS_XGEMM
+#  endif
 
-  #ifndef __APPLE__
+#  ifndef __APPLE__
 
-    #ifdef __cplusplus
+#    ifdef __cplusplus
 extern "C" {
-    #endif
+#    endif
   typedef double __CLPK_doublereal;
-    #ifdef __LP64__
-      #ifdef LAPACK_ILP64
+#    ifdef __LP64__
+#      ifdef LAPACK_ILP64
   typedef long long __CLPK_integer;
-      #else
+#      else
   typedef int32_t __CLPK_integer;
-      #endif
-    #else
-      #ifdef LAPACK_ILP64
-        #error "Invalid compile flags."
-      #else
-        #ifdef _WIN32
+#      endif
+#    else
+#      ifdef LAPACK_ILP64
+#        error "Invalid compile flags."
+#      else
+#        ifdef _WIN32
   // probably don't need this?
   typedef int32_t __CLPK_integer;
-        #else
+#        else
   typedef long int __CLPK_integer;
-        #endif
-      #endif
-    #endif // !__LP64__
+#        endif
+#      endif
+#    endif // !__LP64__
 
-    #ifdef _WIN32
+#    ifdef _WIN32
       // openblas is easy enough to set up on Windows nowadays.
       // not worth the trouble of ripping out vector extensions, etc. just so
       // we can compile with Visual Studio and gain access to MKL
-      #ifndef USE_OPENBLAS
-        #error "Windows build currently requires OpenBLAS's LAPACK."
-      #endif
-      #define HAVE_LAPACK_CONFIG_H
-      #define LAPACK_COMPLEX_STRUCTURE
-      #include "lapacke.h"
+#      ifndef USE_OPENBLAS
+#        error "Windows build currently requires OpenBLAS's LAPACK."
+#      endif
+#      define HAVE_LAPACK_CONFIG_H
+#      define LAPACK_COMPLEX_STRUCTURE
+#      include "lapacke.h"
 
   __CLPK_doublereal ddot_(__CLPK_integer* n, __CLPK_doublereal* dx,
                           __CLPK_integer* incx, __CLPK_doublereal* dy,
@@ -84,25 +84,25 @@ extern "C" {
   __CLPK_doublereal sdot_(__CLPK_integer* n, float* sx, __CLPK_integer* incx,
                           float* sy, __CLPK_integer* incy);
 
-    #else // Linux
-      #ifdef USE_MKL
-        #define USE_CBLAS_XGEMM
-        #ifdef DYNAMIC_MKL
-          #include <mkl_cblas.h>
-          #include <mkl_lapack.h>
-        #else
-          #include "/opt/intel/mkl/include/mkl_cblas.h"
-          #include "/opt/intel/mkl/include/mkl_lapack.h"
-        #endif
+#    else // Linux
+#      ifdef USE_MKL
+#        define USE_CBLAS_XGEMM
+#        ifdef DYNAMIC_MKL
+#          include <mkl_cblas.h>
+#          include <mkl_lapack.h>
+#        else
+#          include "/opt/intel/mkl/include/mkl_cblas.h"
+#          include "/opt/intel/mkl/include/mkl_lapack.h"
+#        endif
         static_assert(sizeof(MKL_INT) == 8, "Unexpected MKL_INT size.");
-      #else
+#      else
         // If you want 64-bit index support, but not MKL (e.g. you're targeting
         // an AMD processor), modify the Makefile to link to a LAPACK library
         // recompiled with -fdefault-integer-8.
 
-        #ifdef USE_CBLAS_XGEMM
-          #include <cblas.h>
-        #else
+#        ifdef USE_CBLAS_XGEMM
+#          include <cblas.h>
+#        else
           // ARGH
           // cmake on Ubuntu 14 seems to require use of cblas_f77.h instead of
           // cblas.h.  Conversely, cblas_f77.h does not seem to be available on
@@ -111,37 +111,37 @@ extern "C" {
           // So.  Default include is cblas.h.  To play well with cmake + Ubuntu
           // 14 and 16 simultaneously, there is a CBLAS_F77_ON_OLD_GCC mode
           // which picks cblas_f77.h on Ubuntu 14 and cblas.h on 16.
-          #ifdef FORCE_CBLAS_F77
-            #include <cblas_f77.h>
-          #elif !defined(CBLAS_F77_ON_OLD_GCC)
-            #include <cblas.h>
-          #else
-            #if (__GNUC__ <= 4)
-              #include <cblas_f77.h>
-            #else
-              #if __has_include(<cblas.h>)
-                #include <cblas.h>
-              #else
-                #include <cblas_f77.h>
-              #endif
-            #endif
-          #endif
+#          ifdef FORCE_CBLAS_F77
+#            include <cblas_f77.h>
+#          elif !defined(CBLAS_F77_ON_OLD_GCC)
+#            include <cblas.h>
+#          else
+#            if (__GNUC__ <= 4)
+#              include <cblas_f77.h>
+#            else
+#              if __has_include(<cblas.h>)
+#                include <cblas.h>
+#              else
+#                include <cblas_f77.h>
+#              endif
+#            endif
+#          endif
   __CLPK_doublereal ddot_(__CLPK_integer* n, __CLPK_doublereal* dx,
                           __CLPK_integer* incx, __CLPK_doublereal* dy,
                           __CLPK_integer* incy);
 
   __CLPK_doublereal sdot_(__CLPK_integer* n, float* sx, __CLPK_integer* incx,
                           float* sy, __CLPK_integer* incy);
-        #endif
-      #endif // !USE_MKL
-    #endif
+#        endif
+#      endif // !USE_MKL
+#    endif
 
   void xerbla_(void);
-    #ifdef __cplusplus
+#    ifdef __cplusplus
 } // extern "C"
-    #endif
+#    endif
 
-  #endif // !__APPLE__
+#  endif // !__APPLE__
 
   typedef __CLPK_integer matrix_invert_buf1_t;
   // need to be careful about >= 2^32?
@@ -247,14 +247,13 @@ HEADER_INLINE void invert_symmdef_fmatrix_second_half(__CLPK_integer dim, uint32
 }
 #else
 HEADER_INLINE double dotprod_d(const double* vec1, const double* vec2, uint32_t ct) {
-  #ifndef USE_CBLAS_XGEMM
+#  ifndef USE_CBLAS_XGEMM
   __CLPK_integer cti = ct;
   __CLPK_integer incxy = 1;
-  // const_cast
-  return ddot_(&cti, (double*)((uintptr_t)vec1), &incxy, (double*)((uintptr_t)vec2), &incxy);
-  #else
+  return ddot_(&cti, K_CAST(double*, vec1), &incxy, K_CAST(double*, vec2), &incxy);
+#  else
   return cblas_ddot(ct, vec1, 1, vec2, 1);
-  #endif
+#  endif
 }
 
 HEADER_INLINE double dotprodx_d(const double* vec1, const double* vec2, uint32_t ct) {
@@ -267,14 +266,13 @@ HEADER_INLINE double dotprodx_d(const double* vec1, const double* vec2, uint32_t
 
 // not worthwhile for ct < 16.
 HEADER_INLINE float dotprod_f(const float* vec1, const float* vec2, uint32_t ct) {
-  #ifndef USE_CBLAS_XGEMM
+#  ifndef USE_CBLAS_XGEMM
   __CLPK_integer cti = ct;
   __CLPK_integer incxy = 1;
-  // const_cast
-  return (float)sdot_(&cti, (float*)((uintptr_t)vec1), &incxy, (float*)((uintptr_t)vec2), &incxy);
-  #else
+  return S_CAST(float, sdot_(&cti, K_CAST(float*, vec1), &incxy, K_CAST(float*, vec2), &incxy));
+#  else
   return cblas_sdot(ct, vec1, 1, vec2, 1);
-  #endif
+#  endif
 }
 
 // extra if-statement in dotprodx_f() seems disproportionally expensive in

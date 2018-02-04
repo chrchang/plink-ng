@@ -26,9 +26,9 @@
 // edit zstd_zlibwrapper.c or use compile flag.
 #include "zstd/zlibWrapper/zstd_zlibwrapper.h"
 #ifndef STATIC_ZLIB
-  #if !defined(ZLIB_VERNUM) || ZLIB_VERNUM < 0x1240
-    #error "plink2_decompress requires zlib 1.2.4 or later."
-  #endif
+#  if !defined(ZLIB_VERNUM) || ZLIB_VERNUM < 0x1240
+#    error "plink2_decompress requires zlib 1.2.4 or later."
+#  endif
 #endif
 
 #ifdef __cplusplus

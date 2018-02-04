@@ -35,7 +35,7 @@ double rand_normal(sfmt_t* sfmtp, double* secondval_ptr) {
 sfmt_t** g_sfmtp_arr;
 
 boolerr_t bigstack_init_sfmtp(uint32_t thread_ct, uint32_t use_main_sfmt_as_element_zero) {
-  g_sfmtp_arr = (sfmt_t**)bigstack_alloc(thread_ct * sizeof(intptr_t));
+  g_sfmtp_arr = S_CAST(sfmt_t**, bigstack_alloc(thread_ct * sizeof(intptr_t)));
   if (!g_sfmtp_arr) {
     return 1;
   }
@@ -45,7 +45,7 @@ boolerr_t bigstack_init_sfmtp(uint32_t thread_ct, uint32_t use_main_sfmt_as_elem
   if (thread_ct > use_main_sfmt_as_element_zero) {
     uint32_t uibuf[4];
     for (uint32_t tidx = use_main_sfmt_as_element_zero; tidx < thread_ct; ++tidx) {
-      g_sfmtp_arr[tidx] = (sfmt_t*)bigstack_alloc(sizeof(sfmt_t));
+      g_sfmtp_arr[tidx] = S_CAST(sfmt_t*, bigstack_alloc(sizeof(sfmt_t)));
       if (!g_sfmtp_arr[tidx]) {
         return 1;
       }
@@ -64,7 +64,7 @@ static uint32_t g_calc_thread_ct = 0;
 static uintptr_t g_entry_pair_ct = 0;
 
 THREAD_FUNC_DECL fill_gaussian_darray_thread(void* arg) {
-  const uintptr_t tidx = (uintptr_t)arg;
+  const uintptr_t tidx = R_CAST(uintptr_t, arg);
   const uintptr_t entry_pair_ct = g_entry_pair_ct;
   const uint32_t calc_thread_ct = g_calc_thread_ct;
   sfmt_t* sfmtp = g_sfmtp_arr[tidx];
@@ -98,7 +98,7 @@ pglerr_t fill_gaussian_darray(uintptr_t entry_pair_ct, uint32_t thread_ct, doubl
     if (spawn_threads(fill_gaussian_darray_thread, thread_ct, threads)) {
       goto fill_gaussian_darray_ret_THREAD_CREATE_FAIL;
     }
-    fill_gaussian_darray_thread((void*)0);
+    fill_gaussian_darray_thread(S_CAST(void*, 0));
     join_threads(thread_ct, threads);
   }
   while (0) {
@@ -115,10 +115,10 @@ pglerr_t fill_gaussian_darray(uintptr_t entry_pair_ct, uint32_t thread_ct, doubl
 
 
 THREAD_FUNC_DECL randomize_bigstack_thread(void* arg) {
-  const uintptr_t tidx = (uintptr_t)arg;
+  const uintptr_t tidx = R_CAST(uintptr_t, arg);
   const uint32_t calc_thread_ct = g_calc_thread_ct;
-  const uint64_t bigstack_int64_ct = ((uintptr_t)(g_bigstack_end - g_bigstack_base)) / sizeof(int64_t);
-  uint64_t* bigstack_int64 = (uint64_t*)g_bigstack_base;
+  const uint64_t bigstack_int64_ct = S_CAST(uintptr_t, g_bigstack_end - g_bigstack_base) / sizeof(int64_t);
+  uint64_t* bigstack_int64 = R_CAST(uint64_t*, g_bigstack_base);
   assert(bigstack_int64_ct >= calc_thread_ct);
   const uint64_t start_idx = round_down_pow2((tidx * bigstack_int64_ct) / calc_thread_ct, kInt64PerCacheline);
   uint64_t end_idx = ((tidx + 1) * bigstack_int64_ct) / calc_thread_ct;
@@ -147,12 +147,12 @@ pglerr_t randomize_bigstack(uint32_t thread_ct) {
     if (spawn_threads(randomize_bigstack_thread, thread_ct, threads)) {
       goto randomize_bigstack_ret_THREAD_CREATE_FAIL;
     }
-    randomize_bigstack_thread((void*)0);
+    randomize_bigstack_thread(S_CAST(void*, 0));
     join_threads(thread_ct, threads);
     // now ensure the bytes reserved by bigstack_init_sfmtp() are also properly
     // randomized (some of them already are, but there are gaps)
-    uint64_t* initial_segment_end = (uint64_t*)g_bigstack_base;
-    for (uint64_t* initial_segment_iter = (uint64_t*)bigstack_mark; initial_segment_iter != initial_segment_end; ++initial_segment_iter) {
+    uint64_t* initial_segment_end = R_CAST(uint64_t*, g_bigstack_base);
+    for (uint64_t* initial_segment_iter = R_CAST(uint64_t*, bigstack_mark); initial_segment_iter != initial_segment_end; ++initial_segment_iter) {
       *initial_segment_iter = sfmt_genrand_uint64(&g_sfmt);
     }
   }
@@ -172,7 +172,7 @@ void generate_perm1_interleaved(uint32_t tot_bit_ct, uint32_t set_bit_ct, uintpt
   assert(tot_bit_ct > 1);
   const uintptr_t tot_bit_ctl = BITCT_TO_WORDCT(tot_bit_ct);
   const uintptr_t perm_ct = perm_end_idx - perm_start_idx;
-  const uint32_t tot_quotient = (uint32_t)(0x100000000LLU / tot_bit_ct);
+  const uint32_t tot_quotient = 0x100000000LLU / tot_bit_ct;
   const uint32_t upper_bound = tot_bit_ct * tot_quotient - 1;
   uint32_t totq_preshift;
   uint64_t totq_magic;

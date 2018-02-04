@@ -67,7 +67,7 @@ typedef struct catname_ll2_struct {
   struct catname_ll2_struct* htable_next;
   struct catname_ll2_struct* pheno_next;
   uint32_t cat_idx; // 0 == "NONE", etc.
-  char ss[];
+  char str[];
 } catname_ll2_t;
 
 pglerr_t load_psam(const char* psamname, const range_list_t* pheno_range_list_ptr, fam_col_t fam_cols, uint32_t pheno_ct_max, int32_t missing_pheno, uint32_t affection_01, uintptr_t* max_sample_id_blen_ptr, uintptr_t* max_sid_blen_ptr, uintptr_t* max_paternal_id_blen_ptr, uintptr_t* max_maternal_id_blen_ptr, uintptr_t** sample_include_ptr, char** sample_ids_ptr, char** sids_ptr, char** paternal_ids_ptr, char** maternal_ids_ptr, uintptr_t** founder_info_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, pheno_col_t** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* raw_sample_ct_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr);

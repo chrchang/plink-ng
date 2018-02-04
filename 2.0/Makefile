@@ -1,7 +1,8 @@
-BASEFLAGS=-Wall -Wextra -mavx2 -mbmi -mbmi2 -mlzcnt -DNDEBUG -DSTATIC_ZLIB -DZSTD_MULTITHREAD
+BASEFLAGS=-Wall -Wextra -mavx2 -mbmi -mbmi2 -mlzcnt -DSTATIC_ZLIB -DZSTD_MULTITHREAD
+# BASEFLAGS=-Wall -Wextra -mavx2 -mbmi -mbmi2 -mlzcnt -DNDEBUG -DSTATIC_ZLIB -DZSTD_MULTITHREAD
 CFLAGS=-O3 -std=gnu99
 # this actually needs to be named "CXXFLAGS"
-CXXFLAGS=-O2 -std=c++14
+CXXFLAGS=-O2 -std=c++14 -Wold-style-cast
 
 CFLAGS += ${BASEFLAGS}
 CXXFLAGS += ${BASEFLAGS}

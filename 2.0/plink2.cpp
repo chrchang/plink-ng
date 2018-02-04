@@ -43,18 +43,18 @@ static const char ver_str[] = "PLINK v2.00a1"
   "NL"
 #endif
 #ifdef __LP64__
-  #ifdef LAPACK_ILP64
+#  ifdef LAPACK_ILP64
     "LM"
-  #endif
-  #ifdef USE_AVX2
+#  endif
+#  ifdef USE_AVX2
     " AVX2"
-  #else
-    #ifdef USE_SSE42
+#  else
+#    ifdef USE_SSE42
       " SSE4.2"
-    #else
+#    else
       " 64-bit"
-    #endif
-  #endif
+#    endif
+#  endif
 #else
   " 32-bit"
 #endif
@@ -62,10 +62,10 @@ static const char ver_str[] = "PLINK v2.00a1"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (30 Jan 2018)";
+  " (3 Feb 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -390,7 +390,7 @@ void report_genotyping_rate(const uintptr_t* variant_include, const chr_info_t* 
   uint32_t variant_ct_y = 0;
   int32_t y_code;
   if (xymt_exists(cip, kChrOffsetY, &y_code)) {
-    const uint32_t y_chr_fo_idx = cip->chr_idx_to_foidx[(uint32_t)y_code];
+    const uint32_t y_chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, y_code)];
     y_start = cip->chr_fo_vidx_start[y_chr_fo_idx];
     y_end = cip->chr_fo_vidx_start[y_chr_fo_idx + 1];
     variant_ct_y = popcount_bit_idx(variant_include, y_start, y_end);
@@ -427,14 +427,14 @@ void report_genotyping_rate(const uintptr_t* variant_include, const chr_info_t* 
   }
   double genotyping_rate;
   if (male_ct && variant_ct_y) {
-    const uint64_t nony_possible_obs = (variant_ct - variant_ct_y) * ((uint64_t)sample_ct);
-    const uint64_t y_possible_obs = variant_ct_y * ((uint64_t)male_ct);
-    genotyping_rate = ((double)((int64_t)(nony_possible_obs - tot_nony_missing))) / ((double)((int32_t)sample_ct)) + ((double)((int64_t)(y_possible_obs - tot_y_missing))) / ((double)((int32_t)male_ct));
-    genotyping_rate /= (int32_t)variant_ct;
+    const uint64_t nony_possible_obs = (variant_ct - variant_ct_y) * S_CAST(uint64_t, sample_ct);
+    const uint64_t y_possible_obs = variant_ct_y * S_CAST(uint64_t, male_ct);
+    genotyping_rate = u63tod(nony_possible_obs - tot_nony_missing) / u31tod(sample_ct) + u63tod(y_possible_obs - tot_y_missing) / u31tod(male_ct);
+    genotyping_rate /= u31tod(variant_ct);
   } else {
     variant_ct -= variant_ct_y;
-    const uint64_t denom = variant_ct * ((uint64_t)sample_ct);
-    genotyping_rate = (double)((int64_t)(denom - tot_nony_missing)) / ((double)((int64_t)denom));
+    const uint64_t denom = variant_ct * S_CAST(uint64_t, sample_ct);
+    genotyping_rate = u63tod(denom - tot_nony_missing) / u63tod(denom);
   }
   if (genotyping_rate >= 0.9999995) {
     LOGPRINTF("Total (%s) genotyping rate %sis in [0.9999995, 1).\n", is_dosage? "dosage" : "hardcall", (raw_sample_ct != sample_ct)? "in remaining samples " : "");
@@ -461,11 +461,11 @@ pglerr_t apply_variant_bp_filters(const char* extract_fnames, const char* exclud
     uint32_t variant_uidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
     uint32_t variant_uidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
     if (from_bp != -1) {
-      const uint32_t from_offset = uint32arr_greater_than(&(variant_bps[variant_uidx_start]), variant_uidx_end - variant_uidx_start, (uint32_t)from_bp);
+      const uint32_t from_offset = uint32arr_greater_than(&(variant_bps[variant_uidx_start]), variant_uidx_end - variant_uidx_start, from_bp);
       variant_uidx_start += from_offset;
     }
     if ((to_bp != -1) && (variant_uidx_start < variant_uidx_end)) {
-      const uint32_t to_offset = uint32arr_greater_than(&(variant_bps[variant_uidx_start]), variant_uidx_end - variant_uidx_start, 1 + ((uint32_t)to_bp));
+      const uint32_t to_offset = uint32arr_greater_than(&(variant_bps[variant_uidx_start]), variant_uidx_end - variant_uidx_start, 1 + to_bp);
       variant_uidx_end = variant_uidx_start + to_offset;
     }
     if (variant_uidx_start) {
@@ -541,25 +541,25 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
       }
       uint32_t pgen_rename = 0;
       if (make_plink2_modifier & kfMakePgen) {
-        strcpy(outname_end, ".pgen");
+        snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
         pgen_rename = realpath_identical(outname, g_textbuf, &(g_textbuf[kPglFnamesize + 64]));
       }
       if ((!pgen_rename) && ((make_plink2_modifier & kfMakeBed) || (pcp->exportf_modifier & kfExportfIndMajorBed))) {
-        strcpy(outname_end, ".bed");
+        snprintf(outname_end, kMaxOutfnameExtBlen, ".bed");
         pgen_rename = realpath_identical(outname, g_textbuf, &(g_textbuf[kPglFnamesize + 64]));
       }
       if (pgen_rename) {
         LOGERRPRINTF("Warning: --make-%s input and output filenames match.  Appending '~' to input\nfilenames.\n", (make_plink2_modifier & kfMakeBed)? "bed" : ((make_plink2_modifier & kfMakePvar)? "pgen" : "bpgen"));
         fname_slen = strlen(pgenname);
         memcpy(g_textbuf, pgenname, fname_slen);
-        strcpy(&(pgenname[fname_slen]), "~");
+        snprintf(&(pgenname[fname_slen]), 2, "~");
         if (rename(g_textbuf, pgenname)) {
           logerrprint("Error: Failed to append '~' to input .bed/.pgen filename.\n");
           goto plink2_ret_OPEN_FAIL;
         }
         fname_slen = strlen(pvarname);
         memcpy(g_textbuf, pvarname, fname_slen);
-        strcpy(&(pvarname[fname_slen]), "~");
+        snprintf(&(pvarname[fname_slen]), 2, "~");
         if (rename(g_textbuf, pvarname)) {
           logerrprint("Error: Failed to append '~' to input .bim/.pvar filename.\n");
           goto plink2_ret_OPEN_FAIL;
@@ -567,7 +567,7 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
         pvar_renamed = 1;
         fname_slen = strlen(psamname);
         memcpy(g_textbuf, psamname, fname_slen);
-        strcpy(&(psamname[fname_slen]), "~");
+        snprintf(&(psamname[fname_slen]), 2, "~");
         if (rename(g_textbuf, psamname)) {
           logerrprint("Error: Failed to append '~' to input .fam/.psam filename.\n");
           goto plink2_ret_OPEN_FAIL;
@@ -622,7 +622,14 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
     uintptr_t* variant_include = nullptr;
     uint32_t* variant_bps = nullptr;
     char** variant_ids_mutable = nullptr;
+
+    // This is actually a hybrid of const char** and char**: length >1
+    // pointed-to strings can be modified in-place by --update-alleles, but we
+    // must be able to assign const pointers to length-1 strings to it.  So we
+    // set the official type to char**, but there's more const_cast-ing than
+    // usual.
     char** allele_storage_mutable = nullptr;
+
     uintptr_t* pvar_qual_present = nullptr;
     float* pvar_quals = nullptr;
     uintptr_t* pvar_filter_present = nullptr;
@@ -638,7 +645,7 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
     chr_idx_t* chr_idxs = nullptr; // split-chromosome case only
     if (pvarname[0]) {
       char** pvar_filter_storage_mutable = nullptr;
-      reterr = load_pvar(pvarname, pcp->var_filter_exceptions_flattened, pcp->varid_template, pcp->missing_varid_match, pcp->require_info_flattened, pcp->require_no_info_flattened, pcp->extract_if_info_expr, pcp->exclude_if_info_expr, pcp->misc_flags, pcp->pvar_psam_modifier, pcp->exportf_modifier, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->dependency_flags & kfFilterNoSplitChr), cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids_mutable, &variant_allele_idxs, &allele_storage_mutable, &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage_mutable, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_slen, &xheader_blen, &xheader_info_pr, &xheader_info_pr_nonflag, &max_filter_slen);
+      reterr = load_pvar(pvarname, pcp->var_filter_exceptions_flattened, pcp->varid_template, pcp->missing_varid_match, pcp->require_info_flattened, pcp->require_no_info_flattened, pcp->extract_if_info_expr, pcp->exclude_if_info_expr, pcp->misc_flags, pcp->pvar_psam_modifier, pcp->exportf_modifier, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->dependency_flags & kfFilterNoSplitChr), cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids_mutable, &variant_allele_idxs, K_CAST(const char***, &allele_storage_mutable), &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage_mutable, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_slen, &xheader_blen, &xheader_info_pr, &xheader_info_pr_nonflag, &max_filter_slen);
       if (reterr) {
         goto plink2_ret_1;
       }
@@ -662,16 +669,13 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
           goto plink2_ret_OPEN_FAIL;
         }
         if (make_plink2_modifier & kfMakeBim) {
-          char* bimname_end = strcpya0(outname_end, ".bim");
-          if (make_plink2_modifier & kfMakeBimZs) {
-            strcpy(bimname_end, ".zst");
-          }
+          outname_zst_set(".bim", make_plink2_modifier & kfMakeBimZs, outname_end);
           pvar_renamed = realpath_identical(outname, g_textbuf, &(g_textbuf[kPglFnamesize + 64]));
           if (pvar_renamed) {
             logerrprint("Warning: .bim input and output filenames match.  Appending '~' to input\nfilename.\n");
             fname_slen = strlen(pvarname);
             memcpy(g_textbuf, pvarname, fname_slen);
-            strcpy(&(pvarname[fname_slen]), "~");
+            snprintf(&(pvarname[fname_slen]), 2, "~");
             if (rename(g_textbuf, pvarname)) {
               logerrprint("Error: Failed to append '~' to input .bim filename.\n");
               goto plink2_ret_OPEN_FAIL;
@@ -679,16 +683,13 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
           }
         }
         if ((!pvar_renamed) && (make_plink2_modifier & kfMakePvar)) {
-          char* pvarname_end = strcpya0(outname_end, ".pvar");
-          if (pcp->pvar_psam_modifier & kfPvarZs) {
-            strcpy(pvarname_end, ".zst");
-          }
+          outname_zst_set(".pvar", pcp->pvar_psam_modifier & kfPvarZs, outname_end);
           // pvar_renamed = realpath_identical();
           if (realpath_identical(outname, g_textbuf, &(g_textbuf[kPglFnamesize + 64]))) {
             logerrprint("Warning: .pvar input and output filenames match.  Appending '~' to input\nfilename.\n");
             fname_slen = strlen(pvarname);
             memcpy(g_textbuf, pvarname, fname_slen);
-            strcpy(&(pvarname[fname_slen]), "~");
+            snprintf(&(pvarname[fname_slen]), 2, "~");
             if (rename(g_textbuf, pvarname)) {
               logerrprint("Error: Failed to append '~' to input .pvar filename.\n");
               goto plink2_ret_OPEN_FAIL;
@@ -711,7 +712,7 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
         // detect and autoconvert plink 1 sample-major files, instead of
         // failing (don't bother supporting plink 0.99 files any more)
         if (reterr == kPglRetSampleMajorBed) {
-          char* pgenname_end = memcpya(pgenname, outname, (uintptr_t)(outname_end - outname));
+          char* pgenname_end = memcpya(pgenname, outname, outname_end - outname);
           pgenname_end = strcpya(pgenname_end, ".pgen");
           const uint32_t no_vmaj_ext = (pcp->command_flags1 & kfCommand1MakePlink2) && (!pcp->filter_flags) && ((make_plink2_modifier & (kfMakePgen | (kfMakePgenFormatBase * 3))) == kfMakePgen);
           if (no_vmaj_ext) {
@@ -720,7 +721,7 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
             // no --make-just-pgen command, so we'll never entirely skip the
             // make_plink2 operation
           } else {
-            strcpy(pgenname_end, ".vmaj");
+            snprintf(pgenname_end, kMaxOutfnameExtBlen - 5, ".vmaj");
           }
           reterr = plink1_sample_major_to_pgen(pgenname, raw_variant_ct, raw_sample_ct, (pcp->misc_flags / kfMiscRealRefAlleles) & 1, pcp->max_thread_ct, pgfi.shared_ff);
           if (!reterr) {
@@ -1022,7 +1023,7 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
         }
       }
       if (pcp->keep_fnames) {
-        reterr = keep_or_remove(pcp->keep_fnames, sample_ids, sids, raw_sample_ct, max_sample_id_blen, max_sid_blen, (keep_flags_t)(kfKeepForceSid * ((pcp->misc_flags / kfMiscKeepfileSid) & 1)), sample_include, &sample_ct);
+        reterr = keep_or_remove(pcp->keep_fnames, sample_ids, sids, raw_sample_ct, max_sample_id_blen, max_sid_blen, S_CAST(keep_flags_t, kfKeepForceSid * ((pcp->misc_flags / kfMiscKeepfileSid) & 1)), sample_include, &sample_ct);
         if (reterr) {
           goto plink2_ret_1;
         }
@@ -1034,7 +1035,7 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
         }
       }
       if (pcp->remove_fnames) {
-        reterr = keep_or_remove(pcp->remove_fnames, sample_ids, sids, raw_sample_ct, max_sample_id_blen, max_sid_blen, kfKeepRemove | ((keep_flags_t)(kfKeepForceSid * ((pcp->misc_flags / kfMiscRemovefileSid) & 1))), sample_include, &sample_ct);
+        reterr = keep_or_remove(pcp->remove_fnames, sample_ids, sids, raw_sample_ct, max_sample_id_blen, max_sid_blen, kfKeepRemove | S_CAST(keep_flags_t, kfKeepForceSid * ((pcp->misc_flags / kfMiscRemovefileSid) & 1)), sample_include, &sample_ct);
         if (reterr) {
           goto plink2_ret_1;
         }
@@ -1340,7 +1341,7 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
         next_set_unsafe_ck(loop_cats_cat_include, &loop_cats_uidx);
         const char* catname = loop_cats_pheno_col->category_names[loop_cats_uidx];
         const uint32_t catname_slen = strlen(catname);
-        if (catname_slen + ((uintptr_t)(loop_cats_outname_endp1_backup - outname)) > (kPglFnamesize - kMaxOutfnameExtBlen)) {
+        if (catname_slen + S_CAST(uintptr_t, loop_cats_outname_endp1_backup - outname) > (kPglFnamesize - kMaxOutfnameExtBlen)) {
           logerrprint("Error: --loop-cats category name too long.\n");
           goto plink2_ret_INCONSISTENT_INPUT;
         }
@@ -1372,7 +1373,7 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
       double* grm = nullptr;
 
       if (pcp->command_flags1 & kfCommand1WriteSamples) {
-        strcpy(outname_end, ".id");
+        snprintf(outname_end, kMaxOutfnameExtBlen, ".id");
         reterr = write_sample_ids(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, (pcp->misc_flags / kfMiscWriteSamplesNoheader) & 1);
         if (reterr) {
           goto plink2_ret_1;
@@ -1386,7 +1387,7 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
       if (pgenname[0]) {
         if (are_allele_freqs_needed(pcp->command_flags1, pcp->min_maf, pcp->max_maf)) {
           if (are_maj_alleles_needed(pcp->command_flags1)) {
-            maj_alleles = (alt_allele_ct_t*)bigstack_alloc(raw_variant_ct * sizeof(alt_allele_ct_t));
+            maj_alleles = S_CAST(alt_allele_ct_t*, bigstack_alloc(raw_variant_ct * sizeof(alt_allele_ct_t)));
             if (!maj_alleles) {
               goto plink2_ret_NOMEM;
             }
@@ -1404,7 +1405,7 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
         uint32_t hwe_x_probs_needed = 0;
         int32_t x_code;
         if ((!(vpos_sortstatus & kfUnsortedVarSplitChr)) && xymt_exists(cip, kChrOffsetX, &x_code)) {
-          const uint32_t x_chr_fo_idx = cip->chr_idx_to_foidx[(uint32_t)x_code];
+          const uint32_t x_chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, x_code)];
           x_start = cip->chr_fo_vidx_start[x_chr_fo_idx];
           const uint32_t x_end = cip->chr_fo_vidx_start[x_chr_fo_idx + 1];
           x_len = x_end - x_start;
@@ -1599,7 +1600,7 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
         }
 
         if (pcp->geno_thresh != 1.0) {
-          const uint32_t geno_hh_missing = (uint32_t)(pcp->misc_flags & kfMiscGenoHhMissing);
+          const uint32_t geno_hh_missing = S_CAST(uint32_t, pcp->misc_flags & kfMiscGenoHhMissing);
           enforce_geno_thresh(cip, (pcp->misc_flags & kfMiscGenoDosage)? variant_missing_dosage_cts : variant_missing_hc_cts, geno_hh_missing? variant_hethap_cts : nullptr, sample_ct, male_ct, geno_hh_missing? first_hap_uidx : 0x7fffffff, pcp->geno_thresh, variant_include, &variant_ct);
         }
 
@@ -1703,12 +1704,12 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
               goto plink2_ret_1;
             }
             if (pcp->king_cutoff != -1) {
-              strcpy(outname_end, ".king.cutoff.in");
+              snprintf(outname_end, kMaxOutfnameExtBlen, ".king.cutoff.in");
               reterr = write_sample_ids(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, 0);
               if (reterr) {
                 goto plink2_ret_1;
               }
-              strcpy(&(outname_end[13]), "out");
+              snprintf(&(outname_end[13]), kMaxOutfnameExtBlen - 13, "out");
               bitvec_andnot(sample_include, raw_sample_ctl, prev_sample_include);
               const uint32_t removed_sample_ct = prev_sample_ct - sample_ct;
               reterr = write_sample_ids(prev_sample_include, sample_ids, sids, outname, removed_sample_ct, max_sample_id_blen, max_sid_blen, 0);
@@ -1862,12 +1863,12 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
           if (bigstack_end_alloc_ul(refalt1_word_ct, &refalt1_select_ul)) {
             goto plink2_ret_NOMEM;
           }
-          const uintptr_t alt_allele_vals = (uintptr_t)(k1LU << (8 * sizeof(alt_allele_ct_t)));
+          const uintptr_t alt_allele_vals = k1LU << (8 * sizeof(alt_allele_ct_t));
           const uintptr_t fill_word = ((~k0LU) / ((alt_allele_vals - 1) * (alt_allele_vals + 1))) * alt_allele_vals;
           for (uintptr_t widx = 0; widx < refalt1_word_ct; ++widx) {
             refalt1_select_ul[widx] = fill_word;
           }
-          refalt1_select = (alt_allele_ct_t*)refalt1_select_ul;
+          refalt1_select = R_CAST(alt_allele_ct_t*, refalt1_select_ul);
           const uint32_t not_all_nonref = !(pgfi.gflags & kfPgenGlobalAllNonref);
           if ((not_all_nonref || setting_alleles_from_file) && (!nonref_flags)) {
             if (bigstack_end_alloc_ul(raw_variant_ctl, &nonref_flags)) {
@@ -1934,7 +1935,7 @@ pglerr_t plink2_core(const plink2_cmdline_t* pcp, make_plink2_t make_plink2_modi
                   // optimize common case
                   if (cur_allele_dosages[1] > cur_allele_dosages[0]) {
                     // assumes alt_allele_ct_t is unsigned char
-                    ((uint16_t*)refalt1_select)[variant_uidx] = 1;
+                    R_CAST(uint16_t*, refalt1_select)[variant_uidx] = 1;
                     if (nonref_flags) {
                       SET_BIT(variant_uidx, nonref_flags);
                     }
@@ -2151,7 +2152,7 @@ pglerr_t zst_decompress(const char* in_fname, const char* out_fname) {
     } else {
       outfile = stdout;
     }
-    unsigned char* buf = (unsigned char*)g_textbuf;
+    unsigned char* buf = R_CAST(unsigned char*, g_textbuf);
     while (1) {
       const int32_t bytes_read = gzread(gz_infile, buf, kTextbufMainSize);
       if (bytes_read <= 0) {
@@ -2208,7 +2209,7 @@ pglerr_t alloc_2col(const char* const* sources, const char* flagname_p, uint32_t
     LOGERRPRINTF("Error: --%s filename too long.\n", flagname_p);
     return kPglRetOpenFail;
   }
-  *tcbuf = (two_col_params_t*)malloc(offsetof(two_col_params_t, fname) + fname_blen);
+  *tcbuf = S_CAST(two_col_params_t*, malloc(offsetof(two_col_params_t, fname) + fname_blen));
   if (!(*tcbuf)) {
     return kPglRetNomem;
   }
@@ -2267,7 +2268,7 @@ pglerr_t alloc_and_flatten_comma_delim(const char* const* sources, uint32_t para
       if (!cur_token_end) {
         break;
       }
-      tot_blen += 1 + (uintptr_t)(cur_token_end - cur_param_iter);
+      tot_blen += 1 + S_CAST(uintptr_t, cur_token_end - cur_param_iter);
       cur_param_iter = &(cur_token_end[1]);
     }
     tot_blen += 1 + strlen(cur_param_iter);
@@ -2287,7 +2288,7 @@ pglerr_t alloc_and_flatten_comma_delim(const char* const* sources, uint32_t para
       if (!cur_token_end) {
         break;
       }
-      write_iter = memcpyax(write_iter, cur_param_iter, (uintptr_t)(cur_token_end - cur_param_iter), '\0');
+      write_iter = memcpyax(write_iter, cur_param_iter, cur_token_end - cur_param_iter, '\0');
       cur_param_iter = &(cur_token_end[1]);
     }
     write_iter = strcpyax(write_iter, cur_param_iter, '\0');
@@ -2344,8 +2345,8 @@ pglerr_t parse_col_descriptor(const char* col_descriptor_iter, const char* suppo
     if (pgl_malloc((max_id_blen + 4) * (id_ct + 1), &id_map)) {
       goto parse_col_descriptor_ret_NOMEM;
     }
-    char* sorted_ids = (char*)(&(id_map[id_ct]));
-    supported_ids_iter = (const char*)supported_ids;
+    char* sorted_ids = R_CAST(char*, &(id_map[id_ct]));
+    supported_ids_iter = supported_ids;
     for (uint32_t id_idx = 0; id_idx < id_ct; ++id_idx) {
       const uint32_t blen = strlen(supported_ids_iter) + 1;
       memcpy(&(sorted_ids[id_idx * max_id_blen]), supported_ids_iter, blen);
@@ -2355,7 +2356,7 @@ pglerr_t parse_col_descriptor(const char* col_descriptor_iter, const char* suppo
     if (sort_strbox_indexed_malloc(id_ct, max_id_blen, sorted_ids, id_map)) {
       goto parse_col_descriptor_ret_NOMEM;
     }
-    uint32_t result = *((uint32_t*)result_ptr);
+    uint32_t result = *S_CAST(uint32_t*, result_ptr);
     // might not want to bother splitting this into two loops
     if ((col_descriptor_iter[0] == '+') || (col_descriptor_iter[0] == '-')) {
       result |= default_cols_mask;
@@ -2364,17 +2365,17 @@ pglerr_t parse_col_descriptor(const char* col_descriptor_iter, const char* suppo
       while (1) {
         const char* id_start = &(col_descriptor_iter[1]);
         const char* tok_end = strchrnul(id_start, ',');
-        const uint32_t slen = (uintptr_t)(tok_end - id_start);
+        const uint32_t slen = tok_end - id_start;
         int32_t alpha_idx = bsearch_str(id_start, sorted_ids, slen, max_id_blen, id_ct);
         if (alpha_idx == -1) {
           char* write_iter = strcpya(g_logbuf, "Error: Unrecognized ID '");
           write_iter = memcpya(write_iter, id_start, slen);
           write_iter = strcpya(write_iter, "' in --");
           write_iter = strcpya(write_iter, cur_flag_name);
-          write_iter = strcpya(write_iter, " column set descriptor.\n");
+          snprintf(write_iter, kLogbufSize - kMaxIdSlen - 128, " column set descriptor.\n");
           goto parse_col_descriptor_ret_INVALID_CMDLINE_WW;
         }
-        uint32_t shift = id_map[(uint32_t)alpha_idx];
+        uint32_t shift = id_map[S_CAST(uint32_t, alpha_idx)];
         if (col_descriptor_iter[0] == '+') {
           result |= first_col_shifted << shift;
         } else {
@@ -2386,7 +2387,7 @@ pglerr_t parse_col_descriptor(const char* col_descriptor_iter, const char* suppo
             memcpy(&(maybebuf[5]), id_start, slen);
             alpha_idx = bsearch_str(maybebuf, sorted_ids, slen + 5, max_id_blen, id_ct);
             if (alpha_idx != -1) {
-              shift = id_map[(uint32_t)alpha_idx];
+              shift = id_map[S_CAST(uint32_t, alpha_idx)];
               result &= ~(first_col_shifted << shift);
             }
           }
@@ -2404,17 +2405,17 @@ pglerr_t parse_col_descriptor(const char* col_descriptor_iter, const char* suppo
     } else if (*col_descriptor_iter) {
       while (1) {
         const char* tok_end = strchrnul(col_descriptor_iter, ',');
-        const uint32_t slen = (uintptr_t)(tok_end - col_descriptor_iter);
+        const uint32_t slen = tok_end - col_descriptor_iter;
         const int32_t alpha_idx = bsearch_str(col_descriptor_iter, sorted_ids, slen, max_id_blen, id_ct);
         if (alpha_idx == -1) {
           char* write_iter = strcpya(g_logbuf, "Error: Unrecognized ID '");
           write_iter = memcpya(write_iter, col_descriptor_iter, slen);
           write_iter = strcpya(write_iter, "' in --");
           write_iter = strcpya(write_iter, cur_flag_name);
-          write_iter = strcpya(write_iter, " column set descriptor.\n");
+          snprintf(write_iter, kLogbufSize - kMaxIdSlen - 128, " column set descriptor.\n");
           goto parse_col_descriptor_ret_INVALID_CMDLINE_WW;
         }
-        uint32_t shift = id_map[(uint32_t)alpha_idx];
+        uint32_t shift = id_map[S_CAST(uint32_t, alpha_idx)];
         result |= first_col_shifted << shift;
         if (!(*tok_end)) {
           break;
@@ -2428,10 +2429,10 @@ pglerr_t parse_col_descriptor(const char* col_descriptor_iter, const char* suppo
     if (prohibit_empty && (!(result & (first_col_shifted * (UINT32_MAX >> (32 - id_ct)))))) {
       char* write_iter = strcpya(g_logbuf, "Error: All columns excluded by --");
       write_iter = strcpya(write_iter, cur_flag_name);
-      write_iter = strcpya(write_iter, " column set descriptor.\n");
+      snprintf(write_iter, kLogbufSize - 128, " column set descriptor.\n");
       goto parse_col_descriptor_ret_INVALID_CMDLINE_WW;
     }
-    *((uint32_t*)result_ptr) = result;
+    *S_CAST(uint32_t*, result_ptr) = result;
   }
   while (0) {
   parse_col_descriptor_ret_NOMEM:
@@ -2601,10 +2602,10 @@ uint32_t varid_template_is_valid(const char* varid_str, const char* flagname_p) 
   sptr = strchr(varid_str, '$');
   if (sptr) {
     sptr2 = &(sptr[1]);
-    uint32_t first_allele_type_code = (unsigned char)(*sptr2);
+    uint32_t first_allele_type_code = ctou32(*sptr2);
     if ((first_allele_type_code == 49) || (first_allele_type_code == 50)) {
       sptr2 = strchr(sptr2, '$');
-      if ((!sptr2) || strchr(&(sptr2[1]), '$') || ((first_allele_type_code + ((unsigned char)sptr2[1])) != 99)) {
+      if ((!sptr2) || strchr(&(sptr2[1]), '$') || ((first_allele_type_code + ctou32(sptr2[1])) != 99)) {
       varid_template_is_valid_dollar_error:
         LOGERRPRINTFWW("Error: The --%s template string requires either no instances of '$', exactly one instance of '$r' and/or '$a', or exactly one '$1' and one '$2'.\n", flagname_p);
         return 0;
@@ -2616,7 +2617,7 @@ uint32_t varid_template_is_valid(const char* varid_str, const char* flagname_p) 
       }
       sptr2 = strchr(sptr2, '$');
       if (sptr2) {
-        const uint32_t second_allele_type_code = (uint32_t)((unsigned char)(*(++sptr2))) & 0xdf;
+        const uint32_t second_allele_type_code = ctou32(*(++sptr2)) & 0xdf;
         if (((first_allele_type_code + second_allele_type_code) != 147) || strchr(sptr2, '$')) {
           goto varid_template_is_valid_dollar_error;
         }
@@ -2644,19 +2645,19 @@ int main(int argc, char** argv) {
   if ((argc > 1) && ((!strcmp(argv[1], "--zst-decompress")) || (!strcmp(argv[1], "-zst-decompress")))) {
     if (argc == 2) {
       fprintf(stderr, "Error: Missing %s parameter.\n", argv[1]);
-      return (uint32_t)kPglRetInvalidCmdline;
+      return S_CAST(uint32_t, kPglRetInvalidCmdline);
     }
     for (int ii = 2; ii < argc; ++ii) {
-      if (is_flag(argv[(uint32_t)ii])) {
+      if (is_flag(argv[S_CAST(uint32_t, ii)])) {
         fprintf(stderr, "Error: %s cannot be used with other flags.\n", argv[1]);
-        return (uint32_t)kPglRetInvalidCmdline;
+        return S_CAST(uint32_t, kPglRetInvalidCmdline);
       }
     }
     if (argc > 4) {
       fprintf(stderr, "Error: %s accepts at most 2 parameters.\n", argv[1]);
-      return (uint32_t)kPglRetInvalidCmdline;
+      return S_CAST(uint32_t, kPglRetInvalidCmdline);
     }
-    return (uint32_t)zst_decompress(argv[2], (argc == 4)? argv[3] : nullptr);
+    return S_CAST(uint32_t, zst_decompress(argv[2], (argc == 4)? argv[3] : nullptr));
   }
 
   unsigned char* bigstack_ua = nullptr;
@@ -2768,7 +2769,7 @@ int main(int argc, char** argv) {
 
     char* flagname_write_iter = pcm.flag_buf;
     uint32_t cur_flag_idx = 0;
-    for (arg_idx = first_arg_idx; arg_idx < (uint32_t)argc; ++arg_idx) {
+    for (arg_idx = first_arg_idx; arg_idx < S_CAST(uint32_t, argc); ++arg_idx) {
       flagname_p = is_flag_start(argvc[arg_idx]);
       if (flagname_p) {
         const uint32_t flag_slen = strlen(flagname_p);
@@ -2779,58 +2780,58 @@ int main(int argc, char** argv) {
           goto main_ret_INVALID_CMDLINE;
         case 'a':
           if (strequal_k(flagname_p, "aec", flag_slen)) {
-            strcpy(flagname_write_iter, "allow-extra-chr");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "allow-extra-chr");
           } else if (strequal_k(flagname_p, "autosome-xy", flag_slen)) {
-            strcpy(flagname_write_iter, "autosome-par");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "autosome-par");
           } else if (strequal_k(flagname_p, "a1-allele", flag_slen)) {
             fputs("Warning: --a1-allele flag deprecated.  Use --alt1-allele instead.\n", stderr);
-            strcpy(flagname_write_iter, "alt1-allele");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "alt1-allele");
           } else if (strequal_k(flagname_p, "a2-allele", flag_slen)) {
             fputs("Warning: --a2-allele flag deprecated.  Use --ref-allele instead.\n", stderr);
-            strcpy(flagname_write_iter, "ref-allele");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "ref-allele");
           } else {
             goto main_flag_copy;
           }
           break;
         case 'b':
           if (strequal_k(flagname_p, "bed", flag_slen)) {
-            strcpy(flagname_write_iter, "pgen");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "pgen");
           } else if (strequal_k(flagname_p, "bim", flag_slen)) {
-            strcpy(flagname_write_iter, "pvar");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "pvar");
           } else {
             goto main_flag_copy;
           }
           break;
         case 'c':
           if (strequal_k(flagname_p, "covar-number", flag_slen)) {
-            strcpy(flagname_write_iter, "covar-col-nums");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "covar-col-nums");
           } else {
             goto main_flag_copy;
           }
           break;
         case 'e':
           if (strequal_k(flagname_p, "extract-if", flag_slen)) {
-            strcpy(flagname_write_iter, "keep-if-info");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "keep-if-info");
           } else if (strequal_k(flagname_p, "exclude-if", flag_slen)) {
-            strcpy(flagname_write_iter, "remove-if-info");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "remove-if-info");
           } else {
             goto main_flag_copy;
           }
           break;
         case 'f':
           if (strequal_k(flagname_p, "fam", flag_slen)) {
-            strcpy(flagname_write_iter, "psam");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "psam");
           } else if (strequal_k(flagname_p, "filter-males", flag_slen)) {
-            strcpy(flagname_write_iter, "keep-males");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "keep-males");
           } else if (strequal_k(flagname_p, "filter-females", flag_slen)) {
             fputs("Note: --filter-females flag deprecated.  Use --keep-females or --remove-males\ninstead.\n", stdout);
-            strcpy(flagname_write_iter, "remove-males");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "remove-males");
           } else if (strequal_k(flagname_p, "filter-founders", flag_slen)) {
-            strcpy(flagname_write_iter, "keep-founders");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "keep-founders");
           } else if (strequal_k(flagname_p, "filter-nonfounders", flag_slen)) {
-            strcpy(flagname_write_iter, "keep-nonfounders");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "keep-nonfounders");
           } else if (strequal_k(flagname_p, "filter", flag_slen)) {
-            strcpy(flagname_write_iter, "keep-fcol");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "keep-fcol");
           } else {
             goto main_flag_copy;
           }
@@ -2838,7 +2839,7 @@ int main(int argc, char** argv) {
         case 'h':
           if (strequal_k(flagname_p, "hound", flag_slen)) {
             // the creature type should be Dog.
-            strcpy(flagname_write_iter, "dog");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "dog");
           } else {
             goto main_flag_copy;
           }
@@ -2846,56 +2847,56 @@ int main(int argc, char** argv) {
         case 'k':
           if (strequal_k(flagname_p, "keep-clusters", flag_slen)) {
             fputs("Note: --keep-clusters flag deprecated.  Use --keep-cats instead.\n", stdout);
-            strcpy(flagname_write_iter, "keep-cats");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "keep-cats");
           } else if (strequal_k(flagname_p, "keep-cluster-names", flag_slen)) {
             fputs("Note: --keep-cluster-names flag deprecated.  Use --keep-cat-names instead.\n", stdout);
-            strcpy(flagname_write_iter, "keep-cat-names");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "keep-cat-names");
           } else if (strequal_k(flagname_p, "keep-if-info", flag_slen)) {
             fputs("Note: --keep-if-info renamed to --extract-if-info, for consistency with other\nsample/variant filters (keep/remove = sample filter; extract/exclude = variant\nfilter).\n", stdout);
-            strcpy(flagname_write_iter, "extract-if-info");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "extract-if-info");
           } else {
             goto main_flag_copy;
           }
           break;
         case 'l':
           if (strequal_k(flagname_p, "linear", flag_slen) || strequal_k(flagname_p, "logistic", flag_slen)) {
-            strcpy(flagname_write_iter, "glm");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "glm");
           } else {
             goto main_flag_copy;
           }
           break;
         case 'm':
           if (strequal_k(flagname_p, "min-ac", flag_slen)) {
-            strcpy(flagname_write_iter, "mac");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "mac");
           } else if (strequal_k(flagname_p, "max-ac", flag_slen)) {
-            strcpy(flagname_write_iter, "max-mac");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "max-mac");
           } else if (strequal_k(flagname_p, "make-bfile", flag_slen)) {
-            strcpy(flagname_write_iter, "make-bed");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "make-bed");
           } else if (strequal_k(flagname_p, "make-bpfile", flag_slen)) {
-            strcpy(flagname_write_iter, "make-bpgen");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "make-bpgen");
           } else if (strequal_k(flagname_p, "make-pfile", flag_slen)) {
-            strcpy(flagname_write_iter, "make-pgen");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "make-pgen");
           } else if (strequal_k(flagname_p, "missing_code", flag_slen)) {
-            strcpy(flagname_write_iter, "missing-code");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "missing-code");
           } else if (strequal_k(flagname_p, "max-indv", flag_slen)) {
-            strcpy(flagname_write_iter, "thin-indiv-count");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "thin-indiv-count");
           } else {
             goto main_flag_copy;
           }
           break;
         case 'n':
           if (strequal_k(flagname_p, "num_threads", flag_slen)) {
-            strcpy(flagname_write_iter, "threads");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "threads");
           } else if (strequal_k(flagname_p, "no-pheno", flag_slen) ||
                      strequal_k(flagname_p, "no-fam-pheno", flag_slen)) {
-            strcpy(flagname_write_iter, "no-psam-pheno");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "no-psam-pheno");
           } else {
             goto main_flag_copy;
           }
           break;
         case 'p':
           if (strequal_k(flagname_p, "prune", flag_slen)) {
-            strcpy(flagname_write_iter, "require-pheno");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "require-pheno");
           } else {
             goto main_flag_copy;
           }
@@ -2913,39 +2914,39 @@ int main(int argc, char** argv) {
             uint32_t format_param_idxs;
             get_exportf_targets(&(argvc[arg_idx]), param_ct, &dummy, &dummy2, &format_param_idxs);
             if (!format_param_idxs) {
-              strcpy(flagname_write_iter, "export ped");
+              snprintf(flagname_write_iter, kMaxFlagBlen, "export ped");
             } else {
-              strcpy(flagname_write_iter, "export");
+              snprintf(flagname_write_iter, kMaxFlagBlen, "export");
             }
           } else if (strequal_k(flagname_p, "remove-founders", flag_slen)) {
-            strcpy(flagname_write_iter, "keep-founders");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "keep-founders");
           } else if (strequal_k(flagname_p, "remove-nonfounders", flag_slen)) {
-            strcpy(flagname_write_iter, "keep-nonfounders");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "keep-nonfounders");
           } else if (strequal_k(flagname_p, "remove-clusters", flag_slen)) {
             fputs("Note: --remove-clusters flag deprecated.  Use --remove-cats instead.\n", stdout);
-            strcpy(flagname_write_iter, "remove-cats");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "remove-cats");
           } else if (strequal_k(flagname_p, "remove-cluster-names", flag_slen)) {
             fputs("Note: --remove-cluster-names flag deprecated.  Use --remove-cat-names instead.\n", stdout);
-            strcpy(flagname_write_iter, "remove-cat-names");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "remove-cat-names");
           } else if (strequal_k(flagname_p, "remove-if-info", flag_slen)) {
             fputs("Note: --remove-if-info renamed to --exclude-if-info, for consistency with other\nsample/variant filters (keep/remove = sample filter; extract/exclude = variant\nfilter).\n", stdout);
-            strcpy(flagname_write_iter, "exclude-if-info");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "exclude-if-info");
           } else {
             goto main_flag_copy;
           }
           break;
         case 't':
           if (strequal_k(flagname_p, "thread-num", flag_slen)) {
-            strcpy(flagname_write_iter, "threads");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "threads");
           } else {
             goto main_flag_copy;
           }
           break;
         case 'v':
           if (strequal_k(flagname_p, "vcf-filter", flag_slen)) {
-            strcpy(flagname_write_iter, "var-filter");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "var-filter");
           } else if (strequal_k(flagname_p, "vcf-min-qual", flag_slen)) {
-            strcpy(flagname_write_iter, "var-min-qual");
+            snprintf(flagname_write_iter, kMaxFlagBlen, "var-min-qual");
           } else {
             goto main_flag_copy;
           }
@@ -3390,17 +3391,19 @@ int main(int argc, char** argv) {
           }
           const char* fname_prefix = argvc[arg_idx + fname_modif_idx];
           const uint32_t slen = strlen(fname_prefix);
-          if (slen > (kPglFnamesize - 9)) {
+          // pathological case bugfix (1 Feb 2018): need to subtract 1 more, to
+          // avoid buffer overflow in the case we rename and append '~'.
+          if (slen > (kPglFnamesize - 10)) {
             // could use kPglFnamesize - 2 - 3 * param_ct, but that's pointless
             logerrprint("Error: --bfile parameter too long.\n");
             goto main_ret_OPEN_FAIL;
           }
-          strcpy(memcpya(pgenname, fname_prefix, slen), ".bed");
-          strcpy(memcpya(psamname, fname_prefix, slen), ".fam");
+          snprintf(memcpya(pgenname, fname_prefix, slen), 9, ".bed");
+          snprintf(memcpya(psamname, fname_prefix, slen), 9, ".fam");
           char* bimname_end = memcpya(pvarname, fname_prefix, slen);
           bimname_end = strcpya0(bimname_end, ".bim");
           if (param_ct == 2) {
-            strcpy(bimname_end, ".zst");
+            snprintf(bimname_end, 5, ".zst");
           }
           load_params |= kfLoadParamsPfileAll;
         } else if (strequal_k2(flagname_p2, "pfile")) {
@@ -3419,16 +3422,16 @@ int main(int argc, char** argv) {
           }
           const char* fname_prefix = argvc[arg_idx + fname_modif_idx];
           const uint32_t slen = strlen(fname_prefix);
-          if (slen > (kPglFnamesize - 9)) {
+          if (slen > (kPglFnamesize - 10)) {
             logerrprint("Error: --bpfile parameter too long.\n");
             goto main_ret_OPEN_FAIL;
           }
-          strcpy(memcpya(pgenname, fname_prefix, slen), ".pgen");
-          strcpy(memcpya(psamname, fname_prefix, slen), ".fam");
+          snprintf(memcpya(pgenname, fname_prefix, slen), 9, ".pgen");
+          snprintf(memcpya(psamname, fname_prefix, slen), 9, ".fam");
           char* bimname_end = memcpya(pvarname, fname_prefix, slen);
           bimname_end = strcpya0(bimname_end, ".bim");
           if (param_ct == 2) {
-            strcpy(bimname_end, ".zst");
+            snprintf(bimname_end, 5, ".zst");
           }
           load_params |= kfLoadParamsPfileAll;
         } else if (strequal_k2(flagname_p2, "iallelic-only")) {
@@ -3805,11 +3808,11 @@ int main(int argc, char** argv) {
             char* genname_end = memcpya(pgenname, fname_prefix, slen);
             genname_end = strcpya0(genname_end, ".gen");
             if (is_gzs) {
-              strcpy(genname_end, ".zst");
+              snprintf(genname_end, 5, ".zst");
             }
             xload |= kfXloadOxGen;
           }
-          strcpy(memcpya(psamname, fname_prefix, slen), ".sample");
+          snprintf(memcpya(psamname, fname_prefix, slen), 9, ".sample");
           xload |= kfXloadOxSample;
         } else if (strequal_k2(flagname_p2, "osage-erase-threshold")) {
           if (enforce_param_ct_range(argvc[arg_idx], param_ct, 1, 1)) {
@@ -3821,7 +3824,7 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --dosage-erase-threshold parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-          pc.dosage_erase_thresh = (int32_t)(dosage_erase_frac * ((1 + kSmallEpsilon) * kDosageMid));
+          pc.dosage_erase_thresh = S_CAST(int32_t, dosage_erase_frac * ((1 + kSmallEpsilon) * kDosageMid));
         } else if (strequal_k2(flagname_p2, "ummy")) {
           if (load_params || xload) {
             goto main_ret_INVALID_CMDLINE_INPUT_CONFLICT;
@@ -3988,7 +3991,7 @@ int main(int argc, char** argv) {
           }
           // can't have e.g. bgen-1.1 and bgen-1.2 simultaneously, since they
           // have the same extension and different content.
-          const uint64_t bgen_flags = (uint64_t)(pc.exportf_modifier & (kfExportfBgen11 | kfExportfBgen12 | kfExportfBgen13));
+          const uint64_t bgen_flags = S_CAST(uint64_t, pc.exportf_modifier & (kfExportfBgen11 | kfExportfBgen12 | kfExportfBgen13));
           if (bgen_flags & (bgen_flags - 1)) {
             logerrprint("Error: Multiple --export bgen versions.\n");
             goto main_ret_INVALID_CMDLINE;
@@ -4036,7 +4039,7 @@ int main(int argc, char** argv) {
                 logerrprint("Error: --export id-delim= value must be a single character.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
-              if ((((unsigned char)pc.exportf_id_delim) < ' ') || (pc.exportf_id_delim == '0')) {
+              if ((ctou32(pc.exportf_id_delim) < ' ') || (pc.exportf_id_delim == '0')) {
                 logerrprint("Error: --export id-delim= value cannot be tab, newline, '0', or a nonprinting\ncharacter.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
@@ -4302,7 +4305,7 @@ int main(int argc, char** argv) {
               LOGERRPRINTF("Error: --from-bp/-kb/-mb parameter '%s' too large.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_A;
             }
-            pc.from_bp = 1 + (int32_t)(dxx * (1 - kSmallEpsilon));
+            pc.from_bp = 1 + S_CAST(int32_t, dxx * (1 - kSmallEpsilon));
           }
           pc.filter_flags |= kfFilterPvarReq | kfFilterNoSplitChr;
         } else if (strequal_k2(flagname_p2, "orce-intersect")) {
@@ -4537,7 +4540,7 @@ int main(int argc, char** argv) {
             logerrprint("Error: --glm 'perm' and 'mperm=' cannot be used together.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          uint32_t alternate_genotype_col_flags = (uint32_t)(pc.glm_info.flags & (kfGlmGenotypic | kfGlmHethom | kfGlmDominant | kfGlmRecessive));
+          uint32_t alternate_genotype_col_flags = S_CAST(uint32_t, pc.glm_info.flags & (kfGlmGenotypic | kfGlmHethom | kfGlmDominant | kfGlmRecessive));
           if (alternate_genotype_col_flags) {
             pc.xchr_model = 0;
             if (alternate_genotype_col_flags & (alternate_genotype_col_flags - 1)) {
@@ -4690,7 +4693,7 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --hard-call-threshold parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-          pc.hard_call_thresh = (int32_t)(hard_call_frac * ((1 + kSmallEpsilon) * kDosageMid));
+          pc.hard_call_thresh = S_CAST(int32_t, hard_call_frac * ((1 + kSmallEpsilon) * kDosageMid));
         } else if (strequal_k2(flagname_p2, "orse")) {
           if (chr_info.chrset_source) {
             logerrprint("Error: Conflicting chromosome-set flags.\n");
@@ -4798,7 +4801,7 @@ int main(int argc, char** argv) {
               logerrprint("Error: --id-delim parameter must be a single character.\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
-            if (((unsigned char)id_delim) < ' ') {
+            if (ctou32(id_delim) < ' ') {
               logerrprint("Error: --id-delim parameter cannot be tab, newline, or a nonprinting character.\n");
               goto main_ret_INVALID_CMDLINE;
             }
@@ -4833,7 +4836,7 @@ int main(int argc, char** argv) {
             if (first_paramd > 2147483.646) {
               pc.ld_info.prune_window_size = 2147483646;
             } else {
-              pc.ld_info.prune_window_size = ((int32_t)(first_paramd * 1000 * (1 + kSmallEpsilon)));
+              pc.ld_info.prune_window_size = S_CAST(int32_t, first_paramd * 1000 * (1 + kSmallEpsilon));
               if (pc.ld_info.prune_window_size < 2) {
                 snprintf(g_logbuf, kLogbufSize, "Error: --%s window size cannot be smaller than 2.\n", flagname_p);
                 goto main_ret_INVALID_CMDLINE_2A;
@@ -4843,7 +4846,7 @@ int main(int argc, char** argv) {
             if (first_paramd > 2147483647) {
               pc.ld_info.prune_window_size = 2147483647;
             } else {
-              pc.ld_info.prune_window_size = ((int32_t)first_paramd);
+              pc.ld_info.prune_window_size = S_CAST(int32_t, first_paramd);
             }
           }
           if (next_param_idx + 2 == param_ct) {
@@ -4887,7 +4890,7 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvc[arg_idx + 1];
           input_missing_geno_char = extract_char_param(cur_modif);
-          if (((unsigned char)input_missing_geno_char) <= ' ') {
+          if (ctou32(input_missing_geno_char) <= ' ') {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --input-missing-genotype parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -4897,7 +4900,7 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvc[arg_idx + 1];
           double dxx;
-          if (scan_int32(cur_modif, &pc.missing_pheno) || ((pc.missing_pheno >= 0) && (pc.missing_pheno <= 2)) || (!scanadv_double(cur_modif, &dxx)) || (dxx != ((double)pc.missing_pheno))) {
+          if (scan_int32(cur_modif, &pc.missing_pheno) || ((pc.missing_pheno >= 0) && (pc.missing_pheno <= 2)) || (!scanadv_double(cur_modif, &dxx)) || (dxx != S_CAST(double, pc.missing_pheno))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --input-missing-phenotype parameter '%s' (must be an integer in [-2147483647, -1] or [3, 2147483647]).\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -4925,7 +4928,7 @@ int main(int argc, char** argv) {
             if (strequal_k(cur_modif, "noheader", cur_modif_slen)) {
               plink1_dosage_info.flags |= kfPlink1DosageNoheader;
             } else if ((cur_modif_slen > 6) && str_startswith2(cur_modif, "skip") && (cur_modif[4] >= '0') && (cur_modif[4] <= '2') && (cur_modif[5] == '=')) {
-              const uint32_t skip_idx = (uint32_t)((unsigned char)cur_modif[4]) - 48;
+              const uint32_t skip_idx = ctou32(cur_modif[4]) - 48;
               if (plink1_dosage_info.skips[skip_idx]) {
                 LOGERRPRINTF("Error: Multiple --import-dosage skip%u= modifiers.\n", skip_idx);
                 goto main_ret_INVALID_CMDLINE;
@@ -4943,7 +4946,7 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE;
               }
               if (cur_modif_slen == 8) {
-                format_num_m1 = (uint32_t)((unsigned char)cur_modif[7]) - 49;
+                format_num_m1 = ctou32(cur_modif[7]) - 49;
                 if (format_num_m1 >= 3) {
                   snprintf(g_logbuf, kLogbufSize, "Error: Invalid --import-dosage format= parameter '%c'.\n", cur_modif[7]);
                   goto main_ret_INVALID_CMDLINE_2A;
@@ -5363,16 +5366,16 @@ int main(int argc, char** argv) {
             memory_require = 1;
           }
           const char* mb_modif = argvc[arg_idx + mb_modif_idx];
-          if (scan_posintptr(mb_modif, (uintptr_t*)(&malloc_size_mb))) {
+          if (scan_posintptr(mb_modif, R_CAST(uintptr_t*, &malloc_size_mb))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --memory parameter '%s'.\n", mb_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-          if (malloc_size_mb < (intptr_t)kBigstackMinMb) {
+          if (malloc_size_mb < S_CAST(intptr_t, kBigstackMinMb)) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --memory parameter '%s' (minimum %u).\n", mb_modif, kBigstackMinMb);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
 #ifndef __LP64__
-          if (malloc_size_mb > (intptr_t)kMalloc32bitMbMax) {
+          if (malloc_size_mb > S_CAST(intptr_t, kMalloc32bitMbMax)) {
             LOGERRPRINTF("Error: --memory parameter too large for 32-bit version (max %u).\n", kMalloc32bitMbMax);
             goto main_ret_INVALID_CMDLINE;
           }
@@ -5452,7 +5455,7 @@ int main(int argc, char** argv) {
                 logerrprint("Error: Multiple --make-bpgen format= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              const uint32_t fcode_minus_2 = ((uint32_t)((unsigned char)cur_modif[7])) - 50;
+              const uint32_t fcode_minus_2 = ctou32(cur_modif[7]) - 50;
               if ((fcode_minus_2 > 2) || cur_modif[8]) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-bpgen format code '%s'.\n", &(cur_modif[7]));
                 goto main_ret_INVALID_CMDLINE_WWA;
@@ -5462,7 +5465,7 @@ int main(int argc, char** argv) {
                 reterr = kPglRetNotYetSupported;
                 goto main_ret_1;
               }
-              make_plink2_modifier = (make_plink2_t)(make_plink2_modifier | (kfMakePgenFormatBase * (1 + fcode_minus_2)));
+              make_plink2_modifier = S_CAST(make_plink2_t, make_plink2_modifier | (kfMakePgenFormatBase * (1 + fcode_minus_2)));
             } else if (str_startswith(cur_modif, "m=", cur_modif_slen) ||
                        str_startswith(cur_modif, "multiallelics=", cur_modif_slen)) {
               if (make_plink2_modifier & kfMakePlink2MMask) {
@@ -5542,7 +5545,7 @@ int main(int argc, char** argv) {
                 logerrprint("Error: Multiple --make-pgen format= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              const uint32_t fcode_minus_2 = ((uint32_t)((unsigned char)cur_modif[7])) - 50;
+              const uint32_t fcode_minus_2 = ctou32(cur_modif[7]) - 50;
               if ((fcode_minus_2 > 2) || cur_modif[8]) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-pgen format code '%s'.\n", &(cur_modif[7]));
                 goto main_ret_INVALID_CMDLINE_WWA;
@@ -5552,7 +5555,7 @@ int main(int argc, char** argv) {
                 reterr = kPglRetNotYetSupported;
                 goto main_ret_1;
               }
-              make_plink2_modifier = (make_plink2_t)(make_plink2_modifier | (kfMakePgenFormatBase * (1 + fcode_minus_2)));
+              make_plink2_modifier = S_CAST(make_plink2_t, make_plink2_modifier | (kfMakePgenFormatBase * (1 + fcode_minus_2)));
             } else if (str_startswith(cur_modif, "m=", cur_modif_slen) ||
                        str_startswith(cur_modif, "multiallelics=", cur_modif_slen)) {
               if (make_plink2_modifier & kfMakePlink2MMask) {
@@ -5955,9 +5958,9 @@ int main(int argc, char** argv) {
           }
           if (dxx > 0.0) {
             // round up, but keep as much precision as possible
-            int32_t int_part = (int32_t)dxx;
+            int32_t int_part = S_CAST(int32_t, dxx);
             dxx -= int_part;
-            pc.min_allele_dosage = int_part * ((uint64_t)kDosageMax);
+            pc.min_allele_dosage = int_part * S_CAST(uint64_t, kDosageMax);
             if (dxx > 0.0) {
               pc.min_allele_dosage += 1 + (dxx * (kDosageMax * (1 - kSmallEpsilon)));
             }
@@ -5975,7 +5978,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           // round down
-          pc.max_allele_dosage = (int64_t)(dxx * kDosageMax);
+          pc.max_allele_dosage = S_CAST(int64_t, dxx * kDosageMax);
           if (pc.max_allele_dosage < pc.min_allele_dosage) {
             // yeah, --mac 0.1 --max-mac 0.1 also isn't allowed
             logerrprint("Error: --max-mac parameter cannot be smaller than --mac parameter.\n");
@@ -6357,7 +6360,7 @@ int main(int argc, char** argv) {
           pc.pheno_range_list.name_ct = 1;
           char* write_iter = uint32toa(pheno_col_nums_arg, pc.pheno_range_list.names);
           *write_iter++ = '\0';
-          pc.pheno_range_list.starts_range = (unsigned char*)write_iter;
+          pc.pheno_range_list.starts_range = R_CAST(unsigned char*, write_iter);
           *write_iter = '\0';
           pc.misc_flags |= kfMiscPhenoColNums;
         } else {
@@ -6497,7 +6500,7 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvc[arg_idx + 1];
           output_missing_geno_char = extract_char_param(cur_modif);
-          if (((unsigned char)output_missing_geno_char) <= ' ') {
+          if (ctou32(output_missing_geno_char) <= ' ') {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --output-missing-genotype parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -6535,16 +6538,16 @@ int main(int argc, char** argv) {
           }
           const char* fname_prefix = argvc[arg_idx + fname_modif_idx];
           const uint32_t slen = strlen(fname_prefix);
-          if (slen > (kPglFnamesize - 10)) {
+          if (slen > (kPglFnamesize - 11)) {
             logerrprint("Error: --pfile parameter too long.\n");
             goto main_ret_OPEN_FAIL;
           }
-          strcpy(memcpya(pgenname, fname_prefix, slen), ".pgen");
-          strcpy(memcpya(psamname, fname_prefix, slen), ".psam");
+          snprintf(memcpya(pgenname, fname_prefix, slen), 10, ".pgen");
+          snprintf(memcpya(psamname, fname_prefix, slen), 10, ".psam");
           char* pvarname_end = memcpya(pvarname, fname_prefix, slen);
           pvarname_end = strcpya0(pvarname_end, ".pvar");
           if (param_ct == 2) {
-            strcpy(pvarname_end, ".zst");
+            snprintf(pvarname_end, 5, ".zst");
           }
           load_params |= kfLoadParamsPfileAll;
         } else if (strequal_k2(flagname_p2, "gen")) {
@@ -6557,7 +6560,7 @@ int main(int argc, char** argv) {
           load_params |= kfLoadParamsPgen;
           const char* fname = argvc[arg_idx + 1];
           const uint32_t slen = strlen(fname);
-          if (slen > (kPglFnamesize - 1)) {
+          if (slen > (kPglFnamesize - 2)) {
             logerrprint("Error: --pgen parameter too long.\n");
             goto main_ret_OPEN_FAIL;
           }
@@ -6572,7 +6575,7 @@ int main(int argc, char** argv) {
           load_params |= kfLoadParamsPsam;
           const char* fname = argvc[arg_idx + 1];
           const uint32_t slen = strlen(fname);
-          if (slen > (kPglFnamesize - 1)) {
+          if (slen > (kPglFnamesize - 2)) {
             logerrprint("Error: --psam parameter too long.\n");
             goto main_ret_OPEN_FAIL;
           }
@@ -6587,7 +6590,7 @@ int main(int argc, char** argv) {
           load_params |= kfLoadParamsPvar;
           const char* fname = argvc[arg_idx + 1];
           const uint32_t slen = strlen(fname);
-          if (slen > (kPglFnamesize - 1)) {
+          if (slen > (kPglFnamesize - 2)) {
             logerrprint("Error: --pvar parameter too long.\n");
             goto main_ret_OPEN_FAIL;
           }
@@ -7184,6 +7187,10 @@ int main(int argc, char** argv) {
               pc.score_info.flags |= kfScoreHeaderRead;
             } else if (strequal_k(cur_modif, "no-mean-imputation", cur_modif_slen)) {
               pc.score_info.flags |= kfScoreNoMeanimpute;
+            } else if (strequal_k(cur_modif, "dominant", cur_modif_slen)) {
+              pc.score_info.flags |= kfScoreDominant;
+            } else if (strequal_k(cur_modif, "recessive", cur_modif_slen)) {
+              pc.score_info.flags |= kfScoreRecessive;
             } else if (strequal_k(cur_modif, "center", cur_modif_slen)) {
               pc.score_info.flags |= kfScoreCenter;
             } else if (strequal_k(cur_modif, "variance-standardize", cur_modif_slen)) {
@@ -7229,6 +7236,11 @@ int main(int argc, char** argv) {
             logerrprint("Error: --score 'header' and 'header-read' modifiers cannot be used together.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
+          uint32_t model_flags_u = S_CAST(uint32_t, pc.score_info.flags & (kfScoreDominant | kfScoreRecessive | kfScoreCenter | kfScoreVarianceStandardize));
+          if (model_flags_u & (model_flags_u - 1)) {
+            logerrprint("Error: --score 'dominant', 'recessive', 'center', and 'variance-standardize'\nmodifiers are mutually exclusive.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
           if (!(pc.score_info.flags & kfScoreColAll)) {
             pc.score_info.flags |= kfScoreColDefault;
           }
@@ -7253,7 +7265,7 @@ int main(int argc, char** argv) {
             pc.score_info.input_col_idx_range_list.name_ct = 1;
             uint32toa_x(col_idx, '\0', new_buf);
             new_buf[col_idx_blen] = '\0';
-            pc.score_info.input_col_idx_range_list.starts_range = (unsigned char*)(&(new_buf[col_idx_blen]));
+            pc.score_info.input_col_idx_range_list.starts_range = R_CAST(unsigned char*, &(new_buf[col_idx_blen]));
           }
           pc.command_flags1 |= kfCommand1Score;
           pc.dependency_flags |= kfFilterAllReq;
@@ -7396,7 +7408,7 @@ int main(int argc, char** argv) {
             pc.to_bp = 0x7ffffffe;
           } else {
             // round down
-            pc.to_bp = (int32_t)(dxx * (1 + kSmallEpsilon));
+            pc.to_bp = S_CAST(int32_t, dxx * (1 + kSmallEpsilon));
           }
           if (pc.from_bp > pc.to_bp) {
             // (if we do permit this, rounding must be postponed)
@@ -7621,7 +7633,7 @@ int main(int argc, char** argv) {
             logerrprint("Error: --vcf-idspace-to parameter must be a single character.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (((unsigned char)idspace_to) <= ' ') {
+          if (ctou32(idspace_to) <= ' ') {
             logerrprint("Error: --vcf-idspace-to parameter must be a nonspace character.\n");
             goto main_ret_INVALID_CMDLINE;
           }
@@ -7742,7 +7754,7 @@ int main(int argc, char** argv) {
           if (dxx > 2147483646) {
             pc.window_bp = 0x7ffffffe;
           } else {
-            pc.window_bp = (int32_t)dxx;
+            pc.window_bp = S_CAST(int32_t, dxx);
           }
           pc.filter_flags |= kfFilterNoSplitChr;
           // no need to set kfFilterPvarReq due to --snp/--exclude-snp req.
@@ -7824,7 +7836,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvc[arg_idx + 1];
-          pc.xchr_model = ((uint32_t)extract_char_param(cur_modif)) - 48;
+          pc.xchr_model = ctou32(extract_char_param(cur_modif)) - 48;
           if (pc.xchr_model > 2) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --xchr-model parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
@@ -7961,7 +7973,7 @@ int main(int argc, char** argv) {
     }
 
     if (!rseeds) {
-      uint32_t seed = (uint32_t)time(nullptr);
+      uint32_t seed = S_CAST(uint32_t, time(nullptr));
       snprintf(g_logbuf, kLogbufSize, "Random number seed: %u\n", seed);
       logstr(g_logbuf);
       sfmt_init_gen_rand(&g_sfmt, seed);
@@ -7978,8 +7990,8 @@ int main(int argc, char** argv) {
     if (cmdline_parse_phase3(0, malloc_size_mb, memory_require, &pcm, &bigstack_ua)) {
       goto main_ret_NOMEM;
     }
-    g_input_missing_geno_ptr = &(g_one_char_strs[2 * ((unsigned char)input_missing_geno_char)]);
-    g_output_missing_geno_ptr = &(g_one_char_strs[2 * ((unsigned char)output_missing_geno_char)]);
+    g_input_missing_geno_ptr = &(g_one_char_strs[2 * ctou32(input_missing_geno_char)]);
+    g_output_missing_geno_ptr = &(g_one_char_strs[2 * ctou32(output_missing_geno_char)]);
     // pigz_init(pc.max_thread_ct);
 
     if (pc.max_thread_ct > 8) {
@@ -8036,7 +8048,7 @@ int main(int argc, char** argv) {
             double dxx;
             const char* num_end = scanadv_double(g_output_missing_pheno, &dxx);
             if (num_end) {
-              if (dxx != ((double)pc.missing_pheno)) {
+              if (dxx != S_CAST(double, pc.missing_pheno)) {
                 logerrprint("Error: --output-missing-phenotype and --input-missing-phenotype parameters\ncannot be inconsistent when --keep-autoconv is specified.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
@@ -8050,7 +8062,7 @@ int main(int argc, char** argv) {
         } else {
           pc.misc_flags |= kfMiscKeepAutoconv;
         }
-        const uint32_t convname_slen = (uintptr_t)(convname_end - outname);
+        const uint32_t convname_slen = convname_end - outname;
         uint32_t pgen_generated = 1;
         uint32_t psam_generated = 1;
         if (xload & kfXloadVcf) {
@@ -8085,11 +8097,11 @@ int main(int argc, char** argv) {
         pc.hard_call_thresh = UINT32_MAX;
 
         if (pgen_generated) {
-          strcpy(memcpya(pgenname, outname, convname_slen), ".pgen");
+          snprintf(memcpya(pgenname, outname, convname_slen), kMaxOutfnameExtBlen - 10, ".pgen");
         }
-        strcpy(memcpya(pvarname, outname, convname_slen), ".pvar");
+        snprintf(memcpya(pvarname, outname, convname_slen), kMaxOutfnameExtBlen - 10, ".pvar");
         if (psam_generated) {
-          strcpy(memcpya(psamname, outname, convname_slen), ".psam");
+          snprintf(memcpya(psamname, outname, convname_slen), kMaxOutfnameExtBlen - 10, ".psam");
         }
         if (!(pc.misc_flags & kfMiscKeepAutoconv)) {
           if (pgen_generated) {
@@ -8255,7 +8267,7 @@ int main(int argc, char** argv) {
   if (file_delete_list) {
     do {
       ll_str_t* llstr_ptr = file_delete_list->next;
-      unlink(file_delete_list->ss);
+      unlink(file_delete_list->str);
       free(file_delete_list);
       file_delete_list = llstr_ptr;
     } while (file_delete_list);
@@ -8282,5 +8294,5 @@ int main(int argc, char** argv) {
   if (bigstack_ua) {
     free(bigstack_ua);
   }
-  return (uint32_t)reterr;
+  return S_CAST(uint32_t, reterr);
 }

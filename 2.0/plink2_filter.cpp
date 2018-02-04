@@ -151,11 +151,12 @@ pglerr_t snp_flag(const uint32_t* variant_bps, const char* const* variant_ids, c
       const uint32_t chr_fo_idx = get_variant_chr_fo_idx(cip, variant_uidx);
       const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
       const uint32_t center_bp = variant_bps[variant_uidx];
+      const uint32_t window_bp_u = window_bp;
       uint32_t vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
-      if (center_bp > (uint32_t)window_bp) {
-        vidx_start += uint32arr_greater_than(&(variant_bps[vidx_start]), chr_vidx_end - vidx_start, center_bp - (uint32_t)window_bp);
+      if (center_bp > window_bp_u) {
+        vidx_start += uint32arr_greater_than(&(variant_bps[vidx_start]), chr_vidx_end - vidx_start, center_bp - window_bp_u);
       }
-      const uint32_t bp_end = 1 + center_bp + (uint32_t)window_bp;
+      const uint32_t bp_end = 1 + center_bp + window_bp_u;
       const uint32_t vidx_end = vidx_start + uint32arr_greater_than(&(variant_bps[vidx_start]), chr_vidx_end - vidx_start, bp_end);
       if (do_exclude) {
         clear_bits_nz(vidx_start, vidx_end, variant_include);
@@ -372,7 +373,7 @@ void random_thin_prob(const char* flagname_p, const char* unitname, double thin_
   if (!orig_item_ct) {
     return;
   }
-  const uint32_t uint32_thresh = (uint32_t)(thin_keep_prob * 4294967296.0 + 0.5);
+  const uint32_t uint32_thresh = S_CAST(uint32_t, thin_keep_prob * 4294967296.0 + 0.5);
   uint32_t item_uidx = 0;
   for (uint32_t item_idx = 0; item_idx < orig_item_ct; ++item_idx, ++item_uidx) {
     next_set_unsafe_ck(item_include, &item_uidx);
@@ -407,7 +408,7 @@ pglerr_t random_thin_ct(const char* flagname_p, const char* unitname, uint32_t t
     // no actual interleaving here, but may as well use this function
     // note that this requires marker_ct >= 2
     generate_perm1_interleaved(orig_item_ct, thin_keep_ct, 0, 1, perm_buf, &g_sfmt);
-    expand_bytearr((unsigned char*)perm_buf, item_include, raw_item_ctl, orig_item_ct, 0, new_item_include);
+    expand_bytearr(perm_buf, item_include, raw_item_ctl, orig_item_ct, 0, new_item_include);
     memcpy(item_include, new_item_include, raw_item_ctl * sizeof(intptr_t));
     *item_ct_ptr = thin_keep_ct;
     LOGPRINTF("--%s: %u %s%s removed (%u remaining).\n", flagname_p, removed_ct, unitname, (removed_ct == 1)? "" : "s", thin_keep_ct);
@@ -449,7 +450,7 @@ pglerr_t keep_or_remove(const char* fnames, const char* sample_ids, const char* 
     } else {
       loadbuf_size = round_up_pow2(loadbuf_size, kCacheline);
     }
-    char* loadbuf = (char*)bigstack_alloc_raw(loadbuf_size);
+    char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
     loadbuf[loadbuf_size - 1] = ' ';
 
     const uint32_t families_only = flags & kfKeepFam;
@@ -467,8 +468,8 @@ pglerr_t keep_or_remove(const char* fnames, const char* sample_ids, const char* 
       for (uint32_t sample_idx = 0; sample_idx < orig_sample_ct; ++sample_idx, ++sample_uidx) {
         next_set_unsafe_ck(sample_include, &sample_uidx);
         const char* fidt_ptr = &(sample_ids[sample_uidx * max_sample_id_blen]);
-        const char* fidt_end = (const char*)rawmemchr(fidt_ptr, '\t');
-        const uint32_t cur_fidt_slen = 1 + (uintptr_t)(fidt_end - fidt_ptr);
+        const char* fidt_end = S_CAST(const char*, rawmemchr(fidt_ptr, '\t'));
+        const uint32_t cur_fidt_slen = 1 + S_CAST(uintptr_t, fidt_end - fidt_ptr);
         // include trailing tab, to simplify bsearch_str_lb() usage
         memcpyx(&(sorted_xidbox[sample_idx * max_xid_blen]), fidt_ptr, cur_fidt_slen, '\0');
         xid_map[sample_idx] = sample_uidx;
@@ -542,7 +543,7 @@ pglerr_t keep_or_remove(const char* fnames, const char* sample_ids, const char* 
           } else {
             char* token_end = token_endnn(loadbuf_first_token);
             *token_end = '\t';
-            const uint32_t slen = 1 + (uintptr_t)(token_end - loadbuf_first_token);
+            const uint32_t slen = 1 + S_CAST(uintptr_t, token_end - loadbuf_first_token);
             uint32_t lb_idx = bsearch_str_lb(loadbuf_first_token, sorted_xidbox, slen, max_xid_blen, orig_sample_ct);
             *token_end = ' ';
             const uint32_t ub_idx = bsearch_str_lb(loadbuf_first_token, sorted_xidbox, slen, max_xid_blen, orig_sample_ct);
@@ -660,7 +661,7 @@ pglerr_t keep_fcol(const char* fname, const char* sample_ids, const char* sids, 
     } else {
       loadbuf_size = round_up_pow2(loadbuf_size, kCacheline);
     }
-    char* loadbuf = (char*)bigstack_alloc_raw(loadbuf_size);
+    char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
     loadbuf[loadbuf_size - 1] = ' ';
 
     reterr = gzopen_read_checked(fname, &gz_infile);
@@ -713,7 +714,7 @@ pglerr_t keep_fcol(const char* fname, const char* sample_ids, const char* sids, 
       do {
         ++postid_col_idx;
         const char* token_end = token_endnn(loadbuf_iter);
-        if (((uintptr_t)(token_end - loadbuf_iter) == col_name_slen) && (!memcmp(loadbuf_iter, col_name, col_name_slen))) {
+        if ((S_CAST(uintptr_t, token_end - loadbuf_iter) == col_name_slen) && (!memcmp(loadbuf_iter, col_name, col_name_slen))) {
           if (already_found) {
             snprintf(g_logbuf, kLogbufSize, "Error: Multiple columns in --keep-fcol file are named '%s'.\n", col_name);
             goto keep_fcol_ret_INCONSISTENT_INPUT_WW;
@@ -758,7 +759,7 @@ pglerr_t keep_fcol(const char* fname, const char* sample_ids, const char* sids, 
             goto keep_fcol_ret_MISSING_TOKENS;
           }
           const char* token_end = token_endnn(loadbuf_iter);
-          const int32_t ii = bsearch_str(loadbuf_iter, sorted_strbox, (uintptr_t)(token_end - loadbuf_iter), max_str_blen, str_ct);
+          const int32_t ii = bsearch_str(loadbuf_iter, sorted_strbox, token_end - loadbuf_iter, max_str_blen, str_ct);
           if (ii != -1) {
             for (; xid_idx_start < xid_idx_end; ++xid_idx_start) {
               const uint32_t sample_uidx = xid_map[xid_idx_start];
@@ -944,7 +945,7 @@ pglerr_t keep_remove_if(const cmp_expr_t* cmp_expr, const pheno_col_t* pheno_col
         goto keep_remove_if_ret_INCONSISTENT_INPUT_2;
       }
       if (is_remove) {
-        binary_op = (cmp_binary_op_t)(kCmpOperatorEq - (uint32_t)binary_op);
+        binary_op = S_CAST(cmp_binary_op_t, kCmpOperatorEq - S_CAST(uint32_t, binary_op));
       }
       const double* pheno_vals = cur_pheno_col->data.qt;
       uint32_t sample_uidx = 0;
@@ -1006,7 +1007,7 @@ pglerr_t keep_remove_if(const cmp_expr_t* cmp_expr, const pheno_col_t* pheno_col
       if (cur_pheno_col->type_code == kPhenoDtypeCc) {
         uint32_t val_12 = 0; // 1 = control, 2 = case
         if (val_slen == 1) {
-          val_12 = affection_01 + (uint32_t)((unsigned char)cur_val_str[0]) - 48;
+          val_12 = affection_01 + ctou32(cur_val_str[0]) - 48;
           if ((val_12 != 1) && (val_12 != 2)) {
             val_12 = 0;
           }
@@ -1338,10 +1339,10 @@ void compute_allele_freqs(const uintptr_t* variant_include, const uintptr_t* var
 
     tot_dosage += cur_maf_succ_dosage * cur_allele_ct;
     double* cur_allele_freqs_base = &(allele_freqs[variant_allele_idx_base - variant_uidx]);
-    const double tot_dosage_recip = 1.0 / ((double)((int64_t)tot_dosage));
+    const double tot_dosage_recip = 1.0 / u63tod(tot_dosage);
     const uint32_t cur_allele_ct_m1 = cur_allele_ct - 1;
     for (uint32_t allele_idx = 0; allele_idx < cur_allele_ct_m1; ++allele_idx) {
-      const double cur_dosage = (double)((int64_t)(cur_founder_allele_dosages[allele_idx] + cur_maf_succ_dosage));
+      const double cur_dosage = u63tod(cur_founder_allele_dosages[allele_idx] + cur_maf_succ_dosage);
       cur_allele_freqs_base[allele_idx] = cur_dosage * tot_dosage_recip;
     }
   }
@@ -1464,7 +1465,7 @@ pglerr_t read_allele_freqs(const uintptr_t* variant_include, const char* const* 
     } else {
       loadbuf_size = round_up_pow2(loadbuf_size, kCacheline);
     }
-    char* loadbuf = (char*)bigstack_alloc_raw(loadbuf_size);
+    char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
     loadbuf[loadbuf_size - 1] = ' ';
     uint32_t* variant_id_htable = nullptr;
     uint32_t variant_id_htable_size;
@@ -1487,7 +1488,7 @@ pglerr_t read_allele_freqs(const uintptr_t* variant_include, const char* const* 
       }
       loadbuf_first_token = skip_initial_spaces(loadbuf);
       // automatically skip header lines that start with '##' or '# '
-    } while (is_eoln_kns(*loadbuf_first_token) || ((*loadbuf_first_token == '#') && ((unsigned char)loadbuf_first_token[1] <= '#')));
+    } while (is_eoln_kns(*loadbuf_first_token) || ((*loadbuf_first_token == '#') && (ctou32(loadbuf_first_token[1]) <= '#')));
 
     uint32_t col_skips[kfReadFreqColNull];
     read_freq_colidx_t col_types[kfReadFreqColNull];
@@ -1527,7 +1528,7 @@ pglerr_t read_allele_freqs(const uintptr_t* variant_include, const char* const* 
       uint32_t col_idx = 0;
       while (1) {
         const char* token_end = token_endnn(loadbuf_iter);
-        const uint32_t token_slen = (uintptr_t)(token_end - loadbuf_iter);
+        const uint32_t token_slen = token_end - loadbuf_iter;
         read_freq_colidx_t cur_colidx = kfReadFreqColNull;
         if (token_slen <= 4) {
           if (strequal_k(loadbuf_iter, "ID", token_slen)) {
@@ -1628,7 +1629,7 @@ pglerr_t read_allele_freqs(const uintptr_t* variant_include, const char* const* 
           is_numeq = 1;
         }
         if (cur_colidx != kfReadFreqColNull) {
-          const read_freq_colset_t cur_colset = (read_freq_colset_t)(1 << cur_colidx);
+          const read_freq_colset_t cur_colset = S_CAST(read_freq_colset_t, 1U << cur_colidx);
           if (header_cols & cur_colset) {
             logerrprint("Error: Conflicting columns in header line of --read-freq file.\n");
             goto read_allele_freqs_ret_MALFORMED_INPUT;
@@ -1793,13 +1794,13 @@ pglerr_t read_allele_freqs(const uintptr_t* variant_include, const char* const* 
       if (semifinal_header_cols != header_cols) {
         // remove redundant columns
         uint32_t relevant_col_idx_read = 0;
-        while ((((uint32_t)header_cols) >> col_types[relevant_col_idx_read]) & 1) {
+        while ((S_CAST(uint32_t, header_cols) >> col_types[relevant_col_idx_read]) & 1) {
           ++relevant_col_idx_read;
         }
         uint32_t relevant_col_idx_write = relevant_col_idx_read;
         for (; relevant_col_idx_read < relevant_col_ct; ++relevant_col_idx_read) {
           const read_freq_colidx_t cur_colidx = col_types[relevant_col_idx_read];
-          if ((((uint32_t)header_cols) >> cur_colidx) & 1) {
+          if ((S_CAST(uint32_t, header_cols) >> cur_colidx) & 1) {
             col_types[relevant_col_idx_write] = cur_colidx;
             col_skips[relevant_col_idx_write] = col_skips[relevant_col_idx_read];
             ++relevant_col_idx_write;
@@ -1910,7 +1911,7 @@ pglerr_t read_allele_freqs(const uintptr_t* variant_include, const char* const* 
           }
           token_ptrs[cur_colidx] = loadbuf_iter;
           char* token_end = token_endnn(loadbuf_iter);
-          token_slens[cur_colidx] = (uintptr_t)(token_end - loadbuf_iter);
+          token_slens[cur_colidx] = token_end - loadbuf_iter;
           loadbuf_iter = token_end;
         }
         const char* variant_id_start = token_ptrs[kfReadFreqColVarId];
@@ -1994,8 +1995,8 @@ pglerr_t read_allele_freqs(const uintptr_t* variant_include, const char* const* 
               goto read_allele_freqs_ret_MALFORMED_INPUT_WW;
             }
             cur_loaded_allele_code = loaded_allele_code_iter;
-            loaded_allele_code_iter = (char*)rawmemchr(loaded_allele_code_iter, ',');
-            cur_loaded_allele_code_slen = (uintptr_t)(loaded_allele_code_iter - cur_loaded_allele_code);
+            loaded_allele_code_iter = S_CAST(char*, rawmemchr(loaded_allele_code_iter, ','));
+            cur_loaded_allele_code_slen = loaded_allele_code_iter - cur_loaded_allele_code;
             *loaded_allele_code_iter++ = '\0';
           }
         }
@@ -2018,22 +2019,22 @@ pglerr_t read_allele_freqs(const uintptr_t* variant_include, const char* const* 
                 uint32_t second_loaded_allele_idx = UINT32_MAX;
                 uint32_t first_loaded_allele_idx;
 #ifdef __LP64__
-                if (scanadv_uint_capped(loaded_allele_ct - 1, &geno_num_cts_iter, &first_loaded_allele_idx)) {
+                if (scanmov_uint_capped(loaded_allele_ct - 1, &geno_num_cts_iter, &first_loaded_allele_idx)) {
                   goto read_allele_freqs_ret_INVALID_FREQS;
                 }
                 if (*geno_num_cts_iter == '/') {
                   ++geno_num_cts_iter;
-                  if (scanadv_uint_capped(loaded_allele_ct - 1, &geno_num_cts_iter, &second_loaded_allele_idx)) {
+                  if (scanmov_uint_capped(loaded_allele_ct - 1, &geno_num_cts_iter, &second_loaded_allele_idx)) {
                     goto read_allele_freqs_ret_INVALID_FREQS;
                   }
                 }
 #else
-                if (scanadv_uint_capped32(cap_div_10, cap_mod_10, &geno_num_cts_iter, &first_loaded_allele_idx)) {
+                if (scanmov_uint_capped32(cap_div_10, cap_mod_10, &geno_num_cts_iter, &first_loaded_allele_idx)) {
                   goto read_allele_freqs_ret_INVALID_FREQS;
                 }
                 if (*geno_num_cts_iter == '/') {
                   ++geno_num_cts_iter;
-                  if (scanadv_uint_capped32(cap_div_10, cap_mod_10, &geno_num_cts_iter, &second_loaded_allele_idx)) {
+                  if (scanmov_uint_capped32(cap_div_10, cap_mod_10, &geno_num_cts_iter, &second_loaded_allele_idx)) {
                     goto read_allele_freqs_ret_INVALID_FREQS;
                   }
                 }
@@ -2188,14 +2189,14 @@ pglerr_t read_allele_freqs(const uintptr_t* variant_include, const char* const* 
                   goto read_allele_freqs_ret_INVALID_FREQS;
                 }
                 if (!is_set(matched_loaded_alleles, allele_idx)) {
-                  alt_freq_iter = (const char*)rawmemchr(alt_freq_iter, ',');
+                  alt_freq_iter = S_CAST(const char*, rawmemchr(alt_freq_iter, ','));
                   continue;
                 }
                 double dxx;
                 const char* cur_freq_end = scanadv_double(alt_freq_iter, &dxx);
                 if (!cur_freq_end) {
-                  cur_freq_end = (const char*)rawmemchr(alt_freq_iter, ',');
-                  if (is_nan_str(alt_freq_iter, (uintptr_t)(cur_freq_end - alt_freq_iter))) {
+                  cur_freq_end = S_CAST(const char*, rawmemchr(alt_freq_iter, ','));
+                  if (is_nan_str(alt_freq_iter, cur_freq_end - alt_freq_iter)) {
                     goto read_allele_freqs_skip_variant;
                   }
                   goto read_allele_freqs_ret_INVALID_FREQS;
@@ -2217,14 +2218,14 @@ pglerr_t read_allele_freqs(const uintptr_t* variant_include, const char* const* 
                   const uint32_t cap_mod_10 = (loaded_allele_ct - 1) % 10;
 #endif
                   while (1) {
-                    const char* cur_entry_end = (char*)rawmemchr(alt_freq_iter, ',');
+                    const char* cur_entry_end = S_CAST(const char*, rawmemchr(alt_freq_iter, ','));
                     uint32_t loaded_allele_idx;
 #ifdef __LP64__
-                    if (scanadv_uint_capped(loaded_allele_ct - 1, TO_CONSTCPP(&alt_freq_iter), &loaded_allele_idx)) {
+                    if (scanmov_uint_capped(loaded_allele_ct - 1, TO_CONSTCPP(&alt_freq_iter), &loaded_allele_idx)) {
                       goto read_allele_freqs_ret_INVALID_FREQS;
                     }
 #else
-                    if (scanadv_uint_capped32(cap_div_10, cap_mod_10, TO_CONSTCPP(&alt_freq_iter), &loaded_allele_idx)) {
+                    if (scanmov_uint_capped32(cap_div_10, cap_mod_10, TO_CONSTCPP(&alt_freq_iter), &loaded_allele_idx)) {
                       goto read_allele_freqs_ret_INVALID_FREQS;
                     }
 #endif
@@ -2241,7 +2242,7 @@ pglerr_t read_allele_freqs(const uintptr_t* variant_include, const char* const* 
                       double dxx;
                       const char* cur_freq_end = scanadv_double(alt_freq_iter, &dxx);
                       if (!cur_freq_end) {
-                        if (is_nan_str(alt_freq_iter, (uintptr_t)(cur_entry_end - alt_freq_iter))) {
+                        if (is_nan_str(alt_freq_iter, S_CAST(uintptr_t, cur_entry_end - alt_freq_iter))) {
                           goto read_allele_freqs_skip_variant;
                         }
                         goto read_allele_freqs_ret_INVALID_FREQS;
@@ -2261,9 +2262,9 @@ pglerr_t read_allele_freqs(const uintptr_t* variant_include, const char* const* 
                   char* alt_freq_iter = alt_freq_start;
                   char* alt_freq_end = &(alt_freq_start[full_slen]);
                   while (1) {
-                    char* cur_entry_end = (char*)rawmemchr(alt_freq_iter, ',');
-                    const uint32_t cur_entry_slen = (uintptr_t)(cur_entry_end - alt_freq_iter);
-                    char* eq_ptr = (char*)memchr(alt_freq_iter, '=', cur_entry_slen);
+                    char* cur_entry_end = S_CAST(char*, rawmemchr(alt_freq_iter, ','));
+                    const uint32_t cur_entry_slen = S_CAST(uintptr_t, cur_entry_end - alt_freq_iter);
+                    char* eq_ptr = S_CAST(char*, memchr(alt_freq_iter, '=', cur_entry_slen));
                     if (!eq_ptr) {
                       goto read_allele_freqs_ret_INVALID_FREQS;
                     }
@@ -2283,7 +2284,7 @@ pglerr_t read_allele_freqs(const uintptr_t* variant_include, const char* const* 
                         double dxx;
                         const char* cur_freq_end = scanadv_double(alt_freq_iter, &dxx);
                         if (!cur_freq_end) {
-                          if (is_nan_str(alt_freq_iter, (uintptr_t)(cur_entry_end - alt_freq_iter))) {
+                          if (is_nan_str(alt_freq_iter, S_CAST(uintptr_t, cur_entry_end - alt_freq_iter))) {
                             goto read_allele_freqs_skip_variant;
                           }
                           goto read_allele_freqs_ret_INVALID_FREQS;
@@ -2314,11 +2315,11 @@ pglerr_t read_allele_freqs(const uintptr_t* variant_include, const char* const* 
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid allele count on line %" PRIuPTR " of --read-freq file.\n", line_idx);
               goto read_allele_freqs_ret_MALFORMED_INPUT_2;
             }
-            uint64_t obs_ct = obs_ct_raw + ((uint64_t)maf_succ) * cur_allele_ct;
+            uint64_t obs_ct = obs_ct_raw + S_CAST(uint64_t, maf_succ) * cur_allele_ct;
             if (!obs_ct) {
               goto read_allele_freqs_skip_variant;
             }
-            obs_ct_recip = 1.0 / (double)((int64_t)obs_ct);
+            obs_ct_recip = 1.0 / u63tod(obs_ct);
           }
           const uint32_t infer_freq_internal_idx = loaded_to_internal_allele_idx[infer_freq_loaded_idx];
           if (cur_allele_ct == 2) {
@@ -2519,7 +2520,7 @@ static uint32_t g_calc_thread_ct = 0;
 static pglerr_t g_error_ret = kPglRetSuccess;
 
 THREAD_FUNC_DECL load_sample_missing_cts_thread(void* arg) {
-  const uintptr_t tidx = (uintptr_t)arg;
+  const uintptr_t tidx = R_CAST(uintptr_t, arg);
   const uintptr_t* variant_include = g_variant_include;
   const chr_info_t* cip = g_cip;
   const uintptr_t* sex_male = g_sex_male;
@@ -2688,11 +2689,11 @@ pglerr_t load_sample_missing_cts(const uintptr_t* sex_male, const uintptr_t* var
     }
     const uintptr_t acc1_alloc = acc1_alloc_cacheline_ct * kCacheline;
     for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
-      g_missing_hc_acc1[tidx] = (uintptr_t*)bigstack_alloc_raw(acc1_alloc);
+      g_missing_hc_acc1[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(acc1_alloc));
       if (g_missing_dosage_acc1) {
-        g_missing_dosage_acc1[tidx] = (uintptr_t*)bigstack_alloc_raw(acc1_alloc);
+        g_missing_dosage_acc1[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(acc1_alloc));
       }
-      g_hethap_acc1[tidx] = (uintptr_t*)bigstack_alloc_raw(acc1_alloc);
+      g_hethap_acc1[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(acc1_alloc));
     }
     g_variant_include = variant_include;
     g_cip = cip;
@@ -2776,7 +2777,7 @@ pglerr_t load_sample_missing_cts(const uintptr_t* sex_male, const uintptr_t* var
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * ((uint64_t)variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
       }
 
       ++read_block_idx;
@@ -2790,23 +2791,23 @@ pglerr_t load_sample_missing_cts(const uintptr_t* sex_male, const uintptr_t* var
     uint32_t* scrambled_missing_hc_cts = nullptr;
     uint32_t* scrambled_missing_dosage_cts = nullptr;
     uint32_t* scrambled_hethap_cts = nullptr;
-    scrambled_missing_hc_cts = (uint32_t*)(&(g_missing_hc_acc1[0][acc32_offset]));
+    scrambled_missing_hc_cts = R_CAST(uint32_t*, &(g_missing_hc_acc1[0][acc32_offset]));
     if (g_missing_dosage_acc1) {
-      scrambled_missing_dosage_cts = (uint32_t*)(&(g_missing_dosage_acc1[0][acc32_offset]));
+      scrambled_missing_dosage_cts = R_CAST(uint32_t*, &(g_missing_dosage_acc1[0][acc32_offset]));
     }
-    scrambled_hethap_cts = (uint32_t*)(&(g_hethap_acc1[0][acc32_offset]));
+    scrambled_hethap_cts = R_CAST(uint32_t*, &(g_hethap_acc1[0][acc32_offset]));
     for (uint32_t tidx = 1; tidx < calc_thread_ct; ++tidx) {
-      uint32_t* thread_scrambled_missing_hc_cts = (uint32_t*)(&(g_missing_hc_acc1[tidx][acc32_offset]));
+      uint32_t* thread_scrambled_missing_hc_cts = R_CAST(uint32_t*, &(g_missing_hc_acc1[tidx][acc32_offset]));
       for (uint32_t uii = 0; uii < sample_ctv; ++uii) {
         scrambled_missing_hc_cts[uii] += thread_scrambled_missing_hc_cts[uii];
       }
       if (scrambled_missing_dosage_cts) {
-        uint32_t* thread_scrambled_missing_dosage_cts = (uint32_t*)(&(g_missing_dosage_acc1[tidx][acc32_offset]));
+        uint32_t* thread_scrambled_missing_dosage_cts = R_CAST(uint32_t*, &(g_missing_dosage_acc1[tidx][acc32_offset]));
         for (uint32_t uii = 0; uii < sample_ctv; ++uii) {
           scrambled_missing_dosage_cts[uii] += thread_scrambled_missing_dosage_cts[uii];
         }
       }
-      uint32_t* thread_scrambled_hethap_cts = (uint32_t*)(&(g_hethap_acc1[tidx][acc32_offset]));
+      uint32_t* thread_scrambled_hethap_cts = R_CAST(uint32_t*, &(g_hethap_acc1[tidx][acc32_offset]));
       for (uint32_t uii = 0; uii < sample_ctv; ++uii) {
         scrambled_hethap_cts[uii] += thread_scrambled_hethap_cts[uii];
       }
@@ -2854,8 +2855,8 @@ pglerr_t mind_filter(const uint32_t* sample_missing_cts, const uint32_t* sample_
 
     uint32_t max_missing_cts[2];
     mind_thresh *= 1 + kSmallEpsilon;
-    max_missing_cts[0] = (int32_t)((double)((int32_t)(variant_ct - variant_ct_y)) * mind_thresh);
-    max_missing_cts[1] = (int32_t)((double)((int32_t)variant_ct) * mind_thresh);
+    max_missing_cts[0] = S_CAST(int32_t, u31tod(variant_ct - variant_ct_y) * mind_thresh);
+    max_missing_cts[1] = S_CAST(int32_t, u31tod(variant_ct) * mind_thresh);
     uintptr_t* newly_excluded;
     if (bigstack_calloc_ul(raw_sample_ctl, &newly_excluded)) {
       goto mind_filter_ret_NOMEM;
@@ -2878,7 +2879,7 @@ pglerr_t mind_filter(const uint32_t* sample_missing_cts, const uint32_t* sample_
     if (removed_ct) {
       bitvec_andnot(newly_excluded, raw_sample_ctl, sample_include);
       bitvec_andnot(newly_excluded, raw_sample_ctl, sex_male);
-      strcpy(outname_end, ".irem");
+      snprintf(outname_end, kMaxOutfnameExtBlen, ".irem");
       if (fopen_checked(outname, "w", &outfile)) {
         goto mind_filter_ret_OPEN_FAIL;
       }
@@ -2924,8 +2925,8 @@ pglerr_t mind_filter(const uint32_t* sample_missing_cts, const uint32_t* sample_
 void enforce_geno_thresh(const chr_info_t* cip, const uint32_t* variant_missing_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t male_ct, uint32_t first_hap_uidx, double geno_thresh, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   const uint32_t prefilter_variant_ct = *variant_ct_ptr;
   geno_thresh *= 1 + kSmallEpsilon;
-  const uint32_t missing_max_ct_nony = (int32_t)(geno_thresh * ((int32_t)sample_ct));
-  const uint32_t missing_max_ct_y = (int32_t)(geno_thresh * ((int32_t)male_ct));
+  const uint32_t missing_max_ct_nony = S_CAST(int32_t, geno_thresh * u31tod(sample_ct));
+  const uint32_t missing_max_ct_y = S_CAST(int32_t, geno_thresh * u31tod(male_ct));
   uint32_t cur_missing_max_ct = missing_max_ct_nony;
   uint32_t removed_ct = 0;
   uint32_t variant_uidx = 0;
@@ -2933,7 +2934,7 @@ void enforce_geno_thresh(const chr_info_t* cip, const uint32_t* variant_missing_
   uint32_t y_end = UINT32_MAX;
   int32_t y_code;
   if (xymt_exists(cip, kChrOffsetY, &y_code)) {
-    const uint32_t y_chr_fo_idx = cip->chr_idx_to_foidx[(uint32_t)y_code];
+    const uint32_t y_chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, y_code)];
     y_thresh = cip->chr_fo_vidx_start[y_chr_fo_idx];
     y_end = cip->chr_fo_vidx_start[y_chr_fo_idx + 1];
   }
@@ -2971,7 +2972,7 @@ void enforce_hwe_thresh(const chr_info_t* cip, const uint32_t* founder_raw_geno_
   uint32_t x_end = UINT32_MAX;
   int32_t x_code;
   if (xymt_exists(cip, kChrOffsetX, &x_code)) {
-    const uint32_t x_chr_fo_idx = cip->chr_idx_to_foidx[(uint32_t)x_code];
+    const uint32_t x_chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, x_code)];
     x_start = cip->chr_fo_vidx_start[x_chr_fo_idx];
     x_end = cip->chr_fo_vidx_start[x_chr_fo_idx + 1];
     // bugfix (4 Jun 2017): if no sex info available, need to skip chrX
@@ -3021,7 +3022,7 @@ void enforce_hwe_thresh(const chr_info_t* cip, const uint32_t* founder_raw_geno_
         continue;
       }
       if (keep_fewhet) {
-        if (hetref_ct * ((uint64_t)hetref_ct) <= (4LLU * homref_ct) * nonref_diploid_ct) {
+        if (hetref_ct * S_CAST(uint64_t, hetref_ct) <= (4LLU * homref_ct) * nonref_diploid_ct) {
           // no p-value computed at all, so don't count this toward
           // min_obs/max_obs
           continue;
@@ -3050,7 +3051,7 @@ void enforce_hwe_thresh(const chr_info_t* cip, const uint32_t* founder_raw_geno_
       cur_obs_ct = homref_ct + hetref_ct + nonref_diploid_ct + male_ref_ct + male_alt_ct;
       double joint_pval = *hwe_x_pvals_iter++;
       test_failed = (joint_pval < hwe_thresh);
-      if (test_failed && keep_fewhet && (hetref_ct * ((uint64_t)hetref_ct) < (4LLU * homref_ct) * nonref_diploid_ct)) {
+      if (test_failed && keep_fewhet && (hetref_ct * S_CAST(uint64_t, hetref_ct) < (4LLU * homref_ct) * nonref_diploid_ct)) {
         // female-only retest
         if (joint_pval) {
           joint_pval *= hwe_thresh_recip;
@@ -3076,7 +3077,7 @@ void enforce_hwe_thresh(const chr_info_t* cip, const uint32_t* founder_raw_geno_
       max_obs = cur_obs_ct;
     }
   }
-  if (((uint64_t)max_obs) * 9 > ((uint64_t)min_obs) * 10) {
+  if (S_CAST(uint64_t, max_obs) * 9 > S_CAST(uint64_t, min_obs) * 10) {
     logerrprint("Warning: --hwe observation counts vary by more than 10%.  Consider using\n--geno, and/or applying different p-value thresholds to distinct subsets of\nyour data.\n");
   }
   LOGPRINTFWW("--hwe%s%s: %u variant%s removed due to Hardy-Weinberg exact test (%s).\n", midp? " midp" : "", keep_fewhet? " keep-fewhet" : "", removed_ct, (removed_ct == 1)? "" : "s", nonfounders? "all samples" : "founders only");
@@ -3153,7 +3154,7 @@ void enforce_mach_r2_thresh(const chr_info_t* cip, const double* mach_r2_vals, d
   for (uint32_t chr_fo_idx = 0; chr_fo_idx < chr_ct; ++chr_fo_idx) {
     const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
     // skip X, Y, MT, other haploid
-    if (is_set(cip->haploid_mask, chr_idx) || (chr_idx == ((uint32_t)mt_code))) {
+    if (is_set(cip->haploid_mask, chr_idx) || (chr_idx == S_CAST(uint32_t, mt_code))) {
       relevant_variant_ct -= popcount_bit_idx(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1]);
     }
   }
@@ -3165,7 +3166,7 @@ void enforce_mach_r2_thresh(const chr_info_t* cip, const double* mach_r2_vals, d
       uint32_t chr_idx;
       do {
         chr_idx = cip->chr_file_order[++chr_fo_idx];
-      } while (is_set(cip->haploid_mask, chr_idx) || (chr_idx == ((uint32_t)mt_code)));
+      } while (is_set(cip->haploid_mask, chr_idx) || (chr_idx == S_CAST(uint32_t, mt_code)));
       chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
       variant_uidx = next_set(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], chr_end);
     }
@@ -3251,7 +3252,7 @@ pglerr_t set_refalt1_from_file(const uintptr_t* variant_include, const char* con
     } else {
       loadbuf_size = round_up_pow2(loadbuf_size, kCacheline);
     }
-    char* loadbuf = (char*)bigstack_alloc_raw(loadbuf_size);
+    char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
     uint32_t* variant_id_htable = nullptr;
     uint32_t variant_id_htable_size;
     reterr = alloc_and_populate_id_htable_mt(variant_include, variant_ids, variant_ct, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size);
@@ -3310,7 +3311,7 @@ pglerr_t set_refalt1_from_file(const uintptr_t* variant_include, const char* con
         }
       }
       char* token_end = token_endnn(variant_id_start);
-      const uint32_t variant_id_slen = (uintptr_t)(token_end - variant_id_start);
+      const uint32_t variant_id_slen = S_CAST(uintptr_t, token_end - variant_id_start);
       const uint32_t variant_uidx = variant_id_dupflag_htable_find(variant_id_start, variant_ids, variant_id_htable, variant_id_slen, variant_id_htable_size, max_variant_id_slen);
       if (variant_uidx >> 31) {
         if (variant_uidx == UINT32_MAX) {
@@ -3321,7 +3322,7 @@ pglerr_t set_refalt1_from_file(const uintptr_t* variant_include, const char* con
         goto set_refalt1_from_file_ret_MALFORMED_INPUT_WW;
       }
       token_end = token_endnn(allele_start);
-      const uint32_t allele_slen = (uintptr_t)(token_end - allele_start);
+      const uint32_t allele_slen = S_CAST(uintptr_t, token_end - allele_start);
       if (allele_slen == 1) {
         const char allele_char = *allele_start;
         // don't overwrite anything with missing code
@@ -3414,14 +3415,14 @@ pglerr_t set_refalt1_from_file(const uintptr_t* variant_include, const char* con
           }
         }
         if (allele_slen == 1) {
-          *new_allele_ptr = &(g_one_char_strs[2 * ((unsigned char)allele_start[0])]);
+          *new_allele_ptr = &(g_one_char_strs[2 * ctou32(allele_start[0])]);
         } else {
           // No in-place-overwrite case here since
           // 1. *new_allele_ptr was always '.'
           // 2. More importantly, when --loop-cats is used,
           //    allele_storage_backup[n] must point to the unaltered original
           //    string.
-          if ((uintptr_t)(bigstack_end - main_bigstack_base) <= allele_slen) {
+          if (S_CAST(uintptr_t, bigstack_end - main_bigstack_base) <= allele_slen) {
             goto set_refalt1_from_file_ret_NOMEM;
           }
           if (allele_slen > max_allele_slen) {
@@ -3430,7 +3431,7 @@ pglerr_t set_refalt1_from_file(const uintptr_t* variant_include, const char* con
           const uint32_t allele_blen = allele_slen + 1;
           bigstack_end -= allele_blen;
           memcpy(bigstack_end, allele_start, allele_blen);
-          *new_allele_ptr = (const char*)bigstack_end;
+          *new_allele_ptr = R_CAST(const char*, bigstack_end);
         }
         ++fillin_variant_ct;
         continue;
@@ -3557,20 +3558,20 @@ pglerr_t set_refalt1_from_file(const uintptr_t* variant_include, const char* con
 
 pglerr_t ref_from_fa_process_contig(const uintptr_t* variant_include, const uint32_t* variant_bps, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const chr_info_t* cip, uint32_t force, uint32_t chr_fo_idx, uint32_t variant_uidx_last, char* seqbuf, char* seqbuf_end, alt_allele_ct_t* refalt1_select, uintptr_t* nonref_flags, uint32_t* changed_ct_ptr, uint32_t* validated_ct_ptr, uint32_t* downgraded_ct_ptr) {
   uint32_t variant_uidx = next_set_unsafe(variant_include, cip->chr_fo_vidx_start[chr_fo_idx]);
-  const uint32_t bp_end = (uintptr_t)(seqbuf_end - seqbuf);
+  const uint32_t bp_end = S_CAST(uintptr_t, seqbuf_end - seqbuf);
   if (variant_bps[variant_uidx_last] >= bp_end) {
     const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
     if (!force) {
       char* write_iter = strcpya(g_logbuf, "Error: Contig '");
       write_iter = chr_name_write(cip, chr_idx, write_iter);
-      strcpy(write_iter, "' in --ref-from-fa file is too short; it is likely to be mismatched with your data. Add the 'force' modifier if this wasn't a mistake, and you just want to mark all reference alleles past the end as provisional.\n");
+      snprintf(write_iter, kLogbufSize - kMaxIdSlen - 32, "' in --ref-from-fa file is too short; it is likely to be mismatched with your data. Add the 'force' modifier if this wasn't a mistake, and you just want to mark all reference alleles past the end as provisional.\n");
       wordwrapb(0);
       logerrprintb();
       return kPglRetInconsistentInput;
     } else {
       char* write_iter = strcpya(g_logbuf, "Warning: Contig '");
       write_iter = chr_name_write(cip, chr_idx, write_iter);
-      strcpy(write_iter, "' in --ref-from-fa file is too short; it is likely to be mismatched with your data.\n");
+      snprintf(write_iter, kLogbufSize - kMaxIdSlen - 32, "' in --ref-from-fa file is too short; it is likely to be mismatched with your data.\n");
       wordwrapb(0);
       logerrprintb();
     }
@@ -3651,12 +3652,12 @@ pglerr_t ref_from_fa_process_contig(const uintptr_t* variant_include, const uint
           write_iter = chr_name_write(cip, chr_idx, write_iter);
           *write_iter++ = ':';
           write_iter = uint32toa(cur_bp, write_iter);
-          strcpy(write_iter, ", but it's marked as 'known'. Add the 'force' modifier to force this change through.\n");
+          snprintf(write_iter, kLogbufSize - kMaxIdSlen - 128, ", but it's marked as 'known'. Add the 'force' modifier to force this change through.\n");
           wordwrapb(0);
           logerrprintb();
           return kPglRetInconsistentInput;
         }
-        refalt1_select[2 * variant_uidx] = (uint32_t)consistent_allele_idx;
+        refalt1_select[2 * variant_uidx] = consistent_allele_idx;
         refalt1_select[2 * variant_uidx + 1] = 0;
         ++changed_ct;
       } else {
@@ -3671,7 +3672,7 @@ pglerr_t ref_from_fa_process_contig(const uintptr_t* variant_include, const uint
         write_iter = chr_name_write(cip, chr_idx, write_iter);
         *write_iter++ = ':';
         write_iter = uint32toa(cur_bp, write_iter);
-        strcpy(write_iter, " is marked as 'known', but is inconsistent with .fa file. Add the 'force' modifier to downgrade it to provisional.\n");
+        snprintf(write_iter, kLogbufSize - kMaxIdSlen - 64, " is marked as 'known', but is inconsistent with .fa file. Add the 'force' modifier to downgrade it to provisional.\n");
         wordwrapb(0);
         logerrprintb();
         return kPglRetInconsistentInput;
@@ -3714,10 +3715,10 @@ pglerr_t ref_from_fa(const uintptr_t* variant_include, const uint32_t* variant_b
       if (!is_set(chr_mask, cip->chr_file_order[chr_fo_idx])) {
         continue;
       }
-      const int32_t chr_vidx_start_m1 = ((int32_t)cip->chr_fo_vidx_start[chr_fo_idx]) - 1;
+      const int32_t chr_vidx_start_m1 = cip->chr_fo_vidx_start[chr_fo_idx] - 1;
       const int32_t chr_vidx_last = prev_set(variant_include, cip->chr_fo_vidx_start[chr_fo_idx + 1], chr_vidx_start_m1);
       if (chr_vidx_last != chr_vidx_start_m1) {
-        const uint32_t cur_bp = variant_bps[(uint32_t)chr_vidx_last];
+        const uint32_t cur_bp = variant_bps[S_CAST(uint32_t, chr_vidx_last)];
         if (cur_bp > seqbuf_size) {
           seqbuf_size = cur_bp;
         }
@@ -3741,7 +3742,7 @@ pglerr_t ref_from_fa(const uintptr_t* variant_include, const uint32_t* variant_b
         goto ref_from_fa_ret_NOMEM;
       }
     }
-    char* loadbuf = (char*)bigstack_alloc_raw(loadbuf_size);
+    char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
     loadbuf[loadbuf_size - 1] = ' ';
 
     char* seqbuf_end = nullptr;
@@ -3786,17 +3787,17 @@ pglerr_t ref_from_fa(const uintptr_t* variant_include, const uint32_t* variant_b
         }
         char* chr_name_end = token_endnn(chr_name_start);
         *chr_name_end = '\0';
-        const uint32_t chr_name_slen = (uintptr_t)(chr_name_end - chr_name_start);
+        const uint32_t chr_name_slen = S_CAST(uintptr_t, chr_name_end - chr_name_start);
         chr_fo_idx = UINT32_MAX;
         const int32_t chr_idx = get_chr_code(chr_name_start, cip, chr_name_slen);
         if ((chr_idx >= 0) && is_set(cip->chr_mask, chr_idx)) {
-          chr_fo_idx = cip->chr_idx_to_foidx[(uint32_t)chr_idx];
+          chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, chr_idx)];
           if (is_set(chr_already_seen, chr_fo_idx)) {
             snprintf(g_logbuf, kLogbufSize, "Error: Duplicate contig name '%s' in --ref-from-fa file.\n", chr_name_start);
             goto ref_from_fa_ret_MALFORMED_INPUT_WW;
           }
           set_bit(chr_fo_idx, chr_already_seen);
-          const int32_t chr_vidx_start_m1 = ((int32_t)cip->chr_fo_vidx_start[chr_fo_idx]) - 1;
+          const int32_t chr_vidx_start_m1 = cip->chr_fo_vidx_start[chr_fo_idx] - 1;
           const int32_t chr_vidx_last = prev_set(variant_include, cip->chr_fo_vidx_start[chr_fo_idx + 1], chr_vidx_start_m1);
           if (chr_vidx_last == chr_vidx_start_m1) {
             chr_fo_idx = UINT32_MAX;
@@ -3818,16 +3819,16 @@ pglerr_t ref_from_fa(const uintptr_t* variant_include, const uint32_t* variant_b
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --ref-from-fa file is malformed.\n", line_idx);
         goto ref_from_fa_ret_MALFORMED_INPUT_2;
       }
-      uint32_t cur_seq_slen = (uintptr_t)(seqline_end - loadbuf);
-      const uint32_t seq_rem = (uintptr_t)(seqbuf_end - seq_iter);
+      uint32_t cur_seq_slen = S_CAST(uintptr_t, seqline_end - loadbuf);
+      const uint32_t seq_rem = S_CAST(uintptr_t, seqbuf_end - seq_iter);
       if (seq_rem <= cur_seq_slen) {
         cur_seq_slen = seq_rem;
         skip_chr = 1;
       }
-      const char* gap_start = (const char*)memchr(loadbuf, '-', cur_seq_slen);
+      const char* gap_start = S_CAST(const char*, memchr(loadbuf, '-', cur_seq_slen));
       if (gap_start) {
         LOGERRPRINTFWW("Warning: Indeterminate-length gap present on line %" PRIuPTR " of --ref-from-fa file. Ignoring remainder of contig.\n", line_idx);
-        cur_seq_slen = (uintptr_t)(gap_start - loadbuf);
+        cur_seq_slen = S_CAST(uintptr_t, gap_start - loadbuf);
         skip_chr = 1;
       }
       seq_iter = memcpya(seq_iter, loadbuf, cur_seq_slen);

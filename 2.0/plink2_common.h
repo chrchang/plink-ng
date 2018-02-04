@@ -33,6 +33,7 @@ namespace plink2 {
 #define PROG_NAME_STR "plink2"
 
 // leave the door semi-open to 32-bit dosages (or 31?  24?)
+// note that u31tod()/u31tof() can't be used on 32-bit dosages
 typedef uint16_t dosage_t;
 typedef uint32_t dosage_prod_t;
 #define kDosageMax (1U << (8 * sizeof(dosage_t) - 1))
@@ -171,17 +172,17 @@ typedef struct two_col_params_struct {
 
 
 HEADER_INLINE boolerr_t bigstack_alloc_dosage(uintptr_t ct, dosage_t** dosage_arr_ptr) {
-  *dosage_arr_ptr = (dosage_t*)bigstack_alloc(ct * sizeof(dosage_t));
+  *dosage_arr_ptr = S_CAST(dosage_t*, bigstack_alloc(ct * sizeof(dosage_t)));
   return !(*dosage_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_alloc_dosagep(uintptr_t ct, dosage_t*** dosagep_arr_ptr) {
-  *dosagep_arr_ptr = (dosage_t**)bigstack_alloc(ct * sizeof(intptr_t));
+  *dosagep_arr_ptr = S_CAST(dosage_t**, bigstack_alloc(ct * sizeof(intptr_t)));
   return !(*dosagep_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_end_alloc_dosage(uintptr_t ct, dosage_t** dosage_arr_ptr) {
-  *dosage_arr_ptr = (dosage_t*)bigstack_end_alloc(ct * sizeof(dosage_t));
+  *dosage_arr_ptr = S_CAST(dosage_t*, bigstack_end_alloc(ct * sizeof(dosage_t)));
   return !(*dosage_arr_ptr);
 }
 
@@ -459,7 +460,7 @@ uint32_t haploid_chr_present(const chr_info_t* cip);
 
 // any character <= ' ' is considered a terminator
 // maps chrX -> kChrRawX, etc.
-int32_t get_chr_code_raw(const char* sptr);
+int32_t get_chr_code_raw(const char* str_iter);
 
 // requires chr_name to be null-terminated
 // maps chrX -> xymt_codes[kChrOffsetX], etc.
@@ -494,7 +495,7 @@ HEADER_INLINE void get_xymt_start_and_end(const chr_info_t* cip, uint32_t xymt_o
     *xymt_end_ptr = 0;
     return;
   }
-  const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[(uint32_t)xymt_code];
+  const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, xymt_code)];
   *xymt_start_ptr = cip->chr_fo_vidx_start[chr_fo_idx];
   *xymt_end_ptr = cip->chr_fo_vidx_start[chr_fo_idx + 1];
 }
@@ -503,7 +504,7 @@ HEADER_INLINE void get_xymt_code_start_and_end_unsafe(const chr_info_t* cip, uin
   // assumes xymt_exists was previously called, and is true
   const int32_t xymt_code = cip->xymt_codes[xymt_offset];
   *xymt_code_ptr = xymt_code;
-  const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[(uint32_t)xymt_code];
+  const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, xymt_code)];
   *xymt_start_ptr = cip->chr_fo_vidx_start[chr_fo_idx];
   *xymt_end_ptr = cip->chr_fo_vidx_start[chr_fo_idx + 1];
 }
@@ -521,7 +522,7 @@ HEADER_INLINE pglerr_t get_or_add_chr_code(const char* chr_name, const char* fil
 
 HEADER_INLINE pglerr_t get_or_add_chr_code_destructive(const char* file_descrip, uintptr_t line_idx, uint32_t allow_extra_chrs, char* chr_name, char* chr_name_end, chr_info_t* cip, int32_t* chr_idx_ptr) {
   *chr_name_end = '\0';
-  return get_or_add_chr_code(chr_name, file_descrip, line_idx, (uintptr_t)(chr_name_end - chr_name), allow_extra_chrs, cip, chr_idx_ptr);
+  return get_or_add_chr_code(chr_name, file_descrip, line_idx, chr_name_end - chr_name, allow_extra_chrs, cip, chr_idx_ptr);
 }
 
 // zeroes out samples not in the mask
@@ -546,18 +547,18 @@ void mask_genovec_hets_unsafe(const uintptr_t* __restrict genovec, uint32_t raw_
 // vertical popcount support
 // scramble_1_4_8_32() and friends in plink2_cmdline
 #ifdef __LP64__
-  #ifdef USE_AVX2
+#  ifdef USE_AVX2
 // 2->4: 0 2 ... 126 1 3 ... 127
 // 4->8: 0 4 ... 124 2 6 ... 126 1 5 ... 125 3 7 ... 127
 // 8->32: 0 16 ... 112 4 20 ... 116 ... 124 2 18 ... 114 6 22 ... 118 ... 126 1 17 ...
 HEADER_CINLINE uint32_t scramble_2_4_8_32(uint32_t orig_idx) {
   return (orig_idx & (~127)) + ((orig_idx & 1) * 64) + ((orig_idx & 2) * 16) + ((orig_idx & 12) * 2) + ((orig_idx & 112) / 16);
 }
-  #else
+#  else
 HEADER_CINLINE uint32_t scramble_2_4_8_32(uint32_t orig_idx) {
   return (orig_idx & (~63)) + ((orig_idx & 1) * 32) + ((orig_idx & 2) * 8) + (orig_idx & 12) + ((orig_idx & 48) / 16);
 }
-  #endif
+#  endif
 #else
 // 2->4: 0 2 4 6 8 10 12 14 1 3 5 ...
 // 4->8: 0 4 8 12 2 6 10 14 1 5 9 ...
@@ -570,8 +571,8 @@ HEADER_CINLINE uint32_t scramble_2_4_8_32(uint32_t orig_idx) {
 // probable todo: switch to vul_t* parameters
 HEADER_INLINE void unroll_incr_2_4(const uintptr_t* acc2, uint32_t acc2_vec_ct, uintptr_t* acc4) {
   const vul_t m2 = VCONST_UL(kMask3333);
-  const vul_t* acc2v_iter = (const vul_t*)acc2;
-  vul_t* acc4v_iter = (vul_t*)acc4;
+  const vul_t* acc2v_iter = R_CAST(const vul_t*, acc2);
+  vul_t* acc4v_iter = R_CAST(vul_t*, acc4);
   for (uint32_t vidx = 0; vidx < acc2_vec_ct; ++vidx) {
     vul_t loader = *acc2v_iter++;
     *acc4v_iter = (*acc4v_iter) + (loader & m2);
@@ -584,8 +585,8 @@ HEADER_INLINE void unroll_incr_2_4(const uintptr_t* acc2, uint32_t acc2_vec_ct, 
 
 HEADER_INLINE void unroll_zero_incr_2_4(uint32_t acc2_vec_ct, uintptr_t* acc2, uintptr_t* acc4) {
   const vul_t m2 = VCONST_UL(kMask3333);
-  vul_t* acc2v_iter = (vul_t*)acc2;
-  vul_t* acc4v_iter = (vul_t*)acc4;
+  vul_t* acc2v_iter = R_CAST(vul_t*, acc2);
+  vul_t* acc4v_iter = R_CAST(vul_t*, acc4);
   for (uint32_t vidx = 0; vidx < acc2_vec_ct; ++vidx) {
     vul_t loader = *acc2v_iter;
     *acc2v_iter++ = vul_setzero();
@@ -623,7 +624,7 @@ HEADER_INLINE uint32_t xymt_is_nonempty(const uintptr_t* variant_include, const 
   if ((xymt_code < 0) || (!is_set(cip->chr_mask, xymt_code))) {
     return 0;
   }
-  return chr_is_nonempty(variant_include, cip, (uint32_t)xymt_code);
+  return chr_is_nonempty(variant_include, cip, S_CAST(uint32_t, xymt_code));
 }
 
 // assumes there's at least one variant on specified chromosome
@@ -724,9 +725,9 @@ typedef struct {
 void init_pheno();
 
 
-uint32_t is_categorical_phenostr(const char* phenostr);
+uint32_t is_categorical_phenostr(const char* phenostr_iter);
 
-uint32_t is_categorical_phenostr_nocsv(const char* phenostr);
+uint32_t is_categorical_phenostr_nocsv(const char* phenostr_iter);
 
 // returns 0xffffffffU if none exists
 uint32_t first_cc_or_qt_pheno_idx(const pheno_col_t* pheno_cols, uint32_t pheno_ct);
@@ -751,6 +752,16 @@ pglerr_t multithread_load_init(const uintptr_t* variant_include, uint32_t sample
 pglerr_t write_sample_ids(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const char* outname, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t noheader);
 
 uint32_t realpath_identical(const char* outname, const char* read_realpath, char* write_realpath_buf);
+
+
+HEADER_INLINE void outname_zst_set(const char* ext, uint32_t output_zst, char* outname_end) {
+  const uint32_t ext_slen = strlen(ext);
+  assert(ext_slen < kMaxOutfnameExtBlen - 4);
+  memcpy(outname_end, ext, ext_slen + 1);
+  if (output_zst) {
+    memcpy(&(outname_end[ext_slen]), ".zst", 5);
+  }
+}
 
 #ifdef __cplusplus
 } // namespace plink2

@@ -58,7 +58,7 @@ pglerr_t load_ibed(const chr_info_t* cip, const uint32_t* variant_bps, const cha
           snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, file_descrip);
           goto load_ibed_ret_MALFORMED_INPUT_2;
         }
-        const uint32_t chr_name_slen = (uintptr_t)(first_token_end - textbuf_first_token);
+        const uint32_t chr_name_slen = first_token_end - textbuf_first_token;
         *first_token_end = '\0';
         const int32_t cur_chr_code = get_chr_code(textbuf_first_token, cip, chr_name_slen);
         if (cur_chr_code < 0) {
@@ -74,7 +74,7 @@ pglerr_t load_ibed(const chr_info_t* cip, const uint32_t* variant_bps, const cha
           }
         }
         // when there are repeats, they are likely to be next to each other
-        if (make_set_ll && (!strcmp(make_set_ll->ss, last_token))) {
+        if (make_set_ll && (!strcmp(make_set_ll->str, last_token))) {
           continue;
         }
         uint32_t set_id_blen = set_id_slen + 1;
@@ -94,13 +94,13 @@ pglerr_t load_ibed(const chr_info_t* cip, const uint32_t* variant_bps, const cha
         }
         ll_tmp->next = make_set_ll;
         if (variant_bps) {
-          memcpy(ll_tmp->ss, last_token, set_id_blen);
+          memcpy(ll_tmp->str, last_token, set_id_blen);
         } else {
-          uitoa_z5((uint32_t)cur_chr_code, ll_tmp->ss);
+          uitoa_z5(cur_chr_code, ll_tmp->str);
           // if first character of gene name is a digit, natural sort has
           // strange effects unless we force [3] to be nonnumeric...
-          ll_tmp->ss[kMaxChrCodeDigits - 1] -= 15;
-          memcpy(&(ll_tmp->ss[kMaxChrCodeDigits]), last_token, set_id_blen - kMaxChrCodeDigits);
+          ll_tmp->str[kMaxChrCodeDigits - 1] -= 15;
+          memcpy(&(ll_tmp->str[kMaxChrCodeDigits]), last_token, set_id_blen - kMaxChrCodeDigits);
         }
         make_set_ll = ll_tmp;
         ++set_ct;
@@ -144,7 +144,7 @@ pglerr_t load_ibed(const chr_info_t* cip, const uint32_t* variant_bps, const cha
       }
       set_names = *set_names_ptr;
       for (uintptr_t set_idx = 0; set_idx < set_ct; ++set_idx) {
-        strptr_arr[set_idx] = make_set_ll->ss;
+        strptr_arr[set_idx] = make_set_ll->str;
         make_set_ll = make_set_ll->next;
       }
       strptr_arr_nsort(set_ct, TO_CONSTCPP(strptr_arr));
@@ -161,7 +161,7 @@ pglerr_t load_ibed(const chr_info_t* cip, const uint32_t* variant_bps, const cha
     } else {
       set_ct = 1;
     }
-    make_set_range_t** make_set_range_arr = (make_set_range_t**)bigstack_end_alloc(set_ct * sizeof(intptr_t));
+    make_set_range_t** make_set_range_arr = S_CAST(make_set_range_t**, bigstack_end_alloc(set_ct * sizeof(intptr_t)));
     if (!make_set_range_arr) {
       goto load_ibed_ret_NOMEM;
     }
@@ -185,7 +185,7 @@ pglerr_t load_ibed(const chr_info_t* cip, const uint32_t* variant_bps, const cha
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, file_descrip);
         goto load_ibed_ret_MALFORMED_INPUT_2;
       }
-      const uint32_t chr_name_slen = (uintptr_t)(first_token_end - textbuf_first_token);
+      const uint32_t chr_name_slen = first_token_end - textbuf_first_token;
       *first_token_end = '\0';
       const int32_t cur_chr_code = get_chr_code(textbuf_first_token, cip, chr_name_slen);
       if (cur_chr_code < 0) {
@@ -196,7 +196,7 @@ pglerr_t load_ibed(const chr_info_t* cip, const uint32_t* variant_bps, const cha
         continue;
       }
       if (variant_bps) {
-        const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[(uint32_t)cur_chr_code];
+        const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, cur_chr_code)];
         chr_start = cip->chr_fo_vidx_start[chr_fo_idx];
         chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
         if (chr_end == chr_start) {
@@ -210,14 +210,14 @@ pglerr_t load_ibed(const chr_info_t* cip, const uint32_t* variant_bps, const cha
       }
       const char* textbuf_iter = skip_initial_spaces(&(first_token_end[1]));
       uint32_t range_first;
-      if (scanadv_uint_defcap(&textbuf_iter, &range_first)) {
+      if (scanmov_uint_defcap(&textbuf_iter, &range_first)) {
         snprintf(g_logbuf, kLogbufSize, "Error: Invalid range start position on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
         goto load_ibed_ret_MALFORMED_INPUT_2;
       }
       range_first += ibed0;
       textbuf_iter = next_token(textbuf_iter);
       uint32_t range_last;
-      if (scanadv_uint_defcap(&textbuf_iter, &range_last)) {
+      if (scanmov_uint_defcap(&textbuf_iter, &range_last)) {
         snprintf(g_logbuf, kLogbufSize, "Error: Invalid range end position on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
         goto load_ibed_ret_MALFORMED_INPUT_2;
       }
@@ -241,19 +241,19 @@ pglerr_t load_ibed(const chr_info_t* cip, const uint32_t* variant_bps, const cha
           last_token = &(last_token[-2]);
           memcpy(last_token, "C_", 2);
         } else if (!variant_bps) {
-          last_token = &(last_token[-((int32_t)kMaxChrCodeDigits)]);
-          uitoa_z5((uint32_t)cur_chr_code, last_token);
+          last_token = &(last_token[-S_CAST(int32_t, kMaxChrCodeDigits)]);
+          uitoa_z5(cur_chr_code, last_token);
           last_token[kMaxChrCodeDigits - 1] -= 15;
         }
         // this should never fail
-        cur_set_idx = (uint32_t)bsearch_str_natural(last_token, set_names, max_set_id_blen, set_ct);
+        cur_set_idx = bsearch_str_natural(last_token, set_names, max_set_id_blen, set_ct);
       }
       if (variant_bps) {
         // translate to within-chromosome uidx
         range_first = uint32arr_greater_than(&(variant_bps[chr_start]), chr_end - chr_start, range_first);
         range_last = uint32arr_greater_than(&(variant_bps[chr_start]), chr_end - chr_start, range_last + 1);
         if (range_last > range_first) {
-          make_set_range_t* msr_tmp = (make_set_range_t*)bigstack_end_alloc(sizeof(make_set_range_t));
+          make_set_range_t* msr_tmp = S_CAST(make_set_range_t*, bigstack_end_alloc(sizeof(make_set_range_t)));
           if (!msr_tmp) {
             goto load_ibed_ret_NOMEM;
           }
@@ -266,7 +266,7 @@ pglerr_t load_ibed(const chr_info_t* cip, const uint32_t* variant_bps, const cha
           make_set_range_arr[cur_set_idx] = msr_tmp;
         }
       } else {
-        make_set_range_t* msr_tmp = (make_set_range_t*)bigstack_end_alloc(sizeof(make_set_range_t));
+        make_set_range_t* msr_tmp = S_CAST(make_set_range_t*, bigstack_end_alloc(sizeof(make_set_range_t)));
         if (!msr_tmp) {
           goto load_ibed_ret_NOMEM;
         }

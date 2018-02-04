@@ -28,87 +28,87 @@
 #include <stddef.h>
 
 #ifndef _WIN32
-  #include <sys/stat.h>
+#  include <sys/stat.h>
 #endif
 
 #ifdef _WIN32
-  #include <process.h>
+#  include <process.h>
 #else
-  #include <pthread.h>
+#  include <pthread.h>
 #endif
 
 #ifdef __cplusplus
-  #include <algorithm>
-  #ifdef _WIN32
+#  include <algorithm>
+#  ifdef _WIN32
     // Windows C++11 <algorithm> resets these values :(
-    #undef PRIu64
-    #undef PRId64
-    #define PRIu64 "I64u"
-    #define PRId64 "I64d"
-    #undef PRIuPTR
-    #undef PRIdPTR
-    #ifdef __LP64__
-      #define PRIuPTR PRIu64
-      #define PRIdPTR PRId64
-    #else
-      #if __cplusplus < 201103L
-        #define PRIuPTR "lu"
-        #define PRIdPTR "ld"
-      #else
-        #define PRIuPTR "u"
-        #define PRIdPTR "d"
-      #endif
-    #endif
-  #endif
+#    undef PRIu64
+#    undef PRId64
+#    define PRIu64 "I64u"
+#    define PRId64 "I64d"
+#    undef PRIuPTR
+#    undef PRIdPTR
+#    ifdef __LP64__
+#      define PRIuPTR PRIu64
+#      define PRIdPTR PRId64
+#    else
+#      if __cplusplus < 201103L
+#        define PRIuPTR "lu"
+#        define PRIdPTR "ld"
+#      else
+#        define PRIuPTR "u"
+#        define PRIdPTR "d"
+#      endif
+#    endif
+#  endif
 #endif
 
 #ifdef DYNAMIC_MKL
-  #define USE_MKL
+#  define USE_MKL
 #endif
 
 #ifdef USE_MKL
-  #ifdef __APPLE__
-    #error "plink2 cannot currently use MKL on OS X."
-  #endif
-  #ifdef LAPACK_ILP64
-    #define MKL_ILP64
-  #endif
-  #ifdef DYNAMIC_MKL
-    #include <mkl_service.h>
-  #else
-    #include "/opt/intel/mkl/include/mkl_service.h"
-  #endif
-  #define USE_MTBLAS
-  #define BLAS_SET_NUM_THREADS mkl_set_num_threads
+#  ifdef __APPLE__
+#    error "plink2 cannot currently use MKL on OS X."
+#  endif
+#  ifdef LAPACK_ILP64
+#    define MKL_ILP64
+#  endif
+#  ifdef DYNAMIC_MKL
+#    include <mkl_service.h>
+#  else
+#    include "/opt/intel/mkl/include/mkl_service.h"
+#  endif
+#  define USE_MTBLAS
+#  define BLAS_SET_NUM_THREADS mkl_set_num_threads
 #else
-  #ifdef USE_OPENBLAS
-    #ifdef __cplusplus
+#  ifdef USE_OPENBLAS
+#    ifdef __cplusplus
 extern "C" {
-    #endif
+#    endif
       void openblas_set_num_threads(int num_threads);
-    #ifdef __cplusplus
+#    ifdef __cplusplus
 } // extern "C"
-    #endif
-    #define USE_MTBLAS
-    #define BLAS_SET_NUM_THREADS openblas_set_num_threads
-  #else
-    #define BLAS_SET_NUM_THREADS(num)
-  #endif
+#    endif
+#    define USE_MTBLAS
+#    define BLAS_SET_NUM_THREADS openblas_set_num_threads
+#  else
+#    define BLAS_SET_NUM_THREADS(num)
+#  endif
 #endif
 
 #ifdef _WIN32
-  #define pthread_t HANDLE
-  #define THREAD_FUNC_DECL unsigned __stdcall
-  #define THREAD_FUNCPTR_T(func_ptr) unsigned (__stdcall *func_ptr)(void*)
+#  define pthread_t HANDLE
+#  define THREAD_FUNC_DECL unsigned __stdcall
+#  define THREAD_FUNCPTR_T(func_ptr) unsigned (__stdcall *func_ptr)(void*)
   // #define THREAD_FUNCPP_T(func_pp) unsigned (__stdcall **func_pp)(void*)
-  #define THREAD_RETURN return 0
-  #define EOLN_STR "\r\n"
+#  define THREAD_RETURN return 0
+#  define EOLN_STR "\r\n"
 #else
-  #define THREAD_FUNC_DECL void*
-  #define THREAD_FUNCPTR_T(func_ptr) void* (*func_ptr)(void*)
+#  define THREAD_FUNC_DECL void*
+#  define THREAD_FUNCPTR_T(func_ptr) void* (*func_ptr)(void*)
   // #define THREAD_FUNCPP_T(func_pp) void* (**func_pp)(void*)
-  #define THREAD_RETURN return nullptr
-  #define EOLN_STR "\n"
+#  define THREAD_RETURN return nullptr
+#  define EOLN_STR "\n"
 #endif
 
 #ifdef __cplusplus
@@ -144,14 +144,14 @@ namespace plink2 {
 // intentionally verbose to encourage assignment to the appropriate-qualified
 // type as soon as possible.
 #ifdef __cplusplus
-  #define CXXCONST_CP const char*
-  #define TO_CONSTCPP(char_pp) const_cast<const char**>(char_pp)
-  #define TO_CONSTCPCONSTP(char_pp) (char_pp)
+#  define CXXCONST_CP const char*
+#  define TO_CONSTCPCONSTP(char_pp) (char_pp)
 #else
-  #define CXXCONST_CP char*
-  #define TO_CONSTCPP(char_pp) ((const char**)(char_pp))
-  #define TO_CONSTCPCONSTP(char_pp) ((const char* const*)(char_pp))
+#  define CXXCONST_CP char*
+#  define TO_CONSTCPCONSTP(char_pp) ((const char* const*)(char_pp))
 #endif
+
+#define TO_CONSTCPP(char_pp) K_CAST(const char**, (char_pp))
 
 #ifdef _GNU_SOURCE
 // There was some recent (2016) discussion on the gcc mailing list on strlen()
@@ -160,46 +160,46 @@ namespace plink2 {
 // least as good.  However, this didn't happen when I tried to benchmark this,
 // so I'll stick to the function that returns the right type (except when
 // rawmemchr itself has to be emulated).
-HEADER_INLINE CXXCONST_CP strnul(const char* ss) {
-  return (CXXCONST_CP)rawmemchr(ss, 0);
+HEADER_INLINE CXXCONST_CP strnul(const char* str) {
+  return S_CAST(CXXCONST_CP, rawmemchr(str, 0));
 }
 
-  #ifdef __cplusplus
-HEADER_INLINE char* strnul(char* ss) {
-  return const_cast<char*>(strnul(const_cast<const char*>(ss)));
+#  ifdef __cplusplus
+HEADER_INLINE char* strnul(char* str) {
+  return const_cast<char*>(strnul(const_cast<const char*>(str)));
 }
-  #endif
+#  endif
 
-#else
-  #ifdef __cplusplus
-    #define rawmemchr(ss, cc) memchr((ss), (cc), (0x80000000U - plink2::kBytesPerVec))
-  #else
-    #define rawmemchr(ss, cc) memchr((ss), (cc), (0x80000000U - kBytesPerVec))
-  #endif
+#else // !_GNU_SOURCE
+#  ifdef __cplusplus
+#    define rawmemchr(ss, cc) memchr((ss), (cc), (0x80000000U - plink2::kBytesPerVec))
+#  else
+#    define rawmemchr(ss, cc) memchr((ss), (cc), (0x80000000U - kBytesPerVec))
+#  endif
 
-HEADER_INLINE CXXCONST_CP strnul(const char* ss) {
-  return (CXXCONST_CP)(&(ss[strlen(ss)]));
+HEADER_INLINE CXXCONST_CP strnul(const char* str) {
+  return S_CAST(CXXCONST_CP, &(str[strlen(str)]));
 }
 
-  #ifdef __cplusplus
-HEADER_INLINE char* strnul(char* ss) {
-  return const_cast<char*>(strnul(const_cast<const char*>(ss)));
+#  ifdef __cplusplus
+HEADER_INLINE char* strnul(char* str) {
+  return const_cast<char*>(strnul(const_cast<const char*>(str)));
 }
-  #endif
+#  endif
 
-HEADER_INLINE CXXCONST_CP strchrnul(const char* ss, int cc) {
-  const char* strchr_result = strchr(ss, cc);
+HEADER_INLINE CXXCONST_CP strchrnul(const char* str, int cc) {
+  const char* strchr_result = strchr(str, cc);
   if (strchr_result) {
-    return (CXXCONST_CP)strchr_result;
+    return S_CAST(CXXCONST_CP, strchr_result);
   }
-  return (CXXCONST_CP)strnul(ss);
+  return S_CAST(CXXCONST_CP, strnul(str));
 }
 
-  #ifdef __cplusplus
-HEADER_INLINE char* strchrnul(char* ss, int cc) {
-  return const_cast<char*>(strchrnul(const_cast<const char*>(ss), cc));
+#  ifdef __cplusplus
+HEADER_INLINE char* strchrnul(char* str, int cc) {
+  return const_cast<char*>(strchrnul(const_cast<const char*>(str), cc));
 }
-  #endif
+#  endif
 
 #endif // !_GNU_SOURCE
 
@@ -295,11 +295,11 @@ extern uint32_t g_stderr_written_to;
 
 // warning: do NOT include allele codes (unless they're guaranteed to be SNPs)
 // in log strings; they can overflow the buffer.
-void logstr(const char* ss);
+void logstr(const char* str);
 
-void logprint(const char* ss);
+void logprint(const char* str);
 
-void logerrprint(const char* ss);
+void logerrprint(const char* str);
 
 void logprintb();
 
@@ -313,7 +313,7 @@ void logerrprintb();
 
 // input for wordwrap/LOGPRINTFWW should have no intermediate '\n's.  If
 // suffix_len is 0, there should be a terminating \n.
-void wordwrap(uint32_t suffix_len, char* ss);
+void wordwrap(uint32_t suffix_len, char* strbuf);
 
 void wordwrapb(uint32_t suffix_len);
 
@@ -333,8 +333,8 @@ HEADER_INLINE interr_t putc_checked(int32_t ii, FILE* outfile) {
   return ferror_unlocked(outfile);
 }
 
-HEADER_INLINE interr_t fputs_checked(const char* ss, FILE* outfile) {
-  fputs(ss, outfile);
+HEADER_INLINE interr_t fputs_checked(const char* str, FILE* outfile) {
+  fputs(str, outfile);
   return ferror_unlocked(outfile);
 }
 
@@ -361,8 +361,8 @@ uint32_t uint_slen(uint32_t num);
 
 HEADER_INLINE uint32_t int_slen(int32_t num) {
   // see abs_int32()
-  const uint32_t neg_sign_bit = -(((uint32_t)num) >> 31);
-  return uint_slen((((uint32_t)num) ^ neg_sign_bit) - neg_sign_bit) - neg_sign_bit;
+  const uint32_t neg_sign_bit = -(S_CAST(uint32_t, num) >> 31);
+  return uint_slen((S_CAST(uint32_t, num) ^ neg_sign_bit) - neg_sign_bit) - neg_sign_bit;
 }
 
 HEADER_INLINE int32_t strequal_k(const char* s1, const char* k_s2, uint32_t s1_slen) {
@@ -511,11 +511,11 @@ typedef struct str_nsort_deref_struct {
 } str_nsort_deref_t;
 
 HEADER_INLINE void strptr_arr_sort(uintptr_t ct, const char** strptr_arr) {
-  std::sort((str_sort_deref_t*)strptr_arr, &(((str_sort_deref_t*)strptr_arr)[ct]));
+  std::sort(R_CAST(str_sort_deref_t*, strptr_arr), &(R_CAST(str_sort_deref_t*, strptr_arr)[ct]));
 }
 
 HEADER_INLINE void strptr_arr_nsort(uintptr_t ct, const char** strptr_arr) {
-  std::sort((str_nsort_deref_t*)strptr_arr, &(((str_nsort_deref_t*)strptr_arr)[ct]));
+  std::sort(R_CAST(str_nsort_deref_t*, strptr_arr), &(R_CAST(str_nsort_deref_t*, strptr_arr)[ct]));
 }
 
 void sort_strbox_indexed2(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_nsort, char* strbox, uint32_t* id_map, void* sort_wkspace);
@@ -586,7 +586,7 @@ HEADER_INLINE uint32_t is_flag(const char* param) {
 HEADER_INLINE CXXCONST_CP is_flag_start(const char* param) {
   unsigned char ucc = param[1];
   if ((*param == '-') && ((ucc > '9') || ((ucc < '0') && (ucc != '.') && (ucc != '\0')))) {
-    return (CXXCONST_CP)(&(param[1 + (ucc == '-')]));
+    return S_CAST(CXXCONST_CP, &(param[1 + (ucc == '-')]));
   }
   return nullptr;
 }
@@ -634,10 +634,10 @@ static const double kExactTestBias = 0.00000000000000000000000010339757656912845
 
 // apparently these aren't always defined in limits.h
 #ifndef DBL_MAX
-  #define DBL_MAX 1.7976931348623157e308
+#  define DBL_MAX 1.7976931348623157e308
 #endif
 #ifndef FLT_MAX
-  #define FLT_MAX 3.40282347e38f
+#  define FLT_MAX 3.40282347e38f
 #endif
 
 // probably time to flip arena_alloc and bigstack_alloc definitions...
@@ -655,10 +655,10 @@ pglerr_t init_bigstack(uintptr_t malloc_size_mb, uintptr_t* malloc_mb_final_ptr,
 
 
 HEADER_INLINE uintptr_t bigstack_left() {
-  return (((uintptr_t)g_bigstack_end) - ((uintptr_t)g_bigstack_base));
+  return g_bigstack_end - g_bigstack_base;
 }
 
-HEADER_INLINE unsigned char* bigstack_alloc_raw(uintptr_t size) {
+HEADER_INLINE void* bigstack_alloc_raw(uintptr_t size) {
   // Assumes caller has already forced size to a multiple of
   // kCacheline, and verified that enough space is available.
   assert(!(size % kCacheline));
@@ -667,7 +667,7 @@ HEADER_INLINE unsigned char* bigstack_alloc_raw(uintptr_t size) {
   return alloc_ptr;
 }
 
-HEADER_INLINE unsigned char* bigstack_alloc_raw_rd(uintptr_t size) {
+HEADER_INLINE void* bigstack_alloc_raw_rd(uintptr_t size) {
   // Same as bigstack_alloc_raw(), except for rounding up size.
   unsigned char* alloc_ptr = g_bigstack_base;
   g_bigstack_base += round_up_pow2(size, kCacheline);
@@ -675,7 +675,7 @@ HEADER_INLINE unsigned char* bigstack_alloc_raw_rd(uintptr_t size) {
 }
 
 // Basic 64-byte-aligned allocation at bottom of stack.
-HEADER_INLINE unsigned char* bigstack_alloc(uintptr_t size) {
+HEADER_INLINE void* bigstack_alloc(uintptr_t size) {
   size = round_up_pow2(size, kCacheline);
   if (bigstack_left() < size) {
     g_failed_alloc_attempt_size = size;
@@ -687,58 +687,61 @@ HEADER_INLINE unsigned char* bigstack_alloc(uintptr_t size) {
 
 // Typesafe, return-0-iff-success interfaces.  (See also bigstack_calloc_...
 // further below.)
+// This interface deliberately not provided for bigstack_alloc_raw() and
+// bigstack_alloc_raw_rd() (and I wouldn't blame a future maintainer for
+// entirely eliminating those functions).
 HEADER_INLINE boolerr_t bigstack_alloc_c(uintptr_t ct, char** c_arr_ptr) {
-  *c_arr_ptr = (char*)bigstack_alloc(ct);
+  *c_arr_ptr = S_CAST(char*, bigstack_alloc(ct));
   return !(*c_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_alloc_d(uintptr_t ct, double** d_arr_ptr) {
-  *d_arr_ptr = (double*)bigstack_alloc(ct * sizeof(double));
+  *d_arr_ptr = S_CAST(double*, bigstack_alloc(ct * sizeof(double)));
   return !(*d_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_alloc_f(uintptr_t ct, float** f_arr_ptr) {
-  *f_arr_ptr = (float*)bigstack_alloc(ct * sizeof(float));
+  *f_arr_ptr = S_CAST(float*, bigstack_alloc(ct * sizeof(float)));
   return !(*f_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_alloc_si(uintptr_t ct, int16_t** si_arr_ptr) {
-  *si_arr_ptr = (int16_t*)bigstack_alloc(ct * sizeof(int16_t));
+  *si_arr_ptr = S_CAST(int16_t*, bigstack_alloc(ct * sizeof(int16_t)));
   return !(*si_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_alloc_i(uintptr_t ct, int32_t** i_arr_ptr) {
-  *i_arr_ptr = (int32_t*)bigstack_alloc(ct * sizeof(int32_t));
+  *i_arr_ptr = S_CAST(int32_t*, bigstack_alloc(ct * sizeof(int32_t)));
   return !(*i_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_alloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr) {
-  *uc_arr_ptr = bigstack_alloc(ct);
+  *uc_arr_ptr = S_CAST(unsigned char*, bigstack_alloc(ct));
   return !(*uc_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_alloc_usi(uintptr_t ct, uint16_t** usi_arr_ptr) {
-  *usi_arr_ptr = (uint16_t*)bigstack_alloc(ct * sizeof(int16_t));
+  *usi_arr_ptr = S_CAST(uint16_t*, bigstack_alloc(ct * sizeof(int16_t)));
   return !(*usi_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_alloc_ui(uintptr_t ct, uint32_t** ui_arr_ptr) {
-  *ui_arr_ptr = (uint32_t*)bigstack_alloc(ct * sizeof(int32_t));
+  *ui_arr_ptr = S_CAST(uint32_t*, bigstack_alloc(ct * sizeof(int32_t)));
   return !(*ui_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_alloc_ul(uintptr_t ct, uintptr_t** ul_arr_ptr) {
-  *ul_arr_ptr = (uintptr_t*)bigstack_alloc(ct * sizeof(intptr_t));
+  *ul_arr_ptr = S_CAST(uintptr_t*, bigstack_alloc(ct * sizeof(intptr_t)));
   return !(*ul_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_alloc_ll(uintptr_t ct, int64_t** ll_arr_ptr) {
-  *ll_arr_ptr = (int64_t*)bigstack_alloc(ct * sizeof(int64_t));
+  *ll_arr_ptr = S_CAST(int64_t*, bigstack_alloc(ct * sizeof(int64_t)));
   return !(*ll_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_alloc_ull(uintptr_t ct, uint64_t** ull_arr_ptr) {
-  *ull_arr_ptr = (uint64_t*)bigstack_alloc(ct * sizeof(int64_t));
+  *ull_arr_ptr = S_CAST(uint64_t*, bigstack_alloc(ct * sizeof(int64_t)));
   return !(*ull_arr_ptr);
 }
 
@@ -747,66 +750,66 @@ HEADER_INLINE boolerr_t bigstack_alloc_ull(uintptr_t ct, uint64_t** ull_arr_ptr)
 // if sizeof(intptr_t) != sizeof(uintptr_t*), we're doomed anyway, so I won't
 // bother with that static assert...
 HEADER_INLINE boolerr_t bigstack_alloc_ulp(uintptr_t ct, uintptr_t*** ulp_arr_ptr) {
-  *ulp_arr_ptr = (uintptr_t**)bigstack_alloc(ct * sizeof(intptr_t));
+  *ulp_arr_ptr = S_CAST(uintptr_t**, bigstack_alloc(ct * sizeof(intptr_t)));
   return !(*ulp_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_alloc_cp(uintptr_t ct, char*** cp_arr_ptr) {
-  *cp_arr_ptr = (char**)bigstack_alloc(ct * sizeof(intptr_t));
+  *cp_arr_ptr = S_CAST(char**, bigstack_alloc(ct * sizeof(intptr_t)));
   return !(*cp_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_alloc_kcp(uintptr_t ct, const char*** kcp_arr_ptr) {
-  *kcp_arr_ptr = (const char**)bigstack_alloc(ct * sizeof(intptr_t));
+  *kcp_arr_ptr = S_CAST(const char**, bigstack_alloc(ct * sizeof(intptr_t)));
   return !(*kcp_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_alloc_sip(uintptr_t ct, int16_t*** sip_arr_ptr) {
-  *sip_arr_ptr = (int16_t**)bigstack_alloc(ct * sizeof(intptr_t));
+  *sip_arr_ptr = S_CAST(int16_t**, bigstack_alloc(ct * sizeof(intptr_t)));
   return !(*sip_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_alloc_ip(uintptr_t ct, int32_t*** ip_arr_ptr) {
-  *ip_arr_ptr = (int32_t**)bigstack_alloc(ct * sizeof(intptr_t));
+  *ip_arr_ptr = S_CAST(int32_t**, bigstack_alloc(ct * sizeof(intptr_t)));
   return !(*ip_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_alloc_ucp(uintptr_t ct, unsigned char*** ucp_arr_ptr) {
-  *ucp_arr_ptr = (unsigned char**)bigstack_alloc(ct * sizeof(intptr_t));
+  *ucp_arr_ptr = S_CAST(unsigned char**, bigstack_alloc(ct * sizeof(intptr_t)));
   return !(*ucp_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_alloc_usip(uintptr_t ct, uint16_t*** usip_arr_ptr) {
-  *usip_arr_ptr = (uint16_t**)bigstack_alloc(ct * sizeof(intptr_t));
+  *usip_arr_ptr = S_CAST(uint16_t**, bigstack_alloc(ct * sizeof(intptr_t)));
   return !(*usip_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_alloc_uip(uintptr_t ct, uint32_t*** uip_arr_ptr) {
-  *uip_arr_ptr = (uint32_t**)bigstack_alloc(ct * sizeof(intptr_t));
+  *uip_arr_ptr = S_CAST(uint32_t**, bigstack_alloc(ct * sizeof(intptr_t)));
   return !(*uip_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_alloc_dp(uintptr_t ct, double*** dp_arr_ptr) {
-  *dp_arr_ptr = (double**)bigstack_alloc(ct * sizeof(intptr_t));
+  *dp_arr_ptr = S_CAST(double**, bigstack_alloc(ct * sizeof(intptr_t)));
   return !(*dp_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_alloc_vp(uintptr_t ct, vul_t*** vp_arr_ptr) {
-  *vp_arr_ptr = (vul_t**)bigstack_alloc(ct * sizeof(intptr_t));
+  *vp_arr_ptr = S_CAST(vul_t**, bigstack_alloc(ct * sizeof(intptr_t)));
   return !(*vp_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_alloc_thread(uintptr_t ct, pthread_t** thread_arr_ptr) {
-  *thread_arr_ptr = (pthread_t*)bigstack_alloc(ct * sizeof(pthread_t));
+  *thread_arr_ptr = S_CAST(pthread_t*, bigstack_alloc(ct * sizeof(pthread_t)));
   return !(*thread_arr_ptr);
 }
 
 HEADER_INLINE void bigstack_reset(void* new_base) {
-  g_bigstack_base = (unsigned char*)new_base;
+  g_bigstack_base = S_CAST(unsigned char*, new_base);
 }
 
 HEADER_INLINE void bigstack_end_reset(void* new_end) {
-  g_bigstack_end = (unsigned char*)new_end;
+  g_bigstack_end = S_CAST(unsigned char*, new_end);
 }
 
 HEADER_INLINE void bigstack_double_reset(void* new_base, void* new_end) {
@@ -817,43 +820,43 @@ HEADER_INLINE void bigstack_double_reset(void* new_base, void* new_end) {
 // assumes we've already been writing to ulptr and have previously performed
 // bounds-checking.
 HEADER_INLINE void bigstack_finalize_ul(__maybe_unused const uintptr_t* ulptr, uintptr_t ct) {
-  assert(ulptr == (const uintptr_t*)g_bigstack_base);
+  assert(ulptr == R_CAST(const uintptr_t*, g_bigstack_base));
   g_bigstack_base += round_up_pow2(ct * sizeof(intptr_t), kCacheline);
   assert(g_bigstack_base <= g_bigstack_end);
 }
 
 HEADER_INLINE void bigstack_finalize_ui(__maybe_unused const uint32_t* uiptr, uintptr_t ct) {
-  assert(uiptr == (const uint32_t*)g_bigstack_base);
+  assert(uiptr == R_CAST(const uint32_t*, g_bigstack_base));
   g_bigstack_base += round_up_pow2(ct * sizeof(int32_t), kCacheline);
   assert(g_bigstack_base <= g_bigstack_end);
 }
 
 HEADER_INLINE void bigstack_finalize_ull(__maybe_unused const uint64_t* ullptr, uintptr_t ct) {
-  assert(ullptr == (const uint64_t*)g_bigstack_base);
+  assert(ullptr == R_CAST(const uint64_t*, g_bigstack_base));
   g_bigstack_base += round_up_pow2(ct * sizeof(int64_t), kCacheline);
   assert(g_bigstack_base <= g_bigstack_end);
 }
 
 HEADER_INLINE void bigstack_finalize_c(__maybe_unused const char* cptr, uintptr_t ct) {
-  assert(cptr == (const char*)g_bigstack_base);
+  assert(cptr == R_CAST(const char*, g_bigstack_base));
   g_bigstack_base += round_up_pow2(ct, kCacheline);
   assert(g_bigstack_base <= g_bigstack_end);
 }
 
-HEADER_INLINE void bigstack_finalize_cp(__maybe_unused char** cpptr, uintptr_t ct) {
-  assert(cpptr == (char**)g_bigstack_base);
+HEADER_INLINE void bigstack_finalize_cp(__maybe_unused const char* const* cpptr, uintptr_t ct) {
+  assert(cpptr == R_CAST(const char* const*, g_bigstack_base));
   g_bigstack_base += round_up_pow2(ct * sizeof(intptr_t), kCacheline);
   assert(g_bigstack_base <= g_bigstack_end);
 }
 
 
 HEADER_INLINE void bigstack_base_set(const void* unaligned_base) {
-  g_bigstack_base = (unsigned char*)round_up_pow2((uintptr_t)unaligned_base, kCacheline);
+  g_bigstack_base = R_CAST(unsigned char*, round_up_pow2(R_CAST(uintptr_t, unaligned_base), kCacheline));
 }
 
 HEADER_INLINE void bigstack_shrink_top(const void* rebase, uintptr_t new_size) {
   // could assert that this doesn't go in the wrong direction?
-  g_bigstack_base = (unsigned char*)round_up_pow2(((uintptr_t)rebase) + new_size, kCacheline);
+  g_bigstack_base = R_CAST(unsigned char*, round_up_pow2(R_CAST(uintptr_t, rebase) + new_size, kCacheline));
 }
 
 // simpler to have these allocations automatically AVX2-aligned when the time
@@ -861,23 +864,23 @@ HEADER_INLINE void bigstack_shrink_top(const void* rebase, uintptr_t new_size) {
 CONSTU31(kEndAllocAlign, MAXV(kBytesPerVec, 16));
 
 HEADER_INLINE void bigstack_end_set(const void* unaligned_end) {
-  g_bigstack_end = (unsigned char*)round_down_pow2((uintptr_t)unaligned_end, kEndAllocAlign);
+  g_bigstack_end = R_CAST(unsigned char*, round_down_pow2(R_CAST(uintptr_t, unaligned_end), kEndAllocAlign));
 }
 
 // assumes size is divisible by kEndAllocAlign
 // assumes enough space is available
-HEADER_INLINE unsigned char* bigstack_end_alloc_raw(uintptr_t size) {
+HEADER_INLINE void* bigstack_end_alloc_raw(uintptr_t size) {
   assert(!(size % kEndAllocAlign));
   g_bigstack_end -= size;
   return g_bigstack_end;
 }
 
-HEADER_INLINE unsigned char* bigstack_end_alloc_raw_rd(uintptr_t size) {
+HEADER_INLINE void* bigstack_end_alloc_raw_rd(uintptr_t size) {
   g_bigstack_end -= round_up_pow2(size, kEndAllocAlign);
   return g_bigstack_end;
 }
 
-HEADER_INLINE unsigned char* bigstack_end_alloc_presized(uintptr_t size) {
+HEADER_INLINE void* bigstack_end_alloc_presized(uintptr_t size) {
   uintptr_t cur_bigstack_left = bigstack_left();
   if (size > cur_bigstack_left) {
     g_failed_alloc_attempt_size = size;
@@ -886,109 +889,109 @@ HEADER_INLINE unsigned char* bigstack_end_alloc_presized(uintptr_t size) {
   return bigstack_end_alloc_raw(size);
 }
 
-HEADER_INLINE unsigned char* bigstack_end_alloc(uintptr_t size) {
+HEADER_INLINE void* bigstack_end_alloc(uintptr_t size) {
   size = round_up_pow2(size, kEndAllocAlign);
   return bigstack_end_alloc_presized(size);
 }
 
-HEADER_INLINE unsigned char* bigstack_end_aligned_alloc(uintptr_t size) {
+HEADER_INLINE void* bigstack_end_aligned_alloc(uintptr_t size) {
   return bigstack_end_alloc(size);
 }
 
 HEADER_INLINE boolerr_t bigstack_end_alloc_c(uintptr_t ct, char** c_arr_ptr) {
-  *c_arr_ptr = (char*)bigstack_end_alloc(ct);
+  *c_arr_ptr = S_CAST(char*, bigstack_end_alloc(ct));
   return !(*c_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_end_alloc_d(uintptr_t ct, double** d_arr_ptr) {
-  *d_arr_ptr = (double*)bigstack_end_alloc(ct * sizeof(double));
+  *d_arr_ptr = S_CAST(double*, bigstack_end_alloc(ct * sizeof(double)));
   return !(*d_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_end_alloc_f(uintptr_t ct, float** f_arr_ptr) {
-  *f_arr_ptr = (float*)bigstack_end_alloc(ct * sizeof(float));
+  *f_arr_ptr = S_CAST(float*, bigstack_end_alloc(ct * sizeof(float)));
   return !(*f_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_end_alloc_i(uintptr_t ct, int32_t** i_arr_ptr) {
-  *i_arr_ptr = (int32_t*)bigstack_end_alloc(ct * sizeof(int32_t));
+  *i_arr_ptr = S_CAST(int32_t*, bigstack_end_alloc(ct * sizeof(int32_t)));
   return !(*i_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_end_alloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr) {
-  *uc_arr_ptr = bigstack_end_alloc(ct);
+  *uc_arr_ptr = S_CAST(unsigned char*, bigstack_end_alloc(ct));
   return !(*uc_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_end_alloc_ui(uintptr_t ct, uint32_t** ui_arr_ptr) {
-  *ui_arr_ptr = (uint32_t*)bigstack_end_alloc(ct * sizeof(int32_t));
+  *ui_arr_ptr = S_CAST(uint32_t*, bigstack_end_alloc(ct * sizeof(int32_t)));
   return !(*ui_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_end_alloc_ul(uintptr_t ct, uintptr_t** ul_arr_ptr) {
-  *ul_arr_ptr = (uintptr_t*)bigstack_end_alloc(ct * sizeof(intptr_t));
+  *ul_arr_ptr = S_CAST(uintptr_t*, bigstack_end_alloc(ct * sizeof(intptr_t)));
   return !(*ul_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_end_alloc_ll(uintptr_t ct, int64_t** ll_arr_ptr) {
-  *ll_arr_ptr = (int64_t*)bigstack_end_alloc(ct * sizeof(int64_t));
+  *ll_arr_ptr = S_CAST(int64_t*, bigstack_end_alloc(ct * sizeof(int64_t)));
   return !(*ll_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_end_alloc_ull(uintptr_t ct, uint64_t** ull_arr_ptr) {
-  *ull_arr_ptr = (uint64_t*)bigstack_end_alloc(ct * sizeof(int64_t));
+  *ull_arr_ptr = S_CAST(uint64_t*, bigstack_end_alloc(ct * sizeof(int64_t)));
   return !(*ull_arr_ptr);
 }
 
 typedef struct ll_str_struct {
   struct ll_str_struct* next;
-  char ss[];
+  char str[];
 } ll_str_t;
 
 HEADER_INLINE boolerr_t bigstack_end_alloc_llstr(uintptr_t str_bytes, ll_str_t** llstr_arr_ptr) {
-  *llstr_arr_ptr = (ll_str_t*)bigstack_end_alloc(str_bytes + sizeof(ll_str_t));
+  *llstr_arr_ptr = S_CAST(ll_str_t*, bigstack_end_alloc(str_bytes + sizeof(ll_str_t)));
   return !(*llstr_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_end_alloc_cp(uintptr_t ct, char*** cp_arr_ptr) {
-  *cp_arr_ptr = (char**)bigstack_end_alloc(ct * sizeof(intptr_t));
+  *cp_arr_ptr = S_CAST(char**, bigstack_end_alloc(ct * sizeof(intptr_t)));
   return !(*cp_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_end_alloc_kcp(uintptr_t ct, const char*** kcp_arr_ptr) {
-  *kcp_arr_ptr = (const char**)bigstack_end_alloc(ct * sizeof(intptr_t));
+  *kcp_arr_ptr = S_CAST(const char**, bigstack_end_alloc(ct * sizeof(intptr_t)));
   return !(*kcp_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_end_alloc_ucp(uintptr_t ct, unsigned char*** ucp_arr_ptr) {
-  *ucp_arr_ptr = (unsigned char**)bigstack_end_alloc(ct * sizeof(intptr_t));
+  *ucp_arr_ptr = S_CAST(unsigned char**, bigstack_end_alloc(ct * sizeof(intptr_t)));
   return !(*ucp_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t bigstack_end_alloc_thread(uintptr_t ct, pthread_t** thread_arr_ptr) {
-  *thread_arr_ptr = (pthread_t*)bigstack_end_alloc(ct * sizeof(pthread_t));
+  *thread_arr_ptr = S_CAST(pthread_t*, bigstack_end_alloc(ct * sizeof(pthread_t)));
   return !(*thread_arr_ptr);
 }
 
 
 // and here's the interface for a non-global arena (necessary for some
 // multithreaded code).
-HEADER_INLINE unsigned char* arena_alloc_raw(uintptr_t size, unsigned char** arena_bottom_ptr) {
+HEADER_INLINE void* arena_alloc_raw(uintptr_t size, unsigned char** arena_bottom_ptr) {
   assert(!(size % kCacheline));
   unsigned char* alloc_ptr = *arena_bottom_ptr;
   *arena_bottom_ptr = &(alloc_ptr[size]);
   return alloc_ptr;
 }
 
-HEADER_INLINE unsigned char* arena_alloc_raw_rd(uintptr_t size, unsigned char** arena_bottom_ptr) {
+HEADER_INLINE void* arena_alloc_raw_rd(uintptr_t size, unsigned char** arena_bottom_ptr) {
   unsigned char* alloc_ptr = *arena_bottom_ptr;
   *arena_bottom_ptr = &(alloc_ptr[round_up_pow2(size, kCacheline)]);
   return alloc_ptr;
 }
 
-HEADER_INLINE unsigned char* arena_alloc(unsigned char* arena_top, uintptr_t size, unsigned char** arena_bottom_ptr) {
+HEADER_INLINE void* arena_alloc(unsigned char* arena_top, uintptr_t size, unsigned char** arena_bottom_ptr) {
   size = round_up_pow2(size, kCacheline);
-  if (((uintptr_t)(arena_top - (*arena_bottom_ptr))) < size) {
+  if (S_CAST(uintptr_t, arena_top - (*arena_bottom_ptr)) < size) {
     g_failed_alloc_attempt_size = size;
     return nullptr;
   }
@@ -996,60 +999,60 @@ HEADER_INLINE unsigned char* arena_alloc(unsigned char* arena_top, uintptr_t siz
 }
 
 HEADER_INLINE boolerr_t arena_alloc_c(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, char** c_arr_ptr) {
-  *c_arr_ptr = (char*)arena_alloc(arena_top, ct, arena_bottom_ptr);
+  *c_arr_ptr = S_CAST(char*, arena_alloc(arena_top, ct, arena_bottom_ptr));
   return !(*c_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t arena_alloc_d(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, double** d_arr_ptr) {
-  *d_arr_ptr = (double*)arena_alloc(arena_top, ct * sizeof(double), arena_bottom_ptr);
+  *d_arr_ptr = S_CAST(double*, arena_alloc(arena_top, ct * sizeof(double), arena_bottom_ptr));
   return !(*d_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t arena_alloc_f(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, float** f_arr_ptr) {
-  *f_arr_ptr = (float*)arena_alloc(arena_top, ct * sizeof(float), arena_bottom_ptr);
+  *f_arr_ptr = S_CAST(float*, arena_alloc(arena_top, ct * sizeof(float), arena_bottom_ptr));
   return !(*f_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t arena_alloc_i(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, int32_t** i_arr_ptr) {
-  *i_arr_ptr = (int32_t*)arena_alloc(arena_top, ct * sizeof(int32_t), arena_bottom_ptr);
+  *i_arr_ptr = S_CAST(int32_t*, arena_alloc(arena_top, ct * sizeof(int32_t), arena_bottom_ptr));
   return !(*i_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t arena_alloc_uc(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, unsigned char** uc_arr_ptr) {
-  *uc_arr_ptr = arena_alloc(arena_top, ct, arena_bottom_ptr);
+  *uc_arr_ptr = S_CAST(unsigned char*, arena_alloc(arena_top, ct, arena_bottom_ptr));
   return !(*uc_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t arena_alloc_ui(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, uint32_t** ui_arr_ptr) {
-  *ui_arr_ptr = (uint32_t*)arena_alloc(arena_top, ct * sizeof(int32_t), arena_bottom_ptr);
+  *ui_arr_ptr = S_CAST(uint32_t*, arena_alloc(arena_top, ct * sizeof(int32_t), arena_bottom_ptr));
   return !(*ui_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t arena_alloc_ul(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, uintptr_t** ul_arr_ptr) {
-  *ul_arr_ptr = (uintptr_t*)arena_alloc(arena_top, ct * sizeof(intptr_t), arena_bottom_ptr);
+  *ul_arr_ptr = S_CAST(uintptr_t*, arena_alloc(arena_top, ct * sizeof(intptr_t), arena_bottom_ptr));
   return !(*ul_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t arena_alloc_ll(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, int64_t** ll_arr_ptr) {
-  *ll_arr_ptr = (int64_t*)arena_alloc(arena_top, ct * sizeof(int64_t), arena_bottom_ptr);
+  *ll_arr_ptr = S_CAST(int64_t*, arena_alloc(arena_top, ct * sizeof(int64_t), arena_bottom_ptr));
   return !(*ll_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t arena_alloc_ull(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, uint64_t** ull_arr_ptr) {
-  *ull_arr_ptr = (uint64_t*)arena_alloc(arena_top, ct * sizeof(int64_t), arena_bottom_ptr);
+  *ull_arr_ptr = S_CAST(uint64_t*, arena_alloc(arena_top, ct * sizeof(int64_t), arena_bottom_ptr));
   return !(*ull_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t arena_alloc_cp(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, char*** cp_arr_ptr) {
-  *cp_arr_ptr = (char**)arena_alloc(arena_top, ct * sizeof(intptr_t), arena_bottom_ptr);
+  *cp_arr_ptr = S_CAST(char**, arena_alloc(arena_top, ct * sizeof(intptr_t), arena_bottom_ptr));
   return !(*cp_arr_ptr);
 }
 
 HEADER_INLINE void arena_base_set(const void* unaligned_base, unsigned char** arena_bottom_ptr) {
-  *arena_bottom_ptr = (unsigned char*)round_up_pow2((uintptr_t)unaligned_base, kCacheline);
+  *arena_bottom_ptr = R_CAST(unsigned char*, round_up_pow2(R_CAST(uintptr_t, unaligned_base), kCacheline));
 }
 
-HEADER_INLINE unsigned char* arena_end_alloc_raw(uintptr_t size, unsigned char** arena_top_ptr) {
+HEADER_INLINE void* arena_end_alloc_raw(uintptr_t size, unsigned char** arena_top_ptr) {
   assert(!(size % kEndAllocAlign));
   unsigned char* alloc_ptr = *arena_top_ptr;
   alloc_ptr -= size;
@@ -1057,9 +1060,9 @@ HEADER_INLINE unsigned char* arena_end_alloc_raw(uintptr_t size, unsigned char**
   return alloc_ptr;
 }
 
-HEADER_INLINE unsigned char* arena_end_alloc(unsigned char* arena_bottom, uintptr_t size, unsigned char** arena_top_ptr) {
+HEADER_INLINE void* arena_end_alloc(unsigned char* arena_bottom, uintptr_t size, unsigned char** arena_top_ptr) {
   size = round_up_pow2(size, kEndAllocAlign);
-  if (((uintptr_t)((*arena_top_ptr) - arena_bottom)) < size) {
+  if (S_CAST(uintptr_t, (*arena_top_ptr) - arena_bottom) < size) {
     g_failed_alloc_attempt_size = size;
     return nullptr;
   }
@@ -1067,64 +1070,64 @@ HEADER_INLINE unsigned char* arena_end_alloc(unsigned char* arena_bottom, uintpt
 }
 
 HEADER_INLINE boolerr_t arena_end_alloc_c(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, char** c_arr_ptr) {
-  *c_arr_ptr = (char*)arena_end_alloc(arena_bottom, ct, arena_top_ptr);
+  *c_arr_ptr = S_CAST(char*, arena_end_alloc(arena_bottom, ct, arena_top_ptr));
   return !(*c_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t arena_end_alloc_d(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, double** d_arr_ptr) {
-  *d_arr_ptr = (double*)arena_end_alloc(arena_bottom, ct * sizeof(double), arena_top_ptr);
+  *d_arr_ptr = S_CAST(double*, arena_end_alloc(arena_bottom, ct * sizeof(double), arena_top_ptr));
   return !(*d_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t arena_end_alloc_f(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, float** f_arr_ptr) {
-  *f_arr_ptr = (float*)arena_end_alloc(arena_bottom, ct * sizeof(float), arena_top_ptr);
+  *f_arr_ptr = S_CAST(float*, arena_end_alloc(arena_bottom, ct * sizeof(float), arena_top_ptr));
   return !(*f_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t arena_end_alloc_i(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, int32_t** i_arr_ptr) {
-  *i_arr_ptr = (int32_t*)arena_end_alloc(arena_bottom, ct * sizeof(int32_t), arena_top_ptr);
+  *i_arr_ptr = S_CAST(int32_t*, arena_end_alloc(arena_bottom, ct * sizeof(int32_t), arena_top_ptr));
   return !(*i_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t arena_end_alloc_uc(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, unsigned char** uc_arr_ptr) {
-  *uc_arr_ptr = arena_end_alloc(arena_bottom, ct, arena_top_ptr);
+  *uc_arr_ptr = S_CAST(unsigned char*, arena_end_alloc(arena_bottom, ct, arena_top_ptr));
   return !(*uc_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t arena_end_alloc_ui(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, uint32_t** ui_arr_ptr) {
-  *ui_arr_ptr = (uint32_t*)arena_end_alloc(arena_bottom, ct * sizeof(int32_t), arena_top_ptr);
+  *ui_arr_ptr = S_CAST(uint32_t*, arena_end_alloc(arena_bottom, ct * sizeof(int32_t), arena_top_ptr));
   return !(*ui_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t arena_end_alloc_ul(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, uintptr_t** ul_arr_ptr) {
-  *ul_arr_ptr = (uintptr_t*)arena_end_alloc(arena_bottom, ct * sizeof(intptr_t), arena_top_ptr);
+  *ul_arr_ptr = S_CAST(uintptr_t*, arena_end_alloc(arena_bottom, ct * sizeof(intptr_t), arena_top_ptr));
   return !(*ul_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t arena_end_alloc_ll(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, int64_t** ll_arr_ptr) {
-  *ll_arr_ptr = (int64_t*)arena_end_alloc(arena_bottom, ct * sizeof(int64_t), arena_top_ptr);
+  *ll_arr_ptr = S_CAST(int64_t*, arena_end_alloc(arena_bottom, ct * sizeof(int64_t), arena_top_ptr));
   return !(*ll_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t arena_end_alloc_ull(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, uint64_t** ull_arr_ptr) {
-  *ull_arr_ptr = (uint64_t*)arena_end_alloc(arena_bottom, ct * sizeof(int64_t), arena_top_ptr);
+  *ull_arr_ptr = S_CAST(uint64_t*, arena_end_alloc(arena_bottom, ct * sizeof(int64_t), arena_top_ptr));
   return !(*ull_arr_ptr);
 }
 
 HEADER_INLINE boolerr_t arena_end_alloc_cp(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, char*** cp_arr_ptr) {
-  *cp_arr_ptr = (char**)arena_end_alloc(arena_bottom, ct * sizeof(intptr_t), arena_top_ptr);
+  *cp_arr_ptr = S_CAST(char**, arena_end_alloc(arena_bottom, ct * sizeof(intptr_t), arena_top_ptr));
   return !(*cp_arr_ptr);
 }
 
 
-boolerr_t push_llstr(const char* ss, ll_str_t** ll_stack_ptr);
+boolerr_t push_llstr(const char* str, ll_str_t** ll_stack_ptr);
 
 // Does not require null-termination.
-// boolerr_t push_llstr_counted(const char* ss, uint32_t slen, ll_str_t** ll_stack_ptr);
+// boolerr_t push_llstr_counted(const char* str, uint32_t slen, ll_str_t** ll_stack_ptr);
 
 typedef struct l32str_struct {
   uint32_t len;
-  char ss[];
+  char str[];
 } l32str_t;
 
 
@@ -1162,44 +1165,44 @@ HEADER_CINLINE int32_t is_eoln_or_comment_kns(unsigned char ucc) {
   return (ucc < 32) || (ucc == '#');
 }
 
-HEADER_CINLINE int32_t no_more_tokens_kns(const char* sptr) {
-  return ((!sptr) || is_eoln_kns(*sptr));
+HEADER_CINLINE int32_t no_more_tokens_kns(const char* str) {
+  return ((!str) || is_eoln_kns(*str));
 }
 
-HEADER_INLINE CXXCONST_CP skip_initial_spaces(const char* sptr) {
-  while ((*sptr == ' ') || (*sptr == '\t')) {
-    ++sptr;
+HEADER_INLINE CXXCONST_CP skip_initial_spaces(const char* str_iter) {
+  while ((*str_iter == ' ') || (*str_iter == '\t')) {
+    ++str_iter;
   }
-  return (CXXCONST_CP)sptr;
+  return S_CAST(CXXCONST_CP, str_iter);
 }
 
 #ifdef __cplusplus
-HEADER_INLINE char* skip_initial_spaces(char* sptr) {
-  return const_cast<char*>(skip_initial_spaces(const_cast<const char*>(sptr)));
+HEADER_INLINE char* skip_initial_spaces(char* str_iter) {
+  return const_cast<char*>(skip_initial_spaces(const_cast<const char*>(str_iter)));
 }
 #endif
 
 // assumes we are currently in a token -- UNSAFE OTHERWISE
-HEADER_INLINE CXXCONST_CP token_endnn(const char* sptr) {
-  // assert(((unsigned char)(*sptr)) > 32);
-  while (!is_space_or_eoln(*(++sptr)));
-  return (CXXCONST_CP)sptr;
+HEADER_INLINE CXXCONST_CP token_endnn(const char* str_iter) {
+  // assert(((unsigned char)(*str_iter)) > 32);
+  while (!is_space_or_eoln(*(++str_iter)));
+  return S_CAST(CXXCONST_CP, str_iter);
 }
 
 #ifdef __cplusplus
-HEADER_INLINE char* token_endnn(char* sptr) {
-  return const_cast<char*>(token_endnn(const_cast<const char*>(sptr)));
+HEADER_INLINE char* token_endnn(char* str_iter) {
+  return const_cast<char*>(token_endnn(const_cast<const char*>(str_iter)));
 }
 #endif
 
-HEADER_INLINE CXXCONST_CP next_prespace(const char* sptr) {
-  while (((unsigned char)(*(++sptr))) >= 32);
-  return (CXXCONST_CP)sptr;
+HEADER_INLINE CXXCONST_CP next_prespace(const char* str_iter) {
+  while (ctou32(*(++str_iter)) >= 32);
+  return S_CAST(CXXCONST_CP, str_iter);
 }
 
 #ifdef __cplusplus
-HEADER_INLINE char* next_prespace(char* sptr) {
-  return const_cast<char*>(next_prespace(const_cast<const char*>(sptr)));
+HEADER_INLINE char* next_prespace(char* str_iter) {
+  return const_cast<char*>(next_prespace(const_cast<const char*>(str_iter)));
 }
 #endif
 
@@ -1207,13 +1210,13 @@ HEADER_INLINE char* next_prespace(char* sptr) {
 // comma-delimiter case
 HEADER_INLINE CXXCONST_CP comma_or_space_token_end(const char* token_iter, uint32_t comma_delim) {
   if (comma_delim) {
-    unsigned char ucc = (unsigned char)(*token_iter);
+    unsigned char ucc = *token_iter;
     while ((ucc >= ' ') && (ucc != ',')) {
       ucc = *(++token_iter);
     }
-    return (CXXCONST_CP)token_iter;
+    return S_CAST(CXXCONST_CP, token_iter);
   }
-  return (CXXCONST_CP)token_endnn(token_iter);
+  return S_CAST(CXXCONST_CP, token_endnn(token_iter));
 }
 
 #ifdef __cplusplus
@@ -1230,10 +1233,10 @@ HEADER_INLINE CXXCONST_CP comma_or_space_next_token(const char* token_end_iter, 
     if ((*token_end_iter) != ',') {
       return nullptr;
     }
-    return (CXXCONST_CP)skip_initial_spaces(&(token_end_iter[1]));
+    return S_CAST(CXXCONST_CP, skip_initial_spaces(&(token_end_iter[1])));
   }
-  const char* ss = skip_initial_spaces(token_end_iter);
-  return is_eoln_kns(*ss)? nullptr : ((CXXCONST_CP)(ss));
+  const char* str = skip_initial_spaces(token_end_iter);
+  return is_eoln_kns(*str)? nullptr : S_CAST(CXXCONST_CP, str);
 }
 
 #ifdef __cplusplus
@@ -1243,67 +1246,70 @@ HEADER_INLINE char* comma_or_space_next_token(char* token_end_iter, uint32_t com
 #endif
 
 
-// Returns whether uppercased ss matches nonempty fixed_str.  Assumes fixed_str
-// contains nothing but letters and a null terminator.
-// uint32_t match_upper(const char* ss, const char* fixed_str);
+// Returns whether uppercased str_iter matches nonempty fixed_str.  Assumes
+// fixed_str contains nothing but letters and a null terminator.
+// uint32_t match_upper(const char* str_iter, const char* fixed_str);
 
-uint32_t match_upper_counted(const char* ss, const char* fixed_str, uint32_t ct);
+uint32_t match_upper_counted(const char* str, const char* fixed_str, uint32_t ct);
 
-HEADER_INLINE uint32_t match_upper_k(const char* ss, const char* fixed_str, uint32_t ss_slen) {
+HEADER_INLINE uint32_t match_upper_k(const char* str, const char* fixed_str, uint32_t str_slen) {
   const uint32_t fixed_slen = strlen(fixed_str);
-  if (ss_slen != fixed_slen) {
+  if (str_slen != fixed_slen) {
     return 0;
   }
-  return match_upper_counted(ss, fixed_str, fixed_slen);
+  return match_upper_counted(str, fixed_str, fixed_slen);
 }
 
-HEADER_INLINE uint32_t match_upper_k2(const char* ss, const char* fixed_str) {
-  return match_upper_counted(ss, fixed_str, strlen(fixed_str));
+HEADER_INLINE uint32_t match_upper_k2(const char* str, const char* fixed_str) {
+  return match_upper_counted(str, fixed_str, strlen(fixed_str));
 }
 
 /*
-void str_toupper(char* ss);
+void str_toupper(char* str_iter);
 
-void buf_toupper(uint32_t slen, char* ss);
+void buf_toupper(uint32_t slen, char* strbuf);
 
 void strcpy_toupper(char* target, const char* source);
 */
 
-uint32_t is_alphanumeric(const char* ss);
+uint32_t is_alphanumeric(const char* str_iter);
 
 // scan_posint_capped(), scan_uint_capped(), scan_int_abs_bounded(),
 // scan_int32(), scan_posint_defcap(), scan_uint_defcap(),
 // scan_int_abs_defcap(), scan_uint_icap() in plink2_base
 
-boolerr_t scan_posintptr(const char* ss, uintptr_t* valp);
+boolerr_t scan_posintptr(const char* str_iter, uintptr_t* valp);
 
 #ifdef __LP64__
-boolerr_t scanadv_posint_capped(uint64_t cap, const char** ss_ptr, uint32_t* valp);
+boolerr_t scanmov_posint_capped(uint64_t cap, const char** str_iterp, uint32_t* valp);
 
-boolerr_t scanadv_uint_capped(uint64_t cap, const char** ss_ptr, uint32_t* valp);
+boolerr_t scanmov_uint_capped(uint64_t cap, const char** str_iterp, uint32_t* valp);
 #else
-boolerr_t scanadv_posint_capped32(uint32_t cap_div_10, uint32_t cap_mod_10, const char** ss_ptr, uint32_t* valp);
+boolerr_t scanmov_posint_capped32(uint32_t cap_div_10, uint32_t cap_mod_10, const char** str_iterp, uint32_t* valp);
 
-boolerr_t scanadv_uint_capped32(uint32_t cap_div_10, uint32_t cap_mod_10, const char** ss_ptr, uint32_t* valp);
+boolerr_t scanmov_uint_capped32(uint32_t cap_div_10, uint32_t cap_mod_10, const char** str_iterp, uint32_t* valp);
 
-HEADER_INLINE boolerr_t scanadv_posint_capped(uint32_t cap, const char** ss_ptr, uint32_t* valp) {
- return scanadv_posint_capped32(cap / 10, cap % 10, ss_ptr, valp);
+HEADER_INLINE boolerr_t scanmov_posint_capped(uint32_t cap, const char** str_iterp, uint32_t* valp) {
+ return scanmov_posint_capped32(cap / 10, cap % 10, str_iterp, valp);
 }
 
-HEADER_INLINE boolerr_t scanadv_uint_capped(uint32_t cap, const char** ss_ptr, uint32_t* valp) {
- return scanadv_uint_capped32(cap / 10, cap % 10, ss_ptr, valp);
+HEADER_INLINE boolerr_t scanmov_uint_capped(uint32_t cap, const char** str_iterp, uint32_t* valp) {
+ return scanmov_uint_capped32(cap / 10, cap % 10, str_iterp, valp);
 }
 #endif
 
-HEADER_INLINE boolerr_t scanadv_uint_defcap(const char** ss_ptr, uint32_t* valp) {
-  return scanadv_uint_capped(0x7ffffffe, ss_ptr, valp);
+HEADER_INLINE boolerr_t scanmov_uint_defcap(const char** str_iterp, uint32_t* valp) {
+  return scanmov_uint_capped(0x7ffffffe, str_iterp, valp);
 }
 
-// this has different semantics from scanadv_posint_capped, etc. since integer
+// This has different semantics from scanmov_posint_capped, etc. since integer
 // readers don't take much code (so it's fine to have a bunch of similar
 // functions, optimized for slightly different use cases), but we only want one
-// floating point reader
-CXXCONST_CP scanadv_double(const char* ss, double* valp);
+// floating point reader.
+// (update, 3 Feb 2018: renamed the integer readers above to start with
+// scanmov_ instead of scanadv_, to reflect the interface difference between
+// returning a pointer and moving the input pointer forward.)
+CXXCONST_CP scanadv_double(const char* str_iter, double* valp);
 
 #ifdef __cplusplus
 HEADER_INLINE char* scanadv_double(char* ss, double* valp) {
@@ -1313,14 +1319,13 @@ HEADER_INLINE char* scanadv_double(char* ss, double* valp) {
 
 HEADER_INLINE boolerr_t scan_float(const char* ss, float* valp) {
   double dxx;
-  // const_cast
-  if (!scanadv_double((char*)((uintptr_t)ss), &dxx)) {
+  if (!scanadv_double(ss, &dxx)) {
     return 1;
   }
   if (fabs(dxx) > 3.4028235677973362e38) {
     return 1;
   }
-  *valp = (float)dxx;
+  *valp = S_CAST(float, dxx);
   return 0;
 }
 
@@ -1328,33 +1333,33 @@ HEADER_INLINE boolerr_t scan_float(const char* ss, float* valp) {
 
 HEADER_INLINE char* memcpyax(void* __restrict target, const void* __restrict source, uint32_t ct, char extra_char) {
   memcpy(target, source, ct);
-  ((char*)target)[ct] = extra_char;
-  return &(((char*)target)[ct + 1]);
+  S_CAST(char*, target)[ct] = extra_char;
+  return &(S_CAST(char*, target)[ct + 1]);
 }
 
 HEADER_INLINE void memcpyx(void* __restrict target, const void* __restrict source, uint32_t ct, char extra_char) {
   memcpy(target, source, ct);
-  ((char*)target)[ct] = extra_char;
+  S_CAST(char*, target)[ct] = extra_char;
 }
 
 HEADER_INLINE void memcpyl3(void* __restrict target, const void* __restrict source) {
   // when it's safe to clobber the fourth character, this is faster
-  *((uint32_t*)target) = *((const uint32_t*)source);
+  *S_CAST(uint32_t*, target) = *S_CAST(const uint32_t*, source);
 }
 
 HEADER_INLINE char* memcpyl3a(void* __restrict target, const void* __restrict source) {
   memcpyl3(target, source);
-  return &(((char*)target)[3]);
+  return &(S_CAST(char*, target)[3]);
 }
 
 HEADER_INLINE char* strcpya(char* __restrict target, const void* __restrict source) {
-  uintptr_t slen = strlen((const char*)source);
+  uintptr_t slen = strlen(S_CAST(const char*, source));
   memcpy(target, source, slen);
   return &(target[slen]);
 }
 
 HEADER_INLINE char* strcpyax(char* __restrict target, const void* __restrict source, char extra_char) {
-  uintptr_t slen = strlen((const char*)source);
+  uintptr_t slen = strlen(S_CAST(const char*, source));
   memcpy(target, source, slen);
   target[slen] = extra_char;
   return &(target[slen + 1]);
@@ -1404,91 +1409,91 @@ HEADER_INLINE uintptr_t strlen_se(const char* ss) {
   while (!is_space_or_eoln(*ss2)) {
     ss2++;
   }
-  return (uintptr_t)(ss2 - ss);
+  return ss2 - ss;
 }
 
-// ok if sptr is at end of current token
-HEADER_INLINE CXXCONST_CP next_token(const char* sptr) {
-  if (!sptr) {
+// ok if str_iter is at end of current token
+HEADER_INLINE CXXCONST_CP next_token(const char* str_iter) {
+  if (!str_iter) {
     return nullptr;
   }
-  unsigned char ucc = *sptr;
+  unsigned char ucc = *str_iter;
   while (ucc > 32) {
-    ucc = *(++sptr);
+    ucc = *(++str_iter);
   }
   while ((ucc == ' ') || (ucc == '\t')) {
-    ucc = *(++sptr);
+    ucc = *(++str_iter);
   }
-  return (ucc > 32)? ((CXXCONST_CP)sptr) : nullptr;
+  return (ucc > 32)? S_CAST(CXXCONST_CP, str_iter) : nullptr;
 }
 
 #ifdef __cplusplus
-HEADER_INLINE char* next_token(char* sptr) {
-  return const_cast<char*>(next_token(const_cast<const char*>(sptr)));
+HEADER_INLINE char* next_token(char* str_iter) {
+  return const_cast<char*>(next_token(const_cast<const char*>(str_iter)));
 }
 #endif
 
-HEADER_INLINE CXXCONST_CP next_token_mult(const char* sptr, uint32_t ct) {
+HEADER_INLINE CXXCONST_CP next_token_mult(const char* str_iter, uint32_t ct) {
   // assert(ct);
-  if (!sptr) {
+  if (!str_iter) {
     return nullptr;
   }
-  unsigned char ucc = *sptr;
+  unsigned char ucc = *str_iter;
   do {
     while (ucc > 32) {
-      ucc = *(++sptr);
+      ucc = *(++str_iter);
     }
     while ((ucc == ' ') || (ucc == '\t')) {
-      ucc = *(++sptr);
+      ucc = *(++str_iter);
     }
     if (ucc <= 32) {
       return nullptr;
     }
   } while (--ct);
-  return (CXXCONST_CP)sptr;
+  return S_CAST(CXXCONST_CP, str_iter);
 }
 
 #ifdef __cplusplus
-HEADER_INLINE char* next_token_mult(char* sptr, uint32_t ct) {
-  return const_cast<char*>(next_token_mult(const_cast<const char*>(sptr), ct));
+HEADER_INLINE char* next_token_mult(char* str_iter, uint32_t ct) {
+  return const_cast<char*>(next_token_mult(const_cast<const char*>(str_iter), ct));
 }
 #endif
 
-HEADER_INLINE CXXCONST_CP next_token_multz(const char* sptr, uint32_t ct) {
+HEADER_INLINE CXXCONST_CP next_token_multz(const char* str, uint32_t ct) {
   // tried replacing this with ternary operator, but that actually seemed to
   // slow things down a bit under gcc 4.2.1 (tail call optimization issue?).
   // todo: recheck this under newer gcc/clang.
   if (ct) {
-    return (CXXCONST_CP)next_token_mult(sptr, ct);
+    return S_CAST(CXXCONST_CP, next_token_mult(str, ct));
   }
-  return (CXXCONST_CP)sptr;
+  return S_CAST(CXXCONST_CP, str);
 }
 
 #ifdef __cplusplus
-HEADER_INLINE char* next_token_multz(char* sptr, uint32_t ct) {
-  return const_cast<char*>(next_token_multz(const_cast<const char*>(sptr), ct));
+HEADER_INLINE char* next_token_multz(char* str, uint32_t ct) {
+  return const_cast<char*>(next_token_multz(const_cast<const char*>(str), ct));
 }
 #endif
 
-CXXCONST_CP comma_or_space_next_token_mult(const char* sptr, uint32_t ct, uint32_t comma_delim);
+CXXCONST_CP comma_or_space_next_token_mult(const char* str_iter, uint32_t ct, uint32_t comma_delim);
 
 #ifdef __cplusplus
-HEADER_INLINE char* comma_or_space_next_token_mult(char* sptr, uint32_t ct, uint32_t comma_delim) {
-  return const_cast<char*>(comma_or_space_next_token_mult(const_cast<const char*>(sptr), ct, comma_delim));
+HEADER_INLINE char* comma_or_space_next_token_mult(char* str_iter, uint32_t ct, uint32_t comma_delim) {
+  return const_cast<char*>(comma_or_space_next_token_mult(const_cast<const char*>(str_iter), ct, comma_delim));
 }
 #endif
 
-uint32_t count_tokens(const char* bufptr);
+uint32_t count_tokens(const char* str_iter);
 
-// uint32_t comma_or_space_count_tokens(const char* bufptr, uint32_t comma_delim);
+// uint32_t comma_or_space_count_tokens(const char* str_iter, uint32_t comma_delim);
 
 HEADER_INLINE char* fw_strcpyn(const char* source, uint32_t min_width, uint32_t source_len, char* dest) {
   // right-justified strcpy with known source length
   if (source_len < min_width) {
-    memcpy(memseta((unsigned char*)dest, ' ', min_width - source_len), source, source_len);
+    memcpy(memseta(dest, ' ', min_width - source_len), source, source_len);
     return &(dest[min_width]);
   }
-  return (char*)memcpya(dest, source, source_len);
+  return memcpya(dest, source, source_len);
 }
 
 HEADER_INLINE char* fw_strcpy(const char* source, uint32_t min_width, char* dest) {
@@ -1587,7 +1592,8 @@ HEADER_INLINE void fill_vvec_zero(uintptr_t entry_ct, vul_t* vvec) {
 }
 
 HEADER_INLINE void fill_ull_one(uintptr_t entry_ct, uint64_t* ullarr) {
-  fill_ulong_one(entry_ct, (uintptr_t*)ullarr);
+  // bugfix (1 Feb 2018): forgot to multiply by 2 in 32-bit case
+  fill_ulong_one(entry_ct * (sizeof(int64_t) / kBytesPerWord), R_CAST(uintptr_t*, ullarr));
 }
 
 HEADER_INLINE void fill_int_zero(uintptr_t entry_ct, int32_t* iarr) {
@@ -1663,7 +1669,7 @@ void clear_bits_nz(uintptr_t start_idx, uintptr_t end_idx, uintptr_t* bitarr);
 uintptr_t next_set_ul_unsafe(const uintptr_t* bitarr, uintptr_t loc);
 #else
 HEADER_INLINE uintptr_t next_set_ul_unsafe(const uintptr_t* bitarr, uintptr_t loc) {
-  return (uintptr_t)next_set_unsafe(bitarr, loc);
+  return next_set_unsafe(bitarr, loc);
 }
 #endif
 
@@ -1703,19 +1709,19 @@ boolerr_t bigstack_calloc_ul(uintptr_t ct, uintptr_t** ul_arr_ptr);
 boolerr_t bigstack_calloc_ull(uintptr_t ct, uint64_t** ull_arr_ptr);
 
 HEADER_INLINE boolerr_t bigstack_calloc_c(uintptr_t ct, char** c_arr_ptr) {
-  return bigstack_calloc_uc(ct, (unsigned char**)c_arr_ptr);
+  return bigstack_calloc_uc(ct, R_CAST(unsigned char**, c_arr_ptr));
 }
 
 HEADER_INLINE boolerr_t bigstack_calloc_si(uintptr_t ct, int16_t** si_arr_ptr) {
-  return bigstack_calloc_usi(ct, (uint16_t**)si_arr_ptr);
+  return bigstack_calloc_usi(ct, R_CAST(uint16_t**, si_arr_ptr));
 }
 
 HEADER_INLINE boolerr_t bigstack_calloc_i(uintptr_t ct, int32_t** i_arr_ptr) {
-  return bigstack_calloc_ui(ct, (uint32_t**)i_arr_ptr);
+  return bigstack_calloc_ui(ct, R_CAST(uint32_t**, i_arr_ptr));
 }
 
 HEADER_INLINE boolerr_t bigstack_calloc_ll(uintptr_t ct, int64_t** ll_arr_ptr) {
-  return bigstack_calloc_ull(ct, (uint64_t**)ll_arr_ptr);
+  return bigstack_calloc_ull(ct, R_CAST(uint64_t**, ll_arr_ptr));
 }
 
 boolerr_t bigstack_end_calloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr);
@@ -1731,15 +1737,15 @@ boolerr_t bigstack_end_calloc_ul(uintptr_t ct, uintptr_t** ul_arr_ptr);
 boolerr_t bigstack_end_calloc_ull(uintptr_t ct, uint64_t** ull_arr_ptr);
 
 HEADER_INLINE boolerr_t bigstack_end_calloc_c(uintptr_t ct, char** c_arr_ptr) {
-  return bigstack_end_calloc_uc(ct, (unsigned char**)c_arr_ptr);
+  return bigstack_end_calloc_uc(ct, R_CAST(unsigned char**, c_arr_ptr));
 }
 
 HEADER_INLINE boolerr_t bigstack_end_calloc_i(uintptr_t ct, int32_t** i_arr_ptr) {
-  return bigstack_end_calloc_ui(ct, (uint32_t**)i_arr_ptr);
+  return bigstack_end_calloc_ui(ct, R_CAST(uint32_t**, i_arr_ptr));
 }
 
 HEADER_INLINE boolerr_t bigstack_end_calloc_ll(uintptr_t ct, int64_t** ll_arr_ptr) {
-  return bigstack_end_calloc_ull(ct, (uint64_t**)ll_arr_ptr);
+  return bigstack_end_calloc_ull(ct, R_CAST(uint64_t**, ll_arr_ptr));
 }
 
 
@@ -1784,8 +1790,13 @@ int32_t get_variant_uidx_without_htable(const char* idstr, const char* const* va
 uint32_t murmurhash3_32(const void* key, uint32_t len);
 
 // see http://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction/
+// Note that this is a bit more vulnerable to adversarial input: modulo
+// reduction requires lots of hash collisions (or near-collisions) or known
+// hash table size, while this can be attacked without knowledge of the table
+// size.  But it doesn't really matter; either way, you'd need to add something
+// like a randomly generated salt if you care about defending.
 HEADER_INLINE uint32_t hashceil(const char* idstr, uint32_t idlen, uint32_t htable_size) {
-  return (((uint64_t)murmurhash3_32(idstr, idlen)) * htable_size) >> 32;
+  return (S_CAST(uint64_t, murmurhash3_32(idstr, idlen)) * htable_size) >> 32;
 }
 
 // uintptr_t geqprime(uintptr_t floor);
@@ -1879,7 +1890,7 @@ HEADER_INLINE boolerr_t sorted_idbox_find(const char* idbuf, const char* sorted_
   if (ii == -1) {
     return 1;
   }
-  *id_ptr = id_map? id_map[(uint32_t)ii] : ((uint32_t)ii);
+  *id_ptr = id_map? id_map[S_CAST(uint32_t, ii)] : S_CAST(uint32_t, ii);
   return 0;
 }
 
@@ -1911,21 +1922,21 @@ HEADER_CINLINE uint32_t realnum(double dd) {
 #ifdef __LP64__
 HEADER_INLINE uintptr_t popcount_longs_nzbase(const uintptr_t* bitvec, uintptr_t start_idx, uintptr_t end_idx) {
   uintptr_t prefix_ct = 0;
-  #ifdef USE_AVX2
+#  ifdef USE_AVX2
   while (start_idx & 3) {
     if (end_idx == start_idx) {
       return prefix_ct;
     }
     prefix_ct += popcount_long(bitvec[start_idx++]);
   }
-  #else
+#  else
   if (start_idx & 1) {
     if (end_idx == start_idx) {
       return 0;
     }
     prefix_ct = popcount_long(bitvec[start_idx++]);
   }
-  #endif // USE_AVX2
+#  endif // USE_AVX2
   return prefix_ct + popcount_longs(&(bitvec[start_idx]), end_idx - start_idx);
 }
 #else
@@ -1953,21 +1964,21 @@ void copy_bitarr_range(const uintptr_t* __restrict src_bitarr, uintptr_t src_sta
 // arrays; scramble_2_4_8_32() is more plink-specific
 
 #ifdef __LP64__
-  #ifdef USE_AVX2
+#  ifdef USE_AVX2
 HEADER_CINLINE uint32_t scramble_1_4_8_32(uint32_t orig_idx) {
   // 1->4: 0 4 8 12 16 20 24 28 32 ... 252 1 5 9 ...
   // 4->8: 0 8 16 24 32 ... 248 4 12 20 ... 1 9 17 ...
   // 8->32: 0 32 ... 224 8 40 ... 232 ... 248 4 36 ... 252 1 33 ...
   return (orig_idx & (~255)) + ((orig_idx & 3) * 64) + ((orig_idx & 4) * 8) + (orig_idx & 24) + ((orig_idx & 224) / 32);
 }
-  #else
+#  else
 HEADER_CINLINE uint32_t scramble_1_4_8_32(uint32_t orig_idx) {
   // 1->4: 0 4 8 12 16 20 24 28 32 ... 124 1 5 9 ...
   // 4->8: 0 8 16 24 32 ... 120 4 12 20 ... 1 9 17 ...
   // 8->32: 0 32 64 96 8 40 72 104 16 48 80 112 24 56 88 120 4 36 68 ... 1 33 ...
   return (orig_idx & (~127)) + ((orig_idx & 3) * 32) + ((orig_idx & 4) * 4) + ((orig_idx & 24) / 2) + ((orig_idx & 96) / 32);
 }
-  #endif
+#  endif
 #else
 // 1->4: 0 4 8 12 16 20 24 28 1 5 9 13 17 21 25 29 2 6 10 ...
 // 4->8: 0 8 16 24 4 12 20 28 1 9 17 25 5 13 21 29 2 10 18 ...
@@ -1979,8 +1990,8 @@ HEADER_CINLINE uint32_t scramble_1_4_8_32(uint32_t orig_idx) {
 
 HEADER_INLINE void unroll_incr_1_4(const uintptr_t* acc1, uint32_t acc1_vec_ct, uintptr_t* acc4) {
   const vul_t m1x4 = VCONST_UL(kMask1111);
-  const vul_t* acc1v_iter = (const vul_t*)acc1;
-  vul_t* acc4v_iter = (vul_t*)acc4;
+  const vul_t* acc1v_iter = R_CAST(const vul_t*, acc1);
+  vul_t* acc4v_iter = R_CAST(vul_t*, acc4);
   for (uint32_t vidx = 0; vidx < acc1_vec_ct; ++vidx) {
     vul_t loader = *acc1v_iter++;
     *acc4v_iter = (*acc4v_iter) + (loader & m1x4);
@@ -1999,8 +2010,8 @@ HEADER_INLINE void unroll_incr_1_4(const uintptr_t* acc1, uint32_t acc1_vec_ct, 
 
 HEADER_INLINE void unroll_zero_incr_1_4(uint32_t acc1_vec_ct, uintptr_t* acc1, uintptr_t* acc4) {
   const vul_t m1x4 = VCONST_UL(kMask1111);
-  vul_t* acc1v_iter = (vul_t*)acc1;
-  vul_t* acc4v_iter = (vul_t*)acc4;
+  vul_t* acc1v_iter = R_CAST(vul_t*, acc1);
+  vul_t* acc4v_iter = R_CAST(vul_t*, acc4);
   for (uint32_t vidx = 0; vidx < acc1_vec_ct; ++vidx) {
     vul_t loader = *acc1v_iter;
     *acc1v_iter++ = vul_setzero();
@@ -2022,8 +2033,8 @@ HEADER_INLINE void unroll_zero_incr_1_4(uint32_t acc1_vec_ct, uintptr_t* acc1, u
 // parameters?...
 HEADER_INLINE void unroll_incr_4_8(const uintptr_t* acc4, uint32_t acc4_vec_ct, uintptr_t* acc8) {
   const vul_t m4 = VCONST_UL(kMask0F0F);
-  const vul_t* acc4v_iter = (const vul_t*)acc4;
-  vul_t* acc8v_iter = (vul_t*)acc8;
+  const vul_t* acc4v_iter = R_CAST(const vul_t*, acc4);
+  vul_t* acc8v_iter = R_CAST(vul_t*, acc8);
   for (uint32_t vidx = 0; vidx < acc4_vec_ct; ++vidx) {
     vul_t loader = *acc4v_iter++;
     *acc8v_iter = (*acc8v_iter) + (loader & m4);
@@ -2036,8 +2047,8 @@ HEADER_INLINE void unroll_incr_4_8(const uintptr_t* acc4, uint32_t acc4_vec_ct, 
 
 HEADER_INLINE void unroll_zero_incr_4_8(uint32_t acc4_vec_ct, uintptr_t* acc4, uintptr_t* acc8) {
   const vul_t m4 = VCONST_UL(kMask0F0F);
-  vul_t* acc4v_iter = (vul_t*)acc4;
-  vul_t* acc8v_iter = (vul_t*)acc8;
+  vul_t* acc4v_iter = R_CAST(vul_t*, acc4);
+  vul_t* acc8v_iter = R_CAST(vul_t*, acc8);
   for (uint32_t vidx = 0; vidx < acc4_vec_ct; ++vidx) {
     vul_t loader = *acc4v_iter;
     *acc4v_iter++ = vul_setzero();
@@ -2051,8 +2062,8 @@ HEADER_INLINE void unroll_zero_incr_4_8(uint32_t acc4_vec_ct, uintptr_t* acc4, u
 
 HEADER_INLINE void unroll_incr_8_32(const uintptr_t* acc8, uint32_t acc8_vec_ct, uintptr_t* acc32) {
   const vul_t m8x32 = VCONST_UL(kMask000000FF);
-  const vul_t* acc8v_iter = (const vul_t*)acc8;
-  vul_t* acc32v_iter = (vul_t*)acc32;
+  const vul_t* acc8v_iter = R_CAST(const vul_t*, acc8);
+  vul_t* acc32v_iter = R_CAST(vul_t*, acc32);
   for (uint32_t vidx = 0; vidx < acc8_vec_ct; ++vidx) {
     vul_t loader = *acc8v_iter++;
     *acc32v_iter = (*acc32v_iter) + (loader & m8x32);
@@ -2071,8 +2082,8 @@ HEADER_INLINE void unroll_incr_8_32(const uintptr_t* acc8, uint32_t acc8_vec_ct,
 
 HEADER_INLINE void unroll_zero_incr_8_32(uint32_t acc8_vec_ct, uintptr_t* acc8, uintptr_t* acc32) {
   const vul_t m8x32 = VCONST_UL(kMask000000FF);
-  vul_t* acc8v_iter = (vul_t*)acc8;
-  vul_t* acc32v_iter = (vul_t*)acc32;
+  vul_t* acc8v_iter = R_CAST(vul_t*, acc8);
+  vul_t* acc32v_iter = R_CAST(vul_t*, acc32);
   for (uint32_t vidx = 0; vidx < acc8_vec_ct; ++vidx) {
     vul_t loader = *acc8v_iter;
     *acc8v_iter++ = vul_setzero();
@@ -2109,7 +2120,7 @@ void compute_uidx_start_partition(const uintptr_t* variant_include, uint64_t var
 void compute_partition_aligned(const uintptr_t* variant_include, uint32_t orig_thread_ct, uint32_t first_variant_uidx, uint32_t cur_variant_idx, uint32_t cur_variant_ct, uint32_t alignment, uint32_t* variant_uidx_starts, uint32_t* vidx_starts);
 
 #ifdef __arm__
-  #error "Unaligned accesses in is_nan_str()."
+#  error "Unaligned accesses in is_nan_str()."
 #endif
 // todo: check whether there's actually any point to the uint16_t type-pun
 HEADER_INLINE uint32_t is_nan_str(const char* ss, uint32_t slen) {
@@ -2119,12 +2130,12 @@ HEADER_INLINE uint32_t is_nan_str(const char* ss, uint32_t slen) {
   if (!slen) {
     return 1;
   }
-  const uint32_t first_two_chars_code = ((const uint16_t*)ss)[0];
+  const uint32_t first_two_chars_code = R_CAST(const uint16_t*, ss)[0];
   // assumes little-endian
   if ((first_two_chars_code & 0xdfdf) != 0x414e) {
     return 0;
   }
-  return (slen == 2) || ((((unsigned char)ss[2]) & 0xdf) == 78);
+  return (slen == 2) || ((ctou32(ss[2]) & 0xdf) == 78);
 }
 
 boolerr_t parse_next_range(const char* const* argvc, uint32_t param_ct, char range_delim, uint32_t* cur_param_idx_ptr, const char** cur_arg_pptr, const char** range_start_ptr, uint32_t* rs_len_ptr, const char** range_end_ptr, uint32_t* re_len_ptr);
@@ -2357,15 +2368,15 @@ pglerr_t search_header_line(const char* header_line_iter, const char* const* sea
 // now
 #ifndef __LP64__
   // 2047 seems to consistently fail on both OS X and Windows
-  #ifdef _WIN32
-CONSTU31(kMalloc32bitMbMax, 1760);
-  #else
-    #ifdef __APPLE__
-CONSTU31(kMalloc32bitMbMax, 1920);
-    #else
+#  ifdef _WIN32
+CONSTU31(kMalloc32bitMbMax, 1728);
+#  else
+#    ifdef __APPLE__
+CONSTU31(kMalloc32bitMbMax, 1888);
+#    else
 CONSTU31(kMalloc32bitMbMax, 2047);
-    #endif
-  #endif
+#    endif
+#  endif
 #endif
 
 

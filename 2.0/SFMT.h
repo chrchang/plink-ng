@@ -260,7 +260,11 @@ inline static double sfmt_genrand_real2(sfmt_t * sfmt)
  */
 inline static double sfmt_to_real3(uint32_t v)
 {
+#ifdef __cplusplus
+  return (static_cast<double>(v) + 0.5)*(1.0/4294967296.0);
+#else
     return (((double)v) + 0.5)*(1.0/4294967296.0);
+#endif
     /* divided by 2^32 */
 }
 
@@ -305,7 +309,11 @@ inline static double sfmt_genrand_res53(sfmt_t * sfmt)
  */
 inline static double sfmt_to_res53_mix(uint32_t x, uint32_t y)
 {
+#ifdef __cplusplus
+    return sfmt_to_res53(x | (static_cast<uint64_t>(y) << 32));
+#else
     return sfmt_to_res53(x | ((uint64_t)y << 32));
+#endif
 }
 
 /**

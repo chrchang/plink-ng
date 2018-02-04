@@ -93,7 +93,7 @@ int32_t dotprod_longs(const uintptr_t* __restrict hom1, const uintptr_t* __restr
   uint32_t widx = 0;
   if (word_ct >= 16) { // this already pays off with a single block
     const uintptr_t block_ct = word_ct / (kWordsPerVec * 4);
-    tot_both = dotprod_avx2((const vul_t*)hom1, (const vul_t*)ref2het1, (const vul_t*)hom2, (const vul_t*)ref2het2, block_ct * 4);
+    tot_both = dotprod_avx2(R_CAST(const vul_t*, hom1), R_CAST(const vul_t*, ref2het1), R_CAST(const vul_t*, hom2), R_CAST(const vul_t*, ref2het2), block_ct * 4);
     widx = block_ct * (4 * kWordsPerVec);
   }
   uint32_t tot_neg = 0;
@@ -178,7 +178,7 @@ void sum_ssq_longs(const uintptr_t* hom1, const uintptr_t* ref2het1, const uintp
   // one block?
   if (word_ct >= 32) {
     const uintptr_t block_ct = word_ct / (8 * kWordsPerVec);
-    sum_ssq_avx2((const vul_t*)hom1, (const vul_t*)ref2het1, (const vul_t*)hom2, (const vul_t*)ref2het2, block_ct * 8, &ssq2, &plus2);
+    sum_ssq_avx2(R_CAST(const vul_t*, hom1), R_CAST(const vul_t*, ref2het1), R_CAST(const vul_t*, hom2), R_CAST(const vul_t*, ref2het2), block_ct * 8, &ssq2, &plus2);
     widx = block_ct * (8 * kWordsPerVec);
   }
   for (; widx < word_ct; ++widx) {
@@ -186,7 +186,7 @@ void sum_ssq_longs(const uintptr_t* hom1, const uintptr_t* ref2het1, const uintp
     ssq2 += popcount_long(ssq2_word);
     plus2 += popcount_long(ssq2_word & ref2het2[widx]);
   }
-  *sum2_ptr = (int32_t)(2 * plus2 - ssq2); // deliberate overflow
+  *sum2_ptr = S_CAST(int32_t, 2 * plus2 - ssq2); // deliberate overflow
   *ssq2_ptr = ssq2;
 }
 #else // !USE_AVX2
@@ -249,8 +249,8 @@ static inline int32_t dotprod_vecs_nm(const vul_t* __restrict hom1_iter, const v
     const vul_t m8 = VCONST_UL(kMask00FF);
     acc_both.vi = (acc_both.vi & m8) + (vul_rshift(acc_both.vi, 8) & m8);
     acc_neg.vi = (acc_neg.vi & m8) + (vul_rshift(acc_neg.vi, 8) & m8);
-    tot += (uint32_t)univec_hsum_16bit(acc_both);
-    tot -= 2 * (uint32_t)univec_hsum_16bit(acc_neg);
+    tot += univec_hsum_16bit(acc_both);
+    tot -= 2 * univec_hsum_16bit(acc_neg);
   }
 }
 
@@ -259,7 +259,7 @@ int32_t dotprod_longs(const uintptr_t* __restrict hom1, const uintptr_t* __restr
   uint32_t widx = 0;
   if (word_ct >= kWordsPerVec * 3) {
     const uintptr_t block_ct = word_ct / (kWordsPerVec * 3);
-    tot_both = dotprod_vecs_nm((const vul_t*)hom1, (const vul_t*)ref2het1, (const vul_t*)hom2, (const vul_t*)ref2het2, block_ct * 3);
+    tot_both = dotprod_vecs_nm(R_CAST(const vul_t*, hom1), R_CAST(const vul_t*, ref2het1), R_CAST(const vul_t*, hom2), R_CAST(const vul_t*, ref2het2), block_ct * 3);
     widx = block_ct * (3 * kWordsPerVec);
   }
   uint32_t tot_neg = 0;
@@ -347,7 +347,7 @@ void sum_ssq_longs(const uintptr_t* hom1, const uintptr_t* ref2het1, const uintp
 #ifndef USE_SSE42
   if (word_ct >= kWordsPerVec * 3) {
     const uintptr_t block_ct = word_ct / (kWordsPerVec * 3);
-    sum_ssq_vecs((const vul_t*)hom1, (const vul_t*)ref2het1, (const vul_t*)hom2, (const vul_t*)ref2het2, block_ct * 3, &ssq2, &plus2);
+    sum_ssq_vecs(R_CAST(const vul_t*, hom1), R_CAST(const vul_t*, ref2het1), R_CAST(const vul_t*, hom2), R_CAST(const vul_t*, ref2het2), block_ct * 3, &ssq2, &plus2);
     widx = block_ct * (3 * kWordsPerVec);
   }
 #endif
@@ -356,7 +356,7 @@ void sum_ssq_longs(const uintptr_t* hom1, const uintptr_t* ref2het1, const uintp
     ssq2 += popcount_long(ssq2_word);
     plus2 += popcount_long(ssq2_word & ref2het2[widx]);
   }
-  *sum2_ptr = (int32_t)(2 * plus2 - ssq2); // deliberate overflow
+  *sum2_ptr = S_CAST(int32_t, 2 * plus2 - ssq2); // deliberate overflow
   *ssq2_ptr = ssq2;
 }
 #endif // !USE_AVX2
@@ -448,9 +448,9 @@ static inline void sum_ssq_nm_vecs(const vul_t* __restrict hom1_iter, const vul_
     acc_nm.vi = (acc_nm.vi & m8) + (vul_rshift(acc_nm.vi, 8) & m8);
     acc_ssq.vi = (acc_ssq.vi & m8) + (vul_rshift(acc_ssq.vi, 8) & m8);
     acc_plus.vi = (acc_plus.vi & m8) + (vul_rshift(acc_plus.vi, 8) & m8);
-    nm += (uint32_t)univec_hsum_16bit(acc_nm);
-    ssq2 += (uint32_t)univec_hsum_16bit(acc_ssq);
-    plus2 += (uint32_t)univec_hsum_16bit(acc_plus);
+    nm += univec_hsum_16bit(acc_nm);
+    ssq2 += univec_hsum_16bit(acc_ssq);
+    plus2 += univec_hsum_16bit(acc_plus);
   }
 }
 #endif // __LP64__
@@ -463,7 +463,7 @@ void sum_ssq_nm_longs(const uintptr_t* hom1, const uintptr_t* ref2het1, const ui
 #if defined(USE_AVX2) || !defined(USE_SSE42)
   if (word_ct >= 3 * kWordsPerVec) {
     const uintptr_t block_ct = word_ct / (3 * kWordsPerVec);
-    sum_ssq_nm_vecs((const vul_t*)hom1, (const vul_t*)ref2het1, (const vul_t*)hom2, (const vul_t*)ref2het2, block_ct * 3, &nm, &ssq2, &plus2);
+    sum_ssq_nm_vecs(R_CAST(const vul_t*, hom1), R_CAST(const vul_t*, ref2het1), R_CAST(const vul_t*, hom2), R_CAST(const vul_t*, ref2het2), block_ct * 3, &nm, &ssq2, &plus2);
     widx = block_ct * (3 * kWordsPerVec);
   }
 #endif
@@ -477,7 +477,7 @@ void sum_ssq_nm_longs(const uintptr_t* hom1, const uintptr_t* ref2het1, const ui
     plus2 += popcount_long(ssq2_word & ref2het2_word);
   }
   *nm_ptr = nm;
-  *sum2_ptr = (int32_t)(2 * plus2 - ssq2); // deliberate overflow
+  *sum2_ptr = S_CAST(int32_t, 2 * plus2 - ssq2); // deliberate overflow
   *ssq2_ptr = ssq2;
 }
 
@@ -615,7 +615,7 @@ void fill_vstats(const uintptr_t* hom_vec, const uintptr_t* ref2het_vec, uintptr
   const uint32_t alt2_ct = hom_ct - ref2_ct;
   const uint32_t nm_ct = alt2_ct + ref2het_ct;
   vstats[0] = nm_ct;
-  vstats[1] = (int32_t)(ref2_ct - alt2_ct); // deliberate overflow
+  vstats[1] = S_CAST(int32_t, ref2_ct - alt2_ct); // deliberate overflow
   vstats[2] = hom_ct;
   *nm_ct_ptr = nm_ct;
   *plusone_ct_ptr = ref2_ct;
@@ -655,7 +655,7 @@ static uint32_t** g_first_unchecked_tvidx = nullptr;
 static uintptr_t** g_raw_tgenovecs[2] = {nullptr, nullptr};
 
 THREAD_FUNC_DECL indep_pairwise_thread(void* arg) {
-  const uintptr_t tidx = (uintptr_t)arg;
+  const uintptr_t tidx = R_CAST(uintptr_t, arg);
   const uint32_t* subcontig_info = g_subcontig_info;
   const uint32_t* subcontig_thread_assignments = g_subcontig_thread_assignments;
   const uintptr_t* variant_include = g_variant_include;
@@ -824,9 +824,9 @@ THREAD_FUNC_DECL indep_pairwise_thread(void* arg) {
                   }
                   // these three values are actually cur_nm_ct times their
                   // true values, but that cancels out
-                  const double cov12 = (double)(cur_dotprod * ((int64_t)cur_nm_ct) - ((int64_t)cur_first_sum) * second_sum);
-                  const double variance1 = (double)(cur_first_ssq * ((int64_t)cur_nm_ct) - ((int64_t)cur_first_sum) * cur_first_sum);
-                  const double variance2 = (double)(second_ssq * ((int64_t)cur_nm_ct) - ((int64_t)second_sum) * second_sum);
+                  const double cov12 = S_CAST(double, cur_dotprod * S_CAST(int64_t, cur_nm_ct) - S_CAST(int64_t, cur_first_sum) * second_sum);
+                  const double variance1 = S_CAST(double, cur_first_ssq * S_CAST(int64_t, cur_nm_ct) - S_CAST(int64_t, cur_first_sum) * cur_first_sum);
+                  const double variance2 = S_CAST(double, second_ssq * S_CAST(int64_t, cur_nm_ct) - S_CAST(int64_t, second_sum) * second_sum);
                   // > instead of >=, so we don't prune from a pair of
                   // variants with zero common observations
                   if (cov12 * cov12 > prune_ld_thresh * variance1 * variance2) {
@@ -987,21 +987,21 @@ pglerr_t indep_pairwise(const uintptr_t* variant_include, const chr_info_t* cip,
       tvidx_batch_size = bigstack_avail_per_thread / round_up_pow2(raw_tgenovec_single_variant_word_ct * 2 * sizeof(intptr_t), kCacheline);
     }
     for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
-      g_genobufs[tidx] = (uintptr_t*)bigstack_alloc_raw(genobuf_alloc);
-      g_occupied_window_slots[tidx] = (uintptr_t*)bigstack_alloc_raw(occupied_window_slots_alloc);
+      g_genobufs[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(genobuf_alloc));
+      g_occupied_window_slots[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(occupied_window_slots_alloc));
       fill_ulong_zero(window_maxl, g_occupied_window_slots[tidx]);
-      g_cur_window_removed[tidx] = (uintptr_t*)bigstack_alloc_raw(cur_window_removed_alloc);
+      g_cur_window_removed[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(cur_window_removed_alloc));
       fill_ulong_zero(1 + window_max / kBitsPerWord, g_cur_window_removed[tidx]);
-      g_cur_maj_freqs[tidx] = (double*)bigstack_alloc_raw(cur_maj_freqs_alloc);
-      g_removed_variants_write[tidx] = (uintptr_t*)bigstack_alloc_raw(removed_variants_write_alloc);
+      g_cur_maj_freqs[tidx] = S_CAST(double*, bigstack_alloc_raw(cur_maj_freqs_alloc));
+      g_removed_variants_write[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(removed_variants_write_alloc));
       fill_ulong_zero(max_loadl, g_removed_variants_write[tidx]);
-      g_vstats[tidx] = (int32_t*)bigstack_alloc_raw(vstats_alloc);
-      g_nonmale_vstats[tidx] = (int32_t*)bigstack_alloc_raw(vstats_alloc);
-      g_winpos_to_slot_idx[tidx] = (uint32_t*)bigstack_alloc_raw(window_int32_alloc);
-      g_tvidxs[tidx] = (uint32_t*)bigstack_alloc_raw(window_int32_alloc);
-      g_first_unchecked_tvidx[tidx] = (uint32_t*)bigstack_alloc_raw(window_int32_alloc);
-      g_raw_tgenovecs[0][tidx] = (uintptr_t*)bigstack_alloc_raw_rd(tvidx_batch_size * raw_tgenovec_single_variant_word_ct * sizeof(intptr_t));
-      g_raw_tgenovecs[1][tidx] = (uintptr_t*)bigstack_alloc_raw_rd(tvidx_batch_size * raw_tgenovec_single_variant_word_ct * sizeof(intptr_t));
+      g_vstats[tidx] = S_CAST(int32_t*, bigstack_alloc_raw(vstats_alloc));
+      g_nonmale_vstats[tidx] = S_CAST(int32_t*, bigstack_alloc_raw(vstats_alloc));
+      g_winpos_to_slot_idx[tidx] = S_CAST(uint32_t*, bigstack_alloc_raw(window_int32_alloc));
+      g_tvidxs[tidx] = S_CAST(uint32_t*, bigstack_alloc_raw(window_int32_alloc));
+      g_first_unchecked_tvidx[tidx] = S_CAST(uint32_t*, bigstack_alloc_raw(window_int32_alloc));
+      g_raw_tgenovecs[0][tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(tvidx_batch_size * raw_tgenovec_single_variant_word_ct * sizeof(intptr_t)));
+      g_raw_tgenovecs[1][tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(tvidx_batch_size * raw_tgenovec_single_variant_word_ct * sizeof(intptr_t)));
     }
     g_subcontig_info = subcontig_info;
     g_subcontig_thread_assignments = subcontig_thread_assignments;
@@ -1144,7 +1144,7 @@ pglerr_t indep_pairwise(const uintptr_t* variant_include, const chr_info_t* cip,
           pct = (cur_tvidx_start * 100LLU) / max_load;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_tvidx_start = (pct * ((uint64_t)max_load)) / 100;
+          next_print_tvidx_start = (pct * S_CAST(uint64_t, max_load)) / 100;
         }
       }
       is_last_batch = (cur_tvidx_start + tvidx_batch_size >= max_load);
@@ -1194,9 +1194,9 @@ pglerr_t ld_prune_subcontig_split_all(const uintptr_t* variant_include, const ch
   // chr0 assumed to already be removed from variant_include.
   // this will skip over chromosomes/contigs with only 1 variant.
   const uint32_t chr_ct = cip->chr_ct;
-  uint32_t* subcontig_info = (uint32_t*)g_bigstack_base;
+  uint32_t* subcontig_info = R_CAST(uint32_t*, g_bigstack_base);
   uint32_t* subcontig_info_iter = subcontig_info;
-  uint32_t* subcontig_info_limit = &(((uint32_t*)g_bigstack_end)[-3]);
+  uint32_t* subcontig_info_limit = &(R_CAST(uint32_t*, g_bigstack_end)[-3]);
   uint32_t window_max = 0;
   uint32_t variant_idx = 0;
   if (variant_bps) {
@@ -1283,7 +1283,7 @@ pglerr_t ld_prune_subcontig_split_all(const uintptr_t* variant_include, const ch
       window_max = prune_window_size;
     }
   }
-  *subcontig_ct_ptr = ((uintptr_t)(subcontig_info_iter - subcontig_info)) / 3;
+  *subcontig_ct_ptr = S_CAST(uintptr_t, subcontig_info_iter - subcontig_info) / 3;
   *subcontig_info_ptr = subcontig_info;
   bigstack_finalize_ui(subcontig_info, (*subcontig_ct_ptr) * 3);
   *window_max_ptr = window_max;
@@ -1388,7 +1388,7 @@ pglerr_t load_balance(const uint32_t* task_weights, uint32_t task_ct, uint32_t* 
   for (uintptr_t task_idx = 0; task_idx < task_ct; ++task_idx) {
     const uintptr_t cur_weight = task_weights[task_idx];
     total_weight += cur_weight;
-    sorted_tagged_weights[task_idx] = (((uint64_t)cur_weight) << 32) + (uint64_t)task_idx;
+    sorted_tagged_weights[task_idx] = (S_CAST(uint64_t, cur_weight) << 32) + task_idx;
   }
   uint64_t* sorted_tagged_weights_end = &(sorted_tagged_weights[task_ct]);
 #ifdef __cplusplus
@@ -1412,8 +1412,8 @@ pglerr_t load_balance(const uint32_t* task_weights, uint32_t task_ct, uint32_t* 
   for (uint32_t thread_idx = thread_ct; thread_idx <= orig_thread_ct; ++thread_idx) {
     minheap64[thread_idx] = 0xffffffffffffffffLLU;
   }
-  thread_assignments[(uint32_t)largest_tagged_weight] = 0;
-  uint64_t max_load_shifted = (((uint64_t)initial_max_load) << 32) | 0xffffffffLLU;
+  thread_assignments[S_CAST(uint32_t, largest_tagged_weight)] = 0;
+  uint64_t max_load_shifted = (S_CAST(uint64_t, initial_max_load) << 32) | 0xffffffffLLU;
   uint64_t* best_fit_end = sorted_tagged_weights_end;
   if (task_ct > 8 * orig_thread_ct) {
     // stop best-fit here
@@ -1423,7 +1423,7 @@ pglerr_t load_balance(const uint32_t* task_weights, uint32_t task_ct, uint32_t* 
   while (sorted_tagged_weights_iter != best_fit_end) {
     // maintain minheap64 as fully sorted list
     uint64_t cur_tagged_weight = *sorted_tagged_weights_iter++;
-    const uint32_t task_idx = (uint32_t)cur_tagged_weight;
+    const uint32_t task_idx = S_CAST(uint32_t, cur_tagged_weight);
     cur_tagged_weight &= 0xffffffff00000000LLU;
     const uintptr_t idxp1 = uint64arr_greater_than(minheap64, thread_ct, max_load_shifted - cur_tagged_weight);
     if (idxp1) {
@@ -1436,7 +1436,7 @@ pglerr_t load_balance(const uint32_t* task_weights, uint32_t task_ct, uint32_t* 
         }
         minheap64[idx++] = next_entry;
       }
-      thread_assignments[task_idx] = (uint32_t)new_entry;
+      thread_assignments[task_idx] = S_CAST(uint32_t, new_entry);
       minheap64[idx] = new_entry;
     } else if (thread_ct < orig_thread_ct) {
       const uint64_t new_entry = cur_tagged_weight + thread_ct;
@@ -1454,15 +1454,15 @@ pglerr_t load_balance(const uint32_t* task_weights, uint32_t task_ct, uint32_t* 
       }
       minheap64[thread_ct - 1] = new_entry;
       max_load_shifted = new_entry | 0xffffffffLLU;
-      thread_assignments[task_idx] = (uint32_t)new_entry;
+      thread_assignments[task_idx] = S_CAST(uint32_t, new_entry);
     }
   }
   if (best_fit_end != sorted_tagged_weights_end) {
     do {
       const uint64_t cur_heaproot = minheap64[0];
       uint64_t cur_tagged_weight = *sorted_tagged_weights_iter++;
-      const uint32_t task_idx = (uint32_t)cur_tagged_weight;
-      uint32_t cur_thread = (uint32_t)cur_heaproot;
+      const uint32_t task_idx = S_CAST(uint32_t, cur_tagged_weight);
+      uint32_t cur_thread = S_CAST(uint32_t, cur_heaproot);
       cur_tagged_weight &= 0xffffffff00000000LLU;
       uint64_t new_entry = cur_heaproot + cur_tagged_weight;
       if (new_entry > max_load_shifted) {
@@ -1490,7 +1490,7 @@ pglerr_t ld_prune_write(const uintptr_t* variant_include, const uintptr_t* remov
   {
     fputs("Writing...", stdout);
     fflush(stdout);
-    strcpy(outname_end, ".prune.in");
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".prune.in");
     if (fopen_checked(outname, FOPEN_WB, &outfile)) {
       goto ld_prune_write_ret_OPEN_FAIL;
     }
@@ -1512,7 +1512,7 @@ pglerr_t ld_prune_write(const uintptr_t* variant_include, const uintptr_t* remov
       goto ld_prune_write_ret_WRITE_FAIL;
     }
 
-    strcpy(&(outname_end[7]), "out");
+    snprintf(&(outname_end[7]), kMaxOutfnameExtBlen - 7, "out");
     if (fopen_checked(outname, FOPEN_WB, &outfile)) {
       goto ld_prune_write_ret_OPEN_FAIL;
     }
@@ -1712,9 +1712,9 @@ void genoarr_split_12nm(const uintptr_t* __restrict genoarr, uint32_t sample_ct,
   // ok if trailing bits of genoarr are not zeroed out
   // trailing bits of {one,two,nm}_bitarr are zeroed out
   const uint32_t sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
-  halfword_t* one_bitarr_alias = (halfword_t*)one_bitarr;
-  halfword_t* two_bitarr_alias = (halfword_t*)two_bitarr;
-  halfword_t* nm_bitarr_alias = (halfword_t*)nm_bitarr;
+  halfword_t* one_bitarr_alias = R_CAST(halfword_t*, one_bitarr);
+  halfword_t* two_bitarr_alias = R_CAST(halfword_t*, two_bitarr);
+  halfword_t* nm_bitarr_alias = R_CAST(halfword_t*, nm_bitarr);
   for (uint32_t widx = 0; widx < sample_ctl2; ++widx) {
     const uintptr_t cur_geno_word = genoarr[widx];
     const uint32_t low_halfword = pack_word_to_halfword(cur_geno_word & kMask5555);
@@ -1789,7 +1789,7 @@ uint32_t geno_bitvec_sum(const uintptr_t* one_bitvec, const uintptr_t* two_bitve
     const uint32_t remainder = word_ct % kWordsPerVec;
     const uint32_t main_block_word_ct = word_ct - remainder;
     word_ct = remainder;
-    tot = geno_bitvec_sum_main((const vul_t*)one_bitvec, (const vul_t*)two_bitvec, main_block_word_ct / kWordsPerVec);
+    tot = geno_bitvec_sum_main(R_CAST(const vul_t*, one_bitvec), R_CAST(const vul_t*, two_bitvec), main_block_word_ct / kWordsPerVec);
 #ifdef __LP64__
     one_bitvec = &(one_bitvec[main_block_word_ct]);
     two_bitvec = &(two_bitvec[main_block_word_ct]);
@@ -1851,7 +1851,7 @@ uint32_t geno_bitvec_sum_subset(const uintptr_t* subset_mask, const uintptr_t* o
     const uint32_t remainder = word_ct % kWordsPerVec;
     const uint32_t main_block_word_ct = word_ct - remainder;
     word_ct = remainder;
-    tot = geno_bitvec_sum_subset_main((const vul_t*)subset_mask, (const vul_t*)one_bitvec, (const vul_t*)two_bitvec, main_block_word_ct / kWordsPerVec);
+    tot = geno_bitvec_sum_subset_main(R_CAST(const vul_t*, subset_mask), R_CAST(const vul_t*, one_bitvec), R_CAST(const vul_t*, two_bitvec), main_block_word_ct / kWordsPerVec);
 #ifdef __LP64__
     subset_mask = &(subset_mask[main_block_word_ct]);
     one_bitvec = &(one_bitvec[main_block_word_ct]);
@@ -1953,7 +1953,7 @@ void geno_bitvec_phased_dotprod(const uintptr_t* one_bitvec0, const uintptr_t* t
     const uint32_t remainder = word_ct % kWordsPerVec;
     const uint32_t main_block_word_ct = word_ct - remainder;
     word_ct = remainder;
-    geno_bitvec_phased_dotprod_main((const vul_t*)one_bitvec0, (const vul_t*)two_bitvec0, (const vul_t*)one_bitvec1, (const vul_t*)two_bitvec1, main_block_word_ct / kWordsPerVec, &known_dotprod, &hethet_ct);
+    geno_bitvec_phased_dotprod_main(R_CAST(const vul_t*, one_bitvec0), R_CAST(const vul_t*, two_bitvec0), R_CAST(const vul_t*, one_bitvec1), R_CAST(const vul_t*, two_bitvec1), main_block_word_ct / kWordsPerVec, &known_dotprod, &hethet_ct);
 #ifdef __LP64__
     one_bitvec0 = &(one_bitvec0[main_block_word_ct]);
     two_bitvec0 = &(two_bitvec0[main_block_word_ct]);
@@ -2083,7 +2083,7 @@ void hardcall_phased_r2_refine(const uintptr_t* phasepresent0, const uintptr_t* 
     const uint32_t remainder = word_ct % (3 * kWordsPerVec);
     const uint32_t main_block_word_ct = word_ct - remainder;
     word_ct = remainder;
-    hardcall_phased_r2_refine_main((const vul_t*)phasepresent0, (const vul_t*)phaseinfo0, (const vul_t*)phasepresent1, (const vul_t*)phaseinfo1, main_block_word_ct / kWordsPerVec, &hethet_decr, &not_dotprod);
+    hardcall_phased_r2_refine_main(R_CAST(const vul_t*, phasepresent0), R_CAST(const vul_t*, phaseinfo0), R_CAST(const vul_t*, phasepresent1), R_CAST(const vul_t*, phaseinfo1), main_block_word_ct / kWordsPerVec, &hethet_decr, &not_dotprod);
     phasepresent0 = &(phasepresent0[main_block_word_ct]);
     phaseinfo0 = &(phaseinfo0[main_block_word_ct]);
     phasepresent1 = &(phasepresent1[main_block_word_ct]);
@@ -2136,16 +2136,16 @@ void hardcall_phased_r2_refine(const uintptr_t* phasepresent0, const uintptr_t* 
 
 static_assert(sizeof(dosage_t) == 2, "plink2_ld dosage-handling routines must be updated.");
 #ifdef __LP64__
-  #ifdef USE_AVX2
+#  ifdef USE_AVX2
 void fill_dosage_uhet(const dosage_t* dosage_vec, uint32_t dosagev_ct, dosage_t* dosage_uhet) {
-  const __m256i* dosage_vvec_iter = (const __m256i*)dosage_vec;
-    #if defined(__APPLE__) && ((!defined(__cplusplus)) || (__cplusplus < 201103L))
+  const __m256i* dosage_vvec_iter = R_CAST(const __m256i*, dosage_vec);
+#    if defined(__APPLE__) && ((!defined(__cplusplus)) || (__cplusplus < 201103L))
   const __m256i all_n32768 = {0x8000800080008000LLU, 0x8000800080008000LLU, 0x8000800080008000LLU, 0x8000800080008000LLU};
   const __m256i all_n16384 = {0xc000c000c000c000LLU, 0xc000c000c000c000LLU, 0xc000c000c000c000LLU, 0xc000c000c000c000LLU};
-    #else
+#    else
   const __m256i all_n32768 = {-0x7fff7fff7fff8000LL, -0x7fff7fff7fff8000LL, -0x7fff7fff7fff8000LL, -0x7fff7fff7fff8000LL};
   const __m256i all_n16384 = {-0x3fff3fff3fff4000LL, -0x3fff3fff3fff4000LL, -0x3fff3fff3fff4000LL, -0x3fff3fff3fff4000LL};
-    #endif
+#    endif
   const __m256i all0 = _mm256_setzero_si256();
   const __m256i all1 = _mm256_cmpeq_epi16(all0, all0);
   // 0-16384: leave unchanged
@@ -2153,7 +2153,7 @@ void fill_dosage_uhet(const dosage_t* dosage_vec, uint32_t dosagev_ct, dosage_t*
   // 65535: set to 0
 
   // subtract from 0, cmp_epi16 to produce mask, add 32768
-  __m256i* dosage_uhet_iter = (__m256i*)dosage_uhet;
+  __m256i* dosage_uhet_iter = R_CAST(__m256i*, dosage_uhet);
   for (uint32_t vec_idx = 0; vec_idx < dosagev_ct; ++vec_idx) {
     __m256i dosagev = *dosage_vvec_iter++;
 
@@ -2174,7 +2174,7 @@ void fill_dosage_uhet(const dosage_t* dosage_vec, uint32_t dosagev_ct, dosage_t*
 
 uint64_t dense_dosage_sum(const dosage_t* dosage_vec, uint32_t vec_ct) {
   // end of dosage_vec assumed to be missing-padded (0-padded also ok)
-  const __m256i* dosage_vvec_iter = (const __m256i*)dosage_vec;
+  const __m256i* dosage_vvec_iter = R_CAST(const __m256i*, dosage_vec);
   const __m256i m16 = {kMask0000FFFF, kMask0000FFFF, kMask0000FFFF, kMask0000FFFF};
   const __m256i all1 = _mm256_cmpeq_epi16(m16, m16);
   uint64_t sum = 0;
@@ -2202,15 +2202,15 @@ uint64_t dense_dosage_sum(const dosage_t* dosage_vec, uint32_t vec_ct) {
       sumv = _mm256_add_epi64(sumv, dosagev);
     } while (dosage_vvec_iter < dosage_vvec_stop);
     univec_t acc;
-    acc.vi = (vul_t)sumv;
+    acc.vi = R_CAST(vul_t, sumv);
     sum += univec_hsum_32bit(acc);
   }
 }
 
 uint64_t dense_dosage_sum_subset(const dosage_t* dosage_vec, const dosage_t* dosage_mask_vec, uint32_t vec_ct) {
   // end of dosage_vec assumed to be missing-padded (0-padded also ok)
-  const __m256i* dosage_vvec_iter = (const __m256i*)dosage_vec;
-  const __m256i* dosage_mask_vvec_iter = (const __m256i*)dosage_mask_vec;
+  const __m256i* dosage_vvec_iter = R_CAST(const __m256i*, dosage_vec);
+  const __m256i* dosage_mask_vvec_iter = R_CAST(const __m256i*, dosage_mask_vec);
   const __m256i m16 = {kMask0000FFFF, kMask0000FFFF, kMask0000FFFF, kMask0000FFFF};
   const __m256i all1 = _mm256_cmpeq_epi16(m16, m16);
   uint64_t sum = 0;
@@ -2238,15 +2238,15 @@ uint64_t dense_dosage_sum_subset(const dosage_t* dosage_vec, const dosage_t* dos
       sumv = _mm256_add_epi64(sumv, dosagev);
     } while (dosage_vvec_iter < dosage_vvec_stop);
     univec_t acc;
-    acc.vi = (vul_t)sumv;
+    acc.vi = R_CAST(vul_t, sumv);
     sum += univec_hsum_32bit(acc);
   }
 }
 
 // 65535 treated as missing
 uint64_t dosage_unsigned_dotprod(const dosage_t* dosage_vec0, const dosage_t* dosage_vec1, uint32_t vec_ct) {
-  const __m256i* dosage_vvec0_iter = (const __m256i*)dosage_vec0;
-  const __m256i* dosage_vvec1_iter = (const __m256i*)dosage_vec1;
+  const __m256i* dosage_vvec0_iter = R_CAST(const __m256i*, dosage_vec0);
+  const __m256i* dosage_vvec1_iter = R_CAST(const __m256i*, dosage_vec1);
   const __m256i m16 = {kMask0000FFFF, kMask0000FFFF, kMask0000FFFF, kMask0000FFFF};
   const __m256i all1 = _mm256_cmpeq_epi16(m16, m16);
   uint64_t dotprod = 0;
@@ -2281,15 +2281,15 @@ uint64_t dosage_unsigned_dotprod(const dosage_t* dosage_vec0, const dosage_t* do
     } while (dosage_vvec0_iter < dosage_vvec0_stop);
     univec_t acc_lo;
     univec_t acc_hi;
-    acc_lo.vi = (vul_t)dotprod_lo;
-    acc_hi.vi = (vul_t)dotprod_hi;
+    acc_lo.vi = R_CAST(vul_t, dotprod_lo);
+    acc_hi.vi = R_CAST(vul_t, dotprod_hi);
     dotprod += univec_hsum_32bit(acc_lo) + 65536 * univec_hsum_32bit(acc_hi);
   }
 }
 
 uint64_t dosage_unsigned_nomiss_dotprod(const dosage_t* dosage_vec0, const dosage_t* dosage_vec1, uint32_t vec_ct) {
-  const __m256i* dosage_vvec0_iter = (const __m256i*)dosage_vec0;
-  const __m256i* dosage_vvec1_iter = (const __m256i*)dosage_vec1;
+  const __m256i* dosage_vvec0_iter = R_CAST(const __m256i*, dosage_vec0);
+  const __m256i* dosage_vvec1_iter = R_CAST(const __m256i*, dosage_vec1);
   const __m256i m16 = {kMask0000FFFF, kMask0000FFFF, kMask0000FFFF, kMask0000FFFF};
   uint64_t dotprod = 0;
   while (1) {
@@ -2319,15 +2319,15 @@ uint64_t dosage_unsigned_nomiss_dotprod(const dosage_t* dosage_vec0, const dosag
     } while (dosage_vvec0_iter < dosage_vvec0_stop);
     univec_t acc_lo;
     univec_t acc_hi;
-    acc_lo.vi = (vul_t)dotprod_lo;
-    acc_hi.vi = (vul_t)dotprod_hi;
+    acc_lo.vi = R_CAST(vul_t, dotprod_lo);
+    acc_hi.vi = R_CAST(vul_t, dotprod_hi);
     dotprod += univec_hsum_32bit(acc_lo) + 65536 * univec_hsum_32bit(acc_hi);
   }
 }
 
 int64_t dosage_signed_dotprod(const dosage_t* dosage_diff0, const dosage_t* dosage_diff1, uint32_t vec_ct) {
-  const __m256i* dosage_diff0_iter = (const __m256i*)dosage_diff0;
-  const __m256i* dosage_diff1_iter = (const __m256i*)dosage_diff1;
+  const __m256i* dosage_diff0_iter = R_CAST(const __m256i*, dosage_diff0);
+  const __m256i* dosage_diff1_iter = R_CAST(const __m256i*, dosage_diff1);
   const __m256i m16 = {kMask0000FFFF, kMask0000FFFF, kMask0000FFFF, kMask0000FFFF};
   const __m256i all_4096 = {0x1000100010001000LLU, 0x1000100010001000LLU, 0x1000100010001000LLU, 0x1000100010001000LLU};
   uint64_t dotprod = 0;
@@ -2339,7 +2339,7 @@ int64_t dosage_signed_dotprod(const dosage_t* dosage_diff0, const dosage_t* dosa
     if (vec_ct_rem < 4096) {
       if (!vec_ct_rem) {
         // this cancels out the shift-hi16-by-4096 below
-        return ((int64_t)dotprod) - (0x10000000LLU * kDosagePerVec) * vec_ct;
+        return S_CAST(int64_t, dotprod) - (0x10000000LLU * kDosagePerVec) * vec_ct;
       }
       dosage_diff0_stop = &(dosage_diff0_iter[vec_ct_rem]);
       vec_ct_rem = 0;
@@ -2366,21 +2366,21 @@ int64_t dosage_signed_dotprod(const dosage_t* dosage_diff0, const dosage_t* dosa
     } while (dosage_diff0_iter < dosage_diff0_stop);
     univec_t acc_lo;
     univec_t acc_hi;
-    acc_lo.vi = (vul_t)dotprod_lo;
-    acc_hi.vi = (vul_t)dotprod_hi;
+    acc_lo.vi = R_CAST(vul_t, dotprod_lo);
+    acc_hi.vi = R_CAST(vul_t, dotprod_hi);
     dotprod += univec_hsum_32bit(acc_lo) + 65536 * univec_hsum_32bit(acc_hi);
   }
 }
-  #else // !USE_AVX2
+#  else // !USE_AVX2
 void fill_dosage_uhet(const dosage_t* dosage_vec, uint32_t dosagev_ct, dosage_t* dosage_uhet) {
-  const __m128i* dosage_vvec_iter = (const __m128i*)dosage_vec;
-    #if defined(__APPLE__) && ((!defined(__cplusplus)) || (__cplusplus < 201103L))
+  const __m128i* dosage_vvec_iter = R_CAST(const __m128i*, dosage_vec);
+#    if defined(__APPLE__) && ((!defined(__cplusplus)) || (__cplusplus < 201103L))
   const __m128i all_n32768 = {0x8000800080008000LLU, 0x8000800080008000LLU};
   const __m128i all_n16384 = {0xc000c000c000c000LLU, 0xc000c000c000c000LLU};
-    #else
+#    else
   const __m128i all_n32768 = {-0x7fff7fff7fff8000LL, -0x7fff7fff7fff8000LL};
   const __m128i all_n16384 = {-0x3fff3fff3fff4000LL, -0x3fff3fff3fff4000LL};
-    #endif
+#    endif
   const __m128i all0 = _mm_setzero_si128();
   const __m128i all1 = _mm_cmpeq_epi16(all0, all0);
   // 0-16384: leave unchanged
@@ -2388,7 +2388,7 @@ void fill_dosage_uhet(const dosage_t* dosage_vec, uint32_t dosagev_ct, dosage_t*
   // 65535: set to 0
 
   // subtract from 0, _mm_cmplt_epi16 to produce mask, add 32768
-  __m128i* dosage_uhet_iter = (__m128i*)dosage_uhet;
+  __m128i* dosage_uhet_iter = R_CAST(__m128i*, dosage_uhet);
   for (uint32_t vec_idx = 0; vec_idx < dosagev_ct; ++vec_idx) {
     __m128i dosagev = *dosage_vvec_iter++;
 
@@ -2409,7 +2409,7 @@ void fill_dosage_uhet(const dosage_t* dosage_vec, uint32_t dosagev_ct, dosage_t*
 
 uint64_t dense_dosage_sum(const dosage_t* dosage_vec, uint32_t vec_ct) {
   // end of dosage_vec assumed to be missing-padded (0-padded also ok)
-  const __m128i* dosage_vvec_iter = (const __m128i*)dosage_vec;
+  const __m128i* dosage_vvec_iter = R_CAST(const __m128i*, dosage_vec);
   const __m128i m16 = {kMask0000FFFF, kMask0000FFFF};
   const __m128i all1 = _mm_cmpeq_epi16(m16, m16);
   uint64_t sum = 0;
@@ -2437,15 +2437,15 @@ uint64_t dense_dosage_sum(const dosage_t* dosage_vec, uint32_t vec_ct) {
       sumv = _mm_add_epi64(sumv, dosagev);
     } while (dosage_vvec_iter < dosage_vvec_stop);
     univec_t acc;
-    acc.vi = (vul_t)sumv;
+    acc.vi = R_CAST(vul_t, sumv);
     sum += univec_hsum_32bit(acc);
   }
 }
 
 uint64_t dense_dosage_sum_subset(const dosage_t* dosage_vec, const dosage_t* dosage_mask_vec, uint32_t vec_ct) {
   // end of dosage_vec assumed to be missing-padded (0-padded also ok)
-  const __m128i* dosage_vvec_iter = (const __m128i*)dosage_vec;
-  const __m128i* dosage_mask_vvec_iter = (const __m128i*)dosage_mask_vec;
+  const __m128i* dosage_vvec_iter = R_CAST(const __m128i*, dosage_vec);
+  const __m128i* dosage_mask_vvec_iter = R_CAST(const __m128i*, dosage_mask_vec);
   const __m128i m16 = {kMask0000FFFF, kMask0000FFFF};
   const __m128i all1 = _mm_cmpeq_epi16(m16, m16);
   uint64_t sum = 0;
@@ -2473,15 +2473,15 @@ uint64_t dense_dosage_sum_subset(const dosage_t* dosage_vec, const dosage_t* dos
       sumv = _mm_add_epi64(sumv, dosagev);
     } while (dosage_vvec_iter < dosage_vvec_stop);
     univec_t acc;
-    acc.vi = (vul_t)sumv;
+    acc.vi = R_CAST(vul_t, sumv);
     sum += univec_hsum_32bit(acc);
   }
 }
 
 // 65535 treated as missing
 uint64_t dosage_unsigned_dotprod(const dosage_t* dosage_vec0, const dosage_t* dosage_vec1, uint32_t vec_ct) {
-  const __m128i* dosage_vvec0_iter = (const __m128i*)dosage_vec0;
-  const __m128i* dosage_vvec1_iter = (const __m128i*)dosage_vec1;
+  const __m128i* dosage_vvec0_iter = R_CAST(const __m128i*, dosage_vec0);
+  const __m128i* dosage_vvec1_iter = R_CAST(const __m128i*, dosage_vec1);
   const __m128i m16 = {kMask0000FFFF, kMask0000FFFF};
   const __m128i all1 = _mm_cmpeq_epi16(m16, m16);
   uint64_t dotprod = 0;
@@ -2516,15 +2516,15 @@ uint64_t dosage_unsigned_dotprod(const dosage_t* dosage_vec0, const dosage_t* do
     } while (dosage_vvec0_iter < dosage_vvec0_stop);
     univec_t acc_lo;
     univec_t acc_hi;
-    acc_lo.vi = (vul_t)dotprod_lo;
-    acc_hi.vi = (vul_t)dotprod_hi;
+    acc_lo.vi = R_CAST(vul_t, dotprod_lo);
+    acc_hi.vi = R_CAST(vul_t, dotprod_hi);
     dotprod += univec_hsum_32bit(acc_lo) + 65536 * univec_hsum_32bit(acc_hi);
   }
 }
 
 uint64_t dosage_unsigned_nomiss_dotprod(const dosage_t* dosage_vec0, const dosage_t* dosage_vec1, uint32_t vec_ct) {
-  const __m128i* dosage_vvec0_iter = (const __m128i*)dosage_vec0;
-  const __m128i* dosage_vvec1_iter = (const __m128i*)dosage_vec1;
+  const __m128i* dosage_vvec0_iter = R_CAST(const __m128i*, dosage_vec0);
+  const __m128i* dosage_vvec1_iter = R_CAST(const __m128i*, dosage_vec1);
   const __m128i m16 = {kMask0000FFFF, kMask0000FFFF};
   uint64_t dotprod = 0;
   while (1) {
@@ -2554,15 +2554,15 @@ uint64_t dosage_unsigned_nomiss_dotprod(const dosage_t* dosage_vec0, const dosag
     } while (dosage_vvec0_iter < dosage_vvec0_stop);
     univec_t acc_lo;
     univec_t acc_hi;
-    acc_lo.vi = (vul_t)dotprod_lo;
-    acc_hi.vi = (vul_t)dotprod_hi;
+    acc_lo.vi = R_CAST(vul_t, dotprod_lo);
+    acc_hi.vi = R_CAST(vul_t, dotprod_hi);
     dotprod += univec_hsum_32bit(acc_lo) + 65536 * univec_hsum_32bit(acc_hi);
   }
 }
 
 int64_t dosage_signed_dotprod(const dosage_t* dosage_diff0, const dosage_t* dosage_diff1, uint32_t vec_ct) {
-  const __m128i* dosage_diff0_iter = (const __m128i*)dosage_diff0;
-  const __m128i* dosage_diff1_iter = (const __m128i*)dosage_diff1;
+  const __m128i* dosage_diff0_iter = R_CAST(const __m128i*, dosage_diff0);
+  const __m128i* dosage_diff1_iter = R_CAST(const __m128i*, dosage_diff1);
   const __m128i m16 = {kMask0000FFFF, kMask0000FFFF};
   const __m128i all_4096 = {0x1000100010001000LLU, 0x1000100010001000LLU};
   uint64_t dotprod = 0;
@@ -2574,7 +2574,7 @@ int64_t dosage_signed_dotprod(const dosage_t* dosage_diff0, const dosage_t* dosa
     if (vec_ct_rem < 8192) {
       if (!vec_ct_rem) {
         // this cancels out the shift-hi16-by-4096 below
-        return ((int64_t)dotprod) - (0x10000000LLU * kDosagePerVec) * vec_ct;
+        return S_CAST(int64_t, dotprod) - (0x10000000LLU * kDosagePerVec) * vec_ct;
       }
       dosage_diff0_stop = &(dosage_diff0_iter[vec_ct_rem]);
       vec_ct_rem = 0;
@@ -2600,12 +2600,12 @@ int64_t dosage_signed_dotprod(const dosage_t* dosage_diff0, const dosage_t* dosa
     } while (dosage_diff0_iter < dosage_diff0_stop);
     univec_t acc_lo;
     univec_t acc_hi;
-    acc_lo.vi = (vul_t)dotprod_lo;
-    acc_hi.vi = (vul_t)dotprod_hi;
+    acc_lo.vi = R_CAST(vul_t, dotprod_lo);
+    acc_hi.vi = R_CAST(vul_t, dotprod_hi);
     dotprod += univec_hsum_32bit(acc_lo) + 65536 * univec_hsum_32bit(acc_hi);
   }
 }
-  #endif // !USE_AVX2
+#  endif // !USE_AVX2
 #else // !__LP64__
 void fill_dosage_uhet(const dosage_t* dosage_vec, uint32_t dosagev_ct, dosage_t* dosage_uhet) {
   const uint32_t sample_cta2 = dosagev_ct * 2;
@@ -2676,8 +2676,8 @@ int64_t dosage_signed_dotprod(const dosage_t* dosage_diff0, const dosage_t* dosa
   const uint32_t sample_cta2 = vec_ct * 2;
   int64_t dotprod = 0;
   for (uint32_t sample_idx = 0; sample_idx < sample_cta2; ++sample_idx) {
-    const int32_t cur_diff0 = ((int16_t)dosage_diff0[sample_idx]);
-    const int32_t cur_diff1 = ((int16_t)dosage_diff1[sample_idx]);
+    const int32_t cur_diff0 = S_CAST(int16_t, dosage_diff0[sample_idx]);
+    const int32_t cur_diff1 = S_CAST(int16_t, dosage_diff1[sample_idx]);
     dotprod += cur_diff0 * cur_diff1;
   }
   return dotprod;
@@ -2794,17 +2794,17 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, con
         snprintf(g_logbuf, kLogbufSize, "Error: --ld variant '%s' appears multiple times in dataset.\n", cur_varid);
         goto ld_console_ret_INCONSISTENT_INPUT_WW;
       }
-      var_uidxs[var_idx] = (uint32_t)ii;
-      const uint32_t chr_idx = get_variant_chr(cip, (uint32_t)ii);
+      var_uidxs[var_idx] = ii;
+      const uint32_t chr_idx = get_variant_chr(cip, S_CAST(uint32_t, ii));
       chr_idxs[var_idx] = chr_idx;
-      const uint32_t is_x = ((int32_t)chr_idx == x_code);
+      const uint32_t is_x = (S_CAST(int32_t, chr_idx) == x_code);
       is_xs[var_idx] = is_x;
       uint32_t is_nonx_haploid_or_mt;
       if (is_set(cip->haploid_mask, chr_idx)) {
         is_nonx_haploid_or_mt = 1 - is_x;
-        y_ct += ((int32_t)chr_idx == y_code);
+        y_ct += (S_CAST(int32_t, chr_idx) == y_code);
       } else {
-        is_nonx_haploid_or_mt = ((int32_t)chr_idx == mt_code);
+        is_nonx_haploid_or_mt = (S_CAST(int32_t, chr_idx) == mt_code);
       }
       is_nonx_haploid_or_mts[var_idx] = is_nonx_haploid_or_mt;
     }
@@ -2966,10 +2966,10 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, con
         //            (phaseinfo0 ^ phaseinfo1))
         hardcall_phased_r2_refine(phasepresents[0], phaseinfos[0], phasepresents[1], phaseinfos[1], founder_ctl, &known_dotprod, &unknown_hethet_ct);
       }
-      altsums_d[0] = (int32_t)alt_cts[0];
-      altsums_d[1] = (int32_t)alt_cts[1];
-      known_dotprod_d = known_dotprod;
-      unknown_hethet_d = (int32_t)unknown_hethet_ct;
+      altsums_d[0] = u31tod(alt_cts[0]);
+      altsums_d[1] = u31tod(alt_cts[1]);
+      known_dotprod_d = S_CAST(double, known_dotprod);
+      unknown_hethet_d = u31tod(unknown_hethet_ct);
       if (x_male_ct) {
         // on chrX, store separate full-size copies of one_bitvec, two_bitvec,
         //   and nm_bitvec with nonmales masked out
@@ -2987,9 +2987,9 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, con
         uint32_t x_male_known_dotprod;
         uint32_t x_male_unknown_hethet_ct;  // ignore
         valid_x_male_ct = hardcall_phased_r2_stats(one_bitvecs[0], two_bitvecs[0], nm_bitvecs[0], one_bitvecs[1], two_bitvecs[1], nm_bitvecs[1], founder_ct, x_male_nm_ct0, nm_cts[1], x_male_alt_cts, &x_male_known_dotprod, &x_male_unknown_hethet_ct);
-        x_male_altsums_d[0] = (int32_t)x_male_alt_cts[0];
-        x_male_altsums_d[1] = (int32_t)x_male_alt_cts[1];
-        x_male_known_dotprod_d = x_male_known_dotprod;
+        x_male_altsums_d[0] = u31tod(x_male_alt_cts[0]);
+        x_male_altsums_d[1] = u31tod(x_male_alt_cts[1]);
+        x_male_known_dotprod_d = S_CAST(double, x_male_known_dotprod);
         // hethet impossible for chrX males
         assert(!x_male_unknown_hethet_ct);
       }
@@ -3054,12 +3054,12 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, con
       }
       hethet_present = (uhethet_dosageprod != 0);
       if (use_phase && hethet_present) {
-        dosageprod = ((int64_t)dosageprod) + dosage_signed_dotprod(dosage_diffs[0], dosage_diffs[1], founder_dosagev_ct);
+        dosageprod = S_CAST(int64_t, dosageprod) + dosage_signed_dotprod(dosage_diffs[0], dosage_diffs[1], founder_dosagev_ct);
       }
-      altsums_d[0] = ((int64_t)alt_dosages[0]) * kRecipDosageMid;
-      altsums_d[1] = ((int64_t)alt_dosages[1]) * kRecipDosageMid;
-      known_dotprod_d = ((int64_t)(dosageprod - uhethet_dosageprod)) * (kRecipDosageMidSq * 0.5);
-      unknown_hethet_d = ((int64_t)uhethet_dosageprod) * kRecipDosageMidSq;
+      altsums_d[0] = S_CAST(int64_t, alt_dosages[0]) * kRecipDosageMid;
+      altsums_d[1] = S_CAST(int64_t, alt_dosages[1]) * kRecipDosageMid;
+      known_dotprod_d = S_CAST(int64_t, dosageprod - uhethet_dosageprod) * (kRecipDosageMidSq * 0.5);
+      unknown_hethet_d = S_CAST(int64_t, uhethet_dosageprod) * kRecipDosageMidSq;
       if (x_male_ct) {
         dosage_t* x_male_dosage_invmask;
         if (bigstack_alloc_dosage(founder_ct, &x_male_dosage_invmask)) {
@@ -3071,7 +3071,7 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, con
           next_set_unsafe_ck(sex_male_collapsed, &sample_midx);
           x_male_dosage_invmask[sample_midx] = 0;
         }
-        bitvec_or((uintptr_t*)x_male_dosage_invmask, founder_dosagev_ct * kWordsPerVec, (uintptr_t*)dosage_vecs[0]);
+        bitvec_or(R_CAST(uintptr_t*, x_male_dosage_invmask), founder_dosagev_ct * kWordsPerVec, R_CAST(uintptr_t*, dosage_vecs[0]));
         bitvec_and(sex_male_collapsed, founder_ctl, nm_bitvecs[0]);
         uint64_t x_male_alt_dosages[2];
         x_male_alt_dosages[0] = dense_dosage_sum(dosage_vecs[0], founder_dosagev_ct);
@@ -3080,16 +3080,16 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, con
         uint64_t x_male_dosageprod;
         valid_x_male_ct = dosage_phased_r2_prod(dosage_vecs[0], nm_bitvecs[0], dosage_vecs[1], nm_bitvecs[1], founder_ct, x_male_nm_ct0, nm_cts[1], x_male_alt_dosages, &x_male_dosageprod);
         if (!ignore_hethet) {
-          bitvec_andnot((uintptr_t*)x_male_dosage_invmask, founder_dosagev_ct * kWordsPerVec, (uintptr_t*)dosage_uhets[0]);
+          bitvec_andnot(R_CAST(uintptr_t*, x_male_dosage_invmask), founder_dosagev_ct * kWordsPerVec, R_CAST(uintptr_t*, dosage_uhets[0]));
           const uint64_t invalid_uhethet_dosageprod = dosage_unsigned_nomiss_dotprod(dosage_uhets[0], dosage_uhets[1], founder_dosagev_ct);
-          unknown_hethet_d -= ((int64_t)invalid_uhethet_dosageprod) * kRecipDosageMidSq;
+          unknown_hethet_d -= S_CAST(int64_t, invalid_uhethet_dosageprod) * kRecipDosageMidSq;
         }
-        x_male_altsums_d[0] = ((int64_t)x_male_alt_dosages[0]) * kRecipDosageMid;
-        x_male_altsums_d[1] = ((int64_t)x_male_alt_dosages[1]) * kRecipDosageMid;
-        x_male_known_dotprod_d = ((int64_t)x_male_dosageprod) * (kRecipDosageMidSq * 0.5);
+        x_male_altsums_d[0] = S_CAST(int64_t, x_male_alt_dosages[0]) * kRecipDosageMid;
+        x_male_altsums_d[1] = S_CAST(int64_t, x_male_alt_dosages[1]) * kRecipDosageMid;
+        x_male_known_dotprod_d = S_CAST(int64_t, x_male_dosageprod) * (kRecipDosageMidSq * 0.5);
       }
     }
-    double valid_obs_d = (int32_t)valid_obs_ct;
+    double valid_obs_d = u31tod(valid_obs_ct);
     if (valid_x_male_ct) {
       // males have sqrt(0.5) weight if one variant is chrX, half-weight if
       // both are chrX
@@ -3097,7 +3097,7 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, con
       altsums_d[0] -= male_decr * x_male_altsums_d[0];
       altsums_d[1] -= male_decr * x_male_altsums_d[1];
       known_dotprod_d -= male_decr * x_male_known_dotprod_d;
-      valid_obs_d -= male_decr * ((int32_t)valid_x_male_ct);
+      valid_obs_d -= male_decr * u31tod(valid_x_male_ct);
     }
 
     const double twice_tot_recip = 0.5 / valid_obs_d;
@@ -3169,10 +3169,10 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, con
       while (1) {
         const char* cur_allele = cur_alleles[allele_idx];
         const uint32_t cur_slen = strlen(cur_allele);
-        if ((uintptr_t)(write_poststop - write_iter) <= cur_slen) {
+        if (S_CAST(uintptr_t, write_poststop - write_iter) <= cur_slen) {
           char* write_ellipsis_start = &(g_logbuf[76]);
           if (write_ellipsis_start > write_iter) {
-            const uint32_t final_char_ct = (uintptr_t)(write_ellipsis_start - write_iter);
+            const uint32_t final_char_ct = S_CAST(uintptr_t, write_ellipsis_start - write_iter);
             memcpy(write_iter, cur_allele, final_char_ct);
           }
           write_iter = memcpyl3a(write_ellipsis_start, "...");
@@ -3213,7 +3213,7 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, con
         }
       } else {
         // print_dosage assumes kDosageMax rather than kDosageMid multiplier
-        const uint64_t unknown_hethet_int_dosage = (int64_t)(unknown_hethet_d * kDosageMax);
+        const uint64_t unknown_hethet_int_dosage = S_CAST(int64_t, unknown_hethet_d * kDosageMax);
         write_iter = print_dosage(unknown_hethet_int_dosage, write_iter);
         write_iter = strcpya(write_iter, " het pair");
         if (unknown_hethet_int_dosage != kDosageMax) {
@@ -3222,7 +3222,8 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, con
         write_iter = strcpya(write_iter, " statistically phased");
       }
     }
-    strcpy(write_iter, ".\n");
+    assert(write_iter - g_logbuf < 78);
+    memcpyl3(write_iter, ".\n");
     logprintb();
 
     uint32_t cubic_sol_ct = 0;
@@ -3350,7 +3351,8 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, con
           }
           write_iter = strcpya(write_iter, "best likelihood)");
         }
-        strcpy(write_iter, ":\n");
+        assert(write_iter - g_logbuf < 78);
+        memcpyl3(write_iter, ":\n");
         logprintb();
       }
       const double cur_sol_xx = cubic_sols[sol_idx];
@@ -3368,7 +3370,8 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, con
         d_prime = -dd / MINV(freq_xr * freq_rx, freq_xa * freq_ax);
       }
       write_iter = dtoa_g(d_prime, write_iter);
-      strcpy(write_iter, "\n");
+      assert(write_iter - g_logbuf < 79);
+      memcpy(write_iter, "\n", 2);
       logprintb();
 
       logprint("\n");
@@ -3388,17 +3391,18 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, con
       // than plink 1.9's dtoa_f_w9p6_spaced() since there isn't much room here
       // for floating-point error to accumulate)
       // As for long variant IDs:
-      // The default layout uses 54 columns, and stops working when
-      // strlen(varID[0]) > 26.  So the right half can be shifted up to 25
+      // The default layout uses 55 columns, and stops working when
+      // strlen(varID[0]) > 26.  So the right half can be shifted up to 24
       // characters before things get ugly in terminal windows.  Thus, once
-      // string length > 51, we print only the first 48 characters of varID and
+      // string length > 50, we print only the first 47 characters of varID and
       // follow it with "...".
       // Similarly, when strlen(varID[1]) <= 51, centering is pretty
-      // straightforward; beyond that, we also print only the first 48 chars.
+      // straightforward; beyond that, we print only the first 48 chars.
       uint32_t extra_initial_spaces = 0;
       const uint32_t varid_slen0 = varid_slens[0];
       if (varid_slen0 > 26) {
-        extra_initial_spaces = MINV(varid_slen0 - 26, 51);
+        // formatting fix (1 Feb 2018): cap this at 24, not 50
+        extra_initial_spaces = MINV(varid_slen0 - 26, 24);
       }
       write_iter = strcpya(g_logbuf, "        Frequencies      :  ");
       // default center column index is 43 + extra_initial_spaces; we're
@@ -3417,20 +3421,20 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, con
           if (varid1_padding + varid_slen1 > 51) {
             varid1_padding = 51 - varid_slen1;
           }
-          write_iter = (char*)memseta(write_iter, 32, varid1_padding);
+          write_iter = memseta(write_iter, 32, varid1_padding);
         }
         write_iter = memcpya(write_iter, ld_console_varids[1], varid_slen1);
       }
-      strcpy(write_iter, "\n");
+      memcpy(write_iter, "\n", 2);
       logprintb();
 
       write_iter = strcpya(g_logbuf, "  (expectations under LE)");
-      write_iter = (char*)memseta(write_iter, 32, extra_initial_spaces + 11);
-      strcpy(write_iter, "REF         ALT\n");
+      write_iter = memseta(write_iter, 32, extra_initial_spaces + 11);
+      snprintf(write_iter, 81 - 25 - 24 - 11, "REF         ALT\n");
       logprintb();
 
-      write_iter = (char*)memseta(g_logbuf, 32, extra_initial_spaces + 33);
-      strcpy(write_iter, "----------  ----------\n");
+      write_iter = memseta(g_logbuf, 32, extra_initial_spaces + 33);
+      snprintf(write_iter, 81 - 24 - 33, "----------  ----------\n");
       logprintb();
 
       write_iter = strcpya(&(g_logbuf[28 + extra_initial_spaces]), "REF   ");
@@ -3438,14 +3442,14 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, con
       write_iter = strcpya(write_iter, "    ");
       const double cur_sol_xy = half_unphased_hethet_share - cur_sol_xx;
       write_iter = dtoa_f_probp6_clipped(freq_ra + cur_sol_xy, write_iter);
-      strcpy(write_iter, "\n");
+      memcpy(write_iter, "\n", 2);
       logprintb();
 
       write_iter = strcpya(&(g_logbuf[28 + extra_initial_spaces]), "     (");
       write_iter = dtoa_f_probp6_spaced(freq_xr * freq_rx, write_iter);
       write_iter = strcpya(write_iter, ")  (");
       write_iter = dtoa_f_probp6_clipped(freq_xa * freq_rx, write_iter);
-      strcpy(write_iter, ")\n");
+      memcpyl3(write_iter, ")\n");
       logprintb();
 
       write_iter = g_logbuf;
@@ -3453,22 +3457,22 @@ pglerr_t ld_console(const uintptr_t* variant_include, const chr_info_t* cip, con
         write_iter = &(write_iter[26 - varid_slen0]);
       }
       write_iter = memcpya(write_iter, ld_console_varids[0], varid_slen0);
-      strcpy(write_iter, "\n");
+      memcpy(write_iter, "\n", 2);
       logprintb();
 
-      write_iter = (char*)memseta(g_logbuf, 32, 28 + extra_initial_spaces);
+      write_iter = memseta(g_logbuf, 32, 28 + extra_initial_spaces);
       write_iter = strcpya(write_iter, "ALT   ");
       write_iter = dtoa_f_probp6_spaced(freq_ar + cur_sol_xy, write_iter);
       write_iter = strcpya(write_iter, "    ");
       write_iter = dtoa_f_probp6_clipped(freq_aa + cur_sol_xx, write_iter);
-      strcpy(write_iter, "\n");
+      memcpy(write_iter, "\n", 2);
       logprintb();
 
       write_iter = strcpya(&(g_logbuf[28 + extra_initial_spaces]), "     (");
       write_iter = dtoa_f_probp6_spaced(freq_xr * freq_ax, write_iter);
       write_iter = strcpya(write_iter, ")  (");
       write_iter = dtoa_f_probp6_clipped(freq_xa * freq_ax, write_iter);
-      strcpy(write_iter, ")\n");
+      memcpyl3(write_iter, ")\n");
       logprintb();
 
       logprint("\n");

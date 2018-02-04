@@ -32,7 +32,7 @@ char* print_dosage(uint64_t dosage, char* start) {
   // +16 since we need to round .99951 up to 1
   const uint64_t dosage_p16 = dosage + 16;
   start = uint32toa(dosage_p16 / kDosageMax, start);
-  const uint32_t remainder_p16 = ((uint32_t)dosage_p16) & (kDosageMax - 1);
+  const uint32_t remainder_p16 = S_CAST(uint32_t, dosage_p16) % kDosageMax;
   if (remainder_p16 < 33) {
     return start;
   }
@@ -97,7 +97,7 @@ void set_het_missing(uintptr_t word_ct, uintptr_t* genovec) {
   // 01 -> 11, nothing else changes
 #ifdef __LP64__
   const vul_t m1 = VCONST_UL(kMask5555);
-  vul_t* geno_vvec_iter = (vul_t*)genovec;
+  vul_t* geno_vvec_iter = R_CAST(vul_t*, genovec);
   const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
   if (full_vec_ct & 1) {
     const vul_t cur_geno_vword = *geno_vvec_iter;
@@ -126,7 +126,7 @@ void set_het_missing(uintptr_t word_ct, uintptr_t* genovec) {
     cur_geno_vword_low_lshifted = vul_lshift(cur_geno_vword & m1, 1);
     *geno_vvec_iter++ = cur_geno_vword | cur_geno_vword_low_lshifted;
   }
-  #ifdef USE_AVX2
+#  ifdef USE_AVX2
   if (word_ct & 2) {
     const uintptr_t base_idx = full_vec_ct * kWordsPerVec;
     uintptr_t geno_word = genovec[base_idx];
@@ -134,7 +134,7 @@ void set_het_missing(uintptr_t word_ct, uintptr_t* genovec) {
     geno_word = genovec[base_idx + 1];
     genovec[base_idx + 1] = geno_word | ((geno_word & kMask5555) << 1);
   }
-  #endif
+#  endif
   if (word_ct & 1) {
     const uintptr_t geno_word = genovec[word_ct - 1];
     genovec[word_ct - 1] = geno_word | ((geno_word & kMask5555) << 1);
@@ -186,7 +186,7 @@ void set_het_missing_keepdosage(uintptr_t word_ct, uintptr_t* __restrict genovec
   if (!orig_dosage_ct) {
     fill_ulong_zero(DIV_UP(word_ct, 2), dosagepresent);
   }
-  halfword_t* dosagepresent_alias = (halfword_t*)dosagepresent;
+  halfword_t* dosagepresent_alias = R_CAST(halfword_t*, dosagepresent);
   uint32_t new_dosage_ct = 0;
   for (uintptr_t widx = 0; widx < word_ct; ++widx) {
     const uintptr_t geno_word = genovec[widx];
@@ -228,7 +228,7 @@ void set_het_missing_keepdosage(uintptr_t word_ct, uintptr_t* __restrict genovec
 void genoarr_to_nonmissing(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t* nonmissing_bitarr) {
   const uint32_t sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
   const uintptr_t* genoarr_iter = genoarr;
-  halfword_t* nonmissing_bitarr_iter = (halfword_t*)nonmissing_bitarr;
+  halfword_t* nonmissing_bitarr_iter = R_CAST(halfword_t*, nonmissing_bitarr);
   for (uint32_t widx = 0; widx < sample_ctl2; ++widx) {
     uintptr_t ww = ~(*genoarr_iter++);
     ww = (ww | (ww >> 1)) & kMask5555;
@@ -250,7 +250,7 @@ void genoarr_to_nonmissing(const uintptr_t* genoarr, uint32_t sample_ct, uintptr
 uint32_t genoarr_count_missing_notsubset_unsafe(const uintptr_t* genoarr, const uintptr_t* exclude_mask, uint32_t sample_ct) {
   const uint32_t sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
   const uintptr_t* genoarr_iter = genoarr;
-  const halfword_t* exclude_alias_iter = (halfword_t*)exclude_mask;
+  const halfword_t* exclude_alias_iter = R_CAST(const halfword_t*, exclude_mask);
   uint32_t missing_ct = 0;
   for (uint32_t widx = 0; widx < sample_ctl2; ++widx) {
     uintptr_t ww = *genoarr_iter++;
@@ -342,7 +342,7 @@ pglerr_t augid_init_alloc(const uintptr_t* sample_include, const char* sample_id
     if (sids) {
       strcpy(write_iter, &(sids[sample_uidx * max_sid_blen]));
     } else {
-      strcpy(write_iter, "0");
+      memcpy(write_iter, "0", 2);
     }
     sample_augids_iter = &(sample_augids_iter[max_sample_augid_blen]);
     if (sample_augid_map) {
@@ -368,10 +368,10 @@ pglerr_t sorted_xidbox_init_alloc(const uintptr_t* sample_include, const char* s
   if (!allow_dups) {
     char* dup_id = scan_for_duplicate_ids(*sorted_xidbox_ptr, sample_ct, *max_xid_blen_ptr);
     if (dup_id) {
-      char* tptr = (char*)rawmemchr(dup_id, '\t');
-      *tptr = ' ';
-      tptr = (char*)rawmemchr(&(tptr[1]), '\t');
-      *tptr = ' ';
+      char* tab_iter = S_CAST(char*, rawmemchr(dup_id, '\t'));
+      *tab_iter = ' ';
+      tab_iter = S_CAST(char*, rawmemchr(&(tab_iter[1]), '\t'));
+      *tab_iter = ' ';
       LOGERRPRINTFWW("Error: Duplicate ID '%s'.\n", dup_id);
       return kPglRetMalformedInput;
     }
@@ -400,32 +400,32 @@ uint32_t xid_read(uintptr_t max_xid_blen, uint32_t comma_delim, xid_mode_t xid_m
   uintptr_t slen_iid;
   if (comma_delim) {
     token_iter = first_token_start;
-    unsigned char ucc = (unsigned char)(*token_iter);
+    unsigned char ucc = *token_iter;
     while (ucc != ',') {
       if (ucc < 32) {
         if (!(xid_mode & kfXidModeFlagOneTokenOk)) {
           *read_pp = nullptr;
           return 0;
         }
-        slen_fid = (uintptr_t)(token_iter - first_token_start);
+        slen_fid = token_iter - first_token_start;
         goto sorted_xidbox_read_comma_single_token;
       }
-      ucc = (unsigned char)(*(++token_iter));
+      ucc = *(++token_iter);
     }
-    slen_fid = (uintptr_t)(token_iter - first_token_start);
+    slen_fid = token_iter - first_token_start;
     if (xid_mode & kfXidModeFlagNeverFid) {
     sorted_xidbox_read_comma_single_token:
       iid_ptr = first_token_start;
       slen_iid = slen_fid;
     } else {
       do {
-        ucc = (unsigned char)(*(++token_iter));
+        ucc = *(++token_iter);
       } while ((ucc == ' ') || (ucc == '\t'));
       iid_ptr = token_iter;
       while ((ucc >= 32) && (ucc != ',')) {
-        ucc = (unsigned char)(*(++token_iter));
+        ucc = *(++token_iter);
       }
-      slen_iid = (uintptr_t)(token_iter - iid_ptr);
+      slen_iid = token_iter - iid_ptr;
     }
     // token_iter now points to comma/eoln at end of IID
     if (xid_mode & kfXidModeFlagSid) {
@@ -433,13 +433,13 @@ uint32_t xid_read(uintptr_t max_xid_blen, uint32_t comma_delim, xid_mode_t xid_m
         return 0;
       }
       do {
-        ucc = (unsigned char)(*(++token_iter));
+        ucc = *(++token_iter);
       } while ((ucc == ' ') || (ucc == '\t'));
       sid_ptr = token_iter;
       while ((ucc >= 32) && (ucc != ',')) {
-        ucc = (unsigned char)(*(++token_iter));
+        ucc = *(++token_iter);
       }
-      blen_sid = 1 + (uintptr_t)(token_iter - sid_ptr);
+      blen_sid = 1 + S_CAST(uintptr_t, token_iter - sid_ptr);
       if (token_iter == sid_ptr) {
         // special case: treat missing SID as '0'
         blen_sid = 2;
@@ -449,7 +449,7 @@ uint32_t xid_read(uintptr_t max_xid_blen, uint32_t comma_delim, xid_mode_t xid_m
   } else {
     assert(!is_eoln_kns(*first_token_start));
     token_iter = token_endnn(first_token_start);
-    slen_fid = (uintptr_t)(token_iter - first_token_start);
+    slen_fid = token_iter - first_token_start;
     if (xid_mode & kfXidModeFlagNeverFid) {
     sorted_xidbox_read_space_single_token:
       iid_ptr = first_token_start;
@@ -467,7 +467,7 @@ uint32_t xid_read(uintptr_t max_xid_blen, uint32_t comma_delim, xid_mode_t xid_m
       }
       iid_ptr = token_iter;
       token_iter = token_endnn(token_iter);
-      slen_iid = (uintptr_t)(token_iter - iid_ptr);
+      slen_iid = token_iter - iid_ptr;
     }
     // token_iter now points to space/eoln at end of IID
     if (xid_mode & kfXidModeFlagSid) {
@@ -478,7 +478,7 @@ uint32_t xid_read(uintptr_t max_xid_blen, uint32_t comma_delim, xid_mode_t xid_m
       }
       sid_ptr = token_iter;
       token_iter = token_endnn(token_iter);
-      blen_sid = 1 + (uintptr_t)(token_iter - sid_ptr);
+      blen_sid = 1 + S_CAST(uintptr_t, token_iter - sid_ptr);
     }
   }
   *read_pp = token_iter;
@@ -551,7 +551,7 @@ pglerr_t load_xid_header(const char* flag_name, sid_detect_mode_t sid_detect_mod
     }
     loadbuf_iter = skip_initial_spaces(loadbuf_iter);
     if (tokequal_k(loadbuf_iter, "SID")) {
-      if ((uint32_t)sid_detect_mode >= kSidDetectModeLoaded) {
+      if (S_CAST(uint32_t, sid_detect_mode) >= kSidDetectModeLoaded) {
         xid_mode |= kfXidModeFlagSid;
       }
       loadbuf_iter = skip_initial_spaces(&(loadbuf_iter[3]));
@@ -605,15 +605,15 @@ pglerr_t init_chr_info(chr_info_t* cip) {
   uintptr_t* alloc_iter = &(cip->chr_mask[BITCT_TO_VECCT(kChrRawEnd) * kWordsPerVec]);
   cip->haploid_mask = alloc_iter;
   alloc_iter = &(alloc_iter[BITCT_TO_VECCT(kChrRawEnd) * kWordsPerVec]);
-  cip->chr_file_order = (uint32_t*)alloc_iter;
+  cip->chr_file_order = R_CAST(uint32_t*, alloc_iter);
   alloc_iter = &(alloc_iter[(kChrRawEnd / kInt32PerVec) * kWordsPerVec]);
-  cip->chr_fo_vidx_start = (uint32_t*)alloc_iter;
+  cip->chr_fo_vidx_start = R_CAST(uint32_t*, alloc_iter);
   alloc_iter = &(alloc_iter[((kChrRawEnd / kInt32PerVec) + 1) * kWordsPerVec]);
-  cip->chr_idx_to_foidx = (uint32_t*)alloc_iter;
+  cip->chr_idx_to_foidx = R_CAST(uint32_t*, alloc_iter);
   alloc_iter = &(alloc_iter[(kChrRawEnd / kInt32PerVec) * kWordsPerVec]);
-  cip->nonstd_names = (const char**)alloc_iter;
+  cip->nonstd_names = R_CAST(const char**, alloc_iter);
   alloc_iter = &(alloc_iter[kChrRawEnd]);
-  cip->nonstd_id_htable = (uint32_t*)alloc_iter;
+  cip->nonstd_id_htable = R_CAST(uint32_t*, alloc_iter);
   // alloc_iter = &(alloc_iter[((kChrHtableSize + (kInt32PerVec - 1)) / kInt32PerVec) * kWordsPerVec]);
   // fill_uint_one(kChrHtableSize, cip->nonstd_id_htable);
 
@@ -774,15 +774,15 @@ pglerr_t finalize_chr_info(chr_info_t* cip) {
   new_alloc_iter = &(new_alloc_iter[chr_code_bitvec_ct * kWordsPerVec]);
 
   memcpy(new_alloc_iter, cip->chr_file_order, chr_ct_int32vec_ct * kBytesPerVec);
-  cip->chr_file_order = (uint32_t*)new_alloc_iter;
+  cip->chr_file_order = R_CAST(uint32_t*, new_alloc_iter);
   new_alloc_iter = &(new_alloc_iter[chr_ct_int32vec_ct * kWordsPerVec]);
 
   memcpy(new_alloc_iter, cip->chr_fo_vidx_start, chr_ct_p1_int32vec_ct * kBytesPerVec);
-  cip->chr_fo_vidx_start = (uint32_t*)new_alloc_iter;
+  cip->chr_fo_vidx_start = R_CAST(uint32_t*, new_alloc_iter);
   new_alloc_iter = &(new_alloc_iter[chr_ct_p1_int32vec_ct * kWordsPerVec]);
 
   memcpy(new_alloc_iter, cip->chr_idx_to_foidx, chr_code_end_int32vec_ct * kBytesPerVec);
-  cip->chr_idx_to_foidx = (uint32_t*)new_alloc_iter;
+  cip->chr_idx_to_foidx = R_CAST(uint32_t*, new_alloc_iter);
 
   if (!name_ct) {
     cip->nonstd_names = nullptr;
@@ -791,11 +791,11 @@ pglerr_t finalize_chr_info(chr_info_t* cip) {
     new_alloc_iter = &(new_alloc_iter[chr_code_end_int32vec_ct * kWordsPerVec]);
 
     memcpy(new_alloc_iter, cip->nonstd_names, chr_code_end_wordvec_ct * kBytesPerVec);
-    cip->nonstd_names = (const char**)new_alloc_iter;
+    cip->nonstd_names = R_CAST(const char**, new_alloc_iter);
     new_alloc_iter = &(new_alloc_iter[chr_code_end_wordvec_ct * kWordsPerVec]);
 
     memcpy(new_alloc_iter, cip->nonstd_id_htable, kChrHtableSize * sizeof(int32_t));
-    cip->nonstd_id_htable = (uint32_t*)new_alloc_iter;
+    cip->nonstd_id_htable = R_CAST(uint32_t*, new_alloc_iter);
   }
   vecaligned_free(old_alloc);
   return kPglRetSuccess;
@@ -818,6 +818,7 @@ void cleanup_chr_info(chr_info_t* cip) {
 
 char* chr_name_std(const chr_info_t* cip, uint32_t chr_idx, char* buf) {
   const uint32_t output_encoding = cip->output_encoding;
+  const int32_t chr_idx_i = chr_idx;
   if (chr_idx > cip->max_numeric_code) {
     // This is usually encoding-independent; no real numeric representation of
     // PAR1/PAR2 is defined.  However, since there'd otherwise be no way to
@@ -825,7 +826,7 @@ char* chr_name_std(const chr_info_t* cip, uint32_t chr_idx, char* buf) {
     // them as 25 (in the human case) when "--output-chr 26" is specified.
     if (output_encoding) {
       memcpyl3(buf, "PAR");
-      buf[3] = '0' + (((int32_t)chr_idx) - cip->max_numeric_code);
+      buf[3] = '0' + (chr_idx_i - cip->max_numeric_code);
       return &(buf[4]);
     }
     return uint32toa(cip->autosome_ct + (kChrOffsetXY + 1), buf);
@@ -835,15 +836,15 @@ char* chr_name_std(const chr_info_t* cip, uint32_t chr_idx, char* buf) {
       // force two chars
       if (chr_idx <= cip->autosome_ct) {
         buf = memcpya(buf, &(kDigitPair[chr_idx]), 2);
-      } else if ((int32_t)chr_idx == cip->xymt_codes[kChrOffsetY]) {
+      } else if (chr_idx_i == cip->xymt_codes[kChrOffsetY]) {
         buf = strcpya(buf, "XY");
       } else {
         *buf++ = '0';
-        if ((int32_t)chr_idx == cip->xymt_codes[kChrOffsetX]) {
+        if (chr_idx_i == cip->xymt_codes[kChrOffsetX]) {
           *buf++ = 'X';
         } else {
           // assumes only X/Y/XY/MT defined
-          *buf++ = ((int32_t)chr_idx == cip->xymt_codes[kChrOffsetY])? 'Y' : 'M';
+          *buf++ = (chr_idx_i == cip->xymt_codes[kChrOffsetY])? 'Y' : 'M';
         }
       }
       return buf;
@@ -853,11 +854,11 @@ char* chr_name_std(const chr_info_t* cip, uint32_t chr_idx, char* buf) {
   if ((!(output_encoding & (kfChrOutputM | kfChrOutputMT))) || (chr_idx <= cip->autosome_ct)) {
     return uint32toa(chr_idx, buf);
   }
-  if ((int32_t)chr_idx == cip->xymt_codes[kChrOffsetX]) {
+  if (chr_idx_i == cip->xymt_codes[kChrOffsetX]) {
     *buf++ = 'X';
-  } else if ((int32_t)chr_idx == cip->xymt_codes[kChrOffsetY]) {
+  } else if (chr_idx_i == cip->xymt_codes[kChrOffsetY]) {
     *buf++ = 'Y';
-  } else if ((int32_t)chr_idx == cip->xymt_codes[kChrOffsetXY]) {
+  } else if (chr_idx_i == cip->xymt_codes[kChrOffsetXY]) {
     buf = strcpya(buf, "XY");
   } else {
     *buf++ = 'M';
@@ -937,21 +938,21 @@ static inline int32_t single_cap_letter_chrom(uint32_t cap_letter) {
 }
 
 static_assert(kMaxChrTextnumSlen == 2, "get_chr_code_raw() must be updated.");
-int32_t get_chr_code_raw(const char* sptr) {
+int32_t get_chr_code_raw(const char* str_iter) {
   // any character <= ' ' is considered a terminator
   // note that char arithmetic tends to be compiled to int32 operations, so we
   // mostly work with ints here
-  uint32_t first_char_code = (unsigned char)sptr[0];
+  uint32_t first_char_code = ctou32(str_iter[0]);
   uint32_t first_char_toi;
   if (first_char_code < 58) {
   get_chr_code_raw_digits:
     first_char_toi = first_char_code - '0';
     if (first_char_toi < 10) {
-      const uint32_t second_char_code = (unsigned char)sptr[1];
+      const uint32_t second_char_code = ctou32(str_iter[1]);
       if (second_char_code <= ' ') {
         return first_char_toi;
       }
-      if (((unsigned char)sptr[2]) <= ' ') {
+      if (ctou32(str_iter[2]) <= ' ') {
         const uint32_t second_char_toi = second_char_code - '0';
         if (second_char_toi < 10) {
           return first_char_toi * 10 + second_char_toi;
@@ -965,36 +966,36 @@ int32_t get_chr_code_raw(const char* sptr) {
     return -1;
   }
   first_char_code &= 0xdf;
-  uint32_t second_char_code = (unsigned char)sptr[1];
+  uint32_t second_char_code = ctou32(str_iter[1]);
   if (first_char_code == 'P') {
     // chrPAR1 *not* supported; has to be PAR1 by itself.
     // can't do uint16_t compare of multiple characters, since we could be
     // dealing with a length-1 null-terminated string; that IS faster when it's
     // safe, though
-    if (((second_char_code & 0xdf) == 'A') && ((((unsigned char)sptr[2]) & 0xdf) == 'R')) {
-      const uint32_t par_idx_m1 = ((unsigned char)sptr[3]) - '1';
-      if ((par_idx_m1 < 2) && (((unsigned char)sptr[4]) <= ' ')) {
+    if (((second_char_code & 0xdf) == 'A') && ((ctou32(str_iter[2]) & 0xdf) == 'R')) {
+      const uint32_t par_idx_m1 = ctou32(str_iter[3]) - '1';
+      if ((par_idx_m1 < 2) && (ctou32(str_iter[4]) <= ' ')) {
         return kChrRawPAR1 + par_idx_m1;
       }
     }
     return -1;
   }
   if (first_char_code == 'C') {
-    if (((second_char_code & 0xdf) != 'H') || ((((unsigned char)sptr[2]) & 0xdf) != 'R')) {
+    if (((second_char_code & 0xdf) != 'H') || ((ctou32(str_iter[2]) & 0xdf) != 'R')) {
       return -1;
     }
-    sptr = &(sptr[3]);
-    first_char_code = (unsigned char)sptr[0];
+    str_iter = &(str_iter[3]);
+    first_char_code = ctou32(str_iter[0]);
     if (first_char_code < 58) {
       goto get_chr_code_raw_digits;
     }
     first_char_code &= 0xdf;
-    second_char_code = (unsigned char)sptr[1];
+    second_char_code = ctou32(str_iter[1]);
   }
   if (second_char_code <= ' ') {
     return single_cap_letter_chrom(first_char_code);
   }
-  if (((unsigned char)sptr[2]) <= ' ') {
+  if (ctou32(str_iter[2]) <= ' ') {
     second_char_code &= 0xdf;
     if ((first_char_code == 'X') && (second_char_code == 'Y')) {
       return kChrRawXY;
@@ -1012,11 +1013,11 @@ int32_t get_chr_code(const char* chr_name, const chr_info_t* cip, uint32_t name_
   // does not perform exhaustive error-checking
   // -1 = --allow-extra-chr ok, -2 = total fail
   int32_t chr_code_raw = get_chr_code_raw(chr_name);
-  if (((uint32_t)chr_code_raw) <= cip->max_code) {
+  if (S_CAST(uint32_t, chr_code_raw) <= cip->max_code) {
     return chr_code_raw;
   }
   if (chr_code_raw != -1) {
-    if (chr_code_raw >= ((int32_t)kMaxContigs)) {
+    if (chr_code_raw >= S_CAST(int32_t, kMaxContigs)) {
       return cip->xymt_codes[chr_code_raw - kMaxContigs];
     }
     return -2;
@@ -1025,7 +1026,7 @@ int32_t get_chr_code(const char* chr_name, const chr_info_t* cip, uint32_t name_
     return -1;
   }
   // UINT32_MAX gets casted to -1
-  return (int32_t)id_htable_find(chr_name, cip->nonstd_names, cip->nonstd_id_htable, name_slen, kChrHtableSize);
+  return S_CAST(int32_t, id_htable_find(chr_name, cip->nonstd_names, cip->nonstd_id_htable, name_slen, kChrHtableSize));
 }
 
 int32_t get_chr_code_counted(const chr_info_t* cip, uint32_t name_slen, char* chr_name) {
@@ -1049,7 +1050,7 @@ void chr_error(const char* chr_name, const char* file_descrip, const chr_info_t*
   } else {
     LOGERRPRINTFWW("Error: Invalid chromosome code '%s' in %s.\n", chr_name, file_descrip);
   }
-  if ((raw_code > ((int32_t)cip->max_code)) && ((raw_code <= (int32_t)(kMaxChrTextnum + kChrOffsetCt)) || (raw_code >= ((int32_t)kMaxContigs)))) {
+  if ((raw_code > S_CAST(int32_t, cip->max_code)) && ((raw_code <= S_CAST(int32_t, kMaxChrTextnum + kChrOffsetCt)) || (raw_code >= S_CAST(int32_t, kMaxContigs)))) {
     if (cip->chrset_source == kChrsetSourceDefault) {
       logerrprint("(This is disallowed for humans.  Check if the problem is with your data, or if\nyou forgot to define a different chromosome set with e.g. --chr-set.).\n");
     } else if (cip->chrset_source == kChrsetSourceCmdline) {
@@ -1113,7 +1114,7 @@ pglerr_t try_to_add_chr_name(const char* chr_name, const char* file_descrip, uin
   uint32_t in_name_stack = 0;
   while (name_stack_ptr) {
     // there shouldn't be many of these, so sorting is unimportant
-    if (!strcmp(chr_name, name_stack_ptr->ss)) {
+    if (!strcmp(chr_name, name_stack_ptr->str)) {
       in_name_stack = 1;
       break;
     }
@@ -1127,7 +1128,7 @@ pglerr_t try_to_add_chr_name(const char* chr_name, const char* file_descrip, uin
   }
   memcpy(new_nonstd_name, chr_name, name_slen + 1);
   cip->nonstd_names[chr_code_end] = new_nonstd_name;
-  *chr_idx_ptr = (int32_t)chr_code_end;
+  *chr_idx_ptr = chr_code_end;
   cip->name_ct = name_ct + 1;
   uint32_t* id_htable = cip->nonstd_id_htable;
   uint32_t hashval = hashceil(chr_name, name_slen, kChrHtableSize);
@@ -1227,8 +1228,8 @@ void interleaved_mask_zero(const uintptr_t* __restrict interleaved_mask, uintptr
   const uintptr_t twovec_ct = vec_ct / 2;
 #ifdef __LP64__
   const vul_t m1 = VCONST_UL(kMask5555);
-  const vul_t* interleaved_mask_iter = (const vul_t*)interleaved_mask;
-  vul_t* genovvec_iter = (vul_t*)genovec;
+  const vul_t* interleaved_mask_iter = R_CAST(const vul_t*, interleaved_mask);
+  vul_t* genovvec_iter = R_CAST(vul_t*, genovec);
   for (uintptr_t twovec_idx = 0; twovec_idx < twovec_ct; ++twovec_idx) {
     const vul_t mask_vvec = *interleaved_mask_iter++;
     vul_t mask_first = mask_vvec & m1;
@@ -1266,8 +1267,8 @@ void interleaved_set_missing(const uintptr_t* __restrict interleaved_set, uintpt
   const uintptr_t twovec_ct = vec_ct / 2;
 #ifdef __LP64__
   const vul_t m1 = VCONST_UL(kMask5555);
-  const vul_t* interleaved_set_iter = (const vul_t*)interleaved_set;
-  vul_t* genovvec_iter = (vul_t*)genovec;
+  const vul_t* interleaved_set_iter = R_CAST(const vul_t*, interleaved_set);
+  vul_t* genovvec_iter = R_CAST(vul_t*, genovec);
   for (uintptr_t twovec_idx = 0; twovec_idx < twovec_ct; ++twovec_idx) {
     const vul_t set_vvec = *interleaved_set_iter++;
     vul_t set_first = set_vvec & m1;
@@ -1335,8 +1336,8 @@ void set_male_het_missing(const uintptr_t* __restrict sex_male_interleaved, uint
   const uint32_t twovec_ct = vec_ct / 2;
 #ifdef __LP64__
   const vul_t m1 = VCONST_UL(kMask5555);
-  const vul_t* sex_male_interleaved_iter = (const vul_t*)sex_male_interleaved;
-  vul_t* genovvec_iter = (vul_t*)genovec;
+  const vul_t* sex_male_interleaved_iter = R_CAST(const vul_t*, sex_male_interleaved);
+  vul_t* genovvec_iter = R_CAST(vul_t*, genovec);
   for (uint32_t twovec_idx = 0; twovec_idx < twovec_ct; ++twovec_idx) {
     const vul_t sex_male_vvec = *sex_male_interleaved_iter++;
     // we wish to bitwise-or with (sex_male_quatervec_01 & genovec) << 1
@@ -1412,8 +1413,8 @@ void set_male_het_missing_keepdosage(const uintptr_t* __restrict sex_male, const
     // can't assume dosagepresent is initialized in this case
     fill_ulong_zero(DIV_UP(word_ct, 2), dosagepresent);
   }
-  const halfword_t* sex_male_alias = (halfword_t*)sex_male;
-  halfword_t* dosagepresent_alias = (halfword_t*)dosagepresent;
+  const halfword_t* sex_male_alias = R_CAST(const halfword_t*, sex_male);
+  halfword_t* dosagepresent_alias = R_CAST(halfword_t*, dosagepresent);
   uint32_t new_dosage_ct = 0;
   for (uintptr_t widx = 0; widx < word_ct; ++widx) {
     const uintptr_t geno_word = genovec[widx];
@@ -1458,7 +1459,7 @@ void set_male_het_missing_keepdosage(const uintptr_t* __restrict sex_male, const
 //
 // Similar to pgr_detect_genovec_hets_unsafe().
 void mask_genovec_hets_unsafe(const uintptr_t* __restrict genovec, uint32_t raw_sample_ctl2, uintptr_t* __restrict bitarr) {
-  halfword_t* bitarr_alias = (halfword_t*)bitarr;
+  halfword_t* bitarr_alias = R_CAST(halfword_t*, bitarr);
   for (uint32_t widx = 0; widx < raw_sample_ctl2; ++widx) {
     const uintptr_t cur_word = genovec[widx];
     uintptr_t ww = (~(cur_word >> 1)) & cur_word & kMask5555; // low 1, high 0
@@ -1506,8 +1507,9 @@ uint32_t chr_window_max(const uintptr_t* variant_include, const chr_info_t* cip,
 */
 
 uint32_t not_only_xymt(const uintptr_t* variant_include, const chr_info_t* cip, uint32_t raw_variant_ct, uint32_t xymt_offset) {
-  const uint32_t xymt_code = (uint32_t)cip->xymt_codes[xymt_offset];
-  const uint32_t cur_chr_fo_idx = cip->chr_idx_to_foidx[xymt_code];
+  const int32_t xymt_code = cip->xymt_codes[xymt_offset];
+  assert(xymt_code >= 0);
+  const uint32_t cur_chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, xymt_code)];
   const uint32_t chr_start = cip->chr_fo_vidx_start[cur_chr_fo_idx];
   if (chr_start) {
     const uint32_t first_uidx = next_set_unsafe(variant_include, 0);
@@ -1562,17 +1564,17 @@ pglerr_t conditional_allocate_non_autosomal_variants(const chr_info_t* cip, cons
   memcpy(working_variant_include, *variant_include_ptr, raw_variant_ctl * sizeof(intptr_t));
   int32_t x_code;
   if (xymt_exists(cip, kChrOffsetX, &x_code)) {
-    uint32_t chr_fo_idx = cip->chr_idx_to_foidx[(uint32_t)x_code];
+    uint32_t chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, x_code)];
     clear_bits_nz(cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1], working_variant_include);
   }
   int32_t y_code;
   if (xymt_exists(cip, kChrOffsetX, &y_code)) {
-    uint32_t chr_fo_idx = cip->chr_idx_to_foidx[(uint32_t)y_code];
+    uint32_t chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, y_code)];
     clear_bits_nz(cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1], working_variant_include);
   }
   int32_t mt_code;
   if (xymt_exists(cip, kChrOffsetX, &mt_code)) {
-    uint32_t chr_fo_idx = cip->chr_idx_to_foidx[(uint32_t)mt_code];
+    uint32_t chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, mt_code)];
     clear_bits_nz(cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1], working_variant_include);
   }
   *variant_include_ptr = working_variant_include;
@@ -1664,16 +1666,16 @@ char g_output_missing_pheno[kMaxMissingPhenostrBlen];
 char g_legacy_output_missing_pheno[kMaxMissingPhenostrBlen];
 
 void init_pheno() {
-  strcpy(g_missing_catname, "NONE");
-  strcpy(g_output_missing_pheno, "NA");
-  strcpy(g_legacy_output_missing_pheno, "-9");
+  snprintf(g_missing_catname, kMaxMissingPhenostrBlen, "NONE");
+  snprintf(g_output_missing_pheno, kMaxMissingPhenostrBlen, "NA");
+  snprintf(g_legacy_output_missing_pheno, kMaxMissingPhenostrBlen, "-9");
 }
 
-uint32_t is_categorical_phenostr(const char* phenostr) {
-  uint32_t first_char_code = (unsigned char)(*phenostr++);
+uint32_t is_categorical_phenostr(const char* phenostr_iter) {
+  uint32_t first_char_code = ctou32(*phenostr_iter++);
   // allow leading +/-
   if ((first_char_code == 43) || (first_char_code == 45)) {
-    first_char_code = (unsigned char)(*phenostr++);
+    first_char_code = ctou32(*phenostr_iter++);
   }
   if (((first_char_code - 48) < 10) || (first_char_code == 44) || (first_char_code < 32)) {
     // the last two conditions are for detecting CSV empty strings
@@ -1681,49 +1683,49 @@ uint32_t is_categorical_phenostr(const char* phenostr) {
   }
   if (first_char_code == 46) {
     // decimal point.  classify based on whether next character is a digit.
-    const uint32_t second_char_code = (unsigned char)phenostr[0];
+    const uint32_t second_char_code = ctou32(phenostr_iter[0]);
     return ((second_char_code - 48) >= 10);
   }
   // allow any capitalization of "NA"/"nan", but not "inf"
   if ((first_char_code & 0xdf) != 78) {
     return 1;
   }
-  const uint32_t second_char_code = (unsigned char)phenostr[0];
+  const uint32_t second_char_code = ctou32(phenostr_iter[0]);
   if ((second_char_code & 0xdf) != 65) {
     return 1;
   }
-  const uint32_t third_char_code = (unsigned char)phenostr[1];
+  const uint32_t third_char_code = ctou32(phenostr_iter[1]);
   if ((third_char_code & 0xdf) == 78) {
-    return (((unsigned char)phenostr[2]) > ' ');
+    return (ctou32(phenostr_iter[2]) > ' ');
   }
   return (third_char_code > 32);
 }
 
-uint32_t is_categorical_phenostr_nocsv(const char* phenostr) {
-  uint32_t first_char_code = (unsigned char)(*phenostr++);
+uint32_t is_categorical_phenostr_nocsv(const char* phenostr_iter) {
+  uint32_t first_char_code = ctou32(*phenostr_iter++);
   // allow leading +/-
   if ((first_char_code == 43) || (first_char_code == 45)) {
-    first_char_code = (unsigned char)(*phenostr++);
+    first_char_code = ctou32(*phenostr_iter++);
   }
   if ((first_char_code - 48) < 10) {
     return 0;
   }
   if (first_char_code == 46) {
     // decimal point.  classify based on whether next character is a digit.
-    const uint32_t second_char_code = (unsigned char)phenostr[0];
+    const uint32_t second_char_code = ctou32(phenostr_iter[0]);
     return ((second_char_code - 48) >= 10);
   }
   // allow any capitalization of "NA"/"nan", but not "inf"
   if ((first_char_code & 0xdf) != 78) {
     return 1;
   }
-  const uint32_t second_char_code = (unsigned char)phenostr[0];
+  const uint32_t second_char_code = ctou32(phenostr_iter[0]);
   if ((second_char_code & 0xdf) != 65) {
     return 1;
   }
-  const uint32_t third_char_code = (unsigned char)phenostr[1];
+  const uint32_t third_char_code = ctou32(phenostr_iter[1]);
   if ((third_char_code & 0xdf) == 78) {
-    return (((unsigned char)phenostr[2]) > ' ');
+    return (ctou32(phenostr_iter[2]) > ' ');
   }
   return (third_char_code > 32);
 }
@@ -1840,7 +1842,7 @@ pglerr_t parse_chr_ranges(const char* const* argvc, const char* flagname_p, cons
           goto parse_chr_ranges_ret_NOMEM;
         }
       } else {
-        if (chr_code_start >= ((int32_t)kMaxContigs)) {
+        if (chr_code_start >= S_CAST(int32_t, kMaxContigs)) {
           chr_code_start -= xymt_subtract;
         }
         if (range_end) {
@@ -1853,7 +1855,7 @@ pglerr_t parse_chr_ranges(const char* const* argvc, const char* flagname_p, cons
             }
             goto parse_chr_ranges_ret_INVALID_CMDLINE_NONSTD;
           }
-          if (chr_code_end >= ((int32_t)kMaxContigs)) {
+          if (chr_code_end >= S_CAST(int32_t, kMaxContigs)) {
             // prohibit stuff like "--chr par1-par2", "--chr x-y", "--chr x-26"
             snprintf(g_logbuf, kLogbufSize, "Error: --%s chromosome code '%s' cannot be the end of a range.\n", flagname_p, range_end);
             goto parse_chr_ranges_ret_INVALID_CMDLINE_WWA;
@@ -1898,7 +1900,7 @@ pglerr_t multithread_load_init(const uintptr_t* variant_include, uint32_t sample
     // limit each raw load buffer to 1/4 of remaining workspace
     // if there's an additional per-variant allocation, put it in the same bin
     // as the load buffers
-    if ((multiread_cacheline_ct + (((uint64_t)per_variant_xalloc_byte_ct) * read_block_size) / kCacheline) * 4 <= cachelines_avail) {
+    if ((multiread_cacheline_ct + (S_CAST(uint64_t, per_variant_xalloc_byte_ct) * read_block_size) / kCacheline) * 4 <= cachelines_avail) {
       break;
     }
     // lots of callers require read_block_size to be either raw_variant_ct or a
@@ -1919,11 +1921,11 @@ pglerr_t multithread_load_init(const uintptr_t* variant_include, uint32_t sample
     return kPglRetNomem;
   }
 #endif
-  main_loadbufs[0] = bigstack_alloc_raw(multiread_cacheline_ct * kCacheline);
-  main_loadbufs[1] = bigstack_alloc_raw(multiread_cacheline_ct * kCacheline);
+  main_loadbufs[0] = S_CAST(unsigned char*, bigstack_alloc_raw(multiread_cacheline_ct * kCacheline));
+  main_loadbufs[1] = S_CAST(unsigned char*, bigstack_alloc_raw(multiread_cacheline_ct * kCacheline));
   pgfip->block_base = main_loadbufs[0];
   *read_block_size_ptr = read_block_size;
-  cachelines_avail -= 2 * (multiread_cacheline_ct + (((uint64_t)per_variant_xalloc_byte_ct) * read_block_size) / kCacheline);
+  cachelines_avail -= 2 * (multiread_cacheline_ct + (S_CAST(uint64_t, per_variant_xalloc_byte_ct) * read_block_size) / kCacheline);
   // reduce calc_thread_ct if necessary
   uint32_t calc_thread_ct = *calc_thread_ct_ptr;
   if (calc_thread_ct > read_block_size) {
@@ -1957,31 +1959,31 @@ pglerr_t multithread_load_init(const uintptr_t* variant_include, uint32_t sample
   }
 
   const uint32_t array_of_ptrs_alloc = round_up_pow2(calc_thread_ct * sizeof(intptr_t), kCacheline);
-  *pgr_pps = (pgen_reader_t**)bigstack_alloc_raw(array_of_ptrs_alloc);
-  *threads_ptr = (pthread_t*)bigstack_alloc_raw(array_of_ptrs_alloc);
-  *read_variant_uidx_starts_ptr = (uint32_t*)bigstack_alloc_raw_rd(calc_thread_ct * sizeof(int32_t));
+  *pgr_pps = S_CAST(pgen_reader_t**, bigstack_alloc_raw(array_of_ptrs_alloc));
+  *threads_ptr = S_CAST(pthread_t*, bigstack_alloc_raw(array_of_ptrs_alloc));
+  *read_variant_uidx_starts_ptr = S_CAST(uint32_t*, bigstack_alloc_raw_rd(calc_thread_ct * sizeof(int32_t)));
   for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
-    (*pgr_pps)[tidx] = (pgen_reader_t*)bigstack_alloc_raw(pgr_struct_alloc);
+    (*pgr_pps)[tidx] = S_CAST(pgen_reader_t*, bigstack_alloc_raw(pgr_struct_alloc));
     // pgr_preinit(g_pgr_ptrs[tidx]);
-    unsigned char* pgr_alloc = bigstack_alloc_raw(pgr_alloc_cacheline_ct * kCacheline);
+    unsigned char* pgr_alloc = S_CAST(unsigned char*, bigstack_alloc_raw(pgr_alloc_cacheline_ct * kCacheline));
 
     // shouldn't be possible for this to fail
     pgr_init(nullptr, 0, pgfip, (*pgr_pps)[tidx], pgr_alloc);
   }
   if (genovecs_ptr) {
-    *genovecs_ptr = (uintptr_t**)bigstack_alloc_raw(array_of_ptrs_alloc);
+    *genovecs_ptr = S_CAST(uintptr_t**, bigstack_alloc_raw(array_of_ptrs_alloc));
     if (dosage_present_ptr) {
-      *dosage_present_ptr = (uintptr_t**)bigstack_alloc_raw(array_of_ptrs_alloc);
-      *dosage_val_bufs_ptr = (dosage_t**)bigstack_alloc_raw(array_of_ptrs_alloc);
+      *dosage_present_ptr = S_CAST(uintptr_t**, bigstack_alloc_raw(array_of_ptrs_alloc));
+      *dosage_val_bufs_ptr = S_CAST(dosage_t**, bigstack_alloc_raw(array_of_ptrs_alloc));
     }
     const uintptr_t genovec_alloc = sample_ctcl2 * kCacheline;
     const uintptr_t dosage_present_alloc = sample_ctcl * kCacheline;
     const uintptr_t dosage_vals_alloc = dosage_vals_cl * kCacheline;
     for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
-      (*genovecs_ptr)[tidx] = (uintptr_t*)bigstack_alloc_raw(genovec_alloc);
+      (*genovecs_ptr)[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(genovec_alloc));
       if (dosage_present_ptr) {
-        (*dosage_present_ptr)[tidx] = (uintptr_t*)bigstack_alloc_raw(dosage_present_alloc);
-        (*dosage_val_bufs_ptr)[tidx] = (dosage_t*)bigstack_alloc_raw(dosage_vals_alloc);
+        (*dosage_present_ptr)[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(dosage_present_alloc));
+        (*dosage_val_bufs_ptr)[tidx] = S_CAST(dosage_t*, bigstack_alloc_raw(dosage_vals_alloc));
       }
     }
   }

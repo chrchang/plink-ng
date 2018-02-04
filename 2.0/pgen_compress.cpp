@@ -37,7 +37,7 @@ int32_t main(int32_t argc, char** argv) {
     }
     const uint32_t decompress = (argv[1][0] == '-') && (argv[1][1] == 'u') && (argv[1][2] == '\0');
     uint32_t sample_ct = 0xffffffffU;
-    if (((uint32_t)argc) == 4 + decompress) {
+    if (S_CAST(uint32_t, argc) == 4 + decompress) {
       if (scan_posint_defcap(argv[3 + decompress], &sample_ct)) {
         goto main_ret_INVALID_CMDLINE;
       }
@@ -76,11 +76,11 @@ int32_t main(int32_t argc, char** argv) {
     // modify this when trying block-fread
     reterr = pgr_init(use_mmap? nullptr : argv[1 + decompress], max_vrec_width, &pgfi, &pgr, pgr_alloc);
     if (reterr) {
-      fprintf(stderr, "pgr_init error %u\n", (uint32_t)reterr);
+      fprintf(stderr, "pgr_init error %u\n", S_CAST(uint32_t, reterr));
       goto main_ret_1;
     }
 
-    if (((uint32_t)argc) == 4 + decompress) {
+    if (S_CAST(uint32_t, argc) == 4 + decompress) {
       printf("%u variant%s detected.\n", variant_ct, (variant_ct == 1)? "" : "s");
     } else {
       printf("%u variant%s and %u sample%s detected.\n", variant_ct, (variant_ct == 1)? "" : "s", sample_ct, (sample_ct == 1)? "" : "s");
@@ -100,7 +100,7 @@ int32_t main(int32_t argc, char** argv) {
       for (uint32_t vidx = 0; vidx < variant_ct;) {
         reterr = pgr_read_refalt1_genovec_subset_unsafe(nullptr, nullptr, sample_ct, vidx, &pgr, genovec);
         if (reterr) {
-          fprintf(stderr, "\nread error %u, vidx=%u\n", (uint32_t)reterr, vidx);
+          fprintf(stderr, "\nread error %u, vidx=%u\n", S_CAST(uint32_t, reterr), vidx);
           goto main_ret_1;
         }
         pgr_plink2_to_plink1_inplace_unsafe(sample_ct, genovec);
@@ -129,7 +129,7 @@ int32_t main(int32_t argc, char** argv) {
     uint32_t max_vrec_len;
     reterr = spgw_init_phase1(argv[2], nullptr, nullptr, variant_ct, write_sample_ct, kfPgenGlobal0, 2, &spgw, &cur_alloc_cacheline_ct, &max_vrec_len);
     if (reterr) {
-      fprintf(stderr, "compression phase 1 error %u\n", (uint32_t)reterr);
+      fprintf(stderr, "compression phase 1 error %u\n", S_CAST(uint32_t, reterr));
       goto main_ret_1;
     }
     if (cachealigned_malloc(cur_alloc_cacheline_ct * kCacheline, &spgw_alloc)) {
@@ -162,7 +162,7 @@ int32_t main(int32_t argc, char** argv) {
       uint32_t difflist_len;
       reterr = pgr_read_refalt1_difflist_or_genovec_subset_unsafe(sample_include, sample_include_cumulative_popcounts, write_sample_ct, max_simple_difflist_len, vidx, &pgr, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
       if (reterr) {
-        fprintf(stderr, "\nread error %u, vidx=%u\n", (uint32_t)reterr, vidx);
+        fprintf(stderr, "\nread error %u, vidx=%u\n", S_CAST(uint32_t, reterr), vidx);
         goto main_ret_1;
       }
       if (difflist_common_geno == 0xffffffffU) {
@@ -178,7 +178,7 @@ int32_t main(int32_t argc, char** argv) {
         reterr = spgw_append_biallelic_genovec(genovec, &spgw);
       }
       if (reterr) {
-        fprintf(stderr, "\ncompress/write error %u, vidx=%u\n", (uint32_t)reterr, vidx);
+        fprintf(stderr, "\ncompress/write error %u, vidx=%u\n", S_CAST(uint32_t, reterr), vidx);
         goto main_ret_1;
       }
       ++vidx;
@@ -238,5 +238,5 @@ int32_t main(int32_t argc, char** argv) {
   if (outfile) {
     fclose(outfile);
   }
-  return (uint32_t)reterr;
+  return S_CAST(uint32_t, reterr);
 }

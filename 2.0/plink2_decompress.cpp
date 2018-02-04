@@ -80,16 +80,16 @@ char* gz_token_stream_advance(gz_token_stream_t* gtsp, uint32_t* token_slen_ptr)
   char* token_start = gtsp->read_iter;
   char* buf_end = gtsp->buf_end;
  gz_token_stream_advance_restart:
-  while ((unsigned char)(*token_start) <= ' ') {
+  while (ctou32(*token_start) <= ' ') {
     ++token_start;
   }
   while (1) {
     if (token_start < buf_end) {
       char* token_end = &(token_start[1]);
-      while ((unsigned char)(*token_end) > ' ') {
+      while (ctou32(*token_end) > ' ') {
         ++token_end;
       }
-      const uint32_t token_slen = (uintptr_t)(token_end - token_start);
+      const uint32_t token_slen = token_end - token_start;
       if (token_end < buf_end) {
         *token_slen_ptr = token_slen;
         gtsp->read_iter = &(token_end[1]);
@@ -111,7 +111,7 @@ char* gz_token_stream_advance(gz_token_stream_t* gtsp, uint32_t* token_slen_ptr)
       *token_slen_ptr = 0xfffffffeU;
       return nullptr;
     }
-    buf_end = &(load_start[(uint32_t)bufsize]);
+    buf_end = &(load_start[S_CAST(uint32_t, bufsize)]);
     buf_end[0] = ' ';
     buf_end[1] = '0';
     gtsp->buf_end = buf_end;
@@ -126,7 +126,7 @@ char* gz_token_stream_advance(gz_token_stream_t* gtsp, uint32_t* token_slen_ptr)
         return nullptr;
       }
       gtsp->read_iter = load_start;
-      *token_slen_ptr = (uintptr_t)(load_start - token_start);
+      *token_slen_ptr = load_start - token_start;
       return token_start;
     }
     if (token_start == load_start) {

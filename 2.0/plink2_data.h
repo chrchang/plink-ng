@@ -99,7 +99,7 @@ char* append_pheno_str(const pheno_col_t* pheno_col, const char* output_missing_
 // returns distance from 0.5 or 1.5 in 16384ths, whichever is closer
 HEADER_CINLINE2 uint32_t biallelic_dosage_halfdist(uint32_t dosage_int) {
   const uint32_t dosage_int_rem = dosage_int & (kDosageMid - 1);
-  return abs_int32(((int32_t)dosage_int_rem) - kDosage4th);
+  return abs_int32(S_CAST(int32_t, dosage_int_rem) - kDosage4th);
 }
 
 pglerr_t load_allele_and_geno_counts(const uintptr_t* sample_include, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const chr_info_t* cip, const uintptr_t* variant_allele_idxs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t founder_ct, uint32_t male_ct, uint32_t nosex_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t first_hap_uidx, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, pgen_file_info_t* pgfip, uint64_t* allele_dosages, uint64_t* founder_allele_dosages, uint32_t* variant_missing_hc_cts, uint32_t* variant_missing_dosage_cts, uint32_t* variant_hethap_cts, uint32_t* raw_geno_cts, uint32_t* founder_raw_geno_cts, uint32_t* x_male_geno_cts, uint32_t* founder_x_male_geno_cts, uint32_t* x_nosex_geno_cts, uint32_t* founder_x_nosex_geno_cts, double* mach_r2_vals);

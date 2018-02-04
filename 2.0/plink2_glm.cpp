@@ -124,7 +124,7 @@ boolerr_t linear_hypothesis_chisq(const double* coef, const double* constraints_
 
   // don't need H-transpose any more, so we can use h_transpose_buf for matrix
   // inversion
-  if (invert_matrix((uint32_t)constraint_ct, inner_buf, mi_buf, h_transpose_buf)) {
+  if (invert_matrix(constraint_ct, inner_buf, mi_buf, h_transpose_buf)) {
     return 1;
   }
   double result = 0.0;
@@ -171,7 +171,7 @@ pglerr_t glm_local_init(const char* local_covar_fname, const char* local_pvar_fn
     } else {
       loadbuf_size = round_up_pow2(loadbuf_size, kEndAllocAlign);
     }
-    char* loadbuf = (char*)bigstack_end_alloc_raw(loadbuf_size);
+    char* loadbuf = S_CAST(char*, bigstack_end_alloc_raw(loadbuf_size));
     loadbuf[loadbuf_size - 1] = ' ';
     char* loadbuf_first_token;
     uint32_t is_header_line;
@@ -215,7 +215,7 @@ pglerr_t glm_local_init(const char* local_covar_fname, const char* local_pvar_fn
     if (reterr) {
       goto glm_local_init_ret_1;
     }
-    uint32_t* local_sample_uidx_order = (uint32_t*)g_bigstack_base;
+    uint32_t* local_sample_uidx_order = R_CAST(uint32_t*, g_bigstack_base);
     uintptr_t max_local_sample_ct = round_down_pow2(bigstack_left(), kCacheline) / sizeof(int32_t);
 #ifdef __LP64__
     if (max_local_sample_ct > kMaxLongLine / 2) {
@@ -238,7 +238,7 @@ pglerr_t glm_local_init(const char* local_covar_fname, const char* local_pvar_fn
         uint32_t sample_uidx;
         if (!sorted_xidbox_read_find(sorted_sample_idbox, sample_id_map, max_sample_id_blen, orig_sample_ct, 0, xid_mode, &read_ptr, &sample_uidx, idbuf)) {
           if (is_set(new_sample_include, sample_uidx)) {
-            char* first_tab = (char*)rawmemchr(idbuf, '\t');
+            char* first_tab = S_CAST(char*, rawmemchr(idbuf, '\t'));
             *first_tab = ' ';
             snprintf(g_logbuf, kLogbufSize, "Error: Duplicate ID '%s' in %s.\n", idbuf, local_psam_fname);
             goto glm_local_init_ret_MALFORMED_INPUT_WW;
@@ -346,7 +346,7 @@ pglerr_t glm_local_init(const char* local_covar_fname, const char* local_pvar_fn
         }
         ++col_idx;
         token_end = token_endnn(loadbuf_iter);
-        const uint32_t token_slen = (uintptr_t)(token_end - loadbuf_iter);
+        const uint32_t token_slen = token_end - loadbuf_iter;
         uint32_t cur_col_type;
         if (strequal_k(loadbuf_iter, "POS", token_slen)) {
           cur_col_type = 0;
@@ -360,7 +360,7 @@ pglerr_t glm_local_init(const char* local_covar_fname, const char* local_pvar_fn
           // Known column type, so length is limited and we don't have to worry
           // about buffer overflow.
           char* write_iter = strcpya(g_logbuf, "Error: Duplicate column header '");
-          write_iter = memcpya(write_iter, loadbuf_iter, (uintptr_t)(token_end - loadbuf_iter));
+          write_iter = memcpya(write_iter, loadbuf_iter, token_end - loadbuf_iter);
           write_iter = strcpya(write_iter, "' on line ");
           write_iter = pintptrtoa(line_idx, write_iter);
           write_iter = strcpya(write_iter, " of ");
@@ -408,7 +408,7 @@ pglerr_t glm_local_init(const char* local_covar_fname, const char* local_pvar_fn
       max_local_variant_ct = round_down_pow2(bigstack_left(), kCacheline) * CHAR_BIT;
     }
     const uintptr_t* orig_variant_include = *variant_include_ptr;
-    uintptr_t* local_variant_include = (uintptr_t*)g_bigstack_base;
+    uintptr_t* local_variant_include = R_CAST(uintptr_t*, g_bigstack_base);
     *local_variant_include_ptr = local_variant_include;
     uint32_t local_variant_ct = 0;
     uint32_t new_variant_ct = 0;
@@ -435,12 +435,13 @@ pglerr_t glm_local_init(const char* local_covar_fname, const char* local_pvar_fn
           goto glm_local_init_ret_MISSING_TOKENS_PVAR;
         }
         {
-          const int32_t cur_chr_code = get_chr_code_counted(cip, (uintptr_t)(loadbuf_iter - loadbuf_first_token), loadbuf_first_token);
+          const int32_t cur_chr_code = get_chr_code_counted(cip, loadbuf_iter - loadbuf_first_token, loadbuf_first_token);
           if (cur_chr_code < 0) {
             goto glm_local_init_skip_variant;
           }
-          if ((uint32_t)cur_chr_code != prev_chr_code) {
-            uint32_t first_variant_uidx_in_chr = cip->chr_fo_vidx_start[cip->chr_idx_to_foidx[(uint32_t)cur_chr_code]];
+          const uint32_t cur_chr_code_u = cur_chr_code;
+          if (cur_chr_code_u != prev_chr_code) {
+            uint32_t first_variant_uidx_in_chr = cip->chr_fo_vidx_start[cip->chr_idx_to_foidx[cur_chr_code_u]];
             if (first_variant_uidx_in_chr < prev_variant_uidx) {
               if (new_variant_ct) {
                 // not worth the trouble of handling this
@@ -457,7 +458,7 @@ pglerr_t glm_local_init(const char* local_covar_fname, const char* local_pvar_fn
             prev_chr_code = cip->chr_file_order[chr_fo_idx];
             prev_bp = variant_bps[prev_variant_uidx];
             chr_end = cip->chr_fo_vidx_start[cip->chr_idx_to_foidx[prev_chr_code] + 1];
-            if ((uint32_t)cur_chr_code != prev_chr_code) {
+            if (cur_chr_code_u != prev_chr_code) {
               goto glm_local_init_skip_variant;
             }
           }
@@ -471,7 +472,7 @@ pglerr_t glm_local_init(const char* local_covar_fname, const char* local_pvar_fn
             }
             token_ptrs[cur_col_type] = loadbuf_iter;
             char* token_end = token_endnn(loadbuf_iter);
-            token_slens[cur_col_type] = (uintptr_t)(token_end - loadbuf_iter);
+            token_slens[cur_col_type] = token_end - loadbuf_iter;
             loadbuf_iter = token_end;
           }
           // POS
@@ -480,19 +481,20 @@ pglerr_t glm_local_init(const char* local_covar_fname, const char* local_pvar_fn
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, local_pvar_fname);
             goto glm_local_init_ret_MALFORMED_INPUT_WW;
           }
-          if (cur_bp < (int32_t)prev_bp) {
+          if (cur_bp < S_CAST(int32_t, prev_bp)) {
             goto glm_local_init_skip_variant;
           }
-          if ((uint32_t)cur_bp > prev_bp) {
+          const uint32_t cur_bp_u = cur_bp;
+          if (cur_bp_u > prev_bp) {
             do {
               prev_variant_uidx = next_set(orig_variant_include, prev_variant_uidx + 1, raw_variant_ct);
-            } while ((prev_variant_uidx < chr_end) && ((uint32_t)cur_bp > variant_bps[prev_variant_uidx]));
+            } while ((prev_variant_uidx < chr_end) && (cur_bp_u > variant_bps[prev_variant_uidx]));
             if (prev_variant_uidx >= chr_end) {
               goto glm_local_init_skip_variant_and_update_chr;
             }
             prev_bp = variant_bps[prev_variant_uidx];
           }
-          if ((uint32_t)cur_bp == prev_bp) {
+          if (cur_bp_u == prev_bp) {
             // ID
             // note that if there are two same-position variants which appear
             // in a different order in the main dataset and the local-pvar
@@ -517,7 +519,7 @@ pglerr_t glm_local_init(const char* local_covar_fname, const char* local_pvar_fn
                 goto glm_local_init_skip_variant_and_update_chr;
               }
               prev_bp = variant_bps[prev_variant_uidx];
-            } while ((uint32_t)cur_bp == prev_bp);
+            } while (cur_bp_u == prev_bp);
           }
         }
         if (0) {
@@ -607,7 +609,7 @@ pglerr_t glm_local_init(const char* local_covar_fname, const char* local_pvar_fn
       }
     } else {
       local_covar_ct = glm_info_ptr->local_cat_ct - 1;
-      if (local_covar_ct * ((uint64_t)local_sample_ct) > kMaxLongLine / 2) {
+      if (local_covar_ct * S_CAST(uint64_t, local_sample_ct) > kMaxLongLine / 2) {
         snprintf(g_logbuf, kLogbufSize, "Error: [# samples in %s] * [# categories - 1] too large (limited to %u).\n", local_covar_fname, kMaxLongLine / 2);
         goto glm_local_init_ret_MALFORMED_INPUT_WW;
       }
@@ -1100,8 +1102,8 @@ boolerr_t check_max_corr_and_vif(const double* predictor_dotprods, uint32_t firs
     return 0;
   }
   const uintptr_t relevant_predictor_ct_p1 = relevant_predictor_ct + 1;
-  const double sample_ct_recip = 1.0 / ((double)((intptr_t)sample_ct));
-  const double sample_ct_m1_d = (double)((intptr_t)(sample_ct - 1));
+  const double sample_ct_recip = 1.0 / u31tod(sample_ct);
+  const double sample_ct_m1_d = u31tod(sample_ct - 1);
   const double sample_ct_m1_recip = 1.0 / sample_ct_m1_d;
   for (uintptr_t pred_idx1 = 0; pred_idx1 < relevant_predictor_ct; ++pred_idx1) {
     double* sample_corr_row = &(inverse_corr_buf[pred_idx1 * relevant_predictor_ct]);
@@ -1271,20 +1273,20 @@ boolerr_t check_max_corr_and_vif_f(const float* predictors_pmaj, uint32_t predic
     const float* predictor_row = &(predictors_pmaj[pred_idx * sample_stride]);
     double row_sum = 0.0;
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
-      row_sum += (double)predictor_row[sample_idx];
+      row_sum += S_CAST(double, predictor_row[sample_idx]);
     }
     dbl_2d_buf[pred_idx] = row_sum;
   }
   const uint32_t predictor_ct_p1 = predictor_ct + 1;
-  const double sample_ct_recip = 1.0 / ((double)((int32_t)sample_ct));
-  const double sample_ct_m1_d = (double)((int32_t)(sample_ct - 1));
+  const double sample_ct_recip = 1.0 / u31tod(sample_ct);
+  const double sample_ct_m1_d = u31tod(sample_ct - 1);
   const double sample_ct_m1_recip = 1.0 / sample_ct_m1_d;
   for (uint32_t pred_idx1 = 0; pred_idx1 < predictor_ct; ++pred_idx1) {
     double* sample_corr_row = &(inverse_corr_buf[pred_idx1 * predictor_ct]);
     const float* predictor_dotprod_row = &(predictor_dotprod_buf[pred_idx1 * predictor_ct]);
     const double covar1_mean_adj = dbl_2d_buf[pred_idx1] * sample_ct_recip;
     for (uint32_t pred_idx2 = 0; pred_idx2 <= pred_idx1; ++pred_idx2) {
-      sample_corr_row[pred_idx2] = ((double)predictor_dotprod_row[pred_idx2] - covar1_mean_adj * dbl_2d_buf[pred_idx2]) * sample_ct_m1_recip;
+      sample_corr_row[pred_idx2] = (S_CAST(double, predictor_dotprod_row[pred_idx2]) - covar1_mean_adj * dbl_2d_buf[pred_idx2]) * sample_ct_m1_recip;
     }
   }
   // now use dbl_2d_buf to store inverse-sqrts, to get to correlation matrix
@@ -1328,7 +1330,7 @@ boolerr_t glm_fill_and_test_covars(const uintptr_t* sample_include, const uintpt
   const uintptr_t new_covar_ct = covar_ct + extra_cat_ct;
   const uintptr_t new_nonlocal_covar_ct = new_covar_ct - local_covar_ct;
   uintptr_t* cat_covar_wkspace;
-  matrix_invert_buf1_t* matrix_invert_buf1 = (matrix_invert_buf1_t*)bigstack_alloc(kMatrixInvertBuf1CheckedAlloc * new_nonlocal_covar_ct);
+  matrix_invert_buf1_t* matrix_invert_buf1 = S_CAST(matrix_invert_buf1_t*, bigstack_alloc(kMatrixInvertBuf1CheckedAlloc * new_nonlocal_covar_ct));
   double* dbl_2d_buf;
   if ((!matrix_invert_buf1) ||
       bigstack_alloc_ul(1 + (covar_max_nonnull_cat_ct / kBitsPerWord), &cat_covar_wkspace) ||
@@ -1350,7 +1352,6 @@ boolerr_t glm_fill_and_test_covars(const uintptr_t* sample_include, const uintpt
       // local covariate
       *cur_covar_names_iter++ = covar_name_base;
     } else if (cur_covar_col->type_code == kPhenoDtypeQt) {
-      // const_cast
       *cur_covar_names_iter++ = covar_name_base;
       const double* covar_vals = cur_covar_col->data.qt;
       uint32_t sample_uidx = first_sample_uidx;
@@ -1381,7 +1382,7 @@ boolerr_t glm_fill_and_test_covars(const uintptr_t* sample_include, const uintpt
         }
         char* new_covar_name_write = memcpyax(new_covar_name_alloc, covar_name_base, covar_name_base_slen, '=');
         memcpyx(new_covar_name_write, catname, catname_slen, '\0');
-        *cur_covar_names_iter++ = (const char*)new_covar_name_alloc;
+        *cur_covar_names_iter++ = R_CAST(const char*, new_covar_name_alloc);
 
         uint32_t sample_uidx = first_sample_uidx;
         uint32_t cur_cat_obs_ct = 0;
@@ -1389,9 +1390,9 @@ boolerr_t glm_fill_and_test_covars(const uintptr_t* sample_include, const uintpt
           next_set_unsafe_ck(sample_include, &sample_uidx);
           const uint32_t cur_sample_is_in_cat = (covar_vals[sample_uidx] == cat_uidx);
           cur_cat_obs_ct += cur_sample_is_in_cat;
-          *covar_write_iter++ = (double)((int32_t)cur_sample_is_in_cat);
+          *covar_write_iter++ = u31tod(cur_sample_is_in_cat);
         }
-        *sum_iter++ = (double)((int32_t)cur_cat_obs_ct);
+        *sum_iter++ = u31tod(cur_cat_obs_ct);
       }
     }
   }
@@ -1420,7 +1421,7 @@ boolerr_t init_nm_precomp(const double* pheno_d, const double* covars_cmaj, cons
   uintptr_t stride = new_covar_ct + 1 + xtx_state;
   double* xtx_image = nm_precomp->xtx_image;
   fill_double_zero(stride * stride, xtx_image);
-  xtx_image[0] = (int32_t)sample_ct;
+  xtx_image[0] = u31tod(sample_ct);
   for (uintptr_t covar_idx = 0; covar_idx < new_covar_ct; ++covar_idx) {
     const double* cur_covar = &(covars_cmaj[covar_idx * sample_ct]);
     double dxx = 0.0;
@@ -1449,7 +1450,7 @@ boolerr_t init_nm_precomp(const double* pheno_d, const double* covars_cmaj, cons
       memcpy(&(covarx_dotprod_inv[row_idx * new_covar_ct_p1 + 1]), &(covar_dotprod[(row_idx - 1) * new_covar_ct]), row_idx * sizeof(double));
     }
     // this makes assumptions about amount of space past corr_inv...
-    if (invert_symmdef_matrix_checked(new_covar_ct_p1, covarx_dotprod_inv, (matrix_invert_buf1_t*)(&(nm_precomp->corr_inv[new_covar_ct_p1 * MAXV(new_covar_ct_p1, 3)])), nm_precomp->corr_inv)) {
+    if (invert_symmdef_matrix_checked(new_covar_ct_p1, covarx_dotprod_inv, R_CAST(matrix_invert_buf1_t*, &(nm_precomp->corr_inv[new_covar_ct_p1 * MAXV(new_covar_ct_p1, 3)])), nm_precomp->corr_inv)) {
       return 1;
     }
     reflect_matrix(new_covar_ct_p1, covarx_dotprod_inv);
@@ -1485,7 +1486,7 @@ boolerr_t glm_alloc_fill_and_test_pheno_covars_qt(const uintptr_t* sample_includ
   *nm_precomp_ptr = nullptr;
   if (xtx_state) {
     assert(!local_covar_ct);
-    *nm_precomp_ptr = (regression_nm_precomp_t*)bigstack_alloc(sizeof(regression_nm_precomp_t));
+    *nm_precomp_ptr = S_CAST(regression_nm_precomp_t*, bigstack_alloc(sizeof(regression_nm_precomp_t)));
     if (!(*nm_precomp_ptr)) {
       return 1;
     }
@@ -1506,7 +1507,7 @@ boolerr_t glm_alloc_fill_and_test_pheno_covars_qt(const uintptr_t* sample_includ
     (*nm_precomp_ptr)->corr_inv = &((*nm_precomp_ptr)->covarx_dotprod_inv[(new_covar_ct + 1) * (new_covar_ct + 1)]);
     (*nm_precomp_ptr)->corr_image = &((*nm_precomp_ptr)->corr_inv[new_covar_ct * new_covar_ct]);
     (*nm_precomp_ptr)->corr_inv_sqrts = &((*nm_precomp_ptr)->corr_image[(new_covar_ct + xtx_state) * (new_covar_ct + xtx_state)]);
-    bigstack_mark = (unsigned char*)corr_buf;
+    bigstack_mark = R_CAST(unsigned char*, corr_buf);
   }
   double* covar_dotprod;
   double* inverse_corr_buf;
@@ -1534,6 +1535,8 @@ boolerr_t glm_alloc_fill_and_test_pheno_covars_qt(const uintptr_t* sample_includ
   return 0;
 }
 
+static const float kSmallFloats[4] = {0.0f, 1.0f, 2.0f, 3.0f};
+
 boolerr_t glm_alloc_fill_and_test_pheno_covars_cc(const uintptr_t* sample_include, const uintptr_t* pheno_cc, const uintptr_t* covar_include, const pheno_col_t* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uintptr_t xtx_state, uintptr_t** pheno_cc_collapsed_ptr, uintptr_t** gcount_case_interleaved_vec_ptr, float** pheno_f_ptr, regression_nm_precomp_t** nm_precomp_ptr, float** covars_cmaj_f_ptr, const char*** cur_covar_names_ptr, vif_corr_err_t* vif_corr_check_result_ptr) {
   const uintptr_t sample_ctav = round_up_pow2(sample_ct, kFloatPerFVec);
   const uintptr_t new_covar_ct = covar_ct + extra_cat_ct;
@@ -1550,7 +1553,7 @@ boolerr_t glm_alloc_fill_and_test_pheno_covars_cc(const uintptr_t* sample_includ
   *nm_precomp_ptr = nullptr;
   if (xtx_state) {
     assert(!local_covar_ct);
-    *nm_precomp_ptr = (regression_nm_precomp_t*)bigstack_alloc(sizeof(regression_nm_precomp_t));
+    *nm_precomp_ptr = S_CAST(regression_nm_precomp_t*, bigstack_alloc(sizeof(regression_nm_precomp_t)));
     if (!(*nm_precomp_ptr)) {
       return 1;
     }
@@ -1569,7 +1572,7 @@ boolerr_t glm_alloc_fill_and_test_pheno_covars_cc(const uintptr_t* sample_includ
     (*nm_precomp_ptr)->corr_inv = &((*nm_precomp_ptr)->xtx_image[(new_covar_ct + xtx_state + 1) * (new_covar_ct + xtx_state + 1)]);
     (*nm_precomp_ptr)->corr_image = &((*nm_precomp_ptr)->corr_inv[new_covar_ct * new_covar_ct]);
     (*nm_precomp_ptr)->corr_inv_sqrts = &((*nm_precomp_ptr)->corr_image[(new_covar_ct + xtx_state) * (new_covar_ct + xtx_state)]);
-    bigstack_mark = (unsigned char*)corr_buf;
+    bigstack_mark = R_CAST(unsigned char*, corr_buf);
   }
   double* covars_cmaj_d;
   double* covar_dotprod;
@@ -1583,7 +1586,7 @@ boolerr_t glm_alloc_fill_and_test_pheno_covars_cc(const uintptr_t* sample_includ
   copy_bitarr_subset(pheno_cc, sample_include, sample_ct, pheno_cc_collapsed);
   float* pheno_f_iter = *pheno_f_ptr;
   for (uintptr_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
-    *pheno_f_iter++ = (float)((int32_t)is_set(pheno_cc_collapsed, sample_idx));
+    *pheno_f_iter++ = kSmallFloats[is_set(pheno_cc_collapsed, sample_idx)];
   }
   const uint32_t sample_remv = sample_ctav - sample_ct;
   fill_float_zero(sample_remv, pheno_f_iter);
@@ -1594,7 +1597,7 @@ boolerr_t glm_alloc_fill_and_test_pheno_covars_cc(const uintptr_t* sample_includ
   float* covar_write_iter = *covars_cmaj_f_ptr;
   for (uintptr_t covar_idx = 0; covar_idx < new_nonlocal_covar_ct; ++covar_idx) {
     for (uintptr_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
-      *covar_write_iter++ = (float)(*covar_read_iter++);
+      *covar_write_iter++ = S_CAST(float, *covar_read_iter++);
     }
     fill_float_zero(sample_remv, covar_write_iter);
     covar_write_iter = &(covar_write_iter[sample_remv]);
@@ -1614,7 +1617,6 @@ boolerr_t glm_alloc_fill_and_test_pheno_covars_cc(const uintptr_t* sample_includ
   return 0;
 }
 
-static const float kSmallFloats[4] = {0.0f, 1.0f, 2.0f, 3.0f};
 // static const float kSmallFloats[4] = {0.0f, 1.0f, 2.0f, -9.0f};
 
 void genoarr_to_floats(const uintptr_t* genoarr, uint32_t sample_ct, float* floatbuf) {
@@ -1650,7 +1652,7 @@ uint32_t genoarr_to_floats_remove_missing(const uintptr_t* genoarr, uint32_t sam
   while (1) {
     if (widx >= sample_ctl2m1) {
       if (widx > sample_ctl2m1) {
-        return (uintptr_t)(floatbuf_iter - floatbuf);
+        return S_CAST(uint32_t, floatbuf_iter - floatbuf);
       }
       subgroup_len = MOD_NZ(sample_ct, kBitsPerWordD2);
     }
@@ -1967,7 +1969,7 @@ const uint32_t float_exp_lookup_int[]
 0x007f4ecb, 0x007f7b0d, 0x007fa756, 0x007fd3a7
 };
 
-  #ifdef FVEC_32
+#  ifdef FVEC_32
 static inline vf_t fmath_exp_ps(vf_t xxv) {
   __m256 xx = (__m256)xxv;
   const __m256i mask7ff = {0x7fffffff7fffffffLLU, 0x7fffffff7fffffffLLU, 0x7fffffff7fffffffLLU, 0x7fffffff7fffffffLLU};
@@ -2088,8 +2090,8 @@ static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, ui
   }
 }
 
-  #else // !FVEC_32
-const float* const float_exp_lookup = (const float*)float_exp_lookup_int;
+#  else // !FVEC_32
+const float* const float_exp_lookup = R_CAST(const float*, float_exp_lookup_int);
 
 static inline vf_t fmath_exp_ps(vf_t xxv) {
   __m128 xx = xxv;
@@ -2109,15 +2111,15 @@ static inline vf_t fmath_exp_ps(vf_t xxv) {
   const __m128i f1 = {0x3f8000003f800000LLU, 0x3f8000003f800000LLU};
   const __m128i mask_s = {0x3ff000003ffLLU, 0x3ff000003ffLLU};
   const __m128i i127s = {0x1fc000001fc00LLU, 0x1fc000001fc00LLU};
-  const __m128i limit = _mm_castps_si128(_mm_and_ps(xx, (__m128)mask7ff));
+  const __m128i limit = _mm_castps_si128(_mm_and_ps(xx, R_CAST(__m128, mask7ff)));
   const int32_t over = _mm_movemask_epi8(_mm_cmpgt_epi32(limit, max_x));
   if (over) {
-    xx = _mm_min_ps(xx, (__m128)max_x);
-    xx = _mm_max_ps(xx, (__m128)min_x);
+    xx = _mm_min_ps(xx, R_CAST(__m128, max_x));
+    xx = _mm_max_ps(xx, R_CAST(__m128, min_x));
   }
-  const __m128i rr = _mm_cvtps_epi32(_mm_mul_ps(xx, (__m128)const_aa));
-  __m128 tt = _mm_sub_ps(xx, _mm_mul_ps(_mm_cvtepi32_ps(rr), (__m128)const_bb));
-  tt = _mm_add_ps(tt, (__m128)f1);
+  const __m128i rr = _mm_cvtps_epi32(_mm_mul_ps(xx, R_CAST(__m128, const_aa)));
+  __m128 tt = _mm_sub_ps(xx, _mm_mul_ps(_mm_cvtepi32_ps(rr), R_CAST(__m128, const_bb)));
+  tt = _mm_add_ps(tt, R_CAST(__m128, f1));
   const __m128i v4 = _mm_and_si128(rr, mask_s);
   __m128i u4 = _mm_add_epi32(rr, i127s);
   u4 = _mm_srli_epi32(u4, 10);
@@ -2127,9 +2129,9 @@ static inline vf_t fmath_exp_ps(vf_t xxv) {
   // uint32_t v2 = ((int32_t)(uint16_t)__builtin_ia32_vec_ext_v8hi((__v8hi)(__m128i)(v4), (int32_t)(4)));
   // uint32_t v3 = ((int32_t)(uint16_t)__builtin_ia32_vec_ext_v8hi((__v8hi)(__m128i)(v4), (int32_t)(6)));
   // make this work with LLVM
-  const uint32_t v1 = _mm_extract_epi16(((__m128i)(v4)), ((int32_t)(2)));
-  const uint32_t v2 = _mm_extract_epi16(((__m128i)(v4)), ((int32_t)(4)));
-  const uint32_t v3 = _mm_extract_epi16(((__m128i)(v4)), ((int32_t)(6)));
+  const uint32_t v1 = _mm_extract_epi16(R_CAST(__m128i, v4), 2);
+  const uint32_t v2 = _mm_extract_epi16(R_CAST(__m128i, v4), 4);
+  const uint32_t v3 = _mm_extract_epi16(R_CAST(__m128i, v4), 6);
 
   __m128 t0 = _mm_set_ss(float_exp_lookup[v0]);
   __m128 t1 = _mm_set_ss(float_exp_lookup[v1]);
@@ -2141,7 +2143,7 @@ static inline vf_t fmath_exp_ps(vf_t xxv) {
   t0 = _mm_or_ps(t0, t1);
   t0 = _mm_or_ps(t0, _mm_castsi128_ps(u4));
   tt = _mm_mul_ps(tt, t0);
-  return (vf_t)tt;
+  return R_CAST(vf_t, tt);
 }
 
 static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, uint32_t col_ct, uint32_t row_ct, float* dest) {
@@ -2149,49 +2151,49 @@ static inline void mult_matrix_dxn_vect_n(const float* mm, const float* vect, ui
   col_major_fvector_matrix_multiply_strided(vect, mm, col_ct, col_ctav, row_ct, dest);
 }
 
-  #endif // !FVEC_32
+#  endif // !FVEC_32
 
 static inline void logistic_sse(uint32_t nn, float* vect) {
   const vf_t zero = vf_setzero();
   const vf_t one = VCONST_F(1.0);
   for (uint32_t uii = 0; uii < nn; uii += kFloatPerFVec) {
-    vf_t aa = *((vf_t*)(&(vect[uii])));
+    vf_t aa = *R_CAST(vf_t*, &(vect[uii]));
     aa = zero - aa;
     // tried substituting in vexpf() here on OS X; it was slower without being
     // significantly more accurate.
     aa = fmath_exp_ps(aa);
     aa = aa + one;
     aa = one / aa;
-    *((vf_t*)(&(vect[uii]))) = aa;
+    *R_CAST(vf_t*, &(vect[uii])) = aa;
   }
 }
 
 static inline void compute_v_and_p_minus_y(const float* yy, uint32_t nn, float* pp, float* vv) {
   const vf_t one = VCONST_F(1.0);
   for (uint32_t uii = 0; uii < nn; uii += kFloatPerFVec) {
-    vf_t ptmp = *((vf_t*)(&(pp[uii])));
+    vf_t ptmp = *R_CAST(vf_t*, &(pp[uii]));
     vf_t one_minus_ptmp = one - ptmp;
-    *((vf_t*)(&(vv[uii]))) = ptmp * one_minus_ptmp;
-    vf_t ytmp = *((vf_t*)(&(yy[uii])));
-    *((vf_t*)(&(pp[uii]))) = ptmp - ytmp;
+    *R_CAST(vf_t*, &(vv[uii])) = ptmp * one_minus_ptmp;
+    vf_t ytmp = *R_CAST(const vf_t*, &(yy[uii]));
+    *R_CAST(vf_t*, &(pp[uii])) = ptmp - ytmp;
   }
 }
 
 static inline void compute_v(const float* pp, uint32_t nn, float* vv) {
   const vf_t one = VCONST_F(1.0);
   for (uint32_t uii = 0; uii < nn; uii += kFloatPerFVec) {
-    vf_t ptmp = *((vf_t*)(&(pp[uii])));
+    vf_t ptmp = *R_CAST(const vf_t*, &(pp[uii]));
     vf_t one_minus_ptmp = one - ptmp;
-    *((vf_t*)(&(vv[uii]))) = ptmp * one_minus_ptmp;
+    *R_CAST(vf_t*, &(vv[uii])) = ptmp * one_minus_ptmp;
   }
 }
 
 static inline float triple_product(const float* v1, const float* v2, const float* v3, uint32_t nn) {
   vf_t sum = vf_setzero();
   for (uint32_t uii = 0; uii < nn; uii += kFloatPerFVec) {
-    vf_t aa = *((vf_t*)(&(v1[uii])));
-    vf_t bb = *((vf_t*)(&(v2[uii])));
-    vf_t cc = *((vf_t*)(&(v3[uii])));
+    vf_t aa = *R_CAST(const vf_t*, &(v1[uii]));
+    vf_t bb = *R_CAST(const vf_t*, &(v2[uii]));
+    vf_t cc = *R_CAST(const vf_t*, &(v3[uii]));
     sum = sum + aa * bb * cc;
   }
   return vf_hsum(sum);
@@ -2202,9 +2204,9 @@ static inline void compute_two_diag_triple_product(const float* aa, const float*
   vf_t sab = vf_setzero();
   vf_t sbb = vf_setzero();
   for (uint32_t uii = 0; uii < nn; uii += kFloatPerFVec) {
-    const vf_t vtmp = *((vf_t*)(&(vv[uii])));
-    const vf_t atmp = *((vf_t*)(&(aa[uii])));
-    const vf_t btmp = *((vf_t*)(&(bb[uii])));
+    const vf_t vtmp = *R_CAST(const vf_t*, &(vv[uii]));
+    const vf_t atmp = *R_CAST(const vf_t*, &(aa[uii]));
+    const vf_t btmp = *R_CAST(const vf_t*, &(bb[uii]));
     const vf_t av = atmp * vtmp;
     const vf_t bv = btmp * vtmp;
     saa = saa + atmp * av;
@@ -2221,11 +2223,11 @@ static inline void compute_three_triple_product(const float* bb, const float* a1
   vf_t s2 = vf_setzero();
   vf_t s3 = vf_setzero();
   for (uint32_t uii = 0; uii < nn; uii += kFloatPerFVec) {
-    const vf_t a1tmp = *((vf_t*)(&(a1[uii])));
-    const vf_t a2tmp = *((vf_t*)(&(a2[uii])));
-    const vf_t a3tmp = *((vf_t*)(&(a3[uii])));
-    const vf_t vtmp = *((vf_t*)(&(vv[uii])));
-    vf_t btmp = *((vf_t*)(&(bb[uii])));
+    const vf_t a1tmp = *R_CAST(const vf_t*, &(a1[uii]));
+    const vf_t a2tmp = *R_CAST(const vf_t*, &(a2[uii]));
+    const vf_t a3tmp = *R_CAST(const vf_t*, &(a3[uii]));
+    const vf_t vtmp = *R_CAST(const vf_t*, &(vv[uii]));
+    vf_t btmp = *R_CAST(const vf_t*, &(bb[uii]));
     btmp = btmp * vtmp;
     s1 = s1 + a1tmp * btmp;
     s2 = s2 + a2tmp * btmp;
@@ -2241,10 +2243,10 @@ static inline void compute_two_plus_one_triple_product(const float* bb, const fl
   vf_t s2 = vf_setzero();
   vf_t s3 = vf_setzero();
   for (uint32_t uii = 0; uii < nn; uii += kFloatPerFVec) {
-    const vf_t a1tmp = *((vf_t*)(&(a1[uii])));
-    const vf_t a2tmp = *((vf_t*)(&(a2[uii])));
-    const vf_t btmp = *((vf_t*)(&(bb[uii])));
-    const vf_t vtmp = *((vf_t*)(&(vv[uii])));
+    const vf_t a1tmp = *R_CAST(const vf_t*, &(a1[uii]));
+    const vf_t a2tmp = *R_CAST(const vf_t*, &(a2[uii]));
+    const vf_t btmp = *R_CAST(const vf_t*, &(bb[uii]));
+    const vf_t vtmp = *R_CAST(const vf_t*, &(vv[uii]));
     const vf_t bv = btmp * vtmp;
     s1 = s1 + btmp * bv;
     s2 = s2 + a1tmp * bv;
@@ -2541,20 +2543,20 @@ void firth_compute_weights(const float* yy, const float* xx, const float* pp, co
     const float* xx_row = &(xx[sample_offset]);
     const float* tmpnxk_row = &(tmpnxk[sample_offset]);
     for (uint32_t pred_uidx = 0; pred_uidx < predictor_ct; ++pred_uidx) {
-      const vf_t cur_xx = *((vf_t*)(&(xx_row[pred_uidx * sample_ctav])));
-      const vf_t cur_tmpnxk = *((vf_t*)(&(tmpnxk_row[pred_uidx * sample_ctav])));
+      const vf_t cur_xx = *R_CAST(const vf_t*, &(xx_row[pred_uidx * sample_ctav]));
+      const vf_t cur_tmpnxk = *R_CAST(const vf_t*, &(tmpnxk_row[pred_uidx * sample_ctav]));
       dotprods = dotprods + cur_xx * cur_tmpnxk;
     }
     // Can handle categorical covariates in a separate loop here, and load the
     // dotprods increment into a union, etc.
-    const vf_t cur_weights = *((vf_t*)(&(vv[sample_offset])));
-    const vf_t cur_pis = *((vf_t*)(&(pp[sample_offset])));
-    const vf_t cur_yy = *((vf_t*)(&(yy[sample_offset])));
+    const vf_t cur_weights = *R_CAST(const vf_t*, &(vv[sample_offset]));
+    const vf_t cur_pis = *R_CAST(const vf_t*, &(pp[sample_offset]));
+    const vf_t cur_yy = *R_CAST(const vf_t*, &(yy[sample_offset]));
     const vf_t half_minus_cur_pis = half - cur_pis;
     const vf_t yy_minus_cur_pis = cur_yy - cur_pis;
     const vf_t second_term = half_minus_cur_pis * (cur_weights * dotprods);
     const vf_t cur_wws = yy_minus_cur_pis + second_term;
-    *((vf_t*)(&(ww[sample_offset]))) = cur_wws;
+    *R_CAST(vf_t*, &(ww[sample_offset])) = cur_wws;
   }
 }
 #else
@@ -2747,7 +2749,7 @@ boolerr_t firth_regression(const float* yy, const float* xx, uint32_t sample_ct,
           hs_bail = 1;
         }
       }
-      const float multiplier = exp2f(-((int32_t)halfstep_idx));
+      const float multiplier = exp2f(-u31tof(halfstep_idx));
       for (uint32_t pred_uidx = 0; pred_uidx < predictor_ct; ++pred_uidx) {
         coef[pred_uidx] -= dcoef[pred_uidx] * multiplier;
       }
@@ -2831,6 +2833,8 @@ uintptr_t get_logistic_workspace_size(uint32_t sample_ct, uint32_t predictor_ct,
   return workspace_size;
 }
 
+
+static const double kSmallDoubles[4] = {0.0, 1.0, 2.0, 3.0};
 
 typedef struct {
   // double beta;
@@ -2963,7 +2967,7 @@ static double* g_block_beta_se = nullptr;
 static uintptr_t g_max_reported_test_ct = 0;
 
 THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
-  const uintptr_t tidx = (uintptr_t)arg;
+  const uintptr_t tidx = R_CAST(uintptr_t, arg);
   pgen_reader_t* pgrp = g_pgr_ptrs[tidx];
   uintptr_t* genovec = g_genovecs[tidx];
   uintptr_t* dosage_present = nullptr;
@@ -2989,8 +2993,8 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
   const uint32_t model_recessive = (glm_flags / kfGlmRecessive) & 1;
   const uint32_t joint_genotypic = (glm_flags / kfGlmGenotypic) & 1;
   const uint32_t joint_hethom = (glm_flags / kfGlmHethom) & 1;
-  const float max_corr = (float)g_max_corr;
-  const float vif_thresh = (float)g_vif_thresh;
+  const float max_corr = S_CAST(float, g_max_corr);
+  const float vif_thresh = S_CAST(float, g_vif_thresh);
   const uint32_t domdev_present = joint_genotypic || joint_hethom;
   const uint32_t domdev_present_p1 = domdev_present + 1;
   const uint32_t reported_pred_uidx_start = 1 - include_intercept;
@@ -3108,29 +3112,29 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
       }
       const uint32_t genof_buffer_needed = cur_parameter_subset && (!is_set(cur_parameter_subset, 1));
       unsigned char* workspace_iter = workspace_buf;
-      uintptr_t* sample_nm = (uintptr_t*)arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter);
-      uintptr_t* pheno_cc_nm = (uintptr_t*)arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter);
-      uintptr_t* male_nm = (uintptr_t*)arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter);
-      float* nm_pheno_buf = (float*)arena_alloc_raw_rd(sample_ctav * sizeof(float), &workspace_iter);
-      float* nm_predictors_pmaj_buf = (float*)arena_alloc_raw_rd((cur_predictor_ct + genof_buffer_needed) * sample_ctav * sizeof(float), &workspace_iter);
-      float* coef_return = (float*)arena_alloc_raw_rd(predictor_ctav * sizeof(float), &workspace_iter);
-      float* hh_return = (float*)arena_alloc_raw_rd(cur_predictor_ct * predictor_ctav * sizeof(float), &workspace_iter);
-      float* pp_buf = (float*)arena_alloc_raw_rd(sample_ctav * sizeof(float), &workspace_iter);
-      float* sample_variance_buf = (float*)arena_alloc_raw_rd(sample_ctav * sizeof(float), &workspace_iter);
-      float* gradient_buf = (float*)arena_alloc_raw_rd(predictor_ctav * sizeof(float), &workspace_iter);
-      float* dcoef_buf = (float*)arena_alloc_raw_rd(predictor_ctav * sizeof(float), &workspace_iter);
-      float* cholesky_decomp_return = (float*)arena_alloc_raw_rd(cur_predictor_ct * predictor_ctav * sizeof(float), &workspace_iter);
+      uintptr_t* sample_nm = S_CAST(uintptr_t*, arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter));
+      uintptr_t* pheno_cc_nm = S_CAST(uintptr_t*, arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter));
+      uintptr_t* male_nm = S_CAST(uintptr_t*, arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter));
+      float* nm_pheno_buf = S_CAST(float*, arena_alloc_raw_rd(sample_ctav * sizeof(float), &workspace_iter));
+      float* nm_predictors_pmaj_buf = S_CAST(float*, arena_alloc_raw_rd((cur_predictor_ct + genof_buffer_needed) * sample_ctav * sizeof(float), &workspace_iter));
+      float* coef_return = S_CAST(float*, arena_alloc_raw_rd(predictor_ctav * sizeof(float), &workspace_iter));
+      float* hh_return = S_CAST(float*, arena_alloc_raw_rd(cur_predictor_ct * predictor_ctav * sizeof(float), &workspace_iter));
+      float* pp_buf = S_CAST(float*, arena_alloc_raw_rd(sample_ctav * sizeof(float), &workspace_iter));
+      float* sample_variance_buf = S_CAST(float*, arena_alloc_raw_rd(sample_ctav * sizeof(float), &workspace_iter));
+      float* gradient_buf = S_CAST(float*, arena_alloc_raw_rd(predictor_ctav * sizeof(float), &workspace_iter));
+      float* dcoef_buf = S_CAST(float*, arena_alloc_raw_rd(predictor_ctav * sizeof(float), &workspace_iter));
+      float* cholesky_decomp_return = S_CAST(float*, arena_alloc_raw_rd(cur_predictor_ct * predictor_ctav * sizeof(float), &workspace_iter));
 
-      double* semicomputed_xtx = (double*)arena_alloc_raw_rd(cur_predictor_ct * cur_predictor_ct * sizeof(double), &workspace_iter);
-      double* semicomputed_corr_matrix = (double*)arena_alloc_raw_rd((cur_predictor_ct - 1) * (cur_predictor_ct - 1) * sizeof(double), &workspace_iter);
-      double* semicomputed_inv_corr_sqrts = (double*)arena_alloc_raw_rd(cur_predictor_ct * sizeof(double), &workspace_iter);
+      double* semicomputed_xtx = S_CAST(double*, arena_alloc_raw_rd(cur_predictor_ct * cur_predictor_ct * sizeof(double), &workspace_iter));
+      double* semicomputed_corr_matrix = S_CAST(double*, arena_alloc_raw_rd((cur_predictor_ct - 1) * (cur_predictor_ct - 1) * sizeof(double), &workspace_iter));
+      double* semicomputed_inv_corr_sqrts = S_CAST(double*, arena_alloc_raw_rd(cur_predictor_ct * sizeof(double), &workspace_iter));
 
-      matrix_invert_buf1_t* inv_1d_buf = (matrix_invert_buf1_t*)arena_alloc_raw_rd(cur_predictor_ct * kMatrixInvertBuf1CheckedAlloc, &workspace_iter);
+      matrix_invert_buf1_t* inv_1d_buf = S_CAST(matrix_invert_buf1_t*, arena_alloc_raw_rd(cur_predictor_ct * kMatrixInvertBuf1CheckedAlloc, &workspace_iter));
       const uintptr_t dbl_2d_byte_ct = round_up_pow2(cur_predictor_ct * MAXV(cur_predictor_ct, 7) * sizeof(double), kCacheline);
-      double* dbl_2d_buf = (double*)arena_alloc_raw(dbl_2d_byte_ct, &workspace_iter);
-      float* predictor_dotprod_buf = (float*)arena_alloc_raw_rd(cur_predictor_ct * cur_predictor_ct * sizeof(float), &workspace_iter);
+      double* dbl_2d_buf = S_CAST(double*, arena_alloc_raw(dbl_2d_byte_ct, &workspace_iter));
+      float* predictor_dotprod_buf = S_CAST(float*, arena_alloc_raw_rd(cur_predictor_ct * cur_predictor_ct * sizeof(float), &workspace_iter));
       const uintptr_t other_2d_byte_ct = round_up_pow2(cur_predictor_ct * MAXV(cur_predictor_ct, 3) * sizeof(double), kCacheline);
-      double* inverse_corr_buf = (double*)arena_alloc_raw(other_2d_byte_ct, &workspace_iter);
+      double* inverse_corr_buf = S_CAST(double*, arena_alloc_raw(other_2d_byte_ct, &workspace_iter));
 
       // these could use the same memory, but not a big deal, use the less
       // bug-prone approach for now
@@ -3138,8 +3142,8 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
       float* score_buf = nullptr;
       float* tmpnxk_buf = nullptr;
       if (is_sometimes_firth) {
-        score_buf = (float*)arena_alloc_raw_rd(sample_ctav * sizeof(float), &workspace_iter);
-        tmpnxk_buf = (float*)arena_alloc_raw_rd(cur_predictor_ct * sample_ctav * sizeof(float), &workspace_iter);
+        score_buf = S_CAST(float*, arena_alloc_raw_rd(sample_ctav * sizeof(float), &workspace_iter));
+        tmpnxk_buf = S_CAST(float*, arena_alloc_raw_rd(cur_predictor_ct * sample_ctav * sizeof(float), &workspace_iter));
       }
 
       // joint test only
@@ -3148,14 +3152,14 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
       float* inner_buf = nullptr;
       float* outer_buf = nullptr;
       if (cur_constraint_ct) {
-        tmphxs_buf = (float*)arena_alloc_raw_rd(cur_constraint_ct * predictor_ctav * sizeof(float), &workspace_iter);
-        h_transpose_buf = (float*)arena_alloc_raw_rd(cur_constraint_ct * predictor_ctav * sizeof(float), &workspace_iter);
-        inner_buf = (float*)arena_alloc_raw_rd(cur_constraint_ct * cur_constraint_ct * sizeof(float), &workspace_iter);
-        outer_buf = (float*)arena_alloc_raw_rd(cur_constraint_ct * sizeof(float), &workspace_iter);
+        tmphxs_buf = S_CAST(float*, arena_alloc_raw_rd(cur_constraint_ct * predictor_ctav * sizeof(float), &workspace_iter));
+        h_transpose_buf = S_CAST(float*, arena_alloc_raw_rd(cur_constraint_ct * predictor_ctav * sizeof(float), &workspace_iter));
+        inner_buf = S_CAST(float*, arena_alloc_raw_rd(cur_constraint_ct * cur_constraint_ct * sizeof(float), &workspace_iter));
+        outer_buf = S_CAST(float*, arena_alloc_raw_rd(cur_constraint_ct * sizeof(float), &workspace_iter));
       }
       // assert((uintptr_t)(workspace_iter - workspace_buf) == get_logistic_workspace_size(cur_sample_ct, cur_predictor_ct, cur_constraint_ct, genof_buffer_needed, is_sometimes_firth));
-      const double cur_sample_ct_recip = 1.0 / ((double)((int32_t)cur_sample_ct));
-      const double cur_sample_ct_m1_recip = 1.0 / ((double)((int32_t)(cur_sample_ct - 1)));
+      const double cur_sample_ct_recip = 1.0 / u31tod(cur_sample_ct);
+      const double cur_sample_ct_m1_recip = 1.0 / u31tod(cur_sample_ct - 1);
       const double* corr_inv = nullptr;
       if (nm_precomp) {
         memcpy(semicomputed_xtx, nm_precomp->xtx_image, cur_predictor_ct * cur_predictor_ct * sizeof(double));
@@ -3236,7 +3240,7 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
               for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_idx) {
                 next_set_unsafe_ck(dosage_present, &sample_idx);
                 // 32768 -> 2, 16384 -> 1, 0 -> 0
-                nm_predictors_pmaj_iter[sample_idx] = kRecipDosageMidf * ((int32_t)((uint32_t)dosage_vals[dosage_idx]));
+                nm_predictors_pmaj_iter[sample_idx] = kRecipDosageMidf * u31tof(dosage_vals[dosage_idx]);
               }
             }
           } else {
@@ -3249,9 +3253,9 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
                 next_set_unsafe_ck(sample_nm, &sample_midx);
                 float cur_val;
                 if (is_set(dosage_present, sample_midx)) {
-                  cur_val = kRecipDosageMidf * ((int32_t)((uint32_t)dosage_vals[dosage_idx++]));
+                  cur_val = kRecipDosageMidf * u31tof(dosage_vals[dosage_idx++]);
                 } else {
-                  cur_val = (intptr_t)(GET_QUATERARR_ENTRY(genovec, sample_midx));
+                  cur_val = kSmallFloats[GET_QUATERARR_ENTRY(genovec, sample_midx)];
                 }
                 nm_predictors_pmaj_iter[sample_idx] = cur_val;
               }
@@ -3305,13 +3309,13 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
             const double cur_genotype_val = genotype_vals[sample_idx];
             dosage_sum += cur_genotype_val;
             dosage_ssq += cur_genotype_val * cur_genotype_val;
-            alt_case_dosage += cur_genotype_val * ((double)((int32_t)is_set(pheno_cc_nm, sample_idx)));
+            alt_case_dosage += cur_genotype_val * kSmallDoubles[is_set(pheno_cc_nm, sample_idx)];
           }
           block_aux_iter->firth_fallback = 0;
           block_aux_iter->a1_dosage = dosage_sum;
           block_aux_iter->a1_case_dosage = alt_case_dosage;
 
-          const double dosage_avg = dosage_sum / ((double)((int32_t)nm_sample_ct));
+          const double dosage_avg = dosage_sum / u31tod(nm_sample_ct);
           const double dosage_variance = dosage_ssq - dosage_sum * dosage_avg;
           // note that this value is nonsense on chrX/chrY/MT/haploid
           block_aux_iter->mach_r2 = 2 * dosage_variance / (dosage_sum * (dosage_ceil - dosage_avg));
@@ -3446,13 +3450,13 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
             if (cur_predictor_ct > start_pred_idx) {
               col_major_fvector_matrix_multiply_strided(&(nm_predictors_pmaj_buf[nm_sample_ctav]), &(nm_predictors_pmaj_buf[start_pred_idx * nm_sample_ctav]), nm_sample_ct, nm_sample_ctav, cur_predictor_ct - start_pred_idx, &(predictor_dotprod_buf[start_pred_idx]));
               for (uint32_t uii = start_pred_idx; uii < cur_predictor_ct; ++uii) {
-                semicomputed_xtx[cur_predictor_ct + uii] = (double)predictor_dotprod_buf[uii];
+                semicomputed_xtx[cur_predictor_ct + uii] = S_CAST(double, predictor_dotprod_buf[uii]);
               }
             }
             if (domdev_present) {
               col_major_fvector_matrix_multiply_strided(&(nm_predictors_pmaj_buf[2 * nm_sample_ctav]), nm_predictors_pmaj_buf, nm_sample_ct, nm_sample_ctav, cur_predictor_ct, predictor_dotprod_buf);
               for (uint32_t uii = 0; uii < cur_predictor_ct; ++uii) {
-                semicomputed_xtx[2 * cur_predictor_ct + uii] = (double)predictor_dotprod_buf[uii];
+                semicomputed_xtx[2 * cur_predictor_ct + uii] = S_CAST(double, predictor_dotprod_buf[uii]);
               }
               semicomputed_xtx[cur_predictor_ct + 2] = semicomputed_xtx[2 * cur_predictor_ct + 1];
             }
@@ -3466,10 +3470,10 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
           }
           fill_float_zero(predictor_ctav, coef_return);
           if (!is_always_firth) {
-            const double ref_plus_alt1_sum = dosage_ceil * ((int32_t)nm_sample_ct);
+            const double ref_plus_alt1_sum = dosage_ceil * u31tod(nm_sample_ct);
             // "dosage_sum" = alt1 sum
             const double ref_sum = ref_plus_alt1_sum - dosage_sum;
-            const double ref_case_dosage = dosage_ceil * ((int32_t)nm_case_ct) - alt_case_dosage;
+            const double ref_case_dosage = dosage_ceil * u31tod(nm_case_ct) - alt_case_dosage;
             const double alt1_ctrl_dosage = dosage_sum - alt_case_dosage;
             const double ref_ctrl_dosage = ref_sum - ref_case_dosage;
             if ((alt_case_dosage == 0.0) || (fabs(ref_case_dosage) < kBigEpsilon) || (fabs(alt1_ctrl_dosage) < kBigEpsilon) || (fabs(ref_ctrl_dosage) < kBigEpsilon)) {
@@ -3551,7 +3555,7 @@ THREAD_FUNC_DECL glm_logistic_thread(void* arg) {
           double* beta_se_iter2 = beta_se_iter;
           for (uint32_t pred_uidx = reported_pred_uidx_start; pred_uidx < reported_pred_uidx_end; ++pred_uidx) {
             *beta_se_iter2++ = coef_return[pred_uidx];
-            *beta_se_iter2++ = (double)sample_variance_buf[pred_uidx];
+            *beta_se_iter2++ = S_CAST(double, sample_variance_buf[pred_uidx]);
           }
           if (cur_constraint_ct) {
             *beta_se_iter2++ = 0.0;
@@ -3628,9 +3632,9 @@ boolerr_t alloc_and_init_reported_test_names(const uintptr_t* parameter_subset, 
   char domdev_str[8];
   uint32_t domdev_slen = 7;
   if (!is_hethom) {
-    strcpy(domdev_str, "DOMDEVx");
+    snprintf(domdev_str, 8, "DOMDEVx");
   } else {
-    strcpy(domdev_str, "HETx");
+    snprintf(domdev_str, 8, "HETx");
     domdev_slen = 4;
   }
 
@@ -3663,7 +3667,7 @@ boolerr_t alloc_and_init_reported_test_names(const uintptr_t* parameter_subset, 
     }
     if (joint_test) {
       // TODO: --tests
-      strcpy(test_name_buf_iter, "GENO_2DF");
+      snprintf(test_name_buf_iter, 64 - 10 - 4 - 8, "GENO_2DF");
       cur_test_names[write_idx++] = test_name_buf_iter;
     }
     assert(write_idx == reported_test_ct);
@@ -3747,7 +3751,7 @@ boolerr_t alloc_and_init_reported_test_names(const uintptr_t* parameter_subset, 
   }
   if (joint_test) {
     // todo: --tests
-    strcpy(test_name_buf_iter, "GENO_2DF");
+    snprintf(test_name_buf_iter, 64 - 10 - 4 - 8, "GENO_2DF");
     cur_test_names[write_idx++] = test_name_buf_iter;
   }
   assert(write_idx == reported_test_ct);
@@ -3791,9 +3795,9 @@ pglerr_t read_local_covar_block(const uintptr_t* sample_include, const uintptr_t
   if (local_cat_ct) {
     // assert(local_covar_ct == local_cat_ct - 1);
     if (local_covars_vcmaj_f_iter) {
-      fill_float_zero(local_covar_ct * max_sample_ct * ((uintptr_t)cur_block_variant_ct), local_covars_vcmaj_f_iter);
+      fill_float_zero(local_covar_ct * max_sample_ct * S_CAST(uintptr_t, cur_block_variant_ct), local_covars_vcmaj_f_iter);
     } else {
-      fill_double_zero(local_covar_ct * max_sample_ct * ((uintptr_t)cur_block_variant_ct), local_covars_vcmaj_d_iter);
+      fill_double_zero(local_covar_ct * max_sample_ct * S_CAST(uintptr_t, cur_block_variant_ct), local_covars_vcmaj_d_iter);
     }
   }
   uint32_t local_line_idx = *local_line_idx_ptr;
@@ -3870,7 +3874,7 @@ pglerr_t read_local_covar_block(const uintptr_t* sample_include, const uintptr_t
         }
         if (local_cat_ct) {
           uint32_t cat_idx;
-          if (scanadv_posint_capped(local_cat_ct, &loadbuf_iter, &cat_idx)) {
+          if (scanmov_posint_capped(local_cat_ct, &loadbuf_iter, &cat_idx)) {
             logprint("\n");
             LOGERRPRINTF("Error: Invalid category index on line %u of --glm local-covar= file.\n", local_line_idx);
             return kPglRetMalformedInput;
@@ -3899,7 +3903,7 @@ pglerr_t read_local_covar_block(const uintptr_t* sample_include, const uintptr_t
                 LOGERRPRINTF("Error: Invalid or missing token on line %u of --glm local-covar= file.\n", local_line_idx);
                 return kPglRetMalformedInput;
               }
-              *local_covars_f_iter2 = (float)dxx;
+              *local_covars_f_iter2 = S_CAST(float, dxx);
               local_covars_f_iter2 = &(local_covars_f_iter2[max_sample_ct]);
               while (!is_space_or_eoln(*loadbuf_iter)) {
                 ++loadbuf_iter;
@@ -4114,7 +4118,7 @@ pglerr_t glm_logistic(const char* cur_pheno_name, const char* const* test_names,
     double* block_beta_se_bufs[2];
 
     for (uint32_t uii = 0; uii < 2; ++uii) {
-      logistic_block_aux_bufs[uii] = (logistic_aux_result_t*)bigstack_alloc(read_block_size * sizeof(logistic_aux_result_t));
+      logistic_block_aux_bufs[uii] = S_CAST(logistic_aux_result_t*, bigstack_alloc(read_block_size * sizeof(logistic_aux_result_t)));
       if ((!logistic_block_aux_bufs[uii]) ||
           bigstack_alloc_d(read_block_size * 2 * max_reported_test_ct, &(block_beta_se_bufs[uii]))) {
         goto glm_logistic_ret_NOMEM;
@@ -4131,9 +4135,9 @@ pglerr_t glm_logistic(const char* cur_pheno_name, const char* const* test_names,
     if (max_sample_ct > 2000000) {
       logerrprint("Warning: --glm logistic regression is unreliable on more than ~2 million\nsamples, since it uses single-precision arithmetic.\n");
     }
-    g_workspace_bufs = (unsigned char**)bigstack_alloc_raw_rd(calc_thread_ct * sizeof(intptr_t));
+    g_workspace_bufs = S_CAST(unsigned char**, bigstack_alloc_raw_rd(calc_thread_ct * sizeof(intptr_t)));
     for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
-      g_workspace_bufs[tidx] = bigstack_alloc_raw(workspace_alloc);
+      g_workspace_bufs[tidx] = S_CAST(unsigned char*, bigstack_alloc_raw(workspace_alloc));
     }
 
     const uint32_t ref_col = glm_cols & kfGlmColRef;
@@ -4345,11 +4349,11 @@ pglerr_t glm_logistic(const char* cur_pheno_name, const char* const* test_names,
             } while (write_variant_uidx >= chr_end);
             const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
             suppress_mach_r2 = 1;
-            if ((chr_idx == ((uint32_t)x_code)) && sample_ct_x) {
+            if ((chr_idx == S_CAST(uint32_t, x_code)) && sample_ct_x) {
               cur_reported_test_ct = reported_test_ct_x;
               cur_constraint_ct = constraint_ct_x;
               cur_test_names = test_names_x;
-            } else if ((chr_idx == ((uint32_t)y_code)) && sample_ct_y) {
+            } else if ((chr_idx == S_CAST(uint32_t, y_code)) && sample_ct_y) {
               cur_reported_test_ct = reported_test_ct_y;
               cur_constraint_ct = constraint_ct_y;
               cur_test_names = test_names_y;
@@ -4357,7 +4361,7 @@ pglerr_t glm_logistic(const char* cur_pheno_name, const char* const* test_names,
               cur_reported_test_ct = reported_test_ct;
               cur_constraint_ct = constraint_ct;
               cur_test_names = test_names;
-              if ((chr_idx != ((uint32_t)x_code)) && (chr_idx != ((uint32_t)mt_code)) && (!is_set(cip->haploid_mask, chr_idx))) {
+              if ((chr_idx != S_CAST(uint32_t, x_code)) && (chr_idx != S_CAST(uint32_t, mt_code)) && (!is_set(cip->haploid_mask, chr_idx))) {
                 suppress_mach_r2 = 0;
               }
             }
@@ -4367,7 +4371,7 @@ pglerr_t glm_logistic(const char* cur_pheno_name, const char* const* test_names,
             if (chr_col) {
               char* chr_name_end = chr_name_write(cip, chr_idx, chr_buf);
               *chr_name_end = '\t';
-              chr_buf_blen = 1 + (uintptr_t)(chr_name_end - chr_buf);
+              chr_buf_blen = 1 + S_CAST(uintptr_t, chr_name_end - chr_buf);
             }
           }
           const double* beta_se_iter = &(cur_block_beta_se[2 * max_reported_test_ct * variant_bidx]);
@@ -4481,13 +4485,13 @@ pglerr_t glm_logistic(const char* cur_pheno_name, const char* const* test_names,
             }
             if (a1_freq_col) {
               *cswritep++ = '\t';
-              cswritep = dtoa_g(auxp->a1_dosage / ((double)auxp->allele_obs_ct), cswritep);
+              cswritep = dtoa_g(auxp->a1_dosage / S_CAST(double, auxp->allele_obs_ct), cswritep);
             }
             if (a1_freq_cc_col) {
               *cswritep++ = '\t';
-              cswritep = dtoa_g(auxp->a1_case_dosage / ((double)auxp->case_allele_obs_ct), cswritep);
+              cswritep = dtoa_g(auxp->a1_case_dosage / S_CAST(double, auxp->case_allele_obs_ct), cswritep);
               *cswritep++ = '\t';
-              cswritep = dtoa_g((auxp->a1_dosage - auxp->a1_case_dosage) / ((double)(auxp->allele_obs_ct - auxp->case_allele_obs_ct)), cswritep);
+              cswritep = dtoa_g((auxp->a1_dosage - auxp->a1_case_dosage) / S_CAST(double, auxp->allele_obs_ct - auxp->case_allele_obs_ct), cswritep);
             }
             if (mach_r2_col) {
               *cswritep++ = '\t';
@@ -4621,7 +4625,7 @@ pglerr_t glm_logistic(const char* cur_pheno_name, const char* const* test_names,
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * ((uint64_t)variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
       }
       ++read_block_idx;
       prev_block_variant_ct = cur_block_variant_ct;
@@ -4666,8 +4670,6 @@ pglerr_t glm_logistic(const char* cur_pheno_name, const char* const* test_names,
   return reterr;
 }
 
-static const double kSmallDoubles[4] = {0.0, 1.0, 2.0, 3.0};
-
 void genoarr_to_doubles(const uintptr_t* genoarr, uint32_t sample_ct, double* doublebuf) {
   assert(sample_ct);
   const uint32_t sample_ctl2m1 = (sample_ct - 1) / kBitsPerWordD2;
@@ -4684,7 +4686,7 @@ void genoarr_to_doubles(const uintptr_t* genoarr, uint32_t sample_ct, double* do
     uintptr_t geno_word = genoarr[widx];
     for (uint32_t uii = 0; uii < subgroup_len; ++uii) {
       const uintptr_t cur_geno = geno_word & 3;
-      // *doublebuf_iter++ = (double)((int32_t)cur_geno);
+      // *doublebuf_iter++ = u31tod(cur_geno);
       *doublebuf_iter++ = kSmallDoubles[cur_geno];
       geno_word >>= 2;
     }
@@ -4701,7 +4703,7 @@ uint32_t genoarr_to_doubles_remove_missing(const uintptr_t* genoarr, uint32_t sa
   while (1) {
     if (widx >= sample_ctl2m1) {
       if (widx > sample_ctl2m1) {
-        return (uintptr_t)(doublebuf_iter - doublebuf);
+        return doublebuf_iter - doublebuf;
       }
       subgroup_len = MOD_NZ(sample_ct, kBitsPerWordD2);
     }
@@ -4709,7 +4711,7 @@ uint32_t genoarr_to_doubles_remove_missing(const uintptr_t* genoarr, uint32_t sa
     for (uint32_t uii = 0; uii < subgroup_len; ++uii) {
       const uintptr_t cur_geno = geno_word & 3;
       if (cur_geno < 3) {
-        // *doublebuf_iter++ = (double)((int32_t)cur_geno);
+        // *doublebuf_iter++ = u31tod(cur_geno);
         *doublebuf_iter++ = kSmallDoubles[cur_geno];
       }
       geno_word >>= 2;
@@ -4760,7 +4762,7 @@ uintptr_t get_linear_workspace_size(uint32_t sample_ct, uint32_t predictor_ct, u
 }
 
 THREAD_FUNC_DECL glm_linear_thread(void* arg) {
-  const uintptr_t tidx = (uintptr_t)arg;
+  const uintptr_t tidx = R_CAST(uintptr_t, arg);
   pgen_reader_t* pgrp = g_pgr_ptrs[tidx];
   uintptr_t* genovec = g_genovecs[tidx];
   uintptr_t* dosage_present = nullptr;
@@ -4893,35 +4895,35 @@ THREAD_FUNC_DECL glm_linear_thread(void* arg) {
       }
       const uint32_t genod_buffer_needed = cur_parameter_subset && (!is_set(cur_parameter_subset, 1));
       unsigned char* workspace_iter = workspace_buf;
-      uintptr_t* sample_nm = (uintptr_t*)arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter);
-      uintptr_t* male_nm = (uintptr_t*)arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter);
-      double* nm_pheno_buf = (double*)arena_alloc_raw_rd(cur_sample_ct * sizeof(double), &workspace_iter);
-      double* nm_predictors_pmaj_buf = (double*)arena_alloc_raw_rd((cur_predictor_ct + genod_buffer_needed) * cur_sample_ct * sizeof(double), &workspace_iter);
-      double* xtx_inv = (double*)arena_alloc_raw_rd(cur_predictor_ct * cur_predictor_ct * sizeof(double), &workspace_iter);
-      double* fitted_coefs = (double*)arena_alloc_raw_rd(cur_predictor_ct * sizeof(double), &workspace_iter);
-      double* xt_y = (double*)arena_alloc_raw_rd(cur_predictor_ct * sizeof(double), &workspace_iter);
-      double* semicomputed_corr_matrix = (double*)arena_alloc_raw_rd((cur_predictor_ct - 1) * (cur_predictor_ct - 1) * sizeof(double), &workspace_iter);
-      double* semicomputed_inv_corr_sqrts = (double*)arena_alloc_raw_rd(cur_predictor_ct * sizeof(double), &workspace_iter);
-      matrix_invert_buf1_t* inv_1d_buf = (matrix_invert_buf1_t*)arena_alloc_raw_rd(MAXV(cur_predictor_ct, cur_constraint_ct) * kMatrixInvertBuf1CheckedAlloc, &workspace_iter);
-      double* dbl_2d_buf = (double*)arena_alloc_raw_rd(cur_predictor_ct * MAXV(cur_predictor_ct, 7) * sizeof(double), &workspace_iter);
+      uintptr_t* sample_nm = S_CAST(uintptr_t*, arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter));
+      uintptr_t* male_nm = S_CAST(uintptr_t*, arena_alloc_raw_rd(sample_ctl * sizeof(intptr_t), &workspace_iter));
+      double* nm_pheno_buf = S_CAST(double*, arena_alloc_raw_rd(cur_sample_ct * sizeof(double), &workspace_iter));
+      double* nm_predictors_pmaj_buf = S_CAST(double*, arena_alloc_raw_rd((cur_predictor_ct + genod_buffer_needed) * cur_sample_ct * sizeof(double), &workspace_iter));
+      double* xtx_inv = S_CAST(double*, arena_alloc_raw_rd(cur_predictor_ct * cur_predictor_ct * sizeof(double), &workspace_iter));
+      double* fitted_coefs = S_CAST(double*, arena_alloc_raw_rd(cur_predictor_ct * sizeof(double), &workspace_iter));
+      double* xt_y = S_CAST(double*, arena_alloc_raw_rd(cur_predictor_ct * sizeof(double), &workspace_iter));
+      double* semicomputed_corr_matrix = S_CAST(double*, arena_alloc_raw_rd((cur_predictor_ct - 1) * (cur_predictor_ct - 1) * sizeof(double), &workspace_iter));
+      double* semicomputed_inv_corr_sqrts = S_CAST(double*, arena_alloc_raw_rd(cur_predictor_ct * sizeof(double), &workspace_iter));
+      matrix_invert_buf1_t* inv_1d_buf = S_CAST(matrix_invert_buf1_t*, arena_alloc_raw_rd(MAXV(cur_predictor_ct, cur_constraint_ct) * kMatrixInvertBuf1CheckedAlloc, &workspace_iter));
+      double* dbl_2d_buf = S_CAST(double*, arena_alloc_raw_rd(cur_predictor_ct * MAXV(cur_predictor_ct, 7) * sizeof(double), &workspace_iter));
 
       // could technically have this overlap fitted_coefs/xt_y, but that sets
       // the stage for future bugs
-      double* inverse_corr_buf = (double*)arena_alloc_raw_rd((cur_predictor_ct - 1) * MAXV((cur_predictor_ct - 1), 4) * sizeof(double), &workspace_iter);
+      double* inverse_corr_buf = S_CAST(double*, arena_alloc_raw_rd((cur_predictor_ct - 1) * MAXV((cur_predictor_ct - 1), 4) * sizeof(double), &workspace_iter));
 
       // joint test only
       double* tmphxs_buf = nullptr;
       double* h_transpose_buf = nullptr;
       double* inner_buf = nullptr;
       if (cur_constraint_ct) {
-        tmphxs_buf = (double*)arena_alloc_raw_rd(cur_constraint_ct * cur_predictor_ct * sizeof(double), &workspace_iter);
-        h_transpose_buf = (double*)arena_alloc_raw_rd(cur_constraint_ct * cur_predictor_ct * sizeof(double), &workspace_iter);
-        inner_buf = (double*)arena_alloc_raw_rd(cur_constraint_ct * cur_constraint_ct * sizeof(double), &workspace_iter);
+        tmphxs_buf = S_CAST(double*, arena_alloc_raw_rd(cur_constraint_ct * cur_predictor_ct * sizeof(double), &workspace_iter));
+        h_transpose_buf = S_CAST(double*, arena_alloc_raw_rd(cur_constraint_ct * cur_predictor_ct * sizeof(double), &workspace_iter));
+        inner_buf = S_CAST(double*, arena_alloc_raw_rd(cur_constraint_ct * cur_constraint_ct * sizeof(double), &workspace_iter));
       }
-      assert((uintptr_t)(workspace_iter - workspace_buf) == get_linear_workspace_size(cur_sample_ct, cur_predictor_ct, cur_constraint_ct, genod_buffer_needed));
+      assert(S_CAST(uintptr_t, workspace_iter - workspace_buf) == get_linear_workspace_size(cur_sample_ct, cur_predictor_ct, cur_constraint_ct, genod_buffer_needed));
       const double pheno_ssq_base = dotprod_d(cur_pheno, cur_pheno, cur_sample_ct);
-      const double cur_sample_ct_recip = 1.0 / ((double)((int32_t)cur_sample_ct));
-      const double cur_sample_ct_m1_recip = 1.0 / ((double)((int32_t)(cur_sample_ct - 1)));
+      const double cur_sample_ct_recip = 1.0 / u31tod(cur_sample_ct);
+      const double cur_sample_ct_m1_recip = 1.0 / u31tod(cur_sample_ct - 1);
       const uint32_t sparse_optimization_eligible = (!is_x) && nm_precomp;
       double geno_d_lookup[2];
       if (sparse_optimization_eligible) {
@@ -5027,7 +5029,7 @@ THREAD_FUNC_DECL glm_linear_thread(void* arg) {
                 for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_idx) {
                   next_set_unsafe_ck(dosage_present, &sample_idx);
                   // 32768 -> 2, 16384 -> 1, 0 -> 0
-                  nm_predictors_pmaj_iter[sample_idx] = kRecipDosageMid * ((int32_t)((uint32_t)dosage_vals[dosage_idx]));
+                  nm_predictors_pmaj_iter[sample_idx] = kRecipDosageMid * u31tod(dosage_vals[dosage_idx]);
                 }
               }
             }
@@ -5046,9 +5048,9 @@ THREAD_FUNC_DECL glm_linear_thread(void* arg) {
                 next_set_unsafe_ck(sample_nm, &sample_midx);
                 double cur_val;
                 if (is_set(dosage_present, sample_midx)) {
-                  cur_val = kRecipDosageMid * ((int32_t)((uint32_t)dosage_vals[dosage_idx++]));
+                  cur_val = kRecipDosageMid * u31tod(dosage_vals[dosage_idx++]);
                 } else {
-                  cur_val = (intptr_t)(GET_QUATERARR_ENTRY(genovec, sample_midx));
+                  cur_val = kSmallDoubles[GET_QUATERARR_ENTRY(genovec, sample_midx)];
                 }
                 nm_predictors_pmaj_iter[sample_idx] = cur_val;
               }
@@ -5090,8 +5092,8 @@ THREAD_FUNC_DECL glm_linear_thread(void* arg) {
           double dosage_sum = 0.0;
           double dosage_ssq = 0.0;
           if (sparse_optimization) {
-            dosage_sum = (int64_t)(genocounts[1] + 2 * genocounts[2]);
-            dosage_ssq = (int64_t)(genocounts[1] + 4LLU * genocounts[2]);
+            dosage_sum = u63tod(genocounts[1] + 2 * genocounts[2]);
+            dosage_ssq = u63tod(genocounts[1] + 4LLU * genocounts[2]);
             if (is_nonx_haploid) {
               dosage_sum *= 0.5;
               dosage_ssq *= 0.25;
@@ -5105,7 +5107,7 @@ THREAD_FUNC_DECL glm_linear_thread(void* arg) {
           }
           block_aux_iter->a1_dosage = dosage_sum;
 
-          const double dosage_avg = dosage_sum / ((double)((int32_t)nm_sample_ct));
+          const double dosage_avg = dosage_sum / u31tod(nm_sample_ct);
           const double dosage_variance = dosage_ssq - dosage_sum * dosage_avg;
           block_aux_iter->mach_r2 = 2 * dosage_variance / (dosage_sum * (dosage_ceil - dosage_avg));
           // okay, now we're free to skip the actual regression if there are
@@ -5269,8 +5271,8 @@ THREAD_FUNC_DECL glm_linear_thread(void* arg) {
                 }
               }
               xt_y[1] = geno_pheno_prod;
-              const double het_ctd = (int32_t)genocounts[1];
-              const double homalt_ctd = (int32_t)genocounts[2];
+              const double het_ctd = u31tod(genocounts[1]);
+              const double homalt_ctd = u31tod(genocounts[2]);
               xtx_inv[cur_predictor_ct] = het_ctd * geno_d_lookup[0] + homalt_ctd * geno_d_lookup[1];
               xtx_inv[cur_predictor_ct + 1] = het_ctd * geno_d_lookup[0] * geno_d_lookup[0] + homalt_ctd * geno_d_lookup[1] * geno_d_lookup[1];
               if (domdev_present) {
@@ -5340,7 +5342,7 @@ THREAD_FUNC_DECL glm_linear_thread(void* arg) {
           // s^2 = RSS / df
           // possible todo: improve numerical stability of this computation in
           // non-mean-centered phenotype case
-          const double sigma = (cur_pheno_ssq - dotprodx_d(xt_y, fitted_coefs, cur_predictor_ct)) / ((int32_t)(nm_sample_ct - cur_predictor_ct));
+          const double sigma = (cur_pheno_ssq - dotprodx_d(xt_y, fitted_coefs, cur_predictor_ct)) / u31tod(nm_sample_ct - cur_predictor_ct);
           for (uint32_t uii = 0; uii < cur_predictor_ct; ++uii) {
             double* s_iter = &(xtx_inv[uii * cur_predictor_ct]);
 #ifdef NOLAPACK
@@ -5576,7 +5578,7 @@ pglerr_t glm_linear(const char* cur_pheno_name, const char* const* test_names, c
     double* block_beta_se_bufs[2];
 
     for (uint32_t uii = 0; uii < 2; ++uii) {
-      linear_block_aux_bufs[uii] = (linear_aux_result_t*)bigstack_alloc(read_block_size * sizeof(linear_aux_result_t));
+      linear_block_aux_bufs[uii] = S_CAST(linear_aux_result_t*, bigstack_alloc(read_block_size * sizeof(linear_aux_result_t)));
       if ((!linear_block_aux_bufs[uii]) ||
           bigstack_alloc_d(read_block_size * 2 * max_reported_test_ct, &(block_beta_se_bufs[uii]))) {
         goto glm_linear_ret_NOMEM;
@@ -5590,9 +5592,9 @@ pglerr_t glm_linear(const char* cur_pheno_name, const char* const* test_names, c
       }
     }
 
-    g_workspace_bufs = (unsigned char**)bigstack_alloc_raw_rd(calc_thread_ct * sizeof(intptr_t));
+    g_workspace_bufs = S_CAST(unsigned char**, bigstack_alloc_raw_rd(calc_thread_ct * sizeof(intptr_t)));
     for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
-      g_workspace_bufs[tidx] = bigstack_alloc_raw(workspace_alloc);
+      g_workspace_bufs[tidx] = S_CAST(unsigned char*, bigstack_alloc_raw(workspace_alloc));
     }
 
     const uint32_t ref_col = glm_cols & kfGlmColRef;
@@ -5780,12 +5782,12 @@ pglerr_t glm_linear(const char* cur_pheno_name, const char* const* test_names, c
             } while (write_variant_uidx >= chr_end);
             const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
             suppress_mach_r2 = 1;
-            if ((chr_idx == ((uint32_t)x_code)) && sample_ct_x) {
+            if ((chr_idx == S_CAST(uint32_t, x_code)) && sample_ct_x) {
               cur_reported_test_ct = reported_test_ct_x;
               cur_predictor_ct = predictor_ct_x;
               cur_constraint_ct = constraint_ct_x;
               cur_test_names = test_names_x;
-            } else if ((chr_idx == ((uint32_t)y_code)) && sample_ct_y) {
+            } else if ((chr_idx == S_CAST(uint32_t, y_code)) && sample_ct_y) {
               cur_reported_test_ct = reported_test_ct_y;
               cur_predictor_ct = predictor_ct_y;
               cur_constraint_ct = constraint_ct_y;
@@ -5795,7 +5797,7 @@ pglerr_t glm_linear(const char* cur_pheno_name, const char* const* test_names, c
               cur_predictor_ct = predictor_ct;
               cur_constraint_ct = constraint_ct;
               cur_test_names = test_names;
-              if ((chr_idx != ((uint32_t)x_code)) && (chr_idx != ((uint32_t)mt_code)) && (!is_set(cip->haploid_mask, chr_idx))) {
+              if ((chr_idx != S_CAST(uint32_t, x_code)) && (chr_idx != S_CAST(uint32_t, mt_code)) && (!is_set(cip->haploid_mask, chr_idx))) {
                 suppress_mach_r2 = 0;
               }
             }
@@ -5805,7 +5807,7 @@ pglerr_t glm_linear(const char* cur_pheno_name, const char* const* test_names, c
             if (chr_col) {
               char* chr_name_end = chr_name_write(cip, chr_idx, chr_buf);
               *chr_name_end = '\t';
-              chr_buf_blen = 1 + (uintptr_t)(chr_name_end - chr_buf);
+              chr_buf_blen = 1 + S_CAST(uintptr_t, chr_name_end - chr_buf);
             }
           }
           const double* beta_se_iter = &(cur_block_beta_se[2 * max_reported_test_ct * variant_bidx]);
@@ -5893,7 +5895,7 @@ pglerr_t glm_linear(const char* cur_pheno_name, const char* const* test_names, c
             }
             if (a1_freq_col) {
               *cswritep++ = '\t';
-              cswritep = dtoa_g(auxp->a1_dosage / ((double)auxp->allele_obs_ct), cswritep);
+              cswritep = dtoa_g(auxp->a1_dosage / S_CAST(double, auxp->allele_obs_ct), cswritep);
             }
             if (mach_r2_col) {
               *cswritep++ = '\t';
@@ -6011,7 +6013,7 @@ pglerr_t glm_linear(const char* cur_pheno_name, const char* const* test_names, c
         pct = (variant_idx * 100LLU) / variant_ct;
         printf("\b\b%u%%", pct++);
         fflush(stdout);
-        next_print_variant_idx = (pct * ((uint64_t)variant_ct)) / 100;
+        next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
       }
       ++read_block_idx;
       prev_block_variant_ct = cur_block_variant_ct;
@@ -6055,6 +6057,8 @@ pglerr_t glm_linear(const char* cur_pheno_name, const char* const* test_names, c
   bigstack_reset(bigstack_mark);
   return reterr;
 }
+
+static const double kSexMaleToCovarD[2] = {2.0, 1.0};
 
 pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, const char* sids, const uintptr_t* sex_nm, const uintptr_t* sex_male, const pheno_col_t* pheno_cols, const char* pheno_names, const pheno_col_t* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const chr_info_t* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const glm_info_t* glm_info_ptr, const adjust_info_t* adjust_info_ptr, const aperm_t* aperm_ptr, const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t orig_covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t xchr_model, double ci_size, double vif_thresh, double pfilter, double output_min_p, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, pgen_file_info_t* pgfip, pgen_reader_t* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
@@ -6123,8 +6127,8 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
     const uint32_t output_zst = (glm_flags / kfGlmZs) & 1;
     const uint32_t perm_adapt = (glm_flags / kfGlmPerm) & 1;
     const uint32_t perms_total = perm_adapt? aperm_ptr->max : glm_info_ptr->mperm_ct;
-    // [output prefix].[pheno name].glm.[linear/logistic]{.perm, .mperm}{.zst}
-    uint32_t pheno_name_blen_capacity = kPglFnamesize - 14 - (4 * output_zst) - (uintptr_t)(outname_end - outname);
+    // [output prefix].[pheno name].glm.logistic.hybrid{.perm, .mperm}{.zst}
+    uint32_t pheno_name_blen_capacity = kPglFnamesize - 21 - (4 * output_zst) - S_CAST(uintptr_t, outname_end - outname);
     if (perms_total) {
       pheno_name_blen_capacity -= 6 - perm_adapt;
     }
@@ -6210,7 +6214,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
       }
     } else {
       if (xymt_exists(cip, kChrOffsetX, &x_code)) {
-        variant_ct_x = count_chr_variants_unsafe(early_variant_include, cip, (uint32_t)x_code);
+        variant_ct_x = count_chr_variants_unsafe(early_variant_include, cip, x_code);
         // --xchr-model 0 now only suppresses chrX.
         if (xchr_model) {
           if (variant_ct_x) {
@@ -6228,7 +6232,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
       }
       int32_t y_code;
       if (xymt_exists(cip, kChrOffsetY, &y_code)) {
-        variant_ct_y = count_chr_variants_unsafe(early_variant_include, cip, (uint32_t)y_code);
+        variant_ct_y = count_chr_variants_unsafe(early_variant_include, cip, y_code);
         if (variant_ct_y) {
           if (!male_ct) {
             logprint("--glm: Skipping chrY since there are no males.\n");
@@ -6281,7 +6285,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
         if (glm_info_ptr->condition_varname) {
           int32_t ii = get_variant_uidx_without_htable(glm_info_ptr->condition_varname, variant_ids, orig_variant_include, orig_variant_ct);
           if (ii >= 0) {
-            condition_uidxs[0] = (uint32_t)ii;
+            condition_uidxs[0] = ii;
             condition_ct = 1;
             const uint32_t condition_blen = strlen(glm_info_ptr->condition_varname) + 1;
             // drop "CSNP" column name for sanity's sake
@@ -6370,7 +6374,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
           bigstack_reset(already_seen);
         }
         raw_covar_ct += condition_ct;
-        new_covar_cols = (pheno_col_t*)bigstack_alloc((raw_covar_ct + add_sex_covar) * sizeof(pheno_col_t));
+        new_covar_cols = S_CAST(pheno_col_t*, bigstack_alloc((raw_covar_ct + add_sex_covar) * sizeof(pheno_col_t)));
         if ((!new_covar_cols) ||
             bigstack_alloc_c((raw_covar_ct + add_sex_covar) * new_max_covar_name_blen, &new_covar_names)) {
           goto glm_main_ret_NOMEM;
@@ -6415,7 +6419,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
               uint32_t sample_uidx = 0;
               for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_uidx) {
                 next_set_unsafe_ck(dosage_present, &sample_uidx);
-                cur_covar_vals[sample_uidx] = kRecipDosageMid * ((int32_t)((uint32_t)dosage_vals[dosage_idx]));
+                cur_covar_vals[sample_uidx] = kRecipDosageMid * u31tod(dosage_vals[dosage_idx]);
               }
               bitvec_or(dosage_present, raw_sample_ctl, cur_nonmiss);
             }
@@ -6441,7 +6445,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
           bigstack_end_reset(bigstack_end_mark);
         }
       } else {
-        new_covar_cols = (pheno_col_t*)bigstack_alloc((raw_covar_ct + add_sex_covar) * sizeof(pheno_col_t));
+        new_covar_cols = S_CAST(pheno_col_t*, bigstack_alloc((raw_covar_ct + add_sex_covar) * sizeof(pheno_col_t)));
         if ((!new_covar_cols) ||
             bigstack_alloc_c((raw_covar_ct + add_sex_covar) * new_max_covar_name_blen, &new_covar_names)) {
           goto glm_main_ret_NOMEM;
@@ -6481,15 +6485,14 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
           // 1/2 instead of 1/0 coding; user shouldn't have to worry about
           // signs changing when they use --sex instead of using the sex column
           // from a .bim/.psam file
-          sex_covar_vals[sample_uidx] = (double)((int32_t)(2 - is_set(sex_male, sample_uidx)));
+          sex_covar_vals[sample_uidx] = kSexMaleToCovarD[is_set(sex_male, sample_uidx)];
         }
         new_sex_col->category_names = nullptr;
-        // const_cast
-        new_sex_col->nonmiss = (uintptr_t*)((uintptr_t)sex_nm);
+        new_sex_col->nonmiss = K_CAST(uintptr_t*, sex_nm);
         new_sex_col->data.qt = sex_covar_vals;
         new_sex_col->type_code = kPhenoDtypeQt;
         new_sex_col->nonnull_category_ct = 0;
-        strcpy(covar_names_write_iter, "SEX");
+        memcpy(covar_names_write_iter, "SEX", 4);
       }
       covar_cols = new_covar_cols;
       covar_names = new_covar_names;
@@ -6742,7 +6745,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
         continue;
       }
 #ifdef __LP64__
-      if (round_up_pow2(sample_ct, 4) * ((uint64_t)predictor_ct) > 0x7fffffff) {
+      if (round_up_pow2(sample_ct, 4) * S_CAST(uint64_t, predictor_ct) > 0x7fffffff) {
         // todo: remove this constraint in LAPACK_ILP64 case?
         LOGERRPRINTFWW("Warning: Skipping --glm regression on phenotype '%s' since there are too many\nsamples or predictors (internal matrices limited to ~2^31 entries).\n", cur_pheno_name);
         continue;
@@ -6817,7 +6820,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
               LOGERRPRINTFWW("Warning: Skipping chrX in --glm regression on phenotype '%s', since # remaining samples <= # predictor columns.\n", cur_pheno_name);
               sample_ct_x = 0;
 #ifdef __LP64__
-            } else if (round_up_pow2(sample_ct_x, 4) * ((uint64_t)predictor_ct_x) > 0x7fffffff) {
+            } else if (round_up_pow2(sample_ct_x, 4) * S_CAST(uint64_t, predictor_ct_x) > 0x7fffffff) {
               LOGERRPRINTFWW("Warning: Skipping chrX in --glm regression on phenotype '%s', since there are\ntoo many samples or predictors (internal matrices limited to ~2^31 entries).\n", cur_pheno_name);
               sample_ct_x = 0;
 #endif
@@ -6879,7 +6882,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
               LOGERRPRINTFWW("Warning: Skipping chrY in --glm regression on phenotype '%s', since # remaining samples <= # predictor columns.\n", cur_pheno_name);
               sample_ct_y = 0;
 #ifdef __LP64__
-            } else if (round_up_pow2(sample_ct_y, 4) * ((uint64_t)predictor_ct_y) > 0x7fffffff) {
+            } else if (round_up_pow2(sample_ct_y, 4) * S_CAST(uint64_t, predictor_ct_y) > 0x7fffffff) {
               LOGERRPRINTFWW("Warning: Skipping chrY in --glm regression on phenotype '%s', since there are\ntoo many samples or predictors (internal matrices limited to ~2^31 entries).\n", cur_pheno_name);
               sample_ct_y = 0;
 #endif
@@ -7153,6 +7156,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
       }
       g_variant_include = cur_variant_include;
       g_variant_ct = cur_variant_ct;
+      // this is safe, see pheno_name_blen_capacity check above
       char* outname_end2 = strcpya(&(outname_end[1]), cur_pheno_name);
       if (is_logistic) {
         g_pheno_f = pheno_f;
@@ -7169,7 +7173,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
         outname_end2 = strcpya(outname_end2, ".glm.linear");
       }
       // write IDs
-      strcpy(outname_end2, ".id");
+      snprintf(outname_end2, 22, ".id");
       reterr = write_sample_ids(cur_sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, 0);
       if (reterr) {
         goto glm_main_ret_1;
@@ -7177,14 +7181,14 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
       if (sample_ct_x && x_samples_are_different) {
         // quasi-bugfix (7 Jan 2017): use ".x.id" suffix instead of ".id.x",
         // since the last part of the file extension should indicate format
-        strcpy(outname_end2, ".x.id");
+        snprintf(outname_end2, 22, ".x.id");
         reterr = write_sample_ids(cur_sample_include_x, sample_ids, sids, outname, sample_ct_x, max_sample_id_blen, max_sid_blen, 0);
         if (reterr) {
           goto glm_main_ret_1;
         }
       }
       if (sample_ct_y && y_samples_are_different) {
-        strcpy(outname_end2, ".y.id");
+        snprintf(outname_end2, 22, ".y.id");
         reterr = write_sample_ids(cur_sample_include_y, sample_ids, sids, outname, sample_ct_y, max_sample_id_blen, max_sid_blen, 0);
         if (reterr) {
           goto glm_main_ret_1;
@@ -7192,7 +7196,7 @@ pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, 
       }
 
       if (output_zst) {
-        strcpy(outname_end2, ".zst");
+        snprintf(outname_end2, 22, ".zst");
       } else {
         *outname_end2 = '\0';
       }

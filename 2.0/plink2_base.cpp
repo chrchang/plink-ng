@@ -25,8 +25,8 @@ uintptr_t g_failed_alloc_attempt_size = 0;
 
 #if (__GNUC__ <= 4) && (__GNUC_MINOR__ < 7) && !defined(__APPLE__)
 boolerr_t pgl_malloc(uintptr_t size, void* pp) {
-  *((unsigned char**)pp) = (unsigned char*)malloc(size);
-  if (*((unsigned char**)pp)) {
+  *S_CAST(unsigned char**, pp) = S_CAST(unsigned char*, malloc(size));
+  if (*S_CAST(unsigned char**, pp)) {
     return 0;
   }
   g_failed_alloc_attempt_size = size;
@@ -42,7 +42,7 @@ boolerr_t fwrite_checked(const void* buf, uintptr_t len, FILE* outfile) {
     if (fwrite_unlocked(buf, kMaxBytesPerIO, 1, outfile)) {
       return 1;
     }
-    buf = &(((const unsigned char*)buf)[kMaxBytesPerIO]);
+    buf = &(S_CAST(const unsigned char*, buf)[kMaxBytesPerIO]);
     len -= kMaxBytesPerIO;
   }
   uintptr_t written_byte_ct = fwrite_unlocked(buf, 1, len, outfile);
@@ -76,7 +76,7 @@ boolerr_t fread_checked(void* buf, uintptr_t len, FILE* infile) {
     if (cur_bytes_read != kMaxBytesPerIO) {
       return 1;
     }
-    buf = &(((char*)buf)[kMaxBytesPerIO]);
+    buf = &(S_CAST(unsigned char*, buf)[kMaxBytesPerIO]);
     len -= kMaxBytesPerIO;
   }
   const uintptr_t cur_bytes_read = fread_unlocked(buf, 1, len, infile);
@@ -84,16 +84,16 @@ boolerr_t fread_checked(void* buf, uintptr_t len, FILE* infile) {
 }
 
 #ifdef __LP64__
-static inline boolerr_t scan_uint_capped_finish(const char* ss, uint64_t cap, uint32_t* valp) {
+static inline boolerr_t scan_uint_capped_finish(const char* str_iter, uint64_t cap, uint32_t* valp) {
   uint64_t val = *valp;
   while (1) {
     // a little bit of unrolling seems to help
-    const uint64_t cur_digit = (uint64_t)((unsigned char)(*ss++)) - 48;
+    const uint64_t cur_digit = ctou64(*str_iter++) - 48;
     if (cur_digit >= 10) {
       break;
     }
     // val = val * 10 + cur_digit;
-    const uint64_t cur_digit2 = (uint64_t)((unsigned char)(*ss++)) - 48;
+    const uint64_t cur_digit2 = ctou64(*str_iter++) - 48;
     if (cur_digit2 >= 10) {
       val = val * 10 + cur_digit;
       if (val > cap) {
@@ -106,102 +106,102 @@ static inline boolerr_t scan_uint_capped_finish(const char* ss, uint64_t cap, ui
       return 1;
     }
   }
-  *valp = (uint32_t)val;
+  *valp = S_CAST(uint32_t, val);
   return 0;
 }
 
-boolerr_t scan_posint_capped(const char* ss, uint64_t cap, uint32_t* valp) {
+boolerr_t scan_posint_capped(const char* str_iter, uint64_t cap, uint32_t* valp) {
   // '0' has ascii code 48
-  assert(((unsigned char)ss[0]) > 32);
-  *valp = (uint32_t)((unsigned char)(*ss++)) - 48;
+  assert(ctou32(str_iter[0]) > 32);
+  *valp = ctou32(*str_iter++) - 48;
   if (*valp >= 10) {
     // permit leading '+' (ascii 43), but not '++' or '+-'
     if (*valp != 0xfffffffbU) {
       return 1;
     }
-    *valp = (uint32_t)((unsigned char)(*ss++)) - 48;
+    *valp = ctou32(*str_iter++) - 48;
     if (*valp >= 10) {
       return 1;
     }
   }
   while (!(*valp)) {
-    *valp = (uint32_t)((unsigned char)(*ss++)) - 48;
+    *valp = ctou32(*str_iter++) - 48;
     if ((*valp) >= 10) {
       return 1;
     }
   }
-  return scan_uint_capped_finish(ss, cap, valp);
+  return scan_uint_capped_finish(str_iter, cap, valp);
 }
 
-boolerr_t scan_uint_capped(const char* ss, uint64_t cap, uint32_t* valp) {
+boolerr_t scan_uint_capped(const char* str_iter, uint64_t cap, uint32_t* valp) {
   // Reads an integer in [0, cap].  Assumes first character is nonspace.
-  assert(((unsigned char)ss[0]) > 32);
-  uint32_t val = (uint32_t)((unsigned char)(*ss++)) - 48;
+  assert(ctou32(str_iter[0]) > 32);
+  uint32_t val = ctou32(*str_iter++) - 48;
   if (val >= 10) {
     if (val != 0xfffffffbU) {
       // '-' has ascii code 45, so unsigned 45 - 48 = 0xfffffffdU
-      if ((val != 0xfffffffdU) || (*ss != '0')) {
+      if ((val != 0xfffffffdU) || (*str_iter != '0')) {
         return 1;
       }
       // accept "-0", "-00", etc.
-      while (*(++ss) == '0');
+      while (*(++str_iter) == '0');
       *valp = 0;
-      return ((uint32_t)((unsigned char)(*ss)) - 48) < 10;
+      return (ctou32(*str_iter) - 48) < 10;
     }
     // accept leading '+'
-    val = (uint32_t)((unsigned char)(*ss++)) - 48;
+    val = ctou32(*str_iter++) - 48;
     if (val >= 10) {
       return 1;
     }
   }
   *valp = val;
-  return scan_uint_capped_finish(ss, cap, valp);
+  return scan_uint_capped_finish(str_iter, cap, valp);
 }
 
-boolerr_t scan_int_abs_bounded(const char* ss, uint64_t bound, int32_t* valp) {
+boolerr_t scan_int_abs_bounded(const char* str_iter, uint64_t bound, int32_t* valp) {
   // Reads an integer in [-bound, bound].  Assumes first character is nonspace.
-  assert(((unsigned char)ss[0]) > 32);
-  *valp = (uint32_t)((unsigned char)(*ss++)) - 48;
+  assert(ctou32(str_iter[0]) > 32);
+  *valp = ctou32(*str_iter++) - 48;
   int32_t sign = 1;
-  if (((uint32_t)*valp) >= 10) {
+  if (ctou32(*valp) >= 10) {
     if (*valp == -3) {
       sign = -1;
     } else if (*valp != -5) {
       return 1;
     }
-    *valp = (uint32_t)((unsigned char)(*ss++)) - 48;
-    if (((uint32_t)*valp) >= 10) {
+    *valp = ctou32(*str_iter++) - 48;
+    if (ctou32(*valp) >= 10) {
       return 1;
     }
   }
-  if (scan_uint_capped_finish(ss, bound, (uint32_t*)valp)) {
+  if (scan_uint_capped_finish(str_iter, bound, R_CAST(uint32_t*, valp))) {
     return 1;
   }
   *valp *= sign;
   return 0;
 }
 #else // not __LP64__
-boolerr_t scan_posint_capped32(const char* ss, uint32_t cap_div_10, uint32_t cap_mod_10, uint32_t* valp) {
+boolerr_t scan_posint_capped32(const char* str_iter, uint32_t cap_div_10, uint32_t cap_mod_10, uint32_t* valp) {
   // '0' has ascii code 48
-  assert(((unsigned char)ss[0]) > 32);
-  uint32_t val = (uint32_t)((unsigned char)(*ss++)) - 48;
+  assert(ctou32(str_iter[0]) > 32);
+  uint32_t val = ctou32(*str_iter++) - 48;
   if (val >= 10) {
     if (val != 0xfffffffbU) {
       return 1;
     }
-    val = (uint32_t)((unsigned char)(*ss++)) - 48;
+    val = ctou32(*str_iter++) - 48;
     if (val >= 10) {
       return 1;
     }
   }
   while (!val) {
-    val = (uint32_t)((unsigned char)(*ss++)) - 48;
+    val = ctou32(*str_iter++) - 48;
     if (val >= 10) {
       return 1;
     }
   }
   while (1) {
-    const uint32_t cur_digit = (uint32_t)((unsigned char)(*ss++)) - 48;
+    const uint32_t cur_digit = ctou32(*str_iter++) - 48;
     if (cur_digit >= 10) {
       *valp = val;
       return 0;
@@ -214,26 +214,26 @@ boolerr_t scan_posint_capped32(const char* ss, uint32_t cap_div_10, uint32_t cap
   }
 }
 
-boolerr_t scan_uint_capped32(const char* ss, uint32_t cap_div_10, uint32_t cap_mod_10, uint32_t* valp) {
+boolerr_t scan_uint_capped32(const char* str_iter, uint32_t cap_div_10, uint32_t cap_mod_10, uint32_t* valp) {
   // Reads an integer in [0, cap].  Assumes first character is nonspace.
-  assert(((unsigned char)ss[0]) > 32);
-  uint32_t val = (uint32_t)((unsigned char)(*ss++)) - 48;
+  assert(ctou32(str_iter[0]) > 32);
+  uint32_t val = ctou32(*str_iter++) - 48;
   if (val >= 10) {
     if (val != 0xfffffffbU) {
-      if ((val != 0xfffffffdU) || (*ss != '0')) {
+      if ((val != 0xfffffffdU) || (*str_iter != '0')) {
         return 1;
       }
-      while (*(++ss) == '0');
+      while (*(++str_iter) == '0');
       *valp = 0;
-      return ((uint32_t)((unsigned char)(*ss)) - 48) < 10;
+      return (ctou32(*str_iter) - 48) < 10;
     }
-    val = (uint32_t)((unsigned char)(*ss++)) - 48;
+    val = ctou32(*str_iter++) - 48;
     if (val >= 10) {
       return 1;
     }
   }
   while (1) {
-    const uint32_t cur_digit = (uint32_t)((unsigned char)(*ss++)) - 48;
+    const uint32_t cur_digit = ctou32(*str_iter++) - 48;
     if (cur_digit >= 10) {
       *valp = val;
       return 0;
@@ -245,10 +245,10 @@ boolerr_t scan_uint_capped32(const char* ss, uint32_t cap_div_10, uint32_t cap_m
   }
 }
 
-boolerr_t scan_int_abs_bounded32(const char* ss, uint32_t bound_div_10, uint32_t bound_mod_10, int32_t* valp) {
+boolerr_t scan_int_abs_bounded32(const char* str_iter, uint32_t bound_div_10, uint32_t bound_mod_10, int32_t* valp) {
   // Reads an integer in [-bound, bound].  Assumes first character is nonspace.
-  assert(((unsigned char)ss[0]) > 32);
-  uint32_t val = (uint32_t)((unsigned char)(*ss++)) - 48;
+  assert(ctou32(str_iter[0]) > 32);
+  uint32_t val = ctou32(*str_iter++) - 48;
   int32_t sign = 1;
   if (val >= 10) {
     if (val == 0xfffffffdU) {
@@ -256,15 +256,15 @@ boolerr_t scan_int_abs_bounded32(const char* ss, uint32_t bound_div_10, uint32_t
     } else if (val != 0xfffffffbU) {
       return 1;
     }
-    val = (uint32_t)((unsigned char)(*ss++)) - 48;
+    val = ctou32(*str_iter++) - 48;
     if (val >= 10) {
       return 1;
     }
   }
   while (1) {
-    const uint32_t cur_digit = (uint32_t)((unsigned char)(*ss++)) - 48;
+    const uint32_t cur_digit = ctou32(*str_iter++) - 48;
     if (cur_digit >= 10) {
-      *valp = sign * ((int32_t)val);
+      *valp = sign * S_CAST(int32_t, val);
       return 0;
     }
     if ((val >= bound_div_10) && ((val > bound_div_10) || (cur_digit > bound_mod_10))) {
@@ -284,8 +284,8 @@ boolerr_t aligned_malloc(uintptr_t size, uintptr_t alignment, void* aligned_pp) 
     return 1;
   }
   assert(!(malloc_addr % kBytesPerWord));
-  uintptr_t** casted_aligned_pp = (uintptr_t**)aligned_pp;
-  *casted_aligned_pp = (uintptr_t*)round_down_pow2(malloc_addr + alignment, alignment);
+  uintptr_t** casted_aligned_pp = S_CAST(uintptr_t**, aligned_pp);
+  *casted_aligned_pp = R_CAST(uintptr_t*, round_down_pow2(malloc_addr + alignment, alignment));
   (*casted_aligned_pp)[-1] = malloc_addr;
   return 0;
 }
@@ -304,8 +304,8 @@ void fill_all_bits(uintptr_t ct, uintptr_t* bitarr) {
 void bitvec_and(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec) {
   // main_bitvec := main_bitvec AND arg_bitvec
 #ifdef __LP64__
-  vul_t* main_bitvvec_iter = (vul_t*)main_bitvec;
-  const vul_t* arg_bitvvec_iter = (const vul_t*)arg_bitvec;
+  vul_t* main_bitvvec_iter = R_CAST(vul_t*, main_bitvec);
+  const vul_t* arg_bitvvec_iter = R_CAST(const vul_t*, arg_bitvec);
   const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
   if (full_vec_ct & 1) {
     *main_bitvvec_iter++ &= *arg_bitvvec_iter++;
@@ -320,13 +320,13 @@ void bitvec_and(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintp
     *main_bitvvec_iter++ &= *arg_bitvvec_iter++;
     *main_bitvvec_iter++ &= *arg_bitvvec_iter++;
   }
-  #ifdef USE_AVX2
+#  ifdef USE_AVX2
   if (word_ct & 2) {
     const uintptr_t base_idx = full_vec_ct * kWordsPerVec;
     main_bitvec[base_idx] &= arg_bitvec[base_idx];
     main_bitvec[base_idx + 1] &= arg_bitvec[base_idx + 1];
   }
-  #endif
+#  endif
   if (word_ct & 1) {
     main_bitvec[word_ct - 1] &= arg_bitvec[word_ct - 1];
   }
@@ -341,8 +341,8 @@ void bitvec_andnot(const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct
   // main_bitvec := main_bitvec ANDNOT exclude_bitvec
   // note that this is the reverse of the _mm_andnot() operand order
 #ifdef __LP64__
-  vul_t* main_bitvvec_iter = (vul_t*)main_bitvec;
-  const vul_t* exclude_bitvvec_iter = (const vul_t*)exclude_bitvec;
+  vul_t* main_bitvvec_iter = R_CAST(vul_t*, main_bitvec);
+  const vul_t* exclude_bitvvec_iter = R_CAST(const vul_t*, exclude_bitvec);
   const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
   if (full_vec_ct & 1) {
     *main_bitvvec_iter++ &= ~(*exclude_bitvvec_iter++);
@@ -357,13 +357,13 @@ void bitvec_andnot(const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct
     *main_bitvvec_iter++ &= ~(*exclude_bitvvec_iter++);
     *main_bitvvec_iter++ &= ~(*exclude_bitvvec_iter++);
   }
-  #ifdef USE_AVX2
+#  ifdef USE_AVX2
   if (word_ct & 2) {
     const uintptr_t base_idx = full_vec_ct * kWordsPerVec;
     main_bitvec[base_idx] &= ~exclude_bitvec[base_idx];
     main_bitvec[base_idx + 1] &= ~exclude_bitvec[base_idx + 1];
   }
-  #endif
+#  endif
   if (word_ct & 1) {
     main_bitvec[word_ct - 1] &= ~exclude_bitvec[word_ct - 1];
   }
@@ -374,28 +374,30 @@ void bitvec_andnot(const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct
 #endif
 }
 
+// do we really need these functions, or can we just use next_{un}set_ul_unsafe
+// all the time?...
 uint32_t next_set_unsafe(const uintptr_t* bitarr, uint32_t loc) {
-  const uintptr_t* bitarr_ptr = &(bitarr[loc / kBitsPerWord]);
-  uintptr_t ulii = (*bitarr_ptr) >> (loc % kBitsPerWord);
+  const uintptr_t* bitarr_iter = &(bitarr[loc / kBitsPerWord]);
+  uintptr_t ulii = (*bitarr_iter) >> (loc % kBitsPerWord);
   if (ulii) {
     return loc + CTZLU(ulii);
   }
   do {
-    ulii = *(++bitarr_ptr);
+    ulii = *(++bitarr_iter);
   } while (!ulii);
-  return (uint32_t)(((uintptr_t)(bitarr_ptr - bitarr)) * kBitsPerWord + CTZLU(ulii));
+  return S_CAST(uint32_t, bitarr_iter - bitarr) * kBitsPerWord + CTZLU(ulii);
 }
 
 uint32_t next_unset_unsafe(const uintptr_t* bitarr, uint32_t loc) {
-  const uintptr_t* bitarr_ptr = &(bitarr[loc / kBitsPerWord]);
-  uintptr_t ulii = (~(*bitarr_ptr)) >> (loc % kBitsPerWord);
+  const uintptr_t* bitarr_iter = &(bitarr[loc / kBitsPerWord]);
+  uintptr_t ulii = (~(*bitarr_iter)) >> (loc % kBitsPerWord);
   if (ulii) {
     return loc + CTZLU(ulii);
   }
   do {
-    ulii = *(++bitarr_ptr);
+    ulii = *(++bitarr_iter);
   } while (ulii == ~k0LU);
-  return (uint32_t)(((uintptr_t)(bitarr_ptr - bitarr)) * kBitsPerWord + CTZLU(~ulii));
+  return S_CAST(uint32_t, bitarr_iter - bitarr) * kBitsPerWord + CTZLU(~ulii);
 }
 
 /*
@@ -414,8 +416,8 @@ uint32_t next_nonmissing_unsafe(const uintptr_t* genoarr, uint32_t loc) {
 
 uint32_t next_set(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil) {
   // safe version.
-  const uintptr_t* bitarr_ptr = &(bitarr[loc / kBitsPerWord]);
-  uintptr_t ulii = (*bitarr_ptr) >> (loc % kBitsPerWord);
+  const uintptr_t* bitarr_iter = &(bitarr[loc / kBitsPerWord]);
+  uintptr_t ulii = (*bitarr_iter) >> (loc % kBitsPerWord);
   uint32_t rval;
   if (ulii) {
     rval = loc + CTZLU(ulii);
@@ -423,31 +425,31 @@ uint32_t next_set(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil) {
   }
   const uintptr_t* bitarr_last = &(bitarr[(ceil - 1) / kBitsPerWord]);
   do {
-    if (bitarr_ptr >= bitarr_last) {
+    if (bitarr_iter >= bitarr_last) {
       return ceil;
     }
-    ulii = *(++bitarr_ptr);
+    ulii = *(++bitarr_iter);
   } while (!ulii);
-  rval = (uint32_t)(((uintptr_t)(bitarr_ptr - bitarr)) * kBitsPerWord + CTZLU(ulii));
+  rval = S_CAST(uint32_t, bitarr_iter - bitarr) * kBitsPerWord + CTZLU(ulii);
   return MINV(rval, ceil);
 }
 
 uint32_t prev_set_unsafe(const uintptr_t* bitarr, uint32_t loc) {
   // unlike the next_{un}set family, this always returns a STRICTLY earlier
   // position
-  const uintptr_t* bitarr_ptr = &(bitarr[loc / kBitsPerWord]);
+  const uintptr_t* bitarr_iter = &(bitarr[loc / kBitsPerWord]);
   uint32_t remainder = loc % kBitsPerWord;
   uintptr_t ulii;
   if (remainder) {
-    ulii = bzhi(*bitarr_ptr, remainder);
+    ulii = bzhi(*bitarr_iter, remainder);
     if (ulii) {
       return (loc | (kBitsPerWord - 1)) - CLZLU(ulii);
     }
   }
   do {
-    ulii = *(--bitarr_ptr);
+    ulii = *(--bitarr_iter);
   } while (!ulii);
-  return (uint32_t)(((uintptr_t)(bitarr_ptr - bitarr)) * kBitsPerWord + kBitsPerWord - 1 - CLZLU(ulii));
+  return S_CAST(uint32_t, bitarr_iter - bitarr) * kBitsPerWord + kBitsPerWord - 1 - CLZLU(ulii);
 }
 
 #ifdef USE_AVX2
@@ -526,11 +528,11 @@ uintptr_t popcount_avx2(const vul_t* bit_vvec, uintptr_t vec_ct) {
   return hsum64(cnt);
 }
 
-void expand_bytearr(const unsigned char* __restrict compact_bitarr, const uintptr_t* __restrict expand_mask, uint32_t word_ct, uint32_t expand_size, uint32_t read_start_bit, uintptr_t* __restrict target) {
+void expand_bytearr(const void* __restrict compact_bitarr, const uintptr_t* __restrict expand_mask, uint32_t word_ct, uint32_t expand_size, uint32_t read_start_bit, uintptr_t* __restrict target) {
   const uint32_t expand_sizex_m1 = expand_size + read_start_bit - 1;
   const uint32_t leading_byte_ct = 1 + (expand_sizex_m1 % kBitsPerWord) / CHAR_BIT;
   uintptr_t compact_word = partial_word_load(compact_bitarr, leading_byte_ct) >> read_start_bit;
-  const uintptr_t* compact_bitarr_iter = (const uintptr_t*)(&(compact_bitarr[leading_byte_ct]));
+  const uintptr_t* compact_bitarr_iter = R_CAST(const uintptr_t*, &(S_CAST(const unsigned char*, compact_bitarr)[leading_byte_ct]));
   uint32_t compact_idx_lowbits = read_start_bit + CHAR_BIT * (sizeof(intptr_t) - leading_byte_ct);
   for (uint32_t widx = 0; widx < word_ct; ++widx) {
     const uintptr_t mask_word = expand_mask[widx];
@@ -548,7 +550,7 @@ void expand_bytearr(const unsigned char* __restrict compact_bitarr, const uintpt
         }
       } else {
 #ifdef __arm__
-  #error "Unaligned accesses in expand_bytearr()."
+#  error "Unaligned accesses in expand_bytearr()."
 #endif
         uintptr_t next_compact_word = *compact_bitarr_iter++;
         next_compact_idx_lowbits -= kBitsPerWord;
@@ -566,11 +568,11 @@ void expand_bytearr(const unsigned char* __restrict compact_bitarr, const uintpt
   }
 }
 
-void expand_then_subset_bytearr(const unsigned char* __restrict compact_bitarr, const uintptr_t* __restrict expand_mask, const uintptr_t* __restrict subset_mask, uint32_t expand_size, uint32_t subset_size, uint32_t read_start_bit, uintptr_t* __restrict target) {
+void expand_then_subset_bytearr(const void* __restrict compact_bitarr, const uintptr_t* __restrict expand_mask, const uintptr_t* __restrict subset_mask, uint32_t expand_size, uint32_t subset_size, uint32_t read_start_bit, uintptr_t* __restrict target) {
   const uint32_t expand_sizex_m1 = expand_size + read_start_bit - 1;
   const uint32_t leading_byte_ct = 1 + (expand_sizex_m1 % kBitsPerWord) / CHAR_BIT;
   uintptr_t compact_word = partial_word_load(compact_bitarr, leading_byte_ct) >> read_start_bit;
-  const uintptr_t* compact_bitarr_alias = (const uintptr_t*)(&(compact_bitarr[leading_byte_ct]));
+  const uintptr_t* compact_bitarr_alias = R_CAST(const uintptr_t*, &(S_CAST(const unsigned char*, compact_bitarr)[leading_byte_ct]));
   uint32_t compact_widx = UINT32_MAX; // deliberate overflow
   uint32_t compact_idx_lowbits = read_start_bit + CHAR_BIT * (sizeof(uintptr_t) - leading_byte_ct);
   const uint32_t subset_size_lowbits = subset_size % kBitsPerWord;
@@ -602,7 +604,7 @@ void expand_then_subset_bytearr(const unsigned char* __restrict compact_bitarr, 
         compact_widx += compact_idx_lowbits / kBitsPerWord;
         compact_idx_lowbits = compact_idx_lowbits % kBitsPerWord;
 #ifdef __arm__
-  #error "Unaligned accesses in expand_then_subset_bytearr()."
+#  error "Unaligned accesses in expand_then_subset_bytearr()."
 #endif
         compact_word = compact_bitarr_alias[compact_widx] >> compact_idx_lowbits;
       }
@@ -648,12 +650,12 @@ void expand_then_subset_bytearr(const unsigned char* __restrict compact_bitarr, 
   }
 }
 
-void expand_bytearr_nested(const unsigned char* __restrict compact_bitarr, const uintptr_t* __restrict mid_bitarr, const uintptr_t* __restrict top_expand_mask, uint32_t word_ct, uint32_t mid_popcount, uint32_t mid_start_bit, uintptr_t* __restrict mid_target, uintptr_t* __restrict compact_target) {
+void expand_bytearr_nested(const void* __restrict compact_bitarr, const uintptr_t* __restrict mid_bitarr, const uintptr_t* __restrict top_expand_mask, uint32_t word_ct, uint32_t mid_popcount, uint32_t mid_start_bit, uintptr_t* __restrict mid_target, uintptr_t* __restrict compact_target) {
   assert(mid_popcount);
   const uint32_t leading_byte_ct = 1 + ((mid_popcount - 1) % kBitsPerWord) / CHAR_BIT;
   uintptr_t compact_read_word = partial_word_load(compact_bitarr, leading_byte_ct);
   uint32_t compact_idx_lowbits = CHAR_BIT * (sizeof(intptr_t) - leading_byte_ct);
-  const uintptr_t* compact_bitarr_iter = (const uintptr_t*)(&(compact_bitarr[leading_byte_ct]));
+  const uintptr_t* compact_bitarr_iter = R_CAST(const uintptr_t*, &(S_CAST(const unsigned char*, compact_bitarr)[leading_byte_ct]));
   const uintptr_t* mid_bitarr_iter = mid_bitarr;
   uint32_t mid_idx_lowbits = mid_start_bit;
   uintptr_t mid_read_word = (*mid_bitarr_iter) >> mid_start_bit;
@@ -696,7 +698,7 @@ void expand_bytearr_nested(const unsigned char* __restrict compact_bitarr, const
           }
         } else {
 #ifdef __arm__
-  #error "Unaligned accesses in expand_bytearr_nested()."
+#  error "Unaligned accesses in expand_bytearr_nested()."
 #endif
           uintptr_t next_compact_word = *compact_bitarr_iter++;
           next_compact_idx_lowbits -= kBitsPerWord;
@@ -716,12 +718,12 @@ void expand_bytearr_nested(const unsigned char* __restrict compact_bitarr, const
   }
 }
 
-void expand_then_subset_bytearr_nested(const unsigned char* __restrict compact_bitarr, const uintptr_t* __restrict mid_bitarr, const uintptr_t* __restrict top_expand_mask, const uintptr_t* __restrict subset_mask, uint32_t subset_size, uint32_t mid_popcount, uint32_t mid_start_bit, uintptr_t* __restrict mid_target, uintptr_t* __restrict compact_target) {
+void expand_then_subset_bytearr_nested(const void* __restrict compact_bitarr, const uintptr_t* __restrict mid_bitarr, const uintptr_t* __restrict top_expand_mask, const uintptr_t* __restrict subset_mask, uint32_t subset_size, uint32_t mid_popcount, uint32_t mid_start_bit, uintptr_t* __restrict mid_target, uintptr_t* __restrict compact_target) {
   assert(mid_popcount);
   const uint32_t leading_byte_ct = 1 + ((mid_popcount - 1) % kBitsPerWord) / CHAR_BIT;
   uintptr_t compact_read_word = partial_word_load(compact_bitarr, leading_byte_ct);
   uint32_t compact_idx_lowbits = CHAR_BIT * (sizeof(intptr_t) - leading_byte_ct);
-  const uintptr_t* compact_bitarr_alias = (const uintptr_t*)(&(compact_bitarr[leading_byte_ct]));
+  const uintptr_t* compact_bitarr_alias = R_CAST(const uintptr_t*, &(S_CAST(const unsigned char*, compact_bitarr)[leading_byte_ct]));
   const uintptr_t* mid_bitarr_iter = mid_bitarr;
   const uint32_t subset_size_lowbits = subset_size % kBitsPerWord;
   const uint32_t write_widx_last = subset_size / kBitsPerWord;
@@ -782,7 +784,7 @@ void expand_then_subset_bytearr_nested(const unsigned char* __restrict compact_b
         compact_widx += compact_idx_lowbits / kBitsPerWord;
         compact_idx_lowbits = compact_idx_lowbits % kBitsPerWord;
 #ifdef __arm__
-  #error "Unaligned accesses in expand_then_subset_bytearr_nested()."
+#  error "Unaligned accesses in expand_then_subset_bytearr_nested()."
 #endif
         compact_read_word = compact_bitarr_alias[compact_widx] >> compact_idx_lowbits;
       }
@@ -941,9 +943,9 @@ uintptr_t popcount_vecs_old(const vul_t* bit_vvec, uintptr_t vec_ct) {
   }
 }
 
-void expand_bytearr(const unsigned char* __restrict compact_bitarr, const uintptr_t* __restrict expand_mask, uint32_t word_ct, uint32_t expand_size, uint32_t read_start_bit, uintptr_t* __restrict target) {
+void expand_bytearr(const void* __restrict compact_bitarr, const uintptr_t* __restrict expand_mask, uint32_t word_ct, uint32_t expand_size, uint32_t read_start_bit, uintptr_t* __restrict target) {
   fill_ulong_zero(word_ct, target);
-  const uintptr_t* compact_bitarr_alias = (const uintptr_t*)compact_bitarr;
+  const uintptr_t* compact_bitarr_alias = S_CAST(const uintptr_t*, compact_bitarr);
   const uint32_t expand_sizex_m1 = expand_size + read_start_bit - 1;
   const uint32_t compact_widx_last = expand_sizex_m1 / kBitsPerWord;
   uint32_t compact_widx = 0;
@@ -961,7 +963,7 @@ void expand_bytearr(const unsigned char* __restrict compact_bitarr, const uintpt
       compact_word = partial_word_load(&(compact_bitarr_alias[compact_widx]), DIV_UP(loop_len, CHAR_BIT));
     } else {
 #ifdef __arm__
-  #error "Unaligned accesses in expand_bytearr()."
+#  error "Unaligned accesses in expand_bytearr()."
 #endif
       compact_word = compact_bitarr_alias[compact_widx];
     }
@@ -978,13 +980,13 @@ void expand_bytearr(const unsigned char* __restrict compact_bitarr, const uintpt
   }
 }
 
-void expand_then_subset_bytearr(const unsigned char* __restrict compact_bitarr, const uintptr_t* __restrict expand_mask, const uintptr_t* __restrict subset_mask, uint32_t expand_size, uint32_t subset_size, uint32_t read_start_bit, uintptr_t* __restrict target) {
+void expand_then_subset_bytearr(const void* __restrict compact_bitarr, const uintptr_t* __restrict expand_mask, const uintptr_t* __restrict subset_mask, uint32_t expand_size, uint32_t subset_size, uint32_t read_start_bit, uintptr_t* __restrict target) {
   const uint32_t expand_sizex_m1 = expand_size + read_start_bit - 1;
   const uint32_t leading_byte_ct = 1 + (expand_sizex_m1 % kBitsPerWord) / CHAR_BIT;
   uint32_t read_idx_lowbits = CHAR_BIT * (sizeof(intptr_t) - leading_byte_ct);
   uintptr_t compact_read_word = partial_word_load(compact_bitarr, leading_byte_ct) << read_idx_lowbits;
   read_idx_lowbits += read_start_bit;
-  const uintptr_t* compact_bitarr_iter = (const uintptr_t*)(&(compact_bitarr[leading_byte_ct]));
+  const uintptr_t* compact_bitarr_iter = R_CAST(const uintptr_t*, &(S_CAST(const unsigned char*, compact_bitarr)[leading_byte_ct]));
   const uint32_t subset_size_lowbits = subset_size % kBitsPerWord;
   uintptr_t* target_iter = target;
   uintptr_t* target_last = &(target[subset_size / kBitsPerWord]);
@@ -1007,7 +1009,7 @@ void expand_then_subset_bytearr(const unsigned char* __restrict compact_bitarr, 
       }
       if (read_idx_lowbits_end > kBitsPerWord) {
 #ifdef __arm__
-  #error "Unaligned accesses in expand_then_subset_bytearr()."
+#  error "Unaligned accesses in expand_then_subset_bytearr()."
 #endif
         compact_read_word = *compact_bitarr_iter++;
         tmp_compact_read_word |= compact_read_word << (kBitsPerWord - read_idx_lowbits);
@@ -1049,10 +1051,10 @@ void expand_then_subset_bytearr(const unsigned char* __restrict compact_bitarr, 
   }
 }
 
-void expand_bytearr_nested(const unsigned char* __restrict compact_bitarr, const uintptr_t* __restrict mid_bitarr, const uintptr_t* __restrict top_expand_mask, uint32_t word_ct, uint32_t mid_popcount, uint32_t mid_start_bit, uintptr_t* __restrict mid_target, uintptr_t* __restrict compact_target) {
+void expand_bytearr_nested(const void* __restrict compact_bitarr, const uintptr_t* __restrict mid_bitarr, const uintptr_t* __restrict top_expand_mask, uint32_t word_ct, uint32_t mid_popcount, uint32_t mid_start_bit, uintptr_t* __restrict mid_target, uintptr_t* __restrict compact_target) {
   fill_ulong_zero(word_ct, mid_target);
   fill_ulong_zero(word_ct, compact_target);
-  const uintptr_t* compact_bitarr_alias = (const uintptr_t*)compact_bitarr;
+  const uintptr_t* compact_bitarr_alias = S_CAST(const uintptr_t*, compact_bitarr);
   const uint32_t mid_popcount_m1 = mid_popcount - 1;
   const uint32_t compact_widx_last = mid_popcount_m1 / kBitsPerWord;
   uint32_t mid_idx = mid_start_bit;
@@ -1071,7 +1073,7 @@ void expand_bytearr_nested(const unsigned char* __restrict compact_bitarr, const
       compact_word = partial_word_load(&(compact_bitarr_alias[compact_widx]), DIV_UP(loop_len, CHAR_BIT));
     } else {
 #ifdef __arm__
-  #error "Unaligned accesses in expand_bytearr_nested()."
+#  error "Unaligned accesses in expand_bytearr_nested()."
 #endif
       compact_word = compact_bitarr_alias[compact_widx];
     }
@@ -1090,12 +1092,12 @@ void expand_bytearr_nested(const unsigned char* __restrict compact_bitarr, const
   }
 }
 
-void expand_then_subset_bytearr_nested(const unsigned char* __restrict compact_bitarr, const uintptr_t* __restrict mid_bitarr, const uintptr_t* __restrict top_expand_mask, const uintptr_t* __restrict subset_mask, uint32_t subset_size, uint32_t mid_popcount, uint32_t mid_start_bit, uintptr_t* __restrict mid_target, uintptr_t* __restrict compact_target) {
+void expand_then_subset_bytearr_nested(const void* __restrict compact_bitarr, const uintptr_t* __restrict mid_bitarr, const uintptr_t* __restrict top_expand_mask, const uintptr_t* __restrict subset_mask, uint32_t subset_size, uint32_t mid_popcount, uint32_t mid_start_bit, uintptr_t* __restrict mid_target, uintptr_t* __restrict compact_target) {
   assert(mid_popcount);
   const uint32_t leading_byte_ct = 1 + ((mid_popcount - 1) % kBitsPerWord) / CHAR_BIT;
   uint32_t compact_idx_lowbits = CHAR_BIT * (sizeof(intptr_t) - leading_byte_ct);
   uintptr_t compact_read_word = partial_word_load(compact_bitarr, leading_byte_ct) << compact_idx_lowbits;
-  const uintptr_t* compact_bitarr_iter = (const uintptr_t*)(&(compact_bitarr[leading_byte_ct]));
+  const uintptr_t* compact_bitarr_iter = R_CAST(const uintptr_t*, &(S_CAST(const unsigned char*, compact_bitarr)[leading_byte_ct]));
   const uint32_t subset_sizel = BITCT_TO_WORDCT(subset_size);
   const uint32_t subset_size_lowbits = subset_size % kBitsPerWord;
   const uintptr_t* mid_read_iter = mid_bitarr;
@@ -1139,7 +1141,7 @@ void expand_then_subset_bytearr_nested(const unsigned char* __restrict compact_b
             compact_idx_lowbits = compact_idx_lowbits_end;
           } else {
 #ifdef __arm__
-  #error "Unaligned accesses in expand_then_subset_bytearr_nested()."
+#  error "Unaligned accesses in expand_then_subset_bytearr_nested()."
 #endif
             compact_read_word = *compact_bitarr_iter++;
             tmp_compact_read_word |= compact_read_word << (kBitsPerWord - compact_idx_lowbits);
@@ -1197,7 +1199,7 @@ void expand_then_subset_bytearr_nested(const unsigned char* __restrict compact_b
 }
 #endif
 uintptr_t popcount_bytes(const unsigned char* bitarr, uintptr_t byte_ct) {
-  const uint32_t lead_byte_ct = ((uintptr_t)(-((uintptr_t)bitarr))) % kBytesPerVec;
+  const uint32_t lead_byte_ct = (-R_CAST(uintptr_t, bitarr)) % kBytesPerVec;
   uintptr_t tot = 0;
   const uintptr_t* bitarr_iter;
   uint32_t trail_byte_ct;
@@ -1208,23 +1210,23 @@ uintptr_t popcount_bytes(const unsigned char* bitarr, uintptr_t byte_ct) {
     if (word_rem) {
       tot = popcount_long(nonfull_word_load(bitarr, word_rem));
     }
-    bitarr_iter = (const uintptr_t*)(&(bitarr[word_rem]));
+    bitarr_iter = R_CAST(const uintptr_t*, &(bitarr[word_rem]));
     if (lead_byte_ct >= kBytesPerWord) {
       tot += popcount_long(*bitarr_iter++);
-  #ifdef USE_AVX2
+#  ifdef USE_AVX2
       if (lead_byte_ct >= 2 * kBytesPerWord) {
         tot += popcount_long(*bitarr_iter++);
         if (lead_byte_ct >= 3 * kBytesPerWord) {
           tot += popcount_long(*bitarr_iter++);
         }
       }
-  #endif
+#  endif
     }
 #else
     if (lead_byte_ct) {
       tot = popcount_long(nonfull_word_load(bitarr, lead_byte_ct));
     }
-    bitarr_iter = (const uintptr_t*)(&(bitarr[lead_byte_ct]));
+    bitarr_iter = R_CAST(const uintptr_t*, &(bitarr[lead_byte_ct]));
 #endif
     byte_ct -= lead_byte_ct;
     const uintptr_t word_ct = byte_ct / kBytesPerWord;
@@ -1233,9 +1235,9 @@ uintptr_t popcount_bytes(const unsigned char* bitarr, uintptr_t byte_ct) {
     bitarr_iter = &(bitarr_iter[word_ct]);
     trail_byte_ct = byte_ct % kBytesPerWord;
   } else {
-    bitarr_iter = (const uintptr_t*)bitarr;
+    bitarr_iter = R_CAST(const uintptr_t*, bitarr);
     // this may still be >= kBytesPerWord, so can't remove loop
-    trail_byte_ct = (uint32_t)byte_ct;
+    trail_byte_ct = S_CAST(uint32_t, byte_ct);
   }
   while (1) {
     uintptr_t cur_word;
@@ -1257,7 +1259,7 @@ uintptr_t popcount_bytes_masked(const unsigned char* bitarr, const uintptr_t* ma
   // could detect aligned case, but that shouldn't happen often enough?
   const uintptr_t word_ct = byte_ct / kBytesPerWord;
 #ifdef USE_SSE42
-  const uintptr_t* bitarr_alias = (const uintptr_t*)bitarr;
+  const uintptr_t* bitarr_alias = R_CAST(const uintptr_t*, bitarr);
   uintptr_t tot = 0;
   for (uintptr_t widx = 0; widx < word_ct; ++widx) {
     tot += popcount_long(bitarr_alias[widx] & mask_arr[widx]);
@@ -1269,7 +1271,7 @@ uintptr_t popcount_bytes_masked(const unsigned char* bitarr, const uintptr_t* ma
   }
   return tot;
 #else
-  const uintptr_t* bitarr_iter = (const uintptr_t*)bitarr;
+  const uintptr_t* bitarr_iter = R_CAST(const uintptr_t*, bitarr);
   const uintptr_t mainblock_word_ct = word_ct - (word_ct % (24 / kBytesPerWord));
   const uintptr_t* bitarr_24b_end = &(bitarr_iter[mainblock_word_ct]);
   const uintptr_t* mask_arr_iter = mask_arr;
@@ -1286,7 +1288,7 @@ uintptr_t popcount_bytes_masked(const unsigned char* bitarr, const uintptr_t* ma
     ulii += (uljj & kMask3333) + ((uljj >> 2) & kMask3333);
     uintptr_t tmp_stor = (ulii & kMask0F0F) + ((ulii >> 4) & kMask0F0F);
 
-  #ifndef __LP64__
+#  ifndef __LP64__
     loader = (*bitarr_iter++) & (*mask_arr_iter++);
     ulii = loader - ((loader >> 1) & kMask5555);
     loader = (*bitarr_iter++) & (*mask_arr_iter++);
@@ -1297,7 +1299,7 @@ uintptr_t popcount_bytes_masked(const unsigned char* bitarr, const uintptr_t* ma
     ulii = (ulii & kMask3333) + ((ulii >> 2) & kMask3333);
     ulii += (uljj & kMask3333) + ((uljj >> 2) & kMask3333);
     tmp_stor += (ulii & kMask0F0F) + ((ulii >> 4) & kMask0F0F);
-  #endif
+#  endif
 
     // 32-bit case: each 8-bit slot stores a number in 0..48.  Multiplying by
     // 0x01010101 is equivalent to the left-shifts and adds we need to sum
@@ -1305,7 +1307,7 @@ uintptr_t popcount_bytes_masked(const unsigned char* bitarr, const uintptr_t* ma
     // 64-bit case: each 8-bit slot stores a number in 0..24.
     tot += (tmp_stor * kMask0101) >> (kBitsPerWord - 8);
   }
-  uint32_t trail_byte_ct = (uint32_t)(byte_ct - (mainblock_word_ct * kBytesPerWord));
+  uint32_t trail_byte_ct = S_CAST(uint32_t, byte_ct - (mainblock_word_ct * kBytesPerWord));
   while (1) {
     uintptr_t cur_word;
     if (trail_byte_ct < kBytesPerWord) {
@@ -1342,43 +1344,43 @@ void uidxs_to_idxs(const uintptr_t* subset_mask, const uint32_t* subset_cumulati
 }
 
 
-static_assert(kPglBitTransposeBatch == ((uint32_t)kBitsPerCacheline), "transpose_bitblock_internal() needs to be updated.");
+static_assert(kPglBitTransposeBatch == S_CAST(uint32_t, kBitsPerCacheline), "transpose_bitblock_internal() needs to be updated.");
 #ifdef __LP64__
-  #ifdef USE_AVX2
-void transpose_bitblock_internal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, unsigned char* __restrict buf0) {
+#  ifdef USE_AVX2
+void transpose_bitblock_internal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, void* buf0) {
   // buf must be vector-aligned and have space for 512 bytes
   const uint32_t block_ct = DIV_UP(write_batch_size, CHAR_BIT);
   // fold the first 6 shuffles into the initial ingestion loop
   const uint32_t read_byte_stride = read_ul_stride * kBytesPerWord;
   const uint32_t write_ui_stride = 2 * write_ul_stride;
   const uint32_t read_batch_rem = kBitsPerCacheline - read_batch_size;
-  uint32_t* target_iter0 = (uint32_t*)write_iter;
+  uint32_t* target_iter0 = R_CAST(uint32_t*, write_iter);
   const uint32_t full_block_ct = write_batch_size / 8;
   const uint32_t loop_vec_ct = 4 * DIV_UP(read_batch_size, 2 * kBitsPerWord);
   for (uint32_t block_idx = 0; block_idx < block_ct; ++block_idx) {
-    const unsigned char* read_iter_tmp = (const unsigned char*)read_iter;
+    const unsigned char* read_iter_tmp = R_CAST(const unsigned char*, read_iter);
     read_iter_tmp = &(read_iter_tmp[block_idx]);
-    unsigned char* initial_target_iter = buf0;
+    unsigned char* initial_target_iter = S_CAST(unsigned char*, buf0);
     for (uint32_t ujj = 0; ujj < read_batch_size; ++ujj) {
       *initial_target_iter++ = *read_iter_tmp;
       read_iter_tmp = &(read_iter_tmp[read_byte_stride]);
     }
     memset(initial_target_iter, 0, read_batch_rem);
-    const vul_t* source_iter = (vul_t*)buf0;
+    const __m256i* source_iter = S_CAST(__m256i*, buf0);
     if (block_idx == full_block_ct) {
       const uint32_t remainder = write_batch_size % 8;
       const uint32_t remainder_from8 = 8 - remainder;
       const uint32_t remainder_m1 = remainder - 1;
       for (uint32_t vec_idx = 0; vec_idx < loop_vec_ct; ++vec_idx) {
-        vul_t loader = *source_iter++;
-        loader = vul_lshift(loader, remainder_from8);
+        __m256i loader = *source_iter++;
+        loader = _mm256_slli_epi64(loader, remainder_from8);
         uint32_t write_idx_lowbits = remainder_m1;
         while (1) {
-          target_iter0[write_ui_stride * write_idx_lowbits] = (uint32_t)_mm256_movemask_epi8((__m256i)loader);
+          target_iter0[write_ui_stride * write_idx_lowbits] = _mm256_movemask_epi8(loader);
           if (!write_idx_lowbits) {
             break;
           }
-          loader = vul_lshift(loader, 1);
+          loader = _mm256_slli_epi64(loader, 1);
           --write_idx_lowbits;
         }
         ++target_iter0;
@@ -1394,61 +1396,61 @@ void transpose_bitblock_internal(const uintptr_t* read_iter, uint32_t read_ul_st
     uint32_t* target_iter6 = &(target_iter5[write_ui_stride]);
     uint32_t* target_iter7 = &(target_iter6[write_ui_stride]);
     for (uint32_t vec_idx = 0; vec_idx < loop_vec_ct; ++vec_idx) {
-      vul_t loader = source_iter[vec_idx];
-      target_iter7[vec_idx] = _mm256_movemask_epi8((__m256i)loader);
-      loader = vul_lshift(loader, 1);
-      target_iter6[vec_idx] = _mm256_movemask_epi8((__m256i)loader);
-      loader = vul_lshift(loader, 1);
-      target_iter5[vec_idx] = _mm256_movemask_epi8((__m256i)loader);
-      loader = vul_lshift(loader, 1);
-      target_iter4[vec_idx] = _mm256_movemask_epi8((__m256i)loader);
-      loader = vul_lshift(loader, 1);
-      target_iter3[vec_idx] = _mm256_movemask_epi8((__m256i)loader);
-      loader = vul_lshift(loader, 1);
-      target_iter2[vec_idx] = _mm256_movemask_epi8((__m256i)loader);
-      loader = vul_lshift(loader, 1);
-      target_iter1[vec_idx] = _mm256_movemask_epi8((__m256i)loader);
-      loader = vul_lshift(loader, 1);
-      target_iter0[vec_idx] = _mm256_movemask_epi8((__m256i)loader);
+      __m256i loader = source_iter[vec_idx];
+      target_iter7[vec_idx] = _mm256_movemask_epi8(loader);
+      loader = _mm256_slli_epi64(loader, 1);
+      target_iter6[vec_idx] = _mm256_movemask_epi8(loader);
+      loader = _mm256_slli_epi64(loader, 1);
+      target_iter5[vec_idx] = _mm256_movemask_epi8(loader);
+      loader = _mm256_slli_epi64(loader, 1);
+      target_iter4[vec_idx] = _mm256_movemask_epi8(loader);
+      loader = _mm256_slli_epi64(loader, 1);
+      target_iter3[vec_idx] = _mm256_movemask_epi8(loader);
+      loader = _mm256_slli_epi64(loader, 1);
+      target_iter2[vec_idx] = _mm256_movemask_epi8(loader);
+      loader = _mm256_slli_epi64(loader, 1);
+      target_iter1[vec_idx] = _mm256_movemask_epi8(loader);
+      loader = _mm256_slli_epi64(loader, 1);
+      target_iter0[vec_idx] = _mm256_movemask_epi8(loader);
     }
     target_iter0 = &(target_iter7[write_ui_stride]);
   }
 }
-  #else // !USE_AVX2
-void transpose_bitblock_internal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, unsigned char* __restrict buf0) {
+#  else // !USE_AVX2
+void transpose_bitblock_internal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, void* buf0) {
   // buf must be vector-aligned and have space for 512 bytes
   const uint32_t block_ct = DIV_UP(write_batch_size, CHAR_BIT);
   // fold the first 6 shuffles into the initial ingestion loop
   const uint32_t read_byte_stride = read_ul_stride * kBytesPerWord;
   const uint32_t write_us_stride = 4 * write_ul_stride;
   const uint32_t read_batch_rem = kBitsPerCacheline - read_batch_size;
-  uint16_t* target_iter0 = (uint16_t*)write_iter;
+  uint16_t* target_iter0 = R_CAST(uint16_t*, write_iter);
   const uint32_t full_block_ct = write_batch_size / 8;
   const uint32_t loop_vec_ct = 4 * BITCT_TO_WORDCT(read_batch_size);
   for (uint32_t block_idx = 0; block_idx < block_ct; ++block_idx) {
-    const unsigned char* read_iter_tmp = (const unsigned char*)read_iter;
+    const unsigned char* read_iter_tmp = R_CAST(const unsigned char*, read_iter);
     read_iter_tmp = &(read_iter_tmp[block_idx]);
-    unsigned char* initial_target_iter = buf0;
+    unsigned char* initial_target_iter = S_CAST(unsigned char*, buf0);
     for (uint32_t ujj = 0; ujj < read_batch_size; ++ujj) {
       *initial_target_iter++ = *read_iter_tmp;
       read_iter_tmp = &(read_iter_tmp[read_byte_stride]);
     }
     memset(initial_target_iter, 0, read_batch_rem);
-    const vul_t* source_iter = (vul_t*)buf0;
+    const __m128i* source_iter = S_CAST(__m128i*, buf0);
     if (block_idx == full_block_ct) {
       const uint32_t remainder = write_batch_size % 8;
       const uint32_t remainder_from8 = 8 - remainder;
       const uint32_t remainder_m1 = remainder - 1;
       for (uint32_t vec_idx = 0; vec_idx < loop_vec_ct; ++vec_idx) {
-        vul_t loader = *source_iter++;
-        loader = vul_lshift(loader, remainder_from8);
+        __m128i loader = *source_iter++;
+        loader = _mm_slli_epi64(loader, remainder_from8);
         uint32_t write_idx_lowbits = remainder_m1;
         while (1) {
-          target_iter0[write_us_stride * write_idx_lowbits] = (uint32_t)_mm_movemask_epi8((__m128i)loader);
+          target_iter0[write_us_stride * write_idx_lowbits] = _mm_movemask_epi8(loader);
           if (!write_idx_lowbits) {
             break;
           }
-          loader = vul_lshift(loader, 1);
+          loader = _mm_slli_epi64(loader, 1);
           --write_idx_lowbits;
         }
         ++target_iter0;
@@ -1463,36 +1465,36 @@ void transpose_bitblock_internal(const uintptr_t* read_iter, uint32_t read_ul_st
     uint16_t* target_iter6 = &(target_iter5[write_us_stride]);
     uint16_t* target_iter7 = &(target_iter6[write_us_stride]);
     for (uint32_t vec_idx = 0; vec_idx < loop_vec_ct; ++vec_idx) {
-      vul_t loader = source_iter[vec_idx];
-      target_iter7[vec_idx] = (uint32_t)_mm_movemask_epi8((__m128i)loader);
-      loader = vul_lshift(loader, 1);
-      target_iter6[vec_idx] = (uint32_t)_mm_movemask_epi8((__m128i)loader);
-      loader = vul_lshift(loader, 1);
-      target_iter5[vec_idx] = (uint32_t)_mm_movemask_epi8((__m128i)loader);
-      loader = vul_lshift(loader, 1);
-      target_iter4[vec_idx] = (uint32_t)_mm_movemask_epi8((__m128i)loader);
-      loader = vul_lshift(loader, 1);
-      target_iter3[vec_idx] = (uint32_t)_mm_movemask_epi8((__m128i)loader);
-      loader = vul_lshift(loader, 1);
-      target_iter2[vec_idx] = (uint32_t)_mm_movemask_epi8((__m128i)loader);
-      loader = vul_lshift(loader, 1);
-      target_iter1[vec_idx] = (uint32_t)_mm_movemask_epi8((__m128i)loader);
-      loader = vul_lshift(loader, 1);
-      target_iter0[vec_idx] = (uint32_t)_mm_movemask_epi8((__m128i)loader);
+      __m128i loader = source_iter[vec_idx];
+      target_iter7[vec_idx] = _mm_movemask_epi8(loader);
+      loader = _mm_slli_epi64(loader, 1);
+      target_iter6[vec_idx] = _mm_movemask_epi8(loader);
+      loader = _mm_slli_epi64(loader, 1);
+      target_iter5[vec_idx] = _mm_movemask_epi8(loader);
+      loader = _mm_slli_epi64(loader, 1);
+      target_iter4[vec_idx] = _mm_movemask_epi8(loader);
+      loader = _mm_slli_epi64(loader, 1);
+      target_iter3[vec_idx] = _mm_movemask_epi8(loader);
+      loader = _mm_slli_epi64(loader, 1);
+      target_iter2[vec_idx] = _mm_movemask_epi8(loader);
+      loader = _mm_slli_epi64(loader, 1);
+      target_iter1[vec_idx] = _mm_movemask_epi8(loader);
+      loader = _mm_slli_epi64(loader, 1);
+      target_iter0[vec_idx] = _mm_movemask_epi8(loader);
     }
     target_iter0 = &(target_iter7[write_us_stride]);
   }
 }
-  #endif
+#  endif
 #else // !__LP64__
 static_assert(kWordsPerVec == 1, "transpose_bitblock_internal() needs to be updated.");
-void transpose_bitblock_internal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, unsigned char* __restrict buf0, unsigned char* __restrict buf1) {
+void transpose_bitblock_internal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, vul_t* __restrict buf0, vul_t* __restrict buf1) {
   // buf must be vector-aligned and have size 64k
   const uint32_t initial_read_byte_ct = DIV_UP(write_batch_size, CHAR_BIT);
   // fold the first 6 shuffles into the initial ingestion loop
-  const unsigned char* initial_read_iter = (const unsigned char*)read_iter;
+  const unsigned char* initial_read_iter = R_CAST(const unsigned char*, read_iter);
   const unsigned char* initial_read_end = &(initial_read_iter[initial_read_byte_ct]);
-  unsigned char* initial_target_iter = buf0;
+  unsigned char* initial_target_iter = R_CAST(unsigned char*, buf0);
   const uint32_t read_byte_stride = read_ul_stride * kBytesPerWord;
   const uint32_t read_batch_rem = kBitsPerCacheline - read_batch_size;
   for (; initial_read_iter < initial_read_end; ++initial_read_iter) {
@@ -1501,12 +1503,12 @@ void transpose_bitblock_internal(const uintptr_t* read_iter, uint32_t read_ul_st
       *initial_target_iter++ = *read_iter_tmp;
       read_iter_tmp = &(read_iter_tmp[read_byte_stride]);
     }
-    initial_target_iter = memseta(initial_target_iter, 0, read_batch_rem);
+    initial_target_iter = R_CAST(unsigned char*, memseta(initial_target_iter, 0, read_batch_rem));
   }
 
   // third-to-last shuffle, 8 bit spacing -> 4
-  const vul_t* source_iter = (vul_t*)buf0;
-  uintptr_t* target_iter0 = (uintptr_t*)buf1;
+  const vul_t* source_iter = buf0;
+  uintptr_t* target_iter0 = buf1;
   const uint32_t write_word_ct = BITCT_TO_WORDCT(read_batch_size);
   const uint32_t first_inner_loop_iter_ct = 4 * write_word_ct;
   uint32_t cur_write_skip = 4 * kWordsPerCacheline - first_inner_loop_iter_ct;
@@ -1515,8 +1517,8 @@ void transpose_bitblock_internal(const uintptr_t* read_iter, uint32_t read_ul_st
   for (uint32_t uii = 0; uii < initial_read_byte_ct; ++uii) {
     uintptr_t* target_iter1 = &(target_iter0[kWordsPerCacheline * 4]);
     for (uint32_t ujj = 0; ujj < first_inner_loop_iter_ct; ++ujj) {
-      const uintptr_t source_word_lo = (uintptr_t)(*source_iter++);
-      const uintptr_t source_word_hi = (uintptr_t)(*source_iter++);
+      const uintptr_t source_word_lo = *source_iter++;
+      const uintptr_t source_word_hi = *source_iter++;
       uintptr_t target_word0_lo = source_word_lo & kMask0F0F;
       uintptr_t target_word1_lo = (source_word_lo >> 4) & kMask0F0F;
       uintptr_t target_word0_hi = source_word_hi & kMask0F0F;
@@ -1529,24 +1531,24 @@ void transpose_bitblock_internal(const uintptr_t* read_iter, uint32_t read_ul_st
       target_word1_lo = target_word1_lo | (target_word1_lo >> kBitsPerWordD4);
       target_word0_hi = target_word0_hi | (target_word0_hi >> kBitsPerWordD4);
       target_word1_hi = target_word1_hi | (target_word1_hi >> kBitsPerWordD4);
-      *target_iter0++ = ((halfword_t)target_word0_lo) | (target_word0_hi << kBitsPerWordD2);
-      *target_iter1++ = ((halfword_t)target_word1_lo) | (target_word1_hi << kBitsPerWordD2);
+      *target_iter0++ = S_CAST(halfword_t, target_word0_lo) | (target_word0_hi << kBitsPerWordD2);
+      *target_iter1++ = S_CAST(halfword_t, target_word1_lo) | (target_word1_hi << kBitsPerWordD2);
     }
     source_iter = &(source_iter[2 * cur_write_skip]);
     target_iter0 = &(target_iter1[cur_write_skip]);
   }
 
   // second-to-last shuffle, 4 bit spacing -> 2
-  source_iter = (vul_t*)buf1;
-  target_iter0 = (uintptr_t*)buf0;
+  source_iter = buf1;
+  target_iter0 = buf0;
   const uint32_t second_outer_loop_iter_ct = DIV_UP(write_batch_size, 4);
   const uint32_t second_inner_loop_iter_ct = 2 * write_word_ct;
   cur_write_skip = 2 * kWordsPerCacheline - second_inner_loop_iter_ct;
   for (uint32_t uii = 0; uii < second_outer_loop_iter_ct; ++uii) {
     uintptr_t* target_iter1 = &(target_iter0[kWordsPerCacheline * 2]);
     for (uint32_t ujj = 0; ujj < second_inner_loop_iter_ct; ++ujj) {
-      const uintptr_t source_word_lo = (uintptr_t)(*source_iter++);
-      const uintptr_t source_word_hi = (uintptr_t)(*source_iter++);
+      const uintptr_t source_word_lo = *source_iter++;
+      const uintptr_t source_word_hi = *source_iter++;
       uintptr_t target_word0_lo = source_word_lo & kMask3333;
       uintptr_t target_word1_lo = (source_word_lo >> 2) & kMask3333;
       uintptr_t target_word0_hi = source_word_hi & kMask3333;
@@ -1563,21 +1565,21 @@ void transpose_bitblock_internal(const uintptr_t* read_iter, uint32_t read_ul_st
       target_word1_lo = target_word1_lo | (target_word1_lo >> kBitsPerWordD4);
       target_word0_hi = target_word0_hi | (target_word0_hi >> kBitsPerWordD4);
       target_word1_hi = target_word1_hi | (target_word1_hi >> kBitsPerWordD4);
-      *target_iter0++ = ((halfword_t)target_word0_lo) | (target_word0_hi << kBitsPerWordD2);
-      *target_iter1++ = ((halfword_t)target_word1_lo) | (target_word1_hi << kBitsPerWordD2);
+      *target_iter0++ = S_CAST(halfword_t, target_word0_lo) | (target_word0_hi << kBitsPerWordD2);
+      *target_iter1++ = S_CAST(halfword_t, target_word1_lo) | (target_word1_hi << kBitsPerWordD2);
     }
     source_iter = &(source_iter[2 * cur_write_skip]);
     target_iter0 = &(target_iter1[cur_write_skip]);
   }
   // last shuffle, 2 bit spacing -> 1
-  source_iter = (vul_t*)buf0;
+  source_iter = buf0;
   target_iter0 = write_iter;
   const uint32_t last_loop_iter_ct = DIV_UP(write_batch_size, 2);
   for (uint32_t uii = 0; uii < last_loop_iter_ct; ++uii) {
     uintptr_t* target_iter1 = &(target_iter0[write_ul_stride]);
     for (uint32_t ujj = 0; ujj < write_word_ct; ++ujj) {
-      const uintptr_t source_word_lo = (uintptr_t)(*source_iter++);
-      const uintptr_t source_word_hi = (uintptr_t)(*source_iter++);
+      const uintptr_t source_word_lo = S_CAST(uintptr_t, *source_iter++);
+      const uintptr_t source_word_hi = S_CAST(uintptr_t, *source_iter++);
       uintptr_t target_word0_lo = source_word_lo & kMask5555;
       uintptr_t target_word1_lo = (source_word_lo >> 1) & kMask5555;
       uintptr_t target_word0_hi = source_word_hi & kMask5555;
@@ -1598,8 +1600,8 @@ void transpose_bitblock_internal(const uintptr_t* read_iter, uint32_t read_ul_st
       target_word1_lo = target_word1_lo | (target_word1_lo >> kBitsPerWordD4);
       target_word0_hi = target_word0_hi | (target_word0_hi >> kBitsPerWordD4);
       target_word1_hi = target_word1_hi | (target_word1_hi >> kBitsPerWordD4);
-      target_iter0[ujj] = ((halfword_t)target_word0_lo) | (target_word0_hi << kBitsPerWordD2);
-      target_iter1[ujj] = ((halfword_t)target_word1_lo) | (target_word1_hi << kBitsPerWordD2);
+      target_iter0[ujj] = S_CAST(halfword_t, target_word0_lo) | (target_word0_hi << kBitsPerWordD2);
+      target_iter1[ujj] = S_CAST(halfword_t, target_word1_lo) | (target_word1_hi << kBitsPerWordD2);
     }
     source_iter = &(source_iter[2 * (kWordsPerCacheline - write_word_ct)]);
     target_iter0 = &(target_iter1[write_ul_stride]);

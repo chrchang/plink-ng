@@ -83,7 +83,7 @@ pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const
   pglerr_t reterr = kPglRetSuccess;
   cswrite_init_null(&css);
   {
-    adj_assoc_result_t* sortbuf = (adj_assoc_result_t*)bigstack_alloc(orig_variant_ct * sizeof(adj_assoc_result_t));
+    adj_assoc_result_t* sortbuf = S_CAST(adj_assoc_result_t*, bigstack_alloc(orig_variant_ct * sizeof(adj_assoc_result_t)));
     if (!sortbuf) {
       goto multcomp_ret_NOMEM;
     }
@@ -135,7 +135,7 @@ pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const
     const uintptr_t overflow_buf_size = kCompressStreamBlock + 2 * kMaxIdSlen + 256 + 2 * max_allele_slen;
     const adjust_flags_t flags = adjust_info_ptr->flags;
     const uint32_t output_zst = flags & kfAdjustZs;
-    strcpy(outname_end, output_zst? ".adjusted.zst" : ".adjusted");
+    outname_zst_set(".adjusted", output_zst, outname_end);
     reterr = cswrite_init2(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
     if (reterr) {
       goto multcomp_ret_1;
@@ -248,12 +248,12 @@ pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const
     }
 
     const uint32_t valid_variant_ct_m1 = valid_variant_ct - 1;
-    const double valid_variant_ctd = (double)((int32_t)valid_variant_ct);
+    const double valid_variant_ctd = u31tod(valid_variant_ct);
     double bh_pval_min = sorted_pvals[valid_variant_ct_m1];
     pv_bh[valid_variant_ct_m1] = bh_pval_min;
     double harmonic_sum = 1.0;
     for (uint32_t vidx = valid_variant_ct_m1; vidx; --vidx) {
-      const double harmonic_term = valid_variant_ctd / ((double)((int32_t)vidx));
+      const double harmonic_term = valid_variant_ctd / u31tod(vidx);
       harmonic_sum += harmonic_term;
       const double bh_pval = harmonic_term * sorted_pvals[vidx - 1];
       if (bh_pval_min > bh_pval) {
@@ -270,7 +270,7 @@ pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const
       }
       pv_by[valid_variant_ct_m1] = by_pval_min;
       for (uint32_t vidx = valid_variant_ct_m1; vidx; --vidx) {
-        double by_pval = (harmonic_sum / ((double)((int32_t)vidx))) * sorted_pvals[vidx - 1];
+        double by_pval = (harmonic_sum / u31tod(vidx)) * sorted_pvals[vidx - 1];
         if (by_pval_min > by_pval) {
           by_pval_min = by_pval;
         }
@@ -283,10 +283,10 @@ pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const
     uint32_t output_min_p_slen;
     if (!is_log10) {
       char* str_end = dtoa_g(output_min_p, output_min_p_buf);
-      output_min_p_slen = (uintptr_t)(str_end - output_min_p_buf);
+      output_min_p_slen = str_end - output_min_p_buf;
     } else if (output_min_p > 0.0) {
       char* str_end = dtoa_g(-log10(output_min_p), output_min_p_buf);
-      output_min_p_slen = (uintptr_t)(str_end - output_min_p_buf);
+      output_min_p_slen = str_end - output_min_p_buf;
     } else {
       memcpyl3(output_min_p_buf, "inf");
       output_min_p_slen = 3;
@@ -345,7 +345,7 @@ pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const
       }
       if (qq_col) {
         *cswritep++ = '\t';
-        cswritep = dtoa_g((((double)((int32_t)vidx)) + 0.5) * valid_variant_ct_recip, cswritep);
+        cswritep = dtoa_g((u31tod(vidx) + 0.5) * valid_variant_ct_recip, cswritep);
       }
       if (bonf_col) {
         const double bonf_pval = MINV(pval * valid_variant_ctd, 1.0);
@@ -353,7 +353,7 @@ pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const
       }
       if (holm_col) {
         if (pv_holm < 1.0) {
-          const double pv_holm_new = (double)((int32_t)(valid_variant_ct - vidx)) * pval;
+          const double pv_holm_new = u31tod(valid_variant_ct - vidx) * pval;
           if (pv_holm_new > 1.0) {
             pv_holm = 1.0;
           } else if (pv_holm < pv_holm_new) {
@@ -377,9 +377,9 @@ pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const
       if (sidaksd_col) {
         double pv_sidak_sd_new;
         if (pval >= 0.0078125) {
-          pv_sidak_sd_new = 1 - pow(1 - pval, valid_variant_ctd - ((double)((int32_t)vidx)));
+          pv_sidak_sd_new = 1 - pow(1 - pval, valid_variant_ctd - u31tod(vidx));
         } else {
-          const double cur_exp = valid_variant_ctd - (double)((int32_t)vidx);
+          const double cur_exp = valid_variant_ctd - u31tod(vidx);
           pv_sidak_sd_new = 1 - exp(cur_exp * log1p(-pval));
         }
         if (pv_sidak_sd < pv_sidak_sd_new) {
@@ -444,7 +444,7 @@ pglerr_t adjust_file(__maybe_unused const adjust_file_info_t* afip, __maybe_unus
     } else {
       goto adjust_file_ret_NOMEM;
     }
-    char* loadbuf = (char*)bigstack_end_alloc_raw(loadbuf_size);
+    char* loadbuf = S_CAST(char*, bigstack_end_alloc_raw(loadbuf_size));
     loadbuf[loadbuf_size - 1] = ' ';
 
     char* loadbuf_first_token;
@@ -649,7 +649,7 @@ pglerr_t adjust_file(__maybe_unused const adjust_file_info_t* afip, __maybe_unus
         const uint32_t cur_colidx = col_types[relevant_col_idx];
         token_ptrs[cur_colidx] = loadbuf_iter;
         const char* token_end = token_endnn(loadbuf_iter);
-        token_slens[cur_colidx] = (uintptr_t)(token_end - loadbuf_iter);
+        token_slens[cur_colidx] = token_end - loadbuf_iter;
         loadbuf_iter = token_end;
       }
       if (test_name) {
@@ -659,10 +659,10 @@ pglerr_t adjust_file(__maybe_unused const adjust_file_info_t* afip, __maybe_unus
       }
       if (chr_ids) {
         const uint32_t cur_slen = token_slens[0];
-        if (cur_slen >= ((uintptr_t)(tmp_alloc_end - tmp_alloc_base))) {
+        if (cur_slen >= S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base)) {
           goto adjust_file_ret_NOMEM;
         }
-        chr_ids[variant_idx] = (char*)tmp_alloc_base;
+        chr_ids[variant_idx] = R_CAST(char*, tmp_alloc_base);
         memcpyx(tmp_alloc_base, token_ptrs[0], cur_slen, '\0');
         tmp_alloc_base = &(tmp_alloc_base[cur_slen + 1]);
       }
@@ -673,18 +673,18 @@ pglerr_t adjust_file(__maybe_unused const adjust_file_info_t* afip, __maybe_unus
         }
       }
       const uint32_t id_slen = token_slens[2];
-      if (id_slen >= ((uintptr_t)(tmp_alloc_end - tmp_alloc_base))) {
+      if (id_slen >= S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base)) {
         goto adjust_file_ret_NOMEM;
       }
-      variant_ids[variant_idx] = (char*)tmp_alloc_base;
+      variant_ids[variant_idx] = R_CAST(char*, tmp_alloc_base);
       memcpyx(tmp_alloc_base, token_ptrs[2], id_slen, '\0');
       tmp_alloc_base = &(tmp_alloc_base[id_slen + 1]);
       if (need_ref) {
         const uint32_t cur_slen = token_slens[3];
-        if (cur_slen >= ((uintptr_t)(tmp_alloc_end - tmp_alloc_base))) {
+        if (cur_slen >= S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base)) {
           goto adjust_file_ret_NOMEM;
         }
-        allele_storage[2 * variant_idx] = (char*)tmp_alloc_base;
+        allele_storage[2 * variant_idx] = R_CAST(char*, tmp_alloc_base);
         memcpyx(tmp_alloc_base, token_ptrs[3], cur_slen, '\0');
         tmp_alloc_base = &(tmp_alloc_base[cur_slen + 1]);
       }
@@ -692,15 +692,15 @@ pglerr_t adjust_file(__maybe_unused const adjust_file_info_t* afip, __maybe_unus
         const char* alt_str = token_ptrs[4];
         uint32_t cur_slen = token_slens[4];
         if (alt_comma_truncate) {
-          const char* alt_comma = (const char*)memchr(alt_str, ',', cur_slen);
+          const char* alt_comma = S_CAST(const char*, memchr(alt_str, ',', cur_slen));
           if (alt_comma) {
-            cur_slen = (uintptr_t)(alt_comma - alt_str);
+            cur_slen = alt_comma - alt_str;
           }
         }
-        if (cur_slen >= ((uintptr_t)(tmp_alloc_end - tmp_alloc_base))) {
+        if (cur_slen >= S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base)) {
           goto adjust_file_ret_NOMEM;
         }
-        allele_storage[2 * variant_idx + 1] = (char*)tmp_alloc_base;
+        allele_storage[2 * variant_idx + 1] = R_CAST(char*, tmp_alloc_base);
         memcpyx(tmp_alloc_base, alt_str, cur_slen, '\0');
         tmp_alloc_base = &(tmp_alloc_base[cur_slen + 1]);
       }

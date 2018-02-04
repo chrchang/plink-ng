@@ -76,13 +76,13 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 705
+#define PGENLIB_INTERNAL_VERNUM 706
 
 
 // other configuration-ish values needed by plink2_common subset
 typedef unsigned char alt_allele_ct_t;
 // don't use CONSTU31 for this since it may need the 32nd bit in the future
-#define kPglMaxAltAlleleCt ((uint32_t)((alt_allele_ct_t)(-2)))
+#define kPglMaxAltAlleleCt S_CAST(uint32_t, S_CAST(alt_allele_ct_t, -2))
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -162,16 +162,16 @@ HEADER_INLINE unsigned char* vint32_append(uint32_t uii, unsigned char* buf) {
 // Returns 0x80000000U instead of UINT32_MAX so overflow check works properly
 // in 32-bit build.  Named "get_vint31" to make it more obvious that a 2^31
 // return value can't be legitimate.
-HEADER_INLINE uint32_t get_vint31(const unsigned char* buf_end, const unsigned char** bufpp) {
-  if (buf_end > (*bufpp)) {
-    uint32_t vint32 = *((*bufpp)++);
+HEADER_INLINE uint32_t get_vint31(const unsigned char* buf_end, const unsigned char** buf_iterp) {
+  if (buf_end > (*buf_iterp)) {
+    uint32_t vint32 = *((*buf_iterp)++);
     if (vint32 <= 127) {
       return vint32;
     }
     vint32 &= 127;
     uint32_t shift = 7;
-    while (buf_end > (*bufpp)) {
-      uint32_t uii = *((*bufpp)++);
+    while (buf_end > (*buf_iterp)) {
+      uint32_t uii = *((*buf_iterp)++);
       vint32 |= (uii & 127) << shift;
       if (uii <= 127) {
         return vint32;
@@ -190,14 +190,14 @@ HEADER_INLINE uint32_t get_vint31(const unsigned char* buf_end, const unsigned c
 // justify using this in the main loops and catching SIGSEGV.  (update: using
 // this over get_vint31() provides a ~3% speed advantage for
 // load-and-recompress on the big test dataset.)
-HEADER_INLINE uint32_t get_vint31_unsafe(const unsigned char** bufpp) {
-  uint32_t vint32 = *(*bufpp)++;
+HEADER_INLINE uint32_t get_vint31_unsafe(const unsigned char** buf_iterp) {
+  uint32_t vint32 = *(*buf_iterp)++;
   if (vint32 <= 127) {
     return vint32;
   }
   vint32 &= 127;
   for (uint32_t shift = 7; shift < 32; shift += 7) {
-    uint32_t uii = *(*bufpp)++;
+    uint32_t uii = *(*buf_iterp)++;
     vint32 |= (uii & 127) << shift;
     if (uii <= 127) {
       return vint32;
@@ -206,17 +206,17 @@ HEADER_INLINE uint32_t get_vint31_unsafe(const unsigned char** bufpp) {
   return 0x80000000U;
 }
 
-// Does not update buf_ptr.
-HEADER_INLINE uint32_t peek_vint31(const unsigned char* buf_ptr, const unsigned char* buf_end) {
-  if (buf_end > buf_ptr) {
-    uint32_t vint32 = *buf_ptr++;
+// Does not update buf_iter.
+HEADER_INLINE uint32_t peek_vint31(const unsigned char* buf_iter, const unsigned char* buf_end) {
+  if (buf_end > buf_iter) {
+    uint32_t vint32 = *buf_iter++;
     if (vint32 <= 127) {
       return vint32;
     }
     vint32 &= 127;
     uint32_t shift = 7;
-    while (buf_end > buf_ptr) {
-      uint32_t uii = *buf_ptr++;
+    while (buf_end > buf_iter) {
+      uint32_t uii = *buf_iter++;
       vint32 |= (uii & 127) << shift;
       if (uii <= 127) {
         return vint32;
@@ -264,7 +264,7 @@ CONSTU31(kPglQuaterTransposeWords, kWordsPerCacheline);
 #ifdef USE_AVX2
 CONSTU31(kPglQuaterTransposeBufbytes, kPglQuaterTransposeBatch);
 
-void transpose_quaterblock_avx2(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, unsigned char* __restrict buf0);
+void transpose_quaterblock_avx2(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, void* __restrict buf0);
 #else
 CONSTU31(kPglQuaterTransposeBufbytes, (kPglQuaterTransposeBatch * kPglQuaterTransposeBatch) / 2);
 
@@ -278,9 +278,9 @@ CONSTU31(kPglQuaterTransposeBufwords, kPglQuaterTransposeBufbytes / kBytesPerWor
 HEADER_INLINE void transpose_quaterblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, vul_t* vecaligned_buf) {
 #ifdef USE_AVX2
   // assert(!(write_ul_stride % 2));
-  transpose_quaterblock_avx2(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, (unsigned char*)vecaligned_buf);
+  transpose_quaterblock_avx2(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, vecaligned_buf);
 #else
-  transpose_quaterblock_internal(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, (unsigned char*)vecaligned_buf, &(((unsigned char*)vecaligned_buf)[kPglQuaterTransposeBufbytes / 2]));
+  transpose_quaterblock_internal(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, R_CAST(unsigned char*, vecaligned_buf), &(R_CAST(unsigned char*, vecaligned_buf)[kPglQuaterTransposeBufbytes / 2]));
 #endif
 }
 
@@ -297,17 +297,10 @@ void genovec_to_nonmissingness_unsafe(const uintptr_t* __restrict genovec, uint3
 
 // N.B. assumes trailing bits of loadbuf have been filled with 1s, not 0s
 // Also takes genoarr word count instead of sample count.
-HEADER_INLINE void split_hom_ref2het_unsafew(const uintptr_t* genoarr, uint32_t inword_ct, unsigned char* hom_buf, unsigned char* ref2het_buf) {
-  halfword_t* hom_alias = (halfword_t*)hom_buf;
-  halfword_t* ref2het_alias = (halfword_t*)ref2het_buf;
-  for (uint32_t widx = 0; widx < inword_ct; ++widx) {
-    const uintptr_t geno_word = genoarr[widx];
-    hom_alias[widx] = pack_word_to_halfword(kMask5555 & (~geno_word));
-    ref2het_alias[widx] = pack_word_to_halfword(kMask5555 & (~(geno_word >> 1)));
-  }
-}
+void split_hom_ref2het_unsafew(const uintptr_t* genoarr, uint32_t inword_ct, uintptr_t* __restrict hom_buf, uintptr_t* __restrict ref2het_buf);
 
-void split_hom_ref2het(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t* hom_buf, uintptr_t* ref2het_buf);
+
+void split_hom_ref2het(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t* __restrict hom_buf, uintptr_t* __restrict ref2het_buf);
 
 // ----- end plink2_common subset -----
 
@@ -330,7 +323,7 @@ static const uint32_t kPglMaxBytesPerVariant = 0xfffdffc0U;
 // possible todo: SIGBUS handling?  do we ever want to try to recover from an
 // I/O error?
 #if defined(_WIN32) || !defined(__LP64__)
-  #define NO_MMAP
+#  define NO_MMAP
 #endif
 
 // currently must be power of 2, and multiple of (kBitsPerWord / 2)
@@ -714,12 +707,12 @@ HEADER_INLINE uint64_t get_pgfi_fpos(const pgen_file_info_t* pgfip, uintptr_t vi
   if (pgfip->var_fpos) {
     return pgfip->var_fpos[vidx];
   }
-  return pgfip->const_fpos_offset + pgfip->const_vrec_width * ((uint64_t)vidx);
+  return pgfip->const_fpos_offset + pgfip->const_vrec_width * S_CAST(uint64_t, vidx);
 }
 
 HEADER_INLINE uint32_t get_pgfi_vrec_width(const pgen_file_info_t* pgfip, uint32_t vidx) {
   if (pgfip->var_fpos) {
-    return (uint32_t)(pgfip->var_fpos[vidx + 1] - pgfip->var_fpos[vidx]);
+    return S_CAST(uint32_t, pgfip->var_fpos[vidx + 1] - pgfip->var_fpos[vidx]);
   }
   return pgfip->const_vrec_width;
 }
@@ -948,7 +941,7 @@ void detect_genovec_hets_hw(const uintptr_t*__restrict genovec, uint32_t raw_sam
 
 // requires trailing bits of genovec to be zeroed out.
 HEADER_INLINE void pgr_detect_genovec_hets_unsafe(const uintptr_t*__restrict genovec, uint32_t raw_sample_ctl2, uintptr_t* __restrict all_hets) {
-  halfword_t* all_hets_alias = (halfword_t*)all_hets;
+  halfword_t* all_hets_alias = R_CAST(halfword_t*, all_hets);
   detect_genovec_hets_hw(genovec, raw_sample_ctl2, all_hets_alias);
   if (raw_sample_ctl2 % 2) {
     all_hets_alias[raw_sample_ctl2] = 0;
@@ -956,7 +949,7 @@ HEADER_INLINE void pgr_detect_genovec_hets_unsafe(const uintptr_t*__restrict gen
 }
 
 HEADER_INLINE void pgr_detect_genovec_hets(const uintptr_t* __restrict genovec, uint32_t raw_sample_ct, uintptr_t* __restrict all_hets) {
-  detect_genovec_hets_hw(genovec, QUATERCT_TO_WORDCT(raw_sample_ct), (halfword_t*)all_hets);
+  detect_genovec_hets_hw(genovec, QUATERCT_TO_WORDCT(raw_sample_ct), R_CAST(halfword_t*, all_hets));
   zero_trailing_bits(raw_sample_ct, all_hets);
 }
 
@@ -1139,9 +1132,6 @@ pglerr_t spgw_append_biallelic_genovec_hphase_dosage16(const uintptr_t* __restri
 // dosage_vals[] has length dosage_ct + dphase_ct
 // pglerr_t spgw_append_biallelic_genovec_dphase16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uintptr_t* dphase_present, const uint16_t* dosage_vals, uint32_t dosage_ct, uint32_t dphase_ct, st_pgen_writer_t* spgwp);
 
-
-// DEBUG
-extern uint64_t g_final_write_pos;
 
 // Backfills header info, then closes the file.
 pglerr_t spgw_finish(st_pgen_writer_t* spgwp);

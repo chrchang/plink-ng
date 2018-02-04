@@ -104,12 +104,12 @@ double finite_gamma_q(uint32_t aa, double xx, double* p_derivative) {
   double sum = ee;
   double term = sum;
   for (uint32_t nn = 1; nn < aa; ++nn) {
-    term /= (double)((int32_t)nn);
+    term /= u31tod(nn);
     term *= xx;
     sum += term;
   }
   if (p_derivative) {
-    *p_derivative = ee * pow(xx, (int32_t)aa) / kFactorials[aa - 1];
+    *p_derivative = ee * pow(xx, u31tod(aa)) / kFactorials[aa - 1];
   }
   return sum;
 }
@@ -249,8 +249,8 @@ double lanczos_sum_expg_scaled_recip(double zz) {
     for (int32_t ii = 4; ii >= 0; --ii) {
       s1 *= zz;
       s2 *= zz;
-      s1 += kLanczosSumExpgNumer[(uint32_t)ii];
-      s2 += kLanczosSumExpgDenom[(uint32_t)ii];
+      s1 += kLanczosSumExpgNumer[S_CAST(uint32_t, ii)];
+      s2 += kLanczosSumExpgDenom[S_CAST(uint32_t, ii)];
     }
   } else {
     zz = 1 / zz;
@@ -365,7 +365,7 @@ double igamma_temme_large(double aa, double xx) {
 double gamma_incomplete_imp2(uint32_t df, double xx, uint32_t invert, double* p_derivative) {
   assert(df);
   assert(xx >= 0.0);
-  const double aa = ((double)((int32_t)df)) * 0.5;
+  const double aa = u31tod(df) * 0.5;
   const uint32_t is_small_a = (df < 60) && (aa <= xx + 1) && (xx < log_max_value);
   uint32_t is_int = 0;
   uint32_t is_half_int = 0;
@@ -592,7 +592,7 @@ double gamma_p_inv_imp2(uint32_t df, double qq) {
   if (invert) {
     pp = qq;
   }
-  const double a_minus_1 = 0.5 * (double)(((int32_t)df) - 2);
+  const double a_minus_1 = 0.5 * S_CAST(double, S_CAST(int32_t, df) - 2);
   const double factor = 1.1920928955078125e-07; // 2^{-23}
   double result = guess;
   double delta = 10000000;
@@ -760,7 +760,7 @@ double betai_slow(double aa, double bb, double xx) {
   }
   uint32_t do_invert = (xx * (aa + bb + 2.0)) >= (aa + 1.0);
   if ((xx == 0.0) || (xx == 1.0)) {
-    return (double)((int32_t)do_invert);
+    return u31tod(do_invert);
   }
   // this is very expensive
   double bt = exp(lgamma(aa + bb) - lgamma(aa) - lgamma(bb) + aa * log(xx) + bb * log(1.0 - xx));
@@ -796,7 +796,7 @@ double calc_tprob2(double tt, double df, double cached_gamma_mult) {
   }
   uint32_t do_invert = (xx * (df + 5.0)) >= (df + 2.0);
   if ((xx == 0.0) || (yy == 0.0)) {
-    return (double)((int32_t)do_invert);
+    return u31tod(do_invert);
   }
   double aa = df * 0.5;
   double bt = cached_gamma_mult * pow(xx, aa) * sqrt(yy);
@@ -1506,7 +1506,7 @@ double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t
     m11 = m22;
     m22 = uii;
   }
-  if ((((uint64_t)m11) * m22) > (((uint64_t)m12) * m21)) {
+  if ((S_CAST(uint64_t, m11) * m22) > (S_CAST(uint64_t, m12) * m21)) {
     uii = m11;
     m11 = m12;
     m12 = uii;
@@ -1732,9 +1732,9 @@ double SNPHWEX(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, in
   uint32_t tie_ct = 1;
   // 1. Determine relative tail vs. center masses for the male1/male2-unchanged
   //    slice.
-  double cur_female_hetd = (double)female_hets;
-  double cur_female_hom1d = (double)female_hom1;
-  double cur_female_hom2d = (double)female_hom2;
+  double cur_female_hetd = S_CAST(double, female_hets);
+  double cur_female_hom1d = S_CAST(double, female_hom1);
+  double cur_female_hom2d = S_CAST(double, female_hom2);
   double n1 = cur_female_hetd + 2 * cur_female_hom1d;
   double n2 = cur_female_hetd + 2 * cur_female_hom2d;
   double tmp_hets = cur_female_hetd;
@@ -1885,12 +1885,12 @@ double SNPHWEX(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, in
     uint32_t iter_ct;
     if (male1_decreasing) {
       iter_ct = 2 * female_hom2 + female_hets;
-      if (iter_ct > ((uint32_t)male1)) {
+      if (iter_ct > S_CAST(uint32_t, male1)) {
         iter_ct = male1;
       }
     } else {
       iter_ct = 2 * female_hom1 + female_hets;
-      if (iter_ct > ((uint32_t)male2)) {
+      if (iter_ct > S_CAST(uint32_t, male2)) {
         iter_ct = male2;
       }
     }
@@ -2004,7 +2004,7 @@ double SNPHWEX(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, in
   if (!midp) {
     return tailp / (tailp + centerp);
   }
-  return (tailp - ((1 - kExactTestEpsilon2) * kExactTestBias * 0.5) * ((int32_t)tie_ct)) / (tailp + centerp);
+  return (tailp - ((1 - kExactTestEpsilon2) * kExactTestBias * 0.5) * S_CAST(int32_t, tie_ct)) / (tailp + centerp);
 }
 
 #ifdef __cplusplus

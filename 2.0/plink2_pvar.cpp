@@ -82,7 +82,7 @@ pglerr_t read_chrset_header_line(const char* chrset_iter, const char* file_descr
       }
       chrset_iter = &(chrset_iter[strlen("autosomePairCt=")]);
       uint32_t explicit_autosome_ct;
-      if (scanadv_posint_capped(kMaxChrTextnum, &chrset_iter, &explicit_autosome_ct)) {
+      if (scanmov_posint_capped(kMaxChrTextnum, &chrset_iter, &explicit_autosome_ct)) {
         snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s has an invalid ##chrSet autosome count (max %u).\n", line_idx, file_descrip, kMaxChrTextnum);
         goto read_chrset_header_line_ret_MALFORMED_INPUT_WW;
       }
@@ -97,9 +97,9 @@ pglerr_t read_chrset_header_line(const char* chrset_iter, const char* file_descr
         while (1) {
           ++chrset_iter;
           // uppercase
-          uint32_t first_char_ui = ((unsigned char)(*chrset_iter)) & 0xdf;
+          uint32_t first_char_ui = ctou32(*chrset_iter) & 0xdf;
 
-          uint32_t second_char_ui = (unsigned char)chrset_iter[1];
+          uint32_t second_char_ui = ctou32(chrset_iter[1]);
           // 44 is ',', 62 is '>'
           if ((second_char_ui == 44) || (second_char_ui == 62)) {
             if (first_char_ui == 77) {
@@ -113,7 +113,7 @@ pglerr_t read_chrset_header_line(const char* chrset_iter, const char* file_descr
             }
           } else {
             second_char_ui &= 0xdf;
-            const uint32_t third_char_ui = (unsigned char)chrset_iter[2];
+            const uint32_t third_char_ui = ctou32(chrset_iter[2]);
             if ((third_char_ui == 44) || (third_char_ui == 62)) {
               if ((first_char_ui == 88) && (second_char_ui == 89)) {
                 // XY
@@ -124,7 +124,7 @@ pglerr_t read_chrset_header_line(const char* chrset_iter, const char* file_descr
               }
             } else if ((first_char_ui == 80) && (second_char_ui == 65) && ((third_char_ui & 0xdf) == 82)) {
               // PAR1, PAR2
-              const uint32_t par_idx_m1 = ((unsigned char)chrset_iter[3]) - '1';
+              const uint32_t par_idx_m1 = ctou32(chrset_iter[3]) - '1';
               if ((par_idx_m1 < 2) && ((chrset_iter[4] == ',') || (chrset_iter[4] == '>'))) {
                 cip->xymt_codes[kChrOffsetPAR1] = explicit_autosome_ct + 1 + kChrOffsetPAR1 + par_idx_m1;
               }
@@ -180,7 +180,7 @@ void varid_template_init(const char* varid_template, uint32_t* template_insert_c
   const char* varid_template_iter = varid_template;
   uint32_t template_insert_ct = 0;
   uint32_t template_base_len = 0;
-  unsigned char ucc = (unsigned char)(*varid_template_iter);
+  unsigned char ucc = *varid_template_iter;
   uint32_t alleles_needed = 0; // bit 0 = ref, bit 1 = alt, bit 2 = ascii sort
   varid_template_segs[0] = varid_template_iter;
   do {
@@ -188,19 +188,19 @@ void varid_template_init(const char* varid_template, uint32_t* template_insert_c
       uint32_t seg_len;
       uint32_t insert_type;
       if (ucc == '@') {
-        seg_len = (uintptr_t)(varid_template_iter - varid_template_segs[template_insert_ct]);
+        seg_len = varid_template_iter - varid_template_segs[template_insert_ct];
         insert_type = 0;
         goto varid_template_init_match;
       }
       if (ucc == '#') {
-        seg_len = (uintptr_t)(varid_template_iter - varid_template_segs[template_insert_ct]);
+        seg_len = varid_template_iter - varid_template_segs[template_insert_ct];
         insert_type = 1;
         goto varid_template_init_match;
       }
       if (ucc == '$') {
-        seg_len = (uintptr_t)(varid_template_iter - varid_template_segs[template_insert_ct]);
+        seg_len = varid_template_iter - varid_template_segs[template_insert_ct];
         {
-          const uint32_t uii = (unsigned char)(*(++varid_template_iter));
+          const uint32_t uii = ctou32(*(++varid_template_iter));
           if (uii <= '2') {
             alleles_needed += 2; // this happens twice
             insert_type = uii - 48; // '1' -> type 2, '2' -> type 3
@@ -218,9 +218,9 @@ void varid_template_init(const char* varid_template, uint32_t* template_insert_c
         varid_template_segs[template_insert_ct] = &(varid_template_iter[1]);
       }
     }
-    ucc = (unsigned char)(*(++varid_template_iter));
+    ucc = *(++varid_template_iter);
   } while (ucc);
-  const uint32_t seg_len = (uintptr_t)(varid_template_iter - varid_template_segs[template_insert_ct]);
+  const uint32_t seg_len = varid_template_iter - varid_template_segs[template_insert_ct];
   varid_template_seg_lens[template_insert_ct] = seg_len;
   *template_insert_ct_ptr = template_insert_ct;
   *template_base_len_ptr = template_base_len + seg_len;
@@ -236,7 +236,7 @@ void backfill_chr_idxs(const chr_info_t* cip, uint32_t chrs_encountered_m1, uint
     }
     chr_idx_t* chr_idxs_write_base = &(chr_idxs[start_vidx - offset]);
     const uint32_t vidx_ct = end_vidx - start_vidx;
-    const chr_idx_t cur_chr_idx = (uint32_t)(cip->chr_file_order[chr_fo_idx]);
+    const chr_idx_t cur_chr_idx = cip->chr_file_order[chr_fo_idx];
     for (uint32_t uii = 0; uii < vidx_ct; ++uii) {
       chr_idxs_write_base[uii] = cur_chr_idx;
     }
@@ -252,7 +252,7 @@ char* pr_in_info_token(uint32_t info_slen, char* info_token) {
   if ((!memcmp(info_token, "PR", 2)) && ((info_slen == 2) || (info_token[2] == ';'))) {
     return info_token;
   }
-  if (!memcmp(&(info_token[((int32_t)info_slen) - 3]), ";PR", 3)) {
+  if (!memcmp(&(info_token[S_CAST(int32_t, info_slen) - 3]), ";PR", 3)) {
     return &(info_token[info_slen - 2]);
   }
   info_token[info_slen] = '\0';
@@ -286,14 +286,14 @@ pglerr_t info_exist_init(const unsigned char* arena_end, const char* require_inf
     prekeys_blen += slen + 2; // +1 for preceding semicolon
     read_iter = &(read_iter[slen + 1]);
   } while (*read_iter);
-  const uint32_t key_ct = prekeys_blen - ((uintptr_t)(read_iter - require_info_flattened));
+  const uint32_t key_ct = prekeys_blen - S_CAST(uintptr_t, read_iter - require_info_flattened);
   const uintptr_t bytes_used = offsetof(info_exist_t, key_slens) + key_ct * sizeof(int32_t) + prekeys_blen;
   const uintptr_t cur_alloc = round_up_pow2(bytes_used, kCacheline);
-  if ((uintptr_t)(arena_end - (*arena_base_ptr)) < cur_alloc) {
+  if (S_CAST(uintptr_t, arena_end - (*arena_base_ptr)) < cur_alloc) {
     return kPglRetNomem;
   }
-  *existpp = (info_exist_t*)(*arena_base_ptr);
-  (*existpp)->prekeys = (char*)(&((*arena_base_ptr)[bytes_used - prekeys_blen]));
+  *existpp = R_CAST(info_exist_t*, *arena_base_ptr);
+  (*existpp)->prekeys = R_CAST(char*, &((*arena_base_ptr)[bytes_used - prekeys_blen]));
   (*arena_base_ptr) += cur_alloc;
   (*existpp)->key_ct = key_ct;
   read_iter = require_info_flattened;
@@ -412,14 +412,14 @@ pglerr_t info_filter_init(const unsigned char* arena_end, const cmp_expr_t filte
     return kPglRetInvalidCmdline;
   }
   const uintptr_t cur_alloc = round_up_pow2(3 + key_slen, kCacheline);
-  if ((uintptr_t)(arena_end - (*arena_base_ptr)) < cur_alloc) {
+  if (S_CAST(uintptr_t, arena_end - (*arena_base_ptr)) < cur_alloc) {
     return kPglRetNomem;
   }
-  filterp->prekey = (char*)(*arena_base_ptr);
+  filterp->prekey = R_CAST(char*, *arena_base_ptr);
   (*arena_base_ptr) += cur_alloc;
   filterp->prekey[0] = ';';
   char* key_iter = memcpya(&(filterp->prekey[1]), filter_expr.pheno_name, key_slen);
-  strcpy(key_iter, "=");
+  memcpy(key_iter, "=", 2);
   ++key_slen;
   filterp->key_slen = key_slen;
   filterp->val_str = nullptr;
@@ -517,7 +517,7 @@ pglerr_t splitpar(const uint32_t* variant_bps, unsorted_var_t vpos_sortstatus, u
     logerrprint("Error: --split-par cannot be used with an unsorted .bim/.pvar file.\n");
     return kPglRetInvalidCmdline;
   }
-  const uint32_t orig_xchr_fo_idx = cip->chr_idx_to_foidx[(uint32_t)x_code];
+  const uint32_t orig_xchr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, x_code)];
   const uint32_t orig_x_start = cip->chr_fo_vidx_start[orig_xchr_fo_idx];
   const uint32_t orig_x_end = cip->chr_fo_vidx_start[orig_xchr_fo_idx + 1];
   const uint32_t par1_end = orig_x_start + uint32arr_greater_than(&(variant_bps[orig_x_start]), orig_x_end - orig_x_start, splitpar_bound1 + 1);
@@ -543,9 +543,9 @@ pglerr_t splitpar(const uint32_t* variant_bps, unsorted_var_t vpos_sortstatus, u
   cip->chr_file_order[orig_xchr_fo_idx] = par1_code;
   cip->chr_file_order[orig_xchr_fo_idx + 1] = x_code;
   cip->chr_file_order[orig_xchr_fo_idx + 2] = par2_code;
-  cip->chr_idx_to_foidx[(uint32_t)par1_code] = orig_xchr_fo_idx;
-  cip->chr_idx_to_foidx[(uint32_t)x_code] = orig_xchr_fo_idx + 1;
-  cip->chr_idx_to_foidx[(uint32_t)par2_code] = orig_xchr_fo_idx + 2;
+  cip->chr_idx_to_foidx[S_CAST(uint32_t, par1_code)] = orig_xchr_fo_idx;
+  cip->chr_idx_to_foidx[S_CAST(uint32_t, x_code)] = orig_xchr_fo_idx + 1;
+  cip->chr_idx_to_foidx[S_CAST(uint32_t, par2_code)] = orig_xchr_fo_idx + 2;
   uintptr_t* chr_mask = cip->chr_mask;
   if (par1_end > orig_x_start) {
     if (!is_set(chr_mask, par1_code)) {
@@ -594,11 +594,11 @@ static uint8_t acgtm_bool_table[256] = {
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
 static inline uint32_t is_acgtm(unsigned char ucc) {
-  return (uint32_t)(acgtm_bool_table[ucc]);
+  return acgtm_bool_table[ucc];
 }
 
 static_assert((!(kMaxIdSlen % kCacheline)), "load_pvar() must be updated.");
-pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flattened, const char* varid_template, const char* missing_varid_match, const char* require_info_flattened, const char* require_no_info_flattened, const cmp_expr_t extract_if_info_expr, const cmp_expr_t exclude_if_info_expr, misc_flags_t misc_flags, pvar_psam_t pvar_psam_modifier, exportf_flags_t exportf_modifier, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t split_chr_ok, chr_info_t* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, unsorted_var_t* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** variant_allele_idxs_ptr, char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, chr_idx_t** chr_idxs_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, uint32_t* xheader_info_pr_ptr, uint32_t* xheader_info_pr_nonflag_ptr, uint32_t* max_filter_slen_ptr) {
+pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flattened, const char* varid_template, const char* missing_varid_match, const char* require_info_flattened, const char* require_no_info_flattened, const cmp_expr_t extract_if_info_expr, const cmp_expr_t exclude_if_info_expr, misc_flags_t misc_flags, pvar_psam_t pvar_psam_modifier, exportf_flags_t exportf_modifier, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t split_chr_ok, chr_info_t* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, unsorted_var_t* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** variant_allele_idxs_ptr, const char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, chr_idx_t** chr_idxs_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, uint32_t* xheader_info_pr_ptr, uint32_t* xheader_info_pr_nonflag_ptr, uint32_t* max_filter_slen_ptr) {
   // chr_info, max_variant_id_slen, and info_reload_slen are in/out; just
   // outparameters after them.  (Due to its large size in some VCFs, INFO is
   // not kept in memory for now.  This has a speed penalty, of course; maybe
@@ -641,7 +641,7 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
     }
     const uintptr_t initial_bigstack_size = bigstack_left();
     uintptr_t loadbuf_size = round_down_pow2(initial_bigstack_size / 4, kCacheline);
-    char* loadbuf = (char*)(&(bigstack_mark[loadbuf_size]));
+    char* loadbuf = R_CAST(char*, &(bigstack_mark[loadbuf_size]));
     if (loadbuf_size > kMaxLongLine) {
       loadbuf_size = kMaxLongLine;
     } else if (loadbuf_size <= kLoadPvarBlockSize * 2 * sizeof(intptr_t)) {
@@ -649,7 +649,7 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
     }
     loadbuf[loadbuf_size - 1] = ' ';
 
-    char* xheader_end = ((pvar_psam_modifier & kfPvarColXheader) || (exportf_modifier & kfExportfVcf))? ((char*)bigstack_mark) : nullptr;
+    char* xheader_end = ((pvar_psam_modifier & kfPvarColXheader) || (exportf_modifier & kfExportfVcf))? R_CAST(char*, bigstack_mark) : nullptr;
     uint32_t chrset_present = 0;
     uint32_t info_pr_present = 0;
     uint32_t info_pr_nonflag_present = 0;
@@ -728,7 +728,7 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
               --line_slen;
             }
           }
-          if ((uintptr_t)(loadbuf - xheader_end) < line_slen + 2) {
+          if (S_CAST(uintptr_t, loadbuf - xheader_end) < line_slen + 2) {
             goto load_pvar_ret_NOMEM;
           }
           xheader_end = memcpya(xheader_end, loadbuf_first_token, line_slen);
@@ -739,13 +739,13 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
     *xheader_info_pr_ptr = info_pr_present;
     *xheader_info_pr_nonflag_ptr = info_pr_nonflag_present;
     if (xheader_end) {
-      *xheader_ptr = (char*)bigstack_mark;
-      *xheader_blen_ptr = (uintptr_t)(xheader_end - (*xheader_ptr));
+      *xheader_ptr = R_CAST(char*, bigstack_mark);
+      *xheader_blen_ptr = xheader_end - (*xheader_ptr);
       bigstack_base_set(xheader_end);
     }
     finalize_chrset(misc_flags, cip);
-    char** allele_storage = (char**)g_bigstack_base;
-    char** allele_storage_iter = allele_storage;
+    const char** allele_storage = R_CAST(const char**, g_bigstack_base);
+    const char** allele_storage_iter = allele_storage;
 
     uint32_t col_skips[8];
     uint32_t col_types[8];
@@ -782,7 +782,7 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
         }
         ++col_idx;
         token_end = token_endnn(loadbuf_iter);
-        const uint32_t token_slen = (uintptr_t)(token_end - loadbuf_iter);
+        const uint32_t token_slen = token_end - loadbuf_iter;
         uint32_t cur_col_type;
         if (token_slen <= 3) {
           if (token_slen == 3) {
@@ -903,10 +903,10 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
 
     // this way, we only need to check allele_storage_iter against this (i)
     // when processing a multiallelic variant or (ii) at the end of a block
-    char** allele_storage_limit = (char**)(&(loadbuf[kLoadPvarBlockSize * (-2) * sizeof(intptr_t)]));
+    const char** allele_storage_limit = R_CAST(const char**, &(loadbuf[kLoadPvarBlockSize * (-2) * sizeof(intptr_t)]));
 
-    unsigned char* tmp_alloc_base = (unsigned char*)(&(loadbuf[loadbuf_size]));
-    uintptr_t* loaded_chr_mask = (uintptr_t*)tmp_alloc_base;
+    unsigned char* tmp_alloc_base = R_CAST(unsigned char*, &(loadbuf[loadbuf_size]));
+    uintptr_t* loaded_chr_mask = R_CAST(uintptr_t*, tmp_alloc_base);
     unsigned char* tmp_alloc_end = bigstack_end_mark;
     // guaranteed to succeed since loadbuf_size > 128k, etc.
     /*
@@ -982,10 +982,10 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
     uint32_t missing_varid_match_slen = 0;
     fill_uint_zero(4, insert_slens);
     if (varid_template) {
-      if ((uintptr_t)(tmp_alloc_end - tmp_alloc_base) < kMaxIdSlen) {
+      if (S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) < kMaxIdSlen) {
         goto load_pvar_ret_NOMEM;
       }
-      chr_output_name_buf = (char*)tmp_alloc_base;
+      chr_output_name_buf = R_CAST(char*, tmp_alloc_base);
       tmp_alloc_base = &(tmp_alloc_base[kMaxIdSlen]);
       if (!missing_varid_match) {
         missing_varid_match = &(g_one_char_strs[92]); // '.'
@@ -1003,9 +1003,8 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
     g_bigstack_end = tmp_alloc_base;
 
     // prevent variant_id_htable_find from breaking
-    if (((const char*)tmp_alloc_end) > (&(g_one_char_strs[512 - kMaxIdSlen]))) {
-      // const_cast
-      tmp_alloc_end = (unsigned char*)((uintptr_t)(&(g_one_char_strs[512 - kMaxIdSlen])));
+    if (R_CAST(const char*, tmp_alloc_end) > (&(g_one_char_strs[512 - kMaxIdSlen]))) {
+      tmp_alloc_end = R_CAST(unsigned char*, K_CAST(char*, &(g_one_char_strs[512 - kMaxIdSlen])));
     }
     const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
     const uint32_t merge_par = ((misc_flags & (kfMiscMergePar | kfMiscMergeX)) != 0);
@@ -1028,7 +1027,7 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
     }
 
     if (snps_only > 1) {
-      acgtm_bool_table[(unsigned char)input_missing_geno_char] = 1;
+      acgtm_bool_table[ctou32(input_missing_geno_char)] = 1;
     }
 
     uint32_t* cur_bps = nullptr;
@@ -1073,42 +1072,42 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
 #endif
         const uint32_t variant_idx_lowbits = raw_variant_ct % kLoadPvarBlockSize;
         if (!variant_idx_lowbits) {
-          if (((uintptr_t)(tmp_alloc_end - tmp_alloc_base) <= kLoadPvarBlockSize * (sizeof(int32_t) + 2 * sizeof(intptr_t) + at_least_one_nzero_cm * sizeof(double)) + is_split_chr * sizeof(chr_idx_t) + (1 + info_pr_present) * (kLoadPvarBlockSize / CHAR_BIT) + (load_qual_col? ((kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(float)) : 0) + (load_filter_col? (2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)) : 0)) || (allele_storage_iter >= allele_storage_limit)) {
+          if ((S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) <= kLoadPvarBlockSize * (sizeof(int32_t) + 2 * sizeof(intptr_t) + at_least_one_nzero_cm * sizeof(double)) + is_split_chr * sizeof(chr_idx_t) + (1 + info_pr_present) * (kLoadPvarBlockSize / CHAR_BIT) + (load_qual_col? ((kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(float)) : 0) + (load_filter_col? (2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)) : 0)) || (allele_storage_iter >= allele_storage_limit)) {
             goto load_pvar_ret_NOMEM;
           }
-          cur_bps = (uint32_t*)tmp_alloc_base;
-          cur_allele_idxs = (uintptr_t*)(&(tmp_alloc_base[kLoadPvarBlockSize * sizeof(int32_t)]));
-          cur_ids = (char**)(&(tmp_alloc_base[kLoadPvarBlockSize * (sizeof(int32_t) + sizeof(intptr_t))]));
-          cur_include = (uintptr_t*)(&(tmp_alloc_base[kLoadPvarBlockSize * (sizeof(int32_t) + 2 * sizeof(intptr_t))]));
+          cur_bps = R_CAST(uint32_t*, tmp_alloc_base);
+          cur_allele_idxs = R_CAST(uintptr_t*, &(tmp_alloc_base[kLoadPvarBlockSize * sizeof(int32_t)]));
+          cur_ids = R_CAST(char**, &(tmp_alloc_base[kLoadPvarBlockSize * (sizeof(int32_t) + sizeof(intptr_t))]));
+          cur_include = R_CAST(uintptr_t*, &(tmp_alloc_base[kLoadPvarBlockSize * (sizeof(int32_t) + 2 * sizeof(intptr_t))]));
           fill_ulong_one(kLoadPvarBlockSize / kBitsPerWord, cur_include);
           tmp_alloc_base = &(tmp_alloc_base[kLoadPvarBlockSize * (sizeof(int32_t) + 2 * sizeof(intptr_t)) + (kLoadPvarBlockSize / CHAR_BIT)]);
           if (load_qual_col > 1) {
-            cur_qual_present = (uintptr_t*)tmp_alloc_base;
+            cur_qual_present = R_CAST(uintptr_t*, tmp_alloc_base);
             fill_ulong_zero(kLoadPvarBlockSize / kBitsPerWord, cur_qual_present);
-            cur_quals = (float*)(&(tmp_alloc_base[kLoadPvarBlockSize / CHAR_BIT]));
+            cur_quals = R_CAST(float*, &(tmp_alloc_base[kLoadPvarBlockSize / CHAR_BIT]));
             tmp_alloc_base = &(tmp_alloc_base[kLoadPvarBlockSize * sizeof(float) + (kLoadPvarBlockSize / CHAR_BIT)]);
           }
           if (load_filter_col > 1) {
-            cur_filter_present = (uintptr_t*)tmp_alloc_base;
-            cur_filter_npass = (uintptr_t*)(&(tmp_alloc_base[kLoadPvarBlockSize / CHAR_BIT]));
-            cur_filter_storage = (char**)(&(tmp_alloc_base[2 * (kLoadPvarBlockSize / CHAR_BIT)]));
+            cur_filter_present = R_CAST(uintptr_t*, tmp_alloc_base);
+            cur_filter_npass = R_CAST(uintptr_t*, &(tmp_alloc_base[kLoadPvarBlockSize / CHAR_BIT]));
+            cur_filter_storage = R_CAST(char**, &(tmp_alloc_base[2 * (kLoadPvarBlockSize / CHAR_BIT)]));
             fill_ulong_zero(kLoadPvarBlockSize / kBitsPerWord, cur_filter_present);
             fill_ulong_zero(kLoadPvarBlockSize / kBitsPerWord, cur_filter_npass);
             tmp_alloc_base = &(tmp_alloc_base[2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)]);
           }
           if (info_pr_present) {
-            cur_nonref_flags = (uintptr_t*)tmp_alloc_base;
+            cur_nonref_flags = R_CAST(uintptr_t*, tmp_alloc_base);
             fill_ulong_zero(kLoadPvarBlockSize / kBitsPerWord, cur_nonref_flags);
             tmp_alloc_base = &(tmp_alloc_base[kLoadPvarBlockSize / CHAR_BIT]);
           }
           if (at_least_one_nzero_cm) {
-            cur_cms = (double*)tmp_alloc_base;
+            cur_cms = R_CAST(double*, tmp_alloc_base);
             fill_double_zero(kLoadPvarBlockSize, cur_cms);
-            tmp_alloc_base = (unsigned char*)(&(cur_cms[kLoadPvarBlockSize]));
+            tmp_alloc_base = R_CAST(unsigned char*, &(cur_cms[kLoadPvarBlockSize]));
           }
           if (is_split_chr) {
-            cur_chr_idxs = (chr_idx_t*)tmp_alloc_base;
-            tmp_alloc_base = (unsigned char*)(&(cur_chr_idxs[kLoadPvarBlockSize]));
+            cur_chr_idxs = R_CAST(chr_idx_t*, tmp_alloc_base);
+            tmp_alloc_base = R_CAST(unsigned char*, &(cur_chr_idxs[kLoadPvarBlockSize]));
           }
         }
         char* loadbuf_iter = token_endnn(loadbuf_first_token);
@@ -1131,7 +1130,7 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
             cur_chr_code = x_code;
           }
         }
-        if (((uint32_t)cur_chr_code) != prev_chr_code) {
+        if (S_CAST(uint32_t, cur_chr_code) != prev_chr_code) {
           prev_chr_code = cur_chr_code;
           if (!is_split_chr) {
             if (is_set(loaded_chr_mask, cur_chr_code)) {
@@ -1139,11 +1138,11 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
                 snprintf(g_logbuf, kLogbufSize, "Error: %s has a split chromosome. Use --make-pgen + --sort-vars to remedy this.\n", pvarname);
                 goto load_pvar_ret_MALFORMED_INPUT_WW;
               }
-              if ((uintptr_t)(tmp_alloc_end - tmp_alloc_base) < kLoadPvarBlockSize * sizeof(chr_idx_t)) {
+              if (S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) < kLoadPvarBlockSize * sizeof(chr_idx_t)) {
                 goto load_pvar_ret_NOMEM;
               }
-              cur_chr_idxs = (chr_idx_t*)tmp_alloc_base;
-              tmp_alloc_base = (unsigned char*)(&(cur_chr_idxs[kLoadPvarBlockSize]));
+              cur_chr_idxs = R_CAST(chr_idx_t*, tmp_alloc_base);
+              tmp_alloc_base = R_CAST(unsigned char*, &(cur_chr_idxs[kLoadPvarBlockSize]));
               // may want to track the first problem variant index
               // cip->chr_fo_vidx_start[chrs_encountered_m1] = raw_variant_ct;
               backfill_chr_idxs(cip, chrs_encountered_m1, round_down_pow2(raw_variant_ct, kLoadPvarBlockSize), raw_variant_ct, cur_chr_idxs);
@@ -1154,7 +1153,7 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
               // how much of this do we need in split-chrom case?
               cip->chr_file_order[++chrs_encountered_m1] = cur_chr_code;
               cip->chr_fo_vidx_start[chrs_encountered_m1] = raw_variant_ct;
-              cip->chr_idx_to_foidx[(uint32_t)cur_chr_code] = chrs_encountered_m1;
+              cip->chr_idx_to_foidx[S_CAST(uint32_t, cur_chr_code)] = chrs_encountered_m1;
               last_bp = 0;
               last_cm = -DBL_MAX;
             }
@@ -1162,8 +1161,8 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
           set_bit(cur_chr_code, loaded_chr_mask);
           if (chr_output_name_buf) {
             varid_template_base_len -= insert_slens[0];
-            char* chr_name_end = chr_name_write(cip, (uint32_t)cur_chr_code, chr_output_name_buf);
-            insert_slens[0] = (uintptr_t)(chr_name_end - chr_output_name_buf);
+            char* chr_name_end = chr_name_write(cip, cur_chr_code, chr_output_name_buf);
+            insert_slens[0] = chr_name_end - chr_output_name_buf;
             varid_template_base_len += insert_slens[0];
           }
         }
@@ -1172,7 +1171,7 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
         // could make this store (and cur_allele_idxs[] allocation) conditional
         // on a multiallelic variant being sighted, but unlike the CM column
         // this should become common
-        cur_allele_idxs[variant_idx_lowbits] = (uintptr_t)(allele_storage_iter - allele_storage);
+        cur_allele_idxs[variant_idx_lowbits] = allele_storage_iter - allele_storage;
 
         char* token_ptrs[8];
         uint32_t token_slens[8];
@@ -1185,7 +1184,7 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
             }
             token_ptrs[cur_col_type] = loadbuf_iter;
             char* token_end = token_endnn(loadbuf_iter);
-            token_slens[cur_col_type] = (uintptr_t)(token_end - loadbuf_iter);
+            token_slens[cur_col_type] = token_end - loadbuf_iter;
             loadbuf_iter = token_end;
           }
           if (info_col_present) {
@@ -1198,7 +1197,7 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
             if (info_pr_present) {
               // always load all nonref_flags entries so they can be compared
               // against .pgen for now.
-              if (((!memcmp(info_token, "PR", 2)) && ((info_slen == 2) || (info_token[2] == ';'))) || (!memcmp(&(info_token[((int32_t)info_slen) - 3]), ";PR", 3))) {
+              if (((!memcmp(info_token, "PR", 2)) && ((info_slen == 2) || (info_token[2] == ';'))) || (!memcmp(&(info_token[S_CAST(int32_t, info_slen) - 3]), ";PR", 3))) {
                 SET_BIT(variant_idx_lowbits, cur_nonref_flags);
               } else {
                 const char* first_info_end = strchr(info_token, ';');
@@ -1308,10 +1307,10 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
                   const char* filter_token_iter = filter_token;
                   uint32_t remaining_byte_ct = filter_slen;
                   while (1) {
-                    char* cur_filter_name_end = (char*)memchr(filter_token_iter, ';', remaining_byte_ct);
+                    char* cur_filter_name_end = S_CAST(char*, memchr(filter_token_iter, ';', remaining_byte_ct));
                     uint32_t cur_slen = remaining_byte_ct;
                     if (cur_filter_name_end) {
-                      cur_slen = (uintptr_t)(cur_filter_name_end - filter_token_iter);
+                      cur_slen = cur_filter_name_end - filter_token_iter;
                     }
                     // possible todo: error out on "PASS", since that
                     // shouldn't coexist with other filters
@@ -1340,7 +1339,7 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
                   if (tmp_alloc_end < tmp_alloc_base) {
                     goto load_pvar_ret_NOMEM;
                   }
-                  cur_filter_storage[variant_idx_lowbits] = (char*)tmp_alloc_end;
+                  cur_filter_storage[variant_idx_lowbits] = R_CAST(char*, tmp_alloc_end);
                   memcpyx(tmp_alloc_end, filter_token, filter_slen, '\0');
                 }
               }
@@ -1351,14 +1350,14 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
           }
 
           if (cur_chr_idxs) {
-            cur_chr_idxs[variant_idx_lowbits] = (uint32_t)cur_chr_code;
+            cur_chr_idxs[variant_idx_lowbits] = cur_chr_code;
           }
           if (cur_bp < last_bp) {
             vpos_sortstatus |= kfUnsortedVarBp;
           }
           cur_bps[variant_idx_lowbits] = cur_bp;
           last_bp = cur_bp;
-          char* alt_allele_iter = (char*)memchr(loadbuf_iter, ',', remaining_alt_char_ct);
+          char* alt_allele_iter = S_CAST(char*, memchr(loadbuf_iter, ',', remaining_alt_char_ct));
           uint32_t id_slen;
           if ((!varid_template) || (missing_varid_match_slen && ((token_slens[1] != missing_varid_match_slen) || memcmp(token_ptrs[1], missing_varid_match, missing_varid_match_slen)))) {
             id_slen = token_slens[1];
@@ -1386,7 +1385,7 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
               if (!alt_allele_iter) {
                 alt1_slen = remaining_alt_char_ct;
               } else {
-                alt1_slen = (uintptr_t)(alt_allele_iter - loadbuf_iter);
+                alt1_slen = alt_allele_iter - loadbuf_iter;
               }
               if (alt1_slen > new_variant_id_max_allele_slen) {
                 alt1_slen = new_variant_id_max_allele_slen;
@@ -1429,7 +1428,7 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
               if (tmp_alloc_end < tmp_alloc_base) {
                 goto load_pvar_ret_NOMEM;
               }
-              char* id_iter = (char*)tmp_alloc_end;
+              char* id_iter = R_CAST(char*, tmp_alloc_end);
               char* insert_ptrs[4];
               for (uint32_t insert_idx = 0; insert_idx < varid_template_insert_ct; ++insert_idx) {
                 id_iter = memcpya(id_iter, varid_template_segs[insert_idx], varid_template_seg_lens[insert_idx]);
@@ -1450,7 +1449,7 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
           if (id_slen > max_variant_id_slen) {
             max_variant_id_slen = id_slen;
           }
-          cur_ids[variant_idx_lowbits] = (char*)tmp_alloc_end;
+          cur_ids[variant_idx_lowbits] = R_CAST(char*, tmp_alloc_end);
 
           // REF
           const char* ref_allele = token_ptrs[2];
@@ -1460,15 +1459,14 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
             if (geno_char == input_missing_geno_char) {
               geno_char = '.';
             }
-            // const_cast
-            *allele_storage_iter = (char*)((uintptr_t)(&(g_one_char_strs[2 * ((unsigned char)geno_char)])));
+            *allele_storage_iter = &(g_one_char_strs[2 * ctou32(geno_char)]);
           } else {
             tmp_alloc_end -= ref_slen + 1;
             if (tmp_alloc_end < tmp_alloc_base) {
               goto load_pvar_ret_NOMEM;
             }
             memcpyx(tmp_alloc_end, ref_allele, ref_slen, '\0');
-            *allele_storage_iter = (char*)tmp_alloc_end;
+            *allele_storage_iter = R_CAST(char*, tmp_alloc_end);
             if (ref_slen > max_allele_slen) {
               max_allele_slen = ref_slen;
             }
@@ -1481,14 +1479,13 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
               if (allele_storage_iter >= allele_storage_limit) {
                 goto load_pvar_ret_NOMEM;
               }
-              const uint32_t cur_allele_slen = (uintptr_t)(alt_allele_iter - loadbuf_iter);
+              const uint32_t cur_allele_slen = alt_allele_iter - loadbuf_iter;
               if (cur_allele_slen == 1) {
                 char geno_char = loadbuf_iter[0];
                 if (geno_char == input_missing_geno_char) {
                   geno_char = '.';
                 }
-                // const_cast
-                *allele_storage_iter = (char*)((uintptr_t)(&(g_one_char_strs[2 * ((unsigned char)geno_char)])));
+                *allele_storage_iter = &(g_one_char_strs[2 * ctou32(geno_char)]);
               } else {
                 if (!cur_allele_slen) {
                   goto load_pvar_ret_EMPTY_ALLELE_CODE;
@@ -1498,7 +1495,7 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
                   goto load_pvar_ret_NOMEM;
                 }
                 memcpyx(tmp_alloc_end, loadbuf_iter, cur_allele_slen, '\0');
-                *allele_storage_iter = (char*)tmp_alloc_end;
+                *allele_storage_iter = R_CAST(char*, tmp_alloc_end);
                 if (cur_allele_slen > max_allele_slen) {
                   max_allele_slen = cur_allele_slen;
                 }
@@ -1506,26 +1503,25 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
               ++allele_storage_iter;
               remaining_alt_char_ct -= cur_allele_slen + 1;
               loadbuf_iter = &(alt_allele_iter[1]);
-              alt_allele_iter = (char*)memchr(loadbuf_iter, ',', remaining_alt_char_ct);
+              alt_allele_iter = S_CAST(char*, memchr(loadbuf_iter, ',', remaining_alt_char_ct));
             } while (alt_allele_iter);
             if (!remaining_alt_char_ct) {
               goto load_pvar_ret_EMPTY_ALLELE_CODE;
             }
           }
           if (remaining_alt_char_ct == 1) {
-            // const_cast
             char geno_char = loadbuf_iter[0];
             if (geno_char == input_missing_geno_char) {
               geno_char = '.';
             }
-            *allele_storage_iter = (char*)((uintptr_t)(&(g_one_char_strs[2 * ((unsigned char)geno_char)])));
+            *allele_storage_iter = &(g_one_char_strs[2 * ctou32(geno_char)]);
           } else {
             tmp_alloc_end -= remaining_alt_char_ct + 1;
             if (tmp_alloc_end < tmp_alloc_base) {
               goto load_pvar_ret_NOMEM;
             }
             memcpyx(tmp_alloc_end, loadbuf_iter, remaining_alt_char_ct, '\0');
-            *allele_storage_iter = (char*)tmp_alloc_end;
+            *allele_storage_iter = R_CAST(char*, tmp_alloc_end);
             if (remaining_alt_char_ct > max_allele_slen) {
               max_allele_slen = remaining_alt_char_ct;
             }
@@ -1548,18 +1544,18 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
               }
               if (cur_cm != 0.0) {
                 if (!at_least_one_nzero_cm) {
-                  if ((uintptr_t)(tmp_alloc_end - tmp_alloc_base) < kLoadPvarBlockSize * sizeof(double)) {
+                  if (S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) < kLoadPvarBlockSize * sizeof(double)) {
                     goto load_pvar_ret_NOMEM;
                   }
                   if (cur_chr_idxs) {
                     // reposition cur_chr_idxs[] after cur_cms[]
-                    cur_cms = (double*)cur_chr_idxs;
-                    cur_chr_idxs = (chr_idx_t*)(&(cur_cms[kLoadPvarBlockSize]));
+                    cur_cms = R_CAST(double*, cur_chr_idxs);
+                    cur_chr_idxs = R_CAST(chr_idx_t*, &(cur_cms[kLoadPvarBlockSize]));
                     memcpy(cur_chr_idxs, cur_cms, kLoadPvarBlockSize * sizeof(chr_idx_t));
-                    tmp_alloc_base = (unsigned char*)(&(cur_chr_idxs[kLoadPvarBlockSize]));
+                    tmp_alloc_base = R_CAST(unsigned char*, &(cur_chr_idxs[kLoadPvarBlockSize]));
                   } else {
-                    cur_cms = (double*)tmp_alloc_base;
-                    tmp_alloc_base = (unsigned char*)(&(cur_cms[kLoadPvarBlockSize]));
+                    cur_cms = R_CAST(double*, tmp_alloc_base);
+                    tmp_alloc_base = R_CAST(unsigned char*, &(cur_cms[kLoadPvarBlockSize]));
                   }
                   fill_double_zero(kLoadPvarBlockSize, cur_cms);
                   cms_start_block = raw_variant_ct / kLoadPvarBlockSize;
@@ -1580,13 +1576,12 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
           clear_bit(variant_idx_lowbits, cur_include);
           cur_bps[variant_idx_lowbits] = last_bp;
           // necessary to check alt allele count
-          // const_cast
-          *allele_storage_iter++ = (char*)((uintptr_t)missing_allele_str);
-          *allele_storage_iter++ = (char*)((uintptr_t)missing_allele_str);
+          *allele_storage_iter++ = missing_allele_str;
+          *allele_storage_iter++ = missing_allele_str;
           loadbuf_iter = token_ptrs[3];
           const char* token_end = &(loadbuf_iter[token_slens[3]]);
           while (1) {
-            loadbuf_iter = (char*)memchr(loadbuf_iter, ',', (uintptr_t)(token_end - loadbuf_iter));
+            loadbuf_iter = S_CAST(char*, memchr(loadbuf_iter, ',', token_end - loadbuf_iter));
             if (!loadbuf_iter) {
               break;
             }
@@ -1594,8 +1589,7 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
               goto load_pvar_ret_NOMEM;
             }
             ++loadbuf_iter;
-            // const_cast
-            *allele_storage_iter++ = (char*)((uintptr_t)missing_allele_str);
+            *allele_storage_iter++ = missing_allele_str;
           }
         }
         ++raw_variant_ct;
@@ -1643,8 +1637,8 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
     *max_allele_slen_ptr = max_allele_slen;
     *max_filter_slen_ptr = max_filter_slen;
     *raw_variant_ct_ptr = raw_variant_ct;
-    uintptr_t allele_idx_end = (uintptr_t)(allele_storage_iter - allele_storage);
-    bigstack_finalize_ul((uintptr_t*)allele_storage, allele_idx_end);
+    uintptr_t allele_idx_end = allele_storage_iter - allele_storage;
+    bigstack_finalize_cp(allele_storage, allele_idx_end);
     uintptr_t* variant_allele_idxs = nullptr;
     const uint32_t full_block_ct = raw_variant_ct / kLoadPvarBlockSize;
     const uintptr_t raw_variant_ct_lowbits = raw_variant_ct % kLoadPvarBlockSize;
@@ -1775,15 +1769,15 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
       // read_iter = &(read_iter[kLoadPvarBlockSize / CHAR_BIT]);
     }
     const uintptr_t read_iter_stride_base = kLoadPvarBlockSize * (sizeof(int32_t) + 2 * sizeof(intptr_t)) + (kLoadPvarBlockSize / CHAR_BIT) + (load_qual_col > 1) * ((kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(float)) + (load_filter_col > 1) * (2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)) + info_pr_present * (kLoadPvarBlockSize / CHAR_BIT);
-    if (allele_idx_end > 2 * ((uintptr_t)raw_variant_ct)) {
+    if (allele_idx_end > 2 * S_CAST(uintptr_t, raw_variant_ct)) {
       if (bigstack_alloc_ul(raw_variant_ct + 1, variant_allele_idxs_ptr)) {
         goto load_pvar_ret_NOMEM;
       }
       variant_allele_idxs = *variant_allele_idxs_ptr;
-      uintptr_t* allele_idx_read_iter = (uintptr_t*)(&(g_bigstack_end[kLoadPvarBlockSize * sizeof(int32_t)]));
+      uintptr_t* allele_idx_read_iter = R_CAST(uintptr_t*, &(g_bigstack_end[kLoadPvarBlockSize * sizeof(int32_t)]));
       for (uint32_t block_idx = 0; block_idx < full_block_ct; ++block_idx) {
         memcpy(&(variant_allele_idxs[block_idx * kLoadPvarBlockSize]), allele_idx_read_iter, kLoadPvarBlockSize * sizeof(intptr_t));
-        allele_idx_read_iter = (uintptr_t*)(((uintptr_t)allele_idx_read_iter) + read_iter_stride_base + (block_idx >= cms_start_block) * kLoadPvarBlockSize * sizeof(double) + (block_idx >= chr_idxs_start_block) * kLoadPvarBlockSize * sizeof(chr_idx_t));
+        allele_idx_read_iter = R_CAST(uintptr_t*, R_CAST(uintptr_t, allele_idx_read_iter) + read_iter_stride_base + (block_idx >= cms_start_block) * kLoadPvarBlockSize * sizeof(double) + (block_idx >= chr_idxs_start_block) * kLoadPvarBlockSize * sizeof(chr_idx_t));
       }
       memcpy(&(variant_allele_idxs[full_block_ct * kLoadPvarBlockSize]), allele_idx_read_iter, raw_variant_ct_lowbits * sizeof(intptr_t));
       variant_allele_idxs[raw_variant_ct] = allele_idx_end;
@@ -1794,13 +1788,13 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
       }
       double* variant_cms = *variant_cms_ptr;
       fill_double_zero(cms_start_block * kLoadPvarBlockSize, variant_cms);
-      double* cms_read_iter = (double*)(&(g_bigstack_end[read_iter_stride_base * (cms_start_block + 1)]));
+      double* cms_read_iter = R_CAST(double*, &(g_bigstack_end[read_iter_stride_base * (cms_start_block + 1)]));
       if (cms_start_block > chr_idxs_start_block) {
-        cms_read_iter = (double*)(((uintptr_t)cms_read_iter) + kLoadPvarBlockSize * sizeof(chr_idx_t) * (cms_start_block - chr_idxs_start_block));
+        cms_read_iter = R_CAST(double*, R_CAST(uintptr_t, cms_read_iter) + kLoadPvarBlockSize * sizeof(chr_idx_t) * (cms_start_block - chr_idxs_start_block));
       }
       for (uint32_t block_idx = cms_start_block; block_idx < full_block_ct; ++block_idx) {
         memcpy(&(variant_cms[block_idx * kLoadPvarBlockSize]), cms_read_iter, kLoadPvarBlockSize * sizeof(double));
-        cms_read_iter = (double*)(((uintptr_t)cms_read_iter) + read_iter_stride_base + kLoadPvarBlockSize * sizeof(double) + (block_idx >= chr_idxs_start_block) * kLoadPvarBlockSize * sizeof(chr_idx_t));
+        cms_read_iter = R_CAST(double*, R_CAST(uintptr_t, cms_read_iter) + read_iter_stride_base + kLoadPvarBlockSize * sizeof(double) + (block_idx >= chr_idxs_start_block) * kLoadPvarBlockSize * sizeof(chr_idx_t));
       }
       memcpy(&(variant_cms[full_block_ct * kLoadPvarBlockSize]), cms_read_iter, raw_variant_ct_lowbits * sizeof(double));
     } else {
@@ -1819,7 +1813,7 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
       }
       cip->chr_ct = chrs_encountered_m1 + 1;
     } else {
-      chr_idx_t* chr_idxs = (chr_idx_t*)bigstack_alloc(raw_variant_ct * sizeof(chr_idx_t));
+      chr_idx_t* chr_idxs = S_CAST(chr_idx_t*, bigstack_alloc(raw_variant_ct * sizeof(chr_idx_t)));
       if (!chr_idxs) {
         goto load_pvar_ret_NOMEM;
       }
@@ -1832,14 +1826,14 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
         }
         backfill_chr_idxs(cip, chr_fo_idx, 0, end_vidx, chr_idxs);
       }
-      chr_idx_t* chr_idxs_read_iter = (chr_idx_t*)(&(g_bigstack_end[read_iter_stride_base * (chr_idxs_start_block + 1)]));
+      chr_idx_t* chr_idxs_read_iter = R_CAST(chr_idx_t*, &(g_bigstack_end[read_iter_stride_base * (chr_idxs_start_block + 1)]));
       if (chr_idxs_start_block >= cms_start_block) {
-        chr_idxs_read_iter = (chr_idx_t*)(((uintptr_t)chr_idxs_read_iter) + kLoadPvarBlockSize * sizeof(double) * (chr_idxs_start_block + 1 - cms_start_block));
+        chr_idxs_read_iter = R_CAST(chr_idx_t*, R_CAST(uintptr_t, chr_idxs_read_iter) + kLoadPvarBlockSize * sizeof(double) * (chr_idxs_start_block + 1 - cms_start_block));
       }
       for (uint32_t block_idx = chr_idxs_start_block; block_idx < full_block_ct;) {
         memcpy(&(chr_idxs[block_idx * kLoadPvarBlockSize]), chr_idxs_read_iter, kLoadPvarBlockSize * sizeof(chr_idx_t));
         ++block_idx;
-        chr_idxs_read_iter = (chr_idx_t*)(((uintptr_t)chr_idxs_read_iter) + read_iter_stride_base + kLoadPvarBlockSize * sizeof(chr_idx_t) + (block_idx >= cms_start_block) * kLoadPvarBlockSize * sizeof(double));
+        chr_idxs_read_iter = R_CAST(chr_idx_t*, R_CAST(uintptr_t, chr_idxs_read_iter) + read_iter_stride_base + kLoadPvarBlockSize * sizeof(chr_idx_t) + (block_idx >= cms_start_block) * kLoadPvarBlockSize * sizeof(double));
       }
       memcpy(&(chr_idxs[full_block_ct * kLoadPvarBlockSize]), chr_idxs_read_iter, raw_variant_ct_lowbits * sizeof(chr_idx_t));
       cip->chr_ct = popcount_longs(loaded_chr_mask, DIV_UP(cip->max_code + cip->name_ct + 1, kBitsPerWord));

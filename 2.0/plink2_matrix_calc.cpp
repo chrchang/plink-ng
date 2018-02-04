@@ -48,7 +48,7 @@ uint32_t triangle_divide(int64_t cur_prod_x2, int32_t modif) {
     }
     return 0;
   }
-  vv = (int64_t)sqrt((double)cur_prod_x2);
+  vv = S_CAST(int64_t, sqrt(S_CAST(double, cur_prod_x2)));
   while ((vv - 1) * (vv + modif - 1) >= cur_prod_x2) {
     vv--;
   }
@@ -60,7 +60,7 @@ uint32_t triangle_divide(int64_t cur_prod_x2, int32_t modif) {
 
 void parallel_bounds(uint32_t ct, int32_t start, uint32_t parallel_idx, uint32_t parallel_tot, int32_t* __restrict bound_start_ptr, int32_t* __restrict bound_end_ptr) {
   int32_t modif = 1 - start * 2;
-  int64_t ct_tot = ((int64_t)ct) * (ct + modif);
+  int64_t ct_tot = S_CAST(int64_t, ct) * (ct + modif);
   *bound_start_ptr = triangle_divide((ct_tot * parallel_idx) / parallel_tot, modif);
   *bound_end_ptr = triangle_divide((ct_tot * (parallel_idx + 1)) / parallel_tot, modif);
 }
@@ -79,17 +79,17 @@ void triangle_fill(uint32_t ct, uint32_t piece_ct, uint32_t parallel_idx, uint32
   align_m1 = align - 1;
   target_arr[0] = lbound;
   target_arr[piece_ct] = ubound;
-  cur_prod_x2 = ((int64_t)lbound) * (lbound + modif);
-  const int64_t ct_tr = (((int64_t)ubound) * (ubound + modif) - cur_prod_x2) / piece_ct;
+  cur_prod_x2 = S_CAST(int64_t, lbound) * (lbound + modif);
+  const int64_t ct_tr = (S_CAST(int64_t, ubound) * (ubound + modif) - cur_prod_x2) / piece_ct;
   for (uint32_t piece_idx = 1; piece_idx < piece_ct; ++piece_idx) {
     cur_prod_x2 += ct_tr;
     lbound = triangle_divide(cur_prod_x2, modif);
-    uii = (lbound - ((int32_t)start)) & align_m1;
+    uii = (lbound - S_CAST(int32_t, start)) & align_m1;
     if ((uii) && (uii != align_m1)) {
-      lbound = start + ((lbound - ((int32_t)start)) | align_m1);
+      lbound = start + ((lbound - S_CAST(int32_t, start)) | align_m1);
     }
     // lack of this check caused a nasty bug earlier
-    if (((uint32_t)lbound) > ct) {
+    if (S_CAST(uint32_t, lbound) > ct) {
       lbound = ct;
     }
     target_arr[piece_idx] = lbound;
@@ -104,8 +104,8 @@ uint32_t count_triangle_passes(uintptr_t start_idx, uintptr_t end_idx, uintptr_t
     return 0;
   }
   cells_avail *= 2; // don't want to worry about /2 in triangular numbers
-  const uint64_t end_tri = ((uint64_t)end_idx) * (end_idx + 1);
-  uint64_t start_tri = ((uint64_t)start_idx) * (start_idx + 1);
+  const uint64_t end_tri = S_CAST(uint64_t, end_idx) * (end_idx + 1);
+  uint64_t start_tri = S_CAST(uint64_t, start_idx) * (start_idx + 1);
   uint32_t pass_ct = 0;
   while (1) {
     ++pass_ct;
@@ -114,11 +114,11 @@ uint32_t count_triangle_passes(uintptr_t start_idx, uintptr_t end_idx, uintptr_t
       return pass_ct;
     }
     const uint64_t next_target = start_tri + cells_avail;
-    start_idx = (int64_t)sqrt((double)((int64_t)next_target));
-    start_tri = ((uint64_t)start_idx) * (start_idx + 1);
+    start_idx = S_CAST(int64_t, sqrt(u63tod(next_target)));
+    start_tri = S_CAST(uint64_t, start_idx) * (start_idx + 1);
     if (start_tri > next_target) {
       --start_idx;
-      start_tri = ((uint64_t)start_idx) * (start_idx + 1);
+      start_tri = S_CAST(uint64_t, start_idx) * (start_idx + 1);
       assert(start_tri <= next_target);
     }
   }
@@ -128,15 +128,15 @@ uint64_t next_triangle_pass(uintptr_t start_idx, uintptr_t grand_end_idx, uintpt
   cells_avail *= 2;
   start_idx -= is_no_diag;
   grand_end_idx -= is_no_diag;
-  const uint64_t end_tri = ((uint64_t)grand_end_idx) * (grand_end_idx + 1);
-  uint64_t start_tri = ((uint64_t)start_idx) * (start_idx + 1);
+  const uint64_t end_tri = S_CAST(uint64_t, grand_end_idx) * (grand_end_idx + 1);
+  uint64_t start_tri = S_CAST(uint64_t, start_idx) * (start_idx + 1);
   const uint64_t delta_tri = end_tri - start_tri;
   if (delta_tri <= cells_avail) {
     return grand_end_idx + is_no_diag;
   }
   const uint64_t next_target = start_tri + cells_avail;
-  start_idx = (int64_t)sqrt((double)((int64_t)next_target));
-  start_tri = ((uint64_t)start_idx) * (start_idx + 1);
+  start_idx = S_CAST(int64_t, sqrt(u63tod(next_target)));
+  start_tri = S_CAST(uint64_t, start_idx) * (start_idx + 1);
   return start_idx + is_no_diag - (start_tri > next_target);
 }
 
@@ -145,15 +145,15 @@ void triangle_load_balance(uint32_t piece_ct, uintptr_t start_idx, uintptr_t end
   target_arr[piece_ct] = end_idx;
   start_idx -= is_no_diag;
   end_idx -= is_no_diag;
-  const uint64_t end_tri = ((uint64_t)end_idx) * (end_idx + 1);
-  uint64_t cur_target = ((uint64_t)start_idx) * (start_idx + 1);
+  const uint64_t end_tri = S_CAST(uint64_t, end_idx) * (end_idx + 1);
+  uint64_t cur_target = S_CAST(uint64_t, start_idx) * (start_idx + 1);
   const uint64_t std_size = (end_tri - cur_target) / piece_ct;
   for (uint32_t piece_idx = 1; piece_idx < piece_ct; ++piece_idx) {
     // don't use cur_target = start_tri + (piece_idx * delta_tri) / piece_ct
     // because of potential overflow
     cur_target += std_size;
-    start_idx = (int64_t)sqrt((double)((int64_t)cur_target));
-    const uint64_t start_tri = ((uint64_t)start_idx) * (start_idx + 1);
+    start_idx = S_CAST(int64_t, sqrt(u63tod(cur_target)));
+    const uint64_t start_tri = S_CAST(uint64_t, start_idx) * (start_idx + 1);
     if (start_tri > cur_target) {
       --start_idx;
     }
@@ -290,7 +290,7 @@ pglerr_t king_cutoff_batch(const char* sample_ids, const char* sids, uint32_t ra
     }
 
     char* fprefix_end = &(king_cutoff_fprefix[strlen(king_cutoff_fprefix)]);
-    strcpy(fprefix_end, ".king.id");
+    snprintf(fprefix_end, 9, ".king.id");
     reterr = gzopen_read_checked(king_cutoff_fprefix, &gz_infile);
     if (reterr) {
       goto king_cutoff_batch_ret_1;
@@ -337,7 +337,7 @@ pglerr_t king_cutoff_batch(const char* sample_ids, const char* sids, uint32_t ra
       uint32_t sample_uidx;
       if (!sorted_xidbox_read_find(sorted_xidbox, xid_map, max_xid_blen, sample_ct, 0, xid_mode, &loadbuf_iter, &sample_uidx, idbuf)) {
         if (sample_uidx_to_king_uidx[sample_uidx] != UINT32_MAX) {
-          char* first_tab = (char*)rawmemchr(idbuf, '\t');
+          char* first_tab = S_CAST(char*, rawmemchr(idbuf, '\t'));
           char* second_tab = strchr(&(first_tab[1]), '\t');
           *first_tab = ' ';
           if (second_tab) {
@@ -389,7 +389,7 @@ pglerr_t king_cutoff_batch(const char* sample_ids, const char* sids, uint32_t ra
         king_uidx_to_sample_idx[king_uidx] = sample_idx;
       }
     }
-    strcpy(fprefix_end, ".king.bin");
+    snprintf(fprefix_end, 9, ".king.bin");
     if (fopen_checked(king_cutoff_fprefix, FOPEN_RB, &binfile)) {
       goto king_cutoff_batch_ret_OPEN_FAIL;
     }
@@ -397,13 +397,13 @@ pglerr_t king_cutoff_batch(const char* sample_ids, const char* sids, uint32_t ra
       goto king_cutoff_batch_ret_READ_FAIL;
     }
     const uint64_t fsize = ftello(binfile);
-    const uint64_t fsize_double_expected = (king_id_ct * (((uint64_t)king_id_ct) - 1) * (sizeof(double) / 2));
+    const uint64_t fsize_double_expected = (king_id_ct * (S_CAST(uint64_t, king_id_ct) - 1) * (sizeof(double) / 2));
     const uint32_t is_double = (fsize == fsize_double_expected);
     rewind(binfile);
     const uint32_t first_king_uidx = next_set(king_include, 0, king_id_ct);
     uintptr_t king_uidx = next_set(king_include, first_king_uidx + 1, king_id_ct);
     if (king_uidx > 1) {
-      if (fseeko(binfile, king_uidx * (((uint64_t)king_uidx) - 1) * (2 + (2 * is_double)), SEEK_SET)) {
+      if (fseeko(binfile, king_uidx * (S_CAST(uint64_t, king_uidx) - 1) * (2 + (2 * is_double)), SEEK_SET)) {
         goto king_cutoff_batch_ret_READ_FAIL;
       }
     }
@@ -421,7 +421,7 @@ pglerr_t king_cutoff_batch(const char* sample_ids, const char* sids, uint32_t ra
           if (king_uidx == king_id_ct) {
             break;
           }
-          if (fseeko(binfile, ((uint64_t)king_uidx) * (king_uidx - 1) * (sizeof(double) / 2), SEEK_SET)) {
+          if (fseeko(binfile, S_CAST(uint64_t, king_uidx) * (king_uidx - 1) * (sizeof(double) / 2), SEEK_SET)) {
             goto king_cutoff_batch_ret_READ_FAIL;
           }
         }
@@ -449,7 +449,7 @@ pglerr_t king_cutoff_batch(const char* sample_ids, const char* sids, uint32_t ra
         goto king_cutoff_batch_ret_MALFORMED_INPUT;
       }
       assert(king_id_ct <= ((0x7ffff000 / sizeof(float)) + 1));
-      const float king_cutoff_f = (float)king_cutoff;
+      const float king_cutoff_f = S_CAST(float, king_cutoff);
       float* king_frow;
       if (bigstack_alloc_f(king_id_ct - 1, &king_frow)) {
         goto king_cutoff_batch_ret_NOMEM;
@@ -460,7 +460,7 @@ pglerr_t king_cutoff_batch(const char* sample_ids, const char* sids, uint32_t ra
           if (king_uidx == king_id_ct) {
             break;
           }
-          if (fseeko(binfile, ((uint64_t)king_uidx) * (king_uidx - 1) * (sizeof(float) / 2), SEEK_SET)) {
+          if (fseeko(binfile, S_CAST(uint64_t, king_uidx) * (king_uidx - 1) * (sizeof(float) / 2), SEEK_SET)) {
             goto king_cutoff_batch_ret_READ_FAIL;
           }
         }
@@ -608,11 +608,11 @@ void incr_king_homhom(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, 
   }
 }
 #else // !USE_SSE42
-  #ifdef __LP64__
+#  ifdef __LP64__
 CONSTU31(kKingMultiplex, 1536);
-  #else
+#  else
 CONSTU31(kKingMultiplex, 960);
-  #endif
+#  endif
 static_assert(kKingMultiplex % (3 * kBitsPerVec) == 0, "Invalid kKingMultiplex value.");
 CONSTU31(kKingMultiplexWords, kKingMultiplex / kBitsPerWord);
 CONSTU31(kKingMultiplexVecs, kKingMultiplex / kBitsPerVec);
@@ -625,10 +625,10 @@ void incr_king(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_
   for (uint32_t second_idx = start_idx; second_idx < end_idx; ++second_idx) {
     // technically overflows for huge sample_ct
     const uint32_t second_offset = second_idx * kKingMultiplexWords;
-    const vul_t* second_hom = (const vul_t*)(&(smaj_hom[second_offset]));
-    const vul_t* second_ref2het = (const vul_t*)(&(smaj_ref2het[second_offset]));
-    const vul_t* first_hom_iter = (const vul_t*)smaj_hom;
-    const vul_t* first_ref2het_iter = (const vul_t*)smaj_ref2het;
+    const vul_t* second_hom = R_CAST(const vul_t*, &(smaj_hom[second_offset]));
+    const vul_t* second_ref2het = R_CAST(const vul_t*, &(smaj_ref2het[second_offset]));
+    const vul_t* first_hom_iter = R_CAST(const vul_t*, smaj_hom);
+    const vul_t* first_ref2het_iter = R_CAST(const vul_t*, smaj_ref2het);
     while (first_hom_iter < second_hom) {
       univec_t acc_ibs0;
       univec_t acc_hethet;
@@ -706,10 +706,10 @@ void incr_king_homhom(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, 
   for (uint32_t second_idx = start_idx; second_idx < end_idx; ++second_idx) {
     // technically overflows for huge sample_ct
     const uint32_t second_offset = second_idx * kKingMultiplexWords;
-    const vul_t* second_hom = (const vul_t*)(&(smaj_hom[second_offset]));
-    const vul_t* second_ref2het = (const vul_t*)(&(smaj_ref2het[second_offset]));
-    const vul_t* first_hom_iter = (const vul_t*)smaj_hom;
-    const vul_t* first_ref2het_iter = (const vul_t*)smaj_ref2het;
+    const vul_t* second_hom = R_CAST(const vul_t*, &(smaj_hom[second_offset]));
+    const vul_t* second_ref2het = R_CAST(const vul_t*, &(smaj_ref2het[second_offset]));
+    const vul_t* first_hom_iter = R_CAST(const vul_t*, smaj_hom);
+    const vul_t* first_ref2het_iter = R_CAST(const vul_t*, smaj_ref2het);
     while (first_hom_iter < second_hom) {
       univec_t acc_homhom;
       univec_t acc_ibs0;
@@ -794,7 +794,7 @@ void incr_king_homhom(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, 
 static_assert(!(kKingMultiplexWords % 2), "kKingMultiplexWords must be even for safe bit-transpose.");
 
 THREAD_FUNC_DECL calc_king_thread(void* arg) {
-  const uintptr_t tidx = (uintptr_t)arg;
+  const uintptr_t tidx = R_CAST(uintptr_t, arg);
   const uint64_t mem_start_idx = g_thread_start[0];
   const uint64_t start_idx = g_thread_start[tidx];
   const uint32_t end_idx = g_thread_start[tidx + 1];
@@ -821,8 +821,8 @@ double compute_kinship(const uint32_t* king_counts_entry) {
   const uint32_t het2hom1_ct = king_counts_entry[2];
   const uint32_t het1hom2_ct = king_counts_entry[3];
   // const uint32_t homhom_ct = king_counts_entry[4];
-  const intptr_t smaller_het_ct = (intptr_t)(hethet_ct + MINV(het1hom2_ct, het2hom1_ct));
-  return 0.5 - ((double)(4 * ((intptr_t)ibs0_ct) + het1hom2_ct + het2hom1_ct)) / ((double)(4 * smaller_het_ct));
+  const intptr_t smaller_het_ct = hethet_ct + MINV(het1hom2_ct, het2hom1_ct);
+  return 0.5 - (S_CAST(double, 4 * S_CAST(intptr_t, ibs0_ct) + het1hom2_ct + het2hom1_ct) / S_CAST(double, 4 * smaller_het_ct));
 }
 
 // could also return pointer to end?
@@ -954,7 +954,7 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
     g_homhom_needed = (king_modifier & kfKingColNsnp) || ((!(king_modifier & kfKingCounts)) && (king_modifier & (kfKingColHethet | kfKingColIbs0 | kfKingColIbs1)));
     uint32_t grand_row_start_idx;
     uint32_t grand_row_end_idx;
-    parallel_bounds(sample_ct, 1, parallel_idx, parallel_tot, (int32_t*)(&grand_row_start_idx), (int32_t*)(&grand_row_end_idx));
+    parallel_bounds(sample_ct, 1, parallel_idx, parallel_tot, R_CAST(int32_t*, &grand_row_start_idx), R_CAST(int32_t*, &grand_row_end_idx));
     const uint32_t king_bufsizew = kKingMultiplexWords * grand_row_end_idx;
     const uint32_t homhom_needed_p4 = g_homhom_needed + 4;
     uintptr_t* cur_sample_include;
@@ -974,7 +974,7 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
       goto calc_king_ret_NOMEM;
     }
     // force this to be cacheline-aligned
-    vul_t* vecaligned_buf = (vul_t*)bigstack_alloc(kPglBitTransposeBufbytes);
+    vul_t* vecaligned_buf = S_CAST(vul_t*, bigstack_alloc(kPglBitTransposeBufbytes));
     if (!vecaligned_buf) {
       goto calc_king_ret_NOMEM;
     }
@@ -1042,12 +1042,12 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
       goto calc_king_ret_NOMEM;
     }
     uint32_t row_end_idx = grand_row_start_idx;
-    g_king_counts = (uint32_t*)g_bigstack_base;
+    g_king_counts = R_CAST(uint32_t*, g_bigstack_base);
     for (uint32_t pass_idx_p1 = 1; pass_idx_p1 <= pass_ct; ++pass_idx_p1) {
       const uint32_t row_start_idx = row_end_idx;
       row_end_idx = next_triangle_pass(row_start_idx, grand_row_end_idx, 1, cells_avail);
       triangle_load_balance(calc_thread_ct, row_start_idx, row_end_idx, 1, g_thread_start);
-      const uintptr_t tot_cells = (((uint64_t)row_end_idx) * (row_end_idx - 1) - ((uint64_t)row_start_idx) * (row_start_idx - 1)) / 2;
+      const uintptr_t tot_cells = (S_CAST(uint64_t, row_end_idx) * (row_end_idx - 1) - S_CAST(uint64_t, row_start_idx) * (row_start_idx - 1)) / 2;
       fill_uint_zero(tot_cells * homhom_needed_p4, g_king_counts);
 
       const uint32_t row_end_idxaw = BITCT_TO_ALIGNED_WORDCT(row_end_idx);
@@ -1138,7 +1138,7 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
               goto calc_king_ret_PGR_FAIL;
             }
             set_trailing_quaters(row_end_idx, loadbuf);
-            split_hom_ref2het_unsafew(loadbuf, row_end_idxaw2, (unsigned char*)hom_iter, (unsigned char*)ref2het_iter);
+            split_hom_ref2het_unsafew(loadbuf, row_end_idxaw2, hom_iter, ref2het_iter);
             hom_iter = &(hom_iter[row_end_idxaw]);
             ref2het_iter = &(ref2het_iter[row_end_idxaw]);
           }
@@ -1232,9 +1232,9 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
                   // assumes little-endian
                   const uintptr_t tabzero_word = 0x3009 * kMask0001;
 #ifdef __arm__
-  #error "Unaligned accesses in calc_king()."
+#  error "Unaligned accesses in calc_king()."
 #endif
-                  uintptr_t* writep_alias = (uintptr_t*)cswritep;
+                  uintptr_t* writep_alias = R_CAST(uintptr_t*, cswritep);
                   for (uintptr_t widx = 0; widx < wct; ++widx) {
                     *writep_alias++ = tabzero_word;
                   }
@@ -1276,7 +1276,7 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
               sample_idx1 = 0;
             }
             if (king_modifier & kfKingMatrixBin4) {
-              float* write_row = (float*)numbuf;
+              float* write_row = R_CAST(float*, numbuf);
               uintptr_t row_byte_ct = sample_ct * sizeof(float);
               for (; sample_idx1 < row_end_idx; ++sample_idx1) {
                 for (uint32_t sample_idx2 = 0; sample_idx2 < sample_idx1; ++sample_idx2) {
@@ -1285,7 +1285,7 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
                     SET_BIT(sample_idx2, &(kinship_table[sample_idx1 * sample_ctl]));
                     SET_BIT(sample_idx1, &(kinship_table[sample_idx2 * sample_ctl]));
                   }
-                  write_row[sample_idx2] = (float)kinship_coeff;
+                  write_row[sample_idx2] = S_CAST(float, kinship_coeff);
                   results_iter = &(results_iter[homhom_needed_p4]);
                 }
                 if (is_squarex) {
@@ -1296,7 +1296,7 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
                   } else {
                     const uint32_t* results_iter2 = &(results_iter[sample_idx1 * homhom_needed_p4]);
                     for (uint32_t sample_idx2 = sample_idx1 + 1; sample_idx2 < sample_ct; ++sample_idx2) {
-                      write_row[sample_idx2] = (float)compute_kinship(results_iter2);
+                      write_row[sample_idx2] = S_CAST(float, compute_kinship(results_iter2));
                       results_iter2 = &(results_iter2[sample_idx2 * homhom_needed_p4]);
                     }
                   }
@@ -1308,7 +1308,7 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
                 }
               }
             } else {
-              double* write_row = (double*)numbuf;
+              double* write_row = R_CAST(double*, numbuf);
               uintptr_t row_byte_ct = sample_ct * sizeof(double);
               for (; sample_idx1 < row_end_idx; ++sample_idx1) {
                 for (uint32_t sample_idx2 = 0; sample_idx2 < sample_idx1; ++sample_idx2) {
@@ -1366,8 +1366,8 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
               const uint32_t hethet_ct = results_iter[1];
               const uint32_t het2hom1_ct = results_iter[2];
               const uint32_t het1hom2_ct = results_iter[3];
-              const intptr_t smaller_het_ct = (intptr_t)(hethet_ct + MINV(het1hom2_ct, het2hom1_ct));
-              const double kinship_coeff = 0.5 - ((double)(4 * ((intptr_t)ibs0_ct) + het1hom2_ct + het2hom1_ct)) / ((double)(4 * smaller_het_ct));
+              const intptr_t smaller_het_ct = hethet_ct + MINV(het1hom2_ct, het2hom1_ct);
+              const double kinship_coeff = 0.5 - (S_CAST(double, 4 * S_CAST(intptr_t, ibs0_ct) + het1hom2_ct + het2hom1_ct) / S_CAST(double, 4 * smaller_het_ct));
               if (kinship_table && (kinship_coeff > king_cutoff)) {
                 SET_BIT(sample_idx2, &(kinship_table[sample_idx1 * sample_ctl]));
                 SET_BIT(sample_idx1, &(kinship_table[sample_idx2 * sample_ctl]));
@@ -1390,14 +1390,14 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
                   cswritetp = uint32toa_x(nonmiss_ct, '\t', cswritetp);
                 }
                 if (!report_counts) {
-                  nonmiss_recip = 1.0 / ((double)((int32_t)nonmiss_ct));
+                  nonmiss_recip = 1.0 / u31tod(nonmiss_ct);
                 }
               }
               if (king_col_hethet) {
                 if (report_counts) {
                   cswritetp = uint32toa(hethet_ct, cswritetp);
                 } else {
-                  cswritetp = dtoa_g(nonmiss_recip * ((double)((int32_t)hethet_ct)), cswritetp);
+                  cswritetp = dtoa_g(nonmiss_recip * u31tod(hethet_ct), cswritetp);
                 }
                 *cswritetp++ = '\t';
               }
@@ -1405,7 +1405,7 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
                 if (report_counts) {
                   cswritetp = uint32toa(ibs0_ct, cswritetp);
                 } else {
-                  cswritetp = dtoa_g(nonmiss_recip * ((double)((int32_t)ibs0_ct)), cswritetp);
+                  cswritetp = dtoa_g(nonmiss_recip * u31tod(ibs0_ct), cswritetp);
                 }
                 *cswritetp++ = '\t';
               }
@@ -1414,9 +1414,9 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
                   cswritetp = uint32toa_x(het1hom2_ct, '\t', cswritetp);
                   cswritetp = uint32toa(het2hom1_ct, cswritetp);
                 } else {
-                  cswritetp = dtoa_g(nonmiss_recip * ((double)((int32_t)het1hom2_ct)), cswritetp);
+                  cswritetp = dtoa_g(nonmiss_recip * u31tod(het1hom2_ct), cswritetp);
                   *cswritetp++ = '\t';
-                  cswritetp = dtoa_g(nonmiss_recip * ((double)((int32_t)het2hom1_ct)), cswritetp);
+                  cswritetp = dtoa_g(nonmiss_recip * u31tod(het2hom1_ct), cswritetp);
                 }
                 *cswritetp++ = '\t';
               }
@@ -1472,9 +1472,9 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
       char* write_iter = strcpya(g_logbuf, "Results written to ");
       write_iter = strcpya(write_iter, outname);
       write_iter = strcpya(write_iter, " and ");
-      strcpy(&(outname_end[5]), ".id");
+      snprintf(&(outname_end[5]), kMaxOutfnameExtBlen - 5, ".id");
       write_iter = strcpya(write_iter, outname);
-      strcpy(write_iter, " .\n");
+      snprintf(write_iter, kLogbufSize - 2 * kPglFnamesize - 64, " .\n");
       wordwrapb(0);
       logprintb();
       reterr = write_sample_ids(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, no_idheader);
@@ -1493,7 +1493,7 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
         write_iter = strcpya(write_iter, " and ");
         strcpya(&(outname_end[5]), ".id");
         write_iter = strcpya(write_iter, outname);
-        strcpya(write_iter, " .\n");
+        snprintf(write_iter, kLogbufSize - 2 * kPglFnamesize - 64, " .\n");
         wordwrapb(0);
         logprintb();
         reterr = write_sample_ids(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, no_idheader);
@@ -1501,12 +1501,12 @@ pglerr_t calc_king(const char* sample_ids, const char* sids, uintptr_t* variant_
           goto calc_king_ret_1;
         }
       } else {
-        strcpy(write_iter, " .\n");
+        snprintf(write_iter, kLogbufSize - kPglFnamesize - 64, " .\n");
         wordwrapb(0);
         logprintb();
       }
       if (king_table_filter != -DBL_MAX) {
-        const uint64_t grand_tot_cells = (((uint64_t)grand_row_end_idx) * (grand_row_end_idx - 1) - ((uint64_t)grand_row_start_idx) * (grand_row_start_idx - 1)) / 2;
+        const uint64_t grand_tot_cells = (S_CAST(uint64_t, grand_row_end_idx) * (grand_row_end_idx - 1) - S_CAST(uint64_t, grand_row_start_idx) * (grand_row_start_idx - 1)) / 2;
         const uint64_t reported_ct = grand_tot_cells - king_table_filter_ct;
         LOGPRINTF("--king-table-filter: %" PRIu64 " relationship%s reported (%" PRIu64 " filtered out).\n", reported_ct, (reported_ct == 1)? "" : "s", king_table_filter_ct);
       }
@@ -1637,10 +1637,10 @@ void incr_king_subset(const uint32_t* loaded_sample_idx_pairs, const uintptr_t* 
     // technically overflows for huge sample_ct
     const uint32_t first_offset = (*sample_idx_pair_iter++) * kKingMultiplexWords;
     const uint32_t second_offset = (*sample_idx_pair_iter++) * kKingMultiplexWords;
-    const vul_t* first_hom = (const vul_t*)(&(smaj_hom[first_offset]));
-    const vul_t* first_ref2het = (const vul_t*)(&(smaj_ref2het[first_offset]));
-    const vul_t* second_hom = (const vul_t*)(&(smaj_hom[second_offset]));
-    const vul_t* second_ref2het = (const vul_t*)(&(smaj_ref2het[second_offset]));
+    const vul_t* first_hom = R_CAST(const vul_t*, &(smaj_hom[first_offset]));
+    const vul_t* first_ref2het = R_CAST(const vul_t*, &(smaj_ref2het[first_offset]));
+    const vul_t* second_hom = R_CAST(const vul_t*, &(smaj_hom[second_offset]));
+    const vul_t* second_ref2het = R_CAST(const vul_t*, &(smaj_ref2het[second_offset]));
     univec_t acc_ibs0;
     univec_t acc_hethet;
     univec_t acc_het2hom1;
@@ -1717,10 +1717,10 @@ void incr_king_subset_homhom(const uint32_t* loaded_sample_idx_pairs, const uint
     // technically overflows for huge sample_ct
     const uint32_t first_offset = (*sample_idx_pair_iter++) * kKingMultiplexWords;
     const uint32_t second_offset = (*sample_idx_pair_iter++) * kKingMultiplexWords;
-    const vul_t* first_hom = (const vul_t*)(&(smaj_hom[first_offset]));
-    const vul_t* first_ref2het = (const vul_t*)(&(smaj_ref2het[first_offset]));
-    const vul_t* second_hom = (const vul_t*)(&(smaj_hom[second_offset]));
-    const vul_t* second_ref2het = (const vul_t*)(&(smaj_ref2het[second_offset]));
+    const vul_t* first_hom = R_CAST(const vul_t*, &(smaj_hom[first_offset]));
+    const vul_t* first_ref2het = R_CAST(const vul_t*, &(smaj_ref2het[first_offset]));
+    const vul_t* second_hom = R_CAST(const vul_t*, &(smaj_hom[second_offset]));
+    const vul_t* second_ref2het = R_CAST(const vul_t*, &(smaj_ref2het[second_offset]));
     univec_t acc_homhom;
     univec_t acc_ibs0;
     univec_t acc_hethet;
@@ -1799,7 +1799,7 @@ void incr_king_subset_homhom(const uint32_t* loaded_sample_idx_pairs, const uint
 #endif
 
 THREAD_FUNC_DECL calc_king_table_subset_thread(void* arg) {
-  const uintptr_t tidx = (uintptr_t)arg;
+  const uintptr_t tidx = R_CAST(uintptr_t, arg);
   const uint32_t start_idx = g_thread_start[tidx];
   const uint32_t end_idx = g_thread_start[tidx + 1];
   const uint32_t homhom_needed = g_homhom_needed;
@@ -1981,7 +1981,7 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
       goto calc_king_table_subset_ret_NOMEM;
     }
     // force this to be cacheline-aligned
-    vul_t* vecaligned_buf = (vul_t*)bigstack_alloc(kPglBitTransposeBufbytes);
+    vul_t* vecaligned_buf = S_CAST(vul_t*, bigstack_alloc(kPglBitTransposeBufbytes));
     if (!vecaligned_buf) {
       goto calc_king_table_subset_ret_NOMEM;
     }
@@ -2001,7 +2001,7 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
       logerrprint("Warning: --king-table-subset input filename matches --make-king-table output\nfilename.  Appending '~' to input filename.\n");
       fname_slen = strlen(subset_fname);
       memcpy(g_textbuf, subset_fname, fname_slen);
-      strcpy(&(g_textbuf[fname_slen]), "~");
+      memcpy(&(g_textbuf[fname_slen]), "~", 2);
       if (rename(subset_fname, g_textbuf)) {
         logerrprint("Error: Failed to append '~' to --king-table-subset input filename.\n");
         goto calc_king_table_subset_ret_OPEN_FAIL;
@@ -2066,20 +2066,20 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
       goto calc_king_table_subset_ret_INVALID_HEADER;
     }
     const char* token_end = token_endnn(textbuf_iter);
-    uint32_t token_slen = (uintptr_t)(token_end - textbuf_iter);
+    uint32_t token_slen = token_end - textbuf_iter;
     // Make this work with both KING- and plink2-generated .kin0 files.
     if ((!strequal_k(textbuf_iter, "#FID1", token_slen)) && (!strequal_k(textbuf_iter, "FID", token_slen))) {
       goto calc_king_table_subset_ret_INVALID_HEADER;
     }
     textbuf_iter = skip_initial_spaces(token_end);
     token_end = token_endnn(textbuf_iter);
-    token_slen = (uintptr_t)(token_end - textbuf_iter);
+    token_slen = token_end - textbuf_iter;
     if (!strequal_k(textbuf_iter, "ID1", token_slen)) {
       goto calc_king_table_subset_ret_INVALID_HEADER;
     }
     textbuf_iter = skip_initial_spaces(token_end);
     token_end = token_endnn(textbuf_iter);
-    token_slen = (uintptr_t)(token_end - textbuf_iter);
+    token_slen = token_end - textbuf_iter;
     uint32_t id2_skip = 0;
     xid_mode_t xid_mode;
     if (strequal_k(textbuf_iter, "SID1", token_slen)) {
@@ -2090,7 +2090,7 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
       }
       textbuf_iter = skip_initial_spaces(token_end);
       token_end = token_endnn(textbuf_iter);
-      token_slen = (uintptr_t)(token_end - textbuf_iter);
+      token_slen = token_end - textbuf_iter;
     } else {
       xid_mode = kfXidModeFidiid;
     }
@@ -2099,7 +2099,7 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
     }
     textbuf_iter = skip_initial_spaces(token_end);
     token_end = token_endnn(textbuf_iter);
-    token_slen = (uintptr_t)(token_end - textbuf_iter);
+    token_slen = token_end - textbuf_iter;
     if (!strequal_k(textbuf_iter, "ID2", token_slen)) {
       goto calc_king_table_subset_ret_INVALID_HEADER;
     }
@@ -2107,7 +2107,7 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
       // technically don't need to check this in id2_skip case
       textbuf_iter = skip_initial_spaces(token_end);
       token_end = token_endnn(textbuf_iter);
-      token_slen = (uintptr_t)(token_end - textbuf_iter);
+      token_slen = token_end - textbuf_iter;
       if (!strequal_k(textbuf_iter, "SID2", token_slen)) {
         goto calc_king_table_subset_ret_INVALID_HEADER;
       }
@@ -2118,7 +2118,7 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
       while (1) {
         textbuf_iter = skip_initial_spaces(token_end);
         token_end = token_endnn(textbuf_iter);
-        token_slen = (uintptr_t)(token_end - textbuf_iter);
+        token_slen = token_end - textbuf_iter;
         if (!token_slen) {
           logerrprint("Error: No kinship-coefficient column in --king-table-subset file.\n");
           goto calc_king_table_subset_ret_INCONSISTENT_INPUT;
@@ -2155,8 +2155,8 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
       // 32-bit g_thread_start[] for now
       pair_buf_capacity = 0xffffffffU;
     }
-    g_loaded_sample_idx_pairs = (uint32_t*)bigstack_alloc_raw_rd(pair_buf_capacity * 2 * sizeof(int32_t));
-    g_king_counts = (uint32_t*)g_bigstack_base;
+    g_loaded_sample_idx_pairs = S_CAST(uint32_t*, bigstack_alloc_raw_rd(pair_buf_capacity * 2 * sizeof(int32_t)));
+    g_king_counts = R_CAST(uint32_t*, g_bigstack_base);
     uint64_t pair_idx = 0;
     fputs("Scanning --king-table-subset file...", stdout);
     fflush(stdout);
@@ -2230,7 +2230,7 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
           if (sids) {
             strcpy(write_iter, &(sids[sample_uidx * max_sid_blen]));
           } else {
-            strcpy(write_iter, "0");
+            memcpy(write_iter, "0", 2);
           }
         } else {
           *write_iter = '\0';
@@ -2238,7 +2238,7 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
         sample_augids_iter = &(sample_augids_iter[max_sample_augid_blen]);
       }
       for (uint32_t tidx = 0; tidx <= calc_thread_ct; ++tidx) {
-        g_thread_start[tidx] = (tidx * ((uint64_t)cur_pair_ct)) / calc_thread_ct;
+        g_thread_start[tidx] = (tidx * S_CAST(uint64_t, cur_pair_ct)) / calc_thread_ct;
       }
       if (pass_idx != 1) {
         reinit_threads3z(&ts);
@@ -2284,7 +2284,7 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
               goto calc_king_table_subset_ret_PGR_FAIL;
             }
             set_trailing_quaters(cur_sample_ct, loadbuf);
-            split_hom_ref2het_unsafew(loadbuf, cur_sample_ctaw2, (unsigned char*)hom_iter, (unsigned char*)ref2het_iter);
+            split_hom_ref2het_unsafew(loadbuf, cur_sample_ctaw2, hom_iter, ref2het_iter);
             hom_iter = &(hom_iter[cur_sample_ctaw]);
             ref2het_iter = &(ref2het_iter[cur_sample_ctaw]);
           }
@@ -2360,8 +2360,8 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
         const uint32_t hethet_ct = results_iter[1];
         const uint32_t het2hom1_ct = results_iter[2];
         const uint32_t het1hom2_ct = results_iter[3];
-        const intptr_t smaller_het_ct = (intptr_t)(hethet_ct + MINV(het1hom2_ct, het2hom1_ct));
-        const double kinship_coeff = 0.5 - ((double)(4 * ((intptr_t)ibs0_ct) + het1hom2_ct + het2hom1_ct)) / ((double)(4 * smaller_het_ct));
+        const intptr_t smaller_het_ct = hethet_ct + MINV(het1hom2_ct, het2hom1_ct);
+        const double kinship_coeff = 0.5 - (S_CAST(double, 4 * S_CAST(intptr_t, ibs0_ct) + het1hom2_ct + het2hom1_ct) / S_CAST(double, 4 * smaller_het_ct));
         if ((king_table_filter != -DBL_MAX) && (kinship_coeff < king_table_filter)) {
           ++king_table_filter_ct;
           continue;
@@ -2379,14 +2379,14 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
             cswritep = uint32toa_x(nonmiss_ct, '\t', cswritep);
           }
           if (!report_counts) {
-            nonmiss_recip = 1.0 / ((double)((int32_t)nonmiss_ct));
+            nonmiss_recip = 1.0 / u31tod(nonmiss_ct);
           }
         }
         if (king_col_hethet) {
           if (report_counts) {
             cswritep = uint32toa(hethet_ct, cswritep);
           } else {
-            cswritep = dtoa_g(nonmiss_recip * ((double)((int32_t)hethet_ct)), cswritep);
+            cswritep = dtoa_g(nonmiss_recip * u31tod(hethet_ct), cswritep);
           }
           *cswritep++ = '\t';
         }
@@ -2394,7 +2394,7 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
           if (report_counts) {
             cswritep = uint32toa(ibs0_ct, cswritep);
           } else {
-            cswritep = dtoa_g(nonmiss_recip * ((double)((int32_t)ibs0_ct)), cswritep);
+            cswritep = dtoa_g(nonmiss_recip * u31tod(ibs0_ct), cswritep);
           }
           *cswritep++ = '\t';
         }
@@ -2403,9 +2403,9 @@ pglerr_t calc_king_table_subset(const uintptr_t* orig_sample_include, const char
             cswritep = uint32toa_x(het1hom2_ct, '\t', cswritep);
             cswritep = uint32toa(het2hom1_ct, cswritep);
           } else {
-            cswritep = dtoa_g(nonmiss_recip * ((double)((int32_t)het1hom2_ct)), cswritep);
+            cswritep = dtoa_g(nonmiss_recip * u31tod(het1hom2_ct), cswritep);
             *cswritep++ = '\t';
-            cswritep = dtoa_g(nonmiss_recip * ((double)((int32_t)het2hom1_ct)), cswritep);
+            cswritep = dtoa_g(nonmiss_recip * u31tod(het2hom1_ct), cswritep);
           }
           *cswritep++ = '\t';
         }
@@ -2570,7 +2570,7 @@ pglerr_t load_centered_varmaj(const uintptr_t* sample_include, const uint32_t* s
         }
       }
     } else {
-      halfword_t* dosage_present_alias = (halfword_t*)dosage_present_buf;
+      halfword_t* dosage_present_alias = R_CAST(halfword_t*, dosage_present_buf);
       for (uint32_t widx = 0; widx < sample_ctl2; ++widx) {
         const uintptr_t genovec_word = genovec_buf[widx];
         const uintptr_t ulii = genovec_word & (genovec_word >> 1) & kMask5555;
@@ -2599,7 +2599,7 @@ CONSTU31(kGrmVariantBlockSize, 144);
 
 // turns out dsyrk_ does exactly what we want here
 THREAD_FUNC_DECL calc_grm_thread(void* arg) {
-  const uintptr_t tidx = (uintptr_t)arg;
+  const uintptr_t tidx = R_CAST(uintptr_t, arg);
   assert(!tidx);
   const uint32_t sample_ct = g_pca_sample_ct;
   double* grm = g_grm;
@@ -2621,7 +2621,7 @@ THREAD_FUNC_DECL calc_grm_thread(void* arg) {
 // can't use dsyrk_, so we manually partition the GRM piece we need to compute
 // into an appropriate number of sub-pieces
 THREAD_FUNC_DECL calc_grm_part_thread(void* arg) {
-  const uintptr_t tidx = (uintptr_t)arg;
+  const uintptr_t tidx = R_CAST(uintptr_t, arg);
   const uintptr_t sample_ct = g_pca_sample_ct;
   const uintptr_t first_thread_row_start_idx = g_thread_start[0];
   const uintptr_t row_start_idx = g_thread_start[tidx];
@@ -2654,7 +2654,7 @@ CONSTU31(kDblMissingBlockWordCt, 2);
 CONSTU31(kDblMissingBlockSize, kDblMissingBlockWordCt * kBitsPerWord);
 
 THREAD_FUNC_DECL calc_dbl_missing_thread(void* arg) {
-  const uintptr_t tidx = (uintptr_t)arg;
+  const uintptr_t tidx = R_CAST(uintptr_t, arg);
   const uint64_t first_thread_row_start_idx = g_thread_start[0];
   const uint64_t dbl_exclude_offset = (first_thread_row_start_idx * (first_thread_row_start_idx - 1)) / 2;
   const uint32_t row_start_idx = g_thread_start[tidx];
@@ -2690,7 +2690,7 @@ THREAD_FUNC_DECL calc_dbl_missing_thread(void* arg) {
         const uintptr_t cur_word3 = missing_smaj[sample_idx * kDblMissingBlockWordCt + 3];
 #endif
         // (sample_idx - 1) underflow ok
-        uint32_t* write_base = &(missing_dbl_exclude_cts[((((uint64_t)sample_idx) * (sample_idx - 1)) / 2) - dbl_exclude_offset]);
+        uint32_t* write_base = &(missing_dbl_exclude_cts[((S_CAST(uint64_t, sample_idx) * (sample_idx - 1)) / 2) - dbl_exclude_offset]);
         for (uint32_t uii = 0; uii < prev_missing_nz_ct; ++uii, ++sample_idx2) {
           next_set_unsafe_ck(missing_nz, &sample_idx2);
           const uintptr_t* cur_missing_smaj_base = &(missing_smaj[sample_idx2 * kDblMissingBlockWordCt]);
@@ -2732,7 +2732,7 @@ pglerr_t calc_missing_matrix(const uintptr_t* sample_include, const uint32_t* sa
     uintptr_t* missing_vmaj = nullptr;
     uintptr_t* genovec_buf = nullptr;
     if (bigstack_calloc_ui(row_end_idx, missing_cts_ptr) ||
-        bigstack_calloc_ui((((uint64_t)row_end_idx) * (row_end_idx - 1) - ((uint64_t)row_start_idx) * (row_start_idx - 1)) / 2, missing_dbl_exclude_cts_ptr) ||
+        bigstack_calloc_ui((S_CAST(uint64_t, row_end_idx) * (row_end_idx - 1) - S_CAST(uint64_t, row_start_idx) * (row_start_idx - 1)) / 2, missing_dbl_exclude_cts_ptr) ||
         bigstack_calloc_ul(row_end_idxl, &g_missing_nz[0]) ||
         bigstack_calloc_ul(row_end_idxl, &g_missing_nz[1]) ||
         bigstack_alloc_ul(QUATERCT_TO_WORDCT(row_end_idx), &genovec_buf) ||
@@ -2744,7 +2744,7 @@ pglerr_t calc_missing_matrix(const uintptr_t* sample_include, const uint32_t* sa
     uint32_t* missing_cts = *missing_cts_ptr;
     uint32_t* missing_dbl_exclude_cts = *missing_dbl_exclude_cts_ptr;
     g_missing_dbl_exclude_cts = missing_dbl_exclude_cts;
-    vul_t* transpose_bitblock_wkspace = (vul_t*)bigstack_alloc_raw(kPglBitTransposeBufbytes);
+    vul_t* transpose_bitblock_wkspace = S_CAST(vul_t*, bigstack_alloc_raw(kPglBitTransposeBufbytes));
     uint32_t calc_thread_ct = (max_thread_ct > 8)? (max_thread_ct - 1) : max_thread_ct;
     ts.calc_thread_ct = calc_thread_ct;
     if (bigstack_alloc_ui(calc_thread_ct + 1, &g_thread_start) ||
@@ -2839,7 +2839,7 @@ pglerr_t calc_missing_matrix(const uintptr_t* sample_include, const uint32_t* sa
           pct = (cur_variant_idx_start * 100LLU) / variant_ct;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_variant_idx = (pct * ((uint64_t)variant_ct)) / 100;
+          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
         }
       }
       ts.is_last_block = (cur_variant_idx_start + cur_batch_size == variant_ct);
@@ -2856,7 +2856,7 @@ pglerr_t calc_missing_matrix(const uintptr_t* sample_include, const uint32_t* sa
     }
     fputs("\b\b", stdout);
     logprint("done.\n");
-    bigstack_mark = (unsigned char*)g_missing_nz[0];
+    bigstack_mark = R_CAST(unsigned char*, g_missing_nz[0]);
   }
   while (0) {
   calc_missing_matrix_ret_NOMEM:
@@ -3057,7 +3057,7 @@ pglerr_t calc_grm(const uintptr_t* orig_sample_include, const char* sample_ids, 
           pct = (cur_variant_idx_start * 100LLU) / variant_ct;
           printf("\b\b%u%%", pct++);
           fflush(stdout);
-          next_print_variant_idx = (pct * ((uint64_t)variant_ct)) / 100;
+          next_print_variant_idx = (pct * S_CAST(uint64_t, variant_ct)) / 100;
         }
       }
       ts.is_last_block = (cur_variant_idx_start + cur_batch_size == variant_ct);
@@ -3101,12 +3101,12 @@ pglerr_t calc_grm(const uintptr_t* orig_sample_include, const char* sample_ids, 
         const uint32_t variant_ct_base = variant_ct - missing_cts[row_idx];
         double* grm_iter = &(grm[(row_idx - row_start_idx) * row_end_idx]);
         for (uint32_t col_idx = 0; col_idx < row_idx; ++col_idx) {
-          *grm_iter++ /= (double)((int32_t)(variant_ct_base - missing_cts[col_idx] + (*missing_dbl_exclude_iter++)));
+          *grm_iter++ /= u31tod(variant_ct_base - missing_cts[col_idx] + (*missing_dbl_exclude_iter++));
         }
-        *grm_iter++ /= (double)((int32_t)variant_ct_base);
+        *grm_iter++ /= u31tod(variant_ct_base);
       }
     } else {
-      const double variant_ct_recip = 1.0 / ((double)((int32_t)variant_ct));
+      const double variant_ct_recip = 1.0 / u31tod(variant_ct);
       for (uintptr_t row_idx = row_start_idx; row_idx < row_end_idx; ++row_idx) {
         double* grm_iter = &(grm[(row_idx - row_start_idx) * row_end_idx]);
         for (uint32_t col_idx = 0; col_idx <= row_idx; ++col_idx) {
@@ -3139,7 +3139,7 @@ pglerr_t calc_grm(const uintptr_t* orig_sample_include, const char* sample_ids, 
           }
           double* write_double_buf = nullptr;
           if (matrix_shape == kfGrmMatrixSq0) {
-            write_double_buf = (double*)g_textbuf;
+            write_double_buf = R_CAST(double*, g_textbuf);
             fill_double_zero(kTextbufMainSize / sizeof(double), write_double_buf);
           } else if (matrix_shape == kfGrmMatrixSq) {
             if (bigstack_alloc_d(row_end_idx - row_start_idx - 1, &write_double_buf)) {
@@ -3203,7 +3203,7 @@ pglerr_t calc_grm(const uintptr_t* orig_sample_include, const char* sample_ids, 
             const double* grm_iter = &(grm[(row_idx - row_start_idx) * row_end_idx]);
             float* write_float_iter = write_float_buf;
             for (uint32_t col_idx = 0; col_idx <= row_idx; ++col_idx) {
-              *write_float_iter++ = (float)(*grm_iter++);
+              *write_float_iter++ = S_CAST(float, *grm_iter++);
             }
             ++row_idx;
             if (matrix_shape == kfGrmMatrixSq0) {
@@ -3212,10 +3212,10 @@ pglerr_t calc_grm(const uintptr_t* orig_sample_include, const char* sample_ids, 
             } else if (matrix_shape == kfGrmMatrixSq) {
               const double* grm_col = &(grm[row_idx - 1]);
               for (uintptr_t row_idx2 = row_idx; row_idx2 < sample_ct; ++row_idx2) {
-                *write_float_iter++ = (float)(grm_col[(row_idx2 - row_start_idx) * sample_ct]);
+                *write_float_iter++ = S_CAST(float, grm_col[(row_idx2 - row_start_idx) * sample_ct]);
               }
             }
-            if (fwrite_checked(write_float_buf, sizeof(float) * ((uintptr_t)(write_float_iter - write_float_buf)), outfile)) {
+            if (fwrite_checked(write_float_buf, sizeof(float) * S_CAST(uintptr_t, write_float_iter - write_float_buf), outfile)) {
               goto calc_grm_ret_WRITE_FAIL;
             }
           } while (row_idx < row_end_idx);
@@ -3253,9 +3253,9 @@ pglerr_t calc_grm(const uintptr_t* orig_sample_include, const char* sample_ids, 
               // assumes little-endian
               const uintptr_t zerotab_word = 0x930 * kMask0001;
 #ifdef __arm__
-  #error "Unaligned accesses in calc_grm()."
+#  error "Unaligned accesses in calc_grm()."
 #endif
-              uintptr_t* writep_alias = (uintptr_t*)cswritep;
+              uintptr_t* writep_alias = R_CAST(uintptr_t*, cswritep);
               for (uintptr_t widx = 0; widx < wct; ++widx) {
                 *writep_alias++ = zerotab_word;
               }
@@ -3305,7 +3305,7 @@ pglerr_t calc_grm(const uintptr_t* orig_sample_include, const char* sample_ids, 
           for (uintptr_t row_idx = row_start_idx; row_idx < row_end_idx; ++row_idx) {
             const double* grm_iter = &(grm[(row_idx - row_start_idx) * row_end_idx]);
             for (uint32_t col_idx = 0; col_idx <= row_idx; ++col_idx) {
-              write_float_buf[col_idx] = (float)(*grm_iter++);
+              write_float_buf[col_idx] = S_CAST(float, *grm_iter++);
             }
             if (fwrite_checked(write_float_buf, (row_idx + 1) * sizeof(float), outfile)) {
               goto calc_grm_ret_WRITE_FAIL;
@@ -3326,9 +3326,9 @@ pglerr_t calc_grm(const uintptr_t* orig_sample_include, const char* sample_ids, 
           }
           if (!missing_cts) {
             // trivial case: write the same number repeatedly
-            const uintptr_t tot_cells = (((uint64_t)row_end_idx) * (row_end_idx - 1) - ((uint64_t)row_start_idx) * (row_start_idx - 1)) / 2;
-            const float variant_ctf = (float)((int32_t)variant_ct);
-            write_float_buf = (float*)g_textbuf;
+            const uintptr_t tot_cells = (S_CAST(uint64_t, row_end_idx) * (row_end_idx - 1) - S_CAST(uint64_t, row_start_idx) * (row_start_idx - 1)) / 2;
+            const float variant_ctf = u31tof(variant_ct);
+            write_float_buf = R_CAST(float*, g_textbuf);
             for (uint32_t uii = 0; uii < (kTextbufMainSize / sizeof(float)); ++uii) {
               write_float_buf[uii] = variant_ctf;
             }
@@ -3352,7 +3352,7 @@ pglerr_t calc_grm(const uintptr_t* orig_sample_include, const char* sample_ids, 
                 if (col_idx != row_idx) {
                   cur_obs_ct = cur_obs_ct - missing_cts[col_idx] + (*missing_dbl_exclude_iter++);
                 }
-                write_float_buf[col_idx] = (float)((int32_t)cur_obs_ct);
+                write_float_buf[col_idx] = u31tof(cur_obs_ct);
               }
               if (fwrite_checked(write_float_buf, (row_idx + 1) * sizeof(float), outfile)) {
                 goto calc_grm_ret_WRITE_FAIL;
@@ -3363,7 +3363,7 @@ pglerr_t calc_grm(const uintptr_t* orig_sample_include, const char* sample_ids, 
             goto calc_grm_ret_WRITE_FAIL;
           }
           putc_unlocked('\r', stdout);
-          const uint32_t outname_copy_byte_ct = 5 + (uintptr_t)(outname_end - outname);
+          const uint32_t outname_copy_byte_ct = 5 + S_CAST(uintptr_t, outname_end - outname);
           log_write_iter = strcpya(g_logbuf, "--make-grm-bin: GRM ");
           if (parallel_tot != 1) {
             log_write_iter = strcpya(log_write_iter, "component ");
@@ -3380,7 +3380,7 @@ pglerr_t calc_grm(const uintptr_t* orig_sample_include, const char* sample_ids, 
             log_write_iter = strcpya(log_write_iter, "and ");
           }
           log_write_iter = strcpya(log_write_iter, "observation counts to ");
-          log_write_iter = memcpya(log_write_iter, outname, (uintptr_t)(outname_end2 - outname));
+          log_write_iter = memcpya(log_write_iter, outname, outname_end2 - outname);
         } else {
           // --make-grm-list
           char* outname_end2 = strcpya(outname_end, ".grm");
@@ -3437,7 +3437,7 @@ pglerr_t calc_grm(const uintptr_t* orig_sample_include, const char* sample_ids, 
         }
       }
       if (!parallel_idx) {
-        strcpy(&(outname_end[4]), ".id");
+        snprintf(&(outname_end[4]), kMaxOutfnameExtBlen - 4, ".id");
         reterr = write_sample_ids(orig_sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, (grm_flags / kfGrmNoIdheader) & 1);
         if (reterr) {
           goto calc_grm_ret_1;
@@ -3445,7 +3445,7 @@ pglerr_t calc_grm(const uintptr_t* orig_sample_include, const char* sample_ids, 
         log_write_iter = strcpya(log_write_iter, " , and IDs to ");
         log_write_iter = strcpya(log_write_iter, outname);
       }
-      strcpy(log_write_iter, " .\n");
+      snprintf(log_write_iter, kLogbufSize - 2 * kPglFnamesize - 256, " .\n");
       wordwrapb(0);
       logprintb();
     }
@@ -3453,7 +3453,7 @@ pglerr_t calc_grm(const uintptr_t* orig_sample_include, const char* sample_ids, 
     if (grm_ptr) {
       *grm_ptr = grm;
       // allocation right on top of grm[]
-      bigstack_mark = (unsigned char*)sample_include_cumulative_popcounts;
+      bigstack_mark = R_CAST(unsigned char*, sample_include_cumulative_popcounts);
     }
   }
   while (0) {
@@ -3507,7 +3507,7 @@ static uint32_t g_pc_ct = 0;
 static pglerr_t g_error_ret = kPglRetSuccess;
 
 THREAD_FUNC_DECL calc_pca_xtxa_thread(void* arg) {
-  const uintptr_t tidx = (uintptr_t)arg;
+  const uintptr_t tidx = R_CAST(uintptr_t, arg);
   const uint32_t pca_sample_ct = g_pca_sample_ct;
   const uintptr_t pca_sample_ctaw2 = QUATERCT_TO_ALIGNED_WORDCT(pca_sample_ct);
   const uintptr_t pca_sample_ctaw = BITCT_TO_ALIGNED_WORDCT(pca_sample_ct);
@@ -3560,7 +3560,7 @@ THREAD_FUNC_DECL calc_pca_xtxa_thread(void* arg) {
 }
 
 THREAD_FUNC_DECL calc_pca_xa_thread(void* arg) {
-  const uintptr_t tidx = (uintptr_t)arg;
+  const uintptr_t tidx = R_CAST(uintptr_t, arg);
   const uint32_t pca_sample_ct = g_pca_sample_ct;
   const uintptr_t pca_sample_ctaw2 = QUATERCT_TO_ALIGNED_WORDCT(pca_sample_ct);
   const uintptr_t pca_sample_ctaw = BITCT_TO_ALIGNED_WORDCT(pca_sample_ct);
@@ -3609,7 +3609,7 @@ THREAD_FUNC_DECL calc_pca_xa_thread(void* arg) {
 }
 
 THREAD_FUNC_DECL calc_pca_xtb_thread(void* arg) {
-  const uintptr_t tidx = (uintptr_t)arg;
+  const uintptr_t tidx = R_CAST(uintptr_t, arg);
   const uint32_t pca_sample_ct = g_pca_sample_ct;
   const uintptr_t pca_sample_ctaw2 = QUATERCT_TO_ALIGNED_WORDCT(pca_sample_ct);
   const uintptr_t pca_sample_ctaw = BITCT_TO_ALIGNED_WORDCT(pca_sample_ct);
@@ -3659,7 +3659,7 @@ THREAD_FUNC_DECL calc_pca_xtb_thread(void* arg) {
 }
 
 THREAD_FUNC_DECL calc_pca_var_wts_thread(void* arg) {
-  const uintptr_t tidx = (uintptr_t)arg;
+  const uintptr_t tidx = R_CAST(uintptr_t, arg);
   const uint32_t pca_sample_ct = g_pca_sample_ct;
   const uintptr_t pca_sample_ctaw2 = QUATERCT_TO_ALIGNED_WORDCT(pca_sample_ct);
   const uintptr_t pca_sample_ctaw = BITCT_TO_ALIGNED_WORDCT(pca_sample_ct);
@@ -3668,7 +3668,7 @@ THREAD_FUNC_DECL calc_pca_var_wts_thread(void* arg) {
 
   // either first batch size is calc_thread_ct * kPcaVariantBlockSize, or there
   // is only one batch
-  const uintptr_t var_wts_part_size = ((uintptr_t)pc_ct) * g_cur_batch_size;
+  const uintptr_t var_wts_part_size = S_CAST(uintptr_t, pc_ct) * g_cur_batch_size;
 
   const double* sample_wts = g_g1; // sample-major, pc_ct columns
   double* yy_buf = g_yy_bufs[tidx];
@@ -3703,7 +3703,7 @@ THREAD_FUNC_DECL calc_pca_var_wts_thread(void* arg) {
       // and D is a diagonal eigenvalue matrix.
       // We postpone the D^{-1/2} part for now, but it's straightforward to
       // switch to using precomputed (S * D^{-1/2}).
-      double* cur_var_wts_part = &(g_qq[parity * var_wts_part_size + vidx_offset * ((uintptr_t)pc_ct)]);
+      double* cur_var_wts_part = &(g_qq[parity * var_wts_part_size + vidx_offset * S_CAST(uintptr_t, pc_ct)]);
       row_major_matrix_multiply(yy_buf, sample_wts, cur_thread_batch_size, pc_ct, pca_sample_ct, cur_var_wts_part);
     }
     if (is_last_batch) {
@@ -3736,7 +3736,7 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
       for (uint32_t uii = 0; uii < dummy_sids_word_ct; ++uii) {
         dummy_sids[uii] = text_zero_word;
       }
-      sids = (char*)dummy_sids;
+      sids = R_CAST(char*, dummy_sids);
       max_sid_blen = 2;
     }
     const uint32_t is_approx = (pca_flags / kfPcaApprox) & 1;
@@ -3839,12 +3839,12 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
       const uintptr_t pc_ct_x2 = pc_ct * 2;
       const uintptr_t qq_col_ct = (pc_ct + 1) * pc_ct_x2;
 #ifndef LAPACK_ILP64
-      if ((variant_ct * ((uint64_t)qq_col_ct)) > 0x7effffff) {
+      if ((variant_ct * S_CAST(uint64_t, qq_col_ct)) > 0x7effffff) {
         logerrprint("Error: --pca approx problem instance too large for this " PROG_NAME_STR " build.  If this\nis really the computation you want, use a " PROG_NAME_STR " build with large-matrix\nsupport.\n");
         goto calc_pca_ret_INCONSISTENT_INPUT;
       }
 #endif
-      const double variant_ct_recip = 1.0 / (double)((int32_t)variant_ct);
+      const double variant_ct_recip = 1.0 / u31tod(variant_ct);
 
       const uintptr_t g_size = pca_sample_ct * pc_ct_x2;
       __CLPK_integer svd_rect_lwork;
@@ -3891,16 +3891,16 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
         calc_thread_ct = bigstack_avail / per_thread_alloc;
       }
       for (uint32_t parity = 0; parity < 2; ++parity) {
-        g_genovecs[parity] = (uintptr_t*)bigstack_alloc_raw(genovecs_alloc * calc_thread_ct);
-        g_dosage_cts[parity] = (uint32_t*)bigstack_alloc_raw(dosage_cts_alloc * calc_thread_ct);
-        g_dosage_presents[parity] = (uintptr_t*)bigstack_alloc_raw(dosage_presents_alloc * calc_thread_ct);
-        g_dosage_val_bufs[parity] = (dosage_t*)bigstack_alloc_raw(dosage_vals_alloc * calc_thread_ct);
-        g_cur_maj_freqs[parity] = (double*)bigstack_alloc_raw(cur_maj_freqs_alloc * calc_thread_ct);
+        g_genovecs[parity] = S_CAST(uintptr_t*, bigstack_alloc_raw(genovecs_alloc * calc_thread_ct));
+        g_dosage_cts[parity] = S_CAST(uint32_t*, bigstack_alloc_raw(dosage_cts_alloc * calc_thread_ct));
+        g_dosage_presents[parity] = S_CAST(uintptr_t*, bigstack_alloc_raw(dosage_presents_alloc * calc_thread_ct));
+        g_dosage_val_bufs[parity] = S_CAST(dosage_t*, bigstack_alloc_raw(dosage_vals_alloc * calc_thread_ct));
+        g_cur_maj_freqs[parity] = S_CAST(double*, bigstack_alloc_raw(cur_maj_freqs_alloc * calc_thread_ct));
       }
       for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
-        g_yy_bufs[tidx] = (double*)bigstack_alloc_raw(yy_alloc);
-        g_y_transpose_bufs[tidx] = (double*)bigstack_alloc_raw(yy_alloc);
-        g_g2_bb_part_bufs[tidx] = (double*)bigstack_alloc_raw(g2_bb_part_alloc);
+        g_yy_bufs[tidx] = S_CAST(double*, bigstack_alloc_raw(yy_alloc));
+        g_y_transpose_bufs[tidx] = S_CAST(double*, bigstack_alloc_raw(yy_alloc));
+        g_g2_bb_part_bufs[tidx] = S_CAST(double*, bigstack_alloc_raw(g2_bb_part_alloc));
       }
       fill_gaussian_darray(g_size / 2, max_thread_ct, g1);
       g_g1 = g1;
@@ -4035,7 +4035,7 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
       interr_t svd_rect_err = svd_rect(variant_ct, qq_col_ct, svd_rect_lwork, qq, ss, svd_rect_wkspace);
       if (svd_rect_err) {
         logprint("\n");
-        snprintf(g_logbuf, kLogbufSize, "Error: Failed to compute SVD of Krylov matrix (DGESVD info=%d).\n", (int32_t)svd_rect_err);
+        snprintf(g_logbuf, kLogbufSize, "Error: Failed to compute SVD of Krylov matrix (DGESVD info=%d).\n", S_CAST(int32_t, svd_rect_err));
         goto calc_pca_ret_INCONSISTENT_INPUT_2;
       }
       BLAS_SET_NUM_THREADS(1);
@@ -4128,19 +4128,19 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
       svd_rect_err = svd_rect(pca_sample_ct, qq_col_ct, svd_rect_lwork, bb, ss, svd_rect_wkspace);
       if (svd_rect_err) {
         logprint("\n");
-        snprintf(g_logbuf, kLogbufSize, "Error: Failed to compute SVD of final matrix (DGESVD info=%d).\n", (int32_t)svd_rect_err);
+        snprintf(g_logbuf, kLogbufSize, "Error: Failed to compute SVD of final matrix (DGESVD info=%d).\n", S_CAST(int32_t, svd_rect_err));
         goto calc_pca_ret_INCONSISTENT_INPUT_2;
       }
       BLAS_SET_NUM_THREADS(1);
       logprint("done.\n");
       eigvecs_smaj = g1;
       for (uint32_t sample_idx = 0; sample_idx < pca_sample_ct; ++sample_idx) {
-        memcpy(&(eigvecs_smaj[sample_idx * ((uintptr_t)pc_ct)]), &(bb[sample_idx * qq_col_ct]), pc_ct * sizeof(double));
+        memcpy(&(eigvecs_smaj[sample_idx * S_CAST(uintptr_t, pc_ct)]), &(bb[sample_idx * qq_col_ct]), pc_ct * sizeof(double));
       }
       for (uint32_t pc_idx = 0; pc_idx < pc_ct; ++pc_idx) {
         eigvals[pc_idx] = ss[pc_idx] * ss[pc_idx] * variant_ct_recip;
       }
-      writebuf = (char*)svd_rect_wkspace;
+      writebuf = R_CAST(char*, svd_rect_wkspace);
     } else {
       __CLPK_integer lwork;
       __CLPK_integer liwork;
@@ -4167,7 +4167,7 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
       }
       BLAS_SET_NUM_THREADS(1);
       logprint("done.\n");
-      eigvecs_smaj = (double*)extract_eigvecs_wkspace;
+      eigvecs_smaj = R_CAST(double*, extract_eigvecs_wkspace);
       bigstack_shrink_top(eigvecs_smaj, eigvecs_smaj_alloc);
       if (bigstack_alloc_c(writebuf_alloc, &writebuf)) {
         goto calc_pca_ret_NOMEM;
@@ -4201,12 +4201,9 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
         eigval_inv_sqrts[pc_idx] = 1.0 / sqrt(eigvals[pc_idx]);
       }
 
-      char* outname_end2 = strcpya0(outname_end, ".eigenvec.var");
       const uint32_t output_zst = (pca_flags / kfPcaVarZs) & 1;
-      if (output_zst) {
-        strcpy(outname_end2, ".zst");
-      }
-      reterr = cswrite_init(outname, 0, output_zst, max_thread_ct, overflow_buf_size, (unsigned char*)writebuf, (unsigned char*)(&(writebuf[overflow_buf_size])), &css);
+      outname_zst_set(".eigenvec.var", output_zst, outname_end);
+      reterr = cswrite_init(outname, 0, output_zst, max_thread_ct, overflow_buf_size, writebuf, R_CAST(unsigned char*, &(writebuf[overflow_buf_size])), &css);
       if (reterr) {
         goto calc_pca_ret_1;
       }
@@ -4264,15 +4261,15 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
 #endif
       uintptr_t var_wts_part_size;
       if (qq) {
-        var_wts_part_size = (MINV(variant_ct, calc_thread_ct * kPcaVariantBlockSize)) * ((uintptr_t)pc_ct);
+        var_wts_part_size = (MINV(variant_ct, calc_thread_ct * kPcaVariantBlockSize)) * S_CAST(uintptr_t, pc_ct);
       } else {
         // non-approximate PCA, bunch of buffers have not been allocated yet
 
         // if grm[] (which we no longer need) has at least as much remaining
         // space as bigstack, allocate from grm
-        unsigned char* arena_bottom = (unsigned char*)grm;
+        unsigned char* arena_bottom = R_CAST(unsigned char*, grm);
         unsigned char* arena_top = bigstack_mark;
-        uintptr_t arena_avail = (uintptr_t)(arena_top - arena_bottom);
+        uintptr_t arena_avail = arena_top - arena_bottom;
         if (arena_avail < bigstack_left()) {
           arena_bottom = g_bigstack_base;
           arena_top = g_bigstack_end;
@@ -4294,17 +4291,17 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
         }
         ts.calc_thread_ct = calc_thread_ct;
         for (uint32_t parity = 0; parity < 2; ++parity) {
-          g_genovecs[parity] = (uintptr_t*)arena_alloc_raw(genovecs_alloc * calc_thread_ct, &arena_bottom);
-          g_dosage_cts[parity] = (uint32_t*)arena_alloc_raw(dosage_cts_alloc * calc_thread_ct, &arena_bottom);
-          g_dosage_presents[parity] = (uintptr_t*)arena_alloc_raw(dosage_presents_alloc * calc_thread_ct, &arena_bottom);
-          g_dosage_val_bufs[parity] = (dosage_t*)arena_alloc_raw(dosage_vals_alloc * calc_thread_ct, &arena_bottom);
-          g_cur_maj_freqs[parity] = (double*)arena_alloc_raw(cur_maj_freqs_alloc * calc_thread_ct, &arena_bottom);
+          g_genovecs[parity] = S_CAST(uintptr_t*, arena_alloc_raw(genovecs_alloc * calc_thread_ct, &arena_bottom));
+          g_dosage_cts[parity] = S_CAST(uint32_t*, arena_alloc_raw(dosage_cts_alloc * calc_thread_ct, &arena_bottom));
+          g_dosage_presents[parity] = S_CAST(uintptr_t*, arena_alloc_raw(dosage_presents_alloc * calc_thread_ct, &arena_bottom));
+          g_dosage_val_bufs[parity] = S_CAST(dosage_t*, arena_alloc_raw(dosage_vals_alloc * calc_thread_ct, &arena_bottom));
+          g_cur_maj_freqs[parity] = S_CAST(double*, arena_alloc_raw(cur_maj_freqs_alloc * calc_thread_ct, &arena_bottom));
         }
         for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
-          g_yy_bufs[tidx] = (double*)arena_alloc_raw(yy_alloc, &arena_bottom);
+          g_yy_bufs[tidx] = S_CAST(double*, arena_alloc_raw(yy_alloc, &arena_bottom));
         }
-        var_wts_part_size = (MINV(variant_ct, calc_thread_ct * kPcaVariantBlockSize)) * ((uintptr_t)pc_ct);
-        qq = (double*)arena_alloc_raw_rd(2 * var_wts_part_size * sizeof(double), &arena_bottom);
+        var_wts_part_size = (MINV(variant_ct, calc_thread_ct * kPcaVariantBlockSize)) * S_CAST(uintptr_t, pc_ct);
+        qq = S_CAST(double*, arena_alloc_raw_rd(2 * var_wts_part_size * sizeof(double), &arena_bottom));
         g_qq = qq;
 #ifndef NDEBUG
         if (arena_top == g_bigstack_end) {
@@ -4397,7 +4394,7 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
                 chr_idx = cip->chr_file_order[chr_fo_idx];
                 char* chr_name_end = chr_name_write(cip, chr_idx, chr_buf);
                 *chr_name_end = '\t';
-                chr_buf_blen = 1 + (uintptr_t)(chr_name_end - chr_buf);
+                chr_buf_blen = 1 + S_CAST(uintptr_t, chr_name_end - chr_buf);
               }
               cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
             }
@@ -4476,7 +4473,7 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
       LOGPRINTFWW("--pca%s: Variant weights written to %s .\n", is_approx? " approx" : "", outname);
     }
 
-    strcpy(outname_end, ".eigenvec");
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".eigenvec");
     if (fopen_checked(outname, FOPEN_WB, &outfile)) {
       goto calc_pca_ret_OPEN_FAIL;
     }
@@ -4515,7 +4512,7 @@ pglerr_t calc_pca(const uintptr_t* sample_include, const char* sample_ids, const
       goto calc_pca_ret_WRITE_FAIL;
     }
 
-    strcpy(outname_end, ".eigenval");
+    snprintf(outname_end, kMaxOutfnameExtBlen, ".eigenval");
     if (fopen_checked(outname, FOPEN_WB, &outfile)) {
       goto calc_pca_ret_OPEN_FAIL;
     }
@@ -4611,7 +4608,7 @@ static uint32_t g_score_col_ct = 0;
 static uint32_t g_sample_ct = 0;
 
 THREAD_FUNC_DECL calc_score_thread(void* arg) {
-  const uintptr_t tidx = (uintptr_t)arg;
+  const uintptr_t tidx = R_CAST(uintptr_t, arg);
   assert(!tidx);
   double* final_scores_cmaj = g_final_scores_cmaj;
   const uint32_t score_col_ct = g_score_col_ct;
@@ -4648,7 +4645,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
     if (!xchr_model) {
       int32_t x_code;
       if (xymt_exists(cip, kChrOffsetX, &x_code)) {
-        uint32_t x_chr_fo_idx = cip->chr_idx_to_foidx[(uint32_t)x_code];
+        uint32_t x_chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, x_code)];
         uint32_t x_start = cip->chr_fo_vidx_start[x_chr_fo_idx];
         uint32_t x_end = cip->chr_fo_vidx_start[x_chr_fo_idx + 1];
         if (!are_all_bits_zero(variant_include, x_start, x_end)) {
@@ -4681,7 +4678,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
         goto score_report_ret_NOMEM;
       }
     }
-    char* loadbuf = (char*)bigstack_alloc_raw(loadbuf_size);
+    char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
     loadbuf[loadbuf_size - 1] = ' ';
     char* loadbuf_first_token;
     uint32_t lines_to_skip_p1 = 1 + ((score_flags / kfScoreHeaderIgnore) & 1);
@@ -4758,7 +4755,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
     if (bigstack_alloc_cp(score_col_ct, &score_col_names)) {
       goto score_report_ret_NOMEM;
     }
-    char* write_iter = (char*)g_bigstack_base;
+    char* write_iter = R_CAST(char*, g_bigstack_base);
     // don't have to worry about overflow, since loadbuf was limited to 1/8
     // of available workspace.
     if (score_flags & kfScoreHeaderRead) {
@@ -4767,7 +4764,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
         read_iter = next_token_multz(read_iter, score_col_idx_deltas[score_col_idx]);
         score_col_names[score_col_idx] = write_iter;
         char* token_end = token_endnn(read_iter);
-        const uint32_t slen = (uintptr_t)(token_end - read_iter);
+        const uint32_t slen = token_end - read_iter;
         write_iter = memcpyax(write_iter, read_iter, slen, '\0');
       }
 
@@ -4809,7 +4806,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
     uint64_t* dosage_sums;
     uint64_t* dosage_incrs;
     uintptr_t* already_seen;
-    unsigned char* overflow_buf = nullptr;
+    char* overflow_buf = nullptr;
     if (bigstack_alloc_thread(1, &ts.threads) ||
         bigstack_alloc_d((kScoreVariantBlockSize * k1LU) * sample_ct, &(g_dosages_vmaj[0])) ||
         bigstack_alloc_d((kScoreVariantBlockSize * k1LU) * sample_ct, &(g_dosages_vmaj[1])) ||
@@ -4827,7 +4824,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
         bigstack_calloc_ull(sample_ct, &dosage_sums) ||
         bigstack_calloc_ull(sample_ct, &dosage_incrs) ||
         bigstack_calloc_ul(raw_variant_ctl, &already_seen) ||
-        bigstack_alloc_uc(overflow_buf_alloc, &overflow_buf)) {
+        bigstack_alloc_c(overflow_buf_alloc, &overflow_buf)) {
       goto score_report_ret_NOMEM;
     }
     uintptr_t* missing_diploid_acc4 = &(missing_acc1[acc1_vec_ct * kWordsPerVec]);
@@ -4856,21 +4853,20 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
 
     const uint32_t list_variants = (score_flags / kfScoreListVariants) & 1;
     if (list_variants) {
-      char* outname_end2 = strcpya0(outname_end, ".sscore.vars");
       const uint32_t output_zst = (score_flags / kfScoreListVariantsZs) & 1;
-      if (output_zst) {
-        strcpy(outname_end2, ".zst");
-      }
-      reterr = cswrite_init(outname, 0, output_zst, max_thread_ct, overflow_buf_size, overflow_buf, &(overflow_buf[overflow_buf_size]), &css);
+      outname_zst_set(".sscore.vars", output_zst, outname_end);
+      reterr = cswrite_init(outname, 0, output_zst, max_thread_ct, overflow_buf_size, overflow_buf, R_CAST(unsigned char*, &(overflow_buf[overflow_buf_size])), &css);
       if (reterr) {
         goto score_report_ret_1;
       }
-      cswritep = (char*)overflow_buf;
+      cswritep = overflow_buf;
     }
 
     const int32_t x_code = cip->xymt_codes[kChrOffsetX];
     const int32_t y_code = cip->xymt_codes[kChrOffsetY];
     const int32_t mt_code = cip->xymt_codes[kChrOffsetMT];
+    const uint32_t model_dominant = (score_flags / kfScoreDominant) & 1;
+    const uint32_t domrec = model_dominant || (score_flags & kfScoreRecessive);
     const uint32_t variance_standardize = (score_flags / kfScoreVarianceStandardize) & 1;
     const uint32_t center = variance_standardize || (score_flags & kfScoreCenter);
     const uint32_t no_meanimpute = (score_flags / kfScoreNoMeanimpute) & 1;
@@ -4904,7 +4900,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
           goto score_report_ret_MISSING_TOKENS;
         }
         char* variant_id_token_end = token_endnn(variant_id_start);
-        const uint32_t variant_id_slen = (uintptr_t)(variant_id_token_end - variant_id_start);
+        const uint32_t variant_id_slen = variant_id_token_end - variant_id_start;
         uint32_t variant_uidx = variant_id_dupflag_htable_find(variant_id_start, variant_ids, variant_id_htable, variant_id_slen, variant_id_htable_size, max_variant_id_slen);
         if (!(variant_uidx >> 31)) {
           if (is_set(already_seen, variant_uidx)) {
@@ -4949,9 +4945,9 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
               goto score_report_ret_1;
             }
             const uint32_t chr_idx = get_variant_chr(cip, variant_uidx);
-            uint32_t is_relevant_x = (((int32_t)chr_idx) == x_code);
-            if (variance_standardize && (is_relevant_x || (((int32_t)chr_idx) == mt_code))) {
-              logerrprint("Error: --score 'variance-standardize' modifier cannot be used with chrX or MT.\n");
+            uint32_t is_relevant_x = (S_CAST(int32_t, chr_idx) == x_code);
+            if ((domrec || variance_standardize) && (is_relevant_x || (S_CAST(int32_t, chr_idx) == mt_code))) {
+              logerrprint("Error: --score 'dominant', 'recessive', and 'variance-standardize' modifiers\ncannot be used with chrX or MT.\n");
               goto score_report_ret_INCONSISTENT_INPUT;
             }
             const uint32_t is_nonx_haploid = (!is_relevant_x) && is_set(cip->haploid_mask, chr_idx);
@@ -4959,7 +4955,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
             // only if --xchr-model 1 (which is no longer the default)
             is_relevant_x = is_relevant_x && xchr_model;
 
-            const uint32_t is_y = (((int32_t)chr_idx) == y_code);
+            const uint32_t is_y = (S_CAST(int32_t, chr_idx) == y_code);
             // pre-multiallelic kludge: current counts are for alt1, invert if
             // score is based on ref allele
             if (!cur_allele_idx) {
@@ -5034,7 +5030,28 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
                 }
                 bitvec_or(missing_male_acc1, sample_ctl, missing_acc1);
               }
-              ploidy_d = 2.0;
+              if (!domrec) {
+                ploidy_d = 2.0;
+              } else {
+                if (model_dominant) {
+                  for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
+                    if (dosage_incrs[sample_idx] > kDosageMax) {
+                      dosage_incrs[sample_idx] = kDosageMax;
+                    }
+                  }
+                } else {
+                  for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
+                    uint64_t cur_dosage_incr = dosage_incrs[sample_idx];
+                    if (cur_dosage_incr <= kDosageMax) {
+                      cur_dosage_incr = 0;
+                    } else {
+                      cur_dosage_incr -= kDosageMax;
+                    }
+                    dosage_incrs[sample_idx] = cur_dosage_incr;
+                  }
+                }
+                ploidy_d = 1.0;
+              }
             }
             for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
               dosage_sums[sample_idx] += dosage_incrs[sample_idx];
@@ -5101,7 +5118,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
             uint32_t sample_idx = 0;
             for (uint32_t nm_sample_idx = 0; nm_sample_idx < nm_sample_ct; ++nm_sample_idx, ++sample_idx) {
               next_unset_unsafe_ck(missing_acc1, &sample_idx);
-              cur_dosages_vmaj_iter[sample_idx] = ((int64_t)dosage_incrs[sample_idx]) * geno_slope + geno_intercept;
+              cur_dosages_vmaj_iter[sample_idx] = u63tod(dosage_incrs[sample_idx]) * geno_slope + geno_intercept;
             }
             if (se_mode) {
               // Suppose our score coefficients are drawn from independent
@@ -5256,16 +5273,13 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
       LOGPRINTF("Variant list written to %s .\n", outname);
     }
 
-    char* outname_end2 = strcpya0(outname_end, ".sscore");
     const uint32_t output_zst = (score_flags / kfScoreZs) & 1;
-    if (output_zst) {
-      strcpy(outname_end2, ".zst");
-    }
-    reterr = cswrite_init(outname, 0, output_zst, max_thread_ct, overflow_buf_size, overflow_buf, &(overflow_buf[overflow_buf_size]), &css);
+    outname_zst_set(".sscore", output_zst, outname_end);
+    reterr = cswrite_init(outname, 0, output_zst, max_thread_ct, overflow_buf_size, overflow_buf, R_CAST(unsigned char*, &(overflow_buf[overflow_buf_size])), &css);
     if (reterr) {
       goto score_report_ret_1;
     }
-    cswritep = (char*)overflow_buf;
+    cswritep = overflow_buf;
     // see e.g. write_psam() in plink2_data.cpp
     const uint32_t write_sid = sid_col_required(sample_include, sids, sample_ct, max_sid_blen, score_flags / kfScoreColMaybesid);
     const uint32_t write_empty_pheno = (score_flags & kfScoreColPheno1) && (!pheno_ct);
@@ -5321,8 +5335,8 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
       }
     }
     append_binary_eoln(&cswritep);
-    const uint32_t* scrambled_missing_diploid_cts = (uint32_t*)missing_diploid_acc32;
-    const uint32_t* scrambled_missing_haploid_cts = (uint32_t*)missing_haploid_acc32;
+    const uint32_t* scrambled_missing_diploid_cts = R_CAST(uint32_t*, missing_diploid_acc32);
+    const uint32_t* scrambled_missing_haploid_cts = R_CAST(uint32_t*, missing_haploid_acc32);
     const char* output_missing_pheno = g_output_missing_pheno;
     const uint32_t omp_slen = strlen(output_missing_pheno);
 
@@ -5384,7 +5398,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
       }
       const double* final_score_col = &(g_final_scores_cmaj[sample_idx]);
       if (write_score_avgs) {
-        const double denom_recip = 1.0 / ((double)denom);
+        const double denom_recip = 1.0 / S_CAST(double, denom);
         for (uint32_t score_col_idx = 0; score_col_idx < score_col_ct; ++score_col_idx) {
           *cswritep++ = '\t';
           cswritep = dtoa_g(final_score_col[score_col_idx * sample_ct] * denom_recip, cswritep);
