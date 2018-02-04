@@ -1307,7 +1307,7 @@ pglerr_t load_pvar(const char* pvarname, const char* var_filter_exceptions_flatt
                   const char* filter_token_iter = filter_token;
                   uint32_t remaining_byte_ct = filter_slen;
                   while (1) {
-                    char* cur_filter_name_end = S_CAST(char*, memchr(filter_token_iter, ';', remaining_byte_ct));
+                    const char* cur_filter_name_end = S_CAST(const char*, memchr(filter_token_iter, ';', remaining_byte_ct));
                     uint32_t cur_slen = remaining_byte_ct;
                     if (cur_filter_name_end) {
                       cur_slen = cur_filter_name_end - filter_token_iter;
