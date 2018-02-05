@@ -830,7 +830,7 @@ pglerr_t export_ox_gen(const uintptr_t* sample_include, const uint32_t* sample_i
     fill_interleaved_mask_vec(sex_male_collapsed_tmp, sample_ctv, sex_male_collapsed_interleaved);
     bigstack_reset(sex_male_collapsed_tmp);
 
-    // See load_sample_missing_cts in plink2_filter.cpp.
+    // See load_sample_missing_cts in plink2_filter.cc.
     // Yes, this is overkill, but the obvious alternative of incrementing
     // sample_missing_geno_cts[] when writing a missing call requires a bit of
     // custom chrY logic anyway.

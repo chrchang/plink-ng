@@ -5847,9 +5847,9 @@ pglerr_t ox_hapslegend_to_pgen(const char* hapsname, const char* legendname, con
     if (writebuf_size < 2 * kMaxMediumLine + kCacheline) {
       return kPglRetNomem;
 #ifdef __LP64__
-      // in 32-bit case, kMaxLongLine + kMaxMediumLine overflows
-    } else if (writebuf_size > kMaxLongLine + kMaxMediumLine) {
-      writebuf_size = kMaxLongLine + kMaxMediumLine;
+      // in pure-C case, kMaxLongLine + kMaxMediumLine overflows
+    } else if (writebuf_size > S_CAST(uintptr_t, kMaxLongLine) + kMaxMediumLine) {
+      writebuf_size = S_CAST(uintptr_t, kMaxLongLine) + kMaxMediumLine;
 #endif
     } else {
       writebuf_size &= ~(kCacheline - 1);

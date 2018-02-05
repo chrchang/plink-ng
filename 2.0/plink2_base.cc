@@ -581,6 +581,9 @@ void expand_then_subset_bytearr(const void* __restrict compact_bitarr, const uin
   uintptr_t cur_output_word = 0;
   uint32_t read_widx = UINT32_MAX; // deliberate overflow
   uint32_t write_idx_lowbits = 0;
+
+  // bugfix (5 Feb 2018): missed a case in sparse subset_mask optimization
+  uint32_t expand_bit_ct_skip = 0;
   while ((target_iter != target_last) || (write_idx_lowbits != subset_size_lowbits)) {
     uintptr_t expand_word;
     uintptr_t subset_word;
@@ -593,13 +596,13 @@ void expand_then_subset_bytearr(const void* __restrict compact_bitarr, const uin
       if (subset_word) {
         break;
       }
-      // sparse subset_mask optimization
-      compact_idx_lowbits += expand_bit_ct;
+      expand_bit_ct_skip += expand_bit_ct;
     }
     uintptr_t extracted_bits = 0;
-    uint32_t set_bit_ct = popcount_long(subset_word);
+    const uint32_t set_bit_ct = popcount_long(subset_word);
     if (expand_word & subset_word) {
       // lazy load
+      compact_idx_lowbits += expand_bit_ct_skip;
       if (compact_idx_lowbits >= kBitsPerWord) {
         compact_widx += compact_idx_lowbits / kBitsPerWord;
         compact_idx_lowbits = compact_idx_lowbits % kBitsPerWord;
@@ -607,6 +610,8 @@ void expand_then_subset_bytearr(const void* __restrict compact_bitarr, const uin
 #  error "Unaligned accesses in expand_then_subset_bytearr()."
 #endif
         compact_word = compact_bitarr_alias[compact_widx] >> compact_idx_lowbits;
+      } else {
+        compact_word = compact_word >> expand_bit_ct_skip;
       }
       uint32_t next_compact_idx_lowbits = compact_idx_lowbits + expand_bit_ct;
       uintptr_t expanded_bits;
@@ -627,11 +632,9 @@ void expand_then_subset_bytearr(const void* __restrict compact_bitarr, const uin
       extracted_bits = _pext_u64(expanded_bits, subset_word);
       compact_idx_lowbits = next_compact_idx_lowbits;
       cur_output_word |= extracted_bits << write_idx_lowbits;
+      expand_bit_ct_skip = 0;
     } else {
-      compact_idx_lowbits += expand_bit_ct;
-      if (compact_idx_lowbits < kBitsPerWord) {
-        compact_word = compact_word >> expand_bit_ct;
-      }
+      expand_bit_ct_skip += expand_bit_ct;
     }
     const uint32_t new_write_idx_lowbits = write_idx_lowbits + set_bit_ct;
     if (new_write_idx_lowbits >= kBitsPerWord) {
@@ -735,6 +738,9 @@ void expand_then_subset_bytearr_nested(const void* __restrict compact_bitarr, co
   uint32_t read_widx = UINT32_MAX; // deliberate overflow
   uint32_t write_idx_lowbits = 0;
   uint32_t write_widx = 0;
+
+  // bugfix (5 Feb 2018): missed a case in sparse subset_mask optimization
+  uint32_t mid_set_skip = 0;
   while ((write_widx != write_widx_last) || (write_idx_lowbits != subset_size_lowbits)) {
     uintptr_t subset_word;
     uintptr_t mid_expanded_bits;
@@ -772,7 +778,7 @@ void expand_then_subset_bytearr_nested(const void* __restrict compact_bitarr, co
       if (subset_word) {
         break;
       }
-      compact_idx_lowbits += mid_set_ct;
+      mid_set_skip += mid_set_ct;
     }
 
     uintptr_t mid_extracted_bits = 0;
@@ -780,6 +786,7 @@ void expand_then_subset_bytearr_nested(const void* __restrict compact_bitarr, co
     uint32_t set_bit_ct = popcount_long(subset_word);
     if (mid_expanded_bits & subset_word) {
       // lazy load
+      compact_idx_lowbits += mid_set_skip;
       if (compact_idx_lowbits >= kBitsPerWord) {
         compact_widx += compact_idx_lowbits / kBitsPerWord;
         compact_idx_lowbits = compact_idx_lowbits % kBitsPerWord;
@@ -787,6 +794,8 @@ void expand_then_subset_bytearr_nested(const void* __restrict compact_bitarr, co
 #  error "Unaligned accesses in expand_then_subset_bytearr_nested()."
 #endif
         compact_read_word = compact_bitarr_alias[compact_widx] >> compact_idx_lowbits;
+      } else {
+        compact_read_word = compact_read_word >> mid_set_skip;
       }
       uint32_t next_compact_idx_lowbits = compact_idx_lowbits + mid_set_ct;
       uintptr_t compact_expanded_bits;
@@ -809,11 +818,9 @@ void expand_then_subset_bytearr_nested(const void* __restrict compact_bitarr, co
       compact_idx_lowbits = next_compact_idx_lowbits;
       compact_output_word |= compact_extracted_bits << write_idx_lowbits;
       mid_output_word |= mid_extracted_bits << write_idx_lowbits;
+      mid_set_skip = 0;
     } else {
-      compact_idx_lowbits += mid_set_ct;
-      if (compact_idx_lowbits < kBitsPerWord) {
-        compact_read_word = compact_read_word >> mid_set_ct;
-      }
+      mid_set_skip += mid_set_ct;
     }
     const uint32_t new_write_idx_lowbits = write_idx_lowbits + set_bit_ct;
     if (new_write_idx_lowbits >= kBitsPerWord) {

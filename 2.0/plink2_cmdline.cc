@@ -1006,7 +1006,7 @@ uintptr_t detect_mb() {
   GlobalMemoryStatusEx(&memstatus);
   llxx = memstatus.ullTotalPhys / 1048576;
 #  else
-  llxx = ((uint64_t)sysconf(_SC_PHYS_PAGES)) * ((size_t)sysconf(_SC_PAGESIZE)) / 1048576;
+  llxx = S_CAST(uint64_t, sysconf(_SC_PHYS_PAGES)) * S_CAST(size_t, sysconf(_SC_PAGESIZE)) / 1048576;
 #  endif
 #endif
   return llxx;
@@ -5007,7 +5007,7 @@ boolerr_t spawn_threads2z(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, uint32_
       g_thread_cur_block_done_events[ulii] = CreateEvent(nullptr, FALSE, FALSE, nullptr);
     }
     for (uintptr_t ulii = 0; ulii < ct; ++ulii) {
-      threads[ulii] = (HANDLE)_beginthreadex(nullptr, kDefaultThreadStack, start_routine, (void*)ulii, 0, nullptr);
+      threads[ulii] = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStack, start_routine, R_CAST(void*, ulii), 0, nullptr));
       if (!threads[ulii]) {
         if (ulii) {
           join_threads2z(ulii, is_last_block, threads);

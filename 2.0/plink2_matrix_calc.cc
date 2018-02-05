@@ -5280,7 +5280,7 @@ pglerr_t score_report(const uintptr_t* sample_include, const char* sample_ids, c
       goto score_report_ret_1;
     }
     cswritep = overflow_buf;
-    // see e.g. write_psam() in plink2_data.cpp
+    // see e.g. write_psam() in plink2_data.cc
     const uint32_t write_sid = sid_col_required(sample_include, sids, sample_ct, max_sid_blen, score_flags / kfScoreColMaybesid);
     const uint32_t write_empty_pheno = (score_flags & kfScoreColPheno1) && (!pheno_ct);
     const uint32_t write_phenos = (score_flags & (kfScoreColPheno1 | kfScoreColPhenos)) && pheno_ct;

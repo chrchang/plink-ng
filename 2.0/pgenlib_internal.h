@@ -78,7 +78,6 @@
 // value.  Named with all caps as a consequence.
 #define PGENLIB_INTERNAL_VERNUM 706
 
-
 // other configuration-ish values needed by plink2_common subset
 typedef unsigned char alt_allele_ct_t;
 // don't use CONSTU31 for this since it may need the 32nd bit in the future

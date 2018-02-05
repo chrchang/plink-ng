@@ -54,25 +54,19 @@ endif
 CFLAGS += ${BASEFLAGS}
 CXXFLAGS += ${BASEFLAGS}
 
-ZSTD_INCLUDE = -I../zstd/lib -I../zstd/lib/common -I../zstd/zlibWrapper
-ZCFLAGS += ${ZSTD_INCLUDE}
-
-CSRC = ../SFMT.c ../hfile.c ../bgzf.c
-ZCSRC = ../zstd/zlibWrapper/zstd_zlibwrapper.c ../zstd/zlibWrapper/gzclose.c ../zstd/zlibWrapper/gzlib.c ../zstd/zlibWrapper/gzread.c ../zstd/zlibWrapper/gzwrite.c ../zstd/lib/common/entropy_common.c ../zstd/lib/common/zstd_common.c ../zstd/lib/common/error_private.c ../zstd/lib/common/xxhash.c ../zstd/lib/common/fse_decompress.c ../zstd/lib/common/pool.c ../zstd/lib/common/threading.c ../zstd/lib/compress/fse_compress.c ../zstd/lib/compress/huf_compress.c ../zstd/lib/compress/zstd_double_fast.c ../zstd/lib/compress/zstd_fast.c ../zstd/lib/compress/zstd_lazy.c ../zstd/lib/compress/zstd_ldm.c ../zstd/lib/compress/zstd_opt.c ../zstd/lib/compress/zstd_compress.c ../zstd/lib/compress/zstdmt_compress.c ../zstd/lib/decompress/huf_decompress.c ../zstd/lib/decompress/zstd_decompress.c
-CPPSRC = ../plink2_base.cpp ../pgenlib_internal.cpp ../plink2.cpp ../plink2_adjust.cpp ../plink2_cmdline.cpp ../plink2_common.cpp ../plink2_compress_stream.cpp ../plink2_data.cpp ../plink2_decompress.cpp ../plink2_export.cpp ../plink2_filter.cpp ../plink2_glm.cpp ../plink2_help.cpp ../plink2_import.cpp ../plink2_ld.cpp ../plink2_matrix.cpp ../plink2_matrix_calc.cpp ../plink2_misc.cpp ../plink2_psam.cpp ../plink2_pvar.cpp ../plink2_random.cpp ../plink2_set.cpp ../plink2_stats.cpp
-
-OBJ = SFMT.o hfile.o bgzf.o zstd_zlibwrapper.o gzclose.o gzlib.o gzread.o gzwrite.o entropy_common.o zstd_common.o error_private.o xxhash.o fse_decompress.o pool.o threading.o fse_compress.o huf_compress.o zstd_double_fast.o zstd_fast.o zstd_lazy.o zstd_ldm.o zstd_opt.o zstd_compress.o zstdmt_compress.o huf_decompress.o zstd_decompress.o plink2_base.o pgenlib_internal.o plink2.o plink2_adjust.o plink2_cmdline.o plink2_common.o plink2_compress_stream.o plink2_data.o plink2_decompress.o plink2_export.o plink2_filter.o plink2_glm.o plink2_help.o plink2_import.o plink2_ld.o plink2_matrix.o plink2_matrix_calc.o plink2_misc.o plink2_psam.o plink2_pvar.o plink2_random.o plink2_set.o plink2_stats.o
+include ../Makefile.src
+ZCFLAGS += ${ZSTD_INCLUDE2}
 
 all: plink2 pgen_compress
 
-plink2: $(CSRC) $(ZCSRC) $(CPPSRC)
-	gcc $(CFLAGS) $(CSRC) -c
-	gcc $(ZCFLAGS) $(ZCSRC) -c
-	g++ $(CXXFLAGS) $(CPPSRC) -c
-	gfortran $(OBJ) -o plink2 $(BLASFLAGS) $(LINKFLAGS)
+plink2: $(CSRC2) $(ZCSRC2) $(CCSRC2)
+	gcc $(CFLAGS) $(CSRC2) -c
+	gcc $(ZCFLAGS) $(ZCSRC2) -c
+	g++ $(CXXFLAGS) $(CCSRC2) -c
+	gfortran $(OBJ2) -o plink2 $(BLASFLAGS) $(LINKFLAGS)
 
-pgen_compress: ../plink2_base.cpp ../pgenlib_internal.cpp ../pgen_compress.cpp
-	g++ $(CXXFLAGS) ../plink2_base.cpp ../pgenlib_internal.cpp ../pgen_compress.cpp -o pgen_compress
+pgen_compress: ../plink2_base.cc ../pgenlib_internal.cc ../pgen_compress.cc
+	g++ $(CXXFLAGS) ../plink2_base.cc ../pgenlib_internal.cc ../pgen_compress.cc -o pgen_compress
 
 .PHONY: clean
 clean:
