@@ -1,7 +1,10 @@
 #!/bin/bash
 
-# Usage: ./run_tests.sh {plink2 + pgen_compress build dir} {--randmem}
+# Usage: ./run_tests.sh {plink2 + pgen_compress build dir}
+#   {up to 2 args, e.g. --randmem, "--threads 1"}
 # Requires plink to be in the system PATH.
+
+set -exo pipefail
 
 if [[ $# -eq 0 ]]; then
     d=../../build_dynamic
@@ -15,39 +18,29 @@ else
     fi
 fi
 
-# http://stackoverflow.com/questions/5195607/checking-bash-exit-status-of-several-commands-efficiently
-function run {
-    "$@"
-    local status=$?
-    if [ $status -ne 0 ]; then
-	exit $status
-    fi
-    return $status
-}
-
-run cd UNIT_TEST_EXTRACT_CHR
-run ./run_tests.sh $d $2 > UNIT_TEST_EXTRACT_CHR.log
-run cd ..
+cd UNIT_TEST_EXTRACT_CHR
+./run_tests.sh $d $2 $3 > UNIT_TEST_EXTRACT_CHR.log
+cd ..
 echo "UNIT_TEST_EXTRACT_CHR passed."
 
-run cd UNIT_TEST_MAF_FILTER
-run ./run_tests.sh $d $2 > UNIT_TEST_MAF_FILTER.log
-run cd ..
+cd UNIT_TEST_MAF_FILTER
+./run_tests.sh $d $2 $3 > UNIT_TEST_MAF_FILTER.log
+cd ..
 echo "UNIT_TEST_MAF_FILTER passed."
 
-run cd UNIT_TEST_PGEN_FREQ
-run ./run_tests.sh $d $2 > UNIT_TEST_PGEN_FREQ.log
-run cd ..
+cd UNIT_TEST_PGEN_FREQ
+./run_tests.sh $d $2 $3 > UNIT_TEST_PGEN_FREQ.log
+cd ..
 echo "UNIT_TEST_PGEN_FREQ passed."
 
-run cd UNIT_TEST_PHASED_VCF
-run ./run_tests.sh $d $2 > UNIT_TEST_PHASED_VCF.log
-run cd ..
+cd UNIT_TEST_PHASED_VCF
+./run_tests.sh $d $2 $3 > UNIT_TEST_PHASED_VCF.log
+cd ..
 echo "UNIT_TEST_PHASED_VCF passed."
 
-run cd UNIT_TEST_SAMPLE_SUBSET
-run ./run_tests.sh $d $2 > UNIT_TEST_SAMPLE_SUBSET.log
-run cd ..
+cd UNIT_TEST_SAMPLE_SUBSET
+./run_tests.sh $d $2 $3 > UNIT_TEST_SAMPLE_SUBSET.log
+cd ..
 echo "UNIT_TEST_SAMPLE_SUBSET passed."
 
 echo "All tests passed."
