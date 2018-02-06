@@ -19,8 +19,6 @@
 #include "plink2_random.h"
 #include "plink2_stats.h"  // SNPHWE_t(), etc.
 
-#include <strings.h>  // strncasecmp()
-
 #ifdef __cplusplus
 namespace plink2 {
 #endif
@@ -2242,7 +2240,7 @@ pglerr_t read_allele_freqs(const uintptr_t* variant_include, const char* const* 
                       double dxx;
                       const char* cur_freq_end = scanadv_double(alt_freq_iter, &dxx);
                       if (!cur_freq_end) {
-                        if (is_nan_str(alt_freq_iter, S_CAST(uintptr_t, cur_entry_end - alt_freq_iter))) {
+                        if (is_nan_str(alt_freq_iter, cur_entry_end - alt_freq_iter)) {
                           goto read_allele_freqs_skip_variant;
                         }
                         goto read_allele_freqs_ret_INVALID_FREQS;
@@ -2263,7 +2261,7 @@ pglerr_t read_allele_freqs(const uintptr_t* variant_include, const char* const* 
                   char* alt_freq_end = &(alt_freq_start[full_slen]);
                   while (1) {
                     char* cur_entry_end = S_CAST(char*, rawmemchr(alt_freq_iter, ','));
-                    const uint32_t cur_entry_slen = S_CAST(uintptr_t, cur_entry_end - alt_freq_iter);
+                    const uint32_t cur_entry_slen = cur_entry_end - alt_freq_iter;
                     char* eq_ptr = S_CAST(char*, memchr(alt_freq_iter, '=', cur_entry_slen));
                     if (!eq_ptr) {
                       goto read_allele_freqs_ret_INVALID_FREQS;
@@ -2284,7 +2282,7 @@ pglerr_t read_allele_freqs(const uintptr_t* variant_include, const char* const* 
                         double dxx;
                         const char* cur_freq_end = scanadv_double(alt_freq_iter, &dxx);
                         if (!cur_freq_end) {
-                          if (is_nan_str(alt_freq_iter, S_CAST(uintptr_t, cur_entry_end - alt_freq_iter))) {
+                          if (is_nan_str(alt_freq_iter, cur_entry_end - alt_freq_iter)) {
                             goto read_allele_freqs_skip_variant;
                           }
                           goto read_allele_freqs_ret_INVALID_FREQS;
@@ -3311,7 +3309,7 @@ pglerr_t set_refalt1_from_file(const uintptr_t* variant_include, const char* con
         }
       }
       char* token_end = token_endnn(variant_id_start);
-      const uint32_t variant_id_slen = S_CAST(uintptr_t, token_end - variant_id_start);
+      const uint32_t variant_id_slen = token_end - variant_id_start;
       const uint32_t variant_uidx = variant_id_dupflag_htable_find(variant_id_start, variant_ids, variant_id_htable, variant_id_slen, variant_id_htable_size, max_variant_id_slen);
       if (variant_uidx >> 31) {
         if (variant_uidx == UINT32_MAX) {
@@ -3322,7 +3320,7 @@ pglerr_t set_refalt1_from_file(const uintptr_t* variant_include, const char* con
         goto set_refalt1_from_file_ret_MALFORMED_INPUT_WW;
       }
       token_end = token_endnn(allele_start);
-      const uint32_t allele_slen = S_CAST(uintptr_t, token_end - allele_start);
+      const uint32_t allele_slen = token_end - allele_start;
       if (allele_slen == 1) {
         const char allele_char = *allele_start;
         // don't overwrite anything with missing code
@@ -3558,7 +3556,7 @@ pglerr_t set_refalt1_from_file(const uintptr_t* variant_include, const char* con
 
 pglerr_t ref_from_fa_process_contig(const uintptr_t* variant_include, const uint32_t* variant_bps, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const chr_info_t* cip, uint32_t force, uint32_t chr_fo_idx, uint32_t variant_uidx_last, char* seqbuf, char* seqbuf_end, alt_allele_ct_t* refalt1_select, uintptr_t* nonref_flags, uint32_t* changed_ct_ptr, uint32_t* validated_ct_ptr, uint32_t* downgraded_ct_ptr) {
   uint32_t variant_uidx = next_set_unsafe(variant_include, cip->chr_fo_vidx_start[chr_fo_idx]);
-  const uint32_t bp_end = S_CAST(uintptr_t, seqbuf_end - seqbuf);
+  const uint32_t bp_end = seqbuf_end - seqbuf;
   if (variant_bps[variant_uidx_last] >= bp_end) {
     const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
     if (!force) {
@@ -3634,7 +3632,7 @@ pglerr_t ref_from_fa_process_contig(const uintptr_t* variant_include, const uint
     for (uint32_t allele_idx = 0; allele_idx < cur_allele_ct; ++allele_idx) {
       const char* cur_allele = cur_alleles[allele_idx];
       const uint32_t cur_allele_slen = strlen(cur_allele);
-      if (!strncasecmp(cur_ref, cur_allele, cur_allele_slen)) {
+      if (match_upper_counted(cur_allele, cur_ref, cur_allele_slen)) {
         if (consistent_allele_idx != -1) {
           // Multiple alleles could be ref (this always happens for deletions).
           // Don't try to do anything.
@@ -3787,7 +3785,7 @@ pglerr_t ref_from_fa(const uintptr_t* variant_include, const uint32_t* variant_b
         }
         char* chr_name_end = token_endnn(chr_name_start);
         *chr_name_end = '\0';
-        const uint32_t chr_name_slen = S_CAST(uintptr_t, chr_name_end - chr_name_start);
+        const uint32_t chr_name_slen = chr_name_end - chr_name_start;
         chr_fo_idx = UINT32_MAX;
         const int32_t chr_idx = get_chr_code(chr_name_start, cip, chr_name_slen);
         if ((chr_idx >= 0) && is_set(cip->chr_mask, chr_idx)) {
@@ -3819,8 +3817,8 @@ pglerr_t ref_from_fa(const uintptr_t* variant_include, const uint32_t* variant_b
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --ref-from-fa file is malformed.\n", line_idx);
         goto ref_from_fa_ret_MALFORMED_INPUT_2;
       }
-      uint32_t cur_seq_slen = S_CAST(uintptr_t, seqline_end - loadbuf);
-      const uint32_t seq_rem = S_CAST(uintptr_t, seqbuf_end - seq_iter);
+      uint32_t cur_seq_slen = seqline_end - loadbuf;
+      const uint32_t seq_rem = seqbuf_end - seq_iter;
       if (seq_rem <= cur_seq_slen) {
         cur_seq_slen = seq_rem;
         skip_chr = 1;
@@ -3828,10 +3826,10 @@ pglerr_t ref_from_fa(const uintptr_t* variant_include, const uint32_t* variant_b
       const char* gap_start = S_CAST(const char*, memchr(loadbuf, '-', cur_seq_slen));
       if (gap_start) {
         LOGERRPRINTFWW("Warning: Indeterminate-length gap present on line %" PRIuPTR " of --ref-from-fa file. Ignoring remainder of contig.\n", line_idx);
-        cur_seq_slen = S_CAST(uintptr_t, gap_start - loadbuf);
+        cur_seq_slen = gap_start - loadbuf;
         skip_chr = 1;
       }
-      seq_iter = memcpya(seq_iter, loadbuf, cur_seq_slen);
+      seq_iter = memcpya_toupper(seq_iter, loadbuf, cur_seq_slen);
     }
     if ((!gzeof(gz_infile)) || gzclose_null(&gz_infile)) {
       goto ref_from_fa_ret_READ_FAIL;

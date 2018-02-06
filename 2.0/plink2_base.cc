@@ -106,7 +106,7 @@ static inline boolerr_t scan_uint_capped_finish(const char* str_iter, uint64_t c
       return 1;
     }
   }
-  *valp = S_CAST(uint32_t, val);
+  *valp = val;
   return 0;
 }
 
@@ -385,7 +385,7 @@ uint32_t next_set_unsafe(const uintptr_t* bitarr, uint32_t loc) {
   do {
     ulii = *(++bitarr_iter);
   } while (!ulii);
-  return S_CAST(uint32_t, bitarr_iter - bitarr) * kBitsPerWord + CTZLU(ulii);
+  return S_CAST(uintptr_t, bitarr_iter - bitarr) * kBitsPerWord + CTZLU(ulii);
 }
 
 uint32_t next_unset_unsafe(const uintptr_t* bitarr, uint32_t loc) {
@@ -397,7 +397,7 @@ uint32_t next_unset_unsafe(const uintptr_t* bitarr, uint32_t loc) {
   do {
     ulii = *(++bitarr_iter);
   } while (ulii == ~k0LU);
-  return S_CAST(uint32_t, bitarr_iter - bitarr) * kBitsPerWord + CTZLU(~ulii);
+  return S_CAST(uintptr_t, bitarr_iter - bitarr) * kBitsPerWord + CTZLU(~ulii);
 }
 
 /*
@@ -430,7 +430,7 @@ uint32_t next_set(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil) {
     }
     ulii = *(++bitarr_iter);
   } while (!ulii);
-  rval = S_CAST(uint32_t, bitarr_iter - bitarr) * kBitsPerWord + CTZLU(ulii);
+  rval = S_CAST(uintptr_t, bitarr_iter - bitarr) * kBitsPerWord + CTZLU(ulii);
   return MINV(rval, ceil);
 }
 
@@ -449,7 +449,7 @@ uint32_t prev_set_unsafe(const uintptr_t* bitarr, uint32_t loc) {
   do {
     ulii = *(--bitarr_iter);
   } while (!ulii);
-  return S_CAST(uint32_t, bitarr_iter - bitarr) * kBitsPerWord + kBitsPerWord - 1 - CLZLU(ulii);
+  return S_CAST(uintptr_t, bitarr_iter - bitarr) * kBitsPerWord + kBitsPerWord - 1 - CLZLU(ulii);
 }
 
 #ifdef USE_AVX2
@@ -1244,7 +1244,7 @@ uintptr_t popcount_bytes(const unsigned char* bitarr, uintptr_t byte_ct) {
   } else {
     bitarr_iter = R_CAST(const uintptr_t*, bitarr);
     // this may still be >= kBytesPerWord, so can't remove loop
-    trail_byte_ct = S_CAST(uint32_t, byte_ct);
+    trail_byte_ct = byte_ct;
   }
   while (1) {
     uintptr_t cur_word;
@@ -1314,7 +1314,7 @@ uintptr_t popcount_bytes_masked(const unsigned char* bitarr, const uintptr_t* ma
     // 64-bit case: each 8-bit slot stores a number in 0..24.
     tot += (tmp_stor * kMask0101) >> (kBitsPerWord - 8);
   }
-  uint32_t trail_byte_ct = S_CAST(uint32_t, byte_ct - (mainblock_word_ct * kBytesPerWord));
+  uint32_t trail_byte_ct = byte_ct - (mainblock_word_ct * kBytesPerWord);
   while (1) {
     uintptr_t cur_word;
     if (trail_byte_ct < kBytesPerWord) {

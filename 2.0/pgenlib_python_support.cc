@@ -23,8 +23,8 @@ namespace plink2 {
 
 void genoarr_to_bytes_minus9(const uintptr_t* genoarr, uint32_t sample_ct, int8_t* genobytes) {
   const uint32_t word_ct_m1 = (sample_ct - 1) / kBytesPerWord;
-  const quarterword_t* read_alias = (const quarterword_t*)genoarr;
-  uintptr_t* write_walias = (uintptr_t*)genobytes;
+  const quarterword_t* read_alias = R_CAST(const quarterword_t*, genoarr);
+  uintptr_t* write_walias = R_CAST(uintptr_t*, genobytes);
   uint32_t widx = 0;
   while (1) {
     uintptr_t qw = read_alias[widx];
@@ -120,7 +120,7 @@ void genoarr_to_allele_codes(const uintptr_t* genoarr, uint32_t sample_ct, int32
 void genoarr_phased_to_allele_codes(const uintptr_t* genoarr, const uintptr_t* phasepresent, const uintptr_t* phaseinfo, uint32_t sample_ct, uint32_t phasepresent_ct, unsigned char* phasebytes, int32_t* allele_codes) {
   // phasebytes can be nullptr
   genoarr_to_allele_codes(genoarr, sample_ct, allele_codes);
-  uint64_t* allele_codes_alias64 = (uint64_t*)allele_codes;
+  uint64_t* allele_codes_alias64 = R_CAST(uint64_t*, allele_codes);
   uint32_t sample_uidx = 0;
   if (!phasebytes) {
     for (uint32_t phased_idx = 0; phased_idx < phasepresent_ct; ++phased_idx, ++sample_uidx) {
@@ -136,8 +136,8 @@ void genoarr_phased_to_allele_codes(const uintptr_t* genoarr, const uintptr_t* p
   // phaseinfo if phasepresent_ct is nonzero
   // so, start off by extracting low bit from each pair and flipping it
   const uint32_t word_ct_m1 = (sample_ct - 1) / kBytesPerWord;
-  const quarterword_t* read_alias = (const quarterword_t*)genoarr;
-  uintptr_t* write_walias = (uintptr_t*)phasebytes;
+  const quarterword_t* read_alias = R_CAST(const quarterword_t*, genoarr);
+  uintptr_t* write_walias = R_CAST(uintptr_t*, phasebytes);
   uint32_t widx = 0;
   while (1) {
     uintptr_t qw = read_alias[widx];
@@ -169,7 +169,7 @@ static const int32_t geno_to_hap1_code[6] = {0, 1, 1, -9, 0, 0};
 void genoarr_phased_to_hap_codes(const uintptr_t* genoarr, const uintptr_t* phaseinfo, uint32_t variant_batch_size, int32_t* hap0_codes_iter, int32_t* hap1_codes_iter) {
   // assumes genoarr and phaseinfo have already been transposed
   const uint32_t word_ct_m1 = (variant_batch_size - 1) / kBitsPerWordD2;
-  const halfword_t* phaseinfo_alias = (const halfword_t*)phaseinfo;
+  const halfword_t* phaseinfo_alias = R_CAST(const halfword_t*, phaseinfo);
   uint32_t subgroup_len = kBitsPerWordD2;
   uint32_t widx = 0;
   while (1) {
@@ -219,7 +219,7 @@ void dosage16_to_floats_minus9(const uintptr_t* genoarr, const uintptr_t* dosage
     for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_uidx) {
       next_set_unsafe_ck(dosage_present, &sample_uidx);
       // multiply by 2^{-14}
-      geno_float[sample_uidx] = ((float)(*dosage_vals_iter++)) * 0.00006103515625f;
+      geno_float[sample_uidx] = S_CAST(float, *dosage_vals_iter++) * 0.00006103515625f;
     }
   }
 }
@@ -250,15 +250,15 @@ void dosage16_to_doubles_minus9(const uintptr_t* genoarr, const uintptr_t* dosag
     uint32_t sample_uidx = 0;
     for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_uidx) {
       next_set_unsafe_ck(dosage_present, &sample_uidx);
-      geno_double[sample_uidx] = ((double)(*dosage_vals_iter++)) * 0.00006103515625;
+      geno_double[sample_uidx] = S_CAST(double, *dosage_vals_iter++) * 0.00006103515625;
     }
   }
 }
 
 void bytes_to_bits_unsafe(const uint8_t* boolbytes, uint32_t sample_ct, uintptr_t* bitarr) {
   const uint32_t ull_ct_m1 = (sample_ct - 1) / 8;
-  const uint64_t* read_alias = (const uint64_t*)boolbytes;
-  unsigned char* write_alias = (unsigned char*)bitarr;
+  const uint64_t* read_alias = R_CAST(const uint64_t*, boolbytes);
+  unsigned char* write_alias = R_CAST(unsigned char*, bitarr);
   uint32_t ullidx = 0;
   while (1) {
     uint64_t cur_ull;
@@ -276,14 +276,14 @@ void bytes_to_bits_unsafe(const uint8_t* boolbytes, uint32_t sample_ct, uintptr_
     //  |       |       |
     // 56      48      40
     // (the constant has bits 0, 7, 14, 21, 28, 35, 42, and 49 set)
-    write_alias[ullidx++] = (unsigned char)((cur_ull * 0x2040810204081LLU) >> 49);
+    write_alias[ullidx++] = S_CAST(unsigned char, (cur_ull * 0x2040810204081LLU) >> 49);
   }
 }
 
 void bytes_to_genoarr_unsafe(const int8_t* genobytes, uint32_t sample_ct, uintptr_t* genoarr) {
   const uint32_t word_ct_m1 = (sample_ct - 1) / kBytesPerWord;
-  const uintptr_t* read_walias = (const uintptr_t*)genobytes;
-  quarterword_t* write_alias = (quarterword_t*)genoarr;
+  const uintptr_t* read_walias = R_CAST(const uintptr_t*, genobytes);
+  quarterword_t* write_alias = R_CAST(quarterword_t*, genoarr);
   uint32_t widx = 0;
   while (1) {
     uintptr_t ww;
@@ -299,9 +299,9 @@ void bytes_to_genoarr_unsafe(const int8_t* genobytes, uint32_t sample_ct, uintpt
     ww = (ww | (ww >> 6)) & kMask000F;
 #ifdef __LP64__
     ww = (ww | (ww >> 12)) & kMask000000FF;
-    write_alias[widx] = (quarterword_t)(ww | (ww >> 24));
+    write_alias[widx] = S_CAST(quarterword_t, ww | (ww >> 24));
 #else
-    write_alias[widx] = (quarterword_t)(ww | (ww >> 12));
+    write_alias[widx] = S_CAST(quarterword_t, ww | (ww >> 12));
 #endif
     ++widx;
   }
@@ -316,8 +316,8 @@ void allele_codes_to_genoarr_unsafe(const int32_t* allele_codes, const unsigned 
   const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
   uint32_t subgroup_len = kBitsPerWordD2;
   uint32_t widx = 0;
-  const int32_t* read_alias = allele_codes;
-  halfword_t* phaseinfo_alias = (halfword_t*)phaseinfo;
+  const uint32_t* read_alias = R_CAST(const uint32_t*, allele_codes);
+  halfword_t* phaseinfo_alias = R_CAST(halfword_t*, phaseinfo);
   if (!phasepresent_bytes) {
     while (1) {
       if (widx >= word_ct_m1) {
@@ -334,8 +334,8 @@ void allele_codes_to_genoarr_unsafe(const int32_t* allele_codes, const unsigned 
           // 1,1 -> 2
           // -9,-9 -> 3
           // undefined behavior on e.g. 0,2
-          const uint32_t first_code = (uint32_t)(*read_alias++);
-          const uint32_t second_code = (uint32_t)(*read_alias++);
+          const uint32_t first_code = *read_alias++;
+          const uint32_t second_code = *read_alias++;
           uintptr_t cur_geno;
           if (first_code <= 1) {
             cur_geno = first_code + second_code;
@@ -350,8 +350,8 @@ void allele_codes_to_genoarr_unsafe(const int32_t* allele_codes, const unsigned 
         halfword_t phaseinfo_write_hw = 0;
         for (uint32_t uii = 0; uii < subgroup_len; ++uii) {
           // set phaseinfo_write_hw bit iff 1,0
-          const uint32_t first_code = (uint32_t)(*read_alias++);
-          const uint32_t second_code = (uint32_t)(*read_alias++);
+          const uint32_t first_code = *read_alias++;
+          const uint32_t second_code = *read_alias++;
           uintptr_t cur_geno;
           if (first_code <= 1) {
             cur_geno = first_code + second_code;
@@ -370,7 +370,7 @@ void allele_codes_to_genoarr_unsafe(const int32_t* allele_codes, const unsigned 
     }
   }
   const unsigned char* phasepresent_bytes_iter = phasepresent_bytes;
-  halfword_t* phasepresent_alias = (halfword_t*)phasepresent;
+  halfword_t* phasepresent_alias = R_CAST(halfword_t*, phasepresent);
   while (1) {
     if (widx >= word_ct_m1) {
       if (widx > word_ct_m1) {
@@ -382,8 +382,8 @@ void allele_codes_to_genoarr_unsafe(const int32_t* allele_codes, const unsigned 
     halfword_t phasepresent_write_hw = 0;
     halfword_t phaseinfo_write_hw = 0;
     for (uint32_t uii = 0; uii < subgroup_len; ++uii) {
-      const uint32_t first_code = (uint32_t)(*read_alias++);
-      const uint32_t second_code = (uint32_t)(*read_alias++);
+      const uint32_t first_code = *read_alias++;
+      const uint32_t second_code = *read_alias++;
       uintptr_t cur_geno;
       if (first_code <= 1) {
         cur_geno = first_code + second_code;
@@ -405,13 +405,13 @@ void allele_codes_to_genoarr_unsafe(const int32_t* allele_codes, const unsigned 
 
 static inline uint32_t biallelic_dosage_halfdist(uint32_t dosage_int) {
   const uint32_t dosage_int_rem = dosage_int & 16383;
-  return abs_int32(((int32_t)dosage_int_rem) - 8192);
+  return abs_int32(S_CAST(int32_t, dosage_int_rem) - 8192);
 }
 
 void floats_to_dosage16(const float* floatarr, uint32_t sample_ct, uint32_t hard_call_halfdist, uintptr_t* genoarr, uintptr_t* dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr) {
   const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
   const float* read_iter = floatarr;
-  halfword_t* dosage_present_alias = (halfword_t*)dosage_present;
+  halfword_t* dosage_present_alias = R_CAST(halfword_t*, dosage_present);
   uint16_t* dosage_vals_iter = dosage_vals;
   uint32_t subgroup_len = kBitsPerWordD2;
   uint32_t widx = 0;
@@ -429,7 +429,7 @@ void floats_to_dosage16(const float* floatarr, uint32_t sample_ct, uint32_t hard
       const float fxx = (*read_iter++) * 16384 + 0.5;
       uintptr_t cur_geno = 3;
       if ((fxx >= 0.0) && (fxx < 32769)) {
-        uint32_t dosage_int = (int32_t)fxx;
+        uint32_t dosage_int = S_CAST(int32_t, fxx);
         const uint32_t cur_halfdist = biallelic_dosage_halfdist(dosage_int);
         if (cur_halfdist >= hard_call_halfdist) {
           cur_geno = (dosage_int + (8192 * k1LU)) / 16384;
@@ -448,13 +448,13 @@ void floats_to_dosage16(const float* floatarr, uint32_t sample_ct, uint32_t hard
   if (widx % 2) {
     dosage_present_alias[widx] = 0;
   }
-  *dosage_ct_ptr = (uint32_t)((uintptr_t)(dosage_vals_iter - dosage_vals));
+  *dosage_ct_ptr = dosage_vals_iter - dosage_vals;
 }
 
 void doubles_to_dosage16(const double* doublearr, uint32_t sample_ct, uint32_t hard_call_halfdist, uintptr_t* genoarr, uintptr_t* dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr) {
   const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
   const double* read_iter = doublearr;
-  halfword_t* dosage_present_alias = (halfword_t*)dosage_present;
+  halfword_t* dosage_present_alias = R_CAST(halfword_t*, dosage_present);
   uint16_t* dosage_vals_iter = dosage_vals;
   uint32_t subgroup_len = kBitsPerWordD2;
   uint32_t widx = 0;
@@ -472,7 +472,7 @@ void doubles_to_dosage16(const double* doublearr, uint32_t sample_ct, uint32_t h
       const double dxx = (*read_iter++) * 16384 + 0.5;
       uintptr_t cur_geno = 3;
       if ((dxx >= 0.0) && (dxx < 32769)) {
-        uint32_t dosage_int = (int32_t)dxx;
+        uint32_t dosage_int = S_CAST(int32_t, dxx);
         const uint32_t cur_halfdist = biallelic_dosage_halfdist(dosage_int);
         if (cur_halfdist >= hard_call_halfdist) {
           cur_geno = (dosage_int + (8192 * k1LU)) / 16384;
@@ -491,7 +491,7 @@ void doubles_to_dosage16(const double* doublearr, uint32_t sample_ct, uint32_t h
   if (widx % 2) {
     dosage_present_alias[widx] = 0;
   }
-  *dosage_ct_ptr = (uint32_t)((uintptr_t)(dosage_vals_iter - dosage_vals));
+  *dosage_ct_ptr = dosage_vals_iter - dosage_vals;
 }
 
 #ifdef __cplusplus

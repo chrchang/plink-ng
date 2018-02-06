@@ -711,7 +711,7 @@ HEADER_INLINE uint64_t get_pgfi_fpos(const pgen_file_info_t* pgfip, uintptr_t vi
 
 HEADER_INLINE uint32_t get_pgfi_vrec_width(const pgen_file_info_t* pgfip, uint32_t vidx) {
   if (pgfip->var_fpos) {
-    return S_CAST(uint32_t, pgfip->var_fpos[vidx + 1] - pgfip->var_fpos[vidx]);
+    return pgfip->var_fpos[vidx + 1] - pgfip->var_fpos[vidx];
   }
   return pgfip->const_vrec_width;
 }

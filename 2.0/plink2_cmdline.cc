@@ -1167,6 +1167,17 @@ void strcpy_toupper(char* target, const char* source) {
   }
 }
 */
+char* memcpya_toupper(char* __restrict target, const char* __restrict source, uint32_t slen) {
+  for (uint32_t pos = 0; pos < slen; ++pos) {
+    uint32_t uii = ctou32(source[pos]);
+    if ((uii - 97) < 26) {
+      uii -= 32;
+    }
+    target[pos] = uii;
+  }
+  return &(target[slen]);
+}
+
 
 uint32_t is_alphanumeric(const char* str_iter) {
   while (1) {

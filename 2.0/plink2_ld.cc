@@ -19,7 +19,7 @@
 #include "plink2_stats.h"
 
 #ifdef __cplusplus
-#include <functional> // std::greater
+#  include <functional> // std::greater
 #endif
 
 #ifdef __cplusplus

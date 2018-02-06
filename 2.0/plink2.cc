@@ -28,9 +28,8 @@
 #include "plink2_random.h"
 #include "plink2_set.h"
 
-// #include <locale.h>
-#include <time.h>
-#include <unistd.h> // getcwd(), gethostname(), sysconf(), unlink()
+#include <time.h> // time()
+#include <unistd.h> // unlink()
 
 #include "plink2_help.h"
 

@@ -43,18 +43,7 @@
 //   bitwise operations makes unsigned-default the only sane choice.
 //   Some consequences of this choice:
 //   - All pointer differences that are part of a larger arithmetic or
-//     comparison expression are explicitly casted to uintptr_t.  (Minor
-//     exception: Cython defaults to compiling with -Wshorten-64-to-32 on OS X,
-//     so the affected files currently contain a few direct casts to uint32_t
-//     where there would otherwise be a double-cast.  This will be disabled in
-//     the near future, since I believe it is clearer to reserve
-//     static_cast<uint32_t>() on 64-bit integers for intentional truncation or
-//     narrowing; the far more common case of uintptr_t variables/return values
-//     that are known to be <2^32 in practice should not require a cast.  One
-//     can always explicitly enable the warning and insert
-//     debug-downcasts--assert the input value is less than 2^32--when they
-//     suspect a problem, but I don't think it's worthwhile to do this by
-//     default.)
+//     comparison expression are explicitly casted to uintptr_t.
 //   - Since uint64_t -> double conversion is frequently slower than int64_t ->
 //     double conversion, u63tod() should be used when the integer is known to
 //     be less than 2^63.  If we also know it's less than 2^31, u31tod() can
@@ -87,6 +76,15 @@
 //   parameter type should only be used when there are at least two equally
 //   valid input types, NOT counting vul_t*.
 
+
+// The -Wshorten-64-to-32 diagnostic forces the code to be cluttered with
+// meaningless uintptr_t -> uint32_t static casts (number known to be < 2^32,
+// just stored in a uintptr_t because there's no speed penalty and we generally
+// want to think in terms of word-based operations).  The code is more readable
+// if S_CAST(uint32_t, [potentially wider value]) is reserved for situations
+// where a higher bit may actually be set.  This pragma can always be commented
+// out on the few occasions where inappropriate silent truncation is suspected.
+#pragma clang diagnostic ignored "-Wshorten-64-to-32"
 
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
@@ -234,15 +232,15 @@ HEADER_INLINE float u31tof(uint32_t uii) {
 }
 
 HEADER_INLINE uint32_t ctou32(char cc) {
-  return S_CAST(uint32_t, S_CAST(unsigned char, cc));
+  return S_CAST(unsigned char, cc);
 }
 
 HEADER_INLINE uintptr_t ctoul(char cc) {
-  return S_CAST(uintptr_t, S_CAST(unsigned char, cc));
+  return S_CAST(unsigned char, cc);
 }
 
 HEADER_INLINE uint64_t ctou64(char cc) {
-  return S_CAST(uint64_t, S_CAST(unsigned char, cc));
+  return S_CAST(unsigned char, cc);
 }
 
 // Error return types.  All of these evaluate to true on error and false on
@@ -749,11 +747,7 @@ HEADER_INLINE uintptr_t unpack_halfword_to_word(uintptr_t hw) {
 
 HEADER_INLINE halfword_t pack_word_to_halfword(uintptr_t ww) {
   // Assumes only even bits of ww can be set.
-  // Include static_cast since Cython compiles plink2_base and pgenlib_internal
-  // with shorten-64-to-32 warnings.
-  // (However, in the rest of the codebase, we lean toward only including such
-  // casts when we're either intentionally truncating or explicitly narrowing.)
-  return S_CAST(halfword_t, _pext_u64(ww, kMask5555));
+  return _pext_u64(ww, kMask5555);
 }
 #else // !USE_AVX2
 HEADER_CINLINE2 uintptr_t unpack_halfword_to_word(uintptr_t hw) {
@@ -1204,11 +1198,6 @@ HEADER_INLINE uintptr_t popcount_longs(const uintptr_t* bitvec, uintptr_t word_c
 }
 #endif // !USE_AVX2
 
-// Get rid of this once Cython warning is disabled.
-HEADER_INLINE uint32_t popcount_longs32(const uintptr_t* bitvec, uintptr_t word_ct) {
-  return S_CAST(uint32_t, popcount_longs(bitvec, word_ct));
-}
-
 // Turns out memcpy(&cur_word, bytearr, ct) can't be trusted to be fast when ct
 // isn't known at compile time.
 //
@@ -1526,15 +1515,6 @@ void expand_then_subset_bytearr_nested(const void* __restrict compact_bitarr, co
 uintptr_t popcount_bytes(const unsigned char* bitarr, uintptr_t byte_ct);
 uintptr_t popcount_bytes_masked(const unsigned char* bitarr, const uintptr_t* mask_arr, uintptr_t byte_ct);
 
-// Get rid of these once Cython warning is disabled.
-HEADER_INLINE uint32_t popcount_bytes32(const unsigned char* bitarr, uintptr_t byte_ct) {
-  return S_CAST(uint32_t, popcount_bytes(bitarr, byte_ct));
-}
-
-HEADER_INLINE uint32_t popcount_bytes_masked32(const unsigned char* bitarr, const uintptr_t* mask_arr, uintptr_t byte_ct) {
-  return S_CAST(uint32_t, popcount_bytes_masked(bitarr, mask_arr, byte_ct));
-}
-
 
 // transpose_quaterblock(), which is more plink-specific, is in
 // pgenlib_internal
@@ -1561,6 +1541,9 @@ HEADER_INLINE void transpose_bitblock(const uintptr_t* read_iter, uint32_t read_
 CONSTU31(kPglBitTransposeBufbytes, (kPglBitTransposeBatch * kPglBitTransposeBatch) / (CHAR_BIT / 2));
 void transpose_bitblock_internal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, vul_t* __restrict buf0, vul_t* __restrict buf1);
 
+// If this ever needs to be called on an input byte array, read_iter could be
+// changed to const void*; in that case, read_ul_stride should be changed to a
+// byte count.
 HEADER_INLINE void transpose_bitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, vul_t* vecaligned_buf) {
   transpose_bitblock_internal(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, vecaligned_buf, &(vecaligned_buf[kPglBitTransposeBufbytes / (2 * kBytesPerWord)]));
 }

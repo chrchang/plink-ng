@@ -1271,6 +1271,7 @@ void buf_toupper(uint32_t slen, char* strbuf);
 
 void strcpy_toupper(char* target, const char* source);
 */
+char* memcpya_toupper(char* __restrict target, const char* __restrict source, uint32_t slen);
 
 uint32_t is_alphanumeric(const char* str_iter);
 
