@@ -84,7 +84,10 @@
 // if S_CAST(uint32_t, [potentially wider value]) is reserved for situations
 // where a higher bit may actually be set.  This pragma can always be commented
 // out on the few occasions where inappropriate silent truncation is suspected.
-#pragma clang diagnostic ignored "-Wshorten-64-to-32"
+#ifdef __APPLE__
+  // todo: explicitly detect clang vs. gcc
+  #pragma clang diagnostic ignored "-Wshorten-64-to-32"
+#endif
 
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
