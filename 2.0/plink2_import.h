@@ -31,14 +31,14 @@ ENUM_U31_DEF_START()
   kVcfHalfCallError,
   // gets converted to kVcfHalfCallError, but with a different error message
   kVcfHalfCallDefault
-ENUM_U31_DEF_END(vcf_half_call_t);
+ENUM_U31_DEF_END(VcfHalfCall);
 
 FLAGSET_DEF_START()
   kfOxfordImport0,
   kfOxfordImportRefFirst = (1 << 0),
   kfOxfordImportRefSecond = (1 << 1),
   kfOxfordImportBgenSnpIdChr = (1 << 2)
-FLAGSET_DEF_END(oxford_import_t);
+FLAGSET_DEF_END(OxfordImportFlags);
 
 FLAGSET_DEF_START()
   kfPlink1Dosage0,
@@ -49,7 +49,7 @@ FLAGSET_DEF_START()
   kfPlink1DosageFormatTriple = (1 << 4),
   kfPlink1DosageRefFirst = (1 << 5),
   kfPlink1DosageRefSecond = (1 << 6)
-FLAGSET_DEF_END(plink1_dosage_flags_t);
+FLAGSET_DEF_END(Plink1DosageFlags);
 
 FLAGSET_DEF_START()
   kfGenDummy0,
@@ -57,43 +57,43 @@ FLAGSET_DEF_START()
   kfGenDummy1234 = (1 << 1),
   kfGenDummy12 = (1 << 2),
   kfGenDummyScalarPheno = (1 << 3)
-FLAGSET_DEF_END(gendummy_flags_t);
+FLAGSET_DEF_END(GenDummyFlags);
 
 typedef struct plink1_dosage_info_struct {
-  plink1_dosage_flags_t flags;
+  Plink1DosageFlags flags;
   uint32_t skips[3];
   uint32_t chr_col_idx; // 0-based
   uint32_t pos_col_idx;
   char id_delim;
-} plink1_dosage_info_t;
+} Plink1DosageInfo;
 
 typedef struct gendummy_info_struct {
-  gendummy_flags_t flags;
+  GenDummyFlags flags;
   uint32_t sample_ct;
   uint32_t variant_ct;
   uint32_t pheno_ct;
   double geno_mfreq;
   double pheno_mfreq;
   double dosage_freq;
-} gendummy_info_t;
+} GenDummyInfo;
 
-void init_plink1_dosage(plink1_dosage_info_t* plink1_dosage_info_ptr);
+void InitPlink1Dosage(Plink1DosageInfo* plink1_dosage_info_ptr);
 
-void init_gendummy(gendummy_info_t* gendummy_info_ptr);
+void InitGenDummy(GenDummyInfo* gendummy_info_ptr);
 
-pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, misc_flags_t misc_flags, uint32_t no_samples_ok, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, vcf_half_call_t vcf_half_call, fam_col_t fam_cols, char* outname, char* outname_end, chr_info_t* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr);
+PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, uint32_t no_samples_ok, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, VcfHalfCall vcf_half_call, FamCol fam_cols, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr);
 
-pglerr_t ox_gen_to_pgen(const char* genname, const char* samplename, const char* ox_single_chr_str, const char* ox_missing_code, misc_flags_t misc_flags, oxford_import_t oxford_import_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char* outname, char* outname_end, chr_info_t* cip);
+PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_single_chr_str, const char* ox_missing_code, MiscFlags misc_flags, OxfordImportFlags oxford_import_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char* outname, char* outname_end, ChrInfo* cip);
 
-pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const char* const_fid, const char* ox_missing_code, misc_flags_t misc_flags, oxford_import_t oxford_import_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, uint32_t max_thread_ct, char* outname, char* outname_end, chr_info_t* cip);
+PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* const_fid, const char* ox_missing_code, MiscFlags misc_flags, OxfordImportFlags oxford_import_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip);
 
-pglerr_t ox_hapslegend_to_pgen(const char* hapsname, const char* legendname, const char* samplename, const char* ox_single_chr_str, const char* ox_missing_code, misc_flags_t misc_flags, oxford_import_t oxford_import_flags, char* outname, char* outname_end, chr_info_t* cip);
+PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const char* samplename, const char* ox_single_chr_str, const char* ox_missing_code, MiscFlags misc_flags, OxfordImportFlags oxford_import_flags, char* outname, char* outname_end, ChrInfo* cip);
 
-pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, const char* mapname, const char* import_single_chr_str, const plink1_dosage_info_t* pdip, misc_flags_t misc_flags, fam_col_t fam_cols, int32_t missing_pheno, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, uint32_t max_thread_ct, char* outname, char* outname_end, chr_info_t* cip);
+PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const char* mapname, const char* import_single_chr_str, const Plink1DosageInfo* pdip, MiscFlags misc_flags, FamCol fam_cols, int32_t missing_pheno, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip);
 
-pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t misc_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t max_thread_ct, char* outname, char* outname_end, chr_info_t* cip);
+PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip);
 
-pglerr_t plink1_sample_major_to_pgen(const char* pgenname, uintptr_t variant_ct, uintptr_t sample_ct, uint32_t real_ref_alleles, uint32_t max_thread_ct, FILE* infile);
+PglErr Plink1SampleMajorToPgen(const char* pgenname, uintptr_t variant_ct, uintptr_t sample_ct, uint32_t real_ref_alleles, uint32_t max_thread_ct, FILE* infile);
 
 #ifdef __cplusplus
 } // namespace plink2

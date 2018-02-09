@@ -22,7 +22,7 @@ MKLROOT = /home/ubuntu/intel/mkl
 MKL_IOMP5_DIR = /home/ubuntu/intel/compilers_and_libraries_2017.2.174/linux/compiler/lib/intel64
 FORCE_32BIT =
 
-BASEFLAGS=-Wall -Wextra -DZSTD_MULTITHREAD
+BASEFLAGS=-Wall -Wextra -Wshadow -DZSTD_MULTITHREAD
 # ***** end configuration *****
 
 LINKFLAGS=-lm -lpthread

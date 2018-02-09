@@ -23,30 +23,32 @@
 namespace plink2 {
 #endif
 
-// result of current inverse_chiprob(5e-324, 1)
-static const double kMaxInverseChiprob1df = 1480.8852530551483;
+// result of current PToChisq(5e-324, 1)
+static const double kMaxChisq1df = 1480.8852530551483;
 
 // now thread-safe!
-double chiprob_p(double chisq, uint32_t df);
+double ChisqToP(double chisq, uint32_t df);
 
-double inverse_chiprob(double pval, uint32_t df);
+double PToChisq(double pval, uint32_t df);
 
-double calc_tprob(double tt, double df);
+double TstatToP(double tt, double df);
 
-double calc_tprob2(double tt, double df, double cached_gamma_mult);
+// Better when the same df comes up many times.  (May want a higher-level
+// interface that allocates and incrementally fills a table.)
+double TstatToP2(double tt, double df, double cached_gamma_mult);
 
-double ltqnorm(double p);
+double PToZscore(double pval);
 
-double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t midp);
+double HweP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t midp);
 
 // returns 0 if close enough to Hardy-Weinberg equilibrium
-uint32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double thresh);
+uint32_t HweThresh(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double thresh);
 
-uint32_t SNPHWE_midp_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double thresh);
+uint32_t HweThreshMidp(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double thresh);
 
-double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t midp);
+double FisherExact2x2P(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t midp);
 
-double SNPHWEX(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, int32_t male1, int32_t male2, uint32_t midp);
+double HweXchrP(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, int32_t male1, int32_t male2, uint32_t midp);
 
 #ifdef __cplusplus
 }

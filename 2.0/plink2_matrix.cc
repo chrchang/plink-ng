@@ -169,7 +169,7 @@ extern "C" {
 namespace plink2 {
 #endif
 
-void reflect_matrix(uint32_t dim, double* matrix) {
+void ReflectMatrix(uint32_t dim, double* matrix) {
   const uintptr_t dim_p1l = dim + 1;
   double* write_row = matrix;
   for (uint32_t row_idx = 0; row_idx < dim; ++row_idx) {
@@ -182,7 +182,7 @@ void reflect_matrix(uint32_t dim, double* matrix) {
   }
 }
 
-void reflect_fmatrix(uint32_t dim, uint32_t stride, float* matrix) {
+void ReflectFmatrix(uint32_t dim, uint32_t stride, float* matrix) {
   const uintptr_t stride_p1l = stride + 1;
   float* write_row = matrix;
   for (uint32_t row_idx = 0; row_idx < dim; ++row_idx) {
@@ -195,7 +195,7 @@ void reflect_fmatrix(uint32_t dim, uint32_t stride, float* matrix) {
   }
 }
 
-void reflect_fmatrixz(uint32_t dim, uint32_t stride, float* matrix) {
+void ReflectFmatrix0(uint32_t dim, uint32_t stride, float* matrix) {
   const uintptr_t stride_p1l = stride + 1;
   float* write_row = matrix;
   for (uint32_t row_idx = 0; row_idx < dim; ++row_idx) {
@@ -204,45 +204,40 @@ void reflect_fmatrixz(uint32_t dim, uint32_t stride, float* matrix) {
       write_row[col_idx] = *read_col_iter;
       read_col_iter = &(read_col_iter[stride]);
     }
-    fill_float_zero(stride - dim, &(write_row[dim]));
+    ZeroFArr(stride - dim, &(write_row[dim]));
     write_row = &(write_row[stride]);
   }
 }
 
-inline double SQR(const double a) {
-  return a * a;
+static inline double Sqr(const double aa) {
+  return aa * aa;
 }
 
-#ifdef __cplusplus
-inline double SIGN(const double &a, const double &b) {
-  // PLINK helper.h SIGN() template specialized to doubles.
-  return (b >= 0)? (a >= 0 ? a : -a) : (a >= 0 ? -a : a);
-}
-#else
-inline double SIGN(const double a, const double b) {
-  // PLINK helper.h SIGN() template specialized to doubles.
-  return (b >= 0)? (a >= 0 ? a : -a) : (a >= 0 ? -a : a);
-}
-#endif
-
-double pythag(const double a, const double b) {
-  // PLINK stats.cpp pythag().
+double Pythag(const double a, const double b) {
+  // PLINK stats.cpp Pythag().
   double absa,absb;
 
   absa=fabs(a);
   absb=fabs(b);
-  if (absa > absb) return absa*sqrt(1.0+SQR(absb/absa));
-  else return (absb == 0.0 ? 0.0 : absb*sqrt(1.0+SQR(absa/absb)));
+  if (absa > absb) {
+    return absa*sqrt(1.0+Sqr(absb/absa));
+  }
+  return (absb == 0.0 ? 0.0 : absb*sqrt(1.0+Sqr(absa/absb)));
 }
 
 #ifdef NOLAPACK
-uint32_t svdcmp_c(int32_t m, double* a, double* w, double* v) {
+static inline double MultiplyBySgn(double aa, double bb) {
+  // PLINK helper.h MultiplyBySgn() template specialized to doubles.
+  return (bb >= 0)? (aa >= 0 ? aa : -aa) : (aa >= 0 ? -aa : aa);
+}
+
+uint32_t SvdcmpC(int32_t m, double* a, double* w, double* v) {
   // C port of PLINK stats.cpp svdcmp().
   // Now thread-safe.
   double* rv1 = &(w[(uint32_t)m]);
   int32_t n = m;
   int32_t flag;
-  int32_t l = 0; // suppress compile warning
+  int32_t l = 0;  // suppress compile warning
   int32_t i,its,j,jj,k,nm;
   double anorm,c,f,g,h,s,scale,x,y,z;
   double temp;
@@ -260,7 +255,7 @@ uint32_t svdcmp_c(int32_t m, double* a, double* w, double* v) {
           s += a[k * m + i]*a[k * m + i];
         }
         f=a[i * m + i];
-        g = -SIGN(sqrt(s),f);
+        g = -MultiplyBySgn(sqrt(s),f);
         h=f*g-s;
         a[i * m + i]=f-g;
         for (j=l-1;j<n;j++) {
@@ -281,7 +276,7 @@ uint32_t svdcmp_c(int32_t m, double* a, double* w, double* v) {
           s += a[i * m + k]*a[i * m + k];
         }
         f=a[i * m + l-1];
-        g = -SIGN(sqrt(s),f);
+        g = -MultiplyBySgn(sqrt(s),f);
         h=f*g-s;
         a[i * m + l-1]=f-g;
         for (k=l-1;k<n;k++) rv1[k]=a[i * m + k]/h;
@@ -347,7 +342,7 @@ uint32_t svdcmp_c(int32_t m, double* a, double* w, double* v) {
           temp = fabs(f)+anorm;
           if (temp == anorm) break;
           g=w[i];
-          h=pythag(f,g);
+          h=Pythag(f,g);
           w[i]=h;
           h=1.0/h;
           c=g*h;
@@ -369,15 +364,15 @@ uint32_t svdcmp_c(int32_t m, double* a, double* w, double* v) {
         break;
       }
       if (its == 29)
-        return 0; // cannot converge: multi-collinearity?
+        return 0;  // cannot converge: multi-collinearity?
       x=w[l];
       nm=k-1;
       y=w[nm];
       g=rv1[nm];
       h=rv1[k];
       f=((y-z)*(y+z)+(g-h)*(g+h))/(2.0*h*y);
-      g=pythag(f,1.0);
-      f=((x-z)*(x+z)+h*((y/(f+SIGN(g,f)))-h))/x;
+      g=Pythag(f,1.0);
+      f=((x-z)*(x+z)+h*((y/(f+MultiplyBySgn(g,f)))-h))/x;
       c=s=1.0;
       for (j=l;j<=nm;j++) {
         i=j+1;
@@ -385,7 +380,7 @@ uint32_t svdcmp_c(int32_t m, double* a, double* w, double* v) {
         y=w[i];
         h=s*g;
         g=c*g;
-        z=pythag(f,h);
+        z=Pythag(f,h);
         rv1[j]=z;
         c=f/z;
         s=h/z;
@@ -399,7 +394,7 @@ uint32_t svdcmp_c(int32_t m, double* a, double* w, double* v) {
           v[jj * m + j]=x*c+z*s;
           v[jj * m + i]=z*c-x*s;
         }
-        z=pythag(f,h);
+        z=Pythag(f,h);
         w[j]=z;
         if (z) {
           z=1.0/z;
@@ -423,13 +418,13 @@ uint32_t svdcmp_c(int32_t m, double* a, double* w, double* v) {
   return 1;
 }
 
-boolerr_t invert_matrix(int32_t dim, double* matrix, matrix_invert_buf1_t* dbl_1d_buf, double* dbl_2d_buf) {
+BoolErr InvertMatrix(int32_t dim, double* matrix, MatrixInvertBuf1* dbl_1d_buf, double* dbl_2d_buf) {
   // C port of PLINK stats.cpp's svd_inverse() function.
 
   // w -> dbl_1d_buf
   // v -> dbl_2d_buf
   const double eps = 1e-24;
-  if (!svdcmp_c(dim, matrix, dbl_1d_buf, dbl_2d_buf)) {
+  if (!SvdcmpC(dim, matrix, dbl_1d_buf, dbl_2d_buf)) {
     return 1;
   }
 
@@ -454,7 +449,7 @@ boolerr_t invert_matrix(int32_t dim, double* matrix, matrix_invert_buf1_t* dbl_1
   int32_t k;
   // [nxn].[t(v)]
   for (i=0; i<dim; i++) {
-    fill_double_zero(dim, dbl_1d_buf);
+    ZeroDArr(dim, dbl_1d_buf);
     for (j=0; j<dim; j++) {
       for (k=0; k<dim; k++) {
         dbl_1d_buf[j] += matrix[i * dim + k] * dbl_2d_buf[j * dim + k];
@@ -474,7 +469,7 @@ boolerr_t invert_matrix(int32_t dim, double* matrix, matrix_invert_buf1_t* dbl_1
   return 0;
 }
 
-boolerr_t invert_fmatrix_first_half(int32_t dim, uint32_t stride, const float* matrix, double* half_inverted, matrix_invert_buf1_t* dbl_1d_buf, double* dbl_2d_buf) {
+BoolErr InvertFmatrixFirstHalf(int32_t dim, uint32_t stride, const float* matrix, double* half_inverted, MatrixInvertBuf1* dbl_1d_buf, double* dbl_2d_buf) {
   const float* read_row = matrix;
   double* write_row = half_inverted;
   for (uint32_t row_idx = 0; row_idx < (uint32_t)dim; ++row_idx) {
@@ -485,10 +480,10 @@ boolerr_t invert_fmatrix_first_half(int32_t dim, uint32_t stride, const float* m
     write_row = &(write_row[(uint32_t)dim]);
   }
 
-  return (!svdcmp_c(dim, half_inverted, dbl_1d_buf, dbl_2d_buf));
+  return (!SvdcmpC(dim, half_inverted, dbl_1d_buf, dbl_2d_buf));
 }
 
-void invert_fmatrix_second_half(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, matrix_invert_buf1_t* dbl_1d_buf, double* dbl_2d_buf) {
+void InvertFmatrixSecondHalf(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, MatrixInvertBuf1* dbl_1d_buf, double* dbl_2d_buf) {
   // Look for singular values
   const double eps = 1e-24;
   double wmax = 0;
@@ -511,7 +506,7 @@ void invert_fmatrix_second_half(__CLPK_integer dim, uint32_t stride, double* hal
   int32_t k;
   // [nxn].[t(v)]
   for (i=0; i<dim; i++) {
-    fill_double_zero(dim, dbl_1d_buf);
+    ZeroDArr(dim, dbl_1d_buf);
     for (j=0; j<dim; j++) {
       for (k=0; k<dim; k++) {
         dbl_1d_buf[j] += half_inverted[i * dim + k] * dbl_2d_buf[j * dim + k];
@@ -531,8 +526,8 @@ void invert_fmatrix_second_half(__CLPK_integer dim, uint32_t stride, double* hal
   }
 }
 #else // !NOLAPACK
-boolerr_t invert_matrix(__CLPK_integer dim, double* matrix, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf) {
-  // invert_symmdef_matrix() is noticeably faster in the symmetric
+BoolErr InvertMatrix(__CLPK_integer dim, double* matrix, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf) {
+  // InvertSymmdefMatrix() is noticeably faster in the symmetric
   // positive-semidefinite case.
   __CLPK_integer info;
   dgetrf_(&dim, &dim, matrix, &dim, int_1d_buf, &info);
@@ -545,7 +540,7 @@ boolerr_t invert_matrix(__CLPK_integer dim, double* matrix, matrix_invert_buf1_t
   return 0;
 }
 
-boolerr_t invert_matrix_checked(__CLPK_integer dim, double* matrix, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf) {
+BoolErr InvertMatrixChecked(__CLPK_integer dim, double* matrix, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf) {
   // This used to fall back on PLINK 1.07's SVD-based implementation when the
   // rcond estimate was too small, but in practice that just slowed things down
   // without meaningfully improving inversion of nonsingular matrices.  So now
@@ -568,7 +563,7 @@ boolerr_t invert_matrix_checked(__CLPK_integer dim, double* matrix, matrix_inver
   return 0;
 }
 
-boolerr_t invert_symmdef_matrix(__CLPK_integer dim, double* matrix, __maybe_unused matrix_invert_buf1_t* int_1d_buf, __maybe_unused double* dbl_2d_buf) {
+BoolErr InvertSymmdefMatrix(__CLPK_integer dim, double* matrix, __maybe_unused MatrixInvertBuf1* int_1d_buf, __maybe_unused double* dbl_2d_buf) {
   char uplo = 'U';
   __CLPK_integer info;
   dpotrf_(&uplo, &dim, matrix, &dim, &info);
@@ -580,7 +575,7 @@ boolerr_t invert_symmdef_matrix(__CLPK_integer dim, double* matrix, __maybe_unus
   return 0;
 }
 
-boolerr_t invert_symmdef_matrix_checked(__CLPK_integer dim, double* matrix, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf) {
+BoolErr InvertSymmdefMatrixChecked(__CLPK_integer dim, double* matrix, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf) {
   char cc = '1';
   char uplo = 'U';
   double norm = dlansy_(&cc, &uplo, &dim, matrix, &dim, dbl_2d_buf);
@@ -601,7 +596,7 @@ boolerr_t invert_symmdef_matrix_checked(__CLPK_integer dim, double* matrix, matr
 // quasi-bugfix (20 Sep 2017): give up on doing this with single-precision
 // numbers.  Instead, convert to double-precision, then perform the usual
 // inversion, then downcode back to single-precision.
-boolerr_t invert_fmatrix_first_half(__CLPK_integer dim, uint32_t stride, const float* matrix, double* half_inverted, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf) {
+BoolErr InvertFmatrixFirstHalf(__CLPK_integer dim, uint32_t stride, const float* matrix, double* half_inverted, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf) {
   const float* read_row = matrix;
   double* write_row = half_inverted;
   for (uint32_t row_idx = 0; row_idx < S_CAST(uint32_t, dim); ++row_idx) {
@@ -625,7 +620,7 @@ boolerr_t invert_fmatrix_first_half(__CLPK_integer dim, uint32_t stride, const f
   return (rcond < kMatrixSingularRcond);
 }
 
-boolerr_t invert_symmdef_fmatrix_first_half(__CLPK_integer dim, uint32_t stride, float* matrix, double* half_inverted, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf) {
+BoolErr InvertSymmdefFmatrixFirstHalf(__CLPK_integer dim, uint32_t stride, float* matrix, double* half_inverted, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf) {
   const float* read_row = matrix;
   double* write_row = half_inverted;
   for (uint32_t row_idx = 0; row_idx < S_CAST(uint32_t, dim); ++row_idx) {
@@ -650,7 +645,7 @@ boolerr_t invert_symmdef_fmatrix_first_half(__CLPK_integer dim, uint32_t stride,
   return (rcond < kMatrixSingularRcond);
 }
 
-void invert_fmatrix_second_half(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, matrix_invert_buf1_t* int_1d_buf, double* dbl_2d_buf) {
+void InvertFmatrixSecondHalf(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf) {
   __CLPK_integer lwork = dim * dim;
   __CLPK_integer info;
   dgetri_(&dim, half_inverted, &dim, int_1d_buf, dbl_2d_buf, &lwork, &info);
@@ -666,7 +661,7 @@ void invert_fmatrix_second_half(__CLPK_integer dim, uint32_t stride, double* hal
   }
 }
 
-void invert_symmdef_fmatrix_second_half(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, __maybe_unused matrix_invert_buf1_t* int_1d_buf, __maybe_unused double* dbl_2d_buf) {
+void InvertSymmdefFmatrixSecondHalf(__CLPK_integer dim, uint32_t stride, double* half_inverted, float* inverted_result, __maybe_unused MatrixInvertBuf1* int_1d_buf, __maybe_unused double* dbl_2d_buf) {
   char uplo = 'U';
   __CLPK_integer info;
   dpotri_(&uplo, &dim, half_inverted, &dim, &info);
@@ -683,7 +678,7 @@ void invert_symmdef_fmatrix_second_half(__CLPK_integer dim, uint32_t stride, dou
 }
 #endif // !NOLAPACK
 
-void col_major_matrix_multiply(const double* inmatrix1, const double* inmatrix2, __CLPK_integer row1_ct, __CLPK_integer col2_ct, __CLPK_integer common_ct, double* outmatrix) {
+void ColMajorMatrixMultiply(const double* inmatrix1, const double* inmatrix2, __CLPK_integer row1_ct, __CLPK_integer col2_ct, __CLPK_integer common_ct, double* outmatrix) {
 #ifdef NOLAPACK
   const uintptr_t row1_ct_l = row1_ct;
   const uintptr_t col2_ct_l = col2_ct;
@@ -730,7 +725,7 @@ void col_major_matrix_multiply(const double* inmatrix1, const double* inmatrix2,
 #endif // !NOLAPACK
 }
 
-void col_major_matrix_multiply_strided_addassign(const double* inmatrix1, const double* inmatrix2, __CLPK_integer row1_ct, __CLPK_integer stride1, __CLPK_integer col2_ct, __CLPK_integer stride2, __CLPK_integer common_ct, __CLPK_integer stride3, double beta, double* outmatrix) {
+void ColMajorMatrixMultiplyStridedAddassign(const double* inmatrix1, const double* inmatrix2, __CLPK_integer row1_ct, __CLPK_integer stride1, __CLPK_integer col2_ct, __CLPK_integer stride2, __CLPK_integer common_ct, __CLPK_integer stride3, double beta, double* outmatrix) {
   // stride1 should be close to row1_ct
   // stride2 should be close to common_ct
   // output matrix uses stride3, which should be close to row1_ct
@@ -762,7 +757,7 @@ void col_major_matrix_multiply_strided_addassign(const double* inmatrix1, const 
 #endif // !NOLAPACK
 }
 
-void col_major_vector_matrix_multiply_strided(const double* in_dvec1, const double* inmatrix2, __CLPK_integer common_ct, __CLPK_integer stride2, __CLPK_integer col2_ct, double* out_dvec) {
+void ColMajorVectorMatrixMultiplyStrided(const double* in_dvec1, const double* inmatrix2, __CLPK_integer common_ct, __CLPK_integer stride2, __CLPK_integer col2_ct, double* out_dvec) {
 #ifdef NOLAPACK
   const uintptr_t col2_ct_l = col2_ct;
   const uintptr_t common_ct_l = common_ct;
@@ -789,7 +784,7 @@ void col_major_vector_matrix_multiply_strided(const double* in_dvec1, const doub
 }
 
 // er, should make this _addassign for consistency...
-void col_major_fmatrix_multiply_strided(const float* inmatrix1, const float* inmatrix2, __CLPK_integer row1_ct, __CLPK_integer stride1, __CLPK_integer col2_ct, __CLPK_integer stride2, __CLPK_integer common_ct, __CLPK_integer stride3, float* outmatrix) {
+void ColMajorFmatrixMultiplyStrided(const float* inmatrix1, const float* inmatrix2, __CLPK_integer row1_ct, __CLPK_integer stride1, __CLPK_integer col2_ct, __CLPK_integer stride2, __CLPK_integer common_ct, __CLPK_integer stride3, float* outmatrix) {
 #ifdef NOLAPACK
   const uintptr_t row1_ct_l = row1_ct;
   const uintptr_t col2_ct_l = col2_ct;
@@ -818,9 +813,9 @@ void col_major_fmatrix_multiply_strided(const float* inmatrix1, const float* inm
 #endif // !NOLAPACK
 }
 
-void col_major_fmatrix_vector_multiply_strided(const float* inmatrix1, const float* in_fvec2, __CLPK_integer row1_ct, __CLPK_integer stride1, __CLPK_integer common_ct, float* out_fvec) {
+void ColMajorFmatrixVectorMultiplyStrided(const float* inmatrix1, const float* in_fvec2, __CLPK_integer row1_ct, __CLPK_integer stride1, __CLPK_integer common_ct, float* out_fvec) {
 #ifdef NOLAPACK
-  fill_float_zero(row1_ct, out_fvec);
+  ZeroFArr(row1_ct, out_fvec);
   const uintptr_t row1_ct_l = row1_ct;
   const uintptr_t common_ct_l = common_ct;
   const uintptr_t stride_l = stride1;
@@ -844,7 +839,7 @@ void col_major_fmatrix_vector_multiply_strided(const float* inmatrix1, const flo
 #endif // !NOLAPACK
 }
 
-void col_major_fvector_matrix_multiply_strided(const float* in_fvec1, const float* inmatrix2, __CLPK_integer common_ct, __CLPK_integer stride2, __CLPK_integer col2_ct, float* out_fvec) {
+void ColMajorFvectorMatrixMultiplyStrided(const float* in_fvec1, const float* inmatrix2, __CLPK_integer common_ct, __CLPK_integer stride2, __CLPK_integer col2_ct, float* out_fvec) {
 #ifdef NOLAPACK
   const uintptr_t col2_ct_l = col2_ct;
   const uintptr_t common_ct_l = common_ct;
@@ -871,7 +866,7 @@ void col_major_fvector_matrix_multiply_strided(const float* in_fvec1, const floa
 }
 
 // Briefly experimented with trying to speed this up, didn't make any progress.
-void transpose_copy(const double* old_matrix, uint32_t old_maj, uint32_t new_maj, double* new_matrix_iter) {
+void MatrixTransposeCopy(const double* old_matrix, uint32_t old_maj, uint32_t new_maj, double* new_matrix_iter) {
   for (uint32_t new_maj_idx = 0; new_maj_idx < new_maj; ++new_maj_idx) {
     const double* old_matrix_col_iter = &(old_matrix[new_maj_idx]);
     for (uint32_t old_maj_idx = 0; old_maj_idx < old_maj; ++old_maj_idx) {
@@ -881,7 +876,7 @@ void transpose_copy(const double* old_matrix, uint32_t old_maj, uint32_t new_maj
   }
 }
 
-void transpose_copy_float(const float* old_matrix, uint32_t old_maj, uint32_t new_maj, uint32_t new_maj_max, float* new_matrix_iter) {
+void FmatrixTransposeCopy(const float* old_matrix, uint32_t old_maj, uint32_t new_maj, uint32_t new_maj_max, float* new_matrix_iter) {
   // new_maj = in-memory stride of old_matrix rows
   // new_maj_max = actual number of rows in new_matrix
   // (distinction is necessary for SSE alignment)
@@ -912,7 +907,7 @@ __CLPK_integer qr_square_factor_float_get_lwork(uint32_t dim) {
   return MAXV(sgeqrf_lwork, sorgqr_lwork);
 }
 
-boolerr_t qr_square_factor_float(const float* input_matrix, uint32_t dim, uintptr_t stride, __CLPK_integer lwork, float* qq, float* r_determinant_ptr, float* tau_buf, float* work_buf) {
+BoolErr qr_square_factor_float(const float* input_matrix, uint32_t dim, uintptr_t stride, __CLPK_integer lwork, float* qq, float* r_determinant_ptr, float* tau_buf, float* work_buf) {
   // only returns Q and, optionally, the product of R's diagonal entries (which
   // should be the determinant of the original matrix).
   // tau_buf should have space for dim entries
@@ -947,14 +942,14 @@ boolerr_t qr_square_factor_float(const float* input_matrix, uint32_t dim, uintpt
 
 // A(A^T), where A is row-major; result is dim x dim
 // ONLY UPDATES LOWER TRIANGLE OF result[].
-void multiply_self_transpose(const double* input_matrix, uint32_t dim, uint32_t col_ct, double* result) {
+void MultiplySelfTranspose(const double* input_matrix, uint32_t dim, uint32_t col_ct, double* result) {
 #ifdef NOLAPACK
   for (uintptr_t row1_idx = 0; row1_idx < dim; ++row1_idx) {
     const double* pred_row1 = &(input_matrix[row1_idx * col_ct]);
     double* result_row = &(result[row1_idx * dim]);
     for (uintptr_t row2_idx = 0; row2_idx <= row1_idx; ++row2_idx) {
       const double* pred_row2 = &(input_matrix[row2_idx * col_ct]);
-      result_row[row2_idx] = dotprod_d(pred_row1, pred_row2, col_ct);
+      result_row[row2_idx] = DotprodD(pred_row1, pred_row2, col_ct);
     }
   }
 #else
@@ -967,7 +962,7 @@ void multiply_self_transpose(const double* input_matrix, uint32_t dim, uint32_t 
   double beta = 0.0;
   dsyrk_(&uplo, &trans, &tmp_n, &tmp_k, &alpha, K_CAST(double*, input_matrix), &tmp_k, &beta, result, &tmp_n);
 #  else
-  // see col_major_matrix_multiply() remarks; same OS X issue here.
+  // see ColMajorMatrixMultiply() remarks; same OS X issue here.
   // #ifdef LAPACK_ILP64
   cblas_dsyrk(CblasColMajor, CblasUpper, CblasTrans, dim, col_ct, 1.0, input_matrix, col_ct, 0.0, result, dim);
   /*
@@ -984,7 +979,7 @@ void multiply_self_transpose(const double* input_matrix, uint32_t dim, uint32_t 
     double* result_row = &(result[row1_idx * dim]);
     for (uintptr_t row2_idx = 0; row2_idx <= row1_idx; ++row2_idx) {
       const double* pred_row2 = &(input_matrix[row2_idx * col_ct]);
-      result_row[row2_idx] = dotprod_d(pred_row1, pred_row2, col_ct);
+      result_row[row2_idx] = DotprodD(pred_row1, pred_row2, col_ct);
     }
   }
 #    endif
@@ -993,14 +988,14 @@ void multiply_self_transpose(const double* input_matrix, uint32_t dim, uint32_t 
 #endif
 }
 
-void multiply_self_transpose_strided_f(const float* input_matrix, uint32_t dim, uint32_t col_ct, uint32_t stride, float* result) {
+void MultiplySelfTransposeStridedF(const float* input_matrix, uint32_t dim, uint32_t col_ct, uint32_t stride, float* result) {
 #ifdef NOLAPACK
   for (uintptr_t row1_idx = 0; row1_idx < dim; ++row1_idx) {
     const float* pred_row1 = &(input_matrix[row1_idx * stride]);
     float* result_row = &(result[row1_idx * dim]);
     for (uintptr_t row2_idx = 0; row2_idx <= row1_idx; ++row2_idx) {
       const float* pred_row2 = &(input_matrix[row2_idx * stride]);
-      result_row[row2_idx] = dotprod_f(pred_row1, pred_row2, col_ct);
+      result_row[row2_idx] = DotprodF(pred_row1, pred_row2, col_ct);
     }
   }
 #else
@@ -1019,7 +1014,7 @@ void multiply_self_transpose_strided_f(const float* input_matrix, uint32_t dim, 
 #endif
 }
 
-void transpose_multiply_self_incr(double* input_part, uint32_t dim, uint32_t partial_row_ct, double* result) {
+void TransposeMultiplySelfIncr(double* input_part, uint32_t dim, uint32_t partial_row_ct, double* result) {
 #ifdef NOLAPACK
   // friends do not let friends use this implementation
   const uintptr_t dim_l = dim;
@@ -1053,7 +1048,7 @@ void transpose_multiply_self_incr(double* input_part, uint32_t dim, uint32_t par
 }
 
 #ifndef NOLAPACK
-boolerr_t get_svd_rect_lwork(uint32_t major_ct, uint32_t minor_ct, __CLPK_integer* lwork_ptr) {
+BoolErr GetSvdRectLwork(uint32_t major_ct, uint32_t minor_ct, __CLPK_integer* lwork_ptr) {
   char jobu = 'S';
   char jobvt = 'O';
   __CLPK_integer tmp_m = minor_ct;
@@ -1071,11 +1066,11 @@ boolerr_t get_svd_rect_lwork(uint32_t major_ct, uint32_t minor_ct, __CLPK_intege
     return 1;
   }
 #  endif
-  *lwork_ptr = round_up_pow2(S_CAST(__CLPK_integer, wkspace_size_d), kCacheline / sizeof(double));
+  *lwork_ptr = RoundUpPow2(S_CAST(__CLPK_integer, wkspace_size_d), kCacheline / sizeof(double));
   return 0;
 }
 
-interr_t svd_rect(uint32_t major_ct, uint32_t minor_ct, __CLPK_integer lwork, double* matrix, double* ss, unsigned char* svd_rect_wkspace) {
+IntErr SvdRect(uint32_t major_ct, uint32_t minor_ct, __CLPK_integer lwork, double* matrix, double* ss, unsigned char* svd_rect_wkspace) {
   double* work = R_CAST(double*, svd_rect_wkspace);
   double* vv_buf = &(work[lwork]);
   char jobu = 'S';
@@ -1084,12 +1079,12 @@ interr_t svd_rect(uint32_t major_ct, uint32_t minor_ct, __CLPK_integer lwork, do
   __CLPK_integer tmp_n = major_ct;
   __CLPK_integer info;
   dgesvd_(&jobu, &jobvt, &tmp_m, &tmp_n, matrix, &tmp_m, ss, vv_buf, &tmp_m, nullptr, &tmp_m, work, &lwork, &info);
-  return S_CAST(interr_t, info);
+  return S_CAST(IntErr, info);
 }
 
 // dsyevr_ takes ~30% less time than dsyevd_ on OS X dev machine.  todo: retest
 // for Linux 64-bit MKL.
-boolerr_t get_extract_eigvecs_lworks(uint32_t dim, uint32_t pc_ct, __CLPK_integer* lwork_ptr, __CLPK_integer* liwork_ptr, uintptr_t* wkspace_byte_ct_ptr) {
+BoolErr GetExtractEigvecsLworks(uint32_t dim, uint32_t pc_ct, __CLPK_integer* lwork_ptr, __CLPK_integer* liwork_ptr, uintptr_t* wkspace_byte_ct_ptr) {
   char jobz = 'V';
   char range = 'I';
   char uplo = 'U';
@@ -1111,15 +1106,15 @@ boolerr_t get_extract_eigvecs_lworks(uint32_t dim, uint32_t pc_ct, __CLPK_intege
     return 1;
   }
 #endif
-  const __CLPK_integer lwork = round_up_pow2(S_CAST(__CLPK_integer, lwork_d), kCacheline / sizeof(double));
-  liwork = round_up_pow2(liwork, kCacheline / sizeof(__CLPK_integer));
+  const __CLPK_integer lwork = RoundUpPow2(S_CAST(__CLPK_integer, lwork_d), kCacheline / sizeof(double));
+  liwork = RoundUpPow2(liwork, kCacheline / sizeof(__CLPK_integer));
   *lwork_ptr = lwork;
   *liwork_ptr = liwork;
-  *wkspace_byte_ct_ptr = lwork * sizeof(double) + liwork * sizeof(__CLPK_integer) + round_up_pow2(2 * dim * sizeof(__CLPK_integer), kCacheline);
+  *wkspace_byte_ct_ptr = lwork * sizeof(double) + liwork * sizeof(__CLPK_integer) + RoundUpPow2(2 * dim * sizeof(__CLPK_integer), kCacheline);
   return 0;
 }
 
-boolerr_t extract_eigvecs(uint32_t dim, uint32_t pc_ct, __CLPK_integer lwork, __CLPK_integer liwork, double* matrix, double* eigvals, double* reverse_eigvecs, unsigned char* extract_eigvecs_wkspace) {
+BoolErr ExtractEigvecs(uint32_t dim, uint32_t pc_ct, __CLPK_integer lwork, __CLPK_integer liwork, double* matrix, double* eigvals, double* reverse_eigvecs, unsigned char* extract_eigvecs_wkspace) {
   char jobz = 'V';
   char range = 'I';
   char uplo = 'U';
@@ -1139,12 +1134,12 @@ boolerr_t extract_eigvecs(uint32_t dim, uint32_t pc_ct, __CLPK_integer lwork, __
 }
 #endif // !NOLAPACK
 
-boolerr_t invert_rank1_symm_start(const double* a_inv, const double* bb, __CLPK_integer orig_dim, double cc, double* __restrict ainv_b, double* k_recip_ptr) {
+BoolErr invert_rank1_symm_start(const double* a_inv, const double* bb, __CLPK_integer orig_dim, double cc, double* __restrict ainv_b, double* k_recip_ptr) {
 #ifdef NOLAPACK
   const uintptr_t orig_dim_l = orig_dim;
   const double* a_inv_iter = a_inv;
   for (uintptr_t ulii = 0; ulii < orig_dim_l; ++ulii) {
-    ainv_b[ulii] = dotprod_d(bb, a_inv_iter, orig_dim_l);
+    ainv_b[ulii] = DotprodD(bb, a_inv_iter, orig_dim_l);
     a_inv_iter = &(a_inv_iter[orig_dim_l]);
   }
 #else
@@ -1158,7 +1153,7 @@ boolerr_t invert_rank1_symm_start(const double* a_inv, const double* bb, __CLPK_
   cblas_dgemv(CblasColMajor, CblasNoTrans, orig_dim, orig_dim, 1.0, a_inv, orig_dim, bb, 1, 0.0, ainv_b, 1);
 #  endif // USE_CBLAS_XGEMM
 #endif
-  const double kk = cc - dotprodx_d(bb, ainv_b, orig_dim);
+  const double kk = cc - DotprodxD(bb, ainv_b, orig_dim);
   if (fabs(kk) < kMatrixSingularRcond) {
     return 1;
   }
@@ -1166,7 +1161,7 @@ boolerr_t invert_rank1_symm_start(const double* a_inv, const double* bb, __CLPK_
   return 0;
 }
 
-boolerr_t invert_rank1_symm(const double* a_inv, const double* bb, __CLPK_integer orig_dim, uint32_t insert_idx, double cc, double* __restrict outmatrix, double* __restrict ainv_b_buf) {
+BoolErr InvertRank1Symm(const double* a_inv, const double* bb, __CLPK_integer orig_dim, uint32_t insert_idx, double cc, double* __restrict outmatrix, double* __restrict ainv_b_buf) {
   double k_recip;
   if (invert_rank1_symm_start(a_inv, bb, orig_dim, cc, ainv_b_buf, &k_recip)) {
     return 1;
@@ -1206,7 +1201,7 @@ boolerr_t invert_rank1_symm(const double* a_inv, const double* bb, __CLPK_intege
   return 0;
 }
 
-boolerr_t invert_rank1_symm_diag(const double* a_inv, const double* bb, __CLPK_integer orig_dim, double cc, double* __restrict outdiag, double* __restrict ainv_b_buf) {
+BoolErr InvertRank1SymmDiag(const double* a_inv, const double* bb, __CLPK_integer orig_dim, double cc, double* __restrict outdiag, double* __restrict ainv_b_buf) {
   double k_recip;
   if (invert_rank1_symm_start(a_inv, bb, orig_dim, cc, ainv_b_buf, &k_recip)) {
     return 1;
@@ -1221,22 +1216,22 @@ boolerr_t invert_rank1_symm_diag(const double* a_inv, const double* bb, __CLPK_i
   return 0;
 }
 
-boolerr_t invert_rank2_symm_start(const double* a_inv, const double* bb, __CLPK_integer orig_dim, __CLPK_integer b_stride, double d11, double d12, double d22, double* __restrict b_ainv, double* __restrict s_b_ainv, double* __restrict schur11_ptr, double* __restrict schur12_ptr, double* __restrict schur22_ptr) {
+BoolErr InvertRank2SymmStart(const double* a_inv, const double* bb, __CLPK_integer orig_dim, __CLPK_integer b_stride, double d11, double d12, double d22, double* __restrict b_ainv, double* __restrict s_b_ainv, double* __restrict schur11_ptr, double* __restrict schur12_ptr, double* __restrict schur22_ptr) {
   const uintptr_t orig_dim_l = orig_dim;
   if (orig_dim) {
     // (have confirmed that dgemm is better than per-row multiplies even for
     // just 2 rows)
-    row_major_matrix_multiply_strided(bb, a_inv, 2, b_stride, orig_dim, orig_dim, orig_dim, orig_dim, b_ainv);
+    RowMajorMatrixMultiplyStrided(bb, a_inv, 2, b_stride, orig_dim, orig_dim, orig_dim, orig_dim, b_ainv);
 
     // Schur complement = (D - B A^{-1} B^T)^{-1}
     if (orig_dim_l > kDotprodDThresh) {
-      d11 -= dotprod_d(bb, b_ainv, orig_dim);
-      d12 -= dotprod_d(bb, &(b_ainv[orig_dim_l]), orig_dim);
-      d22 -= dotprod_d(&(bb[b_stride]), &(b_ainv[orig_dim_l]), orig_dim);
+      d11 -= DotprodD(bb, b_ainv, orig_dim);
+      d12 -= DotprodD(bb, &(b_ainv[orig_dim_l]), orig_dim);
+      d22 -= DotprodD(&(bb[b_stride]), &(b_ainv[orig_dim_l]), orig_dim);
     } else {
-      d11 -= dotprod_d_short(bb, b_ainv, orig_dim);
-      d12 -= dotprod_d_short(bb, &(b_ainv[orig_dim_l]), orig_dim);
-      d22 -= dotprod_d_short(&(bb[b_stride]), &(b_ainv[orig_dim_l]), orig_dim);
+      d11 -= DotprodDShort(bb, b_ainv, orig_dim);
+      d12 -= DotprodDShort(bb, &(b_ainv[orig_dim_l]), orig_dim);
+      d22 -= DotprodDShort(&(bb[b_stride]), &(b_ainv[orig_dim_l]), orig_dim);
     }
   }
 
@@ -1262,11 +1257,11 @@ boolerr_t invert_rank2_symm_start(const double* a_inv, const double* bb, __CLPK_
   return 0;
 }
 
-boolerr_t invert_rank2_symm(const double* a_inv, const double* bb, __CLPK_integer orig_dim, __CLPK_integer b_stride, uint32_t insert_idx, double d11, double d12, double d22, double* __restrict outmatrix, double* __restrict b_ainv_buf, double* __restrict s_b_ainv_buf) {
+BoolErr InvertRank2Symm(const double* a_inv, const double* bb, __CLPK_integer orig_dim, __CLPK_integer b_stride, uint32_t insert_idx, double d11, double d12, double d22, double* __restrict outmatrix, double* __restrict b_ainv_buf, double* __restrict s_b_ainv_buf) {
   double schur11;
   double schur12;
   double schur22;
-  if (invert_rank2_symm_start(a_inv, bb, orig_dim, b_stride, d11, d12, d22, b_ainv_buf, s_b_ainv_buf, &schur11, &schur12, &schur22)) {
+  if (InvertRank2SymmStart(a_inv, bb, orig_dim, b_stride, d11, d12, d22, b_ainv_buf, s_b_ainv_buf, &schur11, &schur12, &schur22)) {
     return 1;
   }
   // [ A^{-1} + A{-1}B^T S B A{-1}   -A^{-1}B^T S ]
@@ -1315,11 +1310,11 @@ boolerr_t invert_rank2_symm(const double* a_inv, const double* bb, __CLPK_intege
   return 0;
 }
 
-boolerr_t invert_rank2_symm_diag(const double* a_inv, const double* bb, __CLPK_integer orig_dim, double d11, double d12, double d22, double* __restrict outdiag, double* __restrict b_ainv_buf, double* __restrict s_b_ainv_buf) {
+BoolErr InvertRank2SymmDiag(const double* a_inv, const double* bb, __CLPK_integer orig_dim, double d11, double d12, double d22, double* __restrict outdiag, double* __restrict b_ainv_buf, double* __restrict s_b_ainv_buf) {
   double schur11;
   double schur12;
   double schur22;
-  if (invert_rank2_symm_start(a_inv, bb, orig_dim, orig_dim, d11, d12, d22, b_ainv_buf, s_b_ainv_buf, &schur11, &schur12, &schur22)) {
+  if (InvertRank2SymmStart(a_inv, bb, orig_dim, orig_dim, d11, d12, d22, b_ainv_buf, s_b_ainv_buf, &schur11, &schur12, &schur22)) {
     return 1;
   }
   const uintptr_t orig_dim_l = orig_dim;
@@ -1337,15 +1332,15 @@ boolerr_t invert_rank2_symm_diag(const double* a_inv, const double* bb, __CLPK_i
 // now assumes xtx_inv is predictors_pmaj * transpose on input
 // todo: support nrhs > 1 when permutation test implemented
 #ifdef NOLAPACK
-boolerr_t linear_regression_inv_main(const double* xt_y, uint32_t predictor_ct, double* xtx_inv, double* fitted_coefs, matrix_invert_buf1_t* mi_buf, double* dbl_2d_buf) {
-  if (invert_symmdef_matrix(predictor_ct, xtx_inv, mi_buf, dbl_2d_buf)) {
+BoolErr LinearRegressionInvMain(const double* xt_y, uint32_t predictor_ct, double* xtx_inv, double* fitted_coefs, MatrixInvertBuf1* mi_buf, double* dbl_2d_buf) {
+  if (InvertSymmdefMatrix(predictor_ct, xtx_inv, mi_buf, dbl_2d_buf)) {
     return 1;
   }
-  col_major_vector_matrix_multiply_strided(xt_y, xtx_inv, predictor_ct, predictor_ct, predictor_ct, fitted_coefs);
+  ColMajorVectorMatrixMultiplyStrided(xt_y, xtx_inv, predictor_ct, predictor_ct, predictor_ct, fitted_coefs);
   return 0;
 }
 #else
-boolerr_t linear_regression_inv_main(const double* xt_y, uint32_t predictor_ct, double* xtx_inv, double* fitted_coefs) {
+BoolErr LinearRegressionInvMain(const double* xt_y, uint32_t predictor_ct, double* xtx_inv, double* fitted_coefs) {
   char uplo = 'U';
   __CLPK_integer tmp_n = predictor_ct;
   __CLPK_integer info;

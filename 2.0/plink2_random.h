@@ -27,24 +27,24 @@ namespace plink2 {
 
 extern sfmt_t g_sfmt;
 
-HEADER_INLINE double rand_unif(sfmt_t* sfmtp) {
+HEADER_INLINE double RandUnif(sfmt_t* sfmtp) {
   return (sfmt_genrand_uint32(sfmtp) + 0.5) * kRecip2m32;
 }
 
-double rand_normal(sfmt_t* sfmtp, double* secondval_ptr);
+double RandNormal(sfmt_t* sfmtp, double* secondval_ptr);
 
 extern sfmt_t** g_sfmtp_arr;
 
-boolerr_t bigstack_init_sfmtp(uint32_t thread_ct, uint32_t use_main_sfmt_as_element_zero);
+BoolErr InitAllocSfmtpArr(uint32_t thread_ct, uint32_t use_main_sfmt_as_element_zero);
 
-pglerr_t fill_gaussian_darray(uintptr_t entry_pair_ct, uint32_t thread_ct, double* darray);
+PglErr FillGaussianDArr(uintptr_t entry_pair_ct, uint32_t thread_ct, double* darray);
 
-pglerr_t randomize_bigstack(uint32_t thread_ct);
+PglErr RandomizeBigstack(uint32_t thread_ct);
 
 // might not need plink 1.9-style interleaving, but I'll postpone ripping that
 // out.
 // currently requires tot_bit_ct > 1, due to quotient operation.
-void generate_perm1_interleaved(uint32_t tot_bit_ct, uint32_t set_bit_ct, uintptr_t perm_start_idx, uintptr_t perm_end_idx, uintptr_t* perm_buf, sfmt_t* sfmtp);
+void GeneratePerm1Interleaved(uint32_t tot_bit_ct, uint32_t set_bit_ct, uintptr_t perm_start_idx, uintptr_t perm_end_idx, uintptr_t* perm_buf, sfmt_t* sfmtp);
 
 #ifdef __cplusplus
 } // namespace plink2

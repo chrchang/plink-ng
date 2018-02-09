@@ -26,15 +26,15 @@
 namespace plink2 {
 #endif
 
-void init_plink1_dosage(plink1_dosage_info_t* plink1_dosage_info_ptr) {
+void InitPlink1Dosage(Plink1DosageInfo* plink1_dosage_info_ptr) {
   plink1_dosage_info_ptr->flags = kfPlink1Dosage0;
-  fill_uint_zero(3, plink1_dosage_info_ptr->skips);
+  ZeroUiArr(3, plink1_dosage_info_ptr->skips);
   plink1_dosage_info_ptr->chr_col_idx = UINT32_MAX;
   plink1_dosage_info_ptr->pos_col_idx = UINT32_MAX;
   plink1_dosage_info_ptr->id_delim = '\0';
 }
 
-void init_gendummy(gendummy_info_t* gendummy_info_ptr) {
+void InitGenDummy(GenDummyInfo* gendummy_info_ptr) {
   gendummy_info_ptr->flags = kfGenDummy0;
   gendummy_info_ptr->pheno_ct = 1;
   gendummy_info_ptr->geno_mfreq = 0.0;
@@ -42,11 +42,11 @@ void init_gendummy(gendummy_info_t* gendummy_info_ptr) {
   gendummy_info_ptr->dosage_freq = 0.0;
 }
 
-pglerr_t vcf_sample_line(const char* preexisting_psamname, const char* const_fid, uint32_t double_id, fam_col_t fam_cols, char id_delim, char idspace_to, char flag_char, char* sample_line_first_id, char* outname, char* outname_end, uintptr_t* sample_ct_ptr) {
+PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, uint32_t double_id, FamCol fam_cols, char id_delim, char idspace_to, char flag_char, char* sample_line_first_id, char* outname, char* outname_end, uintptr_t* sample_ct_ptr) {
   gzFile gz_infile = nullptr;
   FILE* outfile = nullptr;
   uintptr_t line_idx = 0;
-  pglerr_t reterr = kPglRetSuccess;
+  PglErr reterr = kPglRetSuccess;
   {
     uintptr_t const_fid_len = 0;
     if (const_fid) {
@@ -61,8 +61,8 @@ pglerr_t vcf_sample_line(const char* preexisting_psamname, const char* const_fid
       char* sample_line_iter = strchr(sample_line_first_id, ' ');
       if (sample_line_iter) {
         if (!idspace_to) {
-          logerrprint("Error: VCF/BCF2 sample ID contains space(s).  Use --idspace-to to convert them\nto another character, or \"--id-delim ' '\" to interpret the spaces as FID/IID\ndelimiters.\n");
-          goto vcf_sample_line_ret_INCONSISTENT_INPUT;
+          logerrputs("Error: VCF/BCF2 sample ID contains space(s).  Use --idspace-to to convert them\nto another character, or \"--id-delim ' '\" to interpret the spaces as FID/IID\ndelimiters.\n");
+          goto VcfSampleLine_ret_INCONSISTENT_INPUT;
         }
         do {
           *sample_line_iter = idspace_to;
@@ -75,7 +75,7 @@ pglerr_t vcf_sample_line(const char* preexisting_psamname, const char* const_fid
     if (!preexisting_psamname) {
       snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
       if (fopen_checked(outname, FOPEN_WB, &outfile)) {
-        goto vcf_sample_line_ret_OPEN_FAIL;
+        goto VcfSampleLine_ret_OPEN_FAIL;
       }
       char* write_iter = g_textbuf;
       char* textbuf_flush = &(write_iter[kMaxMediumLine]);
@@ -85,7 +85,7 @@ pglerr_t vcf_sample_line(const char* preexisting_psamname, const char* const_fid
         while (ctou32(sample_line_iter[0]) >= ' ') {
           const char* token_end = strchr(sample_line_iter, '\t');
           if (!token_end) {
-            token_end = next_prespace(sample_line_iter);
+            token_end = FirstPrespace(sample_line_iter);
           }
           const char* first_delim = S_CAST(const char*, memchr(sample_line_iter, ctou32(id_delim), token_end - sample_line_iter));
           if (first_delim) {
@@ -104,34 +104,34 @@ pglerr_t vcf_sample_line(const char* preexisting_psamname, const char* const_fid
         sample_line_iter = sample_line_first_id;
       }
       write_iter = strcpya(write_iter, "\tSEX");
-      append_binary_eoln(&write_iter);
+      AppendBinaryEoln(&write_iter);
       while (ctou32(sample_line_iter[0]) >= ' ') {
         ++sample_ct;
         const char* token_end = strchr(sample_line_iter, '\t');
         if (!token_end) {
-          token_end = next_prespace(sample_line_iter);
+          token_end = FirstPrespace(sample_line_iter);
         }
         const uint32_t token_slen = token_end - sample_line_iter;
         if ((*sample_line_iter == '0') && (token_slen == 1)) {
-          logerrprint("Error: Sample ID cannot be '0'.\n");
-          goto vcf_sample_line_ret_MALFORMED_INPUT;
+          logerrputs("Error: Sample ID cannot be '0'.\n");
+          goto VcfSampleLine_ret_MALFORMED_INPUT;
         }
         if (id_delim) {
           if (*sample_line_iter == id_delim) {
             snprintf(g_logbuf, kLogbufSize, "Error: '%c' at beginning of sample ID.\n", id_delim);
-            goto vcf_sample_line_ret_INCONSISTENT_INPUT_2;
+            goto VcfSampleLine_ret_INCONSISTENT_INPUT_2;
           }
           if (sample_line_iter[token_slen - 1] == id_delim) {
             snprintf(g_logbuf, kLogbufSize, "Error: '%c' at end of sample ID.\n", id_delim);
-            goto vcf_sample_line_ret_INCONSISTENT_INPUT_2;
+            goto VcfSampleLine_ret_INCONSISTENT_INPUT_2;
           }
           const char* first_delim = S_CAST(const char*, memchr(sample_line_iter, ctou32(id_delim), token_slen));
           if (!first_delim) {
             if (double_or_const_fid) {
-              goto vcf_sample_line_nopsam_one_id;
+              goto VcfSampleLine_nopsam_one_id;
             }
             snprintf(g_logbuf, kLogbufSize, "Error: No '%c' in sample ID.\n", id_delim);
-            goto vcf_sample_line_ret_INCONSISTENT_INPUT_2;
+            goto VcfSampleLine_ret_INCONSISTENT_INPUT_2;
           }
           const char* iid_start = &(first_delim[1]);
           const char* iid_end = S_CAST(const char*, memchr(iid_start, ctou32(id_delim), token_end - iid_start));
@@ -140,17 +140,17 @@ pglerr_t vcf_sample_line(const char* preexisting_psamname, const char* const_fid
           if (iid_end) {
             if (iid_start == iid_end) {
               snprintf(g_logbuf, kLogbufSize, "Error: Consecutive instances of '%c' in sample ID.\n", id_delim);
-              goto vcf_sample_line_ret_INCONSISTENT_INPUT_DELIM;
+              goto VcfSampleLine_ret_INCONSISTENT_INPUT_DELIM;
             }
             sid_start = &(iid_end[1]);
             sid_slen = token_end - sid_start;
             if (memchr(sid_start, ctou32(id_delim), sid_slen)) {
               snprintf(g_logbuf, kLogbufSize, "Error: More than two instances of '%c' in sample ID.\n", id_delim);
-              goto vcf_sample_line_ret_INCONSISTENT_INPUT_DELIM;
+              goto VcfSampleLine_ret_INCONSISTENT_INPUT_DELIM;
             }
             if (sid_slen > kMaxIdSlen) {
-              logerrprint("Error: SIDs are limited to " MAX_ID_SLEN_STR " characters.\n");
-              goto vcf_sample_line_ret_MALFORMED_INPUT;
+              logerrputs("Error: SIDs are limited to " MAX_ID_SLEN_STR " characters.\n");
+              goto VcfSampleLine_ret_MALFORMED_INPUT;
             }
           } else {
             iid_end = token_end;
@@ -161,16 +161,16 @@ pglerr_t vcf_sample_line(const char* preexisting_psamname, const char* const_fid
             // splits into a valid FID/IID pair with the right delimiter, but
             // you're not supposed to have sample IDs anywhere near that length
             // so I'll classify this as MalformedInput.
-            goto vcf_sample_line_ret_MALFORMED_INPUT_LONG_ID;
+            goto VcfSampleLine_ret_MALFORMED_INPUT_LONG_ID;
           }
           write_iter = memcpyax(write_iter, sample_line_iter, fid_slen, '\t');
           const uint32_t iid_slen = iid_end - iid_start;
           if ((*iid_start == '0') && (iid_slen == 1)) {
-            logerrprint("Error: Sample ID induces an invalid IID of '0'.\n");
-            goto vcf_sample_line_ret_INCONSISTENT_INPUT;
+            logerrputs("Error: Sample ID induces an invalid IID of '0'.\n");
+            goto VcfSampleLine_ret_INCONSISTENT_INPUT;
           }
           if (iid_slen > kMaxIdSlen) {
-            goto vcf_sample_line_ret_MALFORMED_INPUT_LONG_ID;
+            goto VcfSampleLine_ret_MALFORMED_INPUT_LONG_ID;
           }
           write_iter = memcpya(write_iter, iid_start, iid_slen);
           if (sid_present) {
@@ -178,9 +178,9 @@ pglerr_t vcf_sample_line(const char* preexisting_psamname, const char* const_fid
             write_iter = memcpya(write_iter, sid_start, sid_slen);
           }
         } else {
-        vcf_sample_line_nopsam_one_id:
+        VcfSampleLine_nopsam_one_id:
           if (token_slen > kMaxIdSlen) {
-            goto vcf_sample_line_ret_MALFORMED_INPUT_LONG_ID;
+            goto VcfSampleLine_ret_MALFORMED_INPUT_LONG_ID;
           }
           if (double_id) {
             write_iter = memcpya(write_iter, sample_line_iter, token_slen);
@@ -197,9 +197,9 @@ pglerr_t vcf_sample_line(const char* preexisting_psamname, const char* const_fid
         // SEX now included, so that --vcf + --out has the same effect as --vcf
         // + --make-pgen + --out
         write_iter = memcpyl3a(write_iter, "\tNA");
-        append_binary_eoln(&write_iter);
+        AppendBinaryEoln(&write_iter);
         if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
-          goto vcf_sample_line_ret_WRITE_FAIL;
+          goto VcfSampleLine_ret_WRITE_FAIL;
         }
         if (*token_end != '\t') {
           break;
@@ -207,19 +207,19 @@ pglerr_t vcf_sample_line(const char* preexisting_psamname, const char* const_fid
         sample_line_iter = &(token_end[1]);
       }
       if (fclose_flush_null(textbuf_flush, write_iter, &outfile)) {
-        goto vcf_sample_line_ret_WRITE_FAIL;
+        goto VcfSampleLine_ret_WRITE_FAIL;
       }
     } else {
       // check consistency of IIDs between VCF and .psam file.
       reterr = gzopen_read_checked(preexisting_psamname, &gz_infile);
       if (reterr) {
-        goto vcf_sample_line_ret_1;
+        goto VcfSampleLine_ret_1;
       }
       uintptr_t loadbuf_size = bigstack_left();
       if (loadbuf_size > kMaxLongLine) {
         loadbuf_size = kMaxLongLine;
       } else if (loadbuf_size <= kMaxMediumLine) {
-        goto vcf_sample_line_ret_NOMEM;
+        goto VcfSampleLine_ret_NOMEM;
       }
       char* loadbuf = R_CAST(char*, g_bigstack_base);
       // not formally allocated for now
@@ -229,7 +229,7 @@ pglerr_t vcf_sample_line(const char* preexisting_psamname, const char* const_fid
         ++line_idx;
         if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
           if (!gzeof(gz_infile)) {
-            goto vcf_sample_line_ret_READ_FAIL;
+            goto VcfSampleLine_ret_READ_FAIL;
           }
           loadbuf_first_token = loadbuf;
           loadbuf_first_token[0] = '\0';
@@ -237,12 +237,12 @@ pglerr_t vcf_sample_line(const char* preexisting_psamname, const char* const_fid
         }
         if (!loadbuf[loadbuf_size - 1]) {
           if (loadbuf_size == kMaxLongLine) {
-            goto vcf_sample_line_ret_LONG_LINE;
+            goto VcfSampleLine_ret_LONG_LINE;
           }
-          goto vcf_sample_line_ret_NOMEM;
+          goto VcfSampleLine_ret_NOMEM;
         }
-        loadbuf_first_token = skip_initial_spaces(loadbuf);
-      } while (is_eoln_kns(*loadbuf_first_token) || ((loadbuf_first_token[0] == '#') && (!tokequal_k(&(loadbuf_first_token[1]), "FID")) && (!tokequal_k(&(loadbuf_first_token[1]), "IID"))));
+        loadbuf_first_token = FirstNonTspace(loadbuf);
+      } while (IsEolnKns(*loadbuf_first_token) || ((loadbuf_first_token[0] == '#') && (!tokequal_k(&(loadbuf_first_token[1]), "FID")) && (!tokequal_k(&(loadbuf_first_token[1]), "IID"))));
       uint32_t fid_present;
       if (loadbuf_first_token[0] == '#') {
         // only care about position of IID column
@@ -251,27 +251,27 @@ pglerr_t vcf_sample_line(const char* preexisting_psamname, const char* const_fid
         fid_present = fam_cols & kfFamCol1;
       }
       while (1) {
-        if (!is_eoln_kns(*loadbuf_first_token)) {
+        if (!IsEolnKns(*loadbuf_first_token)) {
           const char* psam_iid_start = loadbuf_first_token;
           if (fid_present) {
-            psam_iid_start = skip_initial_spaces(token_endnn(psam_iid_start));
-            if (is_eoln_kns(*psam_iid_start)) {
-              goto vcf_sample_line_ret_MISSING_TOKENS;
+            psam_iid_start = FirstNonTspace(CurTokenEnd(psam_iid_start));
+            if (IsEolnKns(*psam_iid_start)) {
+              goto VcfSampleLine_ret_MISSING_TOKENS;
             }
           }
           if (ctou32(sample_line_iter[0]) < ' ') {
             snprintf(g_logbuf, kLogbufSize, "Error: --%ccf file contains fewer sample IDs than %s.\n", flag_char, preexisting_psamname);
-            goto vcf_sample_line_ret_INCONSISTENT_INPUT_WW;
+            goto VcfSampleLine_ret_INCONSISTENT_INPUT_WW;
           }
           ++sample_ct;
           const char* sample_line_token_end = strchr(sample_line_iter, '\t');
           if (!sample_line_token_end) {
-            sample_line_token_end = next_prespace(sample_line_iter);
+            sample_line_token_end = FirstPrespace(sample_line_iter);
           }
           uint32_t sample_line_token_slen = sample_line_token_end - sample_line_iter;
           if ((*sample_line_iter == '0') && (sample_line_token_slen == 1)) {
-            logerrprint("Error: Sample ID cannot be '0'.\n");
-            goto vcf_sample_line_ret_MALFORMED_INPUT;
+            logerrputs("Error: Sample ID cannot be '0'.\n");
+            goto VcfSampleLine_ret_MALFORMED_INPUT;
           }
           const char* sample_line_iid_start = sample_line_iter;
           if (id_delim) {
@@ -279,7 +279,7 @@ pglerr_t vcf_sample_line(const char* preexisting_psamname, const char* const_fid
             if (!first_delim) {
               if (!double_or_const_fid) {
                 snprintf(g_logbuf, kLogbufSize, "Error: No '%c' in sample ID.\n", id_delim);
-                goto vcf_sample_line_ret_INCONSISTENT_INPUT_2;
+                goto VcfSampleLine_ret_INCONSISTENT_INPUT_2;
               }
             } else {
               sample_line_iid_start = &(first_delim[1]);
@@ -291,100 +291,100 @@ pglerr_t vcf_sample_line(const char* preexisting_psamname, const char* const_fid
                 sample_line_token_slen = sample_line_iid_end - sample_line_iid_start;
               }
               if ((*sample_line_iid_start == '0') && (sample_line_token_slen == 1)) {
-                logerrprint("Error: Sample ID induces an invalid IID of '0'.\n");
-                goto vcf_sample_line_ret_INCONSISTENT_INPUT;
+                logerrputs("Error: Sample ID induces an invalid IID of '0'.\n");
+                goto VcfSampleLine_ret_INCONSISTENT_INPUT;
               }
             }
           }
           if (sample_line_token_slen > kMaxIdSlen) {
-            goto vcf_sample_line_ret_MALFORMED_INPUT_LONG_ID;
+            goto VcfSampleLine_ret_MALFORMED_INPUT_LONG_ID;
           }
           if (memcmp(sample_line_iid_start, psam_iid_start, sample_line_token_slen) || (ctou32(psam_iid_start[sample_line_token_slen]) > 32)) {
             snprintf(g_logbuf, kLogbufSize, "Error: Mismatched IDs between --%ccf file and %s.\n", flag_char, preexisting_psamname);
-            goto vcf_sample_line_ret_INCONSISTENT_INPUT_WW;
+            goto VcfSampleLine_ret_INCONSISTENT_INPUT_WW;
           }
           sample_line_iter = &(sample_line_token_end[1]);
         }
         ++line_idx;
         if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
           if (!gzeof(gz_infile)) {
-            goto vcf_sample_line_ret_READ_FAIL;
+            goto VcfSampleLine_ret_READ_FAIL;
           }
           break;
         }
         if (!loadbuf[loadbuf_size - 1]) {
           if (loadbuf_size == kMaxLongLine) {
-            goto vcf_sample_line_ret_LONG_LINE;
+            goto VcfSampleLine_ret_LONG_LINE;
           }
-          goto vcf_sample_line_ret_NOMEM;
+          goto VcfSampleLine_ret_NOMEM;
         }
-        loadbuf_first_token = skip_initial_spaces(loadbuf);
+        loadbuf_first_token = FirstNonTspace(loadbuf);
         if (loadbuf_first_token[0] == '#') {
           snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line, and a #FID/IID header line is present it must denote the end of the header block.)\n", line_idx, preexisting_psamname);
-          goto vcf_sample_line_ret_MALFORMED_INPUT_WW;
+          goto VcfSampleLine_ret_MALFORMED_INPUT_WW;
         }
       }
       if (gzclose_null(&gz_infile)) {
-        goto vcf_sample_line_ret_READ_FAIL;
+        goto VcfSampleLine_ret_READ_FAIL;
       }
       if (ctou32(sample_line_iter[0]) >= ' ') {
         snprintf(g_logbuf, kLogbufSize, "Error: --%ccf file contains more sample IDs than %s.\n", flag_char, preexisting_psamname);
-        goto vcf_sample_line_ret_INCONSISTENT_INPUT_WW;
+        goto VcfSampleLine_ret_INCONSISTENT_INPUT_WW;
       }
     }
     *sample_ct_ptr = sample_ct;
   }
   while (0) {
-  vcf_sample_line_ret_NOMEM:
+  VcfSampleLine_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  vcf_sample_line_ret_OPEN_FAIL:
+  VcfSampleLine_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  vcf_sample_line_ret_READ_FAIL:
+  VcfSampleLine_ret_READ_FAIL:
     reterr = kPglRetReadFail;
     break;
-  vcf_sample_line_ret_WRITE_FAIL:
+  VcfSampleLine_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
-  vcf_sample_line_ret_LONG_LINE:
+  VcfSampleLine_ret_LONG_LINE:
     snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, preexisting_psamname);
-  vcf_sample_line_ret_MALFORMED_INPUT_WW:
-    wordwrapb(0);
-    logerrprintb();
-  vcf_sample_line_ret_MALFORMED_INPUT:
+  VcfSampleLine_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+  VcfSampleLine_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
-  vcf_sample_line_ret_MISSING_TOKENS:
-    LOGERRPRINTFWW("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, preexisting_psamname);
+  VcfSampleLine_ret_MISSING_TOKENS:
+    logerrprintfww("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, preexisting_psamname);
     reterr = kPglRetMalformedInput;
     break;
-  vcf_sample_line_ret_INCONSISTENT_INPUT_DELIM:
-    logerrprintb();
+  VcfSampleLine_ret_INCONSISTENT_INPUT_DELIM:
+    logerrputsb();
     if (id_delim == '_') {
-      logerrprint("If you do not want '_' to be treated as a FID/IID delimiter, use --double-id or\n--const-fid to choose a different method of converting VCF sample IDs to PLINK\nIDs, or --id-delim to change the FID/IID delimiter.\n");
+      logerrputs("If you do not want '_' to be treated as a FID/IID delimiter, use --double-id or\n--const-fid to choose a different method of converting VCF sample IDs to PLINK\nIDs, or --id-delim to change the FID/IID delimiter.\n");
     }
     reterr = kPglRetInconsistentInput;
     break;
-  vcf_sample_line_ret_MALFORMED_INPUT_LONG_ID:
-    logerrprint("Error: FIDs and IIDs are limited to " MAX_ID_SLEN_STR " characters.\n");
+  VcfSampleLine_ret_MALFORMED_INPUT_LONG_ID:
+    logerrputs("Error: FIDs and IIDs are limited to " MAX_ID_SLEN_STR " characters.\n");
     reterr = kPglRetMalformedInput;
     break;
-  vcf_sample_line_ret_INCONSISTENT_INPUT_WW:
-    wordwrapb(0);
-  vcf_sample_line_ret_INCONSISTENT_INPUT_2:
-    logerrprintb();
-  vcf_sample_line_ret_INCONSISTENT_INPUT:
+  VcfSampleLine_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+  VcfSampleLine_ret_INCONSISTENT_INPUT_2:
+    logerrputsb();
+  VcfSampleLine_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
   }
- vcf_sample_line_ret_1:
+ VcfSampleLine_ret_1:
   gzclose_cond(gz_infile);
   fclose_cond(outfile);
   return reterr;
 }
 
-uint32_t vcf_is_het_short(const char* first_gchar_ptr, vcf_half_call_t vcf_half_call) {
+uint32_t VcfIsHetShort(const char* first_gchar_ptr, VcfHalfCall vcf_half_call) {
   // '.' == ascii 46, '0' == ascii 48
   // if kVcfHalfCallReference, ./0 is not phased, but ./1 is
   const uint32_t first_gchar = ctou32(first_gchar_ptr[0]);
@@ -392,7 +392,7 @@ uint32_t vcf_is_het_short(const char* first_gchar_ptr, vcf_half_call_t vcf_half_
   return (first_gchar != second_gchar) && (((first_gchar != 46) && (second_gchar != 46)) || ((vcf_half_call == kVcfHalfCallReference) && ((first_gchar > 48) || (second_gchar > 48))));
 }
 
-uint32_t get_vcf_format_position(const char* __restrict needle, const char* format_start, const char* format_end, uint32_t needle_slen) {
+uint32_t GetVcfFormatPosition(const char* __restrict needle, const char* format_start, const char* format_end, uint32_t needle_slen) {
   uint32_t field_idx = 0;
   // assumes first field is GT, we checked for that earlier
   // bugfix (4 Jan 2018): if only GT on line, format_start[3] is past the
@@ -418,15 +418,15 @@ uint32_t get_vcf_format_position(const char* __restrict needle, const char* form
   return field_idx;
 }
 
-uint32_t vcf_qual_scan_init(const char* format_start, const char* format_end, int32_t vcf_min_gq, int32_t vcf_min_dp, uint32_t* qual_field_skips, int32_t* qual_thresholds) {
+uint32_t VcfQualScanInit(const char* format_start, const char* format_end, int32_t vcf_min_gq, int32_t vcf_min_dp, uint32_t* qual_field_skips, int32_t* qual_thresholds) {
   uint32_t gq_field_idx = 0;
   if (vcf_min_gq >= 0) {
-    gq_field_idx = get_vcf_format_position("GQ", format_start, format_end, 2);
+    gq_field_idx = GetVcfFormatPosition("GQ", format_start, format_end, 2);
   }
   uint32_t qual_field_ct = 0;
   uint32_t dp_field_idx = 0;
   if (vcf_min_dp >= 0) {
-    dp_field_idx = get_vcf_format_position("DP", format_start, format_end, 2);
+    dp_field_idx = GetVcfFormatPosition("DP", format_start, format_end, 2);
     if (dp_field_idx && ((!gq_field_idx) || (dp_field_idx < gq_field_idx))) {
       qual_field_skips[0] = dp_field_idx;
       qual_thresholds[0] = vcf_min_dp;
@@ -448,7 +448,7 @@ uint32_t vcf_qual_scan_init(const char* format_start, const char* format_end, in
   return qual_field_ct;
 }
 
-const char* vcf_field_advance(const char* gtext_iter, const char* gtext_end, uint32_t advance_ct) {
+const char* VcfFieldAdvance(const char* gtext_iter, const char* gtext_end, uint32_t advance_ct) {
   // assumes advance_ct is nonzero
   do {
     const char* field_end = S_CAST(const char*, memchr(gtext_iter, ':', gtext_end - gtext_iter));
@@ -462,35 +462,35 @@ const char* vcf_field_advance(const char* gtext_iter, const char* gtext_end, uin
 
 // returns 1 if a quality check failed
 // assumes either 1 or 2 qual fields, otherwise change this to a loop
-uint32_t vcf_check_quals(const uint32_t* qual_field_skips, const int32_t* qual_thresholds, const char* gtext_iter, const char* gtext_end, uint32_t qual_field_ct) {
-  gtext_iter = vcf_field_advance(gtext_iter, gtext_end, qual_field_skips[0]);
+uint32_t VcfCheckQuals(const uint32_t* qual_field_skips, const int32_t* qual_thresholds, const char* gtext_iter, const char* gtext_end, uint32_t qual_field_ct) {
+  gtext_iter = VcfFieldAdvance(gtext_iter, gtext_end, qual_field_skips[0]);
   if (!gtext_iter) {
     return 0;
   }
   int32_t ii;
-  if ((!scan_int32(gtext_iter, &ii)) && (ii < qual_thresholds[0])) {
+  if ((!ScanInt32(gtext_iter, &ii)) && (ii < qual_thresholds[0])) {
     return 1;
   }
   if (qual_field_ct == 1) {
     return 0;
   }
-  gtext_iter = vcf_field_advance(gtext_iter, gtext_end, qual_field_skips[1]);
+  gtext_iter = VcfFieldAdvance(gtext_iter, gtext_end, qual_field_skips[1]);
   if (!gtext_iter) {
     return 0;
   }
-  return (!scan_int32(gtext_iter, &ii)) && (ii < qual_thresholds[1]);
+  return (!ScanInt32(gtext_iter, &ii)) && (ii < qual_thresholds[1]);
 }
 
-boolerr_t parse_vcf_gp(const char* gp_iter, uint32_t is_haploid, double import_dosage_certainty, uint32_t* is_missing_ptr, double* alt_dosage_ptr) {
+BoolErr ParseVcfGp(const char* gp_iter, uint32_t is_haploid, double import_dosage_certainty, uint32_t* is_missing_ptr, double* alt_dosage_ptr) {
   // P(0/0), P(0/1), P(1/1), etc.
   // assumes is_missing initialized to 0
   double prob_0alt;
-  gp_iter = scanadv_double(gp_iter, &prob_0alt);
+  gp_iter = ScanadvDouble(gp_iter, &prob_0alt);
   if ((!gp_iter) || (prob_0alt < 0.0) || (prob_0alt > 1.0) || (*gp_iter != ',')) {
     return 1;
   }
   double prob_1alt;
-  gp_iter = scanadv_double(&(gp_iter[1]), &prob_1alt);
+  gp_iter = ScanadvDouble(&(gp_iter[1]), &prob_1alt);
   if ((!gp_iter) || (prob_1alt < 0.0) || (prob_1alt > 1.0)) {
     return 1;
   }
@@ -506,7 +506,7 @@ boolerr_t parse_vcf_gp(const char* gp_iter, uint32_t is_haploid, double import_d
     return 0;
   }
   double prob_2alt;
-  if ((*gp_iter != ',') || (!scanadv_double(&(gp_iter[1]), &prob_2alt)) || (prob_2alt < 0.0) || (prob_2alt > 1.0)) {
+  if ((*gp_iter != ',') || (!ScanadvDouble(&(gp_iter[1]), &prob_2alt)) || (prob_2alt < 0.0) || (prob_2alt > 1.0)) {
     return 1;
   }
   const double denom = prob_0alt + prob_1alt + prob_2alt;
@@ -517,14 +517,14 @@ boolerr_t parse_vcf_gp(const char* gp_iter, uint32_t is_haploid, double import_d
       // during command-line parsing.  this lets us avoid
       // special-casing denom=0.
       *is_missing_ptr = 1;
-      return 1; // not really an error
+      return 1;  // not really an error
     }
   }
   *alt_dosage_ptr = (prob_1alt + 2 * prob_2alt) / denom;
   return 0;
 }
 
-boolerr_t parse_vcf_dosage(const char* gtext_iter, const char* gtext_end, uint32_t dosage_field_idx, uint32_t is_haploid, uint32_t dosage_is_gp, double import_dosage_certainty, uint32_t* is_missing_ptr, uint32_t* dosage_int_ptr) {
+BoolErr ParseVcfDosage(const char* gtext_iter, const char* gtext_end, uint32_t dosage_field_idx, uint32_t is_haploid, uint32_t dosage_is_gp, double import_dosage_certainty, uint32_t* is_missing_ptr, uint32_t* dosage_int_ptr) {
   // assumes is_missing initialized to 0
   // assumes dosage_field_idx != 0
   // returns 1 if missing OR parsing error.
@@ -545,11 +545,11 @@ boolerr_t parse_vcf_dosage(const char* gtext_iter, const char* gtext_end, uint32
   }
   double alt_dosage;
   if (dosage_is_gp) {
-    if (parse_vcf_gp(gtext_iter, is_haploid, import_dosage_certainty, is_missing_ptr, &alt_dosage)) {
+    if (ParseVcfGp(gtext_iter, is_haploid, import_dosage_certainty, is_missing_ptr, &alt_dosage)) {
       return 1;
     }
   } else {
-    if ((!scanadv_double(gtext_iter, &alt_dosage)) || (alt_dosage < 0.0)) {
+    if ((!ScanadvDouble(gtext_iter, &alt_dosage)) || (alt_dosage < 0.0)) {
       return 1;
     }
     if (is_haploid) {
@@ -566,9 +566,9 @@ boolerr_t parse_vcf_dosage(const char* gtext_iter, const char* gtext_end, uint32
   return 0;
 }
 
-static_assert(!kVcfHalfCallReference, "vcf_to_pgen() assumes kVcfHalfCallReference == 0.");
-static_assert(kVcfHalfCallHaploid == 1, "vcf_to_pgen() assumes kVcfHalfCallHaploid == 1.");
-pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, misc_flags_t misc_flags, uint32_t no_samples_ok, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, vcf_half_call_t vcf_half_call, fam_col_t fam_cols, char* outname, char* outname_end, chr_info_t* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
+static_assert(!kVcfHalfCallReference, "VcfToPgen() assumes kVcfHalfCallReference == 0.");
+static_assert(kVcfHalfCallHaploid == 1, "VcfToPgen() assumes kVcfHalfCallHaploid == 1.");
+PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, uint32_t no_samples_ok, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, VcfHalfCall vcf_half_call, FamCol fam_cols, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
   // Now performs a 2-pass load.  Yes, this can be slower than plink 1.9, but
   // it's necessary to use the Pgen_writer classes for now (since we need to
   // know upfront how many variants there are, and whether phase/dosage is
@@ -579,34 +579,34 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
   FILE* pvarfile = nullptr;
   uintptr_t line_idx = 0;
   const uint32_t vcf_half_call_explicit_error = (vcf_half_call == kVcfHalfCallError);
-  st_pgen_writer_t spgw;
-  pglerr_t reterr = kPglRetSuccess;
+  STPgenWriter spgw;
+  PglErr reterr = kPglRetSuccess;
   gzFile gz_infile;
-  spgw_preinit(&spgw);
+  PreinitSpgw(&spgw);
   {
     // don't use gzopen_read_checked() since we want to customize the error
     // message
     gz_infile = gzopen(vcfname, FOPEN_RB);
     if (!gz_infile) {
       const uint32_t slen = strlen(vcfname);
-      if (str_endswith(vcfname, ".vcf", slen) ||
-          str_endswith(vcfname, ".vcf.gz", slen)) {
-        LOGERRPRINTFWW(g_errstr_fopen, vcfname);
+      if (StrEndsWith(vcfname, ".vcf", slen) ||
+          StrEndsWith(vcfname, ".vcf.gz", slen)) {
+        logerrprintfww(kErrprintfFopen, vcfname);
       } else {
-        LOGERRPRINTFWW("Error: Failed to open %s. (--vcf expects a complete filename; did you forget '.vcf' at the end?)\n", vcfname);
+        logerrprintfww("Error: Failed to open %s. (--vcf expects a complete filename; did you forget '.vcf' at the end?)\n", vcfname);
       }
-      goto vcf_to_pgen_ret_OPEN_FAIL;
+      goto VcfToPgen_ret_OPEN_FAIL;
     }
     if (gzbuffer(gz_infile, 131072)) {
-      goto vcf_to_pgen_ret_NOMEM;
+      goto VcfToPgen_ret_NOMEM;
     }
     uintptr_t loadbuf_size = bigstack_left() / 4;
     if (loadbuf_size > kMaxLongLine) {
       loadbuf_size = kMaxLongLine;
     } else if (loadbuf_size <= kMaxMediumLine) {
-      goto vcf_to_pgen_ret_NOMEM;
+      goto VcfToPgen_ret_NOMEM;
     } else {
-      loadbuf_size = round_up_pow2(loadbuf_size, kEndAllocAlign);
+      loadbuf_size = RoundUpPow2(loadbuf_size, kEndAllocAlign);
     }
     char* loadbuf = S_CAST(char*, bigstack_end_alloc_raw(loadbuf_size));
     loadbuf[loadbuf_size - 1] = ' ';
@@ -629,33 +629,33 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
       ++line_idx;
       if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
         if (!gzeof(gz_infile)) {
-          goto vcf_to_pgen_ret_READ_FAIL;
+          goto VcfToPgen_ret_READ_FAIL;
         }
-        logerrprint("Error: No #CHROM header line or variant records in --vcf file.\n");
-        goto vcf_to_pgen_ret_MALFORMED_INPUT;
+        logerrputs("Error: No #CHROM header line or variant records in --vcf file.\n");
+        goto VcfToPgen_ret_MALFORMED_INPUT;
       }
       if ((line_idx == 1) && (!memcmp(loadbuf, "BCF", 3))) {
         // this is more informative than "missing header line"...
         if (loadbuf[3] == 2) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s appears to be a BCF2 file. Try --bcf instead of --vcf.\n", vcfname);
-          goto vcf_to_pgen_ret_MALFORMED_INPUT_WW;
+          goto VcfToPgen_ret_MALFORMED_INPUT_WW;
         }
         if (loadbuf[3] == 4) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s appears to be a BCF1 file. Use 'bcftools view' to convert it to a PLINK-readable VCF.\n", vcfname);
-          goto vcf_to_pgen_ret_MALFORMED_INPUT_WW;
+          goto VcfToPgen_ret_MALFORMED_INPUT_WW;
         }
       }
       if (!loadbuf[loadbuf_size - 1]) {
         if (loadbuf_size == kMaxLongLine) {
-          goto vcf_to_pgen_ret_LONG_LINE;
+          goto VcfToPgen_ret_LONG_LINE;
         }
-        goto vcf_to_pgen_ret_NOMEM;
+        goto VcfToPgen_ret_NOMEM;
       }
       // don't tolerate leading spaces
       loadbuf_iter = loadbuf;
       if (*loadbuf_iter != '#') {
-        logerrprint("Error: No #CHROM header line in --vcf file.\n");
-        goto vcf_to_pgen_ret_MALFORMED_INPUT;
+        logerrputs("Error: No #CHROM header line in --vcf file.\n");
+        goto VcfToPgen_ret_MALFORMED_INPUT;
       }
       if (loadbuf_iter[1] != '#') {
         break;
@@ -684,55 +684,55 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
       // Because of how ##contig is handled (we only keep the lines which
       // correspond to chromosomes/contigs actually present in the VCF, and not
       // filtered out), we wait until second pass to write the .pvar.
-      if (str_startswith2(&(loadbuf_iter[2]), "chrSet=<")) {
+      if (StrStartsWithUnsafe(&(loadbuf_iter[2]), "chrSet=<")) {
         if (chrset_present) {
-          logerrprint("Error: Multiple ##chrSet header lines in --vcf file.\n");
-          goto vcf_to_pgen_ret_MALFORMED_INPUT;
+          logerrputs("Error: Multiple ##chrSet header lines in --vcf file.\n");
+          goto VcfToPgen_ret_MALFORMED_INPUT;
         }
         chrset_present = 1;
         // .pvar loader will print a warning if necessary
-        reterr = read_chrset_header_line(&(loadbuf_iter[10]), "--vcf file", misc_flags, line_idx, cip);
+        reterr = ReadChrsetHeaderLine(&(loadbuf_iter[10]), "--vcf file", misc_flags, line_idx, cip);
         if (reterr) {
-          goto vcf_to_pgen_ret_1;
+          goto VcfToPgen_ret_1;
         }
-      } else if (str_startswith2(&(loadbuf_iter[2]), "FORMAT=<ID=GT,Number=")) {
+      } else if (StrStartsWithUnsafe(&(loadbuf_iter[2]), "FORMAT=<ID=GT,Number=")) {
         if (format_gt_present) {
-          logerrprint("Error: Duplicate FORMAT:GT header line in --vcf file.\n");
-          goto vcf_to_pgen_ret_MALFORMED_INPUT;
+          logerrputs("Error: Duplicate FORMAT:GT header line in --vcf file.\n");
+          goto VcfToPgen_ret_MALFORMED_INPUT;
         }
-        if (!str_startswith2(&(loadbuf_iter[2 + strlen("FORMAT=<ID=GT,Number=")]), "1,Type=String,Description=")) {
+        if (!StrStartsWithUnsafe(&(loadbuf_iter[2 + strlen("FORMAT=<ID=GT,Number=")]), "1,Type=String,Description=")) {
           snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of --vcf file does not have expected FORMAT:GT format.\n", line_idx);
-          goto vcf_to_pgen_ret_MALFORMED_INPUT_WW;
+          goto VcfToPgen_ret_MALFORMED_INPUT_WW;
         }
         format_gt_present = 1;
-      } else if ((vcf_min_gq != -1) && str_startswith2(&(loadbuf_iter[2]), "FORMAT=<ID=GQ,Number=1,Type=")) {
+      } else if ((vcf_min_gq != -1) && StrStartsWithUnsafe(&(loadbuf_iter[2]), "FORMAT=<ID=GQ,Number=1,Type=")) {
         if (format_gq_relevant) {
-          logerrprint("Error: Duplicate FORMAT:GQ header line in --vcf file.\n");
-          goto vcf_to_pgen_ret_MALFORMED_INPUT;
+          logerrputs("Error: Duplicate FORMAT:GQ header line in --vcf file.\n");
+          goto VcfToPgen_ret_MALFORMED_INPUT;
         }
         format_gq_relevant = 1;
-      } else if ((vcf_min_dp != -1) && str_startswith2(&(loadbuf_iter[2]), "FORMAT=<ID=DP,Number=1,Type=")) {
+      } else if ((vcf_min_dp != -1) && StrStartsWithUnsafe(&(loadbuf_iter[2]), "FORMAT=<ID=DP,Number=1,Type=")) {
         if (format_dp_relevant) {
-          logerrprint("Error: Duplicate FORMAT:DP header line in --vcf file.\n");
-          goto vcf_to_pgen_ret_MALFORMED_INPUT;
+          logerrputs("Error: Duplicate FORMAT:DP header line in --vcf file.\n");
+          goto VcfToPgen_ret_MALFORMED_INPUT;
         }
         format_dp_relevant = 1;
-      } else if (dosage_import_field && str_startswith2(&(loadbuf_iter[2]), "FORMAT=<ID=") && (!memcmp(&(loadbuf_iter[2 + strlen("FORMAT=<ID=")]), dosage_import_field, dosage_import_field_slen)) && (loadbuf_iter[2 + strlen("FORMAT=<ID=") + dosage_import_field_slen] == ',')) {
+      } else if (dosage_import_field && StrStartsWithUnsafe(&(loadbuf_iter[2]), "FORMAT=<ID=") && (!memcmp(&(loadbuf_iter[2 + strlen("FORMAT=<ID=")]), dosage_import_field, dosage_import_field_slen)) && (loadbuf_iter[2 + strlen("FORMAT=<ID=") + dosage_import_field_slen] == ',')) {
         if (format_dosage_relevant) {
-          LOGERRPRINTFWW("Error: Duplicate FORMAT:%s header line in --vcf file.\n", dosage_import_field);
-          goto vcf_to_pgen_ret_MALFORMED_INPUT_WW;
+          logerrprintfww("Error: Duplicate FORMAT:%s header line in --vcf file.\n", dosage_import_field);
+          goto VcfToPgen_ret_MALFORMED_INPUT_WW;
         }
         format_dosage_relevant = 1;
-      } else if (str_startswith2(&(loadbuf_iter[2]), "INFO=<ID=")) {
-        if (str_startswith2(&(loadbuf_iter[2 + strlen("INFO=<ID=")]), "PR,Number=")) {
+      } else if (StrStartsWithUnsafe(&(loadbuf_iter[2]), "INFO=<ID=")) {
+        if (StrStartsWithUnsafe(&(loadbuf_iter[2 + strlen("INFO=<ID=")]), "PR,Number=")) {
           if (info_pr_present || info_pr_nonflag_present) {
-            logerrprint("Error: Duplicate INFO:PR header line in --vcf file.\n");
-            goto vcf_to_pgen_ret_MALFORMED_INPUT;
+            logerrputs("Error: Duplicate INFO:PR header line in --vcf file.\n");
+            goto VcfToPgen_ret_MALFORMED_INPUT;
           }
-          info_pr_nonflag_present = !str_startswith2(&(loadbuf_iter[2 + strlen("INFO=<ID=PR,Number=")]), "0,Type=Flag,Description=");
+          info_pr_nonflag_present = !StrStartsWithUnsafe(&(loadbuf_iter[2 + strlen("INFO=<ID=PR,Number=")]), "0,Type=Flag,Description=");
           info_pr_present = 1 - info_pr_nonflag_present;
           if (info_pr_nonflag_present) {
-            LOGERRPRINTFWW("Warning: Header line %" PRIuPTR " of --vcf file has an unexpected definition of INFO:PR. This interferes with a few merge and liftover operations.\n", line_idx);
+            logerrprintfww("Warning: Header line %" PRIuPTR " of --vcf file has an unexpected definition of INFO:PR. This interferes with a few merge and liftover operations.\n", line_idx);
           }
         } else {
           info_nonpr_present = 1;
@@ -742,41 +742,41 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
     const uint32_t require_gt = (misc_flags / kfMiscVcfRequireGt) & 1;
     if ((!format_gt_present) && require_gt) {
       // todo: allow_no_variants exception
-      logerrprint("Error: No GT field in --vcf file header, when --vcf-require-gt was specified.\n");
-      goto vcf_to_pgen_ret_INCONSISTENT_INPUT;
+      logerrputs("Error: No GT field in --vcf file header, when --vcf-require-gt was specified.\n");
+      goto VcfToPgen_ret_INCONSISTENT_INPUT;
     }
     if ((!format_gq_relevant) && (vcf_min_gq != -1)) {
-      logerrprint("Warning: No GQ field in --vcf file header.  --vcf-min-gq ignored.\n");
+      logerrputs("Warning: No GQ field in --vcf file header.  --vcf-min-gq ignored.\n");
       vcf_min_gq = -1;
     }
     if ((!format_dp_relevant) && (vcf_min_dp != -1)) {
-      logerrprint("Warning: No DP field in --vcf file header.  --vcf-min-dp ignored.\n");
+      logerrputs("Warning: No DP field in --vcf file header.  --vcf-min-dp ignored.\n");
       vcf_min_dp = -1;
     }
     const uint32_t format_gq_or_dp_relevant = format_gq_relevant || format_dp_relevant;
     if ((!format_dosage_relevant) && dosage_import_field) {
-      LOGERRPRINTFWW("Warning: No %s field in --vcf file header. Dosages will not be imported.\n", dosage_import_field);
+      logerrprintfww("Warning: No %s field in --vcf file header. Dosages will not be imported.\n", dosage_import_field);
     }
-    finalize_chrset(misc_flags, cip);
-    // don't call finalize_chr_info here, since this may be followed by
+    FinalizeChrset(misc_flags, cip);
+    // don't call FinalizeChrInfo here, since this may be followed by
     // --pmerge, etc.
 
-    if (!str_startswith2(loadbuf_iter, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO")) {
+    if (!StrStartsWithUnsafe(loadbuf_iter, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO")) {
       snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of --vcf file does not have expected field sequence after #CHROM.\n", line_idx);
-      goto vcf_to_pgen_ret_MALFORMED_INPUT_WW;
+      goto VcfToPgen_ret_MALFORMED_INPUT_WW;
     }
     loadbuf_iter = &(loadbuf_iter[strlen("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO")]);
     const uint32_t double_id = (misc_flags / kfMiscDoubleId) & 1;
     uintptr_t sample_ct = 0;
-    if (str_startswith2(loadbuf_iter, "\tFORMAT\t")) {
-      reterr = vcf_sample_line(preexisting_psamname, const_fid, double_id, fam_cols, id_delim, idspace_to, 'v', &(loadbuf_iter[strlen("\tFORMAT\t")]), outname, outname_end, &sample_ct);
+    if (StrStartsWithUnsafe(loadbuf_iter, "\tFORMAT\t")) {
+      reterr = VcfSampleLine(preexisting_psamname, const_fid, double_id, fam_cols, id_delim, idspace_to, 'v', &(loadbuf_iter[strlen("\tFORMAT\t")]), outname, outname_end, &sample_ct);
       if (reterr) {
-        goto vcf_to_pgen_ret_1;
+        goto VcfToPgen_ret_1;
       }
     }
     if ((!sample_ct) && (!no_samples_ok)) {
-      logerrprint("Error: No samples in --vcf file.  (This is only permitted when you haven't\nspecified another operation which requires genotype or sample information.)\n");
-      goto vcf_to_pgen_ret_INCONSISTENT_INPUT;
+      logerrputs("Error: No samples in --vcf file.  (This is only permitted when you haven't\nspecified another operation which requires genotype or sample information.)\n");
+      goto VcfToPgen_ret_INCONSISTENT_INPUT;
     }
     // possible todo: single-pass fast path for no_samples_ok case.  but there
     // are much higher priorities.
@@ -785,12 +785,12 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
     uint32_t max_alt_ct = 1;
     uintptr_t* variant_allele_idxs = R_CAST(uintptr_t*, g_bigstack_base);
     uintptr_t max_variant_ct = R_CAST(uintptr_t*, g_bigstack_end) - variant_allele_idxs;
-    max_variant_ct -= BITCT_TO_ALIGNED_WORDCT(max_variant_ct) * kWordsPerVec;
+    max_variant_ct -= BitCtToAlignedWordCt(max_variant_ct) * kWordsPerVec;
     if (format_dosage_relevant) {
-      max_variant_ct -= BITCT_TO_ALIGNED_WORDCT(max_variant_ct) * kWordsPerVec;
+      max_variant_ct -= BitCtToAlignedWordCt(max_variant_ct) * kWordsPerVec;
     }
     if (info_pr_present) {
-      max_variant_ct -= BITCT_TO_ALIGNED_WORDCT(max_variant_ct) * kWordsPerVec;
+      max_variant_ct -= BitCtToAlignedWordCt(max_variant_ct) * kWordsPerVec;
     }
 #ifdef __LP64__
     if (max_variant_ct > 0x7ffffffd) {
@@ -798,10 +798,10 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
     }
 #endif
     uintptr_t base_chr_present[kChrExcludeWords];
-    fill_ulong_zero(kChrExcludeWords, base_chr_present);
+    ZeroUlArr(kChrExcludeWords, base_chr_present);
 
     const uintptr_t header_line_ct = line_idx;
-    const uint32_t max_variant_ctaw = BITCT_TO_ALIGNED_WORDCT(max_variant_ct);
+    const uint32_t max_variant_ctaw = BitCtToAlignedWordCt(max_variant_ct);
     uintptr_t* phasing_flags = S_CAST(uintptr_t*, bigstack_end_alloc_raw_rd(max_variant_ctaw * sizeof(intptr_t)));
     uintptr_t* phasing_flags_iter = phasing_flags;
     uintptr_t* dosage_flags = nullptr;
@@ -835,28 +835,28 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
       ++line_idx;
       if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
         if (!gzeof(gz_infile)) {
-          goto vcf_to_pgen_ret_READ_FAIL;
+          goto VcfToPgen_ret_READ_FAIL;
         }
         break;
       }
       if (!loadbuf[loadbuf_size - 1]) {
         if (loadbuf_size == kMaxLongLine) {
-          goto vcf_to_pgen_ret_LONG_LINE_N;
+          goto VcfToPgen_ret_LONG_LINE_N;
         }
-        goto vcf_to_pgen_ret_NOMEM;
+        goto VcfToPgen_ret_NOMEM;
       }
       // do tolerate trailing newlines
       if (ctou32(*loadbuf) <= 32) {
         if (*loadbuf == ' ') {
           snprintf(g_logbuf, kLogbufSize, "Error: Leading space on line %" PRIuPTR " of --vcf file.\n", line_idx);
-          goto vcf_to_pgen_ret_MALFORMED_INPUT_2N;
+          goto VcfToPgen_ret_MALFORMED_INPUT_2N;
         }
         continue;
       }
       loadbuf_iter = loadbuf;
       char* chr_code_end = strchr(loadbuf, '\t');
       if (!chr_code_end) {
-        goto vcf_to_pgen_ret_MISSING_TOKENS;
+        goto VcfToPgen_ret_MISSING_TOKENS;
       }
       // QUAL/FILTER enforcement is now postponed till .pvar loading.  only
       // other things we do during the scanning pass are (i) count alt alleles,
@@ -864,7 +864,7 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
 
       char* pos_end = strchr(&(chr_code_end[1]), '\t');
       if (!pos_end) {
-        goto vcf_to_pgen_ret_MISSING_TOKENS;
+        goto VcfToPgen_ret_MISSING_TOKENS;
       }
 
       // may as well check ID length here
@@ -872,18 +872,18 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
       // once
       char* id_end = strchr(&(pos_end[1]), '\t');
       if (!id_end) {
-        goto vcf_to_pgen_ret_MISSING_TOKENS;
+        goto VcfToPgen_ret_MISSING_TOKENS;
       }
       if (S_CAST(uintptr_t, id_end - pos_end) > kMaxIdBlen) {
         snprintf(g_logbuf, kLogbufSize, "Error: Invalid ID on line %" PRIuPTR " of --vcf file (max " MAX_ID_SLEN_STR " chars).\n", line_idx);
-        goto vcf_to_pgen_ret_MALFORMED_INPUT_WW;
+        goto VcfToPgen_ret_MALFORMED_INPUT_WW;
       }
 
       // note REF length
       char* ref_allele_start = &(id_end[1]);
       loadbuf_iter = strchr(ref_allele_start, '\t');
       if (!loadbuf_iter) {
-        goto vcf_to_pgen_ret_MISSING_TOKENS;
+        goto VcfToPgen_ret_MISSING_TOKENS;
       }
       uint32_t cur_max_allele_slen = loadbuf_iter - ref_allele_start;
 
@@ -895,7 +895,7 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
         ucc = *loadbuf_iter;
         if ((ucc <= ',') && (ucc != '*')) {
           snprintf(g_logbuf, kLogbufSize, "Error: Invalid alternate allele on line %" PRIuPTR " of --vcf file.\n", line_idx);
-          goto vcf_to_pgen_ret_MALFORMED_INPUT_2N;
+          goto VcfToPgen_ret_MALFORMED_INPUT_2N;
         }
         do {
           ucc = *(++loadbuf_iter);
@@ -919,7 +919,7 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
 
       if (ucc != '\t') {
         snprintf(g_logbuf, kLogbufSize, "Error: Malformed ALT field on line %" PRIuPTR " of --vcf file.\n", line_idx);
-        goto vcf_to_pgen_ret_MALFORMED_INPUT_2N;
+        goto VcfToPgen_ret_MALFORMED_INPUT_2N;
       }
       if (alt_ct > max_alt_ct) {
         max_alt_ct = alt_ct;
@@ -930,7 +930,7 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
       for (uint32_t uii = 0; uii < 2; ++uii) {
         loadbuf_iter = strchr(&(loadbuf_iter[1]), '\t');
         if (!loadbuf_iter) {
-          goto vcf_to_pgen_ret_MISSING_TOKENS;
+          goto VcfToPgen_ret_MISSING_TOKENS;
         }
       }
 
@@ -941,7 +941,7 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
       if (sample_ct) {
         info_end = strchr(info_start, '\t');
         if (!info_end) {
-          goto vcf_to_pgen_ret_MISSING_TOKENS;
+          goto VcfToPgen_ret_MISSING_TOKENS;
         }
         loadbuf_iter = &(info_end[1]);
         gt_missing = memcmp(loadbuf_iter, "GT", 2) || ((loadbuf_iter[2] != ':') && (loadbuf_iter[2] != '\t'));
@@ -950,7 +950,7 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
           continue;
         }
       } else {
-        info_end = token_endnn(info_start);
+        info_end = CurTokenEnd(info_start);
         gt_missing = 1;
       }
       const uint32_t cur_qualfilterinfo_slen = info_end - qual_start_m1;
@@ -960,11 +960,11 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
       // add a contig name to the hash table unless at least one variant on
       // that contig wasn't filtered out for other reasons.
       int32_t cur_chr_code;
-      reterr = get_or_add_chr_code_destructive("--vcf file", line_idx, allow_extra_chrs, loadbuf, chr_code_end, cip, &cur_chr_code);
+      reterr = GetOrAddChrCodeDestructive("--vcf file", line_idx, allow_extra_chrs, loadbuf, chr_code_end, cip, &cur_chr_code);
       if (reterr) {
-        goto vcf_to_pgen_ret_1;
+        goto VcfToPgen_ret_1;
       }
-      if (!is_set(cip->chr_mask, cur_chr_code)) {
+      if (!IsSetI(cip->chr_mask, cur_chr_code)) {
         ++variant_skip_ct;
         continue;
       }
@@ -975,14 +975,14 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
         max_qualfilterinfo_slen = cur_qualfilterinfo_slen;
       }
       if (S_CAST(uint32_t, cur_chr_code) <= cip->max_code) {
-        set_bit(cur_chr_code, base_chr_present);
+        SetBitI(cur_chr_code, base_chr_present);
       }
 
       variant_allele_idxs[variant_ct] = allele_idx_end;
       allele_idx_end += alt_ct + 1;
       const uint32_t variant_idx_lowbits = variant_ct % kBitsPerWord;
       if (info_pr_present) {
-        if (pr_in_info_token(info_end - info_start, info_start)) {
+        if (PrInInfoToken(info_end - info_start, info_start)) {
           nonref_word |= k1LU << variant_idx_lowbits;
         }
         if (variant_idx_lowbits == (kBitsPerWord - 1)) {
@@ -996,18 +996,18 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
         // loadbuf_iter currently points to beginning of FORMAT field
         const char* format_end = strchr(loadbuf_iter, '\t');
         if (!format_end) {
-          goto vcf_to_pgen_ret_MISSING_TOKENS;
+          goto VcfToPgen_ret_MISSING_TOKENS;
         }
 
         uint32_t qual_field_skips[2];
         int32_t qual_thresholds[2];
         if (format_gq_or_dp_relevant) {
-          qual_field_ct = vcf_qual_scan_init(loadbuf_iter, format_end, vcf_min_gq, vcf_min_dp, qual_field_skips, qual_thresholds);
+          qual_field_ct = VcfQualScanInit(loadbuf_iter, format_end, vcf_min_gq, vcf_min_dp, qual_field_skips, qual_thresholds);
         }
         // if nonzero, 0-based index of dosage field
         uint32_t dosage_field_idx = 0;
         if (format_dosage_relevant) {
-          dosage_field_idx = get_vcf_format_position(dosage_import_field, loadbuf_iter, format_end, dosage_import_field_slen);
+          dosage_field_idx = GetVcfFormatPosition(dosage_import_field, loadbuf_iter, format_end, dosage_import_field_slen);
         }
 
         // check if there's at least one phased het call, and/or at least one
@@ -1030,13 +1030,13 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
                   break;
                 }
                 if (phasescan_iter[2] == '|') {
-                  if (vcf_is_het_short(&(phasescan_iter[1]), vcf_half_call)) {
+                  if (VcfIsHetShort(&(phasescan_iter[1]), vcf_half_call)) {
                     if (qual_field_ct) {
                       const char* cur_gtext_end = strchr(phasescan_iter, '\t');
                       if (!cur_gtext_end) {
-                        cur_gtext_end = next_prespace(phasescan_iter);
+                        cur_gtext_end = FirstPrespace(phasescan_iter);
                       }
-                      if (vcf_check_quals(qual_field_skips, qual_thresholds, phasescan_iter, cur_gtext_end, qual_field_ct)) {
+                      if (VcfCheckQuals(qual_field_skips, qual_thresholds, phasescan_iter, cur_gtext_end, qual_field_ct)) {
                         break;
                       }
                     }
@@ -1047,13 +1047,13 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
               }
               break;
             }
-            if (vcf_is_het_short(&(phasescan_iter[-1]), vcf_half_call)) {
+            if (VcfIsHetShort(&(phasescan_iter[-1]), vcf_half_call)) {
               if (qual_field_ct) {
                 const char* cur_gtext_end = strchr(phasescan_iter, '\t');
                 if (!cur_gtext_end) {
-                  cur_gtext_end = next_prespace(phasescan_iter);
+                  cur_gtext_end = FirstPrespace(phasescan_iter);
                 }
-                if (vcf_check_quals(qual_field_skips, qual_thresholds, phasescan_iter, cur_gtext_end, qual_field_ct)) {
+                if (VcfCheckQuals(qual_field_skips, qual_thresholds, phasescan_iter, cur_gtext_end, qual_field_ct)) {
                   break;
                 }
               }
@@ -1072,33 +1072,33 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
               const char* cur_gtext_end = strchr(dosagescan_iter, '\t');
               if (!cur_gtext_end) {
                 if (sample_idx + 1 != sample_ct) {
-                  goto vcf_to_pgen_ret_MISSING_TOKENS;
+                  goto VcfToPgen_ret_MISSING_TOKENS;
                 }
-                cur_gtext_end = next_prespace(dosagescan_iter);
+                cur_gtext_end = FirstPrespace(dosagescan_iter);
               }
               dosagescan_iter = cur_gtext_end;
               if (qual_field_ct) {
-                if (vcf_check_quals(qual_field_skips, qual_thresholds, cur_gtext_start, cur_gtext_end, qual_field_ct)) {
+                if (VcfCheckQuals(qual_field_skips, qual_thresholds, cur_gtext_start, cur_gtext_end, qual_field_ct)) {
                   break;
                 }
               }
               const uint32_t is_haploid = (cur_gtext_start[1] != '/') && (cur_gtext_start[1] != '|');
               uint32_t is_missing = 0;
               uint32_t dosage_int;
-              if (parse_vcf_dosage(cur_gtext_start, cur_gtext_end, dosage_field_idx, is_haploid, dosage_is_gp, import_dosage_certainty, &is_missing, &dosage_int)) {
+              if (ParseVcfDosage(cur_gtext_start, cur_gtext_end, dosage_field_idx, is_haploid, dosage_is_gp, import_dosage_certainty, &is_missing, &dosage_int)) {
                 if (is_missing) {
                   continue;
                 }
-                goto vcf_to_pgen_ret_INVALID_DOSAGE;
+                goto VcfToPgen_ret_INVALID_DOSAGE;
               }
-              const uint32_t cur_halfdist = biallelic_dosage_halfdist(dosage_int);
+              const uint32_t cur_halfdist = BiallelicDosageHalfdist(dosage_int);
               if (cur_halfdist < dosage_erase_halfdist) {
-                goto vcf_to_pgen_dosagescan_hit;
+                goto VcfToPgen_dosagescan_hit;
               }
             }
           }
           if (0) {
-          vcf_to_pgen_dosagescan_hit:
+          VcfToPgen_dosagescan_hit:
             dosage_word |= k1LU << variant_idx_lowbits;
           }
         } else {
@@ -1117,11 +1117,11 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
       if (variant_ct++ == max_variant_ct) {
 #ifdef __LP64__
         if (variant_ct == 0x7ffffffd) {
-          logerrprint("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend other\nsoftware, such as PLINK/SEQ, for very deep studies of small numbers of genomes.\n");
-          goto vcf_to_pgen_ret_MALFORMED_INPUT;
+          logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend other\nsoftware, such as PLINK/SEQ, for very deep studies of small numbers of genomes.\n");
+          goto VcfToPgen_ret_MALFORMED_INPUT;
         }
 #endif
-        goto vcf_to_pgen_ret_NOMEM;
+        goto VcfToPgen_ret_NOMEM;
       }
       if (!(variant_ct % 1000)) {
         printf("\r--vcf: %uk variants scanned.", variant_ct / 1000);
@@ -1137,53 +1137,53 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
         *nonref_flags_iter = nonref_word;
       }
     } else if (!variant_ct) {
-      logerrprint("Error: No variants in --vcf file.\n");
-      goto vcf_to_pgen_ret_INCONSISTENT_INPUT;
+      logerrputs("Error: No variants in --vcf file.\n");
+      goto VcfToPgen_ret_INCONSISTENT_INPUT;
     }
 
     putc_unlocked('\r', stdout);
     if (!variant_skip_ct) {
-      LOGPRINTF("--vcf: %u variant%s scanned.\n", variant_ct, (variant_ct == 1)? "" : "s");
+      logprintf("--vcf: %u variant%s scanned.\n", variant_ct, (variant_ct == 1)? "" : "s");
     } else {
-      LOGPRINTF("--vcf: %u variant%s scanned (%" PRIuPTR " skipped).\n", variant_ct, (variant_ct == 1)? "" : "s", variant_skip_ct);
+      logprintf("--vcf: %u variant%s scanned (%" PRIuPTR " skipped).\n", variant_ct, (variant_ct == 1)? "" : "s", variant_skip_ct);
     }
 
     // temporary kludge
     if (multiallelic_skip_ct) {
-      LOGERRPRINTFWW("Warning: %" PRIuPTR " multiallelic variant%s %sskipped (not yet supported).\n", multiallelic_skip_ct, (multiallelic_skip_ct == 1)? "" : "s", variant_skip_ct? "also " : "");
+      logerrprintfww("Warning: %" PRIuPTR " multiallelic variant%s %sskipped (not yet supported).\n", multiallelic_skip_ct, (multiallelic_skip_ct == 1)? "" : "s", variant_skip_ct? "also " : "");
     }
 
     if (gzrewind(gz_infile)) {
-      goto vcf_to_pgen_ret_READ_FAIL;
+      goto VcfToPgen_ret_READ_FAIL;
     }
     const uintptr_t line_ct = line_idx - 1;
 
     if (allele_idx_end > 2 * variant_ct) {
       variant_allele_idxs[variant_ct] = allele_idx_end;
-      bigstack_finalize_ul(variant_allele_idxs, variant_ct + 1);
+      BigstackFinalizeUl(variant_allele_idxs, variant_ct + 1);
     } else {
       variant_allele_idxs = nullptr;
     }
 
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
     if (fopen_checked(outname, FOPEN_WB, &pvarfile)) {
-      goto vcf_to_pgen_ret_OPEN_FAIL;
+      goto VcfToPgen_ret_OPEN_FAIL;
     }
     line_idx = 0;
     while (1) {
       if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-        goto vcf_to_pgen_ret_READ_FAIL;
+        goto VcfToPgen_ret_READ_FAIL;
       }
       if (++line_idx == header_line_ct) {
         break;
       }
       // don't use textbuf here, since header line length could theoretically
       // exceed kMaxMediumLine bytes
-      if (str_startswith2(loadbuf, "##fileformat=") || str_startswith2(loadbuf, "##fileDate=") || str_startswith2(loadbuf, "##source=") || str_startswith2(loadbuf, "##FORMAT=") || str_startswith2(loadbuf, "##chrSet=")) {
+      if (StrStartsWithUnsafe(loadbuf, "##fileformat=") || StrStartsWithUnsafe(loadbuf, "##fileDate=") || StrStartsWithUnsafe(loadbuf, "##source=") || StrStartsWithUnsafe(loadbuf, "##FORMAT=") || StrStartsWithUnsafe(loadbuf, "##chrSet=")) {
         continue;
       }
       const uint32_t line_slen = strlen(loadbuf);
-      if (str_startswith2(loadbuf, "##contig=<ID=")) {
+      if (StrStartsWithUnsafe(loadbuf, "##contig=<ID=")) {
         char* contig_name_start = &(loadbuf[strlen("##contig=<ID=")]);
         char* contig_name_end = strchr(contig_name_start, ',');
         if (!contig_name_end) {
@@ -1193,19 +1193,19 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
           contig_name_end = strchr(contig_name_start, '>');
           if (!contig_name_end) {
             snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of --vcf file does not have expected ##contig format.\n", line_idx);
-            goto vcf_to_pgen_ret_MALFORMED_INPUT_WW;
+            goto VcfToPgen_ret_MALFORMED_INPUT_WW;
           }
         }
-        const int32_t cur_chr_code = get_chr_code_counted(cip, contig_name_end - contig_name_start, contig_name_start);
+        const int32_t cur_chr_code = GetChrCodeCounted(cip, contig_name_end - contig_name_start, contig_name_start);
         if (cur_chr_code < 0) {
           continue;
         }
         if (S_CAST(uint32_t, cur_chr_code) <= cip->max_code) {
-          if (!is_set(base_chr_present, cur_chr_code)) {
+          if (!IsSetI(base_chr_present, cur_chr_code)) {
             continue;
           }
         } else {
-          if (!is_set(cip->chr_mask, cur_chr_code)) {
+          if (!IsSetI(cip->chr_mask, cur_chr_code)) {
             continue;
           }
         }
@@ -1224,28 +1224,28 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
       if (line_end[-1] == '\r') {
         --line_end;
       }
-      append_binary_eoln(&line_end);
+      AppendBinaryEoln(&line_end);
       if (fwrite_checked(loadbuf, line_end - loadbuf, pvarfile)) {
-        goto vcf_to_pgen_ret_WRITE_FAIL;
+        goto VcfToPgen_ret_WRITE_FAIL;
       }
     }
     char* write_iter = g_textbuf;
     if (cip->chrset_source) {
-      append_chrset_line(cip, &write_iter);
+      AppendChrsetLine(cip, &write_iter);
     }
     write_iter = strcpya(write_iter, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER");
     if (info_nonpr_present) {
       write_iter = strcpya(write_iter, "\tINFO");
     }
-    append_binary_eoln(&write_iter);
+    AppendBinaryEoln(&write_iter);
     if (fwrite_checked(g_textbuf, write_iter - g_textbuf, pvarfile)) {
-      goto vcf_to_pgen_ret_WRITE_FAIL;
+      goto VcfToPgen_ret_WRITE_FAIL;
     }
 
-    const uint32_t variant_ctl = BITCT_TO_WORDCT(variant_ct);
-    pgen_global_flags_t phase_dosage_gflags = are_all_words_zero(phasing_flags, variant_ctl)? kfPgenGlobal0 : kfPgenGlobalHardcallPhasePresent;
+    const uint32_t variant_ctl = BitCtToWordCt(variant_ct);
+    PgenGlobalFlags phase_dosage_gflags = AllWordsAreZero(phasing_flags, variant_ctl)? kfPgenGlobal0 : kfPgenGlobalHardcallPhasePresent;
     if (format_dosage_relevant) {
-      if (are_all_words_zero(dosage_flags, variant_ctl)) {
+      if (AllWordsAreZero(dosage_flags, variant_ctl)) {
         format_dosage_relevant = 0;
       } else {
         phase_dosage_gflags |= kfPgenGlobalDosagePresent;
@@ -1262,8 +1262,7 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
             break;
           }
         }
-        // todo: replace kBitsPerWord - MOD_NZ...
-      } else if (!((~last_nonref_flags_word) << (kBitsPerWord - MOD_NZ(variant_ct, kBitsPerWord)))) {
+      } else if (!((~last_nonref_flags_word) << ((-variant_ct) & (kBitsPerWord - 1)))) {
         nonref_flags_storage = 2;
         for (uint32_t widx = 0; widx < variant_ctl_m1; ++widx) {
           if (~nonref_flags[widx]) {
@@ -1276,41 +1275,41 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
       }
       if (nonref_flags_storage != 3) {
         nonref_flags = nullptr;
-        bigstack_end_reset(phasing_flags);
+        BigstackEndReset(phasing_flags);
       }
     }
-    const uint32_t sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
-    const uint32_t sample_ctl = BITCT_TO_WORDCT(sample_ct);
+    const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
     uintptr_t* genovec = nullptr;
     uintptr_t* phasepresent = nullptr;
     uintptr_t* phaseinfo = nullptr;
     uintptr_t* dosage_present = nullptr;
-    dosage_t* dosage_vals = nullptr;
+    Dosage* dosage_vals = nullptr;
     if (sample_ct) {
       snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
       uintptr_t spgw_alloc_cacheline_ct;
       uint32_t max_vrec_len;
-      reterr = spgw_init_phase1(outname, variant_allele_idxs, nonref_flags, variant_ct, sample_ct, phase_dosage_gflags, nonref_flags_storage, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+      reterr = SpgwInitPhase1(outname, variant_allele_idxs, nonref_flags, variant_ct, sample_ct, phase_dosage_gflags, nonref_flags_storage, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
       if (reterr) {
-        goto vcf_to_pgen_ret_1;
+        goto VcfToPgen_ret_1;
       }
       unsigned char* spgw_alloc;
       if (bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc)) {
-        goto vcf_to_pgen_ret_NOMEM;
+        goto VcfToPgen_ret_NOMEM;
       }
-      spgw_init_phase2(max_vrec_len, &spgw, spgw_alloc);
+      SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
 
       // if we weren't using bigstack_alloc, this would need to be sample_ctaw2
       if (bigstack_alloc_ul(sample_ctl2, &genovec)) {
-        goto vcf_to_pgen_ret_NOMEM;
+        goto VcfToPgen_ret_NOMEM;
       }
       // nothing should go wrong if trailing word is garbage, but keep an eye
       // on this
-      // fill_ulong_zero(sample_ctaw2 - sample_ctl2, &(genovec[sample_ctl2]));
+      // ZeroUlArr(sample_ctaw2 - sample_ctl2, &(genovec[sample_ctl2]));
       if (phase_dosage_gflags & kfPgenGlobalHardcallPhasePresent) {
         if (bigstack_alloc_ul(sample_ctl, &phasepresent) ||
             bigstack_alloc_ul(sample_ctl, &phaseinfo)) {
-          goto vcf_to_pgen_ret_NOMEM;
+          goto VcfToPgen_ret_NOMEM;
         }
         // bugfix (7 Sep 2017): phasepresent can't have nonzero trailing bits
         phasepresent[sample_ctl - 1] = 0;
@@ -1318,7 +1317,7 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
       if (phase_dosage_gflags & kfPgenGlobalDosagePresent) {
         if (bigstack_alloc_ul(sample_ctl, &dosage_present) ||
             bigstack_alloc_dosage(sample_ct, &dosage_vals)) {
-          goto vcf_to_pgen_ret_NOMEM;
+          goto VcfToPgen_ret_NOMEM;
         }
         dosage_present[sample_ctl - 1] = 0;
       }
@@ -1326,7 +1325,7 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
 
     char* writebuf;
     if (bigstack_alloc_c(2 * max_allele_slen + max_qualfilterinfo_slen + kMaxMediumLine + kMaxIdSlen + 32, &writebuf)) {
-      goto vcf_to_pgen_ret_NOMEM;
+      goto VcfToPgen_ret_NOMEM;
     }
     write_iter = writebuf;
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
@@ -1339,7 +1338,7 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
     uint32_t vidx = 0;
     for (line_idx = header_line_ct + 1; line_idx <= line_ct; ++line_idx) {
       if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-        goto vcf_to_pgen_ret_READ_FAIL;
+        goto VcfToPgen_ret_READ_FAIL;
       }
       if (ctou32(*loadbuf) < 32) {
         continue;
@@ -1347,13 +1346,13 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
       // 1. check if we skip this variant.  chromosome filter, require_gt, and
       //    (temporarily) multiple alt alleles can cause this.
       char* chr_code_end = S_CAST(char*, rawmemchr(loadbuf, '\t'));
-      int32_t chr_code_base = get_chr_code_raw(loadbuf);
+      int32_t chr_code_base = GetChrCodeRaw(loadbuf);
       if (chr_code_base == -1) {
         // skip hash table lookup if we know we aren't skipping the variant
         if (variant_skip_ct) {
           *chr_code_end = '\0';
-          const uint32_t chr_code = id_htable_find(loadbuf, TO_CONSTCPCONSTP(cip->nonstd_names), cip->nonstd_id_htable, chr_code_end - loadbuf, kChrHtableSize);
-          if ((chr_code == UINT32_MAX) || (!IS_SET(cip->chr_mask, chr_code))) {
+          const uint32_t chr_code = IdHtableFind(loadbuf, TO_CONSTCPCONSTP(cip->nonstd_names), cip->nonstd_id_htable, chr_code_end - loadbuf, kChrHtableSize);
+          if ((chr_code == UINT32_MAX) || (!IsSet(cip->chr_mask, chr_code))) {
             continue;
           }
           *chr_code_end = '\t';
@@ -1362,7 +1361,7 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
         if (chr_code_base >= S_CAST(int32_t, kMaxContigs)) {
           chr_code_base = cip->xymt_codes[chr_code_base - kMaxContigs];
         }
-        if ((chr_code_base < 0) || (!is_set(base_chr_present, chr_code_base))) {
+        if ((chr_code_base < 0) || (!IsSetI(base_chr_present, chr_code_base))) {
           assert(variant_skip_ct);
           continue;
         }
@@ -1393,15 +1392,15 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
           continue;
         }
       } else {
-        info_end = token_endnn(&(filter_end[1]));
+        info_end = CurTokenEnd(&(filter_end[1]));
         gt_missing = 1;
       }
 
       // make sure POS starts with an integer, apply --output-chr setting
       uint32_t cur_bp;
-      if (scan_uint_defcap(pos_str, &cur_bp)) {
+      if (ScanUintDefcap(pos_str, &cur_bp)) {
         snprintf(g_logbuf, kLogbufSize, "Error: Invalid POS on line %" PRIuPTR " of --vcf file.\n", line_idx);
-        goto vcf_to_pgen_ret_MALFORMED_INPUT_2N;
+        goto VcfToPgen_ret_MALFORMED_INPUT_2N;
       }
 
       // temporary kludge
@@ -1410,7 +1409,7 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
       if (chr_code_base == -1) {
         write_iter = memcpya(write_iter, loadbuf, chr_code_end - loadbuf);
       } else {
-        write_iter = chr_name_write(cip, chr_code_base, write_iter);
+        write_iter = chrtoa(cip, chr_code_base, write_iter);
       }
       *write_iter++ = '\t';
       write_iter = uint32toa(cur_bp, write_iter);
@@ -1435,7 +1434,7 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
         // unsafe to flush for now due to multiallelic kludge
         /*
         if (fwrite_ck(writebuf_flush, pvarfile, &write_iter)) {
-          goto vcf_to_pgen_ret_WRITE_FAIL;
+          goto VcfToPgen_ret_WRITE_FAIL;
         }
         */
         if (ucc != ',') {
@@ -1451,16 +1450,16 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
         continue;
       }
       if (fwrite_ck(writebuf_flush, pvarfile, &write_iter)) {
-        goto vcf_to_pgen_ret_WRITE_FAIL;
+        goto VcfToPgen_ret_WRITE_FAIL;
       }
 
       write_iter = memcpya(write_iter, loadbuf_iter, (info_nonpr_present? info_end : filter_end) - loadbuf_iter);
-      append_binary_eoln(&write_iter);
+      AppendBinaryEoln(&write_iter);
       if (gt_missing) {
         if (sample_ct) {
-          fill_all_bits(2 * sample_ct, genovec);
-          if (spgw_append_biallelic_genovec(genovec, &spgw)) {
-            goto vcf_to_pgen_ret_WRITE_FAIL;
+          SetAllBits(2 * sample_ct, genovec);
+          if (SpgwAppendBiallelicGenovec(genovec, &spgw)) {
+            goto VcfToPgen_ret_WRITE_FAIL;
           }
         }
       } else {
@@ -1468,13 +1467,13 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
         uint32_t qual_field_skips[2];
         int32_t qual_thresholds[2];
         if (format_gq_or_dp_relevant) {
-          qual_field_ct = vcf_qual_scan_init(format_start, loadbuf_iter, vcf_min_gq, vcf_min_dp, qual_field_skips, qual_thresholds);
+          qual_field_ct = VcfQualScanInit(format_start, loadbuf_iter, vcf_min_gq, vcf_min_dp, qual_field_skips, qual_thresholds);
         }
 
         uint32_t dosage_field_idx = 0;
-        dosage_t* dosage_vals_iter = dosage_vals;
-        if (dosage_flags && IS_SET(dosage_flags, vidx)) {
-          dosage_field_idx = get_vcf_format_position(dosage_import_field, format_start, loadbuf_iter, dosage_import_field_slen);
+        Dosage* dosage_vals_iter = dosage_vals;
+        if (dosage_flags && IsSet(dosage_flags, vidx)) {
+          dosage_field_idx = GetVcfFormatPosition(dosage_import_field, format_start, loadbuf_iter, dosage_import_field_slen);
         }
 
         // todo: multiallelic variants
@@ -1482,7 +1481,7 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
         const uint32_t sample_ctl2_m1 = sample_ctl2 - 1;
         uint32_t inner_loop_last = kBitsPerWordD2 - 1;
         uint32_t widx = 0;
-        if (!IS_SET(phasing_flags, vidx)) {
+        if (!IsSet(phasing_flags, vidx)) {
           while (1) {
             if (widx >= sample_ctl2_m1) {
               if (widx > sample_ctl2_m1) {
@@ -1496,14 +1495,14 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
               char* cur_gtext_end = strchr(loadbuf_iter, '\t');
               if (!cur_gtext_end) {
                 if ((sample_idx_lowbits != inner_loop_last) || (widx != sample_ctl2_m1)) {
-                  goto vcf_to_pgen_ret_MISSING_TOKENS;
+                  goto VcfToPgen_ret_MISSING_TOKENS;
                 }
-                cur_gtext_end = next_prespace(loadbuf_iter);
+                cur_gtext_end = FirstPrespace(loadbuf_iter);
               }
               uintptr_t cur_geno;
               if (qual_field_ct) {
-                if (vcf_check_quals(qual_field_skips, qual_thresholds, loadbuf_iter, cur_gtext_end, qual_field_ct)) {
-                  goto vcf_to_pgen_force_missing_1;
+                if (VcfCheckQuals(qual_field_skips, qual_thresholds, loadbuf_iter, cur_gtext_end, qual_field_ct)) {
+                  goto VcfToPgen_force_missing_1;
                 }
               }
               {
@@ -1523,11 +1522,11 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
                         cur_geno += second_allele_idx;
                       } else if (second_allele_idx != (~k0LU) * 2) {
                         // not '.'
-                        goto vcf_to_pgen_ret_INVALID_GT;
+                        goto VcfToPgen_ret_INVALID_GT;
                       } else if (vcf_half_call == kVcfHalfCallMissing) {
                         cur_geno = 3;
                       } else if (vcf_half_call == kVcfHalfCallError) {
-                        goto vcf_to_pgen_ret_HALF_CALL_ERROR;
+                        goto VcfToPgen_ret_HALF_CALL_ERROR;
                       } else {
                         // kVcfHalfCallHaploid, kVcfHalfCallReference
                         cur_geno <<= vcf_half_call;
@@ -1536,16 +1535,16 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
                   }
                 } else if (cur_geno != (~k0LU) * 2) {
                   // not '.'
-                  goto vcf_to_pgen_ret_INVALID_GT;
+                  goto VcfToPgen_ret_INVALID_GT;
                 } else if (vcf_half_call != kVcfHalfCallMissing) {
                   const char second_allele_char = loadbuf_iter[2];
                   if ((second_allele_char != '.') && ((loadbuf_iter[1] == '/') || (loadbuf_iter[1] == '|'))) {
                     cur_geno = ctoul(second_allele_char) - 48;
                     if (cur_geno > 1) {
-                      goto vcf_to_pgen_ret_INVALID_GT;
+                      goto VcfToPgen_ret_INVALID_GT;
                     }
                     if (vcf_half_call == kVcfHalfCallError) {
-                      goto vcf_to_pgen_ret_HALF_CALL_ERROR;
+                      goto VcfToPgen_ret_HALF_CALL_ERROR;
                     }
                     // kVcfHalfCallHaploid, kVcfHalfCallReference
                     cur_geno <<= vcf_half_call;
@@ -1558,8 +1557,8 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
                 if (dosage_field_idx) {
                   uint32_t is_missing = 0;
                   uint32_t dosage_int;
-                  if (!parse_vcf_dosage(loadbuf_iter, cur_gtext_end, dosage_field_idx, is_haploid, dosage_is_gp, import_dosage_certainty, &is_missing, &dosage_int)) {
-                    const uint32_t cur_halfdist = biallelic_dosage_halfdist(dosage_int);
+                  if (!ParseVcfDosage(loadbuf_iter, cur_gtext_end, dosage_field_idx, is_haploid, dosage_is_gp, import_dosage_certainty, &is_missing, &dosage_int)) {
+                    const uint32_t cur_halfdist = BiallelicDosageHalfdist(dosage_int);
                     if ((cur_geno == 3) && (cur_halfdist >= hard_call_halfdist)) {
                       // only overwrite GT if (i) it was missing, and (ii)
                       // the dosage's distance from the nearest hardcall
@@ -1573,12 +1572,12 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
                       *dosage_vals_iter++ = dosage_int;
                     }
                   } else if (!is_missing) {
-                    goto vcf_to_pgen_ret_INVALID_DOSAGE;
+                    goto VcfToPgen_ret_INVALID_DOSAGE;
                   }
                 }
               }
               while (0) {
-              vcf_to_pgen_force_missing_1:
+              VcfToPgen_force_missing_1:
                 cur_geno = 3;
               }
               genovec_word |= cur_geno << (2 * sample_idx_lowbits);
@@ -1586,18 +1585,18 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
             }
             genovec[widx] = genovec_word;
             if (dosage_field_idx) {
-              R_CAST(halfword_t*, dosage_present)[widx] = dosage_present_hw;
+              R_CAST(Halfword*, dosage_present)[widx] = dosage_present_hw;
             }
             ++widx;
           }
           if (!dosage_field_idx) {
-            if (spgw_append_biallelic_genovec(genovec, &spgw)) {
-              goto vcf_to_pgen_ret_WRITE_FAIL;
+            if (SpgwAppendBiallelicGenovec(genovec, &spgw)) {
+              goto VcfToPgen_ret_WRITE_FAIL;
             }
           } else {
             assert(dosage_vals_iter != dosage_vals);
-            if (spgw_append_biallelic_genovec_dosage16(genovec, dosage_present, dosage_vals, dosage_vals_iter - dosage_vals, &spgw)) {
-              goto vcf_to_pgen_ret_WRITE_FAIL;
+            if (SpgwAppendBiallelicGenovecDosage16(genovec, dosage_present, dosage_vals, dosage_vals_iter - dosage_vals, &spgw)) {
+              goto VcfToPgen_ret_WRITE_FAIL;
             }
           }
         } else {
@@ -1616,14 +1615,14 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
               char* cur_gtext_end = strchr(loadbuf_iter, '\t');
               if (!cur_gtext_end) {
                 if ((sample_idx_lowbits != inner_loop_last) || (widx != sample_ctl2_m1)) {
-                  goto vcf_to_pgen_ret_MISSING_TOKENS;
+                  goto VcfToPgen_ret_MISSING_TOKENS;
                 }
-                cur_gtext_end = next_prespace(loadbuf_iter);
+                cur_gtext_end = FirstPrespace(loadbuf_iter);
               }
               uintptr_t cur_geno;
               if (qual_field_ct) {
-                if (vcf_check_quals(qual_field_skips, qual_thresholds, loadbuf_iter, cur_gtext_end, qual_field_ct)) {
-                  goto vcf_to_pgen_force_missing_2;
+                if (VcfCheckQuals(qual_field_skips, qual_thresholds, loadbuf_iter, cur_gtext_end, qual_field_ct)) {
+                  goto VcfToPgen_force_missing_2;
                 }
               }
               {
@@ -1653,11 +1652,11 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
                         }
                       } else if (second_allele_idx != (~k0LU) * 2) {
                         // not '.'
-                        goto vcf_to_pgen_ret_INVALID_GT;
+                        goto VcfToPgen_ret_INVALID_GT;
                       } else if (vcf_half_call == kVcfHalfCallMissing) {
                         cur_geno = 3;
                       } else if (vcf_half_call == kVcfHalfCallError) {
-                        goto vcf_to_pgen_ret_HALF_CALL_ERROR;
+                        goto VcfToPgen_ret_HALF_CALL_ERROR;
                       } else {
                         // kVcfHalfCallHaploid, kVcfHalfCallReference
                         cur_geno <<= vcf_half_call;
@@ -1666,16 +1665,16 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
                   }
                 } else if (cur_geno != (~k0LU) * 2) {
                   // not '.'
-                  goto vcf_to_pgen_ret_INVALID_GT;
+                  goto VcfToPgen_ret_INVALID_GT;
                 } else if (vcf_half_call != kVcfHalfCallMissing) {
                   const char second_allele_char = loadbuf_iter[2];
                   if ((second_allele_char != '.') && ((loadbuf_iter[1] == '/') || (loadbuf_iter[1] == '|'))) {
                     cur_geno = ctoul(second_allele_char) - 48;
                     if (cur_geno > 1) {
-                      goto vcf_to_pgen_ret_INVALID_GT;
+                      goto VcfToPgen_ret_INVALID_GT;
                     }
                     if (vcf_half_call == kVcfHalfCallError) {
-                      goto vcf_to_pgen_ret_HALF_CALL_ERROR;
+                      goto VcfToPgen_ret_HALF_CALL_ERROR;
                     }
                     // kVcfHalfCallHaploid, kVcfHalfCallReference
                     cur_geno <<= vcf_half_call;
@@ -1688,8 +1687,8 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
                 if (dosage_field_idx) {
                   uint32_t is_missing = 0;
                   uint32_t dosage_int;
-                  if (!parse_vcf_dosage(loadbuf_iter, cur_gtext_end, dosage_field_idx, is_haploid, dosage_is_gp, import_dosage_certainty, &is_missing, &dosage_int)) {
-                    const uint32_t cur_halfdist = biallelic_dosage_halfdist(dosage_int);
+                  if (!ParseVcfDosage(loadbuf_iter, cur_gtext_end, dosage_field_idx, is_haploid, dosage_is_gp, import_dosage_certainty, &is_missing, &dosage_int)) {
+                    const uint32_t cur_halfdist = BiallelicDosageHalfdist(dosage_int);
                     if ((cur_geno == 3) && (cur_halfdist >= hard_call_halfdist)) {
                       cur_geno = (dosage_int + (kDosage4th * k1LU)) / kDosageMid;
                     }
@@ -1698,32 +1697,32 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
                       *dosage_vals_iter++ = dosage_int;
                     }
                   } else if (!is_missing) {
-                    goto vcf_to_pgen_ret_INVALID_DOSAGE;
+                    goto VcfToPgen_ret_INVALID_DOSAGE;
                   }
                 }
               }
               while (0) {
-              vcf_to_pgen_force_missing_2:
+              VcfToPgen_force_missing_2:
                 cur_geno = 3;
               }
               genovec_word |= cur_geno << (2 * sample_idx_lowbits);
               loadbuf_iter = &(cur_gtext_end[1]);
             }
             genovec[widx] = genovec_word;
-            R_CAST(halfword_t*, phasepresent)[widx] = phasepresent_halfword;
-            R_CAST(halfword_t*, phaseinfo)[widx] = phaseinfo_halfword;
+            R_CAST(Halfword*, phasepresent)[widx] = phasepresent_halfword;
+            R_CAST(Halfword*, phaseinfo)[widx] = phaseinfo_halfword;
             if (dosage_field_idx) {
-              R_CAST(halfword_t*, dosage_present)[widx] = dosage_present_hw;
+              R_CAST(Halfword*, dosage_present)[widx] = dosage_present_hw;
             }
             ++widx;
           }
           if (!dosage_field_idx) {
-            if (spgw_append_biallelic_genovec_hphase(genovec, phasepresent, phaseinfo, &spgw)) {
-              goto vcf_to_pgen_ret_WRITE_FAIL;
+            if (SpgwAppendBiallelicGenovecHphase(genovec, phasepresent, phaseinfo, &spgw)) {
+              goto VcfToPgen_ret_WRITE_FAIL;
             }
           } else {
-            if (spgw_append_biallelic_genovec_hphase_dosage16(genovec, phasepresent, phaseinfo, dosage_present, dosage_vals, dosage_vals_iter - dosage_vals, &spgw)) {
-              goto vcf_to_pgen_ret_WRITE_FAIL;
+            if (SpgwAppendBiallelicGenovecHphaseDosage16(genovec, phasepresent, phaseinfo, dosage_present, dosage_vals, dosage_vals_iter - dosage_vals, &spgw)) {
+              goto VcfToPgen_ret_WRITE_FAIL;
             }
           }
         }
@@ -1734,10 +1733,10 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
       }
     }
     if (fclose_flush_null(writebuf_flush, write_iter, &pvarfile)) {
-      goto vcf_to_pgen_ret_WRITE_FAIL;
+      goto VcfToPgen_ret_WRITE_FAIL;
     }
     if (sample_ct) {
-      spgw_finish(&spgw);
+      SpgwFinish(&spgw);
     }
     putc_unlocked('\r', stdout);
     write_iter = strcpya(g_logbuf, "--vcf: ");
@@ -1762,77 +1761,77 @@ pglerr_t vcf_to_pgen(const char* vcfname, const char* preexisting_psamname, cons
       write_iter = strcpya(write_iter, " (no samples present)");
     }
     memcpyl3a(write_iter, ".\n");
-    wordwrapb(0);
-    logprintb();
+    WordWrapB(0);
+    logputsb();
   }
   while (0) {
-  vcf_to_pgen_ret_NOMEM:
+  VcfToPgen_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  vcf_to_pgen_ret_OPEN_FAIL:
+  VcfToPgen_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  vcf_to_pgen_ret_READ_FAIL:
+  VcfToPgen_ret_READ_FAIL:
     reterr = kPglRetReadFail;
     break;
-  vcf_to_pgen_ret_WRITE_FAIL:
+  VcfToPgen_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
-  vcf_to_pgen_ret_HALF_CALL_ERROR:
+  VcfToPgen_ret_HALF_CALL_ERROR:
     putc_unlocked('\n', stdout);
-    LOGERRPRINTF("Error: Line %" PRIuPTR " of --vcf file has a GT half-call.\n", line_idx);
+    logerrprintf("Error: Line %" PRIuPTR " of --vcf file has a GT half-call.\n", line_idx);
     if (!vcf_half_call_explicit_error) {
-      logerrprint("Use --vcf-half-call to specify how these should be processed.\n");
+      logerrputs("Use --vcf-half-call to specify how these should be processed.\n");
     }
     reterr = kPglRetMalformedInput;
     break;
-  vcf_to_pgen_ret_INVALID_GT:
+  VcfToPgen_ret_INVALID_GT:
     putc_unlocked('\n', stdout);
-    LOGERRPRINTF("Error: Line %" PRIuPTR " of --vcf file has an invalid GT field.\n", line_idx);
+    logerrprintf("Error: Line %" PRIuPTR " of --vcf file has an invalid GT field.\n", line_idx);
     reterr = kPglRetMalformedInput;
     break;
-  vcf_to_pgen_ret_MISSING_TOKENS:
+  VcfToPgen_ret_MISSING_TOKENS:
     putc_unlocked('\n', stdout);
-    LOGERRPRINTF("Error: Line %" PRIuPTR " of --vcf file has fewer tokens than expected.\n", line_idx);
+    logerrprintf("Error: Line %" PRIuPTR " of --vcf file has fewer tokens than expected.\n", line_idx);
     reterr = kPglRetMalformedInput;
     break;
-  vcf_to_pgen_ret_LONG_LINE_N:
+  VcfToPgen_ret_LONG_LINE_N:
     putc_unlocked('\n', stdout);
-  vcf_to_pgen_ret_LONG_LINE:
+  VcfToPgen_ret_LONG_LINE:
     snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --vcf file is pathologically long.\n", line_idx);
-  vcf_to_pgen_ret_MALFORMED_INPUT_2N:
-    logprint("\n");
-    logerrprintb();
-  vcf_to_pgen_ret_MALFORMED_INPUT:
+  VcfToPgen_ret_MALFORMED_INPUT_2N:
+    logputs("\n");
+    logerrputsb();
+  VcfToPgen_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
-  vcf_to_pgen_ret_MALFORMED_INPUT_WW:
-    wordwrapb(0);
-    logerrprintb();
+  VcfToPgen_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
     reterr = kPglRetMalformedInput;
     break;
-  vcf_to_pgen_ret_INVALID_DOSAGE:
+  VcfToPgen_ret_INVALID_DOSAGE:
     putc_unlocked('\n', stdout);
-    LOGERRPRINTFWW("Error: Line %" PRIuPTR " of --vcf file has an invalid %s field.\n", line_idx, dosage_import_field);
-  vcf_to_pgen_ret_INCONSISTENT_INPUT:
+    logerrprintfww("Error: Line %" PRIuPTR " of --vcf file has an invalid %s field.\n", line_idx, dosage_import_field);
+  VcfToPgen_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
   }
- vcf_to_pgen_ret_1:
-  if (spgw_cleanup(&spgw) && (!reterr)) {
+ VcfToPgen_ret_1:
+  if (SpgwCleanup(&spgw) && (!reterr)) {
     reterr = kPglRetWriteFail;
   }
   gzclose_cond(gz_infile);
   fclose_cond(pvarfile);
-  bigstack_double_reset(bigstack_mark, bigstack_end_mark);
+  BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }
 
-pglerr_t ox_sample_to_psam(const char* samplename, const char* ox_missing_code, misc_flags_t misc_flags, char* outname, char* outname_end, uint32_t* sample_ct_ptr) {
+PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, MiscFlags misc_flags, char* outname, char* outname_end, uint32_t* sample_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   gzFile gz_infile = nullptr;
   FILE* psamfile = nullptr;
-  pglerr_t reterr = kPglRetSuccess;
+  PglErr reterr = kPglRetSuccess;
   uintptr_t loadbuf_size = 0;
   uintptr_t line_idx = 0;
   {
@@ -1853,30 +1852,30 @@ pglerr_t ox_sample_to_psam(const char* samplename, const char* ox_missing_code, 
     gz_infile = gzopen(samplename, FOPEN_RB);
     if (!gz_infile) {
       const uint32_t slen = strlen(samplename);
-      if (str_endswith(samplename, ".sample", slen) ||
-          str_endswith(samplename, ".sample.gz", slen)) {
-        LOGERRPRINTFWW(g_errstr_fopen, samplename);
+      if (StrEndsWith(samplename, ".sample", slen) ||
+          StrEndsWith(samplename, ".sample.gz", slen)) {
+        logerrprintfww(kErrprintfFopen, samplename);
       } else {
-        LOGERRPRINTFWW("Error: Failed to open %s. (--sample expects a complete filename; did you forget '.sample' at the end?)\n", samplename);
+        logerrprintfww("Error: Failed to open %s. (--sample expects a complete filename; did you forget '.sample' at the end?)\n", samplename);
       }
-      goto ox_sample_to_psam_ret_OPEN_FAIL;
+      goto OxSampleToPsam_ret_OPEN_FAIL;
     }
     if (gzbuffer(gz_infile, 131072)) {
-      goto ox_sample_to_psam_ret_NOMEM;
+      goto OxSampleToPsam_ret_NOMEM;
     }
     uint32_t mc_ct = 0;
     uintptr_t max_mc_blen = 1;
     char* sorted_mc = nullptr;
     if (!ox_missing_code) {
       if (bigstack_alloc_c(3, &sorted_mc)) {
-        goto ox_sample_to_psam_ret_NOMEM;
+        goto OxSampleToPsam_ret_NOMEM;
       }
       memcpy(sorted_mc, "NA", 3);
       mc_ct = 1;
       max_mc_blen = 3;
     } else {
       // er, this should use something like
-      // count_and_measure_multistr_reverse_alloc()...
+      // CountAndMeasureMultistrReverseAlloc()...
       const char* missing_code_iter = ox_missing_code;
       while (*missing_code_iter) {
         while (*missing_code_iter == ',') {
@@ -1895,7 +1894,7 @@ pglerr_t ox_sample_to_psam(const char* samplename, const char* ox_missing_code, 
       }
       if (mc_ct) {
         if (bigstack_alloc_c(mc_ct * max_mc_blen, &sorted_mc)) {
-          goto ox_sample_to_psam_ret_NOMEM;
+          goto OxSampleToPsam_ret_NOMEM;
         }
         missing_code_iter = ox_missing_code;
         for (uintptr_t mc_idx = 0; mc_idx < mc_ct; ++mc_idx) {
@@ -1914,9 +1913,9 @@ pglerr_t ox_sample_to_psam(const char* samplename, const char* ox_missing_code, 
     if (loadbuf_size > kMaxLongLine) {
       loadbuf_size = kMaxLongLine;
     } else if (loadbuf_size <= kMaxMediumLine) {
-      goto ox_sample_to_psam_ret_NOMEM;
+      goto OxSampleToPsam_ret_NOMEM;
     } else {
-      loadbuf_size = round_up_pow2(loadbuf_size, kCacheline);
+      loadbuf_size = RoundUpPow2(loadbuf_size, kCacheline);
     }
     char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
     loadbuf[loadbuf_size - 1] = ' ';
@@ -1925,37 +1924,37 @@ pglerr_t ox_sample_to_psam(const char* samplename, const char* ox_missing_code, 
       ++line_idx;
       if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
         if (!gzeof(gz_infile)) {
-          goto ox_sample_to_psam_ret_READ_FAIL;
+          goto OxSampleToPsam_ret_READ_FAIL;
         }
-        logerrprint("Error: Empty .sample file.\n");
-        goto ox_sample_to_psam_ret_MALFORMED_INPUT;
+        logerrputs("Error: Empty .sample file.\n");
+        goto OxSampleToPsam_ret_MALFORMED_INPUT;
       }
       if (!loadbuf[loadbuf_size - 1]) {
-        goto ox_sample_to_psam_ret_LONG_LINE;
+        goto OxSampleToPsam_ret_LONG_LINE;
       }
-      loadbuf_first_token = skip_initial_spaces(loadbuf);
-    } while (is_eoln_kns(*loadbuf_first_token));
-    char* token_end = token_endnn(loadbuf_first_token);
+      loadbuf_first_token = FirstNonTspace(loadbuf);
+    } while (IsEolnKns(*loadbuf_first_token));
+    char* token_end = CurTokenEnd(loadbuf_first_token);
     if (!strequal_k(loadbuf_first_token, "ID_1", token_end - loadbuf_first_token)) {
-      goto ox_sample_to_psam_ret_INVALID_SAMPLE_HEADER_1;
+      goto OxSampleToPsam_ret_INVALID_SAMPLE_HEADER_1;
     }
     // currently accepts tab as delimiter, though .sample spec technically
     // prohibits that
-    char* loadbuf_iter = skip_initial_spaces(token_end);
+    char* loadbuf_iter = FirstNonTspace(token_end);
     uint32_t token_slen = strlen_se(loadbuf_iter);
     if (!strequal_k(loadbuf_iter, "ID_2", token_slen)) {
-      goto ox_sample_to_psam_ret_INVALID_SAMPLE_HEADER_1;
+      goto OxSampleToPsam_ret_INVALID_SAMPLE_HEADER_1;
     }
-    loadbuf_iter = skip_initial_spaces(&(loadbuf_iter[token_slen]));
+    loadbuf_iter = FirstNonTspace(&(loadbuf_iter[token_slen]));
     token_slen = strlen_se(loadbuf_iter);
-    if (!match_upper_k(loadbuf_iter, "MISSING", token_slen)) {
-      goto ox_sample_to_psam_ret_INVALID_SAMPLE_HEADER_1;
+    if (!MatchUpperKLen(loadbuf_iter, "MISSING", token_slen)) {
+      goto OxSampleToPsam_ret_INVALID_SAMPLE_HEADER_1;
     }
-    loadbuf_iter = skip_initial_spaces(&(loadbuf_iter[token_slen]));
+    loadbuf_iter = FirstNonTspace(&(loadbuf_iter[token_slen]));
 
     snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
     if (fopen_checked(outname, FOPEN_WB, &psamfile)) {
-      goto ox_sample_to_psam_ret_OPEN_FAIL;
+      goto OxSampleToPsam_ret_OPEN_FAIL;
     }
     // categorical phenotypes are lengthened by 1 character ('C' added in
     // front), so this needs to be 50% larger than loadbuf to handle worst case
@@ -1968,82 +1967,82 @@ pglerr_t ox_sample_to_psam(const char* samplename, const char* ox_missing_code, 
 
     uint32_t col_ct = 3;
 
-    while (!is_eoln_kns(*loadbuf_iter)) {
-      token_end = token_endnn(loadbuf_iter);
+    while (!IsEolnKns(*loadbuf_iter)) {
+      token_end = CurTokenEnd(loadbuf_iter);
       token_slen = token_end - loadbuf_iter;
-      if (match_upper_k(loadbuf_iter, "SEX", token_slen)) {
+      if (MatchUpperKLen(loadbuf_iter, "SEX", token_slen)) {
         if (sex_col) {
-          logerrprint("Error: Multiple sex columns in .sample file.\n");
-          goto ox_sample_to_psam_ret_MALFORMED_INPUT;
+          logerrputs("Error: Multiple sex columns in .sample file.\n");
+          goto OxSampleToPsam_ret_MALFORMED_INPUT;
         }
         sex_col = col_ct;
       }
       ++col_ct;
-      loadbuf_iter = skip_initial_spaces(token_end);
+      loadbuf_iter = FirstNonTspace(token_end);
     }
 
     do {
       ++line_idx;
       if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
         if (!gzeof(gz_infile)) {
-          goto ox_sample_to_psam_ret_READ_FAIL;
+          goto OxSampleToPsam_ret_READ_FAIL;
         }
-        logerrprint("Error: Only one nonempty line in .sample file.\n");
-        goto ox_sample_to_psam_ret_MALFORMED_INPUT;
+        logerrputs("Error: Only one nonempty line in .sample file.\n");
+        goto OxSampleToPsam_ret_MALFORMED_INPUT;
       }
       if (!loadbuf[loadbuf_size - 1]) {
-        goto ox_sample_to_psam_ret_LONG_LINE;
+        goto OxSampleToPsam_ret_LONG_LINE;
       }
-      loadbuf_first_token = skip_initial_spaces(loadbuf);
-    } while (is_eoln_kns(*loadbuf_first_token));
+      loadbuf_first_token = FirstNonTspace(loadbuf);
+    } while (IsEolnKns(*loadbuf_first_token));
 
-    token_end = token_endnn(loadbuf_first_token);
+    token_end = CurTokenEnd(loadbuf_first_token);
     if ((S_CAST(uintptr_t, token_end - loadbuf_first_token) != 1) || (*loadbuf_first_token != '0')) {
-      goto ox_sample_to_psam_ret_INVALID_SAMPLE_HEADER_2;
+      goto OxSampleToPsam_ret_INVALID_SAMPLE_HEADER_2;
     }
-    loadbuf_iter = skip_initial_spaces(token_end);
+    loadbuf_iter = FirstNonTspace(token_end);
     token_slen = strlen_se(loadbuf_iter);
     if ((token_slen != 1) || (*loadbuf_iter != '0')) {
-      goto ox_sample_to_psam_ret_INVALID_SAMPLE_HEADER_2;
+      goto OxSampleToPsam_ret_INVALID_SAMPLE_HEADER_2;
     }
-    loadbuf_iter = skip_initial_spaces(&(loadbuf_iter[1]));
+    loadbuf_iter = FirstNonTspace(&(loadbuf_iter[1]));
     token_slen = strlen_se(loadbuf_iter);
     if ((token_slen != 1) || (*loadbuf_iter != '0')) {
-      goto ox_sample_to_psam_ret_INVALID_SAMPLE_HEADER_2;
+      goto OxSampleToPsam_ret_INVALID_SAMPLE_HEADER_2;
     }
     loadbuf_iter = &(loadbuf_iter[1]);
 
-    const uint32_t col_ctl = BITCT_TO_WORDCT(col_ct);
+    const uint32_t col_ctl = BitCtToWordCt(col_ct);
     uintptr_t* col_is_categorical = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(col_ctl * sizeof(intptr_t)));
     uintptr_t* col_is_qt = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(col_ctl * sizeof(intptr_t)));
-    fill_ulong_zero(col_ctl, col_is_categorical);
-    fill_ulong_zero(col_ctl, col_is_qt);
+    ZeroUlArr(col_ctl, col_is_categorical);
+    ZeroUlArr(col_ctl, col_is_qt);
     uint32_t at_least_one_binary_pheno = 0;
     for (uint32_t col_idx = 3; col_idx < col_ct; ++col_idx) {
-      loadbuf_iter = skip_initial_spaces(loadbuf_iter);
+      loadbuf_iter = FirstNonTspace(loadbuf_iter);
       unsigned char col_type_char = *loadbuf_iter;
-      if (is_eoln_kns(col_type_char)) {
-        logerrprint("Error: Second .sample header line has fewer tokens than the first.\n");
-        goto ox_sample_to_psam_ret_MALFORMED_INPUT;
+      if (IsEolnKns(col_type_char)) {
+        logerrputs("Error: Second .sample header line has fewer tokens than the first.\n");
+        goto OxSampleToPsam_ret_MALFORMED_INPUT;
       }
       if (loadbuf_iter[1] > ' ') {
-        goto ox_sample_to_psam_ret_INVALID_SAMPLE_HEADER_2;
+        goto OxSampleToPsam_ret_INVALID_SAMPLE_HEADER_2;
       }
       if (col_idx == sex_col) {
         if (col_type_char != 'D') {
-          logerrprint("Error: .sample sex column is not of type 'D'.\n");
-          goto ox_sample_to_psam_ret_MALFORMED_INPUT;
+          logerrputs("Error: .sample sex column is not of type 'D'.\n");
+          goto OxSampleToPsam_ret_MALFORMED_INPUT;
         }
       } else {
         if ((col_type_char == 'C') || (col_type_char == 'P')) {
-          set_bit(col_idx, col_is_qt);
+          SetBit(col_idx, col_is_qt);
         } else if (col_type_char == 'D') {
-          set_bit(col_idx, col_is_categorical);
+          SetBit(col_idx, col_is_categorical);
         } else {
           at_least_one_binary_pheno = 1;
           if (col_type_char != 'B') {
             snprintf(g_logbuf, kLogbufSize, "Error: Unrecognized .sample variable type '%c'.\n", col_type_char);
-            goto ox_sample_to_psam_ret_MALFORMED_INPUT_2;
+            goto OxSampleToPsam_ret_MALFORMED_INPUT_2;
           }
         }
       }
@@ -2052,19 +2051,19 @@ pglerr_t ox_sample_to_psam(const char* samplename, const char* ox_missing_code, 
     if (at_least_one_binary_pheno) {
       // check for pathological case
       if ((bsearch_str("0", sorted_mc, 1, max_mc_blen, mc_ct) != -1) || (bsearch_str("1", sorted_mc, 1, max_mc_blen, mc_ct) != -1)) {
-        logerrprint("Error: '0' and '1' are unacceptable missing case/control phenotype codes.\n");
-        goto ox_sample_to_psam_ret_INCONSISTENT_INPUT;
+        logerrputs("Error: '0' and '1' are unacceptable missing case/control phenotype codes.\n");
+        goto OxSampleToPsam_ret_INCONSISTENT_INPUT;
       }
     }
     // to make --data and --data --make-pgen consistent, we do a two-pass load,
     // checking for empty phenotypes in the first pass.
-    uintptr_t* col_keep = S_CAST(uintptr_t*, bigstack_alloc_raw(round_up_pow2(col_ct, kCacheline * CHAR_BIT) / CHAR_BIT));
+    uintptr_t* col_keep = S_CAST(uintptr_t*, bigstack_alloc_raw(RoundUpPow2(col_ct, kCacheline * CHAR_BIT) / CHAR_BIT));
     col_keep[0] = 7;
-    fill_ulong_zero(col_ctl - 1, &(col_keep[1]));
+    ZeroUlArr(col_ctl - 1, &(col_keep[1]));
     uint32_t uncertain_col_ct = col_ct - 3;
     if (sex_col) {
       // we don't care if sex column is all-NA
-      set_bit(sex_col, col_keep);
+      SetBit(sex_col, col_keep);
       --uncertain_col_ct;
     }
     while (uncertain_col_ct) {
@@ -2073,10 +2072,10 @@ pglerr_t ox_sample_to_psam(const char* samplename, const char* ox_missing_code, 
         break;
       }
       if (!loadbuf[loadbuf_size - 1]) {
-        goto ox_sample_to_psam_ret_LONG_LINE;
+        goto OxSampleToPsam_ret_LONG_LINE;
       }
-      loadbuf_iter = skip_initial_spaces(loadbuf);
-      if (is_eoln_kns(*loadbuf_iter)) {
+      loadbuf_iter = FirstNonTspace(loadbuf);
+      if (IsEolnKns(*loadbuf_iter)) {
         continue;
       }
 
@@ -2084,15 +2083,15 @@ pglerr_t ox_sample_to_psam(const char* samplename, const char* ox_missing_code, 
       uint32_t old_col_uidx = 0;
       uint32_t col_uidx = 0;
       for (uint32_t uncertain_col_idx = 0; uncertain_col_idx < old_uncertain_col_ct; ++uncertain_col_idx, ++col_uidx) {
-        next_unset_unsafe_ck(col_keep, &col_uidx);
-        loadbuf_iter = next_token_mult(loadbuf_iter, col_uidx - old_col_uidx);
+        NextUnsetUnsafeCk32(col_keep, &col_uidx);
+        loadbuf_iter = NextTokenMult(loadbuf_iter, col_uidx - old_col_uidx);
         if (!loadbuf_iter) {
-          goto ox_sample_to_psam_ret_MISSING_TOKENS;
+          goto OxSampleToPsam_ret_MISSING_TOKENS;
         }
-        token_end = token_endnn(loadbuf_iter);
+        token_end = CurTokenEnd(loadbuf_iter);
         token_slen = token_end - loadbuf_iter;
         if (bsearch_str(loadbuf_iter, sorted_mc, token_slen, max_mc_blen, mc_ct) == -1) {
-          set_bit(col_uidx, col_keep);
+          SetBit(col_uidx, col_keep);
           --uncertain_col_ct;
         }
         loadbuf_iter = token_end;
@@ -2101,7 +2100,7 @@ pglerr_t ox_sample_to_psam(const char* samplename, const char* ox_missing_code, 
     }
 
     if (gzrewind(gz_infile)) {
-      goto ox_sample_to_psam_ret_READ_FAIL;
+      goto OxSampleToPsam_ret_READ_FAIL;
     }
     line_idx = 0;
 
@@ -2112,70 +2111,70 @@ pglerr_t ox_sample_to_psam(const char* samplename, const char* ox_missing_code, 
         break;
       }
       if (!loadbuf[loadbuf_size - 1]) {
-        goto ox_sample_to_psam_ret_LONG_LINE;
+        goto OxSampleToPsam_ret_LONG_LINE;
       }
-      loadbuf_first_token = skip_initial_spaces(loadbuf);
-      if (is_eoln_kns(*loadbuf_first_token)) {
+      loadbuf_first_token = FirstNonTspace(loadbuf);
+      if (IsEolnKns(*loadbuf_first_token)) {
         continue;
       }
       ++sample_ct_p2;
       if (sample_ct_p2 < 3) {
         // header lines
         if (sample_ct_p2 == 1) {
-          loadbuf_iter = next_token_mult(loadbuf_first_token, 3);
+          loadbuf_iter = NextTokenMult(loadbuf_first_token, 3);
           for (uint32_t col_idx = 3; col_idx < col_ct; ++col_idx) {
-            token_end = token_endnn(loadbuf_iter);
-            if (is_set(col_keep, col_idx) && (col_idx != sex_col)) {
+            token_end = CurTokenEnd(loadbuf_iter);
+            if (IsSet(col_keep, col_idx) && (col_idx != sex_col)) {
               *write_iter++ = '\t';
               write_iter = memcpya(write_iter, loadbuf_iter, token_end - loadbuf_iter);
             }
-            loadbuf_iter = skip_initial_spaces(token_end);
+            loadbuf_iter = FirstNonTspace(token_end);
           }
-          append_binary_eoln(&write_iter);
+          AppendBinaryEoln(&write_iter);
           if (fwrite_checked(writebuf, write_iter - writebuf, psamfile)) {
-            goto ox_sample_to_psam_ret_WRITE_FAIL;
+            goto OxSampleToPsam_ret_WRITE_FAIL;
           }
           write_iter = writebuf;
         }
         continue;
       }
       if (sample_ct_p2 == 0x80000001U) {
-        logerrprint("Error: " PROG_NAME_STR " does not support more than 2^31 - 2 samples.\n");
-        goto ox_sample_to_psam_ret_MALFORMED_INPUT;
+        logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 2 samples.\n");
+        goto OxSampleToPsam_ret_MALFORMED_INPUT;
       }
 
       // FID
-      token_end = token_endnn(loadbuf_first_token);
+      token_end = CurTokenEnd(loadbuf_first_token);
       write_iter = memcpyax(writebuf, loadbuf_first_token, token_end - loadbuf_first_token, '\t');
 
       // IID
-      loadbuf_iter = skip_initial_spaces(token_end);
-      if (is_eoln_kns(*loadbuf_iter)) {
-        goto ox_sample_to_psam_ret_MISSING_TOKENS;
+      loadbuf_iter = FirstNonTspace(token_end);
+      if (IsEolnKns(*loadbuf_iter)) {
+        goto OxSampleToPsam_ret_MISSING_TOKENS;
       }
-      token_end = token_endnn(loadbuf_iter);
+      token_end = CurTokenEnd(loadbuf_iter);
       write_iter = memcpya(write_iter, loadbuf_iter, token_end - loadbuf_iter);
 
       // MISSING
-      loadbuf_iter = skip_initial_spaces(token_end);
-      if (is_eoln_kns(*loadbuf_iter)) {
-        goto ox_sample_to_psam_ret_MISSING_TOKENS;
+      loadbuf_iter = FirstNonTspace(token_end);
+      if (IsEolnKns(*loadbuf_iter)) {
+        goto OxSampleToPsam_ret_MISSING_TOKENS;
       }
-      token_end = token_endnn(loadbuf_iter);
+      token_end = CurTokenEnd(loadbuf_iter);
 
       // flush now since backfilled sex is variable-length ("NA" vs. "1"/"2")
       if (fwrite_checked(writebuf, write_iter - writebuf, psamfile)) {
-        goto ox_sample_to_psam_ret_WRITE_FAIL;
+        goto OxSampleToPsam_ret_WRITE_FAIL;
       }
       char* cur_writebuf_start = writebuf;
       write_iter = memcpyl3a(writebuf, "\tNA");
       for (uint32_t col_idx = 3; col_idx < col_ct; ++col_idx) {
-        loadbuf_iter = skip_initial_spaces(token_end);
-        if (is_eoln_kns(*loadbuf_iter)) {
-          goto ox_sample_to_psam_ret_MISSING_TOKENS;
+        loadbuf_iter = FirstNonTspace(token_end);
+        if (IsEolnKns(*loadbuf_iter)) {
+          goto OxSampleToPsam_ret_MISSING_TOKENS;
         }
-        token_end = token_endnn(loadbuf_iter);
-        if (!is_set(col_keep, col_idx)) {
+        token_end = CurTokenEnd(loadbuf_iter);
+        if (!IsSet(col_keep, col_idx)) {
           continue;
         }
         token_slen = token_end - loadbuf_iter;
@@ -2192,37 +2191,37 @@ pglerr_t ox_sample_to_psam(const char* samplename, const char* ox_missing_code, 
               // explicitly specified
               *token_end = '\0';
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid sex code '%s' on line %" PRIuPTR ", column %u of .sample file ('0', '1', '2', or --missing-code value expected).\n", loadbuf_iter, line_idx, col_idx + 1);
-              goto ox_sample_to_psam_ret_INCONSISTENT_INPUT_WW;
+              goto OxSampleToPsam_ret_INCONSISTENT_INPUT_WW;
             }
           }
         } else {
           *write_iter++ = '\t';
-          if (is_set(col_is_categorical, col_idx)) {
+          if (IsSet(col_is_categorical, col_idx)) {
             if (!is_missing) {
               *write_iter++ = 'C';
               // .sample files are relatively small, so let's go ahead and
               // (i) validate we have a positive integer < 2^31
               // (ii) convert e.g. 9000000, 9000000., 9.0e6 all to 9000000
               double dxx = 0.0;
-              char* num_end = scanadv_double(loadbuf_iter, &dxx);
+              char* num_end = ScanadvDouble(loadbuf_iter, &dxx);
               int32_t ii = S_CAST(int32_t, dxx);
               if ((num_end != token_end) || (ii <= 0) || (S_CAST(double, ii) != dxx)) {
                 *token_end = '\0';
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid categorical phenotype '%s' on line %" PRIuPTR ", column %u of .sample file (positive integer < 2^31 or --missing-code value expected).\n", loadbuf_iter, line_idx, col_idx + 1);
-                goto ox_sample_to_psam_ret_INCONSISTENT_INPUT_WW;
+                goto OxSampleToPsam_ret_INCONSISTENT_INPUT_WW;
               }
               write_iter = uint32toa(ii, write_iter);
             } else {
               write_iter = memcpya(write_iter, missing_catname, missing_catname_slen);
             }
           } else if (!is_missing) {
-            if (is_set(col_is_qt, col_idx)) {
+            if (IsSet(col_is_qt, col_idx)) {
               double dxx = 0.0;
-              char* num_end = scanadv_double(loadbuf_iter, &dxx);
+              char* num_end = ScanadvDouble(loadbuf_iter, &dxx);
               if (num_end != token_end) {
                 *token_end = '\0';
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid quantitative phenotype '%s' on line %" PRIuPTR ", column %u of .sample file (non-infinite number or --missing-code value expected).\n", loadbuf_iter, line_idx, col_idx + 1);
-                goto ox_sample_to_psam_ret_INCONSISTENT_INPUT_WW;
+                goto OxSampleToPsam_ret_INCONSISTENT_INPUT_WW;
               }
               // used over memcpy to make --data and --data --make-pgen the
               // same (could make that conditional on keep_autoconv?)
@@ -2234,7 +2233,7 @@ pglerr_t ox_sample_to_psam(const char* samplename, const char* ox_missing_code, 
               } else {
                 *token_end = '\0';
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid binary phenotype value '%s' on line %" PRIuPTR ", column %u of .sample file ('0', '1', or --missing-code value expected).\n", loadbuf_iter, line_idx, col_idx + 1);
-                goto ox_sample_to_psam_ret_INCONSISTENT_INPUT_WW;
+                goto OxSampleToPsam_ret_INCONSISTENT_INPUT_WW;
               }
             }
           } else {
@@ -2242,78 +2241,78 @@ pglerr_t ox_sample_to_psam(const char* samplename, const char* ox_missing_code, 
           }
         }
       }
-      append_binary_eoln(&write_iter);
+      AppendBinaryEoln(&write_iter);
       if (fwrite_checked(cur_writebuf_start, write_iter - cur_writebuf_start, psamfile)) {
-        goto ox_sample_to_psam_ret_WRITE_FAIL;
+        goto OxSampleToPsam_ret_WRITE_FAIL;
       }
     }
     if (!gzeof(gz_infile)) {
-      goto ox_sample_to_psam_ret_READ_FAIL;
+      goto OxSampleToPsam_ret_READ_FAIL;
     }
 
     // no final writebuf flush since we didn't use usual manual-streaming
     // strategy
     if (fclose_null(&psamfile)) {
-      goto ox_sample_to_psam_ret_WRITE_FAIL;
+      goto OxSampleToPsam_ret_WRITE_FAIL;
     }
     const uint32_t sample_ct = sample_ct_p2 - 2;
     if (!sample_ct) {
-      logerrprint("Error: No samples in .sample file.\n");
-      goto ox_sample_to_psam_ret_INCONSISTENT_INPUT;
+      logerrputs("Error: No samples in .sample file.\n");
+      goto OxSampleToPsam_ret_INCONSISTENT_INPUT;
     }
-    LOGPRINTFWW("%u sample%s imported from .sample file to %s .\n", sample_ct, (sample_ct == 1)? "" : "s", outname);
+    logprintfww("%u sample%s imported from .sample file to %s .\n", sample_ct, (sample_ct == 1)? "" : "s", outname);
     *sample_ct_ptr = sample_ct;
   }
   while (0) {
-  ox_sample_to_psam_ret_LONG_LINE:
+  OxSampleToPsam_ret_LONG_LINE:
     if (loadbuf_size == kMaxLongLine) {
-      LOGERRPRINTF("Error: Line %" PRIuPTR " of .sample file is pathologically long.\n", line_idx);
+      logerrprintf("Error: Line %" PRIuPTR " of .sample file is pathologically long.\n", line_idx);
       reterr = kPglRetMalformedInput;
       break;
     }
-  ox_sample_to_psam_ret_NOMEM:
+  OxSampleToPsam_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  ox_sample_to_psam_ret_OPEN_FAIL:
+  OxSampleToPsam_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  ox_sample_to_psam_ret_READ_FAIL:
+  OxSampleToPsam_ret_READ_FAIL:
     reterr = kPglRetReadFail;
     break;
-  ox_sample_to_psam_ret_WRITE_FAIL:
+  OxSampleToPsam_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
-  ox_sample_to_psam_ret_MISSING_TOKENS:
-    LOGERRPRINTF("Error: Line %" PRIuPTR " of .sample file has fewer tokens than expected.\n", line_idx);
+  OxSampleToPsam_ret_MISSING_TOKENS:
+    logerrprintf("Error: Line %" PRIuPTR " of .sample file has fewer tokens than expected.\n", line_idx);
     reterr = kPglRetMalformedInput;
     break;
-  ox_sample_to_psam_ret_MALFORMED_INPUT_2:
-    logerrprintb();
-  ox_sample_to_psam_ret_MALFORMED_INPUT:
+  OxSampleToPsam_ret_MALFORMED_INPUT_2:
+    logerrputsb();
+  OxSampleToPsam_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
-  ox_sample_to_psam_ret_INVALID_SAMPLE_HEADER_1:
-    logerrprint("Error: Invalid first header line in .sample file.\n");
+  OxSampleToPsam_ret_INVALID_SAMPLE_HEADER_1:
+    logerrputs("Error: Invalid first header line in .sample file.\n");
     reterr = kPglRetMalformedInput;
     break;
-  ox_sample_to_psam_ret_INVALID_SAMPLE_HEADER_2:
-    logerrprint("Error: Invalid second header line in .sample file.\n");
+  OxSampleToPsam_ret_INVALID_SAMPLE_HEADER_2:
+    logerrputs("Error: Invalid second header line in .sample file.\n");
     reterr = kPglRetMalformedInput;
     break;
-  ox_sample_to_psam_ret_INCONSISTENT_INPUT_WW:
-    wordwrapb(0);
-    logerrprintb();
-  ox_sample_to_psam_ret_INCONSISTENT_INPUT:
+  OxSampleToPsam_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+  OxSampleToPsam_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
   }
   gzclose_cond(gz_infile);
   fclose_cond(psamfile);
-  bigstack_reset(bigstack_mark);
+  BigstackReset(bigstack_mark);
   return reterr;
 }
 
-uint32_t bgen11_dosage_import_check(uint32_t dosage_int_sum_thresh, uint32_t import_dosage_certainty_int, uint32_t dosage_erase_halfdist, uint32_t dosage_int0, uint32_t dosage_int1, uint32_t dosage_int2) {
+uint32_t Bgen11DosageImportCheck(uint32_t dosage_int_sum_thresh, uint32_t import_dosage_certainty_int, uint32_t dosage_erase_halfdist, uint32_t dosage_int0, uint32_t dosage_int1, uint32_t dosage_int2) {
   const uint32_t dosage_int_sum = dosage_int0 + dosage_int1 + dosage_int2;
   if ((dosage_int_sum <= dosage_int_sum_thresh) && (dosage_int0 < import_dosage_certainty_int) && (dosage_int1 < import_dosage_certainty_int) && (dosage_int2 < import_dosage_certainty_int)) {
     return 0;
@@ -2322,20 +2321,20 @@ uint32_t bgen11_dosage_import_check(uint32_t dosage_int_sum_thresh, uint32_t imp
   // 1/65536 -> 0/32768
   // 3/65536 -> 2/32768
   // 5/65536 -> 2/32768
-  const dosage_prod_t write_dosage_int_numer = S_CAST(dosage_prod_t, kDosageMid) * dosage_int1 + S_CAST(dosage_prod_t, kDosageMax) * dosage_int2;
+  const DosageProd write_dosage_int_numer = S_CAST(DosageProd, kDosageMid) * dosage_int1 + S_CAST(DosageProd, kDosageMax) * dosage_int2;
   uint32_t write_dosage_int;
   if (dosage_int_sum == kDosageMax) {
     // optimize common case
-    write_dosage_int = ((write_dosage_int_numer + kDosageMid) / kDosageMax) - ((write_dosage_int_numer % (2 * S_CAST(dosage_prod_t, kDosageMax))) == kDosageMid);
+    write_dosage_int = ((write_dosage_int_numer + kDosageMid) / kDosageMax) - ((write_dosage_int_numer % (2 * S_CAST(DosageProd, kDosageMax))) == kDosageMid);
   } else {
     write_dosage_int = (write_dosage_int_numer + (dosage_int_sum / 2)) / dosage_int_sum;
     write_dosage_int -= (2 * (write_dosage_int_numer - write_dosage_int * dosage_int_sum) == dosage_int_sum) * (write_dosage_int % 2);
   }
-  const uint32_t halfdist = biallelic_dosage_halfdist(write_dosage_int);
+  const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
   return (halfdist < dosage_erase_halfdist);
 }
 
-void bgen11_dosage_import_update(uint32_t dosage_int_sum_thresh, uint32_t import_dosage_certainty_int, uint32_t hard_call_halfdist, uint32_t dosage_erase_halfdist, uint32_t sample_idx_lowbits, uint32_t dosage_int0, uint32_t dosage_int1, uint32_t dosage_int2, uintptr_t* genovec_word_ptr, uint32_t* dosage_present_hw_ptr, dosage_t** dosage_vals_iterp) {
+void Bgen11DosageImportUpdate(uint32_t dosage_int_sum_thresh, uint32_t import_dosage_certainty_int, uint32_t hard_call_halfdist, uint32_t dosage_erase_halfdist, uint32_t sample_idx_lowbits, uint32_t dosage_int0, uint32_t dosage_int1, uint32_t dosage_int2, uintptr_t* genovec_word_ptr, uint32_t* dosage_present_hw_ptr, Dosage** dosage_vals_iterp) {
   const uint32_t dosage_int_sum = dosage_int0 + dosage_int1 + dosage_int2;
   if (dosage_int_sum <= dosage_int_sum_thresh) {
     if ((dosage_int0 < import_dosage_certainty_int) && (dosage_int1 < import_dosage_certainty_int) && (dosage_int2 < import_dosage_certainty_int)) {
@@ -2343,15 +2342,15 @@ void bgen11_dosage_import_update(uint32_t dosage_int_sum_thresh, uint32_t import
       return;
     }
   }
-  const dosage_prod_t write_dosage_int_numer = S_CAST(dosage_prod_t, kDosageMid) * dosage_int1 + S_CAST(dosage_prod_t, kDosageMax) * dosage_int2;
+  const DosageProd write_dosage_int_numer = S_CAST(DosageProd, kDosageMid) * dosage_int1 + S_CAST(DosageProd, kDosageMax) * dosage_int2;
   uint32_t write_dosage_int;
   if (dosage_int_sum == kDosageMax) {
-    write_dosage_int = ((write_dosage_int_numer + kDosageMid) / kDosageMax) - ((write_dosage_int_numer % (2 * S_CAST(dosage_prod_t, kDosageMax))) == kDosageMid);
+    write_dosage_int = ((write_dosage_int_numer + kDosageMid) / kDosageMax) - ((write_dosage_int_numer % (2 * S_CAST(DosageProd, kDosageMax))) == kDosageMid);
   } else {
     write_dosage_int = (write_dosage_int_numer + (dosage_int_sum / 2)) / dosage_int_sum;
     write_dosage_int -= (2 * (write_dosage_int_numer - write_dosage_int * dosage_int_sum) == dosage_int_sum) * (write_dosage_int % 2);
   }
-  const uint32_t halfdist = biallelic_dosage_halfdist(write_dosage_int);
+  const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
   if (halfdist < hard_call_halfdist) {
     *genovec_word_ptr |= (3 * k1LU) << (2 * sample_idx_lowbits);
   } else {
@@ -2365,27 +2364,27 @@ void bgen11_dosage_import_update(uint32_t dosage_int_sum_thresh, uint32_t import
   *dosage_vals_iterp += 1;
 }
 
-static_assert(sizeof(dosage_t) == 2, "ox_gen_to_pgen() needs to be updated.");
-pglerr_t ox_gen_to_pgen(const char* genname, const char* samplename, const char* ox_single_chr_str, const char* ox_missing_code, misc_flags_t misc_flags, oxford_import_t oxford_import_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char* outname, char* outname_end, chr_info_t* cip) {
+static_assert(sizeof(Dosage) == 2, "OxGenToPgen() needs to be updated.");
+PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_single_chr_str, const char* ox_missing_code, MiscFlags misc_flags, OxfordImportFlags oxford_import_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   gzFile gz_infile = nullptr;
   FILE* pvarfile = nullptr;
-  st_pgen_writer_t spgw;
-  pglerr_t reterr = kPglRetSuccess;
+  STPgenWriter spgw;
+  PglErr reterr = kPglRetSuccess;
   uintptr_t loadbuf_size = 0;
   uintptr_t line_idx = 0;
-  spgw_preinit(&spgw);
+  PreinitSpgw(&spgw);
   {
     uint32_t sample_ct;
-    reterr = ox_sample_to_psam(samplename, ox_missing_code, misc_flags, outname, outname_end, &sample_ct);
+    reterr = OxSampleToPsam(samplename, ox_missing_code, misc_flags, outname, outname_end, &sample_ct);
     if (reterr) {
-      goto ox_gen_to_pgen_ret_1;
+      goto OxGenToPgen_ret_1;
     }
     if (sample_ct > (kMaxLongLine / 6)) {
       // impossible for a valid .gen line to fit in maximum-length load buffer
-      logerrprint("Error: Too many samples for .gen file converter.\n");
+      logerrputs("Error: Too many samples for .gen file converter.\n");
       reterr = kPglRetNotYetSupported;
-      goto ox_gen_to_pgen_ret_1;
+      goto OxGenToPgen_ret_1;
     }
     // Two passes:
     // 1. Count # of (non-chromosome-filtered) variants, write .pvar file, and
@@ -2394,29 +2393,29 @@ pglerr_t ox_gen_to_pgen(const char* genname, const char* samplename, const char*
     gz_infile = gzopen(genname, FOPEN_RB);
     if (!gz_infile) {
       const uint32_t slen = strlen(genname);
-      if (str_endswith(genname, ".gen", slen) ||
-          str_endswith(genname, ".gen.gz", slen)) {
-        LOGERRPRINTFWW(g_errstr_fopen, genname);
+      if (StrEndsWith(genname, ".gen", slen) ||
+          StrEndsWith(genname, ".gen.gz", slen)) {
+        logerrprintfww(kErrprintfFopen, genname);
       } else {
-        LOGERRPRINTFWW("Error: Failed to open %s. (--gen expects a complete filename; did you forget '.gen' at the end?)\n", genname);
+        logerrprintfww("Error: Failed to open %s. (--gen expects a complete filename; did you forget '.gen' at the end?)\n", genname);
       }
-      goto ox_gen_to_pgen_ret_OPEN_FAIL;
+      goto OxGenToPgen_ret_OPEN_FAIL;
     }
     if (gzbuffer(gz_infile, 131072)) {
-      goto ox_gen_to_pgen_ret_NOMEM;
+      goto OxGenToPgen_ret_NOMEM;
     }
     loadbuf_size = bigstack_left() / 4;
     if (loadbuf_size > kMaxLongLine) {
       loadbuf_size = kMaxLongLine;
     } else if (loadbuf_size <= kMaxMediumLine) {
-      goto ox_gen_to_pgen_ret_NOMEM;
+      goto OxGenToPgen_ret_NOMEM;
     } else {
-      loadbuf_size = round_up_pow2(loadbuf_size, kCacheline);
+      loadbuf_size = RoundUpPow2(loadbuf_size, kCacheline);
     }
     char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
     loadbuf[loadbuf_size - 1] = ' ';
     const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
-    finalize_chrset(misc_flags, cip);
+    FinalizeChrset(misc_flags, cip);
 
     char* writebuf = S_CAST(char*, bigstack_alloc_raw(kMaxMediumLine + loadbuf_size));
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
@@ -2424,7 +2423,7 @@ pglerr_t ox_gen_to_pgen(const char* genname, const char* samplename, const char*
     const char* single_chr_str = nullptr;
     uint32_t single_chr_slen = 0;
     if (ox_single_chr_str) {
-      int32_t chr_code_raw = get_chr_code_raw(ox_single_chr_str);
+      int32_t chr_code_raw = GetChrCodeRaw(ox_single_chr_str);
       if (chr_code_raw == -1) {
         // command-line parser guarantees that allow_extra_chrs is true here
         single_chr_str = ox_single_chr_str;
@@ -2433,21 +2432,21 @@ pglerr_t ox_gen_to_pgen(const char* genname, const char* samplename, const char*
         uint32_t chr_code = chr_code_raw;
         if (chr_code > cip->max_code) {
           if (chr_code < kMaxContigs) {
-            logerrprint("Error: --oxford-single-chr chromosome code is not in the chromosome set.\n");
-            goto ox_gen_to_pgen_ret_INVALID_CMDLINE;
+            logerrputs("Error: --oxford-single-chr chromosome code is not in the chromosome set.\n");
+            goto OxGenToPgen_ret_INVALID_CMDLINE;
           }
           chr_code = cip->xymt_codes[chr_code - kMaxContigs];
           if (S_CAST(int32_t, chr_code) < 0) {
-            logerrprint("Error: --oxford-single-chr chromosome code is not in the chromosome set.\n");
-            goto ox_gen_to_pgen_ret_INVALID_CMDLINE;
+            logerrputs("Error: --oxford-single-chr chromosome code is not in the chromosome set.\n");
+            goto OxGenToPgen_ret_INVALID_CMDLINE;
           }
         }
-        if (!is_set(cip->chr_mask, chr_code)) {
-          logerrprint("Error: --oxford-single-chr chromosome code is excluded by chromosome filter.\n");
-          goto ox_gen_to_pgen_ret_INVALID_CMDLINE;
+        if (!IsSet(cip->chr_mask, chr_code)) {
+          logerrputs("Error: --oxford-single-chr chromosome code is excluded by chromosome filter.\n");
+          goto OxGenToPgen_ret_INVALID_CMDLINE;
         }
         char* chr_buf = S_CAST(char*, bigstack_alloc_raw(kCacheline));
-        char* chr_name_end = chr_name_write(cip, chr_code, chr_buf);
+        char* chr_name_end = chrtoa(cip, chr_code, chr_buf);
         single_chr_str = chr_buf;
         single_chr_slen = chr_name_end - chr_buf;
       }
@@ -2455,11 +2454,11 @@ pglerr_t ox_gen_to_pgen(const char* genname, const char* samplename, const char*
 
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
     if (fopen_checked(outname, FOPEN_WB, &pvarfile)) {
-      goto ox_gen_to_pgen_ret_OPEN_FAIL;
+      goto OxGenToPgen_ret_OPEN_FAIL;
     }
     char* write_iter = writebuf;
     if (cip->chrset_source) {
-      append_chrset_line(cip, &write_iter);
+      AppendChrsetLine(cip, &write_iter);
     }
     write_iter = strcpya(write_iter, "#CHROM\tPOS\tID\tREF\tALT" EOLN_STR);
 
@@ -2480,62 +2479,62 @@ pglerr_t ox_gen_to_pgen(const char* genname, const char* samplename, const char*
       ++line_idx;
       if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
         if (!gzeof(gz_infile)) {
-          goto ox_gen_to_pgen_ret_READ_FAIL;
+          goto OxGenToPgen_ret_READ_FAIL;
         }
         break;
       }
       if (!loadbuf[loadbuf_size - 1]) {
-        goto ox_gen_to_pgen_ret_LONG_LINE_N;
+        goto OxGenToPgen_ret_LONG_LINE_N;
       }
-      char* chr_code_str = skip_initial_spaces(loadbuf);
-      if (is_eoln_kns(*chr_code_str)) {
+      char* chr_code_str = FirstNonTspace(loadbuf);
+      if (IsEolnKns(*chr_code_str)) {
         continue;
       }
-      char* chr_code_end = token_endnn(chr_code_str);
-      const char* variant_id_str = skip_initial_spaces(chr_code_end);
-      if (is_eoln_kns(*variant_id_str)) {
-        goto ox_gen_to_pgen_ret_MISSING_TOKENS;
+      char* chr_code_end = CurTokenEnd(chr_code_str);
+      const char* variant_id_str = FirstNonTspace(chr_code_end);
+      if (IsEolnKns(*variant_id_str)) {
+        goto OxGenToPgen_ret_MISSING_TOKENS;
       }
 
       if (!single_chr_str) {
         int32_t cur_chr_code;
-        reterr = get_or_add_chr_code_destructive(".gen file", line_idx, allow_extra_chrs, chr_code_str, chr_code_end, cip, &cur_chr_code);
+        reterr = GetOrAddChrCodeDestructive(".gen file", line_idx, allow_extra_chrs, chr_code_str, chr_code_end, cip, &cur_chr_code);
         if (reterr) {
           if (strequal_k(chr_code_str, "---", chr_code_end - chr_code_str)) {
-            logerrprint("(Did you forget --oxford-single-chr?)\n");
+            logerrputs("(Did you forget --oxford-single-chr?)\n");
           }
-          goto ox_gen_to_pgen_ret_1;
+          goto OxGenToPgen_ret_1;
         }
-        if (!is_set(cip->chr_mask, cur_chr_code)) {
+        if (!IsSetI(cip->chr_mask, cur_chr_code)) {
           ++variant_skip_ct;
           continue;
         }
-        write_iter = chr_name_write(cip, cur_chr_code, write_iter);
+        write_iter = chrtoa(cip, cur_chr_code, write_iter);
       } else {
         write_iter = memcpya(write_iter, single_chr_str, single_chr_slen);
       }
       *write_iter++ = '\t';
       ++variant_ct;
 
-      const char* variant_id_end = token_endnn(variant_id_str);
-      const char* pos_str = skip_initial_spaces(variant_id_end);
-      if (is_eoln_kns(*pos_str)) {
-        goto ox_gen_to_pgen_ret_MISSING_TOKENS;
+      const char* variant_id_end = CurTokenEnd(variant_id_str);
+      const char* pos_str = FirstNonTspace(variant_id_end);
+      if (IsEolnKns(*pos_str)) {
+        goto OxGenToPgen_ret_MISSING_TOKENS;
       }
-      const char* pos_end = token_endnn(pos_str);
+      const char* pos_end = CurTokenEnd(pos_str);
       uint32_t cur_bp;
-      if (scan_uint_defcap(pos_str, &cur_bp)) {
+      if (ScanUintDefcap(pos_str, &cur_bp)) {
         putc_unlocked('\n', stdout);
         snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, genname);
-        goto ox_gen_to_pgen_ret_MALFORMED_INPUT_WW;
+        goto OxGenToPgen_ret_MALFORMED_INPUT_WW;
       }
 
       write_iter = uint32toa_x(cur_bp, '\t', write_iter);
       const uint32_t variant_id_slen = variant_id_end - variant_id_str;
       if (variant_id_slen > kMaxIdSlen) {
         putc_unlocked('\n', stdout);
-        logerrprint("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
-        goto ox_gen_to_pgen_ret_MALFORMED_INPUT;
+        logerrputs("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
+        goto OxGenToPgen_ret_MALFORMED_INPUT;
       }
       write_iter = memcpyax(write_iter, variant_id_str, variant_id_slen, '\t');
 
@@ -2546,16 +2545,16 @@ pglerr_t ox_gen_to_pgen(const char* genname, const char* samplename, const char*
       //   If 'ref-first' or 'ref-second' was specified, we know what to do.
       //   If not, we treat the second allele as the provisional reference, for
       //     backward compatibility.
-      const char* first_allele_str = skip_initial_spaces(pos_end);
-      if (is_eoln_kns(*first_allele_str)) {
-        goto ox_gen_to_pgen_ret_MISSING_TOKENS;
+      const char* first_allele_str = FirstNonTspace(pos_end);
+      if (IsEolnKns(*first_allele_str)) {
+        goto OxGenToPgen_ret_MISSING_TOKENS;
       }
-      const char* first_allele_end = token_endnn(first_allele_str);
-      const char* second_allele_str = skip_initial_spaces(first_allele_end);
-      if (is_eoln_kns(*second_allele_str)) {
-        goto ox_gen_to_pgen_ret_MISSING_TOKENS;
+      const char* first_allele_end = CurTokenEnd(first_allele_str);
+      const char* second_allele_str = FirstNonTspace(first_allele_end);
+      if (IsEolnKns(*second_allele_str)) {
+        goto OxGenToPgen_ret_MISSING_TOKENS;
       }
-      const char* loadbuf_iter = token_endnn(second_allele_str);
+      const char* loadbuf_iter = CurTokenEnd(second_allele_str);
       if (!prov_ref_allele_second) {
         write_iter = memcpyax(write_iter, first_allele_str, first_allele_end - first_allele_str, '\t');
         write_iter = memcpya(write_iter, second_allele_str, loadbuf_iter - second_allele_str);
@@ -2563,17 +2562,17 @@ pglerr_t ox_gen_to_pgen(const char* genname, const char* samplename, const char*
         write_iter = memcpyax(write_iter, second_allele_str, loadbuf_iter - second_allele_str, '\t');
         write_iter = memcpya(write_iter, first_allele_str, first_allele_end - first_allele_str);
       }
-      append_binary_eoln(&write_iter);
+      AppendBinaryEoln(&write_iter);
       if (fwrite_ck(writebuf_flush, pvarfile, &write_iter)) {
-        goto ox_gen_to_pgen_ret_WRITE_FAIL;
+        goto OxGenToPgen_ret_WRITE_FAIL;
       }
 
       if (!dosage_is_present) {
         for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
-          loadbuf_iter = skip_initial_spaces(loadbuf_iter);
+          loadbuf_iter = FirstNonTspace(loadbuf_iter);
           const char cc = *loadbuf_iter;
-          if (is_eoln_kns(cc)) {
-            goto ox_gen_to_pgen_ret_MISSING_TOKENS;
+          if (IsEolnKns(cc)) {
+            goto OxGenToPgen_ret_MISSING_TOKENS;
           }
           char cc2 = loadbuf_iter[1];
           if ((cc2 == ' ') || (cc2 == '\t')) {
@@ -2590,36 +2589,36 @@ pglerr_t ox_gen_to_pgen(const char* genname, const char* samplename, const char*
             }
           }
           double prob_0alt;
-          const char* first_dosage_str_end = scanadv_double(loadbuf_iter, &prob_0alt);
+          const char* first_dosage_str_end = ScanadvDouble(loadbuf_iter, &prob_0alt);
           if (!first_dosage_str_end) {
             // triple-NA, etc. ok; treat as missing value
-            loadbuf_iter = next_token_mult(loadbuf_iter, 2);
+            loadbuf_iter = NextTokenMult(loadbuf_iter, 2);
             if (!loadbuf_iter) {
-              goto ox_gen_to_pgen_ret_MISSING_TOKENS;
+              goto OxGenToPgen_ret_MISSING_TOKENS;
             }
-            loadbuf_iter = token_endnn(loadbuf_iter);
+            loadbuf_iter = CurTokenEnd(loadbuf_iter);
             continue;
           }
           if (ctou32(*first_dosage_str_end) > ' ') {
-            goto ox_gen_to_pgen_ret_INVALID_DOSAGE;
+            goto OxGenToPgen_ret_INVALID_DOSAGE;
           }
-          loadbuf_iter = skip_initial_spaces(first_dosage_str_end);
-          if (is_eoln_kns(*loadbuf_iter)) {
-            goto ox_gen_to_pgen_ret_MISSING_TOKENS;
+          loadbuf_iter = FirstNonTspace(first_dosage_str_end);
+          if (IsEolnKns(*loadbuf_iter)) {
+            goto OxGenToPgen_ret_MISSING_TOKENS;
           }
           double prob_1alt;
-          loadbuf_iter = scanadv_double(loadbuf_iter, &prob_1alt);
+          loadbuf_iter = ScanadvDouble(loadbuf_iter, &prob_1alt);
           if ((!loadbuf_iter) || (ctou32(*loadbuf_iter) > ' ')) {
-            goto ox_gen_to_pgen_ret_INVALID_DOSAGE;
+            goto OxGenToPgen_ret_INVALID_DOSAGE;
           }
-          loadbuf_iter = skip_initial_spaces(loadbuf_iter);
-          if (is_eoln_kns(*loadbuf_iter)) {
-            goto ox_gen_to_pgen_ret_MISSING_TOKENS;
+          loadbuf_iter = FirstNonTspace(loadbuf_iter);
+          if (IsEolnKns(*loadbuf_iter)) {
+            goto OxGenToPgen_ret_MISSING_TOKENS;
           }
           double prob_2alt;
-          loadbuf_iter = scanadv_double(loadbuf_iter, &prob_2alt);
+          loadbuf_iter = ScanadvDouble(loadbuf_iter, &prob_2alt);
           if ((!loadbuf_iter) || (ctou32(*loadbuf_iter) > ' ')) {
-            goto ox_gen_to_pgen_ret_INVALID_DOSAGE;
+            goto OxGenToPgen_ret_INVALID_DOSAGE;
           }
           // bugfix: forgot the "multiply by 32768" part of "multiply by 32768
           // and round" .gen -> .bgen conversion.
@@ -2631,12 +2630,12 @@ pglerr_t ox_gen_to_pgen(const char* genname, const char* samplename, const char*
           // Compare with 65535.4999999999 instead of 65535.5 since 0.5 +
           // [first floating point number below 65535.5] may evaluate to 65536.
           if ((prob_0alt < 0.0) || (prob_0alt >= 65535.4999999999) || (prob_1alt < 0.0) || (prob_1alt >= 65535.4999999999) || (prob_2alt < 0.0) || (prob_2alt >= 65535.4999999999)) {
-            goto ox_gen_to_pgen_ret_INVALID_DOSAGE;
+            goto OxGenToPgen_ret_INVALID_DOSAGE;
           }
           const uint32_t dosage_int0 = S_CAST(int32_t, prob_0alt + 0.5);
           const uint32_t dosage_int1 = S_CAST(int32_t, prob_1alt + 0.5);
           const uint32_t dosage_int2 = S_CAST(int32_t, prob_2alt + 0.5);
-          dosage_is_present = bgen11_dosage_import_check(dosage_int_sum_thresh, import_dosage_certainty_int, dosage_erase_halfdist, dosage_int0, dosage_int1, dosage_int2);
+          dosage_is_present = Bgen11DosageImportCheck(dosage_int_sum_thresh, import_dosage_certainty_int, dosage_erase_halfdist, dosage_int0, dosage_int1, dosage_int2);
           if (dosage_is_present) {
             break;
           }
@@ -2649,49 +2648,49 @@ pglerr_t ox_gen_to_pgen(const char* genname, const char* samplename, const char*
     }
     putc_unlocked('\r', stdout);
     if (fclose_flush_null(writebuf_flush, write_iter, &pvarfile)) {
-      goto ox_gen_to_pgen_ret_WRITE_FAIL;
+      goto OxGenToPgen_ret_WRITE_FAIL;
     }
     if (!variant_ct) {
       if (!variant_skip_ct) {
-        logerrprint("Error: Empty .gen file.\n");
-        goto ox_gen_to_pgen_ret_INCONSISTENT_INPUT;
+        logerrputs("Error: Empty .gen file.\n");
+        goto OxGenToPgen_ret_INCONSISTENT_INPUT;
       }
-      LOGERRPRINTFWW("Error: All %" PRIuPTR " variant%s in .gen file skipped due to chromosome filter.\n", variant_skip_ct, (variant_skip_ct == 1)? "" : "s");
-      goto ox_gen_to_pgen_ret_INCONSISTENT_INPUT;
+      logerrprintfww("Error: All %" PRIuPTR " variant%s in .gen file skipped due to chromosome filter.\n", variant_skip_ct, (variant_skip_ct == 1)? "" : "s");
+      goto OxGenToPgen_ret_INCONSISTENT_INPUT;
     }
-    LOGPRINTF("--data/--gen: %u variant%s scanned%s.\n", variant_ct, (variant_ct == 1)? "" : "s", dosage_is_present? "" : " (all hardcalls)");
+    logprintf("--data/--gen: %u variant%s scanned%s.\n", variant_ct, (variant_ct == 1)? "" : "s", dosage_is_present? "" : " (all hardcalls)");
 
     // second pass
-    bigstack_reset(writebuf);
+    BigstackReset(writebuf);
     if (gzrewind(gz_infile)) {
-      goto ox_gen_to_pgen_ret_READ_FAIL;
+      goto OxGenToPgen_ret_READ_FAIL;
     }
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
     uintptr_t spgw_alloc_cacheline_ct;
     uint32_t max_vrec_len;
-    reterr = spgw_init_phase1(outname, nullptr, nullptr, variant_ct, sample_ct, dosage_is_present? kfPgenGlobalDosagePresent : kfPgenGlobal0, (oxford_import_flags & (kfOxfordImportRefFirst | kfOxfordImportRefSecond))? 1 : 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+    reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, dosage_is_present? kfPgenGlobalDosagePresent : kfPgenGlobal0, (oxford_import_flags & (kfOxfordImportRefFirst | kfOxfordImportRefSecond))? 1 : 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
     if (reterr) {
-      goto ox_gen_to_pgen_ret_1;
+      goto OxGenToPgen_ret_1;
     }
     unsigned char* spgw_alloc;
     if (bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc)) {
-      goto ox_gen_to_pgen_ret_NOMEM;
+      goto OxGenToPgen_ret_NOMEM;
     }
-    spgw_init_phase2(max_vrec_len, &spgw, spgw_alloc);
+    SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
 
-    const uint32_t sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
-    const uint32_t sample_ctl = BITCT_TO_WORDCT(sample_ct);
+    const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
     uintptr_t* genovec;
     uintptr_t* dosage_present;
     // if we weren't using bigstack_alloc, this would need to be sample_ctaw2
     if (bigstack_alloc_ul(sample_ctl2, &genovec) ||
         bigstack_alloc_ul(sample_ctl, &dosage_present)) {
-      goto ox_gen_to_pgen_ret_NOMEM;
+      goto OxGenToPgen_ret_NOMEM;
     }
-    dosage_t* dosage_vals = nullptr;
+    Dosage* dosage_vals = nullptr;
     if (dosage_is_present) {
       if (bigstack_alloc_dosage(sample_ct, &dosage_vals)) {
-        goto ox_gen_to_pgen_ret_NOMEM;
+        goto OxGenToPgen_ret_NOMEM;
       }
     }
     if (hard_call_thresh == UINT32_MAX) {
@@ -2703,24 +2702,24 @@ pglerr_t ox_gen_to_pgen(const char* genname, const char* samplename, const char*
     uint32_t vidx = 0;
     for (line_idx = 1; line_idx <= line_ct; ++line_idx) {
       if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-        goto ox_gen_to_pgen_ret_READ_FAIL;
+        goto OxGenToPgen_ret_READ_FAIL;
       }
-      char* chr_code_str = skip_initial_spaces(loadbuf);
-      if (is_eoln_kns(*chr_code_str)) {
+      char* chr_code_str = FirstNonTspace(loadbuf);
+      if (IsEolnKns(*chr_code_str)) {
         continue;
       }
-      char* chr_code_end = token_endnn(chr_code_str);
+      char* chr_code_end = CurTokenEnd(chr_code_str);
       if (variant_skip_ct) {
         *chr_code_end = '\0';
-        const uint32_t chr_code = get_chr_code(chr_code_str, cip, chr_code_end - chr_code_str);
-        if (!is_set(cip->chr_mask, chr_code)) {
+        const uint32_t chr_code = GetChrCode(chr_code_str, cip, chr_code_end - chr_code_str);
+        if (!IsSet(cip->chr_mask, chr_code)) {
           continue;
         }
       }
-      const char* loadbuf_iter = next_token_mult(skip_initial_spaces(&(chr_code_end[1])), 4);
+      const char* loadbuf_iter = NextTokenMult(FirstNonTspace(&(chr_code_end[1])), 4);
       uint32_t inner_loop_last = kBitsPerWordD2 - 1;
       uint32_t widx = 0;
-      dosage_t* dosage_vals_iter = dosage_vals;
+      Dosage* dosage_vals_iter = dosage_vals;
       while (1) {
         if (widx >= sample_ctl2_m1) {
           if (widx > sample_ctl2_m1) {
@@ -2731,10 +2730,10 @@ pglerr_t ox_gen_to_pgen(const char* genname, const char* samplename, const char*
         uintptr_t genovec_word = 0;
         uint32_t dosage_present_hw = 0;
         for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
-          loadbuf_iter = skip_initial_spaces(loadbuf_iter);
+          loadbuf_iter = FirstNonTspace(loadbuf_iter);
           const char cc = *loadbuf_iter;
-          if (is_eoln_kns(cc)) {
-            goto ox_gen_to_pgen_ret_MISSING_TOKENS;
+          if (IsEolnKns(cc)) {
+            goto OxGenToPgen_ret_MISSING_TOKENS;
           }
           char cc2 = loadbuf_iter[1];
           if ((cc2 == ' ') || (cc2 == '\t')) {
@@ -2759,38 +2758,38 @@ pglerr_t ox_gen_to_pgen(const char* genname, const char* samplename, const char*
             }
           }
           double prob_0alt;
-          const char* first_dosage_str_end = scanadv_double(loadbuf_iter, &prob_0alt);
+          const char* first_dosage_str_end = ScanadvDouble(loadbuf_iter, &prob_0alt);
           if (!first_dosage_str_end) {
             // ignore next two tokens if first token in triplet is not numeric,
             // since we treat this as missing regardless
-            loadbuf_iter = next_token_mult(loadbuf_iter, 2);
+            loadbuf_iter = NextTokenMult(loadbuf_iter, 2);
             if (!loadbuf_iter) {
-              goto ox_gen_to_pgen_ret_MISSING_TOKENS;
+              goto OxGenToPgen_ret_MISSING_TOKENS;
             }
             genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
-            loadbuf_iter = token_endnn(loadbuf_iter);
+            loadbuf_iter = CurTokenEnd(loadbuf_iter);
             continue;
           }
           if (ctou32(*first_dosage_str_end) > ' ') {
-            goto ox_gen_to_pgen_ret_INVALID_DOSAGE;
+            goto OxGenToPgen_ret_INVALID_DOSAGE;
           }
-          loadbuf_iter = skip_initial_spaces(first_dosage_str_end);
-          if (is_eoln_kns(*loadbuf_iter)) {
-            goto ox_gen_to_pgen_ret_MISSING_TOKENS;
+          loadbuf_iter = FirstNonTspace(first_dosage_str_end);
+          if (IsEolnKns(*loadbuf_iter)) {
+            goto OxGenToPgen_ret_MISSING_TOKENS;
           }
           double prob_1alt;
-          loadbuf_iter = scanadv_double(loadbuf_iter, &prob_1alt);
+          loadbuf_iter = ScanadvDouble(loadbuf_iter, &prob_1alt);
           if ((!loadbuf_iter) || (ctou32(*loadbuf_iter) > ' ')) {
-            goto ox_gen_to_pgen_ret_INVALID_DOSAGE;
+            goto OxGenToPgen_ret_INVALID_DOSAGE;
           }
-          loadbuf_iter = skip_initial_spaces(loadbuf_iter);
-          if (is_eoln_kns(*loadbuf_iter)) {
-            goto ox_gen_to_pgen_ret_MISSING_TOKENS;
+          loadbuf_iter = FirstNonTspace(loadbuf_iter);
+          if (IsEolnKns(*loadbuf_iter)) {
+            goto OxGenToPgen_ret_MISSING_TOKENS;
           }
           double prob_2alt;
-          loadbuf_iter = scanadv_double(loadbuf_iter, &prob_2alt);
+          loadbuf_iter = ScanadvDouble(loadbuf_iter, &prob_2alt);
           if ((!loadbuf_iter) || (ctou32(*loadbuf_iter) > ' ')) {
-            goto ox_gen_to_pgen_ret_INVALID_DOSAGE;
+            goto OxGenToPgen_ret_INVALID_DOSAGE;
           }
           // bugfix
           prob_0alt *= 32768;
@@ -2798,32 +2797,32 @@ pglerr_t ox_gen_to_pgen(const char* genname, const char* samplename, const char*
           prob_2alt *= 32768;
 
           if ((prob_0alt < 0.0) || (prob_0alt >= 65535.4999999999) || (prob_1alt < 0.0) || (prob_1alt >= 65535.4999999999) || (prob_2alt < 0.0) || (prob_2alt >= 65535.4999999999)) {
-            goto ox_gen_to_pgen_ret_INVALID_DOSAGE;
+            goto OxGenToPgen_ret_INVALID_DOSAGE;
           }
           const uint32_t dosage_int0 = S_CAST(int32_t, prob_0alt + 0.5);
           const uint32_t dosage_int1 = S_CAST(int32_t, prob_1alt + 0.5);
           const uint32_t dosage_int2 = S_CAST(int32_t, prob_2alt + 0.5);
-          bgen11_dosage_import_update(dosage_int_sum_thresh, import_dosage_certainty_int, hard_call_halfdist, dosage_erase_halfdist, sample_idx_lowbits, dosage_int0, dosage_int1, dosage_int2, &genovec_word, &dosage_present_hw, &dosage_vals_iter);
+          Bgen11DosageImportUpdate(dosage_int_sum_thresh, import_dosage_certainty_int, hard_call_halfdist, dosage_erase_halfdist, sample_idx_lowbits, dosage_int0, dosage_int1, dosage_int2, &genovec_word, &dosage_present_hw, &dosage_vals_iter);
         }
         genovec[widx] = genovec_word;
-        R_CAST(halfword_t*, dosage_present)[widx] = dosage_present_hw;
+        R_CAST(Halfword*, dosage_present)[widx] = dosage_present_hw;
         ++widx;
       }
       if (prov_ref_allele_second) {
-        genovec_invert_unsafe(sample_ct, genovec);
-        zero_trailing_quaters(sample_ct, genovec);
+        GenovecInvertUnsafe(sample_ct, genovec);
+        ZeroTrailingQuaters(sample_ct, genovec);
       }
       if (dosage_vals_iter != dosage_vals) {
         const uint32_t dosage_ct = dosage_vals_iter - dosage_vals;
         if (prov_ref_allele_second) {
-          biallelic_dosage16_invert(dosage_ct, dosage_vals);
+          BiallelicDosage16Invert(dosage_ct, dosage_vals);
         }
-        if (spgw_append_biallelic_genovec_dosage16(genovec, dosage_present, dosage_vals, dosage_ct, &spgw)) {
-          goto ox_gen_to_pgen_ret_WRITE_FAIL;
+        if (SpgwAppendBiallelicGenovecDosage16(genovec, dosage_present, dosage_vals, dosage_ct, &spgw)) {
+          goto OxGenToPgen_ret_WRITE_FAIL;
         }
       } else {
-        if (spgw_append_biallelic_genovec(genovec, &spgw)) {
-          goto ox_gen_to_pgen_ret_WRITE_FAIL;
+        if (SpgwAppendBiallelicGenovec(genovec, &spgw)) {
+          goto OxGenToPgen_ret_WRITE_FAIL;
         }
       }
       ++vidx;
@@ -2832,7 +2831,7 @@ pglerr_t ox_gen_to_pgen(const char* genname, const char* samplename, const char*
         fflush(stdout);
       }
     }
-    spgw_finish(&spgw);
+    SpgwFinish(&spgw);
     putc_unlocked('\r', stdout);
     write_iter = strcpya(g_logbuf, "--data/--gen: ");
     const uint32_t outname_base_slen = outname_end - outname;
@@ -2841,64 +2840,64 @@ pglerr_t ox_gen_to_pgen(const char* genname, const char* samplename, const char*
     write_iter = memcpya(write_iter, outname, outname_base_slen);
     write_iter = strcpya(write_iter, ".pvar");
     snprintf(write_iter, kLogbufSize - 2 * kPglFnamesize - 64, " written.\n");
-    wordwrapb(0);
-    logprintb();
+    WordWrapB(0);
+    logputsb();
   }
   while (0) {
-  ox_gen_to_pgen_ret_LONG_LINE_N:
+  OxGenToPgen_ret_LONG_LINE_N:
     putc_unlocked('\n', stdout);
     if (loadbuf_size == kMaxLongLine) {
-      LOGERRPRINTF("Error: Line %" PRIuPTR " of .gen file is pathologically long.\n", line_idx);
+      logerrprintf("Error: Line %" PRIuPTR " of .gen file is pathologically long.\n", line_idx);
       reterr = kPglRetMalformedInput;
       break;
     }
-  ox_gen_to_pgen_ret_NOMEM:
+  OxGenToPgen_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  ox_gen_to_pgen_ret_OPEN_FAIL:
+  OxGenToPgen_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  ox_gen_to_pgen_ret_READ_FAIL:
+  OxGenToPgen_ret_READ_FAIL:
     reterr = kPglRetReadFail;
     break;
-  ox_gen_to_pgen_ret_WRITE_FAIL:
+  OxGenToPgen_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
-  ox_gen_to_pgen_ret_INVALID_CMDLINE:
+  OxGenToPgen_ret_INVALID_CMDLINE:
     reterr = kPglRetInvalidCmdline;
     break;
-  ox_gen_to_pgen_ret_INVALID_DOSAGE:
+  OxGenToPgen_ret_INVALID_DOSAGE:
     putc_unlocked('\n', stdout);
-    LOGERRPRINTF("Error: Line %" PRIuPTR " of .gen file has an invalid dosage value.\n", line_idx);
+    logerrprintf("Error: Line %" PRIuPTR " of .gen file has an invalid dosage value.\n", line_idx);
     reterr = kPglRetMalformedInput;
     break;
-  ox_gen_to_pgen_ret_MISSING_TOKENS:
+  OxGenToPgen_ret_MISSING_TOKENS:
     putc_unlocked('\n', stdout);
-    LOGERRPRINTF("Error: Line %" PRIuPTR " of .gen file has fewer tokens than expected.\n", line_idx);
+    logerrprintf("Error: Line %" PRIuPTR " of .gen file has fewer tokens than expected.\n", line_idx);
     reterr = kPglRetMalformedInput;
     break;
-  ox_gen_to_pgen_ret_MALFORMED_INPUT_WW:
-    wordwrapb(0);
-    logerrprintb();
-  ox_gen_to_pgen_ret_MALFORMED_INPUT:
+  OxGenToPgen_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+  OxGenToPgen_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
-  ox_gen_to_pgen_ret_INCONSISTENT_INPUT:
+  OxGenToPgen_ret_INCONSISTENT_INPUT:
     reterr = kPglRetMalformedInput;
     break;
   }
- ox_gen_to_pgen_ret_1:
-  if (spgw_cleanup(&spgw) && (!reterr)) {
+ OxGenToPgen_ret_1:
+  if (SpgwCleanup(&spgw) && (!reterr)) {
     reterr = kPglRetWriteFail;
   }
   gzclose_cond(gz_infile);
   fclose_cond(pvarfile);
-  bigstack_reset(bigstack_mark);
+  BigstackReset(bigstack_mark);
   return reterr;
 }
 
 // a few multithread globals
-static uint16_t** g_bgen_geno_bufs = nullptr; // per-thread
+static uint16_t** g_bgen_geno_bufs = nullptr;  // per-thread
 
 
 // per-variant (could make compressed_geno_starts per-thread)
@@ -2906,7 +2905,7 @@ static unsigned char** g_compressed_geno_starts[2] = {nullptr, nullptr};
 static uintptr_t* g_write_genovecs[2] = {nullptr, nullptr};
 static uint32_t* g_write_dosage_cts[2] = {nullptr, nullptr};
 static uintptr_t* g_write_dosage_presents[2] = {nullptr, nullptr};
-static dosage_t* g_write_dosage_val_bufs[2] = {nullptr, nullptr};
+static Dosage* g_write_dosage_val_bufs[2] = {nullptr, nullptr};
 
 static uint32_t g_sample_ct = 0;
 static uint32_t g_calc_thread_ct = 0;
@@ -2917,11 +2916,11 @@ static uint32_t g_import_dosage_certainty_int = 0;
 static uint32_t g_compression_mode = 0;
 static uint32_t g_dosage_is_present = 0;
 static uint32_t g_prov_ref_allele_second = 0;
-static pglerr_t g_error_ret = kPglRetSuccess;
+static PglErr g_error_ret = kPglRetSuccess;
 
-// static uint32_t* g_error_vidxs = nullptr; // per-thread
+// static uint32_t* g_error_vidxs = nullptr;  // per-thread
 
-THREAD_FUNC_DECL bgen11_dosage_scan_thread(void* arg) {
+THREAD_FUNC_DECL Bgen11DosageScanThread(void* arg) {
   // this bails as soon as a single non-hardcall is detected.  still
   // multithreaded due to low speed of uncompress() call, practical value of
   // handling the all-hardcall case efficiently, and reduced code complexity
@@ -2970,18 +2969,18 @@ THREAD_FUNC_DECL bgen11_dosage_scan_thread(void* arg) {
           // 1/65536 -> 0/32768
           // 3/65536 -> 2/32768
           // 5/65536 -> 2/32768
-          const dosage_prod_t write_dosage_int_numer = S_CAST(dosage_prod_t, kDosageMid) * dosage_int1 + S_CAST(dosage_prod_t, kDosageMax) * dosage_int2;
+          const DosageProd write_dosage_int_numer = S_CAST(DosageProd, kDosageMid) * dosage_int1 + S_CAST(DosageProd, kDosageMax) * dosage_int2;
           uint32_t write_dosage_int;
           if (dosage_int_sum == kDosageMax) {
             // optimize common case
-            write_dosage_int = ((write_dosage_int_numer + kDosageMid) / kDosageMax) - ((write_dosage_int_numer % (2 * S_CAST(dosage_prod_t, kDosageMax))) == kDosageMid);
+            write_dosage_int = ((write_dosage_int_numer + kDosageMid) / kDosageMax) - ((write_dosage_int_numer % (2 * S_CAST(DosageProd, kDosageMax))) == kDosageMid);
           } else {
             write_dosage_int = (write_dosage_int_numer + (dosage_int_sum / 2)) / dosage_int_sum;
             write_dosage_int -= (2 * (write_dosage_int_numer - write_dosage_int * dosage_int_sum) == dosage_int_sum) * (write_dosage_int % 2);
           }
-          const uint32_t halfdist = biallelic_dosage_halfdist(write_dosage_int);
+          const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
           if (halfdist < dosage_erase_halfdist) {
-            goto bgen11_dosage_scan_thread_dosage_found;
+            goto Bgen11DosageScanThread_dosage_found;
           }
         }
       }
@@ -2991,7 +2990,7 @@ THREAD_FUNC_DECL bgen11_dosage_scan_thread(void* arg) {
       g_error_ret = kPglRetMalformedInput;
     }
     while (0) {
-    bgen11_dosage_scan_thread_dosage_found:
+    Bgen11DosageScanThread_dosage_found:
       g_dosage_is_present = 1;
     }
     // vidx_base += cur_block_write_ct;
@@ -3003,8 +3002,8 @@ THREAD_FUNC_DECL bgen11_dosage_scan_thread(void* arg) {
   }
 }
 
-static_assert(sizeof(dosage_t) == 2, "bgen11_geno_to_pgen_thread() needs to be updated.");
-THREAD_FUNC_DECL bgen11_geno_to_pgen_thread(void* arg) {
+static_assert(sizeof(Dosage) == 2, "Bgen11GenoToPgenThread() needs to be updated.");
+THREAD_FUNC_DECL Bgen11GenoToPgenThread(void* arg) {
   const uintptr_t tidx = R_CAST(uintptr_t, arg);
   const uintptr_t sample_ct = g_sample_ct;
   uint16_t* bgen_geno_buf = g_bgen_geno_bufs[tidx];
@@ -3015,9 +3014,9 @@ THREAD_FUNC_DECL bgen11_geno_to_pgen_thread(void* arg) {
   const uint32_t dosage_int_sum_thresh = 3 * (import_dosage_certainty_int - 1);
   const uint32_t compression_mode = g_compression_mode;
   const uint32_t prov_ref_allele_second = g_prov_ref_allele_second;
-  const uintptr_t sample_ctaw2 = QUATERCT_TO_ALIGNED_WORDCT(sample_ct);
+  const uintptr_t sample_ctaw2 = QuaterCtToAlignedWordCt(sample_ct);
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
-  const uintptr_t sample_ctaw = BITCT_TO_ALIGNED_WORDCT(sample_ct);
+  const uintptr_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
   // uint32_t vidx_base = 0;
   uint32_t parity = 0;
   while (1) {
@@ -3029,7 +3028,7 @@ THREAD_FUNC_DECL bgen11_geno_to_pgen_thread(void* arg) {
     uintptr_t* write_genovec_iter = &(g_write_genovecs[parity][vidx * sample_ctaw2]);
     uint32_t* write_dosage_ct_iter = &(g_write_dosage_cts[parity][vidx]);
     uintptr_t* write_dosage_present_iter = &(g_write_dosage_presents[parity][vidx * sample_ctaw]);
-    dosage_t* write_dosage_vals_iter = &(g_write_dosage_val_bufs[parity][vidx * sample_ct]);
+    Dosage* write_dosage_vals_iter = &(g_write_dosage_val_bufs[parity][vidx * sample_ct]);
     uint16_t* bgen_probs = bgen_geno_buf;
     for (; vidx < vidx_end; ++vidx) {
       if (compression_mode) {
@@ -3046,7 +3045,7 @@ THREAD_FUNC_DECL bgen11_geno_to_pgen_thread(void* arg) {
         compressed_geno_iter = &(compressed_geno_iter[6 * sample_ct]);
       }
       const uint16_t* bgen_probs_iter = bgen_probs;
-      dosage_t* cur_dosage_vals_iter = write_dosage_vals_iter;
+      Dosage* cur_dosage_vals_iter = write_dosage_vals_iter;
       uint32_t inner_loop_last = kBitsPerWordD2 - 1;
       uint32_t widx = 0;
       while (1) {
@@ -3069,15 +3068,15 @@ THREAD_FUNC_DECL bgen11_geno_to_pgen_thread(void* arg) {
               continue;
             }
           }
-          const dosage_prod_t write_dosage_int_numer = S_CAST(dosage_prod_t, kDosageMid) * dosage_int1 + S_CAST(dosage_prod_t, kDosageMax) * dosage_int2;
+          const DosageProd write_dosage_int_numer = S_CAST(DosageProd, kDosageMid) * dosage_int1 + S_CAST(DosageProd, kDosageMax) * dosage_int2;
           uint32_t write_dosage_int;
           if (dosage_int_sum == kDosageMax) {
-            write_dosage_int = ((write_dosage_int_numer + kDosageMid) / kDosageMax) - ((write_dosage_int_numer % (2 * S_CAST(dosage_prod_t, kDosageMax))) == kDosageMid);
+            write_dosage_int = ((write_dosage_int_numer + kDosageMid) / kDosageMax) - ((write_dosage_int_numer % (2 * S_CAST(DosageProd, kDosageMax))) == kDosageMid);
           } else {
             write_dosage_int = (write_dosage_int_numer + (dosage_int_sum / 2)) / dosage_int_sum;
             write_dosage_int -= (2 * (write_dosage_int_numer - write_dosage_int * dosage_int_sum) == dosage_int_sum) * (write_dosage_int % 2);
           }
-          const uint32_t halfdist = biallelic_dosage_halfdist(write_dosage_int);
+          const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
           if (halfdist < hard_call_halfdist) {
             genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
           } else {
@@ -3090,15 +3089,15 @@ THREAD_FUNC_DECL bgen11_geno_to_pgen_thread(void* arg) {
           *cur_dosage_vals_iter++ = write_dosage_int;
         }
         write_genovec_iter[widx] = genovec_word;
-        R_CAST(halfword_t*, write_dosage_present_iter)[widx] = dosage_present_hw;
+        R_CAST(Halfword*, write_dosage_present_iter)[widx] = dosage_present_hw;
         ++widx;
       }
       const uint32_t dosage_ct = cur_dosage_vals_iter - write_dosage_vals_iter;
       if (prov_ref_allele_second) {
-        genovec_invert_unsafe(sample_ct, write_genovec_iter);
-        zero_trailing_quaters(sample_ct, write_genovec_iter);
+        GenovecInvertUnsafe(sample_ct, write_genovec_iter);
+        ZeroTrailingQuaters(sample_ct, write_genovec_iter);
         if (dosage_ct) {
-          biallelic_dosage16_invert(dosage_ct, write_dosage_vals_iter);
+          BiallelicDosage16Invert(dosage_ct, write_dosage_vals_iter);
         }
       }
       *write_dosage_ct_iter++ = dosage_ct;
@@ -3137,9 +3136,9 @@ typedef struct bgen_magic_num_struct {
   uint64_t totq_magic;
   uint32_t totq_postshift;
   uint32_t totq_incr;
-} bgen_magic_num_t;
+} BgenMagicNum;
 
-static const bgen_magic_num_t kBgenMagicNums[25] = {
+static const BgenMagicNum kBgenMagicNums[25] = {
   {0, 0, 0},
   {1, 0, 0},
   {2863311531U, 33, 0},
@@ -3178,8 +3177,8 @@ static const bgen_magic_num_t kBgenMagicNums[25] = {
   */
 };
 
-static_assert(sizeof(dosage_t) == 2, "bgen13_dosage_or_phase_scan_thread() needs to be updated.");
-THREAD_FUNC_DECL bgen13_dosage_or_phase_scan_thread(void* arg) {
+static_assert(sizeof(Dosage) == 2, "Bgen13DosageOrPhaseScanThread() needs to be updated.");
+THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
   // This bails as soon as a single phased or dosage call is detected.  We
   // provisionally assume e.g. phased calls are also present when dosages are,
   // and clean up the relevant header bytes when the assumption is untrue.
@@ -3217,13 +3216,13 @@ THREAD_FUNC_DECL bgen13_dosage_or_phase_scan_thread(void* arg) {
             uLongf zlib_ulongf = uncompressed_byte_ct;
             if (uncompress(K_CAST(Bytef*, cur_uncompressed_geno), &zlib_ulongf, R_CAST(const Bytef*, compressed_geno_start), compressed_byte_ct) != Z_OK) {
               // possible todo: report variant index
-              goto bgen13_dosage_or_phase_scan_thread_malformed;
+              goto Bgen13DosageOrPhaseScanThread_malformed;
             }
           } else {
             const uintptr_t extracted_byte_ct = ZSTD_decompress(K_CAST(unsigned char*, cur_uncompressed_geno), uncompressed_byte_ct, compressed_geno_start, compressed_byte_ct);
             if (extracted_byte_ct != uncompressed_byte_ct) {
               // possible todo: inspect error code
-              goto bgen13_dosage_or_phase_scan_thread_malformed;
+              goto Bgen13DosageOrPhaseScanThread_malformed;
             }
           }
         } else {
@@ -3239,40 +3238,40 @@ THREAD_FUNC_DECL bgen13_dosage_or_phase_scan_thread(void* arg) {
         // 1 byte: # of bits of probability precision (we just support 8 and 16
         //         for now, add others later)
 #ifdef __arm__
-#  error "Unaligned accesses in bgen13_dosage_or_phase_scan_thread()."
+#  error "Unaligned accesses in Bgen13DosageOrPhaseScanThread()."
 #endif
         if ((uncompressed_byte_ct < 10 + sample_ct) || (sample_ct != *R_CAST(const uint32_t*, cur_uncompressed_geno))) {
-          goto bgen13_dosage_or_phase_scan_thread_malformed;
+          goto Bgen13DosageOrPhaseScanThread_malformed;
         }
         const uint32_t cur_allele_ct = bgen_allele_cts[bidx];
         if (*R_CAST(const uint16_t*, &(cur_uncompressed_geno[4])) != cur_allele_ct) {
-          goto bgen13_dosage_or_phase_scan_thread_malformed;
+          goto Bgen13DosageOrPhaseScanThread_malformed;
         }
         const uint32_t min_ploidy = cur_uncompressed_geno[6];
         const uint32_t max_ploidy = cur_uncompressed_geno[7];
         if ((min_ploidy > max_ploidy) || (max_ploidy > 63)) {
-          goto bgen13_dosage_or_phase_scan_thread_malformed;
+          goto Bgen13DosageOrPhaseScanThread_malformed;
         }
         if (max_ploidy > 2) {
-          goto bgen13_dosage_or_phase_scan_thread_not_yet_supported;
+          goto Bgen13DosageOrPhaseScanThread_not_yet_supported;
         }
         const unsigned char* missing_and_ploidy_info = &(cur_uncompressed_geno[8]);
         const unsigned char* uncompressed_geno_iter = &(cur_uncompressed_geno[8 + sample_ct]);
         const uint32_t is_phased = *uncompressed_geno_iter++;
         if (is_phased > 1) {
-          goto bgen13_dosage_or_phase_scan_thread_malformed;
+          goto Bgen13DosageOrPhaseScanThread_malformed;
         }
         const uint32_t bit_precision = *uncompressed_geno_iter++;
         if ((!bit_precision) || (bit_precision > 32)) {
-          goto bgen13_dosage_or_phase_scan_thread_malformed;
+          goto Bgen13DosageOrPhaseScanThread_malformed;
         }
         if (bit_precision > 16) {
-          goto bgen13_dosage_or_phase_scan_thread_not_yet_supported;
+          goto Bgen13DosageOrPhaseScanThread_not_yet_supported;
         }
         const uint64_t totq_magic = kBgenMagicNums[bit_precision].totq_magic;
         const uint32_t totq_postshift = kBgenMagicNums[bit_precision].totq_postshift;
         uint32_t totq_incr = kBgenMagicNums[bit_precision].totq_incr;
-        const uint32_t bytes_per_prob = DIV_UP(bit_precision, CHAR_BIT);
+        const uint32_t bytes_per_prob = DivUp(bit_precision, CHAR_BIT);
 
         // also equal to denominator
         const uintptr_t numer_mask = (1U << bit_precision) - 1;
@@ -3308,14 +3307,14 @@ THREAD_FUNC_DECL bgen13_dosage_or_phase_scan_thread(void* arg) {
 
         if (is_phased) {
           // todo
-          goto bgen13_dosage_or_phase_scan_thread_not_yet_supported;
+          goto Bgen13DosageOrPhaseScanThread_not_yet_supported;
         } else {
           if (cur_allele_ct == 2) {
             if (min_ploidy == max_ploidy) {
               // faster handling of common cases (no need to keep checking if
               // we've read past the end)
               if (uncompressed_byte_ct != (1 + bytes_per_prob * (max_ploidy * k1LU)) * sample_ct + 10) {
-                goto bgen13_dosage_or_phase_scan_thread_malformed;
+                goto Bgen13DosageOrPhaseScanThread_malformed;
               }
               if (max_ploidy == 2) {
                 for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
@@ -3331,9 +3330,9 @@ THREAD_FUNC_DECL bgen13_dosage_or_phase_scan_thread(void* arg) {
                       continue;
                     }
                     const uint32_t write_dosage_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_aa) + kDosageMid * S_CAST(uint64_t, numer_ab) + totq_incr)) >> totq_postshift;
-                    const uint32_t halfdist = biallelic_dosage_halfdist(write_dosage_int);
+                    const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
                     if (halfdist < dosage_erase_halfdist) {
-                      goto bgen13_dosage_or_phase_scan_thread_found;
+                      goto Bgen13DosageOrPhaseScanThread_found;
                     }
                   }
                 }
@@ -3347,9 +3346,9 @@ THREAD_FUNC_DECL bgen13_dosage_or_phase_scan_thread(void* arg) {
                       continue;
                     }
                     const uint32_t write_dosage_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_a) + totq_incr)) >> totq_postshift;
-                    const uint32_t halfdist = biallelic_dosage_halfdist(write_dosage_int);
+                    const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
                     if (halfdist < dosage_erase_halfdist) {
-                      goto bgen13_dosage_or_phase_scan_thread_found;
+                      goto Bgen13DosageOrPhaseScanThread_found;
                     }
                   }
                 }
@@ -3359,7 +3358,7 @@ THREAD_FUNC_DECL bgen13_dosage_or_phase_scan_thread(void* arg) {
               const unsigned char* uncompressed_geno_end = &(cur_uncompressed_geno[uncompressed_byte_ct]);
               for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
                 if (uncompressed_geno_iter > uncompressed_geno_end) {
-                  goto bgen13_dosage_or_phase_scan_thread_malformed;
+                  goto Bgen13DosageOrPhaseScanThread_malformed;
                 }
                 uint32_t missing_and_ploidy = missing_and_ploidy_info[sample_idx];
                 if (missing_and_ploidy == 2) {
@@ -3371,9 +3370,9 @@ THREAD_FUNC_DECL bgen13_dosage_or_phase_scan_thread(void* arg) {
                     continue;
                   }
                   const uint32_t write_dosage_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_aa) + kDosageMid * S_CAST(uint64_t, numer_ab) + totq_incr)) >> totq_postshift;
-                  const uint32_t halfdist = biallelic_dosage_halfdist(write_dosage_int);
+                  const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
                   if (halfdist < dosage_erase_halfdist) {
-                    goto bgen13_dosage_or_phase_scan_thread_found;
+                    goto Bgen13DosageOrPhaseScanThread_found;
                   }
                 } else if (missing_and_ploidy == 1) {
                   const uintptr_t numer_a = (*R_CAST(const uint32_t*, uncompressed_geno_iter)) & numer_mask;
@@ -3382,15 +3381,15 @@ THREAD_FUNC_DECL bgen13_dosage_or_phase_scan_thread(void* arg) {
                     continue;
                   }
                   const uint32_t write_dosage_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_a) + totq_incr)) >> totq_postshift;
-                  const uint32_t halfdist = biallelic_dosage_halfdist(write_dosage_int);
+                  const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
                   if (halfdist < dosage_erase_halfdist) {
-                    goto bgen13_dosage_or_phase_scan_thread_found;
+                    goto Bgen13DosageOrPhaseScanThread_found;
                   }
                 } else {
                   // treat as missing
                   missing_and_ploidy &= 127;
                   if (missing_and_ploidy > 2) {
-                    goto bgen13_dosage_or_phase_scan_thread_malformed;
+                    goto Bgen13DosageOrPhaseScanThread_malformed;
                   }
                   uncompressed_geno_iter = &(uncompressed_geno_iter[missing_and_ploidy * bytes_per_prob]);
                 }
@@ -3401,19 +3400,19 @@ THREAD_FUNC_DECL bgen13_dosage_or_phase_scan_thread(void* arg) {
             // (shouldn't currently be possible to reach here, I/O thread skips
             // multiallelics for now)
             assert(0);
-            goto bgen13_dosage_or_phase_scan_thread_not_yet_supported;
+            goto Bgen13DosageOrPhaseScanThread_not_yet_supported;
           }
         }
       }
     }
     while (0) {
-    bgen13_dosage_or_phase_scan_thread_malformed:
+    Bgen13DosageOrPhaseScanThread_malformed:
       g_error_ret = kPglRetMalformedInput;
       break;
-    bgen13_dosage_or_phase_scan_thread_not_yet_supported:
+    Bgen13DosageOrPhaseScanThread_not_yet_supported:
       g_error_ret = kPglRetNotYetSupported;
       break;
-    bgen13_dosage_or_phase_scan_thread_found:
+    Bgen13DosageOrPhaseScanThread_found:
       g_dosage_is_present = 1;
       break;
     }
@@ -3430,8 +3429,8 @@ static uintptr_t* g_write_phaseinfos[2] = {nullptr, nullptr};
 static uintptr_t* g_write_dphase_presents[2] = {nullptr, nullptr};
 static uint32_t* g_write_dphase_cts[2] = {nullptr, nullptr};
 
-static_assert(sizeof(dosage_t) == 2, "bgen13_geno_to_pgen_thread() needs to be updated.");
-THREAD_FUNC_DECL bgen13_geno_to_pgen_thread(void* arg) {
+static_assert(sizeof(Dosage) == 2, "Bgen13GenoToPgenThread() needs to be updated.");
+THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
   const uintptr_t tidx = R_CAST(uintptr_t, arg);
   const uintptr_t sample_ct = g_sample_ct;
   const uint32_t hard_call_halfdist = g_hard_call_halfdist;
@@ -3439,9 +3438,9 @@ THREAD_FUNC_DECL bgen13_geno_to_pgen_thread(void* arg) {
   const uint32_t* bgen_import_dosage_certainty_thresholds = g_bgen_import_dosage_certainty_thresholds;
   const uint32_t compression_mode = g_compression_mode;
   const uint32_t prov_ref_allele_second = g_prov_ref_allele_second;
-  const uintptr_t sample_ctaw2 = QUATERCT_TO_ALIGNED_WORDCT(sample_ct);
+  const uintptr_t sample_ctaw2 = QuaterCtToAlignedWordCt(sample_ct);
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
-  const uintptr_t sample_ctaw = BITCT_TO_ALIGNED_WORDCT(sample_ct);
+  const uintptr_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
   const unsigned char* cur_uncompressed_geno = nullptr;
   if (compression_mode) {
     cur_uncompressed_geno = g_thread_wkspaces[tidx];
@@ -3461,7 +3460,7 @@ THREAD_FUNC_DECL bgen13_geno_to_pgen_thread(void* arg) {
       uint32_t* write_dphase_ct_iter = &(g_write_dphase_cts[parity][bidx]);
       uintptr_t* write_dosage_present_iter = &(g_write_dosage_presents[parity][bidx * sample_ctaw]);
       uintptr_t* write_dphase_present_iter = &(g_write_dphase_presents[parity][bidx * sample_ctaw]);
-      dosage_t* write_dosage_vals_iter = &(g_write_dosage_val_bufs[parity][bidx * sample_ct * 2]);
+      Dosage* write_dosage_vals_iter = &(g_write_dosage_val_bufs[parity][bidx * sample_ct * 2]);
       const uint16_t* bgen_allele_ct_iter = &(g_bgen_allele_cts[parity][bidx]);
       const uint32_t* uncompressed_genodata_byte_ct_iter = &(g_uncompressed_genodata_byte_cts[parity][bidx]);
       for (; bidx < bidx_end; ++bidx) {
@@ -3475,13 +3474,13 @@ THREAD_FUNC_DECL bgen13_geno_to_pgen_thread(void* arg) {
             uLongf zlib_ulongf = uncompressed_byte_ct;
             if (uncompress(K_CAST(Bytef*, cur_uncompressed_geno), &zlib_ulongf, R_CAST(const Bytef*, compressed_geno_start), compressed_byte_ct) != Z_OK) {
               // possible todo: report variant index
-              goto bgen13_geno_to_pgen_thread_malformed;
+              goto Bgen13GenoToPgenThread_malformed;
             }
           } else {
             const uintptr_t extracted_byte_ct = ZSTD_decompress(K_CAST(unsigned char*, cur_uncompressed_geno), uncompressed_byte_ct, compressed_geno_start, compressed_byte_ct);
             if (extracted_byte_ct != uncompressed_byte_ct) {
               // possible todo: inspect error code
-              goto bgen13_geno_to_pgen_thread_malformed;
+              goto Bgen13GenoToPgenThread_malformed;
             }
           }
         } else {
@@ -3497,37 +3496,37 @@ THREAD_FUNC_DECL bgen13_geno_to_pgen_thread(void* arg) {
         // 1 byte: # of bits of probability precision (we just support 8 and 16
         //         for now, add others later)
         if ((uncompressed_byte_ct < 10 + sample_ct) || (sample_ct != *R_CAST(const uint32_t*, cur_uncompressed_geno))) {
-          goto bgen13_geno_to_pgen_thread_malformed;
+          goto Bgen13GenoToPgenThread_malformed;
         }
         const uint32_t cur_allele_ct = *bgen_allele_ct_iter++;
         if (*R_CAST(const uint16_t*, &(cur_uncompressed_geno[4])) != cur_allele_ct) {
-          goto bgen13_geno_to_pgen_thread_malformed;
+          goto Bgen13GenoToPgenThread_malformed;
         }
         const uint32_t min_ploidy = cur_uncompressed_geno[6];
         const uint32_t max_ploidy = cur_uncompressed_geno[7];
         if ((min_ploidy > max_ploidy) || (max_ploidy > 63)) {
-          goto bgen13_geno_to_pgen_thread_malformed;
+          goto Bgen13GenoToPgenThread_malformed;
         }
         if (max_ploidy > 2) {
-          goto bgen13_geno_to_pgen_thread_not_yet_supported;
+          goto Bgen13GenoToPgenThread_not_yet_supported;
         }
         const unsigned char* missing_and_ploidy_iter = &(cur_uncompressed_geno[8]);
         const unsigned char* uncompressed_geno_iter = &(cur_uncompressed_geno[8 + sample_ct]);
         const uint32_t is_phased = *uncompressed_geno_iter++;
         if (is_phased > 1) {
-          goto bgen13_geno_to_pgen_thread_malformed;
+          goto Bgen13GenoToPgenThread_malformed;
         }
         const uint32_t bit_precision = *uncompressed_geno_iter++;
         if ((!bit_precision) || (bit_precision > 32)) {
-          goto bgen13_geno_to_pgen_thread_malformed;
+          goto Bgen13GenoToPgenThread_malformed;
         }
         if (bit_precision > 16) {
-          goto bgen13_geno_to_pgen_thread_not_yet_supported;
+          goto Bgen13GenoToPgenThread_not_yet_supported;
         }
         const uint64_t totq_magic = kBgenMagicNums[bit_precision].totq_magic;
         const uint32_t totq_postshift = kBgenMagicNums[bit_precision].totq_postshift;
         uint32_t totq_incr = kBgenMagicNums[bit_precision].totq_incr;
-        const uint32_t bytes_per_prob = DIV_UP(bit_precision, CHAR_BIT);
+        const uint32_t bytes_per_prob = DivUp(bit_precision, CHAR_BIT);
 
         // also equal to denominator
         const uintptr_t numer_mask = (1U << bit_precision) - 1;
@@ -3538,20 +3537,20 @@ THREAD_FUNC_DECL bgen13_geno_to_pgen_thread(void* arg) {
           numer_certainty_min = bgen_import_dosage_certainty_thresholds[bit_precision];
         }
 
-        dosage_t* cur_dosage_vals_iter = write_dosage_vals_iter;
+        Dosage* cur_dosage_vals_iter = write_dosage_vals_iter;
         uint32_t inner_loop_last = kBitsPerWordD2 - 1;
         uint32_t widx = 0;
         if (is_phased) {
           // todo
-          goto bgen13_geno_to_pgen_thread_not_yet_supported;
+          goto Bgen13GenoToPgenThread_not_yet_supported;
         } else {
-          // fill_ulong_zero(sample_ctaw, write_dphase_present_iter);
+          // ZeroUlArr(sample_ctaw, write_dphase_present_iter);
           if (cur_allele_ct == 2) {
             if (min_ploidy == max_ploidy) {
               // faster handling of common cases (no need to keep checking if
               // we've read past the end)
               if (uncompressed_byte_ct != (bytes_per_prob * (max_ploidy * k1LU) + 1) * sample_ct + 10) {
-                goto bgen13_geno_to_pgen_thread_malformed;
+                goto Bgen13GenoToPgenThread_malformed;
               }
               if (max_ploidy == 2) {
                 while (1) {
@@ -3567,19 +3566,19 @@ THREAD_FUNC_DECL bgen13_geno_to_pgen_thread(void* arg) {
                     const uint32_t missing_and_ploidy = *missing_and_ploidy_iter++;
                     if (missing_and_ploidy == 2) {
 #ifdef __arm__
-#  error "Unaligned accesses in bgen13_geno_to_pgen_thread()."
+#  error "Unaligned accesses in Bgen13GenoToPgenThread()."
 #endif
                       const uintptr_t numer_aa = (*R_CAST(const uint32_t*, uncompressed_geno_iter)) & numer_mask;
                       const uintptr_t numer_ab = (*R_CAST(const uint32_t*, &(uncompressed_geno_iter[bytes_per_prob]))) & numer_mask;
                       if (numer_aa + numer_ab > numer_mask) {
-                        goto bgen13_geno_to_pgen_thread_malformed;
+                        goto Bgen13GenoToPgenThread_malformed;
                       }
                       if ((numer_aa < numer_certainty_min) && (numer_ab < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_aa + numer_ab)) {
                         // missing due to --import-dosage-certainty
-                        goto bgen13_geno_to_pgen_thread_diploid_missing;
+                        goto Bgen13GenoToPgenThread_diploid_missing;
                       }
                       const uint32_t write_dosage_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_aa) + kDosageMid * S_CAST(uint64_t, numer_ab) + totq_incr)) >> totq_postshift;
-                      const uint32_t halfdist = biallelic_dosage_halfdist(write_dosage_int);
+                      const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
                       if (halfdist < hard_call_halfdist) {
                         genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
                       } else {
@@ -3592,12 +3591,12 @@ THREAD_FUNC_DECL bgen13_geno_to_pgen_thread(void* arg) {
                       *cur_dosage_vals_iter++ = write_dosage_int;
                     } else {
                       // (could also validate that missing_and_ploidy == 130)
-                    bgen13_geno_to_pgen_thread_diploid_missing:
+                    Bgen13GenoToPgenThread_diploid_missing:
                       genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
                     }
                   }
                   write_genovec_iter[widx] = genovec_word;
-                  R_CAST(halfword_t*, write_dosage_present_iter)[widx] = dosage_present_hw;
+                  R_CAST(Halfword*, write_dosage_present_iter)[widx] = dosage_present_hw;
                   ++widx;
                 }
               } else if (max_ploidy == 1) {
@@ -3615,10 +3614,10 @@ THREAD_FUNC_DECL bgen13_geno_to_pgen_thread(void* arg) {
                     if (missing_and_ploidy == 1) {
                       const uintptr_t numer_a = (*R_CAST(const uint32_t*, uncompressed_geno_iter)) & numer_mask;
                       if ((numer_a < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_a)) {
-                        goto bgen13_geno_to_pgen_thread_haploid_missing;
+                        goto Bgen13GenoToPgenThread_haploid_missing;
                       }
                       const uint32_t write_dosage_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_a) + totq_incr)) >> totq_postshift;
-                      const uint32_t halfdist = biallelic_dosage_halfdist(write_dosage_int);
+                      const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
                       if (halfdist < hard_call_halfdist) {
                         genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
                       } else {
@@ -3630,12 +3629,12 @@ THREAD_FUNC_DECL bgen13_geno_to_pgen_thread(void* arg) {
                       dosage_present_hw |= 1U << sample_idx_lowbits;
                       *cur_dosage_vals_iter++ = write_dosage_int;
                     } else {
-                    bgen13_geno_to_pgen_thread_haploid_missing:
+                    Bgen13GenoToPgenThread_haploid_missing:
                       genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
                     }
                   }
                   write_genovec_iter[widx] = genovec_word;
-                  R_CAST(halfword_t*, write_dosage_present_iter)[widx] = dosage_present_hw;
+                  R_CAST(Halfword*, write_dosage_present_iter)[widx] = dosage_present_hw;
                   ++widx;
                 }
               }
@@ -3653,7 +3652,7 @@ THREAD_FUNC_DECL bgen13_geno_to_pgen_thread(void* arg) {
                 uint32_t dosage_present_hw = 0;
                 for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
                   if (uncompressed_geno_iter > uncompressed_geno_end) {
-                    goto bgen13_geno_to_pgen_thread_malformed;
+                    goto Bgen13GenoToPgenThread_malformed;
                   }
                   uint32_t missing_and_ploidy = *missing_and_ploidy_iter++;
                   uint32_t write_dosage_int;
@@ -3662,31 +3661,31 @@ THREAD_FUNC_DECL bgen13_geno_to_pgen_thread(void* arg) {
                     const uintptr_t numer_ab = (*R_CAST(const uint32_t*, &(uncompressed_geno_iter[bytes_per_prob]))) & numer_mask;
                     uncompressed_geno_iter = &(uncompressed_geno_iter[2 * bytes_per_prob]);
                     if (numer_aa + numer_ab > numer_mask) {
-                      goto bgen13_geno_to_pgen_thread_malformed;
+                      goto Bgen13GenoToPgenThread_malformed;
                     }
                     if ((numer_aa < numer_certainty_min) && (numer_ab < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_aa + numer_ab)) {
                       // missing due to --import-dosage-certainty
-                      goto bgen13_geno_to_pgen_thread_generic_missing;
+                      goto Bgen13GenoToPgenThread_generic_missing;
                     }
                     write_dosage_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_aa) + kDosageMid * S_CAST(uint64_t, numer_ab) + totq_incr)) >> totq_postshift;
                   } else if (missing_and_ploidy == 1) {
                     const uintptr_t numer_a = (*R_CAST(const uint32_t*, uncompressed_geno_iter)) & numer_mask;
                     uncompressed_geno_iter = &(uncompressed_geno_iter[bytes_per_prob]);
                     if ((numer_a < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_a)) {
-                      goto bgen13_geno_to_pgen_thread_generic_missing;
+                      goto Bgen13GenoToPgenThread_generic_missing;
                     }
                     write_dosage_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_a) + totq_incr)) >> totq_postshift;
                   } else {
                     missing_and_ploidy &= 127;
                     if (missing_and_ploidy > 2) {
-                      goto bgen13_geno_to_pgen_thread_malformed;
+                      goto Bgen13GenoToPgenThread_malformed;
                     }
                     uncompressed_geno_iter = &(uncompressed_geno_iter[missing_and_ploidy * bytes_per_prob]);
-                  bgen13_geno_to_pgen_thread_generic_missing:
+                  Bgen13GenoToPgenThread_generic_missing:
                     genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
                     continue;
                   }
-                  const uint32_t halfdist = biallelic_dosage_halfdist(write_dosage_int);
+                  const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
                   if (halfdist < hard_call_halfdist) {
                     genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
                   } else {
@@ -3699,17 +3698,17 @@ THREAD_FUNC_DECL bgen13_geno_to_pgen_thread(void* arg) {
                   *cur_dosage_vals_iter++ = write_dosage_int;
                 }
                 write_genovec_iter[widx] = genovec_word;
-                R_CAST(halfword_t*, write_dosage_present_iter)[widx] = dosage_present_hw;
+                R_CAST(Halfword*, write_dosage_present_iter)[widx] = dosage_present_hw;
                 ++widx;
               }
             }
             const uint32_t dosage_ct = cur_dosage_vals_iter - write_dosage_vals_iter;
             // note that this is inverted from bgen-1.1
             if (!prov_ref_allele_second) {
-              genovec_invert_unsafe(sample_ct, write_genovec_iter);
-              zero_trailing_quaters(sample_ct, write_genovec_iter);
+              GenovecInvertUnsafe(sample_ct, write_genovec_iter);
+              ZeroTrailingQuaters(sample_ct, write_genovec_iter);
               if (dosage_ct) {
-                biallelic_dosage16_invert(dosage_ct, write_dosage_vals_iter);
+                BiallelicDosage16Invert(dosage_ct, write_dosage_vals_iter);
               }
             }
             *write_dosage_ct_iter++ = dosage_ct;
@@ -3721,16 +3720,16 @@ THREAD_FUNC_DECL bgen13_geno_to_pgen_thread(void* arg) {
           } else {
             // todo: unphased multiallelic variants
             assert(0);
-            goto bgen13_geno_to_pgen_thread_not_yet_supported;
+            goto Bgen13GenoToPgenThread_not_yet_supported;
           }
         }
       }
     }
     while (0) {
-    bgen13_geno_to_pgen_thread_malformed:
+    Bgen13GenoToPgenThread_malformed:
       g_error_ret = kPglRetMalformedInput;
       break;
-    bgen13_geno_to_pgen_thread_not_yet_supported:
+    Bgen13GenoToPgenThread_not_yet_supported:
       g_error_ret = kPglRetNotYetSupported;
       break;
     }
@@ -3742,8 +3741,8 @@ THREAD_FUNC_DECL bgen13_geno_to_pgen_thread(void* arg) {
   }
 }
 
-static_assert(sizeof(dosage_t) == 2, "ox_bgen_to_pgen() needs to be updated.");
-pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const char* const_fid, const char* ox_missing_code, misc_flags_t misc_flags, oxford_import_t oxford_import_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, uint32_t max_thread_ct, char* outname, char* outname_end, chr_info_t* cip) {
+static_assert(sizeof(Dosage) == 2, "OxBgenToPgen() needs to be updated.");
+PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* const_fid, const char* ox_missing_code, MiscFlags misc_flags, OxfordImportFlags oxford_import_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* bgenfile = nullptr;
@@ -3753,11 +3752,11 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
   FILE* psamfile = nullptr;
 
   FILE* pvarfile = nullptr;
-  threads_state_t ts;
-  init_threads3z(&ts);
-  st_pgen_writer_t spgw;
-  pglerr_t reterr = kPglRetSuccess;
-  spgw_preinit(&spgw);
+  ThreadsState ts;
+  InitThreads3z(&ts);
+  STPgenWriter spgw;
+  PglErr reterr = kPglRetSuccess;
+  PreinitSpgw(&spgw);
   {
     // Pass 1: Determine whether there's at least one non-hardcall needs to be
     //         saved, and if a chromosome filter was specified, count the
@@ -3769,82 +3768,82 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
     // Pass 2: Write .pgen file.
 
     if (fopen_checked(bgenname, FOPEN_RB, &bgenfile)) {
-      goto ox_bgen_to_pgen_ret_OPEN_FAIL;
+      goto OxBgenToPgen_ret_OPEN_FAIL;
     }
     uint32_t initial_uints[5];
     if (!fread_unlocked(initial_uints, 20, 1, bgenfile)) {
       // this could be malformed input as well; could distinguish later?
-      goto ox_bgen_to_pgen_ret_READ_FAIL;
+      goto OxBgenToPgen_ret_READ_FAIL;
     }
     if (initial_uints[1] > initial_uints[0]) {
-      logerrprint("Error: Invalid .bgen header.\n");
-      goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+      logerrputs("Error: Invalid .bgen header.\n");
+      goto OxBgenToPgen_ret_MALFORMED_INPUT;
     }
     const uint32_t raw_variant_ct = initial_uints[2];
     if (!raw_variant_ct) {
-      logerrprint("Error: Empty .bgen file.\n");
-      goto ox_bgen_to_pgen_ret_INCONSISTENT_INPUT;
+      logerrputs("Error: Empty .bgen file.\n");
+      goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
     }
     const uint32_t sample_ct = initial_uints[3];
     if (initial_uints[4] && (initial_uints[4] != 0x6e656762)) {
-      logerrprint("Error: Invalid .bgen magic number.\n");
-      goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+      logerrputs("Error: Invalid .bgen magic number.\n");
+      goto OxBgenToPgen_ret_MALFORMED_INPUT;
     }
 
     if (fseeko(bgenfile, initial_uints[1], SEEK_SET)) {
-      goto ox_bgen_to_pgen_ret_READ_FAIL;
+      goto OxBgenToPgen_ret_READ_FAIL;
     }
     uint32_t header_flags;
     if (!fread_unlocked(&header_flags, 4, 1, bgenfile)) {
-      goto ox_bgen_to_pgen_ret_READ_FAIL;
+      goto OxBgenToPgen_ret_READ_FAIL;
     }
     const uint32_t compression_mode = header_flags & 3;
     const uint32_t layout = (header_flags >> 2) & 15;
     if (!layout) {
-      logerrprint("Error: BGEN v1.0 files are not supported by " PROG_NAME_STR ".\n");
-      goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+      logerrputs("Error: BGEN v1.0 files are not supported by " PROG_NAME_STR ".\n");
+      goto OxBgenToPgen_ret_MALFORMED_INPUT;
     }
     if ((compression_mode == 3) || (layout > 2)) {
-      logerrprint("Error: Unrecognized BGEN version.  Use gen-convert or a similar tool to\ndowncode to BGEN v1.3 if you want to process this data with " PROG_NAME_STR ".\n");
-      goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+      logerrputs("Error: Unrecognized BGEN version.  Use gen-convert or a similar tool to\ndowncode to BGEN v1.3 if you want to process this data with " PROG_NAME_STR ".\n");
+      goto OxBgenToPgen_ret_MALFORMED_INPUT;
     }
     if ((compression_mode == 2) && (layout == 1)) {
-      logerrprint("Error: Invalid .bgen header.\n");
-      goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+      logerrputs("Error: Invalid .bgen header.\n");
+      goto OxBgenToPgen_ret_MALFORMED_INPUT;
     }
-    LOGPRINTF("--bgen: %u variant%s detected, format v1.%c.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s", (layout == 1)? '1' : ((compression_mode == 2)? '3' : '2'));
+    logprintf("--bgen: %u variant%s detected, format v1.%c.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s", (layout == 1)? '1' : ((compression_mode == 2)? '3' : '2'));
     if (samplename[0]) {
       uint32_t sfile_sample_ct;
-      reterr = ox_sample_to_psam(samplename, ox_missing_code, misc_flags, outname, outname_end, &sfile_sample_ct);
+      reterr = OxSampleToPsam(samplename, ox_missing_code, misc_flags, outname, outname_end, &sfile_sample_ct);
       if (reterr) {
-        goto ox_bgen_to_pgen_ret_1;
+        goto OxBgenToPgen_ret_1;
       }
       if (sfile_sample_ct != sample_ct) {
-        LOGERRPRINTF("Error: .sample file has %u sample%s, while .bgen file has %u.\n", sfile_sample_ct, (sfile_sample_ct == 1)? "" : "s", sample_ct);
-        goto ox_bgen_to_pgen_ret_INCONSISTENT_INPUT;
+        logerrprintf("Error: .sample file has %u sample%s, while .bgen file has %u.\n", sfile_sample_ct, (sfile_sample_ct == 1)? "" : "s", sample_ct);
+        goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
       }
       if (header_flags >> 31) {
         uint32_t sample_id_block_byte_ct;
         uint32_t sample_id_block_entry_ct;
         if ((!fread_unlocked(&sample_id_block_byte_ct, 4, 1, bgenfile)) ||
             (!fread_unlocked(&sample_id_block_entry_ct, 4, 1, bgenfile))) {
-          goto ox_bgen_to_pgen_ret_READ_FAIL;
+          goto OxBgenToPgen_ret_READ_FAIL;
         }
         if ((S_CAST(uint64_t, sample_id_block_byte_ct) + initial_uints[1] > initial_uints[0]) ||
             (sample_id_block_entry_ct != sample_ct)) {
-          logerrprint("Error: Invalid .bgen header.\n");
-          goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+          logerrputs("Error: Invalid .bgen header.\n");
+          goto OxBgenToPgen_ret_MALFORMED_INPUT;
         }
       }
     } else {
       if (!(header_flags >> 31)) {
-        logerrprint("Error: .bgen file does not contain sample IDs, and no .sample file was\nspecified.\n");
-        goto ox_bgen_to_pgen_ret_INCONSISTENT_INPUT;
+        logerrputs("Error: .bgen file does not contain sample IDs, and no .sample file was\nspecified.\n");
+        goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
       }
       // possible todo: optionally error out if sample IDs aren't consistent
       // between .bgen and .sample
 
-      // see vcf_sample_line()
+      // see VcfSampleLine()
       // probable todo: wrap much of this in its own function
       uint32_t double_id = (misc_flags / kfMiscDoubleId) & 1;
       uintptr_t const_fid_len = 0;
@@ -3860,22 +3859,22 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       uint32_t sample_id_block_entry_ct;
       if ((!fread_unlocked(&sample_id_block_byte_ct, 4, 1, bgenfile)) ||
           (!fread_unlocked(&sample_id_block_entry_ct, 4, 1, bgenfile))) {
-        goto ox_bgen_to_pgen_ret_READ_FAIL;
+        goto OxBgenToPgen_ret_READ_FAIL;
       }
       if ((sample_id_block_byte_ct < 8) ||
           (S_CAST(uint64_t, sample_id_block_byte_ct) + initial_uints[1] > initial_uints[0]) ||
           (sample_id_block_entry_ct != sample_ct)) {
-        logerrprint("Error: Invalid .bgen header.\n");
-        goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+        logerrputs("Error: Invalid .bgen header.\n");
+        goto OxBgenToPgen_ret_MALFORMED_INPUT;
       }
       sample_id_block_byte_ct -= 8;
       char* sample_id_block_main;
       if (bigstack_alloc_c(sample_id_block_byte_ct, &sample_id_block_main)) {
-        goto ox_bgen_to_pgen_ret_NOMEM;
+        goto OxBgenToPgen_ret_NOMEM;
       }
       char* sample_id_block_end = &(sample_id_block_main[sample_id_block_byte_ct]);
       if (fread_checked(sample_id_block_main, sample_id_block_byte_ct, bgenfile)) {
-        goto ox_bgen_to_pgen_ret_READ_FAIL;
+        goto OxBgenToPgen_ret_READ_FAIL;
       }
 
       // always check if any tab/eoln characters are present, and error out if
@@ -3890,8 +3889,8 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
         // need to check this to avoid read-past-the-end indeterminate
         // behavior
         if (S_CAST(uintptr_t, sample_id_block_end - sample_id_block_iter) < input_id_slen + 2) {
-          logerrprint("Error: Invalid .bgen header.\n");
-          goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+          logerrputs("Error: Invalid .bgen header.\n");
+          goto OxBgenToPgen_ret_MALFORMED_INPUT;
         }
         char* sample_id_iter = &(sample_id_block_iter[2]);
         char* sample_id_end = &(sample_id_iter[input_id_slen]);
@@ -3900,12 +3899,12 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
           const uint32_t char_code = ctou32(*sample_id_iter);
           if (char_code < char_code_min) {
             if (char_code < 32) {
-              logerrprint("Error: .bgen sample ID contains tabs, newlines, and/or nonprinting characters.\n");
-              goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+              logerrputs("Error: .bgen sample ID contains tabs, newlines, and/or nonprinting characters.\n");
+              goto OxBgenToPgen_ret_MALFORMED_INPUT;
             }
             if (!idspace_to) {
-              logerrprint("Error: .bgen sample ID contains space(s).  Use --idspace-to to convert them to\nanother character, or \"--id-delim ' '\" to interpret the spaces as FID/IID\ndelimiters.\n");
-              goto ox_bgen_to_pgen_ret_INCONSISTENT_INPUT;
+              logerrputs("Error: .bgen sample ID contains space(s).  Use --idspace-to to convert them to\nanother character, or \"--id-delim ' '\" to interpret the spaces as FID/IID\ndelimiters.\n");
+              goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
             }
             *sample_id_iter = idspace_to;
           }
@@ -3914,7 +3913,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       }
       snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
       if (fopen_checked(outname, FOPEN_WB, &psamfile)) {
-        goto ox_bgen_to_pgen_ret_OPEN_FAIL;
+        goto OxBgenToPgen_ret_OPEN_FAIL;
       }
       char* textbuf = g_textbuf;
       char* write_iter = strcpya(textbuf, "#FID\tIID");
@@ -3925,8 +3924,8 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
         for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
           const uint32_t input_id_slen = *R_CAST(uint16_t*, sample_id_block_iter);
           if (S_CAST(uintptr_t, sample_id_block_end - sample_id_block_iter) < input_id_slen + 2) {
-            logerrprint("Error: Invalid .bgen header.\n");
-            goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+            logerrputs("Error: Invalid .bgen header.\n");
+            goto OxBgenToPgen_ret_MALFORMED_INPUT;
           }
           char* sample_id_start = &(sample_id_block_iter[2]);
           char* sample_id_end = &(sample_id_start[input_id_slen]);
@@ -3943,39 +3942,39 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
         }
       }
       write_iter = strcpya(write_iter, "\tSEX");
-      append_binary_eoln(&write_iter);
+      AppendBinaryEoln(&write_iter);
       char* textbuf_flush = &(textbuf[kMaxMediumLine]);
       sample_id_block_iter = sample_id_block_main;
       for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
         const uint32_t input_id_slen = *R_CAST(uint16_t*, sample_id_block_iter);
         if (S_CAST(uintptr_t, sample_id_block_end - sample_id_block_iter) < input_id_slen + 2) {
-          logerrprint("Error: Invalid .bgen header.\n");
-          goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+          logerrputs("Error: Invalid .bgen header.\n");
+          goto OxBgenToPgen_ret_MALFORMED_INPUT;
         }
         char* sample_id_start = &(sample_id_block_iter[2]);
         if (input_id_slen <= 1) {
           if (!input_id_slen) {
-            logerrprint("Error: Empty sample ID in .bgen file.\n");
-            goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+            logerrputs("Error: Empty sample ID in .bgen file.\n");
+            goto OxBgenToPgen_ret_MALFORMED_INPUT;
           }
           if (*sample_id_start == '0') {
-            logerrprint("Error: Sample ID cannot be '0'.\n");
-            goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+            logerrputs("Error: Sample ID cannot be '0'.\n");
+            goto OxBgenToPgen_ret_MALFORMED_INPUT;
           }
         }
         char* sample_id_end = &(sample_id_start[input_id_slen]);
         if (id_delim) {
           if (*sample_id_start == id_delim) {
             snprintf(g_logbuf, kLogbufSize, "Error: '%c' at beginning of sample ID.\n", id_delim);
-            goto ox_bgen_to_pgen_ret_INCONSISTENT_INPUT_2;
+            goto OxBgenToPgen_ret_INCONSISTENT_INPUT_2;
           }
           char* first_delim = S_CAST(char*, memchr(sample_id_start, ctou32(id_delim), input_id_slen));
           if (!first_delim) {
             if (double_or_const_fid) {
-              goto ox_bgen_to_pgen_one_sample_id;
+              goto OxBgenToPgen_one_sample_id;
             }
             snprintf(g_logbuf, kLogbufSize, "Error: No '%c' in sample ID.\n", id_delim);
-            goto ox_bgen_to_pgen_ret_INCONSISTENT_INPUT_2;
+            goto OxBgenToPgen_ret_INCONSISTENT_INPUT_2;
           }
           char* iid_start = &(first_delim[1]);
           char* iid_end = S_CAST(char*, memchr(iid_start, ctou32(id_delim), sample_id_end - iid_start));
@@ -3984,29 +3983,29 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
           if (iid_end) {
             if (iid_start == iid_end) {
               snprintf(g_logbuf, kLogbufSize, "Error: Consecutive instances of '%c' in sample ID.\n", id_delim);
-              goto ox_bgen_to_pgen_ret_INCONSISTENT_INPUT_DELIM;
+              goto OxBgenToPgen_ret_INCONSISTENT_INPUT_DELIM;
             }
             sid_start = &(iid_end[1]);
             sid_slen = sample_id_end - sid_start;
             if (memchr(sid_start, ctou32(id_delim), sid_slen)) {
               snprintf(g_logbuf, kLogbufSize, "Error: More than two instances of '%c' in sample ID.\n", id_delim);
-              goto ox_bgen_to_pgen_ret_INCONSISTENT_INPUT_DELIM;
+              goto OxBgenToPgen_ret_INCONSISTENT_INPUT_DELIM;
             }
           } else {
             iid_end = sample_id_end;
           }
           const uint32_t fid_slen = first_delim - sample_id_start;
           if (fid_slen > kMaxIdSlen) {
-            goto ox_bgen_to_pgen_ret_MALFORMED_INPUT_LONG_ID;
+            goto OxBgenToPgen_ret_MALFORMED_INPUT_LONG_ID;
           }
           write_iter = memcpyax(write_iter, sample_id_start, fid_slen, '\t');
           const uint32_t iid_slen = iid_end - iid_start;
           if ((*iid_start == '0') && (iid_slen == 1)) {
-            logerrprint("Error: Sample ID induces an invalid IID of '0'.\n");
-            goto ox_bgen_to_pgen_ret_INCONSISTENT_INPUT;
+            logerrputs("Error: Sample ID induces an invalid IID of '0'.\n");
+            goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
           }
           if (iid_slen > kMaxIdSlen) {
-            goto ox_bgen_to_pgen_ret_MALFORMED_INPUT_LONG_ID;
+            goto OxBgenToPgen_ret_MALFORMED_INPUT_LONG_ID;
           }
           write_iter = memcpya(write_iter, iid_start, iid_slen);
           if (sid_present) {
@@ -4014,9 +4013,9 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
             write_iter = memcpya(write_iter, sid_start, sid_slen);
           }
         } else {
-        ox_bgen_to_pgen_one_sample_id:
+        OxBgenToPgen_one_sample_id:
           if (input_id_slen > kMaxIdSlen) {
-            goto ox_bgen_to_pgen_ret_MALFORMED_INPUT_LONG_ID;
+            goto OxBgenToPgen_ret_MALFORMED_INPUT_LONG_ID;
           }
           if (double_id) {
             write_iter = memcpya(write_iter, sample_id_start, input_id_slen);
@@ -4031,41 +4030,41 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
         }
         // SEX
         write_iter = memcpyl3a(write_iter, "\tNA");
-        append_binary_eoln(&write_iter);
+        AppendBinaryEoln(&write_iter);
         if (write_iter >= textbuf_flush) {
           if (fwrite_checked(textbuf, write_iter - textbuf, psamfile)) {
-            goto ox_bgen_to_pgen_ret_WRITE_FAIL;
+            goto OxBgenToPgen_ret_WRITE_FAIL;
           }
           write_iter = textbuf;
         }
         sample_id_block_iter = sample_id_end;
       }
       if (sample_id_block_iter != &(sample_id_block_main[sample_id_block_byte_ct])) {
-        logerrprint("Error: Invalid .bgen header.\n");
-        goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+        logerrputs("Error: Invalid .bgen header.\n");
+        goto OxBgenToPgen_ret_MALFORMED_INPUT;
       }
       if (write_iter != textbuf) {
         if (fwrite_checked(textbuf, write_iter - textbuf, psamfile)) {
-          goto ox_bgen_to_pgen_ret_WRITE_FAIL;
+          goto OxBgenToPgen_ret_WRITE_FAIL;
         }
       }
-      bigstack_reset(sample_id_block_main);
+      BigstackReset(sample_id_block_main);
       if (fclose_null(&psamfile)) {
-        goto ox_bgen_to_pgen_ret_WRITE_FAIL;
+        goto OxBgenToPgen_ret_WRITE_FAIL;
       }
-      LOGPRINTFWW("--bgen: %u sample ID%s written to %s .\n", sample_ct, (sample_ct == 1)? "" : "s", outname);
+      logprintfww("--bgen: %u sample ID%s written to %s .\n", sample_ct, (sample_ct == 1)? "" : "s", outname);
     }
     if (fseeko(bgenfile, initial_uints[0] + 4, SEEK_SET)) {
-      goto ox_bgen_to_pgen_ret_READ_FAIL;
+      goto OxBgenToPgen_ret_READ_FAIL;
     }
     const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
-    finalize_chrset(misc_flags, cip);
+    FinalizeChrset(misc_flags, cip);
     const uint32_t autosome_ct_p1 = cip->autosome_ct + 1;
-    uint32_t chr_filter_present = (popcount_bit_idx(cip->chr_mask, 0, autosome_ct_p1) != autosome_ct_p1) || (allow_extra_chrs && (cip->is_include_stack || cip->incl_excl_name_stack));
+    uint32_t chr_filter_present = (PopcountBitRange(cip->chr_mask, 0, autosome_ct_p1) != autosome_ct_p1) || (allow_extra_chrs && (cip->is_include_stack || cip->incl_excl_name_stack));
     if (!chr_filter_present) {
       for (uint32_t xymt_idx = 0; xymt_idx < kChrOffsetCt; ++xymt_idx) {
         if (cip->xymt_codes[xymt_idx] >= 0) {
-          if (!is_set(cip->chr_mask, autosome_ct_p1 + xymt_idx)) {
+          if (!IsSet(cip->chr_mask, autosome_ct_p1 + xymt_idx)) {
             chr_filter_present = 1;
             break;
           }
@@ -4077,11 +4076,11 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
     if (fopen_checked(outname, FOPEN_WB, &pvarfile)) {
-      goto ox_bgen_to_pgen_ret_OPEN_FAIL;
+      goto OxBgenToPgen_ret_OPEN_FAIL;
     }
     char* write_iter = writebuf;
     if (cip->chrset_source) {
-      append_chrset_line(cip, &write_iter);
+      AppendChrsetLine(cip, &write_iter);
     }
     write_iter = strcpya(write_iter, "#CHROM\tPOS\tID\tREF\tALT" EOLN_STR);
 
@@ -4093,8 +4092,8 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
     if (hard_call_thresh == UINT32_MAX) {
       hard_call_thresh = kDosageMid / 10;
     }
-    const uint32_t sample_ctaw2 = QUATERCT_TO_ALIGNED_WORDCT(sample_ct);
-    const uint32_t sample_ctaw = BITCT_TO_ALIGNED_WORDCT(sample_ct);
+    const uint32_t sample_ctaw2 = QuaterCtToAlignedWordCt(sample_ct);
+    const uint32_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
     uint32_t dosage_is_present = 0;
     g_sample_ct = sample_ct;
     g_hard_call_halfdist = kDosage4th - hard_call_thresh;
@@ -4105,7 +4104,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
     g_dosage_is_present = 0;
     if (layout == 1) {
       // v1.1
-      uintptr_t loadbuf_size = round_down_pow2(bigstack_left() / 4, kCacheline);
+      uintptr_t loadbuf_size = RoundDownPow2(bigstack_left() / 4, kCacheline);
 #ifdef __LP64__
       if (loadbuf_size > kMaxLongLine) {
         loadbuf_size = kMaxLongLine;
@@ -4113,7 +4112,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
 #endif
       // must have enough space for chromosome and variant IDs
       if (loadbuf_size < 2 * 65536) {
-        goto ox_bgen_to_pgen_ret_NOMEM;
+        goto OxBgenToPgen_ret_NOMEM;
       }
       unsigned char* loadbuf = S_CAST(unsigned char*, bigstack_alloc_raw(loadbuf_size));
       g_import_dosage_certainty_int = 1 + S_CAST(int32_t, import_dosage_certainty * 32768);
@@ -4122,8 +4121,8 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
         bgen_geno_max_byte_ct = compressBound(bgen_geno_max_byte_ct);
       }
       if (bgen_geno_max_byte_ct > UINT32_MAX) {
-        logerrprint("Error: Too many samples for .bgen format.\n");
-        goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+        logerrputs("Error: Too many samples for .bgen format.\n");
+        goto OxBgenToPgen_ret_MALFORMED_INPUT;
       }
       bgen_geno_max_byte_ct += compression_mode * 4;
       // thread-count-independent:
@@ -4136,7 +4135,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       //   g_write_dosage_presents: 2 * sample_ctaw * sizeof(intptr_t) *
       //                            main_block_size
       //   g_write_dosage_val_bufs (main bottleneck): 2 * sample_ct *
-      //                                              sizeof(dosage_t)
+      //                                              sizeof(Dosage)
       // additional requirement per thread:
       //   g_bgen_geno_bufs: sample_ct * 3 * sizeof(int16_t)
 
@@ -4150,29 +4149,29 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       }
       if (bigstack_alloc_thread(calc_thread_ct, &ts.threads) ||
           bigstack_alloc_usip(calc_thread_ct, &g_bgen_geno_bufs)) {
-        goto ox_bgen_to_pgen_ret_NOMEM;
+        goto OxBgenToPgen_ret_NOMEM;
       }
       const uint32_t sample_ct_x3 = sample_ct * 3;
       for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
         if (bigstack_alloc_usi(sample_ct_x3, &(g_bgen_geno_bufs[tidx]))) {
-          goto ox_bgen_to_pgen_ret_NOMEM;
+          goto OxBgenToPgen_ret_NOMEM;
         }
       }
       uintptr_t cachelines_avail_m12 = bigstack_left() / kCacheline;
       // reserve 1/8 of remaining memory for writer
       cachelines_avail_m12 -= cachelines_avail_m12 / 8;
       if (cachelines_avail_m12 < 12) {
-        goto ox_bgen_to_pgen_ret_NOMEM;
+        goto OxBgenToPgen_ret_NOMEM;
       }
       // we're making 12 allocations; be pessimistic re: rounding
       cachelines_avail_m12 -= 12;
-      const uintptr_t bytes_req_per_in_block_variant = 2 * (bgen_geno_max_byte_ct + sizeof(intptr_t) + sample_ctaw2 * sizeof(intptr_t) + sizeof(int32_t) + sample_ctaw * sizeof(intptr_t) + sample_ct * sizeof(dosage_t));
+      const uintptr_t bytes_req_per_in_block_variant = 2 * (bgen_geno_max_byte_ct + sizeof(intptr_t) + sample_ctaw2 * sizeof(intptr_t) + sizeof(int32_t) + sample_ctaw * sizeof(intptr_t) + sample_ct * sizeof(Dosage));
       uintptr_t main_block_size = (cachelines_avail_m12 * kCacheline) / bytes_req_per_in_block_variant;
       if (main_block_size > 65536) {
         main_block_size = 65536;
       } else if (main_block_size < 8) {
         // this threshold is arbitrary
-        goto ox_bgen_to_pgen_ret_NOMEM;
+        goto OxBgenToPgen_ret_NOMEM;
       }
       if (calc_thread_ct > main_block_size / 8) {
         calc_thread_ct = main_block_size / 8;
@@ -4194,7 +4193,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
           bigstack_alloc_dosage(sample_ct * main_block_size, &(g_write_dosage_val_bufs[1]))) {
         // this should be impossible
         assert(0);
-        goto ox_bgen_to_pgen_ret_NOMEM;
+        goto OxBgenToPgen_ret_NOMEM;
       }
 
       // likely cases are (i) non-hardcall near top of the file, and (ii) no
@@ -4212,51 +4211,51 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       for (uint32_t variant_uidx = 0; variant_uidx < raw_variant_ct; ) {
         uint32_t uii;
         if (!fread_unlocked(&uii, 4, 1, bgenfile)) {
-          goto ox_bgen_to_pgen_ret_READ_FAIL;
+          goto OxBgenToPgen_ret_READ_FAIL;
         }
         if (uii != sample_ct) {
-          logprint("\n");
-          logerrprint("Error: Unexpected number of samples specified in SNP block header.\n");
-          goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+          logputs("\n");
+          logerrputs("Error: Unexpected number of samples specified in SNP block header.\n");
+          goto OxBgenToPgen_ret_MALFORMED_INPUT;
         }
         uint16_t snpid_slen;
         if (!fread_unlocked(&snpid_slen, 2, 1, bgenfile)) {
-          goto ox_bgen_to_pgen_ret_READ_FAIL;
+          goto OxBgenToPgen_ret_READ_FAIL;
         }
         if (!snpid_chr) {
           if (fseeko(bgenfile, snpid_slen, SEEK_CUR)) {
-            goto ox_bgen_to_pgen_ret_READ_FAIL;
+            goto OxBgenToPgen_ret_READ_FAIL;
           }
         } else {
           if (!snpid_slen) {
-            logprint("\n");
-            logerrprint("Error: Length-0 SNP ID in .bgen file.\n");
-            goto ox_bgen_to_pgen_ret_INCONSISTENT_INPUT;
+            logputs("\n");
+            logerrputs("Error: Length-0 SNP ID in .bgen file.\n");
+            goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
           }
           if (!fread_unlocked(loadbuf, snpid_slen, 1, bgenfile)) {
-            goto ox_bgen_to_pgen_ret_READ_FAIL;
+            goto OxBgenToPgen_ret_READ_FAIL;
           }
           loadbuf[snpid_slen] = '\0';
         }
         uint16_t rsid_slen;
         if (!fread_unlocked(&rsid_slen, 2, 1, bgenfile)) {
-          goto ox_bgen_to_pgen_ret_READ_FAIL;
+          goto OxBgenToPgen_ret_READ_FAIL;
         }
         if (fseeko(bgenfile, rsid_slen, SEEK_CUR)) {
-          goto ox_bgen_to_pgen_ret_READ_FAIL;
+          goto OxBgenToPgen_ret_READ_FAIL;
         }
         uint16_t chr_name_slen;
         if (!fread_unlocked(&chr_name_slen, 2, 1, bgenfile)) {
-          goto ox_bgen_to_pgen_ret_READ_FAIL;
+          goto OxBgenToPgen_ret_READ_FAIL;
         }
         if (!snpid_chr) {
           if (!chr_name_slen) {
-            logprint("\n");
-            logerrprint("Error: Length-0 chromosome ID in .bgen file.\n");
-            goto ox_bgen_to_pgen_ret_INCONSISTENT_INPUT;
+            logputs("\n");
+            logerrputs("Error: Length-0 chromosome ID in .bgen file.\n");
+            goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
           }
           if (!fread_unlocked(loadbuf, chr_name_slen, 1, bgenfile)) {
-            goto ox_bgen_to_pgen_ret_READ_FAIL;
+            goto OxBgenToPgen_ret_READ_FAIL;
           }
           if (strequal_k(R_CAST(char*, loadbuf), "NA", chr_name_slen)) {
             memcpy(loadbuf, "0", 2);
@@ -4266,30 +4265,30 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
           }
         } else {
           if (fseeko(bgenfile, chr_name_slen, SEEK_CUR)) {
-            goto ox_bgen_to_pgen_ret_READ_FAIL;
+            goto OxBgenToPgen_ret_READ_FAIL;
           }
           chr_name_slen = snpid_slen;
         }
         int32_t cur_chr_code;
-        reterr = get_or_add_chr_code_destructive("--bgen file", 0, allow_extra_chrs, R_CAST(char*, loadbuf), R_CAST(char*, &(loadbuf[chr_name_slen])), cip, &cur_chr_code);
+        reterr = GetOrAddChrCodeDestructive("--bgen file", 0, allow_extra_chrs, R_CAST(char*, loadbuf), R_CAST(char*, &(loadbuf[chr_name_slen])), cip, &cur_chr_code);
         if (reterr) {
-          goto ox_bgen_to_pgen_ret_1;
+          goto OxBgenToPgen_ret_1;
         }
-        const uint32_t skip = !is_set(cip->chr_mask, cur_chr_code);
+        const uint32_t skip = !IsSetI(cip->chr_mask, cur_chr_code);
 
-        uint32_t cur_bp; // ignore in this pass
+        uint32_t cur_bp;  // ignore in this pass
         if (!fread_unlocked(&cur_bp, 4, 1, bgenfile)) {
-          goto ox_bgen_to_pgen_ret_READ_FAIL;
+          goto OxBgenToPgen_ret_READ_FAIL;
         }
 
         // allele count always 2 and not stored when layout=1
         for (uint32_t allele_idx = 0; allele_idx < 2; ++allele_idx) {
           uint32_t allele_slen;
           if (!fread_unlocked(&allele_slen, 4, 1, bgenfile)) {
-            goto ox_bgen_to_pgen_ret_READ_FAIL;
+            goto OxBgenToPgen_ret_READ_FAIL;
           }
           if (fseeko(bgenfile, allele_slen, SEEK_CUR)) {
-            goto ox_bgen_to_pgen_ret_READ_FAIL;
+            goto OxBgenToPgen_ret_READ_FAIL;
           }
         }
 
@@ -4298,7 +4297,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
           compressed_block_byte_ct = 0;
 #endif
           if (!fread_unlocked(&compressed_block_byte_ct, 4, 1, bgenfile)) {
-            goto ox_bgen_to_pgen_ret_READ_FAIL;
+            goto OxBgenToPgen_ret_READ_FAIL;
           }
         }
         ++variant_uidx;
@@ -4308,7 +4307,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
         }
         if (dosage_is_present || skip) {
           if (fseeko(bgenfile, compressed_block_byte_ct, SEEK_CUR)) {
-            goto ox_bgen_to_pgen_ret_READ_FAIL;
+            goto OxBgenToPgen_ret_READ_FAIL;
           }
           // bugfix (25 Jun 2017): block_vidx should be left unchanged here
           variant_ct += 1 - skip;
@@ -4320,7 +4319,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
           bgen_geno_iter = &(bgen_geno_iter[4]);
         }
         if (fread_checked(bgen_geno_iter, compressed_block_byte_ct, bgenfile)) {
-          goto ox_bgen_to_pgen_ret_READ_FAIL;
+          goto OxBgenToPgen_ret_READ_FAIL;
         }
         bgen_geno_iter = &(bgen_geno_iter[compressed_block_byte_ct]);
         ++block_vidx;
@@ -4328,17 +4327,17 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
           parity = 1 - parity;
           if (ts.thread_func_ptr) {
             // process *previous* block results
-            join_threads3z(&ts);
+            JoinThreads3z(&ts);
             reterr = g_error_ret;
             if (reterr) {
-              logprint("\n");
-              logerrprint("Error: Invalid compressed SNP block in .bgen file.\n");
-              goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+              logputs("\n");
+              logerrputs("Error: Invalid compressed SNP block in .bgen file.\n");
+              goto OxBgenToPgen_ret_MALFORMED_INPUT;
             }
             dosage_is_present = g_dosage_is_present;
             if (dosage_is_present) {
               // don't need to scan for any more dosages
-              stop_threads3z(&ts, &g_cur_block_write_ct);
+              StopThreads3z(&ts, &g_cur_block_write_ct);
               if (!chr_filter_present) {
                 break;
               }
@@ -4346,9 +4345,9 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
             }
           }
           g_cur_block_write_ct = cur_block_size;
-          ts.thread_func_ptr = bgen11_dosage_scan_thread;
-          if (spawn_threads3z(variant_ct, &ts)) {
-            goto ox_bgen_to_pgen_ret_THREAD_CREATE_FAIL;
+          ts.thread_func_ptr = Bgen11DosageScanThread;
+          if (SpawnThreads3z(variant_ct, &ts)) {
+            goto OxBgenToPgen_ret_THREAD_CREATE_FAIL;
           }
           compressed_geno_starts = g_compressed_geno_starts[parity];
           bgen_geno_iter = compressed_geno_bufs[parity];
@@ -4369,27 +4368,27 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
         variant_ct += block_vidx;
         if (variant_ct < calc_thread_ct) {
           if (!variant_ct) {
-            logprint("\n");
-            LOGERRPRINTFWW("Error: All %u variant%s in .bgen file skipped due to chromosome filter.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s");
-            goto ox_bgen_to_pgen_ret_INCONSISTENT_INPUT;
+            logputs("\n");
+            logerrprintfww("Error: All %u variant%s in .bgen file skipped due to chromosome filter.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s");
+            goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
           }
           // bugfix (7 Oct 2017): with fewer variants than threads, need to
           // force initial launch here
           g_cur_block_write_ct = variant_ct;
-          ts.thread_func_ptr = bgen11_dosage_scan_thread;
-          if (spawn_threads3z(0, &ts)) {
-            goto ox_bgen_to_pgen_ret_THREAD_CREATE_FAIL;
+          ts.thread_func_ptr = Bgen11DosageScanThread;
+          if (SpawnThreads3z(0, &ts)) {
+            goto OxBgenToPgen_ret_THREAD_CREATE_FAIL;
           }
           block_vidx = 0;
         }
       }
       if (ts.thread_func_ptr) {
-        join_threads3z(&ts);
+        JoinThreads3z(&ts);
         reterr = g_error_ret;
         if (reterr) {
-          logprint("\n");
-          logerrprint("Error: Invalid compressed SNP block in .bgen file.\n");
-          goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+          logputs("\n");
+          logerrputs("Error: Invalid compressed SNP block in .bgen file.\n");
+          goto OxBgenToPgen_ret_MALFORMED_INPUT;
         }
         if (block_vidx && (!g_dosage_is_present)) {
           g_cur_block_write_ct = block_vidx;
@@ -4397,28 +4396,28 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
           g_cur_block_write_ct = 0;
         }
         ts.is_last_block = 1;
-        if (spawn_threads3z(1, &ts)) {
-          goto ox_bgen_to_pgen_ret_THREAD_CREATE_FAIL;
+        if (SpawnThreads3z(1, &ts)) {
+          goto OxBgenToPgen_ret_THREAD_CREATE_FAIL;
         }
-        join_threads3z(&ts);
+        JoinThreads3z(&ts);
         dosage_is_present = g_dosage_is_present;
       }
 
       if (fseeko(bgenfile, initial_uints[0] + 4, SEEK_SET)) {
-        goto ox_bgen_to_pgen_ret_READ_FAIL;
+        goto OxBgenToPgen_ret_READ_FAIL;
       }
       snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
       uintptr_t spgw_alloc_cacheline_ct;
       uint32_t max_vrec_len;
-      reterr = spgw_init_phase1(outname, nullptr, nullptr, variant_ct, sample_ct, dosage_is_present? kfPgenGlobalDosagePresent : kfPgenGlobal0, (oxford_import_flags & (kfOxfordImportRefFirst | kfOxfordImportRefSecond))? 1 : 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+      reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, dosage_is_present? kfPgenGlobalDosagePresent : kfPgenGlobal0, (oxford_import_flags & (kfOxfordImportRefFirst | kfOxfordImportRefSecond))? 1 : 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
       if (reterr) {
-        goto ox_bgen_to_pgen_ret_1;
+        goto OxBgenToPgen_ret_1;
       }
       unsigned char* spgw_alloc;
       if (bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc)) {
-        goto ox_bgen_to_pgen_ret_NOMEM;
+        goto OxBgenToPgen_ret_NOMEM;
       }
-      spgw_init_phase2(max_vrec_len, &spgw, spgw_alloc);
+      SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
 
       // Main workflow:
       // 1. Set n=0, load genotype data for first main_block_size variants
@@ -4437,7 +4436,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       uint32_t vidx_start = 0;
       uint32_t prev_block_write_ct = 0;
       parity = 0;
-      reinit_threads3z(&ts);
+      ReinitThreads3z(&ts);
       while (1) {
         uint32_t cur_block_write_ct = 0;
         if (!ts.is_last_block) {
@@ -4447,60 +4446,60 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
           for (block_vidx = 0; block_vidx < cur_block_write_ct;) {
             uint32_t uii;
             if (!fread_unlocked(&uii, 4, 1, bgenfile)) {
-              goto ox_bgen_to_pgen_ret_READ_FAIL;
+              goto OxBgenToPgen_ret_READ_FAIL;
             }
             if (uii != sample_ct) {
-              logprint("\n");
-              logerrprint("Error: Unexpected number of samples specified in SNP block header.\n");
-              goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+              logputs("\n");
+              logerrputs("Error: Unexpected number of samples specified in SNP block header.\n");
+              goto OxBgenToPgen_ret_MALFORMED_INPUT;
             }
             uint16_t snpid_slen;
             if (!fread_unlocked(&snpid_slen, 2, 1, bgenfile)) {
-              goto ox_bgen_to_pgen_ret_READ_FAIL;
+              goto OxBgenToPgen_ret_READ_FAIL;
             }
             char* rsid_start = R_CAST(char*, loadbuf);
             if (!snpid_chr) {
               if (fseeko(bgenfile, snpid_slen, SEEK_CUR)) {
-                goto ox_bgen_to_pgen_ret_READ_FAIL;
+                goto OxBgenToPgen_ret_READ_FAIL;
               }
             } else {
               if (!snpid_slen) {
-                logprint("\n");
-                logerrprint("Error: Length-0 SNP ID in .bgen file.\n");
-                goto ox_bgen_to_pgen_ret_INCONSISTENT_INPUT;
+                logputs("\n");
+                logerrputs("Error: Length-0 SNP ID in .bgen file.\n");
+                goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
               }
               if (!fread_unlocked(loadbuf, snpid_slen, 1, bgenfile)) {
-                goto ox_bgen_to_pgen_ret_READ_FAIL;
+                goto OxBgenToPgen_ret_READ_FAIL;
               }
               loadbuf[snpid_slen] = '\0';
               rsid_start = R_CAST(char*, &(loadbuf[snpid_slen + 1]));
             }
             uint16_t rsid_slen;
             if (!fread_unlocked(&rsid_slen, 2, 1, bgenfile)) {
-              goto ox_bgen_to_pgen_ret_READ_FAIL;
+              goto OxBgenToPgen_ret_READ_FAIL;
             }
             if (!rsid_slen) {
-              logprint("\n");
-              logerrprint("Error: Length-0 rsID in .bgen file.\n");
-              goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+              logputs("\n");
+              logerrputs("Error: Length-0 rsID in .bgen file.\n");
+              goto OxBgenToPgen_ret_MALFORMED_INPUT;
             }
             if (!fread_unlocked(rsid_start, rsid_slen, 1, bgenfile)) {
-              goto ox_bgen_to_pgen_ret_READ_FAIL;
+              goto OxBgenToPgen_ret_READ_FAIL;
             }
             char* loadbuf_iter = &(rsid_start[rsid_slen]);
             char* chr_name_start = loadbuf_iter;
             uint16_t chr_name_slen;
             if (!fread_unlocked(&chr_name_slen, 2, 1, bgenfile)) {
-              goto ox_bgen_to_pgen_ret_READ_FAIL;
+              goto OxBgenToPgen_ret_READ_FAIL;
             }
             if (!snpid_chr) {
               if (!chr_name_slen) {
-                logprint("\n");
-                logerrprint("Error: Length-0 chromosome ID in .bgen file.\n");
-                goto ox_bgen_to_pgen_ret_INCONSISTENT_INPUT;
+                logputs("\n");
+                logerrputs("Error: Length-0 chromosome ID in .bgen file.\n");
+                goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
               }
               if (!fread_unlocked(chr_name_start, chr_name_slen, 1, bgenfile)) {
-                goto ox_bgen_to_pgen_ret_READ_FAIL;
+                goto OxBgenToPgen_ret_READ_FAIL;
               }
               if (strequal_k(chr_name_start, "NA", chr_name_slen)) {
                 memcpy(chr_name_start, "0", 2);
@@ -4510,96 +4509,96 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
               }
             } else {
               if (fseeko(bgenfile, chr_name_slen, SEEK_CUR)) {
-                goto ox_bgen_to_pgen_ret_READ_FAIL;
+                goto OxBgenToPgen_ret_READ_FAIL;
               }
               chr_name_start = R_CAST(char*, loadbuf);
               chr_name_slen = snpid_slen;
             }
             int32_t cur_chr_code;
-            reterr = get_or_add_chr_code_destructive("--bgen file", 0, allow_extra_chrs, chr_name_start, &(chr_name_start[chr_name_slen]), cip, &cur_chr_code);
+            reterr = GetOrAddChrCodeDestructive("--bgen file", 0, allow_extra_chrs, chr_name_start, &(chr_name_start[chr_name_slen]), cip, &cur_chr_code);
             if (reterr) {
-              goto ox_bgen_to_pgen_ret_1;
+              goto OxBgenToPgen_ret_1;
             }
-            const uint32_t skip = !is_set(cip->chr_mask, cur_chr_code);
+            const uint32_t skip = !IsSetI(cip->chr_mask, cur_chr_code);
 
             uint32_t cur_bp;
             uint32_t a1_slen;
             if ((!fread_unlocked(&cur_bp, 4, 1, bgenfile)) ||
                 (!fread_unlocked(&a1_slen, 4, 1, bgenfile))) {
-              goto ox_bgen_to_pgen_ret_READ_FAIL;
+              goto OxBgenToPgen_ret_READ_FAIL;
             }
             if (skip) {
               uint32_t a2_slen;
               if (fseeko(bgenfile, a1_slen, SEEK_CUR) ||
                   (!fread_unlocked(&a2_slen, 4, 1, bgenfile)) ||
                   fseeko(bgenfile, a2_slen, SEEK_CUR)) {
-                goto ox_bgen_to_pgen_ret_READ_FAIL;
+                goto OxBgenToPgen_ret_READ_FAIL;
               }
               if (compression_mode) {
 #ifdef __LP64__
                 compressed_block_byte_ct = 0;
 #endif
                 if (!fread_unlocked(&compressed_block_byte_ct, 4, 1, bgenfile)) {
-                  goto ox_bgen_to_pgen_ret_READ_FAIL;
+                  goto OxBgenToPgen_ret_READ_FAIL;
                 }
               }
               if (fseeko(bgenfile, compressed_block_byte_ct, SEEK_CUR)) {
-                goto ox_bgen_to_pgen_ret_READ_FAIL;
+                goto OxBgenToPgen_ret_READ_FAIL;
               }
               continue;
             }
             char* a1_ptr = loadbuf_iter;
             if (!a1_slen) {
-              logprint("\n");
-              logerrprint("Error: Empty allele code in .bgen file.\n");
-              goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+              logputs("\n");
+              logerrputs("Error: Empty allele code in .bgen file.\n");
+              goto OxBgenToPgen_ret_MALFORMED_INPUT;
             }
             if (a1_slen > 1000000000) {
-              logprint("\n");
-              logerrprint("Error: Allele code in .bgen file has more than 1 billion characters.\n");
-              goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+              logputs("\n");
+              logerrputs("Error: Allele code in .bgen file has more than 1 billion characters.\n");
+              goto OxBgenToPgen_ret_MALFORMED_INPUT;
             }
             if (a1_slen + S_CAST(uintptr_t, a1_ptr - R_CAST(char*, loadbuf)) > loadbuf_size) {
-              goto ox_bgen_to_pgen_ret_NOMEM;
+              goto OxBgenToPgen_ret_NOMEM;
             }
             if (!fread_unlocked(a1_ptr, a1_slen, 1, bgenfile)) {
-              goto ox_bgen_to_pgen_ret_READ_FAIL;
+              goto OxBgenToPgen_ret_READ_FAIL;
             }
             char* a2_ptr = &(a1_ptr[a1_slen]);
             uint32_t a2_slen;
             if (!fread_unlocked(&a2_slen, 4, 1, bgenfile)) {
-              goto ox_bgen_to_pgen_ret_READ_FAIL;
+              goto OxBgenToPgen_ret_READ_FAIL;
             }
             if (!a2_slen) {
-              logprint("\n");
-              logerrprint("Error: Empty allele code in .bgen file.\n");
-              goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+              logputs("\n");
+              logerrputs("Error: Empty allele code in .bgen file.\n");
+              goto OxBgenToPgen_ret_MALFORMED_INPUT;
             }
             if (a2_slen > 1000000000) {
-              logprint("\n");
-              logerrprint("Error: Allele code in .bgen file has more than 1 billion characters.\n");
-              goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+              logputs("\n");
+              logerrputs("Error: Allele code in .bgen file has more than 1 billion characters.\n");
+              goto OxBgenToPgen_ret_MALFORMED_INPUT;
             }
             if (a2_slen + S_CAST(uintptr_t, a2_ptr - R_CAST(char*, loadbuf)) > loadbuf_size) {
-              goto ox_bgen_to_pgen_ret_NOMEM;
+              goto OxBgenToPgen_ret_NOMEM;
             }
             if (!fread_unlocked(a2_ptr, a2_slen, 1, bgenfile)) {
-              goto ox_bgen_to_pgen_ret_READ_FAIL;
+              goto OxBgenToPgen_ret_READ_FAIL;
             }
             if (compression_mode) {
 #ifdef __LP64__
               compressed_block_byte_ct = 0;
 #endif
               if (!fread_unlocked(&compressed_block_byte_ct, 4, 1, bgenfile)) {
-                goto ox_bgen_to_pgen_ret_READ_FAIL;
+                goto OxBgenToPgen_ret_READ_FAIL;
               }
             }
-            write_iter = chr_name_write(cip, cur_chr_code, write_iter);
+            write_iter = chrtoa(cip, cur_chr_code, write_iter);
             *write_iter++ = '\t';
             if (cur_bp > 0x7ffffffe) {
-              logprint("\n");
-              logerrprint("Error: Invalid bp coordinate (> 2^31 - 2) in .bgen file\n");
-              goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+              logputs("\n");
+              logerrputs("Error: Invalid bp coordinate (> 2^31 - 2) in .bgen file\n");
+              goto OxBgenToPgen_ret_MALFORMED_INPUT;
             }
             write_iter = uint32toa_x(cur_bp, '\t', write_iter);
             write_iter = memcpyax(write_iter, rsid_start, rsid_slen, '\t');
@@ -4613,7 +4612,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
             }
             if ((write_iter >= writebuf_flush) || (a1_slen >= kMaxMediumLine)) {
               if (fwrite_checked(writebuf, write_iter - writebuf, pvarfile)) {
-                goto ox_bgen_to_pgen_ret_WRITE_FAIL;
+                goto OxBgenToPgen_ret_WRITE_FAIL;
               }
               write_iter = writebuf;
             }
@@ -4621,13 +4620,13 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
               write_iter = memcpya(write_iter, a1_ptr, a1_slen);
             } else {
               if (fwrite_checked(a1_ptr, a1_slen, pvarfile)) {
-                goto ox_bgen_to_pgen_ret_WRITE_FAIL;
+                goto OxBgenToPgen_ret_WRITE_FAIL;
               }
             }
             *write_iter++ = '\t';
             if ((write_iter >= writebuf_flush) || (a2_slen >= kMaxMediumLine)) {
               if (fwrite_checked(writebuf, write_iter - writebuf, pvarfile)) {
-                goto ox_bgen_to_pgen_ret_WRITE_FAIL;
+                goto OxBgenToPgen_ret_WRITE_FAIL;
               }
               write_iter = writebuf;
             }
@@ -4635,10 +4634,10 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
               write_iter = memcpya(write_iter, a2_ptr, a2_slen);
             } else {
               if (fwrite_checked(a2_ptr, a2_slen, pvarfile)) {
-                goto ox_bgen_to_pgen_ret_WRITE_FAIL;
+                goto OxBgenToPgen_ret_WRITE_FAIL;
               }
             }
-            append_binary_eoln(&write_iter);
+            AppendBinaryEoln(&write_iter);
 
             compressed_geno_starts[block_vidx] = bgen_geno_iter;
             if (compression_mode) {
@@ -4646,27 +4645,27 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
               bgen_geno_iter = &(bgen_geno_iter[4]);
             }
             if (fread_checked(bgen_geno_iter, compressed_block_byte_ct, bgenfile)) {
-              goto ox_bgen_to_pgen_ret_READ_FAIL;
+              goto OxBgenToPgen_ret_READ_FAIL;
             }
             bgen_geno_iter = &(bgen_geno_iter[compressed_block_byte_ct]);
             ++block_vidx;
           }
         }
         if (vidx_start) {
-          join_threads3z(&ts);
+          JoinThreads3z(&ts);
           reterr = g_error_ret;
           if (reterr) {
-            logprint("\n");
-            logerrprint("Error: Invalid compressed SNP block in .bgen file.\n");
-            goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+            logputs("\n");
+            logerrputs("Error: Invalid compressed SNP block in .bgen file.\n");
+            goto OxBgenToPgen_ret_MALFORMED_INPUT;
           }
         }
         if (!ts.is_last_block) {
           g_cur_block_write_ct = cur_block_write_ct;
           ts.is_last_block = (vidx_start + cur_block_write_ct == variant_ct);
-          ts.thread_func_ptr = bgen11_geno_to_pgen_thread;
-          if (spawn_threads3z(vidx_start, &ts)) {
-            goto ox_bgen_to_pgen_ret_THREAD_CREATE_FAIL;
+          ts.thread_func_ptr = Bgen11GenoToPgenThread;
+          if (SpawnThreads3z(vidx_start, &ts)) {
+            goto OxBgenToPgen_ret_THREAD_CREATE_FAIL;
           }
         }
         parity = 1 - parity;
@@ -4675,16 +4674,16 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
           uintptr_t* write_genovec_iter = g_write_genovecs[parity];
           uint32_t* write_dosage_ct_iter = g_write_dosage_cts[parity];
           uintptr_t* write_dosage_present_iter = g_write_dosage_presents[parity];
-          dosage_t* write_dosage_vals_iter = g_write_dosage_val_bufs[parity];
+          Dosage* write_dosage_vals_iter = g_write_dosage_val_bufs[parity];
           for (uint32_t vidx = vidx_start - prev_block_write_ct; vidx < vidx_start; ++vidx) {
             const uint32_t cur_dosage_ct = *write_dosage_ct_iter++;
             if (!cur_dosage_ct) {
-              if (spgw_append_biallelic_genovec(write_genovec_iter, &spgw)) {
-                goto ox_bgen_to_pgen_ret_WRITE_FAIL;
+              if (SpgwAppendBiallelicGenovec(write_genovec_iter, &spgw)) {
+                goto OxBgenToPgen_ret_WRITE_FAIL;
               }
             } else {
-              if (spgw_append_biallelic_genovec_dosage16(write_genovec_iter, write_dosage_present_iter, write_dosage_vals_iter, cur_dosage_ct, &spgw)) {
-                goto ox_bgen_to_pgen_ret_WRITE_FAIL;
+              if (SpgwAppendBiallelicGenovecDosage16(write_genovec_iter, write_dosage_present_iter, write_dosage_vals_iter, cur_dosage_ct, &spgw)) {
+                goto OxBgenToPgen_ret_WRITE_FAIL;
               }
             }
             write_genovec_iter = &(write_genovec_iter[sample_ctaw2]);
@@ -4710,7 +4709,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
 
       uintptr_t* allele_idx_offsets;
       if (bigstack_end_alloc_ul(raw_variant_ct + 1, &allele_idx_offsets)) {
-        goto ox_bgen_to_pgen_ret_NOMEM;
+        goto OxBgenToPgen_ret_NOMEM;
       }
 
       g_bgen_import_dosage_certainty_thresholds = nullptr;
@@ -4728,7 +4727,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
         calc_thread_ct_limit = raw_variant_ct;
       }
       if (bigstack_alloc_thread(calc_thread_ct_limit, &ts.threads)) {
-        goto ox_bgen_to_pgen_ret_NOMEM;
+        goto OxBgenToPgen_ret_NOMEM;
       }
 
       g_thread_wkspaces = S_CAST(unsigned char**, bigstack_alloc_raw_rd(calc_thread_ct_limit * sizeof(intptr_t)));
@@ -4740,12 +4739,12 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
           bigstack_alloc_usi(main_block_size, &(g_bgen_allele_cts[1])) ||
           bigstack_alloc_ucp(main_block_size + 1, &(g_compressed_geno_starts[0])) ||
           bigstack_alloc_ucp(main_block_size + 1, &(g_compressed_geno_starts[1]))) {
-        goto ox_bgen_to_pgen_ret_NOMEM;
+        goto OxBgenToPgen_ret_NOMEM;
       }
       if (compression_mode) {
         if (bigstack_alloc_ui(main_block_size, &(g_uncompressed_genodata_byte_cts[0])) ||
             bigstack_alloc_ui(main_block_size, &(g_uncompressed_genodata_byte_cts[1]))) {
-          goto ox_bgen_to_pgen_ret_NOMEM;
+          goto OxBgenToPgen_ret_NOMEM;
         }
       } else {
         // defensive
@@ -4788,17 +4787,17 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       //   16K                 : .bgen chromosome code load buffer.
       //   remainder (~5/6)    : Compressed genotype data buffers, writer, and
       //                         write buffers.
-      uintptr_t loadbuf_size = round_down_pow2(bigstack_left() / 7, kCacheline);
+      uintptr_t loadbuf_size = RoundDownPow2(bigstack_left() / 7, kCacheline);
       if (loadbuf_size > kMaxLongLine) {
         loadbuf_size = kMaxLongLine;
       } else if (loadbuf_size < 2 * 65536) {
         // don't want to worry about chromosome/variant ID buffer space checks
         // in inner loop
-        goto ox_bgen_to_pgen_ret_NOMEM;
+        goto OxBgenToPgen_ret_NOMEM;
       }
       unsigned char* loadbuf = S_CAST(unsigned char*, bigstack_alloc_raw(loadbuf_size));
 
-      uintptr_t mainbuf_size = round_down_pow2(bigstack_left() / 3, kCacheline);
+      uintptr_t mainbuf_size = RoundDownPow2(bigstack_left() / 3, kCacheline);
       uint32_t calc_thread_ct = 1;
       uintptr_t thread_wkspace_size;
 #ifdef __LP64__
@@ -4863,7 +4862,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       // temporary kludge
       uint32_t multiallelic_skip_ct = 0;
 
-      g_cur_block_write_ct = 1; // just used as a flag
+      g_cur_block_write_ct = 1;  // just used as a flag
 
       for (uint32_t variant_uidx = 0; variant_uidx < raw_variant_ct; ) {
         // format is mostly identical to bgen 1.1; but there's no sample count,
@@ -4872,51 +4871,51 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
         // .pvar here.
         uint16_t snpid_slen;
         if (!fread_unlocked(&snpid_slen, 2, 1, bgenfile)) {
-          goto ox_bgen_to_pgen_ret_READ_FAIL;
+          goto OxBgenToPgen_ret_READ_FAIL;
         }
         char* rsid_start = R_CAST(char*, loadbuf);
         if (!snpid_chr) {
           if (fseeko(bgenfile, snpid_slen, SEEK_CUR)) {
-            goto ox_bgen_to_pgen_ret_READ_FAIL;
+            goto OxBgenToPgen_ret_READ_FAIL;
           }
         } else {
           if (!snpid_slen) {
-            logprint("\n");
-            logerrprint("Error: Length-0 SNP ID in .bgen file.\n");
-            goto ox_bgen_to_pgen_ret_INCONSISTENT_INPUT;
+            logputs("\n");
+            logerrputs("Error: Length-0 SNP ID in .bgen file.\n");
+            goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
           }
           if (!fread_unlocked(loadbuf, snpid_slen, 1, bgenfile)) {
-            goto ox_bgen_to_pgen_ret_READ_FAIL;
+            goto OxBgenToPgen_ret_READ_FAIL;
           }
           loadbuf[snpid_slen] = '\0';
           rsid_start = R_CAST(char*, &(loadbuf[snpid_slen + 1]));
         }
         uint16_t rsid_slen;
         if (!fread_unlocked(&rsid_slen, 2, 1, bgenfile)) {
-          goto ox_bgen_to_pgen_ret_READ_FAIL;
+          goto OxBgenToPgen_ret_READ_FAIL;
         }
         if (!rsid_slen) {
-          logprint("\n");
-          logerrprint("Error: Length-0 rsID in .bgen file.\n");
-          goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+          logputs("\n");
+          logerrputs("Error: Length-0 rsID in .bgen file.\n");
+          goto OxBgenToPgen_ret_MALFORMED_INPUT;
         }
         if (!fread_unlocked(rsid_start, rsid_slen, 1, bgenfile)) {
-          goto ox_bgen_to_pgen_ret_READ_FAIL;
+          goto OxBgenToPgen_ret_READ_FAIL;
         }
         char* loadbuf_iter = &(rsid_start[rsid_slen]);
         char* chr_name_start = loadbuf_iter;
         uint16_t chr_name_slen;
         if (!fread_unlocked(&chr_name_slen, 2, 1, bgenfile)) {
-          goto ox_bgen_to_pgen_ret_READ_FAIL;
+          goto OxBgenToPgen_ret_READ_FAIL;
         }
         if (!snpid_chr) {
           if (!chr_name_slen) {
-            logprint("\n");
-            logerrprint("Error: Length-0 chromosome ID in .bgen file.\n");
-            goto ox_bgen_to_pgen_ret_INCONSISTENT_INPUT;
+            logputs("\n");
+            logerrputs("Error: Length-0 chromosome ID in .bgen file.\n");
+            goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
           }
           if (!fread_unlocked(chr_name_start, chr_name_slen, 1, bgenfile)) {
-            goto ox_bgen_to_pgen_ret_READ_FAIL;
+            goto OxBgenToPgen_ret_READ_FAIL;
           }
           if (strequal_k(chr_name_start, "NA", chr_name_slen)) {
             memcpy(chr_name_start, "0", 2);
@@ -4926,7 +4925,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
           }
         } else {
           if (fseeko(bgenfile, chr_name_slen, SEEK_CUR)) {
-            goto ox_bgen_to_pgen_ret_READ_FAIL;
+            goto OxBgenToPgen_ret_READ_FAIL;
           }
           chr_name_start = R_CAST(char*, loadbuf);
           chr_name_slen = snpid_slen;
@@ -4934,23 +4933,23 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
         // chromosome ID length restriction enforced here, so we don't check
         // earlier
         int32_t cur_chr_code;
-        reterr = get_or_add_chr_code_destructive("--bgen file", 0, allow_extra_chrs, chr_name_start, &(chr_name_start[chr_name_slen]), cip, &cur_chr_code);
+        reterr = GetOrAddChrCodeDestructive("--bgen file", 0, allow_extra_chrs, chr_name_start, &(chr_name_start[chr_name_slen]), cip, &cur_chr_code);
         if (reterr) {
-          goto ox_bgen_to_pgen_ret_1;
+          goto OxBgenToPgen_ret_1;
         }
-        uint32_t skip = !is_set(cip->chr_mask, cur_chr_code);
+        uint32_t skip = !IsSetI(cip->chr_mask, cur_chr_code);
 
         uint32_t cur_bp;
         uint32_t cur_allele_ct = 0;
         if ((!fread_unlocked(&cur_bp, 4, 1, bgenfile)) ||
             (!fread_unlocked(&cur_allele_ct, 2, 1, bgenfile))) {
-          goto ox_bgen_to_pgen_ret_READ_FAIL;
+          goto OxBgenToPgen_ret_READ_FAIL;
         }
         if (cur_allele_ct < 2) {
           // this is undefined in the 1.3 standard; prohibit for now
-          logprint("\n");
-          logerrprint("Error: .bgen variant has fewer than two alleles.\n");
-          goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+          logputs("\n");
+          logerrputs("Error: .bgen variant has fewer than two alleles.\n");
+          goto OxBgenToPgen_ret_MALFORMED_INPUT;
         }
         ++variant_uidx;
         if (!(variant_uidx % 1000)) {
@@ -4967,72 +4966,72 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
             uint32_t cur_allele_slen;
             if ((!fread_unlocked(&cur_allele_slen, 4, 1, bgenfile)) ||
                 fseeko(bgenfile, cur_allele_slen, SEEK_CUR)) {
-              goto ox_bgen_to_pgen_ret_READ_FAIL;
+              goto OxBgenToPgen_ret_READ_FAIL;
             }
           }
           uint32_t genodata_byte_ct;
           if ((!fread_unlocked(&genodata_byte_ct, 4, 1, bgenfile)) ||
               fseeko(bgenfile, genodata_byte_ct, SEEK_CUR)) {
-            goto ox_bgen_to_pgen_ret_READ_FAIL;
+            goto OxBgenToPgen_ret_READ_FAIL;
           }
           continue;
         }
         if (rsid_slen > kMaxIdSlen) {
           // enforce this iff we aren't skipping
-          logprint("\n");
-          logerrprint("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
-          goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+          logputs("\n");
+          logerrputs("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
+          goto OxBgenToPgen_ret_MALFORMED_INPUT;
         }
         // special handling of first two alleles since either may be
         // reference, so we may need to swap order
         char* a1_ptr = loadbuf_iter;
         uint32_t a1_slen;
         if (!fread_unlocked(&a1_slen, 4, 1, bgenfile)) {
-          goto ox_bgen_to_pgen_ret_READ_FAIL;
+          goto OxBgenToPgen_ret_READ_FAIL;
         }
         if (!a1_slen) {
-          logprint("\n");
-          logerrprint("Error: Empty allele code in .bgen file.\n");
-          goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+          logputs("\n");
+          logerrputs("Error: Empty allele code in .bgen file.\n");
+          goto OxBgenToPgen_ret_MALFORMED_INPUT;
         }
         if (a1_slen > 1000000000) {
-          logprint("\n");
-          logerrprint("Error: Allele code in .bgen file has more than 1 billion characters.\n");
-          goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+          logputs("\n");
+          logerrputs("Error: Allele code in .bgen file has more than 1 billion characters.\n");
+          goto OxBgenToPgen_ret_MALFORMED_INPUT;
         }
         if (a1_slen + S_CAST(uintptr_t, a1_ptr - R_CAST(char*, loadbuf)) > loadbuf_size) {
-          goto ox_bgen_to_pgen_ret_NOMEM;
+          goto OxBgenToPgen_ret_NOMEM;
         }
         if (!fread_unlocked(a1_ptr, a1_slen, 1, bgenfile)) {
-          goto ox_bgen_to_pgen_ret_READ_FAIL;
+          goto OxBgenToPgen_ret_READ_FAIL;
         }
         char* a2_ptr = &(a1_ptr[a1_slen]);
         uint32_t a2_slen;
         if (!fread_unlocked(&a2_slen, 4, 1, bgenfile)) {
-          goto ox_bgen_to_pgen_ret_READ_FAIL;
+          goto OxBgenToPgen_ret_READ_FAIL;
         }
         if (!a2_slen) {
-          logprint("\n");
-          logerrprint("Error: Empty allele code in .bgen file.\n");
-          goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+          logputs("\n");
+          logerrputs("Error: Empty allele code in .bgen file.\n");
+          goto OxBgenToPgen_ret_MALFORMED_INPUT;
         }
         if (a2_slen > 1000000000) {
-          logprint("\n");
-          logerrprint("Error: Allele code in .bgen file has more than 1 billion characters.\n");
-          goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+          logputs("\n");
+          logerrputs("Error: Allele code in .bgen file has more than 1 billion characters.\n");
+          goto OxBgenToPgen_ret_MALFORMED_INPUT;
         }
         if (a2_slen + S_CAST(uintptr_t, a2_ptr - R_CAST(char*, loadbuf)) > loadbuf_size) {
-          goto ox_bgen_to_pgen_ret_NOMEM;
+          goto OxBgenToPgen_ret_NOMEM;
         }
         if (!fread_unlocked(a2_ptr, a2_slen, 1, bgenfile)) {
-          goto ox_bgen_to_pgen_ret_READ_FAIL;
+          goto OxBgenToPgen_ret_READ_FAIL;
         }
-        write_iter = chr_name_write(cip, cur_chr_code, write_iter);
+        write_iter = chrtoa(cip, cur_chr_code, write_iter);
         *write_iter++ = '\t';
         if (cur_bp > 0x7ffffffe) {
-          logprint("\n");
-          logerrprint("Error: Invalid bp coordinate (> 2^31 - 2) in .bgen file\n");
-          goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+          logputs("\n");
+          logerrputs("Error: Invalid bp coordinate (> 2^31 - 2) in .bgen file\n");
+          goto OxBgenToPgen_ret_MALFORMED_INPUT;
         }
         write_iter = uint32toa_x(cur_bp, '\t', write_iter);
         write_iter = memcpyax(write_iter, rsid_start, rsid_slen, '\t');
@@ -5048,7 +5047,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
         // this instead of using fwrite_ck()
         if ((write_iter >= writebuf_flush) || (a1_slen >= kMaxMediumLine)) {
           if (fwrite_checked(writebuf, write_iter - writebuf, pvarfile)) {
-            goto ox_bgen_to_pgen_ret_WRITE_FAIL;
+            goto OxBgenToPgen_ret_WRITE_FAIL;
           }
           write_iter = writebuf;
         }
@@ -5056,13 +5055,13 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
           write_iter = memcpya(write_iter, a1_ptr, a1_slen);
         } else {
           if (fwrite_checked(a1_ptr, a1_slen, pvarfile)) {
-            goto ox_bgen_to_pgen_ret_WRITE_FAIL;
+            goto OxBgenToPgen_ret_WRITE_FAIL;
           }
         }
         *write_iter++ = '\t';
         if ((write_iter >= writebuf_flush) || (a2_slen >= kMaxMediumLine)) {
           if (fwrite_checked(writebuf, write_iter - writebuf, pvarfile)) {
-            goto ox_bgen_to_pgen_ret_WRITE_FAIL;
+            goto OxBgenToPgen_ret_WRITE_FAIL;
           }
           write_iter = writebuf;
         }
@@ -5070,7 +5069,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
           write_iter = memcpya(write_iter, a2_ptr, a2_slen);
         } else {
           if (fwrite_checked(a2_ptr, a2_slen, pvarfile)) {
-            goto ox_bgen_to_pgen_ret_WRITE_FAIL;
+            goto OxBgenToPgen_ret_WRITE_FAIL;
           }
         }
         for (uint32_t allele_idx = 2; allele_idx < cur_allele_ct; ++allele_idx) {
@@ -5080,28 +5079,28 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
           assert(0);
           uint32_t cur_allele_slen;
           if (!fread_unlocked(&cur_allele_slen, 4, 1, bgenfile)) {
-            goto ox_bgen_to_pgen_ret_READ_FAIL;
+            goto OxBgenToPgen_ret_READ_FAIL;
           }
           if (!cur_allele_slen) {
-            logprint("\n");
-            logerrprint("Error: Empty allele code in .bgen file.\n");
-            goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+            logputs("\n");
+            logerrputs("Error: Empty allele code in .bgen file.\n");
+            goto OxBgenToPgen_ret_MALFORMED_INPUT;
           }
           if (cur_allele_slen > 1000000000) {
-            logprint("\n");
-            logerrprint("Error: Allele code in .bgen file has more than 1 billion characters.\n");
-            goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+            logputs("\n");
+            logerrputs("Error: Allele code in .bgen file has more than 1 billion characters.\n");
+            goto OxBgenToPgen_ret_MALFORMED_INPUT;
           }
           if (cur_allele_slen > loadbuf_size) {
-            goto ox_bgen_to_pgen_ret_NOMEM;
+            goto OxBgenToPgen_ret_NOMEM;
           }
           if (!fread_unlocked(loadbuf, cur_allele_slen, 1, bgenfile)) {
-            goto ox_bgen_to_pgen_ret_READ_FAIL;
+            goto OxBgenToPgen_ret_READ_FAIL;
           }
           *write_iter++ = ',';
           if ((write_iter >= writebuf_flush) || (cur_allele_slen >= kMaxMediumLine)) {
             if (fwrite_checked(writebuf, write_iter - writebuf, pvarfile)) {
-              goto ox_bgen_to_pgen_ret_WRITE_FAIL;
+              goto OxBgenToPgen_ret_WRITE_FAIL;
             }
             write_iter = writebuf;
           }
@@ -5109,28 +5108,28 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
             write_iter = memcpya(write_iter, loadbuf, cur_allele_slen);
           } else {
             if (fwrite_checked(loadbuf, cur_allele_slen, pvarfile)) {
-              goto ox_bgen_to_pgen_ret_WRITE_FAIL;
+              goto OxBgenToPgen_ret_WRITE_FAIL;
             }
           }
         }
 
-        append_binary_eoln(&write_iter);
+        AppendBinaryEoln(&write_iter);
         *allele_idx_offsets_iter++ = tot_allele_ct;
         tot_allele_ct += cur_allele_ct;
         uint32_t genodata_byte_ct;
         if (!fread_unlocked(&genodata_byte_ct, 4, 1, bgenfile)) {
-          goto ox_bgen_to_pgen_ret_READ_FAIL;
+          goto OxBgenToPgen_ret_READ_FAIL;
         }
         if (genodata_byte_ct > max_geno_blen) {
           max_geno_blen = genodata_byte_ct;
         }
         if (uncompressed_genodata_byte_cts) {
           if (genodata_byte_ct < 4) {
-            logerrprint("Error: Invalid compressed block length in .bgen file.\n");
-            goto ox_bgen_to_pgen_ret_MALFORMED_INPUT;
+            logerrputs("Error: Invalid compressed block length in .bgen file.\n");
+            goto OxBgenToPgen_ret_MALFORMED_INPUT;
           }
           if (!fread_unlocked(&uncompressed_genodata_byte_ct, 4, 1, bgenfile)) {
-            goto ox_bgen_to_pgen_ret_READ_FAIL;
+            goto OxBgenToPgen_ret_READ_FAIL;
           }
           if (uncompressed_genodata_byte_ct > max_geno_blen) {
             max_geno_blen = uncompressed_genodata_byte_ct;
@@ -5139,7 +5138,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
         }
         if (dosage_is_present) {
           if (fseeko(bgenfile, genodata_byte_ct, SEEK_CUR)) {
-            goto ox_bgen_to_pgen_ret_READ_FAIL;
+            goto OxBgenToPgen_ret_READ_FAIL;
           }
           ++variant_ct;
           continue;
@@ -5147,22 +5146,22 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
 
         if ((block_vidx == cur_thread_block_vidx_limit) || (S_CAST(uintptr_t, cur_geno_buf_end - bgen_geno_iter) < genodata_byte_ct)) {
           if (!block_vidx) {
-            goto ox_bgen_to_pgen_ret_NOMEM;
+            goto OxBgenToPgen_ret_NOMEM;
           }
           thread_bidxs[++cur_thread_fill_idx] = block_vidx;
           if (cur_thread_fill_idx == calc_thread_ct) {
             parity = 1 - parity;
             if (ts.thread_func_ptr) {
               // process *previous* block results
-              join_threads3z(&ts);
+              JoinThreads3z(&ts);
               reterr = g_error_ret;
               if (reterr) {
-                goto ox_bgen_to_pgen_ret_bgen13_thread_fail;
+                goto OxBgenToPgen_ret_bgen13_thread_fail;
               }
               dosage_is_present = g_dosage_is_present;
               if (dosage_is_present) {
                 // don't need to scan for any more dosages
-                stop_threads3z(&ts, &g_cur_block_write_ct);
+                StopThreads3z(&ts, &g_cur_block_write_ct);
 
                 // however, unlike bgen-1.1 case, we can never do full
                 // early-exit since we have to scan for multiallelic variants:
@@ -5172,15 +5171,15 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
                 // constructor still needs a maximum allele count so it can
                 // allocate properly-sized buffers.
                 if (fseeko(bgenfile, genodata_byte_ct, SEEK_CUR)) {
-                  goto ox_bgen_to_pgen_ret_READ_FAIL;
+                  goto OxBgenToPgen_ret_READ_FAIL;
                 }
                 ++variant_ct;
                 continue;
               }
             }
-            ts.thread_func_ptr = bgen13_dosage_or_phase_scan_thread;
-            if (spawn_threads3z(variant_ct, &ts)) {
-              goto ox_bgen_to_pgen_ret_THREAD_CREATE_FAIL;
+            ts.thread_func_ptr = Bgen13DosageOrPhaseScanThread;
+            if (SpawnThreads3z(variant_ct, &ts)) {
+              goto OxBgenToPgen_ret_THREAD_CREATE_FAIL;
             }
             compressed_geno_starts = g_compressed_geno_starts[parity];
             uncompressed_genodata_byte_cts = g_uncompressed_genodata_byte_cts[parity];
@@ -5208,38 +5207,38 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
           uncompressed_genodata_byte_cts[block_vidx] = uncompressed_genodata_byte_ct;
         }
         if (fread_checked(bgen_geno_iter, genodata_byte_ct, bgenfile)) {
-          goto ox_bgen_to_pgen_ret_READ_FAIL;
+          goto OxBgenToPgen_ret_READ_FAIL;
         }
         bgen_geno_iter = &(bgen_geno_iter[genodata_byte_ct]);
         compressed_geno_starts[++block_vidx] = bgen_geno_iter;
       }
       variant_ct += block_vidx;
       if (multiallelic_skip_ct) {
-        logprint("\n");
-        LOGERRPRINTFWW("Warning: %u multiallelic variant%s skipped (not yet supported).\n", multiallelic_skip_ct, (multiallelic_skip_ct == 1)? "" : "s");
+        logputs("\n");
+        logerrprintfww("Warning: %u multiallelic variant%s skipped (not yet supported).\n", multiallelic_skip_ct, (multiallelic_skip_ct == 1)? "" : "s");
       }
       if (!variant_ct) {
-        logprint("\n");
-        LOGERRPRINTF("Error: All %u variant%s in .bgen file skipped.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s");
-        goto ox_bgen_to_pgen_ret_INCONSISTENT_INPUT;
+        logputs("\n");
+        logerrprintf("Error: All %u variant%s in .bgen file skipped.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s");
+        goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
       }
       if (variant_ct == block_vidx) {
         // with multiple threads, there's no guarantee that even the first
         // decompression job has launched (e.g. there's only 1 variant on the
         // relevant chromosome in the entire .bgen, and calc_thread_ct == 2).
         thread_bidxs[cur_thread_fill_idx + 1] = block_vidx;
-        ts.thread_func_ptr = bgen13_dosage_or_phase_scan_thread;
-        if (spawn_threads3z(variant_ct, &ts)) {
-          goto ox_bgen_to_pgen_ret_THREAD_CREATE_FAIL;
+        ts.thread_func_ptr = Bgen13DosageOrPhaseScanThread;
+        if (SpawnThreads3z(variant_ct, &ts)) {
+          goto OxBgenToPgen_ret_THREAD_CREATE_FAIL;
         }
         block_vidx = 0;
       }
       chr_filter_present = (variant_ct + multiallelic_skip_ct != raw_variant_ct);
       if (ts.thread_func_ptr) {
-        join_threads3z(&ts);
+        JoinThreads3z(&ts);
         reterr = g_error_ret;
         if (reterr) {
-          goto ox_bgen_to_pgen_ret_bgen13_thread_fail;
+          goto OxBgenToPgen_ret_bgen13_thread_fail;
         }
         if ((!block_vidx) || g_dosage_is_present) {
           // ignore thread_bidxs[] in this case
@@ -5252,54 +5251,54 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
           }
         }
         ts.is_last_block = 1;
-        if (spawn_threads3z(1, &ts)) {
-          goto ox_bgen_to_pgen_ret_THREAD_CREATE_FAIL;
+        if (SpawnThreads3z(1, &ts)) {
+          goto OxBgenToPgen_ret_THREAD_CREATE_FAIL;
         }
-        join_threads3z(&ts);
+        JoinThreads3z(&ts);
         dosage_is_present = g_dosage_is_present;
       }
 
       if (tot_allele_ct == variant_ct * 2) {
         allele_idx_offsets = nullptr;
-        bigstack_end_reset(bigstack_end_mark);
+        BigstackEndReset(bigstack_end_mark);
       } else {
         // not yet possible
         assert(0);
         *allele_idx_offsets_iter = tot_allele_ct;
       }
       if (fseeko(bgenfile, initial_uints[0] + 4, SEEK_SET)) {
-        goto ox_bgen_to_pgen_ret_READ_FAIL;
+        goto OxBgenToPgen_ret_READ_FAIL;
       }
       snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
       uintptr_t spgw_alloc_cacheline_ct;
       uint32_t max_vrec_len;
-      reterr = spgw_init_phase1(outname, allele_idx_offsets, nullptr, variant_ct, sample_ct, dosage_is_present? (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent) : kfPgenGlobal0, (oxford_import_flags & (kfOxfordImportRefFirst | kfOxfordImportRefSecond))? 1 : 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+      reterr = SpgwInitPhase1(outname, allele_idx_offsets, nullptr, variant_ct, sample_ct, dosage_is_present? (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent) : kfPgenGlobal0, (oxford_import_flags & (kfOxfordImportRefFirst | kfOxfordImportRefSecond))? 1 : 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
       if (reterr) {
-        goto ox_bgen_to_pgen_ret_1;
+        goto OxBgenToPgen_ret_1;
       }
 
-      bigstack_reset(g_bgen_allele_cts[0]);
+      BigstackReset(g_bgen_allele_cts[0]);
 
       // only needs to fit chromosome codes in second pass
       loadbuf = S_CAST(unsigned char*, bigstack_alloc_raw_rd(kMaxIdBlen));
       unsigned char* spgw_alloc;
       if (bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc)) {
-        goto ox_bgen_to_pgen_ret_NOMEM;
+        goto OxBgenToPgen_ret_NOMEM;
       }
       // Now that we know max_geno_blen, try to increase calc_thread_ct, and
       // resize g_thread_wkspaces[tidx] (and also resize compressed_geno_bufs[]
       // in next step).
       // Additional *6 in denominator since we want to limit these allocations
       // to 1/6 of remaining workspace.
-      thread_wkspace_size = round_up_pow2(max_geno_blen, kCacheline);
+      thread_wkspace_size = RoundUpPow2(max_geno_blen, kCacheline);
       // bugfix (16 Jul 2017): was computing cachelines_avail, not bytes_avail
-      uintptr_t bytes_avail = round_down_pow2(bigstack_left() / 6, kCacheline);
+      uintptr_t bytes_avail = RoundDownPow2(bigstack_left() / 6, kCacheline);
       if (calc_thread_ct_limit * thread_wkspace_size <= bytes_avail) {
         calc_thread_ct = calc_thread_ct_limit;
       } else {
         calc_thread_ct = bytes_avail / thread_wkspace_size;
         if (!calc_thread_ct) {
-          goto ox_bgen_to_pgen_ret_NOMEM;
+          goto OxBgenToPgen_ret_NOMEM;
         }
       }
       ts.calc_thread_ct = calc_thread_ct;
@@ -5320,7 +5319,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       //   g_write_dosage_cts: 2 * sizeof(int32_t)
       //   g_write_dphase_cts: 2 * sizeof(int32_t)
       //   g_write_dosage_val_bufs (the big one): 2 * sample_ct * 2 *
-      //                                          sizeof(dosage_t)
+      //                                          sizeof(Dosage)
       //     additional factor of 2 here is due to phased-dosage support.  (not
       //     actually implemented yet, but will be soon.)
       //   g_compressed_geno_bufs (the other big one): up to 2 * max_geno_blen
@@ -5331,12 +5330,12 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       //     total allocation here.
       uintptr_t cachelines_avail_m24 = bigstack_left() / kCacheline;
       if (cachelines_avail_m24 < 24) {
-        goto ox_bgen_to_pgen_ret_NOMEM;
+        goto OxBgenToPgen_ret_NOMEM;
       }
       // we're making up to 24 allocations; be pessimistic re: rounding
       // (g_compressed_geno_starts has +1, but we have enough room for error)
       cachelines_avail_m24 -= 24;
-      uintptr_t bytes_req_per_in_block_variant = 2 * (sizeof(int16_t) + sizeof(intptr_t) + sample_ctaw2 * sizeof(intptr_t) + sample_ctaw * 4 * sizeof(intptr_t) + 2 * sizeof(int32_t) + sample_ct * 2 * sizeof(dosage_t));
+      uintptr_t bytes_req_per_in_block_variant = 2 * (sizeof(int16_t) + sizeof(intptr_t) + sample_ctaw2 * sizeof(intptr_t) + sample_ctaw * 4 * sizeof(intptr_t) + 2 * sizeof(int32_t) + sample_ct * 2 * sizeof(Dosage));
       if (compression_mode) {
         bytes_req_per_in_block_variant += 2 * sizeof(int32_t);
       }
@@ -5359,7 +5358,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       if (mainbuf_size < max_geno_blen) {
         // bugfix (2 Jul 2017): don't error out here if the entire .bgen has
         // e.g. only one variant
-        goto ox_bgen_to_pgen_ret_NOMEM;
+        goto OxBgenToPgen_ret_NOMEM;
       }
       if (bigstack_alloc_usi(main_block_size, &(g_bgen_allele_cts[0])) ||
           bigstack_alloc_usi(main_block_size, &(g_bgen_allele_cts[1])) ||
@@ -5385,16 +5384,16 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
           bigstack_alloc_dosage(sample_ct * 2 * main_block_size, &(g_write_dosage_val_bufs[1]))) {
         // this should be impossible
         assert(0);
-        goto ox_bgen_to_pgen_ret_NOMEM;
+        goto OxBgenToPgen_ret_NOMEM;
       }
       if (compression_mode) {
         if (bigstack_alloc_ui(main_block_size, &(g_uncompressed_genodata_byte_cts[0])) ||
             bigstack_alloc_ui(main_block_size, &(g_uncompressed_genodata_byte_cts[1]))) {
           assert(0);
-          goto ox_bgen_to_pgen_ret_NOMEM;
+          goto OxBgenToPgen_ret_NOMEM;
         }
       }
-      spgw_init_phase2(max_vrec_len, &spgw, spgw_alloc);
+      SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
 
       // Main workflow:
       // 1. Set n=0, load genotype data for first main_block_size variants
@@ -5417,7 +5416,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       uint32_t prev_allele_ct = 0;
       uint32_t skip = 0;
       parity = 0;
-      reinit_threads3z(&ts);
+      ReinitThreads3z(&ts);
       g_cur_block_write_ct = 1;
       while (1) {
         uint32_t cur_block_write_ct = 0;
@@ -5441,7 +5440,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
           uint32_t genodata_byte_ct = prev_genodata_byte_ct;
           uint32_t cur_allele_ct = prev_allele_ct;
           if (!genodata_byte_ct) {
-            goto ox_bgen_to_pgen_load13_start;
+            goto OxBgenToPgen_load13_start;
           }
           // we may stop before main_block_size due to insufficient space in
           // compressed_geno_buf.  if so, the file pointer is right before the
@@ -5452,7 +5451,7 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
               uncompressed_genodata_byte_cts[block_vidx] = uncompressed_genodata_byte_ct;
             }
             if (fread_checked(bgen_geno_iter, genodata_byte_ct, bgenfile)) {
-              goto ox_bgen_to_pgen_ret_READ_FAIL;
+              goto OxBgenToPgen_ret_READ_FAIL;
             }
             bgen_geno_iter = &(bgen_geno_iter[genodata_byte_ct]);
             compressed_geno_starts[++block_vidx] = bgen_geno_iter;
@@ -5468,35 +5467,35 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
               }
               break;
             }
-          ox_bgen_to_pgen_load13_start:
+          OxBgenToPgen_load13_start:
             if (!fread_unlocked(&snpid_slen, 2, 1, bgenfile)) {
-              goto ox_bgen_to_pgen_ret_READ_FAIL;
+              goto OxBgenToPgen_ret_READ_FAIL;
             }
 
             if (!snpid_chr) {
               if (fseeko(bgenfile, snpid_slen, SEEK_CUR)) {
-                goto ox_bgen_to_pgen_ret_READ_FAIL;
+                goto OxBgenToPgen_ret_READ_FAIL;
               }
             } else {
               if (!fread_unlocked(loadbuf, snpid_slen, 1, bgenfile)) {
-                goto ox_bgen_to_pgen_ret_READ_FAIL;
+                goto OxBgenToPgen_ret_READ_FAIL;
               }
               loadbuf[snpid_slen] = '\0';
             }
             uint16_t rsid_slen;
             if (!fread_unlocked(&rsid_slen, 2, 1, bgenfile)) {
-              goto ox_bgen_to_pgen_ret_READ_FAIL;
+              goto OxBgenToPgen_ret_READ_FAIL;
             }
             if (fseeko(bgenfile, rsid_slen, SEEK_CUR)) {
-              goto ox_bgen_to_pgen_ret_READ_FAIL;
+              goto OxBgenToPgen_ret_READ_FAIL;
             }
             uint16_t chr_name_slen;
             if (!fread_unlocked(&chr_name_slen, 2, 1, bgenfile)) {
-              goto ox_bgen_to_pgen_ret_READ_FAIL;
+              goto OxBgenToPgen_ret_READ_FAIL;
             }
             if (!snpid_chr) {
               if (!fread_unlocked(loadbuf, chr_name_slen, 1, bgenfile)) {
-                goto ox_bgen_to_pgen_ret_READ_FAIL;
+                goto OxBgenToPgen_ret_READ_FAIL;
               }
               if (strequal_k(R_CAST(char*, loadbuf), "NA", chr_name_slen)) {
                 memcpy(loadbuf, "0", 2);
@@ -5506,48 +5505,48 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
               }
             } else {
               if (fseeko(bgenfile, chr_name_slen, SEEK_CUR)) {
-                goto ox_bgen_to_pgen_ret_READ_FAIL;
+                goto OxBgenToPgen_ret_READ_FAIL;
               }
               chr_name_slen = snpid_slen;
             }
             if (chr_filter_present) {
-              const int32_t cur_chr_code = get_chr_code(R_CAST(char*, loadbuf), cip, chr_name_slen);
-              assert(cur_chr_code >= 0); // we scanned all the variants
-              skip = !is_set(cip->chr_mask, cur_chr_code);
+              const int32_t cur_chr_code = GetChrCode(R_CAST(char*, loadbuf), cip, chr_name_slen);
+              assert(cur_chr_code >= 0);  // we scanned all the variants
+              skip = !IsSetI(cip->chr_mask, cur_chr_code);
             }
 
-            uint32_t cur_bp; // ignore in this pass
+            uint32_t cur_bp;  // ignore in this pass
             if (!fread_unlocked(&cur_bp, 4, 1, bgenfile)) {
-              goto ox_bgen_to_pgen_ret_READ_FAIL;
+              goto OxBgenToPgen_ret_READ_FAIL;
             }
 
             cur_allele_ct = 0;
             if (!fread_unlocked(&cur_allele_ct, 2, 1, bgenfile)) {
-              goto ox_bgen_to_pgen_ret_READ_FAIL;
+              goto OxBgenToPgen_ret_READ_FAIL;
             }
             for (uint32_t allele_idx = 0; allele_idx < cur_allele_ct; ++allele_idx) {
               uint32_t allele_slen;
               if (!fread_unlocked(&allele_slen, 4, 1, bgenfile)) {
-                goto ox_bgen_to_pgen_ret_READ_FAIL;
+                goto OxBgenToPgen_ret_READ_FAIL;
               }
               if (fseeko(bgenfile, allele_slen, SEEK_CUR)) {
-                goto ox_bgen_to_pgen_ret_READ_FAIL;
+                goto OxBgenToPgen_ret_READ_FAIL;
               }
             }
             if (!fread_unlocked(&genodata_byte_ct, 4, 1, bgenfile)) {
-              goto ox_bgen_to_pgen_ret_READ_FAIL;
+              goto OxBgenToPgen_ret_READ_FAIL;
             }
 
             // "cur_allele_ct > 2" is temporary kludge
             if (skip || (cur_allele_ct > 2)) {
               if (fseeko(bgenfile, genodata_byte_ct, SEEK_CUR)) {
-                goto ox_bgen_to_pgen_ret_READ_FAIL;
+                goto OxBgenToPgen_ret_READ_FAIL;
               }
-              goto ox_bgen_to_pgen_load13_start;
+              goto OxBgenToPgen_load13_start;
             }
             if (uncompressed_genodata_byte_cts) {
               if (!fread_unlocked(&uncompressed_genodata_byte_ct, 4, 1, bgenfile)) {
-                goto ox_bgen_to_pgen_ret_READ_FAIL;
+                goto OxBgenToPgen_ret_READ_FAIL;
               }
               genodata_byte_ct -= 4;
             }
@@ -5566,17 +5565,17 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
           cur_block_write_ct = block_vidx;
         }
         if (vidx_start) {
-          join_threads3z(&ts);
+          JoinThreads3z(&ts);
           reterr = g_error_ret;
           if (reterr) {
-            goto ox_bgen_to_pgen_ret_bgen13_thread_fail;
+            goto OxBgenToPgen_ret_bgen13_thread_fail;
           }
         }
         if (!ts.is_last_block) {
           ts.is_last_block = (vidx_start + cur_block_write_ct == variant_ct);
-          ts.thread_func_ptr = bgen13_geno_to_pgen_thread;
-          if (spawn_threads3z(vidx_start, &ts)) {
-            goto ox_bgen_to_pgen_ret_THREAD_CREATE_FAIL;
+          ts.thread_func_ptr = Bgen13GenoToPgenThread;
+          if (SpawnThreads3z(vidx_start, &ts)) {
+            goto OxBgenToPgen_ret_THREAD_CREATE_FAIL;
           }
         }
         parity = 1 - parity;
@@ -5589,18 +5588,18 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
           // const uintptr_t* write_dphase_presents = g_write_dphase_presents[parity];
           const uint32_t* write_dosage_cts = g_write_dosage_cts[parity];
           const uint32_t* write_dphase_cts = g_write_dphase_cts[parity];
-          const dosage_t* write_dosage_val_bufs = g_write_dosage_val_bufs[parity];
-          for (uintptr_t block_vidx = 0; block_vidx < prev_block_write_ct; ++block_vidx) {
-            const uint32_t cur_dosage_ct = write_dosage_cts[block_vidx];
-            const uint32_t cur_dphase_ct = write_dphase_cts[block_vidx];
+          const Dosage* write_dosage_val_bufs = g_write_dosage_val_bufs[parity];
+          for (uintptr_t write_block_vidx = 0; write_block_vidx < prev_block_write_ct; ++write_block_vidx) {
+            const uint32_t cur_dosage_ct = write_dosage_cts[write_block_vidx];
+            const uint32_t cur_dphase_ct = write_dphase_cts[write_block_vidx];
             if (!cur_dphase_ct) {
               if (!cur_dosage_ct) {
-                if (spgw_append_biallelic_genovec(write_genovec_iter, &spgw)) {
-                  goto ox_bgen_to_pgen_ret_WRITE_FAIL;
+                if (SpgwAppendBiallelicGenovec(write_genovec_iter, &spgw)) {
+                  goto OxBgenToPgen_ret_WRITE_FAIL;
                 }
               } else {
-                if (spgw_append_biallelic_genovec_dosage16(write_genovec_iter, &(write_dosage_presents[block_vidx * sample_ctaw]), &(write_dosage_val_bufs[block_vidx * 2 * sample_ct]), cur_dosage_ct, &spgw)) {
-                  goto ox_bgen_to_pgen_ret_WRITE_FAIL;
+                if (SpgwAppendBiallelicGenovecDosage16(write_genovec_iter, &(write_dosage_presents[write_block_vidx * sample_ctaw]), &(write_dosage_val_bufs[write_block_vidx * 2 * sample_ct]), cur_dosage_ct, &spgw)) {
+                  goto OxBgenToPgen_ret_WRITE_FAIL;
                 }
               }
             } else {
@@ -5624,10 +5623,10 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       }
     }
     if (fclose_flush_null(writebuf_flush, write_iter, &pvarfile)) {
-      goto ox_bgen_to_pgen_ret_WRITE_FAIL;
+      goto OxBgenToPgen_ret_WRITE_FAIL;
     }
 
-    spgw_finish(&spgw);
+    SpgwFinish(&spgw);
     putc_unlocked('\r', stdout);
     write_iter = strcpya(g_logbuf, "--bgen: ");
     const uint32_t outname_base_slen = outname_end - outname;
@@ -5640,103 +5639,103 @@ pglerr_t ox_bgen_to_pgen(const char* bgenname, const char* samplename, const cha
       write_iter = strcpya(write_iter, " (only hardcalls)");
     }
     snprintf(write_iter, kLogbufSize - 2 * kPglFnamesize - 64, ".\n");
-    wordwrapb(0);
-    logprintb();
+    WordWrapB(0);
+    logputsb();
   }
   while (0) {
-  ox_bgen_to_pgen_ret_NOMEM:
+  OxBgenToPgen_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  ox_bgen_to_pgen_ret_OPEN_FAIL:
+  OxBgenToPgen_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  ox_bgen_to_pgen_ret_READ_FAIL:
+  OxBgenToPgen_ret_READ_FAIL:
     reterr = kPglRetReadFail;
     break;
-  ox_bgen_to_pgen_ret_WRITE_FAIL:
+  OxBgenToPgen_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
-  ox_bgen_to_pgen_ret_MALFORMED_INPUT:
+  OxBgenToPgen_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
-  ox_bgen_to_pgen_ret_INCONSISTENT_INPUT_DELIM:
-    logerrprintb();
+  OxBgenToPgen_ret_INCONSISTENT_INPUT_DELIM:
+    logerrputsb();
     if (id_delim == '_') {
-      logerrprint("If you do not want '_' to be treated as a FID/IID delimiter, use --double-id or\n--const-fid to choose a different method of converting .bgen sample IDs to\nPLINK IDs, or --id-delim to change the FID/IID delimiter.\n");
+      logerrputs("If you do not want '_' to be treated as a FID/IID delimiter, use --double-id or\n--const-fid to choose a different method of converting .bgen sample IDs to\nPLINK IDs, or --id-delim to change the FID/IID delimiter.\n");
     }
     reterr = kPglRetInconsistentInput;
     break;
-  ox_bgen_to_pgen_ret_MALFORMED_INPUT_LONG_ID:
-    logerrprint("Error: FIDs and IIDs are limited to " MAX_ID_SLEN_STR " characters.\n");
+  OxBgenToPgen_ret_MALFORMED_INPUT_LONG_ID:
+    logerrputs("Error: FIDs and IIDs are limited to " MAX_ID_SLEN_STR " characters.\n");
     reterr = kPglRetMalformedInput;
     break;
-  ox_bgen_to_pgen_ret_INCONSISTENT_INPUT_2:
-    logerrprintb();
-  ox_bgen_to_pgen_ret_INCONSISTENT_INPUT:
+  OxBgenToPgen_ret_INCONSISTENT_INPUT_2:
+    logerrputsb();
+  OxBgenToPgen_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
-  ox_bgen_to_pgen_ret_THREAD_CREATE_FAIL:
+  OxBgenToPgen_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
     break;
-  ox_bgen_to_pgen_ret_bgen13_thread_fail:
+  OxBgenToPgen_ret_bgen13_thread_fail:
     if (reterr == kPglRetMalformedInput) {
-      logprint("\n");
-      logerrprint("Error: Invalid compressed SNP block in .bgen file.\n");
+      logputs("\n");
+      logerrputs("Error: Invalid compressed SNP block in .bgen file.\n");
     } else if (reterr == kPglRetNotYetSupported) {
-      logprint("\n");
-      logerrprint("Error: BGEN import doesn't currently support phased variants, >16-bit\nprobability precision, or ploidy > 2.\n");
+      logputs("\n");
+      logerrputs("Error: BGEN import doesn't currently support phased variants, >16-bit\nprobability precision, or ploidy > 2.\n");
     }
   }
- ox_bgen_to_pgen_ret_1:
-  if (spgw_cleanup(&spgw) && (!reterr)) {
+ OxBgenToPgen_ret_1:
+  if (SpgwCleanup(&spgw) && (!reterr)) {
     reterr = kPglRetWriteFail;
   }
-  threads3z_cleanup(&ts, &g_cur_block_write_ct);
+  CleanupThreads3z(&ts, &g_cur_block_write_ct);
   fclose_cond(bgenfile);
   fclose_cond(psamfile);
   fclose_cond(pvarfile);
-  bigstack_double_reset(bigstack_mark, bigstack_end_mark);
+  BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }
 
-boolerr_t import_legend_cols(const char* fname, uintptr_t line_idx, uint32_t prov_ref_allele_second, const char** loadbuf_iter_ptr, char** write_iter_ptr, uint32_t* variant_ct_ptr) {
+BoolErr ImportLegendCols(const char* fname, uintptr_t line_idx, uint32_t prov_ref_allele_second, const char** loadbuf_iter_ptr, char** write_iter_ptr, uint32_t* variant_ct_ptr) {
   {
     if (*variant_ct_ptr == 0x7ffffffd) {
-      logerrprint("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend other\nsoftware, such as PLINK/SEQ, for very deep studies of small numbers of genomes.\n");
+      logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 3 variants.  We recommend other\nsoftware, such as PLINK/SEQ, for very deep studies of small numbers of genomes.\n");
       return 1;
     }
     *variant_ct_ptr += 1;
     char* write_iter = *write_iter_ptr;
     *write_iter++ = '\t';
     const char* id_start = *loadbuf_iter_ptr;
-    const char* id_end = token_endnn(id_start);
+    const char* id_end = CurTokenEnd(id_start);
     const uint32_t id_slen = id_end - id_start;
     if (id_slen > kMaxIdSlen) {
-      logerrprint("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
+      logerrputs("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
       return 1;
     }
-    const char* pos_str = skip_initial_spaces(id_end);
+    const char* pos_str = FirstNonTspace(id_end);
     if (!pos_str) {
-      goto import_legend_cols_ret_MISSING_TOKENS;
+      goto ImportLegendCols_ret_MISSING_TOKENS;
     }
-    const char* pos_end = token_endnn(pos_str);
+    const char* pos_end = CurTokenEnd(pos_str);
     uint32_t cur_bp;
-    if (scan_uint_defcap(pos_str, &cur_bp)) {
-      LOGPREPRINTFWW("Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, fname);
+    if (ScanUintDefcap(pos_str, &cur_bp)) {
+      logpreprintfww("Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, fname);
       return 1;
     }
     write_iter = uint32toa_x(cur_bp, '\t', write_iter);
     write_iter = memcpyax(write_iter, id_start, id_slen, '\t');
-    const char* first_allele_str = skip_initial_spaces(pos_end);
-    if (is_eoln_kns(*first_allele_str)) {
-      goto import_legend_cols_ret_MISSING_TOKENS;
+    const char* first_allele_str = FirstNonTspace(pos_end);
+    if (IsEolnKns(*first_allele_str)) {
+      goto ImportLegendCols_ret_MISSING_TOKENS;
     }
-    const char* first_allele_end = token_endnn(first_allele_str);
-    const char* second_allele_str = skip_initial_spaces(first_allele_end);
-    if (is_eoln_kns(*second_allele_str)) {
-      goto import_legend_cols_ret_MISSING_TOKENS;
+    const char* first_allele_end = CurTokenEnd(first_allele_str);
+    const char* second_allele_str = FirstNonTspace(first_allele_end);
+    if (IsEolnKns(*second_allele_str)) {
+      goto ImportLegendCols_ret_MISSING_TOKENS;
     }
-    const char* second_allele_end = token_endnn(second_allele_str);
+    const char* second_allele_end = CurTokenEnd(second_allele_str);
     if (!prov_ref_allele_second) {
       write_iter = memcpyax(write_iter, first_allele_str, first_allele_end - first_allele_str, '\t');
       write_iter = memcpya(write_iter, second_allele_str, second_allele_end - second_allele_str);
@@ -5745,19 +5744,19 @@ boolerr_t import_legend_cols(const char* fname, uintptr_t line_idx, uint32_t pro
       write_iter = memcpya(write_iter, first_allele_str, first_allele_end - first_allele_str);
     }
     *write_iter_ptr = write_iter;
-    append_binary_eoln(write_iter_ptr);
+    AppendBinaryEoln(write_iter_ptr);
     *loadbuf_iter_ptr = second_allele_end;
     return 0;
   }
   {
-  import_legend_cols_ret_MISSING_TOKENS:
-    LOGPREPRINTFWW("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, fname);
+  ImportLegendCols_ret_MISSING_TOKENS:
+    logpreprintfww("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, fname);
     return 1;
   }
 }
 
-pglerr_t scan_haps_for_het(const char* loadbuf_iter, const char* hapsname, uint32_t sample_ct, uint32_t is_haploid_or_mt, uintptr_t line_idx_haps, uint32_t* at_least_one_het_ptr) {
-  pglerr_t reterr = kPglRetSuccess;
+PglErr ScanHapsForHet(const char* loadbuf_iter, const char* hapsname, uint32_t sample_ct, uint32_t is_haploid_or_mt, uintptr_t line_idx_haps, uint32_t* at_least_one_het_ptr) {
+  PglErr reterr = kPglRetSuccess;
   {
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
       const uint32_t first_hap_char_code = ctou32(*loadbuf_iter);
@@ -5767,11 +5766,11 @@ pglerr_t scan_haps_for_het(const char* loadbuf_iter, const char* hapsname, uint3
       const char* post_first_hap = &(loadbuf_iter[1]);
       if ((first_hap_int >= 2) || (ctou32(*post_first_hap) > 32)) {
         if (first_hap_char_code <= 32) {
-          goto scan_haps_for_het_ret_MISSING_TOKENS;
+          goto ScanHapsForHet_ret_MISSING_TOKENS;
         }
-        goto scan_haps_for_het_ret_INVALID_TOKEN;
+        goto ScanHapsForHet_ret_INVALID_TOKEN;
       }
-      const char* second_hap = skip_initial_spaces(post_first_hap);
+      const char* second_hap = FirstNonTspace(post_first_hap);
       const char* post_second_hap = &(second_hap[1]);
       const uint32_t second_hap_char_code = ctou32(*second_hap);
       const uint32_t second_hap_int = second_hap_char_code - 48;
@@ -5780,30 +5779,30 @@ pglerr_t scan_haps_for_het(const char* loadbuf_iter, const char* hapsname, uint3
         // if haploid or MT, permit '-' in second column
         if ((!is_haploid_or_mt) || (second_hap_char_code != 45)) {
           if (second_hap_char_code <= 32) {
-            goto scan_haps_for_het_ret_MISSING_TOKENS;
+            goto ScanHapsForHet_ret_MISSING_TOKENS;
           }
           if ((second_hap_char_code == 45) && (post_second_hap_char_code <= 32)) {
-            goto scan_haps_for_het_ret_HAPLOID_TOKEN;
+            goto ScanHapsForHet_ret_HAPLOID_TOKEN;
           }
-          goto scan_haps_for_het_ret_INVALID_TOKEN;
+          goto ScanHapsForHet_ret_INVALID_TOKEN;
         }
       } else if (first_hap_int != second_hap_int) {
         *at_least_one_het_ptr = 1;
         break;
       }
-      loadbuf_iter = skip_initial_spaces(post_second_hap);
+      loadbuf_iter = FirstNonTspace(post_second_hap);
     }
   }
   while (0) {
-  scan_haps_for_het_ret_HAPLOID_TOKEN:
+  ScanHapsForHet_ret_HAPLOID_TOKEN:
     snprintf(g_logbuf, kLogbufSize, "Error: Haploid/MT-only token on line %" PRIuPTR " of %s.\n", line_idx_haps, hapsname);
     reterr = kPglRetInconsistentInput;
     break;
-  scan_haps_for_het_ret_INVALID_TOKEN:
+  ScanHapsForHet_ret_INVALID_TOKEN:
     snprintf(g_logbuf, kLogbufSize, "Error: Invalid token on line %" PRIuPTR " of %s.\n", line_idx_haps, hapsname);
     reterr = kPglRetMalformedInput;
     break;
-  scan_haps_for_het_ret_MISSING_TOKENS:
+  ScanHapsForHet_ret_MISSING_TOKENS:
     snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx_haps, hapsname);
     reterr = kPglRetMalformedInput;
     break;
@@ -5812,36 +5811,36 @@ pglerr_t scan_haps_for_het(const char* loadbuf_iter, const char* hapsname, uint3
 }
 
 #ifdef __arm__
-#  error "Unaligned accesses in ox_hapslegend_to_pgen()."
+#  error "Unaligned accesses in OxHapslegendToPgen()."
 #endif
-pglerr_t ox_hapslegend_to_pgen(const char* hapsname, const char* legendname, const char* samplename, const char* ox_single_chr_str, const char* ox_missing_code, misc_flags_t misc_flags, oxford_import_t oxford_import_flags, char* outname, char* outname_end, chr_info_t* cip) {
+PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const char* samplename, const char* ox_single_chr_str, const char* ox_missing_code, MiscFlags misc_flags, OxfordImportFlags oxford_import_flags, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   gzFile gz_hapsfile = nullptr;
   gzFile gz_legendfile = nullptr;
   FILE* outfile = nullptr;
   uintptr_t line_idx_haps = 0;
   uintptr_t line_idx_legend = 0;
-  pglerr_t reterr = kPglRetSuccess;
-  st_pgen_writer_t spgw;
+  PglErr reterr = kPglRetSuccess;
+  STPgenWriter spgw;
   uintptr_t loadbuf_size;
-  spgw_preinit(&spgw);
+  PreinitSpgw(&spgw);
   {
     uint32_t sfile_sample_ct = 0;
     if (samplename[0]) {
-      reterr = ox_sample_to_psam(samplename, ox_missing_code, misc_flags, outname, outname_end, &sfile_sample_ct);
+      reterr = OxSampleToPsam(samplename, ox_missing_code, misc_flags, outname, outname_end, &sfile_sample_ct);
       if (reterr) {
-        goto ox_hapslegend_to_pgen_ret_1;
+        goto OxHapslegendToPgen_ret_1;
       }
       if (sfile_sample_ct > (kMaxLongLine / 4)) {
-        logerrprint("Error: Too many samples for .haps file converter.\n");
+        logerrputs("Error: Too many samples for .haps file converter.\n");
         reterr = kPglRetNotYetSupported;
-        goto ox_hapslegend_to_pgen_ret_1;
+        goto OxHapslegendToPgen_ret_1;
       }
     }
 
     reterr = gzopen_read_checked(hapsname, &gz_hapsfile);
     if (reterr) {
-      goto ox_hapslegend_to_pgen_ret_1;
+      goto OxHapslegendToPgen_ret_1;
     }
     uintptr_t writebuf_size = bigstack_left() / 2;
     if (writebuf_size < 2 * kMaxMediumLine + kCacheline) {
@@ -5861,7 +5860,7 @@ pglerr_t ox_hapslegend_to_pgen(const char* hapsname, const char* legendname, con
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
     if (fopen_checked(outname, FOPEN_WB, &outfile)) {
-      goto ox_hapslegend_to_pgen_ret_OPEN_FAIL;
+      goto OxHapslegendToPgen_ret_OPEN_FAIL;
     }
     char* write_iter = strcpya(writebuf, "#CHROM\tPOS\tID\tREF\tALT" EOLN_STR);
     char* loadbuf_first_token;
@@ -5869,20 +5868,20 @@ pglerr_t ox_hapslegend_to_pgen(const char* hapsname, const char* legendname, con
       ++line_idx_haps;
       if (!gzgets(gz_hapsfile, loadbuf, loadbuf_size)) {
         if (!gzeof(gz_hapsfile)) {
-          goto ox_hapslegend_to_pgen_ret_READ_FAIL;
+          goto OxHapslegendToPgen_ret_READ_FAIL;
         }
         snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", hapsname);
-        goto ox_hapslegend_to_pgen_ret_INCONSISTENT_INPUT_WW;
+        goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
       }
       if (!loadbuf[loadbuf_size - 1]) {
-        goto ox_hapslegend_to_pgen_ret_LONG_LINE_HAP;
+        goto OxHapslegendToPgen_ret_LONG_LINE_HAP;
       }
-      loadbuf_first_token = skip_initial_spaces(loadbuf);
-    } while (is_eoln_kns(*loadbuf_first_token));
-    const uint32_t token_ct = count_tokens(loadbuf_first_token);
+      loadbuf_first_token = FirstNonTspace(loadbuf);
+    } while (IsEolnKns(*loadbuf_first_token));
+    const uint32_t token_ct = CountTokens(loadbuf_first_token);
     // pass 1: count variants, write .pvar file, may as well also verify
     // there's at least one heterozygous call
-    finalize_chrset(misc_flags, cip);
+    FinalizeChrset(misc_flags, cip);
     const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
     const int32_t mt_code = cip->xymt_codes[kChrOffsetMT];
     const uint32_t prov_ref_allele_second = !(oxford_import_flags & kfOxfordImportRefFirst);
@@ -5897,21 +5896,21 @@ pglerr_t ox_hapslegend_to_pgen(const char* hapsname, const char* legendname, con
       assert(ox_single_chr_str);
       if (token_ct % 2) {
         snprintf(g_logbuf, kLogbufSize, "Error: %s has an odd number of tokens in the first line. (With --haps + --legend, the .haps file is expected to have no header columns.)\n", hapsname);
-        goto ox_hapslegend_to_pgen_ret_MALFORMED_INPUT_WW;
+        goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
       }
       sample_ct = token_ct / 2;
       if (sfile_sample_ct && (sfile_sample_ct != sample_ct)) {
         snprintf(g_logbuf, kLogbufSize, "Error: .sample file has %u sample%s, while %s has %u.\n", sfile_sample_ct, (sfile_sample_ct == 1)? "" : "s", hapsname, sample_ct);
-        goto ox_hapslegend_to_pgen_ret_INCONSISTENT_INPUT_WW;
+        goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
       }
       if (gzrewind(gz_hapsfile)) {
-        goto ox_hapslegend_to_pgen_ret_READ_FAIL;
+        goto OxHapslegendToPgen_ret_READ_FAIL;
       }
       line_idx_haps = 0;
-      int32_t chr_code_raw = get_chr_code_raw(ox_single_chr_str);
+      int32_t chr_code_raw = GetChrCodeRaw(ox_single_chr_str);
       const char* single_chr_str = nullptr;
       uint32_t single_chr_slen;
-      char chr_buf[8]; // nothing longer than e.g. "chrMT" for now
+      char chr_buf[8];  // nothing longer than e.g. "chrMT" for now
       if (chr_code_raw == -1) {
         // command-line parser guarantees that allow_extra_chrs is true here
         single_chr_str = ox_single_chr_str;
@@ -5920,139 +5919,139 @@ pglerr_t ox_hapslegend_to_pgen(const char* hapsname, const char* legendname, con
         uint32_t chr_code = chr_code_raw;
         if (chr_code > cip->max_code) {
           if (chr_code < kMaxContigs) {
-            logerrprint("Error: --legend chromosome code is not in the chromosome set.\n");
-            goto ox_hapslegend_to_pgen_ret_INVALID_CMDLINE;
+            logerrputs("Error: --legend chromosome code is not in the chromosome set.\n");
+            goto OxHapslegendToPgen_ret_INVALID_CMDLINE;
           }
           chr_code = cip->xymt_codes[chr_code - kMaxContigs];
           if (S_CAST(int32_t, chr_code) < 0) {
-            logerrprint("Error: --legend chromosome code is not in the chromosome set.\n");
-            goto ox_hapslegend_to_pgen_ret_INVALID_CMDLINE;
+            logerrputs("Error: --legend chromosome code is not in the chromosome set.\n");
+            goto OxHapslegendToPgen_ret_INVALID_CMDLINE;
           }
         }
-        if (!is_set(cip->chr_mask, chr_code)) {
-          logerrprint("Error: --legend chromosome code is excluded by chromosome filter.\n");
-          goto ox_hapslegend_to_pgen_ret_INVALID_CMDLINE;
+        if (!IsSet(cip->chr_mask, chr_code)) {
+          logerrputs("Error: --legend chromosome code is excluded by chromosome filter.\n");
+          goto OxHapslegendToPgen_ret_INVALID_CMDLINE;
         }
-        is_haploid_or_mt = is_set(cip->haploid_mask, chr_code) || (S_CAST(int32_t, chr_code) == mt_code);
-        char* chr_name_end = chr_name_write(cip, chr_code, chr_buf);
+        is_haploid_or_mt = IsSet(cip->haploid_mask, chr_code) || (S_CAST(int32_t, chr_code) == mt_code);
+        char* chr_name_end = chrtoa(cip, chr_code, chr_buf);
         single_chr_str = chr_buf;
         single_chr_slen = chr_name_end - chr_buf;
       }
       reterr = gzopen_read_checked(legendname, &gz_legendfile);
       if (reterr) {
-        goto ox_hapslegend_to_pgen_ret_1;
+        goto OxHapslegendToPgen_ret_1;
       }
       do {
         ++line_idx_legend;
         if (!gzgets(gz_legendfile, loadbuf, loadbuf_size)) {
           if (!gzeof(gz_legendfile)) {
-            goto ox_hapslegend_to_pgen_ret_READ_FAIL;
+            goto OxHapslegendToPgen_ret_READ_FAIL;
           }
           snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", legendname);
-          goto ox_hapslegend_to_pgen_ret_MALFORMED_INPUT_WW;
+          goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
         }
         if (!loadbuf[loadbuf_size - 1]) {
-          goto ox_hapslegend_to_pgen_ret_LONG_LINE_LEGEND;
+          goto OxHapslegendToPgen_ret_LONG_LINE_LEGEND;
         }
-        loadbuf_first_token = skip_initial_spaces(loadbuf);
-      } while (is_eoln_kns(*loadbuf_first_token));
+        loadbuf_first_token = FirstNonTspace(loadbuf);
+      } while (IsEolnKns(*loadbuf_first_token));
       // require at least 4 columns, in ID/pos/A1/A2 order; header text is
       // permitted to vary.  tolerate and ignore extra columns.
-      if (!next_token_mult(loadbuf_first_token, 3)) {
-        goto ox_hapslegend_to_pgen_ret_MISSING_TOKENS_LEGEND;
+      if (!NextTokenMult(loadbuf_first_token, 3)) {
+        goto OxHapslegendToPgen_ret_MISSING_TOKENS_LEGEND;
       }
       while (1) {
         ++line_idx_legend;
         if (!gzgets(gz_legendfile, loadbuf, loadbuf_size)) {
           if (!gzeof(gz_legendfile)) {
-            goto ox_hapslegend_to_pgen_ret_READ_FAIL;
+            goto OxHapslegendToPgen_ret_READ_FAIL;
           }
           break;
         }
         if (!loadbuf[loadbuf_size - 1]) {
-          goto ox_hapslegend_to_pgen_ret_LONG_LINE_LEGEND;
+          goto OxHapslegendToPgen_ret_LONG_LINE_LEGEND;
         }
-        loadbuf_first_token = skip_initial_spaces(loadbuf);
-        if (is_eoln_kns(*loadbuf_first_token)) {
+        loadbuf_first_token = FirstNonTspace(loadbuf);
+        if (IsEolnKns(*loadbuf_first_token)) {
           continue;
         }
         const char* loadbuf_iter = loadbuf_first_token;
         write_iter = memcpya(write_iter, single_chr_str, single_chr_slen);
-        if (import_legend_cols(legendname, line_idx_legend, prov_ref_allele_second, &loadbuf_iter, &write_iter, &variant_ct)) {
+        if (ImportLegendCols(legendname, line_idx_legend, prov_ref_allele_second, &loadbuf_iter, &write_iter, &variant_ct)) {
           putc_unlocked('\n', stdout);
-          goto ox_hapslegend_to_pgen_ret_MALFORMED_INPUT;
+          goto OxHapslegendToPgen_ret_MALFORMED_INPUT;
         }
         if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
-          goto ox_hapslegend_to_pgen_ret_WRITE_FAIL;
+          goto OxHapslegendToPgen_ret_WRITE_FAIL;
         }
         if (!at_least_one_het) {
           do {
             ++line_idx_haps;
             if (!gzgets(gz_hapsfile, loadbuf, loadbuf_size)) {
               if (!gzeof(gz_hapsfile)) {
-                goto ox_hapslegend_to_pgen_ret_READ_FAIL;
+                goto OxHapslegendToPgen_ret_READ_FAIL;
               }
               snprintf(g_logbuf, kLogbufSize, "Error: %s has fewer nonheader lines than %s.\n", hapsname, legendname);
-              goto ox_hapslegend_to_pgen_ret_INCONSISTENT_INPUT_WW;
+              goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
             }
             if (!loadbuf[loadbuf_size - 1]) {
-              goto ox_hapslegend_to_pgen_ret_LONG_LINE_HAP;
+              goto OxHapslegendToPgen_ret_LONG_LINE_HAP;
             }
-            loadbuf_first_token = skip_initial_spaces(loadbuf);
-          } while (is_eoln_kns(*loadbuf_first_token));
-          reterr = scan_haps_for_het(loadbuf_first_token, hapsname, sample_ct, is_haploid_or_mt, line_idx_haps, &at_least_one_het);
+            loadbuf_first_token = FirstNonTspace(loadbuf);
+          } while (IsEolnKns(*loadbuf_first_token));
+          reterr = ScanHapsForHet(loadbuf_first_token, hapsname, sample_ct, is_haploid_or_mt, line_idx_haps, &at_least_one_het);
           if (reterr) {
             putc_unlocked('\n', stdout);
-            wordwrapb(0);
-            logerrprintb();
-            goto ox_hapslegend_to_pgen_ret_1;
+            WordWrapB(0);
+            logerrputsb();
+            goto OxHapslegendToPgen_ret_1;
           }
         }
       }
       if (gzrewind(gz_legendfile)) {
-        goto ox_hapslegend_to_pgen_ret_READ_FAIL;
+        goto OxHapslegendToPgen_ret_READ_FAIL;
       }
     } else {
       assert(!legendname[0]);
       if ((token_ct < 7) || (!(token_ct % 2))) {
         snprintf(g_logbuf, kLogbufSize, "Error: Unexpected token count in line %" PRIuPTR " of %s (should be odd, >5).\n", line_idx_haps, hapsname);
-        goto ox_hapslegend_to_pgen_ret_MALFORMED_INPUT_WW;
+        goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
       }
       sample_ct = (token_ct - 5) / 2;
       if (sfile_sample_ct && (sfile_sample_ct != sample_ct)) {
         snprintf(g_logbuf, kLogbufSize, "Error: .sample file has %u sample%s, while %s has %u.\n", sfile_sample_ct, (sfile_sample_ct == 1)? "" : "s", hapsname, sample_ct);
-        goto ox_hapslegend_to_pgen_ret_INCONSISTENT_INPUT_WW;
+        goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
       }
       while (1) {
-        if (!is_eoln_kns(*loadbuf_first_token)) {
-          char* chr_code_end = token_endnn(loadbuf_first_token);
-          char* loadbuf_iter = skip_initial_spaces(chr_code_end);
-          if (is_eoln_kns(*loadbuf_iter)) {
-            goto ox_hapslegend_to_pgen_ret_MISSING_TOKENS_HAPS;
+        if (!IsEolnKns(*loadbuf_first_token)) {
+          char* chr_code_end = CurTokenEnd(loadbuf_first_token);
+          char* loadbuf_iter = FirstNonTspace(chr_code_end);
+          if (IsEolnKns(*loadbuf_iter)) {
+            goto OxHapslegendToPgen_ret_MISSING_TOKENS_HAPS;
           }
           int32_t cur_chr_code;
-          reterr = get_or_add_chr_code_destructive("--haps file", line_idx_haps, allow_extra_chrs, loadbuf_first_token, chr_code_end, cip, &cur_chr_code);
+          reterr = GetOrAddChrCodeDestructive("--haps file", line_idx_haps, allow_extra_chrs, loadbuf_first_token, chr_code_end, cip, &cur_chr_code);
           if (reterr) {
-            goto ox_hapslegend_to_pgen_ret_1;
+            goto OxHapslegendToPgen_ret_1;
           }
-          if (!is_set(cip->chr_mask, cur_chr_code)) {
+          if (!IsSetI(cip->chr_mask, cur_chr_code)) {
             ++variant_skip_ct;
           } else {
-            is_haploid_or_mt = is_set(cip->haploid_mask, cur_chr_code) || (cur_chr_code == mt_code);
-            write_iter = chr_name_write(cip, cur_chr_code, write_iter);
-            if (import_legend_cols(hapsname, line_idx_haps, prov_ref_allele_second, TO_CONSTCPP(&loadbuf_iter), &write_iter, &variant_ct)) {
+            is_haploid_or_mt = IsSetI(cip->haploid_mask, cur_chr_code) || (cur_chr_code == mt_code);
+            write_iter = chrtoa(cip, cur_chr_code, write_iter);
+            if (ImportLegendCols(hapsname, line_idx_haps, prov_ref_allele_second, K_CAST(const char**, &loadbuf_iter), &write_iter, &variant_ct)) {
               putc_unlocked('\n', stdout);
-              goto ox_hapslegend_to_pgen_ret_MALFORMED_INPUT;
+              goto OxHapslegendToPgen_ret_MALFORMED_INPUT;
             }
             if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
-              goto ox_hapslegend_to_pgen_ret_WRITE_FAIL;
+              goto OxHapslegendToPgen_ret_WRITE_FAIL;
             }
             if (!at_least_one_het) {
-              loadbuf_iter = skip_initial_spaces(loadbuf_iter);
-              if (scan_haps_for_het(loadbuf_iter, hapsname, sample_ct, is_haploid_or_mt, line_idx_haps, &at_least_one_het)) {
+              loadbuf_iter = FirstNonTspace(loadbuf_iter);
+              if (ScanHapsForHet(loadbuf_iter, hapsname, sample_ct, is_haploid_or_mt, line_idx_haps, &at_least_one_het)) {
                 // override InconsistentInput return code since chromosome info
                 // was also gathered from .haps file
-                goto ox_hapslegend_to_pgen_ret_MALFORMED_INPUT_WW;
+                goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
               }
             }
           }
@@ -6060,29 +6059,29 @@ pglerr_t ox_hapslegend_to_pgen(const char* hapsname, const char* legendname, con
         ++line_idx_haps;
         if (!gzgets(gz_hapsfile, loadbuf, loadbuf_size)) {
           if (!gzeof(gz_hapsfile)) {
-            goto ox_hapslegend_to_pgen_ret_READ_FAIL;
+            goto OxHapslegendToPgen_ret_READ_FAIL;
           }
           break;
         }
         if (!loadbuf[loadbuf_size - 1]) {
-          goto ox_hapslegend_to_pgen_ret_LONG_LINE_HAP;
+          goto OxHapslegendToPgen_ret_LONG_LINE_HAP;
         }
-        loadbuf_first_token = skip_initial_spaces(loadbuf);
+        loadbuf_first_token = FirstNonTspace(loadbuf);
       }
       if (!variant_ct) {
         snprintf(g_logbuf, kLogbufSize, "Error: All %" PRIuPTR " variant%s in %s skipped due to chromosome filter.\n", variant_skip_ct, (variant_skip_ct == 1)? "" : "s", hapsname);
-        goto ox_hapslegend_to_pgen_ret_INCONSISTENT_INPUT_WW;
+        goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
       }
     }
     if (fclose_flush_null(writebuf_flush, write_iter, &outfile)) {
-      goto ox_hapslegend_to_pgen_ret_WRITE_FAIL;
+      goto OxHapslegendToPgen_ret_WRITE_FAIL;
     }
     if (!sfile_sample_ct) {
       // create a dummy .psam file with "per0/per0", "per1/per1", etc. IDs,
       // matching --dummy
       snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
       if (fopen_checked(outname, FOPEN_WB, &outfile)) {
-        goto ox_hapslegend_to_pgen_ret_OPEN_FAIL;
+        goto OxHapslegendToPgen_ret_OPEN_FAIL;
       }
       write_iter = strcpya(writebuf, "#FID\tIID\tSEX" EOLN_STR);
       for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
@@ -6092,71 +6091,71 @@ pglerr_t ox_hapslegend_to_pgen(const char* hapsname, const char* legendname, con
         write_iter = uint32toa(sample_idx, write_iter);
         write_iter = strcpya(write_iter, "\tNA" EOLN_STR);
         if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
-          goto ox_hapslegend_to_pgen_ret_WRITE_FAIL;
+          goto OxHapslegendToPgen_ret_WRITE_FAIL;
         }
       }
       if (fclose_flush_null(writebuf_flush, write_iter, &outfile)) {
-        goto ox_hapslegend_to_pgen_ret_WRITE_FAIL;
+        goto OxHapslegendToPgen_ret_WRITE_FAIL;
       }
     }
     if (gzrewind(gz_hapsfile)) {
-      goto ox_hapslegend_to_pgen_ret_READ_FAIL;
+      goto OxHapslegendToPgen_ret_READ_FAIL;
     }
     line_idx_haps = 0;
-    bigstack_reset(writebuf);
+    BigstackReset(writebuf);
     putc_unlocked('\r', stdout);
-    LOGPRINTF("--haps%s: %u variant%s scanned.\n", legendname[0]? " + --legend" : "", variant_ct, (variant_ct == 1)? "" : "s");
+    logprintf("--haps%s: %u variant%s scanned.\n", legendname[0]? " + --legend" : "", variant_ct, (variant_ct == 1)? "" : "s");
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
     uintptr_t spgw_alloc_cacheline_ct;
     uint32_t max_vrec_len;
-    reterr = spgw_init_phase1(outname, nullptr, nullptr, variant_ct, sample_ct, at_least_one_het? kfPgenGlobalHardcallPhasePresent : kfPgenGlobal0, (oxford_import_flags & (kfOxfordImportRefFirst | kfOxfordImportRefSecond))? 1 : 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+    reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, at_least_one_het? kfPgenGlobalHardcallPhasePresent : kfPgenGlobal0, (oxford_import_flags & (kfOxfordImportRefFirst | kfOxfordImportRefSecond))? 1 : 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
     if (reterr) {
-      goto ox_hapslegend_to_pgen_ret_1;
+      goto OxHapslegendToPgen_ret_1;
     }
     unsigned char* spgw_alloc;
     if (bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc)) {
-      goto ox_hapslegend_to_pgen_ret_NOMEM;
+      goto OxHapslegendToPgen_ret_NOMEM;
     }
-    spgw_init_phase2(max_vrec_len, &spgw, spgw_alloc);
-    const uint32_t sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
+    SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
+    const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
     const uint32_t sample_ctl2_m1 = sample_ctl2 - 1;
-    const uint32_t sample_ctl = BITCT_TO_WORDCT(sample_ct);
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
     const uint32_t phaseinfo_match_4char = prov_ref_allele_second? 0x20312030 : 0x20302031;
     const uint32_t phaseinfo_match = 1 + prov_ref_allele_second;
     uintptr_t* genovec;
     uintptr_t* phaseinfo;
     if (bigstack_alloc_ul(sample_ctl2, &genovec) ||
         bigstack_alloc_ul(sample_ctl, &phaseinfo)) {
-      goto ox_hapslegend_to_pgen_ret_NOMEM;
+      goto OxHapslegendToPgen_ret_NOMEM;
     }
 
     for (uint32_t vidx = 0; vidx < variant_ct;) {
       ++line_idx_haps;
       if (!gzgets(gz_hapsfile, loadbuf, loadbuf_size)) {
         if ((!gzeof(gz_hapsfile)) || (!legendname[0])) {
-          goto ox_hapslegend_to_pgen_ret_READ_FAIL;
+          goto OxHapslegendToPgen_ret_READ_FAIL;
         }
         snprintf(g_logbuf, kLogbufSize, "Error: %s has fewer nonheader lines than %s.\n", hapsname, legendname);
-        goto ox_hapslegend_to_pgen_ret_INCONSISTENT_INPUT_WW;
+        goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
       }
       if (!loadbuf[loadbuf_size - 1]) {
-        goto ox_hapslegend_to_pgen_ret_LONG_LINE_HAP;
+        goto OxHapslegendToPgen_ret_LONG_LINE_HAP;
       }
-      loadbuf_first_token = skip_initial_spaces(loadbuf);
-      if (is_eoln_kns(*loadbuf_first_token)) {
+      loadbuf_first_token = FirstNonTspace(loadbuf);
+      if (IsEolnKns(*loadbuf_first_token)) {
         continue;
       }
       char* loadbuf_iter = loadbuf_first_token;
       if (!legendname[0]) {
-        char* chr_code_end = token_endnn(loadbuf_first_token);
-        const int32_t cur_chr_code = get_chr_code_counted(cip, chr_code_end - loadbuf_first_token, loadbuf_first_token);
-        if (!is_set(cip->chr_mask, cur_chr_code)) {
+        char* chr_code_end = CurTokenEnd(loadbuf_first_token);
+        const int32_t cur_chr_code = GetChrCodeCounted(cip, chr_code_end - loadbuf_first_token, loadbuf_first_token);
+        if (!IsSetI(cip->chr_mask, cur_chr_code)) {
           continue;
         }
-        is_haploid_or_mt = is_set(cip->haploid_mask, cur_chr_code) || (cur_chr_code == mt_code);
-        loadbuf_iter = next_token_mult(skip_initial_spaces(chr_code_end), 4);
+        is_haploid_or_mt = IsSetI(cip->haploid_mask, cur_chr_code) || (cur_chr_code == mt_code);
+        loadbuf_iter = NextTokenMult(FirstNonTspace(chr_code_end), 4);
         if (!loadbuf_iter) {
-          goto ox_hapslegend_to_pgen_ret_MISSING_TOKENS_HAPS;
+          goto OxHapslegendToPgen_ret_MISSING_TOKENS_HAPS;
         }
       }
       uintptr_t genovec_word_or = 0;
@@ -6183,14 +6182,14 @@ pglerr_t ox_hapslegend_to_pgen(const char* hapsname, const char* legendname, con
             if ((cur_hap_4char & 0xfffefffeU) != 0x20302030) {
               if ((cur_hap_4char & 0xfffffffeU) == 0x202d2030) {
                 // "0 - ", "1 - "
-                goto ox_hapslegend_to_pgen_ret_HAPLOID_TOKEN;
+                goto OxHapslegendToPgen_ret_HAPLOID_TOKEN;
               }
               // any character < 32?
               if ((((cur_hap_4char & 0xe0e0e0e0U) * 7) & 0x80808080U) != 0x80808080U) {
-                goto ox_hapslegend_to_pgen_ret_MISSING_TOKENS_HAPS;
+                goto OxHapslegendToPgen_ret_MISSING_TOKENS_HAPS;
               }
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid token on line %" PRIuPTR " of %s.\n", line_idx_haps, hapsname);
-              goto ox_hapslegend_to_pgen_ret_MALFORMED_INPUT_WW;
+              goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
             }
             const uintptr_t new_geno = (cur_hap_4char + (cur_hap_4char >> 16)) & 3;
             genovec_word |= new_geno << (2 * sample_idx_lowbits);
@@ -6200,7 +6199,7 @@ pglerr_t ox_hapslegend_to_pgen(const char* hapsname, const char* legendname, con
           }
           genovec[widx] = genovec_word;
           genovec_word_or |= genovec_word;
-          R_CAST(halfword_t*, phaseinfo)[widx] = phaseinfo_halfword;
+          R_CAST(Halfword*, phaseinfo)[widx] = phaseinfo_halfword;
           ++widx;
         }
       } else {
@@ -6219,12 +6218,12 @@ pglerr_t ox_hapslegend_to_pgen(const char* hapsname, const char* legendname, con
             char* post_first_hap = &(loadbuf_iter[1]);
             if ((first_hap_int >= 2) || (ctou32(*post_first_hap) > 32)) {
               if (first_hap_char_code <= 32) {
-                goto ox_hapslegend_to_pgen_ret_MISSING_TOKENS_HAPS;
+                goto OxHapslegendToPgen_ret_MISSING_TOKENS_HAPS;
               }
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid token on line %" PRIuPTR " of %s.\n", line_idx_haps, hapsname);
-              goto ox_hapslegend_to_pgen_ret_MALFORMED_INPUT_WW;
+              goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
             }
-            char* second_hap = skip_initial_spaces(post_first_hap);
+            char* second_hap = FirstNonTspace(post_first_hap);
             char* post_second_hap = &(second_hap[1]);
             const uint32_t second_hap_char_code = ctou32(*second_hap);
             const uint32_t post_second_hap_char_code = ctou32(*post_second_hap);
@@ -6236,38 +6235,38 @@ pglerr_t ox_hapslegend_to_pgen(const char* hapsname, const char* legendname, con
                 second_hap_int = first_hap_int;
               } else {
                 if (second_hap_char_code <= 32) {
-                  goto ox_hapslegend_to_pgen_ret_MISSING_TOKENS_HAPS;
+                  goto OxHapslegendToPgen_ret_MISSING_TOKENS_HAPS;
                 }
                 if ((second_hap_char_code == 45) && (post_second_hap_char_code <= 32)) {
-                  goto ox_hapslegend_to_pgen_ret_HAPLOID_TOKEN;
+                  goto OxHapslegendToPgen_ret_HAPLOID_TOKEN;
                 }
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid token on line %" PRIuPTR " of %s.\n", line_idx_haps, hapsname);
-                goto ox_hapslegend_to_pgen_ret_MALFORMED_INPUT_WW;
+                goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
               }
             }
             genovec_word |= S_CAST(uintptr_t, first_hap_int + second_hap_int) << (2 * sample_idx_lowbits);
             if (first_hap_int + 2 * second_hap_int == phaseinfo_match) {
               phaseinfo_halfword |= 1U << sample_idx_lowbits;
             }
-            loadbuf_iter = skip_initial_spaces(post_second_hap);
+            loadbuf_iter = FirstNonTspace(post_second_hap);
           }
           genovec[widx] = genovec_word;
           genovec_word_or |= genovec_word;
-          R_CAST(halfword_t*, phaseinfo)[widx] = phaseinfo_halfword;
+          R_CAST(Halfword*, phaseinfo)[widx] = phaseinfo_halfword;
           ++widx;
         }
       }
       if (prov_ref_allele_second) {
-        genovec_invert_unsafe(sample_ct, genovec);
-        zero_trailing_quaters(sample_ct, genovec);
+        GenovecInvertUnsafe(sample_ct, genovec);
+        ZeroTrailingQuaters(sample_ct, genovec);
       }
       if (genovec_word_or & kMask5555) {
-        if (spgw_append_biallelic_genovec_hphase(genovec, nullptr, phaseinfo, &spgw)) {
-          goto ox_hapslegend_to_pgen_ret_WRITE_FAIL;
+        if (SpgwAppendBiallelicGenovecHphase(genovec, nullptr, phaseinfo, &spgw)) {
+          goto OxHapslegendToPgen_ret_WRITE_FAIL;
         }
       } else {
-        if (spgw_append_biallelic_genovec(genovec, &spgw)) {
-          goto ox_hapslegend_to_pgen_ret_WRITE_FAIL;
+        if (SpgwAppendBiallelicGenovec(genovec, &spgw)) {
+          goto OxHapslegendToPgen_ret_WRITE_FAIL;
         }
       }
       if (!(++vidx % 1000)) {
@@ -6275,7 +6274,7 @@ pglerr_t ox_hapslegend_to_pgen(const char* hapsname, const char* legendname, con
         fflush(stdout);
       }
     }
-    spgw_finish(&spgw);
+    SpgwFinish(&spgw);
     putc_unlocked('\r', stdout);
     write_iter = strcpya(g_logbuf, "--haps");
     if (legendname[0]) {
@@ -6291,106 +6290,106 @@ pglerr_t ox_hapslegend_to_pgen(const char* hapsname, const char* legendname, con
     }
     write_iter = memcpya(write_iter, outname, outname_base_slen);
     snprintf(write_iter, kLogbufSize - 3 * kPglFnamesize - 64, ".pvar written.\n");
-    wordwrapb(0);
-    logprintb();
+    WordWrapB(0);
+    logputsb();
   }
   while (0) {
-  ox_hapslegend_to_pgen_ret_LONG_LINE_HAP:
+  OxHapslegendToPgen_ret_LONG_LINE_HAP:
     if (loadbuf_size == kMaxLongLine) {
       snprintf(g_logbuf, kLogbufSize, "Line %" PRIuPTR " of %s is pathologically long.\n", line_idx_haps, hapsname);
-      goto ox_hapslegend_to_pgen_ret_MALFORMED_INPUT_WW;
+      goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
     }
-  ox_hapslegend_to_pgen_ret_NOMEM:
+  OxHapslegendToPgen_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  ox_hapslegend_to_pgen_ret_LONG_LINE_LEGEND:
+  OxHapslegendToPgen_ret_LONG_LINE_LEGEND:
     if (loadbuf_size == kMaxLongLine) {
       snprintf(g_logbuf, kLogbufSize, "Line %" PRIuPTR " of %s is pathologically long.\n", line_idx_legend, legendname);
-      goto ox_hapslegend_to_pgen_ret_MALFORMED_INPUT_WW;
+      goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
     }
     reterr = kPglRetNomem;
     break;
-  ox_hapslegend_to_pgen_ret_OPEN_FAIL:
+  OxHapslegendToPgen_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  ox_hapslegend_to_pgen_ret_READ_FAIL:
+  OxHapslegendToPgen_ret_READ_FAIL:
     reterr = kPglRetReadFail;
     break;
-  ox_hapslegend_to_pgen_ret_WRITE_FAIL:
+  OxHapslegendToPgen_ret_WRITE_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  ox_hapslegend_to_pgen_ret_INVALID_CMDLINE:
+  OxHapslegendToPgen_ret_INVALID_CMDLINE:
     reterr = kPglRetInvalidCmdline;
     break;
-  ox_hapslegend_to_pgen_ret_MISSING_TOKENS_HAPS:
+  OxHapslegendToPgen_ret_MISSING_TOKENS_HAPS:
     snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx_haps, hapsname);
-  ox_hapslegend_to_pgen_ret_MALFORMED_INPUT_WW:
+  OxHapslegendToPgen_ret_MALFORMED_INPUT_WW:
     putc_unlocked('\n', stdout);
-    wordwrapb(0);
-    logerrprintb();
-  ox_hapslegend_to_pgen_ret_MALFORMED_INPUT:
+    WordWrapB(0);
+    logerrputsb();
+  OxHapslegendToPgen_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
-  ox_hapslegend_to_pgen_ret_MISSING_TOKENS_LEGEND:
+  OxHapslegendToPgen_ret_MISSING_TOKENS_LEGEND:
     putc_unlocked('\n', stdout);
     snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx_legend, legendname);
-    wordwrapb(0);
-    logerrprintb();
+    WordWrapB(0);
+    logerrputsb();
     reterr = kPglRetMalformedInput;
     break;
-  ox_hapslegend_to_pgen_ret_HAPLOID_TOKEN:
+  OxHapslegendToPgen_ret_HAPLOID_TOKEN:
     putc_unlocked('\n', stdout);
     snprintf(g_logbuf, kLogbufSize, "Error: Haploid/MT-only token on line %" PRIuPTR " of %s.\n", line_idx_haps, hapsname);
-    wordwrapb(0);
-    logerrprintb();
+    WordWrapB(0);
+    logerrputsb();
     reterr = legendname[0]? kPglRetInconsistentInput : kPglRetMalformedInput;
     break;
-  ox_hapslegend_to_pgen_ret_INCONSISTENT_INPUT_WW:
+  OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW:
     putc_unlocked('\n', stdout);
-    wordwrapb(0);
-    logerrprintb();
+    WordWrapB(0);
+    logerrputsb();
     reterr = kPglRetInconsistentInput;
     break;
   }
- ox_hapslegend_to_pgen_ret_1:
-  spgw_cleanup(&spgw);
+ OxHapslegendToPgen_ret_1:
+  SpgwCleanup(&spgw);
   fclose_cond(outfile);
   gzclose_cond(gz_legendfile);
   gzclose_cond(gz_hapsfile);
-  bigstack_reset(bigstack_mark);
+  BigstackReset(bigstack_mark);
   return reterr;
 }
 
 
-// could add an option to load_pvar() to not require allele columns, but .map
+// could add an option to LoadPvar() to not require allele columns, but .map
 // is easy enough to write a separate loader for...
 CONSTU31(kLoadMapBlockSize, 65536);
 
-// assumes finalize_chrset() has already been called.
-static_assert(kMaxContigs <= 65536, "load_map() needs to be updated.");
-pglerr_t load_map(const char* mapname, misc_flags_t misc_flags, chr_info_t* cip, uint32_t* max_variant_id_slen_ptr, uint16_t** variant_chr_codes_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, double** variant_cms_ptr, uint32_t* variant_ct_ptr) {
-  // caller should call forget_extra_chr_names(1, cip) after finishing import.
+// assumes FinalizeChrset() has already been called.
+static_assert(kMaxContigs <= 65536, "LoadMap() needs to be updated.");
+PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t* max_variant_id_slen_ptr, uint16_t** variant_chr_codes_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, double** variant_cms_ptr, uint32_t* variant_ct_ptr) {
+  // caller should call ForgetExtraChrNames(1, cip) after finishing import.
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   gzFile gz_infile = nullptr;
   uintptr_t loadbuf_size = 0;
   uintptr_t line_idx = 0;
-  pglerr_t reterr = kPglRetSuccess;
+  PglErr reterr = kPglRetSuccess;
   {
     reterr = gzopen_read_checked(mapname, &gz_infile);
     if (reterr) {
-      goto load_map_ret_1;
+      goto LoadMap_ret_1;
     }
     // Workspace used as follows:
     // |--loadbuf--|--temp-->----|----<- variant IDs --|
     //            1/4                                 end
     // loadbuf is overwritten with the main return arrays at the end.
-    loadbuf_size = round_down_pow2(bigstack_left() / 4, kCacheline);
+    loadbuf_size = RoundDownPow2(bigstack_left() / 4, kCacheline);
     char* loadbuf = R_CAST(char*, g_bigstack_base);
     if (loadbuf_size > kMaxLongLine) {
       loadbuf_size = kMaxLongLine;
     } else if (loadbuf_size <= kMaxMediumLine) {
-      goto load_map_ret_NOMEM;
+      goto LoadMap_ret_NOMEM;
     }
     loadbuf[loadbuf_size - 1] = ' ';
     char* loadbuf_first_token;
@@ -6398,35 +6397,35 @@ pglerr_t load_map(const char* mapname, misc_flags_t misc_flags, chr_info_t* cip,
       ++line_idx;
       if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
         if (!gzeof(gz_infile)) {
-          goto load_map_ret_READ_FAIL;
+          goto LoadMap_ret_READ_FAIL;
         }
-        logerrprint("Error: Empty .map file.\n");
-        goto load_map_ret_INCONSISTENT_INPUT;
+        logerrputs("Error: Empty .map file.\n");
+        goto LoadMap_ret_INCONSISTENT_INPUT;
       }
       if (!loadbuf[loadbuf_size - 1]) {
-        goto load_map_ret_LONG_LINE;
+        goto LoadMap_ret_LONG_LINE;
       }
-      loadbuf_first_token = skip_initial_spaces(loadbuf);
-    } while (is_eoln_kns(*loadbuf_first_token) || (*loadbuf_first_token == '#'));
+      loadbuf_first_token = FirstNonTspace(loadbuf);
+    } while (IsEolnKns(*loadbuf_first_token) || (*loadbuf_first_token == '#'));
     uint32_t map_cols = 3;
     {
-      const char* loadbuf_iter = next_token_mult(loadbuf_first_token, 2);
+      const char* loadbuf_iter = NextTokenMult(loadbuf_first_token, 2);
       if (!loadbuf_iter) {
-        goto load_map_ret_MISSING_TOKENS;
+        goto LoadMap_ret_MISSING_TOKENS;
       }
-      loadbuf_iter = next_token(loadbuf_iter);
+      loadbuf_iter = NextToken(loadbuf_iter);
       if (loadbuf_iter) {
-        loadbuf_iter = next_token(loadbuf_iter);
+        loadbuf_iter = NextToken(loadbuf_iter);
         if (!loadbuf_iter) {
           map_cols = 4;
         } else {
-          loadbuf_iter = next_token(loadbuf_iter);
+          loadbuf_iter = NextToken(loadbuf_iter);
           if (loadbuf_iter) {
-            if (next_token(loadbuf_iter)) {
+            if (NextToken(loadbuf_iter)) {
               // do NOT permit >6 columns, .bim is ok but .pvar is not
               // (pointless to support .pvar for legacy formats)
               snprintf(g_logbuf, kLogbufSize, "Error: %s is not a .map/.bim file (too many columns).\n", mapname);
-              goto load_map_ret_MALFORMED_INPUT_WW;
+              goto LoadMap_ret_MALFORMED_INPUT_WW;
             }
             map_cols = 4;
           }
@@ -6446,64 +6445,64 @@ pglerr_t load_map(const char* mapname, misc_flags_t misc_flags, chr_info_t* cip,
     uint32_t at_least_one_nzero_cm = 0;
     uint32_t variant_ct = 0;
     while (1) {
-      if (!is_eoln_kns(*loadbuf_first_token)) {
+      if (!IsEolnKns(*loadbuf_first_token)) {
         // chrom, id, (cm?), pos
-        char* loadbuf_iter = token_endnn(loadbuf_first_token);
+        char* loadbuf_iter = CurTokenEnd(loadbuf_first_token);
         if (!(*loadbuf_iter)) {
-          goto load_map_ret_MISSING_TOKENS;
+          goto LoadMap_ret_MISSING_TOKENS;
         }
         int32_t cur_chr_code;
-        reterr = get_or_add_chr_code_destructive(".map file", line_idx, allow_extra_chrs, loadbuf_first_token, loadbuf_iter, cip, &cur_chr_code);
+        reterr = GetOrAddChrCodeDestructive(".map file", line_idx, allow_extra_chrs, loadbuf_first_token, loadbuf_iter, cip, &cur_chr_code);
         if (reterr) {
-          goto load_map_ret_1;
+          goto LoadMap_ret_1;
         }
-        if (!is_set(cip->chr_mask, cur_chr_code)) {
-          goto load_map_skip_variant;
+        if (!IsSetI(cip->chr_mask, cur_chr_code)) {
+          goto LoadMap_skip_variant;
         }
-        loadbuf_iter = skip_initial_spaces(&(loadbuf_iter[1]));
-        if (is_eoln_kns(*loadbuf_iter)) {
-          goto load_map_ret_MISSING_TOKENS;
+        loadbuf_iter = FirstNonTspace(&(loadbuf_iter[1]));
+        if (IsEolnKns(*loadbuf_iter)) {
+          goto LoadMap_ret_MISSING_TOKENS;
         }
-        char* token_end = token_endnn(loadbuf_iter);
+        char* token_end = CurTokenEnd(loadbuf_iter);
         uint32_t id_slen = token_end - loadbuf_iter;
         if (id_slen > max_variant_id_slen) {
           max_variant_id_slen = id_slen;
         }
         tmp_alloc_end -= id_slen + 1;
         if (tmp_alloc_end < tmp_alloc_base) {
-          goto load_map_ret_NOMEM;
+          goto LoadMap_ret_NOMEM;
         }
         memcpyx(tmp_alloc_end, loadbuf_iter, id_slen, '\0');
-        loadbuf_iter = skip_initial_spaces(token_end);
-        if (is_eoln_kns(*loadbuf_iter)) {
-          goto load_map_ret_MISSING_TOKENS;
+        loadbuf_iter = FirstNonTspace(token_end);
+        if (IsEolnKns(*loadbuf_iter)) {
+          goto LoadMap_ret_MISSING_TOKENS;
         }
 
         if (map_cols == 4) {
-          char* cm_end = scanadv_double(loadbuf_iter, &cur_cm);
+          char* cm_end = ScanadvDouble(loadbuf_iter, &cur_cm);
           if (!cm_end) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid centimorgan position on line %" PRIuPTR " of %s.\n", line_idx, mapname);
-            goto load_map_ret_MALFORMED_INPUT_WW;
+            goto LoadMap_ret_MALFORMED_INPUT_WW;
           }
           at_least_one_nzero_cm = (cur_cm != 0.0);
-          loadbuf_iter = next_token(cm_end);
+          loadbuf_iter = NextToken(cm_end);
           if (!loadbuf_iter) {
-            goto load_map_ret_MISSING_TOKENS;
+            goto LoadMap_ret_MISSING_TOKENS;
           }
         }
         int32_t cur_bp;
-        if (scan_int_abs_defcap(loadbuf_iter, &cur_bp)) {
+        if (ScanIntAbsDefcap(loadbuf_iter, &cur_bp)) {
           snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, mapname);
-          goto load_map_ret_MALFORMED_INPUT_WW;
+          goto LoadMap_ret_MALFORMED_INPUT_WW;
         }
         if (cur_bp < 0) {
-          goto load_map_skip_variant;
+          goto LoadMap_skip_variant;
         }
 
         const uint32_t variant_idx_lowbits = variant_ct % kLoadMapBlockSize;
         if (!variant_idx_lowbits) {
           if (S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) <= kLoadMapBlockSize * (sizeof(int16_t) + sizeof(int32_t) + sizeof(intptr_t) + sizeof(double))) {
-            goto load_map_ret_NOMEM;
+            goto LoadMap_ret_NOMEM;
           }
           cur_chr_codes = R_CAST(uint16_t*, tmp_alloc_base);
           tmp_alloc_base = R_CAST(unsigned char*, &(cur_chr_codes[kLoadMapBlockSize]));
@@ -6520,31 +6519,31 @@ pglerr_t load_map(const char* mapname, misc_flags_t misc_flags, chr_info_t* cip,
         cur_bps[variant_idx_lowbits] = cur_bp;
         ++variant_ct;
       }
-    load_map_skip_variant:
+    LoadMap_skip_variant:
       ++line_idx;
       if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
         if (!gzeof(gz_infile)) {
-          goto load_map_ret_READ_FAIL;
+          goto LoadMap_ret_READ_FAIL;
         }
         break;
       }
       if (!loadbuf[loadbuf_size - 1]) {
-        goto load_map_ret_LONG_LINE;
+        goto LoadMap_ret_LONG_LINE;
       }
-      loadbuf_first_token = skip_initial_spaces(loadbuf);
+      loadbuf_first_token = FirstNonTspace(loadbuf);
       if (loadbuf_first_token[0] == '#') {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line.)\n", line_idx, mapname);
-        goto load_map_ret_MALFORMED_INPUT_WW;
+        goto LoadMap_ret_MALFORMED_INPUT_WW;
       }
     }
     if (max_variant_id_slen > kMaxIdSlen) {
-      logerrprint("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
-      goto load_map_ret_MALFORMED_INPUT;
+      logerrputs("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
+      goto LoadMap_ret_MALFORMED_INPUT;
     }
 
     if (!variant_ct) {
-      logerrprint("Error: All variants in .map/.bim file skipped due to chromosome filter.\n");
-      goto load_map_ret_INCONSISTENT_INPUT;
+      logerrputs("Error: All variants in .map/.bim file skipped due to chromosome filter.\n");
+      goto LoadMap_ret_INCONSISTENT_INPUT;
     }
     tmp_alloc_base = R_CAST(unsigned char*, &(loadbuf[loadbuf_size]));
     // true requirement is weaker, but whatever
@@ -6553,7 +6552,7 @@ pglerr_t load_map(const char* mapname, misc_flags_t misc_flags, chr_info_t* cip,
     if (bigstack_alloc_usi(variant_ct, variant_chr_codes_ptr) ||
         bigstack_alloc_ui(variant_ct, variant_bps_ptr) ||
         bigstack_alloc_cp(variant_ct, variant_ids_ptr)) {
-      goto load_map_ret_NOMEM;
+      goto LoadMap_ret_NOMEM;
     }
     uint16_t* variant_chr_codes = *variant_chr_codes_ptr;
     uint32_t* variant_bps = *variant_bps_ptr;
@@ -6561,7 +6560,7 @@ pglerr_t load_map(const char* mapname, misc_flags_t misc_flags, chr_info_t* cip,
     double* variant_cms = nullptr;
     if (at_least_one_nzero_cm) {
       if (bigstack_alloc_d(variant_ct, variant_cms_ptr)) {
-        goto load_map_ret_NOMEM;
+        goto LoadMap_ret_NOMEM;
       }
       variant_cms = *variant_cms_ptr;
     } else {
@@ -6571,7 +6570,7 @@ pglerr_t load_map(const char* mapname, misc_flags_t misc_flags, chr_info_t* cip,
     *variant_ct_ptr = variant_ct;
     const uint32_t full_block_ct = variant_ct / kLoadMapBlockSize;
     bigstack_mark = g_bigstack_base;
-    bigstack_end_set(tmp_alloc_end);
+    BigstackEndSet(tmp_alloc_end);
     bigstack_end_mark = g_bigstack_end;
 
     unsigned char* read_iter = tmp_alloc_base;
@@ -6599,44 +6598,44 @@ pglerr_t load_map(const char* mapname, misc_flags_t misc_flags, chr_info_t* cip,
     }
   }
   while (0) {
-  load_map_ret_LONG_LINE:
+  LoadMap_ret_LONG_LINE:
     if (loadbuf_size == kMaxLongLine) {
-      LOGERRPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, mapname);
+      logerrprintfww("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, mapname);
       reterr = kPglRetMalformedInput;
       break;
     }
-  load_map_ret_NOMEM:
+  LoadMap_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  load_map_ret_READ_FAIL:
+  LoadMap_ret_READ_FAIL:
     reterr = kPglRetReadFail;
     break;
-  load_map_ret_MISSING_TOKENS:
+  LoadMap_ret_MISSING_TOKENS:
     snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, mapname);
-  load_map_ret_MALFORMED_INPUT_WW:
-    wordwrapb(0);
-    logerrprintb();
-  load_map_ret_MALFORMED_INPUT:
+  LoadMap_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+  LoadMap_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
-  load_map_ret_INCONSISTENT_INPUT:
+  LoadMap_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
   }
- load_map_ret_1:
-  // forget_extra_chr_names(1, cip);
+ LoadMap_ret_1:
+  // ForgetExtraChrNames(1, cip);
   gzclose_cond(gz_infile);
-  bigstack_double_reset(bigstack_mark, bigstack_end_mark);
+  BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }
 
-static_assert(sizeof(dosage_t) == 2, "plink1_dosage_to_pgen() needs to be updated.");
-pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, const char* mapname, const char* import_single_chr_str, const plink1_dosage_info_t* pdip, misc_flags_t misc_flags, fam_col_t fam_cols, int32_t missing_pheno, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, uint32_t max_thread_ct, char* outname, char* outname_end, chr_info_t* cip) {
+static_assert(sizeof(Dosage) == 2, "plink1_Dosageo_pgen() needs to be updated.");
+PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const char* mapname, const char* import_single_chr_str, const Plink1DosageInfo* pdip, MiscFlags misc_flags, FamCol fam_cols, int32_t missing_pheno, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
 
   // these are not allocated on bigstack, and must be explicitly freed
-  pheno_col_t* pheno_cols = nullptr;
+  PhenoCol* pheno_cols = nullptr;
   char* pheno_names = nullptr;
   uint32_t pheno_ct = 0;
 
@@ -6644,9 +6643,9 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
   FILE* outfile = nullptr;
   uintptr_t loadbuf_size = 0;
   uintptr_t line_idx = 0;
-  st_pgen_writer_t spgw;
-  pglerr_t reterr = kPglRetSuccess;
-  spgw_preinit(&spgw);
+  STPgenWriter spgw;
+  PglErr reterr = kPglRetSuccess;
+  PreinitSpgw(&spgw);
   {
     // 1. Read .fam file.  (May as well support most .psam files too, since
     //    it's the same driver function.  However, unless 'noheader' modifier
@@ -6665,52 +6664,52 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
     uintptr_t* sex_male = nullptr;
     uintptr_t* founder_info = nullptr;
     uintptr_t max_pheno_name_blen = 0;
-    reterr = load_psam(famname, nullptr, fam_cols, 0x7fffffff, missing_pheno, (misc_flags / kfMiscAffection01) & 1, &max_sample_id_blen, &max_sid_blen, &max_paternal_id_blen, &max_maternal_id_blen, &sample_include, &sample_ids, &sids, &paternal_ids, &maternal_ids, &founder_info, &sex_nm, &sex_male, &pheno_cols, &pheno_names, &raw_sample_ct, &pheno_ct, &max_pheno_name_blen);
+    reterr = LoadPsam(famname, nullptr, fam_cols, 0x7fffffff, missing_pheno, (misc_flags / kfMiscAffection01) & 1, &max_sample_id_blen, &max_sid_blen, &max_paternal_id_blen, &max_maternal_id_blen, &sample_include, &sample_ids, &sids, &paternal_ids, &maternal_ids, &founder_info, &sex_nm, &sex_male, &pheno_cols, &pheno_names, &raw_sample_ct, &pheno_ct, &max_pheno_name_blen);
     if (reterr) {
-      goto plink1_dosage_to_pgen_ret_1;
+      goto Plink1DosageToPgen_ret_1;
     }
 
     // 2. Read dosage-file header line if it exists, then write new .psam.
     reterr = gzopen_read_checked(dosagename, &gz_infile);
     if (reterr) {
-      goto plink1_dosage_to_pgen_ret_1;
+      goto Plink1DosageToPgen_ret_1;
     }
 
     const uint32_t first_data_col_idx = pdip->skips[0] + pdip->skips[1] + pdip->skips[2] + 3;
     uint32_t sample_ct = 0;
     uint32_t* dosage_sample_idx_to_fam_uidx;
     if (bigstack_end_alloc_ui(raw_sample_ct, &dosage_sample_idx_to_fam_uidx)) {
-      goto plink1_dosage_to_pgen_ret_NOMEM;
+      goto Plink1DosageToPgen_ret_NOMEM;
     }
-    plink1_dosage_flags_t flags = pdip->flags;
+    Plink1DosageFlags flags = pdip->flags;
     if (flags & kfPlink1DosageNoheader) {
       sample_ct = raw_sample_ct;
       for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
         dosage_sample_idx_to_fam_uidx[sample_idx] = sample_idx;
       }
     } else {
-      fill_ulong_zero(BITCT_TO_WORDCT(raw_sample_ct), sample_include);
-      const uint32_t tmp_htable_size = get_htable_fast_size(raw_sample_ct);
+      ZeroUlArr(BitCtToWordCt(raw_sample_ct), sample_include);
+      const uint32_t tmp_htable_size = GetHtableFastSize(raw_sample_ct);
       uint32_t* htable_tmp;
       char* idbuf;
       if (bigstack_end_alloc_ui(tmp_htable_size, &htable_tmp) ||
           bigstack_end_alloc_c(max_sample_id_blen, &idbuf)) {
-        goto plink1_dosage_to_pgen_ret_NOMEM;
+        goto Plink1DosageToPgen_ret_NOMEM;
       }
-      const uint32_t duplicate_idx = populate_strbox_htable(sample_ids, raw_sample_ct, max_sample_id_blen, tmp_htable_size, htable_tmp);
+      const uint32_t duplicate_idx = PopulateStrboxHtable(sample_ids, raw_sample_ct, max_sample_id_blen, tmp_htable_size, htable_tmp);
       if (duplicate_idx) {
         char* duplicate_sample_id = &(sample_ids[duplicate_idx * max_sample_id_blen]);
         char* duplicate_fid_end = S_CAST(char*, rawmemchr(duplicate_sample_id, '\t'));
         *duplicate_fid_end = ' ';
         snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID '%s' in .fam file.\n", duplicate_sample_id);
-        goto plink1_dosage_to_pgen_ret_MALFORMED_INPUT_WW;
+        goto Plink1DosageToPgen_ret_MALFORMED_INPUT_WW;
       }
 
       loadbuf_size = bigstack_left();
       if (loadbuf_size > kMaxLongLine) {
         loadbuf_size = kMaxLongLine;
       } else if (loadbuf_size <= kMaxMediumLine) {
-        goto plink1_dosage_to_pgen_ret_NOMEM;
+        goto Plink1DosageToPgen_ret_NOMEM;
       }
       // not formally allocated
       char* loadbuf = R_CAST(char*, g_bigstack_base);
@@ -6720,23 +6719,23 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
         ++line_idx;
         if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
           if (!gzeof(gz_infile)) {
-            goto plink1_dosage_to_pgen_ret_READ_FAIL;
+            goto Plink1DosageToPgen_ret_READ_FAIL;
           }
           snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", dosagename);
-          goto plink1_dosage_to_pgen_ret_INCONSISTENT_INPUT_WW;
+          goto Plink1DosageToPgen_ret_INCONSISTENT_INPUT_WW;
         }
         if (!loadbuf[loadbuf_size - 1]) {
-          goto plink1_dosage_to_pgen_ret_LONG_LINE;
+          goto Plink1DosageToPgen_ret_LONG_LINE;
         }
-        loadbuf_first_token = skip_initial_spaces(loadbuf);
-      } while (is_eoln_kns(*loadbuf_first_token));
-      char* loadbuf_iter = next_token_mult(loadbuf_first_token, first_data_col_idx);
+        loadbuf_first_token = FirstNonTspace(loadbuf);
+      } while (IsEolnKns(*loadbuf_first_token));
+      char* loadbuf_iter = NextTokenMult(loadbuf_first_token, first_data_col_idx);
       if (!loadbuf_iter) {
-        goto plink1_dosage_to_pgen_ret_MISSING_TOKENS;
+        goto Plink1DosageToPgen_ret_MISSING_TOKENS;
       }
       const char id_delim = pdip->id_delim;
       do {
-        char* fid_end = token_endnn(loadbuf_iter);
+        char* fid_end = CurTokenEnd(loadbuf_iter);
         char* iid_start;
         char* iid_end;
         uint32_t iid_slen;
@@ -6745,58 +6744,58 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
           fid_end = S_CAST(char*, memchr(loadbuf_iter, ctou32(id_delim), iid_end - loadbuf_iter));
           if (!fid_end) {
             snprintf(g_logbuf, kLogbufSize, "Error: Sample ID in --import-dosage file does not contain '%c' delimiter.\n", id_delim);
-            goto plink1_dosage_to_pgen_ret_INCONSISTENT_INPUT_2;
+            goto Plink1DosageToPgen_ret_INCONSISTENT_INPUT_2;
           }
           iid_start = &(fid_end[1]);
           iid_slen = iid_end - iid_start;
           if (memchr(iid_start, ctou32(id_delim), iid_end - iid_start)) {
             snprintf(g_logbuf, kLogbufSize, "Error: Sample ID in --import-dosage file has multiple instances of '%c'.\n", id_delim);
-            goto plink1_dosage_to_pgen_ret_INCONSISTENT_INPUT_2;
+            goto Plink1DosageToPgen_ret_INCONSISTENT_INPUT_2;
           }
         } else {
-          iid_start = skip_initial_spaces(fid_end);
-          if (is_eoln_kns(*iid_start)) {
-            goto plink1_dosage_to_pgen_ret_MISSING_TOKENS;
+          iid_start = FirstNonTspace(fid_end);
+          if (IsEolnKns(*iid_start)) {
+            goto Plink1DosageToPgen_ret_MISSING_TOKENS;
           }
-          iid_end = token_endnn(iid_start);
+          iid_end = CurTokenEnd(iid_start);
           iid_slen = iid_end - iid_start;
         }
         const uint32_t fid_slen = fid_end - loadbuf_iter;
         const uint32_t cur_id_slen = fid_slen + iid_slen + 1;
         if (cur_id_slen >= max_sample_id_blen) {
-          logerrprint("Error: .fam file does not contain all sample IDs in dosage file.\n");
-          goto plink1_dosage_to_pgen_ret_INCONSISTENT_INPUT;
+          logerrputs("Error: .fam file does not contain all sample IDs in dosage file.\n");
+          goto Plink1DosageToPgen_ret_INCONSISTENT_INPUT;
         }
         char* idbuf_iid = memcpyax(idbuf, loadbuf_iter, fid_slen, '\t');
         memcpyx(idbuf_iid, iid_start, iid_slen, '\0');
-        uint32_t sample_uidx = strbox_htable_find(idbuf, sample_ids, htable_tmp, max_sample_id_blen, cur_id_slen, tmp_htable_size);
+        uint32_t sample_uidx = StrboxHtableFind(idbuf, sample_ids, htable_tmp, max_sample_id_blen, cur_id_slen, tmp_htable_size);
         if (sample_uidx == UINT32_MAX) {
-          logerrprint("Error: .fam file does not contain all sample IDs in dosage file.\n");
-          goto plink1_dosage_to_pgen_ret_INCONSISTENT_INPUT;
+          logerrputs("Error: .fam file does not contain all sample IDs in dosage file.\n");
+          goto Plink1DosageToPgen_ret_INCONSISTENT_INPUT;
         }
-        if (is_set(sample_include, sample_uidx)) {
+        if (IsSet(sample_include, sample_uidx)) {
           idbuf_iid[-1] = ' ';
           snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID '%s' in dosage file.\n", idbuf);
-          goto plink1_dosage_to_pgen_ret_MALFORMED_INPUT_WW;
+          goto Plink1DosageToPgen_ret_MALFORMED_INPUT_WW;
         }
-        set_bit(sample_uidx, sample_include);
+        SetBit(sample_uidx, sample_include);
         dosage_sample_idx_to_fam_uidx[sample_ct++] = sample_uidx;
-        loadbuf_iter = skip_initial_spaces(iid_end);
-      } while (!is_eoln_kns(*loadbuf_iter));
+        loadbuf_iter = FirstNonTspace(iid_end);
+      } while (!IsEolnKns(*loadbuf_iter));
     }
 
     snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
     if (fopen_checked(outname, FOPEN_WB, &outfile)) {
-      goto plink1_dosage_to_pgen_ret_OPEN_FAIL;
+      goto Plink1DosageToPgen_ret_OPEN_FAIL;
     }
     char* writebuf = g_textbuf;
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
     char* write_iter = strcpya(writebuf, "#FID\tIID");
-    const uint32_t write_sid = sid_col_required(sample_include, sids, sample_ct, max_sid_blen, 1);
+    const uint32_t write_sid = IsSidColRequired(sample_include, sids, sample_ct, max_sid_blen, 1);
     if (write_sid) {
       write_iter = strcpya(write_iter, "\tSID");
     }
-    const uint32_t write_parents = is_parental_info_present(sample_include, paternal_ids, maternal_ids, sample_ct, max_paternal_id_blen, max_maternal_id_blen);
+    const uint32_t write_parents = IsParentalInfoPresent(sample_include, paternal_ids, maternal_ids, sample_ct, max_paternal_id_blen, max_maternal_id_blen);
     if (write_parents) {
       write_iter = strcpya(write_iter, "\tPAT\tMAT");
     }
@@ -6805,10 +6804,10 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
       *write_iter++ = '\t';
       write_iter = strcpya(write_iter, &(pheno_names[pheno_idx * max_pheno_name_blen]));
       if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
-        goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
+        goto Plink1DosageToPgen_ret_WRITE_FAIL;
       }
     }
-    append_binary_eoln(&write_iter);
+    AppendBinaryEoln(&write_iter);
     uint32_t omp_slen = 2;
     char output_missing_pheno[kMaxMissingPhenostrBlen];
     if (misc_flags & kfMiscKeepAutoconv) {
@@ -6830,28 +6829,28 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
         write_iter = strcpya(write_iter, &(maternal_ids[max_maternal_id_blen * sample_uidx]));
       }
       *write_iter++ = '\t';
-      if (is_set(sex_nm, sample_uidx)) {
-        *write_iter++ = '2' - is_set(sex_male, sample_uidx);
+      if (IsSet(sex_nm, sample_uidx)) {
+        *write_iter++ = '2' - IsSet(sex_male, sample_uidx);
       } else {
         write_iter = strcpya(write_iter, "NA");
       }
       for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
         if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
-          goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
+          goto Plink1DosageToPgen_ret_WRITE_FAIL;
         }
         *write_iter++ = '\t';
-        write_iter = append_pheno_str(&(pheno_cols[pheno_idx]), output_missing_pheno, omp_slen, sample_uidx, write_iter);
+        write_iter = AppendPhenoStr(&(pheno_cols[pheno_idx]), output_missing_pheno, omp_slen, sample_uidx, write_iter);
       }
-      append_binary_eoln(&write_iter);
+      AppendBinaryEoln(&write_iter);
       if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
-        goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
+        goto Plink1DosageToPgen_ret_WRITE_FAIL;
       }
     }
     if (fclose_flush_null(writebuf_flush, write_iter, &outfile)) {
-      goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
+      goto Plink1DosageToPgen_ret_WRITE_FAIL;
     }
     // Don't need sample info any more.
-    bigstack_end_reset(bigstack_end_mark);
+    BigstackEndReset(bigstack_end_mark);
 
     // 3. Read .map file if it exists.
     uint32_t max_variant_id_slen = 1;
@@ -6863,40 +6862,43 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
     uintptr_t* variant_already_seen = nullptr;
     uint32_t variant_id_htable_size = 0;
     uint32_t map_variant_ct = 0;
-    finalize_chrset(misc_flags, cip);
+    FinalizeChrset(misc_flags, cip);
     if (mapname) {
-      reterr = load_map(mapname, misc_flags, cip, &max_variant_id_slen, &variant_chr_codes, &variant_bps, &variant_ids, &variant_cms, &map_variant_ct);
+      reterr = LoadMap(mapname, misc_flags, cip, &max_variant_id_slen, &variant_chr_codes, &variant_bps, &variant_ids, &variant_cms, &map_variant_ct);
       if (reterr) {
-        goto plink1_dosage_to_pgen_ret_1;
+        goto Plink1DosageToPgen_ret_1;
       }
-      const uint32_t map_variant_ctl = BITCT_TO_WORDCT(map_variant_ct);
+      const uint32_t map_variant_ctl = BitCtToWordCt(map_variant_ct);
       if (bigstack_alloc_ul(map_variant_ctl, &variant_already_seen)) {
-        goto plink1_dosage_to_pgen_ret_NOMEM;
+        goto Plink1DosageToPgen_ret_NOMEM;
       }
-      fill_all_bits(map_variant_ct, variant_already_seen);
+      SetAllBits(map_variant_ct, variant_already_seen);
       unsigned char* bigstack_end_mark2 = g_bigstack_end;
-      g_bigstack_end = &(g_bigstack_base[round_down_pow2(bigstack_left() / 2, kEndAllocAlign)]); // allow hash table to only use half of available memory
-      reterr = alloc_and_populate_id_htable_mt(variant_already_seen, TO_CONSTCPCONSTP(variant_ids), map_variant_ct, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size);
+
+      // allow hash table to only use half of available memory
+      g_bigstack_end = &(g_bigstack_base[RoundDownPow2(bigstack_left() / 2, kEndAllocAlign)]);
+
+      reterr = AllocAndPopulateIdHtableMt(variant_already_seen, TO_CONSTCPCONSTP(variant_ids), map_variant_ct, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size);
       if (reterr) {
-        goto plink1_dosage_to_pgen_ret_1;
+        goto Plink1DosageToPgen_ret_1;
       }
       g_bigstack_end = bigstack_end_mark2;
-      fill_ulong_zero(map_variant_ctl, variant_already_seen);
+      ZeroUlArr(map_variant_ctl, variant_already_seen);
     }
 
     // 4. Dosage file pass 1: count variants, check whether any decimal dosages
     //    need to be saved, write .pvar.
     //
-    // Lots of overlap with ox_gen_to_pgen().
+    // Lots of overlap with OxGenToPgen().
     loadbuf_size = bigstack_left() / 2;
     if (loadbuf_size <= kMaxMediumLine) {
-      goto plink1_dosage_to_pgen_ret_NOMEM;
+      goto Plink1DosageToPgen_ret_NOMEM;
     }
     loadbuf_size -= kMaxMediumLine;
     if (loadbuf_size > kMaxLongLine) {
       loadbuf_size = kMaxLongLine;
     } else {
-      loadbuf_size = round_up_pow2(loadbuf_size, kCacheline);
+      loadbuf_size = RoundUpPow2(loadbuf_size, kCacheline);
     }
     char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
     loadbuf[loadbuf_size - 1] = ' ';
@@ -6909,7 +6911,7 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
     const uint32_t check_chr_col = (chr_col_idx != UINT32_MAX);
     if (!check_chr_col) {
       if (import_single_chr_str) {
-        int32_t chr_code_raw = get_chr_code_raw(import_single_chr_str);
+        int32_t chr_code_raw = GetChrCodeRaw(import_single_chr_str);
         if (chr_code_raw == -1) {
           // command-line parser guarantees that allow_extra_chrs is true here
           single_chr_str = import_single_chr_str;
@@ -6918,45 +6920,45 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
           uint32_t chr_code = chr_code_raw;
           if (chr_code > cip->max_code) {
             if (chr_code < kMaxContigs) {
-              logerrprint("Error: --import-dosage single-chr= code is not in the chromosome set.\n");
-              goto plink1_dosage_to_pgen_ret_INVALID_CMDLINE;
+              logerrputs("Error: --import-dosage single-chr= code is not in the chromosome set.\n");
+              goto Plink1DosageToPgen_ret_INVALID_CMDLINE;
             }
             chr_code = cip->xymt_codes[chr_code - kMaxContigs];
             if (S_CAST(int32_t, chr_code) < 0) {
-              logerrprint("Error: --import-dosage single-chr= code is not in the chromosome set.\n");
-              goto plink1_dosage_to_pgen_ret_INVALID_CMDLINE;
+              logerrputs("Error: --import-dosage single-chr= code is not in the chromosome set.\n");
+              goto Plink1DosageToPgen_ret_INVALID_CMDLINE;
             }
           }
-          if (!is_set(cip->chr_mask, chr_code)) {
-            logerrprint("Error: --import-dosage single-chr= code is excluded by chromosome filter.\n");
-            goto plink1_dosage_to_pgen_ret_INVALID_CMDLINE;
+          if (!IsSet(cip->chr_mask, chr_code)) {
+            logerrputs("Error: --import-dosage single-chr= code is excluded by chromosome filter.\n");
+            goto Plink1DosageToPgen_ret_INVALID_CMDLINE;
           }
           char* chr_buf = S_CAST(char*, bigstack_alloc_raw(kCacheline));
-          char* chr_name_end = chr_name_write(cip, chr_code, chr_buf);
+          char* chr_name_end = chrtoa(cip, chr_code, chr_buf);
           single_chr_str = chr_buf;
           single_chr_slen = chr_name_end - chr_buf;
         }
       } else {
         // default to "chr0"
-        if (!is_set(cip->chr_mask, 0)) {
-          logerrprint("Error: No --import-dosage chromosome information specified, and chr0 excluded.\n");
-          goto plink1_dosage_to_pgen_ret_INVALID_CMDLINE;
+        if (!IsSet(cip->chr_mask, 0)) {
+          logerrputs("Error: No --import-dosage chromosome information specified, and chr0 excluded.\n");
+          goto Plink1DosageToPgen_ret_INVALID_CMDLINE;
         }
         char* chr_buf = S_CAST(char*, bigstack_alloc_raw(kCacheline));
-        char* chr_name_end = chr_name_write(cip, 0, chr_buf);
+        char* chr_name_end = chrtoa(cip, 0, chr_buf);
         single_chr_str = chr_buf;
         single_chr_slen = chr_name_end - chr_buf;
       }
     }
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
     if (fopen_checked(outname, FOPEN_WB, &outfile)) {
-      goto plink1_dosage_to_pgen_ret_OPEN_FAIL;
+      goto Plink1DosageToPgen_ret_OPEN_FAIL;
     }
     write_iter = strcpya(writebuf, "#CHROM\tPOS\tID\tREF\tALT");
     if (variant_cms) {
       write_iter = memcpyl3a(write_iter, "\tCM");
     }
-    append_binary_eoln(&write_iter);
+    AppendBinaryEoln(&write_iter);
     // types:
     // 0 = #CHROM
     // 1 = POS
@@ -7015,27 +7017,27 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
       ++line_idx;
       if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
         if (!gzeof(gz_infile)) {
-          goto plink1_dosage_to_pgen_ret_READ_FAIL;
+          goto Plink1DosageToPgen_ret_READ_FAIL;
         }
         break;
       }
       if (!loadbuf[loadbuf_size - 1]) {
-        goto plink1_dosage_to_pgen_ret_LONG_LINE_N;
+        goto Plink1DosageToPgen_ret_LONG_LINE_N;
       }
-      char* loadbuf_iter = skip_initial_spaces(loadbuf);
-      if (is_eoln_kns(*loadbuf_iter)) {
+      char* loadbuf_iter = FirstNonTspace(loadbuf);
+      if (IsEolnKns(*loadbuf_iter)) {
         continue;
       }
       char* token_ptrs[6];
       uint32_t token_slens[6];
       for (uint32_t ric_col_idx = 0; ric_col_idx < relevant_initial_col_ct; ++ric_col_idx) {
         const uint32_t cur_col_type = col_types[ric_col_idx];
-        loadbuf_iter = next_token_multz(loadbuf_iter, col_skips[ric_col_idx]);
+        loadbuf_iter = NextTokenMult0(loadbuf_iter, col_skips[ric_col_idx]);
         if (!loadbuf_iter) {
-          goto plink1_dosage_to_pgen_ret_MISSING_TOKENS;
+          goto Plink1DosageToPgen_ret_MISSING_TOKENS;
         }
         token_ptrs[cur_col_type] = loadbuf_iter;
-        char* token_end = token_endnn(loadbuf_iter);
+        char* token_end = CurTokenEnd(loadbuf_iter);
         token_slens[cur_col_type] = token_end - loadbuf_iter;
         loadbuf_iter = token_end;
       }
@@ -7043,44 +7045,44 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
       const char* variant_id = token_ptrs[2];
       const uint32_t variant_id_slen = token_slens[2];
       if (map_variant_ct) {
-        variant_uidx = variant_id_dupflag_htable_find(variant_id, TO_CONSTCPCONSTP(variant_ids), variant_id_htable, variant_id_slen, variant_id_htable_size, max_variant_id_slen);
+        variant_uidx = VariantIdDupflagHtableFind(variant_id, TO_CONSTCPCONSTP(variant_ids), variant_id_htable, variant_id_slen, variant_id_htable_size, max_variant_id_slen);
         if (variant_uidx >> 31) {
           if (variant_uidx == UINT32_MAX) {
             ++variant_skip_ct;
             continue;
           }
           snprintf(g_logbuf, kLogbufSize, "Error: Variant ID '%s' appears multiple times in .map file.\n", variant_ids[variant_uidx & 0x7fffffff]);
-          goto plink1_dosage_to_pgen_ret_MALFORMED_INPUT_WW;
+          goto Plink1DosageToPgen_ret_MALFORMED_INPUT_WW;
         }
-        if (is_set(variant_already_seen, variant_uidx)) {
+        if (IsSet(variant_already_seen, variant_uidx)) {
           snprintf(g_logbuf, kLogbufSize, "Error: Variant ID '%s' appears multiple times in --import-dosage file.\n", variant_ids[variant_uidx]);
-          goto plink1_dosage_to_pgen_ret_MALFORMED_INPUT_WW;
+          goto Plink1DosageToPgen_ret_MALFORMED_INPUT_WW;
         }
         // already performed chromosome filtering
-        write_iter = chr_name_write(cip, variant_chr_codes[variant_uidx], write_iter);
+        write_iter = chrtoa(cip, variant_chr_codes[variant_uidx], write_iter);
         *write_iter++ = '\t';
         write_iter = uint32toa_x(variant_bps[variant_uidx], '\t', write_iter);
         write_iter = memcpya(write_iter, variant_id, variant_id_slen);
       } else {
         if (variant_id_slen > kMaxIdSlen) {
           putc_unlocked('\n', stdout);
-          logerrprint("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
-          goto plink1_dosage_to_pgen_ret_MALFORMED_INPUT;
+          logerrputs("Error: Variant names are limited to " MAX_ID_SLEN_STR " characters.\n");
+          goto Plink1DosageToPgen_ret_MALFORMED_INPUT;
         }
         // #CHROM
         if (check_chr_col) {
           char* chr_code_str = token_ptrs[0];
           char* chr_code_end = &(chr_code_str[token_slens[0]]);
           int32_t cur_chr_code;
-          reterr = get_or_add_chr_code_destructive("--import-dosage file", line_idx, allow_extra_chrs, chr_code_str, chr_code_end, cip, &cur_chr_code);
+          reterr = GetOrAddChrCodeDestructive("--import-dosage file", line_idx, allow_extra_chrs, chr_code_str, chr_code_end, cip, &cur_chr_code);
           if (reterr) {
-            goto plink1_dosage_to_pgen_ret_1;
+            goto Plink1DosageToPgen_ret_1;
           }
-          if (!is_set(cip->chr_mask, cur_chr_code)) {
+          if (!IsSetI(cip->chr_mask, cur_chr_code)) {
             ++variant_skip_ct;
             continue;
           }
-          write_iter = chr_name_write(cip, cur_chr_code, write_iter);
+          write_iter = chrtoa(cip, cur_chr_code, write_iter);
         } else {
           write_iter = memcpya(write_iter, single_chr_str, single_chr_slen);
         }
@@ -7090,9 +7092,9 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
           const char* pos_str = token_ptrs[1];
           // no need to support negative values here
           uint32_t cur_bp;
-          if (scan_uint_defcap(pos_str, &cur_bp)) {
+          if (ScanUintDefcap(pos_str, &cur_bp)) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, dosagename);
-            goto plink1_dosage_to_pgen_ret_MALFORMED_INPUT_WW;
+            goto Plink1DosageToPgen_ret_MALFORMED_INPUT_WW;
           }
           write_iter = uint32toa(cur_bp, write_iter);
         } else {
@@ -7110,68 +7112,68 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
         *write_iter++ = '\t';
         write_iter = dtoa_g(variant_cms[variant_uidx], write_iter);
       }
-      append_binary_eoln(&write_iter);
+      AppendBinaryEoln(&write_iter);
       if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
-        goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
+        goto Plink1DosageToPgen_ret_WRITE_FAIL;
       }
       if (!dosage_is_present) {
         loadbuf_iter = token_ptrs[5];
         if (format_infer) {
-          const uint32_t remaining_col_ct = count_tokens(loadbuf_iter);
+          const uint32_t remaining_col_ct = CountTokens(loadbuf_iter);
           if (remaining_col_ct == sample_ct) {
             flags |= kfPlink1DosageFormatSingle;
           } else if (remaining_col_ct == sample_ct * 3) {
             format_triple = 1;
           } else if (remaining_col_ct != sample_ct * 2) {
             snprintf(g_logbuf, kLogbufSize, "Error: Unexpected format=infer column count in --import-dosage file (%u; should be %u, %u, or %u).\n", remaining_col_ct, sample_ct, sample_ct * 2, sample_ct * 3);
-            goto plink1_dosage_to_pgen_ret_INCONSISTENT_INPUT_WW;
+            goto Plink1DosageToPgen_ret_INCONSISTENT_INPUT_WW;
           }
           format_infer = 0;
         }
         if (flags & kfPlink1DosageFormatSingle) {
           for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
             if (!loadbuf_iter) {
-              goto plink1_dosage_to_pgen_ret_MISSING_TOKENS;
+              goto Plink1DosageToPgen_ret_MISSING_TOKENS;
             }
             double a1_dosage;
-            char* str_end = scanadv_double(loadbuf_iter, &a1_dosage);
+            char* str_end = ScanadvDouble(loadbuf_iter, &a1_dosage);
             if ((!loadbuf_iter) || (a1_dosage < (0.5 / 32768.0)) || (a1_dosage >= dosage_ceil)) {
-              loadbuf_iter = next_token(loadbuf_iter);
+              loadbuf_iter = NextToken(loadbuf_iter);
               continue;
             }
             a1_dosage *= dosage_multiplier;
             const uint32_t dosage_int = S_CAST(int32_t, a1_dosage + 0.5);
-            const uint32_t halfdist = biallelic_dosage_halfdist(dosage_int);
+            const uint32_t halfdist = BiallelicDosageHalfdist(dosage_int);
             if (halfdist < dosage_erase_halfdist) {
               dosage_is_present = 1;
               break;
             }
-            loadbuf_iter = next_token(str_end);
+            loadbuf_iter = NextToken(str_end);
           }
         } else {
           // for compatibility with plink 1.x, do not actually parse third
           // value of each triplet if format=3
           for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
             if (!loadbuf_iter) {
-              goto plink1_dosage_to_pgen_ret_MISSING_TOKENS;
+              goto Plink1DosageToPgen_ret_MISSING_TOKENS;
             }
             double prob_2a1;
-            char* str_end = scanadv_double(loadbuf_iter, &prob_2a1);
+            char* str_end = ScanadvDouble(loadbuf_iter, &prob_2a1);
             if (!str_end) {
-              loadbuf_iter = next_token_mult(loadbuf_iter, 2 + format_triple);
+              loadbuf_iter = NextTokenMult(loadbuf_iter, 2 + format_triple);
               continue;
             }
-            loadbuf_iter = next_token(str_end);
+            loadbuf_iter = NextToken(str_end);
             if (!loadbuf_iter) {
-              goto plink1_dosage_to_pgen_ret_MISSING_TOKENS;
+              goto Plink1DosageToPgen_ret_MISSING_TOKENS;
             }
             double prob_1a1;
-            str_end = scanadv_double(loadbuf_iter, &prob_1a1);
+            str_end = ScanadvDouble(loadbuf_iter, &prob_1a1);
             if (!str_end) {
-              loadbuf_iter = next_token_mult(loadbuf_iter, 1 + format_triple);
+              loadbuf_iter = NextTokenMult(loadbuf_iter, 1 + format_triple);
               continue;
             }
-            loadbuf_iter = next_token_mult(str_end, 1 + format_triple);
+            loadbuf_iter = NextTokenMult(str_end, 1 + format_triple);
             double prob_one_or_two_a1 = prob_2a1 + prob_1a1;
             if ((prob_2a1 < 0.0) || (prob_1a1 < 0.0) || (prob_one_or_two_a1 > 1.01 * (1 + kSmallEpsilon))) {
               continue;
@@ -7183,7 +7185,7 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
               prob_one_or_two_a1 = 1.0;
             }
             const uint32_t dosage_int = S_CAST(int32_t, prob_2a1 * 32768 + prob_1a1 * 16384 + 0.5);
-            const uint32_t halfdist = biallelic_dosage_halfdist(dosage_int);
+            const uint32_t halfdist = BiallelicDosageHalfdist(dosage_int);
             if ((halfdist < dosage_erase_halfdist) && ((prob_2a1 >= import_dosage_certainty) || (prob_1a1 >= import_dosage_certainty) || (prob_one_or_two_a1 <= 1.0 - import_dosage_certainty))) {
               dosage_is_present = 1;
               break;
@@ -7198,22 +7200,22 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
     }
     putc_unlocked('\r', stdout);
     if (fclose_flush_null(writebuf_flush, write_iter, &outfile)) {
-      goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
+      goto Plink1DosageToPgen_ret_WRITE_FAIL;
     }
     if (!variant_ct) {
       if (!variant_skip_ct) {
-        logerrprint("Error: Empty --import-dosage file.\n");
-        goto plink1_dosage_to_pgen_ret_INCONSISTENT_INPUT;
+        logerrputs("Error: Empty --import-dosage file.\n");
+        goto Plink1DosageToPgen_ret_INCONSISTENT_INPUT;
       }
-      LOGERRPRINTFWW("Error: All %" PRIuPTR " variant%s in --import-dosage file skipped.\n", variant_skip_ct, (variant_skip_ct == 1)? "" : "s");
-      goto plink1_dosage_to_pgen_ret_INCONSISTENT_INPUT;
+      logerrprintfww("Error: All %" PRIuPTR " variant%s in --import-dosage file skipped.\n", variant_skip_ct, (variant_skip_ct == 1)? "" : "s");
+      goto Plink1DosageToPgen_ret_INCONSISTENT_INPUT;
     }
-    LOGPRINTF("--import-dosage: %u variant%s scanned%s.\n", variant_ct, (variant_ct == 1)? "" : "s", dosage_is_present? "" : " (all hardcalls)");
+    logprintf("--import-dosage: %u variant%s scanned%s.\n", variant_ct, (variant_ct == 1)? "" : "s", dosage_is_present? "" : " (all hardcalls)");
 
     // 5. Dosage file pass 2: write .pgen.
-    bigstack_reset(writebuf);
+    BigstackReset(writebuf);
     if (gzrewind(gz_infile)) {
-      goto plink1_dosage_to_pgen_ret_READ_FAIL;
+      goto Plink1DosageToPgen_ret_READ_FAIL;
     }
     const uintptr_t line_ct = line_idx - 1;
     line_idx = 0;
@@ -7223,36 +7225,36 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
       do {
         ++line_idx;
         if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-          goto plink1_dosage_to_pgen_ret_READ_FAIL;
+          goto Plink1DosageToPgen_ret_READ_FAIL;
         }
-        loadbuf_first_token = skip_initial_spaces(loadbuf);
-      } while (is_eoln_kns(*loadbuf_first_token));
+        loadbuf_first_token = FirstNonTspace(loadbuf);
+      } while (IsEolnKns(*loadbuf_first_token));
     }
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
     uintptr_t spgw_alloc_cacheline_ct;
     uint32_t max_vrec_len;
-    reterr = spgw_init_phase1(outname, nullptr, nullptr, variant_ct, sample_ct, dosage_is_present? kfPgenGlobalDosagePresent: kfPgenGlobal0, (flags & (kfPlink1DosageRefFirst | kfPlink1DosageRefSecond))? 1 : 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+    reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, dosage_is_present? kfPgenGlobalDosagePresent: kfPgenGlobal0, (flags & (kfPlink1DosageRefFirst | kfPlink1DosageRefSecond))? 1 : 2, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
     if (reterr) {
-      goto plink1_dosage_to_pgen_ret_1;
+      goto Plink1DosageToPgen_ret_1;
     }
     unsigned char* spgw_alloc;
     if (bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc)) {
-      goto plink1_dosage_to_pgen_ret_NOMEM;
+      goto Plink1DosageToPgen_ret_NOMEM;
     }
-    spgw_init_phase2(max_vrec_len, &spgw, spgw_alloc);
+    SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
 
-    const uint32_t sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
-    const uint32_t sample_ctl = BITCT_TO_WORDCT(sample_ct);
+    const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
+    const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
     uintptr_t* genovec;
     uintptr_t* dosage_present;
     if (bigstack_alloc_ul(sample_ctl2, &genovec) ||
         bigstack_alloc_ul(sample_ctl, &dosage_present)) {
-      goto plink1_dosage_to_pgen_ret_NOMEM;
+      goto Plink1DosageToPgen_ret_NOMEM;
     }
-    dosage_t* dosage_vals = nullptr;
+    Dosage* dosage_vals = nullptr;
     if (dosage_is_present) {
       if (bigstack_alloc_dosage(sample_ct, &dosage_vals)) {
-        goto plink1_dosage_to_pgen_ret_NOMEM;
+        goto Plink1DosageToPgen_ret_NOMEM;
       }
     }
     if (hard_call_thresh == UINT32_MAX) {
@@ -7268,36 +7270,36 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
     do {
       ++line_idx;
       if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-        goto plink1_dosage_to_pgen_ret_READ_FAIL;
+        goto Plink1DosageToPgen_ret_READ_FAIL;
       }
-      char* loadbuf_iter = skip_initial_spaces(loadbuf);
-      if (is_eoln_kns(*loadbuf_iter)) {
+      char* loadbuf_iter = FirstNonTspace(loadbuf);
+      if (IsEolnKns(*loadbuf_iter)) {
         continue;
       }
       if (variant_skip_ct) {
         if (map_variant_ct) {
-          char* variant_id = next_token_multz(loadbuf_iter, id_col_idx);
+          char* variant_id = NextTokenMult0(loadbuf_iter, id_col_idx);
           const uint32_t variant_id_slen = strlen_se(variant_id);
-          if (variant_id_dupflag_htable_find(variant_id, TO_CONSTCPCONSTP(variant_ids), variant_id_htable, variant_id_slen, variant_id_htable_size, max_variant_id_slen) == UINT32_MAX) {
+          if (VariantIdDupflagHtableFind(variant_id, TO_CONSTCPCONSTP(variant_ids), variant_id_htable, variant_id_slen, variant_id_htable_size, max_variant_id_slen) == UINT32_MAX) {
             continue;
           }
-          loadbuf_iter = next_token_mult(variant_id, first_data_col_idx - id_col_idx);
+          loadbuf_iter = NextTokenMult(variant_id, first_data_col_idx - id_col_idx);
         } else {
-          char* chr_code_str = next_token_multz(loadbuf_iter, chr_col_idx);
-          char* chr_code_end = token_endnn(chr_code_str);
-          loadbuf_iter = next_token_mult(chr_code_end, first_data_col_idx - chr_col_idx);
+          char* chr_code_str = NextTokenMult0(loadbuf_iter, chr_col_idx);
+          char* chr_code_end = CurTokenEnd(chr_code_str);
+          loadbuf_iter = NextTokenMult(chr_code_end, first_data_col_idx - chr_col_idx);
           *chr_code_end = '\0';
-          const uint32_t chr_code = get_chr_code(chr_code_str, cip, chr_code_end - chr_code_str);
-          if (!is_set(cip->chr_mask, chr_code)) {
+          const uint32_t chr_code = GetChrCode(chr_code_str, cip, chr_code_end - chr_code_str);
+          if (!IsSet(cip->chr_mask, chr_code)) {
             continue;
           }
         }
       } else {
-        loadbuf_iter = next_token_mult(loadbuf_iter, first_data_col_idx);
+        loadbuf_iter = NextTokenMult(loadbuf_iter, first_data_col_idx);
       }
       uint32_t inner_loop_last = kBitsPerWordD2 - 1;
       uint32_t widx = 0;
-      dosage_t* dosage_vals_iter = dosage_vals;
+      Dosage* dosage_vals_iter = dosage_vals;
       while (1) {
         if (widx >= sample_ctl2_m1) {
           if (widx > sample_ctl2_m1) {
@@ -7310,21 +7312,21 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
         if (flags & kfPlink1DosageFormatSingle) {
           for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
             if (!loadbuf_iter) {
-              goto plink1_dosage_to_pgen_ret_MISSING_TOKENS;
+              goto Plink1DosageToPgen_ret_MISSING_TOKENS;
             }
             double a1_dosage;
-            char* str_end = scanadv_double(loadbuf_iter, &a1_dosage);
+            char* str_end = ScanadvDouble(loadbuf_iter, &a1_dosage);
             if ((!str_end) || (a1_dosage < 0.0) || (a1_dosage > dosage_ceil)) {
               genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
-              loadbuf_iter = next_token(loadbuf_iter);
+              loadbuf_iter = NextToken(loadbuf_iter);
               continue;
             }
-            loadbuf_iter = next_token(str_end);
+            loadbuf_iter = NextToken(str_end);
             uint32_t dosage_int = S_CAST(int32_t, a1_dosage * dosage_multiplier + 0.5);
             if (dosage_int > kDosageMax) {
               dosage_int = kDosageMax;
             }
-            const uint32_t cur_halfdist = biallelic_dosage_halfdist(dosage_int);
+            const uint32_t cur_halfdist = BiallelicDosageHalfdist(dosage_int);
             if (cur_halfdist < hard_call_halfdist) {
               genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
             } else {
@@ -7339,27 +7341,27 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
         } else {
           for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
             if (!loadbuf_iter) {
-              goto plink1_dosage_to_pgen_ret_MISSING_TOKENS;
+              goto Plink1DosageToPgen_ret_MISSING_TOKENS;
             }
             double prob_2a1;
-            char* str_end = scanadv_double(loadbuf_iter, &prob_2a1);
+            char* str_end = ScanadvDouble(loadbuf_iter, &prob_2a1);
             if (!str_end) {
               genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
-              loadbuf_iter = next_token_mult(loadbuf_iter, 2 + format_triple);
+              loadbuf_iter = NextTokenMult(loadbuf_iter, 2 + format_triple);
               continue;
             }
-            loadbuf_iter = next_token(str_end);
+            loadbuf_iter = NextToken(str_end);
             if (!loadbuf_iter) {
-              goto plink1_dosage_to_pgen_ret_MISSING_TOKENS;
+              goto Plink1DosageToPgen_ret_MISSING_TOKENS;
             }
             double prob_1a1;
-            str_end = scanadv_double(loadbuf_iter, &prob_1a1);
+            str_end = ScanadvDouble(loadbuf_iter, &prob_1a1);
             if (!str_end) {
               genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
-              loadbuf_iter = next_token_mult(loadbuf_iter, 1 + format_triple);
+              loadbuf_iter = NextTokenMult(loadbuf_iter, 1 + format_triple);
               continue;
             }
-            loadbuf_iter = next_token_mult(str_end, 1 + format_triple);
+            loadbuf_iter = NextTokenMult(str_end, 1 + format_triple);
             double prob_one_or_two_a1 = prob_2a1 + prob_1a1;
             if ((prob_2a1 < 0.0) || (prob_1a1 < 0.0) || (prob_one_or_two_a1 > 1.01 * (1 + kSmallEpsilon))) {
               genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
@@ -7375,7 +7377,7 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
               genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
             }
             const uint32_t dosage_int = S_CAST(int32_t, prob_2a1 * 32768 + prob_1a1 * 16384 + 0.5);
-            const uint32_t cur_halfdist = biallelic_dosage_halfdist(dosage_int);
+            const uint32_t cur_halfdist = BiallelicDosageHalfdist(dosage_int);
             if (cur_halfdist < hard_call_halfdist) {
               genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
             } else {
@@ -7389,24 +7391,24 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
           }
         }
         genovec[widx] = genovec_word;
-        R_CAST(halfword_t*, dosage_present)[widx] = dosage_present_hw;
+        R_CAST(Halfword*, dosage_present)[widx] = dosage_present_hw;
         ++widx;
       }
       if (!prov_ref_allele_second) {
-        genovec_invert_unsafe(sample_ct, genovec);
-        zero_trailing_quaters(sample_ct, genovec);
+        GenovecInvertUnsafe(sample_ct, genovec);
+        ZeroTrailingQuaters(sample_ct, genovec);
       }
       if (dosage_vals_iter != dosage_vals) {
         const uint32_t dosage_ct = dosage_vals_iter - dosage_vals;
         if (!prov_ref_allele_second) {
-          biallelic_dosage16_invert(dosage_ct, dosage_vals);
+          BiallelicDosage16Invert(dosage_ct, dosage_vals);
         }
-        if (spgw_append_biallelic_genovec_dosage16(genovec, dosage_present, dosage_vals, dosage_ct, &spgw)) {
-          goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
+        if (SpgwAppendBiallelicGenovecDosage16(genovec, dosage_present, dosage_vals, dosage_ct, &spgw)) {
+          goto Plink1DosageToPgen_ret_WRITE_FAIL;
         }
       } else {
-        if (spgw_append_biallelic_genovec(genovec, &spgw)) {
-          goto plink1_dosage_to_pgen_ret_WRITE_FAIL;
+        if (SpgwAppendBiallelicGenovec(genovec, &spgw)) {
+          goto Plink1DosageToPgen_ret_WRITE_FAIL;
         }
       }
       ++vidx;
@@ -7415,7 +7417,7 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
         fflush(stdout);
       }
     } while (line_idx < line_ct);
-    spgw_finish(&spgw);
+    SpgwFinish(&spgw);
     putc_unlocked('\r', stdout);
     write_iter = strcpya(g_logbuf, "--import-dosage: ");
     const uint32_t outname_base_slen = outname_end - outname;
@@ -7425,60 +7427,60 @@ pglerr_t plink1_dosage_to_pgen(const char* dosagename, const char* famname, cons
     write_iter = strcpya(write_iter, ".pvar + ");
     write_iter = memcpya(write_iter, outname, outname_base_slen);
     write_iter = strcpya(write_iter, ".psam written.\n");
-    wordwrapb(0);
-    logprintb();
+    WordWrapB(0);
+    logputsb();
   }
   while (0) {
-  plink1_dosage_to_pgen_ret_LONG_LINE_N:
+  Plink1DosageToPgen_ret_LONG_LINE_N:
     putc_unlocked('\n', stdout);
-  plink1_dosage_to_pgen_ret_LONG_LINE:
+  Plink1DosageToPgen_ret_LONG_LINE:
     if (loadbuf_size == kMaxLongLine) {
-      LOGERRPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, dosagename);
+      logerrprintfww("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, dosagename);
       reterr = kPglRetMalformedInput;
       break;
     }
-  plink1_dosage_to_pgen_ret_NOMEM:
+  Plink1DosageToPgen_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  plink1_dosage_to_pgen_ret_OPEN_FAIL:
+  Plink1DosageToPgen_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  plink1_dosage_to_pgen_ret_READ_FAIL:
+  Plink1DosageToPgen_ret_READ_FAIL:
     reterr = kPglRetReadFail;
     break;
-  plink1_dosage_to_pgen_ret_WRITE_FAIL:
+  Plink1DosageToPgen_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
-  plink1_dosage_to_pgen_ret_INVALID_CMDLINE:
+  Plink1DosageToPgen_ret_INVALID_CMDLINE:
     reterr = kPglRetInvalidCmdline;
     break;
-  plink1_dosage_to_pgen_ret_MISSING_TOKENS:
+  Plink1DosageToPgen_ret_MISSING_TOKENS:
     snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, dosagename);
-  plink1_dosage_to_pgen_ret_MALFORMED_INPUT_WW:
-    wordwrapb(0);
+  Plink1DosageToPgen_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
     putc_unlocked('\n', stdout);
-    logerrprintb();
-  plink1_dosage_to_pgen_ret_MALFORMED_INPUT:
+    logerrputsb();
+  Plink1DosageToPgen_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
-  plink1_dosage_to_pgen_ret_INCONSISTENT_INPUT_WW:
-    wordwrapb(0);
-  plink1_dosage_to_pgen_ret_INCONSISTENT_INPUT_2:
-    logerrprintb();
-  plink1_dosage_to_pgen_ret_INCONSISTENT_INPUT:
+  Plink1DosageToPgen_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+  Plink1DosageToPgen_ret_INCONSISTENT_INPUT_2:
+    logerrputsb();
+  Plink1DosageToPgen_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
   }
- plink1_dosage_to_pgen_ret_1:
-  if (spgw_cleanup(&spgw) && (!reterr)) {
+ Plink1DosageToPgen_ret_1:
+  if (SpgwCleanup(&spgw) && (!reterr)) {
     reterr = kPglRetWriteFail;
   }
-  forget_extra_chr_names(1, cip);
+  ForgetExtraChrNames(1, cip);
   fclose_cond(outfile);
   gzclose_cond(gz_infile);
   free_cond(pheno_names);
-  cleanup_pheno_cols(pheno_ct, pheno_cols);
-  bigstack_double_reset(bigstack_mark, bigstack_end_mark);
+  CleanupPhenoCols(pheno_ct, pheno_cols);
+  BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }
 
@@ -7490,8 +7492,8 @@ static uint64_t g_dosage_geomdist[kBitsPerWordD2];
 static uint32_t g_geno_missing_invert = 0;
 static uint32_t g_dosage_geomdist_max = 0;
 
-static_assert(sizeof(dosage_t) == 2, "generate_dummy_thread() needs to be updated.");
-THREAD_FUNC_DECL generate_dummy_thread(void* arg) {
+static_assert(sizeof(Dosage) == 2, "GenerateDummyThread() needs to be updated.");
+THREAD_FUNC_DECL GenerateDummyThread(void* arg) {
   const uintptr_t tidx = R_CAST(uintptr_t, arg);
   const uint32_t sample_ct = g_sample_ct;
   const uint32_t calc_thread_ct = g_calc_thread_ct;
@@ -7503,9 +7505,9 @@ THREAD_FUNC_DECL generate_dummy_thread(void* arg) {
   const uint32_t dosage_is_present = (dosage_geomdist_max != kBitsPerWord);
   const uint32_t hard_call_halfdist = g_hard_call_halfdist;
   const uint32_t dosage_erase_halfdist = g_dosage_erase_halfdist;
-  const uintptr_t sample_ctaw2 = QUATERCT_TO_ALIGNED_WORDCT(sample_ct);
+  const uintptr_t sample_ctaw2 = QuaterCtToAlignedWordCt(sample_ct);
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
-  const uintptr_t sample_ctaw = BITCT_TO_ALIGNED_WORDCT(sample_ct);
+  const uintptr_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
   sfmt_t* sfmtp = g_sfmtp_arr[tidx];
   uint64_t ullrand = sfmt_genrand_uint64(sfmtp);
   uint32_t rand16_left = 4;
@@ -7520,9 +7522,9 @@ THREAD_FUNC_DECL generate_dummy_thread(void* arg) {
     uintptr_t* write_dosage_present_iter = &(g_write_dosage_presents[parity][vidx * sample_ctaw]);
 
     // bugfix (23 Jul 2017): multiply by sample_ct, not sample_ctaw
-    dosage_t* write_dosage_vals_iter = &(g_write_dosage_val_bufs[parity][vidx * sample_ct]);
+    Dosage* write_dosage_vals_iter = &(g_write_dosage_val_bufs[parity][vidx * sample_ct]);
     for (; vidx < vidx_end; ++vidx) {
-      dosage_t* cur_dosage_vals_iter = write_dosage_vals_iter;
+      Dosage* cur_dosage_vals_iter = write_dosage_vals_iter;
       uint32_t loop_len = kBitsPerWordD2;
       uint32_t widx = 0;
       while (1) {
@@ -7530,7 +7532,7 @@ THREAD_FUNC_DECL generate_dummy_thread(void* arg) {
           if (widx > sample_ctl2_m1) {
             break;
           }
-          loop_len = MOD_NZ(sample_ct, kBitsPerWordD2);
+          loop_len = ModNz(sample_ct, kBitsPerWordD2);
         }
         // sfmt_genrand_uint64 calls can't be mixed with sfmt_genrand_uint32
         // calls, so use it here even in 32-bit build
@@ -7540,7 +7542,7 @@ THREAD_FUNC_DECL generate_dummy_thread(void* arg) {
           uintptr_t missing_mask = 0;
           uint32_t sample_idx_lowbits = 0;
           while (1) {
-            sample_idx_lowbits += uint64arr_geq(geno_missing_geomdist, kBitsPerWordD2, sfmt_genrand_uint64(sfmtp));
+            sample_idx_lowbits += CountSortedLeqU64(geno_missing_geomdist, kBitsPerWordD2, sfmt_genrand_uint64(sfmtp));
             if (sample_idx_lowbits >= loop_len) {
               break;
             }
@@ -7559,7 +7561,7 @@ THREAD_FUNC_DECL generate_dummy_thread(void* arg) {
           while (1) {
             ++sample_idx_lowbits;
             if (dosage_geomdist_max) {
-              sample_idx_lowbits += uint64arr_geq(dosage_geomdist, dosage_geomdist_max, sfmt_genrand_uint64(sfmtp));
+              sample_idx_lowbits += CountSortedLeqU64(dosage_geomdist, dosage_geomdist_max, sfmt_genrand_uint64(sfmtp));
             }
             if (sample_idx_lowbits >= loop_len) {
               break;
@@ -7574,7 +7576,7 @@ THREAD_FUNC_DECL generate_dummy_thread(void* arg) {
             const uint32_t dosage_int = ((ullrand & 65535) + 1) / 2;
             ullrand >>= 16;
             --rand16_left;
-            const uint32_t halfdist = biallelic_dosage_halfdist(dosage_int);
+            const uint32_t halfdist = BiallelicDosageHalfdist(dosage_int);
             if (halfdist < dosage_erase_halfdist) {
               *cur_dosage_vals_iter++ = dosage_int;
               dosage_present_hw |= 1U << sample_idx_lowbits;
@@ -7588,10 +7590,10 @@ THREAD_FUNC_DECL generate_dummy_thread(void* arg) {
           }
         }
         write_genovec_iter[widx] = genovec_word;
-        R_CAST(halfword_t*, write_dosage_present_iter)[widx] = dosage_present_hw;
+        R_CAST(Halfword*, write_dosage_present_iter)[widx] = dosage_present_hw;
         ++widx;
       }
-      zero_trailing_quaters(sample_ct, write_genovec_iter);
+      ZeroTrailingQuaters(sample_ct, write_genovec_iter);
       const uint32_t dosage_ct = cur_dosage_vals_iter - write_dosage_vals_iter;
       *write_dosage_ct_iter++ = dosage_ct;
       write_genovec_iter = &(write_genovec_iter[sample_ctaw2]);
@@ -7606,33 +7608,33 @@ THREAD_FUNC_DECL generate_dummy_thread(void* arg) {
   }
 }
 
-static_assert(sizeof(dosage_t) == 2, "generate_dummy() needs to be updated.");
-pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t misc_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t max_thread_ct, char* outname, char* outname_end, chr_info_t* cip) {
+static_assert(sizeof(Dosage) == 2, "GenerateDummy() needs to be updated.");
+PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
-  threads_state_t ts;
-  init_threads3z(&ts);
-  st_pgen_writer_t spgw;
-  pglerr_t reterr = kPglRetSuccess;
-  spgw_preinit(&spgw);
+  ThreadsState ts;
+  InitThreads3z(&ts);
+  STPgenWriter spgw;
+  PglErr reterr = kPglRetSuccess;
+  PreinitSpgw(&spgw);
   {
-    finalize_chrset(misc_flags, cip);
-    if (!is_set(cip->chr_mask, 1)) {
-      logerrprint("Error: --dummy cannot be used when chromosome 1 is excluded.\n");
-      goto generate_dummy_ret_INVALID_CMDLINE;
+    FinalizeChrset(misc_flags, cip);
+    if (!IsSet(cip->chr_mask, 1)) {
+      logerrputs("Error: --dummy cannot be used when chromosome 1 is excluded.\n");
+      goto GenerateDummy_ret_INVALID_CMDLINE;
     }
-    if (is_set(cip->haploid_mask, 1)) {
-      logerrprint("Error: --dummy cannot be used to generate haploid data.\n");
-      goto generate_dummy_ret_INVALID_CMDLINE;
+    if (IsSet(cip->haploid_mask, 1)) {
+      logerrputs("Error: --dummy cannot be used to generate haploid data.\n");
+      goto GenerateDummy_ret_INVALID_CMDLINE;
     }
     char chr1_name_buf[5];
-    char* chr1_name_end = chr_name_write(cip, 1, chr1_name_buf);
+    char* chr1_name_end = chrtoa(cip, 1, chr1_name_buf);
     *chr1_name_end = '\t';
     const uint32_t chr1_name_blen = 1 + S_CAST(uintptr_t, chr1_name_end - chr1_name_buf);
     const uint32_t sample_ct = gendummy_info_ptr->sample_ct;
     const uint32_t variant_ct = gendummy_info_ptr->variant_ct;
     // missing pheno string is always "NA"
-    const gendummy_flags_t flags = gendummy_info_ptr->flags;
+    const GenDummyFlags flags = gendummy_info_ptr->flags;
     uint16_t alleles[13];
     uint32_t four_alleles = 0;
     if (flags & kfGenDummyAcgt) {
@@ -7650,20 +7652,20 @@ pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t m
     char* textbuf_flush = &(textbuf[kMaxMediumLine]);
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
     if (fopen_checked(outname, FOPEN_WB, &outfile)) {
-      goto generate_dummy_ret_OPEN_FAIL;
+      goto GenerateDummy_ret_OPEN_FAIL;
     }
     char* write_iter = strcpya(textbuf, "#CHROM\tPOS\tID\tREF\tALT");
-    append_binary_eoln(&write_iter);
+    AppendBinaryEoln(&write_iter);
     if (four_alleles) {
       uint32_t urand = 0;
       for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx) {
         if (!(variant_idx % 8)) {
           if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
-            goto generate_dummy_ret_WRITE_FAIL;
+            goto GenerateDummy_ret_WRITE_FAIL;
           }
           do {
             urand = sfmt_genrand_uint32(&g_sfmt);
-          } while (urand < 425132032U); // 2^32 - 12^8
+          } while (urand < 425132032U);  // 2^32 - 12^8
         }
         const uint32_t quotient = urand / 12;
         const uint32_t remainder = urand - (quotient * 12U);
@@ -7673,14 +7675,14 @@ pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t m
         write_iter = strcpya(write_iter, "\tsnp");
         write_iter = uint32toa(variant_idx, write_iter);
         write_iter = memcpya(write_iter, &(alleles[remainder]), 4);
-        append_binary_eoln(&write_iter);
+        AppendBinaryEoln(&write_iter);
       }
     } else {
       uint32_t urand = 0;
       for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx) {
         if (!(variant_idx % 32)) {
           if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
-            goto generate_dummy_ret_WRITE_FAIL;
+            goto GenerateDummy_ret_WRITE_FAIL;
           }
           urand = sfmt_genrand_uint32(&g_sfmt);
         }
@@ -7691,21 +7693,21 @@ pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t m
         write_iter = strcpya(write_iter, "\tsnp");
         write_iter = uint32toa(variant_idx, write_iter);
         write_iter = memcpya(write_iter, &(alleles[remainder]), 4);
-        append_binary_eoln(&write_iter);
+        AppendBinaryEoln(&write_iter);
       }
     }
     if (fclose_flush_null(textbuf_flush, write_iter, &outfile)) {
-      goto generate_dummy_ret_WRITE_FAIL;
+      goto GenerateDummy_ret_WRITE_FAIL;
     }
 
     snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
     if (fopen_checked(outname, FOPEN_WB, &outfile)) {
-      goto generate_dummy_ret_OPEN_FAIL;
+      goto GenerateDummy_ret_OPEN_FAIL;
     }
     const uint32_t pheno_ct = gendummy_info_ptr->pheno_ct;
     char* writebuf;
     if (bigstack_alloc_c(kMaxMediumLine + 48 + pheno_ct * MAXV(kMaxMissingPhenostrBlen, 16), &writebuf)) {
-      goto generate_dummy_ret_NOMEM;
+      goto GenerateDummy_ret_NOMEM;
     }
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
     uint32_t omp_slen = 2;
@@ -7724,7 +7726,7 @@ pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t m
       write_iter = strcpya(write_iter, "\tPHENO");
       write_iter = uint32toa(pheno_idx_p1, write_iter);
     }
-    append_binary_eoln(&write_iter);
+    AppendBinaryEoln(&write_iter);
     const uint32_t pheno_m_check = (gendummy_info_ptr->pheno_mfreq >= kRecip2m32 * 0.5);
     const uint32_t pheno_m32 = S_CAST(uint32_t, gendummy_info_ptr->pheno_mfreq * 4294967296.0 - 0.5);
     if ((flags & kfGenDummyScalarPheno) && pheno_ct) {
@@ -7732,7 +7734,7 @@ pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t m
       double saved_rnormal_val = 0.0;
       for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
         if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
-          goto generate_dummy_ret_WRITE_FAIL;
+          goto GenerateDummy_ret_WRITE_FAIL;
         }
         write_iter = memcpyl3a(write_iter, "per");
         write_iter = uint32toa(sample_idx, write_iter);
@@ -7749,20 +7751,20 @@ pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t m
             if (saved_rnormal) {
               dxx = saved_rnormal_val;
             } else {
-              dxx = rand_normal(&g_sfmt, &saved_rnormal_val);
+              dxx = RandNormal(&g_sfmt, &saved_rnormal_val);
             }
             saved_rnormal_val = 1 - saved_rnormal_val;
             write_iter = dtoa_g(dxx, write_iter);
           }
         }
-        append_binary_eoln(&write_iter);
+        AppendBinaryEoln(&write_iter);
       }
     } else {
       uint32_t urand = sfmt_genrand_uint32(&g_sfmt);
       uint32_t urand_bits_left = 32;
       for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
         if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
-          goto generate_dummy_ret_WRITE_FAIL;
+          goto GenerateDummy_ret_WRITE_FAIL;
         }
         write_iter = memcpyl3a(write_iter, "per");
         write_iter = uint32toa(sample_idx, write_iter);
@@ -7783,14 +7785,14 @@ pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t m
             --urand_bits_left;
           }
         }
-        append_binary_eoln(&write_iter);
+        AppendBinaryEoln(&write_iter);
       }
     }
     if (fclose_flush_null(writebuf_flush, write_iter, &outfile)) {
-      goto generate_dummy_ret_WRITE_FAIL;
+      goto GenerateDummy_ret_WRITE_FAIL;
     }
 
-    bigstack_reset(writebuf);
+    BigstackReset(writebuf);
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
     const double geno_mfreq = gendummy_info_ptr->geno_mfreq;
     if (geno_mfreq < kRecip2m53) {
@@ -7814,7 +7816,7 @@ pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t m
     }
     const double dosage_nfreq = 1.0 - gendummy_info_ptr->dosage_freq;
     if (dosage_nfreq >= 1.0) {
-      g_dosage_geomdist_max = kBitsPerWord; // used as a flag
+      g_dosage_geomdist_max = kBitsPerWord;  // used as a flag
     } else {
       double remaining_prob = 1.0;
       for (uint32_t uii = 0; uii < kBitsPerWordD2; ++uii) {
@@ -7831,15 +7833,15 @@ pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t m
     }
     uintptr_t spgw_alloc_cacheline_ct;
     uint32_t max_vrec_len;
-    reterr = spgw_init_phase1(outname, nullptr, nullptr, variant_ct, sample_ct, (dosage_nfreq >= 1.0)? kfPgenGlobal0 : kfPgenGlobalDosagePresent, 1, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+    reterr = SpgwInitPhase1(outname, nullptr, nullptr, variant_ct, sample_ct, (dosage_nfreq >= 1.0)? kfPgenGlobal0 : kfPgenGlobalDosagePresent, 1, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
     if (reterr) {
-      goto generate_dummy_ret_1;
+      goto GenerateDummy_ret_1;
     }
     unsigned char* spgw_alloc;
     if (bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc)) {
-      goto generate_dummy_ret_NOMEM;
+      goto GenerateDummy_ret_NOMEM;
     }
-    spgw_init_phase2(max_vrec_len, &spgw, spgw_alloc);
+    SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
 
     // thread-count-independent:
     //   (everything after "2 *" rounded up to cacheline)
@@ -7848,7 +7850,7 @@ pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t m
     //   g_write_dosage_cts: 2 * sizeof(int32_t) * main_block_size
     //   g_write_dosage_presents: 2 * sample_ctaw * sizeof(intptr_t) *
     //                            main_block_size
-    //   g_write_dosage_val_bufs: 2 * sample_ct * sizeof(dosage_t)
+    //   g_write_dosage_val_bufs: 2 * sample_ct * sizeof(Dosage)
     uint32_t calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
     // saturates around 4 compute threads, both with and without dosage
     // (todo: test this on something other than a MacBook Pro, could just be a
@@ -7856,27 +7858,27 @@ pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t m
     if (calc_thread_ct > 4) {
       calc_thread_ct = 4;
     }
-    if (bigstack_init_sfmtp(calc_thread_ct, 0)) {
-      goto generate_dummy_ret_NOMEM;
+    if (InitAllocSfmtpArr(calc_thread_ct, 0)) {
+      goto GenerateDummy_ret_NOMEM;
     }
     if (bigstack_alloc_thread(calc_thread_ct, &ts.threads)) {
-      goto generate_dummy_ret_NOMEM;
+      goto GenerateDummy_ret_NOMEM;
     }
-    const uint32_t sample_ctaw2 = QUATERCT_TO_ALIGNED_WORDCT(sample_ct);
-    const uint32_t sample_ctaw = BITCT_TO_ALIGNED_WORDCT(sample_ct);
+    const uint32_t sample_ctaw2 = QuaterCtToAlignedWordCt(sample_ct);
+    const uint32_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
     uintptr_t cachelines_avail_m8 = bigstack_left() / kCacheline;
     if (cachelines_avail_m8 < 8) {
-      goto generate_dummy_ret_NOMEM;
+      goto GenerateDummy_ret_NOMEM;
     }
     // we're making 8 allocations; be pessimistic re: rounding
     cachelines_avail_m8 -= 8;
-    const uintptr_t bytes_req_per_in_block_variant = 2 * (sample_ctaw2 * sizeof(intptr_t) + sizeof(int32_t) + sample_ctaw * sizeof(intptr_t) + sample_ct * sizeof(dosage_t));
+    const uintptr_t bytes_req_per_in_block_variant = 2 * (sample_ctaw2 * sizeof(intptr_t) + sizeof(int32_t) + sample_ctaw * sizeof(intptr_t) + sample_ct * sizeof(Dosage));
     uintptr_t main_block_size = (cachelines_avail_m8 * kCacheline) / bytes_req_per_in_block_variant;
     if (main_block_size > 65536) {
       main_block_size = 65536;
     } else if (main_block_size < 8) {
       // this threshold is arbitrary
-      goto generate_dummy_ret_NOMEM;
+      goto GenerateDummy_ret_NOMEM;
     }
     if (calc_thread_ct > main_block_size / 8) {
       calc_thread_ct = main_block_size / 8;
@@ -7894,7 +7896,7 @@ pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t m
         bigstack_alloc_dosage(sample_ct * main_block_size, &(g_write_dosage_val_bufs[1]))) {
       // this should be impossible
       assert(0);
-      goto generate_dummy_ret_NOMEM;
+      goto GenerateDummy_ret_NOMEM;
     }
     // bugfix (3 Nov 2017): forgot to handle hard_call_thresh default value
     if (hard_call_thresh == UINT32_MAX) {
@@ -7922,14 +7924,14 @@ pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t m
         cur_block_write_ct = MINV(variant_ct - vidx_start, main_block_size);
       }
       if (vidx_start) {
-        join_threads3z(&ts);
+        JoinThreads3z(&ts);
       }
       if (!ts.is_last_block) {
         g_cur_block_write_ct = cur_block_write_ct;
         ts.is_last_block = (vidx_start + cur_block_write_ct == variant_ct);
-        ts.thread_func_ptr = generate_dummy_thread;
-        if (spawn_threads3z(vidx_start, &ts)) {
-          goto generate_dummy_ret_THREAD_CREATE_FAIL;
+        ts.thread_func_ptr = GenerateDummyThread;
+        if (SpawnThreads3z(vidx_start, &ts)) {
+          goto GenerateDummy_ret_THREAD_CREATE_FAIL;
         }
       }
       parity = 1 - parity;
@@ -7938,16 +7940,16 @@ pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t m
         uintptr_t* write_genovec_iter = g_write_genovecs[parity];
         uint32_t* write_dosage_ct_iter = g_write_dosage_cts[parity];
         uintptr_t* write_dosage_present_iter = g_write_dosage_presents[parity];
-        dosage_t* write_dosage_vals_iter = g_write_dosage_val_bufs[parity];
+        Dosage* write_dosage_vals_iter = g_write_dosage_val_bufs[parity];
         for (uint32_t vidx = vidx_start - prev_block_write_ct; vidx < vidx_start; ++vidx) {
           const uint32_t cur_dosage_ct = *write_dosage_ct_iter++;
           if (!cur_dosage_ct) {
-            if (spgw_append_biallelic_genovec(write_genovec_iter, &spgw)) {
-              goto generate_dummy_ret_WRITE_FAIL;
+            if (SpgwAppendBiallelicGenovec(write_genovec_iter, &spgw)) {
+              goto GenerateDummy_ret_WRITE_FAIL;
             }
           } else {
-            if (spgw_append_biallelic_genovec_dosage16(write_genovec_iter, write_dosage_present_iter, write_dosage_vals_iter, cur_dosage_ct, &spgw)) {
-              goto generate_dummy_ret_WRITE_FAIL;
+            if (SpgwAppendBiallelicGenovecDosage16(write_genovec_iter, write_dosage_present_iter, write_dosage_vals_iter, cur_dosage_ct, &spgw)) {
+              goto GenerateDummy_ret_WRITE_FAIL;
             }
           }
           write_genovec_iter = &(write_genovec_iter[sample_ctaw2]);
@@ -7965,36 +7967,36 @@ pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t m
       vidx_start += cur_block_write_ct;
       prev_block_write_ct = cur_block_write_ct;
     }
-    spgw_finish(&spgw);
+    SpgwFinish(&spgw);
 
     putc_unlocked('\r', stdout);
     *outname_end = '\0';
-    LOGPRINTFWW("Dummy data (%u sample%s, %u SNP%s) written to %s.pgen + %s.pvar + %s.psam .\n", sample_ct, (sample_ct == 1)? "" : "s", variant_ct, (variant_ct == 1)? "" : "s", outname, outname, outname);
+    logprintfww("Dummy data (%u sample%s, %u SNP%s) written to %s.pgen + %s.pvar + %s.psam .\n", sample_ct, (sample_ct == 1)? "" : "s", variant_ct, (variant_ct == 1)? "" : "s", outname, outname, outname);
   }
   while (0) {
-  generate_dummy_ret_NOMEM:
+  GenerateDummy_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  generate_dummy_ret_OPEN_FAIL:
+  GenerateDummy_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  generate_dummy_ret_WRITE_FAIL:
+  GenerateDummy_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
-  generate_dummy_ret_INVALID_CMDLINE:
+  GenerateDummy_ret_INVALID_CMDLINE:
     reterr = kPglRetInvalidCmdline;
     break;
-  generate_dummy_ret_THREAD_CREATE_FAIL:
+  GenerateDummy_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
     break;
   }
- generate_dummy_ret_1:
-  if (spgw_cleanup(&spgw) && (!reterr)) {
+ GenerateDummy_ret_1:
+  if (SpgwCleanup(&spgw) && (!reterr)) {
     reterr = kPglRetWriteFail;
   }
-  threads3z_cleanup(&ts, &g_cur_block_write_ct);
+  CleanupThreads3z(&ts, &g_cur_block_write_ct);
   fclose_cond(outfile);
-  bigstack_reset(bigstack_mark);
+  BigstackReset(bigstack_mark);
   return reterr;
 }
 
@@ -8003,21 +8005,21 @@ pglerr_t generate_dummy(const gendummy_info_t* gendummy_info_ptr, misc_flags_t m
 // g_sample_ct, g_calc_thread_ct, g_cur_block_write_ct, g_hard_call_halfdist,
 // g_dosage_erase_halfdist, g_error_ret declared earlier
 
-static vul_t** g_thread_vecaligned_bufs = nullptr;
+static VecUL** g_thread_vecaligned_bufs = nullptr;
 static uintptr_t** g_thread_write_genovecs = nullptr;
 
 static uintptr_t* g_plink1_smaj_loadbuf_iter = nullptr;
-static pgen_writer_common_t** g_pwcs = nullptr;
+static PgenWriterCommon** g_pwcs = nullptr;
 static uint32_t g_stride = 0;
 
-THREAD_FUNC_DECL plink1_smaj_transpose_thread(void* arg) {
+THREAD_FUNC_DECL Plink1SmajTransposeThread(void* arg) {
   const uintptr_t tidx = R_CAST(uintptr_t, arg);
   const uint32_t sample_ct = g_sample_ct;
-  const uint32_t sample_ctaw2 = QUATERCT_TO_ALIGNED_WORDCT(sample_ct);
+  const uint32_t sample_ctaw2 = QuaterCtToAlignedWordCt(sample_ct);
   const uint32_t write_batch_ct_m1 = (sample_ct - 1) / kPglQuaterTransposeBatch;
   const uint32_t calc_thread_ct = g_calc_thread_ct;
-  pgen_writer_common_t* pwcp = g_pwcs[tidx];
-  vul_t* vecaligned_buf = g_thread_vecaligned_bufs[tidx];
+  PgenWriterCommon* pwcp = g_pwcs[tidx];
+  VecUL* vecaligned_buf = g_thread_vecaligned_bufs[tidx];
   uintptr_t* write_genovec = g_thread_write_genovecs[tidx];
   while (1) {
     const uint32_t is_last_block = g_is_last_thread_block;
@@ -8037,17 +8039,17 @@ THREAD_FUNC_DECL plink1_smaj_transpose_thread(void* arg) {
           if (write_batch_idx > write_batch_ct_m1) {
             break;
           }
-          read_batch_size = MOD_NZ(sample_ct, kPglQuaterTransposeBatch);
+          read_batch_size = ModNz(sample_ct, kPglQuaterTransposeBatch);
         }
-        transpose_quaterblock(read_iter2, loadbuf_ul_stride, sample_ctaw2, read_batch_size, vblock_size, &(write_genovec[write_batch_idx * kPglQuaterTransposeWords]), vecaligned_buf);
+        TransposeQuaterblock(read_iter2, loadbuf_ul_stride, sample_ctaw2, read_batch_size, vblock_size, &(write_genovec[write_batch_idx * kPglQuaterTransposeWords]), vecaligned_buf);
         read_iter2 = &(read_iter2[kPglQuaterTransposeBatch * loadbuf_ul_stride]);
         ++write_batch_idx;
       }
       for (uint32_t uii = 0; uii < vblock_size; ++uii) {
         uintptr_t* cur_write_genovec = &(write_genovec[uii * sample_ctaw2]);
-        pgr_plink1_to_plink2_inplace_unsafe(sample_ct, cur_write_genovec);
-        zero_trailing_quaters(sample_ct, cur_write_genovec);
-        pwc_append_biallelic_genovec(cur_write_genovec, pwcp);
+        PgrPlink1ToPlink2InplaceUnsafe(sample_ct, cur_write_genovec);
+        ZeroTrailingQuaters(sample_ct, cur_write_genovec);
+        PwcAppendBiallelicGenovec(cur_write_genovec, pwcp);
       }
       write_idx += vblock_size;
       read_iter = &(read_iter[kPglQuaterTransposeWords]);
@@ -8059,23 +8061,23 @@ THREAD_FUNC_DECL plink1_smaj_transpose_thread(void* arg) {
   }
 }
 
-pglerr_t plink1_sample_major_to_pgen(const char* pgenname, uintptr_t variant_ct, uintptr_t sample_ct, uint32_t real_ref_alleles, uint32_t max_thread_ct, FILE* infile) {
+PglErr Plink1SampleMajorToPgen(const char* pgenname, uintptr_t variant_ct, uintptr_t sample_ct, uint32_t real_ref_alleles, uint32_t max_thread_ct, FILE* infile) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  mt_pgen_writer_t* mpgwp = nullptr;
-  pglerr_t reterr = kPglRetSuccess;
+  MTPgenWriter* mpgwp = nullptr;
+  PglErr reterr = kPglRetSuccess;
   {
-    // file size already validated by pgfi_init_phase1()
-    LOGPRINTFWW("Sample-major .bed file detected.  Transposing to %s .\n", pgenname);
+    // file size already validated by PgfiInitPhase1()
+    logprintfww("Sample-major .bed file detected.  Transposing to %s .\n", pgenname);
     fputs("0%", stdout);
     fflush(stdout);
     if ((!variant_ct) || (!sample_ct)) {
       // todo: hardcoded 12-byte write
-      logprint("\n");
-      logerrprint("Error: Zero-variant/zero-sample .pgen writing is not currently supported.\n");
+      logputs("\n");
+      logerrputs("Error: Zero-variant/zero-sample .pgen writing is not currently supported.\n");
       reterr = kPglRetNotYetSupported;
-      goto plink1_sample_major_to_pgen_ret_1;
+      goto Plink1SampleMajorToPgen_ret_1;
     }
-    const uint32_t variant_ct4 = QUATERCT_TO_BYTECT(variant_ct);
+    const uint32_t variant_ct4 = QuaterCtToByteCt(variant_ct);
     unsigned char* raw_loadbuf = nullptr;
     uint32_t raw_load_batch_size = 1;
     if (variant_ct4 < 5120) {
@@ -8083,7 +8085,7 @@ pglerr_t plink1_sample_major_to_pgen(const char* pgenname, uintptr_t variant_ct,
       // unnecessary disk blocks
       raw_load_batch_size += 131071 / variant_ct4;
       if (bigstack_alloc_uc(raw_load_batch_size * variant_ct4, &raw_loadbuf)) {
-        goto plink1_sample_major_to_pgen_ret_NOMEM;
+        goto Plink1SampleMajorToPgen_ret_NOMEM;
       }
     }
     const uint32_t raw_load_batch_ct_m1 = (sample_ct - 1) / raw_load_batch_size;
@@ -8095,38 +8097,38 @@ pglerr_t plink1_sample_major_to_pgen(const char* pgenname, uintptr_t variant_ct,
     uint64_t mpgw_per_thread_cacheline_ct;
     uint32_t vrec_len_byte_ct;
     uint64_t vblock_cacheline_ct;
-    mpgw_init_phase1(nullptr, variant_ct, sample_ct, kfPgenGlobal0, &alloc_base_cacheline_ct, &mpgw_per_thread_cacheline_ct, &vrec_len_byte_ct, &vblock_cacheline_ct);
+    MpgwInitPhase1(nullptr, variant_ct, sample_ct, kfPgenGlobal0, &alloc_base_cacheline_ct, &mpgw_per_thread_cacheline_ct, &vrec_len_byte_ct, &vblock_cacheline_ct);
 #ifndef __LP64__
     if ((mpgw_per_thread_cacheline_ct > (0x7fffffff / kCacheline)) || (vblock_cacheline_ct > (0x7fffffff / kCacheline))) {
-      goto plink1_sample_major_to_pgen_ret_NOMEM;
+      goto Plink1SampleMajorToPgen_ret_NOMEM;
     }
 #endif
 
-    uint32_t calc_thread_ct = DIV_UP(variant_ct, kPglVblockSize);
+    uint32_t calc_thread_ct = DivUp(variant_ct, kPglVblockSize);
     if (calc_thread_ct >= max_thread_ct) {
       calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
     }
-    mpgwp = S_CAST(mt_pgen_writer_t*, bigstack_alloc((calc_thread_ct + DIV_UP(sizeof(mt_pgen_writer_t), kBytesPerWord)) * sizeof(intptr_t)));
+    mpgwp = S_CAST(MTPgenWriter*, bigstack_alloc((calc_thread_ct + DivUp(sizeof(MTPgenWriter), kBytesPerWord)) * sizeof(intptr_t)));
     if (!mpgwp) {
-      goto plink1_sample_major_to_pgen_ret_NOMEM;
+      goto Plink1SampleMajorToPgen_ret_NOMEM;
     }
     mpgwp->pgen_outfile = nullptr;
     pthread_t* threads;
     if (bigstack_alloc_thread(calc_thread_ct, &threads) ||
         bigstack_alloc_vp(calc_thread_ct, &g_thread_vecaligned_bufs) ||
         bigstack_alloc_ulp(calc_thread_ct, &g_thread_write_genovecs)) {
-      goto plink1_sample_major_to_pgen_ret_NOMEM;
+      goto Plink1SampleMajorToPgen_ret_NOMEM;
     }
     g_pwcs = &(mpgwp->pwcs[0]);
     uintptr_t cachelines_avail = bigstack_left() / kCacheline;
     // inner loop transposes kPglQuaterTransposeBatch variants at a time
-    const uintptr_t transpose_thread_cacheline_ct = kPglQuaterTransposeBufbytes / kCacheline + QUATERCT_TO_VECCT(sample_ct) * (kPglQuaterTransposeBatch / kVecsPerCacheline);
+    const uintptr_t transpose_thread_cacheline_ct = kPglQuaterTransposeBufbytes / kCacheline + QuaterCtToVecCt(sample_ct) * (kPglQuaterTransposeBatch / kVecsPerCacheline);
     if (cachelines_avail < calc_thread_ct * S_CAST(uint64_t, transpose_thread_cacheline_ct)) {
-      goto plink1_sample_major_to_pgen_ret_NOMEM;
+      goto Plink1SampleMajorToPgen_ret_NOMEM;
     }
     for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
-      g_thread_vecaligned_bufs[tidx] = S_CAST(vul_t*, bigstack_alloc_raw(kPglQuaterTransposeBufbytes));
-      g_thread_write_genovecs[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(QUATERCT_TO_VECCT(sample_ct) * kBytesPerVec * kPglQuaterTransposeBatch));
+      g_thread_vecaligned_bufs[tidx] = S_CAST(VecUL*, bigstack_alloc_raw(kPglQuaterTransposeBufbytes));
+      g_thread_write_genovecs[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(QuaterCtToVecCt(sample_ct) * kBytesPerVec * kPglQuaterTransposeBatch));
     }
     cachelines_avail = bigstack_left() / kCacheline;
     // Main workflow:
@@ -8153,16 +8155,16 @@ pglerr_t plink1_sample_major_to_pgen(const char* pgenname, uintptr_t variant_ct,
         // possible todo: simple single-threaded fallback
         // report this value since it can plausibly come up
         g_failed_alloc_attempt_size = (alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct) * kCacheline * 3;
-        goto plink1_sample_major_to_pgen_ret_NOMEM;
+        goto Plink1SampleMajorToPgen_ret_NOMEM;
       }
     }
     // todo: determine appropriate calc_thread_ct limit.  (should not be less
     // than 7-8.)
     unsigned char* mpgw_alloc = S_CAST(unsigned char*, bigstack_alloc_raw((alloc_base_cacheline_ct + mpgw_per_thread_cacheline_ct * calc_thread_ct) * kCacheline));
-    reterr = mpgw_init_phase2(pgenname, nullptr, nullptr, variant_ct, sample_ct, kfPgenGlobal0, 2 - real_ref_alleles, vrec_len_byte_ct, vblock_cacheline_ct, calc_thread_ct, mpgw_alloc, mpgwp);
+    reterr = MpgwInitPhase2(pgenname, nullptr, nullptr, variant_ct, sample_ct, kfPgenGlobal0, 2 - real_ref_alleles, vrec_len_byte_ct, vblock_cacheline_ct, calc_thread_ct, mpgw_alloc, mpgwp);
 
     cachelines_avail = bigstack_left() / kCacheline;
-    const uint64_t full_load_vecs_req = sample_ct * S_CAST(uint64_t, QUATERCT_TO_ALIGNED_WORDCT(variant_ct));
+    const uint64_t full_load_vecs_req = sample_ct * S_CAST(uint64_t, QuaterCtToAlignedWordCt(variant_ct));
     uintptr_t* plink1_smaj_loadbuf;
     uint32_t load_multiplier;
     uint32_t cur_vidx_ct;
@@ -8184,12 +8186,12 @@ pglerr_t plink1_sample_major_to_pgen(const char* pgenname, uintptr_t variant_ct,
       plink1_smaj_loadbuf = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(full_load_vecs_req * kBytesPerVec));
     }
     uint32_t cur_vidx_base = 0;
-    uint32_t cur_vidx_ct4 = QUATERCT_TO_BYTECT(cur_vidx_ct);
-    uint32_t cur_vidx_ctaw2 = QUATERCT_TO_ALIGNED_WORDCT(cur_vidx_ct);
+    uint32_t cur_vidx_ct4 = QuaterCtToByteCt(cur_vidx_ct);
+    uint32_t cur_vidx_ctaw2 = QuaterCtToAlignedWordCt(cur_vidx_ct);
     uint32_t pass_idx = 0;
     const uint32_t pass_ct = 1 + (variant_ct - 1) / cur_vidx_ct;
     g_sample_ct = sample_ct;
-    g_stride = QUATERCT_TO_VECCT(cur_vidx_ct) * kWordsPerVec;
+    g_stride = QuaterCtToVecCt(cur_vidx_ct) * kWordsPerVec;
     g_calc_thread_ct = calc_thread_ct;
     while (1) {
       uint32_t raw_load_batch_idx = 0;
@@ -8205,15 +8207,15 @@ pglerr_t plink1_sample_major_to_pgen(const char* pgenname, uintptr_t variant_ct,
       while (1) {
         if (raw_load_batch_size == 1) {
           if (fseeko(infile, seek_addl_offset + raw_load_batch_idx * S_CAST(uint64_t, variant_ct4), SEEK_SET)) {
-            goto plink1_sample_major_to_pgen_ret_READ_FAIL;
+            goto Plink1SampleMajorToPgen_ret_READ_FAIL;
           }
           if (!fread_unlocked(smaj_loadbuf_iter, cur_vidx_ct4, 1, infile)) {
-            goto plink1_sample_major_to_pgen_ret_READ_FAIL;
+            goto Plink1SampleMajorToPgen_ret_READ_FAIL;
           }
           smaj_loadbuf_iter = &(smaj_loadbuf_iter[cur_vidx_ctaw2]);
         } else {
           if (!fread_unlocked(raw_loadbuf, cur_raw_load_batch_size * variant_ct4, 1, infile)) {
-            goto plink1_sample_major_to_pgen_ret_READ_FAIL;
+            goto Plink1SampleMajorToPgen_ret_READ_FAIL;
           }
           unsigned char* raw_loadbuf_iter = &(raw_loadbuf[cur_vidx_base / 4]);
           for (uint32_t uii = 0; uii < cur_raw_load_batch_size; ++uii) {
@@ -8263,21 +8265,21 @@ pglerr_t plink1_sample_major_to_pgen(const char* pgenname, uintptr_t variant_ct,
           g_cur_block_write_ct = cur_vidx_ct - (load_idx - 1) * calc_thread_ct * kPglVblockSize;
         }
         if (last_tidx) {
-          if (spawn_threads2z(plink1_smaj_transpose_thread, last_tidx, is_last_block, threads)) {
-            goto plink1_sample_major_to_pgen_ret_THREAD_CREATE_FAIL;
+          if (SpawnThreads2z(Plink1SmajTransposeThread, last_tidx, is_last_block, threads)) {
+            goto Plink1SampleMajorToPgen_ret_THREAD_CREATE_FAIL;
           }
         }
-        plink1_smaj_transpose_thread(R_CAST(uintptr_t*, last_tidx));
+        Plink1SmajTransposeThread(R_CAST(uintptr_t*, last_tidx));
         if (last_tidx) {
-          join_threads2z(last_tidx, is_last_block, threads);
+          JoinThreads2z(last_tidx, is_last_block, threads);
         }
-        reterr = mpgw_flush(mpgwp);
+        reterr = MpgwFlush(mpgwp);
         if (reterr) {
           if (!is_last_block) {
             g_cur_block_write_ct = 0;
-            error_cleanup_threads2z(plink1_smaj_transpose_thread, last_tidx, threads);
+            ErrorCleanupThreads2z(Plink1SmajTransposeThread, last_tidx, threads);
           }
-          goto plink1_sample_major_to_pgen_ret_WRITE_FAIL;
+          goto Plink1SampleMajorToPgen_ret_WRITE_FAIL;
         }
       } while (!is_last_block);
       cur_vidx_base += cur_vidx_ct;
@@ -8288,42 +8290,42 @@ pglerr_t plink1_sample_major_to_pgen(const char* pgenname, uintptr_t variant_ct,
         break;
       }
       fputs("\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b                     ", stdout);
-      // assumes pgfi_init_phase1() leaves file pointer at byte 3; otherwise,
+      // assumes PgfiInitPhase1() leaves file pointer at byte 3; otherwise,
       // necessary to put this at top of main loop
       if (fseeko(infile, 3, SEEK_SET)) {
-        goto plink1_sample_major_to_pgen_ret_READ_FAIL;
+        goto Plink1SampleMajorToPgen_ret_READ_FAIL;
       }
       if (variant_ct - cur_vidx_base <= cur_vidx_ct) {
         cur_vidx_ct = variant_ct - cur_vidx_base;
-        cur_vidx_ct4 = QUATERCT_TO_BYTECT(cur_vidx_ct);
-        cur_vidx_ctaw2 = QUATERCT_TO_ALIGNED_WORDCT(cur_vidx_ct);
-        g_stride = QUATERCT_TO_VECCT(cur_vidx_ct) * kWordsPerVec;
+        cur_vidx_ct4 = QuaterCtToByteCt(cur_vidx_ct);
+        cur_vidx_ctaw2 = QuaterCtToAlignedWordCt(cur_vidx_ct);
+        g_stride = QuaterCtToVecCt(cur_vidx_ct) * kWordsPerVec;
         load_multiplier = 1 + (cur_vidx_ct - 1) / (kPglVblockSize * calc_thread_ct);
       }
     }
     mpgwp = nullptr;
     fputs("\b\bdone.\n", stdout);
-    LOGPRINTF("Transpose complete.\n");
+    logprintf("Transpose complete.\n");
   }
   while (0) {
-  plink1_sample_major_to_pgen_ret_NOMEM:
+  Plink1SampleMajorToPgen_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  plink1_sample_major_to_pgen_ret_READ_FAIL:
+  Plink1SampleMajorToPgen_ret_READ_FAIL:
     reterr = kPglRetReadFail;
     break;
-  plink1_sample_major_to_pgen_ret_WRITE_FAIL:
+  Plink1SampleMajorToPgen_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
-  plink1_sample_major_to_pgen_ret_THREAD_CREATE_FAIL:
+  Plink1SampleMajorToPgen_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
     break;
   }
- plink1_sample_major_to_pgen_ret_1:
-  if (mpgw_cleanup(mpgwp) && (!reterr)) {
+ Plink1SampleMajorToPgen_ret_1:
+  if (MpgwCleanup(mpgwp) && (!reterr)) {
     reterr = kPglRetWriteFail;
   }
-  bigstack_reset(bigstack_mark);
+  BigstackReset(bigstack_mark);
   return reterr;
 }
 

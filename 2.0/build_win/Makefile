@@ -13,7 +13,7 @@ ZSTD_O2 = 1
 OPENBLAS_ROOT = ../../openblas
 ZLIB_STATIC = ../../zlib-1.2.11/libz.a
 
-BASEFLAGS=-Wall -Wextra
+BASEFLAGS=-Wall -Wextra -Wshadow
 # ***** end configuration *****
 
 BASEFLAGS += -DSTATIC_ZLIB -fno-exceptions

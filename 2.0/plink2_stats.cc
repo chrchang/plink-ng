@@ -53,11 +53,11 @@ namespace plink2 {
 // DEALINGS IN THE SOFTWARE.
 // *****
 
-// ***** thread-safe chiprob_p *****
+// ***** thread-safe ChisqToP *****
 // port of Boost 1.60 implementation, float precision
 
-static const double log_min_value = -708.0;
-static const double log_max_value = 709.0;
+static const double kLogMinValue = -708.0;
+static const double kLogMaxValue = 709.0;
 
 static const double kLentzFpmin = 1.0e-30;
 
@@ -95,7 +95,7 @@ static const double kFactorials[30] = {
 };
 
 double finite_gamma_q(uint32_t aa, double xx, double* p_derivative) {
-  // a is a positive integer < 30; max(0.6, a-1) < x < log_max_value
+  // a is a positive integer < 30; max(0.6, a-1) < x < kLogMaxValue
   // (e^{-x})(1 + x + x^2/2 + x^3/3! + x^4/4! + ... + x^{a-1}/(a-1)!)
   const double ee = exp(-xx);
   if (ee == 0.0) {
@@ -187,7 +187,7 @@ double tgamma_small_upper_part_df1(double xx, uint32_t invert, double* p_derivat
   // df == 1, a == 0.5
   double result = 0.5 * kSqrtPi - 1.0;
   *pgam = (result + 1) * 2;
-  double pp = sqrt(xx) - 1.0; // no point in using powm1() with ^0.5
+  double pp = sqrt(xx) - 1.0;  // no point in using powm1() with ^0.5
   result -= pp;
   result *= 2;
   pp += 1;
@@ -212,7 +212,7 @@ double erfc_fast(double zz) {
 }
 
 double finite_half_gamma_q(double aa, double xx, double* p_derivative) {
-  // a is in {0.5, 1.5, ..., 29.5}; max(0.2, a-1) < x < log_max_value
+  // a is in {0.5, 1.5, ..., 29.5}; max(0.2, a-1) < x < kLogMaxValue
   const double sqrt_x = sqrt(xx);
   double ee = erfc_fast(sqrt_x);
   if ((ee != 0) && (aa > 1)) {
@@ -274,7 +274,7 @@ double log1pmx(double xx) {
   if (aa < (kBigEpsilon / kSqrt2)) { // 2^{-21.5}
     return -xx * xx * 0.5;
   }
-  double kk = 1.0; // skip first term of usual log(1+x) series
+  double kk = 1.0;  // skip first term of usual log(1+x) series
   const double m_mult = -xx;
   double m_prod = xx;
   double total = 0.0;
@@ -309,17 +309,17 @@ double regularized_gamma_prefix(double aa, double zz) {
     const double alz = aa * log(zz * agh_recip);
     const double amz = aa - zz;
     const double cur_minv = MINV(alz, amz);
-    if ((cur_minv <= log_min_value) || (MAXV(alz, amz) >= log_max_value)) {
+    if ((cur_minv <= kLogMinValue) || (MAXV(alz, amz) >= kLogMaxValue)) {
       const double amza = amz / aa;
       double sq;
-      if ((cur_minv > 2 * log_min_value) && (MAXV(alz, amz) < 2 * log_max_value)) {
+      if ((cur_minv > 2 * kLogMinValue) && (MAXV(alz, amz) < 2 * kLogMaxValue)) {
         sq = pow(zz * agh_recip, aa * 0.5) * exp(amz * 0.5);
         prefix = sq * sq;
-      } else if ((cur_minv > 4 * log_min_value) && (MAXV(alz, amz) < 4 * log_max_value) && (zz > aa)) {
+      } else if ((cur_minv > 4 * kLogMinValue) && (MAXV(alz, amz) < 4 * kLogMaxValue) && (zz > aa)) {
         sq = pow(zz * agh_recip, aa * 0.25) * exp(amz * 0.25);
         prefix = sq * sq;
         prefix *= prefix;
-      } else if ((amza > log_min_value) && (amza < log_max_value)) {
+      } else if ((amza > kLogMinValue) && (amza < kLogMaxValue)) {
         prefix = pow((zz * exp(amza)) * agh_recip, aa);
       } else {
         prefix = exp(alz + amz);
@@ -366,7 +366,7 @@ double gamma_incomplete_imp2(uint32_t df, double xx, uint32_t invert, double* p_
   assert(df);
   assert(xx >= 0.0);
   const double aa = u31tod(df) * 0.5;
-  const uint32_t is_small_a = (df < 60) && (aa <= xx + 1) && (xx < log_max_value);
+  const uint32_t is_small_a = (df < 60) && (aa <= xx + 1) && (xx < kLogMaxValue);
   uint32_t is_int = 0;
   uint32_t is_half_int = 0;
   if (is_small_a) {
@@ -433,7 +433,7 @@ double gamma_incomplete_imp2(uint32_t df, double xx, uint32_t invert, double* p_
     break;
   case 1:
     // previously used erfc, but that was up to ~3x as slow as dcdflib (e.g.
-    // chiprob_p(2.706, 1) case).
+    // ChisqToP(2.706, 1) case).
     result = finite_half_gamma_q(aa, xx, p_derivative);
     if (p_derivative && (*p_derivative == 0)) {
       *p_derivative = regularized_gamma_prefix(aa, xx);
@@ -494,7 +494,7 @@ double gamma_incomplete_imp2(uint32_t df, double xx, uint32_t invert, double* p_
   }
   if (p_derivative) {
     if ((xx < 1) && (DBL_MAX * xx < (*p_derivative))) {
-      *p_derivative = DBL_MAX / 2; // overflow; do we really need this?
+      *p_derivative = DBL_MAX / 2;  // overflow; do we really need this?
     } else {
       *p_derivative /= xx;
     }
@@ -502,16 +502,16 @@ double gamma_incomplete_imp2(uint32_t df, double xx, uint32_t invert, double* p_
   return result;
 }
 
-double chiprob_p(double chisq, uint32_t df) {
+double ChisqToP(double chisq, uint32_t df) {
   // todo: figure out when we were depending on this to return -9, and decide
   // how to handle those situations now
   return gamma_incomplete_imp2(df, chisq * 0.5, 1, nullptr);
 }
 
-// ***** end thread-safe chiprob_p *****
+// ***** end thread-safe ChisqToP *****
 
 
-// ***** thread-safe inverse_chiprob *****
+// ***** thread-safe PToChisq *****
 // port of Boost 1.60 implementation
 
 double find_inverse_gamma2(uint32_t df, double pp, double qq, uint32_t* has_10_digits_ptr) {
@@ -593,7 +593,7 @@ double gamma_p_inv_imp2(uint32_t df, double qq) {
     pp = qq;
   }
   const double a_minus_1 = 0.5 * S_CAST(double, S_CAST(int32_t, df) - 2);
-  const double factor = 1.1920928955078125e-07; // 2^{-23}
+  const double factor = 1.1920928955078125e-07;  // 2^{-23}
   double result = guess;
   double delta = 10000000;
   double delta1 = delta;
@@ -622,7 +622,7 @@ double gamma_p_inv_imp2(uint32_t df, double qq) {
     if (f0 == 0) {
       break;
     }
-    assert(f1 != 0); // shouldn't be possible, function is monotonic
+    assert(f1 != 0);  // shouldn't be possible, function is monotonic
     delta = f0 / f1;
     if (f2 != 0) {
       // delta = Stepper::step(result, f0, f1, f2);
@@ -692,15 +692,15 @@ double gamma_p_inv_imp2(uint32_t df, double qq) {
   return result;
 }
 
-double inverse_chiprob(double pval, uint32_t df) {
+double PToChisq(double pval, uint32_t df) {
   // only need this to handle df=1, 2, 4 for now
   return gamma_p_inv_imp2(df, pval) * 2;
 }
 
-// ***** end thread-safe inverse_chiprob *****
+// ***** end thread-safe PToChisq *****
 
 
-// ***** thread-safe cdft *****
+// ***** thread-safe TstatToP *****
 
 // see Numerical Recipes, section 6.4
 double betacf_slow(double aa, double bb, double xx) {
@@ -773,17 +773,15 @@ double betai_slow(double aa, double bb, double xx) {
 
 // todo: try to adapt Boost beta_small_b_large_a_series()
 
-double calc_tprob(double tt, double df) {
+double TstatToP(double tt, double df) {
   // must be thread-safe, so dcdflib won't cut it.
-  // move this to plink2_stats once it's ready (and probably just eliminate
-  // dcdflib entirely)
-  if (!realnum(tt)) {
+  if (!IsRealnum(tt)) {
     return -9;
   }
   return betai_slow(df * 0.5, 0.5, df / (df + tt * tt));
 }
 
-double calc_tprob2(double tt, double df, double cached_gamma_mult) {
+double TstatToP2(double tt, double df, double cached_gamma_mult) {
   // assumes cached_mult == exp(lgamma(df * 0.5 + 0.5) - lgamma(df * 0.5) -
   //   lgamma(0.5))
   //         invert_thresh = (df + 2) / (df + 5)
@@ -805,7 +803,7 @@ double calc_tprob2(double tt, double df, double cached_gamma_mult) {
   }
   return 1.0 - bt * 2 * betacf_slow(0.5, aa, yy);
 }
-// ***** end thread-safe cdft calculation *****
+// ***** end thread-safe TstatToP calculation *****
 
 
 // Inverse normal distribution
@@ -871,32 +869,32 @@ static const double kIvnD[] =
 static const double kIvnLow = 0.02425;
 static const double kIvnHigh = 0.97575;
 
-double ltqnorm(double p) {
-  // assumes 0 < p < 1
+double PToZscore(double pp) {
+  // assumes 0 < pp < 1
   double q, r;
 
-  if (p < kIvnLow) {
+  if (pp < kIvnLow) {
     // Rational approximation for lower region
-    q = sqrt(-2*log(p));
+    q = sqrt(-2*log(pp));
     return (((((kIvnC[0]*q+kIvnC[1])*q+kIvnC[2])*q+kIvnC[3])*q+kIvnC[4])*q+kIvnC[5]) /
       ((((kIvnD[0]*q+kIvnD[1])*q+kIvnD[2])*q+kIvnD[3])*q+1);
   }
-  if (p > kIvnHigh) {
+  if (pp > kIvnHigh) {
     // Rational approximation for upper region
-    q  = sqrt(-2*log(1-p));
+    q  = sqrt(-2*log(1-pp));
     return -(((((kIvnC[0]*q+kIvnC[1])*q+kIvnC[2])*q+kIvnC[3])*q+kIvnC[4])*q+kIvnC[5]) /
       ((((kIvnD[0]*q+kIvnD[1])*q+kIvnD[2])*q+kIvnD[3])*q+1);
   }
   // Rational approximation for central region
-  q = p - 0.5;
+  q = pp - 0.5;
   r = q*q;
   return (((((kIvnA[0]*r+kIvnA[1])*r+kIvnA[2])*r+kIvnA[3])*r+kIvnA[4])*r+kIvnA[5])*q /
     (((((kIvnB[0]*r+kIvnB[1])*r+kIvnB[2])*r+kIvnB[3])*r+kIvnB[4])*r+1);
 }
 
 
-// SNPHWE2() and SNPHWEX() are now licensed as GPL 2+.
-double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t midp) {
+// HweP() and HweXchrP() are now licensed as GPL 2+.
+double HweP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t midp) {
   // This function implements an exact SNP test of Hardy-Weinberg
   // Equilibrium as described in Wigginton, JE, Cutler, DJ, and
   // Abecasis, GR (2005) A Note on Exact Tests of Hardy-Weinberg
@@ -918,8 +916,8 @@ double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mi
   // - Support for the mid-p variant of this test.  See Graffelman J, Moreno V
   //   (2013) The mid p-value in exact tests for Hardy-Weinberg equilibrium.
   //
-  // Note that the SNPHWE_t() function below is a lot more efficient for
-  // testing against a p-value inclusion threshold.  SNPHWE2() should only be
+  // Note that the HweThresh() function below is a lot more efficient for
+  // testing against a p-value inclusion threshold.  HweP() should only be
   // used if you need the actual p-value.
   intptr_t obs_homc;
   intptr_t obs_homr;
@@ -1049,8 +1047,8 @@ double SNPHWE2(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t mi
   return (tailp - ((1 - kSmallEpsilon) * kExactTestBias * 0.5) * tie_ct) / (tailp + centerp);
 }
 
-uint32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double thresh) {
-  // Threshold-test-only version of SNPHWE2() which is usually able to exit
+uint32_t HweThresh(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double thresh) {
+  // Threshold-test-only version of HweP() which is usually able to exit
   // from the calculation earlier.  Returns 0 if these counts are close enough
   // to Hardy-Weinberg equilibrium, 1 otherwise.
   //
@@ -1078,7 +1076,7 @@ uint32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double t
   }
   int64_t rare_copies = 2LL * obs_homr + obs_hets;
   int64_t genotypes2 = (obs_hets + obs_homc + obs_homr) * 2LL;
-  double curr_hets_t2 = obs_hets; // tail 2
+  double curr_hets_t2 = obs_hets;  // tail 2
   double curr_homr_t2 = obs_homr;
   double curr_homc_t2 = obs_homc;
 
@@ -1284,8 +1282,8 @@ uint32_t SNPHWE_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double t
   return 1;
 }
 
-uint32_t SNPHWE_midp_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double thresh) {
-  // Mid-p version of SNPHWE_t().  (There are enough fiddly differences that I
+uint32_t HweThreshMidp(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double thresh) {
+  // Mid-p version of HweThresh().  (There are enough fiddly differences that I
   // think it's better for this to be a separate function.)  Assumes threshold
   // is smaller than 0.5.
   intptr_t obs_homc;
@@ -1299,7 +1297,7 @@ uint32_t SNPHWE_midp_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, dou
   }
   int64_t rare_copies = 2LL * obs_homr + obs_hets;
   int64_t genotypes2 = (obs_hets + obs_homc + obs_homr) * 2LL;
-  double curr_hets_t2 = obs_hets; // tail 2
+  double curr_hets_t2 = obs_hets;  // tail 2
   double curr_homr_t2 = obs_homr;
   double curr_homc_t2 = obs_homc;
   double tailp1 = (1 - kSmallEpsilon) * kExactTestBias * 0.5;
@@ -1483,7 +1481,7 @@ uint32_t SNPHWE_midp_t(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, dou
 // 2^{-40} for now, since 2^{-44} was too small on real data
 static const double kExactTestEpsilon2 = 0.0000000000009094947017729282379150390625;
 
-double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t midp) {
+double FisherExact2x2P(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t midp) {
   // Basic 2x2 Fisher exact test p-value calculation.
   double tprob = (1 - kExactTestEpsilon2) * kExactTestBias;
   double cur_prob = tprob;
@@ -1579,7 +1577,7 @@ double fisher22(uint32_t m11, uint32_t m12, uint32_t m21, uint32_t m22, uint32_t
   return (tprob - ((1 - kExactTestEpsilon2) * kExactTestBias * 0.5) * tie_ct) / (cprob + tprob);
 }
 
-int32_t SNPHWEX_tailsum(uint32_t high_het_side, double* base_probp, double* saved_hetsp, double* saved_hom1p, double* saved_hom2p, uint32_t* tie_ctp, double *totalp) {
+int32_t HweXchrPTailsum(uint32_t high_het_side, double* base_probp, double* saved_hetsp, double* saved_hom1p, double* saved_hom2p, uint32_t* tie_ctp, double *totalp) {
   // similar to fisher23_tailsum()
   double total = 0;
   double cur_prob = *base_probp;
@@ -1719,12 +1717,12 @@ int32_t SNPHWEX_tailsum(uint32_t high_het_side, double* base_probp, double* save
   return 0;
 }
 
-double SNPHWEX(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, int32_t male1, int32_t male2, uint32_t midp) {
+double HweXchrP(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, int32_t male1, int32_t male2, uint32_t midp) {
   // See Graffelman J, Weir BS (2016) Testing for Hardy-Weinberg equilibrium at
   // biallelic genetic markers on the X chromosome.
   // Evaluation strategy is similar to fisher23().
   if ((!male1) && (!male2)) {
-    return SNPHWE2(female_hets, female_hom1, female_hom2, midp);
+    return HweP(female_hets, female_hom1, female_hom2, midp);
   }
   double cur_prob = (1 - kExactTestEpsilon2) * kExactTestBias;
   double tailp = cur_prob;
@@ -1934,7 +1932,7 @@ double SNPHWEX(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, in
         }
       }
       double tail_incr1;
-      if (SNPHWEX_tailsum(0, &base_probl, &cur_lhets, &cur_lhom1, &cur_lhom2, &tie_ct, &tail_incr1)) {
+      if (HweXchrPTailsum(0, &base_probl, &cur_lhets, &cur_lhom1, &cur_lhom2, &tie_ct, &tail_incr1)) {
         // all tables in this row, and all subsequent rows, are less probable
         // than the initial table.
         double cur_female1 = n1 - cur_male1;
@@ -1992,8 +1990,8 @@ double SNPHWEX(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, in
           cur_rhets -= 1;
         }
       }
-      double tail_incr2 = 0.0; // maybe-uninitialized warning
-      SNPHWEX_tailsum(1, &base_probr, &cur_rhets, &cur_rhom1, &cur_rhom2, &tie_ct, &tail_incr2);
+      double tail_incr2 = 0.0;  // maybe-uninitialized warning
+      HweXchrPTailsum(1, &base_probr, &cur_rhets, &cur_rhom1, &cur_rhom2, &tie_ct, &tail_incr2);
       tailp += tail_incr2;
       centerp += row_prob - tail_incr1 - tail_incr2;
       if (centerp > DBL_MAX) {

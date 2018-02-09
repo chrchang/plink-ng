@@ -6,7 +6,7 @@ int32_t main(int32_t argc, char** argv) {
 #ifdef __cplusplus
   using namespace plink2;
 #endif
-  pglerr_t reterr = kPglRetSuccess;
+  PglErr reterr = kPglRetSuccess;
   unsigned char* pgfi_alloc = nullptr;
   unsigned char* pgr_alloc = nullptr;
   unsigned char* spgw_alloc = nullptr;
@@ -16,14 +16,14 @@ int32_t main(int32_t argc, char** argv) {
   uint32_t* sample_include_cumulative_popcounts = nullptr;
   uint32_t* difflist_sample_ids = nullptr;
   FILE* outfile = nullptr;
-  pgen_header_ctrl_t header_ctrl;
-  st_pgen_writer_t spgw;
+  PgenHeaderCtrl header_ctrl;
+  STPgenWriter spgw;
   uint32_t write_sample_ct;
-  pgen_file_info_t pgfi;
-  pgen_reader_t pgr;
-  pgfi_preinit(&pgfi);
-  pgr_preinit(&pgr);
-  spgw_preinit(&spgw);
+  PgenFileInfo pgfi;
+  PgenReader pgr;
+  PreinitPgfi(&pgfi);
+  PreinitPgr(&pgr);
+  PreinitSpgw(&spgw);
   {
     const uint32_t use_mmap = 0;
     if ((argc < 3) || (argc > 5)) {
@@ -38,13 +38,13 @@ int32_t main(int32_t argc, char** argv) {
     const uint32_t decompress = (argv[1][0] == '-') && (argv[1][1] == 'u') && (argv[1][2] == '\0');
     uint32_t sample_ct = 0xffffffffU;
     if (S_CAST(uint32_t, argc) == 4 + decompress) {
-      if (scan_posint_defcap(argv[3 + decompress], &sample_ct)) {
+      if (ScanPosintDefcap(argv[3 + decompress], &sample_ct)) {
         goto main_ret_INVALID_CMDLINE;
       }
     }
     char errstr_buf[kPglErrstrBufBlen];
     uintptr_t cur_alloc_cacheline_ct;
-    reterr = pgfi_init_phase1(argv[1 + decompress], 0xffffffffU, sample_ct, use_mmap, &header_ctrl, &pgfi, &cur_alloc_cacheline_ct, errstr_buf);
+    reterr = PgfiInitPhase1(argv[1 + decompress], 0xffffffffU, sample_ct, use_mmap, &header_ctrl, &pgfi, &cur_alloc_cacheline_ct, errstr_buf);
     if (reterr) {
       fputs(errstr_buf, stderr);
       goto main_ret_1;
@@ -64,7 +64,7 @@ int32_t main(int32_t argc, char** argv) {
     }
     uint32_t max_vrec_width;
     // todo: test block-fread
-    reterr = pgfi_init_phase2(header_ctrl, 0, 0, 0, 0, variant_ct, &max_vrec_width, &pgfi, pgfi_alloc, &cur_alloc_cacheline_ct, errstr_buf);
+    reterr = PgfiInitPhase2(header_ctrl, 0, 0, 0, 0, variant_ct, &max_vrec_width, &pgfi, pgfi_alloc, &cur_alloc_cacheline_ct, errstr_buf);
     if (reterr) {
       fputs(errstr_buf, stderr);
       goto main_ret_1;
@@ -74,7 +74,7 @@ int32_t main(int32_t argc, char** argv) {
     }
 
     // modify this when trying block-fread
-    reterr = pgr_init(use_mmap? nullptr : argv[1 + decompress], max_vrec_width, &pgfi, &pgr, pgr_alloc);
+    reterr = PgrInit(use_mmap? nullptr : argv[1 + decompress], max_vrec_width, &pgfi, &pgr, pgr_alloc);
     if (reterr) {
       fprintf(stderr, "pgr_init error %u\n", S_CAST(uint32_t, reterr));
       goto main_ret_1;
@@ -85,7 +85,7 @@ int32_t main(int32_t argc, char** argv) {
     } else {
       printf("%u variant%s and %u sample%s detected.\n", variant_ct, (variant_ct == 1)? "" : "s", sample_ct, (sample_ct == 1)? "" : "s");
     }
-    if (cachealigned_malloc(QUATERCT_TO_VECCT(sample_ct) * kBytesPerVec, &genovec)) {
+    if (cachealigned_malloc(QuaterCtToVecCt(sample_ct) * kBytesPerVec, &genovec)) {
       goto main_ret_NOMEM;
     }
     if (decompress) {
@@ -94,16 +94,16 @@ int32_t main(int32_t argc, char** argv) {
         goto main_ret_OPEN_FAIL;
       }
       const uintptr_t final_mask = (k1LU << ((sample_ct % kBitsPerWordD2) * 2)) - k1LU;
-      const uint32_t final_widx = QUATERCT_TO_WORDCT(sample_ct) - 1;
+      const uint32_t final_widx = QuaterCtToWordCt(sample_ct) - 1;
       const uint32_t variant_byte_ct = (sample_ct + 3) / 4;
       fwrite("l\x1b\x01", 3, 1, outfile);
       for (uint32_t vidx = 0; vidx < variant_ct;) {
-        reterr = pgr_read_refalt1_genovec_subset_unsafe(nullptr, nullptr, sample_ct, vidx, &pgr, genovec);
+        reterr = PgrReadRefalt1GenovecSubsetUnsafe(nullptr, nullptr, sample_ct, vidx, &pgr, genovec);
         if (reterr) {
           fprintf(stderr, "\nread error %u, vidx=%u\n", S_CAST(uint32_t, reterr), vidx);
           goto main_ret_1;
         }
-        pgr_plink2_to_plink1_inplace_unsafe(sample_ct, genovec);
+        PgrPlink2ToPlink1InplaceUnsafe(sample_ct, genovec);
         if (final_mask) {
           genovec[final_widx] &= final_mask;
         }
@@ -127,7 +127,7 @@ int32_t main(int32_t argc, char** argv) {
     write_sample_ct = sample_ct;
 #endif
     uint32_t max_vrec_len;
-    reterr = spgw_init_phase1(argv[2], nullptr, nullptr, variant_ct, write_sample_ct, kfPgenGlobal0, 2, &spgw, &cur_alloc_cacheline_ct, &max_vrec_len);
+    reterr = SpgwInitPhase1(argv[2], nullptr, nullptr, variant_ct, write_sample_ct, kfPgenGlobal0, 2, &spgw, &cur_alloc_cacheline_ct, &max_vrec_len);
     if (reterr) {
       fprintf(stderr, "compression phase 1 error %u\n", S_CAST(uint32_t, reterr));
       goto main_ret_1;
@@ -135,47 +135,47 @@ int32_t main(int32_t argc, char** argv) {
     if (cachealigned_malloc(cur_alloc_cacheline_ct * kCacheline, &spgw_alloc)) {
       goto main_ret_NOMEM;
     }
-    spgw_init_phase2(max_vrec_len, &spgw, spgw_alloc);
+    SpgwInitPhase2(max_vrec_len, &spgw, spgw_alloc);
 
     const uint32_t max_simple_difflist_len = sample_ct / kBitsPerWordD2;
     const uint32_t max_returned_difflist_len = max_simple_difflist_len + (sample_ct / kPglMaxDifflistLenDivisor);
     const uint32_t max_difflist_len = 2 * (write_sample_ct / kPglMaxDifflistLenDivisor);
-    if (cachealigned_malloc(round_up_pow2((max_returned_difflist_len + 3) / 4, kCacheline), &raregeno) ||
-        cachealigned_malloc(round_up_pow2((sample_ct + 7) / 8, kCacheline), &sample_include) ||
-        cachealigned_malloc(round_up_pow2((1 + (sample_ct / kBitsPerWord)) * sizeof(int32_t), kCacheline), &sample_include_cumulative_popcounts) ||
-        cachealigned_malloc(round_up_pow2((max_returned_difflist_len + 1) * sizeof(int32_t), kCacheline), &difflist_sample_ids)) {
+    if (cachealigned_malloc(RoundUpPow2((max_returned_difflist_len + 3) / 4, kCacheline), &raregeno) ||
+        cachealigned_malloc(RoundUpPow2((sample_ct + 7) / 8, kCacheline), &sample_include) ||
+        cachealigned_malloc(RoundUpPow2((1 + (sample_ct / kBitsPerWord)) * sizeof(int32_t), kCacheline), &sample_include_cumulative_popcounts) ||
+        cachealigned_malloc(RoundUpPow2((max_returned_difflist_len + 1) * sizeof(int32_t), kCacheline), &difflist_sample_ids)) {
       goto main_ret_NOMEM;
     }
-    fill_all_bits(sample_ct, sample_include);
+    SetAllBits(sample_ct, sample_include);
 #ifdef SUBSET_TEST
-    fill_ulong_zero(BITCT_TO_WORDCT(sample_ct), sample_include);
-    set_bit(123, sample_include);
-    set_bit(127, sample_include);
-    set_bit(320, sample_include);
-    // clear_bit(123, sample_include);
-    // clear_bit(127, sample_include);
-    // clear_bit(320, sample_include);
-    fill_cumulative_popcounts(sample_include, 1 + (sample_ct / kBitsPerWord), sample_include_cumulative_popcounts);
+    fill_ulong_zero(BitCtToWordCt(sample_ct), sample_include);
+    SetBit(123, sample_include);
+    SetBit(127, sample_include);
+    SetBit(320, sample_include);
+    // ClearBit(123, sample_include);
+    // ClearBit(127, sample_include);
+    // ClearBit(320, sample_include);
+    FillCumulativePopcounts(sample_include, 1 + (sample_ct / kBitsPerWord), sample_include_cumulative_popcounts);
 #endif
     for (uint32_t vidx = 0; vidx < variant_ct;) {
       uint32_t difflist_common_geno;
       uint32_t difflist_len;
-      reterr = pgr_read_refalt1_difflist_or_genovec_subset_unsafe(sample_include, sample_include_cumulative_popcounts, write_sample_ct, max_simple_difflist_len, vidx, &pgr, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+      reterr = PgrReadRefalt1DifflistOrGenovecSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, write_sample_ct, max_simple_difflist_len, vidx, &pgr, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
       if (reterr) {
         fprintf(stderr, "\nread error %u, vidx=%u\n", S_CAST(uint32_t, reterr), vidx);
         goto main_ret_1;
       }
       if (difflist_common_geno == 0xffffffffU) {
-        zero_trailing_bits(write_sample_ct * 2, genovec);
-        reterr = spgw_append_biallelic_genovec(genovec, &spgw);
+        ZeroTrailingBits(write_sample_ct * 2, genovec);
+        reterr = SpgwAppendBiallelicGenovec(genovec, &spgw);
       } else if (difflist_len <= max_difflist_len) {
-        zero_trailing_bits(2 * difflist_len, raregeno);
+        ZeroTrailingBits(2 * difflist_len, raregeno);
         difflist_sample_ids[difflist_len] = write_sample_ct;
-        reterr = spgw_append_biallelic_difflist_limited(raregeno, difflist_sample_ids, difflist_common_geno, difflist_len, &spgw);
+        reterr = SpgwAppendBiallelicDifflistLimited(raregeno, difflist_sample_ids, difflist_common_geno, difflist_len, &spgw);
       } else {
-        pgr_difflist_to_genovec_unsafe(raregeno, difflist_sample_ids, difflist_common_geno, write_sample_ct, difflist_len, genovec);
-        zero_trailing_bits(write_sample_ct * 2, genovec);
-        reterr = spgw_append_biallelic_genovec(genovec, &spgw);
+        PgrDifflistToGenovecUnsafe(raregeno, difflist_sample_ids, difflist_common_geno, write_sample_ct, difflist_len, genovec);
+        ZeroTrailingBits(write_sample_ct * 2, genovec);
+        reterr = SpgwAppendBiallelicGenovec(genovec, &spgw);
       }
       if (reterr) {
         fprintf(stderr, "\ncompress/write error %u, vidx=%u\n", S_CAST(uint32_t, reterr), vidx);
@@ -190,7 +190,7 @@ int32_t main(int32_t argc, char** argv) {
   }
   printf("\n");
 
-  spgw_finish(&spgw);
+  SpgwFinish(&spgw);
   while (0) {
   main_ret_NOMEM:
     reterr = kPglRetNomem;
@@ -206,11 +206,11 @@ int32_t main(int32_t argc, char** argv) {
     break;
   }
  main_ret_1:
-  pgr_cleanup(&pgr);
+  PgrCleanup(&pgr);
 #ifndef NO_MMAP
-  pgfi_cleanup(&pgfi);
+  PgfiCleanup(&pgfi);
 #endif
-  spgw_cleanup(&spgw);
+  SpgwCleanup(&spgw);
   if (pgfi_alloc) {
     aligned_free(pgfi_alloc);
   }

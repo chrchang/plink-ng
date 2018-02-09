@@ -36,18 +36,18 @@ namespace plink2 {
 #endif
 
 // Also sets 128k read buffer.
-pglerr_t gzopen_read_checked(const char* fname, gzFile* gzf_ptr);
+PglErr gzopen_read_checked(const char* fname, gzFile* gzf_ptr);
 
 // This sets loadbuf[loadbuf_size - 1] to ' ', just because.
 // loadbuf_size assumed to be either exactly kMaxMediumLine (in which case
 // any longer line is treated as pathological), or strictly larger (in which
 // case we report an out-of-memory error when gzgets blows the buffer, unless
 // loadbuf_size == kMaxLongLine, which is close to 2GB).
-pglerr_t gzopen_and_skip_first_lines(const char* fname, uint32_t lines_to_skip, uintptr_t loadbuf_size, char* loadbuf, gzFile* gzf_ptr);
+PglErr GzopenAndSkipFirstLines(const char* fname, uint32_t lines_to_skip, uintptr_t loadbuf_size, char* loadbuf, gzFile* gzf_ptr);
 
 // plink2_compress_stream interface should be used for writing .gz files.
 
-HEADER_INLINE boolerr_t gzclose_null(gzFile* gzf_ptr) {
+HEADER_INLINE BoolErr gzclose_null(gzFile* gzf_ptr) {
   const int32_t ii = gzclose(*gzf_ptr);
   *gzf_ptr = nullptr;
   return (ii != Z_OK);
@@ -67,18 +67,18 @@ typedef struct gz_token_stream_struct {
   char* buf_start;
   char* read_iter;
   char* buf_end;
-} gz_token_stream_t;
+} GzTokenStream;
 
-void gz_token_stream_preinit(gz_token_stream_t* gtsp);
+void PreinitGzTokenStream(GzTokenStream* gtsp);
 
-pglerr_t gz_token_stream_init(const char* fname, gz_token_stream_t* gtsp, char* buf_start);
+PglErr InitGzTokenStream(const char* fname, GzTokenStream* gtsp, char* buf_start);
 
 // sets token_slen to 0xfffffffeU on read fail, 0xffffffffU on too-long token
 // safe to null-terminate token between calls
-char* gz_token_stream_advance(gz_token_stream_t* gtsp, uint32_t* token_slen_ptr);
+char* AdvanceGzTokenStream(GzTokenStream* gtsp, uint32_t* token_slen_ptr);
 
 // ok if already closed
-boolerr_t gz_token_stream_close(gz_token_stream_t* gtsp);
+BoolErr CloseGzTokenStream(GzTokenStream* gtsp);
 
 #ifdef __cplusplus
 } // namespace plink2

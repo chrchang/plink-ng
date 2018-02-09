@@ -23,21 +23,21 @@ namespace plink2 {
 
 uint32_t g_zst_level = 0;
 
-pglerr_t uncompressed_cswrite_init(const char* out_fname, uint32_t do_append, char* overflow_buf, compress_stream_state_t* css_ptr) {
+PglErr InitCstreamNoop(const char* out_fname, uint32_t do_append, char* overflow_buf, CompressStreamState* css_ptr) {
   // css_ptr->z_outfile = nullptr;
   css_ptr->cctx = nullptr;
   // can't use fopen_checked since we need to be able to append
   css_ptr->outfile = fopen(out_fname, do_append? FOPEN_AB : FOPEN_WB);
   if (!css_ptr->outfile) {
-    logprint("\n");
-    LOGERRPRINTFWW(g_errstr_fopen, out_fname);
+    logputs("\n");
+    logerrprintfww(kErrprintfFopen, out_fname);
     return kPglRetOpenFail;
   }
   css_ptr->overflow_buf = overflow_buf;
   return kPglRetSuccess;
 }
 
-pglerr_t zstd_cswrite_init(const char* out_fname, uint32_t do_append, __maybe_unused uint32_t thread_ct, uintptr_t overflow_buf_size, char* overflow_buf, unsigned char* compress_wkspace, compress_stream_state_t* css_ptr) {
+PglErr InitCstreamZstd(const char* out_fname, uint32_t do_append, __maybe_unused uint32_t thread_ct, uintptr_t overflow_buf_size, char* overflow_buf, unsigned char* compress_wkspace, CompressStreamState* css_ptr) {
   css_ptr->outfile = nullptr;
   css_ptr->cctx = ZSTD_createCCtx();
   if (!css_ptr->cctx) {
@@ -54,43 +54,43 @@ pglerr_t zstd_cswrite_init(const char* out_fname, uint32_t do_append, __maybe_un
 #endif
   css_ptr->outfile = fopen(out_fname, do_append? FOPEN_AB : FOPEN_WB);
   if (!css_ptr->outfile) {
-    logprint("\n");
-    LOGERRPRINTFWW(g_errstr_fopen, out_fname);
+    logputs("\n");
+    logerrprintfww(kErrprintfFopen, out_fname);
     ZSTD_freeCCtx(css_ptr->cctx);  // might return an error later?
     return kPglRetOpenFail;
   }
   css_ptr->output.dst = compress_wkspace;
-  css_ptr->output.size = css_wkspace_req(overflow_buf_size);
+  css_ptr->output.size = CstreamWkspaceReq(overflow_buf_size);
   css_ptr->output.pos = 0;
   css_ptr->overflow_buf = overflow_buf;
   return kPglRetSuccess;
 }
 
 // possible todo: replace output_zst with an enum which permits gzipping
-pglerr_t cswrite_init(const char* out_fname, uint32_t do_append, uint32_t output_zst, uint32_t thread_ct, uintptr_t overflow_buf_size, char* overflow_buf, unsigned char* compress_wkspace, compress_stream_state_t* css_ptr) {
+PglErr InitCstream(const char* out_fname, uint32_t do_append, uint32_t output_zst, uint32_t thread_ct, uintptr_t overflow_buf_size, char* overflow_buf, unsigned char* compress_wkspace, CompressStreamState* css_ptr) {
   if (!output_zst) {
-    return uncompressed_cswrite_init(out_fname, do_append, overflow_buf, css_ptr);
+    return InitCstreamNoop(out_fname, do_append, overflow_buf, css_ptr);
   }
-  return zstd_cswrite_init(out_fname, do_append, thread_ct, overflow_buf_size, overflow_buf, compress_wkspace, css_ptr);
+  return InitCstreamZstd(out_fname, do_append, thread_ct, overflow_buf_size, overflow_buf, compress_wkspace, css_ptr);
 }
 
-pglerr_t cswrite_init2(const char* out_fname, uint32_t do_append, uint32_t output_zst, uint32_t thread_ct, uintptr_t overflow_buf_size, compress_stream_state_t* css_ptr, char** cswritepp) {
+PglErr InitCstreamAlloc(const char* out_fname, uint32_t do_append, uint32_t output_zst, uint32_t thread_ct, uintptr_t overflow_buf_size, CompressStreamState* css_ptr, char** cswritepp) {
   char* overflow_buf;
   if (bigstack_alloc_c(overflow_buf_size, &overflow_buf)) {
     return kPglRetNomem;
   }
   unsigned char* compress_wkspace = nullptr;
   if (output_zst) {
-    if (bigstack_alloc_uc(css_wkspace_req(overflow_buf_size), &compress_wkspace)) {
+    if (bigstack_alloc_uc(CstreamWkspaceReq(overflow_buf_size), &compress_wkspace)) {
       return kPglRetNomem;
     }
   }
-  pglerr_t reterr = cswrite_init(out_fname, do_append, output_zst, thread_ct, overflow_buf_size, overflow_buf, compress_wkspace, css_ptr);
+  PglErr reterr = InitCstream(out_fname, do_append, output_zst, thread_ct, overflow_buf_size, overflow_buf, compress_wkspace, css_ptr);
   *cswritepp = overflow_buf;
   return reterr;
 }
 
-boolerr_t force_uncompressed_cswrite(compress_stream_state_t* css_ptr, char** writep_ptr) {
+BoolErr ForceUncompressedCswrite(CompressStreamState* css_ptr, char** writep_ptr) {
   char* writep = *writep_ptr;
   if (css_ptr->overflow_buf != writep) {
     if (!fwrite_unlocked(css_ptr->overflow_buf, writep - css_ptr->overflow_buf, 1, css_ptr->outfile)) {
@@ -101,7 +101,7 @@ boolerr_t force_uncompressed_cswrite(compress_stream_state_t* css_ptr, char** wr
   return 0;
 }
 
-boolerr_t force_compressed_cswrite(compress_stream_state_t* css_ptr, char** writep_ptr) {
+BoolErr ForceCompressedCswrite(CompressStreamState* css_ptr, char** writep_ptr) {
   char* overflow_buf = css_ptr->overflow_buf;
   char* writep = *writep_ptr;
   if (overflow_buf != writep) {
@@ -131,11 +131,11 @@ boolerr_t force_compressed_cswrite(compress_stream_state_t* css_ptr, char** writ
   return 0;
 }
 
-boolerr_t csputs_std(const char* readp, uint32_t byte_ct, compress_stream_state_t* css_ptr, char** writep_ptr) {
+BoolErr CsputsStd(const char* readp, uint32_t byte_ct, CompressStreamState* css_ptr, char** writep_ptr) {
   char* writep = *writep_ptr;
   char* overflow_buf = css_ptr->overflow_buf;
   uint32_t cur_write_space = 2 * kCompressStreamBlock - S_CAST(uintptr_t, writep - overflow_buf);
-  if (is_uncompressed_cswrite(css_ptr)) {
+  if (IsUncompressedCstream(css_ptr)) {
     while (byte_ct > cur_write_space) {
       memcpy(writep, readp, cur_write_space);
       if (!fwrite_unlocked(overflow_buf, 2 * kCompressStreamBlock, 1, css_ptr->outfile)) {
@@ -176,22 +176,22 @@ boolerr_t csputs_std(const char* readp, uint32_t byte_ct, compress_stream_state_
   }
   memcpy(writep, readp, byte_ct);
   *writep_ptr = &(writep[byte_ct]);
-  return cswrite(css_ptr, writep_ptr);
+  return Cswrite(css_ptr, writep_ptr);
 }
 
-boolerr_t uncompressed_cswrite_close_null(compress_stream_state_t* css_ptr, char* writep) {
-  force_uncompressed_cswrite(css_ptr, &writep);
+BoolErr UncompressedCswriteCloseNull(CompressStreamState* css_ptr, char* writep) {
+  ForceUncompressedCswrite(css_ptr, &writep);
   css_ptr->overflow_buf = nullptr;
   int32_t ii = ferror_unlocked(css_ptr->outfile);
   int32_t jj = fclose(css_ptr->outfile);
   return ii || jj;
 }
 
-boolerr_t compressed_cswrite_close_null(compress_stream_state_t* css_ptr, char* writep) {
+BoolErr CompressedCswriteCloseNull(CompressStreamState* css_ptr, char* writep) {
   char* overflow_buf = css_ptr->overflow_buf;
   const uintptr_t in_size = writep - overflow_buf;
   ZSTD_inBuffer input = {overflow_buf, in_size, 0};
-  boolerr_t reterr = 0;
+  BoolErr reterr = 0;
   while (1) {
     size_t retval = ZSTD_compress_generic(css_ptr->cctx, &css_ptr->output, &input, ZSTD_e_end);
     if (ZSTD_isError(retval)) {
@@ -215,11 +215,11 @@ boolerr_t compressed_cswrite_close_null(compress_stream_state_t* css_ptr, char* 
   return reterr || ii || jj;
 }
 
-boolerr_t cswrite_close_null(compress_stream_state_t* css_ptr, char* writep) {
-  if (is_uncompressed_cswrite(css_ptr)) {
-    return uncompressed_cswrite_close_null(css_ptr, writep);
+BoolErr CswriteCloseNull(CompressStreamState* css_ptr, char* writep) {
+  if (IsUncompressedCstream(css_ptr)) {
+    return UncompressedCswriteCloseNull(css_ptr, writep);
   }
-  return compressed_cswrite_close_null(css_ptr, writep);
+  return CompressedCswriteCloseNull(css_ptr, writep);
 }
 
 #ifdef __cplusplus

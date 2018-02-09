@@ -21,11 +21,11 @@
 namespace plink2 {
 #endif
 
-pglerr_t gzopen_read_checked(const char* fname, gzFile* gzf_ptr) {
+PglErr gzopen_read_checked(const char* fname, gzFile* gzf_ptr) {
   *gzf_ptr = gzopen(fname, FOPEN_RB);
   if (!(*gzf_ptr)) {
-    logprint("\n");
-    LOGERRPRINTFWW(g_errstr_fopen, fname);
+    logputs("\n");
+    logerrprintfww(kErrprintfFopen, fname);
     return kPglRetOpenFail;
   }
   if (gzbuffer(*gzf_ptr, 131072)) {
@@ -34,8 +34,8 @@ pglerr_t gzopen_read_checked(const char* fname, gzFile* gzf_ptr) {
   return kPglRetSuccess;
 }
 
-pglerr_t gzopen_and_skip_first_lines(const char* fname, uint32_t lines_to_skip, uintptr_t loadbuf_size, char* loadbuf, gzFile* gzf_ptr) {
-  pglerr_t reterr = gzopen_read_checked(fname, gzf_ptr);
+PglErr GzopenAndSkipFirstLines(const char* fname, uint32_t lines_to_skip, uintptr_t loadbuf_size, char* loadbuf, gzFile* gzf_ptr) {
+  PglErr reterr = gzopen_read_checked(fname, gzf_ptr);
   if (reterr) {
     return reterr;
   }
@@ -43,14 +43,14 @@ pglerr_t gzopen_and_skip_first_lines(const char* fname, uint32_t lines_to_skip, 
   for (uint32_t line_idx = 1; line_idx <= lines_to_skip; ++line_idx) {
     if (!gzgets(*gzf_ptr, loadbuf, loadbuf_size)) {
       if (gzeof(*gzf_ptr)) {
-        LOGERRPRINTFWW("Error: Fewer lines than expected in %s.\n", fname);
+        logerrprintfww("Error: Fewer lines than expected in %s.\n", fname);
         return kPglRetInconsistentInput;
       }
       return kPglRetReadFail;
     }
     if (!loadbuf[loadbuf_size - 1]) {
       if ((loadbuf_size == kMaxMediumLine) || (loadbuf_size == kMaxLongLine)) {
-        LOGERRPRINTFWW("Error: Line %u of %s is pathologically long.\n", line_idx, fname);
+        logerrprintfww("Error: Line %u of %s is pathologically long.\n", line_idx, fname);
         return kPglRetMalformedInput;
       }
       return kPglRetNomem;
@@ -60,26 +60,26 @@ pglerr_t gzopen_and_skip_first_lines(const char* fname, uint32_t lines_to_skip, 
 }
 
 
-void gz_token_stream_preinit(gz_token_stream_t* gtsp) {
+void PreinitGzTokenStream(GzTokenStream* gtsp) {
   gtsp->gz_infile = nullptr;
 }
 
-pglerr_t gz_token_stream_init(const char* fname, gz_token_stream_t* gtsp, char* buf_start) {
-  pglerr_t reterr = gzopen_read_checked(fname, &(gtsp->gz_infile));
+PglErr InitGzTokenStream(const char* fname, GzTokenStream* gtsp, char* buf_start) {
+  PglErr reterr = gzopen_read_checked(fname, &(gtsp->gz_infile));
   if (reterr) {
     return reterr;
   }
   gtsp->buf_start = buf_start;
   gtsp->read_iter = &(buf_start[kMaxMediumLine]);
   gtsp->buf_end = gtsp->read_iter;
-  gtsp->buf_end[0] = '0'; // force initial load
+  gtsp->buf_end[0] = '0';  // force initial load
   return kPglRetSuccess;
 }
 
-char* gz_token_stream_advance(gz_token_stream_t* gtsp, uint32_t* token_slen_ptr) {
+char* AdvanceGzTokenStream(GzTokenStream* gtsp, uint32_t* token_slen_ptr) {
   char* token_start = gtsp->read_iter;
   char* buf_end = gtsp->buf_end;
- gz_token_stream_advance_restart:
+ AdvanceGzTokenStream_restart:
   while (ctou32(*token_start) <= ' ') {
     ++token_start;
   }
@@ -130,12 +130,12 @@ char* gz_token_stream_advance(gz_token_stream_t* gtsp, uint32_t* token_slen_ptr)
       return token_start;
     }
     if (token_start == load_start) {
-      goto gz_token_stream_advance_restart;
+      goto AdvanceGzTokenStream_restart;
     }
   }
 }
 
-boolerr_t gz_token_stream_close(gz_token_stream_t* gtsp) {
+BoolErr CloseGzTokenStream(GzTokenStream* gtsp) {
   if (!gtsp->gz_infile) {
     return 0;
   }

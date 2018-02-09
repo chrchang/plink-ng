@@ -47,15 +47,15 @@ FLAGSET_DEF_START()
   kfAdjustColFdrby = (1 << 17),
   kfAdjustColDefault = (kfAdjustColChrom | kfAdjustColUnadj | kfAdjustColGc | kfAdjustColBonf | kfAdjustColHolm | kfAdjustColSidakss | kfAdjustColSidaksd | kfAdjustColFdrbh | kfAdjustColFdrby),
   kfAdjustColAll = ((kfAdjustColFdrby * 2) - kfAdjustColChrom)
-FLAGSET_DEF_END(adjust_flags_t);
+FLAGSET_DEF_END(AdjustFlags);
 
 typedef struct adjust_info_struct {
-  adjust_flags_t flags;
+  AdjustFlags flags;
   double lambda;
-} adjust_info_t;
+} AdjustInfo;
 
 typedef struct adjust_file_info_struct {
-  adjust_info_t base;
+  AdjustInfo base;
   char* fname;
   char* test_name;
   char* chr_field;
@@ -66,15 +66,15 @@ typedef struct adjust_file_info_struct {
   char* test_field;
   char* p_field;
   char* chisq_field;
-} adjust_file_info_t;
+} AdjustFileInfo;
 
-void init_adjust(adjust_info_t* adjust_info_ptr, adjust_file_info_t* adjust_file_info_ptr);
+void InitAdjust(AdjustInfo* adjust_info_ptr, AdjustFileInfo* adjust_file_info_ptr);
 
-void cleanup_adjust(adjust_file_info_t* adjust_file_info_ptr);
+void CleanupAdjust(AdjustFileInfo* adjust_file_info_ptr);
 
-pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const char* const* chr_ids, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const adjust_info_t* adjust_info_ptr, const double* pvals, const double* chisqs, uint32_t orig_variant_ct, uint32_t max_allele_slen, double pfilter, double output_min_p, uint32_t skip_gc, uint32_t max_thread_ct, char* outname, char* outname_end);
+PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char* const* chr_ids, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const AdjustInfo* adjust_info_ptr, const double* pvals, const double* chisqs, uint32_t orig_variant_ct, uint32_t max_allele_slen, double pfilter, double output_min_p, uint32_t skip_gc, uint32_t max_thread_ct, char* outname, char* outname_end);
 
-pglerr_t adjust_file(const adjust_file_info_t* afip, double pfilter, double output_min_p, uint32_t max_thread_ct, char* outname, char* outname_end);
+PglErr AdjustFile(const AdjustFileInfo* afip, double pfilter, double output_min_p, uint32_t max_thread_ct, char* outname, char* outname_end);
 
 #ifdef __cplusplus
 } // namespace plink2

@@ -58,7 +58,7 @@
 // - Bitarrays and 'quaterarrays' (packed arrays of 2-bit elements, such as a
 //   row of a plink 1.x .bed file) are usually uintptr_t*, to encourage
 //   word-at-a-time iteration without requiring vector-alignment.  Quite a few
-//   low-level library functions cast them to vul_t*; as mentioned above, the
+//   low-level library functions cast them to VecUL*; as mentioned above, the
 //   affected function parameter names should end in 'vec' to document the
 //   alignment requirements.
 // - A buffer/iterator expected to contain only UTF-8 text should be char*.
@@ -74,7 +74,7 @@
 // - void* return values should be restricted to generic pointers which are
 //   *not* expected to be subject to pointer arithmetic.  void* as input
 //   parameter type should only be used when there are at least two equally
-//   valid input types, NOT counting vul_t*.
+//   valid input types, NOT counting VecUL*.
 
 
 // The -Wshorten-64-to-32 diagnostic forces the code to be cluttered with
@@ -86,13 +86,13 @@
 // out on the few occasions where inappropriate silent truncation is suspected.
 #ifdef __APPLE__
   // todo: explicitly detect clang vs. gcc
-  #pragma clang diagnostic ignored "-Wshorten-64-to-32"
+#  pragma clang diagnostic ignored "-Wshorten-64-to-32"
 #endif
 
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 201
+#define PLINK2_BASE_VERNUM 300
 
 
 #define _FILE_OFFSET_BITS 64
@@ -122,7 +122,7 @@
 
 #ifdef __LP64__
 #  ifndef __SSE2__
-    // todo: remove this requirement, the 32-bit vul_t-using code does most of
+    // todo: remove this requirement, the 32-bit VecUL-using code does most of
     // what we need
 #    error "64-bit builds currently require SSE2.  Try producing a 32-bit build instead."
 #  endif
@@ -158,6 +158,11 @@ namespace plink2 {
 
 #ifdef __cplusplus
 #  define HEADER_INLINE inline
+// Previously went on a wild constexpr spree, but now these are mostly unused.
+// Reserve for cases where (i) there's a clear constant-initialization use case
+// for an imaginable downstream program (I'm looking at you, DivUp() and
+// RoundUpPow2()...), or (ii) it allows a useful static_assert to be inserted
+// for a hardcoded constant.
 #  if __cplusplus >= 201103L
 #    define HEADER_CINLINE constexpr
 #    define CSINLINE static constexpr
@@ -248,21 +253,21 @@ HEADER_INLINE uint64_t ctou64(char cc) {
 
 // Error return types.  All of these evaluate to true on error and false on
 // success, but otherwise they have slightly different semantics:
-// * pglerr_t is the general-purpose enum.  Unlike an enum, implicit conversion
+// * PglErr is the general-purpose enum.  Unlike an enum, implicit conversion
 //   *to* int, not just from int, is prevented by the C++11 compiler (and the
 //   C++11-compiler-validated code still works under C99).  (To achieve this
 //   additional safety, we engage in a bit of code duplication which would be
 //   unreasonable for flagsets.)
 //   Explicit cast to uint32_t, but not int32_t, is supported, to reflect the
 //   fact that all error codes are positive.
-// * boolerr_t allows implicit conversion from int, but conversion back to
+// * BoolErr allows implicit conversion from int, but conversion back to
 //   uint32_t requires an explicit cast.  (It should always be 0/1-valued, but
 //   this isn't enforced by the compiler.)
-// * interr_t allows implicit conversion from int, but conversion back to
+// * IntErr allows implicit conversion from int, but conversion back to
 //   int32_t requires an explicit cast.  It mainly serves as a holding pen for
 //   C standard library error return values, which can be negative.
 #if __cplusplus >= 201103L
-struct pglerr_t {
+struct PglErr {
   enum class ec
 #else
 typedef enum
@@ -292,11 +297,11 @@ typedef enum
 #if __cplusplus >= 201103L
   ;
 
-  pglerr_t() {}
+  PglErr() {}
 
-  pglerr_t(const pglerr_t& source) : value_(source.value_) {}
+  PglErr(const PglErr& source) : value_(source.value_) {}
 
-  pglerr_t(ec source) : value_(source) {}
+  PglErr(ec source) : value_(source) {}
 
   operator ec() const {
     return value_;
@@ -314,26 +319,26 @@ private:
   ec value_;
 };
 
-const pglerr_t kPglRetSuccess = pglerr_t::ec::kPglRetSuccess;
-const pglerr_t kPglRetSkipped = pglerr_t::ec::kPglRetSkipped;
-const pglerr_t kPglRetNomem = pglerr_t::ec::kPglRetNomem;
-const pglerr_t kPglRetOpenFail = pglerr_t::ec::kPglRetOpenFail;
-const pglerr_t kPglRetReadFail = pglerr_t::ec::kPglRetReadFail;
-const pglerr_t kPglRetWriteFail = pglerr_t::ec::kPglRetWriteFail;
-const pglerr_t kPglRetMalformedInput = pglerr_t::ec::kPglRetMalformedInput;
-const pglerr_t kPglRetInconsistentInput = pglerr_t::ec::kPglRetInconsistentInput;
-const pglerr_t kPglRetInvalidCmdline = pglerr_t::ec::kPglRetInvalidCmdline;
-const pglerr_t kPglRetHelp = pglerr_t::ec::kPglRetHelp;
-const pglerr_t kPglRetThreadCreateFail = pglerr_t::ec::kPglRetThreadCreateFail;
-const pglerr_t kPglRetNetworkFail = pglerr_t::ec::kPglRetNetworkFail;
-const pglerr_t kPglRetSampleMajorBed = pglerr_t::ec::kPglRetSampleMajorBed;
-const pglerr_t kPglRetWarningErrcode = pglerr_t::ec::kPglRetWarningErrcode;
-const pglerr_t kPglRetImproperFunctionCall = pglerr_t::ec::kPglRetImproperFunctionCall;
-const pglerr_t kPglRetNotYetSupported = pglerr_t::ec::kPglRetNotYetSupported;
-const pglerr_t kPglRetLongLine = pglerr_t::ec::kPglRetLongLine;
-const pglerr_t kPglRetEmptyFile = pglerr_t::ec::kPglRetEmptyFile;
+const PglErr kPglRetSuccess = PglErr::ec::kPglRetSuccess;
+const PglErr kPglRetSkipped = PglErr::ec::kPglRetSkipped;
+const PglErr kPglRetNomem = PglErr::ec::kPglRetNomem;
+const PglErr kPglRetOpenFail = PglErr::ec::kPglRetOpenFail;
+const PglErr kPglRetReadFail = PglErr::ec::kPglRetReadFail;
+const PglErr kPglRetWriteFail = PglErr::ec::kPglRetWriteFail;
+const PglErr kPglRetMalformedInput = PglErr::ec::kPglRetMalformedInput;
+const PglErr kPglRetInconsistentInput = PglErr::ec::kPglRetInconsistentInput;
+const PglErr kPglRetInvalidCmdline = PglErr::ec::kPglRetInvalidCmdline;
+const PglErr kPglRetHelp = PglErr::ec::kPglRetHelp;
+const PglErr kPglRetThreadCreateFail = PglErr::ec::kPglRetThreadCreateFail;
+const PglErr kPglRetNetworkFail = PglErr::ec::kPglRetNetworkFail;
+const PglErr kPglRetSampleMajorBed = PglErr::ec::kPglRetSampleMajorBed;
+const PglErr kPglRetWarningErrcode = PglErr::ec::kPglRetWarningErrcode;
+const PglErr kPglRetImproperFunctionCall = PglErr::ec::kPglRetImproperFunctionCall;
+const PglErr kPglRetNotYetSupported = PglErr::ec::kPglRetNotYetSupported;
+const PglErr kPglRetLongLine = PglErr::ec::kPglRetLongLine;
+const PglErr kPglRetEmptyFile = PglErr::ec::kPglRetEmptyFile;
 #else
-  pglerr_t;
+  PglErr;
 #endif
 
 #if __cplusplus >= 201103L
@@ -343,10 +348,10 @@ const pglerr_t kPglRetEmptyFile = pglerr_t::ec::kPglRetEmptyFile;
 // built-in bool type does too many things we don't want...
 
 // expected to be integer-valued, but not necessarily 0/1 or positive
-struct interr_t {
-  interr_t() {}
+struct IntErr {
+  IntErr() {}
 
-  interr_t(int32_t source) : value_(source) {}
+  IntErr(int32_t source) : value_(source) {}
 
   explicit operator int32_t() const {
     return static_cast<int32_t>(value_);
@@ -361,10 +366,10 @@ private:
 };
 
 // expected to be 0/1-valued
-struct boolerr_t {
-  boolerr_t() {}
+struct BoolErr {
+  BoolErr() {}
 
-  boolerr_t(uint32_t source) : value_(source) {}
+  BoolErr(uint32_t source) : value_(source) {}
 
   explicit operator uint32_t() const {
     return static_cast<uint32_t>(value_);
@@ -378,8 +383,8 @@ private:
   uint32_t value_;
 };
 #else
-  typedef int32_t interr_t;
-  typedef uint32_t boolerr_t;
+typedef int32_t IntErr;
+typedef uint32_t BoolErr;
 #endif
 
 // make this work on 32-bit as well as 64-bit systems, across
@@ -545,82 +550,82 @@ static const uintptr_t k1LU = S_CAST(uintptr_t, 1);
 
 #ifdef __LP64__
 #  ifdef USE_AVX2
-    CONSTU31(kBytesPerVec, 32);
+CONSTU31(kBytesPerVec, 32);
 
-    // 16 still seems to noticeably outperform 32 on my Mac test machine, and
-    // is about equal on my Linux test machine, but libraries (and my AVX2
-    // code...) for the latter should improve over time.  Define FVEC_32 once
-    // it's time to switch over.
-    // #define FVEC_32
+// 16 still seems to noticeably outperform 32 on my Mac test machine, and
+// is about equal on my Linux test machine, but libraries (and my AVX2
+// code...) for the latter should improve over time.  Define FVEC_32 once
+// it's time to switch over.
+// #define FVEC_32
 
-    // bleah, have to define these here, vector_size doesn't see enum values
-    typedef uintptr_t vul_t __attribute__ ((vector_size (32)));
-    typedef short vs_t __attribute__ ((vector_size (32)));
-    typedef char vc_t __attribute__ ((vector_size (32)));
+// bleah, have to define these here, vector_size doesn't see enum values
+typedef uintptr_t VecUL __attribute__ ((vector_size (32)));
+typedef short VecS __attribute__ ((vector_size (32)));
+typedef char VecC __attribute__ ((vector_size (32)));
 #  else
-    CONSTU31(kBytesPerVec, 16);
-    typedef uintptr_t vul_t __attribute__ ((vector_size (16)));
-    typedef short vs_t __attribute__ ((vector_size (16)));
-    typedef char vc_t __attribute__ ((vector_size (16)));
+CONSTU31(kBytesPerVec, 16);
+typedef uintptr_t VecUL __attribute__ ((vector_size (16)));
+typedef short VecS __attribute__ ((vector_size (16)));
+typedef char VecC __attribute__ ((vector_size (16)));
 #  endif
-  CONSTU31(kBitsPerWord, 64);
-  CONSTU31(kBitsPerWordLog2, 6);
+CONSTU31(kBitsPerWord, 64);
+CONSTU31(kBitsPerWordLog2, 6);
 
-  typedef uint32_t halfword_t;
-  typedef uint16_t quarterword_t;
+typedef uint32_t Halfword;
+typedef uint16_t Quarterword;
 
 #  ifdef USE_AVX2
-    // todo: check if _mm256_set1_... makes a difference, and if yes, which
-    // direction
+// todo: check if _mm256_set1_... makes a difference, and if yes, which
+// direction
 #    define VCONST_UL(xx) {xx, xx, xx, xx}
 #    define VCONST_S(xx) {xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx}
 #    define VCONST_C(xx) {xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx}
-#    define vul_setzero() R_CAST(vul_t, _mm256_setzero_si256())
-#    define vul_rshift(vv, ct) R_CAST(vul_t, _mm256_srli_epi64(R_CAST(__m256i, vv), ct))
-#    define vul_lshift(vv, ct) R_CAST(vul_t, _mm256_slli_epi64(R_CAST(__m256i, vv), ct))
+#    define vecul_setzero() R_CAST(VecUL, _mm256_setzero_si256())
+#    define vecul_srli(vv, ct) R_CAST(VecUL, _mm256_srli_epi64(R_CAST(__m256i, vv), ct))
+#    define vecul_slli(vv, ct) R_CAST(VecUL, _mm256_slli_epi64(R_CAST(__m256i, vv), ct))
 #  else
 #    define VCONST_UL(xx) {xx, xx}
 #    define VCONST_S(xx) {xx, xx, xx, xx, xx, xx, xx, xx}
 #    define VCONST_C(xx) {xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx}
-    // vv = VCONST_UL(k0LU) doesn't work (only ok for initialization)
-#    define vul_setzero() R_CAST(vul_t, _mm_setzero_si128())
-    // "vv >> ct" doesn't work, and Scientific Linux gcc 4.4 might not optimize
-    // VCONST_UL shift properly (todo: test this)
-#    define vul_rshift(vv, ct) R_CAST(vul_t, _mm_srli_epi64(R_CAST(__m128i, vv), ct))
-#    define vul_lshift(vv, ct) R_CAST(vul_t, _mm_slli_epi64(R_CAST(__m128i, vv), ct))
+// vv = VCONST_UL(k0LU) doesn't work (only ok for initialization)
+#    define vecul_setzero() R_CAST(VecUL, _mm_setzero_si128())
+// "vv >> ct" doesn't work, and Scientific Linux gcc 4.4 might not optimize
+// VCONST_UL shift properly (todo: test this)
+#    define vecul_srli(vv, ct) R_CAST(VecUL, _mm_srli_epi64(R_CAST(__m128i, vv), ct))
+#    define vecul_slli(vv, ct) R_CAST(VecUL, _mm_slli_epi64(R_CAST(__m128i, vv), ct))
 #  endif
 
 #  ifdef FVEC_32
 #    ifndef __FMA__
 #      error "32-byte-float-vector builds require FMA3 as well."
 #    endif
-    CONSTU31(kBytesPerFVec, 32);
-    typedef float vf_t __attribute__ ((vector_size (32)));
+CONSTU31(kBytesPerFVec, 32);
+typedef float VecF __attribute__ ((vector_size (32)));
 #    define VCONST_F(xx) {xx, xx, xx, xx, xx, xx, xx, xx}
-#    define vf_setzero() R_CAST(vf_t, _mm256_setzero_ps())
+#    define vecf_setzero() R_CAST(VecF, _mm256_setzero_ps())
 #  else
-    CONSTU31(kBytesPerFVec, 16);
-    typedef float vf_t __attribute__ ((vector_size (16)));
+CONSTU31(kBytesPerFVec, 16);
+typedef float VecF __attribute__ ((vector_size (16)));
 #    define VCONST_F(xx) {xx, xx, xx, xx}
-#    define vf_setzero() R_CAST(vf_t, _mm_setzero_ps())
+#    define vecf_setzero() R_CAST(VecF, _mm_setzero_ps())
 #  endif
 #else // not __LP64__
-  CONSTU31(kBytesPerVec, 4);
-  CONSTU31(kBytesPerFVec, 4);
-  CONSTU31(kBitsPerWord, 32);
-  CONSTU31(kBitsPerWordLog2, 5);
+CONSTU31(kBytesPerVec, 4);
+CONSTU31(kBytesPerFVec, 4);
+CONSTU31(kBitsPerWord, 32);
+CONSTU31(kBitsPerWordLog2, 5);
 
-  typedef uint16_t halfword_t;
-  typedef uint8_t quarterword_t;
+typedef uint16_t Halfword;
+typedef uint8_t Quarterword;
 
-  typedef uintptr_t vul_t;
-  typedef float vf_t;
-  // vs_t and vc_t aren't worth the trouble of scaling down to 32-bit
+typedef uintptr_t VecUL;
+typedef float VecF;
+// VecS and VecC aren't worth the trouble of scaling down to 32-bit
 
 #  define VCONST_UL(xx) (xx)
-#  define vul_setzero() k0LU
-#  define vul_rshift(vv, ct) ((vv) >> (ct))
-#  define vul_lshift(vv, ct) ((vv) << (ct))
+#  define vecul_setzero() k0LU
+#  define vecul_srli(vv, ct) ((vv) >> (ct))
+#  define vecul_slli(vv, ct) ((vv) << (ct))
 #endif
 
 // Unfortunately, we need to spell out S_CAST(uintptr_t, 0) instead of just
@@ -689,21 +694,21 @@ static_assert(kPglFnamesize >= PATH_MAX, "plink2_base assumes PATH_MAX <= 4096. 
 
 
 typedef union {
-  vul_t vi;
+  VecUL vi;
 
   // not actually 8 bytes in 32-bit builds, probably want to rename
   uintptr_t u8[kWordsPerVec];
 
   uint32_t u4[kInt32PerVec];
-} univec_t;
+} UniVec;
 
 typedef union {
-  vf_t vf;
+  VecF vf;
   float f4[kFloatPerFVec];
-} univecf_t;
+} UniVecF;
 
 // sum must fit in 16 bits
-HEADER_CINLINE uintptr_t univec_hsum_16bit(univec_t uv) {
+HEADER_INLINE uintptr_t UniVecHsum16(UniVec uv) {
 #ifdef __LP64__
 #  ifdef USE_AVX2
   return ((uv.u8[0] + uv.u8[1] + uv.u8[2] + uv.u8[3]) * kMask0001) >> 48;
@@ -716,7 +721,7 @@ HEADER_CINLINE uintptr_t univec_hsum_16bit(univec_t uv) {
 }
 
 // sum must fit in 32 bits
-HEADER_CINLINE uintptr_t univec_hsum_32bit(univec_t uv) {
+HEADER_INLINE uintptr_t UniVecHsum32(UniVec uv) {
 #ifdef __LP64__
 #  ifdef USE_AVX2
   return ((uv.u8[0] + uv.u8[1] + uv.u8[2] + uv.u8[3]) * kMask00000001) >> 32;
@@ -728,8 +733,8 @@ HEADER_CINLINE uintptr_t univec_hsum_32bit(univec_t uv) {
 #endif
 }
 
-HEADER_INLINE float vf_hsum(vf_t vecf) {
-  univecf_t uvf;
+HEADER_INLINE float VecFHsum(VecF vecf) {
+  UniVecF uvf;
   uvf.vf = vecf;
 #ifdef __LP64__
 #  ifdef FVEC_32
@@ -744,16 +749,16 @@ HEADER_INLINE float vf_hsum(vf_t vecf) {
 }
 
 #ifdef USE_AVX2
-HEADER_INLINE uintptr_t unpack_halfword_to_word(uintptr_t hw) {
+HEADER_INLINE uintptr_t UnpackHalfwordToWord(uintptr_t hw) {
   return _pdep_u64(hw, kMask5555);
 }
 
-HEADER_INLINE halfword_t pack_word_to_halfword(uintptr_t ww) {
+HEADER_INLINE Halfword PackWordToHalfword(uintptr_t ww) {
   // Assumes only even bits of ww can be set.
   return _pext_u64(ww, kMask5555);
 }
 #else // !USE_AVX2
-HEADER_CINLINE2 uintptr_t unpack_halfword_to_word(uintptr_t hw) {
+HEADER_INLINE uintptr_t UnpackHalfwordToWord(uintptr_t hw) {
 #  ifdef __LP64__
   hw = (hw | (hw << 16)) & kMask0000FFFF;
 #  endif
@@ -763,7 +768,7 @@ HEADER_CINLINE2 uintptr_t unpack_halfword_to_word(uintptr_t hw) {
   return ((hw | (hw << 1)) & kMask5555);
 }
 
-HEADER_CINLINE2 halfword_t pack_word_to_halfword(uintptr_t ww) {
+HEADER_INLINE Halfword PackWordToHalfword(uintptr_t ww) {
   // assumes only even bits of ww can be set
   ww = (ww | (ww >> 1)) & kMask3333;
   ww = (ww | (ww >> 2)) & kMask0F0F;
@@ -771,22 +776,22 @@ HEADER_CINLINE2 halfword_t pack_word_to_halfword(uintptr_t ww) {
 #  ifdef __LP64__
   ww = (ww | (ww >> 8)) & kMask0000FFFF;
 #  endif
-  return S_CAST(halfword_t, ww | (ww >> kBitsPerWordD4));
+  return S_CAST(Halfword, ww | (ww >> kBitsPerWordD4));
 }
 #endif // !USE_AVX2
 
 // alignment must be a power of 2
-// tried splitting out round_down_pow2_ui() and _up_pow2_ui() functions, no
+// tried splitting out RoundDownPow2U32() and RoundUpPow2U32() functions, no
 // practical difference
-HEADER_CINLINE uintptr_t round_down_pow2(uintptr_t val, uintptr_t alignment) {
+HEADER_CINLINE uintptr_t RoundDownPow2(uintptr_t val, uintptr_t alignment) {
   return val & (~(alignment - 1));
 }
 
-HEADER_CINLINE uint64_t round_down_pow2_ull(uint64_t val, uint64_t alignment) {
+HEADER_CINLINE uint64_t RoundDownPow2U64(uint64_t val, uint64_t alignment) {
   return val & (~(alignment - 1));
 }
 
-HEADER_CINLINE uintptr_t round_up_pow2(uintptr_t val, uintptr_t alignment) {
+HEADER_CINLINE uintptr_t RoundUpPow2(uintptr_t val, uintptr_t alignment) {
   return (val + alignment - 1) & (~(alignment - 1));
 }
 
@@ -796,20 +801,30 @@ HEADER_CINLINE uintptr_t round_up_pow2(uintptr_t val, uintptr_t alignment) {
 // and val is guaranteed to be nonzero, go with explicit
 // "1 + (val - 1) / divisor".
 //
-// Thought about conditional use of constexpr here, but that has annoying
-// integer-widening effects.  Unless we split the use cases into DIV_UP,
-// DIVL_UP, and DIV64_UP; this may be worth doing at some point.
 // Note that this fails if (val + divisor - 1) overflows the widest integer
 // type on the left.
-#define DIV_UP(val, divisor) (((val) + (divisor) - 1) / (divisor))
+//
+// Since forced-uint32_t RoundDownPow2 was pointless, it stands to reason that
+// the same applies to DivUp.  With that said, we may as well make divisor a
+// uint32_t just in case this ever gets used on a not-known-at-compile-time
+// divisor, since 64/64 can be slower than 64/32.
+HEADER_CINLINE uintptr_t DivUp(uintptr_t val, uint32_t divisor) {
+  return (val + divisor - 1) / divisor;
+}
 
-// "NZ" means nonzero in two ways:
+HEADER_CINLINE uint64_t DivUpU64(uint64_t val, uint32_t divisor) {
+  return (val + divisor - 1) / divisor;
+}
+
+// "Nz" means nonzero in two ways:
 // * result is in [1, modulus], not [0, modulus - 1]
 // * val should not be zero (though this expression still works if val is zero
 //   and modulus is a hardcoded power of 2)
-#define MOD_NZ(val, modulus) (1 + (((val) - 1) % (modulus)))
+HEADER_INLINE uint32_t ModNz(uintptr_t val, uint32_t modulus) {
+  return (1 + ((val - 1) % modulus));
+}
 
-HEADER_CINLINE2 uint32_t abs_int32(int32_t ii) {
+HEADER_INLINE uint32_t abs_i32(int32_t ii) {
   const uint32_t neg_sign_bit = -(S_CAST(uint32_t, ii) >> 31);
   return (S_CAST(uint32_t, ii) ^ neg_sign_bit) - neg_sign_bit;
 }
@@ -822,11 +837,11 @@ extern uintptr_t g_failed_alloc_attempt_size;
 // optimizations, bleah
 // compromise: header-inline iff gcc version >= 4.7 (might not be the right
 // cutoff?)
-boolerr_t pgl_malloc(uintptr_t size, void* pp);
+BoolErr pgl_malloc(uintptr_t size, void* pp);
 #else
 // Unfortunately, defining the second parameter to be of type void** doesn't do
 // the right thing.
-HEADER_INLINE boolerr_t pgl_malloc(uintptr_t size, void* pp) {
+HEADER_INLINE BoolErr pgl_malloc(uintptr_t size, void* pp) {
   *S_CAST(unsigned char**, pp) = S_CAST(unsigned char*, malloc(size));
   if (*S_CAST(unsigned char**, pp)) {
     return 0;
@@ -839,14 +854,14 @@ HEADER_INLINE boolerr_t pgl_malloc(uintptr_t size, void* pp) {
 // This must be used for all fwrite() calls where len could be >= 2^31, since
 // OS X raw fwrite() doesn't work in that case.
 static_assert(sizeof(size_t) == sizeof(intptr_t), "plink2_base assumes size_t and intptr_t are synonymous.");
-boolerr_t fwrite_checked(const void* buf, uintptr_t len, FILE* outfile);
+BoolErr fwrite_checked(const void* buf, uintptr_t len, FILE* outfile);
 
 // Only use this if loading < len bytes is not an error.
-// interr_t fread_checked2(void* buf, uintptr_t len, FILE* infile, uintptr_t* bytes_read_ptr);
+// IntErr fread_checked2(void* buf, uintptr_t len, FILE* infile, uintptr_t* bytes_read_ptr);
 
-boolerr_t fread_checked(void* buf, uintptr_t len, FILE* infile);
+BoolErr fread_checked(void* buf, uintptr_t len, FILE* infile);
 
-HEADER_INLINE boolerr_t fclose_null(FILE** fptr_ptr) {
+HEADER_INLINE BoolErr fclose_null(FILE** fptr_ptr) {
   int32_t ii = ferror_unlocked(*fptr_ptr);
   int32_t jj = fclose(*fptr_ptr);
   *fptr_ptr = nullptr;
@@ -861,61 +876,62 @@ HEADER_INLINE boolerr_t fclose_null(FILE** fptr_ptr) {
 // * Like atoi(), this considereds the number to be terminated by *any*
 //   nondigit character.  E.g. "1000genomes" is treated as a valid instance of
 //   1000 rather than a nonnumeric token, and "98.6" is treated as 98.  (See
-//   scanmov_posint_capped(), scanmov_uint_capped(), etc. in plink2_common if
+//   ScanmovPosintCapped(), ScanmovUintCapped(), etc. in plink2_common if
 //   you want strtol-like semantics, where the pointer is advanced.)
 // * Errors out on overflow.  This may be the biggest advantage over atoi().
-boolerr_t scan_posint_capped(const char* str_iter, uint64_t cap, uint32_t* valp);
+BoolErr ScanPosintCapped(const char* str_iter, uint64_t cap, uint32_t* valp);
 
 // [0, cap]
-boolerr_t scan_uint_capped(const char* str_iter, uint64_t cap, uint32_t* valp);
+BoolErr ScanUintCapped(const char* str_iter, uint64_t cap, uint32_t* valp);
 
 // [-bound, bound]
-boolerr_t scan_int_abs_bounded(const char* str_iter, uint64_t bound, int32_t* valp);
+BoolErr ScanIntAbsBounded(const char* str_iter, uint64_t bound, int32_t* valp);
 #else // not __LP64__
 // Need to be more careful in 32-bit case due to overflow.
 // A funny-looking div_10/mod_10 interface is used since the cap will usually
 // be a constant, and we want the integer division/modulus to occur at compile
 // time.
-boolerr_t scan_posint_capped32(const char* str_iter, uint32_t cap_div_10, uint32_t cap_mod_10, uint32_t* valp);
+BoolErr ScanPosintCapped32(const char* str_iter, uint32_t cap_div_10, uint32_t cap_mod_10, uint32_t* valp);
 
-boolerr_t scan_uint_capped32(const char* str_iter, uint32_t cap_div_10, uint32_t cap_mod_10, uint32_t* valp);
+BoolErr ScanUintCapped32(const char* str_iter, uint32_t cap_div_10, uint32_t cap_mod_10, uint32_t* valp);
 
-boolerr_t scan_int_abs_bounded32(const char* str_iter, uint32_t bound_div_10, uint32_t bound_mod_10, int32_t* valp);
+BoolErr ScanIntAbsBounded32(const char* str_iter, uint32_t bound_div_10, uint32_t bound_mod_10, int32_t* valp);
 
-HEADER_INLINE boolerr_t scan_posint_capped(const char* str, uint32_t cap, uint32_t* valp) {
-  return scan_posint_capped32(str, cap / 10, cap % 10, valp);
+HEADER_INLINE BoolErr ScanPosintCapped(const char* str, uint32_t cap, uint32_t* valp) {
+  return ScanPosintCapped32(str, cap / 10, cap % 10, valp);
 }
 
-HEADER_INLINE boolerr_t scan_uint_capped(const char* str, uint32_t cap, uint32_t* valp) {
-  return scan_uint_capped32(str, cap / 10, cap % 10, valp);
+HEADER_INLINE BoolErr ScanUintCapped(const char* str, uint32_t cap, uint32_t* valp) {
+  return ScanUintCapped32(str, cap / 10, cap % 10, valp);
 }
 
-HEADER_INLINE boolerr_t scan_int_abs_bounded(const char* str, uint32_t bound, int32_t* valp) {
-  return scan_int_abs_bounded32(str, bound / 10, bound % 10, valp);
+HEADER_INLINE BoolErr ScanIntAbsBounded(const char* str, uint32_t bound, int32_t* valp) {
+  return ScanIntAbsBounded32(str, bound / 10, bound % 10, valp);
 }
 #endif
 
 
 // intentionally rejects -2^31 for now
-HEADER_INLINE boolerr_t scan_int32(const char* str, int32_t* valp) {
-  return scan_int_abs_bounded(str, 0x7fffffff, valp);
+// (that's a reason why this doesn't have the shorter name 'ScanI32')
+HEADER_INLINE BoolErr ScanInt32(const char* str, int32_t* valp) {
+  return ScanIntAbsBounded(str, 0x7fffffff, valp);
 }
 
 // default cap = 0x7ffffffe
-HEADER_INLINE boolerr_t scan_posint_defcap(const char* str, uint32_t* valp) {
-  return scan_posint_capped(str, 0x7ffffffe, valp);
+HEADER_INLINE BoolErr ScanPosintDefcap(const char* str, uint32_t* valp) {
+  return ScanPosintCapped(str, 0x7ffffffe, valp);
 }
 
-HEADER_INLINE boolerr_t scan_uint_defcap(const char* str, uint32_t* valp) {
-  return scan_uint_capped(str, 0x7ffffffe, valp);
+HEADER_INLINE BoolErr ScanUintDefcap(const char* str, uint32_t* valp) {
+  return ScanUintCapped(str, 0x7ffffffe, valp);
 }
 
-HEADER_INLINE boolerr_t scan_int_abs_defcap(const char* str, int32_t* valp) {
-  return scan_int_abs_bounded(str, 0x7ffffffe, valp);
+HEADER_INLINE BoolErr ScanIntAbsDefcap(const char* str, int32_t* valp) {
+  return ScanIntAbsBounded(str, 0x7ffffffe, valp);
 }
 
-HEADER_INLINE boolerr_t scan_uint_icap(const char* str, uint32_t* valp) {
-  return scan_uint_capped(str, 0x7fffffff, valp);
+HEADER_INLINE BoolErr ScanUintIcap(const char* str, uint32_t* valp) {
+  return ScanUintCapped(str, 0x7fffffff, valp);
 }
 
 
@@ -933,39 +949,63 @@ HEADER_INLINE char* memcpya(void* __restrict target, const void* __restrict sour
   return &(S_CAST(char*, target)[ct]);
 }
 
-// See remarks above on DIV_UP and constexpr.
-#define BITCT_TO_VECCT(val) DIV_UP(val, kBitsPerVec)
-#define BITCT_TO_WORDCT(val) DIV_UP(val, kBitsPerWord)
-#define BITCT_TO_ALIGNED_WORDCT(val) (kWordsPerVec * BITCT_TO_VECCT(val))
-#define BITCT_TO_CLCT(val) DIV_UP(val, kBitsPerCacheline)
+HEADER_CINLINE uintptr_t BitCtToVecCt(uintptr_t val) {
+  return DivUp(val, kBitsPerVec);
+}
 
-// more verbose than (val + 3) / 4, but may as well make semantic meaning
-// obvious; any explicit DIV_UP(val, 4) expressions should have a different
-// meaning
-// (not needed for bitct -> bytect, DIV_UP(val, CHAR_BIT) is clear enough)
-#define QUATERCT_TO_BYTECT(val) DIV_UP(val, 4)
+HEADER_CINLINE uintptr_t BitCtToWordCt(uintptr_t val) {
+  return DivUp(val, kBitsPerWord);
+}
 
-#define QUATERCT_TO_VECCT(val) DIV_UP(val, kQuatersPerVec)
-#define QUATERCT_TO_WORDCT(val) DIV_UP(val, kBitsPerWordD2)
-#define QUATERCT_TO_ALIGNED_WORDCT(val) (kWordsPerVec * QUATERCT_TO_VECCT(val))
-#define QUATERCT_TO_CLCT(val) DIV_UP(val, kQuatersPerCacheline)
+HEADER_CINLINE uintptr_t BitCtToAlignedWordCt(uintptr_t val) {
+  return kWordsPerVec * BitCtToVecCt(val);
+}
 
+HEADER_CINLINE uintptr_t BitCtToCachelineCt(uintptr_t val) {
+  return DivUp(val, kBitsPerCacheline);
+}
 
-#define INT32CT_TO_VECCT(val) DIV_UP(val, kInt32PerVec)
-#define INT32CT_TO_CLCT(val) DIV_UP(val, kInt32PerCacheline)
+HEADER_CINLINE uintptr_t Int32CtToVecCt(uintptr_t val) {
+  return DivUp(val, kInt32PerVec);
+}
 
-#define WORDCT_TO_VECCT(val) DIV_UP(val, kWordsPerVec)
-#define WORDCT_TO_CLCT(val) DIV_UP(val, kWordsPerCacheline)
+HEADER_CINLINE uintptr_t Int32CtToCachelineCt(uintptr_t val) {
+  return DivUp(val, kInt32PerCacheline);
+}
+
+HEADER_CINLINE uintptr_t WordCtToVecCt(uintptr_t val) {
+  return DivUp(val, kWordsPerVec);
+}
+
+HEADER_CINLINE uintptr_t WordCtToCachelineCtU64(uintptr_t val) {
+  return DivUpU64(val, kWordsPerCacheline);
+}
 
 #ifdef __LP64__
-#  define INT64CT_TO_VECCT(val) DIV_UP(val, kBytesPerVec / 8)
+HEADER_CINLINE uintptr_t Int64CtToVecCt(uintptr_t val) {
+  return DivUp(val, kBytesPerVec / 8);
+}
 #else
-#  define INT64CT_TO_VECCT(val) ((val) * 2)
+HEADER_CINLINE uintptr_t Int64CtToVecCt(uintptr_t val) {
+  return val * 2;
+}
 #endif
-#define INT64CT_TO_CLCT(val) DIV_UP(val, kInt64PerCacheline)
-#define DBLCT_TO_VECCT INT64CT_TO_VECCT
 
-#define VECCT_TO_CLCT(val) DIV_UP(val, kVecsPerCacheline)
+HEADER_CINLINE uintptr_t Int64CtToCachelineCt(uintptr_t val) {
+  return DivUp(val, kInt64PerCacheline);
+}
+
+HEADER_CINLINE uintptr_t DblCtToVecCt(uintptr_t val) {
+  return Int64CtToVecCt(val);
+}
+
+HEADER_CINLINE uintptr_t VecCtToCachelineCt(uintptr_t val) {
+  return DivUp(val, kVecsPerCacheline);
+}
+
+HEADER_CINLINE uintptr_t VecCtToCachelineCtU64(uintptr_t val) {
+  return DivUpU64(val, kVecsPerCacheline);
+}
 
 // C++11 standard guarantees std::min and std::max return leftmost minimum in
 // case of equality; best to adhere to that
@@ -975,37 +1015,30 @@ HEADER_INLINE char* memcpya(void* __restrict target, const void* __restrict sour
 #define MAXV(aa, bb) (((bb) > (aa))? (bb) : (aa))
 #define MINV(aa, bb) (((bb) < (aa))? (bb) : (aa))
 
-#define GET_QUATERARR_ENTRY(ulptr, idx) (((ulptr)[(idx) / kBitsPerWordD2] >> (2 * ((idx) % kBitsPerWordD2))) & 3)
-#define ASSIGN_QUATERARR_ENTRY(idx, newval, ulptr) (ulptr)[(idx) / kBitsPerWordD2] = ((ulptr)[(idx) / kBitsPerWordD2] & (~((3 * k1LU) << (2 * ((idx) % kBitsPerWordD2))))) | (S_CAST(uintptr_t, (newval)) << (2 * ((idx) % kBitsPerWordD2)))
-// todo: check if ASSIGN_QUATERARR_ENTRY optimizes newval=0 out
-#define CLEAR_QUATERARR_ENTRY(idx, ulptr) (ulptr)[(idx) / kBitsPerWordD2] &= ~((3 * k1LU) << (idx % kBitsPerWordD2))
 
-#define GET_HEXADECARR_ENTRY(ulptr, idx) (((ulptr)[(idx) / kBitsPerWordD4] >> (4 * ((idx) % kBitsPerWordD4))) & 15)
-
-
-// don't use pglerr_t here since there's only one failure mode, it's
+// don't use PglErr here since there's only one failure mode, it's
 // obvious what it is, and stacking multiple aligned_mallocs in a single
 // if-statement is useful.
-boolerr_t aligned_malloc(uintptr_t size, uintptr_t alignment, void* aligned_pp);
+BoolErr aligned_malloc(uintptr_t size, uintptr_t alignment, void* aligned_pp);
 
 // ok for ct == 0
-void fill_all_bits(uintptr_t ct, uintptr_t* bitarr);
+void SetAllBits(uintptr_t ct, uintptr_t* bitarr);
 
-void bitvec_and(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec);
+void BitvecAnd(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec);
 
-void bitvec_andnot(const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec);
+void BitvecAndNot(const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec);
 
-uint32_t next_set_unsafe(const uintptr_t* bitarr, uint32_t loc);
+uintptr_t NextSetUnsafe(const uintptr_t* bitarr, uintptr_t loc);
 
-uint32_t next_unset_unsafe(const uintptr_t* bitarr, uint32_t loc);
+uintptr_t NextUnsetUnsafe(const uintptr_t* bitarr, uintptr_t loc);
 
-// uint32_t next_nonmissing_unsafe(const uintptr_t* genoarr, uint32_t loc);
+// uintptr_t NextNonmissingUnsafe(const uintptr_t* genoarr, uintptr_t loc);
 
-uint32_t next_set(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil);
+uint32_t NextSet(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil);
 
-uint32_t prev_set_unsafe(const uintptr_t* bitarr, uint32_t loc);
+uint32_t PrevSetUnsafe(const uintptr_t* bitarr, uint32_t loc);
 
-HEADER_INLINE uint32_t are_all_words_zero(const uintptr_t* word_arr, uintptr_t word_ct) {
+HEADER_INLINE uint32_t AllWordsAreZero(const uintptr_t* word_arr, uintptr_t word_ct) {
   while (word_ct--) {
     if (*word_arr++) {
       return 0;
@@ -1014,7 +1047,7 @@ HEADER_INLINE uint32_t are_all_words_zero(const uintptr_t* word_arr, uintptr_t w
   return 1;
 }
 
-HEADER_INLINE uint32_t are_all_bits_one(const uintptr_t* bitarr, uintptr_t bit_ct) {
+HEADER_INLINE uint32_t AllBitsAreOne(const uintptr_t* bitarr, uintptr_t bit_ct) {
   const uintptr_t fullword_ct = bit_ct / kBitsPerWord;
   for (uintptr_t widx = 0; widx < fullword_ct; ++widx) {
     if (~(bitarr[widx])) {
@@ -1026,38 +1059,38 @@ HEADER_INLINE uint32_t are_all_bits_one(const uintptr_t* bitarr, uintptr_t bit_c
 }
 
 #ifdef USE_SSE42
-HEADER_CINLINE uint32_t popcount2_long(uintptr_t val) {
+HEADER_CINLINE uint32_t QuatersumWord(uintptr_t val) {
   return __builtin_popcountll(val) + __builtin_popcountll(val & kMaskAAAA);
 }
 #else
-HEADER_CINLINE2 uint32_t popcount2_long(uintptr_t val) {
+HEADER_CINLINE2 uint32_t QuatersumWord(uintptr_t val) {
   val = (val & kMask3333) + ((val >> 2) & kMask3333);
   return (((val + (val >> 4)) & kMask0F0F) * kMask0101) >> (kBitsPerWord - 8);
 }
 #endif
 
 // the simple version, good enough for all non-time-critical stuff
-// (without SSE4.2, popcount_longs() tends to be >3x as fast on arrays.  with
+// (without SSE4.2, PopcountWords() tends to be >3x as fast on arrays.  with
 // SSE4.2 but no AVX2, there's no noticeable difference.  with AVX2,
-// popcount_longs() gains another factor of 1.5-2x.)
+// PopcountWords() gains another factor of 1.5-2x.)
 #ifdef USE_SSE42
-HEADER_CINLINE uint32_t popcount_long(uintptr_t val) {
+HEADER_CINLINE uint32_t PopcountWord(uintptr_t val) {
   return __builtin_popcountll(val);
 }
 #else
-HEADER_CINLINE2 uint32_t popcount_long(uintptr_t val) {
+HEADER_CINLINE2 uint32_t PopcountWord(uintptr_t val) {
   // Sadly, this was still faster than the clang implementation of the
   // intrinsic as of 2016.
-  return popcount2_long(val - ((val >> 1) & kMask5555));
+  return QuatersumWord(val - ((val >> 1) & kMask5555));
 }
 #endif
 
 #ifdef USE_SSE42
-HEADER_CINLINE uint32_t popcount_2_longs(uintptr_t val0, uintptr_t val1) {
+HEADER_CINLINE uint32_t Popcount2Words(uintptr_t val0, uintptr_t val1) {
   return __builtin_popcountll(val0) + __builtin_popcountll(val1);
 }
 #else
-HEADER_CINLINE2 uint32_t popcount_2_longs(uintptr_t val0, uintptr_t val1) {
+HEADER_CINLINE2 uint32_t Popcount2Words(uintptr_t val0, uintptr_t val1) {
   val0 -= (val0 >> 1) & kMask5555;
   val1 -= (val1 >> 1) & kMask5555;
   const uintptr_t four_bit = (val0 & kMask3333) + ((val0 >> 2) & kMask3333) + (val1 & kMask3333) + ((val1 >> 2) & kMask3333);
@@ -1067,7 +1100,7 @@ HEADER_CINLINE2 uint32_t popcount_2_longs(uintptr_t val0, uintptr_t val1) {
 #endif
 
 #ifndef __LP64__
-HEADER_CINLINE2 uint32_t popcount_4_longs(uintptr_t val0, uintptr_t val1, uintptr_t val2, uintptr_t val3) {
+HEADER_CINLINE2 uint32_t Popcount4Words(uintptr_t val0, uintptr_t val1, uintptr_t val2, uintptr_t val3) {
   val0 -= (val0 >> 1) & kMask5555;
   val1 -= (val1 >> 1) & kMask5555;
   val2 -= (val2 >> 1) & kMask5555;
@@ -1078,9 +1111,11 @@ HEADER_CINLINE2 uint32_t popcount_4_longs(uintptr_t val0, uintptr_t val1, uintpt
 }
 #endif
 
-#define IS_VEC_ALIGNED(ptr) (!(R_CAST(uintptr_t, ptr) % kBytesPerVec))
+HEADER_INLINE uint32_t IsVecAligned(const void* ptr) {
+  return !(R_CAST(uintptr_t, ptr) % kBytesPerVec);
+}
 
-// Updated popcount_longs() code is based on
+// Updated PopcountWords() code is based on
 // https://github.com/kimwalisch/libpopcnt .  libpopcnt license text follows.
 
 /*
@@ -1115,14 +1150,14 @@ HEADER_CINLINE2 uint32_t popcount_4_longs(uintptr_t val0, uintptr_t val1, uintpt
  */
 
 #ifdef USE_AVX2
-HEADER_INLINE vul_t csa256(vul_t bb, vul_t cc, vul_t* lp) {
-  const vul_t aa = *lp;
-  const vul_t uu = aa ^ bb;
+HEADER_INLINE VecUL Csa256(VecUL bb, VecUL cc, VecUL* lp) {
+  const VecUL aa = *lp;
+  const VecUL uu = aa ^ bb;
   *lp = uu ^ cc;
   return (aa & bb) | (uu & cc);
 }
 
-HEADER_INLINE vul_t popcount_avx2_single(vul_t vv) {
+HEADER_INLINE VecUL PopcountVecAvx2(VecUL vv) {
   const __m256i vi = R_CAST(__m256i, vv);
   __m256i lookup1 = _mm256_setr_epi8(
                                      4, 5, 5, 6, 5, 6, 6, 7,
@@ -1144,58 +1179,58 @@ HEADER_INLINE vul_t popcount_avx2_single(vul_t vv) {
   __m256i popcnt1 = _mm256_shuffle_epi8(lookup1, lo);
   __m256i popcnt2 = _mm256_shuffle_epi8(lookup2, hi);
 
-  return R_CAST(vul_t, _mm256_sad_epu8(popcnt1, popcnt2));
+  return R_CAST(VecUL, _mm256_sad_epu8(popcnt1, popcnt2));
 }
 
-HEADER_INLINE uint64_t hsum64(vul_t vv) {
-  univec_t vu;
+HEADER_INLINE uint64_t Hsum64(VecUL vv) {
+  UniVec vu;
   vu.vi = vv;
   return vu.u8[0] + vu.u8[1] + vu.u8[2] + vu.u8[3];
   // return _mm256_extract_epi64((__m256i)vv, 0) + _mm256_extract_epi64((__m256i)vv, 1) + _mm256_extract_epi64((__m256i)vv, 2) + _mm256_extract_epi64((__m256i)vv, 3);
 }
 
 // assumes vec_ct is a multiple of 16
-uintptr_t popcount_avx2(const vul_t* bit_vvec, uintptr_t vec_ct);
+uintptr_t PopcountVecsAvx2(const VecUL* bit_vvec, uintptr_t vec_ct);
 
-HEADER_INLINE uintptr_t popcount_longs(const uintptr_t* bitvec, uintptr_t word_ct) {
+HEADER_INLINE uintptr_t PopcountWords(const uintptr_t* bitvec, uintptr_t word_ct) {
   // Efficiently popcounts bitvec[0..(word_ct - 1)].  In the 64-bit case,
   // bitvec[] must be 16-byte aligned.
-  // The popcount_longs_nzbase() wrapper takes care of starting from a later
+  // The PopcountWordsNzbase() wrapper takes care of starting from a later
   // index.
   uintptr_t tot = 0;
   if (word_ct >= (16 * kWordsPerVec)) {
-    assert(IS_VEC_ALIGNED(bitvec));
+    assert(IsVecAligned(bitvec));
     const uintptr_t remainder = word_ct % (16 * kWordsPerVec);
     const uintptr_t main_block_word_ct = word_ct - remainder;
-    tot = popcount_avx2(R_CAST(const vul_t*, bitvec), main_block_word_ct / kWordsPerVec);
+    tot = PopcountVecsAvx2(R_CAST(const VecUL*, bitvec), main_block_word_ct / kWordsPerVec);
     word_ct = remainder;
     bitvec = &(bitvec[main_block_word_ct]);
   }
   // todo: check if libpopcnt manual-4x-unroll makes a difference on any test
   // machine (I'd prefer to trust the compiler to take care of that...)
   for (uintptr_t trailing_word_idx = 0; trailing_word_idx < word_ct; ++trailing_word_idx) {
-    tot += popcount_long(bitvec[trailing_word_idx]);
+    tot += PopcountWord(bitvec[trailing_word_idx]);
   }
   return tot;
 }
 #else // !USE_AVX2
 // assumes vec_ct is a multiple of 3
-uintptr_t popcount_vecs_old(const vul_t* bit_vvec, uintptr_t vec_ct);
+uintptr_t PopcountVecsNoSse42(const VecUL* bit_vvec, uintptr_t vec_ct);
 
-HEADER_INLINE uintptr_t popcount_longs(const uintptr_t* bitvec, uintptr_t word_ct) {
+HEADER_INLINE uintptr_t PopcountWords(const uintptr_t* bitvec, uintptr_t word_ct) {
   uintptr_t tot = 0;
 #  ifndef USE_SSE42
   if (word_ct >= (3 * kWordsPerVec)) {
-    assert(IS_VEC_ALIGNED(bitvec));
+    assert(IsVecAligned(bitvec));
     const uintptr_t remainder = word_ct % (3 * kWordsPerVec);
     const uintptr_t main_block_word_ct = word_ct - remainder;
-    tot = popcount_vecs_old(R_CAST(const vul_t*, bitvec), main_block_word_ct / kWordsPerVec);
+    tot = PopcountVecsNoSse42(R_CAST(const VecUL*, bitvec), main_block_word_ct / kWordsPerVec);
     word_ct = remainder;
     bitvec = &(bitvec[main_block_word_ct]);
   }
 #  endif
   for (uintptr_t trailing_word_idx = 0; trailing_word_idx < word_ct; ++trailing_word_idx) {
-    tot += popcount_long(bitvec[trailing_word_idx]);
+    tot += PopcountWord(bitvec[trailing_word_idx]);
   }
   return tot;
 }
@@ -1206,7 +1241,7 @@ HEADER_INLINE uintptr_t popcount_longs(const uintptr_t* bitvec, uintptr_t word_c
 //
 // ct must be less than sizeof(intptr_t).  ct == 0 handled correctly, albeit
 // inefficiently.
-HEADER_INLINE uintptr_t nonfull_word_load(const void* bytearr, uint32_t ct) {
+HEADER_INLINE uintptr_t ProperSubwordLoad(const void* bytearr, uint32_t ct) {
   const unsigned char* bytearr_iter = S_CAST(const unsigned char*, bytearr);
   bytearr_iter = &(bytearr_iter[ct]);
   uintptr_t cur_word = 0;
@@ -1232,15 +1267,15 @@ HEADER_INLINE uintptr_t nonfull_word_load(const void* bytearr, uint32_t ct) {
   return cur_word;
 }
 
-HEADER_INLINE uintptr_t partial_word_load(const void* bytearr, uint32_t ct) {
+HEADER_INLINE uintptr_t SubwordLoad(const void* bytearr, uint32_t ct) {
   if (ct == kBytesPerWord) {
     return *S_CAST(const uintptr_t*, bytearr);
   }
-  return nonfull_word_load(bytearr, ct);
+  return ProperSubwordLoad(bytearr, ct);
 }
 
 // ct must be in 1..4.
-HEADER_INLINE uint32_t partial_uint_load(const void* bytearr, uint32_t ct) {
+HEADER_INLINE uint32_t SubUintLoad(const void* bytearr, uint32_t ct) {
   if (ct & 1) {
     const unsigned char* bytearr_iter = S_CAST(const unsigned char*, bytearr);
     uint32_t cur_uint = *bytearr_iter;
@@ -1257,7 +1292,7 @@ HEADER_INLINE uint32_t partial_uint_load(const void* bytearr, uint32_t ct) {
 }
 
 // tried making this non-inline, loop took more than 50% longer
-HEADER_INLINE void nonfull_word_store(uintptr_t cur_word, uint32_t byte_ct, void* target) {
+HEADER_INLINE void ProperSubwordStore(uintptr_t cur_word, uint32_t byte_ct, void* target) {
   unsigned char* target_iter = S_CAST(unsigned char*, target);
   if (byte_ct & 1) {
     *target_iter++ = cur_word;
@@ -1279,26 +1314,26 @@ HEADER_INLINE void nonfull_word_store(uintptr_t cur_word, uint32_t byte_ct, void
 #endif
 }
 
-HEADER_INLINE void nonfull_word_store_mov(uintptr_t cur_word, uint32_t byte_ct, unsigned char** targetp) {
-  nonfull_word_store(cur_word, byte_ct, *targetp);
+HEADER_INLINE void ProperSubwordStoreMov(uintptr_t cur_word, uint32_t byte_ct, unsigned char** targetp) {
+  ProperSubwordStore(cur_word, byte_ct, *targetp);
   *targetp += byte_ct;
 }
 
-HEADER_INLINE void partial_word_store(uintptr_t cur_word, uint32_t byte_ct, void* target) {
+HEADER_INLINE void SubwordStore(uintptr_t cur_word, uint32_t byte_ct, void* target) {
   if (byte_ct == kBytesPerWord) {
     *S_CAST(uintptr_t*, target) = cur_word;
     return;
   }
-  nonfull_word_store(cur_word, byte_ct, target);
+  ProperSubwordStore(cur_word, byte_ct, target);
 }
 
-HEADER_INLINE void partial_word_store_mov(uintptr_t cur_word, uint32_t byte_ct, unsigned char** targetp) {
-  partial_word_store(cur_word, byte_ct, *targetp);
+HEADER_INLINE void SubwordStoreMov(uintptr_t cur_word, uint32_t byte_ct, unsigned char** targetp) {
+  SubwordStore(cur_word, byte_ct, *targetp);
   *targetp += byte_ct;
 }
 
 // byte_ct must be in 1..4.
-HEADER_INLINE void partial_uint_store(uint32_t cur_uint, uint32_t byte_ct, void* target) {
+HEADER_INLINE void SubUintStore(uint32_t cur_uint, uint32_t byte_ct, void* target) {
   if (byte_ct & 1) {
     unsigned char* target_iter = S_CAST(unsigned char*, target);
     *target_iter = cur_uint;
@@ -1316,8 +1351,8 @@ HEADER_INLINE void partial_uint_store(uint32_t cur_uint, uint32_t byte_ct, void*
   return;
 }
 
-HEADER_INLINE void partial_uint_store_mov(uint32_t cur_uint, uint32_t byte_ct, unsigned char** targetp) {
-  partial_uint_store(cur_uint, byte_ct, *targetp);
+HEADER_INLINE void SubUintStoreMov(uint32_t cur_uint, uint32_t byte_ct, unsigned char** targetp) {
+  SubUintStore(cur_uint, byte_ct, *targetp);
   *targetp += byte_ct;
 }
 
@@ -1326,18 +1361,20 @@ HEADER_INLINE void partial_uint_store_mov(uint32_t cur_uint, uint32_t byte_ct, u
 // vs. word_ct := 1 + (entry_ct / kBitsPerWord)
 // (this is a source of bugs, though; interface should probably be changed to
 // use entry_ct once multiallelic/dosage implementation is done)
-void fill_cumulative_popcounts(const uintptr_t* subset_mask, uint32_t word_ct, uint32_t* cumulative_popcounts);
+void FillCumulativePopcounts(const uintptr_t* subset_mask, uint32_t word_ct, uint32_t* cumulative_popcounts);
 
-void uidxs_to_idxs(const uintptr_t* subset_mask, const uint32_t* subset_cumulative_popcounts, const uint32_t idx_list_len, uint32_t* idx_list);
+// If idx_list is a list of valid unfiltered indexes, this converts them
+// in-place to corresponding filtered indexes.
+void UidxsToIdxs(const uintptr_t* subset_mask, const uint32_t* subset_cumulative_popcounts, const uint32_t idx_list_len, uint32_t* idx_list);
 
 
-HEADER_INLINE boolerr_t vecaligned_malloc(uintptr_t size, void* aligned_pp) {
+HEADER_INLINE BoolErr vecaligned_malloc(uintptr_t size, void* aligned_pp) {
 #ifdef USE_AVX2
   return aligned_malloc(size, kBytesPerVec, aligned_pp);
 #else
 #  if defined(__APPLE__) || !defined(__LP64__)
-  const boolerr_t ret_boolerr = pgl_malloc(size, aligned_pp);
-  assert(IS_VEC_ALIGNED(*S_CAST(uintptr_t**, aligned_pp)));
+  const BoolErr ret_boolerr = pgl_malloc(size, aligned_pp);
+  assert(IsVecAligned(*S_CAST(uintptr_t**, aligned_pp)));
   return ret_boolerr;
 #  else
   return aligned_malloc(size, kBytesPerVec, aligned_pp);
@@ -1345,7 +1382,7 @@ HEADER_INLINE boolerr_t vecaligned_malloc(uintptr_t size, void* aligned_pp) {
 #endif
 }
 
-HEADER_INLINE boolerr_t cachealigned_malloc(uintptr_t size, void* aligned_pp) {
+HEADER_INLINE BoolErr cachealigned_malloc(uintptr_t size, void* aligned_pp) {
   return aligned_malloc(size, kCacheline, aligned_pp);
 }
 
@@ -1400,53 +1437,60 @@ HEADER_INLINE void vecaligned_free_cond(void* aligned_ptr) {
 
 // now compiling with gcc >= 4.4 (or clang equivalent) on all platforms, so
 // safe to use memset everywhere
-HEADER_INLINE void fill_uint_zero(uintptr_t entry_ct, uint32_t* uiarr) {
+HEADER_INLINE void ZeroUiArr(uintptr_t entry_ct, uint32_t* uiarr) {
   memset(uiarr, 0, entry_ct * sizeof(int32_t));
 }
 
-HEADER_INLINE void fill_ulong_zero(uintptr_t entry_ct, uintptr_t* ularr) {
+HEADER_INLINE void ZeroUlArr(uintptr_t entry_ct, uintptr_t* ularr) {
   memset(ularr, 0, entry_ct * sizeof(intptr_t));
 }
 
-HEADER_INLINE void fill_ull_zero(uintptr_t entry_ct, uint64_t* ullarr) {
+HEADER_INLINE void ZeroU64Arr(uintptr_t entry_ct, uint64_t* ullarr) {
   memset(ullarr, 0, entry_ct * sizeof(int64_t));
 }
 
-HEADER_INLINE void fill_ulong_one(uintptr_t entry_ct, uintptr_t* ularr) {
+HEADER_INLINE void SetAllUlArr(uintptr_t entry_ct, uintptr_t* ularr) {
+  // todo: test this against memset(, 255, ) and manually vectorized loop
   for (uintptr_t idx = 0; idx < entry_ct; ++idx) {
     ularr[idx] = ~k0LU;
   }
 }
 
-#define IS_SET(ulptr, idx) (((ulptr)[(idx) / kBitsPerWord] >> ((idx) % kBitsPerWord)) & 1)
+HEADER_INLINE uintptr_t IsSet(const uintptr_t* bitarr, uintptr_t idx) {
+  return (bitarr[idx / kBitsPerWord] >> (idx % kBitsPerWord)) & 1;
+}
 
-#define SET_BIT(idx, arr) ((arr)[(idx) / kBitsPerWord] |= k1LU << ((idx) % kBitsPerWord))
+HEADER_INLINE void SetBit(uintptr_t idx, uintptr_t* bitarr) {
+  bitarr[idx / kBitsPerWord] |= k1LU << (idx % kBitsPerWord);
+}
 
-#define CLEAR_BIT(idx, arr) ((arr)[(idx) / kBitsPerWord] &= ~(k1LU << ((idx) % kBitsPerWord)))
+HEADER_INLINE void ClearBit(uintptr_t idx, uintptr_t* bitarr) {
+  bitarr[idx / kBitsPerWord] &= ~(k1LU << (idx % kBitsPerWord));
+}
 
-HEADER_INLINE void assign_bit(uintptr_t idx, uintptr_t newbit, uintptr_t* arr) {
+HEADER_INLINE void AssignBit(uintptr_t idx, uintptr_t newbit, uintptr_t* bitarr) {
   const uintptr_t inv_mask = k1LU << (idx % kBitsPerWord);
-  uintptr_t* cur_word_ptr = &(arr[idx / kBitsPerWord]);
+  uintptr_t* cur_word_ptr = &(bitarr[idx / kBitsPerWord]);
   *cur_word_ptr = ((*cur_word_ptr) & (~inv_mask)) | (inv_mask * newbit);
 }
 
-HEADER_INLINE void next_set_unsafe_ck(const uintptr_t* __restrict bitarr, uint32_t* __restrict loc_ptr) {
-  if (!IS_SET(bitarr, *loc_ptr)) {
-    *loc_ptr = next_set_unsafe(bitarr, *loc_ptr);
+HEADER_INLINE void NextSetUnsafeCk32(const uintptr_t* __restrict bitarr, uint32_t* __restrict loc_ptr) {
+  if (!IsSet(bitarr, *loc_ptr)) {
+    *loc_ptr = NextSetUnsafe(bitarr, *loc_ptr);
   }
 }
 
-HEADER_INLINE void next_unset_unsafe_ck(const uintptr_t* __restrict bitarr, uint32_t* __restrict loc_ptr) {
-  if (IS_SET(bitarr, *loc_ptr)) {
-    *loc_ptr = next_unset_unsafe(bitarr, *loc_ptr);
+HEADER_INLINE void NextUnsetUnsafeCk32(const uintptr_t* __restrict bitarr, uint32_t* __restrict loc_ptr) {
+  if (IsSet(bitarr, *loc_ptr)) {
+    *loc_ptr = NextUnsetUnsafe(bitarr, *loc_ptr);
   }
 }
 
 // todo: test this against extracting a nonmissing bitarr first
 /*
-HEADER_INLINE void next_nonmissing_unsafe_ck(const uintptr_t* __restrict genoarr, uint32_t* __restrict loc_ptr) {
-  if (GET_QUATERARR_ENTRY(genoarr, *loc_ptr) == 3) {
-    *loc_ptr = next_nonmissing_unsafe(genoarr, *loc_ptr);
+HEADER_INLINE void NextNonmissingUnsafeCk32(const uintptr_t* __restrict genoarr, uint32_t* __restrict loc_ptr) {
+  if (GetQuaterarrEntry(genoarr, *loc_ptr) == 3) {
+    *loc_ptr = NextNonmissingUnsafe(genoarr, *loc_ptr);
   }
 }
 */
@@ -1467,56 +1511,56 @@ HEADER_INLINE uintptr_t bzhi_max(uintptr_t ww, uint32_t idx) {
 // instruction under -mbmi and regular code is more readable.
 
 // Equivalent to popcount_bit_idx(subset_mask, 0, raw_idx).
-HEADER_INLINE uint32_t raw_to_subsetted_pos(const uintptr_t* subset_mask, const uint32_t* subset_cumulative_popcounts, uint32_t raw_idx) {
+HEADER_INLINE uint32_t RawToSubsettedPos(const uintptr_t* subset_mask, const uint32_t* subset_cumulative_popcounts, uint32_t raw_idx) {
   // this should be much better than keeping a uidx_to_idx array!
   // (update: there are more compact indexes, but postpone for now, this is
   // is nice and simple and gets us most of what we need.)
   const uint32_t raw_widx = raw_idx / kBitsPerWord;
-  return subset_cumulative_popcounts[raw_widx] + popcount_long(bzhi(subset_mask[raw_widx], raw_idx % kBitsPerWord));
+  return subset_cumulative_popcounts[raw_widx] + PopcountWord(bzhi(subset_mask[raw_widx], raw_idx % kBitsPerWord));
 }
 
-HEADER_INLINE void zero_trailing_bits(uintptr_t bit_ct, uintptr_t* bitarr) {
-  uint32_t trail_ct = bit_ct % kBitsPerWord;
+HEADER_INLINE void ZeroTrailingBits(uintptr_t bit_ct, uintptr_t* bitarr) {
+  const uint32_t trail_ct = bit_ct % kBitsPerWord;
   if (trail_ct) {
     bitarr[bit_ct / kBitsPerWord] = bzhi(bitarr[bit_ct / kBitsPerWord], trail_ct);
   }
 }
 
 // requires nonzero uii
-HEADER_CINLINE uint32_t bytes_to_represent_ui(uint32_t uii) {
+HEADER_CINLINE uint32_t BytesToRepresentUi(uint32_t uii) {
   return (4 - (__builtin_clz(uii) / CHAR_BIT));
 }
 
 #ifdef __LP64__
-HEADER_INLINE void zero_trailing_words(uint32_t word_ct, uintptr_t* bitvec) {
+HEADER_INLINE void ZeroTrailingWords(uint32_t word_ct, uintptr_t* bitvec) {
   const uint32_t remainder = word_ct % kWordsPerVec;
   if (remainder) {
-    fill_ulong_zero(kWordsPerVec - remainder, &(bitvec[word_ct]));
+    ZeroUlArr(kWordsPerVec - remainder, &(bitvec[word_ct]));
   }
 }
 #else
-HEADER_INLINE void zero_trailing_words(__maybe_unused uint32_t word_ct, __maybe_unused uintptr_t* bitvec) {
+HEADER_INLINE void ZeroTrailingWords(__maybe_unused uint32_t word_ct, __maybe_unused uintptr_t* bitvec) {
 }
 #endif
 
-void copy_bitarr_subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t subset_size, uintptr_t* __restrict output_bitarr);
+void CopyBitarrSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t subset_size, uintptr_t* __restrict output_bitarr);
 
 // expand_size + read_start_bit must be positive.
-void expand_bytearr(const void* __restrict compact_bitarr, const uintptr_t* __restrict expand_mask, uint32_t word_ct, uint32_t expand_size, uint32_t read_start_bit, uintptr_t* __restrict target);
+void ExpandBytearr(const void* __restrict compact_bitarr, const uintptr_t* __restrict expand_mask, uint32_t word_ct, uint32_t expand_size, uint32_t read_start_bit, uintptr_t* __restrict target);
 
-// equivalent to calling expand_bytearr() followed by copy_bitarr_subset()
-void expand_then_subset_bytearr(const void* __restrict compact_bitarr, const uintptr_t* __restrict expand_mask, const uintptr_t* __restrict subset_mask, uint32_t expand_size, uint32_t subset_size, uint32_t read_start_bit, uintptr_t* __restrict target);
+// equivalent to calling ExpandBytearr() followed by CopyBitarrSubset()
+void ExpandThenSubsetBytearr(const void* __restrict compact_bitarr, const uintptr_t* __restrict expand_mask, const uintptr_t* __restrict subset_mask, uint32_t expand_size, uint32_t subset_size, uint32_t read_start_bit, uintptr_t* __restrict target);
 
 // mid_popcount must be positive
-void expand_bytearr_nested(const void* __restrict compact_bitarr, const uintptr_t* __restrict mid_bitarr, const uintptr_t* __restrict top_expand_mask, uint32_t word_ct, uint32_t mid_popcount, uint32_t mid_start_bit, uintptr_t* __restrict mid_target, uintptr_t* __restrict compact_target);
+void ExpandBytearrNested(const void* __restrict compact_bitarr, const uintptr_t* __restrict mid_bitarr, const uintptr_t* __restrict top_expand_mask, uint32_t word_ct, uint32_t mid_popcount, uint32_t mid_start_bit, uintptr_t* __restrict mid_target, uintptr_t* __restrict compact_target);
 
 // mid_popcount must be positive
 // if mid_start_bit == 1, mid_popcount should not include that bit
-void expand_then_subset_bytearr_nested(const void* __restrict compact_bitarr, const uintptr_t* __restrict mid_bitarr, const uintptr_t* __restrict top_expand_mask, const uintptr_t* __restrict subset_mask, uint32_t subset_size, uint32_t mid_popcount, uint32_t mid_start_bit, uintptr_t* __restrict mid_target, uintptr_t* __restrict compact_target);
+void ExpandThenSubsetBytearrNested(const void* __restrict compact_bitarr, const uintptr_t* __restrict mid_bitarr, const uintptr_t* __restrict top_expand_mask, const uintptr_t* __restrict subset_mask, uint32_t subset_size, uint32_t mid_popcount, uint32_t mid_start_bit, uintptr_t* __restrict mid_target, uintptr_t* __restrict compact_target);
 
 // these don't read past the end of bitarr
-uintptr_t popcount_bytes(const unsigned char* bitarr, uintptr_t byte_ct);
-uintptr_t popcount_bytes_masked(const unsigned char* bitarr, const uintptr_t* mask_arr, uintptr_t byte_ct);
+uintptr_t PopcountBytes(const unsigned char* bitarr, uintptr_t byte_ct);
+uintptr_t PopcountBytesMasked(const unsigned char* bitarr, const uintptr_t* mask_arr, uintptr_t byte_ct);
 
 
 // transpose_quaterblock(), which is more plink-specific, is in
@@ -1526,7 +1570,7 @@ CONSTU31(kPglBitTransposeWords, kWordsPerCacheline);
 // * Up to 512x512; vecaligned_buf must have size 32k (64k in 32-bit case)
 //   (er, can reduce buffer size to 512 bytes in 64-bit case...)
 // * write_iter must be allocated up to at least
-//   round_up_pow2(write_batch_size, 2) rows
+//   RoundUpPow2(write_batch_size, 2) rows
 // * We use pointers with different types to read from and write to buf0/buf1,
 //   so defining the base type as unsigned char* is theoretically necessary to
 //   avoid breaking strict-aliasing rules, while the restrict qualifiers should
@@ -1534,21 +1578,21 @@ CONSTU31(kPglBitTransposeWords, kWordsPerCacheline);
 //   the buffers screwing with reads from the other.
 #ifdef __LP64__
 CONSTU31(kPglBitTransposeBufbytes, kPglBitTransposeBatch);
-void transpose_bitblock_internal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, void* buf0);
+void TransposeBitblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, void* buf0);
 
-HEADER_INLINE void transpose_bitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, vul_t* vecaligned_buf) {
-  transpose_bitblock_internal(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, vecaligned_buf);
+HEADER_INLINE void TransposeBitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecUL* vecaligned_buf) {
+  TransposeBitblockInternal(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, vecaligned_buf);
 }
 
 #else // !__LP64__
 CONSTU31(kPglBitTransposeBufbytes, (kPglBitTransposeBatch * kPglBitTransposeBatch) / (CHAR_BIT / 2));
-void transpose_bitblock_internal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, vul_t* __restrict buf0, vul_t* __restrict buf1);
+void TransposeBitblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecUL* __restrict buf0, VecUL* __restrict buf1);
 
 // If this ever needs to be called on an input byte array, read_iter could be
 // changed to const void*; in that case, read_ul_stride should be changed to a
 // byte count.
-HEADER_INLINE void transpose_bitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, vul_t* vecaligned_buf) {
-  transpose_bitblock_internal(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, vecaligned_buf, &(vecaligned_buf[kPglBitTransposeBufbytes / (2 * kBytesPerWord)]));
+HEADER_INLINE void TransposeBitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecUL* vecaligned_buf) {
+  TransposeBitblockInternal(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, vecaligned_buf, &(vecaligned_buf[kPglBitTransposeBufbytes / (2 * kBytesPerWord)]));
 }
 #endif
 
@@ -1574,7 +1618,7 @@ CONSTU31(kPglBitTransposeBufwords, kPglBitTransposeBufbytes / kBytesPerWord);
 //   because the C99 and C++03 specs do not provide enough control over the
 //   enum base type to make it safe for the enum to serve as the flagset type.
 // * Implicit conversion to int is not prevented for now, since I'm trying to
-//   keep pglerr_t-style code duplication to a minimum.
+//   keep PglErr-style code duplication to a minimum.
 #if __cplusplus >= 201103L
 
   // could avoid the typedef here, but that leads to a bit more verbosity.

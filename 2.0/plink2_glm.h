@@ -49,7 +49,7 @@ FLAGSET_DEF_START()
   kfGlmConditionRecessive = (1 << 15),
   kfGlmLocalOmitLast = (1 << 16),
   kfGlmTestsAll = (1 << 17)
-FLAGSET_DEF_END(glm_flags_t);
+FLAGSET_DEF_END(GlmFlags);
 
 FLAGSET_DEF_START()
   kfGlmCol0,
@@ -81,31 +81,31 @@ FLAGSET_DEF_START()
   kfGlmColP = (1 << 22),
   kfGlmColDefault = (kfGlmColChrom | kfGlmColPos | kfGlmColRef | kfGlmColAlt | kfGlmColFirthYn | kfGlmColTest | kfGlmColNobs | kfGlmColOrbeta | kfGlmColSe | kfGlmColCi | kfGlmColT | kfGlmColP),
   kfGlmColAll = ((kfGlmColCi * 2) - kfGlmColChrom)
-FLAGSET_DEF_END(glm_cols_t);
+FLAGSET_DEF_END(GlmColFlags);
 
 typedef struct glm_info_struct {
-  glm_flags_t flags;
-  glm_cols_t cols;
+  GlmFlags flags;
+  GlmColFlags cols;
   uint32_t mperm_ct;
   uint32_t local_cat_ct;
   double max_corr;
   char* condition_varname;
   char* condition_list_fname;
-  range_list_t parameters_range_list;
-  range_list_t tests_range_list;
-} glm_info_t;
+  RangeList parameters_range_list;
+  RangeList tests_range_list;
+} GlmInfo;
 
-void init_glm(glm_info_t* glm_info_ptr);
+void InitGlm(GlmInfo* glm_info_ptr);
 
-void cleanup_glm(glm_info_t* glm_info_ptr);
+void CleanupGlm(GlmInfo* glm_info_ptr);
 
 // for testing purposes
 // plink2_matrix.h must be included in this file
-// boolerr_t logistic_regression(const float* yy, const float* xx, uint32_t sample_ct, uint32_t predictor_ct, float* coef, float* ll, float* pp, float* vv, float* hh, float* grad, float* dcoef);
+// BoolErr LogisticRegression(const float* yy, const float* xx, uint32_t sample_ct, uint32_t predictor_ct, float* coef, float* ll, float* pp, float* vv, float* hh, float* grad, float* dcoef);
 
-// boolerr_t firth_regression(const float* yy, const float* xx, uint32_t sample_ct, uint32_t predictor_ct, float* coef, float* hh, matrix_finvert_buf1_t* inv_1d_buf, float* flt_2d_buf, float* pp, float* vv, float* grad, float* dcoef, float* ww, float* tmpnxk_buf);
+// BoolErr FirthRegression(const float* yy, const float* xx, uint32_t sample_ct, uint32_t predictor_ct, float* coef, float* hh, matrix_finvert_buf1_t* inv_1d_buf, float* flt_2d_buf, float* pp, float* vv, float* grad, float* dcoef, float* ww, float* tmpnxk_buf);
 
-pglerr_t glm_main(const uintptr_t* orig_sample_include, const char* sample_ids, const char* sids, const uintptr_t* sex_nm, const uintptr_t* sex_male, const pheno_col_t* pheno_cols, const char* pheno_names, const pheno_col_t* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const chr_info_t* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const glm_info_t* glm_info_ptr, const adjust_info_t* adjust_info_ptr, const aperm_t* aperm_ptr, const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t orig_covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t xchr_model, double ci_size, double vif_thresh, double pfilter, double output_min_p, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, pgen_file_info_t* pgfip, pgen_reader_t* simple_pgrp, char* outname, char* outname_end);
+PglErr GlmMain(const uintptr_t* orig_sample_include, const char* sample_ids, const char* sids, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const AdjustInfo* adjust_info_ptr, const APerm* aperm_ptr, const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t orig_covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t xchr_model, double ci_size, double vif_thresh, double pfilter, double output_min_p, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
 #ifdef __cplusplus
 } // namespace plink2

@@ -24,13 +24,7 @@
 namespace plink2 {
 #endif
 
-typedef struct make_set_range_struct {
-  struct make_set_range_struct* next;
-  uint32_t uidx_start;
-  uint32_t uidx_end;
-} make_set_range_t;
-
-pglerr_t extract_exclude_range(const char* fname, const chr_info_t* cip, const uint32_t* variant_bps, uint32_t raw_variant_ct, uint32_t do_exclude, uint32_t ibed0, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
+PglErr ExtractExcludeRange(const char* fname, const ChrInfo* cip, const uint32_t* variant_bps, uint32_t raw_variant_ct, uint32_t do_exclude, uint32_t ibed0, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
 
 #ifdef __cplusplus
 }

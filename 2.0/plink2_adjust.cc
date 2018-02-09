@@ -22,7 +22,7 @@
 namespace plink2 {
 #endif
 
-void init_adjust(adjust_info_t* adjust_info_ptr, adjust_file_info_t* adjust_file_info_ptr) {
+void InitAdjust(AdjustInfo* adjust_info_ptr, AdjustFileInfo* adjust_file_info_ptr) {
   adjust_info_ptr->flags = kfAdjust0;
   adjust_info_ptr->lambda = 0.0;
   adjust_file_info_ptr->base.flags = kfAdjust0;
@@ -38,7 +38,7 @@ void init_adjust(adjust_info_t* adjust_info_ptr, adjust_file_info_t* adjust_file
   adjust_file_info_ptr->p_field = nullptr;
 }
 
-void cleanup_adjust(adjust_file_info_t* adjust_file_info_ptr) {
+void CleanupAdjust(AdjustFileInfo* adjust_file_info_ptr) {
   free_cond(adjust_file_info_ptr->alt_field);
   free_cond(adjust_file_info_ptr->chr_field);
   if (adjust_file_info_ptr->fname) {
@@ -61,7 +61,7 @@ typedef struct adj_assoc_result_struct {
     return chisq > rhs.chisq;
   }
 #endif
-} adj_assoc_result_t;
+} AdjAssocResult;
 
 static inline void adjust_print(const char* output_min_p_str, double pval, double output_min_p, uint32_t output_min_p_slen, uint32_t is_log10, char** bufpp) {
   **bufpp = '\t';
@@ -76,23 +76,23 @@ static inline void adjust_print(const char* output_min_p_str, double pval, doubl
   }
 }
 
-pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const char* const* chr_ids, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const adjust_info_t* adjust_info_ptr, const double* pvals, const double* chisqs, uint32_t orig_variant_ct, uint32_t max_allele_slen, double pfilter, double output_min_p, uint32_t skip_gc, uint32_t max_thread_ct, char* outname, char* outname_end) {
+PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char* const* chr_ids, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const AdjustInfo* adjust_info_ptr, const double* pvals, const double* chisqs, uint32_t orig_variant_ct, uint32_t max_allele_slen, double pfilter, double output_min_p, uint32_t skip_gc, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
-  compress_stream_state_t css;
-  pglerr_t reterr = kPglRetSuccess;
-  cswrite_init_null(&css);
+  CompressStreamState css;
+  PglErr reterr = kPglRetSuccess;
+  PreinitCstream(&css);
   {
-    adj_assoc_result_t* sortbuf = S_CAST(adj_assoc_result_t*, bigstack_alloc(orig_variant_ct * sizeof(adj_assoc_result_t)));
+    AdjAssocResult* sortbuf = S_CAST(AdjAssocResult*, bigstack_alloc(orig_variant_ct * sizeof(AdjAssocResult)));
     if (!sortbuf) {
-      goto multcomp_ret_NOMEM;
+      goto Multcomp_ret_NOMEM;
     }
     uint32_t valid_variant_ct = 0;
     if (chisqs) {
       uint32_t variant_uidx = 0;
       if (pvals) {
         for (uint32_t vidx = 0; vidx < orig_variant_ct; ++vidx, ++variant_uidx) {
-          next_set_unsafe_ck(variant_include, &variant_uidx);
+          NextSetUnsafeCk32(variant_include, &variant_uidx);
           const double cur_chisq = chisqs[vidx];
           if (cur_chisq >= 0.0) {
             sortbuf[valid_variant_ct].chisq = cur_chisq;
@@ -103,11 +103,11 @@ pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const
         }
       } else {
         for (uint32_t vidx = 0; vidx < orig_variant_ct; ++vidx, ++variant_uidx) {
-          next_set_unsafe_ck(variant_include, &variant_uidx);
+          NextSetUnsafeCk32(variant_include, &variant_uidx);
           const double cur_chisq = chisqs[vidx];
           if (cur_chisq >= 0.0) {
             sortbuf[valid_variant_ct].chisq = cur_chisq;
-            sortbuf[valid_variant_ct].pval = chiprob_p(cur_chisq, 1);
+            sortbuf[valid_variant_ct].pval = ChisqToP(cur_chisq, 1);
             sortbuf[valid_variant_ct].variant_uidx = variant_uidx;
             ++valid_variant_ct;
           }
@@ -116,10 +116,10 @@ pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const
     } else {
       uint32_t variant_uidx = 0;
       for (uint32_t vidx = 0; vidx < orig_variant_ct; ++vidx, ++variant_uidx) {
-        next_set_unsafe_ck(variant_include, &variant_uidx);
+        NextSetUnsafeCk32(variant_include, &variant_uidx);
         const double cur_pval = pvals[vidx];
         if (cur_pval >= 0.0) {
-          sortbuf[valid_variant_ct].chisq = (cur_pval == 0.0)? kMaxInverseChiprob1df : inverse_chiprob(cur_pval, 1);
+          sortbuf[valid_variant_ct].chisq = (cur_pval == 0.0)? kMaxChisq1df : PToChisq(cur_pval, 1);
           sortbuf[valid_variant_ct].pval = cur_pval;
           sortbuf[valid_variant_ct].variant_uidx = variant_uidx;
           ++valid_variant_ct;
@@ -127,18 +127,18 @@ pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const
       }
     }
     if (!valid_variant_ct) {
-      logprint("Zero valid tests; --adjust skipped.\n");
-      goto multcomp_ret_1;
+      logputs("Zero valid tests; --adjust skipped.\n");
+      goto Multcomp_ret_1;
     }
-    bigstack_shrink_top(sortbuf, valid_variant_ct * sizeof(adj_assoc_result_t));
+    BigstackShrinkTop(sortbuf, valid_variant_ct * sizeof(AdjAssocResult));
 
     const uintptr_t overflow_buf_size = kCompressStreamBlock + 2 * kMaxIdSlen + 256 + 2 * max_allele_slen;
-    const adjust_flags_t flags = adjust_info_ptr->flags;
+    const AdjustFlags flags = adjust_info_ptr->flags;
     const uint32_t output_zst = flags & kfAdjustZs;
     outname_zst_set(".adjusted", output_zst, outname_end);
-    reterr = cswrite_init2(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
+    reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
     if (reterr) {
-      goto multcomp_ret_1;
+      goto Multcomp_ret_1;
     }
     *cswritep++ = '#';
     const uint32_t chr_col = flags & kfAdjustColChrom;
@@ -198,11 +198,11 @@ pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const
     double* pv_by = nullptr;
     if (flags & kfAdjustColFdrby) {
       if (bigstack_alloc_d(valid_variant_ct, &pv_by)) {
-        goto multcomp_ret_NOMEM;
+        goto Multcomp_ret_NOMEM;
       }
       cswritep = strcpya(cswritep, "\tFDR_BY");
     }
-    append_binary_eoln(&cswritep);
+    AppendBinaryEoln(&cswritep);
 
     // reverse-order calculations
     double* pv_bh;
@@ -211,13 +211,13 @@ pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const
     if (bigstack_alloc_d(valid_variant_ct, &pv_bh) ||
         bigstack_alloc_d(valid_variant_ct, &pv_gc) ||
         bigstack_alloc_d(valid_variant_ct, &unadj_sorted_pvals)) {
-      goto multcomp_ret_NOMEM;
+      goto Multcomp_ret_NOMEM;
     }
 
 #ifdef __cplusplus
     std::sort(sortbuf, &(sortbuf[valid_variant_ct]));
 #else
-    qsort(sortbuf, valid_variant_ct, sizeof(adj_assoc_result_t), double_cmp_decr);
+    qsort(sortbuf, valid_variant_ct, sizeof(AdjAssocResult), double_cmp_decr);
 #endif
 
     double lambda_recip = 1.0;
@@ -234,13 +234,13 @@ pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const
         if (lambda < 1.0) {
           lambda = 1.0;
         }
-        LOGPRINTF("--adjust: Genomic inflation est. lambda (based on median chisq) = %g.\n", lambda);
+        logprintf("--adjust: Genomic inflation est. lambda (based on median chisq) = %g.\n", lambda);
         lambda_recip = 1.0 / lambda;
       }
     }
     double* sorted_pvals = unadj_sorted_pvals;
     for (uint32_t vidx = 0; vidx < valid_variant_ct; ++vidx) {
-      pv_gc[vidx] = chiprob_p(sortbuf[vidx].chisq * lambda_recip, 1);
+      pv_gc[vidx] = ChisqToP(sortbuf[vidx].chisq * lambda_recip, 1);
       unadj_sorted_pvals[vidx] = sortbuf[vidx].pval;
     }
     if ((flags & kfAdjustGc) && (!skip_gc)) {
@@ -303,7 +303,7 @@ pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const
       const uint32_t variant_uidx = sortbuf[vidx].variant_uidx;
       if (chr_col) {
         if (cip) {
-          cswritep = chr_name_write(cip, get_variant_chr(cip, variant_uidx), cswritep);
+          cswritep = chrtoa(cip, GetVariantChr(cip, variant_uidx), cswritep);
         } else {
           cswritep = strcpya(cswritep, chr_ids[variant_uidx]);
         }
@@ -330,8 +330,8 @@ pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const
       if (alt_col) {
         *cswritep++ = '\t';
         for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct; ++allele_idx) {
-          if (cswrite(&css, &cswritep)) {
-            goto multcomp_ret_WRITE_FAIL;
+          if (Cswrite(&css, &cswritep)) {
+            goto Multcomp_ret_WRITE_FAIL;
           }
           cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
         }
@@ -393,56 +393,56 @@ pglerr_t multcomp(const uintptr_t* variant_include, const chr_info_t* cip, const
       if (pv_by) {
         adjust_print(output_min_p_buf, pv_by[vidx], output_min_p, output_min_p_slen, is_log10, &cswritep);
       }
-      append_binary_eoln(&cswritep);
-      if (cswrite(&css, &cswritep)) {
-        goto multcomp_ret_WRITE_FAIL;
+      AppendBinaryEoln(&cswritep);
+      if (Cswrite(&css, &cswritep)) {
+        goto Multcomp_ret_WRITE_FAIL;
       }
     }
-    if (cswrite_close_null(&css, cswritep)) {
-      goto multcomp_ret_WRITE_FAIL;
+    if (CswriteCloseNull(&css, cswritep)) {
+      goto Multcomp_ret_WRITE_FAIL;
     }
     // don't use valid_variant_ct due to --pfilter
-    LOGPRINTFWW("--adjust%s values (%u variant%s) written to %s .\n", cip? "" : "-file", vidx, (vidx == 1)? "" : "s", outname);
+    logprintfww("--adjust%s values (%u variant%s) written to %s .\n", cip? "" : "-file", vidx, (vidx == 1)? "" : "s", outname);
   }
   while (0) {
-  multcomp_ret_NOMEM:
+  Multcomp_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  multcomp_ret_WRITE_FAIL:
+  Multcomp_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
   }
- multcomp_ret_1:
-  cswrite_close_cond(&css, cswritep);
-  bigstack_reset(bigstack_mark);
+ Multcomp_ret_1:
+  CswriteCloseCond(&css, cswritep);
+  BigstackReset(bigstack_mark);
   return reterr;
 }
 
-pglerr_t adjust_file(__maybe_unused const adjust_file_info_t* afip, __maybe_unused double pfilter, __maybe_unused double output_min_p, __maybe_unused uint32_t max_thread_ct, __maybe_unused char* outname, __maybe_unused char* outname_end) {
+PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused double pfilter, __maybe_unused double output_min_p, __maybe_unused uint32_t max_thread_ct, __maybe_unused char* outname, __maybe_unused char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   const char* in_fname = afip->fname;
   gzFile gz_infile = nullptr;
   uintptr_t loadbuf_size = 0;
   uintptr_t line_idx = 0;
-  pglerr_t reterr = kPglRetSuccess;
+  PglErr reterr = kPglRetSuccess;
   {
     // Two-pass load.
     // 1. Parse header line, count # of variants.
     // intermission. Allocate top-level arrays.
     // 2. Rewind and fill arrays.
-    // (some overlap with load_pvar(), though that's one-pass.)
+    // (some overlap with LoadPvar(), though that's one-pass.)
     reterr = gzopen_read_checked(in_fname, &gz_infile);
     if (reterr) {
-      goto adjust_file_ret_1;
+      goto AdjustFile_ret_1;
     }
     loadbuf_size = bigstack_left() / 4;
     if (loadbuf_size > kMaxLongLine) {
       loadbuf_size = kMaxLongLine;
     } else if (loadbuf_size >= kMaxMediumLine + kCacheline) {
-      loadbuf_size = round_down_pow2(loadbuf_size, kCacheline);
+      loadbuf_size = RoundDownPow2(loadbuf_size, kCacheline);
     } else {
-      goto adjust_file_ret_NOMEM;
+      goto AdjustFile_ret_NOMEM;
     }
     char* loadbuf = S_CAST(char*, bigstack_end_alloc_raw(loadbuf_size));
     loadbuf[loadbuf_size - 1] = ' ';
@@ -452,21 +452,21 @@ pglerr_t adjust_file(__maybe_unused const adjust_file_info_t* afip, __maybe_unus
       ++line_idx;
       if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
         if (!gzeof(gz_infile)) {
-          goto adjust_file_ret_READ_FAIL;
+          goto AdjustFile_ret_READ_FAIL;
         }
         snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", in_fname);
-        goto adjust_file_ret_MALFORMED_INPUT_WW;
+        goto AdjustFile_ret_MALFORMED_INPUT_WW;
       }
       if (!loadbuf[loadbuf_size - 1]) {
-        goto adjust_file_ret_LONG_LINE;
+        goto AdjustFile_ret_LONG_LINE;
       }
-      loadbuf_first_token = skip_initial_spaces(loadbuf);
-    } while (strequal_k2(loadbuf_first_token, "##"));
+      loadbuf_first_token = FirstNonTspace(loadbuf);
+    } while (strequal_k_unsafe(loadbuf_first_token, "##"));
     if (*loadbuf_first_token == '#') {
       ++loadbuf_first_token;
     }
 
-    const adjust_flags_t flags = afip->base.flags;
+    const AdjustFlags flags = afip->base.flags;
     // [0] = CHROM
     // [1] = POS
     // [2] = ID (required)
@@ -485,9 +485,9 @@ pglerr_t adjust_file(__maybe_unused const adjust_file_info_t* afip, __maybe_unus
       // and count # of multiallelic variants in first pass, etc.), but
       // unlikely to be relevant.
       // (For now, we abuse allele_storage by storing all comma-separated alt
-      // alleles in a single string, since multcomp() is ok with that.)
-      logerrprint("Error: --adjust-file does not currently support simultaneous alt1 and alt\ncolumn output.\n");
-      goto adjust_file_ret_INVALID_CMDLINE;
+      // alleles in a single string, since Multcomp() is ok with that.)
+      logerrputs("Error: --adjust-file does not currently support simultaneous alt1 and alt\ncolumn output.\n");
+      goto AdjustFile_ret_INVALID_CMDLINE;
     }
     col_search_order[0] = need_chr? (afip->chr_field? afip->chr_field : "CHROM\0CHR\0") : "";
     col_search_order[1] = need_pos? (afip->pos_field? afip->pos_field : "POS\0BP\0") : "";
@@ -501,20 +501,20 @@ pglerr_t adjust_file(__maybe_unused const adjust_file_info_t* afip, __maybe_unus
     uint32_t col_types[7];
     uint32_t relevant_col_ct;
     uint32_t found_type_bitset;
-    reterr = search_header_line(loadbuf_first_token, col_search_order, "adjust-file", 7, &relevant_col_ct, &found_type_bitset, col_skips, col_types);
+    reterr = SearchHeaderLine(loadbuf_first_token, col_search_order, "adjust-file", 7, &relevant_col_ct, &found_type_bitset, col_skips, col_types);
     if (reterr) {
-      goto adjust_file_ret_1;
+      goto AdjustFile_ret_1;
     }
     if ((found_type_bitset & 0x44) != 0x44) {
-      logerrprint("Error: --adjust-file requires ID and P columns.\n");
-      goto adjust_file_ret_INCONSISTENT_INPUT;
+      logerrputs("Error: --adjust-file requires ID and P columns.\n");
+      goto AdjustFile_ret_INCONSISTENT_INPUT;
     }
     const char* test_name = afip->test_name;
     uint32_t test_name_slen = 0;
     uint32_t test_col_idx = 0;
     if (test_name) {
       test_name_slen = strlen(test_name);
-      // this duplicates a bit of work done in search_header_line(), but not a
+      // this duplicates a bit of work done in SearchHeaderLine(), but not a
       // big deal
       uint32_t relevant_col_idx = 0;
       while (1) {
@@ -526,40 +526,40 @@ pglerr_t adjust_file(__maybe_unused const adjust_file_info_t* afip, __maybe_unus
       }
     } else if (found_type_bitset & 0x20) {
       snprintf(g_logbuf, kLogbufSize, "Error: TEST column present in %s, but no test= parameter was provided to --adjust-file.\n", in_fname);
-      goto adjust_file_ret_INCONSISTENT_INPUT_WW;
+      goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
     }
     if (need_chr && (!(found_type_bitset & 0x1))) {
       snprintf(g_logbuf, kLogbufSize, "Error: No chromosome column in %s.\n", in_fname);
-      goto adjust_file_ret_INCONSISTENT_INPUT_WW;
+      goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
     }
     if (need_pos && (!(found_type_bitset & 0x2))) {
       snprintf(g_logbuf, kLogbufSize, "Error: No bp coordinate column in %s.\n", in_fname);
-      goto adjust_file_ret_INCONSISTENT_INPUT_WW;
+      goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
     }
     if (need_ref && (!(found_type_bitset & 0x8))) {
       snprintf(g_logbuf, kLogbufSize, "Error: No REF column in %s.\n", in_fname);
-      goto adjust_file_ret_INCONSISTENT_INPUT_WW;
+      goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
     }
     if (need_alt && (!(found_type_bitset & 0x10))) {
       snprintf(g_logbuf, kLogbufSize, "Error: No ALT column in %s.\n", in_fname);
-      goto adjust_file_ret_INCONSISTENT_INPUT_WW;
+      goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
     }
 
     uintptr_t variant_ct = 0;
     while (gzgets(gz_infile, loadbuf, loadbuf_size)) {
       ++line_idx;
       if (!loadbuf[loadbuf_size - 1]) {
-        goto adjust_file_ret_LONG_LINE;
+        goto AdjustFile_ret_LONG_LINE;
       }
-      const char* loadbuf_iter = skip_initial_spaces(loadbuf);
-      if (is_eoln_kns(*loadbuf_iter)) {
+      const char* loadbuf_iter = FirstNonTspace(loadbuf);
+      if (IsEolnKns(*loadbuf_iter)) {
         continue;
       }
       if (test_name) {
         // Don't count different-test variants.
-        loadbuf_iter = next_token_multz(loadbuf_iter, test_col_idx);
+        loadbuf_iter = NextTokenMult0(loadbuf_iter, test_col_idx);
         if (!loadbuf_iter) {
-          goto adjust_file_ret_MISSING_TOKENS;
+          goto AdjustFile_ret_MISSING_TOKENS;
         }
         const uint32_t cur_test_slen = strlen_se(loadbuf_iter);
         if ((cur_test_slen != test_name_slen) || memcmp(loadbuf_iter, test_name, test_name_slen)) {
@@ -570,35 +570,35 @@ pglerr_t adjust_file(__maybe_unused const adjust_file_info_t* afip, __maybe_unus
     }
 #ifdef __LP64__
     if (variant_ct > 0xffffffffU) {
-      logerrprint("Error: Too many variants for --adjust-file.\n");
-      goto adjust_file_ret_INCONSISTENT_INPUT;
+      logerrputs("Error: Too many variants for --adjust-file.\n");
+      goto AdjustFile_ret_INCONSISTENT_INPUT;
     }
 #endif
     if ((!gzeof(gz_infile)) || gzrewind(gz_infile)) {
-      goto adjust_file_ret_READ_FAIL;
+      goto AdjustFile_ret_READ_FAIL;
     }
     line_idx = 0;
     do {
       ++line_idx;
       if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-        goto adjust_file_ret_READ_FAIL;
+        goto AdjustFile_ret_READ_FAIL;
       }
       if (!loadbuf[loadbuf_size - 1]) {
-        goto adjust_file_ret_READ_FAIL;
+        goto AdjustFile_ret_READ_FAIL;
       }
-      loadbuf_first_token = skip_initial_spaces(loadbuf);
-    } while (strequal_k2(loadbuf_first_token, "##"));
+      loadbuf_first_token = FirstNonTspace(loadbuf);
+    } while (strequal_k_unsafe(loadbuf_first_token, "##"));
 
-    const uint32_t variant_ctl = BITCT_TO_WORDCT(variant_ct);
+    const uint32_t variant_ctl = BitCtToWordCt(variant_ct);
     uintptr_t* variant_include_dummy;
     if (bigstack_alloc_ul(variant_ctl, &variant_include_dummy)) {
-      goto adjust_file_ret_NOMEM;
+      goto AdjustFile_ret_NOMEM;
     }
-    fill_all_bits(variant_ct, variant_include_dummy);
+    SetAllBits(variant_ct, variant_include_dummy);
     char** chr_ids;
     if (need_chr) {
       if (bigstack_alloc_cp(variant_ct, &chr_ids)) {
-        goto adjust_file_ret_NOMEM;
+        goto AdjustFile_ret_NOMEM;
       }
     } else {
       chr_ids = nullptr;
@@ -606,7 +606,7 @@ pglerr_t adjust_file(__maybe_unused const adjust_file_info_t* afip, __maybe_unus
     uint32_t* variant_bps;
     if (need_pos) {
       if (bigstack_alloc_ui(variant_ct, &variant_bps)) {
-        goto adjust_file_ret_NOMEM;
+        goto AdjustFile_ret_NOMEM;
       }
     } else {
       variant_bps = nullptr;
@@ -615,12 +615,12 @@ pglerr_t adjust_file(__maybe_unused const adjust_file_info_t* afip, __maybe_unus
     double* pvals;
     if (bigstack_alloc_cp(variant_ct, &variant_ids) ||
         bigstack_alloc_d(variant_ct, &pvals)) {
-      goto adjust_file_ret_NOMEM;
+      goto AdjustFile_ret_NOMEM;
     }
     char** allele_storage;
     if (need_ref || need_alt) {
       if (bigstack_alloc_cp(variant_ct * 2, &allele_storage)) {
-        goto adjust_file_ret_NOMEM;
+        goto AdjustFile_ret_NOMEM;
       }
     } else {
       allele_storage = nullptr;
@@ -633,22 +633,22 @@ pglerr_t adjust_file(__maybe_unused const adjust_file_info_t* afip, __maybe_unus
     while (gzgets(gz_infile, loadbuf, loadbuf_size)) {
       ++line_idx;
       if (!loadbuf[loadbuf_size - 1]) {
-        goto adjust_file_ret_READ_FAIL;
+        goto AdjustFile_ret_READ_FAIL;
       }
-      const char* loadbuf_iter = skip_initial_spaces(loadbuf);
-      if (is_eoln_kns(*loadbuf_iter)) {
+      const char* loadbuf_iter = FirstNonTspace(loadbuf);
+      if (IsEolnKns(*loadbuf_iter)) {
         continue;
       }
       const char* token_ptrs[7];
       uint32_t token_slens[7];
       for (uint32_t relevant_col_idx = 0; relevant_col_idx < relevant_col_ct; ++relevant_col_idx) {
-        loadbuf_iter = next_token_multz(loadbuf_iter, col_skips[relevant_col_idx]);
+        loadbuf_iter = NextTokenMult0(loadbuf_iter, col_skips[relevant_col_idx]);
         if (!loadbuf_iter) {
-          goto adjust_file_ret_MISSING_TOKENS;
+          goto AdjustFile_ret_MISSING_TOKENS;
         }
         const uint32_t cur_colidx = col_types[relevant_col_idx];
         token_ptrs[cur_colidx] = loadbuf_iter;
-        const char* token_end = token_endnn(loadbuf_iter);
+        const char* token_end = CurTokenEnd(loadbuf_iter);
         token_slens[cur_colidx] = token_end - loadbuf_iter;
         loadbuf_iter = token_end;
       }
@@ -660,21 +660,21 @@ pglerr_t adjust_file(__maybe_unused const adjust_file_info_t* afip, __maybe_unus
       if (chr_ids) {
         const uint32_t cur_slen = token_slens[0];
         if (cur_slen >= S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base)) {
-          goto adjust_file_ret_NOMEM;
+          goto AdjustFile_ret_NOMEM;
         }
         chr_ids[variant_idx] = R_CAST(char*, tmp_alloc_base);
         memcpyx(tmp_alloc_base, token_ptrs[0], cur_slen, '\0');
         tmp_alloc_base = &(tmp_alloc_base[cur_slen + 1]);
       }
       if (variant_bps) {
-        if (scan_uint_defcap(token_ptrs[1], &(variant_bps[variant_idx]))) {
+        if (ScanUintDefcap(token_ptrs[1], &(variant_bps[variant_idx]))) {
           snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, in_fname);
-          goto adjust_file_ret_INCONSISTENT_INPUT_WW;
+          goto AdjustFile_ret_INCONSISTENT_INPUT_WW;
         }
       }
       const uint32_t id_slen = token_slens[2];
       if (id_slen >= S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base)) {
-        goto adjust_file_ret_NOMEM;
+        goto AdjustFile_ret_NOMEM;
       }
       variant_ids[variant_idx] = R_CAST(char*, tmp_alloc_base);
       memcpyx(tmp_alloc_base, token_ptrs[2], id_slen, '\0');
@@ -682,7 +682,7 @@ pglerr_t adjust_file(__maybe_unused const adjust_file_info_t* afip, __maybe_unus
       if (need_ref) {
         const uint32_t cur_slen = token_slens[3];
         if (cur_slen >= S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base)) {
-          goto adjust_file_ret_NOMEM;
+          goto AdjustFile_ret_NOMEM;
         }
         allele_storage[2 * variant_idx] = R_CAST(char*, tmp_alloc_base);
         memcpyx(tmp_alloc_base, token_ptrs[3], cur_slen, '\0');
@@ -698,7 +698,7 @@ pglerr_t adjust_file(__maybe_unused const adjust_file_info_t* afip, __maybe_unus
           }
         }
         if (cur_slen >= S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base)) {
-          goto adjust_file_ret_NOMEM;
+          goto AdjustFile_ret_NOMEM;
         }
         allele_storage[2 * variant_idx + 1] = R_CAST(char*, tmp_alloc_base);
         memcpyx(tmp_alloc_base, alt_str, cur_slen, '\0');
@@ -706,25 +706,25 @@ pglerr_t adjust_file(__maybe_unused const adjust_file_info_t* afip, __maybe_unus
       }
       const char* pval_str = token_ptrs[6];
       double pval;
-      if (!scanadv_double(pval_str, &pval)) {
+      if (!ScanadvDouble(pval_str, &pval)) {
         const uint32_t cur_slen = token_slens[6];
-        if (is_nan_str(pval_str, cur_slen)) {
+        if (IsNanStr(pval_str, cur_slen)) {
           pval = -1;
         } else if (strequal_k(pval_str, "INF", cur_slen)) {
           // Tolerate plink 1.x "INF" representation of p==0.  Could add a
           // modifier to disable this.
           pval = 0.0;
         } else {
-          goto adjust_file_ret_INVALID_PVAL;
+          goto AdjustFile_ret_INVALID_PVAL;
         }
       } else {
         if (!input_log10) {
           if (pval > 1.0) {
-            goto adjust_file_ret_INVALID_PVAL;
+            goto AdjustFile_ret_INVALID_PVAL;
           }
         } else {
           if (pval < 0.0) {
-            goto adjust_file_ret_INVALID_PVAL;
+            goto AdjustFile_ret_INVALID_PVAL;
           }
           pval = exp(pval * (-kLn10));
         }
@@ -733,52 +733,52 @@ pglerr_t adjust_file(__maybe_unused const adjust_file_info_t* afip, __maybe_unus
       ++variant_idx;
     }
     if ((variant_idx != variant_ct) || (!gzeof(gz_infile)) || gzclose_null(&gz_infile)) {
-      goto adjust_file_ret_READ_FAIL;
+      goto AdjustFile_ret_READ_FAIL;
     }
-    bigstack_end_reset(bigstack_end_mark);
-    bigstack_base_set(tmp_alloc_base);
-    reterr = multcomp(variant_include_dummy, nullptr, TO_CONSTCPCONSTP(chr_ids), variant_bps, TO_CONSTCPCONSTP(variant_ids), nullptr, TO_CONSTCPCONSTP(allele_storage), &(afip->base), pvals, nullptr, variant_ct, max_allele_slen, pfilter, output_min_p, 0, max_thread_ct, outname, outname_end);
+    BigstackEndReset(bigstack_end_mark);
+    BigstackBaseSet(tmp_alloc_base);
+    reterr = Multcomp(variant_include_dummy, nullptr, TO_CONSTCPCONSTP(chr_ids), variant_bps, TO_CONSTCPCONSTP(variant_ids), nullptr, TO_CONSTCPCONSTP(allele_storage), &(afip->base), pvals, nullptr, variant_ct, max_allele_slen, pfilter, output_min_p, 0, max_thread_ct, outname, outname_end);
     if (reterr) {
-      goto adjust_file_ret_1;
+      goto AdjustFile_ret_1;
     }
   }
   while (0) {
-  adjust_file_ret_LONG_LINE:
+  AdjustFile_ret_LONG_LINE:
     if (loadbuf_size == kMaxLongLine) {
-      LOGERRPRINTFWW("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, in_fname);
+      logerrprintfww("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, in_fname);
       reterr = kPglRetMalformedInput;
       break;
     }
-  adjust_file_ret_NOMEM:
+  AdjustFile_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  adjust_file_ret_READ_FAIL:
+  AdjustFile_ret_READ_FAIL:
     reterr = kPglRetReadFail;
     break;
-  adjust_file_ret_INVALID_CMDLINE:
+  AdjustFile_ret_INVALID_CMDLINE:
     reterr = kPglRetInvalidCmdline;
     break;
-  adjust_file_ret_MALFORMED_INPUT_WW:
-    wordwrapb(0);
-    logerrprintb();
+  AdjustFile_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
     reterr = kPglRetMalformedInput;
     break;
-  adjust_file_ret_MISSING_TOKENS:
+  AdjustFile_ret_MISSING_TOKENS:
     snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, in_fname);
-  adjust_file_ret_INCONSISTENT_INPUT_WW:
-    wordwrapb(0);
-    logerrprintb();
-  adjust_file_ret_INCONSISTENT_INPUT:
+  AdjustFile_ret_INCONSISTENT_INPUT_WW:
+    WordWrapB(0);
+    logerrputsb();
+  AdjustFile_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
-  adjust_file_ret_INVALID_PVAL:
-    LOGERRPRINTFWW("Error: Invalid p-value on line %" PRIuPTR " of %s.\n", line_idx, in_fname);
+  AdjustFile_ret_INVALID_PVAL:
+    logerrprintfww("Error: Invalid p-value on line %" PRIuPTR " of %s.\n", line_idx, in_fname);
     reterr = kPglRetInconsistentInput;
     break;
   }
- adjust_file_ret_1:
+ AdjustFile_ret_1:
   gzclose_cond(gz_infile);
-  bigstack_double_reset(bigstack_mark, bigstack_end_mark);
+  BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }
 

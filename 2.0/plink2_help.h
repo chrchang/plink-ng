@@ -24,9 +24,9 @@
 namespace plink2 {
 #endif
 
-extern const char g_cmdline_format_str[];
+extern const char kCmdlineFormatStr[];
 
-pglerr_t disp_help(uint32_t param_ct, const char* const* argvc);
+PglErr DispHelp(const char* const* argvk, uint32_t param_ct);
 
 #ifdef __cplusplus
 }

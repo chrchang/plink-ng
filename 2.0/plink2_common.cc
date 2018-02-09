@@ -21,8 +21,8 @@
 namespace plink2 {
 #endif
 
-static_assert(kDosageMax == 32768, "print_dosage() needs to be updated.");
-char* print_dosage(uint64_t dosage, char* start) {
+static_assert(kDosageMax == 32768, "dosagetoa() needs to be updated.");
+char* dosagetoa(uint64_t dosage, char* start) {
   // 3 digit precision seems like the best compromise between accuracy and
   // avoidance of rounding ugliness
   // (Rounding ugliness is not actually hidden for e.g. 1000 Genomes phase 1,
@@ -54,23 +54,23 @@ char* print_dosage(uint64_t dosage, char* start) {
   return start;
 }
 
-void populate_dense_dosage(const uintptr_t* genovec, const uintptr_t* dosage_present, const dosage_t* dosage_vals, uint32_t sample_ct, uint32_t dosage_ct, dosage_t* dense_dosage) {
+void PopulateDenseDosage(const uintptr_t* genovec, const uintptr_t* dosage_present, const Dosage* dosage_vals, uint32_t sample_ct, uint32_t dosage_ct, Dosage* dense_dosage) {
   // see also fill_cur_dosage_ints in plink2_matrix_calc
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
-  dosage_t lookup_table[4];
+  Dosage lookup_table[4];
   lookup_table[0] = 0;
   lookup_table[1] = kDosageMid;
   lookup_table[2] = kDosageMax;
   lookup_table[3] = kDosageMissing;
   uint32_t loop_len = kBitsPerWordD2;
   uint32_t widx = 0;
-  dosage_t* dense_dosage_iter = dense_dosage;
+  Dosage* dense_dosage_iter = dense_dosage;
   while (1) {
     if (widx >= sample_ctl2_m1) {
       if (widx > sample_ctl2_m1) {
         break;
       }
-      loop_len = MOD_NZ(sample_ct, kBitsPerWordD2);
+      loop_len = ModNz(sample_ct, kBitsPerWordD2);
     }
     uintptr_t cur_geno_word = genovec[widx];
     for (uint32_t uii = 0; uii < loop_len; ++uii) {
@@ -88,42 +88,42 @@ void populate_dense_dosage(const uintptr_t* genovec, const uintptr_t* dosage_pre
 
   uint32_t sample_idx = 0;
   for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_idx) {
-    next_set_unsafe_ck(dosage_present, &sample_idx);
+    NextSetUnsafeCk32(dosage_present, &sample_idx);
     dense_dosage[sample_idx] = dosage_vals[dosage_idx];
   }
 }
 
-void set_het_missing(uintptr_t word_ct, uintptr_t* genovec) {
+void SetHetMissing(uintptr_t word_ct, uintptr_t* genovec) {
   // 01 -> 11, nothing else changes
 #ifdef __LP64__
-  const vul_t m1 = VCONST_UL(kMask5555);
-  vul_t* geno_vvec_iter = R_CAST(vul_t*, genovec);
+  const VecUL m1 = VCONST_UL(kMask5555);
+  VecUL* geno_vvec_iter = R_CAST(VecUL*, genovec);
   const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
   if (full_vec_ct & 1) {
-    const vul_t cur_geno_vword = *geno_vvec_iter;
-    const vul_t cur_geno_vword_low_lshifted = vul_lshift(cur_geno_vword & m1, 1);
+    const VecUL cur_geno_vword = *geno_vvec_iter;
+    const VecUL cur_geno_vword_low_lshifted = vecul_slli(cur_geno_vword & m1, 1);
     *geno_vvec_iter++ = cur_geno_vword | cur_geno_vword_low_lshifted;
   }
   if (full_vec_ct & 2) {
-    vul_t cur_geno_vword = *geno_vvec_iter;
-    vul_t cur_geno_vword_low_lshifted = vul_lshift(cur_geno_vword & m1, 1);
+    VecUL cur_geno_vword = *geno_vvec_iter;
+    VecUL cur_geno_vword_low_lshifted = vecul_slli(cur_geno_vword & m1, 1);
     *geno_vvec_iter++ = cur_geno_vword | cur_geno_vword_low_lshifted;
     cur_geno_vword = *geno_vvec_iter;
-    cur_geno_vword_low_lshifted = vul_lshift(cur_geno_vword & m1, 1);
+    cur_geno_vword_low_lshifted = vecul_slli(cur_geno_vword & m1, 1);
     *geno_vvec_iter++ = cur_geno_vword | cur_geno_vword_low_lshifted;
   }
   for (uintptr_t ulii = 3; ulii < full_vec_ct; ulii += 4) {
-    vul_t cur_geno_vword = *geno_vvec_iter;
-    vul_t cur_geno_vword_low_lshifted = vul_lshift(cur_geno_vword & m1, 1);
+    VecUL cur_geno_vword = *geno_vvec_iter;
+    VecUL cur_geno_vword_low_lshifted = vecul_slli(cur_geno_vword & m1, 1);
     *geno_vvec_iter++ = cur_geno_vword | cur_geno_vword_low_lshifted;
     cur_geno_vword = *geno_vvec_iter;
-    cur_geno_vword_low_lshifted = vul_lshift(cur_geno_vword & m1, 1);
+    cur_geno_vword_low_lshifted = vecul_slli(cur_geno_vword & m1, 1);
     *geno_vvec_iter++ = cur_geno_vword | cur_geno_vword_low_lshifted;
     cur_geno_vword = *geno_vvec_iter;
-    cur_geno_vword_low_lshifted = vul_lshift(cur_geno_vword & m1, 1);
+    cur_geno_vword_low_lshifted = vecul_slli(cur_geno_vword & m1, 1);
     *geno_vvec_iter++ = cur_geno_vword | cur_geno_vword_low_lshifted;
     cur_geno_vword = *geno_vvec_iter;
-    cur_geno_vword_low_lshifted = vul_lshift(cur_geno_vword & m1, 1);
+    cur_geno_vword_low_lshifted = vecul_slli(cur_geno_vword & m1, 1);
     *geno_vvec_iter++ = cur_geno_vword | cur_geno_vword_low_lshifted;
   }
 #  ifdef USE_AVX2
@@ -147,24 +147,24 @@ void set_het_missing(uintptr_t word_ct, uintptr_t* genovec) {
 #endif
 }
 
-void set_het_missing_cleardosage(uintptr_t word_ct, uintptr_t* __restrict genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, dosage_t* dosage_vals) {
+void SetHetMissingCleardosage(uintptr_t word_ct, uintptr_t* __restrict genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_vals) {
   const uint32_t orig_write_dosage_ct = *write_dosage_ct_ptr;
   if (orig_write_dosage_ct) {
     uint32_t sample_uidx = 0;
     uint32_t dosage_read_idx = 0;
     for (; dosage_read_idx < orig_write_dosage_ct; ++dosage_read_idx, ++sample_uidx) {
-      next_set_unsafe_ck(dosagepresent, &sample_uidx);
-      if (GET_QUATERARR_ENTRY(genovec, sample_uidx) == 1) {
-        clear_bit(sample_uidx, dosagepresent);
+      NextSetUnsafeCk32(dosagepresent, &sample_uidx);
+      if (GetQuaterarrEntry(genovec, sample_uidx) == 1) {
+        ClearBit(sample_uidx, dosagepresent);
         uint32_t dosage_write_idx = dosage_read_idx;
         while (1) {
           if (++dosage_read_idx == orig_write_dosage_ct) {
             break;
           }
           ++sample_uidx;
-          next_set_unsafe_ck(dosagepresent, &sample_uidx);
-          if (GET_QUATERARR_ENTRY(genovec, sample_uidx) == 1) {
-            clear_bit(sample_uidx, dosagepresent);
+          NextSetUnsafeCk32(dosagepresent, &sample_uidx);
+          if (GetQuaterarrEntry(genovec, sample_uidx) == 1) {
+            ClearBit(sample_uidx, dosagepresent);
           } else {
             dosage_vals[dosage_write_idx++] = dosage_vals[dosage_read_idx];
           }
@@ -174,28 +174,28 @@ void set_het_missing_cleardosage(uintptr_t word_ct, uintptr_t* __restrict genove
       }
     }
   }
-  set_het_missing(word_ct, genovec);
+  SetHetMissing(word_ct, genovec);
 }
 
-void set_het_missing_keepdosage(uintptr_t word_ct, uintptr_t* __restrict genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, dosage_t* dosage_vals) {
+void SetHetMissingKeepdosage(uintptr_t word_ct, uintptr_t* __restrict genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_vals) {
   // count # of 1.00000 dosages we need to insert, and then rewrite dosage_vals
   // from back to front so we don't need temporary buffers.
 
   const uint32_t orig_dosage_ct = *write_dosage_ct_ptr;
   // can't assume dosagepresent is initialized in this case
   if (!orig_dosage_ct) {
-    fill_ulong_zero(DIV_UP(word_ct, 2), dosagepresent);
+    ZeroUlArr(DivUp(word_ct, 2), dosagepresent);
   }
-  halfword_t* dosagepresent_alias = R_CAST(halfword_t*, dosagepresent);
+  Halfword* dosagepresent_alias = R_CAST(Halfword*, dosagepresent);
   uint32_t new_dosage_ct = 0;
   for (uintptr_t widx = 0; widx < word_ct; ++widx) {
     const uintptr_t geno_word = genovec[widx];
-    const uintptr_t dosagepresent_word = unpack_halfword_to_word(dosagepresent_alias[widx]);
+    const uintptr_t dosagepresent_word = UnpackHalfwordToWord(dosagepresent_alias[widx]);
     const uintptr_t geno_hets = geno_word & (~(geno_word >> 1)) & kMask5555;
-    new_dosage_ct += popcount01_long(geno_hets & (~dosagepresent_word));
+    new_dosage_ct += Popcount01Word(geno_hets & (~dosagepresent_word));
   }
   if (!new_dosage_ct) {
-    set_het_missing(word_ct, genovec);
+    SetHetMissing(word_ct, genovec);
     return;
   }
   uint32_t dosage_write_idx = orig_dosage_ct + new_dosage_ct;
@@ -205,15 +205,15 @@ void set_het_missing_keepdosage(uintptr_t word_ct, uintptr_t* __restrict genovec
   do {
     --widx;
     const uintptr_t geno_word = genovec[widx];
-    const uintptr_t dosagepresent_word = unpack_halfword_to_word(dosagepresent_alias[widx]);
+    const uintptr_t dosagepresent_word = UnpackHalfwordToWord(dosagepresent_alias[widx]);
     const uintptr_t geno_hets = geno_word & (~(geno_word >> 1)) & kMask5555;
     uintptr_t new_dosagepresent_word = dosagepresent_word | geno_hets;
     if (new_dosagepresent_word) {
-      dosagepresent_alias[widx] = pack_word_to_halfword(new_dosagepresent_word);
+      dosagepresent_alias[widx] = PackWordToHalfword(new_dosagepresent_word);
       do {
         const uint32_t leading_zeroes = CLZLU(new_dosagepresent_word);
         const uintptr_t cur_bit_word = (k1LU << (kBitsPerWord - 1)) >> leading_zeroes;
-        dosage_t cur_dosage = kDosageMid;
+        Dosage cur_dosage = kDosageMid;
         if (cur_bit_word & dosagepresent_word) {
           cur_dosage = dosage_vals[--dosage_read_idx];
         }
@@ -225,14 +225,14 @@ void set_het_missing_keepdosage(uintptr_t word_ct, uintptr_t* __restrict genovec
   } while (widx);
 }
 
-void genoarr_to_nonmissing(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t* nonmissing_bitarr) {
-  const uint32_t sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
+void GenoarrToNonmissing(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t* nonmissing_bitarr) {
+  const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
   const uintptr_t* genoarr_iter = genoarr;
-  halfword_t* nonmissing_bitarr_iter = R_CAST(halfword_t*, nonmissing_bitarr);
+  Halfword* nonmissing_bitarr_iter = R_CAST(Halfword*, nonmissing_bitarr);
   for (uint32_t widx = 0; widx < sample_ctl2; ++widx) {
     uintptr_t ww = ~(*genoarr_iter++);
     ww = (ww | (ww >> 1)) & kMask5555;
-    *nonmissing_bitarr_iter++ = pack_word_to_halfword(ww);
+    *nonmissing_bitarr_iter++ = PackWordToHalfword(ww);
   }
   // zero trailing bits up to word boundary, in a way that doesn't create
   // aliasing issues
@@ -247,60 +247,22 @@ void genoarr_to_nonmissing(const uintptr_t* genoarr, uint32_t sample_ct, uintptr
   }
 }
 
-uint32_t genoarr_count_missing_notsubset_unsafe(const uintptr_t* genoarr, const uintptr_t* exclude_mask, uint32_t sample_ct) {
-  const uint32_t sample_ctl2 = QUATERCT_TO_WORDCT(sample_ct);
+uint32_t GenoarrCountMissingNotsubsetUnsafe(const uintptr_t* genoarr, const uintptr_t* exclude_mask, uint32_t sample_ct) {
+  const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
   const uintptr_t* genoarr_iter = genoarr;
-  const halfword_t* exclude_alias_iter = R_CAST(const halfword_t*, exclude_mask);
+  const Halfword* exclude_alias_iter = R_CAST(const Halfword*, exclude_mask);
   uint32_t missing_ct = 0;
   for (uint32_t widx = 0; widx < sample_ctl2; ++widx) {
     uintptr_t ww = *genoarr_iter++;
     ww = ww & (ww >> 1);
     const uint32_t include_mask = ~(*exclude_alias_iter++);
-    missing_ct += popcount01_long(ww & unpack_halfword_to_word(include_mask));
+    missing_ct += Popcount01Word(ww & UnpackHalfwordToWord(include_mask));
   }
   return missing_ct;
 }
 
 
-// assumes 0b11 == missing
-// retired in favor of genoarr_to_nonmissing followed by a for loop?
-/*
-void copy_when_nonmissing(const uintptr_t* loadbuf, const void* source, uintptr_t elem_size, uintptr_t unfiltered_sample_ct, uintptr_t missing_ct, void* dest) {
-  // tried hardcoding elem_size == 4 and 8; that was only ~4% faster, so may
-  // as well use a single general-purpose function.
-  if (!missing_ct) {
-    memcpy(dest, source, unfiltered_sample_ct * elem_size);
-    return;
-  }
-  const uintptr_t* loadbuf_iter = loadbuf;
-  const uintptr_t* loadbuf_end = &(loadbuf[QUATERCT_TO_WORDCT(unfiltered_sample_ct)]);
-  const unsigned char* source_alias = (const unsigned char*)source;
-  char* dest_iter = (char*)dest;
-  uintptr_t copy_start_idx = 0;
-  uintptr_t sample_idx_offset = 0;
-  do {
-    uintptr_t cur_word = *loadbuf_iter++;
-    cur_word = cur_word & (cur_word >> 1) & kMask5555;
-    while (cur_word) {
-      const uintptr_t new_missing_idx = sample_idx_offset + (CTZLU(cur_word) / 2);
-      if (new_missing_idx != copy_start_idx) {
-        const uintptr_t diff = new_missing_idx - copy_start_idx;
-        dest_iter = memcpya(dest_iter, &(source_alias[copy_start_idx * elem_size]), diff * elem_size);
-      }
-      copy_start_idx = new_missing_idx + 1;
-      cur_word &= cur_word - 1;
-    }
-    sample_idx_offset += kBitsPerWordD2;
-  } while (loadbuf_iter < loadbuf_end);
-  const uintptr_t diff = unfiltered_sample_ct - copy_start_idx;
-  if (diff) {
-    memcpy(dest_iter, &(source_alias[copy_start_idx * elem_size]), diff * elem_size);
-  }
-}
-*/
-
-
-uint32_t sid_col_required(const uintptr_t* sample_include, const char* sids, uint32_t sample_ct, uint32_t max_sid_blen, uint32_t maybe_modifier) {
+uint32_t IsSidColRequired(const uintptr_t* sample_include, const char* sids, uint32_t sample_ct, uint32_t max_sid_blen, uint32_t maybe_modifier) {
   // note that MAYBESID and SID can both be set
   if (maybe_modifier & 2) {
     return 1;
@@ -308,7 +270,7 @@ uint32_t sid_col_required(const uintptr_t* sample_include, const char* sids, uin
   if (sids && (maybe_modifier & 1)) {
     uint32_t sample_uidx = 0;
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-      next_set_unsafe_ck(sample_include, &sample_uidx);
+      NextSetUnsafeCk32(sample_include, &sample_uidx);
       if (memcmp(&(sids[sample_uidx * max_sid_blen]), "0", 2)) {
         return 1;
       }
@@ -318,7 +280,7 @@ uint32_t sid_col_required(const uintptr_t* sample_include, const char* sids, uin
 }
 
 // sample_augid_map_ptr == nullptr ok
-pglerr_t augid_init_alloc(const uintptr_t* sample_include, const char* sample_ids, const char* sids, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t** sample_augid_map_ptr, char** sample_augids_ptr, uintptr_t* max_sample_augid_blen_ptr) {
+PglErr AugidInitAlloc(const uintptr_t* sample_include, const char* sample_ids, const char* sids, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t** sample_augid_map_ptr, char** sample_augids_ptr, uintptr_t* max_sample_augid_blen_ptr) {
   if (!sids) {
     max_sid_blen = 2;
   }
@@ -337,7 +299,7 @@ pglerr_t augid_init_alloc(const uintptr_t* sample_include, const char* sample_id
   char* sample_augids_iter = *sample_augids_ptr;
   uint32_t sample_uidx = 0;
   for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-    next_set_unsafe_ck(sample_include, &sample_uidx);
+    NextSetUnsafeCk32(sample_include, &sample_uidx);
     char* write_iter = strcpyax(sample_augids_iter, &(sample_ids[sample_uidx * max_sample_id_blen]), '\t');
     if (sids) {
       strcpy(write_iter, &(sids[sample_uidx * max_sid_blen]));
@@ -352,34 +314,34 @@ pglerr_t augid_init_alloc(const uintptr_t* sample_include, const char* sample_id
   return kPglRetSuccess;
 }
 
-pglerr_t sorted_xidbox_init_alloc(const uintptr_t* sample_include, const char* sample_ids, const char* sids, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t allow_dups, xid_mode_t xid_mode, uint32_t use_nsort, char** sorted_xidbox_ptr, uint32_t** xid_map_ptr, uintptr_t* max_xid_blen_ptr) {
+PglErr SortedXidboxInitAlloc(const uintptr_t* sample_include, const char* sample_ids, const char* sids, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t allow_dups, XidMode xid_mode, uint32_t use_nsort, char** sorted_xidbox_ptr, uint32_t** xid_map_ptr, uintptr_t* max_xid_blen_ptr) {
   if (!(xid_mode & kfXidModeFlagSid)) {
     // two fields
     *max_xid_blen_ptr = max_sample_id_blen;
-    return copy_sort_strbox_subset(sample_include, sample_ids, sample_ct, max_sample_id_blen, allow_dups, 0, use_nsort, sorted_xidbox_ptr, xid_map_ptr);
+    return CopySortStrboxSubset(sample_include, sample_ids, sample_ct, max_sample_id_blen, allow_dups, 0, use_nsort, sorted_xidbox_ptr, xid_map_ptr);
   }
   // three fields
-  if (augid_init_alloc(sample_include, sample_ids, sids, sample_ct, max_sample_id_blen, max_sid_blen, xid_map_ptr, sorted_xidbox_ptr, max_xid_blen_ptr)) {
+  if (AugidInitAlloc(sample_include, sample_ids, sids, sample_ct, max_sample_id_blen, max_sid_blen, xid_map_ptr, sorted_xidbox_ptr, max_xid_blen_ptr)) {
     return kPglRetNomem;
   }
-  if (sort_strbox_indexed(sample_ct, *max_xid_blen_ptr, use_nsort, *sorted_xidbox_ptr, *xid_map_ptr)) {
+  if (SortStrboxIndexed(sample_ct, *max_xid_blen_ptr, use_nsort, *sorted_xidbox_ptr, *xid_map_ptr)) {
     return kPglRetNomem;
   }
   if (!allow_dups) {
-    char* dup_id = scan_for_duplicate_ids(*sorted_xidbox_ptr, sample_ct, *max_xid_blen_ptr);
+    char* dup_id = ScanForDuplicateIds(*sorted_xidbox_ptr, sample_ct, *max_xid_blen_ptr);
     if (dup_id) {
       char* tab_iter = S_CAST(char*, rawmemchr(dup_id, '\t'));
       *tab_iter = ' ';
       tab_iter = S_CAST(char*, rawmemchr(&(tab_iter[1]), '\t'));
       *tab_iter = ' ';
-      LOGERRPRINTFWW("Error: Duplicate ID '%s'.\n", dup_id);
+      logerrprintfww("Error: Duplicate ID '%s'.\n", dup_id);
       return kPglRetMalformedInput;
     }
   }
   return kPglRetSuccess;
 }
 
-uint32_t xid_read(uintptr_t max_xid_blen, uint32_t comma_delim, xid_mode_t xid_mode, const char** read_pp, char* __restrict idbuf) {
+uint32_t XidRead(uintptr_t max_xid_blen, uint32_t comma_delim, XidMode xid_mode, const char** read_pp, char* __restrict idbuf) {
   // idbuf = workspace
   // sorted_xidbox = packed, sorted list of ID strings to search over.
   //
@@ -408,13 +370,13 @@ uint32_t xid_read(uintptr_t max_xid_blen, uint32_t comma_delim, xid_mode_t xid_m
           return 0;
         }
         slen_fid = token_iter - first_token_start;
-        goto sorted_xidbox_read_comma_single_token;
+        goto XidRead_comma_single_token;
       }
       ucc = *(++token_iter);
     }
     slen_fid = token_iter - first_token_start;
     if (xid_mode & kfXidModeFlagNeverFid) {
-    sorted_xidbox_read_comma_single_token:
+    XidRead_comma_single_token:
       iid_ptr = first_token_start;
       slen_iid = slen_fid;
     } else {
@@ -447,37 +409,37 @@ uint32_t xid_read(uintptr_t max_xid_blen, uint32_t comma_delim, xid_mode_t xid_m
       }
     }
   } else {
-    assert(!is_eoln_kns(*first_token_start));
-    token_iter = token_endnn(first_token_start);
+    assert(!IsEolnKns(*first_token_start));
+    token_iter = CurTokenEnd(first_token_start);
     slen_fid = token_iter - first_token_start;
     if (xid_mode & kfXidModeFlagNeverFid) {
-    sorted_xidbox_read_space_single_token:
+    XidRead_space_single_token:
       iid_ptr = first_token_start;
       slen_iid = slen_fid;
     } else {
-      token_iter = skip_initial_spaces(token_iter);
-      if (is_eoln_kns(*token_iter)) {
+      token_iter = FirstNonTspace(token_iter);
+      if (IsEolnKns(*token_iter)) {
         if (!(xid_mode & kfXidModeFlagOneTokenOk)) {
           *read_pp = nullptr;
           return 0;
         }
         // need to backtrack
         token_iter = &(first_token_start[slen_fid]);
-        goto sorted_xidbox_read_space_single_token;
+        goto XidRead_space_single_token;
       }
       iid_ptr = token_iter;
-      token_iter = token_endnn(token_iter);
+      token_iter = CurTokenEnd(token_iter);
       slen_iid = token_iter - iid_ptr;
     }
     // token_iter now points to space/eoln at end of IID
     if (xid_mode & kfXidModeFlagSid) {
-      token_iter = skip_initial_spaces(token_iter);
-      if (is_eoln_kns(*token_iter)) {
+      token_iter = FirstNonTspace(token_iter);
+      if (IsEolnKns(*token_iter)) {
         *read_pp = nullptr;
         return 0;
       }
       sid_ptr = token_iter;
-      token_iter = token_endnn(token_iter);
+      token_iter = CurTokenEnd(token_iter);
       blen_sid = 1 + S_CAST(uintptr_t, token_iter - sid_ptr);
     }
   }
@@ -495,14 +457,14 @@ uint32_t xid_read(uintptr_t max_xid_blen, uint32_t comma_delim, xid_mode_t xid_m
   return slen_final;
 }
 
-boolerr_t sorted_xidbox_read_multifind(const char* __restrict sorted_xidbox, uintptr_t max_xid_blen, uintptr_t xid_ct, uint32_t comma_delim, xid_mode_t xid_mode, const char** read_pp, uint32_t* __restrict xid_idx_start_ptr, uint32_t* __restrict xid_idx_end_ptr, char* __restrict idbuf) {
-  const uint32_t slen_final = xid_read(max_xid_blen, comma_delim, xid_mode, read_pp, idbuf);
+BoolErr SortedXidboxReadMultifind(const char* __restrict sorted_xidbox, uintptr_t max_xid_blen, uintptr_t xid_ct, uint32_t comma_delim, XidMode xid_mode, const char** read_pp, uint32_t* __restrict xid_idx_start_ptr, uint32_t* __restrict xid_idx_end_ptr, char* __restrict idbuf) {
+  const uint32_t slen_final = XidRead(max_xid_blen, comma_delim, xid_mode, read_pp, idbuf);
   if (!slen_final) {
     return 1;
   }
   const uint32_t lb_idx = bsearch_str_lb(idbuf, sorted_xidbox, slen_final, max_xid_blen, xid_ct);
   idbuf[slen_final] = ' ';
-  const uint32_t ub_idx = fwdsearch_str_lb(idbuf, sorted_xidbox, slen_final + 1, max_xid_blen, xid_ct, lb_idx);
+  const uint32_t ub_idx = FwdsearchStrLb(idbuf, sorted_xidbox, slen_final + 1, max_xid_blen, xid_ct, lb_idx);
   if (lb_idx == ub_idx) {
     return 1;
   }
@@ -511,7 +473,7 @@ boolerr_t sorted_xidbox_read_multifind(const char* __restrict sorted_xidbox, uin
   return 0;
 }
 
-pglerr_t load_xid_header(const char* flag_name, sid_detect_mode_t sid_detect_mode, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, xid_mode_t* xid_mode_ptr) {
+PglErr LoadXidHeader(const char* flag_name, SidDetectMode sid_detect_mode, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, XidMode* xid_mode_ptr) {
   // possible todo: support comma delimiter
   uintptr_t line_idx = *line_idx_ptr;
   uint32_t is_header_line;
@@ -527,10 +489,10 @@ pglerr_t load_xid_header(const char* flag_name, sid_detect_mode_t sid_detect_mod
     if (!loadbuf[loadbuf_size - 1]) {
       return kPglRetLongLine;
     }
-    loadbuf_first_token = skip_initial_spaces(loadbuf);
+    loadbuf_first_token = FirstNonTspace(loadbuf);
     is_header_line = (loadbuf_first_token[0] == '#');
-  } while (is_eoln_kns(*loadbuf_first_token) || (is_header_line && (!tokequal_k(&(loadbuf_first_token[1]), "FID")) && (!tokequal_k(&(loadbuf_first_token[1]), "IID"))));
-  xid_mode_t xid_mode = kfXidMode0;
+  } while (IsEolnKns(*loadbuf_first_token) || (is_header_line && (!tokequal_k(&(loadbuf_first_token[1]), "FID")) && (!tokequal_k(&(loadbuf_first_token[1]), "IID"))));
+  XidMode xid_mode = kfXidMode0;
   char* loadbuf_iter;
   if (is_header_line) {
     // the following header leading columns are supported:
@@ -542,21 +504,21 @@ pglerr_t load_xid_header(const char* flag_name, sid_detect_mode_t sid_detect_mod
     if (loadbuf_first_token[1] == 'I') {
       xid_mode = kfXidModeFlagNeverFid;
     } else {
-      loadbuf_iter = skip_initial_spaces(loadbuf_iter);
+      loadbuf_iter = FirstNonTspace(loadbuf_iter);
       if (!tokequal_k(loadbuf_iter, "IID")) {
-        LOGERRPRINTF("Error: No IID column on line %" PRIuPTR " of --%s file.\n", line_idx, flag_name);
+        logerrprintf("Error: No IID column on line %" PRIuPTR " of --%s file.\n", line_idx, flag_name);
         return kPglRetMalformedInput;
       }
       loadbuf_iter = &(loadbuf_iter[3]);
     }
-    loadbuf_iter = skip_initial_spaces(loadbuf_iter);
+    loadbuf_iter = FirstNonTspace(loadbuf_iter);
     if (tokequal_k(loadbuf_iter, "SID")) {
       if (S_CAST(uint32_t, sid_detect_mode) >= kSidDetectModeLoaded) {
         xid_mode |= kfXidModeFlagSid;
       }
-      loadbuf_iter = skip_initial_spaces(&(loadbuf_iter[3]));
+      loadbuf_iter = FirstNonTspace(&(loadbuf_iter[3]));
     } else if (sid_detect_mode == kSidDetectModeForce) {
-      LOGERRPRINTFWW("Error: No SID column on line %" PRIuPTR " of --%s file.\n", line_idx, flag_name);
+      logerrprintfww("Error: No SID column on line %" PRIuPTR " of --%s file.\n", line_idx, flag_name);
       return kPglRetMalformedInput;
     }
   } else {
@@ -572,20 +534,20 @@ pglerr_t load_xid_header(const char* flag_name, sid_detect_mode_t sid_detect_mod
   return kPglRetSuccess;
 }
 
-pglerr_t open_and_load_xid_header(const char* fname, const char* flag_name, sid_detect_mode_t sid_detect_mode, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, xid_mode_t* xid_mode_ptr) {
-  pglerr_t reterr = gzopen_read_checked(fname, gz_infile_ptr);
+PglErr OpenAndLoadXidHeader(const char* fname, const char* flag_name, SidDetectMode sid_detect_mode, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, XidMode* xid_mode_ptr) {
+  PglErr reterr = gzopen_read_checked(fname, gz_infile_ptr);
   if (reterr) {
     return reterr;
   }
   loadbuf[loadbuf_size - 1] = ' ';
-  return load_xid_header(flag_name, sid_detect_mode, loadbuf_size, loadbuf, loadbuf_iter_ptr, line_idx_ptr, loadbuf_first_token_ptr, gz_infile_ptr, xid_mode_ptr);
+  return LoadXidHeader(flag_name, sid_detect_mode, loadbuf_size, loadbuf, loadbuf_iter_ptr, line_idx_ptr, loadbuf_first_token_ptr, gz_infile_ptr, xid_mode_ptr);
 }
 
 
 const char g_xymt_log_names[][5] = {"chrX", "chrY", "XY", "chrM", "PAR1", "PAR2"};
 
 static_assert(!(kChrRawEnd % kBytesPerVec), "kChrRawEnd must be a multiple of kBytesPerVec.");
-pglerr_t init_chr_info(chr_info_t* cip) {
+PglErr InitChrInfo(ChrInfo* cip) {
   // "constructor".  initializes with maximum capacity.  doesn't use bigstack.
   // chr_mask, haploid_mask: bits
   // chr_file_order, chr_idx_to_foidx: int32s
@@ -594,7 +556,7 @@ pglerr_t init_chr_info(chr_info_t* cip) {
   // nonstd_id_htable: kChrHtableSize int32s
 
   // this assumes kChrRawEnd is divisible by kBytesPerVec
-  const uintptr_t vecs_required = 2 * BITCT_TO_VECCT(kChrRawEnd) + 3 * (kChrRawEnd / kInt32PerVec) + 1 + (kChrRawEnd / kWordsPerVec) + INT32CT_TO_VECCT(kChrHtableSize);
+  const uintptr_t vecs_required = 2 * BitCtToVecCt(kChrRawEnd) + 3 * (kChrRawEnd / kInt32PerVec) + 1 + (kChrRawEnd / kWordsPerVec) + Int32CtToVecCt(kChrHtableSize);
 
   // needed for proper cleanup
   cip->name_ct = 0;
@@ -602,9 +564,9 @@ pglerr_t init_chr_info(chr_info_t* cip) {
   if (vecaligned_malloc(vecs_required * kBytesPerVec, &(cip->chr_mask))) {
     return kPglRetNomem;
   }
-  uintptr_t* alloc_iter = &(cip->chr_mask[BITCT_TO_VECCT(kChrRawEnd) * kWordsPerVec]);
+  uintptr_t* alloc_iter = &(cip->chr_mask[BitCtToVecCt(kChrRawEnd) * kWordsPerVec]);
   cip->haploid_mask = alloc_iter;
-  alloc_iter = &(alloc_iter[BITCT_TO_VECCT(kChrRawEnd) * kWordsPerVec]);
+  alloc_iter = &(alloc_iter[BitCtToVecCt(kChrRawEnd) * kWordsPerVec]);
   cip->chr_file_order = R_CAST(uint32_t*, alloc_iter);
   alloc_iter = &(alloc_iter[(kChrRawEnd / kInt32PerVec) * kWordsPerVec]);
   cip->chr_fo_vidx_start = R_CAST(uint32_t*, alloc_iter);
@@ -615,10 +577,10 @@ pglerr_t init_chr_info(chr_info_t* cip) {
   alloc_iter = &(alloc_iter[kChrRawEnd]);
   cip->nonstd_id_htable = R_CAST(uint32_t*, alloc_iter);
   // alloc_iter = &(alloc_iter[((kChrHtableSize + (kInt32PerVec - 1)) / kInt32PerVec) * kWordsPerVec]);
-  // fill_uint_one(kChrHtableSize, cip->nonstd_id_htable);
+  // SetAllUiArr(kChrHtableSize, cip->nonstd_id_htable);
 
-  fill_ulong_zero(kChrMaskWords, cip->chr_mask);
-  fill_ulong_zero(kChrExcludeWords, cip->chr_exclude);
+  ZeroUlArr(kChrMaskWords, cip->chr_mask);
+  ZeroUlArr(kChrExcludeWords, cip->chr_exclude);
 
   // this is a change from plink 1.x.  MT > M since the former matches Ensembl,
   // while the latter doesn't match any major resource.  no "chr" to reduce
@@ -633,7 +595,7 @@ pglerr_t init_chr_info(chr_info_t* cip) {
     cip->xymt_codes[xymt_idx] = 23 + xymt_idx;
   }
   cip->haploid_mask[0] = 0x1800000;
-  fill_ulong_zero(kChrMaskWords - 1, &(cip->haploid_mask[1]));
+  ZeroUlArr(kChrMaskWords - 1, &(cip->haploid_mask[1]));
   return kPglRetSuccess;
 }
 
@@ -648,7 +610,7 @@ pglerr_t init_chr_info(chr_info_t* cip) {
 // sheep: 26, X, Y
 
 // must be safe to call this twice.
-void finalize_chrset(misc_flags_t misc_flags, chr_info_t* cip) {
+void FinalizeChrset(MiscFlags misc_flags, ChrInfo* cip) {
   uint32_t autosome_ct = cip->autosome_ct;
   uint32_t max_code = autosome_ct;
   for (uint32_t xymt_idx_p1 = kChrOffsetCt; xymt_idx_p1; --xymt_idx_p1) {
@@ -675,34 +637,34 @@ void finalize_chrset(misc_flags_t misc_flags, chr_info_t* cip) {
       const uint32_t xymt_idx = __builtin_ctz(xymt_include);
       const int32_t cur_chr_code = xymt_codes[xymt_idx];
       if (cur_chr_code >= 0) {
-        set_bit(cur_chr_code, chr_mask);
+        SetBitI(cur_chr_code, chr_mask);
       }
       xymt_include &= xymt_include - 1;
     } while (xymt_include);
-  } else if (are_all_words_zero(chr_mask, kChrExcludeWords) && (!cip->is_include_stack)) {
+  } else if (AllWordsAreZero(chr_mask, kChrExcludeWords) && (!cip->is_include_stack)) {
     // init_default_chr_mask()
-    fill_all_bits(cip->autosome_ct + 1, chr_mask);
+    SetAllBits(cip->autosome_ct + 1, chr_mask);
     for (uint32_t xymt_idx = 0; xymt_idx < kChrOffsetCt; ++xymt_idx) {
       const int32_t cur_chr_code = cip->xymt_codes[xymt_idx];
       if (cur_chr_code >= 0) {
-        set_bit(cur_chr_code, chr_mask);
+        SetBitI(cur_chr_code, chr_mask);
       }
     }
   } else if (misc_flags & (kfMiscAutosomePar | kfMiscAutosomeOnly)) {
-    fill_bits_nz(1, cip->autosome_ct + 1, chr_mask);
-    clear_bits_nz(cip->autosome_ct + 1, kChrExcludeWords * kBitsPerWord, chr_mask);
+    FillBitsNz(1, cip->autosome_ct + 1, chr_mask);
+    ClearBitsNz(cip->autosome_ct + 1, kChrExcludeWords * kBitsPerWord, chr_mask);
     if (misc_flags & kfMiscAutosomePar) {
       int32_t par_chr_code = cip->xymt_codes[kChrOffsetXY];
       if (par_chr_code >= 0) {
-        set_bit(par_chr_code, chr_mask);
+        SetBitI(par_chr_code, chr_mask);
       }
       par_chr_code = cip->xymt_codes[kChrOffsetPAR1];
       if (par_chr_code >= 0) {
-        set_bit(par_chr_code, chr_mask);
+        SetBitI(par_chr_code, chr_mask);
       }
       par_chr_code = cip->xymt_codes[kChrOffsetPAR2];
       if (par_chr_code >= 0) {
-        set_bit(par_chr_code, chr_mask);
+        SetBitI(par_chr_code, chr_mask);
       }
     }
   }
@@ -720,15 +682,15 @@ void finalize_chrset(misc_flags_t misc_flags, chr_info_t* cip) {
       const uint32_t xymt_idx = __builtin_ctz(xymt_exclude);
       const int32_t cur_chr_code = xymt_codes[xymt_idx];
       if (cur_chr_code >= 0) {
-        clear_bit(cur_chr_code, chr_mask);
+        ClearBitI(cur_chr_code, chr_mask);
       }
       xymt_exclude &= xymt_exclude - 1;
     } while (xymt_exclude);
   }
-  fill_uint_one(max_code + 1, cip->chr_idx_to_foidx);
+  SetAllUiArr(max_code + 1, cip->chr_idx_to_foidx);
 }
 
-void forget_extra_chr_names(uint32_t reinitialize, chr_info_t* cip) {
+void ForgetExtraChrNames(uint32_t reinitialize, ChrInfo* cip) {
   const uint32_t name_ct = cip->name_ct;
   if (name_ct) {
     const char** nonstd_names = cip->nonstd_names;
@@ -738,25 +700,25 @@ void forget_extra_chr_names(uint32_t reinitialize, chr_info_t* cip) {
       nonstd_names[chr_idx] = nullptr;
     }
     if (reinitialize) {
-      // fill_uint_one(kChrHtableSize, cip->nonstd_id_htable);
+      // SetAllUiArr(kChrHtableSize, cip->nonstd_id_htable);
       cip->name_ct = 0;
     }
   }
 }
 
 // not currently called.  might want to do so in the future.
-pglerr_t finalize_chr_info(chr_info_t* cip) {
+PglErr FinalizeChrInfo(ChrInfo* cip) {
   const uint32_t chr_ct = cip->chr_ct;
   const uint32_t name_ct = cip->name_ct;
   const uint32_t chr_code_end = cip->max_code + 1 + name_ct;
-  const uint32_t chr_code_bitvec_ct = BITCT_TO_VECCT(chr_code_end);
-  const uint32_t chr_ct_int32vec_ct = INT32CT_TO_VECCT(chr_ct);
+  const uint32_t chr_code_bitvec_ct = BitCtToVecCt(chr_code_end);
+  const uint32_t chr_ct_int32vec_ct = Int32CtToVecCt(chr_ct);
   const uint32_t chr_ct_p1_int32vec_ct = 1 + (chr_ct / kInt32PerVec);
-  const uint32_t chr_code_end_int32vec_ct = INT32CT_TO_VECCT(chr_code_end);
-  const uint32_t chr_code_end_wordvec_ct = WORDCT_TO_VECCT(chr_code_end);
+  const uint32_t chr_code_end_int32vec_ct = Int32CtToVecCt(chr_code_end);
+  const uint32_t chr_code_end_wordvec_ct = WordCtToVecCt(chr_code_end);
   uint32_t final_vecs_required = 2 * chr_code_bitvec_ct + chr_ct_int32vec_ct + chr_ct_p1_int32vec_ct + chr_code_end_int32vec_ct;
   if (name_ct) {
-    final_vecs_required += chr_code_end_wordvec_ct + INT32CT_TO_VECCT(kChrHtableSize);
+    final_vecs_required += chr_code_end_wordvec_ct + Int32CtToVecCt(kChrHtableSize);
   }
   uintptr_t* new_alloc;
   if (vecaligned_malloc(final_vecs_required * kBytesPerVec, &new_alloc)) {
@@ -801,22 +763,22 @@ pglerr_t finalize_chr_info(chr_info_t* cip) {
   return kPglRetSuccess;
 }
 
-void cleanup_chr_info(chr_info_t* cip) {
+void CleanupChrInfo(ChrInfo* cip) {
   if (cip->chr_mask) {
-    forget_extra_chr_names(0, cip);
+    ForgetExtraChrNames(0, cip);
     vecaligned_free(cip->chr_mask);
     cip->chr_mask = nullptr;
   }
-  ll_str_t* llstr_ptr = cip->incl_excl_name_stack;
+  LlStr* llstr_ptr = cip->incl_excl_name_stack;
   while (llstr_ptr) {
-    ll_str_t* next_ptr = llstr_ptr->next;
+    LlStr* next_ptr = llstr_ptr->next;
     free(llstr_ptr);
     llstr_ptr = next_ptr;
   }
   cip->incl_excl_name_stack = nullptr;
 }
 
-char* chr_name_std(const chr_info_t* cip, uint32_t chr_idx, char* buf) {
+char* ChrNameStd(const ChrInfo* cip, uint32_t chr_idx, char* buf) {
   const uint32_t output_encoding = cip->output_encoding;
   const int32_t chr_idx_i = chr_idx;
   if (chr_idx > cip->max_numeric_code) {
@@ -869,14 +831,14 @@ char* chr_name_std(const chr_info_t* cip, uint32_t chr_idx, char* buf) {
   return buf;
 }
 
-char* chr_name_write(const chr_info_t* cip, uint32_t chr_idx, char* buf) {
+char* chrtoa(const ChrInfo* cip, uint32_t chr_idx, char* buf) {
   // assumes chr_idx is valid
   if (!chr_idx) {
     *buf++ = '0';
     return buf;
   }
   if (chr_idx <= cip->max_code) {
-    return chr_name_std(cip, chr_idx, buf);
+    return ChrNameStd(cip, chr_idx, buf);
   }
   if (cip->zero_extra_chrs) {
     *buf++ = '0';
@@ -885,7 +847,7 @@ char* chr_name_write(const chr_info_t* cip, uint32_t chr_idx, char* buf) {
   return strcpya(buf, cip->nonstd_names[chr_idx]);
 }
 
-uint32_t get_max_chr_slen(const chr_info_t* cip) {
+uint32_t GetMaxChrSlen(const ChrInfo* cip) {
   // does not include trailing null
   // can be overestimate
   // if more functions start calling this, it should just be built into
@@ -898,7 +860,7 @@ uint32_t get_max_chr_slen(const chr_info_t* cip) {
   uint32_t max_chr_slen = 3 + kMaxChrTextnum;
   for (uint32_t chr_fo_idx = 0; chr_fo_idx < chr_ct; ++chr_fo_idx) {
     const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
-    if (!is_set(cip->chr_mask, chr_idx)) {
+    if (!IsSet(cip->chr_mask, chr_idx)) {
       continue;
     }
     if (chr_idx > max_code) {
@@ -911,7 +873,7 @@ uint32_t get_max_chr_slen(const chr_info_t* cip) {
   return max_chr_slen;
 }
 
-uint32_t haploid_chr_present(const chr_info_t* cip) {
+uint32_t IsHaploidChrPresent(const ChrInfo* cip) {
   const uintptr_t* chr_mask = cip->chr_mask;
   const uintptr_t* haploid_mask = cip->haploid_mask;
   // since we don't load haploid vs. diploid info from ##contig header lines,
@@ -924,7 +886,7 @@ uint32_t haploid_chr_present(const chr_info_t* cip) {
   return 0;
 }
 
-static inline int32_t single_cap_letter_chrom(uint32_t cap_letter) {
+static inline int32_t SingleCapLetterChrCode(uint32_t cap_letter) {
   if (cap_letter == 'X') {
     return kChrRawX;
   }
@@ -937,15 +899,15 @@ static inline int32_t single_cap_letter_chrom(uint32_t cap_letter) {
   return -1;
 }
 
-static_assert(kMaxChrTextnumSlen == 2, "get_chr_code_raw() must be updated.");
-int32_t get_chr_code_raw(const char* str_iter) {
+static_assert(kMaxChrTextnumSlen == 2, "GetChrCodeRaw() must be updated.");
+int32_t GetChrCodeRaw(const char* str_iter) {
   // any character <= ' ' is considered a terminator
   // note that char arithmetic tends to be compiled to int32 operations, so we
   // mostly work with ints here
   uint32_t first_char_code = ctou32(str_iter[0]);
   uint32_t first_char_toi;
   if (first_char_code < 58) {
-  get_chr_code_raw_digits:
+  GetChrCodeRaw_digits:
     first_char_toi = first_char_code - '0';
     if (first_char_toi < 10) {
       const uint32_t second_char_code = ctou32(str_iter[1]);
@@ -959,7 +921,7 @@ int32_t get_chr_code_raw(const char* str_iter) {
         }
         if (!first_char_toi) {
           // accept '0X', '0Y', '0M' emitted by Oxford software
-          return single_cap_letter_chrom(second_char_code & 0xdf);
+          return SingleCapLetterChrCode(second_char_code & 0xdf);
         }
       }
     }
@@ -987,13 +949,13 @@ int32_t get_chr_code_raw(const char* str_iter) {
     str_iter = &(str_iter[3]);
     first_char_code = ctou32(str_iter[0]);
     if (first_char_code < 58) {
-      goto get_chr_code_raw_digits;
+      goto GetChrCodeRaw_digits;
     }
     first_char_code &= 0xdf;
     second_char_code = ctou32(str_iter[1]);
   }
   if (second_char_code <= ' ') {
-    return single_cap_letter_chrom(first_char_code);
+    return SingleCapLetterChrCode(first_char_code);
   }
   if (ctou32(str_iter[2]) <= ' ') {
     second_char_code &= 0xdf;
@@ -1006,13 +968,13 @@ int32_t get_chr_code_raw(const char* str_iter) {
   return -1;
 }
 
-int32_t get_chr_code(const char* chr_name, const chr_info_t* cip, uint32_t name_slen) {
+int32_t GetChrCode(const char* chr_name, const ChrInfo* cip, uint32_t name_slen) {
   // requires chr_name to be null-terminated
   // in practice, name_slen will usually already be known, may as well avoid
   // redundant strlen() calls even though this uglifies the interface
   // does not perform exhaustive error-checking
   // -1 = --allow-extra-chr ok, -2 = total fail
-  int32_t chr_code_raw = get_chr_code_raw(chr_name);
+  int32_t chr_code_raw = GetChrCodeRaw(chr_name);
   if (S_CAST(uint32_t, chr_code_raw) <= cip->max_code) {
     return chr_code_raw;
   }
@@ -1026,53 +988,53 @@ int32_t get_chr_code(const char* chr_name, const chr_info_t* cip, uint32_t name_
     return -1;
   }
   // UINT32_MAX gets casted to -1
-  return S_CAST(int32_t, id_htable_find(chr_name, cip->nonstd_names, cip->nonstd_id_htable, name_slen, kChrHtableSize));
+  return S_CAST(int32_t, IdHtableFind(chr_name, cip->nonstd_names, cip->nonstd_id_htable, name_slen, kChrHtableSize));
 }
 
-int32_t get_chr_code_counted(const chr_info_t* cip, uint32_t name_slen, char* chr_name) {
+int32_t GetChrCodeCounted(const ChrInfo* cip, uint32_t name_slen, char* chr_name) {
   // when the chromosome name isn't null-terminated
   // (yeah, probably want to revise the called functions so that chr_name
   // doesn't need to be mutable here)
   char* s_end = &(chr_name[name_slen]);
   const char tmpc = *s_end;
   *s_end = '\0';
-  const int32_t chr_code = get_chr_code(chr_name, cip, name_slen);
+  const int32_t chr_code = GetChrCode(chr_name, cip, name_slen);
   *s_end = tmpc;
   return chr_code;
 }
 
-void chr_error(const char* chr_name, const char* file_descrip, const chr_info_t* cip, uintptr_t line_idx, int32_t error_code) {
+void ChrError(const char* chr_name, const char* file_descrip, const ChrInfo* cip, uintptr_t line_idx, int32_t error_code) {
   // assumes chr_name is null-terminated
-  const int32_t raw_code = get_chr_code_raw(chr_name);
-  logprint("\n");
+  const int32_t raw_code = GetChrCodeRaw(chr_name);
+  logputs("\n");
   if (line_idx) {
-    LOGERRPRINTFWW("Error: Invalid chromosome code '%s' on line %" PRIuPTR " of %s.\n", chr_name, line_idx, file_descrip);
+    logerrprintfww("Error: Invalid chromosome code '%s' on line %" PRIuPTR " of %s.\n", chr_name, line_idx, file_descrip);
   } else {
-    LOGERRPRINTFWW("Error: Invalid chromosome code '%s' in %s.\n", chr_name, file_descrip);
+    logerrprintfww("Error: Invalid chromosome code '%s' in %s.\n", chr_name, file_descrip);
   }
   if ((raw_code > S_CAST(int32_t, cip->max_code)) && ((raw_code <= S_CAST(int32_t, kMaxChrTextnum + kChrOffsetCt)) || (raw_code >= S_CAST(int32_t, kMaxContigs)))) {
     if (cip->chrset_source == kChrsetSourceDefault) {
-      logerrprint("(This is disallowed for humans.  Check if the problem is with your data, or if\nyou forgot to define a different chromosome set with e.g. --chr-set.).\n");
+      logerrputs("(This is disallowed for humans.  Check if the problem is with your data, or if\nyou forgot to define a different chromosome set with e.g. --chr-set.).\n");
     } else if (cip->chrset_source == kChrsetSourceCmdline) {
-      logerrprint("(This is disallowed by your command-line flags.)\n");
+      logerrputs("(This is disallowed by your command-line flags.)\n");
     } else {
       // kChrsetSourceFile
-      logerrprint("(This is disallowed by the file's own ##chrSet header line.)\n");
+      logerrputs("(This is disallowed by the file's own ##chrSet header line.)\n");
     }
     // maybe want to print message(s) depending on whether chromosome set was
     // defined on the command line or by the input file?
   } else if (error_code == -1) {
-    logerrprint("(Use --allow-extra-chr to force it to be accepted.)\n");
+    logerrputs("(Use --allow-extra-chr to force it to be accepted.)\n");
   }
 }
 
-pglerr_t try_to_add_chr_name(const char* chr_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, uint32_t allow_extra_chrs, int32_t* chr_idx_ptr, chr_info_t* cip) {
+PglErr TryToAddChrName(const char* chr_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, uint32_t allow_extra_chrs, int32_t* chr_idx_ptr, ChrInfo* cip) {
   // assumes chr_name is either nonstandard (i.e. not "2", "chr2", "chrX",
   // etc.), or a rejected xymt.
   // requires chr_name to be null-terminated
-  // assumes chr_idx currently has the return value of get_chr_code()
+  // assumes chr_idx currently has the return value of GetChrCode()
   if ((!allow_extra_chrs) || ((*chr_idx_ptr) == -2)) {
-    chr_error(chr_name, file_descrip, cip, line_idx, *chr_idx_ptr);
+    ChrError(chr_name, file_descrip, cip, line_idx, *chr_idx_ptr);
     return kPglRetMalformedInput;
   }
 
@@ -1081,16 +1043,16 @@ pglerr_t try_to_add_chr_name(const char* chr_name, const char* file_descrip, uin
   if (chr_name[0] == '#') {
     // redundant with some of the comment-skipping loaders, but this isn't
     // performance-critical
-    logprint("\n");
-    logerrprint("Error: Chromosome/contig names may not begin with '#'.\n");
+    logputs("\n");
+    logerrputs("Error: Chromosome/contig names may not begin with '#'.\n");
     return kPglRetMalformedInput;
   }
   if (name_slen > kMaxIdSlen) {
-    logprint("\n");
+    logputs("\n");
     if (line_idx) {
-      LOGERRPRINTFWW("Error: Line %" PRIuPTR " of %s has an excessively long chromosome/contig name. (The " PROG_NAME_STR " limit is " MAX_ID_SLEN_STR " characters.)\n", line_idx, file_descrip);
+      logerrprintfww("Error: Line %" PRIuPTR " of %s has an excessively long chromosome/contig name. (The " PROG_NAME_STR " limit is " MAX_ID_SLEN_STR " characters.)\n", line_idx, file_descrip);
     } else {
-      LOGERRPRINTFWW("Error: Excessively long chromosome/contig name in %s. (The " PROG_NAME_STR " limit is " MAX_ID_SLEN_STR " characters.)\n", file_descrip);
+      logerrprintfww("Error: Excessively long chromosome/contig name in %s. (The " PROG_NAME_STR " limit is " MAX_ID_SLEN_STR " characters.)\n", file_descrip);
     }
     return kPglRetMalformedInput;
   }
@@ -1098,19 +1060,19 @@ pglerr_t try_to_add_chr_name(const char* chr_name, const char* file_descrip, uin
   const uint32_t name_ct = cip->name_ct;
   const uint32_t chr_code_end = max_code_p1 + name_ct;
   if (chr_code_end == kMaxContigs) {
-    logprint("\n");
-    logerrprint("Error: Too many distinct nonstandard chromosome/contig names.\n");
+    logputs("\n");
+    logerrputs("Error: Too many distinct nonstandard chromosome/contig names.\n");
     return kPglRetMalformedInput;
   }
   if (!name_ct) {
     // lazy initialization
-    fill_uint_one(kChrHtableSize, cip->nonstd_id_htable);
+    SetAllUiArr(kChrHtableSize, cip->nonstd_id_htable);
   }
   char* new_nonstd_name;
   if (pgl_malloc(name_slen + 1, &new_nonstd_name)) {
     return kPglRetNomem;
   }
-  ll_str_t* name_stack_ptr = cip->incl_excl_name_stack;
+  LlStr* name_stack_ptr = cip->incl_excl_name_stack;
   uint32_t in_name_stack = 0;
   while (name_stack_ptr) {
     // there shouldn't be many of these, so sorting is unimportant
@@ -1121,9 +1083,9 @@ pglerr_t try_to_add_chr_name(const char* chr_name, const char* file_descrip, uin
     name_stack_ptr = name_stack_ptr->next;
   }
   if ((in_name_stack && cip->is_include_stack) || ((!in_name_stack) && (!cip->is_include_stack))) {
-    SET_BIT(chr_code_end, cip->chr_mask);
+    SetBit(chr_code_end, cip->chr_mask);
     if (cip->haploid_mask[0] & 1) {
-      SET_BIT(chr_code_end, cip->haploid_mask);
+      SetBit(chr_code_end, cip->haploid_mask);
     }
   }
   memcpy(new_nonstd_name, chr_name, name_slen + 1);
@@ -1131,7 +1093,7 @@ pglerr_t try_to_add_chr_name(const char* chr_name, const char* file_descrip, uin
   *chr_idx_ptr = chr_code_end;
   cip->name_ct = name_ct + 1;
   uint32_t* id_htable = cip->nonstd_id_htable;
-  uint32_t hashval = hashceil(chr_name, name_slen, kChrHtableSize);
+  uint32_t hashval = Hashceil(chr_name, name_slen, kChrHtableSize);
   while (1) {
     if (id_htable[hashval] == UINT32_MAX) {
       id_htable[hashval] = chr_code_end;
@@ -1145,23 +1107,23 @@ pglerr_t try_to_add_chr_name(const char* chr_name, const char* file_descrip, uin
 
 
 /*
-uintptr_t count_11_vecs(const vul_t* geno_vvec, uintptr_t vec_ct) {
+uintptr_t count_11_vecs(const VecUL* geno_vvec, uintptr_t vec_ct) {
   // Counts number of aligned 11s in vptr[0..(vec_ct-1)].  Assumes vec_ct is a
   // multiple of 6 (0 ok).
   assert(!(vec_ct % 6));
-  const vul_t m1 = VCONST_UL(kMask5555);
-  const vul_t m2 = VCONST_UL(kMask3333);
-  const vul_t m4 = VCONST_UL(kMask0F0F);
-  const vul_t m8 = VCONST_UL(kMask00FF);
-  const vul_t* geno_vvec_iter = geno_vvec;
-  const vul_t* geno_vvec_end = &(geno_vvec[vec_ct]);
+  const VecUL m1 = VCONST_UL(kMask5555);
+  const VecUL m2 = VCONST_UL(kMask3333);
+  const VecUL m4 = VCONST_UL(kMask0F0F);
+  const VecUL m8 = VCONST_UL(kMask00FF);
+  const VecUL* geno_vvec_iter = geno_vvec;
+  const VecUL* geno_vvec_end = &(geno_vvec[vec_ct]);
   uintptr_t tot = 0;
 
   while (1) {
-    const vul_t* geno_vvec_stop = &(geno_vvec_iter[60]);
+    const VecUL* geno_vvec_stop = &(geno_vvec_iter[60]);
 
-    univec_t acc;
-    acc.vi = vul_setzero();
+    UniVec acc;
+    acc.vi = vecul_setzero();
 
     if (geno_vvec_stop > geno_vvec_end) {
       if (geno_vvec_iter == geno_vvec_end) {
@@ -1170,80 +1132,80 @@ uintptr_t count_11_vecs(const vul_t* geno_vvec, uintptr_t vec_ct) {
       geno_vvec_stop = geno_vvec_end;
     }
     do {
-      vul_t cur_geno_vword = *geno_vvec_iter++;
-      vul_t count1 = cur_geno_vword & m1;
-      count1 = count1 & vul_rshift(cur_geno_vword, 1);
+      VecUL cur_geno_vword = *geno_vvec_iter++;
+      VecUL count1 = cur_geno_vword & m1;
+      count1 = count1 & vecul_srli(cur_geno_vword, 1);
 
       cur_geno_vword = *geno_vvec_iter++;
-      vul_t cur_11 = cur_geno_vword & m1;
-      cur_11 = cur_11 & vul_rshift(cur_geno_vword, 1);
+      VecUL cur_11 = cur_geno_vword & m1;
+      cur_11 = cur_11 & vecul_srli(cur_geno_vword, 1);
       count1 = count1 + cur_11;
 
       cur_geno_vword = *geno_vvec_iter++;
       cur_11 = cur_geno_vword & m1;
-      cur_11 = cur_11 & vul_rshift(cur_geno_vword, 1);
+      cur_11 = cur_11 & vecul_srli(cur_geno_vword, 1);
       count1 = count1 + cur_11;
-      count1 = (count1 & m2) + (vul_rshift(count1, 2) & m2);
+      count1 = (count1 & m2) + (vecul_srli(count1, 2) & m2);
 
       cur_geno_vword = *geno_vvec_iter++;
-      vul_t count2 = cur_geno_vword & m1;
-      count2 = count2 & vul_rshift(cur_geno_vword, 1);
+      VecUL count2 = cur_geno_vword & m1;
+      count2 = count2 & vecul_srli(cur_geno_vword, 1);
 
       cur_geno_vword = *geno_vvec_iter++;
-      vul_t cur_11 = cur_geno_vword & m1;
-      cur_11 = cur_11 & vul_rshift(cur_geno_vword, 1);
+      VecUL cur_11 = cur_geno_vword & m1;
+      cur_11 = cur_11 & vecul_srli(cur_geno_vword, 1);
       count2 = count2 + cur_11;
 
       cur_geno_vword = *geno_vvec_iter++;
       cur_11 = cur_geno_vword & m1;
-      cur_11 = cur_11 & vul_rshift(cur_geno_vword, 1);
+      cur_11 = cur_11 & vecul_srli(cur_geno_vword, 1);
       count2 = count2 + cur_11;
-      count1 = count1 + (count2 & m2) + (vul_rshift(count2, 2) & m2);
+      count1 = count1 + (count2 & m2) + (vecul_srli(count2, 2) & m2);
 
-      acc.vi = acc.vi + (count1 & m4) + (vul_rshift(count1, 4) & m4);
+      acc.vi = acc.vi + (count1 & m4) + (vecul_srli(count1, 4) & m4);
     } while (geno_vvec_iter < geno_vvec_stop);
-    acc.vi = (acc.vi & m8) + (vul_rshift(acc.vi, 8) & m8);
-    tot += univec_hsum_16bit(acc);
+    acc.vi = (acc.vi & m8) + (vecul_srli(acc.vi, 8) & m8);
+    tot += UniVecHsum16(acc);
   }
 }
 
 uintptr_t count_11_longs(const uintptr_t* genovec, uintptr_t word_ct) {
   uintptr_t tot = 0;
   if (word_ct >= (6 * kWordsPerVec)) {
-    assert(IS_VEC_ALIGNED(genovec));
+    assert(IsVecAligned(genovec));
     const uintptr_t remainder = word_ct % (6 * kWordsPerVec);
     const uintptr_t main_block_word_ct = word_ct - remainder;
-    tot = count_11_vecs((const vul_t*)genovec, main_block_word_ct / kWordsPerVec);
+    tot = count_11_vecs((const VecUL*)genovec, main_block_word_ct / kWordsPerVec);
     word_ct = remainder;
     genovec = &(genovec[main_block_word_ct]);
   }
   for (uintptr_t trailing_word_idx = 0; trailing_word_idx < word_ct; ++trailing_word_idx) {
     const uintptr_t cur_geno_word = genovec[trailing_word_idx];
-    tot += popcount01_long(cur_geno_word & (cur_geno_word >> 1) & kMask5555);
+    tot += Popcount01Word(cur_geno_word & (cur_geno_word >> 1) & kMask5555);
   }
 }
 */
 
-void interleaved_mask_zero(const uintptr_t* __restrict interleaved_mask, uintptr_t vec_ct, uintptr_t* __restrict genovec) {
+void InterleavedMaskZero(const uintptr_t* __restrict interleaved_mask, uintptr_t vec_ct, uintptr_t* __restrict genovec) {
   const uintptr_t twovec_ct = vec_ct / 2;
 #ifdef __LP64__
-  const vul_t m1 = VCONST_UL(kMask5555);
-  const vul_t* interleaved_mask_iter = R_CAST(const vul_t*, interleaved_mask);
-  vul_t* genovvec_iter = R_CAST(vul_t*, genovec);
+  const VecUL m1 = VCONST_UL(kMask5555);
+  const VecUL* interleaved_mask_iter = R_CAST(const VecUL*, interleaved_mask);
+  VecUL* genovvec_iter = R_CAST(VecUL*, genovec);
   for (uintptr_t twovec_idx = 0; twovec_idx < twovec_ct; ++twovec_idx) {
-    const vul_t mask_vvec = *interleaved_mask_iter++;
-    vul_t mask_first = mask_vvec & m1;
-    mask_first = mask_first | vul_lshift(mask_first, 1);
-    vul_t mask_second = (~m1) & mask_vvec;
-    mask_second = mask_second | vul_rshift(mask_second, 1);
+    const VecUL mask_vvec = *interleaved_mask_iter++;
+    VecUL mask_first = mask_vvec & m1;
+    mask_first = mask_first | vecul_slli(mask_first, 1);
+    VecUL mask_second = (~m1) & mask_vvec;
+    mask_second = mask_second | vecul_srli(mask_second, 1);
     *genovvec_iter = (*genovvec_iter) & mask_first;
     ++genovvec_iter;
     *genovvec_iter = (*genovvec_iter) & mask_second;
     ++genovvec_iter;
   }
   if (vec_ct & 1) {
-    vul_t mask_first = *interleaved_mask_iter;
-    mask_first = mask_first | vul_lshift(mask_first, 1);
+    VecUL mask_first = *interleaved_mask_iter;
+    mask_first = mask_first | vecul_slli(mask_first, 1);
     *genovvec_iter = (*genovvec_iter) & mask_first;
   }
 #else
@@ -1263,26 +1225,26 @@ void interleaved_mask_zero(const uintptr_t* __restrict interleaved_mask, uintptr
 #endif
 }
 
-void interleaved_set_missing(const uintptr_t* __restrict interleaved_set, uintptr_t vec_ct, uintptr_t* __restrict genovec) {
+void InterleavedSetMissing(const uintptr_t* __restrict interleaved_set, uintptr_t vec_ct, uintptr_t* __restrict genovec) {
   const uintptr_t twovec_ct = vec_ct / 2;
 #ifdef __LP64__
-  const vul_t m1 = VCONST_UL(kMask5555);
-  const vul_t* interleaved_set_iter = R_CAST(const vul_t*, interleaved_set);
-  vul_t* genovvec_iter = R_CAST(vul_t*, genovec);
+  const VecUL m1 = VCONST_UL(kMask5555);
+  const VecUL* interleaved_set_iter = R_CAST(const VecUL*, interleaved_set);
+  VecUL* genovvec_iter = R_CAST(VecUL*, genovec);
   for (uintptr_t twovec_idx = 0; twovec_idx < twovec_ct; ++twovec_idx) {
-    const vul_t set_vvec = *interleaved_set_iter++;
-    vul_t set_first = set_vvec & m1;
-    set_first = set_first | vul_lshift(set_first, 1);
-    vul_t set_second = (~m1) & set_vvec;
-    set_second = set_second | vul_rshift(set_second, 1);
+    const VecUL set_vvec = *interleaved_set_iter++;
+    VecUL set_first = set_vvec & m1;
+    set_first = set_first | vecul_slli(set_first, 1);
+    VecUL set_second = (~m1) & set_vvec;
+    set_second = set_second | vecul_srli(set_second, 1);
     *genovvec_iter = (*genovvec_iter) | set_first;
     ++genovvec_iter;
     *genovvec_iter = (*genovvec_iter) | set_second;
     ++genovvec_iter;
   }
   if (vec_ct & 1) {
-    vul_t set_first = *interleaved_set_iter;
-    set_first = set_first | vul_lshift(set_first, 1);
+    VecUL set_first = *interleaved_set_iter;
+    set_first = set_first | vecul_slli(set_first, 1);
     *genovvec_iter = (*genovvec_iter) | set_first;
   }
 #else
@@ -1302,24 +1264,24 @@ void interleaved_set_missing(const uintptr_t* __restrict interleaved_set, uintpt
 #endif
 }
 
-void interleaved_set_missing_cleardosage(const uintptr_t* __restrict orig_set, const uintptr_t* __restrict interleaved_set, uintptr_t vec_ct, uintptr_t* __restrict genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, dosage_t* dosage_vals) {
+void InterleavedSetMissingCleardosage(const uintptr_t* __restrict orig_set, const uintptr_t* __restrict interleaved_set, uintptr_t vec_ct, uintptr_t* __restrict genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_vals) {
   const uint32_t orig_write_dosage_ct = *write_dosage_ct_ptr;
   if (orig_write_dosage_ct) {
     uint32_t sample_uidx = 0;
     uint32_t dosage_read_idx = 0;
     for (; dosage_read_idx < orig_write_dosage_ct; ++dosage_read_idx, ++sample_uidx) {
-      next_set_unsafe_ck(dosagepresent, &sample_uidx);
-      if (is_set(orig_set, sample_uidx)) {
-        clear_bit(sample_uidx, dosagepresent);
+      NextSetUnsafeCk32(dosagepresent, &sample_uidx);
+      if (IsSet(orig_set, sample_uidx)) {
+        ClearBit(sample_uidx, dosagepresent);
         uint32_t dosage_write_idx = dosage_read_idx;
         while (1) {
           if (++dosage_read_idx == orig_write_dosage_ct) {
             break;
           }
           ++sample_uidx;
-          next_set_unsafe_ck(dosagepresent, &sample_uidx);
-          if (is_set(orig_set, sample_uidx)) {
-            clear_bit(sample_uidx, dosagepresent);
+          NextSetUnsafeCk32(dosagepresent, &sample_uidx);
+          if (IsSet(orig_set, sample_uidx)) {
+            ClearBit(sample_uidx, dosagepresent);
           } else {
             dosage_vals[dosage_write_idx++] = dosage_vals[dosage_read_idx];
           }
@@ -1329,33 +1291,33 @@ void interleaved_set_missing_cleardosage(const uintptr_t* __restrict orig_set, c
       }
     }
   }
-  interleaved_set_missing(interleaved_set, vec_ct, genovec);
+  InterleavedSetMissing(interleaved_set, vec_ct, genovec);
 }
 
-void set_male_het_missing(const uintptr_t* __restrict sex_male_interleaved, uint32_t vec_ct, uintptr_t* __restrict genovec) {
+void SetMaleHetMissing(const uintptr_t* __restrict sex_male_interleaved, uint32_t vec_ct, uintptr_t* __restrict genovec) {
   const uint32_t twovec_ct = vec_ct / 2;
 #ifdef __LP64__
-  const vul_t m1 = VCONST_UL(kMask5555);
-  const vul_t* sex_male_interleaved_iter = R_CAST(const vul_t*, sex_male_interleaved);
-  vul_t* genovvec_iter = R_CAST(vul_t*, genovec);
+  const VecUL m1 = VCONST_UL(kMask5555);
+  const VecUL* sex_male_interleaved_iter = R_CAST(const VecUL*, sex_male_interleaved);
+  VecUL* genovvec_iter = R_CAST(VecUL*, genovec);
   for (uint32_t twovec_idx = 0; twovec_idx < twovec_ct; ++twovec_idx) {
-    const vul_t sex_male_vvec = *sex_male_interleaved_iter++;
+    const VecUL sex_male_vvec = *sex_male_interleaved_iter++;
     // we wish to bitwise-or with (sex_male_quatervec_01 & genovec) << 1
-    const vul_t sex_male_first = sex_male_vvec & m1;
-    const vul_t sex_male_second_shifted = (~m1) & sex_male_vvec;
-    vul_t cur_geno_vword = *genovvec_iter;
+    const VecUL sex_male_first = sex_male_vvec & m1;
+    const VecUL sex_male_second_shifted = (~m1) & sex_male_vvec;
+    VecUL cur_geno_vword = *genovvec_iter;
 
-    const vul_t missing_male_vword = sex_male_first & cur_geno_vword;
+    const VecUL missing_male_vword = sex_male_first & cur_geno_vword;
 
-    *genovvec_iter++ = cur_geno_vword | vul_lshift(missing_male_vword, 1);
+    *genovvec_iter++ = cur_geno_vword | vecul_slli(missing_male_vword, 1);
     cur_geno_vword = *genovvec_iter;
-    *genovvec_iter++ = cur_geno_vword | (sex_male_second_shifted & vul_lshift(cur_geno_vword, 1));
+    *genovvec_iter++ = cur_geno_vword | (sex_male_second_shifted & vecul_slli(cur_geno_vword, 1));
   }
   if (vec_ct & 1) {
-    const vul_t sex_male_first = (*sex_male_interleaved_iter) & m1;
-    const vul_t cur_geno_vword = *genovvec_iter;
-    const vul_t missing_male_vword = sex_male_first & cur_geno_vword;
-    *genovvec_iter = cur_geno_vword | vul_lshift(missing_male_vword, 1);
+    const VecUL sex_male_first = (*sex_male_interleaved_iter) & m1;
+    const VecUL cur_geno_vword = *genovvec_iter;
+    const VecUL missing_male_vword = sex_male_first & cur_geno_vword;
+    *genovvec_iter = cur_geno_vword | vecul_slli(missing_male_vword, 1);
   }
 #else
   const uintptr_t* sex_male_interleaved_iter = sex_male_interleaved;
@@ -1375,24 +1337,24 @@ void set_male_het_missing(const uintptr_t* __restrict sex_male_interleaved, uint
 #endif
 }
 
-void set_male_het_missing_cleardosage(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sex_male_interleaved, uint32_t vec_ct, uintptr_t* __restrict genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, dosage_t* dosage_vals) {
+void SetMaleHetMissingCleardosage(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sex_male_interleaved, uint32_t vec_ct, uintptr_t* __restrict genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_vals) {
   const uint32_t orig_write_dosage_ct = *write_dosage_ct_ptr;
   if (orig_write_dosage_ct) {
     uint32_t sample_uidx = 0;
     uint32_t dosage_read_idx = 0;
     for (; dosage_read_idx < orig_write_dosage_ct; ++dosage_read_idx, ++sample_uidx) {
-      next_set_unsafe_ck(dosagepresent, &sample_uidx);
-      if (is_set(sex_male, sample_uidx) && (GET_QUATERARR_ENTRY(genovec, sample_uidx) == 1)) {
-        clear_bit(sample_uidx, dosagepresent);
+      NextSetUnsafeCk32(dosagepresent, &sample_uidx);
+      if (IsSet(sex_male, sample_uidx) && (GetQuaterarrEntry(genovec, sample_uidx) == 1)) {
+        ClearBit(sample_uidx, dosagepresent);
         uint32_t dosage_write_idx = dosage_read_idx;
         while (1) {
           if (++dosage_read_idx == orig_write_dosage_ct) {
             break;
           }
           ++sample_uidx;
-          next_set_unsafe_ck(dosagepresent, &sample_uidx);
-          if (is_set(sex_male, sample_uidx) && (GET_QUATERARR_ENTRY(genovec, sample_uidx) == 1)) {
-            clear_bit(sample_uidx, dosagepresent);
+          NextSetUnsafeCk32(dosagepresent, &sample_uidx);
+          if (IsSet(sex_male, sample_uidx) && (GetQuaterarrEntry(genovec, sample_uidx) == 1)) {
+            ClearBit(sample_uidx, dosagepresent);
           } else {
             dosage_vals[dosage_write_idx++] = dosage_vals[dosage_read_idx];
           }
@@ -1402,28 +1364,28 @@ void set_male_het_missing_cleardosage(const uintptr_t* __restrict sex_male, cons
       }
     }
   }
-  set_male_het_missing(sex_male_interleaved, vec_ct, genovec);
+  SetMaleHetMissing(sex_male_interleaved, vec_ct, genovec);
 }
 
-void set_male_het_missing_keepdosage(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sex_male_interleaved, uint32_t word_ct, uintptr_t* __restrict genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, dosage_t* dosage_vals) {
+void SetMaleHetMissingKeepdosage(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sex_male_interleaved, uint32_t word_ct, uintptr_t* __restrict genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_vals) {
   // count # of 1.00000 dosages we need to insert, and then rewrite dosage_vals
   // from back to front so we don't need temporary buffers.
   const uint32_t orig_dosage_ct = *write_dosage_ct_ptr;
   if (!orig_dosage_ct) {
     // can't assume dosagepresent is initialized in this case
-    fill_ulong_zero(DIV_UP(word_ct, 2), dosagepresent);
+    ZeroUlArr(DivUp(word_ct, 2), dosagepresent);
   }
-  const halfword_t* sex_male_alias = R_CAST(const halfword_t*, sex_male);
-  halfword_t* dosagepresent_alias = R_CAST(halfword_t*, dosagepresent);
+  const Halfword* sex_male_alias = R_CAST(const Halfword*, sex_male);
+  Halfword* dosagepresent_alias = R_CAST(Halfword*, dosagepresent);
   uint32_t new_dosage_ct = 0;
   for (uintptr_t widx = 0; widx < word_ct; ++widx) {
     const uintptr_t geno_word = genovec[widx];
-    const uintptr_t male_nodosage_word = unpack_halfword_to_word(sex_male_alias[widx] & (~dosagepresent_alias[widx]));
+    const uintptr_t male_nodosage_word = UnpackHalfwordToWord(sex_male_alias[widx] & (~dosagepresent_alias[widx]));
     const uintptr_t geno_hets = geno_word & (~(geno_word >> 1)) & kMask5555;
-    new_dosage_ct += popcount01_long(geno_hets & male_nodosage_word);
+    new_dosage_ct += Popcount01Word(geno_hets & male_nodosage_word);
   }
   if (!new_dosage_ct) {
-    set_male_het_missing(sex_male_interleaved, DIV_UP(word_ct, kWordsPerVec), genovec);
+    SetMaleHetMissing(sex_male_interleaved, WordCtToVecCt(word_ct), genovec);
     return;
   }
   uint32_t dosage_write_idx = orig_dosage_ct + new_dosage_ct;
@@ -1433,15 +1395,15 @@ void set_male_het_missing_keepdosage(const uintptr_t* __restrict sex_male, const
   do {
     --widx;
     const uintptr_t geno_word = genovec[widx];
-    const uintptr_t male_geno_hets = geno_word & (~(geno_word >> 1)) & unpack_halfword_to_word(sex_male_alias[widx]);
-    const uintptr_t dosagepresent_word = unpack_halfword_to_word(dosagepresent_alias[widx]);
+    const uintptr_t male_geno_hets = geno_word & (~(geno_word >> 1)) & UnpackHalfwordToWord(sex_male_alias[widx]);
+    const uintptr_t dosagepresent_word = UnpackHalfwordToWord(dosagepresent_alias[widx]);
     uintptr_t new_dosagepresent_word = dosagepresent_word | male_geno_hets;
     if (new_dosagepresent_word) {
-      dosagepresent_alias[widx] = pack_word_to_halfword(new_dosagepresent_word);
+      dosagepresent_alias[widx] = PackWordToHalfword(new_dosagepresent_word);
       do {
         const uint32_t leading_zeroes = CLZLU(new_dosagepresent_word);
         const uintptr_t cur_bit_word = (k1LU << (kBitsPerWord - 1)) >> leading_zeroes;
-        dosage_t cur_dosage = kDosageMid;
+        Dosage cur_dosage = kDosageMid;
         if (cur_bit_word & dosagepresent_word) {
           cur_dosage = dosage_vals[--dosage_read_idx];
         }
@@ -1457,24 +1419,24 @@ void set_male_het_missing_keepdosage(const uintptr_t* __restrict sex_male, const
 // Assumes that either trailing bits of bitarr are already zero, or trailing
 // bits of genovec are zero.
 //
-// Similar to pgr_detect_genovec_hets_unsafe().
-void mask_genovec_hets_unsafe(const uintptr_t* __restrict genovec, uint32_t raw_sample_ctl2, uintptr_t* __restrict bitarr) {
-  halfword_t* bitarr_alias = R_CAST(halfword_t*, bitarr);
+// Similar to PgrDetectGenovecHetsUnsafe().
+void MaskGenovecHetsUnsafe(const uintptr_t* __restrict genovec, uint32_t raw_sample_ctl2, uintptr_t* __restrict bitarr) {
+  Halfword* bitarr_alias = R_CAST(Halfword*, bitarr);
   for (uint32_t widx = 0; widx < raw_sample_ctl2; ++widx) {
     const uintptr_t cur_word = genovec[widx];
     uintptr_t ww = (~(cur_word >> 1)) & cur_word & kMask5555; // low 1, high 0
-    bitarr_alias[widx] &= pack_word_to_halfword(ww);
+    bitarr_alias[widx] &= PackWordToHalfword(ww);
   }
 }
 
 /*
-uint32_t chr_window_max(const uintptr_t* variant_include, const chr_info_t* cip, const uint32_t* variant_bp, uint32_t chr_fo_idx, uint32_t ct_max, uint32_t bp_max, uint32_t cur_window_max) {
+uint32_t chr_window_max(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bp, uint32_t chr_fo_idx, uint32_t ct_max, uint32_t bp_max, uint32_t cur_window_max) {
   if (cur_window_max >= ct_max) {
     return ct_max;
   }
   const uint32_t chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-  uint32_t variant_uidx = next_set(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], chr_end);
-  const uint32_t variant_ct = popcount_bit_idx(variant_include, variant_uidx, chr_end);
+  uint32_t variant_uidx = NextSet(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], chr_end);
+  const uint32_t variant_ct = PopcountBitRange(variant_include, variant_uidx, chr_end);
   if (variant_ct <= cur_window_max) {
     return cur_window_max;
   }
@@ -1482,7 +1444,7 @@ uint32_t chr_window_max(const uintptr_t* variant_include, const chr_info_t* cip,
   uint32_t window_uidx_first = variant_uidx;
   uint32_t window_bp_first = variant_bp[variant_uidx];
   for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_uidx, ++variant_idx) {
-    next_set_unsafe_ck(variant_include, &variant_uidx);
+    NextSetUnsafeCk32(variant_include, &variant_uidx);
     uint32_t variant_bp_thresh = variant_bp[variant_uidx];
     if (variant_bp_thresh < bp_max) {
       variant_bp_thresh = 0;
@@ -1492,7 +1454,7 @@ uint32_t chr_window_max(const uintptr_t* variant_include, const chr_info_t* cip,
     if (variant_bp_thresh > window_bp_first) {
       do {
         ++window_uidx_first;
-        next_set_unsafe_ck(variant_include, &window_uidx_first);
+        NextSetUnsafeCk32(variant_include, &window_uidx_first);
         window_bp_first = variant_bp[window_uidx_first];
         ++window_idx_first;
       } while (variant_bp_thresh > window_bp_first);
@@ -1506,96 +1468,96 @@ uint32_t chr_window_max(const uintptr_t* variant_include, const chr_info_t* cip,
 }
 */
 
-uint32_t not_only_xymt(const uintptr_t* variant_include, const chr_info_t* cip, uint32_t raw_variant_ct, uint32_t xymt_offset) {
+uint32_t NotOnlyXymt(const uintptr_t* variant_include, const ChrInfo* cip, uint32_t raw_variant_ct, uint32_t xymt_offset) {
   const int32_t xymt_code = cip->xymt_codes[xymt_offset];
   assert(xymt_code >= 0);
   const uint32_t cur_chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, xymt_code)];
   const uint32_t chr_start = cip->chr_fo_vidx_start[cur_chr_fo_idx];
   if (chr_start) {
-    const uint32_t first_uidx = next_set_unsafe(variant_include, 0);
+    const uint32_t first_uidx = NextSetUnsafe(variant_include, 0);
     if (first_uidx < chr_start) {
       return 1;
     }
   }
   const uint32_t chr_end = cip->chr_fo_vidx_start[cur_chr_fo_idx + 1];
-  return (chr_end < raw_variant_ct) && (next_set(variant_include, chr_end, raw_variant_ct) != raw_variant_ct);
+  return (chr_end < raw_variant_ct) && (NextSet(variant_include, chr_end, raw_variant_ct) != raw_variant_ct);
 }
 
-uint32_t count_non_autosomal_variants(const uintptr_t* variant_include, const chr_info_t* cip, uint32_t count_x, uint32_t count_mt) {
+uint32_t CountNonAutosomalVariants(const uintptr_t* variant_include, const ChrInfo* cip, uint32_t count_x, uint32_t count_mt) {
   // for backward compatibility, unplaced markers are considered to be
   // autosomal here
   uint32_t ct = 0;
   if (count_x) {
     int32_t x_code;
-    if (xymt_exists(cip, kChrOffsetX, &x_code)) {
-      ct += count_chr_variants_unsafe(variant_include, cip, x_code);
+    if (XymtExists(cip, kChrOffsetX, &x_code)) {
+      ct += CountChrVariantsUnsafe(variant_include, cip, x_code);
     }
   }
   int32_t y_code;
-  if (xymt_exists(cip, kChrOffsetY, &y_code)) {
-    ct += count_chr_variants_unsafe(variant_include, cip, y_code);
+  if (XymtExists(cip, kChrOffsetY, &y_code)) {
+    ct += CountChrVariantsUnsafe(variant_include, cip, y_code);
   }
   if (count_mt) {
     int32_t mt_code;
-    if (xymt_exists(cip, kChrOffsetMT, &mt_code)) {
-      ct += count_chr_variants_unsafe(variant_include, cip, mt_code);
+    if (XymtExists(cip, kChrOffsetMT, &mt_code)) {
+      ct += CountChrVariantsUnsafe(variant_include, cip, mt_code);
     }
   }
   return ct;
 }
 
-pglerr_t conditional_allocate_non_autosomal_variants(const chr_info_t* cip, const char* calc_descrip, uint32_t raw_variant_ct, uintptr_t** variant_include_ptr, uint32_t* variant_ct_ptr) {
-  const uint32_t non_autosomal_variant_ct = count_non_autosomal_variants(*variant_include_ptr, cip, 1, 1);
+PglErr ConditionalAllocateNonAutosomalVariants(const ChrInfo* cip, const char* calc_descrip, uint32_t raw_variant_ct, uintptr_t** variant_include_ptr, uint32_t* variant_ct_ptr) {
+  const uint32_t non_autosomal_variant_ct = CountNonAutosomalVariants(*variant_include_ptr, cip, 1, 1);
   if (!non_autosomal_variant_ct) {
     return kPglRetSuccess;
   }
-  LOGPRINTF("Excluding %u variant%s on non-autosomes from %s.\n", non_autosomal_variant_ct, (non_autosomal_variant_ct == 1)? "" : "s", calc_descrip);
+  logprintf("Excluding %u variant%s on non-autosomes from %s.\n", non_autosomal_variant_ct, (non_autosomal_variant_ct == 1)? "" : "s", calc_descrip);
   *variant_ct_ptr -= non_autosomal_variant_ct;
   if (!(*variant_ct_ptr)) {
     // this may not always be an error condition
-    LOGERRPRINTF("Error: No variants remaining for %s.\n", calc_descrip);
+    logerrprintf("Error: No variants remaining for %s.\n", calc_descrip);
     return kPglRetInconsistentInput;
   }
-  const uint32_t raw_variant_ctl = BITCT_TO_WORDCT(raw_variant_ct);
+  const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
   uintptr_t* working_variant_include;
   if (bigstack_alloc_ul(raw_variant_ctl, &working_variant_include)) {
     return kPglRetNomem;
   }
   memcpy(working_variant_include, *variant_include_ptr, raw_variant_ctl * sizeof(intptr_t));
   int32_t x_code;
-  if (xymt_exists(cip, kChrOffsetX, &x_code)) {
+  if (XymtExists(cip, kChrOffsetX, &x_code)) {
     uint32_t chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, x_code)];
-    clear_bits_nz(cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1], working_variant_include);
+    ClearBitsNz(cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1], working_variant_include);
   }
   int32_t y_code;
-  if (xymt_exists(cip, kChrOffsetX, &y_code)) {
+  if (XymtExists(cip, kChrOffsetX, &y_code)) {
     uint32_t chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, y_code)];
-    clear_bits_nz(cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1], working_variant_include);
+    ClearBitsNz(cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1], working_variant_include);
   }
   int32_t mt_code;
-  if (xymt_exists(cip, kChrOffsetX, &mt_code)) {
+  if (XymtExists(cip, kChrOffsetX, &mt_code)) {
     uint32_t chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, mt_code)];
-    clear_bits_nz(cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1], working_variant_include);
+    ClearBitsNz(cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1], working_variant_include);
   }
   *variant_include_ptr = working_variant_include;
   return kPglRetSuccess;
 }
 
-void fill_subset_chr_fo_vidx_start(const uintptr_t* variant_include, const chr_info_t* cip, uint32_t* subset_chr_fo_vidx_start) {
+void FillSubsetChrFoVidxStart(const uintptr_t* variant_include, const ChrInfo* cip, uint32_t* subset_chr_fo_vidx_start) {
   const uint32_t chr_ct = cip->chr_ct;
   subset_chr_fo_vidx_start[0] = 0;
   uint32_t variant_uidx = 0;
   uint32_t variant_idx = 0;
   for (uint32_t chr_fo_idx = 1; chr_fo_idx <= chr_ct; ++chr_fo_idx) {
     const uint32_t chr_end_variant_uidx = cip->chr_fo_vidx_start[chr_fo_idx];
-    variant_idx += popcount_bit_idx(variant_include, variant_uidx, chr_end_variant_uidx);
+    variant_idx += PopcountBitRange(variant_include, variant_uidx, chr_end_variant_uidx);
     subset_chr_fo_vidx_start[chr_fo_idx] = variant_idx;
     variant_uidx = chr_end_variant_uidx;
   }
 }
 
 /*
-boolerr_t allele_set(const char* newval, uint32_t allele_slen, char** allele_ptr) {
+BoolErr allele_set(const char* newval, uint32_t allele_slen, char** allele_ptr) {
   char* newptr;
   if (allele_slen == 1) {
     // const_cast
@@ -1612,7 +1574,7 @@ boolerr_t allele_set(const char* newval, uint32_t allele_slen, char** allele_ptr
   return 0;
 }
 
-boolerr_t allele_reset(const char* newval, uint32_t allele_slen, char** allele_ptr) {
+BoolErr allele_reset(const char* newval, uint32_t allele_slen, char** allele_ptr) {
   char* newptr;
   if (allele_slen == 1) {
     // const_cast
@@ -1665,13 +1627,13 @@ char g_missing_catname[kMaxMissingPhenostrBlen];
 char g_output_missing_pheno[kMaxMissingPhenostrBlen];
 char g_legacy_output_missing_pheno[kMaxMissingPhenostrBlen];
 
-void init_pheno() {
+void InitPheno() {
   snprintf(g_missing_catname, kMaxMissingPhenostrBlen, "NONE");
   snprintf(g_output_missing_pheno, kMaxMissingPhenostrBlen, "NA");
   snprintf(g_legacy_output_missing_pheno, kMaxMissingPhenostrBlen, "-9");
 }
 
-uint32_t is_categorical_phenostr(const char* phenostr_iter) {
+uint32_t IsCategoricalPhenostr(const char* phenostr_iter) {
   uint32_t first_char_code = ctou32(*phenostr_iter++);
   // allow leading +/-
   if ((first_char_code == 43) || (first_char_code == 45)) {
@@ -1701,7 +1663,7 @@ uint32_t is_categorical_phenostr(const char* phenostr_iter) {
   return (third_char_code > 32);
 }
 
-uint32_t is_categorical_phenostr_nocsv(const char* phenostr_iter) {
+uint32_t IsCategoricalPhenostrNocsv(const char* phenostr_iter) {
   uint32_t first_char_code = ctou32(*phenostr_iter++);
   // allow leading +/-
   if ((first_char_code == 43) || (first_char_code == 45)) {
@@ -1730,7 +1692,7 @@ uint32_t is_categorical_phenostr_nocsv(const char* phenostr_iter) {
   return (third_char_code > 32);
 }
 
-uint32_t first_cc_or_qt_pheno_idx(const pheno_col_t* pheno_cols, uint32_t pheno_ct) {
+uint32_t FirstCcOrQtPhenoIdx(const PhenoCol* pheno_cols, uint32_t pheno_ct) {
   for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
     if (pheno_cols[pheno_idx].type_code < kPhenoDtypeCat) {
       return pheno_idx;
@@ -1739,17 +1701,17 @@ uint32_t first_cc_or_qt_pheno_idx(const pheno_col_t* pheno_cols, uint32_t pheno_
   return UINT32_MAX;
 }
 
-uint32_t is_const_covar(const pheno_col_t* covar_col, const uintptr_t* sample_include, uint32_t sample_ct) {
+uint32_t IsConstCovar(const PhenoCol* covar_col, const uintptr_t* sample_include, uint32_t sample_ct) {
   if (sample_ct < 2) {
     return 1;
   }
-  uint32_t sample_uidx = next_set_unsafe(sample_include, 0);
+  uint32_t sample_uidx = NextSetUnsafe(sample_include, 0);
   if (covar_col->type_code == kPhenoDtypeQt) {
     const double* covar_vals = covar_col->data.qt;
     const double first_covar_val = covar_vals[sample_uidx];
     for (uint32_t sample_idx = 1; sample_idx < sample_ct; ++sample_idx) {
       ++sample_uidx;
-      next_set_unsafe_ck(sample_include, &sample_uidx);
+      NextSetUnsafeCk32(sample_include, &sample_uidx);
       if (covar_vals[sample_uidx] != first_covar_val) {
         return 0;
       }
@@ -1757,46 +1719,46 @@ uint32_t is_const_covar(const pheno_col_t* covar_col, const uintptr_t* sample_in
     return 1;
   }
   assert(covar_col->type_code == kPhenoDtypeCat);
-  const uint32_t* covar_vals = covar_col->data.cat;
-  const uint32_t first_covar_val = covar_vals[sample_uidx];
+  const uint32_t* covar_cats = covar_col->data.cat;
+  const uint32_t first_covar_cat = covar_cats[sample_uidx];
   for (uint32_t sample_idx = 1; sample_idx < sample_ct; ++sample_idx) {
     ++sample_uidx;
-    next_set_unsafe_ck(sample_include, &sample_uidx);
-    if (covar_vals[sample_uidx] != first_covar_val) {
+    NextSetUnsafeCk32(sample_include, &sample_uidx);
+    if (covar_cats[sample_uidx] != first_covar_cat) {
       return 0;
     }
   }
   return 1;
 }
 
-uint32_t identify_remaining_cats(const uintptr_t* sample_include, const pheno_col_t* covar_col, uint32_t sample_ct, uintptr_t* observed_cat_bitarr) {
+uint32_t IdentifyRemainingCats(const uintptr_t* sample_include, const PhenoCol* covar_col, uint32_t sample_ct, uintptr_t* observed_cat_bitarr) {
   // assumes covar_col->type_code == kPhenoTypeCat
   const uint32_t nonnull_cat_ct = covar_col->nonnull_category_ct;
-  const uint32_t* covar_vals = covar_col->data.cat;
+  const uint32_t* covar_cats = covar_col->data.cat;
   const uint32_t word_ct = 1 + (nonnull_cat_ct / kBitsPerWord);
-  fill_ulong_zero(word_ct, observed_cat_bitarr);
+  ZeroUlArr(word_ct, observed_cat_bitarr);
   uint32_t sample_uidx = 0;
   for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-    next_set_unsafe_ck(sample_include, &sample_uidx);
-    set_bit(covar_vals[sample_uidx], observed_cat_bitarr);
+    NextSetUnsafeCk32(sample_include, &sample_uidx);
+    SetBit(covar_cats[sample_uidx], observed_cat_bitarr);
   }
-  return popcount_longs(observed_cat_bitarr, word_ct);
+  return PopcountWords(observed_cat_bitarr, word_ct);
 }
 
-uint32_t get_is_cat_include(const uintptr_t* sample_include_base, const pheno_col_t* cat_pheno_col, uint32_t raw_sample_ctl, uint32_t sample_ct, uint32_t cat_uidx, uintptr_t* is_cat_include) {
-  fill_ulong_zero(raw_sample_ctl, is_cat_include);
+uint32_t GetIsCatInclude(const uintptr_t* sample_include_base, const PhenoCol* cat_pheno_col, uint32_t raw_sample_ctl, uint32_t sample_ct, uint32_t cat_uidx, uintptr_t* is_cat_include) {
+  ZeroUlArr(raw_sample_ctl, is_cat_include);
   const uint32_t* cat_vals = cat_pheno_col->data.cat;
   uint32_t sample_uidx = 0;
   for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-    next_set_unsafe_ck(sample_include_base, &sample_uidx);
+    NextSetUnsafeCk32(sample_include_base, &sample_uidx);
     if (cat_vals[sample_uidx] == cat_uidx) {
-      set_bit(sample_uidx, is_cat_include);
+      SetBit(sample_uidx, is_cat_include);
     }
   }
-  return popcount_longs(is_cat_include, raw_sample_ctl);
+  return PopcountWords(is_cat_include, raw_sample_ctl);
 }
 
-void cleanup_pheno_cols(uint32_t pheno_ct, pheno_col_t* pheno_cols) {
+void CleanupPhenoCols(uint32_t pheno_ct, PhenoCol* pheno_cols) {
   if (pheno_cols) {
     for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
       vecaligned_free_cond(pheno_cols[pheno_idx].nonmiss);
@@ -1805,10 +1767,10 @@ void cleanup_pheno_cols(uint32_t pheno_ct, pheno_col_t* pheno_cols) {
   }
 }
 
-pglerr_t parse_chr_ranges(const char* const* argvc, const char* flagname_p, const char* errstr_append, uint32_t param_ct, uint32_t allow_extra_chrs, uint32_t xymt_subtract, char range_delim, chr_info_t* cip, uintptr_t* chr_mask) {
-  pglerr_t reterr = kPglRetSuccess;
+PglErr ParseChrRanges(const char* const* argvk, const char* flagname_p, const char* errstr_append, uint32_t param_ct, uint32_t allow_extra_chrs, uint32_t xymt_subtract, char range_delim, ChrInfo* cip, uintptr_t* chr_mask) {
+  PglErr reterr = kPglRetSuccess;
   {
-    const char* cur_arg_ptr = argvc[1];
+    const char* cur_arg_ptr = argvk[1];
     char* token_buf = g_textbuf;
     const char* range_end = nullptr;
     uint32_t cur_param_idx = 1;
@@ -1816,9 +1778,9 @@ pglerr_t parse_chr_ranges(const char* const* argvc, const char* flagname_p, cons
     uint32_t re_len = 0;
     while (1) {
       const char* range_start;
-      if (parse_next_range(argvc, param_ct, range_delim, &cur_param_idx, &cur_arg_ptr, &range_start, &rs_len, &range_end, &re_len)) {
-        snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s parameter '%s'.\n", flagname_p, argvc[cur_param_idx]);
-        goto parse_chr_ranges_ret_INVALID_CMDLINE_WWA;
+      if (ParseNextRange(argvk, param_ct, range_delim, &cur_param_idx, &cur_arg_ptr, &range_start, &rs_len, &range_end, &re_len)) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s parameter '%s'.\n", flagname_p, argvk[cur_param_idx]);
+        goto ParseChrRanges_ret_INVALID_CMDLINE_WWA;
       }
       if (!range_start) {
         break;
@@ -1827,19 +1789,19 @@ pglerr_t parse_chr_ranges(const char* const* argvc, const char* flagname_p, cons
       // isn't actually problematic--it's not like we have multiple threads
       // parsing the command line--but it's not like this is a performance
       // bottleneck either.
-      // parse_next_range() prevents buffer overflow.
+      // ParseNextRange() prevents buffer overflow.
       memcpyx(token_buf, range_start, rs_len, '\0');
-      int32_t chr_code_start = get_chr_code_raw(token_buf);
+      int32_t chr_code_start = GetChrCodeRaw(token_buf);
       if (chr_code_start < 0) {
         if (!allow_extra_chrs) {
           snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s chromosome code '%s'.\n", flagname_p, token_buf);
-          goto parse_chr_ranges_ret_INVALID_CMDLINE_WWA;
+          goto ParseChrRanges_ret_INVALID_CMDLINE_WWA;
         }
         if (range_end) {
-          goto parse_chr_ranges_ret_INVALID_CMDLINE_NONSTD;
+          goto ParseChrRanges_ret_INVALID_CMDLINE_NONSTD;
         }
-        if (push_llstr(token_buf, &(cip->incl_excl_name_stack))) {
-          goto parse_chr_ranges_ret_NOMEM;
+        if (PushLlStr(token_buf, &(cip->incl_excl_name_stack))) {
+          goto ParseChrRanges_ret_NOMEM;
         }
       } else {
         if (chr_code_start >= S_CAST(int32_t, kMaxContigs)) {
@@ -1847,43 +1809,43 @@ pglerr_t parse_chr_ranges(const char* const* argvc, const char* flagname_p, cons
         }
         if (range_end) {
           memcpyx(token_buf, range_end, re_len, '\0');
-          int32_t chr_code_end = get_chr_code_raw(token_buf);
+          int32_t chr_code_end = GetChrCodeRaw(token_buf);
           if (chr_code_end < 0) {
             if (!allow_extra_chrs) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s chromosome code '%s'.\n", flagname_p, range_end);
-              goto parse_chr_ranges_ret_INVALID_CMDLINE_WWA;
+              goto ParseChrRanges_ret_INVALID_CMDLINE_WWA;
             }
-            goto parse_chr_ranges_ret_INVALID_CMDLINE_NONSTD;
+            goto ParseChrRanges_ret_INVALID_CMDLINE_NONSTD;
           }
           if (chr_code_end >= S_CAST(int32_t, kMaxContigs)) {
             // prohibit stuff like "--chr par1-par2", "--chr x-y", "--chr x-26"
             snprintf(g_logbuf, kLogbufSize, "Error: --%s chromosome code '%s' cannot be the end of a range.\n", flagname_p, range_end);
-            goto parse_chr_ranges_ret_INVALID_CMDLINE_WWA;
+            goto ParseChrRanges_ret_INVALID_CMDLINE_WWA;
           }
           if (chr_code_end <= chr_code_start) {
             snprintf(g_logbuf, kLogbufSize, "Error: --%s chromosome code '%s' is not greater than '%s'.\n", flagname_p, range_end, range_start);
-            goto parse_chr_ranges_ret_INVALID_CMDLINE_WWA;
+            goto ParseChrRanges_ret_INVALID_CMDLINE_WWA;
           }
-          fill_bits_nz(chr_code_start, chr_code_end + 1, chr_mask);
+          FillBitsNz(chr_code_start, chr_code_end + 1, chr_mask);
         } else {
-          set_bit(chr_code_start, chr_mask);
+          SetBitI(chr_code_start, chr_mask);
         }
       }
     }
     // no compelling reason to prohibit "--not-chr ,"
   }
   while (0) {
-  parse_chr_ranges_ret_NOMEM:
+  ParseChrRanges_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  parse_chr_ranges_ret_INVALID_CMDLINE_NONSTD:
-    logerrprint("Error: Chromosome ranges cannot include nonstandard names.\n");
+  ParseChrRanges_ret_INVALID_CMDLINE_NONSTD:
+    logerrputs("Error: Chromosome ranges cannot include nonstandard names.\n");
     reterr = kPglRetInvalidCmdline;
     break;
-  parse_chr_ranges_ret_INVALID_CMDLINE_WWA:
-    wordwrapb(0);
-    logerrprintb();
-    logerrprint(errstr_append);
+  ParseChrRanges_ret_INVALID_CMDLINE_WWA:
+    WordWrapB(0);
+    logerrputsb();
+    logerrputs(errstr_append);
     reterr = kPglRetInvalidCmdline;
     break;
   }
@@ -1891,12 +1853,12 @@ pglerr_t parse_chr_ranges(const char* const* argvc, const char* flagname_p, cons
 }
 
 
-pglerr_t multithread_load_init(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, pgen_file_info_t* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** dosage_present_ptr, dosage_t*** dosage_val_bufs_ptr, uint32_t* read_block_size_ptr, unsigned char** main_loadbufs, pthread_t** threads_ptr, pgen_reader_t*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr) {
+PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, PgenFileInfo* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** dosage_present_ptr, Dosage*** dosage_val_bufs_ptr, uint32_t* read_block_size_ptr, unsigned char** main_loadbufs, pthread_t** threads_ptr, PgenReader*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr) {
   uintptr_t cachelines_avail = bigstack_left() / kCacheline;
   uint32_t read_block_size = kPglVblockSize;
   uint64_t multiread_cacheline_ct;
   while (1) {
-    multiread_cacheline_ct = pgfi_multiread_get_cacheline_req(variant_include, pgfip, variant_ct, read_block_size);
+    multiread_cacheline_ct = PgfiMultireadGetCachelineReq(variant_include, pgfip, variant_ct, read_block_size);
     // limit each raw load buffer to 1/4 of remaining workspace
     // if there's an additional per-variant allocation, put it in the same bin
     // as the load buffers
@@ -1935,14 +1897,14 @@ pglerr_t multithread_load_init(const uintptr_t* variant_include, uint32_t sample
 
   // pgr_pps, threads_ptr, read_variant_uidx_starts_ptr, (*pgr_pps)[tidx],
   //   pgr_alloc; deliberately a slight overestimate
-  const uintptr_t pgr_struct_alloc = round_up_pow2(sizeof(pgen_reader_t), kCacheline);
+  const uintptr_t pgr_struct_alloc = RoundUpPow2(sizeof(PgenReader), kCacheline);
   uintptr_t thread_alloc_cacheline_ct = 1 + 1 + 1 + (pgr_struct_alloc / kCacheline) + pgr_alloc_cacheline_ct + thread_xalloc_cacheline_ct;
 
-  const uint32_t sample_ctcl2 = QUATERCT_TO_CLCT(sample_ct);
-  const uint32_t sample_ctcl = BITCT_TO_CLCT(sample_ct);
+  const uint32_t sample_ctcl2 = QuaterCtToCachelineCt(sample_ct);
+  const uint32_t sample_ctcl = BitCtToCachelineCt(sample_ct);
 
   // todo: increase in multiallelic case
-  const uintptr_t dosage_vals_cl = DIV_UP(sample_ct, (kCacheline / sizeof(dosage_t)));
+  const uintptr_t dosage_vals_cl = DivUp(sample_ct, (kCacheline / sizeof(Dosage)));
   if (genovecs_ptr) {
     thread_alloc_cacheline_ct += 1 + sample_ctcl2;
     if (dosage_present_ptr) {
@@ -1958,23 +1920,23 @@ pglerr_t multithread_load_init(const uintptr_t* variant_include, uint32_t sample
     *calc_thread_ct_ptr = calc_thread_ct;
   }
 
-  const uint32_t array_of_ptrs_alloc = round_up_pow2(calc_thread_ct * sizeof(intptr_t), kCacheline);
-  *pgr_pps = S_CAST(pgen_reader_t**, bigstack_alloc_raw(array_of_ptrs_alloc));
+  const uint32_t array_of_ptrs_alloc = RoundUpPow2(calc_thread_ct * sizeof(intptr_t), kCacheline);
+  *pgr_pps = S_CAST(PgenReader**, bigstack_alloc_raw(array_of_ptrs_alloc));
   *threads_ptr = S_CAST(pthread_t*, bigstack_alloc_raw(array_of_ptrs_alloc));
   *read_variant_uidx_starts_ptr = S_CAST(uint32_t*, bigstack_alloc_raw_rd(calc_thread_ct * sizeof(int32_t)));
   for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
-    (*pgr_pps)[tidx] = S_CAST(pgen_reader_t*, bigstack_alloc_raw(pgr_struct_alloc));
-    // pgr_preinit(g_pgr_ptrs[tidx]);
+    (*pgr_pps)[tidx] = S_CAST(PgenReader*, bigstack_alloc_raw(pgr_struct_alloc));
+    // PreinitPgr(g_pgr_ptrs[tidx]);
     unsigned char* pgr_alloc = S_CAST(unsigned char*, bigstack_alloc_raw(pgr_alloc_cacheline_ct * kCacheline));
 
     // shouldn't be possible for this to fail
-    pgr_init(nullptr, 0, pgfip, (*pgr_pps)[tidx], pgr_alloc);
+    PgrInit(nullptr, 0, pgfip, (*pgr_pps)[tidx], pgr_alloc);
   }
   if (genovecs_ptr) {
     *genovecs_ptr = S_CAST(uintptr_t**, bigstack_alloc_raw(array_of_ptrs_alloc));
     if (dosage_present_ptr) {
       *dosage_present_ptr = S_CAST(uintptr_t**, bigstack_alloc_raw(array_of_ptrs_alloc));
-      *dosage_val_bufs_ptr = S_CAST(dosage_t**, bigstack_alloc_raw(array_of_ptrs_alloc));
+      *dosage_val_bufs_ptr = S_CAST(Dosage**, bigstack_alloc_raw(array_of_ptrs_alloc));
     }
     const uintptr_t genovec_alloc = sample_ctcl2 * kCacheline;
     const uintptr_t dosage_present_alloc = sample_ctcl * kCacheline;
@@ -1983,19 +1945,19 @@ pglerr_t multithread_load_init(const uintptr_t* variant_include, uint32_t sample
       (*genovecs_ptr)[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(genovec_alloc));
       if (dosage_present_ptr) {
         (*dosage_present_ptr)[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(dosage_present_alloc));
-        (*dosage_val_bufs_ptr)[tidx] = S_CAST(dosage_t*, bigstack_alloc_raw(dosage_vals_alloc));
+        (*dosage_val_bufs_ptr)[tidx] = S_CAST(Dosage*, bigstack_alloc_raw(dosage_vals_alloc));
       }
     }
   }
   return kPglRetSuccess;
 }
 
-pglerr_t write_sample_ids(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const char* outname, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t noheader) {
+PglErr WriteSampleIds(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const char* outname, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t noheader) {
   FILE* outfile = nullptr;
-  pglerr_t reterr = kPglRetSuccess;
+  PglErr reterr = kPglRetSuccess;
   {
     if (fopen_checked(outname, FOPEN_WB, &outfile)) {
-      goto write_sample_ids_ret_OPEN_FAIL;
+      goto WriteSampleIds_ret_OPEN_FAIL;
     }
     char* write_iter = g_textbuf;
     char* textbuf_flush = &(write_iter[kMaxMediumLine]);
@@ -2004,32 +1966,32 @@ pglerr_t write_sample_ids(const uintptr_t* sample_include, const char* sample_id
       if (sids) {
         write_iter = strcpya(write_iter, "\tSID");
       }
-      append_binary_eoln(&write_iter);
+      AppendBinaryEoln(&write_iter);
     } else {
       sids = nullptr;
     }
     uintptr_t sample_uidx = 0;
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-      next_set_ul_unsafe_ck(sample_include, &sample_uidx);
+      NextSetUnsafeCkL(sample_include, &sample_uidx);
       write_iter = strcpya(write_iter, &(sample_ids[sample_uidx * max_sample_id_blen]));
       if (sids) {
         *write_iter++ = '\t';
         write_iter = strcpya(write_iter, &(sids[sample_uidx * max_sid_blen]));
       }
-      append_binary_eoln(&write_iter);
+      AppendBinaryEoln(&write_iter);
       if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
-        goto write_sample_ids_ret_WRITE_FAIL;
+        goto WriteSampleIds_ret_WRITE_FAIL;
       }
     }
     if (fclose_flush_null(textbuf_flush, write_iter, &outfile)) {
-      goto write_sample_ids_ret_WRITE_FAIL;
+      goto WriteSampleIds_ret_WRITE_FAIL;
     }
   }
   while (0) {
-  write_sample_ids_ret_OPEN_FAIL:
+  WriteSampleIds_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  write_sample_ids_ret_WRITE_FAIL:
+  WriteSampleIds_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
   }
@@ -2037,7 +1999,7 @@ pglerr_t write_sample_ids(const uintptr_t* sample_include, const char* sample_id
   return reterr;
 }
 
-uint32_t realpath_identical(const char* outname, const char* read_realpath, char* write_realpath_buf) {
+uint32_t RealpathIdentical(const char* outname, const char* read_realpath, char* write_realpath_buf) {
 #ifdef _WIN32
   const uint32_t fname_slen = GetFullPathName(outname, kPglFnamesize, write_realpath_buf, nullptr);
   return (fname_slen && (fname_slen <= kPglFnamesize) && (!strcmp(read_realpath, write_realpath_buf)));

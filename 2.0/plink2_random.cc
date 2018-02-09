@@ -23,18 +23,18 @@ namespace plink2 {
 
 sfmt_t g_sfmt;
 
-double rand_normal(sfmt_t* sfmtp, double* secondval_ptr) {
+double RandNormal(sfmt_t* sfmtp, double* secondval_ptr) {
   // Box-Muller.  try changing this to e.g. ziggurat if it's ever a serious
   // bottleneck.
-  const double dxx = sqrt(-2 * log(rand_unif(sfmtp)));
-  const double dyy = (2 * kPi) * rand_unif(sfmtp);
+  const double dxx = sqrt(-2 * log(RandUnif(sfmtp)));
+  const double dyy = (2 * kPi) * RandUnif(sfmtp);
   *secondval_ptr = dxx * cos(dyy);
   return dxx * sin(dyy);
 }
 
 sfmt_t** g_sfmtp_arr;
 
-boolerr_t bigstack_init_sfmtp(uint32_t thread_ct, uint32_t use_main_sfmt_as_element_zero) {
+BoolErr InitAllocSfmtpArr(uint32_t thread_ct, uint32_t use_main_sfmt_as_element_zero) {
   g_sfmtp_arr = S_CAST(sfmt_t**, bigstack_alloc(thread_ct * sizeof(intptr_t)));
   if (!g_sfmtp_arr) {
     return 1;
@@ -63,7 +63,7 @@ static double* g_darray = nullptr;
 static uint32_t g_calc_thread_ct = 0;
 static uintptr_t g_entry_pair_ct = 0;
 
-THREAD_FUNC_DECL fill_gaussian_darray_thread(void* arg) {
+THREAD_FUNC_DECL FillGaussianDArrThread(void* arg) {
   const uintptr_t tidx = R_CAST(uintptr_t, arg);
   const uintptr_t entry_pair_ct = g_entry_pair_ct;
   const uint32_t calc_thread_ct = g_calc_thread_ct;
@@ -73,57 +73,57 @@ THREAD_FUNC_DECL fill_gaussian_darray_thread(void* arg) {
   double* darray_iter = &(g_darray[idx_start * 2]);
   for (uintptr_t ulii = 0; ulii < idx_ct; ++ulii) {
     double dxx;
-    *darray_iter++ = rand_normal(sfmtp, &dxx);
+    *darray_iter++ = RandNormal(sfmtp, &dxx);
     *darray_iter++ = dxx;
   }
   THREAD_RETURN;
 }
 
-pglerr_t fill_gaussian_darray(uintptr_t entry_pair_ct, uint32_t thread_ct, double* darray) {
+PglErr FillGaussianDArr(uintptr_t entry_pair_ct, uint32_t thread_ct, double* darray) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  pglerr_t reterr = kPglRetSuccess;
+  PglErr reterr = kPglRetSuccess;
   {
-    const uintptr_t max_useful_thread_ct = DIV_UP(entry_pair_ct, 262144);
+    const uintptr_t max_useful_thread_ct = DivUp(entry_pair_ct, 262144);
     if (thread_ct > max_useful_thread_ct) {
       thread_ct = max_useful_thread_ct;
     }
     pthread_t* threads;
-    if (bigstack_init_sfmtp(thread_ct, 1) ||
+    if (InitAllocSfmtpArr(thread_ct, 1) ||
         bigstack_alloc_thread(thread_ct, &threads)) {
-      goto fill_gaussian_darray_ret_NOMEM;
+      goto FillGaussianDArr_ret_NOMEM;
     }
     g_darray = darray;
     g_entry_pair_ct = entry_pair_ct;
     g_calc_thread_ct = thread_ct;
-    if (spawn_threads(fill_gaussian_darray_thread, thread_ct, threads)) {
-      goto fill_gaussian_darray_ret_THREAD_CREATE_FAIL;
+    if (SpawnThreads(FillGaussianDArrThread, thread_ct, threads)) {
+      goto FillGaussianDArr_ret_THREAD_CREATE_FAIL;
     }
-    fill_gaussian_darray_thread(S_CAST(void*, 0));
-    join_threads(thread_ct, threads);
+    FillGaussianDArrThread(S_CAST(void*, 0));
+    JoinThreads(thread_ct, threads);
   }
   while (0) {
-  fill_gaussian_darray_ret_NOMEM:
+  FillGaussianDArr_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  fill_gaussian_darray_ret_THREAD_CREATE_FAIL:
+  FillGaussianDArr_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
     break;
   }
-  bigstack_reset(bigstack_mark);
+  BigstackReset(bigstack_mark);
   return reterr;
 }
 
 
-THREAD_FUNC_DECL randomize_bigstack_thread(void* arg) {
+THREAD_FUNC_DECL RandomizeBigstackThread(void* arg) {
   const uintptr_t tidx = R_CAST(uintptr_t, arg);
   const uint32_t calc_thread_ct = g_calc_thread_ct;
   const uint64_t bigstack_int64_ct = S_CAST(uintptr_t, g_bigstack_end - g_bigstack_base) / sizeof(int64_t);
   uint64_t* bigstack_int64 = R_CAST(uint64_t*, g_bigstack_base);
   assert(bigstack_int64_ct >= calc_thread_ct);
-  const uint64_t start_idx = round_down_pow2((tidx * bigstack_int64_ct) / calc_thread_ct, kInt64PerCacheline);
+  const uint64_t start_idx = RoundDownPow2((tidx * bigstack_int64_ct) / calc_thread_ct, kInt64PerCacheline);
   uint64_t end_idx = ((tidx + 1) * bigstack_int64_ct) / calc_thread_ct;
   if (tidx + 1 != calc_thread_ct) {
-    end_idx = round_down_pow2(end_idx, kInt64PerCacheline);
+    end_idx = RoundDownPow2(end_idx, kInt64PerCacheline);
   }
   sfmt_t* sfmtp = g_sfmtp_arr[tidx];
   for (uintptr_t ulii = start_idx; ulii < end_idx; ++ulii) {
@@ -132,24 +132,24 @@ THREAD_FUNC_DECL randomize_bigstack_thread(void* arg) {
   THREAD_RETURN;
 }
 
-pglerr_t randomize_bigstack(uint32_t thread_ct) {
+PglErr RandomizeBigstack(uint32_t thread_ct) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  pglerr_t reterr = kPglRetSuccess;
+  PglErr reterr = kPglRetSuccess;
   {
     if (thread_ct > 16) {
       thread_ct = 16;
     }
-    if (bigstack_init_sfmtp(thread_ct, 1)) {
-      goto randomize_bigstack_ret_NOMEM;
+    if (InitAllocSfmtpArr(thread_ct, 1)) {
+      goto RandomizeBigstack_ret_NOMEM;
     }
     g_calc_thread_ct = thread_ct;
     pthread_t threads[16];
-    if (spawn_threads(randomize_bigstack_thread, thread_ct, threads)) {
-      goto randomize_bigstack_ret_THREAD_CREATE_FAIL;
+    if (SpawnThreads(RandomizeBigstackThread, thread_ct, threads)) {
+      goto RandomizeBigstack_ret_THREAD_CREATE_FAIL;
     }
-    randomize_bigstack_thread(S_CAST(void*, 0));
-    join_threads(thread_ct, threads);
-    // now ensure the bytes reserved by bigstack_init_sfmtp() are also properly
+    RandomizeBigstackThread(S_CAST(void*, 0));
+    JoinThreads(thread_ct, threads);
+    // now ensure the bytes reserved by InitAllocSfmtpArr() are also properly
     // randomized (some of them already are, but there are gaps)
     uint64_t* initial_segment_end = R_CAST(uint64_t*, g_bigstack_base);
     for (uint64_t* initial_segment_iter = R_CAST(uint64_t*, bigstack_mark); initial_segment_iter != initial_segment_end; ++initial_segment_iter) {
@@ -157,20 +157,20 @@ pglerr_t randomize_bigstack(uint32_t thread_ct) {
     }
   }
   while (0) {
-  randomize_bigstack_ret_NOMEM:
+  RandomizeBigstack_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  randomize_bigstack_ret_THREAD_CREATE_FAIL:
+  RandomizeBigstack_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
     break;
   }
-  bigstack_reset(bigstack_mark);
+  BigstackReset(bigstack_mark);
   return reterr;
 }
 
-void generate_perm1_interleaved(uint32_t tot_bit_ct, uint32_t set_bit_ct, uintptr_t perm_start_idx, uintptr_t perm_end_idx, uintptr_t* perm_buf, sfmt_t* sfmtp) {
+void GeneratePerm1Interleaved(uint32_t tot_bit_ct, uint32_t set_bit_ct, uintptr_t perm_start_idx, uintptr_t perm_end_idx, uintptr_t* perm_buf, sfmt_t* sfmtp) {
   assert(tot_bit_ct > 1);
-  const uintptr_t tot_bit_ctl = BITCT_TO_WORDCT(tot_bit_ct);
+  const uintptr_t tot_bit_ctl = BitCtToWordCt(tot_bit_ct);
   const uintptr_t perm_ct = perm_end_idx - perm_start_idx;
   const uint32_t tot_quotient = 0x100000000LLU / tot_bit_ct;
   const uint32_t upper_bound = tot_bit_ct * tot_quotient - 1;
@@ -180,10 +180,10 @@ void generate_perm1_interleaved(uint32_t tot_bit_ct, uint32_t set_bit_ct, uintpt
   uint32_t totq_incr;
   // seeing as how we're gonna divide by the same number a billion times or so,
   // it just might be worth optimizing that division...
-  magic_num(tot_quotient, &totq_magic, &totq_preshift, &totq_postshift, &totq_incr);
+  DivisionMagicNums(tot_quotient, &totq_magic, &totq_preshift, &totq_postshift, &totq_incr);
   if (set_bit_ct * 2 < tot_bit_ct) {
     for (uintptr_t widx = 0; widx < tot_bit_ctl; ++widx) {
-      fill_ulong_zero(perm_ct, &(perm_buf[perm_start_idx + (widx * perm_end_idx)]));
+      ZeroUlArr(perm_ct, &(perm_buf[perm_start_idx + (widx * perm_end_idx)]));
     }
     for (uintptr_t perm_idx = perm_start_idx; perm_idx < perm_end_idx; ++perm_idx) {
       uintptr_t* pbptr = &(perm_buf[perm_idx]);
@@ -205,7 +205,7 @@ void generate_perm1_interleaved(uint32_t tot_bit_ct, uint32_t set_bit_ct, uintpt
     }
   } else {
     for (uintptr_t widx = 0; widx < tot_bit_ctl; ++widx) {
-      fill_ulong_one(perm_ct, &(perm_buf[perm_start_idx + (widx * perm_end_idx)]));
+      SetAllUlArr(perm_ct, &(perm_buf[perm_start_idx + (widx * perm_end_idx)]));
     }
     // "set" has reversed meaning here
     set_bit_ct = tot_bit_ct - set_bit_ct;
