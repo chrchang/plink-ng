@@ -21,8 +21,8 @@
 namespace plink2 {
 #endif
 
-typedef struct make_set_range_struct {
-  struct make_set_range_struct* next;
+typedef struct MakeSetRangeStruct {
+  struct MakeSetRangeStruct* next;
   uint32_t uidx_start;
   uint32_t uidx_end;
 } MakeSetRange;

@@ -1028,15 +1028,15 @@ void BitvecAnd(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintpt
 
 void BitvecAndNot(const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec);
 
-uintptr_t NextSetUnsafe(const uintptr_t* bitarr, uintptr_t loc);
+uintptr_t FindFirst1BitFrom(const uintptr_t* bitarr, uintptr_t loc);
 
-uintptr_t NextUnsetUnsafe(const uintptr_t* bitarr, uintptr_t loc);
+uintptr_t FindFirst0BitFrom(const uintptr_t* bitarr, uintptr_t loc);
 
 // uintptr_t NextNonmissingUnsafe(const uintptr_t* genoarr, uintptr_t loc);
 
-uint32_t NextSet(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil);
+uint32_t FindFirst1BitFromBounded(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil);
 
-uint32_t PrevSetUnsafe(const uintptr_t* bitarr, uint32_t loc);
+uint32_t FindLast1BitBefore(const uintptr_t* bitarr, uint32_t loc);
 
 HEADER_INLINE uint32_t AllWordsAreZero(const uintptr_t* word_arr, uintptr_t word_ct) {
   while (word_ct--) {
@@ -1150,6 +1150,7 @@ HEADER_INLINE uint32_t IsVecAligned(const void* ptr) {
  */
 
 #ifdef USE_AVX2
+// 'Csa' = carry, save, add
 HEADER_INLINE VecUL Csa256(VecUL bb, VecUL cc, VecUL* lp) {
   const VecUL aa = *lp;
   const VecUL uu = aa ^ bb;
@@ -1474,15 +1475,15 @@ HEADER_INLINE void AssignBit(uintptr_t idx, uintptr_t newbit, uintptr_t* bitarr)
   *cur_word_ptr = ((*cur_word_ptr) & (~inv_mask)) | (inv_mask * newbit);
 }
 
-HEADER_INLINE void NextSetUnsafeCk32(const uintptr_t* __restrict bitarr, uint32_t* __restrict loc_ptr) {
+HEADER_INLINE void FindFirst1BitFromU32(const uintptr_t* __restrict bitarr, uint32_t* __restrict loc_ptr) {
   if (!IsSet(bitarr, *loc_ptr)) {
-    *loc_ptr = NextSetUnsafe(bitarr, *loc_ptr);
+    *loc_ptr = FindFirst1BitFrom(bitarr, *loc_ptr);
   }
 }
 
-HEADER_INLINE void NextUnsetUnsafeCk32(const uintptr_t* __restrict bitarr, uint32_t* __restrict loc_ptr) {
+HEADER_INLINE void FindFirst0BitFromU32(const uintptr_t* __restrict bitarr, uint32_t* __restrict loc_ptr) {
   if (IsSet(bitarr, *loc_ptr)) {
-    *loc_ptr = NextUnsetUnsafe(bitarr, *loc_ptr);
+    *loc_ptr = FindFirst0BitFrom(bitarr, *loc_ptr);
   }
 }
 

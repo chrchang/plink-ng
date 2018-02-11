@@ -21,11 +21,11 @@
 namespace plink2 {
 #endif
 
-typedef struct psam_info_ll_struct {
+typedef struct PsamInfoLlStruct {
   // vardata[] starts with 8-byte phenotypes (we don't want to parse the same
   // same numeric string twice), followed by NON-null-terminated sample_id, and
   // then non-terminated paternal and maternal IDs.
-  struct psam_info_ll_struct* next;
+  struct PsamInfoLlStruct* next;
   uint32_t sample_id_slen;
   uint32_t sid_slen;
   uint32_t paternal_id_slen;
@@ -34,9 +34,9 @@ typedef struct psam_info_ll_struct {
   unsigned char vardata[];
 } PsamInfoLl;
 
-typedef struct catname_ll2_struct {
-  struct catname_ll2_struct* htable_next;
-  struct catname_ll2_struct* pheno_next;
+typedef struct CatnameLl2Struct {
+  struct CatnameLl2Struct* htable_next;
+  struct CatnameLl2Struct* pheno_next;
   uint32_t cat_idx;  // 0 == "NONE", etc.
   char str[];
 } CatnameLl2;
@@ -832,10 +832,10 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
 }
 
 
-typedef struct pheno_info_ll_struct {
+typedef struct PhenoInfoLlStruct {
   // for categorical phenotypes, phenodata entry should be reinterpreted as
   // uint32_t
-  struct pheno_info_ll_struct* next;
+  struct PhenoInfoLlStruct* next;
   uint32_t sample_uidx;
   double phenodata[];
 } PhenoInfoLl;
@@ -963,7 +963,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         uint32_t col_uidx = 0;
         int32_t prev_col_uidx = -1;
         for (uint32_t col_idx = 0; col_idx < new_pheno_ct; ++col_idx, ++col_uidx) {
-          NextSetUnsafeCk32(bitarr, &col_uidx);
+          FindFirst1BitFromU32(bitarr, &col_uidx);
           col_skips[col_idx] = col_uidx - prev_col_uidx;
           prev_col_uidx = col_uidx;
         }
@@ -1035,7 +1035,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         uint32_t col_uidx = 0;
         int32_t prev_col_uidx = -1;
         for (uint32_t col_idx = 0; col_idx < new_pheno_ct; ++col_idx, ++col_uidx) {
-          NextSetUnsafeCk32(bitarr, &col_uidx);
+          FindFirst1BitFromU32(bitarr, &col_uidx);
           col_skips[col_idx] = col_uidx - prev_col_uidx;
           prev_col_uidx = col_uidx;
         }
@@ -1141,7 +1141,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
       if (!IsEolnKns(*loadbuf_first_token)) {
         const char* loadbuf_iter = loadbuf_first_token;
         uint32_t sample_uidx;
-        if (sorted_xidbox_read_find(sorted_sample_ids, sample_id_map, max_sample_id_blen, sample_ct, comma_delim, xid_mode, &loadbuf_iter, &sample_uidx, id_buf)) {
+        if (SortedXidboxReadFind(sorted_sample_ids, sample_id_map, max_sample_id_blen, sample_ct, comma_delim, xid_mode, &loadbuf_iter, &sample_uidx, id_buf)) {
           if (!loadbuf_iter) {
             goto LoadPhenos_ret_MISSING_TOKENS;
           }

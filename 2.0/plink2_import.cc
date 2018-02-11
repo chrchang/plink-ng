@@ -2083,7 +2083,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, MiscF
       uint32_t old_col_uidx = 0;
       uint32_t col_uidx = 0;
       for (uint32_t uncertain_col_idx = 0; uncertain_col_idx < old_uncertain_col_ct; ++uncertain_col_idx, ++col_uidx) {
-        NextUnsetUnsafeCk32(col_keep, &col_uidx);
+        FindFirst0BitFromU32(col_keep, &col_uidx);
         loadbuf_iter = NextTokenMult(loadbuf_iter, col_uidx - old_col_uidx);
         if (!loadbuf_iter) {
           goto OxSampleToPsam_ret_MISSING_TOKENS;
@@ -3132,7 +3132,7 @@ static uint32_t* g_bgen_import_dosage_certainty_thresholds = nullptr;
 //   http://ridiculousfish.com/blog/posts/labor-of-division-episode-iii.html
 // The general case also requires a preshift parameter, but it's always zero
 // for the odd .bgen denominators.
-typedef struct bgen_magic_num_struct {
+typedef struct BgenMagicNumStruct {
   uint64_t totq_magic;
   uint32_t totq_postshift;
   uint32_t totq_incr;

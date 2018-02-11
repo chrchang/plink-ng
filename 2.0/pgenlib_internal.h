@@ -388,7 +388,7 @@ FLAGSET_DEF_START()
   kfPgrLdcacheDifflist = (1 << 1),
   kfPgrLdcacheAllHets = (1 << 2),
   kfPgrLdcacheRefalt1Genocounts = (1 << 3)
-FLAGSET_DEF_END(pgr_ldcache_flags_t);
+FLAGSET_DEF_END(PgrLdcacheFlags);
 
 // difflist/LD compression should never involve more than
 //   raw_sample_ct / kPglMaxDifflistLenDivisor
@@ -496,7 +496,7 @@ CONSTU31(kPglMaxDeltalistLenDivisor, 9);
 // Exported functions involving these data structure should all have
 // "pgfi"/"pgr" in their names.
 
-struct Pgen_file_info_struct {
+struct PgenFileInfoStruct {
   // ----- Header information, constant after initialization -----
   uint32_t raw_variant_ct;
   uint32_t raw_sample_ct;
@@ -665,12 +665,12 @@ struct Pgen_file_info_struct {
 #endif
 };
 
-typedef struct Pgen_file_info_struct PgenFileInfo;
+typedef struct PgenFileInfoStruct PgenFileInfo;
 
-struct Pgen_reader_struct {
+struct PgenReaderStruct {
   // would like to make this const, but that makes initialization really
   // annoying in C99
-  struct Pgen_file_info_struct fi;
+  struct PgenFileInfoStruct fi;
 
   // ----- Mutable state -----
   // If we don't fseek, what's the next variant we'd read?  (Still relevant
@@ -686,7 +686,7 @@ struct Pgen_reader_struct {
   uint32_t ldbase_vidx;
 
   // flags indicating which base_variant buffers are populated
-  pgr_ldcache_flags_t ldbase_stypes;
+  PgrLdcacheFlags ldbase_stypes;
 
   uint32_t ldbase_difflist_len;
 
@@ -734,7 +734,7 @@ struct Pgen_reader_struct {
   // ...).
 };
 
-typedef struct Pgen_reader_struct PgenReader;
+typedef struct PgenReaderStruct PgenReader;
 
 // might want this value to be typed...
 CONSTU31(kPglVrtypePlink1, 256);
@@ -1030,7 +1030,7 @@ BoolErr PgfiCleanup(PgenFileInfo* pgfip);
 BoolErr PgrCleanup(PgenReader* pgrp);
 
 
-struct Pgen_writer_common_struct {
+struct PgenWriterCommonStruct {
   uint32_t variant_ct;
   uint32_t sample_ct;
   PgenGlobalFlags phase_dosage_gflags;  // subset of gflags
@@ -1078,7 +1078,7 @@ struct Pgen_writer_common_struct {
   uint32_t vidx;
 };
 
-typedef struct Pgen_writer_common_struct PgenWriterCommon;
+typedef struct PgenWriterCommonStruct PgenWriterCommon;
 
 CONSTU31(kPglFwriteBlockSize, 131072);
 
@@ -1094,19 +1094,19 @@ CONSTU31(kPglFwriteBlockSize, 131072);
 // in some cases (memory is very limited, I/O is slow, no programmer time to
 // spare for the additional complexity).
 
-struct Singlethreaded_pgen_writer_struct {
-  struct Pgen_writer_common_struct pwc;
+struct STPgenWriterStruct {
+  struct PgenWriterCommonStruct pwc;
   FILE* pgen_outfile;
 };
 
-struct Multithreaded_pgen_writer_struct {
+struct MTPgenWriterStruct {
   FILE* pgen_outfile;
   uint32_t thread_ct;
-  struct Pgen_writer_common_struct* pwcs[];
+  struct PgenWriterCommonStruct* pwcs[];
 };
 
-typedef struct Singlethreaded_pgen_writer_struct STPgenWriter;
-typedef struct Multithreaded_pgen_writer_struct MTPgenWriter;
+typedef struct STPgenWriterStruct STPgenWriter;
+typedef struct MTPgenWriterStruct MTPgenWriter;
 
 void PreinitSpgw(STPgenWriter* spgwp);
 

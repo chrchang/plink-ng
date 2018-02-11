@@ -599,7 +599,7 @@ static inline uint32_t IsAcgtm(unsigned char ucc) {
 }
 
 static_assert((!(kMaxIdSlen % kCacheline)), "LoadPvar() must be updated.");
-PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattened, const char* varid_template, const char* missing_varid_match, const char* require_info_flattened, const char* require_no_info_flattened, const CmpExpr extract_if_info_expr, const CmpExpr exclude_if_info_expr, MiscFlags misc_flags, PvarPsamFlags pvar_psam_flags, ExportfFlags exportf_flags, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t split_chr_ok, ChrInfo* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, UnsortedVar* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** variant_allele_idxs_ptr, const char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, ChrIdx** chr_idxs_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, uint32_t* xheader_info_pr_ptr, uint32_t* xheader_info_pr_nonflag_ptr, uint32_t* max_filter_slen_ptr) {
+PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattened, const char* varid_template, const char* missing_varid_match, const char* require_info_flattened, const char* require_no_info_flattened, const CmpExpr extract_if_info_expr, const CmpExpr exclude_if_info_expr, MiscFlags misc_flags, PvarPsamFlags pvar_psam_flags, ExportfFlags exportf_flags, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t split_chr_ok, ChrInfo* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, UnsortedVar* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** variant_allele_idxs_ptr, const char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, ChrIdx** chr_idxs_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, uint32_t* xheader_info_pr_ptr, uint32_t* xheader_info_pr_nonflag_ptr, uint32_t* max_filter_slen_ptr, uint32_t* pvar_nonref_default_ptr) {
   // chr_info, max_variant_id_slen, and info_reload_slen are in/out; just
   // outparameters after them.  (Due to its large size in some VCFs, INFO is
   // not kept in memory for now.  This has a speed penalty, of course; maybe
@@ -858,6 +858,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       }
       loadbuf_first_token[0] = '\0'; // forces line to be skipped by main loop
     } else if (loadbuf_first_token[0]) {
+      *pvar_nonref_default_ptr = 1;
       col_skips[0] = 1;
       col_skips[1] = 1;
       col_skips[2] = 1;
@@ -1196,8 +1197,9 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
             char* info_token = token_ptrs[6];
             info_token[info_slen] = '\0';
             if (info_pr_present) {
-              // always load all nonref_flags entries so they can be compared
-              // against .pgen for now.
+              // always load all nonref_flags entries so (i) --ref-from-fa +
+              // --make-just-pvar works and (ii) they can be compared against
+              // the .pgen.
               if (((!memcmp(info_token, "PR", 2)) && ((info_slen == 2) || (info_token[2] == ';'))) || (!memcmp(&(info_token[S_CAST(int32_t, info_slen) - 3]), ";PR", 3))) {
                 SetBit(variant_idx_lowbits, cur_nonref_flags);
               } else {

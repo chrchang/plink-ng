@@ -83,7 +83,7 @@ FLAGSET_DEF_START()
   kfGlmColAll = ((kfGlmColCi * 2) - kfGlmColChrom)
 FLAGSET_DEF_END(GlmColFlags);
 
-typedef struct glm_info_struct {
+typedef struct GlmInfoStruct {
   GlmFlags flags;
   GlmColFlags cols;
   uint32_t mperm_ct;

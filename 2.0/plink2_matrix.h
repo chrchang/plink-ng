@@ -90,8 +90,8 @@ extern "C" {
 #          include <mkl_cblas.h>
 #          include <mkl_lapack.h>
 #        else
-#          include "/opt/intel/mkl/include/mkl_cblas.h"
-#          include "/opt/intel/mkl/include/mkl_lapack.h"
+#          include "mkl_cblas.h"
+#          include "mkl_lapack.h"
 #        endif
 static_assert(sizeof(MKL_INT) == 8, "Unexpected MKL_INT size.");
 #      else

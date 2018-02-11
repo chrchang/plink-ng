@@ -167,7 +167,7 @@ FLAGSET_DEF_START()
   kfSortFileSid = (1 << 4)
 FLAGSET_DEF_END(SortFlags);
 
-typedef struct plink2_cmdline_struct {
+typedef struct Plink2CmdlineStruct {
   MiscFlags misc_flags;
 
   // filter_flags tracks some info about flags which may cause the .pgen part
@@ -196,6 +196,7 @@ typedef struct plink2_cmdline_struct {
   RangeList covar_range_list;
   FamCol fam_cols;
   IdpasteFlags exportf_id_paste;
+  UpdateSexInfo update_sex_info;
   LdInfo ld_info;
   KingFlags king_flags;
   double king_cutoff;
@@ -268,7 +269,6 @@ typedef struct plink2_cmdline_struct {
   char* covar_fname;
   char* extract_fnames;
   char* exclude_fnames;
-  char* update_sex_fname;
   char* keep_fnames;
   char* keepfam_fnames;
   char* remove_fnames;
@@ -398,7 +398,7 @@ void ReportGenotypingRate(const uintptr_t* variant_include, const ChrInfo* cip, 
   uint32_t variant_uidx = 0;
   uint32_t is_y = 0;
   for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
-    NextSetUnsafeCk32(variant_include, &variant_uidx);
+    FindFirst1BitFromU32(variant_include, &variant_uidx);
     if (variant_uidx >= y_thresh) {
       if (is_y) {
         tot_y_missing = cur_tot_missing;
@@ -451,7 +451,7 @@ PglErr ApplyVariantBpFilters(const char* extract_fnames, const char* exclude_fna
       logerrputs("Error: --from-bp and --to-bp require a sorted .pvar/.bim.  Retry this command\nafter using --make-pgen/--make-bed + --sort-vars to sort your data.\n");
       return kPglRetInconsistentInput;
     }
-    const uint32_t chr_idx = NextSet(cip->chr_mask, 0, kChrRawEnd);
+    const uint32_t chr_idx = FindFirst1BitFromBounded(cip->chr_mask, 0, kChrRawEnd);
 
     // this function shouldn't be called unless variant_ct is nonzero
     assert(chr_idx != kChrRawEnd);
@@ -642,9 +642,10 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     UnsortedVar vpos_sortstatus = kfUnsortedVar0;
     double* variant_cms = nullptr;
     ChrIdx* chr_idxs = nullptr;  // split-chromosome case only
+    uint32_t pvar_nonref_default = 0;
     if (pvarname[0]) {
       char** pvar_filter_storage_mutable = nullptr;
-      reterr = LoadPvar(pvarname, pcp->var_filter_exceptions_flattened, pcp->varid_template, pcp->missing_varid_match, pcp->require_info_flattened, pcp->require_no_info_flattened, pcp->extract_if_info_expr, pcp->exclude_if_info_expr, pcp->misc_flags, pcp->pvar_psam_flags, pcp->exportf_flags, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->dependency_flags & kfFilterNoSplitChr), cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids_mutable, &variant_allele_idxs, K_CAST(const char***, &allele_storage_mutable), &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage_mutable, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_slen, &xheader_blen, &xheader_info_pr, &xheader_info_pr_nonflag, &max_filter_slen);
+      reterr = LoadPvar(pvarname, pcp->var_filter_exceptions_flattened, pcp->varid_template, pcp->missing_varid_match, pcp->require_info_flattened, pcp->require_no_info_flattened, pcp->extract_if_info_expr, pcp->exclude_if_info_expr, pcp->misc_flags, pcp->pvar_psam_flags, pcp->exportf_flags, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->dependency_flags & kfFilterNoSplitChr), cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids_mutable, &variant_allele_idxs, K_CAST(const char***, &allele_storage_mutable), &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage_mutable, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_slen, &xheader_blen, &xheader_info_pr, &xheader_info_pr_nonflag, &max_filter_slen, &pvar_nonref_default);
       if (reterr) {
         goto Plink2Core_ret_1;
       }
@@ -668,7 +669,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           goto Plink2Core_ret_OPEN_FAIL;
         }
         if (make_plink2_flags & kfMakeBim) {
-          outname_zst_set(".bim", make_plink2_flags & kfMakeBimZs, outname_end);
+          OutnameZstSet(".bim", make_plink2_flags & kfMakeBimZs, outname_end);
           pvar_renamed = RealpathIdentical(outname, g_textbuf, &(g_textbuf[kPglFnamesize + 64]));
           if (pvar_renamed) {
             logerrputs("Warning: .bim input and output filenames match.  Appending '~' to input\nfilename.\n");
@@ -682,7 +683,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
         }
         if ((!pvar_renamed) && (make_plink2_flags & kfMakePvar)) {
-          outname_zst_set(".pvar", pcp->pvar_psam_flags & kfPvarZs, outname_end);
+          OutnameZstSet(".pvar", pcp->pvar_psam_flags & kfPvarZs, outname_end);
           // pvar_renamed = RealpathIdentical();
           if (RealpathIdentical(outname, g_textbuf, &(g_textbuf[kPglFnamesize + 64]))) {
             logerrputs("Warning: .pvar input and output filenames match.  Appending '~' to input\nfilename.\n");
@@ -1009,8 +1010,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       // xid_mode may vary between these operations in a single run, and
       // sample-sort is relatively cheap, so we abandon plink 1.9's "construct
       // sample ID map only once" optimization.
-      if (pcp->update_sex_fname) {
-        reterr = UpdateSampleSexes(pcp->update_sex_fname, sample_include, sample_ids, raw_sample_ct, sample_ct, max_sample_id_blen, pcp->update_sex_colm2, sex_nm, sex_male);
+      if (pcp->update_sex_info.fname) {
+        reterr = UpdateSampleSexes(sample_include, sample_ids, sids, &(pcp->update_sex_info), raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, sex_nm, sex_male);
         if (reterr) {
           goto Plink2Core_ret_1;
         }
@@ -1337,7 +1338,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     while (1) {
       if (loop_cats_pheno_col) {
         ++loop_cats_uidx;
-        NextSetUnsafeCk32(loop_cats_cat_include, &loop_cats_uidx);
+        FindFirst1BitFromU32(loop_cats_cat_include, &loop_cats_uidx);
         const char* catname = loop_cats_pheno_col->category_names[loop_cats_uidx];
         const uint32_t catname_slen = strlen(catname);
         if (catname_slen + S_CAST(uintptr_t, loop_cats_outname_endp1_backup - outname) > (kPglFnamesize - kMaxOutfnameExtBlen)) {
@@ -1868,7 +1869,9 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             refalt1_select_ul[widx] = fill_word;
           }
           refalt1_select = R_CAST(AltAlleleCt*, refalt1_select_ul);
-          const uint32_t not_all_nonref = !(pgfi.gflags & kfPgenGlobalAllNonref);
+          // bugfix (10 Feb 2018): pgfi.gflags may not be initialized if we're
+          // just doing e.g. --ref-from-fa + --make-just-pvar.
+          const uint32_t not_all_nonref = (pgenname[0] && !(pgfi.gflags & kfPgenGlobalAllNonref)) || ((!pgenname[0]) && (!pvar_nonref_default));
           if ((not_all_nonref || setting_alleles_from_file) && (!nonref_flags)) {
             if (bigstack_end_alloc_ul(raw_variant_ctl, &nonref_flags)) {
               goto Plink2Core_ret_NOMEM;
@@ -1924,7 +1927,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             } else {
               uint32_t variant_uidx = 0;
               for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
-                NextSetUnsafeCk32(variant_include, &variant_uidx);
+                FindFirst1BitFromU32(variant_include, &variant_uidx);
                 if (skip_real_ref && IsSet(nonref_flags, variant_uidx)) {
                   continue;
                 }
@@ -2559,7 +2562,6 @@ int main(int argc, char** argv) {
   pc.removefam_fnames = nullptr;
   pc.extract_fnames = nullptr;
   pc.exclude_fnames = nullptr;
-  pc.update_sex_fname = nullptr;
   pc.freq_ref_binstr = nullptr;
   pc.freq_alt1_binstr = nullptr;
   pc.glm_local_covar_fname = nullptr;
@@ -2596,6 +2598,7 @@ int main(int argc, char** argv) {
   InitRangeList(&pc.exclude_snps_range_list);
   InitRangeList(&pc.pheno_range_list);
   InitRangeList(&pc.covar_range_list);
+  InitUpdateSex(&pc.update_sex_info);
   InitLd(&pc.ld_info);
   InitGlm(&pc.glm_info);
   InitScore(&pc.score_info);
@@ -3870,7 +3873,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            // could use NextUnset()...
+            // could use FindFirst0BitFromBounded()...
             if ((format_param_idxs >> param_idx) & 1) {
               continue;
             }
@@ -7372,17 +7375,43 @@ int main(int argc, char** argv) {
 
       case 'u':
         if (strequal_k_unsafe(flagname_p2, "pdate-sex")) {
-          if (EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 2)) {
+          if (EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 4)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.update_sex_fname);
+          const uint32_t sid_present = !strcmp(argvk[arg_idx + 1], "sid");
+          if (sid_present) {
+            if (param_ct == 1) {
+              logerrputs("Error: '--update-sex sid' requires a filename parameter.\n");
+              goto main_ret_INVALID_CMDLINE_A;
+            }
+            pc.update_sex_info.flags |= kfUpdateSexSid;
+          }
+          reterr = AllocFname(argvk[arg_idx + 1 + sid_present], flagname_p, 0, &pc.update_sex_info.fname);
           if (reterr) {
             goto main_ret_1;
           }
-          if (param_ct == 2) {
-            const char* cur_modif = argvk[arg_idx + 2];
-            if (ScanPosintDefcap(cur_modif, &pc.update_sex_colm2)) {
-              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --update-sex column parameter '%s'. (This must be a positive integer.)\n", cur_modif);
+          for (uint32_t param_idx = 2 + sid_present; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            const uint32_t cur_modif_slen = strlen(cur_modif);
+            if (strequal_k(cur_modif, "male0", cur_modif_slen)) {
+              pc.update_sex_info.flags |= kfUpdateSexMale0;
+            } else if (StrStartsWith(cur_modif, "col-num=", cur_modif_slen)) {
+              const char* col_num_start = &(cur_modif[strlen("col-num=")]);
+              if (ScanPosintDefcap(col_num_start, &pc.update_sex_info.col_num) || (pc.update_sex_info.col_num == 1)) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --update-sex col-num= parameter '%s'.\n", col_num_start);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+            } else if (param_ct == 2 + sid_present) {
+              // only one extra parameter, try to interpret it the plink 1.9
+              // way but print a warning
+              if (ScanPosintDefcap(cur_modif, &pc.update_sex_info.col_num)) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --update-sex parameter '%s'.\n", cur_modif);
+                goto main_ret_INVALID_CMDLINE_WWA;
+              }
+              logerrputs("Warning: --update-sex unlabeled column parameter is now deprecated.  Use\n'col-num=' instead (and add 2 to the value).\n");
+              pc.update_sex_info.col_num += 2;
+            } else {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --update-sex parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
@@ -8111,7 +8140,6 @@ int main(int argc, char** argv) {
   free_cond(pc.glm_local_psam_fname);
   free_cond(pc.freq_alt1_binstr);
   free_cond(pc.freq_ref_binstr);
-  free_cond(pc.update_sex_fname);
   free_cond(pc.removefam_fnames);
   free_cond(pc.remove_fnames);
   free_cond(pc.keepfam_fnames);
@@ -8144,6 +8172,7 @@ int main(int argc, char** argv) {
   CleanupGlm(&pc.glm_info);
   CleanupChrInfo(&chr_info);
   CleanupLd(&pc.ld_info);
+  CleanupUpdateSex(&pc.update_sex_info);
   CleanupRangeList(&pc.covar_range_list);
   CleanupRangeList(&pc.pheno_range_list);
   CleanupRangeList(&pc.exclude_snps_range_list);

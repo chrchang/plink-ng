@@ -25,6 +25,12 @@ namespace plink2 {
 #endif
 
 FLAGSET_DEF_START()
+  kfUpdateSex0,
+  kfUpdateSexSid = (1 << 0),
+  kfUpdateSexMale0 = (1 << 1)
+FLAGSET_DEF_END(UpdateSexFlags);
+
+FLAGSET_DEF_START()
   kfPhenoTransform0,
   kfPhenoTransformSplitCat = (1 << 0),
   kfPhenoTransformSplitCatOmitLast = (1 << 1),
@@ -33,7 +39,7 @@ FLAGSET_DEF_START()
   kfPhenoTransformVstdAll = (1 << 4),
   kfPhenoTransformQuantnormPheno = (1 << 5),
   kfPhenoTransformQuantnormCovar = (1 << 6),
-  kfPhenoTransformQuantnormAll = (1 << 7),
+  kfPhenoTransformQuantnormAll = (1 << 7)
 FLAGSET_DEF_END(PhenoTransformFlags);
 
 FLAGSET_DEF_START()
@@ -171,11 +177,21 @@ FLAGSET_DEF_START()
   kfHardyColAll = ((kfHardyColP * 2) - kfHardyColChrom)
 FLAGSET_DEF_END(HardyFlags);
 
+typedef struct UpdateSexStruct {
+  UpdateSexFlags flags;
+  uint32_t col_num;
+  char* fname;
+} UpdateSexInfo;
+
+void InitUpdateSex(UpdateSexInfo* update_sex_info_ptr);
+
+void CleanupUpdateSex(UpdateSexInfo* update_sex_info_ptr);
+
 PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_id_htable, const TwoColParams* params, uint32_t raw_variant_ct, uint32_t htable_size, char** variant_ids, uint32_t* max_variant_id_slen_ptr);
 
 PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, const char* family_missing_catname, const uintptr_t* sample_include, const char* sample_ids, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uint32_t mwithin_val, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr);
 
-PglErr UpdateSampleSexes(const char* update_sex_fname, const uintptr_t* sample_include, const char* sample_ids, uint32_t raw_sample_ct, uintptr_t sample_ct, uintptr_t max_sample_id_blen, uint32_t update_sex_colm2, uintptr_t* sex_nm, uintptr_t* sex_male);
+PglErr UpdateSampleSexes(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const UpdateSexInfo* update_sex_info_ptr, uint32_t raw_sample_ct, uintptr_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uintptr_t* sex_nm, uintptr_t* sex_male);
 
 PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t* sample_include, uint32_t raw_sample_ct, PhenoTransformFlags pheno_transform_flags, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr, PhenoCol** covar_cols_ptr, char** covar_names_ptr, uint32_t* covar_ct_ptr, uintptr_t* max_covar_name_blen_ptr);
 

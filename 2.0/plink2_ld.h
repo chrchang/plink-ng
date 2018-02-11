@@ -38,7 +38,7 @@ FLAGSET_DEF_START()
   kfLdConsoleHweMidp = (1 << 1)
 FLAGSET_DEF_END(LdConsoleFlags);
 
-typedef struct ld_info_struct {
+typedef struct LdInfoStruct {
   double prune_last_param;  // VIF or r^2 threshold
   LdPruneFlags prune_flags;
   uint32_t prune_window_size;

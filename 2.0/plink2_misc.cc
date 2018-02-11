@@ -24,6 +24,16 @@
 namespace plink2 {
 #endif
 
+void InitUpdateSex(UpdateSexInfo* update_sex_info_ptr) {
+  update_sex_info_ptr->flags = kfUpdateSex0;
+  update_sex_info_ptr->col_num = 0;
+  update_sex_info_ptr->fname = nullptr;
+}
+
+void CleanupUpdateSex(UpdateSexInfo* update_sex_info_ptr) {
+  free_cond(update_sex_info_ptr->fname);
+}
+
 PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_id_htable, const TwoColParams* params, uint32_t raw_variant_ct, uint32_t htable_size, char** variant_ids, uint32_t* max_variant_id_slen_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   gzFile gz_infile = nullptr;
@@ -503,7 +513,7 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
       uint32_t sample_uidx = 0;
       uint32_t nonnull_cat_ct = 0;
       for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-        NextSetUnsafeCk32(sample_include, &sample_uidx);
+        FindFirst1BitFromU32(sample_include, &sample_uidx);
         const char* cur_fid = &(sample_ids[sample_uidx * max_sample_id_blen]);
         const char* cur_fid_end = S_CAST(const char*, rawmemchr(cur_fid, '\t'));
         const uint32_t slen = cur_fid_end - cur_fid;
@@ -633,33 +643,23 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
   return reterr;
 }
 
-PglErr UpdateSampleSexes(const char* update_sex_fname, const uintptr_t* sample_include, const char* sample_ids, uint32_t raw_sample_ct, uintptr_t sample_ct, uintptr_t max_sample_id_blen, uint32_t update_sex_colm2, uintptr_t* sex_nm, uintptr_t* sex_male) {
+PglErr UpdateSampleSexes(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const UpdateSexInfo* update_sex_info_ptr, uint32_t raw_sample_ct, uintptr_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uintptr_t* sex_nm, uintptr_t* sex_male) {
   unsigned char* bigstack_mark = g_bigstack_base;
   gzFile gz_infile = nullptr;
+  uintptr_t loadbuf_size = 0;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
   {
     if (!sample_ct) {
       goto UpdateSampleSexes_ret_1;
     }
-    reterr = gzopen_read_checked(update_sex_fname, &gz_infile);
+    reterr = gzopen_read_checked(update_sex_info_ptr->fname, &gz_infile);
     if (reterr) {
       goto UpdateSampleSexes_ret_1;
     }
-    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
-    uintptr_t* already_seen;
-    char* idbuf;
-    if (bigstack_calloc_ul(raw_sample_ctl, &already_seen) ||
-        bigstack_alloc_c(max_sample_id_blen, &idbuf)) {
-      goto UpdateSampleSexes_ret_NOMEM;
-    }
-    uint32_t* id_map;
-    char* sorted_idbox;
-    if (CopySortStrboxSubset(sample_include, sample_ids, sample_ct, max_sample_id_blen, 1, 0, 0, &sorted_idbox, &id_map)) {
-      goto UpdateSampleSexes_ret_NOMEM;
-    }
     // permit very long lines since this can be pointed at .ped files
-    uintptr_t loadbuf_size = bigstack_left();
+    loadbuf_size = bigstack_left();
+    loadbuf_size -= loadbuf_size / 4;
     if (loadbuf_size > kMaxLongLine) {
       loadbuf_size = kMaxLongLine;
     } else {
@@ -670,98 +670,167 @@ PglErr UpdateSampleSexes(const char* update_sex_fname, const uintptr_t* sample_i
     }
     char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
     loadbuf[loadbuf_size - 1] = ' ';
+
+    const uint32_t force_sid = (update_sex_info_ptr->flags / kfUpdateSexSid) & 1;
+    char* loadbuf_first_token;
+    char* header_sample_id_end;
+    XidMode xid_mode;
+    reterr = LoadXidHeader("update-sex", force_sid? kSidDetectModeForce : (sids? kSidDetectModeLoaded : kSidDetectModeNotLoaded), loadbuf_size, loadbuf, &header_sample_id_end, &line_idx, &loadbuf_first_token, &gz_infile, &xid_mode);
+    if (reterr) {
+      if (reterr == kPglRetEmptyFile) {
+        logerrputs("Error: Empty --update-sex file.\n");
+        goto UpdateSampleSexes_ret_MALFORMED_INPUT;
+      }
+      if (reterr == kPglRetLongLine) {
+        goto UpdateSampleSexes_ret_LONG_LINE;
+      }
+      goto UpdateSampleSexes_ret_1;
+    }
+    // Much of this boilerplate is shared with e.g. KeepFcol(); it probably
+    // belongs in its own function.  But transition to optional-FID first.
+    if (xid_mode == kfXidModeFidiidOrIid) {
+      xid_mode = kfXidModeFidiid;
+    }
+    const uint32_t id_col_ct = GetXidColCt(xid_mode);
+    uint32_t col_num = update_sex_info_ptr->col_num;
+    uint32_t postid_col_idx = 0;
+    if ((*loadbuf_first_token == '#') && (!col_num)) {
+      // search for 'SEX' column (any capitalization)
+      const char* token_end = header_sample_id_end;
+      while (1) {
+        ++postid_col_idx;
+        const char* loadbuf_iter = FirstNonTspace(token_end);
+        if (IsEolnKns(*loadbuf_iter)) {
+          logerrputs("Error: No 'SEX' column in --update-sex file, and no column number specified.\n");
+          goto UpdateSampleSexes_ret_MALFORMED_INPUT;
+        }
+        token_end = CurTokenEnd(loadbuf_iter);
+        if (MatchUpperKLen(loadbuf_iter, "SEX", token_end - loadbuf_iter)) {
+          break;
+        }
+      }
+    } else {
+      if (!col_num) {
+        if (id_col_ct == 3) {
+          logerrputs("Error: You must use 'col-num=' to specify the position of the sex column in the\n--update-sex file.\n");
+          goto UpdateSampleSexes_ret_MALFORMED_INPUT;
+        }
+        col_num = 3;
+      }
+      if (id_col_ct >= col_num) {
+        logerrputs("Error: --update-sex 'col-num=' parameter too small (it refers to a sample ID\ncolumn).\n");
+        goto UpdateSampleSexes_ret_MALFORMED_INPUT;
+      }
+      postid_col_idx = col_num - id_col_ct;
+    }
+    if (*loadbuf_first_token == '#') {
+      // advance to next line
+      *loadbuf_first_token = '\0';
+    }
+
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uint32_t* xid_map = nullptr;
+    char* sorted_xidbox = nullptr;
+    const uint32_t allow_dups = sids && (!(xid_mode & kfXidModeFlagSid));
+    uintptr_t max_xid_blen;
+    reterr = SortedXidboxInitAlloc(sample_include, sample_ids, sids, sample_ct, max_sample_id_blen, max_sid_blen, allow_dups, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+    if (reterr) {
+      goto UpdateSampleSexes_ret_1;
+    }
+    uintptr_t* already_seen;
+    char* idbuf;
+    if (bigstack_calloc_ul(raw_sample_ctl, &already_seen) ||
+        bigstack_alloc_c(max_xid_blen, &idbuf)) {
+      goto UpdateSampleSexes_ret_NOMEM;
+    }
+
+    const uint32_t male0 = (update_sex_info_ptr->flags / kfUpdateSexMale0) & 1;
     uint32_t hit_ct = 0;
     uintptr_t miss_ct = 0;
     uintptr_t duplicate_ct = 0;
-    while (gzgets(gz_infile, loadbuf, loadbuf_size)) {
-      ++line_idx;
-      if (!loadbuf[loadbuf_size - 1]) {
-        if (loadbuf_size == kMaxLongLine) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --update-sex file is pathologically long.\n", line_idx);
-          goto UpdateSampleSexes_ret_MALFORMED_INPUT_2;
-        }
-        goto UpdateSampleSexes_ret_NOMEM;
-      }
-      const char* fid_start = FirstNonTspace(loadbuf);
-      if (IsEolnKns(*fid_start)) {
-        continue;
-      }
-      const char* fid_end = CurTokenEnd(fid_start);
-      const char* iid_start = FirstNonTspace(fid_end);
-      if (IsEolnKns(*iid_start)) {
-        goto UpdateSampleSexes_ret_MISSING_TOKENS;
-      }
-      const char* iid_end = CurTokenEnd(iid_start);
-      const uint32_t fid_slen = fid_end - fid_start;
-      const uint32_t iid_slen = iid_end - iid_start;
-      const uint32_t id_blen = fid_slen + iid_slen + 2;
-      if (id_blen > max_sample_id_blen) {
-        ++miss_ct;
-        continue;
-      }
-      char* idbuf_iter = memcpyax(idbuf, fid_start, fid_slen, '\t');
-      idbuf_iter = memcpya(idbuf_iter, iid_start, iid_slen);
-      *idbuf_iter = '\0';
-      uint32_t lb_idx = bsearch_str_lb(idbuf, sorted_idbox, id_blen, max_sample_id_blen, sample_ct);
-      *idbuf_iter = ' ';
-      const uint32_t ub_idx = bsearch_str_lb(idbuf, sorted_idbox, id_blen, max_sample_id_blen, sample_ct);
-      if (ub_idx == lb_idx) {
-        ++miss_ct;
-        continue;
-      }
-      const char* sex_start = NextTokenMult(iid_end, update_sex_colm2);
-      if (!sex_start) {
-        goto UpdateSampleSexes_ret_MISSING_TOKENS;
-      }
-      uint32_t sexval = ctou32(*sex_start);
-      const uint32_t ujj = sexval & 0xdfU;
-      sexval -= 48;
-      if (sexval > 2) {
-        if (ujj == 77) {
-          // 'M'/'m'
-          sexval = 1;
-        } else if (ujj == 70) {
-          // 'F'/'f'
-          sexval = 2;
-        } else {
-          snprintf(g_logbuf, kLogbufSize, "Error: Invalid sex value on line %" PRIuPTR " of --update-sex file. (Acceptable values: 1/M/m = male, 2/F/f = female, 0 = missing.)\n", line_idx);
-          WordWrapB(0);
-          goto UpdateSampleSexes_ret_MALFORMED_INPUT_2;
-        }
-      }
-      uint32_t sample_uidx = id_map[lb_idx];
-      if (IsSet(already_seen, sample_uidx)) {
-        // permit duplicates iff sex value is identical
-        const uint32_t old_sexval = IsSet(sex_nm, sample_uidx) * (2 - IsSet(sex_male, sample_uidx));
-        if (sexval != old_sexval) {
-          idbuf[fid_slen] = ' ';
-          logpreprintfww("Error: Duplicate sample ID '%s' with conflicting sex assignments in --update-sex file.\n", idbuf);
-          goto UpdateSampleSexes_ret_MALFORMED_INPUT_2;
-        }
-        ++duplicate_ct;
-        continue;
-      }
-      SetBit(sample_uidx, already_seen);
-      while (1) {
-        if (sexval) {
-          SetBit(sample_uidx, sex_nm);
-          if (sexval == 1) {
-            SetBit(sample_uidx, sex_male);
-          } else {
-            ClearBit(sample_uidx, sex_male);
+    while (1) {
+      if (!IsEolnKns(*loadbuf_first_token)) {
+        const char* loadbuf_iter = loadbuf_first_token;
+        uint32_t xid_idx_start;
+        uint32_t xid_idx_end;
+        if (!SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, sample_ct, 0, xid_mode, &loadbuf_iter, &xid_idx_start, &xid_idx_end, idbuf)) {
+          const char* sex_start = NextTokenMult(loadbuf_iter, postid_col_idx);
+          if (!sex_start) {
+            goto UpdateSampleSexes_ret_MISSING_TOKENS;
           }
-        } else {
-          ClearBit(sample_uidx, sex_nm);
-          ClearBit(sample_uidx, sex_male);
+          uint32_t sexval = ctou32(*sex_start);
+          const uint32_t ujj = sexval & 0xdfU;
+          sexval -= 48;
+          if (sexval > 2) {
+            if (ujj == 77) {
+              // 'M'/'m'
+              sexval = 1;
+            } else if (ujj == 70) {
+              // 'F'/'f'
+              sexval = 2;
+            } else if ((!male0) && (sexval != 30)) {
+              // allow 'N' = missing to make 1/2/NA work
+              // don't permit 'n' for now
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid sex value on line %" PRIuPTR " of --update-sex file. (Acceptable values: 1/M/m = male, 2/F/f = female, 0/N = missing.)\n", line_idx);
+              goto UpdateSampleSexes_ret_MALFORMED_INPUT_WW;
+            } else {
+              // with 'male0', everything else is treated as missing
+              sexval = 0;
+            }
+          } else if (male0) {
+            if (sexval == 2) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid sex value on line %" PRIuPTR " of --update-sex file. ('2' is prohibited when the 'male0' modifier is present.)\n", line_idx);
+              goto UpdateSampleSexes_ret_MALFORMED_INPUT_WW;
+            }
+            ++sexval;
+          }
+          uint32_t sample_uidx = xid_map[xid_idx_start];
+          if (IsSet(already_seen, sample_uidx)) {
+            // permit duplicates iff sex value is identical
+            const uint32_t old_sexval = IsSet(sex_nm, sample_uidx) * (2 - IsSet(sex_male, sample_uidx));
+            if (sexval != old_sexval) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Sample ID on line %" PRIuPTR " of --update-sex file duplicates one earlier in the file, and sex values don't match.\n", line_idx);
+              goto UpdateSampleSexes_ret_MALFORMED_INPUT_WW;
+            }
+            ++duplicate_ct;
+            continue;
+          }
+          SetBit(sample_uidx, already_seen);
+          while (1) {
+            if (sexval) {
+              SetBit(sample_uidx, sex_nm);
+              if (sexval == 1) {
+                SetBit(sample_uidx, sex_male);
+              } else {
+                ClearBit(sample_uidx, sex_male);
+              }
+            } else {
+              ClearBit(sample_uidx, sex_nm);
+              ClearBit(sample_uidx, sex_male);
+            }
+            ++hit_ct;
+            if (++xid_idx_start == xid_idx_end) {
+              break;
+            }
+            sample_uidx = xid_map[xid_idx_start];
+          }
+        } else if (!loadbuf_iter) {
+          goto UpdateSampleSexes_ret_MISSING_TOKENS;
         }
-        ++hit_ct;
-        if (++lb_idx == ub_idx) {
-          break;
-        }
-        sample_uidx = id_map[lb_idx];
       }
+      ++line_idx;
+      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
+        if (!gzeof(gz_infile)) {
+          goto UpdateSampleSexes_ret_READ_FAIL;
+        }
+        break;
+      }
+      if (!loadbuf[loadbuf_size - 1]) {
+        goto UpdateSampleSexes_ret_LONG_LINE;
+      }
+      loadbuf_first_token = FirstNonTspace(loadbuf);
     }
-    if ((!gzeof(gz_infile)) || gzclose_null(&gz_infile)) {
+    if (gzclose_null(&gz_infile)) {
       goto UpdateSampleSexes_ret_READ_FAIL;
     }
     if (duplicate_ct) {
@@ -775,16 +844,26 @@ PglErr UpdateSampleSexes(const char* update_sex_fname, const uintptr_t* sample_i
     logputsb();
   }
   while (0) {
+  UpdateSampleSexes_ret_LONG_LINE:
+    if (loadbuf_size == kMaxLongLine) {
+      logerrprintf("Error: Line %" PRIuPTR " of --update-sex file is pathologically long.\n", line_idx);
+      reterr = kPglRetMalformedInput;
+      break;
+    }
   UpdateSampleSexes_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
   UpdateSampleSexes_ret_READ_FAIL:
     reterr = kPglRetReadFail;
     break;
-  UpdateSampleSexes_ret_MISSING_TOKENS:
-    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --update-sex file has fewer tokens than expected.\n", line_idx);
-  UpdateSampleSexes_ret_MALFORMED_INPUT_2:
+  UpdateSampleSexes_ret_MALFORMED_INPUT_WW:
+    WordWrapB(0);
     logerrputsb();
+  UpdateSampleSexes_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  UpdateSampleSexes_ret_MISSING_TOKENS:
+    logerrprintf("Error: Line %" PRIuPTR " of --update-sex file has fewer tokens than expected.\n", line_idx);
     reterr = kPglRetMalformedInput;
     break;
   }
@@ -893,7 +972,7 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
       uint32_t split_pheno_uidx = 0;
       uint32_t max_cat_uidx_p1 = 0;
       for (uint32_t split_pheno_idx = 0; split_pheno_idx < split_pheno_ct; ++split_pheno_idx, ++split_pheno_uidx) {
-        NextSetUnsafeCk32(phenos_to_split, &split_pheno_uidx);
+        FindFirst1BitFromU32(phenos_to_split, &split_pheno_uidx);
         const PhenoCol* cur_pheno_col = &(old_pheno_cols[split_pheno_uidx]);
         BitvecAndCopy(sample_include, cur_pheno_col->nonmiss, raw_sample_ctl, sample_include_intersect);
         const uint32_t cur_cat_ct = cur_pheno_col->nonnull_category_ct + 1;
@@ -912,7 +991,7 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
           const char* const* cat_names = cur_pheno_col->category_names;
           uint32_t cat_uidx = 0;
           for (uint32_t cat_idx = 0; cat_idx < cur_observed_cat_ct; ++cat_idx, ++cat_uidx) {
-            NextSetUnsafeCk32(cur_observed_cats, &cat_uidx);
+            FindFirst1BitFromU32(cur_observed_cats, &cat_uidx);
             const char* cur_cat_name = cat_names[cat_uidx];
             const uint32_t cur_slen = strlen(cur_cat_name);
             if (memchr(cur_cat_name, '=', cur_slen)) {
@@ -979,7 +1058,7 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
       *max_xpheno_name_blen_ptr = new_max_pheno_name_blen;
       uint32_t pheno_read_idx = 0;
       for (uint32_t pheno_write_idx = 0; pheno_write_idx < copy_pheno_ct; ++pheno_write_idx, ++pheno_read_idx) {
-        NextUnsetUnsafeCk32(phenos_to_split, &pheno_read_idx);
+        FindFirst0BitFromU32(phenos_to_split, &pheno_read_idx);
         new_pheno_cols[pheno_write_idx] = doomed_pheno_cols[pheno_read_idx];
 
         // prevent double-free
@@ -995,7 +1074,7 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
       uint32_t pheno_write_idx = copy_pheno_ct;
       pheno_read_idx = 0;
       for (uint32_t split_pheno_idx = 0; split_pheno_idx < split_pheno_ct; ++split_pheno_idx, ++pheno_read_idx) {
-        NextSetUnsafeCk32(phenos_to_split, &pheno_read_idx);
+        FindFirst1BitFromU32(phenos_to_split, &pheno_read_idx);
         const uint32_t cur_pheno_write_ct = observed_cat_cts[split_pheno_idx];
         if (!cur_pheno_write_ct) {
           continue;
@@ -1008,7 +1087,7 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
         const char* const* old_cat_names = old_pheno_col->category_names;
         uint32_t orig_cat_idx = 1;
         for (uint32_t uii = 0; uii < cur_pheno_write_ct; ++uii, ++orig_cat_idx, ++pheno_write_idx) {
-          NextSetUnsafeCk32(cur_observed_cats, &orig_cat_idx);
+          FindFirst1BitFromU32(cur_observed_cats, &orig_cat_idx);
           uintptr_t* new_pheno_data_iter;
           if (vecaligned_malloc(new_pheno_bytes_req, &new_pheno_data_iter)) {
             goto SplitCatPheno_ret_NOMEM;
@@ -1041,7 +1120,7 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
           }
         }
         if (omit_last) {
-          NextSetUnsafeCk32(cur_observed_cats, &orig_cat_idx);
+          FindFirst1BitFromU32(cur_observed_cats, &orig_cat_idx);
           write_data_ptrs[orig_cat_idx] = omit_last_dummy;
         }
 
@@ -1050,14 +1129,14 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
         uint32_t sample_uidx = 0;
         if (!is_covar) {
           for (uint32_t sample_idx = 0; sample_idx < cur_nmiss_ct; ++sample_idx, ++sample_uidx) {
-            NextSetUnsafeCk32(sample_include_intersect, &sample_uidx);
+            FindFirst1BitFromU32(sample_include_intersect, &sample_uidx);
             SetBit(sample_uidx, write_data_ptrs[cur_cats[sample_uidx]]);
           }
         } else {
           double** write_qt_ptrs = R_CAST(double**, write_data_ptrs);
           const double write_val = u31tod(1 + qt_12);
           for (uint32_t sample_idx = 0; sample_idx < cur_nmiss_ct; ++sample_idx, ++sample_uidx) {
-            NextSetUnsafeCk32(sample_include_intersect, &sample_uidx);
+            FindFirst1BitFromU32(sample_include_intersect, &sample_uidx);
             write_qt_ptrs[cur_cats[sample_uidx]][sample_uidx] = write_val;
           }
         }
@@ -1180,7 +1259,7 @@ PglErr PhenoVarianceStandardize(const char* vstd_flattened, const uintptr_t* sam
     const uint32_t raw_sample_ctaw = BitCtToAlignedWordCt(raw_sample_ct);
     uint32_t pheno_uidx = 0;
     for (uint32_t pheno_transform_idx = 0; pheno_transform_idx < pheno_transform_ct; ++pheno_transform_idx, ++pheno_uidx) {
-      NextSetUnsafeCk32(phenos_to_transform, &pheno_uidx);
+      FindFirst1BitFromU32(phenos_to_transform, &pheno_uidx);
       PhenoCol* cur_pheno_col = &(pheno_cols[pheno_uidx]);
       uintptr_t* pheno_nm = cur_pheno_col->nonmiss;
       BitvecAnd(sample_include, raw_sample_ctaw, pheno_nm);
@@ -1195,12 +1274,12 @@ PglErr PhenoVarianceStandardize(const char* vstd_flattened, const uintptr_t* sam
       double* pheno_qt = cur_pheno_col->data.qt;
       double shifted_pheno_sum = 0.0;
       double shifted_pheno_ssq = 0.0;
-      const uint32_t first_sample_uidx = NextSetUnsafe(pheno_nm, 0);
+      const uint32_t first_sample_uidx = FindFirst1BitFrom(pheno_nm, 0);
       uint32_t sample_uidx = first_sample_uidx;
       shifted_pheno_qt[sample_uidx] = 0.0;
       const double pheno_shift = pheno_qt[sample_uidx++];
       for (uint32_t sample_idx = 1; sample_idx < cur_sample_ct; ++sample_idx, ++sample_uidx) {
-        NextSetUnsafeCk32(pheno_nm, &sample_uidx);
+        FindFirst1BitFromU32(pheno_nm, &sample_uidx);
         const double cur_shifted_pheno_val = pheno_qt[sample_uidx] - pheno_shift;
         shifted_pheno_sum += cur_shifted_pheno_val;
         shifted_pheno_ssq += cur_shifted_pheno_val * cur_shifted_pheno_val;
@@ -1216,7 +1295,7 @@ PglErr PhenoVarianceStandardize(const char* vstd_flattened, const uintptr_t* sam
       const double cur_stdev_recip = sqrt(u31tod(cur_sample_ct - 1) / variance_numer);
       sample_uidx = first_sample_uidx;
       for (uint32_t sample_idx = 0; sample_idx < cur_sample_ct; ++sample_idx, ++sample_uidx) {
-        NextSetUnsafeCk32(pheno_nm, &sample_uidx);
+        FindFirst1BitFromU32(pheno_nm, &sample_uidx);
         pheno_qt[sample_uidx] = (shifted_pheno_qt[sample_uidx] - cur_shifted_mean) * cur_stdev_recip;
       }
     }
@@ -1240,11 +1319,11 @@ PglErr PhenoVarianceStandardize(const char* vstd_flattened, const uintptr_t* sam
   return reterr;
 }
 
-typedef struct dbl_index_struct {
+typedef struct DblIndexStruct {
   double dxx;
   uint32_t uii;
 #ifdef __cplusplus
-  bool operator<(const struct dbl_index_struct& rhs) const {
+  bool operator<(const struct DblIndexStruct& rhs) const {
     return dxx < rhs.dxx;
   }
 #endif
@@ -1306,7 +1385,7 @@ PglErr PhenoQuantileNormalize(const char* quantnorm_flattened, const uintptr_t* 
     const uint32_t raw_sample_ctaw = BitCtToAlignedWordCt(raw_sample_ct);
     uint32_t pheno_uidx = 0;
     for (uint32_t pheno_transform_idx = 0; pheno_transform_idx < pheno_transform_ct; ++pheno_transform_idx, ++pheno_uidx) {
-      NextSetUnsafeCk32(phenos_to_transform, &pheno_uidx);
+      FindFirst1BitFromU32(phenos_to_transform, &pheno_uidx);
       PhenoCol* cur_pheno_col = &(pheno_cols[pheno_uidx]);
       uintptr_t* pheno_nm = cur_pheno_col->nonmiss;
       BitvecAnd(sample_include, raw_sample_ctaw, pheno_nm);
@@ -1319,7 +1398,7 @@ PglErr PhenoQuantileNormalize(const char* quantnorm_flattened, const uintptr_t* 
       for (uint32_t sample_idx = 0; sample_idx < cur_sample_ct; ++sample_idx, ++sample_uidx) {
         // bugfix (1 Sep 2017): this needs to iterate over pheno_nm, not
         // sample_include
-        NextSetUnsafeCk32(pheno_nm, &sample_uidx);
+        FindFirst1BitFromU32(pheno_nm, &sample_uidx);
         tagged_raw_pheno_vals[sample_idx].dxx = pheno_qt[sample_uidx];
         tagged_raw_pheno_vals[sample_idx].uii = sample_uidx;
       }
@@ -1612,7 +1691,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
       printf("--freq%s%s: 0%%", output_zst? " zs" : "", counts? " counts" : "");
       fflush(stdout);
       for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
-        NextSetUnsafeCk32(variant_include, &variant_uidx);
+        FindFirst1BitFromU32(variant_include, &variant_uidx);
         if (variant_uidx >= chr_end) {
           do {
             ++chr_fo_idx;
@@ -1789,7 +1868,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
       if (!counts) {
         uint32_t cur_allele_ct = 2;
         for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
-          NextSetUnsafeCk32(variant_include, &variant_uidx);
+          FindFirst1BitFromU32(variant_include, &variant_uidx);
           uintptr_t variant_allele_idx_base = variant_uidx * 2;
           if (variant_allele_idxs) {
             variant_allele_idx_base = variant_allele_idxs[variant_uidx];
@@ -1812,7 +1891,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
         }
       } else {
         for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
-          NextSetUnsafeCk32(variant_include, &variant_uidx);
+          FindFirst1BitFromU32(variant_include, &variant_uidx);
           uintptr_t variant_allele_idx_base = variant_uidx * 2;
           if (variant_allele_idxs) {
             variant_allele_idx_base = variant_allele_idxs[variant_uidx];
@@ -1943,7 +2022,7 @@ PglErr WriteGenoCounts(__attribute__((unused)) const uintptr_t* sample_include, 
     */
     const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 512 + simple_pgrp->fi.max_alt_allele_ct * (24 * k1LU) + 2 * max_allele_slen;
     const uint32_t output_zst = geno_counts_flags & kfGenoCountsZs;
-    outname_zst_set(".gcount", output_zst, outname_end);
+    OutnameZstSet(".gcount", output_zst, outname_end);
     reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
     if (reterr) {
       goto WriteGenoCounts_ret_1;
@@ -2049,7 +2128,7 @@ PglErr WriteGenoCounts(__attribute__((unused)) const uintptr_t* sample_include, 
     fflush(stdout);
     uint32_t cur_allele_ct = 2;
     for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
-      NextSetUnsafeCk32(variant_include, &variant_uidx);
+      FindFirst1BitFromU32(variant_include, &variant_uidx);
       if (variant_uidx >= chr_end) {
         do {
           ++chr_fo_idx;
@@ -2264,7 +2343,7 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const uintptr_t*
     const uint32_t output_zst = missing_rpt_flags & kfMissingRptZs;
     if (!(missing_rpt_flags & kfMissingRptVariantOnly)) {
       const uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxMediumLine + pheno_ct * 2;
-      outname_zst_set(".smiss", output_zst, outname_end);
+      OutnameZstSet(".smiss", output_zst, outname_end);
       reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
       if (reterr) {
         goto WriteMissingnessReports_ret_1;
@@ -2345,7 +2424,7 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const uintptr_t*
       variant_ct_recips[1] = 1.0 / u31tod(variant_ct);
       uintptr_t sample_uidx = 0;
       for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-        NextSetUnsafeCkL(sample_include, &sample_uidx);
+        FindFirst1BitFromL(sample_include, &sample_uidx);
         cswritep = strcpya(cswritep, &(sample_ids[sample_uidx * max_sample_id_blen]));
         if (scol_sid) {
           *cswritep++ = '\t';
@@ -2421,7 +2500,7 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const uintptr_t*
         goto WriteMissingnessReports_ret_NOMEM;
       }
       const uintptr_t overflow_buf_size = kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 512 + 2 * max_allele_slen;
-      outname_zst_set(".vmiss", output_zst, outname_end);
+      OutnameZstSet(".vmiss", output_zst, outname_end);
       reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
       if (reterr) {
         goto WriteMissingnessReports_ret_1;
@@ -2505,7 +2584,7 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const uintptr_t*
       uint32_t cur_missing_hc_ct = 0;
       uint32_t cur_hethap_ct = 0;
       for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
-        NextSetUnsafeCk32(variant_include, &variant_uidx);
+        FindFirst1BitFromU32(variant_include, &variant_uidx);
         if (variant_uidx >= chr_end) {
           int32_t chr_idx;
           do {
@@ -2670,7 +2749,7 @@ THREAD_FUNC_DECL ComputeHweXPvalsThread(void* arg) {
   uint32_t male_ref_ct = 0;
   uint32_t male_alt_ct = 0;
   for (; variant_idx < variant_idx_end; ++variant_idx, ++variant_uidx) {
-    NextSetUnsafeCk32(variant_include, &variant_uidx);
+    FindFirst1BitFromU32(variant_include, &variant_uidx);
     const uint32_t* cur_raw_geno_cts = &(founder_raw_geno_cts[(3 * k1LU) * variant_uidx]);
     uint32_t female_homref_ct = cur_raw_geno_cts[0];
     uint32_t female_refalt_ct = cur_raw_geno_cts[1];
@@ -2793,7 +2872,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
     uint32_t variant_skip_ct = 0;
     uint32_t chr_uidx = 0;
     for (uint32_t chr_skip_idx = 0; chr_skip_idx < chr_skip_ct; ++chr_skip_idx, ++chr_uidx) {
-      NextSetUnsafeCk32(chr_skips, &chr_uidx);
+      FindFirst1BitFromU32(chr_skips, &chr_uidx);
       if (IsSet(cip->chr_mask, chr_uidx)) {
         const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[chr_uidx];
         variant_skip_ct += PopcountBitRange(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1]);
@@ -2814,7 +2893,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
     const uint32_t hetfreq_cols = hardy_flags & kfHardyColHetfreq;
     const uint32_t p_col = hardy_flags & kfHardyColP;
     if (variant_ct) {
-      outname_zst_set(".hardy", output_zst, outname_end);
+      OutnameZstSet(".hardy", output_zst, outname_end);
       reterr = InitCstream(outname, 0, output_zst, max_thread_ct, overflow_buf_size, overflow_buf, R_CAST(unsigned char*, &(overflow_buf[overflow_buf_size])), &css);
       if (reterr) {
         goto HardyReport_ret_1;
@@ -2874,7 +2953,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
       fflush(stdout);
       uint32_t cur_allele_ct = 2;
       for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
-        NextSetUnsafeCk32(variant_include, &variant_uidx);
+        FindFirst1BitFromU32(variant_include, &variant_uidx);
         if (chr_col) {
           if (variant_uidx >= chr_end) {
             int32_t chr_idx;
@@ -2883,7 +2962,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
               chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
               chr_idx = cip->chr_file_order[chr_fo_idx];
             } while ((variant_uidx >= chr_end) || IsSetI(chr_skips, chr_idx));
-            variant_uidx = NextSetUnsafe(variant_include, cip->chr_fo_vidx_start[chr_fo_idx]);
+            variant_uidx = FindFirst1BitFrom(variant_include, cip->chr_fo_vidx_start[chr_fo_idx]);
             char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
             *chr_name_end = '\t';
             chr_buf_blen = 1 + S_CAST(uintptr_t, chr_name_end - chr_buf);
@@ -2963,7 +3042,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
     }
     if (hwe_x_ct) {
       BigstackReset(chr_skips);
-      outname_zst_set(".hardy.x", output_zst, outname_end);
+      OutnameZstSet(".hardy.x", output_zst, outname_end);
       reterr = InitCstream(outname, 0, output_zst, max_thread_ct, overflow_buf_size, overflow_buf, R_CAST(unsigned char*, &(overflow_buf[overflow_buf_size])), &css);
       if (reterr) {
         goto HardyReport_ret_1;
@@ -3037,7 +3116,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
       uint32_t male_ref_ct = 0;
       uint32_t male_alt_ct = 0;
       for (uint32_t variant_idx = 0; variant_idx < hwe_x_ct; ++variant_idx, ++variant_uidx) {
-        NextSetUnsafeCk32(variant_include, &variant_uidx);
+        FindFirst1BitFromU32(variant_include, &variant_uidx);
         cswritep = memcpya(cswritep, x_name_buf, x_name_blen);
         if (variant_bps) {
           cswritep = uint32toa_x(variant_bps[variant_uidx], '\t', cswritep);
@@ -3158,14 +3237,14 @@ PglErr WriteSnplist(const uintptr_t* variant_include, const char* const* variant
   PglErr reterr = kPglRetSuccess;
   PreinitCstream(&css);
   {
-    outname_zst_set(".snplist", output_zst, outname_end);
+    OutnameZstSet(".snplist", output_zst, outname_end);
     reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, kCompressStreamBlock + kMaxIdSlen + 2, &css, &cswritep);
     if (reterr) {
       goto WriteSnplist_ret_1;
     }
     uint32_t variant_uidx = 0;
     for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
-      NextSetUnsafeCk32(variant_include, &variant_uidx);
+      FindFirst1BitFromU32(variant_include, &variant_uidx);
       cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
       AppendBinaryEoln(&cswritep);
       if (Cswrite(&css, &cswritep)) {
@@ -3333,7 +3412,7 @@ PglErr WriteCovar(const uintptr_t* sample_include, const char* sample_ids, const
     // new_sample_idx_to_old == nullptr
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
       if (!new_sample_idx_to_old) {
-        NextSetUnsafeCkL(sample_include, &sample_uidx);
+        FindFirst1BitFromL(sample_include, &sample_uidx);
       } else {
         do {
           sample_uidx = new_sample_idx_to_old[sample_uidx2++];

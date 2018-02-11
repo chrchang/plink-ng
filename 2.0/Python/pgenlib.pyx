@@ -109,30 +109,30 @@ cdef extern from "../pgenlib_python_support.h" namespace "plink2":
 
     ctypedef uint32_t PgenHeaderCtrl
 
-    void PgfiPreinit(PgenFileInfo* pgfip)
+    void PreinitPgfi(PgenFileInfo* pgfip)
 
     PglErr PgfiInitPhase1(const char* fname, uint32_t raw_variant_ct, uint32_t raw_sample_ct, uint32_t use_mmap, PgenHeaderCtrl* header_ctrl_ptr, PgenFileInfo* pgfip, uintptr_t* pgfi_alloc_cacheline_ct_ptr, char* errstr_buf)
 
     PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_loaded, uint32_t nonref_flags_already_loaded, uint32_t use_blockload, uint32_t vblock_idx_start, uint32_t vidx_end, uint32_t* max_vrec_width_ptr, PgenFileInfo* pgfip, unsigned char* pgfi_alloc, uintptr_t* pgr_alloc_cacheline_ct_ptr, char* errstr_buf)
 
-    cdef struct Pgen_reader_struct:
+    cdef struct PgenReaderStruct:
         PgenFileInfo fi
         unsigned char* fread_buf
 
-    void PgrPreinit(Pgen_reader_struct* pgrp)
+    void PreinitPgr(PgenReaderStruct* pgrp)
 
-    PglErr PgrInit(const char* fname, uint32_t max_vrec_width, PgenFileInfo* pgfip, Pgen_reader_struct* pgrp, unsigned char* pgr_alloc)
+    PglErr PgrInit(const char* fname, uint32_t max_vrec_width, PgenFileInfo* pgfip, PgenReaderStruct* pgrp, unsigned char* pgr_alloc)
 
-    PglErr PgrReadAlleleCountvecSubsetUnsafe(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, Pgen_reader_struct* pgrp, uintptr_t* allele_countvec)
+    PglErr PgrReadAlleleCountvecSubsetUnsafe(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReaderStruct* pgrp, uintptr_t* allele_countvec)
 
-    PglErr PgrReadRefalt1GenovecHphaseSubsetUnsafe(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, Pgen_reader_struct* pgrp, uintptr_t* genovec, uintptr_t* phasepresent, uintptr_t* phaseinfo, uint32_t* phasepresent_ct_ptr)
+    PglErr PgrReadRefalt1GenovecHphaseSubsetUnsafe(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderStruct* pgrp, uintptr_t* genovec, uintptr_t* phasepresent, uintptr_t* phaseinfo, uint32_t* phasepresent_ct_ptr)
 
-    PglErr PgrReadRefalt1GenovecDosage16SubsetUnsafe(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, Pgen_reader_struct* pgrp, uintptr_t* genovec, uintptr_t* dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr, uint32_t* is_explicit_alt1_ptr)
+    PglErr PgrReadRefalt1GenovecDosage16SubsetUnsafe(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderStruct* pgrp, uintptr_t* genovec, uintptr_t* dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr, uint32_t* is_explicit_alt1_ptr)
 
-    PglErr PgrGetRefalt1GenotypeCounts(const uintptr_t* sample_include, const uintptr_t* sample_include_interleaved_vec, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, Pgen_reader_struct* pgrp, uint32_t* genocounts)
+    PglErr PgrGetRefalt1GenotypeCounts(const uintptr_t* sample_include, const uintptr_t* sample_include_interleaved_vec, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderStruct* pgrp, uint32_t* genocounts)
 
     BoolErr PgfiCleanup(PgenFileInfo* pgfip)
-    BoolErr PgrCleanup(Pgen_reader_struct* pgrp)
+    BoolErr PgrCleanup(PgenReaderStruct* pgrp)
 
     cdef cppclass PgenWriterCommon:
         uint32_t variant_ct
@@ -161,7 +161,7 @@ cdef extern from "../pgenlib_python_support.h" namespace "plink2":
 cdef class PgenReader:
     # todo: nonref_flags, multiallelic variant support
     cdef PgenFileInfo* _info_ptr
-    cdef Pgen_reader_struct* _state_ptr
+    cdef PgenReaderStruct* _state_ptr
     cdef uintptr_t* _subset_include_vec
     cdef uintptr_t* _subset_include_interleaved_vec
     cdef uint32_t* _subset_cumulative_popcounts
@@ -224,7 +224,7 @@ cdef class PgenReader:
         self._info_ptr = <PgenFileInfo*>PyMem_Malloc(sizeof(PgenFileInfo))
         if not self._info_ptr:
             raise MemoryError()
-        PgfiPreinit(self._info_ptr)
+        PreinitPgfi(self._info_ptr)
         # this depends on pgenlib_internal implementation.  could save
         # pgfi_alloc and pgr_alloc instead.
         self._info_ptr[0].vrtypes = NULL
@@ -255,10 +255,10 @@ cdef class PgenReader:
                 aligned_free(pgfi_alloc)
             raise RuntimeError(errstr_buf[7:])
 
-        self._state_ptr = <Pgen_reader_struct*>PyMem_Malloc(sizeof(Pgen_reader_struct))
+        self._state_ptr = <PgenReaderStruct*>PyMem_Malloc(sizeof(PgenReaderStruct))
         if not self._state_ptr:
             raise MemoryError()
-        PgrPreinit(self._state_ptr)
+        PreinitPgr(self._state_ptr)
         self._state_ptr[0].fread_buf = NULL
         cdef uintptr_t pgr_alloc_main_byte_ct = pgr_alloc_cacheline_ct * kCacheline
         cdef uintptr_t sample_subset_byte_ct = DivUp(file_sample_ct, kBitsPerVec) * kBytesPerVec
@@ -425,7 +425,7 @@ cdef class PgenReader:
             raise RuntimeError("read_range() variant_idx_end too large (" + str(variant_idx_end) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
         cdef const uintptr_t* subset_include_vec = self._subset_include_vec
         cdef const uint32_t* subset_cumulative_popcounts = self._subset_cumulative_popcounts
-        cdef Pgen_reader_struct* pgrp = self._state_ptr
+        cdef PgenReaderStruct* pgrp = self._state_ptr
         cdef uintptr_t* genovec = self._genovec
         cdef uint32_t variant_idx_ct = variant_idx_end - variant_idx_start
         cdef uint32_t subset_size = self._subset_size
@@ -493,7 +493,7 @@ cdef class PgenReader:
             raise RuntimeError("read_range() variant_idx_end too large (" + str(variant_idx_end) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
         cdef const uintptr_t* subset_include_vec = self._subset_include_vec
         cdef const uint32_t* subset_cumulative_popcounts = self._subset_cumulative_popcounts
-        cdef Pgen_reader_struct* pgrp = self._state_ptr
+        cdef PgenReaderStruct* pgrp = self._state_ptr
         cdef uintptr_t* genovec = self._genovec
         cdef uint32_t variant_idx_ct = variant_idx_end - variant_idx_start
         cdef uint32_t subset_size = self._subset_size
@@ -561,7 +561,7 @@ cdef class PgenReader:
             raise RuntimeError("read_range() variant_idx_end too large (" + str(variant_idx_end) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
         cdef const uintptr_t* subset_include_vec = self._subset_include_vec
         cdef const uint32_t* subset_cumulative_popcounts = self._subset_cumulative_popcounts
-        cdef Pgen_reader_struct* pgrp = self._state_ptr
+        cdef PgenReaderStruct* pgrp = self._state_ptr
         cdef uintptr_t* genovec = self._genovec
         cdef uint32_t variant_idx_ct = variant_idx_end - variant_idx_start
         cdef uint32_t subset_size = self._subset_size
@@ -641,7 +641,7 @@ cdef class PgenReader:
         cdef uint32_t raw_variant_ct = self._info_ptr[0].raw_variant_ct
         cdef const uintptr_t* subset_include_vec = self._subset_include_vec
         cdef const uint32_t* subset_cumulative_popcounts = self._subset_cumulative_popcounts
-        cdef Pgen_reader_struct* pgrp = self._state_ptr
+        cdef PgenReaderStruct* pgrp = self._state_ptr
         cdef uintptr_t* genovec = self._genovec
         cdef uint32_t variant_idx_ct = <uint32_t>variant_idxs.shape[0]
         cdef uint32_t subset_size = self._subset_size
@@ -713,7 +713,7 @@ cdef class PgenReader:
         cdef uint32_t raw_variant_ct = self._info_ptr[0].raw_variant_ct
         cdef const uintptr_t* subset_include_vec = self._subset_include_vec
         cdef const uint32_t* subset_cumulative_popcounts = self._subset_cumulative_popcounts
-        cdef Pgen_reader_struct* pgrp = self._state_ptr
+        cdef PgenReaderStruct* pgrp = self._state_ptr
         cdef uintptr_t* genovec = self._genovec
         cdef uint32_t variant_idx_ct = <uint32_t>variant_idxs.shape[0]
         cdef uint32_t subset_size = self._subset_size
@@ -785,7 +785,7 @@ cdef class PgenReader:
         cdef uint32_t raw_variant_ct = self._info_ptr[0].raw_variant_ct
         cdef const uintptr_t* subset_include_vec = self._subset_include_vec
         cdef const uint32_t* subset_cumulative_popcounts = self._subset_cumulative_popcounts
-        cdef Pgen_reader_struct* pgrp = self._state_ptr
+        cdef PgenReaderStruct* pgrp = self._state_ptr
         cdef uintptr_t* genovec = self._genovec
         cdef uint32_t variant_idx_ct = <uint32_t>variant_idxs.shape[0]
         cdef uint32_t subset_size = self._subset_size
@@ -874,7 +874,7 @@ cdef class PgenReader:
             raise RuntimeError("read_alleles_range() variant_idx_end too large (" + str(variant_idx_end) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
         cdef const uintptr_t* subset_include_vec = self._subset_include_vec
         cdef const uint32_t* subset_cumulative_popcounts = self._subset_cumulative_popcounts
-        cdef Pgen_reader_struct* pgrp = self._state_ptr
+        cdef PgenReaderStruct* pgrp = self._state_ptr
         cdef uintptr_t* genovec = self._genovec
         cdef uintptr_t* phasepresent = self._phasepresent
         cdef uintptr_t* phaseinfo = self._phaseinfo
@@ -972,7 +972,7 @@ cdef class PgenReader:
         cdef uint32_t raw_variant_ct = self._info_ptr[0].raw_variant_ct
         cdef const uintptr_t* subset_include_vec = self._subset_include_vec
         cdef const uint32_t* subset_cumulative_popcounts = self._subset_cumulative_popcounts
-        cdef Pgen_reader_struct* pgrp = self._state_ptr
+        cdef PgenReaderStruct* pgrp = self._state_ptr
         cdef uintptr_t* genovec = self._genovec
         cdef uintptr_t* phasepresent = self._phasepresent
         cdef uintptr_t* phaseinfo = self._phaseinfo

@@ -49,12 +49,12 @@ FLAGSET_DEF_START()
   kfAdjustColAll = ((kfAdjustColFdrby * 2) - kfAdjustColChrom)
 FLAGSET_DEF_END(AdjustFlags);
 
-typedef struct adjust_info_struct {
+typedef struct AdjustInfoStruct {
   AdjustFlags flags;
   double lambda;
 } AdjustInfo;
 
-typedef struct adjust_file_info_struct {
+typedef struct AdjustFileInfoStruct {
   AdjustInfo base;
   char* fname;
   char* test_name;

@@ -374,7 +374,7 @@ void BitvecAndNot(const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct,
 #endif
 }
 
-uintptr_t NextSetUnsafe(const uintptr_t* bitarr, uintptr_t loc) {
+uintptr_t FindFirst1BitFrom(const uintptr_t* bitarr, uintptr_t loc) {
   const uintptr_t* bitarr_iter = &(bitarr[loc / kBitsPerWord]);
   uintptr_t ulii = (*bitarr_iter) >> (loc % kBitsPerWord);
   if (ulii) {
@@ -386,7 +386,7 @@ uintptr_t NextSetUnsafe(const uintptr_t* bitarr, uintptr_t loc) {
   return S_CAST(uintptr_t, bitarr_iter - bitarr) * kBitsPerWord + CTZLU(ulii);
 }
 
-uintptr_t NextUnsetUnsafe(const uintptr_t* bitarr, uintptr_t loc) {
+uintptr_t FindFirst0BitFrom(const uintptr_t* bitarr, uintptr_t loc) {
   const uintptr_t* bitarr_iter = &(bitarr[loc / kBitsPerWord]);
   uintptr_t ulii = (~(*bitarr_iter)) >> (loc % kBitsPerWord);
   if (ulii) {
@@ -412,7 +412,7 @@ uintptr_t NextNonmissingUnsafe(const uintptr_t* genoarr, uintptr_t loc) {
 }
 */
 
-uint32_t NextSet(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil) {
+uint32_t FindFirst1BitFromBounded(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil) {
   // safe version.
   const uintptr_t* bitarr_iter = &(bitarr[loc / kBitsPerWord]);
   uintptr_t ulii = (*bitarr_iter) >> (loc % kBitsPerWord);
@@ -432,7 +432,7 @@ uint32_t NextSet(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil) {
   return MINV(rval, ceil);
 }
 
-uint32_t PrevSetUnsafe(const uintptr_t* bitarr, uint32_t loc) {
+uint32_t FindLast1BitBefore(const uintptr_t* bitarr, uint32_t loc) {
   // unlike the next_{un}set family, this always returns a STRICTLY earlier
   // position
   const uintptr_t* bitarr_iter = &(bitarr[loc / kBitsPerWord]);
@@ -973,7 +973,7 @@ void ExpandBytearr(const void* __restrict compact_bitarr, const uintptr_t* __res
       compact_word = compact_bitarr_alias[compact_widx];
     }
     for (; compact_idx_lowbits < loop_len; ++compact_idx_lowbits, ++write_uidx) {
-      write_uidx = NextSetUnsafe(expand_mask, write_uidx);
+      write_uidx = FindFirst1BitFrom(expand_mask, write_uidx);
       // bugfix: can't just use (compact_word & 1) and compact_word >>= 1,
       // since we may skip the first bit on the first loop iteration
       if ((compact_word >> compact_idx_lowbits) & 1) {
@@ -1083,7 +1083,7 @@ void ExpandBytearrNested(const void* __restrict compact_bitarr, const uintptr_t*
       compact_word = compact_bitarr_alias[compact_widx];
     }
     for (uint32_t compact_idx_lowbits = 0; compact_idx_lowbits < loop_len; ++mid_idx, ++write_uidx) {
-      write_uidx = NextSetUnsafe(top_expand_mask, write_uidx);
+      write_uidx = FindFirst1BitFrom(top_expand_mask, write_uidx);
       if (IsSet(mid_bitarr, mid_idx)) {
         const uintptr_t new_bit = k1LU << (write_uidx % kBitsPerWord);
         const uint32_t sample_widx = write_uidx / kBitsPerWord;

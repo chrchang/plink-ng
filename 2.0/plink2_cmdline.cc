@@ -534,18 +534,18 @@ double DestructiveMedianD(uintptr_t len, double* unsorted_arr) {
 // alas, qsort_r not available on some Linux distributions
 
 #ifdef __cplusplus
-typedef struct strbuf36_ui_struct {
+typedef struct Strbuf36UiStruct {
   char strbuf[36];
   uint32_t orig_idx;
-  bool operator<(const struct strbuf36_ui_struct& rhs) const {
+  bool operator<(const struct Strbuf36UiStruct& rhs) const {
     return (strcmp_natural_uncasted(strbuf, rhs.strbuf) < 0);
   }
 } Strbuf36Ui;
 
-typedef struct strbuf60_ui_struct {
+typedef struct Strbuf60UiStruct {
   char strbuf[60];
   uint32_t orig_idx;
-  bool operator<(const struct strbuf60_ui_struct& rhs) const {
+  bool operator<(const struct Strbuf60UiStruct& rhs) const {
     return (strcmp_natural_uncasted(strbuf, rhs.strbuf) < 0);
   }
 } Strbuf60Ui;
@@ -564,10 +564,10 @@ uintptr_t GetStrboxsortWentryBlen(uintptr_t max_str_blen) {
   return max_str_blen;
 }
 
-typedef struct str_nsort_indexed_deref_struct {
+typedef struct StrNsortIndexedDerefStruct {
   const char* strptr;
   uint32_t orig_idx;
-  bool operator<(const struct str_nsort_indexed_deref_struct& rhs) const {
+  bool operator<(const struct StrNsortIndexedDerefStruct& rhs) const {
     return (strcmp_natural_uncasted(strptr, rhs.strptr) < 0);
   }
 } StrNsortIndexedDeref;
@@ -627,9 +627,9 @@ void SortStrboxIndexed2Fallback(uintptr_t str_ct, uintptr_t max_str_blen, uint32
 }
 
 #ifdef __cplusplus
-typedef struct word_cmp40b_struct {
+typedef struct WordCmp40bStruct {
   uintptr_t words[40 / kBytesPerWord];
-  bool operator<(const struct word_cmp40b_struct& rhs) const {
+  bool operator<(const struct WordCmp40bStruct& rhs) const {
     uint32_t idx = 0;
     do {
       const uintptr_t cur_word = words[idx];
@@ -645,9 +645,9 @@ typedef struct word_cmp40b_struct {
   }
 } WordCmp40b;
 
-typedef struct word_cmp64b_struct {
+typedef struct WordCmp64bStruct {
   uintptr_t words[64 / kBytesPerWord];
-  bool operator<(const struct word_cmp64b_struct& rhs) const {
+  bool operator<(const struct WordCmp64bStruct& rhs) const {
     uint32_t idx = 0;
     do {
       const uintptr_t cur_word = words[idx];
@@ -3078,7 +3078,7 @@ void ClearBitsNz(uintptr_t start_idx, uintptr_t end_idx, uintptr_t* bitarr) {
   }
 }
 
-uintptr_t NextUnset(const uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil) {
+uintptr_t FindFirst0BitFromBounded(const uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil) {
   assert(ceil >= 1);
   const uintptr_t* bitarr_ptr = &(bitarr[loc / kBitsPerWord]);
   uintptr_t ulii = (~(*bitarr_ptr)) >> (loc % kBitsPerWord);
@@ -3098,7 +3098,7 @@ uintptr_t NextUnset(const uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil) {
 }
 
 // floor permitted to be -1, though not smaller than that.
-int32_t PrevSet32(const uintptr_t* bitarr, uint32_t loc, int32_t floor) {
+int32_t FindLast1BitBeforeBounded(const uintptr_t* bitarr, uint32_t loc, int32_t floor) {
   const uintptr_t* bitarr_ptr = &(bitarr[loc / kBitsPerWord]);
   uint32_t remainder = loc % kBitsPerWord;
   uintptr_t ulii;
@@ -3439,7 +3439,7 @@ int32_t GetVariantUidxWithoutHtable(const char* idstr, const char* const* varian
   uint32_t variant_uidx = 0;
   int32_t retval = -1;
   for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
-    NextSetUnsafeCk32(variant_include, &variant_uidx);
+    FindFirst1BitFromU32(variant_include, &variant_uidx);
     if (!memcmp(idstr, variant_ids[variant_uidx], id_blen)) {
       if (retval != -1) {
         // duplicate
@@ -3661,7 +3661,7 @@ uint32_t populate_strbox_subset_htable(const uintptr_t* __restrict subset_mask, 
   SetAllUiArr(str_htable_size, str_htable);
   uintptr_t str_uidx = 0;
   for (uintptr_t str_idx = 0; str_idx < str_ct; ++str_idx, ++str_uidx) {
-    NextSetUnsafeCkL(subset_mask, &str_uidx);
+    FindFirst1BitFromL(subset_mask, &str_uidx);
     const char* cur_str = &(strbox[str_uidx * max_str_blen]);
     const uint32_t slen = strlen(cur_str);
     uint32_t hashval = Hashceil(cur_str, slen, str_htable_size);
@@ -3855,7 +3855,7 @@ PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, cons
       const uint32_t wkspace_entry_blen_m4 = wkspace_entry_blen - 4;
       char* sort_wkspace_iter = sort_wkspace;
       for (uint32_t str_idx = 0; str_idx < str_ct; ++str_idx, ++str_uidx) {
-        NextSetUnsafeCk32(subset_mask, &str_uidx);
+        FindFirst1BitFromU32(subset_mask, &str_uidx);
         strcpy(sort_wkspace_iter, &(orig_strbox[str_uidx * max_str_blen]));
         sort_wkspace_iter = &(sort_wkspace_iter[wkspace_entry_blen_m4]);
         if (collapse_idxs) {
@@ -3878,7 +3878,7 @@ PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, cons
       }
       uint32_t str_uidx = 0;
       for (uint32_t str_idx = 0; str_idx < str_ct; ++str_idx, ++str_uidx) {
-        NextSetUnsafeCk32(subset_mask, &str_uidx);
+        FindFirst1BitFromU32(subset_mask, &str_uidx);
         sort_wkspace[str_idx].strptr = &(orig_strbox[str_uidx * max_str_blen]);
         if (collapse_idxs) {
           sort_wkspace[str_idx].orig_idx = str_idx;
@@ -4478,7 +4478,7 @@ void CopyBitarrRange(const uintptr_t* __restrict src_bitarr, uintptr_t src_start
 // easy to introduce off-by-one bugs...)
 // In usual 64-bit case, also assumes bitvec is 16-byte aligned and the end of
 // the trailing 16-byte block can be safely read from.
-uintptr_t JumpForwardSetUnsafe(const uintptr_t* bitvec, uintptr_t cur_pos, uintptr_t forward_ct) {
+uintptr_t FindNth1BitFrom(const uintptr_t* bitvec, uintptr_t cur_pos, uintptr_t forward_ct) {
   assert(forward_ct);
   uintptr_t widx = cur_pos / kBitsPerWord;
   uintptr_t ulii = cur_pos % kBitsPerWord;
@@ -4559,13 +4559,13 @@ uintptr_t JumpForwardSetUnsafe(const uintptr_t* bitvec, uintptr_t cur_pos, uintp
 
 void ComputeUidxStartPartition(const uintptr_t* variant_include, uint64_t variant_ct, uint32_t thread_ct, uint32_t first_variant_uidx, uint32_t* variant_uidx_starts) {
   assert(variant_ct);
-  uint32_t cur_variant_uidx_start = NextSetUnsafe(variant_include, first_variant_uidx);
+  uint32_t cur_variant_uidx_start = FindFirst1BitFrom(variant_include, first_variant_uidx);
   uint32_t cur_variant_idx_start = 0;
   variant_uidx_starts[0] = cur_variant_uidx_start;
   for (uint32_t tidx = 1; tidx < thread_ct; ++tidx) {
     const uint32_t new_variant_idx_start = (tidx * variant_ct) / thread_ct;
     if (new_variant_idx_start != cur_variant_idx_start) {
-      cur_variant_uidx_start = JumpForwardSetUnsafe(variant_include, cur_variant_uidx_start + 1, new_variant_idx_start - cur_variant_idx_start);
+      cur_variant_uidx_start = FindNth1BitFrom(variant_include, cur_variant_uidx_start + 1, new_variant_idx_start - cur_variant_idx_start);
       cur_variant_idx_start = new_variant_idx_start;
     }
     variant_uidx_starts[tidx] = cur_variant_uidx_start;
@@ -4589,7 +4589,7 @@ void ComputePartitionAligned(const uintptr_t* variant_include, uint32_t orig_thr
   const uint32_t leading_idx_ct = cur_variant_idx % alignment;
   const uint32_t trailing_idx_ct = (-variant_idx_end) % alignment;
   const uint32_t block_ct = (cur_variant_ct + leading_idx_ct + trailing_idx_ct) >> log2_align;
-  uint32_t cur_variant_uidx_start = NextSetUnsafe(variant_include, first_variant_uidx);
+  uint32_t cur_variant_uidx_start = FindFirst1BitFrom(variant_include, first_variant_uidx);
   variant_uidx_starts[0] = cur_variant_uidx_start;
   vidx_starts[0] = cur_variant_idx;
   const uint32_t thread_ct = MINV(orig_thread_ct, block_ct);
@@ -4611,12 +4611,12 @@ void ComputePartitionAligned(const uintptr_t* variant_include, uint32_t orig_thr
         first_block_variant_ct -= alignment;
       }
     }
-    cur_variant_uidx_start = JumpForwardSetUnsafe(variant_include, cur_variant_uidx_start + 1, first_block_variant_ct);
+    cur_variant_uidx_start = FindNth1BitFrom(variant_include, cur_variant_uidx_start + 1, first_block_variant_ct);
     cur_variant_idx += first_block_variant_ct;
     variant_uidx_starts[1] = cur_variant_uidx_start;
     vidx_starts[1] = cur_variant_idx;
     for (uint32_t tidx = 2; tidx < thread_ct; ++tidx) {
-      cur_variant_uidx_start = JumpForwardSetUnsafe(variant_include, cur_variant_uidx_start + 1, central_variant_ct);
+      cur_variant_uidx_start = FindNth1BitFrom(variant_include, cur_variant_uidx_start + 1, central_variant_ct);
       cur_variant_idx += central_variant_ct;
       // bugfix (14 Nov 2017): this decrement was in the wrong place
       if (tidx == remainder_m1) {
@@ -4628,7 +4628,7 @@ void ComputePartitionAligned(const uintptr_t* variant_include, uint32_t orig_thr
   }
   if (thread_ct < orig_thread_ct) {
     uint32_t last_vidx_ct = variant_idx_end - vidx_starts[thread_ct - 1];
-    cur_variant_uidx_start = JumpForwardSetUnsafe(variant_include, cur_variant_uidx_start + 1, last_vidx_ct);
+    cur_variant_uidx_start = FindNth1BitFrom(variant_include, cur_variant_uidx_start + 1, last_vidx_ct);
     for (uint32_t tidx = thread_ct; tidx < orig_thread_ct; ++tidx) {
       variant_uidx_starts[tidx] = cur_variant_uidx_start;
     }
@@ -5174,7 +5174,7 @@ THREAD_FUNC_DECL CalcIdHashThread(void* arg) {
   const uint32_t item_idx_end = (item_ct * (S_CAST(uint64_t, tidx) + 1)) / calc_thread_ct;
   uint32_t item_uidx = g_item_uidx_starts[tidx];
   for (uint32_t item_idx = (item_ct * S_CAST(uint64_t, tidx)) / calc_thread_ct; item_idx < item_idx_end; ++item_idx, ++item_uidx) {
-    NextSetUnsafeCk32(subset_mask, &item_uidx);
+    FindFirst1BitFromU32(subset_mask, &item_uidx);
     const char* sptr = item_ids[item_uidx];
     const uint32_t slen = strlen(sptr);
     item_id_hashes[item_idx] = Hashceil(sptr, slen, id_htable_size);
@@ -5217,12 +5217,12 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
     g_calc_thread_ct = thread_ct;
     pthread_t threads[16];
     {
-      uint32_t item_uidx = NextSetUnsafe(subset_mask, 0);
+      uint32_t item_uidx = FindFirst1BitFrom(subset_mask, 0);
       uint32_t item_idx = 0;
       g_item_uidx_starts[0] = item_uidx;
       for (uintptr_t tidx = 1; tidx < thread_ct; ++tidx) {
         const uint32_t item_idx_new = (item_ct * S_CAST(uint64_t, tidx)) / thread_ct;
-        item_uidx = JumpForwardSetUnsafe(subset_mask, item_uidx + 1, item_idx_new - item_idx);
+        item_uidx = FindNth1BitFrom(subset_mask, item_uidx + 1, item_idx_new - item_idx);
         g_item_uidx_starts[tidx] = item_uidx;
         item_idx = item_idx_new;
       }
@@ -5239,7 +5239,7 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
     uint32_t item_uidx = 0;
     if (!store_all_dups) {
       for (uint32_t item_idx = 0; item_idx < item_ct; ++item_uidx, ++item_idx) {
-        NextSetUnsafeCk32(subset_mask, &item_uidx);
+        FindFirst1BitFromU32(subset_mask, &item_uidx);
         uint32_t hashval = g_item_id_hashes[item_idx];
         uint32_t cur_htable_entry = id_htable[hashval];
         if (cur_htable_entry == UINT32_MAX) {
@@ -5288,7 +5288,7 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
       // multithread this?
       uint32_t* htable_dup_base = R_CAST(uint32_t*, g_bigstack_base);
       for (uint32_t item_idx = 0; item_idx < item_ct; ++item_uidx, ++item_idx) {
-        NextSetUnsafeCk32(subset_mask, &item_uidx);
+        FindFirst1BitFromU32(subset_mask, &item_uidx);
         uint32_t hashval = g_item_id_hashes[item_idx];
         uint32_t cur_htable_entry = id_htable[hashval];
         if (cur_htable_entry == UINT32_MAX) {
@@ -5446,7 +5446,7 @@ void HelpPrint(const char* cur_params, HelpCtrl* help_ctrl_ptr, uint32_t postpri
         uint32_t arg_uidx = 0;
         if (help_ctrl_ptr->iters_left == 2) {
           for (uint32_t arg_idx = 0; arg_idx < orig_unmatched_ct; ++arg_idx, ++arg_uidx) {
-            arg_uidx = NextUnsetUnsafe(help_ctrl_ptr->all_match_arr, arg_uidx);
+            arg_uidx = FindFirst0BitFrom(help_ctrl_ptr->all_match_arr, arg_uidx);
             for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
               if (!strcmp(cur_param_start[cur_param_idx], help_ctrl_ptr->argv[arg_uidx])) {
                 SetBit(arg_uidx, help_ctrl_ptr->perfect_match_arr);
@@ -5463,7 +5463,7 @@ void HelpPrint(const char* cur_params, HelpCtrl* help_ctrl_ptr, uint32_t postpri
             cur_param_slens[cur_param_idx] = strlen(cur_param_start[cur_param_idx]);
           }
           for (uint32_t arg_idx = 0; arg_idx < orig_unmatched_ct; ++arg_idx, ++arg_uidx) {
-            arg_uidx = NextUnsetUnsafe(help_ctrl_ptr->all_match_arr, arg_uidx);
+            arg_uidx = FindFirst0BitFrom(help_ctrl_ptr->all_match_arr, arg_uidx);
             const uint32_t slen = help_ctrl_ptr->param_slens[arg_uidx];
             for (uint32_t cur_param_idx = 0; cur_param_idx < cur_param_ct; ++cur_param_idx) {
               if (cur_param_slens[cur_param_idx] > slen) {

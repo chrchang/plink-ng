@@ -149,7 +149,7 @@ FLAGSET64_DEF_START()
   kfExportfOmitNonmaleY = (1LLU << 37)
 FLAGSET64_DEF_END(ExportfFlags);
 
-typedef struct aperm_struct {
+typedef struct APermStruct {
   uint32_t min;
   uint32_t max;
   double alpha;
@@ -162,7 +162,7 @@ typedef struct aperm_struct {
 CONSTU31(kApermMax, 1073241823);
 
 
-typedef struct two_col_params_struct {
+typedef struct TwoColParamsStruct {
   uint32_t colx;
   uint32_t colid;
   uint32_t skip_ct;
@@ -276,7 +276,7 @@ uint32_t XidRead(uintptr_t max_xid_blen, uint32_t comma_delim, XidMode xid_mode,
 // sample_id_map == nullptr is permitted
 // *read_pp is now set to point to the end of IID/SID instead of the beginning
 // of the next token; this is a change from plink 1.9.
-HEADER_INLINE BoolErr sorted_xidbox_read_find(const char* __restrict sorted_xidbox, const uint32_t* __restrict xid_map, uintptr_t max_xid_blen, uintptr_t xid_ct, uint32_t comma_delim, XidMode xid_mode, const char** read_pp, uint32_t* sample_uidx_ptr, char* __restrict idbuf) {
+HEADER_INLINE BoolErr SortedXidboxReadFind(const char* __restrict sorted_xidbox, const uint32_t* __restrict xid_map, uintptr_t max_xid_blen, uintptr_t xid_ct, uint32_t comma_delim, XidMode xid_mode, const char** read_pp, uint32_t* sample_uidx_ptr, char* __restrict idbuf) {
   const uint32_t slen_final = XidRead(max_xid_blen, comma_delim, xid_mode, read_pp, idbuf);
   if (!slen_final) {
     return 1;
@@ -754,7 +754,7 @@ PglErr WriteSampleIds(const uintptr_t* sample_include, const char* sample_ids, c
 uint32_t RealpathIdentical(const char* outname, const char* read_realpath, char* write_realpath_buf);
 
 
-HEADER_INLINE void outname_zst_set(const char* ext, uint32_t output_zst, char* outname_end) {
+HEADER_INLINE void OutnameZstSet(const char* ext, uint32_t output_zst, char* outname_end) {
   const uint32_t ext_slen = strlen(ext);
   assert(ext_slen < kMaxOutfnameExtBlen - 4);
   memcpy(outname_end, ext, ext_slen + 1);

@@ -374,7 +374,7 @@ void RandomThinProb(const char* flagname_p, const char* unitname, double thin_ke
   const uint32_t uint32_thresh = S_CAST(uint32_t, thin_keep_prob * 4294967296.0 + 0.5);
   uint32_t item_uidx = 0;
   for (uint32_t item_idx = 0; item_idx < orig_item_ct; ++item_idx, ++item_uidx) {
-    NextSetUnsafeCk32(item_include, &item_uidx);
+    FindFirst1BitFromU32(item_include, &item_uidx);
     if (sfmt_genrand_uint32(&g_sfmt) >= uint32_thresh) {
       ClearBit(item_uidx, item_include);
     }
@@ -464,7 +464,7 @@ PglErr KeepOrRemove(const char* fnames, const char* sample_ids, const char* sids
       }
       uint32_t sample_uidx = 0;
       for (uint32_t sample_idx = 0; sample_idx < orig_sample_ct; ++sample_idx, ++sample_uidx) {
-        NextSetUnsafeCk32(sample_include, &sample_uidx);
+        FindFirst1BitFromU32(sample_include, &sample_uidx);
         const char* fidt_ptr = &(sample_ids[sample_uidx * max_sample_id_blen]);
         const char* fidt_end = S_CAST(const char*, rawmemchr(fidt_ptr, '\t'));
         const uint32_t cur_fidt_slen = 1 + S_CAST(uintptr_t, fidt_end - fidt_ptr);
@@ -796,7 +796,7 @@ PglErr KeepFcol(const char* fname, const char* sample_ids, const char* sids, con
     reterr = kPglRetReadFail;
     break;
   KeepFcol_ret_LONG_LINE:
-    if (loadbuf_size == kMaxLongLine) {
+    if (loadbuf_size != kMaxLongLine) {
       reterr = kPglRetNomem;
       break;
     }
@@ -859,7 +859,7 @@ PglErr RequirePheno(const PhenoCol* pheno_cols, const char* pheno_names, const c
       BitvecAnd(pheno_cols[pheno_idx].nonmiss, raw_sample_ctl, sample_include);
     }
     if (matched_phenos) {
-      const uint32_t first_unmatched_idx = NextUnsetUnsafe(matched_phenos, 0);
+      const uint32_t first_unmatched_idx = FindFirst0BitFrom(matched_phenos, 0);
       if (first_unmatched_idx < required_pheno_ct) {
         logerrprintfww("Error: --require-%s '%s' not loaded.\n", is_covar? "covar covariate" : "pheno phenotype", &(sorted_required_pheno_names[first_unmatched_idx * max_required_pheno_blen]));
         goto RequirePheno_ret_INCONSISTENT_INPUT;
@@ -950,7 +950,7 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
       switch (binary_op) {
         case kCmpOperatorNoteq:
           for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-            NextSetUnsafeCk32(sample_include_intersect, &sample_uidx);
+            FindFirst1BitFromU32(sample_include_intersect, &sample_uidx);
             if (pheno_vals[sample_uidx] == val) {
               ClearBit(sample_uidx, sample_include);
             }
@@ -958,7 +958,7 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
           break;
         case kCmpOperatorLe:
           for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-            NextSetUnsafeCk32(sample_include_intersect, &sample_uidx);
+            FindFirst1BitFromU32(sample_include_intersect, &sample_uidx);
             if (pheno_vals[sample_uidx] >= val) {
               ClearBit(sample_uidx, sample_include);
             }
@@ -966,7 +966,7 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
           break;
         case kCmpOperatorLeq:
           for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-            NextSetUnsafeCk32(sample_include_intersect, &sample_uidx);
+            FindFirst1BitFromU32(sample_include_intersect, &sample_uidx);
             if (pheno_vals[sample_uidx] > val) {
               ClearBit(sample_uidx, sample_include);
             }
@@ -974,7 +974,7 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
           break;
         case kCmpOperatorGe:
           for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-            NextSetUnsafeCk32(sample_include_intersect, &sample_uidx);
+            FindFirst1BitFromU32(sample_include_intersect, &sample_uidx);
             if (pheno_vals[sample_uidx] <= val) {
               ClearBit(sample_uidx, sample_include);
             }
@@ -982,7 +982,7 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
           break;
         case kCmpOperatorGeq:
           for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-            NextSetUnsafeCk32(sample_include_intersect, &sample_uidx);
+            FindFirst1BitFromU32(sample_include_intersect, &sample_uidx);
             if (pheno_vals[sample_uidx] < val) {
               ClearBit(sample_uidx, sample_include);
             }
@@ -990,7 +990,7 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
           break;
         case kCmpOperatorEq:
           for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-            NextSetUnsafeCk32(sample_include_intersect, &sample_uidx);
+            FindFirst1BitFromU32(sample_include_intersect, &sample_uidx);
             if (pheno_vals[sample_uidx] != val) {
               ClearBit(sample_uidx, sample_include);
             }
@@ -1053,14 +1053,14 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
           uint32_t sample_uidx = 0;
           if (pheno_must_exist) {
             for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-              NextSetUnsafeCk32(sample_include_intersect, &sample_uidx);
+              FindFirst1BitFromU32(sample_include_intersect, &sample_uidx);
               if (cur_cats[sample_uidx] != cat_idx) {
                 ClearBit(sample_uidx, sample_include);
               }
             }
           } else {
             for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-              NextSetUnsafeCk32(sample_include_intersect, &sample_uidx);
+              FindFirst1BitFromU32(sample_include_intersect, &sample_uidx);
               if (cur_cats[sample_uidx] == cat_idx) {
                 ClearBit(sample_uidx, sample_include);
               }
@@ -1178,7 +1178,7 @@ PglErr KeepRemoveCatsInternal(const PhenoCol* cur_pheno_col, const char* cats_fn
       const uint32_t* cur_cats = cur_pheno_col->data.cat;
       uint32_t sample_uidx = 0;
       for (uint32_t sample_idx = 0; sample_idx < orig_sample_ct; ++sample_idx, ++sample_uidx) {
-        NextSetUnsafeCk32(sample_include, &sample_uidx);
+        FindFirst1BitFromU32(sample_include, &sample_uidx);
         const uint32_t cur_cat_idx = cur_cats[sample_uidx];
         if (IsSet(cat_include, cur_cat_idx)) {
           SetBit(sample_uidx, affected_samples);
@@ -1319,7 +1319,7 @@ void ComputeAlleleFreqs(const uintptr_t* variant_include, const uintptr_t* varia
   uint32_t cur_allele_ct = 2;
   uint32_t variant_uidx = 0;
   for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
-    NextSetUnsafeCk32(variant_include, &variant_uidx);
+    FindFirst1BitFromU32(variant_include, &variant_uidx);
     uintptr_t variant_allele_idx_base;
     if (!variant_allele_idxs) {
       variant_allele_idx_base = 2 * variant_uidx;
@@ -1969,7 +1969,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
               uint32_t internal_allele_idx = 0;
               uint32_t unmatched_allele_idx = 0;
               for (; unmatched_allele_idx < unmatched_allele_ct; ++unmatched_allele_idx, ++internal_allele_idx) {
-                NextUnsetUnsafeCk32(matched_internal_alleles, &internal_allele_idx);
+                FindFirst0BitFromU32(matched_internal_alleles, &internal_allele_idx);
                 if (!strcmp(cur_loaded_allele_code, cur_alleles[internal_allele_idx])) {
                   break;
                 }
@@ -2468,7 +2468,7 @@ void ComputeMajAlleles(const uintptr_t* variant_include, const uintptr_t* varian
   uint32_t cur_allele_ct = 2;
   uint32_t variant_uidx = 0;
   for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
-    NextSetUnsafeCk32(variant_include, &variant_uidx);
+    FindFirst1BitFromU32(variant_include, &variant_uidx);
     uintptr_t allele_idx_base;
     if (!variant_allele_idxs) {
       allele_idx_base = variant_uidx;
@@ -2570,7 +2570,7 @@ THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* arg) {
     uint32_t is_diploid_x = 0;
     uint32_t is_y = 0;
     for (uint32_t cur_idx = 0; cur_idx < cur_idx_ct; ++cur_idx, ++variant_uidx) {
-      NextSetUnsafeCk32(variant_include, &variant_uidx);
+      FindFirst1BitFromU32(variant_include, &variant_uidx);
       if (variant_uidx >= chr_end) {
         const uint32_t chr_fo_idx = GetVariantChrFoIdx(cip, variant_uidx);
         const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
@@ -2862,7 +2862,7 @@ PglErr MindFilter(const uint32_t* sample_missing_cts, const uint32_t* sample_het
     }
     uint32_t sample_uidx = 0;
     for (uint32_t sample_idx = 0; sample_idx < orig_sample_ct; ++sample_idx, ++sample_uidx) {
-      NextSetUnsafeCk32(sample_include, &sample_uidx);
+      FindFirst1BitFromU32(sample_include, &sample_uidx);
       uint32_t cur_missing_geno_ct = sample_missing_cts[sample_uidx];
       if (sample_hethap_cts) {
         cur_missing_geno_ct += sample_hethap_cts[sample_uidx];
@@ -2886,7 +2886,7 @@ PglErr MindFilter(const uint32_t* sample_missing_cts, const uint32_t* sample_het
       char* write_iter = g_textbuf;
       char* textbuf_flush = &(write_iter[kMaxMediumLine]);
       for (uint32_t sample_idx = 0; sample_idx < removed_ct; ++sample_idx, ++sample_uidx) {
-        NextSetUnsafeCk32(newly_excluded, &sample_uidx);
+        FindFirst1BitFromU32(newly_excluded, &sample_uidx);
         write_iter = strcpya(write_iter, &(sample_ids[sample_uidx * max_sample_id_blen]));
         if (sids) {
           *write_iter++ = '\t';
@@ -2938,7 +2938,7 @@ void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, 
     y_end = cip->chr_fo_vidx_start[y_chr_fo_idx + 1];
   }
   for (uint32_t variant_idx = 0; variant_idx < prefilter_variant_ct; ++variant_idx, ++variant_uidx) {
-    NextSetUnsafeCk32(variant_include, &variant_uidx);
+    FindFirst1BitFromU32(variant_include, &variant_uidx);
     if (variant_uidx >= y_thresh) {
       if (variant_uidx < y_end) {
         y_thresh = y_end;
@@ -2993,7 +2993,7 @@ void EnforceHweThresh(const ChrInfo* cip, const uint32_t* founder_raw_geno_cts, 
   const double* hwe_x_pvals_iter = hwe_x_pvals;
   const double hwe_thresh_recip = (1 + 4 * kSmallEpsilon) / hwe_thresh;
   for (uint32_t variant_idx = 0; variant_idx < prefilter_variant_ct; ++variant_idx, ++variant_uidx) {
-    NextSetUnsafeCk32(variant_include, &variant_uidx);
+    FindFirst1BitFromU32(variant_include, &variant_uidx);
     if (variant_uidx >= x_thresh) {
       is_x = (variant_uidx < x_end);
       if (is_x) {
@@ -3002,7 +3002,7 @@ void EnforceHweThresh(const ChrInfo* cip, const uint32_t* founder_raw_geno_cts, 
         } else {
           is_x = 0;
           x_thresh = UINT32_MAX;
-          variant_uidx = NextSetUnsafe(variant_include, x_end);
+          variant_uidx = FindFirst1BitFrom(variant_include, x_end);
         }
       } else {
         x_thresh = UINT32_MAX;
@@ -3098,7 +3098,7 @@ void EnforceMinorFreqConstraints(const uintptr_t* variant_allele_idxs, const uin
 
   uint32_t cur_allele_ct = 2;
   for (uint32_t variant_idx = 0; variant_idx < prefilter_variant_ct; ++variant_idx, ++variant_uidx) {
-    NextSetUnsafeCk32(variant_include, &variant_uidx);
+    FindFirst1BitFromU32(variant_include, &variant_uidx);
     uintptr_t variant_allele_idx_base;
     if (!variant_allele_idxs) {
       variant_allele_idx_base = 2 * variant_uidx;
@@ -3160,14 +3160,14 @@ void EnforceMachR2Thresh(const ChrInfo* cip, const double* mach_r2_vals, double 
   uint32_t chr_fo_idx = UINT32_MAX;
   uint32_t chr_end = 0;
   for (uint32_t variant_idx = 0; variant_idx < relevant_variant_ct; ++variant_idx, ++variant_uidx) {
-    NextSetUnsafeCk32(variant_include, &variant_uidx);
+    FindFirst1BitFromU32(variant_include, &variant_uidx);
     while (variant_uidx >= chr_end) {
       uint32_t chr_idx;
       do {
         chr_idx = cip->chr_file_order[++chr_fo_idx];
       } while (IsSet(cip->haploid_mask, chr_idx) || (chr_idx == S_CAST(uint32_t, mt_code)));
       chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-      variant_uidx = NextSet(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], chr_end);
+      variant_uidx = FindFirst1BitFromBounded(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], chr_end);
     }
     const double cur_mach_r2 = mach_r2_vals[variant_uidx];
     if ((cur_mach_r2 < mach_r2_min) || (cur_mach_r2 > mach_r2_max)) {
@@ -3187,7 +3187,7 @@ void EnforceMinBpSpace(const ChrInfo* cip, const uint32_t* variant_bps, uint32_t
   uint32_t last_bp = 0;
   uint32_t removed_ct = 0;
   for (uint32_t variant_idx = 0; variant_idx < orig_variant_ct; ++variant_idx, ++variant_uidx) {
-    NextSetUnsafeCk32(variant_include, &variant_uidx);
+    FindFirst1BitFromU32(variant_include, &variant_uidx);
     const uint32_t cur_bp = variant_bps[variant_uidx];
     if (variant_uidx >= chr_end) {
       do {
@@ -3556,7 +3556,7 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
 }
 
 PglErr RefFromFaProcessContig(const uintptr_t* variant_include, const uint32_t* variant_bps, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const ChrInfo* cip, uint32_t force, uint32_t chr_fo_idx, uint32_t variant_uidx_last, char* seqbuf, char* seqbuf_end, AltAlleleCt* refalt1_select, uintptr_t* nonref_flags, uint32_t* changed_ct_ptr, uint32_t* validated_ct_ptr, uint32_t* downgraded_ct_ptr) {
-  uint32_t variant_uidx = NextSetUnsafe(variant_include, cip->chr_fo_vidx_start[chr_fo_idx]);
+  uint32_t variant_uidx = FindFirst1BitFrom(variant_include, cip->chr_fo_vidx_start[chr_fo_idx]);
   const uint32_t bp_end = seqbuf_end - seqbuf;
   if (variant_bps[variant_uidx_last] >= bp_end) {
     const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
@@ -3614,7 +3614,7 @@ PglErr RefFromFaProcessContig(const uintptr_t* variant_include, const uint32_t* 
     // variant_bps[variant_uidx + offset] >= bp_end, and that at least one
     // variant_include[] bit is set in [variant_uidx, variant_uidx + offset)
     // (since offset > 0).  Find the last such bit.
-    variant_uidx_last = PrevSetUnsafe(variant_include, chr_vidx_truncate);
+    variant_uidx_last = FindLast1BitBefore(variant_include, chr_vidx_truncate);
   }
   *seqbuf_end = '\0';
   uint32_t changed_ct = *changed_ct_ptr;
@@ -3685,7 +3685,7 @@ PglErr RefFromFaProcessContig(const uintptr_t* variant_include, const uint32_t* 
       return kPglRetSuccess;
     }
     ++variant_uidx;
-    NextSetUnsafeCk32(variant_include, &variant_uidx);
+    FindFirst1BitFromU32(variant_include, &variant_uidx);
   }
 }
 
@@ -3715,7 +3715,7 @@ PglErr RefFromFa(const uintptr_t* variant_include, const uint32_t* variant_bps, 
         continue;
       }
       const int32_t chr_vidx_start_m1 = cip->chr_fo_vidx_start[chr_fo_idx] - 1;
-      const int32_t chr_vidx_last = PrevSet32(variant_include, cip->chr_fo_vidx_start[chr_fo_idx + 1], chr_vidx_start_m1);
+      const int32_t chr_vidx_last = FindLast1BitBeforeBounded(variant_include, cip->chr_fo_vidx_start[chr_fo_idx + 1], chr_vidx_start_m1);
       if (chr_vidx_last != chr_vidx_start_m1) {
         const uint32_t cur_bp = variant_bps[S_CAST(uint32_t, chr_vidx_last)];
         if (cur_bp > seqbuf_size) {
@@ -3797,7 +3797,7 @@ PglErr RefFromFa(const uintptr_t* variant_include, const uint32_t* variant_bps, 
           }
           SetBit(chr_fo_idx, chr_already_seen);
           const int32_t chr_vidx_start_m1 = cip->chr_fo_vidx_start[chr_fo_idx] - 1;
-          const int32_t chr_vidx_last = PrevSet32(variant_include, cip->chr_fo_vidx_start[chr_fo_idx + 1], chr_vidx_start_m1);
+          const int32_t chr_vidx_last = FindLast1BitBeforeBounded(variant_include, cip->chr_fo_vidx_start[chr_fo_idx + 1], chr_vidx_start_m1);
           if (chr_vidx_last == chr_vidx_start_m1) {
             chr_fo_idx = UINT32_MAX;
           } else {

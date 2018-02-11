@@ -118,7 +118,7 @@ FLAGSET_DEF_START()
   kfScoreColAll = ((kfScoreColScoreSums * 2) - kfScoreColMaybesid)
 FLAGSET_DEF_END(ScoreFlags);
 
-typedef struct score_info_struct {
+typedef struct ScoreInfoStruct {
   ScoreFlags flags;
   uint32_t varid_col_p1;
   uint32_t allele_col_p1;

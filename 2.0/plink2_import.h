@@ -59,7 +59,7 @@ FLAGSET_DEF_START()
   kfGenDummyScalarPheno = (1 << 3)
 FLAGSET_DEF_END(GenDummyFlags);
 
-typedef struct plink1_dosage_info_struct {
+typedef struct Plink1DosageInfoStruct {
   Plink1DosageFlags flags;
   uint32_t skips[3];
   uint32_t chr_col_idx; // 0-based
@@ -67,7 +67,7 @@ typedef struct plink1_dosage_info_struct {
   char id_delim;
 } Plink1DosageInfo;
 
-typedef struct gendummy_info_struct {
+typedef struct GenDummyInfoStruct {
   GenDummyFlags flags;
   uint32_t sample_ct;
   uint32_t variant_ct;

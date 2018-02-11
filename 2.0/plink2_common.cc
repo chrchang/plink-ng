@@ -88,7 +88,7 @@ void PopulateDenseDosage(const uintptr_t* genovec, const uintptr_t* dosage_prese
 
   uint32_t sample_idx = 0;
   for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_idx) {
-    NextSetUnsafeCk32(dosage_present, &sample_idx);
+    FindFirst1BitFromU32(dosage_present, &sample_idx);
     dense_dosage[sample_idx] = dosage_vals[dosage_idx];
   }
 }
@@ -153,7 +153,7 @@ void SetHetMissingCleardosage(uintptr_t word_ct, uintptr_t* __restrict genovec, 
     uint32_t sample_uidx = 0;
     uint32_t dosage_read_idx = 0;
     for (; dosage_read_idx < orig_write_dosage_ct; ++dosage_read_idx, ++sample_uidx) {
-      NextSetUnsafeCk32(dosagepresent, &sample_uidx);
+      FindFirst1BitFromU32(dosagepresent, &sample_uidx);
       if (GetQuaterarrEntry(genovec, sample_uidx) == 1) {
         ClearBit(sample_uidx, dosagepresent);
         uint32_t dosage_write_idx = dosage_read_idx;
@@ -162,7 +162,7 @@ void SetHetMissingCleardosage(uintptr_t word_ct, uintptr_t* __restrict genovec, 
             break;
           }
           ++sample_uidx;
-          NextSetUnsafeCk32(dosagepresent, &sample_uidx);
+          FindFirst1BitFromU32(dosagepresent, &sample_uidx);
           if (GetQuaterarrEntry(genovec, sample_uidx) == 1) {
             ClearBit(sample_uidx, dosagepresent);
           } else {
@@ -270,7 +270,7 @@ uint32_t IsSidColRequired(const uintptr_t* sample_include, const char* sids, uin
   if (sids && (maybe_modifier & 1)) {
     uint32_t sample_uidx = 0;
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-      NextSetUnsafeCk32(sample_include, &sample_uidx);
+      FindFirst1BitFromU32(sample_include, &sample_uidx);
       if (memcmp(&(sids[sample_uidx * max_sid_blen]), "0", 2)) {
         return 1;
       }
@@ -299,7 +299,7 @@ PglErr AugidInitAlloc(const uintptr_t* sample_include, const char* sample_ids, c
   char* sample_augids_iter = *sample_augids_ptr;
   uint32_t sample_uidx = 0;
   for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-    NextSetUnsafeCk32(sample_include, &sample_uidx);
+    FindFirst1BitFromU32(sample_include, &sample_uidx);
     char* write_iter = strcpyax(sample_augids_iter, &(sample_ids[sample_uidx * max_sample_id_blen]), '\t');
     if (sids) {
       strcpy(write_iter, &(sids[sample_uidx * max_sid_blen]));
@@ -1270,7 +1270,7 @@ void InterleavedSetMissingCleardosage(const uintptr_t* __restrict orig_set, cons
     uint32_t sample_uidx = 0;
     uint32_t dosage_read_idx = 0;
     for (; dosage_read_idx < orig_write_dosage_ct; ++dosage_read_idx, ++sample_uidx) {
-      NextSetUnsafeCk32(dosagepresent, &sample_uidx);
+      FindFirst1BitFromU32(dosagepresent, &sample_uidx);
       if (IsSet(orig_set, sample_uidx)) {
         ClearBit(sample_uidx, dosagepresent);
         uint32_t dosage_write_idx = dosage_read_idx;
@@ -1279,7 +1279,7 @@ void InterleavedSetMissingCleardosage(const uintptr_t* __restrict orig_set, cons
             break;
           }
           ++sample_uidx;
-          NextSetUnsafeCk32(dosagepresent, &sample_uidx);
+          FindFirst1BitFromU32(dosagepresent, &sample_uidx);
           if (IsSet(orig_set, sample_uidx)) {
             ClearBit(sample_uidx, dosagepresent);
           } else {
@@ -1343,7 +1343,7 @@ void SetMaleHetMissingCleardosage(const uintptr_t* __restrict sex_male, const ui
     uint32_t sample_uidx = 0;
     uint32_t dosage_read_idx = 0;
     for (; dosage_read_idx < orig_write_dosage_ct; ++dosage_read_idx, ++sample_uidx) {
-      NextSetUnsafeCk32(dosagepresent, &sample_uidx);
+      FindFirst1BitFromU32(dosagepresent, &sample_uidx);
       if (IsSet(sex_male, sample_uidx) && (GetQuaterarrEntry(genovec, sample_uidx) == 1)) {
         ClearBit(sample_uidx, dosagepresent);
         uint32_t dosage_write_idx = dosage_read_idx;
@@ -1352,7 +1352,7 @@ void SetMaleHetMissingCleardosage(const uintptr_t* __restrict sex_male, const ui
             break;
           }
           ++sample_uidx;
-          NextSetUnsafeCk32(dosagepresent, &sample_uidx);
+          FindFirst1BitFromU32(dosagepresent, &sample_uidx);
           if (IsSet(sex_male, sample_uidx) && (GetQuaterarrEntry(genovec, sample_uidx) == 1)) {
             ClearBit(sample_uidx, dosagepresent);
           } else {
@@ -1435,7 +1435,7 @@ uint32_t chr_window_max(const uintptr_t* variant_include, const ChrInfo* cip, co
     return ct_max;
   }
   const uint32_t chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-  uint32_t variant_uidx = NextSet(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], chr_end);
+  uint32_t variant_uidx = FindFirst1BitFromBounded(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], chr_end);
   const uint32_t variant_ct = PopcountBitRange(variant_include, variant_uidx, chr_end);
   if (variant_ct <= cur_window_max) {
     return cur_window_max;
@@ -1444,7 +1444,7 @@ uint32_t chr_window_max(const uintptr_t* variant_include, const ChrInfo* cip, co
   uint32_t window_uidx_first = variant_uidx;
   uint32_t window_bp_first = variant_bp[variant_uidx];
   for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_uidx, ++variant_idx) {
-    NextSetUnsafeCk32(variant_include, &variant_uidx);
+    FindFirst1BitFromU32(variant_include, &variant_uidx);
     uint32_t variant_bp_thresh = variant_bp[variant_uidx];
     if (variant_bp_thresh < bp_max) {
       variant_bp_thresh = 0;
@@ -1454,7 +1454,7 @@ uint32_t chr_window_max(const uintptr_t* variant_include, const ChrInfo* cip, co
     if (variant_bp_thresh > window_bp_first) {
       do {
         ++window_uidx_first;
-        NextSetUnsafeCk32(variant_include, &window_uidx_first);
+        FindFirst1BitFromU32(variant_include, &window_uidx_first);
         window_bp_first = variant_bp[window_uidx_first];
         ++window_idx_first;
       } while (variant_bp_thresh > window_bp_first);
@@ -1474,13 +1474,13 @@ uint32_t NotOnlyXymt(const uintptr_t* variant_include, const ChrInfo* cip, uint3
   const uint32_t cur_chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, xymt_code)];
   const uint32_t chr_start = cip->chr_fo_vidx_start[cur_chr_fo_idx];
   if (chr_start) {
-    const uint32_t first_uidx = NextSetUnsafe(variant_include, 0);
+    const uint32_t first_uidx = FindFirst1BitFrom(variant_include, 0);
     if (first_uidx < chr_start) {
       return 1;
     }
   }
   const uint32_t chr_end = cip->chr_fo_vidx_start[cur_chr_fo_idx + 1];
-  return (chr_end < raw_variant_ct) && (NextSet(variant_include, chr_end, raw_variant_ct) != raw_variant_ct);
+  return (chr_end < raw_variant_ct) && (!AllBitsAreZero(variant_include, chr_end, raw_variant_ct));
 }
 
 uint32_t CountNonAutosomalVariants(const uintptr_t* variant_include, const ChrInfo* cip, uint32_t count_x, uint32_t count_mt) {
@@ -1705,13 +1705,13 @@ uint32_t IsConstCovar(const PhenoCol* covar_col, const uintptr_t* sample_include
   if (sample_ct < 2) {
     return 1;
   }
-  uint32_t sample_uidx = NextSetUnsafe(sample_include, 0);
+  uint32_t sample_uidx = FindFirst1BitFrom(sample_include, 0);
   if (covar_col->type_code == kPhenoDtypeQt) {
     const double* covar_vals = covar_col->data.qt;
     const double first_covar_val = covar_vals[sample_uidx];
     for (uint32_t sample_idx = 1; sample_idx < sample_ct; ++sample_idx) {
       ++sample_uidx;
-      NextSetUnsafeCk32(sample_include, &sample_uidx);
+      FindFirst1BitFromU32(sample_include, &sample_uidx);
       if (covar_vals[sample_uidx] != first_covar_val) {
         return 0;
       }
@@ -1723,7 +1723,7 @@ uint32_t IsConstCovar(const PhenoCol* covar_col, const uintptr_t* sample_include
   const uint32_t first_covar_cat = covar_cats[sample_uidx];
   for (uint32_t sample_idx = 1; sample_idx < sample_ct; ++sample_idx) {
     ++sample_uidx;
-    NextSetUnsafeCk32(sample_include, &sample_uidx);
+    FindFirst1BitFromU32(sample_include, &sample_uidx);
     if (covar_cats[sample_uidx] != first_covar_cat) {
       return 0;
     }
@@ -1739,7 +1739,7 @@ uint32_t IdentifyRemainingCats(const uintptr_t* sample_include, const PhenoCol* 
   ZeroUlArr(word_ct, observed_cat_bitarr);
   uint32_t sample_uidx = 0;
   for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-    NextSetUnsafeCk32(sample_include, &sample_uidx);
+    FindFirst1BitFromU32(sample_include, &sample_uidx);
     SetBit(covar_cats[sample_uidx], observed_cat_bitarr);
   }
   return PopcountWords(observed_cat_bitarr, word_ct);
@@ -1750,7 +1750,7 @@ uint32_t GetIsCatInclude(const uintptr_t* sample_include_base, const PhenoCol* c
   const uint32_t* cat_vals = cat_pheno_col->data.cat;
   uint32_t sample_uidx = 0;
   for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-    NextSetUnsafeCk32(sample_include_base, &sample_uidx);
+    FindFirst1BitFromU32(sample_include_base, &sample_uidx);
     if (cat_vals[sample_uidx] == cat_uidx) {
       SetBit(sample_uidx, is_cat_include);
     }
@@ -1972,7 +1972,7 @@ PglErr WriteSampleIds(const uintptr_t* sample_include, const char* sample_ids, c
     }
     uintptr_t sample_uidx = 0;
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-      NextSetUnsafeCkL(sample_include, &sample_uidx);
+      FindFirst1BitFromL(sample_include, &sample_uidx);
       write_iter = strcpya(write_iter, &(sample_ids[sample_uidx * max_sample_id_blen]));
       if (sids) {
         *write_iter++ = '\t';

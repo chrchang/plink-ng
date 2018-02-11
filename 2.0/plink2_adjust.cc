@@ -51,12 +51,12 @@ void CleanupAdjust(AdjustFileInfo* adjust_file_info_ptr) {
   }
 }
 
-typedef struct adj_assoc_result_struct {
+typedef struct AdjAssocResultStruct {
   double chisq;
   double pval;
   uint32_t variant_uidx;
 #ifdef __cplusplus
-  bool operator<(const struct adj_assoc_result_struct& rhs) const {
+  bool operator<(const struct AdjAssocResultStruct& rhs) const {
     // avoids p-value underflow issue, for what it's worth
     return chisq > rhs.chisq;
   }
@@ -92,7 +92,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
       uint32_t variant_uidx = 0;
       if (pvals) {
         for (uint32_t vidx = 0; vidx < orig_variant_ct; ++vidx, ++variant_uidx) {
-          NextSetUnsafeCk32(variant_include, &variant_uidx);
+          FindFirst1BitFromU32(variant_include, &variant_uidx);
           const double cur_chisq = chisqs[vidx];
           if (cur_chisq >= 0.0) {
             sortbuf[valid_variant_ct].chisq = cur_chisq;
@@ -103,7 +103,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
         }
       } else {
         for (uint32_t vidx = 0; vidx < orig_variant_ct; ++vidx, ++variant_uidx) {
-          NextSetUnsafeCk32(variant_include, &variant_uidx);
+          FindFirst1BitFromU32(variant_include, &variant_uidx);
           const double cur_chisq = chisqs[vidx];
           if (cur_chisq >= 0.0) {
             sortbuf[valid_variant_ct].chisq = cur_chisq;
@@ -116,7 +116,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     } else {
       uint32_t variant_uidx = 0;
       for (uint32_t vidx = 0; vidx < orig_variant_ct; ++vidx, ++variant_uidx) {
-        NextSetUnsafeCk32(variant_include, &variant_uidx);
+        FindFirst1BitFromU32(variant_include, &variant_uidx);
         const double cur_pval = pvals[vidx];
         if (cur_pval >= 0.0) {
           sortbuf[valid_variant_ct].chisq = (cur_pval == 0.0)? kMaxChisq1df : PToChisq(cur_pval, 1);
@@ -135,7 +135,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     const uintptr_t overflow_buf_size = kCompressStreamBlock + 2 * kMaxIdSlen + 256 + 2 * max_allele_slen;
     const AdjustFlags flags = adjust_info_ptr->flags;
     const uint32_t output_zst = flags & kfAdjustZs;
-    outname_zst_set(".adjusted", output_zst, outname_end);
+    OutnameZstSet(".adjusted", output_zst, outname_end);
     reterr = InitCstreamAlloc(outname, 0, output_zst, max_thread_ct, overflow_buf_size, &css, &cswritep);
     if (reterr) {
       goto Multcomp_ret_1;

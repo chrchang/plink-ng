@@ -77,7 +77,10 @@
 #  ifdef DYNAMIC_MKL
 #    include <mkl_service.h>
 #  else
-#    include "/opt/intel/mkl/include/mkl_service.h"
+// If this isn't initially found, use the compiler's -I option to specify the
+// appropriate include-file directory.  A common location is
+// /opt/intel/mkl/include .
+#    include "mkl_service.h"
 #  endif
 #  define USE_MTBLAS
 // this technically doesn't have to be a macro, but it's surrounded by other
@@ -541,16 +544,16 @@ double DestructiveMedianD(uintptr_t len, double* unsorted_arr);
 uintptr_t GetStrboxsortWentryBlen(uintptr_t max_str_blen);
 
 #ifdef __cplusplus
-typedef struct str_sort_deref_struct {
+typedef struct StrSortDerefStruct {
   const char* strptr;
-  bool operator<(const struct str_sort_deref_struct& rhs) const {
+  bool operator<(const struct StrSortDerefStruct& rhs) const {
     return (strcmp(strptr, rhs.strptr) < 0);
   }
 } StrSortDeref;
 
-typedef struct str_nsort_deref_struct {
+typedef struct StrNsortDerefStruct {
   const char* strptr;
-  bool operator<(const struct str_nsort_deref_struct& rhs) const {
+  bool operator<(const struct StrNsortDerefStruct& rhs) const {
     return (strcmp_natural(strptr, rhs.strptr) < 0);
   }
 } StrNsortDeref;
@@ -592,11 +595,11 @@ uint32_t CopyAndDedupSortedStrptrsToStrbox(const char* const* sorted_strptrs, ui
 
 // note that this can be expected to have size 16 bytes, not 12, on 64-bit
 // systems
-typedef struct str_sort_indexed_deref_struct {
+typedef struct StrSortIndexedDerefStruct {
   const char* strptr;
   uint32_t orig_idx;
 #ifdef __cplusplus
-  bool operator<(const struct str_sort_indexed_deref_struct& rhs) const {
+  bool operator<(const struct StrSortIndexedDerefStruct& rhs) const {
     return (strcmp(strptr, rhs.strptr) < 0);
   }
 #endif
@@ -989,8 +992,8 @@ HEADER_INLINE BoolErr bigstack_end_alloc_ull(uintptr_t ct, uint64_t** ull_arr_pt
   return !(*ull_arr_ptr);
 }
 
-typedef struct ll_str_struct {
-  struct ll_str_struct* next;
+typedef struct LlStrStruct {
+  struct LlStrStruct* next;
   char str[];
 } LlStr;
 
@@ -1171,7 +1174,7 @@ BoolErr PushLlStr(const char* str, LlStr** ll_stack_ptr);
 // Does not require null-termination.
 // BoolErr push_llstr_counted(const char* str, uint32_t slen, LlStr** ll_stack_ptr);
 
-typedef struct l32str_struct {
+typedef struct L32StrStruct {
   uint32_t len;
   char str[];
 } L32Str;
@@ -1685,9 +1688,10 @@ HEADER_INLINE void ZeromovFArr(uintptr_t entry_ct, float** farr_ptr) {
 // void DivisionMagicNums(uint32_t divisor, uint64_t* multp, uint32_t* __restrict pre_shiftp, uint32_t* __restrict post_shiftp, uint32_t* __restrict incrp);
 
 
-// SetAllBits, IsSet, SetBit, ClearBit, NextSetUnsafe, NextSetUnsafeCk32,
-// NextUnsetUnsafe, NextUnsetUnsafeCk32, NextSet, PrevSetUnsafe,
-// AllWordsAreZero defined in plink2_base.h
+// SetAllBits, IsSet, SetBit, ClearBit, FindFirst1BitFrom,
+// FindFirst1BitFromU32, FindFirst0BitFrom, FindFirst0BitFromU32,
+// FindFirst1BitFromBounded, FindLast1BitBefore, AllWordsAreZero defined in
+// plink2_base.h
 
 HEADER_INLINE uintptr_t IsSetI(const uintptr_t* bitarr, int32_t loc) {
   // can insert assert(loc >= 0)
@@ -1710,16 +1714,16 @@ HEADER_INLINE void FlipBit(uintptr_t loc, uintptr_t* bitarr) {
 void FillBitsNz(uintptr_t start_idx, uintptr_t end_idx, uintptr_t* bitarr);
 void ClearBitsNz(uintptr_t start_idx, uintptr_t end_idx, uintptr_t* bitarr);
 
-HEADER_INLINE void NextSetUnsafeCkL(const uintptr_t* __restrict bitarr, uintptr_t* __restrict loc_ptr) {
+HEADER_INLINE void FindFirst1BitFromL(const uintptr_t* __restrict bitarr, uintptr_t* __restrict loc_ptr) {
   if (!IsSet(bitarr, *loc_ptr)) {
-    *loc_ptr = NextSetUnsafe(bitarr, *loc_ptr);
+    *loc_ptr = FindFirst1BitFrom(bitarr, *loc_ptr);
   }
 }
 
-uintptr_t NextUnset(const uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil);
+uintptr_t FindFirst0BitFromBounded(const uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil);
 
 // floor permitted to be -1, though not smaller than that.
-int32_t PrevSet32(const uintptr_t* bitarr, uint32_t loc, int32_t floor);
+int32_t FindLast1BitBeforeBounded(const uintptr_t* bitarr, uint32_t loc, int32_t floor);
 
 HEADER_INLINE uint32_t wordsequal(const uintptr_t* word_arr1, const uintptr_t* word_arr2, uintptr_t word_ct) {
   for (uintptr_t widx = 0; widx < word_ct; ++widx) {
@@ -1811,7 +1815,7 @@ int32_t GetVariantUidxWithoutHtable(const char* idstr, const char* const* varian
 // copy_subset() doesn't exist since a loop of the form
 //   uint32_t uidx = 0;
 //   for (uint32_t idx = 0; idx < subset_size; ++idx, ++uidx) {
-//     NextSetUnsafeCk32(subset_mask, &uidx);
+//     FindFirst1BitFromU32(subset_mask, &uidx);
 //     *target_iter++ = source_arr[uidx];
 //   }
 // seems to compile better?
@@ -1933,7 +1937,7 @@ HEADER_INLINE BoolErr SortedIdboxFind(const char* idbuf, const char* sorted_idbo
 }
 
 
-typedef struct range_list_struct {
+typedef struct RangeListStruct {
   char* names;
   unsigned char* starts_range;
   uint32_t name_ct;
@@ -1991,6 +1995,7 @@ void PopcountWordsIntersect3val(const uintptr_t* __restrict bitvec1, const uintp
 
 // uintptr_t count_11_longs(const uintptr_t* genovec, uintptr_t word_ct);
 
+// Must be safe to read from bitarr[start_idx / kBitsPerWord].
 uint32_t AllBitsAreZero(const uintptr_t* bitarr, uintptr_t start_idx, uintptr_t end_idx);
 
 // assumes len is positive, and relevant bits of target_bitarr are zero
@@ -2140,16 +2145,13 @@ HEADER_INLINE void Vcount0Incr8To32(uint32_t acc8_vec_ct, uintptr_t* acc8, uintp
 }
 
 
-// advances forward_ct set bits; forward_ct must be positive.  (stays put if
-// forward_ct == 1 and current bit is set.  may want to tweak this interface,
-// easy to introduce off-by-one bugs...)
-// In usual 64-bit case, also assumes bitvec is 16-byte aligned and the end of
-// the trailing 16-byte block can be safely read from.
-uintptr_t JumpForwardSetUnsafe(const uintptr_t* bitvec, uintptr_t cur_pos, uintptr_t forward_ct);
+// forward_ct must be positive.  Stays put if forward_ct == 1 and current bit
+// is set.
+// In usual 64-bit case, also assumes bitvec is vector aligned.
+uintptr_t FindNth1BitFrom(const uintptr_t* bitvec, uintptr_t cur_pos, uintptr_t forward_ct);
 
-// ...and here's the obvious tweaked interface.
 HEADER_INLINE uint32_t IdxToUidxBasic(const uintptr_t* bitvec, uint32_t idx) {
-  return JumpForwardSetUnsafe(bitvec, 0, idx + 1);
+  return FindNth1BitFrom(bitvec, 0, idx + 1);
 }
 
 // variant_ct must be positive, but can be smaller than thread_ct
@@ -2229,7 +2231,7 @@ void ErrorCleanupThreads2z(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, pthrea
 
 // this interface simplifies error handling.  (todo: put most of these
 // variables in a struct.)
-typedef struct threads_state_struct {
+typedef struct ThreadsStateStruct {
   THREAD_FUNCPTR_T(thread_func_ptr);
   pthread_t* threads;
   uint32_t calc_thread_ct;
@@ -2305,7 +2307,7 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
 PglErr AllocAndPopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_ids, uintptr_t item_ct, uint32_t max_thread_ct, uint32_t** id_htable_ptr, uint32_t** htable_dup_base_ptr, uint32_t* id_htable_size_ptr);
 
 
-typedef struct help_ctrl_struct {
+typedef struct HelpCtrlStruct {
   uint32_t iters_left;
   uint32_t param_ct;
   const char* const* argv;
@@ -2339,7 +2341,7 @@ PglErr AllocFname(const char* source, const char* flagname_p, uint32_t extra_siz
 PglErr AllocAndFlatten(const char* const* sources, uint32_t param_ct, uint32_t max_blen, char** flattened_buf_ptr);
 
 
-typedef struct plink2_cmdline_meta_struct {
+typedef struct Plink2CmdlineMetaStruct {
   // need to be able to assign this to argv, so don't make it const char**
   char** subst_argv;
 

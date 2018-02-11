@@ -62,7 +62,7 @@ HEADER_INLINE void gzclose_cond(gzFile gz_infile) {
 
 // currently hardcoded to have maximum token length = kMaxMediumLine, buffer
 // size = 2 * kMaxMediumLine * 2.
-typedef struct gz_token_stream_struct {
+typedef struct GzTokenStreamStruct {
   gzFile gz_infile;
   char* buf_start;
   char* read_iter;

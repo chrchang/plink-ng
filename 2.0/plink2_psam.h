@@ -25,10 +25,11 @@ namespace plink2 {
 #endif
 
 // Key .psam properties: (i) .fam files are valid .psam files; (ii) .fam-like
-// files with an additional "SID" column (disambiguating multiple samples from
-// e.g. the same cancer patient) are valid; (iii) zero, or many, phenotypes are
-// now ok; (iv) Oxford .sample files can be converted to .psam without loss of
-// information; and (v) loader should work on .ped files as well.
+// files with an additional 'SID' column ("source ID", disambiguating multiple
+// samples from e.g. the same cancer patient) are valid; (iii) zero, or many,
+// phenotypes are now ok; (iv) Oxford .sample files can be converted to .psam
+// without loss of information; and (v) loader should work on .ped files as
+// well.
 
 // File starts with an arbitrary (possibly zero) number of header lines marked
 // by a leading '#'.  All lines which don't start with '#FID' or '#IID' are

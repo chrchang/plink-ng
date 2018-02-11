@@ -1428,8 +1428,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --update-name [f] {newcol} {oldcol} {skip} : Update variant IDs.\n"
                );
     HelpPrint("update-sex", &help_ctrl, 0,
-"  --update-sex [f] {n} : Update sexes.  Sex (1/M/m = male, 2/F/f = female, 0 =\n"
-"                         missing) is loaded from column n+2 (default n is 1).\n"
+"  --update-sex <sid> [filename] <col-num=[n]> <male0> :\n"
+"    Update sex information.\n"
+"    * By default, if there is a header line starting with '#FID'/'#IID', sex is\n"
+"      loaded from the first column titled 'SEX' (any capitalization);\n"
+"      otherwise, column 3 is assumed.  Use 'col-num=' to force a column number.\n"
+"    * Only the first character in the sex column is processed.  By default,\n"
+"      '1'/'M'/'m' is interpreted as male, '2'/'F'/'f' is interpreted as female,\n"
+"      and '0'/'N' is interpreted as unknown-sex.  To change this to '0'/'M'/'m'\n"
+"      = male, '1'/'F'/'f' = female, anything else other than '2' = unknown-sex,\n"
+"      add 'male0'.\n"
                );
     // don't make --real-ref-alleles apply to e.g. Oxford import, since
     // explicit 'ref-first'/'ref-second' modifiers are clearer
@@ -1641,7 +1649,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     arg_uidx = 0;
     // er, should replace the \n logic with a WordWrap() call
     while (help_ctrl.unmatched_ct) {
-      arg_uidx = NextUnsetUnsafe(help_ctrl.all_match_arr, arg_uidx);
+      arg_uidx = FindFirst0BitFrom(help_ctrl.all_match_arr, arg_uidx);
       help_ctrl.unmatched_ct--;
       if (help_ctrl.unmatched_ct) {
         if (net_unmatched_ct == 2) {

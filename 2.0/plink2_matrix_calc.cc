@@ -205,22 +205,22 @@ PglErr KinshipPruneDestructive(uintptr_t* kinship_table, uintptr_t* sample_inclu
         uint32_t degree_1_vertex_uidx = 0;
         while (1) {
           // sparse
-          degree_1_vertex_uidx = NextSetUnsafe(sample_include_collapsed_nz, degree_1_vertex_uidx);
+          degree_1_vertex_uidx = FindFirst1BitFrom(sample_include_collapsed_nz, degree_1_vertex_uidx);
           if (vertex_degree[degree_1_vertex_uidx] == 1) {
             break;
           }
           ++degree_1_vertex_uidx;
         }
         // find partner
-        prune_uidx = NextSetUnsafe(&(kinship_table[degree_1_vertex_uidx * orig_sample_ctl]), 0);
+        prune_uidx = FindFirst1BitFrom(&(kinship_table[degree_1_vertex_uidx * orig_sample_ctl]), 0);
         cur_degree = vertex_degree[prune_uidx];
       } else {
-        uint32_t sample_uidx = NextSetUnsafe(sample_include_collapsed_nz, 0);
+        uint32_t sample_uidx = FindFirst1BitFrom(sample_include_collapsed_nz, 0);
         cur_degree = vertex_degree[sample_uidx];
         prune_uidx = sample_uidx;
         for (uint32_t sample_idx = 1; sample_idx < cur_sample_nz_ct; ++sample_idx) {
           // sparse
-          sample_uidx = NextSetUnsafe(sample_include_collapsed_nz, sample_uidx + 1);
+          sample_uidx = FindFirst1BitFrom(sample_include_collapsed_nz, sample_uidx + 1);
           const uint32_t new_degree = vertex_degree[sample_uidx];
           if (new_degree > cur_degree) {
             cur_degree = new_degree;
@@ -235,7 +235,7 @@ PglErr KinshipPruneDestructive(uintptr_t* kinship_table, uintptr_t* sample_inclu
       uint32_t sample_uidx = 0;
       for (uint32_t partner_idx = 0; partner_idx < cur_degree; ++partner_idx, ++sample_uidx) {
         // sparse
-        sample_uidx = NextSetUnsafe(cur_kinship_row, sample_uidx);
+        sample_uidx = FindFirst1BitFrom(cur_kinship_row, sample_uidx);
         const uint32_t new_degree = vertex_degree[sample_uidx] - 1;
         if (!new_degree) {
           ClearBit(sample_uidx, sample_include_collapsed_nz);
@@ -259,7 +259,7 @@ PglErr KinshipPruneDestructive(uintptr_t* kinship_table, uintptr_t* sample_inclu
     uint32_t sample_ct = orig_sample_ct;
     uint32_t sample_uidx = 0;
     for (uint32_t sample_idx = 0; sample_idx < orig_sample_ct; ++sample_idx, ++sample_uidx) {
-      NextSetUnsafeCk32(sample_include, &sample_uidx);
+      FindFirst1BitFromU32(sample_include, &sample_uidx);
       if (IsSet(sample_remove_collapsed, sample_idx)) {
         ClearBit(sample_uidx, sample_include);
         --sample_ct;
@@ -335,7 +335,7 @@ PglErr KingCutoffBatch(const char* sample_ids, const char* sids, uint32_t raw_sa
     while (1) {
       const char* loadbuf_iter = loadbuf_first_token;
       uint32_t sample_uidx;
-      if (!sorted_xidbox_read_find(sorted_xidbox, xid_map, max_xid_blen, sample_ct, 0, xid_mode, &loadbuf_iter, &sample_uidx, idbuf)) {
+      if (!SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, sample_ct, 0, xid_mode, &loadbuf_iter, &sample_uidx, idbuf)) {
         if (sample_uidx_to_king_uidx[sample_uidx] != UINT32_MAX) {
           char* first_tab = S_CAST(char*, rawmemchr(idbuf, '\t'));
           char* second_tab = strchr(&(first_tab[1]), '\t');
@@ -382,7 +382,7 @@ PglErr KingCutoffBatch(const char* sample_ids, const char* sids, uint32_t raw_sa
     }
     uint32_t sample_uidx = 0;
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-      NextSetUnsafeCk32(sample_include, &sample_uidx);
+      FindFirst1BitFromU32(sample_include, &sample_uidx);
       const uint32_t king_uidx = sample_uidx_to_king_uidx[sample_uidx];
       if (king_uidx != UINT32_MAX) {
         SetBit(king_uidx, king_include);
@@ -400,8 +400,8 @@ PglErr KingCutoffBatch(const char* sample_ids, const char* sids, uint32_t raw_sa
     const uint64_t fsize_double_expected = (king_id_ct * (S_CAST(uint64_t, king_id_ct) - 1) * (sizeof(double) / 2));
     const uint32_t is_double = (fsize == fsize_double_expected);
     rewind(binfile);
-    const uint32_t first_king_uidx = NextSet(king_include, 0, king_id_ct);
-    uintptr_t king_uidx = NextSet(king_include, first_king_uidx + 1, king_id_ct);
+    const uint32_t first_king_uidx = FindFirst1BitFromBounded(king_include, 0, king_id_ct);
+    uintptr_t king_uidx = FindFirst1BitFromBounded(king_include, first_king_uidx + 1, king_id_ct);
     if (king_uidx > 1) {
       if (fseeko(binfile, king_uidx * (S_CAST(uint64_t, king_uidx) - 1) * (2 + (2 * is_double)), SEEK_SET)) {
         goto KingCutoffBatch_ret_READ_FAIL;
@@ -417,7 +417,7 @@ PglErr KingCutoffBatch(const char* sample_ids, const char* sids, uint32_t raw_sa
       }
       for (uint32_t king_idx = 1; king_uidx < king_id_ct; ++king_idx, ++king_uidx) {
         if (!IsSet(king_include, king_uidx)) {
-          king_uidx = NextSet(king_include, king_uidx + 1, king_id_ct);
+          king_uidx = FindFirst1BitFromBounded(king_include, king_uidx + 1, king_id_ct);
           if (king_uidx == king_id_ct) {
             break;
           }
@@ -434,7 +434,7 @@ PglErr KingCutoffBatch(const char* sample_ids, const char* sids, uint32_t raw_sa
         const uintptr_t kinship_new_bit = k1LU << (sample_idx % kBitsPerWord);
         uint32_t king_uidx2 = first_king_uidx;
         for (uint32_t king_idx2 = 0; king_idx2 < king_idx; ++king_idx2, ++king_uidx2) {
-          NextSetUnsafeCk32(king_include, &king_uidx2);
+          FindFirst1BitFromU32(king_include, &king_uidx2);
           if (king_drow[king_uidx2] > king_cutoff) {
             const uintptr_t sample_idx2 = king_uidx_to_sample_idx[king_uidx2];
             SetBit(sample_idx2, kinship_table_row);
@@ -456,7 +456,7 @@ PglErr KingCutoffBatch(const char* sample_ids, const char* sids, uint32_t raw_sa
       }
       for (uint32_t king_idx = 1; king_uidx < king_id_ct; ++king_idx, ++king_uidx) {
         if (!IsSet(king_include, king_uidx)) {
-          king_uidx = NextSet(king_include, king_uidx + 1, king_id_ct);
+          king_uidx = FindFirst1BitFromBounded(king_include, king_uidx + 1, king_id_ct);
           if (king_uidx == king_id_ct) {
             break;
           }
@@ -473,7 +473,7 @@ PglErr KingCutoffBatch(const char* sample_ids, const char* sids, uint32_t raw_sa
         const uintptr_t kinship_new_bit = k1LU << (sample_idx % kBitsPerWord);
         uint32_t king_uidx2 = first_king_uidx;
         for (uint32_t king_idx2 = 0; king_idx2 < king_idx; ++king_idx2, ++king_uidx2) {
-          NextSetUnsafeCk32(king_include, &king_uidx2);
+          FindFirst1BitFromU32(king_include, &king_uidx2);
           if (king_frow[king_uidx2] > king_cutoff_f) {
             const uintptr_t sample_idx2 = king_uidx_to_sample_idx[king_uidx2];
             SetBit(sample_idx2, kinship_table_row);
@@ -1026,7 +1026,7 @@ PglErr CalcKing(const char* sample_ids, const char* sids, uintptr_t* variant_inc
         }
         uint32_t sample_uidx = 0;
         for (uint32_t sample_idx = 0; sample_idx < grand_row_end_idx; ++sample_idx, ++sample_uidx) {
-          NextSetUnsafeCk32(sample_include, &sample_uidx);
+          FindFirst1BitFromU32(sample_include, &sample_uidx);
           strcpy(&(collapsed_sample_augids[sample_idx * max_sample_augid_blen]), &(sample_ids[sample_uidx * max_sample_id_blen]));
         }
       }
@@ -1132,7 +1132,7 @@ PglErr CalcKing(const char* sample_ids, const char* sids, uintptr_t* variant_inc
           uintptr_t* hom_iter = splitbuf_hom;
           uintptr_t* ref2het_iter = splitbuf_ref2het;
           for (uint32_t uii = 0; uii < variant_batch_size; ++uii, ++variant_uidx) {
-            NextSetUnsafeCk32(variant_include, &variant_uidx);
+            FindFirst1BitFromU32(variant_include, &variant_uidx);
             reterr = PgrReadRefalt1GenovecSubsetUnsafe(cur_sample_include, sample_include_cumulative_popcounts, row_end_idx, variant_uidx, simple_pgrp, loadbuf);
             if (reterr) {
               goto CalcKing_ret_PGR_FAIL;
@@ -1844,7 +1844,7 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, u
         continue;
       }
       uint32_t sample_uidx1;
-      if (sorted_xidbox_read_find(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, xid_mode, &textbuf_iter, &sample_uidx1, idbuf)) {
+      if (SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, xid_mode, &textbuf_iter, &sample_uidx1, idbuf)) {
         if (!textbuf_iter) {
           goto KingTableSubsetLoad_ret_MISSING_TOKENS;
         }
@@ -1858,7 +1858,7 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, u
         textbuf_iter = FirstNonTspace(CurTokenEnd(textbuf_iter));
       }
       uint32_t sample_uidx2;
-      if (sorted_xidbox_read_find(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, xid_mode, &textbuf_iter, &sample_uidx2, idbuf)) {
+      if (SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, xid_mode, &textbuf_iter, &sample_uidx2, idbuf)) {
         if (!textbuf_iter) {
           goto KingTableSubsetLoad_ret_MISSING_TOKENS;
         }
@@ -2223,7 +2223,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const char* sam
       char* sample_augids_iter = collapsed_sample_augids;
       uint32_t sample_uidx = 0;
       for (uint32_t sample_idx = 0; sample_idx < cur_sample_ct; ++sample_idx, ++sample_uidx) {
-        NextSetUnsafeCk32(cur_sample_include, &sample_uidx);
+        FindFirst1BitFromU32(cur_sample_include, &sample_uidx);
         char* write_iter = strcpya(sample_augids_iter, &(sample_ids[sample_uidx * max_sample_id_blen]));
         if (king_col_sid) {
           *write_iter++ = '\t';
@@ -2278,7 +2278,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const char* sam
           uintptr_t* hom_iter = splitbuf_hom;
           uintptr_t* ref2het_iter = splitbuf_ref2het;
           for (uint32_t uii = 0; uii < variant_batch_size; ++uii, ++variant_uidx) {
-            NextSetUnsafeCk32(variant_include, &variant_uidx);
+            FindFirst1BitFromU32(variant_include, &variant_uidx);
             reterr = PgrReadRefalt1GenovecSubsetUnsafe(cur_sample_include, sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, simple_pgrp, loadbuf);
             if (reterr) {
               goto CalcKingTableSubset_ret_PGR_FAIL;
@@ -2512,7 +2512,7 @@ void ExpandVariantDosages(const uintptr_t* genovec, const uintptr_t* dosage_pres
     slope *= kRecipDosageMid;
     uint32_t sample_uidx = 0;
     for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_uidx) {
-      NextSetUnsafeCk32(dosage_present, &sample_uidx);
+      FindFirst1BitFromU32(dosage_present, &sample_uidx);
       expanded_dosages[sample_uidx] = dosage_vals[dosage_idx] * slope + intercept;
     }
   }
@@ -2669,11 +2669,11 @@ THREAD_FUNC_DECL CalcDblMissingThread(void* arg) {
     if (cur_batch_size) {
       const uintptr_t* missing_nz = g_missing_nz[parity];
       const uintptr_t* missing_smaj = g_missing_smaj[parity];
-      const uint32_t first_idx = NextSet(missing_nz, 0, row_end_idx);
+      const uint32_t first_idx = FindFirst1BitFromBounded(missing_nz, 0, row_end_idx);
       uint32_t sample_idx = first_idx;
       uint32_t prev_missing_nz_ct = 0;
       if (sample_idx < row_start_idx) {
-        sample_idx = NextSet(missing_nz, row_start_idx, row_end_idx);
+        sample_idx = FindFirst1BitFromBounded(missing_nz, row_start_idx, row_end_idx);
         if (sample_idx != row_end_idx) {
           prev_missing_nz_ct = PopcountBitRange(missing_nz, 0, row_start_idx);
         }
@@ -2692,7 +2692,7 @@ THREAD_FUNC_DECL CalcDblMissingThread(void* arg) {
         // (sample_idx - 1) underflow ok
         uint32_t* write_base = &(missing_dbl_exclude_cts[((S_CAST(uint64_t, sample_idx) * (sample_idx - 1)) / 2) - dbl_exclude_offset]);
         for (uint32_t uii = 0; uii < prev_missing_nz_ct; ++uii, ++sample_idx2) {
-          NextSetUnsafeCk32(missing_nz, &sample_idx2);
+          FindFirst1BitFromU32(missing_nz, &sample_idx2);
           const uintptr_t* cur_missing_smaj_base = &(missing_smaj[sample_idx2 * kDblMissingBlockWordCt]);
           const uintptr_t cur_and0 = cur_word0 & cur_missing_smaj_base[0];
           const uintptr_t cur_and1 = cur_word1 & cur_missing_smaj_base[1];
@@ -2709,7 +2709,7 @@ THREAD_FUNC_DECL CalcDblMissingThread(void* arg) {
 #endif
         }
         ++prev_missing_nz_ct;
-        sample_idx = NextSet(missing_nz, sample_idx + 1, row_end_idx);
+        sample_idx = FindFirst1BitFromBounded(missing_nz, sample_idx + 1, row_end_idx);
       }
     }
     if (is_last_batch) {
@@ -2781,7 +2781,7 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
         }
         uintptr_t* missing_vmaj_iter = missing_vmaj;
         for (uint32_t variant_idx = cur_variant_idx_start; variant_idx < cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
-          NextSetUnsafeCk32(variant_include, &variant_uidx);
+          FindFirst1BitFromU32(variant_include, &variant_uidx);
           reterr = PgrReadMissingnessMulti(sample_include, sample_include_cumulative_popcounts, row_end_idx, variant_uidx, simple_pgrp, nullptr, missing_vmaj_iter, nullptr, genovec_buf);
           if (reterr) {
             if (reterr == kPglRetMalformedInput) {
@@ -3014,7 +3014,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const char* sample_ids, con
         }
         double* normed_vmaj_iter = g_normed_dosage_vmaj_bufs[parity];
         for (uint32_t variant_idx = cur_variant_idx_start; variant_idx < cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
-          NextSetUnsafeCk32(variant_include, &variant_uidx);
+          FindFirst1BitFromU32(variant_include, &variant_uidx);
           const uint32_t maj_allele_idx = maj_alleles[variant_uidx];
           uint32_t missing_present = 0;
           uintptr_t allele_idx_base;
@@ -3947,7 +3947,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const char* sample_ids, const ch
             Dosage* dosage_vals_iter = g_dosage_val_bufs[parity];
             double* maj_freqs_write_iter = g_cur_maj_freqs[parity];
             for (uint32_t variant_idx = cur_variant_idx_start; variant_idx < cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
-              NextSetUnsafeCk32(variant_include, &variant_uidx);
+              FindFirst1BitFromU32(variant_include, &variant_uidx);
               uint32_t dosage_ct;
               uint32_t is_explicit_alt1;
               reterr = PgrReadRefalt1GenovecDosage16SubsetUnsafe(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_vals_iter, &dosage_ct, &is_explicit_alt1);
@@ -4067,7 +4067,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const char* sample_ids, const ch
           Dosage* dosage_vals_iter = g_dosage_val_bufs[parity];
           double* maj_freqs_write_iter = g_cur_maj_freqs[parity];
           for (uint32_t variant_idx = cur_variant_idx_start; variant_idx < cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
-            NextSetUnsafeCk32(variant_include, &variant_uidx);
+            FindFirst1BitFromU32(variant_include, &variant_uidx);
             uint32_t dosage_ct;
             uint32_t is_explicit_alt1;
             reterr = PgrReadRefalt1GenovecDosage16SubsetUnsafe(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_vals_iter, &dosage_ct, &is_explicit_alt1);
@@ -4202,7 +4202,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const char* sample_ids, const ch
       }
 
       const uint32_t output_zst = (pca_flags / kfPcaVarZs) & 1;
-      outname_zst_set(".eigenvec.var", output_zst, outname_end);
+      OutnameZstSet(".eigenvec.var", output_zst, outname_end);
       reterr = InitCstream(outname, 0, output_zst, max_thread_ct, overflow_buf_size, writebuf, R_CAST(unsigned char*, &(writebuf[overflow_buf_size])), &css);
       if (reterr) {
         goto CalcPca_ret_1;
@@ -4311,7 +4311,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const char* sample_ids, const ch
 #endif
       }
       uint32_t prev_batch_size = 0;
-      uint32_t variant_uidx = NextSetUnsafe(variant_include, 0);
+      uint32_t variant_uidx = FindFirst1BitFrom(variant_include, 0);
       uint32_t variant_uidx_load = variant_uidx;
       uint32_t parity = 0;
       ReinitThreads3z(&ts);
@@ -4333,7 +4333,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const char* sample_ids, const ch
           Dosage* dosage_vals_iter = g_dosage_val_bufs[parity];
           double* maj_freqs_write_iter = g_cur_maj_freqs[parity];
           for (uint32_t variant_idx = cur_variant_idx_start; variant_idx < cur_variant_idx_end; ++variant_uidx_load, ++variant_idx) {
-            NextSetUnsafeCk32(variant_include, &variant_uidx_load);
+            FindFirst1BitFromU32(variant_include, &variant_uidx_load);
             uint32_t dosage_ct;
             uint32_t is_explicit_alt1;
             reterr = PgrReadRefalt1GenovecDosage16SubsetUnsafe(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx_load, simple_pgrp, genovec_iter, dosage_present_iter, dosage_vals_iter, &dosage_ct, &is_explicit_alt1);
@@ -4383,7 +4383,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const char* sample_ids, const ch
           const double* var_wts_iter = &(qq[parity * var_wts_part_size]);
           // (todo: update projection here)
           for (uint32_t vidx = cur_variant_idx_start - prev_batch_size; vidx < cur_variant_idx_start; ++vidx, ++variant_uidx) {
-            NextSetUnsafeCk32(variant_include, &variant_uidx);
+            FindFirst1BitFromU32(variant_include, &variant_uidx);
             if (chr_col) {
               if (variant_uidx >= chr_end) {
                 int32_t chr_idx;
@@ -4490,7 +4490,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const char* sample_ids, const ch
     const uint32_t sample_ct = pca_sample_ct;
     uint32_t sample_uidx = 0;
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-      NextSetUnsafeCk32(sample_include, &sample_uidx);
+      FindFirst1BitFromU32(sample_include, &sample_uidx);
       write_iter = strcpya(write_iter, &(sample_ids[sample_uidx * max_sample_id_blen]));
       if (sids) {
         *write_iter++ = '\t';
@@ -4594,7 +4594,7 @@ void FillCurDosageInts(const uintptr_t* genovec_buf, const uintptr_t* dosage_pre
   }
   uint32_t sample_idx = 0;
   for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_idx) {
-    NextSetUnsafeCk32(dosage_present, &sample_idx);
+    FindFirst1BitFromU32(dosage_present, &sample_idx);
     cur_dosage_ints[sample_idx] = dosage_vals_buf[dosage_idx] * is_diploid_p1;
   }
 }
@@ -4742,7 +4742,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const char* sample_ids, cons
       }
       uint32_t col_uidx = 0;
       for (uintptr_t score_col_idx = 0; score_col_idx < score_col_ct; ++score_col_idx, ++col_uidx) {
-        NextSetUnsafeCk32(score_col_bitarr, &col_uidx);
+        FindFirst1BitFromU32(score_col_bitarr, &col_uidx);
         score_col_idx_deltas[score_col_idx] = col_uidx;
       }
       // now convert to deltas
@@ -4854,7 +4854,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const char* sample_ids, cons
     const uint32_t list_variants = (score_flags / kfScoreListVariants) & 1;
     if (list_variants) {
       const uint32_t output_zst = (score_flags / kfScoreListVariantsZs) & 1;
-      outname_zst_set(".sscore.vars", output_zst, outname_end);
+      OutnameZstSet(".sscore.vars", output_zst, outname_end);
       reterr = InitCstream(outname, 0, output_zst, max_thread_ct, overflow_buf_size, overflow_buf, R_CAST(unsigned char*, &(overflow_buf[overflow_buf_size])), &css);
       if (reterr) {
         goto ScoreReport_ret_1;
@@ -4975,7 +4975,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const char* sample_ids, cons
               if (is_y) {
                 uint32_t sample_idx = 0;
                 for (uint32_t nonmale_idx = 0; nonmale_idx < nonmale_ct; ++nonmale_idx, ++sample_idx) {
-                  NextSetUnsafeCk32(sex_nonmale_collapsed, &sample_idx);
+                  FindFirst1BitFromU32(sex_nonmale_collapsed, &sample_idx);
                   dosage_incrs[sample_idx] = 0;
                 }
                 ++male_allele_ct_delta;
@@ -5001,7 +5001,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const char* sample_ids, cons
               if (is_relevant_x) {
                 uint32_t sample_idx = 0;
                 for (uint32_t male_idx = 0; male_idx < male_ct; ++male_idx, ++sample_idx) {
-                  NextUnsetUnsafeCk32(sex_nonmale_collapsed, &sample_idx);
+                  FindFirst0BitFromU32(sex_nonmale_collapsed, &sample_idx);
                   dosage_incrs[sample_idx] /= 2;
                 }
                 BitvecAndNotCopy(missing_acc1, sex_nonmale_collapsed, sample_ctl, missing_male_acc1);
@@ -5092,7 +5092,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const char* sample_ids, cons
                 if (!no_meanimpute) {
                   const uint32_t male_missing_ct = PopcountWords(missing_male_acc1, sample_ctl);
                   for (uint32_t male_missing_idx = 0; male_missing_idx < male_missing_ct; ++male_missing_idx, ++sample_idx) {
-                    NextSetUnsafeCk32(missing_male_acc1, &sample_idx);
+                    FindFirst1BitFromU32(missing_male_acc1, &sample_idx);
                     cur_dosages_vmaj_iter[sample_idx] = missing_effect;
                   }
                   if (is_relevant_x) {
@@ -5102,7 +5102,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const char* sample_ids, cons
                     missing_effect *= 2;
                     const uint32_t nonmale_missing_ct = PopcountWords(missing_male_acc1, sample_ctl);
                     for (uint32_t nonmale_missing_idx = 0; nonmale_missing_idx < nonmale_missing_ct; ++nonmale_missing_idx, ++sample_idx) {
-                      NextSetUnsafeCk32(missing_male_acc1, &sample_idx);
+                      FindFirst1BitFromU32(missing_male_acc1, &sample_idx);
                       cur_dosages_vmaj_iter[sample_idx] = missing_effect;
                     }
                   }
@@ -5110,14 +5110,14 @@ PglErr ScoreReport(const uintptr_t* sample_include, const char* sample_ids, cons
               } else {
                 missing_effect *= ploidy_d;
                 for (uint32_t missing_idx = 0; missing_idx < missing_ct; ++missing_idx, ++sample_idx) {
-                  NextSetUnsafeCk32(missing_acc1, &sample_idx);
+                  FindFirst1BitFromU32(missing_acc1, &sample_idx);
                   cur_dosages_vmaj_iter[sample_idx] = missing_effect;
                 }
               }
             }
             uint32_t sample_idx = 0;
             for (uint32_t nm_sample_idx = 0; nm_sample_idx < nm_sample_ct; ++nm_sample_idx, ++sample_idx) {
-              NextUnsetUnsafeCk32(missing_acc1, &sample_idx);
+              FindFirst0BitFromU32(missing_acc1, &sample_idx);
               cur_dosages_vmaj_iter[sample_idx] = u63tod(dosage_incrs[sample_idx]) * geno_slope + geno_intercept;
             }
             if (se_mode) {
@@ -5274,7 +5274,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const char* sample_ids, cons
     }
 
     const uint32_t output_zst = (score_flags / kfScoreZs) & 1;
-    outname_zst_set(".sscore", output_zst, outname_end);
+    OutnameZstSet(".sscore", output_zst, outname_end);
     reterr = InitCstream(outname, 0, output_zst, max_thread_ct, overflow_buf_size, overflow_buf, R_CAST(unsigned char*, &(overflow_buf[overflow_buf_size])), &css);
     if (reterr) {
       goto ScoreReport_ret_1;
@@ -5342,7 +5342,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const char* sample_ids, cons
 
     uint32_t sample_uidx = 0;
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-      NextSetUnsafeCk32(sample_include, &sample_uidx);
+      FindFirst1BitFromU32(sample_include, &sample_uidx);
       cswritep = strcpya(cswritep, &(sample_ids[sample_uidx * max_sample_id_blen]));
       if (write_sid) {
         *cswritep++ = '\t';
