@@ -602,7 +602,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     // there may be more work to do re: not blowing the cache when there are
     // 100k+ samples)
     HelpPrint("make-king\tmake-king-table", &help_ctrl, 1,
-"  --make-king <square | square0 | triangle> <zs | bin | bin4> <no-idheader>\n"
+"  --make-king <square | square0 | triangle> <zs | bin | bin4>\n"
 "    KING-robust kinship estimator, described by Manichaikul A, Mychaleckyj JC,\n"
 "    Rich SS, Daly K, Sale M, Chen WM (2010) Robust relationship inference in\n"
 "    genome-wide association studies.  By default, this writes a\n"
@@ -624,10 +624,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      single-precision numbers instead.)  This can be combined with 'square0'\n"
 "      if you still want the upper right zeroed out, or 'triangle' if you don't\n"
 "      want to pad the upper right at all.\n"
-"    * By default, the .id file contains a header line; the 'no-idheader'\n"
-"      removes it and forces FID/IID output.\n"
 "    * The computation can be subdivided with --parallel.\n"
-"  --make-king-table <zs> <counts> <cols=[column set descriptor]> <no-idheader>\n"
+"  --make-king-table <zs> <counts> <cols=[column set descriptor]>\n"
 "    Similar to --make-king, except results are reported in the original .kin0\n"
 "    text table format (with minor changes, e.g. row order is more friendly to\n"
 "    incremental addition of samples), and --king-table-filter can be used to\n"
@@ -648,7 +646,6 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     HelpPrint("make-rel\tmake-grm\tmake-grm-bin\tmake-grm-list\tmake-grm-gz", &help_ctrl, 1,
 "  --make-rel <cov> <meanimpute> <square | square0 | triangle> <zs | bin | bin4>\n"
-"             <no-idheader>\n"
 "    Write a lower-triangular variance-standardized relationship matrix to\n"
 "    {output prefix}.rel, and corresponding IDs to {output prefix}.rel.id.\n"
 "    * This computation assumes that variants do not have very low MAF, or\n"
@@ -660,8 +657,6 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      approximate linkage equilibrium.\n"
 "    * The 'cov' modifier replaces the variance-standardization step with basic\n"
 "      mean-centering, causing a covariance matrix to be calculated instead.\n"
-"    * By default, the .id file contains a header line; the 'no-idheader'\n"
-"      modifier removes it and forces FID/IID output.\n"
 "    * The computation can be subdivided with --parallel.\n"
 "  --make-grm-list <cov> <meanimpute> <zs> <idheader>\n"
 "  --make-grm-bin <cov> <meanimpute> <idheader>\n"
@@ -720,7 +715,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --king-cutoff {.king.bin + .king.id fileset prefix} [threshold]\n"
 "    Exclude one member of each pair of samples with KING-robust kinship greater\n"
 "    than the given threshold.  Remaining/excluded sample IDs are written to\n"
-"    {output prefix}.king.cutoff.in + .king.cutoff.out.\n"
+"    {output prefix}.king.cutoff.in.id + .king.cutoff.out.id.\n"
 "    If present, the .king.bin file must be triangular (either precision is ok).\n\n"
                );
     HelpPrint("write-covar\twith-phenotype", &help_ctrl, 1,
@@ -745,11 +740,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    The default is just maybesid.\n\n"
                );
     HelpPrint("write-samples\twrite-snplist", &help_ctrl, 1,
-"  --write-samples <noheader>\n"
+"  --write-samples\n"
 "    Report FID/IID (or FID/IID/SID, iff the input .psam file had a SID column)\n"
-"    of all samples which pass your filters/inclusion thresholds.\n"
-"    By default, the output file contains a header line.  'noheader' removes it\n"
-"    and forces FID/IID output.\n\n"
+"    of all samples which pass your filters/inclusion thresholds.\n\n"
                );
     HelpPrint("write-snplist", &help_ctrl, 1,
 "  --write-snplist <zs>\n"
@@ -1176,6 +1169,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                             the samples in the second category; and so on, for\n"
 "                             all categories in the named categorical phenotype.\n"
                );
+    HelpPrint("no-id-header\twrite-samples\tking-cutoff", &help_ctrl, 0,
+"  --no-id-header     : Don't include a header line in .id output files, and\n"
+"                       force FID/IID output.\n"
+              );
     HelpPrint("variance-standardize\tcovar-variance-standardize\tquantile-normalize\tpheno-quantile-normalize\tcovar-quantile-normalize\tstandard-beta\tglm\tlinear\tlogistic", &help_ctrl, 0,
 "  --variance-standardize {pheno/covar name(s)...}\n"
 "  --covar-variance-standardize {covar name(s)...} :\n"

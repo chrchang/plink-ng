@@ -61,10 +61,10 @@ static const char ver_str[] = "PLINK v2.00a1"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (9 Feb 2018)";
+  " (11 Feb 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  " "
+  ""
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -817,6 +817,10 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
       // any functions using blockload must perform its own PgrInit(), etc.
+    } else {
+      // bugfix (10-11 Feb 2018): these variables may still be accessed
+      pgfi.gflags = S_CAST(PgenGlobalFlags, pvar_nonref_default * kfPgenGlobalAllNonref);
+      pgfi.nonref_flags = nonref_flags;
     }
     if (pcp->pheno_fname) {
       reterr = LoadPhenos(pcp->pheno_fname, &(pcp->pheno_range_list), sample_include, sample_ids, raw_sample_ct, sample_ct, max_sample_id_blen, pcp->missing_pheno, (pcp->misc_flags / kfMiscAffection01) & 1, (pcp->misc_flags / kfMiscPhenoColNums) & 1, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen);
@@ -1374,7 +1378,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 
       if (pcp->command_flags1 & kfCommand1WriteSamples) {
         snprintf(outname_end, kMaxOutfnameExtBlen, ".id");
-        reterr = WriteSampleIds(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, (pcp->misc_flags / kfMiscWriteSamplesNoheader) & 1);
+        reterr = WriteSampleIds(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, (pcp->misc_flags / kfMiscNoIdHeader) & 1);
         if (reterr) {
           goto Plink2Core_ret_1;
         }
@@ -1698,21 +1702,21 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             if (king_cutoff_fprefix) {
               reterr = KingCutoffBatch(sample_ids, sids, raw_sample_ct, max_sample_id_blen, max_sid_blen, pcp->king_cutoff, sample_include, king_cutoff_fprefix, &sample_ct);
             } else {
-              reterr = CalcKing(sample_ids, sids, variant_include, cip, raw_sample_ct, max_sample_id_blen, max_sid_blen, raw_variant_ct, variant_ct, pcp->king_cutoff, pcp->king_table_filter, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, sample_include, &sample_ct, outname, outname_end);
+              reterr = CalcKing(sample_ids, sids, variant_include, cip, raw_sample_ct, max_sample_id_blen, max_sid_blen, raw_variant_ct, variant_ct, pcp->king_cutoff, pcp->king_table_filter, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, (pcp->misc_flags / kfMiscNoIdHeader) & 1, pcp->max_thread_ct, &simple_pgr, sample_include, &sample_ct, outname, outname_end);
             }
             if (reterr) {
               goto Plink2Core_ret_1;
             }
             if (pcp->king_cutoff != -1) {
-              snprintf(outname_end, kMaxOutfnameExtBlen, ".king.cutoff.in");
-              reterr = WriteSampleIds(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, 0);
+              snprintf(outname_end, kMaxOutfnameExtBlen, ".king.cutoff.in.id");
+              reterr = WriteSampleIds(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, (pcp->misc_flags / kfMiscNoIdHeader) & 1);
               if (reterr) {
                 goto Plink2Core_ret_1;
               }
-              snprintf(&(outname_end[13]), kMaxOutfnameExtBlen - 13, "out");
+              snprintf(&(outname_end[13]), kMaxOutfnameExtBlen - 13, "out.id");
               BitvecAndNot(sample_include, raw_sample_ctl, prev_sample_include);
               const uint32_t removed_sample_ct = prev_sample_ct - sample_ct;
-              reterr = WriteSampleIds(prev_sample_include, sample_ids, sids, outname, removed_sample_ct, max_sample_id_blen, max_sid_blen, 0);
+              reterr = WriteSampleIds(prev_sample_include, sample_ids, sids, outname, removed_sample_ct, max_sample_id_blen, max_sid_blen, (pcp->misc_flags / kfMiscNoIdHeader) & 1);
               if (reterr) {
                 goto Plink2Core_ret_1;
               }
@@ -1869,9 +1873,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             refalt1_select_ul[widx] = fill_word;
           }
           refalt1_select = R_CAST(AltAlleleCt*, refalt1_select_ul);
-          // bugfix (10 Feb 2018): pgfi.gflags may not be initialized if we're
-          // just doing e.g. --ref-from-fa + --make-just-pvar.
-          const uint32_t not_all_nonref = (pgenname[0] && !(pgfi.gflags & kfPgenGlobalAllNonref)) || ((!pgenname[0]) && (!pvar_nonref_default));
+          const uint32_t not_all_nonref = !(pgfi.gflags & kfPgenGlobalAllNonref);
           if ((not_all_nonref || setting_alleles_from_file) && (!nonref_flags)) {
             if (bigstack_end_alloc_ul(raw_variant_ctl, &nonref_flags)) {
               goto Plink2Core_ret_NOMEM;
@@ -2083,7 +2085,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       // eventually check for nonzero pheno_ct here?
 
       if (pcp->command_flags1 & kfCommand1Glm) {
-        reterr = GlmMain(sample_include, sample_ids, sids, sex_nm, sex_male, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, &(pcp->glm_info), &(pcp->adjust_info), &(pcp->aperm), pcp->glm_local_covar_fname, pcp->glm_local_pvar_fname, pcp->glm_local_psam_fname, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, max_allele_slen, pcp->xchr_model, pcp->ci_size, pcp->vif_thresh, pcp->pfilter, pcp->output_min_p, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
+        reterr = GlmMain(sample_include, sample_ids, sids, sex_nm, sex_male, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, &(pcp->glm_info), &(pcp->adjust_info), &(pcp->aperm), pcp->glm_local_covar_fname, pcp->glm_local_pvar_fname, pcp->glm_local_psam_fname, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, max_allele_slen, pcp->xchr_model, pcp->ci_size, pcp->vif_thresh, pcp->pfilter, pcp->output_min_p, (pcp->misc_flags / kfMiscNoIdHeader) & 1, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
         if (reterr) {
           goto Plink2Core_ret_1;
         }
@@ -5580,7 +5582,7 @@ int main(int argc, char** argv) {
             logerrputs("Error: --make-king cannot be used with --king-table-subset.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 3)) {
+          if (EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
@@ -5591,8 +5593,6 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.king_flags |= kfKingMatrixZs;
-            } else if (!strcmp(cur_modif, "no-idheader")) {
-              pc.king_flags |= kfKingNoIdheader;
             } else if (!strcmp(cur_modif, "bin")) {
               if (pc.king_flags & kfKingMatrixEncodemask) {
                 logerrputs("Error: Multiple --make-king encoding modifiers.\n");
@@ -5623,6 +5623,9 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE_A;
               }
               pc.king_flags |= kfKingMatrixTri;
+            } else if (!strcmp(cur_modif, "no-idheader")) {
+              logerrputs("Error: --make-king 'no-idheader' modifier retired.  Use --no-id-header instead.\n");
+              goto main_ret_INVALID_CMDLINE_A;
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-king parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
@@ -5642,7 +5645,7 @@ int main(int argc, char** argv) {
             logerrputs("Error: --make-king-table cannot be used with a --king-cutoff input fileset.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 4)) {
+          if (EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 3)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
@@ -5652,8 +5655,6 @@ int main(int argc, char** argv) {
               pc.king_flags |= kfKingTableZs;
             } else if (strequal_k(cur_modif, "counts", cur_modif_slen)) {
               pc.king_flags |= kfKingCounts;
-            } else if (strequal_k(cur_modif, "no-idheader", cur_modif_slen)) {
-              pc.king_flags |= kfKingNoIdheader;
             } else if (StrStartsWith(cur_modif, "cols=", cur_modif_slen)) {
               if (pc.king_flags & kfKingColAll) {
                 logerrputs("Error: Multiple --make-king-table cols= modifiers.\n");
@@ -5677,6 +5678,9 @@ int main(int argc, char** argv) {
                   goto main_ret_INVALID_CMDLINE_A;
                 }
               }
+            } else if (strequal_k(cur_modif, "no-idheader", cur_modif_slen)) {
+              logerrputs("Error: --make-king-table 'no-idheader' modifier retired.  Use --no-id-header\ninstead.\n");
+              goto main_ret_INVALID_CMDLINE_A;
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-king-table parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
@@ -6021,7 +6025,7 @@ int main(int argc, char** argv) {
           if (EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 3)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          pc.grm_flags |= kfGrmNoIdheader | kfGrmBin;
+          pc.grm_flags |= kfGrmNoIdHeader | kfGrmBin;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             if (!strcmp(cur_modif, "cov")) {
@@ -6029,9 +6033,8 @@ int main(int argc, char** argv) {
             } else if (!strcmp(cur_modif, "meanimpute")) {
               pc.grm_flags |= kfGrmMeanimpute;
             } else if (!strcmp(cur_modif, "idheader")) {
-              pc.grm_flags &= ~kfGrmNoIdheader;
-            } else if (strcmp(cur_modif, "no-idheader")) {
-              // may as well accept no-idheader for consistency
+              pc.grm_flags &= ~kfGrmNoIdHeader;
+            } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-grm-bin parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
@@ -6051,7 +6054,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           uint32_t compress_stream_type = 0;  // 1 = no-gz, 2 = zs
-          pc.grm_flags |= kfGrmNoIdheader;
+          pc.grm_flags |= kfGrmNoIdHeader;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             if (!strcmp(cur_modif, "cov")) {
@@ -6073,8 +6076,8 @@ int main(int argc, char** argv) {
               compress_stream_type = 2;
               pc.grm_flags |= kfGrmListZs;
             } else if (!strcmp(cur_modif, "idheader")) {
-              pc.grm_flags &= ~kfGrmNoIdheader;
-            } else if (strcmp(cur_modif, "no-idheader")) {
+              pc.grm_flags &= ~kfGrmNoIdHeader;
+            } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-grm-list parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
@@ -6097,7 +6100,7 @@ int main(int argc, char** argv) {
             logerrputs("Error: --make-rel cannot be used with --make-grm-list/--make-grm-bin.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 5)) {
+          if (EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 4)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
@@ -6113,7 +6116,8 @@ int main(int argc, char** argv) {
               }
               pc.grm_flags |= kfGrmMatrixZs;
             } else if (!strcmp(cur_modif, "no-idheader")) {
-              pc.grm_flags |= kfGrmNoIdheader;
+              logerrputs("Error: --make-rel 'no-idheader' modifier retired.  Use --no-id-header instead.\n");
+              goto main_ret_INVALID_CMDLINE_A;
             } else if (!strcmp(cur_modif, "bin")) {
               if (pc.grm_flags & kfGrmMatrixEncodemask) {
                 logerrputs("Error: Multiple --make-rel encoding modifiers.\n");
@@ -6301,6 +6305,9 @@ int main(int argc, char** argv) {
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
+        } else if (strequal_k_unsafe(flagname_p2, "o-id-header")) {
+          pc.misc_flags |= kfMiscNoIdHeader;
+          goto main_param_zero;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
@@ -7617,19 +7624,13 @@ int main(int argc, char** argv) {
           pc.command_flags1 |= kfCommand1WriteSnplist;
           pc.dependency_flags |= kfFilterPvarReq;
         } else if (strequal_k_unsafe(flagname_p2, "rite-samples")) {
-          if (EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1)) {
-            goto main_ret_INVALID_CMDLINE_2A;
-          }
-          if (param_ct) {
-            const char* cur_modif = argvk[arg_idx + 1];
-            if (strcmp(cur_modif, "noheader")) {
-              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --write-samples parameter '%s'.\n", cur_modif);
-              goto main_ret_INVALID_CMDLINE_WWA;
-            }
-            pc.misc_flags |= kfMiscWriteSamplesNoheader;
+          if ((param_ct == 1) && (!strcmp(argvk[arg_idx + 1], "noheader"))) {
+            logerrputs("Error: --write-samples 'noheader' modifier retired.  Use --no-id-header\ninstead.\n");
+            goto main_ret_INVALID_CMDLINE_A;
           }
           pc.command_flags1 |= kfCommand1WriteSamples;
           pc.dependency_flags |= kfFilterPsamReq;
+          goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "indow")) {
           if (!(pc.varid_snp || pc.varid_exclude_snp)) {
             logerrputs("Error: --window must be used with --snp or --exclude-snp.\n");
@@ -7847,6 +7848,9 @@ int main(int argc, char** argv) {
     if ((pc.misc_flags & kfMiscCovarColNums) && (!pc.covar_fname) && (!pc.pheno_fname)) {
       logerrputs("Error: --covar-col-nums requires --covar or --pheno.\n");
       goto main_ret_INVALID_CMDLINE_A;
+    }
+    if ((pc.grm_flags & kfGrmMatrixShapemask) && (pc.misc_flags & kfMiscNoIdHeader)) {
+      pc.grm_flags |= kfGrmNoIdHeader;
     }
     if (!permit_multiple_inclusion_filters) {
       // Permit only one position- or ID-based variant inclusion filter, since

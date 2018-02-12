@@ -890,7 +890,7 @@ char* AppendKingTableHeader(KingFlags king_flags, uint32_t king_col_sid, char* c
   return cswritep;
 }
 
-PglErr CalcKing(const char* sample_ids, const char* sids, uintptr_t* variant_include, const ChrInfo* cip, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, double king_cutoff, double king_table_filter, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, uintptr_t* sample_include, uint32_t* sample_ct_ptr, char* outname, char* outname_end) {
+PglErr CalcKing(const char* sample_ids, const char* sids, uintptr_t* variant_include, const ChrInfo* cip, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, double king_cutoff, double king_table_filter, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t no_id_header, uint32_t max_thread_ct, PgenReader* simple_pgrp, uintptr_t* sample_include, uint32_t* sample_ct_ptr, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -1454,7 +1454,6 @@ PglErr CalcKing(const char* sample_ids, const char* sids, uintptr_t* variant_inc
     putc_unlocked('\n', stdout);
     logprintf("%s: %u variant%s processed.\n", flagname, variant_ct, (variant_ct == 1)? "" : "s");
     // end-of-loop operations
-    const uint32_t no_idheader = (king_flags / kfKingNoIdheader) & 1;
     if (matrix_shape) {
       if (!(king_flags & (kfKingMatrixBin | kfKingMatrixBin4))) {
         if (CswriteCloseNull(&css, cswritep)) {
@@ -1477,7 +1476,7 @@ PglErr CalcKing(const char* sample_ids, const char* sids, uintptr_t* variant_inc
       snprintf(write_iter, kLogbufSize - 2 * kPglFnamesize - 64, " .\n");
       WordWrapB(0);
       logputsb();
-      reterr = WriteSampleIds(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, no_idheader);
+      reterr = WriteSampleIds(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, no_id_header);
       if (reterr) {
         goto CalcKing_ret_1;
       }
@@ -1496,7 +1495,7 @@ PglErr CalcKing(const char* sample_ids, const char* sids, uintptr_t* variant_inc
         snprintf(write_iter, kLogbufSize - 2 * kPglFnamesize - 64, " .\n");
         WordWrapB(0);
         logputsb();
-        reterr = WriteSampleIds(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, no_idheader);
+        reterr = WriteSampleIds(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, no_id_header);
         if (reterr) {
           goto CalcKing_ret_1;
         }
@@ -3438,7 +3437,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const char* sample_ids, con
       }
       if (!parallel_idx) {
         snprintf(&(outname_end[4]), kMaxOutfnameExtBlen - 4, ".id");
-        reterr = WriteSampleIds(orig_sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, (grm_flags / kfGrmNoIdheader) & 1);
+        reterr = WriteSampleIds(orig_sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, (grm_flags / kfGrmNoIdHeader) & 1);
         if (reterr) {
           goto CalcGrm_ret_1;
         }

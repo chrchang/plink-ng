@@ -1952,7 +1952,7 @@ PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint
   return kPglRetSuccess;
 }
 
-PglErr WriteSampleIds(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const char* outname, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t noheader) {
+PglErr WriteSampleIds(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const char* outname, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t no_id_header) {
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
   {
@@ -1961,7 +1961,7 @@ PglErr WriteSampleIds(const uintptr_t* sample_include, const char* sample_ids, c
     }
     char* write_iter = g_textbuf;
     char* textbuf_flush = &(write_iter[kMaxMediumLine]);
-    if (!noheader) {
+    if (!no_id_header) {
       write_iter = strcpya(write_iter, "#FID\tIID");
       if (sids) {
         write_iter = strcpya(write_iter, "\tSID");

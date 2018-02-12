@@ -38,16 +38,14 @@ FLAGSET_DEF_START()
   kfKingTableZs = (1 << 6),
   kfKingCounts = (1 << 7),
 
-  kfKingNoIdheader = (1 << 8),
-
-  kfKingColId = (1 << 9),
-  kfKingColMaybesid = (1 << 10),
-  kfKingColSid = (1 << 11),
-  kfKingColNsnp = (1 << 12),
-  kfKingColHethet = (1 << 13),
-  kfKingColIbs0 = (1 << 14),
-  kfKingColIbs1 = (1 << 15),
-  kfKingColKinship = (1 << 16),
+  kfKingColId = (1 << 8),
+  kfKingColMaybesid = (1 << 9),
+  kfKingColSid = (1 << 10),
+  kfKingColNsnp = (1 << 11),
+  kfKingColHethet = (1 << 12),
+  kfKingColIbs0 = (1 << 13),
+  kfKingColIbs1 = (1 << 14),
+  kfKingColKinship = (1 << 15),
   kfKingColDefault = (kfKingColId | kfKingColMaybesid | kfKingColNsnp | kfKingColHethet | kfKingColIbs0 | kfKingColKinship),
   kfKingColAll = ((kfKingColKinship * 2) - kfKingColId)
 FLAGSET_DEF_END(KingFlags);
@@ -69,7 +67,7 @@ FLAGSET_DEF_START()
 
   kfGrmMeanimpute = (1 << 9),
   kfGrmCov = (1 << 10),
-  kfGrmNoIdheader = (1 << 11)
+  kfGrmNoIdHeader = (1 << 11)
 FLAGSET_DEF_END(GrmFlags);
 
 FLAGSET_DEF_START()
@@ -132,7 +130,7 @@ void CleanupScore(ScoreInfo* score_info_ptr);
 
 PglErr KingCutoffBatch(const char* sample_ids, const char* sids, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, double king_cutoff, uintptr_t* sample_include, char* king_cutoff_fprefix, uint32_t* sample_ct_ptr);
 
-PglErr CalcKing(const char* sample_ids, const char* sids, uintptr_t* variant_include, const ChrInfo* cip, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, double king_cutoff, double king_table_filter, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, uintptr_t* sample_include, uint32_t* sample_ct_ptr, char* outname, char* outname_end);
+PglErr CalcKing(const char* sample_ids, const char* sids, uintptr_t* variant_include, const ChrInfo* cip, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, double king_cutoff, double king_table_filter, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t no_id_header, uint32_t max_thread_ct, PgenReader* simple_pgrp, uintptr_t* sample_include, uint32_t* sample_ct_ptr, char* outname, char* outname_end);
 
 PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const char* sample_ids, const char* sids, uintptr_t* variant_include, const ChrInfo* cip, const char* subset_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, double king_table_filter, double king_table_subset_thresh, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 

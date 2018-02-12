@@ -2843,7 +2843,6 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
 
 PglErr MindFilter(const uint32_t* sample_missing_cts, const uint32_t* sample_hethap_cts, const char* sample_ids, const char* sids, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t variant_ct, uint32_t variant_ct_y, double mind_thresh, uintptr_t* sample_include, uintptr_t* sex_male, uint32_t* sample_ct_ptr, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
   {
     const uint32_t orig_sample_ct = *sample_ct_ptr;
@@ -2878,27 +2877,10 @@ PglErr MindFilter(const uint32_t* sample_missing_cts, const uint32_t* sample_het
     if (removed_ct) {
       BitvecAndNot(newly_excluded, raw_sample_ctl, sample_include);
       BitvecAndNot(newly_excluded, raw_sample_ctl, sex_male);
-      snprintf(outname_end, kMaxOutfnameExtBlen, ".irem");
-      if (fopen_checked(outname, "w", &outfile)) {
-        goto MindFilter_ret_OPEN_FAIL;
-      }
-      sample_uidx = 0;
-      char* write_iter = g_textbuf;
-      char* textbuf_flush = &(write_iter[kMaxMediumLine]);
-      for (uint32_t sample_idx = 0; sample_idx < removed_ct; ++sample_idx, ++sample_uidx) {
-        FindFirst1BitFromU32(newly_excluded, &sample_uidx);
-        write_iter = strcpya(write_iter, &(sample_ids[sample_uidx * max_sample_id_blen]));
-        if (sids) {
-          *write_iter++ = '\t';
-          write_iter = strcpya(write_iter, &(sids[sample_uidx * max_sid_blen]));
-        }
-        *write_iter++ = '\n';
-        if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
-          goto MindFilter_ret_WRITE_FAIL;
-        }
-      }
-      if (fclose_flush_null(textbuf_flush, write_iter, &outfile)) {
-        goto MindFilter_ret_WRITE_FAIL;
+      snprintf(outname_end, kMaxOutfnameExtBlen, ".mindrem.id");
+      reterr = WriteSampleIds(newly_excluded, sample_ids, sids, outname, removed_ct, max_sample_id_blen, max_sid_blen, 0);
+      if (reterr) {
+        goto MindFilter_ret_1;
       }
       logprintfww("ID%s written to %s .\n", (removed_ct == 1)? "" : "s", outname);
       *sample_ct_ptr -= removed_ct;
@@ -2908,15 +2890,8 @@ PglErr MindFilter(const uint32_t* sample_missing_cts, const uint32_t* sample_het
   MindFilter_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  MindFilter_ret_OPEN_FAIL:
-    reterr = kPglRetOpenFail;
-    break;
-  MindFilter_ret_WRITE_FAIL:
-    reterr = kPglRetWriteFail;
-    break;
   }
  MindFilter_ret_1:
-  fclose_cond(outfile);
   BigstackReset(bigstack_mark);
   return reterr;
 }

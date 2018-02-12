@@ -6054,7 +6054,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
 
 static const double kSexMaleToCovarD[2] = {2.0, 1.0};
 
-PglErr GlmMain(const uintptr_t* orig_sample_include, const char* sample_ids, const char* sids, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const AdjustInfo* adjust_info_ptr, const APerm* aperm_ptr, const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t orig_covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t xchr_model, double ci_size, double vif_thresh, double pfilter, double output_min_p, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr GlmMain(const uintptr_t* orig_sample_include, const char* sample_ids, const char* sids, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const AdjustInfo* adjust_info_ptr, const APerm* aperm_ptr, const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t orig_covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t xchr_model, double ci_size, double vif_thresh, double pfilter, double output_min_p, uint32_t no_id_header, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   gzFile gz_local_covar_file = nullptr;
@@ -7168,7 +7168,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const char* sample_ids, con
       }
       // write IDs
       snprintf(outname_end2, 22, ".id");
-      reterr = WriteSampleIds(cur_sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, 0);
+      reterr = WriteSampleIds(cur_sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, no_id_header);
       if (reterr) {
         goto GlmMain_ret_1;
       }
@@ -7176,14 +7176,14 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const char* sample_ids, con
         // quasi-bugfix (7 Jan 2017): use ".x.id" suffix instead of ".id.x",
         // since the last part of the file extension should indicate format
         snprintf(outname_end2, 22, ".x.id");
-        reterr = WriteSampleIds(cur_sample_include_x, sample_ids, sids, outname, sample_ct_x, max_sample_id_blen, max_sid_blen, 0);
+        reterr = WriteSampleIds(cur_sample_include_x, sample_ids, sids, outname, sample_ct_x, max_sample_id_blen, max_sid_blen, no_id_header);
         if (reterr) {
           goto GlmMain_ret_1;
         }
       }
       if (sample_ct_y && y_samples_are_different) {
         snprintf(outname_end2, 22, ".y.id");
-        reterr = WriteSampleIds(cur_sample_include_y, sample_ids, sids, outname, sample_ct_y, max_sample_id_blen, max_sid_blen, 0);
+        reterr = WriteSampleIds(cur_sample_include_y, sample_ids, sids, outname, sample_ct_y, max_sample_id_blen, max_sid_blen, no_id_header);
         if (reterr) {
           goto GlmMain_ret_1;
         }

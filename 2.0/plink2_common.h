@@ -103,7 +103,7 @@ FLAGSET64_DEF_START()
   kfMiscRefFromFaForce = (1LLU << 39),
   kfMiscMergeX = (1LLU << 40),
   kfMiscKeepFileStrsSid = (1LLU << 41),
-  kfMiscWriteSamplesNoheader = (1LLU << 42)
+  kfMiscNoIdHeader = (1LLU << 42)
 FLAGSET64_DEF_END(MiscFlags);
 
 FLAGSET64_DEF_START()
@@ -749,7 +749,7 @@ PglErr ParseChrRanges(const char* const* argvk, const char* flagname_p, const ch
 // sample_ct not relevant if genovecs_ptr == nullptr
 PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, PgenFileInfo* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** dosage_present_ptr, Dosage*** dosage_val_bufs_ptr, uint32_t* read_block_size_ptr, unsigned char** main_loadbufs, pthread_t** threads_ptr, PgenReader*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr);
 
-PglErr WriteSampleIds(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const char* outname, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t noheader);
+PglErr WriteSampleIds(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const char* outname, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t no_id_header);
 
 uint32_t RealpathIdentical(const char* outname, const char* read_realpath, char* write_realpath_buf);
 
