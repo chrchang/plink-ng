@@ -37,7 +37,7 @@ double TstatToP(double tt, double df);
 // interface that allocates and incrementally fills a table.)
 double TstatToP2(double tt, double df, double cached_gamma_mult);
 
-double PToZscore(double pval);
+double QuantileToZscore(double pval);
 
 double HweP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t midp);
 
@@ -54,4 +54,4 @@ double HweXchrP(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, i
 }
 #endif
 
-#endif // __PLINK2_STATS_H__
+#endif  // __PLINK2_STATS_H__

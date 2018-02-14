@@ -84,8 +84,7 @@
 // if S_CAST(uint32_t, [potentially wider value]) is reserved for situations
 // where a higher bit may actually be set.  This pragma can always be commented
 // out on the few occasions where inappropriate silent truncation is suspected.
-#ifdef __APPLE__
-  // todo: explicitly detect clang vs. gcc
+#ifdef __clang__
 #  pragma clang diagnostic ignored "-Wshorten-64-to-32"
 #endif
 
@@ -105,7 +104,7 @@
 #  define __STDC_FORMAT_MACROS 1
 #endif
 #include <inttypes.h>
-#include <limits.h> // CHAR_BIT, PATH_MAX
+#include <limits.h>  // CHAR_BIT, PATH_MAX
 
 // #define NDEBUG
 #include <assert.h>
@@ -194,8 +193,7 @@ namespace plink2 {
 #  define CSINLINE2 static inline
   // _Static_assert() should work in gcc 4.6+
 #  if (__GNUC__ <= 4) && (__GNUC_MINOR__ < 6)
-#    if defined(__APPLE__) && defined(__has_feature) && defined(__has_extension)
-      // clang
+#    if defined(__clang__) && defined(__has_feature) && defined(__has_extension)
 #      if __has_feature(c_static_assert) || __has_extension(c_static_assert)
 #        define static_assert _Static_assert
 #      else
@@ -417,7 +415,7 @@ typedef uint32_t BoolErr;
 #    define uint64_t unsigned long long
 #    define int64_t long long
 #  endif
-#else
+#else  // Linux or OS X
 #  define FOPEN_RB "r"
 #  define FOPEN_WB "w"
 #  define FOPEN_AB "a"
@@ -470,7 +468,7 @@ typedef uint32_t BoolErr;
 #    define PRIdPTR PRId64
 #    define PRIxPTR2 "016I64x"
 
-#  else // not _WIN32
+#  else  // not _WIN32
 
 #    ifndef PRIuPTR
 #      define PRIuPTR "lu"
@@ -480,9 +478,9 @@ typedef uint32_t BoolErr;
 #    endif
 #    define PRIxPTR2 "016lx"
 
-#  endif // Win64
+#  endif  // Win64
 
-#else // not __LP64__
+#else  // not __LP64__
 
   // without this, we get ridiculous warning spew...
   // not 100% sure this is the right cutoff, but this has been tested on 4.7
@@ -609,7 +607,7 @@ typedef float VecF __attribute__ ((vector_size (16)));
 #    define VCONST_F(xx) {xx, xx, xx, xx}
 #    define vecf_setzero() R_CAST(VecF, _mm_setzero_ps())
 #  endif
-#else // not __LP64__
+#else  // not __LP64__
 CONSTU31(kBytesPerVec, 4);
 CONSTU31(kBytesPerFVec, 4);
 CONSTU31(kBitsPerWord, 32);
@@ -757,7 +755,7 @@ HEADER_INLINE Halfword PackWordToHalfword(uintptr_t ww) {
   // Assumes only even bits of ww can be set.
   return _pext_u64(ww, kMask5555);
 }
-#else // !USE_AVX2
+#else  // !USE_AVX2
 HEADER_INLINE uintptr_t UnpackHalfwordToWord(uintptr_t hw) {
 #  ifdef __LP64__
   hw = (hw | (hw << 16)) & kMask0000FFFF;
@@ -778,7 +776,7 @@ HEADER_INLINE Halfword PackWordToHalfword(uintptr_t ww) {
 #  endif
   return S_CAST(Halfword, ww | (ww >> kBitsPerWordD4));
 }
-#endif // !USE_AVX2
+#endif  // !USE_AVX2
 
 // alignment must be a power of 2
 // tried splitting out RoundDownPow2U32() and RoundUpPow2U32() functions, no
@@ -886,7 +884,7 @@ BoolErr ScanUintCapped(const char* str_iter, uint64_t cap, uint32_t* valp);
 
 // [-bound, bound]
 BoolErr ScanIntAbsBounded(const char* str_iter, uint64_t bound, int32_t* valp);
-#else // not __LP64__
+#else  // not __LP64__
 // Need to be more careful in 32-bit case due to overflow.
 // A funny-looking div_10/mod_10 interface is used since the cap will usually
 // be a constant, and we want the integer division/modulus to occur at compile
@@ -1214,7 +1212,7 @@ HEADER_INLINE uintptr_t PopcountWords(const uintptr_t* bitvec, uintptr_t word_ct
   }
   return tot;
 }
-#else // !USE_AVX2
+#else  // !USE_AVX2
 // assumes vec_ct is a multiple of 3
 uintptr_t PopcountVecsNoSse42(const VecUL* bit_vvec, uintptr_t vec_ct);
 
@@ -1235,7 +1233,7 @@ HEADER_INLINE uintptr_t PopcountWords(const uintptr_t* bitvec, uintptr_t word_ct
   }
   return tot;
 }
-#endif // !USE_AVX2
+#endif  // !USE_AVX2
 
 // Turns out memcpy(&cur_word, bytearr, ct) can't be trusted to be fast when ct
 // isn't known at compile time.
@@ -1585,7 +1583,7 @@ HEADER_INLINE void TransposeBitblock(const uintptr_t* read_iter, uint32_t read_u
   TransposeBitblockInternal(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, vecaligned_buf);
 }
 
-#else // !__LP64__
+#else  // !__LP64__
 CONSTU31(kPglBitTransposeBufbytes, (kPglBitTransposeBatch * kPglBitTransposeBatch) / (CHAR_BIT / 2));
 void TransposeBitblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecUL* __restrict buf0, VecUL* __restrict buf1);
 
@@ -1752,7 +1750,7 @@ typedef uint32_t tname
 #endif
 
 #ifdef __cplusplus
-} // namespace plink2
+}  // namespace plink2
 #endif
 
-#endif // __PGENLIB_INTERNAL_H__
+#endif  // __PGENLIB_INTERNAL_H__

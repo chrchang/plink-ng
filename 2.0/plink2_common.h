@@ -67,43 +67,39 @@ FLAGSET64_DEF_START()
   kfMiscMajRef = (1 << 3),
   kfMiscMajRefForce = (1 << 4),
   kfMiscNonfounders = (1 << 5),
-  kfMiscKeepfileSid = (1 << 6),
-  kfMiscRemovefileSid = (1 << 7),
-  kfMiscKeepAutoconv = (1 << 8),
-  kfMiscDoubleId = (1 << 9),
-  kfMiscBiallelicOnly = (1 << 10),
-  kfMiscBiallelicOnlyStrict = (1 << 11),
-  kfMiscBiallelicOnlyList = (1 << 12),
-  kfMiscExcludePvarFilterFail = (1 << 13),
-  kfMiscVcfRequireGt = (1 << 14),
-  kfMiscAutosomePar = (1 << 15),
-  kfMiscAutosomeOnly = (1 << 16),
-  kfMiscMergePar = (1 << 17),
-  kfMiscPhenoColNums = (1 << 18),
-  kfMiscCovarColNums = (1 << 19),
-  kfMiscHweMidp = (1 << 20),
-  kfMiscHweKeepFewhet = (1 << 21),
-  kfMiscWriteSnplistZs = (1 << 22),
-  kfMiscMafSucc = (1 << 23),
-  kfMiscGenoDosage = (1 << 24),
-  kfMiscGenoHhMissing = (1 << 25),
-  kfMiscMindDosage = (1 << 26),
-  kfMiscMindHhMissing = (1 << 27),
-  kfMiscGenotypingRateDosage = (1 << 28),
-  kfMiscSetMissingVarIds = (1 << 29),
-  kfMiscChrOverrideCmdline = (1 << 30),
-  kfMiscChrOverrideFile = (1LLU << 31),
-  kfMiscNewVarIdOverflowMissing = (1LLU << 32),
-  kfMiscNewVarIdOverflowTruncate = (1LLU << 33),
-  kfMiscRequirePheno = (1LLU << 34),
-  kfMiscRequireCovar = (1LLU << 35),
-  kfMiscCatPhenoFamily = (1LLU << 36),
-  kfMiscRefAlleleForce = (1LLU << 37),
-  kfMiscAlt1AlleleForce = (1LLU << 38),
-  kfMiscRefFromFaForce = (1LLU << 39),
-  kfMiscMergeX = (1LLU << 40),
-  kfMiscKeepFileStrsSid = (1LLU << 41),
-  kfMiscNoIdHeader = (1LLU << 42)
+  kfMiscExcludePvarFilterFail = (1 << 6),
+  kfMiscAutosomePar = (1 << 7),
+  kfMiscAutosomeOnly = (1 << 8),
+  kfMiscMergePar = (1 << 9),
+  kfMiscPhenoColNums = (1 << 10),
+  kfMiscCovarColNums = (1 << 11),
+  kfMiscHweMidp = (1 << 12),
+  kfMiscHweKeepFewhet = (1 << 13),
+  kfMiscWriteSnplistZs = (1 << 14),
+  kfMiscMafSucc = (1 << 15),
+  kfMiscGenoDosage = (1 << 16),
+  kfMiscGenoHhMissing = (1 << 17),
+  kfMiscMindDosage = (1 << 18),
+  kfMiscMindHhMissing = (1 << 19),
+  kfMiscGenotypingRateDosage = (1 << 20),
+  kfMiscSetMissingVarIds = (1 << 21),
+  kfMiscChrOverrideCmdline = (1 << 22),
+  kfMiscChrOverrideFile = (1 << 23),
+  kfMiscNewVarIdOverflowMissing = (1 << 24),
+  kfMiscNewVarIdOverflowTruncate = (1 << 25),
+  kfMiscRequirePheno = (1 << 26),
+  kfMiscRequireCovar = (1 << 27),
+  kfMiscCatPhenoFamily = (1 << 28),
+  kfMiscRefAlleleForce = (1 << 29),
+  kfMiscAlt1AlleleForce = (1 << 30),
+  kfMiscRefFromFaForce = (1LLU << 31),
+  kfMiscMergeX = (1LLU << 32),
+  kfMiscNoIdHeader = (1LLU << 33),
+  kfMiscNoIdHeaderIidOnly = (1LLU << 34),
+  kfMiscBiallelicOnly = (1LLU << 35),
+  kfMiscBiallelicOnlyStrict = (1LLU << 36),
+  kfMiscBiallelicOnlyList = (1LLU << 37),
+  kfMiscStrictSid0 = (1LLU << 38)
 FLAGSET64_DEF_END(MiscFlags);
 
 FLAGSET64_DEF_START()
@@ -149,6 +145,34 @@ FLAGSET64_DEF_START()
   kfExportfOmitNonmaleY = (1LLU << 37)
 FLAGSET64_DEF_END(ExportfFlags);
 
+FLAGSET_DEF_START()
+  kfSampleId0,
+  kfSampleIdFidPresent = (1 << 0),
+  kfSampleIdNoIdHeader = (1 << 1),
+  kfSampleIdNoIdHeaderIidOnly = (1 << 2),
+  kfSampleIdStrictSid0 = (1 << 3)
+FLAGSET_DEF_END(SampleIdFlags);
+
+typedef struct SampleIdInfoStruct {
+  char* sample_ids;
+  char* sids;
+  uintptr_t max_sample_id_blen;
+  uintptr_t max_sid_blen;
+  SampleIdFlags flags;
+} SampleIdInfo;
+
+typedef struct PaternalIdInfoStruct {
+  char* paternal_ids;
+  char* maternal_ids;
+  uintptr_t max_paternal_id_blen;
+  uintptr_t max_maternal_id_blen;
+} ParentalIdInfo;
+
+typedef struct PedigreeIdInfoStruct {
+  SampleIdInfo sii;
+  ParentalIdInfo parental_id_info;
+} PedigreeIdInfo;
+
 typedef struct APermStruct {
   uint32_t min;
   uint32_t max;
@@ -161,7 +185,6 @@ typedef struct APermStruct {
 // (2^31 - 1000001) / 2
 CONSTU31(kApermMax, 1073241823);
 
-
 typedef struct TwoColParamsStruct {
   uint32_t colx;
   uint32_t colid;
@@ -169,6 +192,11 @@ typedef struct TwoColParamsStruct {
   char skipchar;
   char fname[];
 } TwoColParams;
+
+void InitPedigreeIdInfo(MiscFlags misc_flags, PedigreeIdInfo* piip);
+
+// no CleanupPedigreeIdInfo function since LoadPsam() allocates the arrays in
+// bigstack.
 
 
 HEADER_INLINE BoolErr bigstack_alloc_dosage(uintptr_t ct, Dosage** dosage_arr_ptr) {
@@ -207,14 +235,29 @@ void SetHetMissingKeepdosage(uintptr_t word_ct, uintptr_t* genovec, uint32_t* wr
 
 void GenoarrToNonmissing(const uintptr_t* genoarr, uint32_t sample_ctl2, uintptr_t* nonmissing_bitarr);
 
-uint32_t GenoarrCountMissingNotsubsetUnsafe(const uintptr_t* genoarr, const uintptr_t* exclude_mask, uint32_t sample_ct);
+uint32_t GenoarrCountMissingInvsubsetUnsafe(const uintptr_t* genoarr, const uintptr_t* exclude_mask, uint32_t sample_ct);
 
+// See also IsDataFidColRequired(), etc. in plink2_data.h, which checks whether
+// at least one remaining value is nonzero.
+HEADER_INLINE uint32_t IsFidColRequired(const SampleIdInfo* siip, uint32_t maybe_modifier) {
+  return (maybe_modifier & 2) || ((maybe_modifier & 1) && (siip->flags & kfSampleIdFidPresent));
+}
 
-uint32_t IsSidColRequired(const uintptr_t* sample_include, const char* sids, uint32_t sample_ct, uint32_t max_sid_blen, uint32_t maybe_modifier);
+HEADER_INLINE uint32_t IsSidColRequired(const char* sids, uint32_t maybe_modifier) {
+  return (maybe_modifier & 2) || ((maybe_modifier & 1) && sids);
+}
 
-// forced SID '0' if sids == nullptr
-// ok for sample_augid_map_ptr == nullptr
-PglErr AugidInitAlloc(const uintptr_t* sample_include, const char* sample_ids, const char* sids, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t** sample_augid_map_ptr, char** sample_augids_ptr, uintptr_t* max_sample_augid_blen_ptr);
+void CollapsedSampleFmtidInit(const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t sample_ct, uint32_t include_fid, uint32_t include_sid, uintptr_t max_sample_fmtid_blen, char* collapsed_sample_fmtids_iter);
+
+HEADER_INLINE uintptr_t GetMaxSampleFmtidBlen(const SampleIdInfo* siip, uint32_t include_fid, uint32_t include_sid) {
+  uintptr_t max_sid_blen = 0;
+  if (include_sid) {
+    max_sid_blen = siip->sids? siip->max_sid_blen : 2;
+  }
+  return siip->max_sample_id_blen + max_sid_blen - 2 * (!include_fid);
+}
+
+BoolErr CollapsedSampleFmtidInitAlloc(const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t sample_ct, uint32_t include_fid, uint32_t include_sid, char** collapsed_sample_fmtids_ptr, uintptr_t* max_sample_fmtid_blen_ptr);
 
 HEADER_INLINE double GetNonmajFreq(const double* cur_allele_freqs, uint32_t cur_allele_ct) {
   double tot_nonlast_freq = cur_allele_freqs[0];
@@ -245,6 +288,16 @@ HEADER_INLINE double GetAlleleFreq(const double* cur_allele_freqs, uint32_t alle
 }
 
 
+// Functions with Xid in their name deal with both FID/IID (with a single tab
+// separator) and FID/IID/SID (two tabs) sample IDs.  (Missing FID is
+// represented as FID='0'.)
+
+// With no header line, --keep/--remove and the like should interpret a single
+// token as IID (treating FID as 0), and two tokens as FID/IID.  --no-id-header
+// does not support IID/SID output, so we don't need to worry about supporting
+// FidIidSidOrIidSid.
+// With a header line, all four {FID present/absent, SID present/absent}
+// combinations are allowed.
 FLAGSET_DEF_START()
   kfXidMode0,
 
@@ -252,20 +305,20 @@ FLAGSET_DEF_START()
   kfXidModeFlagNeverFid = (1 << 1),
   kfXidModeFlagSid = (1 << 2),
 
-  kfXidModeFidiid = 0,
-  kfXidModeFidiidOrIid = kfXidModeFlagOneTokenOk,
+  kfXidModeFidIid = 0,
+  kfXidModeFidIidOrIid = kfXidModeFlagOneTokenOk,
   kfXidModeIid = (kfXidModeFlagOneTokenOk | kfXidModeFlagNeverFid),
-  kfXidModeFidiidSid = kfXidModeFlagSid,
+  kfXidModeFidIidSid = kfXidModeFlagSid,
   kfXidModeIidSid = (kfXidModeFlagNeverFid | kfXidModeFlagSid)
 FLAGSET_DEF_END(XidMode);
 
 // Assumes fixed-width.
 HEADER_INLINE uint32_t GetXidColCt(XidMode xid_mode) {
-  return 2 + (xid_mode == kfXidModeFidiidSid) - (xid_mode == kfXidModeIid);
+  return 2 + (xid_mode == kfXidModeFidIidSid) - (xid_mode == kfXidModeIid);
 }
 
 // sample_xid_map allocated on bottom, to play well with --indiv-sort
-PglErr SortedXidboxInitAlloc(const uintptr_t* sample_include, const char* sample_ids, const char* sids, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t allow_dups, XidMode xid_mode, uint32_t use_nsort, char** sorted_xidbox_ptr, uint32_t** xid_map_ptr, uintptr_t* max_xid_blen_ptr);
+PglErr SortedXidboxInitAlloc(const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t sample_ct, uint32_t allow_dups, XidMode xid_mode, uint32_t use_nsort, char** sorted_xidbox_ptr, uint32_t** xid_map_ptr, uintptr_t* max_xid_blen_ptr);
 
 // returns slen for ID, or 0 on parse failure.
 uint32_t XidRead(uintptr_t max_xid_blen, uint32_t comma_delim, XidMode xid_mode, const char** read_pp, char* __restrict idbuf);
@@ -291,26 +344,24 @@ HEADER_INLINE BoolErr SortedXidboxReadFind(const char* __restrict sorted_xidbox,
 // sample_uidx conversions.)
 BoolErr SortedXidboxReadMultifind(const char* __restrict sorted_xidbox, uintptr_t max_xid_blen, uintptr_t xid_ct, uint32_t comma_delim, XidMode xid_mode, const char** read_pp, uint32_t* __restrict xid_idx_start_ptr, uint32_t* __restrict xid_idx_end_ptr, char* __restrict idbuf);
 
-ENUM_U31_DEF_START()
-  kSidDetectModeNotLoaded,
-  kSidDetectModeLoaded,
-  kSidDetectModeForce
-ENUM_U31_DEF_END(SidDetectMode);
+FLAGSET_DEF_START()
+  kfXidHeader0,
 
-// may return kPglRetLongLine or kPglRetEmptyFile
-// loadbuf_iter_ptr can be nullptr
-// line_idx must be zero unless initial lines were skipped
-// Follow this up with
-//   if (xid_mode == kfXidModeFidiidOrIid) {
-//     xid_mode = kfXidModeFidiid;
-//   }
-// when using this on a regular .tsv-like file.  (Otherwise, XidRead() will
-// tolerate a mix of single-token and multitoken lines, where --double-id
-// interpretation is applied to single-token lines.)
-PglErr LoadXidHeader(const char* flag_name, SidDetectMode sid_detect_mode, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, XidMode* xid_mode_ptr);
+  kfXidHeaderFixedWidth = (1 << 0),
+  kfXidHeaderIgnoreSid = (1 << 1),
+  kfXidHeaderFixedWidthIgnoreSid = (kfXidHeaderFixedWidth | kfXidHeaderIgnoreSid)
+FLAGSET_DEF_END(XidHeaderFlags);
+
+// May return kPglRetLongLine or kPglRetEmptyFile.
+// loadbuf_iter_ptr can be nullptr.
+// line_idx must be zero unless initial lines were skipped.
+// If no header line is present, xid_mode will be set to kfXidModeFidIid if
+// kfXidHeaderFixedWidth is set, and kfXidModeFidIidOrIid (which tolerates a
+// mix of single-token and multitoken lines) otherwise.
+PglErr LoadXidHeader(const char* flag_name, XidHeaderFlags xid_header_flags, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, XidMode* xid_mode_ptr);
 
 // sets last character of loadbuf to ' '
-PglErr OpenAndLoadXidHeader(const char* fname, const char* flag_name, SidDetectMode sid_detect_mode, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, XidMode* xid_mode_ptr);
+PglErr OpenAndLoadXidHeader(const char* fname, const char* flag_name, XidHeaderFlags xid_header_flags, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, XidMode* xid_mode_ptr);
 
 
 // note that this is no longer divisible by 64
@@ -386,12 +437,10 @@ typedef struct {
   // base.
 
   uintptr_t* chr_mask;  // which chromosomes aren't known to be absent?
-  // This is a misnomer--it includes X and excludes MT.  Underlying concept is
-  // "are some calls guaranteed to be homozygous (assuming >= 1 male)", which
-  // is no longer true for MT since heteroplasmy is a thing.  (Well, the real
-  // goal with MT is to enable dosage-based analysis, but until all pipelines
-  // have adapted, diploid data handling loses slightly less information than
-  // haploid.)
+
+  // This includes chrX.  As of alpha 2, it also includes MT again (like plink
+  // 1.07, and unlike 1.9 and 2.0a1), now that enough dosage functionality is
+  // in place.
   uintptr_t* haploid_mask;
 
   // order of chromosomes in input files
@@ -414,7 +463,12 @@ typedef struct {
   ChrsetSource chrset_source;
 
   uintptr_t chr_exclude[kChrExcludeWords];
-  int32_t xymt_codes[kChrOffsetCt];  // X, Y, XY...; -2 = not in chromosome set
+
+  // X, Y, XY...; -2 = not in chromosome set
+  // may want to redefine this as a uint32_t, the static casts are getting
+  // annoying
+  int32_t xymt_codes[kChrOffsetCt];
+
   uint32_t max_numeric_code;
   uint32_t max_code;  // no longer identical to max_numeric_code, with PARs
 
@@ -632,7 +686,7 @@ uint32_t NotOnlyXymt(const uintptr_t* variant_include, const ChrInfo* cip, uint3
 
 uint32_t CountNonAutosomalVariants(const uintptr_t* variant_include, const ChrInfo* cip, uint32_t count_x, uint32_t count_mt);
 
-PglErr ConditionalAllocateNonAutosomalVariants(const ChrInfo* cip, const char* calc_descrip, uint32_t raw_variant_ct, uintptr_t** variant_include_ptr, uint32_t* variant_ct_ptr);
+PglErr ConditionalAllocateNonAutosomalVariants(const ChrInfo* cip, const char* calc_descrip, uint32_t raw_variant_ct, const uintptr_t** variant_include_ptr, uint32_t* variant_ct_ptr);
 
 void FillSubsetChrFoVidxStart(const uintptr_t* variant_include, const ChrInfo* cip, uint32_t* subset_chr_fo_vidx_start);
 
@@ -749,7 +803,12 @@ PglErr ParseChrRanges(const char* const* argvk, const char* flagname_p, const ch
 // sample_ct not relevant if genovecs_ptr == nullptr
 PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, PgenFileInfo* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** dosage_present_ptr, Dosage*** dosage_val_bufs_ptr, uint32_t* read_block_size_ptr, unsigned char** main_loadbufs, pthread_t** threads_ptr, PgenReader*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr);
 
-PglErr WriteSampleIds(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const char* outname, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t no_id_header);
+
+// These use g_textbuf.
+PglErr WriteSampleIdsOverride(const uintptr_t* sample_include, const SampleIdInfo* siip, const char* outname, uint32_t sample_ct, SampleIdFlags override_flags);
+HEADER_INLINE PglErr WriteSampleIds(const uintptr_t* sample_include, const SampleIdInfo* siip, const char* outname, uint32_t sample_ct) {
+  return WriteSampleIdsOverride(sample_include, siip, outname, sample_ct, siip->flags);
+}
 
 uint32_t RealpathIdentical(const char* outname, const char* read_realpath, char* write_realpath_buf);
 
@@ -764,7 +823,7 @@ HEADER_INLINE void OutnameZstSet(const char* ext, uint32_t output_zst, char* out
 }
 
 #ifdef __cplusplus
-} // namespace plink2
+}  // namespace plink2
 #endif
 
-#endif // __PLINK2_COMMON_H__
+#endif  // __PLINK2_COMMON_H__

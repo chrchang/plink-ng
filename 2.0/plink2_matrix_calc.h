@@ -38,16 +38,18 @@ FLAGSET_DEF_START()
   kfKingTableZs = (1 << 6),
   kfKingCounts = (1 << 7),
 
-  kfKingColId = (1 << 8),
-  kfKingColMaybesid = (1 << 9),
-  kfKingColSid = (1 << 10),
-  kfKingColNsnp = (1 << 11),
-  kfKingColHethet = (1 << 12),
-  kfKingColIbs0 = (1 << 13),
-  kfKingColIbs1 = (1 << 14),
-  kfKingColKinship = (1 << 15),
-  kfKingColDefault = (kfKingColId | kfKingColMaybesid | kfKingColNsnp | kfKingColHethet | kfKingColIbs0 | kfKingColKinship),
-  kfKingColAll = ((kfKingColKinship * 2) - kfKingColId)
+  kfKingColMaybefid = (1 << 8),
+  kfKingColFid = (1 << 9),
+  kfKingColId = (1 << 10),
+  kfKingColMaybesid = (1 << 11),
+  kfKingColSid = (1 << 12),
+  kfKingColNsnp = (1 << 13),
+  kfKingColHethet = (1 << 14),
+  kfKingColIbs0 = (1 << 15),
+  kfKingColIbs1 = (1 << 16),
+  kfKingColKinship = (1 << 17),
+  kfKingColDefault = (kfKingColMaybefid | kfKingColId | kfKingColMaybesid | kfKingColNsnp | kfKingColHethet | kfKingColIbs0 | kfKingColKinship),
+  kfKingColAll = ((kfKingColKinship * 2) - kfKingColMaybefid)
 FLAGSET_DEF_END(KingFlags);
 
 FLAGSET_DEF_START()
@@ -67,24 +69,31 @@ FLAGSET_DEF_START()
 
   kfGrmMeanimpute = (1 << 9),
   kfGrmCov = (1 << 10),
-  kfGrmNoIdHeader = (1 << 11)
+  kfGrmNoIdHeader = (1 << 11),
+  kfGrmNoIdHeaderIidOnly = (1 << 12)
 FLAGSET_DEF_END(GrmFlags);
 
 FLAGSET_DEF_START()
   kfPca0,
   kfPcaApprox = (1 << 0),
   kfPcaMeanimpute = (1 << 1),
-  kfPcaSid = (1 << 2),
-  kfPcaVarWts = (1 << 3),
-  kfPcaVarZs = (1 << 4),
+  kfPcaVarWts = (1 << 2),
+  kfPcaVarZs = (1 << 3),
 
-  kfPcaVcolChrom = (1 << 5),
-  kfPcaVcolPos = (1 << 6),
-  kfPcaVcolRef = (1 << 7),
-  kfPcaVcolAlt1 = (1 << 8),
-  kfPcaVcolAlt = (1 << 9),
-  kfPcaVcolMaj = (1 << 10),
-  kfPcaVcolNonmaj = (1 << 11),
+  kfPcaScolMaybefid = (1 << 4),
+  kfPcaScolFid = (1 << 5),
+  kfPcaScolMaybesid = (1 << 6),
+  kfPcaScolSid = (1 << 7),
+  kfPcaScolDefault = (kfPcaScolMaybefid | kfPcaScolMaybesid),
+  kfPcaScolAll = ((kfPcaScolSid * 2) - kfPcaScolMaybefid),
+
+  kfPcaVcolChrom = (1 << 8),
+  kfPcaVcolPos = (1 << 9),
+  kfPcaVcolRef = (1 << 10),
+  kfPcaVcolAlt1 = (1 << 11),
+  kfPcaVcolAlt = (1 << 12),
+  kfPcaVcolMaj = (1 << 13),
+  kfPcaVcolNonmaj = (1 << 14),
   kfPcaVcolDefault = (kfPcaVcolChrom | kfPcaVcolMaj | kfPcaVcolNonmaj),
   kfPcaVcolAll = ((kfPcaVcolNonmaj * 2) - kfPcaVcolChrom)
 FLAGSET_DEF_END(PcaFlags);
@@ -103,17 +112,19 @@ FLAGSET_DEF_START()
   kfScoreListVariants = (1 << 9),
   kfScoreListVariantsZs = (1 << 10),
 
-  kfScoreColMaybesid = (1 << 11),
-  kfScoreColSid = (1 << 12),
-  kfScoreColPheno1 = (1 << 13),
-  kfScoreColPhenos = (1 << 14),
-  kfScoreColNmissAllele = (1 << 15),
-  kfScoreColDenom = (1 << 16),
-  kfScoreColDosageSum = (1 << 17),
-  kfScoreColScoreAvgs = (1 << 18),
-  kfScoreColScoreSums = (1 << 19),
-  kfScoreColDefault = (kfScoreColMaybesid | kfScoreColPhenos | kfScoreColNmissAllele | kfScoreColDosageSum | kfScoreColScoreAvgs),
-  kfScoreColAll = ((kfScoreColScoreSums * 2) - kfScoreColMaybesid)
+  kfScoreColMaybefid = (1 << 11),
+  kfScoreColFid = (1 << 12),
+  kfScoreColMaybesid = (1 << 13),
+  kfScoreColSid = (1 << 14),
+  kfScoreColPheno1 = (1 << 15),
+  kfScoreColPhenos = (1 << 16),
+  kfScoreColNmissAllele = (1 << 17),
+  kfScoreColDenom = (1 << 18),
+  kfScoreColDosageSum = (1 << 19),
+  kfScoreColScoreAvgs = (1 << 20),
+  kfScoreColScoreSums = (1 << 21),
+  kfScoreColDefault = (kfScoreColMaybefid | kfScoreColMaybesid | kfScoreColPhenos | kfScoreColNmissAllele | kfScoreColDosageSum | kfScoreColScoreAvgs),
+  kfScoreColAll = ((kfScoreColScoreSums * 2) - kfScoreColMaybefid)
 FLAGSET_DEF_END(ScoreFlags);
 
 typedef struct ScoreInfoStruct {
@@ -128,22 +139,22 @@ void InitScore(ScoreInfo* score_info_ptr);
 
 void CleanupScore(ScoreInfo* score_info_ptr);
 
-PglErr KingCutoffBatch(const char* sample_ids, const char* sids, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, double king_cutoff, uintptr_t* sample_include, char* king_cutoff_fprefix, uint32_t* sample_ct_ptr);
+PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double king_cutoff, uintptr_t* sample_include, char* king_cutoff_fprefix, uint32_t* sample_ct_ptr);
 
-PglErr CalcKing(const char* sample_ids, const char* sids, uintptr_t* variant_include, const ChrInfo* cip, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, double king_cutoff, double king_table_filter, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t no_id_header, uint32_t max_thread_ct, PgenReader* simple_pgrp, uintptr_t* sample_include, uint32_t* sample_ct_ptr, char* outname, char* outname_end);
+PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, uint32_t raw_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_cutoff, double king_table_filter, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, uintptr_t* sample_include, uint32_t* sample_ct_ptr, char* outname, char* outname_end);
 
-PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const char* sample_ids, const char* sids, uintptr_t* variant_include, const ChrInfo* cip, const char* subset_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, double king_table_filter, double king_table_subset_thresh, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
+PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const char* subset_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_table_filter, double king_table_subset_thresh, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
-PglErr CalcGrm(const uintptr_t* orig_sample_include, const char* sample_ids, const char* sids, uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* variant_allele_idxs, const AltAlleleCt* maj_alleles, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, GrmFlags grm_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end, double** grm_ptr);
+PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* variant_allele_idxs, const AltAlleleCt* maj_alleles, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, GrmFlags grm_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end, double** grm_ptr);
 
 #ifndef NOLAPACK
-PglErr CalcPca(const uintptr_t* sample_include, const char* sample_ids, const char* sids, uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const AltAlleleCt* maj_alleles, const double* allele_freqs, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t pc_ct, PcaFlags pca_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, double* grm, char* outname, char* outname_end);
+PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const AltAlleleCt* maj_alleles, const double* allele_freqs, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t pc_ct, PcaFlags pca_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, double* grm, char* outname, char* outname_end);
 #endif
 
-PglErr ScoreReport(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const double* allele_freqs, const ScoreInfo* score_info_ptr, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t xchr_model, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
+PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const double* allele_freqs, const ScoreInfo* score_info_ptr, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t xchr_model, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
 #ifdef __cplusplus
-} // namespace plink2
+}  // namespace plink2
 #endif
 
-#endif // __PLINK2_MATRIX_CALC_H__
+#endif  // __PLINK2_MATRIX_CALC_H__

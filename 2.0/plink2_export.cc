@@ -1120,10 +1120,9 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
     }
     const uint32_t ref_allele_second = !(exportf_flags & kfExportfRefFirst);
     const int32_t x_code = cip->xymt_codes[kChrOffsetX];
-    const int32_t mt_code = cip->xymt_codes[kChrOffsetMT];
     char* chr_buf = nullptr;
     uint32_t is_x = 0;
-    uint32_t is_haploid_or_mt = 0;
+    uint32_t is_haploid = 0;
     uint32_t variant_uidx = FindFirst1BitFrom(variant_include, 0);
     uint32_t chr_fo_idx = UINT32_MAX;
     uint32_t chr_end = 0;
@@ -1142,7 +1141,7 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
       }
       const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
       is_x = (chr_idx == x_code);
-      is_haploid_or_mt = IsSetI(cip->haploid_mask, chr_idx) || (chr_idx == mt_code);
+      is_haploid = IsSetI(cip->haploid_mask, chr_idx);
       snprintf(outname_end, kMaxOutfnameExtBlen, ".legend");
       if (fopen_checked(outname, FOPEN_WB, &outfile)) {
         goto ExportOxHapslegend_ret_OPEN_FAIL;
@@ -1231,7 +1230,7 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
     genotext[5] = 0x21475542;  // "BUG!"
 #endif
     uint32_t* cur_genotext = genotext;
-    if (is_haploid_or_mt && (!is_x)) {
+    if (is_haploid && (!is_x)) {
       cur_genotext = &(genotext[4]);
     }
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
@@ -1258,8 +1257,8 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
         *chr_name_end++ = ' ';
         chr_blen = chr_name_end - chr_buf;
         is_x = (chr_idx == x_code);
-        is_haploid_or_mt = IsSetI(cip->haploid_mask, chr_idx) || (chr_idx == mt_code);
-        if ((!is_haploid_or_mt) || is_x) {
+        is_haploid = IsSetI(cip->haploid_mask, chr_idx);
+        if ((!is_haploid) || is_x) {
           cur_genotext = genotext;
         } else {
           cur_genotext = &(genotext[4]);
@@ -1286,14 +1285,14 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
         logerrprintf("Error: '--export haps%s' cannot be used with missing genotype calls.\n", just_haps? "" : "legend");
         goto ExportOxHapslegend_ret_INCONSISTENT_INPUT;
       }
-      if (is_haploid_or_mt) {
-        // verify that there are no het haploids (treating MT as haploid here)
+      if (is_haploid) {
+        // verify that there are no het haploids/mixed MTs
         if (is_x) {
           GenovecCountSubsetFreqs(genovec, sex_male_collapsed_interleaved, sample_ct, male_ct, genocounts);
         }
         if (genocounts[1]) {
           logputs("\n");
-          logerrprintfww("Error: '--export haps%s' cannot be used when heterozygous haploid/MT calls are present.%s\n", just_haps? "" : "legend", (is_x && (variant_bps[variant_uidx] <= 2781479))? " (Did you forget --split-par?)" : "");
+          logerrprintfww("Error: '--export haps%s' cannot be used when heterozygous haploid or mixed MT calls are present.%s\n", just_haps? "" : "legend", (is_x && (variant_bps[variant_uidx] <= 2781479))? " (Did you forget --split-par?)" : "");
           goto ExportOxHapslegend_ret_INCONSISTENT_INPUT;
         }
       }
@@ -1984,7 +1983,7 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* arg) {
   uint32_t is_x = 0;
   uint32_t is_y = 0;
 
-  uint32_t is_haploid_or_mt = 0;  // includes chrX and chrY
+  uint32_t is_haploid = 0;  // includes chrX and chrY
   // for bgen-1.2/1.3 and VCF/BCF export, MT ploidy is 1 unless the call is
   //   heterozygous (i.e. it's treated the same way as an ordinary haploid
   //   chromosome); similarly for chrX male ploidy
@@ -2016,7 +2015,7 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* arg) {
         const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
         is_x = (chr_idx == x_code);
         is_y = (chr_idx == y_code);
-        is_haploid_or_mt = IsSetI(cip->haploid_mask, chr_idx) || (chr_idx == mt_code);
+        is_haploid = IsSetI(cip->haploid_mask, chr_idx);
       }
       if (refalt1_select) {
         ref_allele_idx = refalt1_select[variant_uidx * 2];
@@ -2046,7 +2045,7 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* arg) {
       uint32_t widx = 0;
       uint32_t inner_loop_last = kBitsPerWordD2 - 1;
       if (!dosage_ct) {
-        if (!is_haploid_or_mt) {
+        if (!is_haploid) {
           // 2 alleles, min ploidy == max ploidy == 2
           *((uint32_t*)bgen_geno_buf_iter)++ = 0x2020002;
           unsigned char* sample_ploidy_and_missingness = bgen_geno_buf_iter;
@@ -2726,7 +2725,7 @@ char* HaploidDosagePrint(uint32_t rawval, char* start) {
 #ifdef __arm__
 #  error "Unaligned accesses in ExportVcf()."
 #endif
-PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const char* sample_ids, const char* sids, const uintptr_t* sex_male_collapsed, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const AltAlleleCt* refalt1_select, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, uintptr_t xheader_blen, uint32_t xheader_info_pr, uint32_t xheader_info_pr_nonflag, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, __maybe_unused uint32_t max_thread_ct, ExportfFlags exportf_flags, IdpasteFlags exportf_id_paste, char exportf_id_delim, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const uintptr_t* sex_male_collapsed, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const AltAlleleCt* refalt1_select, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, uintptr_t xheader_blen, uint32_t xheader_info_pr, uint32_t xheader_info_pr_nonflag, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, __maybe_unused uint32_t max_thread_ct, ExportfFlags exportf_flags, IdpasteFlags exportf_id_paste, char exportf_id_delim, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   gzFile gz_pvar_reload = nullptr;
@@ -2801,8 +2800,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
       char* line_end = xheader;
       while (line_end != xheader_end) {
         xheader_iter = line_end;
-        line_end = S_CAST(char*, rawmemchr(xheader_iter, '\n'));
-        ++line_end;
+        line_end = AdvPastDelim(xheader_iter, '\n');
         const uint32_t slen = line_end - xheader_iter;
         if ((slen > 14) && StrStartsWithUnsafe(xheader_iter, "##contig=<ID=")) {
           char* contig_name_start = &(xheader_iter[13]);
@@ -2909,23 +2907,14 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     // possible todo: optionally export .psam information as
     // PEDIGREE/META/SAMPLE lines in header, and make --vcf be able to read it
     write_iter = strcpya(write_iter, "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">" EOLN_STR "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT");
-    uint32_t write_sid = 0;
-    // possible for both MAYBESID and SID to be set
-    if (exportf_id_paste & kfIdpasteSid) {
-      write_sid = 1;
-      if (!sids) {
-        max_sid_blen = 2;
-      }
-    } else if ((exportf_id_paste & kfIdpasteMaybesid) && sids) {
-      // no nonzero check in LoadPsam(), so we have to do it here
-      uint32_t sample_uidx = 0;
-      for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-        FindFirst1BitFromU32(sample_include, &sample_uidx);
-        if (!strequal_k_unsafe(&(sids[sample_uidx * max_sid_blen]), "0")) {
-          write_sid = 1;
-          break;
-        }
-      }
+    const uint32_t write_fid = IsDataFidColRequired(sample_include, siip, sample_ct, exportf_id_paste / kfIdpasteMaybefid);
+    const char* sample_ids = siip->sample_ids;
+    const char* sids = siip->sids;
+    const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+    uintptr_t max_sid_blen = siip->max_sid_blen;
+    const uint32_t write_sid = IsDataSidColRequired(sample_include, sids, sample_ct, max_sid_blen, exportf_id_paste / kfIdpasteMaybesid);
+    if (write_sid && (!sids)) {
+      max_sid_blen = 2;
     }
     uint32_t sample_uidx = 0;
     uint32_t id_delim_warning = 0;
@@ -2944,7 +2933,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
       const char* orig_sample_id = &(sample_ids[sample_uidx * max_sample_id_blen]);
       const char* orig_fid_end = S_CAST(const char*, rawmemchr(orig_sample_id, '\t'));
       char* exported_sample_ids_iter = &(exported_sample_ids[sample_idx * max_exported_sample_id_blen]);
-      if (exportf_id_paste & kfIdpasteFid) {
+      if (write_fid) {
         const uint32_t fid_slen = orig_fid_end - orig_sample_id;
         if ((!id_delim_warning) && memchr(orig_sample_id, id_delim, fid_slen)) {
           id_delim_warning = 1;
@@ -3079,7 +3068,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     uint32_t chr_buf_blen = 0;
     uint32_t variant_uidx = 0;
     uint32_t is_x = 0;
-    uint32_t is_haploid_or_mt = 0;  // includes chrX and chrY
+    uint32_t is_haploid = 0;  // includes chrX and chrY
     uint32_t pct = 0;
     uint32_t next_print_variant_idx = variant_ct / 100;
     uint32_t gz_variant_uidx = 0;
@@ -3097,7 +3086,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         } while (variant_uidx >= chr_end);
         int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
         is_x = (chr_idx == cip->xymt_codes[kChrOffsetX]);
-        is_haploid_or_mt = IsSetI(cip->haploid_mask, chr_idx) || (chr_idx == cip->xymt_codes[kChrOffsetMT]);
+        is_haploid = IsSetI(cip->haploid_mask, chr_idx);
         // forced --merge-par, with diploid male output (is_x NOT set, but
         // chromosome code is X/chrX)
         if ((chr_idx == cip->xymt_codes[kChrOffsetPAR1]) || (chr_idx == cip->xymt_codes[kChrOffsetPAR2])) {
@@ -3106,7 +3095,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
         *chr_name_end = '\t';
         chr_buf_blen = 1 + S_CAST(uintptr_t, chr_name_end - chr_buf);
-        if (is_haploid_or_mt) {
+        if (is_haploid) {
           if (is_x) {
             haploid_genotext_blen[0] = 4;
             haploid_genotext_blen[2] = 4;
@@ -3139,7 +3128,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         alt1_allele_idx = refalt1_select[variant_uidx * 2 + 1];
         // this logic only works in the biallelic case
         assert(cur_allele_ct == 2);
-        if (!is_haploid_or_mt) {
+        if (!is_haploid) {
           if (alt1_allele_idx) {
             basic_genotext[0] = 0x302f3009;
             basic_genotext[2] = 0x312f3109;
@@ -3240,7 +3229,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
           goto ExportVcf_ret_PGR_FAIL;
         }
         if ((!dosage_ct) && (!dosage_force)) {
-          if (!is_haploid_or_mt) {
+          if (!is_haploid) {
             // always 4 bytes wide, exploit that
             uint32_t* write_iter_ui_alias = R_CAST(uint32_t*, write_iter);
             while (1) {
@@ -3295,7 +3284,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
             BiallelicDosage16Invert(dosage_ct, dosage_vals);
           }
           Dosage* dosage_vals_iter = dosage_vals;
-          if (!is_haploid_or_mt) {
+          if (!is_haploid) {
             while (1) {
               if (widx >= sample_ctl2_m1) {
                 if (widx > sample_ctl2_m1) {
@@ -3375,7 +3364,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         }
         at_least_one_phase_present = (at_least_one_phase_present != 0);
         if ((!dosage_ct) && (!dosage_force)) {
-          if (!is_haploid_or_mt) {
+          if (!is_haploid) {
             uint32_t* write_iter_ui_alias = R_CAST(uint32_t*, write_iter);
             while (1) {
               if (widx >= sample_ctl2_m1) {
@@ -3476,7 +3465,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
             BiallelicDosage16Invert(dosage_ct, dosage_vals);
           }
           Dosage* dosage_vals_iter = dosage_vals;
-          if (!is_haploid_or_mt) {
+          if (!is_haploid) {
             while (1) {
               if (widx >= sample_ctl2_m1) {
                 if (widx > sample_ctl2_m1) {
@@ -3783,7 +3772,7 @@ THREAD_FUNC_DECL DosageTransposeThread(void* arg) {
 }
 
 static_assert(sizeof(Dosage) == 2, "Export012Smaj() needs to be updated.");
-PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, const char* sample_ids, const char* paternal_ids, const char* maternal_ids, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const AltAlleleCt* refalt1_select, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_paternal_id_blen, uintptr_t max_maternal_id_blen, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t include_dom, uint32_t include_uncounted, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, char exportf_delim, PgenFileInfo* pgfip) {
+PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const AltAlleleCt* refalt1_select, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t include_dom, uint32_t include_uncounted, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, char exportf_delim, PgenFileInfo* pgfip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   ThreadsState ts;
   InitThreads3z(&ts);
@@ -3981,6 +3970,12 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
     g_smaj_dosagebuf = S_CAST(Dosage*, bigstack_alloc_raw_rd(read_sample_ct * S_CAST(uintptr_t, g_stride) * sizeof(Dosage)));
     g_error_ret = kPglRetSuccess;
 
+    const char* sample_ids = piip->sii.sample_ids;
+    const char* paternal_ids = piip->parental_id_info.paternal_ids;
+    const char* maternal_ids = piip->parental_id_info.maternal_ids;
+    const uintptr_t max_sample_id_blen = piip->sii.max_sample_id_blen;
+    const uintptr_t max_paternal_id_blen = piip->parental_id_info.max_paternal_id_blen;
+    const uintptr_t max_maternal_id_blen = piip->parental_id_info.max_maternal_id_blen;
     const uint32_t read_block_sizel = BitCtToWordCt(read_block_size);
     const uint32_t read_block_ct_m1 = (raw_variant_ct - 1) / read_block_size;
     uint32_t sample_uidx_start = FindFirst1BitFrom(orig_sample_include, 0);
@@ -4189,7 +4184,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
   return reterr;
 }
 
-PglErr Exportf(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const char* paternal_ids, const char* maternal_ids, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const AltAlleleCt* refalt1_select, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, uintptr_t xheader_blen, uint32_t xheader_info_pr, uint32_t xheader_info_pr_nonflag, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uintptr_t max_paternal_id_blen, uintptr_t max_maternal_id_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, uint32_t max_thread_ct, MakePlink2Flags make_plink2_flags, ExportfFlags exportf_flags, IdpasteFlags exportf_id_paste, char exportf_id_delim, __maybe_unused uint32_t exportf_bits, uintptr_t pgr_alloc_cacheline_ct, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const AltAlleleCt* refalt1_select, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, uintptr_t xheader_blen, uint32_t xheader_info_pr, uint32_t xheader_info_pr_nonflag, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, uint32_t max_thread_ct, MakePlink2Flags make_plink2_flags, ExportfFlags exportf_flags, IdpasteFlags exportf_id_paste, char exportf_id_delim, __maybe_unused uint32_t exportf_bits, uintptr_t pgr_alloc_cacheline_ct, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
   {
@@ -4223,7 +4218,7 @@ PglErr Exportf(const uintptr_t* sample_include, const char* sample_ids, const ch
     if (exportf_flags & kfExportfATranspose) {
       snprintf(outname_end, kMaxOutfnameExtBlen, ".traw");
       PgrClearLdCache(simple_pgrp);
-      reterr = Export012Vmaj(outname, sample_include, sample_include_cumulative_popcounts, sample_ids, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, variant_cms, sample_ct, max_sample_id_blen, variant_ct, max_allele_slen, exportf_delim, simple_pgrp);
+      reterr = Export012Vmaj(outname, sample_include, sample_include_cumulative_popcounts, piip->sii.sample_ids, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, variant_cms, sample_ct, piip->sii.max_sample_id_blen, variant_ct, max_allele_slen, exportf_delim, simple_pgrp);
       if (reterr) {
         goto Exportf_ret_1;
       }
@@ -4275,7 +4270,7 @@ PglErr Exportf(const uintptr_t* sample_include, const char* sample_ids, const ch
         y_ct = CountChrVariantsUnsafe(variant_include, cip, y_code);
       }
       assert(PopcountWords(sample_include, raw_sample_ctl) == sample_ct);
-      reterr = ExportOxSample(outname, sample_include, sample_ids, sample_missing_geno_cts, sex_nm, sex_male, pheno_cols, pheno_names, sample_ct, max_sample_id_blen, pheno_ct, max_pheno_name_blen, variant_ct, y_ct);
+      reterr = ExportOxSample(outname, sample_include, piip->sii.sample_ids, sample_missing_geno_cts, sex_nm, sex_male, pheno_cols, pheno_names, sample_ct, piip->sii.max_sample_id_blen, pheno_ct, max_pheno_name_blen, variant_ct, y_ct);
       if (reterr) {
         goto Exportf_ret_1;
       }
@@ -4283,7 +4278,7 @@ PglErr Exportf(const uintptr_t* sample_include, const char* sample_ids, const ch
     }
     if (exportf_flags & kfExportfVcf) {
       PgrClearLdCache(simple_pgrp);
-      reterr = ExportVcf(sample_include, sample_include_cumulative_popcounts, sample_ids, sids, sex_male_collapsed, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, pvar_info_reload, xheader_blen, xheader_info_pr, xheader_info_pr_nonflag, sample_ct, max_sample_id_blen, max_sid_blen, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, max_thread_ct, exportf_flags, exportf_id_paste, exportf_id_delim, xheader, pgfip, simple_pgrp, outname, outname_end);
+      reterr = ExportVcf(sample_include, sample_include_cumulative_popcounts, &(piip->sii), sex_male_collapsed, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, pvar_info_reload, xheader_blen, xheader_info_pr, xheader_info_pr_nonflag, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, max_thread_ct, exportf_flags, exportf_id_paste, exportf_id_delim, xheader, pgfip, simple_pgrp, outname, outname_end);
       if (reterr) {
         goto Exportf_ret_1;
       }
@@ -4293,7 +4288,7 @@ PglErr Exportf(const uintptr_t* sample_include, const char* sample_ids, const ch
     // routine
     if (exportf_flags & (kfExportfA | kfExportfAD)) {
       snprintf(outname_end, kMaxOutfnameExtBlen, ".raw");
-      reterr = Export012Smaj(outname, sample_include, sample_ids, paternal_ids, maternal_ids, sex_nm, sex_male, pheno_cols, variant_include, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, raw_sample_ct, sample_ct, max_sample_id_blen, max_paternal_id_blen, max_maternal_id_blen, pheno_ct, raw_variant_ct, variant_ct, max_allele_slen, (exportf_flags / kfExportfAD) & 1, (exportf_flags / kfExportfIncludeAlt) & 1, max_thread_ct, pgr_alloc_cacheline_ct, exportf_delim, pgfip);
+      reterr = Export012Smaj(outname, sample_include, piip, sex_nm, sex_male, pheno_cols, variant_include, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, raw_sample_ct, sample_ct, pheno_ct, raw_variant_ct, variant_ct, max_allele_slen, (exportf_flags / kfExportfAD) & 1, (exportf_flags / kfExportfIncludeAlt) & 1, max_thread_ct, pgr_alloc_cacheline_ct, exportf_delim, pgfip);
       if (reterr) {
         goto Exportf_ret_1;
       }
@@ -4303,7 +4298,7 @@ PglErr Exportf(const uintptr_t* sample_include, const char* sample_ids, const ch
       snprintf(outname_end, kMaxOutfnameExtBlen, ".fam");
       logprintfww5("Writing %s ... ", outname);
       fflush(stdout);
-      reterr = WriteFam(outname, sample_include, sample_ids, paternal_ids, maternal_ids, sex_nm, sex_male, pheno_cols, nullptr, sample_ct, max_sample_id_blen, max_paternal_id_blen, max_maternal_id_blen, pheno_ct, exportf_delim);
+      reterr = WriteFam(outname, sample_include, piip, sex_nm, sex_male, pheno_cols, nullptr, sample_ct, pheno_ct, exportf_delim);
       if (reterr) {
         goto Exportf_ret_1;
       }

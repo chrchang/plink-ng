@@ -30,4 +30,4 @@ PglErr ExtractExcludeRange(const char* fname, const ChrInfo* cip, const uint32_t
 }
 #endif
 
-#endif // __PLINK2_SET_H__
+#endif  // __PLINK2_SET_H__

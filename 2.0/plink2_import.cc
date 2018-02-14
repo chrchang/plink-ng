@@ -42,33 +42,273 @@ void InitGenDummy(GenDummyInfo* gendummy_info_ptr) {
   gendummy_info_ptr->dosage_freq = 0.0;
 }
 
-PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, uint32_t double_id, FamCol fam_cols, char id_delim, char idspace_to, char flag_char, char* sample_line_first_id, char* outname, char* outname_end, uintptr_t* sample_ct_ptr) {
+typedef struct ImportSampleIdContextStruct {
+  const char* const_fid;
+  uint32_t const_fid_slen;
+  uint32_t double_id;
+  uint32_t id_delim_sid;
+  uint32_t two_part_null_fid;
+  uint32_t two_part_null_sid;
+  uint32_t omit_fid_0;
+  char id_delim;
+} ImportSampleIdContext;
+
+void InitImportSampleIdContext(const char* const_fid, ImportFlags import_flags, char id_delim, ImportSampleIdContext* isicp) {
+  isicp->const_fid = nullptr;
+  isicp->const_fid_slen = 0;
+  if (const_fid && memcmp(const_fid, "0", 2)) {
+    isicp->const_fid_slen = strlen(const_fid);
+    isicp->const_fid = const_fid;
+  }
+  isicp->double_id = (import_flags / kfImportDoubleId) & 1;
+  isicp->id_delim_sid = (import_flags / kfImportIdDelimSid) & 1;
+  isicp->two_part_null_fid = 0;
+  isicp->two_part_null_sid = 0;
+  isicp->omit_fid_0 = 0;
+  isicp->id_delim = id_delim;
+}
+
+PglErr ImportSampleId(const char* input_id_iter, const char* input_id_end, const ImportSampleIdContext* isicp, char** write_iterp) {
+  PglErr reterr = kPglRetSuccess;
+  {
+    const char id_delim = isicp->id_delim;
+    char* write_iter = *write_iterp;
+    if (id_delim) {
+      const char* first_delim = S_CAST(const char*, memchr(input_id_iter, ctou32(id_delim), input_id_end - input_id_iter));
+      if (!first_delim) {
+        snprintf(g_logbuf, kLogbufSize, "Error: No '%c' in sample ID.\n", id_delim);
+        goto ImportSampleId_ret_INCONSISTENT_INPUT_2;
+      }
+      if (*input_id_iter == id_delim) {
+        snprintf(g_logbuf, kLogbufSize, "Error: '%c' at beginning of sample ID.\n", id_delim);
+        goto ImportSampleId_ret_INCONSISTENT_INPUT_2;
+      }
+      if (input_id_end[-1] == id_delim) {
+        snprintf(g_logbuf, kLogbufSize, "Error: '%c' at end of sample ID.\n", id_delim);
+        goto ImportSampleId_ret_INCONSISTENT_INPUT_2;
+      }
+      const uint32_t first_part_slen = first_delim - input_id_iter;
+      if (first_part_slen > kMaxIdSlen) {
+        // strictly speaking, you could have e.g. a 20k char ID which
+        // splits into a valid pair with the right delimiter, but you're
+        // not supposed to have sample IDs anywhere near that length so
+        // I'll classify this as MalformedInput.
+        goto ImportSampleId_ret_MALFORMED_INPUT_LONG_ID;
+      }
+      const char* second_part_start = &(first_delim[1]);
+      const char* second_part_end = S_CAST(const char*, memchr(second_part_start, ctou32(id_delim), input_id_end - second_part_start));
+      const char* third_part_start = nullptr;
+      uint32_t third_part_slen = 0;
+      if (second_part_end) {
+        if (second_part_start == second_part_end) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Consecutive instances of '%c' in sample ID.\n", id_delim);
+          goto ImportSampleId_ret_INCONSISTENT_INPUT_2;
+        }
+        third_part_start = &(second_part_end[1]);
+        third_part_slen = input_id_end - third_part_start;
+        if (memchr(third_part_start, ctou32(id_delim), third_part_slen)) {
+          snprintf(g_logbuf, kLogbufSize, "Error: More than two instances of '%c' in sample ID.\n", id_delim);
+          goto ImportSampleId_ret_INCONSISTENT_INPUT_2;
+        }
+        if (third_part_slen > kMaxIdSlen) {
+          goto ImportSampleId_ret_MALFORMED_INPUT_LONG_ID;
+        }
+      } else {
+        second_part_end = input_id_end;
+        if (isicp->id_delim_sid) {
+          if ((first_part_slen == 1) && (*input_id_iter == '0')) {
+            logerrputs("Error: Sample ID induces an invalid IID of '0'.\n");
+            goto ImportSampleId_ret_INCONSISTENT_INPUT;
+          }
+          if (isicp->two_part_null_fid) {
+            write_iter = strcpya(write_iter, "0\t");
+          }
+        }
+      }
+      if (!isicp->omit_fid_0) {
+        write_iter = memcpyax(write_iter, input_id_iter, first_part_slen, '\t');
+      }
+      const uint32_t second_part_slen = second_part_end - second_part_start;
+      if ((third_part_start || (!isicp->id_delim_sid)) && (second_part_slen == 1) && (*second_part_end == '0')) {
+        logerrputs("Error: Sample ID induces an invalid IID of '0'.\n");
+        goto ImportSampleId_ret_INCONSISTENT_INPUT;
+      }
+      if (second_part_slen > kMaxIdSlen) {
+        goto ImportSampleId_ret_MALFORMED_INPUT_LONG_ID;
+      }
+      write_iter = memcpya(write_iter, second_part_start, second_part_slen);
+      if (third_part_start) {
+        *write_iter++ = '\t';
+        write_iter = memcpya(write_iter, third_part_start, third_part_slen);
+      } else if (isicp->two_part_null_sid) {
+        write_iter = strcpya(write_iter, "\t0");
+      }
+    } else {
+      const uint32_t token_slen = input_id_end - input_id_iter;
+      if ((*input_id_iter == '0') && (token_slen == 1)) {
+        logerrputs("Error: Sample ID cannot be '0'.\n");
+        goto ImportSampleId_ret_MALFORMED_INPUT;
+      }
+      if (token_slen > kMaxIdSlen) {
+        goto ImportSampleId_ret_MALFORMED_INPUT_LONG_ID;
+      }
+      if (isicp->double_id) {
+        write_iter = memcpyax(write_iter, input_id_iter, token_slen, '\t');
+      } else if (isicp->const_fid) {
+        write_iter = memcpyax(write_iter, isicp->const_fid, isicp->const_fid_slen, '\t');
+      }
+      write_iter = memcpya(write_iter, input_id_iter, token_slen);
+    }
+    *write_iterp = write_iter;
+  }
+  while (0) {
+  ImportSampleId_ret_MALFORMED_INPUT_LONG_ID:
+    logerrputs("Error: FIDs, IIDs, and SIDs are limited to " MAX_ID_SLEN_STR " characters.\n");
+  ImportSampleId_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  ImportSampleId_ret_INCONSISTENT_INPUT_2:
+    logerrputsb();
+  ImportSampleId_ret_INCONSISTENT_INPUT:
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+  return kPglRetSuccess;
+}
+
+PglErr ImportIidFromSampleId(const char* input_id_iter, const char* input_id_end, const ImportSampleIdContext* isicp, const char** iid_start_ptr, uint32_t* iid_slen_ptr) {
+  PglErr reterr = kPglRetSuccess;
+  {
+    const char id_delim = isicp->id_delim;
+    const char* iid_start = input_id_iter;
+    uint32_t iid_slen;
+    if (id_delim) {
+      const char* first_delim = S_CAST(const char*, memchr(input_id_iter, ctou32(id_delim), input_id_end - input_id_iter));
+      if (!first_delim) {
+        snprintf(g_logbuf, kLogbufSize, "Error: No '%c' in sample ID.\n", id_delim);
+        goto ImportIidFromSampleId_ret_INCONSISTENT_INPUT_2;
+      }
+      if (isicp->id_delim_sid && (!isicp->two_part_null_fid)) {
+        // only possible if there's never a third field
+        iid_slen = first_delim - input_id_iter;
+      } else {
+        const char* second_part_start = &(first_delim[1]);
+        const char* second_part_end = S_CAST(const char*, memchr(second_part_start, ctou32(id_delim), input_id_end - second_part_start));
+        if ((!isicp->id_delim_sid) || second_part_end) {
+          iid_start = second_part_start;
+          if (!second_part_end) {
+            second_part_end = input_id_end;
+          }
+          iid_slen = second_part_end - second_part_start;
+        } else {
+          iid_slen = first_delim - iid_start;
+        }
+      }
+    } else {
+      iid_slen = input_id_end - iid_start;
+    }
+    if ((iid_slen == 1) && (*iid_start == '0')) {
+      logerrputs("Error: IID cannot be '0'.\n");
+      goto ImportIidFromSampleId_ret_MALFORMED_INPUT;
+    }
+    if (iid_slen > kMaxIdSlen) {
+      goto ImportIidFromSampleId_ret_MALFORMED_INPUT_LONG_ID;
+    }
+    *iid_start_ptr = iid_start;
+    *iid_slen_ptr = iid_slen;
+  }
+  while (0) {
+  ImportIidFromSampleId_ret_MALFORMED_INPUT_LONG_ID:
+    logerrputs("Error: FIDs, IIDs, and SIDs are limited to " MAX_ID_SLEN_STR " characters.\n");
+  ImportIidFromSampleId_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
+    break;
+  ImportIidFromSampleId_ret_INCONSISTENT_INPUT_2:
+    logerrputsb();
+    reterr = kPglRetInconsistentInput;
+    break;
+  }
+  return kPglRetSuccess;
+}
+
+PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, ImportFlags import_flags, FamCol fam_cols, char id_delim, char idspace_to, char flag_char, char* sample_line_first_id, char* outname, char* outname_end, uintptr_t* sample_ct_ptr) {
   gzFile gz_infile = nullptr;
   FILE* outfile = nullptr;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
   {
-    uintptr_t const_fid_len = 0;
-    if (const_fid) {
-      const_fid_len = strlen(const_fid);
-    } else if ((!double_id) && (!id_delim)) {
-      // default: --double-id + --id-delim
-      double_id = 1;
-      id_delim = '_';
-    }
-    const uint32_t double_or_const_fid = double_id || const_fid;
-    if (id_delim != ' ') {
-      char* sample_line_iter = strchr(sample_line_first_id, ' ');
-      if (sample_line_iter) {
-        if (!idspace_to) {
-          logerrputs("Error: VCF/BCF2 sample ID contains space(s).  Use --idspace-to to convert them\nto another character, or \"--id-delim ' '\" to interpret the spaces as FID/IID\ndelimiters.\n");
-          goto VcfSampleLine_ret_INCONSISTENT_INPUT;
+    ImportSampleIdContext isic;
+    InitImportSampleIdContext(const_fid, import_flags, id_delim, &isic);
+    uint32_t write_fid = 1;
+    uint32_t write_sid = 0;
+    // Alpha 2 changes:
+    // * --id-delim can no longer be used with --const-fid/--double-id.  All
+    //   samples must be multipart.
+    // * New default is --const-fid 0, which causes no FID column to be written
+    //   at all.
+    if (id_delim) {
+      if (id_delim != ' ') {
+        char* sample_line_iter = strchr(sample_line_first_id, ' ');
+        if (sample_line_iter) {
+          if (!idspace_to) {
+            logerrputs("Error: VCF/BCF2 sample ID contains space(s).  Use --idspace-to to convert them\nto another character, or \"--id-delim ' '\" to interpret the spaces as FID/IID\nor IID/SID delimiters.\n");
+            goto VcfSampleLine_ret_INCONSISTENT_INPUT;
+          }
+          do {
+            *sample_line_iter = idspace_to;
+            sample_line_iter = strchr(&(sample_line_iter[1]), ' ');
+          } while (sample_line_iter);
         }
-        do {
-          *sample_line_iter = idspace_to;
-          sample_line_iter = strchr(&(sample_line_iter[1]), ' ');
-        } while (sample_line_iter);
       }
+      const char* sample_line_iter = sample_line_first_id;
+      uint32_t nonzero_first_field_observed = 0;
+      while (ctou32(sample_line_iter[0]) >= ' ') {
+        const char* token_end = strchr(sample_line_iter, '\t');
+        if (!token_end) {
+          token_end = FirstPrespace(sample_line_iter);
+        }
+        const char* first_delim = S_CAST(const char*, memchr(sample_line_iter, ctou32(id_delim), token_end - sample_line_iter));
+        if (!first_delim) {
+          snprintf(g_logbuf, kLogbufSize, "Error: No '%c' in sample ID.\n", id_delim);
+          goto VcfSampleLine_ret_INCONSISTENT_INPUT_2;
+        }
+        if (!nonzero_first_field_observed) {
+          nonzero_first_field_observed = (first_delim != &(sample_line_iter[1])) || (sample_line_iter[0] != '0');
+        }
+        sample_line_iter = &(first_delim[1]);
+        if (memchr(sample_line_iter, ctou32(id_delim), token_end - sample_line_iter)) {
+          write_fid = 1;
+          write_sid = 1;
+          if (!nonzero_first_field_observed) {
+            while (*token_end != '\t') {
+              sample_line_iter = &(token_end[1]);
+              token_end = strchr(sample_line_iter, '\t');
+              if (!token_end) {
+                token_end = FirstPrespace(sample_line_iter);
+              }
+              if ((sample_line_iter[0] != '0') || (sample_line_iter[1] != id_delim)) {
+                nonzero_first_field_observed = 1;
+                break;
+              }
+            }
+          }
+          break;
+        }
+        if (*token_end != '\t') {
+          if (isic.id_delim_sid) {
+            write_fid = 0;
+            write_sid = 1;
+          }
+          break;
+        }
+        sample_line_iter = &(token_end[1]);
+      }
+      if (!nonzero_first_field_observed) {
+        write_fid = 0;
+        isic.omit_fid_0 = 1;
+      }
+    } else if ((!isic.const_fid) && (!isic.double_id)) {
+      write_fid = 0;
     }
     const char* sample_line_iter = sample_line_first_id;
     uintptr_t sample_ct = 0;
@@ -79,29 +319,17 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, ui
       }
       char* write_iter = g_textbuf;
       char* textbuf_flush = &(write_iter[kMaxMediumLine]);
-      write_iter = strcpya(write_iter, "#FID\tIID");
-      uint32_t sid_present = 0;
-      if (id_delim) {
-        while (ctou32(sample_line_iter[0]) >= ' ') {
-          const char* token_end = strchr(sample_line_iter, '\t');
-          if (!token_end) {
-            token_end = FirstPrespace(sample_line_iter);
-          }
-          const char* first_delim = S_CAST(const char*, memchr(sample_line_iter, ctou32(id_delim), token_end - sample_line_iter));
-          if (first_delim) {
-            sample_line_iter = &(first_delim[1]);
-            if (memchr(sample_line_iter, ctou32(id_delim), token_end - sample_line_iter)) {
-              sid_present = 1;
-              write_iter = strcpya(write_iter, "\tSID");
-              break;
-            }
-          }
-          if (*token_end != '\t') {
-            break;
-          }
-          sample_line_iter = &(token_end[1]);
+      *write_iter++ = '#';
+      if (write_fid) {
+        write_iter = strcpya(write_iter, "FID\t");
+      }
+      write_iter = memcpyl3a(write_iter, "IID");
+      if (write_sid) {
+        write_iter = strcpya(write_iter, "\tSID");
+        if (write_fid || isic.omit_fid_0) {
+          isic.two_part_null_fid = isic.id_delim_sid;
+          isic.two_part_null_sid = 1 - isic.id_delim_sid;
         }
-        sample_line_iter = sample_line_first_id;
       }
       write_iter = strcpya(write_iter, "\tSEX");
       AppendBinaryEoln(&write_iter);
@@ -111,87 +339,9 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, ui
         if (!token_end) {
           token_end = FirstPrespace(sample_line_iter);
         }
-        const uint32_t token_slen = token_end - sample_line_iter;
-        if ((*sample_line_iter == '0') && (token_slen == 1)) {
-          logerrputs("Error: Sample ID cannot be '0'.\n");
-          goto VcfSampleLine_ret_MALFORMED_INPUT;
-        }
-        if (id_delim) {
-          if (*sample_line_iter == id_delim) {
-            snprintf(g_logbuf, kLogbufSize, "Error: '%c' at beginning of sample ID.\n", id_delim);
-            goto VcfSampleLine_ret_INCONSISTENT_INPUT_2;
-          }
-          if (sample_line_iter[token_slen - 1] == id_delim) {
-            snprintf(g_logbuf, kLogbufSize, "Error: '%c' at end of sample ID.\n", id_delim);
-            goto VcfSampleLine_ret_INCONSISTENT_INPUT_2;
-          }
-          const char* first_delim = S_CAST(const char*, memchr(sample_line_iter, ctou32(id_delim), token_slen));
-          if (!first_delim) {
-            if (double_or_const_fid) {
-              goto VcfSampleLine_nopsam_one_id;
-            }
-            snprintf(g_logbuf, kLogbufSize, "Error: No '%c' in sample ID.\n", id_delim);
-            goto VcfSampleLine_ret_INCONSISTENT_INPUT_2;
-          }
-          const char* iid_start = &(first_delim[1]);
-          const char* iid_end = S_CAST(const char*, memchr(iid_start, ctou32(id_delim), token_end - iid_start));
-          const char* sid_start = &(g_one_char_strs[96]);
-          uint32_t sid_slen = 1;
-          if (iid_end) {
-            if (iid_start == iid_end) {
-              snprintf(g_logbuf, kLogbufSize, "Error: Consecutive instances of '%c' in sample ID.\n", id_delim);
-              goto VcfSampleLine_ret_INCONSISTENT_INPUT_DELIM;
-            }
-            sid_start = &(iid_end[1]);
-            sid_slen = token_end - sid_start;
-            if (memchr(sid_start, ctou32(id_delim), sid_slen)) {
-              snprintf(g_logbuf, kLogbufSize, "Error: More than two instances of '%c' in sample ID.\n", id_delim);
-              goto VcfSampleLine_ret_INCONSISTENT_INPUT_DELIM;
-            }
-            if (sid_slen > kMaxIdSlen) {
-              logerrputs("Error: SIDs are limited to " MAX_ID_SLEN_STR " characters.\n");
-              goto VcfSampleLine_ret_MALFORMED_INPUT;
-            }
-          } else {
-            iid_end = token_end;
-          }
-          const uint32_t fid_slen = first_delim - sample_line_iter;
-          if (fid_slen > kMaxIdSlen) {
-            // strictly speaking, you could have e.g. a 20k char ID which
-            // splits into a valid FID/IID pair with the right delimiter, but
-            // you're not supposed to have sample IDs anywhere near that length
-            // so I'll classify this as MalformedInput.
-            goto VcfSampleLine_ret_MALFORMED_INPUT_LONG_ID;
-          }
-          write_iter = memcpyax(write_iter, sample_line_iter, fid_slen, '\t');
-          const uint32_t iid_slen = iid_end - iid_start;
-          if ((*iid_start == '0') && (iid_slen == 1)) {
-            logerrputs("Error: Sample ID induces an invalid IID of '0'.\n");
-            goto VcfSampleLine_ret_INCONSISTENT_INPUT;
-          }
-          if (iid_slen > kMaxIdSlen) {
-            goto VcfSampleLine_ret_MALFORMED_INPUT_LONG_ID;
-          }
-          write_iter = memcpya(write_iter, iid_start, iid_slen);
-          if (sid_present) {
-            *write_iter++ = '\t';
-            write_iter = memcpya(write_iter, sid_start, sid_slen);
-          }
-        } else {
-        VcfSampleLine_nopsam_one_id:
-          if (token_slen > kMaxIdSlen) {
-            goto VcfSampleLine_ret_MALFORMED_INPUT_LONG_ID;
-          }
-          if (double_id) {
-            write_iter = memcpya(write_iter, sample_line_iter, token_slen);
-          } else {
-            write_iter = memcpya(write_iter, const_fid, const_fid_len);
-          }
-          *write_iter++ = '\t';
-          write_iter = memcpya(write_iter, sample_line_iter, token_slen);
-          if (sid_present) {
-            write_iter = strcpya(write_iter, "\t0");
-          }
+        reterr = ImportSampleId(sample_line_iter, token_end, &isic, &write_iter);
+        if (reterr) {
+          goto VcfSampleLine_ret_1;
         }
         // PAT/MAT/PHENO1 not required in .psam file
         // SEX now included, so that --vcf + --out has the same effect as --vcf
@@ -245,7 +395,7 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, ui
       } while (IsEolnKns(*loadbuf_first_token) || ((loadbuf_first_token[0] == '#') && (!tokequal_k(&(loadbuf_first_token[1]), "FID")) && (!tokequal_k(&(loadbuf_first_token[1]), "IID"))));
       uint32_t fid_present;
       if (loadbuf_first_token[0] == '#') {
-        // only care about position of IID column
+        // only check for matching IIDs for now.
         fid_present = (loadbuf_first_token[1] == 'F');
       } else {
         fid_present = fam_cols & kfFamCol1;
@@ -268,38 +418,13 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, ui
           if (!sample_line_token_end) {
             sample_line_token_end = FirstPrespace(sample_line_iter);
           }
-          uint32_t sample_line_token_slen = sample_line_token_end - sample_line_iter;
-          if ((*sample_line_iter == '0') && (sample_line_token_slen == 1)) {
-            logerrputs("Error: Sample ID cannot be '0'.\n");
-            goto VcfSampleLine_ret_MALFORMED_INPUT;
+          const char* sample_line_iid_start;
+          uint32_t sample_line_iid_slen;
+          reterr = ImportIidFromSampleId(sample_line_iter, sample_line_token_end, &isic, &sample_line_iid_start, &sample_line_iid_slen);
+          if (reterr) {
+            goto VcfSampleLine_ret_1;
           }
-          const char* sample_line_iid_start = sample_line_iter;
-          if (id_delim) {
-            const char* first_delim = S_CAST(const char*, memchr(sample_line_iter, ctou32(id_delim), sample_line_token_slen));
-            if (!first_delim) {
-              if (!double_or_const_fid) {
-                snprintf(g_logbuf, kLogbufSize, "Error: No '%c' in sample ID.\n", id_delim);
-                goto VcfSampleLine_ret_INCONSISTENT_INPUT_2;
-              }
-            } else {
-              sample_line_iid_start = &(first_delim[1]);
-              sample_line_token_slen = sample_line_token_end - sample_line_iid_start;
-              const char* sample_line_iid_end = S_CAST(const char*, memchr(sample_line_iid_start, ctou32(id_delim), sample_line_token_slen));
-              if (sample_line_iid_end) {
-                // don't bother erroring out on >2 instances of delimiter for
-                // now
-                sample_line_token_slen = sample_line_iid_end - sample_line_iid_start;
-              }
-              if ((*sample_line_iid_start == '0') && (sample_line_token_slen == 1)) {
-                logerrputs("Error: Sample ID induces an invalid IID of '0'.\n");
-                goto VcfSampleLine_ret_INCONSISTENT_INPUT;
-              }
-            }
-          }
-          if (sample_line_token_slen > kMaxIdSlen) {
-            goto VcfSampleLine_ret_MALFORMED_INPUT_LONG_ID;
-          }
-          if (memcmp(sample_line_iid_start, psam_iid_start, sample_line_token_slen) || (ctou32(psam_iid_start[sample_line_token_slen]) > 32)) {
+          if (memcmp(sample_line_iid_start, psam_iid_start, sample_line_iid_slen) || (ctou32(psam_iid_start[sample_line_iid_slen]) > 32)) {
             snprintf(g_logbuf, kLogbufSize, "Error: Mismatched IDs between --%ccf file and %s.\n", flag_char, preexisting_psamname);
             goto VcfSampleLine_ret_INCONSISTENT_INPUT_WW;
           }
@@ -352,22 +477,10 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, ui
   VcfSampleLine_ret_MALFORMED_INPUT_WW:
     WordWrapB(0);
     logerrputsb();
-  VcfSampleLine_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
   VcfSampleLine_ret_MISSING_TOKENS:
     logerrprintfww("Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, preexisting_psamname);
-    reterr = kPglRetMalformedInput;
-    break;
-  VcfSampleLine_ret_INCONSISTENT_INPUT_DELIM:
-    logerrputsb();
-    if (id_delim == '_') {
-      logerrputs("If you do not want '_' to be treated as a FID/IID delimiter, use --double-id or\n--const-fid to choose a different method of converting VCF sample IDs to PLINK\nIDs, or --id-delim to change the FID/IID delimiter.\n");
-    }
-    reterr = kPglRetInconsistentInput;
-    break;
-  VcfSampleLine_ret_MALFORMED_INPUT_LONG_ID:
-    logerrputs("Error: FIDs and IIDs are limited to " MAX_ID_SLEN_STR " characters.\n");
     reterr = kPglRetMalformedInput;
     break;
   VcfSampleLine_ret_INCONSISTENT_INPUT_WW:
@@ -568,7 +681,7 @@ BoolErr ParseVcfDosage(const char* gtext_iter, const char* gtext_end, uint32_t d
 
 static_assert(!kVcfHalfCallReference, "VcfToPgen() assumes kVcfHalfCallReference == 0.");
 static_assert(kVcfHalfCallHaploid == 1, "VcfToPgen() assumes kVcfHalfCallHaploid == 1.");
-PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, uint32_t no_samples_ok, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, VcfHalfCall vcf_half_call, FamCol fam_cols, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
+PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, uint32_t no_samples_ok, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, VcfHalfCall vcf_half_call, FamCol fam_cols, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
   // Now performs a 2-pass load.  Yes, this can be slower than plink 1.9, but
   // it's necessary to use the Pgen_writer classes for now (since we need to
   // know upfront how many variants there are, and whether phase/dosage is
@@ -739,7 +852,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         }
       }
     }
-    const uint32_t require_gt = (misc_flags / kfMiscVcfRequireGt) & 1;
+    const uint32_t require_gt = (import_flags / kfImportVcfRequireGt) & 1;
     if ((!format_gt_present) && require_gt) {
       // todo: allow_no_variants exception
       logerrputs("Error: No GT field in --vcf file header, when --vcf-require-gt was specified.\n");
@@ -766,10 +879,9 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       goto VcfToPgen_ret_MALFORMED_INPUT_WW;
     }
     loadbuf_iter = &(loadbuf_iter[strlen("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO")]);
-    const uint32_t double_id = (misc_flags / kfMiscDoubleId) & 1;
     uintptr_t sample_ct = 0;
     if (StrStartsWithUnsafe(loadbuf_iter, "\tFORMAT\t")) {
-      reterr = VcfSampleLine(preexisting_psamname, const_fid, double_id, fam_cols, id_delim, idspace_to, 'v', &(loadbuf_iter[strlen("\tFORMAT\t")]), outname, outname_end, &sample_ct);
+      reterr = VcfSampleLine(preexisting_psamname, const_fid, import_flags, fam_cols, id_delim, idspace_to, 'v', &(loadbuf_iter[strlen("\tFORMAT\t")]), outname, outname_end, &sample_ct);
       if (reterr) {
         goto VcfToPgen_ret_1;
       }
@@ -1827,7 +1939,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
   return reterr;
 }
 
-PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, MiscFlags misc_flags, char* outname, char* outname_end, uint32_t* sample_ct_ptr) {
+PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, ImportFlags import_flags, char* outname, char* outname_end, uint32_t* sample_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   gzFile gz_infile = nullptr;
   FILE* psamfile = nullptr;
@@ -1837,7 +1949,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, MiscF
   {
     uint32_t omp_slen = 2;
     char output_missing_pheno[kMaxMissingPhenostrBlen];
-    if (misc_flags & kfMiscKeepAutoconv) {
+    if (import_flags & kfImportKeepAutoconv) {
       // must use --output-missing-phenotype parameter, which we've validated
       // to be consistent with --input-missing-phenotype
       omp_slen = strlen(g_output_missing_pheno);
@@ -1920,14 +2032,44 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, MiscF
     char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
     loadbuf[loadbuf_size - 1] = ' ';
     char* loadbuf_first_token;
+
+    // New first pass: check whether, from the third line on, all first tokens
+    // are '0'.  If yes, we omit FID from the output.
+    uint32_t write_fid = 0;
+    uint32_t header_lines_left = 2;
+    while (gzgets(gz_infile, loadbuf, loadbuf_size)) {
+      ++line_idx;
+      if (!loadbuf[loadbuf_size - 1]) {
+        goto OxSampleToPsam_ret_LONG_LINE;
+      }
+      loadbuf_first_token = FirstNonTspace(loadbuf);
+      if (IsEolnKns(*loadbuf_first_token)) {
+        continue;
+      }
+      if (header_lines_left) {
+        --header_lines_left;
+        continue;
+      }
+      if ((loadbuf_first_token[0] != '0') || (!IsSpaceOrEoln(loadbuf_first_token[1]))) {
+        write_fid = 1;
+        break;
+      }
+    }
+    if (!gzeof(gz_infile)) {
+      goto OxSampleToPsam_ret_READ_FAIL;
+    }
+    if (header_lines_left) {
+      logerrputs("Error: Empty .sample file.\n");
+      goto OxSampleToPsam_ret_MALFORMED_INPUT;
+    }
+    if (gzrewind(gz_infile)) {
+      goto OxSampleToPsam_ret_READ_FAIL;
+    }
+    line_idx = 0;
     do {
       ++line_idx;
       if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-        if (!gzeof(gz_infile)) {
-          goto OxSampleToPsam_ret_READ_FAIL;
-        }
-        logerrputs("Error: Empty .sample file.\n");
-        goto OxSampleToPsam_ret_MALFORMED_INPUT;
+        goto OxSampleToPsam_ret_READ_FAIL;
       }
       if (!loadbuf[loadbuf_size - 1]) {
         goto OxSampleToPsam_ret_LONG_LINE;
@@ -1959,7 +2101,12 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, MiscF
     // categorical phenotypes are lengthened by 1 character ('C' added in
     // front), so this needs to be 50% larger than loadbuf to handle worst case
     char* writebuf = S_CAST(char*, bigstack_alloc_raw_rd(loadbuf_size + (loadbuf_size / 2)));
-    char* write_iter = strcpya(writebuf, "#FID\tIID\tSEX");
+    char* write_iter = writebuf;
+    *write_iter++ = '#';
+    if (write_fid) {
+      write_iter = strcpya(write_iter, "FID\t");
+    }
+    write_iter = strcpya(write_iter, "IID\tSEX");
 
     // 0 = not present, otherwise zero-based index (this is fine since first
     //     column has to be FID)
@@ -2145,7 +2292,10 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, MiscF
 
       // FID
       token_end = CurTokenEnd(loadbuf_first_token);
-      write_iter = memcpyax(writebuf, loadbuf_first_token, token_end - loadbuf_first_token, '\t');
+      write_iter = writebuf;
+      if (write_fid) {
+        write_iter = memcpyax(write_iter, loadbuf_first_token, token_end - loadbuf_first_token, '\t');
+      }
 
       // IID
       loadbuf_iter = FirstNonTspace(token_end);
@@ -2365,7 +2515,7 @@ void Bgen11DosageImportUpdate(uint32_t dosage_int_sum_thresh, uint32_t import_do
 }
 
 static_assert(sizeof(Dosage) == 2, "OxGenToPgen() needs to be updated.");
-PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_single_chr_str, const char* ox_missing_code, MiscFlags misc_flags, OxfordImportFlags oxford_import_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_single_chr_str, const char* ox_missing_code, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   gzFile gz_infile = nullptr;
   FILE* pvarfile = nullptr;
@@ -2376,7 +2526,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
   PreinitSpgw(&spgw);
   {
     uint32_t sample_ct;
-    reterr = OxSampleToPsam(samplename, ox_missing_code, misc_flags, outname, outname_end, &sample_ct);
+    reterr = OxSampleToPsam(samplename, ox_missing_code, import_flags, outname, outname_end, &sample_ct);
     if (reterr) {
       goto OxGenToPgen_ret_1;
     }
@@ -3742,7 +3892,7 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
 }
 
 static_assert(sizeof(Dosage) == 2, "OxBgenToPgen() needs to be updated.");
-PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* const_fid, const char* ox_missing_code, MiscFlags misc_flags, OxfordImportFlags oxford_import_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* const_fid, const char* ox_missing_code, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* bgenfile = nullptr;
@@ -3814,7 +3964,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     logprintf("--bgen: %u variant%s detected, format v1.%c.\n", raw_variant_ct, (raw_variant_ct == 1)? "" : "s", (layout == 1)? '1' : ((compression_mode == 2)? '3' : '2'));
     if (samplename[0]) {
       uint32_t sfile_sample_ct;
-      reterr = OxSampleToPsam(samplename, ox_missing_code, misc_flags, outname, outname_end, &sfile_sample_ct);
+      reterr = OxSampleToPsam(samplename, ox_missing_code, import_flags, outname, outname_end, &sfile_sample_ct);
       if (reterr) {
         goto OxBgenToPgen_ret_1;
       }
@@ -3841,20 +3991,9 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
       }
       // possible todo: optionally error out if sample IDs aren't consistent
-      // between .bgen and .sample
+      // between .bgen and .sample, using ImportIidFromSampleId()
 
       // see VcfSampleLine()
-      // probable todo: wrap much of this in its own function
-      uint32_t double_id = (misc_flags / kfMiscDoubleId) & 1;
-      uintptr_t const_fid_len = 0;
-      if (const_fid) {
-        const_fid_len = strlen(const_fid);
-      } else if ((!double_id) && (!id_delim)) {
-        // default: --double-id + --id-delim
-        double_id = 1;
-        id_delim = '_';
-      }
-      const uint32_t double_or_const_fid = double_id || const_fid;
       uint32_t sample_id_block_byte_ct;
       uint32_t sample_id_block_entry_ct;
       if ((!fread_unlocked(&sample_id_block_byte_ct, 4, 1, bgenfile)) ||
@@ -3877,8 +4016,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         goto OxBgenToPgen_ret_READ_FAIL;
       }
 
-      // always check if any tab/eoln characters are present, and error out if
-      // so
+      // Always check if any tab/eoln characters are present, and error out if
+      // so.
       // if id_delim != ' ', also check if spaces are present; if so, replace
       // with --idspace-to character or error out
       char* sample_id_block_iter = sample_id_block_main;
@@ -3903,7 +4042,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
               goto OxBgenToPgen_ret_MALFORMED_INPUT;
             }
             if (!idspace_to) {
-              logerrputs("Error: .bgen sample ID contains space(s).  Use --idspace-to to convert them to\nanother character, or \"--id-delim ' '\" to interpret the spaces as FID/IID\ndelimiters.\n");
+              logerrputs("Error: .bgen sample ID contains space(s).  Use --idspace-to to convert them to\nanother character, or \"--id-delim ' '\" to interpret the spaces as FID/IID or\nIID/SID delimiters.\n");
               goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
             }
             *sample_id_iter = idspace_to;
@@ -3915,31 +4054,74 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       if (fopen_checked(outname, FOPEN_WB, &psamfile)) {
         goto OxBgenToPgen_ret_OPEN_FAIL;
       }
-      char* textbuf = g_textbuf;
-      char* write_iter = strcpya(textbuf, "#FID\tIID");
-      uint32_t sid_present = 0;
+      ImportSampleIdContext isic;
+      InitImportSampleIdContext(const_fid, import_flags, id_delim, &isic);
+      uint32_t write_fid = 1;
+      uint32_t write_sid = 0;
       if (id_delim) {
-        // check if three-part IDs are present
         sample_id_block_iter = sample_id_block_main;
-        for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
+        uint32_t nonzero_first_field_observed = 0;
+        uint32_t sample_idx = 0;
+        while (1) {
           const uint32_t input_id_slen = *R_CAST(uint16_t*, sample_id_block_iter);
-          if (S_CAST(uintptr_t, sample_id_block_end - sample_id_block_iter) < input_id_slen + 2) {
-            logerrputs("Error: Invalid .bgen header.\n");
-            goto OxBgenToPgen_ret_MALFORMED_INPUT;
+          char* sample_id_iter = &(sample_id_block_iter[2]);
+          // previously verified that this is in-bounds
+          char* sample_id_end = &(sample_id_iter[input_id_slen]);
+          char* first_delim = S_CAST(char*, memchr(sample_id_iter, ctou32(id_delim), sample_id_end - sample_id_iter));
+          if (!first_delim) {
+            snprintf(g_logbuf, kLogbufSize, "Error: No '%c' in sample ID.\n", id_delim);
+            goto OxBgenToPgen_ret_INCONSISTENT_INPUT_2;
           }
-          char* sample_id_start = &(sample_id_block_iter[2]);
-          char* sample_id_end = &(sample_id_start[input_id_slen]);
-          char* first_delim = S_CAST(char*, memchr(sample_id_start, ctou32(id_delim), sample_id_end - sample_id_start));
-          if (first_delim) {
-            char* iid_start = &(first_delim[1]);
-            if (memchr(iid_start, ctou32(id_delim), sample_id_end - iid_start)) {
-              sid_present = 1;
-              write_iter = strcpya(write_iter, "\tSID");
-              break;
+          if (!nonzero_first_field_observed) {
+            nonzero_first_field_observed = (first_delim != &(sample_id_iter[1])) || (sample_id_iter[0] != '0');
+          }
+          sample_id_iter = &(first_delim[1]);
+          if (memchr(sample_id_iter, ctou32(id_delim), sample_id_end - sample_id_iter)) {
+            isic.two_part_null_fid = isic.id_delim_sid;
+            isic.two_part_null_sid = 1 - isic.id_delim_sid;
+            write_fid = 1;
+            write_sid = 1;
+            if (!nonzero_first_field_observed) {
+              sample_id_block_iter = sample_id_end;
+              while (++sample_idx != sample_ct) {
+                const uint32_t new_input_id_slen = *R_CAST(uint16_t*, sample_id_block_iter);
+                sample_id_iter = &(sample_id_block_iter[2]);
+                // We actually need to error out on new_input_id_slen < 2, but
+                // that'll happen in the next loop.
+                if ((new_input_id_slen < 2) || (sample_id_iter[0] != '0') || (sample_id_iter[1] != id_delim)) {
+                  nonzero_first_field_observed = 1;
+                  break;
+                }
+                sample_id_block_iter = &(sample_id_iter[new_input_id_slen]);
+              }
             }
+            break;
           }
           sample_id_block_iter = sample_id_end;
+          if (++sample_idx == sample_ct) {
+            if (isic.id_delim_sid) {
+              write_fid = 0;
+              write_sid = 1;
+            }
+            break;
+          }
         }
+        if (!nonzero_first_field_observed) {
+          write_fid = 0;
+          isic.omit_fid_0 = 1;
+        }
+      } else if ((!isic.const_fid) && (!isic.double_id)) {
+        write_fid = 0;
+      }
+      char* textbuf = g_textbuf;
+      char* write_iter = textbuf;
+      *write_iter++ = '#';
+      if (write_fid) {
+        write_iter = strcpya(write_iter, "FID\t");
+      }
+      write_iter = memcpyl3a(write_iter, "IID");
+      if (write_sid) {
+        write_iter = strcpya(write_iter, "\tSID");
       }
       write_iter = strcpya(write_iter, "\tSEX");
       AppendBinaryEoln(&write_iter);
@@ -3947,87 +4129,9 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       sample_id_block_iter = sample_id_block_main;
       for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
         const uint32_t input_id_slen = *R_CAST(uint16_t*, sample_id_block_iter);
-        if (S_CAST(uintptr_t, sample_id_block_end - sample_id_block_iter) < input_id_slen + 2) {
-          logerrputs("Error: Invalid .bgen header.\n");
-          goto OxBgenToPgen_ret_MALFORMED_INPUT;
-        }
         char* sample_id_start = &(sample_id_block_iter[2]);
-        if (input_id_slen <= 1) {
-          if (!input_id_slen) {
-            logerrputs("Error: Empty sample ID in .bgen file.\n");
-            goto OxBgenToPgen_ret_MALFORMED_INPUT;
-          }
-          if (*sample_id_start == '0') {
-            logerrputs("Error: Sample ID cannot be '0'.\n");
-            goto OxBgenToPgen_ret_MALFORMED_INPUT;
-          }
-        }
         char* sample_id_end = &(sample_id_start[input_id_slen]);
-        if (id_delim) {
-          if (*sample_id_start == id_delim) {
-            snprintf(g_logbuf, kLogbufSize, "Error: '%c' at beginning of sample ID.\n", id_delim);
-            goto OxBgenToPgen_ret_INCONSISTENT_INPUT_2;
-          }
-          char* first_delim = S_CAST(char*, memchr(sample_id_start, ctou32(id_delim), input_id_slen));
-          if (!first_delim) {
-            if (double_or_const_fid) {
-              goto OxBgenToPgen_one_sample_id;
-            }
-            snprintf(g_logbuf, kLogbufSize, "Error: No '%c' in sample ID.\n", id_delim);
-            goto OxBgenToPgen_ret_INCONSISTENT_INPUT_2;
-          }
-          char* iid_start = &(first_delim[1]);
-          char* iid_end = S_CAST(char*, memchr(iid_start, ctou32(id_delim), sample_id_end - iid_start));
-          const char* sid_start = &(g_one_char_strs[96]);
-          uint32_t sid_slen = 1;
-          if (iid_end) {
-            if (iid_start == iid_end) {
-              snprintf(g_logbuf, kLogbufSize, "Error: Consecutive instances of '%c' in sample ID.\n", id_delim);
-              goto OxBgenToPgen_ret_INCONSISTENT_INPUT_DELIM;
-            }
-            sid_start = &(iid_end[1]);
-            sid_slen = sample_id_end - sid_start;
-            if (memchr(sid_start, ctou32(id_delim), sid_slen)) {
-              snprintf(g_logbuf, kLogbufSize, "Error: More than two instances of '%c' in sample ID.\n", id_delim);
-              goto OxBgenToPgen_ret_INCONSISTENT_INPUT_DELIM;
-            }
-          } else {
-            iid_end = sample_id_end;
-          }
-          const uint32_t fid_slen = first_delim - sample_id_start;
-          if (fid_slen > kMaxIdSlen) {
-            goto OxBgenToPgen_ret_MALFORMED_INPUT_LONG_ID;
-          }
-          write_iter = memcpyax(write_iter, sample_id_start, fid_slen, '\t');
-          const uint32_t iid_slen = iid_end - iid_start;
-          if ((*iid_start == '0') && (iid_slen == 1)) {
-            logerrputs("Error: Sample ID induces an invalid IID of '0'.\n");
-            goto OxBgenToPgen_ret_INCONSISTENT_INPUT;
-          }
-          if (iid_slen > kMaxIdSlen) {
-            goto OxBgenToPgen_ret_MALFORMED_INPUT_LONG_ID;
-          }
-          write_iter = memcpya(write_iter, iid_start, iid_slen);
-          if (sid_present) {
-            *write_iter++ = '\t';
-            write_iter = memcpya(write_iter, sid_start, sid_slen);
-          }
-        } else {
-        OxBgenToPgen_one_sample_id:
-          if (input_id_slen > kMaxIdSlen) {
-            goto OxBgenToPgen_ret_MALFORMED_INPUT_LONG_ID;
-          }
-          if (double_id) {
-            write_iter = memcpya(write_iter, sample_id_start, input_id_slen);
-          } else {
-            write_iter = memcpya(write_iter, const_fid, const_fid_len);
-          }
-          *write_iter++ = '\t';
-          write_iter = memcpya(write_iter, sample_id_start, input_id_slen);
-          if (sid_present) {
-            write_iter = strcpya(write_iter, "\t0");
-          }
-        }
+        reterr = ImportSampleId(sample_id_start, sample_id_end, &isic, &write_iter);
         // SEX
         write_iter = memcpyl3a(write_iter, "\tNA");
         AppendBinaryEoln(&write_iter);
@@ -5658,17 +5762,6 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
   OxBgenToPgen_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
-  OxBgenToPgen_ret_INCONSISTENT_INPUT_DELIM:
-    logerrputsb();
-    if (id_delim == '_') {
-      logerrputs("If you do not want '_' to be treated as a FID/IID delimiter, use --double-id or\n--const-fid to choose a different method of converting .bgen sample IDs to\nPLINK IDs, or --id-delim to change the FID/IID delimiter.\n");
-    }
-    reterr = kPglRetInconsistentInput;
-    break;
-  OxBgenToPgen_ret_MALFORMED_INPUT_LONG_ID:
-    logerrputs("Error: FIDs and IIDs are limited to " MAX_ID_SLEN_STR " characters.\n");
-    reterr = kPglRetMalformedInput;
-    break;
   OxBgenToPgen_ret_INCONSISTENT_INPUT_2:
     logerrputsb();
   OxBgenToPgen_ret_INCONSISTENT_INPUT:
@@ -5755,7 +5848,7 @@ BoolErr ImportLegendCols(const char* fname, uintptr_t line_idx, uint32_t prov_re
   }
 }
 
-PglErr ScanHapsForHet(const char* loadbuf_iter, const char* hapsname, uint32_t sample_ct, uint32_t is_haploid_or_mt, uintptr_t line_idx_haps, uint32_t* at_least_one_het_ptr) {
+PglErr ScanHapsForHet(const char* loadbuf_iter, const char* hapsname, uint32_t sample_ct, uint32_t is_haploid, uintptr_t line_idx_haps, uint32_t* at_least_one_het_ptr) {
   PglErr reterr = kPglRetSuccess;
   {
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
@@ -5776,8 +5869,8 @@ PglErr ScanHapsForHet(const char* loadbuf_iter, const char* hapsname, uint32_t s
       const uint32_t second_hap_int = second_hap_char_code - 48;
       const uint32_t post_second_hap_char_code = ctou32(*post_second_hap);
       if ((second_hap_int >= 2) || (post_second_hap_char_code > 32)) {
-        // if haploid or MT, permit '-' in second column
-        if ((!is_haploid_or_mt) || (second_hap_char_code != 45)) {
+        // if haploid, permit '-' in second column
+        if ((!is_haploid) || (second_hap_char_code != 45)) {
           if (second_hap_char_code <= 32) {
             goto ScanHapsForHet_ret_MISSING_TOKENS;
           }
@@ -5795,7 +5888,7 @@ PglErr ScanHapsForHet(const char* loadbuf_iter, const char* hapsname, uint32_t s
   }
   while (0) {
   ScanHapsForHet_ret_HAPLOID_TOKEN:
-    snprintf(g_logbuf, kLogbufSize, "Error: Haploid/MT-only token on line %" PRIuPTR " of %s.\n", line_idx_haps, hapsname);
+    snprintf(g_logbuf, kLogbufSize, "Error: Haploid-only token on line %" PRIuPTR " of %s.\n", line_idx_haps, hapsname);
     reterr = kPglRetInconsistentInput;
     break;
   ScanHapsForHet_ret_INVALID_TOKEN:
@@ -5813,7 +5906,7 @@ PglErr ScanHapsForHet(const char* loadbuf_iter, const char* hapsname, uint32_t s
 #ifdef __arm__
 #  error "Unaligned accesses in OxHapslegendToPgen()."
 #endif
-PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const char* samplename, const char* ox_single_chr_str, const char* ox_missing_code, MiscFlags misc_flags, OxfordImportFlags oxford_import_flags, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const char* samplename, const char* ox_single_chr_str, const char* ox_missing_code, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   gzFile gz_hapsfile = nullptr;
   gzFile gz_legendfile = nullptr;
@@ -5827,7 +5920,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
   {
     uint32_t sfile_sample_ct = 0;
     if (samplename[0]) {
-      reterr = OxSampleToPsam(samplename, ox_missing_code, misc_flags, outname, outname_end, &sfile_sample_ct);
+      reterr = OxSampleToPsam(samplename, ox_missing_code, import_flags, outname, outname_end, &sfile_sample_ct);
       if (reterr) {
         goto OxHapslegendToPgen_ret_1;
       }
@@ -5883,12 +5976,11 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     // there's at least one heterozygous call
     FinalizeChrset(misc_flags, cip);
     const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
-    const int32_t mt_code = cip->xymt_codes[kChrOffsetMT];
     const uint32_t prov_ref_allele_second = !(oxford_import_flags & kfOxfordImportRefFirst);
     uint32_t at_least_one_het = 0;
     uintptr_t variant_skip_ct = 0;
     uint32_t variant_ct = 0;
-    uint32_t is_haploid_or_mt = 0;
+    uint32_t is_haploid = 0;
     uint32_t sample_ct;
     // support both .haps + .legend (.haps expected to contain no header
     // columns), and pure .haps
@@ -5932,7 +6024,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
           logerrputs("Error: --legend chromosome code is excluded by chromosome filter.\n");
           goto OxHapslegendToPgen_ret_INVALID_CMDLINE;
         }
-        is_haploid_or_mt = IsSet(cip->haploid_mask, chr_code) || (S_CAST(int32_t, chr_code) == mt_code);
+        is_haploid = IsSet(cip->haploid_mask, chr_code);
         char* chr_name_end = chrtoa(cip, chr_code, chr_buf);
         single_chr_str = chr_buf;
         single_chr_slen = chr_name_end - chr_buf;
@@ -5999,7 +6091,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
             }
             loadbuf_first_token = FirstNonTspace(loadbuf);
           } while (IsEolnKns(*loadbuf_first_token));
-          reterr = ScanHapsForHet(loadbuf_first_token, hapsname, sample_ct, is_haploid_or_mt, line_idx_haps, &at_least_one_het);
+          reterr = ScanHapsForHet(loadbuf_first_token, hapsname, sample_ct, is_haploid, line_idx_haps, &at_least_one_het);
           if (reterr) {
             putc_unlocked('\n', stdout);
             WordWrapB(0);
@@ -6037,7 +6129,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
           if (!IsSetI(cip->chr_mask, cur_chr_code)) {
             ++variant_skip_ct;
           } else {
-            is_haploid_or_mt = IsSetI(cip->haploid_mask, cur_chr_code) || (cur_chr_code == mt_code);
+            is_haploid = IsSetI(cip->haploid_mask, cur_chr_code);
             write_iter = chrtoa(cip, cur_chr_code, write_iter);
             if (ImportLegendCols(hapsname, line_idx_haps, prov_ref_allele_second, K_CAST(const char**, &loadbuf_iter), &write_iter, &variant_ct)) {
               putc_unlocked('\n', stdout);
@@ -6048,7 +6140,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
             }
             if (!at_least_one_het) {
               loadbuf_iter = FirstNonTspace(loadbuf_iter);
-              if (ScanHapsForHet(loadbuf_iter, hapsname, sample_ct, is_haploid_or_mt, line_idx_haps, &at_least_one_het)) {
+              if (ScanHapsForHet(loadbuf_iter, hapsname, sample_ct, is_haploid, line_idx_haps, &at_least_one_het)) {
                 // override InconsistentInput return code since chromosome info
                 // was also gathered from .haps file
                 goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
@@ -6077,17 +6169,15 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       goto OxHapslegendToPgen_ret_WRITE_FAIL;
     }
     if (!sfile_sample_ct) {
-      // create a dummy .psam file with "per0/per0", "per1/per1", etc. IDs,
-      // matching --dummy
+      // create a dummy .psam file with "per0", "per1", etc. IDs, matching
+      // --dummy
       snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
       if (fopen_checked(outname, FOPEN_WB, &outfile)) {
         goto OxHapslegendToPgen_ret_OPEN_FAIL;
       }
-      write_iter = strcpya(writebuf, "#FID\tIID\tSEX" EOLN_STR);
+      write_iter = strcpya(writebuf, "#IID\tSEX" EOLN_STR);
       for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
         write_iter = memcpyl3a(write_iter, "per");
-        write_iter = uint32toa(sample_idx, write_iter);
-        write_iter = strcpya(write_iter, "\tper");
         write_iter = uint32toa(sample_idx, write_iter);
         write_iter = strcpya(write_iter, "\tNA" EOLN_STR);
         if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
@@ -6152,7 +6242,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         if (!IsSetI(cip->chr_mask, cur_chr_code)) {
           continue;
         }
-        is_haploid_or_mt = IsSetI(cip->haploid_mask, cur_chr_code) || (cur_chr_code == mt_code);
+        is_haploid = IsSetI(cip->haploid_mask, cur_chr_code);
         loadbuf_iter = NextTokenMult(FirstNonTspace(chr_code_end), 4);
         if (!loadbuf_iter) {
           goto OxHapslegendToPgen_ret_MISSING_TOKENS_HAPS;
@@ -6162,9 +6252,9 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       uint32_t inner_loop_last = kBitsPerWordD2 - 1;
       uint32_t widx = 0;
       // optimize common case: autosomal diploid, always exactly one space
-      // this loop is time-critical; all my attemps to merge in the haploid/MT
+      // this loop is time-critical; all my attemps to merge in the haploid
       // case have caused >10% slowdowns
-      if ((!is_haploid_or_mt) && (ctou32(loadbuf_iter[sample_ct * 4 - 1]) < 32)) {
+      if ((!is_haploid) && (ctou32(loadbuf_iter[sample_ct * 4 - 1]) < 32)) {
         loadbuf_iter[sample_ct * 4 - 1] = ' ';
         const uint32_t* loadbuf_alias32_iter = R_CAST(const uint32_t*, loadbuf_iter);
         while (1) {
@@ -6229,7 +6319,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
             const uint32_t post_second_hap_char_code = ctou32(*post_second_hap);
             uint32_t second_hap_int = second_hap_char_code - 48;
             if ((second_hap_int >= 2) || (post_second_hap_char_code > 32)) {
-              if (is_haploid_or_mt && (second_hap_char_code == 45)) {
+              if (is_haploid && (second_hap_char_code == 45)) {
                 // could require --sample, and require this sample to be male
                 // in this case?
                 second_hap_int = first_hap_int;
@@ -6339,7 +6429,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     break;
   OxHapslegendToPgen_ret_HAPLOID_TOKEN:
     putc_unlocked('\n', stdout);
-    snprintf(g_logbuf, kLogbufSize, "Error: Haploid/MT-only token on line %" PRIuPTR " of %s.\n", line_idx_haps, hapsname);
+    snprintf(g_logbuf, kLogbufSize, "Error: Haploid-only token on line %" PRIuPTR " of %s.\n", line_idx_haps, hapsname);
     WordWrapB(0);
     logerrputsb();
     reterr = legendname[0]? kPglRetInconsistentInput : kPglRetMalformedInput;
@@ -6629,8 +6719,8 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
   return reterr;
 }
 
-static_assert(sizeof(Dosage) == 2, "plink1_Dosageo_pgen() needs to be updated.");
-PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const char* mapname, const char* import_single_chr_str, const Plink1DosageInfo* pdip, MiscFlags misc_flags, FamCol fam_cols, int32_t missing_pheno, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+static_assert(sizeof(Dosage) == 2, "Plink1DosageToPgen() needs to be updated.");
+PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const char* mapname, const char* import_single_chr_str, const Plink1DosageInfo* pdip, MiscFlags misc_flags, ImportFlags import_flags, FamCol fam_cols, int32_t missing_pheno, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
 
@@ -6650,21 +6740,15 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     // 1. Read .fam file.  (May as well support most .psam files too, since
     //    it's the same driver function.  However, unless 'noheader' modifier
     //    is present, SID field cannot be used for disambiguation.)
-    uintptr_t max_sample_id_blen = 4;
-    uintptr_t max_sid_blen = 0;
-    uintptr_t max_paternal_id_blen = 2;
-    uintptr_t max_maternal_id_blen = 2;
     uint32_t raw_sample_ct = 0;
     uintptr_t* sample_include = nullptr;
-    char* sample_ids = nullptr;
-    char* sids = nullptr;
-    char* paternal_ids = nullptr;
-    char* maternal_ids = nullptr;
+    PedigreeIdInfo pii;
+    InitPedigreeIdInfo(misc_flags, &pii);
     uintptr_t* sex_nm = nullptr;
     uintptr_t* sex_male = nullptr;
     uintptr_t* founder_info = nullptr;
     uintptr_t max_pheno_name_blen = 0;
-    reterr = LoadPsam(famname, nullptr, fam_cols, 0x7fffffff, missing_pheno, (misc_flags / kfMiscAffection01) & 1, &max_sample_id_blen, &max_sid_blen, &max_paternal_id_blen, &max_maternal_id_blen, &sample_include, &sample_ids, &sids, &paternal_ids, &maternal_ids, &founder_info, &sex_nm, &sex_male, &pheno_cols, &pheno_names, &raw_sample_ct, &pheno_ct, &max_pheno_name_blen);
+    reterr = LoadPsam(famname, nullptr, fam_cols, 0x7fffffff, missing_pheno, (misc_flags / kfMiscAffection01) & 1, &pii, &sample_include, &founder_info, &sex_nm, &sex_male, &pheno_cols, &pheno_names, &raw_sample_ct, &pheno_ct, &max_pheno_name_blen);
     if (reterr) {
       goto Plink1DosageToPgen_ret_1;
     }
@@ -6693,12 +6777,12 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
       uint32_t* htable_tmp;
       char* idbuf;
       if (bigstack_end_alloc_ui(tmp_htable_size, &htable_tmp) ||
-          bigstack_end_alloc_c(max_sample_id_blen, &idbuf)) {
+          bigstack_end_alloc_c(pii.sii.max_sample_id_blen, &idbuf)) {
         goto Plink1DosageToPgen_ret_NOMEM;
       }
-      const uint32_t duplicate_idx = PopulateStrboxHtable(sample_ids, raw_sample_ct, max_sample_id_blen, tmp_htable_size, htable_tmp);
+      const uint32_t duplicate_idx = PopulateStrboxHtable(pii.sii.sample_ids, raw_sample_ct, pii.sii.max_sample_id_blen, tmp_htable_size, htable_tmp);
       if (duplicate_idx) {
-        char* duplicate_sample_id = &(sample_ids[duplicate_idx * max_sample_id_blen]);
+        char* duplicate_sample_id = &(pii.sii.sample_ids[duplicate_idx * pii.sii.max_sample_id_blen]);
         char* duplicate_fid_end = S_CAST(char*, rawmemchr(duplicate_sample_id, '\t'));
         *duplicate_fid_end = ' ';
         snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID '%s' in .fam file.\n", duplicate_sample_id);
@@ -6762,13 +6846,13 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
         }
         const uint32_t fid_slen = fid_end - loadbuf_iter;
         const uint32_t cur_id_slen = fid_slen + iid_slen + 1;
-        if (cur_id_slen >= max_sample_id_blen) {
+        if (cur_id_slen >= pii.sii.max_sample_id_blen) {
           logerrputs("Error: .fam file does not contain all sample IDs in dosage file.\n");
           goto Plink1DosageToPgen_ret_INCONSISTENT_INPUT;
         }
         char* idbuf_iid = memcpyax(idbuf, loadbuf_iter, fid_slen, '\t');
         memcpyx(idbuf_iid, iid_start, iid_slen, '\0');
-        uint32_t sample_uidx = StrboxHtableFind(idbuf, sample_ids, htable_tmp, max_sample_id_blen, cur_id_slen, tmp_htable_size);
+        uint32_t sample_uidx = StrboxHtableFind(idbuf, pii.sii.sample_ids, htable_tmp, pii.sii.max_sample_id_blen, cur_id_slen, tmp_htable_size);
         if (sample_uidx == UINT32_MAX) {
           logerrputs("Error: .fam file does not contain all sample IDs in dosage file.\n");
           goto Plink1DosageToPgen_ret_INCONSISTENT_INPUT;
@@ -6790,12 +6874,18 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     }
     char* writebuf = g_textbuf;
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
-    char* write_iter = strcpya(writebuf, "#FID\tIID");
-    const uint32_t write_sid = IsSidColRequired(sample_include, sids, sample_ct, max_sid_blen, 1);
+    char* write_iter = writebuf;
+    *write_iter++ = '#';
+    const uint32_t write_fid = IsDataFidColRequired(sample_include, &pii.sii, sample_ct, 1);
+    if (write_fid) {
+      write_iter = strcpya(write_iter, "FID\t");
+    }
+    write_iter = memcpyl3a(write_iter, "IID");
+    const uint32_t write_sid = IsDataSidColRequired(sample_include, pii.sii.sids, sample_ct, pii.sii.max_sid_blen, 1);
     if (write_sid) {
       write_iter = strcpya(write_iter, "\tSID");
     }
-    const uint32_t write_parents = IsParentalInfoPresent(sample_include, paternal_ids, maternal_ids, sample_ct, max_paternal_id_blen, max_maternal_id_blen);
+    const uint32_t write_parents = IsParentalInfoPresent(sample_include, &pii.parental_id_info, sample_ct);
     if (write_parents) {
       write_iter = strcpya(write_iter, "\tPAT\tMAT");
     }
@@ -6810,7 +6900,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     AppendBinaryEoln(&write_iter);
     uint32_t omp_slen = 2;
     char output_missing_pheno[kMaxMissingPhenostrBlen];
-    if (misc_flags & kfMiscKeepAutoconv) {
+    if (import_flags & kfImportKeepAutoconv) {
       omp_slen = strlen(g_output_missing_pheno);
       memcpy(output_missing_pheno, g_output_missing_pheno, omp_slen);
     } else {
@@ -6818,15 +6908,19 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     }
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
       const uint32_t sample_uidx = dosage_sample_idx_to_fam_uidx[sample_idx];
-      write_iter = strcpya(write_iter, &(sample_ids[sample_uidx * max_sample_id_blen]));
+      const char* cur_sample_id = &(pii.sii.sample_ids[sample_uidx * pii.sii.max_sample_id_blen]);
+      if (!write_fid) {
+        cur_sample_id = AdvPastDelim(cur_sample_id, '\t');
+      }
+      write_iter = strcpya(write_iter, cur_sample_id);
       if (write_sid) {
         *write_iter++ = '\t';
-        write_iter = strcpya(write_iter, &(sids[sample_uidx * max_sid_blen]));
+        write_iter = strcpya(write_iter, &(pii.sii.sids[sample_uidx * pii.sii.max_sid_blen]));
       }
       if (write_parents) {
         *write_iter++ = '\t';
-        write_iter = strcpyax(write_iter, &(paternal_ids[max_paternal_id_blen * sample_uidx]), '\t');
-        write_iter = strcpya(write_iter, &(maternal_ids[max_maternal_id_blen * sample_uidx]));
+        write_iter = strcpyax(write_iter, &(pii.parental_id_info.paternal_ids[pii.parental_id_info.max_paternal_id_blen * sample_uidx]), '\t');
+        write_iter = strcpya(write_iter, &(pii.parental_id_info.maternal_ids[pii.parental_id_info.max_maternal_id_blen * sample_uidx]));
       }
       *write_iter++ = '\t';
       if (IsSet(sex_nm, sample_uidx)) {
@@ -7609,7 +7703,7 @@ THREAD_FUNC_DECL GenerateDummyThread(void* arg) {
 }
 
 static_assert(sizeof(Dosage) == 2, "GenerateDummy() needs to be updated.");
-PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags, ImportFlags import_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   ThreadsState ts;
@@ -7712,7 +7806,7 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
     uint32_t omp_slen = 2;
     char output_missing_pheno[kMaxMissingPhenostrBlen];
-    if (misc_flags & kfMiscKeepAutoconv) {
+    if (import_flags & kfImportKeepAutoconv) {
       // must use --output-missing-phenotype parameter, which we've validated
       // to be consistent with --input-missing-phenotype
       omp_slen = strlen(g_output_missing_pheno);
@@ -7721,7 +7815,8 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
       // use "NA" since that's always safe
       memcpy(output_missing_pheno, "NA", 2);
     }
-    write_iter = strcpya(writebuf, "#FID\tIID\tSEX");
+    // Alpha 2 change: no more FID column
+    write_iter = strcpya(writebuf, "#IID\tSEX");
     for (uint32_t pheno_idx_p1 = 1; pheno_idx_p1 <= pheno_ct; ++pheno_idx_p1) {
       write_iter = strcpya(write_iter, "\tPHENO");
       write_iter = uint32toa(pheno_idx_p1, write_iter);
@@ -7737,8 +7832,6 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
           goto GenerateDummy_ret_WRITE_FAIL;
         }
         write_iter = memcpyl3a(write_iter, "per");
-        write_iter = uint32toa(sample_idx, write_iter);
-        write_iter = strcpya(write_iter, "\tper");
         write_iter = uint32toa(sample_idx, write_iter);
         // could add option to add some males/unknown gender
         write_iter = strcpya(write_iter, "\t2");

@@ -94,7 +94,7 @@ extern "C" {
 #    endif
       void openblas_set_num_threads(int num_threads);
 #    ifdef __cplusplus
-} // extern "C"
+}  // extern "C"
 #    endif
 #    define USE_MTBLAS
 #    define BLAS_SET_NUM_THREADS openblas_set_num_threads
@@ -174,7 +174,7 @@ HEADER_INLINE char* strnul(char* str) {
 }
 #  endif
 
-#else // !_GNU_SOURCE
+#else  // !_GNU_SOURCE
 
 #  ifdef __cplusplus
 HEADER_INLINE void* rawmemchr(void* ss, int cc) {
@@ -184,7 +184,7 @@ HEADER_INLINE void* rawmemchr(void* ss, int cc) {
 HEADER_INLINE const void* rawmemchr(const void* ss, int cc) {
   return memchr(ss, cc, 0x80000000U - kBytesPerVec);
 }
-#  else // !__cplusplus
+#  else  // !__cplusplus
 HEADER_INLINE void* rawmemchr(const void* ss, int cc) {
   return memchr(ss, cc, 0x80000000U - kBytesPerVec);
 }
@@ -214,7 +214,7 @@ HEADER_INLINE char* strchrnul(char* str, int cc) {
 }
 #  endif
 
-#endif // !_GNU_SOURCE
+#endif  // !_GNU_SOURCE
 
 #ifdef _WIN32
 // if kMaxThreads > 64, single WaitForMultipleObjects calls must be converted
@@ -1197,8 +1197,10 @@ HEADER_INLINE int32_t IsNotNzdigit(unsigned char ucc) {
   return (ucc > '9') || (ucc <= '0');
 }
 
-// may as well treat all chars < 32, except tab, as eoln...
+// May as well treat all chars < 32, except tab, as eoln...
 // kns = "known non-space" (where tab counts as a space)
+// This is of course identical to IsSpaceOrEoln(), but intent should be
+// clearer and we can insert a debug-assert that we aren't at a space/tab.
 HEADER_INLINE int32_t IsEolnKns(unsigned char ucc) {
   // could assert ucc is not a space/tab?
   return (ucc <= 32);
@@ -1458,6 +1460,18 @@ HEADER_INLINE uintptr_t strlen_se(const char* ss) {
   }
   return ss2 - ss;
 }
+
+HEADER_INLINE CXXCONST_CP AdvPastDelim(const char* str_iter, char delim) {
+  str_iter = S_CAST(const char*, rawmemchr(str_iter, delim));
+  return S_CAST(CXXCONST_CP, &(str_iter[1]));
+}
+
+#ifdef __cplusplus
+HEADER_INLINE char* AdvPastDelim(char* str_iter, char delim) {
+  return const_cast<char*>(AdvPastDelim(const_cast<const char*>(str_iter), delim));
+}
+#endif
+
 
 // ok if str_iter is at end of current token
 HEADER_INLINE CXXCONST_CP NextToken(const char* str_iter) {
@@ -1978,7 +1992,7 @@ HEADER_INLINE uintptr_t PopcountWordsNzbase(const uintptr_t* bitvec, uintptr_t s
     }
     prefix_ct = PopcountWord(bitvec[start_idx++]);
   }
-#  endif // USE_AVX2
+#  endif  // USE_AVX2
   return prefix_ct + PopcountWords(&(bitvec[start_idx]), end_idx - start_idx);
 }
 #else
@@ -2426,7 +2440,7 @@ CONSTU31(kMalloc32bitMbMax, 2047);
 
 
 #ifdef __cplusplus
-} // namespace plink2
+}  // namespace plink2
 #endif
 
-#endif // __PLINK2_CMDLINE_H__
+#endif  // __PLINK2_CMDLINE_H__

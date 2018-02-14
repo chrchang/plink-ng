@@ -47,7 +47,7 @@ PglErr RandomizeBigstack(uint32_t thread_ct);
 void GeneratePerm1Interleaved(uint32_t tot_bit_ct, uint32_t set_bit_ct, uintptr_t perm_start_idx, uintptr_t perm_end_idx, uintptr_t* perm_buf, sfmt_t* sfmtp);
 
 #ifdef __cplusplus
-} // namespace plink2
+}  // namespace plink2
 #endif
 
-#endif // __PLINK2_RANDOM_H__
+#endif  // __PLINK2_RANDOM_H__

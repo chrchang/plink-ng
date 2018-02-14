@@ -40,8 +40,10 @@ namespace plink2 {
 //   PAT
 //   MAT
 //   SEX
-// FID must either be the first column, or absent.  If it's absent, the IID
-// value is copied into the FID field.
+// FID must either be the first column, or absent.  If it's absent, all FID
+// values are now set to '0' by default, and FID is omitted by default from
+// output files when there's a choice.  (This is a change from both v1.9 and
+// v2.0 alpha 1.)
 // Any other value is treated as a phenotype/covariate name.
 //
 // The loader will error out of multiple #FID/IID lines are in the header for
@@ -64,7 +66,7 @@ namespace plink2 {
 CONSTU31(kCatHtableSize, 524287);
 static_assert(kCatHtableSize >= kMaxPhenoCt, "kCatHtableSize cannot be smaller than kMaxPhenoCt.");
 
-PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, FamCol fam_cols, uint32_t pheno_ct_max, int32_t missing_pheno, uint32_t affection_01, uintptr_t* max_sample_id_blen_ptr, uintptr_t* max_sid_blen_ptr, uintptr_t* max_paternal_id_blen_ptr, uintptr_t* max_maternal_id_blen_ptr, uintptr_t** sample_include_ptr, char** sample_ids_ptr, char** sids_ptr, char** paternal_ids_ptr, char** maternal_ids_ptr, uintptr_t** founder_info_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* raw_sample_ct_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr);
+PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, FamCol fam_cols, uint32_t pheno_ct_max, int32_t missing_pheno, uint32_t affection_01, PedigreeIdInfo* piip, uintptr_t** sample_include_ptr, uintptr_t** founder_info_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* raw_sample_ct_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr);
 
 HEADER_INLINE BoolErr IsReservedPhenoName(const char* pheno_name, uint32_t pheno_name_slen) {
   if (pheno_name_slen != 3) {
@@ -79,7 +81,7 @@ HEADER_INLINE BoolErr IsReservedPhenoName(const char* pheno_name, uint32_t pheno
 PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr, const uintptr_t* sample_include, const char* sample_ids, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, int32_t missing_pheno, uint32_t affection_01, uint32_t numeric_ranges, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr);
 
 #ifdef __cplusplus
-} // namespace plink2
+}  // namespace plink2
 #endif
 
-#endif // __PLINK2_PSAM_H__
+#endif  // __PLINK2_PSAM_H__

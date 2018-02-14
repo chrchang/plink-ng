@@ -17,15 +17,15 @@
 
 #include "plink2_cmdline.h"
 
-#include <unistd.h> // sysconf()
+#include <unistd.h>  // sysconf()
 
 #ifdef __APPLE__
   // needed for sysctl() call
 #  include <sys/sysctl.h>
 #endif
 
-#include <time.h> // CleanupLogfile()
-#include <unistd.h> // getcwd(), gethostname(), sysconf()
+#include <time.h>  // time(), ctime()
+#include <unistd.h>  // getcwd(), gethostname(), sysconf()
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -1541,7 +1541,7 @@ CXXCONST_CP ScanadvDouble(const char* str_iter, double* valp) {
     }
     e10 += cur_exp;
   }
-#else // not __LP64__
+#else  // not __LP64__
   int32_t digits_short;
   if (cur_digit < 10) {
     // ok, we have at least one digit
@@ -4227,7 +4227,7 @@ uintptr_t PopcountWordsIntersect(const uintptr_t* __restrict bitvec1_iter, const
   }
   return tot;
 }
-#else // !USE_AVX2
+#else  // !USE_AVX2
 static inline uintptr_t PopcountVecsNoAvx2Intersect(const VecUL* __restrict vvec1_iter, const VecUL* __restrict vvec2_iter, uintptr_t vec_ct) {
   // popcounts vvec1 AND vvec2[0..(ct-1)].  ct is a multiple of 3.
   assert(!(vec_ct % 3));
@@ -4281,7 +4281,7 @@ uintptr_t PopcountWordsIntersect(const uintptr_t* __restrict bitvec1_iter, const
   }
   return tot;
 }
-#endif // !USE_AVX2
+#endif  // !USE_AVX2
 
 #ifdef USE_SSE42
 void PopcountWordsIntersect3val(const uintptr_t* __restrict bitvec1, const uintptr_t* __restrict bitvec2, uint32_t word_ct, uint32_t* __restrict popcount1_ptr, uint32_t* __restrict popcount2_ptr, uint32_t* __restrict popcount_intersect_ptr) {
@@ -5533,7 +5533,7 @@ void HelpPrint(const char* cur_params, HelpCtrl* help_ctrl_ptr, uint32_t postpri
         help_ctrl_ptr->preprint_newline = postprint_newline;
         const char* payload_iter = payload;
         do {
-          const char* line_end = S_CAST(const char*, rawmemchr(payload_iter, '\n')) + 1;
+          const char* line_end = AdvPastDelim(payload_iter, '\n');
           uint32_t line_slen = S_CAST(uint32_t, line_end - payload_iter);
           if (line_slen > 2) {
             payload_iter = &(payload_iter[2]);
@@ -6758,5 +6758,5 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
 }
 
 #ifdef __cplusplus
-} // namespace plink2
+}  // namespace plink2
 #endif

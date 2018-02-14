@@ -41,13 +41,13 @@ typedef struct CatnameLl2Struct {
   char str[];
 } CatnameLl2;
 
-PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, FamCol fam_cols, uint32_t pheno_ct_max, int32_t missing_pheno, uint32_t affection_01, uintptr_t* max_sample_id_blen_ptr, uintptr_t* max_sid_blen_ptr, uintptr_t* max_paternal_id_blen_ptr, uintptr_t* max_maternal_id_blen_ptr, uintptr_t** sample_include_ptr, char** sample_ids_ptr, char** sids_ptr, char** paternal_ids_ptr, char** maternal_ids_ptr, uintptr_t** founder_info_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* raw_sample_ct_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
+PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, FamCol fam_cols, uint32_t pheno_ct_max, int32_t missing_pheno, uint32_t affection_01, PedigreeIdInfo* piip, uintptr_t** sample_include_ptr, uintptr_t** founder_info_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* raw_sample_ct_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
   // outparameter pointers assumed to be initialized to nullptr
   //
   // pheno_ct_max should default to something like 0x7fffffff, not UINT32_MAX
   //
-  // max_{sample,sid,paternal,maternal}_id_blen are in/out, to support data
-  // management operations which change these values
+  // FidPresent flag and max_{sample,sid,paternal,maternal}_id_blen are in/out,
+  // for interoperation with --update-ids and --update-parents.
   //
   // permanent allocations are at stack end, not base, to work better with
   // VariantIdDupflagHtableFind()
@@ -106,6 +106,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     g_bigstack_end -= kMaxIdSlen;
     unsigned char* tmp_bigstack_end = g_bigstack_end;
     unsigned char* bigstack_mark2;
+    uint32_t fid_present = 1;
     if (loadbuf_first_token[0] == '#') {
       // parse header
       // [-1] = #FID (if present, must be first column)
@@ -130,6 +131,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
         col_types[0] = 0;
         ++rpf_col_idx;
         psam_cols_mask = 1;
+        fid_present = 0;
       }
       uint32_t col_idx = 0;
       uint32_t in_interval = 0;
@@ -264,7 +266,8 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
       }
 
       pheno_ct = (fam_cols & kfFamCol6) && pheno_ct_max;
-      relevant_postfid_col_ct = ((fam_cols / kfFamCol1) & 1) + ((fam_cols / (kfFamCol34 / 2)) & 2) + ((fam_cols / kfFamCol5) & 1) + pheno_ct;
+      fid_present = (fam_cols / kfFamCol1) & 1;
+      relevant_postfid_col_ct = fid_present + ((fam_cols / (kfFamCol34 / 2)) & 2) + ((fam_cols / kfFamCol5) & 1) + pheno_ct;
       // these small allocations can't fail, since kMaxMediumLine <
       // loadbuf_size <= 1/3 of remaining space
       col_skips = S_CAST(uint32_t*, bigstack_alloc_raw_rd(relevant_postfid_col_ct * sizeof(int32_t)));
@@ -342,10 +345,10 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     const double missing_phenod = S_CAST(double, missing_pheno);
     const double pheno_ctrld = u31tod(1 - affection_01);
     const double pheno_cased = pheno_ctrld + 1.0;
-    uintptr_t max_sample_id_blen = *max_sample_id_blen_ptr;
-    uintptr_t max_sid_blen = *max_sid_blen_ptr;
-    uintptr_t max_paternal_id_blen = *max_paternal_id_blen_ptr;
-    uintptr_t max_maternal_id_blen = *max_maternal_id_blen_ptr;
+    uintptr_t max_sample_id_blen = piip->sii.max_sample_id_blen;
+    uintptr_t max_sid_blen = piip->sii.max_sid_blen;
+    uintptr_t max_paternal_id_blen = piip->parental_id_info.max_paternal_id_blen;
+    uintptr_t max_maternal_id_blen = piip->parental_id_info.max_maternal_id_blen;
     uint32_t raw_sample_ct = 0;
     uint32_t categorical_pheno_ct = 0;
 
@@ -384,7 +387,10 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
           token_slens[cur_col_type] = token_end - loadbuf_iter;
           loadbuf_iter = token_end;
         }
-        const uint32_t fid_slen = CurTokenEnd(loadbuf_first_token) - loadbuf_first_token;
+        uint32_t fid_slen = 2;
+        if (fid_present) {
+          fid_slen = CurTokenEnd(loadbuf_first_token) - loadbuf_first_token;
+        }
         const uint32_t iid_slen = token_slens[0];
         const uint32_t sid_slen = sids_present? token_slens[1] : 0;
         const uint32_t paternal_id_slen = paternal_ids_present? token_slens[2] : 1;
@@ -450,7 +456,13 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
         }
         new_psam_info->next = psam_info_reverse_ll;
         char* sample_id_storage = R_CAST(char*, &(new_psam_info->vardata[pheno_ct * 8]));
-        char* ss_iter = memcpyax(sample_id_storage, loadbuf_first_token, fid_slen, '\t');
+        char* ss_iter = sample_id_storage;
+        if (fid_present) {
+          ss_iter = memcpya(ss_iter, loadbuf_first_token, fid_slen);
+        } else {
+          *ss_iter++ = '0';
+        }
+        *ss_iter++ = '\t';
         psam_info_reverse_ll = new_psam_info;
         if ((iid_slen == 1) && (token_ptrs[0][0] == '0')) {
           snprintf(g_logbuf, kLogbufSize, "Error: Invalid IID '0' on line %" PRIuPTR " of %s.\n", line_idx, psamname);
@@ -683,9 +695,9 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     // could make these cacheline-aligned?
     g_bigstack_end = bigstack_end_mark;
     const uint32_t aligned_wct = BitCtToAlignedWordCt(raw_sample_ct);
-    if (bigstack_end_alloc_c(raw_sample_ct * max_sample_id_blen, sample_ids_ptr) ||
-        bigstack_end_alloc_c(raw_sample_ct * max_paternal_id_blen, paternal_ids_ptr) ||
-        bigstack_end_alloc_c(raw_sample_ct * max_maternal_id_blen, maternal_ids_ptr) ||
+    if (bigstack_end_alloc_c(raw_sample_ct * max_sample_id_blen, &(piip->sii.sample_ids)) ||
+        bigstack_end_alloc_c(raw_sample_ct * max_paternal_id_blen, &(piip->parental_id_info.paternal_ids)) ||
+        bigstack_end_alloc_c(raw_sample_ct * max_maternal_id_blen, &(piip->parental_id_info.maternal_ids)) ||
         bigstack_end_alloc_ul(raw_sample_ctl, sample_include_ptr) ||
         bigstack_end_calloc_ul(aligned_wct, founder_info_ptr) ||
         bigstack_end_calloc_ul(aligned_wct, sex_nm_ptr) ||
@@ -693,7 +705,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
       goto LoadPsam_ret_NOMEM;
     }
     if (sids_present) {
-      if (bigstack_end_alloc_c(raw_sample_ct * max_sid_blen, sids_ptr)) {
+      if (bigstack_end_alloc_c(raw_sample_ct * max_sid_blen, &(piip->sii.sids))) {
         goto LoadPsam_ret_NOMEM;
       }
     }
@@ -704,15 +716,15 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     ZeroTrailingWords(raw_sample_ctl, *founder_info_ptr);
     ZeroTrailingWords(raw_sample_ctl, *sex_male_ptr);
     *raw_sample_ct_ptr = raw_sample_ct;
-    *max_sample_id_blen_ptr = max_sample_id_blen;
-    *max_sid_blen_ptr = max_sid_blen;
-    *max_paternal_id_blen_ptr = max_paternal_id_blen;
-    *max_maternal_id_blen_ptr = max_maternal_id_blen;
+    piip->sii.max_sample_id_blen = max_sample_id_blen;
+    piip->sii.max_sid_blen = max_sid_blen;
+    piip->parental_id_info.max_paternal_id_blen = max_paternal_id_blen;
+    piip->parental_id_info.max_maternal_id_blen = max_maternal_id_blen;
     *max_pheno_name_blen_ptr = max_pheno_name_blen;
-    char* sample_ids = *sample_ids_ptr;
-    char* sids = sids_present? (*sids_ptr) : nullptr;
-    char* paternal_ids = *paternal_ids_ptr;
-    char* maternal_ids = *maternal_ids_ptr;
+    char* sample_ids = piip->sii.sample_ids;
+    char* sids = piip->sii.sids;
+    char* paternal_ids = piip->parental_id_info.paternal_ids;
+    char* maternal_ids = piip->parental_id_info.maternal_ids;
     uintptr_t* founder_info = *founder_info_ptr;
     uintptr_t* sex_nm = *sex_nm_ptr;
     uintptr_t* sex_male = *sex_male_ptr;
@@ -772,6 +784,9 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
         }
       }
       psam_info_reverse_ll = psam_info_reverse_ll->next;
+    }
+    if (fid_present) {
+      piip->sii.flags |= kfSampleIdFidPresent;
     }
     // special case: if there's exactly one phenotype and it's all-missing,
     // discard it
@@ -894,7 +909,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
     const uintptr_t old_max_pheno_name_blen = *max_pheno_name_blen_ptr;
     uintptr_t max_pheno_name_blen = old_max_pheno_name_blen;
     uint32_t comma_delim = 0;
-    XidMode xid_mode = (loadbuf_first_token[0] == 'I')? kfXidModeIid : kfXidModeFidiid;
+    XidMode xid_mode = (loadbuf_first_token[0] == 'I')? kfXidModeIid : kfXidModeFidIid;
     uint32_t* col_skips = nullptr;
     uint32_t new_pheno_ct;
     uint32_t final_pheno_ct;
@@ -1005,7 +1020,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
       loadbuf_first_token[0] = '\0';
     } else {
       // no header line
-      xid_mode = kfXidModeFidiid;
+      xid_mode = kfXidModeFidIid;
       // don't support comma delimiter here, since we don't have guaranteed
       // leading FID/IID to distinguish it
       const uint32_t col_ct = CountTokens(loadbuf_first_token);
@@ -1477,5 +1492,5 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
 }
 
 #ifdef __cplusplus
-} // namespace plink2
+}  // namespace plink2
 #endif

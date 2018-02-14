@@ -103,7 +103,7 @@ uint32_t CountTrianglePasses(uintptr_t start_idx, uintptr_t end_idx, uintptr_t i
   if (cells_avail < end_idx) {
     return 0;
   }
-  cells_avail *= 2; // don't want to worry about /2 in triangular numbers
+  cells_avail *= 2;  // don't want to worry about /2 in triangular numbers
   const uint64_t end_tri = S_CAST(uint64_t, end_idx) * (end_idx + 1);
   uint64_t start_tri = S_CAST(uint64_t, start_idx) * (start_idx + 1);
   uint32_t pass_ct = 0;
@@ -275,7 +275,7 @@ PglErr KinshipPruneDestructive(uintptr_t* kinship_table, uintptr_t* sample_inclu
   return reterr;
 }
 
-PglErr KingCutoffBatch(const char* sample_ids, const char* sids, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, double king_cutoff, uintptr_t* sample_include, char* king_cutoff_fprefix, uint32_t* sample_ct_ptr) {
+PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double king_cutoff, uintptr_t* sample_include, char* king_cutoff_fprefix, uint32_t* sample_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   gzFile gz_infile = nullptr;
   FILE* binfile = nullptr;
@@ -318,12 +318,12 @@ PglErr KingCutoffBatch(const char* sample_ids, const char* sids, uint32_t raw_sa
     if (IsEolnKns(*loadbuf_first_token)) {
       goto KingCutoffBatch_ret_MISSING_TOKENS;
     }
-    const XidMode xid_mode = (sids && NextTokenMult(loadbuf_first_token, 2))? kfXidModeFidiidSid : kfXidModeFidiid;
+    const XidMode xid_mode = (siip->sids && NextTokenMult(loadbuf_first_token, 2))? kfXidModeFidIidSid : kfXidModeFidIid;
 
-    uint32_t* xid_map; // IDs not collapsed
+    uint32_t* xid_map;  // IDs not collapsed
     char* sorted_xidbox;
     uintptr_t max_xid_blen;
-    reterr = SortedXidboxInitAlloc(sample_include, sample_ids, sids, sample_ct, max_sample_id_blen, max_sid_blen, 0, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+    reterr = SortedXidboxInitAlloc(sample_include, siip, sample_ct, 0, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
     if (reterr) {
       goto KingCutoffBatch_ret_1;
     }
@@ -607,7 +607,7 @@ void IncrKingHomhom(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, ui
     }
   }
 }
-#else // !USE_SSE42
+#else  // !USE_SSE42
 #  ifdef __LP64__
 CONSTU31(kKingMultiplex, 1536);
 #  else
@@ -861,14 +861,22 @@ void SetKingTableFname(KingFlags king_flags, uint32_t parallel_idx, uint32_t par
   *outname_end2 = '\0';
 }
 
-char* AppendKingTableHeader(KingFlags king_flags, uint32_t king_col_sid, char* cswritep) {
+char* AppendKingTableHeader(KingFlags king_flags, uint32_t king_col_fid, uint32_t king_col_sid, char* cswritep) {
   *cswritep++ = '#';
   if (king_flags & kfKingColId) {
-    cswritep = strcpya(cswritep, "FID1\tID1\t");
+    if (king_col_fid) {
+      cswritep = strcpya(cswritep, "FID1\t");
+    }
+    cswritep = strcpya(cswritep, "ID1\t");
     if (king_col_sid) {
-      cswritep = strcpya(cswritep, "SID1\tFID2\tID2\tSID2\t");
-    } else {
-      cswritep = strcpya(cswritep, "FID2\tID2\t");
+      cswritep = strcpya(cswritep, "SID1\t");
+    }
+    if (king_col_fid) {
+      cswritep = strcpya(cswritep, "FID2\n");
+    }
+    cswritep = strcpya(cswritep, "ID2\t");
+    if (king_col_sid) {
+      cswritep = strcpya(cswritep, "SID2\t");
     }
   }
   if (king_flags & kfKingColNsnp) {
@@ -890,7 +898,7 @@ char* AppendKingTableHeader(KingFlags king_flags, uint32_t king_col_sid, char* c
   return cswritep;
 }
 
-PglErr CalcKing(const char* sample_ids, const char* sids, uintptr_t* variant_include, const ChrInfo* cip, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, double king_cutoff, double king_table_filter, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t no_id_header, uint32_t max_thread_ct, PgenReader* simple_pgrp, uintptr_t* sample_include, uint32_t* sample_ct_ptr, char* outname, char* outname_end) {
+PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, uint32_t raw_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_cutoff, double king_table_filter, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, uintptr_t* sample_include, uint32_t* sample_ct_ptr, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -1001,9 +1009,10 @@ PglErr CalcKing(const char* sample_ids, const char* sids, uintptr_t* variant_inc
         }
       }
     }
+    uint32_t king_col_fid = 0;
     uint32_t king_col_sid = 0;
-    uintptr_t max_sample_augid_blen = max_sample_id_blen;
-    char* collapsed_sample_augids = nullptr;
+    uintptr_t max_sample_fmtid_blen = 0;
+    char* collapsed_sample_fmtids = nullptr;
     if (king_flags & kfKingColAll) {
       const uint32_t overflow_buf_size = kCompressStreamBlock + kMaxMediumLine;
       SetKingTableFname(king_flags, parallel_idx, parallel_tot, outname_end);
@@ -1012,23 +1021,13 @@ PglErr CalcKing(const char* sample_ids, const char* sids, uintptr_t* variant_inc
         goto CalcKing_ret_1;
       }
 
-      king_col_sid = IsSidColRequired(sample_include, sids, sample_ct, max_sid_blen, king_flags / kfKingColMaybesid);
+      king_col_fid = IsFidColRequired(siip, king_flags / kfKingColMaybefid);
+      king_col_sid = IsSidColRequired(siip->sids, king_flags / kfKingColMaybesid);
       if (!parallel_idx) {
-        cswritetp = AppendKingTableHeader(king_flags, king_col_sid, cswritetp);
+        cswritetp = AppendKingTableHeader(king_flags, king_col_fid, king_col_sid, cswritetp);
       }
-      if (king_col_sid) {
-        if (AugidInitAlloc(sample_include, sample_ids, sids, grand_row_end_idx, max_sample_id_blen, max_sid_blen, nullptr, &collapsed_sample_augids, &max_sample_augid_blen)) {
-          goto CalcKing_ret_NOMEM;
-        }
-      } else {
-        if (bigstack_alloc_c(grand_row_end_idx * max_sample_augid_blen, &collapsed_sample_augids)) {
-          goto CalcKing_ret_NOMEM;
-        }
-        uint32_t sample_uidx = 0;
-        for (uint32_t sample_idx = 0; sample_idx < grand_row_end_idx; ++sample_idx, ++sample_uidx) {
-          FindFirst1BitFromU32(sample_include, &sample_uidx);
-          strcpy(&(collapsed_sample_augids[sample_idx * max_sample_augid_blen]), &(sample_ids[sample_uidx * max_sample_id_blen]));
-        }
+      if (CollapsedSampleFmtidInitAlloc(sample_include, siip, grand_row_end_idx, king_col_fid, king_col_sid, &collapsed_sample_fmtids, &max_sample_fmtid_blen)) {
+        goto CalcKing_ret_NOMEM;
       }
     }
     uint64_t king_table_filter_ct = 0;
@@ -1359,8 +1358,8 @@ PglErr CalcKing(const char* sample_ids, const char* sids, uintptr_t* variant_inc
           uint32_t* results_iter = g_king_counts;
           double nonmiss_recip = 0.0;
           for (uint32_t sample_idx1 = row_start_idx; sample_idx1 < row_end_idx; ++sample_idx1) {
-            const char* sample_augid1 = &(collapsed_sample_augids[max_sample_augid_blen * sample_idx1]);
-            uint32_t sample_augid1_len = strlen(sample_augid1);
+            const char* sample_fmtid1 = &(collapsed_sample_fmtids[max_sample_fmtid_blen * sample_idx1]);
+            uint32_t sample_fmtid1_len = strlen(sample_fmtid1);
             for (uint32_t sample_idx2 = 0; sample_idx2 < sample_idx1; ++sample_idx2, results_iter = &(results_iter[homhom_needed_p4])) {
               const uint32_t ibs0_ct = results_iter[0];
               const uint32_t hethet_ct = results_iter[1];
@@ -1380,8 +1379,8 @@ PglErr CalcKing(const char* sample_ids, const char* sids, uintptr_t* variant_inc
                 continue;
               }
               if (king_col_id) {
-                cswritetp = memcpyax(cswritetp, sample_augid1, sample_augid1_len, '\t');
-                cswritetp = strcpyax(cswritetp, &(collapsed_sample_augids[max_sample_augid_blen * sample_idx2]), '\t');
+                cswritetp = memcpyax(cswritetp, sample_fmtid1, sample_fmtid1_len, '\t');
+                cswritetp = strcpyax(cswritetp, &(collapsed_sample_fmtids[max_sample_fmtid_blen * sample_idx2]), '\t');
               }
               if (homhom_needed_p4 == 5) {
                 const uint32_t homhom_ct = results_iter[4];
@@ -1476,7 +1475,7 @@ PglErr CalcKing(const char* sample_ids, const char* sids, uintptr_t* variant_inc
       snprintf(write_iter, kLogbufSize - 2 * kPglFnamesize - 64, " .\n");
       WordWrapB(0);
       logputsb();
-      reterr = WriteSampleIds(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, no_id_header);
+      reterr = WriteSampleIds(sample_include, siip, outname, sample_ct);
       if (reterr) {
         goto CalcKing_ret_1;
       }
@@ -1495,7 +1494,7 @@ PglErr CalcKing(const char* sample_ids, const char* sids, uintptr_t* variant_inc
         snprintf(write_iter, kLogbufSize - 2 * kPglFnamesize - 64, " .\n");
         WordWrapB(0);
         logputsb();
-        reterr = WriteSampleIds(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, no_id_header);
+        reterr = WriteSampleIds(sample_include, siip, outname, sample_ct);
         if (reterr) {
           goto CalcKing_ret_1;
         }
@@ -1919,7 +1918,7 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, u
   return reterr;
 }
 
-PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const char* sample_ids, const char* sids, uintptr_t* variant_include, const ChrInfo* cip, const char* subset_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, double king_table_filter, double king_table_subset_thresh, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const char* subset_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_table_filter, double king_table_subset_thresh, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -2018,19 +2017,18 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const char* sam
     if (reterr) {
       goto CalcKingTableSubset_ret_1;
     }
-    const uint32_t king_col_sid = IsSidColRequired(orig_sample_include, sids, orig_sample_ct, max_sid_blen, king_flags / kfKingColMaybesid);
-    if (!parallel_idx) {
-      cswritep = AppendKingTableHeader(king_flags, king_col_sid, cswritep);
-    }
-    if (!sids) {
+    const uint32_t king_col_fid = IsFidColRequired(siip, king_flags / kfKingColMaybefid);
+    uintptr_t max_sid_blen = siip->max_sid_blen;
+    if (!siip->sids) {
       max_sid_blen = 2;
     }
-    uintptr_t max_sample_augid_blen = max_sample_id_blen;
-    if (king_col_sid) {
-      max_sample_augid_blen += max_sid_blen;
+    const uint32_t king_col_sid = IsSidColRequired(siip->sids, king_flags / kfKingColMaybesid);
+    if (!parallel_idx) {
+      cswritep = AppendKingTableHeader(king_flags, king_col_fid, king_col_sid, cswritep);
     }
-    char* collapsed_sample_augids;
-    if (bigstack_alloc_c(max_sample_augid_blen * orig_sample_ct, &collapsed_sample_augids)) {
+    const uintptr_t max_sample_fmtid_blen = GetMaxSampleFmtidBlen(siip, king_col_fid, king_col_sid);
+    char* collapsed_sample_fmtids;
+    if (bigstack_alloc_c(max_sample_fmtid_blen * orig_sample_ct, &collapsed_sample_fmtids)) {
       goto CalcKingTableSubset_ret_NOMEM;
     }
     uint32_t calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
@@ -2082,8 +2080,8 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const char* sam
     uint32_t id2_skip = 0;
     XidMode xid_mode;
     if (strequal_k(textbuf_iter, "SID1", token_slen)) {
-      if (sids) {
-        xid_mode = kfXidModeFidiidSid;
+      if (siip->sids) {
+        xid_mode = kfXidModeFidIidSid;
       } else {
         id2_skip = 1;
       }
@@ -2091,7 +2089,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const char* sam
       token_end = CurTokenEnd(textbuf_iter);
       token_slen = token_end - textbuf_iter;
     } else {
-      xid_mode = kfXidModeFidiid;
+      xid_mode = kfXidModeFidIid;
     }
     if (!strequal_k(textbuf_iter, "FID2", token_slen)) {
       goto CalcKingTableSubset_ret_INVALID_HEADER;
@@ -2102,7 +2100,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const char* sam
     if (!strequal_k(textbuf_iter, "ID2", token_slen)) {
       goto CalcKingTableSubset_ret_INVALID_HEADER;
     }
-    if (xid_mode == kfXidModeFidiidSid) {
+    if (xid_mode == kfXidModeFidIidSid) {
       // technically don't need to check this in id2_skip case
       textbuf_iter = FirstNonTspace(token_end);
       token_end = CurTokenEnd(textbuf_iter);
@@ -2129,10 +2127,10 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const char* sam
       }
     }
 
-    uint32_t* xid_map; // IDs not collapsed
+    uint32_t* xid_map;  // IDs not collapsed
     char* sorted_xidbox;
     uintptr_t max_xid_blen;
-    reterr = SortedXidboxInitAlloc(orig_sample_include, sample_ids, sids, orig_sample_ct, max_sample_id_blen, max_sid_blen, 0, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+    reterr = SortedXidboxInitAlloc(orig_sample_include, siip, orig_sample_ct, 0, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
     if (reterr) {
       goto CalcKingTableSubset_ret_1;
     }
@@ -2219,23 +2217,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const char* sam
         }
       }
       ZeroUiArr(cur_pair_ct * homhom_needed_p4, g_king_counts);
-      char* sample_augids_iter = collapsed_sample_augids;
-      uint32_t sample_uidx = 0;
-      for (uint32_t sample_idx = 0; sample_idx < cur_sample_ct; ++sample_idx, ++sample_uidx) {
-        FindFirst1BitFromU32(cur_sample_include, &sample_uidx);
-        char* write_iter = strcpya(sample_augids_iter, &(sample_ids[sample_uidx * max_sample_id_blen]));
-        if (king_col_sid) {
-          *write_iter++ = '\t';
-          if (sids) {
-            strcpy(write_iter, &(sids[sample_uidx * max_sid_blen]));
-          } else {
-            memcpy(write_iter, "0", 2);
-          }
-        } else {
-          *write_iter = '\0';
-        }
-        sample_augids_iter = &(sample_augids_iter[max_sample_augid_blen]);
-      }
+      CollapsedSampleFmtidInit(cur_sample_include, siip, cur_sample_ct, king_col_fid, king_col_sid, max_sample_fmtid_blen, collapsed_sample_fmtids);
       for (uint32_t tidx = 0; tidx <= calc_thread_ct; ++tidx) {
         g_thread_start[tidx] = (tidx * S_CAST(uint64_t, cur_pair_ct)) / calc_thread_ct;
       }
@@ -2368,8 +2350,8 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const char* sam
         const uint32_t sample_idx1 = g_loaded_sample_idx_pairs[2 * cur_pair_idx];
         const uint32_t sample_idx2 = g_loaded_sample_idx_pairs[2 * cur_pair_idx + 1];
         if (king_col_id) {
-          cswritep = strcpyax(cswritep, &(collapsed_sample_augids[max_sample_augid_blen * sample_idx1]), '\t');
-          cswritep = strcpyax(cswritep, &(collapsed_sample_augids[max_sample_augid_blen * sample_idx2]), '\t');
+          cswritep = strcpyax(cswritep, &(collapsed_sample_fmtids[max_sample_fmtid_blen * sample_idx1]), '\t');
+          cswritep = strcpyax(cswritep, &(collapsed_sample_fmtids[max_sample_fmtid_blen * sample_idx2]), '\t');
         }
         if (homhom_needed_p4 == 5) {
           const uint32_t homhom_ct = results_iter[4];
@@ -2871,7 +2853,7 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
   return reterr;
 }
 
-PglErr CalcGrm(const uintptr_t* orig_sample_include, const char* sample_ids, const char* sids, uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* variant_allele_idxs, const AltAlleleCt* maj_alleles, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, GrmFlags grm_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end, double** grm_ptr) {
+PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* variant_allele_idxs, const AltAlleleCt* maj_alleles, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, GrmFlags grm_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end, double** grm_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* outfile = nullptr;
@@ -3080,7 +3062,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const char* sample_ids, con
     }
     fputs("\b\b", stdout);
     logputs("done.\n");
-    uint32_t* missing_cts = nullptr; // stays null iff meanimpute
+    uint32_t* missing_cts = nullptr;  // stays null iff meanimpute
     uint32_t* missing_dbl_exclude_cts = nullptr;
     if (variant_include_has_missing) {
       const uint32_t variant_ct_with_missing = PopcountWords(variant_include_has_missing, raw_variant_ctl);
@@ -3436,8 +3418,15 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const char* sample_ids, con
         }
       }
       if (!parallel_idx) {
+        SampleIdFlags id_print_flags = siip->flags & kfSampleIdFidPresent;
+        if (grm_flags & kfGrmNoIdHeader) {
+          id_print_flags |= kfSampleIdNoIdHeader;
+          if (grm_flags & kfGrmNoIdHeaderIidOnly) {
+            id_print_flags |= kfSampleIdNoIdHeaderIidOnly;
+          }
+        }
         snprintf(&(outname_end[4]), kMaxOutfnameExtBlen - 4, ".id");
-        reterr = WriteSampleIds(orig_sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, (grm_flags / kfGrmNoIdHeader) & 1);
+        reterr = WriteSampleIdsOverride(orig_sample_include, siip, outname, sample_ct, id_print_flags);
         if (reterr) {
           goto CalcGrm_ret_1;
         }
@@ -3669,7 +3658,7 @@ THREAD_FUNC_DECL CalcPcaVarWtsThread(void* arg) {
   // is only one batch
   const uintptr_t var_wts_part_size = S_CAST(uintptr_t, pc_ct) * g_cur_batch_size;
 
-  const double* sample_wts = g_g1; // sample-major, pc_ct columns
+  const double* sample_wts = g_g1;  // sample-major, pc_ct columns
   double* yy_buf = g_yy_bufs[tidx];
   uint32_t parity = 0;
   while (1) {
@@ -3713,7 +3702,7 @@ THREAD_FUNC_DECL CalcPcaVarWtsThread(void* arg) {
   }
 }
 
-PglErr CalcPca(const uintptr_t* sample_include, const char* sample_ids, const char* sids, uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const AltAlleleCt* maj_alleles, const double* allele_freqs, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t pc_ct, PcaFlags pca_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, double* grm, char* outname, char* outname_end) {
+PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const AltAlleleCt* maj_alleles, const double* allele_freqs, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t pc_ct, PcaFlags pca_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, double* grm, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -3723,21 +3712,12 @@ PglErr CalcPca(const uintptr_t* sample_include, const char* sample_ids, const ch
   PglErr reterr = kPglRetSuccess;
   PreinitCstream(&css);
   {
-    if ((pca_flags & kfPcaSid) && (!sids)) {
-      // put this in plink2_common?
-      const uint32_t dummy_sids_word_ct = DivUp(raw_sample_ct, (kBytesPerWord / 2));
-      uintptr_t* dummy_sids;
-      if (bigstack_alloc_ul(dummy_sids_word_ct, &dummy_sids)) {
-        goto CalcPca_ret_NOMEM;
-      }
-      // repeated "0\0", little-endian
-      const uintptr_t text_zero_word = kMask0001 * 48;
-      for (uint32_t uii = 0; uii < dummy_sids_word_ct; ++uii) {
-        dummy_sids[uii] = text_zero_word;
-      }
-      sids = R_CAST(char*, dummy_sids);
-      max_sid_blen = 2;
-    }
+    const uint32_t write_fid = IsFidColRequired(siip, pca_flags / kfPcaScolMaybefid);
+    const char* sample_ids = siip->sample_ids;
+    const char* sids = siip->sids;
+    const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+    const uintptr_t max_sid_blen = siip->max_sid_blen;
+    const uint32_t write_sid = IsSidColRequired(sids, pca_flags / kfPcaScolMaybesid);
     const uint32_t is_approx = (pca_flags / kfPcaApprox) & 1;
     reterr = ConditionalAllocateNonAutosomalVariants(cip, is_approx? "PCA approximation" : "PCA", raw_variant_ct, &variant_include, &variant_ct);
     if (reterr) {
@@ -3915,7 +3895,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const char* sample_ids, const ch
         for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
           ZeroDArr(g_size, g_g2_bb_part_bufs[tidx]);
         }
-        double* qq_iter = &(qq[iter_idx * pc_ct_x2]); // offset on first row
+        double* qq_iter = &(qq[iter_idx * pc_ct_x2]);  // offset on first row
         g_qq = qq_iter;
 
         // Main workflow:
@@ -4476,8 +4456,13 @@ PglErr CalcPca(const uintptr_t* sample_include, const char* sample_ids, const ch
     if (fopen_checked(outname, FOPEN_WB, &outfile)) {
       goto CalcPca_ret_OPEN_FAIL;
     }
-    char* write_iter = strcpya(writebuf, "#FID\tIID");
-    if (sids) {
+    char* write_iter = writebuf;
+    *write_iter++ = '#';
+    if (write_fid) {
+      write_iter = strcpya(write_iter, "FID\t");
+    }
+    write_iter = memcpyl3a(write_iter, "IID");
+    if (write_sid) {
       write_iter = strcpya(write_iter, "\tSID");
     }
     for (uint32_t pc_idx = 0; pc_idx < pc_ct;) {
@@ -4490,10 +4475,18 @@ PglErr CalcPca(const uintptr_t* sample_include, const char* sample_ids, const ch
     uint32_t sample_uidx = 0;
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
       FindFirst1BitFromU32(sample_include, &sample_uidx);
-      write_iter = strcpya(write_iter, &(sample_ids[sample_uidx * max_sample_id_blen]));
-      if (sids) {
+      const char* cur_sample_id = &(sample_ids[max_sample_id_blen * sample_uidx]);
+      if (!write_fid) {
+        cur_sample_id = AdvPastDelim(cur_sample_id, '\t');
+      }
+      write_iter = strcpya(write_iter, cur_sample_id);
+      if (write_sid) {
         *write_iter++ = '\t';
-        write_iter = strcpya(write_iter, &(sids[sample_uidx * max_sid_blen]));
+        if (sids) {
+          write_iter = strcpya(write_iter, &(sids[max_sid_blen * sample_uidx]));
+        } else {
+          *write_iter++ = '0';
+        }
       }
       double* sample_wts_iter = &(eigvecs_smaj[sample_idx * pc_ct]);
       // todo: read from proj_sample_wts instead when pca_sample_include bit
@@ -4627,7 +4620,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* arg) {
   }
 }
 
-PglErr ScoreReport(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const double* allele_freqs, const ScoreInfo* score_info_ptr, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t xchr_model, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const double* allele_freqs, const ScoreInfo* score_info_ptr, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t xchr_model, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   gzFile gz_infile = nullptr;
@@ -4944,12 +4937,17 @@ PglErr ScoreReport(const uintptr_t* sample_include, const char* sample_ids, cons
               goto ScoreReport_ret_1;
             }
             const uint32_t chr_idx = GetVariantChr(cip, variant_uidx);
-            uint32_t is_relevant_x = (S_CAST(int32_t, chr_idx) == x_code);
-            if ((domrec || variance_standardize) && (is_relevant_x || (S_CAST(int32_t, chr_idx) == mt_code))) {
-              logerrputs("Error: --score 'dominant', 'recessive', and 'variance-standardize' modifiers\ncannot be used with chrX or MT.\n");
+            uint32_t is_nonx_haploid = IsSet(cip->haploid_mask, chr_idx);
+            if (domrec && is_nonx_haploid) {
+              logerrputs("Error: --score 'dominant' and 'recessive' modifiers cannot be used with haploid\nchromosomes.\n");
               goto ScoreReport_ret_INCONSISTENT_INPUT;
             }
-            const uint32_t is_nonx_haploid = (!is_relevant_x) && IsSet(cip->haploid_mask, chr_idx);
+            uint32_t is_relevant_x = (S_CAST(int32_t, chr_idx) == x_code);
+            if (variance_standardize && (is_relevant_x || (S_CAST(int32_t, chr_idx) == mt_code))) {
+              logerrputs("Error: --score 'variance-standardize' cannot be used with chrX or MT.\n");
+              goto ScoreReport_ret_INCONSISTENT_INPUT;
+            }
+            is_nonx_haploid = (!is_relevant_x) && is_nonx_haploid;
 
             // only if --xchr-model 1 (which is no longer the default)
             is_relevant_x = is_relevant_x && xchr_model;
@@ -5279,14 +5277,22 @@ PglErr ScoreReport(const uintptr_t* sample_include, const char* sample_ids, cons
       goto ScoreReport_ret_1;
     }
     cswritep = overflow_buf;
-    // see e.g. write_psam() in plink2_data.cc
-    const uint32_t write_sid = IsSidColRequired(sample_include, sids, sample_ct, max_sid_blen, score_flags / kfScoreColMaybesid);
+    const uint32_t write_fid = IsFidColRequired(siip, score_flags / kfScoreColMaybefid);
+    const char* sample_ids = siip->sample_ids;
+    const char* sids = siip->sids;
+    const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+    const uintptr_t max_sid_blen = siip->max_sid_blen;
+    const uint32_t write_sid = IsSidColRequired(sids, score_flags / kfScoreColMaybesid);
     const uint32_t write_empty_pheno = (score_flags & kfScoreColPheno1) && (!pheno_ct);
     const uint32_t write_phenos = (score_flags & (kfScoreColPheno1 | kfScoreColPhenos)) && pheno_ct;
     if (write_phenos && (!(score_flags & kfScoreColPhenos))) {
       pheno_ct = 1;
     }
-    cswritep = strcpya(cswritep, "#FID\tIID");
+    *cswritep++ = '#';
+    if (write_fid) {
+      cswritep = strcpya(cswritep, "FID\t");
+    }
+    cswritep = memcpyl3a(cswritep, "IID");
     if (write_sid) {
       cswritep = strcpya(cswritep, "\tSID");
     }
@@ -5342,7 +5348,11 @@ PglErr ScoreReport(const uintptr_t* sample_include, const char* sample_ids, cons
     uint32_t sample_uidx = 0;
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
       FindFirst1BitFromU32(sample_include, &sample_uidx);
-      cswritep = strcpya(cswritep, &(sample_ids[sample_uidx * max_sample_id_blen]));
+      const char* cur_sample_id = &(sample_ids[sample_uidx * max_sample_id_blen]);
+      if (!write_fid) {
+        cur_sample_id = AdvPastDelim(cur_sample_id, '\t');
+      }
+      cswritep = strcpya(cswritep, cur_sample_id);
       if (write_sid) {
         *cswritep++ = '\t';
         if (sids) {
@@ -5472,5 +5482,5 @@ PglErr ScoreReport(const uintptr_t* sample_include, const char* sample_ids, cons
 }
 
 #ifdef __cplusplus
-} // namespace plink2
+}  // namespace plink2
 #endif

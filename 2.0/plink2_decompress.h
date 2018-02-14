@@ -81,7 +81,7 @@ char* AdvanceGzTokenStream(GzTokenStream* gtsp, uint32_t* token_slen_ptr);
 BoolErr CloseGzTokenStream(GzTokenStream* gtsp);
 
 #ifdef __cplusplus
-} // namespace plink2
+}  // namespace plink2
 #endif
 
-#endif // __PLINK2_DECOMPRESS_H__
+#endif  // __PLINK2_DECOMPRESS_H__

@@ -77,7 +77,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
 PglErr AdjustFile(const AdjustFileInfo* afip, double pfilter, double output_min_p, uint32_t max_thread_ct, char* outname, char* outname_end);
 
 #ifdef __cplusplus
-} // namespace plink2
+}  // namespace plink2
 #endif
 
-#endif // __PLINK2_ADJUST_H__
+#endif  // __PLINK2_ADJUST_H__

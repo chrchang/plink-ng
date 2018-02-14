@@ -28,8 +28,8 @@
 #include "plink2_random.h"
 #include "plink2_set.h"
 
-#include <time.h> // time()
-#include <unistd.h> // unlink()
+#include <time.h>  // time()
+#include <unistd.h>  // unlink()
 
 #include "plink2_help.h"
 
@@ -37,7 +37,7 @@
 namespace plink2 {
 #endif
 
-static const char ver_str[] = "PLINK v2.00a1"
+static const char ver_str[] = "PLINK v2.00a2"
 #ifdef NOLAPACK
   "NL"
 #endif
@@ -61,7 +61,7 @@ static const char ver_str[] = "PLINK v2.00a1"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (11 Feb 2018)";
+  " (14 Feb 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -573,29 +573,51 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
     }
-    uintptr_t max_sample_id_blen = 4;
-    uintptr_t max_sid_blen = 0;
-    uintptr_t max_paternal_id_blen = 2;
-    uintptr_t max_maternal_id_blen = 2;
     uint32_t raw_sample_ct = 0;
     uintptr_t* sample_include = nullptr;
-    char* sample_ids = nullptr;
-    char* sids = nullptr;
-    char* paternal_ids = nullptr;
-    char* maternal_ids = nullptr;
     uintptr_t* sex_nm = nullptr;
     uintptr_t* sex_male = nullptr;
     uintptr_t* founder_info = nullptr;
     uintptr_t max_pheno_name_blen = 0;
     uint32_t raw_sample_ctl = 0;
     uint32_t sample_ct = 0;
+
+    // There's a tradeoff between using structs like this and passing each of
+    // the components separately: large structs make for shorter parameter
+    // lists and hence slightly prettier code, but going too far in that
+    // direction (e.g. having a single huge struct that gets passed to all
+    // commands) makes it far harder to see what the actual data dependencies
+    // are.  Right now the codebase errs, to an almost comical degree, in the
+    // direction of making data dependencies clear and minimizing passing of
+    // unneeded information.  I'll scale this back, but I'll try to avoid doing
+    // it in ways that obscure data flows.
+    // For instance, sample IDs and parental IDs could be stored in the same
+    // struct, but if we pass parental IDs separately it's easier to see which
+    // functions actually need them.
+    // In lower-level functions, a reasonable rule of thumb is that aggregation
+    // of parameters that normally appear together is worthwhile when there are
+    // more than 6 parameters, since the x86-64 C calling convention uses
+    // registers for the first 6 parameters.
+    PedigreeIdInfo pii;
+    InitPedigreeIdInfo(pcp->misc_flags, &pii);
     if (psamname[0]) {
       // update (26 Nov 2017): change --no-pheno to also apply to .psam file
       const uint32_t ignore_psam_phenos = (!(pcp->fam_cols & kfFamCol6)) || (pcp->pheno_fname && pcp->pheno_range_list.name_ct);
-      reterr = LoadPsam(psamname, pcp->pheno_fname? nullptr : &(pcp->pheno_range_list), pcp->fam_cols, ignore_psam_phenos? 0 : 0x7fffffff, pcp->missing_pheno, (pcp->misc_flags / kfMiscAffection01) & 1, &max_sample_id_blen, &max_sid_blen, &max_paternal_id_blen, &max_maternal_id_blen, &sample_include, &sample_ids, &sids, &paternal_ids, &maternal_ids, &founder_info, &sex_nm, &sex_male, &pheno_cols, &pheno_names, &raw_sample_ct, &pheno_ct, &max_pheno_name_blen);
+      reterr = LoadPsam(psamname, pcp->pheno_fname? nullptr : &(pcp->pheno_range_list), pcp->fam_cols, ignore_psam_phenos? 0 : 0x7fffffff, pcp->missing_pheno, (pcp->misc_flags / kfMiscAffection01) & 1, &pii, &sample_include, &founder_info, &sex_nm, &sex_male, &pheno_cols, &pheno_names, &raw_sample_ct, &pheno_ct, &max_pheno_name_blen);
       if (reterr) {
         goto Plink2Core_ret_1;
       }
+      // todo: move this check after --update-ids once that's implemented.
+      if ((pii.sii.flags & kfSampleIdFidPresent) && ((pii.sii.flags & kfSampleIdNoIdHeaderIidOnly) || (pcp->grm_flags & kfGrmNoIdHeaderIidOnly))) {
+        for (uint32_t sample_idx = 0; sample_idx < raw_sample_ct; ++sample_idx) {
+          const char* cur_sample_id = &(pii.sii.sample_ids[sample_idx * pii.sii.max_sample_id_blen]);
+          if (memcmp(cur_sample_id, "0\t", 2)) {
+            logerrputs("Error: 'iid-only' modifier can only be used when FIDs are missing or all-0.\n");
+            goto Plink2Core_ret_INCONSISTENT_INPUT;
+          }
+        }
+      }
+
       // todo: add option to discard loaded SIDs
       raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
       sample_ct = PopcountWords(sample_include, raw_sample_ctl);
@@ -823,7 +845,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       pgfi.nonref_flags = nonref_flags;
     }
     if (pcp->pheno_fname) {
-      reterr = LoadPhenos(pcp->pheno_fname, &(pcp->pheno_range_list), sample_include, sample_ids, raw_sample_ct, sample_ct, max_sample_id_blen, pcp->missing_pheno, (pcp->misc_flags / kfMiscAffection01) & 1, (pcp->misc_flags / kfMiscPhenoColNums) & 1, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen);
+      reterr = LoadPhenos(pcp->pheno_fname, &(pcp->pheno_range_list), sample_include, pii.sii.sample_ids, raw_sample_ct, sample_ct, pii.sii.max_sample_id_blen, pcp->missing_pheno, (pcp->misc_flags / kfMiscAffection01) & 1, (pcp->misc_flags / kfMiscPhenoColNums) & 1, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen);
       if (reterr) {
         goto Plink2Core_ret_1;
       }
@@ -832,7 +854,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     // move processing of PLINK 1.x cluster-loading/filtering flags here, since
     // they're now under the categorical-phenotype umbrella
     if ((pcp->misc_flags & kfMiscCatPhenoFamily) || pcp->within_fname) {
-      reterr = Plink1ClusterImport(pcp->within_fname, pcp->catpheno_name, pcp->family_missing_catname, sample_include, sample_ids, raw_sample_ct, sample_ct, max_sample_id_blen, pcp->mwithin_val, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen);
+      reterr = Plink1ClusterImport(pcp->within_fname, pcp->catpheno_name, pcp->family_missing_catname, sample_include, pii.sii.sample_ids, raw_sample_ct, sample_ct, pii.sii.max_sample_id_blen, pcp->mwithin_val, &pheno_cols, &pheno_names, &pheno_ct, &max_pheno_name_blen);
       if (reterr) {
         goto Plink2Core_ret_1;
       }
@@ -1015,31 +1037,31 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       // sample-sort is relatively cheap, so we abandon plink 1.9's "construct
       // sample ID map only once" optimization.
       if (pcp->update_sex_info.fname) {
-        reterr = UpdateSampleSexes(sample_include, sample_ids, sids, &(pcp->update_sex_info), raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, sex_nm, sex_male);
+        reterr = UpdateSampleSexes(sample_include, &pii.sii, &(pcp->update_sex_info), raw_sample_ct, sample_ct, sex_nm, sex_male);
         if (reterr) {
           goto Plink2Core_ret_1;
         }
       }
       if (pcp->keepfam_fnames) {
-        reterr = KeepOrRemove(pcp->keepfam_fnames, sample_ids, sids, raw_sample_ct, max_sample_id_blen, max_sid_blen, kfKeepFam, sample_include, &sample_ct);
+        reterr = KeepOrRemove(pcp->keepfam_fnames, &pii.sii, raw_sample_ct, kfKeepFam, sample_include, &sample_ct);
         if (reterr) {
           goto Plink2Core_ret_1;
         }
       }
       if (pcp->keep_fnames) {
-        reterr = KeepOrRemove(pcp->keep_fnames, sample_ids, sids, raw_sample_ct, max_sample_id_blen, max_sid_blen, S_CAST(KeepFlags, kfKeepForceSid * ((pcp->misc_flags / kfMiscKeepfileSid) & 1)), sample_include, &sample_ct);
+        reterr = KeepOrRemove(pcp->keep_fnames, &pii.sii, raw_sample_ct, kfKeep0, sample_include, &sample_ct);
         if (reterr) {
           goto Plink2Core_ret_1;
         }
       }
       if (pcp->removefam_fnames) {
-        reterr = KeepOrRemove(pcp->removefam_fnames, sample_ids, sids, raw_sample_ct, max_sample_id_blen, max_sid_blen, kfKeepRemove | kfKeepFam, sample_include, &sample_ct);
+        reterr = KeepOrRemove(pcp->removefam_fnames, &pii.sii, raw_sample_ct, kfKeepRemove | kfKeepFam, sample_include, &sample_ct);
         if (reterr) {
           goto Plink2Core_ret_1;
         }
       }
       if (pcp->remove_fnames) {
-        reterr = KeepOrRemove(pcp->remove_fnames, sample_ids, sids, raw_sample_ct, max_sample_id_blen, max_sid_blen, kfKeepRemove | S_CAST(KeepFlags, kfKeepForceSid * ((pcp->misc_flags / kfMiscRemovefileSid) & 1)), sample_include, &sample_ct);
+        reterr = KeepOrRemove(pcp->remove_fnames, &pii.sii, raw_sample_ct, kfKeepRemove, sample_include, &sample_ct);
         if (reterr) {
           goto Plink2Core_ret_1;
         }
@@ -1048,7 +1070,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       // todo: --attrib-indiv
 
       if (pcp->keep_fcol_fname) {
-        reterr = KeepFcol(pcp->keep_fcol_fname, sample_ids, sids, pcp->keep_fcol_flattened, pcp->keep_fcol_name, raw_sample_ct, max_sample_id_blen, max_sid_blen, (pcp->misc_flags / kfMiscKeepFileStrsSid) & 1, pcp->keep_fcol_num, sample_include, &sample_ct);
+        reterr = KeepFcol(pcp->keep_fcol_fname, &pii.sii, pcp->keep_fcol_flattened, pcp->keep_fcol_name, raw_sample_ct, pcp->keep_fcol_num, sample_include, &sample_ct);
         if (reterr) {
           goto Plink2Core_ret_1;
         }
@@ -1125,7 +1147,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if (XymtExists(cip, kChrOffsetY, &y_code)) {
             variant_ct_y = CountChrVariantsUnsafe(variant_include, cip, y_code);
           }
-          reterr = MindFilter((pcp->misc_flags & kfMiscMindDosage)? sample_missing_dosage_cts : sample_missing_hc_cts, (pcp->misc_flags & kfMiscMindHhMissing)? sample_hethap_cts : nullptr, sample_ids, sids, raw_sample_ct, max_sample_id_blen, max_sid_blen, variant_ct, variant_ct_y, pcp->mind_thresh, sample_include, sex_male, &sample_ct, outname, outname_end);
+          reterr = MindFilter((pcp->misc_flags & kfMiscMindDosage)? sample_missing_dosage_cts : sample_missing_hc_cts, (pcp->misc_flags & kfMiscMindHhMissing)? sample_hethap_cts : nullptr, &pii.sii, raw_sample_ct, variant_ct, variant_ct_y, pcp->mind_thresh, sample_include, sex_male, &sample_ct, outname, outname_end);
           if (reterr) {
             goto Plink2Core_ret_1;
           }
@@ -1138,7 +1160,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
       if (pcp->covar_fname || pcp->covar_range_list.name_ct) {
         const char* cur_covar_fname = pcp->covar_fname? pcp->covar_fname : (pcp->pheno_fname? pcp->pheno_fname : psamname);
-        reterr = LoadPhenos(cur_covar_fname, &(pcp->covar_range_list), sample_include, sample_ids, raw_sample_ct, sample_ct, max_sample_id_blen, pcp->missing_pheno, 2, (pcp->misc_flags / kfMiscCovarColNums) & 1, &covar_cols, &covar_names, &covar_ct, &max_covar_name_blen);
+        reterr = LoadPhenos(cur_covar_fname, &(pcp->covar_range_list), sample_include, pii.sii.sample_ids, raw_sample_ct, sample_ct, pii.sii.max_sample_id_blen, pcp->missing_pheno, 2, (pcp->misc_flags / kfMiscCovarColNums) & 1, &covar_cols, &covar_names, &covar_ct, &max_covar_name_blen);
         if (reterr) {
           goto Plink2Core_ret_1;
         }
@@ -1378,7 +1400,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 
       if (pcp->command_flags1 & kfCommand1WriteSamples) {
         snprintf(outname_end, kMaxOutfnameExtBlen, ".id");
-        reterr = WriteSampleIds(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, (pcp->misc_flags / kfMiscNoIdHeader) & 1);
+        reterr = WriteSampleIds(sample_include, &pii.sii, outname, sample_ct);
         if (reterr) {
           goto Plink2Core_ret_1;
         }
@@ -1594,7 +1616,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
 
         if (pcp->command_flags1 & kfCommand1MissingReport) {
-          reterr = WriteMissingnessReports(sample_include, sex_male, sample_ids, sids, pheno_cols, pheno_names, sample_missing_hc_cts, sample_missing_dosage_cts, sample_hethap_cts, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, variant_missing_hc_cts, variant_missing_dosage_cts, variant_hethap_cts, sample_ct, male_ct, max_sample_id_blen, max_sid_blen, pheno_ct, max_pheno_name_blen, variant_ct, max_allele_slen, variant_hethap_cts? first_hap_uidx : 0x7fffffff, pcp->missing_rpt_flags, pcp->max_thread_ct, outname, outname_end);
+          reterr = WriteMissingnessReports(sample_include, &pii.sii, sex_male, pheno_cols, pheno_names, sample_missing_hc_cts, sample_missing_dosage_cts, sample_hethap_cts, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, variant_missing_hc_cts, variant_missing_dosage_cts, variant_hethap_cts, sample_ct, male_ct, pheno_ct, max_pheno_name_blen, variant_ct, max_allele_slen, variant_hethap_cts? first_hap_uidx : 0x7fffffff, pcp->missing_rpt_flags, pcp->max_thread_ct, outname, outname_end);
           if (reterr) {
             goto Plink2Core_ret_1;
           }
@@ -1694,29 +1716,29 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             // command-line parser currently guarantees --king-table-subset
             // isn't used with --king-cutoff or --make-king
             // probable todo: --king-cutoff-table which can use .kin0 as input
-            reterr = CalcKingTableSubset(sample_include, sample_ids, sids, variant_include, cip, pcp->king_table_subset_fname, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, raw_variant_ct, variant_ct, pcp->king_table_filter, pcp->king_table_subset_thresh, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+            reterr = CalcKingTableSubset(sample_include, &pii.sii, variant_include, cip, pcp->king_table_subset_fname, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, pcp->king_table_filter, pcp->king_table_subset_thresh, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
             if (reterr) {
               goto Plink2Core_ret_1;
             }
           } else {
             if (king_cutoff_fprefix) {
-              reterr = KingCutoffBatch(sample_ids, sids, raw_sample_ct, max_sample_id_blen, max_sid_blen, pcp->king_cutoff, sample_include, king_cutoff_fprefix, &sample_ct);
+              reterr = KingCutoffBatch(&pii.sii, raw_sample_ct, pcp->king_cutoff, sample_include, king_cutoff_fprefix, &sample_ct);
             } else {
-              reterr = CalcKing(sample_ids, sids, variant_include, cip, raw_sample_ct, max_sample_id_blen, max_sid_blen, raw_variant_ct, variant_ct, pcp->king_cutoff, pcp->king_table_filter, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, (pcp->misc_flags / kfMiscNoIdHeader) & 1, pcp->max_thread_ct, &simple_pgr, sample_include, &sample_ct, outname, outname_end);
+              reterr = CalcKing(&pii.sii, variant_include, cip, raw_sample_ct, raw_variant_ct, variant_ct, pcp->king_cutoff, pcp->king_table_filter, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, sample_include, &sample_ct, outname, outname_end);
             }
             if (reterr) {
               goto Plink2Core_ret_1;
             }
             if (pcp->king_cutoff != -1) {
               snprintf(outname_end, kMaxOutfnameExtBlen, ".king.cutoff.in.id");
-              reterr = WriteSampleIds(sample_include, sample_ids, sids, outname, sample_ct, max_sample_id_blen, max_sid_blen, (pcp->misc_flags / kfMiscNoIdHeader) & 1);
+              reterr = WriteSampleIds(sample_include, &pii.sii, outname, sample_ct);
               if (reterr) {
                 goto Plink2Core_ret_1;
               }
               snprintf(&(outname_end[13]), kMaxOutfnameExtBlen - 13, "out.id");
               BitvecAndNot(sample_include, raw_sample_ctl, prev_sample_include);
               const uint32_t removed_sample_ct = prev_sample_ct - sample_ct;
-              reterr = WriteSampleIds(prev_sample_include, sample_ids, sids, outname, removed_sample_ct, max_sample_id_blen, max_sid_blen, (pcp->misc_flags / kfMiscNoIdHeader) & 1);
+              reterr = WriteSampleIds(prev_sample_include, &pii.sii, outname, removed_sample_ct);
               if (reterr) {
                 goto Plink2Core_ret_1;
               }
@@ -1729,7 +1751,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
       }
       if ((pcp->command_flags1 & kfCommand1MakeRel) || keep_grm) {
-        reterr = CalcGrm(sample_include, sample_ids, sids, variant_include, cip, variant_allele_idxs, maj_alleles, allele_freqs, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, raw_variant_ct, variant_ct, pcp->grm_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end, keep_grm? (&grm) : nullptr);
+        reterr = CalcGrm(sample_include, &pii.sii, variant_include, cip, variant_allele_idxs, maj_alleles, allele_freqs, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, pcp->grm_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end, keep_grm? (&grm) : nullptr);
         if (reterr) {
           goto Plink2Core_ret_1;
         }
@@ -1808,7 +1830,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 #ifndef NOLAPACK
       if (pcp->command_flags1 & kfCommand1Pca) {
         // if the GRM is on the stack, this always frees it
-        reterr = CalcPca(sample_include, sample_ids, sids, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, maj_alleles, allele_freqs, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, raw_variant_ct, variant_ct, max_allele_slen, pcp->pca_ct, pcp->pca_flags, pcp->max_thread_ct, &simple_pgr, grm, outname, outname_end);
+        reterr = CalcPca(sample_include, &pii.sii, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, maj_alleles, allele_freqs, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, pcp->pca_ct, pcp->pca_flags, pcp->max_thread_ct, &simple_pgr, grm, outname, outname_end);
         if (reterr) {
           goto Plink2Core_ret_1;
         }
@@ -1993,7 +2015,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             logerrputs("Warning: Skipping --sample-sort since <2 samples are present.\n");
           } else {
             if (pcp->sample_sort_flags & kfSortFile) {
-              reterr = SampleSortFileMap(sample_include, sample_ids, sids, pcp->sample_sort_fname, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, pcp->sample_sort_flags & kfSortFileSid, &new_sample_idx_to_old);
+              reterr = SampleSortFileMap(sample_include, &pii.sii, pcp->sample_sort_fname, raw_sample_ct, sample_ct, &new_sample_idx_to_old);
               if (reterr) {
                 goto Plink2Core_ret_1;
               }
@@ -2003,7 +2025,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               // to spare here, so keep the code simpler for now
               char* sorted_xidbox_tmp;
               uintptr_t max_xid_blen;
-              reterr = SortedXidboxInitAlloc(sample_include, sample_ids, sids, sample_ct, max_sample_id_blen, max_sid_blen, 0, sids? kfXidModeFidiidSid : kfXidModeFidiid, (pcp->sample_sort_flags == kfSortNatural), &sorted_xidbox_tmp, &new_sample_idx_to_old, &max_xid_blen);
+              reterr = SortedXidboxInitAlloc(sample_include, &pii.sii, sample_ct, 0, pii.sii.sids? kfXidModeFidIidSid : kfXidModeFidIid, (pcp->sample_sort_flags == kfSortNatural), &sorted_xidbox_tmp, &new_sample_idx_to_old, &max_xid_blen);
               if (reterr) {
                 goto Plink2Core_ret_1;
               }
@@ -2014,7 +2036,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
 
         if (covar_ct && ((pcp->command_flags1 & (kfCommand1Exportf | kfCommand1WriteCovar)) || ((pcp->command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & (kfMakeBed | kfMakeFam | kfMakePgen | kfMakePsam))))) {
-          reterr = WriteCovar(sample_include, sample_ids, sids, paternal_ids, maternal_ids, sex_nm, sex_male, pheno_cols, pheno_names, covar_cols, covar_names, new_sample_idx_to_old, sample_ct, max_sample_id_blen, max_sid_blen, max_paternal_id_blen, max_maternal_id_blen, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, pcp->write_covar_flags, outname, outname_end);
+          reterr = WriteCovar(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, covar_cols, covar_names, new_sample_idx_to_old, sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, pcp->write_covar_flags, outname, outname_end);
           if (reterr) {
             goto Plink2Core_ret_1;
           }
@@ -2025,12 +2047,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         if (pcp->command_flags1 & kfCommand1MakePlink2) {
           // todo: unsorted case (--update-chr, etc.)
           if (pcp->sort_vars_flags != kfSort0) {
-            reterr = MakePlink2Vsort(xheader, sample_include, sample_ids, sids, paternal_ids, maternal_ids, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, allele_dosages, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, chr_idxs, xheader_blen, xheader_info_pr, xheader_info_pr_nonflag, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, max_paternal_id_blen, max_maternal_id_blen, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, make_plink2_flags, (pcp->sort_vars_flags == kfSortNatural), pcp->pvar_psam_flags, &simple_pgr, outname, outname_end);
+            reterr = MakePlink2Vsort(xheader, sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, allele_dosages, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, chr_idxs, xheader_blen, xheader_info_pr, xheader_info_pr_nonflag, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, make_plink2_flags, (pcp->sort_vars_flags == kfSortNatural), pcp->pvar_psam_flags, &simple_pgr, outname, outname_end);
           } else {
             if (vpos_sortstatus & kfUnsortedVarBp) {
               logerrputs("Warning: Variants are not sorted by position.  Consider rerunning with the\n--sort-vars flag added to remedy this.\n");
             }
-            reterr = MakePlink2NoVsort(xheader, sample_include, sample_ids, sids, paternal_ids, maternal_ids, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, allele_dosages, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, xheader_blen, xheader_info_pr, xheader_info_pr_nonflag, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, max_paternal_id_blen, max_maternal_id_blen, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, make_plink2_flags, pcp->pvar_psam_flags, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
+            reterr = MakePlink2NoVsort(xheader, sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, allele_dosages, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, xheader_blen, xheader_info_pr, xheader_info_pr_nonflag, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, make_plink2_flags, pcp->pvar_psam_flags, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
           }
           if (reterr) {
             goto Plink2Core_ret_1;
@@ -2039,7 +2061,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
 
         if (pcp->command_flags1 & kfCommand1Exportf) {
-          reterr = Exportf(sample_include, sample_ids, sids, paternal_ids, maternal_ids, sex_nm, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, xheader_blen, xheader_info_pr, xheader_info_pr_nonflag, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, max_paternal_id_blen, max_maternal_id_blen, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, make_plink2_flags, pcp->exportf_flags, pcp->exportf_id_paste, pcp->exportf_id_delim, pcp->exportf_bits, pgr_alloc_cacheline_ct, xheader, &pgfi, &simple_pgr, outname, outname_end);
+          reterr = Exportf(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, xheader_blen, xheader_info_pr, xheader_info_pr_nonflag, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, make_plink2_flags, pcp->exportf_flags, pcp->exportf_id_paste, pcp->exportf_id_delim, pcp->exportf_bits, pgr_alloc_cacheline_ct, xheader, &pgfi, &simple_pgr, outname, outname_end);
           if (reterr) {
             goto Plink2Core_ret_1;
           }
@@ -2077,7 +2099,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       if (pcp->command_flags1 & kfCommand1Score) {
-        reterr = ScoreReport(sample_include, sample_ids, sids, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_ids, variant_allele_idxs, allele_storage, allele_freqs, &(pcp->score_info), raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, pcp->xchr_model, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+        reterr = ScoreReport(sample_include, &pii.sii, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_ids, variant_allele_idxs, allele_storage, allele_freqs, &(pcp->score_info), raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, pcp->xchr_model, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
         if (reterr) {
           goto Plink2Core_ret_1;
         }
@@ -2085,7 +2107,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       // eventually check for nonzero pheno_ct here?
 
       if (pcp->command_flags1 & kfCommand1Glm) {
-        reterr = GlmMain(sample_include, sample_ids, sids, sex_nm, sex_male, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, &(pcp->glm_info), &(pcp->adjust_info), &(pcp->aperm), pcp->glm_local_covar_fname, pcp->glm_local_pvar_fname, pcp->glm_local_psam_fname, raw_sample_ct, sample_ct, max_sample_id_blen, max_sid_blen, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, max_allele_slen, pcp->xchr_model, pcp->ci_size, pcp->vif_thresh, pcp->pfilter, pcp->output_min_p, (pcp->misc_flags / kfMiscNoIdHeader) & 1, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
+        reterr = GlmMain(sample_include, &pii.sii, sex_nm, sex_male, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, &(pcp->glm_info), &(pcp->adjust_info), &(pcp->aperm), pcp->glm_local_covar_fname, pcp->glm_local_pvar_fname, pcp->glm_local_psam_fname, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, max_allele_slen, pcp->xchr_model, pcp->ci_size, pcp->vif_thresh, pcp->pfilter, pcp->output_min_p, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
         if (reterr) {
           goto Plink2Core_ret_1;
         }
@@ -2504,7 +2526,7 @@ static_assert(kChrOffsetY == 1, "--chr-set/--cow/... assume kChrOffsetY == 1.");
 static_assert(kChrOffsetXY == 2, "--chr-set/--cow/... assume kChrOffsetXY == 2.");
 static_assert(kChrOffsetMT == 3, "--chr-set/--cow/... assume kChrOffsetMT == 3.");
 #ifdef __cplusplus
-} // namespace plink2
+}  // namespace plink2
 #endif
 
 int main(int argc, char** argv) {
@@ -2932,6 +2954,7 @@ int main(int argc, char** argv) {
     char idspace_to = '\0';
     char input_missing_geno_char = '0';
     char output_missing_geno_char = '.';
+    ImportFlags import_flags = kfImport0;
     uint32_t aperm_present = 0;
     uint32_t notchr_present = 0;
     uint32_t permit_multiple_inclusion_filters = 0;
@@ -3531,7 +3554,12 @@ int main(int argc, char** argv) {
           chr_info.xymt_codes[3] = 33;
           chr_info.xymt_codes[4] = -2;
           chr_info.xymt_codes[5] = -2;
+#ifdef __LP64__
+          chr_info.haploid_mask[0] = 0x2c0000000LLU;
+#else
           chr_info.haploid_mask[0] = 0xc0000000U;
+          chr_info.haploid_mask[1] = 2;
+#endif
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "hr-set")) {
           if (chr_info.chrset_source) {
@@ -3586,6 +3614,7 @@ int main(int argc, char** argv) {
                 chr_info.xymt_codes[2] = -2;
               } else if (!strcmp(cur_modif, "no-mt")) {
                 chr_info.xymt_codes[3] = -2;
+                ClearBit(autosome_ct + 4, chr_info.haploid_mask);
               } else {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --chr-set parameter '%s'.\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_WWA;
@@ -3636,7 +3665,7 @@ int main(int argc, char** argv) {
             logerrputs("Error: --double-id cannot be used with --const-fid.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          pc.misc_flags |= kfMiscDoubleId;
+          import_flags |= kfImportDoubleId;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "ebug")) {
           g_debug_on = 1;
@@ -3773,10 +3802,10 @@ int main(int argc, char** argv) {
           chr_info.xymt_codes[4] = -2;
           chr_info.xymt_codes[5] = -2;
 #ifdef __LP64__
-          chr_info.haploid_mask[0] = 0x18000000000LLU;
+          chr_info.haploid_mask[0] = 0x58000000000LLU;
 #else
           chr_info.haploid_mask[0] = 0;
-          chr_info.haploid_mask[1] = 0x180;
+          chr_info.haploid_mask[1] = 0x580;
 #endif
           goto main_param_zero;
         } else {
@@ -3891,7 +3920,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --export id-paste= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[strlen("id-paste=")]), "fid\0iid\0maybesid\0sid\0", "export", kfIdpasteFid, kfIdpasteDefault, 1, &pc.exportf_id_paste);
+              reterr = ParseColDescriptor(&(cur_modif[strlen("id-paste=")]), "maybefid\0fid\0iid\0maybesid\0sid\0", "export", kfIdpasteMaybefid, kfIdpasteDefault, 1, &pc.exportf_id_paste);
               if (reterr) {
                 goto main_ret_1;
               }
@@ -4662,20 +4691,30 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
         } else if (strequal_k_unsafe(flagname_p2, "d-delim")) {
-          if (EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1)) {
+          if (const_fid || (import_flags & kfImportDoubleId)) {
+            logerrputs("Error: --id-delim can no longer be used with --const-fid or --double-id.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 2)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          if (param_ct) {
-            id_delim = ExtractCharParam(argvk[arg_idx + 1]);
-            if (!id_delim) {
-              logerrputs("Error: --id-delim parameter must be a single character.\n");
-              goto main_ret_INVALID_CMDLINE_A;
+          for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
+            const char* cur_modif = argvk[arg_idx + param_idx];
+            if (!strcmp(cur_modif, "sid")) {
+              import_flags |= kfImportIdDelimSid;
+            } else {
+              id_delim = ExtractCharParam(cur_modif);
+              if (!id_delim) {
+                logerrputs("Error: --id-delim delimiter must be a single character.\n");
+                goto main_ret_INVALID_CMDLINE_A;
+              }
+              if (ctou32(id_delim) < ' ') {
+                logerrputs("Error: --id-delim parameter cannot be tab, newline, or a nonprinting character.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
             }
-            if (ctou32(id_delim) < ' ') {
-              logerrputs("Error: --id-delim parameter cannot be tab, newline, or a nonprinting character.\n");
-              goto main_ret_INVALID_CMDLINE;
-            }
-          } else {
+          }
+          if (!id_delim) {
             id_delim = '_';
           }
         } else if (strequal_k_unsafe(flagname_p2, "ndep-pairwise") || strequal_k_unsafe(flagname_p2, "ndep-pairphase")) {
@@ -4956,15 +4995,7 @@ int main(int argc, char** argv) {
           if (EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const uint32_t sid_present = !strcmp(argvk[arg_idx + 1], "sid");
-          if (sid_present) {
-            if (param_ct == 1) {
-              logerrputs("Error: '--keep sid' requires at least one filename.\n");
-              goto main_ret_INVALID_CMDLINE_A;
-            }
-            pc.misc_flags |= kfMiscKeepfileSid;
-          }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1 + sid_present]), param_ct - sid_present, kPglFnamesize, &pc.keep_fnames);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, kPglFnamesize, &pc.keep_fnames);
           if (reterr) {
             goto main_ret_1;
           }
@@ -4979,7 +5010,7 @@ int main(int argc, char** argv) {
           }
           pc.filter_flags |= kfFilterPsamReq;
         } else if (strequal_k_unsafe(flagname_p2, "eep-autoconv")) {
-          pc.misc_flags |= kfMiscKeepAutoconv;
+          import_flags |= kfImportKeepAutoconv;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "eep-females")) {
           pc.filter_flags |= kfFilterPsamReq | kfFilterExclMales | kfFilterExclNosex;
@@ -5084,19 +5115,11 @@ int main(int argc, char** argv) {
           if (EnforceParamCtRange(argvk[arg_idx], param_ct, 2, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const uint32_t sid_present = !strcmp(argvk[arg_idx + 1], "sid");
-          if (sid_present) {
-            if (param_ct == 2) {
-              logerrputs("Error: '--keep-fcol sid' requires at least 2 more parameters.\n");
-              goto main_ret_INVALID_CMDLINE_A;
-            }
-            pc.misc_flags |= kfMiscKeepFileStrsSid;
-          }
-          reterr = AllocFname(argvk[arg_idx + 1 + sid_present], flagname_p, 0, &pc.keep_fcol_fname);
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.keep_fcol_fname);
           if (reterr) {
             goto main_ret_1;
           }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 2 + sid_present]), param_ct - 1 - sid_present, kMaxIdBlen, &pc.keep_fcol_flattened);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 2]), param_ct - 1, kMaxIdBlen, &pc.keep_fcol_flattened);
           if (reterr) {
             goto main_ret_1;
           }
@@ -5308,7 +5331,7 @@ int main(int argc, char** argv) {
             logerrputs("Error: --make-bpgen cannot be used with --make-bed.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (pc.misc_flags & kfMiscKeepAutoconv) {
+          if (import_flags & kfImportKeepAutoconv) {
             logerrputs("Error: --make-bpgen cannot be used with --keep-autoconv.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
@@ -5382,7 +5405,7 @@ int main(int argc, char** argv) {
             logerrputs("Error: --make-just-... cannot be used with --make-bed/--make-{b}pgen.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (pc.misc_flags & kfMiscKeepAutoconv) {
+          if (import_flags & kfImportKeepAutoconv) {
             logerrputs("Error: --make-pgen cannot be used with --keep-autoconv.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
@@ -5461,7 +5484,7 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE;
               }
               explicit_psam_cols = 1;
-              reterr = ParseColDescriptor(&(cur_modif[strlen("psam-cols=")]), "maybesid\0sid\0maybeparents\0parents\0sex\0pheno1\0phenos\0", "make-pgen psam-cols", kfPsamColMaybesid, kfPsamColDefault, 0, &pc.pvar_psam_flags);
+              reterr = ParseColDescriptor(&(cur_modif[strlen("psam-cols=")]), "maybefid\0fid\0maybesid\0sid\0maybeparents\0parents\0sex\0pheno1\0phenos\0", "make-pgen psam-cols", kfPsamColMaybefid, kfPsamColDefault, 0, &pc.pvar_psam_flags);
               if (reterr) {
                 goto main_ret_1;
               }
@@ -5559,7 +5582,7 @@ int main(int argc, char** argv) {
             const char* cur_modif = argvk[arg_idx + 1];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (StrStartsWith0(cur_modif, "cols=", cur_modif_slen)) {
-              reterr = ParseColDescriptor(&(cur_modif[5]), "maybesid\0sid\0maybeparents\0parents\0sex\0pheno1\0phenos\0", "make-just-psam", kfPsamColMaybesid, kfPsamColDefault, 0, &pc.pvar_psam_flags);
+              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0maybesid\0sid\0maybeparents\0parents\0sex\0pheno1\0phenos\0", "make-just-psam", kfPsamColMaybefid, kfPsamColDefault, 0, &pc.pvar_psam_flags);
               if (reterr) {
                 goto main_ret_1;
               }
@@ -5660,13 +5683,13 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --make-king-table cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[5]), "id\0maybesid\0sid\0nsnp\0hethet\0ibs0\0ibs1\0kinship\0", "make-king-table", kfKingColId, kfKingColDefault, 1, &pc.king_flags);
+              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0id\0maybesid\0sid\0nsnp\0hethet\0ibs0\0ibs1\0kinship\0", "make-king-table", kfKingColMaybefid, kfKingColDefault, 1, &pc.king_flags);
               if (reterr) {
                 goto main_ret_1;
               }
               if (!(pc.king_flags & kfKingColId)) {
-                if (pc.king_flags & (kfKingColMaybesid | kfKingColSid)) {
-                  logerrputs("Error: Invalid --make-king-table column set descriptor ('maybesid' and 'sid'\nrequire 'id').\n");
+                if (pc.king_flags & (kfKingColMaybefid | kfKingColFid | kfKingColMaybesid | kfKingColSid)) {
+                  logerrputs("Error: Invalid --make-king-table column set descriptor ('maybefid', 'fid',\n'maybesid', and 'sid' require 'id').\n");
                   goto main_ret_INVALID_CMDLINE_A;
                 }
                 if (pc.king_table_filter != -DBL_MAX) {
@@ -5717,7 +5740,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --missing scols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[strlen("scols=")]), "maybesid\0sid\0misspheno1\0missphenos\0nmissdosage\0nmiss\0nmisshh\0hethap\0nobs\0fmissdosage\0fmiss\0fmisshh\0", "missing scols", kfMissingRptScolMaybesid, kfMissingRptScolDefault, 1, &pc.missing_rpt_flags);
+              reterr = ParseColDescriptor(&(cur_modif[strlen("scols=")]), "maybefid\0fid\0maybesid\0sid\0misspheno1\0missphenos\0nmissdosage\0nmiss\0nmisshh\0hethap\0nobs\0fmissdosage\0fmiss\0fmisshh\0", "missing scols", kfMissingRptScolMaybefid, kfMissingRptScolDefault, 1, &pc.missing_rpt_flags);
               if (reterr) {
                 goto main_ret_1;
               }
@@ -6032,12 +6055,18 @@ int main(int argc, char** argv) {
               pc.grm_flags |= kfGrmCov;
             } else if (!strcmp(cur_modif, "meanimpute")) {
               pc.grm_flags |= kfGrmMeanimpute;
-            } else if (!strcmp(cur_modif, "idheader")) {
+            } else if ((!strcmp(cur_modif, "id-header")) || (!strcmp(cur_modif, "idheader"))) {
               pc.grm_flags &= ~kfGrmNoIdHeader;
+            } else if (!strcmp(cur_modif, "iid-only")) {
+              pc.grm_flags |= kfGrmNoIdHeaderIidOnly;
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-grm-bin parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
+          }
+          if ((pc.grm_flags & (kfGrmNoIdHeader | kfGrmNoIdHeaderIidOnly)) == kfGrmNoIdHeaderIidOnly) {
+            logerrputs("Error: --make-grm-bin 'id-header' and 'iid-only' modifiers cannot be used\ntogether.\n");
+            goto main_ret_INVALID_CMDLINE_A;
           }
           pc.command_flags1 |= kfCommand1MakeRel;
           pc.dependency_flags |= kfFilterAllReq;
@@ -6075,8 +6104,10 @@ int main(int argc, char** argv) {
               }
               compress_stream_type = 2;
               pc.grm_flags |= kfGrmListZs;
-            } else if (!strcmp(cur_modif, "idheader")) {
+            } else if ((!strcmp(cur_modif, "id-header")) || (!strcmp(cur_modif, "idheader"))) {
               pc.grm_flags &= ~kfGrmNoIdHeader;
+            } else if (!strcmp(cur_modif, "iid-only")) {
+              pc.grm_flags |= kfGrmNoIdHeaderIidOnly;
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-grm-list parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
@@ -6092,6 +6123,10 @@ int main(int argc, char** argv) {
           } else if (!compress_stream_type) {
             compress_stream_type = 1;
             pc.grm_flags |= kfGrmListNoGz;
+          }
+          if ((pc.grm_flags & (kfGrmNoIdHeader | kfGrmNoIdHeaderIidOnly)) == kfGrmNoIdHeaderIidOnly) {
+            logerrputs("Error: --make-grm-list 'id-header' and 'iid-only' modifiers cannot be used\ntogether.\n");
+            goto main_ret_INVALID_CMDLINE_A;
           }
           pc.command_flags1 |= kfCommand1MakeRel;
           pc.dependency_flags |= kfFilterAllReq;
@@ -6306,8 +6341,18 @@ int main(int argc, char** argv) {
             }
           }
         } else if (strequal_k_unsafe(flagname_p2, "o-id-header")) {
+          if (EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 1)) {
+            goto main_ret_INVALID_CMDLINE_2A;
+          }
+          if (param_ct) {
+            const char* cur_modif = argvk[arg_idx + 1];
+            if (strcmp(cur_modif, "iid-only")) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --no-id-header parameter '%s'.\n", cur_modif);
+              goto main_ret_INVALID_CMDLINE_WWA;
+            }
+            pc.misc_flags |= kfMiscNoIdHeaderIidOnly;
+          }
           pc.misc_flags |= kfMiscNoIdHeader;
-          goto main_param_zero;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
@@ -6558,6 +6603,7 @@ int main(int argc, char** argv) {
           if (EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 6)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
+          uint32_t explicit_scols = 0;
           uint32_t is_var_wts = 0;
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
@@ -6566,12 +6612,20 @@ int main(int argc, char** argv) {
               pc.pca_flags |= kfPcaApprox;
             } else if (strequal_k(cur_modif, "meanimpute", cur_modif_slen)) {
               pc.pca_flags |= kfPcaMeanimpute;
-            } else if (strequal_k(cur_modif, "sid", cur_modif_slen)) {
-              pc.pca_flags |= kfPcaSid;
             } else if (strequal_k(cur_modif, "var-wts", cur_modif_slen)) {
               is_var_wts = 1;
             } else if (strequal_k(cur_modif, "vzs", cur_modif_slen)) {
               pc.pca_flags |= kfPcaVarZs;
+            } else if (StrStartsWith(cur_modif, "scols=", cur_modif_slen)) {
+              if (explicit_scols) {
+                logerrputs("Error: Multiple --pca scols= modifiers.\n");
+                goto main_ret_INVALID_CMDLINE;
+              }
+              reterr = ParseColDescriptor(&(cur_modif[strlen("scols=")]), "maybefid\0fid\0maybesid\0sid\0", "pca scols", kfPcaScolMaybefid, kfPcaScolDefault, 0, &pc.pca_flags);
+              if (reterr) {
+                goto main_ret_1;
+              }
+              explicit_scols = 1;
             } else if (StrStartsWith(cur_modif, "vcols=", cur_modif_slen)) {
               if (pc.pca_flags & kfPcaVcolAll) {
                 logerrputs("Error: Multiple --pca vcols= modifiers.\n");
@@ -6581,6 +6635,9 @@ int main(int argc, char** argv) {
               if (reterr) {
                 goto main_ret_1;
               }
+            } else if (strequal_k(cur_modif, "sid", cur_modif_slen)) {
+              logerrputs("Error: --pca 'sid' modifier retired.  Use --pca scols= instead.\n");
+              goto main_ret_INVALID_CMDLINE_A;
             } else {
               if (pc.pca_ct || ScanPosintDefcap(cur_modif, &pc.pca_ct)) {
                 logerrputs("Error: Invalid --pca parameter sequence.\n");
@@ -6625,6 +6682,9 @@ int main(int argc, char** argv) {
           }
           if (!pc.pca_ct) {
             pc.pca_ct = 10;
+          }
+          if (!explicit_scols) {
+            pc.pca_flags |= kfPcaScolDefault;
           }
           if (!(pc.pca_flags & kfPcaVcolAll)) {
             if (is_var_wts) {
@@ -6687,15 +6747,7 @@ int main(int argc, char** argv) {
           if (EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 0x7fffffff)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const uint32_t sid_present = !strcmp(argvk[arg_idx + 1], "sid");
-          if (sid_present) {
-            if (param_ct == 1) {
-              logerrputs("Error: '--remove sid' requires at least one filename.\n");
-              goto main_ret_INVALID_CMDLINE_A;
-            }
-            pc.misc_flags |= kfMiscRemovefileSid;
-          }
-          reterr = AllocAndFlatten(&(argvk[arg_idx + 1 + sid_present]), param_ct - sid_present, kPglFnamesize, &pc.remove_fnames);
+          reterr = AllocAndFlatten(&(argvk[arg_idx + 1]), param_ct, kPglFnamesize, &pc.remove_fnames);
           if (reterr) {
             goto main_ret_1;
           }
@@ -7086,7 +7138,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --score cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[5]), "maybesid\0sid\0pheno1\0phenos\0nmissallele\0denom\0dosagesum\0scoreavgs\0scoresums\0", "score", kfScoreColMaybesid, kfScoreColDefault, 1, &pc.score_info.flags);
+              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0maybesid\0sid\0pheno1\0phenos\0nmissallele\0denom\0dosagesum\0scoreavgs\0scoresums\0", "score", kfScoreColMaybefid, kfScoreColDefault, 1, &pc.score_info.flags);
               if (reterr) {
                 goto main_ret_1;
               }
@@ -7214,6 +7266,9 @@ int main(int argc, char** argv) {
           } else {
             pc.sort_vars_flags = kfSortNatural;
           }
+        } else if (strequal_k_unsafe(flagname_p2, "trict-sid0")) {
+          pc.misc_flags |= kfMiscStrictSid0;
+          goto main_param_zero;
         } else if (!strequal_k_unsafe(flagname_p2, "ilent")) {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
@@ -7385,19 +7440,11 @@ int main(int argc, char** argv) {
           if (EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 4)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          const uint32_t sid_present = !strcmp(argvk[arg_idx + 1], "sid");
-          if (sid_present) {
-            if (param_ct == 1) {
-              logerrputs("Error: '--update-sex sid' requires a filename parameter.\n");
-              goto main_ret_INVALID_CMDLINE_A;
-            }
-            pc.update_sex_info.flags |= kfUpdateSexSid;
-          }
-          reterr = AllocFname(argvk[arg_idx + 1 + sid_present], flagname_p, 0, &pc.update_sex_info.fname);
+          reterr = AllocFname(argvk[arg_idx + 1], flagname_p, 0, &pc.update_sex_info.fname);
           if (reterr) {
             goto main_ret_1;
           }
-          for (uint32_t param_idx = 2 + sid_present; param_idx <= param_ct; ++param_idx) {
+          for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "male0", cur_modif_slen)) {
@@ -7408,7 +7455,7 @@ int main(int argc, char** argv) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --update-sex col-num= parameter '%s'.\n", col_num_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
-            } else if (param_ct == 2 + sid_present) {
+            } else if (param_ct == 2) {
               // only one extra parameter, try to interpret it the plink 1.9
               // way but print a warning
               if (ScanPosintDefcap(cur_modif, &pc.update_sex_info.col_num)) {
@@ -7566,7 +7613,7 @@ int main(int argc, char** argv) {
             logerrputs("Error: --vcf-require-gt must be used with --vcf/--bcf.\n");
             goto main_ret_INVALID_CMDLINE;
           }
-          pc.misc_flags |= kfMiscVcfRequireGt;
+          import_flags |= kfImportVcfRequireGt;
           pc.dependency_flags |= kfFilterAllReq;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "if")) {
@@ -7690,7 +7737,7 @@ int main(int argc, char** argv) {
             const char* cur_modif = argvk[arg_idx + 1];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (StrStartsWith0(cur_modif, "cols=", cur_modif_slen)) {
-              reterr = ParseColDescriptor(&(cur_modif[5]), "maybesid\0sid\0maybeparents\0parents\0sex\0pheno1\0phenos\0", "write-covar", kfWriteCovarColMaybesid, kfWriteCovarColDefault, 0, &pc.write_covar_flags);
+              reterr = ParseColDescriptor(&(cur_modif[5]), "maybefid\0fid\0maybesid\0sid\0maybeparents\0parents\0sex\0pheno1\0phenos\0", "write-covar", kfWriteCovarColMaybefid, kfWriteCovarColDefault, 0, &pc.write_covar_flags);
               if (reterr) {
                 goto main_ret_1;
               }
@@ -7933,7 +7980,7 @@ int main(int argc, char** argv) {
       if (xload) {
         char* convname_end = outname_end;
         if (pc.command_flags1) {
-          if (pc.misc_flags & kfMiscKeepAutoconv) {
+          if (import_flags & kfImportKeepAutoconv) {
             if (pc.misc_flags & kfMiscAffection01) {
               logerrputs("Error: --1 cannot be used with --keep-autoconv.\n");
               goto main_ret_INVALID_CMDLINE_A;
@@ -7957,34 +8004,34 @@ int main(int argc, char** argv) {
             convname_end = strcpya0(convname_end, "-temporary");
           }
         } else {
-          pc.misc_flags |= kfMiscKeepAutoconv;
+          import_flags |= kfImportKeepAutoconv;
         }
         const uint32_t convname_slen = convname_end - outname;
         uint32_t pgen_generated = 1;
         uint32_t psam_generated = 1;
         if (xload & kfXloadVcf) {
           const uint32_t no_samples_ok = !(pc.dependency_flags & (kfFilterAllReq | kfFilterPsamReq));
-          if (no_samples_ok && (!(pc.misc_flags & kfMiscKeepAutoconv)) && pc.command_flags1) {
+          if (no_samples_ok && (!(import_flags & kfImportKeepAutoconv)) && pc.command_flags1) {
             // special case: just treat the VCF as a .pvar file
             strcpy(pvarname, pgenname);
             pgenname[0] = '\0';
             goto main_reinterpret_vcf_instead_of_converting;
           } else {
-            reterr = VcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, no_samples_ok, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_half_call, pc.fam_cols, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
+            reterr = VcfToPgen(pgenname, (load_params & kfLoadParamsPsam)? psamname : nullptr, const_fid, vcf_dosage_import_field, pc.misc_flags, import_flags, no_samples_ok, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, vcf_min_gq, vcf_min_dp, vcf_half_call, pc.fam_cols, outname, convname_end, &chr_info, &pgen_generated, &psam_generated);
           }
         } else if (xload & kfXloadVcf) {
           logerrputs("Error: --bcf is not implemented yet.\n");
           reterr = kPglRetNotYetSupported;
         } else if (xload & kfXloadOxGen) {
-          reterr = OxGenToPgen(pgenname, psamname, import_single_chr_str, ox_missing_code, pc.misc_flags, oxford_import_flags, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, outname, convname_end, &chr_info);
+          reterr = OxGenToPgen(pgenname, psamname, import_single_chr_str, ox_missing_code, pc.misc_flags, import_flags, oxford_import_flags, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, outname, convname_end, &chr_info);
         } else if (xload & kfXloadOxBgen) {
-          reterr = OxBgenToPgen(pgenname, psamname, const_fid, ox_missing_code, pc.misc_flags, oxford_import_flags, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, pc.max_thread_ct, outname, convname_end, &chr_info);
+          reterr = OxBgenToPgen(pgenname, psamname, const_fid, ox_missing_code, pc.misc_flags, import_flags, oxford_import_flags, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, pc.max_thread_ct, outname, convname_end, &chr_info);
         } else if (xload & kfXloadOxHaps) {
-          reterr = OxHapslegendToPgen(pgenname, pvarname, psamname, import_single_chr_str, ox_missing_code, pc.misc_flags, oxford_import_flags, outname, convname_end, &chr_info);
+          reterr = OxHapslegendToPgen(pgenname, pvarname, psamname, import_single_chr_str, ox_missing_code, pc.misc_flags, import_flags, oxford_import_flags, outname, convname_end, &chr_info);
         } else if (xload & kfXloadPlink1Dosage) {
-          reterr = Plink1DosageToPgen(pgenname, psamname, (xload & kfXloadMap)? pvarname : nullptr, import_single_chr_str, &plink1_dosage_info, pc.misc_flags, pc.fam_cols, pc.missing_pheno, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, pc.max_thread_ct, outname, convname_end, &chr_info);
+          reterr = Plink1DosageToPgen(pgenname, psamname, (xload & kfXloadMap)? pvarname : nullptr, import_single_chr_str, &plink1_dosage_info, pc.misc_flags, import_flags, pc.fam_cols, pc.missing_pheno, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, pc.max_thread_ct, outname, convname_end, &chr_info);
         } else if (xload & kfXloadGenDummy) {
-          reterr = GenerateDummy(&gendummy_info, pc.misc_flags, pc.hard_call_thresh, pc.dosage_erase_thresh, pc.max_thread_ct, outname, convname_end, &chr_info);
+          reterr = GenerateDummy(&gendummy_info, pc.misc_flags, import_flags, pc.hard_call_thresh, pc.dosage_erase_thresh, pc.max_thread_ct, outname, convname_end, &chr_info);
         }
         if (reterr || (!pc.command_flags1)) {
           goto main_ret_1;
@@ -8000,7 +8047,7 @@ int main(int argc, char** argv) {
         if (psam_generated) {
           snprintf(memcpya(psamname, outname, convname_slen), kMaxOutfnameExtBlen - 10, ".psam");
         }
-        if (!(pc.misc_flags & kfMiscKeepAutoconv)) {
+        if (!(import_flags & kfImportKeepAutoconv)) {
           if (pgen_generated) {
             if (PushLlStr(pgenname, &file_delete_list)) {
               goto main_ret_NOMEM;

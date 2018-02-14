@@ -783,5 +783,5 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
 }
 
 #ifdef __cplusplus
-} // namespace plink2
+}  // namespace plink2
 #endif

@@ -39,13 +39,12 @@ PglErr RandomThinCt(const char* flagname_p, const char* unitname, uint32_t thin_
 FLAGSET_DEF_START()
   kfKeep0,
   kfKeepRemove = (1 << 0),
-  kfKeepFam = (1 << 1),
-  kfKeepForceSid = (1 << 2)
+  kfKeepFam = (1 << 1)
 FLAGSET_DEF_END(KeepFlags);
 
-PglErr KeepOrRemove(const char* fname, const char* sample_ids, const char* sids, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, KeepFlags flags, uintptr_t* sample_include, uint32_t* sample_ct_ptr);
+PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_sample_ct, KeepFlags flags, uintptr_t* sample_include, uint32_t* sample_ct_ptr);
 
-PglErr KeepFcol(const char* fname, const char* sample_ids, const char* sids, const char* strs_flattened, const char* col_name, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t force_sid, uint32_t col_num, uintptr_t* sample_include, uint32_t* sample_ct_ptr);
+PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_flattened, const char* col_name, uint32_t raw_sample_ct, uint32_t col_num, uintptr_t* sample_include, uint32_t* sample_ct_ptr);
 
 PglErr RequirePheno(const PhenoCol* pheno_cols, const char* pheno_names, const char* require_pheno_flattened, uint32_t raw_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t is_covar, uintptr_t* sample_include, uint32_t* sample_ct_ptr);
 
@@ -61,7 +60,7 @@ void ComputeMajAlleles(const uintptr_t* variant_include, const uintptr_t* varian
 
 PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, uint32_t* sample_missing_hc_cts, uint32_t* sample_missing_dosage_cts, uint32_t* sample_hethap_cts);
 
-PglErr MindFilter(const uint32_t* sample_missing_cts, const uint32_t* sample_hethap_cts, const char* sample_ids, const char* sids, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t variant_ct, uint32_t variant_ct_y, double mind_thresh, uintptr_t* sample_include, uintptr_t* sex_male, uint32_t* sample_ct_ptr, char* outname, char* outname_end);
+PglErr MindFilter(const uint32_t* sample_missing_cts, const uint32_t* sample_hethap_cts, const SampleIdInfo* siip, uint32_t raw_sample_ct, uint32_t variant_ct, uint32_t variant_ct_y, double mind_thresh, uintptr_t* sample_include, uintptr_t* sex_male, uint32_t* sample_ct_ptr, char* outname, char* outname_end);
 
 void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t male_ct, uint32_t first_hap_uidx, double geno_thresh, uintptr_t* variant_include, uint32_t* variant_ct_ptr);
 
@@ -78,7 +77,7 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
 PglErr RefFromFa(const uintptr_t* variant_include, const uint32_t* variant_bps, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const ChrInfo* cip, const char* fname, uint32_t max_allele_slen, uint32_t force, AltAlleleCt* refalt1_select, uintptr_t* nonref_flags);
 
 #ifdef __cplusplus
-} // namespace plink2
+}  // namespace plink2
 #endif
 
-#endif // __PLINK2_FILTER_H__
+#endif  // __PLINK2_FILTER_H__

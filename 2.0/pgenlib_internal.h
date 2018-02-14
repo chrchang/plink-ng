@@ -1191,7 +1191,7 @@ BoolErr SpgwCleanup(STPgenWriter* spgwp);
 BoolErr MpgwCleanup(MTPgenWriter* mpgwp);
 
 #ifdef __cplusplus
-} // namespace plink2
+}  // namespace plink2
 #endif
 
-#endif // __PGENLIB_INTERNAL_H__
+#endif  // __PGENLIB_INTERNAL_H__

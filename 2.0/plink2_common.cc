@@ -21,6 +21,27 @@
 namespace plink2 {
 #endif
 
+void InitPedigreeIdInfo(MiscFlags misc_flags, PedigreeIdInfo* piip) {
+  piip->sii.sample_ids = nullptr;
+  piip->sii.sids = nullptr;
+  piip->sii.max_sample_id_blen = 4;
+  piip->sii.max_sid_blen = 0;
+  piip->sii.flags = kfSampleId0;
+  if (misc_flags & kfMiscNoIdHeader) {
+    piip->sii.flags |= kfSampleIdNoIdHeader;
+    if (misc_flags & kfMiscNoIdHeaderIidOnly) {
+      piip->sii.flags |= kfSampleIdNoIdHeaderIidOnly;
+    }
+  }
+  if (misc_flags & kfMiscStrictSid0) {
+    piip->sii.flags |= kfSampleIdStrictSid0;
+  }
+  piip->parental_id_info.paternal_ids = nullptr;
+  piip->parental_id_info.maternal_ids = nullptr;
+  piip->parental_id_info.max_paternal_id_blen = 2;
+  piip->parental_id_info.max_maternal_id_blen = 2;
+}
+
 static_assert(kDosageMax == 32768, "dosagetoa() needs to be updated.");
 char* dosagetoa(uint64_t dosage, char* start) {
   // 3 digit precision seems like the best compromise between accuracy and
@@ -247,7 +268,7 @@ void GenoarrToNonmissing(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t
   }
 }
 
-uint32_t GenoarrCountMissingNotsubsetUnsafe(const uintptr_t* genoarr, const uintptr_t* exclude_mask, uint32_t sample_ct) {
+uint32_t GenoarrCountMissingInvsubsetUnsafe(const uintptr_t* genoarr, const uintptr_t* exclude_mask, uint32_t sample_ct) {
   const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
   const uintptr_t* genoarr_iter = genoarr;
   const Halfword* exclude_alias_iter = R_CAST(const Halfword*, exclude_mask);
@@ -262,25 +283,54 @@ uint32_t GenoarrCountMissingNotsubsetUnsafe(const uintptr_t* genoarr, const uint
 }
 
 
-uint32_t IsSidColRequired(const uintptr_t* sample_include, const char* sids, uint32_t sample_ct, uint32_t max_sid_blen, uint32_t maybe_modifier) {
-  // note that MAYBESID and SID can both be set
-  if (maybe_modifier & 2) {
+void CollapsedSampleFmtidInit(const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t sample_ct, uint32_t include_fid, uint32_t include_sid, uintptr_t max_sample_fmtid_blen, char* collapsed_sample_fmtids_iter) {
+  const char* sample_ids = siip->sample_ids;
+  const char* sids = siip->sids;
+  const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+  uintptr_t max_sid_blen = 0;
+  if (include_sid) {
+    max_sid_blen = sids? siip->max_sid_blen : 2;
+  }
+  uint32_t sample_uidx = 0;
+  for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
+    FindFirst1BitFromU32(sample_include, &sample_uidx);
+    const char* cur_sample_id = &(sample_ids[sample_uidx * max_sample_id_blen]);
+    if (!include_fid) {
+      cur_sample_id = AdvPastDelim(cur_sample_id, '\t');
+    }
+    char* write_iter = strcpya(collapsed_sample_fmtids_iter, cur_sample_id);
+    if (include_sid) {
+      *write_iter++ = '\t';
+      if (sids) {
+        strcpy(write_iter, &(sids[sample_uidx * max_sid_blen]));
+      } else {
+        memcpy(write_iter, "0", 2);
+      }
+    } else {
+      *write_iter = '\0';
+    }
+    collapsed_sample_fmtids_iter = &(collapsed_sample_fmtids_iter[max_sample_fmtid_blen]);
+  }
+}
+
+BoolErr CollapsedSampleFmtidInitAlloc(const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t sample_ct, uint32_t include_fid, uint32_t include_sid, char** collapsed_sample_fmtids_ptr, uintptr_t* max_sample_fmtid_blen_ptr) {
+  const uintptr_t max_sample_fmtid_blen = GetMaxSampleFmtidBlen(siip, include_fid, include_sid);
+  *max_sample_fmtid_blen_ptr = max_sample_fmtid_blen;
+  // might add sample_fmtid_map later
+  if (bigstack_alloc_c(max_sample_fmtid_blen * sample_ct, collapsed_sample_fmtids_ptr)) {
     return 1;
   }
-  if (sids && (maybe_modifier & 1)) {
-    uint32_t sample_uidx = 0;
-    for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-      FindFirst1BitFromU32(sample_include, &sample_uidx);
-      if (memcmp(&(sids[sample_uidx * max_sid_blen]), "0", 2)) {
-        return 1;
-      }
-    }
-  }
+  CollapsedSampleFmtidInit(sample_include, siip, sample_ct, include_fid, include_sid, max_sample_fmtid_blen, *collapsed_sample_fmtids_ptr);
   return 0;
 }
 
-// sample_augid_map_ptr == nullptr ok
-PglErr AugidInitAlloc(const uintptr_t* sample_include, const char* sample_ids, const char* sids, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t** sample_augid_map_ptr, char** sample_augids_ptr, uintptr_t* max_sample_augid_blen_ptr) {
+// forced SID '0' if sids == nullptr
+// ok for sample_augid_map_ptr == nullptr
+PglErr AugidInitAlloc(const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t sample_ct, uint32_t** sample_augid_map_ptr, char** sample_augids_ptr, uintptr_t* max_sample_augid_blen_ptr) {
+  const char* sample_ids = siip->sample_ids;
+  const char* sids = siip->sids;
+  const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+  uintptr_t max_sid_blen = siip->max_sid_blen;
   if (!sids) {
     max_sid_blen = 2;
   }
@@ -314,14 +364,14 @@ PglErr AugidInitAlloc(const uintptr_t* sample_include, const char* sample_ids, c
   return kPglRetSuccess;
 }
 
-PglErr SortedXidboxInitAlloc(const uintptr_t* sample_include, const char* sample_ids, const char* sids, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t allow_dups, XidMode xid_mode, uint32_t use_nsort, char** sorted_xidbox_ptr, uint32_t** xid_map_ptr, uintptr_t* max_xid_blen_ptr) {
+PglErr SortedXidboxInitAlloc(const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t sample_ct, uint32_t allow_dups, XidMode xid_mode, uint32_t use_nsort, char** sorted_xidbox_ptr, uint32_t** xid_map_ptr, uintptr_t* max_xid_blen_ptr) {
   if (!(xid_mode & kfXidModeFlagSid)) {
     // two fields
-    *max_xid_blen_ptr = max_sample_id_blen;
-    return CopySortStrboxSubset(sample_include, sample_ids, sample_ct, max_sample_id_blen, allow_dups, 0, use_nsort, sorted_xidbox_ptr, xid_map_ptr);
+    *max_xid_blen_ptr = siip->max_sample_id_blen;
+    return CopySortStrboxSubset(sample_include, siip->sample_ids, sample_ct, siip->max_sample_id_blen, allow_dups, 0, use_nsort, sorted_xidbox_ptr, xid_map_ptr);
   }
   // three fields
-  if (AugidInitAlloc(sample_include, sample_ids, sids, sample_ct, max_sample_id_blen, max_sid_blen, xid_map_ptr, sorted_xidbox_ptr, max_xid_blen_ptr)) {
+  if (AugidInitAlloc(sample_include, siip, sample_ct, xid_map_ptr, sorted_xidbox_ptr, max_xid_blen_ptr)) {
     return kPglRetNomem;
   }
   if (SortStrboxIndexed(sample_ct, *max_xid_blen_ptr, use_nsort, *sorted_xidbox_ptr, *xid_map_ptr)) {
@@ -345,20 +395,25 @@ uint32_t XidRead(uintptr_t max_xid_blen, uint32_t comma_delim, XidMode xid_mode,
   // idbuf = workspace
   // sorted_xidbox = packed, sorted list of ID strings to search over.
   //
-  // input *read_pp must point to beginning of FID; this is a change from plink
-  // 1.9.
+  // Input *read_pp must point to beginning of sample ID; this is a change from
+  // plink 1.9.
   //
   // *read_pp is now set to point to the end of the last parsed token instead
   // of the beginning of the next; this is another change from plink 1.9.
   //
-  // returns 1 on missing token *or* if the sample ID is not present.  cases
-  // can be distinguished by checking whether *read_pp == nullptr.
+  // Returns 0 on missing token *or* if the sample ID is not present; cases can
+  // be distinguished by checking whether *read_pp == nullptr.  Otherwise,
+  // returns slen of the parsed ID saved to idbuf.  (idbuf is not
+  // null-terminated.)
+  //
+  // Alpha 2 behavior change: If there's no FID column, it's now set to 0
+  // instead of the IID value.
   const char* first_token_start = *read_pp;
+  uintptr_t slen_fid = 0;  // now zero if no FID column
   uintptr_t blen_sid = 0;
   const char* sid_ptr = nullptr;
   const char* token_iter;
   const char* iid_ptr;
-  uintptr_t slen_fid;
   uintptr_t slen_iid;
   if (comma_delim) {
     token_iter = first_token_start;
@@ -369,17 +424,16 @@ uint32_t XidRead(uintptr_t max_xid_blen, uint32_t comma_delim, XidMode xid_mode,
           *read_pp = nullptr;
           return 0;
         }
-        slen_fid = token_iter - first_token_start;
         goto XidRead_comma_single_token;
       }
       ucc = *(++token_iter);
     }
-    slen_fid = token_iter - first_token_start;
     if (xid_mode & kfXidModeFlagNeverFid) {
     XidRead_comma_single_token:
       iid_ptr = first_token_start;
-      slen_iid = slen_fid;
+      slen_iid = token_iter - first_token_start;
     } else {
+      slen_fid = token_iter - first_token_start;
       do {
         ucc = *(++token_iter);
       } while ((ucc == ' ') || (ucc == '\t'));
@@ -411,12 +465,12 @@ uint32_t XidRead(uintptr_t max_xid_blen, uint32_t comma_delim, XidMode xid_mode,
   } else {
     assert(!IsEolnKns(*first_token_start));
     token_iter = CurTokenEnd(first_token_start);
-    slen_fid = token_iter - first_token_start;
     if (xid_mode & kfXidModeFlagNeverFid) {
     XidRead_space_single_token:
       iid_ptr = first_token_start;
-      slen_iid = slen_fid;
+      slen_iid = token_iter - first_token_start;
     } else {
+      slen_fid = token_iter - first_token_start;
       token_iter = FirstNonTspace(token_iter);
       if (IsEolnKns(*token_iter)) {
         if (!(xid_mode & kfXidModeFlagOneTokenOk)) {
@@ -444,15 +498,22 @@ uint32_t XidRead(uintptr_t max_xid_blen, uint32_t comma_delim, XidMode xid_mode,
     }
   }
   *read_pp = token_iter;
-  uintptr_t slen_final = slen_fid + slen_iid + blen_sid + 1;
+  const uintptr_t slen_final = slen_fid + (slen_fid == 0) + slen_iid + blen_sid + 1;
   if (slen_final >= max_xid_blen) {
     // avoid buffer overflow
     return 0;
   }
-  char* idbuf_end = memcpya(memcpyax(idbuf, first_token_start, slen_fid, '\t'), iid_ptr, slen_iid);
+  char* idbuf_iter = idbuf;
+  if (slen_fid) {
+    idbuf_iter = memcpya(idbuf, first_token_start, slen_fid);
+  } else {
+    *idbuf_iter++ = '0';
+  }
+  *idbuf_iter++ = '\t';
+  idbuf_iter = memcpya(idbuf_iter, iid_ptr, slen_iid);
   if (blen_sid) {
-    *idbuf_end++ = '\t';
-    memcpy(idbuf_end, sid_ptr, blen_sid - 1);
+    *idbuf_iter++ = '\t';
+    memcpy(idbuf_iter, sid_ptr, blen_sid - 1);
   }
   return slen_final;
 }
@@ -473,7 +534,7 @@ BoolErr SortedXidboxReadMultifind(const char* __restrict sorted_xidbox, uintptr_
   return 0;
 }
 
-PglErr LoadXidHeader(const char* flag_name, SidDetectMode sid_detect_mode, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, XidMode* xid_mode_ptr) {
+PglErr LoadXidHeader(const char* flag_name, XidHeaderFlags xid_header_flags, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, XidMode* xid_mode_ptr) {
   // possible todo: support comma delimiter
   uintptr_t line_idx = *line_idx_ptr;
   uint32_t is_header_line;
@@ -495,14 +556,14 @@ PglErr LoadXidHeader(const char* flag_name, SidDetectMode sid_detect_mode, uintp
   XidMode xid_mode = kfXidMode0;
   char* loadbuf_iter;
   if (is_header_line) {
-    // the following header leading columns are supported:
-    // #FID IID (sid_detect_mode can't be FORCE)
-    // #FID IID SID (SID ignored on sid_detect_mode NOT_LOADED)
+    // The following header leading columns are supported:
+    // #FID IID
+    // #FID IID SID (SID ignored if kfXidHeaderIgnoreSid set)
     // #IID
     // #IID SID
     loadbuf_iter = &(loadbuf_first_token[4]);
     if (loadbuf_first_token[1] == 'I') {
-      xid_mode = kfXidModeFlagNeverFid;
+      xid_mode = kfXidModeFlagNeverFid;;;
     } else {
       loadbuf_iter = FirstNonTspace(loadbuf_iter);
       if (!tokequal_k(loadbuf_iter, "IID")) {
@@ -513,16 +574,13 @@ PglErr LoadXidHeader(const char* flag_name, SidDetectMode sid_detect_mode, uintp
     }
     loadbuf_iter = FirstNonTspace(loadbuf_iter);
     if (tokequal_k(loadbuf_iter, "SID")) {
-      if (S_CAST(uint32_t, sid_detect_mode) >= kSidDetectModeLoaded) {
+      if (!(xid_header_flags & kfXidHeaderIgnoreSid)) {
         xid_mode |= kfXidModeFlagSid;
       }
       loadbuf_iter = FirstNonTspace(&(loadbuf_iter[3]));
-    } else if (sid_detect_mode == kSidDetectModeForce) {
-      logerrprintfww("Error: No SID column on line %" PRIuPTR " of --%s file.\n", line_idx, flag_name);
-      return kPglRetMalformedInput;
     }
   } else {
-    xid_mode = (sid_detect_mode == kSidDetectModeForce)? kfXidModeFidiidSid : kfXidModeFidiidOrIid;
+    xid_mode = (xid_header_flags & kfXidHeaderFixedWidth)? kfXidModeFidIid : kfXidModeFidIidOrIid;
     loadbuf_iter = loadbuf_first_token;
   }
   if (loadbuf_iter_ptr) {
@@ -534,13 +592,13 @@ PglErr LoadXidHeader(const char* flag_name, SidDetectMode sid_detect_mode, uintp
   return kPglRetSuccess;
 }
 
-PglErr OpenAndLoadXidHeader(const char* fname, const char* flag_name, SidDetectMode sid_detect_mode, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, XidMode* xid_mode_ptr) {
+PglErr OpenAndLoadXidHeader(const char* fname, const char* flag_name, XidHeaderFlags xid_header_flags, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, XidMode* xid_mode_ptr) {
   PglErr reterr = gzopen_read_checked(fname, gz_infile_ptr);
   if (reterr) {
     return reterr;
   }
   loadbuf[loadbuf_size - 1] = ' ';
-  return LoadXidHeader(flag_name, sid_detect_mode, loadbuf_size, loadbuf, loadbuf_iter_ptr, line_idx_ptr, loadbuf_first_token_ptr, gz_infile_ptr, xid_mode_ptr);
+  return LoadXidHeader(flag_name, xid_header_flags, loadbuf_size, loadbuf, loadbuf_iter_ptr, line_idx_ptr, loadbuf_first_token_ptr, gz_infile_ptr, xid_mode_ptr);
 }
 
 
@@ -582,7 +640,7 @@ PglErr InitChrInfo(ChrInfo* cip) {
   ZeroUlArr(kChrMaskWords, cip->chr_mask);
   ZeroUlArr(kChrExcludeWords, cip->chr_exclude);
 
-  // this is a change from plink 1.x.  MT > M since the former matches Ensembl,
+  // This is a change from plink 1.x.  MT > M since the former matches Ensembl,
   // while the latter doesn't match any major resource.  no "chr" to reduce
   // file sizes and reduce the impact of this change.
   cip->output_encoding = kfChrOutputMT;
@@ -594,7 +652,8 @@ PglErr InitChrInfo(ChrInfo* cip) {
   for (uint32_t xymt_idx = 0; xymt_idx < kChrOffsetCt; ++xymt_idx) {
     cip->xymt_codes[xymt_idx] = 23 + xymt_idx;
   }
-  cip->haploid_mask[0] = 0x1800000;
+  // Now includes MT again, as of alpha 2.
+  cip->haploid_mask[0] = 0x5800000;
   ZeroUlArr(kChrMaskWords - 1, &(cip->haploid_mask[1]));
   return kPglRetSuccess;
 }
@@ -1424,7 +1483,7 @@ void MaskGenovecHetsUnsafe(const uintptr_t* __restrict genovec, uint32_t raw_sam
   Halfword* bitarr_alias = R_CAST(Halfword*, bitarr);
   for (uint32_t widx = 0; widx < raw_sample_ctl2; ++widx) {
     const uintptr_t cur_word = genovec[widx];
-    uintptr_t ww = (~(cur_word >> 1)) & cur_word & kMask5555; // low 1, high 0
+    uintptr_t ww = (~(cur_word >> 1)) & cur_word & kMask5555;  // low 1, high 0
     bitarr_alias[widx] &= PackWordToHalfword(ww);
   }
 }
@@ -1506,7 +1565,7 @@ uint32_t CountNonAutosomalVariants(const uintptr_t* variant_include, const ChrIn
   return ct;
 }
 
-PglErr ConditionalAllocateNonAutosomalVariants(const ChrInfo* cip, const char* calc_descrip, uint32_t raw_variant_ct, uintptr_t** variant_include_ptr, uint32_t* variant_ct_ptr) {
+PglErr ConditionalAllocateNonAutosomalVariants(const ChrInfo* cip, const char* calc_descrip, uint32_t raw_variant_ct, const uintptr_t** variant_include_ptr, uint32_t* variant_ct_ptr) {
   const uint32_t non_autosomal_variant_ct = CountNonAutosomalVariants(*variant_include_ptr, cip, 1, 1);
   if (!non_autosomal_variant_ct) {
     return kPglRetSuccess;
@@ -1952,22 +2011,38 @@ PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint
   return kPglRetSuccess;
 }
 
-PglErr WriteSampleIds(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const char* outname, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t no_id_header) {
+PglErr WriteSampleIdsOverride(const uintptr_t* sample_include, const SampleIdInfo* siip, const char* outname, uint32_t sample_ct, SampleIdFlags override_flags) {
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
   {
     if (fopen_checked(outname, FOPEN_WB, &outfile)) {
-      goto WriteSampleIds_ret_OPEN_FAIL;
+      goto WriteSampleIdsOverride_ret_OPEN_FAIL;
     }
+    const char* sample_ids = siip->sample_ids;
+    const char* sids = siip->sids;
+    const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+    const uintptr_t max_sid_blen = siip->max_sid_blen;
     char* write_iter = g_textbuf;
     char* textbuf_flush = &(write_iter[kMaxMediumLine]);
-    if (!no_id_header) {
-      write_iter = strcpya(write_iter, "#FID\tIID");
+    if (!(override_flags & kfSampleIdNoIdHeader)) {
+      *write_iter++ = '#';
+      if (override_flags & kfSampleIdFidPresent) {
+        write_iter = strcpya(write_iter, "FID\t");
+      } else {
+        // every single row starts with "0\t", so this causes only IIDs to be
+        // reported
+        sample_ids = &(sample_ids[2]);
+      }
+      write_iter = memcpyl3a(write_iter, "IID");
       if (sids) {
         write_iter = strcpya(write_iter, "\tSID");
       }
       AppendBinaryEoln(&write_iter);
     } else {
+      if (override_flags & kfSampleIdNoIdHeaderIidOnly) {
+        // We've previously verified that all FIDs are in fact '0'.
+        sample_ids = &(sample_ids[2]);
+      }
       sids = nullptr;
     }
     uintptr_t sample_uidx = 0;
@@ -1980,18 +2055,18 @@ PglErr WriteSampleIds(const uintptr_t* sample_include, const char* sample_ids, c
       }
       AppendBinaryEoln(&write_iter);
       if (fwrite_ck(textbuf_flush, outfile, &write_iter)) {
-        goto WriteSampleIds_ret_WRITE_FAIL;
+        goto WriteSampleIdsOverride_ret_WRITE_FAIL;
       }
     }
     if (fclose_flush_null(textbuf_flush, write_iter, &outfile)) {
-      goto WriteSampleIds_ret_WRITE_FAIL;
+      goto WriteSampleIdsOverride_ret_WRITE_FAIL;
     }
   }
   while (0) {
-  WriteSampleIds_ret_OPEN_FAIL:
+  WriteSampleIdsOverride_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  WriteSampleIds_ret_WRITE_FAIL:
+  WriteSampleIdsOverride_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
   }
@@ -2009,5 +2084,5 @@ uint32_t RealpathIdentical(const char* outname, const char* read_realpath, char*
 }
 
 #ifdef __cplusplus
-} // namespace plink2
+}  // namespace plink2
 #endif

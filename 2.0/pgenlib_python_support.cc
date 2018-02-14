@@ -495,5 +495,5 @@ void DoublesToDosage16(const double* doublearr, uint32_t sample_ct, uint32_t har
 }
 
 #ifdef __cplusplus
-} // namespace plink2
+}  // namespace plink2
 #endif

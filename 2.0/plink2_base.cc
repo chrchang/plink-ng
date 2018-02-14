@@ -180,7 +180,7 @@ BoolErr ScanIntAbsBounded(const char* str_iter, uint64_t bound, int32_t* valp) {
   *valp *= sign;
   return 0;
 }
-#else // not __LP64__
+#else  // not __LP64__
 BoolErr ScanPosintCapped32(const char* str_iter, uint32_t cap_div_10, uint32_t cap_mod_10, uint32_t* valp) {
   // '0' has ascii code 48
   assert(ctou32(str_iter[0]) > 32);
@@ -840,7 +840,7 @@ void ExpandThenSubsetBytearrNested(const void* __restrict compact_bitarr, const 
     compact_target[write_widx] = compact_output_word;
   }
 }
-#else // !USE_AVX2
+#else  // !USE_AVX2
 void CopyBitarrSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t subset_size, uintptr_t* __restrict output_bitarr) {
   const uint32_t subset_size_lowbits = subset_size % kBitsPerWord;
   uintptr_t* output_bitarr_iter = output_bitarr;
@@ -1421,7 +1421,7 @@ void TransposeBitblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stri
     target_iter0 = &(target_iter7[write_ui_stride]);
   }
 }
-#  else // !USE_AVX2
+#  else  // !USE_AVX2
 void TransposeBitblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, void* buf0) {
   // buf must be vector-aligned and have space for 512 bytes
   const uint32_t block_ct = DivUp(write_batch_size, CHAR_BIT);
@@ -1491,7 +1491,7 @@ void TransposeBitblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stri
   }
 }
 #  endif
-#else // !__LP64__
+#else  // !__LP64__
 static_assert(kWordsPerVec == 1, "TransposeBitblockInternal() needs to be updated.");
 void TransposeBitblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecUL* __restrict buf0, VecUL* __restrict buf1) {
   // buf must be vector-aligned and have size 64k
@@ -1612,8 +1612,8 @@ void TransposeBitblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stri
     target_iter0 = &(target_iter1[write_ul_stride]);
   }
 }
-#endif // !__LP64__
+#endif  // !__LP64__
 
 #ifdef __cplusplus
-} // namespace plink2
+}  // namespace plink2
 #endif

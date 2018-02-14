@@ -423,7 +423,7 @@ PglErr RandomThinCt(const char* flagname_p, const char* unitname, uint32_t thin_
 
 static const char keep_remove_flag_strs[4][11] = {"keep", "remove", "keep-fam", "remove-fam"};
 
-PglErr KeepOrRemove(const char* fnames, const char* sample_ids, const char* sids, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, KeepFlags flags, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
+PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_sample_ct, KeepFlags flags, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   const char* flag_name = keep_remove_flag_strs[flags % 4];
   gzFile gz_infile = nullptr;
@@ -452,6 +452,8 @@ PglErr KeepOrRemove(const char* fnames, const char* sample_ids, const char* sids
     loadbuf[loadbuf_size - 1] = ' ';
 
     const uint32_t families_only = flags & kfKeepFam;
+    const char* sample_ids = siip->sample_ids;
+    const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
     char* idbuf = nullptr;
     uint32_t* xid_map = nullptr;
     char* sorted_xidbox = nullptr;
@@ -466,8 +468,8 @@ PglErr KeepOrRemove(const char* fnames, const char* sample_ids, const char* sids
       for (uint32_t sample_idx = 0; sample_idx < orig_sample_ct; ++sample_idx, ++sample_uidx) {
         FindFirst1BitFromU32(sample_include, &sample_uidx);
         const char* fidt_ptr = &(sample_ids[sample_uidx * max_sample_id_blen]);
-        const char* fidt_end = S_CAST(const char*, rawmemchr(fidt_ptr, '\t'));
-        const uint32_t cur_fidt_slen = 1 + S_CAST(uintptr_t, fidt_end - fidt_ptr);
+        const char* fidt_end = AdvPastDelim(fidt_ptr, '\t');
+        const uint32_t cur_fidt_slen = fidt_end - fidt_ptr;
         // include trailing tab, to simplify bsearch_str_lb() usage
         memcpyx(&(sorted_xidbox[sample_idx * max_xid_blen]), fidt_ptr, cur_fidt_slen, '\0');
         xid_map[sample_idx] = sample_uidx;
@@ -487,7 +489,7 @@ PglErr KeepOrRemove(const char* fnames, const char* sample_ids, const char* sids
       char* loadbuf_first_token;
       XidMode xid_mode;
       if (!families_only) {
-        reterr = LoadXidHeader(flag_name, (flags & kfKeepForceSid)? kSidDetectModeForce : (sids? kSidDetectModeLoaded : kSidDetectModeNotLoaded), loadbuf_size, loadbuf, nullptr, &line_idx, &loadbuf_first_token, &gz_infile, &xid_mode);
+        reterr = LoadXidHeader(flag_name, (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeader0 : kfXidHeaderIgnoreSid, loadbuf_size, loadbuf, nullptr, &line_idx, &loadbuf_first_token, &gz_infile, &xid_mode);
         if (reterr) {
           if (reterr == kPglRetEmptyFile) {
             reterr = kPglRetSuccess;
@@ -501,8 +503,8 @@ PglErr KeepOrRemove(const char* fnames, const char* sample_ids, const char* sids
           }
           goto KeepOrRemove_ret_1;
         }
-        const uint32_t allow_dups = sids && (!(xid_mode & kfXidModeFlagSid));
-        reterr = SortedXidboxInitAlloc(sample_include, sample_ids, sids, orig_sample_ct, max_sample_id_blen, max_sid_blen, allow_dups, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+        const uint32_t allow_dups = siip->sids && (!(xid_mode & kfXidModeFlagSid));
+        reterr = SortedXidboxInitAlloc(sample_include, siip, orig_sample_ct, allow_dups, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
         if (reterr) {
           goto KeepOrRemove_ret_1;
         }
@@ -624,7 +626,7 @@ PglErr KeepOrRemove(const char* fnames, const char* sample_ids, const char* sids
 // sufficiently self-describing; PLINK has lots of other filters on both
 // samples and variants.  --filter is automatically be converted to --keep-fcol
 // for backward compatibility, though.)
-PglErr KeepFcol(const char* fname, const char* sample_ids, const char* sids, const char* strs_flattened, const char* col_name, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t force_sid, uint32_t col_num, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
+PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_flattened, const char* col_name, uint32_t raw_sample_ct, uint32_t col_num, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   gzFile gz_infile = nullptr;
   uintptr_t loadbuf_size = 0;
@@ -668,7 +670,7 @@ PglErr KeepFcol(const char* fname, const char* sample_ids, const char* sids, con
     }
     char* loadbuf_first_token;
     XidMode xid_mode;
-    reterr = LoadXidHeader("keep-fcol", force_sid? kSidDetectModeForce : (sids? kSidDetectModeLoaded : kSidDetectModeNotLoaded), loadbuf_size, loadbuf, nullptr, &line_idx, &loadbuf_first_token, &gz_infile, &xid_mode);
+    reterr = LoadXidHeader("keep-fcol", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, loadbuf_size, loadbuf, nullptr, &line_idx, &loadbuf_first_token, &gz_infile, &xid_mode);
     if (reterr) {
       if (reterr == kPglRetEmptyFile) {
         logerrputs("Error: Empty --keep-fcol file.\n");
@@ -678,9 +680,6 @@ PglErr KeepFcol(const char* fname, const char* sample_ids, const char* sids, con
         goto KeepFcol_ret_LONG_LINE;
       }
       goto KeepFcol_ret_1;
-    }
-    if (xid_mode == kfXidModeFidiidOrIid) {
-      xid_mode = kfXidModeFidiid;
     }
     const uint32_t id_col_ct = GetXidColCt(xid_mode);
     uint32_t postid_col_idx = 0;
@@ -728,9 +727,9 @@ PglErr KeepFcol(const char* fname, const char* sample_ids, const char* sids, con
     }
     uint32_t* xid_map = nullptr;
     char* sorted_xidbox = nullptr;
-    const uint32_t allow_dups = sids && (!(xid_mode & kfXidModeFlagSid));
+    const uint32_t allow_dups = siip->sids && (!(xid_mode & kfXidModeFlagSid));
     uintptr_t max_xid_blen;
-    reterr = SortedXidboxInitAlloc(sample_include, sample_ids, sids, orig_sample_ct, max_sample_id_blen, max_sid_blen, allow_dups, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+    reterr = SortedXidboxInitAlloc(sample_include, siip, orig_sample_ct, allow_dups, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
     if (reterr) {
       goto KeepFcol_ret_1;
     }
@@ -2841,7 +2840,7 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
   return reterr;
 }
 
-PglErr MindFilter(const uint32_t* sample_missing_cts, const uint32_t* sample_hethap_cts, const char* sample_ids, const char* sids, uint32_t raw_sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t variant_ct, uint32_t variant_ct_y, double mind_thresh, uintptr_t* sample_include, uintptr_t* sex_male, uint32_t* sample_ct_ptr, char* outname, char* outname_end) {
+PglErr MindFilter(const uint32_t* sample_missing_cts, const uint32_t* sample_hethap_cts, const SampleIdInfo* siip, uint32_t raw_sample_ct, uint32_t variant_ct, uint32_t variant_ct_y, double mind_thresh, uintptr_t* sample_include, uintptr_t* sex_male, uint32_t* sample_ct_ptr, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
   {
@@ -2878,7 +2877,7 @@ PglErr MindFilter(const uint32_t* sample_missing_cts, const uint32_t* sample_het
       BitvecAndNot(newly_excluded, raw_sample_ctl, sample_include);
       BitvecAndNot(newly_excluded, raw_sample_ctl, sex_male);
       snprintf(outname_end, kMaxOutfnameExtBlen, ".mindrem.id");
-      reterr = WriteSampleIds(newly_excluded, sample_ids, sids, outname, removed_ct, max_sample_id_blen, max_sid_blen, 0);
+      reterr = WriteSampleIds(newly_excluded, siip, outname, removed_ct);
       if (reterr) {
         goto MindFilter_ret_1;
       }
@@ -3122,13 +3121,12 @@ void EnforceMachR2Thresh(const ChrInfo* cip, const double* mach_r2_vals, double 
   mach_r2_max *= 1 + kSmallEpsilon;
   uint32_t removed_ct = 0;
   uint32_t variant_uidx = 0;
-  const int32_t mt_code = cip->xymt_codes[kChrOffsetMT];
   const uint32_t chr_ct = cip->chr_ct;
   uint32_t relevant_variant_ct = prefilter_variant_ct;
   for (uint32_t chr_fo_idx = 0; chr_fo_idx < chr_ct; ++chr_fo_idx) {
     const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
     // skip X, Y, MT, other haploid
-    if (IsSet(cip->haploid_mask, chr_idx) || (chr_idx == S_CAST(uint32_t, mt_code))) {
+    if (IsSet(cip->haploid_mask, chr_idx)) {
       relevant_variant_ct -= PopcountBitRange(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1]);
     }
   }
@@ -3140,7 +3138,7 @@ void EnforceMachR2Thresh(const ChrInfo* cip, const double* mach_r2_vals, double 
       uint32_t chr_idx;
       do {
         chr_idx = cip->chr_file_order[++chr_fo_idx];
-      } while (IsSet(cip->haploid_mask, chr_idx) || (chr_idx == S_CAST(uint32_t, mt_code)));
+      } while (IsSet(cip->haploid_mask, chr_idx));
       chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
       variant_uidx = FindFirst1BitFromBounded(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], chr_end);
     }
@@ -3846,5 +3844,5 @@ PglErr RefFromFa(const uintptr_t* variant_include, const uint32_t* variant_bps, 
 }
 
 #ifdef __cplusplus
-} // namespace plink2
+}  // namespace plink2
 #endif

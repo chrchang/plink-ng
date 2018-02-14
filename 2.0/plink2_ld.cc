@@ -19,7 +19,7 @@
 #include "plink2_stats.h"
 
 #ifdef __cplusplus
-#  include <functional> // std::greater
+#  include <functional>  // std::greater
 #endif
 
 #ifdef __cplusplus
@@ -189,7 +189,7 @@ void SumSsqWords(const uintptr_t* hom1, const uintptr_t* ref2het1, const uintptr
   *sum2_ptr = S_CAST(int32_t, 2 * plus2 - ssq2);  // deliberate overflow
   *ssq2_ptr = ssq2;
 }
-#else // !USE_AVX2
+#else  // !USE_AVX2
 static inline int32_t DotprodVecsNm(const VecUL* __restrict hom1_iter, const VecUL* __restrict ref2het1_iter, const VecUL* __restrict hom2_iter, const VecUL* __restrict ref2het2_iter, uintptr_t vec_ct) {
   // popcount(hom1 & hom2) - 2 * popcount(hom1 & hom2 & (ref2het1 ^ ref2het2))
   // ct must be a multiple of 3.
@@ -359,7 +359,7 @@ void SumSsqWords(const uintptr_t* hom1, const uintptr_t* ref2het1, const uintptr
   *sum2_ptr = S_CAST(int32_t, 2 * plus2 - ssq2);  // deliberate overflow
   *ssq2_ptr = ssq2;
 }
-#endif // !USE_AVX2
+#endif  // !USE_AVX2
 
 #if defined(USE_AVX2) || !defined(USE_SSE42)
 static inline void SumSsqNmVecs(const VecUL* __restrict hom1_iter, const VecUL* __restrict ref2het1_iter, const VecUL* __restrict hom2_iter, const VecUL* __restrict ref2het2_iter, uintptr_t vec_ct, uint32_t* __restrict nm_ptr, uint32_t* __restrict ssq2_ptr, uint32_t* __restrict plus2_ptr) {
@@ -453,7 +453,7 @@ static inline void SumSsqNmVecs(const VecUL* __restrict hom1_iter, const VecUL* 
     plus2 += UniVecHsum16(acc_plus);
   }
 }
-#endif // __LP64__
+#endif  // __LP64__
 
 void SumSsqNmWords(const uintptr_t* hom1, const uintptr_t* ref2het1, const uintptr_t* hom2, const uintptr_t* ref2het2, uint32_t word_ct, uint32_t* __restrict nm_ptr, int32_t* sum2_ptr, uint32_t* __restrict ssq2_ptr) {
   uint32_t nm = 0;
@@ -868,7 +868,7 @@ THREAD_FUNC_DECL IndepPairwiseThread(void* arg) {
                     break;
                   }
                   second_slot_idx = winpos_to_slot_idx[second_winpos];
-                } // while (1)
+                }  // while (1)
                 break;
               }
             }
@@ -2376,7 +2376,7 @@ int64_t DosageSignedDotprod(const Dosage* dosage_diff0, const Dosage* dosage_dif
     dotprod += UniVecHsum32(acc_lo) + 65536 * UniVecHsum32(acc_hi);
   }
 }
-#  else // !USE_AVX2
+#  else  // !USE_AVX2
 void FillDosageUhet(const Dosage* dosage_vec, uint32_t dosagev_ct, Dosage* dosage_uhet) {
   const __m128i* dosage_vvec_iter = R_CAST(const __m128i*, dosage_vec);
 #    if defined(__APPLE__) && ((!defined(__cplusplus)) || (__cplusplus < 201103L))
@@ -2610,8 +2610,8 @@ int64_t DosageSignedDotprod(const Dosage* dosage_diff0, const Dosage* dosage_dif
     dotprod += UniVecHsum32(acc_lo) + 65536 * UniVecHsum32(acc_hi);
   }
 }
-#  endif // !USE_AVX2
-#else // !__LP64__
+#  endif  // !USE_AVX2
+#else  // !__LP64__
 void FillDosageUhet(const Dosage* dosage_vec, uint32_t dosagev_ct, Dosage* dosage_uhet) {
   const uint32_t sample_cta2 = dosagev_ct * 2;
   for (uint32_t sample_idx = 0; sample_idx < sample_cta2; ++sample_idx) {
@@ -2775,19 +2775,18 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     // ok to ignore chr_mask here
     const int32_t x_code = cip->xymt_codes[kChrOffsetX];
     const int32_t y_code = cip->xymt_codes[kChrOffsetY];
-    const int32_t mt_code = cip->xymt_codes[kChrOffsetMT];
     // is_x:
     // * male het calls treated as missing hardcalls
     // * males only have half weight in all computations (or sqrt(0.5) if one
     //   variant on chrX and one variant elsewhere)
     // * SNPHWEX used for HWE stats
     //
-    // is_nonx_haploid_or_mt:
+    // is_nonx_haploid:
     // * all het calls treated as missing hardcalls
     uint32_t var_uidxs[2];
     uint32_t chr_idxs[2];
     uint32_t is_xs[2];
-    uint32_t is_nonx_haploid_or_mts[2];
+    uint32_t is_nonx_haploids[2];
     uint32_t y_ct = 0;
     for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {
       const char* cur_varid = ld_console_varids[var_idx];
@@ -2804,14 +2803,12 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       chr_idxs[var_idx] = chr_idx;
       const uint32_t is_x = (S_CAST(int32_t, chr_idx) == x_code);
       is_xs[var_idx] = is_x;
-      uint32_t is_nonx_haploid_or_mt;
+      uint32_t is_nonx_haploid = 0;
       if (IsSet(cip->haploid_mask, chr_idx)) {
-        is_nonx_haploid_or_mt = 1 - is_x;
+        is_nonx_haploid = 1 - is_x;
         y_ct += (S_CAST(int32_t, chr_idx) == y_code);
-      } else {
-        is_nonx_haploid_or_mt = (S_CAST(int32_t, chr_idx) == mt_code);
       }
-      is_nonx_haploid_or_mts[var_idx] = is_nonx_haploid_or_mt;
+      is_nonx_haploids[var_idx] = is_nonx_haploid;
     }
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     // if both unplaced, don't count as same-chromosome
@@ -2896,7 +2893,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         goto LdConsole_ret_1;
       }
       ZeroTrailingQuaters(founder_ct, cur_genovec);
-      if (is_nonx_haploid_or_mts[var_idx]) {
+      if (is_nonx_haploids[var_idx]) {
         if (!use_dosage) {
           SetHetMissing(founder_ctl2, cur_genovec);
         }
@@ -2913,8 +2910,8 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         // todo: erase male phased dosages
       }
     }
-    const uint32_t use_phase = is_same_chr && (!is_nonx_haploid_or_mts[0]) && phasepresent_cts[0] && phasepresent_cts[1];
-    const uint32_t ignore_hethet = is_nonx_haploid_or_mts[0] || is_nonx_haploid_or_mts[1];
+    const uint32_t use_phase = is_same_chr && (!is_nonx_haploids[0]) && phasepresent_cts[0] && phasepresent_cts[1];
+    const uint32_t ignore_hethet = is_nonx_haploids[0] || is_nonx_haploids[1];
     if ((!dosage_cts[0]) && (!dosage_cts[1]) && (!ignore_hethet)) {
       use_dosage = 0;
     }
@@ -3208,7 +3205,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       write_iter = uint32toa(valid_x_male_ct, write_iter);
       write_iter = strcpya(write_iter, " male)");
     }
-    if ((!is_nonx_haploid_or_mts[0]) && (!is_nonx_haploid_or_mts[1])) {
+    if ((!is_nonx_haploids[0]) && (!is_nonx_haploids[1])) {
       write_iter = strcpya(write_iter, "; ");
       if (unknown_hethet_d == 0.0) {
         if (hethet_present) {
@@ -3508,5 +3505,5 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
 }
 
 #ifdef __cplusplus
-} // namespace plink2
+}  // namespace plink2
 #endif

@@ -18,11 +18,11 @@
 #include "pgenlib_internal.h"
 
 #ifndef NO_MMAP
-#  include <sys/types.h> // fstat()
-#  include <sys/stat.h> // open(), fstat()
-#  include <sys/mman.h> // mmap()
-#  include <fcntl.h> // open()
-#  include <unistd.h> // fstat()
+#  include <sys/types.h>  // fstat()
+#  include <sys/stat.h>  // open(), fstat()
+#  include <sys/mman.h>  // mmap()
+#  include <fcntl.h>  // open()
+#  include <unistd.h>  // fstat()
 #endif
 
 #ifdef __cplusplus
@@ -88,7 +88,7 @@ void CopyQuaterarrNonemptySubset(const uintptr_t* __restrict raw_quaterarr, cons
     ++subset_mask_widx;
   }
 }
-#else // !USE_AVX2
+#else  // !USE_AVX2
 void CopyQuaterarrNonemptySubset(const uintptr_t* __restrict raw_quaterarr, const uintptr_t* __restrict subset_mask, uint32_t raw_quaterarr_entry_ct, uint32_t subset_entry_ct, uintptr_t* __restrict output_quaterarr) {
   // in plink 2.0, we probably want (0-based) bit raw_quaterarr_entry_ct of
   // subset_mask to be always allocated and unset.  This removes a few special
@@ -553,7 +553,7 @@ void FillInterleavedMaskVec(const uintptr_t* __restrict subset_mask, uint32_t ba
       *interleaved_mask_vec_iter++ = ww_even | (ww_odd << 1);
     }
     subset_mask_iter = &(subset_mask_iter[2]);
-#  else // not USE_AVX2
+#  else  // not USE_AVX2
     // 0 64 1 65 2 66 ...
     const uintptr_t orig_word1 = *subset_mask_iter++;
     const uintptr_t orig_word2 = *subset_mask_iter++;
@@ -572,7 +572,7 @@ void FillInterleavedMaskVec(const uintptr_t* __restrict subset_mask, uint32_t ba
       ww_odd = UnpackHalfwordToWord(ww_odd);
       *interleaved_mask_vec_iter++ = ww_even | (ww_odd << 1);
     }
-#  endif // not USE_AVX2
+#  endif  // not USE_AVX2
   }
 #else
   for (uint32_t widx = 0; widx < base_vec_ct; ++widx) {
@@ -689,7 +689,7 @@ void GenovecCountSubsetFreqs(const uintptr_t* __restrict genovec, const uintptr_
       mask_word2 = mask_word4;
     }
   }
-#  else // not USE_AVX2
+#  else  // not USE_AVX2
   uintptr_t mask_base1 = 0;
   uintptr_t mask_base2 = 0;
   for (; vec_idx < raw_sample_ctv2; ++vec_idx) {
@@ -718,8 +718,8 @@ void GenovecCountSubsetFreqs(const uintptr_t* __restrict genovec, const uintptr_
     bothset_ct += QuatersumWord((cur_geno_word1 & cur_geno_word1_high_masked) + (cur_geno_word2 & cur_geno_word2_high_masked));
 #    endif
   }
-#  endif // not USE_AVX2
-#else // not __LP64__
+#  endif  // not USE_AVX2
+#else  // not __LP64__
   uint32_t word_idx = raw_sample_ctv2 - (raw_sample_ctv2 % 6);
   CountSubset3FreqVec6(R_CAST(const VecUL*, genovec), R_CAST(const VecUL*, sample_include_interleaved_vec), word_idx, &even_ct, &odd_ct, &bothset_ct);
   const uintptr_t* interleaved_mask_iter = &(sample_include_interleaved_vec[word_idx / 2]);
@@ -887,7 +887,7 @@ void GenoarrCountSubsetFreqs(const unsigned char* genoarr, const uintptr_t* __re
       mask_word2 = mask_word4;
     }
   }
-#else // not USE_AVX2
+#else  // not USE_AVX2
   const uint32_t vec_idx_trail = (raw_sample_ct + 3) / kQuatersPerVec;
 #  ifdef __LP64__
   uintptr_t mask_base1 = 0;
@@ -931,7 +931,7 @@ void GenoarrCountSubsetFreqs(const unsigned char* genoarr, const uintptr_t* __re
     bothset_ct += QuatersumWord((cur_geno_word1 & cur_geno_word1_high_masked) + (cur_geno_word2 & cur_geno_word2_high_masked));
 #    endif
   }
-#  else // not __LP64__
+#  else  // not __LP64__
   uintptr_t mask_base = 0;
   for (uint32_t word_idx = 0; word_idx < raw_sample_ctv2; ++word_idx) {
     uintptr_t mask_word;
@@ -953,8 +953,8 @@ void GenoarrCountSubsetFreqs(const unsigned char* genoarr, const uintptr_t* __re
     odd_ct += Popcount01Word(cur_geno_word_high_masked);
     bothset_ct += Popcount01Word(cur_geno_word & cur_geno_word_high_masked);
   }
-#  endif // not __LP64__
-#endif // not USE_AVX2
+#  endif  // not __LP64__
+#endif  // not USE_AVX2
   genocounts[0] = sample_ct + bothset_ct - even_ct - odd_ct;
   genocounts[1] = even_ct - bothset_ct;
   genocounts[2] = odd_ct - bothset_ct;
@@ -1212,7 +1212,7 @@ void TransposeQuaterblockAvx2(const uintptr_t* read_iter, uint32_t read_ul_strid
     target_iter0 = &(target_iter3[write_ul_stride]);
   }
 }
-#else // !USE_AVX2
+#else  // !USE_AVX2
 #  ifdef __LP64__
 static_assert(kWordsPerVec == 2, "TransposeQuaterblock() needs to be updated.");
 #  else
@@ -1352,7 +1352,7 @@ void TransposeQuaterblockNoAvx2(const uintptr_t* read_iter, uint32_t read_ul_str
     target_iter0 = &(target_iter1[write_ul_stride]);
   }
 }
-#endif // !USE_AVX2
+#endif  // !USE_AVX2
 
 void BiallelicDosage16Invert(uint32_t dosage_ct, uint16_t* dosage_vals) {
   // replace each x with (32768 - x).
@@ -8830,5 +8830,5 @@ BoolErr MpgwCleanup(MTPgenWriter* mpgwp) {
 }
 
 #ifdef __cplusplus
-} // namespace plink2
+}  // namespace plink2
 #endif

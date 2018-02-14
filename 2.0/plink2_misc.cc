@@ -643,7 +643,7 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
   return reterr;
 }
 
-PglErr UpdateSampleSexes(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const UpdateSexInfo* update_sex_info_ptr, uint32_t raw_sample_ct, uintptr_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uintptr_t* sex_nm, uintptr_t* sex_male) {
+PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* siip, const UpdateSexInfo* update_sex_info_ptr, uint32_t raw_sample_ct, uintptr_t sample_ct, uintptr_t* sex_nm, uintptr_t* sex_male) {
   unsigned char* bigstack_mark = g_bigstack_base;
   gzFile gz_infile = nullptr;
   uintptr_t loadbuf_size = 0;
@@ -671,11 +671,12 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const char* sample_ids
     char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
     loadbuf[loadbuf_size - 1] = ' ';
 
-    const uint32_t force_sid = (update_sex_info_ptr->flags / kfUpdateSexSid) & 1;
+    // (Much of this boilerplate is shared with e.g. KeepFcol(); it probably
+    // belongs in its own function.)
     char* loadbuf_first_token;
     char* header_sample_id_end;
     XidMode xid_mode;
-    reterr = LoadXidHeader("update-sex", force_sid? kSidDetectModeForce : (sids? kSidDetectModeLoaded : kSidDetectModeNotLoaded), loadbuf_size, loadbuf, &header_sample_id_end, &line_idx, &loadbuf_first_token, &gz_infile, &xid_mode);
+    reterr = LoadXidHeader("update-sex", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, loadbuf_size, loadbuf, &header_sample_id_end, &line_idx, &loadbuf_first_token, &gz_infile, &xid_mode);
     if (reterr) {
       if (reterr == kPglRetEmptyFile) {
         logerrputs("Error: Empty --update-sex file.\n");
@@ -685,11 +686,6 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const char* sample_ids
         goto UpdateSampleSexes_ret_LONG_LINE;
       }
       goto UpdateSampleSexes_ret_1;
-    }
-    // Much of this boilerplate is shared with e.g. KeepFcol(); it probably
-    // belongs in its own function.  But transition to optional-FID first.
-    if (xid_mode == kfXidModeFidiidOrIid) {
-      xid_mode = kfXidModeFidiid;
     }
     const uint32_t id_col_ct = GetXidColCt(xid_mode);
     uint32_t col_num = update_sex_info_ptr->col_num;
@@ -731,9 +727,9 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const char* sample_ids
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     uint32_t* xid_map = nullptr;
     char* sorted_xidbox = nullptr;
-    const uint32_t allow_dups = sids && (!(xid_mode & kfXidModeFlagSid));
+    const uint32_t allow_dups = siip->sids && (!(xid_mode & kfXidModeFlagSid));
     uintptr_t max_xid_blen;
-    reterr = SortedXidboxInitAlloc(sample_include, sample_ids, sids, sample_ct, max_sample_id_blen, max_sid_blen, allow_dups, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
+    reterr = SortedXidboxInitAlloc(sample_include, siip, sample_ct, allow_dups, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
     if (reterr) {
       goto UpdateSampleSexes_ret_1;
     }
@@ -1416,7 +1412,7 @@ PglErr PhenoQuantileNormalize(const char* quantnorm_flattened, const uintptr_t* 
             break;
           }
         }
-        const double cur_zscore = PToZscore(S_CAST(double, sample_idx_start + sample_idx_end) * sample_ct_x2_recip);
+        const double cur_zscore = QuantileToZscore(S_CAST(double, sample_idx_start + sample_idx_end) * sample_ct_x2_recip);
         for (; sample_idx_start < sample_idx_end; ++sample_idx_start) {
           pheno_qt[tagged_raw_pheno_vals[sample_idx_start].uii] = cur_zscore;
         }
@@ -1679,7 +1675,6 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
       }
       AppendBinaryEoln(&cswritep);
 
-      const int32_t mt_code = cip->xymt_codes[kChrOffsetMT];
       uint32_t variant_uidx = 0;
       uint32_t chr_fo_idx = UINT32_MAX;
       uint32_t chr_end = 0;
@@ -1699,7 +1694,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
           } while (variant_uidx >= chr_end);
           const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
           char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
-          suppress_mach_r2 = IsSet(cip->haploid_mask, chr_idx) || (chr_idx == S_CAST(uint32_t, mt_code));
+          suppress_mach_r2 = IsSet(cip->haploid_mask, chr_idx);
           *chr_name_end = '\t';
           chr_buf_blen = 1 + S_CAST(uintptr_t, chr_name_end - chr_buf);
         }
@@ -2110,7 +2105,7 @@ PglErr WriteGenoCounts(__attribute__((unused)) const uintptr_t* sample_include, 
 
     const int32_t x_code = cip->xymt_codes[kChrOffsetX];
     const int32_t y_code = cip->xymt_codes[kChrOffsetY];
-    uint32_t is_autosomal_diploid = 0;  // also includes MT for now
+    uint32_t is_autosomal_diploid = 0;
     uint32_t is_x = 0;
     uint32_t nobs_base = 0;
     uint32_t chr_fo_idx = UINT32_MAX;
@@ -2333,7 +2328,7 @@ PglErr WriteGenoCounts(__attribute__((unused)) const uintptr_t* sample_include, 
   return reterr;
 }
 
-PglErr WriteMissingnessReports(const uintptr_t* sample_include, const uintptr_t* sex_male, const char* sample_ids, const char* sids, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* sample_missing_hc_cts, const uint32_t* sample_missing_dosage_cts, const uint32_t* sample_hethap_cts, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const uint32_t* variant_missing_hc_cts, const uint32_t* variant_missing_dosage_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t male_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t variant_ct, uintptr_t max_allele_slen, uint32_t first_hap_uidx, MissingRptFlags missing_rpt_flags, uint32_t max_thread_ct, char* outname, char* outname_end) {
+PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* sample_missing_hc_cts, const uint32_t* sample_missing_dosage_cts, const uint32_t* sample_hethap_cts, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const uint32_t* variant_missing_hc_cts, const uint32_t* variant_missing_dosage_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t male_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t variant_ct, uintptr_t max_allele_slen, uint32_t first_hap_uidx, MissingRptFlags missing_rpt_flags, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -2348,8 +2343,17 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const uintptr_t*
       if (reterr) {
         goto WriteMissingnessReports_ret_1;
       }
-      cswritep = strcpya(cswritep, "#FID\tIID");
-      const uint32_t scol_sid = IsSidColRequired(sample_include, sids, sample_ct, max_sid_blen, missing_rpt_flags / kfMissingRptScolMaybesid);
+      *cswritep++ = '#';
+      const uint32_t scol_fid = IsFidColRequired(siip, missing_rpt_flags / kfMissingRptScolMaybefid);
+      if (scol_fid) {
+        cswritep = strcpya(cswritep, "FID\t");
+      }
+      cswritep = memcpyl3a(cswritep, "IID");
+      const char* sample_ids = siip->sample_ids;
+      const char* sids = siip->sids;
+      const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
+      const uintptr_t max_sid_blen = siip->max_sid_blen;
+      const uint32_t scol_sid = IsSidColRequired(sids, missing_rpt_flags / kfMissingRptScolMaybesid);
       if (scol_sid) {
         cswritep = strcpya(cswritep, "\tSID");
       }
@@ -2425,7 +2429,11 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const uintptr_t*
       uintptr_t sample_uidx = 0;
       for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
         FindFirst1BitFromL(sample_include, &sample_uidx);
-        cswritep = strcpya(cswritep, &(sample_ids[sample_uidx * max_sample_id_blen]));
+        const char* cur_sample_id = &(sample_ids[sample_uidx * max_sample_id_blen]);
+        if (!scol_fid) {
+          cur_sample_id = AdvPastDelim(cur_sample_id, '\t');
+        }
+        cswritep = strcpya(cswritep, cur_sample_id);
         if (scol_sid) {
           *cswritep++ = '\t';
           if (sids) {
@@ -2879,7 +2887,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
       }
     }
     if (variant_skip_ct - hwe_x_ct) {
-      logprintf("--hardy: Skipping %u haploid/chrM variant%s.\n", variant_skip_ct - hwe_x_ct, (variant_skip_ct - hwe_x_ct == 1)? "" : "s");
+      logprintf("--hardy: Skipping %u haploid variant%s.\n", variant_skip_ct - hwe_x_ct, (variant_skip_ct - hwe_x_ct == 1)? "" : "s");
     }
     variant_ct -= variant_skip_ct;
     const uint32_t midp = (hardy_flags / kfHardyMidp) & 1;
@@ -3268,7 +3276,7 @@ PglErr WriteSnplist(const uintptr_t* variant_include, const char* const* variant
 }
 
 // similar to write_psam().
-PglErr WriteCovar(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const char* paternal_ids, const char* maternal_ids, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uint32_t* new_sample_idx_to_old, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uintptr_t max_paternal_id_blen, uintptr_t max_maternal_id_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, WriteCovarFlags write_covar_flags, char* outname, char* outname_end) {
+PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uint32_t* new_sample_idx_to_old, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, WriteCovarFlags write_covar_flags, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
@@ -3283,12 +3291,21 @@ PglErr WriteCovar(const uintptr_t* sample_include, const char* sample_ids, const
     char* textbuf = g_textbuf;
     char* textbuf_flush = &(textbuf[kMaxMediumLine]);
 
-    const uint32_t write_sid = IsSidColRequired(sample_include, sids, sample_ct, max_sid_blen, write_covar_flags / kfWriteCovarColMaybesid);
+    const uint32_t write_fid = IsFidColRequired(&piip->sii, write_covar_flags / kfWriteCovarColMaybefid);
+    const char* sample_ids = piip->sii.sample_ids;
+    const char* sids = piip->sii.sids;
+    const char* paternal_ids = piip->parental_id_info.paternal_ids;
+    const char* maternal_ids = piip->parental_id_info.maternal_ids;
+    const uintptr_t max_sample_id_blen = piip->sii.max_sample_id_blen;
+    const uintptr_t max_sid_blen = piip->sii.max_sid_blen;
+    const uintptr_t max_paternal_id_blen = piip->parental_id_info.max_paternal_id_blen;
+    const uintptr_t max_maternal_id_blen = piip->parental_id_info.max_maternal_id_blen;
+    const uint32_t write_sid = IsSidColRequired(sids, write_covar_flags / kfWriteCovarColMaybesid);
     uint32_t write_parents = 0;
     if (write_covar_flags & kfWriteCovarColParents) {
       write_parents = 1;
     } else if (write_covar_flags & kfWriteCovarColMaybeparents) {
-      write_parents = IsParentalInfoPresent(sample_include, paternal_ids, maternal_ids, sample_ct, max_paternal_id_blen, max_maternal_id_blen);
+      write_parents = IsParentalInfoPresent(sample_include, &piip->parental_id_info, sample_ct);
     }
     const uint32_t write_sex = (write_covar_flags / kfWriteCovarColSex) & 1;
     const uint32_t write_empty_pheno = (write_covar_flags & kfWriteCovarColPheno1) && (!pheno_ct);
@@ -3296,7 +3313,12 @@ PglErr WriteCovar(const uintptr_t* sample_include, const char* sample_ids, const
     if (write_phenos && (!(write_covar_flags & kfWriteCovarColPhenos))) {
       pheno_ct = 1;
     }
-    char* write_iter = strcpya(textbuf, "#FID\tIID");
+    char* write_iter = textbuf;
+    *write_iter++ = '#';
+    if (write_fid) {
+      write_iter = strcpya(write_iter, "FID\t");
+    }
+    write_iter = memcpyl3a(write_iter, "IID");
     if (write_sid) {
       write_iter = strcpya(write_iter, "\tSID");
     }
@@ -3418,7 +3440,11 @@ PglErr WriteCovar(const uintptr_t* sample_include, const char* sample_ids, const
           sample_uidx = new_sample_idx_to_old[sample_uidx2++];
         } while (!IsSet(sample_include, sample_uidx));
       }
-      write_iter = strcpya(write_iter, &(sample_ids[max_sample_id_blen * sample_uidx]));
+      const char* cur_sample_id = &(sample_ids[max_sample_id_blen * sample_uidx]);
+      if (!write_fid) {
+        cur_sample_id = AdvPastDelim(cur_sample_id, '\t');
+      }
+      write_iter = strcpya(write_iter, cur_sample_id);
       if (write_sid) {
         *write_iter++ = '\t';
         if (sids) {
@@ -3495,5 +3521,5 @@ PglErr WriteCovar(const uintptr_t* sample_include, const char* sample_ids, const
 }
 
 #ifdef __cplusplus
-} // namespace plink2
+}  // namespace plink2
 #endif

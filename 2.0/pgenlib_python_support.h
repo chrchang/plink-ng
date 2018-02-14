@@ -69,7 +69,7 @@ void FloatsToDosage16(const float* floatarr, uint32_t sample_ct, uint32_t hard_c
 void DoublesToDosage16(const double* doublearr, uint32_t sample_ct, uint32_t hard_call_halfdist, uintptr_t* genoarr, uintptr_t* dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr);
 
 #ifdef __cplusplus
-} // namespace plink2
+}  // namespace plink2
 #endif
 
-#endif // __PGENLIB_PYTHON_SUPPORT_H__
+#endif  // __PGENLIB_PYTHON_SUPPORT_H__

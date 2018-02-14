@@ -26,8 +26,7 @@ namespace plink2 {
 
 FLAGSET_DEF_START()
   kfUpdateSex0,
-  kfUpdateSexSid = (1 << 0),
-  kfUpdateSexMale0 = (1 << 1)
+  kfUpdateSexMale0 = (1 << 0)
 FLAGSET_DEF_END(UpdateSexFlags);
 
 FLAGSET_DEF_START()
@@ -44,15 +43,17 @@ FLAGSET_DEF_END(PhenoTransformFlags);
 
 FLAGSET_DEF_START()
   kfWriteCovar0,
-  kfWriteCovarColMaybesid = (1 << 0),
-  kfWriteCovarColSid = (1 << 1),
-  kfWriteCovarColMaybeparents = (1 << 2),
-  kfWriteCovarColParents = (1 << 3),
-  kfWriteCovarColSex = (1 << 4),
-  kfWriteCovarColPheno1 = (1 << 5),
-  kfWriteCovarColPhenos = (1 << 6),
-  kfWriteCovarColDefault = kfWriteCovarColMaybesid,
-  kfWriteCovarColAll = ((kfWriteCovarColPhenos * 2) - kfWriteCovarColMaybesid)
+  kfWriteCovarColMaybefid = (1 << 0),
+  kfWriteCovarColFid = (1 << 1),
+  kfWriteCovarColMaybesid = (1 << 2),
+  kfWriteCovarColSid = (1 << 3),
+  kfWriteCovarColMaybeparents = (1 << 4),
+  kfWriteCovarColParents = (1 << 5),
+  kfWriteCovarColSex = (1 << 6),
+  kfWriteCovarColPheno1 = (1 << 7),
+  kfWriteCovarColPhenos = (1 << 8),
+  kfWriteCovarColDefault = (kfWriteCovarColMaybefid | kfWriteCovarColMaybesid),
+  kfWriteCovarColAll = ((kfWriteCovarColPhenos * 2) - kfWriteCovarColMaybefid)
 FLAGSET_DEF_END(WriteCovarFlags);
 
 FLAGSET_DEF_START()
@@ -89,41 +90,44 @@ FLAGSET_DEF_START()
   kfAlleleFreqColMutex = ((kfAlleleFreqColAltnumeq * 2) - kfAlleleFreqColAltfreq)
 FLAGSET_DEF_END(FreqRptFlags);
 
+// Will need to split this into multiple flagsets if we add any more options...
 FLAGSET_DEF_START()
   kfMissingRpt0,
   kfMissingRptZs = (1 << 0),
   kfMissingRptSampleOnly = (1 << 1),
   kfMissingRptVariantOnly = (1 << 2),
 
-  kfMissingRptScolMaybesid = (1 << 3),
-  kfMissingRptScolSid = (1 << 4),
-  kfMissingRptScolMisspheno1 = (1 << 5),
-  kfMissingRptScolMissphenos = (1 << 6),
-  kfMissingRptScolNmissDosage = (1 << 7),
-  kfMissingRptScolNmiss = (1 << 8),
-  kfMissingRptScolNmissHh = (1 << 9),
-  kfMissingRptScolHethap = (1 << 10),
-  kfMissingRptScolNobs = (1 << 11),
-  kfMissingRptScolFmissDosage = (1 << 12),
-  kfMissingRptScolFmiss = (1 << 13),
-  kfMissingRptScolFmissHh = (1 << 14),
-  kfMissingRptScolDefault = (kfMissingRptScolMaybesid | kfMissingRptScolMissphenos | kfMissingRptScolNmiss | kfMissingRptScolNobs | kfMissingRptScolFmiss),
+  kfMissingRptScolMaybefid = (1 << 3),
+  kfMissingRptScolFid = (1 << 4),
+  kfMissingRptScolMaybesid = (1 << 5),
+  kfMissingRptScolSid = (1 << 6),
+  kfMissingRptScolMisspheno1 = (1 << 7),
+  kfMissingRptScolMissphenos = (1 << 8),
+  kfMissingRptScolNmissDosage = (1 << 9),
+  kfMissingRptScolNmiss = (1 << 10),
+  kfMissingRptScolNmissHh = (1 << 11),
+  kfMissingRptScolHethap = (1 << 12),
+  kfMissingRptScolNobs = (1 << 13),
+  kfMissingRptScolFmissDosage = (1 << 14),
+  kfMissingRptScolFmiss = (1 << 15),
+  kfMissingRptScolFmissHh = (1 << 16),
+  kfMissingRptScolDefault = (kfMissingRptScolMaybefid | kfMissingRptScolMaybesid | kfMissingRptScolMissphenos | kfMissingRptScolNmiss | kfMissingRptScolNobs | kfMissingRptScolFmiss),
   kfMissingRptScolAll = ((kfMissingRptScolFmissHh * 2) - kfMissingRptScolMaybesid),
 
-  kfMissingRptVcolChrom = (1 << 15),
-  kfMissingRptVcolPos = (1 << 16),
-  kfMissingRptVcolRef = (1 << 17),
-  kfMissingRptVcolAlt1 = (1 << 18),
-  kfMissingRptVcolAlt = (1 << 19),
-  kfMissingRptVcolNmissDosage = (1 << 20),
-  kfMissingRptVcolNmiss = (1 << 21),
-  kfMissingRptVcolNmissHh = (1 << 22),
-  kfMissingRptVcolHethap = (1 << 23),
-  kfMissingRptVcolNobs = (1 << 24),
-  kfMissingRptVcolFmissDosage = (1 << 25),
-  kfMissingRptVcolFmiss = (1 << 26),
-  kfMissingRptVcolFmissHh = (1 << 27),
-  kfMissingRptVcolFhethap = (1 << 28),
+  kfMissingRptVcolChrom = (1 << 17),
+  kfMissingRptVcolPos = (1 << 18),
+  kfMissingRptVcolRef = (1 << 19),
+  kfMissingRptVcolAlt1 = (1 << 20),
+  kfMissingRptVcolAlt = (1 << 21),
+  kfMissingRptVcolNmissDosage = (1 << 22),
+  kfMissingRptVcolNmiss = (1 << 23),
+  kfMissingRptVcolNmissHh = (1 << 24),
+  kfMissingRptVcolHethap = (1 << 25),
+  kfMissingRptVcolNobs = (1 << 26),
+  kfMissingRptVcolFmissDosage = (1 << 27),
+  kfMissingRptVcolFmiss = (1 << 28),
+  kfMissingRptVcolFmissHh = (1 << 29),
+  kfMissingRptVcolFhethap = (1 << 30),
   kfMissingRptVcolDefault = (kfMissingRptVcolChrom | kfMissingRptVcolNmiss | kfMissingRptVcolNobs | kfMissingRptVcolFmiss),
   kfMissingRptVcolAll = ((kfMissingRptVcolFhethap * 2) - kfMissingRptVcolChrom)
 FLAGSET_DEF_END(MissingRptFlags);
@@ -191,7 +195,7 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
 
 PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, const char* family_missing_catname, const uintptr_t* sample_include, const char* sample_ids, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uint32_t mwithin_val, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr);
 
-PglErr UpdateSampleSexes(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const UpdateSexInfo* update_sex_info_ptr, uint32_t raw_sample_ct, uintptr_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uintptr_t* sex_nm, uintptr_t* sex_male);
+PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* siip, const UpdateSexInfo* update_sex_info_ptr, uint32_t raw_sample_ct, uintptr_t sample_ct, uintptr_t* sex_nm, uintptr_t* sex_male);
 
 PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t* sample_include, uint32_t raw_sample_ct, PhenoTransformFlags pheno_transform_flags, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr, PhenoCol** covar_cols_ptr, char** covar_names_ptr, uint32_t* covar_ct_ptr, uintptr_t* max_covar_name_blen_ptr);
 
@@ -203,7 +207,7 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
 
 PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const uint32_t* raw_geno_cts, const uint32_t* x_male_geno_cts, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t male_ct, uint32_t variant_ct, uint32_t x_start, uint32_t max_allele_slen, GenoCountsFlags geno_counts_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
-PglErr WriteMissingnessReports(const uintptr_t* sample_include, const uintptr_t* sex_male, const char* sample_ids, const char* sids, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* sample_missing_hc_cts, const uint32_t* sample_missing_dosage_cts, const uint32_t* sample_hethap_cts, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const uint32_t* variant_missing_cts, const uint32_t* variant_missing_dosage_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t male_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t variant_ct, uintptr_t max_allele_slen, uint32_t first_hap_uidx, MissingRptFlags missing_rpt_flags, uint32_t max_thread_ct, char* outname, char* outname_end);
+PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* sample_missing_hc_cts, const uint32_t* sample_missing_dosage_cts, const uint32_t* sample_hethap_cts, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const uint32_t* variant_missing_hc_cts, const uint32_t* variant_missing_dosage_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t male_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t variant_ct, uintptr_t max_allele_slen, uint32_t first_hap_uidx, MissingRptFlags missing_rpt_flags, uint32_t max_thread_ct, char* outname, char* outname_end);
 
 PglErr ComputeHweXPvals(const uintptr_t* variant_include, const uint32_t* founder_raw_geno_cts, const uint32_t* founder_x_male_geno_cts, const uint32_t* founder_x_nosex_geno_cts, uint32_t x_start, uint32_t hwe_x_ct, uint32_t hwe_midp, uint32_t calc_thread_ct, double** hwe_x_pvals_ptr);
 
@@ -211,10 +215,10 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
 
 PglErr WriteSnplist(const uintptr_t* variant_include, const char* const* variant_ids, uint32_t variant_ct, uint32_t output_zst, uint32_t max_thread_ct, char* outname, char* outname_end);
 
-PglErr WriteCovar(const uintptr_t* sample_include, const char* sample_ids, const char* sids, const char* paternal_ids, const char* maternal_ids, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uint32_t* new_sample_idx_to_old, uint32_t sample_ct, uintptr_t max_sample_id_blen, uintptr_t max_sid_blen, uintptr_t max_paternal_id_blen, uintptr_t max_maternal_id_blen, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, WriteCovarFlags write_covar_flags, char* outname, char* outname_end);
+PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uint32_t* new_sample_idx_to_old, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t covar_ct, uintptr_t max_covar_name_blen, WriteCovarFlags write_covar_flags, char* outname, char* outname_end);
 
 #ifdef __cplusplus
-} // namespace plink2
+}  // namespace plink2
 #endif
 
-#endif // __PLINK2_MISC_H__
+#endif  // __PLINK2_MISC_H__

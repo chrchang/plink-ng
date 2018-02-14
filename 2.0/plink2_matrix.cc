@@ -56,7 +56,7 @@ extern "C" {
               float* alpha, float* a, __CLPK_integer* lda, float* beta,
               float* c, __CLPK_integer* ldc);
 
-#    else // Linux
+#    else  // Linux
 #      ifndef USE_MKL
   int dgetrf_(__CLPK_integer* m, __CLPK_integer* n,
               __CLPK_doublereal* a, __CLPK_integer* lda,
@@ -152,17 +152,17 @@ extern "C" {
               float* alpha, float* a, __CLPK_integer* lda, float* beta,
               float* c, __CLPK_integer* ldc);
 #        endif
-#      endif // !USE_MKL
-#    endif // Linux
+#      endif  // !USE_MKL
+#    endif  // Linux
 
   void xerbla_(void);
 #    ifdef __cplusplus
-} // extern "C"
-#    endif // __cplusplus
-    void xerbla_(void) {} // fix static linking error
-#  endif // not __APPLE__
+}  // extern "C"
+#    endif  // __cplusplus
+    void xerbla_(void) {}  // fix static linking error
+#  endif  // not __APPLE__
 
-#endif // !NOLAPACK
+#endif  // !NOLAPACK
 
 
 #ifdef __cplusplus
@@ -525,7 +525,7 @@ void InvertFmatrixSecondHalf(__CLPK_integer dim, uint32_t stride, double* half_i
     inverted_result[i * stride + i] = (float)half_inverted[i * stride + i];
   }
 }
-#else // !NOLAPACK
+#else  // !NOLAPACK
 BoolErr InvertMatrix(__CLPK_integer dim, double* matrix, MatrixInvertBuf1* int_1d_buf, double* dbl_2d_buf) {
   // InvertSymmdefMatrix() is noticeably faster in the symmetric
   // positive-semidefinite case.
@@ -676,7 +676,7 @@ void InvertSymmdefFmatrixSecondHalf(__CLPK_integer dim, uint32_t stride, double*
     write_row = &(write_row[stride]);
   }
 }
-#endif // !NOLAPACK
+#endif  // !NOLAPACK
 
 void ColMajorMatrixMultiply(const double* inmatrix1, const double* inmatrix2, __CLPK_integer row1_ct, __CLPK_integer col2_ct, __CLPK_integer common_ct, double* outmatrix) {
 #ifdef NOLAPACK
@@ -721,8 +721,8 @@ void ColMajorMatrixMultiply(const double* inmatrix1, const double* inmatrix2, __
   }
 #    endif
   */
-#  endif // USE_CBLAS_XGEMM
-#endif // !NOLAPACK
+#  endif  // USE_CBLAS_XGEMM
+#endif  // !NOLAPACK
 }
 
 void ColMajorMatrixMultiplyStridedAddassign(const double* inmatrix1, const double* inmatrix2, __CLPK_integer row1_ct, __CLPK_integer stride1, __CLPK_integer col2_ct, __CLPK_integer stride2, __CLPK_integer common_ct, __CLPK_integer stride3, double beta, double* outmatrix) {
@@ -753,8 +753,8 @@ void ColMajorMatrixMultiplyStridedAddassign(const double* inmatrix1, const doubl
   dgemm_(&blas_char, &blas_char, &row1_ct, &col2_ct, &common_ct, &alpha, K_CAST(double*, inmatrix1), &stride1, K_CAST(double*, inmatrix2), &stride2, &beta, outmatrix, &stride3);
 #  else
   cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, row1_ct, col2_ct, common_ct, 1.0, inmatrix1, stride1, inmatrix2, stride2, beta, outmatrix, stride3);
-#  endif // USE_CBLAS_XGEMM
-#endif // !NOLAPACK
+#  endif  // USE_CBLAS_XGEMM
+#endif  // !NOLAPACK
 }
 
 void ColMajorVectorMatrixMultiplyStrided(const double* in_dvec1, const double* inmatrix2, __CLPK_integer common_ct, __CLPK_integer stride2, __CLPK_integer col2_ct, double* out_dvec) {
@@ -779,8 +779,8 @@ void ColMajorVectorMatrixMultiplyStrided(const double* in_dvec1, const double* i
   dgemv_(&trans, &common_ct, &col2_ct, &dyy, K_CAST(double*, inmatrix2), &stride2, K_CAST(double*, in_dvec1), &incxy, &dzz, out_dvec, &incxy);
 #  else
   cblas_dgemv(CblasColMajor, CblasTrans, common_ct, col2_ct, 1.0, inmatrix2, stride2, in_dvec1, 1, 0.0, out_dvec, 1);
-#  endif // USE_CBLAS_XGEMM
-#endif // !NOLAPACK
+#  endif  // USE_CBLAS_XGEMM
+#endif  // !NOLAPACK
 }
 
 // er, should make this _addassign for consistency...
@@ -809,8 +809,8 @@ void ColMajorFmatrixMultiplyStrided(const float* inmatrix1, const float* inmatri
   sgemm_(&blas_char, &blas_char, &row1_ct, &col2_ct, &common_ct, &fyy, K_CAST(float*, inmatrix1), &stride1, K_CAST(float*, inmatrix2), &stride2, &fzz, outmatrix, &stride3);
 #  else
   cblas_sgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, row1_ct, col2_ct, common_ct, 1.0, inmatrix1, stride1, inmatrix2, stride2, 0.0, outmatrix, stride3);
-#  endif // USE_CBLAS_XGEMM
-#endif // !NOLAPACK
+#  endif  // USE_CBLAS_XGEMM
+#endif  // !NOLAPACK
 }
 
 void ColMajorFmatrixVectorMultiplyStrided(const float* inmatrix1, const float* in_fvec2, __CLPK_integer row1_ct, __CLPK_integer stride1, __CLPK_integer common_ct, float* out_fvec) {
@@ -835,8 +835,8 @@ void ColMajorFmatrixVectorMultiplyStrided(const float* inmatrix1, const float* i
   sgemv_(&trans, &row1_ct, &common_ct, &fyy, K_CAST(float*, inmatrix1), &stride1, K_CAST(float*, in_fvec2), &incxy, &fzz, out_fvec, &incxy);
 #  else
   cblas_sgemv(CblasColMajor, CblasNoTrans, row1_ct, common_ct, 1.0, inmatrix1, stride1, in_fvec2, 1, 0.0, out_fvec, 1);
-#  endif // USE_CBLAS_XGEMM
-#endif // !NOLAPACK
+#  endif  // USE_CBLAS_XGEMM
+#endif  // !NOLAPACK
 }
 
 void ColMajorFvectorMatrixMultiplyStrided(const float* in_fvec1, const float* inmatrix2, __CLPK_integer common_ct, __CLPK_integer stride2, __CLPK_integer col2_ct, float* out_fvec) {
@@ -861,8 +861,8 @@ void ColMajorFvectorMatrixMultiplyStrided(const float* in_fvec1, const float* in
   sgemv_(&trans, &common_ct, &col2_ct, &fyy, K_CAST(float*, inmatrix2), &stride2, K_CAST(float*, in_fvec1), &incxy, &fzz, out_fvec, &incxy);
 #  else
   cblas_sgemv(CblasColMajor, CblasTrans, common_ct, col2_ct, 1.0, inmatrix2, stride2, in_fvec1, 1, 0.0, out_fvec, 1);
-#  endif // USE_CBLAS_XGEMM
-#endif // !NOLAPACK
+#  endif  // USE_CBLAS_XGEMM
+#endif  // !NOLAPACK
 }
 
 // Briefly experimented with trying to speed this up, didn't make any progress.
@@ -1044,7 +1044,7 @@ void TransposeMultiplySelfIncr(double* input_part, uint32_t dim, uint32_t partia
 #  else
   cblas_dsyrk(CblasColMajor, CblasUpper, CblasNoTrans, dim, partial_row_ct, 1.0, input_part, dim, 1.0, result, dim);
 #  endif
-#endif // !NOLAPACK
+#endif  // !NOLAPACK
 }
 
 #ifndef NOLAPACK
@@ -1132,7 +1132,7 @@ BoolErr ExtractEigvecs(uint32_t dim, uint32_t pc_ct, __CLPK_integer lwork, __CLP
   dsyevr_(&jobz, &range, &uplo, &tmp_n, matrix, &tmp_n, &dummy_d, &dummy_d, &il, &iu, &abstol, &out_m, eigvals, reverse_eigvecs, &tmp_n, isuppz, work, &lwork, iwork, &liwork, &info);
   return (info != 0);
 }
-#endif // !NOLAPACK
+#endif  // !NOLAPACK
 
 BoolErr invert_rank1_symm_start(const double* a_inv, const double* bb, __CLPK_integer orig_dim, double cc, double* __restrict ainv_b, double* k_recip_ptr) {
 #ifdef NOLAPACK
@@ -1151,7 +1151,7 @@ BoolErr invert_rank1_symm_start(const double* a_inv, const double* bb, __CLPK_in
   dgemv_(&trans, &orig_dim, &orig_dim, &dyy, K_CAST(double*, a_inv), &orig_dim, K_CAST(double*, bb), &incxy, &dzz, ainv_b, &incxy);
 #  else
   cblas_dgemv(CblasColMajor, CblasNoTrans, orig_dim, orig_dim, 1.0, a_inv, orig_dim, bb, 1, 0.0, ainv_b, 1);
-#  endif // USE_CBLAS_XGEMM
+#  endif  // USE_CBLAS_XGEMM
 #endif
   const double kk = cc - DotprodxD(bb, ainv_b, orig_dim);
   if (fabs(kk) < kMatrixSingularRcond) {
@@ -1355,8 +1355,8 @@ BoolErr LinearRegressionInvMain(const double* xt_y, uint32_t predictor_ct, doubl
   dpotri_(&uplo, &tmp_n, xtx_inv, &tmp_n, &info);
   return (info != 0);
 }
-#endif // !NOLAPACK
+#endif  // !NOLAPACK
 
 #ifdef __cplusplus
-} // namespace plink2
+}  // namespace plink2
 #endif

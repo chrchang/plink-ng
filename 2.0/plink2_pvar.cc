@@ -106,7 +106,7 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
               // M
               cip->xymt_codes[kChrOffsetMT] = explicit_autosome_ct + 1 + kChrOffsetMT;
             } else {
-              first_char_ui -= 88; // X = 0, Y = 1, everything else larger
+              first_char_ui -= 88;  // X = 0, Y = 1, everything else larger
               if (first_char_ui < 2) {
                 cip->xymt_codes[first_char_ui] = explicit_autosome_ct + 1 + first_char_ui;
               }
@@ -181,7 +181,7 @@ void VaridTemplateInit(const char* varid_template, uint32_t* template_insert_ct_
   uint32_t template_insert_ct = 0;
   uint32_t template_base_len = 0;
   unsigned char ucc = *varid_template_iter;
-  uint32_t alleles_needed = 0; // bit 0 = ref, bit 1 = alt, bit 2 = ascii sort
+  uint32_t alleles_needed = 0;  // bit 0 = ref, bit 1 = alt, bit 2 = ascii sort
   varid_template_segs[0] = varid_template_iter;
   do {
     if (ucc <= '@') {
@@ -202,8 +202,8 @@ void VaridTemplateInit(const char* varid_template, uint32_t* template_insert_ct_
         {
           const uint32_t uii = ctou32(*(++varid_template_iter));
           if (uii <= '2') {
-            alleles_needed += 2; // this happens twice
-            insert_type = uii - 48; // '1' -> type 2, '2' -> type 3
+            alleles_needed += 2;  // this happens twice
+            insert_type = uii - 48;  // '1' -> type 2, '2' -> type 3
           } else {
             // 'r' -> type 2, 'a' -> type 3
             insert_type = 1 + ((uii & 0xdf) == 'A');
@@ -283,7 +283,7 @@ PglErr InfoExistInit(const unsigned char* arena_end, const char* require_info_fl
       logerrprintfww("Error: Invalid --%s key '%s' ('=' prohibited).\n", flagname_p, read_iter);
       return kPglRetInvalidCmdline;
     }
-    prekeys_blen += slen + 2; // +1 for preceding semicolon
+    prekeys_blen += slen + 2;  // +1 for preceding semicolon
     read_iter = &(read_iter[slen + 1]);
   } while (*read_iter);
   const uint32_t key_ct = prekeys_blen - S_CAST(uintptr_t, read_iter - require_info_flattened);
@@ -856,7 +856,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       for (uint32_t rpc_col_idx = relevant_postchr_col_ct - 1; rpc_col_idx; --rpc_col_idx) {
         col_skips[rpc_col_idx] -= col_skips[rpc_col_idx - 1];
       }
-      loadbuf_first_token[0] = '\0'; // forces line to be skipped by main loop
+      loadbuf_first_token[0] = '\0';  // forces line to be skipped by main loop
     } else if (loadbuf_first_token[0]) {
       *pvar_nonref_default_ptr = 1;
       col_skips[0] = 1;
@@ -895,8 +895,8 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     // done with header, loadbuf_first_token now points to beginning of first
     // real line.
     uint32_t max_variant_id_slen = *max_variant_id_slen_ptr;
-    uint32_t chrs_encountered_m1 = UINT32_MAX; // intentional overflow
-    uint32_t prev_chr_code = UINT32_MAX; // force initial mismatch
+    uint32_t chrs_encountered_m1 = UINT32_MAX;  // intentional overflow
+    uint32_t prev_chr_code = UINT32_MAX;  // force initial mismatch
     uint32_t raw_variant_ct = 0;
     uintptr_t* chr_mask = cip->chr_mask;
     const char* missing_allele_str = &(g_one_char_strs[92]);
@@ -990,7 +990,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       chr_output_name_buf = R_CAST(char*, tmp_alloc_base);
       tmp_alloc_base = &(tmp_alloc_base[kMaxIdSlen]);
       if (!missing_varid_match) {
-        missing_varid_match = &(g_one_char_strs[92]); // '.'
+        missing_varid_match = &(g_one_char_strs[92]);  // '.'
       }
       missing_varid_blen = strlen(missing_varid_match);
       if (misc_flags & kfMiscSetMissingVarIds) {
@@ -1898,5 +1898,5 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
 }
 
 #ifdef __cplusplus
-} // namespace plink2
+}  // namespace plink2
 #endif

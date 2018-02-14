@@ -32,4 +32,4 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct);
 }
 #endif
 
-#endif // __PLINK2_HELP_H__
+#endif  // __PLINK2_HELP_H__

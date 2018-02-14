@@ -869,7 +869,7 @@ static const double kIvnD[] =
 static const double kIvnLow = 0.02425;
 static const double kIvnHigh = 0.97575;
 
-double PToZscore(double pp) {
+double QuantileToZscore(double pp) {
   // assumes 0 < pp < 1
   double q, r;
 

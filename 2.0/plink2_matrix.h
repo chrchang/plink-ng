@@ -34,7 +34,7 @@ CONSTU31(kMatrixInvertBuf1ElemAlloc, 2 * sizeof(double));
 CONSTU31(kMatrixInvertBuf1CheckedAlloc, 2 * sizeof(double));
 #  define __CLPK_integer int
 
-#else // not NOLAPACK
+#else  // not NOLAPACK
 #  ifdef __APPLE__
 #    include <Accelerate/Accelerate.h>
 #    define USE_CBLAS_XGEMM
@@ -63,7 +63,7 @@ extern "C" {
   typedef long int __CLPK_integer;
 #        endif
 #      endif
-#    endif // !__LP64__
+#    endif  // !__LP64__
 
 #    ifdef _WIN32
   // openblas is easy enough to set up on Windows nowadays.
@@ -83,7 +83,7 @@ extern "C" {
   __CLPK_doublereal sdot_(__CLPK_integer* n, float* sx, __CLPK_integer* incx,
                           float* sy, __CLPK_integer* incy);
 
-#    else // Linux
+#    else  // Linux
 #      ifdef USE_MKL
 #        define USE_CBLAS_XGEMM
 #        ifdef DYNAMIC_MKL
@@ -132,7 +132,7 @@ static_assert(sizeof(MKL_INT) == 8, "Unexpected MKL_INT size.");
   __CLPK_doublereal sdot_(__CLPK_integer* n, float* sx, __CLPK_integer* incx,
                           float* sy, __CLPK_integer* incy);
 #        endif
-#      endif // !USE_MKL
+#      endif  // !USE_MKL
 #    endif
 
   void xerbla_(void);
@@ -140,7 +140,7 @@ static_assert(sizeof(MKL_INT) == 8, "Unexpected MKL_INT size.");
 } // extern "C"
 #    endif
 
-#  endif // !__APPLE__
+#  endif  // !__APPLE__
 
 typedef __CLPK_integer MatrixInvertBuf1;
 // need to be careful about >= 2^32?
@@ -148,7 +148,7 @@ CONSTU31(kMatrixInvertBuf1ElemAlloc, sizeof(__CLPK_integer));
 // invert_matrix_checked() usually requires a larger buffer
 CONSTU31(kMatrixInvertBuf1CheckedAlloc, 2 * sizeof(__CLPK_integer));
 
-#endif // !NOLAPACK
+#endif  // !NOLAPACK
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -456,7 +456,7 @@ HEADER_INLINE void PrintMatrix(const double* matrix, uint32_t dim) {
 }
 
 #ifdef __cplusplus
-} // namespace plink2
+}  // namespace plink2
 #endif
 
-#endif // __PLINK2_MATRIX_H__
+#endif  // __PLINK2_MATRIX_H__
