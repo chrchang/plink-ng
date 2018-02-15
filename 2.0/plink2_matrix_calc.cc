@@ -2018,10 +2018,6 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       goto CalcKingTableSubset_ret_1;
     }
     const uint32_t king_col_fid = IsFidColRequired(siip, king_flags / kfKingColMaybefid);
-    uintptr_t max_sid_blen = siip->max_sid_blen;
-    if (!siip->sids) {
-      max_sid_blen = 2;
-    }
     const uint32_t king_col_sid = IsSidColRequired(siip->sids, king_flags / kfKingColMaybesid);
     if (!parallel_idx) {
       cswritep = AppendKingTableHeader(king_flags, king_col_fid, king_col_sid, cswritep);
