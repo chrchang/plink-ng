@@ -129,7 +129,7 @@ FLAGSET_DEF_START()
   kfMissingRptVcolFmissHh = (1 << 29),
   kfMissingRptVcolFhethap = (1 << 30),
   kfMissingRptVcolDefault = (kfMissingRptVcolChrom | kfMissingRptVcolNmiss | kfMissingRptVcolNobs | kfMissingRptVcolFmiss),
-  kfMissingRptVcolAll = ((kfMissingRptVcolFhethap * 2) - kfMissingRptVcolChrom)
+  kfMissingRptVcolAll = ((kfMissingRptVcolFhethap * 2U) - kfMissingRptVcolChrom)
 FLAGSET_DEF_END(MissingRptFlags);
 
 FLAGSET_DEF_START()
