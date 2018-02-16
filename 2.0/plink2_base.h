@@ -91,7 +91,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 300
+#define PLINK2_BASE_VERNUM 301
 
 
 #define _FILE_OFFSET_BITS 64
@@ -1109,7 +1109,7 @@ HEADER_CINLINE2 uint32_t Popcount4Words(uintptr_t val0, uintptr_t val1, uintptr_
 }
 #endif
 
-HEADER_INLINE uint32_t IsVecAligned(const void* ptr) {
+HEADER_INLINE uint32_t VecIsAligned(const void* ptr) {
   return !(R_CAST(uintptr_t, ptr) % kBytesPerVec);
 }
 
@@ -1198,7 +1198,7 @@ HEADER_INLINE uintptr_t PopcountWords(const uintptr_t* bitvec, uintptr_t word_ct
   // index.
   uintptr_t tot = 0;
   if (word_ct >= (16 * kWordsPerVec)) {
-    assert(IsVecAligned(bitvec));
+    assert(VecIsAligned(bitvec));
     const uintptr_t remainder = word_ct % (16 * kWordsPerVec);
     const uintptr_t main_block_word_ct = word_ct - remainder;
     tot = PopcountVecsAvx2(R_CAST(const VecUL*, bitvec), main_block_word_ct / kWordsPerVec);
@@ -1220,7 +1220,7 @@ HEADER_INLINE uintptr_t PopcountWords(const uintptr_t* bitvec, uintptr_t word_ct
   uintptr_t tot = 0;
 #  ifndef USE_SSE42
   if (word_ct >= (3 * kWordsPerVec)) {
-    assert(IsVecAligned(bitvec));
+    assert(VecIsAligned(bitvec));
     const uintptr_t remainder = word_ct % (3 * kWordsPerVec);
     const uintptr_t main_block_word_ct = word_ct - remainder;
     tot = PopcountVecsNoSse42(R_CAST(const VecUL*, bitvec), main_block_word_ct / kWordsPerVec);
@@ -1373,7 +1373,7 @@ HEADER_INLINE BoolErr vecaligned_malloc(uintptr_t size, void* aligned_pp) {
 #else
 #  if defined(__APPLE__) || !defined(__LP64__)
   const BoolErr ret_boolerr = pgl_malloc(size, aligned_pp);
-  assert(IsVecAligned(*S_CAST(uintptr_t**, aligned_pp)));
+  assert(VecIsAligned(*S_CAST(uintptr_t**, aligned_pp)));
   return ret_boolerr;
 #  else
   return aligned_malloc(size, kBytesPerVec, aligned_pp);

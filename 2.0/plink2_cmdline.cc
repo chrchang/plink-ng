@@ -4487,7 +4487,7 @@ uintptr_t FindNth1BitFrom(const uintptr_t* bitvec, uintptr_t cur_pos, uintptr_t 
   uintptr_t ulkk;
 #ifdef __LP64__
   const VecUL* vptr;
-  assert(IsVecAligned(bitvec));
+  assert(VecIsAligned(bitvec));
 #endif
   if (ulii) {
     uljj = (*bptr) >> ulii;

@@ -2037,7 +2037,19 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     // are '0'.  If yes, we omit FID from the output.
     uint32_t write_fid = 0;
     uint32_t header_lines_left = 2;
-    while (gzgets(gz_infile, loadbuf, loadbuf_size)) {
+    while (1) {
+      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
+        // bugfix (16 Feb 2018): don't check this if we break out of the loop
+        // on non-0 FID
+        if (!gzeof(gz_infile)) {
+          goto OxSampleToPsam_ret_READ_FAIL;
+        }
+        if (header_lines_left) {
+          logerrputs("Error: Empty .sample file.\n");
+          goto OxSampleToPsam_ret_MALFORMED_INPUT;
+        }
+        break;
+      }
       ++line_idx;
       if (!loadbuf[loadbuf_size - 1]) {
         goto OxSampleToPsam_ret_LONG_LINE;
@@ -2054,13 +2066,6 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
         write_fid = 1;
         break;
       }
-    }
-    if (!gzeof(gz_infile)) {
-      goto OxSampleToPsam_ret_READ_FAIL;
-    }
-    if (header_lines_left) {
-      logerrputs("Error: Empty .sample file.\n");
-      goto OxSampleToPsam_ret_MALFORMED_INPUT;
     }
     if (gzrewind(gz_infile)) {
       goto OxSampleToPsam_ret_READ_FAIL;
@@ -6876,16 +6881,16 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
     char* write_iter = writebuf;
     *write_iter++ = '#';
-    const uint32_t write_fid = IsDataFidColRequired(sample_include, &pii.sii, sample_ct, 1);
+    const uint32_t write_fid = DataFidColIsRequired(sample_include, &pii.sii, sample_ct, 1);
     if (write_fid) {
       write_iter = strcpya(write_iter, "FID\t");
     }
     write_iter = memcpyl3a(write_iter, "IID");
-    const uint32_t write_sid = IsDataSidColRequired(sample_include, pii.sii.sids, sample_ct, pii.sii.max_sid_blen, 1);
+    const uint32_t write_sid = DataSidColIsRequired(sample_include, pii.sii.sids, sample_ct, pii.sii.max_sid_blen, 1);
     if (write_sid) {
       write_iter = strcpya(write_iter, "\tSID");
     }
-    const uint32_t write_parents = AreDataParentalColsRequired(sample_include, &pii, sample_ct, 1);
+    const uint32_t write_parents = DataParentalColsAreRequired(sample_include, &pii, sample_ct, 1);
     if (write_parents) {
       write_iter = strcpya(write_iter, "\tPAT\tMAT");
     }

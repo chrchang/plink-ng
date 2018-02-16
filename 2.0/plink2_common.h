@@ -238,17 +238,17 @@ void GenoarrToNonmissing(const uintptr_t* genoarr, uint32_t sample_ctl2, uintptr
 
 uint32_t GenoarrCountMissingInvsubsetUnsafe(const uintptr_t* genoarr, const uintptr_t* exclude_mask, uint32_t sample_ct);
 
-// See also IsDataFidColRequired(), etc. in plink2_data.h, which checks whether
+// See also DataFidColIsRequired(), etc. in plink2_data.h, which checks whether
 // at least one remaining value is nonzero.
-HEADER_INLINE uint32_t IsFidColRequired(const SampleIdInfo* siip, uint32_t maybe_modifier) {
+HEADER_INLINE uint32_t FidColIsRequired(const SampleIdInfo* siip, uint32_t maybe_modifier) {
   return (maybe_modifier & 2) || ((maybe_modifier & 1) && (siip->flags & kfSampleIdFidPresent));
 }
 
-HEADER_INLINE uint32_t IsSidColRequired(const char* sids, uint32_t maybe_modifier) {
+HEADER_INLINE uint32_t SidColIsRequired(const char* sids, uint32_t maybe_modifier) {
   return (maybe_modifier & 2) || ((maybe_modifier & 1) && sids);
 }
 
-HEADER_INLINE uint32_t AreParentalColsRequired(const PedigreeIdInfo* piip, uint32_t maybe_modifier) {
+HEADER_INLINE uint32_t ParentalColsAreRequired(const PedigreeIdInfo* piip, uint32_t maybe_modifier) {
   return (maybe_modifier & 2) || ((maybe_modifier & 1) && (piip->sii.flags & kfSampleIdParentsPresent));
 }
 
@@ -796,7 +796,7 @@ uint32_t IsConstCovar(const PhenoCol* covar_col, const uintptr_t* sample_include
 
 uint32_t IdentifyRemainingCats(const uintptr_t* sample_include, const PhenoCol* covar_col, uint32_t sample_ct, uintptr_t* observed_cat_bitarr);
 
-uint32_t GetIsCatInclude(const uintptr_t* sample_include_base, const PhenoCol* cat_pheno_col, uint32_t raw_sample_ctl, uint32_t sample_ct, uint32_t cat_uidx, uintptr_t* is_cat_include);
+uint32_t GetCatSamples(const uintptr_t* sample_include_base, const PhenoCol* cat_pheno_col, uint32_t raw_sample_ctl, uint32_t sample_ct, uint32_t cat_uidx, uintptr_t* cur_cat_samples);
 
 // pheno_names is also allocated on the heap, but it can be handled with a
 // simple free_cond().

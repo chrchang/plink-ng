@@ -39,6 +39,10 @@ double TstatToP2(double tt, double df, double cached_gamma_mult);
 
 double QuantileToZscore(double pval);
 
+HEADER_INLINE double ZscoreToP(double zz) {
+  return ChisqToP(zz * zz, 1);
+}
+
 double HweP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t midp);
 
 // returns 0 if close enough to Hardy-Weinberg equilibrium

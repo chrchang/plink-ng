@@ -61,7 +61,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (15 Feb 2018)";
+  " (16 Feb 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -308,17 +308,17 @@ typedef struct Plink2CmdlineStruct {
   TwoColParams* update_name_flag;
 } Plink2Cmdline;
 
-uint32_t IsSingleVariantLoaderNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags) {
+uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Flags command_flags1, MakePlink2Flags make_plink2_flags) {
   return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld)) || ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) || ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix));
 }
 
 
-// er, these two should be combined into one function?
-uint32_t AreAlleleFreqsNeeded(Command1Flags command_flags1, GlmFlags glm_flags, double min_maf, double max_maf) {
+// might want to combine these two functions
+uint32_t AlleleFreqsAreNeeded(Command1Flags command_flags1, GlmFlags glm_flags, double min_maf, double max_maf) {
   return (command_flags1 & (kfCommand1AlleleFreq | kfCommand1LdPrune | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Score)) || (min_maf != 0.0) || (max_maf != 1.0) || ((command_flags1 & kfCommand1Glm) && (!(glm_flags & kfGlmA0Ref)));
 }
 
-uint32_t AreMajAllelesNeeded(Command1Flags command_flags1, GlmFlags glm_flags) {
+uint32_t MajAllelesAreNeeded(Command1Flags command_flags1, GlmFlags glm_flags) {
   return (command_flags1 & (kfCommand1LdPrune | kfCommand1Pca | kfCommand1MakeRel)) || ((command_flags1 & kfCommand1Glm) && (!(glm_flags & kfGlmA0Ref)));
 }
 
@@ -337,46 +337,46 @@ uint32_t GetFirstHaploidUidx(const ChrInfo* cip, UnsortedVar vpos_sortstatus) {
   return 0x7fffffff;
 }
 
-uint32_t AreAlleleDosagesNeeded(MiscFlags misc_flags, MakePlink2Flags make_plink2_flags, uint32_t afreq_needed, uint64_t min_allele_dosage, uint64_t max_allele_dosage) {
+uint32_t AlleleDosagesAreNeeded(MiscFlags misc_flags, MakePlink2Flags make_plink2_flags, uint32_t afreq_needed, uint64_t min_allele_dosage, uint64_t max_allele_dosage) {
   return (make_plink2_flags & kfMakePlink2TrimAlts) || ((misc_flags & kfMiscNonfounders) && (afreq_needed || (misc_flags & kfMiscMajRef) || min_allele_dosage || (max_allele_dosage != UINT32_MAX)));
 }
 
-uint32_t AreFounderAlleleDosagesNeeded(MiscFlags misc_flags, uint32_t afreq_needed, uint64_t min_allele_dosage, uint64_t max_allele_dosage) {
+uint32_t FounderAlleleDosagesAreNeeded(MiscFlags misc_flags, uint32_t afreq_needed, uint64_t min_allele_dosage, uint64_t max_allele_dosage) {
   return (afreq_needed || (misc_flags & kfMiscMajRef) || min_allele_dosage || (max_allele_dosage != (~0LLU))) && (!(misc_flags & kfMiscNonfounders));
 }
 
-uint32_t AreSampleMissingDosageCtsNeeded(MiscFlags misc_flags, uint32_t smaj_missing_geno_report_requested, double mind_thresh, MissingRptFlags missing_rpt_flags) {
+uint32_t SampleMissingDosageCtsAreNeeded(MiscFlags misc_flags, uint32_t smaj_missing_geno_report_requested, double mind_thresh, MissingRptFlags missing_rpt_flags) {
   return ((mind_thresh != 1.0) && (misc_flags & kfMiscMindDosage)) || (smaj_missing_geno_report_requested && (missing_rpt_flags & (kfMissingRptScolNmissDosage | kfMissingRptScolFmissDosage)));
 }
 
-uint32_t AreVariantMissingHcCtsNeeded(Command1Flags command_flags1, MiscFlags misc_flags, double geno_thresh, MissingRptFlags missing_rpt_flags) {
+uint32_t VariantMissingHcCtsAreNeeded(Command1Flags command_flags1, MiscFlags misc_flags, double geno_thresh, MissingRptFlags missing_rpt_flags) {
   return ((command_flags1 & kfCommand1GenotypingRate) && (!(misc_flags & kfMiscGenotypingRateDosage))) || ((command_flags1 & kfCommand1MissingReport) && (missing_rpt_flags & (kfMissingRptVcolNmiss | kfMissingRptVcolNmissHh | kfMissingRptVcolHethap | kfMissingRptVcolFmiss | kfMissingRptVcolFmissHh | kfMissingRptVcolFhethap))) || ((geno_thresh != 1.0) && (!(misc_flags & kfMiscGenoDosage)));
 }
 
-uint32_t AreVariantHethapCtsNeeded(Command1Flags command_flags1, MiscFlags misc_flags, double geno_thresh, MissingRptFlags missing_rpt_flags, uint32_t first_hap_uidx) {
+uint32_t VariantHethapCtsAreNeeded(Command1Flags command_flags1, MiscFlags misc_flags, double geno_thresh, MissingRptFlags missing_rpt_flags, uint32_t first_hap_uidx) {
   return (first_hap_uidx != 0x7fffffff) && (((command_flags1 & kfCommand1MissingReport) && (missing_rpt_flags & (kfMissingRptVcolNmissHh | kfMissingRptVcolHethap | kfMissingRptVcolFmissHh | kfMissingRptVcolFhethap))) || ((geno_thresh != 1.0) && (!(misc_flags & kfMiscGenoHhMissing))));
 }
 
-uint32_t AreVariantMissingDosageCtsNeeded(Command1Flags command_flags1, MiscFlags misc_flags, double geno_thresh, MissingRptFlags missing_rpt_flags) {
+uint32_t VariantMissingDosageCtsAreNeeded(Command1Flags command_flags1, MiscFlags misc_flags, double geno_thresh, MissingRptFlags missing_rpt_flags) {
   return ((command_flags1 & kfCommand1GenotypingRate) && (misc_flags & kfMiscGenotypingRateDosage)) || ((command_flags1 & kfCommand1MissingReport) && (!(missing_rpt_flags & kfMissingRptSampleOnly)) && (missing_rpt_flags & (kfMissingRptVcolNmissDosage | kfMissingRptVcolFmissDosage))) || ((geno_thresh != 1.0) && (misc_flags & kfMiscGenoDosage));
 }
 
 // can simplify --geno-counts all-biallelic case, but let's first make sure the
 // general case works for multiallelic variants
-uint32_t AreRawGenoCtsNeeded(Command1Flags command_flags1, MiscFlags misc_flags, double hwe_thresh) {
+uint32_t RawGenoCtsAreNeeded(Command1Flags command_flags1, MiscFlags misc_flags, double hwe_thresh) {
   return (command_flags1 & kfCommand1GenoCounts) || ((misc_flags & kfMiscNonfounders) && ((command_flags1 & kfCommand1Hardy) || (hwe_thresh != 1.0)));
 }
 
-uint32_t AreFounderRawGenoCtsNeeded(Command1Flags command_flags1, MiscFlags misc_flags, double hwe_thresh) {
+uint32_t FounderRawGenoCtsAreNeeded(Command1Flags command_flags1, MiscFlags misc_flags, double hwe_thresh) {
   return (!(misc_flags & kfMiscNonfounders)) && ((command_flags1 & kfCommand1Hardy) || (hwe_thresh != 1.0));
 }
 
-uint32_t IsInfoReloadNeeded(Command1Flags command_flags1, PvarPsamFlags pvar_psam_flags, ExportfFlags exportf_flags) {
+uint32_t InfoReloadIsNeeded(Command1Flags command_flags1, PvarPsamFlags pvar_psam_flags, ExportfFlags exportf_flags) {
   // add kfExportfBcf later
   return ((command_flags1 & kfCommand1MakePlink2) && (pvar_psam_flags & kfPvarColXinfo)) || ((command_flags1 & kfCommand1Exportf) && (exportf_flags & kfExportfVcf));
 }
 
-uint32_t IsGrmKeepNeeded(Command1Flags command_flags1, PcaFlags pca_flags) {
+uint32_t GrmKeepIsNeeded(Command1Flags command_flags1, PcaFlags pca_flags) {
   return ((command_flags1 & kfCommand1Pca) && (!(pca_flags & kfPcaApprox)));
 }
 
@@ -637,7 +637,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     }
 
     uint32_t max_variant_id_slen = 1;
-    uint32_t info_reload_slen = IsInfoReloadNeeded(pcp->command_flags1, pcp->pvar_psam_flags, pcp->exportf_flags);
+    uint32_t info_reload_slen = InfoReloadIsNeeded(pcp->command_flags1, pcp->pvar_psam_flags, pcp->exportf_flags);
     uintptr_t* variant_allele_idxs = nullptr;
     uint32_t raw_variant_ct = 0;
     uint32_t variant_ct = 0;
@@ -805,7 +805,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 
         pgfi.gflags &= ~kfPgenGlobalAllNonref;
       }
-      if (IsSingleVariantLoaderNeeded(king_cutoff_fprefix, pcp->command_flags1, make_plink2_flags)) {
+      if (SingleVariantLoaderIsNeeded(king_cutoff_fprefix, pcp->command_flags1, make_plink2_flags)) {
         // ugly kludge, probably want to add pgenlib_internal support for this
         // hybrid use pattern
         FILE* shared_ff_copy = pgfi.shared_ff;
@@ -1129,7 +1129,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             bigstack_alloc_ui(raw_sample_ct, &sample_hethap_cts)) {
           goto Plink2Core_ret_NOMEM;
         }
-        if (AreSampleMissingDosageCtsNeeded(pcp->misc_flags, smaj_missing_geno_report_requested, pcp->mind_thresh, pcp->missing_rpt_flags)) {
+        if (SampleMissingDosageCtsAreNeeded(pcp->misc_flags, smaj_missing_geno_report_requested, pcp->mind_thresh, pcp->missing_rpt_flags)) {
           if (pgfi.gflags & kfPgenGlobalDosagePresent) {
             if (bigstack_alloc_ui(raw_sample_ct, &sample_missing_dosage_cts)) {
               goto Plink2Core_ret_NOMEM;
@@ -1375,7 +1375,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           goto Plink2Core_ret_INCONSISTENT_INPUT;
         }
         outname_end = memcpya(loop_cats_outname_endp1_backup, catname, catname_slen);
-        sample_ct = GetIsCatInclude(loop_cats_sample_include_backup, loop_cats_pheno_col, raw_sample_ctl, loop_cats_sample_ct, loop_cats_uidx, sample_include);
+        sample_ct = GetCatSamples(loop_cats_sample_include_backup, loop_cats_pheno_col, raw_sample_ctl, loop_cats_sample_ct, loop_cats_uidx, sample_include);
         memcpy(founder_info, loop_cats_founder_info_backup, raw_sample_ctl * sizeof(intptr_t));
         memcpy(sex_nm, loop_cats_sex_nm_backup, raw_sample_ctl * sizeof(intptr_t));
         memcpy(sex_male, loop_cats_sex_male_backup, raw_sample_ctl * sizeof(intptr_t));
@@ -1398,7 +1398,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       uint32_t* founder_raw_geno_cts = nullptr;
       unsigned char* bigstack_mark_allele_dosages = g_bigstack_base;
       unsigned char* bigstack_mark_founder_allele_dosages = g_bigstack_base;
-      const uint32_t keep_grm = IsGrmKeepNeeded(pcp->command_flags1, pcp->pca_flags);
+      const uint32_t keep_grm = GrmKeepIsNeeded(pcp->command_flags1, pcp->pca_flags);
       double* grm = nullptr;
 
       if (pcp->command_flags1 & kfCommand1WriteSamples) {
@@ -1414,8 +1414,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       if (pgenname[0]) {
-        if (AreAlleleFreqsNeeded(pcp->command_flags1, pcp->glm_info.flags, pcp->min_maf, pcp->max_maf)) {
-          if (AreMajAllelesNeeded(pcp->command_flags1, pcp->glm_info.flags)) {
+        if (AlleleFreqsAreNeeded(pcp->command_flags1, pcp->glm_info.flags, pcp->min_maf, pcp->max_maf)) {
+          if (MajAllelesAreNeeded(pcp->command_flags1, pcp->glm_info.flags)) {
             maj_alleles = S_CAST(AltAlleleCt*, bigstack_alloc(raw_variant_ct * sizeof(AltAlleleCt)));
             if (!maj_alleles) {
               goto Plink2Core_ret_NOMEM;
@@ -1454,13 +1454,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
         bigstack_mark_allele_dosages = g_bigstack_base;
         const uint32_t first_hap_uidx = GetFirstHaploidUidx(cip, vpos_sortstatus);
-        if (AreAlleleDosagesNeeded(pcp->misc_flags, make_plink2_flags, (allele_freqs != nullptr), pcp->min_allele_dosage, pcp->max_allele_dosage)) {
+        if (AlleleDosagesAreNeeded(pcp->misc_flags, make_plink2_flags, (allele_freqs != nullptr), pcp->min_allele_dosage, pcp->max_allele_dosage)) {
           if (bigstack_alloc_ull(raw_allele_ct, &allele_dosages)) {
             goto Plink2Core_ret_NOMEM;
           }
         }
         bigstack_mark_founder_allele_dosages = g_bigstack_base;
-        if (AreFounderAlleleDosagesNeeded(pcp->misc_flags, (allele_freqs != nullptr), pcp->min_allele_dosage, pcp->max_allele_dosage)) {
+        if (FounderAlleleDosagesAreNeeded(pcp->misc_flags, (allele_freqs != nullptr), pcp->min_allele_dosage, pcp->max_allele_dosage)) {
           if ((founder_ct == sample_ct) && allele_dosages) {
             founder_allele_dosages = allele_dosages;
           } else {
@@ -1481,11 +1481,11 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         // no longer includes hethaps by default
         uint32_t* variant_missing_hc_cts = nullptr;
         uint32_t* variant_hethap_cts = nullptr;
-        if (AreVariantMissingHcCtsNeeded(pcp->command_flags1, pcp->misc_flags, pcp->geno_thresh, pcp->missing_rpt_flags)) {
+        if (VariantMissingHcCtsAreNeeded(pcp->command_flags1, pcp->misc_flags, pcp->geno_thresh, pcp->missing_rpt_flags)) {
           if (bigstack_alloc_ui(raw_variant_ct, &variant_missing_hc_cts)) {
             goto Plink2Core_ret_NOMEM;
           }
-          if (AreVariantHethapCtsNeeded(pcp->command_flags1, pcp->misc_flags, pcp->geno_thresh, pcp->missing_rpt_flags, first_hap_uidx)) {
+          if (VariantHethapCtsAreNeeded(pcp->command_flags1, pcp->misc_flags, pcp->geno_thresh, pcp->missing_rpt_flags, first_hap_uidx)) {
             // first_hap_uidx offset can save an entire GB...
             if (bigstack_alloc_ui(raw_variant_ct - first_hap_uidx, &variant_hethap_cts)) {
               goto Plink2Core_ret_NOMEM;
@@ -1493,7 +1493,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
         }
         uint32_t* variant_missing_dosage_cts = nullptr;
-        if (AreVariantMissingDosageCtsNeeded(pcp->command_flags1, pcp->misc_flags, pcp->geno_thresh, pcp->missing_rpt_flags)) {
+        if (VariantMissingDosageCtsAreNeeded(pcp->command_flags1, pcp->misc_flags, pcp->geno_thresh, pcp->missing_rpt_flags)) {
           if ((!variant_missing_hc_cts) || (pgfi.gflags & kfPgenGlobalDosagePresent)) {
             if (bigstack_alloc_ui(raw_variant_ct, &variant_missing_dosage_cts)) {
               goto Plink2Core_ret_NOMEM;
@@ -1509,7 +1509,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         // [3n] = homref ct, [3n+1] = het ref-altx total, [3n+2] = nonref
         //   diploid total
         // use unfiltered indexes, since we remove more variants later
-        if (AreRawGenoCtsNeeded(pcp->command_flags1, pcp->misc_flags, pcp->hwe_thresh)) {
+        if (RawGenoCtsAreNeeded(pcp->command_flags1, pcp->misc_flags, pcp->hwe_thresh)) {
           if (bigstack_alloc_ui((3 * k1LU) * raw_variant_ct, &raw_geno_cts)) {
             goto Plink2Core_ret_NOMEM;
           }
@@ -1526,7 +1526,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             }
           }
         }
-        if (AreFounderRawGenoCtsNeeded(pcp->command_flags1, pcp->misc_flags, pcp->hwe_thresh)) {
+        if (FounderRawGenoCtsAreNeeded(pcp->command_flags1, pcp->misc_flags, pcp->hwe_thresh)) {
           if ((founder_ct == sample_ct) && raw_geno_cts) {
             founder_raw_geno_cts = raw_geno_cts;
             founder_x_male_geno_cts = x_male_geno_cts;
@@ -4368,7 +4368,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Multiple --glm cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0a0\0a1count\0totallele\0a1countcc\0totallelecc\0gcountcc\0a1freq\0a1freqcc\0machr2\0firth\0test\0nobs\0beta\0orbeta\0se\0ci\0t\0p\0", flagname_p, kfGlmColChrom, kfGlmColDefault, 1, &pc.glm_info.cols);
+              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0a0\0a1count\0totallele\0a1countcc\0totallelecc\0gcountcc\0a1freq\0a1freqcc\0machr2\0firth\0test\0nobs\0beta\0orbeta\0se\0ci\0tz\0p\0", flagname_p, kfGlmColChrom, kfGlmColDefault, 1, &pc.glm_info.cols);
               if (reterr) {
                 goto main_ret_1;
               }

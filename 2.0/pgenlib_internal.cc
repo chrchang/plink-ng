@@ -594,7 +594,7 @@ void GenovecAlleleCtsUnsafe(const uintptr_t* genovec, uint32_t sample_ct, uint32
   uint32_t word_idx = sample_ctl2 - (sample_ctl2 % (3 * kWordsPerVec));
   uint32_t alt1_plus_bothset_ct;
   uint32_t bothset_ct;
-  assert(IsVecAligned(genovec));
+  assert(VecIsAligned(genovec));
   Count2FreqVec3(R_CAST(const VecUL*, genovec), word_idx / kWordsPerVec, &alt1_plus_bothset_ct, &bothset_ct);
   for (; word_idx < sample_ctl2; ++word_idx) {
     const uintptr_t cur_geno_word = genovec[word_idx];
@@ -618,7 +618,7 @@ void GenovecCountFreqsUnsafe(const uintptr_t* genovec, uint32_t sample_ct, uint3
   uint32_t odd_ct;
   uint32_t bothset_ct;
   uint32_t word_idx = sample_ctl2 - (sample_ctl2 % (6 * kWordsPerVec));
-  assert(IsVecAligned(genovec));
+  assert(VecIsAligned(genovec));
   Count3FreqVec6(R_CAST(const VecUL*, genovec), word_idx / kWordsPerVec, &even_ct, &odd_ct, &bothset_ct);
   for (; word_idx < sample_ctl2; ++word_idx) {
     const uintptr_t cur_geno_word = genovec[word_idx];
@@ -643,7 +643,7 @@ void GenovecCountSubsetFreqs(const uintptr_t* __restrict genovec, const uintptr_
   uint32_t bothset_ct;
 #ifdef __LP64__
   uint32_t vec_idx = raw_sample_ctv2 - (raw_sample_ctv2 % 6);
-  assert(IsVecAligned(genovec));
+  assert(VecIsAligned(genovec));
   CountSubset3FreqVec6(R_CAST(const VecUL*, genovec), R_CAST(const VecUL*, sample_include_interleaved_vec), vec_idx, &even_ct, &odd_ct, &bothset_ct);
   const uintptr_t* genovec_iter = &(genovec[kWordsPerVec * vec_idx]);
   const uintptr_t* interleaved_mask_iter = &(sample_include_interleaved_vec[(kWordsPerVec / 2) * vec_idx]);
@@ -748,7 +748,7 @@ void GenovecCountSubsetFreqs(const uintptr_t* __restrict genovec, const uintptr_
 uint32_t GenovecCount01Unsafe(const uintptr_t* genovec, uint32_t sample_ct) {
   const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
   uint32_t word_idx = sample_ctl2 - (sample_ctl2 % (6 * kWordsPerVec));
-  assert(IsVecAligned(genovec));
+  assert(VecIsAligned(genovec));
   uint32_t tot = Count01Vec6(R_CAST(const VecUL*, genovec), word_idx / kWordsPerVec);
   for (; word_idx < sample_ctl2; ++word_idx) {
     const uintptr_t cur_geno_word = genovec[word_idx];
@@ -1068,7 +1068,7 @@ void GenovecInvertUnsafe(uint32_t sample_ct, uintptr_t* genovec) {
   // flips 0 to 2 and vice versa.
   // "unsafe" because trailing bits are not zeroed out.
   const uint32_t vec_ct = QuaterCtToVecCt(sample_ct);
-  assert(IsVecAligned(genovec));
+  assert(VecIsAligned(genovec));
   const VecUL not_m1 = VCONST_UL(kMaskAAAA);
   VecUL* vptr = R_CAST(VecUL*, genovec);
   for (uint32_t vidx = 0; vidx < vec_ct; ++vidx) {
@@ -1082,7 +1082,7 @@ void GenovecInvertCopyUnsafe(const uintptr_t* __restrict genovec, uint32_t sampl
   // flips 0 to 2 and vice versa.
   // "unsafe" because trailing bits are not zeroed out.
   const uint32_t vec_ct = QuaterCtToVecCt(sample_ct);
-  assert(IsVecAligned(genovec));
+  assert(VecIsAligned(genovec));
   const VecUL not_m1 = VCONST_UL(kMaskAAAA);
   const VecUL* vin_ptr = R_CAST(const VecUL*, genovec);
   VecUL* vout_ptr = R_CAST(VecUL*, genovec_inverted_copy);
@@ -1096,7 +1096,7 @@ void GenovecInvertCopyUnsafe(const uintptr_t* __restrict genovec, uint32_t sampl
 void GenovecNonmissingToZeroUnsafe(uint32_t sample_ct, uintptr_t* genovec) {
   // sets 1 and 2 to zero; leaves 3s untouched.
   const uint32_t vec_ct = QuaterCtToVecCt(sample_ct);
-  assert(IsVecAligned(genovec));
+  assert(VecIsAligned(genovec));
   const VecUL m1 = VCONST_UL(kMask5555);
   VecUL* vptr = R_CAST(VecUL*, genovec);
   for (uint32_t vidx = 0; vidx < vec_ct; ++vidx) {
@@ -1111,7 +1111,7 @@ void GenovecNonmissingToZeroUnsafe(uint32_t sample_ct, uintptr_t* genovec) {
 void GenovecNonzeroToMissingUnsafe(uint32_t sample_ct, uintptr_t* genovec) {
   // converts 1s and 2s to 3s, leaves zeroes untouched.
   const uint32_t vec_ct = QuaterCtToVecCt(sample_ct);
-  assert(IsVecAligned(genovec));
+  assert(VecIsAligned(genovec));
   const VecUL m1 = VCONST_UL(kMask5555);
   VecUL* vptr = R_CAST(VecUL*, genovec);
   for (uint32_t vidx = 0; vidx < vec_ct; ++vidx) {

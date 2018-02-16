@@ -1707,6 +1707,8 @@ HEADER_INLINE void ZeromovFArr(uintptr_t entry_ct, float** farr_ptr) {
 // FindFirst1BitFromBounded, FindLast1BitBefore, AllWordsAreZero defined in
 // plink2_base.h
 
+// Useful when we don't want to think about the signedness of a 32-bit int
+// (mainly relevant for chromosome codes right now).
 HEADER_INLINE uintptr_t IsSetI(const uintptr_t* bitarr, int32_t loc) {
   // can insert assert(loc >= 0)
   return IsSet(bitarr, S_CAST(uint32_t, loc));

@@ -2907,12 +2907,12 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     // possible todo: optionally export .psam information as
     // PEDIGREE/META/SAMPLE lines in header, and make --vcf be able to read it
     write_iter = strcpya(write_iter, "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">" EOLN_STR "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT");
-    const uint32_t write_fid = IsDataFidColRequired(sample_include, siip, sample_ct, exportf_id_paste / kfIdpasteMaybefid);
+    const uint32_t write_fid = DataFidColIsRequired(sample_include, siip, sample_ct, exportf_id_paste / kfIdpasteMaybefid);
     const char* sample_ids = siip->sample_ids;
     const char* sids = siip->sids;
     const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
     uintptr_t max_sid_blen = siip->max_sid_blen;
-    const uint32_t write_sid = IsDataSidColRequired(sample_include, sids, sample_ct, max_sid_blen, exportf_id_paste / kfIdpasteMaybesid);
+    const uint32_t write_sid = DataSidColIsRequired(sample_include, sids, sample_ct, max_sid_blen, exportf_id_paste / kfIdpasteMaybesid);
     if (write_sid && (!sids)) {
       max_sid_blen = 2;
     }

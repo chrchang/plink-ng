@@ -1231,7 +1231,7 @@ uintptr_t count_11_vecs(const VecUL* geno_vvec, uintptr_t vec_ct) {
 uintptr_t count_11_longs(const uintptr_t* genovec, uintptr_t word_ct) {
   uintptr_t tot = 0;
   if (word_ct >= (6 * kWordsPerVec)) {
-    assert(IsVecAligned(genovec));
+    assert(VecIsAligned(genovec));
     const uintptr_t remainder = word_ct % (6 * kWordsPerVec);
     const uintptr_t main_block_word_ct = word_ct - remainder;
     tot = count_11_vecs((const VecUL*)genovec, main_block_word_ct / kWordsPerVec);
@@ -1804,17 +1804,17 @@ uint32_t IdentifyRemainingCats(const uintptr_t* sample_include, const PhenoCol* 
   return PopcountWords(observed_cat_bitarr, word_ct);
 }
 
-uint32_t GetIsCatInclude(const uintptr_t* sample_include_base, const PhenoCol* cat_pheno_col, uint32_t raw_sample_ctl, uint32_t sample_ct, uint32_t cat_uidx, uintptr_t* is_cat_include) {
-  ZeroUlArr(raw_sample_ctl, is_cat_include);
+uint32_t GetCatSamples(const uintptr_t* sample_include_base, const PhenoCol* cat_pheno_col, uint32_t raw_sample_ctl, uint32_t sample_ct, uint32_t cat_uidx, uintptr_t* cur_cat_samples) {
+  ZeroUlArr(raw_sample_ctl, cur_cat_samples);
   const uint32_t* cat_vals = cat_pheno_col->data.cat;
   uint32_t sample_uidx = 0;
   for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
     FindFirst1BitFromU32(sample_include_base, &sample_uidx);
     if (cat_vals[sample_uidx] == cat_uidx) {
-      SetBit(sample_uidx, is_cat_include);
+      SetBit(sample_uidx, cur_cat_samples);
     }
   }
-  return PopcountWords(is_cat_include, raw_sample_ctl);
+  return PopcountWords(cur_cat_samples, raw_sample_ctl);
 }
 
 void CleanupPhenoCols(uint32_t pheno_ct, PhenoCol* pheno_cols) {

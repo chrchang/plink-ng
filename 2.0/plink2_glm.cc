@@ -2836,7 +2836,7 @@ typedef struct {
   //   zval = beta / se
   //   width of asymptotic CI (beta units) = ci_zt * se
   //   T-statistic = zval
-  //   pval = ChisqToP(zval * zval, 1);
+  //   pval = ZscoreToP(zval)
 
   uint32_t sample_obs_ct;
 
@@ -4160,7 +4160,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     const uint32_t report_beta_instead_of_odds_ratio = glm_cols & kfGlmColBeta;
     const uint32_t se_col = glm_cols & kfGlmColSe;
     const uint32_t ci_col = (ci_size != 0.0) && (glm_cols & kfGlmColCi);
-    const uint32_t t_col = glm_cols & kfGlmColT;
+    const uint32_t z_col = glm_cols & kfGlmColTz;
     const uint32_t p_col = glm_cols & kfGlmColP;
     *cswritep++ = '#';
     if (chr_col) {
@@ -4234,14 +4234,14 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
       cswritep = dtoa_g(ci_size * 100, cswritep);
       ci_zt = QuantileToZscore((ci_size + 1.0) * 0.5);
     }
-    if (t_col) {
+    if (z_col) {
       if (!constraint_ct) {
-        cswritep = strcpya(cswritep, "\tT_STAT");
+        cswritep = strcpya(cswritep, "\tZ_STAT");
       } else {
         // chisq for joint tests.  may switch to F-statistic (just divide by
         // df; the hard part there is porting a function to convert that to a
         // p-value)
-        cswritep = strcpya(cswritep, "\tT_OR_CHISQ_STAT");
+        cswritep = strcpya(cswritep, "\tZ_OR_CHISQ_STAT");
       }
     }
     if (p_col) {
@@ -4391,7 +4391,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
             if (!cur_constraint_ct) {
               permstat = fabs(primary_beta / primary_se);
               // could precompute a tstat threshold instead
-              primary_pval = ChisqToP(permstat * permstat, 1);
+              primary_pval = ZscoreToP(permstat);
             } else {
               // possible todo: support for F-distribution p-values instead
               // of asymptotic chi-square p-values
@@ -4528,7 +4528,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
               double se = *beta_se_iter++;
               if (!is_invalid) {
                 permstat = beta / se;
-                pval = ChisqToP(permstat * permstat, 1);
+                pval = ZscoreToP(permstat);
               }
               if (orbeta_col) {
                 *cswritep++ = '\t';
@@ -4563,7 +4563,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                   cswritep = strcpya(cswritep, "NA\tNA");
                 }
               }
-              if (t_col) {
+              if (z_col) {
                 *cswritep++ = '\t';
                 if (!is_invalid) {
                   cswritep = dtoa_g(permstat, cswritep);
@@ -4572,7 +4572,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
                 }
               }
             } else {
-              // joint test: use (currently approximate) F-test instead of T
+              // joint test: use (currently approximate) F-test instead of Wald
               // test
               // beta_se_iter = &(beta_se_iter[2]);
               if (orbeta_col) {
@@ -4584,7 +4584,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
               if (ci_col) {
                 cswritep = strcpya(cswritep, "\tNA\tNA");
               }
-              if (t_col) {
+              if (z_col) {
                 *cswritep++ = '\t';
                 if (!is_invalid) {
                   cswritep = dtoa_g(primary_se, cswritep);
@@ -5625,7 +5625,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     const uint32_t beta_col = glm_cols & (kfGlmColBeta | kfGlmColOrbeta);
     const uint32_t se_col = glm_cols & kfGlmColSe;
     const uint32_t ci_col = (ci_size != 0.0) && (glm_cols & kfGlmColCi);
-    const uint32_t t_col = glm_cols & kfGlmColT;
+    const uint32_t t_col = glm_cols & kfGlmColTz;
     const uint32_t p_col = glm_cols & kfGlmColP;
     *cswritep++ = '#';
     if (chr_col) {

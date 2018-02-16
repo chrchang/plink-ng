@@ -2344,7 +2344,7 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdIn
         goto WriteMissingnessReports_ret_1;
       }
       *cswritep++ = '#';
-      const uint32_t scol_fid = IsFidColRequired(siip, missing_rpt_flags / kfMissingRptScolMaybefid);
+      const uint32_t scol_fid = FidColIsRequired(siip, missing_rpt_flags / kfMissingRptScolMaybefid);
       if (scol_fid) {
         cswritep = strcpya(cswritep, "FID\t");
       }
@@ -2353,7 +2353,7 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdIn
       const char* sids = siip->sids;
       const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
       const uintptr_t max_sid_blen = siip->max_sid_blen;
-      const uint32_t scol_sid = IsSidColRequired(sids, missing_rpt_flags / kfMissingRptScolMaybesid);
+      const uint32_t scol_sid = SidColIsRequired(sids, missing_rpt_flags / kfMissingRptScolMaybesid);
       if (scol_sid) {
         cswritep = strcpya(cswritep, "\tSID");
       }
@@ -3291,7 +3291,7 @@ PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, c
     char* textbuf = g_textbuf;
     char* textbuf_flush = &(textbuf[kMaxMediumLine]);
 
-    const uint32_t write_fid = IsFidColRequired(&piip->sii, write_covar_flags / kfWriteCovarColMaybefid);
+    const uint32_t write_fid = FidColIsRequired(&piip->sii, write_covar_flags / kfWriteCovarColMaybefid);
     const char* sample_ids = piip->sii.sample_ids;
     const char* sids = piip->sii.sids;
     const char* paternal_ids = piip->parental_id_info.paternal_ids;
@@ -3300,8 +3300,8 @@ PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, c
     const uintptr_t max_sid_blen = piip->sii.max_sid_blen;
     const uintptr_t max_paternal_id_blen = piip->parental_id_info.max_paternal_id_blen;
     const uintptr_t max_maternal_id_blen = piip->parental_id_info.max_maternal_id_blen;
-    const uint32_t write_sid = IsSidColRequired(sids, write_covar_flags / kfWriteCovarColMaybesid);
-    const uint32_t write_parents = AreParentalColsRequired(piip, write_covar_flags / kfWriteCovarColMaybeparents);
+    const uint32_t write_sid = SidColIsRequired(sids, write_covar_flags / kfWriteCovarColMaybesid);
+    const uint32_t write_parents = ParentalColsAreRequired(piip, write_covar_flags / kfWriteCovarColMaybeparents);
     const uint32_t write_sex = (write_covar_flags / kfWriteCovarColSex) & 1;
     const uint32_t write_empty_pheno = (write_covar_flags & kfWriteCovarColPheno1) && (!pheno_ct);
     const uint32_t write_phenos = (write_covar_flags & (kfWriteCovarColPheno1 | kfWriteCovarColPhenos)) && pheno_ct;

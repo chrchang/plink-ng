@@ -1022,8 +1022,8 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
         goto CalcKing_ret_1;
       }
 
-      king_col_fid = IsFidColRequired(siip, king_flags / kfKingColMaybefid);
-      king_col_sid = IsSidColRequired(siip->sids, king_flags / kfKingColMaybesid);
+      king_col_fid = FidColIsRequired(siip, king_flags / kfKingColMaybefid);
+      king_col_sid = SidColIsRequired(siip->sids, king_flags / kfKingColMaybesid);
       if (!parallel_idx) {
         cswritetp = AppendKingTableHeader(king_flags, king_col_fid, king_col_sid, cswritetp);
       }
@@ -2018,8 +2018,8 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     if (reterr) {
       goto CalcKingTableSubset_ret_1;
     }
-    const uint32_t king_col_fid = IsFidColRequired(siip, king_flags / kfKingColMaybefid);
-    const uint32_t king_col_sid = IsSidColRequired(siip->sids, king_flags / kfKingColMaybesid);
+    const uint32_t king_col_fid = FidColIsRequired(siip, king_flags / kfKingColMaybefid);
+    const uint32_t king_col_sid = SidColIsRequired(siip->sids, king_flags / kfKingColMaybesid);
     if (!parallel_idx) {
       cswritep = AppendKingTableHeader(king_flags, king_col_fid, king_col_sid, cswritep);
     }
@@ -3715,12 +3715,12 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
   PglErr reterr = kPglRetSuccess;
   PreinitCstream(&css);
   {
-    const uint32_t write_fid = IsFidColRequired(siip, pca_flags / kfPcaScolMaybefid);
+    const uint32_t write_fid = FidColIsRequired(siip, pca_flags / kfPcaScolMaybefid);
     const char* sample_ids = siip->sample_ids;
     const char* sids = siip->sids;
     const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
     const uintptr_t max_sid_blen = siip->max_sid_blen;
-    const uint32_t write_sid = IsSidColRequired(sids, pca_flags / kfPcaScolMaybesid);
+    const uint32_t write_sid = SidColIsRequired(sids, pca_flags / kfPcaScolMaybesid);
     const uint32_t is_approx = (pca_flags / kfPcaApprox) & 1;
     reterr = ConditionalAllocateNonAutosomalVariants(cip, is_approx? "PCA approximation" : "PCA", raw_variant_ct, &variant_include, &variant_ct);
     if (reterr) {
@@ -5280,12 +5280,12 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       goto ScoreReport_ret_1;
     }
     cswritep = overflow_buf;
-    const uint32_t write_fid = IsFidColRequired(siip, score_flags / kfScoreColMaybefid);
+    const uint32_t write_fid = FidColIsRequired(siip, score_flags / kfScoreColMaybefid);
     const char* sample_ids = siip->sample_ids;
     const char* sids = siip->sids;
     const uintptr_t max_sample_id_blen = siip->max_sample_id_blen;
     const uintptr_t max_sid_blen = siip->max_sid_blen;
-    const uint32_t write_sid = IsSidColRequired(sids, score_flags / kfScoreColMaybesid);
+    const uint32_t write_sid = SidColIsRequired(sids, score_flags / kfScoreColMaybesid);
     const uint32_t write_empty_pheno = (score_flags & kfScoreColPheno1) && (!pheno_ct);
     const uint32_t write_phenos = (score_flags & (kfScoreColPheno1 | kfScoreColPhenos)) && pheno_ct;
     if (write_phenos && (!(score_flags & kfScoreColPhenos))) {

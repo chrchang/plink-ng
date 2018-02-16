@@ -848,9 +848,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      orbeta: Odds ratio for case/control, beta for quantitative traits.\n"
 "      se: Standard error of beta/odds ratio.\n"
 "      ci: Bounds of symmetric approximate confidence interval (requires --ci).\n"
-"      t: T-statistic.\n"
-"      p: Asymptotic p-value for t-statistic.\n"
-"    The default is chrom,pos,ref,alt,firth,test,nobs,orbeta,se,ci,t,p.\n\n"
+"      tz: T-statistic for linear regression, Wald Z-score for logistic/Firth.\n"
+"      p: Asymptotic p-value for T/Z-statistic.\n"
+"    The default is chrom,pos,ref,alt,firth,test,nobs,orbeta,se,ci,tz,p.\n\n"
                );
     HelpPrint("score", &help_ctrl, 1,
 "  --score [filename] {i} {j} {k} <header | header-read> <no-mean-imputation>\n"

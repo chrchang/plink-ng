@@ -142,7 +142,6 @@ BoolErr CloseGzTokenStream(GzTokenStream* gtsp) {
   return gzclose_null(&(gtsp->gz_infile));
 }
 
-
 #ifdef __cplusplus
 }
 #endif
