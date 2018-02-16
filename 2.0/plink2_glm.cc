@@ -2876,6 +2876,7 @@ static uintptr_t** g_dosage_presents = nullptr;
 static Dosage** g_dosage_val_bufs = nullptr;
 static unsigned char** g_workspace_bufs = nullptr;
 static uint32_t* g_read_variant_uidx_starts = nullptr;
+static const AltAlleleCt* g_a0_alleles = nullptr;
 
 static uintptr_t* g_sample_include = nullptr;
 static const uintptr_t* g_sample_include_x = nullptr;
@@ -2971,6 +2972,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
   }
   unsigned char* workspace_buf = g_workspace_bufs[tidx];
   const uintptr_t* variant_include = g_variant_include;
+  const AltAlleleCt* a0_alleles = g_a0_alleles;
   const uintptr_t* sex_male_collapsed = g_sex_male_collapsed;
   const ChrInfo* cip = g_cip;
   const uint32_t* subset_chr_fo_vidx_start = g_subset_chr_fo_vidx_start;
@@ -3175,11 +3177,18 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
         {
           uint32_t dosage_ct;
           uint32_t is_explicit_alt1;
+          // todo: multiallelic case
           PglErr reterr = PgrReadRefalt1GenovecDosage16SubsetUnsafe(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
           if (reterr) {
             g_error_ret = reterr;
             variant_bidx = variant_bidx_end;
             break;
+          }
+          if (a0_alleles && a0_alleles[variant_uidx]) {
+            GenovecInvertUnsafe(cur_sample_ct, genovec);
+            if (dosage_ct) {
+              BiallelicDosage16Invert(dosage_ct, dosage_vals);
+            }
           }
           ZeroTrailingQuaters(cur_sample_ct, genovec);
           GenovecCountFreqsUnsafe(genovec, cur_sample_ct, genocounts);
@@ -3955,6 +3964,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     const uintptr_t* variant_include = g_variant_include;
     const ChrInfo* cip = g_cip;
     const uintptr_t* variant_allele_idxs = g_variant_allele_idxs;
+    const AltAlleleCt* a0_alleles = g_a0_alleles;
 
     const uint32_t sample_ct = g_sample_ct;
     const uint32_t sample_ct_x = g_sample_ct_x;
@@ -4272,6 +4282,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     uint32_t pct = 0;
     uint32_t next_print_variant_idx = variant_ct / 100;
     uint32_t cur_allele_ct = 2;
+    uint32_t a0_allele_idx = 0;
     uint32_t valid_variant_ct = 0;
     logprintfww5("--glm %s regression on phenotype '%s': ", is_always_firth? "Firth" : (is_sometimes_firth? "logistic-Firth hybrid" : "logistic"), cur_pheno_name);
     fputs("0%", stdout);
@@ -4406,6 +4417,9 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
             variant_allele_idx_base = variant_allele_idxs[write_variant_uidx];
             cur_allele_ct = variant_allele_idxs[write_variant_uidx + 1] - variant_allele_idxs[write_variant_uidx];
           }
+          if (a0_alleles) {
+            a0_allele_idx = a0_alleles[write_variant_uidx];
+          }
           const char* const* cur_alleles = &(allele_storage[variant_allele_idx_base]);
           // possible todo: make number-to-string operations, strlen(), etc.
           //   happen only once per variant.
@@ -4437,10 +4451,13 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
             }
             if (a0_col) {
               *cswritep++ = '\t';
-              cswritep = strcpya(cswritep, cur_alleles[0]);
+              cswritep = strcpya(cswritep, cur_alleles[a0_allele_idx]);
             }
             *cswritep++ = '\t';
-            for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct; ++allele_idx) {
+            for (uint32_t allele_idx = 0; allele_idx < cur_allele_ct; ++allele_idx) {
+              if (allele_idx == a0_allele_idx) {
+                continue;
+              }
               if (Cswrite(&css, &cswritep)) {
                 goto GlmLogistic_ret_WRITE_FAIL;
               }
@@ -4763,6 +4780,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
   }
   unsigned char* workspace_buf = g_workspace_bufs[tidx];
   const uintptr_t* variant_include = g_variant_include;
+  const AltAlleleCt* a0_alleles = g_a0_alleles;
   const uintptr_t* sex_male_collapsed = g_sex_male_collapsed;
   const ChrInfo* cip = g_cip;
   const uint32_t* subset_chr_fo_vidx_start = g_subset_chr_fo_vidx_start;
@@ -4956,11 +4974,18 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
         {
           uint32_t dosage_ct;
           uint32_t is_explicit_alt1;
+          // todo: multiallelic case
           PglErr reterr = PgrReadRefalt1GenovecDosage16SubsetUnsafe(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
           if (reterr) {
             g_error_ret = reterr;
             variant_bidx = variant_bidx_end;
             break;
+          }
+          if (a0_alleles && a0_alleles[variant_uidx]) {
+            GenovecInvertUnsafe(cur_sample_ct, genovec);
+            if (dosage_ct) {
+              BiallelicDosage16Invert(dosage_ct, dosage_vals);
+            }
           }
           ZeroTrailingQuaters(cur_sample_ct, genovec);
           GenovecCountFreqsUnsafe(genovec, cur_sample_ct, genocounts);
@@ -5416,6 +5441,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     const uintptr_t* variant_include = g_variant_include;
     const ChrInfo* cip = g_cip;
     const uintptr_t* variant_allele_idxs = g_variant_allele_idxs;
+    const AltAlleleCt* a0_alleles = g_a0_alleles;
 
     const uint32_t sample_ct = g_sample_ct;
     const uint32_t sample_ct_x = g_sample_ct_x;
@@ -5703,6 +5729,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     uint32_t pct = 0;
     uint32_t next_print_variant_idx = variant_ct / 100;
     uint32_t cur_allele_ct = 2;
+    uint32_t a0_allele_idx = 0;
     uint32_t valid_variant_ct = 0;
     logprintfww5("--glm linear regression on phenotype '%s': ", cur_pheno_name);
     fputs("0%", stdout);
@@ -5832,6 +5859,9 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
             variant_allele_idx_base = variant_allele_idxs[write_variant_uidx];
             cur_allele_ct = variant_allele_idxs[write_variant_uidx + 1] - variant_allele_idxs[write_variant_uidx];
           }
+          if (a0_alleles) {
+            a0_allele_idx = a0_alleles[write_variant_uidx];
+          }
           const char* const* cur_alleles = &(allele_storage[variant_allele_idx_base]);
           // possible todo: make number-to-string operations, strlen(), etc.
           //   happen only once per variant.
@@ -5863,10 +5893,13 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
             }
             if (a0_col) {
               *cswritep++ = '\t';
-              cswritep = strcpya(cswritep, cur_alleles[0]);
+              cswritep = strcpya(cswritep, cur_alleles[a0_allele_idx]);
             }
             *cswritep++ = '\t';
-            for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct; ++allele_idx) {
+            for (uint32_t allele_idx = 0; allele_idx < cur_allele_ct; ++allele_idx) {
+              if (allele_idx == a0_allele_idx) {
+                continue;
+              }
               if (Cswrite(&css, &cswritep)) {
                 goto GlmLinear_ret_WRITE_FAIL;
               }
@@ -6048,7 +6081,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
 
 static const double kSexMaleToCovarD[2] = {2.0, 1.0};
 
-PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const AdjustInfo* adjust_info_ptr, const APerm* aperm_ptr, const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t orig_covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t xchr_model, double ci_size, double vif_thresh, double pfilter, double output_min_p, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const AltAlleleCt* maj_alleles, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const AdjustInfo* adjust_info_ptr, const APerm* aperm_ptr, const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t orig_covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t xchr_model, double ci_size, double vif_thresh, double pfilter, double output_min_p, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   gzFile gz_local_covar_file = nullptr;
@@ -6249,6 +6282,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       add_sex_covar = 0;
     }
     g_sex_male_collapsed = sex_male_collapsed_buf;
+    g_a0_alleles = (glm_flags & kfGlmA0Ref)? nullptr : maj_alleles;
     uint32_t raw_covar_ct = orig_covar_ct + local_covar_ct;
     if (glm_info_ptr->condition_varname || glm_info_ptr->condition_list_fname || local_covar_ct || add_sex_covar) {
       uint32_t condition_ct = 0;
@@ -6382,12 +6416,20 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             const uint32_t cur_variant_uidx = condition_uidxs[condition_idx];
             uint32_t dosage_ct;
             uint32_t is_explicit_alt1;
+            // todo: multiallelic case
             reterr = PgrReadRefalt1GenovecDosage16SubsetUnsafe(nullptr, nullptr, raw_sample_ct, cur_variant_uidx, simple_pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
             if (reterr) {
               if (reterr == kPglRetMalformedInput) {
                 logerrputs("Error: Malformed .pgen file.\n");
               }
               goto GlmMain_ret_1;
+            }
+            // alpha 2 update: default to major allele, respect a0-ref
+            if (g_a0_alleles && g_a0_alleles[cur_variant_uidx]) {
+              GenovecInvertUnsafe(raw_sample_ct, genovec);
+              if (dosage_ct) {
+                BiallelicDosage16Invert(dosage_ct, dosage_vals);
+              }
             }
             PhenoCol* cur_covar_col = &(new_covar_cols[local_covar_ct + condition_idx]);
             uintptr_t* cur_nonmiss;

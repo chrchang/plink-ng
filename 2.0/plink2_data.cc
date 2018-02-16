@@ -630,11 +630,17 @@ uint32_t IsDataSidColRequired(const uintptr_t* sample_include, const char* sids,
   return 0;
 }
 
-uint32_t IsParentalInfoPresent(const uintptr_t* sample_include, const ParentalIdInfo* parental_id_infop, uint32_t sample_ct) {
-  const char* paternal_ids = parental_id_infop->paternal_ids;
-  const char* maternal_ids = parental_id_infop->maternal_ids;
-  const uintptr_t max_paternal_id_blen = parental_id_infop->max_paternal_id_blen;
-  const uintptr_t max_maternal_id_blen = parental_id_infop->max_maternal_id_blen;
+uint32_t AreDataParentalColsRequired(const uintptr_t* sample_include, const PedigreeIdInfo* piip, uint32_t sample_ct, uint32_t maybe_modifier) {
+  if (maybe_modifier & 2) {
+    return 1;
+  }
+  if ((!(maybe_modifier & 1)) || (!(piip->sii.flags & kfSampleIdParentsPresent))) {
+    return 0;
+  }
+  const char* paternal_ids = piip->parental_id_info.paternal_ids;
+  const char* maternal_ids = piip->parental_id_info.maternal_ids;
+  const uintptr_t max_paternal_id_blen = piip->parental_id_info.max_paternal_id_blen;
+  const uintptr_t max_maternal_id_blen = piip->parental_id_info.max_maternal_id_blen;
   uint32_t sample_uidx = 0;
   for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
     FindFirst1BitFromU32(sample_include, &sample_uidx);
@@ -683,12 +689,7 @@ PglErr WritePsam(const char* outname, const uintptr_t* sample_include, const Ped
     const uintptr_t max_maternal_id_blen = piip->parental_id_info.max_maternal_id_blen;
     const uint32_t write_fid = IsDataFidColRequired(sample_include, &(piip->sii), sample_ct, pvar_psam_flags / kfPsamColMaybefid);
     const uint32_t write_sid = IsDataSidColRequired(sample_include, sids, sample_ct, max_sid_blen, pvar_psam_flags / kfPsamColMaybesid);
-    uint32_t write_parents = 0;
-    if (pvar_psam_flags & kfPsamColParents) {
-      write_parents = 1;
-    } else if (pvar_psam_flags & kfPsamColMaybeparents) {
-      write_parents = IsParentalInfoPresent(sample_include, &(piip->parental_id_info), sample_ct);
-    }
+    const uint32_t write_parents = AreDataParentalColsRequired(sample_include, piip, sample_ct, pvar_psam_flags / kfPsamColMaybeparents);
     const uint32_t write_sex = (pvar_psam_flags / kfPsamColSex) & 1;
     const uint32_t write_empty_pheno = (pvar_psam_flags & kfPsamColPheno1) && (!pheno_ct);
     const uint32_t write_phenos = (pvar_psam_flags & (kfPsamColPheno1 | kfPsamColPhenos)) && pheno_ct;

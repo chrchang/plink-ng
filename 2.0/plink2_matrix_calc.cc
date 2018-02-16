@@ -872,7 +872,8 @@ char* AppendKingTableHeader(KingFlags king_flags, uint32_t king_col_fid, uint32_
       cswritep = strcpya(cswritep, "SID1\t");
     }
     if (king_col_fid) {
-      cswritep = strcpya(cswritep, "FID2\n");
+      // bugfix (15 Feb 2018): yesterday's build had \n instead of \t here
+      cswritep = strcpya(cswritep, "FID2\t");
     }
     cswritep = strcpya(cswritep, "ID2\t");
     if (king_col_sid) {
@@ -1817,7 +1818,7 @@ THREAD_FUNC_DECL CalcKingTableSubsetThread(void* arg) {
   }
 }
 
-PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, double king_table_subset_thresh, XidMode xid_mode, uint32_t id2_skip, uint32_t kinship_skip, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, gzFile* gz_infilep, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* textbuf, char* idbuf) {
+PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, double king_table_subset_thresh, XidMode xid_mode, uint32_t skip_sid, uint32_t kinship_skip, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, gzFile* gz_infilep, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* textbuf, char* idbuf) {
   uintptr_t line_idx = 1;
   PglErr reterr = kPglRetSuccess;
   {
@@ -1849,7 +1850,7 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, u
         continue;
       }
       textbuf_iter = FirstNonTspace(textbuf_iter);
-      if (id2_skip) {
+      if (skip_sid) {
         if (IsEolnKns(*textbuf_iter)) {
           goto KingTableSubsetLoad_ret_MISSING_TOKENS;
         }
@@ -2061,43 +2062,49 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     const char* token_end = CurTokenEnd(textbuf_iter);
     uint32_t token_slen = token_end - textbuf_iter;
     // Make this work with both KING- and plink2-generated .kin0 files.
-    if ((!strequal_k(textbuf_iter, "#FID1", token_slen)) && (!strequal_k(textbuf_iter, "FID", token_slen))) {
-      goto CalcKingTableSubset_ret_INVALID_HEADER;
+    uint32_t fid_present = strequal_k(textbuf_iter, "#FID1", token_slen) || strequal_k(textbuf_iter, "FID", token_slen);
+    if (fid_present) {
+      textbuf_iter = FirstNonTspace(token_end);
+      token_end = CurTokenEnd(textbuf_iter);
+      token_slen = token_end - textbuf_iter;
+    } else {
+      if (*textbuf_iter != '#') {
+        goto CalcKingTableSubset_ret_INVALID_HEADER;
+      }
+      ++textbuf_iter;
+      --token_slen;
     }
-    textbuf_iter = FirstNonTspace(token_end);
-    token_end = CurTokenEnd(textbuf_iter);
-    token_slen = token_end - textbuf_iter;
     if (!strequal_k(textbuf_iter, "ID1", token_slen)) {
       goto CalcKingTableSubset_ret_INVALID_HEADER;
     }
     textbuf_iter = FirstNonTspace(token_end);
     token_end = CurTokenEnd(textbuf_iter);
     token_slen = token_end - textbuf_iter;
-    uint32_t id2_skip = 0;
-    XidMode xid_mode;
+    uint32_t skip_sid = 0;
+    XidMode xid_mode = fid_present? kfXidModeFidIid : kfXidModeIid;
     if (strequal_k(textbuf_iter, "SID1", token_slen)) {
       if (siip->sids) {
-        xid_mode = kfXidModeFidIidSid;
+        xid_mode = fid_present? kfXidModeFidIidSid : kfXidModeIidSid;
       } else {
-        id2_skip = 1;
+        skip_sid = 1;
       }
       textbuf_iter = FirstNonTspace(token_end);
       token_end = CurTokenEnd(textbuf_iter);
       token_slen = token_end - textbuf_iter;
-    } else {
-      xid_mode = kfXidModeFidIid;
     }
-    if (!strequal_k(textbuf_iter, "FID2", token_slen)) {
-      goto CalcKingTableSubset_ret_INVALID_HEADER;
+    if (fid_present) {
+      if (!strequal_k(textbuf_iter, "FID2", token_slen)) {
+        goto CalcKingTableSubset_ret_INVALID_HEADER;
+      }
+      textbuf_iter = FirstNonTspace(token_end);
+      token_end = CurTokenEnd(textbuf_iter);
+      token_slen = token_end - textbuf_iter;
     }
-    textbuf_iter = FirstNonTspace(token_end);
-    token_end = CurTokenEnd(textbuf_iter);
-    token_slen = token_end - textbuf_iter;
     if (!strequal_k(textbuf_iter, "ID2", token_slen)) {
       goto CalcKingTableSubset_ret_INVALID_HEADER;
     }
     if (xid_mode == kfXidModeFidIidSid) {
-      // technically don't need to check this in id2_skip case
+      // technically don't need to check this in skip_sid case
       textbuf_iter = FirstNonTspace(token_end);
       token_end = CurTokenEnd(textbuf_iter);
       token_slen = token_end - textbuf_iter;
@@ -2153,7 +2160,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     uint64_t pair_idx = 0;
     fputs("Scanning --king-table-subset file...", stdout);
     fflush(stdout);
-    reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, id2_skip, kinship_skip, (parallel_tot != 1), 0, pair_buf_capacity, &gz_infile, &pair_idx, g_loaded_sample_idx_pairs, g_textbuf, idbuf);
+    reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, kinship_skip, (parallel_tot != 1), 0, pair_buf_capacity, &gz_infile, &pair_idx, g_loaded_sample_idx_pairs, g_textbuf, idbuf);
     if (reterr) {
       goto CalcKingTableSubset_ret_1;
     }
@@ -2176,7 +2183,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
           if (!gzgets(gz_infile, g_textbuf, kMaxMediumLine)) {
             goto CalcKingTableSubset_ret_READ_FAIL;
           }
-          reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, id2_skip, kinship_skip, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), &gz_infile, &pair_idx, g_loaded_sample_idx_pairs, g_textbuf, idbuf);
+          reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, kinship_skip, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), &gz_infile, &pair_idx, g_loaded_sample_idx_pairs, g_textbuf, idbuf);
           if (reterr) {
             goto CalcKingTableSubset_ret_1;
           }
@@ -2405,7 +2412,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       pair_idx_cur_start = pair_idx;
       fputs("Scanning --king-table-subset file...", stdout);
       fflush(stdout);
-      reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, id2_skip, kinship_skip, 0, pair_idx_cur_start, MINV(pair_idx_global_stop, pair_idx_cur_start + pair_buf_capacity), &gz_infile, &pair_idx, g_loaded_sample_idx_pairs, g_textbuf, idbuf);
+      reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, kinship_skip, 0, pair_idx_cur_start, MINV(pair_idx_global_stop, pair_idx_cur_start + pair_buf_capacity), &gz_infile, &pair_idx, g_loaded_sample_idx_pairs, g_textbuf, idbuf);
       if (reterr) {
         goto CalcKingTableSubset_ret_1;
       }

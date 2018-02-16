@@ -148,9 +148,10 @@ FLAGSET64_DEF_END(ExportfFlags);
 FLAGSET_DEF_START()
   kfSampleId0,
   kfSampleIdFidPresent = (1 << 0),
-  kfSampleIdNoIdHeader = (1 << 1),
-  kfSampleIdNoIdHeaderIidOnly = (1 << 2),
-  kfSampleIdStrictSid0 = (1 << 3)
+  kfSampleIdParentsPresent = (1 << 1),
+  kfSampleIdNoIdHeader = (1 << 2),
+  kfSampleIdNoIdHeaderIidOnly = (1 << 3),
+  kfSampleIdStrictSid0 = (1 << 4)
 FLAGSET_DEF_END(SampleIdFlags);
 
 typedef struct SampleIdInfoStruct {
@@ -245,6 +246,10 @@ HEADER_INLINE uint32_t IsFidColRequired(const SampleIdInfo* siip, uint32_t maybe
 
 HEADER_INLINE uint32_t IsSidColRequired(const char* sids, uint32_t maybe_modifier) {
   return (maybe_modifier & 2) || ((maybe_modifier & 1) && sids);
+}
+
+HEADER_INLINE uint32_t AreParentalColsRequired(const PedigreeIdInfo* piip, uint32_t maybe_modifier) {
+  return (maybe_modifier & 2) || ((maybe_modifier & 1) && (piip->sii.flags & kfSampleIdParentsPresent));
 }
 
 void CollapsedSampleFmtidInit(const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t sample_ct, uint32_t include_fid, uint32_t include_sid, uintptr_t max_sample_fmtid_blen, char* collapsed_sample_fmtids_iter);

@@ -3301,12 +3301,7 @@ PglErr WriteCovar(const uintptr_t* sample_include, const PedigreeIdInfo* piip, c
     const uintptr_t max_paternal_id_blen = piip->parental_id_info.max_paternal_id_blen;
     const uintptr_t max_maternal_id_blen = piip->parental_id_info.max_maternal_id_blen;
     const uint32_t write_sid = IsSidColRequired(sids, write_covar_flags / kfWriteCovarColMaybesid);
-    uint32_t write_parents = 0;
-    if (write_covar_flags & kfWriteCovarColParents) {
-      write_parents = 1;
-    } else if (write_covar_flags & kfWriteCovarColMaybeparents) {
-      write_parents = IsParentalInfoPresent(sample_include, &piip->parental_id_info, sample_ct);
-    }
+    const uint32_t write_parents = AreParentalColsRequired(piip, write_covar_flags / kfWriteCovarColMaybeparents);
     const uint32_t write_sex = (write_covar_flags / kfWriteCovarColSex) & 1;
     const uint32_t write_empty_pheno = (write_covar_flags & kfWriteCovarColPheno1) && (!pheno_ct);
     const uint32_t write_phenos = (write_covar_flags & (kfWriteCovarColPheno1 | kfWriteCovarColPhenos)) && pheno_ct;

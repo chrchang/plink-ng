@@ -300,6 +300,9 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
         pheno_names_reverse_ll = ll_str_new;
       }
     }
+    if (psam_cols_mask & 12) {
+      piip->sii.flags |= kfSampleIdParentsPresent;
+    }
     if (pheno_ct) {
       char* pheno_names = S_CAST(char*, malloc(pheno_ct * max_pheno_name_blen));
       if (!pheno_names) {

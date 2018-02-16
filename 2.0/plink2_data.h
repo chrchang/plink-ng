@@ -97,7 +97,7 @@ uint32_t IsDataFidColRequired(const uintptr_t* sample_include, const SampleIdInf
 
 uint32_t IsDataSidColRequired(const uintptr_t* sample_include, const char* sids, uint32_t sample_ct, uint32_t max_sid_blen, uint32_t maybe_modifier);
 
-uint32_t IsParentalInfoPresent(const uintptr_t* sample_include, const ParentalIdInfo* parental_id_infop, uint32_t sample_ct);
+uint32_t AreDataParentalColsRequired(const uintptr_t* sample_include, const PedigreeIdInfo* piip, uint32_t sample_ct, uint32_t maybe_modifier);
 
 char* AppendPhenoStr(const PhenoCol* pheno_col, const char* output_missing_pheno, uint32_t omp_slen, uint32_t sample_uidx, char* write_iter);
 

@@ -28,27 +28,29 @@ FLAGSET_DEF_START()
   kfGlm0,
   kfGlmZs = (1 << 0),
 
-  // mutually exclusive
-  kfGlmSex = (1 << 1),
-  kfGlmNoXSex = (1 << 2),
+  kfGlmA0Ref = (1 << 1),
 
   // mutually exclusive
-  kfGlmGenotypic = (1 << 3),
-  kfGlmHethom = (1 << 4),
-  kfGlmDominant = (1 << 5),
-  kfGlmRecessive = (1 << 6),
+  kfGlmSex = (1 << 2),
+  kfGlmNoXSex = (1 << 3),
 
-  kfGlmInteraction = (1 << 7),
-  kfGlmHideCovar = (1 << 8),
-  kfGlmIntercept = (1 << 9),
-  kfGlmFirthFallback = (1 << 10),
-  kfGlmFirth = (1 << 11),
-  kfGlmPerm = (1 << 12),
-  kfGlmPermCount = (1 << 13),
-  kfGlmConditionDominant = (1 << 14),
-  kfGlmConditionRecessive = (1 << 15),
-  kfGlmLocalOmitLast = (1 << 16),
-  kfGlmTestsAll = (1 << 17)
+  // mutually exclusive
+  kfGlmGenotypic = (1 << 4),
+  kfGlmHethom = (1 << 5),
+  kfGlmDominant = (1 << 6),
+  kfGlmRecessive = (1 << 7),
+
+  kfGlmInteraction = (1 << 8),
+  kfGlmHideCovar = (1 << 9),
+  kfGlmIntercept = (1 << 10),
+  kfGlmFirthFallback = (1 << 11),
+  kfGlmFirth = (1 << 12),
+  kfGlmPerm = (1 << 13),
+  kfGlmPermCount = (1 << 14),
+  kfGlmConditionDominant = (1 << 15),
+  kfGlmConditionRecessive = (1 << 16),
+  kfGlmLocalOmitLast = (1 << 17),
+  kfGlmTestsAll = (1 << 18)
 FLAGSET_DEF_END(GlmFlags);
 
 FLAGSET_DEF_START()
@@ -105,7 +107,7 @@ void CleanupGlm(GlmInfo* glm_info_ptr);
 
 // BoolErr FirthRegression(const float* yy, const float* xx, uint32_t sample_ct, uint32_t predictor_ct, float* coef, float* hh, matrix_finvert_buf1_t* inv_1d_buf, float* flt_2d_buf, float* pp, float* vv, float* grad, float* dcoef, float* ww, float* tmpnxk_buf);
 
-PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const AdjustInfo* adjust_info_ptr, const APerm* aperm_ptr, const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t orig_covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t xchr_model, double ci_size, double vif_thresh, double pfilter, double output_min_p, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end);
+PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const AltAlleleCt* maj_alleles, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const AdjustInfo* adjust_info_ptr, const APerm* aperm_ptr, const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t orig_covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t xchr_model, double ci_size, double vif_thresh, double pfilter, double output_min_p, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end);
 
 #ifdef __cplusplus
 }  // namespace plink2

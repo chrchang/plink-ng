@@ -61,7 +61,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (14 Feb 2018)";
+  " (15 Feb 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -312,13 +312,16 @@ uint32_t IsSingleVariantLoaderNeeded(const char* king_cutoff_fprefix, Command1Fl
   return (command_flags1 & (kfCommand1Exportf | kfCommand1MakeKing | kfCommand1GenoCounts | kfCommand1LdPrune | kfCommand1Validate | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Glm | kfCommand1Score | kfCommand1Ld)) || ((command_flags1 & kfCommand1MakePlink2) && (make_plink2_flags & kfMakePgen)) || ((command_flags1 & kfCommand1KingCutoff) && (!king_cutoff_fprefix));
 }
 
-uint32_t AreAlleleFreqsNeeded(Command1Flags command_flags1, double min_maf, double max_maf) {
-  return (command_flags1 & (kfCommand1AlleleFreq | kfCommand1LdPrune | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Score)) || (min_maf != 0.0) || (max_maf != 1.0);
+
+// er, these two should be combined into one function?
+uint32_t AreAlleleFreqsNeeded(Command1Flags command_flags1, GlmFlags glm_flags, double min_maf, double max_maf) {
+  return (command_flags1 & (kfCommand1AlleleFreq | kfCommand1LdPrune | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Score)) || (min_maf != 0.0) || (max_maf != 1.0) || ((command_flags1 & kfCommand1Glm) && (!(glm_flags & kfGlmA0Ref)));
 }
 
-uint32_t AreMajAllelesNeeded(Command1Flags command_flags1) {
-  return (command_flags1 & (kfCommand1LdPrune | kfCommand1Pca | kfCommand1MakeRel));
+uint32_t AreMajAllelesNeeded(Command1Flags command_flags1, GlmFlags glm_flags) {
+  return (command_flags1 & (kfCommand1LdPrune | kfCommand1Pca | kfCommand1MakeRel)) || ((command_flags1 & kfCommand1Glm) && (!(glm_flags & kfGlmA0Ref)));
 }
+
 
 uint32_t GetFirstHaploidUidx(const ChrInfo* cip, UnsortedVar vpos_sortstatus) {
   // returns 0x7fffffff if no X/haploid chromosomes present
@@ -373,7 +376,7 @@ uint32_t IsInfoReloadNeeded(Command1Flags command_flags1, PvarPsamFlags pvar_psa
   return ((command_flags1 & kfCommand1MakePlink2) && (pvar_psam_flags & kfPvarColXinfo)) || ((command_flags1 & kfCommand1Exportf) && (exportf_flags & kfExportfVcf));
 }
 
-uint32_t GrmKeepNeeded(Command1Flags command_flags1, PcaFlags pca_flags) {
+uint32_t IsGrmKeepNeeded(Command1Flags command_flags1, PcaFlags pca_flags) {
   return ((command_flags1 & kfCommand1Pca) && (!(pca_flags & kfPcaApprox)));
 }
 
@@ -1395,7 +1398,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       uint32_t* founder_raw_geno_cts = nullptr;
       unsigned char* bigstack_mark_allele_dosages = g_bigstack_base;
       unsigned char* bigstack_mark_founder_allele_dosages = g_bigstack_base;
-      const uint32_t keep_grm = GrmKeepNeeded(pcp->command_flags1, pcp->pca_flags);
+      const uint32_t keep_grm = IsGrmKeepNeeded(pcp->command_flags1, pcp->pca_flags);
       double* grm = nullptr;
 
       if (pcp->command_flags1 & kfCommand1WriteSamples) {
@@ -1411,8 +1414,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       if (pgenname[0]) {
-        if (AreAlleleFreqsNeeded(pcp->command_flags1, pcp->min_maf, pcp->max_maf)) {
-          if (AreMajAllelesNeeded(pcp->command_flags1)) {
+        if (AreAlleleFreqsNeeded(pcp->command_flags1, pcp->glm_info.flags, pcp->min_maf, pcp->max_maf)) {
+          if (AreMajAllelesNeeded(pcp->command_flags1, pcp->glm_info.flags)) {
             maj_alleles = S_CAST(AltAlleleCt*, bigstack_alloc(raw_variant_ct * sizeof(AltAlleleCt)));
             if (!maj_alleles) {
               goto Plink2Core_ret_NOMEM;
@@ -2107,7 +2110,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       // eventually check for nonzero pheno_ct here?
 
       if (pcp->command_flags1 & kfCommand1Glm) {
-        reterr = GlmMain(sample_include, &pii.sii, sex_nm, sex_male, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, &(pcp->glm_info), &(pcp->adjust_info), &(pcp->aperm), pcp->glm_local_covar_fname, pcp->glm_local_pvar_fname, pcp->glm_local_psam_fname, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, max_allele_slen, pcp->xchr_model, pcp->ci_size, pcp->vif_thresh, pcp->pfilter, pcp->output_min_p, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
+        reterr = GlmMain(sample_include, &pii.sii, sex_nm, sex_male, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, maj_alleles, allele_storage, &(pcp->glm_info), &(pcp->adjust_info), &(pcp->aperm), pcp->glm_local_covar_fname, pcp->glm_local_pvar_fname, pcp->glm_local_psam_fname, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, max_allele_slen, pcp->xchr_model, pcp->ci_size, pcp->vif_thresh, pcp->pfilter, pcp->output_min_p, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
         if (reterr) {
           goto Plink2Core_ret_1;
         }
@@ -4321,7 +4324,7 @@ int main(int argc, char** argv) {
           pc.command_flags1 |= kfCommand1GenoCounts;
           pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "lm")) {
-          if (EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 15)) {
+          if (EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 16)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
@@ -4329,6 +4332,8 @@ int main(int argc, char** argv) {
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (strequal_k(cur_modif, "zs", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmZs;
+            } else if (strequal_k(cur_modif, "a0-ref", cur_modif_slen)) {
+              pc.glm_info.flags |= kfGlmA0Ref;
             } else if (strequal_k(cur_modif, "sex", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmSex;
             } else if (strequal_k(cur_modif, "no-x-sex", cur_modif_slen)) {

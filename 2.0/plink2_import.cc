@@ -6885,7 +6885,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     if (write_sid) {
       write_iter = strcpya(write_iter, "\tSID");
     }
-    const uint32_t write_parents = IsParentalInfoPresent(sample_include, &pii.parental_id_info, sample_ct);
+    const uint32_t write_parents = AreDataParentalColsRequired(sample_include, &pii, sample_ct, 1);
     if (write_parents) {
       write_iter = strcpya(write_iter, "\tPAT\tMAT");
     }
