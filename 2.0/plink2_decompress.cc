@@ -142,6 +142,128 @@ BoolErr CloseGzTokenStream(GzTokenStream* gtsp) {
   return gzclose_null(&(gtsp->gz_infile));
 }
 
+
+/*
+void PreinitRLstream(ReadLineStream* rlsp) {
+  rlsp->gz_infile = nullptr;
+  rlsp->sync_init_state = 0;
+}
+
+THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
+  ReadStreamThread* context = R_CAST(ReadStreamThread*, arg);
+  while (1) {
+  }
+}
+
+PglErr InitRLstream(const char* fname, uintptr_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp) {
+  PglErr reterr = kPglRetSuccess;
+  {
+    // +1 since we may need to append an \n on the last line
+    if (bigstack_alloc_c(max_line_blen + kDecompressChunkSize + 1, &rlsp->buf)) {
+      goto InitRLstream_ret_NOMEM;
+    }
+    rlsp->buf_end = g_bigstack_base;
+    rlsp->available_head = rlsp->buf;
+    rlsp->rewind_or_interrupt = 0;
+    rlsp->at_eof = 0;
+    rlsp->reterr = kPglRetSuccess;
+#ifdef _WIN32
+    rlsp->line_available_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+    if (!rlsp->line_available_event) {
+      goto InitRLstream_ret_THREAD_CREATE_FAIL;
+    }
+    rlsp->consume_done_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+    if (!rlsp->consume_done_event) {
+      CloseHandle(rlsp->line_available_event);
+      goto InitRLstream_ret_THREAD_CREATE_FAIL;
+    }
+    rlsp->read_thread = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStack, ReadLineStreamThread, rlsp, 0, nullptr));
+    if (!rlsp->read_thread) {
+      CloseHandle(rlsp->consume_done_event);
+      CloseHandle(rlsp->line_available_event);
+      goto InitRLstream_ret_THREAD_CREATE_FAIL;
+    }
+#else
+    if (pthread_mutex_init(&rlsp->sync_mutex, nullptr)) {
+      goto InitRLstream_ret_THREAD_CREATE_FAIL;
+    }
+    rlsp->sync_init_state = 1;
+    if (pthread_cond_init(&rlsp->line_available_condvar, nullptr)) {
+      goto InitRLstream_ret_THREAD_CREATE_FAIL;
+    }
+    rlsp->sync_init_state = 2;
+    if (pthread_cond_init(&rlsp->consume_done_condvar, nullptr)) {
+      goto InitRLstream_ret_THREAD_CREATE_FAIL;
+    }
+    rlsp->sync_init_state = 3;
+    if (pthread_create(&rlsp->read_thread, &g_smallstack_thread_attr, ReadLineStreamThread, rlsp)) {
+      goto InitRLstream_ret_THREAD_CREATE_FAIL;
+    }
+    rlsp->sync_init_state = 4;
+#endif
+    *consume_iterp = rlsp->buf;
+  }
+  while (0) {
+  InitRLstream_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
+  InitRLstream_ret_OPEN_FAIL:
+    reterr = kPglRetOpenFail;
+    break;
+  InitRLstream_ret_THREAD_CREATE_FAIL:
+    reterr = kPglRetThreadCreateFail;
+    break;
+  }
+  return reterr;
+}
+
+PglErr RewindRLstream(ReadLineStream* rlsp) {
+}
+
+PglErr CleanupRLstream(ReadLineStream* rlsp) {
+  PglErr reterr = kPglRetSuccess;
+#ifdef _WIN32
+  if (rlsp->read_thread) {
+    if (!rlsp->at_eof) {
+      rlsp->rewind_or_interrupt = 2;
+    }
+    CloseHandle(rlsp->consume_done_event);
+    CloseHandle(rlsp->line_available_event);
+  }
+#else
+  const uint32_t sync_init_state = rlsp->sync_init_state;
+  if (sync_init_state) {
+    if (sync_init_state == 4) {
+      if (!rlsp->at_eof) {
+        pthread_mutex_lock(&rlsp->sync_mutex);
+        rlsp->rewind_or_interrupt = 2;
+
+        while () {
+          // Spurious wakeup guard.
+          pthread_cond_wait(&rlsp->_, &rlsp->sync_mutex);
+        }
+        pthread_muteX_unlock(&rlsp->sync_mutex);
+      }
+    }
+    pthread_mutex_destroy(&rlsp->sync_mutex);
+    if (sync_init_state > 1) {
+      pthread_cond_destroy(&rlsp->line_available_condvar);
+      if (sync_init_state > 2) {
+        pthread_cond_destroy(&rlsp->consume_done_condvar);
+      }
+    }
+    rlsp->sync_init_state = 0;
+  }
+#endif
+  if (rlsp->gz_infile) {
+    if (gzclose_null(&rlsp->gz_infile)) {
+      reterr = kPglRetReadFail;
+    }
+  }
+  return reterr;
+}
+*/
+
 #ifdef __cplusplus
 }
 #endif

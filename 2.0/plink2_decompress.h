@@ -81,11 +81,12 @@ char* AdvanceGzTokenStream(GzTokenStream* gtsp, uint32_t* token_slen_ptr);
 BoolErr CloseGzTokenStream(GzTokenStream* gtsp);
 
 
+/*
 // While a separate non-compressing writer thread is practically useless (since
 // the OS does its own scheduling, etc. of the writes anyway), a separate
-// read-ahead thread is frequently useful since the OS does not know what you
-// want to read next.  And the benefit is even greater if this thread gets to
-// perform decompression.
+// read-ahead thread is frequently useful since the typical read_ahead_kb = 64
+// Linux kernel setting is sometimes smaller than we really want, and of course
+// the ability to decompress-ahead speaks for itself.
 //
 // Possible todos: tabix index support (caller must declare the entire sequence
 // of virtual offset ranges they want to read upfront), and optional
@@ -118,33 +119,64 @@ BoolErr CloseGzTokenStream(GzTokenStream* gtsp);
 //   (one will be appended at eof if necessary), and (ii) the reader thread may
 //   throw a LongLine error.)
 // * The consumer sets the consume-done event once the consume pointer has
-//   caught up to available-head.
+//   caught up to available-head, and waits on line-available.
 // * The reader thread reads/decompresses the next 1 MB, checks for '\n',
 //   reads an additional 1 MB if it's absent, etc., until it (i) finds another
 //   '\n' or eof (in which case a '\n' is appended), or (ii) hits the read-stop
-//   pointer.  Then it waits on the consume-done event.  Once that returns
+//   pointer.  Then it waits on the consume-done event; once that returns
 //   (usually instant if decompressing),
 //   - in case (ii), it memmoves bytes back if read-stop == end-of-buffer, and
 //     sets read-stop := end-of-buffer otherwise.  Either way, it continues
 //     with reading until '\n'/eof or a LongLine error.
 //   - in case (i), the available-head pointer is set one byte past the last
-//     '\n', the line-available event is set, and we check the old position of
-//     the available-head pointer.  If it's before the 1 MB mark, we continue
-//     reading forward.  Otherwise, we memcpy the trailing bytes (at or past
-//     the new available-head position) to the beginning of the buffer, set the
-//     read-stop pointer to the old available-head position rounded down to a
-//     cacheline boundary, and continue reading from the end of the copied
-//     trailing bytes.
+//     '\n', the line-available event is set, and if eof we set at_eof and
+//     return from the thread function.
+//     If not eof, we check the old position of the available-head pointer.  If
+//     it's before the 1 MB mark, we continue reading forward.  Otherwise, we
+//     memcpy the trailing bytes (at or past the new available-head position)
+//     to the beginning of the buffer, set the read-stop pointer to the old
+//     available-head position rounded down to a cacheline boundary, and
+//     continue reading from the end of the copied trailing bytes.
 
 // (tested a few different values for this, 1 MB appears to work well on the
 // systems we care most about)
-CONSTU31(kDecompressBufSize, 1048576);
+CONSTU31(kDecompressChunkSize, 1048576);
 
-/*
+// To minimize false (or true) sharing penalties, these values shouldn't change
+// much; only the things they point to should be frequently changing.
 typedef struct ReadLineStreamStruct {
-  gzFile infile;
-  ;;;
+  // ** These variables are owned by the reader thread.
+  gzFile gz_infile;
+  // This is aimed at (usually uncompressed) text files, so just use char*
+  // instead of unsigned char*.
+  char* buf;
+  char* buf_end;
+
+  // ** These variables are shared between the reader and the consumer.
+  char* available_head;
+#ifdef _WIN32
+  HANDLE line_available_event;
+  HANDLE consume_done_event;
+#else
+  pthread_mutex_t sync_mutex;
+  // these two variables are guarded by sync_mutex
+  pthread_cond_t line_available_condvar;
+  pthread_cond_t consume_done_condvar;
+#endif
+  // 1 = rewind, 2 = exit immediately
+  uint32_t rewind_or_interrupt;
+  uint32_t at_eof;
+
+  PglErr reterr;
+
+  // ** These variables are owned by the consumer.
+  pthread_t read_thread;
+#ifndef _WIN32
+  uint32_t sync_init_state;
+#endif
 } ReadLineStream;
+
+void PreinitRLstream(ReadLineStream* rlsp);
 */
 
 #ifdef __cplusplus
