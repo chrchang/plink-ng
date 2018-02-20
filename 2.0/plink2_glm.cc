@@ -6470,6 +6470,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
                 cur_covar_vals[sample_uidx] = dxx;
               }
             }
+            // todo: this should also consider ploidy and xchr_model...
             strcpy(&(new_covar_names[(local_covar_ct + condition_idx) * new_max_covar_name_blen]), variant_ids[cur_variant_uidx]);
           }
           BigstackEndReset(bigstack_end_mark);
@@ -6591,6 +6592,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     g_parameter_subset_y = nullptr;
     g_vif_thresh = vif_thresh;
     g_max_corr = glm_info_ptr->max_corr;
+    g_is_xchr_model_1 = (xchr_model == 1);
     if (glm_info_ptr->parameters_range_list.name_ct) {
       if (bigstack_calloc_ul(raw_predictor_ctl, &raw_parameter_subset) ||
           bigstack_alloc_ul(raw_predictor_ctl, &g_parameter_subset) ||
