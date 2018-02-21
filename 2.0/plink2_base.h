@@ -637,7 +637,7 @@ HEADER_INLINE VecC vecc_setzero() {
 }
 
 HEADER_INLINE VecUL vecul_srli(VecUL vv, uint32_t ct) {
-  return R_CAST(VecUL, _mm_srli_epi64(R_CAST(__m128, vv), ct));
+  return R_CAST(VecUL, _mm_srli_epi64(R_CAST(__m128i, vv), ct));
 }
 
 HEADER_INLINE VecUL vecul_slli(VecUL vv, uint32_t ct) {
