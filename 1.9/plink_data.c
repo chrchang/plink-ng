@@ -16203,11 +16203,11 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
     }
     if (is_dichot_pheno) {
       if (qsort_ext(sample_fids, tot_sample_ct, max_sample_full_len, merge_nsort? strcmp_natural_deref : strcmp_deref, pheno_c_char, 1)) {
-	goto merge_datasets_ret_NOMEM;
+        goto merge_datasets_ret_NOMEM;
       }
     } else {
       if (qsort_ext(sample_fids, tot_sample_ct, max_sample_full_len, merge_nsort? strcmp_natural_deref : strcmp_deref, (char*)pheno_d, sizeof(double))) {
-	goto merge_datasets_ret_NOMEM;
+        goto merge_datasets_ret_NOMEM;
       }
     }
     if (sample_sort == SAMPLE_SORT_FILE) {
@@ -16284,10 +16284,12 @@ int32_t merge_datasets(char* bedname, char* bimname, char* famname, char* outnam
 	  goto merge_datasets_ret_WRITE_FAIL;
 	}
 	if (is_dichot_pheno) {
-	  cc = pheno_c_char[ulii];
+          // bugfix (21 Feb 2018): need to use the map_reverse index here,
+          // since the phenotypes correspond to ASCII-sorted sample ID order.
+	  cc = pheno_c_char[ujj];
 	  fprintf(outfile, "\t%s\n", cc? ((cc == 1)? "2" : "-9") : "1");
 	} else {
-	  fprintf(outfile, "\t%g\n", pheno_d[ulii]);
+	  fprintf(outfile, "\t%g\n", pheno_d[ujj]);
 	}
       }
     }
