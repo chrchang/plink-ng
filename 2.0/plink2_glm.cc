@@ -965,7 +965,7 @@ BoolErr GlmDetermineCovars(const uintptr_t* pheno_cc, const uintptr_t* initial_c
               if (cur_word) {
                 const uint32_t* cat_first_sample_uidxs_iter = &(cat_first_sample_uidxs[widx * kBitsPerWord]);
                 do {
-                  const uint32_t cat_idx_lowbits = CTZLU(cur_word);
+                  const uint32_t cat_idx_lowbits = ctzlu(cur_word);
                   --sample_ct;
                   ClearBit(cat_first_sample_uidxs_iter[cat_idx_lowbits], cur_sample_include);
                   cur_word &= cur_word - 1;
@@ -5259,7 +5259,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
                 if (geno_word) {
                   const uint32_t sample_idx_base = widx * kBitsPerWordD2;
                   do {
-                    const uint32_t lowest_set_bit = CTZLU(geno_word);
+                    const uint32_t lowest_set_bit = ctzlu(geno_word);
                     // since there are no missing values, we have a het if
                     // (lowest_set_bit & 1) is zero, and a hom-alt when it's
                     // one.
@@ -6470,7 +6470,6 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
                 cur_covar_vals[sample_uidx] = dxx;
               }
             }
-            // todo: this should also consider ploidy and xchr_model...
             strcpy(&(new_covar_names[(local_covar_ct + condition_idx) * new_max_covar_name_blen]), variant_ids[cur_variant_uidx]);
           }
           BigstackEndReset(bigstack_end_mark);
@@ -6592,6 +6591,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     g_parameter_subset_y = nullptr;
     g_vif_thresh = vif_thresh;
     g_max_corr = glm_info_ptr->max_corr;
+    // bugfix (20 Feb 2018): g_is_xchr_model_1 initialization was either
+    // accidentally deleted, or I forgot to add it in the first place...
     g_is_xchr_model_1 = (xchr_model == 1);
     if (glm_info_ptr->parameters_range_list.name_ct) {
       if (bigstack_calloc_ul(raw_predictor_ctl, &raw_parameter_subset) ||

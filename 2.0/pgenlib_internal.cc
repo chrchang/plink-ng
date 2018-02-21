@@ -152,10 +152,10 @@ void CopyQuaterarrNonemptySubset(const uintptr_t* __restrict raw_quaterarr, cons
     while (1) {
       uintptr_t raw_quaterarr_word = *raw_quaterarr_iter++;
       while (cur_include_halfword) {
-        uint32_t rqa_idx_lowbits = CTZLU(cur_include_halfword);
+        uint32_t rqa_idx_lowbits = ctzlu(cur_include_halfword);
         uintptr_t halfword_invshifted = (~cur_include_halfword) >> rqa_idx_lowbits;
         uintptr_t raw_quaterarr_curblock_unmasked = raw_quaterarr_word >> (rqa_idx_lowbits * 2);
-        uint32_t rqa_block_len = CTZLU(halfword_invshifted);
+        uint32_t rqa_block_len = ctzlu(halfword_invshifted);
         uint32_t block_len_limit = kBitsPerWordD2 - word_write_halfshift;
         cur_output_word |= raw_quaterarr_curblock_unmasked << (2 * word_write_halfshift);
         if (rqa_block_len < block_len_limit) {
@@ -1160,23 +1160,23 @@ void TransposeQuaterblockAvx2(const uintptr_t* read_iter, uint32_t read_ul_strid
       read_iter_tmp = &(read_iter_tmp[read_byte_stride]);
     }
     memset(initial_target_iter, 0, read_batch_rem);
-    const __m256i* source_iter = S_CAST(__m256i*, buf0);
+    const VecUL* source_iter = S_CAST(VecUL*, buf0);
     if (block_idx == full_block_ct) {
       const uint32_t remainder = write_batch_size % 4;
       const uint32_t initial_lshift = 2 * (4 - remainder);
       for (uint32_t widx = 0; widx < write_ul_ct; ++widx) {
-        __m256i loader = *source_iter++;
-        loader = _mm256_slli_epi64(loader, initial_lshift);
+        VecUL loader = *source_iter++;
+        loader = vecul_slli(loader, initial_lshift);
         uint32_t write_idx_lowbits = remainder - 1;
         while (1) {
-          const uintptr_t uint_hi = _mm256_movemask_epi8(loader);
-          loader = _mm256_slli_epi64(loader, 1);
-          const uintptr_t uint_lo = _mm256_movemask_epi8(loader);
+          const uintptr_t uint_hi = vecul_movemask(loader);
+          loader = vecul_slli(loader, 1);
+          const uintptr_t uint_lo = vecul_movemask(loader);
           target_iter0[write_ul_stride * write_idx_lowbits] = _pdep_u64(uint_hi, kMaskAAAA) | _pdep_u64(uint_lo, kMask5555);
           if (!write_idx_lowbits) {
             break;
           }
-          loader = _mm256_slli_epi64(loader, 1);
+          loader = vecul_slli(loader, 1);
           --write_idx_lowbits;
         }
         ++target_iter0;
@@ -1188,25 +1188,25 @@ void TransposeQuaterblockAvx2(const uintptr_t* read_iter, uint32_t read_ul_strid
     uintptr_t* target_iter2 = &(target_iter1[write_ul_stride]);
     uintptr_t* target_iter3 = &(target_iter2[write_ul_stride]);
     for (uint32_t widx = 0; widx < write_ul_ct; ++widx) {
-      __m256i loader = source_iter[widx];
-      uintptr_t uint_hi = _mm256_movemask_epi8(loader);
-      loader = _mm256_slli_epi64(loader, 1);
-      uintptr_t uint_lo = _mm256_movemask_epi8(loader);
+      VecUL loader = source_iter[widx];
+      uintptr_t uint_hi = vecul_movemask(loader);
+      loader = vecul_slli(loader, 1);
+      uintptr_t uint_lo = vecul_movemask(loader);
       target_iter3[widx] = _pdep_u64(uint_hi, kMaskAAAA) | _pdep_u64(uint_lo, kMask5555);
-      loader = _mm256_slli_epi64(loader, 1);
-      uint_hi = _mm256_movemask_epi8(loader);
-      loader = _mm256_slli_epi64(loader, 1);
-      uint_lo = _mm256_movemask_epi8(loader);
+      loader = vecul_slli(loader, 1);
+      uint_hi = vecul_movemask(loader);
+      loader = vecul_slli(loader, 1);
+      uint_lo = vecul_movemask(loader);
       target_iter2[widx] = _pdep_u64(uint_hi, kMaskAAAA) | _pdep_u64(uint_lo, kMask5555);
-      loader = _mm256_slli_epi64(loader, 1);
-      uint_hi = _mm256_movemask_epi8(loader);
-      loader = _mm256_slli_epi64(loader, 1);
-      uint_lo = _mm256_movemask_epi8(loader);
+      loader = vecul_slli(loader, 1);
+      uint_hi = vecul_movemask(loader);
+      loader = vecul_slli(loader, 1);
+      uint_lo = vecul_movemask(loader);
       target_iter1[widx] = _pdep_u64(uint_hi, kMaskAAAA) | _pdep_u64(uint_lo, kMask5555);
-      loader = _mm256_slli_epi64(loader, 1);
-      uint_hi = _mm256_movemask_epi8(loader);
-      loader = _mm256_slli_epi64(loader, 1);
-      uint_lo = _mm256_movemask_epi8(loader);
+      loader = vecul_slli(loader, 1);
+      uint_hi = vecul_movemask(loader);
+      loader = vecul_slli(loader, 1);
+      uint_lo = vecul_movemask(loader);
       target_iter0[widx] = _pdep_u64(uint_hi, kMaskAAAA) | _pdep_u64(uint_lo, kMask5555);
     }
     target_iter0 = &(target_iter3[write_ul_stride]);
@@ -2370,7 +2370,7 @@ uint32_t GetLdbaseVidx(const unsigned char* vrtypes, uint32_t cur_vidx) {
     if (detect_non_ld_word) {
       // find the highest-order set bit in detect_non_ld_word; this corresponds
       // to the last non-LD-compressed byte (assuming little-endian).
-      const uint32_t new_ldbase_vidx_loworder = kBytesPerWord - 1 - (CLZLU(detect_non_ld_word) / CHAR_BIT);
+      const uint32_t new_ldbase_vidx_loworder = kBytesPerWord - 1 - (clzlu(detect_non_ld_word) / CHAR_BIT);
       return (vidx_word_idx * kBytesPerWord) + new_ldbase_vidx_loworder;
     }
     // everything LD-compressed in the current block.  move back 8 bytes in the
@@ -2784,7 +2784,7 @@ void GetDifflistAmbigIdsUnsafe(const uintptr_t* __restrict raregeno, const uint3
     if (detect_11) {
       const uint32_t* difflist_sample_ids_base = &(difflist_sample_ids[widx * kBitsPerWordD2]);
       do {
-        uint32_t difflist_idx_lowbits = CTZLU(detect_11) / 2;
+        uint32_t difflist_idx_lowbits = ctzlu(detect_11) / 2;
         ambig_sample_ids[ambig_id_ct++] = difflist_sample_ids_base[difflist_idx_lowbits];
         detect_11 &= detect_11 - 1;
       } while (detect_11);
@@ -3386,7 +3386,7 @@ void ExtractGenoarrAmbigIds(const uintptr_t* genoarr, uint32_t raw_sample_ct, ui
     if (detect_11) {
       const uint32_t sample_idx_base = widx * kBitsPerWordD2;
       do {
-        const uint32_t sample_idx_lowbits = CTZLU(detect_11) / 2;
+        const uint32_t sample_idx_lowbits = ctzlu(detect_11) / 2;
         ambig_sample_ids[ambig_id_ct++] = sample_idx_base + sample_idx_lowbits;
         detect_11 &= detect_11 - 1;
       } while (detect_11);
@@ -3513,7 +3513,7 @@ uint32_t LdLoadNecessary(uint32_t cur_vidx, PgenReader* pgrp) {
       // find the highest-order set bit in detect_non_ld_word; this corresponds
       // to the last non-LD-compressed byte (assuming little-endian).
       const uint32_t old_ldbase_vidx = pgrp->ldbase_vidx;
-      const uint32_t new_ldbase_vidx_loworder = kBytesPerWord - 1 - (CLZLU(detect_non_ld_word) / CHAR_BIT);
+      const uint32_t new_ldbase_vidx_loworder = kBytesPerWord - 1 - (clzlu(detect_non_ld_word) / CHAR_BIT);
       const uint32_t new_ldbase_vidx = (vidx_word_idx * kBytesPerWord) + new_ldbase_vidx_loworder;
       pgrp->ldbase_vidx = new_ldbase_vidx;
       return (old_ldbase_vidx != new_ldbase_vidx);
@@ -7487,7 +7487,7 @@ void MpgwInitPhase1(const uintptr_t* __restrict allele_idx_offsets, uint32_t var
     if (extra_alt_ceil_ct) {
       max_vrec_len = kPglMaxBytesPerVariant;
     } else {
-      max_vrec_len = uncompressed_biallelic_vrec_len + extra_byte_cts[31 - __builtin_clz(altx_seen_mask)];
+      max_vrec_len = uncompressed_biallelic_vrec_len + extra_byte_cts[BitScanReverse(altx_seen_mask)];
       if (dosage_gflag && (max_alt_ct_p1 >= 6)) {
         if (max_alt_ct_p1 >= 17) {
           max_vrec_len += (max_alt_ct_p1 - 17) * extra_dosage_bytes_per_alt;
@@ -7749,7 +7749,7 @@ uint32_t SaveLdDifflist(const uintptr_t* __restrict genovec, const uintptr_t* __
     if (xor_word) {
       const uint32_t sample_idx_base = widx * kBitsPerWordD2;
       do {
-        const uint32_t sample_idx_lowbits = CTZLU(xor_word) / 2;
+        const uint32_t sample_idx_lowbits = ctzlu(xor_word) / 2;
         const uint32_t new_sample_idx = sample_idx_base + sample_idx_lowbits;
         raregeno_word |= ((cur_geno_word >> (2 * sample_idx_lowbits)) & 3) << (2 * (difflist_idx % kBitsPerWordD2));
         if (!(difflist_idx % kPglDifflistGroupSize)) {
@@ -7909,7 +7909,7 @@ uint32_t SaveOnebit(const uintptr_t* __restrict genovec, uint32_t common2_code, 
       // enable stronger loop optimizations
       const uint32_t difflist_idx_end = difflist_idx + PopcountWord(xor_word);
       while (1) {
-        const uint32_t sample_idx_lowbits = CTZLU(xor_word) / 2;
+        const uint32_t sample_idx_lowbits = ctzlu(xor_word) / 2;
         const uint32_t new_sample_idx = sample_idx_base + sample_idx_lowbits;
         if (!(difflist_idx % kBitsPerWordD2)) {
           if (!(difflist_idx % kPglDifflistGroupSize)) {
@@ -8393,7 +8393,7 @@ void AppendHphase(const uintptr_t* __restrict genovec, const uintptr_t* __restri
       if (geno_hets) {
         const uint32_t phaseinfo_halfword = R_CAST(const Halfword*, phaseinfo)[widx];
         do {
-          const uint32_t sample_idx_lowbits = CTZLU(geno_hets) / 2;
+          const uint32_t sample_idx_lowbits = ctzlu(geno_hets) / 2;
           phaseinfo_write_word |= S_CAST(uintptr_t, (phaseinfo_halfword >> sample_idx_lowbits) & k1LU) << phaseinfo_write_idx_lowbits;
           if (++phaseinfo_write_idx_lowbits == kBitsPerWord) {
             *fwrite_bufp_alias++ = phaseinfo_write_word;
@@ -8419,7 +8419,7 @@ void AppendHphase(const uintptr_t* __restrict genovec, const uintptr_t* __restri
         if (phasepresent_halfword) {
           const uint32_t phaseinfo_halfword = R_CAST(const Halfword*, phaseinfo)[widx];
           do {
-            const uint32_t sample_idx_lowbits = CTZLU(geno_hets) / 2;
+            const uint32_t sample_idx_lowbits = ctzlu(geno_hets) / 2;
             if ((phasepresent_halfword >> sample_idx_lowbits) & 1) {
               phasepresent_write_word |= k1LU << phasepresent_write_idx_lowbits;
               phaseinfo_write_word |= S_CAST(uintptr_t, (phaseinfo_halfword >> sample_idx_lowbits) & k1LU) << phaseinfo_write_idx_lowbits;

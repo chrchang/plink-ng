@@ -200,6 +200,9 @@ HEADER_INLINE char* strnul(char* str) {
 }
 #  endif
 
+#  ifdef __LP64__
+CXXCONST_CP strchrnul(const char* str, int needle);
+#  else
 HEADER_INLINE CXXCONST_CP strchrnul(const char* str, int cc) {
   const char* strchr_result = strchr(str, cc);
   if (strchr_result) {
@@ -207,6 +210,7 @@ HEADER_INLINE CXXCONST_CP strchrnul(const char* str, int cc) {
   }
   return S_CAST(CXXCONST_CP, strnul(str));
 }
+#  endif
 
 #  ifdef __cplusplus
 HEADER_INLINE char* strchrnul(char* str, int cc) {
@@ -2423,6 +2427,48 @@ PglErr SearchHeaderLine(const char* header_line_iter, const char* const* search_
 // col_descriptor is usually a pointer to argv[...][5] (first five characters
 // are "cols=").  supported_ids is a multistr.
 PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported_ids, const char* cur_flag_name, uint32_t first_col_shifted, uint32_t default_cols_mask, uint32_t prohibit_empty, void* result_ptr);
+
+
+// see http://graphics.stanford.edu/~seander/bithacks.html#ZeroInWord
+/*
+HEADER_INLINE uintptr_t WordHasZero(uintptr_t ulii) {
+  return (ulii - kMask0101) & (~ulii) & (0x80 * kMask0101);
+}
+*/
+
+// memrchr() not available on some platforms.  (This implementation also
+// includes a tweak which trades off a bit of performance around length 35 for
+// substantially better performance on the longer lines often seen in e.g. VCF
+// files, hence the _far suffix.)
+CXXCONST_CP memrchr_expected_far(const char* str_start, char needle, uintptr_t slen);
+
+#ifdef __cplusplus
+HEADER_INLINE char* memrchr_expected_far(char* str_start, char needle, uintptr_t slen) {
+  return const_cast<char*>(memrchr_expected_far(const_cast<const char*>(str_start), needle, slen));
+}
+#endif
+
+HEADER_INLINE CXXCONST_CP memrchr_maybe_short(const char* str_start, char needle, uintptr_t slen) {
+  // For very short strings (<= 10 chars or so), the basic loop tends to be
+  // faster.  (This can also be true if the needle is very likely to be in the
+  // last few characters, but if the caller knows that it can have its own loop
+  // before falling back on this function.)
+  if (slen > 10) {
+    return memrchr_expected_far(str_start, needle, slen);
+  }
+  for (uintptr_t pos = slen; pos; ) {
+    if (str_start[--pos] == needle) {
+      return S_CAST(CXXCONST_CP, &(str_start[pos]));
+    }
+  }
+  return nullptr;
+}
+
+#ifdef __cplusplus
+HEADER_INLINE char* memrchr_maybe_short(char* str_start, char needle, uintptr_t slen) {
+  return const_cast<char*>(memrchr_maybe_short(const_cast<const char*>(str_start), needle, slen));
+}
+#endif
 
 // this is technically application-dependent, but let's keep this simple for
 // now

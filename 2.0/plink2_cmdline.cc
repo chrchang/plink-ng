@@ -31,6 +31,46 @@
 namespace plink2 {
 #endif
 
+#if defined(__LP64__) && !defined(_GNU_SOURCE)
+CXXCONST_CP strchrnul(const char* str, int needle) {
+  // Don't want to perform a separate strlen operation if we can help it.
+
+  // We might read bytes past the trailing null, but that's harmless because
+  // our accesses are always vector-aligned.
+  const uintptr_t starting_addr = R_CAST(uintptr_t, str);
+  const VecC* str_viter = R_CAST(const VecC*, RoundDownPow2(starting_addr, kBytesPerVec));
+  const VecC vvec_all_zero = vecc_setzero();
+  const VecC vvec_all_needle = vecc_set1(needle);
+  const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, str_viter);
+  if (leading_byte_ct) {
+    // todo: check whether this should just be merged with the loop below.
+    const VecC cur_vvec = *str_viter;
+    const VecC zero_match_vvec = (cur_vvec == vvec_all_zero);
+    const VecC needle_match_vvec = (cur_vvec == vvec_all_needle);
+    uint32_t matching_bytes = vecc_movemask(zero_match_vvec | needle_match_vvec);
+    matching_bytes &= UINT32_MAX << leading_byte_ct;
+    if (matching_bytes) {
+      const uint32_t byte_offset_in_vec = __builtin_ctz(matching_bytes);
+      return &(R_CAST(CXXCONST_CP, str_viter)[byte_offset_in_vec]);
+    }
+    ++str_viter;
+  }
+  // This is typically short-range, so the memrchr_expected_far() double-vector
+  // strategy is unlikely to be profitable.
+  while (1) {
+    const VecC cur_vvec = *str_viter;
+    const VecC zero_match_vvec = (cur_vvec == vvec_all_zero);
+    const VecC needle_match_vvec = (cur_vvec == vvec_all_needle);
+    const uint32_t matching_bytes = vecc_movemask(zero_match_vvec | needle_match_vvec);
+    if (matching_bytes) {
+      const uint32_t byte_offset_in_vec = __builtin_ctz(matching_bytes);
+      return &(R_CAST(CXXCONST_CP, str_viter)[byte_offset_in_vec]);
+    }
+    ++str_viter;
+  }
+}
+#endif
+
 const char kErrprintfFopen[] = "Error: Failed to open %s.\n";
 
 char g_textbuf[kTextbufSize];
@@ -637,7 +677,7 @@ typedef struct WordCmp40bStruct {
       if (cur_word != rhs_word) {
         // could pre-reverse the strings?
         const uintptr_t xor_word = cur_word ^ rhs_word;
-        const uint32_t lshift = (kBitsPerWord - 8) - (CTZLU(xor_word) & (kBitsPerWord - 8));
+        const uint32_t lshift = (kBitsPerWord - 8) - (ctzlu(xor_word) & (kBitsPerWord - 8));
         return (cur_word << lshift) < (rhs_word << lshift);
       }
     } while (++idx < (40 / kBytesPerWord));
@@ -654,7 +694,7 @@ typedef struct WordCmp64bStruct {
       const uintptr_t rhs_word = rhs.words[idx];
       if (cur_word != rhs_word) {
         const uintptr_t xor_word = cur_word ^ rhs_word;
-        const uint32_t lshift = (kBitsPerWord - 8) - (CTZLU(xor_word) & (kBitsPerWord - 8));
+        const uint32_t lshift = (kBitsPerWord - 8) - (ctzlu(xor_word) & (kBitsPerWord - 8));
         return (cur_word << lshift) < (rhs_word << lshift);
       }
     } while (++idx < (64 / kBytesPerWord));
@@ -3083,7 +3123,7 @@ uintptr_t FindFirst0BitFromBounded(const uintptr_t* bitarr, uintptr_t loc, uintp
   const uintptr_t* bitarr_ptr = &(bitarr[loc / kBitsPerWord]);
   uintptr_t ulii = (~(*bitarr_ptr)) >> (loc % kBitsPerWord);
   if (ulii) {
-    loc += CTZLU(ulii);
+    loc += ctzlu(ulii);
     return MINV(loc, ceil);
   }
   const uintptr_t* bitarr_last = &(bitarr[(ceil - 1) / kBitsPerWord]);
@@ -3093,7 +3133,7 @@ uintptr_t FindFirst0BitFromBounded(const uintptr_t* bitarr, uintptr_t loc, uintp
     }
     ulii = *(++bitarr_ptr);
   } while (ulii == ~k0LU);
-  loc = S_CAST(uintptr_t, bitarr_ptr - bitarr) * kBitsPerWord + CTZLU(~ulii);
+  loc = S_CAST(uintptr_t, bitarr_ptr - bitarr) * kBitsPerWord + ctzlu(~ulii);
   return MINV(loc, ceil);
 }
 
@@ -3105,7 +3145,7 @@ int32_t FindLast1BitBeforeBounded(const uintptr_t* bitarr, uint32_t loc, int32_t
   if (remainder) {
     ulii = bzhi(*bitarr_ptr, remainder);
     if (ulii) {
-      const uint32_t set_bit_loc = (loc | (kBitsPerWord - 1)) - CLZLU(ulii);
+      const uint32_t set_bit_loc = (loc | (kBitsPerWord - 1)) - clzlu(ulii);
       return MAXV(S_CAST(int32_t, set_bit_loc), floor);
     }
   }
@@ -3116,7 +3156,7 @@ int32_t FindLast1BitBeforeBounded(const uintptr_t* bitarr, uint32_t loc, int32_t
     }
     ulii = *(--bitarr_ptr);
   } while (!ulii);
-  const uint32_t set_bit_loc = S_CAST(uintptr_t, bitarr_ptr - bitarr) * kBitsPerWord + kBitsPerWord - 1 - CLZLU(ulii);
+  const uint32_t set_bit_loc = S_CAST(uintptr_t, bitarr_ptr - bitarr) * kBitsPerWord + kBitsPerWord - 1 - clzlu(ulii);
   return MAXV(S_CAST(int32_t, set_bit_loc), floor);
 }
 
@@ -4497,7 +4537,7 @@ uintptr_t FindNth1BitFrom(const uintptr_t* bitvec, uintptr_t cur_pos, uintptr_t 
       while (--forward_ct) {
         uljj &= uljj - 1;
       }
-      ulkk = CTZLU(uljj);
+      ulkk = ctzlu(uljj);
       return widx * kBitsPerWord + ulii + ulkk;
     }
     forward_ct -= ulkk;
@@ -6755,6 +6795,86 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
   }
   free_cond(id_map);
   return reterr;
+}
+
+
+CXXCONST_CP memrchr_expected_far(const char* str_start, char needle, uintptr_t slen) {
+#ifdef __LP64__
+  const VecC vvec_all_needle = vecc_set1(needle);
+  const uintptr_t str_end_addr = R_CAST(uintptr_t, str_start) + slen;
+  const uint32_t trailing_byte_ct = str_end_addr % kBytesPerVec;
+  const VecC* str_rev_viter = R_CAST(const VecC*, RoundDownPow2(str_end_addr, kBytesPerVec));
+  if (trailing_byte_ct) {
+    // This is a GNU vector extension parallel-equality check, which gets
+    // translated to e.g. _mm256_cmpeq_epi8().
+    // As long as we're performing aligned reads, it's safe to read bytes
+    // beyond str_end as long as they're in the same vector; we only risk
+    // violating process read permissions if we cross a page boundary.
+    // (For this reason, I don't bother with AVX unaligned reads.)
+    const VecC match_vvec = (*str_rev_viter == vvec_all_needle);
+    uint32_t matching_bytes = vecc_movemask(match_vvec);
+    matching_bytes &= (1U << (trailing_byte_ct % kBytesPerVec)) - 1;
+    if (str_start > R_CAST(const char*, str_rev_viter)) {
+      const uint32_t leading_byte_ct = R_CAST(uintptr_t, str_start) % kBytesPerVec;
+      matching_bytes &= -(1U << leading_byte_ct);
+      // Special-case this, since main_loop_iter_ct below would underflow.
+      if (!matching_bytes) {
+        return nullptr;
+      }
+    }
+    if (matching_bytes) {
+      const uint32_t byte_offset_in_vec = BitScanReverse(matching_bytes);
+      return &(R_CAST(CXXCONST_CP, str_rev_viter)[byte_offset_in_vec]);
+    }
+  }
+  const uintptr_t main_loop_iter_ct = (R_CAST(uintptr_t, str_rev_viter) - R_CAST(uintptr_t, str_start)) / (2 * kBytesPerVec);
+  for (uintptr_t ulii = 0; ulii < main_loop_iter_ct; ++ulii) {
+    // For long lines, looping over two vectors at a time is most efficient on
+    // my Mac (also tried 1 and 4).
+    --str_rev_viter;
+    const VecC match_vvec1 = (*str_rev_viter == vvec_all_needle);
+    --str_rev_viter;
+    const VecC match_vvec0 = (*str_rev_viter == vvec_all_needle);
+    const uint32_t matching_bytes = vecc_movemask(match_vvec1 | match_vvec0);
+    if (matching_bytes) {
+      const uint32_t matching_bytes1 = vecc_movemask(match_vvec1);
+      if (matching_bytes1) {
+        const uint32_t byte_offset_in_vec = BitScanReverse(matching_bytes1);
+        return &(R_CAST(CXXCONST_CP, &(str_rev_viter[1]))[byte_offset_in_vec]);
+      }
+      const uint32_t byte_offset_in_vec = BitScanReverse(matching_bytes);
+      return &(R_CAST(CXXCONST_CP, str_rev_viter)[byte_offset_in_vec]);
+    }
+  }
+  while (1) {
+    uintptr_t remaining_byte_ct_underflow = R_CAST(uintptr_t, str_rev_viter) - R_CAST(uintptr_t, str_start);
+    if (S_CAST(intptr_t, remaining_byte_ct_underflow) <= 0) {
+      return nullptr;
+    }
+    --str_rev_viter;
+    const VecC match_vvec = (*str_rev_viter == vvec_all_needle);
+    const uint32_t matching_bytes = vecc_movemask(match_vvec);
+    if (matching_bytes) {
+      const uint32_t byte_offset_in_vec = BitScanReverse(matching_bytes);
+      if (byte_offset_in_vec + remaining_byte_ct_underflow < kBytesPerVec) {
+        return nullptr;
+      }
+      return &(R_CAST(CXXCONST_CP, str_rev_viter)[byte_offset_in_vec]);
+    }
+  }
+#else  // !__LP64__
+#  ifdef _GNU_SOURCE
+  return S_CAST(CXXCONST_CP, memrchr(str_start, ctou32(needle), slen));
+#  else
+  // Could check one word at a time for not-that-small slen.
+  for (uintptr_t pos = slen; pos; ) {
+    if (str_start[--pos] == needle) {
+      return S_CAST(CXXCONST_CP, &(str_start[pos]));
+    }
+  }
+  return nullptr;
+#  endif
+#endif
 }
 
 #ifdef __cplusplus

@@ -378,24 +378,24 @@ uintptr_t FindFirst1BitFrom(const uintptr_t* bitarr, uintptr_t loc) {
   const uintptr_t* bitarr_iter = &(bitarr[loc / kBitsPerWord]);
   uintptr_t ulii = (*bitarr_iter) >> (loc % kBitsPerWord);
   if (ulii) {
-    return loc + CTZLU(ulii);
+    return loc + ctzlu(ulii);
   }
   do {
     ulii = *(++bitarr_iter);
   } while (!ulii);
-  return S_CAST(uintptr_t, bitarr_iter - bitarr) * kBitsPerWord + CTZLU(ulii);
+  return S_CAST(uintptr_t, bitarr_iter - bitarr) * kBitsPerWord + ctzlu(ulii);
 }
 
 uintptr_t FindFirst0BitFrom(const uintptr_t* bitarr, uintptr_t loc) {
   const uintptr_t* bitarr_iter = &(bitarr[loc / kBitsPerWord]);
   uintptr_t ulii = (~(*bitarr_iter)) >> (loc % kBitsPerWord);
   if (ulii) {
-    return loc + CTZLU(ulii);
+    return loc + ctzlu(ulii);
   }
   do {
     ulii = *(++bitarr_iter);
   } while (ulii == ~k0LU);
-  return S_CAST(uintptr_t, bitarr_iter - bitarr) * kBitsPerWord + CTZLU(~ulii);
+  return S_CAST(uintptr_t, bitarr_iter - bitarr) * kBitsPerWord + ctzlu(~ulii);
 }
 
 /*
@@ -403,12 +403,12 @@ uintptr_t NextNonmissingUnsafe(const uintptr_t* genoarr, uintptr_t loc) {
   const uintptr_t* genoarr_iter = &(genoarr[loc / kBitsPerWordD2]);
   uintptr_t ulii = (~(*genoarr_iter)) >> (2 * (loc % kBitsPerWordD2));
   if (ulii) {
-    return loc + (CTZLU(ulii) / 2);
+    return loc + (ctzlu(ulii) / 2);
   }
   do {
     ulii = *(++genoarr_iter);
   } while (ulii == ~k0LU);
-  return S_CAST(uintptr_t, genoarr_iter - genoarr) * kBitsPerWordD2 + (CTZLU(~ulii) / 2);
+  return S_CAST(uintptr_t, genoarr_iter - genoarr) * kBitsPerWordD2 + (ctzlu(~ulii) / 2);
 }
 */
 
@@ -418,7 +418,7 @@ uint32_t FindFirst1BitFromBounded(const uintptr_t* bitarr, uint32_t loc, uint32_
   uintptr_t ulii = (*bitarr_iter) >> (loc % kBitsPerWord);
   uint32_t rval;
   if (ulii) {
-    rval = loc + CTZLU(ulii);
+    rval = loc + ctzlu(ulii);
     return MINV(rval, ceil);
   }
   const uintptr_t* bitarr_last = &(bitarr[(ceil - 1) / kBitsPerWord]);
@@ -428,7 +428,7 @@ uint32_t FindFirst1BitFromBounded(const uintptr_t* bitarr, uint32_t loc, uint32_
     }
     ulii = *(++bitarr_iter);
   } while (!ulii);
-  rval = S_CAST(uintptr_t, bitarr_iter - bitarr) * kBitsPerWord + CTZLU(ulii);
+  rval = S_CAST(uintptr_t, bitarr_iter - bitarr) * kBitsPerWord + ctzlu(ulii);
   return MINV(rval, ceil);
 }
 
@@ -441,13 +441,13 @@ uint32_t FindLast1BitBefore(const uintptr_t* bitarr, uint32_t loc) {
   if (remainder) {
     ulii = bzhi(*bitarr_iter, remainder);
     if (ulii) {
-      return (loc | (kBitsPerWord - 1)) - CLZLU(ulii);
+      return (loc | (kBitsPerWord - 1)) - clzlu(ulii);
     }
   }
   do {
     ulii = *(--bitarr_iter);
   } while (!ulii);
-  return S_CAST(uintptr_t, bitarr_iter - bitarr) * kBitsPerWord + kBitsPerWord - 1 - CLZLU(ulii);
+  return S_CAST(uintptr_t, bitarr_iter - bitarr) * kBitsPerWord + kBitsPerWord - 1 - clzlu(ulii);
 }
 
 #ifdef USE_AVX2
@@ -861,13 +861,13 @@ void CopyBitarrSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* _
     if (cur_masked_input_word) {
       const uintptr_t cur_inv_mask = ~cur_mask_word;
       do {
-        const uint32_t read_uidx_nz_start_lowbits = CTZLU(cur_masked_input_word);
+        const uint32_t read_uidx_nz_start_lowbits = ctzlu(cur_masked_input_word);
         const uintptr_t cur_inv_mask_shifted = cur_inv_mask >> read_uidx_nz_start_lowbits;
         if (!cur_inv_mask_shifted) {
           subsetted_input_word |= cur_masked_input_word >> (kBitsPerWord - cur_mask_popcount);
           break;
         }
-        const uint32_t cur_read_end = CTZLU(cur_inv_mask_shifted) + read_uidx_nz_start_lowbits;
+        const uint32_t cur_read_end = ctzlu(cur_inv_mask_shifted) + read_uidx_nz_start_lowbits;
         // this seems to optimize better than (k1LU << cur_read_end) - k1LU
         // todo: check if/when that's true elsewhere
         const uintptr_t lowmask = (~k0LU) >> (kBitsPerWord - cur_read_end);
@@ -1351,17 +1351,16 @@ void UidxsToIdxs(const uintptr_t* subset_mask, const uint32_t* subset_cumulative
 
 static_assert(kPglBitTransposeBatch == S_CAST(uint32_t, kBitsPerCacheline), "TransposeBitblockInternal() needs to be updated.");
 #ifdef __LP64__
-#  ifdef USE_AVX2
 void TransposeBitblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, void* buf0) {
   // buf must be vector-aligned and have space for 512 bytes
   const uint32_t block_ct = DivUp(write_batch_size, CHAR_BIT);
   // fold the first 6 shuffles into the initial ingestion loop
   const uint32_t read_byte_stride = read_ul_stride * kBytesPerWord;
-  const uint32_t write_ui_stride = 2 * write_ul_stride;
+  const uint32_t write_mmui_stride = kMovemaskUintPerWord * write_ul_stride;
   const uint32_t read_batch_rem = kBitsPerCacheline - read_batch_size;
-  uint32_t* target_iter0 = R_CAST(uint32_t*, write_iter);
+  MovemaskUint* target_iter0 = R_CAST(MovemaskUint*, write_iter);
   const uint32_t full_block_ct = write_batch_size / 8;
-  const uint32_t loop_vec_ct = 4 * DivUp(read_batch_size, 2 * kBitsPerWord);
+  const uint32_t loop_vec_ct = 4 * DivUp(read_batch_size, kBytesPerVec * 4);
   for (uint32_t block_idx = 0; block_idx < block_ct; ++block_idx) {
     const unsigned char* read_iter_tmp = R_CAST(const unsigned char*, read_iter);
     read_iter_tmp = &(read_iter_tmp[block_idx]);
@@ -1371,21 +1370,21 @@ void TransposeBitblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stri
       read_iter_tmp = &(read_iter_tmp[read_byte_stride]);
     }
     memset(initial_target_iter, 0, read_batch_rem);
-    const __m256i* source_iter = S_CAST(__m256i*, buf0);
+    const VecUL* source_iter = S_CAST(VecUL*, buf0);
     if (block_idx == full_block_ct) {
       const uint32_t remainder = write_batch_size % 8;
       const uint32_t remainder_from8 = 8 - remainder;
       const uint32_t remainder_m1 = remainder - 1;
       for (uint32_t vec_idx = 0; vec_idx < loop_vec_ct; ++vec_idx) {
-        __m256i loader = *source_iter++;
-        loader = _mm256_slli_epi64(loader, remainder_from8);
+        VecUL loader = *source_iter++;
+        loader = vecul_slli(loader, remainder_from8);
         uint32_t write_idx_lowbits = remainder_m1;
         while (1) {
-          target_iter0[write_ui_stride * write_idx_lowbits] = _mm256_movemask_epi8(loader);
+          target_iter0[write_mmui_stride * write_idx_lowbits] = vecul_movemask(loader);
           if (!write_idx_lowbits) {
             break;
           }
-          loader = _mm256_slli_epi64(loader, 1);
+          loader = vecul_slli(loader, 1);
           --write_idx_lowbits;
         }
         ++target_iter0;
@@ -1393,104 +1392,34 @@ void TransposeBitblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stri
       break;
     }
 
-    uint32_t* target_iter1 = &(target_iter0[write_ui_stride]);
-    uint32_t* target_iter2 = &(target_iter1[write_ui_stride]);
-    uint32_t* target_iter3 = &(target_iter2[write_ui_stride]);
-    uint32_t* target_iter4 = &(target_iter3[write_ui_stride]);
-    uint32_t* target_iter5 = &(target_iter4[write_ui_stride]);
-    uint32_t* target_iter6 = &(target_iter5[write_ui_stride]);
-    uint32_t* target_iter7 = &(target_iter6[write_ui_stride]);
+    MovemaskUint* target_iter1 = &(target_iter0[write_mmui_stride]);
+    MovemaskUint* target_iter2 = &(target_iter1[write_mmui_stride]);
+    MovemaskUint* target_iter3 = &(target_iter2[write_mmui_stride]);
+    MovemaskUint* target_iter4 = &(target_iter3[write_mmui_stride]);
+    MovemaskUint* target_iter5 = &(target_iter4[write_mmui_stride]);
+    MovemaskUint* target_iter6 = &(target_iter5[write_mmui_stride]);
+    MovemaskUint* target_iter7 = &(target_iter6[write_mmui_stride]);
     for (uint32_t vec_idx = 0; vec_idx < loop_vec_ct; ++vec_idx) {
-      __m256i loader = source_iter[vec_idx];
-      target_iter7[vec_idx] = _mm256_movemask_epi8(loader);
-      loader = _mm256_slli_epi64(loader, 1);
-      target_iter6[vec_idx] = _mm256_movemask_epi8(loader);
-      loader = _mm256_slli_epi64(loader, 1);
-      target_iter5[vec_idx] = _mm256_movemask_epi8(loader);
-      loader = _mm256_slli_epi64(loader, 1);
-      target_iter4[vec_idx] = _mm256_movemask_epi8(loader);
-      loader = _mm256_slli_epi64(loader, 1);
-      target_iter3[vec_idx] = _mm256_movemask_epi8(loader);
-      loader = _mm256_slli_epi64(loader, 1);
-      target_iter2[vec_idx] = _mm256_movemask_epi8(loader);
-      loader = _mm256_slli_epi64(loader, 1);
-      target_iter1[vec_idx] = _mm256_movemask_epi8(loader);
-      loader = _mm256_slli_epi64(loader, 1);
-      target_iter0[vec_idx] = _mm256_movemask_epi8(loader);
+      VecUL loader = source_iter[vec_idx];
+      target_iter7[vec_idx] = vecul_movemask(loader);
+      loader = vecul_slli(loader, 1);
+      target_iter6[vec_idx] = vecul_movemask(loader);
+      loader = vecul_slli(loader, 1);
+      target_iter5[vec_idx] = vecul_movemask(loader);
+      loader = vecul_slli(loader, 1);
+      target_iter4[vec_idx] = vecul_movemask(loader);
+      loader = vecul_slli(loader, 1);
+      target_iter3[vec_idx] = vecul_movemask(loader);
+      loader = vecul_slli(loader, 1);
+      target_iter2[vec_idx] = vecul_movemask(loader);
+      loader = vecul_slli(loader, 1);
+      target_iter1[vec_idx] = vecul_movemask(loader);
+      loader = vecul_slli(loader, 1);
+      target_iter0[vec_idx] = vecul_movemask(loader);
     }
-    target_iter0 = &(target_iter7[write_ui_stride]);
+    target_iter0 = &(target_iter7[write_mmui_stride]);
   }
 }
-#  else  // !USE_AVX2
-void TransposeBitblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, void* buf0) {
-  // buf must be vector-aligned and have space for 512 bytes
-  const uint32_t block_ct = DivUp(write_batch_size, CHAR_BIT);
-  // fold the first 6 shuffles into the initial ingestion loop
-  const uint32_t read_byte_stride = read_ul_stride * kBytesPerWord;
-  const uint32_t write_us_stride = 4 * write_ul_stride;
-  const uint32_t read_batch_rem = kBitsPerCacheline - read_batch_size;
-  uint16_t* target_iter0 = R_CAST(uint16_t*, write_iter);
-  const uint32_t full_block_ct = write_batch_size / 8;
-  const uint32_t loop_vec_ct = 4 * BitCtToWordCt(read_batch_size);
-  for (uint32_t block_idx = 0; block_idx < block_ct; ++block_idx) {
-    const unsigned char* read_iter_tmp = R_CAST(const unsigned char*, read_iter);
-    read_iter_tmp = &(read_iter_tmp[block_idx]);
-    unsigned char* initial_target_iter = S_CAST(unsigned char*, buf0);
-    for (uint32_t ujj = 0; ujj < read_batch_size; ++ujj) {
-      *initial_target_iter++ = *read_iter_tmp;
-      read_iter_tmp = &(read_iter_tmp[read_byte_stride]);
-    }
-    memset(initial_target_iter, 0, read_batch_rem);
-    const __m128i* source_iter = S_CAST(__m128i*, buf0);
-    if (block_idx == full_block_ct) {
-      const uint32_t remainder = write_batch_size % 8;
-      const uint32_t remainder_from8 = 8 - remainder;
-      const uint32_t remainder_m1 = remainder - 1;
-      for (uint32_t vec_idx = 0; vec_idx < loop_vec_ct; ++vec_idx) {
-        __m128i loader = *source_iter++;
-        loader = _mm_slli_epi64(loader, remainder_from8);
-        uint32_t write_idx_lowbits = remainder_m1;
-        while (1) {
-          target_iter0[write_us_stride * write_idx_lowbits] = _mm_movemask_epi8(loader);
-          if (!write_idx_lowbits) {
-            break;
-          }
-          loader = _mm_slli_epi64(loader, 1);
-          --write_idx_lowbits;
-        }
-        ++target_iter0;
-      }
-      break;
-    }
-    uint16_t* target_iter1 = &(target_iter0[write_us_stride]);
-    uint16_t* target_iter2 = &(target_iter1[write_us_stride]);
-    uint16_t* target_iter3 = &(target_iter2[write_us_stride]);
-    uint16_t* target_iter4 = &(target_iter3[write_us_stride]);
-    uint16_t* target_iter5 = &(target_iter4[write_us_stride]);
-    uint16_t* target_iter6 = &(target_iter5[write_us_stride]);
-    uint16_t* target_iter7 = &(target_iter6[write_us_stride]);
-    for (uint32_t vec_idx = 0; vec_idx < loop_vec_ct; ++vec_idx) {
-      __m128i loader = source_iter[vec_idx];
-      target_iter7[vec_idx] = _mm_movemask_epi8(loader);
-      loader = _mm_slli_epi64(loader, 1);
-      target_iter6[vec_idx] = _mm_movemask_epi8(loader);
-      loader = _mm_slli_epi64(loader, 1);
-      target_iter5[vec_idx] = _mm_movemask_epi8(loader);
-      loader = _mm_slli_epi64(loader, 1);
-      target_iter4[vec_idx] = _mm_movemask_epi8(loader);
-      loader = _mm_slli_epi64(loader, 1);
-      target_iter3[vec_idx] = _mm_movemask_epi8(loader);
-      loader = _mm_slli_epi64(loader, 1);
-      target_iter2[vec_idx] = _mm_movemask_epi8(loader);
-      loader = _mm_slli_epi64(loader, 1);
-      target_iter1[vec_idx] = _mm_movemask_epi8(loader);
-      loader = _mm_slli_epi64(loader, 1);
-      target_iter0[vec_idx] = _mm_movemask_epi8(loader);
-    }
-    target_iter0 = &(target_iter7[write_us_stride]);
-  }
-}
-#  endif
 #else  // !__LP64__
 static_assert(kWordsPerVec == 1, "TransposeBitblockInternal() needs to be updated.");
 void TransposeBitblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecUL* __restrict buf0, VecUL* __restrict buf1) {

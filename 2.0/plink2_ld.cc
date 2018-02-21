@@ -2697,7 +2697,7 @@ void DosagePhaseinfoPatch(const uintptr_t* phasepresent, const uintptr_t* phasei
       const uintptr_t phaseinfo_word = phaseinfo[widx];
       const uint32_t sample_idx_offset = widx * kBitsPerWord;
       do {
-        const uint32_t sample_idx_lowbits = CTZLU(phasepresent_nodosage_word);
+        const uint32_t sample_idx_lowbits = ctzlu(phasepresent_nodosage_word);
         const uint32_t cur_diff = 49152 - ((phaseinfo_word >> sample_idx_lowbits) & 1) * 32768;
         const uint32_t sample_idx = sample_idx_offset + sample_idx_lowbits;
         dosage_uhet[sample_idx] = 0;

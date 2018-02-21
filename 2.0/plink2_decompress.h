@@ -96,8 +96,9 @@ BoolErr CloseGzTokenStream(GzTokenStream* gtsp);
 
 // Suppose the maximum line length is 1000 MB.  Then,
 // * We open the file, and initialize a shared buffer of size 1001 MB, where
-//   the read-head, available-head, and consume pointers start at position 0,
-//   and the read-stop pointer is at the buffer end.
+//   the read-head, available-end, and consume pointers start at position 0,
+//   and the read-stop pointer is one byte before the buffer end (extra byte to
+//   allow for '\n'-append).
 // * We launch a reader thread which owns the file object.  It decompresses the
 //   first 1 MB into positions [0, 1 MB) in the shared buffer, and then checks
 //   for a '\n'.  If there isn't one, it decompresses the next 1 MB into
@@ -105,71 +106,84 @@ BoolErr CloseGzTokenStream(GzTokenStream* gtsp);
 //   eventually throw a LongLine error.
 // * Otherwise... suppose that the last '\n' is at position 3145000.  We had
 //   read (and possibly decompressed) up to (but not including) position
-//   3145728 in the buffer, so we set the available-head pointer to position
-//   3145001, and set the line-available event.  Since this is past 1 MB, the
+//   3145728 in the buffer, so we set the available-end pointer to position
+//   3145001, and set the reader-progress event.  Since this is past 1 MB, the
 //   next line is not guaranteed to fit in the buffer, so while we can continue
 //   reading forward, we need to be prepared to copy the new bytes back to the
 //   beginning.
 // * The consumer's initial RLstreamGet() call probably happens before the
 //   first read operation has completed.  It sees that the consume pointer is
-//   equal to available-head, so it waits on the line-available event.  Once
+//   equal to available-end, so it waits on the reader-progress event.  Once
 //   that's set, it returns.  (Note that no null-terminators are inserted; the
 //   only properties that make this a 'ReadLineStream' instead of a generic
 //   decompressor are (i) each successful return is guaranteed to end in '\n'
 //   (one will be appended at eof if necessary), and (ii) the reader thread may
 //   throw a LongLine error.)
-// * The consumer sets the consume-done event once the consume pointer has
-//   caught up to available-head, and waits on line-available.
+// * The consumer sets the consumer-progress event once the consume pointer has
+//   caught up to available-end, and waits on reader-progress.
 // * The reader thread reads/decompresses the next 1 MB, checks for '\n',
 //   reads an additional 1 MB if it's absent, etc., until it (i) finds another
 //   '\n' or eof (in which case a '\n' is appended), or (ii) hits the read-stop
-//   pointer.  Then it waits on the consume-done event; once that returns
+//   pointer.  Then it waits on the consumer-progress event; once that returns
 //   (usually instant if decompressing),
 //   - in case (ii), it memmoves bytes back if read-stop == end-of-buffer, and
 //     sets read-stop := end-of-buffer otherwise.  Either way, it continues
 //     with reading until '\n'/eof or a LongLine error.
-//   - in case (i), the available-head pointer is set one byte past the last
-//     '\n', the line-available event is set, and if eof we set at_eof and
+//   - in case (i), the available-end pointer is set one byte past the last
+//     '\n', the reader-progress event is set, and if eof we set at_eof and
 //     return from the thread function.
-//     If not eof, we check the old position of the available-head pointer.  If
+//     If not eof, we check the old position of the available-end pointer.  If
 //     it's before the 1 MB mark, we continue reading forward.  Otherwise, we
-//     memcpy the trailing bytes (at or past the new available-head position)
+//     memcpy the trailing bytes (at or past the new available-end position)
 //     to the beginning of the buffer, set the read-stop pointer to the old
-//     available-head position rounded down to a cacheline boundary, and
+//     available-end position rounded down to a cacheline boundary, and
 //     continue reading from the end of the copied trailing bytes.
 
 // (tested a few different values for this, 1 MB appears to work well on the
 // systems we care most about)
 CONSTU31(kDecompressChunkSize, 1048576);
 
+typedef struct ReadLineStreamSyncStruct {
+  // Everything guarded by the mutex.  Allocated to a different cacheline than
+  // consume_stop.
+
+#ifdef _WIN32
+  CRITICAL_SECTION critical_section;
+  HANDLE reader_progress_event;
+  HANDLE consumer_progress_event;
+#else
+  pthread_mutex_t sync_mutex;
+  pthread_cond_t reader_progress_condvar;
+  pthread_cond_t consumer_progress_condvar;
+#endif
+
+  char* consume_tail;
+  char* cur_circular_end;
+  char* available_end;
+  PglErr reterr;  // kPglRetSkipped used for eof for now
+
+  // 1 = continue reading normally, 2 = tell reader to rewind, 3 = tell it to
+  // exit immediately
+  // probably make this an enum
+  // could add a "close current file and open another one" case
+  uint32_t consumer_status;
+} ReadLineStreamSync;
+
 // To minimize false (or true) sharing penalties, these values shouldn't change
 // much; only the things they point to should be frequently changing.
 typedef struct ReadLineStreamStruct {
-  // ** These variables are owned by the reader thread.
+  // Positioned first so the compiler doesn't need to add an offset to compare
+  // to this.
+  char* consume_stop;
+
+  ReadLineStreamSync* syncp;
+
   gzFile gz_infile;
   // This is aimed at (usually uncompressed) text files, so just use char*
   // instead of unsigned char*.
   char* buf;
   char* buf_end;
 
-  // ** These variables are shared between the reader and the consumer.
-  char* available_head;
-#ifdef _WIN32
-  HANDLE line_available_event;
-  HANDLE consume_done_event;
-#else
-  pthread_mutex_t sync_mutex;
-  // these two variables are guarded by sync_mutex
-  pthread_cond_t line_available_condvar;
-  pthread_cond_t consume_done_condvar;
-#endif
-  // 1 = rewind, 2 = exit immediately
-  uint32_t rewind_or_interrupt;
-  uint32_t at_eof;
-
-  PglErr reterr;
-
-  // ** These variables are owned by the consumer.
   pthread_t read_thread;
 #ifndef _WIN32
   uint32_t sync_init_state;
@@ -177,6 +191,26 @@ typedef struct ReadLineStreamStruct {
 } ReadLineStream;
 
 void PreinitRLstream(ReadLineStream* rlsp);
+
+PglErr AdvanceRLstream(ReadLineStream* rlsp, char** read_iterp);
+
+HEADER_INLINE PglErr ReadFromRLstream(ReadLineStream* rlsp, char** read_iterp) {
+  if (*read_iterp != rlsp->consume_stop) {
+    return kPglRetSuccess;
+  }
+  return AdvanceRLstream(rlsp, read_iterp);
+}
+
+// If read_iter was not previously advanced to the byte past the end of the
+// most recently read line.
+HEADER_INLINE PglErr ReadNextLineFromRLstream(ReadLineStream* rlsp, char** read_iterp) {
+  *read_iterp = &(S_CAST(char*, rawmemchr(*read_iterp, '\n'))[1]);
+  return ReadFromRLstream(rlsp, read_iterp);
+}
+
+PglErr RewindRLstream(ReadLineStream* rlsp, char** read_iterp);
+
+PglErr CleanupRLstream(ReadLineStream* rlsp);
 */
 
 #ifdef __cplusplus

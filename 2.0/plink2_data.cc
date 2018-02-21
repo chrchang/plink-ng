@@ -998,7 +998,7 @@ void UnpackAndResortHphase(const uintptr_t* __restrict all_hets, const uintptr_t
       read_idx_lowbits = read_idx_lowbits_end % kBitsPerWord;
       if (!sample_include) {
         while (new_phasepresent_word) {
-          const uint32_t sample_uidx_lowbits = CTZLU(new_phasepresent_word);
+          const uint32_t sample_uidx_lowbits = ctzlu(new_phasepresent_word);
           if (tmp_phaseinfo_input_word & 1) {
             SetBit(old_sample_idx_to_new_iter[sample_uidx_lowbits], phaseinfo);
           }
@@ -1008,7 +1008,7 @@ void UnpackAndResortHphase(const uintptr_t* __restrict all_hets, const uintptr_t
       } else {
         uintptr_t masked_phasepresent_word = new_phasepresent_word & sample_include[widx];
         while (masked_phasepresent_word) {
-          const uint32_t sample_uidx_lowbits = CTZLU(masked_phasepresent_word);
+          const uint32_t sample_uidx_lowbits = ctzlu(masked_phasepresent_word);
           const uintptr_t lowmask = (k1LU << sample_uidx_lowbits) - k1LU;
           if ((tmp_phaseinfo_input_word >> PopcountWord(new_phasepresent_word & lowmask)) & 1) {
             SetBit(old_sample_idx_to_new_iter[sample_uidx_lowbits], phaseinfo);
@@ -1064,7 +1064,7 @@ void UnpackAndResortHphase(const uintptr_t* __restrict all_hets, const uintptr_t
         if (!sample_include) {
           while (1) {
             if (tmp_phasepresent_input_word & 1) {
-              const uint32_t new_sample_idx = old_sample_idx_to_new_iter[CTZLU(geno_hets)];
+              const uint32_t new_sample_idx = old_sample_idx_to_new_iter[ctzlu(geno_hets)];
               SetBit(new_sample_idx, phasepresent);
               if (tmp_phaseinfo_input_word & 1) {
                 SetBit(new_sample_idx, phaseinfo);
@@ -1081,7 +1081,7 @@ void UnpackAndResortHphase(const uintptr_t* __restrict all_hets, const uintptr_t
           const uintptr_t sample_include_word = sample_include[widx];
           while (1) {
             if (tmp_phasepresent_input_word & 1) {
-              const uint32_t sample_uidx_lowbits = CTZLU(geno_hets);
+              const uint32_t sample_uidx_lowbits = ctzlu(geno_hets);
               if ((sample_include_word >> sample_uidx_lowbits) & 1) {
                 const uint32_t new_sample_idx = old_sample_idx_to_new_iter[sample_uidx_lowbits];
                 SetBit(new_sample_idx, phasepresent);

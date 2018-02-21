@@ -232,7 +232,7 @@ void SetHetMissingKeepdosage(uintptr_t word_ct, uintptr_t* __restrict genovec, u
     if (new_dosagepresent_word) {
       dosagepresent_alias[widx] = PackWordToHalfword(new_dosagepresent_word);
       do {
-        const uint32_t leading_zeroes = CLZLU(new_dosagepresent_word);
+        const uint32_t leading_zeroes = clzlu(new_dosagepresent_word);
         const uintptr_t cur_bit_word = (k1LU << (kBitsPerWord - 1)) >> leading_zeroes;
         Dosage cur_dosage = kDosageMid;
         if (cur_bit_word & dosagepresent_word) {
@@ -1460,7 +1460,7 @@ void SetMaleHetMissingKeepdosage(const uintptr_t* __restrict sex_male, const uin
     if (new_dosagepresent_word) {
       dosagepresent_alias[widx] = PackWordToHalfword(new_dosagepresent_word);
       do {
-        const uint32_t leading_zeroes = CLZLU(new_dosagepresent_word);
+        const uint32_t leading_zeroes = clzlu(new_dosagepresent_word);
         const uintptr_t cur_bit_word = (k1LU << (kBitsPerWord - 1)) >> leading_zeroes;
         Dosage cur_dosage = kDosageMid;
         if (cur_bit_word & dosagepresent_word) {

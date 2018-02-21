@@ -91,7 +91,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 301
+#define PLINK2_BASE_VERNUM 302
 
 
 #define _FILE_OFFSET_BITS 64
@@ -110,9 +110,9 @@
 #include <assert.h>
 
 #ifdef _WIN32
-  // needed for MEMORYSTATUSEX
+  // needed for EnterCriticalSection, etc.
 #  ifndef _WIN64
-#    define WINVER 0x0500
+#    define WINVER 0x0501
 #  else
 #    define __LP64__
 #  endif
@@ -439,11 +439,21 @@ typedef uint32_t BoolErr;
 #endif
 
 #ifdef _WIN64
-#  define CTZLU __builtin_ctzll
-#  define CLZLU __builtin_clzll
+HEADER_INLINE int32_t ctzlu(unsigned long long ullii) {
+  return __builtin_ctzll(ullii);
+}
+
+HEADER_INLINE int32_t clzlu(unsigned long long ullii) {
+  return __builtin_clzll(ullii);
+}
 #else
-#  define CTZLU __builtin_ctzl
-#  define CLZLU __builtin_clzl
+HEADER_INLINE int32_t ctzlu(unsigned long ulii) {
+  return __builtin_ctzl(ulii);
+}
+
+HEADER_INLINE int32_t clzlu(unsigned long ulii) {
+  return __builtin_clzl(ulii);
+}
 #  ifndef __LP64__
     // needed to prevent GCC 6 build failure
 #    if (__GNUC__ <= 4) && (__GNUC_MINOR__ < 8)
@@ -573,40 +583,113 @@ typedef uint32_t Halfword;
 typedef uint16_t Quarterword;
 
 #  ifdef USE_AVX2
-// todo: check if _mm256_set1_... makes a difference, and if yes, which
-// direction
+
+// _mm256_set1_... seems to have the same performance; could use that instead.
 #    define VCONST_UL(xx) {xx, xx, xx, xx}
 #    define VCONST_S(xx) {xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx}
 #    define VCONST_C(xx) {xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx}
-#    define vecul_setzero() R_CAST(VecUL, _mm256_setzero_si256())
-#    define vecul_srli(vv, ct) R_CAST(VecUL, _mm256_srli_epi64(R_CAST(__m256i, vv), ct))
-#    define vecul_slli(vv, ct) R_CAST(VecUL, _mm256_slli_epi64(R_CAST(__m256i, vv), ct))
+
+// vv = VCONST_UL(k0LU) doesn't work (only ok for initialization)
+HEADER_INLINE VecUL vecul_setzero() {
+  return R_CAST(VecUL, _mm256_setzero_si256());
+}
+
+HEADER_INLINE VecC vecc_setzero() {
+  return R_CAST(VecC, _mm256_setzero_si256());
+}
+
+// "vv >> ct" doesn't work, and Scientific Linux gcc 4.4 might not optimize
+// VCONST_UL shift properly (todo: test this)
+HEADER_INLINE VecUL vecul_srli(VecUL vv, uint32_t ct) {
+  return R_CAST(VecUL, _mm256_srli_epi64(R_CAST(__m256i, vv), ct));
+}
+
+HEADER_INLINE VecUL vecul_slli(VecUL vv, uint32_t ct) {
+  return R_CAST(VecUL, _mm256_slli_epi64(R_CAST(__m256i, vv), ct));
+}
+
+HEADER_INLINE VecC vecc_set1(char cc) {
+  return R_CAST(VecC, _mm256_set1_epi8(cc));
+}
+
+HEADER_INLINE uint32_t vecul_movemask(VecUL vv) {
+  return _mm256_movemask_epi8(R_CAST(__m256i, vv));
+}
+
+HEADER_INLINE uint32_t vecc_movemask(VecC vv) {
+  return _mm256_movemask_epi8(R_CAST(__m256i, vv));
+}
+
+typedef uint32_t MovemaskUint;
+
 #  else
+
 #    define VCONST_UL(xx) {xx, xx}
 #    define VCONST_S(xx) {xx, xx, xx, xx, xx, xx, xx, xx}
 #    define VCONST_C(xx) {xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx, xx}
-// vv = VCONST_UL(k0LU) doesn't work (only ok for initialization)
-#    define vecul_setzero() R_CAST(VecUL, _mm_setzero_si128())
-// "vv >> ct" doesn't work, and Scientific Linux gcc 4.4 might not optimize
-// VCONST_UL shift properly (todo: test this)
-#    define vecul_srli(vv, ct) R_CAST(VecUL, _mm_srli_epi64(R_CAST(__m128i, vv), ct))
-#    define vecul_slli(vv, ct) R_CAST(VecUL, _mm_slli_epi64(R_CAST(__m128i, vv), ct))
+
+HEADER_INLINE VecUL vecul_setzero() {
+  return R_CAST(VecUL, _mm_setzero_si128());
+}
+
+HEADER_INLINE VecC vecc_setzero() {
+  return R_CAST(VecC, _mm_setzero_si128());
+}
+
+HEADER_INLINE VecUL vecul_srli(VecUL vv, uint32_t ct) {
+  return R_CAST(VecUL, _mm_srli_epi64(R_CAST(__m128, vv), ct));
+}
+
+HEADER_INLINE VecUL vecul_slli(VecUL vv, uint32_t ct) {
+  return R_CAST(VecUL, _mm_slli_epi64(R_CAST(__m128i, vv), ct));
+}
+
+HEADER_INLINE VecC vecc_set1(char cc) {
+  return R_CAST(VecC, _mm_set1_epi8(cc));
+}
+
+HEADER_INLINE uint32_t vecul_movemask(VecUL vv) {
+  return _mm_movemask_epi8(R_CAST(__m128i, vv));
+}
+
+HEADER_INLINE uint32_t vecc_movemask(VecC vv) {
+  return _mm_movemask_epi8(R_CAST(__m128i, vv));
+}
+
+typedef uint16_t MovemaskUint;
+
 #  endif
 
+CONSTU31(kMovemaskUintPerWord, sizeof(intptr_t) / sizeof(MovemaskUint));
+
 #  ifdef FVEC_32
+
 #    ifndef __FMA__
 #      error "32-byte-float-vector builds require FMA3 as well."
 #    endif
+
 CONSTU31(kBytesPerFVec, 32);
 typedef float VecF __attribute__ ((vector_size (32)));
+
 #    define VCONST_F(xx) {xx, xx, xx, xx, xx, xx, xx, xx}
-#    define vecf_setzero() R_CAST(VecF, _mm256_setzero_ps())
+
+HEADER_INLINE VecF vecf_setzero() {
+  return R_CAST(VecF, _mm256_setzero_ps());
+}
+
 #  else
+
 CONSTU31(kBytesPerFVec, 16);
 typedef float VecF __attribute__ ((vector_size (16)));
+
 #    define VCONST_F(xx) {xx, xx, xx, xx}
-#    define vecf_setzero() R_CAST(VecF, _mm_setzero_ps())
+
+HEADER_INLINE VecF vecf_setzero() {
+  return R_CAST(VecF, _mm_setzero_ps());
+}
+
 #  endif
+
 #else  // not __LP64__
 CONSTU31(kBytesPerVec, 4);
 CONSTU31(kBytesPerFVec, 4);
@@ -621,9 +704,18 @@ typedef float VecF;
 // VecS and VecC aren't worth the trouble of scaling down to 32-bit
 
 #  define VCONST_UL(xx) (xx)
-#  define vecul_setzero() k0LU
-#  define vecul_srli(vv, ct) ((vv) >> (ct))
-#  define vecul_slli(vv, ct) ((vv) << (ct))
+
+HEADER_INLINE VecUL vecul_setzero() {
+  return k0LU;
+}
+
+HEADER_INLINE VecUL vecul_srli(VecUL vv, uint32_t ct) {
+  return vv >> ct;
+}
+
+HEADER_INLINE VecUL vecul_slli(VecUL vv, uint32_t ct) {
+  return vv << ct;
+}
 #endif
 
 // Unfortunately, we need to spell out S_CAST(uintptr_t, 0) instead of just
@@ -777,6 +869,11 @@ HEADER_INLINE Halfword PackWordToHalfword(uintptr_t ww) {
   return S_CAST(Halfword, ww | (ww >> kBitsPerWordD4));
 }
 #endif  // !USE_AVX2
+
+// this should always compile down to bsr?
+HEADER_INLINE int32_t BitScanReverse(int32_t ii) {
+  return 31 - __builtin_clz(ii);
+}
 
 // alignment must be a power of 2
 // tried splitting out RoundDownPow2U32() and RoundUpPow2U32() functions, no
