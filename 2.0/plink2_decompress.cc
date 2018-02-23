@@ -145,7 +145,9 @@ BoolErr CloseGzTokenStream(GzTokenStream* gtsp) {
 
 void PreinitRLstream(ReadLineStream* rlsp) {
   rlsp->gz_infile = nullptr;
+#ifndef _WIN32
   rlsp->sync_init_state = 0;
+#endif
 }
 
 THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
