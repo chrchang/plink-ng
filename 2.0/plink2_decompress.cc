@@ -331,55 +331,58 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
     read_head = buf;
     read_stop = buf_end;
     continue;
-  ReadLineStreamThread_SYNC_BEFORE_CONTINUING_READ:
-    // We cannot continue reading forward.  Cases:
-    // 1. read_stop == buf_end, cur_block_start != buf.  This means we're
-    //    in the middle of reading/decompressing a really long line, and
-    //    want to wait for consume_tail == cur_block_start so we can memmove
-    //    all the bytes back and continue reading forward.
-    // 2. read_stop == buf_end, cur_block_start == buf.  We failed with a
-    //    long-line error here.
-    // 3. read_stop < buf_end (usual case).  This means the consumer may
-    //    not be done handling some bytes-in-front we handed off earlier.  We
-    //    are waiting for consume_tail <= cur_block_start, which means all
-    //    bytes in front have been consumed and we're free to continue reading
-    //    forward.
-    char* lbound = (read_stop == buf_end)? cur_block_start : buf;
-    char* latest_consume_tail;
+    {
+      char* lbound;
+    ReadLineStreamThread_SYNC_BEFORE_CONTINUING_READ:
+      // We cannot continue reading forward.  Cases:
+      // 1. read_stop == buf_end, cur_block_start != buf.  This means we're
+      //    in the middle of reading/decompressing a really long line, and
+      //    want to wait for consume_tail == cur_block_start so we can memmove
+      //    all the bytes back and continue reading forward.
+      // 2. read_stop == buf_end, cur_block_start == buf.  We failed with a
+      //    long-line error here.
+      // 3. read_stop < buf_end (usual case).  This means the consumer may
+      //    not be done handling some bytes-in-front we handed off earlier.  We
+      //    are waiting for consume_tail <= cur_block_start, which means all
+      //    bytes in front have been consumed and we're free to continue
+      //    reading forward.
+      lbound = (read_stop == buf_end)? cur_block_start : buf;
+      char* latest_consume_tail;
 #ifdef _WIN32
-    do {
-      WaitForSingleObject(consumer_progress_event, INFINITE);
-      EnterCriticalSection(critical_sectionp);
-      interrupt = syncp->interrupt;
-      if (interrupt != kRlsInterruptNone) {
-        goto ReadLineStreamThread_INTERRUPT;
-      }
-      latest_consume_tail = syncp->consume_tail;
-      LeaveCriticalSection(critical_sectionp);
-    } while ((latest_consume_tail > cur_block_start) || (latest_consume_tail < lbound));
+      do {
+        WaitForSingleObject(consumer_progress_event, INFINITE);
+        EnterCriticalSection(critical_sectionp);
+        interrupt = syncp->interrupt;
+        if (interrupt != kRlsInterruptNone) {
+          goto ReadLineStreamThread_INTERRUPT;
+        }
+        latest_consume_tail = syncp->consume_tail;
+        LeaveCriticalSection(critical_sectionp);
+      } while ((latest_consume_tail > cur_block_start) || (latest_consume_tail < lbound));
 #else
-    pthread_mutex_lock(sync_mutexp);
-    interrupt = syncp->interrupt;
-    if (interrupt != kRlsInterruptNone) {
-      goto ReadLineStreamThread_INTERRUPT;
-    }
-    do {
-      pthread_cond_wait(consumer_progress_condvarp, sync_mutexp);
+      pthread_mutex_lock(sync_mutexp);
       interrupt = syncp->interrupt;
       if (interrupt != kRlsInterruptNone) {
         goto ReadLineStreamThread_INTERRUPT;
       }
-      latest_consume_tail = syncp->consume_tail;
-    } while ((latest_consume_tail > cur_block_start) || (latest_consume_tail < lbound));
-    pthread_mutex_unlock(sync_mutexp);
+      do {
+        pthread_cond_wait(consumer_progress_condvarp, sync_mutexp);
+        interrupt = syncp->interrupt;
+        if (interrupt != kRlsInterruptNone) {
+          goto ReadLineStreamThread_INTERRUPT;
+        }
+        latest_consume_tail = syncp->consume_tail;
+      } while ((latest_consume_tail > cur_block_start) || (latest_consume_tail < lbound));
+      pthread_mutex_unlock(sync_mutexp);
 #endif
-    if (read_stop == buf_end) {
-      const uintptr_t cur_len = read_head - cur_block_start;
-      memmove(buf, cur_block_start, cur_len);
-      cur_block_start = buf;
-      read_head = &(buf[cur_len]);
-    } else {
-      read_stop = buf_end;
+      if (read_stop == buf_end) {
+        const uintptr_t cur_len = read_head - cur_block_start;
+        memmove(buf, cur_block_start, cur_len);
+        cur_block_start = buf;
+        read_head = &(buf[cur_len]);
+      } else {
+        read_stop = buf_end;
+      }
     }
   }
 }

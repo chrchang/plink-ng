@@ -108,7 +108,7 @@ CXXCONST_VOIDP rawmemchr2(const void* ss, unsigned char ucc1, unsigned char ucc2
 }
 #else
 CXXCONST_VOIDP rawmemchr2(const void* ss, unsigned char ucc1, unsigned char ucc2) {
-  const unsigned char* ss_iter = S_CAST(unsigned char*, ss);
+  const unsigned char* ss_iter = S_CAST(const unsigned char*, ss);
   while (1) {
     unsigned char ucc = *ss_iter;
     if ((ucc == ucc1) || (ucc == ucc2)) {
