@@ -1438,7 +1438,6 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         }
         goto VcfToPgen_ret_READ_RLSTREAM;
       }
-      char* cur_line_end = AdvPastDelim(line_start, '\n');
       if (ctou32(*line_start) < 32) {
         continue;
       }
