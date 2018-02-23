@@ -60,8 +60,8 @@
 
 // Additional parameter conventions:
 // - "quaterarr" indicates a word-aligned, packed array of 2-bit values, while
-//   "quatervec" is the vector-aligned equivalent.  Similarly, "hexadecarr"
-//   marks the much rarer case of a packed array of 4-bit values, etc.
+//   "quatervec" is the vector-aligned equivalent.  "nibblearr" marks the much
+//   rarer case of a packed array of 4-bit values.
 // - "quatervec_01" indicates a packed, vector-aligned array of 2-bit values
 //   where each value is zero or one.  This data structure was used quite a bit
 //   bit by plink 1.9 for operating on a subset of a 2-bit-genotype array.
@@ -76,7 +76,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 801
+#define PGENLIB_INTERNAL_VERNUM 802
 
 // other configuration-ish values needed by plink2_common subset
 typedef unsigned char AltAlleleCt;
@@ -126,8 +126,8 @@ HEADER_INLINE void ClearQuaterarrEntry(uint32_t idx, uintptr_t* quaterarr) {
   quaterarr[idx / kBitsPerWordD2] &= ~((3 * k1LU) << (idx % kBitsPerWordD2));
 }
 
-HEADER_INLINE uintptr_t GetHexadecarrEntry(const uintptr_t* hexadecarr, uint32_t idx) {
-  return (hexadecarr[idx / kBitsPerWordD4] >> (4 * (idx % kBitsPerWordD4))) & 15;
+HEADER_INLINE uintptr_t GetNibbleArrEntry(const uintptr_t* nibblearr, uint32_t idx) {
+  return (nibblearr[idx / kBitsPerWordD4] >> (4 * (idx % kBitsPerWordD4))) & 15;
 }
 
 #ifdef USE_SSE42
@@ -316,7 +316,7 @@ CONSTU31(kPglQuaterTransposeBufwords, kPglQuaterTransposeBufbytes / kBytesPerWor
 // write_iter must be allocated up to at least
 //   RoundUpPow2(write_batch_size, 2) rows
 
-HEADER_INLINE void TransposeQuaterblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecUL* vecaligned_buf) {
+HEADER_INLINE void TransposeQuaterblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecW* vecaligned_buf) {
 #ifdef USE_AVX2
   // assert(!(write_ul_stride % 2));
   TransposeQuaterblockAvx2(read_iter, read_ul_stride, write_ul_stride, read_batch_size, write_batch_size, write_iter, vecaligned_buf);

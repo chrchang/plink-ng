@@ -31,14 +31,14 @@ cdef extern from "../pgenlib_python_support.h" namespace "plink2":
     void aligned_free(void* aligned_ptr)
 
     uintptr_t DivUp(uintptr_t val, uintptr_t divisor)
-    void ZeroUlArr(uintptr_t entry_ct, uintptr_t* ularr)
+    void ZeroWArr(uintptr_t entry_ct, uintptr_t* ularr)
     # void BitvecAnd(const uintptr_t* arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec)
     void FillInterleavedMaskVec(const uintptr_t* subset_mask, uint32_t base_vec_ct, uintptr_t* interleaved_mask_vec)
     void FillCumulativePopcounts(const uintptr_t* subset_mask, uint32_t word_ct, uint32_t* cumulative_popcounts)
 
-    ctypedef uintptr_t VecUL
-    void TransposeQuaterblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecUL* vecaligned_buf)
-    void TransposeBitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecUL* vecaligned_buf)
+    ctypedef uintptr_t VecW
+    void TransposeQuaterblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecW* vecaligned_buf)
+    void TransposeBitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecW* vecaligned_buf)
 
     void GenovecInvertUnsafe(uint32_t sample_ct, uintptr_t* genovec)
     void BiallelicDosage16Invert(uint32_t dosage_ct, uint16_t* dosage_vals)
@@ -172,7 +172,7 @@ cdef class PgenReader:
     cdef uintptr_t* _phaseinfo
     cdef uintptr_t* _dosage_present
     cdef uint16_t* _dosage_vals
-    cdef VecUL* _transpose_batch_buf
+    cdef VecW* _transpose_batch_buf
     # for multi-variant load-and-transpose, we load up to
     # kPglQuaterTransposeBatch (= 256) variants at a time, and then transpose
     cdef uintptr_t* _multivar_vmaj_geno_buf
@@ -187,7 +187,7 @@ cdef class PgenReader:
         cdef uint32_t raw_sample_ctv = DivUp(raw_sample_ct, kBitsPerVec)
         cdef uint32_t raw_sample_ctaw = raw_sample_ctv * kWordsPerVec
         cdef uintptr_t* sample_include = self._subset_include_vec
-        ZeroUlArr(raw_sample_ctaw, sample_include)
+        ZeroWArr(raw_sample_ctaw, sample_include)
         cdef uint32_t subset_size = sample_subset.size
         if subset_size == 0:
             raise RuntimeError("Empty sample_subset is not currently permitted.")
@@ -298,7 +298,7 @@ cdef class PgenReader:
             self.set_sample_subset_internal(sample_subset)
         else:
             self._subset_size = file_sample_ct
-        self._transpose_batch_buf = <VecUL*>pgr_alloc_iter
+        self._transpose_batch_buf = <VecW*>pgr_alloc_iter
         pgr_alloc_iter = &(pgr_alloc_iter[kPglBitTransposeBufbytes])
         self._multivar_vmaj_geno_buf = <uintptr_t*>pgr_alloc_iter
         pgr_alloc_iter = &(pgr_alloc_iter[kPglQuaterTransposeBatch * genovec_byte_ct])
@@ -455,7 +455,7 @@ cdef class PgenReader:
         cdef uint32_t variant_idx_offset = variant_idx_start
         cdef uint32_t sample_ctaw2 = kWordsPerVec * DivUp(subset_size, kBitsPerWordD2)
         cdef uint32_t sample_batch_ct = DivUp(subset_size, kPglQuaterTransposeBatch)
-        cdef VecUL* transpose_batch_buf = self._transpose_batch_buf
+        cdef VecW* transpose_batch_buf = self._transpose_batch_buf
         cdef uintptr_t* multivar_vmaj_geno_buf = self._multivar_vmaj_geno_buf
         cdef uintptr_t* multivar_smaj_geno_batch_buf = self._multivar_smaj_geno_batch_buf
         cdef uintptr_t* vmaj_iter
@@ -523,7 +523,7 @@ cdef class PgenReader:
         cdef uint32_t variant_idx_offset = variant_idx_start
         cdef uint32_t sample_ctaw2 = kWordsPerVec * DivUp(subset_size, kBitsPerWordD2)
         cdef uint32_t sample_batch_ct = DivUp(subset_size, kPglQuaterTransposeBatch)
-        cdef VecUL* transpose_batch_buf = self._transpose_batch_buf
+        cdef VecW* transpose_batch_buf = self._transpose_batch_buf
         cdef uintptr_t* multivar_vmaj_geno_buf = self._multivar_vmaj_geno_buf
         cdef uintptr_t* multivar_smaj_geno_batch_buf = self._multivar_smaj_geno_batch_buf
         cdef uintptr_t* vmaj_iter
@@ -591,7 +591,7 @@ cdef class PgenReader:
         cdef uint32_t variant_idx_offset = variant_idx_start
         cdef uint32_t sample_ctaw2 = kWordsPerVec * DivUp(subset_size, kBitsPerWordD2)
         cdef uint32_t sample_batch_ct = DivUp(subset_size, kPglQuaterTransposeBatch)
-        cdef VecUL* transpose_batch_buf = self._transpose_batch_buf
+        cdef VecW* transpose_batch_buf = self._transpose_batch_buf
         cdef uintptr_t* multivar_vmaj_geno_buf = self._multivar_vmaj_geno_buf
         cdef uintptr_t* multivar_smaj_geno_batch_buf = self._multivar_smaj_geno_batch_buf
         cdef uintptr_t* vmaj_iter
@@ -672,7 +672,7 @@ cdef class PgenReader:
         cdef uint32_t variant_batch_size = kPglQuaterTransposeBatch
         cdef uint32_t sample_ctaw2 = kWordsPerVec * DivUp(subset_size, kBitsPerWordD2)
         cdef uint32_t sample_batch_ct = DivUp(subset_size, kPglQuaterTransposeBatch)
-        cdef VecUL* transpose_batch_buf = self._transpose_batch_buf
+        cdef VecW* transpose_batch_buf = self._transpose_batch_buf
         cdef uintptr_t* multivar_vmaj_geno_buf = self._multivar_vmaj_geno_buf
         cdef uintptr_t* multivar_smaj_geno_batch_buf = self._multivar_smaj_geno_batch_buf
         cdef uintptr_t* vmaj_iter
@@ -744,7 +744,7 @@ cdef class PgenReader:
         cdef uint32_t variant_batch_size = kPglQuaterTransposeBatch
         cdef uint32_t sample_ctaw2 = kWordsPerVec * DivUp(subset_size, kBitsPerWordD2)
         cdef uint32_t sample_batch_ct = DivUp(subset_size, kPglQuaterTransposeBatch)
-        cdef VecUL* transpose_batch_buf = self._transpose_batch_buf
+        cdef VecW* transpose_batch_buf = self._transpose_batch_buf
         cdef uintptr_t* multivar_vmaj_geno_buf = self._multivar_vmaj_geno_buf
         cdef uintptr_t* multivar_smaj_geno_batch_buf = self._multivar_smaj_geno_batch_buf
         cdef uintptr_t* vmaj_iter
@@ -816,7 +816,7 @@ cdef class PgenReader:
         cdef uint32_t variant_batch_size = kPglQuaterTransposeBatch
         cdef uint32_t sample_ctaw2 = kWordsPerVec * DivUp(subset_size, kBitsPerWordD2)
         cdef uint32_t sample_batch_ct = DivUp(subset_size, kPglQuaterTransposeBatch)
-        cdef VecUL* transpose_batch_buf = self._transpose_batch_buf
+        cdef VecW* transpose_batch_buf = self._transpose_batch_buf
         cdef uintptr_t* multivar_vmaj_geno_buf = self._multivar_vmaj_geno_buf
         cdef uintptr_t* multivar_smaj_geno_batch_buf = self._multivar_smaj_geno_batch_buf
         cdef uintptr_t* vmaj_iter
@@ -910,7 +910,7 @@ cdef class PgenReader:
         cdef uint32_t sample_ctaw2 = kWordsPerVec * DivUp(subset_size, kBitsPerWordD2)
         cdef uint32_t sample_ctaw = kWordsPerVec * DivUp(subset_size, kBitsPerWord)
         cdef uint32_t sample_batch_ct = DivUp(subset_size, kPglQuaterTransposeBatch)
-        cdef VecUL* transpose_batch_buf = self._transpose_batch_buf
+        cdef VecW* transpose_batch_buf = self._transpose_batch_buf
         cdef uintptr_t* multivar_vmaj_geno_buf = self._multivar_vmaj_geno_buf
         cdef uintptr_t* multivar_vmaj_phaseinfo_buf = self._multivar_vmaj_phaseinfo_buf
         cdef uintptr_t* multivar_smaj_geno_batch_buf = self._multivar_smaj_geno_batch_buf
@@ -935,7 +935,7 @@ cdef class PgenReader:
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("read_alleles_range() error " + str(reterr))
                 if phasepresent_ct == 0:
-                    ZeroUlArr(sample_ctaw, vmaj_phaseinfo_iter)
+                    ZeroWArr(sample_ctaw, vmaj_phaseinfo_iter)
                 # else:
                     # BitvecAnd(phasepresent, sample_ctaw, vmaj_phaseinfo_iter)
                 vmaj_geno_iter = &(vmaj_geno_iter[sample_ctaw2])
@@ -1009,7 +1009,7 @@ cdef class PgenReader:
         cdef uint32_t sample_ctaw2 = kWordsPerVec * DivUp(subset_size, kBitsPerWordD2)
         cdef uint32_t sample_ctaw = kWordsPerVec * DivUp(subset_size, kBitsPerWord)
         cdef uint32_t sample_batch_ct = DivUp(subset_size, kPglQuaterTransposeBatch)
-        cdef VecUL* transpose_batch_buf = self._transpose_batch_buf
+        cdef VecW* transpose_batch_buf = self._transpose_batch_buf
         cdef uintptr_t* multivar_vmaj_geno_buf = self._multivar_vmaj_geno_buf
         cdef uintptr_t* multivar_vmaj_phaseinfo_buf = self._multivar_vmaj_phaseinfo_buf
         cdef uintptr_t* multivar_smaj_geno_batch_buf = self._multivar_smaj_geno_batch_buf
@@ -1037,7 +1037,7 @@ cdef class PgenReader:
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("read_alleles_list() error " + str(reterr))
                 if phasepresent_ct == 0:
-                    ZeroUlArr(sample_ctaw, vmaj_phaseinfo_iter)
+                    ZeroWArr(sample_ctaw, vmaj_phaseinfo_iter)
                 # else:
                     # BitvecAnd(phasepresent, sample_ctaw, vmaj_phaseinfo_iter)
                 vmaj_geno_iter = &(vmaj_geno_iter[sample_ctaw2])

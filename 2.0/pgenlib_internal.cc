@@ -115,7 +115,7 @@ void CopyQuaterarrNonemptySubset(const uintptr_t* __restrict raw_quaterarr, cons
           if (cur_include_halfword) {
             uintptr_t raw_quaterarr_word = raw_quaterarr[subset_mask_widx * 2 + wordhalf_idx];
             do {
-              uint32_t rqa_idx_lowbits = __builtin_ctz(cur_include_halfword);
+              uint32_t rqa_idx_lowbits = ctzu32(cur_include_halfword);
               cur_output_word |= ((raw_quaterarr_word >> (rqa_idx_lowbits * 2)) & 3) << (word_write_halfshift * 2);
               if (++word_write_halfshift == kBitsPerWordD2) {
                 *output_quaterarr_iter++ = cur_output_word;
@@ -152,10 +152,10 @@ void CopyQuaterarrNonemptySubset(const uintptr_t* __restrict raw_quaterarr, cons
     while (1) {
       uintptr_t raw_quaterarr_word = *raw_quaterarr_iter++;
       while (cur_include_halfword) {
-        uint32_t rqa_idx_lowbits = ctzlu(cur_include_halfword);
+        uint32_t rqa_idx_lowbits = ctzw(cur_include_halfword);
         uintptr_t halfword_invshifted = (~cur_include_halfword) >> rqa_idx_lowbits;
         uintptr_t raw_quaterarr_curblock_unmasked = raw_quaterarr_word >> (rqa_idx_lowbits * 2);
-        uint32_t rqa_block_len = ctzlu(halfword_invshifted);
+        uint32_t rqa_block_len = ctzw(halfword_invshifted);
         uint32_t block_len_limit = kBitsPerWordD2 - word_write_halfshift;
         cur_output_word |= raw_quaterarr_curblock_unmasked << (2 * word_write_halfshift);
         if (rqa_block_len < block_len_limit) {
@@ -196,23 +196,23 @@ void CopyQuaterarrNonemptySubset(const uintptr_t* __restrict raw_quaterarr, cons
 // add an AVX2 specialization here.
 // ...unless something like the interleaved_vec strategy is used?  hmm.  should
 // test this on basic frequency counter.
-void Count2FreqVec3(const VecUL* geno_vvec, uint32_t vec_ct, uint32_t* __restrict alt1_plus_bothset_ctp, uint32_t* __restrict bothset_ctp) {
+void Count2FreqVec3(const VecW* geno_vvec, uint32_t vec_ct, uint32_t* __restrict alt1_plus_bothset_ctp, uint32_t* __restrict bothset_ctp) {
   assert(!(vec_ct % 3));
   // Increments bothset_ct by the number of 0b11 in the current block, and
   // alt1_ct by twice the number of 0b10 plus the number of 0b01.
-  const VecUL m1 = VCONST_UL(kMask5555);
-  const VecUL m2 = VCONST_UL(kMask3333);
-  const VecUL m4 = VCONST_UL(kMask0F0F);
-  const VecUL* geno_vvec_iter = geno_vvec;
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW m2 = VCONST_W(kMask3333);
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW* geno_vvec_iter = geno_vvec;
   uint32_t alt1_plus_bothset_ct = 0;
   uint32_t bothset_ct = 0;
 
   while (1) {
     UniVec acc_alt1_plus_bothset;
     UniVec acc_bothset;
-    acc_alt1_plus_bothset.vi = vecul_setzero();
-    acc_bothset.vi = vecul_setzero();
-    const VecUL* geno_vvec_stop;
+    acc_alt1_plus_bothset.vw = vecw_setzero();
+    acc_bothset.vw = vecw_setzero();
+    const VecW* geno_vvec_stop;
     if (vec_ct < 30) {
       if (!vec_ct) {
         *alt1_plus_bothset_ctp = alt1_plus_bothset_ct;
@@ -226,64 +226,64 @@ void Count2FreqVec3(const VecUL* geno_vvec, uint32_t vec_ct, uint32_t* __restric
       vec_ct -= 30;
     }
     do {
-      VecUL cur_geno_vword1 = *geno_vvec_iter++;
+      VecW cur_geno_vword1 = *geno_vvec_iter++;
       // process first two vwords simultaneously to minimize linear dependence
-      VecUL cur_geno_vword2 = *geno_vvec_iter++;
-      VecUL cur_geno_vword_low_lshifted1 = vecul_slli(cur_geno_vword1 & m1, 1);
-      VecUL cur_geno_vword_low_lshifted2 = vecul_slli(cur_geno_vword2 & m1, 1);
+      VecW cur_geno_vword2 = *geno_vvec_iter++;
+      VecW cur_geno_vword_low_lshifted1 = vecw_slli(cur_geno_vword1 & m1, 1);
+      VecW cur_geno_vword_low_lshifted2 = vecw_slli(cur_geno_vword2 & m1, 1);
 
       // 00 -> 00; 01 -> 01; 10 -> 10; 11 -> 01
       // note that _mm_andnot_si128 flips the *first* argument before the AND
       // operation.
-      VecUL alt1_plus_bothset1 = (~cur_geno_vword_low_lshifted1) & cur_geno_vword1;
-      VecUL alt1_plus_bothset2 = (~cur_geno_vword_low_lshifted2) & cur_geno_vword2;
+      VecW alt1_plus_bothset1 = (~cur_geno_vword_low_lshifted1) & cur_geno_vword1;
+      VecW alt1_plus_bothset2 = (~cur_geno_vword_low_lshifted2) & cur_geno_vword2;
 
-      VecUL bothset1 = vecul_srli(cur_geno_vword_low_lshifted1 & cur_geno_vword1, 1);
-      VecUL bothset2 = vecul_srli(cur_geno_vword_low_lshifted2 & cur_geno_vword2, 1);
+      VecW bothset1 = vecw_srli(cur_geno_vword_low_lshifted1 & cur_geno_vword1, 1);
+      VecW bothset2 = vecw_srli(cur_geno_vword_low_lshifted2 & cur_geno_vword2, 1);
 
       cur_geno_vword1 = *geno_vvec_iter++;
-      alt1_plus_bothset1 = (alt1_plus_bothset1 & m2) + (vecul_srli(alt1_plus_bothset1, 2) & m2);
+      alt1_plus_bothset1 = (alt1_plus_bothset1 & m2) + (vecw_srli(alt1_plus_bothset1, 2) & m2);
       bothset2 = bothset1 + bothset2;
-      alt1_plus_bothset2 = (alt1_plus_bothset2 & m2) + (vecul_srli(alt1_plus_bothset2, 2) & m2);
-      cur_geno_vword_low_lshifted1 = vecul_slli(cur_geno_vword1 & m1, 1);
+      alt1_plus_bothset2 = (alt1_plus_bothset2 & m2) + (vecw_srli(alt1_plus_bothset2, 2) & m2);
+      cur_geno_vword_low_lshifted1 = vecw_slli(cur_geno_vword1 & m1, 1);
 
       alt1_plus_bothset2 = alt1_plus_bothset1 + alt1_plus_bothset2;
       // alt1_plus_bothset2 now contains 4-bit values from 0-8, while bothset2
       // contains 2-bit values from 0-2
       // (todo: check whether this is faster if we use double_bothsetx
       // variables instead of bothset1/bothset2)
-      bothset1 = vecul_srli(cur_geno_vword_low_lshifted1 & cur_geno_vword1, 1);
+      bothset1 = vecw_srli(cur_geno_vword_low_lshifted1 & cur_geno_vword1, 1);
       alt1_plus_bothset1 = (~cur_geno_vword_low_lshifted1) & cur_geno_vword1;
       bothset2 = bothset1 + bothset2;
-      alt1_plus_bothset1 = (alt1_plus_bothset1 & m2) + (vecul_srli(alt1_plus_bothset1, 2) & m2);
+      alt1_plus_bothset1 = (alt1_plus_bothset1 & m2) + (vecw_srli(alt1_plus_bothset1, 2) & m2);
 
-      bothset2 = (bothset2 & m2) + (vecul_srli(bothset2, 2) & m2);
+      bothset2 = (bothset2 & m2) + (vecw_srli(bothset2, 2) & m2);
       alt1_plus_bothset2 = alt1_plus_bothset1 + alt1_plus_bothset2;
       // alt1_plus_bothset2 now contains 4-bit values from 0-12, while bothset2
       // contains 4-bit values from 0-6.  aggregate both into 8-bit values.
-      bothset2 = (bothset2 & m4) + (vecul_srli(bothset2, 4) & m4);
-      alt1_plus_bothset2 = (alt1_plus_bothset2 & m4) + (vecul_srli(alt1_plus_bothset2, 4) & m4);
+      bothset2 = (bothset2 & m4) + (vecw_srli(bothset2, 4) & m4);
+      alt1_plus_bothset2 = (alt1_plus_bothset2 & m4) + (vecw_srli(alt1_plus_bothset2, 4) & m4);
 
-      acc_bothset.vi = acc_bothset.vi + bothset2;
-      acc_alt1_plus_bothset.vi = acc_alt1_plus_bothset.vi + alt1_plus_bothset2;
+      acc_bothset.vw = acc_bothset.vw + bothset2;
+      acc_alt1_plus_bothset.vw = acc_alt1_plus_bothset.vw + alt1_plus_bothset2;
     } while (geno_vvec_iter < geno_vvec_stop);
-    const VecUL m8 = VCONST_UL(kMask00FF);
-    acc_bothset.vi = (acc_bothset.vi + vecul_srli(acc_bothset.vi, 8)) & m8;
-    acc_alt1_plus_bothset.vi = (acc_alt1_plus_bothset.vi & m8) + (vecul_srli(acc_alt1_plus_bothset.vi, 8) & m8);
+    const VecW m8 = VCONST_W(kMask00FF);
+    acc_bothset.vw = (acc_bothset.vw + vecw_srli(acc_bothset.vw, 8)) & m8;
+    acc_alt1_plus_bothset.vw = (acc_alt1_plus_bothset.vw & m8) + (vecw_srli(acc_alt1_plus_bothset.vw, 8) & m8);
     bothset_ct += UniVecHsum16(acc_bothset);
     alt1_plus_bothset_ct += UniVecHsum16(acc_alt1_plus_bothset);
   }
 }
 
-void Count3FreqVec6(const VecUL* geno_vvec, uint32_t vec_ct, uint32_t* __restrict even_ctp, uint32_t* __restrict odd_ctp, uint32_t* __restrict bothset_ctp) {
+void Count3FreqVec6(const VecW* geno_vvec, uint32_t vec_ct, uint32_t* __restrict even_ctp, uint32_t* __restrict odd_ctp, uint32_t* __restrict bothset_ctp) {
   assert(!(vec_ct % 6));
   // Sets even_ct to the number of set low bits in the current block, odd_ct to
   // the number of set high bits, and bothset_ct by the number of 0b11s.
   // Easy to adapt this to take a subset quatervec parameter.
-  const VecUL m1 = VCONST_UL(kMask5555);
-  const VecUL m2 = VCONST_UL(kMask3333);
-  const VecUL m4 = VCONST_UL(kMask0F0F);
-  const VecUL* geno_vvec_iter = geno_vvec;
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW m2 = VCONST_W(kMask3333);
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW* geno_vvec_iter = geno_vvec;
   uint32_t even_ct = 0;
   uint32_t odd_ct = 0;
   uint32_t bothset_ct = 0;
@@ -291,10 +291,10 @@ void Count3FreqVec6(const VecUL* geno_vvec, uint32_t vec_ct, uint32_t* __restric
     UniVec acc_even;
     UniVec acc_odd;
     UniVec acc_bothset;
-    acc_even.vi = vecul_setzero();
-    acc_odd.vi = vecul_setzero();
-    acc_bothset.vi = vecul_setzero();
-    const VecUL* geno_vvec_stop;
+    acc_even.vw = vecw_setzero();
+    acc_odd.vw = vecw_setzero();
+    acc_bothset.vw = vecw_setzero();
+    const VecW* geno_vvec_stop;
     if (vec_ct < 60) {
       if (!vec_ct) {
         *even_ctp = even_ct;
@@ -312,73 +312,73 @@ void Count3FreqVec6(const VecUL* geno_vvec, uint32_t vec_ct, uint32_t* __restric
       // hmm, this seems to have more linear dependence than I'd want, but the
       // reorderings I tried just made the code harder to read without helping,
       // so I'll leave this alone
-      VecUL cur_geno_vword = *geno_vvec_iter++;
-      VecUL odd1 = m1 & vecul_srli(cur_geno_vword, 1);
-      VecUL even1 = m1 & cur_geno_vword;
-      VecUL bothset1 = odd1 & cur_geno_vword;
+      VecW cur_geno_vword = *geno_vvec_iter++;
+      VecW odd1 = m1 & vecw_srli(cur_geno_vword, 1);
+      VecW even1 = m1 & cur_geno_vword;
+      VecW bothset1 = odd1 & cur_geno_vword;
 
       cur_geno_vword = *geno_vvec_iter++;
-      VecUL cur_geno_vword_high = m1 & vecul_srli(cur_geno_vword, 1);
+      VecW cur_geno_vword_high = m1 & vecw_srli(cur_geno_vword, 1);
       even1 = even1 + (m1 & cur_geno_vword);
       odd1 = odd1 + cur_geno_vword_high;
       bothset1 = bothset1 + (cur_geno_vword_high & cur_geno_vword);
 
       cur_geno_vword = *geno_vvec_iter++;
-      cur_geno_vword_high = m1 & vecul_srli(cur_geno_vword, 1);
+      cur_geno_vword_high = m1 & vecw_srli(cur_geno_vword, 1);
       even1 = even1 + (m1 & cur_geno_vword);
       odd1 = odd1 + cur_geno_vword_high;
       bothset1 = bothset1 + (cur_geno_vword_high & cur_geno_vword);
 
-      even1 = (even1 & m2) + (vecul_srli(even1, 2) & m2);
-      odd1 = (odd1 & m2) + (vecul_srli(odd1, 2) & m2);
-      bothset1 = (bothset1 & m2) + (vecul_srli(bothset1, 2) & m2);
+      even1 = (even1 & m2) + (vecw_srli(even1, 2) & m2);
+      odd1 = (odd1 & m2) + (vecw_srli(odd1, 2) & m2);
+      bothset1 = (bothset1 & m2) + (vecw_srli(bothset1, 2) & m2);
 
       cur_geno_vword = *geno_vvec_iter++;
-      VecUL odd2 = m1 & vecul_srli(cur_geno_vword, 1);
-      VecUL even2 = m1 & cur_geno_vword;
-      VecUL bothset2 = odd2 & cur_geno_vword;
+      VecW odd2 = m1 & vecw_srli(cur_geno_vword, 1);
+      VecW even2 = m1 & cur_geno_vword;
+      VecW bothset2 = odd2 & cur_geno_vword;
 
       cur_geno_vword = *geno_vvec_iter++;
-      cur_geno_vword_high = m1 & vecul_srli(cur_geno_vword, 1);
+      cur_geno_vword_high = m1 & vecw_srli(cur_geno_vword, 1);
       even2 = even2 + (m1 & cur_geno_vword);
       odd2 = odd2 + cur_geno_vword_high;
       bothset2 = bothset2 + (cur_geno_vword_high & cur_geno_vword);
 
       cur_geno_vword = *geno_vvec_iter++;
-      cur_geno_vword_high = m1 & vecul_srli(cur_geno_vword, 1);
+      cur_geno_vword_high = m1 & vecw_srli(cur_geno_vword, 1);
       even2 = even2 + (m1 & cur_geno_vword);
       odd2 = odd2 + cur_geno_vword_high;
       bothset2 = bothset2 + (cur_geno_vword_high & cur_geno_vword);
 
-      even1 = even1 + (even2 & m2) + (vecul_srli(even2, 2) & m2);
-      odd1 = odd1 + (odd2 & m2) + (vecul_srli(odd2, 2) & m2);
-      bothset1 = bothset1 + (bothset2 & m2) + (vecul_srli(bothset2, 2) & m2);
+      even1 = even1 + (even2 & m2) + (vecw_srli(even2, 2) & m2);
+      odd1 = odd1 + (odd2 & m2) + (vecw_srli(odd2, 2) & m2);
+      bothset1 = bothset1 + (bothset2 & m2) + (vecw_srli(bothset2, 2) & m2);
       // these now contain 4-bit values from 0-12
 
-      acc_even.vi = acc_even.vi + (even1 & m4) + (vecul_srli(even1, 4) & m4);
-      acc_odd.vi = acc_odd.vi + (odd1 & m4) + (vecul_srli(odd1, 4) & m4);
-      acc_bothset.vi = acc_bothset.vi + (bothset1 & m4) + (vecul_srli(bothset1, 4) & m4);
+      acc_even.vw = acc_even.vw + (even1 & m4) + (vecw_srli(even1, 4) & m4);
+      acc_odd.vw = acc_odd.vw + (odd1 & m4) + (vecw_srli(odd1, 4) & m4);
+      acc_bothset.vw = acc_bothset.vw + (bothset1 & m4) + (vecw_srli(bothset1, 4) & m4);
     } while (geno_vvec_iter < geno_vvec_stop);
-    const VecUL m8 = VCONST_UL(kMask00FF);
-    acc_even.vi = (acc_even.vi & m8) + (vecul_srli(acc_even.vi, 8) & m8);
-    acc_odd.vi = (acc_odd.vi & m8) + (vecul_srli(acc_odd.vi, 8) & m8);
-    acc_bothset.vi = (acc_bothset.vi & m8) + (vecul_srli(acc_bothset.vi, 8) & m8);
+    const VecW m8 = VCONST_W(kMask00FF);
+    acc_even.vw = (acc_even.vw & m8) + (vecw_srli(acc_even.vw, 8) & m8);
+    acc_odd.vw = (acc_odd.vw & m8) + (vecw_srli(acc_odd.vw, 8) & m8);
+    acc_bothset.vw = (acc_bothset.vw & m8) + (vecw_srli(acc_bothset.vw, 8) & m8);
     even_ct += UniVecHsum16(acc_even);
     odd_ct += UniVecHsum16(acc_odd);
     bothset_ct += UniVecHsum16(acc_bothset);
   }
 }
 
-void CountSubset3FreqVec6(const VecUL* __restrict geno_vvec, const VecUL* __restrict interleaved_mask_vvec, uint32_t vec_ct, uint32_t* __restrict even_ctp, uint32_t* __restrict odd_ctp, uint32_t* __restrict bothset_ctp) {
+void CountSubset3FreqVec6(const VecW* __restrict geno_vvec, const VecW* __restrict interleaved_mask_vvec, uint32_t vec_ct, uint32_t* __restrict even_ctp, uint32_t* __restrict odd_ctp, uint32_t* __restrict bothset_ctp) {
   assert(!(vec_ct % 6));
   // Sets even_ct to the number of set low bits in the current block, odd_ct to
   // the number of set high bits, and bothset_ct by the number of 0b11s.
   // Easy to adapt this to take a subset quatervec parameter.
-  const VecUL m1 = VCONST_UL(kMask5555);
-  const VecUL m2 = VCONST_UL(kMask3333);
-  const VecUL m4 = VCONST_UL(kMask0F0F);
-  const VecUL* geno_vvec_iter = geno_vvec;
-  const VecUL* interleaved_mask_vvec_iter = interleaved_mask_vvec;
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW m2 = VCONST_W(kMask3333);
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW* geno_vvec_iter = geno_vvec;
+  const VecW* interleaved_mask_vvec_iter = interleaved_mask_vvec;
   uint32_t even_ct = 0;
   uint32_t odd_ct = 0;
   uint32_t bothset_ct = 0;
@@ -386,10 +386,10 @@ void CountSubset3FreqVec6(const VecUL* __restrict geno_vvec, const VecUL* __rest
     UniVec acc_even;
     UniVec acc_odd;
     UniVec acc_bothset;
-    acc_even.vi = vecul_setzero();
-    acc_odd.vi = vecul_setzero();
-    acc_bothset.vi = vecul_setzero();
-    const VecUL* geno_vvec_stop;
+    acc_even.vw = vecw_setzero();
+    acc_odd.vw = vecw_setzero();
+    acc_bothset.vw = vecw_setzero();
+    const VecW* geno_vvec_stop;
     if (vec_ct < 60) {
       if (!vec_ct) {
         *even_ctp = even_ct;
@@ -404,16 +404,16 @@ void CountSubset3FreqVec6(const VecUL* __restrict geno_vvec, const VecUL* __rest
       vec_ct -= 60;
     }
     do {
-      VecUL interleaved_mask_vword = *interleaved_mask_vvec_iter++;
-      VecUL cur_geno_vword = *geno_vvec_iter++;
-      VecUL cur_mask = interleaved_mask_vword & m1;
-      VecUL odd1 = cur_mask & vecul_srli(cur_geno_vword, 1);
-      VecUL even1 = cur_mask & cur_geno_vword;
-      VecUL bothset1 = odd1 & cur_geno_vword;
+      VecW interleaved_mask_vword = *interleaved_mask_vvec_iter++;
+      VecW cur_geno_vword = *geno_vvec_iter++;
+      VecW cur_mask = interleaved_mask_vword & m1;
+      VecW odd1 = cur_mask & vecw_srli(cur_geno_vword, 1);
+      VecW even1 = cur_mask & cur_geno_vword;
+      VecW bothset1 = odd1 & cur_geno_vword;
 
-      cur_mask = vecul_srli(interleaved_mask_vword, 1) & m1;
+      cur_mask = vecw_srli(interleaved_mask_vword, 1) & m1;
       cur_geno_vword = *geno_vvec_iter++;
-      VecUL cur_geno_vword_high_masked = cur_mask & vecul_srli(cur_geno_vword, 1);
+      VecW cur_geno_vword_high_masked = cur_mask & vecw_srli(cur_geno_vword, 1);
       even1 = even1 + (cur_mask & cur_geno_vword);
       odd1 = odd1 + cur_geno_vword_high_masked;
       bothset1 = bothset1 + (cur_geno_vword_high_masked & cur_geno_vword);
@@ -421,49 +421,49 @@ void CountSubset3FreqVec6(const VecUL* __restrict geno_vvec, const VecUL* __rest
       interleaved_mask_vword = *interleaved_mask_vvec_iter++;
       cur_mask = interleaved_mask_vword & m1;
       cur_geno_vword = *geno_vvec_iter++;
-      cur_geno_vword_high_masked = cur_mask & vecul_srli(cur_geno_vword, 1);
+      cur_geno_vword_high_masked = cur_mask & vecw_srli(cur_geno_vword, 1);
       even1 = even1 + (cur_mask & cur_geno_vword);
       odd1 = odd1 + cur_geno_vword_high_masked;
       bothset1 = bothset1 + (cur_geno_vword_high_masked & cur_geno_vword);
 
-      even1 = (even1 & m2) + (vecul_srli(even1, 2) & m2);
-      odd1 = (odd1 & m2) + (vecul_srli(odd1, 2) & m2);
-      bothset1 = (bothset1 & m2) + (vecul_srli(bothset1, 2) & m2);
+      even1 = (even1 & m2) + (vecw_srli(even1, 2) & m2);
+      odd1 = (odd1 & m2) + (vecw_srli(odd1, 2) & m2);
+      bothset1 = (bothset1 & m2) + (vecw_srli(bothset1, 2) & m2);
 
-      cur_mask = vecul_srli(interleaved_mask_vword, 1) & m1;
+      cur_mask = vecw_srli(interleaved_mask_vword, 1) & m1;
       cur_geno_vword = *geno_vvec_iter++;
-      VecUL odd2 = cur_mask & vecul_srli(cur_geno_vword, 1);
-      VecUL even2 = cur_mask & cur_geno_vword;
-      VecUL bothset2 = odd2 & cur_geno_vword;
+      VecW odd2 = cur_mask & vecw_srli(cur_geno_vword, 1);
+      VecW even2 = cur_mask & cur_geno_vword;
+      VecW bothset2 = odd2 & cur_geno_vword;
 
       interleaved_mask_vword = *interleaved_mask_vvec_iter++;
       cur_mask = interleaved_mask_vword & m1;
       cur_geno_vword = *geno_vvec_iter++;
-      cur_geno_vword_high_masked = cur_mask & vecul_srli(cur_geno_vword, 1);
+      cur_geno_vword_high_masked = cur_mask & vecw_srli(cur_geno_vword, 1);
       even2 = even2 + (cur_mask & cur_geno_vword);
       odd2 = odd2 + cur_geno_vword_high_masked;
       bothset2 = bothset2 + (cur_geno_vword_high_masked & cur_geno_vword);
 
-      cur_mask = vecul_srli(interleaved_mask_vword, 1) & m1;
+      cur_mask = vecw_srli(interleaved_mask_vword, 1) & m1;
       cur_geno_vword = *geno_vvec_iter++;
-      cur_geno_vword_high_masked = cur_mask & vecul_srli(cur_geno_vword, 1);
+      cur_geno_vword_high_masked = cur_mask & vecw_srli(cur_geno_vword, 1);
       even2 = even2 + (cur_mask & cur_geno_vword);
       odd2 = odd2 + cur_geno_vword_high_masked;
       bothset2 = bothset2 + (cur_geno_vword_high_masked & cur_geno_vword);
 
-      even1 = even1 + (even2 & m2) + (vecul_srli(even2, 2) & m2);
-      odd1 = odd1 + (odd2 & m2) + (vecul_srli(odd2, 2) & m2);
-      bothset1 = bothset1 + (bothset2 & m2) + (vecul_srli(bothset2, 2) & m2);
+      even1 = even1 + (even2 & m2) + (vecw_srli(even2, 2) & m2);
+      odd1 = odd1 + (odd2 & m2) + (vecw_srli(odd2, 2) & m2);
+      bothset1 = bothset1 + (bothset2 & m2) + (vecw_srli(bothset2, 2) & m2);
       // these now contain 4-bit values from 0-12
 
-      acc_even.vi = acc_even.vi + (even1 & m4) + (vecul_srli(even1, 4) & m4);
-      acc_odd.vi = acc_odd.vi + (odd1 & m4) + (vecul_srli(odd1, 4) & m4);
-      acc_bothset.vi = acc_bothset.vi + (bothset1 & m4) + (vecul_srli(bothset1, 4) & m4);
+      acc_even.vw = acc_even.vw + (even1 & m4) + (vecw_srli(even1, 4) & m4);
+      acc_odd.vw = acc_odd.vw + (odd1 & m4) + (vecw_srli(odd1, 4) & m4);
+      acc_bothset.vw = acc_bothset.vw + (bothset1 & m4) + (vecw_srli(bothset1, 4) & m4);
     } while (geno_vvec_iter < geno_vvec_stop);
-    const VecUL m8 = VCONST_UL(kMask00FF);
-    acc_even.vi = (acc_even.vi & m8) + (vecul_srli(acc_even.vi, 8) & m8);
-    acc_odd.vi = (acc_odd.vi & m8) + (vecul_srli(acc_odd.vi, 8) & m8);
-    acc_bothset.vi = (acc_bothset.vi & m8) + (vecul_srli(acc_bothset.vi, 8) & m8);
+    const VecW m8 = VCONST_W(kMask00FF);
+    acc_even.vw = (acc_even.vw & m8) + (vecw_srli(acc_even.vw, 8) & m8);
+    acc_odd.vw = (acc_odd.vw & m8) + (vecw_srli(acc_odd.vw, 8) & m8);
+    acc_bothset.vw = (acc_bothset.vw & m8) + (vecw_srli(acc_bothset.vw, 8) & m8);
     even_ct += UniVecHsum16(acc_even);
     odd_ct += UniVecHsum16(acc_odd);
     bothset_ct += UniVecHsum16(acc_bothset);
@@ -471,18 +471,18 @@ void CountSubset3FreqVec6(const VecUL* __restrict geno_vvec, const VecUL* __rest
 }
 
 // possible todo: AVX2
-uint32_t Count01Vec6(const VecUL* geno_vvec, uint32_t vec_ct) {
+uint32_t Count01Vec6(const VecW* geno_vvec, uint32_t vec_ct) {
   assert(!(vec_ct % 6));
-  const VecUL m1 = VCONST_UL(kMask5555);
-  const VecUL m2 = VCONST_UL(kMask3333);
-  const VecUL m4 = VCONST_UL(kMask0F0F);
-  const VecUL m8 = VCONST_UL(kMask00FF);
-  const VecUL* geno_vvec_iter = geno_vvec;
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW m2 = VCONST_W(kMask3333);
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW m8 = VCONST_W(kMask00FF);
+  const VecW* geno_vvec_iter = geno_vvec;
   uint32_t tot = 0;
   while (1) {
     UniVec acc;
-    acc.vi = vecul_setzero();
-    const VecUL* geno_vvec_stop;
+    acc.vw = vecw_setzero();
+    const VecW* geno_vvec_stop;
     if (vec_ct < 60) {
       if (!vec_ct) {
         return tot;
@@ -494,26 +494,26 @@ uint32_t Count01Vec6(const VecUL* geno_vvec, uint32_t vec_ct) {
       vec_ct -= 60;
     }
     do {
-      VecUL loader1 = *geno_vvec_iter++;
-      VecUL loader2 = *geno_vvec_iter++;
-      VecUL count1 = ((~vecul_srli(loader1, 1)) & loader1) & m1;
-      VecUL count2 = ((~vecul_srli(loader2, 1)) & loader2) & m1;
+      VecW loader1 = *geno_vvec_iter++;
+      VecW loader2 = *geno_vvec_iter++;
+      VecW count1 = ((~vecw_srli(loader1, 1)) & loader1) & m1;
+      VecW count2 = ((~vecw_srli(loader2, 1)) & loader2) & m1;
 
       loader1 = *geno_vvec_iter++;
       loader2 = *geno_vvec_iter++;
-      count1 = count1 + (((~vecul_srli(loader1, 1)) & loader1) & m1);
-      count2 = count2 + (((~vecul_srli(loader2, 1)) & loader2) & m1);
+      count1 = count1 + (((~vecw_srli(loader1, 1)) & loader1) & m1);
+      count2 = count2 + (((~vecw_srli(loader2, 1)) & loader2) & m1);
 
       loader1 = *geno_vvec_iter++;
       loader2 = *geno_vvec_iter++;
-      count1 = count1 + (((~vecul_srli(loader1, 1)) & loader1) & m1);
-      count2 = count2 + (((~vecul_srli(loader2, 1)) & loader2) & m1);
+      count1 = count1 + (((~vecw_srli(loader1, 1)) & loader1) & m1);
+      count2 = count2 + (((~vecw_srli(loader2, 1)) & loader2) & m1);
 
-      count1 = (count1 & m2) + (vecul_srli(count1, 2) & m2);
-      count1 = count1 + (count2 & m2) + (vecul_srli(count2, 2) & m2);
-      acc.vi = acc.vi + (count1 & m4) + (vecul_srli(count1, 4) & m4);
+      count1 = (count1 & m2) + (vecw_srli(count1, 2) & m2);
+      count1 = count1 + (count2 & m2) + (vecw_srli(count2, 2) & m2);
+      acc.vw = acc.vw + (count1 & m4) + (vecw_srli(count1, 4) & m4);
     } while (geno_vvec_iter < geno_vvec_stop);
-    acc.vi = (acc.vi & m8) + (vecul_srli(acc.vi, 8) & m8);
+    acc.vw = (acc.vw & m8) + (vecw_srli(acc.vw, 8) & m8);
     tot += UniVecHsum16(acc);
   }
 }
@@ -595,7 +595,7 @@ void GenovecAlleleCtsUnsafe(const uintptr_t* genovec, uint32_t sample_ct, uint32
   uint32_t alt1_plus_bothset_ct;
   uint32_t bothset_ct;
   assert(VecIsAligned(genovec));
-  Count2FreqVec3(R_CAST(const VecUL*, genovec), word_idx / kWordsPerVec, &alt1_plus_bothset_ct, &bothset_ct);
+  Count2FreqVec3(R_CAST(const VecW*, genovec), word_idx / kWordsPerVec, &alt1_plus_bothset_ct, &bothset_ct);
   for (; word_idx < sample_ctl2; ++word_idx) {
     const uintptr_t cur_geno_word = genovec[word_idx];
     const uintptr_t cur_geno_word_low_lshifted = (cur_geno_word & kMask5555) << 1;
@@ -619,7 +619,7 @@ void GenovecCountFreqsUnsafe(const uintptr_t* genovec, uint32_t sample_ct, uint3
   uint32_t bothset_ct;
   uint32_t word_idx = sample_ctl2 - (sample_ctl2 % (6 * kWordsPerVec));
   assert(VecIsAligned(genovec));
-  Count3FreqVec6(R_CAST(const VecUL*, genovec), word_idx / kWordsPerVec, &even_ct, &odd_ct, &bothset_ct);
+  Count3FreqVec6(R_CAST(const VecW*, genovec), word_idx / kWordsPerVec, &even_ct, &odd_ct, &bothset_ct);
   for (; word_idx < sample_ctl2; ++word_idx) {
     const uintptr_t cur_geno_word = genovec[word_idx];
     const uintptr_t cur_geno_word_high = kMask5555 & (cur_geno_word >> 1);
@@ -644,7 +644,7 @@ void GenovecCountSubsetFreqs(const uintptr_t* __restrict genovec, const uintptr_
 #ifdef __LP64__
   uint32_t vec_idx = raw_sample_ctv2 - (raw_sample_ctv2 % 6);
   assert(VecIsAligned(genovec));
-  CountSubset3FreqVec6(R_CAST(const VecUL*, genovec), R_CAST(const VecUL*, sample_include_interleaved_vec), vec_idx, &even_ct, &odd_ct, &bothset_ct);
+  CountSubset3FreqVec6(R_CAST(const VecW*, genovec), R_CAST(const VecW*, sample_include_interleaved_vec), vec_idx, &even_ct, &odd_ct, &bothset_ct);
   const uintptr_t* genovec_iter = &(genovec[kWordsPerVec * vec_idx]);
   const uintptr_t* interleaved_mask_iter = &(sample_include_interleaved_vec[(kWordsPerVec / 2) * vec_idx]);
 #  ifdef USE_AVX2
@@ -721,7 +721,7 @@ void GenovecCountSubsetFreqs(const uintptr_t* __restrict genovec, const uintptr_
 #  endif  // not USE_AVX2
 #else  // not __LP64__
   uint32_t word_idx = raw_sample_ctv2 - (raw_sample_ctv2 % 6);
-  CountSubset3FreqVec6(R_CAST(const VecUL*, genovec), R_CAST(const VecUL*, sample_include_interleaved_vec), word_idx, &even_ct, &odd_ct, &bothset_ct);
+  CountSubset3FreqVec6(R_CAST(const VecW*, genovec), R_CAST(const VecW*, sample_include_interleaved_vec), word_idx, &even_ct, &odd_ct, &bothset_ct);
   const uintptr_t* interleaved_mask_iter = &(sample_include_interleaved_vec[word_idx / 2]);
   uintptr_t mask_base = 0;
   for (; word_idx < raw_sample_ctv2; ++word_idx) {
@@ -749,7 +749,7 @@ uint32_t GenovecCount01Unsafe(const uintptr_t* genovec, uint32_t sample_ct) {
   const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
   uint32_t word_idx = sample_ctl2 - (sample_ctl2 % (6 * kWordsPerVec));
   assert(VecIsAligned(genovec));
-  uint32_t tot = Count01Vec6(R_CAST(const VecUL*, genovec), word_idx / kWordsPerVec);
+  uint32_t tot = Count01Vec6(R_CAST(const VecW*, genovec), word_idx / kWordsPerVec);
   for (; word_idx < sample_ctl2; ++word_idx) {
     const uintptr_t cur_geno_word = genovec[word_idx];
     tot += Popcount01Word(cur_geno_word & (~(cur_geno_word >> 1)) & kMask5555);
@@ -801,7 +801,7 @@ void GenoarrCountFreqs(const unsigned char* genoarr, uint32_t sample_ct, uint32_
     uint32_t odd_ct_incr;
     uint32_t bothset_ct_incr;
     const uint32_t vec_ct = remaining_full_vec_ct - (remaining_full_vec_ct % 6);
-    Count3FreqVec6(R_CAST(const VecUL*, genoarr_iter), vec_ct, &even_ct_incr, &odd_ct_incr, &bothset_ct_incr);
+    Count3FreqVec6(R_CAST(const VecW*, genoarr_iter), vec_ct, &even_ct_incr, &odd_ct_incr, &bothset_ct_incr);
     even_ct += even_ct_incr;
     odd_ct += odd_ct_incr;
     bothset_ct += bothset_ct_incr;
@@ -1069,12 +1069,12 @@ void GenovecInvertUnsafe(uint32_t sample_ct, uintptr_t* genovec) {
   // "unsafe" because trailing bits are not zeroed out.
   const uint32_t vec_ct = QuaterCtToVecCt(sample_ct);
   assert(VecIsAligned(genovec));
-  const VecUL not_m1 = VCONST_UL(kMaskAAAA);
-  VecUL* vptr = R_CAST(VecUL*, genovec);
+  const VecW not_m1 = VCONST_W(kMaskAAAA);
+  VecW* vptr = R_CAST(VecW*, genovec);
   for (uint32_t vidx = 0; vidx < vec_ct; ++vidx) {
-    VecUL cur_vec = vptr[vidx];
+    VecW cur_vec = vptr[vidx];
     // flip high bit iff low bit is unset
-    vptr[vidx] = cur_vec ^ ((~vecul_slli(cur_vec, 1)) & not_m1);
+    vptr[vidx] = cur_vec ^ ((~vecw_slli(cur_vec, 1)) & not_m1);
   }
 }
 
@@ -1083,13 +1083,13 @@ void GenovecInvertCopyUnsafe(const uintptr_t* __restrict genovec, uint32_t sampl
   // "unsafe" because trailing bits are not zeroed out.
   const uint32_t vec_ct = QuaterCtToVecCt(sample_ct);
   assert(VecIsAligned(genovec));
-  const VecUL not_m1 = VCONST_UL(kMaskAAAA);
-  const VecUL* vin_ptr = R_CAST(const VecUL*, genovec);
-  VecUL* vout_ptr = R_CAST(VecUL*, genovec_inverted_copy);
+  const VecW not_m1 = VCONST_W(kMaskAAAA);
+  const VecW* vin_ptr = R_CAST(const VecW*, genovec);
+  VecW* vout_ptr = R_CAST(VecW*, genovec_inverted_copy);
   for (uint32_t vidx = 0; vidx < vec_ct; ++vidx) {
-    VecUL cur_vec = vin_ptr[vidx];
+    VecW cur_vec = vin_ptr[vidx];
     // flip high bit iff low bit is unset
-    vout_ptr[vidx] = cur_vec ^ ((~vecul_slli(cur_vec, 1)) & not_m1);
+    vout_ptr[vidx] = cur_vec ^ ((~vecw_slli(cur_vec, 1)) & not_m1);
   }
 }
 
@@ -1097,14 +1097,14 @@ void GenovecNonmissingToZeroUnsafe(uint32_t sample_ct, uintptr_t* genovec) {
   // sets 1 and 2 to zero; leaves 3s untouched.
   const uint32_t vec_ct = QuaterCtToVecCt(sample_ct);
   assert(VecIsAligned(genovec));
-  const VecUL m1 = VCONST_UL(kMask5555);
-  VecUL* vptr = R_CAST(VecUL*, genovec);
+  const VecW m1 = VCONST_W(kMask5555);
+  VecW* vptr = R_CAST(VecW*, genovec);
   for (uint32_t vidx = 0; vidx < vec_ct; ++vidx) {
-    VecUL cur_vec = vptr[vidx];
-    VecUL cur_vec_rshifted = vecul_srli(cur_vec, 1);
+    VecW cur_vec = vptr[vidx];
+    VecW cur_vec_rshifted = vecw_srli(cur_vec, 1);
     cur_vec = cur_vec & m1;
     cur_vec = cur_vec & cur_vec_rshifted;
-    vptr[vidx] = cur_vec | vecul_slli(cur_vec, 1);
+    vptr[vidx] = cur_vec | vecw_slli(cur_vec, 1);
   }
 }
 
@@ -1112,19 +1112,19 @@ void GenovecNonzeroToMissingUnsafe(uint32_t sample_ct, uintptr_t* genovec) {
   // converts 1s and 2s to 3s, leaves zeroes untouched.
   const uint32_t vec_ct = QuaterCtToVecCt(sample_ct);
   assert(VecIsAligned(genovec));
-  const VecUL m1 = VCONST_UL(kMask5555);
-  VecUL* vptr = R_CAST(VecUL*, genovec);
+  const VecW m1 = VCONST_W(kMask5555);
+  VecW* vptr = R_CAST(VecW*, genovec);
   for (uint32_t vidx = 0; vidx < vec_ct; ++vidx) {
-    VecUL cur_vec = vptr[vidx];
-    VecUL cur_vec_rshifted = vecul_srli(cur_vec, 1);
+    VecW cur_vec = vptr[vidx];
+    VecW cur_vec_rshifted = vecw_srli(cur_vec, 1);
     cur_vec = cur_vec | cur_vec_rshifted;
     cur_vec = cur_vec & m1;
-    vptr[vidx] = cur_vec | vecul_slli(cur_vec, 1);
+    vptr[vidx] = cur_vec | vecw_slli(cur_vec, 1);
   }
 }
 
 void DifflistCountSubsetFreqs(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict raregeno, const uint32_t* __restrict difflist_sample_ids, uint32_t common_geno, uint32_t difflist_len, uint32_t sample_ct, uint32_t* genocounts) {
-  ZeroUiArr(4, genocounts);
+  ZeroU32Arr(4, genocounts);
   uint32_t common_geno_ct = sample_ct;
   for (uint32_t difflist_idx = 0; difflist_idx < difflist_len; ++difflist_idx) {
     const uint32_t raw_sample_idx = difflist_sample_ids[difflist_idx];
@@ -1160,23 +1160,23 @@ void TransposeQuaterblockAvx2(const uintptr_t* read_iter, uint32_t read_ul_strid
       read_iter_tmp = &(read_iter_tmp[read_byte_stride]);
     }
     memset(initial_target_iter, 0, read_batch_rem);
-    const VecUL* source_iter = S_CAST(VecUL*, buf0);
+    const VecW* source_iter = S_CAST(VecW*, buf0);
     if (block_idx == full_block_ct) {
       const uint32_t remainder = write_batch_size % 4;
       const uint32_t initial_lshift = 2 * (4 - remainder);
       for (uint32_t widx = 0; widx < write_ul_ct; ++widx) {
-        VecUL loader = *source_iter++;
-        loader = vecul_slli(loader, initial_lshift);
+        VecW loader = *source_iter++;
+        loader = vecw_slli(loader, initial_lshift);
         uint32_t write_idx_lowbits = remainder - 1;
         while (1) {
-          const uintptr_t uint_hi = vecul_movemask(loader);
-          loader = vecul_slli(loader, 1);
-          const uintptr_t uint_lo = vecul_movemask(loader);
+          const uintptr_t uint_hi = vecw_movemask(loader);
+          loader = vecw_slli(loader, 1);
+          const uintptr_t uint_lo = vecw_movemask(loader);
           target_iter0[write_ul_stride * write_idx_lowbits] = _pdep_u64(uint_hi, kMaskAAAA) | _pdep_u64(uint_lo, kMask5555);
           if (!write_idx_lowbits) {
             break;
           }
-          loader = vecul_slli(loader, 1);
+          loader = vecw_slli(loader, 1);
           --write_idx_lowbits;
         }
         ++target_iter0;
@@ -1188,25 +1188,25 @@ void TransposeQuaterblockAvx2(const uintptr_t* read_iter, uint32_t read_ul_strid
     uintptr_t* target_iter2 = &(target_iter1[write_ul_stride]);
     uintptr_t* target_iter3 = &(target_iter2[write_ul_stride]);
     for (uint32_t widx = 0; widx < write_ul_ct; ++widx) {
-      VecUL loader = source_iter[widx];
-      uintptr_t uint_hi = vecul_movemask(loader);
-      loader = vecul_slli(loader, 1);
-      uintptr_t uint_lo = vecul_movemask(loader);
+      VecW loader = source_iter[widx];
+      uintptr_t uint_hi = vecw_movemask(loader);
+      loader = vecw_slli(loader, 1);
+      uintptr_t uint_lo = vecw_movemask(loader);
       target_iter3[widx] = _pdep_u64(uint_hi, kMaskAAAA) | _pdep_u64(uint_lo, kMask5555);
-      loader = vecul_slli(loader, 1);
-      uint_hi = vecul_movemask(loader);
-      loader = vecul_slli(loader, 1);
-      uint_lo = vecul_movemask(loader);
+      loader = vecw_slli(loader, 1);
+      uint_hi = vecw_movemask(loader);
+      loader = vecw_slli(loader, 1);
+      uint_lo = vecw_movemask(loader);
       target_iter2[widx] = _pdep_u64(uint_hi, kMaskAAAA) | _pdep_u64(uint_lo, kMask5555);
-      loader = vecul_slli(loader, 1);
-      uint_hi = vecul_movemask(loader);
-      loader = vecul_slli(loader, 1);
-      uint_lo = vecul_movemask(loader);
+      loader = vecw_slli(loader, 1);
+      uint_hi = vecw_movemask(loader);
+      loader = vecw_slli(loader, 1);
+      uint_lo = vecw_movemask(loader);
       target_iter1[widx] = _pdep_u64(uint_hi, kMaskAAAA) | _pdep_u64(uint_lo, kMask5555);
-      loader = vecul_slli(loader, 1);
-      uint_hi = vecul_movemask(loader);
-      loader = vecul_slli(loader, 1);
-      uint_lo = vecul_movemask(loader);
+      loader = vecw_slli(loader, 1);
+      uint_hi = vecw_movemask(loader);
+      loader = vecw_slli(loader, 1);
+      uint_lo = vecw_movemask(loader);
       target_iter0[widx] = _pdep_u64(uint_hi, kMaskAAAA) | _pdep_u64(uint_lo, kMask5555);
     }
     target_iter0 = &(target_iter3[write_ul_stride]);
@@ -1239,12 +1239,12 @@ void TransposeQuaterblockNoAvx2(const uintptr_t* read_iter, uint32_t read_ul_str
   }
 
   // second-to-last shuffle, 8 bit spacing -> 4
-  const VecUL* source_iter = R_CAST(VecUL*, buf0);
+  const VecW* source_iter = R_CAST(VecW*, buf0);
   uintptr_t* target_iter0 = R_CAST(uintptr_t*, buf1);
 #  ifdef __LP64__
-  const VecUL m4 = VCONST_UL(kMask0F0F);
-  const VecUL m8 = VCONST_UL(kMask00FF);
-  const VecUL m16 = VCONST_UL(kMask0000FFFF);
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW m8 = VCONST_W(kMask00FF);
+  const VecW m16 = VCONST_W(kMask0000FFFF);
 #  endif
   const uint32_t write_word_ct = QuaterCtToWordCt(read_batch_size);
   const uint32_t penult_inner_loop_iter_ct = 2 * write_word_ct;
@@ -1254,19 +1254,19 @@ void TransposeQuaterblockNoAvx2(const uintptr_t* read_iter, uint32_t read_ul_str
     uintptr_t* target_iter1 = &(target_iter0[kWordsPerCacheline * 2]);
     for (uint32_t ujj = 0; ujj < penult_inner_loop_iter_ct; ++ujj) {
 #  ifdef __LP64__
-      const VecUL loader = *source_iter++;
-      VecUL target0 = loader & m4;
-      VecUL target1 = (vecul_srli(loader, 4)) & m4;
-      target0 = (target0 | (vecul_srli(target0, 4))) & m8;
-      target1 = (target1 | (vecul_srli(target1, 4))) & m8;
-      target0 = (target0 | (vecul_srli(target0, 8))) & m16;
-      target1 = (target1 | (vecul_srli(target1, 8))) & m16;
+      const VecW loader = *source_iter++;
+      VecW target0 = loader & m4;
+      VecW target1 = (vecw_srli(loader, 4)) & m4;
+      target0 = (target0 | (vecw_srli(target0, 4))) & m8;
+      target1 = (target1 | (vecw_srli(target1, 4))) & m8;
+      target0 = (target0 | (vecw_srli(target0, 8))) & m16;
+      target1 = (target1 | (vecw_srli(target1, 8))) & m16;
       UniVec target0u;
       UniVec target1u;
-      target0u.vi = target0 | (vecul_srli(target0, 16));
-      target1u.vi = target1 | (vecul_srli(target1, 16));
-      *target_iter0++ = S_CAST(uint32_t, target0u.u8[0]) | (target0u.u8[1] << 32);
-      *target_iter1++ = S_CAST(uint32_t, target1u.u8[0]) | (target1u.u8[1] << 32);
+      target0u.vw = target0 | (vecw_srli(target0, 16));
+      target1u.vw = target1 | (vecw_srli(target1, 16));
+      *target_iter0++ = S_CAST(uint32_t, target0u.w[0]) | (target0u.w[1] << 32);
+      *target_iter1++ = S_CAST(uint32_t, target1u.w[0]) | (target1u.w[1] << 32);
 #  else
       const uintptr_t source_word_lo = *source_iter++;
       const uintptr_t source_word_hi = *source_iter++;
@@ -1295,10 +1295,10 @@ void TransposeQuaterblockNoAvx2(const uintptr_t* read_iter, uint32_t read_ul_str
   }
 
   // last shuffle, 4 bit spacing -> 2
-  source_iter = R_CAST(VecUL*, buf1);
+  source_iter = R_CAST(VecW*, buf1);
   target_iter0 = write_iter;
 #  ifdef __LP64__
-  const VecUL m2 = VCONST_UL(kMask3333);
+  const VecW m2 = VCONST_W(kMask3333);
 #  endif
   const uint32_t last_loop_iter_ct = DivUp(write_batch_size, 2);
   for (uint32_t uii = 0; uii < last_loop_iter_ct; ++uii) {
@@ -1306,21 +1306,21 @@ void TransposeQuaterblockNoAvx2(const uintptr_t* read_iter, uint32_t read_ul_str
     for (uint32_t ujj = 0; ujj < write_word_ct; ++ujj) {
 #  ifdef __LP64__
       // in AVX2 case, use write_dword_ct instead of write_word_ct, etc.
-      const VecUL loader = *source_iter++;
-      VecUL target0 = loader & m2;
-      VecUL target1 = (vecul_srli(loader, 2)) & m2;
-      target0 = (target0 | (vecul_srli(target0, 2))) & m4;
-      target1 = (target1 | (vecul_srli(target1, 2))) & m4;
-      target0 = (target0 | (vecul_srli(target0, 4))) & m8;
-      target1 = (target1 | (vecul_srli(target1, 4))) & m8;
-      target0 = (target0 | (vecul_srli(target0, 8))) & m16;
-      target1 = (target1 | (vecul_srli(target1, 8))) & m16;
+      const VecW loader = *source_iter++;
+      VecW target0 = loader & m2;
+      VecW target1 = (vecw_srli(loader, 2)) & m2;
+      target0 = (target0 | (vecw_srli(target0, 2))) & m4;
+      target1 = (target1 | (vecw_srli(target1, 2))) & m4;
+      target0 = (target0 | (vecw_srli(target0, 4))) & m8;
+      target1 = (target1 | (vecw_srli(target1, 4))) & m8;
+      target0 = (target0 | (vecw_srli(target0, 8))) & m16;
+      target1 = (target1 | (vecw_srli(target1, 8))) & m16;
       UniVec target0u;
       UniVec target1u;
-      target0u.vi = target0 | (vecul_srli(target0, 16));
-      target1u.vi = target1 | (vecul_srli(target1, 16));
-      target_iter0[ujj] = S_CAST(uint32_t, target0u.u8[0]) | (target0u.u8[1] << 32);
-      target_iter1[ujj] = S_CAST(uint32_t, target1u.u8[0]) | (target1u.u8[1] << 32);
+      target0u.vw = target0 | (vecw_srli(target0, 16));
+      target1u.vw = target1 | (vecw_srli(target1, 16));
+      target_iter0[ujj] = S_CAST(uint32_t, target0u.w[0]) | (target0u.w[1] << 32);
+      target_iter1[ujj] = S_CAST(uint32_t, target1u.w[0]) | (target1u.w[1] << 32);
 #  else
       const uintptr_t source_word_lo = *source_iter++;
       const uintptr_t source_word_hi = *source_iter++;
@@ -1358,7 +1358,7 @@ void BiallelicDosage16Invert(uint32_t dosage_ct, uint16_t* dosage_vals) {
   // replace each x with (32768 - x).
   // uses vector operations, but does not require dosage_vals to be
   // vec-aligned.
-  const VecUL subvec = VCONST_UL(32768 * kMask0001);
+  const VecW subvec = VCONST_W(32768 * kMask0001);
   const uint32_t lead_usi_ct = ((-R_CAST(uintptr_t, dosage_vals)) % kBytesPerVec) / sizeof(int16_t);
   if (dosage_ct >= lead_usi_ct) {
     for (uint32_t uii = 0; uii < lead_usi_ct; ++uii) {
@@ -1367,9 +1367,9 @@ void BiallelicDosage16Invert(uint32_t dosage_ct, uint16_t* dosage_vals) {
     }
     dosage_ct -= lead_usi_ct;
     const uint32_t vec_ct = dosage_ct / (kBytesPerVec / sizeof(int16_t));
-    VecUL* dosage_vals_iter = R_CAST(VecUL*, dosage_vals);
+    VecW* dosage_vals_iter = R_CAST(VecW*, dosage_vals);
     for (uint32_t vec_idx = 0; vec_idx < vec_ct; ++vec_idx) {
-      const VecUL cur_vec = *dosage_vals_iter;
+      const VecW cur_vec = *dosage_vals_iter;
       *dosage_vals_iter++ = subvec - cur_vec;
     }
     dosage_vals = &(dosage_vals[vec_ct * (kBytesPerVec / sizeof(int16_t))]);
@@ -2370,7 +2370,7 @@ uint32_t GetLdbaseVidx(const unsigned char* vrtypes, uint32_t cur_vidx) {
     if (detect_non_ld_word) {
       // find the highest-order set bit in detect_non_ld_word; this corresponds
       // to the last non-LD-compressed byte (assuming little-endian).
-      const uint32_t new_ldbase_vidx_loworder = kBytesPerWord - 1 - (clzlu(detect_non_ld_word) / CHAR_BIT);
+      const uint32_t new_ldbase_vidx_loworder = bsrw(detect_non_ld_word) / CHAR_BIT;
       return (vidx_word_idx * kBytesPerWord) + new_ldbase_vidx_loworder;
     }
     // everything LD-compressed in the current block.  move back 8 bytes in the
@@ -2658,12 +2658,12 @@ void PgrPlink1ToPlink2InplaceUnsafe(uint32_t sample_ct, uintptr_t* genovec) {
   // new high bit = ~[old high]
   // "unsafe" because trailing bits are not zeroed out.
   const uint32_t vec_ct = QuaterCtToVecCt(sample_ct);
-  const VecUL m1 = VCONST_UL(kMask5555);
-  const VecUL not_m1 = VCONST_UL(kMaskAAAA);
-  VecUL* vptr = R_CAST(VecUL*, genovec);
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW not_m1 = VCONST_W(kMaskAAAA);
+  VecW* vptr = R_CAST(VecW*, genovec);
   for (uint32_t vidx = 0; vidx < vec_ct; vidx++) {
-    const VecUL not_cur_vec_high = (~vptr[vidx]) & not_m1;
-    vptr[vidx] = (((~vptr[vidx]) & m1) ^ vecul_srli(not_cur_vec_high, 1)) | not_cur_vec_high;
+    const VecW not_cur_vec_high = (~vptr[vidx]) & not_m1;
+    vptr[vidx] = (((~vptr[vidx]) & m1) ^ vecw_srli(not_cur_vec_high, 1)) | not_cur_vec_high;
   }
 }
 
@@ -2672,12 +2672,12 @@ void PgrPlink2ToPlink1InplaceUnsafe(uint32_t sample_ct, uintptr_t* genovec) {
   // new low bit  = [old low] ^ (~[old high])
   // new high bit = ~[old high]
   const uint32_t vec_ct = QuaterCtToVecCt(sample_ct);
-  const VecUL not_m1 = VCONST_UL(kMaskAAAA);
-  VecUL* vptr = R_CAST(VecUL*, genovec);
+  const VecW not_m1 = VCONST_W(kMaskAAAA);
+  VecW* vptr = R_CAST(VecW*, genovec);
   for (uint32_t vidx = 0; vidx < vec_ct; vidx++) {
-    VecUL cur_vec = vptr[vidx];
-    VecUL not_cur_vec_high = (~cur_vec) & not_m1;
-    vptr[vidx] = (((~not_m1) & cur_vec) ^ vecul_srli(not_cur_vec_high, 1)) | not_cur_vec_high;
+    VecW cur_vec = vptr[vidx];
+    VecW not_cur_vec_high = (~cur_vec) & not_m1;
+    vptr[vidx] = (((~not_m1) & cur_vec) ^ vecw_srli(not_cur_vec_high, 1)) | not_cur_vec_high;
   }
 }
 
@@ -2696,7 +2696,7 @@ PglErr ParseDifflistHeader(const unsigned char* fread_end, uint32_t raw_sample_c
     return kPglRetMalformedInput;
   }
   const uint32_t group_ct = DivUp(difflist_len, kPglDifflistGroupSize);
-  const uint32_t sample_id_byte_ct = BytesToRepresentUi(raw_sample_ct);
+  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(raw_sample_ct);
   const uint32_t difflist_index_byte_ct = group_ct * (sample_id_byte_ct + 1) - 1;
   if (S_CAST(uintptr_t, fread_end - (*fread_pp)) < difflist_index_byte_ct) {
     return kPglRetMalformedInput;
@@ -2731,7 +2731,7 @@ PglErr ParseAndSaveDifflist(const unsigned char* fread_end, uint32_t raw_sample_
   if (reterr || (!difflist_remaining)) {
     return reterr;
   }
-  const uint32_t sample_id_byte_ct = BytesToRepresentUi(raw_sample_ct);
+  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(raw_sample_ct);
   uint32_t* difflist_sample_ids_iter = difflist_sample_ids;
   while (1) {
     const uint32_t* difflist_sample_ids_stop;
@@ -2784,7 +2784,7 @@ void GetDifflistAmbigIdsUnsafe(const uintptr_t* __restrict raregeno, const uint3
     if (detect_11) {
       const uint32_t* difflist_sample_ids_base = &(difflist_sample_ids[widx * kBitsPerWordD2]);
       do {
-        uint32_t difflist_idx_lowbits = ctzlu(detect_11) / 2;
+        uint32_t difflist_idx_lowbits = ctzw(detect_11) / 2;
         ambig_sample_ids[ambig_id_ct++] = difflist_sample_ids_base[difflist_idx_lowbits];
         detect_11 &= detect_11 - 1;
       } while (detect_11);
@@ -2808,7 +2808,7 @@ PglErr ParseAndSaveDifflistProperSubset(const unsigned char* fread_end, const ui
     return reterr;
   }
   const uint32_t subgroup_idx_last = (raw_difflist_len - 1) / kBitsPerWordD2;
-  const uint32_t sample_id_byte_ct = BytesToRepresentUi(raw_sample_ct);
+  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(raw_sample_ct);
   uintptr_t* raregeno_workspace_iter = raregeno_workspace;
   uintptr_t* raregeno_iter = raregeno;
   uint32_t* difflist_sample_ids_iter = difflist_sample_ids;
@@ -2893,7 +2893,7 @@ PglErr ParseAndSaveDifflistSubset(const unsigned char* fread_end, const uintptr_
     return reterr;
   }
   const uint32_t subgroup_idx_last = (raw_difflist_len - 1) / kBitsPerWordD2;
-  const uint32_t sample_id_byte_ct = BytesToRepresentUi(raw_sample_ct);
+  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(raw_sample_ct);
   uintptr_t* raregeno_workspace_iter = raregeno_workspace;
   uintptr_t* raregeno_iter = raregeno;
   uint32_t* difflist_sample_ids_iter = difflist_sample_ids;
@@ -3005,7 +3005,7 @@ PglErr ParseLdAndMergeDifflistSubset(const unsigned char* fread_end, const uintp
     ldbase_common_geno = 4;  // force these to be saved
   }
   const uint32_t subgroup_idx_last = (diff_from_ldbase_len - 1) / kBitsPerWordD2;
-  const uint32_t sample_id_byte_ct = BytesToRepresentUi(raw_sample_ct);
+  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(raw_sample_ct);
   uintptr_t* merged_raregeno_iter = merged_raregeno;
   uint32_t* merged_difflist_sample_ids_iter = merged_difflist_sample_ids;
   uintptr_t merged_raregeno_word = 0;
@@ -3205,7 +3205,7 @@ PglErr ParseAndApplyDifflist(const unsigned char* fread_end, uint32_t multiallel
   if (reterr || (!difflist_len)) {
     return reterr;
   }
-  const uint32_t sample_id_byte_ct = BytesToRepresentUi(raw_sample_ct);
+  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(raw_sample_ct);
   const uint32_t subgroup_idx_last = (difflist_len - 1) / kBitsPerWordD2;
   uint32_t* ambig_sample_ids = multiallelic_relevant? pgrp->workspace_ambig_sample_ids : nullptr;
   uintptr_t raw_sample_idx = 0;
@@ -3268,7 +3268,7 @@ PglErr ParseAndApplyDifflistSubset(const unsigned char* fread_end, const uintptr
   if (reterr || (!difflist_len)) {
     return reterr;
   }
-  const uint32_t sample_id_byte_ct = BytesToRepresentUi(raw_sample_ct);
+  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(raw_sample_ct);
   const uint32_t subgroup_idx_last = (difflist_len - 1) / kBitsPerWordD2;
   uint32_t* ambig_sample_ids = multiallelic_relevant? pgrp->workspace_ambig_sample_ids : nullptr;
   uintptr_t raw_sample_idx = 0;
@@ -3386,7 +3386,7 @@ void ExtractGenoarrAmbigIds(const uintptr_t* genoarr, uint32_t raw_sample_ct, ui
     if (detect_11) {
       const uint32_t sample_idx_base = widx * kBitsPerWordD2;
       do {
-        const uint32_t sample_idx_lowbits = ctzlu(detect_11) / 2;
+        const uint32_t sample_idx_lowbits = ctzw(detect_11) / 2;
         ambig_sample_ids[ambig_id_ct++] = sample_idx_base + sample_idx_lowbits;
         detect_11 &= detect_11 - 1;
       } while (detect_11);
@@ -3513,7 +3513,7 @@ uint32_t LdLoadNecessary(uint32_t cur_vidx, PgenReader* pgrp) {
       // find the highest-order set bit in detect_non_ld_word; this corresponds
       // to the last non-LD-compressed byte (assuming little-endian).
       const uint32_t old_ldbase_vidx = pgrp->ldbase_vidx;
-      const uint32_t new_ldbase_vidx_loworder = kBytesPerWord - 1 - (clzlu(detect_non_ld_word) / CHAR_BIT);
+      const uint32_t new_ldbase_vidx_loworder = bsrw(detect_non_ld_word) / CHAR_BIT;
       const uint32_t new_ldbase_vidx = (vidx_word_idx * kBytesPerWord) + new_ldbase_vidx_loworder;
       pgrp->ldbase_vidx = new_ldbase_vidx;
       return (old_ldbase_vidx != new_ldbase_vidx);
@@ -3880,13 +3880,13 @@ PglErr LdSubsetAdjustGenocounts(const unsigned char* fread_end, const uintptr_t*
     return reterr;
   }
   const uint32_t subgroup_idx_last = (raw_difflist_len - 1) / kBitsPerWordD2;
-  const uint32_t sample_id_byte_ct = BytesToRepresentUi(raw_sample_ct);
+  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(raw_sample_ct);
   uintptr_t* raregeno_workspace_iter = raregeno_workspace;
   uintptr_t raw_sample_idx = 0;
   uint32_t subgroup_idx = 0;
   uint32_t ambig_id_ct = 0;
   uint32_t delta_counts[16];
-  ZeroUiArr(16, delta_counts);
+  ZeroU32Arr(16, delta_counts);
   while (1) {
     uint32_t remaining_deltas_in_subgroup = kBitsPerWordD2 - 1;
     if (subgroup_idx >= subgroup_idx_last) {
@@ -3990,7 +3990,7 @@ PglErr SkipDifflistIds(const unsigned char* fread_end, const unsigned char* grou
   assert(difflist_len);
   // fread_pp is a pure output parameter here
   const uint32_t group_ct = DivUp(difflist_len, kPglDifflistGroupSize);
-  const uint32_t sample_id_byte_ct = BytesToRepresentUi(raw_sample_ct);
+  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(raw_sample_ct);
   const unsigned char* extra_byte_cts = &(group_info[group_ct * sample_id_byte_ct]);
   const uint32_t extra_byte_tot = BytesumArr(extra_byte_cts, group_ct - 1);
 
@@ -4042,7 +4042,7 @@ PglErr CountparseDifflistSubset(const unsigned char* fread_end, const uintptr_t*
   uint32_t difflist_len;
   PglErr reterr = ParseDifflistHeader(fread_end, raw_sample_ct, fread_pp, raregeno_workspace, &group_info_iter, &difflist_len);
   *ambig_id_ct_ptr = 0;
-  ZeroUiArr(4, genocounts);
+  ZeroU32Arr(4, genocounts);
   if (reterr || (!difflist_len)) {
     genocounts[common_geno] = sample_ct;
     return reterr;
@@ -4060,7 +4060,7 @@ PglErr CountparseDifflistSubset(const unsigned char* fread_end, const uintptr_t*
     return kPglRetSuccess;
   }
   const uint32_t subgroup_idx_last = (difflist_len - 1) / kBitsPerWordD2;
-  const uint32_t sample_id_byte_ct = BytesToRepresentUi(raw_sample_ct);
+  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(raw_sample_ct);
   uintptr_t* raregeno_workspace_iter = raregeno_workspace;
   uintptr_t raw_sample_idx = 0;
   uint32_t subgroup_idx = 0;
@@ -4140,7 +4140,7 @@ PglErr CountparseOnebitSubset(const unsigned char* fread_end, const uintptr_t* _
   uint32_t difflist_len;
   PglErr reterr = ParseDifflistHeader(fread_end, raw_sample_ct, fread_pp, raregeno_workspace, &group_info_iter, &difflist_len);
   *ambig_id_ct_ptr = 0;
-  ZeroUiArr(4, genocounts);
+  ZeroU32Arr(4, genocounts);
   if (reterr || (!difflist_len)) {
     genocounts[geno_code_low] = sample_ct - high_geno_ct;
     genocounts[geno_code_high] = high_geno_ct;
@@ -4160,7 +4160,7 @@ PglErr CountparseOnebitSubset(const unsigned char* fread_end, const uintptr_t* _
     return kPglRetSuccess;
   }
   const uint32_t subgroup_idx_last = (difflist_len - 1) / kBitsPerWordD2;
-  const uint32_t sample_id_byte_ct = BytesToRepresentUi(raw_sample_ct);
+  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(raw_sample_ct);
   uintptr_t* raregeno_workspace_iter = raregeno_workspace;
   uintptr_t raw_sample_idx = 0;
   uint32_t subgroup_idx = 0;
@@ -4346,7 +4346,7 @@ PglErr GetRefalt1GenotypeCounts(const uintptr_t* __restrict sample_include, cons
 PglErr PgrGetRefalt1GenotypeCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uint32_t* genocounts) {
   assert(vidx < pgrp->fi.raw_variant_ct);
   if (!sample_ct) {
-    ZeroUiArr(4, genocounts);
+    ZeroU32Arr(4, genocounts);
     return kPglRetSuccess;
   }
   return GetRefalt1GenotypeCounts(sample_include, sample_include_interleaved_vec, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, nullptr, nullptr, genocounts);
@@ -4386,7 +4386,7 @@ static_assert(kPglMaxAltAlleleCt == 254, "Need to update Aux1UpdateAlleleCounts(
 void Aux1UpdateAlleleCounts(uint32_t alt_allele_ct, uint32_t aux1_nonmissing_ct, uintptr_t* aux1_code_vec, uint32_t* allele_ct_buf) {
   // aux1_code_vec not const since we might zero the trailing bits
   // todo: validate?
-  ZeroUiArr(alt_allele_ct - 1, &(allele_ct_buf[2]));
+  ZeroU32Arr(alt_allele_ct - 1, &(allele_ct_buf[2]));
   if (!aux1_nonmissing_ct) {
     return;
   }
@@ -4446,7 +4446,7 @@ void Aux1UpdateAlleleCounts(uint32_t alt_allele_ct, uint32_t aux1_nonmissing_ct,
 static_assert(kPglMaxAltAlleleCt == 254, "Need to update Aux1SubsetUpdateAlleleCounts().");
 void Aux1SubsetUpdateAlleleCounts(const uint32_t* __restrict ambig_sample_ids, const uintptr_t* __restrict aux1_nonmissing_vec, const uintptr_t* __restrict aux1_code_vec, const uintptr_t* __restrict sample_include, uint32_t alt_allele_ct, uint32_t aux1_nonmissing_ct, uint32_t* allele_ct_buf) {
   // todo: validate?
-  ZeroUiArr(alt_allele_ct - 1, &(allele_ct_buf[2]));
+  ZeroU32Arr(alt_allele_ct - 1, &(allele_ct_buf[2]));
   uint32_t ambig_idx = 0;
   if (alt_allele_ct == 2) {
     for (uint32_t aux_idx = 0; aux_idx < aux1_nonmissing_ct; ++aux_idx, ++ambig_idx) {
@@ -4906,7 +4906,7 @@ PglErr PgrReadGenovecSubsetThenCommon2(const uintptr_t* __restrict sample_includ
   if (!sample_ct) {
     *maj_allele_idx_ptr = 0;
     *second_allele_idx_ptr = 0;
-    ZeroUiArr(allele_ct, allele_ct_buf);
+    ZeroU32Arr(allele_ct, allele_ct_buf);
     return kPglRetSuccess;
   }
   // major allele corresponds to 0 bits, second-most-common allele corresponds
@@ -5040,7 +5040,7 @@ PglErr ParseDifflistJustAmbigIds(const unsigned char* fread_end, PgenReader* pgr
   // variant is guaranteed to be multiallelic, so little point in optimizing
   // for sparsity.
   const uint32_t subgroup_idx_last = (difflist_len - 1) / kBitsPerWordD2;
-  const uint32_t sample_id_byte_ct = BytesToRepresentUi(raw_sample_ct);
+  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(raw_sample_ct);
   uint32_t* __restrict ambig_sample_ids = pgrp->workspace_ambig_sample_ids;
   uint32_t subgroup_idx = 0;
   uint32_t subgroup_len_m1 = kBitsPerWordD2 - 1;
@@ -5198,7 +5198,7 @@ PglErr PgrReadAlleleCountvecSubsetUnsafe(const uintptr_t* __restrict sample_incl
   uint32_t* ambig_sample_ids = pgrp->workspace_ambig_sample_ids;
   if ((vrtype & 7) == 7) {
     // most values missing, 0b11 entries
-    SetAllUlArr(QuaterCtToWordCt(sample_ct), allele_countvec);
+    SetAllWArr(QuaterCtToWordCt(sample_ct), allele_countvec);
     uintptr_t* __restrict raregeno_vec = pgrp->workspace_raregeno_vec;
     uint32_t* __restrict difflist_sample_ids = pgrp->workspace_difflist_sample_ids;
     uint32_t difflist_len;
@@ -5265,7 +5265,7 @@ PglErr PgrReadAlleleCountvecSubsetUnsafe(const uintptr_t* __restrict sample_incl
       GenovecNonmissingToZeroUnsafe(sample_ct, allele_countvec);
     } else {
       // most values nonmissing, 0b00 entries
-      ZeroUlArr(QuaterCtToWordCt(sample_ct), allele_countvec);
+      ZeroWArr(QuaterCtToWordCt(sample_ct), allele_countvec);
     }
   }
   uint32_t aux1_nonmissing_ct;
@@ -5324,7 +5324,7 @@ PglErr ParseAndApplyDifflistHphaseSubset(const unsigned char* fread_end, const u
   if (reterr || (!difflist_len)) {
     return reterr;
   }
-  const uint32_t sample_id_byte_ct = BytesToRepresentUi(raw_sample_ct);
+  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(raw_sample_ct);
   const uint32_t subgroup_idx_last = (difflist_len - 1) / kBitsPerWordD2;
   uint32_t* ambig_sample_ids = multiallelic_relevant? pgrp->workspace_ambig_sample_ids : nullptr;
   uintptr_t raw_sample_idx = 0;
@@ -5409,7 +5409,7 @@ PglErr ParseNonLdGenovecHphaseSubset(const unsigned char* fread_end, const uintp
   ZeroTrailingQuaters(sample_ct, genovec);
   // common genotype can't be het
   if (all_hets) {
-    ZeroUlArr(BitCtToWordCt(raw_sample_ct), all_hets);
+    ZeroWArr(BitCtToWordCt(raw_sample_ct), all_hets);
     return ParseAndApplyDifflistHphaseSubset(fread_end, sample_include, sample_include_cumulative_popcounts, sample_ct, difflist_ambig_ids_needed, fread_pp, pgrp, genovec, all_hets);
   } else {
     return ParseAndApplyDifflistSubset(fread_end, sample_include, sample_include_cumulative_popcounts, sample_ct, difflist_ambig_ids_needed, fread_pp, pgrp, genovec);
@@ -5626,7 +5626,7 @@ PglErr ReadRefalt1GenovecHphaseSubsetUnsafe(const uintptr_t* __restrict sample_i
       *phasepresent_ct_ptr = PopcountWords(phasepresent, sample_ctl);
       if (!(*phasepresent_ct_ptr)) {
         // bugfix (7 Dec 2017): clear sample_ctl words here, not raw_sample_ctl
-        ZeroUlArr(sample_ctl, phaseinfo);
+        ZeroWArr(sample_ctl, phaseinfo);
       } else {
         ExpandThenSubsetBytearr(fread_ptr, all_hets, sample_include, het_ct, sample_ct, 1, phaseinfo);
       }
@@ -5680,10 +5680,10 @@ PglErr ParseAndSaveDeltalistAsBitarr(const unsigned char* fread_end, uint32_t ra
   if (reterr || (!deltalist_len)) {
     return reterr;
   }
-  const uint32_t sample_id_byte_ct = BytesToRepresentUi(raw_sample_ct);
+  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(raw_sample_ct);
   const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
   const uint32_t group_idx_last = (deltalist_len - 1) / kPglDifflistGroupSize;
-  ZeroUlArr(raw_sample_ctl, deltalist_include);
+  ZeroWArr(raw_sample_ctl, deltalist_include);
   uint32_t group_len_m1 = kPglDifflistGroupSize - 1;
   uint32_t group_idx = 0;
   while (1) {
@@ -5831,16 +5831,16 @@ uint64_t U16VecSum(const uint16_t* __restrict uint16_vec, uint32_t entry_ct) {
   // UniVecHsum32() could overflow once we exceed this
   const uint32_t max_loop_len = (131072 / kInt32PerVec) - 1;
 
-  const VecUL m16 = VCONST_UL(kMask0000FFFF);
-  const VecUL* uint16_vvec_iter = R_CAST(const VecUL*, uint16_vec);
+  const VecW m16 = VCONST_W(kMask0000FFFF);
+  const VecW* uint16_vvec_iter = R_CAST(const VecW*, uint16_vec);
   uint32_t full_vecs_remaining = entry_ct / (kBytesPerVec / sizeof(int16_t));
   uint64_t sum = 0;
   while (1) {
     UniVec acc_even;
     UniVec acc_odd;
-    acc_even.vi = vecul_setzero();
-    acc_odd.vi = vecul_setzero();
-    const VecUL* uint16_vvec_stop;
+    acc_even.vw = vecw_setzero();
+    acc_odd.vw = vecw_setzero();
+    const VecW* uint16_vvec_stop;
     if (full_vecs_remaining < max_loop_len) {
       if (!full_vecs_remaining) {
         const uint32_t trail_ct = entry_ct % (kBytesPerVec / sizeof(int16_t));
@@ -5857,9 +5857,9 @@ uint64_t U16VecSum(const uint16_t* __restrict uint16_vec, uint32_t entry_ct) {
       full_vecs_remaining -= max_loop_len;
     }
     do {
-      const VecUL cur_vec = *uint16_vvec_iter++;
-      acc_even.vi = acc_even.vi + (cur_vec & m16);
-      acc_odd.vi = acc_odd.vi + (vecul_srli(cur_vec, 16) & m16);
+      const VecW cur_vec = *uint16_vvec_iter++;
+      acc_even.vw = acc_even.vw + (cur_vec & m16);
+      acc_odd.vw = acc_odd.vw + (vecw_srli(cur_vec, 16) & m16);
     } while (uint16_vvec_iter < uint16_vvec_stop);
     sum += UniVecHsum32(acc_even);
     sum += UniVecHsum32(acc_odd);
@@ -5974,7 +5974,7 @@ PglErr GetRefNonrefGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample
 #ifdef __arm__
 #  error "Unaligned accesses in GetRefNonrefGenotypeCountsAndDosage16s()."
 #endif
-    ZeroUiArr(4, replaced_genocounts);
+    ZeroU32Arr(4, replaced_genocounts);
     const uint16_t* dosage_vals = R_CAST(const uint16_t*, fread_ptr);
     if (subsetting_required) {
       for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
@@ -6078,7 +6078,7 @@ PglErr GetRefNonrefGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample
 PglErr PgrGetRefNonrefGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* mach_r2_ptr, uint32_t* genocounts, uint64_t* all_dosages) {
   assert(vidx < pgrp->fi.raw_variant_ct);
   if (!sample_ct) {
-    ZeroUiArr(4, genocounts);
+    ZeroU32Arr(4, genocounts);
     const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
     const uint32_t cur_allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
     ZeroU64Arr(cur_allele_ct, all_dosages);
@@ -6463,7 +6463,7 @@ BoolErr ValidateDifflistHeader(const unsigned char* fread_end, uint32_t sample_c
     return 1;
   }
   const uint32_t group_ct = DivUp(difflist_len, kPglDifflistGroupSize);
-  const uint32_t sample_id_byte_ct = BytesToRepresentUi(sample_ct);
+  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(sample_ct);
   const uint32_t difflist_index_byte_ct = group_ct * (sample_id_byte_ct + 1) - 1;
   if (S_CAST(uintptr_t, fread_end - (*fread_pp)) < difflist_index_byte_ct) {
     return 1;
@@ -6542,7 +6542,7 @@ BoolErr ValidateAndApplyDifflist(const unsigned char* fread_end, uint32_t common
       ++subgroup_idx;
     }
   }
-  const uint32_t sample_id_byte_ct = BytesToRepresentUi(sample_ct);
+  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(sample_ct);
   uint32_t* ambig_sample_ids = multiallelic_relevant? pgrp->workspace_ambig_sample_ids : nullptr;
   const unsigned char* group_byte_cts_iter = &(group_info_iter[DivUp(difflist_len, kPglDifflistGroupSize) * sample_id_byte_ct]);
   const unsigned char* prev_group_start = *fread_pp;
@@ -6781,7 +6781,7 @@ BoolErr ValidateAndCountDeltalist(const unsigned char* fread_end, uint32_t sampl
   // if (deltalist_len > sample_ct / kPglMaxDeltalistLenDivisor) {
   //   return 1;
   // }
-  const uint32_t sample_id_byte_ct = BytesToRepresentUi(sample_ct);
+  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(sample_ct);
   const uint32_t group_idx_last = (deltalist_len - 1) / kPglDifflistGroupSize;
   const unsigned char* group_byte_cts_iter = &(group_info_iter[DivUp(deltalist_len, kPglDifflistGroupSize) * sample_id_byte_ct]);
   const unsigned char* prev_group_start = *fread_pp;
@@ -7234,7 +7234,7 @@ uint32_t CountSpgwAllocCachelinesRequired(uint32_t variant_ct, uint32_t sample_c
   // vrec_len_buf
   // overlapping uint32_t writes used, so (variant_ct * vrec_len_byte_ct) might
   // not be enough
-  const uintptr_t vrec_len_byte_ct = BytesToRepresentUi(max_vrec_len);
+  const uintptr_t vrec_len_byte_ct = BytesToRepresentNzU32(max_vrec_len);
   cachelines_required += DivUp((variant_ct - 1) * vrec_len_byte_ct + sizeof(int32_t), kCacheline);
 
   // vrtype_buf
@@ -7314,7 +7314,7 @@ PglErr SpgwInitPhase1(const char* __restrict fname, const uintptr_t* __restrict 
 #endif
   }
   *max_vrec_len_ptr = max_vrec_len;
-  const uintptr_t vrec_len_byte_ct = BytesToRepresentUi(max_vrec_len);
+  const uintptr_t vrec_len_byte_ct = BytesToRepresentNzU32(max_vrec_len);
 
   PglErr reterr = PwcInitPhase1(fname, allele_idx_offsets, explicit_nonref_flags, variant_ct, sample_ct, phase_dosage_gflags, nonref_flags_storage, vrec_len_byte_ct, &(spgwp->pwc), &(spgwp->pgen_outfile));
   if (!reterr) {
@@ -7445,7 +7445,7 @@ void MpgwInitPhase1(const uintptr_t* __restrict allele_idx_offsets, uint32_t var
         vblock_end = variant_ct;
       }
       uint32_t altx_seen[4];
-      ZeroUiArr(4, altx_seen);
+      ZeroU32Arr(4, altx_seen);
       for (; vidx < vblock_end;) {
         const uintptr_t cur_offset = allele_idx_offsets[++vidx];
         const uint32_t alt_ct_p1 = cur_offset - prev_offset;
@@ -7487,7 +7487,7 @@ void MpgwInitPhase1(const uintptr_t* __restrict allele_idx_offsets, uint32_t var
     if (extra_alt_ceil_ct) {
       max_vrec_len = kPglMaxBytesPerVariant;
     } else {
-      max_vrec_len = uncompressed_biallelic_vrec_len + extra_byte_cts[BitScanReverse(altx_seen_mask)];
+      max_vrec_len = uncompressed_biallelic_vrec_len + extra_byte_cts[bsru32(altx_seen_mask)];
       if (dosage_gflag && (max_alt_ct_p1 >= 6)) {
         if (max_alt_ct_p1 >= 17) {
           max_vrec_len += (max_alt_ct_p1 - 17) * extra_dosage_bytes_per_alt;
@@ -7500,7 +7500,7 @@ void MpgwInitPhase1(const uintptr_t* __restrict allele_idx_offsets, uint32_t var
   // vrec_len_buf
   // previously used overlapping uint32_t writes-to-memory, but that was
   // incompatible with multithreaded compression
-  *vrec_len_byte_ct_ptr = BytesToRepresentUi(max_vrec_len);
+  *vrec_len_byte_ct_ptr = BytesToRepresentNzU32(max_vrec_len);
   *alloc_base_cacheline_ct_ptr = alloc_base_cacheline_ct + DivUp(S_CAST(uintptr_t, variant_ct) * (*vrec_len_byte_ct_ptr), kCacheline);
 
   // main write buffer
@@ -7594,18 +7594,18 @@ void CountLdAndInvertedLdDiffs(const uintptr_t* __restrict ldbase_genovec, const
   uint32_t ld_diff_ct = 0;
   uint32_t ld_inv_diff_ct = 0;
   // construct the words we want to popcount_quatervec_01 on the fly
-  const VecUL m1 = VCONST_UL(kMask5555);
-  const VecUL m2 = VCONST_UL(kMask3333);
-  const VecUL m4 = VCONST_UL(kMask0F0F);
-  const VecUL* ldbase_vvec_iter = R_CAST(const VecUL*, ldbase_genovec);
-  const VecUL* geno_vvec_iter = R_CAST(const VecUL*, genovec);
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW m2 = VCONST_W(kMask3333);
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW* ldbase_vvec_iter = R_CAST(const VecW*, ldbase_genovec);
+  const VecW* geno_vvec_iter = R_CAST(const VecW*, genovec);
   uint32_t full_vecs_left = 3 * (word_ct / (3 * kWordsPerVec));
   UniVec acc_ld;
   UniVec acc_ld_inv;
   while (1) {
-    acc_ld.vi = vecul_setzero();
-    acc_ld_inv.vi = vecul_setzero();
-    const VecUL* geno_vvec_stop;
+    acc_ld.vw = vecw_setzero();
+    acc_ld_inv.vw = vecw_setzero();
+    const VecW* geno_vvec_stop;
     if (full_vecs_left < 60) {
       if (!full_vecs_left) {
         break;
@@ -7617,14 +7617,14 @@ void CountLdAndInvertedLdDiffs(const uintptr_t* __restrict ldbase_genovec, const
       full_vecs_left -= 60;
     }
     do {
-      VecUL loader_ldbase1 = *ldbase_vvec_iter++;
-      VecUL loader_geno1 = *geno_vvec_iter++;
-      VecUL loader_ldbase2 = *ldbase_vvec_iter++;
-      VecUL loader_geno2 = *geno_vvec_iter++;
-      VecUL xor1 = loader_ldbase1 ^ loader_geno1;
-      VecUL xor2 = loader_ldbase2 ^ loader_geno2;
-      VecUL xor_shifted1 = vecul_srli(xor1, 1);
-      VecUL xor_shifted2 = vecul_srli(xor2, 1);
+      VecW loader_ldbase1 = *ldbase_vvec_iter++;
+      VecW loader_geno1 = *geno_vvec_iter++;
+      VecW loader_ldbase2 = *ldbase_vvec_iter++;
+      VecW loader_geno2 = *geno_vvec_iter++;
+      VecW xor1 = loader_ldbase1 ^ loader_geno1;
+      VecW xor2 = loader_ldbase2 ^ loader_geno2;
+      VecW xor_shifted1 = vecw_srli(xor1, 1);
+      VecW xor_shifted2 = vecw_srli(xor2, 1);
       // xor(_low)  xor_shifted  loader_geno   result
       //         1                                  1
       //         0            0            0        1
@@ -7633,28 +7633,28 @@ void CountLdAndInvertedLdDiffs(const uintptr_t* __restrict ldbase_genovec, const
       //         0            1            1        1
       // gah, don't see a way to avoid throwing in an extra xor for
       // loader_geno...
-      VecUL count_ld_inv = (xor1 | (xor_shifted1 ^ loader_geno1 ^ m1)) & m1;
+      VecW count_ld_inv = (xor1 | (xor_shifted1 ^ loader_geno1 ^ m1)) & m1;
       loader_ldbase1 = *ldbase_vvec_iter++;
-      VecUL count_ld = (xor1 | xor_shifted1) & m1;
+      VecW count_ld = (xor1 | xor_shifted1) & m1;
       loader_geno1 = *geno_vvec_iter++;
       count_ld_inv = count_ld_inv + ((xor2 | (xor_shifted2 ^ loader_geno2 ^ m1)) & m1);
       xor1 = loader_ldbase1 ^ loader_geno1;
       count_ld = count_ld + ((xor2 | xor_shifted2) & m1);
-      xor_shifted1 = vecul_srli(xor1, 1);
+      xor_shifted1 = vecw_srli(xor1, 1);
       count_ld_inv = count_ld_inv + ((xor1 | (xor_shifted1 ^ loader_geno1 ^ m1)) & m1);
       count_ld = count_ld + ((xor1 | xor_shifted1) & m1);
       // now count_ld and count_ld_inv each have 64 2-bit values from 0-3
 
-      count_ld_inv = (count_ld_inv & m2) + (vecul_srli(count_ld_inv, 2) & m2);
-      count_ld = (count_ld & m2) + (vecul_srli(count_ld, 2) & m2);
+      count_ld_inv = (count_ld_inv & m2) + (vecw_srli(count_ld_inv, 2) & m2);
+      count_ld = (count_ld & m2) + (vecw_srli(count_ld, 2) & m2);
       // now they have 32 4-bit values from 0-6
 
-      acc_ld_inv.vi = acc_ld_inv.vi + ((count_ld_inv + vecul_srli(count_ld_inv, 4)) & m4);
-      acc_ld.vi = acc_ld.vi + ((count_ld + vecul_srli(count_ld, 4)) & m4);
+      acc_ld_inv.vw = acc_ld_inv.vw + ((count_ld_inv + vecw_srli(count_ld_inv, 4)) & m4);
+      acc_ld.vw = acc_ld.vw + ((count_ld + vecw_srli(count_ld, 4)) & m4);
     } while (geno_vvec_iter < geno_vvec_stop);
-    const VecUL m8 = VCONST_UL(kMask00FF);
-    acc_ld_inv.vi = (acc_ld_inv.vi & m8) + (vecul_srli(acc_ld_inv.vi, 8) & m8);
-    acc_ld.vi = (acc_ld.vi & m8) + (vecul_srli(acc_ld.vi, 8) & m8);
+    const VecW m8 = VCONST_W(kMask00FF);
+    acc_ld_inv.vw = (acc_ld_inv.vw & m8) + (vecw_srli(acc_ld_inv.vw, 8) & m8);
+    acc_ld.vw = (acc_ld.vw & m8) + (vecw_srli(acc_ld.vw, 8) & m8);
     ld_inv_diff_ct += UniVecHsum16(acc_ld_inv);
     ld_diff_ct += UniVecHsum16(acc_ld);
   }
@@ -7727,7 +7727,7 @@ uint32_t SaveLdDifflist(const uintptr_t* __restrict genovec, const uintptr_t* __
   }
   unsigned char* fwrite_bufp_start = fwrite_bufp;
   fwrite_bufp = Vint32Append(difflist_len, fwrite_bufp);
-  const uint32_t sample_id_byte_ct = BytesToRepresentUi(pwcp->sample_ct);
+  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(pwcp->sample_ct);
   const uintptr_t common_geno_word = common_geno * kMask5555;
   const uint32_t group_ct = DivUp(difflist_len, kPglDifflistGroupSize);
   unsigned char* group_first_sample_ids_iter = fwrite_bufp;
@@ -7749,7 +7749,7 @@ uint32_t SaveLdDifflist(const uintptr_t* __restrict genovec, const uintptr_t* __
     if (xor_word) {
       const uint32_t sample_idx_base = widx * kBitsPerWordD2;
       do {
-        const uint32_t sample_idx_lowbits = ctzlu(xor_word) / 2;
+        const uint32_t sample_idx_lowbits = ctzw(xor_word) / 2;
         const uint32_t new_sample_idx = sample_idx_base + sample_idx_lowbits;
         raregeno_word |= ((cur_geno_word >> (2 * sample_idx_lowbits)) & 3) << (2 * (difflist_idx % kBitsPerWordD2));
         if (!(difflist_idx % kPglDifflistGroupSize)) {
@@ -7784,10 +7784,10 @@ void OnebitPreprocessBuf(const uintptr_t* __restrict genovec, uint32_t sample_ct
   assert(sample_ct);
   const uint32_t vec_ct = QuaterCtToVecCt(sample_ct);
   // todo: look for better ways to perform some of these operations
-  const VecUL* geno_vvec_iter = R_CAST(const VecUL*, genovec);
-  const VecUL* geno_vvec_end = &(geno_vvec_iter[vec_ct]);
-  VecUL* write_iter = R_CAST(VecUL*, genovec_buf);
-  const VecUL m1 = VCONST_UL(kMask5555);
+  const VecW* geno_vvec_iter = R_CAST(const VecW*, genovec);
+  const VecW* geno_vvec_end = &(geno_vvec_iter[vec_ct]);
+  VecW* write_iter = R_CAST(VecW*, genovec_buf);
+  const VecW m1 = VCONST_W(kMask5555);
   if (common2_code < 5) {
     if (common2_code == 1) {
       // 11 -> 10, everything else unchanged
@@ -7795,25 +7795,25 @@ void OnebitPreprocessBuf(const uintptr_t* __restrict genovec, uint32_t sample_ct
       // todo: check if it's better to unroll these loops to process 2 __m128is
       //       at a time
       do {
-        const VecUL cur_geno = *geno_vvec_iter++;
-        *write_iter++ = (~(m1 & vecul_srli(cur_geno, 1))) & cur_geno;
+        const VecW cur_geno = *geno_vvec_iter++;
+        *write_iter++ = (~(m1 & vecw_srli(cur_geno, 1))) & cur_geno;
       } while (geno_vvec_iter < geno_vvec_end);
     } else if (common2_code == 3) {
       // 00 -> 00, 01 -> 10, 10 -> 10, 11 -> 01
       do {
-        const VecUL cur_geno = *geno_vvec_iter++;
-        const VecUL cur_geno_rshift = vecul_srli(cur_geno, 1);
-        const VecUL cur_geno_xor_masked = (cur_geno ^ cur_geno_rshift) & m1;
-        const VecUL cur_geno_or_masked = (cur_geno | cur_geno_rshift) & m1;
+        const VecW cur_geno = *geno_vvec_iter++;
+        const VecW cur_geno_rshift = vecw_srli(cur_geno, 1);
+        const VecW cur_geno_xor_masked = (cur_geno ^ cur_geno_rshift) & m1;
+        const VecW cur_geno_or_masked = (cur_geno | cur_geno_rshift) & m1;
         *write_iter++ = cur_geno_xor_masked + cur_geno_or_masked;
       } while (geno_vvec_iter < geno_vvec_end);
     } else {
       assert(common2_code == 2);
       // 00 -> 00, 01 -> 10, 10 -> 01, 11 -> 10
       do {
-        const VecUL cur_geno = *geno_vvec_iter++;
-        const VecUL cur_geno_or_masked = (cur_geno | vecul_srli(cur_geno, 1)) & m1;
-        const VecUL cur_geno_lowbits = cur_geno & m1;
+        const VecW cur_geno = *geno_vvec_iter++;
+        const VecW cur_geno_or_masked = (cur_geno | vecw_srli(cur_geno, 1)) & m1;
+        const VecW cur_geno_lowbits = cur_geno & m1;
         *write_iter++ = cur_geno_lowbits + cur_geno_or_masked;
       } while (geno_vvec_iter < geno_vvec_end);
     }
@@ -7821,26 +7821,26 @@ void OnebitPreprocessBuf(const uintptr_t* __restrict genovec, uint32_t sample_ct
     if (common2_code == 5) {
       // 00 -> 10, 01 -> 00, 10 -> 01, 11 -> 10
       do {
-        const VecUL cur_geno = *geno_vvec_iter++;
-        const VecUL cur_geno_rshift = vecul_srli(cur_geno, 1);
-        const VecUL cur_geno_not_xor_masked = (~(cur_geno ^ cur_geno_rshift)) & m1;
-        const VecUL cur_geno_rshift_masked = cur_geno_rshift & m1;
+        const VecW cur_geno = *geno_vvec_iter++;
+        const VecW cur_geno_rshift = vecw_srli(cur_geno, 1);
+        const VecW cur_geno_not_xor_masked = (~(cur_geno ^ cur_geno_rshift)) & m1;
+        const VecW cur_geno_rshift_masked = cur_geno_rshift & m1;
         *write_iter++ = cur_geno_not_xor_masked + (cur_geno_not_xor_masked | cur_geno_rshift_masked);
       } while (geno_vvec_iter < geno_vvec_end);
     } else if (common2_code == 9) {
       // 00 -> 10, 01 -> 10, 10 -> 00, 11 -> 01
-      const VecUL not_m1 = VCONST_UL(kMaskAAAA);
+      const VecW not_m1 = VCONST_W(kMaskAAAA);
       do {
-        const VecUL cur_geno = *geno_vvec_iter++;
-        *write_iter++ = (cur_geno ^ not_m1) - ((~not_m1) & ((~vecul_srli(cur_geno, 1)) & cur_geno));
+        const VecW cur_geno = *geno_vvec_iter++;
+        *write_iter++ = (cur_geno ^ not_m1) - ((~not_m1) & ((~vecw_srli(cur_geno, 1)) & cur_geno));
       } while (geno_vvec_iter < geno_vvec_end);
     } else {
       assert(common2_code == 6);
       // 00 -> 10, 01 -> 00, 10 -> 10, 11 -> 01
       do {
-        const VecUL cur_geno = *geno_vvec_iter++;
-        const VecUL cur_geno_not_lowbits = (~cur_geno) & m1;
-        const VecUL cur_geno_rshift_masked = vecul_srli(cur_geno, 1) & m1;
+        const VecW cur_geno = *geno_vvec_iter++;
+        const VecW cur_geno_not_lowbits = (~cur_geno) & m1;
+        const VecW cur_geno_rshift_masked = vecw_srli(cur_geno, 1) & m1;
         *write_iter++ = cur_geno_not_lowbits + (cur_geno_not_lowbits | cur_geno_rshift_masked);
       } while (geno_vvec_iter < geno_vvec_end);
     }
@@ -7889,7 +7889,7 @@ uint32_t SaveOnebit(const uintptr_t* __restrict genovec, uint32_t common2_code, 
     pwcp->fwrite_bufp = fwrite_bufp;
     return (onebit_block_len + 1);
   }
-  const uint32_t sample_id_byte_ct = BytesToRepresentUi(pwcp->sample_ct);
+  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(pwcp->sample_ct);
   const uint32_t group_ct = DivUp(onebit_difflist_len, kPglDifflistGroupSize);
   unsigned char* group_first_sample_ids_iter = fwrite_bufp;
   unsigned char* extra_byte_cts_iter = &(fwrite_bufp[group_ct * sample_id_byte_ct]);
@@ -7909,7 +7909,7 @@ uint32_t SaveOnebit(const uintptr_t* __restrict genovec, uint32_t common2_code, 
       // enable stronger loop optimizations
       const uint32_t difflist_idx_end = difflist_idx + PopcountWord(xor_word);
       while (1) {
-        const uint32_t sample_idx_lowbits = ctzlu(xor_word) / 2;
+        const uint32_t sample_idx_lowbits = ctzw(xor_word) / 2;
         const uint32_t new_sample_idx = sample_idx_base + sample_idx_lowbits;
         if (!(difflist_idx % kBitsPerWordD2)) {
           if (!(difflist_idx % kPglDifflistGroupSize)) {
@@ -8098,7 +8098,7 @@ uint32_t SaveLdTwoListDelta(const uintptr_t* __restrict difflist_raregeno, const
   }
   unsigned char* fwrite_bufp_start = fwrite_bufp;
   fwrite_bufp = Vint32Append(ld_diff_ct, fwrite_bufp);
-  const uint32_t sample_id_byte_ct = BytesToRepresentUi(pwcp->sample_ct);
+  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(pwcp->sample_ct);
   const uint32_t group_ct = DivUp(ld_diff_ct, kPglDifflistGroupSize);
   const uint32_t ldbase_common_geno = pwcp->ldbase_common_geno;
   assert(ldbase_common_geno < 4);
@@ -8188,7 +8188,7 @@ uint32_t SaveLdInputList(PgenWriterCommon* pwcp) {
   }
   unsigned char* fwrite_bufp_start = fwrite_bufp;
   fwrite_bufp = Vint32Append(difflist_len, fwrite_bufp);
-  const uint32_t sample_id_byte_ct = BytesToRepresentUi(pwcp->sample_ct);
+  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(pwcp->sample_ct);
   const uint32_t group_ct = DivUp(difflist_len, kPglDifflistGroupSize);
   const uint32_t* __restrict difflist_sample_ids = pwcp->ldbase_difflist_sample_ids;
   unsigned char* group_first_sample_ids_iter = fwrite_bufp;
@@ -8393,7 +8393,7 @@ void AppendHphase(const uintptr_t* __restrict genovec, const uintptr_t* __restri
       if (geno_hets) {
         const uint32_t phaseinfo_halfword = R_CAST(const Halfword*, phaseinfo)[widx];
         do {
-          const uint32_t sample_idx_lowbits = ctzlu(geno_hets) / 2;
+          const uint32_t sample_idx_lowbits = ctzw(geno_hets) / 2;
           phaseinfo_write_word |= S_CAST(uintptr_t, (phaseinfo_halfword >> sample_idx_lowbits) & k1LU) << phaseinfo_write_idx_lowbits;
           if (++phaseinfo_write_idx_lowbits == kBitsPerWord) {
             *fwrite_bufp_alias++ = phaseinfo_write_word;
@@ -8419,7 +8419,7 @@ void AppendHphase(const uintptr_t* __restrict genovec, const uintptr_t* __restri
         if (phasepresent_halfword) {
           const uint32_t phaseinfo_halfword = R_CAST(const Halfword*, phaseinfo)[widx];
           do {
-            const uint32_t sample_idx_lowbits = ctzlu(geno_hets) / 2;
+            const uint32_t sample_idx_lowbits = ctzw(geno_hets) / 2;
             if ((phasepresent_halfword >> sample_idx_lowbits) & 1) {
               phasepresent_write_word |= k1LU << phasepresent_write_idx_lowbits;
               phaseinfo_write_word |= S_CAST(uintptr_t, (phaseinfo_halfword >> sample_idx_lowbits) & k1LU) << phaseinfo_write_idx_lowbits;
@@ -8502,7 +8502,7 @@ uint32_t PwcAppendDeltalist(const uintptr_t* delta_bitarr, uint32_t deltalist_le
   unsigned char* fwrite_bufp = pwcp->fwrite_bufp;
   unsigned char* fwrite_bufp_start = fwrite_bufp;
   fwrite_bufp = Vint32Append(deltalist_len, fwrite_bufp);
-  const uint32_t sample_id_byte_ct = BytesToRepresentUi(pwcp->sample_ct);
+  const uint32_t sample_id_byte_ct = BytesToRepresentNzU32(pwcp->sample_ct);
   const uint32_t group_ct = DivUp(deltalist_len, kPglDifflistGroupSize);
   unsigned char* group_first_sample_ids_iter = fwrite_bufp;
   unsigned char* extra_byte_cts_iter = &(fwrite_bufp[group_ct * sample_id_byte_ct]);

@@ -46,24 +46,24 @@ void CleanupLd(LdInfo* ldip) {
 // todo: see if either approach in avx_jaccard_index.c in
 // github.com/CountOnes/hamming_weight helps here.
 
-static inline int32_t DotprodAvx2(const VecUL* __restrict hom1_iter, const VecUL* __restrict ref2het1_iter, const VecUL* __restrict hom2_iter, const VecUL* __restrict ref2het2_iter, uintptr_t vec_ct) {
+static inline int32_t DotprodAvx2(const VecW* __restrict hom1_iter, const VecW* __restrict ref2het1_iter, const VecW* __restrict hom2_iter, const VecW* __restrict ref2het2_iter, uintptr_t vec_ct) {
   // popcount(hom1 & hom2) - 2 * popcount(hom1 & hom2 & (ref2het1 ^ ref2het2))
   // ct must be a multiple of 4.
-  VecUL cnt = vecul_setzero();
-  VecUL ones_both = vecul_setzero();
-  VecUL ones_neg = vecul_setzero();
-  VecUL twos_both = vecul_setzero();
-  VecUL twos_neg = vecul_setzero();
+  VecW cnt = vecw_setzero();
+  VecW ones_both = vecw_setzero();
+  VecW ones_neg = vecw_setzero();
+  VecW twos_both = vecw_setzero();
+  VecW twos_neg = vecw_setzero();
   for (uintptr_t vec_idx = 0; vec_idx < vec_ct; vec_idx += 4) {
-    VecUL count1_both = hom1_iter[vec_idx] & hom2_iter[vec_idx];
-    VecUL cur_xor = ref2het1_iter[vec_idx] ^ ref2het2_iter[vec_idx];
-    VecUL count1_neg = count1_both & cur_xor;
+    VecW count1_both = hom1_iter[vec_idx] & hom2_iter[vec_idx];
+    VecW cur_xor = ref2het1_iter[vec_idx] ^ ref2het2_iter[vec_idx];
+    VecW count1_neg = count1_both & cur_xor;
 
-    VecUL count2_both = hom1_iter[vec_idx + 1] & hom2_iter[vec_idx + 1];
+    VecW count2_both = hom1_iter[vec_idx + 1] & hom2_iter[vec_idx + 1];
     cur_xor = ref2het1_iter[vec_idx + 1] ^ ref2het2_iter[vec_idx + 1];
-    VecUL count2_neg = count2_both & cur_xor;
-    const VecUL twos_both_a = Csa256(count1_both, count2_both, &ones_both);
-    const VecUL twos_neg_a = Csa256(count1_neg, count2_neg, &ones_neg);
+    VecW count2_neg = count2_both & cur_xor;
+    const VecW twos_both_a = Csa256(count1_both, count2_both, &ones_both);
+    const VecW twos_neg_a = Csa256(count1_neg, count2_neg, &ones_neg);
 
     count1_both = hom1_iter[vec_idx + 2] & hom2_iter[vec_idx + 2];
     cur_xor = ref2het1_iter[vec_idx + 2] ^ ref2het2_iter[vec_idx + 2];
@@ -72,18 +72,18 @@ static inline int32_t DotprodAvx2(const VecUL* __restrict hom1_iter, const VecUL
     count2_both = hom1_iter[vec_idx + 3] & hom2_iter[vec_idx + 3];
     cur_xor = ref2het1_iter[vec_idx + 3] ^ ref2het2_iter[vec_idx + 3];
     count2_neg = count2_both & cur_xor;
-    const VecUL twos_both_b = Csa256(count1_both, count2_both, &ones_both);
-    const VecUL twos_neg_b = Csa256(count1_neg, count2_neg, &ones_neg);
-    const VecUL fours_both = Csa256(twos_both_a, twos_both_b, &twos_both);
-    const VecUL fours_neg = Csa256(twos_neg_a, twos_neg_b, &twos_neg);
+    const VecW twos_both_b = Csa256(count1_both, count2_both, &ones_both);
+    const VecW twos_neg_b = Csa256(count1_neg, count2_neg, &ones_neg);
+    const VecW fours_both = Csa256(twos_both_a, twos_both_b, &twos_both);
+    const VecW fours_neg = Csa256(twos_neg_a, twos_neg_b, &twos_neg);
     // tried continuing to eights, not worth it
     // deliberate unsigned-int64 overflow here
-    cnt = cnt + PopcountVecAvx2(fours_both) - vecul_slli(PopcountVecAvx2(fours_neg), 1);
+    cnt = cnt + PopcountVecAvx2(fours_both) - vecw_slli(PopcountVecAvx2(fours_neg), 1);
   }
   cnt = cnt - PopcountVecAvx2(twos_neg);
-  cnt = vecul_slli(cnt, 2);
-  const VecUL twos_sum = PopcountVecAvx2(twos_both) - PopcountVecAvx2(ones_neg);
-  cnt = cnt + vecul_slli(twos_sum, 1);
+  cnt = vecw_slli(cnt, 2);
+  const VecW twos_sum = PopcountVecAvx2(twos_both) - PopcountVecAvx2(ones_neg);
+  cnt = cnt + vecw_slli(twos_sum, 1);
   cnt = cnt + PopcountVecAvx2(ones_both);
   return Hsum64(cnt);
 }
@@ -93,7 +93,7 @@ int32_t DotprodWords(const uintptr_t* __restrict hom1, const uintptr_t* __restri
   uint32_t widx = 0;
   if (word_ct >= 16) { // this already pays off with a single block
     const uintptr_t block_ct = word_ct / (kWordsPerVec * 4);
-    tot_both = DotprodAvx2(R_CAST(const VecUL*, hom1), R_CAST(const VecUL*, ref2het1), R_CAST(const VecUL*, hom2), R_CAST(const VecUL*, ref2het2), block_ct * 4);
+    tot_both = DotprodAvx2(R_CAST(const VecW*, hom1), R_CAST(const VecW*, ref2het1), R_CAST(const VecW*, hom2), R_CAST(const VecW*, ref2het2), block_ct * 4);
     widx = block_ct * (4 * kWordsPerVec);
   }
   uint32_t tot_neg = 0;
@@ -106,34 +106,34 @@ int32_t DotprodWords(const uintptr_t* __restrict hom1, const uintptr_t* __restri
   return tot_both - 2 * tot_neg;
 }
 
-static inline void SumSsqAvx2(const VecUL* __restrict hom1_iter, const VecUL* __restrict ref2het1_iter, const VecUL* __restrict hom2_iter, const VecUL* __restrict ref2het2_iter, uintptr_t vec_ct, uint32_t* __restrict ssq2_ptr, uint32_t* __restrict plus2_ptr) {
+static inline void SumSsqAvx2(const VecW* __restrict hom1_iter, const VecW* __restrict ref2het1_iter, const VecW* __restrict hom2_iter, const VecW* __restrict ref2het2_iter, uintptr_t vec_ct, uint32_t* __restrict ssq2_ptr, uint32_t* __restrict plus2_ptr) {
   // popcounts (nm1 & hom2) and (nm1 & hom2 & ref2het2).  ct is multiple of 8.
-  VecUL cnt_ssq = vecul_setzero();
-  VecUL cnt_plus = vecul_setzero();
-  VecUL ones_ssq = vecul_setzero();
-  VecUL ones_plus = vecul_setzero();
-  VecUL twos_ssq = vecul_setzero();
-  VecUL twos_plus = vecul_setzero();
-  VecUL fours_ssq = vecul_setzero();
-  VecUL fours_plus = vecul_setzero();
+  VecW cnt_ssq = vecw_setzero();
+  VecW cnt_plus = vecw_setzero();
+  VecW ones_ssq = vecw_setzero();
+  VecW ones_plus = vecw_setzero();
+  VecW twos_ssq = vecw_setzero();
+  VecW twos_plus = vecw_setzero();
+  VecW fours_ssq = vecw_setzero();
+  VecW fours_plus = vecw_setzero();
   for (uintptr_t vec_idx = 0; vec_idx < vec_ct; vec_idx += 8) {
-    VecUL count1_ssq = (hom1_iter[vec_idx] | ref2het1_iter[vec_idx]) & hom2_iter[vec_idx];
-    VecUL count1_plus = count1_ssq & ref2het2_iter[vec_idx];
+    VecW count1_ssq = (hom1_iter[vec_idx] | ref2het1_iter[vec_idx]) & hom2_iter[vec_idx];
+    VecW count1_plus = count1_ssq & ref2het2_iter[vec_idx];
 
-    VecUL count2_ssq = (hom1_iter[vec_idx + 1] | ref2het1_iter[vec_idx + 1]) & hom2_iter[vec_idx + 1];
-    VecUL count2_plus = count2_ssq & ref2het2_iter[vec_idx + 1];
-    VecUL twos_ssq_a = Csa256(count1_ssq, count2_ssq, &ones_ssq);
-    VecUL twos_plus_a = Csa256(count1_plus, count2_plus, &ones_plus);
+    VecW count2_ssq = (hom1_iter[vec_idx + 1] | ref2het1_iter[vec_idx + 1]) & hom2_iter[vec_idx + 1];
+    VecW count2_plus = count2_ssq & ref2het2_iter[vec_idx + 1];
+    VecW twos_ssq_a = Csa256(count1_ssq, count2_ssq, &ones_ssq);
+    VecW twos_plus_a = Csa256(count1_plus, count2_plus, &ones_plus);
 
     count1_ssq = (hom1_iter[vec_idx + 2] | ref2het1_iter[vec_idx + 2]) & hom2_iter[vec_idx + 2];
     count1_plus = count1_ssq & ref2het2_iter[vec_idx + 2];
 
     count2_ssq = (hom1_iter[vec_idx + 3] | ref2het1_iter[vec_idx + 3]) & hom2_iter[vec_idx + 3];
     count2_plus = count2_ssq & ref2het2_iter[vec_idx + 3];
-    VecUL twos_ssq_b = Csa256(count1_ssq, count2_ssq, &ones_ssq);
-    VecUL twos_plus_b = Csa256(count1_plus, count2_plus, &ones_plus);
-    const VecUL fours_ssq_a = Csa256(twos_ssq_a, twos_ssq_b, &twos_ssq);
-    const VecUL fours_plus_a = Csa256(twos_plus_a, twos_plus_b, &twos_plus);
+    VecW twos_ssq_b = Csa256(count1_ssq, count2_ssq, &ones_ssq);
+    VecW twos_plus_b = Csa256(count1_plus, count2_plus, &ones_plus);
+    const VecW fours_ssq_a = Csa256(twos_ssq_a, twos_ssq_b, &twos_ssq);
+    const VecW fours_plus_a = Csa256(twos_plus_a, twos_plus_b, &twos_plus);
 
     count1_ssq = (hom1_iter[vec_idx + 4] | ref2het1_iter[vec_idx + 4]) & hom2_iter[vec_idx + 4];
     count1_plus = count1_ssq & ref2het2_iter[vec_idx + 4];
@@ -150,20 +150,20 @@ static inline void SumSsqAvx2(const VecUL* __restrict hom1_iter, const VecUL* __
     count2_plus = count2_ssq & ref2het2_iter[vec_idx + 7];
     twos_ssq_b = Csa256(count1_ssq, count2_ssq, &ones_ssq);
     twos_plus_b = Csa256(count1_plus, count2_plus, &ones_plus);
-    const VecUL fours_ssq_b = Csa256(twos_ssq_a, twos_ssq_b, &twos_ssq);
-    const VecUL fours_plus_b = Csa256(twos_plus_a, twos_plus_b, &twos_plus);
-    const VecUL eights_ssq = Csa256(fours_ssq_a, fours_ssq_b, &fours_ssq);
-    const VecUL eights_plus = Csa256(fours_plus_a, fours_plus_b, &fours_plus);
+    const VecW fours_ssq_b = Csa256(twos_ssq_a, twos_ssq_b, &twos_ssq);
+    const VecW fours_plus_b = Csa256(twos_plus_a, twos_plus_b, &twos_plus);
+    const VecW eights_ssq = Csa256(fours_ssq_a, fours_ssq_b, &fours_ssq);
+    const VecW eights_plus = Csa256(fours_plus_a, fours_plus_b, &fours_plus);
     // negligible benefit from going to sixteens here
     cnt_ssq = cnt_ssq + PopcountVecAvx2(eights_ssq);
     cnt_plus = cnt_plus + PopcountVecAvx2(eights_plus);
   }
-  cnt_ssq = vecul_slli(cnt_ssq, 3);
-  cnt_plus = vecul_slli(cnt_plus, 3);
-  cnt_ssq = cnt_ssq + vecul_slli(PopcountVecAvx2(fours_ssq), 2);
-  cnt_plus = cnt_plus + vecul_slli(PopcountVecAvx2(fours_plus), 2);
-  cnt_ssq = cnt_ssq + vecul_slli(PopcountVecAvx2(twos_ssq), 1);
-  cnt_plus = cnt_plus + vecul_slli(PopcountVecAvx2(twos_plus), 1);
+  cnt_ssq = vecw_slli(cnt_ssq, 3);
+  cnt_plus = vecw_slli(cnt_plus, 3);
+  cnt_ssq = cnt_ssq + vecw_slli(PopcountVecAvx2(fours_ssq), 2);
+  cnt_plus = cnt_plus + vecw_slli(PopcountVecAvx2(fours_plus), 2);
+  cnt_ssq = cnt_ssq + vecw_slli(PopcountVecAvx2(twos_ssq), 1);
+  cnt_plus = cnt_plus + vecw_slli(PopcountVecAvx2(twos_plus), 1);
   cnt_ssq = cnt_ssq + PopcountVecAvx2(ones_ssq);
   cnt_plus = cnt_plus + PopcountVecAvx2(ones_plus);
   *ssq2_ptr = Hsum64(cnt_ssq);
@@ -178,7 +178,7 @@ void SumSsqWords(const uintptr_t* hom1, const uintptr_t* ref2het1, const uintptr
   // one block?
   if (word_ct >= 32) {
     const uintptr_t block_ct = word_ct / (8 * kWordsPerVec);
-    SumSsqAvx2(R_CAST(const VecUL*, hom1), R_CAST(const VecUL*, ref2het1), R_CAST(const VecUL*, hom2), R_CAST(const VecUL*, ref2het2), block_ct * 8, &ssq2, &plus2);
+    SumSsqAvx2(R_CAST(const VecW*, hom1), R_CAST(const VecW*, ref2het1), R_CAST(const VecW*, hom2), R_CAST(const VecW*, ref2het2), block_ct * 8, &ssq2, &plus2);
     widx = block_ct * (8 * kWordsPerVec);
   }
   for (; widx < word_ct; ++widx) {
@@ -190,21 +190,21 @@ void SumSsqWords(const uintptr_t* hom1, const uintptr_t* ref2het1, const uintptr
   *ssq2_ptr = ssq2;
 }
 #else  // !USE_AVX2
-static inline int32_t DotprodVecsNm(const VecUL* __restrict hom1_iter, const VecUL* __restrict ref2het1_iter, const VecUL* __restrict hom2_iter, const VecUL* __restrict ref2het2_iter, uintptr_t vec_ct) {
+static inline int32_t DotprodVecsNm(const VecW* __restrict hom1_iter, const VecW* __restrict ref2het1_iter, const VecW* __restrict hom2_iter, const VecW* __restrict ref2het2_iter, uintptr_t vec_ct) {
   // popcount(hom1 & hom2) - 2 * popcount(hom1 & hom2 & (ref2het1 ^ ref2het2))
   // ct must be a multiple of 3.
   assert(!(vec_ct % 3));
-  const VecUL m1 = VCONST_UL(kMask5555);
-  const VecUL m2 = VCONST_UL(kMask3333);
-  const VecUL m4 = VCONST_UL(kMask0F0F);
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW m2 = VCONST_W(kMask3333);
+  const VecW m4 = VCONST_W(kMask0F0F);
   int32_t tot = 0;
   while (1) {
     UniVec acc_both;
     UniVec acc_neg;
-    acc_both.vi = vecul_setzero();
-    acc_neg.vi = vecul_setzero();
+    acc_both.vw = vecw_setzero();
+    acc_neg.vw = vecw_setzero();
 
-    const VecUL* hom1_stop;
+    const VecW* hom1_stop;
     if (vec_ct < 30) {
       if (!vec_ct) {
         return tot;
@@ -216,39 +216,39 @@ static inline int32_t DotprodVecsNm(const VecUL* __restrict hom1_iter, const Vec
       vec_ct -= 30;
     }
     do {
-      VecUL count1_both = (*hom1_iter++) & (*hom2_iter++);
-      VecUL cur_xor = (*ref2het1_iter++) ^ (*ref2het2_iter++);
-      VecUL count1_neg = count1_both & cur_xor;
+      VecW count1_both = (*hom1_iter++) & (*hom2_iter++);
+      VecW cur_xor = (*ref2het1_iter++) ^ (*ref2het2_iter++);
+      VecW count1_neg = count1_both & cur_xor;
 
-      VecUL count2_both = (*hom1_iter++) & (*hom2_iter++);
+      VecW count2_both = (*hom1_iter++) & (*hom2_iter++);
       cur_xor = (*ref2het1_iter++) ^ (*ref2het2_iter++);
-      VecUL count2_neg = count2_both & cur_xor;
+      VecW count2_neg = count2_both & cur_xor;
 
-      VecUL cur_hom = (*hom1_iter++) & (*hom2_iter++);
+      VecW cur_hom = (*hom1_iter++) & (*hom2_iter++);
       cur_xor = (*ref2het1_iter++) ^ (*ref2het2_iter++);
-      VecUL half1_neg = cur_hom & cur_xor;
-      const VecUL half2_both = vecul_srli(cur_hom, 1) & m1;
-      const VecUL half2_neg = vecul_srli(half1_neg, 1) & m1;
-      const VecUL half1_both = cur_hom & m1;
+      VecW half1_neg = cur_hom & cur_xor;
+      const VecW half2_both = vecw_srli(cur_hom, 1) & m1;
+      const VecW half2_neg = vecw_srli(half1_neg, 1) & m1;
+      const VecW half1_both = cur_hom & m1;
       half1_neg = half1_neg & m1;
-      count1_both = count1_both - (vecul_srli(count1_both, 1) & m1);
-      count1_neg = count1_neg - (vecul_srli(count1_neg, 1) & m1);
-      count2_both = count2_both - (vecul_srli(count2_both, 1) & m1);
-      count2_neg = count2_neg - (vecul_srli(count2_neg, 1) & m1);
+      count1_both = count1_both - (vecw_srli(count1_both, 1) & m1);
+      count1_neg = count1_neg - (vecw_srli(count1_neg, 1) & m1);
+      count2_both = count2_both - (vecw_srli(count2_both, 1) & m1);
+      count2_neg = count2_neg - (vecw_srli(count2_neg, 1) & m1);
       count1_both = count1_both + half1_both;
       count1_neg = count1_neg + half1_neg;
       count2_both = count2_both + half2_both;
       count2_neg = count2_neg + half2_neg;
-      count1_both = (count1_both & m2) + (vecul_srli(count1_both, 2) & m2);
-      count1_neg = (count1_neg & m2) + (vecul_srli(count1_neg, 2) & m2);
-      count1_both = count1_both + (count2_both & m2) + (vecul_srli(count2_both, 2) & m2);
-      count1_neg = count1_neg + (count2_neg & m2) + (vecul_srli(count2_neg, 2) & m2);
-      acc_both.vi = acc_both.vi + (count1_both & m4) + (vecul_srli(count1_both, 4) & m4);
-      acc_neg.vi = acc_neg.vi + (count1_neg & m4) + (vecul_srli(count1_neg, 4) & m4);
+      count1_both = (count1_both & m2) + (vecw_srli(count1_both, 2) & m2);
+      count1_neg = (count1_neg & m2) + (vecw_srli(count1_neg, 2) & m2);
+      count1_both = count1_both + (count2_both & m2) + (vecw_srli(count2_both, 2) & m2);
+      count1_neg = count1_neg + (count2_neg & m2) + (vecw_srli(count2_neg, 2) & m2);
+      acc_both.vw = acc_both.vw + (count1_both & m4) + (vecw_srli(count1_both, 4) & m4);
+      acc_neg.vw = acc_neg.vw + (count1_neg & m4) + (vecw_srli(count1_neg, 4) & m4);
     } while (hom1_iter < hom1_stop);
-    const VecUL m8 = VCONST_UL(kMask00FF);
-    acc_both.vi = (acc_both.vi & m8) + (vecul_srli(acc_both.vi, 8) & m8);
-    acc_neg.vi = (acc_neg.vi & m8) + (vecul_srli(acc_neg.vi, 8) & m8);
+    const VecW m8 = VCONST_W(kMask00FF);
+    acc_both.vw = (acc_both.vw & m8) + (vecw_srli(acc_both.vw, 8) & m8);
+    acc_neg.vw = (acc_neg.vw & m8) + (vecw_srli(acc_neg.vw, 8) & m8);
     tot += UniVecHsum16(acc_both);
     tot -= 2 * UniVecHsum16(acc_neg);
   }
@@ -259,7 +259,7 @@ int32_t DotprodWords(const uintptr_t* __restrict hom1, const uintptr_t* __restri
   uint32_t widx = 0;
   if (word_ct >= kWordsPerVec * 3) {
     const uintptr_t block_ct = word_ct / (kWordsPerVec * 3);
-    tot_both = DotprodVecsNm(R_CAST(const VecUL*, hom1), R_CAST(const VecUL*, ref2het1), R_CAST(const VecUL*, hom2), R_CAST(const VecUL*, ref2het2), block_ct * 3);
+    tot_both = DotprodVecsNm(R_CAST(const VecW*, hom1), R_CAST(const VecW*, ref2het1), R_CAST(const VecW*, hom2), R_CAST(const VecW*, ref2het2), block_ct * 3);
     widx = block_ct * (3 * kWordsPerVec);
   }
   uint32_t tot_neg = 0;
@@ -273,20 +273,20 @@ int32_t DotprodWords(const uintptr_t* __restrict hom1, const uintptr_t* __restri
 }
 
 #ifndef USE_SSE42
-static inline void SumSsqVecs(const VecUL* __restrict hom1_iter, const VecUL* __restrict ref2het1_iter, const VecUL* __restrict hom2_iter, const VecUL* __restrict ref2het2_iter, uintptr_t vec_ct, uint32_t* __restrict ssq2_ptr, uint32_t* __restrict plus2_ptr) {
+static inline void SumSsqVecs(const VecW* __restrict hom1_iter, const VecW* __restrict ref2het1_iter, const VecW* __restrict hom2_iter, const VecW* __restrict ref2het2_iter, uintptr_t vec_ct, uint32_t* __restrict ssq2_ptr, uint32_t* __restrict plus2_ptr) {
   // popcounts (nm1 & hom2) and (nm1 & hom2 & ref2het2).  ct is multiple of 3.
   assert(!(vec_ct % 3));
-  const VecUL m1 = VCONST_UL(kMask5555);
-  const VecUL m2 = VCONST_UL(kMask3333);
-  const VecUL m4 = VCONST_UL(kMask0F0F);
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW m2 = VCONST_W(kMask3333);
+  const VecW m4 = VCONST_W(kMask0F0F);
   uint32_t ssq2 = 0;
   uint32_t plus2 = 0;
   uint32_t cur_vec_ct = 30;
   while (1) {
     UniVec acc_ssq;
     UniVec acc_plus;
-    acc_ssq.vi = vecul_setzero();
-    acc_plus.vi = vecul_setzero();
+    acc_ssq.vw = vecw_setzero();
+    acc_plus.vw = vecw_setzero();
 
     if (vec_ct < 30) {
       if (!vec_ct) {
@@ -300,40 +300,40 @@ static inline void SumSsqVecs(const VecUL* __restrict hom1_iter, const VecUL* __
       vec_ct -= 30;
     }
     for (uint32_t vec_idx = 0; vec_idx < cur_vec_ct; vec_idx += 3) {
-      VecUL count1_ssq = (hom1_iter[vec_idx] | ref2het1_iter[vec_idx]) & hom2_iter[vec_idx];
-      VecUL count1_plus = count1_ssq & ref2het2_iter[vec_idx];
+      VecW count1_ssq = (hom1_iter[vec_idx] | ref2het1_iter[vec_idx]) & hom2_iter[vec_idx];
+      VecW count1_plus = count1_ssq & ref2het2_iter[vec_idx];
 
-      VecUL count2_ssq = (hom1_iter[vec_idx + 1] | ref2het1_iter[vec_idx + 1]) & hom2_iter[vec_idx + 1];
-      VecUL count2_plus = count2_ssq & ref2het2_iter[vec_idx + 1];
+      VecW count2_ssq = (hom1_iter[vec_idx + 1] | ref2het1_iter[vec_idx + 1]) & hom2_iter[vec_idx + 1];
+      VecW count2_plus = count2_ssq & ref2het2_iter[vec_idx + 1];
 
-      VecUL half1_ssq = (hom1_iter[vec_idx + 2] | ref2het1_iter[vec_idx + 2]) & hom2_iter[vec_idx + 2];
-      VecUL half1_plus = half1_ssq & ref2het2_iter[vec_idx + 2];
-      VecUL half2_ssq = vecul_srli(half1_ssq, 1) & m1;
-      VecUL half2_plus = vecul_srli(half1_plus, 1) & m1;
+      VecW half1_ssq = (hom1_iter[vec_idx + 2] | ref2het1_iter[vec_idx + 2]) & hom2_iter[vec_idx + 2];
+      VecW half1_plus = half1_ssq & ref2het2_iter[vec_idx + 2];
+      VecW half2_ssq = vecw_srli(half1_ssq, 1) & m1;
+      VecW half2_plus = vecw_srli(half1_plus, 1) & m1;
       half1_ssq = half1_ssq & m1;
       half1_plus = half1_plus & m1;
-      count1_ssq = count1_ssq - (vecul_srli(count1_ssq, 1) & m1);
-      count1_plus = count1_plus - (vecul_srli(count1_plus, 1) & m1);
-      count2_ssq = count2_ssq - (vecul_srli(count2_ssq, 1) & m1);
-      count2_plus = count2_plus - (vecul_srli(count2_plus, 1) & m1);
+      count1_ssq = count1_ssq - (vecw_srli(count1_ssq, 1) & m1);
+      count1_plus = count1_plus - (vecw_srli(count1_plus, 1) & m1);
+      count2_ssq = count2_ssq - (vecw_srli(count2_ssq, 1) & m1);
+      count2_plus = count2_plus - (vecw_srli(count2_plus, 1) & m1);
       count1_ssq = count1_ssq + half1_ssq;
       count1_plus = count1_plus + half1_plus;
       count2_ssq = count2_ssq + half2_ssq;
       count2_plus = count2_plus + half2_plus;
-      count1_ssq = (count1_ssq & m2) + (vecul_srli(count1_ssq, 2) & m2);
-      count1_plus = (count1_plus & m2) + (vecul_srli(count1_plus, 2) & m2);
-      count1_ssq = count1_ssq + (count2_ssq & m2) + (vecul_srli(count2_ssq, 2) & m2);
-      count1_plus = count1_plus + (count2_plus & m2) + (vecul_srli(count2_plus, 2) & m2);
-      acc_ssq.vi = acc_ssq.vi + (count1_ssq & m4) + (vecul_srli(count1_ssq, 4) & m4);
-      acc_plus.vi = acc_plus.vi + (count1_plus & m4) + (vecul_srli(count1_plus, 4) & m4);
+      count1_ssq = (count1_ssq & m2) + (vecw_srli(count1_ssq, 2) & m2);
+      count1_plus = (count1_plus & m2) + (vecw_srli(count1_plus, 2) & m2);
+      count1_ssq = count1_ssq + (count2_ssq & m2) + (vecw_srli(count2_ssq, 2) & m2);
+      count1_plus = count1_plus + (count2_plus & m2) + (vecw_srli(count2_plus, 2) & m2);
+      acc_ssq.vw = acc_ssq.vw + (count1_ssq & m4) + (vecw_srli(count1_ssq, 4) & m4);
+      acc_plus.vw = acc_plus.vw + (count1_plus & m4) + (vecw_srli(count1_plus, 4) & m4);
     }
     hom1_iter = &(hom1_iter[cur_vec_ct]);
     ref2het1_iter = &(ref2het1_iter[cur_vec_ct]);
     hom2_iter = &(hom2_iter[cur_vec_ct]);
     ref2het2_iter = &(ref2het2_iter[cur_vec_ct]);
-    const VecUL m8 = VCONST_UL(kMask00FF);
-    acc_ssq.vi = (acc_ssq.vi & m8) + (vecul_srli(acc_ssq.vi, 8) & m8);
-    acc_plus.vi = (acc_plus.vi & m8) + (vecul_srli(acc_plus.vi, 8) & m8);
+    const VecW m8 = VCONST_W(kMask00FF);
+    acc_ssq.vw = (acc_ssq.vw & m8) + (vecw_srli(acc_ssq.vw, 8) & m8);
+    acc_plus.vw = (acc_plus.vw & m8) + (vecw_srli(acc_plus.vw, 8) & m8);
     ssq2 += UniVecHsum16(acc_ssq);
     plus2 += UniVecHsum16(acc_plus);
   }
@@ -347,7 +347,7 @@ void SumSsqWords(const uintptr_t* hom1, const uintptr_t* ref2het1, const uintptr
 #ifndef USE_SSE42
   if (word_ct >= kWordsPerVec * 3) {
     const uintptr_t block_ct = word_ct / (kWordsPerVec * 3);
-    SumSsqVecs(R_CAST(const VecUL*, hom1), R_CAST(const VecUL*, ref2het1), R_CAST(const VecUL*, hom2), R_CAST(const VecUL*, ref2het2), block_ct * 3, &ssq2, &plus2);
+    SumSsqVecs(R_CAST(const VecW*, hom1), R_CAST(const VecW*, ref2het1), R_CAST(const VecW*, hom2), R_CAST(const VecW*, ref2het2), block_ct * 3, &ssq2, &plus2);
     widx = block_ct * (3 * kWordsPerVec);
   }
 #endif
@@ -362,12 +362,12 @@ void SumSsqWords(const uintptr_t* hom1, const uintptr_t* ref2het1, const uintptr
 #endif  // !USE_AVX2
 
 #if defined(USE_AVX2) || !defined(USE_SSE42)
-static inline void SumSsqNmVecs(const VecUL* __restrict hom1_iter, const VecUL* __restrict ref2het1_iter, const VecUL* __restrict hom2_iter, const VecUL* __restrict ref2het2_iter, uintptr_t vec_ct, uint32_t* __restrict nm_ptr, uint32_t* __restrict ssq2_ptr, uint32_t* __restrict plus2_ptr) {
+static inline void SumSsqNmVecs(const VecW* __restrict hom1_iter, const VecW* __restrict ref2het1_iter, const VecW* __restrict hom2_iter, const VecW* __restrict ref2het2_iter, uintptr_t vec_ct, uint32_t* __restrict nm_ptr, uint32_t* __restrict ssq2_ptr, uint32_t* __restrict plus2_ptr) {
   // vec_ct must be a multiple of 3.
   assert(!(vec_ct % 3));
-  const VecUL m1 = VCONST_UL(kMask5555);
-  const VecUL m2 = VCONST_UL(kMask3333);
-  const VecUL m4 = VCONST_UL(kMask0F0F);
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW m2 = VCONST_W(kMask3333);
+  const VecW m4 = VCONST_W(kMask0F0F);
   uint32_t nm = 0;
   uint32_t ssq2 = 0;
   uint32_t plus2 = 0;
@@ -376,9 +376,9 @@ static inline void SumSsqNmVecs(const VecUL* __restrict hom1_iter, const VecUL* 
     UniVec acc_nm;
     UniVec acc_ssq;
     UniVec acc_plus;
-    acc_nm.vi = vecul_setzero();
-    acc_ssq.vi = vecul_setzero();
-    acc_plus.vi = vecul_setzero();
+    acc_nm.vw = vecw_setzero();
+    acc_ssq.vw = vecw_setzero();
+    acc_plus.vw = vecw_setzero();
     if (vec_ct < 30) {
       if (!vec_ct) {
         *nm_ptr = nm;
@@ -392,62 +392,62 @@ static inline void SumSsqNmVecs(const VecUL* __restrict hom1_iter, const VecUL* 
       vec_ct -= 30;
     }
     for (uint32_t vec_idx = 0; vec_idx < cur_vec_ct; vec_idx += 3) {
-      VecUL nm1 = hom1_iter[vec_idx] | ref2het1_iter[vec_idx];
-      VecUL hom2 = hom2_iter[vec_idx];
-      VecUL ref2het2 = ref2het2_iter[vec_idx];
-      VecUL count1_ssq = nm1 & hom2;
-      VecUL count1_nm = nm1 & (hom2 | ref2het2);
-      VecUL count1_plus = count1_ssq & ref2het2;
+      VecW nm1 = hom1_iter[vec_idx] | ref2het1_iter[vec_idx];
+      VecW hom2 = hom2_iter[vec_idx];
+      VecW ref2het2 = ref2het2_iter[vec_idx];
+      VecW count1_ssq = nm1 & hom2;
+      VecW count1_nm = nm1 & (hom2 | ref2het2);
+      VecW count1_plus = count1_ssq & ref2het2;
 
       nm1 = hom1_iter[vec_idx + 1] | ref2het1_iter[vec_idx + 1];
       hom2 = hom2_iter[vec_idx + 1];
       ref2het2 = ref2het2_iter[vec_idx + 1];
-      VecUL count2_ssq = nm1 & hom2;
-      VecUL count2_nm = nm1 & (hom2 | ref2het2);
-      VecUL count2_plus = count2_ssq & ref2het2;
+      VecW count2_ssq = nm1 & hom2;
+      VecW count2_nm = nm1 & (hom2 | ref2het2);
+      VecW count2_plus = count2_ssq & ref2het2;
 
       nm1 = hom1_iter[vec_idx + 2] | ref2het1_iter[vec_idx + 2];
       hom2 = hom2_iter[vec_idx + 2];
       ref2het2 = ref2het2_iter[vec_idx + 2];
-      VecUL half_a_ssq = nm1 & hom2;
-      VecUL half_a_nm = nm1 & (hom2 | ref2het2);
-      VecUL half_a_plus = half_a_ssq & ref2het2;
-      const VecUL half_b_ssq = vecul_srli(half_a_ssq, 1) & m1;
-      const VecUL half_b_nm = vecul_srli(half_a_nm, 1) & m1;
-      const VecUL half_b_plus = vecul_srli(half_a_plus, 1) & m1;
+      VecW half_a_ssq = nm1 & hom2;
+      VecW half_a_nm = nm1 & (hom2 | ref2het2);
+      VecW half_a_plus = half_a_ssq & ref2het2;
+      const VecW half_b_ssq = vecw_srli(half_a_ssq, 1) & m1;
+      const VecW half_b_nm = vecw_srli(half_a_nm, 1) & m1;
+      const VecW half_b_plus = vecw_srli(half_a_plus, 1) & m1;
       half_a_ssq = half_a_ssq & m1;
       half_a_nm = half_a_nm & m1;
       half_a_plus = half_a_plus & m1;
-      count1_ssq = count1_ssq - (vecul_srli(count1_ssq, 1) & m1);
-      count1_nm = count1_nm - (vecul_srli(count1_nm, 1) & m1);
-      count1_plus = count1_plus - (vecul_srli(count1_plus, 1) & m1);
-      count2_ssq = count2_ssq - (vecul_srli(count2_ssq, 1) & m1);
-      count2_nm = count2_nm - (vecul_srli(count2_nm, 1) & m1);
-      count2_plus = count2_plus - (vecul_srli(count2_plus, 1) & m1);
+      count1_ssq = count1_ssq - (vecw_srli(count1_ssq, 1) & m1);
+      count1_nm = count1_nm - (vecw_srli(count1_nm, 1) & m1);
+      count1_plus = count1_plus - (vecw_srli(count1_plus, 1) & m1);
+      count2_ssq = count2_ssq - (vecw_srli(count2_ssq, 1) & m1);
+      count2_nm = count2_nm - (vecw_srli(count2_nm, 1) & m1);
+      count2_plus = count2_plus - (vecw_srli(count2_plus, 1) & m1);
       count1_ssq = count1_ssq + half_a_ssq;
       count1_nm = count1_nm + half_a_nm;
       count1_plus = count1_plus + half_a_plus;
       count2_ssq = count2_ssq + half_b_ssq;
       count2_nm = count2_nm + half_b_nm;
       count2_plus = count2_plus + half_b_plus;
-      count1_ssq = (count1_ssq & m2) + (vecul_srli(count1_ssq, 2) & m2);
-      count1_nm = (count1_nm & m2) + (vecul_srli(count1_nm, 2) & m2);
-      count1_plus = (count1_plus & m2) + (vecul_srli(count1_plus, 2) & m2);
-      count1_ssq = count1_ssq + (count2_ssq & m2) + (vecul_srli(count2_ssq, 2) & m2);
-      count1_nm = count1_nm + (count2_nm & m2) + (vecul_srli(count2_nm, 2) & m2);
-      count1_plus = count1_plus + (count2_plus & m2) + (vecul_srli(count2_plus, 2) & m2);
-      acc_nm.vi = acc_nm.vi + (count1_nm & m4) + (vecul_srli(count1_nm, 4) & m4);
-      acc_ssq.vi = acc_ssq.vi + (count1_ssq & m4) + (vecul_srli(count1_ssq, 4) & m4);
-      acc_plus.vi = acc_plus.vi + (count1_plus & m4) + (vecul_srli(count1_plus, 4) & m4);
+      count1_ssq = (count1_ssq & m2) + (vecw_srli(count1_ssq, 2) & m2);
+      count1_nm = (count1_nm & m2) + (vecw_srli(count1_nm, 2) & m2);
+      count1_plus = (count1_plus & m2) + (vecw_srli(count1_plus, 2) & m2);
+      count1_ssq = count1_ssq + (count2_ssq & m2) + (vecw_srli(count2_ssq, 2) & m2);
+      count1_nm = count1_nm + (count2_nm & m2) + (vecw_srli(count2_nm, 2) & m2);
+      count1_plus = count1_plus + (count2_plus & m2) + (vecw_srli(count2_plus, 2) & m2);
+      acc_nm.vw = acc_nm.vw + (count1_nm & m4) + (vecw_srli(count1_nm, 4) & m4);
+      acc_ssq.vw = acc_ssq.vw + (count1_ssq & m4) + (vecw_srli(count1_ssq, 4) & m4);
+      acc_plus.vw = acc_plus.vw + (count1_plus & m4) + (vecw_srli(count1_plus, 4) & m4);
     }
     hom1_iter = &(hom1_iter[cur_vec_ct]);
     ref2het1_iter = &(ref2het1_iter[cur_vec_ct]);
     hom2_iter = &(hom2_iter[cur_vec_ct]);
     ref2het2_iter = &(ref2het2_iter[cur_vec_ct]);
-    const VecUL m8 = VCONST_UL(kMask00FF);
-    acc_nm.vi = (acc_nm.vi & m8) + (vecul_srli(acc_nm.vi, 8) & m8);
-    acc_ssq.vi = (acc_ssq.vi & m8) + (vecul_srli(acc_ssq.vi, 8) & m8);
-    acc_plus.vi = (acc_plus.vi & m8) + (vecul_srli(acc_plus.vi, 8) & m8);
+    const VecW m8 = VCONST_W(kMask00FF);
+    acc_nm.vw = (acc_nm.vw & m8) + (vecw_srli(acc_nm.vw, 8) & m8);
+    acc_ssq.vw = (acc_ssq.vw & m8) + (vecw_srli(acc_ssq.vw, 8) & m8);
+    acc_plus.vw = (acc_plus.vw & m8) + (vecw_srli(acc_plus.vw, 8) & m8);
     nm += UniVecHsum16(acc_nm);
     ssq2 += UniVecHsum16(acc_ssq);
     plus2 += UniVecHsum16(acc_plus);
@@ -463,7 +463,7 @@ void SumSsqNmWords(const uintptr_t* hom1, const uintptr_t* ref2het1, const uintp
 #if defined(USE_AVX2) || !defined(USE_SSE42)
   if (word_ct >= 3 * kWordsPerVec) {
     const uintptr_t block_ct = word_ct / (3 * kWordsPerVec);
-    SumSsqNmVecs(R_CAST(const VecUL*, hom1), R_CAST(const VecUL*, ref2het1), R_CAST(const VecUL*, hom2), R_CAST(const VecUL*, ref2het2), block_ct * 3, &nm, &ssq2, &plus2);
+    SumSsqNmVecs(R_CAST(const VecW*, hom1), R_CAST(const VecW*, ref2het1), R_CAST(const VecW*, hom2), R_CAST(const VecW*, ref2het2), block_ct * 3, &nm, &ssq2, &plus2);
     widx = block_ct * (3 * kWordsPerVec);
   }
 #endif
@@ -531,7 +531,7 @@ void LdPruneNextWindow(const uintptr_t* __restrict variant_include, const uint32
     // just completed last window in subcontig
     *cur_window_size_ptr = 0;
     *window_start_tvidx_ptr = subcontig_end_tvidx;
-    ZeroUlArr(window_maxl, occupied_window_slots);
+    ZeroWArr(window_maxl, occupied_window_slots);
     return;
   }
   uint32_t next_window_start_tvidx = *window_start_tvidx_ptr;
@@ -880,7 +880,7 @@ THREAD_FUNC_DECL IndepPairwiseThread(void* arg) {
         LdPruneNextWindow(variant_include, variant_bps, tvidxs, cur_window_removed, prune_window_size, window_incr, window_maxl, subcontig_end_tvidx, &cur_window_size, &window_start_tvidx, &variant_uidx_winstart, &next_window_end_tvidx, &variant_uidx_winend, occupied_window_slots, winpos_to_slot_idx);
         // clear bits here since we set cur_window_removed bits during loading
         // process in monomorphic case
-        ZeroUlArr(BitCtToWordCt(prev_window_size), cur_window_removed);
+        ZeroWArr(BitCtToWordCt(prev_window_size), cur_window_removed);
         write_slot_idx = 0;
       }
     }
@@ -929,24 +929,24 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     uint32_t* thread_last_tvidx;
     uint32_t* thread_last_uidx;
     pthread_t* threads = nullptr;
-    if (bigstack_alloc_ul(QuaterCtToWordCt(raw_sample_ct), &tmp_genovec) ||
-        bigstack_calloc_ui(calc_thread_ct, &g_tvidx_end) ||
-        bigstack_calloc_ui(calc_thread_ct, &thread_last_subcontig) ||
-        bigstack_calloc_ui(calc_thread_ct, &thread_subcontig_start_tvidx) ||
-        bigstack_calloc_ui(calc_thread_ct, &thread_last_tvidx) ||
-        bigstack_calloc_ui(calc_thread_ct, &thread_last_uidx) ||
-        bigstack_alloc_ulp(calc_thread_ct, &g_genobufs) ||
-        bigstack_alloc_ulp(calc_thread_ct, &g_occupied_window_slots) ||
-        bigstack_alloc_ulp(calc_thread_ct, &g_cur_window_removed) ||
+    if (bigstack_alloc_w(QuaterCtToWordCt(raw_sample_ct), &tmp_genovec) ||
+        bigstack_calloc_u32(calc_thread_ct, &g_tvidx_end) ||
+        bigstack_calloc_u32(calc_thread_ct, &thread_last_subcontig) ||
+        bigstack_calloc_u32(calc_thread_ct, &thread_subcontig_start_tvidx) ||
+        bigstack_calloc_u32(calc_thread_ct, &thread_last_tvidx) ||
+        bigstack_calloc_u32(calc_thread_ct, &thread_last_uidx) ||
+        bigstack_alloc_wp(calc_thread_ct, &g_genobufs) ||
+        bigstack_alloc_wp(calc_thread_ct, &g_occupied_window_slots) ||
+        bigstack_alloc_wp(calc_thread_ct, &g_cur_window_removed) ||
         bigstack_alloc_dp(calc_thread_ct, &g_cur_maj_freqs) ||
-        bigstack_alloc_ulp(calc_thread_ct, &g_removed_variants_write) ||
-        bigstack_alloc_ip(calc_thread_ct, &g_vstats) ||
-        bigstack_alloc_ip(calc_thread_ct, &g_nonmale_vstats) ||
-        bigstack_alloc_uip(calc_thread_ct, &g_winpos_to_slot_idx) ||
-        bigstack_alloc_uip(calc_thread_ct, &g_tvidxs) ||
-        bigstack_alloc_uip(calc_thread_ct, &g_first_unchecked_tvidx) ||
-        bigstack_alloc_ulp(calc_thread_ct, &(g_raw_tgenovecs[0])) ||
-        bigstack_alloc_ulp(calc_thread_ct, &(g_raw_tgenovecs[1])) ||
+        bigstack_alloc_wp(calc_thread_ct, &g_removed_variants_write) ||
+        bigstack_alloc_i32p(calc_thread_ct, &g_vstats) ||
+        bigstack_alloc_i32p(calc_thread_ct, &g_nonmale_vstats) ||
+        bigstack_alloc_u32p(calc_thread_ct, &g_winpos_to_slot_idx) ||
+        bigstack_alloc_u32p(calc_thread_ct, &g_tvidxs) ||
+        bigstack_alloc_u32p(calc_thread_ct, &g_first_unchecked_tvidx) ||
+        bigstack_alloc_wp(calc_thread_ct, &(g_raw_tgenovecs[0])) ||
+        bigstack_alloc_wp(calc_thread_ct, &(g_raw_tgenovecs[1])) ||
         bigstack_alloc_thread(calc_thread_ct, &threads)) {
       goto IndepPairwise_ret_NOMEM;
     }
@@ -994,12 +994,12 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
     for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
       g_genobufs[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(genobuf_alloc));
       g_occupied_window_slots[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(occupied_window_slots_alloc));
-      ZeroUlArr(window_maxl, g_occupied_window_slots[tidx]);
+      ZeroWArr(window_maxl, g_occupied_window_slots[tidx]);
       g_cur_window_removed[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(cur_window_removed_alloc));
-      ZeroUlArr(1 + window_max / kBitsPerWord, g_cur_window_removed[tidx]);
+      ZeroWArr(1 + window_max / kBitsPerWord, g_cur_window_removed[tidx]);
       g_cur_maj_freqs[tidx] = S_CAST(double*, bigstack_alloc_raw(cur_maj_freqs_alloc));
       g_removed_variants_write[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(removed_variants_write_alloc));
-      ZeroUlArr(max_loadl, g_removed_variants_write[tidx]);
+      ZeroWArr(max_loadl, g_removed_variants_write[tidx]);
       g_vstats[tidx] = S_CAST(int32_t*, bigstack_alloc_raw(vstats_alloc));
       g_nonmale_vstats[tidx] = S_CAST(int32_t*, bigstack_alloc_raw(vstats_alloc));
       g_winpos_to_slot_idx[tidx] = S_CAST(uint32_t*, bigstack_alloc_raw(window_int32_alloc));
@@ -1159,7 +1159,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
       parity = 1 - parity;
       cur_tvidx_start += tvidx_batch_size;
     }
-    ZeroUiArr(calc_thread_ct, thread_subcontig_start_tvidx);
+    ZeroU32Arr(calc_thread_ct, thread_subcontig_start_tvidx);
     for (uint32_t subcontig_idx = 0; subcontig_idx < subcontig_ct; ++subcontig_idx) {
       const uint32_t cur_thread_idx = subcontig_thread_assignments[subcontig_idx];
       const uintptr_t* cur_removed_variants = g_removed_variants_write[cur_thread_idx];
@@ -1371,7 +1371,7 @@ PglErr LoadBalance(const uint32_t* task_weights, uint32_t task_ct, uint32_t* thr
   assert(task_ct);
   const uint32_t orig_thread_ct = *thread_ct_ptr;
   if (orig_thread_ct == 1) {
-    ZeroUiArr(task_ct, thread_assignments);
+    ZeroU32Arr(task_ct, thread_assignments);
     // replace this with an acc_uint32 call?
     uint32_t max_load = task_weights[0];
     for (uint32_t task_idx = 1; task_idx < task_ct; ++task_idx) {
@@ -1580,7 +1580,7 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     const uintptr_t* variant_include;
     if (skipped_variant_ct) {
       uintptr_t* new_variant_include;
-      if (bigstack_alloc_ul(raw_variant_ctl, &new_variant_include)) {
+      if (bigstack_alloc_w(raw_variant_ctl, &new_variant_include)) {
         goto LdPrune_ret_NOMEM;
       }
       memcpy(new_variant_include, orig_variant_include, raw_variant_ctl * sizeof(intptr_t));
@@ -1632,18 +1632,18 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     uintptr_t* founder_male_collapsed;
     uintptr_t* removed_variants_collapsed;
     uint32_t* subcontig_thread_assignments;
-    if (bigstack_alloc_ui(raw_sample_ctl, &founder_info_cumulative_popcounts) ||
-        bigstack_alloc_ul(founder_ctl, &founder_nonmale_collapsed) ||
-        bigstack_alloc_ul(founder_ctl, &founder_male_collapsed) ||
-        bigstack_calloc_ul(variant_ctl, &removed_variants_collapsed) ||
-        bigstack_alloc_ui(subcontig_ct, &subcontig_thread_assignments)) {
+    if (bigstack_alloc_u32(raw_sample_ctl, &founder_info_cumulative_popcounts) ||
+        bigstack_alloc_w(founder_ctl, &founder_nonmale_collapsed) ||
+        bigstack_alloc_w(founder_ctl, &founder_male_collapsed) ||
+        bigstack_calloc_w(variant_ctl, &removed_variants_collapsed) ||
+        bigstack_alloc_u32(subcontig_ct, &subcontig_thread_assignments)) {
       goto LdPrune_ret_NOMEM;
     }
     FillCumulativePopcounts(founder_info, raw_sample_ctl, founder_info_cumulative_popcounts);
     CopyBitarrSubset(sex_male, founder_info, founder_ct, founder_male_collapsed);
     BitarrInvertCopy(founder_male_collapsed, founder_ct, founder_nonmale_collapsed);
     uint32_t* subcontig_weights;
-    if (bigstack_end_alloc_ui(subcontig_ct, &subcontig_weights)) {
+    if (bigstack_end_alloc_u32(subcontig_ct, &subcontig_weights)) {
       goto LdPrune_ret_NOMEM;
     }
 
@@ -1743,19 +1743,19 @@ void GenoarrSplit12Nm(const uintptr_t* __restrict genoarr, uint32_t sample_ct, u
   }
 }
 
-uint32_t GenoBitvecSumMain(const VecUL* one_vvec, const VecUL* two_vvec, uint32_t vec_ct) {
+uint32_t GenoBitvecSumMain(const VecW* one_vvec, const VecW* two_vvec, uint32_t vec_ct) {
   // Analog of popcount_vecs.
-  const VecUL m1 = VCONST_UL(kMask5555);
-  const VecUL m2 = VCONST_UL(kMask3333);
-  const VecUL m4 = VCONST_UL(kMask0F0F);
-  const VecUL m8 = VCONST_UL(kMask00FF);
-  const VecUL* one_vvec_iter = one_vvec;
-  const VecUL* two_vvec_iter = two_vvec;
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW m2 = VCONST_W(kMask3333);
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW m8 = VCONST_W(kMask00FF);
+  const VecW* one_vvec_iter = one_vvec;
+  const VecW* two_vvec_iter = two_vvec;
   uint32_t tot = 0;
   while (1) {
     UniVec acc;
-    acc.vi = vecul_setzero();
-    const VecUL* one_vvec_stop;
+    acc.vw = vecw_setzero();
+    const VecW* one_vvec_stop;
     if (vec_ct < 15) {
       if (!vec_ct) {
         return tot;
@@ -1767,20 +1767,20 @@ uint32_t GenoBitvecSumMain(const VecUL* one_vvec, const VecUL* two_vvec, uint32_
       vec_ct -= 15;
     }
     do {
-      VecUL one_count = *one_vvec_iter++;
-      VecUL two_count = *two_vvec_iter++;
-      one_count = one_count - (vecul_srli(one_count, 1) & m1);
-      two_count = two_count - (vecul_srli(two_count, 1) & m1);
-      one_count = (one_count & m2) + (vecul_srli(one_count, 2) & m2);
-      two_count = (two_count & m2) + (vecul_srli(two_count, 2) & m2);
+      VecW one_count = *one_vvec_iter++;
+      VecW two_count = *two_vvec_iter++;
+      one_count = one_count - (vecw_srli(one_count, 1) & m1);
+      two_count = two_count - (vecw_srli(two_count, 1) & m1);
+      one_count = (one_count & m2) + (vecw_srli(one_count, 2) & m2);
+      two_count = (two_count & m2) + (vecw_srli(two_count, 2) & m2);
       // one_count and two_count now contain 4-bit partial bitcounts, each in
       // the range 0..4.  finally enough room to compute
       //   2 * two_count + one_count
       // in parallel and add it to the accumulator.
-      one_count = vecul_slli(two_count, 1) + one_count;
-      acc.vi = acc.vi + (one_count & m4) + (vecul_srli(one_count, 4) & m4);
+      one_count = vecw_slli(two_count, 1) + one_count;
+      acc.vw = acc.vw + (one_count & m4) + (vecw_srli(one_count, 4) & m4);
     } while (one_vvec_iter < one_vvec_stop);
-    acc.vi = (acc.vi & m8) + (vecul_srli(acc.vi, 8) & m8);
+    acc.vw = (acc.vw & m8) + (vecw_srli(acc.vw, 8) & m8);
     tot += UniVecHsum16(acc);
   }
 }
@@ -1794,7 +1794,7 @@ uint32_t GenoBitvecSum(const uintptr_t* one_bitvec, const uintptr_t* two_bitvec,
     const uint32_t remainder = word_ct % kWordsPerVec;
     const uint32_t main_block_word_ct = word_ct - remainder;
     word_ct = remainder;
-    tot = GenoBitvecSumMain(R_CAST(const VecUL*, one_bitvec), R_CAST(const VecUL*, two_bitvec), main_block_word_ct / kWordsPerVec);
+    tot = GenoBitvecSumMain(R_CAST(const VecW*, one_bitvec), R_CAST(const VecW*, two_bitvec), main_block_word_ct / kWordsPerVec);
 #ifdef __LP64__
     one_bitvec = &(one_bitvec[main_block_word_ct]);
     two_bitvec = &(two_bitvec[main_block_word_ct]);
@@ -1806,20 +1806,20 @@ uint32_t GenoBitvecSum(const uintptr_t* one_bitvec, const uintptr_t* two_bitvec,
   return tot;
 }
 
-uint32_t GenoBitvecSumSubsetMain(const VecUL* subset_vvec, const VecUL* one_vvec, const VecUL* two_vvec, uint32_t vec_ct) {
+uint32_t GenoBitvecSumSubsetMain(const VecW* subset_vvec, const VecW* one_vvec, const VecW* two_vvec, uint32_t vec_ct) {
   // Same as GenoBitvecSumMain(), just with an additional mask.
-  const VecUL m1 = VCONST_UL(kMask5555);
-  const VecUL m2 = VCONST_UL(kMask3333);
-  const VecUL m4 = VCONST_UL(kMask0F0F);
-  const VecUL m8 = VCONST_UL(kMask00FF);
-  const VecUL* subset_vvec_iter = subset_vvec;
-  const VecUL* one_vvec_iter = one_vvec;
-  const VecUL* two_vvec_iter = two_vvec;
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW m2 = VCONST_W(kMask3333);
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW m8 = VCONST_W(kMask00FF);
+  const VecW* subset_vvec_iter = subset_vvec;
+  const VecW* one_vvec_iter = one_vvec;
+  const VecW* two_vvec_iter = two_vvec;
   uint32_t tot = 0;
   while (1) {
     UniVec acc;
-    acc.vi = vecul_setzero();
-    const VecUL* subset_vvec_stop;
+    acc.vw = vecw_setzero();
+    const VecW* subset_vvec_stop;
     if (vec_ct < 15) {
       if (!vec_ct) {
         return tot;
@@ -1831,17 +1831,17 @@ uint32_t GenoBitvecSumSubsetMain(const VecUL* subset_vvec, const VecUL* one_vvec
       vec_ct -= 15;
     }
     do {
-      VecUL maskv = *subset_vvec_iter++;
-      VecUL one_count = (*one_vvec_iter++) & maskv;
-      VecUL two_count = (*two_vvec_iter++) & maskv;
-      one_count = one_count - (vecul_srli(one_count, 1) & m1);
-      two_count = two_count - (vecul_srli(two_count, 1) & m1);
-      one_count = (one_count & m2) + (vecul_srli(one_count, 2) & m2);
-      two_count = (two_count & m2) + (vecul_srli(two_count, 2) & m2);
-      one_count = vecul_slli(two_count, 1) + one_count;
-      acc.vi = acc.vi + (one_count & m4) + (vecul_srli(one_count, 4) & m4);
+      VecW maskv = *subset_vvec_iter++;
+      VecW one_count = (*one_vvec_iter++) & maskv;
+      VecW two_count = (*two_vvec_iter++) & maskv;
+      one_count = one_count - (vecw_srli(one_count, 1) & m1);
+      two_count = two_count - (vecw_srli(two_count, 1) & m1);
+      one_count = (one_count & m2) + (vecw_srli(one_count, 2) & m2);
+      two_count = (two_count & m2) + (vecw_srli(two_count, 2) & m2);
+      one_count = vecw_slli(two_count, 1) + one_count;
+      acc.vw = acc.vw + (one_count & m4) + (vecw_srli(one_count, 4) & m4);
     } while (subset_vvec_iter < subset_vvec_stop);
-    acc.vi = (acc.vi & m8) + (vecul_srli(acc.vi, 8) & m8);
+    acc.vw = (acc.vw & m8) + (vecw_srli(acc.vw, 8) & m8);
     tot += UniVecHsum16(acc);
   }
 }
@@ -1856,7 +1856,7 @@ uint32_t GenoBitvecSumSubset(const uintptr_t* subset_mask, const uintptr_t* one_
     const uint32_t remainder = word_ct % kWordsPerVec;
     const uint32_t main_block_word_ct = word_ct - remainder;
     word_ct = remainder;
-    tot = GenoBitvecSumSubsetMain(R_CAST(const VecUL*, subset_mask), R_CAST(const VecUL*, one_bitvec), R_CAST(const VecUL*, two_bitvec), main_block_word_ct / kWordsPerVec);
+    tot = GenoBitvecSumSubsetMain(R_CAST(const VecW*, subset_mask), R_CAST(const VecW*, one_bitvec), R_CAST(const VecW*, two_bitvec), main_block_word_ct / kWordsPerVec);
 #ifdef __LP64__
     subset_mask = &(subset_mask[main_block_word_ct]);
     one_bitvec = &(one_bitvec[main_block_word_ct]);
@@ -1887,22 +1887,22 @@ uint32_t GenoBitvecSumSubset(const uintptr_t* subset_mask, const uintptr_t* one_
 // for possibly-unknown part, --ld reports all solutions when multiple
 // solutions exist, everything else uses EM solution
 
-void GenoBitvecPhasedDotprodMain(const VecUL* one_vvec0, const VecUL* two_vvec0, const VecUL* one_vvec1, const VecUL* two_vvec1, uint32_t vec_ct, uint32_t* __restrict known_dotprod_ptr, uint32_t* __restrict hethet_ct_ptr) {
-  const VecUL m1 = VCONST_UL(kMask5555);
-  const VecUL m2 = VCONST_UL(kMask3333);
-  const VecUL m4 = VCONST_UL(kMask0F0F);
-  const VecUL* one_vvec0_iter = one_vvec0;
-  const VecUL* two_vvec0_iter = two_vvec0;
-  const VecUL* one_vvec1_iter = one_vvec1;
-  const VecUL* two_vvec1_iter = two_vvec1;
+void GenoBitvecPhasedDotprodMain(const VecW* one_vvec0, const VecW* two_vvec0, const VecW* one_vvec1, const VecW* two_vvec1, uint32_t vec_ct, uint32_t* __restrict known_dotprod_ptr, uint32_t* __restrict hethet_ct_ptr) {
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW m2 = VCONST_W(kMask3333);
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW* one_vvec0_iter = one_vvec0;
+  const VecW* two_vvec0_iter = two_vvec0;
+  const VecW* one_vvec1_iter = one_vvec1;
+  const VecW* two_vvec1_iter = two_vvec1;
   uint32_t known_dotprod = 0;
   uint32_t hethet_ct = 0;
   while (1) {
     UniVec dotprod_acc;
     UniVec hethet_acc;
-    dotprod_acc.vi = vecul_setzero();
-    hethet_acc.vi = vecul_setzero();
-    const VecUL* one_vvec0_stop;
+    dotprod_acc.vw = vecw_setzero();
+    hethet_acc.vw = vecw_setzero();
+    const VecW* one_vvec0_stop;
     if (vec_ct < 15) {
       if (!vec_ct) {
         *known_dotprod_ptr = known_dotprod;
@@ -1916,30 +1916,30 @@ void GenoBitvecPhasedDotprodMain(const VecUL* one_vvec0, const VecUL* two_vvec0,
       vec_ct -= 15;
     }
     do {
-      VecUL one_vword0 = *one_vvec0_iter++;
-      VecUL two_vword0 = *two_vvec0_iter++;
-      VecUL one_vword1 = *one_vvec1_iter++;
-      VecUL two_vword1 = *two_vvec1_iter++;
+      VecW one_vword0 = *one_vvec0_iter++;
+      VecW two_vword0 = *two_vvec0_iter++;
+      VecW one_vword1 = *one_vvec1_iter++;
+      VecW two_vword1 = *two_vvec1_iter++;
 
-      VecUL dotprod_1x_bits = (one_vword0 & two_vword1) | (one_vword1 & two_vword0);
-      VecUL dotprod_2x_bits = two_vword0 & two_vword1;
-      VecUL hethet_bits = one_vword0 & one_vword1;
-      dotprod_1x_bits = dotprod_1x_bits - (vecul_srli(dotprod_1x_bits, 1) & m1);
-      dotprod_2x_bits = dotprod_2x_bits - (vecul_srli(dotprod_2x_bits, 1) & m1);
-      hethet_bits = hethet_bits - (vecul_srli(hethet_bits, 1) & m1);
-      dotprod_1x_bits = (dotprod_1x_bits & m2) + (vecul_srli(dotprod_1x_bits, 2) & m2);
-      dotprod_2x_bits = (dotprod_2x_bits & m2) + (vecul_srli(dotprod_2x_bits, 2) & m2);
-      hethet_bits = (hethet_bits & m2) + (vecul_srli(hethet_bits, 2) & m2);
+      VecW dotprod_1x_bits = (one_vword0 & two_vword1) | (one_vword1 & two_vword0);
+      VecW dotprod_2x_bits = two_vword0 & two_vword1;
+      VecW hethet_bits = one_vword0 & one_vword1;
+      dotprod_1x_bits = dotprod_1x_bits - (vecw_srli(dotprod_1x_bits, 1) & m1);
+      dotprod_2x_bits = dotprod_2x_bits - (vecw_srli(dotprod_2x_bits, 1) & m1);
+      hethet_bits = hethet_bits - (vecw_srli(hethet_bits, 1) & m1);
+      dotprod_1x_bits = (dotprod_1x_bits & m2) + (vecw_srli(dotprod_1x_bits, 2) & m2);
+      dotprod_2x_bits = (dotprod_2x_bits & m2) + (vecw_srli(dotprod_2x_bits, 2) & m2);
+      hethet_bits = (hethet_bits & m2) + (vecw_srli(hethet_bits, 2) & m2);
 
       // we now have 4-bit partial bitcounts in the range 0..4.  finally have
       // enough room to compute 2 * dotprod_2x_bits + dotprod_1x_bits.
-      dotprod_1x_bits = vecul_slli(dotprod_2x_bits, 1) + dotprod_1x_bits;
-      hethet_acc.vi = hethet_acc.vi + ((hethet_bits + vecul_srli(hethet_bits, 4)) & m4);
-      dotprod_acc.vi = dotprod_acc.vi + (dotprod_1x_bits & m4) + (vecul_srli(dotprod_1x_bits, 4) & m4);
+      dotprod_1x_bits = vecw_slli(dotprod_2x_bits, 1) + dotprod_1x_bits;
+      hethet_acc.vw = hethet_acc.vw + ((hethet_bits + vecw_srli(hethet_bits, 4)) & m4);
+      dotprod_acc.vw = dotprod_acc.vw + (dotprod_1x_bits & m4) + (vecw_srli(dotprod_1x_bits, 4) & m4);
     } while (one_vvec0_iter < one_vvec0_stop);
-    const VecUL m8 = VCONST_UL(kMask00FF);
-    hethet_acc.vi = (hethet_acc.vi + vecul_srli(hethet_acc.vi, 8)) & m8;
-    dotprod_acc.vi = (dotprod_acc.vi & m8) + (vecul_srli(dotprod_acc.vi, 8) & m8);
+    const VecW m8 = VCONST_W(kMask00FF);
+    hethet_acc.vw = (hethet_acc.vw + vecw_srli(hethet_acc.vw, 8)) & m8;
+    dotprod_acc.vw = (dotprod_acc.vw & m8) + (vecw_srli(dotprod_acc.vw, 8) & m8);
     hethet_ct += UniVecHsum16(hethet_acc);
     known_dotprod += UniVecHsum16(dotprod_acc);
   }
@@ -1958,7 +1958,7 @@ void GenoBitvecPhasedDotprod(const uintptr_t* one_bitvec0, const uintptr_t* two_
     const uint32_t remainder = word_ct % kWordsPerVec;
     const uint32_t main_block_word_ct = word_ct - remainder;
     word_ct = remainder;
-    GenoBitvecPhasedDotprodMain(R_CAST(const VecUL*, one_bitvec0), R_CAST(const VecUL*, two_bitvec0), R_CAST(const VecUL*, one_bitvec1), R_CAST(const VecUL*, two_bitvec1), main_block_word_ct / kWordsPerVec, &known_dotprod, &hethet_ct);
+    GenoBitvecPhasedDotprodMain(R_CAST(const VecW*, one_bitvec0), R_CAST(const VecW*, two_bitvec0), R_CAST(const VecW*, one_bitvec1), R_CAST(const VecW*, two_bitvec1), main_block_word_ct / kWordsPerVec, &known_dotprod, &hethet_ct);
 #ifdef __LP64__
     one_bitvec0 = &(one_bitvec0[main_block_word_ct]);
     two_bitvec0 = &(two_bitvec0[main_block_word_ct]);
@@ -2005,23 +2005,23 @@ uint32_t HardcallPhasedR2Stats(const uintptr_t* one_bitvec0, const uintptr_t* tw
   return nm_intersection_ct;
 }
 
-void HardcallPhasedR2RefineMain(const VecUL* phasepresent0_vvec, const VecUL* phaseinfo0_vvec, const VecUL* phasepresent1_vvec, const VecUL* phaseinfo1_vvec, uint32_t vec_ct, uint32_t* __restrict hethet_decr_ptr, uint32_t* __restrict not_dotprod_ptr) {
+void HardcallPhasedR2RefineMain(const VecW* phasepresent0_vvec, const VecW* phaseinfo0_vvec, const VecW* phasepresent1_vvec, const VecW* phaseinfo1_vvec, uint32_t vec_ct, uint32_t* __restrict hethet_decr_ptr, uint32_t* __restrict not_dotprod_ptr) {
   // vec_ct must be a multiple of 3
-  const VecUL m1 = VCONST_UL(kMask5555);
-  const VecUL m2 = VCONST_UL(kMask3333);
-  const VecUL m4 = VCONST_UL(kMask0F0F);
-  const VecUL* phasepresent0_vvec_iter = phasepresent0_vvec;
-  const VecUL* phaseinfo0_vvec_iter = phaseinfo0_vvec;
-  const VecUL* phasepresent1_vvec_iter = phasepresent1_vvec;
-  const VecUL* phaseinfo1_vvec_iter = phaseinfo1_vvec;
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW m2 = VCONST_W(kMask3333);
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW* phasepresent0_vvec_iter = phasepresent0_vvec;
+  const VecW* phaseinfo0_vvec_iter = phaseinfo0_vvec;
+  const VecW* phasepresent1_vvec_iter = phasepresent1_vvec;
+  const VecW* phaseinfo1_vvec_iter = phaseinfo1_vvec;
   uint32_t hethet_decr = 0;
   uint32_t not_dotprod = 0;  // like not_hotdog, but more useful
   while (1) {
     UniVec hethet_decr_acc;
     UniVec not_dotprod_acc;
-    not_dotprod_acc.vi = vecul_setzero();
-    hethet_decr_acc.vi = vecul_setzero();
-    const VecUL* phasepresent0_vvec_stop;
+    not_dotprod_acc.vw = vecw_setzero();
+    hethet_decr_acc.vw = vecw_setzero();
+    const VecW* phasepresent0_vvec_stop;
     if (vec_ct < 30) {
       if (!vec_ct) {
         *hethet_decr_ptr = hethet_decr;
@@ -2036,41 +2036,41 @@ void HardcallPhasedR2RefineMain(const VecUL* phasepresent0_vvec, const VecUL* ph
     }
     do {
       // todo: benchmark against simpler one-vec-at-a-time loop
-      VecUL mask1 = (*phasepresent0_vvec_iter++) & (*phasepresent1_vvec_iter++);
-      VecUL mask2 = (*phasepresent0_vvec_iter++) & (*phasepresent1_vvec_iter++);
-      VecUL mask_half1 = (*phasepresent0_vvec_iter++) & (*phasepresent1_vvec_iter++);
-      VecUL mask_half2 = vecul_srli(mask_half1, 1) & m1;
+      VecW mask1 = (*phasepresent0_vvec_iter++) & (*phasepresent1_vvec_iter++);
+      VecW mask2 = (*phasepresent0_vvec_iter++) & (*phasepresent1_vvec_iter++);
+      VecW mask_half1 = (*phasepresent0_vvec_iter++) & (*phasepresent1_vvec_iter++);
+      VecW mask_half2 = vecw_srli(mask_half1, 1) & m1;
       mask_half1 = mask_half1 & m1;
 
-      VecUL not_dotprod_count1 = (*phaseinfo0_vvec_iter++) ^ (*phaseinfo1_vvec_iter++);
-      VecUL not_dotprod_count2 = (*phaseinfo0_vvec_iter++) ^ (*phaseinfo1_vvec_iter++);
-      VecUL not_dotprod_half1 = (*phaseinfo0_vvec_iter++) ^ (*phaseinfo1_vvec_iter++);
+      VecW not_dotprod_count1 = (*phaseinfo0_vvec_iter++) ^ (*phaseinfo1_vvec_iter++);
+      VecW not_dotprod_count2 = (*phaseinfo0_vvec_iter++) ^ (*phaseinfo1_vvec_iter++);
+      VecW not_dotprod_half1 = (*phaseinfo0_vvec_iter++) ^ (*phaseinfo1_vvec_iter++);
       // bugfix (4 Nov 2017): incorrectly had mask_half1 here
-      VecUL not_dotprod_half2 = vecul_srli(not_dotprod_half1, 1) & mask_half2;
+      VecW not_dotprod_half2 = vecw_srli(not_dotprod_half1, 1) & mask_half2;
       not_dotprod_count1 = not_dotprod_count1 & mask1;
       not_dotprod_count2 = not_dotprod_count2 & mask2;
       not_dotprod_half1 = not_dotprod_half1 & mask_half1;
 
-      mask1 = mask1 - (vecul_srli(mask1, 1) & m1);
-      mask2 = mask2 - (vecul_srli(mask2, 1) & m1);
-      not_dotprod_count1 = not_dotprod_count1 - (vecul_srli(not_dotprod_count1, 1) & m1);
-      not_dotprod_count2 = not_dotprod_count2 - (vecul_srli(not_dotprod_count2, 1) & m1);
+      mask1 = mask1 - (vecw_srli(mask1, 1) & m1);
+      mask2 = mask2 - (vecw_srli(mask2, 1) & m1);
+      not_dotprod_count1 = not_dotprod_count1 - (vecw_srli(not_dotprod_count1, 1) & m1);
+      not_dotprod_count2 = not_dotprod_count2 - (vecw_srli(not_dotprod_count2, 1) & m1);
       mask1 = mask1 + mask_half1;
       mask2 = mask2 + mask_half2;
       not_dotprod_count1 = not_dotprod_count1 + not_dotprod_half1;
       not_dotprod_count2 = not_dotprod_count2 + not_dotprod_half2;
 
-      mask1 = (mask1 & m2) + (vecul_srli(mask1, 2) & m2);
-      not_dotprod_count1 = (not_dotprod_count1 & m2) + (vecul_srli(not_dotprod_count1, 2) & m2);
-      mask1 = mask1 + (mask2 & m2) + (vecul_srli(mask2, 2) & m2);
-      not_dotprod_count1 = not_dotprod_count1 + (not_dotprod_count2 & m2) + (vecul_srli(not_dotprod_count2, 2) & m2);
+      mask1 = (mask1 & m2) + (vecw_srli(mask1, 2) & m2);
+      not_dotprod_count1 = (not_dotprod_count1 & m2) + (vecw_srli(not_dotprod_count1, 2) & m2);
+      mask1 = mask1 + (mask2 & m2) + (vecw_srli(mask2, 2) & m2);
+      not_dotprod_count1 = not_dotprod_count1 + (not_dotprod_count2 & m2) + (vecw_srli(not_dotprod_count2, 2) & m2);
 
-      hethet_decr_acc.vi = hethet_decr_acc.vi + (mask1 & m4) + (vecul_srli(mask1, 4) & m4);
-      not_dotprod_acc.vi = not_dotprod_acc.vi + (not_dotprod_count1 & m4) + (vecul_srli(not_dotprod_count1, 4) & m4);
+      hethet_decr_acc.vw = hethet_decr_acc.vw + (mask1 & m4) + (vecw_srli(mask1, 4) & m4);
+      not_dotprod_acc.vw = not_dotprod_acc.vw + (not_dotprod_count1 & m4) + (vecw_srli(not_dotprod_count1, 4) & m4);
     } while (phasepresent0_vvec_iter < phasepresent0_vvec_stop);
-    const VecUL m8 = VCONST_UL(kMask00FF);
-    hethet_decr_acc.vi = (hethet_decr_acc.vi & m8) + (vecul_srli(hethet_decr_acc.vi, 8) & m8);
-    not_dotprod_acc.vi = (not_dotprod_acc.vi & m8) + (vecul_srli(not_dotprod_acc.vi, 8) & m8);
+    const VecW m8 = VCONST_W(kMask00FF);
+    hethet_decr_acc.vw = (hethet_decr_acc.vw & m8) + (vecw_srli(hethet_decr_acc.vw, 8) & m8);
+    not_dotprod_acc.vw = (not_dotprod_acc.vw & m8) + (vecw_srli(not_dotprod_acc.vw, 8) & m8);
     hethet_decr += UniVecHsum16(hethet_decr_acc);
     not_dotprod += UniVecHsum16(not_dotprod_acc);
   }
@@ -2088,7 +2088,7 @@ void HardcallPhasedR2Refine(const uintptr_t* phasepresent0, const uintptr_t* pha
     const uint32_t remainder = word_ct % (3 * kWordsPerVec);
     const uint32_t main_block_word_ct = word_ct - remainder;
     word_ct = remainder;
-    HardcallPhasedR2RefineMain(R_CAST(const VecUL*, phasepresent0), R_CAST(const VecUL*, phaseinfo0), R_CAST(const VecUL*, phasepresent1), R_CAST(const VecUL*, phaseinfo1), main_block_word_ct / kWordsPerVec, &hethet_decr, &not_dotprod);
+    HardcallPhasedR2RefineMain(R_CAST(const VecW*, phasepresent0), R_CAST(const VecW*, phaseinfo0), R_CAST(const VecW*, phasepresent1), R_CAST(const VecW*, phaseinfo1), main_block_word_ct / kWordsPerVec, &hethet_decr, &not_dotprod);
     phasepresent0 = &(phasepresent0[main_block_word_ct]);
     phaseinfo0 = &(phaseinfo0[main_block_word_ct]);
     phasepresent1 = &(phasepresent1[main_block_word_ct]);
@@ -2207,7 +2207,7 @@ uint64_t DenseDosageSum(const Dosage* dosage_vec, uint32_t vec_ct) {
       sumv = _mm256_add_epi64(sumv, dosagev);
     } while (dosage_vvec_iter < dosage_vvec_stop);
     UniVec acc;
-    acc.vi = R_CAST(VecUL, sumv);
+    acc.vw = R_CAST(VecW, sumv);
     sum += UniVecHsum32(acc);
   }
 }
@@ -2243,7 +2243,7 @@ uint64_t DenseDosageSumSubset(const Dosage* dosage_vec, const Dosage* dosage_mas
       sumv = _mm256_add_epi64(sumv, dosagev);
     } while (dosage_vvec_iter < dosage_vvec_stop);
     UniVec acc;
-    acc.vi = R_CAST(VecUL, sumv);
+    acc.vw = R_CAST(VecW, sumv);
     sum += UniVecHsum32(acc);
   }
 }
@@ -2286,8 +2286,8 @@ uint64_t DosageUnsignedDotprod(const Dosage* dosage_vec0, const Dosage* dosage_v
     } while (dosage_vvec0_iter < dosage_vvec0_stop);
     UniVec acc_lo;
     UniVec acc_hi;
-    acc_lo.vi = R_CAST(VecUL, dotprod_lo);
-    acc_hi.vi = R_CAST(VecUL, dotprod_hi);
+    acc_lo.vw = R_CAST(VecW, dotprod_lo);
+    acc_hi.vw = R_CAST(VecW, dotprod_hi);
     dotprod += UniVecHsum32(acc_lo) + 65536 * UniVecHsum32(acc_hi);
   }
 }
@@ -2324,8 +2324,8 @@ uint64_t DosageUnsignedNomissDotprod(const Dosage* dosage_vec0, const Dosage* do
     } while (dosage_vvec0_iter < dosage_vvec0_stop);
     UniVec acc_lo;
     UniVec acc_hi;
-    acc_lo.vi = R_CAST(VecUL, dotprod_lo);
-    acc_hi.vi = R_CAST(VecUL, dotprod_hi);
+    acc_lo.vw = R_CAST(VecW, dotprod_lo);
+    acc_hi.vw = R_CAST(VecW, dotprod_hi);
     dotprod += UniVecHsum32(acc_lo) + 65536 * UniVecHsum32(acc_hi);
   }
 }
@@ -2371,8 +2371,8 @@ int64_t DosageSignedDotprod(const Dosage* dosage_diff0, const Dosage* dosage_dif
     } while (dosage_diff0_iter < dosage_diff0_stop);
     UniVec acc_lo;
     UniVec acc_hi;
-    acc_lo.vi = R_CAST(VecUL, dotprod_lo);
-    acc_hi.vi = R_CAST(VecUL, dotprod_hi);
+    acc_lo.vw = R_CAST(VecW, dotprod_lo);
+    acc_hi.vw = R_CAST(VecW, dotprod_hi);
     dotprod += UniVecHsum32(acc_lo) + 65536 * UniVecHsum32(acc_hi);
   }
 }
@@ -2442,7 +2442,7 @@ uint64_t DenseDosageSum(const Dosage* dosage_vec, uint32_t vec_ct) {
       sumv = _mm_add_epi64(sumv, dosagev);
     } while (dosage_vvec_iter < dosage_vvec_stop);
     UniVec acc;
-    acc.vi = R_CAST(VecUL, sumv);
+    acc.vw = R_CAST(VecW, sumv);
     sum += UniVecHsum32(acc);
   }
 }
@@ -2478,7 +2478,7 @@ uint64_t DenseDosageSumSubset(const Dosage* dosage_vec, const Dosage* dosage_mas
       sumv = _mm_add_epi64(sumv, dosagev);
     } while (dosage_vvec_iter < dosage_vvec_stop);
     UniVec acc;
-    acc.vi = R_CAST(VecUL, sumv);
+    acc.vw = R_CAST(VecW, sumv);
     sum += UniVecHsum32(acc);
   }
 }
@@ -2521,8 +2521,8 @@ uint64_t DosageUnsignedDotprod(const Dosage* dosage_vec0, const Dosage* dosage_v
     } while (dosage_vvec0_iter < dosage_vvec0_stop);
     UniVec acc_lo;
     UniVec acc_hi;
-    acc_lo.vi = R_CAST(VecUL, dotprod_lo);
-    acc_hi.vi = R_CAST(VecUL, dotprod_hi);
+    acc_lo.vw = R_CAST(VecW, dotprod_lo);
+    acc_hi.vw = R_CAST(VecW, dotprod_hi);
     dotprod += UniVecHsum32(acc_lo) + 65536 * UniVecHsum32(acc_hi);
   }
 }
@@ -2559,8 +2559,8 @@ uint64_t DosageUnsignedNomissDotprod(const Dosage* dosage_vec0, const Dosage* do
     } while (dosage_vvec0_iter < dosage_vvec0_stop);
     UniVec acc_lo;
     UniVec acc_hi;
-    acc_lo.vi = R_CAST(VecUL, dotprod_lo);
-    acc_hi.vi = R_CAST(VecUL, dotprod_hi);
+    acc_lo.vw = R_CAST(VecW, dotprod_lo);
+    acc_hi.vw = R_CAST(VecW, dotprod_hi);
     dotprod += UniVecHsum32(acc_lo) + 65536 * UniVecHsum32(acc_hi);
   }
 }
@@ -2605,8 +2605,8 @@ int64_t DosageSignedDotprod(const Dosage* dosage_diff0, const Dosage* dosage_dif
     } while (dosage_diff0_iter < dosage_diff0_stop);
     UniVec acc_lo;
     UniVec acc_hi;
-    acc_lo.vi = R_CAST(VecUL, dotprod_lo);
-    acc_hi.vi = R_CAST(VecUL, dotprod_hi);
+    acc_lo.vw = R_CAST(VecW, dotprod_lo);
+    acc_hi.vw = R_CAST(VecW, dotprod_hi);
     dotprod += UniVecHsum32(acc_lo) + 65536 * UniVecHsum32(acc_hi);
   }
 }
@@ -2697,7 +2697,7 @@ void DosagePhaseinfoPatch(const uintptr_t* phasepresent, const uintptr_t* phasei
       const uintptr_t phaseinfo_word = phaseinfo[widx];
       const uint32_t sample_idx_offset = widx * kBitsPerWord;
       do {
-        const uint32_t sample_idx_lowbits = ctzlu(phasepresent_nodosage_word);
+        const uint32_t sample_idx_lowbits = ctzw(phasepresent_nodosage_word);
         const uint32_t cur_diff = 49152 - ((phaseinfo_word >> sample_idx_lowbits) & 1) * 32768;
         const uint32_t sample_idx = sample_idx_offset + sample_idx_lowbits;
         dosage_uhet[sample_idx] = 0;
@@ -2816,7 +2816,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     if (y_ct) {
       // only keep male founders
       uintptr_t* founder_info_tmp;
-      if (bigstack_alloc_ul(raw_sample_ctl, &founder_info_tmp)) {
+      if (bigstack_alloc_w(raw_sample_ctl, &founder_info_tmp)) {
         goto LdConsole_ret_NOMEM;
       }
       BitvecAndCopy(founder_info, sex_male, raw_sample_ctl, founder_info_tmp);
@@ -2837,15 +2837,15 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     uintptr_t* dosage_presents[2];
     Dosage* dosage_vals[2];
     uint32_t dosage_cts[2];
-    if (bigstack_alloc_ui(founder_ctl, &founder_info_cumulative_popcounts) ||
-        bigstack_alloc_ul(founder_ctl2, &(genovecs[0])) ||
-        bigstack_alloc_ul(founder_ctl2, &(genovecs[1])) ||
-        bigstack_alloc_ul(founder_ctl, &(phasepresents[0])) ||
-        bigstack_alloc_ul(founder_ctl, &(phasepresents[1])) ||
-        bigstack_alloc_ul(founder_ctl, &(phaseinfos[0])) ||
-        bigstack_alloc_ul(founder_ctl, &(phaseinfos[1])) ||
-        bigstack_alloc_ul(founder_ctl, &(dosage_presents[0])) ||
-        bigstack_alloc_ul(founder_ctl, &(dosage_presents[1])) ||
+    if (bigstack_alloc_u32(founder_ctl, &founder_info_cumulative_popcounts) ||
+        bigstack_alloc_w(founder_ctl2, &(genovecs[0])) ||
+        bigstack_alloc_w(founder_ctl2, &(genovecs[1])) ||
+        bigstack_alloc_w(founder_ctl, &(phasepresents[0])) ||
+        bigstack_alloc_w(founder_ctl, &(phasepresents[1])) ||
+        bigstack_alloc_w(founder_ctl, &(phaseinfos[0])) ||
+        bigstack_alloc_w(founder_ctl, &(phaseinfos[1])) ||
+        bigstack_alloc_w(founder_ctl, &(dosage_presents[0])) ||
+        bigstack_alloc_w(founder_ctl, &(dosage_presents[1])) ||
         bigstack_alloc_dosage(founder_ct, &(dosage_vals[0])) ||
         bigstack_alloc_dosage(founder_ct, &(dosage_vals[1]))) {
       goto LdConsole_ret_NOMEM;
@@ -2857,8 +2857,8 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     uintptr_t* sex_male_collapsed_interleaved = nullptr;
     uint32_t x_male_ct = 0;
     if (x_present) {
-      if (bigstack_alloc_ul(founder_ctaw, &sex_male_collapsed) ||
-          bigstack_alloc_ul(founder_ctaw, &sex_male_collapsed_interleaved)) {
+      if (bigstack_alloc_w(founder_ctaw, &sex_male_collapsed) ||
+          bigstack_alloc_w(founder_ctaw, &sex_male_collapsed_interleaved)) {
         goto LdConsole_ret_NOMEM;
       }
       CopyBitarrSubset(sex_male, founder_info, founder_ct, sex_male_collapsed);
@@ -2938,12 +2938,12 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       uintptr_t* one_bitvecs[2];
       uintptr_t* two_bitvecs[2];
       uintptr_t* nm_bitvecs[2];
-      if (bigstack_alloc_ul(founder_ctaw, &one_bitvecs[0]) ||
-          bigstack_alloc_ul(founder_ctaw, &two_bitvecs[0]) ||
-          bigstack_alloc_ul(founder_ctaw, &nm_bitvecs[0]) ||
-          bigstack_alloc_ul(founder_ctaw, &one_bitvecs[1]) ||
-          bigstack_alloc_ul(founder_ctaw, &two_bitvecs[1]) ||
-          bigstack_alloc_ul(founder_ctaw, &nm_bitvecs[1])) {
+      if (bigstack_alloc_w(founder_ctaw, &one_bitvecs[0]) ||
+          bigstack_alloc_w(founder_ctaw, &two_bitvecs[0]) ||
+          bigstack_alloc_w(founder_ctaw, &nm_bitvecs[0]) ||
+          bigstack_alloc_w(founder_ctaw, &one_bitvecs[1]) ||
+          bigstack_alloc_w(founder_ctaw, &two_bitvecs[1]) ||
+          bigstack_alloc_w(founder_ctaw, &nm_bitvecs[1])) {
         goto LdConsole_ret_NOMEM;
       }
       uint32_t alt_cts[2];
@@ -3013,8 +3013,8 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
           bigstack_alloc_dosage(founder_ct, &dosage_vecs[1]) ||
           bigstack_alloc_dosage(founder_ct, &dosage_uhets[0]) ||
           bigstack_alloc_dosage(founder_ct, &dosage_uhets[1]) ||
-          bigstack_alloc_ul(founder_ctl, &nm_bitvecs[0]) ||
-          bigstack_alloc_ul(founder_ctl, &nm_bitvecs[1])) {
+          bigstack_alloc_w(founder_ctl, &nm_bitvecs[0]) ||
+          bigstack_alloc_w(founder_ctl, &nm_bitvecs[1])) {
         goto LdConsole_ret_NOMEM;
       }
       uint64_t alt_dosages[2];
@@ -3191,7 +3191,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       logputsb();
     }
     logputs("\n");
-    char* write_iter = uint32toa(valid_obs_ct, g_logbuf);
+    char* write_iter = u32toa(valid_obs_ct, g_logbuf);
     write_iter = strcpya(write_iter, " valid");
     if (y_ct) {
       write_iter = strcpya(write_iter, " male");
@@ -3202,7 +3202,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     }
     if (valid_x_male_ct && (!y_ct)) {
       write_iter = strcpya(write_iter, " (");
-      write_iter = uint32toa(valid_x_male_ct, write_iter);
+      write_iter = u32toa(valid_x_male_ct, write_iter);
       write_iter = strcpya(write_iter, " male)");
     }
     if ((!is_nonx_haploids[0]) && (!is_nonx_haploids[1])) {
@@ -3293,7 +3293,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         if (x_present) {
           x_nosex_ct = founder_ct - PopcountWordsIntersect(founder_info, sex_nm, raw_sample_ctl);
           if (x_nosex_ct) {
-            if (bigstack_alloc_ul(founder_ctl, &nosex_collapsed)) {
+            if (bigstack_alloc_w(founder_ctl, &nosex_collapsed)) {
               goto LdConsole_ret_NOMEM;
             }
             CopyBitarrSubset(sex_nm, founder_info, founder_ct, nosex_collapsed);
@@ -3345,7 +3345,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     for (uint32_t sol_idx = first_relevant_sol_idx; sol_idx < cubic_sol_ct; ++sol_idx) {
       if (cubic_sol_ct - first_relevant_sol_idx > 1) {
         write_iter = strcpya(g_logbuf, "Solution #");
-        write_iter = uint32toa(sol_idx + 1 - first_relevant_sol_idx, write_iter);
+        write_iter = u32toa(sol_idx + 1 - first_relevant_sol_idx, write_iter);
         if ((best_lnlike_mask >> sol_idx) & 1) {
           write_iter = strcpya(write_iter, " (");
           if (best_lnlike_mask & ((1 << sol_idx) - 1)) {

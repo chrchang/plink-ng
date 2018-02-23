@@ -151,9 +151,11 @@ namespace plink2 {
 // appropriate-qualified type as soon as possible.
 #ifdef __cplusplus
 #  define CXXCONST_CP const char*
+#  define CXXCONST_VOIDP const void*
 #  define TO_CONSTCPCONSTP(char_pp) (char_pp)
 #else
 #  define CXXCONST_CP char*
+#  define CXXCONST_VOIDP void*
 #  define TO_CONSTCPCONSTP(char_pp) ((const char* const*)(char_pp))
 #endif
 
@@ -176,17 +178,13 @@ HEADER_INLINE char* strnul(char* str) {
 
 #else  // !_GNU_SOURCE
 
-#  ifdef __cplusplus
-HEADER_INLINE void* rawmemchr(void* ss, int cc) {
-  return memchr(ss, cc, 0x80000000U - kBytesPerVec);
+HEADER_INLINE CXXCONST_VOIDP rawmemchr(const void* ss, int cc) {
+  return S_CAST(CXXCONST_VOIDP, memchr(ss, cc, 0x80000000U - kBytesPerVec));
 }
 
-HEADER_INLINE const void* rawmemchr(const void* ss, int cc) {
-  return memchr(ss, cc, 0x80000000U - kBytesPerVec);
-}
-#  else  // !__cplusplus
-HEADER_INLINE void* rawmemchr(const void* ss, int cc) {
-  return memchr(ss, cc, 0x80000000U - kBytesPerVec);
+#  ifdef __cplusplus
+HEADER_INLINE void* rawmemchr(void* ss, int cc) {
+  return const_cast<void*>(rawmemchr(const_cast<const void*>(ss), cc));
 }
 #  endif
 
@@ -219,6 +217,37 @@ HEADER_INLINE char* strchrnul(char* str, int cc) {
 #  endif
 
 #endif  // !_GNU_SOURCE
+
+// ReadLineStream emits lines which are *not* null-terminated, but are
+// guaranteed to have trailing '\n's.
+CXXCONST_VOIDP rawmemchr2(const void* ss, unsigned char ucc1, unsigned char ucc2);
+
+HEADER_INLINE CXXCONST_CP strchrnul_n(const char* ss, unsigned char ucc1) {
+  return S_CAST(CXXCONST_CP, rawmemchr2(ss, ucc1, '\n'));
+}
+
+#ifdef __cplusplus
+HEADER_INLINE void* rawmemchr2(void* ss, unsigned char ucc1, unsigned char ucc2) {
+  return const_cast<void*>(rawmemchr2(const_cast<const void*>(ss), ucc1, ucc2));
+}
+
+HEADER_INLINE char* strchrnul_n(char* ss, unsigned char ucc1) {
+  return const_cast<char*>(strchrnul_n(const_cast<const char*>(ss), ucc1));
+}
+#endif
+
+// These return 1 at eoln.
+HEADER_INLINE uint32_t strchrnul_n_mov(unsigned char ucc1, const char** ss_ptr) {
+  const char* ss_next = strchrnul_n(*ss_ptr, ucc1);
+  *ss_ptr = ss_next;
+  return (*ss_next != ucc1);
+}
+
+HEADER_INLINE uint32_t incr_strchrnul_n_mov(unsigned char ucc1, const char** ss_ptr) {
+  const char* ss_next = strchrnul_n(&((*ss_ptr)[1]), ucc1);
+  *ss_ptr = ss_next;
+  return (*ss_next != ucc1);
+}
 
 #ifdef _WIN32
 // if kMaxThreads > 64, single WaitForMultipleObjects calls must be converted
@@ -489,7 +518,7 @@ int32_t uint64cmp(const void* aa, const void* bb);
 int32_t uint64cmp_decr(const void* aa, const void* bb);
 #endif
 
-HEADER_INLINE uint32_t UiArrMax(const uint32_t* unsorted_arr, uintptr_t len) {
+HEADER_INLINE uint32_t U32ArrMax(const uint32_t* unsorted_arr, uintptr_t len) {
   const uint32_t* unsorted_arr_end = &(unsorted_arr[len]);
 #ifndef __cplusplus
   const uint32_t* unsorted_arr_iter = unsorted_arr;
@@ -622,7 +651,7 @@ int32_t qsort_ext(void* main_arr, uintptr_t arr_length, uintptr_t item_length, i
 */
 
 // Offset of std::lower_bound.
-uint32_t CountSortedSmallerUi(const uint32_t* sorted_uint32_arr, uint32_t arr_length, uint32_t uii);
+uint32_t CountSortedSmallerU32(const uint32_t* sorted_uint32_arr, uint32_t arr_length, uint32_t uii);
 
 uintptr_t CountSortedSmallerU64(const uint64_t* sorted_uint64_arr, uintptr_t arr_length, uint64_t ullii);
 
@@ -758,12 +787,12 @@ HEADER_INLINE BoolErr bigstack_alloc_f(uintptr_t ct, float** f_arr_ptr) {
   return !(*f_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_alloc_si(uintptr_t ct, int16_t** si_arr_ptr) {
+HEADER_INLINE BoolErr bigstack_alloc_i16(uintptr_t ct, int16_t** si_arr_ptr) {
   *si_arr_ptr = S_CAST(int16_t*, bigstack_alloc(ct * sizeof(int16_t)));
   return !(*si_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_alloc_i(uintptr_t ct, int32_t** i_arr_ptr) {
+HEADER_INLINE BoolErr bigstack_alloc_i32(uintptr_t ct, int32_t** i_arr_ptr) {
   *i_arr_ptr = S_CAST(int32_t*, bigstack_alloc(ct * sizeof(int32_t)));
   return !(*i_arr_ptr);
 }
@@ -773,17 +802,17 @@ HEADER_INLINE BoolErr bigstack_alloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr
   return !(*uc_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_alloc_usi(uintptr_t ct, uint16_t** usi_arr_ptr) {
+HEADER_INLINE BoolErr bigstack_alloc_u16(uintptr_t ct, uint16_t** usi_arr_ptr) {
   *usi_arr_ptr = S_CAST(uint16_t*, bigstack_alloc(ct * sizeof(int16_t)));
   return !(*usi_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_alloc_ui(uintptr_t ct, uint32_t** ui_arr_ptr) {
+HEADER_INLINE BoolErr bigstack_alloc_u32(uintptr_t ct, uint32_t** ui_arr_ptr) {
   *ui_arr_ptr = S_CAST(uint32_t*, bigstack_alloc(ct * sizeof(int32_t)));
   return !(*ui_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_alloc_ul(uintptr_t ct, uintptr_t** ul_arr_ptr) {
+HEADER_INLINE BoolErr bigstack_alloc_w(uintptr_t ct, uintptr_t** ul_arr_ptr) {
   *ul_arr_ptr = S_CAST(uintptr_t*, bigstack_alloc(ct * sizeof(intptr_t)));
   return !(*ul_arr_ptr);
 }
@@ -798,11 +827,11 @@ HEADER_INLINE BoolErr bigstack_alloc_ull(uintptr_t ct, uint64_t** ull_arr_ptr) {
   return !(*ull_arr_ptr);
 }
 
-// some versions of gcc give aliasing warnings if we use bigstack_alloc_ul()
+// some versions of gcc give aliasing warnings if we use bigstack_alloc_w()
 // for everything
 // if sizeof(intptr_t) != sizeof(uintptr_t*), we're doomed anyway, so I won't
 // bother with that static assert...
-HEADER_INLINE BoolErr bigstack_alloc_ulp(uintptr_t ct, uintptr_t*** ulp_arr_ptr) {
+HEADER_INLINE BoolErr bigstack_alloc_wp(uintptr_t ct, uintptr_t*** ulp_arr_ptr) {
   *ulp_arr_ptr = S_CAST(uintptr_t**, bigstack_alloc(ct * sizeof(intptr_t)));
   return !(*ulp_arr_ptr);
 }
@@ -817,12 +846,12 @@ HEADER_INLINE BoolErr bigstack_alloc_kcp(uintptr_t ct, const char*** kcp_arr_ptr
   return !(*kcp_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_alloc_sip(uintptr_t ct, int16_t*** sip_arr_ptr) {
+HEADER_INLINE BoolErr bigstack_alloc_i16p(uintptr_t ct, int16_t*** sip_arr_ptr) {
   *sip_arr_ptr = S_CAST(int16_t**, bigstack_alloc(ct * sizeof(intptr_t)));
   return !(*sip_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_alloc_ip(uintptr_t ct, int32_t*** ip_arr_ptr) {
+HEADER_INLINE BoolErr bigstack_alloc_i32p(uintptr_t ct, int32_t*** ip_arr_ptr) {
   *ip_arr_ptr = S_CAST(int32_t**, bigstack_alloc(ct * sizeof(intptr_t)));
   return !(*ip_arr_ptr);
 }
@@ -832,12 +861,12 @@ HEADER_INLINE BoolErr bigstack_alloc_ucp(uintptr_t ct, unsigned char*** ucp_arr_
   return !(*ucp_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_alloc_usip(uintptr_t ct, uint16_t*** usip_arr_ptr) {
+HEADER_INLINE BoolErr bigstack_alloc_u16p(uintptr_t ct, uint16_t*** usip_arr_ptr) {
   *usip_arr_ptr = S_CAST(uint16_t**, bigstack_alloc(ct * sizeof(intptr_t)));
   return !(*usip_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_alloc_uip(uintptr_t ct, uint32_t*** uip_arr_ptr) {
+HEADER_INLINE BoolErr bigstack_alloc_u32p(uintptr_t ct, uint32_t*** uip_arr_ptr) {
   *uip_arr_ptr = S_CAST(uint32_t**, bigstack_alloc(ct * sizeof(intptr_t)));
   return !(*uip_arr_ptr);
 }
@@ -847,8 +876,8 @@ HEADER_INLINE BoolErr bigstack_alloc_dp(uintptr_t ct, double*** dp_arr_ptr) {
   return !(*dp_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_alloc_vp(uintptr_t ct, VecUL*** vp_arr_ptr) {
-  *vp_arr_ptr = S_CAST(VecUL**, bigstack_alloc(ct * sizeof(intptr_t)));
+HEADER_INLINE BoolErr bigstack_alloc_vp(uintptr_t ct, VecW*** vp_arr_ptr) {
+  *vp_arr_ptr = S_CAST(VecW**, bigstack_alloc(ct * sizeof(intptr_t)));
   return !(*vp_arr_ptr);
 }
 
@@ -966,7 +995,7 @@ HEADER_INLINE BoolErr bigstack_end_alloc_f(uintptr_t ct, float** f_arr_ptr) {
   return !(*f_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_end_alloc_i(uintptr_t ct, int32_t** i_arr_ptr) {
+HEADER_INLINE BoolErr bigstack_end_alloc_i32(uintptr_t ct, int32_t** i_arr_ptr) {
   *i_arr_ptr = S_CAST(int32_t*, bigstack_end_alloc(ct * sizeof(int32_t)));
   return !(*i_arr_ptr);
 }
@@ -976,22 +1005,22 @@ HEADER_INLINE BoolErr bigstack_end_alloc_uc(uintptr_t ct, unsigned char** uc_arr
   return !(*uc_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_end_alloc_ui(uintptr_t ct, uint32_t** ui_arr_ptr) {
+HEADER_INLINE BoolErr bigstack_end_alloc_u32(uintptr_t ct, uint32_t** ui_arr_ptr) {
   *ui_arr_ptr = S_CAST(uint32_t*, bigstack_end_alloc(ct * sizeof(int32_t)));
   return !(*ui_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_end_alloc_ul(uintptr_t ct, uintptr_t** ul_arr_ptr) {
+HEADER_INLINE BoolErr bigstack_end_alloc_w(uintptr_t ct, uintptr_t** ul_arr_ptr) {
   *ul_arr_ptr = S_CAST(uintptr_t*, bigstack_end_alloc(ct * sizeof(intptr_t)));
   return !(*ul_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_end_alloc_ll(uintptr_t ct, int64_t** ll_arr_ptr) {
+HEADER_INLINE BoolErr bigstack_end_alloc_i64(uintptr_t ct, int64_t** ll_arr_ptr) {
   *ll_arr_ptr = S_CAST(int64_t*, bigstack_end_alloc(ct * sizeof(int64_t)));
   return !(*ll_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_end_alloc_ull(uintptr_t ct, uint64_t** ull_arr_ptr) {
+HEADER_INLINE BoolErr bigstack_end_alloc_u64(uintptr_t ct, uint64_t** ull_arr_ptr) {
   *ull_arr_ptr = S_CAST(uint64_t*, bigstack_end_alloc(ct * sizeof(int64_t)));
   return !(*ull_arr_ptr);
 }
@@ -1137,7 +1166,7 @@ HEADER_INLINE BoolErr arena_end_alloc_f(unsigned char* arena_bottom, uintptr_t c
   return !(*f_arr_ptr);
 }
 
-HEADER_INLINE BoolErr arena_end_alloc_i(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, int32_t** i_arr_ptr) {
+HEADER_INLINE BoolErr arena_end_alloc_i32(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, int32_t** i_arr_ptr) {
   *i_arr_ptr = S_CAST(int32_t*, arena_end_alloc(arena_bottom, ct * sizeof(int32_t), arena_top_ptr));
   return !(*i_arr_ptr);
 }
@@ -1147,22 +1176,22 @@ HEADER_INLINE BoolErr arena_end_alloc_uc(unsigned char* arena_bottom, uintptr_t 
   return !(*uc_arr_ptr);
 }
 
-HEADER_INLINE BoolErr arena_end_alloc_ui(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, uint32_t** ui_arr_ptr) {
+HEADER_INLINE BoolErr arena_end_alloc_u32(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, uint32_t** ui_arr_ptr) {
   *ui_arr_ptr = S_CAST(uint32_t*, arena_end_alloc(arena_bottom, ct * sizeof(int32_t), arena_top_ptr));
   return !(*ui_arr_ptr);
 }
 
-HEADER_INLINE BoolErr arena_end_alloc_ul(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, uintptr_t** ul_arr_ptr) {
+HEADER_INLINE BoolErr arena_end_alloc_w(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, uintptr_t** ul_arr_ptr) {
   *ul_arr_ptr = S_CAST(uintptr_t*, arena_end_alloc(arena_bottom, ct * sizeof(intptr_t), arena_top_ptr));
   return !(*ul_arr_ptr);
 }
 
-HEADER_INLINE BoolErr arena_end_alloc_ll(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, int64_t** ll_arr_ptr) {
+HEADER_INLINE BoolErr arena_end_alloc_i64(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, int64_t** ll_arr_ptr) {
   *ll_arr_ptr = S_CAST(int64_t*, arena_end_alloc(arena_bottom, ct * sizeof(int64_t), arena_top_ptr));
   return !(*ll_arr_ptr);
 }
 
-HEADER_INLINE BoolErr arena_end_alloc_ull(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, uint64_t** ull_arr_ptr) {
+HEADER_INLINE BoolErr arena_end_alloc_u64(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, uint64_t** ull_arr_ptr) {
   *ull_arr_ptr = S_CAST(uint64_t*, arena_end_alloc(arena_bottom, ct * sizeof(int64_t), arena_top_ptr));
   return !(*ull_arr_ptr);
 }
@@ -1579,26 +1608,27 @@ HEADER_INLINE BoolErr MultistrToStrboxDedupAlloc(const char* multistr, char** so
 
 extern const uint16_t kDigitPair[];
 
-char* uint32toa(uint32_t uii, char* start);
+char* u32toa(uint32_t uii, char* start);
 
-char* int32toa(int32_t ii, char* start);
+char* i32toa(int32_t ii, char* start);
 
-char* uitoa_z5(uint32_t uii, char* start);
+char* u32toa_z5(uint32_t uii, char* start);
 
-char* int64toa(int64_t llii, char* start);
+char* i64toa(int64_t llii, char* start);
 
 #ifdef __LP64__
 // really just for printing line numbers
-HEADER_INLINE char* pintptrtoa(uintptr_t ulii, char* start) {
-  return int64toa(ulii, start);
+// must be less than 2^63
+HEADER_INLINE char* wtoa(uintptr_t ulii, char* start) {
+  return i64toa(ulii, start);
 }
 #else
-HEADER_INLINE char* pintptrtoa(uintptr_t ulii, char* start) {
-  return uint32toa(ulii, start);
+HEADER_INLINE char* wtoa(uintptr_t ulii, char* start) {
+  return u32toa(ulii, start);
 }
 #endif
 
-char* uitoa_trunc4(uint32_t uii, char* start);
+char* u32toa_trunc4(uint32_t uii, char* start);
 
 char* dtoa_g(double dxx, char* start);
 
@@ -1641,37 +1671,37 @@ char* dtoa_f_probp6_clipped(double dxx, char* start);
 
 char* ftoa_g(float fxx, char* start);
 
-HEADER_INLINE char* uint32toa_x(uint32_t uii, char extra_char, char* start) {
-  char* penult = uint32toa(uii, start);
+HEADER_INLINE char* u32toa_x(uint32_t uii, char extra_char, char* start) {
+  char* penult = u32toa(uii, start);
   *penult = extra_char;
   return &(penult[1]);
 }
 
 void DivisionMagicNums(uint32_t divisor, uint64_t* multp, uint32_t* __restrict pre_shiftp, uint32_t* __restrict post_shiftp, uint32_t* __restrict incrp);
 
-// ZeroUiArr, ZeroUlArr, ZeroU64Arr, SetAllUlArr currently defined in
+// ZeroU32Arr, ZeroWArr, ZeroU64Arr, SetAllWArr currently defined in
 // plink2_base.h
 
-HEADER_INLINE void ZeroVecArr(uintptr_t entry_ct, VecUL* vvec) {
+HEADER_INLINE void ZeroVecArr(uintptr_t entry_ct, VecW* vvec) {
   memset(vvec, 0, entry_ct * kBytesPerVec);
 }
 
 HEADER_INLINE void SetAllU64Arr(uintptr_t entry_ct, uint64_t* ullarr) {
   // bugfix (1 Feb 2018): forgot to multiply by 2 in 32-bit case
-  SetAllUlArr(entry_ct * (sizeof(int64_t) / kBytesPerWord), R_CAST(uintptr_t*, ullarr));
+  SetAllWArr(entry_ct * (sizeof(int64_t) / kBytesPerWord), R_CAST(uintptr_t*, ullarr));
 }
 
-HEADER_INLINE void ZeroIArr(uintptr_t entry_ct, int32_t* iarr) {
+HEADER_INLINE void ZeroI32Arr(uintptr_t entry_ct, int32_t* iarr) {
   memset(iarr, 0, entry_ct * sizeof(int32_t));
 }
 
-HEADER_INLINE void SetAllIArr(uintptr_t entry_ct, int32_t* iarr) {
+HEADER_INLINE void SetAllI32Arr(uintptr_t entry_ct, int32_t* iarr) {
   for (uintptr_t ulii = 0; ulii < entry_ct; ulii++) {
     *iarr++ = -1;
   }
 }
 
-HEADER_INLINE void SetAllUiArr(uintptr_t entry_ct, uint32_t* uiarr) {
+HEADER_INLINE void SetAllU32Arr(uintptr_t entry_ct, uint32_t* uiarr) {
   for (uintptr_t ulii = 0; ulii < entry_ct; ulii++) {
     *uiarr++ = ~0U;
   }
@@ -1761,28 +1791,28 @@ BoolErr bigstack_calloc_d(uintptr_t ct, double** d_arr_ptr);
 
 BoolErr bigstack_calloc_f(uintptr_t ct, float** f_arr_ptr);
 
-BoolErr bigstack_calloc_usi(uintptr_t ct, uint16_t** usi_arr_ptr);
+BoolErr bigstack_calloc_u16(uintptr_t ct, uint16_t** usi_arr_ptr);
 
-BoolErr bigstack_calloc_ui(uintptr_t ct, uint32_t** ui_arr_ptr);
+BoolErr bigstack_calloc_u32(uintptr_t ct, uint32_t** ui_arr_ptr);
 
-BoolErr bigstack_calloc_ul(uintptr_t ct, uintptr_t** ul_arr_ptr);
+BoolErr bigstack_calloc_w(uintptr_t ct, uintptr_t** ul_arr_ptr);
 
-BoolErr bigstack_calloc_ull(uintptr_t ct, uint64_t** ull_arr_ptr);
+BoolErr bigstack_calloc_u64(uintptr_t ct, uint64_t** ull_arr_ptr);
 
 HEADER_INLINE BoolErr bigstack_calloc_c(uintptr_t ct, char** c_arr_ptr) {
   return bigstack_calloc_uc(ct, R_CAST(unsigned char**, c_arr_ptr));
 }
 
-HEADER_INLINE BoolErr bigstack_calloc_si(uintptr_t ct, int16_t** si_arr_ptr) {
-  return bigstack_calloc_usi(ct, R_CAST(uint16_t**, si_arr_ptr));
+HEADER_INLINE BoolErr bigstack_calloc_i16(uintptr_t ct, int16_t** si_arr_ptr) {
+  return bigstack_calloc_u16(ct, R_CAST(uint16_t**, si_arr_ptr));
 }
 
-HEADER_INLINE BoolErr bigstack_calloc_i(uintptr_t ct, int32_t** i_arr_ptr) {
-  return bigstack_calloc_ui(ct, R_CAST(uint32_t**, i_arr_ptr));
+HEADER_INLINE BoolErr bigstack_calloc_i32(uintptr_t ct, int32_t** i_arr_ptr) {
+  return bigstack_calloc_u32(ct, R_CAST(uint32_t**, i_arr_ptr));
 }
 
-HEADER_INLINE BoolErr bigstack_calloc_ll(uintptr_t ct, int64_t** ll_arr_ptr) {
-  return bigstack_calloc_ull(ct, R_CAST(uint64_t**, ll_arr_ptr));
+HEADER_INLINE BoolErr bigstack_calloc_i64(uintptr_t ct, int64_t** ll_arr_ptr) {
+  return bigstack_calloc_u64(ct, R_CAST(uint64_t**, ll_arr_ptr));
 }
 
 BoolErr bigstack_end_calloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr);
@@ -1791,22 +1821,22 @@ BoolErr bigstack_end_calloc_d(uintptr_t ct, double** d_arr_ptr);
 
 BoolErr bigstack_end_calloc_f(uintptr_t ct, float** f_arr_ptr);
 
-BoolErr bigstack_end_calloc_ui(uintptr_t ct, uint32_t** ui_arr_ptr);
+BoolErr bigstack_end_calloc_u32(uintptr_t ct, uint32_t** ui_arr_ptr);
 
-BoolErr bigstack_end_calloc_ul(uintptr_t ct, uintptr_t** ul_arr_ptr);
+BoolErr bigstack_end_calloc_w(uintptr_t ct, uintptr_t** ul_arr_ptr);
 
-BoolErr bigstack_end_calloc_ull(uintptr_t ct, uint64_t** ull_arr_ptr);
+BoolErr bigstack_end_calloc_u64(uintptr_t ct, uint64_t** ull_arr_ptr);
 
 HEADER_INLINE BoolErr bigstack_end_calloc_c(uintptr_t ct, char** c_arr_ptr) {
   return bigstack_end_calloc_uc(ct, R_CAST(unsigned char**, c_arr_ptr));
 }
 
-HEADER_INLINE BoolErr bigstack_end_calloc_i(uintptr_t ct, int32_t** i_arr_ptr) {
-  return bigstack_end_calloc_ui(ct, R_CAST(uint32_t**, i_arr_ptr));
+HEADER_INLINE BoolErr bigstack_end_calloc_i32(uintptr_t ct, int32_t** i_arr_ptr) {
+  return bigstack_end_calloc_u32(ct, R_CAST(uint32_t**, i_arr_ptr));
 }
 
-HEADER_INLINE BoolErr bigstack_end_calloc_ll(uintptr_t ct, int64_t** ll_arr_ptr) {
-  return bigstack_end_calloc_ull(ct, R_CAST(uint64_t**, ll_arr_ptr));
+HEADER_INLINE BoolErr bigstack_end_calloc_i64(uintptr_t ct, int64_t** ll_arr_ptr) {
+  return bigstack_end_calloc_u64(ct, R_CAST(uint64_t**, ll_arr_ptr));
 }
 
 
@@ -1849,7 +1879,7 @@ int32_t GetVariantUidxWithoutHtable(const char* idstr, const char* const* varian
 // solved most of the initialization time issue, anyway)
 // eventually want this to be a constexpr?  seems painful to make that work,
 // though.
-uint32_t MurmurHash3Ui(const void* key, uint32_t len);
+uint32_t MurmurHash3U32(const void* key, uint32_t len);
 
 // see http://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction/
 // Note that this is a bit more vulnerable to adversarial input: modulo
@@ -1858,7 +1888,7 @@ uint32_t MurmurHash3Ui(const void* key, uint32_t len);
 // size.  But it doesn't really matter; either way, you'd need to add something
 // like a randomly generated salt if you care about defending.
 HEADER_INLINE uint32_t Hashceil(const char* idstr, uint32_t idlen, uint32_t htable_size) {
-  return (S_CAST(uint64_t, MurmurHash3Ui(idstr, idlen)) * htable_size) >> 32;
+  return (S_CAST(uint64_t, MurmurHash3U32(idstr, idlen)) * htable_size) >> 32;
 }
 
 // uintptr_t geqprime(uintptr_t floor);
@@ -2052,41 +2082,41 @@ HEADER_CINLINE uint32_t VcountScramble1(uint32_t orig_idx) {
 #endif
 
 HEADER_INLINE void VcountIncr1To4(const uintptr_t* acc1, uint32_t acc1_vec_ct, uintptr_t* acc4) {
-  const VecUL m1x4 = VCONST_UL(kMask1111);
-  const VecUL* acc1v_iter = R_CAST(const VecUL*, acc1);
-  VecUL* acc4v_iter = R_CAST(VecUL*, acc4);
+  const VecW m1x4 = VCONST_W(kMask1111);
+  const VecW* acc1v_iter = R_CAST(const VecW*, acc1);
+  VecW* acc4v_iter = R_CAST(VecW*, acc4);
   for (uint32_t vidx = 0; vidx < acc1_vec_ct; ++vidx) {
-    VecUL loader = *acc1v_iter++;
+    VecW loader = *acc1v_iter++;
     *acc4v_iter = (*acc4v_iter) + (loader & m1x4);
     ++acc4v_iter;
-    loader = vecul_srli(loader, 1);
+    loader = vecw_srli(loader, 1);
     *acc4v_iter = (*acc4v_iter) + (loader & m1x4);
     ++acc4v_iter;
-    loader = vecul_srli(loader, 1);
+    loader = vecw_srli(loader, 1);
     *acc4v_iter = (*acc4v_iter) + (loader & m1x4);
     ++acc4v_iter;
-    loader = vecul_srli(loader, 1);
+    loader = vecw_srli(loader, 1);
     *acc4v_iter = (*acc4v_iter) + (loader & m1x4);
     ++acc4v_iter;
   }
 }
 
 HEADER_INLINE void Vcount0Incr1To4(uint32_t acc1_vec_ct, uintptr_t* acc1, uintptr_t* acc4) {
-  const VecUL m1x4 = VCONST_UL(kMask1111);
-  VecUL* acc1v_iter = R_CAST(VecUL*, acc1);
-  VecUL* acc4v_iter = R_CAST(VecUL*, acc4);
+  const VecW m1x4 = VCONST_W(kMask1111);
+  VecW* acc1v_iter = R_CAST(VecW*, acc1);
+  VecW* acc4v_iter = R_CAST(VecW*, acc4);
   for (uint32_t vidx = 0; vidx < acc1_vec_ct; ++vidx) {
-    VecUL loader = *acc1v_iter;
-    *acc1v_iter++ = vecul_setzero();
+    VecW loader = *acc1v_iter;
+    *acc1v_iter++ = vecw_setzero();
     *acc4v_iter = (*acc4v_iter) + (loader & m1x4);
     ++acc4v_iter;
-    loader = vecul_srli(loader, 1);
+    loader = vecw_srli(loader, 1);
     *acc4v_iter = (*acc4v_iter) + (loader & m1x4);
     ++acc4v_iter;
-    loader = vecul_srli(loader, 1);
+    loader = vecw_srli(loader, 1);
     *acc4v_iter = (*acc4v_iter) + (loader & m1x4);
     ++acc4v_iter;
-    loader = vecul_srli(loader, 1);
+    loader = vecw_srli(loader, 1);
     *acc4v_iter = (*acc4v_iter) + (loader & m1x4);
     ++acc4v_iter;
   }
@@ -2095,70 +2125,70 @@ HEADER_INLINE void Vcount0Incr1To4(uint32_t acc1_vec_ct, uintptr_t* acc1, uintpt
 // er, should this just be the same function as unroll_incr_2_4 with extra
 // parameters?...
 HEADER_INLINE void VcountIncr4To8(const uintptr_t* acc4, uint32_t acc4_vec_ct, uintptr_t* acc8) {
-  const VecUL m4 = VCONST_UL(kMask0F0F);
-  const VecUL* acc4v_iter = R_CAST(const VecUL*, acc4);
-  VecUL* acc8v_iter = R_CAST(VecUL*, acc8);
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW* acc4v_iter = R_CAST(const VecW*, acc4);
+  VecW* acc8v_iter = R_CAST(VecW*, acc8);
   for (uint32_t vidx = 0; vidx < acc4_vec_ct; ++vidx) {
-    VecUL loader = *acc4v_iter++;
+    VecW loader = *acc4v_iter++;
     *acc8v_iter = (*acc8v_iter) + (loader & m4);
     ++acc8v_iter;
-    loader = vecul_srli(loader, 4);
+    loader = vecw_srli(loader, 4);
     *acc8v_iter = (*acc8v_iter) + (loader & m4);
     ++acc8v_iter;
   }
 }
 
 HEADER_INLINE void Vcount0Incr4To8(uint32_t acc4_vec_ct, uintptr_t* acc4, uintptr_t* acc8) {
-  const VecUL m4 = VCONST_UL(kMask0F0F);
-  VecUL* acc4v_iter = R_CAST(VecUL*, acc4);
-  VecUL* acc8v_iter = R_CAST(VecUL*, acc8);
+  const VecW m4 = VCONST_W(kMask0F0F);
+  VecW* acc4v_iter = R_CAST(VecW*, acc4);
+  VecW* acc8v_iter = R_CAST(VecW*, acc8);
   for (uint32_t vidx = 0; vidx < acc4_vec_ct; ++vidx) {
-    VecUL loader = *acc4v_iter;
-    *acc4v_iter++ = vecul_setzero();
+    VecW loader = *acc4v_iter;
+    *acc4v_iter++ = vecw_setzero();
     *acc8v_iter = (*acc8v_iter) + (loader & m4);
     ++acc8v_iter;
-    loader = vecul_srli(loader, 4);
+    loader = vecw_srli(loader, 4);
     *acc8v_iter = (*acc8v_iter) + (loader & m4);
     ++acc8v_iter;
   }
 }
 
 HEADER_INLINE void VcountIncr8To32(const uintptr_t* acc8, uint32_t acc8_vec_ct, uintptr_t* acc32) {
-  const VecUL m8x32 = VCONST_UL(kMask000000FF);
-  const VecUL* acc8v_iter = R_CAST(const VecUL*, acc8);
-  VecUL* acc32v_iter = R_CAST(VecUL*, acc32);
+  const VecW m8x32 = VCONST_W(kMask000000FF);
+  const VecW* acc8v_iter = R_CAST(const VecW*, acc8);
+  VecW* acc32v_iter = R_CAST(VecW*, acc32);
   for (uint32_t vidx = 0; vidx < acc8_vec_ct; ++vidx) {
-    VecUL loader = *acc8v_iter++;
+    VecW loader = *acc8v_iter++;
     *acc32v_iter = (*acc32v_iter) + (loader & m8x32);
     ++acc32v_iter;
-    loader = vecul_srli(loader, 8);
+    loader = vecw_srli(loader, 8);
     *acc32v_iter = (*acc32v_iter) + (loader & m8x32);
     ++acc32v_iter;
-    loader = vecul_srli(loader, 8);
+    loader = vecw_srli(loader, 8);
     *acc32v_iter = (*acc32v_iter) + (loader & m8x32);
     ++acc32v_iter;
-    loader = vecul_srli(loader, 8);
+    loader = vecw_srli(loader, 8);
     *acc32v_iter = (*acc32v_iter) + (loader & m8x32);
     ++acc32v_iter;
   }
 }
 
 HEADER_INLINE void Vcount0Incr8To32(uint32_t acc8_vec_ct, uintptr_t* acc8, uintptr_t* acc32) {
-  const VecUL m8x32 = VCONST_UL(kMask000000FF);
-  VecUL* acc8v_iter = R_CAST(VecUL*, acc8);
-  VecUL* acc32v_iter = R_CAST(VecUL*, acc32);
+  const VecW m8x32 = VCONST_W(kMask000000FF);
+  VecW* acc8v_iter = R_CAST(VecW*, acc8);
+  VecW* acc32v_iter = R_CAST(VecW*, acc32);
   for (uint32_t vidx = 0; vidx < acc8_vec_ct; ++vidx) {
-    VecUL loader = *acc8v_iter;
-    *acc8v_iter++ = vecul_setzero();
+    VecW loader = *acc8v_iter;
+    *acc8v_iter++ = vecw_setzero();
     *acc32v_iter = (*acc32v_iter) + (loader & m8x32);
     ++acc32v_iter;
-    loader = vecul_srli(loader, 8);
+    loader = vecw_srli(loader, 8);
     *acc32v_iter = (*acc32v_iter) + (loader & m8x32);
     ++acc32v_iter;
-    loader = vecul_srli(loader, 8);
+    loader = vecw_srli(loader, 8);
     *acc32v_iter = (*acc32v_iter) + (loader & m8x32);
     ++acc32v_iter;
-    loader = vecul_srli(loader, 8);
+    loader = vecw_srli(loader, 8);
     *acc32v_iter = (*acc32v_iter) + (loader & m8x32);
     ++acc32v_iter;
   }
@@ -2440,13 +2470,8 @@ HEADER_INLINE uintptr_t WordHasZero(uintptr_t ulii) {
 // includes a tweak which trades off a bit of performance around length 35 for
 // substantially better performance on the longer lines often seen in e.g. VCF
 // files, hence the _far suffix.)
+#ifdef __LP64__
 CXXCONST_CP memrchr_expected_far(const char* str_start, char needle, uintptr_t slen);
-
-#ifdef __cplusplus
-HEADER_INLINE char* memrchr_expected_far(char* str_start, char needle, uintptr_t slen) {
-  return const_cast<char*>(memrchr_expected_far(const_cast<const char*>(str_start), needle, slen));
-}
-#endif
 
 HEADER_INLINE CXXCONST_CP memrchr_maybe_short(const char* str_start, char needle, uintptr_t slen) {
   // For very short strings (<= 10 chars or so), the basic loop tends to be
@@ -2463,8 +2488,32 @@ HEADER_INLINE CXXCONST_CP memrchr_maybe_short(const char* str_start, char needle
   }
   return nullptr;
 }
+#else  // !__LP64__
+HEADER_INLINE CXXCONST_CP memrchr_expected_far(const char* str_start, char needle, uintptr_t slen) {
+#  ifdef _GNU_SOURCE
+  return S_CAST(CXXCONST_CP, memrchr(str_start, ctou32(needle), slen));
+#  else  // !_GNU_SOURCE
+  // Could check one word at a time for not-that-small slen.
+  for (uintptr_t pos = slen; pos; ) {
+    if (str_start[--pos] == needle) {
+      return S_CAST(CXXCONST_CP, &(str_start[pos]));
+    }
+  }
+  return nullptr;
+#  endif  // !_GNU_SOURCE
+}
+
+HEADER_INLINE CXXCONST_CP memrchr_maybe_short(const char* str_start, char needle, uintptr_t slen) {
+  return memrchr_expected_far(str_start, needle, slen);
+}
+
+#endif  // !__LP64__
 
 #ifdef __cplusplus
+HEADER_INLINE char* memrchr_expected_far(char* str_start, char needle, uintptr_t slen) {
+  return const_cast<char*>(memrchr_expected_far(const_cast<const char*>(str_start), needle, slen));
+}
+
 HEADER_INLINE char* memrchr_maybe_short(char* str_start, char needle, uintptr_t slen) {
   return const_cast<char*>(memrchr_maybe_short(const_cast<const char*>(str_start), needle, slen));
 }

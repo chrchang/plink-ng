@@ -120,8 +120,8 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
       if (relevant_postfid_col_ct > pheno_ct_max + 5) {
         relevant_postfid_col_ct = pheno_ct_max + 5;
       }
-      if (bigstack_alloc_ui(relevant_postfid_col_ct, &col_skips) ||
-          bigstack_alloc_ui(relevant_postfid_col_ct, &col_types)) {
+      if (bigstack_alloc_u32(relevant_postfid_col_ct, &col_skips) ||
+          bigstack_alloc_u32(relevant_postfid_col_ct, &col_types)) {
         goto LoadPsam_ret_NOMEM;
       }
       bigstack_mark2 = g_bigstack_base;
@@ -145,8 +145,8 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
         uintptr_t* dummy_bitarr;
         // don't bother freeing these before LoadPsam() is done
         if (bigstack_alloc_c(cmdline_pheno_name_ct * max_cmdline_pheno_id_blen, &cmdline_pheno_sorted_ids) ||
-            bigstack_alloc_ui(cmdline_pheno_name_ct, &cmdline_pheno_id_map) ||
-            bigstack_alloc_ul(BitCtToWordCt(cmdline_pheno_name_ct), &dummy_bitarr)) {
+            bigstack_alloc_u32(cmdline_pheno_name_ct, &cmdline_pheno_id_map) ||
+            bigstack_alloc_w(BitCtToWordCt(cmdline_pheno_name_ct), &dummy_bitarr)) {
           goto LoadPsam_ret_NOMEM;
         }
         SetAllBits(cmdline_pheno_name_ct, dummy_bitarr);
@@ -189,7 +189,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
               char* write_iter = strcpya(g_logbuf, "Error: Duplicate column header '");
               write_iter = memcpyl3a(write_iter, loadbuf_iter);
               write_iter = strcpya(write_iter, "' on line ");
-              write_iter = pintptrtoa(line_idx, write_iter);
+              write_iter = wtoa(line_idx, write_iter);
               write_iter = strcpya(write_iter, " of ");
               write_iter = strcpya(write_iter, psamname);
               memcpyl3(write_iter, ".\n");
@@ -360,9 +360,9 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     uintptr_t* categorical_phenos;
     uintptr_t* quantitative_phenos;
     if (bigstack_alloc_kcp(col_type_end, &token_ptrs) ||
-        bigstack_alloc_ui(col_type_end, &token_slens) ||
-        bigstack_calloc_ul(pheno_ctl, &categorical_phenos) ||
-        bigstack_calloc_ul(pheno_ctl, &quantitative_phenos)) {
+        bigstack_alloc_u32(col_type_end, &token_slens) ||
+        bigstack_calloc_w(pheno_ctl, &categorical_phenos) ||
+        bigstack_calloc_w(pheno_ctl, &quantitative_phenos)) {
       goto LoadPsam_ret_NOMEM;
     }
     const char* missing_catname = g_missing_catname;
@@ -425,7 +425,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
             tmp_bigstack_base += cat_ul_byte_ct;
             total_catname_blens = R_CAST(uintptr_t*, tmp_bigstack_base);
             tmp_bigstack_base += cat_ul_byte_ct;
-            ZeroUlArr(categorical_pheno_ct, total_catname_blens);
+            ZeroWArr(categorical_pheno_ct, total_catname_blens);
             catname_htable = R_CAST(CatnameLl2**, tmp_bigstack_base);
             tmp_bigstack_base += htable_byte_ct;
             for (uint32_t uii = 0; uii < kCatHtableSize; ++uii) {
@@ -661,7 +661,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
           goto LoadPsam_ret_NOMEM;
         }
         pheno_cols_iter->nonmiss = new_pheno_data_iter;
-        ZeroUlArr(nonmiss_vec_ct * kWordsPerVec, new_pheno_data_iter);
+        ZeroWArr(nonmiss_vec_ct * kWordsPerVec, new_pheno_data_iter);
         new_pheno_data_iter = &(new_pheno_data_iter[nonmiss_vec_ct * kWordsPerVec]);
         if (is_categorical) {
           pheno_cols_iter->data.cat = R_CAST(uint32_t*, new_pheno_data_iter);
@@ -687,7 +687,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
           ++cat_pheno_idx;
         } else if (!is_qt) {
           pheno_cols_iter->data.cc = new_pheno_data_iter;
-          ZeroUlArr(nonmiss_vec_ct * kWordsPerVec, new_pheno_data_iter);
+          ZeroWArr(nonmiss_vec_ct * kWordsPerVec, new_pheno_data_iter);
         } else {
           pheno_cols_iter->data.qt = R_CAST(double*, new_pheno_data_iter);
         }
@@ -701,10 +701,10 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     if (bigstack_end_alloc_c(raw_sample_ct * max_sample_id_blen, &(piip->sii.sample_ids)) ||
         bigstack_end_alloc_c(raw_sample_ct * max_paternal_id_blen, &(piip->parental_id_info.paternal_ids)) ||
         bigstack_end_alloc_c(raw_sample_ct * max_maternal_id_blen, &(piip->parental_id_info.maternal_ids)) ||
-        bigstack_end_alloc_ul(raw_sample_ctl, sample_include_ptr) ||
-        bigstack_end_calloc_ul(aligned_wct, founder_info_ptr) ||
-        bigstack_end_calloc_ul(aligned_wct, sex_nm_ptr) ||
-        bigstack_end_calloc_ul(aligned_wct, sex_male_ptr)) {
+        bigstack_end_alloc_w(raw_sample_ctl, sample_include_ptr) ||
+        bigstack_end_calloc_w(aligned_wct, founder_info_ptr) ||
+        bigstack_end_calloc_w(aligned_wct, sex_nm_ptr) ||
+        bigstack_end_calloc_w(aligned_wct, sex_male_ptr)) {
       goto LoadPsam_ret_NOMEM;
     }
     if (sids_present) {
@@ -959,7 +959,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         uintptr_t* bitarr;
         if (numeric_ranges) {
           const uint32_t leading_col_ct = GetXidColCt(xid_mode);
-          if (bigstack_calloc_ul(BitCtToWordCt(pheno_col_ct), &bitarr)) {
+          if (bigstack_calloc_w(BitCtToWordCt(pheno_col_ct), &bitarr)) {
             goto LoadPhenos_ret_NOMEM;
           }
           if (NumericRangeListToBitarr(pheno_range_list_ptr, pheno_col_ct, leading_col_ct + 1, 0, bitarr)) {
@@ -975,7 +975,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
           }
         }
         new_pheno_ct = PopcountWords(bitarr, BitCtToWordCt(pheno_col_ct));
-        if (bigstack_alloc_ui(new_pheno_ct, &col_skips)) {
+        if (bigstack_alloc_u32(new_pheno_ct, &col_skips)) {
           goto LoadPhenos_ret_NOMEM;
         }
         uint32_t col_uidx = 0;
@@ -988,7 +988,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
       } else {
         // usual case, load all phenotypes
         new_pheno_ct = pheno_col_ct;
-        if (bigstack_alloc_ui(new_pheno_ct, &col_skips)) {
+        if (bigstack_alloc_u32(new_pheno_ct, &col_skips)) {
           goto LoadPhenos_ret_NOMEM;
         }
         for (uint32_t col_idx = 0; col_idx < pheno_col_ct; ++col_idx) {
@@ -1038,7 +1038,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         }
         const uint32_t bitarr_size = col_ct - 2;
         uintptr_t* bitarr;
-        if (bigstack_calloc_ul(BitCtToWordCt(bitarr_size), &bitarr)) {
+        if (bigstack_calloc_w(BitCtToWordCt(bitarr_size), &bitarr)) {
           goto LoadPhenos_ret_NOMEM;
         }
         if (NumericRangeListToBitarr(pheno_range_list_ptr, bitarr_size, 3, 0, bitarr)) {
@@ -1047,7 +1047,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         }
         // this boilerplate may belong in its own function
         new_pheno_ct = PopcountWords(bitarr, BitCtToWordCt(col_ct));
-        if (bigstack_alloc_ui(new_pheno_ct, &col_skips)) {
+        if (bigstack_alloc_u32(new_pheno_ct, &col_skips)) {
           goto LoadPhenos_ret_NOMEM;
         }
         uint32_t col_uidx = 0;
@@ -1059,7 +1059,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         }
       } else {
         new_pheno_ct = col_ct - 2;
-        if (bigstack_alloc_ui(new_pheno_ct, &col_skips)) {
+        if (bigstack_alloc_u32(new_pheno_ct, &col_skips)) {
           goto LoadPhenos_ret_NOMEM;
         }
         for (uint32_t col_idx = 0; col_idx < new_pheno_ct; ++col_idx) {
@@ -1080,7 +1080,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
       for (uint32_t pheno_idx = old_pheno_ct; pheno_idx < final_pheno_ct;) {
         char* write_iter = memcpya(&(pheno_names[pheno_idx * max_pheno_name_blen]), default_prefix, 5);
         ++pheno_idx;  // 1-based default names, not 0-based
-        write_iter = uint32toa(pheno_idx, write_iter);
+        write_iter = u32toa(pheno_idx, write_iter);
         *write_iter = '\0';
       }
     }
@@ -1124,7 +1124,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
     char* id_buf;
     uintptr_t* already_seen;
     if (bigstack_alloc_c(max_sample_id_blen, &id_buf) ||
-        bigstack_calloc_ul(raw_sample_ctl, &already_seen)) {
+        bigstack_calloc_w(raw_sample_ctl, &already_seen)) {
       goto LoadPhenos_ret_NOMEM;
     }
 
@@ -1142,9 +1142,9 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
     uintptr_t* categorical_phenos;
     uintptr_t* quantitative_phenos;
     if (bigstack_alloc_kcp(new_pheno_ct, &token_ptrs) ||
-        bigstack_alloc_ui(new_pheno_ct, &token_slens) ||
-        bigstack_calloc_ul(new_pheno_ctl, &categorical_phenos) ||
-        bigstack_calloc_ul(new_pheno_ctl, &quantitative_phenos)) {
+        bigstack_alloc_u32(new_pheno_ct, &token_slens) ||
+        bigstack_calloc_w(new_pheno_ctl, &categorical_phenos) ||
+        bigstack_calloc_w(new_pheno_ctl, &quantitative_phenos)) {
       goto LoadPhenos_ret_NOMEM;
     }
     const char* missing_catname = g_missing_catname;
@@ -1212,7 +1212,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
               total_catname_blens = R_CAST(uintptr_t*, tmp_bigstack_end);
               tmp_bigstack_end -= cat_ul_byte_ct;
               pheno_catname_last = R_CAST(CatnameLl2**, tmp_bigstack_end);
-              ZeroUlArr(categorical_pheno_ct, total_catname_blens);
+              ZeroWArr(categorical_pheno_ct, total_catname_blens);
               tmp_bigstack_end -= htable_byte_ct;
               catname_htable = R_CAST(CatnameLl2**, tmp_bigstack_end);
               ZeroPtrArr(kCatHtableSize, catname_htable);
@@ -1375,11 +1375,11 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
           goto LoadPhenos_ret_NOMEM;
         }
         pheno_cols_iter->nonmiss = new_pheno_data_iter;
-        ZeroUlArr(nonmiss_vec_ct * kWordsPerVec, new_pheno_data_iter);
+        ZeroWArr(nonmiss_vec_ct * kWordsPerVec, new_pheno_data_iter);
         new_pheno_data_iter = &(new_pheno_data_iter[nonmiss_vec_ct * kWordsPerVec]);
         if (is_categorical) {
           // allow nonmiss[] to be ignored in categorical case
-          ZeroUlArr(data_vec_ct, new_pheno_data_iter);
+          ZeroWArr(data_vec_ct, new_pheno_data_iter);
           pheno_cols_iter->data.cat = R_CAST(uint32_t*, new_pheno_data_iter);
           new_pheno_data_iter = &(new_pheno_data_iter[data_vec_ct * kWordsPerVec]);
           const char** cur_name_ptrs = R_CAST(const char**, new_pheno_data_iter);
@@ -1403,7 +1403,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
           ++cat_pheno_idx;
         } else if (!is_qt) {
           pheno_cols_iter->data.cc = new_pheno_data_iter;
-          ZeroUlArr(nonmiss_vec_ct * kWordsPerVec, new_pheno_data_iter);
+          ZeroWArr(nonmiss_vec_ct * kWordsPerVec, new_pheno_data_iter);
         } else {
           pheno_cols_iter->data.qt = R_CAST(double*, new_pheno_data_iter);
         }

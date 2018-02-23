@@ -85,7 +85,7 @@ PglErr FromToFlag(const char* const* variant_ids, const uint32_t* variant_id_hta
     if (variant_uidx_end < raw_variant_ct) {
       ClearBitsNz(variant_uidx_end, raw_variant_ct, variant_include);
     }
-    ZeroUlArr(kChrMaskWords, cip->chr_mask);
+    ZeroWArr(kChrMaskWords, cip->chr_mask);
     SetBit(cip->chr_file_order[chr_fo_idx], cip->chr_mask);
     const uint32_t new_variant_ct = PopcountBitRange(variant_include, variant_uidx_start, variant_uidx_end);
     logprintf("--from/--to: %u variant%s remaining.\n", new_variant_ct, (new_variant_ct == 1)? "" : "s");
@@ -125,7 +125,7 @@ PglErr SnpFlag(const uint32_t* variant_bps, const char* const* variant_ids, cons
       // not actually necessary in --exclude-snp case, but this is still fast
       // enough relative to hash table construction that there's no point in
       // complicating the code further to conditionally optimize this out
-      if (bigstack_calloc_ul(raw_variant_ctl, &seen_uidxs)) {
+      if (bigstack_calloc_w(raw_variant_ctl, &seen_uidxs)) {
         goto SnpFlag_ret_NOMEM;
       }
       while (1) {
@@ -152,10 +152,10 @@ PglErr SnpFlag(const uint32_t* variant_bps, const char* const* variant_ids, cons
       const uint32_t window_bp_u = window_bp;
       uint32_t vidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
       if (center_bp > window_bp_u) {
-        vidx_start += CountSortedSmallerUi(&(variant_bps[vidx_start]), chr_vidx_end - vidx_start, center_bp - window_bp_u);
+        vidx_start += CountSortedSmallerU32(&(variant_bps[vidx_start]), chr_vidx_end - vidx_start, center_bp - window_bp_u);
       }
       const uint32_t bp_end = 1 + center_bp + window_bp_u;
-      const uint32_t vidx_end = vidx_start + CountSortedSmallerUi(&(variant_bps[vidx_start]), chr_vidx_end - vidx_start, bp_end);
+      const uint32_t vidx_end = vidx_start + CountSortedSmallerU32(&(variant_bps[vidx_start]), chr_vidx_end - vidx_start, bp_end);
       if (do_exclude) {
         ClearBitsNz(vidx_start, vidx_end, variant_include);
       } else {
@@ -165,7 +165,7 @@ PglErr SnpFlag(const uint32_t* variant_bps, const char* const* variant_ids, cons
         if (vidx_end < raw_variant_ct) {
           ClearBitsNz(vidx_end, raw_variant_ct, variant_include);
         }
-        ZeroUlArr(kChrMaskWords, cip->chr_mask);
+        ZeroWArr(kChrMaskWords, cip->chr_mask);
         SetBit(cip->chr_file_order[chr_fo_idx], cip->chr_mask);
       }
     }
@@ -202,7 +202,7 @@ PglErr SnpsFlag(const char* const* variant_ids, const uint32_t* variant_id_htabl
     const uintptr_t varid_max_blen = snps_range_list_ptr->name_max_blen;
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     uintptr_t* seen_uidxs;
-    if (bigstack_calloc_ul(raw_variant_ctl, &seen_uidxs)) {
+    if (bigstack_calloc_w(raw_variant_ctl, &seen_uidxs)) {
       goto SnpsFlag_ret_NOMEM;
     }
     uint32_t range_start_vidx = UINT32_MAX;
@@ -301,7 +301,7 @@ PglErr ExtractExcludeFlagNorange(const char* const* variant_ids, const uint32_t*
     // possible todo: multithreaded read/htable lookup
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     uintptr_t* already_seen;
-    if (bigstack_calloc_ul(raw_variant_ctl, &already_seen)) {
+    if (bigstack_calloc_w(raw_variant_ctl, &already_seen)) {
       goto ExtractExcludeFlagNorange_ret_NOMEM;
     }
     const uint32_t* htable_dup_base = &(variant_id_htable[RoundUpPow2(variant_id_htable_size, kInt32PerCacheline)]);
@@ -399,8 +399,8 @@ PglErr RandomThinCt(const char* flagname_p, const char* unitname, uint32_t thin_
     const uint32_t raw_item_ctl = BitCtToWordCt(raw_item_ct);
     uintptr_t* perm_buf;
     uintptr_t* new_item_include;
-    if (bigstack_alloc_ul(BitCtToWordCt(orig_item_ct), &perm_buf) ||
-        bigstack_alloc_ul(raw_item_ctl, &new_item_include)) {
+    if (bigstack_alloc_w(BitCtToWordCt(orig_item_ct), &perm_buf) ||
+        bigstack_alloc_w(raw_item_ctl, &new_item_include)) {
       goto RandomThinCt_ret_NOMEM;
     }
     // no actual interleaving here, but may as well use this function
@@ -436,7 +436,7 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
     }
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     uintptr_t* seen_uidxs;
-    if (bigstack_calloc_ul(raw_sample_ctl, &seen_uidxs)) {
+    if (bigstack_calloc_w(raw_sample_ctl, &seen_uidxs)) {
       goto KeepOrRemove_ret_NOMEM;
     }
     uintptr_t loadbuf_size = bigstack_left();
@@ -460,7 +460,7 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
     uintptr_t max_xid_blen = max_sample_id_blen - 1;
     if (families_only) {
       // only need to do this once
-      if (bigstack_alloc_ui(orig_sample_ct, &xid_map) ||
+      if (bigstack_alloc_u32(orig_sample_ct, &xid_map) ||
           bigstack_alloc_c(orig_sample_ct * max_xid_blen, &sorted_xidbox)) {
         goto KeepOrRemove_ret_NOMEM;
       }
@@ -640,8 +640,8 @@ PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_fl
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     uintptr_t* seen_xid_idxs;
     uintptr_t* keep_uidxs;
-    if (bigstack_calloc_ul(BitCtToWordCt(orig_sample_ct), &seen_xid_idxs) ||
-        bigstack_calloc_ul(raw_sample_ctl, &keep_uidxs)) {
+    if (bigstack_calloc_w(BitCtToWordCt(orig_sample_ct), &seen_xid_idxs) ||
+        bigstack_calloc_w(raw_sample_ctl, &keep_uidxs)) {
       goto KeepFcol_ret_NOMEM;
     }
 
@@ -835,7 +835,7 @@ PglErr RequirePheno(const PhenoCol* pheno_cols, const char* pheno_names, const c
       if (MultistrToStrboxDedupAlloc(require_pheno_flattened, &sorted_required_pheno_names, &required_pheno_ct, &max_required_pheno_blen)) {
         goto RequirePheno_ret_NOMEM;
       }
-      if (bigstack_calloc_ul(1 + (required_pheno_ct / kBitsPerWord), &matched_phenos)) {
+      if (bigstack_calloc_w(1 + (required_pheno_ct / kBitsPerWord), &matched_phenos)) {
         goto RequirePheno_ret_NOMEM;
       }
     } else {
@@ -925,7 +925,7 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
       BitvecAnd(pheno_nm, raw_sample_ctl, sample_include);
     }
     uintptr_t* sample_include_intersect;
-    if (bigstack_alloc_ul(raw_sample_ctl, &sample_include_intersect)) {
+    if (bigstack_alloc_w(raw_sample_ctl, &sample_include_intersect)) {
       goto KeepRemoveIf_ret_NOMEM;
     }
     memcpy(sample_include_intersect, sample_include, raw_sample_ctl * sizeof(intptr_t));
@@ -1045,7 +1045,7 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
           // to exist
           logerrprintfww("Warning: Categorical phenotype/covariate '%s' does not have a category named '%s'.\n", cur_name, cur_val_str);
           if (pheno_must_exist) {
-            ZeroUlArr(raw_sample_ctl, sample_include);
+            ZeroWArr(raw_sample_ctl, sample_include);
           }
         } else {
           const uint32_t* cur_cats = cur_pheno_col->data.cat;
@@ -1105,8 +1105,8 @@ PglErr KeepRemoveCatsInternal(const PhenoCol* cur_pheno_col, const char* cats_fn
     const uint32_t cat_ctl = BitCtToWordCt(cat_ct);
     uintptr_t* affected_samples;
     uintptr_t* cat_include;
-    if (bigstack_calloc_ul(raw_sample_ctl, &affected_samples) ||
-        bigstack_alloc_ul(cat_ctl, &cat_include)) {
+    if (bigstack_calloc_w(raw_sample_ctl, &affected_samples) ||
+        bigstack_alloc_w(cat_ctl, &cat_include)) {
       goto KeepRemoveCatsInternal_ret_NOMEM;
     }
     SetAllBits(cat_ct, cat_include);
@@ -1117,7 +1117,7 @@ PglErr KeepRemoveCatsInternal(const PhenoCol* cur_pheno_col, const char* cats_fn
     if (reterr) {
       goto KeepRemoveCatsInternal_ret_1;
     }
-    ZeroUlArr(cat_ctl, cat_include);
+    ZeroWArr(cat_ctl, cat_include);
     if (cats_fname) {
       reterr = InitGzTokenStream(cats_fname, &gts, g_textbuf);
       if (reterr) {
@@ -1444,10 +1444,10 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
     uint32_t* loaded_to_internal_allele_idx;
     uintptr_t* already_seen;
     if (bigstack_calloc_d(kMaxReadFreqAlleles, &cur_allele_freqs) ||
-        bigstack_alloc_ul(BitCtToWordCt(kMaxReadFreqAlleles), &matched_loaded_alleles) ||
-        bigstack_alloc_ul(BitCtToWordCt(max_alt_allele_ct + 1), &matched_internal_alleles) ||
-        bigstack_alloc_ui(kMaxReadFreqAlleles, &loaded_to_internal_allele_idx) ||
-        bigstack_calloc_ul(BitCtToWordCt(raw_variant_ct), &already_seen)) {
+        bigstack_alloc_w(BitCtToWordCt(kMaxReadFreqAlleles), &matched_loaded_alleles) ||
+        bigstack_alloc_w(BitCtToWordCt(max_alt_allele_ct + 1), &matched_internal_alleles) ||
+        bigstack_alloc_u32(kMaxReadFreqAlleles, &loaded_to_internal_allele_idx) ||
+        bigstack_calloc_w(BitCtToWordCt(raw_variant_ct), &already_seen)) {
       goto ReadAlleleFreqs_ret_NOMEM;
     }
     reterr = gzopen_read_checked(read_freq_fname, &gz_infile);
@@ -1938,7 +1938,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
             goto ReadAlleleFreqs_skip_variant;
           }
         }
-        ZeroUlArr(BitCtToWordCt(cur_allele_ct), matched_internal_alleles);
+        ZeroWArr(BitCtToWordCt(cur_allele_ct), matched_internal_alleles);
         const char* const* cur_alleles = &(allele_storage[variant_allele_idx_base]);
         uint32_t loaded_allele_ct = 0;
         if (header_cols & kfReadFreqColsetRefAllele) {
@@ -2535,7 +2535,7 @@ THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* arg) {
   uintptr_t* missing_hc_acc4 = &(missing_hc_acc1[acc1_vec_ct * kWordsPerVec]);
   uintptr_t* missing_hc_acc8 = &(missing_hc_acc4[acc4_vec_ct * kWordsPerVec]);
   uintptr_t* missing_hc_acc32 = &(missing_hc_acc8[acc8_vec_ct * kWordsPerVec]);
-  ZeroUlArr(acc1_vec_ct * kWordsPerVec * 45, missing_hc_acc1);
+  ZeroWArr(acc1_vec_ct * kWordsPerVec * 45, missing_hc_acc1);
   uintptr_t* missing_dosage_acc1 = nullptr;
   uintptr_t* missing_dosage_acc4 = nullptr;
   uintptr_t* missing_dosage_acc8 = nullptr;
@@ -2545,7 +2545,7 @@ THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* arg) {
     missing_dosage_acc4 = &(missing_dosage_acc1[acc1_vec_ct * kWordsPerVec]);
     missing_dosage_acc8 = &(missing_dosage_acc4[acc4_vec_ct * kWordsPerVec]);
     missing_dosage_acc32 = &(missing_dosage_acc8[acc8_vec_ct * kWordsPerVec]);
-    ZeroUlArr(acc1_vec_ct * kWordsPerVec * 45, missing_dosage_acc1);
+    ZeroWArr(acc1_vec_ct * kWordsPerVec * 45, missing_dosage_acc1);
   }
   // could make this optional
   // (could technically make missing_hc optional too...)
@@ -2553,7 +2553,7 @@ THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* arg) {
   uintptr_t* hethap_acc4 = &(hethap_acc1[acc1_vec_ct * kWordsPerVec]);
   uintptr_t* hethap_acc8 = &(hethap_acc4[acc4_vec_ct * kWordsPerVec]);
   uintptr_t* hethap_acc32 = &(hethap_acc8[acc8_vec_ct * kWordsPerVec]);
-  ZeroUlArr(acc1_vec_ct * kWordsPerVec * 45, hethap_acc1);
+  ZeroWArr(acc1_vec_ct * kWordsPerVec * 45, hethap_acc1);
   uint32_t all_ct_rem15 = 15;
   uint32_t all_ct_rem255d15 = 17;
   uint32_t hap_ct_rem15 = 15;
@@ -2655,11 +2655,11 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
   PglErr reterr = kPglRetSuccess;
   {
     if (!variant_ct) {
-      ZeroUiArr(raw_sample_ct, sample_missing_hc_cts);
+      ZeroU32Arr(raw_sample_ct, sample_missing_hc_cts);
       if (sample_missing_dosage_cts) {
-        ZeroUiArr(raw_sample_ct, sample_missing_dosage_cts);
+        ZeroU32Arr(raw_sample_ct, sample_missing_dosage_cts);
       }
-      ZeroUiArr(raw_sample_ct, sample_hethap_cts);
+      ZeroU32Arr(raw_sample_ct, sample_hethap_cts);
       goto LoadSampleMissingCts_ret_1;
     }
     // this doesn't seem to saturate below 35 threads
@@ -2670,13 +2670,13 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
     uintptr_t thread_alloc_cacheline_ct = 2 * acc1_alloc_cacheline_ct;
     g_missing_dosage_acc1 = nullptr;
     if (sample_missing_dosage_cts) {
-      if (bigstack_alloc_ulp(calc_thread_ct, &g_missing_dosage_acc1)) {
+      if (bigstack_alloc_wp(calc_thread_ct, &g_missing_dosage_acc1)) {
         goto LoadSampleMissingCts_ret_NOMEM;
       }
       thread_alloc_cacheline_ct += acc1_alloc_cacheline_ct;
     }
-    if (bigstack_alloc_ulp(calc_thread_ct, &g_missing_hc_acc1) ||
-        bigstack_alloc_ulp(calc_thread_ct, &g_hethap_acc1)) {
+    if (bigstack_alloc_wp(calc_thread_ct, &g_missing_hc_acc1) ||
+        bigstack_alloc_wp(calc_thread_ct, &g_hethap_acc1)) {
       goto LoadSampleMissingCts_ret_NOMEM;
     }
     unsigned char* main_loadbufs[2];
@@ -2855,7 +2855,7 @@ PglErr MindFilter(const uint32_t* sample_missing_cts, const uint32_t* sample_het
     max_missing_cts[0] = S_CAST(int32_t, u31tod(variant_ct - variant_ct_y) * mind_thresh);
     max_missing_cts[1] = S_CAST(int32_t, u31tod(variant_ct) * mind_thresh);
     uintptr_t* newly_excluded;
-    if (bigstack_calloc_ul(raw_sample_ctl, &newly_excluded)) {
+    if (bigstack_calloc_w(raw_sample_ctl, &newly_excluded)) {
       goto MindFilter_ret_NOMEM;
     }
     uint32_t sample_uidx = 0;
@@ -3213,7 +3213,7 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
   {
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     uintptr_t* already_seen;
-    if (bigstack_calloc_ul(raw_variant_ctl, &already_seen)) {
+    if (bigstack_calloc_w(raw_variant_ctl, &already_seen)) {
       goto SetRefalt1FromFile_ret_NOMEM;
     }
     loadbuf_size = bigstack_left() / 4;
@@ -3547,7 +3547,7 @@ PglErr RefFromFaProcessContig(const uintptr_t* variant_include, const uint32_t* 
       WordWrapB(0);
       logerrputsb();
     }
-    uint32_t offset = CountSortedSmallerUi(&(variant_bps[variant_uidx]), variant_uidx_last - variant_uidx, bp_end);
+    uint32_t offset = CountSortedSmallerU32(&(variant_bps[variant_uidx]), variant_uidx_last - variant_uidx, bp_end);
 
     const uint32_t chr_vidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
     // set all bits in [variant_uidx + offset, chr_vidx_end), and count how
@@ -3623,7 +3623,7 @@ PglErr RefFromFaProcessContig(const uintptr_t* variant_include, const uint32_t* 
           char* write_iter = strcpya(g_logbuf, "Error: --ref-from-fa wants to change reference allele assignment at ");
           write_iter = chrtoa(cip, chr_idx, write_iter);
           *write_iter++ = ':';
-          write_iter = uint32toa(cur_bp, write_iter);
+          write_iter = u32toa(cur_bp, write_iter);
           snprintf(write_iter, kLogbufSize - kMaxIdSlen - 128, ", but it's marked as 'known'. Add the 'force' modifier to force this change through.\n");
           WordWrapB(0);
           logerrputsb();
@@ -3643,7 +3643,7 @@ PglErr RefFromFaProcessContig(const uintptr_t* variant_include, const uint32_t* 
         char* write_iter = strcpya(g_logbuf, "Error: Reference allele at ");
         write_iter = chrtoa(cip, chr_idx, write_iter);
         *write_iter++ = ':';
-        write_iter = uint32toa(cur_bp, write_iter);
+        write_iter = u32toa(cur_bp, write_iter);
         snprintf(write_iter, kLogbufSize - kMaxIdSlen - 64, " is marked as 'known', but is inconsistent with .fa file. Add the 'force' modifier to downgrade it to provisional.\n");
         WordWrapB(0);
         logerrputsb();
@@ -3674,7 +3674,7 @@ PglErr RefFromFa(const uintptr_t* variant_include, const uint32_t* variant_bps, 
     const uint32_t chr_ct = cip->chr_ct;
     char* chr_name_buf;
     uintptr_t* chr_already_seen;
-    if (bigstack_calloc_ul(BitCtToWordCt(chr_ct), &chr_already_seen) ||
+    if (bigstack_calloc_w(BitCtToWordCt(chr_ct), &chr_already_seen) ||
         bigstack_alloc_c(kMaxIdBlen, &chr_name_buf)) {
       goto RefFromFa_ret_NOMEM;
     }

@@ -102,7 +102,7 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
         if (variant_bps) {
           memcpy(ll_tmp->str, last_token, set_id_blen);
         } else {
-          uitoa_z5(cur_chr_code, ll_tmp->str);
+          u32toa_z5(cur_chr_code, ll_tmp->str);
           // if first character of gene name is a digit, natural sort has
           // strange effects unless we force [3] to be nonnumeric...
           ll_tmp->str[kMaxChrCodeDigits - 1] -= 15;
@@ -248,7 +248,7 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
           memcpy(last_token, "C_", 2);
         } else if (!variant_bps) {
           last_token = &(last_token[-S_CAST(int32_t, kMaxChrCodeDigits)]);
-          uitoa_z5(cur_chr_code, last_token);
+          u32toa_z5(cur_chr_code, last_token);
           last_token[kMaxChrCodeDigits - 1] -= 15;
         }
         // this should never fail
@@ -256,8 +256,8 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
       }
       if (variant_bps) {
         // translate to within-chromosome uidx
-        range_first = CountSortedSmallerUi(&(variant_bps[chr_start]), chr_end - chr_start, range_first);
-        range_last = CountSortedSmallerUi(&(variant_bps[chr_start]), chr_end - chr_start, range_last + 1);
+        range_first = CountSortedSmallerU32(&(variant_bps[chr_start]), chr_end - chr_start, range_first);
+        range_last = CountSortedSmallerU32(&(variant_bps[chr_start]), chr_end - chr_start, range_last + 1);
         if (range_last > range_first) {
           MakeSetRange* msr_tmp = S_CAST(MakeSetRange*, bigstack_end_alloc(sizeof(MakeSetRange)));
           if (!msr_tmp) {
@@ -299,7 +299,7 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
       }
     }
     if (range_sort_buf_ptr) {
-      if (bigstack_end_alloc_ull(max_set_range_ct, range_sort_buf_ptr)) {
+      if (bigstack_end_alloc_u64(max_set_range_ct, range_sort_buf_ptr)) {
         goto LoadIbed_ret_NOMEM;
       }
     }
@@ -341,7 +341,7 @@ PglErr ExtractExcludeRange(const char* fnames, const ChrInfo* cip, const uint32_
     const uintptr_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     uintptr_t* variant_include_mask = nullptr;
     if (!do_exclude) {
-      if (bigstack_calloc_ul(raw_variant_ctl, &variant_include_mask)) {
+      if (bigstack_calloc_w(raw_variant_ctl, &variant_include_mask)) {
         goto ExtractExcludeRange_ret_NOMEM;
       }
     }

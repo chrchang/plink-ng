@@ -61,7 +61,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (20 Feb 2018)";
+  " (22 Feb 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -463,11 +463,11 @@ PglErr ApplyVariantBpFilters(const char* extract_fnames, const char* exclude_fna
     uint32_t variant_uidx_start = cip->chr_fo_vidx_start[chr_fo_idx];
     uint32_t variant_uidx_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
     if (from_bp != -1) {
-      const uint32_t from_offset = CountSortedSmallerUi(&(variant_bps[variant_uidx_start]), variant_uidx_end - variant_uidx_start, from_bp);
+      const uint32_t from_offset = CountSortedSmallerU32(&(variant_bps[variant_uidx_start]), variant_uidx_end - variant_uidx_start, from_bp);
       variant_uidx_start += from_offset;
     }
     if ((to_bp != -1) && (variant_uidx_start < variant_uidx_end)) {
-      const uint32_t to_offset = CountSortedSmallerUi(&(variant_bps[variant_uidx_start]), variant_uidx_end - variant_uidx_start, 1 + to_bp);
+      const uint32_t to_offset = CountSortedSmallerU32(&(variant_bps[variant_uidx_start]), variant_uidx_end - variant_uidx_start, 1 + to_bp);
       variant_uidx_end = variant_uidx_start + to_offset;
     }
     if (variant_uidx_start) {
@@ -769,7 +769,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
       const uint32_t nonref_flags_already_loaded = (nonref_flags != nullptr);
       if ((!nonref_flags) && ((header_ctrl & 192) == 192)) {
-        if (bigstack_alloc_ul(raw_variant_ctl, &nonref_flags)) {
+        if (bigstack_alloc_w(raw_variant_ctl, &nonref_flags)) {
           goto Plink2Core_ret_NOMEM;
         }
       }
@@ -1125,13 +1125,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 
       const uint32_t smaj_missing_geno_report_requested = (pcp->command_flags1 & kfCommand1MissingReport) && (!(pcp->missing_rpt_flags & kfMissingRptVariantOnly));
       if ((pcp->mind_thresh < 1.0) || smaj_missing_geno_report_requested) {
-        if (bigstack_alloc_ui(raw_sample_ct, &sample_missing_hc_cts) ||
-            bigstack_alloc_ui(raw_sample_ct, &sample_hethap_cts)) {
+        if (bigstack_alloc_u32(raw_sample_ct, &sample_missing_hc_cts) ||
+            bigstack_alloc_u32(raw_sample_ct, &sample_hethap_cts)) {
           goto Plink2Core_ret_NOMEM;
         }
         if (SampleMissingDosageCtsAreNeeded(pcp->misc_flags, smaj_missing_geno_report_requested, pcp->mind_thresh, pcp->missing_rpt_flags)) {
           if (pgfi.gflags & kfPgenGlobalDosagePresent) {
-            if (bigstack_alloc_ui(raw_sample_ct, &sample_missing_dosage_cts)) {
+            if (bigstack_alloc_u32(raw_sample_ct, &sample_missing_dosage_cts)) {
               goto Plink2Core_ret_NOMEM;
             }
           } else {
@@ -1335,15 +1335,15 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         logerrprintfww("Error: --loop-cats phenotype '%s' not loaded.\n", loop_cats_phenoname);
         goto Plink2Core_ret_INCONSISTENT_INPUT;
       }
-      if (bigstack_alloc_ul(raw_sample_ctl, &loop_cats_sample_include_backup) ||
-          bigstack_alloc_ul(raw_sample_ctl, &loop_cats_founder_info_backup) ||
-          bigstack_alloc_ul(raw_sample_ctl, &loop_cats_sex_nm_backup) ||
-          bigstack_alloc_ul(raw_sample_ctl, &loop_cats_sex_male_backup) ||
-          bigstack_alloc_ul(1 + (loop_cats_pheno_col->nonnull_category_ct / kBitsPerWord), &loop_cats_cat_include)) {
+      if (bigstack_alloc_w(raw_sample_ctl, &loop_cats_sample_include_backup) ||
+          bigstack_alloc_w(raw_sample_ctl, &loop_cats_founder_info_backup) ||
+          bigstack_alloc_w(raw_sample_ctl, &loop_cats_sex_nm_backup) ||
+          bigstack_alloc_w(raw_sample_ctl, &loop_cats_sex_male_backup) ||
+          bigstack_alloc_w(1 + (loop_cats_pheno_col->nonnull_category_ct / kBitsPerWord), &loop_cats_cat_include)) {
         goto Plink2Core_ret_NOMEM;
       }
       if (variant_ct != raw_variant_ct) {
-        if (bigstack_alloc_ul(raw_variant_ctl, &loop_cats_variant_include_backup)) {
+        if (bigstack_alloc_w(raw_variant_ctl, &loop_cats_variant_include_backup)) {
           goto Plink2Core_ret_NOMEM;
         }
         memcpy(loop_cats_variant_include_backup, variant_include, raw_variant_ctl * sizeof(intptr_t));
@@ -1482,12 +1482,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         uint32_t* variant_missing_hc_cts = nullptr;
         uint32_t* variant_hethap_cts = nullptr;
         if (VariantMissingHcCtsAreNeeded(pcp->command_flags1, pcp->misc_flags, pcp->geno_thresh, pcp->missing_rpt_flags)) {
-          if (bigstack_alloc_ui(raw_variant_ct, &variant_missing_hc_cts)) {
+          if (bigstack_alloc_u32(raw_variant_ct, &variant_missing_hc_cts)) {
             goto Plink2Core_ret_NOMEM;
           }
           if (VariantHethapCtsAreNeeded(pcp->command_flags1, pcp->misc_flags, pcp->geno_thresh, pcp->missing_rpt_flags, first_hap_uidx)) {
             // first_hap_uidx offset can save an entire GB...
-            if (bigstack_alloc_ui(raw_variant_ct - first_hap_uidx, &variant_hethap_cts)) {
+            if (bigstack_alloc_u32(raw_variant_ct - first_hap_uidx, &variant_hethap_cts)) {
               goto Plink2Core_ret_NOMEM;
             }
           }
@@ -1495,7 +1495,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         uint32_t* variant_missing_dosage_cts = nullptr;
         if (VariantMissingDosageCtsAreNeeded(pcp->command_flags1, pcp->misc_flags, pcp->geno_thresh, pcp->missing_rpt_flags)) {
           if ((!variant_missing_hc_cts) || (pgfi.gflags & kfPgenGlobalDosagePresent)) {
-            if (bigstack_alloc_ui(raw_variant_ct, &variant_missing_dosage_cts)) {
+            if (bigstack_alloc_u32(raw_variant_ct, &variant_missing_dosage_cts)) {
               goto Plink2Core_ret_NOMEM;
             }
           } else {
@@ -1510,17 +1510,17 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         //   diploid total
         // use unfiltered indexes, since we remove more variants later
         if (RawGenoCtsAreNeeded(pcp->command_flags1, pcp->misc_flags, pcp->hwe_thresh)) {
-          if (bigstack_alloc_ui((3 * k1LU) * raw_variant_ct, &raw_geno_cts)) {
+          if (bigstack_alloc_u32((3 * k1LU) * raw_variant_ct, &raw_geno_cts)) {
             goto Plink2Core_ret_NOMEM;
           }
           if (x_len) {
             if (male_ct) {
-              if (bigstack_alloc_ui((3 * k1LU) * x_len, &x_male_geno_cts)) {
+              if (bigstack_alloc_u32((3 * k1LU) * x_len, &x_male_geno_cts)) {
                 goto Plink2Core_ret_NOMEM;
               }
             }
             if (nosex_ct && hwe_x_probs_needed && nonfounders) {
-              if (bigstack_alloc_ui((3 * k1LU) * x_len, &x_nosex_geno_cts)) {
+              if (bigstack_alloc_u32((3 * k1LU) * x_len, &x_nosex_geno_cts)) {
                 goto Plink2Core_ret_NOMEM;
               }
             }
@@ -1531,13 +1531,13 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             founder_raw_geno_cts = raw_geno_cts;
             founder_x_male_geno_cts = x_male_geno_cts;
           } else {
-            if (bigstack_alloc_ui((3 * k1LU) * raw_variant_ct, &founder_raw_geno_cts)) {
+            if (bigstack_alloc_u32((3 * k1LU) * raw_variant_ct, &founder_raw_geno_cts)) {
               goto Plink2Core_ret_NOMEM;
             }
             if (x_len && male_ct) {
               const uint32_t founder_male_ct = PopcountWordsIntersect(founder_info, sex_male, raw_sample_ctl);
               if (founder_male_ct) {
-                if (bigstack_alloc_ui((3 * k1LU) * x_len, &founder_x_male_geno_cts)) {
+                if (bigstack_alloc_u32((3 * k1LU) * x_len, &founder_x_male_geno_cts)) {
                   goto Plink2Core_ret_NOMEM;
                 }
               }
@@ -1551,7 +1551,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
                 assert(0);
                 // founder_x_nosex_geno_cts = x_nosex_geno_cts;
               } else {
-                if (bigstack_alloc_ui((3 * k1LU) * x_len, &founder_x_nosex_geno_cts)) {
+                if (bigstack_alloc_u32((3 * k1LU) * x_len, &founder_x_nosex_geno_cts)) {
                   goto Plink2Core_ret_NOMEM;
                 }
               }
@@ -1710,7 +1710,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           uintptr_t* prev_sample_include = nullptr;
           const uint32_t prev_sample_ct = sample_ct;
           if (pcp->king_cutoff != -1) {
-            if (bigstack_alloc_ul(raw_sample_ctl, &prev_sample_include)) {
+            if (bigstack_alloc_w(raw_sample_ctl, &prev_sample_include)) {
               goto Plink2Core_ret_NOMEM;
             }
             memcpy(prev_sample_include, sample_include, raw_sample_ctl * sizeof(intptr_t));
@@ -1879,7 +1879,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             }
             // nonref_flags may be altered by all four flags.
             if (nonref_flags) {
-              if (bigstack_end_alloc_ul(raw_variant_ctl, &nonref_flags_backup)) {
+              if (bigstack_end_alloc_w(raw_variant_ctl, &nonref_flags_backup)) {
                 goto Plink2Core_ret_NOMEM;
               }
               memcpy(nonref_flags_backup, nonref_flags, raw_variant_ctl * sizeof(intptr_t));
@@ -1889,7 +1889,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           uintptr_t* refalt1_select_ul;
           // no need to track bigstack_end_mark before this is allocated, etc.,
           // due to the restriction to --make-pgen/--export
-          if (bigstack_end_alloc_ul(refalt1_word_ct, &refalt1_select_ul)) {
+          if (bigstack_end_alloc_w(refalt1_word_ct, &refalt1_select_ul)) {
             goto Plink2Core_ret_NOMEM;
           }
           const uintptr_t alt_allele_vals = k1LU << (8 * sizeof(AltAlleleCt));
@@ -1900,12 +1900,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           refalt1_select = R_CAST(AltAlleleCt*, refalt1_select_ul);
           const uint32_t not_all_nonref = !(pgfi.gflags & kfPgenGlobalAllNonref);
           if ((not_all_nonref || setting_alleles_from_file) && (!nonref_flags)) {
-            if (bigstack_end_alloc_ul(raw_variant_ctl, &nonref_flags)) {
+            if (bigstack_end_alloc_w(raw_variant_ctl, &nonref_flags)) {
               goto Plink2Core_ret_NOMEM;
             }
             pgfi.nonref_flags = nonref_flags;
             if (not_all_nonref) {
-              ZeroUlArr(raw_variant_ctl, nonref_flags);
+              ZeroWArr(raw_variant_ctl, nonref_flags);
             } else {
               SetAllBits(raw_variant_ct, nonref_flags);
             }
@@ -1913,7 +1913,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           uintptr_t* previously_seen = nullptr;
           if (pcp->ref_allele_flag) {
             if (pcp->alt1_allele_flag) {
-              if (bigstack_alloc_ul(raw_variant_ctl, &previously_seen)) {
+              if (bigstack_alloc_w(raw_variant_ctl, &previously_seen)) {
                 goto Plink2Core_ret_NOMEM;
               }
             }
@@ -6270,7 +6270,7 @@ int main(int argc, char** argv) {
           }
           pc.pheno_range_list.name_max_blen = name_max_blen;
           pc.pheno_range_list.name_ct = 1;
-          char* write_iter = uint32toa(pheno_col_nums_arg, pc.pheno_range_list.names);
+          char* write_iter = u32toa(pheno_col_nums_arg, pc.pheno_range_list.names);
           *write_iter++ = '\0';
           pc.pheno_range_list.starts_range = R_CAST(unsigned char*, write_iter);
           *write_iter = '\0';
@@ -7195,7 +7195,7 @@ int main(int argc, char** argv) {
             pc.score_info.input_col_idx_range_list.names = new_buf;
             pc.score_info.input_col_idx_range_list.name_max_blen = col_idx_blen;
             pc.score_info.input_col_idx_range_list.name_ct = 1;
-            uint32toa_x(col_idx, '\0', new_buf);
+            u32toa_x(col_idx, '\0', new_buf);
             new_buf[col_idx_blen] = '\0';
             pc.score_info.input_col_idx_range_list.starts_range = R_CAST(unsigned char*, &(new_buf[col_idx_blen]));
           }

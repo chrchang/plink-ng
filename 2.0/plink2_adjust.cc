@@ -310,7 +310,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
         *cswritep++ = '\t';
       }
       if (variant_bps) {
-        cswritep = uint32toa_x(variant_bps[variant_uidx], '\t', cswritep);
+        cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
       }
       cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
       uintptr_t variant_allele_idx_base = variant_uidx * 2;
@@ -591,7 +591,7 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
 
     const uint32_t variant_ctl = BitCtToWordCt(variant_ct);
     uintptr_t* variant_include_dummy;
-    if (bigstack_alloc_ul(variant_ctl, &variant_include_dummy)) {
+    if (bigstack_alloc_w(variant_ctl, &variant_include_dummy)) {
       goto AdjustFile_ret_NOMEM;
     }
     SetAllBits(variant_ct, variant_include_dummy);
@@ -605,7 +605,7 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
     }
     uint32_t* variant_bps;
     if (need_pos) {
-      if (bigstack_alloc_ui(variant_ct, &variant_bps)) {
+      if (bigstack_alloc_u32(variant_ct, &variant_bps)) {
         goto AdjustFile_ret_NOMEM;
       }
     } else {

@@ -533,7 +533,7 @@ int32_t GetChrCode(const char* chr_name, const ChrInfo* cip, uint32_t name_slen)
 int32_t GetChrCodeCounted(const ChrInfo* cip, uint32_t name_slen, char* chr_name);
 
 HEADER_INLINE uint32_t GetVariantChrFoIdx(const ChrInfo* cip, uintptr_t variant_uidx) {
-  return CountSortedSmallerUi(&(cip->chr_fo_vidx_start[1]), cip->chr_ct, variant_uidx + 1);
+  return CountSortedSmallerU32(&(cip->chr_fo_vidx_start[1]), cip->chr_ct, variant_uidx + 1);
 }
 
 HEADER_INLINE uint32_t GetVariantChr(const ChrInfo* cip, uintptr_t variant_uidx) {
@@ -627,31 +627,31 @@ HEADER_CINLINE uint32_t VcountScramble2(uint32_t orig_idx) {
 }
 #endif
 
-// probable todo: switch to VecUL* parameters
+// probable todo: switch to VecW* parameters
 HEADER_INLINE void VcountIncr2To4(const uintptr_t* acc2, uint32_t acc2_vec_ct, uintptr_t* acc4) {
-  const VecUL m2 = VCONST_UL(kMask3333);
-  const VecUL* acc2v_iter = R_CAST(const VecUL*, acc2);
-  VecUL* acc4v_iter = R_CAST(VecUL*, acc4);
+  const VecW m2 = VCONST_W(kMask3333);
+  const VecW* acc2v_iter = R_CAST(const VecW*, acc2);
+  VecW* acc4v_iter = R_CAST(VecW*, acc4);
   for (uint32_t vidx = 0; vidx < acc2_vec_ct; ++vidx) {
-    VecUL loader = *acc2v_iter++;
+    VecW loader = *acc2v_iter++;
     *acc4v_iter = (*acc4v_iter) + (loader & m2);
     ++acc4v_iter;
-    loader = vecul_srli(loader, 2);
+    loader = vecw_srli(loader, 2);
     *acc4v_iter = (*acc4v_iter) + (loader & m2);
     ++acc4v_iter;
   }
 }
 
 HEADER_INLINE void Vcount0Incr2To4(uint32_t acc2_vec_ct, uintptr_t* acc2, uintptr_t* acc4) {
-  const VecUL m2 = VCONST_UL(kMask3333);
-  VecUL* acc2v_iter = R_CAST(VecUL*, acc2);
-  VecUL* acc4v_iter = R_CAST(VecUL*, acc4);
+  const VecW m2 = VCONST_W(kMask3333);
+  VecW* acc2v_iter = R_CAST(VecW*, acc2);
+  VecW* acc4v_iter = R_CAST(VecW*, acc4);
   for (uint32_t vidx = 0; vidx < acc2_vec_ct; ++vidx) {
-    VecUL loader = *acc2v_iter;
-    *acc2v_iter++ = vecul_setzero();
+    VecW loader = *acc2v_iter;
+    *acc2v_iter++ = vecw_setzero();
     *acc4v_iter = (*acc4v_iter) + (loader & m2);
     ++acc4v_iter;
-    loader = vecul_srli(loader, 2);
+    loader = vecw_srli(loader, 2);
     *acc4v_iter = (*acc4v_iter) + (loader & m2);
     ++acc4v_iter;
   }
@@ -697,7 +697,7 @@ void FillSubsetChrFoVidxStart(const uintptr_t* variant_include, const ChrInfo* c
 
 HEADER_INLINE BoolErr AllocAndFillSubsetChrFoVidxStart(const uintptr_t* variant_include, const ChrInfo* cip, uint32_t** subset_chr_fo_vidx_start_ptr) {
   const uint32_t chr_ct = cip->chr_ct;
-  if (bigstack_alloc_ui(chr_ct + 1, subset_chr_fo_vidx_start_ptr)) {
+  if (bigstack_alloc_u32(chr_ct + 1, subset_chr_fo_vidx_start_ptr)) {
     return 1;
   }
   FillSubsetChrFoVidxStart(variant_include, cip, *subset_chr_fo_vidx_start_ptr);

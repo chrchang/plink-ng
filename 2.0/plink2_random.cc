@@ -183,7 +183,7 @@ void GeneratePerm1Interleaved(uint32_t tot_bit_ct, uint32_t set_bit_ct, uintptr_
   DivisionMagicNums(tot_quotient, &totq_magic, &totq_preshift, &totq_postshift, &totq_incr);
   if (set_bit_ct * 2 < tot_bit_ct) {
     for (uintptr_t widx = 0; widx < tot_bit_ctl; ++widx) {
-      ZeroUlArr(perm_ct, &(perm_buf[perm_start_idx + (widx * perm_end_idx)]));
+      ZeroWArr(perm_ct, &(perm_buf[perm_start_idx + (widx * perm_end_idx)]));
     }
     for (uintptr_t perm_idx = perm_start_idx; perm_idx < perm_end_idx; ++perm_idx) {
       uintptr_t* pbptr = &(perm_buf[perm_idx]);
@@ -205,7 +205,7 @@ void GeneratePerm1Interleaved(uint32_t tot_bit_ct, uint32_t set_bit_ct, uintptr_
     }
   } else {
     for (uintptr_t widx = 0; widx < tot_bit_ctl; ++widx) {
-      SetAllUlArr(perm_ct, &(perm_buf[perm_start_idx + (widx * perm_end_idx)]));
+      SetAllWArr(perm_ct, &(perm_buf[perm_start_idx + (widx * perm_end_idx)]));
     }
     // "set" has reversed meaning here
     set_bit_ct = tot_bit_ct - set_bit_ct;

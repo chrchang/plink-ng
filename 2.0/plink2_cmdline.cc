@@ -50,7 +50,7 @@ CXXCONST_CP strchrnul(const char* str, int needle) {
     uint32_t matching_bytes = vecc_movemask(zero_match_vvec | needle_match_vvec);
     matching_bytes &= UINT32_MAX << leading_byte_ct;
     if (matching_bytes) {
-      const uint32_t byte_offset_in_vec = __builtin_ctz(matching_bytes);
+      const uint32_t byte_offset_in_vec = ctzu32(matching_bytes);
       return &(R_CAST(CXXCONST_CP, str_viter)[byte_offset_in_vec]);
     }
     ++str_viter;
@@ -63,10 +63,58 @@ CXXCONST_CP strchrnul(const char* str, int needle) {
     const VecC needle_match_vvec = (cur_vvec == vvec_all_needle);
     const uint32_t matching_bytes = vecc_movemask(zero_match_vvec | needle_match_vvec);
     if (matching_bytes) {
-      const uint32_t byte_offset_in_vec = __builtin_ctz(matching_bytes);
+      const uint32_t byte_offset_in_vec = ctzu32(matching_bytes);
       return &(R_CAST(CXXCONST_CP, str_viter)[byte_offset_in_vec]);
     }
     ++str_viter;
+  }
+}
+#endif
+
+#ifdef __LP64__
+// can just make strchrnul call this?
+CXXCONST_VOIDP rawmemchr2(const void* ss, unsigned char ucc1, unsigned char ucc2) {
+  const uintptr_t starting_addr = R_CAST(uintptr_t, ss);
+  const VecC* ss_viter = R_CAST(const VecC*, RoundDownPow2(starting_addr, kBytesPerVec));
+  const VecC vvec_all_ucc1 = vecc_set1(ucc1);
+  const VecC vvec_all_ucc2 = vecc_set1(ucc2);
+  const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, ss_viter);
+  if (leading_byte_ct) {
+    // todo: check whether this should just be merged with the loop below.
+    const VecC cur_vvec = *ss_viter;
+    const VecC ucc1_match_vvec = (cur_vvec == vvec_all_ucc1);
+    const VecC ucc2_match_vvec = (cur_vvec == vvec_all_ucc2);
+    uint32_t matching_bytes = vecc_movemask(ucc1_match_vvec | ucc2_match_vvec);
+    matching_bytes &= UINT32_MAX << leading_byte_ct;
+    if (matching_bytes) {
+      const uint32_t byte_offset_in_vec = ctzu32(matching_bytes);
+      return &(R_CAST(CXXCONST_CP, ss_viter)[byte_offset_in_vec]);
+    }
+    ++ss_viter;
+  }
+  // This is typically short-range, so the memrchr_expected_far() double-vector
+  // strategy is unlikely to be profitable.
+  while (1) {
+    const VecC cur_vvec = *ss_viter;
+    const VecC ucc1_match_vvec = (cur_vvec == vvec_all_ucc1);
+    const VecC ucc2_match_vvec = (cur_vvec == vvec_all_ucc2);
+    const uint32_t matching_bytes = vecc_movemask(ucc1_match_vvec | ucc2_match_vvec);
+    if (matching_bytes) {
+      const uint32_t byte_offset_in_vec = ctzu32(matching_bytes);
+      return &(R_CAST(CXXCONST_CP, ss_viter)[byte_offset_in_vec]);
+    }
+    ++ss_viter;
+  }
+}
+#else
+CXXCONST_VOIDP rawmemchr2(const void* ss, unsigned char ucc1, unsigned char ucc2) {
+  const unsigned char* ss_iter = S_CAST(unsigned char*, ss);
+  while (1) {
+    unsigned char ucc = *ss_iter;
+    if ((ucc == ucc1) || (ucc == ucc2)) {
+      return S_CAST(CXXCONST_VOIDP, ss_iter);
+    }
+    ++ss_iter;
   }
 }
 #endif
@@ -270,26 +318,26 @@ uint32_t UintSlen(uint32_t num) {
 // could also use something like ((32 - lz_ct) * 77) >> 8, since 77/256 is a
 // sufficiently good approximation of ln(2)/ln(10), but that's a bit slower and
 // this table doesn't take much space
-static const unsigned char kLzUintSlenBase[] =
-{9, 9, 9, 8,
- 8, 8, 7, 7,
- 7, 6, 6, 6,
- 6, 5, 5, 5,
- 4, 4, 4, 3,
- 3, 3, 3, 2,
- 2, 2, 1, 1,
- 1};
+static const unsigned char kBsrUintSlenBase[] =
+{1, 1, 1, 2,
+ 2, 2, 3, 3,
+ 3, 3, 4, 4,
+ 4, 5, 5, 5,
+ 6, 6, 6, 6,
+ 7, 7, 7, 8,
+ 8, 8, 9, 9,
+ 9};
 
 uint32_t UintSlen(uint32_t num) {
   // tried divide-by-10 and divide-by-100 loops, they were slower
   // also tried a hardcoded binary tree, it was better but still slower
 
-  // __builtin_clz(0) is undefined
+  // bsru32(0) is undefined
   if (num < 10) {
     return 1;
   }
-  const uint32_t lz_ct = __builtin_clz(num);
-  const uint32_t slen_base = kLzUintSlenBase[lz_ct];
+  const uint32_t top_bit_pos = bsru32(num);
+  const uint32_t slen_base = kBsrUintSlenBase[top_bit_pos];
   return slen_base + (num >= kPow10[slen_base]);
 }
 #endif
@@ -677,7 +725,7 @@ typedef struct WordCmp40bStruct {
       if (cur_word != rhs_word) {
         // could pre-reverse the strings?
         const uintptr_t xor_word = cur_word ^ rhs_word;
-        const uint32_t lshift = (kBitsPerWord - 8) - (ctzlu(xor_word) & (kBitsPerWord - 8));
+        const uint32_t lshift = (kBitsPerWord - 8) - (ctzw(xor_word) & (kBitsPerWord - 8));
         return (cur_word << lshift) < (rhs_word << lshift);
       }
     } while (++idx < (40 / kBytesPerWord));
@@ -694,7 +742,7 @@ typedef struct WordCmp64bStruct {
       const uintptr_t rhs_word = rhs.words[idx];
       if (cur_word != rhs_word) {
         const uintptr_t xor_word = cur_word ^ rhs_word;
-        const uint32_t lshift = (kBitsPerWord - 8) - (ctzlu(xor_word) & (kBitsPerWord - 8));
+        const uint32_t lshift = (kBitsPerWord - 8) - (ctzw(xor_word) & (kBitsPerWord - 8));
         return (cur_word << lshift) < (rhs_word << lshift);
       }
     } while (++idx < (64 / kBytesPerWord));
@@ -853,7 +901,7 @@ BoolErr strptr_arr_indexed_sort(const char* const* unsorted_strptrs, uint32_t st
 */
 
 
-uint32_t CountSortedSmallerUi(const uint32_t* sorted_uint32_arr, uint32_t arr_length, uint32_t uii) {
+uint32_t CountSortedSmallerU32(const uint32_t* sorted_uint32_arr, uint32_t arr_length, uint32_t uii) {
   // (strangely, this seems to be equal to or better than std::lower_bound with
   // -O2 optimization, but can become much slower with -O3?)
 
@@ -1279,8 +1327,8 @@ uint32_t IsAlphanumeric(const char* str_iter) {
 BoolErr ScanPosintptr(const char* str_iter, uintptr_t* valp) {
   // Reads an integer in [1, 2^kBitsPerWord - 1].  Assumes first character is
   // nonspace.
-  assert(ctoul(str_iter[0]) > 32);
-  uintptr_t val = ctoul(*str_iter++) - 48;
+  assert(ctow(str_iter[0]) > 32);
+  uintptr_t val = ctow(*str_iter++) - 48;
   if (val >= 10) {
 #ifdef __LP64__
     if (val != 0xfffffffffffffffbLLU) {
@@ -1291,13 +1339,13 @@ BoolErr ScanPosintptr(const char* str_iter, uintptr_t* valp) {
       return 1;
     }
 #endif
-    val = ctoul(*str_iter++) - 48;
+    val = ctow(*str_iter++) - 48;
     if (val >= 10) {
       return 1;
     }
   }
   while (!val) {
-    val = ctoul(*str_iter++) - 48;
+    val = ctow(*str_iter++) - 48;
     if (val >= 10) {
       return 1;
     }
@@ -1309,12 +1357,12 @@ BoolErr ScanPosintptr(const char* str_iter, uintptr_t* valp) {
   const char* str_limit = &(str_iter[10]);
 #endif
   while (1) {
-    const uintptr_t cur_digit = ctoul(*str_iter++) - 48;
+    const uintptr_t cur_digit = ctow(*str_iter++) - 48;
     if (cur_digit >= 10) {
       *valp = val;
       return 0;
     }
-    const uintptr_t cur_digit2 = ctoul(*str_iter++) - 48;
+    const uintptr_t cur_digit2 = ctow(*str_iter++) - 48;
     if (str_iter == str_limit) {
       if ((cur_digit2 < 10) || ((val >= (~k0LU) / 10) && ((val > (~k0LU) / 10) || (cur_digit > (~k0LU) % 10)))) {
         return 1;
@@ -1915,7 +1963,7 @@ const uint16_t kDigitPair[100] = {
   0x3038, 0x3138, 0x3238, 0x3338, 0x3438, 0x3538, 0x3638, 0x3738, 0x3838, 0x3938,
   0x3039, 0x3139, 0x3239, 0x3339, 0x3439, 0x3539, 0x3639, 0x3739, 0x3839, 0x3939};
 
-char* uint32toa(uint32_t uii, char* start) {
+char* u32toa(uint32_t uii, char* start) {
   // Memory-efficient fast integer writer.  (You can do a bit better sometimes
   // by using a larger lookup table, but on average I doubt that pays off.)
   // Returns a pointer to the end of the integer (not null-terminated).
@@ -1974,14 +2022,14 @@ char* uint32toa(uint32_t uii, char* start) {
   return memcpya(start, &(kDigitPair[uii]), 2);
 }
 
-char* int32toa(int32_t ii, char* start) {
+char* i32toa(int32_t ii, char* start) {
   uint32_t uii = ii;
   if (ii < 0) {
     // -INT_MIN is undefined, but negating the unsigned int equivalent works
     *start++ = '-';
     uii = -uii;
   }
-  return uint32toa(uii, start);
+  return u32toa(uii, start);
 }
 
 char* uitoa_z4(uint32_t uii, char* start) {
@@ -1992,7 +2040,7 @@ char* uitoa_z4(uint32_t uii, char* start) {
   return memcpya(start, &(kDigitPair[uii]), 2);
 }
 
-char* uitoa_z5(uint32_t uii, char* start) {
+char* u32toa_z5(uint32_t uii, char* start) {
   uint32_t quotient = uii / 10000;
   *start++ = '0' + quotient;
   return uitoa_z4(uii - 10000 * quotient, start);
@@ -2010,7 +2058,7 @@ char* uitoa_z8(uint32_t uii, char* start) {
   return uitoa_z6(uii - 1000000 * quotient, start);
 }
 
-char* int64toa(int64_t llii, char* start) {
+char* i64toa(int64_t llii, char* start) {
   uint64_t ullii = llii;
   uint64_t top_digits;
   uint32_t bottom_eight;
@@ -2020,23 +2068,23 @@ char* int64toa(int64_t llii, char* start) {
     ullii = -ullii;
   }
   if (ullii <= 0xffffffffLLU) {
-    return uint32toa(S_CAST(uint32_t, ullii), start);
+    return u32toa(S_CAST(uint32_t, ullii), start);
   }
   top_digits = ullii / 100000000;
   bottom_eight = S_CAST(uint32_t, ullii - (top_digits * 100000000));
   if (top_digits <= 0xffffffffLLU) {
-    start = uint32toa(S_CAST(uint32_t, top_digits), start);
+    start = u32toa(S_CAST(uint32_t, top_digits), start);
     return uitoa_z8(bottom_eight, start);
   }
   ullii = top_digits / 100000000;
   middle_eight = S_CAST(uint32_t, top_digits - (ullii * 100000000));
-  start = uint32toa(S_CAST(uint32_t, ullii), start);
+  start = u32toa(S_CAST(uint32_t, ullii), start);
   start = uitoa_z8(middle_eight, start);
   return uitoa_z8(bottom_eight, start);
 }
 
 
-char* uitoa_trunc4(uint32_t uii, char* start) {
+char* u32toa_trunc4(uint32_t uii, char* start) {
   uint32_t quotient = uii / 100;
   memcpy(start, &(kDigitPair[quotient]), 2);
   uii -= 100 * quotient;
@@ -2776,7 +2824,7 @@ char* dtoa_f_p5_clipped(double dxx, char* start) {
     remainder += (int64_t)((dxx - ((int64_t)remainder)) + kBankerRound6[remainder & 1]);
     uint64_t quotient = remainder / 100000;
     remainder = remainder - quotient * 100000;
-    start = uint32toa(quotient, start);
+    start = u32toa(quotient, start);
     return rtoa_p5(remainder, start);
   }
 #else
@@ -2787,7 +2835,7 @@ char* dtoa_f_p5_clipped(double dxx, char* start) {
     const double remainder_d = (dxx - ((intptr_t)quotient)) * 100000;
     const uint32_t remainder_d_trunc = (int32_t)remainder_d;
     const uint32_t remainder = (int32_t)(remainder_d + kBankerRound6[remainder_d_trunc & 1]);
-    start = uint32toa(quotient, start);
+    start = u32toa(quotient, start);
     return rtoa_p5(remainder, start);
   }
 #endif
@@ -3036,13 +3084,13 @@ void DivisionMagicNums(uint32_t divisor, uint64_t* multp, uint32_t* __restrict p
     // power of 2
     *multp = 1;
     *pre_shiftp = 0;
-    *post_shiftp = __builtin_ctz(divisor);
+    *post_shiftp = ctzu32(divisor);
     *incrp = 0;
     return;
   }
   uint32_t quotient = 0x80000000U / divisor;
   uint32_t remainder = 0x80000000U - (quotient * divisor);
-  const uint32_t ceil_log_2_d = 32 - __builtin_clz(divisor);
+  const uint32_t ceil_log_2_d = 1 + bsru32(divisor);
   uint32_t down_multiplier = 0;
   uint32_t down_exponent = 0;
   uint32_t has_magic_down = 0;
@@ -3078,7 +3126,7 @@ void DivisionMagicNums(uint32_t divisor, uint64_t* multp, uint32_t* __restrict p
     *incrp = 1;
     return;
   }
-  *pre_shiftp = __builtin_ctz(divisor);
+  *pre_shiftp = ctzu32(divisor);
   uint32_t dummy;
   DivisionMagicNums(divisor >> (*pre_shiftp), multp, &dummy, post_shiftp, incrp);
 }
@@ -3093,7 +3141,7 @@ void FillBitsNz(uintptr_t start_idx, uintptr_t end_idx, uintptr_t* bitarr) {
     bitarr[maj_start] |= (k1LU << (end_idx % kBitsPerWord)) - (k1LU << (start_idx % kBitsPerWord));
   } else {
     bitarr[maj_start] |= ~((k1LU << (start_idx % kBitsPerWord)) - k1LU);
-    SetAllUlArr(maj_end - maj_start - 1, &(bitarr[maj_start + 1]));
+    SetAllWArr(maj_end - maj_start - 1, &(bitarr[maj_start + 1]));
     minor = end_idx % kBitsPerWord;
     if (minor) {
       bitarr[maj_end] |= (k1LU << minor) - k1LU;
@@ -3110,7 +3158,7 @@ void ClearBitsNz(uintptr_t start_idx, uintptr_t end_idx, uintptr_t* bitarr) {
     bitarr[maj_start] &= ~((k1LU << (end_idx % kBitsPerWord)) - (k1LU << (start_idx % kBitsPerWord)));
   } else {
     bitarr[maj_start] = bzhi(bitarr[maj_start], start_idx % kBitsPerWord);
-    ZeroUlArr(maj_end - maj_start - 1, &(bitarr[maj_start + 1]));
+    ZeroWArr(maj_end - maj_start - 1, &(bitarr[maj_start + 1]));
     minor = end_idx % kBitsPerWord;
     if (minor) {
       bitarr[maj_end] &= ~((k1LU << minor) - k1LU);
@@ -3123,7 +3171,7 @@ uintptr_t FindFirst0BitFromBounded(const uintptr_t* bitarr, uintptr_t loc, uintp
   const uintptr_t* bitarr_ptr = &(bitarr[loc / kBitsPerWord]);
   uintptr_t ulii = (~(*bitarr_ptr)) >> (loc % kBitsPerWord);
   if (ulii) {
-    loc += ctzlu(ulii);
+    loc += ctzw(ulii);
     return MINV(loc, ceil);
   }
   const uintptr_t* bitarr_last = &(bitarr[(ceil - 1) / kBitsPerWord]);
@@ -3133,7 +3181,7 @@ uintptr_t FindFirst0BitFromBounded(const uintptr_t* bitarr, uintptr_t loc, uintp
     }
     ulii = *(++bitarr_ptr);
   } while (ulii == ~k0LU);
-  loc = S_CAST(uintptr_t, bitarr_ptr - bitarr) * kBitsPerWord + ctzlu(~ulii);
+  loc = S_CAST(uintptr_t, bitarr_ptr - bitarr) * kBitsPerWord + ctzw(~ulii);
   return MINV(loc, ceil);
 }
 
@@ -3145,7 +3193,7 @@ int32_t FindLast1BitBeforeBounded(const uintptr_t* bitarr, uint32_t loc, int32_t
   if (remainder) {
     ulii = bzhi(*bitarr_ptr, remainder);
     if (ulii) {
-      const uint32_t set_bit_loc = (loc | (kBitsPerWord - 1)) - clzlu(ulii);
+      const uint32_t set_bit_loc = loc - remainder + bsrw(ulii);
       return MAXV(S_CAST(int32_t, set_bit_loc), floor);
     }
   }
@@ -3156,7 +3204,7 @@ int32_t FindLast1BitBeforeBounded(const uintptr_t* bitarr, uint32_t loc, int32_t
     }
     ulii = *(--bitarr_ptr);
   } while (!ulii);
-  const uint32_t set_bit_loc = S_CAST(uintptr_t, bitarr_ptr - bitarr) * kBitsPerWord + kBitsPerWord - 1 - clzlu(ulii);
+  const uint32_t set_bit_loc = S_CAST(uintptr_t, bitarr_ptr - bitarr) * kBitsPerWord + bsrw(ulii);
   return MAXV(S_CAST(int32_t, set_bit_loc), floor);
 }
 
@@ -3187,7 +3235,7 @@ BoolErr bigstack_calloc_f(uintptr_t ct, float** f_arr_ptr) {
   return 0;
 }
 
-BoolErr bigstack_calloc_usi(uintptr_t ct, uint16_t** usi_arr_ptr) {
+BoolErr bigstack_calloc_u16(uintptr_t ct, uint16_t** usi_arr_ptr) {
   *usi_arr_ptr = S_CAST(uint16_t*, bigstack_alloc(ct * sizeof(int16_t)));
   if (!(*usi_arr_ptr)) {
     return 1;
@@ -3196,25 +3244,25 @@ BoolErr bigstack_calloc_usi(uintptr_t ct, uint16_t** usi_arr_ptr) {
   return 0;
 }
 
-BoolErr bigstack_calloc_ui(uintptr_t ct, uint32_t** ui_arr_ptr) {
+BoolErr bigstack_calloc_u32(uintptr_t ct, uint32_t** ui_arr_ptr) {
   *ui_arr_ptr = S_CAST(uint32_t*, bigstack_alloc(ct * sizeof(int32_t)));
   if (!(*ui_arr_ptr)) {
     return 1;
   }
-  ZeroUiArr(ct, *ui_arr_ptr);
+  ZeroU32Arr(ct, *ui_arr_ptr);
   return 0;
 }
 
-BoolErr bigstack_calloc_ul(uintptr_t ct, uintptr_t** ul_arr_ptr) {
+BoolErr bigstack_calloc_w(uintptr_t ct, uintptr_t** ul_arr_ptr) {
   *ul_arr_ptr = S_CAST(uintptr_t*, bigstack_alloc(ct * sizeof(intptr_t)));
   if (!(*ul_arr_ptr)) {
     return 1;
   }
-  ZeroUlArr(ct, *ul_arr_ptr);
+  ZeroWArr(ct, *ul_arr_ptr);
   return 0;
 }
 
-BoolErr bigstack_calloc_ull(uintptr_t ct, uint64_t** ull_arr_ptr) {
+BoolErr bigstack_calloc_u64(uintptr_t ct, uint64_t** ull_arr_ptr) {
   *ull_arr_ptr = S_CAST(uint64_t*, bigstack_alloc(ct * sizeof(int64_t)));
   if (!(*ull_arr_ptr)) {
     return 1;
@@ -3250,25 +3298,25 @@ BoolErr bigstack_end_calloc_f(uintptr_t ct, float** f_arr_ptr) {
   return 0;
 }
 
-BoolErr bigstack_end_calloc_ui(uintptr_t ct, uint32_t** ui_arr_ptr) {
+BoolErr bigstack_end_calloc_u32(uintptr_t ct, uint32_t** ui_arr_ptr) {
   *ui_arr_ptr = S_CAST(uint32_t*, bigstack_end_alloc(ct * sizeof(int32_t)));
   if (!(*ui_arr_ptr)) {
     return 1;
   }
-  ZeroUiArr(ct, *ui_arr_ptr);
+  ZeroU32Arr(ct, *ui_arr_ptr);
   return 0;
 }
 
-BoolErr bigstack_end_calloc_ul(uintptr_t ct, uintptr_t** ul_arr_ptr) {
+BoolErr bigstack_end_calloc_w(uintptr_t ct, uintptr_t** ul_arr_ptr) {
   *ul_arr_ptr = S_CAST(uintptr_t*, bigstack_end_alloc(ct * sizeof(intptr_t)));
   if (!(*ul_arr_ptr)) {
     return 1;
   }
-  ZeroUlArr(ct, *ul_arr_ptr);
+  ZeroWArr(ct, *ul_arr_ptr);
   return 0;
 }
 
-BoolErr bigstack_end_calloc_ull(uintptr_t ct, uint64_t** ull_arr_ptr) {
+BoolErr bigstack_end_calloc_u64(uintptr_t ct, uint64_t** ull_arr_ptr) {
   *ull_arr_ptr = S_CAST(uint64_t*, bigstack_end_alloc(ct * sizeof(int64_t)));
   if (!(*ull_arr_ptr)) {
     return 1;
@@ -3303,9 +3351,9 @@ void BitarrInvertCopy(const uintptr_t* __restrict source_bitarr, uintptr_t bit_c
 
 void BitvecAndCopy(const uintptr_t* __restrict source1_bitvec, const uintptr_t* __restrict source2_bitvec, uintptr_t word_ct, uintptr_t* target_bitvec) {
 #ifdef __LP64__
-  VecUL* target_bitvvec = R_CAST(VecUL*, target_bitvec);
-  const VecUL* source1_bitvvec = R_CAST(const VecUL*, source1_bitvec);
-  const VecUL* source2_bitvvec = R_CAST(const VecUL*, source2_bitvec);
+  VecW* target_bitvvec = R_CAST(VecW*, target_bitvec);
+  const VecW* source1_bitvvec = R_CAST(const VecW*, source1_bitvec);
+  const VecW* source2_bitvvec = R_CAST(const VecW*, source2_bitvec);
   const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
   for (uintptr_t ulii = 0; ulii < full_vec_ct; ++ulii) {
     target_bitvvec[ulii] = source1_bitvvec[ulii] & source2_bitvvec[ulii];
@@ -3330,9 +3378,9 @@ void BitvecAndCopy(const uintptr_t* __restrict source1_bitvec, const uintptr_t* 
 void BitvecAndNotCopy(const uintptr_t* __restrict source_bitvec, const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct, uintptr_t* target_bitvec) {
   // target_bitvec := source_bitvec AND (~exclude_bitvec)
 #ifdef __LP64__
-  VecUL* target_bitvvec = R_CAST(VecUL*, target_bitvec);
-  const VecUL* source_bitvvec = R_CAST(const VecUL*, source_bitvec);
-  const VecUL* exclude_bitvvec = R_CAST(const VecUL*, exclude_bitvec);
+  VecW* target_bitvvec = R_CAST(VecW*, target_bitvec);
+  const VecW* source_bitvvec = R_CAST(const VecW*, source_bitvec);
+  const VecW* exclude_bitvvec = R_CAST(const VecW*, exclude_bitvec);
   const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
   for (uintptr_t ulii = 0; ulii < full_vec_ct; ++ulii) {
     target_bitvvec[ulii] = source_bitvvec[ulii] & (~exclude_bitvvec[ulii]);
@@ -3357,8 +3405,8 @@ void BitvecAndNotCopy(const uintptr_t* __restrict source_bitvec, const uintptr_t
 void BitvecOr(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec) {
   // main_bitvec := main_bitvec OR arg_bitvec
 #ifdef __LP64__
-  VecUL* main_bitvvec_iter = R_CAST(VecUL*, main_bitvec);
-  const VecUL* arg_bitvvec_iter = R_CAST(const VecUL*, arg_bitvec);
+  VecW* main_bitvvec_iter = R_CAST(VecW*, main_bitvec);
+  const VecW* arg_bitvvec_iter = R_CAST(const VecW*, arg_bitvec);
   const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
   if (full_vec_ct & 1) {
     *main_bitvvec_iter++ |= (*arg_bitvvec_iter++);
@@ -3394,8 +3442,8 @@ void BitvecAndNot2(const uintptr_t* __restrict include_bitvec, uintptr_t word_ct
   // main_bitvec := (~main_bitvec) AND include_bitvec
   // this corresponds _mm_andnot() operand order
 #ifdef __LP64__
-  VecUL* main_bitvvec_iter = R_CAST(VecUL*, main_bitvec);
-  const VecUL* include_bitvvec_iter = R_CAST(const VecUL*, include_bitvec);
+  VecW* main_bitvvec_iter = R_CAST(VecW*, main_bitvec);
+  const VecW* include_bitvvec_iter = R_CAST(const VecW*, include_bitvec);
   const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
   if (full_vec_ct & 1) {
     *main_bitvvec_iter = (~(*main_bitvvec_iter)) & (*include_bitvvec_iter++);
@@ -3438,8 +3486,8 @@ void BitvecAndNot2(const uintptr_t* __restrict include_bitvec, uintptr_t word_ct
 void BitvecOrNot(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec) {
   // main_bitvec := main_bitvec OR (~arg_bitvec)
 #ifdef __LP64__
-  VecUL* main_bitvvec_iter = (VecUL*)main_bitvec;
-  const VecUL* arg_bitvvec_iter = (const VecUL*)arg_bitvec;
+  VecW* main_bitvvec_iter = (VecW*)main_bitvec;
+  const VecW* arg_bitvvec_iter = (const VecW*)arg_bitvec;
   const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
   if (full_vec_ct & 1) {
     // todo: verify the compiler isn't dumb here
@@ -3515,7 +3563,7 @@ CSINLINE2 uint32_t fmix32(uint32_t h) {
   return h;
 }
 
-uint32_t MurmurHash3Ui(const void* key, uint32_t len) {
+uint32_t MurmurHash3U32(const void* key, uint32_t len) {
   const uint8_t* data = S_CAST(const uint8_t*, key);
   const int32_t nblocks = len / 4;
 
@@ -3657,7 +3705,7 @@ BoolErr HtableGoodSizeAlloc(uint32_t item_ct, uintptr_t bytes_avail, uint32_t** 
 
 uint32_t PopulateStrboxHtable(const char* strbox, uintptr_t str_ct, uintptr_t max_str_blen, uint32_t str_htable_size, uint32_t* str_htable) {
   // may want subset_mask parameter later
-  SetAllUiArr(str_htable_size, str_htable);
+  SetAllU32Arr(str_htable_size, str_htable);
   const char* strbox_iter = strbox;
   for (uintptr_t str_idx = 0; str_idx < str_ct; ++str_idx) {
     const uint32_t slen = strlen(strbox_iter);
@@ -3698,7 +3746,7 @@ uint32_t PopulateStrboxHtable(const char* strbox, uintptr_t str_ct, uintptr_t ma
 /*
 uint32_t populate_strbox_subset_htable(const uintptr_t* __restrict subset_mask, const char* strbox, uintptr_t raw_str_ct, uintptr_t str_ct, uintptr_t max_str_blen, uint32_t str_htable_size, uint32_t* str_htable) {
   // may want subset_mask parameter later
-  SetAllUiArr(str_htable_size, str_htable);
+  SetAllU32Arr(str_htable_size, str_htable);
   uintptr_t str_uidx = 0;
   for (uintptr_t str_idx = 0; str_idx < str_ct; ++str_idx, ++str_uidx) {
     FindFirst1BitFromL(subset_mask, &str_uidx);
@@ -3977,7 +4025,7 @@ PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, cons
 
 PglErr CopySortStrboxSubset(const uintptr_t* __restrict subset_mask, const char* __restrict orig_strbox, uintptr_t str_ct, uintptr_t max_str_blen, uint32_t allow_dups, uint32_t collapse_idxs, uint32_t use_nsort, char** sorted_strbox_ptr, uint32_t** id_map_ptr) {
   // id_map on bottom because --indiv-sort frees *sorted_strbox_ptr
-  if (bigstack_alloc_ui(str_ct, id_map_ptr) ||
+  if (bigstack_alloc_u32(str_ct, id_map_ptr) ||
       bigstack_alloc_c(str_ct * max_str_blen, sorted_strbox_ptr)) {
     return kPglRetNomem;
   }
@@ -4179,8 +4227,8 @@ PglErr StringRangeListToBitarrAlloc(const char* header_line, const RangeList* ra
   int32_t* seen_idxs;
   char* sorted_ids;
   uint32_t* id_map;
-  if (bigstack_calloc_ul(token_ctl, bitarr_ptr) ||
-      bigstack_alloc_i(name_ct, &seen_idxs)) {
+  if (bigstack_calloc_w(token_ctl, bitarr_ptr) ||
+      bigstack_alloc_i32(name_ct, &seen_idxs)) {
     return kPglRetNomem;
   }
   // kludge to use CopySortStrboxSubset()
@@ -4188,7 +4236,7 @@ PglErr StringRangeListToBitarrAlloc(const char* header_line, const RangeList* ra
   if (CopySortStrboxSubset(R_CAST(uintptr_t*, seen_idxs), range_list_ptr->names, name_ct, range_list_ptr->name_max_blen, 0, 0, 0, &sorted_ids, &id_map)) {
     return kPglRetNomem;
   }
-  SetAllIArr(name_ct, seen_idxs);
+  SetAllI32Arr(name_ct, seen_idxs);
   PglErr reterr = StringRangeListToBitarr(header_line, range_list_ptr, sorted_ids, id_map, range_list_flag, file_descrip, token_ct, fixed_len, comma_delim, *bitarr_ptr, seen_idxs);
   BigstackReset(seen_idxs);
   return reterr;
@@ -4217,22 +4265,22 @@ uintptr_t PopcountBitRange(const uintptr_t* bitvec, uintptr_t start_idx, uintptr
 }
 
 #ifdef USE_AVX2
-uintptr_t PopcountVecsAvx2Intersect(const VecUL* __restrict vvec1_iter, const VecUL* __restrict vvec2_iter, uintptr_t vec_ct) {
+uintptr_t PopcountVecsAvx2Intersect(const VecW* __restrict vvec1_iter, const VecW* __restrict vvec2_iter, uintptr_t vec_ct) {
   // See popcnt_avx2() in libpopcnt.  vec_ct must be a multiple of 16.
-  VecUL cnt = vecul_setzero();
-  VecUL ones = vecul_setzero();
-  VecUL twos = vecul_setzero();
-  VecUL fours = vecul_setzero();
-  VecUL eights = vecul_setzero();
+  VecW cnt = vecw_setzero();
+  VecW ones = vecw_setzero();
+  VecW twos = vecw_setzero();
+  VecW fours = vecw_setzero();
+  VecW eights = vecw_setzero();
   for (uintptr_t vec_idx = 0; vec_idx < vec_ct; vec_idx += 16) {
-    VecUL twos_a = Csa256(vvec1_iter[vec_idx + 0] & vvec2_iter[vec_idx + 0], vvec1_iter[vec_idx + 1] & vvec2_iter[vec_idx + 1], &ones);
-    VecUL twos_b = Csa256(vvec1_iter[vec_idx + 2] & vvec2_iter[vec_idx + 2], vvec1_iter[vec_idx + 3] & vvec2_iter[vec_idx + 3], &ones);
-    VecUL fours_a = Csa256(twos_a, twos_b, &twos);
+    VecW twos_a = Csa256(vvec1_iter[vec_idx + 0] & vvec2_iter[vec_idx + 0], vvec1_iter[vec_idx + 1] & vvec2_iter[vec_idx + 1], &ones);
+    VecW twos_b = Csa256(vvec1_iter[vec_idx + 2] & vvec2_iter[vec_idx + 2], vvec1_iter[vec_idx + 3] & vvec2_iter[vec_idx + 3], &ones);
+    VecW fours_a = Csa256(twos_a, twos_b, &twos);
 
     twos_a = Csa256(vvec1_iter[vec_idx + 4] & vvec2_iter[vec_idx + 4], vvec1_iter[vec_idx + 5] & vvec2_iter[vec_idx + 5], &ones);
     twos_b = Csa256(vvec1_iter[vec_idx + 6] & vvec2_iter[vec_idx + 6], vvec1_iter[vec_idx + 7] & vvec2_iter[vec_idx + 7], &ones);
-    VecUL fours_b = Csa256(twos_a, twos_b, &twos);
-    const VecUL eights_a = Csa256(fours_a, fours_b, &fours);
+    VecW fours_b = Csa256(twos_a, twos_b, &twos);
+    const VecW eights_a = Csa256(fours_a, fours_b, &fours);
 
     twos_a = Csa256(vvec1_iter[vec_idx + 8] & vvec2_iter[vec_idx + 8], vvec1_iter[vec_idx + 9] & vvec2_iter[vec_idx + 9], &ones);
     twos_b = Csa256(vvec1_iter[vec_idx + 10] & vvec2_iter[vec_idx + 10], vvec1_iter[vec_idx + 11] & vvec2_iter[vec_idx + 11], &ones);
@@ -4241,14 +4289,14 @@ uintptr_t PopcountVecsAvx2Intersect(const VecUL* __restrict vvec1_iter, const Ve
     twos_a = Csa256(vvec1_iter[vec_idx + 12] & vvec2_iter[vec_idx + 12], vvec1_iter[vec_idx + 13] & vvec2_iter[vec_idx + 13], &ones);
     twos_b = Csa256(vvec1_iter[vec_idx + 14] & vvec2_iter[vec_idx + 14], vvec1_iter[vec_idx + 15] & vvec2_iter[vec_idx + 15], &ones);
     fours_b = Csa256(twos_a, twos_b, &twos);
-    const VecUL eights_b = Csa256(fours_a, fours_b, &fours);
-    const VecUL sixteens = Csa256(eights_a, eights_b, &eights);
+    const VecW eights_b = Csa256(fours_a, fours_b, &fours);
+    const VecW sixteens = Csa256(eights_a, eights_b, &eights);
     cnt = cnt + PopcountVecAvx2(sixteens);
   }
-  cnt = vecul_slli(cnt, 4);
-  cnt = cnt + vecul_slli(PopcountVecAvx2(eights), 3);
-  cnt = cnt + vecul_slli(PopcountVecAvx2(fours), 2);
-  cnt = cnt + vecul_slli(PopcountVecAvx2(twos), 1);
+  cnt = vecw_slli(cnt, 4);
+  cnt = cnt + vecw_slli(PopcountVecAvx2(eights), 3);
+  cnt = cnt + vecw_slli(PopcountVecAvx2(fours), 2);
+  cnt = cnt + vecw_slli(PopcountVecAvx2(twos), 1);
   cnt = cnt + PopcountVecAvx2(ones);
   return Hsum64(cnt);
 }
@@ -4258,7 +4306,7 @@ uintptr_t PopcountWordsIntersect(const uintptr_t* __restrict bitvec1_iter, const
   const uintptr_t block_ct = word_ct / (16 * kWordsPerVec);
   uintptr_t tot = 0;
   if (block_ct) {
-    tot = PopcountVecsAvx2Intersect(R_CAST(const VecUL*, bitvec1_iter), R_CAST(const VecUL*, bitvec2_iter), block_ct * 16);
+    tot = PopcountVecsAvx2Intersect(R_CAST(const VecW*, bitvec1_iter), R_CAST(const VecW*, bitvec2_iter), block_ct * 16);
     bitvec1_iter = &(bitvec1_iter[block_ct * (16 * kWordsPerVec)]);
     bitvec2_iter = &(bitvec2_iter[block_ct * (16 * kWordsPerVec)]);
   }
@@ -4268,18 +4316,18 @@ uintptr_t PopcountWordsIntersect(const uintptr_t* __restrict bitvec1_iter, const
   return tot;
 }
 #else  // !USE_AVX2
-static inline uintptr_t PopcountVecsNoAvx2Intersect(const VecUL* __restrict vvec1_iter, const VecUL* __restrict vvec2_iter, uintptr_t vec_ct) {
+static inline uintptr_t PopcountVecsNoAvx2Intersect(const VecW* __restrict vvec1_iter, const VecW* __restrict vvec2_iter, uintptr_t vec_ct) {
   // popcounts vvec1 AND vvec2[0..(ct-1)].  ct is a multiple of 3.
   assert(!(vec_ct % 3));
-  const VecUL m1 = VCONST_UL(kMask5555);
-  const VecUL m2 = VCONST_UL(kMask3333);
-  const VecUL m4 = VCONST_UL(kMask0F0F);
-  const VecUL m8 = VCONST_UL(kMask00FF);
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW m2 = VCONST_W(kMask3333);
+  const VecW m4 = VCONST_W(kMask0F0F);
+  const VecW m8 = VCONST_W(kMask00FF);
   uintptr_t tot = 0;
   while (1) {
     UniVec acc;
-    acc.vi = vecul_setzero();
-    const VecUL* vvec1_stop;
+    acc.vw = vecw_setzero();
+    const VecW* vvec1_stop;
     if (vec_ct < 30) {
       if (!vec_ct) {
         return tot;
@@ -4291,20 +4339,20 @@ static inline uintptr_t PopcountVecsNoAvx2Intersect(const VecUL* __restrict vvec
       vec_ct -= 30;
     }
     do {
-      VecUL count1 = (*vvec1_iter++) & (*vvec2_iter++);
-      VecUL count2 = (*vvec1_iter++) & (*vvec2_iter++);
-      VecUL half1 = (*vvec1_iter++) & (*vvec2_iter++);
-      const VecUL half2 = vecul_srli(half1, 1) & m1;
+      VecW count1 = (*vvec1_iter++) & (*vvec2_iter++);
+      VecW count2 = (*vvec1_iter++) & (*vvec2_iter++);
+      VecW half1 = (*vvec1_iter++) & (*vvec2_iter++);
+      const VecW half2 = vecw_srli(half1, 1) & m1;
       half1 = half1 & m1;
-      count1 = count1 - (vecul_srli(count1, 1) & m1);
-      count2 = count2 - (vecul_srli(count2, 1) & m1);
+      count1 = count1 - (vecw_srli(count1, 1) & m1);
+      count2 = count2 - (vecw_srli(count2, 1) & m1);
       count1 = count1 + half1;
       count2 = count2 + half2;
-      count1 = (count1 & m2) + (vecul_srli(count1, 2) & m2);
-      count1 = count1 + (count2 & m2) + (vecul_srli(count2, 2) & m2);
-      acc.vi = acc.vi + (count1 & m4) + (vecul_srli(count1, 4) & m4);
+      count1 = (count1 & m2) + (vecw_srli(count1, 2) & m2);
+      count1 = count1 + (count2 & m2) + (vecw_srli(count2, 2) & m2);
+      acc.vw = acc.vw + (count1 & m4) + (vecw_srli(count1, 4) & m4);
     } while (vvec1_iter < vvec1_stop);
-    acc.vi = (acc.vi & m8) + (vecul_srli(acc.vi, 8) & m8);
+    acc.vw = (acc.vw & m8) + (vecw_srli(acc.vw, 8) & m8);
     tot += UniVecHsum16(acc);
   }
 }
@@ -4313,7 +4361,7 @@ uintptr_t PopcountWordsIntersect(const uintptr_t* __restrict bitvec1_iter, const
   uintptr_t tot = 0;
   const uintptr_t* bitvec1_end = &(bitvec1_iter[word_ct]);
   const uintptr_t trivec_ct = word_ct / (3 * kWordsPerVec);
-  tot += PopcountVecsNoAvx2Intersect(R_CAST(const VecUL*, bitvec1_iter), R_CAST(const VecUL*, bitvec2_iter), trivec_ct * 3);
+  tot += PopcountVecsNoAvx2Intersect(R_CAST(const VecW*, bitvec1_iter), R_CAST(const VecW*, bitvec2_iter), trivec_ct * 3);
   bitvec1_iter = &(bitvec1_iter[trivec_ct * (3 * kWordsPerVec)]);
   bitvec2_iter = &(bitvec2_iter[trivec_ct * (3 * kWordsPerVec)]);
   while (bitvec1_iter < bitvec1_end) {
@@ -4340,12 +4388,12 @@ void PopcountWordsIntersect3val(const uintptr_t* __restrict bitvec1, const uintp
   *popcount_intersect_ptr = ct3;
 }
 #else
-static inline void PopcountVecsNoSse42Intersect3val(const VecUL* __restrict vvec1_iter, const VecUL* __restrict vvec2_iter, uint32_t vec_ct, uint32_t* __restrict popcount1_ptr, uint32_t* popcount2_ptr, uint32_t* __restrict popcount_intersect_ptr) {
+static inline void PopcountVecsNoSse42Intersect3val(const VecW* __restrict vvec1_iter, const VecW* __restrict vvec2_iter, uint32_t vec_ct, uint32_t* __restrict popcount1_ptr, uint32_t* popcount2_ptr, uint32_t* __restrict popcount_intersect_ptr) {
   // ct must be a multiple of 3.
   assert(!(vec_ct % 3));
-  const VecUL m1 = VCONST_UL(kMask5555);
-  const VecUL m2 = VCONST_UL(kMask3333);
-  const VecUL m4 = VCONST_UL(kMask0F0F);
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW m2 = VCONST_W(kMask3333);
+  const VecW m4 = VCONST_W(kMask0F0F);
   uint32_t ct1 = 0;
   uint32_t ct2 = 0;
   uint32_t ct3 = 0;
@@ -4353,10 +4401,10 @@ static inline void PopcountVecsNoSse42Intersect3val(const VecUL* __restrict vvec
     UniVec acc1;
     UniVec acc2;
     UniVec acc3;
-    acc1.vi = vecul_setzero();
-    acc2.vi = vecul_setzero();
-    acc3.vi = vecul_setzero();
-    const VecUL* vvec1_stop;
+    acc1.vw = vecw_setzero();
+    acc2.vw = vecw_setzero();
+    acc3.vw = vecw_setzero();
+    const VecW* vvec1_stop;
     if (vec_ct < 30) {
       if (!vec_ct) {
         *popcount1_ptr = ct1;
@@ -4371,25 +4419,25 @@ static inline void PopcountVecsNoSse42Intersect3val(const VecUL* __restrict vvec
       vec_ct -= 30;
     }
     do {
-      VecUL count1a = *vvec1_iter++;
-      VecUL count2a = *vvec2_iter++;
-      VecUL count3a = count1a & count2a;
-      VecUL count1b = *vvec1_iter++;
-      VecUL count2b = *vvec2_iter++;
-      VecUL count3b = count1b & count2b;
-      VecUL half1a = *vvec1_iter++;
-      VecUL half2a = *vvec2_iter++;
-      const VecUL half1b = vecul_srli(half1a, 1) & m1;
-      const VecUL half2b = vecul_srli(half2a, 1) & m1;
+      VecW count1a = *vvec1_iter++;
+      VecW count2a = *vvec2_iter++;
+      VecW count3a = count1a & count2a;
+      VecW count1b = *vvec1_iter++;
+      VecW count2b = *vvec2_iter++;
+      VecW count3b = count1b & count2b;
+      VecW half1a = *vvec1_iter++;
+      VecW half2a = *vvec2_iter++;
+      const VecW half1b = vecw_srli(half1a, 1) & m1;
+      const VecW half2b = vecw_srli(half2a, 1) & m1;
       half1a = half1a & m1;
       half2a = half2a & m1;
 
-      count1a = count1a - (vecul_srli(count1a, 1) & m1);
-      count2a = count2a - (vecul_srli(count2a, 1) & m1);
-      count3a = count3a - (vecul_srli(count3a, 1) & m1);
-      count1b = count1b - (vecul_srli(count1b, 1) & m1);
-      count2b = count2b - (vecul_srli(count2b, 1) & m1);
-      count3b = count3b - (vecul_srli(count3b, 1) & m1);
+      count1a = count1a - (vecw_srli(count1a, 1) & m1);
+      count2a = count2a - (vecw_srli(count2a, 1) & m1);
+      count3a = count3a - (vecw_srli(count3a, 1) & m1);
+      count1b = count1b - (vecw_srli(count1b, 1) & m1);
+      count2b = count2b - (vecw_srli(count2b, 1) & m1);
+      count3b = count3b - (vecw_srli(count3b, 1) & m1);
       count1a = count1a + half1a;
       count2a = count2a + half2a;
       count3a = count3a + (half1a & half2a);
@@ -4397,20 +4445,20 @@ static inline void PopcountVecsNoSse42Intersect3val(const VecUL* __restrict vvec
       count2b = count2b + half2b;
       count3b = count3b + (half1b & half2b);
 
-      count1a = (count1a & m2) + (vecul_srli(count1a, 2) & m2);
-      count2a = (count2a & m2) + (vecul_srli(count2a, 2) & m2);
-      count3a = (count3a & m2) + (vecul_srli(count3a, 2) & m2);
-      count1a = count1a + (count1b & m2) + (vecul_srli(count1b, 2) & m2);
-      count2a = count2a + (count2b & m2) + (vecul_srli(count2b, 2) & m2);
-      count3a = count3a + (count3b & m2) + (vecul_srli(count3b, 2) & m2);
-      acc1.vi = acc1.vi + (count1a & m4) + (vecul_srli(count1a, 4) & m4);
-      acc2.vi = acc2.vi + (count2a & m4) + (vecul_srli(count2a, 4) & m4);
-      acc3.vi = acc3.vi + (count3a & m4) + (vecul_srli(count3a, 4) & m4);
+      count1a = (count1a & m2) + (vecw_srli(count1a, 2) & m2);
+      count2a = (count2a & m2) + (vecw_srli(count2a, 2) & m2);
+      count3a = (count3a & m2) + (vecw_srli(count3a, 2) & m2);
+      count1a = count1a + (count1b & m2) + (vecw_srli(count1b, 2) & m2);
+      count2a = count2a + (count2b & m2) + (vecw_srli(count2b, 2) & m2);
+      count3a = count3a + (count3b & m2) + (vecw_srli(count3b, 2) & m2);
+      acc1.vw = acc1.vw + (count1a & m4) + (vecw_srli(count1a, 4) & m4);
+      acc2.vw = acc2.vw + (count2a & m4) + (vecw_srli(count2a, 4) & m4);
+      acc3.vw = acc3.vw + (count3a & m4) + (vecw_srli(count3a, 4) & m4);
     } while (vvec1_iter < vvec1_stop);
-    const VecUL m8 = VCONST_UL(kMask00FF);
-    acc1.vi = (acc1.vi & m8) + (vecul_srli(acc1.vi, 8) & m8);
-    acc2.vi = (acc2.vi & m8) + (vecul_srli(acc2.vi, 8) & m8);
-    acc3.vi = (acc3.vi & m8) + (vecul_srli(acc3.vi, 8) & m8);
+    const VecW m8 = VCONST_W(kMask00FF);
+    acc1.vw = (acc1.vw & m8) + (vecw_srli(acc1.vw, 8) & m8);
+    acc2.vw = (acc2.vw & m8) + (vecw_srli(acc2.vw, 8) & m8);
+    acc3.vw = (acc3.vw & m8) + (vecw_srli(acc3.vw, 8) & m8);
     ct1 += UniVecHsum16(acc1);
     ct2 += UniVecHsum16(acc2);
     ct3 += UniVecHsum16(acc3);
@@ -4422,7 +4470,7 @@ void PopcountWordsIntersect3val(const uintptr_t* __restrict bitvec1, const uintp
   uint32_t ct1;
   uint32_t ct2;
   uint32_t ct3;
-  PopcountVecsNoSse42Intersect3val(R_CAST(const VecUL*, bitvec1), R_CAST(const VecUL*, bitvec2), trivec_ct * 3, &ct1, &ct2, &ct3);
+  PopcountVecsNoSse42Intersect3val(R_CAST(const VecW*, bitvec1), R_CAST(const VecW*, bitvec2), trivec_ct * 3, &ct1, &ct2, &ct3);
   const uint32_t words_consumed = trivec_ct * (3 * kWordsPerVec);
   bitvec1 = &(bitvec1[words_consumed]);
   bitvec2 = &(bitvec2[words_consumed]);
@@ -4526,7 +4574,7 @@ uintptr_t FindNth1BitFrom(const uintptr_t* bitvec, uintptr_t cur_pos, uintptr_t 
   uintptr_t uljj;
   uintptr_t ulkk;
 #ifdef __LP64__
-  const VecUL* vptr;
+  const VecW* vptr;
   assert(VecIsAligned(bitvec));
 #endif
   if (ulii) {
@@ -4537,7 +4585,7 @@ uintptr_t FindNth1BitFrom(const uintptr_t* bitvec, uintptr_t cur_pos, uintptr_t 
       while (--forward_ct) {
         uljj &= uljj - 1;
       }
-      ulkk = ctzlu(uljj);
+      ulkk = ctzw(uljj);
       return widx * kBitsPerWord + ulii + ulkk;
     }
     forward_ct -= ulkk;
@@ -4556,7 +4604,7 @@ uintptr_t FindNth1BitFrom(const uintptr_t* bitvec, uintptr_t cur_pos, uintptr_t 
     ++widx;
     ++bptr;
   }
-  vptr = R_CAST(const VecUL*, bptr);
+  vptr = R_CAST(const VecW*, bptr);
 #ifdef USE_AVX2
   while (forward_ct > kBitsPerWord * (16 * kWordsPerVec)) {
     uljj = ((forward_ct - 1) / (kBitsPerWord * (16 * kWordsPerVec))) * 16;
@@ -4625,7 +4673,7 @@ void ComputePartitionAligned(const uintptr_t* variant_include, uint32_t orig_thr
 
   assert(cur_variant_ct);
   const uint32_t variant_idx_end = cur_variant_idx + cur_variant_ct;
-  const uint32_t log2_align = __builtin_ctz(alignment);
+  const uint32_t log2_align = ctzu32(alignment);
   const uint32_t leading_idx_ct = cur_variant_idx % alignment;
   const uint32_t trailing_idx_ct = (-variant_idx_end) % alignment;
   const uint32_t block_ct = (cur_variant_ct + leading_idx_ct + trailing_idx_ct) >> log2_align;
@@ -5208,7 +5256,7 @@ THREAD_FUNC_DECL CalcIdHashThread(void* arg) {
   } else {
     fill_end = id_htable_size;
   }
-  SetAllUiArr(fill_end - fill_start, &(g_id_htable[fill_start]));
+  SetAllU32Arr(fill_end - fill_start, &(g_id_htable[fill_start]));
 
   const uint32_t item_ct = g_item_ct;
   const uint32_t item_idx_end = (item_ct * (S_CAST(uint64_t, tidx) + 1)) / calc_thread_ct;
@@ -5246,7 +5294,7 @@ PglErr PopulateIdHtableMt(const uintptr_t* subset_mask, const char* const* item_
         thread_ct = 1;
       }
     }
-    if (bigstack_end_alloc_ui(item_ct, &g_item_id_hashes)) {
+    if (bigstack_end_alloc_u32(item_ct, &g_item_id_hashes)) {
       goto PopulateIdHtableMt_ret_NOMEM;
     }
     g_subset_mask = subset_mask;
@@ -6569,8 +6617,8 @@ PglErr SearchHeaderLine(const char* header_line_iter, const char* const* search_
     uint32_t* priority_vals;
     uint64_t* cols_and_types;
     if (bigstack_alloc_c(search_term_ct * max_blen, &merged_strbox) ||
-        bigstack_alloc_ui(search_term_ct, &id_map) ||
-        bigstack_alloc_ui(search_col_ct, &priority_vals) ||
+        bigstack_alloc_u32(search_term_ct, &id_map) ||
+        bigstack_alloc_u32(search_col_ct, &priority_vals) ||
         bigstack_alloc_ull(search_col_ct, &cols_and_types)) {
       goto SearchHeaderLine_ret_NOMEM;
     }
@@ -6595,7 +6643,7 @@ PglErr SearchHeaderLine(const char* header_line_iter, const char* const* search_
       goto SearchHeaderLine_ret_INVALID_CMDLINE;
     }
 
-    SetAllUiArr(search_col_ct, priority_vals);
+    SetAllU32Arr(search_col_ct, priority_vals);
     SetAllU64Arr(search_col_ct, cols_and_types);
     uint32_t col_idx = 0;
     while (1) {
@@ -6798,8 +6846,8 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
 }
 
 
-CXXCONST_CP memrchr_expected_far(const char* str_start, char needle, uintptr_t slen) {
 #ifdef __LP64__
+CXXCONST_CP memrchr_expected_far(const char* str_start, char needle, uintptr_t slen) {
   const VecC vvec_all_needle = vecc_set1(needle);
   const uintptr_t str_end_addr = R_CAST(uintptr_t, str_start) + slen;
   const uint32_t trailing_byte_ct = str_end_addr % kBytesPerVec;
@@ -6823,7 +6871,7 @@ CXXCONST_CP memrchr_expected_far(const char* str_start, char needle, uintptr_t s
       }
     }
     if (matching_bytes) {
-      const uint32_t byte_offset_in_vec = BitScanReverse(matching_bytes);
+      const uint32_t byte_offset_in_vec = bsru32(matching_bytes);
       return &(R_CAST(CXXCONST_CP, str_rev_viter)[byte_offset_in_vec]);
     }
   }
@@ -6839,10 +6887,10 @@ CXXCONST_CP memrchr_expected_far(const char* str_start, char needle, uintptr_t s
     if (matching_bytes) {
       const uint32_t matching_bytes1 = vecc_movemask(match_vvec1);
       if (matching_bytes1) {
-        const uint32_t byte_offset_in_vec = BitScanReverse(matching_bytes1);
+        const uint32_t byte_offset_in_vec = bsru32(matching_bytes1);
         return &(R_CAST(CXXCONST_CP, &(str_rev_viter[1]))[byte_offset_in_vec]);
       }
-      const uint32_t byte_offset_in_vec = BitScanReverse(matching_bytes);
+      const uint32_t byte_offset_in_vec = bsru32(matching_bytes);
       return &(R_CAST(CXXCONST_CP, str_rev_viter)[byte_offset_in_vec]);
     }
   }
@@ -6855,27 +6903,15 @@ CXXCONST_CP memrchr_expected_far(const char* str_start, char needle, uintptr_t s
     const VecC match_vvec = (*str_rev_viter == vvec_all_needle);
     const uint32_t matching_bytes = vecc_movemask(match_vvec);
     if (matching_bytes) {
-      const uint32_t byte_offset_in_vec = BitScanReverse(matching_bytes);
+      const uint32_t byte_offset_in_vec = bsru32(matching_bytes);
       if (byte_offset_in_vec + remaining_byte_ct_underflow < kBytesPerVec) {
         return nullptr;
       }
       return &(R_CAST(CXXCONST_CP, str_rev_viter)[byte_offset_in_vec]);
     }
   }
-#else  // !__LP64__
-#  ifdef _GNU_SOURCE
-  return S_CAST(CXXCONST_CP, memrchr(str_start, ctou32(needle), slen));
-#  else
-  // Could check one word at a time for not-that-small slen.
-  for (uintptr_t pos = slen; pos; ) {
-    if (str_start[--pos] == needle) {
-      return S_CAST(CXXCONST_CP, &(str_start[pos]));
-    }
-  }
-  return nullptr;
-#  endif
-#endif
 }
+#endif  // __LP64__
 
 #ifdef __cplusplus
 }  // namespace plink2

@@ -68,7 +68,7 @@ PglErr WriteMapOrBim(const char* outname, const uintptr_t* variant_include, cons
         cswritep = dtoa_g_p8(variant_cms[variant_uidx], cswritep);
       }
       *cswritep++ = delim;
-      cswritep = uint32toa(variant_bps[variant_uidx], cswritep);
+      cswritep = u32toa(variant_bps[variant_uidx], cswritep);
       if (max_allele_slen) {
         *cswritep++ = delim;
         const uintptr_t variant_allele_idx_base = variant_allele_idxs? variant_allele_idxs[variant_uidx] : (variant_uidx * 2);
@@ -222,7 +222,7 @@ void AppendChrsetLine(const ChrInfo* cip, char** write_iter_ptr) {
   char* write_iter = strcpya(*write_iter_ptr, "##chrSet=<");
   if (!(cip->haploid_mask[0] & 1)) {
     write_iter = strcpya(write_iter, "autosomePairCt=");
-    write_iter = uint32toa(cip->autosome_ct, write_iter);
+    write_iter = u32toa(cip->autosome_ct, write_iter);
     if (cip->xymt_codes[kChrOffsetX] >= 0) {
       write_iter = strcpya(write_iter, ",X");
     }
@@ -243,7 +243,7 @@ void AppendChrsetLine(const ChrInfo* cip, char** write_iter_ptr) {
     }
   } else {
     write_iter = strcpya(write_iter, "haploidAutosomeCt=");
-    write_iter = uint32toa(cip->autosome_ct, write_iter);
+    write_iter = u32toa(cip->autosome_ct, write_iter);
   }
   *write_iter++ = '>';
   *write_iter_ptr = write_iter;
@@ -265,7 +265,7 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
 
     uintptr_t* allele_include;
     if (bigstack_alloc_c(max_chr_blen, &chr_buf) ||
-        bigstack_alloc_ul(BitCtToWordCt(kPglMaxAltAlleleCt), &allele_include)) {
+        bigstack_alloc_w(BitCtToWordCt(kPglMaxAltAlleleCt), &allele_include)) {
       goto WritePvar_ret_NOMEM;
     }
     uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen + max_filter_slen + info_reload_slen;
@@ -398,7 +398,7 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
         chr_buf_blen = 1 + S_CAST(uintptr_t, chr_name_end - chr_buf);
       }
       cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
-      cswritep = uint32toa_x(variant_bps[variant_uidx], '\t', cswritep);
+      cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
       cswritep = strcpyax(cswritep, variant_ids[variant_uidx], '\t');
       uintptr_t variant_allele_idx_base;
       if (!variant_allele_idxs) {
@@ -979,7 +979,7 @@ void UnpackAndResortHphase(const uintptr_t* __restrict all_hets, const uintptr_t
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
   uintptr_t phaseraw_word = *phaseraw_iter++;
   uint32_t read_idx_lowbits = 1;
-  ZeroUlArr(sample_ctl, phaseinfo);
+  ZeroWArr(sample_ctl, phaseinfo);
   if (!(phaseraw_word & 1)) {
     // phase always present
     *phasepresent_ptr = nullptr;
@@ -998,7 +998,7 @@ void UnpackAndResortHphase(const uintptr_t* __restrict all_hets, const uintptr_t
       read_idx_lowbits = read_idx_lowbits_end % kBitsPerWord;
       if (!sample_include) {
         while (new_phasepresent_word) {
-          const uint32_t sample_uidx_lowbits = ctzlu(new_phasepresent_word);
+          const uint32_t sample_uidx_lowbits = ctzw(new_phasepresent_word);
           if (tmp_phaseinfo_input_word & 1) {
             SetBit(old_sample_idx_to_new_iter[sample_uidx_lowbits], phaseinfo);
           }
@@ -1008,7 +1008,7 @@ void UnpackAndResortHphase(const uintptr_t* __restrict all_hets, const uintptr_t
       } else {
         uintptr_t masked_phasepresent_word = new_phasepresent_word & sample_include[widx];
         while (masked_phasepresent_word) {
-          const uint32_t sample_uidx_lowbits = ctzlu(masked_phasepresent_word);
+          const uint32_t sample_uidx_lowbits = ctzw(masked_phasepresent_word);
           const uintptr_t lowmask = (k1LU << sample_uidx_lowbits) - k1LU;
           if ((tmp_phaseinfo_input_word >> PopcountWord(new_phasepresent_word & lowmask)) & 1) {
             SetBit(old_sample_idx_to_new_iter[sample_uidx_lowbits], phaseinfo);
@@ -1024,7 +1024,7 @@ void UnpackAndResortHphase(const uintptr_t* __restrict all_hets, const uintptr_t
   const uintptr_t* phaseinfo_read_iter = &(phaseraw[1 + (raw_sample_ct / kBitsPerWord)]);
   uintptr_t phaseinfo_read_word = *phaseinfo_read_iter++;
   uint32_t phaseinfo_read_idx_lowbits = 0;
-  ZeroUlArr(sample_ctl, phasepresent);
+  ZeroWArr(sample_ctl, phasepresent);
   for (uint32_t widx = 0; widx < raw_sample_ctl; ++widx) {
     uintptr_t geno_hets = all_hets[widx];
     if (geno_hets) {
@@ -1064,7 +1064,7 @@ void UnpackAndResortHphase(const uintptr_t* __restrict all_hets, const uintptr_t
         if (!sample_include) {
           while (1) {
             if (tmp_phasepresent_input_word & 1) {
-              const uint32_t new_sample_idx = old_sample_idx_to_new_iter[ctzlu(geno_hets)];
+              const uint32_t new_sample_idx = old_sample_idx_to_new_iter[ctzw(geno_hets)];
               SetBit(new_sample_idx, phasepresent);
               if (tmp_phaseinfo_input_word & 1) {
                 SetBit(new_sample_idx, phaseinfo);
@@ -1081,7 +1081,7 @@ void UnpackAndResortHphase(const uintptr_t* __restrict all_hets, const uintptr_t
           const uintptr_t sample_include_word = sample_include[widx];
           while (1) {
             if (tmp_phasepresent_input_word & 1) {
-              const uint32_t sample_uidx_lowbits = ctzlu(geno_hets);
+              const uint32_t sample_uidx_lowbits = ctzw(geno_hets);
               if ((sample_include_word >> sample_uidx_lowbits) & 1) {
                 const uint32_t new_sample_idx = old_sample_idx_to_new_iter[sample_uidx_lowbits];
                 SetBit(new_sample_idx, phasepresent);
@@ -1140,7 +1140,7 @@ void CopyAndResortDosage(const uintptr_t* __restrict dosageraw, const uint32_t* 
   const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
   FillCumulativePopcounts(read_dosagepresent, raw_sample_ctl, cumulative_popcount_buf);
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
-  ZeroUlArr(sample_ctl, write_dosagepresent);
+  ZeroWArr(sample_ctl, write_dosagepresent);
   Dosage* write_dosagevals_iter = write_dosagevals;
   for (uint32_t new_sample_idx = 0; new_sample_idx < sample_ct; ++new_sample_idx) {
     const uint32_t old_sample_idx = new_sample_idx_to_old[new_sample_idx];
@@ -1528,10 +1528,10 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     g_mach_r2_vals = mach_r2_vals;
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
     const uint32_t raw_sample_ctv = BitCtToVecCt(raw_sample_ct);
-    if (bigstack_alloc_ul(raw_sample_ctv * kWordsPerVec, &g_sample_include_interleaved_vec) ||
-        bigstack_alloc_ui(raw_sample_ctl, &g_sample_include_cumulative_popcounts) ||
-        bigstack_alloc_ul(raw_sample_ctv * kWordsPerVec, &g_sex_male_interleaved_vec) ||
-        bigstack_alloc_ui(raw_sample_ctl, &g_sex_male_cumulative_popcounts)) {
+    if (bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &g_sample_include_interleaved_vec) ||
+        bigstack_alloc_u32(raw_sample_ctl, &g_sample_include_cumulative_popcounts) ||
+        bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &g_sex_male_interleaved_vec) ||
+        bigstack_alloc_u32(raw_sample_ctl, &g_sex_male_cumulative_popcounts)) {
       goto LoadAlleleAndGenoCounts_ret_NOMEM;
     }
     FillInterleavedMaskVec(g_sample_include, raw_sample_ctv, g_sample_include_interleaved_vec);
@@ -1541,7 +1541,7 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     } else {
       // no nonfounder counts required
       uintptr_t* new_sex_male;
-      if (bigstack_alloc_ul(raw_sample_ctl, &new_sex_male)) {
+      if (bigstack_alloc_w(raw_sample_ctl, &new_sex_male)) {
         goto LoadAlleleAndGenoCounts_ret_NOMEM;
       }
       for (uint32_t widx = 0; widx < raw_sample_ctl; ++widx) {
@@ -1559,8 +1559,8 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     g_nosex_interleaved_vec = nullptr;
     uintptr_t* nosex_buf = nullptr;
     if (nosex_ct) {
-      if (bigstack_end_alloc_ul(raw_sample_ctl, &nosex_buf) ||
-          bigstack_alloc_ul(raw_sample_ctv * kWordsPerVec, &g_nosex_interleaved_vec)) {
+      if (bigstack_end_alloc_w(raw_sample_ctl, &nosex_buf) ||
+          bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &g_nosex_interleaved_vec)) {
         goto LoadAlleleAndGenoCounts_ret_NOMEM;
       }
       for (uint32_t widx = 0; widx < raw_sample_ctl; ++widx) {
@@ -1592,11 +1592,11 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     if (two_subsets_required) {
       if (founder_ct) {
         g_founder_info = founder_info;
-        if (bigstack_alloc_ul(raw_sample_ctv * kWordsPerVec, &g_founder_info_interleaved_vec) ||
-            bigstack_alloc_ui(raw_sample_ctl, &g_founder_info_cumulative_popcounts) ||
-            bigstack_alloc_ul(raw_sample_ctl, &g_founder_male) ||
-            bigstack_alloc_ul(raw_sample_ctv * kWordsPerVec, &g_founder_male_interleaved_vec) ||
-            bigstack_alloc_ui(raw_sample_ctl, &g_founder_male_cumulative_popcounts)) {
+        if (bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &g_founder_info_interleaved_vec) ||
+            bigstack_alloc_u32(raw_sample_ctl, &g_founder_info_cumulative_popcounts) ||
+            bigstack_alloc_w(raw_sample_ctl, &g_founder_male) ||
+            bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &g_founder_male_interleaved_vec) ||
+            bigstack_alloc_u32(raw_sample_ctl, &g_founder_male_cumulative_popcounts)) {
           goto LoadAlleleAndGenoCounts_ret_NOMEM;
         }
         FillInterleavedMaskVec(founder_info, raw_sample_ctv, g_founder_info_interleaved_vec);
@@ -1616,7 +1616,7 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
           // caller currently responsible for ensuring that when
           // founder_nosex_ct is zero, founder_x_nosex_geno_cts ==
           // nullptr
-          if (bigstack_alloc_ul(raw_sample_ctv * kWordsPerVec, &g_founder_nosex_interleaved_vec)) {
+          if (bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &g_founder_nosex_interleaved_vec)) {
             goto LoadAlleleAndGenoCounts_ret_NOMEM;
           }
           for (uint32_t widx = 0; widx < raw_sample_ctl; ++widx) {
@@ -1633,7 +1633,7 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
           ZeroU64Arr(variant_allele_idxs? variant_allele_idxs[raw_variant_ct] : (2 * raw_variant_ct), founder_allele_dosages);
         }
         if (founder_raw_geno_cts) {
-          ZeroUiArr((3 * k1LU) * raw_variant_ct, founder_raw_geno_cts);
+          ZeroU32Arr((3 * k1LU) * raw_variant_ct, founder_raw_geno_cts);
         }
       }
     } else if (founder_ct == sample_ct) {
@@ -1661,7 +1661,7 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
         ZeroU64Arr(variant_allele_idxs? variant_allele_idxs[raw_variant_ct] : (2 * raw_variant_ct), g_allele_dosages);
       }
       if (g_raw_geno_cts) {
-        ZeroUiArr((3 * k1LU) * raw_variant_ct, g_raw_geno_cts);
+        ZeroU32Arr((3 * k1LU) * raw_variant_ct, g_raw_geno_cts);
       }
       // early exit
       goto LoadAlleleAndGenoCounts_ret_1;
@@ -2048,7 +2048,7 @@ THREAD_FUNC_DECL MakePgenThread(void* arg) {
         loaded_vrtype = loaded_vrtypes[write_idx];
       }
       if (write_idx >= chr_end_bidx) {
-        const uint32_t chr_fo_idx = CountSortedSmallerUi(&(write_chr_fo_vidx_start[1]), cip->chr_ct, write_idx + variant_idx_offset + 1);
+        const uint32_t chr_fo_idx = CountSortedSmallerU32(&(write_chr_fo_vidx_start[1]), cip->chr_ct, write_idx + variant_idx_offset + 1);
         const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
         chr_end_bidx = write_chr_fo_vidx_start[chr_fo_idx + 1] - variant_idx_offset;
         is_y = (chr_idx == y_code);
@@ -2356,7 +2356,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       if (!input_biallelic) {
         if ((variant_ct < raw_variant_ct) || new_variant_idx_to_old_iter) {
           uintptr_t* new_allele_idx_offsets;
-          if (bigstack_alloc_ul(variant_ct + 1, &new_allele_idx_offsets)) {
+          if (bigstack_alloc_w(variant_ct + 1, &new_allele_idx_offsets)) {
             goto MakePgenRobust_ret_NOMEM;
           }
           uintptr_t cur_offset = 0;
@@ -2447,8 +2447,8 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
         goto MakePgenRobust_ret_1;
       }
       unsigned char* spgw_alloc;
-      if (bigstack_alloc_ulp(1, &(g_loadbuf_thread_starts[0])) ||
-          bigstack_alloc_ulp(1, &(g_loadbuf_thread_starts[1])) ||
+      if (bigstack_alloc_wp(1, &(g_loadbuf_thread_starts[0])) ||
+          bigstack_alloc_wp(1, &(g_loadbuf_thread_starts[1])) ||
           bigstack_alloc_uc(spgw_alloc_cacheline_ct * kCacheline, &spgw_alloc)) {
         goto MakePgenRobust_ret_NOMEM;
       }
@@ -2456,11 +2456,11 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
 
       const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
       if (new_sample_idx_to_old || subsetting_required) {
-        if (bigstack_alloc_ulp(1, &g_thread_write_genovecs)) {
+        if (bigstack_alloc_wp(1, &g_thread_write_genovecs)) {
           goto MakePgenRobust_ret_NOMEM;
         }
         if (read_hphase_present && new_sample_idx_to_old) {
-          if (bigstack_alloc_ui(raw_sample_ct, &g_old_sample_idx_to_new)) {
+          if (bigstack_alloc_u32(raw_sample_ct, &g_old_sample_idx_to_new)) {
             goto MakePgenRobust_ret_NOMEM;
           }
           for (uint32_t new_sample_idx = 0; new_sample_idx < sample_ct; ++new_sample_idx) {
@@ -2468,11 +2468,11 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
           }
         }
         if (input_biallelic) {
-          if (bigstack_alloc_ul(sample_ctl2, &(g_thread_write_genovecs[0]))) {
+          if (bigstack_alloc_w(sample_ctl2, &(g_thread_write_genovecs[0]))) {
             goto MakePgenRobust_ret_NOMEM;
           }
         } else {
-          if (bigstack_alloc_ul(DivUp(2 * sample_ct * sizeof(AltAlleleCt), kBytesPerWord), &(g_thread_write_genovecs[0]))) {
+          if (bigstack_alloc_w(DivUp(2 * sample_ct * sizeof(AltAlleleCt), kBytesPerWord), &(g_thread_write_genovecs[0]))) {
             goto MakePgenRobust_ret_NOMEM;
           }
         }
@@ -2481,25 +2481,25 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
       }
       const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
       if (read_hphase_present) {
-        if (bigstack_alloc_ulp(1, &g_thread_write_phasepresents) ||
-            bigstack_alloc_ulp(1, &g_thread_write_phaseinfos) ||
-            bigstack_alloc_ulp(1, &g_thread_all_hets) ||
-            bigstack_alloc_ul(sample_ctl, &(g_thread_write_phasepresents[0])) ||
-            bigstack_alloc_ul(sample_ctl, &(g_thread_write_phaseinfos[0])) ||
-            bigstack_alloc_ul(raw_sample_ctl, &(g_thread_all_hets[0]))) {
+        if (bigstack_alloc_wp(1, &g_thread_write_phasepresents) ||
+            bigstack_alloc_wp(1, &g_thread_write_phaseinfos) ||
+            bigstack_alloc_wp(1, &g_thread_all_hets) ||
+            bigstack_alloc_w(sample_ctl, &(g_thread_write_phasepresents[0])) ||
+            bigstack_alloc_w(sample_ctl, &(g_thread_write_phaseinfos[0])) ||
+            bigstack_alloc_w(raw_sample_ctl, &(g_thread_all_hets[0]))) {
           goto MakePgenRobust_ret_NOMEM;
         }
       }
       if (read_or_write_dosage_present) {
         if (bigstack_alloc_dosagep(1, &g_thread_write_dosagevals) ||
-            bigstack_alloc_ulp(1, &g_thread_write_dosagepresents) ||
-            bigstack_alloc_ul(sample_ctl, &(g_thread_write_dosagepresents[0])) ||
+            bigstack_alloc_wp(1, &g_thread_write_dosagepresents) ||
+            bigstack_alloc_w(sample_ctl, &(g_thread_write_dosagepresents[0])) ||
             bigstack_alloc_dosage(sample_ct, &(g_thread_write_dosagevals[0]))) {
           goto MakePgenRobust_ret_NOMEM;
         }
         if (read_dosage_present && new_sample_idx_to_old) {
-          if (bigstack_alloc_uip(1, &g_thread_cumulative_popcount_bufs) ||
-              bigstack_alloc_ui(raw_sample_ctl, &(g_thread_cumulative_popcount_bufs[0]))) {
+          if (bigstack_alloc_u32p(1, &g_thread_cumulative_popcount_bufs) ||
+              bigstack_alloc_u32(raw_sample_ctl, &(g_thread_cumulative_popcount_bufs[0]))) {
             goto MakePgenRobust_ret_NOMEM;
           }
         }
@@ -2703,11 +2703,11 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
       const uint32_t sample_ctv = BitCtToVecCt(sample_ct);
       uintptr_t* new_sex_male;
       uintptr_t* sex_female;
-      if (bigstack_alloc_ul(sample_ctv * kWordsPerVec, &new_sex_male) ||
-          bigstack_alloc_ul(sample_ctv * kWordsPerVec, &g_sex_male_collapsed_interleaved) ||
-          bigstack_alloc_ul(sample_ctv * kWordsPerVec, &g_sex_female_collapsed) ||
-          bigstack_alloc_ul(sample_ctv * kWordsPerVec, &g_sex_female_collapsed_interleaved) ||
-          bigstack_alloc_ul(raw_sample_ctl, &sex_female)) {
+      if (bigstack_alloc_w(sample_ctv * kWordsPerVec, &new_sex_male) ||
+          bigstack_alloc_w(sample_ctv * kWordsPerVec, &g_sex_male_collapsed_interleaved) ||
+          bigstack_alloc_w(sample_ctv * kWordsPerVec, &g_sex_female_collapsed) ||
+          bigstack_alloc_w(sample_ctv * kWordsPerVec, &g_sex_female_collapsed_interleaved) ||
+          bigstack_alloc_w(raw_sample_ctl, &sex_female)) {
         goto MakePlink2NoVsort_ret_NOMEM;
       }
       CopyBitarrSubset(sex_male, sample_include, sample_ct, new_sex_male);
@@ -2776,7 +2776,7 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
       uint32_t pct = 0;
       if (variant_ct && sample_ct) {
         const uintptr_t sample_ct4 = QuaterCtToByteCt(sample_ct);
-        if (bigstack_alloc_ui(raw_sample_ctl, &g_sample_include_cumulative_popcounts) ||
+        if (bigstack_alloc_u32(raw_sample_ctl, &g_sample_include_cumulative_popcounts) ||
             bigstack_alloc_uc(sample_ct4 * kPglVblockSize, &(g_writebufs[0])) ||
             bigstack_alloc_uc(sample_ct4 * kPglVblockSize, &(g_writebufs[1]))) {
           // todo: low-memory single-threaded fallback mode
@@ -2808,7 +2808,7 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
           }
         } else if (sample_ct < raw_sample_ct) {
           uint32_t* new_collapsed_sort_map;
-          if (bigstack_alloc_ui(sample_ct, &new_collapsed_sort_map)) {
+          if (bigstack_alloc_u32(sample_ct, &new_collapsed_sort_map)) {
             goto MakePlink2NoVsort_ret_NOMEM;
           }
           UidxsToIdxs(sample_include, g_sample_include_cumulative_popcounts, sample_ct, new_collapsed_sort_map);
@@ -2945,7 +2945,7 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
       if (!input_biallelic) {
         if (variant_ct < raw_variant_ct) {
           uintptr_t* new_allele_idx_offsets;
-          if (bigstack_alloc_ul(variant_ct + 1, &new_allele_idx_offsets)) {
+          if (bigstack_alloc_w(variant_ct + 1, &new_allele_idx_offsets)) {
             goto MakePlink2NoVsort_fallback;
           }
           uintptr_t cur_offset = 0;
@@ -3099,8 +3099,8 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
       }
       mpgwp->pgen_outfile = nullptr;
       if (bigstack_alloc_thread(calc_thread_ct, &ts.threads) ||
-          bigstack_alloc_ulp(calc_thread_ct, &(g_loadbuf_thread_starts[0])) ||
-          bigstack_alloc_ulp(calc_thread_ct, &(g_loadbuf_thread_starts[1]))) {
+          bigstack_alloc_wp(calc_thread_ct, &(g_loadbuf_thread_starts[0])) ||
+          bigstack_alloc_wp(calc_thread_ct, &(g_loadbuf_thread_starts[1]))) {
         goto MakePlink2NoVsort_fallback;
       }
       uint32_t nonref_flags_storage = 3;
@@ -3114,11 +3114,11 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
       g_thread_write_genovecs = nullptr;
       uintptr_t other_per_thread_cacheline_ct = 2 * load_vblock_cacheline_ct;
       if (new_sample_idx_to_old || subsetting_required) {
-        if (bigstack_alloc_ulp(calc_thread_ct, &g_thread_write_genovecs)) {
+        if (bigstack_alloc_wp(calc_thread_ct, &g_thread_write_genovecs)) {
           goto MakePlink2NoVsort_fallback;
         }
         if (read_hphase_present && new_sample_idx_to_old) {
-          if (bigstack_alloc_ui(raw_sample_ct, &g_old_sample_idx_to_new)) {
+          if (bigstack_alloc_u32(raw_sample_ct, &g_old_sample_idx_to_new)) {
             goto MakePlink2NoVsort_fallback;
           }
           for (uint32_t new_sample_idx = 0; new_sample_idx < sample_ct; ++new_sample_idx) {
@@ -3138,9 +3138,9 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
       }
       if (read_hphase_present || read_or_write_dosage_present) {
         if (read_hphase_present) {
-          if (bigstack_alloc_ulp(calc_thread_ct, &g_thread_write_phasepresents) ||
-              bigstack_alloc_ulp(calc_thread_ct, &g_thread_write_phaseinfos) ||
-              bigstack_alloc_ulp(calc_thread_ct, &g_thread_all_hets)) {
+          if (bigstack_alloc_wp(calc_thread_ct, &g_thread_write_phasepresents) ||
+              bigstack_alloc_wp(calc_thread_ct, &g_thread_write_phaseinfos) ||
+              bigstack_alloc_wp(calc_thread_ct, &g_thread_all_hets)) {
             goto MakePlink2NoVsort_fallback;
           }
           // phasepresent, phaseinfo
@@ -3151,11 +3151,11 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
         }
         if (read_or_write_dosage_present) {
           if (bigstack_alloc_dosagep(calc_thread_ct, &g_thread_write_dosagevals) ||
-              bigstack_alloc_ulp(calc_thread_ct, &g_thread_write_dosagepresents)) {
+              bigstack_alloc_wp(calc_thread_ct, &g_thread_write_dosagepresents)) {
             goto MakePlink2NoVsort_fallback;
           }
           if (read_dosage_present && new_sample_idx_to_old) {
-            if (bigstack_alloc_uip(calc_thread_ct, &g_thread_cumulative_popcount_bufs)) {
+            if (bigstack_alloc_u32p(calc_thread_ct, &g_thread_cumulative_popcount_bufs)) {
               goto MakePlink2NoVsort_fallback;
             }
           }
@@ -3414,8 +3414,8 @@ BoolErr SortChr(const ChrInfo* cip, const uint32_t* chr_idx_to_size, uint32_t us
       ++new_chr_ct;
     }
   }
-  if (bigstack_alloc_ui(new_chr_ct, &(write_cip->chr_file_order)) ||
-      bigstack_alloc_ui(new_chr_ct, &(write_cip->chr_fo_vidx_start))) {
+  if (bigstack_alloc_u32(new_chr_ct, &(write_cip->chr_file_order)) ||
+      bigstack_alloc_u32(new_chr_ct, &(write_cip->chr_fo_vidx_start))) {
     return 1;
   }
   write_cip->chr_ct = new_chr_ct;
@@ -3542,7 +3542,7 @@ PglErr WriteBimResorted(const char* outname, const ChrInfo* write_cip, const uin
         cswritep = dtoa_g_p8(variant_cms[variant_uidx], cswritep);
       }
       *cswritep++ = '\t';
-      cswritep = uint32toa(variant_bps[variant_uidx], cswritep);
+      cswritep = u32toa(variant_bps[variant_uidx], cswritep);
       *cswritep++ = '\t';
       const uintptr_t variant_allele_idx_base = variant_allele_idxs? variant_allele_idxs[variant_uidx] : (variant_uidx * 2);
       const char* const* cur_alleles = &(allele_storage[variant_allele_idx_base]);
@@ -3659,7 +3659,7 @@ PglErr WritePvarResortedInterval(const ChrInfo* write_cip, const uint32_t* varia
         chr_buf_blen = 1 + S_CAST(uintptr_t, chr_name_end - chr_buf);
       }
       cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
-      cswritep = uint32toa_x(variant_bps[variant_uidx], '\t', cswritep);
+      cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
       cswritep = strcpyax(cswritep, variant_ids[variant_uidx], '\t');
       uintptr_t variant_allele_idx_base;
       if (!variant_allele_idxs) {
@@ -3777,7 +3777,7 @@ PglErr WritePvarResorted(const char* outname, const char* xheader, const uintptr
 
     uintptr_t* allele_include;
     if (bigstack_alloc_c(max_chr_blen, &chr_buf) ||
-        bigstack_alloc_ul(BitCtToWordCt(kPglMaxAltAlleleCt), &allele_include)) {
+        bigstack_alloc_w(BitCtToWordCt(kPglMaxAltAlleleCt), &allele_include)) {
       goto WritePvarResorted_ret_NOMEM;
     }
     uintptr_t overflow_buf_size = kCompressStreamBlock + kMaxIdSlen + 512 + 2 * max_allele_slen + max_filter_slen + info_reload_slen;
@@ -3885,10 +3885,10 @@ PglErr WritePvarResorted(const char* outname, const char* xheader, const uintptr
     uint32_t batch_size = variant_ct;
     uint32_t batch_ct = 1;
     if (pvar_info_reload) {
-      if (bigstack_alloc_ui(raw_variant_ct, &old_variant_uidx_to_new)) {
+      if (bigstack_alloc_u32(raw_variant_ct, &old_variant_uidx_to_new)) {
         goto WritePvarResorted_ret_NOMEM;
       }
-      SetAllUiArr(raw_variant_ct, old_variant_uidx_to_new);
+      SetAllU32Arr(raw_variant_ct, old_variant_uidx_to_new);
       for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx) {
         const uint32_t old_variant_uidx = new_variant_idx_to_old[variant_idx];
         old_variant_uidx_to_new[old_variant_uidx] = variant_idx;
@@ -3994,12 +3994,12 @@ PglErr MakePlink2Vsort(const char* xheader, const uintptr_t* sample_include, con
 
     const uint32_t chr_code_end = cip->max_code + 1 + cip->name_ct;
     uint32_t* chr_idx_to_size;
-    if (bigstack_calloc_ul(kChrMaskWords, &write_chr_info.chr_mask) ||
-        bigstack_alloc_ui(chr_code_end, &write_chr_info.chr_idx_to_foidx) ||
-        bigstack_end_calloc_ui(chr_code_end, &chr_idx_to_size)) {
+    if (bigstack_calloc_w(kChrMaskWords, &write_chr_info.chr_mask) ||
+        bigstack_alloc_u32(chr_code_end, &write_chr_info.chr_idx_to_foidx) ||
+        bigstack_end_calloc_u32(chr_code_end, &chr_idx_to_size)) {
       goto MakePlink2Vsort_ret_NOMEM;
     }
-    SetAllUiArr(chr_code_end, write_chr_info.chr_idx_to_foidx);
+    SetAllU32Arr(chr_code_end, write_chr_info.chr_idx_to_foidx);
     if (chr_idxs) {
       uint32_t variant_uidx = 0;
       for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
@@ -4034,7 +4034,7 @@ PglErr MakePlink2Vsort(const char* xheader, const uintptr_t* sample_include, con
 
     // pos_vidx_sort_buf has variant_bp in high bits, variant_uidx in low
     uint64_t* pos_vidx_sort_buf;
-    if (bigstack_alloc_ui(variant_ct, &new_variant_idx_to_old) ||
+    if (bigstack_alloc_u32(variant_ct, &new_variant_idx_to_old) ||
         bigstack_alloc_ull(variant_ct + 1, &pos_vidx_sort_buf)) {
       goto MakePlink2Vsort_ret_NOMEM;
     }
@@ -4042,7 +4042,7 @@ PglErr MakePlink2Vsort(const char* xheader, const uintptr_t* sample_include, con
     const uint32_t new_chr_ct = write_chr_info.chr_ct;
     if (chr_idxs) {
       uint32_t* next_write_vidxs;
-      if (bigstack_alloc_ui(chr_code_end, &next_write_vidxs)) {
+      if (bigstack_alloc_u32(chr_code_end, &next_write_vidxs)) {
         goto MakePlink2Vsort_ret_NOMEM;
       }
       for (uint32_t new_chr_fo_idx = 0; new_chr_fo_idx < new_chr_ct; ++new_chr_fo_idx) {
@@ -4200,11 +4200,11 @@ PglErr MakePlink2Vsort(const char* xheader, const uintptr_t* sample_include, con
         const uint32_t sample_ctv = BitCtToVecCt(sample_ct);
         uintptr_t* new_sex_male;
         uintptr_t* sex_female;
-        if (bigstack_alloc_ul(sample_ctv * kWordsPerVec, &new_sex_male) ||
-            bigstack_alloc_ul(sample_ctv * kWordsPerVec, &g_sex_male_collapsed_interleaved) ||
-            bigstack_alloc_ul(sample_ctv * kWordsPerVec, &g_sex_female_collapsed) ||
-            bigstack_alloc_ul(sample_ctv * kWordsPerVec, &g_sex_female_collapsed_interleaved) ||
-            bigstack_alloc_ul(raw_sample_ctl, &sex_female)) {
+        if (bigstack_alloc_w(sample_ctv * kWordsPerVec, &new_sex_male) ||
+            bigstack_alloc_w(sample_ctv * kWordsPerVec, &g_sex_male_collapsed_interleaved) ||
+            bigstack_alloc_w(sample_ctv * kWordsPerVec, &g_sex_female_collapsed) ||
+            bigstack_alloc_w(sample_ctv * kWordsPerVec, &g_sex_female_collapsed_interleaved) ||
+            bigstack_alloc_w(raw_sample_ctl, &sex_female)) {
           goto MakePlink2Vsort_ret_NOMEM;
         }
         CopyBitarrSubset(sex_male, sample_include, sample_ct, new_sex_male);
@@ -4249,9 +4249,9 @@ PglErr SampleSortFileMap(const uintptr_t* sample_include, const SampleIdInfo* si
   {
     char* idbuf;
     uintptr_t* already_seen;
-    if (bigstack_alloc_ui(raw_sample_ct, new_sample_idx_to_old_ptr) ||
+    if (bigstack_alloc_u32(raw_sample_ct, new_sample_idx_to_old_ptr) ||
         bigstack_alloc_c(siip->max_sample_id_blen, &idbuf) ||
-        bigstack_calloc_ul(BitCtToWordCt(raw_sample_ct), &already_seen)) {
+        bigstack_calloc_w(BitCtToWordCt(raw_sample_ct), &already_seen)) {
       goto SampleSortFileMap_ret_NOMEM;
     }
 

@@ -81,7 +81,6 @@ char* AdvanceGzTokenStream(GzTokenStream* gtsp, uint32_t* token_slen_ptr);
 BoolErr CloseGzTokenStream(GzTokenStream* gtsp);
 
 
-/*
 // While a separate non-compressing writer thread is practically useless (since
 // the OS does its own scheduling, etc. of the writes anyway), a separate
 // read-ahead thread is frequently useful since the typical read_ahead_kb = 64
@@ -142,15 +141,22 @@ BoolErr CloseGzTokenStream(GzTokenStream* gtsp);
 // (tested a few different values for this, 1 MB appears to work well on the
 // systems we care most about)
 CONSTU31(kDecompressChunkSize, 1048576);
+static_assert(!(kDecompressChunkSize % kCacheline), "kDecompressChunkSize must be a multiple of kCacheline.");
+
+// consumer -> reader message
+// could add a "close current file and open another one" case
+ENUM_U31_DEF_START()
+  kRlsInterruptNone,
+  kRlsInterruptRewind,
+  kRlsInterruptShutdown
+ENUM_U31_DEF_END(RlsInterrupt);
 
 typedef struct ReadLineStreamSyncStruct {
-  // Everything guarded by the mutex.  Allocated to a different cacheline than
-  // consume_stop.
+  // Mutex shared state, and everything guarded by the mutex.  Allocated to
+  // different cacheline(s) than consume_stop.
 
 #ifdef _WIN32
   CRITICAL_SECTION critical_section;
-  HANDLE reader_progress_event;
-  HANDLE consumer_progress_event;
 #else
   pthread_mutex_t sync_mutex;
   pthread_cond_t reader_progress_condvar;
@@ -162,11 +168,7 @@ typedef struct ReadLineStreamSyncStruct {
   char* available_end;
   PglErr reterr;  // kPglRetSkipped used for eof for now
 
-  // 1 = continue reading normally, 2 = tell reader to rewind, 3 = tell it to
-  // exit immediately
-  // probably make this an enum
-  // could add a "close current file and open another one" case
-  uint32_t consumer_status;
+  RlsInterrupt interrupt;
 } ReadLineStreamSync;
 
 // To minimize false (or true) sharing penalties, these values shouldn't change
@@ -176,6 +178,11 @@ typedef struct ReadLineStreamStruct {
   // to this.
   char* consume_stop;
 
+#ifdef _WIN32
+  // stored here since they're just pointers.
+  HANDLE reader_progress_event;
+  HANDLE consumer_progress_event;
+#endif
   ReadLineStreamSync* syncp;
 
   gzFile gz_infile;
@@ -192,6 +199,8 @@ typedef struct ReadLineStreamStruct {
 
 void PreinitRLstream(ReadLineStream* rlsp);
 
+PglErr InitRLstream(const char* fname, uintptr_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp);
+
 PglErr AdvanceRLstream(ReadLineStream* rlsp, char** read_iterp);
 
 HEADER_INLINE PglErr ReadFromRLstream(ReadLineStream* rlsp, char** read_iterp) {
@@ -204,14 +213,13 @@ HEADER_INLINE PglErr ReadFromRLstream(ReadLineStream* rlsp, char** read_iterp) {
 // If read_iter was not previously advanced to the byte past the end of the
 // most recently read line.
 HEADER_INLINE PglErr ReadNextLineFromRLstream(ReadLineStream* rlsp, char** read_iterp) {
-  *read_iterp = &(S_CAST(char*, rawmemchr(*read_iterp, '\n'))[1]);
+  *read_iterp = AdvPastDelim(*read_iterp, '\n');
   return ReadFromRLstream(rlsp, read_iterp);
 }
 
 PglErr RewindRLstream(ReadLineStream* rlsp, char** read_iterp);
 
 PglErr CleanupRLstream(ReadLineStream* rlsp);
-*/
 
 #ifdef __cplusplus
 }  // namespace plink2

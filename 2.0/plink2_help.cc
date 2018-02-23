@@ -77,7 +77,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     for (arg_idx = 0; arg_idx < param_ct; arg_idx++) {
       help_ctrl.param_slens[arg_idx] = strlen(help_ctrl.argv[arg_idx]);
     }
-    ZeroUlArr(param_ctl * 3, help_ctrl.all_match_arr);
+    ZeroWArr(param_ctl * 3, help_ctrl.all_match_arr);
     help_ctrl.prefix_match_arr = &(help_ctrl.all_match_arr[param_ctl]);
     help_ctrl.perfect_match_arr = &(help_ctrl.all_match_arr[param_ctl * 2]);
     help_ctrl.preprint_newline = 1;
@@ -1559,7 +1559,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                       (default 0.999).\n"
                );
     HelpPrint("glm\tlinear\tlogistic\tscore\txchr-model", &help_ctrl, 0,
-"  --xchr-model [m]   : Set the chrX --glm/--score model.\n"
+"  --xchr-model [m]   : Set the chrX --glm/--condition{-list}/--score model.\n"
 "                       * '0' = skip chrX.\n"
 "                       * '1' = add sex as a covar on chrX, code males 0..1.\n"
 "                       * '2' (default) = chrX sex covar, code males 0..2.\n"

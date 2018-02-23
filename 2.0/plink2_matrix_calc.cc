@@ -169,9 +169,9 @@ PglErr KinshipPruneDestructive(uintptr_t* kinship_table, uintptr_t* sample_inclu
     uintptr_t* sample_include_collapsed_nz;
     uintptr_t* sample_remove_collapsed;
     uint32_t* vertex_degree;
-    if (bigstack_calloc_ul(orig_sample_ctl, &sample_include_collapsed_nz) ||
-        bigstack_calloc_ul(orig_sample_ctl, &sample_remove_collapsed) ||
-        bigstack_alloc_ui(orig_sample_ct, &vertex_degree)) {
+    if (bigstack_calloc_w(orig_sample_ctl, &sample_include_collapsed_nz) ||
+        bigstack_calloc_w(orig_sample_ctl, &sample_remove_collapsed) ||
+        bigstack_alloc_u32(orig_sample_ct, &vertex_degree)) {
       goto KinshipPruneDestructive_ret_NOMEM;
     }
     // 1. count the number of constraints for each remaining sample
@@ -285,7 +285,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
     uint32_t sample_ct = *sample_ct_ptr;
     const uint32_t orig_sample_ctl = BitCtToWordCt(sample_ct);
     uintptr_t* kinship_table;
-    if (bigstack_calloc_ul(sample_ct * orig_sample_ctl, &kinship_table)) {
+    if (bigstack_calloc_w(sample_ct * orig_sample_ctl, &kinship_table)) {
       goto KingCutoffBatch_ret_NOMEM;
     }
 
@@ -298,7 +298,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
 
     uint32_t* sample_uidx_to_king_uidx;
     char* loadbuf;
-    if (bigstack_alloc_ui(raw_sample_ct, &sample_uidx_to_king_uidx) ||
+    if (bigstack_alloc_u32(raw_sample_ct, &sample_uidx_to_king_uidx) ||
         bigstack_alloc_c(kMaxMediumLine, &loadbuf)) {
       goto KingCutoffBatch_ret_NOMEM;
     }
@@ -331,7 +331,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
     if (bigstack_alloc_c(max_xid_blen, &idbuf)) {
       goto KingCutoffBatch_ret_NOMEM;
     }
-    SetAllUiArr(raw_sample_ct, sample_uidx_to_king_uidx);
+    SetAllU32Arr(raw_sample_ct, sample_uidx_to_king_uidx);
     while (1) {
       const char* loadbuf_iter = loadbuf_first_token;
       uint32_t sample_uidx;
@@ -376,8 +376,8 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
     BigstackReset(loadbuf);
     uintptr_t* king_include;
     uint32_t* king_uidx_to_sample_idx;
-    if (bigstack_calloc_ul(BitCtToWordCt(king_id_ct), &king_include) ||
-        bigstack_alloc_ui(king_id_ct, &king_uidx_to_sample_idx)) {
+    if (bigstack_calloc_w(BitCtToWordCt(king_id_ct), &king_include) ||
+        bigstack_alloc_u32(king_id_ct, &king_uidx_to_sample_idx)) {
       goto KingCutoffBatch_ret_NOMEM;
     }
     uint32_t sample_uidx = 0;
@@ -619,44 +619,44 @@ CONSTU31(kKingMultiplexVecs, kKingMultiplex / kBitsPerVec);
 // expensive PopcountWord().  Use Lauradoux/Walisch accumulators, since
 // Harley-Seal requires too many variables.
 void IncrKing(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t start_idx, uint32_t end_idx, uint32_t* king_counts_iter) {
-  const VecUL m1 = VCONST_UL(kMask5555);
-  const VecUL m2 = VCONST_UL(kMask3333);
-  const VecUL m4 = VCONST_UL(kMask0F0F);
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW m2 = VCONST_W(kMask3333);
+  const VecW m4 = VCONST_W(kMask0F0F);
   for (uint32_t second_idx = start_idx; second_idx < end_idx; ++second_idx) {
     // technically overflows for huge sample_ct
     const uint32_t second_offset = second_idx * kKingMultiplexWords;
-    const VecUL* second_hom = R_CAST(const VecUL*, &(smaj_hom[second_offset]));
-    const VecUL* second_ref2het = R_CAST(const VecUL*, &(smaj_ref2het[second_offset]));
-    const VecUL* first_hom_iter = R_CAST(const VecUL*, smaj_hom);
-    const VecUL* first_ref2het_iter = R_CAST(const VecUL*, smaj_ref2het);
+    const VecW* second_hom = R_CAST(const VecW*, &(smaj_hom[second_offset]));
+    const VecW* second_ref2het = R_CAST(const VecW*, &(smaj_ref2het[second_offset]));
+    const VecW* first_hom_iter = R_CAST(const VecW*, smaj_hom);
+    const VecW* first_ref2het_iter = R_CAST(const VecW*, smaj_ref2het);
     while (first_hom_iter < second_hom) {
       UniVec acc_ibs0;
       UniVec acc_hethet;
       UniVec acc_het2hom1;
       UniVec acc_het1hom2;
-      acc_ibs0.vi = vecul_setzero();
-      acc_hethet.vi = vecul_setzero();
-      acc_het2hom1.vi = vecul_setzero();
-      acc_het1hom2.vi = vecul_setzero();
+      acc_ibs0.vw = vecw_setzero();
+      acc_hethet.vw = vecw_setzero();
+      acc_het2hom1.vw = vecw_setzero();
+      acc_het1hom2.vw = vecw_setzero();
       for (uint32_t vec_idx = 0; vec_idx < kKingMultiplexVecs; vec_idx += 3) {
-        VecUL hom1 = first_hom_iter[vec_idx];
-        VecUL hom2 = second_hom[vec_idx];
-        VecUL ref2het1 = first_ref2het_iter[vec_idx];
-        VecUL ref2het2 = second_ref2het[vec_idx];
-        VecUL het1 = ref2het1 & (~hom1);
-        VecUL het2 = ref2het2 & (~hom2);
-        VecUL agg_ibs0 = (ref2het1 ^ ref2het2) & (hom1 & hom2);
-        VecUL agg_hethet = het1 & het2;
-        VecUL agg_het2hom1 = hom1 & het2;
-        VecUL agg_het1hom2 = hom2 & het1;
-        agg_ibs0 = agg_ibs0 - (vecul_srli(agg_ibs0, 1) & m1);
-        agg_hethet = agg_hethet - (vecul_srli(agg_hethet, 1) & m1);
-        agg_het2hom1 = agg_het2hom1 - (vecul_srli(agg_het2hom1, 1) & m1);
-        agg_het1hom2 = agg_het1hom2 - (vecul_srli(agg_het1hom2, 1) & m1);
-        agg_ibs0 = (agg_ibs0 & m2) + (vecul_srli(agg_ibs0, 2) & m2);
-        agg_hethet = (agg_hethet & m2) + (vecul_srli(agg_hethet, 2) & m2);
-        agg_het2hom1 = (agg_het2hom1 & m2) + (vecul_srli(agg_het2hom1, 2) & m2);
-        agg_het1hom2 = (agg_het1hom2 & m2) + (vecul_srli(agg_het1hom2, 2) & m2);
+        VecW hom1 = first_hom_iter[vec_idx];
+        VecW hom2 = second_hom[vec_idx];
+        VecW ref2het1 = first_ref2het_iter[vec_idx];
+        VecW ref2het2 = second_ref2het[vec_idx];
+        VecW het1 = ref2het1 & (~hom1);
+        VecW het2 = ref2het2 & (~hom2);
+        VecW agg_ibs0 = (ref2het1 ^ ref2het2) & (hom1 & hom2);
+        VecW agg_hethet = het1 & het2;
+        VecW agg_het2hom1 = hom1 & het2;
+        VecW agg_het1hom2 = hom2 & het1;
+        agg_ibs0 = agg_ibs0 - (vecw_srli(agg_ibs0, 1) & m1);
+        agg_hethet = agg_hethet - (vecw_srli(agg_hethet, 1) & m1);
+        agg_het2hom1 = agg_het2hom1 - (vecw_srli(agg_het2hom1, 1) & m1);
+        agg_het1hom2 = agg_het1hom2 - (vecw_srli(agg_het1hom2, 1) & m1);
+        agg_ibs0 = (agg_ibs0 & m2) + (vecw_srli(agg_ibs0, 2) & m2);
+        agg_hethet = (agg_hethet & m2) + (vecw_srli(agg_hethet, 2) & m2);
+        agg_het2hom1 = (agg_het2hom1 & m2) + (vecw_srli(agg_het2hom1, 2) & m2);
+        agg_het1hom2 = (agg_het1hom2 & m2) + (vecw_srli(agg_het1hom2, 2) & m2);
 
         for (uint32_t offset = 1; offset < 3; ++offset) {
           hom1 = first_hom_iter[vec_idx + offset];
@@ -665,29 +665,29 @@ void IncrKing(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t
           ref2het2 = second_ref2het[vec_idx + offset];
           het1 = ref2het1 & (~hom1);
           het2 = ref2het2 & (~hom2);
-          VecUL cur_ibs0 = (ref2het1 ^ ref2het2) & (hom1 & hom2);
-          VecUL cur_hethet = het1 & het2;
-          VecUL cur_het2hom1 = hom1 & het2;
-          VecUL cur_het1hom2 = hom2 & het1;
-          cur_ibs0 = cur_ibs0 - (vecul_srli(cur_ibs0, 1) & m1);
-          cur_hethet = cur_hethet - (vecul_srli(cur_hethet, 1) & m1);
-          cur_het2hom1 = cur_het2hom1 - (vecul_srli(cur_het2hom1, 1) & m1);
-          cur_het1hom2 = cur_het1hom2 - (vecul_srli(cur_het1hom2, 1) & m1);
-          agg_ibs0 += (cur_ibs0 & m2) + (vecul_srli(cur_ibs0, 2) & m2);
-          agg_hethet += (cur_hethet & m2) + (vecul_srli(cur_hethet, 2) & m2);
-          agg_het2hom1 += (cur_het2hom1 & m2) + (vecul_srli(cur_het2hom1, 2) & m2);
-          agg_het1hom2 += (cur_het1hom2 & m2) + (vecul_srli(cur_het1hom2, 2) & m2);
+          VecW cur_ibs0 = (ref2het1 ^ ref2het2) & (hom1 & hom2);
+          VecW cur_hethet = het1 & het2;
+          VecW cur_het2hom1 = hom1 & het2;
+          VecW cur_het1hom2 = hom2 & het1;
+          cur_ibs0 = cur_ibs0 - (vecw_srli(cur_ibs0, 1) & m1);
+          cur_hethet = cur_hethet - (vecw_srli(cur_hethet, 1) & m1);
+          cur_het2hom1 = cur_het2hom1 - (vecw_srli(cur_het2hom1, 1) & m1);
+          cur_het1hom2 = cur_het1hom2 - (vecw_srli(cur_het1hom2, 1) & m1);
+          agg_ibs0 += (cur_ibs0 & m2) + (vecw_srli(cur_ibs0, 2) & m2);
+          agg_hethet += (cur_hethet & m2) + (vecw_srli(cur_hethet, 2) & m2);
+          agg_het2hom1 += (cur_het2hom1 & m2) + (vecw_srli(cur_het2hom1, 2) & m2);
+          agg_het1hom2 += (cur_het1hom2 & m2) + (vecw_srli(cur_het1hom2, 2) & m2);
         }
-        acc_ibs0.vi = acc_ibs0.vi + (agg_ibs0 & m4) + (vecul_srli(agg_ibs0, 4) & m4);
-        acc_hethet.vi = acc_hethet.vi + (agg_hethet & m4) + (vecul_srli(agg_hethet, 4) & m4);
-        acc_het2hom1.vi = acc_het2hom1.vi + (agg_het2hom1 & m4) + (vecul_srli(agg_het2hom1, 4) & m4);
-        acc_het1hom2.vi = acc_het1hom2.vi + (agg_het1hom2 & m4) + (vecul_srli(agg_het1hom2, 4) & m4);
+        acc_ibs0.vw = acc_ibs0.vw + (agg_ibs0 & m4) + (vecw_srli(agg_ibs0, 4) & m4);
+        acc_hethet.vw = acc_hethet.vw + (agg_hethet & m4) + (vecw_srli(agg_hethet, 4) & m4);
+        acc_het2hom1.vw = acc_het2hom1.vw + (agg_het2hom1 & m4) + (vecw_srli(agg_het2hom1, 4) & m4);
+        acc_het1hom2.vw = acc_het1hom2.vw + (agg_het1hom2 & m4) + (vecw_srli(agg_het1hom2, 4) & m4);
       }
-      const VecUL m8 = VCONST_UL(kMask00FF);
-      acc_ibs0.vi = (acc_ibs0.vi & m8) + (vecul_srli(acc_ibs0.vi, 8) & m8);
-      acc_hethet.vi = (acc_hethet.vi & m8) + (vecul_srli(acc_hethet.vi, 8) & m8);
-      acc_het2hom1.vi = (acc_het2hom1.vi & m8) + (vecul_srli(acc_het2hom1.vi, 8) & m8);
-      acc_het1hom2.vi = (acc_het1hom2.vi & m8) + (vecul_srli(acc_het1hom2.vi, 8) & m8);
+      const VecW m8 = VCONST_W(kMask00FF);
+      acc_ibs0.vw = (acc_ibs0.vw & m8) + (vecw_srli(acc_ibs0.vw, 8) & m8);
+      acc_hethet.vw = (acc_hethet.vw & m8) + (vecw_srli(acc_hethet.vw, 8) & m8);
+      acc_het2hom1.vw = (acc_het2hom1.vw & m8) + (vecw_srli(acc_het2hom1.vw, 8) & m8);
+      acc_het1hom2.vw = (acc_het1hom2.vw & m8) + (vecw_srli(acc_het1hom2.vw, 8) & m8);
       *king_counts_iter++ += UniVecHsum16(acc_ibs0);
       *king_counts_iter++ += UniVecHsum16(acc_hethet);
       *king_counts_iter++ += UniVecHsum16(acc_het2hom1);
@@ -700,85 +700,85 @@ void IncrKing(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t
 }
 
 void IncrKingHomhom(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t start_idx, uint32_t end_idx, uint32_t* king_counts_iter) {
-  const VecUL m1 = VCONST_UL(kMask5555);
-  const VecUL m2 = VCONST_UL(kMask3333);
-  const VecUL m4 = VCONST_UL(kMask0F0F);
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW m2 = VCONST_W(kMask3333);
+  const VecW m4 = VCONST_W(kMask0F0F);
   for (uint32_t second_idx = start_idx; second_idx < end_idx; ++second_idx) {
     // technically overflows for huge sample_ct
     const uint32_t second_offset = second_idx * kKingMultiplexWords;
-    const VecUL* second_hom = R_CAST(const VecUL*, &(smaj_hom[second_offset]));
-    const VecUL* second_ref2het = R_CAST(const VecUL*, &(smaj_ref2het[second_offset]));
-    const VecUL* first_hom_iter = R_CAST(const VecUL*, smaj_hom);
-    const VecUL* first_ref2het_iter = R_CAST(const VecUL*, smaj_ref2het);
+    const VecW* second_hom = R_CAST(const VecW*, &(smaj_hom[second_offset]));
+    const VecW* second_ref2het = R_CAST(const VecW*, &(smaj_ref2het[second_offset]));
+    const VecW* first_hom_iter = R_CAST(const VecW*, smaj_hom);
+    const VecW* first_ref2het_iter = R_CAST(const VecW*, smaj_ref2het);
     while (first_hom_iter < second_hom) {
       UniVec acc_homhom;
       UniVec acc_ibs0;
       UniVec acc_hethet;
       UniVec acc_het2hom1;
       UniVec acc_het1hom2;
-      acc_homhom.vi = vecul_setzero();
-      acc_ibs0.vi = vecul_setzero();
-      acc_hethet.vi = vecul_setzero();
-      acc_het2hom1.vi = vecul_setzero();
-      acc_het1hom2.vi = vecul_setzero();
+      acc_homhom.vw = vecw_setzero();
+      acc_ibs0.vw = vecw_setzero();
+      acc_hethet.vw = vecw_setzero();
+      acc_het2hom1.vw = vecw_setzero();
+      acc_het1hom2.vw = vecw_setzero();
       for (uint32_t vec_idx = 0; vec_idx < kKingMultiplexVecs; vec_idx += 3) {
-        VecUL hom1 = first_hom_iter[vec_idx];
-        VecUL hom2 = second_hom[vec_idx];
-        VecUL ref2het1 = first_ref2het_iter[vec_idx];
-        VecUL ref2het2 = second_ref2het[vec_idx];
-        VecUL agg_homhom = hom1 & hom2;
-        VecUL het1 = ref2het1 & (~hom1);
-        VecUL het2 = ref2het2 & (~hom2);
-        VecUL agg_ibs0 = (ref2het1 ^ ref2het2) & agg_homhom;
-        VecUL agg_hethet = het1 & het2;
-        VecUL agg_het2hom1 = hom1 & het2;
-        VecUL agg_het1hom2 = hom2 & het1;
-        agg_homhom = agg_homhom - (vecul_srli(agg_homhom, 1) & m1);
-        agg_ibs0 = agg_ibs0 - (vecul_srli(agg_ibs0, 1) & m1);
-        agg_hethet = agg_hethet - (vecul_srli(agg_hethet, 1) & m1);
-        agg_het2hom1 = agg_het2hom1 - (vecul_srli(agg_het2hom1, 1) & m1);
-        agg_het1hom2 = agg_het1hom2 - (vecul_srli(agg_het1hom2, 1) & m1);
-        agg_homhom = (agg_homhom & m2) + (vecul_srli(agg_homhom, 2) & m2);
-        agg_ibs0 = (agg_ibs0 & m2) + (vecul_srli(agg_ibs0, 2) & m2);
-        agg_hethet = (agg_hethet & m2) + (vecul_srli(agg_hethet, 2) & m2);
-        agg_het2hom1 = (agg_het2hom1 & m2) + (vecul_srli(agg_het2hom1, 2) & m2);
-        agg_het1hom2 = (agg_het1hom2 & m2) + (vecul_srli(agg_het1hom2, 2) & m2);
+        VecW hom1 = first_hom_iter[vec_idx];
+        VecW hom2 = second_hom[vec_idx];
+        VecW ref2het1 = first_ref2het_iter[vec_idx];
+        VecW ref2het2 = second_ref2het[vec_idx];
+        VecW agg_homhom = hom1 & hom2;
+        VecW het1 = ref2het1 & (~hom1);
+        VecW het2 = ref2het2 & (~hom2);
+        VecW agg_ibs0 = (ref2het1 ^ ref2het2) & agg_homhom;
+        VecW agg_hethet = het1 & het2;
+        VecW agg_het2hom1 = hom1 & het2;
+        VecW agg_het1hom2 = hom2 & het1;
+        agg_homhom = agg_homhom - (vecw_srli(agg_homhom, 1) & m1);
+        agg_ibs0 = agg_ibs0 - (vecw_srli(agg_ibs0, 1) & m1);
+        agg_hethet = agg_hethet - (vecw_srli(agg_hethet, 1) & m1);
+        agg_het2hom1 = agg_het2hom1 - (vecw_srli(agg_het2hom1, 1) & m1);
+        agg_het1hom2 = agg_het1hom2 - (vecw_srli(agg_het1hom2, 1) & m1);
+        agg_homhom = (agg_homhom & m2) + (vecw_srli(agg_homhom, 2) & m2);
+        agg_ibs0 = (agg_ibs0 & m2) + (vecw_srli(agg_ibs0, 2) & m2);
+        agg_hethet = (agg_hethet & m2) + (vecw_srli(agg_hethet, 2) & m2);
+        agg_het2hom1 = (agg_het2hom1 & m2) + (vecw_srli(agg_het2hom1, 2) & m2);
+        agg_het1hom2 = (agg_het1hom2 & m2) + (vecw_srli(agg_het1hom2, 2) & m2);
 
         for (uint32_t offset = 1; offset < 3; ++offset) {
           hom1 = first_hom_iter[vec_idx + offset];
           hom2 = second_hom[vec_idx + offset];
           ref2het1 = first_ref2het_iter[vec_idx + offset];
           ref2het2 = second_ref2het[vec_idx + offset];
-          VecUL cur_homhom = hom1 & hom2;
+          VecW cur_homhom = hom1 & hom2;
           het1 = ref2het1 & (~hom1);
           het2 = ref2het2 & (~hom2);
-          VecUL cur_ibs0 = (ref2het1 ^ ref2het2) & cur_homhom;
-          VecUL cur_hethet = het1 & het2;
-          VecUL cur_het2hom1 = hom1 & het2;
-          VecUL cur_het1hom2 = hom2 & het1;
-          cur_homhom = cur_homhom - (vecul_srli(cur_homhom, 1) & m1);
-          cur_ibs0 = cur_ibs0 - (vecul_srli(cur_ibs0, 1) & m1);
-          cur_hethet = cur_hethet - (vecul_srli(cur_hethet, 1) & m1);
-          cur_het2hom1 = cur_het2hom1 - (vecul_srli(cur_het2hom1, 1) & m1);
-          cur_het1hom2 = cur_het1hom2 - (vecul_srli(cur_het1hom2, 1) & m1);
-          agg_homhom += (cur_homhom & m2) + (vecul_srli(cur_homhom, 2) & m2);
-          agg_ibs0 += (cur_ibs0 & m2) + (vecul_srli(cur_ibs0, 2) & m2);
-          agg_hethet += (cur_hethet & m2) + (vecul_srli(cur_hethet, 2) & m2);
-          agg_het2hom1 += (cur_het2hom1 & m2) + (vecul_srli(cur_het2hom1, 2) & m2);
-          agg_het1hom2 += (cur_het1hom2 & m2) + (vecul_srli(cur_het1hom2, 2) & m2);
+          VecW cur_ibs0 = (ref2het1 ^ ref2het2) & cur_homhom;
+          VecW cur_hethet = het1 & het2;
+          VecW cur_het2hom1 = hom1 & het2;
+          VecW cur_het1hom2 = hom2 & het1;
+          cur_homhom = cur_homhom - (vecw_srli(cur_homhom, 1) & m1);
+          cur_ibs0 = cur_ibs0 - (vecw_srli(cur_ibs0, 1) & m1);
+          cur_hethet = cur_hethet - (vecw_srli(cur_hethet, 1) & m1);
+          cur_het2hom1 = cur_het2hom1 - (vecw_srli(cur_het2hom1, 1) & m1);
+          cur_het1hom2 = cur_het1hom2 - (vecw_srli(cur_het1hom2, 1) & m1);
+          agg_homhom += (cur_homhom & m2) + (vecw_srli(cur_homhom, 2) & m2);
+          agg_ibs0 += (cur_ibs0 & m2) + (vecw_srli(cur_ibs0, 2) & m2);
+          agg_hethet += (cur_hethet & m2) + (vecw_srli(cur_hethet, 2) & m2);
+          agg_het2hom1 += (cur_het2hom1 & m2) + (vecw_srli(cur_het2hom1, 2) & m2);
+          agg_het1hom2 += (cur_het1hom2 & m2) + (vecw_srli(cur_het1hom2, 2) & m2);
         }
-        acc_homhom.vi = acc_homhom.vi + (agg_homhom & m4) + (vecul_srli(agg_homhom, 4) & m4);
-        acc_ibs0.vi = acc_ibs0.vi + (agg_ibs0 & m4) + (vecul_srli(agg_ibs0, 4) & m4);
-        acc_hethet.vi = acc_hethet.vi + (agg_hethet & m4) + (vecul_srli(agg_hethet, 4) & m4);
-        acc_het2hom1.vi = acc_het2hom1.vi + (agg_het2hom1 & m4) + (vecul_srli(agg_het2hom1, 4) & m4);
-        acc_het1hom2.vi = acc_het1hom2.vi + (agg_het1hom2 & m4) + (vecul_srli(agg_het1hom2, 4) & m4);
+        acc_homhom.vw = acc_homhom.vw + (agg_homhom & m4) + (vecw_srli(agg_homhom, 4) & m4);
+        acc_ibs0.vw = acc_ibs0.vw + (agg_ibs0 & m4) + (vecw_srli(agg_ibs0, 4) & m4);
+        acc_hethet.vw = acc_hethet.vw + (agg_hethet & m4) + (vecw_srli(agg_hethet, 4) & m4);
+        acc_het2hom1.vw = acc_het2hom1.vw + (agg_het2hom1 & m4) + (vecw_srli(agg_het2hom1, 4) & m4);
+        acc_het1hom2.vw = acc_het1hom2.vw + (agg_het1hom2 & m4) + (vecw_srli(agg_het1hom2, 4) & m4);
       }
-      const VecUL m8 = VCONST_UL(kMask00FF);
-      acc_homhom.vi = (acc_homhom.vi & m8) + (vecul_srli(acc_homhom.vi, 8) & m8);
-      acc_ibs0.vi = (acc_ibs0.vi & m8) + (vecul_srli(acc_ibs0.vi, 8) & m8);
-      acc_hethet.vi = (acc_hethet.vi & m8) + (vecul_srli(acc_hethet.vi, 8) & m8);
-      acc_het2hom1.vi = (acc_het2hom1.vi & m8) + (vecul_srli(acc_het2hom1.vi, 8) & m8);
-      acc_het1hom2.vi = (acc_het1hom2.vi & m8) + (vecul_srli(acc_het1hom2.vi, 8) & m8);
+      const VecW m8 = VCONST_W(kMask00FF);
+      acc_homhom.vw = (acc_homhom.vw & m8) + (vecw_srli(acc_homhom.vw, 8) & m8);
+      acc_ibs0.vw = (acc_ibs0.vw & m8) + (vecw_srli(acc_ibs0.vw, 8) & m8);
+      acc_hethet.vw = (acc_hethet.vw & m8) + (vecw_srli(acc_hethet.vw, 8) & m8);
+      acc_het2hom1.vw = (acc_het2hom1.vw & m8) + (vecw_srli(acc_het2hom1.vw, 8) & m8);
+      acc_het1hom2.vw = (acc_het1hom2.vw & m8) + (vecw_srli(acc_het1hom2.vw, 8) & m8);
       *king_counts_iter++ += UniVecHsum16(acc_ibs0);
       *king_counts_iter++ += UniVecHsum16(acc_hethet);
       *king_counts_iter++ += UniVecHsum16(acc_het2hom1);
@@ -832,7 +832,7 @@ void SetKingMatrixFname(KingFlags king_flags, uint32_t parallel_idx, uint32_t pa
     const uint32_t output_zst = king_flags & kfKingMatrixZs;
     if (parallel_tot != 1) {
       *outname_end2++ = '.';
-      outname_end2 = uint32toa(parallel_idx + 1, outname_end2);
+      outname_end2 = u32toa(parallel_idx + 1, outname_end2);
     }
     if (output_zst) {
       outname_end2 = strcpya(outname_end2, ".zst");
@@ -843,7 +843,7 @@ void SetKingMatrixFname(KingFlags king_flags, uint32_t parallel_idx, uint32_t pa
   char* outname_end2 = strcpya(outname_end, ".king.bin");
   if (parallel_tot != 1) {
     *outname_end2++ = '.';
-    outname_end2 = uint32toa(parallel_idx + 1, outname_end2);
+    outname_end2 = u32toa(parallel_idx + 1, outname_end2);
   }
   *outname_end2 = '\0';
 }
@@ -853,7 +853,7 @@ void SetKingTableFname(KingFlags king_flags, uint32_t parallel_idx, uint32_t par
   const uint32_t output_zst = king_flags & kfKingTableZs;
   if (parallel_tot != 1) {
     *outname_end2++ = '.';
-    outname_end2 = uint32toa(parallel_idx + 1, outname_end2);
+    outname_end2 = u32toa(parallel_idx + 1, outname_end2);
   }
   if (output_zst) {
     outname_end2 = strcpya(outname_end2, ".zst");
@@ -946,14 +946,14 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
     }
     // possible todo: allow this to change between passes
     ts.calc_thread_ct = calc_thread_ct;
-    if (bigstack_alloc_ui(calc_thread_ct + 1, &g_thread_start) ||
+    if (bigstack_alloc_u32(calc_thread_ct + 1, &g_thread_start) ||
         bigstack_alloc_thread(calc_thread_ct, &ts.threads)) {
       goto CalcKing_ret_NOMEM;
     }
     const uintptr_t sample_ctl = BitCtToWordCt(sample_ct);
     uintptr_t* kinship_table = nullptr;
     if (king_cutoff != -1) {
-      if (bigstack_calloc_ul(sample_ct * sample_ctl, &kinship_table)) {
+      if (bigstack_calloc_w(sample_ct * sample_ctl, &kinship_table)) {
         goto CalcKing_ret_NOMEM;
       }
     }
@@ -971,19 +971,19 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
     uintptr_t* loadbuf;
     uintptr_t* splitbuf_hom;
     uintptr_t* splitbuf_ref2het;
-    if (bigstack_alloc_ul(raw_sample_ctl, &cur_sample_include) ||
-        bigstack_alloc_ui(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
-        bigstack_alloc_ul(sample_ctaw2, &loadbuf) ||
-        bigstack_alloc_ul(kPglBitTransposeBatch * sample_ctaw, &splitbuf_hom) ||
-        bigstack_alloc_ul(kPglBitTransposeBatch * sample_ctaw, &splitbuf_ref2het) ||
-        bigstack_alloc_ul(king_bufsizew, &(g_smaj_hom[0])) ||
-        bigstack_alloc_ul(king_bufsizew, &(g_smaj_ref2het[0])) ||
-        bigstack_alloc_ul(king_bufsizew, &(g_smaj_hom[1])) ||
-        bigstack_alloc_ul(king_bufsizew, &(g_smaj_ref2het[1]))) {
+    if (bigstack_alloc_w(raw_sample_ctl, &cur_sample_include) ||
+        bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+        bigstack_alloc_w(sample_ctaw2, &loadbuf) ||
+        bigstack_alloc_w(kPglBitTransposeBatch * sample_ctaw, &splitbuf_hom) ||
+        bigstack_alloc_w(kPglBitTransposeBatch * sample_ctaw, &splitbuf_ref2het) ||
+        bigstack_alloc_w(king_bufsizew, &(g_smaj_hom[0])) ||
+        bigstack_alloc_w(king_bufsizew, &(g_smaj_ref2het[0])) ||
+        bigstack_alloc_w(king_bufsizew, &(g_smaj_hom[1])) ||
+        bigstack_alloc_w(king_bufsizew, &(g_smaj_ref2het[1]))) {
       goto CalcKing_ret_NOMEM;
     }
     // force this to be cacheline-aligned
-    VecUL* vecaligned_buf = S_CAST(VecUL*, bigstack_alloc(kPglBitTransposeBufbytes));
+    VecW* vecaligned_buf = S_CAST(VecW*, bigstack_alloc(kPglBitTransposeBufbytes));
     if (!vecaligned_buf) {
       goto CalcKing_ret_NOMEM;
     }
@@ -1048,7 +1048,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
       row_end_idx = NextTrianglePass(row_start_idx, grand_row_end_idx, 1, cells_avail);
       TriangleLoadBalance(calc_thread_ct, row_start_idx, row_end_idx, 1, g_thread_start);
       const uintptr_t tot_cells = (S_CAST(uint64_t, row_end_idx) * (row_end_idx - 1) - S_CAST(uint64_t, row_start_idx) * (row_start_idx - 1)) / 2;
-      ZeroUiArr(tot_cells * homhom_needed_p4, g_king_counts);
+      ZeroU32Arr(tot_cells * homhom_needed_p4, g_king_counts);
 
       const uint32_t row_end_idxaw = BitCtToAlignedWordCt(row_end_idx);
       const uint32_t row_end_idxaw2 = QuaterCtToAlignedWordCt(row_end_idx);
@@ -1125,8 +1125,8 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
             if (variant_batch_size_rem) {
               const uint32_t trailing_variant_ct = kBitsPerWord - variant_batch_size_rem;
               variant_batch_size_rounded_up += trailing_variant_ct;
-              ZeroUlArr(trailing_variant_ct * row_end_idxaw, &(splitbuf_hom[variant_batch_size * row_end_idxaw]));
-              ZeroUlArr(trailing_variant_ct * row_end_idxaw, &(splitbuf_ref2het[variant_batch_size * row_end_idxaw]));
+              ZeroWArr(trailing_variant_ct * row_end_idxaw, &(splitbuf_hom[variant_batch_size * row_end_idxaw]));
+              ZeroWArr(trailing_variant_ct * row_end_idxaw, &(splitbuf_ref2het[variant_batch_size * row_end_idxaw]));
             }
           }
           uintptr_t* hom_iter = splitbuf_hom;
@@ -1175,8 +1175,8 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
           uintptr_t* write_ref2het_iter = &(cur_smaj_ref2het[cur_block_sizew]);
           const uint32_t write_word_ct = kKingMultiplexWords - cur_block_sizew;
           for (uint32_t sample_idx = 0; sample_idx < row_end_idx; ++sample_idx) {
-            ZeroUlArr(write_word_ct, write_hom_iter);
-            ZeroUlArr(write_word_ct, write_ref2het_iter);
+            ZeroWArr(write_word_ct, write_hom_iter);
+            ZeroWArr(write_word_ct, write_ref2het_iter);
             write_hom_iter = &(write_hom_iter[kKingMultiplexWords]);
             write_ref2het_iter = &(write_ref2het_iter[kKingMultiplexWords]);
           }
@@ -1387,7 +1387,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
                 const uint32_t homhom_ct = results_iter[4];
                 const uint32_t nonmiss_ct = het1hom2_ct + het2hom1_ct + homhom_ct + hethet_ct;
                 if (king_col_nsnp) {
-                  cswritetp = uint32toa_x(nonmiss_ct, '\t', cswritetp);
+                  cswritetp = u32toa_x(nonmiss_ct, '\t', cswritetp);
                 }
                 if (!report_counts) {
                   nonmiss_recip = 1.0 / u31tod(nonmiss_ct);
@@ -1395,7 +1395,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
               }
               if (king_col_hethet) {
                 if (report_counts) {
-                  cswritetp = uint32toa(hethet_ct, cswritetp);
+                  cswritetp = u32toa(hethet_ct, cswritetp);
                 } else {
                   cswritetp = dtoa_g(nonmiss_recip * u31tod(hethet_ct), cswritetp);
                 }
@@ -1403,7 +1403,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
               }
               if (king_col_ibs0) {
                 if (report_counts) {
-                  cswritetp = uint32toa(ibs0_ct, cswritetp);
+                  cswritetp = u32toa(ibs0_ct, cswritetp);
                 } else {
                   cswritetp = dtoa_g(nonmiss_recip * u31tod(ibs0_ct), cswritetp);
                 }
@@ -1411,8 +1411,8 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
               }
               if (king_col_ibs1) {
                 if (report_counts) {
-                  cswritetp = uint32toa_x(het1hom2_ct, '\t', cswritetp);
-                  cswritetp = uint32toa(het2hom1_ct, cswritetp);
+                  cswritetp = u32toa_x(het1hom2_ct, '\t', cswritetp);
+                  cswritetp = u32toa(het2hom1_ct, cswritetp);
                 } else {
                   cswritetp = dtoa_g(nonmiss_recip * u31tod(het1hom2_ct), cswritetp);
                   *cswritetp++ = '\t';
@@ -1626,9 +1626,9 @@ void IncrKingSubsetHomhom(const uint32_t* loaded_sample_idx_pairs, const uintptr
 }
 #else
 void IncrKingSubset(const uint32_t* loaded_sample_idx_pairs, const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t start_idx, uint32_t end_idx, uint32_t* king_counts) {
-  const VecUL m1 = VCONST_UL(kMask5555);
-  const VecUL m2 = VCONST_UL(kMask3333);
-  const VecUL m4 = VCONST_UL(kMask0F0F);
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW m2 = VCONST_W(kMask3333);
+  const VecW m4 = VCONST_W(kMask0F0F);
   const uint32_t* sample_idx_pair_iter = &(loaded_sample_idx_pairs[(2 * k1LU) * start_idx]);
   const uint32_t* sample_idx_pair_stop = &(loaded_sample_idx_pairs[(2 * k1LU) * end_idx]);
   uint32_t* king_counts_iter = &(king_counts[(4 * k1LU) * start_idx]);
@@ -1636,37 +1636,37 @@ void IncrKingSubset(const uint32_t* loaded_sample_idx_pairs, const uintptr_t* sm
     // technically overflows for huge sample_ct
     const uint32_t first_offset = (*sample_idx_pair_iter++) * kKingMultiplexWords;
     const uint32_t second_offset = (*sample_idx_pair_iter++) * kKingMultiplexWords;
-    const VecUL* first_hom = R_CAST(const VecUL*, &(smaj_hom[first_offset]));
-    const VecUL* first_ref2het = R_CAST(const VecUL*, &(smaj_ref2het[first_offset]));
-    const VecUL* second_hom = R_CAST(const VecUL*, &(smaj_hom[second_offset]));
-    const VecUL* second_ref2het = R_CAST(const VecUL*, &(smaj_ref2het[second_offset]));
+    const VecW* first_hom = R_CAST(const VecW*, &(smaj_hom[first_offset]));
+    const VecW* first_ref2het = R_CAST(const VecW*, &(smaj_ref2het[first_offset]));
+    const VecW* second_hom = R_CAST(const VecW*, &(smaj_hom[second_offset]));
+    const VecW* second_ref2het = R_CAST(const VecW*, &(smaj_ref2het[second_offset]));
     UniVec acc_ibs0;
     UniVec acc_hethet;
     UniVec acc_het2hom1;
     UniVec acc_het1hom2;
-    acc_ibs0.vi = vecul_setzero();
-    acc_hethet.vi = vecul_setzero();
-    acc_het2hom1.vi = vecul_setzero();
-    acc_het1hom2.vi = vecul_setzero();
+    acc_ibs0.vw = vecw_setzero();
+    acc_hethet.vw = vecw_setzero();
+    acc_het2hom1.vw = vecw_setzero();
+    acc_het1hom2.vw = vecw_setzero();
     for (uint32_t vec_idx = 0; vec_idx < kKingMultiplexVecs; vec_idx += 3) {
-      VecUL hom1 = first_hom[vec_idx];
-      VecUL hom2 = second_hom[vec_idx];
-      VecUL ref2het1 = first_ref2het[vec_idx];
-      VecUL ref2het2 = second_ref2het[vec_idx];
-      VecUL het1 = ref2het1 & (~hom1);
-      VecUL het2 = ref2het2 & (~hom2);
-      VecUL agg_ibs0 = (ref2het1 ^ ref2het2) & (hom1 & hom2);
-      VecUL agg_hethet = het1 & het2;
-      VecUL agg_het2hom1 = hom1 & het2;
-      VecUL agg_het1hom2 = hom2 & het1;
-      agg_ibs0 = agg_ibs0 - (vecul_srli(agg_ibs0, 1) & m1);
-      agg_hethet = agg_hethet - (vecul_srli(agg_hethet, 1) & m1);
-      agg_het2hom1 = agg_het2hom1 - (vecul_srli(agg_het2hom1, 1) & m1);
-      agg_het1hom2 = agg_het1hom2 - (vecul_srli(agg_het1hom2, 1) & m1);
-      agg_ibs0 = (agg_ibs0 & m2) + (vecul_srli(agg_ibs0, 2) & m2);
-      agg_hethet = (agg_hethet & m2) + (vecul_srli(agg_hethet, 2) & m2);
-      agg_het2hom1 = (agg_het2hom1 & m2) + (vecul_srli(agg_het2hom1, 2) & m2);
-      agg_het1hom2 = (agg_het1hom2 & m2) + (vecul_srli(agg_het1hom2, 2) & m2);
+      VecW hom1 = first_hom[vec_idx];
+      VecW hom2 = second_hom[vec_idx];
+      VecW ref2het1 = first_ref2het[vec_idx];
+      VecW ref2het2 = second_ref2het[vec_idx];
+      VecW het1 = ref2het1 & (~hom1);
+      VecW het2 = ref2het2 & (~hom2);
+      VecW agg_ibs0 = (ref2het1 ^ ref2het2) & (hom1 & hom2);
+      VecW agg_hethet = het1 & het2;
+      VecW agg_het2hom1 = hom1 & het2;
+      VecW agg_het1hom2 = hom2 & het1;
+      agg_ibs0 = agg_ibs0 - (vecw_srli(agg_ibs0, 1) & m1);
+      agg_hethet = agg_hethet - (vecw_srli(agg_hethet, 1) & m1);
+      agg_het2hom1 = agg_het2hom1 - (vecw_srli(agg_het2hom1, 1) & m1);
+      agg_het1hom2 = agg_het1hom2 - (vecw_srli(agg_het1hom2, 1) & m1);
+      agg_ibs0 = (agg_ibs0 & m2) + (vecw_srli(agg_ibs0, 2) & m2);
+      agg_hethet = (agg_hethet & m2) + (vecw_srli(agg_hethet, 2) & m2);
+      agg_het2hom1 = (agg_het2hom1 & m2) + (vecw_srli(agg_het2hom1, 2) & m2);
+      agg_het1hom2 = (agg_het1hom2 & m2) + (vecw_srli(agg_het1hom2, 2) & m2);
 
       for (uint32_t offset = 1; offset < 3; ++offset) {
         hom1 = first_hom[vec_idx + offset];
@@ -1675,29 +1675,29 @@ void IncrKingSubset(const uint32_t* loaded_sample_idx_pairs, const uintptr_t* sm
         ref2het2 = second_ref2het[vec_idx + offset];
         het1 = ref2het1 & (~hom1);
         het2 = ref2het2 & (~hom2);
-        VecUL cur_ibs0 = (ref2het1 ^ ref2het2) & (hom1 & hom2);
-        VecUL cur_hethet = het1 & het2;
-        VecUL cur_het2hom1 = hom1 & het2;
-        VecUL cur_het1hom2 = hom2 & het1;
-        cur_ibs0 = cur_ibs0 - (vecul_srli(cur_ibs0, 1) & m1);
-        cur_hethet = cur_hethet - (vecul_srli(cur_hethet, 1) & m1);
-        cur_het2hom1 = cur_het2hom1 - (vecul_srli(cur_het2hom1, 1) & m1);
-        cur_het1hom2 = cur_het1hom2 - (vecul_srli(cur_het1hom2, 1) & m1);
-        agg_ibs0 += (cur_ibs0 & m2) + (vecul_srli(cur_ibs0, 2) & m2);
-        agg_hethet += (cur_hethet & m2) + (vecul_srli(cur_hethet, 2) & m2);
-        agg_het2hom1 += (cur_het2hom1 & m2) + (vecul_srli(cur_het2hom1, 2) & m2);
-        agg_het1hom2 += (cur_het1hom2 & m2) + (vecul_srli(cur_het1hom2, 2) & m2);
+        VecW cur_ibs0 = (ref2het1 ^ ref2het2) & (hom1 & hom2);
+        VecW cur_hethet = het1 & het2;
+        VecW cur_het2hom1 = hom1 & het2;
+        VecW cur_het1hom2 = hom2 & het1;
+        cur_ibs0 = cur_ibs0 - (vecw_srli(cur_ibs0, 1) & m1);
+        cur_hethet = cur_hethet - (vecw_srli(cur_hethet, 1) & m1);
+        cur_het2hom1 = cur_het2hom1 - (vecw_srli(cur_het2hom1, 1) & m1);
+        cur_het1hom2 = cur_het1hom2 - (vecw_srli(cur_het1hom2, 1) & m1);
+        agg_ibs0 += (cur_ibs0 & m2) + (vecw_srli(cur_ibs0, 2) & m2);
+        agg_hethet += (cur_hethet & m2) + (vecw_srli(cur_hethet, 2) & m2);
+        agg_het2hom1 += (cur_het2hom1 & m2) + (vecw_srli(cur_het2hom1, 2) & m2);
+        agg_het1hom2 += (cur_het1hom2 & m2) + (vecw_srli(cur_het1hom2, 2) & m2);
       }
-      acc_ibs0.vi = acc_ibs0.vi + (agg_ibs0 & m4) + (vecul_srli(agg_ibs0, 4) & m4);
-      acc_hethet.vi = acc_hethet.vi + (agg_hethet & m4) + (vecul_srli(agg_hethet, 4) & m4);
-      acc_het2hom1.vi = acc_het2hom1.vi + (agg_het2hom1 & m4) + (vecul_srli(agg_het2hom1, 4) & m4);
-      acc_het1hom2.vi = acc_het1hom2.vi + (agg_het1hom2 & m4) + (vecul_srli(agg_het1hom2, 4) & m4);
+      acc_ibs0.vw = acc_ibs0.vw + (agg_ibs0 & m4) + (vecw_srli(agg_ibs0, 4) & m4);
+      acc_hethet.vw = acc_hethet.vw + (agg_hethet & m4) + (vecw_srli(agg_hethet, 4) & m4);
+      acc_het2hom1.vw = acc_het2hom1.vw + (agg_het2hom1 & m4) + (vecw_srli(agg_het2hom1, 4) & m4);
+      acc_het1hom2.vw = acc_het1hom2.vw + (agg_het1hom2 & m4) + (vecw_srli(agg_het1hom2, 4) & m4);
     }
-    const VecUL m8 = VCONST_UL(kMask00FF);
-    acc_ibs0.vi = (acc_ibs0.vi & m8) + (vecul_srli(acc_ibs0.vi, 8) & m8);
-    acc_hethet.vi = (acc_hethet.vi & m8) + (vecul_srli(acc_hethet.vi, 8) & m8);
-    acc_het2hom1.vi = (acc_het2hom1.vi & m8) + (vecul_srli(acc_het2hom1.vi, 8) & m8);
-    acc_het1hom2.vi = (acc_het1hom2.vi & m8) + (vecul_srli(acc_het1hom2.vi, 8) & m8);
+    const VecW m8 = VCONST_W(kMask00FF);
+    acc_ibs0.vw = (acc_ibs0.vw & m8) + (vecw_srli(acc_ibs0.vw, 8) & m8);
+    acc_hethet.vw = (acc_hethet.vw & m8) + (vecw_srli(acc_hethet.vw, 8) & m8);
+    acc_het2hom1.vw = (acc_het2hom1.vw & m8) + (vecw_srli(acc_het2hom1.vw, 8) & m8);
+    acc_het1hom2.vw = (acc_het1hom2.vw & m8) + (vecw_srli(acc_het1hom2.vw, 8) & m8);
     *king_counts_iter++ += UniVecHsum16(acc_ibs0);
     *king_counts_iter++ += UniVecHsum16(acc_hethet);
     *king_counts_iter++ += UniVecHsum16(acc_het2hom1);
@@ -1706,9 +1706,9 @@ void IncrKingSubset(const uint32_t* loaded_sample_idx_pairs, const uintptr_t* sm
 }
 
 void IncrKingSubsetHomhom(const uint32_t* loaded_sample_idx_pairs, const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t start_idx, uint32_t end_idx, uint32_t* king_counts) {
-  const VecUL m1 = VCONST_UL(kMask5555);
-  const VecUL m2 = VCONST_UL(kMask3333);
-  const VecUL m4 = VCONST_UL(kMask0F0F);
+  const VecW m1 = VCONST_W(kMask5555);
+  const VecW m2 = VCONST_W(kMask3333);
+  const VecW m4 = VCONST_W(kMask0F0F);
   const uint32_t* sample_idx_pair_iter = &(loaded_sample_idx_pairs[(2 * k1LU) * start_idx]);
   const uint32_t* sample_idx_pair_stop = &(loaded_sample_idx_pairs[(2 * k1LU) * end_idx]);
   uint32_t* king_counts_iter = &(king_counts[(5 * k1LU) * start_idx]);
@@ -1716,78 +1716,78 @@ void IncrKingSubsetHomhom(const uint32_t* loaded_sample_idx_pairs, const uintptr
     // technically overflows for huge sample_ct
     const uint32_t first_offset = (*sample_idx_pair_iter++) * kKingMultiplexWords;
     const uint32_t second_offset = (*sample_idx_pair_iter++) * kKingMultiplexWords;
-    const VecUL* first_hom = R_CAST(const VecUL*, &(smaj_hom[first_offset]));
-    const VecUL* first_ref2het = R_CAST(const VecUL*, &(smaj_ref2het[first_offset]));
-    const VecUL* second_hom = R_CAST(const VecUL*, &(smaj_hom[second_offset]));
-    const VecUL* second_ref2het = R_CAST(const VecUL*, &(smaj_ref2het[second_offset]));
+    const VecW* first_hom = R_CAST(const VecW*, &(smaj_hom[first_offset]));
+    const VecW* first_ref2het = R_CAST(const VecW*, &(smaj_ref2het[first_offset]));
+    const VecW* second_hom = R_CAST(const VecW*, &(smaj_hom[second_offset]));
+    const VecW* second_ref2het = R_CAST(const VecW*, &(smaj_ref2het[second_offset]));
     UniVec acc_homhom;
     UniVec acc_ibs0;
     UniVec acc_hethet;
     UniVec acc_het2hom1;
     UniVec acc_het1hom2;
-    acc_homhom.vi = vecul_setzero();
-    acc_ibs0.vi = vecul_setzero();
-    acc_hethet.vi = vecul_setzero();
-    acc_het2hom1.vi = vecul_setzero();
-    acc_het1hom2.vi = vecul_setzero();
+    acc_homhom.vw = vecw_setzero();
+    acc_ibs0.vw = vecw_setzero();
+    acc_hethet.vw = vecw_setzero();
+    acc_het2hom1.vw = vecw_setzero();
+    acc_het1hom2.vw = vecw_setzero();
     for (uint32_t vec_idx = 0; vec_idx < kKingMultiplexVecs; vec_idx += 3) {
-      VecUL hom1 = first_hom[vec_idx];
-      VecUL hom2 = second_hom[vec_idx];
-      VecUL ref2het1 = first_ref2het[vec_idx];
-      VecUL ref2het2 = second_ref2het[vec_idx];
-      VecUL agg_homhom = hom1 & hom2;
-      VecUL het1 = ref2het1 & (~hom1);
-      VecUL het2 = ref2het2 & (~hom2);
-      VecUL agg_ibs0 = (ref2het1 ^ ref2het2) & agg_homhom;
-      VecUL agg_hethet = het1 & het2;
-      VecUL agg_het2hom1 = hom1 & het2;
-      VecUL agg_het1hom2 = hom2 & het1;
-      agg_homhom = agg_homhom - (vecul_srli(agg_homhom, 1) & m1);
-      agg_ibs0 = agg_ibs0 - (vecul_srli(agg_ibs0, 1) & m1);
-      agg_hethet = agg_hethet - (vecul_srli(agg_hethet, 1) & m1);
-      agg_het2hom1 = agg_het2hom1 - (vecul_srli(agg_het2hom1, 1) & m1);
-      agg_het1hom2 = agg_het1hom2 - (vecul_srli(agg_het1hom2, 1) & m1);
-      agg_homhom = (agg_homhom & m2) + (vecul_srli(agg_homhom, 2) & m2);
-      agg_ibs0 = (agg_ibs0 & m2) + (vecul_srli(agg_ibs0, 2) & m2);
-      agg_hethet = (agg_hethet & m2) + (vecul_srli(agg_hethet, 2) & m2);
-      agg_het2hom1 = (agg_het2hom1 & m2) + (vecul_srli(agg_het2hom1, 2) & m2);
-      agg_het1hom2 = (agg_het1hom2 & m2) + (vecul_srli(agg_het1hom2, 2) & m2);
+      VecW hom1 = first_hom[vec_idx];
+      VecW hom2 = second_hom[vec_idx];
+      VecW ref2het1 = first_ref2het[vec_idx];
+      VecW ref2het2 = second_ref2het[vec_idx];
+      VecW agg_homhom = hom1 & hom2;
+      VecW het1 = ref2het1 & (~hom1);
+      VecW het2 = ref2het2 & (~hom2);
+      VecW agg_ibs0 = (ref2het1 ^ ref2het2) & agg_homhom;
+      VecW agg_hethet = het1 & het2;
+      VecW agg_het2hom1 = hom1 & het2;
+      VecW agg_het1hom2 = hom2 & het1;
+      agg_homhom = agg_homhom - (vecw_srli(agg_homhom, 1) & m1);
+      agg_ibs0 = agg_ibs0 - (vecw_srli(agg_ibs0, 1) & m1);
+      agg_hethet = agg_hethet - (vecw_srli(agg_hethet, 1) & m1);
+      agg_het2hom1 = agg_het2hom1 - (vecw_srli(agg_het2hom1, 1) & m1);
+      agg_het1hom2 = agg_het1hom2 - (vecw_srli(agg_het1hom2, 1) & m1);
+      agg_homhom = (agg_homhom & m2) + (vecw_srli(agg_homhom, 2) & m2);
+      agg_ibs0 = (agg_ibs0 & m2) + (vecw_srli(agg_ibs0, 2) & m2);
+      agg_hethet = (agg_hethet & m2) + (vecw_srli(agg_hethet, 2) & m2);
+      agg_het2hom1 = (agg_het2hom1 & m2) + (vecw_srli(agg_het2hom1, 2) & m2);
+      agg_het1hom2 = (agg_het1hom2 & m2) + (vecw_srli(agg_het1hom2, 2) & m2);
 
       for (uint32_t offset = 1; offset < 3; ++offset) {
         hom1 = first_hom[vec_idx + offset];
         hom2 = second_hom[vec_idx + offset];
         ref2het1 = first_ref2het[vec_idx + offset];
         ref2het2 = second_ref2het[vec_idx + offset];
-        VecUL cur_homhom = hom1 & hom2;
+        VecW cur_homhom = hom1 & hom2;
         het1 = ref2het1 & (~hom1);
         het2 = ref2het2 & (~hom2);
-        VecUL cur_ibs0 = (ref2het1 ^ ref2het2) & cur_homhom;
-        VecUL cur_hethet = het1 & het2;
-        VecUL cur_het2hom1 = hom1 & het2;
-        VecUL cur_het1hom2 = hom2 & het1;
-        cur_homhom = cur_homhom - (vecul_srli(cur_homhom, 1) & m1);
-        cur_ibs0 = cur_ibs0 - (vecul_srli(cur_ibs0, 1) & m1);
-        cur_hethet = cur_hethet - (vecul_srli(cur_hethet, 1) & m1);
-        cur_het2hom1 = cur_het2hom1 - (vecul_srli(cur_het2hom1, 1) & m1);
-        cur_het1hom2 = cur_het1hom2 - (vecul_srli(cur_het1hom2, 1) & m1);
-        agg_homhom += (cur_homhom & m2) + (vecul_srli(cur_homhom, 2) & m2);
-        agg_ibs0 += (cur_ibs0 & m2) + (vecul_srli(cur_ibs0, 2) & m2);
-        agg_hethet += (cur_hethet & m2) + (vecul_srli(cur_hethet, 2) & m2);
-        agg_het2hom1 += (cur_het2hom1 & m2) + (vecul_srli(cur_het2hom1, 2) & m2);
-        agg_het1hom2 += (cur_het1hom2 & m2) + (vecul_srli(cur_het1hom2, 2) & m2);
+        VecW cur_ibs0 = (ref2het1 ^ ref2het2) & cur_homhom;
+        VecW cur_hethet = het1 & het2;
+        VecW cur_het2hom1 = hom1 & het2;
+        VecW cur_het1hom2 = hom2 & het1;
+        cur_homhom = cur_homhom - (vecw_srli(cur_homhom, 1) & m1);
+        cur_ibs0 = cur_ibs0 - (vecw_srli(cur_ibs0, 1) & m1);
+        cur_hethet = cur_hethet - (vecw_srli(cur_hethet, 1) & m1);
+        cur_het2hom1 = cur_het2hom1 - (vecw_srli(cur_het2hom1, 1) & m1);
+        cur_het1hom2 = cur_het1hom2 - (vecw_srli(cur_het1hom2, 1) & m1);
+        agg_homhom += (cur_homhom & m2) + (vecw_srli(cur_homhom, 2) & m2);
+        agg_ibs0 += (cur_ibs0 & m2) + (vecw_srli(cur_ibs0, 2) & m2);
+        agg_hethet += (cur_hethet & m2) + (vecw_srli(cur_hethet, 2) & m2);
+        agg_het2hom1 += (cur_het2hom1 & m2) + (vecw_srli(cur_het2hom1, 2) & m2);
+        agg_het1hom2 += (cur_het1hom2 & m2) + (vecw_srli(cur_het1hom2, 2) & m2);
       }
-      acc_homhom.vi = acc_homhom.vi + (agg_homhom & m4) + (vecul_srli(agg_homhom, 4) & m4);
-      acc_ibs0.vi = acc_ibs0.vi + (agg_ibs0 & m4) + (vecul_srli(agg_ibs0, 4) & m4);
-      acc_hethet.vi = acc_hethet.vi + (agg_hethet & m4) + (vecul_srli(agg_hethet, 4) & m4);
-      acc_het2hom1.vi = acc_het2hom1.vi + (agg_het2hom1 & m4) + (vecul_srli(agg_het2hom1, 4) & m4);
-      acc_het1hom2.vi = acc_het1hom2.vi + (agg_het1hom2 & m4) + (vecul_srli(agg_het1hom2, 4) & m4);
+      acc_homhom.vw = acc_homhom.vw + (agg_homhom & m4) + (vecw_srli(agg_homhom, 4) & m4);
+      acc_ibs0.vw = acc_ibs0.vw + (agg_ibs0 & m4) + (vecw_srli(agg_ibs0, 4) & m4);
+      acc_hethet.vw = acc_hethet.vw + (agg_hethet & m4) + (vecw_srli(agg_hethet, 4) & m4);
+      acc_het2hom1.vw = acc_het2hom1.vw + (agg_het2hom1 & m4) + (vecw_srli(agg_het2hom1, 4) & m4);
+      acc_het1hom2.vw = acc_het1hom2.vw + (agg_het1hom2 & m4) + (vecw_srli(agg_het1hom2, 4) & m4);
     }
-    const VecUL m8 = VCONST_UL(kMask00FF);
-    acc_homhom.vi = (acc_homhom.vi & m8) + (vecul_srli(acc_homhom.vi, 8) & m8);
-    acc_ibs0.vi = (acc_ibs0.vi & m8) + (vecul_srli(acc_ibs0.vi, 8) & m8);
-    acc_hethet.vi = (acc_hethet.vi & m8) + (vecul_srli(acc_hethet.vi, 8) & m8);
-    acc_het2hom1.vi = (acc_het2hom1.vi & m8) + (vecul_srli(acc_het2hom1.vi, 8) & m8);
-    acc_het1hom2.vi = (acc_het1hom2.vi & m8) + (vecul_srli(acc_het1hom2.vi, 8) & m8);
+    const VecW m8 = VCONST_W(kMask00FF);
+    acc_homhom.vw = (acc_homhom.vw & m8) + (vecw_srli(acc_homhom.vw, 8) & m8);
+    acc_ibs0.vw = (acc_ibs0.vw & m8) + (vecw_srli(acc_ibs0.vw, 8) & m8);
+    acc_hethet.vw = (acc_hethet.vw & m8) + (vecw_srli(acc_hethet.vw, 8) & m8);
+    acc_het2hom1.vw = (acc_het2hom1.vw & m8) + (vecw_srli(acc_het2hom1.vw, 8) & m8);
+    acc_het1hom2.vw = (acc_het1hom2.vw & m8) + (vecw_srli(acc_het1hom2.vw, 8) & m8);
     *king_counts_iter++ += UniVecHsum16(acc_ibs0);
     *king_counts_iter++ += UniVecHsum16(acc_hethet);
     *king_counts_iter++ += UniVecHsum16(acc_het2hom1);
@@ -1968,19 +1968,19 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     uintptr_t* splitbuf_hom;
     uintptr_t* splitbuf_ref2het;
     // ok if allocations are a bit oversized
-    if (bigstack_alloc_ul(raw_sample_ctl, &cur_sample_include) ||
-        bigstack_alloc_ui(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
-        bigstack_alloc_ul(sample_ctaw2, &loadbuf) ||
-        bigstack_alloc_ul(kPglBitTransposeBatch * sample_ctaw, &splitbuf_hom) ||
-        bigstack_alloc_ul(kPglBitTransposeBatch * sample_ctaw, &splitbuf_ref2het) ||
-        bigstack_alloc_ul(king_bufsizew, &(g_smaj_hom[0])) ||
-        bigstack_alloc_ul(king_bufsizew, &(g_smaj_ref2het[0])) ||
-        bigstack_alloc_ul(king_bufsizew, &(g_smaj_hom[1])) ||
-        bigstack_alloc_ul(king_bufsizew, &(g_smaj_ref2het[1]))) {
+    if (bigstack_alloc_w(raw_sample_ctl, &cur_sample_include) ||
+        bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+        bigstack_alloc_w(sample_ctaw2, &loadbuf) ||
+        bigstack_alloc_w(kPglBitTransposeBatch * sample_ctaw, &splitbuf_hom) ||
+        bigstack_alloc_w(kPglBitTransposeBatch * sample_ctaw, &splitbuf_ref2het) ||
+        bigstack_alloc_w(king_bufsizew, &(g_smaj_hom[0])) ||
+        bigstack_alloc_w(king_bufsizew, &(g_smaj_ref2het[0])) ||
+        bigstack_alloc_w(king_bufsizew, &(g_smaj_hom[1])) ||
+        bigstack_alloc_w(king_bufsizew, &(g_smaj_ref2het[1]))) {
       goto CalcKingTableSubset_ret_NOMEM;
     }
     // force this to be cacheline-aligned
-    VecUL* vecaligned_buf = S_CAST(VecUL*, bigstack_alloc(kPglBitTransposeBufbytes));
+    VecW* vecaligned_buf = S_CAST(VecW*, bigstack_alloc(kPglBitTransposeBufbytes));
     if (!vecaligned_buf) {
       goto CalcKingTableSubset_ret_NOMEM;
     }
@@ -2038,7 +2038,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     // possible todo: allow this to change between passes
     ts.calc_thread_ct = calc_thread_ct;
     // could eventually have 64-bit g_thread_start?
-    if (bigstack_alloc_ui(calc_thread_ct + 1, &g_thread_start) ||
+    if (bigstack_alloc_u32(calc_thread_ct + 1, &g_thread_start) ||
         bigstack_alloc_thread(calc_thread_ct, &ts.threads)) {
       goto CalcKingTableSubset_ret_NOMEM;
     }
@@ -2204,7 +2204,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     uint64_t king_table_filter_ct = 0;
     uintptr_t pass_idx = 1;
     while (pair_idx_cur_start < pair_idx) {
-      ZeroUlArr(raw_sample_ctl, cur_sample_include);
+      ZeroWArr(raw_sample_ctl, cur_sample_include);
       const uintptr_t cur_pair_ct = pair_idx - pair_idx_cur_start;
       const uintptr_t cur_pair_ct_x2 = 2 * cur_pair_ct;
       for (uintptr_t ulii = 0; ulii < cur_pair_ct_x2; ++ulii) {
@@ -2219,7 +2219,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
           g_loaded_sample_idx_pairs[ulii] = RawToSubsettedPos(cur_sample_include, sample_include_cumulative_popcounts, g_loaded_sample_idx_pairs[ulii]);
         }
       }
-      ZeroUiArr(cur_pair_ct * homhom_needed_p4, g_king_counts);
+      ZeroU32Arr(cur_pair_ct * homhom_needed_p4, g_king_counts);
       CollapsedSampleFmtidInit(cur_sample_include, siip, cur_sample_ct, king_col_fid, king_col_sid, max_sample_fmtid_blen, collapsed_sample_fmtids);
       for (uint32_t tidx = 0; tidx <= calc_thread_ct; ++tidx) {
         g_thread_start[tidx] = (tidx * S_CAST(uint64_t, cur_pair_ct)) / calc_thread_ct;
@@ -2255,8 +2255,8 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
             if (variant_batch_size_rem) {
               const uint32_t trailing_variant_ct = kBitsPerWord - variant_batch_size_rem;
               variant_batch_size_rounded_up += trailing_variant_ct;
-              ZeroUlArr(trailing_variant_ct * cur_sample_ctaw, &(splitbuf_hom[variant_batch_size * cur_sample_ctaw]));
-              ZeroUlArr(trailing_variant_ct * cur_sample_ctaw, &(splitbuf_ref2het[variant_batch_size * cur_sample_ctaw]));
+              ZeroWArr(trailing_variant_ct * cur_sample_ctaw, &(splitbuf_hom[variant_batch_size * cur_sample_ctaw]));
+              ZeroWArr(trailing_variant_ct * cur_sample_ctaw, &(splitbuf_ref2het[variant_batch_size * cur_sample_ctaw]));
             }
           }
           uintptr_t* hom_iter = splitbuf_hom;
@@ -2305,8 +2305,8 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
           uintptr_t* write_ref2het_iter = &(cur_smaj_ref2het[cur_block_sizew]);
           const uint32_t write_word_ct = kKingMultiplexWords - cur_block_sizew;
           for (uint32_t sample_idx = 0; sample_idx < cur_sample_ct; ++sample_idx) {
-            ZeroUlArr(write_word_ct, write_hom_iter);
-            ZeroUlArr(write_word_ct, write_ref2het_iter);
+            ZeroWArr(write_word_ct, write_hom_iter);
+            ZeroWArr(write_word_ct, write_ref2het_iter);
             write_hom_iter = &(write_hom_iter[kKingMultiplexWords]);
             write_ref2het_iter = &(write_ref2het_iter[kKingMultiplexWords]);
           }
@@ -2360,7 +2360,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
           const uint32_t homhom_ct = results_iter[4];
           const uint32_t nonmiss_ct = het1hom2_ct + het2hom1_ct + homhom_ct + hethet_ct;
           if (king_col_nsnp) {
-            cswritep = uint32toa_x(nonmiss_ct, '\t', cswritep);
+            cswritep = u32toa_x(nonmiss_ct, '\t', cswritep);
           }
           if (!report_counts) {
             nonmiss_recip = 1.0 / u31tod(nonmiss_ct);
@@ -2368,7 +2368,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
         }
         if (king_col_hethet) {
           if (report_counts) {
-            cswritep = uint32toa(hethet_ct, cswritep);
+            cswritep = u32toa(hethet_ct, cswritep);
           } else {
             cswritep = dtoa_g(nonmiss_recip * u31tod(hethet_ct), cswritep);
           }
@@ -2376,7 +2376,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
         }
         if (king_col_ibs0) {
           if (report_counts) {
-            cswritep = uint32toa(ibs0_ct, cswritep);
+            cswritep = u32toa(ibs0_ct, cswritep);
           } else {
             cswritep = dtoa_g(nonmiss_recip * u31tod(ibs0_ct), cswritep);
           }
@@ -2384,8 +2384,8 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
         }
         if (king_col_ibs1) {
           if (report_counts) {
-            cswritep = uint32toa_x(het1hom2_ct, '\t', cswritep);
-            cswritep = uint32toa(het2hom1_ct, cswritep);
+            cswritep = u32toa_x(het1hom2_ct, '\t', cswritep);
+            cswritep = u32toa(het2hom1_ct, cswritep);
           } else {
             cswritep = dtoa_g(nonmiss_recip * u31tod(het1hom2_ct), cswritep);
             *cswritep++ = '\t';
@@ -2715,23 +2715,23 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
     const uintptr_t row_end_idxaw = BitCtToAlignedWordCt(row_end_idx);
     uintptr_t* missing_vmaj = nullptr;
     uintptr_t* genovec_buf = nullptr;
-    if (bigstack_calloc_ui(row_end_idx, missing_cts_ptr) ||
-        bigstack_calloc_ui((S_CAST(uint64_t, row_end_idx) * (row_end_idx - 1) - S_CAST(uint64_t, row_start_idx) * (row_start_idx - 1)) / 2, missing_dbl_exclude_cts_ptr) ||
-        bigstack_calloc_ul(row_end_idxl, &g_missing_nz[0]) ||
-        bigstack_calloc_ul(row_end_idxl, &g_missing_nz[1]) ||
-        bigstack_alloc_ul(QuaterCtToWordCt(row_end_idx), &genovec_buf) ||
-        bigstack_alloc_ul(row_end_idxaw * (k1LU * kDblMissingBlockSize), &missing_vmaj) ||
-        bigstack_alloc_ul(RoundUpPow2(row_end_idx, 2) * kDblMissingBlockWordCt, &g_missing_smaj[0]) ||
-        bigstack_alloc_ul(RoundUpPow2(row_end_idx, 2) * kDblMissingBlockWordCt, &g_missing_smaj[1])) {
+    if (bigstack_calloc_u32(row_end_idx, missing_cts_ptr) ||
+        bigstack_calloc_u32((S_CAST(uint64_t, row_end_idx) * (row_end_idx - 1) - S_CAST(uint64_t, row_start_idx) * (row_start_idx - 1)) / 2, missing_dbl_exclude_cts_ptr) ||
+        bigstack_calloc_w(row_end_idxl, &g_missing_nz[0]) ||
+        bigstack_calloc_w(row_end_idxl, &g_missing_nz[1]) ||
+        bigstack_alloc_w(QuaterCtToWordCt(row_end_idx), &genovec_buf) ||
+        bigstack_alloc_w(row_end_idxaw * (k1LU * kDblMissingBlockSize), &missing_vmaj) ||
+        bigstack_alloc_w(RoundUpPow2(row_end_idx, 2) * kDblMissingBlockWordCt, &g_missing_smaj[0]) ||
+        bigstack_alloc_w(RoundUpPow2(row_end_idx, 2) * kDblMissingBlockWordCt, &g_missing_smaj[1])) {
       goto CalcMissingMatrix_ret_NOMEM;
     }
     uint32_t* missing_cts = *missing_cts_ptr;
     uint32_t* missing_dbl_exclude_cts = *missing_dbl_exclude_cts_ptr;
     g_missing_dbl_exclude_cts = missing_dbl_exclude_cts;
-    VecUL* transpose_bitblock_wkspace = S_CAST(VecUL*, bigstack_alloc_raw(kPglBitTransposeBufbytes));
+    VecW* transpose_bitblock_wkspace = S_CAST(VecW*, bigstack_alloc_raw(kPglBitTransposeBufbytes));
     uint32_t calc_thread_ct = (max_thread_ct > 8)? (max_thread_ct - 1) : max_thread_ct;
     ts.calc_thread_ct = calc_thread_ct;
-    if (bigstack_alloc_ui(calc_thread_ct + 1, &g_thread_start) ||
+    if (bigstack_alloc_u32(calc_thread_ct + 1, &g_thread_start) ||
         bigstack_alloc_thread(calc_thread_ct, &ts.threads)) {
       goto CalcMissingMatrix_ret_NOMEM;
     }
@@ -2761,7 +2761,7 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
         if (cur_variant_idx_end > variant_ct) {
           cur_batch_size = variant_ct - cur_variant_idx_start;
           cur_variant_idx_end = variant_ct;
-          ZeroUlArr((kDblMissingBlockSize - cur_batch_size) * row_end_idxaw, &(missing_vmaj[cur_batch_size * row_end_idxaw]));
+          ZeroWArr((kDblMissingBlockSize - cur_batch_size) * row_end_idxaw, &(missing_vmaj[cur_batch_size * row_end_idxaw]));
         }
         uintptr_t* missing_vmaj_iter = missing_vmaj;
         for (uint32_t variant_idx = cur_variant_idx_start; variant_idx < cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
@@ -2792,7 +2792,7 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
           ++sample_transpose_batch_idx;
         }
         uintptr_t* cur_missing_nz = g_missing_nz[parity];
-        ZeroUlArr(row_end_idxl, cur_missing_nz);
+        ZeroWArr(row_end_idxl, cur_missing_nz);
         for (uint32_t sample_idx = 0; sample_idx < row_end_idx; ++sample_idx) {
           const uintptr_t cur_word0 = *cur_missing_smaj_iter++;
           const uintptr_t cur_word1 = *cur_missing_smaj_iter++;
@@ -2893,7 +2893,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       // note that grm should be allocated on bottom if no --parallel, since it
       // may continue to be used after function exit.  So we allocate this on
       // top.
-      if (bigstack_end_alloc_ui(calc_thread_ct + 1, &thread_start)) {
+      if (bigstack_end_alloc_u32(calc_thread_ct + 1, &thread_start)) {
         goto CalcGrm_ret_NOMEM;
       }
       // slightly different from plink 1.9 since we don't bother to treat the
@@ -2913,7 +2913,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         // If we're computing part 0, we never need to load the last 4 samples;
         // if part 1, we don't need the last two; etc.
         uintptr_t* new_sample_include;
-        if (bigstack_alloc_ul(raw_sample_ctl, &new_sample_include)) {
+        if (bigstack_alloc_w(raw_sample_ctl, &new_sample_include)) {
           goto CalcGrm_ret_NOMEM;
         }
         const uint32_t sample_uidx_end = 1 + IdxToUidxBasic(orig_sample_include, row_end_idx - 1);
@@ -2935,10 +2935,10 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     uintptr_t* genovec_buf;
     uintptr_t* dosage_present_buf;
     Dosage* dosage_vals_buf;
-    if (bigstack_alloc_ui(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+    if (bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
         bigstack_alloc_thread(calc_thread_ct, &ts.threads) ||
-        bigstack_alloc_ul(row_end_idxl2, &genovec_buf) ||
-        bigstack_alloc_ul(row_end_idxl, &dosage_present_buf) ||
+        bigstack_alloc_w(row_end_idxl2, &genovec_buf) ||
+        bigstack_alloc_w(row_end_idxl, &dosage_present_buf) ||
         bigstack_alloc_dosage(row_end_idx, &dosage_vals_buf)) {
       goto CalcGrm_ret_NOMEM;
     }
@@ -2954,7 +2954,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     uintptr_t* variant_include_has_missing = nullptr;
     if (!(grm_flags & kfGrmMeanimpute)) {
-      if (bigstack_calloc_ul(raw_variant_ctl, &variant_include_has_missing)) {
+      if (bigstack_calloc_w(raw_variant_ctl, &variant_include_has_missing)) {
         goto CalcGrm_ret_NOMEM;
       }
     }
@@ -3115,7 +3115,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           char* outname_end2 = strcpya(outname_end, ".rel.bin");
           if (parallel_tot != 1) {
             *outname_end2++ = '.';
-            outname_end2 = uint32toa(parallel_idx + 1, outname_end2);
+            outname_end2 = u32toa(parallel_idx + 1, outname_end2);
           }
           *outname_end2 = '\0';
           if (fopen_checked(outname, FOPEN_WB, &outfile)) {
@@ -3172,7 +3172,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           char* outname_end2 = strcpya(outname_end, ".rel.bin");
           if (parallel_tot != 1) {
             *outname_end2++ = '.';
-            outname_end2 = uint32toa(parallel_idx + 1, outname_end2);
+            outname_end2 = u32toa(parallel_idx + 1, outname_end2);
           }
           *outname_end2 = '\0';
           if (fopen_checked(outname, FOPEN_WB, &outfile)) {
@@ -3210,7 +3210,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           char* outname_end2 = strcpya(outname_end, ".rel");
           if (parallel_tot != 1) {
             *outname_end2++ = '.';
-            outname_end2 = uint32toa(parallel_idx + 1, outname_end2);
+            outname_end2 = u32toa(parallel_idx + 1, outname_end2);
           }
           const uint32_t output_zst = (grm_flags / kfGrmMatrixZs) & 1;
           if (output_zst) {
@@ -3278,7 +3278,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           char* outname_end2 = strcpya(outname_end, ".grm.bin");
           if (parallel_tot != 1) {
             *outname_end2++ = '.';
-            outname_end2 = uint32toa(parallel_idx + 1, outname_end2);
+            outname_end2 = u32toa(parallel_idx + 1, outname_end2);
           }
           *outname_end2 = '\0';
           if (fopen_checked(outname, FOPEN_WB, &outfile)) {
@@ -3302,7 +3302,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           outname_end2 = strcpya(outname_end, ".grm.N.bin");
           if (parallel_tot != 1) {
             *outname_end2++ = '.';
-            outname_end2 = uint32toa(parallel_idx + 1, outname_end2);
+            outname_end2 = u32toa(parallel_idx + 1, outname_end2);
           }
           *outname_end2 = '\0';
           if (fopen_checked(outname, FOPEN_WB, &outfile)) {
@@ -3357,7 +3357,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           log_write_iter = memcpyl3a(log_write_iter, "bin");
           if (parallel_tot != 1) {
             *log_write_iter++ = '.';
-            log_write_iter = uint32toa(parallel_idx + 1, log_write_iter);
+            log_write_iter = u32toa(parallel_idx + 1, log_write_iter);
           }
           log_write_iter = memcpyl3a(log_write_iter, " , ");
           if (parallel_idx) {
@@ -3370,7 +3370,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           char* outname_end2 = strcpya(outname_end, ".grm");
           if (parallel_tot != 1) {
             *outname_end2++ = '.';
-            outname_end2 = uint32toa(parallel_idx + 1, outname_end2);
+            outname_end2 = u32toa(parallel_idx + 1, outname_end2);
           }
           if (grm_flags & kfGrmListZs) {
             outname_end2 = strcpya(outname_end2, ".zst");
@@ -3389,16 +3389,16 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             }
             const double* grm_iter = &(grm[(row_idx - row_start_idx) * row_end_idx]);
             for (uint32_t col_idx = 0; col_idx <= row_idx; ++col_idx) {
-              cswritep = uint32toa_x(row_idx + 1, '\t', cswritep);
-              cswritep = uint32toa_x(col_idx + 1, '\t', cswritep);
+              cswritep = u32toa_x(row_idx + 1, '\t', cswritep);
+              cswritep = u32toa_x(col_idx + 1, '\t', cswritep);
               if (missing_cts) {
                 uint32_t cur_obs_ct = variant_ct_base;
                 if (col_idx != row_idx) {
                   cur_obs_ct = cur_obs_ct - missing_cts[col_idx] + (*missing_dbl_exclude_iter++);
                 }
-                cswritep = uint32toa(cur_obs_ct, cswritep);
+                cswritep = u32toa(cur_obs_ct, cswritep);
               } else {
-                cswritep = uint32toa(variant_ct_base, cswritep);
+                cswritep = u32toa(variant_ct_base, cswritep);
               }
               *cswritep++ = '\t';
               cswritep = dtoa_g(*grm_iter++, cswritep);
@@ -3793,7 +3793,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     const uint32_t pca_sample_ctaw = BitCtToAlignedWordCt(pca_sample_ct);
     uint32_t* pca_sample_include_cumulative_popcounts;
     double* eigvals;
-    if (bigstack_alloc_ui(raw_sample_ctl, &pca_sample_include_cumulative_popcounts) ||
+    if (bigstack_alloc_u32(raw_sample_ctl, &pca_sample_include_cumulative_popcounts) ||
         bigstack_alloc_d(pc_ct, &eigvals) ||
         bigstack_alloc_thread(calc_thread_ct, &ts.threads) ||
         bigstack_alloc_dp(calc_thread_ct, &g_yy_bufs)) {
@@ -4218,7 +4218,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       for (uint32_t pc_idx = 0; pc_idx < pc_ct;) {
         ++pc_idx;
         cswritep = memcpyl3a(cswritep, "\tPC");
-        cswritep = uint32toa(pc_idx, cswritep);
+        cswritep = u32toa(pc_idx, cswritep);
       }
       AppendBinaryEoln(&cswritep);
 
@@ -4381,7 +4381,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
               cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
             }
             if (variant_bps) {
-              cswritep = uint32toa_x(variant_bps[variant_uidx], '\t', cswritep);
+              cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
             }
             cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
             uintptr_t variant_allele_idx_base = variant_uidx * 2;
@@ -4471,7 +4471,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     for (uint32_t pc_idx = 0; pc_idx < pc_ct;) {
       ++pc_idx;
       write_iter = memcpyl3a(write_iter, "\tPC");
-      write_iter = uint32toa(pc_idx, write_iter);
+      write_iter = u32toa(pc_idx, write_iter);
     }
     AppendBinaryEoln(&write_iter);
     const uint32_t sample_ct = pca_sample_ct;
@@ -4645,7 +4645,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         uint32_t x_end = cip->chr_fo_vidx_start[x_chr_fo_idx + 1];
         if (!AllBitsAreZero(variant_include, x_start, x_end)) {
           uintptr_t* variant_include_no_x;
-          if (bigstack_alloc_ul(raw_variant_ctl, &variant_include_no_x)) {
+          if (bigstack_alloc_w(raw_variant_ctl, &variant_include_no_x)) {
             goto ScoreReport_ret_NOMEM;
           }
           memcpy(variant_include_no_x, variant_include, raw_variant_ctl * sizeof(intptr_t));
@@ -4705,7 +4705,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       if (allele_col_idx == last_col_idx) {
         goto ScoreReport_ret_MISSING_TOKENS;
       }
-      if (bigstack_alloc_ui(1, &score_col_idx_deltas)) {
+      if (bigstack_alloc_u32(1, &score_col_idx_deltas)) {
         goto ScoreReport_ret_NOMEM;
       }
       // catch corner case
@@ -4717,7 +4717,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     } else {
       const uint32_t last_col_idxl = BitCtToWordCt(last_col_idx);
       uintptr_t* score_col_bitarr;
-      if (bigstack_end_calloc_ul(last_col_idxl, &score_col_bitarr)) {
+      if (bigstack_end_calloc_w(last_col_idxl, &score_col_bitarr)) {
         goto ScoreReport_ret_NOMEM;
       }
       if (NumericRangeListToBitarr(&(score_info_ptr->input_col_idx_range_list), last_col_idx, 1, 0, score_col_bitarr)) {
@@ -4732,7 +4732,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         goto ScoreReport_ret_INVALID_CMDLINE;
       }
       score_col_ct = PopcountWords(score_col_bitarr, last_col_idxl);
-      if (bigstack_alloc_ui(score_col_ct, &score_col_idx_deltas)) {
+      if (bigstack_alloc_u32(score_col_ct, &score_col_idx_deltas)) {
         goto ScoreReport_ret_NOMEM;
       }
       uint32_t col_uidx = 0;
@@ -4769,7 +4769,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       for (uintptr_t score_col_idx = 0; score_col_idx < score_col_ct; ++score_col_idx) {
         score_col_names[score_col_idx] = write_iter;
         write_iter = strcpya(write_iter, "SCORE");
-        write_iter = uint32toa_x(score_col_idx + 1, '\0', write_iter);
+        write_iter = u32toa_x(score_col_idx + 1, '\0', write_iter);
       }
     }
     BigstackBaseSet(write_iter);
@@ -4809,16 +4809,16 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         bigstack_alloc_d(kScoreVariantBlockSize * score_col_ct, &(g_score_coefs_cmaj[1])) ||
         bigstack_calloc_d(score_col_ct * sample_ct, &g_final_scores_cmaj) ||
         // bugfix (4 Nov 2017): need raw_sample_ctl here, not sample_ctl
-        bigstack_alloc_ui(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
-        bigstack_alloc_ul(sample_ctl, &sex_nonmale_collapsed) ||
-        bigstack_alloc_ul(sample_ctl2, &genovec_buf) ||
-        bigstack_alloc_ul(sample_ctl, &dosage_present_buf) ||
+        bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
+        bigstack_alloc_w(sample_ctl, &sex_nonmale_collapsed) ||
+        bigstack_alloc_w(sample_ctl2, &genovec_buf) ||
+        bigstack_alloc_w(sample_ctl, &dosage_present_buf) ||
         bigstack_alloc_dosage(sample_ct, &dosage_vals_buf) ||
-        bigstack_alloc_ul(45 * acc1_vec_ct * kWordsPerVec, &missing_acc1) ||
-        bigstack_alloc_ul(45 * acc1_vec_ct * kWordsPerVec, &missing_male_acc1) ||
-        bigstack_calloc_ull(sample_ct, &dosage_sums) ||
-        bigstack_calloc_ull(sample_ct, &dosage_incrs) ||
-        bigstack_calloc_ul(raw_variant_ctl, &already_seen) ||
+        bigstack_alloc_w(45 * acc1_vec_ct * kWordsPerVec, &missing_acc1) ||
+        bigstack_alloc_w(45 * acc1_vec_ct * kWordsPerVec, &missing_male_acc1) ||
+        bigstack_calloc_u64(sample_ct, &dosage_sums) ||
+        bigstack_calloc_u64(sample_ct, &dosage_incrs) ||
+        bigstack_calloc_w(raw_variant_ctl, &already_seen) ||
         bigstack_alloc_c(overflow_buf_alloc, &overflow_buf)) {
       goto ScoreReport_ret_NOMEM;
     }
@@ -4828,12 +4828,12 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     uintptr_t* missing_haploid_acc4 = &(missing_male_acc1[acc1_vec_ct * kWordsPerVec]);
     uintptr_t* missing_haploid_acc8 = &(missing_haploid_acc4[acc4_vec_ct * kWordsPerVec]);
     uintptr_t* missing_haploid_acc32 = &(missing_haploid_acc8[acc8_vec_ct * kWordsPerVec]);
-    ZeroUlArr(acc4_vec_ct * kWordsPerVec, missing_diploid_acc4);
-    ZeroUlArr(acc8_vec_ct * kWordsPerVec, missing_diploid_acc8);
-    ZeroUlArr(acc8_vec_ct * (4 * kWordsPerVec), missing_diploid_acc32);
-    ZeroUlArr(acc4_vec_ct * kWordsPerVec, missing_haploid_acc4);
-    ZeroUlArr(acc8_vec_ct * kWordsPerVec, missing_haploid_acc8);
-    ZeroUlArr(acc8_vec_ct * (4 * kWordsPerVec), missing_haploid_acc32);
+    ZeroWArr(acc4_vec_ct * kWordsPerVec, missing_diploid_acc4);
+    ZeroWArr(acc8_vec_ct * kWordsPerVec, missing_diploid_acc8);
+    ZeroWArr(acc8_vec_ct * (4 * kWordsPerVec), missing_diploid_acc32);
+    ZeroWArr(acc4_vec_ct * kWordsPerVec, missing_haploid_acc4);
+    ZeroWArr(acc8_vec_ct * kWordsPerVec, missing_haploid_acc8);
+    ZeroWArr(acc8_vec_ct * (4 * kWordsPerVec), missing_haploid_acc32);
     FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
     CopyBitarrSubset(sex_male, sample_include, sample_ct, sex_nonmale_collapsed);
     BitarrInvert(sample_ct, sex_nonmale_collapsed);
@@ -5395,14 +5395,14 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       const uint32_t nmiss_allele_ct = denom - 2 * scrambled_missing_diploid_cts[scrambled_idx] - scrambled_missing_haploid_cts[scrambled_idx];
       if (write_nmiss_allele) {
         *cswritep++ = '\t';
-        cswritep = uint32toa(nmiss_allele_ct, cswritep);
+        cswritep = u32toa(nmiss_allele_ct, cswritep);
       }
       if (no_meanimpute) {
         denom = nmiss_allele_ct;
       }
       if (write_denom) {
         *cswritep++ = '\t';
-        cswritep = uint32toa(denom, cswritep);
+        cswritep = u32toa(denom, cswritep);
       }
       if (write_dosage_sum) {
         *cswritep++ = '\t';
