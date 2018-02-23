@@ -420,15 +420,18 @@ PglErr InitRLstream(const char* fname, uintptr_t max_line_blen, ReadLineStream* 
 
     rlsp->reader_progress_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
     if (!rlsp->reader_progress_event) {
+      DeleteCriticalSection(&syncp->critical_section);
       goto InitRLstream_ret_THREAD_CREATE_FAIL;
     }
     rlsp->consumer_progress_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
     if (!rlsp->consumer_progress_event) {
+      DeleteCriticalSection(&syncp->critical_section);
       CloseHandle(rlsp->reader_progress_event);
       goto InitRLstream_ret_THREAD_CREATE_FAIL;
     }
     rlsp->read_thread = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStack, ReadLineStreamThread, rlsp, 0, nullptr));
     if (!rlsp->read_thread) {
+      DeleteCriticalSection(&syncp->critical_section);
       CloseHandle(rlsp->consumer_progress_event);
       CloseHandle(rlsp->reader_progress_event);
       goto InitRLstream_ret_THREAD_CREATE_FAIL;
@@ -584,7 +587,7 @@ PglErr RewindRLstream(ReadLineStream* rlsp, char** read_iterp) {
   }
   syncp->interrupt = kRlsInterruptRewind;
   LeaveCriticalSection(critical_sectionp);
-  SetEvent(rlsp->reader_progress_event);
+  SetEvent(rlsp->consumer_progress_event);
 #else
   pthread_mutex_t* sync_mutexp = &syncp->sync_mutex;
   pthread_cond_t* consumer_progress_condvarp = &syncp->consumer_progress_condvar;
@@ -611,14 +614,15 @@ PglErr RewindRLstream(ReadLineStream* rlsp, char** read_iterp) {
 PglErr CleanupRLstream(ReadLineStream* rlsp) {
   PglErr reterr = kPglRetSuccess;
 #ifdef _WIN32
-  ReadLineStreamSync* syncp = rlsp->syncp;
-  CRITICAL_SECTION* critical_sectionp = &syncp->critical_section;
   if (rlsp->read_thread) {
+    ReadLineStreamSync* syncp = rlsp->syncp;
+    CRITICAL_SECTION* critical_sectionp = &syncp->critical_section;
     EnterCriticalSection(critical_sectionp);
     syncp->interrupt = kRlsInterruptShutdown;
     LeaveCriticalSection(critical_sectionp);
-    SetEvent(rlsp->reader_progress_event);
+    SetEvent(rlsp->consumer_progress_event);
     WaitForSingleObject(rlsp->read_thread, INFINITE);
+    DeleteCriticalSection(critical_sectionp);
     rlsp->read_thread = nullptr;  // make it safe to call this multiple times
     CloseHandle(rlsp->consumer_progress_event);
     CloseHandle(rlsp->reader_progress_event);
