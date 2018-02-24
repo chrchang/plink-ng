@@ -582,11 +582,13 @@ CONSTU31(kBytesPerVec, 32);
 typedef uintptr_t VecW __attribute__ ((vector_size (32)));
 typedef short VecS __attribute__ ((vector_size (32)));
 typedef char VecC __attribute__ ((vector_size (32)));
+typedef unsigned char VecUc __attribute__ ((vector_size (32)));
 #  else
 CONSTU31(kBytesPerVec, 16);
 typedef uintptr_t VecW __attribute__ ((vector_size (16)));
 typedef short VecS __attribute__ ((vector_size (16)));
 typedef char VecC __attribute__ ((vector_size (16)));
+typedef unsigned char VecUc __attribute__ ((vector_size (16)));
 #  endif
 CONSTU31(kBitsPerWord, 64);
 CONSTU31(kBitsPerWordLog2, 6);
@@ -624,11 +626,19 @@ HEADER_INLINE VecC vecc_set1(char cc) {
   return R_CAST(VecC, _mm256_set1_epi8(cc));
 }
 
+HEADER_INLINE VecUc vecuc_set1(unsigned char ucc) {
+  return R_CAST(VecUc, _mm256_set1_epi8(ucc));
+}
+
 HEADER_INLINE uint32_t vecw_movemask(VecW vv) {
   return _mm256_movemask_epi8(R_CAST(__m256i, vv));
 }
 
 HEADER_INLINE uint32_t vecc_movemask(VecC vv) {
+  return _mm256_movemask_epi8(R_CAST(__m256i, vv));
+}
+
+HEADER_INLINE uint32_t vecuc_movemask(VecUc vv) {
   return _mm256_movemask_epi8(R_CAST(__m256i, vv));
 }
 
@@ -660,11 +670,19 @@ HEADER_INLINE VecC vecc_set1(char cc) {
   return R_CAST(VecC, _mm_set1_epi8(cc));
 }
 
+HEADER_INLINE VecUc vecuc_set1(unsigned char ucc) {
+  return R_CAST(VecUc, _mm_set1_epi8(ucc));
+}
+
 HEADER_INLINE uint32_t vecw_movemask(VecW vv) {
   return _mm_movemask_epi8(R_CAST(__m128i, vv));
 }
 
 HEADER_INLINE uint32_t vecc_movemask(VecC vv) {
+  return _mm_movemask_epi8(R_CAST(__m128i, vv));
+}
+
+HEADER_INLINE uint32_t vecuc_movemask(VecUc vv) {
   return _mm_movemask_epi8(R_CAST(__m128i, vv));
 }
 
@@ -1211,6 +1229,22 @@ HEADER_CINLINE2 uint32_t Popcount4Words(uintptr_t val0, uintptr_t val1, uintptr_
   const uintptr_t four_bit_1 = (val2 & kMask3333) + ((val2 >> 2) & kMask3333) + (val3 & kMask3333) + ((val3 >> 2) & kMask3333);
   return (((four_bit_0 & kMask0F0F) + ((four_bit_0 >> 4) & kMask0F0F) + (four_bit_1 & kMask0F0F) + ((four_bit_1 >> 4) & kMask0F0F)) * kMask0101) >> (kBitsPerWord - 8);
 }
+#endif
+
+#ifdef __LP64__
+#  ifdef USE_SSE42
+HEADER_INLINE uint32_t PopcountMovemaskUint(uint32_t val) {
+  return __builtin_popcount(val);
+}
+#  else
+HEADER_INLINE uint32_t PopcountMovemaskUint(uint32_t val) {
+  // May as well exploit the fact that only the low 15 bits may be set.
+  val = val - ((val >> 1) & 0x5555);
+  val = (val & 0x3333) + ((val >> 2) & 0x3333);
+  val = (val + (val >> 4)) & 0x0f0f;
+  return (val + (val >> 8)) & 0xff;
+}
+#  endif
 #endif
 
 HEADER_INLINE uint32_t VecIsAligned(const void* ptr) {

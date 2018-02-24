@@ -41,33 +41,25 @@ CXXCONST_CP strchrnul(const char* str, int needle) {
   const VecC* str_viter = R_CAST(const VecC*, RoundDownPow2(starting_addr, kBytesPerVec));
   const VecC vvec_all_zero = vecc_setzero();
   const VecC vvec_all_needle = vecc_set1(needle);
+  VecC cur_vvec = *str_viter;
+  VecC zero_match_vvec = (cur_vvec == vvec_all_zero);
+  VecC needle_match_vvec = (cur_vvec == vvec_all_needle);
+  uint32_t matching_bytes = vecc_movemask(zero_match_vvec | needle_match_vvec);
   const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, str_viter);
   if (leading_byte_ct) {
-    // todo: check whether this should just be merged with the loop below.
-    const VecC cur_vvec = *str_viter;
-    const VecC zero_match_vvec = (cur_vvec == vvec_all_zero);
-    const VecC needle_match_vvec = (cur_vvec == vvec_all_needle);
-    uint32_t matching_bytes = vecc_movemask(zero_match_vvec | needle_match_vvec);
     matching_bytes &= UINT32_MAX << leading_byte_ct;
-    if (matching_bytes) {
-      const uint32_t byte_offset_in_vec = ctzu32(matching_bytes);
-      return &(R_CAST(CXXCONST_CP, str_viter)[byte_offset_in_vec]);
-    }
-    ++str_viter;
   }
   // This is typically short-range, so the memrchr_expected_far() double-vector
   // strategy is unlikely to be profitable.
-  while (1) {
-    const VecC cur_vvec = *str_viter;
-    const VecC zero_match_vvec = (cur_vvec == vvec_all_zero);
-    const VecC needle_match_vvec = (cur_vvec == vvec_all_needle);
-    const uint32_t matching_bytes = vecc_movemask(zero_match_vvec | needle_match_vvec);
-    if (matching_bytes) {
-      const uint32_t byte_offset_in_vec = ctzu32(matching_bytes);
-      return &(R_CAST(CXXCONST_CP, str_viter)[byte_offset_in_vec]);
-    }
+  while (!matching_bytes) {
     ++str_viter;
+    cur_vvec = *str_viter;
+    zero_match_vvec = (cur_vvec == vvec_all_zero);
+    needle_match_vvec = (cur_vvec == vvec_all_needle);
+    matching_bytes = vecc_movemask(zero_match_vvec | needle_match_vvec);
   }
+  const uint32_t byte_offset_in_vec = ctzu32(matching_bytes);
+  return &(R_CAST(CXXCONST_CP, str_viter)[byte_offset_in_vec]);
 }
 #endif
 
@@ -78,33 +70,25 @@ CXXCONST_VOIDP rawmemchr2(const void* ss, unsigned char ucc1, unsigned char ucc2
   const VecC* ss_viter = R_CAST(const VecC*, RoundDownPow2(starting_addr, kBytesPerVec));
   const VecC vvec_all_ucc1 = vecc_set1(ucc1);
   const VecC vvec_all_ucc2 = vecc_set1(ucc2);
+  VecC cur_vvec = *ss_viter;
+  VecC ucc1_match_vvec = (cur_vvec == vvec_all_ucc1);
+  VecC ucc2_match_vvec = (cur_vvec == vvec_all_ucc2);
+  uint32_t matching_bytes = vecc_movemask(ucc1_match_vvec | ucc2_match_vvec);
   const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, ss_viter);
   if (leading_byte_ct) {
-    // todo: check whether this should just be merged with the loop below.
-    const VecC cur_vvec = *ss_viter;
-    const VecC ucc1_match_vvec = (cur_vvec == vvec_all_ucc1);
-    const VecC ucc2_match_vvec = (cur_vvec == vvec_all_ucc2);
-    uint32_t matching_bytes = vecc_movemask(ucc1_match_vvec | ucc2_match_vvec);
     matching_bytes &= UINT32_MAX << leading_byte_ct;
-    if (matching_bytes) {
-      const uint32_t byte_offset_in_vec = ctzu32(matching_bytes);
-      return &(R_CAST(CXXCONST_CP, ss_viter)[byte_offset_in_vec]);
-    }
-    ++ss_viter;
   }
   // This is typically short-range, so the memrchr_expected_far() double-vector
   // strategy is unlikely to be profitable.
-  while (1) {
-    const VecC cur_vvec = *ss_viter;
-    const VecC ucc1_match_vvec = (cur_vvec == vvec_all_ucc1);
-    const VecC ucc2_match_vvec = (cur_vvec == vvec_all_ucc2);
-    const uint32_t matching_bytes = vecc_movemask(ucc1_match_vvec | ucc2_match_vvec);
-    if (matching_bytes) {
-      const uint32_t byte_offset_in_vec = ctzu32(matching_bytes);
-      return &(R_CAST(CXXCONST_CP, ss_viter)[byte_offset_in_vec]);
-    }
+  while (!matching_bytes) {
     ++ss_viter;
+    cur_vvec = *ss_viter;
+    ucc1_match_vvec = (cur_vvec == vvec_all_ucc1);
+    ucc2_match_vvec = (cur_vvec == vvec_all_ucc2);
+    matching_bytes = vecc_movemask(ucc1_match_vvec | ucc2_match_vvec);
   }
+  const uint32_t byte_offset_in_vec = ctzu32(matching_bytes);
+  return &(R_CAST(CXXCONST_CP, ss_viter)[byte_offset_in_vec]);
 }
 #else
 CXXCONST_VOIDP rawmemchr2(const void* ss, unsigned char ucc1, unsigned char ucc2) {
@@ -1209,6 +1193,31 @@ uint32_t match_upper(const char* str_iter, const char* fixed_str) {
 }
 */
 
+#ifdef __LP64__
+CXXCONST_CP FirstPrechar(const char* str_iter, uint32_t char_code) {
+  const uintptr_t starting_addr = R_CAST(uintptr_t, str_iter);
+  const VecUc* str_viter = R_CAST(const VecUc*, RoundDownPow2(starting_addr, kBytesPerVec));
+  const VecUc vvec_all_char = vecuc_set1(char_code);
+  VecUc cur_vvec = *str_viter;
+  VecUc prechar_vvec = (cur_vvec < vvec_all_char);
+  uint32_t matching_bytes = vecuc_movemask(prechar_vvec);
+  const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, str_viter);
+  if (leading_byte_ct) {
+    matching_bytes &= UINT32_MAX << leading_byte_ct;
+  }
+  // This is typically short-range, so the memrchr_expected_far() double-vector
+  // strategy is unlikely to be profitable.
+  while (!matching_bytes) {
+    ++str_viter;
+    cur_vvec = *str_viter;
+    prechar_vvec = (cur_vvec < vvec_all_char);
+    matching_bytes = vecuc_movemask(prechar_vvec);
+  }
+  const uint32_t byte_offset_in_vec = ctzu32(matching_bytes);
+  return &(R_CAST(CXXCONST_CP, str_viter)[byte_offset_in_vec]);
+}
+#endif
+
 uint32_t MatchUpperCounted(const char* str, const char* fixed_str, uint32_t ct) {
   for (uint32_t uii = 0; uii < ct; ++uii) {
     if ((ctou32(str[uii]) & 0xdf) != ctou32(fixed_str[uii])) {
@@ -1815,6 +1824,97 @@ void GetTopTwoUi(const uint32_t* __restrict uint_arr, uintptr_t uia_size, uintpt
   *top_idx_ptr = top_idx;
   *second_idx_ptr = second_idx;
 }
+
+/*
+#ifdef __LP64__
+CXXCONST_CP NextTokenMultFar(const char* str_iter, uint32_t ct) {
+  // assert(ct);
+  if (!str_iter) {
+    return nullptr;
+  }
+  uint32_t remaining_transition_ct = ct * 2;
+  const uintptr_t starting_addr = R_CAST(uintptr_t, str_iter);
+  const VecUc* str_viter = R_CAST(const VecUc*, RoundDownPow2(starting_addr, kBytesPerVec));
+  const VecUc vvec_all_tab = vecuc_set1(9);
+  const VecUc vvec_all_space = vecuc_set1(32);
+  VecUc cur_vvec = *str_viter;
+  VecUc tabspace_vvec = (cur_vvec == vvec_all_tab) | (cur_vvec == vvec_all_space);
+  VecUc pre33_vvec = (cur_vvec <= vvec_all_space);
+  uint32_t delimiter_bytes = vecuc_movemask(tabspace_vvec);
+  uint32_t terminating_bytes = delimiter_bytes ^ vecuc_movemask(pre33_vvec);
+  const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, str_viter);
+  if (leading_byte_ct) {
+    uint32_t leading_mask = UINT32_MAX << leading_byte_ct;
+    delimiter_bytes &= leading_mask;
+    terminating_bytes &= leading_mask;
+  }
+  uint32_t cur_transitions;
+  if (delimiter_bytes) {
+    goto NextTokenMultFar_nonempty_start;
+  }
+  while (1) {
+    uint32_t cur_transition_ct;
+    // State 1: currently in token, find the next delimiter
+    do {
+      do {
+        if (terminating_bytes) {
+          return nullptr;
+        }
+        ++str_viter;
+        cur_vvec = *str_viter;
+        tabspace_vvec = (cur_vvec == vvec_all_tab) | (cur_vvec == vvec_all_space);
+        pre33_vvec = (cur_vvec <= vvec_all_space);
+        delimiter_bytes = vecuc_movemask(tabspace_vvec);
+        terminating_bytes = delimiter_bytes ^ vecuc_movemask(pre33_vvec);
+      } while (!delimiter_bytes);
+    NextTokenMultFar_nonempty_start:
+      // The number of 0->1 + 1->0 bit transitions in x is
+      //   popcount(x ^ (x << 1)).
+      cur_transitions = S_CAST(MovemaskUint, delimiter_bytes ^ (delimiter_bytes << 1));
+      cur_transition_ct = PopcountMovemaskUint(cur_transitions);
+      if (cur_transition_ct <= remaining_transition_ct) {
+        goto NextTokenMultFar_finish;
+      }
+      if (terminating_bytes) {
+        return nullptr;
+      }
+      remaining_transition_ct -= cur_transition_ct;
+    } while (!(cur_transition_ct % 2));
+    // State 2: currently at delimiter, find the next token start
+    do {
+      uint32_t non_delimiter_bytes;
+      do {
+        ++str_viter;
+        cur_vvec = *str_viter;
+        VecUc non_tabspace_vvec = (cur_vvec != vvec_all_tab) & (cur_vvec != vvec_all_space);
+        // note that this includes terminating bytes
+        non_delimiter_bytes = vecuc_movemask(non_tabspace_vvec);
+      } while (!non_delimiter_bytes);
+      pre33_vvec = (cur_vvec <= vvec_all_space);
+      terminating_bytes = non_delimiter_bytes & vecuc_movemask(pre33_vvec);
+      cur_transitions = S_CAST(MovemaskUint, non_delimiter_bytes ^ (non_delimiter_bytes << 1));
+      cur_transition_ct = PopcountMovemaskUint(cur_transitions);
+      if (cur_transition_ct <= remaining_transition_ct) {
+        goto NextTokenMultFar_finish;
+      }
+      if (terminating_bytes) {
+        return nullptr;
+      }
+      remaining_transition_ct -= cur_transition_ct;
+    } while (!(cur_transition_ct % 2));
+  }
+ NextTokenMultFar_finish:
+  for (uint32_t uii = 1; uii < remaining_transition_ct; ++uii) {
+    cur_transitions &= cur_transitions - 1;
+  }
+  if (terminating_bytes & (cur_transitions ^ (cur_transitions - 1))) {
+    return nullptr;
+  }
+  const uint32_t byte_offset_in_vec = ctzu32(cur_transitions);
+  return &(R_CAST(CXXCONST_CP, str_viter)[byte_offset_in_vec]);
+}
+#endif
+*/
 
 CXXCONST_CP CommaOrSpaceNextTokenMult(const char* str_iter, uint32_t ct, uint32_t comma_delim) {
   assert(ct);

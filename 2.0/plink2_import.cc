@@ -330,7 +330,7 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Im
       AppendBinaryEoln(&write_iter);
       while (ctou32(sample_line_iter[0]) >= ' ') {
         ++sample_ct;
-        const char* token_end = strchrnul_n(sample_line_iter, '\t');
+        const char* token_end = NextPrespace(sample_line_iter);
         reterr = ImportSampleId(sample_line_iter, token_end, &isic, &write_iter);
         if (reterr) {
           goto VcfSampleLine_ret_1;
@@ -392,6 +392,7 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Im
       } else {
         fid_present = fam_cols & kfFamCol1;
       }
+      uint32_t sample_line_eoln = (ctou32(sample_line_iter[0]) < 32);
       while (1) {
         if (!IsEolnKns(*loadbuf_first_token)) {
           const char* psam_iid_start = loadbuf_first_token;
@@ -401,12 +402,12 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Im
               goto VcfSampleLine_ret_MISSING_TOKENS;
             }
           }
-          if (ctou32(sample_line_iter[0]) < ' ') {
+          if (sample_line_eoln) {
             snprintf(g_logbuf, kLogbufSize, "Error: --%ccf file contains fewer sample IDs than %s.\n", flag_char, preexisting_psamname);
             goto VcfSampleLine_ret_INCONSISTENT_INPUT_WW;
           }
           ++sample_ct;
-          const char* sample_line_token_end = strchrnul_n(sample_line_iter, '\t');
+          const char* sample_line_token_end = NextPrespace(sample_line_iter);
           const char* sample_line_iid_start;
           uint32_t sample_line_iid_slen;
           reterr = ImportIidFromSampleId(sample_line_iter, sample_line_token_end, &isic, &sample_line_iid_start, &sample_line_iid_slen);
@@ -417,6 +418,7 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Im
             snprintf(g_logbuf, kLogbufSize, "Error: Mismatched IDs between --%ccf file and %s.\n", flag_char, preexisting_psamname);
             goto VcfSampleLine_ret_INCONSISTENT_INPUT_WW;
           }
+          sample_line_eoln = (*sample_line_token_end != '\t');
           sample_line_iter = &(sample_line_token_end[1]);
         }
         ++line_idx;
@@ -441,7 +443,7 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Im
       if (gzclose_null(&gz_infile)) {
         goto VcfSampleLine_ret_READ_FAIL;
       }
-      if (ctou32(sample_line_iter[0]) >= ' ') {
+      if (!sample_line_eoln) {
         snprintf(g_logbuf, kLogbufSize, "Error: --%ccf file contains more sample IDs than %s.\n", flag_char, preexisting_psamname);
         goto VcfSampleLine_ret_INCONSISTENT_INPUT_WW;
       }
@@ -718,12 +720,9 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     uint32_t info_nonpr_present = 0;
     uint32_t chrset_present = 0;
     char* linebuf_iter;
-    goto VcfToPgen_read_first_line;
     while (1) {
-      line_start = AdvPastDelim(line_start, '\n');
-    VcfToPgen_read_first_line:
       ++line_idx;
-      reterr = ReadFromRLstream(&vcf_rls, &line_start);
+      reterr = ReadNextLineFromRLstream(&vcf_rls, &line_start);
       if (reterr) {
         if (reterr == kPglRetSkipped) {
           // eof
@@ -940,7 +939,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         continue;
       }
       linebuf_iter = line_start;
-      char* chr_code_end = strchrnul_n(line_start, '\t');
+      char* chr_code_end = NextPrespace(line_start);
       if (*chr_code_end != '\t') {
         goto VcfToPgen_ret_MISSING_TOKENS;
       }
@@ -948,7 +947,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       // other things we do during the scanning pass are (i) count alt alleles,
       // and (ii) check whether any phased genotype calls are present.
 
-      char* pos_end = strchrnul_n(&(chr_code_end[1]), '\t');
+      char* pos_end = NextPrespace(chr_code_end);
       if (*pos_end != '\t') {
         goto VcfToPgen_ret_MISSING_TOKENS;
       }
@@ -956,7 +955,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       // may as well check ID length here
       // postpone POS validation till second pass so we only have to parse it
       // once
-      char* id_end = strchrnul_n(&(pos_end[1]), '\t');
+      char* id_end = NextPrespace(pos_end);
       if (*id_end != '\t') {
         goto VcfToPgen_ret_MISSING_TOKENS;
       }
@@ -967,7 +966,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
 
       // note REF length
       char* ref_allele_start = &(id_end[1]);
-      linebuf_iter = strchrnul_n(ref_allele_start, '\t');
+      linebuf_iter = FirstPrespace(ref_allele_start);
       if (*linebuf_iter != '\t') {
         goto VcfToPgen_ret_MISSING_TOKENS;
       }
@@ -1016,7 +1015,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       // skip QUAL, FILTER
       char* qual_start_m1 = linebuf_iter;
       for (uint32_t uii = 0; uii < 2; ++uii) {
-        linebuf_iter = strchrnul_n(&(linebuf_iter[1]), '\t');
+        linebuf_iter = NextPrespace(linebuf_iter);
         if (*linebuf_iter != '\t') {
           goto VcfToPgen_ret_MISSING_TOKENS;
         }
@@ -1024,7 +1023,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
 
       // possibly check for FORMAT:GT before proceeding
       char* info_start = &(linebuf_iter[1]);
-      char* info_end = strchrnul_n(info_start, '\t');
+      char* info_end = FirstPrespace(info_start);
       uint32_t gt_missing;
       if (sample_ct) {
         if (*info_end != '\t') {
@@ -1082,7 +1081,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         // possible todo: import dosages when GT missing
 
         // linebuf_iter currently points to beginning of FORMAT field
-        const char* format_end = strchrnul_n(linebuf_iter, '\t');
+        const char* format_end = FirstPrespace(linebuf_iter);
         if (*format_end != '\t') {
           goto VcfToPgen_ret_MISSING_TOKENS;
         }
@@ -1118,7 +1117,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
                 if (phasescan_iter[2] == '|') {
                   if (VcfIsHetShort(&(phasescan_iter[1]), vcf_half_call)) {
                     if (qual_field_ct) {
-                      const char* cur_gtext_end = strchrnul_n(phasescan_iter, '\t');
+                      const char* cur_gtext_end = FirstPrespace(&(phasescan_iter[4]));
                       if (VcfCheckQuals(qual_field_skips, qual_thresholds, phasescan_iter, cur_gtext_end, qual_field_ct)) {
                         break;
                       }
@@ -1132,7 +1131,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
             }
             if (VcfIsHetShort(&(phasescan_iter[-1]), vcf_half_call)) {
               if (qual_field_ct) {
-                const char* cur_gtext_end = strchrnul_n(phasescan_iter, '\t');
+                const char* cur_gtext_end = FirstPrespace(&(phasescan_iter[2]));
                 if (VcfCheckQuals(qual_field_skips, qual_thresholds, phasescan_iter, cur_gtext_end, qual_field_ct)) {
                   break;
                 }
@@ -1145,7 +1144,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
             const char* dosagescan_iter = format_end;
             for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
               const char* cur_gtext_start = ++dosagescan_iter;
-              const char* cur_gtext_end = strchrnul_n(dosagescan_iter, '\t');
+              const char* cur_gtext_end = FirstPrespace(dosagescan_iter);
               if ((*cur_gtext_end != '\t') && (sample_idx + 1 != sample_ct)) {
                 goto VcfToPgen_ret_MISSING_TOKENS;
               }
@@ -1244,11 +1243,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       goto VcfToPgen_ret_OPEN_FAIL;
     }
     line_idx = 0;
-    goto VcfToPgen_reread_first_line;
     while (1) {
-      line_start = AdvPastDelim(line_start, '\n');
-    VcfToPgen_reread_first_line:
-      reterr = ReadFromRLstream(&vcf_rls, &line_start);
+      reterr = ReadNextLineFromRLstream(&vcf_rls, &line_start);
       if (reterr) {
         if (reterr == kPglRetSkipped) {
           reterr = kPglRetReadFail;
@@ -1267,11 +1263,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         char* contig_name_start = &(line_start[strlen("##contig=<ID=")]);
         char* contig_name_end = strchrnul_n(contig_name_start, ',');
         if (*contig_name_end != ',') {
-          // could search backwards from end of line in this case, but if
-          // contig names are long enough for that to matter we have other
-          // problems...
-          contig_name_end = strchrnul_n(contig_name_start, '>');
-          if (*contig_name_end != '>') {
+          contig_name_end = memrchr_maybe_short(contig_name_start, '>', contig_name_end - contig_name_start);
+          if (!contig_name_end) {
             snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of --vcf file does not have expected ##contig format.\n", line_idx);
             goto VcfToPgen_ret_MALFORMED_INPUT_WW;
           }
@@ -1493,7 +1486,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           continue;
         }
       } else {
-        info_end = strchrnul_n(&(filter_end[1]), '\t');
+        info_end = NextPrespace(filter_end);
         gt_missing = 1;
       }
 
@@ -1595,7 +1588,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
             uintptr_t genovec_word = 0;
             uint32_t dosage_present_hw = 0;
             for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
-              char* cur_gtext_end = strchrnul_n(linebuf_iter, '\t');
+              char* cur_gtext_end = FirstPrespace(linebuf_iter);
               if ((*cur_gtext_end != '\t') && ((sample_idx_lowbits != inner_loop_last) || (widx != sample_ctl2_m1))) {
                 goto VcfToPgen_ret_MISSING_TOKENS;
               }
@@ -1714,7 +1707,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
             uint32_t phaseinfo_halfword = 0;
             uint32_t dosage_present_hw = 0;
             for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
-              char* cur_gtext_end = strchrnul_n(linebuf_iter, '\t');
+              char* cur_gtext_end = FirstPrespace(linebuf_iter);
               if ((*cur_gtext_end != '\t') && ((sample_idx_lowbits != inner_loop_last) || (widx != sample_ctl2_m1))) {
                 goto VcfToPgen_ret_MISSING_TOKENS;
               }

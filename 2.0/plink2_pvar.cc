@@ -658,19 +658,14 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     uint32_t info_pr_present = 0;
     uint32_t info_pr_nonflag_present = 0;
     uint32_t info_nonpr_present = 0;
-    char* first_body_line_start = nullptr;
     char* linebuf_first_token;
-    goto LoadPvar_read_first_line;
     while (1) {
-      line_start = AdvPastDelim(line_start, '\n');
-    LoadPvar_read_first_line:
       ++line_idx;
-      reterr = ReadFromRLstream(&pvar_rls, &line_start);
+      reterr = ReadNextLineFromRLstream(&pvar_rls, &line_start);
       if (reterr) {
         if (reterr == kPglRetSkipped) {
-          linebuf_first_token = line_start;
-          linebuf_first_token[0] = '\0';
-          first_body_line_start = line_start;
+          linebuf_first_token = &(line_start[-1]);
+          assert(linebuf_first_token[0] == '\n');
           break;
         }
         goto LoadPvar_ret_READ_RLSTREAM;
@@ -857,9 +852,9 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       for (uint32_t rpc_col_idx = relevant_postchr_col_ct - 1; rpc_col_idx; --rpc_col_idx) {
         col_skips[rpc_col_idx] -= col_skips[rpc_col_idx - 1];
       }
-      linebuf_first_token[0] = '\0';  // forces line to be skipped by main loop
-      first_body_line_start = K_CAST(char*, AdvPastDelim(linebuf_iter, '\n'));
-    } else if (linebuf_first_token[0]) {
+      // skip this line in main loop
+      linebuf_first_token = K_CAST(char*, S_CAST(const char*, rawmemchr(linebuf_iter, '\n')));
+    } else if (linebuf_first_token[0] != '\n') {
       *pvar_nonref_default_ptr = 1;
       col_skips[0] = 1;
       col_skips[1] = 1;
@@ -895,7 +890,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     uint32_t info_reload_slen = *info_reload_slen_ptr;
 
     // done with header, linebuf_first_token now points to beginning of first
-    // real line, or *linebuf_first_token == '\0'.
+    // real line, or it's at the end of the header.
     uint32_t max_variant_id_slen = *max_variant_id_slen_ptr;
     uint32_t chrs_encountered_m1 = UINT32_MAX;  // intentional overflow
     uint32_t prev_chr_code = UINT32_MAX;  // force initial mismatch
@@ -1063,10 +1058,6 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     uint32_t is_split_chr = 0;
     UnsortedVar vpos_sortstatus = kfUnsortedVar0;
 
-    if (first_body_line_start) {
-      line_start = first_body_line_start;
-      goto LoadPvar_main_loop_skip_header;
-    }
     while (1) {
       if (!IsEolnKns(*linebuf_first_token)) {
 #ifdef __LP64__
@@ -1194,6 +1185,9 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
             token_slens[cur_col_type] = token_end - linebuf_iter;
             linebuf_iter = token_end;
           }
+          // It is possible for the info_token[info_slen] assignment below to
+          // clobber the line terminator, so we advance line_start to eoln
+          // here and never reference it again before the next line.
           line_start = S_CAST(char*, rawmemchr(linebuf_iter, '\n'));
           if (info_col_present) {
             const uint32_t info_slen = token_slens[6];
@@ -1606,11 +1600,10 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           }
         }
         ++raw_variant_ct;
-        ++line_start;
       } else {
-        line_start = AdvPastDelim(line_start, '\n');
+        line_start = S_CAST(char*, rawmemchr(linebuf_first_token, '\n'));
       }
-    LoadPvar_main_loop_skip_header:
+      ++line_start;
       ++line_idx;
       reterr = ReadFromRLstream(&pvar_rls, &line_start);
       if (reterr) {

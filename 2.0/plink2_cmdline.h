@@ -1260,27 +1260,46 @@ HEADER_INLINE char* FirstNonTspace(char* str_iter) {
 }
 #endif
 
-// assumes we are currently in a token -- UNSAFE OTHERWISE
-HEADER_INLINE CXXCONST_CP CurTokenEnd(const char* str_iter) {
-  // assert(ctou32(*str_iter) > 32);
-  while (!IsSpaceOrEoln(*(++str_iter)));
+#ifdef __LP64__
+CXXCONST_CP FirstPrechar(const char* str_iter, uint32_t char_code);
+#else
+HEADER_INLINE CXXCONST_CP FirstPrechar(const char* str_iter, uint32_t char_code) {
+  while (ctou32(*str_iter) >= char_code) {
+    ++str_iter;
+  }
   return S_CAST(CXXCONST_CP, str_iter);
-}
-
-#ifdef __cplusplus
-HEADER_INLINE char* CurTokenEnd(char* str_iter) {
-  return const_cast<char*>(CurTokenEnd(const_cast<const char*>(str_iter)));
 }
 #endif
 
 HEADER_INLINE CXXCONST_CP FirstPrespace(const char* str_iter) {
-  while (ctou32(*(++str_iter)) >= 32);
-  return S_CAST(CXXCONST_CP, str_iter);
+  return S_CAST(CXXCONST_CP, FirstPrechar(str_iter, ' '));
+}
+
+HEADER_INLINE CXXCONST_CP NextPrespace(const char* str_iter) {
+  return S_CAST(CXXCONST_CP, FirstPrechar(&(str_iter[1]), ' '));
+}
+
+// assumes we are currently in a token -- UNSAFE OTHERWISE
+HEADER_INLINE CXXCONST_CP CurTokenEnd(const char* str_iter) {
+  // assert(ctou32(*str_iter) > 32);
+  return S_CAST(CXXCONST_CP, FirstPrechar(&(str_iter[1]), 33));
 }
 
 #ifdef __cplusplus
+HEADER_INLINE char* FirstPrechar(char* str_iter, uint32_t char_code) {
+  return const_cast<char*>(FirstPrechar(const_cast<const char*>(str_iter), char_code));
+}
+
 HEADER_INLINE char* FirstPrespace(char* str_iter) {
   return const_cast<char*>(FirstPrespace(const_cast<const char*>(str_iter)));
+}
+
+HEADER_INLINE char* NextPrespace(char* str_iter) {
+  return const_cast<char*>(NextPrespace(const_cast<const char*>(str_iter)));
+}
+
+HEADER_INLINE char* CurTokenEnd(char* str_iter) {
+  return const_cast<char*>(CurTokenEnd(const_cast<const char*>(str_iter)));
 }
 #endif
 
@@ -1511,10 +1530,8 @@ HEADER_INLINE CXXCONST_CP NextToken(const char* str_iter) {
   if (!str_iter) {
     return nullptr;
   }
+  str_iter = FirstPrechar(str_iter, 33);
   unsigned char ucc = *str_iter;
-  while (ucc > 32) {
-    ucc = *(++str_iter);
-  }
   while ((ucc == ' ') || (ucc == '\t')) {
     ucc = *(++str_iter);
   }
@@ -1527,6 +1544,19 @@ HEADER_INLINE char* NextToken(char* str_iter) {
 }
 #endif
 
+/*
+#ifdef __LP64__
+// (currently bugged)
+CXXCONST_CP NextTokenMultFar(const char* str_iter, uint32_t ct);
+
+HEADER_INLINE CXXCONST_CP NextTokenMult(const char* str_iter, uint32_t ct) {
+  if (ct == 1) {
+    return NextToken(str_iter);
+  }
+  return NextTokenMultFar(str_iter, ct);
+}
+#else
+*/
 HEADER_INLINE CXXCONST_CP NextTokenMult(const char* str_iter, uint32_t ct) {
   // assert(ct);
   if (!str_iter) {
@@ -1546,6 +1576,7 @@ HEADER_INLINE CXXCONST_CP NextTokenMult(const char* str_iter, uint32_t ct) {
   } while (--ct);
   return S_CAST(CXXCONST_CP, str_iter);
 }
+// #endif
 
 #ifdef __cplusplus
 HEADER_INLINE char* NextTokenMult(char* str_iter, uint32_t ct) {

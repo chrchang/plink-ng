@@ -82,61 +82,15 @@ BoolErr CloseGzTokenStream(GzTokenStream* gtsp);
 
 
 // While a separate non-compressing writer thread is practically useless (since
-// the OS does its own scheduling, etc. of the writes anyway), a separate
-// read-ahead thread is frequently useful since the typical read_ahead_kb = 64
-// Linux kernel setting is sometimes smaller than we really want, and of course
-// the ability to decompress-ahead speaks for itself.
+// the OS does its own scheduling, etc. of the writes anyway), and the OS is
+// also usually good enough at sequential read-ahead, getting
+// *decompress-ahead* functionality for 'free' is a pretty big deal.
 //
 // Possible todos: tabix index support (caller must declare the entire sequence
 // of virtual offset ranges they want to read upfront), and optional
 // multithreaded decompression of BGZF and seekable-Zstd files.  Note that
 // these require us to stop using the Zstd zlib wrapper, so they're unlikely to
 // be worth the time investment before the initial plink 2.0 beta release.
-
-// Suppose the maximum line length is 1000 MB.  Then,
-// * We open the file, and initialize a shared buffer of size 1001 MB, where
-//   the read-head, available-end, and consume pointers start at position 0,
-//   and the read-stop pointer is one byte before the buffer end (extra byte to
-//   allow for '\n'-append).
-// * We launch a reader thread which owns the file object.  It decompresses the
-//   first 1 MB into positions [0, 1 MB) in the shared buffer, and then checks
-//   for a '\n'.  If there isn't one, it decompresses the next 1 MB into
-//   positions [1 MB, 2 MB) in the buffer, and then rechecks, etc., and may
-//   eventually throw a LongLine error.
-// * Otherwise... suppose that the last '\n' is at position 3145000.  We had
-//   read (and possibly decompressed) up to (but not including) position
-//   3145728 in the buffer, so we set the available-end pointer to position
-//   3145001, and set the reader-progress event.  Since this is past 1 MB, the
-//   next line is not guaranteed to fit in the buffer, so while we can continue
-//   reading forward, we need to be prepared to copy the new bytes back to the
-//   beginning.
-// * The consumer's initial RLstreamGet() call probably happens before the
-//   first read operation has completed.  It sees that the consume pointer is
-//   equal to available-end, so it waits on the reader-progress event.  Once
-//   that's set, it returns.  (Note that no null-terminators are inserted; the
-//   only properties that make this a 'ReadLineStream' instead of a generic
-//   decompressor are (i) each successful return is guaranteed to end in '\n'
-//   (one will be appended at eof if necessary), and (ii) the reader thread may
-//   throw a LongLine error.)
-// * The consumer sets the consumer-progress event once the consume pointer has
-//   caught up to available-end, and waits on reader-progress.
-// * The reader thread reads/decompresses the next 1 MB, checks for '\n',
-//   reads an additional 1 MB if it's absent, etc., until it (i) finds another
-//   '\n' or eof (in which case a '\n' is appended), or (ii) hits the read-stop
-//   pointer.  Then it waits on the consumer-progress event; once that returns
-//   (usually instant if decompressing),
-//   - in case (ii), it memmoves bytes back if read-stop == end-of-buffer, and
-//     sets read-stop := end-of-buffer otherwise.  Either way, it continues
-//     with reading until '\n'/eof or a LongLine error.
-//   - in case (i), the available-end pointer is set one byte past the last
-//     '\n', the reader-progress event is set, and if eof we set at_eof and
-//     return from the thread function.
-//     If not eof, we check the old position of the available-end pointer.  If
-//     it's before the 1 MB mark, we continue reading forward.  Otherwise, we
-//     memcpy the trailing bytes (at or past the new available-end position)
-//     to the beginning of the buffer, set the read-stop pointer to the old
-//     available-end position rounded down to a cacheline boundary, and
-//     continue reading from the end of the copied trailing bytes.
 
 // (tested a few different values for this, 1 MB appears to work well on the
 // systems we care most about)
@@ -199,25 +153,73 @@ typedef struct ReadLineStreamStruct {
 
 void PreinitRLstream(ReadLineStream* rlsp);
 
+// This supports two simple line iterators, one insane, and the other somewhat
+// sane.  I'll discuss the insane one first.
+// * consume_iter is effectively initialized to position -1, not 0, in the
+//   file, and points to a '\n' byte.  This is necessary to make a simple loop
+//   calling ReadNextLineFromRLstream() do the right thing.
+// * On return from that function, consume_iter points to the beginning of a
+//   line, that line is guaranteed to be '\n' terminated even if it's an
+//   unterminated last line in the original file, and it is safe to mutate the
+//   bytes on that line as long as you don't clobber the '\n' or insert another
+//   one.  However, the line is NOT null-terminated.  You are expected to use
+//   functions like strchrnul_n() and FirstPrespace() in place of the standard
+//   C string library functions.
+// * Since ReadNextLineFromRLstream starts with a rawmemchr operation, you get
+//   the best performance by setting consume_iter to the last known position in
+//   the previous line (pointing to the actual terminating '\n' is fine),
+//   rather than leaving it in front.
+// The sane interface gets rid of the roughest edges by returning a pointer to
+// the end of the line (original position of '\n') as well, and automatically
+// replacing the '\n' with a null character.  It also doesn't care if you
+// insert a '\n' in the middle of the line or mutate the last character before
+// continuing iteration, as long as you don't manually change line_last.
+
 PglErr InitRLstream(const char* fname, uintptr_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp);
 
-PglErr AdvanceRLstream(ReadLineStream* rlsp, char** read_iterp);
+HEADER_INLINE PglErr InitRLstreamSafe(const char* fname, uintptr_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp, char** line_lastp) {
+  PglErr reterr = InitRLstream(fname, max_line_blen, rlsp, consume_iterp);
+  *line_lastp = *consume_iterp;
+  **line_lastp = '\0';
+  return reterr;
+}
 
-HEADER_INLINE PglErr ReadFromRLstream(ReadLineStream* rlsp, char** read_iterp) {
-  if (*read_iterp != rlsp->consume_stop) {
+PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp);
+
+HEADER_INLINE PglErr ReadFromRLstream(ReadLineStream* rlsp, char** consume_iterp) {
+  if (*consume_iterp != rlsp->consume_stop) {
     return kPglRetSuccess;
   }
-  return AdvanceRLstream(rlsp, read_iterp);
+  return AdvanceRLstream(rlsp, consume_iterp);
 }
 
 // If read_iter was not previously advanced to the byte past the end of the
 // most recently read line.
-HEADER_INLINE PglErr ReadNextLineFromRLstream(ReadLineStream* rlsp, char** read_iterp) {
-  *read_iterp = AdvPastDelim(*read_iterp, '\n');
-  return ReadFromRLstream(rlsp, read_iterp);
+HEADER_INLINE PglErr ReadNextLineFromRLstream(ReadLineStream* rlsp, char** consume_iterp) {
+  *consume_iterp = AdvPastDelim(*consume_iterp, '\n');
+  return ReadFromRLstream(rlsp, consume_iterp);
 }
 
-PglErr RewindRLstream(ReadLineStream* rlsp, char** read_iterp);
+HEADER_INLINE PglErr ReadNextLineFromRLstreamSafe(ReadLineStream* rlsp, char** consume_iterp, char** line_lastp) {
+  *consume_iterp = &((*line_lastp)[1]);
+  if (*consume_iterp == rlsp->consume_stop) {
+    PglErr reterr = AdvanceRLstream(rlsp, consume_iterp);
+    if (reterr) {
+      return reterr;
+    }
+  }
+  *line_lastp = S_CAST(char*, rawmemchr(*consume_iterp, '\n'));
+  **line_lastp = '\0';
+  return kPglRetSuccess;
+}
+
+PglErr RewindRLstream(ReadLineStream* rlsp, char** consume_iterp);
+
+HEADER_INLINE PglErr RewindRLstreamSafe(ReadLineStream* rlsp, char** consume_iterp, char** line_lastp) {
+  PglErr reterr = RewindRLstream(rlsp, consume_iterp);
+  *line_lastp = *consume_iterp;
+  return reterr;
+}
 
 PglErr CleanupRLstream(ReadLineStream* rlsp);
 

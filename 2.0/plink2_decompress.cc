@@ -392,7 +392,11 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
 PglErr InitRLstream(const char* fname, uintptr_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp) {
   PglErr reterr = kPglRetSuccess;
   {
-    ReadLineStreamSync* syncp = S_CAST(ReadLineStreamSync*, bigstack_alloc(sizeof(ReadLineStreamSync)));
+    // To avoid a first-line special case, we start consume_iter at position
+    // -1, pointing to a \n.  We make this safe by adding 1 to the previous
+    // bigstack allocation size.  To simplify rewind, we also don't let the
+    // reader thread overwrite this byte.
+    ReadLineStreamSync* syncp = S_CAST(ReadLineStreamSync*, bigstack_alloc(sizeof(ReadLineStreamSync) + 1));
     if (!syncp) {
       goto InitRLstream_ret_NOMEM;
     }
@@ -404,6 +408,7 @@ PglErr InitRLstream(const char* fname, uintptr_t max_line_blen, ReadLineStream* 
     if (reterr) {
       goto InitRLstream_ret_1;
     }
+    buf[-1] = '\n';
     rlsp->consume_stop = buf;
     rlsp->syncp = syncp;
     rlsp->buf = buf;
@@ -454,7 +459,7 @@ PglErr InitRLstream(const char* fname, uintptr_t max_line_blen, ReadLineStream* 
     }
     rlsp->sync_init_state = 4;
 #endif
-    *consume_iterp = buf;
+    *consume_iterp = &(buf[-1]);
   }
   while (0) {
   InitRLstream_ret_NOMEM:
@@ -468,8 +473,8 @@ PglErr InitRLstream(const char* fname, uintptr_t max_line_blen, ReadLineStream* 
   return reterr;
 }
 
-PglErr AdvanceRLstream(ReadLineStream* rlsp, char** read_iterp) {
-  char* read_iter = *read_iterp;
+PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
+  char* consume_iter = *consume_iterp;
   ReadLineStreamSync* syncp = rlsp->syncp;
 #ifdef _WIN32
   CRITICAL_SECTION* critical_sectionp = &syncp->critical_section;
@@ -484,16 +489,16 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** read_iterp) {
       return reterr;
     }
     char* available_end = syncp->available_end;
-    if (read_iter != available_end) {
+    if (consume_iter != available_end) {
       char* cur_circular_end = syncp->cur_circular_end;
       if (cur_circular_end) {
-        if (cur_circular_end == read_iter) {
+        if (cur_circular_end == consume_iter) {
           char* buf = rlsp->buf;
           syncp->consume_tail = buf;
           syncp->cur_circular_end = nullptr;
           LeaveCriticalSection(critical_sectionp);
           SetEvent(consumer_progress_event);
-          *read_iterp = buf;
+          *consume_iterp = buf;
           rlsp->consume_stop = available_end;
           return kPglRetSuccess;
         }
@@ -501,14 +506,14 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** read_iterp) {
       } else {
         rlsp->consume_stop = available_end;
       }
-      syncp->consume_tail = read_iter;
+      syncp->consume_tail = consume_iter;
       LeaveCriticalSection(critical_sectionp);
       // We could set the consumer_progress event here, but it's not really
       // necessary.
       // SetEvent(consumer_progress_event);
       return kPglRetSuccess;
     }
-    syncp->consume_tail = read_iter;
+    syncp->consume_tail = consume_iter;
     LeaveCriticalSection(critical_sectionp);
     // We've processed all the consume-ready bytes...
     if (reterr != kPglRetSuccess) {
@@ -532,16 +537,16 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** read_iterp) {
       return reterr;
     }
     char* available_end = syncp->available_end;
-    if (read_iter != available_end) {
+    if (consume_iter != available_end) {
       char* cur_circular_end = syncp->cur_circular_end;
       if (cur_circular_end) {
-        if (cur_circular_end == read_iter) {
+        if (cur_circular_end == consume_iter) {
           char* buf = rlsp->buf;
           syncp->consume_tail = buf;
           syncp->cur_circular_end = nullptr;
           pthread_cond_signal(consumer_progress_condvarp);
           pthread_mutex_unlock(sync_mutexp);
-          *read_iterp = buf;
+          *consume_iterp = buf;
           rlsp->consume_stop = available_end;
           return kPglRetSuccess;
         }
@@ -549,12 +554,12 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** read_iterp) {
       } else {
         rlsp->consume_stop = available_end;
       }
-      syncp->consume_tail = read_iter;
+      syncp->consume_tail = consume_iter;
       // pthread_cond_signal(consumer_progress_condvarp);
       pthread_mutex_unlock(sync_mutexp);
       return kPglRetSuccess;
     }
-    syncp->consume_tail = read_iter;
+    syncp->consume_tail = consume_iter;
     // We've processed all the consume-ready bytes...
     if (reterr != kPglRetSuccess) {
       // ...and we're at eof.
@@ -571,7 +576,7 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** read_iterp) {
 #endif
 }
 
-PglErr RewindRLstream(ReadLineStream* rlsp, char** read_iterp) {
+PglErr RewindRLstream(ReadLineStream* rlsp, char** consume_iterp) {
   ReadLineStreamSync* syncp = rlsp->syncp;
 #ifdef _WIN32
   CRITICAL_SECTION* critical_sectionp = &syncp->critical_section;
@@ -606,7 +611,7 @@ PglErr RewindRLstream(ReadLineStream* rlsp, char** read_iterp) {
   pthread_mutex_unlock(sync_mutexp);
 #endif
   char* buf = rlsp->buf;
-  *read_iterp = buf;
+  *consume_iterp = &(buf[-1]);
   rlsp->consume_stop = buf;
   return kPglRetSuccess;
 }
