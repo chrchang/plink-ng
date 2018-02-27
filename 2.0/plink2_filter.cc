@@ -3709,7 +3709,7 @@ PglErr RefFromFa(const uintptr_t* variant_include, const uint32_t* variant_bps, 
     if (loadbuf_size > kMaxLongLine) {
       loadbuf_size = kMaxLongLine;
     } else {
-      loadbuf_size &= ~(kCacheline - 1);
+      loadbuf_size = RoundDownPow2(loadbuf_size, kCacheline);
       if (loadbuf_size <= kMaxMediumLine) {
         goto RefFromFa_ret_NOMEM;
       }

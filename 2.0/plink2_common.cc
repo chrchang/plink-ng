@@ -479,6 +479,8 @@ uint32_t XidRead(uintptr_t max_xid_blen, uint32_t comma_delim, XidMode xid_mode,
         }
         // need to backtrack
         token_iter = &(first_token_start[slen_fid]);
+        // bugfix (26 Feb 2018): forgot to zero this
+        slen_fid = 0;
         goto XidRead_space_single_token;
       }
       iid_ptr = token_iter;

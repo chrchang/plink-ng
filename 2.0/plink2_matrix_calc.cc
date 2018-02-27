@@ -4668,7 +4668,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     if (loadbuf_size > kMaxLongLine) {
       loadbuf_size = kMaxLongLine;
     } else {
-      loadbuf_size &= ~(kCacheline - 1);
+      loadbuf_size = RoundDownPow2(loadbuf_size, kCacheline);
       if (loadbuf_size <= kMaxMediumLine) {
         goto ScoreReport_ret_NOMEM;
       }

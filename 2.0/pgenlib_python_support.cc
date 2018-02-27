@@ -295,13 +295,17 @@ void BytesToGenoarrUnsafe(const int8_t* genobytes, uint32_t sample_ct, uintptr_t
     } else {
       ww = read_walias[widx];
     }
+#ifdef USE_AVX2
+    write_alias[widx] = _pext_u64(ww, kMask0303);
+#else
     ww &= kMask0303;
     ww = (ww | (ww >> 6)) & kMask000F;
-#ifdef __LP64__
+#  ifdef __LP64__
     ww = (ww | (ww >> 12)) & kMask000000FF;
     write_alias[widx] = S_CAST(Quarterword, ww | (ww >> 24));
-#else
+#  else
     write_alias[widx] = S_CAST(Quarterword, ww | (ww >> 12));
+#  endif
 #endif
     ++widx;
   }

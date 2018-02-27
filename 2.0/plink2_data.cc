@@ -997,6 +997,14 @@ void UnpackAndResortHphase(const uintptr_t* __restrict all_hets, const uintptr_t
       // no need to mask off top bits of tmp_phaseinfo_input_word
       read_idx_lowbits = read_idx_lowbits_end % kBitsPerWord;
       if (!sample_include) {
+#ifdef USE_AVX2
+        uintptr_t phaseinfo_bits_to_set = _pdep_u64(tmp_phaseinfo_input_word, new_phasepresent_word);
+        while (phaseinfo_bits_to_set) {
+          const uint32_t sample_uidx_lowbits = ctzw(phaseinfo_bits_to_set);
+          SetBit(old_sample_idx_to_new_iter[sample_uidx_lowbits], phaseinfo);
+          phaseinfo_bits_to_set &= phaseinfo_bits_to_set - 1;
+        }
+#else
         while (new_phasepresent_word) {
           const uint32_t sample_uidx_lowbits = ctzw(new_phasepresent_word);
           if (tmp_phaseinfo_input_word & 1) {
@@ -1005,7 +1013,16 @@ void UnpackAndResortHphase(const uintptr_t* __restrict all_hets, const uintptr_t
           tmp_phaseinfo_input_word >>= 1;
           new_phasepresent_word &= new_phasepresent_word - 1;
         }
+#endif
       } else {
+#ifdef USE_AVX2
+        uintptr_t phaseinfo_bits_to_set = _pdep_u64(tmp_phaseinfo_input_word, new_phasepresent_word) & sample_include[widx];
+        while (phaseinfo_bits_to_set) {
+          const uint32_t sample_uidx_lowbits = ctzw(phaseinfo_bits_to_set);
+          SetBit(old_sample_idx_to_new_iter[sample_uidx_lowbits], phaseinfo);
+          phaseinfo_bits_to_set &= phaseinfo_bits_to_set - 1;
+        }
+#else
         uintptr_t masked_phasepresent_word = new_phasepresent_word & sample_include[widx];
         while (masked_phasepresent_word) {
           const uint32_t sample_uidx_lowbits = ctzw(masked_phasepresent_word);
@@ -1015,6 +1032,7 @@ void UnpackAndResortHphase(const uintptr_t* __restrict all_hets, const uintptr_t
           }
           masked_phasepresent_word &= masked_phasepresent_word - 1;
         }
+#endif
       }
       old_sample_idx_to_new_iter = &(old_sample_idx_to_new_iter[kBitsPerWord]);
     }
@@ -1062,12 +1080,37 @@ void UnpackAndResortHphase(const uintptr_t* __restrict all_hets, const uintptr_t
         }
         // no need to mask off top bits of tmp_phaseinfo_input_word
         if (!sample_include) {
+#ifdef USE_AVX2
+          uintptr_t phasepresent_bits_to_set = _pdep_u64(tmp_phasepresent_input_word, geno_hets);
+          while (1) {
+            const uint32_t new_sample_idx = old_sample_idx_to_new_iter[ctzw(phasepresent_bits_to_set)];
+            const uint32_t new_sample_widx = new_sample_idx / kBitsPerWord;
+            const uint32_t new_sample_lowbits = new_sample_idx % kBitsPerWord;
+            const uintptr_t shifted_bit = k1LU << new_sample_lowbits;
+            phasepresent[new_sample_widx] |= shifted_bit;
+            if (tmp_phaseinfo_input_word & 1) {
+              phaseinfo[new_sample_widx] |= shifted_bit;
+            }
+            // branchless version doesn't seem to be any better here; probably
+            // due to additional random memory access.
+            // phaseinfo[new_sample_widx] |= (tmp_phaseinfo_input_word & 1) << new_sample_lowbits;
+
+            phasepresent_bits_to_set &= phasepresent_bits_to_set - 1;
+            if (!phasepresent_bits_to_set) {
+              break;
+            }
+            tmp_phaseinfo_input_word >>= 1;
+          }
+#else
           while (1) {
             if (tmp_phasepresent_input_word & 1) {
               const uint32_t new_sample_idx = old_sample_idx_to_new_iter[ctzw(geno_hets)];
-              SetBit(new_sample_idx, phasepresent);
+              const uint32_t new_sample_widx = new_sample_idx / kBitsPerWord;
+              const uint32_t new_sample_lowbits = new_sample_idx % kBitsPerWord;
+              const uintptr_t shifted_bit = k1LU << new_sample_lowbits;
+              phasepresent[new_sample_widx] |= shifted_bit;
               if (tmp_phaseinfo_input_word & 1) {
-                SetBit(new_sample_idx, phaseinfo);
+                phaseinfo[new_sample_widx] |= shifted_bit;
               }
               if (tmp_phasepresent_input_word == 1) {
                 break;
@@ -1077,16 +1120,49 @@ void UnpackAndResortHphase(const uintptr_t* __restrict all_hets, const uintptr_t
             tmp_phasepresent_input_word >>= 1;
             geno_hets &= geno_hets - 1;
           }
+#endif
         } else {
           const uintptr_t sample_include_word = sample_include[widx];
+#ifdef USE_AVX2
+          const uintptr_t phasepresent_word_expanded = _pdep_u64(tmp_phasepresent_input_word, geno_hets);
+          uintptr_t phasepresent_bits_to_set = phasepresent_word_expanded & sample_include_word;
+          if (phasepresent_bits_to_set) {
+            // tmp_phaseinfo_input_word gives us the phasing state of the
+            // positions in phasepresent_word_expanded.
+            // However, we're only iterating over the positions in
+            // (phasepresent_word_expanded & sample_include_word).
+            // (can replace sample_include_word with phasepresent_bits_to_set
+            // in this expression)
+            uintptr_t collapsed_phaseinfo_input_word = _pext_u64(tmp_phaseinfo_input_word, _pext_u64(sample_include_word, phasepresent_word_expanded));
+            while (1) {
+              const uint32_t new_sample_idx = old_sample_idx_to_new_iter[ctzw(phasepresent_bits_to_set)];
+              const uint32_t new_sample_widx = new_sample_idx / kBitsPerWord;
+              const uint32_t new_sample_lowbits = new_sample_idx % kBitsPerWord;
+              const uintptr_t shifted_bit = k1LU << new_sample_lowbits;
+              phasepresent[new_sample_widx] |= shifted_bit;
+              if (collapsed_phaseinfo_input_word & 1) {
+                phaseinfo[new_sample_widx] |= shifted_bit;
+              }
+
+              phasepresent_bits_to_set &= phasepresent_bits_to_set - 1;
+              if (!phasepresent_bits_to_set) {
+                break;
+              }
+              collapsed_phaseinfo_input_word >>= 1;
+            }
+          }
+#else
           while (1) {
             if (tmp_phasepresent_input_word & 1) {
               const uint32_t sample_uidx_lowbits = ctzw(geno_hets);
               if ((sample_include_word >> sample_uidx_lowbits) & 1) {
                 const uint32_t new_sample_idx = old_sample_idx_to_new_iter[sample_uidx_lowbits];
-                SetBit(new_sample_idx, phasepresent);
+                const uint32_t new_sample_widx = new_sample_idx / kBitsPerWord;
+                const uint32_t new_sample_lowbits = new_sample_idx % kBitsPerWord;
+                const uintptr_t shifted_bit = k1LU << new_sample_lowbits;
+                phasepresent[new_sample_widx] |= shifted_bit;
                 if (tmp_phaseinfo_input_word & 1) {
-                  SetBit(new_sample_idx, phaseinfo);
+                  phaseinfo[new_sample_widx] |= shifted_bit;
                 }
               }
               if (tmp_phasepresent_input_word == 1) {
@@ -1097,6 +1173,7 @@ void UnpackAndResortHphase(const uintptr_t* __restrict all_hets, const uintptr_t
             tmp_phasepresent_input_word >>= 1;
             geno_hets &= geno_hets - 1;
           }
+#endif
         }
       }
     }
@@ -1619,9 +1696,7 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
           if (bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &g_founder_nosex_interleaved_vec)) {
             goto LoadAlleleAndGenoCounts_ret_NOMEM;
           }
-          for (uint32_t widx = 0; widx < raw_sample_ctl; ++widx) {
-            nosex_buf[widx] &= founder_info[widx];
-          }
+          BitvecAnd(founder_info, raw_sample_ctl, nosex_buf);
           g_founder_nosex_ct = PopcountWords(nosex_buf, raw_sample_ctl);
           assert(g_founder_nosex_ct);
           ZeroTrailingWords(raw_sample_ctl, nosex_buf);

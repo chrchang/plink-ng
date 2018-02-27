@@ -189,18 +189,19 @@ void GeneratePerm1Interleaved(uint32_t tot_bit_ct, uint32_t set_bit_ct, uintptr_
       uintptr_t* pbptr = &(perm_buf[perm_idx]);
       for (uint32_t num_set = 0; num_set < set_bit_ct; ++num_set) {
         uintptr_t widx;
-        uintptr_t lowbits;
+        uintptr_t shifted_bit;
 	do {
           uint32_t urand;
 	  do {
 	    urand = sfmt_genrand_uint32(sfmtp);
 	  } while (urand > upper_bound);
 	  // this is identical to lowbits = urand / tot_quotient
-	  lowbits = (totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift;
+	  uintptr_t lowbits = (totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift;
 	  widx = lowbits / kBitsPerWord;
 	  lowbits &= (kBitsPerWord - 1);
-	} while ((pbptr[widx * perm_end_idx] >> lowbits) & 1);
-	pbptr[widx * perm_end_idx] |= (k1LU << lowbits);
+          shifted_bit = k1LU << lowbits;
+	} while (pbptr[widx * perm_end_idx] & shifted_bit);
+	pbptr[widx * perm_end_idx] |= shifted_bit;
       }
     }
   } else {
@@ -213,17 +214,18 @@ void GeneratePerm1Interleaved(uint32_t tot_bit_ct, uint32_t set_bit_ct, uintptr_
       uintptr_t* pbptr = &(perm_buf[perm_idx]);
       for (uint32_t num_set = 0; num_set < set_bit_ct; num_set++) {
         uintptr_t widx;
-        uintptr_t lowbits;
+        uintptr_t shifted_bit;
 	do {
           uint32_t urand;
 	  do {
 	    urand = sfmt_genrand_uint32(sfmtp);
 	  } while (urand > upper_bound);
-	  lowbits = (totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift;
+	  uintptr_t lowbits = (totq_magic * ((urand >> totq_preshift) + totq_incr)) >> totq_postshift;
 	  widx = lowbits / kBitsPerWord;
 	  lowbits &= (kBitsPerWord - 1);
-	} while (!((pbptr[widx * perm_end_idx] >> lowbits) & 1));
-	pbptr[widx * perm_end_idx] &= ~(k1LU << lowbits);
+          shifted_bit = k1LU << lowbits;
+	} while (!(pbptr[widx * perm_end_idx] & shifted_bit));
+	pbptr[widx * perm_end_idx] ^= shifted_bit;
       }
     }
     const uint32_t remaining_bit_ct = tot_bit_ct % kBitsPerWord;

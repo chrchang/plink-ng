@@ -701,7 +701,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     // todo: customized open-fail error message if StrEndsWith(".vcf") or
     // ".vcf.gz"
     char* line_start;
-    reterr = InitRLstream(vcfname, linebuf_size, &vcf_rls, &line_start);
+    reterr = InitRLstreamRaw(vcfname, linebuf_size, &vcf_rls, &line_start);
     if (reterr) {
       goto VcfToPgen_ret_1;
     }
@@ -722,7 +722,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     char* linebuf_iter;
     while (1) {
       ++line_idx;
-      reterr = ReadNextLineFromRLstream(&vcf_rls, &line_start);
+      reterr = ReadNextLineFromRLstreamRaw(&vcf_rls, &line_start);
       if (reterr) {
         if (reterr == kPglRetSkipped) {
           // eof
@@ -923,7 +923,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
 
     while (1) {
       ++line_idx;
-      reterr = ReadNextLineFromRLstream(&vcf_rls, &line_start);
+      reterr = ReadNextLineFromRLstreamRaw(&vcf_rls, &line_start);
       if (reterr) {
         if (reterr == kPglRetSkipped) {
           break;
@@ -1227,7 +1227,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     }
 
     // error shouldn't be possible here since we read to eof?
-    RewindRLstream(&vcf_rls, &line_start);
+    RewindRLstreamRaw(&vcf_rls, &line_start);
 
     const uintptr_t line_ct = line_idx - 1;
 
@@ -1244,7 +1244,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     }
     line_idx = 0;
     while (1) {
-      reterr = ReadNextLineFromRLstream(&vcf_rls, &line_start);
+      reterr = ReadNextLineFromRLstreamRaw(&vcf_rls, &line_start);
       if (reterr) {
         if (reterr == kPglRetSkipped) {
           reterr = kPglRetReadFail;
@@ -1424,7 +1424,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
 
     uint32_t vidx = 0;
     for (line_idx = header_line_ct + 1; line_idx <= line_ct; ++line_idx) {
-      reterr = ReadNextLineFromRLstream(&vcf_rls, &line_start);
+      reterr = ReadNextLineFromRLstreamRaw(&vcf_rls, &line_start);
       if (reterr) {
         if (reterr == kPglRetSkipped) {
           reterr = kPglRetReadFail;

@@ -1194,7 +1194,7 @@ uint32_t match_upper(const char* str_iter, const char* fixed_str) {
 */
 
 #ifdef __LP64__
-CXXCONST_CP FirstPrechar(const char* str_iter, uint32_t char_code) {
+CXXCONST_CP FirstPrecharFar(const char* str_iter, uint32_t char_code) {
   const uintptr_t starting_addr = R_CAST(uintptr_t, str_iter);
   const VecUc* str_viter = R_CAST(const VecUc*, RoundDownPow2(starting_addr, kBytesPerVec));
   const VecUc vvec_all_char = vecuc_set1(char_code);
@@ -1205,8 +1205,8 @@ CXXCONST_CP FirstPrechar(const char* str_iter, uint32_t char_code) {
   if (leading_byte_ct) {
     matching_bytes &= UINT32_MAX << leading_byte_ct;
   }
-  // This is typically short-range, so the memrchr_expected_far() double-vector
-  // strategy is unlikely to be profitable.
+  // This typically isn't *that* long-range, so the memrchr_expected_far()
+  // double-vector strategy is unlikely to be profitable?
   while (!matching_bytes) {
     ++str_viter;
     cur_vvec = *str_viter;
@@ -1825,23 +1825,24 @@ void GetTopTwoUi(const uint32_t* __restrict uint_arr, uintptr_t uia_size, uintpt
   *second_idx_ptr = second_idx;
 }
 
-/*
 #ifdef __LP64__
 CXXCONST_CP NextTokenMultFar(const char* str_iter, uint32_t ct) {
   // assert(ct);
   if (!str_iter) {
     return nullptr;
   }
-  uint32_t remaining_transition_ct = ct * 2;
+  uint32_t remaining_transition_ct_m1 = ct * 2 - 1;
   const uintptr_t starting_addr = R_CAST(uintptr_t, str_iter);
   const VecUc* str_viter = R_CAST(const VecUc*, RoundDownPow2(starting_addr, kBytesPerVec));
   const VecUc vvec_all_tab = vecuc_set1(9);
   const VecUc vvec_all_space = vecuc_set1(32);
   VecUc cur_vvec = *str_viter;
   VecUc tabspace_vvec = (cur_vvec == vvec_all_tab) | (cur_vvec == vvec_all_space);
-  VecUc pre33_vvec = (cur_vvec <= vvec_all_space);
+  // Underlying intrinsics are _mm256_cmpeq_... and _mm256_cmpgt_...
+  // So we don't really want to use <= or !=.
+  VecUc prespace_vvec = (cur_vvec < vvec_all_space);
   uint32_t delimiter_bytes = vecuc_movemask(tabspace_vvec);
-  uint32_t terminating_bytes = delimiter_bytes ^ vecuc_movemask(pre33_vvec);
+  uint32_t terminating_bytes = vecuc_movemask(prespace_vvec) & (~delimiter_bytes);
   const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, str_viter);
   if (leading_byte_ct) {
     uint32_t leading_mask = UINT32_MAX << leading_byte_ct;
@@ -1863,22 +1864,22 @@ CXXCONST_CP NextTokenMultFar(const char* str_iter, uint32_t ct) {
         ++str_viter;
         cur_vvec = *str_viter;
         tabspace_vvec = (cur_vvec == vvec_all_tab) | (cur_vvec == vvec_all_space);
-        pre33_vvec = (cur_vvec <= vvec_all_space);
+        prespace_vvec = (cur_vvec < vvec_all_space);
         delimiter_bytes = vecuc_movemask(tabspace_vvec);
-        terminating_bytes = delimiter_bytes ^ vecuc_movemask(pre33_vvec);
+        terminating_bytes = vecuc_movemask(prespace_vvec) & (~delimiter_bytes);
       } while (!delimiter_bytes);
     NextTokenMultFar_nonempty_start:
       // The number of 0->1 + 1->0 bit transitions in x is
       //   popcount(x ^ (x << 1)).
       cur_transitions = S_CAST(MovemaskUint, delimiter_bytes ^ (delimiter_bytes << 1));
       cur_transition_ct = PopcountMovemaskUint(cur_transitions);
-      if (cur_transition_ct <= remaining_transition_ct) {
+      if (cur_transition_ct > remaining_transition_ct_m1) {
         goto NextTokenMultFar_finish;
       }
       if (terminating_bytes) {
         return nullptr;
       }
-      remaining_transition_ct -= cur_transition_ct;
+      remaining_transition_ct_m1 -= cur_transition_ct;
     } while (!(cur_transition_ct % 2));
     // State 2: currently at delimiter, find the next token start
     do {
@@ -1886,27 +1887,29 @@ CXXCONST_CP NextTokenMultFar(const char* str_iter, uint32_t ct) {
       do {
         ++str_viter;
         cur_vvec = *str_viter;
-        VecUc non_tabspace_vvec = (cur_vvec != vvec_all_tab) & (cur_vvec != vvec_all_space);
+        tabspace_vvec = (cur_vvec == vvec_all_tab) | (cur_vvec == vvec_all_space);
         // note that this includes terminating bytes
-        non_delimiter_bytes = vecuc_movemask(non_tabspace_vvec);
+        non_delimiter_bytes = S_CAST(MovemaskUint, ~vecuc_movemask(tabspace_vvec));
       } while (!non_delimiter_bytes);
-      pre33_vvec = (cur_vvec <= vvec_all_space);
-      terminating_bytes = non_delimiter_bytes & vecuc_movemask(pre33_vvec);
+      prespace_vvec = (cur_vvec < vvec_all_space);
+      terminating_bytes = non_delimiter_bytes & vecuc_movemask(prespace_vvec);
       cur_transitions = S_CAST(MovemaskUint, non_delimiter_bytes ^ (non_delimiter_bytes << 1));
       cur_transition_ct = PopcountMovemaskUint(cur_transitions);
-      if (cur_transition_ct <= remaining_transition_ct) {
+      if (cur_transition_ct > remaining_transition_ct_m1) {
         goto NextTokenMultFar_finish;
       }
       if (terminating_bytes) {
         return nullptr;
       }
-      remaining_transition_ct -= cur_transition_ct;
+      remaining_transition_ct_m1 -= cur_transition_ct;
     } while (!(cur_transition_ct % 2));
   }
  NextTokenMultFar_finish:
-  for (uint32_t uii = 1; uii < remaining_transition_ct; ++uii) {
-    cur_transitions &= cur_transitions - 1;
-  }
+  cur_transitions = ClearBottomSetBits(remaining_transition_ct_m1, cur_transitions);
+  // Lowest set bit of cur_transitions is the position of interest.
+  // (cur_transitions ^ (cur_transitions - 1)) has that bit set, and all lower
+  // bits set.  So if (terminating_bytes & that) is nonzero, we have a
+  // terminating byte at or before the position of interest.
   if (terminating_bytes & (cur_transitions ^ (cur_transitions - 1))) {
     return nullptr;
   }
@@ -1914,6 +1917,135 @@ CXXCONST_CP NextTokenMultFar(const char* str_iter, uint32_t ct) {
   return &(R_CAST(CXXCONST_CP, str_viter)[byte_offset_in_vec]);
 }
 #endif
+
+// This doesn't seem to pay off for normal .pvar/.bim files.
+/*
+char* TokenLex(char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, char** token_ptrs, uint32_t* token_slens) {
+  const uint32_t relevant_col_ct_m1 = relevant_col_ct - 1;
+  uint32_t relevant_col_idx = 0;
+  uint32_t transition_bits_to_skip = col_skips[relevant_col_idx] * 2 - 1;
+  const uintptr_t starting_addr = R_CAST(uintptr_t, str_iter);
+  VecUc* str_viter = R_CAST(VecUc*, RoundDownPow2(starting_addr, kBytesPerVec));
+  const VecUc vvec_all_tab = vecuc_set1(9);
+  const VecUc vvec_all_space = vecuc_set1(32);
+  VecUc cur_vvec = *str_viter;
+  VecUc tabspace_vvec = (cur_vvec == vvec_all_tab) | (cur_vvec == vvec_all_space);
+  // Underlying intrinsics are _mm256_cmpeq_... and _mm256_cmpgt_...
+  // So we don't really want to use <= or !=.
+  VecUc prespace_vvec = (cur_vvec < vvec_all_space);
+  uint32_t delimiter_bytes = vecuc_movemask(tabspace_vvec);
+  uint32_t terminating_bytes = vecuc_movemask(prespace_vvec) & (~delimiter_bytes);
+  const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, str_viter);
+  if (leading_byte_ct) {
+    uint32_t leading_mask = UINT32_MAX << leading_byte_ct;
+    delimiter_bytes &= leading_mask;
+    terminating_bytes &= leading_mask;
+  }
+  uint32_t cur_transitions;
+  if (delimiter_bytes) {
+    goto TokenLex_nonempty_start;
+  }
+  while (1) {
+    uint32_t cur_transition_ct;
+    // State 1: currently in token, find the next delimiter
+    do {
+      do {
+        if (terminating_bytes) {
+          return nullptr;
+        }
+        ++str_viter;
+        cur_vvec = *str_viter;
+        tabspace_vvec = (cur_vvec == vvec_all_tab) | (cur_vvec == vvec_all_space);
+        prespace_vvec = (cur_vvec < vvec_all_space);
+        delimiter_bytes = vecuc_movemask(tabspace_vvec);
+        terminating_bytes = vecuc_movemask(prespace_vvec) & (~delimiter_bytes);
+      } while (!delimiter_bytes);
+    TokenLex_nonempty_start:
+      // The number of 0->1 + 1->0 bit transitions in x is
+      //   popcount(x ^ (x << 1)).
+      cur_transitions = S_CAST(MovemaskUint, delimiter_bytes ^ (delimiter_bytes << 1));
+      cur_transition_ct = PopcountMovemaskUint(cur_transitions);
+      while (cur_transition_ct > transition_bits_to_skip) {
+      TokenLex_found_token_start:
+        cur_transitions = ClearBottomSetBits(transition_bits_to_skip, cur_transitions);
+        uint32_t byte_offset_in_vec = ctzu32(cur_transitions);
+        char* token_start = &(R_CAST(char*, str_viter)[byte_offset_in_vec]);
+        cur_transition_ct -= transition_bits_to_skip + 1;
+        const uint32_t cur_col_type = col_types[relevant_col_idx];
+        token_ptrs[cur_col_type] = token_start;
+        // Find end of token.
+        if (relevant_col_idx == relevant_col_ct_m1) {
+          if (terminating_bytes & (cur_transitions ^ (cur_transitions - 1))) {
+            return nullptr;
+          }
+          // Handle this separately, since it's ok for the last token to be
+          // terminated by something other than tab/space.
+          // cur_transitions is a misnomer here; we just need the bottom bit to
+          // tell us where the token end is.
+          cur_transitions &= cur_transitions - 1;
+          cur_transitions |= terminating_bytes;
+          while (!cur_transitions) {
+            ++str_viter;
+            cur_vvec = *str_viter;
+            VecUc postspace_vec = (vvec_all_space < cur_vvec);
+            cur_transitions = S_CAST(MovemaskUint, ~vecuc_movemask(postspace_vec));
+          }
+          byte_offset_in_vec = ctzu32(cur_transitions);
+          char* token_end = &(R_CAST(char*, str_viter)[byte_offset_in_vec]);
+          token_slens[cur_col_type] = token_end - token_start;
+          return token_end;
+        }
+        if (!cur_transition_ct) {
+          do {
+            if (terminating_bytes) {
+              return nullptr;
+            }
+            ++str_viter;
+            cur_vvec = *str_viter;
+            tabspace_vvec = (cur_vvec == vvec_all_tab) | (cur_vvec == vvec_all_space);
+            prespace_vvec = (cur_vvec < vvec_all_space);
+            delimiter_bytes = vecuc_movemask(tabspace_vvec);
+            terminating_bytes = vecuc_movemask(prespace_vvec) & (~delimiter_bytes);
+          } while (!delimiter_bytes);
+          cur_transitions = S_CAST(MovemaskUint, delimiter_bytes ^ (delimiter_bytes << 1));
+          cur_transition_ct = PopcountMovemaskUint(cur_transitions);
+        } else {
+          cur_transitions &= cur_transitions - 1;
+        }
+        byte_offset_in_vec = ctzu32(cur_transitions);
+        char* token_end = &(R_CAST(char*, str_viter)[byte_offset_in_vec]);
+        token_slens[cur_col_type] = token_end - token_start;
+        ++relevant_col_idx;
+        transition_bits_to_skip = 2 * col_skips[relevant_col_idx] - 1;
+      }
+      if (terminating_bytes) {
+        return nullptr;
+      }
+      transition_bits_to_skip -= cur_transition_ct;
+    } while (transition_bits_to_skip % 2);
+    // State 2: currently at delimiter (or inside large block of them)
+    do {
+      uint32_t non_delimiter_bytes;
+      do {
+        ++str_viter;
+        cur_vvec = *str_viter;
+        tabspace_vvec = (cur_vvec == vvec_all_tab) | (cur_vvec == vvec_all_space);
+        non_delimiter_bytes = S_CAST(MovemaskUint, ~vecuc_movemask(tabspace_vvec));
+      } while (!non_delimiter_bytes);
+      prespace_vvec = (cur_vvec < vvec_all_space);
+      terminating_bytes = non_delimiter_bytes & vecuc_movemask(prespace_vvec);
+      cur_transitions = S_CAST(MovemaskUint, non_delimiter_bytes ^ (non_delimiter_bytes << 1));
+      cur_transition_ct = PopcountMovemaskUint(cur_transitions);
+      if (cur_transition_ct > transition_bits_to_skip) {
+        goto TokenLex_found_token_start;
+      }
+      if (terminating_bytes) {
+        return nullptr;
+      }
+      transition_bits_to_skip -= cur_transition_ct;
+    } while (!(transition_bits_to_skip % 2));
+  }
+}
 */
 
 CXXCONST_CP CommaOrSpaceNextTokenMult(const char* str_iter, uint32_t ct, uint32_t comma_delim) {
@@ -4682,11 +4814,7 @@ uintptr_t FindNth1BitFrom(const uintptr_t* bitvec, uintptr_t cur_pos, uintptr_t 
     ulkk = PopcountWord(uljj);
     if (ulkk >= forward_ct) {
     JumpForwardSetUnsafe_finish:
-      while (--forward_ct) {
-        uljj &= uljj - 1;
-      }
-      ulkk = ctzw(uljj);
-      return widx * kBitsPerWord + ulii + ulkk;
+      return widx * kBitsPerWord + ulii + WordBitIdxToUidx(uljj, forward_ct - 1);
     }
     forward_ct -= ulkk;
     ++widx;

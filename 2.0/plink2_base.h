@@ -1679,6 +1679,21 @@ HEADER_INLINE void ZeroTrailingWords(__maybe_unused uint32_t word_ct, __maybe_un
 }
 #endif
 
+HEADER_INLINE uintptr_t ClearBottomSetBits(uint32_t ct, uintptr_t ulii) {
+#ifdef USE_AVX2
+  return _pdep_u64((~k0LU) << ct, ulii);
+#else
+  for (uint32_t uii = 0; uii < ct; ++uii) {
+    ulii &= ulii - 1;
+  }
+  return ulii;
+#endif
+}
+
+HEADER_INLINE uint32_t WordBitIdxToUidx(uintptr_t ulii, uint32_t bit_idx) {
+  return ctzw(ClearBottomSetBits(bit_idx, ulii));
+}
+
 void CopyBitarrSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t subset_size, uintptr_t* __restrict output_bitarr);
 
 // expand_size + read_start_bit must be positive.

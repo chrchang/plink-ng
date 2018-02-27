@@ -966,7 +966,11 @@ BoolErr GlmDetermineCovars(const uintptr_t* pheno_cc, const uintptr_t* initial_c
                 const uint32_t* cat_first_sample_uidxs_iter = &(cat_first_sample_uidxs[widx * kBitsPerWord]);
                 do {
                   const uint32_t cat_idx_lowbits = ctzw(cur_word);
+
+                  // this could be moved out of the loop, but unlikely to be
+                  // profitable...
                   --sample_ct;
+
                   ClearBit(cat_first_sample_uidxs_iter[cat_idx_lowbits], cur_sample_include);
                   cur_word &= cur_word - 1;
                 } while (cur_word);

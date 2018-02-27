@@ -220,6 +220,10 @@ HEADER_INLINE char* strchrnul(char* str, int cc) {
 
 // ReadLineStream emits lines which are *not* null-terminated, but are
 // guaranteed to have trailing '\n's.
+// (todo: stop using all rawmemchr and strchr variants when length is easily
+// known and moderately likely to be very short; test default memchr
+// implementation, and if it doesn't have a short-buffer optimization, write a
+// wrapper which takes care of that)
 CXXCONST_VOIDP rawmemchr2(const void* ss, unsigned char ucc1, unsigned char ucc2);
 
 HEADER_INLINE CXXCONST_CP strchrnul_n(const char* ss, unsigned char ucc1) {
@@ -1260,14 +1264,18 @@ HEADER_INLINE char* FirstNonTspace(char* str_iter) {
 }
 #endif
 
-#ifdef __LP64__
-CXXCONST_CP FirstPrechar(const char* str_iter, uint32_t char_code);
-#else
 HEADER_INLINE CXXCONST_CP FirstPrechar(const char* str_iter, uint32_t char_code) {
   while (ctou32(*str_iter) >= char_code) {
     ++str_iter;
   }
   return S_CAST(CXXCONST_CP, str_iter);
+}
+
+#ifdef __LP64__
+CXXCONST_CP FirstPrecharFar(const char* str_iter, uint32_t char_code);
+#else
+HEADER_INLINE CXXCONST_CP FirstPrecharFar(const char* str_iter, uint32_t char_code) {
+  return FirstPrechar(str_iter, char_code);
 }
 #endif
 
@@ -1288,6 +1296,10 @@ HEADER_INLINE CXXCONST_CP CurTokenEnd(const char* str_iter) {
 #ifdef __cplusplus
 HEADER_INLINE char* FirstPrechar(char* str_iter, uint32_t char_code) {
   return const_cast<char*>(FirstPrechar(const_cast<const char*>(str_iter), char_code));
+}
+
+HEADER_INLINE char* FirstPrecharFar(char* str_iter, uint32_t char_code) {
+  return const_cast<char*>(FirstPrecharFar(const_cast<const char*>(str_iter), char_code));
 }
 
 HEADER_INLINE char* FirstPrespace(char* str_iter) {
@@ -1530,8 +1542,10 @@ HEADER_INLINE CXXCONST_CP NextToken(const char* str_iter) {
   if (!str_iter) {
     return nullptr;
   }
-  str_iter = FirstPrechar(str_iter, 33);
   unsigned char ucc = *str_iter;
+  while (ucc > ' ') {
+    ucc = *(++str_iter);
+  }
   while ((ucc == ' ') || (ucc == '\t')) {
     ucc = *(++str_iter);
   }
@@ -1544,19 +1558,17 @@ HEADER_INLINE char* NextToken(char* str_iter) {
 }
 #endif
 
-/*
 #ifdef __LP64__
-// (currently bugged)
 CXXCONST_CP NextTokenMultFar(const char* str_iter, uint32_t ct);
 
 HEADER_INLINE CXXCONST_CP NextTokenMult(const char* str_iter, uint32_t ct) {
+  // time to benchmark this.
   if (ct == 1) {
     return NextToken(str_iter);
   }
   return NextTokenMultFar(str_iter, ct);
 }
 #else
-*/
 HEADER_INLINE CXXCONST_CP NextTokenMult(const char* str_iter, uint32_t ct) {
   // assert(ct);
   if (!str_iter) {
@@ -1576,7 +1588,7 @@ HEADER_INLINE CXXCONST_CP NextTokenMult(const char* str_iter, uint32_t ct) {
   } while (--ct);
   return S_CAST(CXXCONST_CP, str_iter);
 }
-// #endif
+#endif
 
 #ifdef __cplusplus
 HEADER_INLINE char* NextTokenMult(char* str_iter, uint32_t ct) {
@@ -1600,6 +1612,25 @@ HEADER_INLINE char* NextTokenMult0(char* str, uint32_t ct) {
 }
 #endif
 
+// currently assumes col_skips[0] > 0, probably change this soon
+// assumes str_iter != nullptr
+// returns nullptr on missing token, otherwise returns pointer to end of last
+//   lexed token
+HEADER_INLINE char* TokenLex(char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, char** token_ptrs, uint32_t* token_slens) {
+  for (uint32_t relevant_col_idx = 0; relevant_col_idx < relevant_col_ct; ++relevant_col_idx) {
+    const uint32_t cur_col_type = col_types[relevant_col_idx];
+    str_iter = NextTokenMult(str_iter, col_skips[relevant_col_idx]);
+    if (!str_iter) {
+      return nullptr;
+    }
+    token_ptrs[cur_col_type] = str_iter;
+    char* token_end = CurTokenEnd(str_iter);
+    token_slens[cur_col_type] = token_end - str_iter;
+    str_iter = token_end;
+  }
+  return str_iter;
+}
+
 CXXCONST_CP CommaOrSpaceNextTokenMult(const char* str_iter, uint32_t ct, uint32_t comma_delim);
 
 #ifdef __cplusplus
@@ -1608,6 +1639,7 @@ HEADER_INLINE char* CommaOrSpaceNextTokenMult(char* str_iter, uint32_t ct, uint3
 }
 #endif
 
+// todo: movemask version of this
 uint32_t CountTokens(const char* str_iter);
 
 // uint32_t CommaOrSpaceCountTokens(const char* str_iter, uint32_t comma_delim);

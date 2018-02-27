@@ -157,7 +157,7 @@ void PreinitRLstream(ReadLineStream* rlsp);
 // sane.  I'll discuss the insane one first.
 // * consume_iter is effectively initialized to position -1, not 0, in the
 //   file, and points to a '\n' byte.  This is necessary to make a simple loop
-//   calling ReadNextLineFromRLstream() do the right thing.
+//   calling ReadNextLineFromRLstreamRaw() do the right thing.
 // * On return from that function, consume_iter points to the beginning of a
 //   line, that line is guaranteed to be '\n' terminated even if it's an
 //   unterminated last line in the original file, and it is safe to mutate the
@@ -165,20 +165,20 @@ void PreinitRLstream(ReadLineStream* rlsp);
 //   one.  However, the line is NOT null-terminated.  You are expected to use
 //   functions like strchrnul_n() and FirstPrespace() in place of the standard
 //   C string library functions.
-// * Since ReadNextLineFromRLstream starts with a rawmemchr operation, you get
-//   the best performance by setting consume_iter to the last known position in
-//   the previous line (pointing to the actual terminating '\n' is fine),
-//   rather than leaving it in front.
+// * Since ReadNextLineFromRLstreamRaw starts with a rawmemchr operation, you
+//   get the best performance by setting consume_iter to the last known
+//   position in the previous line (pointing to the actual terminating '\n' is
+//   fine), rather than leaving it in front.
 // The sane interface gets rid of the roughest edges by returning a pointer to
 // the end of the line (original position of '\n') as well, and automatically
 // replacing the '\n' with a null character.  It also doesn't care if you
 // insert a '\n' in the middle of the line or mutate the last character before
 // continuing iteration, as long as you don't manually change line_last.
 
-PglErr InitRLstream(const char* fname, uintptr_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp);
+PglErr InitRLstreamRaw(const char* fname, uintptr_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp);
 
-HEADER_INLINE PglErr InitRLstreamSafe(const char* fname, uintptr_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp, char** line_lastp) {
-  PglErr reterr = InitRLstream(fname, max_line_blen, rlsp, consume_iterp);
+HEADER_INLINE PglErr InitRLstream(const char* fname, uintptr_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp, char** line_lastp) {
+  PglErr reterr = InitRLstreamRaw(fname, max_line_blen, rlsp, consume_iterp);
   *line_lastp = *consume_iterp;
   **line_lastp = '\0';
   return reterr;
@@ -186,7 +186,8 @@ HEADER_INLINE PglErr InitRLstreamSafe(const char* fname, uintptr_t max_line_blen
 
 PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp);
 
-HEADER_INLINE PglErr ReadFromRLstream(ReadLineStream* rlsp, char** consume_iterp) {
+// consume_iter must be at the first unread byte.
+HEADER_INLINE PglErr ReadFromRLstreamRaw(ReadLineStream* rlsp, char** consume_iterp) {
   if (*consume_iterp != rlsp->consume_stop) {
     return kPglRetSuccess;
   }
@@ -195,12 +196,12 @@ HEADER_INLINE PglErr ReadFromRLstream(ReadLineStream* rlsp, char** consume_iterp
 
 // If read_iter was not previously advanced to the byte past the end of the
 // most recently read line.
-HEADER_INLINE PglErr ReadNextLineFromRLstream(ReadLineStream* rlsp, char** consume_iterp) {
+HEADER_INLINE PglErr ReadNextLineFromRLstreamRaw(ReadLineStream* rlsp, char** consume_iterp) {
   *consume_iterp = AdvPastDelim(*consume_iterp, '\n');
-  return ReadFromRLstream(rlsp, consume_iterp);
+  return ReadFromRLstreamRaw(rlsp, consume_iterp);
 }
 
-HEADER_INLINE PglErr ReadNextLineFromRLstreamSafe(ReadLineStream* rlsp, char** consume_iterp, char** line_lastp) {
+HEADER_INLINE PglErr ReadNextLineFromRLstream(ReadLineStream* rlsp, char** consume_iterp, char** line_lastp) {
   *consume_iterp = &((*line_lastp)[1]);
   if (*consume_iterp == rlsp->consume_stop) {
     PglErr reterr = AdvanceRLstream(rlsp, consume_iterp);
@@ -213,10 +214,10 @@ HEADER_INLINE PglErr ReadNextLineFromRLstreamSafe(ReadLineStream* rlsp, char** c
   return kPglRetSuccess;
 }
 
-PglErr RewindRLstream(ReadLineStream* rlsp, char** consume_iterp);
+PglErr RewindRLstreamRaw(ReadLineStream* rlsp, char** consume_iterp);
 
-HEADER_INLINE PglErr RewindRLstreamSafe(ReadLineStream* rlsp, char** consume_iterp, char** line_lastp) {
-  PglErr reterr = RewindRLstream(rlsp, consume_iterp);
+HEADER_INLINE PglErr RewindRLstream(ReadLineStream* rlsp, char** consume_iterp, char** line_lastp) {
+  PglErr reterr = RewindRLstreamRaw(rlsp, consume_iterp);
   *line_lastp = *consume_iterp;
   return reterr;
 }

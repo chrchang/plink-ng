@@ -389,7 +389,7 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
   }
 }
 
-PglErr InitRLstream(const char* fname, uintptr_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp) {
+PglErr InitRLstreamRaw(const char* fname, uintptr_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp) {
   PglErr reterr = kPglRetSuccess;
   {
     // To avoid a first-line special case, we start consume_iter at position
@@ -398,15 +398,15 @@ PglErr InitRLstream(const char* fname, uintptr_t max_line_blen, ReadLineStream* 
     // reader thread overwrite this byte.
     ReadLineStreamSync* syncp = S_CAST(ReadLineStreamSync*, bigstack_alloc(sizeof(ReadLineStreamSync) + 1));
     if (!syncp) {
-      goto InitRLstream_ret_NOMEM;
+      goto InitRLstreamRaw_ret_NOMEM;
     }
     char* buf;
     if (bigstack_alloc_c(max_line_blen + kDecompressChunkSize, &buf)) {
-      goto InitRLstream_ret_NOMEM;
+      goto InitRLstreamRaw_ret_NOMEM;
     }
     reterr = gzopen_read_checked(fname, &rlsp->gz_infile);
     if (reterr) {
-      goto InitRLstream_ret_1;
+      goto InitRLstreamRaw_ret_1;
     }
     buf[-1] = '\n';
     rlsp->consume_stop = buf;
@@ -426,50 +426,50 @@ PglErr InitRLstream(const char* fname, uintptr_t max_line_blen, ReadLineStream* 
     rlsp->reader_progress_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
     if (!rlsp->reader_progress_event) {
       DeleteCriticalSection(&syncp->critical_section);
-      goto InitRLstream_ret_THREAD_CREATE_FAIL;
+      goto InitRLstreamRaw_ret_THREAD_CREATE_FAIL;
     }
     rlsp->consumer_progress_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
     if (!rlsp->consumer_progress_event) {
       DeleteCriticalSection(&syncp->critical_section);
       CloseHandle(rlsp->reader_progress_event);
-      goto InitRLstream_ret_THREAD_CREATE_FAIL;
+      goto InitRLstreamRaw_ret_THREAD_CREATE_FAIL;
     }
     rlsp->read_thread = R_CAST(HANDLE, _beginthreadex(nullptr, kDefaultThreadStack, ReadLineStreamThread, rlsp, 0, nullptr));
     if (!rlsp->read_thread) {
       DeleteCriticalSection(&syncp->critical_section);
       CloseHandle(rlsp->consumer_progress_event);
       CloseHandle(rlsp->reader_progress_event);
-      goto InitRLstream_ret_THREAD_CREATE_FAIL;
+      goto InitRLstreamRaw_ret_THREAD_CREATE_FAIL;
     }
 #else
     if (pthread_mutex_init(&syncp->sync_mutex, nullptr)) {
-      goto InitRLstream_ret_THREAD_CREATE_FAIL;
+      goto InitRLstreamRaw_ret_THREAD_CREATE_FAIL;
     }
     rlsp->sync_init_state = 1;
     if (pthread_cond_init(&syncp->reader_progress_condvar, nullptr)) {
-      goto InitRLstream_ret_THREAD_CREATE_FAIL;
+      goto InitRLstreamRaw_ret_THREAD_CREATE_FAIL;
     }
     rlsp->sync_init_state = 2;
     if (pthread_cond_init(&syncp->consumer_progress_condvar, nullptr)) {
-      goto InitRLstream_ret_THREAD_CREATE_FAIL;
+      goto InitRLstreamRaw_ret_THREAD_CREATE_FAIL;
     }
     rlsp->sync_init_state = 3;
     if (pthread_create(&rlsp->read_thread, &g_smallstack_thread_attr, ReadLineStreamThread, rlsp)) {
-      goto InitRLstream_ret_THREAD_CREATE_FAIL;
+      goto InitRLstreamRaw_ret_THREAD_CREATE_FAIL;
     }
     rlsp->sync_init_state = 4;
 #endif
     *consume_iterp = &(buf[-1]);
   }
   while (0) {
-  InitRLstream_ret_NOMEM:
+  InitRLstreamRaw_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  InitRLstream_ret_THREAD_CREATE_FAIL:
+  InitRLstreamRaw_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
     break;
   }
- InitRLstream_ret_1:
+ InitRLstreamRaw_ret_1:
   return reterr;
 }
 
@@ -576,7 +576,7 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
 #endif
 }
 
-PglErr RewindRLstream(ReadLineStream* rlsp, char** consume_iterp) {
+PglErr RewindRLstreamRaw(ReadLineStream* rlsp, char** consume_iterp) {
   ReadLineStreamSync* syncp = rlsp->syncp;
 #ifdef _WIN32
   CRITICAL_SECTION* critical_sectionp = &syncp->critical_section;

@@ -310,7 +310,7 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
       if (loadbuf_size > kMaxLongLine) {
         loadbuf_size = kMaxLongLine;
       } else {
-        loadbuf_size &= ~(kCacheline - 1);
+        loadbuf_size = RoundDownPow2(loadbuf_size, kCacheline);
         if (loadbuf_size <= kMaxMediumLine) {
           goto Plink1ClusterImport_ret_NOMEM;
         }
@@ -663,7 +663,7 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
     if (loadbuf_size > kMaxLongLine) {
       loadbuf_size = kMaxLongLine;
     } else {
-      loadbuf_size &= ~(kCacheline - 1);
+      loadbuf_size = RoundDownPow2(loadbuf_size, kCacheline);
       if (loadbuf_size <= kMaxMediumLine) {
         goto UpdateSampleSexes_ret_NOMEM;
       }

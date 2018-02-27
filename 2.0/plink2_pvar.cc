@@ -646,7 +646,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     unsigned char* rlstream_start = &(bigstack_mark[linebuf_size]);
     g_bigstack_base = rlstream_start;
     char* line_start;
-    reterr = InitRLstream(pvarname, linebuf_size, &pvar_rls, &line_start);
+    reterr = InitRLstreamRaw(pvarname, linebuf_size, &pvar_rls, &line_start);
     if (reterr) {
       goto LoadPvar_ret_1;
     }
@@ -661,7 +661,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     char* linebuf_first_token;
     while (1) {
       ++line_idx;
-      reterr = ReadNextLineFromRLstream(&pvar_rls, &line_start);
+      reterr = ReadNextLineFromRLstreamRaw(&pvar_rls, &line_start);
       if (reterr) {
         if (reterr == kPglRetSkipped) {
           linebuf_first_token = &(line_start[-1]);
@@ -1174,16 +1174,9 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         char* token_ptrs[8];
         uint32_t token_slens[8];
         if (IsSetI(chr_mask, cur_chr_code) || info_pr_present) {
-          for (uint32_t rpc_col_idx = 0; rpc_col_idx < relevant_postchr_col_ct; ++rpc_col_idx) {
-            const uint32_t cur_col_type = col_types[rpc_col_idx];
-            linebuf_iter = NextTokenMult(linebuf_iter, col_skips[rpc_col_idx]);
-            if (!linebuf_iter) {
-              goto LoadPvar_ret_MISSING_TOKENS;
-            }
-            token_ptrs[cur_col_type] = linebuf_iter;
-            char* token_end = CurTokenEnd(linebuf_iter);
-            token_slens[cur_col_type] = token_end - linebuf_iter;
-            linebuf_iter = token_end;
+          linebuf_iter = TokenLex(linebuf_iter, col_types, col_skips, relevant_postchr_col_ct, token_ptrs, token_slens);
+          if (!linebuf_iter) {
+            goto LoadPvar_ret_MISSING_TOKENS;
           }
           // It is possible for the info_token[info_slen] assignment below to
           // clobber the line terminator, so we advance line_start to eoln
@@ -1605,7 +1598,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       }
       ++line_start;
       ++line_idx;
-      reterr = ReadFromRLstream(&pvar_rls, &line_start);
+      reterr = ReadFromRLstreamRaw(&pvar_rls, &line_start);
       if (reterr) {
         if (reterr == kPglRetSkipped) {
           reterr = kPglRetSuccess;
