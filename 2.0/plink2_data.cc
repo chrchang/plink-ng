@@ -160,7 +160,7 @@ PglErr PvarInfoOpenAndReloadHeaderOld(const char* pvar_info_reload, gzFile* gz_p
 }
 
 PglErr PvarInfoReloadHeader(ReadLineStream* pvar_reload_rlsp, char** line_iterp, uint32_t* info_col_idx_ptr) {
-  char* line_iter;
+  char* line_iter = *line_iterp;
   do {
     // this is a reload, so no need to validate
     if (ReadNextLineFromRLstreamRaw(pvar_reload_rlsp, &line_iter)) {
