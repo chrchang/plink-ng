@@ -22,9 +22,8 @@
 // initialization/allocation, basic multithreading code, and a few numeric
 // constants.
 
-#include "plink2_base.h"
+#include "plink2_string.h"
 
-#include <math.h>
 #include <stdarg.h>
 #include <stddef.h>
 
@@ -36,31 +35,6 @@
 #  include <process.h>
 #else
 #  include <pthread.h>
-#endif
-
-#ifdef __cplusplus
-#  include <algorithm>
-#  ifdef _WIN32
-    // Windows C++11 <algorithm> resets these values :(
-#    undef PRIu64
-#    undef PRId64
-#    define PRIu64 "I64u"
-#    define PRId64 "I64d"
-#    undef PRIuPTR
-#    undef PRIdPTR
-#    ifdef __LP64__
-#      define PRIuPTR PRIu64
-#      define PRIdPTR PRId64
-#    else
-#      if __cplusplus < 201103L
-#        define PRIuPTR "lu"
-#        define PRIdPTR "ld"
-#      else
-#        define PRIuPTR "u"
-#        define PRIdPTR "d"
-#      endif
-#    endif
-#  endif
 #endif
 
 #ifdef DYNAMIC_MKL
@@ -80,6 +54,9 @@
 // If this isn't initially found, use the compiler's -I option to specify the
 // appropriate include-file directory.  A common location is
 // /opt/intel/mkl/include .
+// If this isn't installed at all on your system but you want/need to change
+// that, see the instructions at
+//   https://software.intel.com/en-us/articles/installing-intel-free-libs-and-python-apt-repo
 #    include "mkl_service.h"
 #  endif
 #  define USE_MTBLAS
@@ -109,149 +86,16 @@ extern "C" {
 #  define THREAD_FUNCPTR_T(func_ptr) unsigned (__stdcall *func_ptr)(void*)
   // #define THREAD_FUNCPP_T(func_pp) unsigned (__stdcall **func_pp)(void*)
 #  define THREAD_RETURN return 0
-#  define EOLN_STR "\r\n"
 #else
 #  define THREAD_FUNC_DECL void*
 #  define THREAD_FUNCPTR_T(func_ptr) void* (*func_ptr)(void*)
   // #define THREAD_FUNCPP_T(func_pp) void* (**func_pp)(void*)
 #  define THREAD_RETURN return nullptr
-#  define EOLN_STR "\n"
 #endif
 
 #ifdef __cplusplus
 namespace plink2 {
 #endif
-
-// A bunch of library functions operating on char*s don't modify the buffer
-// themselves, but return a char* which should inherit the constness of the
-// input parameter.  We want them to
-//   1. check const-correctness when this is compiled as C++
-//   2. still be valid C99
-// and the method of achieving this should be minimally bug-prone.
-//
-// Current hack:
-//   1. First declare the const char*-accepting version, with return type of
-//      CXXCONST_CP.  Make all return statements include a C-style cast, even
-//      when not strictly necessary (e.g. relaying the return value of another
-//      function of this sort), unless nullptr is being returned.
-//   2. Then declare the char*-accepting version in an immediately following
-//      #ifdef __cplusplus block, which is simply a wrapper that uses
-//      const_cast twice.
-// This is kind of ugly, so I may not use this approach in non-library source
-// code.
-//
-// There are related issues with const char** and const char* const*.
-// Unfortunately, while C99 implicitly converts char* to const char*, it does
-// not permit char** -> const char* const*, so caller-side casts are required.
-// (And char** -> const char** isn't permitted in C++ either for good reason,
-// see http://c-faq.com/ansi/constmismatch.html .)  The "good" news is that
-// this removes the need for duplicate C++ function prototypes, but it's
-// generally an even worse situation than the single-indirection case; these
-// macro names are intentionally verbose to encourage assignment to the
-// appropriate-qualified type as soon as possible.
-#ifdef __cplusplus
-#  define CXXCONST_CP const char*
-#  define CXXCONST_VOIDP const void*
-#  define TO_CONSTCPCONSTP(char_pp) (char_pp)
-#else
-#  define CXXCONST_CP char*
-#  define CXXCONST_VOIDP void*
-#  define TO_CONSTCPCONSTP(char_pp) ((const char* const*)(char_pp))
-#endif
-
-#ifdef _GNU_SOURCE
-// There was some recent (2016) discussion on the gcc mailing list on strlen()
-// vs. rawmemchr(., 0), where it was claimed that rawmemchr(., 0) could be
-// compiled to something slower than &(.[strlen(.)]), rather than being at
-// least as good.  However, this didn't happen when I tried to benchmark this,
-// so I'll stick to the function that returns the right type (except when
-// rawmemchr itself has to be emulated).
-HEADER_INLINE CXXCONST_CP strnul(const char* str) {
-  return S_CAST(CXXCONST_CP, rawmemchr(str, 0));
-}
-
-#  ifdef __cplusplus
-HEADER_INLINE char* strnul(char* str) {
-  return const_cast<char*>(strnul(const_cast<const char*>(str)));
-}
-#  endif
-
-#else  // !_GNU_SOURCE
-
-HEADER_INLINE CXXCONST_VOIDP rawmemchr(const void* ss, int cc) {
-  return S_CAST(CXXCONST_VOIDP, memchr(ss, cc, 0x80000000U - kBytesPerVec));
-}
-
-#  ifdef __cplusplus
-HEADER_INLINE void* rawmemchr(void* ss, int cc) {
-  return const_cast<void*>(rawmemchr(const_cast<const void*>(ss), cc));
-}
-#  endif
-
-HEADER_INLINE CXXCONST_CP strnul(const char* str) {
-  return S_CAST(CXXCONST_CP, &(str[strlen(str)]));
-}
-
-#  ifdef __cplusplus
-HEADER_INLINE char* strnul(char* str) {
-  return const_cast<char*>(strnul(const_cast<const char*>(str)));
-}
-#  endif
-
-#  ifdef __LP64__
-CXXCONST_CP strchrnul(const char* str, int needle);
-#  else
-HEADER_INLINE CXXCONST_CP strchrnul(const char* str, int cc) {
-  const char* strchr_result = strchr(str, cc);
-  if (strchr_result) {
-    return S_CAST(CXXCONST_CP, strchr_result);
-  }
-  return S_CAST(CXXCONST_CP, strnul(str));
-}
-#  endif
-
-#  ifdef __cplusplus
-HEADER_INLINE char* strchrnul(char* str, int cc) {
-  return const_cast<char*>(strchrnul(const_cast<const char*>(str), cc));
-}
-#  endif
-
-#endif  // !_GNU_SOURCE
-
-// ReadLineStream emits lines which are *not* null-terminated, but are
-// guaranteed to have trailing '\n's.
-// (todo: stop using all rawmemchr and strchr variants when length is easily
-// known and moderately likely to be very short; test default memchr
-// implementation, and if it doesn't have a short-buffer optimization, write a
-// wrapper which takes care of that)
-CXXCONST_VOIDP rawmemchr2(const void* ss, unsigned char ucc1, unsigned char ucc2);
-
-HEADER_INLINE CXXCONST_CP strchrnul_n(const char* ss, unsigned char ucc1) {
-  return S_CAST(CXXCONST_CP, rawmemchr2(ss, ucc1, '\n'));
-}
-
-#ifdef __cplusplus
-HEADER_INLINE void* rawmemchr2(void* ss, unsigned char ucc1, unsigned char ucc2) {
-  return const_cast<void*>(rawmemchr2(const_cast<const void*>(ss), ucc1, ucc2));
-}
-
-HEADER_INLINE char* strchrnul_n(char* ss, unsigned char ucc1) {
-  return const_cast<char*>(strchrnul_n(const_cast<const char*>(ss), ucc1));
-}
-#endif
-
-// These return 1 at eoln.
-HEADER_INLINE uint32_t strchrnul_n_mov(unsigned char ucc1, const char** ss_ptr) {
-  const char* ss_next = strchrnul_n(*ss_ptr, ucc1);
-  *ss_ptr = ss_next;
-  return (*ss_next != ucc1);
-}
-
-HEADER_INLINE uint32_t incr_strchrnul_n_mov(unsigned char ucc1, const char** ss_ptr) {
-  const char* ss_next = strchrnul_n(&((*ss_ptr)[1]), ucc1);
-  *ss_ptr = ss_next;
-  return (*ss_next != ucc1);
-}
 
 #ifdef _WIN32
 // if kMaxThreads > 64, single WaitForMultipleObjects calls must be converted
@@ -372,11 +216,11 @@ HEADER_INLINE void logerrprintf(const char* fmt, ...) {
   logerrputsb();
 }
 
-// input for WordWrap/logprintfww should have no intermediate '\n's.  If
+// input for WordWrapB/logprintfww should have no intermediate '\n's.  If
 // suffix_len is 0, there should be a terminating \n.
-void WordWrap(uint32_t suffix_len, char* strbuf);
-
-void WordWrapB(uint32_t suffix_len);
+HEADER_INLINE void WordWrapB(uint32_t suffix_len) {
+  WordWrap(suffix_len, g_logbuf);
+}
 
 HEADER_INLINE void logpreprintfww(const char* fmt, ...) {
   va_list args;
@@ -440,74 +284,6 @@ HEADER_INLINE void fclose_cond(FILE* fptr) {
     fclose(fptr);
   }
 }
-
-uint32_t UintSlen(uint32_t num);
-
-HEADER_INLINE uint32_t IntSlen(int32_t num) {
-  // see abs_i32()
-  const uint32_t neg_sign_bit = -(S_CAST(uint32_t, num) >> 31);
-  return UintSlen((S_CAST(uint32_t, num) ^ neg_sign_bit) - neg_sign_bit) - neg_sign_bit;
-}
-
-HEADER_INLINE int32_t strequal_k(const char* s1, const char* k_s2, uint32_t s1_slen) {
-  // any sane compiler should compute s2_slen at compile-time if k_s2 is a
-  // constant string
-  const uint32_t s2_slen = strlen(k_s2);
-  return (s1_slen == s2_slen) && (!memcmp(s1, k_s2, s2_slen));
-}
-
-// Can use this when it's always safe to read first (1 + strlen(k_s2)) bytes of
-// s1.
-HEADER_INLINE int32_t strequal_k_unsafe(const char* s1, const char* k_s2) {
-  const uint32_t s2_blen = 1 + strlen(k_s2);
-  return !memcmp(s1, k_s2, s2_blen);
-}
-
-HEADER_INLINE int32_t IsSpaceOrEoln(unsigned char ucc) {
-  return (ucc <= 32);
-}
-
-// Assumes it's safe to read first 1 + strlen(s_const) bytes of s_read, i.e.
-// this is ALWAYS 'unsafe'.
-// Differs from strequal_k_unsafe() since strings are not considered equal when
-// s_read[strlen(s_const)] isn't a token-ender.
-HEADER_INLINE int32_t tokequal_k(const char* s_read, const char* s_const) {
-  const uint32_t s_const_slen = strlen(s_const);
-  return (!memcmp(s_read, s_const, s_const_slen)) && IsSpaceOrEoln(s_read[s_const_slen]);
-}
-
-// s_prefix must be strictly contained.
-HEADER_INLINE int32_t StrStartsWith(const char* s_read, const char* s_prefix_const, uint32_t s_read_slen) {
-  const uint32_t s_const_slen = strlen(s_prefix_const);
-  return (s_read_slen > s_const_slen) && (!memcmp(s_read, s_prefix_const, s_const_slen));
-}
-
-// permits s_read and s_prefix to be equal.
-HEADER_INLINE int32_t StrStartsWith0(const char* s_read, const char* s_prefix_const, uint32_t s_read_slen) {
-  const uint32_t s_const_slen = strlen(s_prefix_const);
-  return (s_read_slen >= s_const_slen) && (!memcmp(s_read, s_prefix_const, s_const_slen));
-}
-
-// Can use this when it's always safe to read first strlen(s_prefix_const)
-// bytes of s_read.
-HEADER_INLINE int32_t StrStartsWithUnsafe(const char* s_read, const char* s_prefix_const) {
-  const uint32_t s_const_slen = strlen(s_prefix_const);
-  return !memcmp(s_read, s_prefix_const, s_const_slen);
-}
-
-// s_suffix must be strictly contained.
-HEADER_INLINE int32_t StrEndsWith(const char* s_read, const char* s_suffix_const, uint32_t s_read_slen) {
-  const uint32_t s_const_slen = strlen(s_suffix_const);
-  return (s_read_slen > s_const_slen) && (!memcmp(&(s_read[s_read_slen - s_const_slen]), s_suffix_const, s_const_slen));
-}
-
-int32_t strcmp_casted(const void* s1, const void* s2);
-
-int32_t strcmp_natural(const void* s1, const void* s2);
-
-int32_t strcmp_deref(const void* s1, const void* s2);
-
-int32_t strcmp_natural_deref(const void* s1, const void* s2);
 
 int32_t double_cmp(const void* aa, const void* bb);
 
@@ -578,81 +354,13 @@ float DestructiveMedianF(uintptr_t len, float* unsorted_arr);
 
 double DestructiveMedianD(uintptr_t len, double* unsorted_arr);
 
-uintptr_t GetStrboxsortWentryBlen(uintptr_t max_str_blen);
-
-#ifdef __cplusplus
-typedef struct StrSortDerefStruct {
-  const char* strptr;
-  bool operator<(const struct StrSortDerefStruct& rhs) const {
-    return (strcmp(strptr, rhs.strptr) < 0);
-  }
-} StrSortDeref;
-
-typedef struct StrNsortDerefStruct {
-  const char* strptr;
-  bool operator<(const struct StrNsortDerefStruct& rhs) const {
-    return (strcmp_natural(strptr, rhs.strptr) < 0);
-  }
-} StrNsortDeref;
-
-HEADER_INLINE void StrptrArrSort(uintptr_t ct, const char** strptr_arr) {
-  std::sort(R_CAST(StrSortDeref*, strptr_arr), &(R_CAST(StrSortDeref*, strptr_arr)[ct]));
-}
-
-HEADER_INLINE void StrptrArrNsort(uintptr_t ct, const char** strptr_arr) {
-  std::sort(R_CAST(StrNsortDeref*, strptr_arr), &(R_CAST(StrNsortDeref*, strptr_arr)[ct]));
-}
-
-void SortStrboxIndexed2(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_nsort, char* strbox, uint32_t* id_map, void* sort_wkspace);
-#else
-HEADER_INLINE void StrptrArrSort(uintptr_t ct, const char** strptr_arr) {
-  qsort(strptr_arr, ct, sizeof(intptr_t), strcmp_deref);
-}
-
-HEADER_INLINE void StrptrArrNsort(uintptr_t ct, const char** strptr_arr) {
-  qsort(strptr_arr, ct, sizeof(intptr_t), strcmp_natural_deref);
-}
-
-void SortStrboxIndexed2Fallback(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_nsort, char* strbox, uint32_t* id_map, void* sort_wkspace);
-
-HEADER_INLINE void SortStrboxIndexed2(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_nsort, char* strbox, uint32_t* id_map, void* sort_wkspace) {
-  SortStrboxIndexed2Fallback(str_ct, max_str_blen, use_nsort, strbox, id_map, sort_wkspace);
-}
-#endif
 
 // This makes a temporary g_bigstack allocation.
 BoolErr SortStrboxIndexed(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_nsort, char* strbox, uint32_t* id_map);
 
-// Uses malloc instead of bigstack.
-BoolErr SortStrboxIndexedMalloc(uintptr_t str_ct, uintptr_t max_str_blen, char* strbox, uint32_t* id_map);
-
-// Returns dedup'd strbox entry count.
-uint32_t CopyAndDedupSortedStrptrsToStrbox(const char* const* sorted_strptrs, uintptr_t str_ct, uintptr_t max_str_blen, char* strbox);
-
-
-// note that this can be expected to have size 16 bytes, not 12, on 64-bit
-// systems
-typedef struct StrSortIndexedDerefStruct {
-  const char* strptr;
-  uint32_t orig_idx;
-#ifdef __cplusplus
-  bool operator<(const struct StrSortIndexedDerefStruct& rhs) const {
-    return (strcmp(strptr, rhs.strptr) < 0);
-  }
-#endif
-} StrSortIndexedDeref;
-
-void StrptrArrSortMain(uintptr_t str_ct, uint32_t use_nsort, StrSortIndexedDeref* wkspace_alias);
 
 // This makes a temporary g_bigstack allocation.
 // BoolErr strptr_arr_indexed_sort(const char* const* unsorted_strptrs, uint32_t str_ct, uint32_t use_nsort, uint32_t* id_map);
-
-/*
-void qsort_ext2(void* main_arr, uintptr_t arr_length, uintptr_t item_length, int(* comparator_deref)(const void*, const void*), void* secondary_arr, uintptr_t secondary_item_len, unsigned char* proxy_arr, uintptr_t proxy_len);
-
-// This makes a g_bigstack allocation, and returns -1 on alloc failure.
-int32_t qsort_ext(void* main_arr, uintptr_t arr_length, uintptr_t item_length, int(* comparator_deref)(const void*, const void*), void* secondary_arr, uintptr_t secondary_item_len);
-*/
 
 // Offset of std::lower_bound.
 uint32_t CountSortedSmallerU32(const uint32_t* sorted_uint32_arr, uint32_t arr_length, uint32_t uii);
@@ -717,14 +425,6 @@ static const double kBigEpsilon = 0.000000476837158203125;
 // (~2^{-53} is necessary to take advantage of denormalized small numbers, then
 // allow tail sum to be up to 2^30.)
 static const double kExactTestBias = 0.00000000000000000000000010339757656912845935892608650874535669572651386260986328125;
-
-// apparently these aren't always defined in limits.h
-#ifndef DBL_MAX
-#  define DBL_MAX 1.7976931348623157e308
-#endif
-#ifndef FLT_MAX
-#  define FLT_MAX 3.40282347e38f
-#endif
 
 // probably time to flip arena_alloc and bigstack_alloc definitions...
 
@@ -1217,449 +917,6 @@ typedef struct L32StrStruct {
 } L32Str;
 
 
-HEADER_INLINE int32_t IsLetter(unsigned char ucc) {
-  return (((ucc & 192) == 64) && (((ucc - 1) & 31) < 26));
-}
-
-// if we need the digit value, better to use (unsigned char)cc - '0'...
-HEADER_INLINE int32_t IsDigit(unsigned char ucc) {
-  return (ucc <= '9') && (ucc >= '0');
-}
-
-HEADER_INLINE int32_t IsNotDigit(unsigned char ucc) {
-  return (ucc > '9') || (ucc < '0');
-}
-
-HEADER_INLINE int32_t IsNotNzdigit(unsigned char ucc) {
-  return (ucc > '9') || (ucc <= '0');
-}
-
-// May as well treat all chars < 32, except tab, as eoln...
-// kns = "known non-space" (where tab counts as a space)
-// This is of course identical to IsSpaceOrEoln(), but intent should be
-// clearer and we can insert a debug-assert that we aren't at a space/tab.
-HEADER_INLINE int32_t IsEolnKns(unsigned char ucc) {
-  // could assert ucc is not a space/tab?
-  return (ucc <= 32);
-}
-
-HEADER_INLINE int32_t IsEolnOrCommentKns(unsigned char ucc) {
-  return (ucc < 32) || (ucc == '#');
-}
-
-HEADER_INLINE int32_t NoMoreTokensKns(const char* str) {
-  return ((!str) || IsEolnKns(*str));
-}
-
-HEADER_INLINE CXXCONST_CP FirstNonTspace(const char* str_iter) {
-  while ((*str_iter == ' ') || (*str_iter == '\t')) {
-    ++str_iter;
-  }
-  return S_CAST(CXXCONST_CP, str_iter);
-}
-
-#ifdef __cplusplus
-HEADER_INLINE char* FirstNonTspace(char* str_iter) {
-  return const_cast<char*>(FirstNonTspace(const_cast<const char*>(str_iter)));
-}
-#endif
-
-HEADER_INLINE CXXCONST_CP FirstPrechar(const char* str_iter, uint32_t char_code) {
-  while (ctou32(*str_iter) >= char_code) {
-    ++str_iter;
-  }
-  return S_CAST(CXXCONST_CP, str_iter);
-}
-
-#ifdef __LP64__
-CXXCONST_CP FirstPrecharFar(const char* str_iter, uint32_t char_code);
-#else
-HEADER_INLINE CXXCONST_CP FirstPrecharFar(const char* str_iter, uint32_t char_code) {
-  return FirstPrechar(str_iter, char_code);
-}
-#endif
-
-HEADER_INLINE CXXCONST_CP FirstPrespace(const char* str_iter) {
-  return S_CAST(CXXCONST_CP, FirstPrechar(str_iter, ' '));
-}
-
-HEADER_INLINE CXXCONST_CP NextPrespace(const char* str_iter) {
-  return S_CAST(CXXCONST_CP, FirstPrechar(&(str_iter[1]), ' '));
-}
-
-// assumes we are currently in a token -- UNSAFE OTHERWISE
-HEADER_INLINE CXXCONST_CP CurTokenEnd(const char* str_iter) {
-  // assert(ctou32(*str_iter) > 32);
-  return S_CAST(CXXCONST_CP, FirstPrechar(&(str_iter[1]), 33));
-}
-
-#ifdef __cplusplus
-HEADER_INLINE char* FirstPrechar(char* str_iter, uint32_t char_code) {
-  return const_cast<char*>(FirstPrechar(const_cast<const char*>(str_iter), char_code));
-}
-
-HEADER_INLINE char* FirstPrecharFar(char* str_iter, uint32_t char_code) {
-  return const_cast<char*>(FirstPrecharFar(const_cast<const char*>(str_iter), char_code));
-}
-
-HEADER_INLINE char* FirstPrespace(char* str_iter) {
-  return const_cast<char*>(FirstPrespace(const_cast<const char*>(str_iter)));
-}
-
-HEADER_INLINE char* NextPrespace(char* str_iter) {
-  return const_cast<char*>(NextPrespace(const_cast<const char*>(str_iter)));
-}
-
-HEADER_INLINE char* CurTokenEnd(char* str_iter) {
-  return const_cast<char*>(CurTokenEnd(const_cast<const char*>(str_iter)));
-}
-#endif
-
-// length-zero tokens and non-leading spaces are permitted in the
-// comma-delimiter case
-HEADER_INLINE CXXCONST_CP CommaOrTspaceTokenEnd(const char* token_iter, uint32_t comma_delim) {
-  if (comma_delim) {
-    unsigned char ucc = *token_iter;
-    while ((ucc >= ' ') && (ucc != ',')) {
-      ucc = *(++token_iter);
-    }
-    return S_CAST(CXXCONST_CP, token_iter);
-  }
-  return S_CAST(CXXCONST_CP, CurTokenEnd(token_iter));
-}
-
-#ifdef __cplusplus
-HEADER_INLINE char* CommaOrTspaceTokenEnd(char* token_iter, uint32_t comma_delim) {
-  return const_cast<char*>(CommaOrTspaceTokenEnd(const_cast<const char*>(token_iter), comma_delim));
-}
-#endif
-
-HEADER_INLINE CXXCONST_CP CommaOrTspaceFirstToken(const char* token_end_iter, uint32_t comma_delim) {
-  // assumes token_end_iter is non-null, returns nullptr if there are no more
-  // tokens
-  // assert(token_end_iter);
-  if (comma_delim) {
-    if ((*token_end_iter) != ',') {
-      return nullptr;
-    }
-    return S_CAST(CXXCONST_CP, FirstNonTspace(&(token_end_iter[1])));
-  }
-  const char* str = FirstNonTspace(token_end_iter);
-  return IsEolnKns(*str)? nullptr : S_CAST(CXXCONST_CP, str);
-}
-
-#ifdef __cplusplus
-HEADER_INLINE char* CommaOrTspaceFirstToken(char* token_end_iter, uint32_t comma_delim) {
-  return const_cast<char*>(CommaOrTspaceFirstToken(const_cast<const char*>(token_end_iter), comma_delim));
-}
-#endif
-
-
-// Returns whether uppercased str_iter matches nonempty fixed_str.  Assumes
-// fixed_str contains nothing but letters and a null terminator.
-// uint32_t match_upper(const char* str_iter, const char* fixed_str);
-
-uint32_t MatchUpperCounted(const char* str, const char* fixed_str, uint32_t ct);
-
-HEADER_INLINE uint32_t MatchUpperKLen(const char* str, const char* fixed_str, uint32_t str_slen) {
-  const uint32_t fixed_slen = strlen(fixed_str);
-  if (str_slen != fixed_slen) {
-    return 0;
-  }
-  return MatchUpperCounted(str, fixed_str, fixed_slen);
-}
-
-HEADER_INLINE uint32_t MatchUpperK(const char* str, const char* fixed_str) {
-  return MatchUpperCounted(str, fixed_str, strlen(fixed_str));
-}
-
-uint32_t strcaseequal(const char* str1, const char* str2, uint32_t ct);
-
-/*
-void str_toupper(char* str_iter);
-
-void buf_toupper(uint32_t slen, char* strbuf);
-
-void strcpy_toupper(char* target, const char* source);
-
-char* memcpya_toupper(char* __restrict target, const char* __restrict source, uint32_t slen);
-*/
-
-uint32_t IsAlphanumeric(const char* str_iter);
-
-// ScanPosintCapped(), ScanUintCapped(), ScanIntAbsBounded(), ScanInt32(),
-// ScanPosintDefcap(), ScanUintDefcap(), ScanIntAbsDefcap(), ScanUintIcap() in
-// plink2_base
-
-BoolErr ScanPosintptr(const char* str_iter, uintptr_t* valp);
-
-#ifdef __LP64__
-BoolErr ScanmovPosintCapped(uint64_t cap, const char** str_iterp, uint32_t* valp);
-
-BoolErr ScanmovUintCapped(uint64_t cap, const char** str_iterp, uint32_t* valp);
-#else
-BoolErr ScanmovPosintCapped32(uint32_t cap_div_10, uint32_t cap_mod_10, const char** str_iterp, uint32_t* valp);
-
-BoolErr ScanmovUintCapped32(uint32_t cap_div_10, uint32_t cap_mod_10, const char** str_iterp, uint32_t* valp);
-
-HEADER_INLINE BoolErr ScanmovPosintCapped(uint32_t cap, const char** str_iterp, uint32_t* valp) {
- return ScanmovPosintCapped32(cap / 10, cap % 10, str_iterp, valp);
-}
-
-HEADER_INLINE BoolErr ScanmovUintCapped(uint32_t cap, const char** str_iterp, uint32_t* valp) {
- return ScanmovUintCapped32(cap / 10, cap % 10, str_iterp, valp);
-}
-#endif
-
-HEADER_INLINE BoolErr ScanmovUintDefcap(const char** str_iterp, uint32_t* valp) {
-  return ScanmovUintCapped(0x7ffffffe, str_iterp, valp);
-}
-
-// This has different semantics from ScanmovPosintCapped, etc. since integer
-// readers don't take much code (so it's fine to have a bunch of similar
-// functions, optimized for slightly different use cases), but we only want one
-// floating point reader.
-// (update, 3 Feb 2018: renamed the integer readers above to start with
-// scanmov_ instead of scanadv_, to reflect the interface difference between
-// returning a pointer and moving the input pointer forward.)
-CXXCONST_CP ScanadvDouble(const char* str_iter, double* valp);
-
-#ifdef __cplusplus
-HEADER_INLINE char* ScanadvDouble(char* ss, double* valp) {
-  return const_cast<char*>(ScanadvDouble(const_cast<const char*>(ss), valp));
-}
-#endif
-
-HEADER_INLINE BoolErr ScanFloat(const char* ss, float* valp) {
-  double dxx;
-  if (!ScanadvDouble(ss, &dxx)) {
-    return 1;
-  }
-  if (fabs(dxx) > 3.4028235677973362e38) {
-    return 1;
-  }
-  *valp = S_CAST(float, dxx);
-  return 0;
-}
-
-// memcpya(), memseta() defined in plink2_base.h
-
-HEADER_INLINE char* memcpyax(void* __restrict target, const void* __restrict source, uint32_t ct, char extra_char) {
-  memcpy(target, source, ct);
-  S_CAST(char*, target)[ct] = extra_char;
-  return &(S_CAST(char*, target)[ct + 1]);
-}
-
-HEADER_INLINE void memcpyx(void* __restrict target, const void* __restrict source, uint32_t ct, char extra_char) {
-  memcpy(target, source, ct);
-  S_CAST(char*, target)[ct] = extra_char;
-}
-
-HEADER_INLINE void memcpyl3(void* __restrict target, const void* __restrict source) {
-  // when it's safe to clobber the fourth character, this is faster
-  *S_CAST(uint32_t*, target) = *S_CAST(const uint32_t*, source);
-}
-
-HEADER_INLINE char* memcpyl3a(void* __restrict target, const void* __restrict source) {
-  memcpyl3(target, source);
-  return &(S_CAST(char*, target)[3]);
-}
-
-HEADER_INLINE char* strcpya(char* __restrict target, const void* __restrict source) {
-  uintptr_t slen = strlen(S_CAST(const char*, source));
-  memcpy(target, source, slen);
-  return &(target[slen]);
-}
-
-HEADER_INLINE char* strcpyax(char* __restrict target, const void* __restrict source, char extra_char) {
-  uintptr_t slen = strlen(S_CAST(const char*, source));
-  memcpy(target, source, slen);
-  target[slen] = extra_char;
-  return &(target[slen + 1]);
-}
-
-// MinGW support for stpcpy is a mess, so I'll use a different name
-// ("strcpya0") which doesn't depend on MinGW knowing what it's doing
-#if defined(_GNU_SOURCE) || defined(__APPLE__) || (_POSIX_C_SOURCE >= 200809L)
-HEADER_INLINE char* strcpya0(char* __restrict target, const char* __restrict source) {
-  return stpcpy(target, source);
-}
-#else
-HEADER_INLINE char* strcpya0(char* __restrict target, const char* __restrict source) {
-  uintptr_t slen = strlen(source);
-  memcpy(target, source, slen + 1);
-  return &(target[slen]);
-}
-#endif
-
-HEADER_INLINE void AppendBinaryEoln(char** target_ptr) {
-#ifdef _WIN32
-  (*target_ptr)[0] = '\r';
-  (*target_ptr)[1] = '\n';
-  *target_ptr += 2;
-#else
-  **target_ptr = '\n';
-  *target_ptr += 1;
-#endif
-}
-
-HEADER_INLINE void DecrAppendBinaryEoln(char** target_ptr) {
-#ifdef _WIN32
-  (*target_ptr)[-1] = '\r';
-  (*target_ptr)[0] = '\n';
-  *target_ptr += 1;
-#else
-  (*target_ptr)[-1] = '\n';
-#endif
-}
-
-void GetTopTwoUi(const uint32_t* __restrict uint_arr, uintptr_t uia_size, uintptr_t* __restrict top_idx_ptr, uintptr_t* __restrict second_idx_ptr);
-
-// safer than CurTokenEnd(), since it handles length zero
-// "se" = space/eoln treated as terminators
-HEADER_INLINE uintptr_t strlen_se(const char* ss) {
-  const char* ss2 = ss;
-  while (!IsSpaceOrEoln(*ss2)) {
-    ss2++;
-  }
-  return ss2 - ss;
-}
-
-HEADER_INLINE CXXCONST_CP AdvPastDelim(const char* str_iter, char delim) {
-  str_iter = S_CAST(const char*, rawmemchr(str_iter, delim));
-  return S_CAST(CXXCONST_CP, &(str_iter[1]));
-}
-
-#ifdef __cplusplus
-HEADER_INLINE char* AdvPastDelim(char* str_iter, char delim) {
-  return const_cast<char*>(AdvPastDelim(const_cast<const char*>(str_iter), delim));
-}
-#endif
-
-
-// ok if str_iter is at end of current token
-HEADER_INLINE CXXCONST_CP NextToken(const char* str_iter) {
-  if (!str_iter) {
-    return nullptr;
-  }
-  unsigned char ucc = *str_iter;
-  while (ucc > ' ') {
-    ucc = *(++str_iter);
-  }
-  while ((ucc == ' ') || (ucc == '\t')) {
-    ucc = *(++str_iter);
-  }
-  return (ucc > 32)? S_CAST(CXXCONST_CP, str_iter) : nullptr;
-}
-
-#ifdef __cplusplus
-HEADER_INLINE char* NextToken(char* str_iter) {
-  return const_cast<char*>(NextToken(const_cast<const char*>(str_iter)));
-}
-#endif
-
-#ifdef __LP64__
-CXXCONST_CP NextTokenMultFar(const char* str_iter, uint32_t ct);
-
-HEADER_INLINE CXXCONST_CP NextTokenMult(const char* str_iter, uint32_t ct) {
-  // time to benchmark this.
-  if (ct == 1) {
-    return NextToken(str_iter);
-  }
-  return NextTokenMultFar(str_iter, ct);
-}
-#else
-HEADER_INLINE CXXCONST_CP NextTokenMult(const char* str_iter, uint32_t ct) {
-  // assert(ct);
-  if (!str_iter) {
-    return nullptr;
-  }
-  unsigned char ucc = *str_iter;
-  do {
-    while (ucc > 32) {
-      ucc = *(++str_iter);
-    }
-    while ((ucc == ' ') || (ucc == '\t')) {
-      ucc = *(++str_iter);
-    }
-    if (ucc <= 32) {
-      return nullptr;
-    }
-  } while (--ct);
-  return S_CAST(CXXCONST_CP, str_iter);
-}
-#endif
-
-#ifdef __cplusplus
-HEADER_INLINE char* NextTokenMult(char* str_iter, uint32_t ct) {
-  return const_cast<char*>(NextTokenMult(const_cast<const char*>(str_iter), ct));
-}
-#endif
-
-HEADER_INLINE CXXCONST_CP NextTokenMult0(const char* str, uint32_t ct) {
-  // tried replacing this with ternary operator, but that actually seemed to
-  // slow things down a bit under gcc 4.2.1 (tail call optimization issue?).
-  // todo: recheck this under newer gcc/clang.
-  if (ct) {
-    return S_CAST(CXXCONST_CP, NextTokenMult(str, ct));
-  }
-  return S_CAST(CXXCONST_CP, str);
-}
-
-#ifdef __cplusplus
-HEADER_INLINE char* NextTokenMult0(char* str, uint32_t ct) {
-  return const_cast<char*>(NextTokenMult0(const_cast<const char*>(str), ct));
-}
-#endif
-
-// currently assumes col_skips[0] > 0, probably change this soon
-// assumes str_iter != nullptr
-// returns nullptr on missing token, otherwise returns pointer to end of last
-//   lexed token
-HEADER_INLINE char* TokenLex(char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, char** token_ptrs, uint32_t* token_slens) {
-  for (uint32_t relevant_col_idx = 0; relevant_col_idx < relevant_col_ct; ++relevant_col_idx) {
-    const uint32_t cur_col_type = col_types[relevant_col_idx];
-    str_iter = NextTokenMult(str_iter, col_skips[relevant_col_idx]);
-    if (!str_iter) {
-      return nullptr;
-    }
-    token_ptrs[cur_col_type] = str_iter;
-    char* token_end = CurTokenEnd(str_iter);
-    token_slens[cur_col_type] = token_end - str_iter;
-    str_iter = token_end;
-  }
-  return str_iter;
-}
-
-CXXCONST_CP CommaOrSpaceNextTokenMult(const char* str_iter, uint32_t ct, uint32_t comma_delim);
-
-#ifdef __cplusplus
-HEADER_INLINE char* CommaOrSpaceNextTokenMult(char* str_iter, uint32_t ct, uint32_t comma_delim) {
-  return const_cast<char*>(CommaOrSpaceNextTokenMult(const_cast<const char*>(str_iter), ct, comma_delim));
-}
-#endif
-
-// todo: movemask version of this
-uint32_t CountTokens(const char* str_iter);
-
-// uint32_t CommaOrSpaceCountTokens(const char* str_iter, uint32_t comma_delim);
-
-HEADER_INLINE char* fw_strcpyn(const char* source, uint32_t min_width, uint32_t source_len, char* dest) {
-  // right-justified strcpy with known source length
-  if (source_len < min_width) {
-    memcpy(memseta(dest, ' ', min_width - source_len), source, source_len);
-    return &(dest[min_width]);
-  }
-  return memcpya(dest, source, source_len);
-}
-
-HEADER_INLINE char* fw_strcpy(const char* source, uint32_t min_width, char* dest) {
-  return fw_strcpyn(source, min_width, strlen(source), dest);
-}
-
-// empty multistr ok
-uint32_t CountAndMeasureMultistr(const char* multistr, uintptr_t* max_blen_ptr);
-
 // assumes multistr is nonempty
 BoolErr CountAndMeasureMultistrReverseAlloc(const char* multistr, uintptr_t max_str_ct, uint32_t* str_ct_ptr, uintptr_t* max_blen_ptr, const char*** strptr_arrp);
 
@@ -1669,76 +926,6 @@ HEADER_INLINE BoolErr MultistrToStrboxDedupAlloc(const char* multistr, char** so
   return MultistrToStrboxDedupArenaAlloc(g_bigstack_end, multistr, &g_bigstack_base, sorted_strbox_ptr, str_ct_ptr, max_blen_ptr);
 }
 
-extern const uint16_t kDigitPair[];
-
-char* u32toa(uint32_t uii, char* start);
-
-char* i32toa(int32_t ii, char* start);
-
-char* u32toa_z5(uint32_t uii, char* start);
-
-char* i64toa(int64_t llii, char* start);
-
-#ifdef __LP64__
-// really just for printing line numbers
-// must be less than 2^63
-HEADER_INLINE char* wtoa(uintptr_t ulii, char* start) {
-  return i64toa(ulii, start);
-}
-#else
-HEADER_INLINE char* wtoa(uintptr_t ulii, char* start) {
-  return u32toa(ulii, start);
-}
-#endif
-
-char* u32toa_trunc4(uint32_t uii, char* start);
-
-char* dtoa_g(double dxx, char* start);
-
-// We try to avoid micromanaging floating point printing and just use %g
-// everywhere, but occasionally we explicitly need more precision.
-//
-// dtoa_g_p8 provides generic 8-digit precision (instead of %g's 6-digit
-// default), while print_dosage in plink2_common provides up to 3 places after
-// the decimal point when dealing with dosages (which are internally
-// represented as 32768ths).
-// (may want to replace _p8 with _p10 for perfect int32 handling.)
-char* dtoa_g_p8(double dxx, char* start);
-
-HEADER_INLINE void TrailingZeroesToSpaces(char* start) {
-  --start;
-  while (*start == '0') {
-    *start-- = ' ';
-  }
-  if (*start == '.') {
-    *start = ' ';
-  }
-}
-
-HEADER_INLINE char* ClipTrailingZeroes(char* start) {
-  char cc;
-  do {
-    cc = *(--start);
-  } while (cc == '0');
-  return &(start[(cc != '.')]);
-}
-
-// "prob" means that the number is guaranteed to be in [0, 1].
-// no leading space is printed.  trailing zeroes (/decimal point) are erased
-//   iff there is equality to ~13 decimal places.
-char* dtoa_f_probp6_spaced(double dxx, char* start);
-
-char* dtoa_f_probp6_clipped(double dxx, char* start);
-
-// char* dtoa_f_p5_clipped(double dxx, char* start);
-
-char* ftoa_g(float fxx, char* start);
-
-HEADER_INLINE char* u32toa_x(uint32_t uii, char extra_char, char* start) {
-  char* penult = u32toa(uii, start);
-  *penult = extra_char;
-  return &(penult[1]);
-}
 
 void DivisionMagicNums(uint32_t divisor, uint64_t* multp, uint32_t* __restrict pre_shiftp, uint32_t* __restrict post_shiftp, uint32_t* __restrict incrp);
 
@@ -2002,52 +1189,12 @@ uint32_t VariantIdDupflagHtableFind(const char* idbuf, const char* const* varian
 
 uint32_t VariantIdDupHtableFind(const char* idbuf, const char* const* variant_ids, const uint32_t* id_htable, const uint32_t* htable_dup_base, uint32_t cur_id_slen, uint32_t id_htable_size, uint32_t max_id_slen, uint32_t* llidx_ptr);
 
-CXXCONST_CP ScanForDuplicateIds(const char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_blen);
 
-#ifdef __cplusplus
-HEADER_INLINE char* ScanForDuplicateIds(char* sorted_ids, uintptr_t id_ct, uintptr_t max_id_blen) {
-  return const_cast<char*>(ScanForDuplicateIds(const_cast<const char*>(sorted_ids), id_ct, max_id_blen));
-}
-#endif
-
-// Collapses array of sorted IDs to remove duplicates, and writes pre-collapse
-// positions to id_starts (so e.g. duplication count of any sample ID can be
-// determined via subtraction) if it isn't nullptr.
-// Returns id_ct of collapsed array.
-uint32_t CollapseDuplicateIds(uintptr_t id_ct, uintptr_t max_id_blen, char* sorted_ids, uint32_t* id_starts);
-
+// This still perform a temporary bigstack allocation; 'noalloc' here just
+// means that sorted_strbox and id_map must be allocated in advance.
 PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, const char* __restrict orig_strbox, uintptr_t str_ct, uintptr_t max_str_blen, uint32_t allow_dups, uint32_t collapse_idxs, uint32_t use_nsort, char* __restrict sorted_strbox, uint32_t* __restrict id_map);
 
 PglErr CopySortStrboxSubset(const uintptr_t* __restrict subset_mask, const char* __restrict orig_strbox, uintptr_t str_ct, uintptr_t max_str_blen, uint32_t allow_dups, uint32_t collapse_idxs, uint32_t use_nsort, char** sorted_strbox_ptr, uint32_t** id_map_ptr);
-
-
-// returns position of string, or -1 if not found.
-int32_t bsearch_str(const char* idbuf, const char* sorted_strbox, uintptr_t cur_id_slen, uintptr_t max_id_blen, uintptr_t end_idx);
-
-// requires null-terminated string
-int32_t bsearch_str_natural(const char* idbuf, const char* sorted_strbox, uintptr_t max_id_blen, uintptr_t end_idx);
-
-
-// returns number of elements in sorted_strbox[] less than idbuf.
-uintptr_t bsearch_str_lb(const char* idbuf, const char* sorted_strbox, uintptr_t cur_id_slen, uintptr_t max_id_blen, uintptr_t end_idx);
-
-// same result as bsearch_str_lb(), but checks against [cur_idx],
-// [cur_idx + 1], [cur_idx + 3], [cur_idx + 7], etc. before finishing with a
-// binary search, and assumes cur_id_slen <= max_id_blen and end_idx > 0.
-uintptr_t FwdsearchStrLb(const char* idbuf, const char* sorted_strbox, uintptr_t cur_id_slen, uintptr_t max_id_blen, uintptr_t end_idx, uintptr_t cur_idx);
-
-// this is frequently preferable to bsearch_str(), since it's way too easy to
-// forget to convert the sorted-stringbox index to the final index
-// sample_id_map == nullptr is permitted; in this case id will be an index into
-// the sorted array
-HEADER_INLINE BoolErr SortedIdboxFind(const char* idbuf, const char* sorted_idbox, const uint32_t* id_map, uintptr_t cur_id_slen, uintptr_t max_id_blen, uintptr_t end_idx, uint32_t* id_ptr) {
-  const int32_t ii = bsearch_str(idbuf, sorted_idbox, cur_id_slen, max_id_blen, end_idx);
-  if (ii == -1) {
-    return 1;
-  }
-  *id_ptr = id_map? id_map[S_CAST(uint32_t, ii)] : S_CAST(uint32_t, ii);
-  return 0;
-}
 
 
 typedef struct RangeListStruct {
@@ -2271,25 +1418,6 @@ HEADER_INLINE uint32_t IdxToUidxBasic(const uintptr_t* bitvec, uint32_t idx) {
 void ComputeUidxStartPartition(const uintptr_t* variant_include, uint64_t variant_ct, uint32_t thread_ct, uint32_t first_uidx, uint32_t* variant_uidx_starts);
 
 void ComputePartitionAligned(const uintptr_t* variant_include, uint32_t orig_thread_ct, uint32_t first_variant_uidx, uint32_t cur_variant_idx, uint32_t cur_variant_ct, uint32_t alignment, uint32_t* variant_uidx_starts, uint32_t* vidx_starts);
-
-#ifdef __arm__
-#  error "Unaligned accesses in IsNanStr()."
-#endif
-// todo: check whether there's actually any point to the uint16_t type-pun
-HEADER_INLINE uint32_t IsNanStr(const char* ss, uint32_t slen) {
-  if ((slen > 3) || (slen == 1)) {
-    return 0;
-  }
-  if (!slen) {
-    return 1;
-  }
-  const uint32_t first_two_chars_code = R_CAST(const uint16_t*, ss)[0];
-  // assumes little-endian
-  if ((first_two_chars_code & 0xdfdf) != 0x414e) {
-    return 0;
-  }
-  return (slen == 2) || ((ctou32(ss[2]) & 0xdf) == 78);
-}
 
 BoolErr ParseNextRange(const char* const* argvk, uint32_t param_ct, char range_delim, uint32_t* cur_param_idx_ptr, const char** cur_arg_pptr, const char** range_start_ptr, uint32_t* rs_len_ptr, const char** range_end_ptr, uint32_t* re_len_ptr);
 
@@ -2521,66 +1649,6 @@ PglErr SearchHeaderLine(const char* header_line_iter, const char* const* search_
 // are "cols=").  supported_ids is a multistr.
 PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported_ids, const char* cur_flag_name, uint32_t first_col_shifted, uint32_t default_cols_mask, uint32_t prohibit_empty, void* result_ptr);
 
-
-// see http://graphics.stanford.edu/~seander/bithacks.html#ZeroInWord
-/*
-HEADER_INLINE uintptr_t WordHasZero(uintptr_t ulii) {
-  return (ulii - kMask0101) & (~ulii) & (0x80 * kMask0101);
-}
-*/
-
-// memrchr() not available on some platforms.  (This implementation also
-// includes a tweak which trades off a bit of performance around length 35 for
-// substantially better performance on the longer lines often seen in e.g. VCF
-// files, hence the _far suffix.)
-#ifdef __LP64__
-CXXCONST_CP memrchr_expected_far(const char* str_start, char needle, uintptr_t slen);
-
-HEADER_INLINE CXXCONST_CP memrchr_maybe_short(const char* str_start, char needle, uintptr_t slen) {
-  // For very short strings (<= 10 chars or so), the basic loop tends to be
-  // faster.  (This can also be true if the needle is very likely to be in the
-  // last few characters, but if the caller knows that it can have its own loop
-  // before falling back on this function.)
-  if (slen > 10) {
-    return memrchr_expected_far(str_start, needle, slen);
-  }
-  for (uintptr_t pos = slen; pos; ) {
-    if (str_start[--pos] == needle) {
-      return S_CAST(CXXCONST_CP, &(str_start[pos]));
-    }
-  }
-  return nullptr;
-}
-#else  // !__LP64__
-HEADER_INLINE CXXCONST_CP memrchr_expected_far(const char* str_start, char needle, uintptr_t slen) {
-#  ifdef _GNU_SOURCE
-  return S_CAST(CXXCONST_CP, memrchr(str_start, ctou32(needle), slen));
-#  else  // !_GNU_SOURCE
-  // Could check one word at a time for not-that-small slen.
-  for (uintptr_t pos = slen; pos; ) {
-    if (str_start[--pos] == needle) {
-      return S_CAST(CXXCONST_CP, &(str_start[pos]));
-    }
-  }
-  return nullptr;
-#  endif  // !_GNU_SOURCE
-}
-
-HEADER_INLINE CXXCONST_CP memrchr_maybe_short(const char* str_start, char needle, uintptr_t slen) {
-  return memrchr_expected_far(str_start, needle, slen);
-}
-
-#endif  // !__LP64__
-
-#ifdef __cplusplus
-HEADER_INLINE char* memrchr_expected_far(char* str_start, char needle, uintptr_t slen) {
-  return const_cast<char*>(memrchr_expected_far(const_cast<const char*>(str_start), needle, slen));
-}
-
-HEADER_INLINE char* memrchr_maybe_short(char* str_start, char needle, uintptr_t slen) {
-  return const_cast<char*>(memrchr_maybe_short(const_cast<const char*>(str_start), needle, slen));
-}
-#endif
 
 // this is technically application-dependent, but let's keep this simple for
 // now

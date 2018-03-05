@@ -117,7 +117,7 @@ PglErr WriteMapOrBim(const char* outname, const uintptr_t* variant_include, cons
   return reterr;
 }
 
-PglErr PvarInfoReloadHeader(uintptr_t loadbuf_size, gzFile gz_pvar_reload, char* loadbuf, uint32_t* info_col_idx_ptr) {
+PglErr PvarInfoReloadHeaderOld(uintptr_t loadbuf_size, gzFile gz_pvar_reload, char* loadbuf, uint32_t* info_col_idx_ptr) {
   const char* loadbuf_iter;
   do {
     // this is a reload, so no need to validate
@@ -141,7 +141,7 @@ PglErr PvarInfoReloadHeader(uintptr_t loadbuf_size, gzFile gz_pvar_reload, char*
   return kPglRetSuccess;
 }
 
-PglErr PvarInfoOpenAndReloadHeader(const char* pvar_info_reload, gzFile* gz_pvar_reload_ptr, char** loadbuf_ptr, uintptr_t* loadbuf_size_ptr, uint32_t* info_col_idx_ptr) {
+PglErr PvarInfoOpenAndReloadHeaderOld(const char* pvar_info_reload, gzFile* gz_pvar_reload_ptr, char** loadbuf_ptr, uintptr_t* loadbuf_size_ptr, uint32_t* info_col_idx_ptr) {
   PglErr reterr = gzopen_read_checked(pvar_info_reload, gz_pvar_reload_ptr);
   if (reterr) {
     return reterr;
@@ -156,7 +156,39 @@ PglErr PvarInfoOpenAndReloadHeader(const char* pvar_info_reload, gzFile* gz_pvar
   loadbuf[loadbuf_size - 1] = ' ';
   *loadbuf_ptr = loadbuf;
   *loadbuf_size_ptr = loadbuf_size;
-  return PvarInfoReloadHeader(loadbuf_size, *gz_pvar_reload_ptr, loadbuf, info_col_idx_ptr);
+  return PvarInfoReloadHeaderOld(loadbuf_size, *gz_pvar_reload_ptr, loadbuf, info_col_idx_ptr);
+}
+
+PglErr PvarInfoReloadHeader(ReadLineStream* pvar_reload_rlsp, char** line_iterp, uint32_t* info_col_idx_ptr) {
+  char* line_iter;
+  do {
+    // this is a reload, so no need to validate
+    if (ReadNextLineFromRLstreamRaw(pvar_reload_rlsp, &line_iter)) {
+      return kPglRetReadFail;
+    }
+    line_iter = FirstNonTspace(line_iter);
+  } while (!StrStartsWithUnsafe(line_iter, "#CHROM"));
+  uint32_t info_col_idx = 0;
+  do {
+    line_iter = NextToken(line_iter);
+    ++info_col_idx;
+  } while (!tokequal_k(line_iter, "INFO"));
+  *line_iterp = line_iter;
+  *info_col_idx_ptr = info_col_idx;
+  return kPglRetSuccess;
+}
+
+// May use all remaining memory.
+PglErr PvarInfoOpenAndReloadHeader(const char* pvar_info_reload, ReadLineStream* pvar_reload_rlsp, char** line_iterp, uint32_t* info_col_idx_ptr) {
+  uintptr_t linebuf_size;
+  if (StandardizeLinebufSizeMax(kMaxMediumLine + 1, &linebuf_size)) {
+    return kPglRetNomem;
+  }
+  PglErr reterr = InitRLstreamRaw(pvar_info_reload, linebuf_size, pvar_reload_rlsp, line_iterp);
+  if (reterr) {
+    return reterr;
+  }
+  return PvarInfoReloadHeader(pvar_reload_rlsp, line_iterp, info_col_idx_ptr);
 }
 
 void PvarInfoWrite(uint32_t xheader_info_pr, uint32_t is_pr, char* info_token, char** write_iter_ptr) {
@@ -194,7 +226,7 @@ void PvarInfoWrite(uint32_t xheader_info_pr, uint32_t is_pr, char* info_token, c
   *write_iter_ptr = write_iter;
 }
 
-PglErr PvarInfoReloadAndWrite(uintptr_t loadbuf_size, uint32_t xheader_info_pr, uint32_t info_col_idx, uint32_t variant_uidx, uint32_t is_pr, gzFile gz_pvar_reload, char** write_iter_ptr, uint32_t* gz_variant_uidx_ptr, char* loadbuf) {
+PglErr PvarInfoReloadAndWriteOld(uintptr_t loadbuf_size, uint32_t xheader_info_pr, uint32_t info_col_idx, uint32_t variant_uidx, uint32_t is_pr, gzFile gz_pvar_reload, char** write_iter_ptr, uint32_t* gz_variant_uidx_ptr, char* loadbuf) {
   uint32_t gz_variant_uidx = *gz_variant_uidx_ptr;
   char* loadbuf_first_token;
   do {
@@ -215,6 +247,25 @@ PglErr PvarInfoReloadAndWrite(uintptr_t loadbuf_size, uint32_t xheader_info_pr, 
   char* info_token = NextTokenMult(loadbuf_first_token, info_col_idx);
   *gz_variant_uidx_ptr = gz_variant_uidx;
   PvarInfoWrite(xheader_info_pr, is_pr, info_token, write_iter_ptr);
+  return kPglRetSuccess;
+}
+
+PglErr PvarInfoReloadAndWrite(uint32_t xheader_info_pr, uint32_t info_col_idx, uint32_t variant_uidx, uint32_t is_pr, ReadLineStream* pvar_reload_rlsp, char** line_iterp, char** write_iter_ptr, uint32_t* rls_variant_uidx_ptr) {
+  uint32_t rls_variant_uidx = *rls_variant_uidx_ptr;
+  char* line_iter = *line_iterp;
+  do {
+    do {
+      if (ReadNextLineFromRLstreamRaw(pvar_reload_rlsp, &line_iter)) {
+        return kPglRetReadFail;
+      }
+      line_iter = FirstNonTspace(line_iter);
+    } while (IsEolnKns(*line_iter));
+    ++rls_variant_uidx;
+  } while (rls_variant_uidx <= variant_uidx);
+  line_iter = NextTokenMultFar(line_iter, info_col_idx);
+  *rls_variant_uidx_ptr = rls_variant_uidx;
+  PvarInfoWrite(xheader_info_pr, is_pr, line_iter, write_iter_ptr);
+  *line_iterp = line_iter;
   return kPglRetSuccess;
 }
 
@@ -254,10 +305,11 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
   // allele_dosages must be nullptr unless we're trimming alt alleles
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
-  CompressStreamState css;
-  gzFile gz_pvar_reload = nullptr;
   PglErr reterr = kPglRetSuccess;
+  CompressStreamState css;
+  ReadLineStream pvar_reload_rls;
   PreinitCstream(&css);
+  PreinitRLstream(&pvar_reload_rls);
   {
     const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
     // includes trailing tab
@@ -296,8 +348,7 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
       goto WritePvar_ret_INCONSISTENT_INPUT;
     }
 
-    char* loadbuf = nullptr;
-    uintptr_t loadbuf_size = 0;
+    char* pvar_info_line_iter = nullptr;
     uint32_t info_col_idx = 0;  // could save this during first load instead
     if (pvar_psam_flags & kfPvarColXheader) {
       if (CsputsStd(xheader, xheader_blen, &css, &cswritep)) {
@@ -310,7 +361,7 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
     // bugfix (30 Jul 2017): may be necessary to reload INFO when no ## lines
     // are in the header
     if (pvar_info_reload) {
-      reterr = PvarInfoOpenAndReloadHeader(pvar_info_reload, &gz_pvar_reload, &loadbuf, &loadbuf_size, &info_col_idx);
+      reterr = PvarInfoOpenAndReloadHeader(pvar_info_reload, &pvar_reload_rls, &pvar_info_line_iter, &info_col_idx);
       if (reterr) {
         goto WritePvar_ret_1;
       }
@@ -378,7 +429,7 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
     AppendBinaryEoln(&cswritep);
 
     const char output_missing_geno_char = *g_output_missing_geno_ptr;
-    uint32_t gz_variant_uidx = 0;
+    uint32_t rls_variant_uidx = 0;
     uint32_t variant_uidx = 0;
     uint32_t chr_fo_idx = UINT32_MAX;
     uint32_t chr_end = 0;
@@ -460,8 +511,8 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
       if (write_info) {
         *cswritep++ = '\t';
         const uint32_t is_pr = all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx));
-        if (gz_pvar_reload) {
-          reterr = PvarInfoReloadAndWrite(loadbuf_size, xheader_info_pr, info_col_idx, variant_uidx, is_pr, gz_pvar_reload, &cswritep, &gz_variant_uidx, loadbuf);
+        if (pvar_info_line_iter) {
+          reterr = PvarInfoReloadAndWrite(xheader_info_pr, info_col_idx, variant_uidx, is_pr, &pvar_reload_rls, &pvar_info_line_iter, &cswritep, &rls_variant_uidx);
           if (reterr) {
             goto WritePvar_ret_1;
           }
@@ -501,7 +552,7 @@ PglErr WritePvar(const char* outname, const char* xheader, const uintptr_t* vari
   }
  WritePvar_ret_1:
   CswriteCloseCond(&css, cswritep);
-  gzclose_cond(gz_pvar_reload);
+  CleanupRLstream(&pvar_reload_rls);
   BigstackReset(bigstack_mark);
   return reterr;
 }
@@ -952,7 +1003,9 @@ void UnpackHphase(const uintptr_t* __restrict all_hets, const uintptr_t* __restr
     *phasepresent_ptr = nullptr;
     ExpandBytearr(phaseraw, all_hets, raw_sample_ctl, het_ct, 1, phaseinfo);
   } else {
-    ExpandBytearrNested(&(phaseraw[1 + (raw_sample_ct / kBitsPerWord)]), phaseraw, all_hets, raw_sample_ctl, het_ct, 1, *phasepresent_ptr, phaseinfo);
+    // bugfix (4 Mar 2018): need to pass raw_phasepresent_ct, not het_ct
+    const uint32_t raw_phasepresent_ct = PopcountWords(phaseraw, 1 + (het_ct / kBitsPerWord)) - 1;
+    ExpandBytearrNested(&(phaseraw[1 + (raw_sample_ct / kBitsPerWord)]), phaseraw, all_hets, raw_sample_ctl, phasepresent_ct, 1, *phasepresent_ptr, phaseinfo);
   }
 }
 
@@ -3676,7 +3729,7 @@ PglErr PvarInfoReloadInterval(const uint32_t* old_variant_uidx_to_new, uintptr_t
   const uint32_t cur_batch_size = variant_idx_end - variant_idx_start;
   char* str_store_iter = R_CAST(char*, g_bigstack_base);
   uint32_t info_col_idx;
-  PglErr reterr = PvarInfoReloadHeader(loadbuf_size, gz_pvar_reload, loadbuf, &info_col_idx);
+  PglErr reterr = PvarInfoReloadHeaderOld(loadbuf_size, gz_pvar_reload, loadbuf, &info_col_idx);
   if (reterr) {
     return reterr;
   }
@@ -4318,9 +4371,11 @@ PglErr SampleSortFileMap(const uintptr_t* sample_include, const SampleIdInfo* si
   // assumes sample_ct >= 2 (enforced by caller)
   // return strbox is not collapsed
   unsigned char* bigstack_mark = g_bigstack_base;
-  gzFile gz_infile = nullptr;
+  uintptr_t linebuf_size = 0;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
+  ReadLineStream rls;
+  PreinitRLstream(&rls);
   {
     char* idbuf;
     uintptr_t* already_seen;
@@ -4330,31 +4385,23 @@ PglErr SampleSortFileMap(const uintptr_t* sample_include, const SampleIdInfo* si
       goto SampleSortFileMap_ret_NOMEM;
     }
 
-    uintptr_t loadbuf_size = bigstack_left();
-    loadbuf_size -= loadbuf_size / 4;
-    if (loadbuf_size > kMaxLongLine) {
-      loadbuf_size = kMaxLongLine;
-    } else if (loadbuf_size <= kMaxMediumLine) {
+    if (StandardizeLinebufSize(bigstack_left() - (bigstack_left() / 4), kMaxMediumLine + 1, &linebuf_size)) {
       goto SampleSortFileMap_ret_NOMEM;
-    } else {
-      loadbuf_size = RoundUpPow2(loadbuf_size, kCacheline);
     }
-    char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
-    char* loadbuf_first_token;
+    char* line_iter;
+    char* linebuf_first_token;
     XidMode xid_mode;
-    reterr = OpenAndLoadXidHeader(sample_sort_fname, "indiv-sort", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeader0 : kfXidHeaderIgnoreSid, loadbuf_size, loadbuf, nullptr, &line_idx, &loadbuf_first_token, &gz_infile, &xid_mode);
+    reterr = OpenAndLoadXidHeader(sample_sort_fname, "indiv-sort", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeader0 : kfXidHeaderIgnoreSid, linebuf_size, &line_iter, &line_idx, &linebuf_first_token, &rls, &xid_mode);
     if (reterr) {
       if (reterr == kPglRetEmptyFile) {
         logerrputs("Error: --indiv-sort file is empty.\n");
         goto SampleSortFileMap_ret_MALFORMED_INPUT;
       }
-      if (reterr == kPglRetLongLine) {
-        if (loadbuf_size == kMaxLongLine) {
-          goto SampleSortFileMap_ret_LONG_LINE;
-        }
-        goto SampleSortFileMap_ret_NOMEM;
+      if (reterr == kPglRetMalformedInput) {
+        // no IID column
+        goto SampleSortFileMap_ret_1;
       }
-      goto SampleSortFileMap_ret_1;
+      goto SampleSortFileMap_ret_READ_RLSTREAM;
     }
     uint32_t* xid_map;
     char* sorted_xidbox;
@@ -4364,14 +4411,14 @@ PglErr SampleSortFileMap(const uintptr_t* sample_include, const SampleIdInfo* si
       goto SampleSortFileMap_ret_1;
     }
     uint32_t* new_sample_idx_to_old_iter = *new_sample_idx_to_old_ptr;
-    if (*loadbuf_first_token == '#') {
-      *loadbuf_first_token = '\0';
+    if (*linebuf_first_token == '#') {
+      *linebuf_first_token = '\0';
     }
     while (1) {
-      if (!IsEolnKns(*loadbuf_first_token)) {
-        const char* loadbuf_iter = loadbuf_first_token;
+      if (!IsEolnKns(*linebuf_first_token)) {
+        const char* linebuf_iter = linebuf_first_token;
         uint32_t sample_uidx;
-        if (!SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, sample_ct, 0, xid_mode, &loadbuf_iter, &sample_uidx, idbuf)) {
+        if (!SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx, idbuf)) {
           if (IsSet(already_seen, sample_uidx)) {
             char* tab_iter = S_CAST(char*, rawmemchr(idbuf, '\t'));
             *tab_iter = ' ';
@@ -4383,31 +4430,29 @@ PglErr SampleSortFileMap(const uintptr_t* sample_include, const SampleIdInfo* si
           }
           SetBit(sample_uidx, already_seen);
           *new_sample_idx_to_old_iter++ = sample_uidx;
-        } else if (!loadbuf_iter) {
+        } else if (!linebuf_iter) {
           goto SampleSortFileMap_ret_MISSING_TOKENS;
         }
+        line_iter = K_CAST(char*, linebuf_iter);
       }
       ++line_idx;
-      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-        if (!gzeof(gz_infile)) {
-          goto SampleSortFileMap_ret_READ_FAIL;
+      reterr = ReadNextLineFromRLstreamRaw(&rls, &line_iter);
+      if (reterr) {
+        if (reterr == kPglRetSkipped) {
+          reterr = kPglRetSuccess;
+          break;
         }
-        break;
+        goto SampleSortFileMap_ret_READ_RLSTREAM;
       }
-      if (!loadbuf[loadbuf_size - 1]) {
-        if (loadbuf_size == kMaxLongLine) {
-          goto SampleSortFileMap_ret_LONG_LINE;
-        }
-        goto SampleSortFileMap_ret_NOMEM;
-      }
-      loadbuf_first_token = FirstNonTspace(loadbuf);
-      if (loadbuf_first_token[0] == '#') {
+      line_iter = FirstNonTspace(line_iter);
+      linebuf_first_token = line_iter;
+      if (linebuf_first_token[0] == '#') {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --indiv-sort file starts with a '#'. (This is only permitted before the first nonheader line, and if a #FID/IID header line is present it must denote the end of the header block.)\n", line_idx);
         goto SampleSortFileMap_ret_MALFORMED_INPUT_WW;
       }
     }
 
-    if (gzclose_null(&gz_infile)) {
+    if (CleanupRLstream(&rls)) {
       goto SampleSortFileMap_ret_READ_FAIL;
     }
     if (S_CAST(uintptr_t, new_sample_idx_to_old_iter - (*new_sample_idx_to_old_ptr)) != sample_ct) {
@@ -4429,9 +4474,8 @@ PglErr SampleSortFileMap(const uintptr_t* sample_include, const SampleIdInfo* si
   SampleSortFileMap_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
-  SampleSortFileMap_ret_LONG_LINE:
-    logerrprintf("Error: Line %" PRIuPTR " of --indiv-sort file is pathologically long.\n", line_idx);
-    reterr = kPglRetMalformedInput;
+  SampleSortFileMap_ret_READ_RLSTREAM:
+    RLstreamErrPrint("--indiv-sort file", linebuf_size, line_idx, &reterr);
     break;
   SampleSortFileMap_ret_MISSING_TOKENS:
     logerrprintf("Error: Line %" PRIuPTR " of --indiv-sort file has fewer tokens than expected.\n", line_idx);
@@ -4440,7 +4484,7 @@ PglErr SampleSortFileMap(const uintptr_t* sample_include, const SampleIdInfo* si
     break;
   }
  SampleSortFileMap_ret_1:
-  gzclose_cond(gz_infile);
+  CleanupRLstream(&rls);
   BigstackReset(bigstack_mark);
   return reterr;
 }

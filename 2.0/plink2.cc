@@ -61,10 +61,10 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (26 Feb 2018)";
+  " (4 Mar 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -2157,10 +2157,10 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 PglErr ZstDecompress(const char* in_fname, const char* out_fname) {
   // Since this needs to be able to dump the decompressed data and nothing but
   // the decompressed data to stdout, we have to duplicate a bit of
-  // plink2_common code and strip out printing/logging.
+  // plink2_decompress code and strip out printing/logging.
 
-  // Strictly speaking, this can decompress gzipped files too, but that's not
-  // its purpose.
+  // Strictly speaking, this can currently decompress gzipped files too, but
+  // that's not its purpose.
   gzFile gz_infile = gzopen(in_fname, FOPEN_RB);
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
@@ -3297,7 +3297,7 @@ int main(int argc, char** argv) {
           snprintf(memcpya(pgenname, fname_prefix, slen), 9, ".bed");
           snprintf(memcpya(psamname, fname_prefix, slen), 9, ".fam");
           char* bimname_end = memcpya(pvarname, fname_prefix, slen);
-          bimname_end = strcpya0(bimname_end, ".bim");
+          bimname_end = Stpcpy(bimname_end, ".bim");
           if (param_ct == 2) {
             snprintf(bimname_end, 5, ".zst");
           }
@@ -3325,7 +3325,7 @@ int main(int argc, char** argv) {
           snprintf(memcpya(pgenname, fname_prefix, slen), 9, ".pgen");
           snprintf(memcpya(psamname, fname_prefix, slen), 9, ".fam");
           char* bimname_end = memcpya(pvarname, fname_prefix, slen);
-          bimname_end = strcpya0(bimname_end, ".bim");
+          bimname_end = Stpcpy(bimname_end, ".bim");
           if (param_ct == 2) {
             snprintf(bimname_end, 5, ".zst");
           }
@@ -3708,7 +3708,7 @@ int main(int argc, char** argv) {
           if (!(xload & kfXloadOxBgen)) {
             // allow --bgen to override this
             char* genname_end = memcpya(pgenname, fname_prefix, slen);
-            genname_end = strcpya0(genname_end, ".gen");
+            genname_end = Stpcpy(genname_end, ".gen");
             if (is_gzs) {
               snprintf(genname_end, 5, ".zst");
             }
@@ -6397,12 +6397,12 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
         } else if (strequal_k_unsafe(flagname_p2, "xford-single-chr")) {
-          if (!(xload & kfXloadOxGen)) {
-            if (xload & kfXloadOxBgen) {
-              logerrputs("Error: --oxford-single-chr must be used with .gen input.  (Single-chromosome\n.bgen files do not require this, since they still contain chromosome codes.)\n");
-            } else {
-              logerrputs("Error: --oxford-single-chr must be used with .gen input.\n");
-            }
+          if (!(xload & (kfXloadOxGen | kfXloadOxBgen))) {
+            logerrputs("Error: --oxford-single-chr must be used with .gen/.bgen input.\n");
+            goto main_ret_INVALID_CMDLINE_A;
+          }
+          if (oxford_import_flags & kfOxfordImportBgenSnpIdChr) {
+            logerrputs("Error: --oxford-single-chr cannot be used with --bgen 'snpid-chr'.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
           if (EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1)) {
@@ -6470,7 +6470,7 @@ int main(int argc, char** argv) {
           snprintf(memcpya(pgenname, fname_prefix, slen), 10, ".pgen");
           snprintf(memcpya(psamname, fname_prefix, slen), 10, ".psam");
           char* pvarname_end = memcpya(pvarname, fname_prefix, slen);
-          pvarname_end = strcpya0(pvarname_end, ".pvar");
+          pvarname_end = Stpcpy(pvarname_end, ".pvar");
           if (param_ct == 2) {
             snprintf(pvarname_end, 5, ".zst");
           }
@@ -8006,7 +8006,7 @@ int main(int argc, char** argv) {
               goto main_ret_INVALID_CMDLINE_A;
             }
           } else {
-            convname_end = strcpya0(convname_end, "-temporary");
+            convname_end = Stpcpy(convname_end, "-temporary");
           }
         } else {
           import_flags |= kfImportKeepAutoconv;
@@ -8030,7 +8030,7 @@ int main(int argc, char** argv) {
         } else if (xload & kfXloadOxGen) {
           reterr = OxGenToPgen(pgenname, psamname, import_single_chr_str, ox_missing_code, pc.misc_flags, import_flags, oxford_import_flags, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, outname, convname_end, &chr_info);
         } else if (xload & kfXloadOxBgen) {
-          reterr = OxBgenToPgen(pgenname, psamname, const_fid, ox_missing_code, pc.misc_flags, import_flags, oxford_import_flags, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, pc.max_thread_ct, outname, convname_end, &chr_info);
+          reterr = OxBgenToPgen(pgenname, psamname, const_fid, import_single_chr_str, ox_missing_code, pc.misc_flags, import_flags, oxford_import_flags, pc.hard_call_thresh, pc.dosage_erase_thresh, import_dosage_certainty, id_delim, idspace_to, pc.max_thread_ct, outname, convname_end, &chr_info);
         } else if (xload & kfXloadOxHaps) {
           reterr = OxHapslegendToPgen(pgenname, pvarname, psamname, import_single_chr_str, ox_missing_code, pc.misc_flags, import_flags, oxford_import_flags, outname, convname_end, &chr_info);
         } else if (xload & kfXloadPlink1Dosage) {

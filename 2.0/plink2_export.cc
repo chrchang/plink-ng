@@ -3034,7 +3034,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     uintptr_t loadbuf_size = 0;
     uint32_t info_col_idx = 0;
     if (pvar_info_reload) {
-      reterr = PvarInfoOpenAndReloadHeader(pvar_info_reload, &gz_pvar_reload, &loadbuf, &loadbuf_size, &info_col_idx);
+      reterr = PvarInfoOpenAndReloadHeaderOld(pvar_info_reload, &gz_pvar_reload, &loadbuf, &loadbuf_size, &info_col_idx);
       if (reterr) {
         goto ExportVcf_ret_1;
       }
@@ -3199,7 +3199,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
       *write_iter++ = '\t';
       const uint32_t is_pr = all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx));
       if (gz_pvar_reload) {
-        reterr = PvarInfoReloadAndWrite(loadbuf_size, xheader_info_pr, info_col_idx, variant_uidx, is_pr, gz_pvar_reload, &write_iter, &gz_variant_uidx, loadbuf);
+        reterr = PvarInfoReloadAndWriteOld(loadbuf_size, xheader_info_pr, info_col_idx, variant_uidx, is_pr, gz_pvar_reload, &write_iter, &gz_variant_uidx, loadbuf);
         if (reterr) {
           goto ExportVcf_ret_1;
         }

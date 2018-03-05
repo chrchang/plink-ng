@@ -205,7 +205,7 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
         }
         goto ReadLineStreamThread_EOF;
       }
-      char* last_lf = memrchr_expected_far(read_head, '\n', read_attempt_size);
+      char* last_lf = Memrchr(read_head, '\n', read_attempt_size);
       if (last_lf) {
         char* next_available_end = &(last_lf[1]);
 #ifdef _WIN32
@@ -661,6 +661,18 @@ PglErr CleanupRLstream(ReadLineStream* rlsp) {
     }
   }
   return reterr;
+}
+
+void RLstreamErrPrint(const char* file_descrip, uintptr_t linebuf_size, uintptr_t line_idx, PglErr* reterr_ptr) {
+  if (*reterr_ptr != kPglRetLongLine) {
+    return;
+  }
+  if (linebuf_size != kMaxLongLine) {
+    *reterr_ptr = kPglRetNomem;
+    return;
+  }
+  logerrprintfww("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, file_descrip);
+  *reterr_ptr = kPglRetMalformedInput;
 }
 
 #ifdef __cplusplus

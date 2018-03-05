@@ -273,18 +273,19 @@ PglErr InfoExistInit(const unsigned char* arena_end, const char* require_info_fl
   const char* read_iter = require_info_flattened;
   uintptr_t prekeys_blen = 0;
   do {
-    const uintptr_t slen = strlen(read_iter);
-    if (memchr(read_iter, ';', slen)) {
-      logerrprintfww("Error: Invalid --%s key '%s' (semicolon prohibited).\n", flagname_p, read_iter);
+    const char* key_end_or_invalid = strchrnul2(read_iter, ';', '=');
+    if (*key_end_or_invalid) {
+      if (*key_end_or_invalid == ';') {
+        logerrprintfww("Error: Invalid --%s key '%s' (semicolon prohibited).\n", flagname_p, read_iter);
+      } else {
+        logerrprintfww("Error: Invalid --%s key '%s' ('=' prohibited).\n", flagname_p, read_iter);
+      }
       return kPglRetInvalidCmdline;
     }
-    if (memchr(read_iter, '=', slen)) {
-      logerrprintfww("Error: Invalid --%s key '%s' ('=' prohibited).\n", flagname_p, read_iter);
-      return kPglRetInvalidCmdline;
-    }
-    prekeys_blen += slen + 2;  // +1 for preceding semicolon
-    read_iter = &(read_iter[slen + 1]);
+    ++prekeys_blen;
+    read_iter = &(key_end_or_invalid[1]);
   } while (*read_iter);
+  prekeys_blen += read_iter - require_info_flattened;
   const uint32_t key_ct = prekeys_blen - S_CAST(uintptr_t, read_iter - require_info_flattened);
   const uintptr_t bytes_used = offsetof(InfoExist, key_slens) + key_ct * sizeof(int32_t) + prekeys_blen;
   const uintptr_t cur_alloc = RoundUpPow2(bytes_used, kCacheline);
@@ -396,20 +397,18 @@ typedef struct {
 } InfoFilter;
 
 PglErr InfoFilterInit(const unsigned char* arena_end, const CmpExpr filter_expr, const char* flagname_p, unsigned char** arena_base_ptr, InfoFilter* filterp) {
-  uint32_t key_slen = strlen(filter_expr.pheno_name);
-  // can also use strpbrk()
-  if (memchr(filter_expr.pheno_name, ';', key_slen)) {
-    logerrprintfww("Error: Invalid --%s key '%s' (semicolon prohibited).\n", flagname_p, filter_expr.pheno_name);
+  char* pheno_name_end_or_invalid = strchrnul3(filter_expr.pheno_name, ';', '=', ',');
+  if (*pheno_name_end_or_invalid) {
+    if (*pheno_name_end_or_invalid == ';') {
+      logerrprintfww("Error: Invalid --%s key '%s' (semicolon prohibited).\n", flagname_p, filter_expr.pheno_name);
+    } else if (*pheno_name_end_or_invalid == '=') {
+      logerrprintfww("Error: Invalid --%s key '%s' ('=' prohibited).\n", flagname_p, filter_expr.pheno_name);
+    } else {
+      logerrprintfww("Error: Invalid --%s key '%s' (comma prohibited).\n", flagname_p, filter_expr.pheno_name);
+    }
     return kPglRetInvalidCmdline;
   }
-  if (memchr(filter_expr.pheno_name, '=', key_slen)) {
-    logerrprintfww("Error: Invalid --%s key '%s' ('=' prohibited).\n", flagname_p, filter_expr.pheno_name);
-    return kPglRetInvalidCmdline;
-  }
-  if (memchr(filter_expr.pheno_name, ',', key_slen)) {
-    logerrprintfww("Error: Invalid --%s key '%s' (comma prohibited).\n", flagname_p, filter_expr.pheno_name);
-    return kPglRetInvalidCmdline;
-  }
+  uint32_t key_slen = pheno_name_end_or_invalid - filter_expr.pheno_name;
   const uintptr_t cur_alloc = RoundUpPow2(3 + key_slen, kCacheline);
   if (S_CAST(uintptr_t, arena_end - (*arena_base_ptr)) < cur_alloc) {
     return kPglRetNomem;
@@ -439,15 +438,16 @@ PglErr InfoFilterInit(const unsigned char* arena_end, const CmpExpr filter_expr,
     return kPglRetInvalidCmdline;
   }
   filterp->val_str = val_str;
-  filterp->val_slen = strlen(val_str);
-  if (memchr(val_str, ';', filterp->val_slen)) {
-    logerrprintfww("Error: Invalid --%s value '%s' (semicolon prohibited).\n", flagname_p, val_str);
+  char* val_str_end_or_invalid = strchrnul2(val_str, ';', '=');
+  if (*val_str_end_or_invalid) {
+    if (*val_str_end_or_invalid == ';') {
+      logerrprintfww("Error: Invalid --%s value '%s' (semicolon prohibited).\n", flagname_p, val_str);
+    } else {
+      logerrprintfww("Error: Invalid --%s value '%s' ('=' prohibited).\n", flagname_p, val_str);
+    }
     return kPglRetInvalidCmdline;
   }
-  if (memchr(val_str, '=', filterp->val_slen)) {
-    logerrprintfww("Error: Invalid --%s value '%s' ('=' prohibited).\n", flagname_p, val_str);
-    return kPglRetInvalidCmdline;
-  }
+  filterp->val_slen = val_str_end_or_invalid - val_str;
   return kPglRetSuccess;
 }
 
@@ -636,17 +636,13 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
   ReadLineStream pvar_rls;
   PreinitRLstream(&pvar_rls);
   {
-    const uintptr_t initial_bigstack_size = bigstack_left();
-    linebuf_size = RoundDownPow2(initial_bigstack_size / 4, kCacheline);
-    if (linebuf_size > kMaxLongLine) {
-      linebuf_size = kMaxLongLine;
-    } else if (linebuf_size <= MAXV(kDecompressChunkSize, kLoadPvarBlockSize * 2 * sizeof(intptr_t))) {
+    if (StandardizeLinebufSize(bigstack_left() / 4, kLoadPvarBlockSize * 2 * sizeof(intptr_t), &linebuf_size)) {
       goto LoadPvar_ret_NOMEM;
     }
     unsigned char* rlstream_start = &(bigstack_mark[linebuf_size]);
     g_bigstack_base = rlstream_start;
-    char* line_start;
-    reterr = InitRLstreamRaw(pvarname, linebuf_size, &pvar_rls, &line_start);
+    char* line_iter;
+    reterr = InitRLstreamRaw(pvarname, linebuf_size, &pvar_rls, &line_iter);
     if (reterr) {
       goto LoadPvar_ret_1;
     }
@@ -661,16 +657,16 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     char* linebuf_first_token;
     while (1) {
       ++line_idx;
-      reterr = ReadNextLineFromRLstreamRaw(&pvar_rls, &line_start);
+      reterr = ReadNextLineFromRLstreamRaw(&pvar_rls, &line_iter);
       if (reterr) {
         if (reterr == kPglRetSkipped) {
-          linebuf_first_token = &(line_start[-1]);
+          linebuf_first_token = &(line_iter[-1]);
           assert(linebuf_first_token[0] == '\n');
           break;
         }
         goto LoadPvar_ret_READ_RLSTREAM;
       }
-      linebuf_first_token = FirstNonTspace(line_start);
+      linebuf_first_token = FirstNonTspace(line_iter);
       if (*linebuf_first_token != '#') {
         if (IsEolnKns(*linebuf_first_token)) {
           continue;
@@ -729,7 +725,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           }
           xheader_end = memcpya(xheader_end, linebuf_first_token, line_slen);
           AppendBinaryEoln(&xheader_end);
-          line_start = line_end;
+          line_iter = line_end;
         }
       }
     }
@@ -1179,9 +1175,9 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
             goto LoadPvar_ret_MISSING_TOKENS;
           }
           // It is possible for the info_token[info_slen] assignment below to
-          // clobber the line terminator, so we advance line_start to eoln
-          // here and never reference it again before the next line.
-          line_start = S_CAST(char*, rawmemchr(linebuf_iter, '\n'));
+          // clobber the line terminator, so we advance line_iter to eoln here
+          // and never reference it again before the next line.
+          line_iter = S_CAST(char*, rawmemchr(linebuf_iter, '\n'));
           if (info_col_present) {
             const uint32_t info_slen = token_slens[6];
             if (info_slen > info_reload_slen) {
@@ -1301,13 +1297,10 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
                     goto LoadPvar_skip_variant;
                   }
                   const char* filter_token_iter = filter_token;
-                  uint32_t remaining_byte_ct = filter_slen;
+                  const char* filter_token_end = &(filter_token[filter_slen]);
                   while (1) {
-                    const char* cur_filter_name_end = S_CAST(const char*, memchr(filter_token_iter, ';', remaining_byte_ct));
-                    uint32_t cur_slen = remaining_byte_ct;
-                    if (cur_filter_name_end) {
-                      cur_slen = cur_filter_name_end - filter_token_iter;
-                    }
+                    const char* cur_filter_name_end = AdvToDelimOrEnd(filter_token_iter, filter_token_end, ';');
+                    uint32_t cur_slen = cur_filter_name_end - filter_token_iter;
                     // possible todo: error out on "PASS", since that
                     // shouldn't coexist with other filters
                     // possible todo: maintain a dictionary of FILTER
@@ -1315,12 +1308,10 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
                     if (bsearch_str(filter_token_iter, sorted_fexcepts, cur_slen, max_fexcept_blen, fexcept_ct) == -1) {
                       goto LoadPvar_skip_variant;
                     }
-                    const uint32_t cur_blen = cur_slen + 1;
-                    if (cur_blen >= remaining_byte_ct) {
+                    if (cur_filter_name_end == filter_token_end) {
                       break;
                     }
-                    filter_token_iter = &(filter_token_iter[cur_blen]);
-                    remaining_byte_ct -= cur_blen;
+                    filter_token_iter = &(cur_filter_name_end[1]);
                   }
                 }
                 if (load_filter_col > 1) {
@@ -1569,7 +1560,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           {
             char* alt_col_end = CurTokenEnd(token_ptrs[3]);
             token_slens[3] = alt_col_end - token_ptrs[3];
-            line_start = S_CAST(char*, rawmemchr(alt_col_end, '\n'));
+            line_iter = S_CAST(char*, rawmemchr(alt_col_end, '\n'));
           }
         LoadPvar_skip_variant:
           ++exclude_ct;
@@ -1594,11 +1585,11 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         }
         ++raw_variant_ct;
       } else {
-        line_start = S_CAST(char*, rawmemchr(linebuf_first_token, '\n'));
+        line_iter = S_CAST(char*, rawmemchr(linebuf_first_token, '\n'));
       }
-      ++line_start;
+      ++line_iter;
       ++line_idx;
-      reterr = ReadFromRLstreamRaw(&pvar_rls, &line_start);
+      reterr = ReadFromRLstreamRaw(&pvar_rls, &line_iter);
       if (reterr) {
         if (reterr == kPglRetSkipped) {
           reterr = kPglRetSuccess;
@@ -1606,7 +1597,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         }
         goto LoadPvar_ret_READ_RLSTREAM;
       }
-      linebuf_first_token = FirstNonTspace(line_start);
+      linebuf_first_token = FirstNonTspace(line_iter);
       if (linebuf_first_token[0] == '#') {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line, and if a #CHROM header line is present it must denote the end of the header block.)\n", line_idx, pvarname);
         goto LoadPvar_ret_MALFORMED_INPUT_WW;
@@ -1861,19 +1852,11 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
   LoadPvar_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  LoadPvar_ret_EMPTY_ALLELE_CODE:
-    logerrprintfww("Error: Empty allele code on line %" PRIuPTR " of %s.\n", line_idx, pvarname);
-    reterr = kPglRetMalformedInput;
-    break;
   LoadPvar_ret_READ_RLSTREAM:
-    if (reterr != kPglRetLongLine) {
-      break;
-    }
-    if (linebuf_size != kMaxLongLine) {
-      reterr = kPglRetNomem;
-      break;
-    }
-    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, pvarname);
+    RLstreamErrPrint(pvarname, linebuf_size, line_idx, &reterr);
+    break;
+  LoadPvar_ret_EMPTY_ALLELE_CODE:
+    snprintf(g_logbuf, kLogbufSize, "Error: Empty allele code on line %" PRIuPTR " of %s.\n", line_idx, pvarname);
   LoadPvar_ret_MALFORMED_INPUT_WW:
     WordWrapB(0);
     logerrputsb();

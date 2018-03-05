@@ -489,7 +489,7 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
       char* loadbuf_first_token;
       XidMode xid_mode;
       if (!families_only) {
-        reterr = LoadXidHeader(flag_name, (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeader0 : kfXidHeaderIgnoreSid, loadbuf_size, loadbuf, nullptr, &line_idx, &loadbuf_first_token, &gz_infile, &xid_mode);
+        reterr = LoadXidHeaderOld(flag_name, (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeader0 : kfXidHeaderIgnoreSid, loadbuf_size, loadbuf, nullptr, &line_idx, &loadbuf_first_token, &gz_infile, &xid_mode);
         if (reterr) {
           if (reterr == kPglRetEmptyFile) {
             reterr = kPglRetSuccess;
@@ -670,7 +670,7 @@ PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_fl
     }
     char* loadbuf_first_token;
     XidMode xid_mode;
-    reterr = LoadXidHeader("keep-fcol", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, loadbuf_size, loadbuf, nullptr, &line_idx, &loadbuf_first_token, &gz_infile, &xid_mode);
+    reterr = LoadXidHeaderOld("keep-fcol", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, loadbuf_size, loadbuf, nullptr, &line_idx, &loadbuf_first_token, &gz_infile, &xid_mode);
     if (reterr) {
       if (reterr == kPglRetEmptyFile) {
         logerrputs("Error: Empty --keep-fcol file.\n");
@@ -1993,7 +1993,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
               goto ReadAlleleFreqs_ret_MALFORMED_INPUT_WW;
             }
             cur_loaded_allele_code = loaded_allele_code_iter;
-            loaded_allele_code_iter = S_CAST(char*, rawmemchr(loaded_allele_code_iter, ','));
+            loaded_allele_code_iter = S_CAST(char*, memchr(loaded_allele_code_iter, ',', loaded_allele_code_end - cur_loaded_allele_code));
             cur_loaded_allele_code_slen = loaded_allele_code_iter - cur_loaded_allele_code;
             *loaded_allele_code_iter++ = '\0';
           }

@@ -1056,6 +1056,9 @@ void ExpandThenSubsetBytearr(const void* __restrict compact_bitarr, const uintpt
   }
 }
 
+// compact_bitarr := phaseinfo
+// mid_bitarr := phasepresent, [1 + het_ct]
+// top_expand_mask := all_hets, [raw_sample_ct]
 void ExpandBytearrNested(const void* __restrict compact_bitarr, const uintptr_t* __restrict mid_bitarr, const uintptr_t* __restrict top_expand_mask, uint32_t word_ct, uint32_t mid_popcount, uint32_t mid_start_bit, uintptr_t* __restrict mid_target, uintptr_t* __restrict compact_target) {
   ZeroWArr(word_ct, mid_target);
   ZeroWArr(word_ct, compact_target);

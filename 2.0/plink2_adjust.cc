@@ -422,48 +422,41 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   const char* in_fname = afip->fname;
-  gzFile gz_infile = nullptr;
-  uintptr_t loadbuf_size = 0;
+  uintptr_t linebuf_size = 0;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
+  ReadLineStream adjust_rls;
+  PreinitRLstream(&adjust_rls);
   {
     // Two-pass load.
     // 1. Parse header line, count # of variants.
     // intermission. Allocate top-level arrays.
     // 2. Rewind and fill arrays.
     // (some overlap with LoadPvar(), though that's one-pass.)
-    reterr = gzopen_read_checked(in_fname, &gz_infile);
+    if (StandardizeLinebufSize(bigstack_left() / 4, kMaxMediumLine + 1, &linebuf_size)) {
+      goto AdjustFile_ret_NOMEM;
+    }
+    char* line_iter;
+    reterr = InitRLstreamRaw(in_fname, linebuf_size, &adjust_rls, &line_iter);
     if (reterr) {
       goto AdjustFile_ret_1;
     }
-    loadbuf_size = bigstack_left() / 4;
-    if (loadbuf_size > kMaxLongLine) {
-      loadbuf_size = kMaxLongLine;
-    } else if (loadbuf_size >= kMaxMediumLine + kCacheline) {
-      loadbuf_size = RoundDownPow2(loadbuf_size, kCacheline);
-    } else {
-      goto AdjustFile_ret_NOMEM;
-    }
-    char* loadbuf = S_CAST(char*, bigstack_end_alloc_raw(loadbuf_size));
-    loadbuf[loadbuf_size - 1] = ' ';
 
-    char* loadbuf_first_token;
+    char* linebuf_first_token;
     do {
       ++line_idx;
-      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-        if (!gzeof(gz_infile)) {
-          goto AdjustFile_ret_READ_FAIL;
+      reterr = ReadNextLineFromRLstreamRaw(&adjust_rls, &line_iter);
+      if (reterr) {
+        if (reterr == kPglRetSkipped) {
+          snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", in_fname);
+          goto AdjustFile_ret_MALFORMED_INPUT_WW;
         }
-        snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", in_fname);
-        goto AdjustFile_ret_MALFORMED_INPUT_WW;
+        goto AdjustFile_ret_READ_RLSTREAM;
       }
-      if (!loadbuf[loadbuf_size - 1]) {
-        goto AdjustFile_ret_LONG_LINE;
-      }
-      loadbuf_first_token = FirstNonTspace(loadbuf);
-    } while (strequal_k_unsafe(loadbuf_first_token, "##"));
-    if (*loadbuf_first_token == '#') {
-      ++loadbuf_first_token;
+      linebuf_first_token = FirstNonTspace(line_iter);
+    } while (strequal_k_unsafe(linebuf_first_token, "##"));
+    if (*linebuf_first_token == '#') {
+      ++linebuf_first_token;
     }
 
     const AdjustFlags flags = afip->base.flags;
@@ -501,7 +494,7 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
     uint32_t col_types[7];
     uint32_t relevant_col_ct;
     uint32_t found_type_bitset;
-    reterr = SearchHeaderLine(loadbuf_first_token, col_search_order, "adjust-file", 7, &relevant_col_ct, &found_type_bitset, col_skips, col_types);
+    reterr = SearchHeaderLine(linebuf_first_token, col_search_order, "adjust-file", 7, &relevant_col_ct, &found_type_bitset, col_skips, col_types);
     if (reterr) {
       goto AdjustFile_ret_1;
     }
@@ -546,23 +539,29 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
     }
 
     uintptr_t variant_ct = 0;
-    while (gzgets(gz_infile, loadbuf, loadbuf_size)) {
+    while (1) {
       ++line_idx;
-      if (!loadbuf[loadbuf_size - 1]) {
-        goto AdjustFile_ret_LONG_LINE;
+      reterr = ReadNextLineFromRLstreamRaw(&adjust_rls, &line_iter);
+      if (reterr) {
+        if (reterr == kPglRetSkipped) {
+          break;
+        }
+        goto AdjustFile_ret_READ_RLSTREAM;
       }
-      const char* loadbuf_iter = FirstNonTspace(loadbuf);
-      if (IsEolnKns(*loadbuf_iter)) {
+      line_iter = FirstNonTspace(line_iter);
+      if (IsEolnKns(*line_iter)) {
         continue;
       }
       if (test_name) {
         // Don't count different-test variants.
-        loadbuf_iter = NextTokenMult0(loadbuf_iter, test_col_idx);
-        if (!loadbuf_iter) {
+        line_iter = NextTokenMult0(line_iter, test_col_idx);
+        if (!line_iter) {
           goto AdjustFile_ret_MISSING_TOKENS;
         }
-        const uint32_t cur_test_slen = strlen_se(loadbuf_iter);
-        if ((cur_test_slen != test_name_slen) || memcmp(loadbuf_iter, test_name, test_name_slen)) {
+        char* test_name_start = line_iter;
+        const uint32_t cur_test_slen = strlen_se(line_iter);
+        line_iter = &(line_iter[cur_test_slen]);
+        if ((cur_test_slen != test_name_slen) || memcmp(test_name_start, test_name, test_name_slen)) {
           continue;
         }
       }
@@ -574,20 +573,18 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
       goto AdjustFile_ret_INCONSISTENT_INPUT;
     }
 #endif
-    if ((!gzeof(gz_infile)) || gzrewind(gz_infile)) {
-      goto AdjustFile_ret_READ_FAIL;
-    }
+
+    RewindRLstreamRaw(&adjust_rls, &line_iter);
+    const uintptr_t line_ct = line_idx;
     line_idx = 0;
     do {
       ++line_idx;
-      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
+      reterr = ReadNextLineFromRLstreamRaw(&adjust_rls, &line_iter);
+      if (reterr) {
         goto AdjustFile_ret_READ_FAIL;
       }
-      if (!loadbuf[loadbuf_size - 1]) {
-        goto AdjustFile_ret_READ_FAIL;
-      }
-      loadbuf_first_token = FirstNonTspace(loadbuf);
-    } while (strequal_k_unsafe(loadbuf_first_token, "##"));
+      linebuf_first_token = FirstNonTspace(line_iter);
+    } while (strequal_k_unsafe(linebuf_first_token, "##"));
 
     const uint32_t variant_ctl = BitCtToWordCt(variant_ct);
     uintptr_t* variant_include_dummy;
@@ -630,27 +627,21 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
     unsigned char* tmp_alloc_end = g_bigstack_end;
     uint32_t max_allele_slen = 1;
     uintptr_t variant_idx = 0;
-    while (gzgets(gz_infile, loadbuf, loadbuf_size)) {
+    while (line_idx < line_ct) {
       ++line_idx;
-      if (!loadbuf[loadbuf_size - 1]) {
+      reterr = ReadNextLineFromRLstreamRaw(&adjust_rls, &line_iter);
+      if (reterr) {
         goto AdjustFile_ret_READ_FAIL;
       }
-      const char* loadbuf_iter = FirstNonTspace(loadbuf);
-      if (IsEolnKns(*loadbuf_iter)) {
+      line_iter = FirstNonTspace(line_iter);
+      if (IsEolnKns(*line_iter)) {
         continue;
       }
       const char* token_ptrs[7];
       uint32_t token_slens[7];
-      for (uint32_t relevant_col_idx = 0; relevant_col_idx < relevant_col_ct; ++relevant_col_idx) {
-        loadbuf_iter = NextTokenMult0(loadbuf_iter, col_skips[relevant_col_idx]);
-        if (!loadbuf_iter) {
-          goto AdjustFile_ret_MISSING_TOKENS;
-        }
-        const uint32_t cur_colidx = col_types[relevant_col_idx];
-        token_ptrs[cur_colidx] = loadbuf_iter;
-        const char* token_end = CurTokenEnd(loadbuf_iter);
-        token_slens[cur_colidx] = token_end - loadbuf_iter;
-        loadbuf_iter = token_end;
+      line_iter = TokenLexK0(line_iter, col_types, col_skips, relevant_col_ct, token_ptrs, token_slens);
+      if (!line_iter) {
+        goto AdjustFile_ret_MISSING_TOKENS;
       }
       if (test_name) {
         if ((token_slens[5] != test_name_slen) || memcmp(token_ptrs[5], test_name, test_name_slen)) {
@@ -732,7 +723,7 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
       pvals[variant_idx] = pval;
       ++variant_idx;
     }
-    if ((variant_idx != variant_ct) || (!gzeof(gz_infile)) || gzclose_null(&gz_infile)) {
+    if (CleanupRLstream(&adjust_rls)) {
       goto AdjustFile_ret_READ_FAIL;
     }
     BigstackEndReset(bigstack_end_mark);
@@ -743,14 +734,11 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
     }
   }
   while (0) {
-  AdjustFile_ret_LONG_LINE:
-    if (loadbuf_size == kMaxLongLine) {
-      logerrprintfww("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, in_fname);
-      reterr = kPglRetMalformedInput;
-      break;
-    }
   AdjustFile_ret_NOMEM:
     reterr = kPglRetNomem;
+    break;
+  AdjustFile_ret_READ_RLSTREAM:
+    RLstreamErrPrint(in_fname, linebuf_size, line_idx, &reterr);
     break;
   AdjustFile_ret_READ_FAIL:
     reterr = kPglRetReadFail;
@@ -777,7 +765,7 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
     break;
   }
  AdjustFile_ret_1:
-  gzclose_cond(gz_infile);
+  CleanupRLstream(&adjust_rls);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }

@@ -536,7 +536,7 @@ BoolErr SortedXidboxReadMultifind(const char* __restrict sorted_xidbox, uintptr_
   return 0;
 }
 
-PglErr LoadXidHeader(const char* flag_name, XidHeaderFlags xid_header_flags, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, XidMode* xid_mode_ptr) {
+PglErr LoadXidHeaderOld(const char* flag_name, XidHeaderFlags xid_header_flags, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, XidMode* xid_mode_ptr) {
   // possible todo: support comma delimiter
   uintptr_t line_idx = *line_idx_ptr;
   uint32_t is_header_line;
@@ -565,7 +565,7 @@ PglErr LoadXidHeader(const char* flag_name, XidHeaderFlags xid_header_flags, uin
     // #IID SID
     loadbuf_iter = &(loadbuf_first_token[4]);
     if (loadbuf_first_token[1] == 'I') {
-      xid_mode = kfXidModeFlagNeverFid;;;
+      xid_mode = kfXidModeFlagNeverFid;
     } else {
       loadbuf_iter = FirstNonTspace(loadbuf_iter);
       if (!tokequal_k(loadbuf_iter, "IID")) {
@@ -594,13 +594,65 @@ PglErr LoadXidHeader(const char* flag_name, XidHeaderFlags xid_header_flags, uin
   return kPglRetSuccess;
 }
 
-PglErr OpenAndLoadXidHeader(const char* fname, const char* flag_name, XidHeaderFlags xid_header_flags, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, XidMode* xid_mode_ptr) {
-  PglErr reterr = gzopen_read_checked(fname, gz_infile_ptr);
+PglErr LoadXidHeader(const char* flag_name, XidHeaderFlags xid_header_flags, char** line_iterp, uintptr_t* line_idx_ptr, char** linebuf_first_token_ptr, ReadLineStream* rlsp, XidMode* xid_mode_ptr) {
+  // possible todo: support comma delimiter
+  char* line_iter = *line_iterp;
+  uintptr_t line_idx = *line_idx_ptr;
+  uint32_t is_header_line;
+  do {
+    ++line_idx;
+    PglErr reterr = ReadNextLineFromRLstreamRaw(rlsp, &line_iter);
+    if (reterr) {
+      if (reterr == kPglRetSkipped) {
+        return kPglRetEmptyFile;
+      }
+      return reterr;
+    }
+    line_iter = FirstNonTspace(line_iter);
+    is_header_line = (line_iter[0] == '#');
+  } while (IsEolnKns(*line_iter) || (is_header_line && (!tokequal_k(&(line_iter[1]), "FID")) && (!tokequal_k(&(line_iter[1]), "IID"))));
+  *linebuf_first_token_ptr = line_iter;
+  XidMode xid_mode = kfXidMode0;
+  if (is_header_line) {
+    // The following header leading columns are supported:
+    // #FID IID
+    // #FID IID SID (SID ignored if kfXidHeaderIgnoreSid set)
+    // #IID
+    // #IID SID
+    char* linebuf_iter = &(line_iter[4]);
+    if (line_iter[1] == 'I') {
+      xid_mode = kfXidModeFlagNeverFid;
+    } else {
+      linebuf_iter = FirstNonTspace(linebuf_iter);
+      if (!tokequal_k(linebuf_iter, "IID")) {
+        logerrprintf("Error: No IID column on line %" PRIuPTR " of --%s file.\n", line_idx, flag_name);
+        return kPglRetMalformedInput;
+      }
+      linebuf_iter = &(linebuf_iter[3]);
+    }
+    linebuf_iter = FirstNonTspace(linebuf_iter);
+    if (tokequal_k(linebuf_iter, "SID")) {
+      if (!(xid_header_flags & kfXidHeaderIgnoreSid)) {
+        xid_mode |= kfXidModeFlagSid;
+      }
+      linebuf_iter = FirstNonTspace(&(linebuf_iter[3]));
+    }
+    *line_iterp = linebuf_iter;
+  } else {
+    xid_mode = (xid_header_flags & kfXidHeaderFixedWidth)? kfXidModeFidIid : kfXidModeFidIidOrIid;
+    *line_iterp = line_iter;
+  }
+  *line_idx_ptr = line_idx;
+  *xid_mode_ptr = xid_mode;
+  return kPglRetSuccess;
+}
+
+PglErr OpenAndLoadXidHeader(const char* fname, const char* flag_name, XidHeaderFlags xid_header_flags, uintptr_t linebuf_size, char** line_iterp, uintptr_t* line_idx_ptr, char** linebuf_first_token_ptr, ReadLineStream* rlsp, XidMode* xid_mode_ptr) {
+  PglErr reterr = InitRLstreamRaw(fname, linebuf_size, rlsp, line_iterp);
   if (reterr) {
     return reterr;
   }
-  loadbuf[loadbuf_size - 1] = ' ';
-  return LoadXidHeader(flag_name, xid_header_flags, loadbuf_size, loadbuf, loadbuf_iter_ptr, line_idx_ptr, loadbuf_first_token_ptr, gz_infile_ptr, xid_mode_ptr);
+  return LoadXidHeader(flag_name, xid_header_flags, line_iterp, line_idx_ptr, linebuf_first_token_ptr, rlsp, xid_mode_ptr);
 }
 
 

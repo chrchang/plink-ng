@@ -153,6 +153,41 @@ typedef struct ReadLineStreamStruct {
 
 void PreinitRLstream(ReadLineStream* rlsp);
 
+// required_byte_ct can't be greater than kMaxLongLine.
+// unstandardized_byte_ct cannot be bigstack_left() here, because the read
+// stream requires a few additional allocations; use
+// StandardizeLinebufSizeMax() for that case instead.
+HEADER_INLINE BoolErr StandardizeLinebufSize(uintptr_t unstandardized_byte_ct, uintptr_t required_byte_ct, uintptr_t* linebuf_sizep) {
+  if (unstandardized_byte_ct >= kMaxLongLine) {
+    *linebuf_sizep = kMaxLongLine;
+    return 0;
+  }
+  if (unstandardized_byte_ct < RoundUpPow2(MAXV(kDecompressChunkSize + 1, required_byte_ct), kCacheline)) {
+    return 1;
+  }
+  *linebuf_sizep = RoundDownPow2(unstandardized_byte_ct, kCacheline);
+  return 0;
+}
+
+// Must be synced with InitRLstreamRaw().
+HEADER_INLINE BoolErr StandardizeLinebufSizeMax(uintptr_t required_byte_ct, uintptr_t* linebuf_sizep) {
+  const uintptr_t extra_alloc_byte_ct = RoundUpPow2(sizeof(ReadLineStreamSync) + 1, kCacheline) + kDecompressChunkSize;
+  uintptr_t linebuf_size = bigstack_left();
+  if (linebuf_size < extra_alloc_byte_ct) {
+    return 1;
+  }
+  linebuf_size -= extra_alloc_byte_ct;
+  if (linebuf_size >= kMaxLongLine) {
+    *linebuf_sizep = kMaxLongLine;
+    return 0;
+  }
+  if (linebuf_size < RoundUpPow2(MAXV(kDecompressChunkSize + 1, required_byte_ct), kCacheline)) {
+    return 1;
+  }
+  *linebuf_sizep = RoundDownPow2(linebuf_size, kCacheline);
+  return 0;
+}
+
 // This supports two simple line iterators, one insane, and the other somewhat
 // sane.  I'll discuss the insane one first.
 // * consume_iter is effectively initialized to position -1, not 0, in the
@@ -223,6 +258,8 @@ HEADER_INLINE PglErr RewindRLstream(ReadLineStream* rlsp, char** consume_iterp, 
 }
 
 PglErr CleanupRLstream(ReadLineStream* rlsp);
+
+void RLstreamErrPrint(const char* file_descrip, uintptr_t linebuf_size, uintptr_t line_idx, PglErr* reterr_ptr);
 
 #ifdef __cplusplus
 }  // namespace plink2

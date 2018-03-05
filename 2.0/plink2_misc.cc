@@ -676,7 +676,7 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
     char* loadbuf_first_token;
     char* header_sample_id_end;
     XidMode xid_mode;
-    reterr = LoadXidHeader("update-sex", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, loadbuf_size, loadbuf, &header_sample_id_end, &line_idx, &loadbuf_first_token, &gz_infile, &xid_mode);
+    reterr = LoadXidHeaderOld("update-sex", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, loadbuf_size, loadbuf, &header_sample_id_end, &line_idx, &loadbuf_first_token, &gz_infile, &xid_mode);
     if (reterr) {
       if (reterr == kPglRetEmptyFile) {
         logerrputs("Error: Empty --update-sex file.\n");
@@ -1781,12 +1781,12 @@ PglErr WriteAlleleFreqs(const uintptr_t* variant_include, const ChrInfo* cip, co
                   goto WriteAlleleFreqs_ret_WRITE_FAIL;
                 }
                 const char* cur_allele = cur_alleles[allele_idx];
-                const uint32_t allele_slen = strlen(cur_allele);
-                if (memchr(cur_allele, '=', allele_slen) != nullptr) {
+                const char* cur_allele_end_or_eq = strchrnul(cur_allele, '=');
+                if (*cur_allele_end_or_eq == '=') {
                   logerrputs("Error: --freq's 'eq', 'eqz', 'alteq', and 'alteqz' columns cannot be requested\nwhen an allele code contains a '='.\n");
                   goto WriteAlleleFreqs_ret_INCONSISTENT_INPUT;
                 }
-                cswritep = memcpya(cswritep, cur_allele, allele_slen);
+                cswritep = memcpya(cswritep, cur_allele, cur_allele_end_or_eq - cur_allele);
               }
               *cswritep++ = '=';
               if (counts) {

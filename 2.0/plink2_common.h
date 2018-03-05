@@ -363,10 +363,11 @@ FLAGSET_DEF_END(XidHeaderFlags);
 // If no header line is present, xid_mode will be set to kfXidModeFidIid if
 // kfXidHeaderFixedWidth is set, and kfXidModeFidIidOrIid (which tolerates a
 // mix of single-token and multitoken lines) otherwise.
-PglErr LoadXidHeader(const char* flag_name, XidHeaderFlags xid_header_flags, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, XidMode* xid_mode_ptr);
+PglErr LoadXidHeaderOld(const char* flag_name, XidHeaderFlags xid_header_flags, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, XidMode* xid_mode_ptr);
 
-// sets last character of loadbuf to ' '
-PglErr OpenAndLoadXidHeader(const char* fname, const char* flag_name, XidHeaderFlags xid_header_flags, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, XidMode* xid_mode_ptr);
+PglErr LoadXidHeader(const char* flag_name, XidHeaderFlags xid_header_flags, char** line_iterp, uintptr_t* line_idx_ptr, char** linebuf_first_token_ptr, ReadLineStream* rlsp, XidMode* xid_mode_ptr);
+
+PglErr OpenAndLoadXidHeader(const char* fname, const char* flag_name, XidHeaderFlags xid_header_flags, uintptr_t linebuf_size, char** line_iterp, uintptr_t* line_idx_ptr, char** linebuf_first_token_ptr, ReadLineStream* rlsp, XidMode* xid_mode_ptr);
 
 
 // note that this is no longer divisible by 64

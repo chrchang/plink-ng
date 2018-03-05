@@ -999,9 +999,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                       * 'missing'/'m' treats them as missing.\n"
 "                       * 'reference'/'r' treats the missing value as 0.\n"
                );
-    HelpPrint("oxford-single-chr\tdata\tgen", &help_ctrl, 0,
-"  --oxford-single-chr [chr name]  : Specify single-chromosome .gen file with\n"
-"                                    ignorable first column.\n"
+    HelpPrint("oxford-single-chr\tdata\tgen\tbgen", &help_ctrl, 0,
+"  --oxford-single-chr [chr name]  : Specify single-chromosome .gen/.bgen file\n"
+"                                    with no useful chromosome info inside.\n"
                );
     HelpPrint("missing-code\tmissing_code\tdata\tsample", &help_ctrl, 0,
 "  --missing-code {string list}    : Comma-delimited list of missing phenotype\n"
