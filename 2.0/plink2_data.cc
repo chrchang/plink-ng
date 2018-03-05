@@ -1005,7 +1005,7 @@ void UnpackHphase(const uintptr_t* __restrict all_hets, const uintptr_t* __restr
   } else {
     // bugfix (4 Mar 2018): need to pass raw_phasepresent_ct, not het_ct
     const uint32_t raw_phasepresent_ct = PopcountWords(phaseraw, 1 + (het_ct / kBitsPerWord)) - 1;
-    ExpandBytearrNested(&(phaseraw[1 + (raw_sample_ct / kBitsPerWord)]), phaseraw, all_hets, raw_sample_ctl, phasepresent_ct, 1, *phasepresent_ptr, phaseinfo);
+    ExpandBytearrNested(&(phaseraw[1 + (raw_sample_ct / kBitsPerWord)]), phaseraw, all_hets, raw_sample_ctl, raw_phasepresent_ct, 1, *phasepresent_ptr, phaseinfo);
   }
 }
 
