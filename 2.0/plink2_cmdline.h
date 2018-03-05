@@ -25,7 +25,6 @@
 #include "plink2_string.h"
 
 #include <stdarg.h>
-#include <stddef.h>
 
 #ifndef _WIN32
 #  include <sys/stat.h>

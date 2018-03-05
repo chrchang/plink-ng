@@ -24,6 +24,7 @@
 #include "plink2_base.h"
 
 #include <math.h>  // fabs()
+#include <stddef.h>  // offsetof()
 
 #ifdef __cplusplus
 #  include <algorithm>
