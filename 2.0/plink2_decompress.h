@@ -101,7 +101,7 @@ static_assert(!(kDecompressChunkSize % kCacheline), "kDecompressChunkSize must b
 // could add a "close current file and open another one" case
 ENUM_U31_DEF_START()
   kRlsInterruptNone,
-  kRlsInterruptRewind,
+  kRlsInterruptRetarget,
   kRlsInterruptShutdown
 ENUM_U31_DEF_END(RlsInterrupt);
 
@@ -123,6 +123,7 @@ typedef struct ReadLineStreamSyncStruct {
   PglErr reterr;  // kPglRetSkipped used for eof for now
 
   RlsInterrupt interrupt;
+  const char* new_fname;
 } ReadLineStreamSync;
 
 // To minimize false (or true) sharing penalties, these values shouldn't change
@@ -149,6 +150,7 @@ typedef struct ReadLineStreamStruct {
 #ifndef _WIN32
   uint32_t sync_init_state;
 #endif
+  uint32_t enforced_max_line_blen;
 } ReadLineStream;
 
 void PreinitRLstream(ReadLineStream* rlsp);
@@ -156,13 +158,13 @@ void PreinitRLstream(ReadLineStream* rlsp);
 // required_byte_ct can't be greater than kMaxLongLine.
 // unstandardized_byte_ct cannot be bigstack_left() here, because the read
 // stream requires a few additional allocations; use
-// StandardizeLinebufSizeMax() for that case instead.
+// StandardizeLinebufSizemax() for that case instead.
 HEADER_INLINE BoolErr StandardizeLinebufSize(uintptr_t unstandardized_byte_ct, uintptr_t required_byte_ct, uintptr_t* linebuf_sizep) {
   if (unstandardized_byte_ct >= kMaxLongLine) {
     *linebuf_sizep = kMaxLongLine;
     return 0;
   }
-  if (unstandardized_byte_ct < RoundUpPow2(MAXV(kDecompressChunkSize + 1, required_byte_ct), kCacheline)) {
+  if (unstandardized_byte_ct < RoundUpPow2(MAXV(2 * kDecompressChunkSize, required_byte_ct), kCacheline)) {
     return 1;
   }
   *linebuf_sizep = RoundDownPow2(unstandardized_byte_ct, kCacheline);
@@ -170,7 +172,7 @@ HEADER_INLINE BoolErr StandardizeLinebufSize(uintptr_t unstandardized_byte_ct, u
 }
 
 // Must be synced with InitRLstreamRaw().
-HEADER_INLINE BoolErr StandardizeLinebufSizeMax(uintptr_t required_byte_ct, uintptr_t* linebuf_sizep) {
+HEADER_INLINE BoolErr StandardizeLinebufSizemax(uintptr_t required_byte_ct, uintptr_t* linebuf_sizep) {
   const uintptr_t extra_alloc_byte_ct = RoundUpPow2(sizeof(ReadLineStreamSync) + 1, kCacheline) + kDecompressChunkSize;
   uintptr_t linebuf_size = bigstack_left();
   if (linebuf_size < extra_alloc_byte_ct) {
@@ -181,7 +183,7 @@ HEADER_INLINE BoolErr StandardizeLinebufSizeMax(uintptr_t required_byte_ct, uint
     *linebuf_sizep = kMaxLongLine;
     return 0;
   }
-  if (linebuf_size < RoundUpPow2(MAXV(kDecompressChunkSize + 1, required_byte_ct), kCacheline)) {
+  if (linebuf_size < RoundUpPow2(MAXV(2 * kDecompressChunkSize, required_byte_ct), kCacheline)) {
     return 1;
   }
   *linebuf_sizep = RoundDownPow2(linebuf_size, kCacheline);
@@ -210,7 +212,52 @@ HEADER_INLINE BoolErr StandardizeLinebufSizeMax(uintptr_t required_byte_ct, uint
 // insert a '\n' in the middle of the line or mutate the last character before
 // continuing iteration, as long as you don't manually change line_last.
 
-PglErr InitRLstreamRaw(const char* fname, uintptr_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp);
+// enforced_max_line_blen must be a multiple of kCacheline.
+PglErr InitRLstreamEx(const char* fname, uint32_t alloc_at_end, uint32_t enforced_max_line_blen, uint32_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp);
+
+HEADER_INLINE PglErr InitRLstreamRaw(const char* fname, uint32_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp) {
+  return InitRLstreamEx(fname, 0, kMaxLongLine, max_line_blen, rlsp, consume_iterp);
+}
+
+HEADER_INLINE PglErr SizeAndInitRLstreamRaw(const char* fname, uintptr_t unstandardized_byte_ct, ReadLineStream* rlsp, char** consume_iterp) {
+  // plink 1.9 immediately failed with an out-of-memory error if a "long line"
+  // buffer would be smaller than kMaxMediumLine + 1 bytes, so may as well make
+  // that the default lower bound.  (The precise value is currently irrelevant
+  // since kDecompressChunkSize is larger and we take the maximum of the two at
+  // compile time, but it's useful to distinguish "minimum acceptable
+  // potentially-long-line buffer size" from "load/decompression block size
+  // which generally has good performance".)
+  uintptr_t linebuf_size;
+  if (StandardizeLinebufSize(unstandardized_byte_ct, kMaxMediumLine + 1, &linebuf_size)) {
+    return kPglRetNomem;
+  }
+  return InitRLstreamRaw(fname, linebuf_size, rlsp, consume_iterp);
+}
+
+// When we want to enforce a tighter lower bound than kMaxMediumLine + 1.
+HEADER_INLINE PglErr LboundedSizeAndInitRLstreamRaw(const char* fname, uintptr_t unstandardized_byte_ct, uintptr_t required_byte_ct, ReadLineStream* rlsp, char** consume_iterp) {
+  uintptr_t linebuf_size;
+  if (StandardizeLinebufSize(unstandardized_byte_ct, required_byte_ct, &linebuf_size)) {
+    return kPglRetNomem;
+  }
+  return InitRLstreamRaw(fname, linebuf_size, rlsp, consume_iterp);
+}
+
+HEADER_INLINE PglErr SizemaxAndInitRLstreamRaw(const char* fname, ReadLineStream* rlsp, char** consume_iterp) {
+  uintptr_t linebuf_size;
+  if (StandardizeLinebufSizemax(kMaxMediumLine + 1, &linebuf_size)) {
+    return kPglRetNomem;
+  }
+  return InitRLstreamRaw(fname, linebuf_size, rlsp, consume_iterp);
+}
+
+HEADER_INLINE PglErr LboundedSizemaxAndInitRLstreamRaw(const char* fname, uintptr_t required_byte_ct, ReadLineStream* rlsp, char** consume_iterp) {
+  uintptr_t linebuf_size;
+  if (StandardizeLinebufSizemax(required_byte_ct, &linebuf_size)) {
+    return kPglRetNomem;
+  }
+  return InitRLstreamRaw(fname, linebuf_size, rlsp, consume_iterp);
+}
 
 HEADER_INLINE PglErr InitRLstream(const char* fname, uintptr_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp, char** line_lastp) {
   PglErr reterr = InitRLstreamRaw(fname, max_line_blen, rlsp, consume_iterp);
@@ -249,7 +296,15 @@ HEADER_INLINE PglErr ReadNextLineFromRLstream(ReadLineStream* rlsp, char** consu
   return kPglRetSuccess;
 }
 
-PglErr RewindRLstreamRaw(ReadLineStream* rlsp, char** consume_iterp);
+// If new_fname == nullptr, this just rewinds the current file.
+// If it's non-null, the current file is closed and the specified file is
+// opened for reading instead.  The filename is not copied, so it's unsafe to
+// change the memory it points to before the first read call.
+PglErr RetargetRLstreamRaw(const char* new_fname, ReadLineStream* rlsp, char** consume_iterp);
+
+HEADER_INLINE PglErr RewindRLstreamRaw(ReadLineStream* rlsp, char** consume_iterp) {
+  return RetargetRLstreamRaw(nullptr, rlsp, consume_iterp);
+}
 
 HEADER_INLINE PglErr RewindRLstream(ReadLineStream* rlsp, char** consume_iterp, char** line_lastp) {
   PglErr reterr = RewindRLstreamRaw(rlsp, consume_iterp);
@@ -259,7 +314,11 @@ HEADER_INLINE PglErr RewindRLstream(ReadLineStream* rlsp, char** consume_iterp, 
 
 PglErr CleanupRLstream(ReadLineStream* rlsp);
 
-void RLstreamErrPrint(const char* file_descrip, uintptr_t linebuf_size, uintptr_t line_idx, PglErr* reterr_ptr);
+void RLstreamErrPrint(const char* file_descrip, ReadLineStream* rlsp, PglErr* reterr_ptr);
+
+HEADER_INLINE unsigned char* RLstreamMemStart(ReadLineStream* rlsp) {
+  return R_CAST(unsigned char*, rlsp->syncp);
+}
 
 #ifdef __cplusplus
 }  // namespace plink2

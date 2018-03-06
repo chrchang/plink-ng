@@ -498,7 +498,7 @@ void LdPruneNextSubcontig(const uintptr_t* variant_include, const uint32_t* vari
     uint32_t first_window_len = 1;
     do {
       ++variant_uidx_winend;
-      FindFirst1BitFromU32(variant_include, &variant_uidx_winend);
+      MovU32To1Bit(variant_include, &variant_uidx_winend);
     } while ((variant_bps[variant_uidx_winend] <= variant_bp_thresh) && (++first_window_len < subcontig_len));
     *next_window_end_tvidx_ptr = subcontig_first_tvidx + first_window_len;
     *variant_uidx_winend_ptr = variant_uidx_winend;
@@ -546,7 +546,7 @@ void LdPruneNextWindow(const uintptr_t* __restrict variant_include, const uint32
       // least 1
       ++next_window_start_tvidx;
       ++variant_uidx_winstart;
-      FindFirst1BitFromU32(variant_include, &variant_uidx_winstart);
+      MovU32To1Bit(variant_include, &variant_uidx_winstart);
       window_start_bp = variant_bps[variant_uidx_winstart];
     } while (window_start_bp < window_start_min_bp);
     // now advance window end as appropriate
@@ -556,7 +556,7 @@ void LdPruneNextWindow(const uintptr_t* __restrict variant_include, const uint32
         break;
       }
       ++variant_uidx_winend;
-      FindFirst1BitFromU32(variant_include, &variant_uidx_winend);
+      MovU32To1Bit(variant_include, &variant_uidx_winend);
     } while (variant_bps[variant_uidx_winend] <= window_end_thresh);
     *variant_uidx_winstart_ptr = variant_uidx_winstart;
     *variant_uidx_winend_ptr = variant_uidx_winend;
@@ -722,8 +722,8 @@ THREAD_FUNC_DECL IndepPairwiseThread(void* arg) {
         LdPruneNextSubcontig(variant_include, variant_bps, subcontig_info, subcontig_thread_assignments, x_start, x_len, y_start, y_len, founder_ct, founder_male_ct, prune_window_size, tidx, &subcontig_idx, &subcontig_end_tvidx, &next_window_end_tvidx, &is_x, &is_y, &cur_founder_ct, &cur_founder_ctaw, &cur_founder_ctl, &entire_variant_buf_word_ct, &variant_uidx_winstart, &variant_uidx_winend);
         variant_uidx = variant_uidx_winstart;
       }
-      FindFirst1BitFromU32(variant_include, &variant_uidx);
-      write_slot_idx = FindFirst0BitFrom(occupied_window_slots, write_slot_idx);
+      MovU32To1Bit(variant_include, &variant_uidx);
+      write_slot_idx = AdvTo0Bit(occupied_window_slots, write_slot_idx);
       uintptr_t tvidx_offset = cur_tvidx - tvidx_start;
       const uintptr_t* cur_raw_tgenovecs = &(raw_tgenovecs[tvidx_offset * raw_tgenovec_single_variant_word_ct]);
       uintptr_t* cur_genobuf = &(genobufs[write_slot_idx * entire_variant_buf_word_ct]);
@@ -776,7 +776,7 @@ THREAD_FUNC_DECL IndepPairwiseThread(void* arg) {
           uint32_t first_winpos = 0;
           // const uint32_t debug_print = (!IsSet(cur_window_removed, 0)) && (tvidxs[winpos_to_slot_idx[0]] == 0);
           while (1) {
-            FindFirst0BitFromU32(cur_window_removed, &first_winpos);
+            MovU32To0Bit(cur_window_removed, &first_winpos);
             // can assume empty trailing bit for cur_window_removed
             if (first_winpos == cur_window_size) {
               break;
@@ -786,7 +786,7 @@ THREAD_FUNC_DECL IndepPairwiseThread(void* arg) {
             uint32_t second_winpos = first_winpos;
             while (1) {
               ++second_winpos;
-              FindFirst0BitFromU32(cur_window_removed, &second_winpos);
+              MovU32To0Bit(cur_window_removed, &second_winpos);
               if (second_winpos == cur_window_size) {
                 break;
               }
@@ -852,7 +852,7 @@ THREAD_FUNC_DECL IndepPairwiseThread(void* arg) {
                       */
                       SetBit(second_winpos, cur_window_removed);
                       SetBit(tvidxs[second_slot_idx], removed_variants_write);
-                      const uint32_t next_start_winpos = FindFirst0BitFrom(cur_window_removed, second_winpos);
+                      const uint32_t next_start_winpos = AdvTo0Bit(cur_window_removed, second_winpos);
                       if (next_start_winpos < cur_window_size) {
                         first_unchecked_tvidx[first_slot_idx] = tvidxs[winpos_to_slot_idx[next_start_winpos]];
                       } else {
@@ -862,7 +862,7 @@ THREAD_FUNC_DECL IndepPairwiseThread(void* arg) {
                     break;
                   }
                   ++second_winpos;
-                  FindFirst0BitFromU32(cur_window_removed, &second_winpos);
+                  MovU32To0Bit(cur_window_removed, &second_winpos);
                   if (second_winpos == cur_window_size) {
                     first_unchecked_tvidx[first_slot_idx] = cur_tvidx;
                     break;
@@ -1097,7 +1097,7 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
           }
           uintptr_t* cur_thread_raw_tgenovec = cur_raw_tgenovecs[cur_thread_idx];
           for (uintptr_t tvidx_offset = cur_tvidx - cur_tvidx_start; tvidx_offset < tvidx_offset_end; ++tvidx_offset, ++variant_uidx) {
-            FindFirst1BitFromU32(variant_include, &variant_uidx);
+            MovU32To1Bit(variant_include, &variant_uidx);
             uintptr_t* cur_raw_tgenovec = &(cur_thread_raw_tgenovec[tvidx_offset * raw_tgenovec_single_variant_word_ct]);
             if (!is_x_or_y) {
               reterr = PgrReadAlleleCountvecSubsetUnsafe(founder_info, founder_info_cumulative_popcounts, founder_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, cur_raw_tgenovec);
@@ -1208,7 +1208,7 @@ PglErr LdPruneSubcontigSplitAll(const uintptr_t* variant_include, const ChrInfo*
     window_max = 1;
     for (uint32_t chr_fo_idx = 0; chr_fo_idx < chr_ct; ++chr_fo_idx) {
       const uint32_t chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-      uint32_t variant_uidx = FindFirst1BitFromBounded(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], chr_end);
+      uint32_t variant_uidx = AdvBoundedTo1Bit(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], chr_end);
       const uint32_t chr_variant_ct = PopcountBitRange(variant_include, variant_uidx, chr_end);
       const uint32_t variant_idx_end = variant_idx + chr_variant_ct;
       if (chr_variant_ct > 1) {
@@ -1221,7 +1221,7 @@ PglErr LdPruneSubcontigSplitAll(const uintptr_t* variant_include, const ChrInfo*
         ++variant_idx;
         do {
           ++variant_uidx;
-          FindFirst1BitFromU32(variant_include, &variant_uidx);
+          MovU32To1Bit(variant_include, &variant_uidx);
           uint32_t variant_bp_thresh = variant_bps[variant_uidx];
           if (variant_bp_thresh < prune_window_size) {
             prev_pos = variant_bp_thresh;
@@ -1245,7 +1245,7 @@ PglErr LdPruneSubcontigSplitAll(const uintptr_t* variant_include, const ChrInfo*
           if (variant_bp_thresh > window_pos_first) {
             do {
               ++window_uidx_first;
-              FindFirst1BitFromU32(variant_include, &window_uidx_first);
+              MovU32To1Bit(variant_include, &window_uidx_first);
               window_pos_first = variant_bps[window_uidx_first];
               ++window_idx_first;
             } while (variant_bp_thresh > window_pos_first);
@@ -1267,7 +1267,7 @@ PglErr LdPruneSubcontigSplitAll(const uintptr_t* variant_include, const ChrInfo*
   } else {
     for (uint32_t chr_fo_idx = 0; chr_fo_idx < chr_ct; ++chr_fo_idx) {
       const uint32_t chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-      const uint32_t first_variant_uidx = FindFirst1BitFromBounded(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], chr_end);
+      const uint32_t first_variant_uidx = AdvBoundedTo1Bit(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], chr_end);
       const uint32_t chr_variant_ct = PopcountBitRange(variant_include, first_variant_uidx, chr_end);
       if (chr_variant_ct > 1) {
         if (subcontig_info_iter > subcontig_info_limit) {
@@ -1503,7 +1503,7 @@ PglErr LdPruneWrite(const uintptr_t* variant_include, const uintptr_t* removed_v
     char* textbuf_flush = &(write_iter[kMaxMediumLine]);
     uint32_t variant_uidx = 0;
     for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
-      FindFirst1BitFromU32(variant_include, &variant_uidx);
+      MovU32To1Bit(variant_include, &variant_uidx);
       if (IsSet(removed_variants_collapsed, variant_idx)) {
         continue;
       }
@@ -1524,7 +1524,7 @@ PglErr LdPruneWrite(const uintptr_t* variant_include, const uintptr_t* removed_v
     write_iter = g_textbuf;
     variant_uidx = 0;
     for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
-      FindFirst1BitFromU32(variant_include, &variant_uidx);
+      MovU32To1Bit(variant_include, &variant_uidx);
       if (!IsSet(removed_variants_collapsed, variant_idx)) {
         continue;
       }
@@ -3070,7 +3070,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         SetAllDosageArr(founder_dosagev_ct * kDosagePerVec, x_male_dosage_invmask);
         uint32_t sample_midx = 0;
         for (uint32_t uii = 0; uii < x_male_ct; ++uii, ++sample_midx) {
-          FindFirst1BitFromU32(sex_male_collapsed, &sample_midx);
+          MovU32To1Bit(sex_male_collapsed, &sample_midx);
           x_male_dosage_invmask[sample_midx] = 0;
         }
         BitvecOr(R_CAST(uintptr_t*, x_male_dosage_invmask), founder_dosagev_ct * kWordsPerVec, R_CAST(uintptr_t*, dosage_vecs[0]));

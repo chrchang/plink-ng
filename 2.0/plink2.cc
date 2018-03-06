@@ -61,7 +61,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (4 Mar 2018)";
+  " (5 Mar 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -401,7 +401,7 @@ void ReportGenotypingRate(const uintptr_t* variant_include, const ChrInfo* cip, 
   uint32_t variant_uidx = 0;
   uint32_t is_y = 0;
   for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
-    FindFirst1BitFromU32(variant_include, &variant_uidx);
+    MovU32To1Bit(variant_include, &variant_uidx);
     if (variant_uidx >= y_thresh) {
       if (is_y) {
         tot_y_missing = cur_tot_missing;
@@ -454,7 +454,7 @@ PglErr ApplyVariantBpFilters(const char* extract_fnames, const char* exclude_fna
       logerrputs("Error: --from-bp and --to-bp require a sorted .pvar/.bim.  Retry this command\nafter using --make-pgen/--make-bed + --sort-vars to sort your data.\n");
       return kPglRetInconsistentInput;
     }
-    const uint32_t chr_idx = FindFirst1BitFromBounded(cip->chr_mask, 0, kChrRawEnd);
+    const uint32_t chr_idx = AdvBoundedTo1Bit(cip->chr_mask, 0, kChrRawEnd);
 
     // this function shouldn't be called unless variant_ct is nonzero
     assert(chr_idx != kChrRawEnd);
@@ -1367,7 +1367,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     while (1) {
       if (loop_cats_pheno_col) {
         ++loop_cats_uidx;
-        FindFirst1BitFromU32(loop_cats_cat_include, &loop_cats_uidx);
+        MovU32To1Bit(loop_cats_cat_include, &loop_cats_uidx);
         const char* catname = loop_cats_pheno_col->category_names[loop_cats_uidx];
         const uint32_t catname_slen = strlen(catname);
         if (catname_slen + S_CAST(uintptr_t, loop_cats_outname_endp1_backup - outname) > (kPglFnamesize - kMaxOutfnameExtBlen)) {
@@ -1954,7 +1954,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             } else {
               uint32_t variant_uidx = 0;
               for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
-                FindFirst1BitFromU32(variant_include, &variant_uidx);
+                MovU32To1Bit(variant_include, &variant_uidx);
                 if (skip_real_ref && IsSet(nonref_flags, variant_uidx)) {
                   continue;
                 }
@@ -3907,7 +3907,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
-            // could use FindFirst0BitFromBounded()...
+            // could use AdvBoundedTo0Bit()...
             if ((format_param_idxs >> param_idx) & 1) {
               continue;
             }

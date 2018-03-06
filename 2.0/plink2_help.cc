@@ -1674,7 +1674,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     arg_uidx = 0;
     // er, should replace the \n logic with a WordWrap() call
     while (help_ctrl.unmatched_ct) {
-      arg_uidx = FindFirst0BitFrom(help_ctrl.all_match_arr, arg_uidx);
+      arg_uidx = AdvTo0Bit(help_ctrl.all_match_arr, arg_uidx);
       help_ctrl.unmatched_ct--;
       if (help_ctrl.unmatched_ct) {
         if (net_unmatched_ct == 2) {

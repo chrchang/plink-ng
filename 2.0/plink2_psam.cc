@@ -981,7 +981,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         uint32_t col_uidx = 0;
         int32_t prev_col_uidx = -1;
         for (uint32_t col_idx = 0; col_idx < new_pheno_ct; ++col_idx, ++col_uidx) {
-          FindFirst1BitFromU32(bitarr, &col_uidx);
+          MovU32To1Bit(bitarr, &col_uidx);
           col_skips[col_idx] = col_uidx - prev_col_uidx;
           prev_col_uidx = col_uidx;
         }
@@ -1053,7 +1053,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         uint32_t col_uidx = 0;
         int32_t prev_col_uidx = -1;
         for (uint32_t col_idx = 0; col_idx < new_pheno_ct; ++col_idx, ++col_uidx) {
-          FindFirst1BitFromU32(bitarr, &col_uidx);
+          MovU32To1Bit(bitarr, &col_uidx);
           col_skips[col_idx] = col_uidx - prev_col_uidx;
           prev_col_uidx = col_uidx;
         }

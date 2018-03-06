@@ -629,13 +629,13 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
   // no large temporary buffer is needed.
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
-  uintptr_t linebuf_size = 0;
   uintptr_t line_idx = 0;
   uint32_t max_allele_slen = 1;
   PglErr reterr = kPglRetSuccess;
   ReadLineStream pvar_rls;
   PreinitRLstream(&pvar_rls);
   {
+    uintptr_t linebuf_size;
     if (StandardizeLinebufSize(bigstack_left() / 4, kLoadPvarBlockSize * 2 * sizeof(intptr_t), &linebuf_size)) {
       goto LoadPvar_ret_NOMEM;
     }
@@ -1853,7 +1853,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     reterr = kPglRetNomem;
     break;
   LoadPvar_ret_READ_RLSTREAM:
-    RLstreamErrPrint(pvarname, linebuf_size, line_idx, &reterr);
+    RLstreamErrPrint(pvarname, &pvar_rls, &reterr);
     break;
   LoadPvar_ret_EMPTY_ALLELE_CODE:
     snprintf(g_logbuf, kLogbufSize, "Error: Empty allele code on line %" PRIuPTR " of %s.\n", line_idx, pvarname);

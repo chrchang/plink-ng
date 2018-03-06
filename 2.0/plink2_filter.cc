@@ -374,7 +374,7 @@ void RandomThinProb(const char* flagname_p, const char* unitname, double thin_ke
   const uint32_t uint32_thresh = S_CAST(uint32_t, thin_keep_prob * 4294967296.0 + 0.5);
   uint32_t item_uidx = 0;
   for (uint32_t item_idx = 0; item_idx < orig_item_ct; ++item_idx, ++item_uidx) {
-    FindFirst1BitFromU32(item_include, &item_uidx);
+    MovU32To1Bit(item_include, &item_uidx);
     if (sfmt_genrand_uint32(&g_sfmt) >= uint32_thresh) {
       ClearBit(item_uidx, item_include);
     }
@@ -426,9 +426,10 @@ static const char keep_remove_flag_strs[4][11] = {"keep", "remove", "keep-fam", 
 PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_sample_ct, KeepFlags flags, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   const char* flag_name = keep_remove_flag_strs[flags % 4];
-  gzFile gz_infile = nullptr;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
+  ReadLineStream rls;
+  PreinitRLstream(&rls);
   {
     const uint32_t orig_sample_ct = *sample_ct_ptr;
     if (!orig_sample_ct) {
@@ -439,17 +440,6 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
     if (bigstack_calloc_w(raw_sample_ctl, &seen_uidxs)) {
       goto KeepOrRemove_ret_NOMEM;
     }
-    uintptr_t loadbuf_size = bigstack_left();
-    loadbuf_size -= loadbuf_size / 4;
-    if (loadbuf_size > kMaxLongLine) {
-      loadbuf_size = kMaxLongLine;
-    } else if (loadbuf_size <= kMaxMediumLine) {
-      goto KeepOrRemove_ret_NOMEM;
-    } else {
-      loadbuf_size = RoundUpPow2(loadbuf_size, kCacheline);
-    }
-    char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
-    loadbuf[loadbuf_size - 1] = ' ';
 
     const uint32_t families_only = flags & kfKeepFam;
     const char* sample_ids = siip->sample_ids;
@@ -466,7 +456,7 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
       }
       uint32_t sample_uidx = 0;
       for (uint32_t sample_idx = 0; sample_idx < orig_sample_ct; ++sample_idx, ++sample_uidx) {
-        FindFirst1BitFromU32(sample_include, &sample_uidx);
+        MovU32To1Bit(sample_include, &sample_uidx);
         const char* fidt_ptr = &(sample_ids[sample_uidx * max_sample_id_blen]);
         const char* fidt_end = AdvPastDelim(fidt_ptr, '\t');
         const uint32_t cur_fidt_slen = fidt_end - fidt_ptr;
@@ -478,30 +468,34 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
         goto KeepOrRemove_ret_NOMEM;
       }
     }
-    unsigned char* bigstack_mark2 = g_bigstack_base;
+    unsigned char* bigstack_mark2 = nullptr;
     const char* fnames_iter = fnames;
+    char* line_iter = nullptr;
     uintptr_t duplicate_ct = 0;
     do {
-      reterr = gzopen_read_checked(fnames_iter, &gz_infile);
-      if (reterr) {
-        goto KeepOrRemove_ret_1;
+      if (!line_iter) {
+        reterr = SizeAndInitRLstreamRaw(fnames_iter, bigstack_left() - (bigstack_left() / 4), &rls, &line_iter);
+        if (reterr) {
+          goto KeepOrRemove_ret_1;
+        }
+        bigstack_mark2 = g_bigstack_base;
+      } else {
+        reterr = RetargetRLstreamRaw(fnames_iter, &rls, &line_iter);
+        if (reterr) {
+          goto KeepOrRemove_ret_READ_RLSTREAM;
+        }
       }
-      char* loadbuf_first_token;
+      char* linebuf_first_token;
       XidMode xid_mode;
+      line_idx = 0;
       if (!families_only) {
-        reterr = LoadXidHeaderOld(flag_name, (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeader0 : kfXidHeaderIgnoreSid, loadbuf_size, loadbuf, nullptr, &line_idx, &loadbuf_first_token, &gz_infile, &xid_mode);
+        reterr = LoadXidHeader(flag_name, (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeader0 : kfXidHeaderIgnoreSid, &line_iter, &line_idx, &linebuf_first_token, &rls, &xid_mode);
         if (reterr) {
           if (reterr == kPglRetEmptyFile) {
             reterr = kPglRetSuccess;
             goto KeepOrRemove_empty_file;
           }
-          if (reterr == kPglRetLongLine) {
-            if (loadbuf_size == kMaxLongLine) {
-              goto KeepOrRemove_ret_LONG_LINE;
-            }
-            goto KeepOrRemove_ret_NOMEM;
-          }
-          goto KeepOrRemove_ret_1;
+          goto KeepOrRemove_ret_READ_RLSTREAM;
         }
         const uint32_t allow_dups = siip->sids && (!(xid_mode & kfXidModeFlagSid));
         reterr = SortedXidboxInitAlloc(sample_include, siip, orig_sample_ct, allow_dups, xid_mode, 0, &sorted_xidbox, &xid_map, &max_xid_blen);
@@ -511,20 +505,20 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
         if (bigstack_alloc_c(max_xid_blen, &idbuf)) {
           goto KeepOrRemove_ret_NOMEM;
         }
-        if (*loadbuf_first_token == '#') {
-          *loadbuf_first_token = '\0';
+        if (*linebuf_first_token == '#') {
+          *linebuf_first_token = '\0';
         }
       } else {
-        loadbuf_first_token = loadbuf;
-        loadbuf[0] = '\0';
+        line_iter = S_CAST(char*, rawmemchr(line_iter, '\n'));
+        linebuf_first_token = line_iter;
       }
       while (1) {
-        if (!IsEolnKns(*loadbuf_first_token)) {
+        if (!IsEolnKns(*linebuf_first_token)) {
           if (!families_only) {
-            const char* loadbuf_iter = loadbuf_first_token;
+            const char* linebuf_iter = linebuf_first_token;
             uint32_t xid_idx_start;
             uint32_t xid_idx_end;
-            if (!SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, orig_sample_ct, 0, xid_mode, &loadbuf_iter, &xid_idx_start, &xid_idx_end, idbuf)) {
+            if (!SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &xid_idx_start, &xid_idx_end, idbuf)) {
               uint32_t sample_uidx = xid_map[xid_idx_start];
               if (IsSet(seen_uidxs, sample_uidx)) {
                 ++duplicate_ct;
@@ -537,16 +531,17 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
                   sample_uidx = xid_map[xid_idx_start];
                 }
               }
-            } else if (!loadbuf_iter) {
+            } else if (!linebuf_iter) {
               goto KeepOrRemove_ret_MISSING_TOKENS;
             }
+            line_iter = K_CAST(char*, linebuf_iter);
           } else {
-            char* token_end = CurTokenEnd(loadbuf_first_token);
+            char* token_end = CurTokenEnd(linebuf_first_token);
             *token_end = '\t';
-            const uint32_t slen = 1 + S_CAST(uintptr_t, token_end - loadbuf_first_token);
-            uint32_t lb_idx = bsearch_str_lb(loadbuf_first_token, sorted_xidbox, slen, max_xid_blen, orig_sample_ct);
+            const uint32_t slen = 1 + S_CAST(uintptr_t, token_end - linebuf_first_token);
+            uint32_t lb_idx = bsearch_str_lb(linebuf_first_token, sorted_xidbox, slen, max_xid_blen, orig_sample_ct);
             *token_end = ' ';
-            const uint32_t ub_idx = bsearch_str_lb(loadbuf_first_token, sorted_xidbox, slen, max_xid_blen, orig_sample_ct);
+            const uint32_t ub_idx = bsearch_str_lb(linebuf_first_token, sorted_xidbox, slen, max_xid_blen, orig_sample_ct);
             if (ub_idx != lb_idx) {
               uint32_t sample_uidx = xid_map[lb_idx];
               if (IsSet(seen_uidxs, sample_uidx)) {
@@ -561,31 +556,27 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
                 }
               }
             }
+            line_iter = token_end;
           }
         }
         ++line_idx;
-        if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-          if (!gzeof(gz_infile)) {
-            goto KeepOrRemove_ret_READ_FAIL;
+        reterr = ReadNextLineFromRLstreamRaw(&rls, &line_iter);
+        if (reterr) {
+          if (reterr == kPglRetSkipped) {
+            // reterr = kPglRetSuccess;
+            break;
           }
-          break;
+          goto KeepOrRemove_ret_READ_RLSTREAM;
         }
-        if (!loadbuf[loadbuf_size - 1]) {
-          if (loadbuf_size == kMaxLongLine) {
-            goto KeepOrRemove_ret_LONG_LINE;
-          }
-          goto KeepOrRemove_ret_NOMEM;
-        }
-        loadbuf_first_token = FirstNonTspace(loadbuf);
+        line_iter = FirstNonTspace(line_iter);
+        linebuf_first_token = line_iter;
       }
     KeepOrRemove_empty_file:
-      if (gzclose_null(&gz_infile)) {
-        goto KeepOrRemove_ret_READ_FAIL;
-      }
       BigstackReset(bigstack_mark2);
       fnames_iter = strnul(fnames_iter);
       ++fnames_iter;
     } while (*fnames_iter);
+    reterr = kPglRetSuccess;
     if (flags & kfKeepRemove) {
       BitvecAndNot(seen_uidxs, raw_sample_ctl, sample_include);
     } else {
@@ -604,12 +595,12 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
   KeepOrRemove_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  KeepOrRemove_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
-    break;
-  KeepOrRemove_ret_LONG_LINE:
-    logerrprintf("Error: Line %" PRIuPTR " of --%s file is pathologically long.\n", line_idx, flag_name);
-    reterr = kPglRetMalformedInput;
+  KeepOrRemove_ret_READ_RLSTREAM:
+    {
+      char file_descrip_buf[32];
+      snprintf(file_descrip_buf, 32, "--%s file", flag_name);
+      RLstreamErrPrint(file_descrip_buf, &rls, &reterr);
+    }
     break;
   KeepOrRemove_ret_MISSING_TOKENS:
     logerrprintf("Error: Line %" PRIuPTR " of --%s file has fewer tokens than expected.\n", line_idx, flag_name);
@@ -618,7 +609,7 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
   }
  KeepOrRemove_ret_1:
   BigstackReset(bigstack_mark);
-  gzclose_cond(gz_infile);
+  CleanupRLstream(&rls);
   return reterr;
 }
 
@@ -628,10 +619,10 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
 // for backward compatibility, though.)
 PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_flattened, const char* col_name, uint32_t raw_sample_ct, uint32_t col_num, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  gzFile gz_infile = nullptr;
-  uintptr_t loadbuf_size = 0;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
+  ReadLineStream rls;
+  PreinitRLstream(&rls);
   {
     const uint32_t orig_sample_ct = *sample_ct_ptr;
     if (!orig_sample_ct) {
@@ -652,34 +643,20 @@ PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_fl
       goto KeepFcol_ret_NOMEM;
     }
 
-    loadbuf_size = bigstack_left();
-    loadbuf_size -= loadbuf_size / 4;
-    if (loadbuf_size > kMaxLongLine) {
-      loadbuf_size = kMaxLongLine;
-    } else if (loadbuf_size <= kMaxMediumLine) {
-      goto KeepFcol_ret_NOMEM;
-    } else {
-      loadbuf_size = RoundUpPow2(loadbuf_size, kCacheline);
-    }
-    char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
-    loadbuf[loadbuf_size - 1] = ' ';
-
-    reterr = gzopen_read_checked(fname, &gz_infile);
+    char* line_iter;
+    reterr = SizeAndInitRLstreamRaw(fname, bigstack_left() - (bigstack_left() / 4), &rls, &line_iter);
     if (reterr) {
       goto KeepFcol_ret_1;
     }
-    char* loadbuf_first_token;
+    char* linebuf_first_token;
     XidMode xid_mode;
-    reterr = LoadXidHeaderOld("keep-fcol", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, loadbuf_size, loadbuf, nullptr, &line_idx, &loadbuf_first_token, &gz_infile, &xid_mode);
+    reterr = LoadXidHeader("keep-fcol", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, &line_iter, &line_idx, &linebuf_first_token, &rls, &xid_mode);
     if (reterr) {
       if (reterr == kPglRetEmptyFile) {
         logerrputs("Error: Empty --keep-fcol file.\n");
         goto KeepFcol_ret_MALFORMED_INPUT;
       }
-      if (reterr == kPglRetLongLine) {
-        goto KeepFcol_ret_LONG_LINE;
-      }
-      goto KeepFcol_ret_1;
+      goto KeepFcol_ret_READ_RLSTREAM;
     }
     const uint32_t id_col_ct = GetXidColCt(xid_mode);
     uint32_t postid_col_idx = 0;
@@ -697,12 +674,12 @@ PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_fl
       }
       postid_col_idx = col_num - id_col_ct;
     } else {
-      if (*loadbuf_first_token != '#') {
+      if (*linebuf_first_token != '#') {
         logerrputs("Error: --keep-fcol-name requires the --keep-fcol file to have a header line\nstarting with #FID or #IID.\n");
         goto KeepFcol_ret_INCONSISTENT_INPUT;
       }
-      const char* loadbuf_iter = NextTokenMult(loadbuf_first_token, id_col_ct);
-      if (!loadbuf_iter) {
+      const char* linebuf_iter = NextTokenMult(linebuf_first_token, id_col_ct);
+      if (!linebuf_iter) {
         logerrputs("Error: --keep-fcol-name column not found in --keep-fcol file.\n");
         goto KeepFcol_ret_INCONSISTENT_INPUT;
       }
@@ -710,20 +687,21 @@ PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_fl
       uint32_t already_found = 0;
       do {
         ++postid_col_idx;
-        const char* token_end = CurTokenEnd(loadbuf_iter);
-        if ((S_CAST(uintptr_t, token_end - loadbuf_iter) == col_name_slen) && (!memcmp(loadbuf_iter, col_name, col_name_slen))) {
+        const char* token_end = CurTokenEnd(linebuf_iter);
+        if ((S_CAST(uintptr_t, token_end - linebuf_iter) == col_name_slen) && (!memcmp(linebuf_iter, col_name, col_name_slen))) {
           if (already_found) {
             snprintf(g_logbuf, kLogbufSize, "Error: Multiple columns in --keep-fcol file are named '%s'.\n", col_name);
             goto KeepFcol_ret_INCONSISTENT_INPUT_WW;
           }
           already_found = 1;
         }
-        loadbuf_iter = FirstNonTspace(token_end);
-      } while (!IsEolnKns(*loadbuf_iter));
+        linebuf_iter = FirstNonTspace(token_end);
+      } while (!IsEolnKns(*linebuf_iter));
       if (!already_found) {
         logerrputs("Error: --keep-fcol-name column not found in --keep-fcol file.\n");
         goto KeepFcol_ret_INCONSISTENT_INPUT;
       }
+      line_iter = K_CAST(char*, linebuf_iter);
     }
     uint32_t* xid_map = nullptr;
     char* sorted_xidbox = nullptr;
@@ -737,50 +715,48 @@ PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_fl
     if (bigstack_alloc_c(max_xid_blen, &idbuf)) {
       goto KeepFcol_ret_NOMEM;
     }
-    if (*loadbuf_first_token == '#') {
-      *loadbuf_first_token = '\0';
+    if (*linebuf_first_token == '#') {
+      *linebuf_first_token = '\0';
     }
     while (1) {
-      if (!IsEolnKns(*loadbuf_first_token)) {
-        const char* loadbuf_iter = loadbuf_first_token;
+      if (!IsEolnKns(*linebuf_first_token)) {
+        const char* linebuf_iter = linebuf_first_token;
         uint32_t xid_idx_start;
         uint32_t xid_idx_end;
-        if (!SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, orig_sample_ct, 0, xid_mode, &loadbuf_iter, &xid_idx_start, &xid_idx_end, idbuf)) {
+        if (!SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &xid_idx_start, &xid_idx_end, idbuf)) {
           if (IsSet(seen_xid_idxs, xid_idx_start)) {
             logerrprintfww("Error: Sample ID on line %" PRIuPTR " of --keep-fcol file duplicates one earlier in the file.\n", line_idx);
             goto KeepFcol_ret_MALFORMED_INPUT;
           }
           SetBit(xid_idx_start, seen_xid_idxs);
-          loadbuf_iter = NextTokenMult(loadbuf_iter, postid_col_idx);
-          if (!loadbuf_iter) {
+          linebuf_iter = NextTokenMult(linebuf_iter, postid_col_idx);
+          if (!linebuf_iter) {
             goto KeepFcol_ret_MISSING_TOKENS;
           }
-          const char* token_end = CurTokenEnd(loadbuf_iter);
-          const int32_t ii = bsearch_str(loadbuf_iter, sorted_strbox, token_end - loadbuf_iter, max_str_blen, str_ct);
+          const char* token_end = CurTokenEnd(linebuf_iter);
+          const int32_t ii = bsearch_str(linebuf_iter, sorted_strbox, token_end - linebuf_iter, max_str_blen, str_ct);
           if (ii != -1) {
             for (; xid_idx_start < xid_idx_end; ++xid_idx_start) {
               const uint32_t sample_uidx = xid_map[xid_idx_start];
               SetBit(sample_uidx, keep_uidxs);
             }
           }
-        } else if (!loadbuf_iter) {
+        } else if (!linebuf_iter) {
           goto KeepFcol_ret_MISSING_TOKENS;
         }
+        line_iter = K_CAST(char*, linebuf_iter);
       }
       ++line_idx;
-      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-        if (!gzeof(gz_infile)) {
-          goto KeepFcol_ret_READ_FAIL;
+      reterr = ReadNextLineFromRLstreamRaw(&rls, &line_iter);
+      if (reterr) {
+        if (reterr == kPglRetSkipped) {
+          reterr = kPglRetSuccess;
+          break;
         }
-        break;
+        goto KeepFcol_ret_READ_RLSTREAM;
       }
-      if (!loadbuf[loadbuf_size - 1]) {
-        goto KeepFcol_ret_LONG_LINE;
-      }
-      loadbuf_first_token = FirstNonTspace(loadbuf);
-    }
-    if (gzclose_null(&gz_infile)) {
-      goto KeepFcol_ret_READ_FAIL;
+      line_iter = FirstNonTspace(line_iter);
+      linebuf_first_token = line_iter;
     }
     memcpy(sample_include, keep_uidxs, raw_sample_ctl * sizeof(intptr_t));
     const uint32_t sample_ct = PopcountWords(sample_include, raw_sample_ctl);
@@ -791,15 +767,9 @@ PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_fl
   KeepFcol_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  KeepFcol_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
+  KeepFcol_ret_READ_RLSTREAM:
+    RLstreamErrPrint("--keep-fcol file", &rls, &reterr);
     break;
-  KeepFcol_ret_LONG_LINE:
-    if (loadbuf_size != kMaxLongLine) {
-      reterr = kPglRetNomem;
-      break;
-    }
-    logerrprintf("Error: Line %" PRIuPTR " of --keep-fcol file is pathologically long.\n", line_idx);
   KeepFcol_ret_MALFORMED_INPUT:
     reterr = kPglRetMalformedInput;
     break;
@@ -814,7 +784,7 @@ PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_fl
   }
  KeepFcol_ret_1:
   BigstackReset(bigstack_mark);
-  gzclose_cond(gz_infile);
+  CleanupRLstream(&rls);
   return reterr;
 }
 
@@ -858,7 +828,7 @@ PglErr RequirePheno(const PhenoCol* pheno_cols, const char* pheno_names, const c
       BitvecAnd(pheno_cols[pheno_idx].nonmiss, raw_sample_ctl, sample_include);
     }
     if (matched_phenos) {
-      const uint32_t first_unmatched_idx = FindFirst0BitFrom(matched_phenos, 0);
+      const uint32_t first_unmatched_idx = AdvTo0Bit(matched_phenos, 0);
       if (first_unmatched_idx < required_pheno_ct) {
         logerrprintfww("Error: --require-%s '%s' not loaded.\n", is_covar? "covar covariate" : "pheno phenotype", &(sorted_required_pheno_names[first_unmatched_idx * max_required_pheno_blen]));
         goto RequirePheno_ret_INCONSISTENT_INPUT;
@@ -949,7 +919,7 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
       switch (binary_op) {
         case kCmpOperatorNoteq:
           for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-            FindFirst1BitFromU32(sample_include_intersect, &sample_uidx);
+            MovU32To1Bit(sample_include_intersect, &sample_uidx);
             if (pheno_vals[sample_uidx] == val) {
               ClearBit(sample_uidx, sample_include);
             }
@@ -957,7 +927,7 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
           break;
         case kCmpOperatorLe:
           for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-            FindFirst1BitFromU32(sample_include_intersect, &sample_uidx);
+            MovU32To1Bit(sample_include_intersect, &sample_uidx);
             if (pheno_vals[sample_uidx] >= val) {
               ClearBit(sample_uidx, sample_include);
             }
@@ -965,7 +935,7 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
           break;
         case kCmpOperatorLeq:
           for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-            FindFirst1BitFromU32(sample_include_intersect, &sample_uidx);
+            MovU32To1Bit(sample_include_intersect, &sample_uidx);
             if (pheno_vals[sample_uidx] > val) {
               ClearBit(sample_uidx, sample_include);
             }
@@ -973,7 +943,7 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
           break;
         case kCmpOperatorGe:
           for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-            FindFirst1BitFromU32(sample_include_intersect, &sample_uidx);
+            MovU32To1Bit(sample_include_intersect, &sample_uidx);
             if (pheno_vals[sample_uidx] <= val) {
               ClearBit(sample_uidx, sample_include);
             }
@@ -981,7 +951,7 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
           break;
         case kCmpOperatorGeq:
           for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-            FindFirst1BitFromU32(sample_include_intersect, &sample_uidx);
+            MovU32To1Bit(sample_include_intersect, &sample_uidx);
             if (pheno_vals[sample_uidx] < val) {
               ClearBit(sample_uidx, sample_include);
             }
@@ -989,7 +959,7 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
           break;
         case kCmpOperatorEq:
           for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-            FindFirst1BitFromU32(sample_include_intersect, &sample_uidx);
+            MovU32To1Bit(sample_include_intersect, &sample_uidx);
             if (pheno_vals[sample_uidx] != val) {
               ClearBit(sample_uidx, sample_include);
             }
@@ -1052,14 +1022,14 @@ PglErr KeepRemoveIf(const CmpExpr* cmp_expr, const PhenoCol* pheno_cols, const c
           uint32_t sample_uidx = 0;
           if (pheno_must_exist) {
             for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-              FindFirst1BitFromU32(sample_include_intersect, &sample_uidx);
+              MovU32To1Bit(sample_include_intersect, &sample_uidx);
               if (cur_cats[sample_uidx] != cat_idx) {
                 ClearBit(sample_uidx, sample_include);
               }
             }
           } else {
             for (uint32_t sample_idx = 0; sample_idx < sample_intersect_ct; ++sample_idx, ++sample_uidx) {
-              FindFirst1BitFromU32(sample_include_intersect, &sample_uidx);
+              MovU32To1Bit(sample_include_intersect, &sample_uidx);
               if (cur_cats[sample_uidx] == cat_idx) {
                 ClearBit(sample_uidx, sample_include);
               }
@@ -1177,7 +1147,7 @@ PglErr KeepRemoveCatsInternal(const PhenoCol* cur_pheno_col, const char* cats_fn
       const uint32_t* cur_cats = cur_pheno_col->data.cat;
       uint32_t sample_uidx = 0;
       for (uint32_t sample_idx = 0; sample_idx < orig_sample_ct; ++sample_idx, ++sample_uidx) {
-        FindFirst1BitFromU32(sample_include, &sample_uidx);
+        MovU32To1Bit(sample_include, &sample_uidx);
         const uint32_t cur_cat_idx = cur_cats[sample_uidx];
         if (IsSet(cat_include, cur_cat_idx)) {
           SetBit(sample_uidx, affected_samples);
@@ -1318,7 +1288,7 @@ void ComputeAlleleFreqs(const uintptr_t* variant_include, const uintptr_t* varia
   uint32_t cur_allele_ct = 2;
   uint32_t variant_uidx = 0;
   for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
-    FindFirst1BitFromU32(variant_include, &variant_uidx);
+    MovU32To1Bit(variant_include, &variant_uidx);
     uintptr_t variant_allele_idx_base;
     if (!variant_allele_idxs) {
       variant_allele_idx_base = 2 * variant_uidx;
@@ -1433,10 +1403,10 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
   // GCTA-format no longer supported since it inhibits the allele consistency
   // check.
   unsigned char* bigstack_mark = g_bigstack_base;
-  gzFile gz_infile = nullptr;
-  uintptr_t loadbuf_size = 0;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
+  ReadLineStream read_freq_rls;
+  PreinitRLstream(&read_freq_rls);
   {
     double* cur_allele_freqs;
     uintptr_t* matched_loaded_alleles;
@@ -1450,42 +1420,32 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         bigstack_calloc_w(BitCtToWordCt(raw_variant_ct), &already_seen)) {
       goto ReadAlleleFreqs_ret_NOMEM;
     }
-    reterr = gzopen_read_checked(read_freq_fname, &gz_infile);
+
+    char* line_iter;
+    reterr = SizeAndInitRLstreamRaw(read_freq_fname, bigstack_left() / 8, &read_freq_rls, &line_iter);
     if (reterr) {
       goto ReadAlleleFreqs_ret_1;
     }
-    loadbuf_size = bigstack_left() / 8;
-    if (loadbuf_size > kMaxLongLine) {
-      loadbuf_size = kMaxLongLine;
-    } else if (loadbuf_size <= kMaxMediumLine) {
-      goto ReadAlleleFreqs_ret_NOMEM;
-    } else {
-      loadbuf_size = RoundUpPow2(loadbuf_size, kCacheline);
-    }
-    char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
-    loadbuf[loadbuf_size - 1] = ' ';
     uint32_t* variant_id_htable = nullptr;
     uint32_t variant_id_htable_size;
     reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, variant_ct, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size);
     if (reterr) {
       goto ReadAlleleFreqs_ret_1;
     }
-    char* loadbuf_first_token;
     do {
-      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-        if (!gzeof(gz_infile)) {
-          goto ReadAlleleFreqs_ret_READ_FAIL;
-        }
-        logerrputs("Error: Empty --read-freq file.\n");
-        goto ReadAlleleFreqs_ret_MALFORMED_INPUT;
-      }
       ++line_idx;
-      if (!loadbuf[loadbuf_size - 1]) {
-        goto ReadAlleleFreqs_ret_LONG_LINE;
+      reterr = ReadNextLineFromRLstreamRaw(&read_freq_rls, &line_iter);
+      if (reterr) {
+        if (reterr == kPglRetSkipped) {
+          logerrputs("Error: Empty --read-freq file.\n");
+          goto ReadAlleleFreqs_ret_MALFORMED_INPUT;
+        }
+        goto ReadAlleleFreqs_ret_READ_RLSTREAM;
       }
-      loadbuf_first_token = FirstNonTspace(loadbuf);
+      line_iter = FirstNonTspace(line_iter);
       // automatically skip header lines that start with '##' or '# '
-    } while (IsEolnKns(*loadbuf_first_token) || ((*loadbuf_first_token == '#') && (ctou32(loadbuf_first_token[1]) <= '#')));
+    } while (IsEolnKns(*line_iter) || ((*line_iter == '#') && (ctou32(line_iter[1]) <= '#')));
+    char* linebuf_first_token = line_iter;
 
     uint32_t col_skips[kfReadFreqColNull];
     ReadFreqColidx col_types[kfReadFreqColNull];
@@ -1517,62 +1477,62 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
     uint32_t biallelic_only = 0;
 
     ReadFreqColFlags header_cols = kfReadFreqColset0;
-    if (*loadbuf_first_token == '#') {
+    if (*linebuf_first_token == '#') {
       // PLINK 2.0
       // guaranteed nonspace
-      const char* loadbuf_iter = &(loadbuf_first_token[1]);
+      const char* linebuf_iter = &(linebuf_first_token[1]);
 
       uint32_t col_idx = 0;
       while (1) {
-        const char* token_end = CurTokenEnd(loadbuf_iter);
-        const uint32_t token_slen = token_end - loadbuf_iter;
+        const char* token_end = CurTokenEnd(linebuf_iter);
+        const uint32_t token_slen = token_end - linebuf_iter;
         ReadFreqColidx cur_colidx = kfReadFreqColNull;
         if (token_slen <= 4) {
-          if (strequal_k(loadbuf_iter, "ID", token_slen)) {
+          if (strequal_k(linebuf_iter, "ID", token_slen)) {
             cur_colidx = kfReadFreqColVarId;
           } else if (token_slen == 3) {
-            if (!memcmp(loadbuf_iter, "REF", 3)) {
+            if (!memcmp(linebuf_iter, "REF", 3)) {
               cur_colidx = kfReadFreqColRefAllele;
-            } else if (!memcmp(loadbuf_iter, "ALT", 3)) {
+            } else if (!memcmp(linebuf_iter, "ALT", 3)) {
               cur_colidx = kfReadFreqColAltAlleles;
               if (allele_list_just_alt1) {
                 header_cols &= ~kfReadFreqColsetAlt1Allele;
                 allele_list_just_alt1 = 0;
               }
-            } else if (!memcmp(loadbuf_iter, "CTS", 3)) {
+            } else if (!memcmp(linebuf_iter, "CTS", 3)) {
               goto ReadAlleleFreqs_freqmain_found1;
             }
-          } else if (strequal_k(loadbuf_iter, "ALT1", token_slen) && allele_list_just_alt1) {
+          } else if (strequal_k(linebuf_iter, "ALT1", token_slen) && allele_list_just_alt1) {
             cur_colidx = kfReadFreqColAlt1Allele;
           }
-        } else if (strequal_k(loadbuf_iter, "REF_FREQ", token_slen) ||
-                   strequal_k(loadbuf_iter, "REF_CT", token_slen)) {
+        } else if (strequal_k(linebuf_iter, "REF_FREQ", token_slen) ||
+                   strequal_k(linebuf_iter, "REF_CT", token_slen)) {
           cur_colidx = kfReadFreqColRefFreq;
-          if (loadbuf_iter[4] == 'F') {
+          if (linebuf_iter[4] == 'F') {
             is_frac = 1;
           }
-        } else if ((strequal_k(loadbuf_iter, "ALT1_FREQ", token_slen) ||
-                    strequal_k(loadbuf_iter, "ALT1_CT", token_slen)) &&
+        } else if ((strequal_k(linebuf_iter, "ALT1_FREQ", token_slen) ||
+                    strequal_k(linebuf_iter, "ALT1_CT", token_slen)) &&
                    main_list_just_alt1) {
           cur_colidx = kfReadFreqColAlt1Freq;
-          if (loadbuf_iter[5] == 'F') {
+          if (linebuf_iter[5] == 'F') {
             is_frac = 1;
           }
-        } else if (strequal_k(loadbuf_iter, "ALT_FREQS", token_slen) ||
-                   strequal_k(loadbuf_iter, "ALT_CTS", token_slen)) {
-          if (loadbuf_iter[4] == 'F') {
+        } else if (strequal_k(linebuf_iter, "ALT_FREQS", token_slen) ||
+                   strequal_k(linebuf_iter, "ALT_CTS", token_slen)) {
+          if (linebuf_iter[4] == 'F') {
             is_frac = 1;
           }
           goto ReadAlleleFreqs_freqmain_found2;
-        } else if (strequal_k(loadbuf_iter, "FREQS", token_slen)) {
+        } else if (strequal_k(linebuf_iter, "FREQS", token_slen)) {
           is_frac = 1;
           goto ReadAlleleFreqs_freqmain_found1;
-        } else if (strequal_k(loadbuf_iter, "ALT_NUM_FREQS", token_slen) ||
-                   strequal_k(loadbuf_iter, "ALT_NUM_CTS", token_slen)) {
+        } else if (strequal_k(linebuf_iter, "ALT_NUM_FREQS", token_slen) ||
+                   strequal_k(linebuf_iter, "ALT_NUM_CTS", token_slen)) {
           is_numeq = 1;
           goto ReadAlleleFreqs_freqmain_found2;
-        } else if (strequal_k(loadbuf_iter, "NUM_FREQS", token_slen) ||
-                   strequal_k(loadbuf_iter, "NUM_CTS", token_slen)) {
+        } else if (strequal_k(linebuf_iter, "NUM_FREQS", token_slen) ||
+                   strequal_k(linebuf_iter, "NUM_CTS", token_slen)) {
           is_numeq = 1;
         ReadAlleleFreqs_freqmain_found1:
           main_allele_idx_start = 0;
@@ -1582,23 +1542,23 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
             header_cols &= ~kfReadFreqColsetAlt1Freq;
             main_list_just_alt1 = 0;
           }
-        } else if (strequal_k(loadbuf_iter, "OBS_CT", token_slen)) {
+        } else if (strequal_k(linebuf_iter, "OBS_CT", token_slen)) {
           cur_colidx = kfReadFreqColObsCt;
-        } else if (strequal_k(loadbuf_iter, "HOM_REF_CT", token_slen)) {
+        } else if (strequal_k(linebuf_iter, "HOM_REF_CT", token_slen)) {
           cur_colidx = kfReadFreqColHomRefCt;
-        } else if (strequal_k(loadbuf_iter, "HET_REF_ALT1_CT", token_slen) && het_list_just_alt1) {
+        } else if (strequal_k(linebuf_iter, "HET_REF_ALT1_CT", token_slen) && het_list_just_alt1) {
           cur_colidx = kfReadFreqColHetRefAlt1Ct;
-        } else if (strequal_k(loadbuf_iter, "HET_REF_ALT_CTS", token_slen)) {
+        } else if (strequal_k(linebuf_iter, "HET_REF_ALT_CTS", token_slen)) {
           cur_colidx = kfReadFreqColHetRefAltCts;
           if (het_list_just_alt1) {
             header_cols &= ~kfReadFreqColsetHetRefAlt1Ct;
             het_list_just_alt1 = 0;
           }
-        } else if (strequal_k(loadbuf_iter, "HOM_ALT1_CT", token_slen) && main_list_just_alt1) {
+        } else if (strequal_k(linebuf_iter, "HOM_ALT1_CT", token_slen) && main_list_just_alt1) {
           cur_colidx = kfReadFreqColHomAlt1Ct;
-        } else if (strequal_k(loadbuf_iter, "NONREF_DIPLOID_GENO_CTS", token_slen)) {
+        } else if (strequal_k(linebuf_iter, "NONREF_DIPLOID_GENO_CTS", token_slen)) {
           goto ReadAlleleFreqs_countmain_found;
-        } else if (strequal_k(loadbuf_iter, "DIPLOID_GENO_CTS", token_slen)) {
+        } else if (strequal_k(linebuf_iter, "DIPLOID_GENO_CTS", token_slen)) {
           main_allele_idx_start = 0;
         ReadAlleleFreqs_countmain_found:
           cur_colidx = kfReadFreqColNonrefDiploidCts;
@@ -1607,13 +1567,13 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
             // could make this use a different variable than FREQS does
             main_list_just_alt1 = 0;
           }
-        } else if (strequal_k(loadbuf_iter, "HAP_REF_CT", token_slen)) {
+        } else if (strequal_k(linebuf_iter, "HAP_REF_CT", token_slen)) {
           cur_colidx = kfReadFreqColHapRefCt;
-        } else if (strequal_k(loadbuf_iter, "HAP_ALT1_CT", token_slen) && hap_list_just_alt1) {
+        } else if (strequal_k(linebuf_iter, "HAP_ALT1_CT", token_slen) && hap_list_just_alt1) {
           cur_colidx = kfReadFreqColHapAlt1Ct;
-        } else if (strequal_k(loadbuf_iter, "HAP_ALT_CTS", token_slen)) {
+        } else if (strequal_k(linebuf_iter, "HAP_ALT_CTS", token_slen)) {
           goto ReadAlleleFreqs_hapmain_found;
-        } else if (strequal_k(loadbuf_iter, "HAP_CTS", token_slen)) {
+        } else if (strequal_k(linebuf_iter, "HAP_CTS", token_slen)) {
           hap_allele_idx_start = 0;
         ReadAlleleFreqs_hapmain_found:
           cur_colidx = kfReadFreqColHapAltCts;
@@ -1621,7 +1581,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
             header_cols &= ~kfReadFreqColsetHapAlt1Ct;
             hap_list_just_alt1 = 0;
           }
-        } else if (strequal_k(loadbuf_iter, "GENO_NUM_CTS", token_slen)) {
+        } else if (strequal_k(linebuf_iter, "GENO_NUM_CTS", token_slen)) {
           cur_colidx = kfReadFreqColGenoCtNumeq;
           is_numeq = 1;
         }
@@ -1638,8 +1598,8 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           col_skips[relevant_col_ct] = col_idx;
           col_types[relevant_col_ct++] = cur_colidx;
         }
-        loadbuf_iter = FirstNonTspace(token_end);
-        if (IsEolnKns(*loadbuf_iter)) {
+        linebuf_iter = FirstNonTspace(token_end);
+        if (IsEolnKns(*linebuf_iter)) {
           break;
         }
         ++col_idx;
@@ -1671,6 +1631,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         biallelic_only = 1;
       }
 
+      line_iter = K_CAST(char*, linebuf_iter);
       main_eq = is_numeq;
       semifinal_header_cols = header_cols;
       if (header_cols & kfReadFreqColsetAfreqOnly) {
@@ -1686,24 +1647,23 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           //   A=0.5,G=0.2
           // Look at the first nonheader line to distinguish between these two.
           do {
-            if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-              if (!gzeof(gz_infile)) {
-                goto ReadAlleleFreqs_ret_READ_FAIL;
-              }
-              logerrputs("Error: Empty --read-freq file.\n");
-              goto ReadAlleleFreqs_ret_MALFORMED_INPUT;
-            }
             ++line_idx;
-            if (!loadbuf[loadbuf_size - 1]) {
-              goto ReadAlleleFreqs_ret_LONG_LINE;
+            reterr = ReadNextLineFromRLstreamRaw(&read_freq_rls, &line_iter);
+            if (reterr) {
+              if (reterr == kPglRetSkipped) {
+                logerrputs("Error: Empty --read-freq file.\n");
+                goto ReadAlleleFreqs_ret_MALFORMED_INPUT;
+              }
+              goto ReadAlleleFreqs_ret_READ_RLSTREAM;
             }
-            loadbuf_first_token = FirstNonTspace(loadbuf);
-          } while (IsEolnKns(*loadbuf_first_token));
-          loadbuf_iter = loadbuf_first_token;
+            line_iter = FirstNonTspace(line_iter);
+          } while (IsEolnKns(*line_iter));
+          linebuf_first_token = line_iter;
+          linebuf_iter = line_iter;
           const char* alt_freq_str = nullptr;
           for (uint32_t relevant_col_idx = 0; relevant_col_idx < relevant_col_ct; ++relevant_col_idx) {
             if (col_types[relevant_col_idx] == kfReadFreqColAltFreqs) {
-              alt_freq_str = NextTokenMult0(loadbuf_iter, col_skips[relevant_col_idx]);
+              alt_freq_str = NextTokenMult0(linebuf_iter, col_skips[relevant_col_idx]);
               break;
             }
           }
@@ -1720,6 +1680,10 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
             }
             header_cols &= ~header_cols_exempt;
           }
+        } else {
+          // may as well not reprocess header line
+          line_iter = S_CAST(char*, rawmemchr(line_iter, '\n'));
+          linebuf_first_token = line_iter;
         }
         if (((header_cols & kfReadFreqColsetBase) | header_cols_exempt) != kfReadFreqColsetBase) {
           logerrputs("Error: Missing column(s) in --read-freq file (ID, REF, ALT{1} usually\nrequired).\n");
@@ -1781,7 +1745,8 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         }
         geno_counts = 1;
         logputs("--read-freq: PLINK 2 --geno-counts file detected.\n");
-        *loadbuf_first_token = '\0';
+        line_iter = S_CAST(char*, rawmemchr(line_iter, '\n'));
+        linebuf_first_token = line_iter;  // don't rescan header
       } else {
         logerrputs("Error: Missing column(s) in --read-freq file (no frequencies/counts).\n");
         goto ReadAlleleFreqs_ret_MALFORMED_INPUT;
@@ -1827,7 +1792,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
       col_types[1] = kfReadFreqColRefAllele;
       col_types[2] = kfReadFreqColAltAlleles;
       biallelic_only = 1;
-      if (StrStartsWithUnsafe(loadbuf_first_token, "CHR\tSNP\tA1\tA2\tC(HOM A1)\tC(HET)\tC(HOM A2)\tC(HAP A1)\tC(HAP A2)\tC(MISSING)")) {
+      if (StrStartsWithUnsafe(linebuf_first_token, "CHR\tSNP\tA1\tA2\tC(HOM A1)\tC(HET)\tC(HOM A2)\tC(HAP A1)\tC(HAP A2)\tC(MISSING)")) {
         col_skips[4] = 1;
         col_skips[5] = 1;
         col_skips[6] = 1;
@@ -1843,24 +1808,24 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         relevant_col_ct = 8;
         logputs("--read-freq: PLINK 1.9 --freqx file detected.\n");
       } else {
-        if (!tokequal_k(loadbuf_first_token, "CHR")) {
+        if (!tokequal_k(linebuf_first_token, "CHR")) {
           goto ReadAlleleFreqs_ret_UNRECOGNIZED_HEADER;
         }
-        const char* loadbuf_iter = FirstNonTspace(&(loadbuf_first_token[3]));
-        if (!tokequal_k(loadbuf_iter, "SNP")) {
+        const char* linebuf_iter = FirstNonTspace(&(linebuf_first_token[3]));
+        if (!tokequal_k(linebuf_iter, "SNP")) {
           goto ReadAlleleFreqs_ret_UNRECOGNIZED_HEADER;
         }
-        loadbuf_iter = FirstNonTspace(&(loadbuf_iter[3]));
-        if (!tokequal_k(loadbuf_iter, "A1")) {
+        linebuf_iter = FirstNonTspace(&(linebuf_iter[3]));
+        if (!tokequal_k(linebuf_iter, "A1")) {
           goto ReadAlleleFreqs_ret_UNRECOGNIZED_HEADER;
         }
-        loadbuf_iter = FirstNonTspace(&(loadbuf_iter[2]));
-        if (!tokequal_k(loadbuf_iter, "A2")) {
+        linebuf_iter = FirstNonTspace(&(linebuf_iter[2]));
+        if (!tokequal_k(linebuf_iter, "A2")) {
           goto ReadAlleleFreqs_ret_UNRECOGNIZED_HEADER;
         }
-        loadbuf_iter = FirstNonTspace(&(loadbuf_iter[2]));
+        linebuf_iter = FirstNonTspace(&(linebuf_iter[2]));
         col_types[3] = kfReadFreqColRefFreq;
-        if (tokequal_k(loadbuf_iter, "MAF")) {
+        if (tokequal_k(linebuf_iter, "MAF")) {
           is_frac = 1;
           infer_one_freq = 1;
           infer_freq_loaded_idx = 1;
@@ -1868,11 +1833,11 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           relevant_col_ct = 4;
           logputs("--read-freq: PLINK 1.x --freq file detected.\n");
         } else {
-          if (!tokequal_k(loadbuf_iter, "C1")) {
+          if (!tokequal_k(linebuf_iter, "C1")) {
             goto ReadAlleleFreqs_ret_UNRECOGNIZED_HEADER;
           }
-          loadbuf_iter = FirstNonTspace(&(loadbuf_iter[2]));
-          if (!tokequal_k(loadbuf_iter, "C2")) {
+          linebuf_iter = FirstNonTspace(&(linebuf_iter[2]));
+          if (!tokequal_k(linebuf_iter, "C2")) {
             goto ReadAlleleFreqs_ret_UNRECOGNIZED_HEADER;
           }
           col_skips[4] = 1;
@@ -1881,8 +1846,10 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           relevant_col_ct = 5;
           logputs("--read-freq: PLINK 1.x '--freq counts' file detected.\n");
         }
+        line_iter = K_CAST(char*, linebuf_iter);
       }
-      *loadbuf_first_token = '\0';
+      line_iter = S_CAST(char*, rawmemchr(line_iter, '\n'));
+      linebuf_first_token = line_iter;  // don't rescan header
     }
     assert(relevant_col_ct <= 8);
 
@@ -1895,23 +1862,18 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
     uint32_t loaded_variant_ct = 0;
     uint32_t cur_allele_ct = 2;
     while (1) {
-      if (!IsEolnKns(*loadbuf_first_token)) {
+      if (!IsEolnKns(*linebuf_first_token)) {
         // not const since tokens may be null-terminated or comma-terminated
         // later
-        char* loadbuf_iter = loadbuf_first_token;
         char* token_ptrs[12];
         uint32_t token_slens[12];
-        for (uint32_t relevant_col_idx = 0; relevant_col_idx < relevant_col_ct; ++relevant_col_idx) {
-          const ReadFreqColidx cur_colidx = col_types[relevant_col_idx];
-          loadbuf_iter = NextTokenMult0(loadbuf_iter, col_skips[relevant_col_idx]);
-          if (!loadbuf_iter) {
-            goto ReadAlleleFreqs_ret_MISSING_TOKENS;
-          }
-          token_ptrs[cur_colidx] = loadbuf_iter;
-          char* token_end = CurTokenEnd(loadbuf_iter);
-          token_slens[cur_colidx] = token_end - loadbuf_iter;
-          loadbuf_iter = token_end;
+        line_iter = TokenLex0(linebuf_first_token, R_CAST(uint32_t*, col_types), col_skips, relevant_col_ct, token_ptrs, token_slens);
+        if (!line_iter) {
+          goto ReadAlleleFreqs_ret_MISSING_TOKENS;
         }
+        // characters may be modified, so better find the \n now just in case
+        // it gets clobbered
+        line_iter = S_CAST(char*, rawmemchr(line_iter, '\n'));
         const char* variant_id_start = token_ptrs[kfReadFreqColVarId];
         const uint32_t variant_id_slen = token_slens[kfReadFreqColVarId];
         uint32_t variant_uidx = VariantIdDupflagHtableFind(variant_id_start, variant_ids, variant_id_htable, variant_id_slen, variant_id_htable_size, max_variant_id_slen);
@@ -1968,7 +1930,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
               uint32_t internal_allele_idx = 0;
               uint32_t unmatched_allele_idx = 0;
               for (; unmatched_allele_idx < unmatched_allele_ct; ++unmatched_allele_idx, ++internal_allele_idx) {
-                FindFirst0BitFromU32(matched_internal_alleles, &internal_allele_idx);
+                MovU32To0Bit(matched_internal_alleles, &internal_allele_idx);
                 if (!strcmp(cur_loaded_allele_code, cur_alleles[internal_allele_idx])) {
                   break;
                 }
@@ -2402,22 +2364,24 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           printf("\r--read-freq: Frequencies for %uk variants loaded.", loaded_variant_ct / 1000);
           fflush(stdout);
         }
+      } else {
+        line_iter = S_CAST(char*, rawmemchr(line_iter, '\n'));
       }
       while (0) {
       ReadAlleleFreqs_skip_variant:
         ++skipped_variant_ct;
       }
-      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-        if (!gzeof(gz_infile)) {
-          goto ReadAlleleFreqs_ret_READ_FAIL;
-        }
-        break;
-      }
+      ++line_iter;
       ++line_idx;
-      loadbuf_first_token = FirstNonTspace(loadbuf);
-    }
-    if (gzclose_null(&gz_infile)) {
-      goto ReadAlleleFreqs_ret_READ_FAIL;
+      reterr = ReadFromRLstreamRaw(&read_freq_rls, &line_iter);
+      if (reterr) {
+        if (reterr == kPglRetSkipped) {
+          reterr = kPglRetSuccess;
+          break;
+        }
+        goto ReadAlleleFreqs_ret_READ_RLSTREAM;
+      }
+      linebuf_first_token = FirstNonTspace(line_iter);
     }
     putc_unlocked('\r', stdout);
     logprintf("--read-freq: Frequencies for %u variant%s loaded.\n", loaded_variant_ct, (loaded_variant_ct == 1)? "" : "s");
@@ -2426,17 +2390,11 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
     }
   }
   while (0) {
-  ReadAlleleFreqs_ret_LONG_LINE:
-    if (loadbuf_size == kMaxLongLine) {
-      logerrprintf("Error: Line %" PRIuPTR " of --read-freq file is pathologically long.\n", line_idx);
-      reterr = kPglRetMalformedInput;
-      break;
-    }
+  ReadAlleleFreqs_ret_READ_RLSTREAM:
+    RLstreamErrPrint("--read-freq file", &read_freq_rls, &reterr);
+    break;
   ReadAlleleFreqs_ret_NOMEM:
     reterr = kPglRetNomem;
-    break;
-  ReadAlleleFreqs_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
     break;
   ReadAlleleFreqs_ret_UNRECOGNIZED_HEADER:
     logerrputs("Error: Unrecognized header line in --read-freq file.\n");
@@ -2458,8 +2416,8 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
     break;
   }
  ReadAlleleFreqs_ret_1:
+  CleanupRLstream(&read_freq_rls);
   BigstackReset(bigstack_mark);
-  gzclose_cond(gz_infile);
   return reterr;
 }
 
@@ -2467,7 +2425,7 @@ void ComputeMajAlleles(const uintptr_t* variant_include, const uintptr_t* varian
   uint32_t cur_allele_ct = 2;
   uint32_t variant_uidx = 0;
   for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
-    FindFirst1BitFromU32(variant_include, &variant_uidx);
+    MovU32To1Bit(variant_include, &variant_uidx);
     uintptr_t allele_idx_base;
     if (!variant_allele_idxs) {
       allele_idx_base = variant_uidx;
@@ -2569,7 +2527,7 @@ THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* arg) {
     uint32_t is_diploid_x = 0;
     uint32_t is_y = 0;
     for (uint32_t cur_idx = 0; cur_idx < cur_idx_ct; ++cur_idx, ++variant_uidx) {
-      FindFirst1BitFromU32(variant_include, &variant_uidx);
+      MovU32To1Bit(variant_include, &variant_uidx);
       if (variant_uidx >= chr_end) {
         const uint32_t chr_fo_idx = GetVariantChrFoIdx(cip, variant_uidx);
         const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
@@ -2860,7 +2818,7 @@ PglErr MindFilter(const uint32_t* sample_missing_cts, const uint32_t* sample_het
     }
     uint32_t sample_uidx = 0;
     for (uint32_t sample_idx = 0; sample_idx < orig_sample_ct; ++sample_idx, ++sample_uidx) {
-      FindFirst1BitFromU32(sample_include, &sample_uidx);
+      MovU32To1Bit(sample_include, &sample_uidx);
       uint32_t cur_missing_geno_ct = sample_missing_cts[sample_uidx];
       if (sample_hethap_cts) {
         cur_missing_geno_ct += sample_hethap_cts[sample_uidx];
@@ -2912,7 +2870,7 @@ void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, 
     y_end = cip->chr_fo_vidx_start[y_chr_fo_idx + 1];
   }
   for (uint32_t variant_idx = 0; variant_idx < prefilter_variant_ct; ++variant_idx, ++variant_uidx) {
-    FindFirst1BitFromU32(variant_include, &variant_uidx);
+    MovU32To1Bit(variant_include, &variant_uidx);
     if (variant_uidx >= y_thresh) {
       if (variant_uidx < y_end) {
         y_thresh = y_end;
@@ -2967,7 +2925,7 @@ void EnforceHweThresh(const ChrInfo* cip, const uint32_t* founder_raw_geno_cts, 
   const double* hwe_x_pvals_iter = hwe_x_pvals;
   const double hwe_thresh_recip = (1 + 4 * kSmallEpsilon) / hwe_thresh;
   for (uint32_t variant_idx = 0; variant_idx < prefilter_variant_ct; ++variant_idx, ++variant_uidx) {
-    FindFirst1BitFromU32(variant_include, &variant_uidx);
+    MovU32To1Bit(variant_include, &variant_uidx);
     if (variant_uidx >= x_thresh) {
       is_x = (variant_uidx < x_end);
       if (is_x) {
@@ -2976,7 +2934,7 @@ void EnforceHweThresh(const ChrInfo* cip, const uint32_t* founder_raw_geno_cts, 
         } else {
           is_x = 0;
           x_thresh = UINT32_MAX;
-          variant_uidx = FindFirst1BitFrom(variant_include, x_end);
+          variant_uidx = AdvTo1Bit(variant_include, x_end);
         }
       } else {
         x_thresh = UINT32_MAX;
@@ -3072,7 +3030,7 @@ void EnforceMinorFreqConstraints(const uintptr_t* variant_allele_idxs, const uin
 
   uint32_t cur_allele_ct = 2;
   for (uint32_t variant_idx = 0; variant_idx < prefilter_variant_ct; ++variant_idx, ++variant_uidx) {
-    FindFirst1BitFromU32(variant_include, &variant_uidx);
+    MovU32To1Bit(variant_include, &variant_uidx);
     uintptr_t variant_allele_idx_base;
     if (!variant_allele_idxs) {
       variant_allele_idx_base = 2 * variant_uidx;
@@ -3133,14 +3091,14 @@ void EnforceMachR2Thresh(const ChrInfo* cip, const double* mach_r2_vals, double 
   uint32_t chr_fo_idx = UINT32_MAX;
   uint32_t chr_end = 0;
   for (uint32_t variant_idx = 0; variant_idx < relevant_variant_ct; ++variant_idx, ++variant_uidx) {
-    FindFirst1BitFromU32(variant_include, &variant_uidx);
+    MovU32To1Bit(variant_include, &variant_uidx);
     while (variant_uidx >= chr_end) {
       uint32_t chr_idx;
       do {
         chr_idx = cip->chr_file_order[++chr_fo_idx];
       } while (IsSet(cip->haploid_mask, chr_idx));
       chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-      variant_uidx = FindFirst1BitFromBounded(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], chr_end);
+      variant_uidx = AdvBoundedTo1Bit(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], chr_end);
     }
     const double cur_mach_r2 = mach_r2_vals[variant_uidx];
     if ((cur_mach_r2 < mach_r2_min) || (cur_mach_r2 > mach_r2_max)) {
@@ -3160,7 +3118,7 @@ void EnforceMinBpSpace(const ChrInfo* cip, const uint32_t* variant_bps, uint32_t
   uint32_t last_bp = 0;
   uint32_t removed_ct = 0;
   for (uint32_t variant_idx = 0; variant_idx < orig_variant_ct; ++variant_idx, ++variant_uidx) {
-    FindFirst1BitFromU32(variant_include, &variant_uidx);
+    MovU32To1Bit(variant_include, &variant_uidx);
     const uint32_t cur_bp = variant_bps[variant_uidx];
     if (variant_uidx >= chr_end) {
       do {
@@ -3206,32 +3164,35 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
   unsigned char* bigstack_end = g_bigstack_end;
 
   const char* flagstr = is_alt1? "--alt1-allele" : "--ref-allele";
-  gzFile gz_infile = nullptr;
-  uintptr_t loadbuf_size = 0;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
+  ReadLineStream rls;
+  PreinitRLstream(&rls);
   {
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     uintptr_t* already_seen;
     if (bigstack_calloc_w(raw_variant_ctl, &already_seen)) {
       goto SetRefalt1FromFile_ret_NOMEM;
     }
-    loadbuf_size = bigstack_left() / 4;
-    if (loadbuf_size > kMaxLongLine) {
-      loadbuf_size = kMaxLongLine;
-    } else if (loadbuf_size <= kMaxMediumLine) {
-      goto SetRefalt1FromFile_ret_NOMEM;
-    } else {
-      loadbuf_size = RoundUpPow2(loadbuf_size, kCacheline);
-    }
-    char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
-    uint32_t* variant_id_htable = nullptr;
-    uint32_t variant_id_htable_size;
-    reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, variant_ct, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size);
+    char* line_iter;
+    reterr = SizeAndInitRLstreamRaw(allele_flag_info->fname, bigstack_left() / 4, &rls, &line_iter);
     if (reterr) {
       goto SetRefalt1FromFile_ret_1;
     }
-    reterr = GzopenAndSkipFirstLines(allele_flag_info->fname, allele_flag_info->skip_ct, loadbuf_size, loadbuf, &gz_infile);
+    const uint32_t skip_ct = allele_flag_info->skip_ct;
+    for (uint32_t uii = 0; uii < skip_ct; ++uii) {
+      reterr = ReadNextLineFromRLstreamRaw(&rls, &line_iter);
+      if (reterr) {
+        if (reterr == kPglRetSkipped) {
+          snprintf(g_logbuf, kLogbufSize, "Error: Fewer lines than expected in %s.\n", allele_flag_info->fname);
+          goto SetRefalt1FromFile_ret_INCONSISTENT_INPUT_WW;
+        }
+        goto SetRefalt1FromFile_ret_READ_RLSTREAM;
+      }
+    }
+    uint32_t* variant_id_htable = nullptr;
+    uint32_t variant_id_htable_size;
+    reterr = AllocAndPopulateIdHtableMt(variant_include, variant_ids, variant_ct, max_thread_ct, &variant_id_htable, nullptr, &variant_id_htable_size);
     if (reterr) {
       goto SetRefalt1FromFile_ret_1;
     }
@@ -3257,30 +3218,42 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
     uint32_t fillin_variant_ct = 0;
     uint32_t max_allele_slen = *max_allele_slen_ptr;
     uint32_t cur_allele_ct = 2;
-    while (gzgets(gz_infile, loadbuf, loadbuf_size)) {
+    line_iter = S_CAST(char*, rawmemchr(line_iter, '\n'));
+    while (1) {
       ++line_idx;
-      if (!loadbuf[loadbuf_size - 1]) {
-        goto SetRefalt1FromFile_ret_LONG_LINE;
+      // line is mutated, so might not be safe to use
+      // ReadNextLineFromRLstreamRaw()
+      ++line_iter;
+      reterr = ReadFromRLstreamRaw(&rls, &line_iter);
+      if (reterr) {
+        if (reterr == kPglRetSkipped) {
+          reterr = kPglRetSuccess;
+          break;
+        }
+        goto SetRefalt1FromFile_ret_READ_RLSTREAM;
       }
-      char* loadbuf_first_token = FirstNonTspace(loadbuf);
-      char cc = *loadbuf_first_token;
+      char* linebuf_first_token = FirstNonTspace(line_iter);
+      char cc = *linebuf_first_token;
       if (IsEolnKns(cc) || (cc == skipchar)) {
         continue;
       }
+      // er, replace this with TokenLex0()...
       char* variant_id_start;
       char* allele_start;
       if (colid_first) {
-        variant_id_start = NextTokenMult0(loadbuf_first_token, colmin);
+        variant_id_start = NextTokenMult0(linebuf_first_token, colmin);
         allele_start = NextTokenMult(variant_id_start, coldiff);
         if (!allele_start) {
           goto SetRefalt1FromFile_ret_MISSING_TOKENS;
         }
+        line_iter = S_CAST(char*, rawmemchr(allele_start, '\n'));
       } else {
-        allele_start = NextTokenMult0(loadbuf_first_token, colmin);
+        allele_start = NextTokenMult0(linebuf_first_token, colmin);
         variant_id_start = NextTokenMult(allele_start, coldiff);
         if (!variant_id_start) {
           goto SetRefalt1FromFile_ret_MISSING_TOKENS;
         }
+        line_iter = S_CAST(char*, rawmemchr(variant_id_start, '\n'));
       }
       char* token_end = CurTokenEnd(variant_id_start);
       const uint32_t variant_id_slen = token_end - variant_id_start;
@@ -3464,9 +3437,6 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
       }
       ++rotated_variant_ct;
     }
-    if (!gzeof(gz_infile)) {
-      goto SetRefalt1FromFile_ret_READ_FAIL;
-    }
     if (allele_mismatch_warning_ct > 3) {
       fprintf(stderr, "%u more allele-mismatch warning%s: see log file.\n", allele_mismatch_warning_ct - 3, (allele_mismatch_warning_ct == 4)? "" : "s");
     }
@@ -3492,17 +3462,15 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
     }
   }
   while (0) {
-  SetRefalt1FromFile_ret_LONG_LINE:
-    if (loadbuf_size == kMaxLongLine) {
-      logerrprintf("Error: Line %" PRIuPTR " of %s file is pathologically long.\n", line_idx, flagstr);
-      reterr = kPglRetMalformedInput;
-      break;
-    }
   SetRefalt1FromFile_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  SetRefalt1FromFile_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
+  SetRefalt1FromFile_ret_READ_RLSTREAM:
+    {
+      char file_descrip_buf[32];
+      snprintf(file_descrip_buf, 32, "%s file", flagstr);
+      RLstreamErrPrint(file_descrip_buf, &rls, &reterr);
+    }
     break;
   SetRefalt1FromFile_ret_MISSING_TOKENS:
     logerrprintfww("Error: Line %" PRIuPTR " of %s file has fewer tokens than expected.\n", line_idx, flagstr);
@@ -3522,14 +3490,14 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
     break;
   }
  SetRefalt1FromFile_ret_1:
-  gzclose_cond(gz_infile);
+  CleanupRLstream(&rls);
   BigstackReset(bigstack_mark);
   BigstackEndSet(bigstack_end);
   return reterr;
 }
 
 PglErr RefFromFaProcessContig(const uintptr_t* variant_include, const uint32_t* variant_bps, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const ChrInfo* cip, uint32_t force, uint32_t chr_fo_idx, uint32_t variant_uidx_last, char* seqbuf, char* seqbuf_end, AltAlleleCt* refalt1_select, uintptr_t* nonref_flags, uint32_t* changed_ct_ptr, uint32_t* validated_ct_ptr, uint32_t* downgraded_ct_ptr) {
-  uint32_t variant_uidx = FindFirst1BitFrom(variant_include, cip->chr_fo_vidx_start[chr_fo_idx]);
+  uint32_t variant_uidx = AdvTo1Bit(variant_include, cip->chr_fo_vidx_start[chr_fo_idx]);
   const uint32_t bp_end = seqbuf_end - seqbuf;
   if (variant_bps[variant_uidx_last] >= bp_end) {
     const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
@@ -3658,19 +3626,17 @@ PglErr RefFromFaProcessContig(const uintptr_t* variant_include, const uint32_t* 
       return kPglRetSuccess;
     }
     ++variant_uidx;
-    FindFirst1BitFromU32(variant_include, &variant_uidx);
+    MovU32To1Bit(variant_include, &variant_uidx);
   }
 }
 
 PglErr RefFromFa(const uintptr_t* variant_include, const uint32_t* variant_bps, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const ChrInfo* cip, const char* fname, uint32_t max_allele_slen, uint32_t force, AltAlleleCt* refalt1_select, uintptr_t* nonref_flags) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  gzFile gz_infile = nullptr;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
+  ReadLineStream fa_rls;
+  PreinitRLstream(&fa_rls);
   {
-    if (gzopen_read_checked(fname, &gz_infile)) {
-      goto RefFromFa_ret_OPEN_FAIL;
-    }
     const uint32_t chr_ct = cip->chr_ct;
     char* chr_name_buf;
     uintptr_t* chr_already_seen;
@@ -3705,17 +3671,11 @@ PglErr RefFromFa(const uintptr_t* variant_include, const uint32_t* variant_bps, 
     // first base, correctly.
     seqbuf[0] = 'N';
 
-    uintptr_t loadbuf_size = bigstack_left();
-    if (loadbuf_size > kMaxLongLine) {
-      loadbuf_size = kMaxLongLine;
-    } else {
-      loadbuf_size = RoundDownPow2(loadbuf_size, kCacheline);
-      if (loadbuf_size <= kMaxMediumLine) {
-        goto RefFromFa_ret_NOMEM;
-      }
+    char* line_iter;
+    reterr = SizemaxAndInitRLstreamRaw(fname, &fa_rls, &line_iter);
+    if (reterr) {
+      goto RefFromFa_ret_1;
     }
-    char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
-    loadbuf[loadbuf_size - 1] = ' ';
 
     char* seqbuf_end = nullptr;
     char* seq_iter = nullptr;
@@ -3726,16 +3686,17 @@ PglErr RefFromFa(const uintptr_t* variant_include, const uint32_t* variant_bps, 
     uint32_t changed_ct = 0;
     uint32_t validated_ct = 0;
     uint32_t downgraded_ct = 0;
-    while (gzgets(gz_infile, loadbuf, loadbuf_size)) {
+    while (1) {
       ++line_idx;
-      if (!loadbuf[loadbuf_size - 1]) {
-        if (loadbuf_size == kMaxLongLine) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --ref-from-fa file is pathologically long.\n", line_idx);
-          goto RefFromFa_ret_MALFORMED_INPUT_2;
+      reterr = ReadNextLineFromRLstreamRaw(&fa_rls, &line_iter);
+      if (reterr) {
+        if (reterr == kPglRetSkipped) {
+          reterr = kPglRetSuccess;
+          break;
         }
-        goto RefFromFa_ret_NOMEM;
+        goto RefFromFa_ret_READ_RLSTREAM;
       }
-      unsigned char ucc = loadbuf[0];
+      unsigned char ucc = line_iter[0];
       if (ucc < 'A') {
         // > = ascii 62
         // ; = ascii 59
@@ -3752,12 +3713,13 @@ PglErr RefFromFa(const uintptr_t* variant_include, const uint32_t* variant_bps, 
             goto RefFromFa_ret_1;
           }
         }
-        char* chr_name_start = &(loadbuf[1]);
+        char* chr_name_start = &(line_iter[1]);
         if (IsSpaceOrEoln(*chr_name_start)) {
           snprintf(g_logbuf, kLogbufSize, "Error: Invalid contig description on line %" PRIuPTR " of --ref-from-fa file.%s\n", line_idx, (*chr_name_start == ' ')? " (Spaces are not permitted between the leading '>' and the contig name.)" : "");
           goto RefFromFa_ret_MALFORMED_INPUT_WW;
         }
         char* chr_name_end = CurTokenEnd(chr_name_start);
+        line_iter = S_CAST(char*, rawmemchr(chr_name_end, '\n'));
         *chr_name_end = '\0';
         const uint32_t chr_name_slen = chr_name_end - chr_name_start;
         chr_fo_idx = UINT32_MAX;
@@ -3782,32 +3744,31 @@ PglErr RefFromFa(const uintptr_t* variant_include, const uint32_t* variant_bps, 
         skip_chr = (chr_fo_idx == UINT32_MAX);
         continue;
       }
+      const char* line_start = line_iter;
+      line_iter = CurTokenEnd(line_iter);
+      const char* seqline_end = line_iter;
       if (skip_chr) {
         continue;
       }
-      const char* seqline_end = CurTokenEnd(loadbuf);
       ucc = *seqline_end;
       if ((ucc == ' ') || (ucc == '\t')) {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --ref-from-fa file is malformed.\n", line_idx);
         goto RefFromFa_ret_MALFORMED_INPUT_2;
       }
-      uint32_t cur_seq_slen = seqline_end - loadbuf;
+      uint32_t cur_seq_slen = seqline_end - line_start;
       const uint32_t seq_rem = seqbuf_end - seq_iter;
       if (seq_rem <= cur_seq_slen) {
         cur_seq_slen = seq_rem;
         skip_chr = 1;
       }
-      const char* gap_start = S_CAST(const char*, memchr(loadbuf, '-', cur_seq_slen));
+      const char* gap_start = S_CAST(const char*, memchr(line_start, '-', cur_seq_slen));
       if (gap_start) {
         logerrprintfww("Warning: Indeterminate-length gap present on line %" PRIuPTR " of --ref-from-fa file. Ignoring remainder of contig.\n", line_idx);
-        cur_seq_slen = gap_start - loadbuf;
+        cur_seq_slen = gap_start - line_start;
         skip_chr = 1;
       }
-      seq_iter = memcpya(seq_iter, loadbuf, cur_seq_slen);
+      seq_iter = memcpya(seq_iter, line_start, cur_seq_slen);
       // seq_iter = memcpya_toupper(seq_iter, loadbuf, cur_seq_slen);
-    }
-    if ((!gzeof(gz_infile)) || gzclose_null(&gz_infile)) {
-      goto RefFromFa_ret_READ_FAIL;
     }
     if (chr_fo_idx != UINT32_MAX) {
       reterr = RefFromFaProcessContig(variant_include, variant_bps, variant_allele_idxs, allele_storage, cip, force, chr_fo_idx, cur_vidx_last, seqbuf, seq_iter, refalt1_select, nonref_flags, &changed_ct, &validated_ct, &downgraded_ct);
@@ -3824,11 +3785,8 @@ PglErr RefFromFa(const uintptr_t* variant_include, const uint32_t* variant_bps, 
   RefFromFa_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  RefFromFa_ret_OPEN_FAIL:
-    reterr = kPglRetOpenFail;
-    break;
-  RefFromFa_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
+  RefFromFa_ret_READ_RLSTREAM:
+    RLstreamErrPrint("--ref-from-fa file", &fa_rls, &reterr);
     break;
   RefFromFa_ret_MALFORMED_INPUT_WW:
     WordWrapB(0);
@@ -3838,7 +3796,7 @@ PglErr RefFromFa(const uintptr_t* variant_include, const uint32_t* variant_bps, 
     break;
   }
  RefFromFa_ret_1:
-  gzclose_cond(gz_infile);
+  CleanupRLstream(&fa_rls);
   BigstackReset(bigstack_mark);
   return reterr;
 }

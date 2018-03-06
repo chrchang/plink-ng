@@ -985,10 +985,9 @@ HEADER_INLINE void ZeromovFArr(uintptr_t entry_ct, float** farr_ptr) {
 // void DivisionMagicNums(uint32_t divisor, uint64_t* multp, uint32_t* __restrict pre_shiftp, uint32_t* __restrict post_shiftp, uint32_t* __restrict incrp);
 
 
-// SetAllBits, IsSet, SetBit, ClearBit, FindFirst1BitFrom,
-// FindFirst1BitFromU32, FindFirst0BitFrom, FindFirst0BitFromU32,
-// FindFirst1BitFromBounded, FindLast1BitBefore, AllWordsAreZero defined in
-// plink2_base.h
+// SetAllBits, IsSet, SetBit, ClearBit, AdvTo1Bit, AdvTo0Bit, MovU32To1Bit,
+// MovU32To0Bit, AdvBoundedTo1Bit, FindLast1BitBefore, AllWordsAreZero defined
+// in plink2_base.h
 
 // Useful when we don't want to think about the signedness of a 32-bit int
 // (mainly relevant for chromosome codes right now).
@@ -1013,13 +1012,13 @@ HEADER_INLINE void FlipBit(uintptr_t loc, uintptr_t* bitarr) {
 void FillBitsNz(uintptr_t start_idx, uintptr_t end_idx, uintptr_t* bitarr);
 void ClearBitsNz(uintptr_t start_idx, uintptr_t end_idx, uintptr_t* bitarr);
 
-HEADER_INLINE void FindFirst1BitFromL(const uintptr_t* __restrict bitarr, uintptr_t* __restrict loc_ptr) {
+HEADER_INLINE void MovWTo1Bit(const uintptr_t* __restrict bitarr, uintptr_t* __restrict loc_ptr) {
   if (!IsSet(bitarr, *loc_ptr)) {
-    *loc_ptr = FindFirst1BitFrom(bitarr, *loc_ptr);
+    *loc_ptr = AdvTo1Bit(bitarr, *loc_ptr);
   }
 }
 
-uintptr_t FindFirst0BitFromBounded(const uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil);
+uintptr_t AdvBoundedTo0Bit(const uintptr_t* bitarr, uintptr_t loc, uintptr_t ceil);
 
 // floor permitted to be -1, though not smaller than that.
 int32_t FindLast1BitBeforeBounded(const uintptr_t* bitarr, uint32_t loc, int32_t floor);
@@ -1114,7 +1113,7 @@ int32_t GetVariantUidxWithoutHtable(const char* idstr, const char* const* varian
 // copy_subset() doesn't exist since a loop of the form
 //   uint32_t uidx = 0;
 //   for (uint32_t idx = 0; idx < subset_size; ++idx, ++uidx) {
-//     FindFirst1BitFromU32(subset_mask, &uidx);
+//     MovU32To1Bit(subset_mask, &uidx);
 //     *target_iter++ = source_arr[uidx];
 //   }
 // seems to compile better?

@@ -141,7 +141,7 @@ PglErr Export012Vmaj(const char* outname, const uintptr_t* sample_include, const
     char* write_iter = strcpya(writebuf, (exportf_delim == '\t')? "CHR\tSNP\t(C)M\tPOS\tCOUNTED\tALT" : "CHR SNP (C)M POS COUNTED ALT");
     uint32_t sample_uidx = 0;
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-      FindFirst1BitFromU32(sample_include, &sample_uidx);
+      MovU32To1Bit(sample_include, &sample_uidx);
       *write_iter++ = exportf_delim;
       const char* fid_start = &(sample_ids[sample_uidx * max_sample_id_blen]);
       const char* fid_end = S_CAST(const char*, rawmemchr(fid_start, exportf_delim));
@@ -166,7 +166,7 @@ PglErr Export012Vmaj(const char* outname, const uintptr_t* sample_include, const
     uint32_t next_print_variant_idx = variant_ct / 100;
     uint32_t variant_uidx = 0;
     for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
-      FindFirst1BitFromU32(variant_include, &variant_uidx);
+      MovU32To1Bit(variant_include, &variant_uidx);
       if (variant_uidx >= chr_end) {
         do {
           ++chr_fo_idx;
@@ -340,7 +340,7 @@ THREAD_FUNC_DECL TransposeToSmajReadThread(void* arg) {
     uint32_t cur_idx = (tidx * cur_block_copy_ct) / calc_thread_ct;
     uintptr_t* vmaj_readbuf_iter = &(g_vmaj_readbuf[(prev_copy_ct + cur_idx) * read_sample_ctaw2]);
     for (; cur_idx < cur_idx_end; ++cur_idx, ++variant_uidx) {
-      FindFirst1BitFromU32(variant_include, &variant_uidx);
+      MovU32To1Bit(variant_include, &variant_uidx);
       // todo: multiallelic case
       const PglErr reterr = PgrReadRefalt1GenovecSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, read_sample_ct, variant_uidx, pgrp, vmaj_readbuf_iter);
       if (reterr) {
@@ -510,7 +510,7 @@ PglErr ExportIndMajorBed(const uintptr_t* orig_sample_include, const uintptr_t* 
       g_variant_ct = variant_ct;
       g_output_calc_thread_ct = output_calc_thread_ct;
       g_error_ret = kPglRetSuccess;
-      uint32_t sample_uidx_start = FindFirst1BitFrom(orig_sample_include, 0);
+      uint32_t sample_uidx_start = AdvTo1Bit(orig_sample_include, 0);
       const uintptr_t variant_ct4 = QuaterCtToByteCt(variant_ct);
       const uintptr_t variant_ctaclw2 = variant_cacheline_ct * kWordsPerCacheline;
       const uint32_t read_block_sizel = BitCtToWordCt(read_block_size);
@@ -899,7 +899,7 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
     uint32_t ref_allele_idx = 0;
     uint32_t alt1_allele_idx = 1;
     for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
-      FindFirst1BitFromU32(variant_include, &variant_uidx);
+      MovU32To1Bit(variant_include, &variant_uidx);
       if (variant_uidx >= chr_end) {
         do {
           ++chr_fo_idx;
@@ -1123,7 +1123,7 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
     char* chr_buf = nullptr;
     uint32_t is_x = 0;
     uint32_t is_haploid = 0;
-    uint32_t variant_uidx = FindFirst1BitFrom(variant_include, 0);
+    uint32_t variant_uidx = AdvTo1Bit(variant_include, 0);
     uint32_t chr_fo_idx = UINT32_MAX;
     uint32_t chr_end = 0;
     uint32_t ref_allele_idx = 0;
@@ -1155,7 +1155,7 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
       logprintfww5("Writing %s ... ", outname);
       fflush(stdout);
       for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
-        FindFirst1BitFromU32(variant_include, &variant_uidx);
+        MovU32To1Bit(variant_include, &variant_uidx);
         write_iter = strcpyax(write_iter, variant_ids[variant_uidx], ' ');
         write_iter = u32toa_x(variant_bps[variant_uidx], ' ', write_iter);
         if (refalt1_select) {
@@ -1246,7 +1246,7 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
     uint32_t pct = 0;
     uint32_t next_print_variant_idx = variant_ct / 100;
     for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
-      FindFirst1BitFromU32(variant_include, &variant_uidx);
+      MovU32To1Bit(variant_include, &variant_uidx);
       if (variant_uidx >= chr_end) {
         do {
           ++chr_fo_idx;
@@ -1470,7 +1470,7 @@ THREAD_FUNC_DECL ExportBgen11Thread(void* arg) {
     uint32_t* variant_bytect_iter = &(g_variant_bytects[parity][write_idx]);
     uint32_t variant_uidx = g_read_variant_uidx_starts[tidx];
     for (; write_idx < write_idx_end; ++write_idx, ++variant_uidx) {
-      FindFirst1BitFromU32(variant_include, &variant_uidx);
+      MovU32To1Bit(variant_include, &variant_uidx);
       if (variant_uidx >= y_thresh) {
         if (variant_uidx < y_end) {
           y_thresh = y_end;
@@ -1794,7 +1794,7 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
         const unsigned char* compressed_data_iter = g_writebufs[parity];
         const uint32_t* variant_bytect_iter = g_variant_bytects[parity];
         for (uint32_t variant_bidx = 0; variant_bidx < prev_block_write_ct; ++variant_bidx, ++write_variant_uidx) {
-          FindFirst1BitFromU32(variant_include, &write_variant_uidx);
+          MovU32To1Bit(variant_include, &write_variant_uidx);
           if (write_variant_uidx >= chr_end) {
             do {
               ++chr_fo_idx;
@@ -2006,7 +2006,7 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* arg) {
     uint32_t* variant_bytect_iter = &(g_variant_bytects[parity][write_idx]);
     uint32_t variant_uidx = g_read_variant_uidx_starts[tidx];
     for (; write_idx < write_idx_end; ++write_idx, ++variant_uidx) {
-      FindFirst1BitFromU32(variant_include, &variant_uidx);
+      MovU32To1Bit(variant_include, &variant_uidx);
       if (variant_uidx >= chr_end) {
         do {
           ++chr_fo_idx;
@@ -2368,7 +2368,7 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
         const unsigned char* compressed_data_iter = g_writebufs[parity];
         const uint32_t* variant_bytect_iter = g_variant_bytects[parity];
         for (uint32_t variant_bidx = 0; variant_bidx < prev_block_write_ct; ++variant_bidx, ++write_variant_uidx) {
-          FindFirst1BitFromU32(variant_include, &write_variant_uidx);
+          MovU32To1Bit(variant_include, &write_variant_uidx);
           if (write_variant_uidx >= chr_end) {
             do {
               ++chr_fo_idx;
@@ -2573,7 +2573,7 @@ PglErr ExportOxSample(const char* outname, const uintptr_t* sample_include, cons
     const double male_geno_ct_recip = 1.0 / u31tod(variant_ct);
     uintptr_t sample_uidx = 0;
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-      FindFirst1BitFromL(sample_include, &sample_uidx);
+      MovWTo1Bit(sample_include, &sample_uidx);
       const char* cur_sample_id = &(sample_ids[max_sample_id_blen * sample_uidx]);
       const char* fid_end = S_CAST(const char*, rawmemchr(cur_sample_id, '\t'));
       write_iter = memcpyax(write_iter, cur_sample_id, fid_end - cur_sample_id, ' ');
@@ -2728,9 +2728,10 @@ char* HaploidDosagePrint(uint32_t rawval, char* start) {
 PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const uintptr_t* sex_male_collapsed, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const AltAlleleCt* refalt1_select, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, uintptr_t xheader_blen, uint32_t xheader_info_pr, uint32_t xheader_info_pr_nonflag, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, __maybe_unused uint32_t max_thread_ct, ExportfFlags exportf_flags, IdpasteFlags exportf_id_paste, char exportf_id_delim, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
-  gzFile gz_pvar_reload = nullptr;
   BGZF* bgz_outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
+  ReadLineStream pvar_reload_rls;
+  PreinitRLstream(&pvar_reload_rls);
   {
     if (!(exportf_flags & kfExportfBgz)) {
       snprintf(outname_end, kMaxOutfnameExtBlen, ".vcf");
@@ -2929,7 +2930,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
       goto ExportVcf_ret_NOMEM;
     }
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-      FindFirst1BitFromU32(sample_include, &sample_uidx);
+      MovU32To1Bit(sample_include, &sample_uidx);
       const char* orig_sample_id = &(sample_ids[sample_uidx * max_sample_id_blen]);
       const char* orig_fid_end = S_CAST(const char*, rawmemchr(orig_sample_id, '\t'));
       char* exported_sample_ids_iter = &(exported_sample_ids[sample_idx * max_exported_sample_id_blen]);
@@ -3030,11 +3031,10 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
       }
     }
 
-    char* loadbuf = nullptr;
-    uintptr_t loadbuf_size = 0;
+    char* pvar_reload_line_iter = nullptr;
     uint32_t info_col_idx = 0;
     if (pvar_info_reload) {
-      reterr = PvarInfoOpenAndReloadHeaderOld(pvar_info_reload, &gz_pvar_reload, &loadbuf, &loadbuf_size, &info_col_idx);
+      reterr = PvarInfoOpenAndReloadHeader(pvar_info_reload, &pvar_reload_rls, &pvar_reload_line_iter, &info_col_idx);
       if (reterr) {
         goto ExportVcf_ret_1;
       }
@@ -3071,14 +3071,14 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     uint32_t is_haploid = 0;  // includes chrX and chrY
     uint32_t pct = 0;
     uint32_t next_print_variant_idx = variant_ct / 100;
-    uint32_t gz_variant_uidx = 0;
+    uint32_t rls_variant_uidx = 0;
     uint32_t ref_allele_idx = 0;
     uint32_t alt1_allele_idx = 1;
     uint32_t cur_allele_ct = 2;
     for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
       // a lot of this is redundant with write_pvar(), may want to factor the
       // commonalities out
-      FindFirst1BitFromU32(variant_include, &variant_uidx);
+      MovU32To1Bit(variant_include, &variant_uidx);
       if (variant_uidx >= chr_end) {
         do {
           ++chr_fo_idx;
@@ -3169,7 +3169,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         uint32_t alt_allele_idx = 2;
         do {
           *write_iter++ = ',';
-          FindFirst1BitFromU32(allele_include, &cur_allele_uidx);
+          MovU32To1Bit(allele_include, &cur_allele_uidx);
           write_iter = strcpya(write_iter, cur_alleles[cur_allele_uidx++]);
           if (flexbwrite_ck(writebuf_flush, outfile, bgz_outfile, &write_iter)) {
             goto ExportVcf_ret_WRITE_FAIL;
@@ -3198,8 +3198,8 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
       // INFO
       *write_iter++ = '\t';
       const uint32_t is_pr = all_nonref || (nonref_flags && IsSet(nonref_flags, variant_uidx));
-      if (gz_pvar_reload) {
-        reterr = PvarInfoReloadAndWriteOld(loadbuf_size, xheader_info_pr, info_col_idx, variant_uidx, is_pr, gz_pvar_reload, &write_iter, &gz_variant_uidx, loadbuf);
+      if (pvar_reload_line_iter) {
+        reterr = PvarInfoReloadAndWrite(xheader_info_pr, info_col_idx, variant_uidx, is_pr, &pvar_reload_rls, &pvar_reload_line_iter, &write_iter, &rls_variant_uidx);
         if (reterr) {
           goto ExportVcf_ret_1;
         }
@@ -3641,7 +3641,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
   }
  ExportVcf_ret_1:
   fclose_cond(outfile);
-  gzclose_cond(gz_pvar_reload);
+  CleanupRLstream(&pvar_reload_rls);
   if (bgz_outfile) {
     bgzf_close(bgz_outfile);
   }
@@ -3692,7 +3692,7 @@ THREAD_FUNC_DECL DosageTransposeThread(void* arg) {
         uintptr_t* dosage_present_iter = dosagepresent_buf;
         Dosage* dosage_vals_iter = dosagevals_buf;
         for (uint32_t vidx_offset = 0; vidx_offset < vidx_block_size; ++vidx_offset, ++variant_uidx) {
-          FindFirst1BitFromU32(variant_include, &variant_uidx);
+          MovU32To1Bit(variant_include, &variant_uidx);
           // todo: multiallelic case
           uint32_t dosage_ct;
           uint32_t is_explicit_alt1;
@@ -3754,7 +3754,7 @@ THREAD_FUNC_DECL DosageTransposeThread(void* arg) {
             Dosage* cur_dosage_write = &(smaj_dosagebuf_iter[vidx_offset]);
             uint32_t sample_idx = 0;
             for (uint32_t dosage_idx = 0; dosage_idx < cur_dosage_ct; ++dosage_idx, ++sample_idx) {
-              FindFirst1BitFromU32(dosage_present, &sample_idx);
+              MovU32To1Bit(dosage_present, &sample_idx);
               cur_dosage_write[sample_idx * stride] = dosage_vals[dosage_idx];
             }
           }
@@ -3815,7 +3815,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
     uint32_t variant_uidx = 0;
     uint64_t bytes_written = 0;
     for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
-      FindFirst1BitFromU32(variant_include, &variant_uidx);
+      MovU32To1Bit(variant_include, &variant_uidx);
       *write_iter++ = exportf_delim;
       const char* cur_var_id = variant_ids[variant_uidx];
       const uint32_t cur_slen = strlen(cur_var_id);
@@ -3978,7 +3978,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
     const uintptr_t max_maternal_id_blen = piip->parental_id_info.max_maternal_id_blen;
     const uint32_t read_block_sizel = BitCtToWordCt(read_block_size);
     const uint32_t read_block_ct_m1 = (raw_variant_ct - 1) / read_block_size;
-    uint32_t sample_uidx_start = FindFirst1BitFrom(orig_sample_include, 0);
+    uint32_t sample_uidx_start = AdvTo1Bit(orig_sample_include, 0);
     for (uint32_t pass_idx = 0; pass_idx < pass_ct; ++pass_idx) {
       memcpy(sample_include, orig_sample_include, raw_sample_ctl * sizeof(intptr_t));
       if (sample_uidx_start) {
@@ -4095,7 +4095,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
       uint32_t sample_uidx = sample_uidx_start;
       const Dosage* cur_dosage_row = g_smaj_dosagebuf;
       for (uint32_t sample_idx = 0; sample_idx < read_sample_ct; ++sample_idx, ++sample_uidx) {
-        FindFirst1BitFromU32(sample_include, &sample_uidx);
+        MovU32To1Bit(sample_include, &sample_uidx);
         const char* cur_sample_fid = &(sample_ids[sample_uidx * max_sample_id_blen]);
         const char* fid_end = S_CAST(const char*, rawmemchr(cur_sample_fid, '\t'));
         write_iter = memcpyax(write_iter, cur_sample_fid, fid_end - cur_sample_fid, exportf_delim);

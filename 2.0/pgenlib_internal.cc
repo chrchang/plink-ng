@@ -2409,7 +2409,7 @@ uint64_t PgfiMultireadGetCachelineReq(const uintptr_t* variant_include, const Pg
       variant_uidx_end = raw_variant_ct;
     }
     if (variant_include) {
-      variant_uidx_start = FindFirst1BitFromBounded(variant_include, variant_uidx_start, variant_uidx_end);
+      variant_uidx_start = AdvBoundedTo1Bit(variant_include, variant_uidx_start, variant_uidx_end);
       if (variant_uidx_start == variant_uidx_end) {
         ++block_idx;
         continue;
@@ -2448,7 +2448,7 @@ PglErr PgfiMultiread(const uintptr_t* variant_include, uint32_t variant_uidx_sta
   // we could permit 0, but that encourages lots of unnecessary thread wakeups
   assert(load_variant_ct);
   if (variant_include) {
-    FindFirst1BitFromU32(variant_include, &variant_uidx_start);
+    MovU32To1Bit(variant_include, &variant_uidx_start);
   }
   assert(variant_uidx_start < pgfip->raw_variant_ct);
   uint64_t block_offset;
@@ -2476,13 +2476,13 @@ PglErr PgfiMultiread(const uintptr_t* variant_include, uint32_t variant_uidx_sta
         load_variant_ct = 0;
         break;
       }
-      cur_read_uidx_end = FindFirst0BitFrom(variant_include, variant_uidx_start);
+      cur_read_uidx_end = AdvTo0Bit(variant_include, variant_uidx_start);
       cur_read_end_fpos = GetPgfiFpos(pgfip, cur_read_uidx_end);
       load_variant_ct -= cur_read_uidx_end - variant_uidx_start;
       if (!load_variant_ct) {
         break;
       }
-      variant_uidx_start = FindFirst1BitFrom(variant_include, cur_read_uidx_end);
+      variant_uidx_start = AdvTo1Bit(variant_include, cur_read_uidx_end);
       next_read_start_fpos = GetPgfiFpos(pgfip, variant_uidx_start);
       if (pgfip->vrtypes && ((pgfip->vrtypes[variant_uidx_start] & 6) == 2)) {
         const uint32_t variant_read_uidx_start = GetLdbaseVidx(pgfip->vrtypes, variant_uidx_start);
@@ -4450,7 +4450,7 @@ void Aux1SubsetUpdateAlleleCounts(const uint32_t* __restrict ambig_sample_ids, c
   uint32_t ambig_idx = 0;
   if (alt_allele_ct == 2) {
     for (uint32_t aux_idx = 0; aux_idx < aux1_nonmissing_ct; ++aux_idx, ++ambig_idx) {
-      FindFirst1BitFromU32(aux1_nonmissing_vec, &ambig_idx);
+      MovU32To1Bit(aux1_nonmissing_vec, &ambig_idx);
       uint32_t sample_idx = ambig_sample_ids[ambig_idx];
       if (IsSet(sample_include, sample_idx)) {
         allele_ct_buf[GetQuaterarrEntry(aux1_code_vec, aux_idx)] += 1;
@@ -4476,7 +4476,7 @@ void Aux1SubsetUpdateAlleleCounts(const uint32_t* __restrict ambig_sample_ids, c
   const uint32_t entry_bit_ct = halfcode_bit_width * 2;
   const uintptr_t halfcode_mask = (k1LU << halfcode_bit_width) - 1;
   for (uint32_t aux_idx = 0; aux_idx < aux1_nonmissing_ct; ++aux_idx, ++ambig_idx) {
-    FindFirst1BitFromU32(aux1_nonmissing_vec, &ambig_idx);
+    MovU32To1Bit(aux1_nonmissing_vec, &ambig_idx);
     const uint32_t sample_idx = ambig_sample_ids[ambig_idx];
     if (IsSet(sample_include, sample_idx)) {
       const uintptr_t cur_code_unmasked = aux1_code_vec[aux_idx >> log2_codes_per_word] >> (entry_bit_ct * (aux_idx & idx_mask));
@@ -4529,7 +4529,7 @@ void Aux1UpdateRefOrAlt1Countvec(const uint32_t* __restrict ambig_sample_ids, co
     uintptr_t aux1_code_word = *aux1_code_vec_iter++;
     uint32_t aux_idx_lowbits = 0;
     while (1) {
-      FindFirst1BitFromU32(aux1_nonmissing_vec, &ambig_idx);
+      MovU32To1Bit(aux1_nonmissing_vec, &ambig_idx);
       const uint32_t sample_idx = ambig_sample_ids[ambig_idx];
       const uintptr_t cur_allele_ct = ((aux1_code_word & halfcode_mask) == allele_idx);
       AssignQuaterarrEntry(sample_idx, cur_allele_ct, allele_countvec);
@@ -4561,7 +4561,7 @@ void Aux1UpdateRefOrAlt1CountvecSubset(const uint32_t* __restrict ambig_sample_i
   const uint32_t halfcode_mask = (1 << ((code_bit_width / 2) + (code_bit_width == 2))) - 1;
   uint32_t ambig_idx = 0;
   for (uint32_t aux_idx = 0; aux_idx < aux1_nonmissing_ct; ++aux_idx, ++ambig_idx) {
-    FindFirst1BitFromU32(aux1_nonmissing_vec, &ambig_idx);
+    MovU32To1Bit(aux1_nonmissing_vec, &ambig_idx);
     const uint32_t sample_idx = ambig_sample_ids[ambig_idx];
     if (IsSet(sample_include, sample_idx)) {
       const uint32_t cur_code = (aux1_code_vec[aux_idx >> log2_codes_per_word] >> ((code_bit_width * aux_idx) & (kBitsPerWord - 1))) & halfcode_mask;
@@ -4594,7 +4594,7 @@ void Aux1UpdateRarealtCountvec(const uint32_t* __restrict ambig_sample_ids, cons
       uintptr_t aux1_code_word = *aux1_code_vec_iter++;
       uint32_t aux_idx_lowbits = 0;
       while (1) {
-        FindFirst1BitFromU32(aux1_nonmissing_vec, &ambig_idx);
+        MovU32To1Bit(aux1_nonmissing_vec, &ambig_idx);
         const uint32_t sample_idx = ambig_sample_ids[ambig_idx];
         uintptr_t cur_allele_ct = 1 + ((aux1_code_word & 3) == allele_idx);
         AssignQuaterarrEntry(sample_idx, cur_allele_ct, allele_countvec);
@@ -4632,7 +4632,7 @@ void Aux1UpdateRarealtCountvec(const uint32_t* __restrict ambig_sample_ids, cons
     uintptr_t aux1_code_word = *aux1_code_vec_iter++;
     uint32_t aux_idx_lowbits = 0;
     while (1) {
-      FindFirst1BitFromU32(aux1_nonmissing_vec, &ambig_idx);
+      MovU32To1Bit(aux1_nonmissing_vec, &ambig_idx);
       const uint32_t sample_idx = ambig_sample_ids[ambig_idx];
       const uintptr_t cur_allele_ct = ((aux1_code_word & halfcode_mask) == allele_idx) + (((aux1_code_word >> halfcode_bit_width) & halfcode_mask) == allele_idx);
       AssignQuaterarrEntry(sample_idx, cur_allele_ct, allele_countvec);
@@ -4650,7 +4650,7 @@ void Aux1UpdateRarealtCountvecSubset(const uint32_t* __restrict ambig_sample_ids
   if (alt_allele_ct == 2) {
     assert(allele_idx == 2);
     for (uint32_t aux_idx = 0; aux_idx < aux1_nonmissing_ct; ++aux_idx, ++ambig_idx) {
-      FindFirst1BitFromU32(aux1_nonmissing_vec, &ambig_idx);
+      MovU32To1Bit(aux1_nonmissing_vec, &ambig_idx);
       const uint32_t sample_idx = ambig_sample_ids[ambig_idx];
       if (IsSet(sample_include, sample_idx)) {
         const uint32_t cur_code = GetQuaterarrEntry(aux1_code_vec, aux_idx);
@@ -4674,7 +4674,7 @@ void Aux1UpdateRarealtCountvecSubset(const uint32_t* __restrict ambig_sample_ids
   const uint32_t code_bit_width = 2 * halfcode_bit_width;
   const uintptr_t halfcode_mask = (k1LU << halfcode_bit_width) - 1;
   for (uint32_t aux_idx = 0; aux_idx < aux1_nonmissing_ct; ++aux_idx, ++ambig_idx) {
-    FindFirst1BitFromU32(aux1_nonmissing_vec, &ambig_idx);
+    MovU32To1Bit(aux1_nonmissing_vec, &ambig_idx);
     const uint32_t sample_idx = ambig_sample_ids[ambig_idx];
     if (IsSet(sample_include, sample_idx)) {
       const uintptr_t cur_code_unmasked = aux1_code_vec[aux_idx >> log2_codes_per_word] >> ((code_bit_width * aux_idx) % kBitsPerWord);
@@ -4738,7 +4738,7 @@ void Aux1UpdateGenovecMatch2Unsafe(const uint32_t* __restrict ambig_sample_ids, 
     uintptr_t aux1_code_word = *aux1_code_vec_iter++;
     uint32_t aux_idx_lowbits = 0;
     while (1) {
-      FindFirst1BitFromU32(aux1_nonmissing_vec, &ambig_idx);
+      MovU32To1Bit(aux1_nonmissing_vec, &ambig_idx);
       const uint32_t cur_code = aux1_code_word & code_mask;
       const uint32_t match1 = (cur_code == code1);
       if (match1 || (cur_code == code02)) {
@@ -4793,7 +4793,7 @@ void Aux1UpdateGenovecSubsetMatch2(const uint32_t* __restrict ambig_sample_ids, 
   const uint32_t code_mask = (1 << code_bit_width) - 1;
   uint32_t ambig_idx = 0;
   for (uint32_t aux_idx = 0; aux_idx < aux1_nonmissing_ct; ++aux_idx, ++ambig_idx) {
-    FindFirst1BitFromU32(aux1_nonmissing_vec, &ambig_idx);
+    MovU32To1Bit(aux1_nonmissing_vec, &ambig_idx);
     const uint32_t sample_idx = ambig_sample_ids[ambig_idx];
     if (IsSet(sample_include, sample_idx)) {
       const uint32_t cur_code = (aux1_code_vec[aux_idx >> log2_codes_per_word] >> ((code_bit_width * aux_idx) & (kBitsPerWord - 1))) & code_mask;
@@ -4843,7 +4843,7 @@ void Aux1UpdateGenovecMatch3Unsafe(const uint32_t* __restrict ambig_sample_ids, 
     uintptr_t aux1_code_word = *aux1_code_vec_iter++;
     uint32_t aux_idx_lowbits = 0;
     while (1) {
-      FindFirst1BitFromU32(aux1_nonmissing_vec, &ambig_idx);
+      MovU32To1Bit(aux1_nonmissing_vec, &ambig_idx);
       const uint32_t cur_code = aux1_code_word & code_mask;
       const uint32_t match0 = (cur_code == code0);
       const uint32_t match1 = (cur_code == code1);
@@ -4886,7 +4886,7 @@ void Aux1UpdateGenovecSubsetMatch3(const uint32_t* __restrict ambig_sample_ids, 
   const uint32_t code_mask = (1 << code_bit_width) - 1;
   uint32_t ambig_idx = 0;
   for (uint32_t aux_idx = 0; aux_idx < aux1_nonmissing_ct; ++aux_idx, ++ambig_idx) {
-    FindFirst1BitFromU32(aux1_nonmissing_vec, &ambig_idx);
+    MovU32To1Bit(aux1_nonmissing_vec, &ambig_idx);
     const uint32_t sample_idx = ambig_sample_ids[ambig_idx];
     if (IsSet(sample_include, sample_idx)) {
       const uint32_t cur_code = (aux1_code_vec[aux_idx >> log2_codes_per_word] >> ((code_bit_width * aux_idx) & (kBitsPerWord - 1))) & code_mask;
@@ -5278,14 +5278,14 @@ PglErr PgrReadAlleleCountvecSubsetUnsafe(const uintptr_t* __restrict sample_incl
   if (subsetting_required) {
     uint32_t ambig_idx = 0;
     for (uint32_t ambig_missing_idx = 0; ambig_missing_idx < ambig_missing_ct; ++ambig_missing_idx) {
-      FindFirst0BitFromU32(aux1_nonmissing_vec, &ambig_idx);
+      MovU32To0Bit(aux1_nonmissing_vec, &ambig_idx);
       AssignQuaterarrEntry(RawToSubsettedPos(sample_include, sample_include_cumulative_popcounts, ambig_sample_ids[ambig_idx]), 3, allele_countvec);
     }
     Aux1UpdateRarealtCountvecSubset(ambig_sample_ids, aux1_nonmissing_vec, pgrp->workspace_aux1_code_vec, sample_include, sample_include_cumulative_popcounts, alt_allele_ct, aux1_nonmissing_ct, allele_idx, allele_countvec);
   } else {
     uint32_t ambig_idx = 0;
     for (uint32_t ambig_missing_idx = 0; ambig_missing_idx < ambig_missing_ct; ++ambig_missing_idx) {
-      FindFirst0BitFromU32(aux1_nonmissing_vec, &ambig_idx);
+      MovU32To0Bit(aux1_nonmissing_vec, &ambig_idx);
       AssignQuaterarrEntry(ambig_sample_ids[ambig_idx], 3, allele_countvec);
     }
     Aux1UpdateRarealtCountvec(ambig_sample_ids, aux1_nonmissing_vec, pgrp->workspace_aux1_code_vec, alt_allele_ct, aux1_nonmissing_ct, allele_idx, allele_countvec);
@@ -5781,7 +5781,7 @@ PglErr ParseDosage16(const unsigned char* fread_ptr, const unsigned char* fread_
         // bugfix (22 May 2017): dosage_entry_idx needs to iterate up to
         // raw_dosage_ct, not dosage_ct
         for (uint32_t dosage_entry_idx = 0; dosage_entry_idx < raw_dosage_ct; ++dosage_entry_idx, ++sample_uidx, ++dosage_vals_read_iter) {
-          FindFirst1BitFromU32(raw_dosage_present, &sample_uidx);
+          MovU32To1Bit(raw_dosage_present, &sample_uidx);
           if (!IsSet(sample_include, sample_uidx)) {
             continue;
           }
@@ -5978,7 +5978,7 @@ PglErr GetRefNonrefGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample
     const uint16_t* dosage_vals = R_CAST(const uint16_t*, fread_ptr);
     if (subsetting_required) {
       for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-        FindFirst1BitFromU32(sample_include, &sample_uidx);
+        MovU32To1Bit(sample_include, &sample_uidx);
         const uintptr_t cur_dosage_val = dosage_vals[sample_uidx];
         if (cur_dosage_val != 65535) {
           alt1_dosage += cur_dosage_val;
@@ -6025,7 +6025,7 @@ PglErr GetRefNonrefGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample
     uint32_t sample_uidx = 0;
     if (subsetting_required) {
       for (uint32_t dosage_idx = 0; dosage_idx < raw_dosage_ct; ++dosage_idx, ++sample_uidx) {
-        FindFirst1BitFromU32(raw_dosage_present, &sample_uidx);
+        MovU32To1Bit(raw_dosage_present, &sample_uidx);
         if (IsSet(sample_include, sample_uidx)) {
           const uintptr_t cur_dosage_val = dosage_vals_iter[dosage_idx];
           alt1_dosage += cur_dosage_val;
@@ -6300,7 +6300,7 @@ PglErr PgrReadMissingnessDosage(const uintptr_t* __restrict sample_include, cons
     const uint16_t* dosage_vals = (const uint16_t*)fread_ptr;
     uint32_t sample_uidx = 0;
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-      FindFirst1BitFromU32(sample_include, &sample_uidx);
+      MovU32To1Bit(sample_include, &sample_uidx);
       if (!IsSet(missingness, sample_idx)) {
         continue;
       }
@@ -6382,7 +6382,7 @@ PglErr PgrReadMissingnessMulti(const uintptr_t* __restrict sample_include, const
     const uint16_t* dosage_vals = R_CAST(const uint16_t*, fread_ptr);
     uint32_t sample_uidx = 0;
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
-      FindFirst1BitFromU32(sample_include, &sample_uidx);
+      MovU32To1Bit(sample_include, &sample_uidx);
       if (!IsSet(missingness_dosage, sample_idx)) {
         continue;
       }
@@ -8511,7 +8511,7 @@ uint32_t PwcAppendDeltalist(const uintptr_t* delta_bitarr, uint32_t deltalist_le
   uint32_t last_sample_idx = 0;
   uint32_t new_sample_idx = 0;
   for (uint32_t deltalist_idx = 0; deltalist_idx < deltalist_len; ++deltalist_idx, ++new_sample_idx) {
-    FindFirst1BitFromU32(delta_bitarr, &new_sample_idx);
+    MovU32To1Bit(delta_bitarr, &new_sample_idx);
     if (!(deltalist_idx % kPglDifflistGroupSize)) {
       SubUintStoreMov(new_sample_idx, sample_id_byte_ct, &group_first_sample_ids_iter);
       if (deltalist_idx) {
@@ -8669,7 +8669,7 @@ void AppendDphase16(const uintptr_t* __restrict dosage_present, const uintptr_t*
         loop_end = 1 + (dosage_ct % kBitsPerWord);
       }
       for (; dosage_idx_lowbits < loop_end; ++dosage_idx_lowbits, ++sample_idx) {
-        FindFirst1BitFromU32(dosage_present, &sample_idx);
+        MovU32To1Bit(dosage_present, &sample_idx);
         if (IsSet(dphase_present, sample_idx)) {
           dphase_present_write_word |= k1LU << dosage_idx_lowbits;
         }

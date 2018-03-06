@@ -997,7 +997,7 @@ HEADER_INLINE BoolErr fclose_null(FILE** fptr_ptr) {
 //   nondigit character.  E.g. "1000genomes" is treated as a valid instance of
 //   1000 rather than a nonnumeric token, and "98.6" is treated as 98.  (See
 //   ScanmovPosintCapped(), ScanmovUintCapped(), etc. in plink2_common if
-//   you want strtol-like semantics, where the pointer is advanced.)
+//   you want strtol-like semantics, where the pointer is moved.)
 // * Errors out on overflow.  This may be the biggest advantage over atoi().
 BoolErr ScanPosintCapped(const char* str_iter, uint64_t cap, uint32_t* valp);
 
@@ -1148,13 +1148,19 @@ void BitvecAnd(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintpt
 
 void BitvecAndNot(const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec);
 
-uintptr_t FindFirst1BitFrom(const uintptr_t* bitarr, uintptr_t loc);
+// Functions with "adv" in the name generally take an index or char-pointer as
+// an argument and return its new value, while "mov" functions take a
+// pointer-to-index or pointer-to-char-pointer and move it.
 
-uintptr_t FindFirst0BitFrom(const uintptr_t* bitarr, uintptr_t loc);
+// These return the current index if the corresponding bit satisfies the
+// condition.
+uintptr_t AdvTo1Bit(const uintptr_t* bitarr, uintptr_t loc);
+
+uintptr_t AdvTo0Bit(const uintptr_t* bitarr, uintptr_t loc);
 
 // uintptr_t NextNonmissingUnsafe(const uintptr_t* genoarr, uintptr_t loc);
 
-uint32_t FindFirst1BitFromBounded(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil);
+uint32_t AdvBoundedTo1Bit(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil);
 
 uint32_t FindLast1BitBefore(const uintptr_t* bitarr, uint32_t loc);
 
@@ -1611,15 +1617,15 @@ HEADER_INLINE void AssignBit(uintptr_t idx, uintptr_t newbit, uintptr_t* bitarr)
   *cur_word_ptr = ((*cur_word_ptr) & (~inv_mask)) | (inv_mask * newbit);
 }
 
-HEADER_INLINE void FindFirst1BitFromU32(const uintptr_t* __restrict bitarr, uint32_t* __restrict loc_ptr) {
+HEADER_INLINE void MovU32To1Bit(const uintptr_t* __restrict bitarr, uint32_t* __restrict loc_ptr) {
   if (!IsSet(bitarr, *loc_ptr)) {
-    *loc_ptr = FindFirst1BitFrom(bitarr, *loc_ptr);
+    *loc_ptr = AdvTo1Bit(bitarr, *loc_ptr);
   }
 }
 
-HEADER_INLINE void FindFirst0BitFromU32(const uintptr_t* __restrict bitarr, uint32_t* __restrict loc_ptr) {
+HEADER_INLINE void MovU32To0Bit(const uintptr_t* __restrict bitarr, uint32_t* __restrict loc_ptr) {
   if (IsSet(bitarr, *loc_ptr)) {
-    *loc_ptr = FindFirst0BitFrom(bitarr, *loc_ptr);
+    *loc_ptr = AdvTo0Bit(bitarr, *loc_ptr);
   }
 }
 

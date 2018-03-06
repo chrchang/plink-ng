@@ -124,7 +124,7 @@ void GenoarrPhasedToAlleleCodes(const uintptr_t* genoarr, const uintptr_t* phase
   uint32_t sample_uidx = 0;
   if (!phasebytes) {
     for (uint32_t phased_idx = 0; phased_idx < phasepresent_ct; ++phased_idx, ++sample_uidx) {
-      FindFirst1BitFromU32(phasepresent, &sample_uidx);
+      MovU32To1Bit(phasepresent, &sample_uidx);
       if (IsSet(phaseinfo, sample_uidx)) {
         // 1|0
         allele_codes_alias64[sample_uidx] = 1;
@@ -153,7 +153,7 @@ void GenoarrPhasedToAlleleCodes(const uintptr_t* genoarr, const uintptr_t* phase
     write_walias[widx++] = qw;
   }
   for (uint32_t phased_idx = 0; phased_idx < phasepresent_ct; ++phased_idx, ++sample_uidx) {
-    FindFirst1BitFromU32(phasepresent, &sample_uidx);
+    MovU32To1Bit(phasepresent, &sample_uidx);
     phasebytes[sample_uidx] = 1;
     if (IsSet(phaseinfo, sample_uidx)) {
       allele_codes_alias64[sample_uidx] = 1;
@@ -217,7 +217,7 @@ void Dosage16ToFloatsMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_pr
     const uint16_t* dosage_vals_iter = dosage_vals;
     uint32_t sample_uidx = 0;
     for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_uidx) {
-      FindFirst1BitFromU32(dosage_present, &sample_uidx);
+      MovU32To1Bit(dosage_present, &sample_uidx);
       // multiply by 2^{-14}
       geno_float[sample_uidx] = S_CAST(float, *dosage_vals_iter++) * 0.00006103515625f;
     }
@@ -249,7 +249,7 @@ void Dosage16ToDoublesMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_p
     const uint16_t* dosage_vals_iter = dosage_vals;
     uint32_t sample_uidx = 0;
     for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_uidx) {
-      FindFirst1BitFromU32(dosage_present, &sample_uidx);
+      MovU32To1Bit(dosage_present, &sample_uidx);
       geno_double[sample_uidx] = S_CAST(double, *dosage_vals_iter++) * 0.00006103515625;
     }
   }
@@ -276,6 +276,7 @@ void BytesToBitsUnsafe(const uint8_t* boolbytes, uint32_t sample_ct, uintptr_t* 
     //  |       |       |
     // 56      48      40
     // (the constant has bits 0, 7, 14, 21, 28, 35, 42, and 49 set)
+    // (can also use _pext_u64() in AVX2 case)
     write_alias[ullidx++] = S_CAST(unsigned char, (cur_ull * 0x2040810204081LLU) >> 49);
   }
 }

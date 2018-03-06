@@ -671,19 +671,15 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
   uintptr_t line_idx = 0;
   const uint32_t vcf_half_call_explicit_error = (vcf_half_call == kVcfHalfCallError);
   PglErr reterr = kPglRetSuccess;
-  uintptr_t linebuf_size = 0;
   ReadLineStream vcf_rls;
   STPgenWriter spgw;
   PreinitRLstream(&vcf_rls);
   PreinitSpgw(&spgw);
   {
-    if (StandardizeLinebufSize(bigstack_left() / 4, kMaxMediumLine + 1, &linebuf_size)) {
-      goto VcfToPgen_ret_NOMEM;
-    }
     // todo: customized open-fail error message if StrEndsWith(".vcf") or
     // ".vcf.gz"
     char* line_iter;
-    reterr = InitRLstreamRaw(vcfname, linebuf_size, &vcf_rls, &line_iter);
+    reterr = SizeAndInitRLstreamRaw(vcfname, bigstack_left() / 4, &vcf_rls, &line_iter);
     if (reterr) {
       goto VcfToPgen_ret_1;
     }
@@ -1858,7 +1854,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     break;
   VcfToPgen_ret_READ_RLSTREAM:
     putc_unlocked('\n', stdout);
-    RLstreamErrPrint("--vcf file", linebuf_size, line_idx, &reterr);
+    RLstreamErrPrint("--vcf file", &vcf_rls, &reterr);
     break;
   VcfToPgen_ret_MISSING_TOKENS:
     putc_unlocked('\n', stdout);
@@ -2189,7 +2185,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
       uint32_t old_col_uidx = 0;
       uint32_t col_uidx = 0;
       for (uint32_t uncertain_col_idx = 0; uncertain_col_idx < old_uncertain_col_ct; ++uncertain_col_idx, ++col_uidx) {
-        FindFirst0BitFromU32(col_keep, &col_uidx);
+        MovU32To0Bit(col_keep, &col_uidx);
         loadbuf_iter = NextTokenMult(loadbuf_iter, col_uidx - old_col_uidx);
         if (!loadbuf_iter) {
           goto OxSampleToPsam_ret_MISSING_TOKENS;

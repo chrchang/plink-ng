@@ -92,7 +92,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
       uint32_t variant_uidx = 0;
       if (pvals) {
         for (uint32_t vidx = 0; vidx < orig_variant_ct; ++vidx, ++variant_uidx) {
-          FindFirst1BitFromU32(variant_include, &variant_uidx);
+          MovU32To1Bit(variant_include, &variant_uidx);
           const double cur_chisq = chisqs[vidx];
           if (cur_chisq >= 0.0) {
             sortbuf[valid_variant_ct].chisq = cur_chisq;
@@ -103,7 +103,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
         }
       } else {
         for (uint32_t vidx = 0; vidx < orig_variant_ct; ++vidx, ++variant_uidx) {
-          FindFirst1BitFromU32(variant_include, &variant_uidx);
+          MovU32To1Bit(variant_include, &variant_uidx);
           const double cur_chisq = chisqs[vidx];
           if (cur_chisq >= 0.0) {
             sortbuf[valid_variant_ct].chisq = cur_chisq;
@@ -116,7 +116,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     } else {
       uint32_t variant_uidx = 0;
       for (uint32_t vidx = 0; vidx < orig_variant_ct; ++vidx, ++variant_uidx) {
-        FindFirst1BitFromU32(variant_include, &variant_uidx);
+        MovU32To1Bit(variant_include, &variant_uidx);
         const double cur_pval = pvals[vidx];
         if (cur_pval >= 0.0) {
           sortbuf[valid_variant_ct].chisq = (cur_pval == 0.0)? kMaxChisq1df : PToChisq(cur_pval, 1);
@@ -422,7 +422,6 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   const char* in_fname = afip->fname;
-  uintptr_t linebuf_size = 0;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
   ReadLineStream adjust_rls;
@@ -433,11 +432,8 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
     // intermission. Allocate top-level arrays.
     // 2. Rewind and fill arrays.
     // (some overlap with LoadPvar(), though that's one-pass.)
-    if (StandardizeLinebufSize(bigstack_left() / 4, kMaxMediumLine + 1, &linebuf_size)) {
-      goto AdjustFile_ret_NOMEM;
-    }
     char* line_iter;
-    reterr = InitRLstreamRaw(in_fname, linebuf_size, &adjust_rls, &line_iter);
+    reterr = SizeAndInitRLstreamRaw(in_fname, bigstack_left() / 4, &adjust_rls, &line_iter);
     if (reterr) {
       goto AdjustFile_ret_1;
     }
@@ -544,6 +540,7 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
       reterr = ReadNextLineFromRLstreamRaw(&adjust_rls, &line_iter);
       if (reterr) {
         if (reterr == kPglRetSkipped) {
+          // reterr = kPglRetSuccess;
           break;
         }
         goto AdjustFile_ret_READ_RLSTREAM;
@@ -723,9 +720,6 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
       pvals[variant_idx] = pval;
       ++variant_idx;
     }
-    if (CleanupRLstream(&adjust_rls)) {
-      goto AdjustFile_ret_READ_FAIL;
-    }
     BigstackEndReset(bigstack_end_mark);
     BigstackBaseSet(tmp_alloc_base);
     reterr = Multcomp(variant_include_dummy, nullptr, TO_CONSTCPCONSTP(chr_ids), variant_bps, TO_CONSTCPCONSTP(variant_ids), nullptr, TO_CONSTCPCONSTP(allele_storage), &(afip->base), pvals, nullptr, variant_ct, max_allele_slen, pfilter, output_min_p, 0, max_thread_ct, outname, outname_end);
@@ -738,7 +732,7 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
     reterr = kPglRetNomem;
     break;
   AdjustFile_ret_READ_RLSTREAM:
-    RLstreamErrPrint(in_fname, linebuf_size, line_idx, &reterr);
+    RLstreamErrPrint(in_fname, &adjust_rls, &reterr);
     break;
   AdjustFile_ret_READ_FAIL:
     reterr = kPglRetReadFail;

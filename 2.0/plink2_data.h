@@ -85,11 +85,7 @@ FLAGSET_DEF_END(PvarPsamFlags);
 
 PglErr WriteMapOrBim(const char* outname, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const uint64_t* allele_dosages, const AltAlleleCt* refalt1_select, const double* variant_cms, uint32_t variant_ct, uint32_t max_allele_slen, char delim, uint32_t output_zst, uint32_t thread_ct);
 
-PglErr PvarInfoOpenAndReloadHeaderOld(const char* pvar_info_reload, gzFile* gz_pvar_reload_ptr, char** loadbuf_ptr, uintptr_t* loadbuf_size_ptr, uint32_t* info_col_idx_ptr);
-
 PglErr PvarInfoOpenAndReloadHeader(const char* pvar_info_reload, ReadLineStream* pvar_reload_rlsp, char** line_iterp, uint32_t* info_col_idx_ptr);
-
-PglErr PvarInfoReloadAndWriteOld(uintptr_t loadbuf_size, uint32_t xheader_info_pr, uint32_t info_col_idx, uint32_t variant_uidx, uint32_t is_pr, gzFile gz_pvar_reload, char** write_iter_ptr, uint32_t* gz_variant_uidx_ptr, char* loadbuf);
 
 PglErr PvarInfoReloadAndWrite(uint32_t xheader_info_pr, uint32_t info_col_idx, uint32_t variant_uidx, uint32_t is_pr, ReadLineStream* pvar_reload_rls, char** line_iterp, char** write_iter_ptr, uint32_t* rls_variant_uidx_ptr);
 
