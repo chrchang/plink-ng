@@ -598,7 +598,7 @@ static inline uint32_t IsAcgtm(unsigned char ucc) {
 }
 
 static_assert((!(kMaxIdSlen % kCacheline)), "LoadPvar() must be updated.");
-PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattened, const char* varid_template, const char* missing_varid_match, const char* require_info_flattened, const char* require_no_info_flattened, const CmpExpr extract_if_info_expr, const CmpExpr exclude_if_info_expr, MiscFlags misc_flags, PvarPsamFlags pvar_psam_flags, ExportfFlags exportf_flags, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t split_chr_ok, ChrInfo* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, UnsortedVar* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** variant_allele_idxs_ptr, const char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, ChrIdx** chr_idxs_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, uint32_t* xheader_info_pr_ptr, uint32_t* xheader_info_pr_nonflag_ptr, uint32_t* max_filter_slen_ptr, uint32_t* pvar_nonref_default_ptr) {
+PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattened, const char* varid_template, const char* missing_varid_match, const char* require_info_flattened, const char* require_no_info_flattened, const CmpExpr extract_if_info_expr, const CmpExpr exclude_if_info_expr, MiscFlags misc_flags, PvarPsamFlags pvar_psam_flags, ExportfFlags exportf_flags, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t split_chr_ok, ChrInfo* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, UnsortedVar* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** variant_allele_idxs_ptr, const char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, ChrIdx** chr_idxs_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, InfoFlags* info_flags_ptr, uint32_t* max_filter_slen_ptr) {
   // chr_info, max_variant_id_slen, and info_reload_slen are in/out; just
   // outparameters after them.  (Due to its large size in some VCFs, INFO is
   // not kept in memory for now.  This has a speed penalty, of course; maybe
@@ -608,8 +608,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
 
   // should handle raw_variant_ct == 0 properly
 
-  // todo: upgrade this to handle split chromosomes, unsorted chromosomes/bp
-  //   coordinates, maybe skipping of allele code loading
+  // possible todo: optionally skip allele code loading
   // probable todo: load INFO:END.  (does this allow the CNV module to be
   //   unified with the rest of the program?)  but this will probably wait
   //   until I need to analyze some sort of CNV data, and that day keeps
@@ -659,9 +658,10 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       ++line_idx;
       reterr = ReadNextLineFromRLstreamRaw(&pvar_rls, &line_iter);
       if (reterr) {
-        if (reterr == kPglRetSkipped) {
+        if (reterr == kPglRetEof) {
           linebuf_first_token = &(line_iter[-1]);
           assert(linebuf_first_token[0] == '\n');
+          reterr = kPglRetSuccess;
           break;
         }
         goto LoadPvar_ret_READ_RLSTREAM;
@@ -728,9 +728,8 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           line_iter = line_end;
         }
       }
+      *info_flags_ptr = S_CAST(InfoFlags, (info_pr_present * kfInfoPrFlagPresent) | (info_pr_nonflag_present * kfInfoPrNonflagPresent) | (info_nonpr_present * kfInfoNonprPresent));
     }
-    *xheader_info_pr_ptr = info_pr_present;
-    *xheader_info_pr_nonflag_ptr = info_pr_nonflag_present;
     if (xheader_end) {
       *xheader_ptr = R_CAST(char*, bigstack_mark);
       *xheader_blen_ptr = xheader_end - (*xheader_ptr);
@@ -851,7 +850,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       // skip this line in main loop
       linebuf_first_token = K_CAST(char*, S_CAST(const char*, rawmemchr(linebuf_iter, '\n')));
     } else if (linebuf_first_token[0] != '\n') {
-      *pvar_nonref_default_ptr = 1;
+      *info_flags_ptr = kfInfoPrNonrefDefault;
       col_skips[0] = 1;
       col_skips[1] = 1;
       col_skips[2] = 1;
@@ -1591,7 +1590,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       ++line_idx;
       reterr = ReadFromRLstreamRaw(&pvar_rls, &line_iter);
       if (reterr) {
-        if (reterr == kPglRetSkipped) {
+        if (reterr == kPglRetEof) {
           reterr = kPglRetSuccess;
           break;
         }

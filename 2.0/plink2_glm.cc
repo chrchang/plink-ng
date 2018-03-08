@@ -164,7 +164,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
       goto GlmLocalOpen_ret_NOMEM;
     }
     char* line_iter;
-    reterr = InitRLstreamEx(local_psam_fname, 1, kMaxLongLine, linebuf_size, &rls, &line_iter);
+    reterr = InitRLstreamEndallocRaw(local_psam_fname, linebuf_size, &rls, &line_iter);
     if (reterr) {
       goto GlmLocalOpen_ret_1;
     }
@@ -173,7 +173,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
       ++line_idx;
       reterr = ReadNextLineFromRLstreamRaw(&rls, &line_iter);
       if (reterr) {
-        if (reterr == kPglRetSkipped) {
+        if (reterr == kPglRetEof) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", local_psam_fname);
           goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
         }
@@ -251,7 +251,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
       ++line_idx;
       reterr = ReadNextLineFromRLstreamRaw(&rls, &line_iter);
       if (reterr) {
-        if (reterr == kPglRetSkipped) {
+        if (reterr == kPglRetEof) {
           // reterr = kPglRetSuccess;
           break;
         }
@@ -304,7 +304,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
       ++line_idx;
       reterr = ReadNextLineFromRLstreamRaw(&rls, &line_iter);
       if (reterr) {
-        if (reterr == kPglRetSkipped) {
+        if (reterr == kPglRetEof) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", local_pvar_fname);
           goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
         }
@@ -530,7 +530,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
       ++line_iter;
       reterr = ReadFromRLstreamRaw(&rls, &line_iter);
       if (reterr) {
-        if (reterr == kPglRetSkipped) {
+        if (reterr == kPglRetEof) {
           // reterr = kPglRetSuccess;
           break;
         }
@@ -558,22 +558,40 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
 
     // 3. If not local-cats=, scan first line of local-covar= file to determine
     //    covariate count.
+    CleanupRLstream(&rls);
+    BigstackEndReset(bigstack_end_mark);
+    reterr = gzopen_read_checked(local_covar_fname, &local_covar_rlsp->gz_infile);
+    if (reterr) {
+      goto GlmLocalOpen_ret_1;
+    }
     uint32_t local_covar_ct;
     if (!glm_info_ptr->local_cat_ct) {
-      reterr = RetargetRLstreamRaw(local_covar_fname, &rls, &line_iter);
-      if (reterr) {
-        goto GlmLocalOpen_ret_READ_RLSTREAM_PVAR;
+      uintptr_t loadbuf_size = bigstack_left();
+      if (loadbuf_size > kMaxLongLine) {
+        loadbuf_size = kMaxLongLine;
+      } else if (loadbuf_size <= kMaxMediumLine) {
+        // this shouldn't be possible
+        goto GlmLocalOpen_ret_NOMEM;
       }
+      // don't formally allocate
+      char* loadbuf = R_CAST(char*, g_bigstack_base);
+      loadbuf[loadbuf_size - 1] = ' ';
       line_idx = 1;
-      reterr = ReadNextLineFromRLstreamRaw(&rls, &line_iter);
-      if (reterr) {
-        if (reterr == kPglRetSkipped) {
-          snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", local_covar_fname);
-          goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
+      if (!gzgets(local_covar_rlsp->gz_infile, loadbuf, loadbuf_size)) {
+        if (!gzeof(local_covar_rlsp->gz_infile)) {
+          goto GlmLocalOpen_ret_READ_FAIL;
         }
-        goto GlmLocalOpen_ret_READ_RLSTREAM_COVAR;
+        snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", local_covar_fname);
+        goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
       }
-      linebuf_first_token = FirstNonTspace(line_iter);
+      if (!loadbuf[loadbuf_size - 1]) {
+        if (loadbuf_size != kMaxLongLine) {
+          goto GlmLocalOpen_ret_NOMEM;
+        }
+        snprintf(g_logbuf, kLogbufSize, "Error: Line 1 of %s is pathologically long.\n", local_covar_fname);
+        goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
+      }
+      linebuf_first_token = FirstNonTspace(loadbuf);
       const uint32_t token_ct = CountTokens(linebuf_first_token);
       local_covar_ct = token_ct / local_sample_ct;
       if (local_covar_ct * local_sample_ct != token_ct) {
@@ -598,8 +616,6 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
       }
     }
     *local_covar_ct_ptr = local_covar_ct;
-    CleanupRLstream(&rls);
-    BigstackEndReset(bigstack_end_mark);
 
     // 4. Initialize final local-covar reader.
     uint64_t local_covar_linebuf_size = local_sample_ct;
@@ -621,7 +637,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
     }
     local_covar_linebuf_size = RoundUpPow2(local_covar_linebuf_size, kCacheline);
     char* local_covar_line_iter;  // unused since we always rewind
-    reterr = InitRLstreamEx(local_covar_fname, 0, local_covar_linebuf_size, local_covar_linebuf_size, local_covar_rlsp, &local_covar_line_iter);
+    reterr = InitRLstreamEx(0, local_covar_linebuf_size, local_covar_linebuf_size, local_covar_rlsp, &local_covar_line_iter);
     if (reterr) {
       goto GlmLocalOpen_ret_1;
     }
@@ -631,14 +647,14 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
   GlmLocalOpen_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
+  GlmLocalOpen_ret_READ_FAIL:
+    reterr = kPglRetNomem;
+    break;
   GlmLocalOpen_ret_READ_RLSTREAM_PSAM:
     RLstreamErrPrint(local_psam_fname, &rls, &reterr);
     break;
   GlmLocalOpen_ret_READ_RLSTREAM_PVAR:
     RLstreamErrPrint(local_pvar_fname, &rls, &reterr);
-    break;
-  GlmLocalOpen_ret_READ_RLSTREAM_COVAR:
-    RLstreamErrPrint(local_covar_fname, &rls, &reterr);
     break;
   GlmLocalOpen_ret_MALFORMED_INPUT_WW:
     WordWrapB(0);
@@ -3861,7 +3877,7 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
         ++local_line_idx;
         PglErr reterr = ReadNextLineFromRLstreamRaw(local_covar_rlsp, &local_covar_line_iter);
         if (reterr) {
-          if (reterr == kPglRetSkipped) {
+          if (reterr == kPglRetEof) {
             logputs("\n");
             logerrputs("Error: --glm local-covar= file has fewer lines than local-pvar= file.\n");
             return kPglRetMalformedInput;
@@ -3982,7 +3998,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     uint32_t local_line_idx = 0;
     uint32_t local_xy = 0;  // 1 = chrX, 2 = chrY
     if (local_covar_ct) {
-      reterr = RetargetRLstreamRaw(nullptr, local_covar_rlsp, &local_covar_line_iter);
+      reterr = RewindRLstreamRaw(local_covar_rlsp, &local_covar_line_iter);
       if (reterr) {
         goto GlmLogistic_ret_READ_RLSTREAM;
       }
@@ -5464,7 +5480,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     uint32_t local_line_idx = 0;
     uint32_t local_xy = 0;  // 1 = chrX, 2 = chrY
     if (local_covar_ct) {
-      reterr = RetargetRLstreamRaw(nullptr, local_covar_rlsp, &local_covar_line_iter);
+      reterr = RewindRLstreamRaw(local_covar_rlsp, &local_covar_line_iter);
       if (reterr) {
         goto GlmLinear_ret_READ_RLSTREAM;
       }

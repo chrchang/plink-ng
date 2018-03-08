@@ -603,7 +603,7 @@ PglErr LoadXidHeader(const char* flag_name, XidHeaderFlags xid_header_flags, cha
     ++line_idx;
     PglErr reterr = ReadNextLineFromRLstreamRaw(rlsp, &line_iter);
     if (reterr) {
-      if (reterr == kPglRetSkipped) {
+      if (reterr == kPglRetEof) {
         return kPglRetEmptyFile;
       }
       return reterr;

@@ -562,7 +562,7 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
         ++line_idx;
         reterr = ReadNextLineFromRLstreamRaw(&rls, &line_iter);
         if (reterr) {
-          if (reterr == kPglRetSkipped) {
+          if (reterr == kPglRetEof) {
             // reterr = kPglRetSuccess;
             break;
           }
@@ -749,7 +749,7 @@ PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_fl
       ++line_idx;
       reterr = ReadNextLineFromRLstreamRaw(&rls, &line_iter);
       if (reterr) {
-        if (reterr == kPglRetSkipped) {
+        if (reterr == kPglRetEof) {
           reterr = kPglRetSuccess;
           break;
         }
@@ -1436,7 +1436,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
       ++line_idx;
       reterr = ReadNextLineFromRLstreamRaw(&read_freq_rls, &line_iter);
       if (reterr) {
-        if (reterr == kPglRetSkipped) {
+        if (reterr == kPglRetEof) {
           logerrputs("Error: Empty --read-freq file.\n");
           goto ReadAlleleFreqs_ret_MALFORMED_INPUT;
         }
@@ -1650,7 +1650,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
             ++line_idx;
             reterr = ReadNextLineFromRLstreamRaw(&read_freq_rls, &line_iter);
             if (reterr) {
-              if (reterr == kPglRetSkipped) {
+              if (reterr == kPglRetEof) {
                 logerrputs("Error: Empty --read-freq file.\n");
                 goto ReadAlleleFreqs_ret_MALFORMED_INPUT;
               }
@@ -2375,7 +2375,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
       ++line_idx;
       reterr = ReadFromRLstreamRaw(&read_freq_rls, &line_iter);
       if (reterr) {
-        if (reterr == kPglRetSkipped) {
+        if (reterr == kPglRetEof) {
           reterr = kPglRetSuccess;
           break;
         }
@@ -3183,7 +3183,7 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
     for (uint32_t uii = 0; uii < skip_ct; ++uii) {
       reterr = ReadNextLineFromRLstreamRaw(&rls, &line_iter);
       if (reterr) {
-        if (reterr == kPglRetSkipped) {
+        if (reterr == kPglRetEof) {
           snprintf(g_logbuf, kLogbufSize, "Error: Fewer lines than expected in %s.\n", allele_flag_info->fname);
           goto SetRefalt1FromFile_ret_INCONSISTENT_INPUT_WW;
         }
@@ -3226,7 +3226,7 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
       ++line_iter;
       reterr = ReadFromRLstreamRaw(&rls, &line_iter);
       if (reterr) {
-        if (reterr == kPglRetSkipped) {
+        if (reterr == kPglRetEof) {
           reterr = kPglRetSuccess;
           break;
         }
@@ -3690,7 +3690,7 @@ PglErr RefFromFa(const uintptr_t* variant_include, const uint32_t* variant_bps, 
       ++line_idx;
       reterr = ReadNextLineFromRLstreamRaw(&fa_rls, &line_iter);
       if (reterr) {
-        if (reterr == kPglRetSkipped) {
+        if (reterr == kPglRetEof) {
           reterr = kPglRetSuccess;
           break;
         }

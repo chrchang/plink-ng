@@ -277,48 +277,42 @@ PglErr KinshipPruneDestructive(uintptr_t* kinship_table, uintptr_t* sample_inclu
 
 PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double king_cutoff, uintptr_t* sample_include, char* king_cutoff_fprefix, uint32_t* sample_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  gzFile gz_infile = nullptr;
   FILE* binfile = nullptr;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
+  ReadLineStream rls;
+  PreinitRLstream(&rls);
   {
     uint32_t sample_ct = *sample_ct_ptr;
     const uint32_t orig_sample_ctl = BitCtToWordCt(sample_ct);
     uintptr_t* kinship_table;
-    if (bigstack_calloc_w(sample_ct * orig_sample_ctl, &kinship_table)) {
+    uint32_t* sample_uidx_to_king_uidx;
+    if (bigstack_calloc_w(sample_ct * orig_sample_ctl, &kinship_table) ||
+        bigstack_alloc_u32(raw_sample_ct, &sample_uidx_to_king_uidx)) {
       goto KingCutoffBatch_ret_NOMEM;
     }
 
     char* fprefix_end = &(king_cutoff_fprefix[strlen(king_cutoff_fprefix)]);
     snprintf(fprefix_end, 9, ".king.id");
-    reterr = gzopen_read_checked(king_cutoff_fprefix, &gz_infile);
-    if (reterr) {
+    char* line_iter;
+    if (InitRLstreamMinsizeRaw(king_cutoff_fprefix, &rls, &line_iter)) {
       goto KingCutoffBatch_ret_1;
     }
-
-    uint32_t* sample_uidx_to_king_uidx;
-    char* loadbuf;
-    if (bigstack_alloc_u32(raw_sample_ct, &sample_uidx_to_king_uidx) ||
-        bigstack_alloc_c(kMaxMediumLine, &loadbuf)) {
-      goto KingCutoffBatch_ret_NOMEM;
-    }
     ++line_idx;
-    loadbuf[kMaxMediumLine - 1] = ' ';
-    if (!gzgets(gz_infile, loadbuf, kMaxMediumLine)) {
-      if (!gzeof(gz_infile)) {
-        goto KingCutoffBatch_ret_READ_FAIL;
+    reterr = ReadNextLineFromRLstreamRaw(&rls, &line_iter);
+    if (reterr) {
+      if (reterr == kPglRetEof) {
+        logerrputs("Error: Empty --king-cutoff ID file.\n");
+        goto KingCutoffBatch_ret_MALFORMED_INPUT;
       }
-      logerrputs("Error: Empty --king-cutoff ID file.\n");
-      goto KingCutoffBatch_ret_MALFORMED_INPUT;
+      goto KingCutoffBatch_ret_READ_RLSTREAM;
     }
-    if (!loadbuf[kMaxMediumLine - 1]) {
-      goto KingCutoffBatch_ret_LONG_LINE;
-    }
-    const char* loadbuf_first_token = FirstNonTspace(loadbuf);
-    if (IsEolnKns(*loadbuf_first_token)) {
+    line_iter = FirstNonTspace(line_iter);
+    if (IsEolnKns(*line_iter)) {
       goto KingCutoffBatch_ret_MISSING_TOKENS;
     }
-    const XidMode xid_mode = (siip->sids && NextTokenMult(loadbuf_first_token, 2))? kfXidModeFidIidSid : kfXidModeFidIid;
+    const char* linebuf_first_token = line_iter;
+    const XidMode xid_mode = (siip->sids && NextTokenMult(linebuf_first_token, 2))? kfXidModeFidIidSid : kfXidModeFidIid;
 
     uint32_t* xid_map;  // IDs not collapsed
     char* sorted_xidbox;
@@ -333,9 +327,9 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
     }
     SetAllU32Arr(raw_sample_ct, sample_uidx_to_king_uidx);
     while (1) {
-      const char* loadbuf_iter = loadbuf_first_token;
+      const char* linebuf_iter = linebuf_first_token;
       uint32_t sample_uidx;
-      if (!SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, sample_ct, 0, xid_mode, &loadbuf_iter, &sample_uidx, idbuf)) {
+      if (!SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx, idbuf)) {
         if (sample_uidx_to_king_uidx[sample_uidx] != UINT32_MAX) {
           char* first_tab = S_CAST(char*, rawmemchr(idbuf, '\t'));
           char* second_tab = strchr(&(first_tab[1]), '\t');
@@ -348,32 +342,30 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
         }
         sample_uidx_to_king_uidx[sample_uidx] = line_idx - 1;
       } else {
-        if (!loadbuf_iter) {
+        if (!linebuf_iter) {
           goto KingCutoffBatch_ret_MISSING_TOKENS;
         }
       }
+      line_iter = K_CAST(char*, linebuf_iter);
 
       ++line_idx;
-      if (!gzgets(gz_infile, loadbuf, kMaxMediumLine)) {
-        if (!gzeof(gz_infile)) {
-          goto KingCutoffBatch_ret_READ_FAIL;
+      reterr = ReadNextLineFromRLstreamRaw(&rls, &line_iter);
+      if (reterr) {
+        if (reterr == kPglRetEof) {
+          reterr = kPglRetSuccess;
+          break;
         }
-        break;
+        goto KingCutoffBatch_ret_READ_RLSTREAM;
       }
-      if (!loadbuf[kMaxMediumLine - 1]) {
-        goto KingCutoffBatch_ret_LONG_LINE;
-      }
-      loadbuf_first_token = FirstNonTspace(loadbuf);
-      if (IsEolnKns(*loadbuf_first_token)) {
+      line_iter = FirstNonTspace(line_iter);
+      if (IsEolnKns(*line_iter)) {
         goto KingCutoffBatch_ret_MISSING_TOKENS;
       }
     }
-    if (gzclose_null(&gz_infile)) {
-      goto KingCutoffBatch_ret_READ_FAIL;
-    }
     const uintptr_t king_id_ct = line_idx - 1;
 
-    BigstackReset(loadbuf);
+    BigstackReset(RLstreamMemStart(&rls));
+    CleanupRLstream(&rls);
     uintptr_t* king_include;
     uint32_t* king_uidx_to_sample_idx;
     if (bigstack_calloc_w(BitCtToWordCt(king_id_ct), &king_include) ||
@@ -502,8 +494,9 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
   KingCutoffBatch_ret_MISSING_TOKENS:
     logerrprintfww("Error: Fewer tokens than expected on line %" PRIuPTR " of %s .\n", line_idx, king_cutoff_fprefix);
     break;
-  KingCutoffBatch_ret_LONG_LINE:
-    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, king_cutoff_fprefix);
+  KingCutoffBatch_ret_READ_RLSTREAM:
+    RLstreamErrPrint(king_cutoff_fprefix, &rls, &reterr);
+    break;
   KingCutoffBatch_ret_MALFORMED_INPUT_WW:
     WordWrapB(0);
     logerrputsb();
@@ -513,7 +506,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
   }
  KingCutoffBatch_ret_1:
   fclose_cond(binfile);
-  gzclose_cond(gz_infile);
+  CleanupRLstream(&rls);
   BigstackReset(bigstack_mark);
   return reterr;
 }
@@ -1818,49 +1811,53 @@ THREAD_FUNC_DECL CalcKingTableSubsetThread(void* arg) {
   }
 }
 
-PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, double king_table_subset_thresh, XidMode xid_mode, uint32_t skip_sid, uint32_t kinship_skip, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, gzFile* gz_infilep, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* textbuf, char* idbuf) {
+PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, uintptr_t max_xid_blen, uintptr_t orig_sample_ct, double king_table_subset_thresh, XidMode xid_mode, uint32_t skip_sid, uint32_t kinship_skip, uint32_t is_first_parallel_scan, uint64_t pair_idx_start, uint64_t pair_idx_stop, ReadLineStream* rlsp, char** line_iter_ptr, uint64_t* pair_idx_ptr, uint32_t* loaded_sample_idx_pairs, char* idbuf) {
   uintptr_t line_idx = 1;
   PglErr reterr = kPglRetSuccess;
   {
     uint64_t pair_idx = *pair_idx_ptr;
+    char* line_iter = *line_iter_ptr;
     // Assumes header line already read if pair_idx == 0, and if pair_idx is
     // positive, we're that far into the file.
     // Assumes textbuf[kMaxMediumLine - 1] initialized to ' '.
     uint32_t* loaded_sample_idx_pairs_iter = loaded_sample_idx_pairs;
     while (1) {
-      if (!gzgets(*gz_infilep, textbuf, kMaxMediumLine)) {
-        if (!gzeof(*gz_infilep)) {
-          goto KingTableSubsetLoad_ret_READ_FAIL;
-        }
-        break;
-      }
       ++line_idx;
-      if (!textbuf[kMaxMediumLine - 1]) {
-        goto KingTableSubsetLoad_ret_LONG_LINE;
+      reterr = ReadNextLineFromRLstreamRaw(rlsp, &line_iter);
+      if (reterr) {
+        if (reterr == kPglRetEof) {
+          reterr = kPglRetSuccess;
+          // use line_iter = nullptr to mark EOF
+          line_iter = nullptr;
+          break;
+        }
+        goto KingTableSubsetLoad_ret_READ_RLSTREAM;
       }
-      const char* textbuf_iter = FirstNonTspace(textbuf);
-      if (IsEolnKns(*textbuf_iter)) {
+      line_iter = FirstNonTspace(line_iter);
+      if (IsEolnKns(*line_iter)) {
         continue;
       }
+      const char* linebuf_iter = line_iter;
       uint32_t sample_uidx1;
-      if (SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, xid_mode, &textbuf_iter, &sample_uidx1, idbuf)) {
-        if (!textbuf_iter) {
+      if (SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx1, idbuf)) {
+        if (!linebuf_iter) {
           goto KingTableSubsetLoad_ret_MISSING_TOKENS;
         }
         continue;
       }
-      textbuf_iter = FirstNonTspace(textbuf_iter);
+      linebuf_iter = FirstNonTspace(linebuf_iter);
       if (skip_sid) {
-        if (IsEolnKns(*textbuf_iter)) {
+        if (IsEolnKns(*linebuf_iter)) {
           goto KingTableSubsetLoad_ret_MISSING_TOKENS;
         }
-        textbuf_iter = FirstNonTspace(CurTokenEnd(textbuf_iter));
+        linebuf_iter = FirstNonTspace(CurTokenEnd(linebuf_iter));
       }
       uint32_t sample_uidx2;
-      if (SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, xid_mode, &textbuf_iter, &sample_uidx2, idbuf)) {
-        if (!textbuf_iter) {
+      if (SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx2, idbuf)) {
+        if (!linebuf_iter) {
           goto KingTableSubsetLoad_ret_MISSING_TOKENS;
         }
+        line_iter = K_CAST(char*, linebuf_iter);
         continue;
       }
       if (sample_uidx1 == sample_uidx2) {
@@ -1870,16 +1867,18 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, u
         goto KingTableSubsetLoad_ret_INCONSISTENT_INPUT_WW;
       }
       if (king_table_subset_thresh != -DBL_MAX) {
-        textbuf_iter = FirstNonTspace(textbuf_iter);
-        textbuf_iter = NextTokenMult0(textbuf_iter, kinship_skip);
-        if (!textbuf_iter) {
+        linebuf_iter = FirstNonTspace(linebuf_iter);
+        linebuf_iter = NextTokenMult0(linebuf_iter, kinship_skip);
+        if (!linebuf_iter) {
           goto KingTableSubsetLoad_ret_MISSING_TOKENS;
         }
         double cur_kinship;
-        if ((!ScanadvDouble(textbuf_iter, &cur_kinship)) || (cur_kinship < king_table_subset_thresh)) {
+        if ((!ScanadvDouble(linebuf_iter, &cur_kinship)) || (cur_kinship < king_table_subset_thresh)) {
+          line_iter = K_CAST(char*, linebuf_iter);
           continue;
         }
       }
+      line_iter = K_CAST(char*, linebuf_iter);
       if (pair_idx < pair_idx_start) {
         ++pair_idx;
         continue;
@@ -1896,17 +1895,12 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, u
         pair_idx_start = ~0LLU;
       }
     }
+    *line_iter_ptr = line_iter;
     *pair_idx_ptr = pair_idx;
   }
   while (0) {
-  KingTableSubsetLoad_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
-    break;
-  KingTableSubsetLoad_ret_LONG_LINE:
-    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --king-table-subset file is pathologically long.\n", line_idx);
-    WordWrapB(0);
-    logerrputsb();
-    reterr = kPglRetMalformedInput;
+  KingTableSubsetLoad_ret_READ_RLSTREAM:
+    RLstreamErrPrint("--king-table-subset file", rlsp, &reterr);
     break;
   KingTableSubsetLoad_ret_MISSING_TOKENS:
     snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --king-table-subset file has fewer tokens than expected.\n", line_idx);
@@ -1923,10 +1917,11 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
-  gzFile gz_infile = nullptr;
+  PglErr reterr = kPglRetSuccess;
+  ReadLineStream rls;
   CompressStreamState css;
   ThreadsState ts;
-  PglErr reterr = kPglRetSuccess;
+  PreinitRLstream(&rls);
   PreinitCstream(&css);
   InitThreads3z(&ts);
   {
@@ -2005,9 +2000,9 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
         logerrputs("Error: Failed to append '~' to --king-table-subset input filename.\n");
         goto CalcKingTableSubset_ret_OPEN_FAIL;
       }
-      reterr = gzopen_read_checked(g_textbuf, &gz_infile);
+      reterr = gzopen_read_checked(g_textbuf, &rls.gz_infile);
     } else {
-      reterr = gzopen_read_checked(subset_fname, &gz_infile);
+      reterr = gzopen_read_checked(subset_fname, &rls.gz_infile);
     }
     if (reterr) {
       goto CalcKingTableSubset_ret_1;
@@ -2043,72 +2038,69 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       goto CalcKingTableSubset_ret_NOMEM;
     }
 
-    g_textbuf[kMaxMediumLine - 1] = ' ';
-    if (!gzgets(gz_infile, g_textbuf, kMaxMediumLine)) {
-      if (!gzeof(gz_infile)) {
-        goto CalcKingTableSubset_ret_READ_FAIL;
+    char* line_iter;
+    if (InitRLstreamEx(0, kRLstreamBlenLowerBound, kRLstreamBlenLowerBound, &rls, &line_iter)) {
+      if (reterr == kPglRetEof) {
+        logerrputs("Error: Empty --king-table-subset file.\n");
+        goto CalcKingTableSubset_ret_MALFORMED_INPUT;
       }
-      logerrputs("Error: Empty --king-table-subset file.\n");
-      goto CalcKingTableSubset_ret_MALFORMED_INPUT;
+      goto CalcKingTableSubset_ret_READ_RLSTREAM;
     }
-    if (!g_textbuf[kMaxMediumLine - 1]) {
-      logerrputs("Error: Line 1 of --king-table-subset file is pathologically long.\n");
-      goto CalcKingTableSubset_ret_MALFORMED_INPUT;
-    }
-    const char* textbuf_iter = FirstNonTspace(g_textbuf);
-    if (IsEolnKns(*textbuf_iter)) {
+    line_iter = FirstNonTspace(line_iter);
+    if (IsEolnKns(*line_iter)) {
       goto CalcKingTableSubset_ret_INVALID_HEADER;
     }
-    const char* token_end = CurTokenEnd(textbuf_iter);
-    uint32_t token_slen = token_end - textbuf_iter;
+    const char* linebuf_iter = line_iter;
+    const char* token_end = CurTokenEnd(linebuf_iter);
+    uint32_t token_slen = token_end - linebuf_iter;
     // Make this work with both KING- and plink2-generated .kin0 files.
-    uint32_t fid_present = strequal_k(textbuf_iter, "#FID1", token_slen) || strequal_k(textbuf_iter, "FID", token_slen);
+    uint32_t fid_present = strequal_k(linebuf_iter, "#FID1", token_slen) || strequal_k(linebuf_iter, "FID", token_slen);
     if (fid_present) {
-      textbuf_iter = FirstNonTspace(token_end);
-      token_end = CurTokenEnd(textbuf_iter);
-      token_slen = token_end - textbuf_iter;
+      linebuf_iter = FirstNonTspace(token_end);
+      token_end = CurTokenEnd(linebuf_iter);
+      token_slen = token_end - linebuf_iter;
     } else {
-      if (*textbuf_iter != '#') {
+      if (*linebuf_iter != '#') {
         goto CalcKingTableSubset_ret_INVALID_HEADER;
       }
-      ++textbuf_iter;
+      ++linebuf_iter;
       --token_slen;
     }
-    if (!strequal_k(textbuf_iter, "ID1", token_slen)) {
+    if (!strequal_k(linebuf_iter, "ID1", token_slen)) {
       goto CalcKingTableSubset_ret_INVALID_HEADER;
     }
-    textbuf_iter = FirstNonTspace(token_end);
-    token_end = CurTokenEnd(textbuf_iter);
-    token_slen = token_end - textbuf_iter;
+    linebuf_iter = FirstNonTspace(token_end);
+    token_end = CurTokenEnd(linebuf_iter);
+    token_slen = token_end - linebuf_iter;
     uint32_t skip_sid = 0;
     XidMode xid_mode = fid_present? kfXidModeFidIid : kfXidModeIid;
-    if (strequal_k(textbuf_iter, "SID1", token_slen)) {
+    if (strequal_k(linebuf_iter, "SID1", token_slen)) {
       if (siip->sids) {
         xid_mode = fid_present? kfXidModeFidIidSid : kfXidModeIidSid;
       } else {
         skip_sid = 1;
       }
-      textbuf_iter = FirstNonTspace(token_end);
-      token_end = CurTokenEnd(textbuf_iter);
-      token_slen = token_end - textbuf_iter;
+      linebuf_iter = FirstNonTspace(token_end);
+      token_end = CurTokenEnd(linebuf_iter);
+      token_slen = token_end - linebuf_iter;
     }
     if (fid_present) {
-      if (!strequal_k(textbuf_iter, "FID2", token_slen)) {
+      if (!strequal_k(linebuf_iter, "FID2", token_slen)) {
         goto CalcKingTableSubset_ret_INVALID_HEADER;
       }
-      textbuf_iter = FirstNonTspace(token_end);
-      token_end = CurTokenEnd(textbuf_iter);
-      token_slen = token_end - textbuf_iter;
+      linebuf_iter = FirstNonTspace(token_end);
+      token_end = CurTokenEnd(linebuf_iter);
+      token_slen = token_end - linebuf_iter;
     }
-    if (!strequal_k(textbuf_iter, "ID2", token_slen)) {
+    if (!strequal_k(linebuf_iter, "ID2", token_slen)) {
       goto CalcKingTableSubset_ret_INVALID_HEADER;
     }
     if (xid_mode == kfXidModeFidIidSid) {
       // technically don't need to check this in skip_sid case
-      textbuf_iter = FirstNonTspace(token_end);
-      token_end = CurTokenEnd(textbuf_iter);
-      token_slen = token_end - textbuf_iter;
-      if (!strequal_k(textbuf_iter, "SID2", token_slen)) {
+      linebuf_iter = FirstNonTspace(token_end);
+      token_end = CurTokenEnd(linebuf_iter);
+      token_slen = token_end - linebuf_iter;
+      if (!strequal_k(linebuf_iter, "SID2", token_slen)) {
         goto CalcKingTableSubset_ret_INVALID_HEADER;
       }
     }
@@ -2116,14 +2108,14 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     if (king_table_subset_thresh != -DBL_MAX) {
       king_table_subset_thresh *= 1.0 - kSmallEpsilon;
       while (1) {
-        textbuf_iter = FirstNonTspace(token_end);
-        token_end = CurTokenEnd(textbuf_iter);
-        token_slen = token_end - textbuf_iter;
+        linebuf_iter = FirstNonTspace(token_end);
+        token_end = CurTokenEnd(linebuf_iter);
+        token_slen = token_end - linebuf_iter;
         if (!token_slen) {
           logerrputs("Error: No kinship-coefficient column in --king-table-subset file.\n");
           goto CalcKingTableSubset_ret_INCONSISTENT_INPUT;
         }
-        if (strequal_k(textbuf_iter, "KINSHIP", token_slen) || strequal_k(textbuf_iter, "Kinship", token_slen)) {
+        if (strequal_k(linebuf_iter, "KINSHIP", token_slen) || strequal_k(linebuf_iter, "Kinship", token_slen)) {
           break;
         }
         ++kinship_skip;
@@ -2160,7 +2152,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     uint64_t pair_idx = 0;
     fputs("Scanning --king-table-subset file...", stdout);
     fflush(stdout);
-    reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, kinship_skip, (parallel_tot != 1), 0, pair_buf_capacity, &gz_infile, &pair_idx, g_loaded_sample_idx_pairs, g_textbuf, idbuf);
+    reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, kinship_skip, (parallel_tot != 1), 0, pair_buf_capacity, &rls, &line_iter, &pair_idx, g_loaded_sample_idx_pairs, idbuf);
     if (reterr) {
       goto CalcKingTableSubset_ret_1;
     }
@@ -2179,11 +2171,11 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
         }
         if (pair_idx_global_stop > pair_buf_capacity) {
           // large --parallel job
-          gzrewind(gz_infile);
-          if (!gzgets(gz_infile, g_textbuf, kMaxMediumLine)) {
-            goto CalcKingTableSubset_ret_READ_FAIL;
+          reterr = RewindRLstreamRaw(&rls, &line_iter);
+          if (reterr) {
+            goto CalcKingTableSubset_ret_READ_RLSTREAM;
           }
-          reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, kinship_skip, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), &gz_infile, &pair_idx, g_loaded_sample_idx_pairs, g_textbuf, idbuf);
+          reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, kinship_skip, 0, pair_idx_global_start, MINV(pair_idx_global_stop, pair_idx_global_start + pair_buf_capacity), &rls, &line_iter, &pair_idx, g_loaded_sample_idx_pairs, idbuf);
           if (reterr) {
             goto CalcKingTableSubset_ret_1;
           }
@@ -2406,13 +2398,13 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
       putc_unlocked('\r', stdout);
       const uint64_t pair_complete_ct = pair_idx - pair_idx_global_start;
       logprintf("Subsetted --make-king-table: %" PRIu64 " pair%s complete.\n", pair_complete_ct, (pair_complete_ct == 1)? "" : "s");
-      if (gzeof(gz_infile)) {
+      if (!line_iter) {
         break;
       }
       pair_idx_cur_start = pair_idx;
       fputs("Scanning --king-table-subset file...", stdout);
       fflush(stdout);
-      reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, kinship_skip, 0, pair_idx_cur_start, MINV(pair_idx_global_stop, pair_idx_cur_start + pair_buf_capacity), &gz_infile, &pair_idx, g_loaded_sample_idx_pairs, g_textbuf, idbuf);
+      reterr = KingTableSubsetLoad(sorted_xidbox, xid_map, max_xid_blen, orig_sample_ct, king_table_subset_thresh, xid_mode, skip_sid, kinship_skip, 0, pair_idx_cur_start, MINV(pair_idx_global_stop, pair_idx_cur_start + pair_buf_capacity), &rls, &line_iter, &pair_idx, g_loaded_sample_idx_pairs, idbuf);
       if (reterr) {
         goto CalcKingTableSubset_ret_1;
       }
@@ -2434,8 +2426,8 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
   CalcKingTableSubset_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  CalcKingTableSubset_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
+  CalcKingTableSubset_ret_READ_RLSTREAM:
+    RLstreamErrPrint("--king-table-subset file", &rls, &reterr);
     break;
   CalcKingTableSubset_ret_PGR_FAIL:
     if (reterr != kPglRetReadFail) {
@@ -2459,7 +2451,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
   }
  CalcKingTableSubset_ret_1:
   CleanupThreads3z(&ts, nullptr);
-  gzclose_cond(gz_infile);
+  CleanupRLstream(&rls);
   CswriteCloseCond(&css, cswritep);
   fclose_cond(outfile);
   BigstackReset(bigstack_mark);
@@ -4626,15 +4618,15 @@ THREAD_FUNC_DECL CalcScoreThread(void* arg) {
 PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const double* allele_freqs, const ScoreInfo* score_info_ptr, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t xchr_model, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
-  gzFile gz_infile = nullptr;
-  uintptr_t loadbuf_size = 0;
   uintptr_t line_idx = 0;
-  ThreadsState ts;
-  InitThreads3z(&ts);
   char* cswritep = nullptr;
-  CompressStreamState css;
-  PreinitCstream(&css);
   PglErr reterr = kPglRetSuccess;
+  ReadLineStream score_rls;
+  ThreadsState ts;
+  CompressStreamState css;
+  PreinitRLstream(&score_rls);
+  InitThreads3z(&ts);
+  PreinitCstream(&css);
   {
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     if (!xchr_model) {
@@ -4659,41 +4651,28 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     // now xchr_model is set iff it's 1
 
     const ScoreFlags score_flags = score_info_ptr->flags;
-    reterr = gzopen_read_checked(score_info_ptr->input_fname, &gz_infile);
+    char* line_iter;
+    reterr = SizeAndInitRLstreamRaw(score_info_ptr->input_fname, bigstack_left() / 8, &score_rls, &line_iter);
     if (reterr) {
       goto ScoreReport_ret_1;
     }
-
-    loadbuf_size = bigstack_left() / 8;
-    if (loadbuf_size > kMaxLongLine) {
-      loadbuf_size = kMaxLongLine;
-    } else {
-      loadbuf_size = RoundDownPow2(loadbuf_size, kCacheline);
-      if (loadbuf_size <= kMaxMediumLine) {
-        goto ScoreReport_ret_NOMEM;
-      }
-    }
-    char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
-    loadbuf[loadbuf_size - 1] = ' ';
-    char* loadbuf_first_token;
     uint32_t lines_to_skip_p1 = 1 + ((score_flags / kfScoreHeaderIgnore) & 1);
     for (uint32_t uii = 0; uii < lines_to_skip_p1; ++uii) {
       do {
-        if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-          if (!gzeof(gz_infile)) {
-            goto ScoreReport_ret_READ_FAIL;
-          }
-          logerrputs("Error: Empty --score file.\n");
-          goto ScoreReport_ret_MALFORMED_INPUT;
-        }
         ++line_idx;
-        if (!loadbuf[loadbuf_size - 1]) {
-          goto ScoreReport_ret_LONG_LINE;
+        reterr = ReadNextLineFromRLstreamRaw(&score_rls, &line_iter);
+        if (reterr) {
+          if (reterr == kPglRetEof) {
+            logerrputs("Error: Empty --score file.\n");
+            goto ScoreReport_ret_MALFORMED_INPUT;
+          }
+          goto ScoreReport_ret_READ_RLSTREAM;
         }
-        loadbuf_first_token = FirstNonTspace(loadbuf);
-      } while (IsEolnKns(*loadbuf_first_token));
+        line_iter = FirstNonTspace(line_iter);
+      } while (IsEolnKns(*line_iter));
     }
-    uint32_t last_col_idx = CountTokens(loadbuf_first_token);
+    char* linebuf_first_token = line_iter;
+    uint32_t last_col_idx = CountTokens(linebuf_first_token);
     const uint32_t varid_col_idx = score_info_ptr->varid_col_p1 - 1;
     const uint32_t allele_col_idx = score_info_ptr->allele_col_p1 - 1;
     if (MAXV(varid_col_idx, allele_col_idx) >= last_col_idx) {
@@ -4751,10 +4730,10 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       goto ScoreReport_ret_NOMEM;
     }
     char* write_iter = R_CAST(char*, g_bigstack_base);
-    // don't have to worry about overflow, since loadbuf was limited to 1/8
+    // don't have to worry about overflow, since linebuf was limited to 1/8
     // of available workspace.
     if (score_flags & kfScoreHeaderRead) {
-      char* read_iter = loadbuf_first_token;
+      char* read_iter = linebuf_first_token;
       for (uintptr_t score_col_idx = 0; score_col_idx < score_col_ct; ++score_col_idx) {
         read_iter = NextTokenMult0(read_iter, score_col_idx_deltas[score_col_idx]);
         score_col_names[score_col_idx] = write_iter;
@@ -4764,7 +4743,8 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       }
 
       // don't reparse this line
-      *loadbuf_first_token = '\0';
+      line_iter = S_CAST(char*, rawmemchr(read_iter, '\n'));
+      linebuf_first_token = line_iter;
     } else {
       for (uintptr_t score_col_idx = 0; score_col_idx < score_col_ct; ++score_col_idx) {
         score_col_names[score_col_idx] = write_iter;
@@ -4888,9 +4868,9 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
 #endif
     PgrClearLdCache(simple_pgrp);
     while (1) {
-      if (!IsEolnKns(*loadbuf_first_token)) {
+      if (!IsEolnKns(*linebuf_first_token)) {
         // varid_col_idx and allele_col_idx will almost always be very small
-        char* variant_id_start = NextTokenMult0(loadbuf_first_token, varid_col_idx);
+        char* variant_id_start = NextTokenMult0(linebuf_first_token, varid_col_idx);
         if (!variant_id_start) {
           goto ScoreReport_ret_MISSING_TOKENS;
         }
@@ -4903,7 +4883,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             goto ScoreReport_ret_MALFORMED_INPUT_WW;
           }
           SetBit(variant_uidx, already_seen);
-          char* allele_start = NextTokenMult0(loadbuf_first_token, allele_col_idx);
+          char* allele_start = NextTokenMult0(linebuf_first_token, allele_col_idx);
           if (!allele_start) {
             goto ScoreReport_ret_MISSING_TOKENS;
           }
@@ -5140,7 +5120,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
 
             *allele_end = allele_end_char;
             double* cur_score_coefs_iter = &(cur_score_coefs_cmaj[block_vidx]);
-            const char* read_iter = loadbuf_first_token;
+            const char* read_iter = linebuf_first_token;
             for (uint32_t score_col_idx = 0; score_col_idx < score_col_ct; ++score_col_idx) {
               read_iter = NextTokenMult0(read_iter, score_col_idx_deltas[score_col_idx]);
               double raw_coef;
@@ -5197,17 +5177,17 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
           ++missing_var_id_ct;
         }
       }
-      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-        if (!gzeof(gz_infile)) {
-          goto ScoreReport_ret_READ_FAIL;
-        }
-        break;
-      }
       ++line_idx;
-      if (!loadbuf[loadbuf_size - 1]) {
-        goto ScoreReport_ret_LONG_LINE;
+      reterr = ReadNextLineFromRLstreamRaw(&score_rls, &line_iter);
+      if (reterr) {
+        if (reterr == kPglRetEof) {
+          reterr = kPglRetSuccess;
+          break;
+        }
+        goto ScoreReport_ret_READ_RLSTREAM;
       }
-      loadbuf_first_token = FirstNonTspace(loadbuf);
+      line_iter = FirstNonTspace(line_iter);
+      linebuf_first_token = line_iter;
     }
     VcountIncr4To8(missing_diploid_acc4, acc4_vec_ct, missing_diploid_acc8);
     VcountIncr8To32(missing_diploid_acc8, acc8_vec_ct, missing_diploid_acc32);
@@ -5255,9 +5235,6 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       goto ScoreReport_ret_THREAD_CREATE_FAIL;
     }
     JoinThreads3z(&ts);
-    if (gzclose_null(&gz_infile)) {
-      goto ScoreReport_ret_READ_FAIL;
-    }
     if (se_mode) {
       // sample_ct * score_col_ct
       for (uintptr_t ulii = 0; ulii < sample_ct * score_col_ct; ++ulii) {
@@ -5433,17 +5410,11 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     logprintfww("--score: Results written to %s .\n", outname);
   }
   while (0) {
-  ScoreReport_ret_LONG_LINE:
-    if (loadbuf_size == kMaxLongLine) {
-      logerrprintf("Error: Line %" PRIuPTR " of --score file is pathologically long.\n", line_idx);
-      reterr = kPglRetMalformedInput;
-      break;
-    }
+ ScoreReport_ret_READ_RLSTREAM:
+    RLstreamErrPrint("--score file", &score_rls, &reterr);
+    break;
   ScoreReport_ret_NOMEM:
     reterr = kPglRetNomem;
-    break;
-  ScoreReport_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
     break;
   ScoreReport_ret_WRITE_FAIL:
     reterr = kPglRetReadFail;
@@ -5479,7 +5450,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
   CswriteCloseCond(&css, cswritep);
   CleanupThreads3z(&ts, &g_cur_batch_size);
   BLAS_SET_NUM_THREADS(1);
-  gzclose_cond(gz_infile);
+  CleanupRLstream(&score_rls);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }

@@ -115,12 +115,15 @@ typedef struct ReadLineStreamSyncStruct {
   pthread_mutex_t sync_mutex;
   pthread_cond_t reader_progress_condvar;
   pthread_cond_t consumer_progress_condvar;
+  // bugfix (7 Mar 2018): need to avoid waiting on consumer_progress_condvar if
+  // this is set.  (could also check an appropriate predicate)
+  uint32_t consumer_progress_state;
 #endif
 
   char* consume_tail;
   char* cur_circular_end;
   char* available_end;
-  PglErr reterr;  // kPglRetSkipped used for eof for now
+  PglErr reterr;  // note that this is set to kPglRetEof once we reach eof
 
   RlsInterrupt interrupt;
   const char* new_fname;
@@ -155,6 +158,9 @@ typedef struct ReadLineStreamStruct {
 
 void PreinitRLstream(ReadLineStream* rlsp);
 
+CONSTU31(kRLstreamBlenLowerBound, 2 * kDecompressChunkSize);
+static_assert(kRLstreamBlenLowerBound >= kMaxMediumLine, "max_line_blen lower limit too small.");
+
 // required_byte_ct can't be greater than kMaxLongLine.
 // unstandardized_byte_ct cannot be bigstack_left() here, because the read
 // stream requires a few additional allocations; use
@@ -164,7 +170,7 @@ HEADER_INLINE BoolErr StandardizeLinebufSize(uintptr_t unstandardized_byte_ct, u
     *linebuf_sizep = kMaxLongLine;
     return 0;
   }
-  if (unstandardized_byte_ct < RoundUpPow2(MAXV(2 * kDecompressChunkSize, required_byte_ct), kCacheline)) {
+  if (unstandardized_byte_ct < RoundUpPow2(MAXV(kRLstreamBlenLowerBound, required_byte_ct), kCacheline)) {
     return 1;
   }
   *linebuf_sizep = RoundDownPow2(unstandardized_byte_ct, kCacheline);
@@ -183,7 +189,7 @@ HEADER_INLINE BoolErr StandardizeLinebufSizemax(uintptr_t required_byte_ct, uint
     *linebuf_sizep = kMaxLongLine;
     return 0;
   }
-  if (linebuf_size < RoundUpPow2(MAXV(2 * kDecompressChunkSize, required_byte_ct), kCacheline)) {
+  if (linebuf_size < RoundUpPow2(MAXV(kRLstreamBlenLowerBound, required_byte_ct), kCacheline)) {
     return 1;
   }
   *linebuf_sizep = RoundDownPow2(linebuf_size, kCacheline);
@@ -212,11 +218,40 @@ HEADER_INLINE BoolErr StandardizeLinebufSizemax(uintptr_t required_byte_ct, uint
 // insert a '\n' in the middle of the line or mutate the last character before
 // continuing iteration, as long as you don't manually change line_last.
 
+// if max_line_blen is a multiple of kCacheline and we're allocating on the
+// bottom, total bigstack usage is max_line_blen + this value.
+HEADER_CINLINE uintptr_t GetRLstreamExtraAlloc() {
+  return RoundUpPow2(sizeof(ReadLineStreamSync) + 1, kCacheline) + kDecompressChunkSize;
+}
+
+// gz_infile assumed to already be opened.  Ok if e.g. header line has already
+// been read from it.
 // enforced_max_line_blen must be a multiple of kCacheline.
-PglErr InitRLstreamEx(const char* fname, uint32_t alloc_at_end, uint32_t enforced_max_line_blen, uint32_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp);
+// name inspired by the Win32 API
+PglErr InitRLstreamEx(uint32_t alloc_at_end, uint32_t enforced_max_line_blen, uint32_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp);
 
 HEADER_INLINE PglErr InitRLstreamRaw(const char* fname, uint32_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp) {
-  return InitRLstreamEx(fname, 0, kMaxLongLine, max_line_blen, rlsp, consume_iterp);
+  PglErr reterr = gzopen_read_checked(fname, &rlsp->gz_infile);
+  if (reterr) {
+    return reterr;
+  }
+  return InitRLstreamEx(0, kMaxLongLine, max_line_blen, rlsp, consume_iterp);
+}
+
+HEADER_INLINE PglErr InitRLstreamEndallocRaw(const char* fname, uint32_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp) {
+  PglErr reterr = gzopen_read_checked(fname, &rlsp->gz_infile);
+  if (reterr) {
+    return reterr;
+  }
+  return InitRLstreamEx(1, kMaxLongLine, max_line_blen, rlsp, consume_iterp);
+}
+
+HEADER_INLINE PglErr InitRLstreamMinsizeRaw(const char* fname, ReadLineStream* rlsp, char** consume_iterp) {
+  PglErr reterr = gzopen_read_checked(fname, &rlsp->gz_infile);
+  if (reterr) {
+    return reterr;
+  }
+  return InitRLstreamEx(0, kRLstreamBlenLowerBound, kRLstreamBlenLowerBound, rlsp, consume_iterp);
 }
 
 HEADER_INLINE PglErr SizeAndInitRLstreamRaw(const char* fname, uintptr_t unstandardized_byte_ct, ReadLineStream* rlsp, char** consume_iterp) {

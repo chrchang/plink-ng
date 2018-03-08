@@ -145,7 +145,10 @@ BoolErr CloseGzTokenStream(GzTokenStream* gtsp) {
 
 void PreinitRLstream(ReadLineStream* rlsp) {
   rlsp->gz_infile = nullptr;
-#ifndef _WIN32
+#ifdef _WIN32
+  // bugfix (7 Mar 2018): forgot to initialize this
+  rlsp->read_thread = nullptr;
+#else
   rlsp->sync_init_state = 0;
 #endif
 }
@@ -204,6 +207,8 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
         char* latest_consume_tail;
 #ifdef _WIN32
         while (1) {
+          // bugfix (7 Mar 2018): do not wait for consumer_progress_event on
+          // first iteration?
           WaitForSingleObject(consumer_progress_event, INFINITE);
           EnterCriticalSection(critical_sectionp);
           interrupt = syncp->interrupt;
@@ -230,7 +235,10 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
           goto ReadLineStreamThread_INTERRUPT;
         }
         while (1) {
-          pthread_cond_wait(consumer_progress_condvarp, sync_mutexp);
+          while (!syncp->consumer_progress_state) {
+            pthread_cond_wait(consumer_progress_condvarp, sync_mutexp);
+          }
+          syncp->consumer_progress_state = 0;
           interrupt = syncp->interrupt;
           if (interrupt != kRlsInterruptNone) {
             goto ReadLineStreamThread_INTERRUPT;
@@ -244,7 +252,7 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
           } else if (latest_consume_tail <= cur_block_start) {
             break;
           }
-        };
+        }
         pthread_mutex_unlock(sync_mutexp);
 #endif
         if (read_stop == buf_end) {
@@ -347,7 +355,7 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
       break;
     ReadLineStreamThread_EOF:
       min_interrupt = kRlsInterruptRetarget;
-      reterr = kPglRetSkipped;
+      reterr = kPglRetEof;
       break;
     }
     // We need to wait for a message from the consumer before we can usefully
@@ -369,7 +377,7 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
       // It's our lucky day: we don't need to wait again.
       goto ReadLineStreamThread_INTERRUPT;
     }
-    if (reterr == kPglRetSkipped) {
+    if (reterr == kPglRetEof) {
       syncp->available_end = read_head;
     }
 #ifdef _WIN32
@@ -387,7 +395,10 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
 #else
     pthread_cond_signal(reader_progress_condvarp);
     do {
-      pthread_cond_wait(consumer_progress_condvarp, sync_mutexp);
+      while (!syncp->consumer_progress_state) {
+        pthread_cond_wait(consumer_progress_condvarp, sync_mutexp);
+      }
+      syncp->consumer_progress_state = 0;
       interrupt = syncp->interrupt;
     } while (interrupt < min_interrupt);
 #endif
@@ -433,7 +444,7 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
   }
 }
 
-PglErr InitRLstreamEx(const char* fname, uint32_t alloc_at_end, uint32_t enforced_max_line_blen, uint32_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp) {
+PglErr InitRLstreamEx(uint32_t alloc_at_end, uint32_t enforced_max_line_blen, uint32_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp) {
   PglErr reterr = kPglRetSuccess;
   {
     // To avoid a first-line special case, we start consume_iter at position
@@ -454,10 +465,6 @@ PglErr InitRLstreamEx(const char* fname, uint32_t alloc_at_end, uint32_t enforce
       syncp = R_CAST(ReadLineStreamSync*, g_bigstack_end);
     }
     char* buf = R_CAST(char*, R_CAST(uintptr_t, syncp) + sync_byte_ct);
-    reterr = gzopen_read_checked(fname, &rlsp->gz_infile);
-    if (reterr) {
-      goto InitRLstreamEx_ret_1;
-    }
     buf[-1] = '\n';
     rlsp->consume_stop = buf;
     rlsp->syncp = syncp;
@@ -502,6 +509,7 @@ PglErr InitRLstreamEx(const char* fname, uint32_t alloc_at_end, uint32_t enforce
       goto InitRLstreamEx_ret_THREAD_CREATE_FAIL;
     }
     rlsp->sync_init_state = 2;
+    syncp->consumer_progress_state = 0;
     if (pthread_cond_init(&syncp->consumer_progress_condvar, nullptr)) {
       goto InitRLstreamEx_ret_THREAD_CREATE_FAIL;
     }
@@ -521,7 +529,6 @@ PglErr InitRLstreamEx(const char* fname, uint32_t alloc_at_end, uint32_t enforce
     reterr = kPglRetThreadCreateFail;
     break;
   }
- InitRLstreamEx_ret_1:
   return reterr;
 }
 
@@ -534,7 +541,7 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
   while (1) {
     EnterCriticalSection(critical_sectionp);
     const PglErr reterr = syncp->reterr;
-    if (S_CAST(uint32_t, reterr) > S_CAST(uint32_t, kPglRetSkipped)) {
+    if ((reterr != kPglRetSuccess) && (reterr != kPglRetEof)) {
       LeaveCriticalSection(critical_sectionp);
       // No need to set consumer_progress event here, just let the cleanup
       // routine take care of that.
@@ -584,7 +591,7 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
   pthread_mutex_lock(sync_mutexp);
   while (1) {
     const PglErr reterr = syncp->reterr;
-    if (S_CAST(uint32_t, reterr) > S_CAST(uint32_t, kPglRetSkipped)) {
+    if ((reterr != kPglRetSuccess) && (reterr != kPglRetEof)) {
       pthread_mutex_unlock(sync_mutexp);
       return reterr;
     }
@@ -596,6 +603,7 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
           char* buf = rlsp->buf;
           syncp->consume_tail = buf;
           syncp->cur_circular_end = nullptr;
+          syncp->consumer_progress_state = 1;
           pthread_cond_signal(consumer_progress_condvarp);
           pthread_mutex_unlock(sync_mutexp);
           *consume_iterp = buf;
@@ -619,6 +627,7 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
       return reterr;
     }
     // ...and there's probably more.
+    syncp->consumer_progress_state = 1;
     pthread_cond_signal(consumer_progress_condvarp);
     // no need for an explicit spurious-wakeup check, we'll check the progress
     // condition (available_end has advanced, or we have a read error) anyway
@@ -636,7 +645,7 @@ PglErr RetargetRLstreamRaw(const char* new_fname, ReadLineStream* rlsp, char** c
   EnterCriticalSection(critical_sectionp);
   const PglErr reterr = syncp->reterr;
   if (reterr != kPglRetSuccess) {
-    if (S_CAST(uint32_t, reterr) != S_CAST(uint32_t, kPglRetSkipped)) {
+    if (reterr != kPglRetEof) {
       LeaveCriticalSection(critical_sectionp);
       return reterr;
     }
@@ -666,7 +675,7 @@ PglErr RetargetRLstreamRaw(const char* new_fname, ReadLineStream* rlsp, char** c
   pthread_mutex_lock(sync_mutexp);
   const PglErr reterr = syncp->reterr;
   if (reterr != kPglRetSuccess) {
-    if (S_CAST(uint32_t, reterr) != S_CAST(uint32_t, kPglRetSkipped)) {
+    if (reterr != kPglRetEof) {
       pthread_mutex_unlock(sync_mutexp);
       return reterr;
     }
@@ -678,6 +687,7 @@ PglErr RetargetRLstreamRaw(const char* new_fname, ReadLineStream* rlsp, char** c
   syncp->available_end = buf;
   syncp->interrupt = kRlsInterruptRetarget;
   syncp->new_fname = new_fname;
+  syncp->consumer_progress_state = 1;
   pthread_cond_signal(consumer_progress_condvarp);
   pthread_mutex_unlock(sync_mutexp);
 #endif
@@ -711,6 +721,7 @@ PglErr CleanupRLstream(ReadLineStream* rlsp) {
     if (sync_init_state == 4) {
       pthread_mutex_lock(sync_mutexp);
       syncp->interrupt = kRlsInterruptShutdown;
+      syncp->consumer_progress_state = 1;
       pthread_cond_signal(consumer_progress_condvarp);
       pthread_mutex_unlock(sync_mutexp);
       pthread_join(rlsp->read_thread, nullptr);
@@ -736,6 +747,7 @@ PglErr CleanupRLstream(ReadLineStream* rlsp) {
 void RLstreamErrPrint(const char* file_descrip, ReadLineStream* rlsp, PglErr* reterr_ptr) {
   if (*reterr_ptr != kPglRetLongLine) {
     if (*reterr_ptr == kPglRetOpenFail) {
+      putc_unlocked('\n', stdout);
       logerrprintfww(kErrprintfFopen, rlsp->syncp->new_fname);
     }
     return;
@@ -745,6 +757,7 @@ void RLstreamErrPrint(const char* file_descrip, ReadLineStream* rlsp, PglErr* re
     return;
   }
   // Could report accurate line number, but probably not worth the trouble.
+  putc_unlocked('\n', stdout);
   logerrprintfww("Error: Pathologically long line in %s.\n", file_descrip);
   *reterr_ptr = kPglRetMalformedInput;
 }

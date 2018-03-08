@@ -443,7 +443,7 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
       ++line_idx;
       reterr = ReadNextLineFromRLstreamRaw(&adjust_rls, &line_iter);
       if (reterr) {
-        if (reterr == kPglRetSkipped) {
+        if (reterr == kPglRetEof) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", in_fname);
           goto AdjustFile_ret_MALFORMED_INPUT_WW;
         }
@@ -539,7 +539,7 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
       ++line_idx;
       reterr = ReadNextLineFromRLstreamRaw(&adjust_rls, &line_iter);
       if (reterr) {
-        if (reterr == kPglRetSkipped) {
+        if (reterr == kPglRetEof) {
           // reterr = kPglRetSuccess;
           break;
         }

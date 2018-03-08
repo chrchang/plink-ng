@@ -91,7 +91,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 303
+#define PLINK2_BASE_VERNUM 304
 
 
 #define _FILE_OFFSET_BITS 64
@@ -290,8 +290,13 @@ typedef enum
   kPglRetWarningErrcode = 61,
   kPglRetImproperFunctionCall = 62,
   kPglRetNotYetSupported = 63,
-  kPglRetLongLine = 126,
-  kPglRetEmptyFile = 127}
+
+  // These are only for internal use.  If any of these reach the top level
+  // instead of being handled or converted to another error code, that's a bug,
+  // and plink2 prints a message to that effect.
+  kPglRetLongLine = 125,
+  kPglRetEmptyFile = 126,
+  kPglRetEof = 127}
 #if __cplusplus >= 201103L
   ;
 
@@ -335,6 +340,7 @@ const PglErr kPglRetImproperFunctionCall = PglErr::ec::kPglRetImproperFunctionCa
 const PglErr kPglRetNotYetSupported = PglErr::ec::kPglRetNotYetSupported;
 const PglErr kPglRetLongLine = PglErr::ec::kPglRetLongLine;
 const PglErr kPglRetEmptyFile = PglErr::ec::kPglRetEmptyFile;
+const PglErr kPglRetEof = PglErr::ec::kPglRetEof;
 #else
   PglErr;
 #endif

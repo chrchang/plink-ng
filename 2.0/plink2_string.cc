@@ -1553,58 +1553,70 @@ char* u32toa(uint32_t uii, char* start) {
   // Memory-efficient fast integer writer.  (You can do a bit better sometimes
   // by using a larger lookup table, but on average I doubt that pays off.)
   // Returns a pointer to the end of the integer (not null-terminated).
+  //
+  // Nearly identical to 'branchlut' from
+  // https://github.com/miloyip/itoa-benchmark , except that the hardcoded
+  // binary search is more balanced (start by comparing 6+ digits vs. <5,
+  // instead of 9+ digits vs. <8).  This tends to be slightly better unless the
+  // integers are almost uniformly distributed over [0, 2^32).
+  //
+  // (Since we want to execute different code depending on the number of
+  // digits, the UintSlen() approach doesn't pay off.)
   uint32_t quotient;
-  if (uii < 1000) {
-    if (uii < 10) {
+  if (uii < 100000) {
+    if (uii < 100) {
+      if (uii >= 10) {
+        goto u32toa_just2;
+      }
       *start++ = '0' + uii;
       return start;
     }
-    if (uii < 100) {
-      goto uint32toa_2;
+    if (uii < 10000) {
+      if (uii >= 1000) {
+        goto u32toa_just4;
+      }
+      quotient = uii / 100;
+      *start++ = '0' + quotient;
+      goto u32toa_2left;
     }
-    quotient = uii / 100;
+    quotient = uii / 10000;
+    *start++ = '0' + quotient;
+    goto u32toa_4left;
+  }
+  if (uii < 100000000) {
+    if (uii < 1000000) {
+      goto u32toa_just6;
+    }
+    if (uii >= 10000000) {
+      goto u32toa_just8;
+    }
+    quotient = uii / 1000000;
+    *start++ = '0' + quotient;
+    goto u32toa_6left;
+  }
+  quotient = uii / 100000000;
+  if (uii < 1000000000) {
     *start++ = '0' + quotient;
   } else {
-    if (uii < 10000000) {
-      if (uii >= 100000) {
-        if (uii < 1000000) {
-          goto uint32toa_6;
-        }
-        quotient = uii / 1000000;
-        *start++ = '0' + quotient;
-        goto uint32toa_6b;
-      }
-      if (uii < 10000) {
-        goto uint32toa_4;
-      }
-      quotient = uii / 10000;
-      *start++ = '0' + quotient;
-    } else {
-      if (uii >= 100000000) {
-        quotient = uii / 100000000;
-        if (uii >= 1000000000) {
-          start = memcpya(start, &(kDigitPair[quotient]), 2);
-        } else {
-          *start++ = '0' + quotient;
-        }
-        uii -= 100000000 * quotient;
-      }
-      quotient = uii / 1000000;
-      start = memcpya(start, &(kDigitPair[quotient]), 2);
-    uint32toa_6b:
-      uii -= 1000000 * quotient;
-    uint32toa_6:
-      quotient = uii / 10000;
-      start = memcpya(start, &(kDigitPair[quotient]), 2);
-    }
-    uii -= 10000 * quotient;
-  uint32toa_4:
-    // could make a uitoa_z4() call here, but that's slightly slower
-    quotient = uii / 100;
     start = memcpya(start, &(kDigitPair[quotient]), 2);
   }
-  uii -= 100 * quotient;
- uint32toa_2:
+  uii -= quotient * 100000000;
+ u32toa_just8:
+  quotient = uii / 1000000;
+  start = memcpya(start, &(kDigitPair[quotient]), 2);
+ u32toa_6left:
+  uii -= quotient * 1000000;
+ u32toa_just6:
+  quotient = uii / 10000;
+  start = memcpya(start, &(kDigitPair[quotient]), 2);
+ u32toa_4left:
+  uii -= quotient * 10000;
+ u32toa_just4:
+  quotient = uii / 100;
+  start = memcpya(start, &(kDigitPair[quotient]), 2);
+ u32toa_2left:
+  uii -= quotient * 100;
+ u32toa_just2:
   return memcpya(start, &(kDigitPair[uii]), 2);
 }
 

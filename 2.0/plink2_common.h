@@ -154,6 +154,16 @@ FLAGSET_DEF_START()
   kfSampleIdStrictSid0 = (1 << 4)
 FLAGSET_DEF_END(SampleIdFlags);
 
+FLAGSET_DEF_START()
+  kfInfo0,
+  kfInfoPrFlagPresent = (1 << 0),
+  kfInfoPrNonflagPresent = (1 << 1),
+  kfInfoNonprPresent = (1 << 2),
+  kfInfoAll = ((kfInfoNonprPresent * 2) - kfInfoPrFlagPresent),
+  // this is set in the .bim case
+  kfInfoPrNonrefDefault = (1 << 3),
+FLAGSET_DEF_END(InfoFlags);
+
 typedef struct SampleIdInfoStruct {
   char* sample_ids;
   char* sids;

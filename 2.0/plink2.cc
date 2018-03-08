@@ -61,7 +61,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (5 Mar 2018)";
+  " (7 Mar 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -120,18 +120,19 @@ FLAGSET64_DEF_START()
   kfFilterAllReq = (1 << 0),
   kfFilterPvarReq = (1 << 1),
   kfFilterPsamReq = (1 << 2),
-  kfFilterNoSplitChr = (1 << 3),
-  kfFilterExclFemales = (1 << 4),
-  kfFilterExclMales = (1 << 5),
-  kfFilterExclNosex = (1 << 6),
-  kfFilterExclFounders = (1 << 7),
-  kfFilterExclNonfounders = (1 << 8),
-  kfFilterSnpsOnly = (1 << 9),
-  kfFilterSnpsOnlyJustAcgt = (1 << 10),
-  kfFilterExtractIbed0 = (1 << 11),
-  kfFilterExtractIbed1 = (1 << 12),
-  kfFilterExcludeIbed0 = (1 << 13),
-  kfFilterExcludeIbed1 = (1 << 14)
+  kfFilterNonrefFlagsNeeded = (1 << 3),
+  kfFilterNoSplitChr = (1 << 4),
+  kfFilterExclFemales = (1 << 5),
+  kfFilterExclMales = (1 << 6),
+  kfFilterExclNosex = (1 << 7),
+  kfFilterExclFounders = (1 << 8),
+  kfFilterExclNonfounders = (1 << 9),
+  kfFilterSnpsOnly = (1 << 10),
+  kfFilterSnpsOnlyJustAcgt = (1 << 11),
+  kfFilterExtractIbed0 = (1 << 12),
+  kfFilterExtractIbed1 = (1 << 13),
+  kfFilterExcludeIbed0 = (1 << 14),
+  kfFilterExcludeIbed1 = (1 << 15)
 FLAGSET64_DEF_END(FilterFlags);
 
 FLAGSET64_DEF_START()
@@ -660,17 +661,15 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     uintptr_t* pvar_filter_npass = nullptr;
     const char* const* pvar_filter_storage = nullptr;
     uintptr_t* nonref_flags = nullptr;
-    uint32_t xheader_info_pr = 0;
-    uint32_t xheader_info_pr_nonflag = 0;
+    InfoFlags info_flags = kfInfo0;
     uint32_t max_allele_slen = 0;
     uint32_t max_filter_slen = 0;
     UnsortedVar vpos_sortstatus = kfUnsortedVar0;
     double* variant_cms = nullptr;
     ChrIdx* chr_idxs = nullptr;  // split-chromosome case only
-    uint32_t pvar_nonref_default = 0;
     if (pvarname[0]) {
       char** pvar_filter_storage_mutable = nullptr;
-      reterr = LoadPvar(pvarname, pcp->var_filter_exceptions_flattened, pcp->varid_template, pcp->missing_varid_match, pcp->require_info_flattened, pcp->require_no_info_flattened, pcp->extract_if_info_expr, pcp->exclude_if_info_expr, pcp->misc_flags, pcp->pvar_psam_flags, pcp->exportf_flags, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->dependency_flags & kfFilterNoSplitChr), cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids_mutable, &variant_allele_idxs, K_CAST(const char***, &allele_storage_mutable), &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage_mutable, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_slen, &xheader_blen, &xheader_info_pr, &xheader_info_pr_nonflag, &max_filter_slen, &pvar_nonref_default);
+      reterr = LoadPvar(pvarname, pcp->var_filter_exceptions_flattened, pcp->varid_template, pcp->missing_varid_match, pcp->require_info_flattened, pcp->require_no_info_flattened, pcp->extract_if_info_expr, pcp->exclude_if_info_expr, pcp->misc_flags, pcp->pvar_psam_flags, pcp->exportf_flags, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->dependency_flags & kfFilterNoSplitChr), cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids_mutable, &variant_allele_idxs, K_CAST(const char***, &allele_storage_mutable), &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage_mutable, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_slen, &xheader_blen, &info_flags, &max_filter_slen);
       if (reterr) {
         goto Plink2Core_ret_1;
       }
@@ -719,6 +718,25 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               logerrputs("Error: Failed to append '~' to input .pvar filename.\n");
               goto Plink2Core_ret_OPEN_FAIL;
             }
+          }
+        }
+      }
+      if ((pcp->dependency_flags & (kfFilterAllReq | kfFilterNonrefFlagsNeeded)) == kfFilterNonrefFlagsNeeded) {
+        // We need INFO:PR, but we don't really care about anything else
+        // potentially in the .pgen.
+        // So if INFO was present in the variant file, we don't need to look at
+        // the .pgen at all (even if there was no PR key; we infer that all
+        // reference alleles are accurate in that case).
+        // Conversely, if no .pgen filename was provided, and the variant file
+        // doesn't contain an INFO field, print a warning.
+        if (info_flags & kfInfoAll) {
+          pgenname[0] = '\0';
+        } else if (!pgenname[0]) {
+          logerrputs("Warning: Variant file does not distinguish between provisional and trusted REF\nalleles, and no .pgen input file was provided.\n");
+          if (info_flags & kfInfoPrNonrefDefault) {
+            logerrputs("Assuming all REF alleles are provisional.\n");
+          } else {
+            logerrputs("Assuming all REF alleles are trusted.\n");
           }
         }
       }
@@ -844,7 +862,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       // any functions using blockload must perform its own PgrInit(), etc.
     } else {
       // bugfix (10-11 Feb 2018): these variables may still be accessed
-      pgfi.gflags = S_CAST(PgenGlobalFlags, pvar_nonref_default * kfPgenGlobalAllNonref);
+      pgfi.gflags = S_CAST(PgenGlobalFlags, ((info_flags / kfInfoPrNonrefDefault) & 1) * kfPgenGlobalAllNonref);
       pgfi.nonref_flags = nonref_flags;
     }
     if (pcp->pheno_fname) {
@@ -2050,12 +2068,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         if (pcp->command_flags1 & kfCommand1MakePlink2) {
           // todo: unsorted case (--update-chr, etc.)
           if (pcp->sort_vars_flags != kfSort0) {
-            reterr = MakePlink2Vsort(xheader, sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, allele_dosages, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, chr_idxs, xheader_blen, xheader_info_pr, xheader_info_pr_nonflag, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, make_plink2_flags, (pcp->sort_vars_flags == kfSortNatural), pcp->pvar_psam_flags, &simple_pgr, outname, outname_end);
+            reterr = MakePlink2Vsort(xheader, sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, allele_dosages, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, chr_idxs, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, make_plink2_flags, (pcp->sort_vars_flags == kfSortNatural), pcp->pvar_psam_flags, &simple_pgr, outname, outname_end);
           } else {
             if (vpos_sortstatus & kfUnsortedVarBp) {
               logerrputs("Warning: Variants are not sorted by position.  Consider rerunning with the\n--sort-vars flag added to remedy this.\n");
             }
-            reterr = MakePlink2NoVsort(xheader, sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, allele_dosages, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, xheader_blen, xheader_info_pr, xheader_info_pr_nonflag, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, make_plink2_flags, pcp->pvar_psam_flags, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
+            reterr = MakePlink2NoVsort(xheader, sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, new_sample_idx_to_old, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, allele_dosages, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, pcp->hard_call_thresh, pcp->dosage_erase_thresh, make_plink2_flags, pcp->pvar_psam_flags, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
           }
           if (reterr) {
             goto Plink2Core_ret_1;
@@ -2064,7 +2082,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
 
         if (pcp->command_flags1 & kfCommand1Exportf) {
-          reterr = Exportf(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, xheader_blen, xheader_info_pr, xheader_info_pr_nonflag, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, make_plink2_flags, pcp->exportf_flags, pcp->exportf_id_paste, pcp->exportf_id_delim, pcp->exportf_bits, pgr_alloc_cacheline_ct, xheader, &pgfi, &simple_pgr, outname, outname_end);
+          reterr = Exportf(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, make_plink2_flags, pcp->exportf_flags, pcp->exportf_id_paste, pcp->exportf_id_delim, pcp->exportf_bits, pgr_alloc_cacheline_ct, xheader, &pgfi, &simple_pgr, outname, outname_end);
           if (reterr) {
             goto Plink2Core_ret_1;
           }
@@ -5564,6 +5582,9 @@ int main(int argc, char** argv) {
                 logerrputs("Error: --make-just-pvar cols= expression cannot exclude xheader when info is\npresent.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
+              if (pc.pvar_psam_flags & kfPvarColInfo) {
+                pc.dependency_flags |= kfFilterNonrefFlagsNeeded;
+              }
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --make-just-pvar parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
@@ -6895,7 +6916,7 @@ int main(int argc, char** argv) {
           if (reterr) {
             goto main_ret_1;
           }
-          pc.dependency_flags |= kfFilterPvarReq;
+          pc.dependency_flags |= kfFilterPvarReq | kfFilterNonrefFlagsNeeded;
         } else if (strequal_k_unsafe(flagname_p2, "andmem")) {
           randmem = 1;
           goto main_param_zero;
@@ -8077,7 +8098,9 @@ int main(int argc, char** argv) {
         }
       } else {
         // no genotype file required
-        pgenname[0] = '\0';
+        if (!(pc.dependency_flags & kfFilterNonrefFlagsNeeded)) {
+          pgenname[0] = '\0';
+        }
 
         if (pc.dependency_flags & kfFilterPvarReq) {
           if ((!xload) && (!(load_params & kfLoadParamsPvar))) {

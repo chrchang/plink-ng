@@ -232,10 +232,12 @@ PglErr ImportIidFromSampleId(const char* input_id_iter, const char* input_id_end
 }
 
 PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, ImportFlags import_flags, FamCol fam_cols, char id_delim, char idspace_to, char flag_char, char* sample_line_first_id, char* outname, char* outname_end, uintptr_t* sample_ct_ptr) {
-  gzFile gz_infile = nullptr;
+  unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
+  ReadLineStream psam_rls;
+  PreinitRLstream(&psam_rls);
   {
     ImportSampleIdContext isic;
     InitImportSampleIdContext(const_fid, import_flags, id_delim, &isic);
@@ -353,49 +355,40 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Im
       }
     } else {
       // check consistency of IIDs between VCF and .psam file.
-      reterr = gzopen_read_checked(preexisting_psamname, &gz_infile);
+      char* psam_line_iter;
+      reterr = SizemaxAndInitRLstreamRaw(preexisting_psamname, &psam_rls, &psam_line_iter);
       if (reterr) {
         goto VcfSampleLine_ret_1;
       }
-      uintptr_t loadbuf_size = bigstack_left();
-      if (loadbuf_size > kMaxLongLine) {
-        loadbuf_size = kMaxLongLine;
-      } else if (loadbuf_size <= kMaxMediumLine) {
-        goto VcfSampleLine_ret_NOMEM;
-      }
-      char* loadbuf = R_CAST(char*, g_bigstack_base);
-      // not formally allocated for now
-      loadbuf[loadbuf_size - 1] = ' ';
-      char* loadbuf_first_token;
+      uint32_t sample_line_eoln = (ctou32(sample_line_iter[0]) < 32);
       do {
         ++line_idx;
-        if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-          if (!gzeof(gz_infile)) {
-            goto VcfSampleLine_ret_READ_FAIL;
+        reterr = ReadNextLineFromRLstreamRaw(&psam_rls, &psam_line_iter);
+        if (reterr) {
+          if (reterr != kPglRetEof) {
+            goto VcfSampleLine_ret_READ_RLSTREAM;
           }
-          loadbuf_first_token = loadbuf;
-          loadbuf_first_token[0] = '\0';
-          break;
-        }
-        if (!loadbuf[loadbuf_size - 1]) {
-          if (loadbuf_size == kMaxLongLine) {
-            goto VcfSampleLine_ret_LONG_LINE;
+          if (!sample_line_eoln) {
+            snprintf(g_logbuf, kLogbufSize, "Error: --%ccf file contains more sample IDs than %s.\n", flag_char, preexisting_psamname);
+            goto VcfSampleLine_ret_INCONSISTENT_INPUT_WW;
           }
-          goto VcfSampleLine_ret_NOMEM;
+          *sample_ct_ptr = 0;
+          reterr = kPglRetSuccess;
+          goto VcfSampleLine_ret_1;
         }
-        loadbuf_first_token = FirstNonTspace(loadbuf);
-      } while (IsEolnKns(*loadbuf_first_token) || ((loadbuf_first_token[0] == '#') && (!tokequal_k(&(loadbuf_first_token[1]), "FID")) && (!tokequal_k(&(loadbuf_first_token[1]), "IID"))));
+        psam_line_iter = FirstNonTspace(psam_line_iter);
+      } while (IsEolnKns(*psam_line_iter) || ((psam_line_iter[0] == '#') && (!tokequal_k(&(psam_line_iter[1]), "FID")) && (!tokequal_k(&(psam_line_iter[1]), "IID"))));
+      char* linebuf_first_token = psam_line_iter;
       uint32_t fid_present;
-      if (loadbuf_first_token[0] == '#') {
+      if (linebuf_first_token[0] == '#') {
         // only check for matching IIDs for now.
-        fid_present = (loadbuf_first_token[1] == 'F');
+        fid_present = (linebuf_first_token[1] == 'F');
       } else {
         fid_present = fam_cols & kfFamCol1;
       }
-      uint32_t sample_line_eoln = (ctou32(sample_line_iter[0]) < 32);
       while (1) {
-        if (!IsEolnKns(*loadbuf_first_token)) {
-          const char* psam_iid_start = loadbuf_first_token;
+        if (!IsEolnKns(*linebuf_first_token)) {
+          const char* psam_iid_start = linebuf_first_token;
           if (fid_present) {
             psam_iid_start = FirstNonTspace(CurTokenEnd(psam_iid_start));
             if (IsEolnKns(*psam_iid_start)) {
@@ -420,28 +413,23 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Im
           }
           sample_line_eoln = (*sample_line_token_end != '\t');
           sample_line_iter = &(sample_line_token_end[1]);
+          psam_line_iter = K_CAST(char*, psam_iid_start);
         }
         ++line_idx;
-        if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-          if (!gzeof(gz_infile)) {
-            goto VcfSampleLine_ret_READ_FAIL;
+        reterr = ReadNextLineFromRLstreamRaw(&psam_rls, &psam_line_iter);
+        if (reterr) {
+          if (reterr == kPglRetEof) {
+            reterr = kPglRetSuccess;
+            break;
           }
-          break;
+          goto VcfSampleLine_ret_READ_RLSTREAM;
         }
-        if (!loadbuf[loadbuf_size - 1]) {
-          if (loadbuf_size == kMaxLongLine) {
-            goto VcfSampleLine_ret_LONG_LINE;
-          }
-          goto VcfSampleLine_ret_NOMEM;
-        }
-        loadbuf_first_token = FirstNonTspace(loadbuf);
-        if (loadbuf_first_token[0] == '#') {
+        psam_line_iter = FirstNonTspace(psam_line_iter);
+        linebuf_first_token = psam_line_iter;
+        if (linebuf_first_token[0] == '#') {
           snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line, and a #FID/IID header line is present it must denote the end of the header block.)\n", line_idx, preexisting_psamname);
           goto VcfSampleLine_ret_MALFORMED_INPUT_WW;
         }
-      }
-      if (gzclose_null(&gz_infile)) {
-        goto VcfSampleLine_ret_READ_FAIL;
       }
       if (!sample_line_eoln) {
         snprintf(g_logbuf, kLogbufSize, "Error: --%ccf file contains more sample IDs than %s.\n", flag_char, preexisting_psamname);
@@ -451,20 +439,15 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Im
     *sample_ct_ptr = sample_ct;
   }
   while (0) {
-  VcfSampleLine_ret_NOMEM:
-    reterr = kPglRetNomem;
-    break;
   VcfSampleLine_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
-  VcfSampleLine_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
+  VcfSampleLine_ret_READ_RLSTREAM:
+    RLstreamErrPrint(preexisting_psamname, &psam_rls, &reterr);
     break;
   VcfSampleLine_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
-  VcfSampleLine_ret_LONG_LINE:
-    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, preexisting_psamname);
   VcfSampleLine_ret_MALFORMED_INPUT_WW:
     WordWrapB(0);
     logerrputsb();
@@ -483,8 +466,9 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Im
     break;
   }
  VcfSampleLine_ret_1:
-  gzclose_cond(gz_infile);
+  CleanupRLstream(&psam_rls);
   fclose_cond(outfile);
+  BigstackReset(bigstack_mark);
   return reterr;
 }
 
@@ -676,10 +660,26 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
   PreinitRLstream(&vcf_rls);
   PreinitSpgw(&spgw);
   {
-    // todo: customized open-fail error message if StrEndsWith(".vcf") or
-    // ".vcf.gz"
+    uintptr_t linebuf_size;
+    if (StandardizeLinebufSize(bigstack_left() / 4, kMaxMediumLine + 1, &linebuf_size)) {
+      goto VcfToPgen_ret_NOMEM;
+    }
+    vcf_rls.gz_infile = gzopen(vcfname, FOPEN_RB);
+    if (!vcf_rls.gz_infile) {
+      const uint32_t slen = strlen(vcfname);
+      if (StrEndsWith(vcfname, ".vcf", slen) ||
+          StrEndsWith(vcfname, ".vcf.gz", slen)) {
+        logerrprintfww(kErrprintfFopen, vcfname);
+      } else {
+        logerrprintfww("Error: Failed to open %s. (--vcf expects a complete filename; did you forget '.vcf' at the end?)\n", vcfname);
+      }
+      goto VcfToPgen_ret_OPEN_FAIL;
+    }
+    if (gzbuffer(vcf_rls.gz_infile, 131072)) {
+      goto VcfToPgen_ret_NOMEM;
+    }
     char* line_iter;
-    reterr = SizeAndInitRLstreamRaw(vcfname, bigstack_left() / 4, &vcf_rls, &line_iter);
+    reterr = InitRLstreamEx(0, kMaxLongLine, linebuf_size, &vcf_rls, &line_iter);
     if (reterr) {
       goto VcfToPgen_ret_1;
     }
@@ -702,8 +702,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       ++line_idx;
       reterr = ReadNextLineFromRLstreamRaw(&vcf_rls, &line_iter);
       if (reterr) {
-        if (reterr == kPglRetSkipped) {
-          // eof
+        if (reterr == kPglRetEof) {
           logerrputs("Error: No #CHROM header line or variant records in --vcf file.\n");
           goto VcfToPgen_ret_MALFORMED_INPUT;
         }
@@ -903,7 +902,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       ++line_idx;
       reterr = ReadNextLineFromRLstreamRaw(&vcf_rls, &line_iter);
       if (reterr) {
-        if (reterr == kPglRetSkipped) {
+        if (reterr == kPglRetEof) {
+          // reterr = kPglRetSuccess;
           break;
         }
         goto VcfToPgen_ret_READ_RLSTREAM;
@@ -1204,7 +1204,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       logerrprintfww("Warning: %" PRIuPTR " multiallelic variant%s %sskipped (not yet supported).\n", multiallelic_skip_ct, (multiallelic_skip_ct == 1)? "" : "s", variant_skip_ct? "also " : "");
     }
 
-    // error shouldn't be possible here since we read to eof?
+    // error shouldn't be possible here since we read to eof
     RewindRLstreamRaw(&vcf_rls, &line_iter);
 
     const uintptr_t line_ct = line_idx - 1;
@@ -1222,12 +1222,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     }
     line_idx = 0;
     while (1) {
-      reterr = ReadNextLineFromRLstreamRaw(&vcf_rls, &line_iter);
-      if (reterr) {
-        if (reterr == kPglRetSkipped) {
-          reterr = kPglRetReadFail;
-        }
-        goto VcfToPgen_ret_READ_RLSTREAM;
+      if (ReadNextLineFromRLstreamRaw(&vcf_rls, &line_iter)) {
+        goto VcfToPgen_ret_READ_FAIL;
       }
       if (++line_idx == header_line_ct) {
         break;
@@ -1402,12 +1398,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
 
     uint32_t vidx = 0;
     for (line_idx = header_line_ct + 1; line_idx <= line_ct; ++line_idx) {
-      reterr = ReadNextLineFromRLstreamRaw(&vcf_rls, &line_iter);
-      if (reterr) {
-        if (reterr == kPglRetSkipped) {
-          reterr = kPglRetReadFail;
-        }
-        goto VcfToPgen_ret_READ_RLSTREAM;
+      if (ReadNextLineFromRLstreamRaw(&vcf_rls, &line_iter)) {
+        goto VcfToPgen_ret_READ_FAIL;
       }
       if (ctou32(*line_iter) < 32) {
         continue;
@@ -1836,6 +1828,9 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
   VcfToPgen_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
     break;
+  VcfToPgen_ret_READ_FAIL:
+    reterr = kPglRetReadFail;
+    break;
   VcfToPgen_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
     break;
@@ -1891,11 +1886,11 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
 
 PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, ImportFlags import_flags, char* outname, char* outname_end, uint32_t* sample_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  gzFile gz_infile = nullptr;
   FILE* psamfile = nullptr;
   PglErr reterr = kPglRetSuccess;
-  uintptr_t loadbuf_size = 0;
   uintptr_t line_idx = 0;
+  ReadLineStream sample_rls;
+  PreinitRLstream(&sample_rls);
   {
     uint32_t omp_slen = 2;
     char output_missing_pheno[kMaxMissingPhenostrBlen];
@@ -1911,8 +1906,12 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     const char* missing_catname = g_missing_catname;
     uint32_t missing_catname_slen = strlen(missing_catname);
 
-    gz_infile = gzopen(samplename, FOPEN_RB);
-    if (!gz_infile) {
+    uintptr_t linebuf_size;
+    if (StandardizeLinebufSize(bigstack_left() / 4, kMaxMediumLine + 1, &linebuf_size)) {
+      goto OxSampleToPsam_ret_NOMEM;
+    }
+    sample_rls.gz_infile = gzopen(samplename, FOPEN_RB);
+    if (!sample_rls.gz_infile) {
       const uint32_t slen = strlen(samplename);
       if (StrEndsWith(samplename, ".sample", slen) ||
           StrEndsWith(samplename, ".sample.gz", slen)) {
@@ -1922,8 +1921,10 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
       }
       goto OxSampleToPsam_ret_OPEN_FAIL;
     }
-    if (gzbuffer(gz_infile, 131072)) {
-      goto OxSampleToPsam_ret_NOMEM;
+    char* line_iter;
+    reterr = InitRLstreamEx(0, kMaxLongLine, linebuf_size, &sample_rls, &line_iter);
+    if (reterr) {
+      goto OxSampleToPsam_ret_1;
     }
     uint32_t mc_ct = 0;
     uintptr_t max_mc_blen = 1;
@@ -1971,28 +1972,19 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
         qsort(sorted_mc, mc_ct, max_mc_blen, strcmp_casted);
       }
     }
-    loadbuf_size = bigstack_left() / 4;
-    if (loadbuf_size > kMaxLongLine) {
-      loadbuf_size = kMaxLongLine;
-    } else if (loadbuf_size <= kMaxMediumLine) {
-      goto OxSampleToPsam_ret_NOMEM;
-    } else {
-      loadbuf_size = RoundUpPow2(loadbuf_size, kCacheline);
-    }
-    char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
-    loadbuf[loadbuf_size - 1] = ' ';
-    char* loadbuf_first_token;
 
     // New first pass: check whether, from the third line on, all first tokens
     // are '0'.  If yes, we omit FID from the output.
     uint32_t write_fid = 0;
     uint32_t header_lines_left = 2;
     while (1) {
-      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
+      ++line_idx;
+      reterr = ReadNextLineFromRLstreamRaw(&sample_rls, &line_iter);
+      if (reterr) {
         // bugfix (16 Feb 2018): don't check this if we break out of the loop
         // on non-0 FID
-        if (!gzeof(gz_infile)) {
-          goto OxSampleToPsam_ret_READ_FAIL;
+        if (reterr != kPglRetEof) {
+          goto OxSampleToPsam_ret_READ_RLSTREAM;
         }
         if (header_lines_left) {
           logerrputs("Error: Empty .sample file.\n");
@@ -2000,62 +1992,60 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
         }
         break;
       }
-      ++line_idx;
-      if (!loadbuf[loadbuf_size - 1]) {
-        goto OxSampleToPsam_ret_LONG_LINE;
-      }
-      loadbuf_first_token = FirstNonTspace(loadbuf);
-      if (IsEolnKns(*loadbuf_first_token)) {
+      line_iter = FirstNonTspace(line_iter);
+      if (IsEolnKns(*line_iter)) {
         continue;
       }
       if (header_lines_left) {
         --header_lines_left;
         continue;
       }
-      if ((loadbuf_first_token[0] != '0') || (!IsSpaceOrEoln(loadbuf_first_token[1]))) {
+      if ((line_iter[0] != '0') || (!IsSpaceOrEoln(line_iter[1]))) {
         write_fid = 1;
         break;
       }
     }
-    if (gzrewind(gz_infile)) {
-      goto OxSampleToPsam_ret_READ_FAIL;
+    reterr = RewindRLstreamRaw(&sample_rls, &line_iter);
+    if (reterr) {
+      goto OxSampleToPsam_ret_READ_RLSTREAM;
     }
     line_idx = 0;
     do {
       ++line_idx;
-      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-        goto OxSampleToPsam_ret_READ_FAIL;
+      reterr = ReadNextLineFromRLstreamRaw(&sample_rls, &line_iter);
+      if (reterr) {
+        goto OxSampleToPsam_ret_READ_RLSTREAM;
       }
-      if (!loadbuf[loadbuf_size - 1]) {
-        goto OxSampleToPsam_ret_LONG_LINE;
-      }
-      loadbuf_first_token = FirstNonTspace(loadbuf);
-    } while (IsEolnKns(*loadbuf_first_token));
-    char* token_end = CurTokenEnd(loadbuf_first_token);
-    if (!strequal_k(loadbuf_first_token, "ID_1", token_end - loadbuf_first_token)) {
+      line_iter = FirstNonTspace(line_iter);
+    } while (IsEolnKns(*line_iter));
+    char* linebuf_first_token = line_iter;
+    char* token_end = CurTokenEnd(linebuf_first_token);
+    if (!strequal_k(linebuf_first_token, "ID_1", token_end - linebuf_first_token)) {
       goto OxSampleToPsam_ret_INVALID_SAMPLE_HEADER_1;
     }
     // currently accepts tab as delimiter, though .sample spec technically
     // prohibits that
-    char* loadbuf_iter = FirstNonTspace(token_end);
-    uint32_t token_slen = strlen_se(loadbuf_iter);
-    if (!strequal_k(loadbuf_iter, "ID_2", token_slen)) {
+    char* linebuf_iter = FirstNonTspace(token_end);
+    uint32_t token_slen = strlen_se(linebuf_iter);
+    if (!strequal_k(linebuf_iter, "ID_2", token_slen)) {
       goto OxSampleToPsam_ret_INVALID_SAMPLE_HEADER_1;
     }
-    loadbuf_iter = FirstNonTspace(&(loadbuf_iter[token_slen]));
-    token_slen = strlen_se(loadbuf_iter);
-    if (!MatchUpperKLen(loadbuf_iter, "MISSING", token_slen)) {
+    linebuf_iter = FirstNonTspace(&(linebuf_iter[token_slen]));
+    token_slen = strlen_se(linebuf_iter);
+    if (!MatchUpperKLen(linebuf_iter, "MISSING", token_slen)) {
       goto OxSampleToPsam_ret_INVALID_SAMPLE_HEADER_1;
     }
-    loadbuf_iter = FirstNonTspace(&(loadbuf_iter[token_slen]));
+    linebuf_iter = FirstNonTspace(&(linebuf_iter[token_slen]));
 
     snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
     if (fopen_checked(outname, FOPEN_WB, &psamfile)) {
       goto OxSampleToPsam_ret_OPEN_FAIL;
     }
     // categorical phenotypes are lengthened by 1 character ('C' added in
-    // front), so this needs to be 50% larger than loadbuf to handle worst case
-    char* writebuf = S_CAST(char*, bigstack_alloc_raw_rd(loadbuf_size + (loadbuf_size / 2)));
+    // front), so this needs to be 50% larger than maximum possible line length
+    // to handle worst case
+    linebuf_size = MAXV(linebuf_size + kDecompressChunkSize, kMaxLongLine);
+    char* writebuf = S_CAST(char*, bigstack_alloc_raw_rd(linebuf_size + (linebuf_size / 2)));
     char* write_iter = writebuf;
     *write_iter++ = '#';
     if (write_fid) {
@@ -2069,10 +2059,10 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
 
     uint32_t col_ct = 3;
 
-    while (!IsEolnKns(*loadbuf_iter)) {
-      token_end = CurTokenEnd(loadbuf_iter);
-      token_slen = token_end - loadbuf_iter;
-      if (MatchUpperKLen(loadbuf_iter, "SEX", token_slen)) {
+    while (!IsEolnKns(*linebuf_iter)) {
+      token_end = CurTokenEnd(linebuf_iter);
+      token_slen = token_end - linebuf_iter;
+      if (MatchUpperKLen(linebuf_iter, "SEX", token_slen)) {
         if (sex_col) {
           logerrputs("Error: Multiple sex columns in .sample file.\n");
           goto OxSampleToPsam_ret_MALFORMED_INPUT;
@@ -2080,39 +2070,38 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
         sex_col = col_ct;
       }
       ++col_ct;
-      loadbuf_iter = FirstNonTspace(token_end);
+      linebuf_iter = FirstNonTspace(token_end);
     }
+    line_iter = linebuf_iter;
 
     do {
       ++line_idx;
-      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-        if (!gzeof(gz_infile)) {
-          goto OxSampleToPsam_ret_READ_FAIL;
+      reterr = ReadNextLineFromRLstreamRaw(&sample_rls, &line_iter);
+      if (reterr) {
+        if (reterr == kPglRetEof) {
+          logerrputs("Error: Only one nonempty line in .sample file.\n");
+          goto OxSampleToPsam_ret_MALFORMED_INPUT;
         }
-        logerrputs("Error: Only one nonempty line in .sample file.\n");
-        goto OxSampleToPsam_ret_MALFORMED_INPUT;
+        goto OxSampleToPsam_ret_READ_RLSTREAM;
       }
-      if (!loadbuf[loadbuf_size - 1]) {
-        goto OxSampleToPsam_ret_LONG_LINE;
-      }
-      loadbuf_first_token = FirstNonTspace(loadbuf);
-    } while (IsEolnKns(*loadbuf_first_token));
-
-    token_end = CurTokenEnd(loadbuf_first_token);
-    if ((S_CAST(uintptr_t, token_end - loadbuf_first_token) != 1) || (*loadbuf_first_token != '0')) {
+      line_iter = FirstNonTspace(line_iter);
+    } while (IsEolnKns(*line_iter));
+    linebuf_first_token = line_iter;
+    token_end = CurTokenEnd(linebuf_first_token);
+    if ((S_CAST(uintptr_t, token_end - linebuf_first_token) != 1) || (*linebuf_first_token != '0')) {
       goto OxSampleToPsam_ret_INVALID_SAMPLE_HEADER_2;
     }
-    loadbuf_iter = FirstNonTspace(token_end);
-    token_slen = strlen_se(loadbuf_iter);
-    if ((token_slen != 1) || (*loadbuf_iter != '0')) {
+    linebuf_iter = FirstNonTspace(token_end);
+    token_slen = strlen_se(linebuf_iter);
+    if ((token_slen != 1) || (*linebuf_iter != '0')) {
       goto OxSampleToPsam_ret_INVALID_SAMPLE_HEADER_2;
     }
-    loadbuf_iter = FirstNonTspace(&(loadbuf_iter[1]));
-    token_slen = strlen_se(loadbuf_iter);
-    if ((token_slen != 1) || (*loadbuf_iter != '0')) {
+    linebuf_iter = FirstNonTspace(&(linebuf_iter[1]));
+    token_slen = strlen_se(linebuf_iter);
+    if ((token_slen != 1) || (*linebuf_iter != '0')) {
       goto OxSampleToPsam_ret_INVALID_SAMPLE_HEADER_2;
     }
-    loadbuf_iter = &(loadbuf_iter[1]);
+    linebuf_iter = &(linebuf_iter[1]);
 
     const uint32_t col_ctl = BitCtToWordCt(col_ct);
     uintptr_t* col_is_categorical = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(col_ctl * sizeof(intptr_t)));
@@ -2121,13 +2110,13 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     ZeroWArr(col_ctl, col_is_qt);
     uint32_t at_least_one_binary_pheno = 0;
     for (uint32_t col_idx = 3; col_idx < col_ct; ++col_idx) {
-      loadbuf_iter = FirstNonTspace(loadbuf_iter);
-      unsigned char col_type_char = *loadbuf_iter;
+      linebuf_iter = FirstNonTspace(linebuf_iter);
+      unsigned char col_type_char = *linebuf_iter;
       if (IsEolnKns(col_type_char)) {
         logerrputs("Error: Second .sample header line has fewer tokens than the first.\n");
         goto OxSampleToPsam_ret_MALFORMED_INPUT;
       }
-      if (loadbuf_iter[1] > ' ') {
+      if (linebuf_iter[1] > ' ') {
         goto OxSampleToPsam_ret_INVALID_SAMPLE_HEADER_2;
       }
       if (col_idx == sex_col) {
@@ -2148,7 +2137,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
           }
         }
       }
-      ++loadbuf_iter;
+      ++linebuf_iter;
     }
     if (at_least_one_binary_pheno) {
       // check for pathological case
@@ -2170,14 +2159,16 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     }
     while (uncertain_col_ct) {
       ++line_idx;
-      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-        break;
+      reterr = ReadNextLineFromRLstreamRaw(&sample_rls, &line_iter);
+      if (reterr) {
+        if (reterr == kPglRetEof) {
+          // reterr = kPglRetSuccess;
+          break;
+        }
+        goto OxSampleToPsam_ret_READ_RLSTREAM;
       }
-      if (!loadbuf[loadbuf_size - 1]) {
-        goto OxSampleToPsam_ret_LONG_LINE;
-      }
-      loadbuf_iter = FirstNonTspace(loadbuf);
-      if (IsEolnKns(*loadbuf_iter)) {
+      line_iter = FirstNonTspace(line_iter);
+      if (IsEolnKns(*line_iter)) {
         continue;
       }
 
@@ -2186,51 +2177,55 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
       uint32_t col_uidx = 0;
       for (uint32_t uncertain_col_idx = 0; uncertain_col_idx < old_uncertain_col_ct; ++uncertain_col_idx, ++col_uidx) {
         MovU32To0Bit(col_keep, &col_uidx);
-        loadbuf_iter = NextTokenMult(loadbuf_iter, col_uidx - old_col_uidx);
-        if (!loadbuf_iter) {
+        line_iter = NextTokenMult(line_iter, col_uidx - old_col_uidx);
+        if (!line_iter) {
           goto OxSampleToPsam_ret_MISSING_TOKENS;
         }
-        token_end = CurTokenEnd(loadbuf_iter);
-        token_slen = token_end - loadbuf_iter;
-        if (bsearch_str(loadbuf_iter, sorted_mc, token_slen, max_mc_blen, mc_ct) == -1) {
+        token_end = CurTokenEnd(line_iter);
+        token_slen = token_end - line_iter;
+        if (bsearch_str(line_iter, sorted_mc, token_slen, max_mc_blen, mc_ct) == -1) {
           SetBit(col_uidx, col_keep);
           --uncertain_col_ct;
         }
-        loadbuf_iter = token_end;
+        line_iter = token_end;
         old_col_uidx = col_uidx;
       }
     }
 
-    if (gzrewind(gz_infile)) {
-      goto OxSampleToPsam_ret_READ_FAIL;
+    reterr = RewindRLstreamRaw(&sample_rls, &line_iter);
+    if (reterr) {
+      goto OxSampleToPsam_ret_READ_RLSTREAM;
     }
     line_idx = 0;
 
     uint32_t sample_ct_p2 = 0;
     while (1) {
       ++line_idx;
-      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-        break;
+      reterr = ReadNextLineFromRLstreamRaw(&sample_rls, &line_iter);
+      if (reterr) {
+        if (reterr == kPglRetEof) {
+          reterr = kPglRetSuccess;
+          break;
+        }
+        goto OxSampleToPsam_ret_READ_RLSTREAM;
       }
-      if (!loadbuf[loadbuf_size - 1]) {
-        goto OxSampleToPsam_ret_LONG_LINE;
-      }
-      loadbuf_first_token = FirstNonTspace(loadbuf);
-      if (IsEolnKns(*loadbuf_first_token)) {
+      line_iter = FirstNonTspace(line_iter);
+      if (IsEolnKns(*line_iter)) {
         continue;
       }
+      linebuf_first_token = line_iter;
       ++sample_ct_p2;
       if (sample_ct_p2 < 3) {
         // header lines
         if (sample_ct_p2 == 1) {
-          loadbuf_iter = NextTokenMult(loadbuf_first_token, 3);
+          line_iter = NextTokenMult(linebuf_first_token, 3);
           for (uint32_t col_idx = 3; col_idx < col_ct; ++col_idx) {
-            token_end = CurTokenEnd(loadbuf_iter);
+            token_end = CurTokenEnd(line_iter);
             if (IsSet(col_keep, col_idx) && (col_idx != sex_col)) {
               *write_iter++ = '\t';
-              write_iter = memcpya(write_iter, loadbuf_iter, token_end - loadbuf_iter);
+              write_iter = memcpya(write_iter, line_iter, token_end - line_iter);
             }
-            loadbuf_iter = FirstNonTspace(token_end);
+            line_iter = FirstNonTspace(token_end);
           }
           AppendBinaryEoln(&write_iter);
           if (fwrite_checked(writebuf, write_iter - writebuf, psamfile)) {
@@ -2246,26 +2241,26 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
       }
 
       // FID
-      token_end = CurTokenEnd(loadbuf_first_token);
+      token_end = CurTokenEnd(linebuf_first_token);
       write_iter = writebuf;
       if (write_fid) {
-        write_iter = memcpyax(write_iter, loadbuf_first_token, token_end - loadbuf_first_token, '\t');
+        write_iter = memcpyax(write_iter, linebuf_first_token, token_end - linebuf_first_token, '\t');
       }
 
       // IID
-      loadbuf_iter = FirstNonTspace(token_end);
-      if (IsEolnKns(*loadbuf_iter)) {
+      linebuf_iter = FirstNonTspace(token_end);
+      if (IsEolnKns(*linebuf_iter)) {
         goto OxSampleToPsam_ret_MISSING_TOKENS;
       }
-      token_end = CurTokenEnd(loadbuf_iter);
-      write_iter = memcpya(write_iter, loadbuf_iter, token_end - loadbuf_iter);
+      token_end = CurTokenEnd(linebuf_iter);
+      write_iter = memcpya(write_iter, linebuf_iter, token_end - linebuf_iter);
 
       // MISSING
-      loadbuf_iter = FirstNonTspace(token_end);
-      if (IsEolnKns(*loadbuf_iter)) {
+      linebuf_iter = FirstNonTspace(token_end);
+      if (IsEolnKns(*linebuf_iter)) {
         goto OxSampleToPsam_ret_MISSING_TOKENS;
       }
-      token_end = CurTokenEnd(loadbuf_iter);
+      token_end = CurTokenEnd(linebuf_iter);
 
       // flush now since backfilled sex is variable-length ("NA" vs. "1"/"2")
       if (fwrite_checked(writebuf, write_iter - writebuf, psamfile)) {
@@ -2274,19 +2269,19 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
       char* cur_writebuf_start = writebuf;
       write_iter = memcpyl3a(writebuf, "\tNA");
       for (uint32_t col_idx = 3; col_idx < col_ct; ++col_idx) {
-        loadbuf_iter = FirstNonTspace(token_end);
-        if (IsEolnKns(*loadbuf_iter)) {
+        linebuf_iter = FirstNonTspace(token_end);
+        if (IsEolnKns(*linebuf_iter)) {
           goto OxSampleToPsam_ret_MISSING_TOKENS;
         }
-        token_end = CurTokenEnd(loadbuf_iter);
+        token_end = CurTokenEnd(linebuf_iter);
         if (!IsSet(col_keep, col_idx)) {
           continue;
         }
-        token_slen = token_end - loadbuf_iter;
-        const uint32_t is_missing = (bsearch_str(loadbuf_iter, sorted_mc, token_slen, max_mc_blen, mc_ct) != -1);
+        token_slen = token_end - linebuf_iter;
+        const uint32_t is_missing = (bsearch_str(linebuf_iter, sorted_mc, token_slen, max_mc_blen, mc_ct) != -1);
         if (col_idx == sex_col) {
           if (!is_missing) {
-            const unsigned char sex_ucc = *loadbuf_iter;
+            const unsigned char sex_ucc = *linebuf_iter;
             if ((token_slen == 1) && ((S_CAST(uint32_t, sex_ucc) - 49) < 2)) {
               ++cur_writebuf_start;
               cur_writebuf_start[0] = '\t';
@@ -2295,7 +2290,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
               // tolerate '0' as a sex-only missing code even when not
               // explicitly specified
               *token_end = '\0';
-              snprintf(g_logbuf, kLogbufSize, "Error: Invalid sex code '%s' on line %" PRIuPTR ", column %u of .sample file ('0', '1', '2', or --missing-code value expected).\n", loadbuf_iter, line_idx, col_idx + 1);
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid sex code '%s' on line %" PRIuPTR ", column %u of .sample file ('0', '1', '2', or --missing-code value expected).\n", linebuf_iter, line_idx, col_idx + 1);
               goto OxSampleToPsam_ret_INCONSISTENT_INPUT_WW;
             }
           }
@@ -2308,11 +2303,11 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
               // (i) validate we have a positive integer < 2^31
               // (ii) convert e.g. 9000000, 9000000., 9.0e6 all to 9000000
               double dxx = 0.0;
-              char* num_end = ScanadvDouble(loadbuf_iter, &dxx);
+              char* num_end = ScanadvDouble(linebuf_iter, &dxx);
               int32_t ii = S_CAST(int32_t, dxx);
               if ((num_end != token_end) || (ii <= 0) || (S_CAST(double, ii) != dxx)) {
                 *token_end = '\0';
-                snprintf(g_logbuf, kLogbufSize, "Error: Invalid categorical phenotype '%s' on line %" PRIuPTR ", column %u of .sample file (positive integer < 2^31 or --missing-code value expected).\n", loadbuf_iter, line_idx, col_idx + 1);
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid categorical phenotype '%s' on line %" PRIuPTR ", column %u of .sample file (positive integer < 2^31 or --missing-code value expected).\n", linebuf_iter, line_idx, col_idx + 1);
                 goto OxSampleToPsam_ret_INCONSISTENT_INPUT_WW;
               }
               write_iter = u32toa(ii, write_iter);
@@ -2322,22 +2317,22 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
           } else if (!is_missing) {
             if (IsSet(col_is_qt, col_idx)) {
               double dxx = 0.0;
-              char* num_end = ScanadvDouble(loadbuf_iter, &dxx);
+              char* num_end = ScanadvDouble(linebuf_iter, &dxx);
               if (num_end != token_end) {
                 *token_end = '\0';
-                snprintf(g_logbuf, kLogbufSize, "Error: Invalid quantitative phenotype '%s' on line %" PRIuPTR ", column %u of .sample file (non-infinite number or --missing-code value expected).\n", loadbuf_iter, line_idx, col_idx + 1);
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid quantitative phenotype '%s' on line %" PRIuPTR ", column %u of .sample file (non-infinite number or --missing-code value expected).\n", linebuf_iter, line_idx, col_idx + 1);
                 goto OxSampleToPsam_ret_INCONSISTENT_INPUT_WW;
               }
               // used over memcpy to make --data and --data --make-pgen the
               // same (could make that conditional on keep_autoconv?)
               write_iter = dtoa_g(dxx, write_iter);
             } else {
-              const uint32_t cc_char_m48 = ctou32(*loadbuf_iter) - 48;
+              const uint32_t cc_char_m48 = ctou32(*linebuf_iter) - 48;
               if ((token_slen == 1) && (cc_char_m48 < 2)) {
                 *write_iter++ = cc_char_m48 + '1';
               } else {
                 *token_end = '\0';
-                snprintf(g_logbuf, kLogbufSize, "Error: Invalid binary phenotype value '%s' on line %" PRIuPTR ", column %u of .sample file ('0', '1', or --missing-code value expected).\n", loadbuf_iter, line_idx, col_idx + 1);
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid binary phenotype value '%s' on line %" PRIuPTR ", column %u of .sample file ('0', '1', or --missing-code value expected).\n", linebuf_iter, line_idx, col_idx + 1);
                 goto OxSampleToPsam_ret_INCONSISTENT_INPUT_WW;
               }
             }
@@ -2350,9 +2345,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
       if (fwrite_checked(cur_writebuf_start, write_iter - cur_writebuf_start, psamfile)) {
         goto OxSampleToPsam_ret_WRITE_FAIL;
       }
-    }
-    if (!gzeof(gz_infile)) {
-      goto OxSampleToPsam_ret_READ_FAIL;
+      line_iter = token_end;
     }
 
     // no final writebuf flush since we didn't use usual manual-streaming
@@ -2369,20 +2362,14 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     *sample_ct_ptr = sample_ct;
   }
   while (0) {
-  OxSampleToPsam_ret_LONG_LINE:
-    if (loadbuf_size == kMaxLongLine) {
-      logerrprintf("Error: Line %" PRIuPTR " of .sample file is pathologically long.\n", line_idx);
-      reterr = kPglRetMalformedInput;
-      break;
-    }
+  OxSampleToPsam_ret_READ_RLSTREAM:
+    RLstreamErrPrint(".sample file", &sample_rls, &reterr);
+    break;
   OxSampleToPsam_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
   OxSampleToPsam_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
-    break;
-  OxSampleToPsam_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
     break;
   OxSampleToPsam_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
@@ -2411,7 +2398,8 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     reterr = kPglRetInconsistentInput;
     break;
   }
-  gzclose_cond(gz_infile);
+ OxSampleToPsam_ret_1:
+  CleanupRLstream(&sample_rls);
   fclose_cond(psamfile);
   BigstackReset(bigstack_mark);
   return reterr;
@@ -2512,12 +2500,12 @@ BoolErr InitOxfordSingleChr(const char* ox_single_chr_str, const char** single_c
 static_assert(sizeof(Dosage) == 2, "OxGenToPgen() needs to be updated.");
 PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_single_chr_str, const char* ox_missing_code, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  gzFile gz_infile = nullptr;
   FILE* pvarfile = nullptr;
-  STPgenWriter spgw;
   PglErr reterr = kPglRetSuccess;
-  uintptr_t loadbuf_size = 0;
   uintptr_t line_idx = 0;
+  ReadLineStream gen_rls;
+  STPgenWriter spgw;
+  PreinitRLstream(&gen_rls);
   PreinitSpgw(&spgw);
   {
     uint32_t sample_ct;
@@ -2535,8 +2523,12 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
     // 1. Count # of (non-chromosome-filtered) variants, write .pvar file, and
     //    check if at least one non-hardcall needs to be saved.
     // 2. Write the .pgen.
-    gz_infile = gzopen(genname, FOPEN_RB);
-    if (!gz_infile) {
+    uintptr_t linebuf_size;
+    if (StandardizeLinebufSize(bigstack_left() / 4, kMaxMediumLine + 1, &linebuf_size)) {
+      goto OxGenToPgen_ret_NOMEM;
+    }
+    gen_rls.gz_infile = gzopen(genname, FOPEN_RB);
+    if (!gen_rls.gz_infile) {
       const uint32_t slen = strlen(genname);
       if (StrEndsWith(genname, ".gen", slen) ||
           StrEndsWith(genname, ".gen.gz", slen)) {
@@ -2546,23 +2538,20 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
       }
       goto OxGenToPgen_ret_OPEN_FAIL;
     }
-    if (gzbuffer(gz_infile, 131072)) {
-      goto OxGenToPgen_ret_NOMEM;
+    char* line_iter;
+    reterr = InitRLstreamEx(0, kMaxLongLine, linebuf_size, &gen_rls, &line_iter);
+    if (reterr) {
+      goto OxGenToPgen_ret_1;
     }
-    loadbuf_size = bigstack_left() / 4;
-    if (loadbuf_size > kMaxLongLine) {
-      loadbuf_size = kMaxLongLine;
-    } else if (loadbuf_size <= kMaxMediumLine) {
-      goto OxGenToPgen_ret_NOMEM;
-    } else {
-      loadbuf_size = RoundUpPow2(loadbuf_size, kCacheline);
-    }
-    char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
-    loadbuf[loadbuf_size - 1] = ' ';
     const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
     FinalizeChrset(misc_flags, cip);
 
-    char* writebuf = S_CAST(char*, bigstack_alloc_raw(kMaxMediumLine + loadbuf_size));
+    char* writebuf;
+    if (bigstack_alloc_c(kMaxMediumLine + linebuf_size, &writebuf)) {
+      // shouldn't actually be possible, but may as well defend against changes
+      // to how RLstream allocation works
+      goto OxGenToPgen_ret_NOMEM;
+    }
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
 
     const char* single_chr_str = nullptr;
@@ -2598,16 +2587,16 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
     uintptr_t variant_skip_ct = 0;
     while (1) {
       ++line_idx;
-      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-        if (!gzeof(gz_infile)) {
-          goto OxGenToPgen_ret_READ_FAIL;
+      reterr = ReadNextLineFromRLstreamRaw(&gen_rls, &line_iter);
+      if (reterr) {
+        if (reterr == kPglRetEof) {
+          // reterr = kPglRetSuccess;
+          break;
         }
-        break;
+        goto OxGenToPgen_ret_READ_RLSTREAM;
       }
-      if (!loadbuf[loadbuf_size - 1]) {
-        goto OxGenToPgen_ret_LONG_LINE_N;
-      }
-      char* chr_code_str = FirstNonTspace(loadbuf);
+      line_iter = FirstNonTspace(line_iter);
+      char* chr_code_str = line_iter;
       if (IsEolnKns(*chr_code_str)) {
         continue;
       }
@@ -2675,12 +2664,12 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
       if (IsEolnKns(*second_allele_str)) {
         goto OxGenToPgen_ret_MISSING_TOKENS;
       }
-      const char* loadbuf_iter = CurTokenEnd(second_allele_str);
+      const char* linebuf_iter = CurTokenEnd(second_allele_str);
       if (!prov_ref_allele_second) {
         write_iter = memcpyax(write_iter, first_allele_str, first_allele_end - first_allele_str, '\t');
-        write_iter = memcpya(write_iter, second_allele_str, loadbuf_iter - second_allele_str);
+        write_iter = memcpya(write_iter, second_allele_str, linebuf_iter - second_allele_str);
       } else {
-        write_iter = memcpyax(write_iter, second_allele_str, loadbuf_iter - second_allele_str, '\t');
+        write_iter = memcpyax(write_iter, second_allele_str, linebuf_iter - second_allele_str, '\t');
         write_iter = memcpya(write_iter, first_allele_str, first_allele_end - first_allele_str);
       }
       AppendBinaryEoln(&write_iter);
@@ -2690,55 +2679,55 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
 
       if (!dosage_is_present) {
         for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
-          loadbuf_iter = FirstNonTspace(loadbuf_iter);
-          const char cc = *loadbuf_iter;
+          linebuf_iter = FirstNonTspace(linebuf_iter);
+          const char cc = *linebuf_iter;
           if (IsEolnKns(cc)) {
             goto OxGenToPgen_ret_MISSING_TOKENS;
           }
-          char cc2 = loadbuf_iter[1];
+          char cc2 = linebuf_iter[1];
           if ((cc2 == ' ') || (cc2 == '\t')) {
             // fast handling of "1 0 0 ", "0 1 0 ", "0 0 1 ", "0 0 0 " cases
-            cc2 = loadbuf_iter[3];
-            if (((cc2 == ' ') || (cc2 == '\t')) && (ctou32(loadbuf_iter[5]) <= 32)) {
+            cc2 = linebuf_iter[3];
+            if (((cc2 == ' ') || (cc2 == '\t')) && (ctou32(linebuf_iter[5]) <= 32)) {
               const uint32_t uii = ctou32(cc) - 48;
-              const uint32_t ujj = ctou32(loadbuf_iter[2]) - 48;
-              const uint32_t ukk = ctou32(loadbuf_iter[4]) - 48;
+              const uint32_t ujj = ctou32(linebuf_iter[2]) - 48;
+              const uint32_t ukk = ctou32(linebuf_iter[4]) - 48;
               if (((uii | ujj | ukk) < 2) && (uii + ujj + ukk < 2)) {
-                loadbuf_iter = &(loadbuf_iter[5]);
+                linebuf_iter = &(linebuf_iter[5]);
                 continue;
               }
             }
           }
           double prob_0alt;
-          const char* first_dosage_str_end = ScanadvDouble(loadbuf_iter, &prob_0alt);
+          const char* first_dosage_str_end = ScanadvDouble(linebuf_iter, &prob_0alt);
           if (!first_dosage_str_end) {
             // triple-NA, etc. ok; treat as missing value
-            loadbuf_iter = NextTokenMult(loadbuf_iter, 2);
-            if (!loadbuf_iter) {
+            linebuf_iter = NextTokenMult(linebuf_iter, 2);
+            if (!linebuf_iter) {
               goto OxGenToPgen_ret_MISSING_TOKENS;
             }
-            loadbuf_iter = CurTokenEnd(loadbuf_iter);
+            linebuf_iter = CurTokenEnd(linebuf_iter);
             continue;
           }
           if (ctou32(*first_dosage_str_end) > ' ') {
             goto OxGenToPgen_ret_INVALID_DOSAGE;
           }
-          loadbuf_iter = FirstNonTspace(first_dosage_str_end);
-          if (IsEolnKns(*loadbuf_iter)) {
+          linebuf_iter = FirstNonTspace(first_dosage_str_end);
+          if (IsEolnKns(*linebuf_iter)) {
             goto OxGenToPgen_ret_MISSING_TOKENS;
           }
           double prob_1alt;
-          loadbuf_iter = ScanadvDouble(loadbuf_iter, &prob_1alt);
-          if ((!loadbuf_iter) || (ctou32(*loadbuf_iter) > ' ')) {
+          linebuf_iter = ScanadvDouble(linebuf_iter, &prob_1alt);
+          if ((!linebuf_iter) || (ctou32(*linebuf_iter) > ' ')) {
             goto OxGenToPgen_ret_INVALID_DOSAGE;
           }
-          loadbuf_iter = FirstNonTspace(loadbuf_iter);
-          if (IsEolnKns(*loadbuf_iter)) {
+          linebuf_iter = FirstNonTspace(linebuf_iter);
+          if (IsEolnKns(*linebuf_iter)) {
             goto OxGenToPgen_ret_MISSING_TOKENS;
           }
           double prob_2alt;
-          loadbuf_iter = ScanadvDouble(loadbuf_iter, &prob_2alt);
-          if ((!loadbuf_iter) || (ctou32(*loadbuf_iter) > ' ')) {
+          linebuf_iter = ScanadvDouble(linebuf_iter, &prob_2alt);
+          if ((!linebuf_iter) || (ctou32(*linebuf_iter) > ' ')) {
             goto OxGenToPgen_ret_INVALID_DOSAGE;
           }
           // bugfix: forgot the "multiply by 32768" part of "multiply by 32768
@@ -2766,6 +2755,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
         printf("\r--data/--gen: %uk variants scanned.", variant_ct / 1000);
         fflush(stdout);
       }
+      line_iter = K_CAST(char*, linebuf_iter);
     }
     putc_unlocked('\r', stdout);
     if (fclose_flush_null(writebuf_flush, write_iter, &pvarfile)) {
@@ -2783,9 +2773,8 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
 
     // second pass
     BigstackReset(writebuf);
-    if (gzrewind(gz_infile)) {
-      goto OxGenToPgen_ret_READ_FAIL;
-    }
+    // error shouldn't be possible here since we read to eof
+    RewindRLstreamRaw(&gen_rls, &line_iter);
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
     uintptr_t spgw_alloc_cacheline_ct;
     uint32_t max_vrec_len;
@@ -2822,10 +2811,11 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
     const uintptr_t line_ct = line_idx - 1;
     uint32_t vidx = 0;
     for (line_idx = 1; line_idx <= line_ct; ++line_idx) {
-      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
+      if (ReadNextLineFromRLstreamRaw(&gen_rls, &line_iter)) {
         goto OxGenToPgen_ret_READ_FAIL;
       }
-      char* chr_code_str = FirstNonTspace(loadbuf);
+      line_iter = FirstNonTspace(line_iter);
+      char* chr_code_str = FirstNonTspace(line_iter);
       if (IsEolnKns(*chr_code_str)) {
         continue;
       }
@@ -2834,10 +2824,11 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
         *chr_code_end = '\0';
         const uint32_t chr_code = GetChrCode(chr_code_str, cip, chr_code_end - chr_code_str);
         if (!IsSet(cip->chr_mask, chr_code)) {
+          line_iter = chr_code_end;
           continue;
         }
       }
-      const char* loadbuf_iter = NextTokenMult(FirstNonTspace(&(chr_code_end[1])), 4);
+      const char* linebuf_iter = NextTokenMult(FirstNonTspace(&(chr_code_end[1])), 4);
       uint32_t inner_loop_last = kBitsPerWordD2 - 1;
       uint32_t widx = 0;
       Dosage* dosage_vals_iter = dosage_vals;
@@ -2851,65 +2842,65 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
         uintptr_t genovec_word = 0;
         uint32_t dosage_present_hw = 0;
         for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
-          loadbuf_iter = FirstNonTspace(loadbuf_iter);
-          const char cc = *loadbuf_iter;
+          linebuf_iter = FirstNonTspace(linebuf_iter);
+          const char cc = *linebuf_iter;
           if (IsEolnKns(cc)) {
             goto OxGenToPgen_ret_MISSING_TOKENS;
           }
-          char cc2 = loadbuf_iter[1];
+          char cc2 = linebuf_iter[1];
           if ((cc2 == ' ') || (cc2 == '\t')) {
-            cc2 = loadbuf_iter[3];
-            if (((cc2 == ' ') || (cc2 == '\t')) && (ctou32(loadbuf_iter[5]) <= 32)) {
+            cc2 = linebuf_iter[3];
+            if (((cc2 == ' ') || (cc2 == '\t')) && (ctou32(linebuf_iter[5]) <= 32)) {
               const uint32_t uii = ctou32(cc) - 48;
-              const uint32_t ujj = ctou32(loadbuf_iter[2]) - 48;
-              const uint32_t ukk = ctou32(loadbuf_iter[4]) - 48;
+              const uint32_t ujj = ctou32(linebuf_iter[2]) - 48;
+              const uint32_t ukk = ctou32(linebuf_iter[4]) - 48;
               const uint32_t all_or = uii | ujj | ukk;
               if (all_or < 2) {
                 if (!all_or) {
                   genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
-                  loadbuf_iter = &(loadbuf_iter[5]);
+                  linebuf_iter = &(linebuf_iter[5]);
                   continue;
                 } else if (uii + ujj + ukk == 1) {
                   uintptr_t cur_geno = ukk * 2 + ujj;
                   genovec_word |= cur_geno << (2 * sample_idx_lowbits);
-                  loadbuf_iter = &(loadbuf_iter[5]);
+                  linebuf_iter = &(linebuf_iter[5]);
                   continue;
                 }
               }
             }
           }
           double prob_0alt;
-          const char* first_dosage_str_end = ScanadvDouble(loadbuf_iter, &prob_0alt);
+          const char* first_dosage_str_end = ScanadvDouble(linebuf_iter, &prob_0alt);
           if (!first_dosage_str_end) {
             // ignore next two tokens if first token in triplet is not numeric,
             // since we treat this as missing regardless
-            loadbuf_iter = NextTokenMult(loadbuf_iter, 2);
-            if (!loadbuf_iter) {
+            linebuf_iter = NextTokenMult(linebuf_iter, 2);
+            if (!linebuf_iter) {
               goto OxGenToPgen_ret_MISSING_TOKENS;
             }
             genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
-            loadbuf_iter = CurTokenEnd(loadbuf_iter);
+            linebuf_iter = CurTokenEnd(linebuf_iter);
             continue;
           }
           if (ctou32(*first_dosage_str_end) > ' ') {
             goto OxGenToPgen_ret_INVALID_DOSAGE;
           }
-          loadbuf_iter = FirstNonTspace(first_dosage_str_end);
-          if (IsEolnKns(*loadbuf_iter)) {
+          linebuf_iter = FirstNonTspace(first_dosage_str_end);
+          if (IsEolnKns(*linebuf_iter)) {
             goto OxGenToPgen_ret_MISSING_TOKENS;
           }
           double prob_1alt;
-          loadbuf_iter = ScanadvDouble(loadbuf_iter, &prob_1alt);
-          if ((!loadbuf_iter) || (ctou32(*loadbuf_iter) > ' ')) {
+          linebuf_iter = ScanadvDouble(linebuf_iter, &prob_1alt);
+          if ((!linebuf_iter) || (ctou32(*linebuf_iter) > ' ')) {
             goto OxGenToPgen_ret_INVALID_DOSAGE;
           }
-          loadbuf_iter = FirstNonTspace(loadbuf_iter);
-          if (IsEolnKns(*loadbuf_iter)) {
+          linebuf_iter = FirstNonTspace(linebuf_iter);
+          if (IsEolnKns(*linebuf_iter)) {
             goto OxGenToPgen_ret_MISSING_TOKENS;
           }
           double prob_2alt;
-          loadbuf_iter = ScanadvDouble(loadbuf_iter, &prob_2alt);
-          if ((!loadbuf_iter) || (ctou32(*loadbuf_iter) > ' ')) {
+          linebuf_iter = ScanadvDouble(linebuf_iter, &prob_2alt);
+          if ((!linebuf_iter) || (ctou32(*linebuf_iter) > ' ')) {
             goto OxGenToPgen_ret_INVALID_DOSAGE;
           }
           // bugfix
@@ -2951,6 +2942,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
         printf("\r--data/--gen: %uk variants converted.", vidx / 1000);
         fflush(stdout);
       }
+      line_iter = K_CAST(char*, linebuf_iter);
     }
     SpgwFinish(&spgw);
     putc_unlocked('\r', stdout);
@@ -2965,13 +2957,9 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
     logputsb();
   }
   while (0) {
-  OxGenToPgen_ret_LONG_LINE_N:
-    putc_unlocked('\n', stdout);
-    if (loadbuf_size == kMaxLongLine) {
-      logerrprintf("Error: Line %" PRIuPTR " of .gen file is pathologically long.\n", line_idx);
-      reterr = kPglRetMalformedInput;
-      break;
-    }
+  OxGenToPgen_ret_READ_RLSTREAM:
+    RLstreamErrPrint(".gen file", &gen_rls, &reterr);
+    break;
   OxGenToPgen_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
@@ -3011,7 +2999,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
   if (SpgwCleanup(&spgw) && (!reterr)) {
     reterr = kPglRetWriteFail;
   }
-  gzclose_cond(gz_infile);
+  CleanupRLstream(&gen_rls);
   fclose_cond(pvarfile);
   BigstackReset(bigstack_mark);
   return reterr;
@@ -5911,14 +5899,15 @@ PglErr ScanHapsForHet(const char* loadbuf_iter, const char* hapsname, uint32_t s
 #endif
 PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const char* samplename, const char* ox_single_chr_str, const char* ox_missing_code, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  gzFile gz_hapsfile = nullptr;
-  gzFile gz_legendfile = nullptr;
   FILE* outfile = nullptr;
   uintptr_t line_idx_haps = 0;
   uintptr_t line_idx_legend = 0;
   PglErr reterr = kPglRetSuccess;
+  ReadLineStream haps_rls;
+  ReadLineStream legend_rls;
   STPgenWriter spgw;
-  uintptr_t loadbuf_size;
+  PreinitRLstream(&haps_rls);
+  PreinitRLstream(&legend_rls);
   PreinitSpgw(&spgw);
   {
     uint32_t sfile_sample_ct = 0;
@@ -5934,24 +5923,16 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       }
     }
 
-    reterr = gzopen_read_checked(hapsname, &gz_hapsfile);
+    uintptr_t linebuf_size;
+    if (StandardizeLinebufSize(bigstack_left() / 4, kMaxMediumLine + 1, &linebuf_size)) {
+      goto OxHapslegendToPgen_ret_NOMEM;
+    }
+    char* haps_line_iter;
+    reterr = InitRLstreamRaw(hapsname, linebuf_size, &haps_rls, &haps_line_iter);
     if (reterr) {
       goto OxHapslegendToPgen_ret_1;
     }
-    uintptr_t writebuf_size = bigstack_left() / 2;
-    if (writebuf_size < 2 * kMaxMediumLine + kCacheline) {
-      return kPglRetNomem;
-#ifdef __LP64__
-      // in pure-C case, kMaxLongLine + kMaxMediumLine overflows
-    } else if (writebuf_size > S_CAST(uintptr_t, kMaxLongLine) + kMaxMediumLine) {
-      writebuf_size = S_CAST(uintptr_t, kMaxLongLine) + kMaxMediumLine;
-#endif
-    } else {
-      writebuf_size &= ~(kCacheline - 1);
-    }
-    loadbuf_size = writebuf_size - kMaxMediumLine;
-    char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
-    loadbuf[loadbuf_size - 1] = ' ';
+    uintptr_t writebuf_size = linebuf_size + kMaxMediumLine;
     char* writebuf = S_CAST(char*, bigstack_alloc_raw(writebuf_size));
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pvar");
@@ -5959,22 +5940,19 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       goto OxHapslegendToPgen_ret_OPEN_FAIL;
     }
     char* write_iter = strcpya(writebuf, "#CHROM\tPOS\tID\tREF\tALT" EOLN_STR);
-    char* loadbuf_first_token;
     do {
       ++line_idx_haps;
-      if (!gzgets(gz_hapsfile, loadbuf, loadbuf_size)) {
-        if (!gzeof(gz_hapsfile)) {
-          goto OxHapslegendToPgen_ret_READ_FAIL;
+      reterr = ReadNextLineFromRLstreamRaw(&haps_rls, &haps_line_iter);
+      if (reterr) {
+        if (reterr == kPglRetEof) {
+          snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", hapsname);
+          goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
         }
-        snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", hapsname);
-        goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
+        goto OxHapslegendToPgen_ret_READ_RLSTREAM_HAPS;
       }
-      if (!loadbuf[loadbuf_size - 1]) {
-        goto OxHapslegendToPgen_ret_LONG_LINE_HAP;
-      }
-      loadbuf_first_token = FirstNonTspace(loadbuf);
-    } while (IsEolnKns(*loadbuf_first_token));
-    const uint32_t token_ct = CountTokens(loadbuf_first_token);
+      haps_line_iter = FirstNonTspace(haps_line_iter);
+    } while (IsEolnKns(*haps_line_iter));
+    const uint32_t token_ct = CountTokens(haps_line_iter);
     // pass 1: count variants, write .pvar file, may as well also verify
     // there's at least one heterozygous call
     FinalizeChrset(misc_flags, cip);
@@ -5998,8 +5976,9 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         snprintf(g_logbuf, kLogbufSize, "Error: .sample file has %u sample%s, while %s has %u.\n", sfile_sample_ct, (sfile_sample_ct == 1)? "" : "s", hapsname, sample_ct);
         goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
       }
-      if (gzrewind(gz_hapsfile)) {
-        goto OxHapslegendToPgen_ret_READ_FAIL;
+      reterr = RewindRLstreamRaw(&haps_rls, &haps_line_iter);
+      if (reterr) {
+        goto OxHapslegendToPgen_ret_READ_RLSTREAM_HAPS;
       }
       line_idx_haps = 0;
       int32_t chr_code_raw = GetChrCodeRaw(ox_single_chr_str);
@@ -6032,69 +6011,67 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         single_chr_str = chr_buf;
         single_chr_slen = chr_name_end - chr_buf;
       }
-      reterr = gzopen_read_checked(legendname, &gz_legendfile);
+      char* legend_line_iter;
+      reterr = InitRLstreamRaw(legendname, linebuf_size, &legend_rls, &legend_line_iter);
       if (reterr) {
         goto OxHapslegendToPgen_ret_1;
       }
       do {
         ++line_idx_legend;
-        if (!gzgets(gz_legendfile, loadbuf, loadbuf_size)) {
-          if (!gzeof(gz_legendfile)) {
-            goto OxHapslegendToPgen_ret_READ_FAIL;
+        reterr = ReadNextLineFromRLstreamRaw(&legend_rls, &legend_line_iter);
+        if (reterr) {
+          if (reterr == kPglRetEof) {
+            snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", legendname);
+            goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
           }
-          snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", legendname);
-          goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
+          goto OxHapslegendToPgen_ret_READ_RLSTREAM_LEGEND;
         }
-        if (!loadbuf[loadbuf_size - 1]) {
-          goto OxHapslegendToPgen_ret_LONG_LINE_LEGEND;
-        }
-        loadbuf_first_token = FirstNonTspace(loadbuf);
-      } while (IsEolnKns(*loadbuf_first_token));
+        legend_line_iter = FirstNonTspace(legend_line_iter);
+      } while (IsEolnKns(*legend_line_iter));
       // require at least 4 columns, in ID/pos/A1/A2 order; header text is
       // permitted to vary.  tolerate and ignore extra columns.
-      if (!NextTokenMult(loadbuf_first_token, 3)) {
+      legend_line_iter = NextTokenMult(legend_line_iter, 3);
+      if (!legend_line_iter) {
         goto OxHapslegendToPgen_ret_MISSING_TOKENS_LEGEND;
       }
       while (1) {
         ++line_idx_legend;
-        if (!gzgets(gz_legendfile, loadbuf, loadbuf_size)) {
-          if (!gzeof(gz_legendfile)) {
-            goto OxHapslegendToPgen_ret_READ_FAIL;
+        reterr = ReadNextLineFromRLstreamRaw(&legend_rls, &legend_line_iter);
+        if (reterr) {
+          if (reterr == kPglRetEof) {
+            // reterr = kPglRetSuccess;
+            break;
           }
-          break;
+          goto OxHapslegendToPgen_ret_READ_RLSTREAM_LEGEND;
         }
-        if (!loadbuf[loadbuf_size - 1]) {
-          goto OxHapslegendToPgen_ret_LONG_LINE_LEGEND;
-        }
-        loadbuf_first_token = FirstNonTspace(loadbuf);
-        if (IsEolnKns(*loadbuf_first_token)) {
+        legend_line_iter = FirstNonTspace(legend_line_iter);
+        if (IsEolnKns(*legend_line_iter)) {
           continue;
         }
-        const char* loadbuf_iter = loadbuf_first_token;
+        const char* linebuf_iter = legend_line_iter;
         write_iter = memcpya(write_iter, single_chr_str, single_chr_slen);
-        if (ImportLegendCols(legendname, line_idx_legend, prov_ref_allele_second, &loadbuf_iter, &write_iter, &variant_ct)) {
+        if (ImportLegendCols(legendname, line_idx_legend, prov_ref_allele_second, &linebuf_iter, &write_iter, &variant_ct)) {
           putc_unlocked('\n', stdout);
           goto OxHapslegendToPgen_ret_MALFORMED_INPUT;
         }
         if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
           goto OxHapslegendToPgen_ret_WRITE_FAIL;
         }
+        legend_line_iter = K_CAST(char*, linebuf_iter);
         if (!at_least_one_het) {
           do {
             ++line_idx_haps;
-            if (!gzgets(gz_hapsfile, loadbuf, loadbuf_size)) {
-              if (!gzeof(gz_hapsfile)) {
-                goto OxHapslegendToPgen_ret_READ_FAIL;
+            reterr = ReadNextLineFromRLstreamRaw(&haps_rls, &haps_line_iter);
+            if (reterr) {
+              if (reterr == kPglRetEof) {
+                snprintf(g_logbuf, kLogbufSize, "Error: %s has fewer nonheader lines than %s.\n", hapsname, legendname);
+                goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
               }
-              snprintf(g_logbuf, kLogbufSize, "Error: %s has fewer nonheader lines than %s.\n", hapsname, legendname);
-              goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
+              goto OxHapslegendToPgen_ret_READ_RLSTREAM_HAPS;
             }
-            if (!loadbuf[loadbuf_size - 1]) {
-              goto OxHapslegendToPgen_ret_LONG_LINE_HAP;
-            }
-            loadbuf_first_token = FirstNonTspace(loadbuf);
-          } while (IsEolnKns(*loadbuf_first_token));
-          reterr = ScanHapsForHet(loadbuf_first_token, hapsname, sample_ct, is_haploid, line_idx_haps, &at_least_one_het);
+            haps_line_iter = FirstNonTspace(haps_line_iter);
+          } while (IsEolnKns(*haps_line_iter));
+          reterr = ScanHapsForHet(haps_line_iter, hapsname, sample_ct, is_haploid, line_idx_haps, &at_least_one_het);
           if (reterr) {
             putc_unlocked('\n', stdout);
             WordWrapB(0);
@@ -6103,11 +6080,9 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
           }
         }
       }
-      if (gzrewind(gz_legendfile)) {
-        goto OxHapslegendToPgen_ret_READ_FAIL;
-      }
+      BigstackReset(RLstreamMemStart(&legend_rls));
+      CleanupRLstream(&legend_rls);
     } else {
-      assert(!legendname[0]);
       if ((token_ct < 7) || (!(token_ct % 2))) {
         snprintf(g_logbuf, kLogbufSize, "Error: Unexpected token count in line %" PRIuPTR " of %s (should be odd, >5).\n", line_idx_haps, hapsname);
         goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
@@ -6118,14 +6093,14 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
       }
       while (1) {
-        if (!IsEolnKns(*loadbuf_first_token)) {
-          char* chr_code_end = CurTokenEnd(loadbuf_first_token);
-          char* loadbuf_iter = FirstNonTspace(chr_code_end);
-          if (IsEolnKns(*loadbuf_iter)) {
+        if (!IsEolnKns(*haps_line_iter)) {
+          char* chr_code_end = CurTokenEnd(haps_line_iter);
+          char* linebuf_iter = FirstNonTspace(chr_code_end);
+          if (IsEolnKns(*linebuf_iter)) {
             goto OxHapslegendToPgen_ret_MISSING_TOKENS_HAPS;
           }
           int32_t cur_chr_code;
-          reterr = GetOrAddChrCodeDestructive("--haps file", line_idx_haps, allow_extra_chrs, loadbuf_first_token, chr_code_end, cip, &cur_chr_code);
+          reterr = GetOrAddChrCodeDestructive("--haps file", line_idx_haps, allow_extra_chrs, haps_line_iter, chr_code_end, cip, &cur_chr_code);
           if (reterr) {
             goto OxHapslegendToPgen_ret_1;
           }
@@ -6134,7 +6109,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
           } else {
             is_haploid = IsSetI(cip->haploid_mask, cur_chr_code);
             write_iter = chrtoa(cip, cur_chr_code, write_iter);
-            if (ImportLegendCols(hapsname, line_idx_haps, prov_ref_allele_second, K_CAST(const char**, &loadbuf_iter), &write_iter, &variant_ct)) {
+            if (ImportLegendCols(hapsname, line_idx_haps, prov_ref_allele_second, K_CAST(const char**, &linebuf_iter), &write_iter, &variant_ct)) {
               putc_unlocked('\n', stdout);
               goto OxHapslegendToPgen_ret_MALFORMED_INPUT;
             }
@@ -6142,26 +6117,26 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
               goto OxHapslegendToPgen_ret_WRITE_FAIL;
             }
             if (!at_least_one_het) {
-              loadbuf_iter = FirstNonTspace(loadbuf_iter);
-              if (ScanHapsForHet(loadbuf_iter, hapsname, sample_ct, is_haploid, line_idx_haps, &at_least_one_het)) {
+              linebuf_iter = FirstNonTspace(linebuf_iter);
+              if (ScanHapsForHet(linebuf_iter, hapsname, sample_ct, is_haploid, line_idx_haps, &at_least_one_het)) {
                 // override InconsistentInput return code since chromosome info
                 // was also gathered from .haps file
                 goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
               }
             }
           }
+          haps_line_iter = linebuf_iter;
         }
         ++line_idx_haps;
-        if (!gzgets(gz_hapsfile, loadbuf, loadbuf_size)) {
-          if (!gzeof(gz_hapsfile)) {
-            goto OxHapslegendToPgen_ret_READ_FAIL;
+        reterr = ReadNextLineFromRLstreamRaw(&haps_rls, &haps_line_iter);
+        if (reterr) {
+          if (reterr == kPglRetEof) {
+            // reterr = kPglRetSuccess;
+            break;
           }
-          break;
+          goto OxHapslegendToPgen_ret_READ_RLSTREAM_HAPS;
         }
-        if (!loadbuf[loadbuf_size - 1]) {
-          goto OxHapslegendToPgen_ret_LONG_LINE_HAP;
-        }
-        loadbuf_first_token = FirstNonTspace(loadbuf);
+        haps_line_iter = FirstNonTspace(haps_line_iter);
       }
       if (!variant_ct) {
         snprintf(g_logbuf, kLogbufSize, "Error: All %" PRIuPTR " variant%s in %s skipped due to chromosome filter.\n", variant_skip_ct, (variant_skip_ct == 1)? "" : "s", hapsname);
@@ -6191,8 +6166,9 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         goto OxHapslegendToPgen_ret_WRITE_FAIL;
       }
     }
-    if (gzrewind(gz_hapsfile)) {
-      goto OxHapslegendToPgen_ret_READ_FAIL;
+    reterr = RewindRLstreamRaw(&haps_rls, &haps_line_iter);
+    if (reterr) {
+      goto OxHapslegendToPgen_ret_READ_RLSTREAM_HAPS;
     }
     line_idx_haps = 0;
     BigstackReset(writebuf);
@@ -6222,32 +6198,38 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       goto OxHapslegendToPgen_ret_NOMEM;
     }
 
+    haps_line_iter = S_CAST(char*, rawmemchr(haps_line_iter, '\n'));
     for (uint32_t vidx = 0; vidx < variant_ct;) {
       ++line_idx_haps;
-      if (!gzgets(gz_hapsfile, loadbuf, loadbuf_size)) {
-        if ((!gzeof(gz_hapsfile)) || (!legendname[0])) {
-          goto OxHapslegendToPgen_ret_READ_FAIL;
+      ++haps_line_iter;
+      reterr = ReadFromRLstreamRaw(&haps_rls, &haps_line_iter);
+      if (reterr) {
+        if (reterr == kPglRetEof) {
+          if (legendname[0]) {
+            snprintf(g_logbuf, kLogbufSize, "Error: %s has fewer nonheader lines than %s.\n", hapsname, legendname);
+            goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
+          }
+          // we saw more variants in this file in the previous pass...
+          reterr = kPglRetReadFail;
         }
-        snprintf(g_logbuf, kLogbufSize, "Error: %s has fewer nonheader lines than %s.\n", hapsname, legendname);
-        goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
+        goto OxHapslegendToPgen_ret_READ_RLSTREAM_HAPS;
       }
-      if (!loadbuf[loadbuf_size - 1]) {
-        goto OxHapslegendToPgen_ret_LONG_LINE_HAP;
-      }
-      loadbuf_first_token = FirstNonTspace(loadbuf);
-      if (IsEolnKns(*loadbuf_first_token)) {
+      haps_line_iter = FirstNonTspace(haps_line_iter);
+      if (IsEolnKns(*haps_line_iter)) {
+        haps_line_iter = S_CAST(char*, rawmemchr(haps_line_iter, '\n'));
         continue;
       }
-      char* loadbuf_iter = loadbuf_first_token;
+      char* linebuf_iter = haps_line_iter;
       if (!legendname[0]) {
-        char* chr_code_end = CurTokenEnd(loadbuf_first_token);
-        const int32_t cur_chr_code = GetChrCodeCounted(cip, chr_code_end - loadbuf_first_token, loadbuf_first_token);
+        char* chr_code_end = CurTokenEnd(haps_line_iter);
+        const int32_t cur_chr_code = GetChrCodeCounted(cip, chr_code_end - haps_line_iter, haps_line_iter);
         if (!IsSetI(cip->chr_mask, cur_chr_code)) {
+          haps_line_iter = S_CAST(char*, rawmemchr(haps_line_iter, '\n'));
           continue;
         }
         is_haploid = IsSetI(cip->haploid_mask, cur_chr_code);
-        loadbuf_iter = NextTokenMult(FirstNonTspace(chr_code_end), 4);
-        if (!loadbuf_iter) {
+        linebuf_iter = NextTokenMult(FirstNonTspace(chr_code_end), 4);
+        if (!linebuf_iter) {
           goto OxHapslegendToPgen_ret_MISSING_TOKENS_HAPS;
         }
       }
@@ -6257,9 +6239,10 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       // optimize common case: autosomal diploid, always exactly one space
       // this loop is time-critical; all my attemps to merge in the haploid
       // case have caused >10% slowdowns
-      if ((!is_haploid) && (ctou32(loadbuf_iter[sample_ct * 4 - 1]) < 32)) {
-        loadbuf_iter[sample_ct * 4 - 1] = ' ';
-        const uint32_t* loadbuf_alias32_iter = R_CAST(const uint32_t*, loadbuf_iter);
+      if ((!is_haploid) && (ctou32(linebuf_iter[sample_ct * 4 - 1]) < 32)) {
+        haps_line_iter = S_CAST(char*, rawmemchr(&(linebuf_iter[sample_ct * 4 - 1]), '\n'));
+        linebuf_iter[sample_ct * 4 - 1] = ' ';
+        const uint32_t* linebuf_alias32_iter = R_CAST(const uint32_t*, linebuf_iter);
         while (1) {
           if (widx >= sample_ctl2_m1) {
             if (widx > sample_ctl2_m1) {
@@ -6271,7 +6254,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
           uint32_t phaseinfo_halfword = 0;
           for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
             // assumes little-endian
-            uint32_t cur_hap_4char = *loadbuf_alias32_iter++;
+            uint32_t cur_hap_4char = *linebuf_alias32_iter++;
             if ((cur_hap_4char & 0xfffefffeU) != 0x20302030) {
               if ((cur_hap_4char & 0xfffffffeU) == 0x202d2030) {
                 // "0 - ", "1 - "
@@ -6306,9 +6289,9 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
           uintptr_t genovec_word = 0;
           uint32_t phaseinfo_halfword = 0;
           for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
-            const uint32_t first_hap_char_code = ctou32(*loadbuf_iter);
+            const uint32_t first_hap_char_code = ctou32(*linebuf_iter);
             const uint32_t first_hap_int = first_hap_char_code - 48;
-            char* post_first_hap = &(loadbuf_iter[1]);
+            char* post_first_hap = &(linebuf_iter[1]);
             if ((first_hap_int >= 2) || (ctou32(*post_first_hap) > 32)) {
               if (first_hap_char_code <= 32) {
                 goto OxHapslegendToPgen_ret_MISSING_TOKENS_HAPS;
@@ -6341,13 +6324,14 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
             if (first_hap_int + 2 * second_hap_int == phaseinfo_match) {
               phaseinfo_halfword |= 1U << sample_idx_lowbits;
             }
-            loadbuf_iter = FirstNonTspace(post_second_hap);
+            linebuf_iter = FirstNonTspace(post_second_hap);
           }
           genovec[widx] = genovec_word;
           genovec_word_or |= genovec_word;
           R_CAST(Halfword*, phaseinfo)[widx] = phaseinfo_halfword;
           ++widx;
         }
+        haps_line_iter = S_CAST(char*, rawmemchr(linebuf_iter, '\n'));
       }
       if (prov_ref_allele_second) {
         GenovecInvertUnsafe(sample_ct, genovec);
@@ -6387,26 +6371,17 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
     logputsb();
   }
   while (0) {
-  OxHapslegendToPgen_ret_LONG_LINE_HAP:
-    if (loadbuf_size == kMaxLongLine) {
-      snprintf(g_logbuf, kLogbufSize, "Line %" PRIuPTR " of %s is pathologically long.\n", line_idx_haps, hapsname);
-      goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
-    }
-  OxHapslegendToPgen_ret_NOMEM:
-    reterr = kPglRetNomem;
+  OxHapslegendToPgen_ret_READ_RLSTREAM_HAPS:
+    RLstreamErrPrint(hapsname, &haps_rls, &reterr);
     break;
-  OxHapslegendToPgen_ret_LONG_LINE_LEGEND:
-    if (loadbuf_size == kMaxLongLine) {
-      snprintf(g_logbuf, kLogbufSize, "Line %" PRIuPTR " of %s is pathologically long.\n", line_idx_legend, legendname);
-      goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
-    }
+  OxHapslegendToPgen_ret_READ_RLSTREAM_LEGEND:
+    RLstreamErrPrint(legendname, &legend_rls, &reterr);
+    break;
+  OxHapslegendToPgen_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
   OxHapslegendToPgen_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
-    break;
-  OxHapslegendToPgen_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
     break;
   OxHapslegendToPgen_ret_WRITE_FAIL:
     reterr = kPglRetOpenFail;
@@ -6446,9 +6421,9 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
   }
  OxHapslegendToPgen_ret_1:
   SpgwCleanup(&spgw);
+  CleanupRLstream(&legend_rls);
+  CleanupRLstream(&haps_rls);
   fclose_cond(outfile);
-  gzclose_cond(gz_legendfile);
-  gzclose_cond(gz_hapsfile);
   BigstackReset(bigstack_mark);
   return reterr;
 }
@@ -6464,57 +6439,47 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
   // caller should call ForgetExtraChrNames(1, cip) after finishing import.
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
-  gzFile gz_infile = nullptr;
-  uintptr_t loadbuf_size = 0;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
+  ReadLineStream map_rls;
+  PreinitRLstream(&map_rls);
   {
-    reterr = gzopen_read_checked(mapname, &gz_infile);
+    // Workspace used as follows:
+    // |--linebuf--|--temp-->----|----<- variant IDs --|
+    //            1/4                                 end
+    // linebuf is overwritten with the main return arrays at the end.
+    char* line_iter;
+    reterr = SizeAndInitRLstreamRaw(mapname, bigstack_left() / 4, &map_rls, &line_iter);
     if (reterr) {
       goto LoadMap_ret_1;
     }
-    // Workspace used as follows:
-    // |--loadbuf--|--temp-->----|----<- variant IDs --|
-    //            1/4                                 end
-    // loadbuf is overwritten with the main return arrays at the end.
-    loadbuf_size = RoundDownPow2(bigstack_left() / 4, kCacheline);
-    char* loadbuf = R_CAST(char*, g_bigstack_base);
-    if (loadbuf_size > kMaxLongLine) {
-      loadbuf_size = kMaxLongLine;
-    } else if (loadbuf_size <= kMaxMediumLine) {
-      goto LoadMap_ret_NOMEM;
-    }
-    loadbuf[loadbuf_size - 1] = ' ';
-    char* loadbuf_first_token;
     do {
       ++line_idx;
-      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-        if (!gzeof(gz_infile)) {
-          goto LoadMap_ret_READ_FAIL;
+      reterr = ReadNextLineFromRLstreamRaw(&map_rls, &line_iter);
+      if (reterr) {
+        if (reterr == kPglRetEof) {
+          logerrputs("Error: Empty .map file.\n");
+          goto LoadMap_ret_INCONSISTENT_INPUT;
         }
-        logerrputs("Error: Empty .map file.\n");
-        goto LoadMap_ret_INCONSISTENT_INPUT;
+        goto LoadMap_ret_READ_RLSTREAM;
       }
-      if (!loadbuf[loadbuf_size - 1]) {
-        goto LoadMap_ret_LONG_LINE;
-      }
-      loadbuf_first_token = FirstNonTspace(loadbuf);
-    } while (IsEolnKns(*loadbuf_first_token) || (*loadbuf_first_token == '#'));
+      line_iter = FirstNonTspace(line_iter);
+    } while (IsEolnKns(*line_iter) || (*line_iter == '#'));
     uint32_t map_cols = 3;
     {
-      const char* loadbuf_iter = NextTokenMult(loadbuf_first_token, 2);
-      if (!loadbuf_iter) {
+      const char* linebuf_iter = NextTokenMult(line_iter, 2);
+      if (!linebuf_iter) {
         goto LoadMap_ret_MISSING_TOKENS;
       }
-      loadbuf_iter = NextToken(loadbuf_iter);
-      if (loadbuf_iter) {
-        loadbuf_iter = NextToken(loadbuf_iter);
-        if (!loadbuf_iter) {
+      linebuf_iter = NextToken(linebuf_iter);
+      if (linebuf_iter) {
+        linebuf_iter = NextToken(linebuf_iter);
+        if (!linebuf_iter) {
           map_cols = 4;
         } else {
-          loadbuf_iter = NextToken(loadbuf_iter);
-          if (loadbuf_iter) {
-            if (NextToken(loadbuf_iter)) {
+          linebuf_iter = NextToken(linebuf_iter);
+          if (linebuf_iter) {
+            if (NextToken(linebuf_iter)) {
               // do NOT permit >6 columns, .bim is ok but .pvar is not
               // (pointless to support .pvar for legacy formats)
               snprintf(g_logbuf, kLogbufSize, "Error: %s is not a .map/.bim file (too many columns).\n", mapname);
@@ -6528,7 +6493,7 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
 
     const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
     uint32_t max_variant_id_slen = *max_variant_id_slen_ptr;
-    unsigned char* tmp_alloc_base = R_CAST(unsigned char*, &(loadbuf[loadbuf_size]));
+    unsigned char* tmp_alloc_base = g_bigstack_base;
     unsigned char* tmp_alloc_end = bigstack_end_mark;
     uint16_t* cur_chr_codes = nullptr;
     uint32_t* cur_bps = nullptr;
@@ -6538,26 +6503,24 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
     uint32_t at_least_one_nzero_cm = 0;
     uint32_t variant_ct = 0;
     while (1) {
-      if (!IsEolnKns(*loadbuf_first_token)) {
+      if (!IsEolnKns(*line_iter)) {
         // chrom, id, (cm?), pos
-        char* loadbuf_iter = CurTokenEnd(loadbuf_first_token);
-        if (!(*loadbuf_iter)) {
+        char* chr_code_end = CurTokenEnd(line_iter);
+        char* linebuf_iter = FirstNonTspace(chr_code_end);
+        if (IsEolnKns(*linebuf_iter)) {
           goto LoadMap_ret_MISSING_TOKENS;
         }
         int32_t cur_chr_code;
-        reterr = GetOrAddChrCodeDestructive(".map file", line_idx, allow_extra_chrs, loadbuf_first_token, loadbuf_iter, cip, &cur_chr_code);
+        reterr = GetOrAddChrCodeDestructive(".map file", line_idx, allow_extra_chrs, line_iter, chr_code_end, cip, &cur_chr_code);
         if (reterr) {
           goto LoadMap_ret_1;
         }
         if (!IsSetI(cip->chr_mask, cur_chr_code)) {
+          line_iter = linebuf_iter;
           goto LoadMap_skip_variant;
         }
-        loadbuf_iter = FirstNonTspace(&(loadbuf_iter[1]));
-        if (IsEolnKns(*loadbuf_iter)) {
-          goto LoadMap_ret_MISSING_TOKENS;
-        }
-        char* token_end = CurTokenEnd(loadbuf_iter);
-        uint32_t id_slen = token_end - loadbuf_iter;
+        char* token_end = CurTokenEnd(linebuf_iter);
+        uint32_t id_slen = token_end - linebuf_iter;
         if (id_slen > max_variant_id_slen) {
           max_variant_id_slen = id_slen;
         }
@@ -6565,30 +6528,31 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
         if (tmp_alloc_end < tmp_alloc_base) {
           goto LoadMap_ret_NOMEM;
         }
-        memcpyx(tmp_alloc_end, loadbuf_iter, id_slen, '\0');
-        loadbuf_iter = FirstNonTspace(token_end);
-        if (IsEolnKns(*loadbuf_iter)) {
+        memcpyx(tmp_alloc_end, linebuf_iter, id_slen, '\0');
+        linebuf_iter = FirstNonTspace(token_end);
+        if (IsEolnKns(*linebuf_iter)) {
           goto LoadMap_ret_MISSING_TOKENS;
         }
 
         if (map_cols == 4) {
-          char* cm_end = ScanadvDouble(loadbuf_iter, &cur_cm);
+          char* cm_end = ScanadvDouble(linebuf_iter, &cur_cm);
           if (!cm_end) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid centimorgan position on line %" PRIuPTR " of %s.\n", line_idx, mapname);
             goto LoadMap_ret_MALFORMED_INPUT_WW;
           }
           at_least_one_nzero_cm = (cur_cm != 0.0);
-          loadbuf_iter = NextToken(cm_end);
-          if (!loadbuf_iter) {
+          linebuf_iter = NextToken(cm_end);
+          if (!linebuf_iter) {
             goto LoadMap_ret_MISSING_TOKENS;
           }
         }
         int32_t cur_bp;
-        if (ScanIntAbsDefcap(loadbuf_iter, &cur_bp)) {
+        if (ScanIntAbsDefcap(linebuf_iter, &cur_bp)) {
           snprintf(g_logbuf, kLogbufSize, "Error: Invalid bp coordinate on line %" PRIuPTR " of %s.\n", line_idx, mapname);
           goto LoadMap_ret_MALFORMED_INPUT_WW;
         }
         if (cur_bp < 0) {
+          line_iter = linebuf_iter;
           goto LoadMap_skip_variant;
         }
 
@@ -6614,17 +6578,15 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
       }
     LoadMap_skip_variant:
       ++line_idx;
-      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-        if (!gzeof(gz_infile)) {
-          goto LoadMap_ret_READ_FAIL;
+      reterr = ReadNextLineFromRLstreamRaw(&map_rls, &line_iter);
+      if (reterr) {
+        if (reterr == kPglRetEof) {
+          reterr = kPglRetSuccess;
         }
-        break;
+        goto LoadMap_ret_READ_RLSTREAM;
       }
-      if (!loadbuf[loadbuf_size - 1]) {
-        goto LoadMap_ret_LONG_LINE;
-      }
-      loadbuf_first_token = FirstNonTspace(loadbuf);
-      if (loadbuf_first_token[0] == '#') {
+      line_iter = FirstNonTspace(line_iter);
+      if (line_iter[0] == '#') {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line.)\n", line_idx, mapname);
         goto LoadMap_ret_MALFORMED_INPUT_WW;
       }
@@ -6638,9 +6600,10 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
       logerrputs("Error: All variants in .map/.bim file skipped due to chromosome filter.\n");
       goto LoadMap_ret_INCONSISTENT_INPUT;
     }
-    tmp_alloc_base = R_CAST(unsigned char*, &(loadbuf[loadbuf_size]));
     // true requirement is weaker, but whatever
-    g_bigstack_end = tmp_alloc_base;
+    g_bigstack_end = g_bigstack_base;
+    g_bigstack_base = RLstreamMemStart(&map_rls);
+    CleanupRLstream(&map_rls);
 
     if (bigstack_alloc_u16(variant_ct, variant_chr_codes_ptr) ||
         bigstack_alloc_u32(variant_ct, variant_bps_ptr) ||
@@ -6691,17 +6654,11 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
     }
   }
   while (0) {
-  LoadMap_ret_LONG_LINE:
-    if (loadbuf_size == kMaxLongLine) {
-      logerrprintfww("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, mapname);
-      reterr = kPglRetMalformedInput;
-      break;
-    }
+  LoadMap_ret_READ_RLSTREAM:
+    RLstreamErrPrint(mapname, &map_rls, &reterr);
+    break;
   LoadMap_ret_NOMEM:
     reterr = kPglRetNomem;
-    break;
-  LoadMap_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
     break;
   LoadMap_ret_MISSING_TOKENS:
     snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, mapname);
@@ -6717,7 +6674,7 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
   }
  LoadMap_ret_1:
   // ForgetExtraChrNames(1, cip);
-  gzclose_cond(gz_infile);
+  CleanupRLstream(&map_rls);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }
@@ -6732,12 +6689,13 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
   char* pheno_names = nullptr;
   uint32_t pheno_ct = 0;
 
-  gzFile gz_infile = nullptr;
   FILE* outfile = nullptr;
   uintptr_t loadbuf_size = 0;
   uintptr_t line_idx = 0;
-  STPgenWriter spgw;
   PglErr reterr = kPglRetSuccess;
+  ReadLineStream dosage_rls;
+  STPgenWriter spgw;
+  PreinitRLstream(&dosage_rls);
   PreinitSpgw(&spgw);
   {
     // 1. Read .fam file.  (May as well support most .psam files too, since
@@ -6757,11 +6715,12 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     }
 
     // 2. Read dosage-file header line if it exists, then write new .psam.
-    reterr = gzopen_read_checked(dosagename, &gz_infile);
+    // Use gzFile interface instead of ReadLineStream here, because we're not
+    // yet ready to size the read-ahead buffer.
+    reterr = gzopen_read_checked(dosagename, &dosage_rls.gz_infile);
     if (reterr) {
       goto Plink1DosageToPgen_ret_1;
     }
-
     const uint32_t first_data_col_idx = pdip->skips[0] + pdip->skips[1] + pdip->skips[2] + 3;
     uint32_t sample_ct = 0;
     uint32_t* dosage_sample_idx_to_fam_uidx;
@@ -6804,8 +6763,8 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
       char* loadbuf_first_token;
       do {
         ++line_idx;
-        if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-          if (!gzeof(gz_infile)) {
+        if (!gzgets(dosage_rls.gz_infile, loadbuf, loadbuf_size)) {
+          if (!gzeof(dosage_rls.gz_infile)) {
             goto Plink1DosageToPgen_ret_READ_FAIL;
           }
           snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", dosagename);
@@ -6987,19 +6946,29 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     //    need to be saved, write .pvar.
     //
     // Lots of overlap with OxGenToPgen().
-    loadbuf_size = bigstack_left() / 2;
-    if (loadbuf_size <= kMaxMediumLine) {
+
+    uintptr_t ulii = bigstack_left() / 2;
+    // writebuf needs kMaxMediumLine more bytes, RLstream needs
+    // GetRLstreamExtraAlloc() more bytes, and we also need to allocate a
+    // chromosome buffer.
+    if (ulii < RoundUpPow2((kMaxMediumLine + GetRLstreamExtraAlloc() + kCacheline) / 2, kCacheline)) {
       goto Plink1DosageToPgen_ret_NOMEM;
     }
-    loadbuf_size -= kMaxMediumLine;
-    if (loadbuf_size > kMaxLongLine) {
-      loadbuf_size = kMaxLongLine;
-    } else {
-      loadbuf_size = RoundUpPow2(loadbuf_size, kCacheline);
+    ulii -= RoundUpPow2((kMaxMediumLine + GetRLstreamExtraAlloc() + kCacheline) / 2, kCacheline);
+    uintptr_t linebuf_size;
+    if (StandardizeLinebufSize(ulii, kMaxMediumLine + 1, &linebuf_size)) {
+      goto Plink1DosageToPgen_ret_NOMEM;
     }
-    char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
-    loadbuf[loadbuf_size - 1] = ' ';
-    writebuf = S_CAST(char*, bigstack_alloc_raw(kMaxMediumLine + loadbuf_size));
+    char* line_iter;
+    reterr = InitRLstreamEx(0, kMaxLongLine, linebuf_size, &dosage_rls, &line_iter);
+    if (reterr) {
+      goto Plink1DosageToPgen_ret_1;
+    }
+    if (bigstack_alloc_c(kMaxMediumLine + linebuf_size, &writebuf)) {
+      // currently shouldn't be possible, but RLstream isn't stable as I write
+      // this
+      goto Plink1DosageToPgen_ret_NOMEM;
+    }
     writebuf_flush = &(writebuf[kMaxMediumLine]);
     const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
     const char* single_chr_str = nullptr;
@@ -7030,6 +6999,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
             logerrputs("Error: --import-dosage single-chr= code is excluded by chromosome filter.\n");
             goto Plink1DosageToPgen_ret_INVALID_CMDLINE;
           }
+          // check this allocation?...
           char* chr_buf = S_CAST(char*, bigstack_alloc_raw(kCacheline));
           char* chr_name_end = chrtoa(cip, chr_code, chr_buf);
           single_chr_str = chr_buf;
@@ -7112,31 +7082,23 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     uint32_t variant_uidx = 0;
     while (1) {
       ++line_idx;
-      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-        if (!gzeof(gz_infile)) {
-          goto Plink1DosageToPgen_ret_READ_FAIL;
+      reterr = ReadNextLineFromRLstreamRaw(&dosage_rls, &line_iter);
+      if (reterr) {
+        if (reterr == kPglRetEof) {
+          reterr = kPglRetSuccess;
+          break;
         }
-        break;
+        goto Plink1DosageToPgen_ret_READ_RLSTREAM;
       }
-      if (!loadbuf[loadbuf_size - 1]) {
-        goto Plink1DosageToPgen_ret_LONG_LINE_N;
-      }
-      char* loadbuf_iter = FirstNonTspace(loadbuf);
-      if (IsEolnKns(*loadbuf_iter)) {
+      line_iter = FirstNonTspace(line_iter);
+      if (IsEolnKns(*line_iter)) {
         continue;
       }
       char* token_ptrs[6];
       uint32_t token_slens[6];
-      for (uint32_t ric_col_idx = 0; ric_col_idx < relevant_initial_col_ct; ++ric_col_idx) {
-        const uint32_t cur_col_type = col_types[ric_col_idx];
-        loadbuf_iter = NextTokenMult0(loadbuf_iter, col_skips[ric_col_idx]);
-        if (!loadbuf_iter) {
-          goto Plink1DosageToPgen_ret_MISSING_TOKENS;
-        }
-        token_ptrs[cur_col_type] = loadbuf_iter;
-        char* token_end = CurTokenEnd(loadbuf_iter);
-        token_slens[cur_col_type] = token_end - loadbuf_iter;
-        loadbuf_iter = token_end;
+      line_iter = TokenLex0(line_iter, col_types, col_skips, relevant_initial_col_ct, token_ptrs, token_slens);
+      if (!line_iter) {
+        goto Plink1DosageToPgen_ret_MISSING_TOKENS;
       }
       // ID
       const char* variant_id = token_ptrs[2];
@@ -7214,9 +7176,9 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
         goto Plink1DosageToPgen_ret_WRITE_FAIL;
       }
       if (!dosage_is_present) {
-        loadbuf_iter = token_ptrs[5];
+        char* linebuf_iter = token_ptrs[5];
         if (format_infer) {
-          const uint32_t remaining_col_ct = CountTokens(loadbuf_iter);
+          const uint32_t remaining_col_ct = CountTokens(linebuf_iter);
           if (remaining_col_ct == sample_ct) {
             flags |= kfPlink1DosageFormatSingle;
           } else if (remaining_col_ct == sample_ct * 3) {
@@ -7228,14 +7190,15 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
           format_infer = 0;
         }
         if (flags & kfPlink1DosageFormatSingle) {
+          // todo: modify these loops to cleanly update line_iter
           for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
-            if (!loadbuf_iter) {
+            if (!linebuf_iter) {
               goto Plink1DosageToPgen_ret_MISSING_TOKENS;
             }
             double a1_dosage;
-            char* str_end = ScanadvDouble(loadbuf_iter, &a1_dosage);
-            if ((!loadbuf_iter) || (a1_dosage < (0.5 / 32768.0)) || (a1_dosage >= dosage_ceil)) {
-              loadbuf_iter = NextToken(loadbuf_iter);
+            char* str_end = ScanadvDouble(linebuf_iter, &a1_dosage);
+            if ((!linebuf_iter) || (a1_dosage < (0.5 / 32768.0)) || (a1_dosage >= dosage_ceil)) {
+              linebuf_iter = NextToken(linebuf_iter);
               continue;
             }
             a1_dosage *= dosage_multiplier;
@@ -7245,32 +7208,32 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
               dosage_is_present = 1;
               break;
             }
-            loadbuf_iter = NextToken(str_end);
+            linebuf_iter = NextToken(str_end);
           }
         } else {
           // for compatibility with plink 1.x, do not actually parse third
           // value of each triplet if format=3
           for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
-            if (!loadbuf_iter) {
+            if (!linebuf_iter) {
               goto Plink1DosageToPgen_ret_MISSING_TOKENS;
             }
             double prob_2a1;
-            char* str_end = ScanadvDouble(loadbuf_iter, &prob_2a1);
+            char* str_end = ScanadvDouble(linebuf_iter, &prob_2a1);
             if (!str_end) {
-              loadbuf_iter = NextTokenMult(loadbuf_iter, 2 + format_triple);
+              linebuf_iter = NextTokenMult(linebuf_iter, 2 + format_triple);
               continue;
             }
-            loadbuf_iter = NextToken(str_end);
-            if (!loadbuf_iter) {
+            linebuf_iter = NextToken(str_end);
+            if (!linebuf_iter) {
               goto Plink1DosageToPgen_ret_MISSING_TOKENS;
             }
             double prob_1a1;
-            str_end = ScanadvDouble(loadbuf_iter, &prob_1a1);
+            str_end = ScanadvDouble(linebuf_iter, &prob_1a1);
             if (!str_end) {
-              loadbuf_iter = NextTokenMult(loadbuf_iter, 1 + format_triple);
+              linebuf_iter = NextTokenMult(linebuf_iter, 1 + format_triple);
               continue;
             }
-            loadbuf_iter = NextTokenMult(str_end, 1 + format_triple);
+            linebuf_iter = NextTokenMult(str_end, 1 + format_triple);
             double prob_one_or_two_a1 = prob_2a1 + prob_1a1;
             if ((prob_2a1 < 0.0) || (prob_1a1 < 0.0) || (prob_one_or_two_a1 > 1.01 * (1 + kSmallEpsilon))) {
               continue;
@@ -7311,21 +7274,19 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
 
     // 5. Dosage file pass 2: write .pgen.
     BigstackReset(writebuf);
-    if (gzrewind(gz_infile)) {
-      goto Plink1DosageToPgen_ret_READ_FAIL;
-    }
+    // We always read to eof, so error shouldn't be possible here.
+    RewindRLstreamRaw(&dosage_rls, &line_iter);
     const uintptr_t line_ct = line_idx - 1;
     line_idx = 0;
     if (!(flags & kfPlink1DosageNoheader)) {
       // skip header line again
-      const char* loadbuf_first_token;
       do {
         ++line_idx;
-        if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
+        if (ReadNextLineFromRLstreamRaw(&dosage_rls, &line_iter)) {
           goto Plink1DosageToPgen_ret_READ_FAIL;
         }
-        loadbuf_first_token = FirstNonTspace(loadbuf);
-      } while (IsEolnKns(*loadbuf_first_token));
+        line_iter = FirstNonTspace(line_iter);
+      } while (IsEolnKns(*line_iter));
     }
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
     uintptr_t spgw_alloc_cacheline_ct;
@@ -7366,25 +7327,25 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     uint32_t vidx = 0;
     do {
       ++line_idx;
-      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
+      if (ReadNextLineFromRLstreamRaw(&dosage_rls, &line_iter)) {
         goto Plink1DosageToPgen_ret_READ_FAIL;
       }
-      char* loadbuf_iter = FirstNonTspace(loadbuf);
-      if (IsEolnKns(*loadbuf_iter)) {
+      line_iter = FirstNonTspace(line_iter);
+      if (IsEolnKns(*line_iter)) {
         continue;
       }
       if (variant_skip_ct) {
         if (map_variant_ct) {
-          char* variant_id = NextTokenMult0(loadbuf_iter, id_col_idx);
+          char* variant_id = NextTokenMult0(line_iter, id_col_idx);
           const uint32_t variant_id_slen = strlen_se(variant_id);
           if (VariantIdDupflagHtableFind(variant_id, TO_CONSTCPCONSTP(variant_ids), variant_id_htable, variant_id_slen, variant_id_htable_size, max_variant_id_slen) == UINT32_MAX) {
             continue;
           }
-          loadbuf_iter = NextTokenMult(variant_id, first_data_col_idx - id_col_idx);
+          line_iter = NextTokenMult(variant_id, first_data_col_idx - id_col_idx);
         } else {
-          char* chr_code_str = NextTokenMult0(loadbuf_iter, chr_col_idx);
+          char* chr_code_str = NextTokenMult0(line_iter, chr_col_idx);
           char* chr_code_end = CurTokenEnd(chr_code_str);
-          loadbuf_iter = NextTokenMult(chr_code_end, first_data_col_idx - chr_col_idx);
+          line_iter = NextTokenMult(chr_code_end, first_data_col_idx - chr_col_idx);
           *chr_code_end = '\0';
           const uint32_t chr_code = GetChrCode(chr_code_str, cip, chr_code_end - chr_code_str);
           if (!IsSet(cip->chr_mask, chr_code)) {
@@ -7392,11 +7353,12 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
           }
         }
       } else {
-        loadbuf_iter = NextTokenMult(loadbuf_iter, first_data_col_idx);
+        line_iter = NextTokenMult(line_iter, first_data_col_idx);
       }
       uint32_t inner_loop_last = kBitsPerWordD2 - 1;
       uint32_t widx = 0;
       Dosage* dosage_vals_iter = dosage_vals;
+      char* linebuf_iter = line_iter;
       while (1) {
         if (widx >= sample_ctl2_m1) {
           if (widx > sample_ctl2_m1) {
@@ -7408,17 +7370,17 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
         uint32_t dosage_present_hw = 0;
         if (flags & kfPlink1DosageFormatSingle) {
           for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
-            if (!loadbuf_iter) {
+            if (!linebuf_iter) {
               goto Plink1DosageToPgen_ret_MISSING_TOKENS;
             }
             double a1_dosage;
-            char* str_end = ScanadvDouble(loadbuf_iter, &a1_dosage);
+            char* str_end = ScanadvDouble(linebuf_iter, &a1_dosage);
             if ((!str_end) || (a1_dosage < 0.0) || (a1_dosage > dosage_ceil)) {
               genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
-              loadbuf_iter = NextToken(loadbuf_iter);
+              linebuf_iter = NextToken(linebuf_iter);
               continue;
             }
-            loadbuf_iter = NextToken(str_end);
+            linebuf_iter = NextToken(str_end);
             uint32_t dosage_int = S_CAST(int32_t, a1_dosage * dosage_multiplier + 0.5);
             if (dosage_int > kDosageMax) {
               dosage_int = kDosageMax;
@@ -7437,28 +7399,28 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
           }
         } else {
           for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
-            if (!loadbuf_iter) {
+            if (!linebuf_iter) {
               goto Plink1DosageToPgen_ret_MISSING_TOKENS;
             }
             double prob_2a1;
-            char* str_end = ScanadvDouble(loadbuf_iter, &prob_2a1);
+            char* str_end = ScanadvDouble(linebuf_iter, &prob_2a1);
             if (!str_end) {
               genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
-              loadbuf_iter = NextTokenMult(loadbuf_iter, 2 + format_triple);
+              linebuf_iter = NextTokenMult(linebuf_iter, 2 + format_triple);
               continue;
             }
-            loadbuf_iter = NextToken(str_end);
-            if (!loadbuf_iter) {
+            linebuf_iter = NextToken(str_end);
+            if (!linebuf_iter) {
               goto Plink1DosageToPgen_ret_MISSING_TOKENS;
             }
             double prob_1a1;
-            str_end = ScanadvDouble(loadbuf_iter, &prob_1a1);
+            str_end = ScanadvDouble(linebuf_iter, &prob_1a1);
             if (!str_end) {
               genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
-              loadbuf_iter = NextTokenMult(loadbuf_iter, 1 + format_triple);
+              linebuf_iter = NextTokenMult(linebuf_iter, 1 + format_triple);
               continue;
             }
-            loadbuf_iter = NextTokenMult(str_end, 1 + format_triple);
+            linebuf_iter = NextTokenMult(str_end, 1 + format_triple);
             double prob_one_or_two_a1 = prob_2a1 + prob_1a1;
             if ((prob_2a1 < 0.0) || (prob_1a1 < 0.0) || (prob_one_or_two_a1 > 1.01 * (1 + kSmallEpsilon))) {
               genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
@@ -7528,8 +7490,6 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     logputsb();
   }
   while (0) {
-  Plink1DosageToPgen_ret_LONG_LINE_N:
-    putc_unlocked('\n', stdout);
   Plink1DosageToPgen_ret_LONG_LINE:
     if (loadbuf_size == kMaxLongLine) {
       logerrprintfww("Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, dosagename);
@@ -7538,6 +7498,9 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     }
   Plink1DosageToPgen_ret_NOMEM:
     reterr = kPglRetNomem;
+    break;
+  Plink1DosageToPgen_ret_READ_RLSTREAM:
+    RLstreamErrPrint(dosagename, &dosage_rls, &reterr);
     break;
   Plink1DosageToPgen_ret_OPEN_FAIL:
     reterr = kPglRetOpenFail;
@@ -7574,7 +7537,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
   }
   ForgetExtraChrNames(1, cip);
   fclose_cond(outfile);
-  gzclose_cond(gz_infile);
+  CleanupRLstream(&dosage_rls);
   free_cond(pheno_names);
   CleanupPhenoCols(pheno_ct, pheno_cols);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
