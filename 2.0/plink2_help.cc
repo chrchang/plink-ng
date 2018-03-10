@@ -1117,6 +1117,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --1                           : Expect case/control phenotypes in input files\n"
 "                                  to be coded as 0 = control, 1 = case, instead\n"
 "                                  of the usual 0 = missing, 1 = ctrl, 2 = case.\n"
+"                                  (Unlike PLINK 1.x, this does not force all\n"
+"                                  phenotypes to be interpreted as case/ctrl.)\n"
 "  --missing-catname [str]       : Set missing-categorical-phenotype string\n"
 "                                  (case-sensitive, default 'NONE').\n"
                );
