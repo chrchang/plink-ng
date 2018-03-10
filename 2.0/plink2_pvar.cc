@@ -656,7 +656,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     char* linebuf_first_token;
     while (1) {
       ++line_idx;
-      reterr = ReadNextLineFromRLstreamRaw(&pvar_rls, &line_iter);
+      reterr = RlsNextLstrip(&pvar_rls, &line_iter);
       if (reterr) {
         if (reterr == kPglRetEof) {
           linebuf_first_token = &(line_iter[-1]);
@@ -666,7 +666,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         }
         goto LoadPvar_ret_READ_RLSTREAM;
       }
-      linebuf_first_token = FirstNonTspace(line_iter);
+      linebuf_first_token = line_iter;
       if (*linebuf_first_token != '#') {
         if (IsEolnKns(*linebuf_first_token)) {
           continue;
@@ -715,7 +715,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
             (!StrStartsWithUnsafe(linebuf_first_token, "##fileDate=")) &&
             (!StrStartsWithUnsafe(linebuf_first_token, "##source=")) &&
             (!StrStartsWithUnsafe(linebuf_first_token, "##FORMAT="))) {
-          char* line_end = S_CAST(char*, rawmemchr(linebuf_first_token, '\n'));
+          char* line_end = AdvToDelim(linebuf_first_token, '\n');
           uint32_t line_slen = line_end - linebuf_first_token;
           if (linebuf_first_token[line_slen - 1] == '\r') {
             --line_slen;
@@ -848,7 +848,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         col_skips[rpc_col_idx] -= col_skips[rpc_col_idx - 1];
       }
       // skip this line in main loop
-      linebuf_first_token = K_CAST(char*, S_CAST(const char*, rawmemchr(linebuf_iter, '\n')));
+      linebuf_first_token = K_CAST(char*, AdvToDelim(linebuf_iter, '\n'));
     } else if (linebuf_first_token[0] != '\n') {
       *info_flags_ptr = kfInfoPrNonrefDefault;
       col_skips[0] = 1;
@@ -1176,7 +1176,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           // It is possible for the info_token[info_slen] assignment below to
           // clobber the line terminator, so we advance line_iter to eoln here
           // and never reference it again before the next line.
-          line_iter = S_CAST(char*, rawmemchr(linebuf_iter, '\n'));
+          line_iter = AdvToDelim(linebuf_iter, '\n');
           if (info_col_present) {
             const uint32_t info_slen = token_slens[6];
             if (info_slen > info_reload_slen) {
@@ -1559,7 +1559,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
           {
             char* alt_col_end = CurTokenEnd(token_ptrs[3]);
             token_slens[3] = alt_col_end - token_ptrs[3];
-            line_iter = S_CAST(char*, rawmemchr(alt_col_end, '\n'));
+            line_iter = AdvToDelim(alt_col_end, '\n');
           }
         LoadPvar_skip_variant:
           ++exclude_ct;
@@ -1584,11 +1584,11 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         }
         ++raw_variant_ct;
       } else {
-        line_iter = S_CAST(char*, rawmemchr(linebuf_first_token, '\n'));
+        line_iter = AdvToDelim(linebuf_first_token, '\n');
       }
       ++line_iter;
       ++line_idx;
-      reterr = ReadFromRLstreamRaw(&pvar_rls, &line_iter);
+      reterr = RlsPostlfNext(&pvar_rls, &line_iter);
       if (reterr) {
         if (reterr == kPglRetEof) {
           reterr = kPglRetSuccess;

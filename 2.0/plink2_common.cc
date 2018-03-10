@@ -380,9 +380,9 @@ PglErr SortedXidboxInitAlloc(const uintptr_t* sample_include, const SampleIdInfo
   if (!allow_dups) {
     char* dup_id = ScanForDuplicateIds(*sorted_xidbox_ptr, sample_ct, *max_xid_blen_ptr);
     if (dup_id) {
-      char* tab_iter = S_CAST(char*, rawmemchr(dup_id, '\t'));
+      char* tab_iter = AdvToDelim(dup_id, '\t');
       *tab_iter = ' ';
-      tab_iter = S_CAST(char*, rawmemchr(&(tab_iter[1]), '\t'));
+      tab_iter = AdvToDelim(&(tab_iter[1]), '\t');
       *tab_iter = ' ';
       logerrprintfww("Error: Duplicate ID '%s'.\n", dup_id);
       return kPglRetMalformedInput;
@@ -536,64 +536,6 @@ BoolErr SortedXidboxReadMultifind(const char* __restrict sorted_xidbox, uintptr_
   return 0;
 }
 
-PglErr LoadXidHeaderOld(const char* flag_name, XidHeaderFlags xid_header_flags, uintptr_t loadbuf_size, char* loadbuf, char** loadbuf_iter_ptr, uintptr_t* line_idx_ptr, char** loadbuf_first_token_ptr, gzFile* gz_infile_ptr, XidMode* xid_mode_ptr) {
-  // possible todo: support comma delimiter
-  uintptr_t line_idx = *line_idx_ptr;
-  uint32_t is_header_line;
-  char* loadbuf_first_token;
-  do {
-    ++line_idx;
-    if (!gzgets(*gz_infile_ptr, loadbuf, loadbuf_size)) {
-      if (!gzeof(*gz_infile_ptr)) {
-        return kPglRetReadFail;
-      }
-      return kPglRetEmptyFile;
-    }
-    if (!loadbuf[loadbuf_size - 1]) {
-      return kPglRetLongLine;
-    }
-    loadbuf_first_token = FirstNonTspace(loadbuf);
-    is_header_line = (loadbuf_first_token[0] == '#');
-  } while (IsEolnKns(*loadbuf_first_token) || (is_header_line && (!tokequal_k(&(loadbuf_first_token[1]), "FID")) && (!tokequal_k(&(loadbuf_first_token[1]), "IID"))));
-  XidMode xid_mode = kfXidMode0;
-  char* loadbuf_iter;
-  if (is_header_line) {
-    // The following header leading columns are supported:
-    // #FID IID
-    // #FID IID SID (SID ignored if kfXidHeaderIgnoreSid set)
-    // #IID
-    // #IID SID
-    loadbuf_iter = &(loadbuf_first_token[4]);
-    if (loadbuf_first_token[1] == 'I') {
-      xid_mode = kfXidModeFlagNeverFid;
-    } else {
-      loadbuf_iter = FirstNonTspace(loadbuf_iter);
-      if (!tokequal_k(loadbuf_iter, "IID")) {
-        logerrprintf("Error: No IID column on line %" PRIuPTR " of --%s file.\n", line_idx, flag_name);
-        return kPglRetMalformedInput;
-      }
-      loadbuf_iter = &(loadbuf_iter[3]);
-    }
-    loadbuf_iter = FirstNonTspace(loadbuf_iter);
-    if (tokequal_k(loadbuf_iter, "SID")) {
-      if (!(xid_header_flags & kfXidHeaderIgnoreSid)) {
-        xid_mode |= kfXidModeFlagSid;
-      }
-      loadbuf_iter = FirstNonTspace(&(loadbuf_iter[3]));
-    }
-  } else {
-    xid_mode = (xid_header_flags & kfXidHeaderFixedWidth)? kfXidModeFidIid : kfXidModeFidIidOrIid;
-    loadbuf_iter = loadbuf_first_token;
-  }
-  if (loadbuf_iter_ptr) {
-    *loadbuf_iter_ptr = loadbuf_iter;
-  }
-  *loadbuf_first_token_ptr = loadbuf_first_token;
-  *line_idx_ptr = line_idx;
-  *xid_mode_ptr = xid_mode;
-  return kPglRetSuccess;
-}
-
 PglErr LoadXidHeader(const char* flag_name, XidHeaderFlags xid_header_flags, char** line_iterp, uintptr_t* line_idx_ptr, char** linebuf_first_token_ptr, ReadLineStream* rlsp, XidMode* xid_mode_ptr) {
   // possible todo: support comma delimiter
   char* line_iter = *line_iterp;
@@ -601,11 +543,8 @@ PglErr LoadXidHeader(const char* flag_name, XidHeaderFlags xid_header_flags, cha
   uint32_t is_header_line;
   do {
     ++line_idx;
-    PglErr reterr = ReadNextLineFromRLstreamRaw(rlsp, &line_iter);
+    PglErr reterr = RlsNext(rlsp, &line_iter);
     if (reterr) {
-      if (reterr == kPglRetEof) {
-        return kPglRetEmptyFile;
-      }
       return reterr;
     }
     line_iter = FirstNonTspace(line_iter);

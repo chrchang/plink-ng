@@ -1485,7 +1485,8 @@ int32_t disp_help(uint32_t param_ct, char** argv) {
 "  --missing-phenotype [v] : Set missing phenotype value (normally -9).\n"
 "  --1                     : Expect case/control phenotypes to be coded as\n"
 "                            0 = control, 1 = case, instead of the usual\n"
-"                            0 = missing, 1 = control, 2 = case.\n"
+"                            0 = missing, 1 = control, 2 = case.  This also\n"
+"                            forces phenotypes to be interpreted as case/ctrl.\n"
 	       );
     help_print("make-pheno\tpheno", &help_ctrl, 0,
 "  --make-pheno [fn] [val] : Define a new case/control phenotype.  If the val\n"

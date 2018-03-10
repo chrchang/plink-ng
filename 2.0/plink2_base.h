@@ -294,8 +294,7 @@ typedef enum
   // These are only for internal use.  If any of these reach the top level
   // instead of being handled or converted to another error code, that's a bug,
   // and plink2 prints a message to that effect.
-  kPglRetLongLine = 125,
-  kPglRetEmptyFile = 126,
+  kPglRetLongLine = 126,
   kPglRetEof = 127}
 #if __cplusplus >= 201103L
   ;
@@ -339,7 +338,6 @@ const PglErr kPglRetWarningErrcode = PglErr::ec::kPglRetWarningErrcode;
 const PglErr kPglRetImproperFunctionCall = PglErr::ec::kPglRetImproperFunctionCall;
 const PglErr kPglRetNotYetSupported = PglErr::ec::kPglRetNotYetSupported;
 const PglErr kPglRetLongLine = PglErr::ec::kPglRetLongLine;
-const PglErr kPglRetEmptyFile = PglErr::ec::kPglRetEmptyFile;
 const PglErr kPglRetEof = PglErr::ec::kPglRetEof;
 #else
   PglErr;

@@ -637,6 +637,84 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
 #endif
 }
 
+PglErr RlsNextNonemptyLstrip(ReadLineStream* rlsp, uintptr_t* line_idx_ptr, char** consume_iterp) {
+  uintptr_t line_idx = *line_idx_ptr;
+  char* consume_iter = *consume_iterp;
+  do {
+    ++line_idx;
+    consume_iter = AdvPastDelim(consume_iter, '\n');
+    PglErr reterr = RlsPostlfNext(rlsp, &consume_iter);
+    if (reterr) {
+      return reterr;
+    }
+    consume_iter = FirstNonTspace(consume_iter);
+  } while (IsEolnKns(*consume_iter));
+  *line_idx_ptr = line_idx;
+  *consume_iterp = consume_iter;
+  return kPglRetSuccess;
+}
+
+PglErr RlsSkipNz(uintptr_t skip_ct, ReadLineStream* rlsp, char** consume_iterp) {
+#ifdef __LP64__
+  char* consume_iter = *consume_iterp;
+  // Minor extension of AdvToNthDelimChecked().
+  const VecUc vvec_all_lf = vecuc_set1('\n');
+  while (1) {
+    uintptr_t starting_addr = R_CAST(uintptr_t, consume_iter);
+    VecUc* consume_viter = R_CAST(VecUc*, RoundDownPow2(starting_addr, kBytesPerVec));
+    uintptr_t ending_addr = R_CAST(uintptr_t, rlsp->consume_stop);
+    VecUc* consume_vstop = R_CAST(VecUc*, RoundDownPow2(ending_addr, kBytesPerVec));
+    VecUc cur_vvec = *consume_viter;
+    VecUc lf_vvec = (cur_vvec == vvec_all_lf);
+    uint32_t lf_bytes = vecuc_movemask(lf_vvec);
+    const uint32_t leading_byte_ct = starting_addr - R_CAST(uintptr_t, consume_viter);
+    const uint32_t leading_mask = UINT32_MAX << leading_byte_ct;
+    lf_bytes &= leading_mask;
+    uint32_t cur_lf_ct;
+    for (; consume_viter != consume_vstop; ++consume_viter) {
+      cur_lf_ct = PopcountMovemaskUint(lf_bytes);
+      if (cur_lf_ct >= skip_ct) {
+        goto SkipNextLineInRLstreamRaw_finish;
+      }
+      skip_ct -= cur_lf_ct;
+    }
+    lf_bytes &= (1U << (ending_addr % kBytesPerVec)) - 1;
+    cur_lf_ct = PopcountMovemaskUint(lf_bytes);
+    if (cur_lf_ct > skip_ct) {
+    SkipNextLineInRLstreamRaw_finish:
+      lf_bytes = ClearBottomSetBits(skip_ct, cur_lf_ct);
+      const uint32_t byte_offset_in_vec = ctzu32(lf_bytes);
+      const uintptr_t result_addr = R_CAST(uintptr_t, consume_viter) + byte_offset_in_vec;
+      // return last character in last skipped line
+      *consume_iterp = R_CAST(char*, result_addr);
+      return kPglRetSuccess;
+    }
+    skip_ct -= cur_lf_ct;
+    consume_iter = rlsp->consume_stop;
+    PglErr reterr = AdvanceRLstream(rlsp, &consume_iter);
+    if (reterr) {
+      return reterr;
+    }
+  }
+#else
+  char* consume_iter = *consume_iterp;
+  char* consume_stop = rlsp->consume_stop;
+  for (uintptr_t ulii = 0; ulii < skip_ct; ++ulii) {
+    consume_iter = AdvPastDelim(consume_iter, '\n');
+    if (consume_iter == consume_stop) {
+      PglErr reterr = AdvanceRLstream(rlsp, &consume_iter);
+      if (reterr) {
+        return reterr;
+      }
+      consume_stop = rlsp->consume_stop;
+    }
+  }
+  // return beginning of last skipped line
+  *consume_iterp = consume_iter;
+  return kPglRetSuccess;
+#endif
+}
+
 PglErr RetargetRLstreamRaw(const char* new_fname, ReadLineStream* rlsp, char** consume_iterp) {
   char* buf = rlsp->buf;
   ReadLineStreamSync* syncp = rlsp->syncp;

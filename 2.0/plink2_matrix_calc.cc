@@ -299,7 +299,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
       goto KingCutoffBatch_ret_1;
     }
     ++line_idx;
-    reterr = ReadNextLineFromRLstreamRaw(&rls, &line_iter);
+    reterr = RlsNextLstrip(&rls, &line_iter);
     if (reterr) {
       if (reterr == kPglRetEof) {
         logerrputs("Error: Empty --king-cutoff ID file.\n");
@@ -307,7 +307,6 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
       }
       goto KingCutoffBatch_ret_READ_RLSTREAM;
     }
-    line_iter = FirstNonTspace(line_iter);
     if (IsEolnKns(*line_iter)) {
       goto KingCutoffBatch_ret_MISSING_TOKENS;
     }
@@ -331,7 +330,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
       uint32_t sample_uidx;
       if (!SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx, idbuf)) {
         if (sample_uidx_to_king_uidx[sample_uidx] != UINT32_MAX) {
-          char* first_tab = S_CAST(char*, rawmemchr(idbuf, '\t'));
+          char* first_tab = AdvToDelim(idbuf, '\t');
           char* second_tab = strchr(&(first_tab[1]), '\t');
           *first_tab = ' ';
           if (second_tab) {
@@ -349,7 +348,7 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
       line_iter = K_CAST(char*, linebuf_iter);
 
       ++line_idx;
-      reterr = ReadNextLineFromRLstreamRaw(&rls, &line_iter);
+      reterr = RlsNextLstrip(&rls, &line_iter);
       if (reterr) {
         if (reterr == kPglRetEof) {
           reterr = kPglRetSuccess;
@@ -357,7 +356,6 @@ PglErr KingCutoffBatch(const SampleIdInfo* siip, uint32_t raw_sample_ct, double 
         }
         goto KingCutoffBatch_ret_READ_RLSTREAM;
       }
-      line_iter = FirstNonTspace(line_iter);
       if (IsEolnKns(*line_iter)) {
         goto KingCutoffBatch_ret_MISSING_TOKENS;
       }
@@ -1822,8 +1820,7 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, u
     // Assumes textbuf[kMaxMediumLine - 1] initialized to ' '.
     uint32_t* loaded_sample_idx_pairs_iter = loaded_sample_idx_pairs;
     while (1) {
-      ++line_idx;
-      reterr = ReadNextLineFromRLstreamRaw(rlsp, &line_iter);
+      reterr = RlsNextNonemptyLstrip(rlsp, &line_idx, &line_iter);
       if (reterr) {
         if (reterr == kPglRetEof) {
           reterr = kPglRetSuccess;
@@ -1832,10 +1829,6 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, u
           break;
         }
         goto KingTableSubsetLoad_ret_READ_RLSTREAM;
-      }
-      line_iter = FirstNonTspace(line_iter);
-      if (IsEolnKns(*line_iter)) {
-        continue;
       }
       const char* linebuf_iter = line_iter;
       uint32_t sample_uidx1;
@@ -4656,20 +4649,16 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     if (reterr) {
       goto ScoreReport_ret_1;
     }
-    uint32_t lines_to_skip_p1 = 1 + ((score_flags / kfScoreHeaderIgnore) & 1);
-    for (uint32_t uii = 0; uii < lines_to_skip_p1; ++uii) {
-      do {
-        ++line_idx;
-        reterr = ReadNextLineFromRLstreamRaw(&score_rls, &line_iter);
-        if (reterr) {
-          if (reterr == kPglRetEof) {
-            logerrputs("Error: Empty --score file.\n");
-            goto ScoreReport_ret_MALFORMED_INPUT;
-          }
-          goto ScoreReport_ret_READ_RLSTREAM;
+    uint32_t nonempty_lines_to_skip_p1 = 1 + ((score_flags / kfScoreHeaderIgnore) & 1);
+    for (uint32_t uii = 0; uii < nonempty_lines_to_skip_p1; ++uii) {
+      reterr = RlsNextNonemptyLstrip(&score_rls, &line_idx, &line_iter);
+      if (reterr) {
+        if (reterr == kPglRetEof) {
+          logerrputs("Error: Empty --score file.\n");
+          goto ScoreReport_ret_MALFORMED_INPUT;
         }
-        line_iter = FirstNonTspace(line_iter);
-      } while (IsEolnKns(*line_iter));
+        goto ScoreReport_ret_READ_RLSTREAM;
+      }
     }
     char* linebuf_first_token = line_iter;
     uint32_t last_col_idx = CountTokens(linebuf_first_token);
@@ -4743,7 +4732,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       }
 
       // don't reparse this line
-      line_iter = S_CAST(char*, rawmemchr(read_iter, '\n'));
+      line_iter = AdvToDelim(read_iter, '\n');
       linebuf_first_token = line_iter;
     } else {
       for (uintptr_t score_col_idx = 0; score_col_idx < score_col_ct; ++score_col_idx) {
@@ -5178,7 +5167,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         }
       }
       ++line_idx;
-      reterr = ReadNextLineFromRLstreamRaw(&score_rls, &line_iter);
+      reterr = RlsNextLstrip(&score_rls, &line_iter);
       if (reterr) {
         if (reterr == kPglRetEof) {
           reterr = kPglRetSuccess;
@@ -5186,7 +5175,6 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         }
         goto ScoreReport_ret_READ_RLSTREAM;
       }
-      line_iter = FirstNonTspace(line_iter);
       linebuf_first_token = line_iter;
     }
     VcountIncr4To8(missing_diploid_acc4, acc4_vec_ct, missing_diploid_acc8);

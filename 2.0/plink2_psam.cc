@@ -55,47 +55,30 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
 
-  gzFile gz_infile = nullptr;
   PhenoCol* pheno_cols = nullptr;
   uintptr_t line_idx = 0;
   uint32_t pheno_ct = 0;
   PglErr reterr = kPglRetSuccess;
+  ReadLineStream psam_rls;
+  PreinitRLstream(&psam_rls);
   {
-    reterr = gzopen_read_checked(psamname, &gz_infile);
+    const char* line_iter;
+    reterr = SizeAndInitRLstreamRawK(psamname, bigstack_left() / 4, &psam_rls, &line_iter);
     if (reterr) {
       goto LoadPsam_ret_1;
     }
-    const uintptr_t initial_bigstack_size = bigstack_left();
-    uintptr_t loadbuf_size = initial_bigstack_size / 4;
-    if (loadbuf_size > kMaxLongLine) {
-      loadbuf_size = kMaxLongLine;
-    } else if (loadbuf_size <= kMaxMediumLine) {
-      goto LoadPsam_ret_NOMEM;
-    } else {
-      loadbuf_size = RoundUpPow2(loadbuf_size, kCacheline);
-    }
-    // allocated at bottom now, so short string comparsions against end cannot
-    // fail
-    char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
-    loadbuf[loadbuf_size - 1] = ' ';
-    char* loadbuf_first_token;
     do {
       ++line_idx;
-      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-        if (!gzeof(gz_infile)) {
-          goto LoadPsam_ret_READ_FAIL;
+      reterr = RlsNextLstripK(&psam_rls, &line_iter);
+      if (reterr) {
+        if (reterr == kPglRetEof) {
+          logerrprintfww("Error: No samples in %s.\n", psamname);
+          goto LoadPsam_ret_MALFORMED_INPUT;
         }
-        logerrprintfww("Error: No samples in %s.\n", psamname);
-        goto LoadPsam_ret_MALFORMED_INPUT;
+        goto LoadPsam_ret_READ_RLSTREAM;
       }
-      if (!loadbuf[loadbuf_size - 1]) {
-        if (loadbuf_size == kMaxLongLine) {
-          goto LoadPsam_ret_LONG_LINE;
-        }
-        goto LoadPsam_ret_NOMEM;
-      }
-      loadbuf_first_token = FirstNonTspace(loadbuf);
-    } while (IsEolnKns(*loadbuf_first_token) || ((loadbuf_first_token[0] == '#') && (!tokequal_k(&(loadbuf_first_token[1]), "FID")) && (!tokequal_k(&(loadbuf_first_token[1]), "IID"))));
+    } while (IsEolnKns(*line_iter) || ((line_iter[0] == '#') && (!tokequal_k(&(line_iter[1]), "FID")) && (!tokequal_k(&(line_iter[1]), "IID"))));
+    const char* linebuf_first_token = line_iter;
     const uint32_t pheno_name_subset = pheno_range_list_ptr && pheno_range_list_ptr->names;
     uint32_t* col_skips = nullptr;
     uint32_t* col_types = nullptr;
@@ -107,7 +90,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     unsigned char* tmp_bigstack_end = g_bigstack_end;
     unsigned char* bigstack_mark2;
     uint32_t fid_present = 1;
-    if (loadbuf_first_token[0] == '#') {
+    if (linebuf_first_token[0] == '#') {
       // parse header
       // [-1] = #FID (if present, must be first column)
       // [0] = IID (could also be first column)
@@ -116,7 +99,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
       // [3] = MAT
       // [4] = SEX
       // [5+] = phenotypes
-      relevant_postfid_col_ct = CountTokens(loadbuf_first_token);
+      relevant_postfid_col_ct = CountTokens(linebuf_first_token);
       if (relevant_postfid_col_ct > pheno_ct_max + 5) {
         relevant_postfid_col_ct = pheno_ct_max + 5;
       }
@@ -126,7 +109,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
       }
       bigstack_mark2 = g_bigstack_base;
       uint32_t rpf_col_idx = 0;
-      if (loadbuf_first_token[1] == 'I') {
+      if (linebuf_first_token[1] == 'I') {
         col_skips[0] = 0;
         col_types[0] = 0;
         ++rpf_col_idx;
@@ -156,29 +139,30 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
         }
         BigstackReset(dummy_bitarr);
       }
-      const char* token_end = &(loadbuf_first_token[4]);
+      const char* token_end = &(linebuf_first_token[4]);
       unsigned char* ll_alloc_base = g_bigstack_base;
+      const char* linebuf_iter;
       while (1) {
-        const char* loadbuf_iter = FirstNonTspace(token_end);
-        if (IsEolnKns(*loadbuf_iter)) {
+        linebuf_iter = FirstNonTspace(token_end);
+        if (IsEolnKns(*linebuf_iter)) {
           break;
         }
         ++col_idx;
-        token_end = CurTokenEnd(loadbuf_iter);
-        const uint32_t token_slen = token_end - loadbuf_iter;
+        token_end = CurTokenEnd(linebuf_iter);
+        const uint32_t token_slen = token_end - linebuf_iter;
         if (token_slen == 3) {
           uint32_t cur_col_type = UINT32_MAX;
-          if (!memcmp(loadbuf_iter, "IID", 3)) {
+          if (!memcmp(linebuf_iter, "IID", 3)) {
             cur_col_type = 0;
-          } else if (!memcmp(loadbuf_iter, "SID", 3)) {
+          } else if (!memcmp(linebuf_iter, "SID", 3)) {
             cur_col_type = 1;
-          } else if (!memcmp(loadbuf_iter, "PAT", 3)) {
+          } else if (!memcmp(linebuf_iter, "PAT", 3)) {
             cur_col_type = 2;
-          } else if (!memcmp(loadbuf_iter, "MAT", 3)) {
+          } else if (!memcmp(linebuf_iter, "MAT", 3)) {
             cur_col_type = 3;
-          } else if (!memcmp(loadbuf_iter, "SEX", 3)) {
+          } else if (!memcmp(linebuf_iter, "SEX", 3)) {
             cur_col_type = 4;
-          } else if (!memcmp(loadbuf_iter, "FID", 3)) {
+          } else if (!memcmp(linebuf_iter, "FID", 3)) {
             snprintf(g_logbuf, kLogbufSize, "Error: 'FID' column header on line %" PRIuPTR " of %s is not at the beginning.\n", line_idx, psamname);
             goto LoadPsam_ret_MALFORMED_INPUT_WW;
           }
@@ -187,7 +171,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
             if (psam_cols_mask & cur_col_type_shifted) {
               // known token, so no overflow danger
               char* write_iter = strcpya(g_logbuf, "Error: Duplicate column header '");
-              write_iter = memcpyl3a(write_iter, loadbuf_iter);
+              write_iter = memcpyl3a(write_iter, linebuf_iter);
               write_iter = strcpya(write_iter, "' on line ");
               write_iter = wtoa(line_idx, write_iter);
               write_iter = strcpya(write_iter, " of ");
@@ -204,7 +188,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
         if (pheno_ct < pheno_ct_max) {
           if (pheno_name_subset) {
             uint32_t cmdline_pos;
-            if (!SortedIdboxFind(loadbuf_iter, cmdline_pheno_sorted_ids, cmdline_pheno_id_map, token_slen, max_cmdline_pheno_id_blen, cmdline_pheno_name_ct, &cmdline_pos)) {
+            if (!SortedIdboxFind(linebuf_iter, cmdline_pheno_sorted_ids, cmdline_pheno_id_map, token_slen, max_cmdline_pheno_id_blen, cmdline_pheno_name_ct, &cmdline_pos)) {
               // similar to string_range_list_to_bitarr()
               if (pheno_range_list_ptr->starts_range[cmdline_pos]) {
                 if (in_interval) {
@@ -231,7 +215,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
             goto LoadPsam_ret_NOMEM;
           }
           ll_str_new->next = pheno_names_reverse_ll;
-          memcpyx(ll_str_new->str, loadbuf_iter, token_slen, '\0');
+          memcpyx(ll_str_new->str, linebuf_iter, token_slen, '\0');
           if (tok_blen > max_pheno_name_blen) {
             max_pheno_name_blen = tok_blen;
           }
@@ -258,8 +242,10 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
       for (rpf_col_idx = relevant_postfid_col_ct - 1; rpf_col_idx; --rpf_col_idx) {
         col_skips[rpf_col_idx] -= col_skips[rpf_col_idx - 1];
       }
-      loadbuf_first_token[0] = '\0';  // forces line to be skipped by main loop
-    } else if (loadbuf_first_token[0]) {
+
+      // force line to be skipped by main loop
+      linebuf_first_token = linebuf_iter;
+    } else if (linebuf_first_token[0]) {
       if (pheno_name_subset) {
         logerrputs("Error: --pheno-name requires a --pheno or .psam file with a header.\n");
         goto LoadPsam_ret_INCONSISTENT_INPUT;
@@ -269,7 +255,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
       fid_present = (fam_cols / kfFamCol1) & 1;
       relevant_postfid_col_ct = fid_present + ((fam_cols / (kfFamCol34 / 2)) & 2) + ((fam_cols / kfFamCol5) & 1) + pheno_ct;
       // these small allocations can't fail, since kMaxMediumLine <
-      // loadbuf_size <= 1/3 of remaining space
+      // linebuf_size <= 1/3 of remaining space
       col_skips = S_CAST(uint32_t*, bigstack_alloc_raw_rd(relevant_postfid_col_ct * sizeof(int32_t)));
       col_types = S_CAST(uint32_t*, bigstack_alloc_raw_rd(relevant_postfid_col_ct * sizeof(int32_t)));
       bigstack_mark2 = g_bigstack_base;
@@ -373,26 +359,18 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     CatnameLl2** pheno_catname_last = nullptr;
     uintptr_t* total_catname_blens = nullptr;
     while (1) {
-      if (!IsEolnKns(*loadbuf_first_token)) {
+      if (!IsEolnKns(*linebuf_first_token)) {
         if (raw_sample_ct == 0x7ffffffe) {
           logerrputs("Error: " PROG_NAME_STR " does not support more than 2^31 - 2 samples.\n");
           goto LoadPsam_ret_MALFORMED_INPUT;
         }
-        const char* loadbuf_iter = loadbuf_first_token;
-        for (uint32_t rpf_col_idx = 0; rpf_col_idx < relevant_postfid_col_ct; ++rpf_col_idx) {
-          const uint32_t cur_col_type = col_types[rpf_col_idx];
-          loadbuf_iter = NextTokenMult0(loadbuf_iter, col_skips[rpf_col_idx]);
-          if (!loadbuf_iter) {
-            goto LoadPsam_ret_MISSING_TOKENS;
-          }
-          token_ptrs[cur_col_type] = loadbuf_iter;
-          const char* token_end = CurTokenEnd(loadbuf_iter);
-          token_slens[cur_col_type] = token_end - loadbuf_iter;
-          loadbuf_iter = token_end;
+        line_iter = TokenLexK0(linebuf_first_token, col_types, col_skips, relevant_postfid_col_ct, token_ptrs, token_slens);
+        if (!line_iter) {
+          goto LoadPsam_ret_MISSING_TOKENS;
         }
         uint32_t fid_slen = 2;
         if (fid_present) {
-          fid_slen = CurTokenEnd(loadbuf_first_token) - loadbuf_first_token;
+          fid_slen = CurTokenEnd(linebuf_first_token) - linebuf_first_token;
         }
         const uint32_t iid_slen = token_slens[0];
         const uint32_t sid_slen = sids_present? token_slens[1] : 0;
@@ -461,7 +439,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
         char* sample_id_storage = R_CAST(char*, &(new_psam_info->vardata[pheno_ct * 8]));
         char* ss_iter = sample_id_storage;
         if (fid_present) {
-          ss_iter = memcpya(ss_iter, loadbuf_first_token, fid_slen);
+          ss_iter = memcpya(ss_iter, linebuf_first_token, fid_slen);
         } else {
           *ss_iter++ = '0';
         }
@@ -587,20 +565,16 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
         ++raw_sample_ct;
       }
       ++line_idx;
-      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-        if (!gzeof(gz_infile)) {
-          goto LoadPsam_ret_READ_FAIL;
+      reterr = RlsNextLstripK(&psam_rls, &line_iter);
+      if (reterr) {
+        if (reterr == kPglRetEof) {
+          reterr = kPglRetSuccess;
+          break;
         }
-        break;
+        goto LoadPsam_ret_READ_RLSTREAM;
       }
-      if (!loadbuf[loadbuf_size - 1]) {
-        if (loadbuf_size == kMaxLongLine) {
-          goto LoadPsam_ret_LONG_LINE;
-        }
-        goto LoadPsam_ret_NOMEM;
-      }
-      loadbuf_first_token = FirstNonTspace(loadbuf);
-      if (loadbuf_first_token[0] == '#') {
+      linebuf_first_token = line_iter;
+      if (linebuf_first_token[0] == '#') {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line, and if a #FID/IID header line is present it must denote the end of the header block.)\n", line_idx, psamname);
         goto LoadPsam_ret_MALFORMED_INPUT_WW;
       }
@@ -608,9 +582,6 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     if ((max_sample_id_blen > 2 * kMaxIdBlen) || (max_paternal_id_blen > kMaxIdBlen) || (max_maternal_id_blen > kMaxIdBlen)) {
       logerrputs("Error: FIDs and IIDs are limited to " MAX_ID_SLEN_STR " characters.\n");
       goto LoadPsam_ret_MALFORMED_INPUT;
-    }
-    if (gzclose_null(&gz_infile)) {
-      goto LoadPsam_ret_READ_FAIL;
     }
     if (!raw_sample_ct) {
       logerrprintfww("Error: No samples in %s.\n", psamname);
@@ -808,8 +779,8 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
   LoadPsam_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  LoadPsam_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
+  LoadPsam_ret_READ_RLSTREAM:
+    RLstreamErrPrint(psamname, &psam_rls, &reterr);
     break;
   LoadPsam_ret_INCONSISTENT_INPUT_WW:
     WordWrapB(0);
@@ -817,8 +788,6 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
   LoadPsam_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;
     break;
-  LoadPsam_ret_LONG_LINE:
-    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, psamname);
   LoadPsam_ret_MALFORMED_INPUT_WW:
     WordWrapB(0);
     logerrputsb();
@@ -835,8 +804,8 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     break;
   }
  LoadPsam_ret_1:
+  CleanupRLstream(&psam_rls);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
-  gzclose_cond(gz_infile);
   if (reterr) {
     if (*pheno_names_ptr) {
       free(*pheno_names_ptr);
@@ -862,92 +831,75 @@ typedef struct PhenoInfoLlStruct {
 // and make unnamed variables start with "COVAR" instead of "PHENO"
 PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr, const uintptr_t* sample_include, const char* sample_ids, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, int32_t missing_pheno, uint32_t affection_01, uint32_t numeric_ranges, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
-
-  gzFile gz_infile = nullptr;
   char* pheno_names = nullptr;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
+  ReadLineStream pheno_rls;
+  PreinitRLstream(&pheno_rls);
   {
     if (!sample_ct) {
       goto LoadPhenos_ret_1;
     }
-    reterr = gzopen_read_checked(pheno_fname, &gz_infile);
+    const char* line_iter;
+    reterr = SizeAndInitRLstreamRawK(pheno_fname, bigstack_left() / 4, &pheno_rls, &line_iter);
     if (reterr) {
       goto LoadPhenos_ret_1;
     }
-    const uintptr_t initial_bigstack_size = bigstack_left();
-    uintptr_t loadbuf_size = initial_bigstack_size / 4;
-    if (loadbuf_size > kMaxLongLine) {
-      loadbuf_size = kMaxLongLine;
-    } else if (loadbuf_size <= kMaxMediumLine) {
-      goto LoadPhenos_ret_NOMEM;
-    } else {
-      loadbuf_size = RoundUpPow2(loadbuf_size, kCacheline);
-    }
-    char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
-    loadbuf[loadbuf_size - 1] = ' ';
-    char* loadbuf_first_token;
     do {
       ++line_idx;
-      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-        if (!gzeof(gz_infile)) {
-          goto LoadPhenos_ret_READ_FAIL;
+      reterr = RlsNextLstripK(&pheno_rls, &line_iter);
+      if (reterr) {
+        if (reterr == kPglRetEof) {
+          break;
         }
-        loadbuf_first_token = loadbuf;
-        loadbuf_first_token[0] = '\0';
-        break;
+        goto LoadPhenos_ret_READ_RLSTREAM;
       }
-      if (!loadbuf[loadbuf_size - 1]) {
-        if (loadbuf_size == kMaxLongLine) {
-          goto LoadPhenos_ret_LONG_LINE;
-        }
-        goto LoadPhenos_ret_NOMEM;
-      }
-      loadbuf_first_token = FirstNonTspace(loadbuf);
-    } while (IsEolnKns(*loadbuf_first_token) || ((loadbuf_first_token[0] == '#') && (((loadbuf_first_token[1] != 'F') && (loadbuf_first_token[1] != 'I')) || memcmp(&(loadbuf_first_token[2]), "ID", 2) || ((ctou32(loadbuf_first_token[4]) > ' ') && (loadbuf_first_token[4] != ',')))));
-    if (loadbuf_first_token[0] == '#') {
-      ++loadbuf_first_token;
+    } while (IsEolnKns(*line_iter) || ((line_iter[0] == '#') && (((line_iter[1] != 'F') && (line_iter[1] != 'I')) || memcmp(&(line_iter[2]), "ID", 2) || ((ctou32(line_iter[4]) > ' ') && (line_iter[4] != ',')))));
+    const char* linebuf_first_token = line_iter;
+    if (linebuf_first_token[0] == '#') {
+      ++linebuf_first_token;
     }
     const uint32_t old_pheno_ct = *pheno_ct_ptr;
     const uintptr_t old_max_pheno_name_blen = *max_pheno_name_blen_ptr;
     uintptr_t max_pheno_name_blen = old_max_pheno_name_blen;
     uint32_t comma_delim = 0;
-    XidMode xid_mode = (loadbuf_first_token[0] == 'I')? kfXidModeIid : kfXidModeFidIid;
+    XidMode xid_mode = (linebuf_first_token[0] == 'I')? kfXidModeIid : kfXidModeFidIid;
+    uint32_t* col_types = nullptr;
     uint32_t* col_skips = nullptr;
     uint32_t new_pheno_ct;
     uint32_t final_pheno_ct;
     uintptr_t final_pheno_names_byte_ct;
-    if (((loadbuf_first_token[0] == 'F') || xid_mode) && (!memcmp(&(loadbuf_first_token[1]), "ID", 2)) && ((ctou32(loadbuf_first_token[3]) <= 32) || (loadbuf_first_token[3] == ','))) {
+    if (((linebuf_first_token[0] == 'F') || (xid_mode != kfXidModeFidIid)) && (!memcmp(&(linebuf_first_token[1]), "ID", 2)) && ((ctou32(linebuf_first_token[3]) <= 32) || (linebuf_first_token[3] == ','))) {
       // treat this as a header line
       // autodetect CSV vs. space/tab-delimited
       // (note that we don't permit CSVs without header lines)
-      comma_delim = (loadbuf_first_token[3] == ',');
-      const char* loadbuf_iter = FirstNonTspace(&(loadbuf_first_token[3 + comma_delim]));
-      if (IsEolnKns(*loadbuf_iter)) {
+      comma_delim = (linebuf_first_token[3] == ',');
+      const char* linebuf_iter = FirstNonTspace(&(linebuf_first_token[3 + comma_delim]));
+      if (IsEolnKns(*linebuf_iter)) {
         goto LoadPhenos_ret_MISSING_TOKENS;
       }
       const char* iid_end;
-      if (!xid_mode) {
-        iid_end = CommaOrTspaceTokenEnd(loadbuf_iter, comma_delim);
-        const uintptr_t token_slen = iid_end - loadbuf_iter;
-        if (!strequal_k(loadbuf_iter, "IID", token_slen)) {
+      if (xid_mode == kfXidModeFidIid) {
+        iid_end = CommaOrTspaceTokenEnd(linebuf_iter, comma_delim);
+        const uintptr_t token_slen = iid_end - linebuf_iter;
+        if (!strequal_k(linebuf_iter, "IID", token_slen)) {
           snprintf(g_logbuf, kLogbufSize, "Error: Second column header in %s must be 'IID'.\n", pheno_fname);
           goto LoadPhenos_ret_MALFORMED_INPUT_WW;
         }
-        loadbuf_iter = CommaOrTspaceFirstToken(iid_end, comma_delim);
+        linebuf_iter = CommaOrTspaceFirstToken(iid_end, comma_delim);
       } else {
-        iid_end = &(loadbuf_first_token[3]);
+        iid_end = &(linebuf_first_token[3]);
       }
       uint32_t pheno_col_ct = 0;
-      const char* pheno_start = loadbuf_iter;
-      while (loadbuf_iter) {
-        const char* token_end = CommaOrTspaceTokenEnd(loadbuf_iter, comma_delim);
-        const uintptr_t token_slen = token_end - loadbuf_iter;
+      const char* pheno_start = linebuf_iter;
+      while (linebuf_iter) {
+        const char* token_end = CommaOrTspaceTokenEnd(linebuf_iter, comma_delim);
+        const uintptr_t token_slen = token_end - linebuf_iter;
         if (max_pheno_name_blen <= token_slen) {
           max_pheno_name_blen = token_slen + 1;
         }
         ++pheno_col_ct;
-        loadbuf_iter = CommaOrTspaceFirstToken(token_end, comma_delim);
+        linebuf_iter = CommaOrTspaceFirstToken(token_end, comma_delim);
       }
       if (max_pheno_name_blen > kMaxIdBlen) {
         logerrputs("Error: Phenotype/covariate names are limited to " MAX_ID_SLEN_STR " characters.\n");
@@ -975,23 +927,27 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
           }
         }
         new_pheno_ct = PopcountWords(bitarr, BitCtToWordCt(pheno_col_ct));
-        if (bigstack_alloc_u32(new_pheno_ct, &col_skips)) {
+        if (bigstack_alloc_u32(new_pheno_ct, &col_types) ||
+            bigstack_alloc_u32(new_pheno_ct, &col_skips)) {
           goto LoadPhenos_ret_NOMEM;
         }
         uint32_t col_uidx = 0;
         int32_t prev_col_uidx = -1;
         for (uint32_t col_idx = 0; col_idx < new_pheno_ct; ++col_idx, ++col_uidx) {
           MovU32To1Bit(bitarr, &col_uidx);
+          col_types[col_idx] = col_idx;
           col_skips[col_idx] = col_uidx - prev_col_uidx;
           prev_col_uidx = col_uidx;
         }
       } else {
         // usual case, load all phenotypes
         new_pheno_ct = pheno_col_ct;
-        if (bigstack_alloc_u32(new_pheno_ct, &col_skips)) {
+        if (bigstack_alloc_u32(new_pheno_ct, &col_types) ||
+            bigstack_alloc_u32(new_pheno_ct, &col_skips)) {
           goto LoadPhenos_ret_NOMEM;
         }
         for (uint32_t col_idx = 0; col_idx < pheno_col_ct; ++col_idx) {
+          col_types[col_idx] = col_idx;
           col_skips[col_idx] = 1;
         }
       }
@@ -1001,32 +957,33 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
       if (!pheno_names) {
         goto LoadPhenos_ret_NOMEM;
       }
-      loadbuf_iter = iid_end;
+      linebuf_iter = iid_end;
       char* pheno_names_iter = &(pheno_names[old_pheno_ct * max_pheno_name_blen]);
       for (uint32_t new_pheno_idx = 0; new_pheno_idx < new_pheno_ct; ++new_pheno_idx) {
-        loadbuf_iter = CommaOrSpaceNextTokenMult(loadbuf_iter, col_skips[new_pheno_idx], comma_delim);
-        const char* token_end = CommaOrTspaceTokenEnd(loadbuf_iter, comma_delim);
-        const uint32_t name_slen = token_end - loadbuf_iter;
-        if (IsReservedPhenoName(loadbuf_iter, name_slen)) {
+        linebuf_iter = CommaOrTspaceNextTokenMult(linebuf_iter, col_skips[new_pheno_idx], comma_delim);
+        const char* token_end = CommaOrTspaceTokenEnd(linebuf_iter, comma_delim);
+        const uint32_t name_slen = token_end - linebuf_iter;
+        if (IsReservedPhenoName(linebuf_iter, name_slen)) {
           char* write_iter = strcpya(g_logbuf, "Error: '");
           // length verified to be <= kMaxIdSlen
-          write_iter = memcpya(write_iter, loadbuf_iter, name_slen);
+          write_iter = memcpya(write_iter, linebuf_iter, name_slen);
           snprintf(write_iter, kLogbufSize - kMaxIdSlen - 16, "' cannot be used as a phenotype/covariate name.\n");
           goto LoadPhenos_ret_MALFORMED_INPUT_2;
         }
-        memcpyx(pheno_names_iter, loadbuf_iter, name_slen, '\0');
+        memcpyx(pheno_names_iter, linebuf_iter, name_slen, '\0');
         pheno_names_iter = &(pheno_names_iter[max_pheno_name_blen]);
-        loadbuf_iter = token_end;
+        linebuf_iter = token_end;
       }
+      line_iter = AdvToDelim(linebuf_iter, '\n');
 
-      // forces line to be skipped by main loop
-      loadbuf_first_token[0] = '\0';
+      // force line to be skipped by main loop
+      linebuf_first_token = line_iter;
     } else {
       // no header line
       xid_mode = kfXidModeFidIid;
       // don't support comma delimiter here, since we don't have guaranteed
       // leading FID/IID to distinguish it
-      const uint32_t col_ct = CountTokens(loadbuf_first_token);
+      const uint32_t col_ct = CountTokens(linebuf_first_token);
       if (col_ct < 3) {
         // todo: tolerate col_ct == 2 with --allow-no-phenos
         goto LoadPhenos_ret_MISSING_TOKENS;
@@ -1047,13 +1004,15 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         }
         // this boilerplate may belong in its own function
         new_pheno_ct = PopcountWords(bitarr, BitCtToWordCt(col_ct));
-        if (bigstack_alloc_u32(new_pheno_ct, &col_skips)) {
+        if (bigstack_alloc_u32(new_pheno_ct, &col_types) ||
+            bigstack_alloc_u32(new_pheno_ct, &col_skips)) {
           goto LoadPhenos_ret_NOMEM;
         }
         uint32_t col_uidx = 0;
         int32_t prev_col_uidx = -1;
         for (uint32_t col_idx = 0; col_idx < new_pheno_ct; ++col_idx, ++col_uidx) {
           MovU32To1Bit(bitarr, &col_uidx);
+          col_types[col_idx] = col_idx;
           col_skips[col_idx] = col_uidx - prev_col_uidx;
           prev_col_uidx = col_uidx;
         }
@@ -1156,11 +1115,11 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
     CatnameLl2** pheno_catname_last = nullptr;
     uintptr_t* total_catname_blens = nullptr;
     while (1) {
-      if (!IsEolnKns(*loadbuf_first_token)) {
-        const char* loadbuf_iter = loadbuf_first_token;
+      if (!IsEolnKns(*linebuf_first_token)) {
+        const char* linebuf_iter = linebuf_first_token;
         uint32_t sample_uidx;
-        if (SortedXidboxReadFind(sorted_sample_ids, sample_id_map, max_sample_id_blen, sample_ct, comma_delim, xid_mode, &loadbuf_iter, &sample_uidx, id_buf)) {
-          if (!loadbuf_iter) {
+        if (SortedXidboxReadFind(sorted_sample_ids, sample_id_map, max_sample_id_blen, sample_ct, comma_delim, xid_mode, &linebuf_iter, &sample_uidx, id_buf)) {
+          if (!linebuf_iter) {
             goto LoadPhenos_ret_MISSING_TOKENS;
           }
         } else {
@@ -1169,20 +1128,13 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
             goto LoadPhenos_ret_MALFORMED_INPUT;
           }
           SetBit(sample_uidx, already_seen);
-          /*
-          if (comma_delim) {
+          if (!comma_delim) {
+            linebuf_iter = TokenLexK(linebuf_iter, col_types, col_skips, new_pheno_ct, token_ptrs, token_slens);
           } else {
+            linebuf_iter = CsvLexK(linebuf_iter, col_types, col_skips, new_pheno_ct, token_ptrs, token_slens);
           }
-          */
-          for (uint32_t new_pheno_idx = 0; new_pheno_idx < new_pheno_ct; ++new_pheno_idx) {
-            loadbuf_iter = CommaOrSpaceNextTokenMult(loadbuf_iter, col_skips[new_pheno_idx], comma_delim);
-            if (!loadbuf_iter) {
-              goto LoadPhenos_ret_MISSING_TOKENS;
-            }
-            token_ptrs[new_pheno_idx] = loadbuf_iter;
-            const char* token_end = CommaOrTspaceTokenEnd(loadbuf_iter, comma_delim);
-            token_slens[new_pheno_idx] = token_end - loadbuf_iter;
-            loadbuf_iter = token_end;
+          if (!linebuf_iter) {
+            goto LoadPhenos_ret_MISSING_TOKENS;
           }
           if (!pheno_info_reverse_ll) {
             // first relevant line, detect categorical phenotypes
@@ -1311,26 +1263,19 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         }
       }
       ++line_idx;
-      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-        if (!gzeof(gz_infile)) {
-          goto LoadPhenos_ret_READ_FAIL;
+      reterr = RlsNextLstripK(&pheno_rls, &line_iter);
+      if (reterr) {
+        if (reterr == kPglRetEof) {
+          reterr = kPglRetSuccess;
+          break;
         }
-        break;
+        goto LoadPhenos_ret_READ_RLSTREAM;
       }
-      if (!loadbuf[loadbuf_size - 1]) {
-        if (loadbuf_size == kMaxLongLine) {
-          goto LoadPhenos_ret_LONG_LINE;
-        }
-        goto LoadPhenos_ret_NOMEM;
-      }
-      loadbuf_first_token = FirstNonTspace(loadbuf);
-      if (loadbuf_first_token[0] == '#') {
+      linebuf_first_token = line_iter;
+      if (linebuf_first_token[0] == '#') {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line, and if a #FID/IID header line is present it must denote the end of the header block.)\n", line_idx, pheno_fname);
         goto LoadPhenos_ret_MALFORMED_INPUT_WW;
       }
-    }
-    if (gzclose_null(&gz_infile)) {
-      goto LoadPhenos_ret_READ_FAIL;
     }
     if (!pheno_info_reverse_ll) {
       if (line_idx == 1) {
@@ -1451,11 +1396,9 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
   LoadPhenos_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  LoadPhenos_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
+  LoadPhenos_ret_READ_RLSTREAM:
+    RLstreamErrPrint(pheno_fname, &pheno_rls, &reterr);
     break;
-  LoadPhenos_ret_LONG_LINE:
-    snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, pheno_fname);
   LoadPhenos_ret_MALFORMED_INPUT_WW:
     WordWrapB(0);
   LoadPhenos_ret_MALFORMED_INPUT_2:
@@ -1479,8 +1422,8 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
     break;
   }
  LoadPhenos_ret_1:
+  CleanupRLstream(&pheno_rls);
   BigstackReset(bigstack_mark);
-  gzclose_cond(gz_infile);
   if (reterr) {
     free_cond(pheno_names);
     if (*pheno_names_ptr) {

@@ -171,7 +171,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
     uint32_t is_header_line;
     do {
       ++line_idx;
-      reterr = ReadNextLineFromRLstreamRaw(&rls, &line_iter);
+      reterr = RlsNextLstrip(&rls, &line_iter);
       if (reterr) {
         if (reterr == kPglRetEof) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", local_psam_fname);
@@ -179,7 +179,6 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
         }
         goto GlmLocalOpen_ret_1;
       }
-      line_iter = FirstNonTspace(line_iter);
       is_header_line = (line_iter[0] == '#');
     } while (IsEolnKns(*line_iter) || (is_header_line && (!tokequal_k(&(line_iter[1]), "FID")) && (!tokequal_k(&(line_iter[1]), "IID"))));
     char* linebuf_first_token = line_iter;
@@ -231,7 +230,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
         uint32_t sample_uidx;
         if (!SortedXidboxReadFind(sorted_sample_idbox, sample_id_map, max_sample_id_blen, orig_sample_ct, 0, xid_mode, &read_ptr, &sample_uidx, idbuf)) {
           if (IsSet(new_sample_include, sample_uidx)) {
-            char* first_tab = S_CAST(char*, rawmemchr(idbuf, '\t'));
+            char* first_tab = AdvToDelim(idbuf, '\t');
             *first_tab = ' ';
             snprintf(g_logbuf, kLogbufSize, "Error: Duplicate ID '%s' in %s.\n", idbuf, local_psam_fname);
             goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
@@ -249,7 +248,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
         line_iter = K_CAST(char*, read_ptr);
       }
       ++line_idx;
-      reterr = ReadNextLineFromRLstreamRaw(&rls, &line_iter);
+      reterr = RlsNextLstrip(&rls, &line_iter);
       if (reterr) {
         if (reterr == kPglRetEof) {
           // reterr = kPglRetSuccess;
@@ -257,7 +256,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
         }
         goto GlmLocalOpen_ret_READ_RLSTREAM_PSAM;
       }
-      linebuf_first_token = FirstNonTspace(line_iter);
+      linebuf_first_token = line_iter;
       if (linebuf_first_token[0] == '#') {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line, and if a #FID/IID header line is present it must denote the end of the header block.)\n", line_idx, local_psam_fname);
         goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
@@ -302,7 +301,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
     line_idx = 0;
     do {
       ++line_idx;
-      reterr = ReadNextLineFromRLstreamRaw(&rls, &line_iter);
+      reterr = RlsNextLstrip(&rls, &line_iter);
       if (reterr) {
         if (reterr == kPglRetEof) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", local_pvar_fname);
@@ -310,7 +309,6 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
         }
         goto GlmLocalOpen_ret_READ_RLSTREAM_PVAR;
       }
-      line_iter = FirstNonTspace(line_iter);
       is_header_line = (line_iter[0] == '#');
     } while (IsEolnKns(*line_iter) || (is_header_line && (!tokequal_k(line_iter, "#CHROM"))));
     linebuf_first_token = line_iter;
@@ -459,7 +457,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
           if (!line_iter) {
             goto GlmLocalOpen_ret_MISSING_TOKENS_PVAR;
           }
-          line_iter = S_CAST(char*, rawmemchr(line_iter, '\n'));
+          line_iter = AdvToDelim(line_iter, '\n');
           // POS
           int32_t cur_bp;
           if (ScanIntAbsDefcap(token_ptrs[0], &cur_bp)) {
@@ -518,17 +516,17 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
           chr_end = cip->chr_fo_vidx_start[cip->chr_idx_to_foidx[prev_chr_code] + 1];
           break;
         GlmLocalOpen_skip_variant_early:
-          line_iter = S_CAST(char*, rawmemchr(line_iter, '\n'));
+          line_iter = AdvToDelim(line_iter, '\n');
           break;
         }
       GlmLocalOpen_skip_variant:
         ++local_variant_ct;
       } else {
-        line_iter = S_CAST(char*, rawmemchr(line_iter, '\n'));
+        line_iter = AdvToDelim(line_iter, '\n');
       }
       ++line_idx;
       ++line_iter;
-      reterr = ReadFromRLstreamRaw(&rls, &line_iter);
+      reterr = RlsPostlfNext(&rls, &line_iter);
       if (reterr) {
         if (reterr == kPglRetEof) {
           // reterr = kPglRetSuccess;
@@ -3873,9 +3871,9 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
     }
     for (; variant_bidx < cur_variant_bidx_end; ++variant_bidx, ++variant_uidx) {
       MovU32To1Bit(variant_include, &variant_uidx);
-      do {
-        ++local_line_idx;
-        PglErr reterr = ReadNextLineFromRLstreamRaw(local_covar_rlsp, &local_covar_line_iter);
+      if (!IsSet(local_variant_include, local_line_idx)) {
+        uint32_t local_line_idx_target_m1 = AdvTo1Bit(local_variant_include, local_line_idx);
+        PglErr reterr = RlsSkipNz(local_line_idx_target_m1 - local_line_idx, local_covar_rlsp, &local_covar_line_iter);
         if (reterr) {
           if (reterr == kPglRetEof) {
             logputs("\n");
@@ -3885,8 +3883,20 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
           RLstreamErrPrint("--glm local-covar= file", local_covar_rlsp, &reterr);
           return reterr;
         }
-      } while (!IsSet(local_variant_include, local_line_idx - 1));
-      const char* linebuf_iter = FirstNonTspace(local_covar_line_iter);
+        local_line_idx = local_line_idx_target_m1;
+      }
+      ++local_line_idx;
+      PglErr reterr = RlsNextLstrip(local_covar_rlsp, &local_covar_line_iter);
+      if (reterr) {
+        if (reterr == kPglRetEof) {
+          logputs("\n");
+          logerrputs("Error: --glm local-covar= file has fewer lines than local-pvar= file.\n");
+          return kPglRetMalformedInput;
+        }
+        RLstreamErrPrint("--glm local-covar= file", local_covar_rlsp, &reterr);
+        return reterr;
+      }
+      const char* linebuf_iter = local_covar_line_iter;
       uint32_t sample_idx = 0;
       for (uint32_t local_sample_idx = 0; sample_idx < cur_sample_ct; ++local_sample_idx) {
         const uint32_t cur_sample_idx = local_sample_idx_order[local_sample_idx];
@@ -3915,7 +3925,7 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
               local_covars_vcmaj_d_iter[offset] = 1.0;
             }
           }
-          linebuf_iter = FirstNonTspace(FirstPrechar(linebuf_iter, 33));
+          linebuf_iter = FirstNonTspace(FirstSpaceOrEoln(linebuf_iter));
         } else {
           if (local_covars_vcmaj_f_iter) {
             float* local_covars_f_iter2 = &(local_covars_vcmaj_f_iter[cur_sample_idx]);
@@ -3929,7 +3939,7 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
               }
               *local_covars_f_iter2 = S_CAST(float, dxx);
               local_covars_f_iter2 = &(local_covars_f_iter2[max_sample_ct]);
-              linebuf_iter = FirstNonTspace(FirstPrechar(linebuf_iter, 33));
+              linebuf_iter = FirstNonTspace(FirstSpaceOrEoln(linebuf_iter));
             }
           } else {
             double* local_covars_d_iter2 = &(local_covars_vcmaj_d_iter[cur_sample_idx]);
@@ -3943,11 +3953,11 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
               }
               *local_covars_d_iter2 = dxx;
               local_covars_d_iter2 = &(local_covars_d_iter2[max_sample_ct]);
-              linebuf_iter = FirstNonTspace(FirstPrechar(linebuf_iter, 33));
+              linebuf_iter = FirstNonTspace(FirstSpaceOrEoln(linebuf_iter));
             }
           }
           if (omit_last) {
-            linebuf_iter = FirstNonTspace(FirstPrechar(linebuf_iter, 33));
+            linebuf_iter = FirstNonTspace(FirstSpaceOrEoln(linebuf_iter));
           }
         }
         ++sample_idx;

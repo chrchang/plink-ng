@@ -475,15 +475,14 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
     do {
       if (!line_iter) {
         reterr = SizeAndInitRLstreamRaw(fnames_iter, bigstack_left() - (bigstack_left() / 4), &rls, &line_iter);
-        if (reterr) {
-          goto KeepOrRemove_ret_1;
-        }
         bigstack_mark2 = g_bigstack_base;
       } else {
         reterr = RetargetRLstreamRaw(fnames_iter, &rls, &line_iter);
-        if (reterr) {
-          goto KeepOrRemove_ret_READ_RLSTREAM;
-        }
+        // previous file always read to eof, so no need to call
+        // RLstreamErrPrint().
+      }
+      if (reterr) {
+        goto KeepOrRemove_ret_1;
       }
       char* linebuf_first_token;
       XidMode xid_mode;
@@ -491,7 +490,7 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
       if (!families_only) {
         reterr = LoadXidHeader(flag_name, (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeader0 : kfXidHeaderIgnoreSid, &line_iter, &line_idx, &linebuf_first_token, &rls, &xid_mode);
         if (reterr) {
-          if (reterr == kPglRetEmptyFile) {
+          if (reterr == kPglRetEof) {
             reterr = kPglRetSuccess;
             goto KeepOrRemove_empty_file;
           }
@@ -509,7 +508,7 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
           *linebuf_first_token = '\0';
         }
       } else {
-        line_iter = S_CAST(char*, rawmemchr(line_iter, '\n'));
+        line_iter = AdvToDelim(line_iter, '\n');
         linebuf_first_token = line_iter;
       }
       while (1) {
@@ -560,7 +559,7 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
           }
         }
         ++line_idx;
-        reterr = ReadNextLineFromRLstreamRaw(&rls, &line_iter);
+        reterr = RlsNextLstrip(&rls, &line_iter);
         if (reterr) {
           if (reterr == kPglRetEof) {
             // reterr = kPglRetSuccess;
@@ -568,7 +567,6 @@ PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_s
           }
           goto KeepOrRemove_ret_READ_RLSTREAM;
         }
-        line_iter = FirstNonTspace(line_iter);
         linebuf_first_token = line_iter;
       }
     KeepOrRemove_empty_file:
@@ -652,7 +650,7 @@ PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_fl
     XidMode xid_mode;
     reterr = LoadXidHeader("keep-fcol", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, &line_iter, &line_idx, &linebuf_first_token, &rls, &xid_mode);
     if (reterr) {
-      if (reterr == kPglRetEmptyFile) {
+      if (reterr == kPglRetEof) {
         logerrputs("Error: Empty --keep-fcol file.\n");
         goto KeepFcol_ret_MALFORMED_INPUT;
       }
@@ -747,7 +745,7 @@ PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_fl
         line_iter = K_CAST(char*, linebuf_iter);
       }
       ++line_idx;
-      reterr = ReadNextLineFromRLstreamRaw(&rls, &line_iter);
+      reterr = RlsNextLstrip(&rls, &line_iter);
       if (reterr) {
         if (reterr == kPglRetEof) {
           reterr = kPglRetSuccess;
@@ -755,7 +753,6 @@ PglErr KeepFcol(const char* fname, const SampleIdInfo* siip, const char* strs_fl
         }
         goto KeepFcol_ret_READ_RLSTREAM;
       }
-      line_iter = FirstNonTspace(line_iter);
       linebuf_first_token = line_iter;
     }
     memcpy(sample_include, keep_uidxs, raw_sample_ctl * sizeof(intptr_t));
@@ -1434,7 +1431,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
     }
     do {
       ++line_idx;
-      reterr = ReadNextLineFromRLstreamRaw(&read_freq_rls, &line_iter);
+      reterr = RlsNextLstrip(&read_freq_rls, &line_iter);
       if (reterr) {
         if (reterr == kPglRetEof) {
           logerrputs("Error: Empty --read-freq file.\n");
@@ -1442,7 +1439,6 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         }
         goto ReadAlleleFreqs_ret_READ_RLSTREAM;
       }
-      line_iter = FirstNonTspace(line_iter);
       // automatically skip header lines that start with '##' or '# '
     } while (IsEolnKns(*line_iter) || ((*line_iter == '#') && (ctou32(line_iter[1]) <= '#')));
     char* linebuf_first_token = line_iter;
@@ -1646,18 +1642,14 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           // or
           //   A=0.5,G=0.2
           // Look at the first nonheader line to distinguish between these two.
-          do {
-            ++line_idx;
-            reterr = ReadNextLineFromRLstreamRaw(&read_freq_rls, &line_iter);
-            if (reterr) {
-              if (reterr == kPglRetEof) {
-                logerrputs("Error: Empty --read-freq file.\n");
-                goto ReadAlleleFreqs_ret_MALFORMED_INPUT;
-              }
-              goto ReadAlleleFreqs_ret_READ_RLSTREAM;
+          reterr = RlsNextNonemptyLstrip(&read_freq_rls, &line_idx, &line_iter);
+          if (reterr) {
+            if (reterr == kPglRetEof) {
+              logerrputs("Error: Empty --read-freq file.\n");
+              goto ReadAlleleFreqs_ret_MALFORMED_INPUT;
             }
-            line_iter = FirstNonTspace(line_iter);
-          } while (IsEolnKns(*line_iter));
+            goto ReadAlleleFreqs_ret_READ_RLSTREAM;
+          }
           linebuf_first_token = line_iter;
           linebuf_iter = line_iter;
           const char* alt_freq_str = nullptr;
@@ -1682,7 +1674,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           }
         } else {
           // may as well not reprocess header line
-          line_iter = S_CAST(char*, rawmemchr(line_iter, '\n'));
+          line_iter = AdvToDelim(line_iter, '\n');
           linebuf_first_token = line_iter;
         }
         if (((header_cols & kfReadFreqColsetBase) | header_cols_exempt) != kfReadFreqColsetBase) {
@@ -1745,7 +1737,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         }
         geno_counts = 1;
         logputs("--read-freq: PLINK 2 --geno-counts file detected.\n");
-        line_iter = S_CAST(char*, rawmemchr(line_iter, '\n'));
+        line_iter = AdvToDelim(line_iter, '\n');
         linebuf_first_token = line_iter;  // don't rescan header
       } else {
         logerrputs("Error: Missing column(s) in --read-freq file (no frequencies/counts).\n");
@@ -1848,7 +1840,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         }
         line_iter = K_CAST(char*, linebuf_iter);
       }
-      line_iter = S_CAST(char*, rawmemchr(line_iter, '\n'));
+      line_iter = AdvToDelim(line_iter, '\n');
       linebuf_first_token = line_iter;  // don't rescan header
     }
     assert(relevant_col_ct <= 8);
@@ -1873,7 +1865,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         }
         // characters may be modified, so better find the \n now just in case
         // it gets clobbered
-        line_iter = S_CAST(char*, rawmemchr(line_iter, '\n'));
+        line_iter = AdvToDelim(line_iter, '\n');
         const char* variant_id_start = token_ptrs[kfReadFreqColVarId];
         const uint32_t variant_id_slen = token_slens[kfReadFreqColVarId];
         uint32_t variant_uidx = VariantIdDupflagHtableFind(variant_id_start, variant_ids, variant_id_htable, variant_id_slen, variant_id_htable_size, max_variant_id_slen);
@@ -2149,13 +2141,13 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                   goto ReadAlleleFreqs_ret_INVALID_FREQS;
                 }
                 if (!IsSet(matched_loaded_alleles, allele_idx)) {
-                  alt_freq_iter = S_CAST(const char*, rawmemchr(alt_freq_iter, ','));
+                  alt_freq_iter = AdvToDelim(alt_freq_iter, ',');
                   continue;
                 }
                 double dxx;
                 const char* cur_freq_end = ScanadvDouble(alt_freq_iter, &dxx);
                 if (!cur_freq_end) {
-                  cur_freq_end = S_CAST(const char*, rawmemchr(alt_freq_iter, ','));
+                  cur_freq_end = AdvToDelim(alt_freq_iter, ',');
                   if (IsNanStr(alt_freq_iter, cur_freq_end - alt_freq_iter)) {
                     goto ReadAlleleFreqs_skip_variant;
                   }
@@ -2178,7 +2170,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                   const uint32_t cap_mod_10 = (loaded_allele_ct - 1) % 10;
 #endif
                   while (1) {
-                    const char* cur_entry_end = S_CAST(const char*, rawmemchr(alt_freq_iter, ','));
+                    const char* cur_entry_end = AdvToDelim(alt_freq_iter, ',');
                     uint32_t loaded_allele_idx;
 #ifdef __LP64__
                     if (ScanmovUintCapped(loaded_allele_ct - 1, &alt_freq_iter, &loaded_allele_idx)) {
@@ -2222,7 +2214,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                   char* alt_freq_iter = alt_freq_start;
                   char* alt_freq_end = &(alt_freq_start[full_slen]);
                   while (1) {
-                    char* cur_entry_end = S_CAST(char*, rawmemchr(alt_freq_iter, ','));
+                    char* cur_entry_end = AdvToDelim(alt_freq_iter, ',');
                     const uint32_t cur_entry_slen = cur_entry_end - alt_freq_iter;
                     char* eq_ptr = S_CAST(char*, memchr(alt_freq_iter, '=', cur_entry_slen));
                     if (!eq_ptr) {
@@ -2365,7 +2357,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           fflush(stdout);
         }
       } else {
-        line_iter = S_CAST(char*, rawmemchr(line_iter, '\n'));
+        line_iter = AdvToDelim(line_iter, '\n');
       }
       while (0) {
       ReadAlleleFreqs_skip_variant:
@@ -2373,7 +2365,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
       }
       ++line_iter;
       ++line_idx;
-      reterr = ReadFromRLstreamRaw(&read_freq_rls, &line_iter);
+      reterr = RlsPostlfNext(&read_freq_rls, &line_iter);
       if (reterr) {
         if (reterr == kPglRetEof) {
           reterr = kPglRetSuccess;
@@ -3180,15 +3172,13 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
       goto SetRefalt1FromFile_ret_1;
     }
     const uint32_t skip_ct = allele_flag_info->skip_ct;
-    for (uint32_t uii = 0; uii < skip_ct; ++uii) {
-      reterr = ReadNextLineFromRLstreamRaw(&rls, &line_iter);
-      if (reterr) {
-        if (reterr == kPglRetEof) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Fewer lines than expected in %s.\n", allele_flag_info->fname);
-          goto SetRefalt1FromFile_ret_INCONSISTENT_INPUT_WW;
-        }
-        goto SetRefalt1FromFile_ret_READ_RLSTREAM;
+    reterr = RlsSkip(skip_ct, &rls, &line_iter);
+    if (reterr) {
+      if (reterr == kPglRetEof) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Fewer lines than expected in %s.\n", allele_flag_info->fname);
+        goto SetRefalt1FromFile_ret_INCONSISTENT_INPUT_WW;
       }
+      goto SetRefalt1FromFile_ret_READ_RLSTREAM;
     }
     uint32_t* variant_id_htable = nullptr;
     uint32_t variant_id_htable_size;
@@ -3218,13 +3208,13 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
     uint32_t fillin_variant_ct = 0;
     uint32_t max_allele_slen = *max_allele_slen_ptr;
     uint32_t cur_allele_ct = 2;
-    line_iter = S_CAST(char*, rawmemchr(line_iter, '\n'));
+    line_iter = AdvToDelim(line_iter, '\n');
     while (1) {
       ++line_idx;
       // line is mutated, so might not be safe to use
-      // ReadNextLineFromRLstreamRaw()
+      // RlsNext()
       ++line_iter;
-      reterr = ReadFromRLstreamRaw(&rls, &line_iter);
+      reterr = RlsPostlfNext(&rls, &line_iter);
       if (reterr) {
         if (reterr == kPglRetEof) {
           reterr = kPglRetSuccess;
@@ -3246,14 +3236,14 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
         if (!allele_start) {
           goto SetRefalt1FromFile_ret_MISSING_TOKENS;
         }
-        line_iter = S_CAST(char*, rawmemchr(allele_start, '\n'));
+        line_iter = AdvToDelim(allele_start, '\n');
       } else {
         allele_start = NextTokenMult0(linebuf_first_token, colmin);
         variant_id_start = NextTokenMult(allele_start, coldiff);
         if (!variant_id_start) {
           goto SetRefalt1FromFile_ret_MISSING_TOKENS;
         }
-        line_iter = S_CAST(char*, rawmemchr(variant_id_start, '\n'));
+        line_iter = AdvToDelim(variant_id_start, '\n');
       }
       char* token_end = CurTokenEnd(variant_id_start);
       const uint32_t variant_id_slen = token_end - variant_id_start;
@@ -3688,7 +3678,7 @@ PglErr RefFromFa(const uintptr_t* variant_include, const uint32_t* variant_bps, 
     uint32_t downgraded_ct = 0;
     while (1) {
       ++line_idx;
-      reterr = ReadNextLineFromRLstreamRaw(&fa_rls, &line_iter);
+      reterr = RlsNext(&fa_rls, &line_iter);
       if (reterr) {
         if (reterr == kPglRetEof) {
           reterr = kPglRetSuccess;
@@ -3719,7 +3709,7 @@ PglErr RefFromFa(const uintptr_t* variant_include, const uint32_t* variant_bps, 
           goto RefFromFa_ret_MALFORMED_INPUT_WW;
         }
         char* chr_name_end = CurTokenEnd(chr_name_start);
-        line_iter = S_CAST(char*, rawmemchr(chr_name_end, '\n'));
+        line_iter = AdvToDelim(chr_name_end, '\n');
         *chr_name_end = '\0';
         const uint32_t chr_name_slen = chr_name_end - chr_name_start;
         chr_fo_idx = UINT32_MAX;

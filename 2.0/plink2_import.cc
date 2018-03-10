@@ -363,7 +363,7 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Im
       uint32_t sample_line_eoln = (ctou32(sample_line_iter[0]) < 32);
       do {
         ++line_idx;
-        reterr = ReadNextLineFromRLstreamRaw(&psam_rls, &psam_line_iter);
+        reterr = RlsNextLstrip(&psam_rls, &psam_line_iter);
         if (reterr) {
           if (reterr != kPglRetEof) {
             goto VcfSampleLine_ret_READ_RLSTREAM;
@@ -376,7 +376,6 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Im
           reterr = kPglRetSuccess;
           goto VcfSampleLine_ret_1;
         }
-        psam_line_iter = FirstNonTspace(psam_line_iter);
       } while (IsEolnKns(*psam_line_iter) || ((psam_line_iter[0] == '#') && (!tokequal_k(&(psam_line_iter[1]), "FID")) && (!tokequal_k(&(psam_line_iter[1]), "IID"))));
       char* linebuf_first_token = psam_line_iter;
       uint32_t fid_present;
@@ -416,7 +415,7 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Im
           psam_line_iter = K_CAST(char*, psam_iid_start);
         }
         ++line_idx;
-        reterr = ReadNextLineFromRLstreamRaw(&psam_rls, &psam_line_iter);
+        reterr = RlsNextLstrip(&psam_rls, &psam_line_iter);
         if (reterr) {
           if (reterr == kPglRetEof) {
             reterr = kPglRetSuccess;
@@ -424,7 +423,6 @@ PglErr VcfSampleLine(const char* preexisting_psamname, const char* const_fid, Im
           }
           goto VcfSampleLine_ret_READ_RLSTREAM;
         }
-        psam_line_iter = FirstNonTspace(psam_line_iter);
         linebuf_first_token = psam_line_iter;
         if (linebuf_first_token[0] == '#') {
           snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line, and a #FID/IID header line is present it must denote the end of the header block.)\n", line_idx, preexisting_psamname);
@@ -700,7 +698,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     char* linebuf_iter;
     while (1) {
       ++line_idx;
-      reterr = ReadNextLineFromRLstreamRaw(&vcf_rls, &line_iter);
+      reterr = RlsNext(&vcf_rls, &line_iter);
       if (reterr) {
         if (reterr == kPglRetEof) {
           logerrputs("Error: No #CHROM header line or variant records in --vcf file.\n");
@@ -900,7 +898,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
 
     while (1) {
       ++line_idx;
-      reterr = ReadNextLineFromRLstreamRaw(&vcf_rls, &line_iter);
+      reterr = RlsNext(&vcf_rls, &line_iter);
       if (reterr) {
         if (reterr == kPglRetEof) {
           // reterr = kPglRetSuccess;
@@ -1222,7 +1220,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     }
     line_idx = 0;
     while (1) {
-      if (ReadNextLineFromRLstreamRaw(&vcf_rls, &line_iter)) {
+      if (RlsNext(&vcf_rls, &line_iter)) {
         goto VcfToPgen_ret_READ_FAIL;
       }
       if (++line_idx == header_line_ct) {
@@ -1264,7 +1262,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         // export.
       }
       // force OS-appropriate eoln
-      char* line_end = S_CAST(char*, rawmemchr(line_iter, '\n'));
+      char* line_end = AdvToDelim(line_iter, '\n');
 #ifdef _WIN32
       if (line_end[-1] == '\r') {
         --line_end;
@@ -1398,7 +1396,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
 
     uint32_t vidx = 0;
     for (line_idx = header_line_ct + 1; line_idx <= line_ct; ++line_idx) {
-      if (ReadNextLineFromRLstreamRaw(&vcf_rls, &line_iter)) {
+      if (RlsNext(&vcf_rls, &line_iter)) {
         goto VcfToPgen_ret_READ_FAIL;
       }
       if (ctou32(*line_iter) < 32) {
@@ -1406,7 +1404,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       }
       // 1. check if we skip this variant.  chromosome filter, require_gt, and
       //    (temporarily) multiple alt alleles can cause this.
-      char* chr_code_end = S_CAST(char*, rawmemchr(line_iter, '\t'));
+      char* chr_code_end = AdvToDelim(line_iter, '\t');
       int32_t chr_code_base = GetChrCodeRaw(line_iter);
       if (chr_code_base == -1) {
         // skip hash table lookup if we know we aren't skipping the variant
@@ -1432,7 +1430,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       // chr_code_base is now a proper numeric chromosome index for
       // non-contigs, and -1 if it's a contig name
       char* pos_str = &(chr_code_end[1]);
-      char* pos_str_end = S_CAST(char*, rawmemchr(pos_str, '\t'));
+      char* pos_str_end = AdvToDelim(pos_str, '\t');
       // copy ID, REF verbatim
       linebuf_iter = AdvToNthDelim(&(pos_str_end[1]), 2, '\t');
 
@@ -1442,7 +1440,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       char* info_end;
       uint32_t gt_missing;
       if (sample_ct) {
-        info_end = S_CAST(char*, rawmemchr(&(filter_end[1]), '\t'));
+        info_end = AdvToDelim(&(filter_end[1]), '\t');
         format_start = &(info_end[1]);
         gt_missing = memcmp(format_start, "GT", 2) || ((format_start[2] != ':') && (format_start[2] != '\t'));
         if (require_gt && gt_missing) {
@@ -1523,7 +1521,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         }
         line_iter = info_end;
       } else {
-        linebuf_iter = S_CAST(char*, rawmemchr(format_start, '\t'));
+        linebuf_iter = AdvToDelim(format_start, '\t');
         uint32_t qual_field_skips[2];
         int32_t qual_thresholds[2];
         if (format_gq_or_dp_relevant) {
@@ -1978,8 +1976,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     uint32_t write_fid = 0;
     uint32_t header_lines_left = 2;
     while (1) {
-      ++line_idx;
-      reterr = ReadNextLineFromRLstreamRaw(&sample_rls, &line_iter);
+      reterr = RlsNextNonemptyLstrip(&sample_rls, &line_idx, &line_iter);
       if (reterr) {
         // bugfix (16 Feb 2018): don't check this if we break out of the loop
         // on non-0 FID
@@ -1991,10 +1988,6 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
           goto OxSampleToPsam_ret_MALFORMED_INPUT;
         }
         break;
-      }
-      line_iter = FirstNonTspace(line_iter);
-      if (IsEolnKns(*line_iter)) {
-        continue;
       }
       if (header_lines_left) {
         --header_lines_left;
@@ -2010,14 +2003,10 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
       goto OxSampleToPsam_ret_READ_RLSTREAM;
     }
     line_idx = 0;
-    do {
-      ++line_idx;
-      reterr = ReadNextLineFromRLstreamRaw(&sample_rls, &line_iter);
-      if (reterr) {
-        goto OxSampleToPsam_ret_READ_RLSTREAM;
-      }
-      line_iter = FirstNonTspace(line_iter);
-    } while (IsEolnKns(*line_iter));
+    reterr = RlsNextNonemptyLstrip(&sample_rls, &line_idx, &line_iter);
+    if (reterr) {
+      goto OxSampleToPsam_ret_READ_RLSTREAM;
+    }
     char* linebuf_first_token = line_iter;
     char* token_end = CurTokenEnd(linebuf_first_token);
     if (!strequal_k(linebuf_first_token, "ID_1", token_end - linebuf_first_token)) {
@@ -2074,18 +2063,14 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     }
     line_iter = linebuf_iter;
 
-    do {
-      ++line_idx;
-      reterr = ReadNextLineFromRLstreamRaw(&sample_rls, &line_iter);
-      if (reterr) {
-        if (reterr == kPglRetEof) {
-          logerrputs("Error: Only one nonempty line in .sample file.\n");
-          goto OxSampleToPsam_ret_MALFORMED_INPUT;
-        }
-        goto OxSampleToPsam_ret_READ_RLSTREAM;
+    reterr = RlsNextNonemptyLstrip(&sample_rls, &line_idx, &line_iter);
+    if (reterr) {
+      if (reterr == kPglRetEof) {
+        logerrputs("Error: Only one nonempty line in .sample file.\n");
+        goto OxSampleToPsam_ret_MALFORMED_INPUT;
       }
-      line_iter = FirstNonTspace(line_iter);
-    } while (IsEolnKns(*line_iter));
+      goto OxSampleToPsam_ret_READ_RLSTREAM;
+    }
     linebuf_first_token = line_iter;
     token_end = CurTokenEnd(linebuf_first_token);
     if ((S_CAST(uintptr_t, token_end - linebuf_first_token) != 1) || (*linebuf_first_token != '0')) {
@@ -2158,18 +2143,13 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
       --uncertain_col_ct;
     }
     while (uncertain_col_ct) {
-      ++line_idx;
-      reterr = ReadNextLineFromRLstreamRaw(&sample_rls, &line_iter);
+      reterr = RlsNextNonemptyLstrip(&sample_rls, &line_idx, &line_iter);
       if (reterr) {
         if (reterr == kPglRetEof) {
           // reterr = kPglRetSuccess;
           break;
         }
         goto OxSampleToPsam_ret_READ_RLSTREAM;
-      }
-      line_iter = FirstNonTspace(line_iter);
-      if (IsEolnKns(*line_iter)) {
-        continue;
       }
 
       const uint32_t old_uncertain_col_ct = uncertain_col_ct;
@@ -2200,18 +2180,13 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
 
     uint32_t sample_ct_p2 = 0;
     while (1) {
-      ++line_idx;
-      reterr = ReadNextLineFromRLstreamRaw(&sample_rls, &line_iter);
+      reterr = RlsNextNonemptyLstrip(&sample_rls, &line_idx, &line_iter);
       if (reterr) {
         if (reterr == kPglRetEof) {
           reterr = kPglRetSuccess;
           break;
         }
         goto OxSampleToPsam_ret_READ_RLSTREAM;
-      }
-      line_iter = FirstNonTspace(line_iter);
-      if (IsEolnKns(*line_iter)) {
-        continue;
       }
       linebuf_first_token = line_iter;
       ++sample_ct_p2;
@@ -2586,8 +2561,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
     uint32_t variant_ct = 0;
     uintptr_t variant_skip_ct = 0;
     while (1) {
-      ++line_idx;
-      reterr = ReadNextLineFromRLstreamRaw(&gen_rls, &line_iter);
+      reterr = RlsNextNonemptyLstrip(&gen_rls, &line_idx, &line_iter);
       if (reterr) {
         if (reterr == kPglRetEof) {
           // reterr = kPglRetSuccess;
@@ -2595,11 +2569,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
         }
         goto OxGenToPgen_ret_READ_RLSTREAM;
       }
-      line_iter = FirstNonTspace(line_iter);
       char* chr_code_str = line_iter;
-      if (IsEolnKns(*chr_code_str)) {
-        continue;
-      }
       char* chr_code_end = CurTokenEnd(chr_code_str);
       const char* variant_id_str = FirstNonTspace(chr_code_end);
       if (IsEolnKns(*variant_id_str)) {
@@ -2811,10 +2781,9 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
     const uintptr_t line_ct = line_idx - 1;
     uint32_t vidx = 0;
     for (line_idx = 1; line_idx <= line_ct; ++line_idx) {
-      if (ReadNextLineFromRLstreamRaw(&gen_rls, &line_iter)) {
+      if (RlsNextLstrip(&gen_rls, &line_iter)) {
         goto OxGenToPgen_ret_READ_FAIL;
       }
-      line_iter = FirstNonTspace(line_iter);
       char* chr_code_str = FirstNonTspace(line_iter);
       if (IsEolnKns(*chr_code_str)) {
         continue;
@@ -5940,18 +5909,14 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       goto OxHapslegendToPgen_ret_OPEN_FAIL;
     }
     char* write_iter = strcpya(writebuf, "#CHROM\tPOS\tID\tREF\tALT" EOLN_STR);
-    do {
-      ++line_idx_haps;
-      reterr = ReadNextLineFromRLstreamRaw(&haps_rls, &haps_line_iter);
-      if (reterr) {
-        if (reterr == kPglRetEof) {
-          snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", hapsname);
-          goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
-        }
-        goto OxHapslegendToPgen_ret_READ_RLSTREAM_HAPS;
+    reterr = RlsNextNonemptyLstrip(&haps_rls, &line_idx_haps, &haps_line_iter);
+    if (reterr) {
+      if (reterr == kPglRetEof) {
+        snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", hapsname);
+        goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
       }
-      haps_line_iter = FirstNonTspace(haps_line_iter);
-    } while (IsEolnKns(*haps_line_iter));
+      goto OxHapslegendToPgen_ret_READ_RLSTREAM_HAPS;
+    }
     const uint32_t token_ct = CountTokens(haps_line_iter);
     // pass 1: count variants, write .pvar file, may as well also verify
     // there's at least one heterozygous call
@@ -6016,18 +5981,14 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       if (reterr) {
         goto OxHapslegendToPgen_ret_1;
       }
-      do {
-        ++line_idx_legend;
-        reterr = ReadNextLineFromRLstreamRaw(&legend_rls, &legend_line_iter);
-        if (reterr) {
-          if (reterr == kPglRetEof) {
-            snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", legendname);
-            goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
-          }
-          goto OxHapslegendToPgen_ret_READ_RLSTREAM_LEGEND;
+      reterr = RlsNextNonemptyLstrip(&legend_rls, &line_idx_legend, &legend_line_iter);
+      if (reterr) {
+        if (reterr == kPglRetEof) {
+          snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", legendname);
+          goto OxHapslegendToPgen_ret_MALFORMED_INPUT_WW;
         }
-        legend_line_iter = FirstNonTspace(legend_line_iter);
-      } while (IsEolnKns(*legend_line_iter));
+        goto OxHapslegendToPgen_ret_READ_RLSTREAM_LEGEND;
+      }
       // require at least 4 columns, in ID/pos/A1/A2 order; header text is
       // permitted to vary.  tolerate and ignore extra columns.
       legend_line_iter = NextTokenMult(legend_line_iter, 3);
@@ -6035,18 +5996,13 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         goto OxHapslegendToPgen_ret_MISSING_TOKENS_LEGEND;
       }
       while (1) {
-        ++line_idx_legend;
-        reterr = ReadNextLineFromRLstreamRaw(&legend_rls, &legend_line_iter);
+        reterr = RlsNextNonemptyLstrip(&legend_rls, &line_idx_legend, &legend_line_iter);
         if (reterr) {
           if (reterr == kPglRetEof) {
             // reterr = kPglRetSuccess;
             break;
           }
           goto OxHapslegendToPgen_ret_READ_RLSTREAM_LEGEND;
-        }
-        legend_line_iter = FirstNonTspace(legend_line_iter);
-        if (IsEolnKns(*legend_line_iter)) {
-          continue;
         }
         const char* linebuf_iter = legend_line_iter;
         write_iter = memcpya(write_iter, single_chr_str, single_chr_slen);
@@ -6059,18 +6015,14 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         }
         legend_line_iter = K_CAST(char*, linebuf_iter);
         if (!at_least_one_het) {
-          do {
-            ++line_idx_haps;
-            reterr = ReadNextLineFromRLstreamRaw(&haps_rls, &haps_line_iter);
-            if (reterr) {
-              if (reterr == kPglRetEof) {
-                snprintf(g_logbuf, kLogbufSize, "Error: %s has fewer nonheader lines than %s.\n", hapsname, legendname);
-                goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
-              }
-              goto OxHapslegendToPgen_ret_READ_RLSTREAM_HAPS;
+          reterr = RlsNextNonemptyLstrip(&haps_rls, &line_idx_haps, &haps_line_iter);
+          if (reterr) {
+            if (reterr == kPglRetEof) {
+              snprintf(g_logbuf, kLogbufSize, "Error: %s has fewer nonheader lines than %s.\n", hapsname, legendname);
+              goto OxHapslegendToPgen_ret_INCONSISTENT_INPUT_WW;
             }
-            haps_line_iter = FirstNonTspace(haps_line_iter);
-          } while (IsEolnKns(*haps_line_iter));
+            goto OxHapslegendToPgen_ret_READ_RLSTREAM_HAPS;
+          }
           reterr = ScanHapsForHet(haps_line_iter, hapsname, sample_ct, is_haploid, line_idx_haps, &at_least_one_het);
           if (reterr) {
             putc_unlocked('\n', stdout);
@@ -6128,7 +6080,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
           haps_line_iter = linebuf_iter;
         }
         ++line_idx_haps;
-        reterr = ReadNextLineFromRLstreamRaw(&haps_rls, &haps_line_iter);
+        reterr = RlsNextLstrip(&haps_rls, &haps_line_iter);
         if (reterr) {
           if (reterr == kPglRetEof) {
             // reterr = kPglRetSuccess;
@@ -6136,7 +6088,6 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
           }
           goto OxHapslegendToPgen_ret_READ_RLSTREAM_HAPS;
         }
-        haps_line_iter = FirstNonTspace(haps_line_iter);
       }
       if (!variant_ct) {
         snprintf(g_logbuf, kLogbufSize, "Error: All %" PRIuPTR " variant%s in %s skipped due to chromosome filter.\n", variant_skip_ct, (variant_skip_ct == 1)? "" : "s", hapsname);
@@ -6198,11 +6149,11 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       goto OxHapslegendToPgen_ret_NOMEM;
     }
 
-    haps_line_iter = S_CAST(char*, rawmemchr(haps_line_iter, '\n'));
+    haps_line_iter = AdvToDelim(haps_line_iter, '\n');
     for (uint32_t vidx = 0; vidx < variant_ct;) {
       ++line_idx_haps;
       ++haps_line_iter;
-      reterr = ReadFromRLstreamRaw(&haps_rls, &haps_line_iter);
+      reterr = RlsPostlfNext(&haps_rls, &haps_line_iter);
       if (reterr) {
         if (reterr == kPglRetEof) {
           if (legendname[0]) {
@@ -6216,7 +6167,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       }
       haps_line_iter = FirstNonTspace(haps_line_iter);
       if (IsEolnKns(*haps_line_iter)) {
-        haps_line_iter = S_CAST(char*, rawmemchr(haps_line_iter, '\n'));
+        haps_line_iter = AdvToDelim(haps_line_iter, '\n');
         continue;
       }
       char* linebuf_iter = haps_line_iter;
@@ -6224,7 +6175,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         char* chr_code_end = CurTokenEnd(haps_line_iter);
         const int32_t cur_chr_code = GetChrCodeCounted(cip, chr_code_end - haps_line_iter, haps_line_iter);
         if (!IsSetI(cip->chr_mask, cur_chr_code)) {
-          haps_line_iter = S_CAST(char*, rawmemchr(haps_line_iter, '\n'));
+          haps_line_iter = AdvToDelim(haps_line_iter, '\n');
           continue;
         }
         is_haploid = IsSetI(cip->haploid_mask, cur_chr_code);
@@ -6240,7 +6191,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       // this loop is time-critical; all my attemps to merge in the haploid
       // case have caused >10% slowdowns
       if ((!is_haploid) && (ctou32(linebuf_iter[sample_ct * 4 - 1]) < 32)) {
-        haps_line_iter = S_CAST(char*, rawmemchr(&(linebuf_iter[sample_ct * 4 - 1]), '\n'));
+        haps_line_iter = AdvToDelim(&(linebuf_iter[sample_ct * 4 - 1]), '\n');
         linebuf_iter[sample_ct * 4 - 1] = ' ';
         const uint32_t* linebuf_alias32_iter = R_CAST(const uint32_t*, linebuf_iter);
         while (1) {
@@ -6331,7 +6282,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
           R_CAST(Halfword*, phaseinfo)[widx] = phaseinfo_halfword;
           ++widx;
         }
-        haps_line_iter = S_CAST(char*, rawmemchr(linebuf_iter, '\n'));
+        haps_line_iter = AdvToDelim(linebuf_iter, '\n');
       }
       if (prov_ref_allele_second) {
         GenovecInvertUnsafe(sample_ct, genovec);
@@ -6455,7 +6406,7 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
     }
     do {
       ++line_idx;
-      reterr = ReadNextLineFromRLstreamRaw(&map_rls, &line_iter);
+      reterr = RlsNextLstrip(&map_rls, &line_iter);
       if (reterr) {
         if (reterr == kPglRetEof) {
           logerrputs("Error: Empty .map file.\n");
@@ -6463,7 +6414,6 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
         }
         goto LoadMap_ret_READ_RLSTREAM;
       }
-      line_iter = FirstNonTspace(line_iter);
     } while (IsEolnKns(*line_iter) || (*line_iter == '#'));
     uint32_t map_cols = 3;
     {
@@ -6578,14 +6528,13 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
       }
     LoadMap_skip_variant:
       ++line_idx;
-      reterr = ReadNextLineFromRLstreamRaw(&map_rls, &line_iter);
+      reterr = RlsNextLstrip(&map_rls, &line_iter);
       if (reterr) {
         if (reterr == kPglRetEof) {
           reterr = kPglRetSuccess;
         }
         goto LoadMap_ret_READ_RLSTREAM;
       }
-      line_iter = FirstNonTspace(line_iter);
       if (line_iter[0] == '#') {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s starts with a '#'. (This is only permitted before the first nonheader line.)\n", line_idx, mapname);
         goto LoadMap_ret_MALFORMED_INPUT_WW;
@@ -6745,7 +6694,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
       const uint32_t duplicate_idx = PopulateStrboxHtable(pii.sii.sample_ids, raw_sample_ct, pii.sii.max_sample_id_blen, tmp_htable_size, htable_tmp);
       if (duplicate_idx) {
         char* duplicate_sample_id = &(pii.sii.sample_ids[duplicate_idx * pii.sii.max_sample_id_blen]);
-        char* duplicate_fid_end = S_CAST(char*, rawmemchr(duplicate_sample_id, '\t'));
+        char* duplicate_fid_end = AdvToDelim(duplicate_sample_id, '\t');
         *duplicate_fid_end = ' ';
         snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID '%s' in .fam file.\n", duplicate_sample_id);
         goto Plink1DosageToPgen_ret_MALFORMED_INPUT_WW;
@@ -7081,18 +7030,13 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     uintptr_t variant_skip_ct = 0;
     uint32_t variant_uidx = 0;
     while (1) {
-      ++line_idx;
-      reterr = ReadNextLineFromRLstreamRaw(&dosage_rls, &line_iter);
+      reterr = RlsNextNonemptyLstrip(&dosage_rls, &line_idx, &line_iter);
       if (reterr) {
         if (reterr == kPglRetEof) {
           reterr = kPglRetSuccess;
           break;
         }
         goto Plink1DosageToPgen_ret_READ_RLSTREAM;
-      }
-      line_iter = FirstNonTspace(line_iter);
-      if (IsEolnKns(*line_iter)) {
-        continue;
       }
       char* token_ptrs[6];
       uint32_t token_slens[6];
@@ -7280,13 +7224,9 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     line_idx = 0;
     if (!(flags & kfPlink1DosageNoheader)) {
       // skip header line again
-      do {
-        ++line_idx;
-        if (ReadNextLineFromRLstreamRaw(&dosage_rls, &line_iter)) {
-          goto Plink1DosageToPgen_ret_READ_FAIL;
-        }
-        line_iter = FirstNonTspace(line_iter);
-      } while (IsEolnKns(*line_iter));
+      if (RlsNextNonemptyLstrip(&dosage_rls, &line_idx, &line_iter)) {
+        goto Plink1DosageToPgen_ret_READ_FAIL;
+      }
     }
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
     uintptr_t spgw_alloc_cacheline_ct;
@@ -7326,13 +7266,8 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     const uint32_t sample_ctl2_m1 = sample_ctl2 - 1;
     uint32_t vidx = 0;
     do {
-      ++line_idx;
-      if (ReadNextLineFromRLstreamRaw(&dosage_rls, &line_iter)) {
+      if (RlsNextNonemptyLstrip(&dosage_rls, &line_idx, &line_iter)) {
         goto Plink1DosageToPgen_ret_READ_FAIL;
-      }
-      line_iter = FirstNonTspace(line_iter);
-      if (IsEolnKns(*line_iter)) {
-        continue;
       }
       if (variant_skip_ct) {
         if (map_variant_ct) {
@@ -7825,9 +7760,8 @@ PglErr GenerateDummy(const GenDummyInfo* gendummy_info_ptr, MiscFlags misc_flags
         if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
           goto GenerateDummy_ret_WRITE_FAIL;
         }
+        // bugfix (9 Mar 2018): forgot to remove FID column here
         write_iter = memcpyl3a(write_iter, "per");
-        write_iter = u32toa(sample_idx, write_iter);
-        write_iter = strcpya(write_iter, "\tper");
         write_iter = u32toa(sample_idx, write_iter);
         write_iter = strcpya(write_iter, "\t2");
         for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {

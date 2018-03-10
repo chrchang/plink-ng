@@ -3096,9 +3096,6 @@ void DispExitMsg(PglErr reterr) {
     } else if (reterr == kPglRetLongLine) {
       logputs("\n");
       logerrprintf("Error: Unhandled internal line-too-long message.\n");
-    } else if (reterr == kPglRetEmptyFile) {
-      logputs("\n");
-      logerrprintf("Error: Unhandled internal empty-file message.\n");
     } else if (reterr == kPglRetEof) {
       logputs("\n");
       logerrprintf("Error: Unhandled internal EOF message.\n");

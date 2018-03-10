@@ -481,6 +481,10 @@ HEADER_INLINE CXXCONST_CP NextPrespace(const char* str_iter) {
   return S_CAST(CXXCONST_CP, FirstPrechar(&(str_iter[1]), ' '));
 }
 
+HEADER_INLINE CXXCONST_CP FirstSpaceOrEoln(const char* str_iter) {
+  return S_CAST(CXXCONST_CP, FirstPrechar(str_iter, 33));
+}
+
 // assumes we are currently in a token -- UNSAFE OTHERWISE
 HEADER_INLINE CXXCONST_CP CurTokenEnd(const char* str_iter) {
   // assert(ctou32(*str_iter) > 32);
@@ -506,25 +510,37 @@ HEADER_INLINE char* NextPrespace(char* str_iter) {
   return const_cast<char*>(NextPrespace(const_cast<const char*>(str_iter)));
 }
 
+HEADER_INLINE char* FirstSpaceOrEoln(char* str_iter) {
+  return const_cast<char*>(FirstSpaceOrEoln(const_cast<const char*>(str_iter)));
+}
+
 HEADER_INLINE char* CurTokenEnd(char* str_iter) {
   return const_cast<char*>(CurTokenEnd(const_cast<const char*>(str_iter)));
 }
 #endif
 
+HEADER_INLINE CXXCONST_CP CsvFieldEnd(const char* token_iter) {
+  unsigned char ucc = *token_iter;
+  while ((ucc >= ' ') && (ucc != ',')) {
+    ucc = *(++token_iter);
+  }
+  return S_CAST(CXXCONST_CP, token_iter);
+}
+
 // length-zero tokens and non-leading spaces are permitted in the
 // comma-delimiter case
 HEADER_INLINE CXXCONST_CP CommaOrTspaceTokenEnd(const char* token_iter, uint32_t comma_delim) {
   if (comma_delim) {
-    unsigned char ucc = *token_iter;
-    while ((ucc >= ' ') && (ucc != ',')) {
-      ucc = *(++token_iter);
-    }
-    return S_CAST(CXXCONST_CP, token_iter);
+    return CsvFieldEnd(token_iter);
   }
   return S_CAST(CXXCONST_CP, CurTokenEnd(token_iter));
 }
 
 #ifdef __cplusplus
+HEADER_INLINE char* CsvFieldEnd(char* token_iter) {
+  return const_cast<char*>(CsvFieldEnd(const_cast<const char*>(token_iter)));
+}
+
 HEADER_INLINE char* CommaOrTspaceTokenEnd(char* token_iter, uint32_t comma_delim) {
   return const_cast<char*>(CommaOrTspaceTokenEnd(const_cast<const char*>(token_iter), comma_delim));
 }
@@ -721,14 +737,24 @@ HEADER_INLINE uintptr_t strlen_se(const char* ss) {
   return ss2 - ss;
 }
 
+// just an alias for rawmemchr which doesn't require a subsequent static-cast.
+HEADER_INLINE CXXCONST_CP AdvToDelim(const char* str_iter, char delim) {
+  return S_CAST(CXXCONST_CP, rawmemchr(str_iter, delim));
+}
+
+#ifdef __cplusplus
+HEADER_INLINE char* AdvToDelim(char* str_iter, char delim) {
+  return const_cast<char*>(AdvToDelim(const_cast<const char*>(str_iter), delim));
+}
+#endif
+
 HEADER_INLINE CXXCONST_CP AdvPastDelim(const char* str_iter, char delim) {
-  str_iter = S_CAST(const char*, rawmemchr(str_iter, delim));
-  return S_CAST(CXXCONST_CP, &(str_iter[1]));
+  return &(AdvToDelim(str_iter, delim)[1]);
 }
 
 #ifdef __cplusplus
 HEADER_INLINE char* AdvPastDelim(char* str_iter, char delim) {
-  return const_cast<char*>(AdvPastDelim(const_cast<const char*>(str_iter), delim));
+  return &(AdvToDelim(str_iter, delim)[1]);
 }
 #endif
 
@@ -812,7 +838,7 @@ HEADER_INLINE CXXCONST_CP AdvToNthDelimChecked(const char* str_iter, const char*
 
 HEADER_INLINE CXXCONST_CP AdvToNthDelim(const char* str_iter, uint32_t ct, char delim) {
   while (1) {
-    const char* next_delim = S_CAST(const char*, rawmemchr(str_iter, delim));
+    const char* next_delim = AdvToDelim(str_iter, delim);
     if (!(--ct)) {
       return S_CAST(CXXCONST_CP, next_delim);
     }
@@ -908,16 +934,16 @@ HEADER_INLINE char* NextTokenMult0(char* str, uint32_t ct) {
 #endif
 
 #ifdef USE_AVX2
-char* TokenLex0(char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, char** token_ptrs, uint32_t* token_slens);
+const char* TokenLexK0(const char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, const char** token_ptrs, uint32_t* token_slens);
 
-HEADER_INLINE char* TokenLex(char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, char** token_ptrs, uint32_t* token_slens) {
-  return TokenLex0(str_iter, col_types, col_skips, relevant_col_ct, token_ptrs, token_slens);
+HEADER_INLINE const char* TokenLexK(const char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, const char** token_ptrs, uint32_t* token_slens) {
+  return TokenLexK0(str_iter, col_types, col_skips, relevant_col_ct, token_ptrs, token_slens);
 }
 #else
 // assumes str_iter != nullptr
 // returns nullptr on missing token, otherwise returns pointer to end of last
 //   lexed token
-HEADER_INLINE char* TokenLex(char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, char** token_ptrs, uint32_t* token_slens) {
+HEADER_INLINE const char* TokenLexK(const char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, const char** token_ptrs, uint32_t* token_slens) {
   for (uint32_t relevant_col_idx = 0; relevant_col_idx < relevant_col_ct; ++relevant_col_idx) {
     const uint32_t cur_col_type = col_types[relevant_col_idx];
     str_iter = NextTokenMult(str_iter, col_skips[relevant_col_idx]);
@@ -925,17 +951,17 @@ HEADER_INLINE char* TokenLex(char* str_iter, const uint32_t* col_types, const ui
       return nullptr;
     }
     token_ptrs[cur_col_type] = str_iter;
-    char* token_end = CurTokenEnd(str_iter);
+    const char* token_end = CurTokenEnd(str_iter);
     token_slens[cur_col_type] = token_end - str_iter;
     str_iter = token_end;
   }
   return str_iter;
 }
 
-HEADER_INLINE char* TokenLex0(char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, char** token_ptrs, uint32_t* token_slens) {
+HEADER_INLINE const char* TokenLexK0(const char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, const char** token_ptrs, uint32_t* token_slens) {
   if (!col_skips[0]) {
     const uint32_t cur_col_type = col_types[0];
-    char* first_token_end = CurTokenEnd(str_iter);
+    const char* first_token_end = CurTokenEnd(str_iter);
     token_ptrs[cur_col_type] = str_iter;
     token_slens[cur_col_type] = first_token_end - str_iter;
     str_iter = first_token_end;
@@ -943,19 +969,54 @@ HEADER_INLINE char* TokenLex0(char* str_iter, const uint32_t* col_types, const u
     ++col_skips;
     --relevant_col_ct;
   }
-  return TokenLex(str_iter, col_types, col_skips, relevant_col_ct, token_ptrs, token_slens);
+  return TokenLexK(str_iter, col_types, col_skips, relevant_col_ct, token_ptrs, token_slens);
 }
 #endif
 
-HEADER_INLINE char* TokenLexK0(char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, const char** token_ptrs, uint32_t* token_slens) {
-  return TokenLex0(str_iter, col_types, col_skips, relevant_col_ct, K_CAST(char**, token_ptrs), token_slens);
+HEADER_INLINE char* TokenLex(char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, char** token_ptrs, uint32_t* token_slens) {
+  return K_CAST(char*, TokenLexK(str_iter, col_types, col_skips, relevant_col_ct, K_CAST(const char**, token_ptrs), token_slens));
 }
 
-CXXCONST_CP CommaOrSpaceNextTokenMult(const char* str_iter, uint32_t ct, uint32_t comma_delim);
+HEADER_INLINE char* TokenLex0(char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, char** token_ptrs, uint32_t* token_slens) {
+  return K_CAST(char*, TokenLexK0(str_iter, col_types, col_skips, relevant_col_ct, K_CAST(const char**, token_ptrs), token_slens));
+}
+
+// ct must be positive for these functions.
+CXXCONST_CP NextCsvMult(const char* str_iter, uint32_t ct);
+
+HEADER_INLINE CXXCONST_CP CommaOrTspaceNextTokenMult(const char* str_iter, uint32_t ct, uint32_t comma_delim) {
+  if (!comma_delim) {
+    return NextTokenMult(str_iter, ct);
+  }
+  return NextCsvMult(str_iter, ct);
+}
 
 #ifdef __cplusplus
-HEADER_INLINE char* CommaOrSpaceNextTokenMult(char* str_iter, uint32_t ct, uint32_t comma_delim) {
-  return const_cast<char*>(CommaOrSpaceNextTokenMult(const_cast<const char*>(str_iter), ct, comma_delim));
+HEADER_INLINE char* NextCsvMult(char* str_iter, uint32_t ct) {
+  return const_cast<char*>(NextCsvMult(const_cast<const char*>(str_iter), ct));
+}
+
+HEADER_INLINE char* CommaOrTspaceNextTokenMult(char* str_iter, uint32_t ct, uint32_t comma_delim) {
+  return const_cast<char*>(CommaOrTspaceNextTokenMult(const_cast<const char*>(str_iter), ct, comma_delim));
+}
+#endif
+
+#ifdef USE_AVX2
+const char* CsvLexK(const char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, const char** token_ptrs, uint32_t* token_slens);
+#else
+HEADER_INLINE const char* CsvLexK(const char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, const char** token_ptrs, uint32_t* token_slens) {
+  for (uint32_t relevant_col_idx = 0; relevant_col_idx < relevant_col_ct; ++relevant_col_idx) {
+    const uint32_t cur_col_type = col_types[relevant_col_idx];
+    str_iter = NextCsvMult(str_iter, col_skips[relevant_col_idx]);
+    if (!str_iter) {
+      return nullptr;
+    }
+    token_ptrs[cur_col_type] = str_iter;
+    const char* token_end = CsvFieldEnd(str_iter);
+    token_slens[cur_col_type] = token_end - str_iter;
+    str_iter = token_end;
+  }
+  return str_iter;
 }
 #endif
 

@@ -432,16 +432,15 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
     // intermission. Allocate top-level arrays.
     // 2. Rewind and fill arrays.
     // (some overlap with LoadPvar(), though that's one-pass.)
-    char* line_iter;
-    reterr = SizeAndInitRLstreamRaw(in_fname, bigstack_left() / 4, &adjust_rls, &line_iter);
+    const char* line_iter;
+    reterr = SizeAndInitRLstreamRawK(in_fname, bigstack_left() / 4, &adjust_rls, &line_iter);
     if (reterr) {
       goto AdjustFile_ret_1;
     }
 
-    char* linebuf_first_token;
     do {
       ++line_idx;
-      reterr = ReadNextLineFromRLstreamRaw(&adjust_rls, &line_iter);
+      reterr = RlsNextLstripK(&adjust_rls, &line_iter);
       if (reterr) {
         if (reterr == kPglRetEof) {
           snprintf(g_logbuf, kLogbufSize, "Error: %s is empty.\n", in_fname);
@@ -449,8 +448,8 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
         }
         goto AdjustFile_ret_READ_RLSTREAM;
       }
-      linebuf_first_token = FirstNonTspace(line_iter);
-    } while (strequal_k_unsafe(linebuf_first_token, "##"));
+    } while (strequal_k_unsafe(line_iter, "##"));
+    const char* linebuf_first_token = line_iter;
     if (*linebuf_first_token == '#') {
       ++linebuf_first_token;
     }
@@ -536,8 +535,7 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
 
     uintptr_t variant_ct = 0;
     while (1) {
-      ++line_idx;
-      reterr = ReadNextLineFromRLstreamRaw(&adjust_rls, &line_iter);
+      reterr = RlsNextNonemptyLstripK(&adjust_rls, &line_idx, &line_iter);
       if (reterr) {
         if (reterr == kPglRetEof) {
           // reterr = kPglRetSuccess;
@@ -545,17 +543,13 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
         }
         goto AdjustFile_ret_READ_RLSTREAM;
       }
-      line_iter = FirstNonTspace(line_iter);
-      if (IsEolnKns(*line_iter)) {
-        continue;
-      }
       if (test_name) {
         // Don't count different-test variants.
         line_iter = NextTokenMult0(line_iter, test_col_idx);
         if (!line_iter) {
           goto AdjustFile_ret_MISSING_TOKENS;
         }
-        char* test_name_start = line_iter;
+        const char* test_name_start = line_iter;
         const uint32_t cur_test_slen = strlen_se(line_iter);
         line_iter = &(line_iter[cur_test_slen]);
         if ((cur_test_slen != test_name_slen) || memcmp(test_name_start, test_name, test_name_slen)) {
@@ -571,17 +565,17 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
     }
 #endif
 
-    RewindRLstreamRaw(&adjust_rls, &line_iter);
+    RewindRLstreamRawK(&adjust_rls, &line_iter);
     const uintptr_t line_ct = line_idx;
     line_idx = 0;
     do {
       ++line_idx;
-      reterr = ReadNextLineFromRLstreamRaw(&adjust_rls, &line_iter);
+      reterr = RlsNextLstripK(&adjust_rls, &line_iter);
       if (reterr) {
         goto AdjustFile_ret_READ_FAIL;
       }
-      linebuf_first_token = FirstNonTspace(line_iter);
-    } while (strequal_k_unsafe(linebuf_first_token, "##"));
+    } while (strequal_k_unsafe(line_iter, "##"));
+    linebuf_first_token = line_iter;
 
     const uint32_t variant_ctl = BitCtToWordCt(variant_ct);
     uintptr_t* variant_include_dummy;
@@ -626,11 +620,9 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
     uintptr_t variant_idx = 0;
     while (line_idx < line_ct) {
       ++line_idx;
-      reterr = ReadNextLineFromRLstreamRaw(&adjust_rls, &line_iter);
-      if (reterr) {
+      if (RlsNextLstripK(&adjust_rls, &line_iter)) {
         goto AdjustFile_ret_READ_FAIL;
       }
-      line_iter = FirstNonTspace(line_iter);
       if (IsEolnKns(*line_iter)) {
         continue;
       }

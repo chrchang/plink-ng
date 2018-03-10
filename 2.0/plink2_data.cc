@@ -120,13 +120,12 @@ PglErr WriteMapOrBim(const char* outname, const uintptr_t* variant_include, cons
 PglErr PvarInfoReloadHeader(ReadLineStream* pvar_reload_rlsp, char** line_iterp, uint32_t* info_col_idx_ptr) {
   char* line_iter = *line_iterp;
   do {
-    PglErr reterr = ReadNextLineFromRLstreamRaw(pvar_reload_rlsp, &line_iter);
+    PglErr reterr = RlsNextLstrip(pvar_reload_rlsp, &line_iter);
     if (reterr) {
       // this is a reload, so reinterpret all errors other than nomem as
       // read-fail
       return (reterr == kPglRetNomem)? kPglRetNomem : kPglRetReadFail;
     }
-    line_iter = FirstNonTspace(line_iter);
   } while (!StrStartsWithUnsafe(line_iter, "#CHROM"));
   uint32_t info_col_idx = 0;
   do {
@@ -187,11 +186,10 @@ PglErr PvarInfoReloadAndWrite(uint32_t info_pr_flag_present, uint32_t info_col_i
   char* line_iter = *line_iterp;
   do {
     do {
-      PglErr reterr = ReadNextLineFromRLstreamRaw(pvar_reload_rlsp, &line_iter);
+      PglErr reterr = RlsNextLstrip(pvar_reload_rlsp, &line_iter);
       if (reterr) {
         return (reterr == kPglRetNomem)? kPglRetNomem : kPglRetReadFail;
       }
-      line_iter = FirstNonTspace(line_iter);
     } while (IsEolnKns(*line_iter));
     ++rls_variant_uidx;
   } while (rls_variant_uidx <= variant_uidx);
@@ -541,7 +539,7 @@ PglErr WriteFam(const char* outname, const uintptr_t* sample_include, const Pedi
       if (delim == '\t') {
         write_iter = strcpya(write_iter, cur_sample_id);
       } else {
-        const char* fid_end = S_CAST(const char*, rawmemchr(cur_sample_id, '\t'));
+        const char* fid_end = AdvToDelim(cur_sample_id, '\t');
         write_iter = memcpyax(write_iter, cur_sample_id, fid_end - cur_sample_id, delim);
         write_iter = strcpya(write_iter, &(fid_end[1]));
       }
@@ -2838,10 +2836,7 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
       uint32_t pct = 0;
       if (variant_ct && sample_ct) {
         const uintptr_t sample_ct4 = QuaterCtToByteCt(sample_ct);
-        if (bigstack_alloc_u32(raw_sample_ctl, &g_sample_include_cumulative_popcounts) ||
-            bigstack_alloc_uc(sample_ct4 * kPglVblockSize, &(g_writebufs[0])) ||
-            bigstack_alloc_uc(sample_ct4 * kPglVblockSize, &(g_writebufs[1]))) {
-          // todo: low-memory single-threaded fallback mode
+        if (bigstack_alloc_u32(raw_sample_ctl, &g_sample_include_cumulative_popcounts)) {
           goto MakePlink2NoVsort_ret_NOMEM;
         }
         FillCumulativePopcounts(sample_include, raw_sample_ctl, g_sample_include_cumulative_popcounts);
@@ -2887,7 +2882,12 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
         }
         unsigned char* main_loadbufs[2];
         uint32_t read_block_size;
-        if (PgenMtLoadInit(variant_include, sample_ct, variant_ct, pgr_alloc_cacheline_ct, 0, 0, pgfip, &calc_thread_ct, &g_genovecs, g_hard_call_halfdist? (&g_dosage_presents) : nullptr, g_hard_call_halfdist? (&g_dosage_val_bufs) : nullptr, &read_block_size, main_loadbufs, &ts.threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
+        if (PgenMtLoadInit(variant_include, sample_ct, variant_ct, pgr_alloc_cacheline_ct, 0, 2 * (sample_ct4 + 1), pgfip, &calc_thread_ct, &g_genovecs, g_hard_call_halfdist? (&g_dosage_presents) : nullptr, g_hard_call_halfdist? (&g_dosage_val_bufs) : nullptr, &read_block_size, main_loadbufs, &ts.threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
+          goto MakePlink2NoVsort_ret_NOMEM;
+        }
+        if (bigstack_alloc_uc(sample_ct4 * read_block_size, &(g_writebufs[0])) ||
+            bigstack_alloc_uc(sample_ct4 * read_block_size, &(g_writebufs[1]))) {
+          // shouldn't be possible for this to fail
           goto MakePlink2NoVsort_ret_NOMEM;
         }
 
@@ -3671,11 +3671,10 @@ PglErr PvarInfoReloadInterval(const uint32_t* old_variant_uidx_to_new, uint32_t 
   }
   for (uint32_t variant_uidx = 0; variant_uidx < raw_variant_ct; ++variant_uidx) {
     do {
-      reterr = ReadNextLineFromRLstreamRaw(pvar_reload_rlsp, &line_iter);
+      reterr = RlsNextLstrip(pvar_reload_rlsp, &line_iter);
       if (reterr) {
         return (reterr == kPglRetNomem)? kPglRetNomem : kPglRetReadFail;
       }
-      line_iter = FirstNonTspace(line_iter);
     } while (IsEolnKns(*line_iter));
     const uint32_t new_variant_idx_offset = old_variant_uidx_to_new[variant_uidx] - variant_idx_start;
     // exploit wraparound, UINT32_MAX null value
@@ -4318,13 +4317,9 @@ PglErr SampleSortFileMap(const uintptr_t* sample_include, const SampleIdInfo* si
     XidMode xid_mode;
     reterr = OpenAndLoadXidHeader(sample_sort_fname, "indiv-sort", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeader0 : kfXidHeaderIgnoreSid, linebuf_size, &line_iter, &line_idx, &linebuf_first_token, &rls, &xid_mode);
     if (reterr) {
-      if (reterr == kPglRetEmptyFile) {
+      if (reterr == kPglRetEof) {
         logerrputs("Error: --indiv-sort file is empty.\n");
         goto SampleSortFileMap_ret_MALFORMED_INPUT;
-      }
-      if (reterr == kPglRetMalformedInput) {
-        // no IID column
-        goto SampleSortFileMap_ret_1;
       }
       goto SampleSortFileMap_ret_READ_RLSTREAM;
     }
@@ -4345,10 +4340,10 @@ PglErr SampleSortFileMap(const uintptr_t* sample_include, const SampleIdInfo* si
         uint32_t sample_uidx;
         if (!SortedXidboxReadFind(sorted_xidbox, xid_map, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &sample_uidx, idbuf)) {
           if (IsSet(already_seen, sample_uidx)) {
-            char* tab_iter = S_CAST(char*, rawmemchr(idbuf, '\t'));
+            char* tab_iter = AdvToDelim(idbuf, '\t');
             *tab_iter = ' ';
             if (xid_mode & kfXidModeFlagSid) {
-              *S_CAST(char*, rawmemchr(&(tab_iter[1]), '\t')) = ' ';
+              *AdvToDelim(&(tab_iter[1]), '\t') = ' ';
             }
             snprintf(g_logbuf, kLogbufSize, "Error: Duplicate sample ID '%s' in --indiv-sort file.\n", idbuf);
             goto SampleSortFileMap_ret_MALFORMED_INPUT_WW;
@@ -4361,7 +4356,7 @@ PglErr SampleSortFileMap(const uintptr_t* sample_include, const SampleIdInfo* si
         line_iter = K_CAST(char*, linebuf_iter);
       }
       ++line_idx;
-      reterr = ReadNextLineFromRLstreamRaw(&rls, &line_iter);
+      reterr = RlsNextLstrip(&rls, &line_iter);
       if (reterr) {
         if (reterr == kPglRetEof) {
           reterr = kPglRetSuccess;
@@ -4369,7 +4364,6 @@ PglErr SampleSortFileMap(const uintptr_t* sample_include, const SampleIdInfo* si
         }
         goto SampleSortFileMap_ret_READ_RLSTREAM;
       }
-      line_iter = FirstNonTspace(line_iter);
       linebuf_first_token = line_iter;
       if (linebuf_first_token[0] == '#') {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --indiv-sort file starts with a '#'. (This is only permitted before the first nonheader line, and if a #FID/IID header line is present it must denote the end of the header block.)\n", line_idx);

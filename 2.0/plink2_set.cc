@@ -28,7 +28,7 @@ typedef struct MakeSetRangeStruct {
 } MakeSetRange;
 
 static_assert(kMaxChrCodeDigits == 5, "LoadIbed() must be updated.");
-PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sorted_subset_ids, const char* file_descrip, uint32_t ibed0, uint32_t track_set_names, uint32_t border_extend, uint32_t fail_on_no_sets, uint32_t c_prefix, uint32_t allow_no_variants, uintptr_t subset_ct, uintptr_t max_subset_id_blen, gzFile gz_infile, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_id_blen_ptr, uint64_t** range_sort_buf_ptr, MakeSetRange*** make_set_range_arr_ptr) {
+PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sorted_subset_ids, const char* file_descrip, uint32_t ibed0, uint32_t track_set_names, uint32_t border_extend, uint32_t fail_on_no_sets, uint32_t c_prefix, uint32_t allow_no_variants, uintptr_t subset_ct, uintptr_t max_subset_id_blen, ReadLineStream* rlsp, char** line_iterp, uintptr_t* set_ct_ptr, char** set_names_ptr, uintptr_t* max_set_id_blen_ptr, uint64_t** range_sort_buf_ptr, MakeSetRange*** make_set_range_arr_ptr) {
   // In plink 1.9, this was named load_range_list() and called directly by
   // ExtractExcludeRange(), define_sets(), and indirectly by annotate(),
   // gene_report(), and clump_reports().  That function required set IDs in
@@ -39,49 +39,58 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
   // Assumes caller will reset g_bigstack_end later.
   PglErr reterr = kPglRetSuccess;
   {
-    g_textbuf[kMaxMediumLine - 1] = ' ';
     LlStr* make_set_ll = nullptr;
     char* set_names = nullptr;
     uintptr_t set_ct = 0;
     uintptr_t max_set_id_blen = 0;
+    char* line_iter = *line_iterp;
     // if we need to track set names, put together a sorted list
     if (track_set_names) {
       uintptr_t line_idx = 0;
-      while (gzgets(gz_infile, g_textbuf, kMaxMediumLine)) {
+      while (1) {
+        line_iter = AdvToDelim(line_iter, '\n');
+      LoadIbed_LINE_ITER_ALREADY_ADVANCED_1:
+        ++line_iter;
         ++line_idx;
-        if (!g_textbuf[kMaxMediumLine - 1]) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, file_descrip);
-          goto LoadIbed_ret_MALFORMED_INPUT_2;
+        reterr = RlsPostlfNext(rlsp, &line_iter);
+        if (reterr) {
+          if (reterr == kPglRetEof) {
+            reterr = kPglRetSuccess;
+            break;
+          }
+          goto LoadIbed_ret_READ_RLSTREAM;
         }
-        char* textbuf_first_token = FirstNonTspace(g_textbuf);
-        if (IsEolnKns(*textbuf_first_token)) {
+        line_iter = FirstNonTspace(line_iter);
+        if (IsEolnKns(*line_iter)) {
           continue;
         }
-        char* first_token_end = CurTokenEnd(textbuf_first_token);
+        char* linebuf_first_token = line_iter;
+        char* first_token_end = CurTokenEnd(linebuf_first_token);
         char* cur_set_id = NextTokenMult(first_token_end, 3);
         char* last_token = cur_set_id;
         if (NoMoreTokensKns(last_token)) {
           snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, file_descrip);
           goto LoadIbed_ret_MALFORMED_INPUT_2;
         }
-        const uint32_t chr_name_slen = first_token_end - textbuf_first_token;
+        const uint32_t chr_name_slen = first_token_end - linebuf_first_token;
         *first_token_end = '\0';
-        const int32_t cur_chr_code = GetChrCode(textbuf_first_token, cip, chr_name_slen);
+        const int32_t cur_chr_code = GetChrCode(linebuf_first_token, cip, chr_name_slen);
         if (cur_chr_code < 0) {
           snprintf(g_logbuf, kLogbufSize, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
           goto LoadIbed_ret_MALFORMED_INPUT_2;
         }
         // chr_mask check removed, we want to track empty sets
         uint32_t set_id_slen = strlen_se(cur_set_id);
+        line_iter = AdvToDelim(&(cur_set_id[set_id_slen]), '\n');
         cur_set_id[set_id_slen] = '\0';
         if (subset_ct) {
           if (bsearch_str(cur_set_id, sorted_subset_ids, set_id_slen, max_subset_id_blen, subset_ct) == -1) {
-            continue;
+            goto LoadIbed_LINE_ITER_ALREADY_ADVANCED_1;
           }
         }
         // when there are repeats, they are likely to be next to each other
         if (make_set_ll && (!strcmp(make_set_ll->str, last_token))) {
-          continue;
+          goto LoadIbed_LINE_ITER_ALREADY_ADVANCED_1;
         }
         uint32_t set_id_blen = set_id_slen + 1;
         // argh, --clump counts positional overlaps which don't include any
@@ -110,9 +119,7 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
         }
         make_set_ll = ll_tmp;
         ++set_ct;
-      }
-      if (!gzeof(gz_infile)) {
-        goto LoadIbed_ret_READ_FAIL;
+        goto LoadIbed_LINE_ITER_ALREADY_ADVANCED_1;
       }
       if (!set_ct) {
         if (fail_on_no_sets) {
@@ -161,9 +168,8 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
         }
       }
       BigstackShrinkTop(set_names, set_ct * max_set_id_blen);
-      if (gzrewind(gz_infile)) {
-        goto LoadIbed_ret_READ_FAIL;
-      }
+      // no error possible here since we're always at eof
+      RewindRLstreamRaw(rlsp, &line_iter);
     } else {
       set_ct = 1;
     }
@@ -175,29 +181,38 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
     uintptr_t line_idx = 0;
     uint32_t chr_start = 0;
     uint32_t chr_end = 0;
-    while (gzgets(gz_infile, g_textbuf, kMaxMediumLine)) {
+    while (1) {
+      line_iter = AdvToDelim(line_iter, '\n');
+    LoadIbed_LINE_ITER_ALREADY_ADVANCED_2:
+      ++line_iter;
       ++line_idx;
-      if (!g_textbuf[kMaxMediumLine - 1]) {
-        snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s is pathologically long.\n", line_idx, file_descrip);
-        goto LoadIbed_ret_MALFORMED_INPUT_2;
+      reterr = RlsPostlfNext(rlsp, &line_iter);
+      if (reterr) {
+        if (reterr == kPglRetEof) {
+          reterr = kPglRetSuccess;
+          break;
+        }
+        goto LoadIbed_ret_READ_RLSTREAM;
       }
-      char* textbuf_first_token = FirstNonTspace(g_textbuf);
-      if (IsEolnKns(*textbuf_first_token)) {
+      line_iter = FirstNonTspace(line_iter);
+      if (IsEolnKns(*line_iter)) {
         continue;
       }
-      char* first_token_end = CurTokenEnd(textbuf_first_token);
+      char* linebuf_first_token = line_iter;
+      char* first_token_end = CurTokenEnd(linebuf_first_token);
       char* last_token = NextTokenMult(first_token_end, 2 + track_set_names);
       if (NoMoreTokensKns(last_token)) {
         snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of %s has fewer tokens than expected.\n", line_idx, file_descrip);
         goto LoadIbed_ret_MALFORMED_INPUT_2;
       }
-      const uint32_t chr_name_slen = first_token_end - textbuf_first_token;
+      const uint32_t chr_name_slen = first_token_end - linebuf_first_token;
       *first_token_end = '\0';
-      const int32_t cur_chr_code = GetChrCode(textbuf_first_token, cip, chr_name_slen);
+      const int32_t cur_chr_code = GetChrCode(linebuf_first_token, cip, chr_name_slen);
       if (cur_chr_code < 0) {
         snprintf(g_logbuf, kLogbufSize, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
         goto LoadIbed_ret_MALFORMED_INPUT_2;
       }
+      line_iter = CurTokenEnd(last_token);
       if (!IsSetI(cip->chr_mask, cur_chr_code)) {
         continue;
       }
@@ -214,16 +229,16 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
           continue;
         }
       }
-      const char* textbuf_iter = FirstNonTspace(&(first_token_end[1]));
+      const char* linebuf_iter = FirstNonTspace(&(first_token_end[1]));
       uint32_t range_first;
-      if (ScanmovUintDefcap(&textbuf_iter, &range_first)) {
+      if (ScanmovUintDefcap(&linebuf_iter, &range_first)) {
         snprintf(g_logbuf, kLogbufSize, "Error: Invalid range start position on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
         goto LoadIbed_ret_MALFORMED_INPUT_2;
       }
       range_first += ibed0;
-      textbuf_iter = NextToken(textbuf_iter);
+      linebuf_iter = NextToken(linebuf_iter);
       uint32_t range_last;
-      if (ScanmovUintDefcap(&textbuf_iter, &range_last)) {
+      if (ScanmovUintDefcap(&linebuf_iter, &range_last)) {
         snprintf(g_logbuf, kLogbufSize, "Error: Invalid range end position on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
         goto LoadIbed_ret_MALFORMED_INPUT_2;
       }
@@ -238,10 +253,11 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
         range_first -= border_extend;
       }
       range_last += border_extend;
+      const uint32_t last_token_slen = line_iter - last_token;
+      line_iter = AdvToDelim(line_iter, '\n');
       uint32_t cur_set_idx = 0;
       if (set_ct > 1) {
         // bugfix: bsearch_str_natural requires null-terminated string
-        const uint32_t last_token_slen = strlen_se(last_token);
         last_token[last_token_slen] = '\0';
         if (c_prefix) {
           last_token = &(last_token[-2]);
@@ -281,9 +297,7 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
         msr_tmp->uidx_end = range_last + 1;
         make_set_range_arr[cur_set_idx] = msr_tmp;
       }
-    }
-    if (!gzeof(gz_infile)) {
-      goto LoadIbed_ret_READ_FAIL;
+      goto LoadIbed_LINE_ITER_ALREADY_ADVANCED_2;
     }
     // allocate buffer for sorting ranges later
     uint32_t max_set_range_ct = 0;
@@ -310,13 +324,14 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
       *max_set_id_blen_ptr = max_set_id_blen;
     }
     *make_set_range_arr_ptr = make_set_range_arr;
+    *line_iterp = line_iter;
   }
   while (0) {
   LoadIbed_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  LoadIbed_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
+  LoadIbed_ret_READ_RLSTREAM:
+    RLstreamErrPrint(file_descrip, rlsp, &reterr);
     break;
   LoadIbed_ret_MALFORMED_INPUT_2:
     logerrputsb();
@@ -335,8 +350,9 @@ PglErr ExtractExcludeRange(const char* fnames, const ChrInfo* cip, const uint32_
   }
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
-  gzFile gz_infile = nullptr;
   PglErr reterr = kPglRetSuccess;
+  ReadLineStream rls;
+  PreinitRLstream(&rls);
   {
     const uintptr_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     uintptr_t* variant_include_mask = nullptr;
@@ -346,18 +362,22 @@ PglErr ExtractExcludeRange(const char* fnames, const ChrInfo* cip, const uint32_
       }
     }
     const char* fnames_iter = fnames;
+    char* line_iter = nullptr;
     do {
-      reterr = gzopen_read_checked(fnames_iter, &gz_infile);
+      if (!line_iter) {
+        reterr = InitRLstreamMinsizeRaw(fnames_iter, &rls, &line_iter);
+      } else {
+        reterr = RetargetRLstreamRaw(fnames_iter, &rls, &line_iter);
+        // previous file always read to eof, so no need to call
+        // RLstreamErrPrint().
+      }
       if (reterr) {
         goto ExtractExcludeRange_ret_1;
       }
       MakeSetRange** range_arr = nullptr;
-      reterr = LoadIbed(cip, variant_bps, nullptr, do_exclude? (ibed0? "--exclude ibed0 file" : "--exclude ibed1 file") : (ibed0? "--extract ibed0 file" : "--extract ibed1 file"), ibed0, 0, 0, 0, 0, 1, 0, 0, gz_infile, nullptr, nullptr, nullptr, nullptr, &range_arr);
+      reterr = LoadIbed(cip, variant_bps, nullptr, do_exclude? (ibed0? "--exclude ibed0 file" : "--exclude ibed1 file") : (ibed0? "--extract ibed0 file" : "--extract ibed1 file"), ibed0, 0, 0, 0, 0, 1, 0, 0, &rls, &line_iter, nullptr, nullptr, nullptr, nullptr, &range_arr);
       if (reterr) {
         goto ExtractExcludeRange_ret_1;
-      }
-      if (gzclose_null(&gz_infile)) {
-        goto ExtractExcludeRange_ret_READ_FAIL;
       }
       MakeSetRange* msr_tmp = range_arr[0];
       if (do_exclude) {
@@ -389,12 +409,9 @@ PglErr ExtractExcludeRange(const char* fnames, const ChrInfo* cip, const uint32_
   ExtractExcludeRange_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  ExtractExcludeRange_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
-    break;
   }
  ExtractExcludeRange_ret_1:
-  gzclose_cond(gz_infile);
+  CleanupRLstream(&rls);
   BigstackDoubleReset(bigstack_mark, bigstack_end_mark);
   return reterr;
 }

@@ -36,9 +36,10 @@ void CleanupUpdateSex(UpdateSexInfo* update_sex_info_ptr) {
 
 PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_id_htable, const TwoColParams* params, uint32_t raw_variant_ct, uint32_t htable_size, char** variant_ids, uint32_t* max_variant_id_slen_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  gzFile gz_infile = nullptr;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
+  ReadLineStream rls;
+  PreinitRLstream(&rls);
   {
     const uint32_t orig_max_variant_id_slen = *max_variant_id_slen_ptr;
     uint32_t max_variant_id_slen = orig_max_variant_id_slen;
@@ -50,20 +51,23 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
     }
     memcpy(variant_ids_copy, variant_ids, raw_variant_ct * sizeof(intptr_t));
     // This could be pointed at a file containing allele codes, so don't limit
-    // line length to 128kb.
+    // line length to minimum value.
     // On the other hand, new variant IDs are allocated off the end of
     // bigstack, and that could result in a lot of memory pressure.
-    uintptr_t loadbuf_size = bigstack_left() / 4;
-    if (loadbuf_size > kMaxLongLine) {
-      loadbuf_size = kMaxLongLine;
-    } else if (loadbuf_size <= kMaxMediumLine) {
-      goto UpdateVarNames_ret_NOMEM;
-    }
-    char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
-    reterr = GzopenAndSkipFirstLines(params->fname, params->skip_ct, loadbuf_size, loadbuf, &gz_infile);
+    const char* line_iter;
+    reterr = SizeAndInitRLstreamRawK(params->fname, bigstack_left() / 4, &rls, &line_iter);
     if (reterr) {
       goto UpdateVarNames_ret_1;
     }
+    reterr = RlsSkipK(params->skip_ct, &rls, &line_iter);
+    if (reterr) {
+      if (reterr == kPglRetEof) {
+        snprintf(g_logbuf, kLogbufSize, "Error: Fewer lines than expected in %s.\n", params->fname);
+        goto UpdateVarNames_ret_INCONSISTENT_INPUT_WW;
+      }
+      goto UpdateVarNames_ret_READ_RLSTREAM;
+    }
+    line_idx = params->skip_ct;
     // ok, this should be a parameter instead...
     const uint32_t* htable_dup_base = &(variant_id_htable[RoundUpPow2(htable_size, kInt32PerCacheline)]);
     const uint32_t colold_first = (params->colid < params->colx);
@@ -81,30 +85,31 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
     char* alloc_end = R_CAST(char*, g_bigstack_end);
     uintptr_t miss_ct = 0;
     uint32_t hit_ct = 0;
-    while (gzgets(gz_infile, loadbuf, loadbuf_size)) {
+    while (1) {
       ++line_idx;
-      if (!loadbuf[loadbuf_size - 1]) {
-        if (loadbuf_size == kMaxLongLine) {
-          snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --update-name file is pathologically long.\n", line_idx);
-          goto UpdateVarNames_ret_MALFORMED_INPUT_2;
+      reterr = RlsNextLstripK(&rls, &line_iter);
+      if (reterr) {
+        if (reterr == kPglRetEof) {
+          reterr = kPglRetSuccess;
+          break;
         }
-        goto UpdateVarNames_ret_NOMEM;
+        goto UpdateVarNames_ret_READ_RLSTREAM;
       }
-      const char* loadbuf_first_token = FirstNonTspace(loadbuf);
-      char cc = *loadbuf_first_token;
+      const char* linebuf_first_token = line_iter;
+      char cc = *linebuf_first_token;
       if (IsEolnKns(cc) || (cc == skipchar)) {
         continue;
       }
       const char* colold_ptr;
       const char* colnew_ptr;
       if (colold_first) {
-        colold_ptr = NextTokenMult0(loadbuf_first_token, colmin);
+        colold_ptr = NextTokenMult0(linebuf_first_token, colmin);
         colnew_ptr = NextTokenMult(colold_ptr, coldiff);
         if (!colnew_ptr) {
           goto UpdateVarNames_ret_MISSING_TOKENS;
         }
       } else {
-        colnew_ptr = NextTokenMult0(loadbuf_first_token, colmin);
+        colnew_ptr = NextTokenMult0(linebuf_first_token, colmin);
         colold_ptr = NextTokenMult(colnew_ptr, coldiff);
         if (!colold_ptr) {
           goto UpdateVarNames_ret_MISSING_TOKENS;
@@ -156,9 +161,6 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
         variant_ids[variant_uidx] = alloc_end;
       }
     }
-    if ((!gzeof(gz_infile)) || gzclose_null(&gz_infile)) {
-      goto UpdateVarNames_ret_READ_FAIL;
-    }
     BigstackEndSet(alloc_end);
     if (miss_ct) {
       snprintf(g_logbuf, kLogbufSize, "--update-name: %u value%s updated, %" PRIuPTR " variant ID%s not present.\n", hit_ct, (hit_ct == 1)? "" : "s", miss_ct, (miss_ct == 1)? "" : "s");
@@ -172,12 +174,8 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
   UpdateVarNames_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  UpdateVarNames_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
-    break;
-  UpdateVarNames_ret_MALFORMED_INPUT_2:
-    logerrputsb();
-    reterr = kPglRetMalformedInput;
+  UpdateVarNames_ret_READ_RLSTREAM:
+    RLstreamErrPrint("--update-name file", &rls, &reterr);
     break;
   UpdateVarNames_ret_MISSING_TOKENS:
     snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --update-name file has fewer tokens than expected.\n", line_idx);
@@ -188,17 +186,17 @@ PglErr UpdateVarNames(const uintptr_t* variant_include, const uint32_t* variant_
     break;
   }
  UpdateVarNames_ret_1:
-  gzclose_cond(gz_infile);
+  CleanupRLstream(&rls);
   BigstackReset(bigstack_mark);
   return reterr;
 }
 
 PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, const char* family_missing_catname, const uintptr_t* sample_include, const char* sample_ids, uint32_t raw_sample_ct, uint32_t sample_ct, uintptr_t max_sample_id_blen, uint32_t mwithin_val, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
-
-  gzFile gz_infile = nullptr;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
+  ReadLineStream within_rls;
+  PreinitRLstream(&within_rls);
   {
     if (!sample_ct) {
       goto Plink1ClusterImport_ret_1;
@@ -274,10 +272,6 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
     const uint32_t missing_catname_slen = strlen(missing_catname);
     const uint32_t missing_catname_hval = Hashceil(missing_catname, missing_catname_slen, cat_htable_size);
     if (within_fname) {
-      reterr = gzopen_read_checked(within_fname, &gz_infile);
-      if (reterr) {
-        goto Plink1ClusterImport_ret_1;
-      }
       uintptr_t* already_seen;
       uint32_t* sorted_cat_idxs;
       char* idbuf;
@@ -305,18 +299,11 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
       if (CopySortStrboxSubset(sample_include, sample_ids, sample_ct, max_sample_id_blen, 1, 0, 0, &sorted_idbox, &id_map)) {
         goto Plink1ClusterImport_ret_NOMEM;
       }
-      uintptr_t loadbuf_size = bigstack_left();
-      loadbuf_size -= loadbuf_size / 4;
-      if (loadbuf_size > kMaxLongLine) {
-        loadbuf_size = kMaxLongLine;
-      } else {
-        loadbuf_size = RoundDownPow2(loadbuf_size, kCacheline);
-        if (loadbuf_size <= kMaxMediumLine) {
-          goto Plink1ClusterImport_ret_NOMEM;
-        }
+      char* line_iter;
+      reterr = SizeAndInitRLstreamRaw(within_fname, bigstack_left() - (bigstack_left() / 4), &within_rls, &line_iter);
+      if (reterr) {
+        goto Plink1ClusterImport_ret_1;
       }
-      char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
-      loadbuf[loadbuf_size - 1] = ' ';
       char* cat_name_write_start = R_CAST(char*, g_bigstack_base);
       char* cat_name_iter = cat_name_write_start;
       char* cat_name_write_max = R_CAST(char*, g_bigstack_end);
@@ -324,19 +311,24 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
       uint32_t nonnull_cat_ct = 0;
       uintptr_t miss_ct = 0;
       uintptr_t duplicate_ct = 0;
-      while (gzgets(gz_infile, loadbuf, loadbuf_size)) {
+      while (1) {
+        line_iter = AdvToDelim(line_iter, '\n');
+      Plink1ClusterImport_LINE_ITER_ALREADY_ADVANCED:
+        ++line_iter;
         ++line_idx;
-        if (!loadbuf[loadbuf_size - 1]) {
-          if (loadbuf_size == kMaxLongLine) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --within file is pathologically long.\n", line_idx);
-            goto Plink1ClusterImport_ret_MALFORMED_INPUT_2;
+        reterr = RlsPostlfNext(&within_rls, &line_iter);
+        if (reterr) {
+          if (reterr == kPglRetEof) {
+            reterr = kPglRetSuccess;
+            break;
           }
-          goto Plink1ClusterImport_ret_NOMEM;
+          goto Plink1ClusterImport_ret_READ_RLSTREAM;
         }
-        char* fid_start = FirstNonTspace(loadbuf);
-        if (IsEolnKns(*fid_start)) {
+        line_iter = FirstNonTspace(line_iter);
+        if (IsEolnKns(*line_iter)) {
           continue;
         }
+        char* fid_start = line_iter;
         char* fid_end = CurTokenEnd(fid_start);
         char* iid_start = FirstNonTspace(fid_end);
         if (IsEolnKns(*iid_start)) {
@@ -348,6 +340,7 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
         const uint32_t id_blen = fid_slen + iid_slen + 2;
         if (id_blen > max_sample_id_blen) {
           ++miss_ct;
+          line_iter = iid_end;
           continue;
         }
         char* idbuf_iter = memcpyax(idbuf, fid_start, fid_slen, '\t');
@@ -358,6 +351,7 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
         const uint32_t ub_idx = bsearch_str_lb(idbuf, sorted_idbox, id_blen, max_sample_id_blen, sample_ct);
         if (ub_idx == lb_idx) {
           ++miss_ct;
+          line_iter = iid_end;
           continue;
         }
         char* main_token_start = NextTokenMult(iid_end, mwithin_val);
@@ -365,6 +359,7 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
           goto Plink1ClusterImport_ret_MISSING_TOKENS;
         }
         char* main_token_end = CurTokenEnd(main_token_start);
+        line_iter = AdvToDelim(line_iter, '\n');
         *main_token_end = '\0';
         const uint32_t main_token_slen = main_token_end - main_token_start;
         if (main_token_slen > kMaxIdSlen) {
@@ -409,9 +404,7 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
             sorted_cat_idxs[lb_idx] = cur_htable_entry;
           }
         }
-      }
-      if ((!gzeof(gz_infile)) || gzclose_null(&gz_infile)) {
-        goto Plink1ClusterImport_ret_READ_FAIL;
+        goto Plink1ClusterImport_LINE_ITER_ALREADY_ADVANCED;
       }
       if (!nonnull_cat_ct) {
         logerrputs("Error: All --within categories are null.\n");
@@ -515,7 +508,7 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
       for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
         MovU32To1Bit(sample_include, &sample_uidx);
         const char* cur_fid = &(sample_ids[sample_uidx * max_sample_id_blen]);
-        const char* cur_fid_end = S_CAST(const char*, rawmemchr(cur_fid, '\t'));
+        const char* cur_fid_end = AdvToDelim(cur_fid, '\t');
         const uint32_t slen = cur_fid_end - cur_fid;
         uint32_t hashval = Hashceil(cur_fid, slen, cat_htable_size);
         const uint32_t blen = slen + 1;
@@ -601,7 +594,7 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
           *name_storage_iter++ = 'C';
         }
         const char* cur_fid = &(sample_ids[cat_idx_m1_to_first_sample_uidx[uii] * max_sample_id_blen]);
-        const char* cur_fid_end = S_CAST(const char*, rawmemchr(cur_fid, '\t'));
+        const char* cur_fid_end = AdvToDelim(cur_fid, '\t');
         name_storage_iter = memcpyax(name_storage_iter, cur_fid, cur_fid_end - cur_fid, '\0');
         *cur_name_ptrs++ = cur_name_start;
       }
@@ -612,8 +605,8 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
   Plink1ClusterImport_ret_NOMEM:
     reterr = kPglRetNomem;
     break;
-  Plink1ClusterImport_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
+  Plink1ClusterImport_ret_READ_RLSTREAM:
+    RLstreamErrPrint("--within file", &within_rls, &reterr);
     break;
   Plink1ClusterImport_ret_MISSING_TOKENS:
     snprintf(g_logbuf, kLogbufSize, "Error: Line %" PRIuPTR " of --within file has fewer tokens than expected.\n", line_idx);
@@ -629,7 +622,7 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
     break;
   }
  Plink1ClusterImport_ret_1:
-  gzclose_cond(gz_infile);
+  CleanupRLstream(&within_rls);
   BigstackReset(bigstack_mark);
   if (reterr) {
     if (*pheno_names_ptr) {
@@ -645,63 +638,49 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
 
 PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* siip, const UpdateSexInfo* update_sex_info_ptr, uint32_t raw_sample_ct, uintptr_t sample_ct, uintptr_t* sex_nm, uintptr_t* sex_male) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  gzFile gz_infile = nullptr;
-  uintptr_t loadbuf_size = 0;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
+  ReadLineStream rls;
+  PreinitRLstream(&rls);
   {
     if (!sample_ct) {
       goto UpdateSampleSexes_ret_1;
     }
-    reterr = gzopen_read_checked(update_sex_info_ptr->fname, &gz_infile);
+    // permit very long lines since this can be pointed at .ped files
+    char* line_iter;
+    reterr = SizeAndInitRLstreamRaw(update_sex_info_ptr->fname, bigstack_left() - (bigstack_left() / 4), &rls, &line_iter);
     if (reterr) {
       goto UpdateSampleSexes_ret_1;
     }
-    // permit very long lines since this can be pointed at .ped files
-    loadbuf_size = bigstack_left();
-    loadbuf_size -= loadbuf_size / 4;
-    if (loadbuf_size > kMaxLongLine) {
-      loadbuf_size = kMaxLongLine;
-    } else {
-      loadbuf_size = RoundDownPow2(loadbuf_size, kCacheline);
-      if (loadbuf_size <= kMaxMediumLine) {
-        goto UpdateSampleSexes_ret_NOMEM;
-      }
-    }
-    char* loadbuf = S_CAST(char*, bigstack_alloc_raw(loadbuf_size));
-    loadbuf[loadbuf_size - 1] = ' ';
 
     // (Much of this boilerplate is shared with e.g. KeepFcol(); it probably
     // belongs in its own function.)
-    char* loadbuf_first_token;
-    char* header_sample_id_end;
+    char* linebuf_first_token;
     XidMode xid_mode;
-    reterr = LoadXidHeaderOld("update-sex", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, loadbuf_size, loadbuf, &header_sample_id_end, &line_idx, &loadbuf_first_token, &gz_infile, &xid_mode);
+    reterr = LoadXidHeader("update-sex", (siip->sids || (siip->flags & kfSampleIdStrictSid0))? kfXidHeaderFixedWidth : kfXidHeaderFixedWidthIgnoreSid, &line_iter, &line_idx, &linebuf_first_token, &rls, &xid_mode);
     if (reterr) {
-      if (reterr == kPglRetEmptyFile) {
+      if (reterr == kPglRetEof) {
         logerrputs("Error: Empty --update-sex file.\n");
         goto UpdateSampleSexes_ret_MALFORMED_INPUT;
       }
-      if (reterr == kPglRetLongLine) {
-        goto UpdateSampleSexes_ret_LONG_LINE;
-      }
-      goto UpdateSampleSexes_ret_1;
+      goto UpdateSampleSexes_ret_READ_RLSTREAM;
     }
+    char* header_sample_id_end = line_iter;
     const uint32_t id_col_ct = GetXidColCt(xid_mode);
     uint32_t col_num = update_sex_info_ptr->col_num;
     uint32_t postid_col_idx = 0;
-    if ((*loadbuf_first_token == '#') && (!col_num)) {
+    if ((*linebuf_first_token == '#') && (!col_num)) {
       // search for 'SEX' column (any capitalization)
       const char* token_end = header_sample_id_end;
       while (1) {
         ++postid_col_idx;
-        const char* loadbuf_iter = FirstNonTspace(token_end);
-        if (IsEolnKns(*loadbuf_iter)) {
+        const char* linebuf_iter = FirstNonTspace(token_end);
+        if (IsEolnKns(*linebuf_iter)) {
           logerrputs("Error: No 'SEX' column in --update-sex file, and no column number specified.\n");
           goto UpdateSampleSexes_ret_MALFORMED_INPUT;
         }
-        token_end = CurTokenEnd(loadbuf_iter);
-        if (MatchUpperKLen(loadbuf_iter, "SEX", token_end - loadbuf_iter)) {
+        token_end = CurTokenEnd(linebuf_iter);
+        if (MatchUpperKLen(linebuf_iter, "SEX", token_end - linebuf_iter)) {
           break;
         }
       }
@@ -719,9 +698,9 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
       }
       postid_col_idx = col_num - id_col_ct;
     }
-    if (*loadbuf_first_token == '#') {
+    if (*linebuf_first_token == '#') {
       // advance to next line
-      *loadbuf_first_token = '\0';
+      *linebuf_first_token = '\0';
     }
 
     const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
@@ -745,12 +724,12 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
     uintptr_t miss_ct = 0;
     uintptr_t duplicate_ct = 0;
     while (1) {
-      if (!IsEolnKns(*loadbuf_first_token)) {
-        const char* loadbuf_iter = loadbuf_first_token;
+      if (!IsEolnKns(*linebuf_first_token)) {
+        const char* linebuf_iter = linebuf_first_token;
         uint32_t xid_idx_start;
         uint32_t xid_idx_end;
-        if (!SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, sample_ct, 0, xid_mode, &loadbuf_iter, &xid_idx_start, &xid_idx_end, idbuf)) {
-          const char* sex_start = NextTokenMult(loadbuf_iter, postid_col_idx);
+        if (!SortedXidboxReadMultifind(sorted_xidbox, max_xid_blen, sample_ct, 0, xid_mode, &linebuf_iter, &xid_idx_start, &xid_idx_end, idbuf)) {
+          const char* sex_start = NextTokenMult(linebuf_iter, postid_col_idx);
           if (!sex_start) {
             goto UpdateSampleSexes_ret_MISSING_TOKENS;
           }
@@ -810,24 +789,20 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
             }
             sample_uidx = xid_map[xid_idx_start];
           }
-        } else if (!loadbuf_iter) {
+        } else if (!linebuf_iter) {
           goto UpdateSampleSexes_ret_MISSING_TOKENS;
         }
       }
       ++line_idx;
-      if (!gzgets(gz_infile, loadbuf, loadbuf_size)) {
-        if (!gzeof(gz_infile)) {
-          goto UpdateSampleSexes_ret_READ_FAIL;
+      reterr = RlsNextLstrip(&rls, &line_iter);
+      if (reterr) {
+        if (reterr == kPglRetEof) {
+          reterr = kPglRetSuccess;
+          break;
         }
-        break;
+        goto UpdateSampleSexes_ret_READ_RLSTREAM;
       }
-      if (!loadbuf[loadbuf_size - 1]) {
-        goto UpdateSampleSexes_ret_LONG_LINE;
-      }
-      loadbuf_first_token = FirstNonTspace(loadbuf);
-    }
-    if (gzclose_null(&gz_infile)) {
-      goto UpdateSampleSexes_ret_READ_FAIL;
+      linebuf_first_token = line_iter;
     }
     if (duplicate_ct) {
       logprintfww("Note: %" PRIuPTR " duplicate sample ID%s) in --update-sex file.\n", duplicate_ct, (duplicate_ct == 1)? " (with a consistent sex assignment" : "s (with consistent sex assignments");
@@ -840,17 +815,11 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
     logputsb();
   }
   while (0) {
-  UpdateSampleSexes_ret_LONG_LINE:
-    if (loadbuf_size == kMaxLongLine) {
-      logerrprintf("Error: Line %" PRIuPTR " of --update-sex file is pathologically long.\n", line_idx);
-      reterr = kPglRetMalformedInput;
-      break;
-    }
+  UpdateSampleSexes_ret_READ_RLSTREAM:
+    RLstreamErrPrint("--update-sex file", &rls, &reterr);
+    break;
   UpdateSampleSexes_ret_NOMEM:
     reterr = kPglRetNomem;
-    break;
-  UpdateSampleSexes_ret_READ_FAIL:
-    reterr = kPglRetReadFail;
     break;
   UpdateSampleSexes_ret_MALFORMED_INPUT_WW:
     WordWrapB(0);
@@ -864,7 +833,7 @@ PglErr UpdateSampleSexes(const uintptr_t* sample_include, const SampleIdInfo* si
     break;
   }
  UpdateSampleSexes_ret_1:
-  gzclose_cond(gz_infile);
+  CleanupRLstream(&rls);
   BigstackReset(bigstack_mark);
   return reterr;
 }

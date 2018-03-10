@@ -39,7 +39,8 @@ BoolErr fwrite_checked(const void* buf, uintptr_t len, FILE* outfile) {
     // OS X can't perform 2GB+ writes
     // typical disk block size is 4kb, so 0x7ffff000 is the largest sensible
     // write size
-    if (fwrite_unlocked(buf, kMaxBytesPerIO, 1, outfile)) {
+    // bugfix (9 Mar 2018): forgot a 'not' here...
+    if (!fwrite_unlocked(buf, kMaxBytesPerIO, 1, outfile)) {
       return 1;
     }
     buf = &(S_CAST(const unsigned char*, buf)[kMaxBytesPerIO]);

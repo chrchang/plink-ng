@@ -1344,12 +1344,12 @@ CXXCONST_CP NextTokenMultFar(const char* str_iter, uint32_t ct) {
   }
 }
 
-char* TokenLex0(char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, char** token_ptrs, uint32_t* token_slens) {
+const char* TokenLexK0(const char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, const char** token_ptrs, uint32_t* token_slens) {
   const uint32_t relevant_col_ct_m1 = relevant_col_ct - 1;
   uint32_t relevant_col_idx = 0;
   uint32_t transition_bits_to_skip_p1 = col_skips[relevant_col_idx] * 2;
   const uintptr_t starting_addr = R_CAST(uintptr_t, str_iter);
-  VecUc* str_viter = R_CAST(VecUc*, RoundDownPow2(starting_addr, kBytesPerVec));
+  const VecUc* str_viter = R_CAST(const VecUc*, RoundDownPow2(starting_addr, kBytesPerVec));
   const VecUc vvec_all_tab = vecuc_set1(9);
   const VecUc vvec_all_space = vecuc_set1(32);
   VecUc cur_vvec = *str_viter;
@@ -1378,7 +1378,7 @@ char* TokenLex0(char* str_iter, const uint32_t* col_types, const uint32_t* col_s
     while (cur_transition_ct >= transition_bits_to_skip_p1) {
       cur_transitions = ClearBottomSetBits(transition_bits_to_skip_p1 - 1, cur_transitions);
       uint32_t byte_offset_in_vec = ctzu32(cur_transitions);
-      char* token_start = &(R_CAST(char*, str_viter)[byte_offset_in_vec]);
+      const char* token_start = &(R_CAST(const char*, str_viter)[byte_offset_in_vec]);
       const uint32_t cur_col_type = col_types[relevant_col_idx];
       token_ptrs[cur_col_type] = token_start;
       // Find end of token.
@@ -1399,7 +1399,7 @@ char* TokenLex0(char* str_iter, const uint32_t* col_types, const uint32_t* col_s
           cur_transitions = S_CAST(MovemaskUint, ~vecuc_movemask(postspace_vec));
         }
         byte_offset_in_vec = ctzu32(cur_transitions);
-        char* token_end = &(R_CAST(char*, str_viter)[byte_offset_in_vec]);
+        const char* token_end = &(R_CAST(const char*, str_viter)[byte_offset_in_vec]);
         token_slens[cur_col_type] = token_end - token_start;
         return token_end;
       }
@@ -1423,7 +1423,7 @@ char* TokenLex0(char* str_iter, const uint32_t* col_types, const uint32_t* col_s
         cur_transitions &= cur_transitions - 1;
       }
       byte_offset_in_vec = ctzu32(cur_transitions);
-      char* token_end = &(R_CAST(char*, str_viter)[byte_offset_in_vec]);
+      const char* token_end = &(R_CAST(const char*, str_viter)[byte_offset_in_vec]);
       token_slens[cur_col_type] = token_end - token_start;
       ++relevant_col_idx;
       transition_bits_to_skip_p1 = 2 * col_skips[relevant_col_idx];
@@ -1443,11 +1443,7 @@ char* TokenLex0(char* str_iter, const uint32_t* col_types, const uint32_t* col_s
 }
 #endif  // USE_AVX2
 
-CXXCONST_CP CommaOrSpaceNextTokenMult(const char* str_iter, uint32_t ct, uint32_t comma_delim) {
-  assert(ct);
-  if (!comma_delim) {
-    return S_CAST(CXXCONST_CP, NextTokenMult(str_iter, ct));
-  }
+CXXCONST_CP NextCsvMult(const char* str_iter, uint32_t ct) {
   if (!str_iter) {
     return nullptr;
   }
@@ -1477,18 +1473,30 @@ CXXCONST_CP CommaOrSpaceNextTokenMult(const char* str_iter, uint32_t ct, uint32_
   }
 }
 
+#ifdef USE_AVX2
+const char* CsvLexK(const char* str_iter, const uint32_t* col_types, const uint32_t* col_skips, uint32_t relevant_col_ct, const char** token_ptrs, uint32_t* token_slens) {
+  // Temporary; optimize later.
+  for (uint32_t relevant_col_idx = 0; relevant_col_idx < relevant_col_ct; ++relevant_col_idx) {
+    const uint32_t cur_col_type = col_types[relevant_col_idx];
+    str_iter = NextCsvMult(str_iter, col_skips[relevant_col_idx]);
+    if (!str_iter) {
+      return nullptr;
+    }
+    token_ptrs[cur_col_type] = str_iter;
+    const char* token_end = CsvFieldEnd(str_iter);
+    token_slens[cur_col_type] = token_end - str_iter;
+    str_iter = token_end;
+  }
+  return str_iter;
+}
+#endif
+
 uint32_t CountTokens(const char* str_iter) {
   uint32_t token_ct = 0;
-  // skip_initial_spaces/token_endnn spelled out due to const qualifier
-  while ((*str_iter == ' ') || (*str_iter == '\t')) {
-    ++str_iter;
-  }
+  str_iter = FirstNonTspace(str_iter);
   while (!IsEolnKns(*str_iter)) {
     ++token_ct;
-    while (!IsSpaceOrEoln(*(++str_iter)));
-    while ((*str_iter == ' ') || (*str_iter == '\t')) {
-      ++str_iter;
-    }
+    str_iter = FirstNonTspace(CurTokenEnd(str_iter));
   }
   return token_ct;
 }
@@ -1556,9 +1564,12 @@ char* u32toa(uint32_t uii, char* start) {
   //
   // Nearly identical to 'branchlut' from
   // https://github.com/miloyip/itoa-benchmark , except that the hardcoded
-  // binary search is more balanced (start by comparing 6+ digits vs. <5,
+  // binary search is more balanced (start by comparing 6+ digits vs. <6,
   // instead of 9+ digits vs. <8).  This tends to be slightly better unless the
   // integers are almost uniformly distributed over [0, 2^32).
+  //
+  // (Making the first comparison 7+ digits vs. <7 would seem to make sense,
+  // but it seems to benchmark slightly worse on my Mac?)
   //
   // (Since we want to execute different code depending on the number of
   // digits, the UintSlen() approach doesn't pay off.)

@@ -144,7 +144,7 @@ PglErr Export012Vmaj(const char* outname, const uintptr_t* sample_include, const
       MovU32To1Bit(sample_include, &sample_uidx);
       *write_iter++ = exportf_delim;
       const char* fid_start = &(sample_ids[sample_uidx * max_sample_id_blen]);
-      const char* fid_end = S_CAST(const char*, rawmemchr(fid_start, exportf_delim));
+      const char* fid_end = AdvToDelim(fid_start, exportf_delim);
       write_iter = memcpyax(write_iter, fid_start, fid_end - fid_start, '_');
       write_iter = strcpya(write_iter, &(fid_end[1]));
       if (fwrite_ck(writebuf_flush, outfile, &write_iter)) {
@@ -2575,7 +2575,7 @@ PglErr ExportOxSample(const char* outname, const uintptr_t* sample_include, cons
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
       MovWTo1Bit(sample_include, &sample_uidx);
       const char* cur_sample_id = &(sample_ids[max_sample_id_blen * sample_uidx]);
-      const char* fid_end = S_CAST(const char*, rawmemchr(cur_sample_id, '\t'));
+      const char* fid_end = AdvToDelim(cur_sample_id, '\t');
       write_iter = memcpyax(write_iter, cur_sample_id, fid_end - cur_sample_id, ' ');
       write_iter = strcpya(write_iter, &(fid_end[1]));
       *write_iter++ = ' ';
@@ -2933,7 +2933,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
       MovU32To1Bit(sample_include, &sample_uidx);
       const char* orig_sample_id = &(sample_ids[sample_uidx * max_sample_id_blen]);
-      const char* orig_fid_end = S_CAST(const char*, rawmemchr(orig_sample_id, '\t'));
+      const char* orig_fid_end = AdvToDelim(orig_sample_id, '\t');
       char* exported_sample_ids_iter = &(exported_sample_ids[sample_idx * max_exported_sample_id_blen]);
       if (write_fid) {
         const uint32_t fid_slen = orig_fid_end - orig_sample_id;
@@ -4098,7 +4098,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
       for (uint32_t sample_idx = 0; sample_idx < read_sample_ct; ++sample_idx, ++sample_uidx) {
         MovU32To1Bit(sample_include, &sample_uidx);
         const char* cur_sample_fid = &(sample_ids[sample_uidx * max_sample_id_blen]);
-        const char* fid_end = S_CAST(const char*, rawmemchr(cur_sample_fid, '\t'));
+        const char* fid_end = AdvToDelim(cur_sample_fid, '\t');
         write_iter = memcpyax(write_iter, cur_sample_fid, fid_end - cur_sample_fid, exportf_delim);
         write_iter = strcpyax(write_iter, &(fid_end[1]), exportf_delim);
         write_iter = strcpyax(write_iter, &(paternal_ids[sample_uidx * max_paternal_id_blen]), exportf_delim);

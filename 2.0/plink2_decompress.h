@@ -218,6 +218,8 @@ HEADER_INLINE BoolErr StandardizeLinebufSizemax(uintptr_t required_byte_ct, uint
 // insert a '\n' in the middle of the line or mutate the last character before
 // continuing iteration, as long as you don't manually change line_last.
 
+// ***** begin insane API function block ****
+
 // if max_line_blen is a multiple of kCacheline and we're allocating on the
 // bottom, total bigstack usage is max_line_blen + this value.
 HEADER_CINLINE uintptr_t GetRLstreamExtraAlloc() {
@@ -269,6 +271,12 @@ HEADER_INLINE PglErr SizeAndInitRLstreamRaw(const char* fname, uintptr_t unstand
   return InitRLstreamRaw(fname, linebuf_size, rlsp, consume_iterp);
 }
 
+// Easier to write correct code if consumer doesn't modify the buffer without
+// very good reason.
+HEADER_INLINE PglErr SizeAndInitRLstreamRawK(const char* fname, uintptr_t unstandardized_byte_ct, ReadLineStream* rlsp, const char** consume_iterp) {
+  return SizeAndInitRLstreamRaw(fname, unstandardized_byte_ct, rlsp, K_CAST(char**, consume_iterp));
+}
+
 // When we want to enforce a tighter lower bound than kMaxMediumLine + 1.
 HEADER_INLINE PglErr LboundedSizeAndInitRLstreamRaw(const char* fname, uintptr_t unstandardized_byte_ct, uintptr_t required_byte_ct, ReadLineStream* rlsp, char** consume_iterp) {
   uintptr_t linebuf_size;
@@ -294,17 +302,10 @@ HEADER_INLINE PglErr LboundedSizemaxAndInitRLstreamRaw(const char* fname, uintpt
   return InitRLstreamRaw(fname, linebuf_size, rlsp, consume_iterp);
 }
 
-HEADER_INLINE PglErr InitRLstream(const char* fname, uintptr_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp, char** line_lastp) {
-  PglErr reterr = InitRLstreamRaw(fname, max_line_blen, rlsp, consume_iterp);
-  *line_lastp = *consume_iterp;
-  **line_lastp = '\0';
-  return reterr;
-}
-
 PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp);
 
 // consume_iter must be at the first unread byte.
-HEADER_INLINE PglErr ReadFromRLstreamRaw(ReadLineStream* rlsp, char** consume_iterp) {
+HEADER_INLINE PglErr RlsPostlfNext(ReadLineStream* rlsp, char** consume_iterp) {
   if (*consume_iterp != rlsp->consume_stop) {
     return kPglRetSuccess;
   }
@@ -313,9 +314,76 @@ HEADER_INLINE PglErr ReadFromRLstreamRaw(ReadLineStream* rlsp, char** consume_it
 
 // If read_iter was not previously advanced to the byte past the end of the
 // most recently read line.
-HEADER_INLINE PglErr ReadNextLineFromRLstreamRaw(ReadLineStream* rlsp, char** consume_iterp) {
+HEADER_INLINE PglErr RlsNext(ReadLineStream* rlsp, char** consume_iterp) {
   *consume_iterp = AdvPastDelim(*consume_iterp, '\n');
-  return ReadFromRLstreamRaw(rlsp, consume_iterp);
+  return RlsPostlfNext(rlsp, consume_iterp);
+}
+
+// Also skips leading tabs/spaces.
+HEADER_INLINE PglErr RlsNextLstrip(ReadLineStream* rlsp, char** consume_iterp) {
+  *consume_iterp = AdvPastDelim(*consume_iterp, '\n');
+  PglErr reterr = RlsPostlfNext(rlsp, consume_iterp);
+  if (reterr) {
+    return reterr;
+  }
+  *consume_iterp = FirstNonTspace(*consume_iterp);
+  return kPglRetSuccess;
+}
+
+HEADER_INLINE PglErr RlsNextLstripK(ReadLineStream* rlsp, const char** consume_iterp) {
+  return RlsNextLstrip(rlsp, K_CAST(char**, consume_iterp));
+}
+
+PglErr RlsNextNonemptyLstrip(ReadLineStream* rlsp, uintptr_t* line_idx_ptr, char** consume_iterp);
+
+HEADER_INLINE PglErr RlsNextNonemptyLstripK(ReadLineStream* rlsp, uintptr_t* line_idx_ptr, const char** consume_iterp) {
+  return RlsNextNonemptyLstrip(rlsp, line_idx_ptr, K_CAST(char**, consume_iterp));
+}
+
+// On success, consume_iter may be anywhere in the last skipped line; only
+// guarantee is that a subsequent ReadNextLineFromRLstreamRaw() does what you'd
+// expect.
+// (The Nz function actually handles skip_ct == 0 properly, but we'd rather
+// inline the skip_ct == 0 common-case check.)
+PglErr RlsSkipNz(uintptr_t skip_ct, ReadLineStream* rlsp, char** consume_iterp);
+
+HEADER_INLINE PglErr RlsSkip(uintptr_t skip_ct, ReadLineStream* rlsp, char** consume_iterp) {
+  if (!skip_ct) {
+    return kPglRetSuccess;
+  }
+  return RlsSkipNz(skip_ct, rlsp, consume_iterp);
+}
+
+HEADER_INLINE PglErr RlsSkipK(uintptr_t skip_ct, ReadLineStream* rlsp, const char** consume_iterp) {
+  return RlsSkip(skip_ct, rlsp, K_CAST(char**, consume_iterp));
+}
+
+// If new_fname == nullptr, this just rewinds the current file.
+// If it's non-null, the current file is closed and the specified file is
+// opened for reading instead.  The filename is not copied, so it's unsafe to
+// change the memory it points to before the first read call.
+PglErr RetargetRLstreamRaw(const char* new_fname, ReadLineStream* rlsp, char** consume_iterp);
+
+HEADER_INLINE PglErr RetargetRLstreamRawK(const char* new_fname, ReadLineStream* rlsp, const char** consume_iterp) {
+  return RetargetRLstreamRaw(new_fname, rlsp, K_CAST(char**, consume_iterp));
+}
+
+HEADER_INLINE PglErr RewindRLstreamRaw(ReadLineStream* rlsp, char** consume_iterp) {
+  return RetargetRLstreamRaw(nullptr, rlsp, consume_iterp);
+}
+
+HEADER_INLINE PglErr RewindRLstreamRawK(ReadLineStream* rlsp, const char** consume_iterp) {
+  return RewindRLstreamRaw(rlsp, K_CAST(char**, consume_iterp));
+}
+
+// ***** end insane API function block *****
+
+
+HEADER_INLINE PglErr InitRLstream(const char* fname, uintptr_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp, char** line_lastp) {
+  PglErr reterr = InitRLstreamRaw(fname, max_line_blen, rlsp, consume_iterp);
+  *line_lastp = *consume_iterp;
+  **line_lastp = '\0';
+  return reterr;
 }
 
 HEADER_INLINE PglErr ReadNextLineFromRLstream(ReadLineStream* rlsp, char** consume_iterp, char** line_lastp) {
@@ -329,16 +397,6 @@ HEADER_INLINE PglErr ReadNextLineFromRLstream(ReadLineStream* rlsp, char** consu
   *line_lastp = S_CAST(char*, rawmemchr(*consume_iterp, '\n'));
   **line_lastp = '\0';
   return kPglRetSuccess;
-}
-
-// If new_fname == nullptr, this just rewinds the current file.
-// If it's non-null, the current file is closed and the specified file is
-// opened for reading instead.  The filename is not copied, so it's unsafe to
-// change the memory it points to before the first read call.
-PglErr RetargetRLstreamRaw(const char* new_fname, ReadLineStream* rlsp, char** consume_iterp);
-
-HEADER_INLINE PglErr RewindRLstreamRaw(ReadLineStream* rlsp, char** consume_iterp) {
-  return RetargetRLstreamRaw(nullptr, rlsp, consume_iterp);
 }
 
 HEADER_INLINE PglErr RewindRLstream(ReadLineStream* rlsp, char** consume_iterp, char** line_lastp) {
