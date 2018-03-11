@@ -1018,10 +1018,13 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         }
       } else {
         new_pheno_ct = col_ct - 2;
-        if (bigstack_alloc_u32(new_pheno_ct, &col_skips)) {
+        // bugfix (11 Mar 2018): forgot to initialize col_types here
+        if (bigstack_alloc_u32(new_pheno_ct, &col_types) ||
+            bigstack_alloc_u32(new_pheno_ct, &col_skips)) {
           goto LoadPhenos_ret_NOMEM;
         }
         for (uint32_t col_idx = 0; col_idx < new_pheno_ct; ++col_idx) {
+          col_types[col_idx] = col_idx;
           col_skips[col_idx] = 1;
         }
       }

@@ -21,7 +21,7 @@ ifeq ($(UNAME), Darwin)
 endif
 
 include Makefile.src
-CFLAGS += ${ZSTD_INCLUDE}
+CFLAGS += ${CINCLUDE} ${ZSTD_INCLUDE}
 
 %.o: %.c
 	gcc -c $(CFLAGS) $(ARCH32) -o $@ $<

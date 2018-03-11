@@ -16,7 +16,7 @@
 
 #include "plink2_export.h"
 
-#include "bgzf.h"
+#include "htslib/htslib/bgzf.h"
 #include "zstd/lib/zstd.h"
 
 #include <time.h>
@@ -866,9 +866,14 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
       }
 #ifndef _WIN32
       if (max_thread_ct > 1) {
+        if (bgzf_mt(bgz_outfile, MINV(128, max_thread_ct), 128)) {
+          goto ExportOxGen_ret_NOMEM;
+        }
+        /*
         if (bgzf_mt2(g_bigstack_end, MINV(128, max_thread_ct), 128, &g_bigstack_base, bgz_outfile)) {
           goto ExportOxGen_ret_NOMEM;
         }
+        */
       }
 #endif
     }
@@ -2748,9 +2753,14 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
       if (max_thread_ct > 1) {
         // 128 doesn't seem any worse than 256 (and is clearly better than 64)
         // also tried reducing thread count by 1, that seems worse
+        if (bgzf_mt(bgz_outfile, MINV(128, max_thread_ct), 128)) {
+          goto ExportVcf_ret_NOMEM;
+        }
+        /*
         if (bgzf_mt2(g_bigstack_end, MINV(128, max_thread_ct), 128, &g_bigstack_base, bgz_outfile)) {
           goto ExportVcf_ret_NOMEM;
         }
+        */
       }
 #endif
     }

@@ -55,6 +55,7 @@ CFLAGS += ${BASEFLAGS}
 CXXFLAGS += ${BASEFLAGS}
 
 include ../Makefile.src
+CFLAGS += ${CINCLUDE2}
 ZCFLAGS += ${ZSTD_INCLUDE2}
 
 all: plink2 pgen_compress
