@@ -156,7 +156,9 @@ struct __bgzidx_t
 
 void bgzf_index_destroy(BGZF *fp);
 int bgzf_index_add_block(BGZF *fp);
+#ifdef BGZF_MT
 static void mt_destroy(mtaux_t *mt);
+#endif
 
 static inline void packInt16(uint8_t *buffer, uint16_t value)
 {
@@ -618,7 +620,7 @@ static int lazy_flush(BGZF *fp)
 
 #else  // ~ #ifdef BGZF_MT
 
-int bgzf_mt(BGZF *fp, int n_threads, int n_sub_blks)
+int bgzf_mt(__attribute__((unused)) BGZF *fp, __attribute__((unused)) int n_threads, __attribute__((unused))  int n_sub_blks)
 {
     return 0;
 }

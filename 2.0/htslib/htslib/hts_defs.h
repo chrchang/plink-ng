@@ -25,6 +25,15 @@ DEALINGS IN THE SOFTWARE.  */
 #ifndef HTSLIB_HTS_DEFS_H
 #define HTSLIB_HTS_DEFS_H
 
+// usually in config.h?
+#ifdef _WIN32
+#  ifndef _WIN64
+#    define WINVER 0x0501
+#  endif
+#  include <windows.h>
+#  include <signal.h>
+#endif
+
 #ifdef __clang__
 #ifdef __has_attribute
 #define HTS_COMPILER_HAS(attribute) __has_attribute(attribute)

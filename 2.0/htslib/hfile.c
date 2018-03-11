@@ -341,7 +341,7 @@ static const struct hFILE_backend fd_backend =
     fd_read, fd_write, fd_seek, fd_flush, fd_close
 };
 
-static size_t blksize(int fd)
+static size_t blksize(__attribute__((unused)) int fd)
 {
 #ifdef HAVE_STRUCT_STAT_ST_BLKSIZE
     struct stat sbuf;
