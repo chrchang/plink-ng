@@ -591,7 +591,7 @@ typedef unsigned char VecUc __attribute__ ((vector_size (32)));
 #  else
 CONSTU31(kBytesPerVec, 16);
 typedef uintptr_t VecW __attribute__ ((vector_size (16)));
-typedef int32_t VecI __attribute ((vector_size (32)));
+typedef int32_t VecI __attribute ((vector_size (16)));
 typedef short VecS __attribute__ ((vector_size (16)));
 typedef char VecC __attribute__ ((vector_size (16)));
 typedef unsigned char VecUc __attribute__ ((vector_size (16)));
