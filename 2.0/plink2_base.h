@@ -750,9 +750,11 @@ HEADER_INLINE void vecs_storeu(void* mem_addr, VecS vv) {
   _mm_storeu_si128(S_CAST(__m128i*, mem_addr), R_CAST(__m128i, vv));
 }
 
+#  ifdef USE_SSE42
 HEADER_INLINE VecI veci_max(VecI v1, VecI v2) {
   return R_CAST(VecI, _mm_max_epi32(R_CAST(__m128i, v1), R_CAST(__m128i, v2)));
 }
+#  endif
 
 HEADER_INLINE VecS vecs_max(VecS v1, VecS v2) {
   return R_CAST(VecS, _mm_max_epi16(R_CAST(__m128i, v1), R_CAST(__m128i, v2)));
