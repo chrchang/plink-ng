@@ -37,13 +37,14 @@
 #include <stdint.h>
 #include <stdio.h>
 
+/*
 // Do not use zstd wrapper here.
-// (This dependency will soon be replaced with a copy of libdeflate.)
 #ifdef STATIC_ZLIB
 #  include "../../../zlib-1.2.11/zlib.h"
 #else
 #  include <zlib.h>
 #endif
+*/
 
 #include <sys/types.h>
 
@@ -83,7 +84,7 @@ struct BGZF {
     struct bgzf_mtaux_t *mt; // only used for multi-threading
     bgzidx_t *idx;      // BGZF index
     int idx_build_otf;  // build index on the fly, set by bgzf_index_build_init()
-    z_stream *gz_stream;// for gzip-compressed files
+  // z_stream *gz_stream;// for gzip-compressed files
 };
 #ifndef HTS_BGZF_TYPEDEF
 typedef struct BGZF BGZF;

@@ -41,8 +41,7 @@
 #include <sys/types.h>
 #include <inttypes.h>
 
-// coming soon...
-// #include "../libdeflate/libdeflate.h"
+#include "../libdeflate/libdeflate.h"
 
 #include "htslib/hts.h"
 #include "htslib/bgzf.h"
@@ -174,41 +173,6 @@ static inline void packInt32(uint8_t *buffer, uint32_t value)
     buffer[3] = value >> 24;
 }
 
-static const char *bgzf_zerr(int errnum, z_stream *zs)
-{
-    static char buffer[32];
-
-    /* Return zs->msg if available.
-       zlib doesn't set this very reliably.  Looking at the source suggests
-       that it may get set to a useful message for deflateInit2, inflateInit2
-       and inflate when it returns Z_DATA_ERROR. For inflate with other
-       return codes, deflate, deflateEnd and inflateEnd it doesn't appear
-       to be useful.  For the likely non-useful cases, the caller should
-       pass NULL into zs. */
-
-    if (zs && zs->msg) return zs->msg;
-
-    // gzerror OF((gzFile file, int *errnum)
-    switch (errnum) {
-    case Z_ERRNO:
-        return strerror(errno);
-    case Z_STREAM_ERROR:
-        return "invalid parameter/compression level, or inconsistent stream state";
-    case Z_DATA_ERROR:
-        return "invalid or incomplete IO";
-    case Z_MEM_ERROR:
-        return "out of memory";
-    case Z_BUF_ERROR:
-        return "progress temporarily not possible, or in() / out() returned an error";
-    case Z_VERSION_ERROR:
-        return "zlib version mismatch";
-    case Z_OK: // 0: maybe gzgets error Z_NULL
-    default:
-        snprintf(buffer, sizeof(buffer), "[%d] unknown", errnum);
-        return buffer;  // FIXME: Not thread-safe.
-    }
-}
-
 // get the compress level from the mode string: compress_level==-1 for the default level, -2 plain uncompressed
 static int mode2level(const char *mode)
 {
@@ -237,46 +201,24 @@ static BGZF *bgzf_write_init(const char *mode)
     if (fp->uncompressed_block == NULL) goto mem_fail;
     fp->compressed_block = (char *)fp->uncompressed_block + BGZF_MAX_BLOCK_SIZE;
 
-    fp->compress_level = compress_level < 0? Z_DEFAULT_COMPRESSION : compress_level; // Z_DEFAULT_COMPRESSION==-1
-    if (fp->compress_level > 9) fp->compress_level = Z_DEFAULT_COMPRESSION;
-    /*
-    if ( strchr(mode,'g') )
-    {
-        // gzip output
-        fp->is_gzip = 1;
-        fp->gz_stream = (z_stream*)calloc(1,sizeof(z_stream));
-        if (fp->gz_stream == NULL) goto mem_fail;
-        fp->gz_stream->zalloc = NULL;
-        fp->gz_stream->zfree  = NULL;
-        fp->gz_stream->msg    = NULL;
-
-        int ret = deflateInit2(fp->gz_stream, fp->compress_level, Z_DEFLATED, 15|16, 8, Z_DEFAULT_STRATEGY);
-        if (ret!=Z_OK) {
-            hts_log_error("Call to deflateInit2 failed: %s", bgzf_zerr(ret, fp->gz_stream));
-            goto fail;
-        }
-    }
-    */
+    fp->compress_level = compress_level < 0? -1 : compress_level;  // Z_DEFAULT_COMPRESSION==-1
+    if (fp->compress_level > 9) fp->compress_level = -1;
     return fp;
 
 mem_fail:
     hts_log_error("%s", strerror(errno));
 
-    /*
-fail:
     if (fp != NULL) {
         free(fp->uncompressed_block);
-        free(fp->gz_stream);
         free(fp);
     }
-    */
     return NULL;
 }
 
 BGZF *bgzf_open(const char *path, const char *mode)
 {
     BGZF *fp = 0;
-    assert(compressBound(BGZF_BLOCK_SIZE) < BGZF_MAX_BLOCK_SIZE);
+    // assert(compressBound(BGZF_BLOCK_SIZE) < BGZF_MAX_BLOCK_SIZE);
     /*
     if (strchr(mode, 'r')) {
         hFILE *fpr;
@@ -300,7 +242,6 @@ BGZF *bgzf_open(const char *path, const char *mode)
     return fp;
 }
 
-/*
 int bgzf_compress(void *_dst, size_t *dlen, const void *src, size_t slen, int level)
 {
     if (slen == 0) {
@@ -355,7 +296,7 @@ int bgzf_compress(void *_dst, size_t *dlen, const void *src, size_t slen, int le
     packInt32((uint8_t*)&dst[*dlen - 4], slen);
     return 0;
 }
-*/
+/*
 int bgzf_compress(void *_dst, size_t *dlen, const void *src, size_t slen, int level)
 {
     uint32_t crc;
@@ -392,6 +333,7 @@ int bgzf_compress(void *_dst, size_t *dlen, const void *src, size_t slen, int le
     packInt32((uint8_t*)&dst[*dlen - 4], slen);
     return 0;
 }
+*/
 
 
 // Deflate the block in fp->uncompressed_block into fp->compressed_block. Also adds an extra field that stores the compressed block length.
@@ -519,7 +461,7 @@ int bgzf_thread_pool(BGZF *fp, hts_tpool *pool, int qsize) {
 int bgzf_mt(BGZF *fp, int n_threads, __attribute__((unused)) int n_sub_blks)
 {
     // No gain from multi-threading when not compressed
-    if (!fp->is_compressed || fp->is_gzip)
+    if (!fp->is_compressed)
         return 0;
 
     if (n_threads < 1) return -1;
@@ -651,7 +593,7 @@ int bgzf_flush(BGZF *fp)
         }
         block_length = deflate_block(fp, fp->block_offset);
         if (block_length < 0) {
-            hts_log_debug("Deflate block operation failed: %s", bgzf_zerr(block_length, NULL));
+            hts_log_debug("Deflate block operation failed");
             return -1;
         }
         if (hwrite(fp->fp, fp->compressed_block, block_length) != block_length) {
@@ -738,7 +680,7 @@ int bgzf_close(BGZF* fp)
         fp->compress_level = -1;
         block_length = deflate_block(fp, 0); // write an empty block
         if (block_length < 0) {
-            hts_log_debug("Deflate block operation failed: %s", bgzf_zerr(block_length, NULL));
+            hts_log_debug("Deflate block operation failed");
             return -1;
         }
         if (hwrite(fp->fp, fp->compressed_block, block_length) < 0
@@ -755,16 +697,6 @@ int bgzf_close(BGZF* fp)
         mt_destroy(fp->mt);
     }
 #endif
-    if ( fp->is_gzip )
-    {
-        if (fp->gz_stream == NULL) ret = Z_OK;
-        else if (!fp->is_write) ret = inflateEnd(fp->gz_stream);
-        else ret = deflateEnd(fp->gz_stream);
-        if (ret != Z_OK) {
-            hts_log_error("Call to inflateEnd/deflateEnd failed: %s", bgzf_zerr(ret, NULL));
-        }
-        free(fp->gz_stream);
-    }
     ret = hclose(fp->fp);
     if (ret != 0) return -1;
     bgzf_index_destroy(fp);

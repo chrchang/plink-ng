@@ -584,12 +584,14 @@ CONSTU31(kBytesPerVec, 32);
 
 // bleah, have to define these here, vector_size doesn't see enum values
 typedef uintptr_t VecW __attribute__ ((vector_size (32)));
+typedef int32_t VecI __attribute__ ((vector_size (32)));
 typedef short VecS __attribute__ ((vector_size (32)));
 typedef char VecC __attribute__ ((vector_size (32)));
 typedef unsigned char VecUc __attribute__ ((vector_size (32)));
 #  else
 CONSTU31(kBytesPerVec, 16);
 typedef uintptr_t VecW __attribute__ ((vector_size (16)));
+typedef int32_t VecI __attribute ((vector_size (32)));
 typedef short VecS __attribute__ ((vector_size (16)));
 typedef char VecC __attribute__ ((vector_size (16)));
 typedef unsigned char VecUc __attribute__ ((vector_size (16)));
@@ -626,6 +628,14 @@ HEADER_INLINE VecW vecw_slli(VecW vv, uint32_t ct) {
   return R_CAST(VecW, _mm256_slli_epi64(R_CAST(__m256i, vv), ct));
 }
 
+HEADER_INLINE VecI veci_set1(int32_t ii) {
+  return R_CAST(VecI, _mm256_set1_epi32(ii));
+}
+
+HEADER_INLINE VecS vecs_set1(short si) {
+  return R_CAST(VecS, _mm256_set1_epi16(si));
+}
+
 HEADER_INLINE VecC vecc_set1(char cc) {
   return R_CAST(VecC, _mm256_set1_epi8(cc));
 }
@@ -647,6 +657,30 @@ HEADER_INLINE uint32_t vecuc_movemask(VecUc vv) {
 }
 
 typedef uint32_t MovemaskUint;
+
+HEADER_INLINE VecI veci_loadu(const void* mem_addr) {
+  return R_CAST(VecI, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
+}
+
+HEADER_INLINE VecS vecs_loadu(const void* mem_addr) {
+  return R_CAST(VecS, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
+}
+
+HEADER_INLINE void veci_storeu(void* mem_addr, VecI vv) {
+  _mm256_storeu_si256(S_CAST(__m256i*, mem_addr), R_CAST(__m256i, vv));
+}
+
+HEADER_INLINE void vecs_storeu(void* mem_addr, VecS vv) {
+  _mm256_storeu_si256(S_CAST(__m256i*, mem_addr), R_CAST(__m256i, vv));
+}
+
+HEADER_INLINE VecI veci_max(VecI v1, VecI v2) {
+  return R_CAST(VecI, _mm256_max_epi32(R_CAST(__m256i, v1), R_CAST(__m256i, v2)));
+}
+
+HEADER_INLINE VecS vecs_max(VecS v1, VecS v2) {
+  return R_CAST(VecS, _mm256_max_epi16(R_CAST(__m256i, v1), R_CAST(__m256i, v2)));
+}
 
 #  else
 
@@ -670,6 +704,14 @@ HEADER_INLINE VecW vecw_slli(VecW vv, uint32_t ct) {
   return R_CAST(VecW, _mm_slli_epi64(R_CAST(__m128i, vv), ct));
 }
 
+HEADER_INLINE VecI veci_set1(int32_t ii) {
+  return R_CAST(VecI, _mm_set1_epi32(ii));
+}
+
+HEADER_INLINE VecI vecs_set1(short si) {
+  return R_CAST(VecI, _mm_set1_epi16(si));
+}
+
 HEADER_INLINE VecC vecc_set1(char cc) {
   return R_CAST(VecC, _mm_set1_epi8(cc));
 }
@@ -691,6 +733,30 @@ HEADER_INLINE uint32_t vecuc_movemask(VecUc vv) {
 }
 
 typedef uint16_t MovemaskUint;
+
+HEADER_INLINE VecI veci_loadu(const void* mem_addr) {
+  return R_CAST(VecI, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
+}
+
+HEADER_INLINE VecS vecs_loadu(const void* mem_addr) {
+  return R_CAST(VecS, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
+}
+
+HEADER_INLINE void veci_storeu(void* mem_addr, VecI vv) {
+  _mm_storeu_si128(S_CAST(__m128i*, mem_addr), R_CAST(__m128i, vv));
+}
+
+HEADER_INLINE void vecs_storeu(void* mem_addr, VecS vv) {
+  _mm_storeu_si128(S_CAST(__m128i*, mem_addr), R_CAST(__m128i, vv));
+}
+
+HEADER_INLINE VecI veci_max(VecI v1, VecI v2) {
+  return R_CAST(VecI, _mm_max_epi32(R_CAST(__m128i, v1), R_CAST(__m128i, v2)));
+}
+
+HEADER_INLINE VecS vecs_max(VecS v1, VecS v2) {
+  return R_CAST(VecS, _mm_max_epi16(R_CAST(__m128i, v1), R_CAST(__m128i, v2)));
+}
 
 #  endif
 
