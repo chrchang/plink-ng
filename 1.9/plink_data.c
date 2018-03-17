@@ -4621,11 +4621,11 @@ int32_t oxford_to_bed(char* genname, char* samplename, char* outname, char* outn
 	const uint32_t layout = (uii >> 2) & 15;
 	const uint32_t compression_mode = uii & 3;
 	if ((layout == 2) && (compression_mode != 3)) {
-	  LOGERRPRINTF("Error: BGEN v1.%c input requires PLINK 2.0 (under development as of this\nwriting).  Use gen-convert to downcode to BGEN v1.1 if you want to process this\ndata with PLINK 1.9.\n", (compression_mode == 2)? '3' : '2');
+	  LOGERRPRINTF("Error: BGEN v1.%c input requires PLINK 2.0 (under development as of this\nwriting).  Use qctool2 or bgenix to downcode to BGEN v1.1 if you want to\nprocess this data with PLINK 1.9.\n", (compression_mode == 2)? '3' : '2');
 	} else if (layout > 2) {
-	  logerrprint("Error: Unrecognized BGEN version.  Use gen-convert or a similar tool to\ndowncode to BGEN v1.1 if you want to process this data with PLINK 1.9.\n");
+	  logerrprint("Error: Unrecognized BGEN version.  Use bgenix or a similar tool to downcode to\nBGEN v1.1 if you want to process this data with PLINK 1.9.\n");
 	} else {
-	  logerrprint("Error: Unrecognized flags in .bgen header.  (PLINK 1.9 only supports\nBGEN v1.0 and v1.1.)\n");
+	  logerrprint("Error: Unrecognized flags in .bgen header.  (PLINK 1.9 only supports BGEN v1.0\nand v1.1.)\n");
 	}
 	goto oxford_to_bed_ret_INVALID_FORMAT;
       }
