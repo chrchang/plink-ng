@@ -257,8 +257,9 @@ HEADER_INLINE uint64_t ctou64(char cc) {
 //   C++11-compiler-validated code still works under C99).  (To achieve this
 //   additional safety, we engage in a bit of code duplication which would be
 //   unreasonable for flagsets.)
-//   Explicit cast to uint32_t, but not int32_t, is supported, to reflect the
-//   fact that all error codes are positive.
+//   (Previously, explicit cast to uint32_t, but not int32_t, was supported, to
+//   reflect the fact that all error codes are positive.  This was deemed
+//   silly.)
 // * BoolErr allows implicit conversion from int, but conversion back to
 //   uint32_t requires an explicit cast.  (It should always be 0/1-valued, but
 //   this isn't enforced by the compiler.)
@@ -312,6 +313,10 @@ typedef enum
 
   explicit operator uint32_t() const {
     return static_cast<uint32_t>(value_);
+  }
+
+  explicit operator int32_t() const {
+    return static_cast<int32_t>(value_);
   }
 
   explicit operator bool() const {
@@ -1023,6 +1028,9 @@ HEADER_INLINE uint32_t abs_i32(int32_t ii) {
 }
 
 extern uintptr_t g_failed_alloc_attempt_size;
+// with NDEBUG undefined, may want to define a bunch of macros so that line
+// number is printed as well; see e.g.
+//   https://stackoverflow.com/questions/15884793/how-to-get-the-name-or-file-and-line-of-caller-method
 
 #if (__GNUC__ <= 4) && (__GNUC_MINOR__ < 7) && !defined(__APPLE__)
 // putting this in the header file caused a bunch of gcc 4.4 strict-aliasing
@@ -1069,7 +1077,7 @@ HEADER_INLINE BoolErr fclose_null(FILE** fptr_ptr) {
 // * Like atoi(), this considereds the number to be terminated by *any*
 //   nondigit character.  E.g. "1000genomes" is treated as a valid instance of
 //   1000 rather than a nonnumeric token, and "98.6" is treated as 98.  (See
-//   ScanmovPosintCapped(), ScanmovUintCapped(), etc. in plink2_common if
+//   ScanmovPosintCapped(), ScanmovUintCapped(), etc. in plink2_string if
 //   you want strtol-like semantics, where the pointer is moved.)
 // * Errors out on overflow.  This may be the biggest advantage over atoi().
 BoolErr ScanPosintCapped(const char* str_iter, uint64_t cap, uint32_t* valp);

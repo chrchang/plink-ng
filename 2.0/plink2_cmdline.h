@@ -520,12 +520,12 @@ HEADER_INLINE BoolErr bigstack_alloc_w(uintptr_t ct, uintptr_t** ul_arr_ptr) {
   return !(*ul_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_alloc_ll(uintptr_t ct, int64_t** ll_arr_ptr) {
+HEADER_INLINE BoolErr bigstack_alloc_i64(uintptr_t ct, int64_t** ll_arr_ptr) {
   *ll_arr_ptr = S_CAST(int64_t*, bigstack_alloc(ct * sizeof(int64_t)));
   return !(*ll_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_alloc_ull(uintptr_t ct, uint64_t** ull_arr_ptr) {
+HEADER_INLINE BoolErr bigstack_alloc_u64(uintptr_t ct, uint64_t** ull_arr_ptr) {
   *ull_arr_ptr = S_CAST(uint64_t*, bigstack_alloc(ct * sizeof(int64_t)));
   return !(*ull_arr_ptr);
 }
@@ -818,12 +818,12 @@ HEADER_INLINE BoolErr arena_alloc_ul(unsigned char* arena_top, uintptr_t ct, uns
   return !(*ul_arr_ptr);
 }
 
-HEADER_INLINE BoolErr arena_alloc_ll(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, int64_t** ll_arr_ptr) {
+HEADER_INLINE BoolErr arena_alloc_i64(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, int64_t** ll_arr_ptr) {
   *ll_arr_ptr = S_CAST(int64_t*, arena_alloc(arena_top, ct * sizeof(int64_t), arena_bottom_ptr));
   return !(*ll_arr_ptr);
 }
 
-HEADER_INLINE BoolErr arena_alloc_ull(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, uint64_t** ull_arr_ptr) {
+HEADER_INLINE BoolErr arena_alloc_u64(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, uint64_t** ull_arr_ptr) {
   *ull_arr_ptr = S_CAST(uint64_t*, arena_alloc(arena_top, ct * sizeof(int64_t), arena_bottom_ptr));
   return !(*ull_arr_ptr);
 }

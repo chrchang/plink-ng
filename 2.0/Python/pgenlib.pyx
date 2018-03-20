@@ -123,7 +123,7 @@ cdef extern from "../pgenlib_python_support.h" namespace "plink2":
 
     PglErr PgrInit(const char* fname, uint32_t max_vrec_width, PgenFileInfo* pgfip, PgenReaderStruct* pgrp, unsigned char* pgr_alloc)
 
-    PglErr PgrReadAlleleCountvecSubsetUnsafe(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReaderStruct* pgrp, uintptr_t* allele_countvec)
+    PglErr PgrGet1(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReaderStruct* pgrp, uintptr_t* allele_countvec)
 
     PglErr PgrReadRefalt1GenovecHphaseSubsetUnsafe(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderStruct* pgrp, uintptr_t* genovec, uintptr_t* phasepresent, uintptr_t* phaseinfo, uint32_t* phasepresent_ct_ptr)
 
@@ -131,8 +131,8 @@ cdef extern from "../pgenlib_python_support.h" namespace "plink2":
 
     PglErr PgrGetRefalt1GenotypeCounts(const uintptr_t* sample_include, const uintptr_t* sample_include_interleaved_vec, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderStruct* pgrp, uint32_t* genocounts)
 
-    BoolErr PgfiCleanup(PgenFileInfo* pgfip)
-    BoolErr PgrCleanup(PgenReaderStruct* pgrp)
+    BoolErr CleanupPgfi(PgenFileInfo* pgfip)
+    BoolErr CleanupPgr(PgenReaderStruct* pgrp)
 
     cdef cppclass PgenWriterCommon:
         uint32_t variant_ct
@@ -340,7 +340,7 @@ cdef class PgenReader:
             raise RuntimeError("read() requires geno_int_out to be C-contiguous.")
         # for full genotype info for multiallelic variants, use read_phased()
         # instead
-        cdef PglErr reterr = PgrReadAlleleCountvecSubsetUnsafe(self._subset_include_vec, self._subset_cumulative_popcounts, self._subset_size, variant_idx, allele_idx, self._state_ptr, self._genovec)
+        cdef PglErr reterr = PgrGet1(self._subset_include_vec, self._subset_cumulative_popcounts, self._subset_size, variant_idx, allele_idx, self._state_ptr, self._genovec)
         if reterr != kPglRetSuccess:
             raise RuntimeError("read() error " + str(reterr))
         cdef int8_t* data8_ptr
@@ -438,7 +438,7 @@ cdef class PgenReader:
             if geno_int8_out.shape[1] < subset_size:
                 raise RuntimeError("Variant-major read_range() geno_int_out buffer has too few columns (" + str(geno_int8_out.shape[1]) + "; current sample subset has size " + str(subset_size) + ")")
             for variant_idx in range(variant_idx_start, variant_idx_end):
-                reterr = PgrReadAlleleCountvecSubsetUnsafe(subset_include_vec, subset_cumulative_popcounts, subset_size, variant_idx, allele_idx, pgrp, genovec)
+                reterr = PgrGet1(subset_include_vec, subset_cumulative_popcounts, subset_size, variant_idx, allele_idx, pgrp, genovec)
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("read_range() error " + str(reterr))
                 data_ptr = &(geno_int8_out[(variant_idx - variant_idx_start), 0])
@@ -469,7 +469,7 @@ cdef class PgenReader:
                 variant_batch_size = 1 + <uint32_t>((variant_idx_ct - 1) % kPglQuaterTransposeBatch)
             vmaj_iter = multivar_vmaj_geno_buf
             for uii in range(variant_batch_size):
-                reterr = PgrReadAlleleCountvecSubsetUnsafe(subset_include_vec, subset_cumulative_popcounts, subset_size, uii + variant_idx_offset, allele_idx, pgrp, vmaj_iter)
+                reterr = PgrGet1(subset_include_vec, subset_cumulative_popcounts, subset_size, uii + variant_idx_offset, allele_idx, pgrp, vmaj_iter)
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("read_range() error " + str(reterr))
                 vmaj_iter = &(vmaj_iter[sample_ctaw2])
@@ -506,7 +506,7 @@ cdef class PgenReader:
             if geno_int32_out.shape[1] < subset_size:
                 raise RuntimeError("Variant-major read_range() geno_int_out buffer has too few columns (" + str(geno_int32_out.shape[1]) + "; current sample subset has size " + str(subset_size) + ")")
             for variant_idx in range(variant_idx_start, variant_idx_end):
-                reterr = PgrReadAlleleCountvecSubsetUnsafe(subset_include_vec, subset_cumulative_popcounts, subset_size, variant_idx, allele_idx, pgrp, genovec)
+                reterr = PgrGet1(subset_include_vec, subset_cumulative_popcounts, subset_size, variant_idx, allele_idx, pgrp, genovec)
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("read_range() error " + str(reterr))
                 data_ptr = <int32_t*>(&(geno_int32_out[(variant_idx - variant_idx_start), 0]))
@@ -537,7 +537,7 @@ cdef class PgenReader:
                 variant_batch_size = 1 + <uint32_t>((variant_idx_ct - 1) % kPglQuaterTransposeBatch)
             vmaj_iter = multivar_vmaj_geno_buf
             for uii in range(variant_batch_size):
-                reterr = PgrReadAlleleCountvecSubsetUnsafe(subset_include_vec, subset_cumulative_popcounts, subset_size, uii + variant_idx_offset, allele_idx, pgrp, vmaj_iter)
+                reterr = PgrGet1(subset_include_vec, subset_cumulative_popcounts, subset_size, uii + variant_idx_offset, allele_idx, pgrp, vmaj_iter)
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("read_range() error " + str(reterr))
                 vmaj_iter = &(vmaj_iter[sample_ctaw2])
@@ -574,7 +574,7 @@ cdef class PgenReader:
             if geno_int64_out.shape[1] < subset_size:
                 raise RuntimeError("Variant-major read_range() geno_int_out buffer has too few columns (" + str(geno_int64_out.shape[1]) + "; current sample subset has size " + str(subset_size) + ")")
             for variant_idx in range(variant_idx_start, variant_idx_end):
-                reterr = PgrReadAlleleCountvecSubsetUnsafe(subset_include_vec, subset_cumulative_popcounts, subset_size, variant_idx, allele_idx, pgrp, genovec)
+                reterr = PgrGet1(subset_include_vec, subset_cumulative_popcounts, subset_size, variant_idx, allele_idx, pgrp, genovec)
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("read_range() error " + str(reterr))
                 data_ptr = &(geno_int64_out[(variant_idx - variant_idx_start), 0])
@@ -605,7 +605,7 @@ cdef class PgenReader:
                 variant_batch_size = 1 + <uint32_t>((variant_idx_ct - 1) % kPglQuaterTransposeBatch)
             vmaj_iter = multivar_vmaj_geno_buf
             for uii in range(variant_batch_size):
-                reterr = PgrReadAlleleCountvecSubsetUnsafe(subset_include_vec, subset_cumulative_popcounts, subset_size, uii + variant_idx_offset, allele_idx, pgrp, vmaj_iter)
+                reterr = PgrGet1(subset_include_vec, subset_cumulative_popcounts, subset_size, uii + variant_idx_offset, allele_idx, pgrp, vmaj_iter)
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("read_range() error " + str(reterr))
                 vmaj_iter = &(vmaj_iter[sample_ctaw2])
@@ -658,7 +658,7 @@ cdef class PgenReader:
                 variant_idx = variant_idxs[variant_list_idx]
                 if variant_idx >= raw_variant_ct:
                     raise RuntimeError("read_list() variant index too large (" + str(variant_idx) + "; only " + str(raw_variant_ct) + " in file)")
-                reterr = PgrReadAlleleCountvecSubsetUnsafe(subset_include_vec, subset_cumulative_popcounts, subset_size, variant_idx, allele_idx, pgrp, genovec)
+                reterr = PgrGet1(subset_include_vec, subset_cumulative_popcounts, subset_size, variant_idx, allele_idx, pgrp, genovec)
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("read_range() error " + str(reterr))
                 data_ptr = &(geno_int8_out[variant_list_idx, 0])
@@ -690,7 +690,7 @@ cdef class PgenReader:
                 variant_idx = variant_idxs[uii + variant_list_idx]
                 if variant_idx >= raw_variant_ct:
                     raise RuntimeError("read_list() variant index too large (" + str(variant_idx) + "; only " + str(raw_variant_ct) + " in file)")
-                reterr = PgrReadAlleleCountvecSubsetUnsafe(subset_include_vec, subset_cumulative_popcounts, subset_size, variant_idx, allele_idx, pgrp, vmaj_iter)
+                reterr = PgrGet1(subset_include_vec, subset_cumulative_popcounts, subset_size, variant_idx, allele_idx, pgrp, vmaj_iter)
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("read_list() error " + str(reterr))
                 vmaj_iter = &(vmaj_iter[sample_ctaw2])
@@ -730,7 +730,7 @@ cdef class PgenReader:
                 variant_idx = variant_idxs[variant_list_idx]
                 if variant_idx >= raw_variant_ct:
                     raise RuntimeError("read_list() variant index too large (" + str(variant_idx) + "; only " + str(raw_variant_ct) + " in file)")
-                reterr = PgrReadAlleleCountvecSubsetUnsafe(subset_include_vec, subset_cumulative_popcounts, subset_size, variant_idx, allele_idx, pgrp, genovec)
+                reterr = PgrGet1(subset_include_vec, subset_cumulative_popcounts, subset_size, variant_idx, allele_idx, pgrp, genovec)
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("read_range() error " + str(reterr))
                 data_ptr = <int32_t*>(&(geno_int32_out[variant_list_idx, 0]))
@@ -762,7 +762,7 @@ cdef class PgenReader:
                 variant_idx = variant_idxs[uii + variant_list_idx]
                 if variant_idx >= raw_variant_ct:
                     raise RuntimeError("read_list() variant index too large (" + str(variant_idx) + "; only " + str(raw_variant_ct) + " in file)")
-                reterr = PgrReadAlleleCountvecSubsetUnsafe(subset_include_vec, subset_cumulative_popcounts, subset_size, variant_idx, allele_idx, pgrp, vmaj_iter)
+                reterr = PgrGet1(subset_include_vec, subset_cumulative_popcounts, subset_size, variant_idx, allele_idx, pgrp, vmaj_iter)
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("read_list() error " + str(reterr))
                 vmaj_iter = &(vmaj_iter[sample_ctaw2])
@@ -802,7 +802,7 @@ cdef class PgenReader:
                 variant_idx = variant_idxs[variant_list_idx]
                 if variant_idx >= raw_variant_ct:
                     raise RuntimeError("read_list() variant index too large (" + str(variant_idx) + "; only " + str(raw_variant_ct) + " in file)")
-                reterr = PgrReadAlleleCountvecSubsetUnsafe(subset_include_vec, subset_cumulative_popcounts, subset_size, variant_idx, allele_idx, pgrp, genovec)
+                reterr = PgrGet1(subset_include_vec, subset_cumulative_popcounts, subset_size, variant_idx, allele_idx, pgrp, genovec)
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("read_range() error " + str(reterr))
                 data_ptr = &(geno_int64_out[variant_list_idx, 0])
@@ -834,7 +834,7 @@ cdef class PgenReader:
                 variant_idx = variant_idxs[uii + variant_list_idx]
                 if variant_idx >= raw_variant_ct:
                     raise RuntimeError("read_list() variant index too large (" + str(variant_idx) + "; only " + str(raw_variant_ct) + " in file)")
-                reterr = PgrReadAlleleCountvecSubsetUnsafe(subset_include_vec, subset_cumulative_popcounts, subset_size, variant_idx, allele_idx, pgrp, vmaj_iter)
+                reterr = PgrGet1(subset_include_vec, subset_cumulative_popcounts, subset_size, variant_idx, allele_idx, pgrp, vmaj_iter)
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("read_list() error " + str(reterr))
                 vmaj_iter = &(vmaj_iter[sample_ctaw2])
@@ -1100,11 +1100,11 @@ cdef class PgenReader:
     cpdef close(self):
         # don't bother propagating file close errors for now
         if self._info_ptr:
-            PgfiCleanup(self._info_ptr)
+            CleanupPgfi(self._info_ptr)
             if self._info_ptr[0].vrtypes:
                 aligned_free(self._info_ptr[0].vrtypes)
                 if self._state_ptr:
-                    PgrCleanup(self._state_ptr)
+                    CleanupPgr(self._state_ptr)
                     if self._state_ptr[0].fread_buf:
                         aligned_free(self._state_ptr[0].fread_buf)
                     PyMem_Free(self._state_ptr)
@@ -1121,11 +1121,11 @@ cdef class PgenReader:
 
     def __dealloc__(self):
         if self._info_ptr:
-            PgfiCleanup(self._info_ptr)
+            CleanupPgfi(self._info_ptr)
             if self._info_ptr[0].vrtypes:
                 aligned_free(self._info_ptr[0].vrtypes)
                 if self._state_ptr:
-                    PgrCleanup(self._state_ptr)
+                    CleanupPgr(self._state_ptr)
                     if self._state_ptr[0].fread_buf:
                         aligned_free(self._state_ptr[0].fread_buf)
                     PyMem_Free(self._state_ptr)

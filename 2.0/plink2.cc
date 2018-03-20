@@ -61,7 +61,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (12 Mar 2018)";
+  " (19 Mar 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -1473,7 +1473,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         bigstack_mark_allele_dosages = g_bigstack_base;
         const uint32_t first_hap_uidx = GetFirstHaploidUidx(cip, vpos_sortstatus);
         if (AlleleDosagesAreNeeded(pcp->misc_flags, make_plink2_flags, (allele_freqs != nullptr), pcp->min_allele_dosage, pcp->max_allele_dosage)) {
-          if (bigstack_alloc_ull(raw_allele_ct, &allele_dosages)) {
+          if (bigstack_alloc_u64(raw_allele_ct, &allele_dosages)) {
             goto Plink2Core_ret_NOMEM;
           }
         }
@@ -1482,7 +1482,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           if ((founder_ct == sample_ct) && allele_dosages) {
             founder_allele_dosages = allele_dosages;
           } else {
-            if (bigstack_alloc_ull(raw_allele_ct, &founder_allele_dosages)) {
+            if (bigstack_alloc_u64(raw_allele_ct, &founder_allele_dosages)) {
               goto Plink2Core_ret_NOMEM;
             }
           }
@@ -2162,10 +2162,10 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
   CleanupPhenoCols(pheno_ct, pheno_cols);
   free_cond(covar_names);
   free_cond(pheno_names);
-  if (PgrCleanup(&simple_pgr) && (!reterr)) {
+  if (CleanupPgr(&simple_pgr) && (!reterr)) {
     reterr = kPglRetReadFail;
   }
-  if (PgfiCleanup(&pgfi) && (!reterr)) {
+  if (CleanupPgfi(&pgfi) && (!reterr)) {
     reterr = kPglRetReadFail;
   }
   // no BigstackReset() needed?
@@ -2256,8 +2256,7 @@ PglErr Alloc2col(const char* const* sources, const char* flagname_p, uint32_t pa
     logerrprintf("Error: --%s filename too long.\n", flagname_p);
     return kPglRetOpenFail;
   }
-  *tcbuf = S_CAST(TwoColParams*, malloc(offsetof(TwoColParams, fname) + fname_blen));
-  if (!(*tcbuf)) {
+  if (pgl_malloc(offsetof(TwoColParams, fname) + fname_blen, tcbuf)) {
     return kPglRetNomem;
   }
   memcpy((*tcbuf)->fname, sources[0], fname_blen);
@@ -8266,5 +8265,5 @@ int main(int argc, char** argv) {
   if (bigstack_ua) {
     free(bigstack_ua);
   }
-  return S_CAST(uint32_t, reterr);
+  return S_CAST(int32_t, reterr);
 }

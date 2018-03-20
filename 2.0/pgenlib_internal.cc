@@ -1781,10 +1781,10 @@ PglErr PgfiInitPhase1(const char* fname, uint32_t raw_variant_ct, uint32_t raw_s
     vrtype_and_vrec_len_quarterbyte_cost = header_ctrl_lowbits - 7;
   } else {
     // set this to *2* if true, 0 if false
-    const uint32_t phase_or_dosage_present = (header_ctrl >> 1) & 2;
+    const uint32_t phase_or_dosage_present_x2 = (header_ctrl >> 1) & 2;
     // vrtype entries = 2 quarterbytes if no phase/dosage, 4 otherwise
     // var_fpos entries = 4 + (4 * (header_ctrl & 3)) quarterbytes
-    vrtype_and_vrec_len_quarterbyte_cost = 6 + phase_or_dosage_present + 4 * (header_ctrl & 3);
+    vrtype_and_vrec_len_quarterbyte_cost = 6 + phase_or_dosage_present_x2 + 4 * (header_ctrl & 3);
   }
   pgfip->const_fpos_offset += (raw_sample_ct * vrtype_and_vrec_len_quarterbyte_cost + 3) / 4 + (raw_sample_ct * alt_allele_ct_byte_ct) + (8 * vblock_ct);
   *pgfi_alloc_cacheline_ct_ptr = CountPgfiAllocCachelinesRequired(raw_variant_ct);
@@ -2040,6 +2040,7 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
           if (trailing_byte_ct) {
             vrtypes_alias_end[-1] = bzhi(vrtypes_alias_end[-1], trailing_byte_ct * CHAR_BIT);
           }
+          // possible todo: rewrite these loops to use movemask
           for (; vrtypes_alias_iter < vrtypes_alias_end; ++vrtypes_alias_iter) {
             const uintptr_t cur_word = *vrtypes_alias_iter;
             const uintptr_t cur_word_shifted = cur_word >> 1;
@@ -2159,11 +2160,15 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
         const Halfword* loadbuf_alias_halfword = R_CAST(const Halfword*, fread_ptr);
         for (uint32_t widx = 0; widx < word_write_ct; ++widx) {
           uintptr_t ww = loadbuf_alias_halfword[widx];
-#ifdef __LP64__
+#ifdef USE_AVX2
+          vrtypes_alias_fullword[widx] = _pdep_u64(ww, kMask0F0F);
+#else
+#  ifdef __LP64__
           ww = (ww | (ww << 16)) & kMask0000FFFF;
-#endif
+#  endif
           ww = (ww | (ww << 8)) & kMask00FF;
           vrtypes_alias_fullword[widx] = (ww | (ww << 4)) & kMask0F0F;
+#endif  // !USE_AVX2
         }
         const uint32_t last_word_byte_ct = cur_vblock_variant_ct % kBytesPerWord;
         vrtypes_iter = &(vrtypes_iter[cur_vblock_variant_ct]);
@@ -2530,7 +2535,7 @@ PglErr PgrInit(const char* fname, uint32_t max_vrec_width, PgenFileInfo* pgfip, 
     if (fname != nullptr) {
       return kPglRetImproperFunctionCall;
     }
-    pgrp->ff = nullptr;  // make sure PgrCleanup() doesn't break
+    pgrp->ff = nullptr;  // make sure CleanupPgr() doesn't break
   } else {
     if (pgfip->shared_ff != nullptr) {
       if (fname == nullptr) {
@@ -3503,6 +3508,8 @@ uint32_t LdLoadNecessary(uint32_t cur_vidx, PgenReader* pgrp) {
     cur_vrtypes_word |= (kMask0101 * 2) << (CHAR_BIT * cur_vidx_orig_remainder);
   }
   const uint32_t vidx_word_stop = (fp_vidx < cur_vidx)? (fp_vidx / kBytesPerWord) : 0;
+  // movemask-based loop unlikely to pay off here since LD blocks shouldn't be
+  // *that* long?
   while (1) {
     // ((bit 2) OR (NOT bit 1)) for each byte.  (possible experiment: see if
     // the same assembly is generated if this expression is rewritten to use
@@ -3611,11 +3618,12 @@ PglErr ReadRefalt1GenovecSubsetUnsafe(const uintptr_t* __restrict sample_include
   return kPglRetSuccess;
 }
 
-PglErr PgrReadRefalt1GenovecSubsetUnsafe(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec) {
+PglErr PgrGet(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec) {
   assert(vidx < pgrp->fi.raw_variant_ct);
   if (!sample_ct) {
     return kPglRetSuccess;
   }
+  // todo: multiallelic case
   return ReadRefalt1GenovecSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, nullptr, nullptr, genovec);
 }
 
@@ -3848,7 +3856,7 @@ PglErr ReadRefalt1DifflistOrGenovecSubsetUnsafe(const uintptr_t* __restrict samp
   return kPglRetSuccess;
 }
 
-PglErr PgrReadRefalt1DifflistOrGenovecSubsetUnsafe(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t max_simple_difflist_len, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uint32_t* difflist_common_geno_ptr, uintptr_t* __restrict main_raregeno, uint32_t* __restrict difflist_sample_ids, uint32_t* __restrict difflist_len_ptr) {
+PglErr PgrGetDifflistOrGenovec(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t max_simple_difflist_len, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uint32_t* difflist_common_geno_ptr, uintptr_t* __restrict main_raregeno, uint32_t* __restrict difflist_sample_ids, uint32_t* __restrict difflist_len_ptr) {
   assert(vidx < pgrp->fi.raw_variant_ct);
   if (!sample_ct) {
     *difflist_common_geno_ptr = UINT32_MAX;
@@ -3947,6 +3955,7 @@ uint32_t BytesumArr(const void* bytearr, uint32_t byte_ct) {
   // Assumes sum < 2^32.
   // This is only slightly slower than SSE2 code, while tolerating an unaligned
   // starting address.
+  // (Maybe it's time for a separate AVX2 implementation, though...)
 #ifdef __arm__
 #  error "Unaligned accesses in BytesumArr()."
 #endif
@@ -4008,6 +4017,7 @@ PglErr SkipDifflistIds(const unsigned char* fread_end, const unsigned char* grou
   uint32_t remaining_id_ct = (difflist_len - 1) % kPglDifflistGroupSize;
   while (remaining_id_ct >= kBytesPerWord) {
     // scan a word at a time, count number of high bits set
+    // todo: use movemask with unaligned loads?
     if (fread_alias > fread_alias_stop) {
       return kPglRetMalformedInput;
     }
@@ -5154,7 +5164,7 @@ PglErr ParseJustAmbigIds(const unsigned char* fread_end, const uintptr_t* __rest
   return kPglRetSuccess;
 }
 
-PglErr PgrReadAlleleCountvecSubsetUnsafe(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReader* pgrp, uintptr_t* __restrict allele_countvec) {
+PglErr PgrGet1(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReader* pgrp, uintptr_t* __restrict allele_countvec) {
   if (!sample_ct) {
     return kPglRetSuccess;
   }
@@ -6112,7 +6122,7 @@ PglErr PgrReadRefalt1GenovecHphaseDosage16SubsetUnsafe(const uintptr_t* __restri
   return ParseDosage16(fread_ptr, fread_end, sample_include, sample_ct, vidx, alt_allele_ct, pgrp, dosage_ct_ptr, dosage_present, dosage_vals);
 }
 
-PglErr PgrReadRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgrp, uintptr_t** loadbuf_iter_ptr, unsigned char* loaded_vrtype_ptr) {
+PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgrp, uintptr_t** loadbuf_iter_ptr, unsigned char* loaded_vrtype_ptr) {
   // currently handles hardcall phase and unphased dosage
   // todo: multiallelic variants, phased dosage
   const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
@@ -6253,7 +6263,7 @@ PglErr ReadMissingness(const uintptr_t* __restrict sample_include, const uint32_
   return kPglRetSuccess;
 }
 
-PglErr PgrReadMissingness(const uintptr_t* __restrict sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict missingness, uintptr_t* __restrict genovec_buf) {
+PglErr PgrGetMissingness(const uintptr_t* __restrict sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict missingness, uintptr_t* __restrict genovec_buf) {
   // may as well add a hets parameter?
   assert(vidx < pgrp->fi.raw_variant_ct);
   if (!sample_ct) {
@@ -6263,7 +6273,7 @@ PglErr PgrReadMissingness(const uintptr_t* __restrict sample_include, const uint
 }
 
 /*
-PglErr PgrReadMissingnessDosage(const uintptr_t* __restrict sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict missingness, uintptr_t* __restrict genovec_buf) {
+PglErr PgrGetMissingnessDosage(const uintptr_t* __restrict sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict missingness, uintptr_t* __restrict genovec_buf) {
   assert(vidx < pgrp->fi.raw_variant_ct);
   if (!sample_ct) {
     return kPglRetSuccess;
@@ -6295,7 +6305,7 @@ PglErr PgrReadMissingnessDosage(const uintptr_t* __restrict sample_include, cons
     // unconditional dosage.  spot-check the appropriate entries for equality
     // to 65535.
 #ifdef __arm__
-#  error "Unaligned accesses in PgrReadMissingnessDosage()."
+#  error "Unaligned accesses in PgrGetMissingnessDosage()."
 #endif
     const uint16_t* dosage_vals = (const uint16_t*)fread_ptr;
     uint32_t sample_uidx = 0;
@@ -6332,7 +6342,7 @@ PglErr PgrReadMissingnessDosage(const uintptr_t* __restrict sample_include, cons
 }
 */
 
-PglErr PgrReadMissingnessMulti(const uintptr_t* __restrict sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict missingness_hc, uintptr_t* __restrict missingness_dosage, uintptr_t* __restrict hets, uintptr_t* __restrict genovec_buf) {
+PglErr PgrGetMissingnessPD(const uintptr_t* __restrict sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict missingness_hc, uintptr_t* __restrict missingness_dosage, uintptr_t* __restrict hets, uintptr_t* __restrict genovec_buf) {
   // either missingness_hc or missingness_dosage must be non-null
   assert(vidx < pgrp->fi.raw_variant_ct);
   if (!sample_ct) {
@@ -6377,7 +6387,7 @@ PglErr PgrReadMissingnessMulti(const uintptr_t* __restrict sample_include, const
     // unconditional dosage.  spot-check the appropriate entries for equality
     // to 65535.
 #ifdef __arm__
-#  error "Unaligned accesses in PgrReadMissingnessMulti()."
+#  error "Unaligned accesses in PgrGetMissingnessPD()."
 #endif
     const uint16_t* dosage_vals = R_CAST(const uint16_t*, fread_ptr);
     uint32_t sample_uidx = 0;
@@ -7125,7 +7135,7 @@ PglErr PgrValidate(PgenReader* pgrp, char* errstr_buf) {
 }
 
 
-BoolErr PgfiCleanup(PgenFileInfo* pgfip) {
+BoolErr CleanupPgfi(PgenFileInfo* pgfip) {
   // memory is the responsibility of the caller
   if (pgfip->shared_ff) {
     if (fclose_null(&pgfip->shared_ff)) {
@@ -7139,7 +7149,7 @@ BoolErr PgfiCleanup(PgenFileInfo* pgfip) {
   return 0;
 }
 
-BoolErr PgrCleanup(PgenReader* pgrp) {
+BoolErr CleanupPgr(PgenReader* pgrp) {
   // assume file is open if pgr.ff is not null
   // memory is the responsibility of the caller for now
   if (!pgrp->ff) {

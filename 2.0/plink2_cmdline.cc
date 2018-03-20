@@ -4048,7 +4048,7 @@ PglErr SearchHeaderLine(const char* header_line_iter, const char* const* search_
     if (bigstack_alloc_c(search_term_ct * max_blen, &merged_strbox) ||
         bigstack_alloc_u32(search_term_ct, &id_map) ||
         bigstack_alloc_u32(search_col_ct, &priority_vals) ||
-        bigstack_alloc_ull(search_col_ct, &cols_and_types)) {
+        bigstack_alloc_u64(search_col_ct, &cols_and_types)) {
       goto SearchHeaderLine_ret_NOMEM;
     }
     uint32_t search_term_idx = 0;

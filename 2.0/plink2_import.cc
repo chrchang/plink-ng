@@ -20,6 +20,7 @@
 #include "plink2_pvar.h"
 #include "plink2_random.h"
 
+#include "libdeflate/libdeflate.h"
 #include "zstd/lib/zstd.h"
 
 #ifdef __cplusplus
@@ -2033,8 +2034,14 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     // categorical phenotypes are lengthened by 1 character ('C' added in
     // front), so this needs to be 50% larger than maximum possible line length
     // to handle worst case
-    linebuf_size = MAXV(linebuf_size + kDecompressChunkSize, kMaxLongLine);
-    char* writebuf = S_CAST(char*, bigstack_alloc_raw_rd(linebuf_size + (linebuf_size / 2)));
+    linebuf_size += kDecompressChunkSize;
+    linebuf_size += linebuf_size / 2;
+    // bugfix (19 Mar 2018): this needs to be min, not max...
+    linebuf_size = MINV(linebuf_size, kMaxLongLine);
+    char* writebuf;
+    if (bigstack_alloc_c(linebuf_size, &writebuf)) {
+      goto OxSampleToPsam_ret_NOMEM;
+    }
     char* write_iter = writebuf;
     *write_iter++ = '#';
     if (write_fid) {
@@ -2089,10 +2096,12 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     linebuf_iter = &(linebuf_iter[1]);
 
     const uint32_t col_ctl = BitCtToWordCt(col_ct);
-    uintptr_t* col_is_categorical = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(col_ctl * sizeof(intptr_t)));
-    uintptr_t* col_is_qt = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(col_ctl * sizeof(intptr_t)));
-    ZeroWArr(col_ctl, col_is_categorical);
-    ZeroWArr(col_ctl, col_is_qt);
+    uintptr_t* col_is_categorical;
+    uintptr_t* col_is_qt;
+    if (bigstack_calloc_w(col_ctl, &col_is_categorical) ||
+	bigstack_calloc_w(col_ctl, &col_is_qt)) {
+      goto OxSampleToPsam_ret_NOMEM;
+    }
     uint32_t at_least_one_binary_pheno = 0;
     for (uint32_t col_idx = 3; col_idx < col_ct; ++col_idx) {
       linebuf_iter = FirstNonTspace(linebuf_iter);
@@ -2133,7 +2142,10 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     }
     // to make --data and --data --make-pgen consistent, we do a two-pass load,
     // checking for empty phenotypes in the first pass.
-    uintptr_t* col_keep = S_CAST(uintptr_t*, bigstack_alloc_raw(RoundUpPow2(col_ct, kCacheline * CHAR_BIT) / CHAR_BIT));
+    uintptr_t* col_keep;
+    if (bigstack_alloc_w(RoundUpPow2(col_ct, kCacheline * CHAR_BIT) / CHAR_BIT, &col_keep)) {
+      goto OxSampleToPsam_ret_NOMEM;
+    }
     col_keep[0] = 7;
     ZeroWArr(col_ctl - 1, &(col_keep[1]));
     uint32_t uncertain_col_ct = col_ct - 3;
@@ -2976,7 +2988,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
 
 // a few multithread globals
 static uint16_t** g_bgen_geno_bufs = nullptr;  // per-thread
-
+static struct libdeflate_decompressor** g_libdeflate_decompressors = nullptr;
 
 // per-variant (could make compressed_geno_starts per-thread)
 static unsigned char** g_compressed_geno_starts[2] = {nullptr, nullptr};
@@ -3007,6 +3019,7 @@ THREAD_FUNC_DECL Bgen11DosageScanThread(void* arg) {
   const uintptr_t tidx = R_CAST(uintptr_t, arg);
   const uint32_t sample_ct = g_sample_ct;
   uint16_t* bgen_geno_buf = g_bgen_geno_bufs[tidx];
+  struct libdeflate_decompressor* decompressor = g_libdeflate_decompressors[tidx];
   const uint32_t calc_thread_ct = g_calc_thread_ct;
   // hard_call_halfdist irrelevant here
   const uint32_t dosage_erase_halfdist = g_dosage_erase_halfdist;
@@ -3027,8 +3040,7 @@ THREAD_FUNC_DECL Bgen11DosageScanThread(void* arg) {
         uint32_t compressed_block_byte_ct;
         memcpy(&compressed_block_byte_ct, compressed_geno_iter, 4);
         compressed_geno_iter = &(compressed_geno_iter[4]);
-        uLongf zlib_ulongf = 6 * sample_ct;
-        if (uncompress(R_CAST(Bytef*, bgen_probs), &zlib_ulongf, R_CAST(Bytef*, compressed_geno_iter), compressed_block_byte_ct) != Z_OK) {
+        if (libdeflate_zlib_decompress(decompressor, compressed_geno_iter, compressed_block_byte_ct, bgen_probs, 6 * sample_ct, nullptr) != LIBDEFLATE_SUCCESS) {
           break;
         }
         compressed_geno_iter = &(compressed_geno_iter[compressed_block_byte_ct]);
@@ -3085,6 +3097,7 @@ THREAD_FUNC_DECL Bgen11GenoToPgenThread(void* arg) {
   const uintptr_t tidx = R_CAST(uintptr_t, arg);
   const uintptr_t sample_ct = g_sample_ct;
   uint16_t* bgen_geno_buf = g_bgen_geno_bufs[tidx];
+  struct libdeflate_decompressor* decompressor = g_libdeflate_decompressors[tidx];
   const uint32_t calc_thread_ct = g_calc_thread_ct;
   const uint32_t hard_call_halfdist = g_hard_call_halfdist;
   const uint32_t dosage_erase_halfdist = g_dosage_erase_halfdist;
@@ -3113,8 +3126,7 @@ THREAD_FUNC_DECL Bgen11GenoToPgenThread(void* arg) {
         uint32_t compressed_block_byte_ct;
         memcpy(&compressed_block_byte_ct, compressed_geno_iter, 4);
         compressed_geno_iter = &(compressed_geno_iter[4]);
-        uLongf zlib_ulongf = 6 * sample_ct;
-        if (uncompress(R_CAST(Bytef*, bgen_probs), &zlib_ulongf, R_CAST(Bytef*, compressed_geno_iter), compressed_block_byte_ct) != Z_OK) {
+        if (libdeflate_zlib_decompress(decompressor, compressed_geno_iter, compressed_block_byte_ct, bgen_probs, 6 * sample_ct, nullptr) != LIBDEFLATE_SUCCESS) {
           break;
         }
         compressed_geno_iter = &(compressed_geno_iter[compressed_block_byte_ct]);
@@ -3268,6 +3280,7 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
   const uint32_t* bgen_import_dosage_certainty_thresholds = g_bgen_import_dosage_certainty_thresholds;
   const uint32_t compression_mode = g_compression_mode;
   const unsigned char* cur_uncompressed_geno = nullptr;
+  struct libdeflate_decompressor* decompressor = g_libdeflate_decompressors[tidx];
   if (compression_mode) {
     cur_uncompressed_geno = g_thread_wkspaces[tidx];
   }
@@ -3291,8 +3304,7 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
         if (compression_mode) {
           uncompressed_byte_ct = uncompressed_genodata_byte_cts[bidx];
           if (compression_mode == 1) {
-            uLongf zlib_ulongf = uncompressed_byte_ct;
-            if (uncompress(K_CAST(Bytef*, cur_uncompressed_geno), &zlib_ulongf, R_CAST(const Bytef*, compressed_geno_start), compressed_byte_ct) != Z_OK) {
+            if (libdeflate_zlib_decompress(decompressor, compressed_geno_start, compressed_byte_ct, K_CAST(unsigned char*, cur_uncompressed_geno), uncompressed_byte_ct, nullptr) != LIBDEFLATE_SUCCESS) {
               // possible todo: report variant index
               goto Bgen13DosageOrPhaseScanThread_malformed;
             }
@@ -3520,6 +3532,7 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
   const uintptr_t sample_ctaw = BitCtToAlignedWordCt(sample_ct);
   const unsigned char* cur_uncompressed_geno = nullptr;
+  struct libdeflate_decompressor* decompressor = g_libdeflate_decompressors[tidx];
   if (compression_mode) {
     cur_uncompressed_geno = g_thread_wkspaces[tidx];
   }
@@ -3549,8 +3562,7 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
         if (compression_mode) {
           uncompressed_byte_ct = *uncompressed_genodata_byte_ct_iter++;
           if (compression_mode == 1) {
-            uLongf zlib_ulongf = uncompressed_byte_ct;
-            if (uncompress(K_CAST(Bytef*, cur_uncompressed_geno), &zlib_ulongf, R_CAST(const Bytef*, compressed_geno_start), compressed_byte_ct) != Z_OK) {
+            if (libdeflate_zlib_decompress(decompressor, compressed_geno_start, compressed_byte_ct, K_CAST(unsigned char*, cur_uncompressed_geno), uncompressed_byte_ct, nullptr) != LIBDEFLATE_SUCCESS) {
               // possible todo: report variant index
               goto Bgen13GenoToPgenThread_malformed;
             }
@@ -4104,6 +4116,14 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       }
     }
 
+    g_libdeflate_decompressors = S_CAST(struct libdeflate_decompressor**, bigstack_alloc(max_thread_ct * sizeof(intptr_t)));
+    if (!g_libdeflate_decompressors) {
+      goto OxBgenToPgen_ret_NOMEM;
+    }
+    ZeroPtrArr(max_thread_ct, g_libdeflate_decompressors);
+    // make libdeflate_alloc_decompressor() calls later, when we know how many
+    // decompressor threads we're using
+
     char* writebuf;
     if (bigstack_alloc_c(2 * kMaxMediumLine + kCacheline, &writebuf)) {
       goto OxBgenToPgen_ret_NOMEM;
@@ -4160,6 +4180,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       g_import_dosage_certainty_int = 1 + S_CAST(int32_t, import_dosage_certainty * 32768);
       uintptr_t bgen_geno_max_byte_ct = 6LU * sample_ct;
       if (compression_mode) {
+        // could take maximum of this and libdeflate_zlib_compress_bound(), if
+        // they're ever different?
         bgen_geno_max_byte_ct = compressBound(bgen_geno_max_byte_ct);
       }
       if (bgen_geno_max_byte_ct > UINT32_MAX) {
@@ -4220,6 +4242,12 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       }
       ts.calc_thread_ct = calc_thread_ct;
       g_calc_thread_ct = calc_thread_ct;
+      for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
+        g_libdeflate_decompressors[tidx] = libdeflate_alloc_decompressor();
+        if (!g_libdeflate_decompressors[tidx]) {
+          goto OxBgenToPgen_ret_NOMEM;
+        }
+      }
       unsigned char* compressed_geno_bufs[2];
       if (bigstack_alloc_uc(bgen_geno_max_byte_ct * main_block_size, &(compressed_geno_bufs[0])) ||
           bigstack_alloc_uc(bgen_geno_max_byte_ct * main_block_size, &(compressed_geno_bufs[1])) ||
@@ -4783,7 +4811,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       g_thread_wkspaces = S_CAST(unsigned char**, bigstack_alloc_raw_rd(calc_thread_ct_limit * sizeof(intptr_t)));
       g_thread_bidxs[0] = S_CAST(uint32_t*, bigstack_alloc_raw_rd((calc_thread_ct_limit + 1) * sizeof(int32_t)));
       g_thread_bidxs[1] = S_CAST(uint32_t*, bigstack_alloc_raw_rd((calc_thread_ct_limit + 1) * sizeof(int32_t)));
-      // ***** all allocations from this point on are reset before pass 2 *****
+      // ***** all bigstack allocations from this point on are reset before
+      //       pass 2 *****
       uintptr_t main_block_size = 65536;
       if (bigstack_alloc_u16(main_block_size, &(g_bgen_allele_cts[0])) ||
           bigstack_alloc_u16(main_block_size, &(g_bgen_allele_cts[1])) ||
@@ -4878,6 +4907,14 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       main_block_size = per_thread_block_limit * calc_thread_ct;
       ts.calc_thread_ct = calc_thread_ct;
       g_calc_thread_ct = calc_thread_ct;
+      if (compression_mode == 1) {
+        for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
+          g_libdeflate_decompressors[tidx] = libdeflate_alloc_decompressor();
+          if (!g_libdeflate_decompressors[tidx]) {
+            goto OxBgenToPgen_ret_NOMEM;
+          }
+        }
+      }
       unsigned char* compressed_geno_bufs[2];
       compressed_geno_bufs[0] = S_CAST(unsigned char*, bigstack_alloc_raw(mainbuf_size));
       compressed_geno_bufs[1] = S_CAST(unsigned char*, bigstack_alloc_raw(mainbuf_size));
@@ -5349,6 +5386,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       thread_wkspace_size = RoundUpPow2(max_geno_blen, kCacheline);
       // bugfix (16 Jul 2017): was computing cachelines_avail, not bytes_avail
       uintptr_t bytes_avail = RoundDownPow2(bigstack_left() / 6, kCacheline);
+      uint32_t old_calc_thread_ct = calc_thread_ct;
       if (calc_thread_ct_limit * thread_wkspace_size <= bytes_avail) {
         calc_thread_ct = calc_thread_ct_limit;
       } else {
@@ -5360,6 +5398,14 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       ts.calc_thread_ct = calc_thread_ct;
       for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
         g_thread_wkspaces[tidx] = S_CAST(unsigned char*, bigstack_alloc_raw(thread_wkspace_size));
+      }
+      if (compression_mode == 1) {
+        for (uint32_t tidx = old_calc_thread_ct; tidx < calc_thread_ct; ++tidx) {
+          g_libdeflate_decompressors[tidx] = libdeflate_alloc_decompressor();
+          if (!g_libdeflate_decompressors[tidx]) {
+            goto OxBgenToPgen_ret_NOMEM;
+          }
+        }
       }
       bytes_avail -= thread_wkspace_size * calc_thread_ct;
       // Per-write-buffer-variant allocations:
@@ -5740,6 +5786,15 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     }
   }
  OxBgenToPgen_ret_1:
+  if (g_libdeflate_decompressors) {
+    for (uint32_t tidx = 0; tidx < max_thread_ct; ++tidx) {
+      if (!g_libdeflate_decompressors[tidx]) {
+        break;
+      }
+      libdeflate_free_decompressor(g_libdeflate_decompressors[tidx]);
+    }
+    g_libdeflate_decompressors = nullptr;
+  }
   if (SpgwCleanup(&spgw) && (!reterr)) {
     reterr = kPglRetWriteFail;
   }

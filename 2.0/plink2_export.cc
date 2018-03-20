@@ -17,6 +17,7 @@
 #include "plink2_export.h"
 
 #include "htslib/htslib/bgzf.h"
+#include "libdeflate/libdeflate.h"
 #include "zstd/lib/zstd.h"
 
 #include <time.h>
@@ -26,8 +27,6 @@ namespace plink2 {
 #endif
 
 // a few multithread globals
-static uint16_t** g_bgen_geno_bufs = nullptr;  // per-thread
-
 static uint32_t g_sample_ct = 0;
 static uint32_t g_calc_thread_ct = 0;
 static uint32_t g_cur_block_write_ct = 0;
@@ -342,7 +341,7 @@ THREAD_FUNC_DECL TransposeToSmajReadThread(void* arg) {
     for (; cur_idx < cur_idx_end; ++cur_idx, ++variant_uidx) {
       MovU32To1Bit(variant_include, &variant_uidx);
       // todo: multiallelic case
-      const PglErr reterr = PgrReadRefalt1GenovecSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, read_sample_ct, variant_uidx, pgrp, vmaj_readbuf_iter);
+      const PglErr reterr = PgrGet(sample_include, sample_include_cumulative_popcounts, read_sample_ct, variant_uidx, pgrp, vmaj_readbuf_iter);
       if (reterr) {
         g_error_ret = reterr;
         break;
@@ -1420,6 +1419,9 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
 }
 
 // more multithread globals
+static uint16_t** g_bgen_geno_bufs = nullptr;  // per-thread
+static struct libdeflate_compressor** g_libdeflate_compressors = nullptr;
+
 static uintptr_t** g_missing_acc2 = nullptr;
 static uint32_t* g_variant_bytects[2] = {nullptr, nullptr};
 static uint32_t g_ref_allele_second = 0;
@@ -1447,6 +1449,7 @@ THREAD_FUNC_DECL ExportBgen11Thread(void* arg) {
   uintptr_t* dosage_present = g_dosage_presents? g_dosage_presents[tidx] : nullptr;
   Dosage* dosage_vals = dosage_present? g_dosage_val_bufs[tidx] : nullptr;
   uint16_t* bgen_geno_buf = g_bgen_geno_bufs[tidx];
+  struct libdeflate_compressor* compressor = g_libdeflate_compressors[tidx];
   const uintptr_t* variant_include = g_variant_include;
   const uintptr_t* sample_include = g_sample_include;
   const uint32_t* sample_include_cumulative_popcounts = g_sample_include_cumulative_popcounts;
@@ -1567,8 +1570,8 @@ THREAD_FUNC_DECL ExportBgen11Thread(void* arg) {
           assert(0);
         }
       }
-      uLongf compressed_blen = bgen_compressed_buf_max;
-      if (compress(writebuf_iter, &compressed_blen, R_CAST(const unsigned char*, bgen_geno_buf), bgen_geno_buf_blen)) {
+      uintptr_t compressed_blen = libdeflate_zlib_compress(compressor, bgen_geno_buf, bgen_geno_buf_blen, writebuf_iter, bgen_compressed_buf_max);
+      if (!compressed_blen) {
         // is this actually possible?
         g_error_ret = kPglRetNomem;
         break;
@@ -1609,13 +1612,24 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   PglErr reterr = kPglRetSuccess;
-  // use gzip instead of zstd here.
-  ZWRAP_useZSTDcompression(0);
   {
     const uint32_t sample_ctv = BitCtToVecCt(sample_ct);
     const uint32_t max_chr_slen = GetMaxChrSlen(cip);
-    const uintptr_t bgen_compressed_buf_max = compressBound(6LU * sample_ct);
+    g_libdeflate_compressors = S_CAST(struct libdeflate_compressor**, bigstack_alloc(max_thread_ct * sizeof(intptr_t)));
+    if (!g_libdeflate_compressors) {
+      goto ExportBgen11_ret_NOMEM;
+    }
+    ZeroPtrArr(max_thread_ct, g_libdeflate_compressors);
+    // allocate the first compressor so we can call
+    // libdeflate_zlib_compress_bound().
+    // could add a --bgz-level flag analogous to --zst-level, of course.
+    g_libdeflate_compressors[0] = libdeflate_alloc_compressor(6);
+    if (!g_libdeflate_compressors[0]) {
+      goto ExportBgen11_ret_NOMEM;
+    }
+    const uintptr_t bgen_compressed_buf_max = libdeflate_zlib_compress_bound(g_libdeflate_compressors[0], 6LU * sample_ct);
 #ifdef __LP64__
+    // could also bail if compressBound(6LU * sample_ct) is too large
     if (bgen_compressed_buf_max > UINT32_MAX) {
       logerrputs("Error: Too many samples for .bgen format.\n");
       goto ExportBgen11_ret_INCONSISTENT_INPUT;
@@ -1651,6 +1665,7 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
     }
     uint32_t calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
     // seems to saturate around this point
+    // todo: retest with libdeflate
     if (calc_thread_ct > 15) {
       calc_thread_ct = 15;
     }
@@ -1661,6 +1676,13 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
         bigstack_alloc_wp(calc_thread_ct, &g_missing_acc2) ||
         bigstack_alloc_u16p(calc_thread_ct, &g_bgen_geno_bufs)) {
       goto ExportBgen11_ret_NOMEM;
+    }
+    // we allocated [0] earlier
+    for (uint32_t tidx = 1; tidx < calc_thread_ct; ++tidx) {
+      g_libdeflate_compressors[tidx] = libdeflate_alloc_compressor(6);
+      if (!g_libdeflate_compressors[tidx]) {
+        goto ExportBgen11_ret_NOMEM;
+      }
     }
 
     const uint32_t acc2_vec_ct = QuaterCtToVecCt(sample_ct);
@@ -1922,7 +1944,15 @@ PglErr ExportBgen11(const char* outname, const uintptr_t* sample_include, uint32
     break;
   }
  ExportBgen11_ret_1:
-  ZWRAP_useZSTDcompression(1);
+  if (g_libdeflate_compressors) {
+    for (uint32_t tidx = 0; tidx < max_thread_ct; ++tidx) {
+      if (!g_libdeflate_compressors[tidx]) {
+        break;
+      }
+      libdeflate_free_compressor(g_libdeflate_compressors[tidx]);
+    }
+    g_libdeflate_compressors = nullptr;
+  }
   fclose_cond(outfile);
   BigstackReset(bigstack_mark);
   return reterr;
@@ -3232,7 +3262,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
       if (!some_phased) {
         // biallelic, nothing phased in entire file
         if (!write_gp_or_ds) {
-          reterr = PgrReadRefalt1GenovecSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec);
+          reterr = PgrGet(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec);
         } else {
           reterr = PgrReadRefalt1GenovecDosage16SubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
         }

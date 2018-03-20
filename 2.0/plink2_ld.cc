@@ -1100,12 +1100,12 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
             MovU32To1Bit(variant_include, &variant_uidx);
             uintptr_t* cur_raw_tgenovec = &(cur_thread_raw_tgenovec[tvidx_offset * raw_tgenovec_single_variant_word_ct]);
             if (!is_x_or_y) {
-              reterr = PgrReadAlleleCountvecSubsetUnsafe(founder_info, founder_info_cumulative_popcounts, founder_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, cur_raw_tgenovec);
+              reterr = PgrGet1(founder_info, founder_info_cumulative_popcounts, founder_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, cur_raw_tgenovec);
               if (is_haploid) {
                 SetHetMissing(founder_ctl2, cur_raw_tgenovec);
               }
             } else {
-              reterr = PgrReadAlleleCountvecSubsetUnsafe(nullptr, nullptr, raw_sample_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, tmp_genovec);
+              reterr = PgrGet1(nullptr, nullptr, raw_sample_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, tmp_genovec);
               if (founder_male_ct) {
                 CopyQuaterarrNonemptySubset(tmp_genovec, founder_male, raw_sample_ct, founder_male_ct, cur_raw_tgenovec);
                 SetHetMissing(founder_male_ctl2, cur_raw_tgenovec);
@@ -1383,8 +1383,8 @@ PglErr LoadBalance(const uint32_t* task_weights, uint32_t task_ct, uint32_t* thr
   assert(task_ct >= orig_thread_ct);
   uint64_t* sorted_tagged_weights;
   uint64_t* minheap64_preroot;
-  if (bigstack_alloc_ull(task_ct, &sorted_tagged_weights) ||
-      bigstack_alloc_ull(orig_thread_ct + 2, &minheap64_preroot)) {
+  if (bigstack_alloc_u64(task_ct, &sorted_tagged_weights) ||
+      bigstack_alloc_u64(orig_thread_ct + 2, &minheap64_preroot)) {
     return kPglRetNomem;
   }
   minheap64_preroot[0] = 0;

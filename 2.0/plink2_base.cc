@@ -36,7 +36,7 @@ BoolErr pgl_malloc(uintptr_t size, void* pp) {
 
 BoolErr fwrite_checked(const void* buf, uintptr_t len, FILE* outfile) {
   while (len > kMaxBytesPerIO) {
-    // OS X can't perform 2GB+ writes
+    // OS X fwrite() doesn't support 2GB+ writes
     // typical disk block size is 4kb, so 0x7ffff000 is the largest sensible
     // write size
     // bugfix (9 Mar 2018): forgot a 'not' here...

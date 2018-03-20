@@ -951,7 +951,7 @@ void UnpackHphaseSubset(const uintptr_t* __restrict all_hets, const uintptr_t* _
   } else {
     const uint32_t first_half_word_ct = 1 + (het_ct / kBitsPerWord);
     const uint32_t raw_phasepresent_ct = PopcountWords(phaseraw, first_half_word_ct) - 1;
-    // see "if (explicit_phasepresent) {}" block in PgrReadRaw().  Could
+    // see "if (explicit_phasepresent) {}" block in PgrGetRaw().  Could
     // change this convention.
     ExpandThenSubsetBytearrNested(&(phaseraw[1 + (raw_sample_ct / kBitsPerWord)]), phaseraw, all_hets, sample_include, sample_ct, raw_phasepresent_ct, 1, *phasepresent_ptr, phaseinfo);
   }
@@ -1949,8 +1949,21 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* arg) {
         is_mt = (chr_idx == mt_code);
         is_haploid_nonmt = IsSet(cip->haploid_mask, chr_idx) && (!is_mt);
       }
+      // todo: Multiallelic -> two-specific-alleles downcode.
+      // This is pretty straightforward if we're just saving hardcalls:
+      // with 1 copy of one allele and zero copies of the other allele, we
+      // default to saving a missing call (in the diploid case).
+      // If dosages are involved, things are a bit less obvious: what if the
+      // unincluded alleles have a total dosage of 0.1?  0.5?  It'll be
+      // necessary to define a new flag allowing this threshold to be
+      // configured.
+      // I'm currently inclined to set unincluded dosage >= 0.5 to missing, and
+      // otherwise the dosages are scaled up to sum to 2.
+      // (Note that the multiallelic split operation won't work this way; it
+      // has to use the convention that REF = anything other than the current
+      // ALT allele.  Probably also want to support that here.)
       if (!hard_call_halfdist) {
-        PglErr reterr = PgrReadRefalt1GenovecSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec);
+        PglErr reterr = PgrGet(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec);
         if (reterr) {
           g_error_ret = reterr;
           break;
@@ -1967,8 +1980,6 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* arg) {
         }
         ApplyHardCallThresh(dosage_present, dosage_vals, dosage_ct, hard_call_halfdist, genovec);
       }
-      // this doesn't work in multiallelic case
-      // todo: pgenlib_internal function which takes two allele indexes
       if (refalt1_select && (refalt1_select[2 * variant_uidx] == 1)) {
         GenovecInvertUnsafe(sample_ct, genovec);
       }
@@ -2673,7 +2684,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
             } else {
               read_variant_uidx = *new_variant_idx_to_old_iter++;
             }
-            reterr = PgrReadRaw(read_variant_uidx, read_phase_dosage_gflags, simple_pgrp, &loadbuf_iter, cur_loaded_vrtypes? (&(cur_loaded_vrtypes[uii])) : nullptr);
+            reterr = PgrGetRaw(read_variant_uidx, read_phase_dosage_gflags, simple_pgrp, &loadbuf_iter, cur_loaded_vrtypes? (&(cur_loaded_vrtypes[uii])) : nullptr);
             if (reterr) {
               if (reterr == kPglRetMalformedInput) {
                 logputs("\n");
@@ -3335,7 +3346,7 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
               g_loadbuf_thread_starts[parity][uii / kPglVblockSize] = loadbuf_iter;
             }
             MovU32To1Bit(variant_include, &read_variant_uidx);
-            reterr = PgrReadRaw(read_variant_uidx, read_phase_dosage_gflags, simple_pgrp, &loadbuf_iter, cur_loaded_vrtypes? (&(cur_loaded_vrtypes[uii])) : nullptr);
+            reterr = PgrGetRaw(read_variant_uidx, read_phase_dosage_gflags, simple_pgrp, &loadbuf_iter, cur_loaded_vrtypes? (&(cur_loaded_vrtypes[uii])) : nullptr);
             if (reterr) {
               if (reterr == kPglRetMalformedInput) {
                 logputs("\n");
@@ -3493,7 +3504,7 @@ BoolErr SortChr(const ChrInfo* cip, const uint32_t* chr_idx_to_size, uint32_t us
   // chr_sort_idx in high bits, original chr_idx in low
   uint64_t* std_sortbuf;
   uint64_t* std_sortbuf_iter;
-  if (bigstack_alloc_ull(max_code + 1, &std_sortbuf)) {
+  if (bigstack_alloc_u64(max_code + 1, &std_sortbuf)) {
     return 1;
   }
   std_sortbuf_iter = std_sortbuf;
@@ -4087,7 +4098,7 @@ PglErr MakePlink2Vsort(const char* xheader, const uintptr_t* sample_include, con
     // pos_vidx_sort_buf has variant_bp in high bits, variant_uidx in low
     uint64_t* pos_vidx_sort_buf;
     if (bigstack_alloc_u32(variant_ct, &new_variant_idx_to_old) ||
-        bigstack_alloc_ull(variant_ct + 1, &pos_vidx_sort_buf)) {
+        bigstack_alloc_u64(variant_ct + 1, &pos_vidx_sort_buf)) {
       goto MakePlink2Vsort_ret_NOMEM;
     }
     pos_vidx_sort_buf[variant_ct] = ~0LLU;

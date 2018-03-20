@@ -76,7 +76,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 802
+#define PGENLIB_INTERNAL_VERNUM 803
 
 // other configuration-ish values needed by plink2_common subset
 typedef unsigned char AltAlleleCt;
@@ -922,18 +922,34 @@ void PgrPlink2ToPlink1InplaceUnsafe(uint32_t sample_ct, uintptr_t* genovec);
 
 void PgrDifflistToGenovecUnsafe(const uintptr_t* __restrict raregeno, const uint32_t* difflist_sample_ids, uintptr_t difflist_common_geno, uint32_t sample_ct, uint32_t difflist_len, uintptr_t* __restrict genovec);
 
+// Function names for the main reader functions were getting ridiculous.
+// New naming scheme:
+// * PgrGet() is the basic two-bit genovec loader.  All ALT alleles are treated
+//   as equivalent.  (00 = hom ref, 01 = het ref, 10 = two alt alleles, 11 =
+//   missing.)
+// * PgrGetInv1() is similar, except that the allele index to treat as REF can
+//   be changed.
+// * PgrGet1() only counts the specified allele.
+// * PgrGetM() is the multiallelic loader which doesn't collapse multiple
+//   alleles into one.  Exact functional form TBD.
+// * PgrGetDifflistOrGenovec() opportunistically returns the sparse genotype
+//   representation ('difflist'), for functions capable of taking advantage of
+//   it.  I don't plan to use this in plink2 before at least 2019, but the
+//   pgen_compress demo program illustrates its usage.
+// * PgrGetCounts() is equivalent to calling PgrGet() and then counting the
+//   number of 00s, 01s, 10s, and 11s, without the overhead of fully expanding
+//   the compressed data, etc.
+// * P suffix = also returns hardcall-phase information.
+// * D suffix = also returns dosage information.
+// * Dp suffix = also returns dosage and phased-dosage information.
+
 // This will normally extract only the genotype indexes corresponding to set
 // bits in sample_include.  Set sample_ct == raw_sample_ct if you don't want
 // any subsetting to occur (in this case sample_include is ignored, can be
 // nullptr).
-// Only the maintrack is loaded.  00 = hom ref, 01 = het ref/alt1,
-// 10 = hom alt1, 11 = missing or anything else.
-// If multiallelic_relevant is set, and the current variant is multiallelic,
-// pgr.workspace_ambig_sample_ids and pgr.workspace_ambig_id_ct are updated.
-// "unsafe": sample_ct cannot be zero.  Trailing bits of genovec are not zeroed
-// out.
+// sample_ct cannot be zero.  Trailing bits of genovec are not zeroed out.
 // Ok if genovec only has space for sample_ct values.
-PglErr PgrReadRefalt1GenovecSubsetUnsafe(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec);
+PglErr PgrGet(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec);
 
 // Loads the specified variant as a difflist if that's more efficient, setting
 // difflist_common_geno to the common genotype value in that case.  Otherwise,
@@ -942,7 +958,7 @@ PglErr PgrReadRefalt1GenovecSubsetUnsafe(const uintptr_t* __restrict sample_incl
 // Note that the returned difflist_len can be much larger than
 // max_simple_difflist_len when the variant is LD-encoded; it's bounded by
 //   2 * (raw_sample_ct / kPglMaxDifflistLenDivisor).
-PglErr PgrReadRefalt1DifflistOrGenovecSubsetUnsafe(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t max_simple_difflist_len, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uint32_t* difflist_common_geno_ptr, uintptr_t* __restrict main_raregeno, uint32_t* __restrict difflist_sample_ids, uint32_t* __restrict difflist_len_ptr);
+PglErr PgrGetDifflistOrGenovec(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t max_simple_difflist_len, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uint32_t* difflist_common_geno_ptr, uintptr_t* __restrict main_raregeno, uint32_t* __restrict difflist_sample_ids, uint32_t* __restrict difflist_len_ptr);
 
 // This is necessary when changing sample_include, unless the new query is
 // iterating from the first variant.  (Which can almost never be assumed in
@@ -971,7 +987,7 @@ PglErr PgrReadGenovecSubsetThenCommon2(const uintptr_t* __restrict sample_includ
 // Note that calling this with allele_idx == 0 is similar to a plink1 load
 // (except with missing == 0b11, of course).
 // todo: provide a difflist interface once anyone wants it.
-PglErr PgrReadAlleleCountvecSubsetUnsafe(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReader* pgrp, uintptr_t* __restrict allele_countvec);
+PglErr PgrGet1(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReader* pgrp, uintptr_t* __restrict allele_countvec);
 
 // todo: add functions which directly support MAF-based queries.  Note that
 // when the difflist representation is used, we can disqualify some low-MAF
@@ -1011,23 +1027,24 @@ PglErr PgrReadRefalt1GenovecHphaseDosage16SubsetUnsafe(const uintptr_t* __restri
 
 // interface used by --make-pgen, just performs basic LD/difflist decompression
 // (still needs multiallelic and dosage-phase extensions)
-PglErr PgrReadRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgrp, uintptr_t** loadbuf_iter_ptr, unsigned char* loaded_vrtype_ptr);
+PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgrp, uintptr_t** loadbuf_iter_ptr, unsigned char* loaded_vrtype_ptr);
 
 PglErr PgrValidate(PgenReader* pgrp, char* errstr_buf);
 
 // missingness bit is set iff hardcall is not present (even if dosage info *is*
 // present)
-PglErr PgrReadMissingness(const uintptr_t* __restrict sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict missingness, uintptr_t* __restrict genovec_buf);
+PglErr PgrGetMissingness(const uintptr_t* __restrict sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict missingness, uintptr_t* __restrict genovec_buf);
 
-// either missingness_hc (hardcall) or missingness_dosage must be non-null
+// either missingness_hc (hardcall) or missingness_dosage must be non-null for
+// now
 // missingness_dosage must be vector-aligned
-PglErr PgrReadMissingnessMulti(const uintptr_t* __restrict sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict missingness_hc, uintptr_t* __restrict missingness_dosage, uintptr_t* __restrict hets, uintptr_t* __restrict genovec_buf);
+PglErr PgrGetMissingnessPD(const uintptr_t* __restrict sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict missingness_hc, uintptr_t* __restrict missingness_dosage, uintptr_t* __restrict hets, uintptr_t* __restrict genovec_buf);
 
 
 // failure = kPglRetReadFail
-BoolErr PgfiCleanup(PgenFileInfo* pgfip);
+BoolErr CleanupPgfi(PgenFileInfo* pgfip);
 
-BoolErr PgrCleanup(PgenReader* pgrp);
+BoolErr CleanupPgr(PgenReader* pgrp);
 
 
 struct PgenWriterCommonStruct {

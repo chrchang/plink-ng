@@ -1124,7 +1124,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
           uintptr_t* ref2het_iter = splitbuf_ref2het;
           for (uint32_t uii = 0; uii < variant_batch_size; ++uii, ++variant_uidx) {
             MovU32To1Bit(variant_include, &variant_uidx);
-            reterr = PgrReadRefalt1GenovecSubsetUnsafe(cur_sample_include, sample_include_cumulative_popcounts, row_end_idx, variant_uidx, simple_pgrp, loadbuf);
+            reterr = PgrGet(cur_sample_include, sample_include_cumulative_popcounts, row_end_idx, variant_uidx, simple_pgrp, loadbuf);
             if (reterr) {
               goto CalcKing_ret_PGR_FAIL;
             }
@@ -2248,7 +2248,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
           uintptr_t* ref2het_iter = splitbuf_ref2het;
           for (uint32_t uii = 0; uii < variant_batch_size; ++uii, ++variant_uidx) {
             MovU32To1Bit(variant_include, &variant_uidx);
-            reterr = PgrReadRefalt1GenovecSubsetUnsafe(cur_sample_include, sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, simple_pgrp, loadbuf);
+            reterr = PgrGet(cur_sample_include, sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, simple_pgrp, loadbuf);
             if (reterr) {
               goto CalcKingTableSubset_ret_PGR_FAIL;
             }
@@ -2751,7 +2751,7 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
         uintptr_t* missing_vmaj_iter = missing_vmaj;
         for (uint32_t variant_idx = cur_variant_idx_start; variant_idx < cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
           MovU32To1Bit(variant_include, &variant_uidx);
-          reterr = PgrReadMissingnessMulti(sample_include, sample_include_cumulative_popcounts, row_end_idx, variant_uidx, simple_pgrp, nullptr, missing_vmaj_iter, nullptr, genovec_buf);
+          reterr = PgrGetMissingnessPD(sample_include, sample_include_cumulative_popcounts, row_end_idx, variant_uidx, simple_pgrp, nullptr, missing_vmaj_iter, nullptr, genovec_buf);
           if (reterr) {
             if (reterr == kPglRetMalformedInput) {
               logputs("\n");

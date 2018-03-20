@@ -98,7 +98,7 @@ int32_t main(int32_t argc, char** argv) {
       const uint32_t variant_byte_ct = (sample_ct + 3) / 4;
       fwrite("l\x1b\x01", 3, 1, outfile);
       for (uint32_t vidx = 0; vidx < variant_ct;) {
-        reterr = PgrReadRefalt1GenovecSubsetUnsafe(nullptr, nullptr, sample_ct, vidx, &pgr, genovec);
+        reterr = PgrGet(nullptr, nullptr, sample_ct, vidx, &pgr, genovec);
         if (reterr) {
           fprintf(stderr, "\nread error %u, vidx=%u\n", S_CAST(uint32_t, reterr), vidx);
           goto main_ret_1;
@@ -160,7 +160,7 @@ int32_t main(int32_t argc, char** argv) {
     for (uint32_t vidx = 0; vidx < variant_ct;) {
       uint32_t difflist_common_geno;
       uint32_t difflist_len;
-      reterr = PgrReadRefalt1DifflistOrGenovecSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, write_sample_ct, max_simple_difflist_len, vidx, &pgr, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
+      reterr = PgrGetDifflistOrGenovec(sample_include, sample_include_cumulative_popcounts, write_sample_ct, max_simple_difflist_len, vidx, &pgr, genovec, &difflist_common_geno, raregeno, difflist_sample_ids, &difflist_len);
       if (reterr) {
         fprintf(stderr, "\nread error %u, vidx=%u\n", S_CAST(uint32_t, reterr), vidx);
         goto main_ret_1;
@@ -206,9 +206,9 @@ int32_t main(int32_t argc, char** argv) {
     break;
   }
  main_ret_1:
-  PgrCleanup(&pgr);
+  CleanupPgr(&pgr);
 #ifndef NO_MMAP
-  PgfiCleanup(&pgfi);
+  CleanupPgfi(&pgfi);
 #endif
   SpgwCleanup(&spgw);
   if (pgfi_alloc) {
@@ -238,5 +238,5 @@ int32_t main(int32_t argc, char** argv) {
   if (outfile) {
     fclose(outfile);
   }
-  return S_CAST(uint32_t, reterr);
+  return S_CAST(int32_t, reterr);
 }

@@ -290,8 +290,8 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
       piip->sii.flags |= kfSampleIdParentsPresent;
     }
     if (pheno_ct) {
-      char* pheno_names = S_CAST(char*, malloc(pheno_ct * max_pheno_name_blen));
-      if (!pheno_names) {
+      char* pheno_names;
+      if (pgl_malloc(pheno_ct * max_pheno_name_blen, &pheno_names)) {
         goto LoadPsam_ret_NOMEM;
       }
       *pheno_names_ptr = pheno_names;
@@ -591,8 +591,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
     BigstackBaseSet(tmp_bigstack_base);
 
     if (pheno_ct) {
-      pheno_cols = S_CAST(PhenoCol*, malloc(pheno_ct * sizeof(PhenoCol)));
-      if (!pheno_cols) {
+      if (pgl_malloc(pheno_ct * sizeof(PhenoCol), &pheno_cols)) {
         goto LoadPsam_ret_NOMEM;
       }
       for (uint32_t pheno_idx = 0; pheno_idx < pheno_ct; ++pheno_idx) {
@@ -953,8 +952,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
       }
       final_pheno_ct = new_pheno_ct + old_pheno_ct;
       final_pheno_names_byte_ct = final_pheno_ct * max_pheno_name_blen;
-      pheno_names = S_CAST(char*, malloc(final_pheno_names_byte_ct));
-      if (!pheno_names) {
+      if (pgl_malloc(final_pheno_names_byte_ct, &pheno_names)) {
         goto LoadPhenos_ret_NOMEM;
       }
       linebuf_iter = iid_end;
@@ -1034,8 +1032,7 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         max_pheno_name_blen = max_new_name_blen;
       }
       final_pheno_names_byte_ct = final_pheno_ct * max_pheno_name_blen;
-      pheno_names = S_CAST(char*, malloc(final_pheno_names_byte_ct));
-      if (!pheno_names) {
+      if (pgl_malloc(final_pheno_names_byte_ct, &pheno_names)) {
         goto LoadPhenos_ret_NOMEM;
       }
       const char* default_prefix = (affection_01 == 2)? "COVAR" : "PHENO";

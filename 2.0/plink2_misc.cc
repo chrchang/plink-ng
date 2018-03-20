@@ -226,8 +226,8 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
     }
     const uint32_t new_pheno_ct = old_pheno_ct + 1;
     uintptr_t new_pheno_names_byte_ct = new_pheno_ct * new_max_pheno_name_blen;
-    char* pheno_names = S_CAST(char*, malloc(new_pheno_names_byte_ct));
-    if (!pheno_names) {
+    char* pheno_names;
+    if (pgl_malloc(new_pheno_names_byte_ct, &pheno_names)) {
       goto Plink1ClusterImport_ret_NOMEM;
     }
     if (old_pheno_names && (old_max_pheno_name_blen == new_max_pheno_name_blen)) {
@@ -1006,14 +1006,14 @@ PglErr SplitCatPheno(const char* split_cat_phenonames_flattened, const uintptr_t
       }
 
       // second pass: allocate memory and actually create the new phenotypes
-      char* new_pheno_names = S_CAST(char*, malloc(new_pheno_ct * new_max_pheno_name_blen));
-      if (!new_pheno_names) {
+      char* new_pheno_names;
+      if (pgl_malloc(new_pheno_ct * new_max_pheno_name_blen, &new_pheno_names)) {
         goto SplitCatPheno_ret_NOMEM;
       }
       doomed_pheno_names = old_pheno_names;
       *xpheno_names_ptr = new_pheno_names;
-      PhenoCol* new_pheno_cols = S_CAST(PhenoCol*, malloc(new_pheno_ct * sizeof(PhenoCol)));
-      if (!new_pheno_cols) {
+      PhenoCol* new_pheno_cols;
+      if (pgl_malloc(new_pheno_ct * sizeof(PhenoCol), &new_pheno_cols)) {
         goto SplitCatPheno_ret_NOMEM;
       }
       doomed_pheno_cols = old_pheno_cols;
