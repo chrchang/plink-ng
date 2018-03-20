@@ -2472,7 +2472,8 @@ BoolErr InitOxfordSingleChr(const char* ox_single_chr_str, const char** single_c
     logerrputs("Error: --oxford-single-chr chromosome code is excluded by chromosome filter.\n");
     return 1;
   }
-  if (single_chr_str_ptr) {
+  // bugfix (19 Mar 2018): need a not here...
+  if (!single_chr_str_ptr) {
     *cur_chr_code_ptr = chr_code;
     return 0;
   }
