@@ -188,8 +188,8 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
     while (1) {
       uintptr_t read_attempt_size = read_stop - read_head;
       if (!read_attempt_size) {
-        const uint32_t return_to_start = (read_stop == buf_end);
-        if ((cur_block_start == buf) && return_to_start) {
+        const uint32_t memmove_required = (read_stop == buf_end);
+        if ((cur_block_start == buf) && memmove_required) {
           goto ReadLineStreamThread_LONG_LINE;
         }
         // We cannot continue reading forward.  Cases:
@@ -216,14 +216,15 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
             goto ReadLineStreamThread_INTERRUPT;
           }
           latest_consume_tail = syncp->consume_tail;
-          if (return_to_start) {
+          if (memmove_required) {
             if (latest_consume_tail == cur_block_start) {
-              // bugfix (5 Mar 2018): need to set cur_circular_end here
+              // bugfix (5 Mar 2018): Need to set cur_circular_end here.
               syncp->cur_circular_end = cur_block_start;
               LeaveCriticalSection(critical_sectionp);
               break;
             }
           } else if (latest_consume_tail <= cur_block_start) {
+            // See the 20 Mar bugfix in AdvanceRLstream().
             break;
           }
           LeaveCriticalSection(critical_sectionp);
@@ -244,7 +245,7 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
             goto ReadLineStreamThread_INTERRUPT;
           }
           latest_consume_tail = syncp->consume_tail;
-          if (return_to_start) {
+          if (memmove_required) {
             if (latest_consume_tail == cur_block_start) {
               syncp->cur_circular_end = cur_block_start;
               break;
@@ -634,8 +635,11 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
     }
     // ...and there's probably more.
 
-    // bugfix (20 Mar 2018): didn't handle consume_iter == available_end ==
-    //   cur_circular_end properly
+    // bugfix (20 Mar 2018): This update is necessary in the
+    // consume_iter == available_end == cur_circular_end case for the
+    // (latest_consume_tail <= cur_block_start) check to work correctly in the
+    // reader thread; otherwise there's a potential deadlock when lines are
+    // >1mb.
     if (consume_iter == cur_circular_end) {
       char* buf = rlsp->buf;
       syncp->cur_circular_end = nullptr;
