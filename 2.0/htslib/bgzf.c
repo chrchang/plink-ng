@@ -139,22 +139,6 @@ typedef struct bgzf_mtaux_t {
 } mtaux_t;
 #endif
 
-typedef struct
-{
-    uint64_t uaddr;  // offset w.r.t. uncompressed data
-    uint64_t caddr;  // offset w.r.t. compressed data
-}
-bgzidx1_t;
-
-struct __bgzidx_t
-{
-    int noffs, moffs;       // the size of the index, n:used, m:allocated
-    bgzidx1_t *offs;        // offsets
-    uint64_t ublock_addr;   // offset of the current block (uncompressed data)
-};
-
-void bgzf_index_destroy(BGZF *fp);
-int bgzf_index_add_block(BGZF *fp);
 #ifdef BGZF_MT
 static void mt_destroy(mtaux_t *mt);
 #endif
@@ -586,11 +570,6 @@ int bgzf_flush(BGZF *fp)
 #endif
     while (fp->block_offset > 0) {
         int block_length;
-        if ( fp->idx_build_otf )
-        {
-            bgzf_index_add_block(fp);
-            fp->idx->ublock_addr += fp->block_offset;
-        }
         block_length = deflate_block(fp, fp->block_offset);
         if (block_length < 0) {
             hts_log_debug("Deflate block operation failed");
@@ -635,42 +614,6 @@ ssize_t bgzf_write(BGZF *fp, const void *data, size_t length)
     return length - remaining;
 }
 
-ssize_t bgzf_block_write(BGZF *fp, const void *data, size_t length)
-{
-    if ( !fp->is_compressed )
-        return hwrite(fp->fp, data, length);
-    const uint8_t *input = (const uint8_t*)data;
-    ssize_t remaining = length;
-    assert(fp->is_write);
-    uint64_t current_block; //keep track of current block
-    uint64_t ublock_size; // amount of uncompressed data to be fed into next block
-    while (remaining > 0) {
-        current_block = fp->idx->moffs - fp->idx->noffs;
-        ublock_size = current_block + 1 < (uint64_t)fp->idx->moffs ? fp->idx->offs[current_block+1].uaddr-fp->idx->offs[current_block].uaddr : BGZF_MAX_BLOCK_SIZE;
-        uint8_t* buffer = (uint8_t*)fp->uncompressed_block;
-        int copy_length = ublock_size - fp->block_offset;
-        if (copy_length > remaining) copy_length = remaining;
-        memcpy(buffer + fp->block_offset, input, copy_length);
-        fp->block_offset += copy_length;
-        input += copy_length;
-        remaining -= copy_length;
-        if ((uint64_t)fp->block_offset == ublock_size) {
-            if (lazy_flush(fp) != 0) return -1;
-            if (fp->idx->noffs > 0)
-                fp->idx->noffs--;  // decrement noffs to track the blocks
-        }
-    }
-    return length - remaining;
-}
-
-
-ssize_t bgzf_raw_write(BGZF *fp, const void *data, size_t length)
-{
-    ssize_t ret = hwrite(fp->fp, data, length);
-    if (ret < 0) fp->errcode |= BGZF_ERR_IO;
-    return ret;
-}
-
 int bgzf_close(BGZF* fp)
 {
     int ret, block_length;
@@ -699,137 +642,9 @@ int bgzf_close(BGZF* fp)
 #endif
     ret = hclose(fp->fp);
     if (ret != 0) return -1;
-    bgzf_index_destroy(fp);
+    // bgzf_index_destroy(fp);
     free(fp->uncompressed_block);
     // free_cache(fp);
     free(fp);
     return 0;
-}
-
-#ifndef kroundup32
-#define kroundup32(x) (--(x), (x)|=(x)>>1, (x)|=(x)>>2, (x)|=(x)>>4, (x)|=(x)>>8, (x)|=(x)>>16, ++(x))
-#endif
-
-void bgzf_index_destroy(BGZF *fp)
-{
-    if ( !fp->idx ) return;
-    free(fp->idx->offs);
-    free(fp->idx);
-    fp->idx = NULL;
-    fp->idx_build_otf = 0;
-}
-
-int bgzf_index_build_init(BGZF *fp)
-{
-    bgzf_index_destroy(fp);
-    fp->idx = (bgzidx_t*) calloc(1,sizeof(bgzidx_t));
-    if ( !fp->idx ) return -1;
-    fp->idx_build_otf = 1;  // build index on the fly
-    return 0;
-}
-
-int bgzf_index_add_block(BGZF *fp)
-{
-    fp->idx->noffs++;
-    if ( fp->idx->noffs > fp->idx->moffs )
-    {
-        fp->idx->moffs = fp->idx->noffs;
-        kroundup32(fp->idx->moffs);
-        fp->idx->offs = (bgzidx1_t*) realloc(fp->idx->offs, fp->idx->moffs*sizeof(bgzidx1_t));
-        if ( !fp->idx->offs ) return -1;
-    }
-    fp->idx->offs[ fp->idx->noffs-1 ].uaddr = fp->idx->ublock_addr;
-    fp->idx->offs[ fp->idx->noffs-1 ].caddr = fp->block_address;
-    return 0;
-}
-
-static inline int hwrite_uint64(uint64_t x, hFILE *f)
-{
-    if (ed_is_big()) x = ed_swap_8(x);
-    if (hwrite(f, &x, sizeof(x)) != sizeof(x)) return -1;
-    return 0;
-}
-
-static char * get_name_suffix(const char *bname, const char *suffix)
-{
-    size_t len = strlen(bname) + strlen(suffix) + 1;
-    char *buff = malloc(len);
-    if (!buff) return NULL;
-    snprintf(buff, len, "%s%s", bname, suffix);
-    return buff;
-}
-
-int bgzf_index_dump_hfile(BGZF *fp, struct hFILE *idx, const char *name)
-{
-    // Note that the index contains one extra record when indexing files opened
-    // for reading. The terminating record is not present when opened for writing.
-    // This is not a bug.
-
-    int i;
-
-    if (!fp->idx) {
-        hts_log_error("Called for BGZF handle with no index");
-        errno = EINVAL;
-        return -1;
-    }
-
-    if (bgzf_flush(fp) != 0) return -1;
-
-    if (hwrite_uint64(fp->idx->noffs - 1, idx) < 0) goto fail;
-    for (i=1; i<fp->idx->noffs; i++)
-    {
-        if (hwrite_uint64(fp->idx->offs[i].caddr, idx) < 0) goto fail;
-        if (hwrite_uint64(fp->idx->offs[i].uaddr, idx) < 0) goto fail;
-    }
-    return 0;
-
- fail:
-    hts_log_error("Error writing to %s : %s", name ? name : "index", strerror(errno));
-    return -1;
-}
-
-int bgzf_index_dump(BGZF *fp, const char *bname, const char *suffix)
-{
-    const char *name = bname, *msg = NULL;
-    char *tmp = NULL;
-    hFILE *idx = NULL;
-
-    if (!fp->idx) {
-        hts_log_error("Called for BGZF handle with no index");
-        errno = EINVAL;
-        return -1;
-    }
-
-    if ( suffix )
-    {
-        tmp = get_name_suffix(bname, suffix);
-        if ( !tmp ) return -1;
-        name = tmp;
-    }
-
-    idx = hopen(name, "wb");
-    if ( !idx ) {
-        msg = "Error opening";
-        goto fail;
-    }
-
-    if (bgzf_index_dump_hfile(fp, idx, name) != 0) goto fail;
-
-    if (hclose(idx) < 0)
-    {
-        idx = NULL;
-        msg = "Error on closing";
-        goto fail;
-    }
-
-    free(tmp);
-    return 0;
-
- fail:
-    if (msg != NULL) {
-        hts_log_error("%s %s : %s", msg, name, strerror(errno));
-    }
-    if (idx) hclose_abruptly(idx);
-    free(tmp);
-    return -1;
 }

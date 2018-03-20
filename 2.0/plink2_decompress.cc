@@ -548,8 +548,8 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
       return reterr;
     }
     char* available_end = syncp->available_end;
+    char* cur_circular_end = syncp->cur_circular_end;
     if (consume_iter != available_end) {
-      char* cur_circular_end = syncp->cur_circular_end;
       if (cur_circular_end) {
         if (cur_circular_end == consume_iter) {
           char* buf = rlsp->buf;
@@ -571,6 +571,13 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
       // necessary.
       // SetEvent(consumer_progress_event);
       return kPglRetSuccess;
+    }
+    if (consume_iter == cur_circular_end) {
+      char* buf = rlsp->buf;
+      syncp->cur_circular_end = nullptr;
+      syncp->available_end = buf;
+      consume_iter = buf;
+      *consume_iterp = buf;
     }
     syncp->consume_tail = consume_iter;
     LeaveCriticalSection(critical_sectionp);
@@ -596,8 +603,8 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
       return reterr;
     }
     char* available_end = syncp->available_end;
+    char* cur_circular_end = syncp->cur_circular_end;
     if (consume_iter != available_end) {
-      char* cur_circular_end = syncp->cur_circular_end;
       if (cur_circular_end) {
         if (cur_circular_end == consume_iter) {
           char* buf = rlsp->buf;
@@ -619,7 +626,6 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
       pthread_mutex_unlock(sync_mutexp);
       return kPglRetSuccess;
     }
-    syncp->consume_tail = consume_iter;
     // We've processed all the consume-ready bytes...
     if (reterr != kPglRetSuccess) {
       // ...and we're at eof.
@@ -627,6 +633,17 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
       return reterr;
     }
     // ...and there's probably more.
+
+    // bugfix (20 Mar 2018): didn't handle consume_iter == available_end ==
+    //   cur_circular_end properly
+    if (consume_iter == cur_circular_end) {
+      char* buf = rlsp->buf;
+      syncp->cur_circular_end = nullptr;
+      syncp->available_end = buf;
+      consume_iter = buf;
+      *consume_iterp = buf;
+    }
+    syncp->consume_tail = consume_iter;
     syncp->consumer_progress_state = 1;
     pthread_cond_signal(consumer_progress_condvarp);
     // no need for an explicit spurious-wakeup check, we'll check the progress

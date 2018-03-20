@@ -25,8 +25,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.  */
 
-// This copy only includes a few definitions and the logging functions.
-
 #ifndef HTSLIB_HTS_H
 #define HTSLIB_HTS_H
 
@@ -50,6 +48,68 @@ struct hts_tpool;
 #ifndef kroundup32
 #define kroundup32(x) (--(x), (x)|=(x)>>1, (x)|=(x)>>2, (x)|=(x)>>4, (x)|=(x)>>8, (x)|=(x)>>16, ++(x))
 #endif
+
+/************
+ * Indexing *
+ ************/
+
+#define HTS_FMT_CSI 0
+#define HTS_FMT_BAI 1
+#define HTS_FMT_TBI 2
+#define HTS_FMT_CRAI 3
+
+struct __hts_idx_t;
+typedef struct __hts_idx_t hts_idx_t;
+
+typedef struct {
+    uint64_t u, v;
+} hts_pair64_t;
+
+typedef struct {
+    uint64_t u, v;
+    uint64_t max;
+} hts_pair64_max_t;
+
+    #define hts_bin_first(l) (((1<<(((l)<<1) + (l))) - 1) / 7)
+    #define hts_bin_parent(l) (((l) - 1) >> 3)
+
+    hts_idx_t *hts_idx_init(int n, int fmt, uint64_t offset0, int min_shift, int n_lvls);
+    void hts_idx_destroy(hts_idx_t *idx);
+    int hts_idx_push(hts_idx_t *idx, int tid, int beg, int end, uint64_t offset, int is_mapped);
+    void hts_idx_finish(hts_idx_t *idx, uint64_t final_offset);
+
+/// Save an index to a file
+/** @param idx  Index to be written
+    @param fn   Input BAM/BCF/etc filename, to which .bai/.csi/etc will be added
+    @param fmt  One of the HTS_FMT_* index formats
+    @return  0 if successful, or negative if an error occurred.
+*/
+int hts_idx_save(const hts_idx_t *idx, const char *fn, int fmt) HTS_RESULT_USED;
+
+/// Save an index to a specific file
+/** @param idx    Index to be written
+    @param fn     Input BAM/BCF/etc filename
+    @param fnidx  Output filename, or NULL to add .bai/.csi/etc to @a fn
+    @param fmt    One of the HTS_FMT_* index formats
+    @return  0 if successful, or negative if an error occurred.
+*/
+int hts_idx_save_as(const hts_idx_t *idx, const char *fn, const char *fnidx, int fmt) HTS_RESULT_USED;
+
+
+static inline int hts_reg2bin(int64_t beg, int64_t end, int min_shift, int n_lvls)
+{
+    int l, s = min_shift, t = ((1<<((n_lvls<<1) + n_lvls)) - 1) / 7;
+    for (--end, l = n_lvls; l > 0; --l, s += 3, t -= 1<<((l<<1)+l))
+        if (beg>>s == end>>s) return t + (beg>>s);
+    return 0;
+}
+
+static inline int hts_bin_bot(int bin, int n_lvls)
+{
+    int l, b;
+    for (l = 0, b = bin; b; ++l, b = hts_bin_parent(b)); // compute the level of bin
+    return (bin - hts_bin_first(l)) << (n_lvls - l) * 3;
+}
 
 /**************
  * Endianness *

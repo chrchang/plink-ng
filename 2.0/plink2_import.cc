@@ -1884,6 +1884,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
 }
 
 PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, ImportFlags import_flags, char* outname, char* outname_end, uint32_t* sample_ct_ptr) {
+  DebugPrintf("Entering OxSampleToPsam().\n");
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* psamfile = nullptr;
   PglErr reterr = kPglRetSuccess;
@@ -1905,6 +1906,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     const char* missing_catname = g_missing_catname;
     uint32_t missing_catname_slen = strlen(missing_catname);
 
+    DebugPrintf("Standardizing load-buffer size.\n");
     uintptr_t linebuf_size;
     if (StandardizeLinebufSize(bigstack_left() / 4, kMaxMediumLine + 1, &linebuf_size)) {
       goto OxSampleToPsam_ret_NOMEM;
@@ -1920,11 +1922,13 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
       }
       goto OxSampleToPsam_ret_OPEN_FAIL;
     }
+    DebugPrintf("Opened .sample file; linebuf_size = %" PRIuPTR ".\n", linebuf_size);
     char* line_iter;
     reterr = InitRLstreamEx(0, kMaxLongLine, linebuf_size, &sample_rls, &line_iter);
     if (reterr) {
       goto OxSampleToPsam_ret_1;
     }
+    DebugPrintf("ReadLineStream initialized.\n");
     uint32_t mc_ct = 0;
     uintptr_t max_mc_blen = 1;
     char* sorted_mc = nullptr;
@@ -1971,6 +1975,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
         qsort(sorted_mc, mc_ct, max_mc_blen, strcmp_casted);
       }
     }
+    DebugPrintf("Missing code initialized.\n");
 
     // New first pass: check whether, from the third line on, all first tokens
     // are '0'.  If yes, we omit FID from the output.
@@ -1999,20 +2004,24 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
         break;
       }
     }
+    DebugPrintf("First scan complete; write_fid = %u.\n", write_fid);
     reterr = RewindRLstreamRaw(&sample_rls, &line_iter);
     if (reterr) {
       goto OxSampleToPsam_ret_READ_RLSTREAM;
     }
+    DebugPrintf("ReadLineStream rewound.\n");
     line_idx = 0;
     reterr = RlsNextNonemptyLstrip(&sample_rls, &line_idx, &line_iter);
     if (reterr) {
       goto OxSampleToPsam_ret_READ_RLSTREAM;
     }
+    DebugPrintf("First line reread.\n");
     char* linebuf_first_token = line_iter;
     char* token_end = CurTokenEnd(linebuf_first_token);
     if (!strequal_k(linebuf_first_token, "ID_1", token_end - linebuf_first_token)) {
       goto OxSampleToPsam_ret_INVALID_SAMPLE_HEADER_1;
     }
+    DebugPrintf("ID_1 validated.\n");
     // currently accepts tab as delimiter, though .sample spec technically
     // prohibits that
     char* linebuf_iter = FirstNonTspace(token_end);
@@ -2020,17 +2029,20 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     if (!strequal_k(linebuf_iter, "ID_2", token_slen)) {
       goto OxSampleToPsam_ret_INVALID_SAMPLE_HEADER_1;
     }
+    DebugPrintf("ID_2 validated.\n");
     linebuf_iter = FirstNonTspace(&(linebuf_iter[token_slen]));
     token_slen = strlen_se(linebuf_iter);
     if (!MatchUpperKLen(linebuf_iter, "MISSING", token_slen)) {
       goto OxSampleToPsam_ret_INVALID_SAMPLE_HEADER_1;
     }
     linebuf_iter = FirstNonTspace(&(linebuf_iter[token_slen]));
+    DebugPrintf("MISSING validated.\n");
 
     snprintf(outname_end, kMaxOutfnameExtBlen, ".psam");
     if (fopen_checked(outname, FOPEN_WB, &psamfile)) {
       goto OxSampleToPsam_ret_OPEN_FAIL;
     }
+    DebugPrintf("%s opened for writing.\n", outname);
     // categorical phenotypes are lengthened by 1 character ('C' added in
     // front), so this needs to be 50% larger than maximum possible line length
     // to handle worst case
@@ -2042,6 +2054,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     if (bigstack_alloc_c(linebuf_size, &writebuf)) {
       goto OxSampleToPsam_ret_NOMEM;
     }
+    DebugPrintf("Write-buffer initialized, size = %" PRIuPTR "\n", linebuf_size);
     char* write_iter = writebuf;
     *write_iter++ = '#';
     if (write_fid) {
@@ -2068,6 +2081,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
       ++col_ct;
       linebuf_iter = FirstNonTspace(token_end);
     }
+    DebugPrintf("sex_col = %u, col_ct = %u.\n", sex_col, col_ct);
     line_iter = linebuf_iter;
 
     reterr = RlsNextNonemptyLstrip(&sample_rls, &line_idx, &line_iter);
@@ -2078,6 +2092,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
       }
       goto OxSampleToPsam_ret_READ_RLSTREAM;
     }
+    DebugPrintf("Second line read.\n");
     linebuf_first_token = line_iter;
     token_end = CurTokenEnd(linebuf_first_token);
     if ((S_CAST(uintptr_t, token_end - linebuf_first_token) != 1) || (*linebuf_first_token != '0')) {
@@ -2094,6 +2109,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
       goto OxSampleToPsam_ret_INVALID_SAMPLE_HEADER_2;
     }
     linebuf_iter = &(linebuf_iter[1]);
+    DebugPrintf("0 0 0 validated.\n");
 
     const uint32_t col_ctl = BitCtToWordCt(col_ct);
     uintptr_t* col_is_categorical;
@@ -2133,6 +2149,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
       }
       ++linebuf_iter;
     }
+    DebugPrintf("Remaining .sample columns validated.  col_ct = %u.\n", col_ct);
     if (at_least_one_binary_pheno) {
       // check for pathological case
       if ((bsearch_str("0", sorted_mc, 1, max_mc_blen, mc_ct) != -1) || (bsearch_str("1", sorted_mc, 1, max_mc_blen, mc_ct) != -1)) {
@@ -2143,7 +2160,7 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
     // to make --data and --data --make-pgen consistent, we do a two-pass load,
     // checking for empty phenotypes in the first pass.
     uintptr_t* col_keep;
-    if (bigstack_alloc_w(RoundUpPow2(col_ct, kCacheline * CHAR_BIT) / CHAR_BIT, &col_keep)) {
+    if (bigstack_alloc_w(col_ctl, &col_keep)) {
       goto OxSampleToPsam_ret_NOMEM;
     }
     col_keep[0] = 7;
@@ -2183,23 +2200,27 @@ PglErr OxSampleToPsam(const char* samplename, const char* ox_missing_code, Impor
         old_col_uidx = col_uidx;
       }
     }
+    DebugPrintf("All-missing-phenotype check completed.  uncertain_col_ct = %u\n", uncertain_col_ct);
 
     reterr = RewindRLstreamRaw(&sample_rls, &line_iter);
     if (reterr) {
       goto OxSampleToPsam_ret_READ_RLSTREAM;
     }
     line_idx = 0;
+    DebugPrintf("Rewind #2 complete.\n");
 
     uint32_t sample_ct_p2 = 0;
     while (1) {
       reterr = RlsNextNonemptyLstrip(&sample_rls, &line_idx, &line_iter);
       if (reterr) {
         if (reterr == kPglRetEof) {
+          DebugPrintf("Reached EOF.\n");
           reterr = kPglRetSuccess;
           break;
         }
         goto OxSampleToPsam_ret_READ_RLSTREAM;
       }
+      DebugPrintf("Processing line %" PRIuPTR ".\n", line_idx);
       linebuf_first_token = line_iter;
       ++sample_ct_p2;
       if (sample_ct_p2 < 3) {
