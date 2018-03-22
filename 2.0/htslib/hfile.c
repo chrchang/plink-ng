@@ -413,7 +413,7 @@ void hclose_abruptly(hFILE *fp)
 typedef struct {
     hFILE base;
     int fd;
-    unsigned is_socket:1;
+  // unsigned is_socket:1;
 } hFILE_fd;
 
 static ssize_t fd_read(hFILE *fpv, void *buffer, size_t nbytes)
@@ -421,8 +421,7 @@ static ssize_t fd_read(hFILE *fpv, void *buffer, size_t nbytes)
     hFILE_fd *fp = (hFILE_fd *) fpv;
     ssize_t n;
     do {
-        n = fp->is_socket? recv(fp->fd, buffer, nbytes, 0)
-                         : read(fp->fd, buffer, nbytes);
+        n = read(fp->fd, buffer, nbytes);
     } while (n < 0 && errno == EINTR);
     return n;
 }
@@ -432,8 +431,7 @@ static ssize_t fd_write(hFILE *fpv, const void *buffer, size_t nbytes)
     hFILE_fd *fp = (hFILE_fd *) fpv;
     ssize_t n;
     do {
-        n = fp->is_socket?  send(fp->fd, buffer, nbytes, 0)
-                         : write(fp->fd, buffer, nbytes);
+        n = write(fp->fd, buffer, nbytes);
     } while (n < 0 && errno == EINTR);
 #ifdef _WIN32
         // On windows we have no SIGPIPE.  Instead write returns
@@ -479,11 +477,7 @@ static int fd_close(hFILE *fpv)
     hFILE_fd *fp = (hFILE_fd *) fpv;
     int ret;
     do {
-#ifdef HAVE_CLOSESOCKET
-        ret = fp->is_socket? closesocket(fp->fd) : close(fp->fd);
-#else
         ret = close(fp->fd);
-#endif
     } while (ret < 0 && errno == EINTR);
     return ret;
 }
@@ -493,7 +487,7 @@ static const struct hFILE_backend fd_backend =
     fd_read, fd_write, fd_seek, fd_flush, fd_close
 };
 
-static size_t blksize(int fd)
+static size_t blksize(__attribute__((unused)) int fd)
 {
 #ifdef HAVE_STRUCT_STAT_ST_BLKSIZE
     struct stat sbuf;
@@ -514,7 +508,6 @@ static hFILE *hopen_fd(const char *filename, const char *mode)
     if (fp == NULL) goto error;
 
     fp->fd = fd;
-    fp->is_socket = 0;
     fp->base.backend = &fd_backend;
     return &fp->base;
 

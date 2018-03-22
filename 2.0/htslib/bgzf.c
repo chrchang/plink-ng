@@ -385,9 +385,9 @@ static off_t bgzf_htell(BGZF *fp) {
 
 int bgzf_read_block(BGZF *fp)
 {
+#ifdef BGZF_MT
     hts_tpool_result *r;
 
-#ifdef BGZF_MT
     if (fp->mt) {
     again:
         if (fp->mt->hit_eof) {
@@ -463,7 +463,9 @@ int bgzf_read_block(BGZF *fp)
     uint8_t header[BLOCK_HEADER_LENGTH], *compressed_block;
     int count, size, block_length, remaining;
 
+#ifdef BGZF_MT
  single_threaded:
+#endif
     size = 0;
 
     // Reading compressed file
@@ -532,14 +534,14 @@ ssize_t bgzf_read(BGZF *fp, void *data, size_t length)
         if (available <= 0) {
             int ret = bgzf_read_block(fp);
             if (ret != 0) {
-                hts_log_error("Read block operation failed with error %d after %zd of %zu bytes", ret, bytes_read, length);
+                hts_log_error("Read block operation failed with error %d", ret);
                 fp->errcode |= BGZF_ERR_ZLIB;
                 return -1;
             }
             available = fp->block_length - fp->block_offset;
             if (available <= 0) break;
         }
-        copy_length = length - bytes_read < (unsigned int)available? length - bytes_read : available;
+        copy_length = length - bytes_read < (unsigned int)available? length - bytes_read : (unsigned int)available;
         buffer = (uint8_t*)fp->uncompressed_block;
         memcpy(output, buffer + fp->block_offset, copy_length);
         fp->block_offset += copy_length;
@@ -1007,7 +1009,7 @@ static int lazy_flush(BGZF *fp)
 
 #else  // ~ #ifdef BGZF_MT
 
-int bgzf_mt(BGZF *fp, int n_threads, int n_sub_blks)
+int bgzf_mt(__attribute__((unused)) BGZF *fp, __attribute__((unused)) int n_threads, __attribute__((unused)) int n_sub_blks)
 {
     return 0;
 }
