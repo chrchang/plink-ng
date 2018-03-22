@@ -1,6 +1,6 @@
-BASEFLAGS=-Wall -Wextra -Wshadow -mavx2 -mbmi -mbmi2 -mlzcnt -DNDEBUG -DSTATIC_ZLIB -DZSTD_MULTITHREAD
-# BASEFLAGS=-Wall -Wextra -Wshadow -mavx2 -mbmi -mbmi2 -mlzcnt -DSTATIC_ZLIB -DZSTD_MULTITHREAD
-# BASEFLAGS=-Wall -Wextra -Wshadow -msse4.2 -DSTATIC_ZLIB -DZSTD_MULTITHREAD
+# BASEFLAGS=-Wall -Wextra -Wshadow -mavx2 -mbmi -mbmi2 -mlzcnt -DNDEBUG -DZSTD_MULTITHREAD
+BASEFLAGS=-Wall -Wextra -Wshadow -mavx2 -mbmi -mbmi2 -mlzcnt -DZSTD_MULTITHREAD
+# BASEFLAGS=-Wall -Wextra -Wshadow -msse4.2 -DZSTD_MULTITHREAD
 CFLAGS=-O3 -std=gnu99
 # this actually needs to be named "CXXFLAGS"
 CXXFLAGS=-O2 -std=c++14 -Wold-style-cast
@@ -17,7 +17,7 @@ UNAME := $(shell uname)
 ifeq ($(UNAME), Darwin)
   BLASFLAGS=-framework Accelerate
   BLASFLAGS64=-framework Accelerate
-  LINKFLAGS=-ldl -lpthread -L. ${ZLIB}
+  LINKFLAGS=-ldl -lpthread -lz
 endif
 
 include Makefile.src

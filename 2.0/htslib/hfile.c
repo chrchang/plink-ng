@@ -22,9 +22,9 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.  */
 
-// This is a heavily modified copy of commit
-// 77f002106602103150db45b06ddec0f022c0b6fb : most code which isn't needed to
-// generate bgzf-compressed files with libdeflate has been removed.
+// This is a modified copy of commit
+// 53241915fa8b6a3e807f2ac85d8701f27a7fe528 ; some code which isn't needed to
+// read or generate bgzf-compressed files with libdeflate has been removed.
 
 // #include <config.h>
 
@@ -35,12 +35,10 @@ DEALINGS IN THE SOFTWARE.  */
 #include <errno.h>
 #include <limits.h>
 
-#ifndef _WIN32
-#  include <pthread.h>
-#endif
+#include <pthread.h>
 
 #include "htslib/hfile.h"
-#include "hfile_internal.h"  // hFILE_backend
+#include "hfile_internal.h"
 
 #ifndef ENOTSUP
 #define ENOTSUP EINVAL
@@ -139,6 +137,33 @@ static inline int writebuffer_is_nonempty(hFILE *fp)
     return fp->begin > fp->end;
 }
 
+/* Refills the read buffer from the backend (once, so may only partially
+   fill the buffer), returning the number of additional characters read
+   (which might be 0), or negative when an error occurred.  */
+static ssize_t refill_buffer(hFILE *fp)
+{
+    ssize_t n;
+
+    // Move any unread characters to the start of the buffer
+    if (fp->mobile && fp->begin > fp->buffer) {
+        fp->offset += fp->begin - fp->buffer;
+        memmove(fp->buffer, fp->begin, fp->end - fp->begin);
+        fp->end = &fp->buffer[fp->end - fp->begin];
+        fp->begin = fp->buffer;
+    }
+
+    // Read into the available buffer space at fp->[end,limit)
+    if (fp->at_eof || fp->end == fp->limit) n = 0;
+    else {
+        n = fp->backend->read(fp, fp->end, fp->limit - fp->end);
+        if (n < 0) { fp->has_errno = errno; return n; }
+        else if (n == 0) fp->at_eof = 1;
+    }
+
+    fp->end += n;
+    return n;
+}
+
 /*
  * Changes the buffer size for an hFILE.  Ideally this is done
  * immediately after opening.  If performed later, this function may
@@ -167,6 +192,66 @@ int hfile_set_blksize(hFILE *fp, size_t bufsiz) {
     fp->limit  = &fp->buffer[bufsiz];
 
     return 0;
+}
+
+ssize_t hpeek(hFILE *fp, void *buffer, size_t nbytes)
+{
+    size_t n = fp->end - fp->begin;
+    while (n < nbytes) {
+        ssize_t ret = refill_buffer(fp);
+        if (ret < 0) return ret;
+        else if (ret == 0) break;
+        else n += ret;
+    }
+
+    if (n > nbytes) n = nbytes;
+    memcpy(buffer, fp->begin, n);
+    return n;
+}
+
+/* Called only from hread(); when called, our buffer is empty and nread bytes
+   have already been placed in the destination buffer.  */
+ssize_t hread2(hFILE *fp, void *destv, size_t nbytes, size_t nread)
+{
+    const size_t capacity = fp->limit - fp->buffer;
+    int buffer_invalidated = 0;
+    char *dest = (char *) destv;
+    dest += nread, nbytes -= nread;
+
+    // Read large requests directly into the destination buffer
+    while (nbytes * 2 >= capacity && !fp->at_eof) {
+        ssize_t n = fp->backend->read(fp, dest, nbytes);
+        if (n < 0) { fp->has_errno = errno; return n; }
+        else if (n == 0) fp->at_eof = 1;
+        else buffer_invalidated = 1;
+        fp->offset += n;
+        dest += n, nbytes -= n;
+        nread += n;
+    }
+
+    if (buffer_invalidated) {
+        // Our unread buffer is empty, so begin == end, but our already-read
+        // buffer [buffer,begin) is likely non-empty and is no longer valid as
+        // its contents are no longer adjacent to the file position indicator.
+        // Discard it so that hseek() can't try to take advantage of it.
+        fp->offset += fp->begin - fp->buffer;
+        fp->begin = fp->end = fp->buffer;
+    }
+
+    while (nbytes > 0 && !fp->at_eof) {
+        size_t n;
+        ssize_t ret = refill_buffer(fp);
+        if (ret < 0) return ret;
+
+        n = fp->end - fp->begin;
+        if (n > nbytes) n = nbytes;
+        memcpy(dest, fp->begin, n);
+        fp->begin += n;
+        dest += n, nbytes -= n;
+        nread += n;
+    }
+
+    return nread;
 }
 
 /* Flushes the write buffer, fp->[buffer,begin), out through the backend
@@ -222,6 +307,63 @@ ssize_t hwrite2(hFILE *fp, const void *srcv, size_t totalbytes, size_t ncopied)
     return totalbytes;
 }
 
+off_t hseek(hFILE *fp, off_t offset, int whence)
+{
+    off_t curpos, pos;
+
+    if (writebuffer_is_nonempty(fp) && fp->mobile) {
+        int ret = flush_buffer(fp);
+        if (ret < 0) return ret;
+    }
+
+    curpos = htell(fp);
+
+    // Relative offsets are given relative to the hFILE's stream position,
+    // which may differ from the backend's physical position due to buffering
+    // read-ahead.  Correct for this by converting to an absolute position.
+    if (whence == SEEK_CUR) {
+        if (curpos + offset < 0) {
+            // Either a negative offset resulted in a position before the
+            // start of the file, or we overflowed when given a positive offset
+            fp->has_errno = errno = (offset < 0)? EINVAL : EOVERFLOW;
+            return -1;
+        }
+
+        whence = SEEK_SET;
+        offset = curpos + offset;
+    }
+    // For fixed immobile buffers, convert everything else to SEEK_SET too
+    // so that seeking can be avoided for all (within range) requests.
+    else if (! fp->mobile && whence == SEEK_END) {
+        size_t length = fp->end - fp->buffer;
+        if (offset > 0 || -offset > (off_t)length) {
+            fp->has_errno = errno = EINVAL;
+            return -1;
+        }
+
+        whence = SEEK_SET;
+        offset = length + offset;
+    }
+
+    // Avoid seeking if the desired position is within our read buffer.
+    // (But not when the next operation may be a write on a mobile buffer.)
+    if (whence == SEEK_SET && (! fp->mobile || fp->readonly) &&
+        offset >= fp->offset && offset - fp->offset <= fp->end - fp->buffer) {
+        fp->begin = &fp->buffer[offset - fp->offset];
+        return offset;
+    }
+
+    pos = fp->backend->seek(fp, offset, whence);
+    if (pos < 0) { fp->has_errno = errno; return pos; }
+
+    // Seeking succeeded, so discard any non-empty read buffer
+    fp->begin = fp->end = fp->buffer;
+    fp->at_eof = 0;
+
+    fp->offset = pos;
+    return pos;
+}
+
 int hclose(hFILE *fp)
 {
     int err = fp->has_errno;
@@ -251,8 +393,8 @@ void hclose_abruptly(hFILE *fp)
  ***************************/
 
 #ifndef _WIN32
-// #include <sys/socket.h>
-#include <sys/stat.h>  // fstat()
+#include <sys/socket.h>
+#include <sys/stat.h>
 #define HAVE_STRUCT_STAT_ST_BLKSIZE
 #else
 /*
@@ -264,10 +406,14 @@ void hclose_abruptly(hFILE *fp)
 #include <fcntl.h>
 #include <unistd.h>
 
+/* For Unix, it doesn't matter whether a file descriptor is a socket.
+   However Windows insists on send()/recv() and its own closesocket()
+   being used when fd happens to be a socket.  */
+
 typedef struct {
     hFILE base;
     int fd;
-  // is_socket removed
+    unsigned is_socket:1;
 } hFILE_fd;
 
 static ssize_t fd_read(hFILE *fpv, void *buffer, size_t nbytes)
@@ -275,7 +421,8 @@ static ssize_t fd_read(hFILE *fpv, void *buffer, size_t nbytes)
     hFILE_fd *fp = (hFILE_fd *) fpv;
     ssize_t n;
     do {
-        n = read(fp->fd, buffer, nbytes);
+        n = fp->is_socket? recv(fp->fd, buffer, nbytes, 0)
+                         : read(fp->fd, buffer, nbytes);
     } while (n < 0 && errno == EINTR);
     return n;
 }
@@ -285,7 +432,8 @@ static ssize_t fd_write(hFILE *fpv, const void *buffer, size_t nbytes)
     hFILE_fd *fp = (hFILE_fd *) fpv;
     ssize_t n;
     do {
-        n = write(fp->fd, buffer, nbytes);
+        n = fp->is_socket?  send(fp->fd, buffer, nbytes, 0)
+                         : write(fp->fd, buffer, nbytes);
     } while (n < 0 && errno == EINTR);
 #ifdef _WIN32
         // On windows we have no SIGPIPE.  Instead write returns
@@ -331,7 +479,11 @@ static int fd_close(hFILE *fpv)
     hFILE_fd *fp = (hFILE_fd *) fpv;
     int ret;
     do {
+#ifdef HAVE_CLOSESOCKET
+        ret = fp->is_socket? closesocket(fp->fd) : close(fp->fd);
+#else
         ret = close(fp->fd);
+#endif
     } while (ret < 0 && errno == EINTR);
     return ret;
 }
@@ -341,7 +493,7 @@ static const struct hFILE_backend fd_backend =
     fd_read, fd_write, fd_seek, fd_flush, fd_close
 };
 
-static size_t blksize(__attribute__((unused)) int fd)
+static size_t blksize(int fd)
 {
 #ifdef HAVE_STRUCT_STAT_ST_BLKSIZE
     struct stat sbuf;
@@ -362,6 +514,7 @@ static hFILE *hopen_fd(const char *filename, const char *mode)
     if (fp == NULL) goto error;
 
     fp->fd = fd;
+    fp->is_socket = 0;
     fp->base.backend = &fd_backend;
     return &fp->base;
 

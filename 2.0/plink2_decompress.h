@@ -31,6 +31,8 @@
 #  endif
 #endif
 
+#include "htslib/htslib/bgzf.h"
+
 #ifdef __cplusplus
 namespace plink2 {
 #endif
@@ -80,6 +82,8 @@ char* AdvanceGzTokenStream(GzTokenStream* gtsp, uint32_t* token_slen_ptr);
 // ok if already closed
 BoolErr CloseGzTokenStream(GzTokenStream* gtsp);
 
+
+PglErr IsBgzf(const char* fname, uint32_t* is_bgzf_ptr);
 
 // While a separate non-compressing writer thread is practically useless (since
 // the OS does its own scheduling, etc. of the writes anyway), and the OS is
@@ -144,6 +148,8 @@ typedef struct ReadLineStreamStruct {
   ReadLineStreamSync* syncp;
 
   gzFile gz_infile;
+  BGZF* bgz_infile;
+  uint32_t bgzf_decompress_thread_ct;  // this may change before rewind
   // This is aimed at (usually uncompressed) text files, so just use char*
   // instead of unsigned char*.
   char* buf;
@@ -225,6 +231,9 @@ HEADER_INLINE BoolErr StandardizeLinebufSizemax(uintptr_t required_byte_ct, uint
 HEADER_CINLINE uintptr_t GetRLstreamExtraAlloc() {
   return RoundUpPow2(sizeof(ReadLineStreamSync) + 1, kCacheline) + kDecompressChunkSize;
 }
+
+// Does not print error message on fopen failure.
+PglErr RlsOpenMaybeBgzf(const char* fname, uint32_t calc_thread_ct, ReadLineStream* rlsp);
 
 // gz_infile assumed to already be opened.  Ok if e.g. header line has already
 // been read from it.

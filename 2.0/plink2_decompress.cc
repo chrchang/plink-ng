@@ -145,6 +145,8 @@ BoolErr CloseGzTokenStream(GzTokenStream* gtsp) {
 
 void PreinitRLstream(ReadLineStream* rlsp) {
   rlsp->gz_infile = nullptr;
+  rlsp->bgz_infile = nullptr;
+  rlsp->bgzf_decompress_thread_ct = 1;
 #ifdef _WIN32
   // bugfix (7 Mar 2018): forgot to initialize this
   rlsp->read_thread = nullptr;
@@ -153,10 +155,29 @@ void PreinitRLstream(ReadLineStream* rlsp) {
 #endif
 }
 
+PglErr IsBgzf(const char* fname, uint32_t* is_bgzf_ptr) {
+  // This takes the place of htslib check_header().
+  FILE* infile = fopen(fname, FOPEN_RB);
+  if (!infile) {
+    // Note that this does not print an error message (since it may be called
+    // by a worker thread).
+    return kPglRetOpenFail;
+  }
+  unsigned char buf[16];
+  if (!fread(buf, 16, 1, infile)) {
+    fclose(infile);
+    return kPglRetReadFail;
+  }
+  *is_bgzf_ptr = (!memcmp(buf, "\37\213\10", 3)) && ((buf[3] & 4) != 0) && (!memcmp(&(buf[10]), "\6\0BC\2", 6));
+  fclose(infile);
+  return kPglRetSuccess;
+}
+
 THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
   ReadLineStream* context = R_CAST(ReadLineStream*, arg);
   ReadLineStreamSync* syncp = context->syncp;
   gzFile gz_infile = context->gz_infile;
+  BGZF* bgz_infile = context->bgz_infile;
   char* buf = context->buf;
   char* buf_end = context->buf_end;
   char* cur_block_start = buf;
@@ -269,11 +290,21 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
       if (read_attempt_size > kDecompressChunkSize) {
         read_attempt_size = kDecompressChunkSize;
       }
-      int32_t bytes_read = gzread(gz_infile, read_head, read_attempt_size);
+      int32_t bytes_read;
+      if (bgz_infile) {
+        bytes_read = bgzf_read(bgz_infile, read_head, read_attempt_size);
+        if (bytes_read == -1) {
+          goto ReadLineStreamThread_READ_FAIL;
+        }
+      } else {
+        bytes_read = gzread(gz_infile, read_head, read_attempt_size);
+      }
       char* cur_read_end = &(read_head[S_CAST(uint32_t, bytes_read)]);
       if (bytes_read < S_CAST(int32_t, S_CAST(uint32_t, read_attempt_size))) {
-        if (!gzeof(gz_infile)) {
-          goto ReadLineStreamThread_READ_FAIL;
+        if (!bgz_infile) {
+          if (!gzeof(gz_infile)) {
+            goto ReadLineStreamThread_READ_FAIL;
+          }
         }
         read_head = cur_read_end;
         if (cur_block_start != read_head) {
@@ -311,8 +342,14 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
         }
 #ifdef _WIN32
         LeaveCriticalSection(critical_sectionp);
+        ResetEvent(consumer_progress_event);
         SetEvent(reader_progress_event);
 #else
+        // bugfix (21 Mar 2018): must force consumer_progress_state to 0 (or
+        // ResetEvent(consumer_progress_event); otherwise the other wait loop's
+        // read_stop = buf_end assignment may occur before all later bytes are
+        // actually consumed.
+        syncp->consumer_progress_state = 0;
         pthread_cond_signal(reader_progress_condvarp);
         pthread_mutex_unlock(sync_mutexp);
 #endif
@@ -357,6 +394,9 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
     ReadLineStreamThread_EOF:
       min_interrupt = kRlsInterruptRetarget;
       reterr = kPglRetEof;
+      break;
+    ReadLineStreamThread_OPEN_OR_READ_FAIL:
+      min_interrupt = kRlsInterruptShutdown;
       break;
     }
     // We need to wait for a message from the consumer before we can usefully
@@ -421,28 +461,98 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
     }
     assert(interrupt == kRlsInterruptRetarget);
     if (!new_fname) {
-      if (gzrewind(gz_infile)) {
-        goto ReadLineStreamThread_READ_FAIL;
+      if (bgz_infile) {
+        if (bgzf_seek(bgz_infile, 0, SEEK_SET)) {
+          goto ReadLineStreamThread_READ_FAIL;
+        }
+      } else {
+        if (gzrewind(gz_infile)) {
+          goto ReadLineStreamThread_READ_FAIL;
+        }
       }
     } else {
-      // don't really care about return value here.
-      gzclose(gz_infile);
-      // don't use gzopen_read_checked(), since in the error case, both threads
-      // may write to g_logbuf simultaneously.
-      gz_infile = gzopen(new_fname, FOPEN_RB);
-      context->gz_infile = gz_infile;
-      if (!gz_infile) {
-        goto ReadLineStreamThread_OPEN_FAIL;
+      if (bgz_infile) {
+        bgzf_close(bgz_infile);
+        bgz_infile = nullptr;
+        context->bgz_infile = nullptr;
+      } else {
+        // don't really care about return value here.
+        gzclose(gz_infile);
+        gz_infile = nullptr;
+        context->gz_infile = nullptr;
       }
-      if (gzbuffer(gz_infile, 131072)) {
-        // is this actually possible?
-        goto ReadLineStreamThread_NOMEM;
+
+      uint32_t new_file_is_bgzf;
+      reterr = IsBgzf(new_fname, &new_file_is_bgzf);
+      if (reterr) {
+        goto ReadLineStreamThread_OPEN_OR_READ_FAIL;
+      }
+      if (new_file_is_bgzf) {
+        bgz_infile = bgzf_open(new_fname, "r");
+        context->bgz_infile = bgz_infile;
+        if (!bgz_infile) {
+          goto ReadLineStreamThread_OPEN_FAIL;
+        }
+#ifndef _WIN32
+        if (context->bgzf_decompress_thread_ct > 1) {
+          if (bgzf_mt(bgz_infile, context->bgzf_decompress_thread_ct, 128)) {
+            goto ReadLineStreamThread_NOMEM;
+          }
+        }
+#endif
+      } else {
+        // don't use gzopen_read_checked(), since in the error case, both
+        // threads may write to g_logbuf simultaneously.
+        gz_infile = gzopen(new_fname, FOPEN_RB);
+        context->gz_infile = gz_infile;
+        if (!gz_infile) {
+          goto ReadLineStreamThread_OPEN_FAIL;
+        }
+        if (gzbuffer(gz_infile, 131072)) {
+          // is this actually possible?
+          goto ReadLineStreamThread_NOMEM;
+        }
       }
     }
     cur_block_start = buf;
     read_head = buf;
     read_stop = buf_end;
   }
+}
+
+PglErr RlsOpenMaybeBgzf(const char* fname, __maybe_unused uint32_t calc_thread_ct, ReadLineStream* rlsp) {
+  uint32_t file_is_bgzf;
+  PglErr reterr = IsBgzf(fname, &file_is_bgzf);
+  if (reterr) {
+    return reterr;
+  }
+  if (file_is_bgzf) {
+    rlsp->bgz_infile = bgzf_open(fname, "r");
+    if (!rlsp->bgz_infile) {
+      return kPglRetOpenFail;
+    }
+    // todo: support multithreaded decompression on Windows, probably by using
+    // a pthreads emulation layer
+    // (note that even without multithreaded decompression, we still want to
+    // use this interface on Windows in the bgzf case thanks to libdeflate)
+#ifndef _WIN32
+    if (calc_thread_ct > 1) {
+      if (bgzf_mt(rlsp->bgz_infile, calc_thread_ct, 128)) {
+        return kPglRetNomem;
+      }
+    }
+#endif
+    rlsp->bgzf_decompress_thread_ct = calc_thread_ct;
+  } else {
+    rlsp->gz_infile = gzopen(fname, FOPEN_RB);
+    if (!rlsp->gz_infile) {
+      return kPglRetOpenFail;
+    }
+    if (gzbuffer(rlsp->gz_infile, 131072)) {
+      return kPglRetNomem;
+    }
+  }
+  return kPglRetSuccess;
 }
 
 PglErr InitRLstreamEx(uint32_t alloc_at_end, uint32_t enforced_max_line_blen, uint32_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp) {
@@ -575,6 +685,7 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
     }
     if (consume_iter == cur_circular_end) {
       char* buf = rlsp->buf;
+      rlsp->consume_stop = buf;  // for diagnostic purposes
       syncp->cur_circular_end = nullptr;
       syncp->available_end = buf;
       consume_iter = buf;
@@ -642,6 +753,7 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
     // >1mb.
     if (consume_iter == cur_circular_end) {
       char* buf = rlsp->buf;
+      rlsp->consume_stop = buf;  // for diagnostic purposes
       syncp->cur_circular_end = nullptr;
       syncp->available_end = buf;
       consume_iter = buf;
@@ -839,6 +951,11 @@ PglErr CleanupRLstream(ReadLineStream* rlsp) {
     if (gzclose_null(&rlsp->gz_infile)) {
       reterr = kPglRetReadFail;
     }
+  } else if (rlsp->bgz_infile) {
+    if (bgzf_close(rlsp->bgz_infile)) {
+      reterr = kPglRetReadFail;
+    }
+    rlsp->bgz_infile = nullptr;
   }
   return reterr;
 }

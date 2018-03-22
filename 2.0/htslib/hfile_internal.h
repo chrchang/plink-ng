@@ -51,10 +51,6 @@ extern "C" {
 int hfile_set_blksize(hFILE *fp, size_t bufsiz);
 
 struct BGZF;
-/*!
-  @abstract Return the hFILE connected to a BGZF
- */
-struct hFILE *bgzf_hfile(struct BGZF *fp);
 
 struct hFILE_backend {
     /* As per read(2), returning the number of bytes read (possibly 0) or
@@ -95,6 +91,7 @@ hFILE *hfile_init(size_t struct_size, const char *mode, size_t capacity);
    in the event opening the stream subsequently fails.  (This is safe to use
    even if fp is NULL.  This takes care to preserve errno.)  */
 void hfile_destroy(hFILE *fp);
+
 
 #ifdef __cplusplus
 }

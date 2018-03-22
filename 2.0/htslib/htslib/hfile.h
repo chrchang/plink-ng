@@ -23,9 +23,9 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.  */
 
-// This is a heavily modified copy of commit
-// 77f002106602103150db45b06ddec0f022c0b6fb : most code which isn't needed to
-// generate bgzf-compressed files with libdeflate has been removed.
+// This is a modified copy of commit
+// 53241915fa8b6a3e807f2ac85d8701f27a7fe528 ; some code which isn't needed to
+// read or generate bgzf-compressed files with libdeflate has been removed.
 
 #ifndef HTSLIB_HFILE_H
 #define HTSLIB_HFILE_H
@@ -77,6 +77,59 @@ int hclose(hFILE *fp) HTS_RESULT_USED;
 */
 void hclose_abruptly(hFILE *fp);
 
+/// Clear the stream's error indicator
+static inline void hclearerr(hFILE *fp)
+{
+    fp->has_errno = 0;
+}
+
+/// Reposition the read/write stream offset
+/** @return  The resulting offset within the stream (as per `lseek(2)`),
+    or negative if an error occurred.
+*/
+off_t hseek(hFILE *fp, off_t offset, int whence) HTS_RESULT_USED;
+
+/// Report the current stream offset
+/** @return  The offset within the stream, starting from zero.
+*/
+static inline off_t htell(hFILE *fp)
+{
+    return fp->offset + (fp->begin - fp->buffer);
+}
+
+
+/// Peek at characters to be read without removing them from buffers
+/** @param fp      The file stream
+    @param buffer  The buffer to which the peeked bytes will be written
+    @param nbytes  The number of bytes to peek at; limited by the size of the
+                   internal buffer, which could be as small as 4K.
+    @return  The number of bytes peeked, which may be less than _nbytes_
+             if EOF is encountered; or negative, if there was an I/O error.
+
+The characters peeked at remain in the stream's internal buffer, and will be
+returned by later hread() etc calls.
+*/
+ssize_t hpeek(hFILE *fp, void *buffer, size_t nbytes) HTS_RESULT_USED;
+
+/// Read a block of characters from the file
+/** @return  The number of bytes read, or negative if an error occurred.
+
+The full _nbytes_ requested will be returned, except as limited by EOF
+or I/O errors.
+*/
+static inline ssize_t HTS_RESULT_USED
+hread(hFILE *fp, void *buffer, size_t nbytes)
+{
+    extern ssize_t hread2(hFILE *, void *, size_t, size_t);
+
+    size_t n = fp->end - fp->begin;
+    if (n > nbytes) n = nbytes;
+    memcpy(buffer, fp->begin, n);
+    fp->begin += n;
+    return (n == nbytes || !fp->mobile)? (ssize_t) n : hread2(fp, buffer, nbytes, n);
+}
+
+
 /// Write a block of characters to the file
 /** @return  Either _nbytes_, or negative if an error occurred.
 
@@ -89,7 +142,7 @@ hwrite(hFILE *fp, const void *buffer, size_t nbytes)
     extern int hfile_set_blksize(hFILE *fp, size_t bufsiz);
 
     if(!fp->mobile){
-      if (fp->limit - fp->begin < (ssize_t)nbytes){
+        if ((size_t)(fp->limit - fp->begin) < nbytes){
             hfile_set_blksize(fp, fp->limit - fp->buffer + nbytes);
             fp->end = fp->limit;
         }

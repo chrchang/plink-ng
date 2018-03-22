@@ -642,7 +642,7 @@ BoolErr ParseVcfDosage(const char* gtext_iter, const char* gtext_end, uint32_t d
 
 static_assert(!kVcfHalfCallReference, "VcfToPgen() assumes kVcfHalfCallReference == 0.");
 static_assert(kVcfHalfCallHaploid == 1, "VcfToPgen() assumes kVcfHalfCallHaploid == 1.");
-PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, uint32_t no_samples_ok, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, VcfHalfCall vcf_half_call, FamCol fam_cols, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
+PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const char* const_fid, const char* dosage_import_field, MiscFlags misc_flags, ImportFlags import_flags, uint32_t no_samples_ok, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char id_delim, char idspace_to, int32_t vcf_min_gq, int32_t vcf_min_dp, VcfHalfCall vcf_half_call, FamCol fam_cols, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip, uint32_t* pgen_generated_ptr, uint32_t* psam_generated_ptr) {
   // Now performs a 2-pass load.  Yes, this can be slower than plink 1.9, but
   // it's necessary to use the Pgen_writer classes for now (since we need to
   // know upfront how many variants there are, and whether phase/dosage is
@@ -663,19 +663,21 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     if (StandardizeLinebufSize(bigstack_left() / 4, kMaxMediumLine + 1, &linebuf_size)) {
       goto VcfToPgen_ret_NOMEM;
     }
-    vcf_rls.gz_infile = gzopen(vcfname, FOPEN_RB);
-    if (!vcf_rls.gz_infile) {
-      const uint32_t slen = strlen(vcfname);
-      if (StrEndsWith(vcfname, ".vcf", slen) ||
-          StrEndsWith(vcfname, ".vcf.gz", slen)) {
-        logerrprintfww(kErrprintfFopen, vcfname);
-      } else {
-        logerrprintfww("Error: Failed to open %s. (--vcf expects a complete filename; did you forget '.vcf' at the end?)\n", vcfname);
+    // 2 decompressor threads seems optimal on test Mac, but try varying this
+    // on other systems
+    const uint32_t calc_thread_ct = 1 + (max_thread_ct > 2);
+    reterr = RlsOpenMaybeBgzf(vcfname, calc_thread_ct, &vcf_rls);
+    if (reterr) {
+      if (reterr == kPglRetOpenFail) {
+        const uint32_t slen = strlen(vcfname);
+        if (StrEndsWith(vcfname, ".vcf", slen) ||
+            StrEndsWith(vcfname, ".vcf.gz", slen)) {
+          logerrprintfww(kErrprintfFopen, vcfname);
+        } else {
+          logerrprintfww("Error: Failed to open %s. (--vcf expects a complete filename; did you forget '.vcf' at the end?)\n", vcfname);
+        }
       }
-      goto VcfToPgen_ret_OPEN_FAIL;
-    }
-    if (gzbuffer(vcf_rls.gz_infile, 131072)) {
-      goto VcfToPgen_ret_NOMEM;
+      goto VcfToPgen_ret_1;
     }
     char* line_iter;
     reterr = InitRLstreamEx(0, kMaxLongLine, linebuf_size, &vcf_rls, &line_iter);
@@ -1203,8 +1205,13 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       logerrprintfww("Warning: %" PRIuPTR " multiallelic variant%s %sskipped (not yet supported).\n", multiallelic_skip_ct, (multiallelic_skip_ct == 1)? "" : "s", variant_skip_ct? "also " : "");
     }
 
-    // error shouldn't be possible here since we read to eof
-    RewindRLstreamRaw(&vcf_rls, &line_iter);
+    // probably wrap this in a function...
+    vcf_rls.bgzf_decompress_thread_ct = 1;
+    // force file to be reopened since we want to change bgzf_mt configuration.
+    reterr = RetargetRLstreamRaw(vcfname, &vcf_rls, &line_iter);
+    if (reterr) {
+      goto VcfToPgen_ret_READ_RLSTREAM;
+    }
 
     const uintptr_t line_ct = line_idx - 1;
 
@@ -2489,7 +2496,7 @@ BoolErr InitOxfordSingleChr(const char* ox_single_chr_str, const char** single_c
 }
 
 static_assert(sizeof(Dosage) == 2, "OxGenToPgen() needs to be updated.");
-PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_single_chr_str, const char* ox_missing_code, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, char* outname, char* outname_end, ChrInfo* cip) {
+PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_single_chr_str, const char* ox_missing_code, MiscFlags misc_flags, ImportFlags import_flags, OxfordImportFlags oxford_import_flags, uint32_t hard_call_thresh, uint32_t dosage_erase_thresh, double import_dosage_certainty, uint32_t max_thread_ct, char* outname, char* outname_end, ChrInfo* cip) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* pvarfile = nullptr;
   PglErr reterr = kPglRetSuccess;
@@ -2518,16 +2525,19 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
     if (StandardizeLinebufSize(bigstack_left() / 4, kMaxMediumLine + 1, &linebuf_size)) {
       goto OxGenToPgen_ret_NOMEM;
     }
-    gen_rls.gz_infile = gzopen(genname, FOPEN_RB);
-    if (!gen_rls.gz_infile) {
-      const uint32_t slen = strlen(genname);
-      if (StrEndsWith(genname, ".gen", slen) ||
-          StrEndsWith(genname, ".gen.gz", slen)) {
-        logerrprintfww(kErrprintfFopen, genname);
-      } else {
-        logerrprintfww("Error: Failed to open %s. (--gen expects a complete filename; did you forget '.gen' at the end?)\n", genname);
+    const uint32_t calc_thread_ct = 1 + (max_thread_ct > 2);
+    reterr = RlsOpenMaybeBgzf(genname, calc_thread_ct, &gen_rls);
+    if (reterr) {
+      if (reterr == kPglRetOpenFail) {
+        const uint32_t slen = strlen(genname);
+        if (StrEndsWith(genname, ".gen", slen) ||
+            StrEndsWith(genname, ".gen.gz", slen)) {
+          logerrprintfww(kErrprintfFopen, genname);
+        } else {
+          logerrprintfww("Error: Failed to open %s. (--gen expects a complete filename; did you forget '.gen' at the end?)\n", genname);
+        }
       }
-      goto OxGenToPgen_ret_OPEN_FAIL;
+      goto OxGenToPgen_ret_1;
     }
     char* line_iter;
     reterr = InitRLstreamEx(0, kMaxLongLine, linebuf_size, &gen_rls, &line_iter);
@@ -2759,8 +2769,13 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
 
     // second pass
     BigstackReset(writebuf);
-    // error shouldn't be possible here since we read to eof
-    RewindRLstreamRaw(&gen_rls, &line_iter);
+    gen_rls.bgzf_decompress_thread_ct = 1;
+    // force file to be reopened since we want to change bgzf_mt configuration.
+    reterr = RetargetRLstreamRaw(genname, &gen_rls, &line_iter);
+    if (reterr) {
+      goto OxGenToPgen_ret_READ_RLSTREAM;
+    }
+
     snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
     uintptr_t spgw_alloc_cacheline_ct;
     uint32_t max_vrec_len;

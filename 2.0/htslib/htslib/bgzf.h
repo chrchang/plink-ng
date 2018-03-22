@@ -27,25 +27,16 @@
 /* The BGZF library was originally written by Bob Handsaker from the Broad
  * Institute. It was later improved by the SAMtools developers. */
 
-// This is a heavily modified copy of commit
-// 77f002106602103150db45b06ddec0f022c0b6fb : most code which isn't needed to
-// generate bgzf-compressed files with libdeflate has been removed.
+// This is a modified copy of commit
+// 53241915fa8b6a3e807f2ac85d8701f27a7fe528 ; some code which isn't needed to
+// read or generate bgzf-compressed files with libdeflate has been removed.
 
 #ifndef HTSLIB_BGZF_H
 #define HTSLIB_BGZF_H
 
 #include <stdint.h>
 #include <stdio.h>
-
-/*
-// Do not use zstd wrapper here.
-#ifdef STATIC_ZLIB
-#  include "../../../zlib-1.2.11/zlib.h"
-#else
-#  include <zlib.h>
-#endif
-*/
-
+// #include <zlib.h>  // Use libdeflate instead.
 #include <sys/types.h>
 
 #include "hts_defs.h"
@@ -75,7 +66,7 @@ struct BGZF {
     unsigned errcode:16, reserved:1, is_write:1, no_eof_block:1, is_be:1;
     signed compress_level:9;
     unsigned last_block_eof:1, is_compressed:1, is_gzip:1;
-    int cache_size;
+  // int cache_size;
     int block_length, block_clength, block_offset;
     int64_t block_address, uncompressed_address;
     void *uncompressed_block, *compressed_block;
@@ -89,14 +80,6 @@ struct BGZF {
 #ifndef HTS_BGZF_TYPEDEF
 typedef struct BGZF BGZF;
 #define HTS_BGZF_TYPEDEF
-#endif
-
-#ifndef KSTRING_T
-#define KSTRING_T kstring_t
-typedef struct __kstring_t {
-    size_t l, m;
-    char *s;
-} kstring_t;
 #endif
 
     /******************
@@ -117,6 +100,16 @@ typedef struct __kstring_t {
     int bgzf_close(BGZF *fp);
 
     /**
+     * Read up to _length_ bytes from the file storing into _data_.
+     *
+     * @param fp     BGZF file handler
+     * @param data   data array to read into
+     * @param length size of data to read
+     * @return       number of bytes actually read; 0 on end-of-file and -1 on error
+     */
+    ssize_t bgzf_read(BGZF *fp, void *data, size_t length) HTS_RESULT_USED;
+
+    /**
      * Write _length_ bytes from _data_ to the file.  If no I/O errors occur,
      * the complete _length_ bytes will be written (or queued for writing).
      *
@@ -126,30 +119,6 @@ typedef struct __kstring_t {
      * @return       number of bytes written (i.e., _length_); negative on error
      */
     ssize_t bgzf_write(BGZF *fp, const void *data, size_t length) HTS_RESULT_USED;
-
-    /**
-     * Write _length_ bytes from _data_ to the file, the index will be used to
-     * decide the amount of uncompressed data to be writen to each bgzip block.
-     * If no I/O errors occur, the complete _length_ bytes will be written (or
-     * queued for writing).
-     * @param fp     BGZF file handler
-     * @param data   data array to write
-     * @param length size of data to write
-     * @return       number of bytes written (i.e., _length_); negative on error
-     */
-    ssize_t bgzf_block_write(BGZF *fp, const void *data, size_t length);
-
-    /**
-     * Write _length_ bytes directly to the underlying stream without
-     * compressing.  Bypasses BGZF blocking, so must be used with care
-     * in specialised circumstances only.
-     *
-     * @param fp     BGZF file handler
-     * @param data   data array to write
-     * @param length number of raw bytes to write
-     * @return       number of bytes actually written; -1 on error
-     */
-    ssize_t bgzf_raw_write(BGZF *fp, const void *data, size_t length) HTS_RESULT_USED;
 
     /**
      * Write the data in the buffer to the file.
@@ -167,6 +136,16 @@ typedef struct __kstring_t {
      */
     #define bgzf_tell(fp) (((fp)->block_address << 16) | ((fp)->block_offset & 0xFFFF))
 
+    /**
+     * Set the file to read from the location specified by _pos_.
+     *
+     * @param fp     BGZF file handler
+     * @param pos    virtual file offset returned by bgzf_tell()
+     * @param whence must be SEEK_SET
+     * @return       0 on success and -1 on error
+     */
+    int64_t bgzf_seek(BGZF *fp, int64_t pos, int whence) HTS_RESULT_USED;
+
     /*********************
      * Advanced routines *
      *********************/
@@ -176,6 +155,11 @@ typedef struct __kstring_t {
      * @return      0 if flushing succeeded or was not needed; negative on error
      */
     int bgzf_flush_try(BGZF *fp, ssize_t size) HTS_RESULT_USED;
+
+    /**
+     * Read the next BGZF block.
+     */
+    int bgzf_read_block(BGZF *fp) HTS_RESULT_USED;
 
     /**
      * Enable multi-threading (when compiled with -DBGZF_MT) via a shared
@@ -209,29 +193,6 @@ typedef struct __kstring_t {
      * @return       0 on success and negative on error
      */
     int bgzf_compress(void *dst, size_t *dlen, const void *src, size_t slen, int level);
-
-    /*******************
-     * bgzidx routines *
-     *******************/
-
-    /**
-     * Tell BGZF to build index while compressing.
-     *
-     * @param fp          BGZF file handler; can be opened for reading or writing.
-     *
-     * Returns 0 on success and -1 on error.
-     */
-    int bgzf_index_build_init(BGZF *fp);
-
-    /// Save BGZF index
-    /**
-     * @param fp          BGZF file handler
-     * @param bname       base name
-     * @param suffix      suffix to add to bname (can be NULL)
-     * @return 0 on success and -1 on error.
-     */
-    int bgzf_index_dump(BGZF *fp,
-                        const char *bname, const char *suffix) HTS_RESULT_USED;
 
 #ifdef __cplusplus
 }
