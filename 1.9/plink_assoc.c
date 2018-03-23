@@ -532,7 +532,9 @@ int32_t multcomp(char* outname, char* outname_end, uint32_t* marker_uidxs, uintp
 	  adjust_print_log10(pv_gc[cur_idx], output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
 	}
 	if (qq_plot) {
-	  bufptr = dtoa_g_wxp4x((((double)((int32_t)cur_idx)) + 0.5) * dzz, 10, ' ', bufptr);
+          // quasi-bugfix (23 Mar 2018): this should be logscale, both for
+          // consistency with plink 1.07 and because it makes more sense
+	  bufptr = dtoa_g_wxp4x(-log10((((double)((int32_t)cur_idx)) + 0.5) * dzz), 10, ' ', bufptr);
 	}
 	adjust_print_log10(bonf, output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
 	adjust_print_log10(pv_holm, output_min_p, output_min_p_str, output_min_p_strlen, &bufptr);
