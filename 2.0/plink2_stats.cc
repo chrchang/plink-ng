@@ -61,6 +61,7 @@ static const double kLogMaxValue = 709.0;
 
 static const double kLentzFpmin = 1.0e-30;
 
+/*
 static const double kFactorials[30] = {
   1.0,
   1.0,
@@ -93,6 +94,40 @@ static const double kFactorials[30] = {
   0.304888344611713860501504e30,
   0.8841761993739701954543616e31
 };
+*/
+
+static const double kFactorialRecips[30] = {
+  1.0,
+  1.0,
+  0.5,
+  0.16666666666666666,
+  0.041666666666666664,
+  0.008333333333333333,
+  0.001388888888888889,
+  0.0001984126984126984,
+  2.48015873015873e-05,
+  2.7557319223985893e-06,
+  2.755731922398589e-07,
+  2.505210838544172e-08,
+  2.08767569878681e-09,
+  1.6059043836821613e-10,
+  1.1470745597729725e-11,
+  7.647163731819816e-13,
+  4.779477332387385e-14,
+  2.8114572543455206e-15,
+  1.5619206968586225e-16,
+  8.22063524662433e-18,
+  4.110317623312165e-19,
+  1.9572941063391263e-20,
+  8.896791392450574e-22,
+  3.8681701706306835e-23,
+  1.6117375710961184e-24,
+  6.446950284384474e-26,
+  2.4795962632247972e-27,
+  9.183689863795546e-29,
+  3.279889237069838e-30,
+  1.1309962886447718e-31
+};
 
 double finite_gamma_q(uint32_t aa, double xx, double* p_derivative) {
   // a is a positive integer < 30; max(0.6, a-1) < x < kLogMaxValue
@@ -109,7 +144,7 @@ double finite_gamma_q(uint32_t aa, double xx, double* p_derivative) {
     sum += term;
   }
   if (p_derivative) {
-    *p_derivative = ee * pow(xx, u31tod(aa)) / kFactorials[aa - 1];
+    *p_derivative = ee * pow(xx, u31tod(aa)) * kFactorialRecips[aa - 1];
   }
   return sum;
 }
@@ -186,7 +221,7 @@ double tgamma_small_upper_part_df1(double xx, uint32_t invert, double* p_derivat
   // x < 1.1
   // df == 1, a == 0.5
   double result = 0.5 * kSqrtPi - 1.0;
-  *pgam = (result + 1) * 2;
+  *pgam = (result + 1) * 2;  // make this a compile-time constant?
   double pp = sqrt(xx) - 1.0;  // no point in using powm1() with ^0.5
   result -= pp;
   result *= 2;
@@ -313,6 +348,7 @@ double regularized_gamma_prefix(double aa, double zz) {
       const double amza = amz / aa;
       double sq;
       if ((cur_minv > 2 * kLogMinValue) && (MAXV(alz, amz) < 2 * kLogMaxValue)) {
+        // need to structure this to avoid overflow
         sq = pow(zz * agh_recip, aa * 0.5) * exp(amz * 0.5);
         prefix = sq * sq;
       } else if ((cur_minv > 4 * kLogMinValue) && (MAXV(alz, amz) < 4 * kLogMaxValue) && (zz > aa)) {
@@ -383,6 +419,7 @@ double gamma_incomplete_imp2(uint32_t df, double xx, uint32_t invert, double* p_
   } else if (xx < kSmallEpsilon) {
     // avoid computing log(0)
     // don't need more precision here, 6 digits is enough
+    // invert always == 1
     assert(!p_derivative);
     return 1.0;
   } else if (xx < 0.5) {
@@ -465,7 +502,7 @@ double gamma_incomplete_imp2(uint32_t df, double xx, uint32_t invert, double* p_
       double gg;
       result = tgamma_small_upper_part_df1(xx, invert, p_derivative, &gg);
       invert = 0;
-      result /= gg;
+      result /= gg;  // convert this to multiplication by constant?
     }
     break;
   case 4:
@@ -509,6 +546,197 @@ double ChisqToP(double chisq, uint32_t df) {
 }
 
 // ***** end thread-safe ChisqToP *****
+
+
+// ***** ChisqToLnP *****
+
+/*
+static inline long double u31told(uint32_t uii) {
+  const int32_t ii = uii;
+  return S_CAST(long double, ii);
+}
+*/
+
+double finite_gamma_q_negln(uint32_t aa, double xx) {
+  // a is a positive integer < 30; max(0.6, a-1) < x < kLogMaxValue
+  // (e^{-x})(1 + x + x^2/2 + x^3/3! + x^4/4! + ... + x^{a-1}/(a-1)!)
+  //
+  // negative logarithm:
+  // x - log(1 + x + ... + x^{a-1}/(a-1)!)
+  // no overflow or underflow danger for main term thanks to bounds
+  double sum = 1.0;
+  double term = 1.0;
+  for (uint32_t nn = 1; nn < aa; ++nn) {
+    term /= u31tod(nn);
+    term *= xx;
+    sum += term;
+  }
+  return xx - log(sum);
+}
+
+double erfc_fast2(double zz, double* tau_ln_ptr) {
+  const double tt = 1.0 / (1.0 + 0.5 * zz);
+  *tau_ln_ptr = ((((((((0.17087277 * tt - 0.82215223) * tt + 1.48851587) * tt - 1.13520398) * tt + 0.27886807) * tt - 0.18628806) * tt + 0.09678418) * tt + 0.37409196) * tt + 1.00002368) * tt - 1.26551223 - zz * zz;
+  return tt;
+}
+
+double finite_half_gamma_q_negln(double aa, double xx) {
+  // a is in {0.5, 1.5, ..., 29.5}; max(0.2, a-1) < x < kLogMaxValue
+  const double sqrt_x = sqrt(xx);
+  double tau_ln;
+  double tt = erfc_fast2(sqrt_x, &tau_ln);
+  if (aa < 1) {
+    return -log(tt) - tau_ln;
+  }
+  double term = exp(-xx) / (kSqrtPi * sqrt_x);
+  term *= xx * 2;
+  double sum = term;
+  for (double nn = 1.5; nn < aa; nn += 1.0) {
+    term /= nn;
+    term *= xx;
+    sum += term;
+  }
+  double ee = tt * exp(tau_ln) + sum;
+  return -log(ee);
+}
+
+static const double kLnSqrtPi = 0.5723649429247001;
+
+// compute -log((z^a)(e^{-z})/tgamma(a))
+double regularized_gamma_prefix_ln(double aa, double zz) {
+  // assumes a == 0.5 if a < 1.  assumes z > 0.
+  // we are fine with float-level precision, so lanczos_n=6, kLanczosG=5.581
+  if (aa < 1) {
+    return -zz + 0.5 * log(zz) - kLnSqrtPi;
+  }
+  const double agh = aa + kLanczosG - 0.5;
+  const double agh_recip = 1.0 / agh;
+  const double dd = ((zz - aa) - (kLanczosG - 0.5)) * agh_recip;
+  double prefix_ln;
+  if ((fabs(dd * dd * aa) <= 100) && (aa > 150)) {
+    // abs(dd) < sqrt(2/3) < 0.95
+    prefix_ln = aa * log1pmx(dd) + zz * (0.5 - kLanczosG) * agh_recip;
+  } else {
+    prefix_ln = (aa - zz) + aa * log(zz * agh_recip);
+  }
+  // there may be a better way to organize the second term, but let's get this
+  // working first
+  return prefix_ln + log(sqrt(agh * kRecipE) * lanczos_sum_expg_scaled_recip(aa));
+}
+
+// does not guarantee return value >= 0 for now; caller must do that.
+double gamma_incomplete_imp2_negln(uint32_t df, double xx) {
+  assert(df);
+  assert(xx >= 0.0);
+  const double aa = u31tod(df) * 0.5;
+  const uint32_t is_small_a = (df < 60) && (aa <= xx + 1) && (xx < kLogMaxValue);
+  uint32_t is_int = 0;
+  uint32_t is_half_int = 0;
+  if (is_small_a) {
+    is_half_int = df % 2;
+    is_int = !is_half_int;
+  }
+  uint32_t eval_method;
+  if (is_int && (xx > 0.6)) {
+    eval_method = 0;
+  } else if (is_half_int && (xx > 0.2)) {
+    eval_method = 1;
+  } else if (xx < kSmallEpsilon) {
+    // avoid computing log(0)
+    // don't need more precision here, 6 digits is enough
+    return 0.0;
+  } else if (xx < 0.5) {
+    // log(x) is negative
+    // -0.4 / log(x) >= 0.5 (this is impossible for larger a)
+    // -> -0.4 <= 0.5 * log(x)
+    // -> -0.8 <= log(x)
+    // -> e^{-0.8} <= x
+    eval_method = 2 + ((df == 1) && (xx >= 0.44932896411722156));
+  } else if (xx < 1.1) {
+    // x * 0.75 >= 0.5
+    // x >= 2/3
+    eval_method = 2 + ((df == 1) && (xx >= (2.0 / 3.0)));
+  } else {
+    const double x_minus_a = xx - aa;
+    uint32_t use_temme = 0;
+    if (aa > 20) {
+      // sigma = abs((x - a) / a);
+      // igamma_temme_large() assumes abs(sigma) < 0.95
+      if (aa > 200) {
+        // abs(sigma) < sqrt(20 / a) < 0.316...
+        use_temme = (20 * aa > x_minus_a * x_minus_a);
+      } else {
+        // abs(sigma) < 0.4
+        const double sigma_times_a = fabs(x_minus_a);
+        use_temme = (sigma_times_a < 0.4 * aa);
+      }
+    }
+    if (use_temme) {
+      eval_method = 5;
+    } else {
+      // x - (1 / (3 * x)) < a
+      // x * x - (1/3) < a * x
+      // x * x - a * x < 1/3
+      // x * (x - a) < 1/3
+      if (xx * x_minus_a < (1.0 / 3.0)) {
+        eval_method = 2;
+      } else {
+        eval_method = 4;
+      }
+    }
+  }
+  switch(eval_method) {
+  case 0:
+    return finite_gamma_q_negln(df / 2, xx);
+  case 1:
+    return finite_half_gamma_q_negln(aa, xx);
+  case 2:
+    {
+      const double result_ln = regularized_gamma_prefix_ln(aa, xx);
+      if (result_ln < kLogMinValue + 22) {
+        // init_value overflows.  Not a big deal, this just ends up getting
+        // inverted to pval=1.
+        // (+22 since aa could theoretically be as large as 2^31.  Todo: find
+        // the smallest result_ln value that could result in a nonzero value
+        // being returned.)
+        return 0.0;
+      }
+      const double init_value = -aa * exp(-result_ln);
+      const double multiplier = -lower_gamma_series(aa, xx, init_value) / aa;
+      return -result_ln - log(multiplier);
+    }
+  case 3:
+    {
+      // only when df=1 and 0.449 < x < 1.1, so no overflow/underflow issues.
+      double gg;
+      double result = tgamma_small_upper_part_df1(xx, 0, nullptr, &gg);
+      result /= gg;  // convert this to multiplication by constant?
+      return -log(result);
+    }
+  case 4:
+    {
+      const double result1_ln = regularized_gamma_prefix_ln(aa, xx);
+      const double result2_ln = log(upper_gamma_fraction(aa, xx));
+      return -result1_ln - result2_ln;
+    }
+  case 5:
+  default:  // silence compiler warning
+    {
+      // aa large, fabs(xx - aa) relatively small, so no overflow/underflow
+      // issues.
+      double result = igamma_temme_large(aa, xx);
+      if (xx < aa) {
+        result = 1.0 - result;
+      }
+      return -log(result);
+    }
+  }
+}
+
+double ChisqToNegLnP(double chisq, uint32_t df) {
+  return MAXV(gamma_incomplete_imp2_negln(df, chisq * 0.5), 0.0);
+}
+// ***** end ChisqToNegLnP *****
 
 
 // ***** thread-safe PToChisq *****
@@ -699,6 +927,32 @@ double PToChisq(double pval, uint32_t df) {
 
 // ***** end thread-safe PToChisq *****
 
+double NegLnPToChisq(double negln_pval) {
+  if (negln_pval < 65.04474754675797) {
+    return gamma_p_inv_imp2(1, exp(-negln_pval)) * 2;
+  }
+  // (bb < 1e-28) case in find_inverse_gamma2()
+  const double yy = negln_pval - kLnSqrtPi;
+  const double c1 = -0.5 * log(yy);
+  const double c1_2 = c1 * c1;
+  const double c1_3 = c1_2 * c1;
+  const double c1_4 = c1_2 * c1_2;
+  // a_2 = 0.25
+  // a_3 = 0.125
+
+  const double c2 = -0.5 * (1 + c1);
+  const double c3 = 0.25 * c1_2 + 0.75 * c1 + 0.875;
+  const double c4 = c1_3 * (-1.0 / 6.0) - 0.875 * c1_2 - 1.875 * c1 - (26.75 / 12.0);
+  const double c5 = 0.125 * c1_4 + (5.75 / 6.0) * c1_3 + 3.625 * c1_2 + 7.75 * c1 + (83.0625 / 12.0);
+
+  const double y_recip = 1.0 / yy;
+  const double y_recip_2 = y_recip * y_recip;
+  const double y_recip_3 = y_recip_2 * y_recip;
+  const double y_recip_4 = y_recip_2 * y_recip_2;
+  // er, I'd think this should just use Horner's instead?
+  return 2 * (yy + c1 + c2 * y_recip + c3 * y_recip_2 + c4 * y_recip_3 + c5 * y_recip_4);
+}
+
 
 // ***** thread-safe TstatToP *****
 
@@ -805,6 +1059,31 @@ double TstatToP2(double tt, double df, double cached_gamma_mult) {
 }
 // ***** end thread-safe TstatToP calculation *****
 
+// ***** begin TstatToNegLnP *****
+double betai_slow_negln(double aa, double bb, double xx) {
+  if ((xx < 0.0) || (xx > 1.0)) {
+    return -9;
+  }
+  uint32_t do_invert = (xx * (aa + bb + 2.0)) >= (aa + 1.0);
+  if ((xx == 0.0) || (xx == 1.0)) {
+    return do_invert? 0.0 : DBL_MAX;
+  }
+  // this is very expensive
+  double bt_ln = lgamma(aa + bb) - lgamma(aa) - lgamma(bb) + aa * log(xx) + bb * log(1.0 - xx);
+  if (!do_invert) {
+    return -bt_ln - log(betacf_slow(aa, bb, xx) / aa);
+  }
+  return -log(1.0 - exp(bt_ln) * betacf_slow(bb, aa, 1.0 - xx) / bb);
+}
+
+double TstatToNegLnP(double tt, double df) {
+  if (!IsRealnum(tt)) {
+    return -9;
+  }
+  return betai_slow_negln(df * 0.5, 0.5, df / (df + tt * tt));
+}
+// ***** end TstatToNegLnP *****
+
 
 // Inverse normal distribution
 // (todo: check if boost implementation is better)
@@ -894,6 +1173,9 @@ double QuantileToZscore(double pp) {
 
 
 // HweP() and HweXchrP() are now licensed as GPL 2+.
+// possible todo: variant which returns -ln(pval), at least up to long double
+// range (i.e. normally use faster notlong-double code, but centerp > DBL_MAX
+// launches the slower long double code path)
 double HweP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t midp) {
   // This function implements an exact SNP test of Hardy-Weinberg
   // Equilibrium as described in Wigginton, JE, Cutler, DJ, and
@@ -1047,6 +1329,7 @@ double HweP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t midp)
   return (tailp - ((1 - kSmallEpsilon) * kExactTestBias * 0.5) * tie_ct) / (tailp + centerp);
 }
 
+// don't see any point to supporting long double range here
 uint32_t HweThresh(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, double thresh) {
   // Threshold-test-only version of HweP() which is usually able to exit
   // from the calculation earlier.  Returns 0 if these counts are close enough

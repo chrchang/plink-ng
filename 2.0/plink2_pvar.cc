@@ -40,7 +40,7 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
   {
     uint32_t cmdline_autosome_ct = 0;
     uint32_t cmdline_haploid = 0;
-    int32_t cmdline_xymt_codes[kChrOffsetCt];
+    uint32_t cmdline_xymt_codes[kChrOffsetCt];
     if (cip->chrset_source == kChrsetSourceCmdline) {
       if (misc_flags & kfMiscChrOverrideCmdline) {
         goto ReadChrsetHeaderLine_ret_1;
@@ -54,7 +54,7 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
       ZeroWArr(kChrMaskWords, cip->haploid_mask);
     }
     for (uint32_t uii = 0; uii < kChrOffsetCt; ++uii) {
-      cip->xymt_codes[uii] = -2;
+      cip->xymt_codes[uii] = UINT32_MAXM1;
     }
     if (StrStartsWithUnsafe(chrset_iter, "haploidAutosomeCt=")) {
       uint32_t explicit_haploid_ct;
@@ -148,7 +148,7 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
           // it's okay if the command line doesn't explicitly exclude e.g. chrX
           // while for whatever reason it is excluded from ##chrSet; but the
           // reverse can create problems
-          if ((cmdline_xymt_codes[xymt_idx] < 0) && (cip->xymt_codes[xymt_idx] >= 0)) {
+          if (IsI32Neg(cmdline_xymt_codes[xymt_idx]) && (!IsI32Neg(cip->xymt_codes[xymt_idx]))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Header line %" PRIuPTR " of %s specifies a chromosome set including %s, while the command line excludes it.\n", line_idx, file_descrip, g_xymt_log_names[xymt_idx]);
             goto ReadChrsetHeaderLine_ret_INCONSISTENT_INPUT_WW;
           }
@@ -496,19 +496,19 @@ uint32_t InfoConditionSatisfied(const char* info_token, const InfoFilter* filter
 }
 
 PglErr SplitPar(const uint32_t* variant_bps, UnsortedVar vpos_sortstatus, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uintptr_t* variant_include, uintptr_t* loaded_chr_mask, ChrInfo* cip, uint32_t* chrs_encountered_m1_ptr, uint32_t* exclude_ct_ptr) {
-  const int32_t x_code = cip->xymt_codes[kChrOffsetX];
-  if ((x_code < 0) || (!IsSetI(loaded_chr_mask, x_code))) {
+  const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
+  if (IsI32Neg(x_code) || (!IsSet(loaded_chr_mask, x_code))) {
     logerrputs("Warning: --split-par had no effect (no X chromosome in dataset).\n");
     return kPglRetSuccess;
   }
-  const int32_t par1_code = cip->xymt_codes[kChrOffsetPAR1];
-  const int32_t par2_code = cip->xymt_codes[kChrOffsetPAR2];
-  if (par2_code < 0) {
+  const uint32_t par1_code = cip->xymt_codes[kChrOffsetPAR1];
+  const uint32_t par2_code = cip->xymt_codes[kChrOffsetPAR2];
+  if (IsI32Neg(par2_code)) {
     // may want to remove this restriction later
     logerrputs("Error: --split-par cannot currently be used with a custom chromosome set.\n");
     return kPglRetInvalidCmdline;
   }
-  if (IsSetI(loaded_chr_mask, par1_code) || IsSetI(loaded_chr_mask, par2_code)) {
+  if (IsSet(loaded_chr_mask, par1_code) || IsSet(loaded_chr_mask, par2_code)) {
     logerrputs("Error: --split-par cannot be used on a dataset which already contains a PAR1 or\nPAR2 region.\n");
     return kPglRetInvalidCmdline;
   }
@@ -516,7 +516,7 @@ PglErr SplitPar(const uint32_t* variant_bps, UnsortedVar vpos_sortstatus, uint32
     logerrputs("Error: --split-par cannot be used with an unsorted .bim/.pvar file.\n");
     return kPglRetInvalidCmdline;
   }
-  const uint32_t orig_xchr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, x_code)];
+  const uint32_t orig_xchr_fo_idx = cip->chr_idx_to_foidx[x_code];
   const uint32_t orig_x_start = cip->chr_fo_vidx_start[orig_xchr_fo_idx];
   const uint32_t orig_x_end = cip->chr_fo_vidx_start[orig_xchr_fo_idx + 1];
   const uint32_t par1_end = orig_x_start + CountSortedSmallerU32(&(variant_bps[orig_x_start]), orig_x_end - orig_x_start, splitpar_bound1 + 1);
@@ -533,7 +533,7 @@ PglErr SplitPar(const uint32_t* variant_bps, UnsortedVar vpos_sortstatus, uint32
   cip->chr_fo_vidx_start[chrs_encountered_m1 + 1] = cip->chr_fo_vidx_start[chrs_encountered_m1 - 1];
   for (uint32_t chr_fo_idx = chrs_encountered_m1 - 2; chr_fo_idx > orig_xchr_fo_idx; --chr_fo_idx) {
     cip->chr_fo_vidx_start[chr_fo_idx + 2] = cip->chr_fo_vidx_start[chr_fo_idx];
-    const int32_t cur_chr_idx = cip->chr_file_order[chr_fo_idx];
+    const uint32_t cur_chr_idx = cip->chr_file_order[chr_fo_idx];
     cip->chr_file_order[chr_fo_idx + 2] = cur_chr_idx;
     cip->chr_idx_to_foidx[cur_chr_idx] = chr_fo_idx + 2;
   }
@@ -542,31 +542,31 @@ PglErr SplitPar(const uint32_t* variant_bps, UnsortedVar vpos_sortstatus, uint32
   cip->chr_file_order[orig_xchr_fo_idx] = par1_code;
   cip->chr_file_order[orig_xchr_fo_idx + 1] = x_code;
   cip->chr_file_order[orig_xchr_fo_idx + 2] = par2_code;
-  cip->chr_idx_to_foidx[S_CAST(uint32_t, par1_code)] = orig_xchr_fo_idx;
-  cip->chr_idx_to_foidx[S_CAST(uint32_t, x_code)] = orig_xchr_fo_idx + 1;
-  cip->chr_idx_to_foidx[S_CAST(uint32_t, par2_code)] = orig_xchr_fo_idx + 2;
+  cip->chr_idx_to_foidx[par1_code] = orig_xchr_fo_idx;
+  cip->chr_idx_to_foidx[x_code] = orig_xchr_fo_idx + 1;
+  cip->chr_idx_to_foidx[par2_code] = orig_xchr_fo_idx + 2;
   uintptr_t* chr_mask = cip->chr_mask;
   if (par1_end > orig_x_start) {
-    if (!IsSetI(chr_mask, par1_code)) {
+    if (!IsSet(chr_mask, par1_code)) {
       *exclude_ct_ptr += PopcountBitRange(variant_include, orig_x_start, par1_end);
       ClearBitsNz(orig_x_start, par1_end, variant_include);
     } else {
-      SetBitI(par1_code, loaded_chr_mask);
+      SetBit(par1_code, loaded_chr_mask);
     }
   }
   if (par1_end == par2_start) {
-    ClearBitI(x_code, chr_mask);
-  } else if (!IsSetI(chr_mask, x_code)) {
-    ClearBitI(x_code, chr_mask);
+    ClearBit(x_code, chr_mask);
+  } else if (!IsSet(chr_mask, x_code)) {
+    ClearBit(x_code, chr_mask);
     *exclude_ct_ptr += PopcountBitRange(variant_include, par1_end, par2_start);
     ClearBitsNz(par1_end, par2_start, variant_include);
   }
   if (par2_start < orig_x_end) {
-    if (!IsSetI(chr_mask, par2_code)) {
+    if (!IsSet(chr_mask, par2_code)) {
       *exclude_ct_ptr += PopcountBitRange(variant_include, par2_start, orig_x_end);
       ClearBitsNz(par2_start, orig_x_end, variant_include);
     } else {
-      SetBitI(par2_code, loaded_chr_mask);
+      SetBit(par2_code, loaded_chr_mask);
     }
   }
   logprintf("--split-par: %u chromosome code%s changed.\n", tot_codes_changed, (tot_codes_changed == 1)? "" : "s");
@@ -641,6 +641,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     unsigned char* rlstream_start = &(bigstack_mark[linebuf_size]);
     g_bigstack_base = rlstream_start;
     uint32_t calc_thread_ct = max_thread_ct - 1;
+    // 3 still seems best on a heavily multicore Linux test machine
     if (calc_thread_ct > 3) {
       calc_thread_ct = 3;
     } else if (!calc_thread_ct) {
@@ -1014,22 +1015,22 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     }
     const uint32_t allow_extra_chrs = (misc_flags / kfMiscAllowExtraChrs) & 1;
     const uint32_t merge_par = ((misc_flags & (kfMiscMergePar | kfMiscMergeX)) != 0);
-    const int32_t x_code = cip->xymt_codes[kChrOffsetX];
+    const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
     const char input_missing_geno_char = *g_input_missing_geno_ptr;
-    int32_t parx_code = cip->xymt_codes[kChrOffsetPAR1];
-    int32_t par2_code = cip->xymt_codes[kChrOffsetPAR2];
+    uint32_t parx_code = cip->xymt_codes[kChrOffsetPAR1];
+    uint32_t par2_code = cip->xymt_codes[kChrOffsetPAR2];
     if (misc_flags & kfMiscMergeX) {
       parx_code = cip->xymt_codes[kChrOffsetXY];
-      par2_code = -2;
+      par2_code = UINT32_MAXM1;
     }
     uint32_t merge_par_ct = 0;
 
     // Corner case: with --split-par + --not-chr x, we should keep the
     // pseudoautosomal regions.  To facilitate this, we temporarily don't mask
     // out chrX; SplitPar() handles this properly later.
-    const uint32_t splitpar_and_exclude_x = splitpar_bound2 && (x_code >= 0) && (!IsSetI(cip->chr_mask, x_code));
+    const uint32_t splitpar_and_exclude_x = splitpar_bound2 && (!IsI32Neg(x_code)) && (!IsSet(cip->chr_mask, x_code));
     if (splitpar_and_exclude_x) {
-      SetBitI(x_code, cip->chr_mask);
+      SetBit(x_code, cip->chr_mask);
     }
 
     if (snps_only > 1) {
@@ -1121,7 +1122,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
         if (*linebuf_iter == '\n') {
           goto LoadPvar_ret_MISSING_TOKENS;
         }
-        int32_t cur_chr_code;
+        uint32_t cur_chr_code;
         reterr = GetOrAddChrCodeDestructive(".pvar file", line_idx, allow_extra_chrs, linebuf_first_token, linebuf_iter, cip, &cur_chr_code);
         if (reterr) {
           goto LoadPvar_ret_1;
@@ -1136,10 +1137,10 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
             cur_chr_code = x_code;
           }
         }
-        if (S_CAST(uint32_t, cur_chr_code) != prev_chr_code) {
+        if (cur_chr_code != prev_chr_code) {
           prev_chr_code = cur_chr_code;
           if (!is_split_chr) {
-            if (IsSetI(loaded_chr_mask, cur_chr_code)) {
+            if (IsSet(loaded_chr_mask, cur_chr_code)) {
               if (!split_chr_ok) {
                 snprintf(g_logbuf, kLogbufSize, "Error: %s has a split chromosome. Use --make-pgen + --sort-vars to remedy this.\n", pvarname);
                 goto LoadPvar_ret_MALFORMED_INPUT_WW;
@@ -1159,12 +1160,12 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
               // how much of this do we need in split-chrom case?
               cip->chr_file_order[++chrs_encountered_m1] = cur_chr_code;
               cip->chr_fo_vidx_start[chrs_encountered_m1] = raw_variant_ct;
-              cip->chr_idx_to_foidx[S_CAST(uint32_t, cur_chr_code)] = chrs_encountered_m1;
+              cip->chr_idx_to_foidx[cur_chr_code] = chrs_encountered_m1;
               last_bp = 0;
               last_cm = -DBL_MAX;
             }
           }
-          SetBitI(cur_chr_code, loaded_chr_mask);
+          SetBit(cur_chr_code, loaded_chr_mask);
           if (chr_output_name_buf) {
             varid_template_base_len -= insert_slens[0];
             char* chr_name_end = chrtoa(cip, cur_chr_code, chr_output_name_buf);
@@ -1181,7 +1182,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
 
         char* token_ptrs[8];
         uint32_t token_slens[8];
-        if (IsSetI(chr_mask, cur_chr_code) || info_pr_present) {
+        if (IsSet(chr_mask, cur_chr_code) || info_pr_present) {
           linebuf_iter = TokenLex(linebuf_iter, col_types, col_skips, relevant_postchr_col_ct, token_ptrs, token_slens);
           if (!linebuf_iter) {
             goto LoadPvar_ret_MISSING_TOKENS;
@@ -1209,7 +1210,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
                   SetBit(variant_idx_lowbits, cur_nonref_flags);
                 }
               }
-              if (!IsSetI(chr_mask, cur_chr_code)) {
+              if (!IsSet(chr_mask, cur_chr_code)) {
                 goto LoadPvar_skip_variant;
               }
             }
@@ -1805,7 +1806,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       cip->chr_fo_vidx_start[chrs_encountered_m1 + 1] = raw_variant_ct;
       if (splitpar_bound2) {
         if (splitpar_and_exclude_x) {
-          ClearBitI(x_code, chr_mask);
+          ClearBit(x_code, chr_mask);
         }
         reterr = SplitPar(variant_bps, *vpos_sortstatus_ptr, splitpar_bound1, splitpar_bound2, variant_include, loaded_chr_mask, cip, &chrs_encountered_m1, &exclude_ct);
         if (reterr) {

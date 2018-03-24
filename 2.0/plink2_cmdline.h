@@ -293,6 +293,13 @@ HEADER_INLINE void fclose_cond(FILE* fptr) {
   }
 }
 
+HEADER_INLINE uint32_t ClipU32(uint32_t val, uint32_t lbound, uint32_t ubound) {
+  if (val >= ubound) {
+    return ubound;
+  }
+  return MAXV(val, lbound);
+}
+
 int32_t double_cmp(const void* aa, const void* bb);
 
 int32_t double_cmp_decr(const void* aa, const void* bb);
@@ -415,7 +422,9 @@ CONSTU31(kBigstackDefaultMb, 2048);
 static const double kPi = 3.1415926535897932;
 static const double kSqrt2 = 1.4142135623730951;
 static const double kRecipE = 0.36787944117144233;
+static const double kLn2 = 0.6931471805599453;
 static const double kLn10 = 2.3025850929940457;
+static const double kRecipLn10 = 0.43429448190325176;
 static const double kRecip2m53 = 0.00000000000000011102230246251565404236316680908203125;
 static const double kRecip2m32 = 0.00000000023283064365386962890625;
 static const double k2m64 = 18446744073709551616.0;
@@ -998,19 +1007,9 @@ HEADER_INLINE void ZeromovFArr(uintptr_t entry_ct, float** farr_ptr) {
 // MovU32To0Bit, AdvBoundedTo1Bit, FindLast1BitBefore, AllWordsAreZero defined
 // in plink2_base.h
 
-// Useful when we don't want to think about the signedness of a 32-bit int
-// (mainly relevant for chromosome codes right now).
-HEADER_INLINE uintptr_t IsSetI(const uintptr_t* bitarr, int32_t loc) {
-  // can insert assert(loc >= 0)
-  return IsSet(bitarr, S_CAST(uint32_t, loc));
-}
-
+// Useful when we don't want to think about the signedness of a 32-bit int.
 HEADER_INLINE void SetBitI(int32_t loc, uintptr_t* bitarr) {
   SetBit(S_CAST(uint32_t, loc), bitarr);
-}
-
-HEADER_INLINE void ClearBitI(int32_t loc, uintptr_t* bitarr) {
-  ClearBit(S_CAST(uint32_t, loc), bitarr);
 }
 
 HEADER_INLINE void FlipBit(uintptr_t loc, uintptr_t* bitarr) {

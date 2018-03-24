@@ -1,5 +1,5 @@
-# BASEFLAGS=-Wall -Wextra -Wshadow -mavx2 -mbmi -mbmi2 -mlzcnt -DNDEBUG -DZSTD_MULTITHREAD
-BASEFLAGS=-Wall -Wextra -Wshadow -mavx2 -mbmi -mbmi2 -mlzcnt -DZSTD_MULTITHREAD
+BASEFLAGS=-Wall -Wextra -Wshadow -mavx2 -mbmi -mbmi2 -mlzcnt -DNDEBUG -DZSTD_MULTITHREAD
+# BASEFLAGS=-Wall -Wextra -Wshadow -mavx2 -mbmi -mbmi2 -mlzcnt -DZSTD_MULTITHREAD
 # BASEFLAGS=-Wall -Wextra -Wshadow -msse4.2 -DZSTD_MULTITHREAD
 CFLAGS=-O3 -std=gnu99
 # this actually needs to be named "CXXFLAGS"

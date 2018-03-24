@@ -2478,8 +2478,8 @@ THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* arg) {
   const uint32_t acc4_vec_ct = acc1_vec_ct * 4;
   const uint32_t acc8_vec_ct = acc1_vec_ct * 8;
   const uint32_t calc_thread_ct = g_calc_thread_ct;
-  const int32_t x_code = cip->xymt_codes[kChrOffsetX];
-  const int32_t y_code = cip->xymt_codes[kChrOffsetY];
+  const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
+  const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
   uintptr_t* genovec_buf = g_genovecs[tidx];
   uintptr_t* missing_hc_acc1 = g_missing_hc_acc1[tidx];
   uintptr_t* missing_hc_acc4 = &(missing_hc_acc1[acc1_vec_ct * kWordsPerVec]);
@@ -2522,7 +2522,7 @@ THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* arg) {
       MovU32To1Bit(variant_include, &variant_uidx);
       if (variant_uidx >= chr_end) {
         const uint32_t chr_fo_idx = GetVariantChrFoIdx(cip, variant_uidx);
-        const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+        const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
         chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
         cur_hets = hethap_acc1;
         is_diploid_x = 0;
@@ -2532,7 +2532,7 @@ THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* arg) {
         } else if (chr_idx == y_code) {
           is_y = 1;
         } else {
-          if (!IsSetI(cip->haploid_mask, chr_idx)) {
+          if (!IsSet(cip->haploid_mask, chr_idx)) {
             cur_hets = nullptr;
           }
         }
@@ -2855,9 +2855,9 @@ void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, 
   uint32_t variant_uidx = 0;
   uint32_t y_thresh = UINT32_MAX;
   uint32_t y_end = UINT32_MAX;
-  int32_t y_code;
+  uint32_t y_code;
   if (XymtExists(cip, kChrOffsetY, &y_code)) {
-    const uint32_t y_chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, y_code)];
+    const uint32_t y_chr_fo_idx = cip->chr_idx_to_foidx[y_code];
     y_thresh = cip->chr_fo_vidx_start[y_chr_fo_idx];
     y_end = cip->chr_fo_vidx_start[y_chr_fo_idx + 1];
   }
@@ -2893,9 +2893,9 @@ void EnforceHweThresh(const ChrInfo* cip, const uint32_t* founder_raw_geno_cts, 
   uint32_t prefilter_variant_ct = *variant_ct_ptr;
   uint32_t x_start = UINT32_MAX;
   uint32_t x_end = UINT32_MAX;
-  int32_t x_code;
+  uint32_t x_code;
   if (XymtExists(cip, kChrOffsetX, &x_code)) {
-    const uint32_t x_chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, x_code)];
+    const uint32_t x_chr_fo_idx = cip->chr_idx_to_foidx[x_code];
     x_start = cip->chr_fo_vidx_start[x_chr_fo_idx];
     x_end = cip->chr_fo_vidx_start[x_chr_fo_idx + 1];
     // bugfix (4 Jun 2017): if no sex info available, need to skip chrX
@@ -3490,7 +3490,7 @@ PglErr RefFromFaProcessContig(const uintptr_t* variant_include, const uint32_t* 
   uint32_t variant_uidx = AdvTo1Bit(variant_include, cip->chr_fo_vidx_start[chr_fo_idx]);
   const uint32_t bp_end = seqbuf_end - seqbuf;
   if (variant_bps[variant_uidx_last] >= bp_end) {
-    const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+    const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
     if (!force) {
       char* write_iter = strcpya(g_logbuf, "Error: Contig '");
       write_iter = chrtoa(cip, chr_idx, write_iter);
@@ -3577,7 +3577,7 @@ PglErr RefFromFaProcessContig(const uintptr_t* variant_include, const uint32_t* 
     if (consistent_allele_idx >= 0) {
       if (consistent_allele_idx) {
         if ((!IsSet(nonref_flags, variant_uidx)) && (!force)) {
-          const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+          const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
           char* write_iter = strcpya(g_logbuf, "Error: --ref-from-fa wants to change reference allele assignment at ");
           write_iter = chrtoa(cip, chr_idx, write_iter);
           *write_iter++ = ':';
@@ -3597,7 +3597,7 @@ PglErr RefFromFaProcessContig(const uintptr_t* variant_include, const uint32_t* 
     } else if ((consistent_allele_idx == -1) && (!IsSet(nonref_flags, variant_uidx))) {
       // okay to have multiple matches, but not zero matches
       if (!force) {
-        const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+        const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
         char* write_iter = strcpya(g_logbuf, "Error: Reference allele at ");
         write_iter = chrtoa(cip, chr_idx, write_iter);
         *write_iter++ = ':';
@@ -3713,9 +3713,9 @@ PglErr RefFromFa(const uintptr_t* variant_include, const uint32_t* variant_bps, 
         *chr_name_end = '\0';
         const uint32_t chr_name_slen = chr_name_end - chr_name_start;
         chr_fo_idx = UINT32_MAX;
-        const int32_t chr_idx = GetChrCode(chr_name_start, cip, chr_name_slen);
-        if ((chr_idx >= 0) && IsSetI(cip->chr_mask, chr_idx)) {
-          chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, chr_idx)];
+        const uint32_t chr_idx = GetChrCode(chr_name_start, cip, chr_name_slen);
+        if ((!IsI32Neg(chr_idx)) && IsSet(cip->chr_mask, chr_idx)) {
+          chr_fo_idx = cip->chr_idx_to_foidx[chr_idx];
           if (IsSet(chr_already_seen, chr_fo_idx)) {
             snprintf(g_logbuf, kLogbufSize, "Error: Duplicate contig name '%s' in --ref-from-fa file.\n", chr_name_start);
             goto RefFromFa_ret_MALFORMED_INPUT_WW;

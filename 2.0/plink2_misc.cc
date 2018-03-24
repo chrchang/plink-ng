@@ -2072,8 +2072,8 @@ PglErr WriteGenoCounts(__attribute__((unused)) const uintptr_t* sample_include, 
     }
     AppendBinaryEoln(&cswritep);
 
-    const int32_t x_code = cip->xymt_codes[kChrOffsetX];
-    const int32_t y_code = cip->xymt_codes[kChrOffsetY];
+    const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
+    const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
     uint32_t is_autosomal_diploid = 0;
     uint32_t is_x = 0;
     uint32_t nobs_base = 0;
@@ -2098,11 +2098,11 @@ PglErr WriteGenoCounts(__attribute__((unused)) const uintptr_t* sample_include, 
           ++chr_fo_idx;
           chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
         } while (variant_uidx >= chr_end);
-        const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+        const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
         char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
         *chr_name_end = '\t';
         chr_buf_blen = 1 + S_CAST(uintptr_t, chr_name_end - chr_buf);
-        is_autosomal_diploid = !IsSetI(cip->haploid_mask, chr_idx);
+        is_autosomal_diploid = !IsSet(cip->haploid_mask, chr_idx);
         nobs_base = sample_ct;
         is_x = (chr_idx == x_code);
         /*
@@ -2377,7 +2377,7 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdIn
       }
       AppendBinaryEoln(&cswritep);
       uint32_t variant_ct_y = 0;
-      int32_t y_code;
+      uint32_t y_code;
       if (XymtExists(cip, kChrOffsetY, &y_code)) {
         variant_ct_y = CountChrVariantsUnsafe(variant_include, cip, y_code);
       }
@@ -2545,7 +2545,7 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdIn
       AppendBinaryEoln(&cswritep);
       char nobs_str[16];
       nobs_str[0] = '\t';
-      const int32_t y_code = cip->xymt_codes[kChrOffsetY];
+      const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
       uint32_t nobs_slen = 0;
       uint32_t variant_uidx = 0;
       uint32_t chr_fo_idx = UINT32_MAX;
@@ -2563,12 +2563,11 @@ PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdIn
       for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
         MovU32To1Bit(variant_include, &variant_uidx);
         if (variant_uidx >= chr_end) {
-          int32_t chr_idx;
           do {
             ++chr_fo_idx;
             chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-            chr_idx = cip->chr_file_order[chr_fo_idx];
           } while (variant_uidx >= chr_end);
+          const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
           char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
           *chr_name_end = '\t';
           chr_buf_blen = 1 + S_CAST(uintptr_t, chr_name_end - chr_buf);
@@ -2840,10 +2839,10 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
       goto HardyReport_ret_NOMEM;
     }
     // skip chrX, chrY, chrM here
-    const int32_t mt_code = cip->xymt_codes[kChrOffsetMT];
+    const uint32_t mt_code = cip->xymt_codes[kChrOffsetMT];
     memcpy(chr_skips, cip->haploid_mask, chr_code_endl * sizeof(intptr_t));
-    if (mt_code >= 0) {
-      SetBitI(mt_code, chr_skips);
+    if (!IsI32Neg(mt_code)) {
+      SetBit(mt_code, chr_skips);
     }
     const uint32_t chr_skip_ct = PopcountWords(chr_skips, chr_code_endl);
     uint32_t variant_skip_ct = 0;
@@ -2933,12 +2932,12 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
         MovU32To1Bit(variant_include, &variant_uidx);
         if (chr_col) {
           if (variant_uidx >= chr_end) {
-            int32_t chr_idx;
+            uint32_t chr_idx;
             do {
               ++chr_fo_idx;
               chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
               chr_idx = cip->chr_file_order[chr_fo_idx];
-            } while ((variant_uidx >= chr_end) || IsSetI(chr_skips, chr_idx));
+            } while ((variant_uidx >= chr_end) || IsSet(chr_skips, chr_idx));
             variant_uidx = AdvTo1Bit(variant_include, cip->chr_fo_vidx_start[chr_fo_idx]);
             char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
             *chr_name_end = '\t';
@@ -3030,7 +3029,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
       // includes trailing tab
       char x_name_buf[8];
       uint32_t x_name_blen = 0;
-      const int32_t x_code = cip->xymt_codes[kChrOffsetX];
+      const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
       if (chr_col) {
         cswritep = strcpya(cswritep, "CHROM\t");
         char* write_iter = chrtoa(cip, x_code, x_name_buf);
@@ -3086,7 +3085,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
       AppendBinaryEoln(&cswritep);
       fputs("--hardy: Writing chrX results...", stdout);
       fflush(stdout);
-      const uint32_t x_chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, x_code)];
+      const uint32_t x_chr_fo_idx = cip->chr_idx_to_foidx[x_code];
       const uint32_t x_start = cip->chr_fo_vidx_start[x_chr_fo_idx];
       uint32_t variant_uidx = x_start;
       uint32_t cur_allele_ct = 2;

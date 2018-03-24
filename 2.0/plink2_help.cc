@@ -753,7 +753,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    List all variants which pass your filters/inclusion thresholds.\n\n"
                );
     HelpPrint("glm\tlinear\tlogistic\tassoc", &help_ctrl, 1,
-"  --glm <zs> <a0-ref> <sex | no-x-sex>\n"
+"  --glm <zs> <a0-ref> <sex | no-x-sex> <log10>\n"
 "        <genotypic | hethom | dominant | recessive> <interaction> <hide-covar>\n"
 "        <intercept> <firth-fallback | firth> <cols=[col set descriptor]>\n"
 "        <local-covar=[f]> <local-pvar=[f]> <local-psam=[f]>\n"
@@ -773,6 +773,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      PLINK 1.x) is automatically added as a predictor for X chromosome\n"
 "      variants, and no others.  The 'sex' modifier causes it to be added\n"
 "      everywhere (except chrY), while 'no-x-sex' excludes it entirely.\n"
+"    * The 'log10' modifier causes p-values to be reported in -log10(p) form.\n"
+"      (This is one way to enable comparisons between p-values smaller than\n"
+"      5e-324.)\n"
 "    * The 'genotypic' modifier adds an additive effect/dominance deviation 2df\n"
 "      joint test (0-2 and 0..1..0 coding), while 'hethom' uses 0..0..1 and\n"
 "      0..1..0 coding instead.\n"
@@ -849,7 +852,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      se: Standard error of beta/odds ratio.\n"
 "      ci: Bounds of symmetric approximate confidence interval (requires --ci).\n"
 "      tz: T-statistic for linear regression, Wald Z-score for logistic/Firth.\n"
-"      p: Asymptotic p-value for T/Z-statistic.\n"
+"      p: Asymptotic p-value (or -log10(p)) for T/Z-statistic.\n"
 "    The default is chrom,pos,ref,alt,firth,test,nobs,orbeta,se,ci,tz,p.\n\n"
                );
     HelpPrint("score", &help_ctrl, 1,
@@ -912,7 +915,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      correlations in genome-wide association studies.)\n"
 "    * 'log10' causes negative base 10 logs of p-values to be reported, instead\n"
 "      of raw p-values.  'input-log10' specifies that the input file contains\n"
-"      -log10(p) values.\n"
+"      -log10(p) values (this should frequently be combined with\n"
+"      \"--adjust-p-field LOG10P\").\n"
 "    * If the input file contains multiple tests per variant which are\n"
 "      distinguished by a 'TEST' column (true for --linear/--logistic/--glm),\n"
 "      you must use 'test=' to select the test to process.\n"

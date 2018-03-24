@@ -205,22 +205,22 @@ void AppendChrsetLine(const ChrInfo* cip, char** write_iter_ptr) {
   if (!(cip->haploid_mask[0] & 1)) {
     write_iter = strcpya(write_iter, "autosomePairCt=");
     write_iter = u32toa(cip->autosome_ct, write_iter);
-    if (cip->xymt_codes[kChrOffsetX] >= 0) {
+    if (!IsI32Neg(cip->xymt_codes[kChrOffsetX])) {
       write_iter = strcpya(write_iter, ",X");
     }
-    if (cip->xymt_codes[kChrOffsetY] >= 0) {
+    if (!IsI32Neg(cip->xymt_codes[kChrOffsetY])) {
       write_iter = strcpya(write_iter, ",Y");
     }
-    if (cip->xymt_codes[kChrOffsetXY] >= 0) {
+    if (!IsI32Neg(cip->xymt_codes[kChrOffsetXY])) {
       write_iter = strcpya(write_iter, ",XY");
     }
-    if (cip->xymt_codes[kChrOffsetMT] >= 0) {
+    if (!IsI32Neg(cip->xymt_codes[kChrOffsetMT])) {
       write_iter = strcpya(write_iter, ",M");
     }
-    if (cip->xymt_codes[kChrOffsetPAR1] >= 0) {
+    if (!IsI32Neg(cip->xymt_codes[kChrOffsetPAR1])) {
       write_iter = strcpya(write_iter, ",PAR1");
     }
-    if (cip->xymt_codes[kChrOffsetPAR2] >= 0) {
+    if (!IsI32Neg(cip->xymt_codes[kChrOffsetPAR2])) {
       write_iter = strcpya(write_iter, ",PAR2");
     }
   } else {
@@ -1300,7 +1300,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
   const uint32_t raw_sample_ct = g_raw_sample_ct;
   const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
   const uint32_t first_hap_uidx = g_first_hap_uidx;
-  const int32_t y_code = cip->xymt_codes[kChrOffsetY];
+  const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
   uintptr_t* genovec = g_genovecs[tidx];
   uintptr_t* dosage_present = nullptr;
   Dosage* dosage_vals = nullptr;
@@ -1311,9 +1311,9 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
   uint32_t is_y = 0;
   uint32_t is_nonxy_haploid = 0;
   uint32_t x_start = 0;
-  int32_t x_code;
+  uint32_t x_code;
   if (XymtExists(cip, kChrOffsetX, &x_code)) {
-    const uint32_t x_chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, x_code)];
+    const uint32_t x_chr_fo_idx = cip->chr_idx_to_foidx[x_code];
     x_start = cip->chr_fo_vidx_start[x_chr_fo_idx];
   }
   while (1) {
@@ -1355,7 +1355,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
         MovU32To1Bit(variant_include, &variant_uidx);
         if (variant_uidx >= chr_end) {
           const uint32_t chr_fo_idx = GetVariantChrFoIdx(cip, variant_uidx);
-          const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+          const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
           chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
           is_y = 0;
           is_nonxy_haploid = 0;
@@ -1372,7 +1372,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
             }
             is_x_or_y = 0;
             // no way for this to happen now unless everything is haploid?
-            is_nonxy_haploid = IsSetI(cip->haploid_mask, chr_idx);
+            is_nonxy_haploid = IsSet(cip->haploid_mask, chr_idx);
           }
         }
         const uintptr_t cur_variant_allele_idx = variant_allele_idxs? variant_allele_idxs[variant_uidx] : (2 * variant_uidx);
@@ -1728,8 +1728,8 @@ PglErr LoadAlleleAndGenoCounts(const uintptr_t* sample_include, const uintptr_t*
     }
     BigstackEndReset(bigstack_end_mark);  // free nosex_buf
 
-    int32_t ii;
-    const uint32_t x_dosages_needed = (allele_dosages || founder_allele_dosages || variant_missing_dosage_cts) && XymtExists(cip, kChrOffsetX, &ii) && (pgfip->gflags & kfPgenGlobalDosagePresent);
+    uint32_t unused_chr_code;
+    const uint32_t x_dosages_needed = (allele_dosages || founder_allele_dosages || variant_missing_dosage_cts) && XymtExists(cip, kChrOffsetX, &unused_chr_code) && (pgfip->gflags & kfPgenGlobalDosagePresent);
     if (!x_dosages_needed) {
       // defensive
       g_dosage_presents = nullptr;
@@ -1922,9 +1922,9 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* arg) {
   const uint32_t sample_ct4 = QuaterCtToByteCt(sample_ct);
   const uint32_t calc_thread_ct = g_calc_thread_ct;
   const AltAlleleCt* refalt1_select = g_refalt1_select;
-  const int32_t x_code = cip->xymt_codes[kChrOffsetX];
-  const int32_t y_code = cip->xymt_codes[kChrOffsetY];
-  const int32_t mt_code = cip->xymt_codes[kChrOffsetMT];
+  const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
+  const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
+  const uint32_t mt_code = cip->xymt_codes[kChrOffsetMT];
   uint32_t parity = 0;
   while (1) {
     const uint32_t is_last_block = g_is_last_thread_block;
@@ -1942,7 +1942,7 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* arg) {
       MovU32To1Bit(variant_include, &variant_uidx);
       if (variant_uidx >= chr_end) {
         const uint32_t chr_fo_idx = GetVariantChrFoIdx(cip, variant_uidx);
-        const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+        const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
         chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
         is_y = (chr_idx == y_code);
         is_x_or_y = is_y || (chr_idx == x_code);
@@ -2050,9 +2050,9 @@ THREAD_FUNC_DECL MakePgenThread(void* arg) {
   const uint32_t sample_ctv2 = QuaterCtToVecCt(sample_ct);
   const uint32_t raw_sample_ctaw2 = QuaterCtToAlignedWordCt(raw_sample_ct);
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
-  const int32_t x_code = cip->xymt_codes[kChrOffsetX];
-  const int32_t y_code = cip->xymt_codes[kChrOffsetY];
-  const int32_t mt_code = cip->xymt_codes[kChrOffsetMT];
+  const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
+  const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
+  const uint32_t mt_code = cip->xymt_codes[kChrOffsetMT];
 
   const uint32_t set_hh_missing = g_plink2_write_flags & kfPlink2WriteSetHhMissing;
   const uint32_t set_hh_missing_keep_dosage = g_plink2_write_flags & kfPlink2WriteSetHhMissingKeepDosage;
@@ -2120,12 +2120,12 @@ THREAD_FUNC_DECL MakePgenThread(void* arg) {
       }
       if (write_idx >= chr_end_bidx) {
         const uint32_t chr_fo_idx = CountSortedSmallerU32(&(write_chr_fo_vidx_start[1]), cip->chr_ct, write_idx + variant_idx_offset + 1);
-        const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+        const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
         chr_end_bidx = write_chr_fo_vidx_start[chr_fo_idx + 1] - variant_idx_offset;
         is_y = (chr_idx == y_code);
         is_x_or_y = is_y || (chr_idx == x_code);
         is_mt = (chr_idx == mt_code);
-        is_haploid_nonmt = IsSetI(cip->haploid_mask, chr_idx) && (!is_mt);
+        is_haploid_nonmt = IsSet(cip->haploid_mask, chr_idx) && (!is_mt);
       }
       uint32_t is_hphase = loaded_vrtype & 0x10;
       const uint32_t is_dosage = loaded_vrtype & 0x60;
@@ -2334,6 +2334,11 @@ PgenGlobalFlags GflagsVfilter(const uintptr_t* variant_include, const unsigned c
     if (cur_variant_include_word) {
 #ifdef __LP64__
       for (uint32_t vi_byte_idx = 0; vi_byte_idx < 8; ++vi_byte_idx) {
+#  ifdef USE_AVX2
+        // might remove this, speed advantage over generic 64-bit code is small
+        // on my Mac and even reverses direction in some contexts
+        const uintptr_t cur_mask = _pdep_u64(cur_variant_include_word, kMask0101);
+#  else
         // this operation maps binary hgfedcba to h0000000g0000000f...
         //                                        ^       ^       ^
         //                                        |       |       |
@@ -2348,6 +2353,7 @@ PgenGlobalFlags GflagsVfilter(const uintptr_t* variant_include, const unsigned c
         // 3. mask out all but bits 8, 16, 24, ..., 56
         // todo: test if this actually beats the per-character loop...
         const uintptr_t cur_mask = (((cur_variant_include_word & 0xfe) * 0x2040810204080LLU) & kMask0101) | (cur_variant_include_word & 1);
+#  endif
         vrtypes_or |= (*vrtypes_alias_iter++) & (cur_mask * mask_multiply);
         cur_variant_include_word >>= 8;
       }
@@ -3498,7 +3504,7 @@ BoolErr SortChr(const ChrInfo* cip, const uint32_t* chr_idx_to_size, uint32_t us
   const uint32_t xymt_ct = max_code - autosome_ct;
   const uint32_t autosome_ct_p1 = autosome_ct + 1;
 
-  const int32_t* xymt_codes = cip->xymt_codes;
+  const uint32_t* xymt_codes = cip->xymt_codes;
   uintptr_t xymt_idx_to_chr_sort_offset[kChrOffsetCt] = {1, 3, 4, 5, 0, 2};
 
   // chr_sort_idx in high bits, original chr_idx in low
@@ -3514,8 +3520,8 @@ BoolErr SortChr(const ChrInfo* cip, const uint32_t* chr_idx_to_size, uint32_t us
     }
   }
   for (uint32_t xymt_idx = 0; xymt_idx < xymt_ct; ++xymt_idx) {
-    const int32_t xymt_code = xymt_codes[xymt_idx];
-    if (xymt_code >= 0) {
+    const uint32_t xymt_code = xymt_codes[xymt_idx];
+    if (!IsI32Neg(xymt_code)) {
       if (chr_idx_to_size[xymt_idx + autosome_ct_p1]) {
         *std_sortbuf_iter++ = (S_CAST(uint64_t, xymt_idx_to_chr_sort_offset[xymt_idx] + autosome_ct_p1) << 32) | (xymt_idx + autosome_ct_p1);
       }

@@ -478,10 +478,8 @@ typedef struct {
 
   uintptr_t chr_exclude[kChrExcludeWords];
 
-  // X, Y, XY...; -2 = not in chromosome set
-  // may want to redefine this as a uint32_t, the static casts are getting
-  // annoying
-  int32_t xymt_codes[kChrOffsetCt];
+  // X, Y, XY...; UINT32_MAXM1 = not in chromosome set
+  uint32_t xymt_codes[kChrOffsetCt];
 
   uint32_t max_numeric_code;
   uint32_t max_code;  // no longer identical to max_numeric_code, with PARs
@@ -520,6 +518,7 @@ PglErr FinalizeChrInfo(ChrInfo* cip);
 
 void CleanupChrInfo(ChrInfo* cip);
 
+// assumes chr_idx is valid
 char* chrtoa(const ChrInfo* cip, uint32_t chr_idx, char* buf);
 
 uint32_t GetMaxChrSlen(const ChrInfo* cip);
@@ -528,18 +527,18 @@ uint32_t IsHaploidChrPresent(const ChrInfo* cip);
 
 // any character <= ' ' is considered a terminator
 // maps chrX -> kChrRawX, etc.
-int32_t GetChrCodeRaw(const char* str_iter);
+uint32_t GetChrCodeRaw(const char* str_iter);
 
 // requires chr_name to be null-terminated
 // maps chrX -> xymt_codes[kChrOffsetX], etc.
 // error codes:
-//   -1 = --allow-extra-chr ok
-//   -2 = total fail
-int32_t GetChrCode(const char* chr_name, const ChrInfo* cip, uint32_t name_slen);
+//   UINT32_MAX = --allow-extra-chr ok
+//   UINT32_MAXM1 = total fail
+uint32_t GetChrCode(const char* chr_name, const ChrInfo* cip, uint32_t name_slen);
 
 // when the chromosome name isn't null-terminated
 // requires chr_name[name_slen] to be mutable
-int32_t GetChrCodeCounted(const ChrInfo* cip, uint32_t name_slen, char* chr_name);
+uint32_t GetChrCodeCounted(const ChrInfo* cip, uint32_t name_slen, char* chr_name);
 
 HEADER_INLINE uint32_t GetVariantChrFoIdx(const ChrInfo* cip, uintptr_t variant_uidx) {
   return CountSortedSmallerU32(&(cip->chr_fo_vidx_start[1]), cip->chr_ct, variant_uidx + 1);
@@ -549,46 +548,46 @@ HEADER_INLINE uint32_t GetVariantChr(const ChrInfo* cip, uintptr_t variant_uidx)
   return cip->chr_file_order[GetVariantChrFoIdx(cip, variant_uidx)];
 }
 
-HEADER_INLINE uint32_t XymtExists(const ChrInfo* cip, uint32_t xymt_offset, int32_t* xymt_code_ptr) {
+HEADER_INLINE uint32_t XymtExists(const ChrInfo* cip, uint32_t xymt_offset, uint32_t* xymt_code_ptr) {
   // too easy to forget IsSet(chr_mask) check if we don't use this
-  const int32_t xymt_code = cip->xymt_codes[xymt_offset];
+  const uint32_t xymt_code = cip->xymt_codes[xymt_offset];
   *xymt_code_ptr = xymt_code;
-  return (xymt_code >= 0) && IsSetI(cip->chr_mask, xymt_code);
+  return (!IsI32Neg(xymt_code)) && IsSet(cip->chr_mask, xymt_code);
 }
 
 HEADER_INLINE void GetXymtStartAndEnd(const ChrInfo* cip, uint32_t xymt_offset, uint32_t* xymt_start_ptr, uint32_t* xymt_end_ptr) {
-  int32_t xymt_code;
+  uint32_t xymt_code;
   if (!XymtExists(cip, xymt_offset, &xymt_code)) {
     *xymt_start_ptr = 0;
     *xymt_end_ptr = 0;
     return;
   }
-  const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, xymt_code)];
+  const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[xymt_code];
   *xymt_start_ptr = cip->chr_fo_vidx_start[chr_fo_idx];
   *xymt_end_ptr = cip->chr_fo_vidx_start[chr_fo_idx + 1];
 }
 
-HEADER_INLINE void GetXymtCodeStartAndEndUnsafe(const ChrInfo* cip, uint32_t xymt_offset, int32_t* xymt_code_ptr, uint32_t* xymt_start_ptr, uint32_t* xymt_end_ptr) {
+HEADER_INLINE void GetXymtCodeStartAndEndUnsafe(const ChrInfo* cip, uint32_t xymt_offset, uint32_t* xymt_code_ptr, uint32_t* xymt_start_ptr, uint32_t* xymt_end_ptr) {
   // assumes xymt_exists was previously called, and is true
-  const int32_t xymt_code = cip->xymt_codes[xymt_offset];
+  const uint32_t xymt_code = cip->xymt_codes[xymt_offset];
   *xymt_code_ptr = xymt_code;
-  const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, xymt_code)];
+  const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[xymt_code];
   *xymt_start_ptr = cip->chr_fo_vidx_start[chr_fo_idx];
   *xymt_end_ptr = cip->chr_fo_vidx_start[chr_fo_idx + 1];
 }
 
 // now assumes chr_name is null-terminated
-PglErr TryToAddChrName(const char* chr_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, uint32_t allow_extra_chrs, int32_t* chr_idx_ptr, ChrInfo* cip);
+PglErr TryToAddChrName(const char* chr_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, uint32_t allow_extra_chrs, uint32_t* chr_idx_ptr, ChrInfo* cip);
 
-HEADER_INLINE PglErr GetOrAddChrCode(const char* chr_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, uint32_t allow_extra_chrs, ChrInfo* cip, int32_t* chr_idx_ptr) {
+HEADER_INLINE PglErr GetOrAddChrCode(const char* chr_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, uint32_t allow_extra_chrs, ChrInfo* cip, uint32_t* chr_idx_ptr) {
   *chr_idx_ptr = GetChrCode(chr_name, cip, name_slen);
-  if (*chr_idx_ptr >= 0) {
+  if (!IsI32Neg(*chr_idx_ptr)) {
     return kPglRetSuccess;
   }
   return TryToAddChrName(chr_name, file_descrip, line_idx, name_slen, allow_extra_chrs, chr_idx_ptr, cip);
 }
 
-HEADER_INLINE PglErr GetOrAddChrCodeDestructive(const char* file_descrip, uintptr_t line_idx, uint32_t allow_extra_chrs, char* chr_name, char* chr_name_end, ChrInfo* cip, int32_t* chr_idx_ptr) {
+HEADER_INLINE PglErr GetOrAddChrCodeDestructive(const char* file_descrip, uintptr_t line_idx, uint32_t allow_extra_chrs, char* chr_name, char* chr_name_end, ChrInfo* cip, uint32_t* chr_idx_ptr) {
   *chr_name_end = '\0';
   return GetOrAddChrCode(chr_name, file_descrip, line_idx, chr_name_end - chr_name, allow_extra_chrs, cip, chr_idx_ptr);
 }
@@ -688,11 +687,11 @@ HEADER_INLINE uint32_t ChrIsNonempty(const uintptr_t* variant_include, const Chr
 }
 
 HEADER_INLINE uint32_t XymtIsNonempty(const uintptr_t* variant_include, const ChrInfo* cip, uint32_t xymt_offset) {
-  const int32_t xymt_code = cip->xymt_codes[xymt_offset];
-  if ((xymt_code < 0) || (!IsSet(cip->chr_mask, xymt_code))) {
+  const uint32_t xymt_code = cip->xymt_codes[xymt_offset];
+  if (IsI32Neg(xymt_code) || (!IsSet(cip->chr_mask, xymt_code))) {
     return 0;
   }
-  return ChrIsNonempty(variant_include, cip, S_CAST(uint32_t, xymt_code));
+  return ChrIsNonempty(variant_include, cip, xymt_code);
 }
 
 // assumes there's at least one variant on specified chromosome

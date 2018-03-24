@@ -74,8 +74,8 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
         }
         const uint32_t chr_name_slen = first_token_end - linebuf_first_token;
         *first_token_end = '\0';
-        const int32_t cur_chr_code = GetChrCode(linebuf_first_token, cip, chr_name_slen);
-        if (cur_chr_code < 0) {
+        const uint32_t cur_chr_code = GetChrCode(linebuf_first_token, cip, chr_name_slen);
+        if (IsI32Neg(cur_chr_code)) {
           snprintf(g_logbuf, kLogbufSize, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
           goto LoadIbed_ret_MALFORMED_INPUT_2;
         }
@@ -207,17 +207,17 @@ PglErr LoadIbed(const ChrInfo* cip, const uint32_t* variant_bps, const char* sor
       }
       const uint32_t chr_name_slen = first_token_end - linebuf_first_token;
       *first_token_end = '\0';
-      const int32_t cur_chr_code = GetChrCode(linebuf_first_token, cip, chr_name_slen);
-      if (cur_chr_code < 0) {
+      const uint32_t cur_chr_code = GetChrCode(linebuf_first_token, cip, chr_name_slen);
+      if (IsI32Neg(cur_chr_code)) {
         snprintf(g_logbuf, kLogbufSize, "Error: Invalid chromosome code on line %" PRIuPTR " of %s.\n", line_idx, file_descrip);
         goto LoadIbed_ret_MALFORMED_INPUT_2;
       }
       line_iter = CurTokenEnd(last_token);
-      if (!IsSetI(cip->chr_mask, cur_chr_code)) {
+      if (!IsSet(cip->chr_mask, cur_chr_code)) {
         continue;
       }
       if (variant_bps) {
-        const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, cur_chr_code)];
+        const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[cur_chr_code];
         chr_start = cip->chr_fo_vidx_start[chr_fo_idx];
         chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
         if (chr_end == chr_start) {

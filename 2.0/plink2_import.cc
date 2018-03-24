@@ -663,9 +663,13 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     if (StandardizeLinebufSize(bigstack_left() / 4, kMaxMediumLine + 1, &linebuf_size)) {
       goto VcfToPgen_ret_NOMEM;
     }
-    // 2 decompressor threads seems optimal on test Mac, but try varying this
-    // on other systems
-    const uint32_t calc_thread_ct = 1 + (max_thread_ct > 2);
+    // probable todo: if chromosome filter specified, take advantage of an
+    // index file with the standard extension if it's present.  (The index
+    // reader can be very simple since *only* chromosome filters are supported
+    // by import functions.)  Do the same for .bgen and .bcf files.
+
+    // tested this, 3 appears to be a better default than 2
+    const uint32_t calc_thread_ct = ClipU32(max_thread_ct, 1, 3);
     reterr = RlsOpenMaybeBgzf(vcfname, calc_thread_ct, &vcf_rls);
     if (reterr) {
       if (reterr == kPglRetOpenFail) {
@@ -1024,12 +1028,12 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       // wait till this point to apply it, since we don't want to
       // add a contig name to the hash table unless at least one variant on
       // that contig wasn't filtered out for other reasons.
-      int32_t cur_chr_code;
+      uint32_t cur_chr_code;
       reterr = GetOrAddChrCodeDestructive("--vcf file", line_idx, allow_extra_chrs, line_iter, chr_code_end, cip, &cur_chr_code);
       if (reterr) {
         goto VcfToPgen_ret_1;
       }
-      if (!IsSetI(cip->chr_mask, cur_chr_code)) {
+      if (!IsSet(cip->chr_mask, cur_chr_code)) {
         ++variant_skip_ct;
         line_iter = info_end;
         continue;
@@ -1040,8 +1044,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       if (cur_qualfilterinfo_slen > max_qualfilterinfo_slen) {
         max_qualfilterinfo_slen = cur_qualfilterinfo_slen;
       }
-      if (S_CAST(uint32_t, cur_chr_code) <= cip->max_code) {
-        SetBitI(cur_chr_code, base_chr_present);
+      if (cur_chr_code <= cip->max_code) {
+        SetBit(cur_chr_code, base_chr_present);
       }
 
       variant_allele_idxs[variant_ct] = allele_idx_end;
@@ -1206,6 +1210,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     }
 
     // probably wrap this in a function...
+    // may want to conditionally set this to 2
     vcf_rls.bgzf_decompress_thread_ct = 1;
     // force file to be reopened since we want to change bgzf_mt configuration.
     reterr = RetargetRLstreamRaw(vcfname, &vcf_rls, &line_iter);
@@ -1249,16 +1254,16 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
             goto VcfToPgen_ret_MALFORMED_INPUT_WW;
           }
         }
-        const int32_t cur_chr_code = GetChrCodeCounted(cip, contig_name_end - contig_name_start, contig_name_start);
-        if (cur_chr_code < 0) {
+        const uint32_t cur_chr_code = GetChrCodeCounted(cip, contig_name_end - contig_name_start, contig_name_start);
+        if (IsI32Neg(cur_chr_code)) {
           continue;
         }
-        if (S_CAST(uint32_t, cur_chr_code) <= cip->max_code) {
-          if (!IsSetI(base_chr_present, cur_chr_code)) {
+        if (cur_chr_code <= cip->max_code) {
+          if (!IsSet(base_chr_present, cur_chr_code)) {
             continue;
           }
         } else {
-          if (!IsSetI(cip->chr_mask, cur_chr_code)) {
+          if (!IsSet(cip->chr_mask, cur_chr_code)) {
             continue;
           }
         }
@@ -1413,8 +1418,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       // 1. check if we skip this variant.  chromosome filter, require_gt, and
       //    (temporarily) multiple alt alleles can cause this.
       char* chr_code_end = AdvToDelim(line_iter, '\t');
-      int32_t chr_code_base = GetChrCodeRaw(line_iter);
-      if (chr_code_base == -1) {
+      uint32_t chr_code_base = GetChrCodeRaw(line_iter);
+      if (chr_code_base == UINT32_MAX) {
         // skip hash table lookup if we know we aren't skipping the variant
         if (variant_skip_ct) {
           *chr_code_end = '\0';
@@ -1426,17 +1431,17 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           *chr_code_end = '\t';
         }
       } else {
-        if (chr_code_base >= S_CAST(int32_t, kMaxContigs)) {
+        if (chr_code_base >= kMaxContigs) {
           chr_code_base = cip->xymt_codes[chr_code_base - kMaxContigs];
         }
-        if ((chr_code_base < 0) || (!IsSetI(base_chr_present, chr_code_base))) {
+        if (IsI32Neg(chr_code_base) || (!IsSet(base_chr_present, chr_code_base))) {
           assert(variant_skip_ct);
           line_iter = chr_code_end;
           continue;
         }
       }
       // chr_code_base is now a proper numeric chromosome index for
-      // non-contigs, and -1 if it's a contig name
+      // non-contigs, and UINT32_MAX if it's a contig name
       char* pos_str = &(chr_code_end[1]);
       char* pos_str_end = AdvToDelim(pos_str, '\t');
       // copy ID, REF verbatim
@@ -1470,7 +1475,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       // temporary kludge
       char* cur_write_start = write_iter;
 
-      if (chr_code_base == -1) {
+      if (chr_code_base == UINT32_MAX) {
         write_iter = memcpya(write_iter, line_iter, chr_code_end - line_iter);
       } else {
         write_iter = chrtoa(cip, chr_code_base, write_iter);
@@ -2454,9 +2459,9 @@ void Bgen11DosageImportUpdate(uint32_t dosage_int_sum_thresh, uint32_t import_do
   *dosage_vals_iterp += 1;
 }
 
-BoolErr InitOxfordSingleChr(const char* ox_single_chr_str, const char** single_chr_str_ptr, uint32_t* single_chr_slen_ptr, int32_t* cur_chr_code_ptr, ChrInfo* cip) {
-  int32_t chr_code_raw = GetChrCodeRaw(ox_single_chr_str);
-  if (chr_code_raw == -1) {
+BoolErr InitOxfordSingleChr(const char* ox_single_chr_str, const char** single_chr_str_ptr, uint32_t* single_chr_slen_ptr, uint32_t* cur_chr_code_ptr, ChrInfo* cip) {
+  const uint32_t chr_code_raw = GetChrCodeRaw(ox_single_chr_str);
+  if (chr_code_raw == UINT32_MAX) {
     // command-line parser guarantees that allow_extra_chrs is true here
     const uint32_t chr_slen = strlen(ox_single_chr_str);
     if (single_chr_str_ptr) {
@@ -2473,7 +2478,7 @@ BoolErr InitOxfordSingleChr(const char* ox_single_chr_str, const char** single_c
       return 1;
     }
     chr_code = cip->xymt_codes[chr_code - kMaxContigs];
-    if (S_CAST(int32_t, chr_code) < 0) {
+    if (IsI32Neg(chr_code)) {
       logerrputs("Error: --oxford-single-chr chromosome code is not in the chromosome set.\n");
       return 1;
     }
@@ -2603,7 +2608,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
       }
 
       if (!single_chr_str) {
-        int32_t cur_chr_code;
+        uint32_t cur_chr_code;
         reterr = GetOrAddChrCodeDestructive(".gen file", line_idx, allow_extra_chrs, chr_code_str, chr_code_end, cip, &cur_chr_code);
         if (reterr) {
           if (strequal_k(chr_code_str, "---", chr_code_end - chr_code_str)) {
@@ -2611,7 +2616,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
           }
           goto OxGenToPgen_ret_1;
         }
-        if (!IsSetI(cip->chr_mask, cur_chr_code)) {
+        if (!IsSet(cip->chr_mask, cur_chr_code)) {
           ++variant_skip_ct;
           continue;
         }
@@ -4126,7 +4131,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     uint32_t chr_filter_present = (PopcountBitRange(cip->chr_mask, 0, autosome_ct_p1) != autosome_ct_p1) || (allow_extra_chrs && (cip->is_include_stack || cip->incl_excl_name_stack));
     if (!chr_filter_present) {
       for (uint32_t xymt_idx = 0; xymt_idx < kChrOffsetCt; ++xymt_idx) {
-        if (cip->xymt_codes[xymt_idx] >= 0) {
+        if (!IsI32Neg(cip->xymt_codes[xymt_idx])) {
           if (!IsSet(cip->chr_mask, autosome_ct_p1 + xymt_idx)) {
             chr_filter_present = 1;
             break;
@@ -4149,7 +4154,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
     }
     char* writebuf_flush = &(writebuf[kMaxMediumLine]);
 
-    int32_t cur_chr_code = 0;
+    uint32_t cur_chr_code = 0;
     if (ox_single_chr_str) {
       if (InitOxfordSingleChr(ox_single_chr_str, nullptr, nullptr, &cur_chr_code, cip)) {
         goto OxBgenToPgen_ret_INVALID_CMDLINE;
@@ -4365,7 +4370,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           if (reterr) {
             goto OxBgenToPgen_ret_1;
           }
-          skip = !IsSetI(cip->chr_mask, cur_chr_code);
+          skip = !IsSet(cip->chr_mask, cur_chr_code);
         }
 
         uint32_t cur_bp;  // ignore in this pass
@@ -4615,7 +4620,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
               if (reterr) {
                 goto OxBgenToPgen_ret_1;
               }
-              skip = !IsSetI(cip->chr_mask, cur_chr_code);
+              skip = !IsSet(cip->chr_mask, cur_chr_code);
             }
 
             uint32_t cur_bp;
@@ -5048,7 +5053,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           if (reterr) {
             goto OxBgenToPgen_ret_1;
           }
-          skip = !IsSetI(cip->chr_mask, cur_chr_code);
+          skip = !IsSet(cip->chr_mask, cur_chr_code);
         }
 
         uint32_t cur_bp;
@@ -5635,9 +5640,12 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
                 chr_name_slen = snpid_slen;
               }
               if (chr_filter_present) {
-                const int32_t cur_chr_code2 = GetChrCode(R_CAST(char*, loadbuf), cip, chr_name_slen);
-                assert(cur_chr_code2 >= 0);  // we scanned all the variants
-                skip = !IsSetI(cip->chr_mask, cur_chr_code2);
+                const uint32_t cur_chr_code2 = GetChrCode(R_CAST(char*, loadbuf), cip, chr_name_slen);
+
+                // we scanned all the variants
+                assert(!IsI32Neg(cur_chr_code2));
+
+                skip = !IsSet(cip->chr_mask, cur_chr_code2);
               }
             }
 
@@ -6020,11 +6028,11 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
         goto OxHapslegendToPgen_ret_READ_RLSTREAM_HAPS;
       }
       line_idx_haps = 0;
-      int32_t chr_code_raw = GetChrCodeRaw(ox_single_chr_str);
+      const uint32_t chr_code_raw = GetChrCodeRaw(ox_single_chr_str);
       const char* single_chr_str = nullptr;
       uint32_t single_chr_slen;
       char chr_buf[8];  // nothing longer than e.g. "chrMT" for now
-      if (chr_code_raw == -1) {
+      if (chr_code_raw == UINT32_MAX) {
         // command-line parser guarantees that allow_extra_chrs is true here
         single_chr_str = ox_single_chr_str;
         single_chr_slen = strlen(ox_single_chr_str);
@@ -6036,7 +6044,7 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
             goto OxHapslegendToPgen_ret_INVALID_CMDLINE;
           }
           chr_code = cip->xymt_codes[chr_code - kMaxContigs];
-          if (S_CAST(int32_t, chr_code) < 0) {
+          if (IsI32Neg(chr_code)) {
             logerrputs("Error: --legend chromosome code is not in the chromosome set.\n");
             goto OxHapslegendToPgen_ret_INVALID_CMDLINE;
           }
@@ -6125,15 +6133,15 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
           if (IsEolnKns(*linebuf_iter)) {
             goto OxHapslegendToPgen_ret_MISSING_TOKENS_HAPS;
           }
-          int32_t cur_chr_code;
+          uint32_t cur_chr_code;
           reterr = GetOrAddChrCodeDestructive("--haps file", line_idx_haps, allow_extra_chrs, haps_line_iter, chr_code_end, cip, &cur_chr_code);
           if (reterr) {
             goto OxHapslegendToPgen_ret_1;
           }
-          if (!IsSetI(cip->chr_mask, cur_chr_code)) {
+          if (!IsSet(cip->chr_mask, cur_chr_code)) {
             ++variant_skip_ct;
           } else {
-            is_haploid = IsSetI(cip->haploid_mask, cur_chr_code);
+            is_haploid = IsSet(cip->haploid_mask, cur_chr_code);
             write_iter = chrtoa(cip, cur_chr_code, write_iter);
             if (ImportLegendCols(hapsname, line_idx_haps, prov_ref_allele_second, K_CAST(const char**, &linebuf_iter), &write_iter, &variant_ct)) {
               putc_unlocked('\n', stdout);
@@ -6247,12 +6255,12 @@ PglErr OxHapslegendToPgen(const char* hapsname, const char* legendname, const ch
       char* linebuf_iter = haps_line_iter;
       if (!legendname[0]) {
         char* chr_code_end = CurTokenEnd(haps_line_iter);
-        const int32_t cur_chr_code = GetChrCodeCounted(cip, chr_code_end - haps_line_iter, haps_line_iter);
-        if (!IsSetI(cip->chr_mask, cur_chr_code)) {
+        const uint32_t cur_chr_code = GetChrCodeCounted(cip, chr_code_end - haps_line_iter, haps_line_iter);
+        if (!IsSet(cip->chr_mask, cur_chr_code)) {
           haps_line_iter = AdvToDelim(haps_line_iter, '\n');
           continue;
         }
-        is_haploid = IsSetI(cip->haploid_mask, cur_chr_code);
+        is_haploid = IsSet(cip->haploid_mask, cur_chr_code);
         linebuf_iter = NextTokenMult(FirstNonTspace(chr_code_end), 4);
         if (!linebuf_iter) {
           goto OxHapslegendToPgen_ret_MISSING_TOKENS_HAPS;
@@ -6534,12 +6542,12 @@ PglErr LoadMap(const char* mapname, MiscFlags misc_flags, ChrInfo* cip, uint32_t
         if (IsEolnKns(*linebuf_iter)) {
           goto LoadMap_ret_MISSING_TOKENS;
         }
-        int32_t cur_chr_code;
+        uint32_t cur_chr_code;
         reterr = GetOrAddChrCodeDestructive(".map file", line_idx, allow_extra_chrs, line_iter, chr_code_end, cip, &cur_chr_code);
         if (reterr) {
           goto LoadMap_ret_1;
         }
-        if (!IsSetI(cip->chr_mask, cur_chr_code)) {
+        if (!IsSet(cip->chr_mask, cur_chr_code)) {
           line_iter = linebuf_iter;
           goto LoadMap_skip_variant;
         }
@@ -7000,8 +7008,8 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     const uint32_t check_chr_col = (chr_col_idx != UINT32_MAX);
     if (!check_chr_col) {
       if (import_single_chr_str) {
-        int32_t chr_code_raw = GetChrCodeRaw(import_single_chr_str);
-        if (chr_code_raw == -1) {
+        uint32_t chr_code_raw = GetChrCodeRaw(import_single_chr_str);
+        if (chr_code_raw == UINT32_MAX) {
           // command-line parser guarantees that allow_extra_chrs is true here
           single_chr_str = import_single_chr_str;
           single_chr_slen = strlen(import_single_chr_str);
@@ -7013,7 +7021,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
               goto Plink1DosageToPgen_ret_INVALID_CMDLINE;
             }
             chr_code = cip->xymt_codes[chr_code - kMaxContigs];
-            if (S_CAST(int32_t, chr_code) < 0) {
+            if (IsI32Neg(chr_code)) {
               logerrputs("Error: --import-dosage single-chr= code is not in the chromosome set.\n");
               goto Plink1DosageToPgen_ret_INVALID_CMDLINE;
             }
@@ -7150,12 +7158,12 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
         if (check_chr_col) {
           char* chr_code_str = token_ptrs[0];
           char* chr_code_end = &(chr_code_str[token_slens[0]]);
-          int32_t cur_chr_code;
+          uint32_t cur_chr_code;
           reterr = GetOrAddChrCodeDestructive("--import-dosage file", line_idx, allow_extra_chrs, chr_code_str, chr_code_end, cip, &cur_chr_code);
           if (reterr) {
             goto Plink1DosageToPgen_ret_1;
           }
-          if (!IsSetI(cip->chr_mask, cur_chr_code)) {
+          if (!IsSet(cip->chr_mask, cur_chr_code)) {
             ++variant_skip_ct;
             continue;
           }

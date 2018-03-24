@@ -91,7 +91,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 304
+#define PLINK2_BASE_VERNUM 305
 
 
 #define _FILE_OFFSET_BITS 64
@@ -115,6 +115,9 @@
 #    define WINVER 0x0501
 #  else
 #    define __LP64__
+#  endif
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
 #  endif
 #  include <windows.h>
 #endif
@@ -150,6 +153,7 @@
 #  define UINT32_MAX 0xffffffffU
 #endif
 
+#define UINT32_MAXM1 0xfffffffeU
 
 // done with #includes, can start C++ namespace
 #ifdef __cplusplus
@@ -1022,8 +1026,14 @@ HEADER_INLINE uint32_t ModNz(uintptr_t val, uint32_t modulus) {
   return (1 + ((val - 1) % modulus));
 }
 
+// Equivalent to (static_cast<int32_t>(uii) < 0).  Most frequently used on
+// possibly-error chromosome indexes.
+HEADER_INLINE uint32_t IsI32Neg(uint32_t uii) {
+  return uii >> 31;
+}
+
 HEADER_INLINE uint32_t abs_i32(int32_t ii) {
-  const uint32_t neg_sign_bit = -(S_CAST(uint32_t, ii) >> 31);
+  const uint32_t neg_sign_bit = -IsI32Neg(ii);
   return (S_CAST(uint32_t, ii) ^ neg_sign_bit) - neg_sign_bit;
 }
 
@@ -1245,6 +1255,7 @@ uint32_t AdvBoundedTo1Bit(const uintptr_t* bitarr, uint32_t loc, uint32_t ceil);
 
 uint32_t FindLast1BitBefore(const uintptr_t* bitarr, uint32_t loc);
 
+// possible todo: check if movemask-based solution is better in AVX2 case
 HEADER_INLINE uint32_t AllWordsAreZero(const uintptr_t* word_arr, uintptr_t word_ct) {
   while (word_ct--) {
     if (*word_arr++) {

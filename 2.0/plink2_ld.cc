@@ -2773,8 +2773,8 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     }
     char* const* ld_console_varids = ldip->ld_console_varids;
     // ok to ignore chr_mask here
-    const int32_t x_code = cip->xymt_codes[kChrOffsetX];
-    const int32_t y_code = cip->xymt_codes[kChrOffsetY];
+    const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
+    const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
     // is_x:
     // * male het calls treated as missing hardcalls
     // * males only have half weight in all computations (or sqrt(0.5) if one
@@ -2798,15 +2798,16 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         snprintf(g_logbuf, kLogbufSize, "Error: --ld variant '%s' appears multiple times in dataset.\n", cur_varid);
         goto LdConsole_ret_INCONSISTENT_INPUT_WW;
       }
-      var_uidxs[var_idx] = ii;
-      const uint32_t chr_idx = GetVariantChr(cip, S_CAST(uint32_t, ii));
+      const uint32_t cur_var_uidx = ii;
+      var_uidxs[var_idx] = cur_var_uidx;
+      const uint32_t chr_idx = GetVariantChr(cip, cur_var_uidx);
       chr_idxs[var_idx] = chr_idx;
-      const uint32_t is_x = (S_CAST(int32_t, chr_idx) == x_code);
+      const uint32_t is_x = (chr_idx == x_code);
       is_xs[var_idx] = is_x;
       uint32_t is_nonx_haploid = 0;
       if (IsSet(cip->haploid_mask, chr_idx)) {
         is_nonx_haploid = 1 - is_x;
-        y_ct += (S_CAST(int32_t, chr_idx) == y_code);
+        y_ct += (chr_idx == y_code);
       }
       is_nonx_haploids[var_idx] = is_nonx_haploid;
     }

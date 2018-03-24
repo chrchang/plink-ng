@@ -52,13 +52,12 @@ void CleanupAdjust(AdjustFileInfo* adjust_file_info_ptr) {
 }
 
 typedef struct AdjAssocResultStruct {
-  double chisq;
-  double pval;
+  double chisq;  // do we really need this?...
+  double negln_pval;
   uint32_t variant_uidx;
 #ifdef __cplusplus
   bool operator<(const struct AdjAssocResultStruct& rhs) const {
-    // avoids p-value underflow issue, for what it's worth
-    return chisq > rhs.chisq;
+    return negln_pval > rhs.negln_pval;
   }
 #endif
 } AdjAssocResult;
@@ -76,7 +75,24 @@ static inline void adjust_print(const char* output_min_p_str, double pval, doubl
   }
 }
 
-PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char* const* chr_ids, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const AdjustInfo* adjust_info_ptr, const double* pvals, const double* chisqs, uint32_t orig_variant_ct, uint32_t max_allele_slen, double pfilter, double output_min_p, uint32_t skip_gc, uint32_t max_thread_ct, char* outname, char* outname_end) {
+static inline void adjust_print_negln(const char* output_min_p_str, double negln_pval, double output_max_negln_p, uint32_t output_min_p_slen, uint32_t is_log10, char** bufpp) {
+  **bufpp = '\t';
+  *bufpp += 1;
+  if (negln_pval >= output_max_negln_p) {
+    *bufpp = memcpya(*bufpp, output_min_p_str, output_min_p_slen);
+  } else {
+    double print_val;
+    if (!is_log10) {
+      print_val = exp(-negln_pval);
+    } else {
+      print_val = negln_pval * (1.0 / kLn10);
+    }
+    *bufpp = dtoa_g(print_val, *bufpp);
+  }
+}
+
+// Now based around negln_pvals, to allow useful comparisons < 5e-324.
+PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char* const* chr_ids, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const AdjustInfo* adjust_info_ptr, const double* negln_pvals, const double* chisqs, uint32_t orig_variant_ct, uint32_t max_allele_slen, double pfilter, double output_min_p, uint32_t skip_gc, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -90,13 +106,13 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     uint32_t valid_variant_ct = 0;
     if (chisqs) {
       uint32_t variant_uidx = 0;
-      if (pvals) {
+      if (negln_pvals) {
         for (uint32_t vidx = 0; vidx < orig_variant_ct; ++vidx, ++variant_uidx) {
           MovU32To1Bit(variant_include, &variant_uidx);
           const double cur_chisq = chisqs[vidx];
           if (cur_chisq >= 0.0) {
             sortbuf[valid_variant_ct].chisq = cur_chisq;
-            sortbuf[valid_variant_ct].pval = pvals[vidx];
+            sortbuf[valid_variant_ct].negln_pval = negln_pvals[vidx];
             sortbuf[valid_variant_ct].variant_uidx = variant_uidx;
             ++valid_variant_ct;
           }
@@ -107,7 +123,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
           const double cur_chisq = chisqs[vidx];
           if (cur_chisq >= 0.0) {
             sortbuf[valid_variant_ct].chisq = cur_chisq;
-            sortbuf[valid_variant_ct].pval = ChisqToP(cur_chisq, 1);
+            sortbuf[valid_variant_ct].negln_pval = ChisqToNegLnP(cur_chisq, 1);
             sortbuf[valid_variant_ct].variant_uidx = variant_uidx;
             ++valid_variant_ct;
           }
@@ -117,10 +133,10 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
       uint32_t variant_uidx = 0;
       for (uint32_t vidx = 0; vidx < orig_variant_ct; ++vidx, ++variant_uidx) {
         MovU32To1Bit(variant_include, &variant_uidx);
-        const double cur_pval = pvals[vidx];
-        if (cur_pval >= 0.0) {
-          sortbuf[valid_variant_ct].chisq = (cur_pval == 0.0)? kMaxChisq1df : PToChisq(cur_pval, 1);
-          sortbuf[valid_variant_ct].pval = cur_pval;
+        const double cur_negln_pval = negln_pvals[vidx];
+        if (cur_negln_pval >= 0.0) {
+          sortbuf[valid_variant_ct].chisq = NegLnPToChisq(cur_negln_pval);
+          sortbuf[valid_variant_ct].negln_pval = cur_negln_pval;
           sortbuf[valid_variant_ct].variant_uidx = variant_uidx;
           ++valid_variant_ct;
         }
@@ -150,67 +166,95 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
     } else {
       variant_bps = nullptr;
     }
-    cswritep = strcpya(cswritep, "ID");
+    cswritep = memcpyl3a(cswritep, "ID\t");
     const uint32_t ref_col = flags & kfAdjustColRef;
     if (ref_col) {
-      cswritep = strcpya(cswritep, "\tREF");
+      cswritep = strcpya(cswritep, "REF\t");
     }
     const uint32_t alt1_col = flags & kfAdjustColAlt1;
     if (alt1_col) {
-      cswritep = strcpya(cswritep, "\tALT1");
+      cswritep = strcpya(cswritep, "ALT1\t");
     }
     const uint32_t alt_col = flags & kfAdjustColAlt;
     if (alt_col) {
-      cswritep = strcpya(cswritep, "\tALT");
+      cswritep = strcpya(cswritep, "ALT\t");
     }
+    const uint32_t is_log10 = flags & kfAdjustLog10;
     const uint32_t unadj_col = flags & kfAdjustColUnadj;
     if (unadj_col) {
-      cswritep = strcpya(cswritep, "\tUNADJ");
+      if (is_log10) {
+        cswritep = strcpya(cswritep, "LOG10_");
+      }
+      cswritep = strcpya(cswritep, "UNADJ\t");
     }
     const uint32_t gc_col = (flags & kfAdjustColGc) && (!skip_gc);
     if (gc_col) {
-      cswritep = strcpya(cswritep, "\tGC");
+      if (is_log10) {
+        cswritep = strcpya(cswritep, "LOG10_");
+      }
+      cswritep = memcpyl3a(cswritep, "GC\t");
     }
     const uint32_t qq_col = flags & kfAdjustColQq;
     if (qq_col) {
-      cswritep = strcpya(cswritep, "\tQQ");
+      if (is_log10) {
+        cswritep = strcpya(cswritep, "LOG10_");
+      }
+      cswritep = memcpyl3a(cswritep, "QQ\t");
     }
     const uint32_t bonf_col = flags & kfAdjustColBonf;
     if (bonf_col) {
-      cswritep = strcpya(cswritep, "\tBONF");
+      if (is_log10) {
+        cswritep = strcpya(cswritep, "LOG10_");
+      }
+      cswritep = strcpya(cswritep, "BONF\t");
     }
     const uint32_t holm_col = flags & kfAdjustColHolm;
     if (holm_col) {
-      cswritep = strcpya(cswritep, "\tHOLM");
+      if (is_log10) {
+        cswritep = strcpya(cswritep, "LOG10_");
+      }
+      cswritep = strcpya(cswritep, "HOLM\t");
     }
     const uint32_t sidakss_col = flags & kfAdjustColSidakss;
     if (sidakss_col) {
-      cswritep = strcpya(cswritep, "\tSIDAK_SS");
+      if (is_log10) {
+        cswritep = strcpya(cswritep, "LOG10_");
+      }
+      cswritep = strcpya(cswritep, "SIDAK_SS\t");
     }
     const uint32_t sidaksd_col = flags & kfAdjustColSidaksd;
     if (sidaksd_col) {
-      cswritep = strcpya(cswritep, "\tSIDAK_SD");
+      if (is_log10) {
+        cswritep = strcpya(cswritep, "LOG10_");
+      }
+      cswritep = strcpya(cswritep, "SIDAK_SD\t");
     }
     const uint32_t fdrbh_col = flags & kfAdjustColFdrbh;
     if (fdrbh_col) {
-      cswritep = strcpya(cswritep, "\tFDR_BH");
+      if (is_log10) {
+        cswritep = strcpya(cswritep, "LOG10_");
+      }
+      cswritep = strcpya(cswritep, "FDR_BH\t");
     }
-    double* pv_by = nullptr;
+    double* negln_pv_by = nullptr;
     if (flags & kfAdjustColFdrby) {
-      if (bigstack_alloc_d(valid_variant_ct, &pv_by)) {
+      if (bigstack_alloc_d(valid_variant_ct, &negln_pv_by)) {
         goto Multcomp_ret_NOMEM;
       }
-      cswritep = strcpya(cswritep, "\tFDR_BY");
+      if (is_log10) {
+        cswritep = strcpya(cswritep, "LOG10_");
+      }
+      cswritep = strcpya(cswritep, "FDR_BY\t");
     }
-    AppendBinaryEoln(&cswritep);
+    DecrAppendBinaryEoln(&cswritep);
 
     // reverse-order calculations
-    double* pv_bh;
-    double* pv_gc;
-    double* unadj_sorted_pvals;
-    if (bigstack_alloc_d(valid_variant_ct, &pv_bh) ||
-        bigstack_alloc_d(valid_variant_ct, &pv_gc) ||
-        bigstack_alloc_d(valid_variant_ct, &unadj_sorted_pvals)) {
+    double* negln_pv_bh;
+    double* negln_pv_gc;
+    double* unadj_sorted_negln_pvals;
+    if (bigstack_alloc_d(valid_variant_ct, &negln_pv_bh) ||
+        bigstack_alloc_d(valid_variant_ct, &negln_pv_gc) ||
+        bigstack_alloc_d(valid_variant_ct, &unadj_sorted_negln_pvals)) {
       goto Multcomp_ret_NOMEM;
     }
 
@@ -238,66 +282,68 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
         lambda_recip = 1.0 / lambda;
       }
     }
-    double* sorted_pvals = unadj_sorted_pvals;
+    double* sorted_negln_pvals = unadj_sorted_negln_pvals;
     for (uint32_t vidx = 0; vidx < valid_variant_ct; ++vidx) {
-      pv_gc[vidx] = ChisqToP(sortbuf[vidx].chisq * lambda_recip, 1);
-      unadj_sorted_pvals[vidx] = sortbuf[vidx].pval;
+      negln_pv_gc[vidx] = ChisqToNegLnP(sortbuf[vidx].chisq * lambda_recip, 1);
+      unadj_sorted_negln_pvals[vidx] = sortbuf[vidx].negln_pval;
     }
     if ((flags & kfAdjustGc) && (!skip_gc)) {
-      sorted_pvals = pv_gc;
+      sorted_negln_pvals = negln_pv_gc;
     }
 
     const uint32_t valid_variant_ct_m1 = valid_variant_ct - 1;
     const double valid_variant_ctd = u31tod(valid_variant_ct);
-    double bh_pval_min = sorted_pvals[valid_variant_ct_m1];
-    pv_bh[valid_variant_ct_m1] = bh_pval_min;
+    const double ln_valid_variant_ct = log(valid_variant_ctd);
+    double bh_negln_pval_max = sorted_negln_pvals[valid_variant_ct_m1];
+    negln_pv_bh[valid_variant_ct_m1] = bh_negln_pval_max;
     double harmonic_sum = 1.0;
     for (uint32_t vidx = valid_variant_ct_m1; vidx; --vidx) {
       const double harmonic_term = valid_variant_ctd / u31tod(vidx);
       harmonic_sum += harmonic_term;
-      const double bh_pval = harmonic_term * sorted_pvals[vidx - 1];
-      if (bh_pval_min > bh_pval) {
-        bh_pval_min = bh_pval;
+      const double bh_negln_pval = sorted_negln_pvals[vidx - 1] - log(harmonic_term);
+      if (bh_negln_pval_max < bh_negln_pval) {
+        bh_negln_pval_max = bh_negln_pval;
       }
-      pv_bh[vidx - 1] = bh_pval_min;
+      negln_pv_bh[vidx - 1] = bh_negln_pval_max;
     }
 
-    const double valid_variant_ct_recip = 1.0 / valid_variant_ctd;
-    if (pv_by) {
-      double by_pval_min = harmonic_sum * valid_variant_ct_recip * sorted_pvals[valid_variant_ct_m1];
-      if (by_pval_min > 1.0) {
-        by_pval_min = 1.0;
+    if (negln_pv_by) {
+      const double ln_harmonic_sum = log(harmonic_sum);
+      double by_negln_pval_max = sorted_negln_pvals[valid_variant_ct_m1] + ln_valid_variant_ct - ln_harmonic_sum;
+      if (by_negln_pval_max < 0.0) {
+        by_negln_pval_max = 0.0;
       }
-      pv_by[valid_variant_ct_m1] = by_pval_min;
+      negln_pv_by[valid_variant_ct_m1] = by_negln_pval_max;
       for (uint32_t vidx = valid_variant_ct_m1; vidx; --vidx) {
-        double by_pval = (harmonic_sum / u31tod(vidx)) * sorted_pvals[vidx - 1];
-        if (by_pval_min > by_pval) {
-          by_pval_min = by_pval;
+        double by_negln_pval = sorted_negln_pvals[vidx - 1] + log(u31tod(vidx)) - ln_harmonic_sum;
+        if (by_negln_pval_max < by_negln_pval) {
+          by_negln_pval_max = by_negln_pval;
         }
-        pv_by[vidx - 1] = by_pval_min;
+        negln_pv_by[vidx - 1] = by_negln_pval_max;
       }
     }
 
-    const uint32_t is_log10 = flags & kfAdjustLog10;
     char output_min_p_buf[16];
     uint32_t output_min_p_slen;
     if (!is_log10) {
       char* str_end = dtoa_g(output_min_p, output_min_p_buf);
       output_min_p_slen = str_end - output_min_p_buf;
-    } else if (output_min_p > 0.0) {
-      char* str_end = dtoa_g(-log10(output_min_p), output_min_p_buf);
-      output_min_p_slen = str_end - output_min_p_buf;
     } else {
+      // -log10(p) output ignores --output-min-p now.
+      output_min_p = 0.0;
       memcpyl3(output_min_p_buf, "inf");
       output_min_p_slen = 3;
     }
-    double pv_sidak_sd = 0.0;
-    double pv_holm = 0.0;
+    const double output_max_negln_p = (output_min_p == 0.0)? DBL_MAX : (-log(output_min_p));
+    const double valid_variant_ct_recip = 1.0 / valid_variant_ctd;
+    const double negln_pfilter = -log(pfilter);
+    double negln_pv_sidak_sd = DBL_MAX;
+    double negln_pv_holm = DBL_MAX;
     uint32_t cur_allele_ct = 2;
     uint32_t vidx = 0;
     for (; vidx < valid_variant_ct; ++vidx) {
-      double pval = sorted_pvals[vidx];
-      if (pval > pfilter) {
+      double negln_pval = sorted_negln_pvals[vidx];
+      if (negln_pval < negln_pfilter) {
         break;
       }
       const uint32_t variant_uidx = sortbuf[vidx].variant_uidx;
@@ -338,60 +384,87 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
         --cswritep;
       }
       if (unadj_col) {
-        adjust_print(output_min_p_buf, unadj_sorted_pvals[vidx], output_min_p, output_min_p_slen, is_log10, &cswritep);
+        adjust_print_negln(output_min_p_buf, unadj_sorted_negln_pvals[vidx], output_max_negln_p, output_min_p_slen, is_log10, &cswritep);
       }
       if (gc_col) {
-        adjust_print(output_min_p_buf, pv_gc[vidx], output_min_p, output_min_p_slen, is_log10, &cswritep);
+        adjust_print_negln(output_min_p_buf, negln_pv_gc[vidx], output_max_negln_p, output_min_p_slen, is_log10, &cswritep);
       }
       if (qq_col) {
         *cswritep++ = '\t';
-        cswritep = dtoa_g((u31tod(vidx) + 0.5) * valid_variant_ct_recip, cswritep);
+        double qq_val = (u31tod(vidx) + 0.5) * valid_variant_ct_recip;
+        if (is_log10) {
+          qq_val = -log10(qq_val);
+        }
+        cswritep = dtoa_g(qq_val, cswritep);
       }
       if (bonf_col) {
-        const double bonf_pval = MINV(pval * valid_variant_ctd, 1.0);
-        adjust_print(output_min_p_buf, bonf_pval, output_min_p, output_min_p_slen, is_log10, &cswritep);
+        double bonf_negln_pval = negln_pval - ln_valid_variant_ct;
+        if (bonf_negln_pval < 0.0) {
+          bonf_negln_pval = 0.0;
+        }
+        adjust_print_negln(output_min_p_buf, bonf_negln_pval, output_max_negln_p, output_min_p_slen, is_log10, &cswritep);
       }
       if (holm_col) {
-        if (pv_holm < 1.0) {
-          const double pv_holm_new = u31tod(valid_variant_ct - vidx) * pval;
-          if (pv_holm_new > 1.0) {
-            pv_holm = 1.0;
-          } else if (pv_holm < pv_holm_new) {
-            pv_holm = pv_holm_new;
+        if (negln_pv_holm > 0.0) {
+          const double negln_pv_holm_new = negln_pval - log(u31tod(valid_variant_ct - vidx));
+          if (negln_pv_holm_new < 0.0) {
+            negln_pv_holm = 0.0;
+          } else if (negln_pv_holm > negln_pv_holm_new) {
+            negln_pv_holm = negln_pv_holm_new;
           }
         }
-        adjust_print(output_min_p_buf, pv_holm, output_min_p, output_min_p_slen, is_log10, &cswritep);
+        adjust_print_negln(output_min_p_buf, negln_pv_holm, output_max_negln_p, output_min_p_slen, is_log10, &cswritep);
       }
       if (sidakss_col) {
         // avoid catastrophic cancellation for small p-values
         // 1 - (1-p)^c = 1 - e^{c log(1-p)}
         // 2^{-7} threshold is arbitrary
-        double pv_sidak_ss;
-        if (pval >= 0.0078125) {
-          pv_sidak_ss = 1 - pow(1 - pval, valid_variant_ctd);
+        // 2^{-90} corresponds to cp + (cp)^2/2! == cp in double-precision
+        // arithmetic, with several bits to spare
+        if (negln_pval < 90 * kLn2) {
+          const double pval = exp(-negln_pval);
+          double pv_sidak_ss;
+          if (negln_pval <= 7 * kLn2) {
+            pv_sidak_ss = 1 - pow(1 - pval, valid_variant_ctd);
+          } else {
+            pv_sidak_ss = 1 - exp(valid_variant_ctd * log1p(-pval));
+          }
+          adjust_print(output_min_p_buf, pv_sidak_ss, output_min_p, output_min_p_slen, is_log10, &cswritep);
         } else {
-          pv_sidak_ss = 1 - exp(valid_variant_ctd * log1p(-pval));
+          // log(1-x) = -x - x^2/2 - x^3/3 + ...
+          // 1 - exp(x) = -x - x^2/2! - x^3/3! - ...
+          // if p <= 2^{-90},
+          //   log(1-p) is -p
+          //   1 - e^{-cp} is cp
+          const double negln_pv_sidak_ss = negln_pval - ln_valid_variant_ct;
+          adjust_print_negln(output_min_p_buf, negln_pv_sidak_ss, output_max_negln_p, output_min_p_slen, is_log10, &cswritep);
         }
-        adjust_print(output_min_p_buf, pv_sidak_ss, output_min_p, output_min_p_slen, is_log10, &cswritep);
       }
       if (sidaksd_col) {
-        double pv_sidak_sd_new;
-        if (pval >= 0.0078125) {
-          pv_sidak_sd_new = 1 - pow(1 - pval, valid_variant_ctd - u31tod(vidx));
+        double negln_pv_sidak_sd_new;
+        if (negln_pval < 90 * kLn2) {
+          const double pval = exp(-negln_pval);
+          double pv_sidak_sd_new;
+          if (negln_pval <= 7 * kLn2) {
+            pv_sidak_sd_new = 1 - pow(1 - pval, valid_variant_ctd - u31tod(vidx));
+          } else {
+            const double cur_exp = valid_variant_ctd - u31tod(vidx);
+            pv_sidak_sd_new = 1 - exp(cur_exp * log1p(-pval));
+          }
+          negln_pv_sidak_sd_new = -log(pv_sidak_sd_new);
         } else {
-          const double cur_exp = valid_variant_ctd - u31tod(vidx);
-          pv_sidak_sd_new = 1 - exp(cur_exp * log1p(-pval));
+          negln_pv_sidak_sd_new = negln_pval - log(valid_variant_ctd - u31tod(vidx));
         }
-        if (pv_sidak_sd < pv_sidak_sd_new) {
-          pv_sidak_sd = pv_sidak_sd_new;
+        if (negln_pv_sidak_sd > negln_pv_sidak_sd_new) {
+          negln_pv_sidak_sd = negln_pv_sidak_sd_new;
         }
-        adjust_print(output_min_p_buf, pv_sidak_sd, output_min_p, output_min_p_slen, is_log10, &cswritep);
+        adjust_print_negln(output_min_p_buf, negln_pv_sidak_sd, output_max_negln_p, output_min_p_slen, is_log10, &cswritep);
       }
       if (fdrbh_col) {
-        adjust_print(output_min_p_buf, pv_bh[vidx], output_min_p, output_min_p_slen, is_log10, &cswritep);
+        adjust_print_negln(output_min_p_buf, negln_pv_bh[vidx], output_max_negln_p, output_min_p_slen, is_log10, &cswritep);
       }
-      if (pv_by) {
-        adjust_print(output_min_p_buf, pv_by[vidx], output_min_p, output_min_p_slen, is_log10, &cswritep);
+      if (negln_pv_by) {
+        adjust_print_negln(output_min_p_buf, negln_pv_by[vidx], output_max_negln_p, output_min_p_slen, is_log10, &cswritep);
       }
       AppendBinaryEoln(&cswritep);
       if (Cswrite(&css, &cswritep)) {
@@ -483,7 +556,8 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
     col_search_order[3] = need_ref? (afip->ref_field? afip->ref_field : "REF\0A2\0") : "";
     col_search_order[4] = need_alt? (afip->alt_field? afip->alt_field : "ALT\0ALT1\0A1\0") : "";
     col_search_order[5] = afip->test_field? afip->test_field : "TEST\0";
-    col_search_order[6] = afip->p_field? afip->p_field : "P\0UNADJ\0";
+    const uint32_t input_log10 = (flags & kfAdjustInputLog10);
+    col_search_order[6] = afip->p_field? afip->p_field : (input_log10? "LOG10_P\0LOG10_UNADJ\0P\0UNADJ\0" : "P\0UNADJ\0");
 
     uint32_t col_skips[7];
     uint32_t col_types[7];
@@ -600,9 +674,9 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
       variant_bps = nullptr;
     }
     char** variant_ids;
-    double* pvals;
+    double* negln_pvals;
     if (bigstack_alloc_cp(variant_ct, &variant_ids) ||
-        bigstack_alloc_d(variant_ct, &pvals)) {
+        bigstack_alloc_d(variant_ct, &negln_pvals)) {
       goto AdjustFile_ret_NOMEM;
     }
     char** allele_storage;
@@ -613,7 +687,6 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
     } else {
       allele_storage = nullptr;
     }
-    const uint32_t input_log10 = (flags & kfAdjustInputLog10);
     unsigned char* tmp_alloc_base = g_bigstack_base;
     unsigned char* tmp_alloc_end = g_bigstack_end;
     uint32_t max_allele_slen = 1;
@@ -685,36 +758,38 @@ PglErr AdjustFile(__maybe_unused const AdjustFileInfo* afip, __maybe_unused doub
         tmp_alloc_base = &(tmp_alloc_base[cur_slen + 1]);
       }
       const char* pval_str = token_ptrs[6];
-      double pval;
-      if (!ScanadvDouble(pval_str, &pval)) {
+      double negln_pval;
+      if (!ScanadvDouble(pval_str, &negln_pval)) {
         const uint32_t cur_slen = token_slens[6];
         if (IsNanStr(pval_str, cur_slen)) {
-          pval = -1;
-        } else if (strequal_k(pval_str, "INF", cur_slen)) {
-          // Tolerate plink 1.x "INF" representation of p==0.  Could add a
-          // modifier to disable this.
-          pval = 0.0;
+          negln_pval = -1;
+        } else if (strequal_k(pval_str, "INF", cur_slen) ||
+                   (input_log10 && strequal_k(pval_str, "inf", cur_slen))) {
+          // Could be anything larger than -log(5e-324).
+          // Just fill with -log(5e-324) for now.
+          negln_pval = 744.4400719213812;
         } else {
           goto AdjustFile_ret_INVALID_PVAL;
         }
       } else {
         if (!input_log10) {
-          if (pval > 1.0) {
+          if (negln_pval > 1.0) {
             goto AdjustFile_ret_INVALID_PVAL;
           }
+          negln_pval = -log(negln_pval);
         } else {
-          if (pval < 0.0) {
+          if (negln_pval < 0.0) {
             goto AdjustFile_ret_INVALID_PVAL;
           }
-          pval = exp(pval * (-kLn10));
+          negln_pval *= kLn10;
         }
       }
-      pvals[variant_idx] = pval;
+      negln_pvals[variant_idx] = negln_pval;
       ++variant_idx;
     }
     BigstackEndReset(bigstack_end_mark);
     BigstackBaseSet(tmp_alloc_base);
-    reterr = Multcomp(variant_include_dummy, nullptr, TO_CONSTCPCONSTP(chr_ids), variant_bps, TO_CONSTCPCONSTP(variant_ids), nullptr, TO_CONSTCPCONSTP(allele_storage), &(afip->base), pvals, nullptr, variant_ct, max_allele_slen, pfilter, output_min_p, 0, max_thread_ct, outname, outname_end);
+    reterr = Multcomp(variant_include_dummy, nullptr, TO_CONSTCPCONSTP(chr_ids), variant_bps, TO_CONSTCPCONSTP(variant_ids), nullptr, TO_CONSTCPCONSTP(allele_storage), &(afip->base), negln_pvals, nullptr, variant_ct, max_allele_slen, pfilter, output_min_p, 0, max_thread_ct, outname, outname_end);
     if (reterr) {
       goto AdjustFile_ret_1;
     }

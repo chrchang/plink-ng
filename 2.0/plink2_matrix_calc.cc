@@ -4353,12 +4353,11 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             MovU32To1Bit(variant_include, &variant_uidx);
             if (chr_col) {
               if (variant_uidx >= chr_end) {
-                int32_t chr_idx;
                 do {
                   ++chr_fo_idx;
                   chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
                 } while (variant_uidx >= chr_end);
-                chr_idx = cip->chr_file_order[chr_fo_idx];
+                const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
                 char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
                 *chr_name_end = '\t';
                 chr_buf_blen = 1 + S_CAST(uintptr_t, chr_name_end - chr_buf);
@@ -4623,9 +4622,9 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
   {
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     if (!xchr_model) {
-      int32_t x_code;
+      uint32_t x_code;
       if (XymtExists(cip, kChrOffsetX, &x_code)) {
-        uint32_t x_chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, x_code)];
+        uint32_t x_chr_fo_idx = cip->chr_idx_to_foidx[x_code];
         uint32_t x_start = cip->chr_fo_vidx_start[x_chr_fo_idx];
         uint32_t x_end = cip->chr_fo_vidx_start[x_chr_fo_idx + 1];
         if (!AllBitsAreZero(variant_include, x_start, x_end)) {
@@ -4826,9 +4825,9 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
       cswritep = overflow_buf;
     }
 
-    const int32_t x_code = cip->xymt_codes[kChrOffsetX];
-    const int32_t y_code = cip->xymt_codes[kChrOffsetY];
-    const int32_t mt_code = cip->xymt_codes[kChrOffsetMT];
+    const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
+    const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
+    const uint32_t mt_code = cip->xymt_codes[kChrOffsetMT];
     const uint32_t model_dominant = (score_flags / kfScoreDominant) & 1;
     const uint32_t domrec = model_dominant || (score_flags & kfScoreRecessive);
     const uint32_t variance_standardize = (score_flags / kfScoreVarianceStandardize) & 1;
@@ -4914,8 +4913,8 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
               logerrputs("Error: --score 'dominant' and 'recessive' modifiers cannot be used with haploid\nchromosomes.\n");
               goto ScoreReport_ret_INCONSISTENT_INPUT;
             }
-            uint32_t is_relevant_x = (S_CAST(int32_t, chr_idx) == x_code);
-            if (variance_standardize && (is_relevant_x || (S_CAST(int32_t, chr_idx) == mt_code))) {
+            uint32_t is_relevant_x = (chr_idx == x_code);
+            if (variance_standardize && (is_relevant_x || (chr_idx == mt_code))) {
               logerrputs("Error: --score 'variance-standardize' cannot be used with chrX or MT.\n");
               goto ScoreReport_ret_INCONSISTENT_INPUT;
             }
@@ -4924,7 +4923,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             // only if --xchr-model 1 (which is no longer the default)
             is_relevant_x = is_relevant_x && xchr_model;
 
-            const uint32_t is_y = (S_CAST(int32_t, chr_idx) == y_code);
+            const uint32_t is_y = (chr_idx == y_code);
             // pre-multiallelic kludge: current counts are for alt1, invert if
             // score is based on ref allele
             if (!cur_allele_idx) {

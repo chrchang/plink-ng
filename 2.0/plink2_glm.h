@@ -34,23 +34,25 @@ FLAGSET_DEF_START()
   kfGlmSex = (1 << 2),
   kfGlmNoXSex = (1 << 3),
 
-  // mutually exclusive
-  kfGlmGenotypic = (1 << 4),
-  kfGlmHethom = (1 << 5),
-  kfGlmDominant = (1 << 6),
-  kfGlmRecessive = (1 << 7),
+  kfGlmLog10 = (1 << 4),
 
-  kfGlmInteraction = (1 << 8),
-  kfGlmHideCovar = (1 << 9),
-  kfGlmIntercept = (1 << 10),
-  kfGlmFirthFallback = (1 << 11),
-  kfGlmFirth = (1 << 12),
-  kfGlmPerm = (1 << 13),
-  kfGlmPermCount = (1 << 14),
-  kfGlmConditionDominant = (1 << 15),
-  kfGlmConditionRecessive = (1 << 16),
-  kfGlmLocalOmitLast = (1 << 17),
-  kfGlmTestsAll = (1 << 18)
+  // mutually exclusive
+  kfGlmGenotypic = (1 << 5),
+  kfGlmHethom = (1 << 6),
+  kfGlmDominant = (1 << 7),
+  kfGlmRecessive = (1 << 8),
+
+  kfGlmInteraction = (1 << 9),
+  kfGlmHideCovar = (1 << 10),
+  kfGlmIntercept = (1 << 11),
+  kfGlmFirthFallback = (1 << 12),
+  kfGlmFirth = (1 << 13),
+  kfGlmPerm = (1 << 14),
+  kfGlmPermCount = (1 << 15),
+  kfGlmConditionDominant = (1 << 16),
+  kfGlmConditionRecessive = (1 << 17),
+  kfGlmLocalOmitLast = (1 << 18),
+  kfGlmTestsAll = (1 << 19)
 FLAGSET_DEF_END(GlmFlags);
 
 FLAGSET_DEF_START()

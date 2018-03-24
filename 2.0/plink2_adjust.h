@@ -72,7 +72,7 @@ void InitAdjust(AdjustInfo* adjust_info_ptr, AdjustFileInfo* adjust_file_info_pt
 
 void CleanupAdjust(AdjustFileInfo* adjust_file_info_ptr);
 
-PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char* const* chr_ids, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const AdjustInfo* adjust_info_ptr, const double* pvals, const double* chisqs, uint32_t orig_variant_ct, uint32_t max_allele_slen, double pfilter, double output_min_p, uint32_t skip_gc, uint32_t max_thread_ct, char* outname, char* outname_end);
+PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char* const* chr_ids, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const AdjustInfo* adjust_info_ptr, const double* negln_pvals, const double* chisqs, uint32_t orig_variant_ct, uint32_t max_allele_slen, double pfilter, double output_min_p, uint32_t skip_gc, uint32_t max_thread_ct, char* outname, char* outname_end);
 
 PglErr AdjustFile(const AdjustFileInfo* afip, double pfilter, double output_min_p, uint32_t max_thread_ct, char* outname, char* outname_end);
 

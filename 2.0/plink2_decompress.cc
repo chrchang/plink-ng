@@ -241,7 +241,6 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
             if (latest_consume_tail == cur_block_start) {
               // bugfix (5 Mar 2018): Need to set cur_circular_end here.
               syncp->cur_circular_end = cur_block_start;
-              LeaveCriticalSection(critical_sectionp);
               break;
             }
           } else if (latest_consume_tail <= cur_block_start) {
@@ -250,6 +249,8 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
           }
           LeaveCriticalSection(critical_sectionp);
         }
+        // bugfix (23 Mar 2018): didn't always leave the critical section
+        LeaveCriticalSection(critical_sectionp);
 #else
         pthread_mutex_lock(sync_mutexp);
         interrupt = syncp->interrupt;
@@ -341,9 +342,11 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
           syncp->cur_circular_end = next_available_end;
         }
 #ifdef _WIN32
-        LeaveCriticalSection(critical_sectionp);
+        // bugfix (23 Mar 2018): this needs to be in the critical section,
+        // otherwise there's a danger of this resetting legitimate progress
         ResetEvent(consumer_progress_event);
         SetEvent(reader_progress_event);
+        LeaveCriticalSection(critical_sectionp);
 #else
         // bugfix (21 Mar 2018): must force consumer_progress_state to 0 (or
         // ResetEvent(consumer_progress_event); otherwise the other wait loop's
@@ -422,8 +425,8 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
       syncp->available_end = read_head;
     }
 #ifdef _WIN32
-    LeaveCriticalSection(critical_sectionp);
     SetEvent(reader_progress_event);
+    LeaveCriticalSection(critical_sectionp);
     while (1) {
       WaitForSingleObject(consumer_progress_event, INFINITE);
       EnterCriticalSection(critical_sectionp);
@@ -520,6 +523,15 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
   }
 }
 
+// Probable todos:
+// - Make at least 64-bit Windows builds have working multithreaded bgzf
+//   compression/decompression.
+// - Handle seekable-zstd read/write in essentially the same way as bgzf.
+//   Modify compressor stream to default to writing seekable zstd files, with
+//   block size on the order of 1-16 MB.
+// - Check this whenever we open a read stream, since even when we only want to
+//   use one decompressor thread, we still benefit from knowing a file is bgzf
+//   because we can safely use libdeflate instead of zlib under the hood.
 PglErr RlsOpenMaybeBgzf(const char* fname, __maybe_unused uint32_t calc_thread_ct, ReadLineStream* rlsp) {
   uint32_t file_is_bgzf;
   PglErr reterr = IsBgzf(fname, &file_is_bgzf);
@@ -531,12 +543,9 @@ PglErr RlsOpenMaybeBgzf(const char* fname, __maybe_unused uint32_t calc_thread_c
     if (!rlsp->bgz_infile) {
       return kPglRetOpenFail;
     }
-    // todo: support multithreaded decompression on Windows, probably by using
-    // a pthreads emulation layer
-    // (note that even without multithreaded decompression, we still want to
-    // use this interface on Windows in the bgzf case thanks to libdeflate)
 #ifndef _WIN32
     if (calc_thread_ct > 1) {
+      // note that the third parameter is now irrelevant
       if (bgzf_mt(rlsp->bgz_infile, calc_thread_ct, 128)) {
         return kPglRetNomem;
       }
@@ -666,10 +675,10 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
           char* buf = rlsp->buf;
           syncp->consume_tail = buf;
           syncp->cur_circular_end = nullptr;
-          LeaveCriticalSection(critical_sectionp);
           SetEvent(consumer_progress_event);
+          LeaveCriticalSection(critical_sectionp);
           *consume_iterp = buf;
-          rlsp->consume_stop = available_end;
+          rlsp->consume_stop = available_end;  // move this up when debugging
           return kPglRetSuccess;
         }
         rlsp->consume_stop = cur_circular_end;
@@ -679,19 +688,20 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
       syncp->consume_tail = consume_iter;
       LeaveCriticalSection(critical_sectionp);
       // We could set the consumer_progress event here, but it's not really
-      // necessary.
+      // necessary?
       // SetEvent(consumer_progress_event);
       return kPglRetSuccess;
     }
     if (consume_iter == cur_circular_end) {
       char* buf = rlsp->buf;
-      rlsp->consume_stop = buf;  // for diagnostic purposes
+      // rlsp->consume_stop = buf;  // for diagnostic purposes
       syncp->cur_circular_end = nullptr;
       syncp->available_end = buf;
       consume_iter = buf;
       *consume_iterp = buf;
     }
     syncp->consume_tail = consume_iter;
+    SetEvent(consumer_progress_event);
     LeaveCriticalSection(critical_sectionp);
     // We've processed all the consume-ready bytes...
     if (reterr != kPglRetSuccess) {
@@ -700,7 +710,6 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
       return reterr;
     }
     // ...and there's probably more.
-    SetEvent(consumer_progress_event);
     WaitForSingleObject(rlsp->reader_progress_event, INFINITE);
   }
 #else
@@ -753,7 +762,7 @@ PglErr AdvanceRLstream(ReadLineStream* rlsp, char** consume_iterp) {
     // >1mb.
     if (consume_iter == cur_circular_end) {
       char* buf = rlsp->buf;
-      rlsp->consume_stop = buf;  // for diagnostic purposes
+      // rlsp->consume_stop = buf;  // for diagnostic purposes
       syncp->cur_circular_end = nullptr;
       syncp->available_end = buf;
       consume_iter = buf;
@@ -878,8 +887,8 @@ PglErr RetargetRLstreamRaw(const char* new_fname, ReadLineStream* rlsp, char** c
   // outweigh disadvantages, but I'll wait till --pmerge development to make a
   // decision since that's the main function that actually cares.
   syncp->new_fname = new_fname;
-  LeaveCriticalSection(critical_sectionp);
   SetEvent(rlsp->consumer_progress_event);
+  LeaveCriticalSection(critical_sectionp);
 #else
   pthread_mutex_t* sync_mutexp = &syncp->sync_mutex;
   pthread_cond_t* consumer_progress_condvarp = &syncp->consumer_progress_condvar;
@@ -915,8 +924,8 @@ PglErr CleanupRLstream(ReadLineStream* rlsp) {
     CRITICAL_SECTION* critical_sectionp = &syncp->critical_section;
     EnterCriticalSection(critical_sectionp);
     syncp->interrupt = kRlsInterruptShutdown;
-    LeaveCriticalSection(critical_sectionp);
     SetEvent(rlsp->consumer_progress_event);
+    LeaveCriticalSection(critical_sectionp);
     WaitForSingleObject(rlsp->read_thread, INFINITE);
     DeleteCriticalSection(critical_sectionp);
     rlsp->read_thread = nullptr;  // make it safe to call this multiple times

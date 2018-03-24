@@ -171,7 +171,7 @@ PglErr Export012Vmaj(const char* outname, const uintptr_t* sample_include, const
           ++chr_fo_idx;
           chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
         } while (variant_uidx >= chr_end);
-        const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+        const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
         char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
         *chr_name_end++ = exportf_delim;
         chr_blen = chr_name_end - chr_buf;
@@ -865,14 +865,14 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
       }
 #ifndef _WIN32
       if (max_thread_ct > 1) {
-        if (bgzf_mt(bgz_outfile, MINV(128, max_thread_ct), 128)) {
+        // subtracting 1 seems best on my 8-16 core Mac/Linux test machines
+        // post-libdeflate
+        // pretty sure it isn't best on a 2-core machine; should test on 4-core
+        // third parameter doesn't actually matter any more, but whatever
+        const uint32_t compressor_thread_ct = max_thread_ct - (max_thread_ct > 4);
+        if (bgzf_mt(bgz_outfile, MINV(128, compressor_thread_ct), 128)) {
           goto ExportOxGen_ret_NOMEM;
         }
-        /*
-        if (bgzf_mt2(g_bigstack_end, MINV(128, max_thread_ct), 128, &g_bigstack_base, bgz_outfile)) {
-          goto ExportOxGen_ret_NOMEM;
-        }
-        */
       }
 #endif
     }
@@ -887,7 +887,7 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
     uint32_t is_y = 0;
 
     uint32_t chr_fo_idx = UINT32_MAX;
-    const int32_t y_code = cip->xymt_codes[kChrOffsetY];
+    const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
     uint32_t chr_end = 0;
     uint32_t vidx_rem3 = 3;
     uint32_t vidx_rem15d3 = 5;
@@ -909,7 +909,7 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
           ++chr_fo_idx;
           chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
         } while (variant_uidx >= chr_end);
-        const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+        const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
         char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
         // Oxford spec doesn't seem to require spaces for .gen (only .sample),
         // but in practice spaces always seem to be used, and plink 1.9 doesn't
@@ -1123,7 +1123,7 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
       goto ExportOxHapslegend_ret_INCONSISTENT_INPUT;
     }
     const uint32_t ref_allele_second = !(exportf_flags & kfExportfRefFirst);
-    const int32_t x_code = cip->xymt_codes[kChrOffsetX];
+    const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
     char* chr_buf = nullptr;
     uint32_t is_x = 0;
     uint32_t is_haploid = 0;
@@ -1143,9 +1143,9 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
         logerrputs("Error: '--export hapslegend' does not support multiple chromosomes.\n");
         goto ExportOxHapslegend_ret_INCONSISTENT_INPUT;
       }
-      const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+      const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
       is_x = (chr_idx == x_code);
-      is_haploid = IsSetI(cip->haploid_mask, chr_idx);
+      is_haploid = IsSet(cip->haploid_mask, chr_idx);
       snprintf(outname_end, kMaxOutfnameExtBlen, ".legend");
       if (fopen_checked(outname, FOPEN_WB, &outfile)) {
         goto ExportOxHapslegend_ret_OPEN_FAIL;
@@ -1256,12 +1256,12 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
           ++chr_fo_idx;
           chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
         } while (variant_uidx >= chr_end);
-        const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+        const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
         char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
         *chr_name_end++ = ' ';
         chr_blen = chr_name_end - chr_buf;
         is_x = (chr_idx == x_code);
-        is_haploid = IsSetI(cip->haploid_mask, chr_idx);
+        is_haploid = IsSet(cip->haploid_mask, chr_idx);
         if ((!is_haploid) || is_x) {
           cur_genotext = genotext;
         } else {
@@ -2047,10 +2047,10 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* arg) {
           ++chr_fo_idx;
           chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
         } while (variant_uidx >= chr_end);
-        const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+        const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
         is_x = (chr_idx == x_code);
         is_y = (chr_idx == y_code);
-        is_haploid = IsSetI(cip->haploid_mask, chr_idx);
+        is_haploid = IsSet(cip->haploid_mask, chr_idx);
       }
       if (refalt1_select) {
         ref_allele_idx = refalt1_select[variant_uidx * 2];
@@ -2781,16 +2781,10 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
       }
 #ifndef _WIN32
       if (max_thread_ct > 1) {
-        // 128 doesn't seem any worse than 256 (and is clearly better than 64)
-        // also tried reducing thread count by 1, that seems worse
-        if (bgzf_mt(bgz_outfile, MINV(128, max_thread_ct), 128)) {
+        const uint32_t compressor_thread_ct = max_thread_ct - (max_thread_ct > 4);
+        if (bgzf_mt(bgz_outfile, MINV(128, compressor_thread_ct), 128)) {
           goto ExportVcf_ret_NOMEM;
         }
-        /*
-        if (bgzf_mt2(g_bigstack_end, MINV(128, max_thread_ct), 128, &g_bigstack_base, bgz_outfile)) {
-          goto ExportVcf_ret_NOMEM;
-        }
-        */
       }
 #endif
     }
@@ -2853,11 +2847,11 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
           }
           // if GetChrCodeCounted() is modified to not mutate
           // contig_name_start[], xheader can be changed to const char*
-          const int32_t chr_idx = GetChrCodeCounted(cip, contig_name_end - contig_name_start, contig_name_start);
-          if (chr_idx < 0) {
+          const uint32_t chr_idx = GetChrCodeCounted(cip, contig_name_end - contig_name_start, contig_name_start);
+          if (IsI32Neg(chr_idx)) {
             continue;
           }
-          const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, chr_idx)];
+          const uint32_t chr_fo_idx = cip->chr_idx_to_foidx[chr_idx];
           if (IsSet(written_contig_header_lines, chr_fo_idx)) {
             logerrputs("Error: Duplicate ##contig line in .pvar file.\n");
             goto ExportVcf_ret_MALFORMED_INPUT;
@@ -2886,7 +2880,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
       if (IsSet(written_contig_header_lines, chr_fo_idx)) {
         continue;
       }
-      const int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+      const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
       if ((!IsSet(cip->chr_mask, chr_idx)) || AllBitsAreZero(variant_include, cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1])) {
         continue;
       }
@@ -3125,9 +3119,9 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
           ++chr_fo_idx;
           chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
         } while (variant_uidx >= chr_end);
-        int32_t chr_idx = cip->chr_file_order[chr_fo_idx];
+        uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
         is_x = (chr_idx == cip->xymt_codes[kChrOffsetX]);
-        is_haploid = IsSetI(cip->haploid_mask, chr_idx);
+        is_haploid = IsSet(cip->haploid_mask, chr_idx);
         // forced --merge-par, with diploid male output (is_x NOT set, but
         // chromosome code is X/chrX)
         if ((chr_idx == cip->xymt_codes[kChrOffsetPAR1]) || (chr_idx == cip->xymt_codes[kChrOffsetPAR2])) {
@@ -4306,8 +4300,8 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
       logprintfww5("Writing %s ... ", outname);
       fflush(stdout);
       uint32_t y_ct = 0;
-      int32_t y_code = cip->xymt_codes[kChrOffsetY];
-      if ((y_code >= 0) && IsSetI(cip->chr_mask, y_code)) {
+      const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
+      if ((!IsI32Neg(y_code)) && IsSet(cip->chr_mask, y_code)) {
         y_ct = CountChrVariantsUnsafe(variant_include, cip, y_code);
       }
       assert(PopcountWords(sample_include, raw_sample_ctl) == sample_ct);

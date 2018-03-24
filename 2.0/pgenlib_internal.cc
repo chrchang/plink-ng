@@ -2161,6 +2161,8 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
         for (uint32_t widx = 0; widx < word_write_ct; ++widx) {
           uintptr_t ww = loadbuf_alias_halfword[widx];
 #ifdef USE_AVX2
+          // speed advantage is small on my Mac since compiler auto-vectorizes
+          // the code below?
           vrtypes_alias_fullword[widx] = _pdep_u64(ww, kMask0F0F);
 #else
 #  ifdef __LP64__

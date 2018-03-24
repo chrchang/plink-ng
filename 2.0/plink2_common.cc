@@ -601,10 +601,10 @@ static_assert(!(kChrRawEnd % kBytesPerVec), "kChrRawEnd must be a multiple of kB
 PglErr InitChrInfo(ChrInfo* cip) {
   // "constructor".  initializes with maximum capacity.  doesn't use bigstack.
   // chr_mask, haploid_mask: bits
-  // chr_file_order, chr_idx_to_foidx: int32s
-  // chr_fo_vidx_start: int32s, with an extra trailing element
+  // chr_file_order, chr_idx_to_foidx: uint32s
+  // chr_fo_vidx_start: uint32s, with an extra trailing element
   // nonstd_names: intptr_ts
-  // nonstd_id_htable: kChrHtableSize int32s
+  // nonstd_id_htable: kChrHtableSize uint32s
 
   // this assumes kChrRawEnd is divisible by kBytesPerVec
   const uintptr_t vecs_required = 2 * BitCtToVecCt(kChrRawEnd) + 3 * (kChrRawEnd / kInt32PerVec) + 1 + (kChrRawEnd / kWordsPerVec) + Int32CtToVecCt(kChrHtableSize);
@@ -666,7 +666,7 @@ void FinalizeChrset(MiscFlags misc_flags, ChrInfo* cip) {
   uint32_t autosome_ct = cip->autosome_ct;
   uint32_t max_code = autosome_ct;
   for (uint32_t xymt_idx_p1 = kChrOffsetCt; xymt_idx_p1; --xymt_idx_p1) {
-    if (cip->xymt_codes[xymt_idx_p1 - 1] >= 0) {
+    if (!IsI32Neg(cip->xymt_codes[xymt_idx_p1 - 1])) {
       max_code = autosome_ct + xymt_idx_p1;
       break;
     }
@@ -679,7 +679,7 @@ void FinalizeChrset(MiscFlags misc_flags, ChrInfo* cip) {
   cip->max_code = max_code;
   uintptr_t* chr_mask = cip->chr_mask;
   uintptr_t last_chr_mask_word = chr_mask[kChrMaskWords - 1];
-  int32_t* xymt_codes = cip->xymt_codes;
+  uint32_t* xymt_codes = cip->xymt_codes;
   if (last_chr_mask_word) {
     // avoids repeating some work if this is called twice
     chr_mask[kChrMaskWords - 1] = 0;
@@ -687,9 +687,9 @@ void FinalizeChrset(MiscFlags misc_flags, ChrInfo* cip) {
     uint32_t xymt_include = last_chr_mask_word >> (kBitsPerWord - kChrOffsetCt);
     do {
       const uint32_t xymt_idx = ctzu32(xymt_include);
-      const int32_t cur_chr_code = xymt_codes[xymt_idx];
-      if (cur_chr_code >= 0) {
-        SetBitI(cur_chr_code, chr_mask);
+      const uint32_t cur_chr_code = xymt_codes[xymt_idx];
+      if (!IsI32Neg(cur_chr_code)) {
+        SetBit(cur_chr_code, chr_mask);
       }
       xymt_include &= xymt_include - 1;
     } while (xymt_include);
@@ -697,26 +697,26 @@ void FinalizeChrset(MiscFlags misc_flags, ChrInfo* cip) {
     // init_default_chr_mask()
     SetAllBits(cip->autosome_ct + 1, chr_mask);
     for (uint32_t xymt_idx = 0; xymt_idx < kChrOffsetCt; ++xymt_idx) {
-      const int32_t cur_chr_code = cip->xymt_codes[xymt_idx];
-      if (cur_chr_code >= 0) {
-        SetBitI(cur_chr_code, chr_mask);
+      const uint32_t cur_chr_code = cip->xymt_codes[xymt_idx];
+      if (!IsI32Neg(cur_chr_code)) {
+        SetBit(cur_chr_code, chr_mask);
       }
     }
   } else if (misc_flags & (kfMiscAutosomePar | kfMiscAutosomeOnly)) {
     FillBitsNz(1, cip->autosome_ct + 1, chr_mask);
     ClearBitsNz(cip->autosome_ct + 1, kChrExcludeWords * kBitsPerWord, chr_mask);
     if (misc_flags & kfMiscAutosomePar) {
-      int32_t par_chr_code = cip->xymt_codes[kChrOffsetXY];
-      if (par_chr_code >= 0) {
-        SetBitI(par_chr_code, chr_mask);
+      uint32_t par_chr_code = cip->xymt_codes[kChrOffsetXY];
+      if (!IsI32Neg(par_chr_code)) {
+        SetBit(par_chr_code, chr_mask);
       }
       par_chr_code = cip->xymt_codes[kChrOffsetPAR1];
-      if (par_chr_code >= 0) {
-        SetBitI(par_chr_code, chr_mask);
+      if (!IsI32Neg(par_chr_code)) {
+        SetBit(par_chr_code, chr_mask);
       }
       par_chr_code = cip->xymt_codes[kChrOffsetPAR2];
-      if (par_chr_code >= 0) {
-        SetBitI(par_chr_code, chr_mask);
+      if (!IsI32Neg(par_chr_code)) {
+        SetBit(par_chr_code, chr_mask);
       }
     }
   }
@@ -732,9 +732,9 @@ void FinalizeChrset(MiscFlags misc_flags, ChrInfo* cip) {
   if (xymt_exclude) {
     do {
       const uint32_t xymt_idx = ctzu32(xymt_exclude);
-      const int32_t cur_chr_code = xymt_codes[xymt_idx];
-      if (cur_chr_code >= 0) {
-        ClearBitI(cur_chr_code, chr_mask);
+      const uint32_t cur_chr_code = xymt_codes[xymt_idx];
+      if (!IsI32Neg(cur_chr_code)) {
+        ClearBit(cur_chr_code, chr_mask);
       }
       xymt_exclude &= xymt_exclude - 1;
     } while (xymt_exclude);
@@ -832,7 +832,6 @@ void CleanupChrInfo(ChrInfo* cip) {
 
 char* ChrNameStd(const ChrInfo* cip, uint32_t chr_idx, char* buf) {
   const uint32_t output_encoding = cip->output_encoding;
-  const int32_t chr_idx_i = chr_idx;
   if (chr_idx > cip->max_numeric_code) {
     // This is usually encoding-independent; no real numeric representation of
     // PAR1/PAR2 is defined.  However, since there'd otherwise be no way to
@@ -840,7 +839,7 @@ char* ChrNameStd(const ChrInfo* cip, uint32_t chr_idx, char* buf) {
     // them as 25 (in the human case) when "--output-chr 26" is specified.
     if (output_encoding) {
       memcpyl3(buf, "PAR");
-      buf[3] = '0' + (chr_idx_i - cip->max_numeric_code);
+      buf[3] = '0' + (chr_idx - cip->max_numeric_code);
       return &(buf[4]);
     }
     return u32toa(cip->autosome_ct + (kChrOffsetXY + 1), buf);
@@ -850,15 +849,15 @@ char* ChrNameStd(const ChrInfo* cip, uint32_t chr_idx, char* buf) {
       // force two chars
       if (chr_idx <= cip->autosome_ct) {
         buf = memcpya(buf, &(kDigitPair[chr_idx]), 2);
-      } else if (chr_idx_i == cip->xymt_codes[kChrOffsetY]) {
+      } else if (chr_idx == cip->xymt_codes[kChrOffsetY]) {
         buf = strcpya(buf, "XY");
       } else {
         *buf++ = '0';
-        if (chr_idx_i == cip->xymt_codes[kChrOffsetX]) {
+        if (chr_idx == cip->xymt_codes[kChrOffsetX]) {
           *buf++ = 'X';
         } else {
           // assumes only X/Y/XY/MT defined
-          *buf++ = (chr_idx_i == cip->xymt_codes[kChrOffsetY])? 'Y' : 'M';
+          *buf++ = (chr_idx == cip->xymt_codes[kChrOffsetY])? 'Y' : 'M';
         }
       }
       return buf;
@@ -868,11 +867,11 @@ char* ChrNameStd(const ChrInfo* cip, uint32_t chr_idx, char* buf) {
   if ((!(output_encoding & (kfChrOutputM | kfChrOutputMT))) || (chr_idx <= cip->autosome_ct)) {
     return u32toa(chr_idx, buf);
   }
-  if (chr_idx_i == cip->xymt_codes[kChrOffsetX]) {
+  if (chr_idx == cip->xymt_codes[kChrOffsetX]) {
     *buf++ = 'X';
-  } else if (chr_idx_i == cip->xymt_codes[kChrOffsetY]) {
+  } else if (chr_idx == cip->xymt_codes[kChrOffsetY]) {
     *buf++ = 'Y';
-  } else if (chr_idx_i == cip->xymt_codes[kChrOffsetXY]) {
+  } else if (chr_idx == cip->xymt_codes[kChrOffsetXY]) {
     buf = strcpya(buf, "XY");
   } else {
     *buf++ = 'M';
@@ -938,7 +937,7 @@ uint32_t IsHaploidChrPresent(const ChrInfo* cip) {
   return 0;
 }
 
-static inline int32_t SingleCapLetterChrCode(uint32_t cap_letter) {
+static inline uint32_t SingleCapLetterChrCode(uint32_t cap_letter) {
   if (cap_letter == 'X') {
     return kChrRawX;
   }
@@ -948,13 +947,13 @@ static inline int32_t SingleCapLetterChrCode(uint32_t cap_letter) {
   if (cap_letter == 'M') {
     return kChrRawMT;
   }
-  return -1;
+  return UINT32_MAX;
 }
 
 static_assert(kMaxChrTextnumSlen == 2, "GetChrCodeRaw() must be updated.");
-int32_t GetChrCodeRaw(const char* str_iter) {
+uint32_t GetChrCodeRaw(const char* str_iter) {
   // any character <= ' ' is considered a terminator
-  // note that char arithmetic tends to be compiled to int32 operations, so we
+  // note that char arithmetic tends to be compiled to uint32 operations, so we
   // mostly work with ints here
   uint32_t first_char_code = ctou32(str_iter[0]);
   uint32_t first_char_toi;
@@ -977,7 +976,7 @@ int32_t GetChrCodeRaw(const char* str_iter) {
         }
       }
     }
-    return -1;
+    return UINT32_MAX;
   }
   first_char_code &= 0xdf;
   uint32_t second_char_code = ctou32(str_iter[1]);
@@ -992,11 +991,11 @@ int32_t GetChrCodeRaw(const char* str_iter) {
         return kChrRawPAR1 + par_idx_m1;
       }
     }
-    return -1;
+    return UINT32_MAX;
   }
   if (first_char_code == 'C') {
     if (((second_char_code & 0xdf) != 'H') || ((ctou32(str_iter[2]) & 0xdf) != 'R')) {
-      return -1;
+      return UINT32_MAX;
     }
     str_iter = &(str_iter[3]);
     first_char_code = ctou32(str_iter[0]);
@@ -1017,54 +1016,55 @@ int32_t GetChrCodeRaw(const char* str_iter) {
       return kChrRawMT;
     }
   }
-  return -1;
+  return UINT32_MAX;
 }
 
-int32_t GetChrCode(const char* chr_name, const ChrInfo* cip, uint32_t name_slen) {
+uint32_t GetChrCode(const char* chr_name, const ChrInfo* cip, uint32_t name_slen) {
   // requires chr_name to be null-terminated
   // in practice, name_slen will usually already be known, may as well avoid
   // redundant strlen() calls even though this uglifies the interface
   // does not perform exhaustive error-checking
-  // -1 = --allow-extra-chr ok, -2 = total fail
-  int32_t chr_code_raw = GetChrCodeRaw(chr_name);
-  if (S_CAST(uint32_t, chr_code_raw) <= cip->max_code) {
+  // UINT32_MAX = --allow-extra-chr ok, UINT32_MAXM1 = total fail
+  uint32_t chr_code_raw = GetChrCodeRaw(chr_name);
+  if (chr_code_raw <= cip->max_code) {
     return chr_code_raw;
   }
-  if (chr_code_raw != -1) {
-    if (chr_code_raw >= S_CAST(int32_t, kMaxContigs)) {
+  if (chr_code_raw != UINT32_MAX) {
+    if (chr_code_raw >= kMaxContigs) {
       return cip->xymt_codes[chr_code_raw - kMaxContigs];
     }
-    return -2;
+    return UINT32_MAXM1;
   }
   if (!cip->name_ct) {
-    return -1;
+    return UINT32_MAX;
   }
-  // UINT32_MAX gets casted to -1
-  return S_CAST(int32_t, IdHtableFind(chr_name, cip->nonstd_names, cip->nonstd_id_htable, name_slen, kChrHtableSize));
+  // note that IdHtableFind returns UINT32_MAX if name not found
+  return IdHtableFind(chr_name, cip->nonstd_names, cip->nonstd_id_htable, name_slen, kChrHtableSize);
 }
 
-int32_t GetChrCodeCounted(const ChrInfo* cip, uint32_t name_slen, char* chr_name) {
+uint32_t GetChrCodeCounted(const ChrInfo* cip, uint32_t name_slen, char* chr_name) {
   // when the chromosome name isn't null-terminated
   // (yeah, probably want to revise the called functions so that chr_name
   // doesn't need to be mutable here)
   char* s_end = &(chr_name[name_slen]);
   const char tmpc = *s_end;
   *s_end = '\0';
-  const int32_t chr_code = GetChrCode(chr_name, cip, name_slen);
+  const uint32_t chr_code = GetChrCode(chr_name, cip, name_slen);
   *s_end = tmpc;
   return chr_code;
 }
 
-void ChrError(const char* chr_name, const char* file_descrip, const ChrInfo* cip, uintptr_t line_idx, int32_t error_code) {
+void ChrError(const char* chr_name, const char* file_descrip, const ChrInfo* cip, uintptr_t line_idx, uint32_t error_code) {
   // assumes chr_name is null-terminated
-  const int32_t raw_code = GetChrCodeRaw(chr_name);
+  const uint32_t raw_code = GetChrCodeRaw(chr_name);
   logputs("\n");
   if (line_idx) {
     logerrprintfww("Error: Invalid chromosome code '%s' on line %" PRIuPTR " of %s.\n", chr_name, line_idx, file_descrip);
   } else {
     logerrprintfww("Error: Invalid chromosome code '%s' in %s.\n", chr_name, file_descrip);
   }
-  if ((raw_code > S_CAST(int32_t, cip->max_code)) && ((raw_code <= S_CAST(int32_t, kMaxChrTextnum + kChrOffsetCt)) || (raw_code >= S_CAST(int32_t, kMaxContigs)))) {
+  if ((S_CAST(int32_t, raw_code) > S_CAST(int32_t, cip->max_code)) && ((raw_code <= kMaxChrTextnum + kChrOffsetCt) || (raw_code >= kMaxContigs))) {
+    // numeric code or X/Y/MT/PAR
     if (cip->chrset_source == kChrsetSourceDefault) {
       logerrputs("(This is disallowed for humans.  Check if the problem is with your data, or if\nyou forgot to define a different chromosome set with e.g. --chr-set.).\n");
     } else if (cip->chrset_source == kChrsetSourceCmdline) {
@@ -1075,17 +1075,17 @@ void ChrError(const char* chr_name, const char* file_descrip, const ChrInfo* cip
     }
     // maybe want to print message(s) depending on whether chromosome set was
     // defined on the command line or by the input file?
-  } else if (error_code == -1) {
+  } else if (error_code == UINT32_MAX) {
     logerrputs("(Use --allow-extra-chr to force it to be accepted.)\n");
   }
 }
 
-PglErr TryToAddChrName(const char* chr_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, uint32_t allow_extra_chrs, int32_t* chr_idx_ptr, ChrInfo* cip) {
+PglErr TryToAddChrName(const char* chr_name, const char* file_descrip, uintptr_t line_idx, uint32_t name_slen, uint32_t allow_extra_chrs, uint32_t* chr_idx_ptr, ChrInfo* cip) {
   // assumes chr_name is either nonstandard (i.e. not "2", "chr2", "chrX",
   // etc.), or a rejected xymt.
   // requires chr_name to be null-terminated
   // assumes chr_idx currently has the return value of GetChrCode()
-  if ((!allow_extra_chrs) || ((*chr_idx_ptr) == -2)) {
+  if ((!allow_extra_chrs) || ((*chr_idx_ptr) == UINT32_MAXM1)) {
     ChrError(chr_name, file_descrip, cip, line_idx, *chr_idx_ptr);
     return kPglRetMalformedInput;
   }
@@ -1521,9 +1521,9 @@ uint32_t chr_window_max(const uintptr_t* variant_include, const ChrInfo* cip, co
 */
 
 uint32_t NotOnlyXymt(const uintptr_t* variant_include, const ChrInfo* cip, uint32_t raw_variant_ct, uint32_t xymt_offset) {
-  const int32_t xymt_code = cip->xymt_codes[xymt_offset];
-  assert(xymt_code >= 0);
-  const uint32_t cur_chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, xymt_code)];
+  const uint32_t xymt_code = cip->xymt_codes[xymt_offset];
+  assert(!IsI32Neg(xymt_code));
+  const uint32_t cur_chr_fo_idx = cip->chr_idx_to_foidx[xymt_code];
   const uint32_t chr_start = cip->chr_fo_vidx_start[cur_chr_fo_idx];
   if (chr_start) {
     const uint32_t first_uidx = AdvTo1Bit(variant_include, 0);
@@ -1540,17 +1540,17 @@ uint32_t CountNonAutosomalVariants(const uintptr_t* variant_include, const ChrIn
   // autosomal here
   uint32_t ct = 0;
   if (count_x) {
-    int32_t x_code;
+    uint32_t x_code;
     if (XymtExists(cip, kChrOffsetX, &x_code)) {
       ct += CountChrVariantsUnsafe(variant_include, cip, x_code);
     }
   }
-  int32_t y_code;
+  uint32_t y_code;
   if (XymtExists(cip, kChrOffsetY, &y_code)) {
     ct += CountChrVariantsUnsafe(variant_include, cip, y_code);
   }
   if (count_mt) {
-    int32_t mt_code;
+    uint32_t mt_code;
     if (XymtExists(cip, kChrOffsetMT, &mt_code)) {
       ct += CountChrVariantsUnsafe(variant_include, cip, mt_code);
     }
@@ -1576,19 +1576,19 @@ PglErr ConditionalAllocateNonAutosomalVariants(const ChrInfo* cip, const char* c
     return kPglRetNomem;
   }
   memcpy(working_variant_include, *variant_include_ptr, raw_variant_ctl * sizeof(intptr_t));
-  int32_t x_code;
+  uint32_t x_code;
   if (XymtExists(cip, kChrOffsetX, &x_code)) {
-    uint32_t chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, x_code)];
+    uint32_t chr_fo_idx = cip->chr_idx_to_foidx[x_code];
     ClearBitsNz(cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1], working_variant_include);
   }
-  int32_t y_code;
+  uint32_t y_code;
   if (XymtExists(cip, kChrOffsetX, &y_code)) {
-    uint32_t chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, y_code)];
+    uint32_t chr_fo_idx = cip->chr_idx_to_foidx[y_code];
     ClearBitsNz(cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1], working_variant_include);
   }
-  int32_t mt_code;
+  uint32_t mt_code;
   if (XymtExists(cip, kChrOffsetX, &mt_code)) {
-    uint32_t chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, mt_code)];
+    uint32_t chr_fo_idx = cip->chr_idx_to_foidx[mt_code];
     ClearBitsNz(cip->chr_fo_vidx_start[chr_fo_idx], cip->chr_fo_vidx_start[chr_fo_idx + 1], working_variant_include);
   }
   *variant_include_ptr = working_variant_include;
@@ -1843,8 +1843,8 @@ PglErr ParseChrRanges(const char* const* argvk, const char* flagname_p, const ch
       // bottleneck either.
       // ParseNextRange() prevents buffer overflow.
       memcpyx(token_buf, range_start, rs_len, '\0');
-      int32_t chr_code_start = GetChrCodeRaw(token_buf);
-      if (chr_code_start < 0) {
+      uint32_t chr_code_start = GetChrCodeRaw(token_buf);
+      if (IsI32Neg(chr_code_start)) {
         if (!allow_extra_chrs) {
           snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s chromosome code '%s'.\n", flagname_p, token_buf);
           goto ParseChrRanges_ret_INVALID_CMDLINE_WWA;
@@ -1856,20 +1856,20 @@ PglErr ParseChrRanges(const char* const* argvk, const char* flagname_p, const ch
           goto ParseChrRanges_ret_NOMEM;
         }
       } else {
-        if (chr_code_start >= S_CAST(int32_t, kMaxContigs)) {
+        if (chr_code_start >= kMaxContigs) {
           chr_code_start -= xymt_subtract;
         }
         if (range_end) {
           memcpyx(token_buf, range_end, re_len, '\0');
-          int32_t chr_code_end = GetChrCodeRaw(token_buf);
-          if (chr_code_end < 0) {
+          uint32_t chr_code_end = GetChrCodeRaw(token_buf);
+          if (IsI32Neg(chr_code_end)) {
             if (!allow_extra_chrs) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --%s chromosome code '%s'.\n", flagname_p, range_end);
               goto ParseChrRanges_ret_INVALID_CMDLINE_WWA;
             }
             goto ParseChrRanges_ret_INVALID_CMDLINE_NONSTD;
           }
-          if (chr_code_end >= S_CAST(int32_t, kMaxContigs)) {
+          if (chr_code_end >= kMaxContigs) {
             // prohibit stuff like "--chr par1-par2", "--chr x-y", "--chr x-26"
             snprintf(g_logbuf, kLogbufSize, "Error: --%s chromosome code '%s' cannot be the end of a range.\n", flagname_p, range_end);
             goto ParseChrRanges_ret_INVALID_CMDLINE_WWA;
@@ -1880,7 +1880,7 @@ PglErr ParseChrRanges(const char* const* argvk, const char* flagname_p, const ch
           }
           FillBitsNz(chr_code_start, chr_code_end + 1, chr_mask);
         } else {
-          SetBitI(chr_code_start, chr_mask);
+          SetBit(chr_code_start, chr_mask);
         }
       }
     }

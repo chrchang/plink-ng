@@ -61,7 +61,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (21 Mar 2018)";
+  " (23 Mar 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -391,9 +391,9 @@ void ReportGenotypingRate(const uintptr_t* variant_include, const ChrInfo* cip, 
   uint32_t y_start = UINT32_MAX;
   uint32_t y_end = UINT32_MAX;
   uint32_t variant_ct_y = 0;
-  int32_t y_code;
+  uint32_t y_code;
   if (XymtExists(cip, kChrOffsetY, &y_code)) {
-    const uint32_t y_chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, y_code)];
+    const uint32_t y_chr_fo_idx = cip->chr_idx_to_foidx[y_code];
     y_start = cip->chr_fo_vidx_start[y_chr_fo_idx];
     y_end = cip->chr_fo_vidx_start[y_chr_fo_idx + 1];
     variant_ct_y = PopcountBitRange(variant_include, y_start, y_end);
@@ -1164,7 +1164,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
         if (pcp->mind_thresh < 1.0) {
           uint32_t variant_ct_y = 0;
-          int32_t y_code;
+          uint32_t y_code;
           if (XymtExists(cip, kChrOffsetY, &y_code)) {
             variant_ct_y = CountChrVariantsUnsafe(variant_include, cip, y_code);
           }
@@ -1450,9 +1450,9 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         uint32_t x_start = 0;
         uint32_t x_len = 0;
         uint32_t hwe_x_probs_needed = 0;
-        int32_t x_code;
+        uint32_t x_code;
         if ((!(vpos_sortstatus & kfUnsortedVarSplitChr)) && XymtExists(cip, kChrOffsetX, &x_code)) {
-          const uint32_t x_chr_fo_idx = cip->chr_idx_to_foidx[S_CAST(uint32_t, x_code)];
+          const uint32_t x_chr_fo_idx = cip->chr_idx_to_foidx[x_code];
           x_start = cip->chr_fo_vidx_start[x_chr_fo_idx];
           const uint32_t x_end = cip->chr_fo_vidx_start[x_chr_fo_idx + 1];
           x_len = x_end - x_start;
@@ -3255,9 +3255,9 @@ int main(int argc, char** argv) {
           // assumes first code is X
           chr_info.xymt_codes[0] = autosome_ct + 1;
           for (uint32_t xymt_idx = 1; xymt_idx < kChrOffsetCt; ++xymt_idx) {
-            // bugfix: this needs to be -2, not -1, for GetChrCode() to work
-            // properly
-            chr_info.xymt_codes[xymt_idx] = -2;
+            // bugfix: this needs to be UINT32_MAXM1, not UINT32_MAX, for
+            // GetChrCode() to work properly
+            chr_info.xymt_codes[xymt_idx] = UINT32_MAXM1;
           }
           chr_info.haploid_mask[0] = 0;
           SetBit(autosome_ct + 1, chr_info.haploid_mask);
@@ -3570,10 +3570,10 @@ int main(int argc, char** argv) {
           chr_info.autosome_ct = 29;
           chr_info.xymt_codes[0] = 30;
           chr_info.xymt_codes[1] = 31;
-          chr_info.xymt_codes[2] = -2;
+          chr_info.xymt_codes[2] = UINT32_MAXM1;
           chr_info.xymt_codes[3] = 33;
-          chr_info.xymt_codes[4] = -2;
-          chr_info.xymt_codes[5] = -2;
+          chr_info.xymt_codes[4] = UINT32_MAXM1;
+          chr_info.xymt_codes[5] = UINT32_MAXM1;
 #ifdef __LP64__
           chr_info.haploid_mask[0] = 0x2c0000000LLU;
 #else
@@ -3607,7 +3607,7 @@ int main(int argc, char** argv) {
             const uint32_t autosome_ct = -signed_autosome_ct;
             chr_info.autosome_ct = autosome_ct;
             for (uint32_t xymt_idx = 0; xymt_idx < kChrOffsetCt; ++xymt_idx) {
-              chr_info.xymt_codes[xymt_idx] = -2;
+              chr_info.xymt_codes[xymt_idx] = UINT32_MAXM1;
             }
             SetAllBits(autosome_ct + 1, chr_info.haploid_mask);
           } else {
@@ -3618,22 +3618,22 @@ int main(int argc, char** argv) {
               chr_info.xymt_codes[xymt_idx] = autosome_ct + 1 + xymt_idx;
             }
             for (uint32_t xymt_idx = 4; xymt_idx < kChrOffsetCt; ++xymt_idx) {
-              chr_info.xymt_codes[xymt_idx] = -2;
+              chr_info.xymt_codes[xymt_idx] = UINT32_MAXM1;
             }
             SetBit(autosome_ct + 1, chr_info.haploid_mask);
             SetBit(autosome_ct + 2, chr_info.haploid_mask);
             for (uint32_t param_idx = 2; param_idx <= param_ct; ++param_idx) {
               cur_modif = argvk[arg_idx + param_idx];
               if (!strcmp(cur_modif, "no-x")) {
-                chr_info.xymt_codes[0] = -2;
+                chr_info.xymt_codes[0] = UINT32_MAXM1;
                 ClearBit(autosome_ct + 1, chr_info.haploid_mask);
               } else if (!strcmp(cur_modif, "no-y")) {
-                chr_info.xymt_codes[1] = -2;
+                chr_info.xymt_codes[1] = UINT32_MAXM1;
                 ClearBit(autosome_ct + 2, chr_info.haploid_mask);
               } else if (!strcmp(cur_modif, "no-xy")) {
-                chr_info.xymt_codes[2] = -2;
+                chr_info.xymt_codes[2] = UINT32_MAXM1;
               } else if (!strcmp(cur_modif, "no-mt")) {
-                chr_info.xymt_codes[3] = -2;
+                chr_info.xymt_codes[3] = UINT32_MAXM1;
                 ClearBit(autosome_ct + 4, chr_info.haploid_mask);
               } else {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --chr-set parameter '%s'.\n", cur_modif);
@@ -3819,8 +3819,8 @@ int main(int argc, char** argv) {
           chr_info.xymt_codes[1] = 40;
           chr_info.xymt_codes[2] = 41;
           chr_info.xymt_codes[3] = 42;
-          chr_info.xymt_codes[4] = -2;
-          chr_info.xymt_codes[5] = -2;
+          chr_info.xymt_codes[4] = UINT32_MAXM1;
+          chr_info.xymt_codes[5] = UINT32_MAXM1;
 #ifdef __LP64__
           chr_info.haploid_mask[0] = 0x58000000000LLU;
 #else
@@ -4341,7 +4341,7 @@ int main(int argc, char** argv) {
           pc.command_flags1 |= kfCommand1GenoCounts;
           pc.dependency_flags |= kfFilterAllReq;
         } else if (strequal_k_unsafe(flagname_p2, "lm")) {
-          if (EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 16)) {
+          if (EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 17)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
@@ -4355,6 +4355,8 @@ int main(int argc, char** argv) {
               pc.glm_info.flags |= kfGlmSex;
             } else if (strequal_k(cur_modif, "no-x-sex", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmNoXSex;
+            } else if (strequal_k(cur_modif, "log10", cur_modif_slen)) {
+              pc.glm_info.flags |= kfGlmLog10;
             } else if (strequal_k(cur_modif, "genotypic", cur_modif_slen)) {
               pc.glm_info.flags |= kfGlmGenotypic;
             } else if (strequal_k(cur_modif, "hethom", cur_modif_slen)) {
@@ -4624,10 +4626,10 @@ int main(int argc, char** argv) {
           chr_info.autosome_ct = 31;
           chr_info.xymt_codes[0] = 32;
           chr_info.xymt_codes[1] = 33;
-          chr_info.xymt_codes[2] = -2;
-          chr_info.xymt_codes[3] = -2;
-          chr_info.xymt_codes[4] = -2;
-          chr_info.xymt_codes[5] = -2;
+          chr_info.xymt_codes[2] = UINT32_MAXM1;
+          chr_info.xymt_codes[3] = UINT32_MAXM1;
+          chr_info.xymt_codes[4] = UINT32_MAXM1;
+          chr_info.xymt_codes[5] = UINT32_MAXM1;
 #ifdef __LP64__
           chr_info.haploid_mask[0] = 0x300000000LLU;
 #else
@@ -4911,7 +4913,7 @@ int main(int argc, char** argv) {
               }
               const char* chr_code = &(cur_modif[strlen("single-chr=")]);
               if (!(pc.misc_flags & kfMiscAllowExtraChrs)) {
-                if (GetChrCodeRaw(chr_code) < 0) {
+                if (IsI32Neg(GetChrCodeRaw(chr_code))) {
                   snprintf(g_logbuf, kLogbufSize, "Error: Invalid --import-dosage single-chr= chromosome code '%s'. (Did you forget --allow-extra-chr?)\n", chr_code);
                   goto main_ret_INVALID_CMDLINE_WWA;
                 }
@@ -5219,7 +5221,7 @@ int main(int argc, char** argv) {
           memcpy(pvarname, cur_fname, slen + 1);
           const char* chr_code = argvk[arg_idx + 2];
           if (!(pc.misc_flags & kfMiscAllowExtraChrs)) {
-            if (GetChrCodeRaw(chr_code) < 0) {
+            if (IsI32Neg(GetChrCodeRaw(chr_code))) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --legend chromosome code '%s'. (Did you forget --allow-extra-chr?)\n", chr_code);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
@@ -6060,10 +6062,10 @@ int main(int argc, char** argv) {
           chr_info.autosome_ct = 19;
           chr_info.xymt_codes[0] = 20;
           chr_info.xymt_codes[1] = 21;
-          chr_info.xymt_codes[2] = -2;
-          chr_info.xymt_codes[3] = -2;
-          chr_info.xymt_codes[4] = -2;
-          chr_info.xymt_codes[5] = -2;
+          chr_info.xymt_codes[2] = UINT32_MAXM1;
+          chr_info.xymt_codes[3] = UINT32_MAXM1;
+          chr_info.xymt_codes[4] = UINT32_MAXM1;
+          chr_info.xymt_codes[5] = UINT32_MAXM1;
           chr_info.haploid_mask[0] = 0x300000;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "ake-grm")) {
@@ -6430,7 +6432,7 @@ int main(int argc, char** argv) {
           }
           const char* cur_modif = argvk[arg_idx + 1];
           if (!(pc.misc_flags & kfMiscAllowExtraChrs)) {
-            if (GetChrCodeRaw(cur_modif) < 0) {
+            if (IsI32Neg(GetChrCodeRaw(cur_modif))) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --oxford-single-chr chromosome code '%s'. (Did you forget --allow-extra-chr?)\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
@@ -6926,12 +6928,12 @@ int main(int argc, char** argv) {
           }
           chr_info.chrset_source = kChrsetSourceCmdline;
           chr_info.autosome_ct = 12;
-          chr_info.xymt_codes[0] = -2;
-          chr_info.xymt_codes[1] = -2;
-          chr_info.xymt_codes[2] = -2;
-          chr_info.xymt_codes[3] = -2;
-          chr_info.xymt_codes[4] = -2;
-          chr_info.xymt_codes[5] = -2;
+          chr_info.xymt_codes[0] = UINT32_MAXM1;
+          chr_info.xymt_codes[1] = UINT32_MAXM1;
+          chr_info.xymt_codes[2] = UINT32_MAXM1;
+          chr_info.xymt_codes[3] = UINT32_MAXM1;
+          chr_info.xymt_codes[4] = UINT32_MAXM1;
+          chr_info.xymt_codes[5] = UINT32_MAXM1;
           chr_info.haploid_mask[0] = 0x1fff;
           goto main_param_zero;
         } else {
@@ -7080,10 +7082,10 @@ int main(int argc, char** argv) {
           chr_info.autosome_ct = 26;
           chr_info.xymt_codes[0] = 27;
           chr_info.xymt_codes[1] = 28;
-          chr_info.xymt_codes[2] = -2;
-          chr_info.xymt_codes[3] = -2;
-          chr_info.xymt_codes[4] = -2;
-          chr_info.xymt_codes[5] = -2;
+          chr_info.xymt_codes[2] = UINT32_MAXM1;
+          chr_info.xymt_codes[3] = UINT32_MAXM1;
+          chr_info.xymt_codes[4] = UINT32_MAXM1;
+          chr_info.xymt_codes[5] = UINT32_MAXM1;
           chr_info.haploid_mask[0] = 0x18000000;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "np")) {
