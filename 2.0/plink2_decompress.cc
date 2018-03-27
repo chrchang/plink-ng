@@ -108,7 +108,7 @@ char* AdvanceGzTokenStream(GzTokenStream* gtsp, uint32_t* token_slen_ptr) {
     char* load_start = &(gtsp->buf_start[kMaxMediumLine]);
     const int32_t bufsize = gzread(gtsp->gz_infile, load_start, kMaxMediumLine);
     if (bufsize < 0) {
-      *token_slen_ptr = 0xfffffffeU;
+      *token_slen_ptr = UINT32_MAXM1;
       return nullptr;
     }
     buf_end = &(load_start[S_CAST(uint32_t, bufsize)]);
@@ -117,7 +117,7 @@ char* AdvanceGzTokenStream(GzTokenStream* gtsp, uint32_t* token_slen_ptr) {
     gtsp->buf_end = buf_end;
     if (!bufsize) {
       if (!gzeof(gtsp->gz_infile)) {
-        *token_slen_ptr = 0xfffffffeU;
+        *token_slen_ptr = UINT32_MAXM1;
         return nullptr;
       }
       // bufsize == 0, eof

@@ -493,12 +493,12 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
         family_missing_catname_slen = strlen(family_missing_catname);
         uint32_t family_missing_catname_hval = Hashceil(family_missing_catname, family_missing_catname_slen, cat_htable_size);
         if (cat_htable[family_missing_catname_hval] == UINT32_MAX) {
-          cat_htable[family_missing_catname_hval] = 0xfffffffeU;
+          cat_htable[family_missing_catname_hval] = UINT32_MAXM1;
         } else if ((missing_catname_slen != family_missing_catname_slen) || memcmp(family_missing_catname, missing_catname, missing_catname_slen)) {
           if (++family_missing_catname_hval == cat_htable_size) {
             family_missing_catname_hval = 0;
           }
-          cat_htable[family_missing_catname_hval] = 0xfffffffeU;
+          cat_htable[family_missing_catname_hval] = UINT32_MAXM1;
         }
       }
       // guaranteed to have enough space
@@ -521,7 +521,7 @@ PglErr Plink1ClusterImport(const char* within_fname, const char* catpheno_name, 
               cat_idx_m1_to_first_sample_uidx[nonnull_cat_ct] = sample_uidx;
               cat_idxs[sample_uidx] = ++nonnull_cat_ct;
               break;
-            } else if (cur_htable_entry == 0xfffffffeU) {
+            } else if (cur_htable_entry == UINT32_MAXM1) {
               if ((slen == family_missing_catname_slen) && (!memcmp(cur_fid, family_missing_catname, family_missing_catname_slen))) {
                 ClearBit(sample_uidx, cat_nm);
                 cat_idxs[sample_uidx] = 0;

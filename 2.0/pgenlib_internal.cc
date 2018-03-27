@@ -4355,12 +4355,13 @@ PglErr GetRefalt1GenotypeCounts(const uintptr_t* __restrict sample_include, cons
   return kPglRetSuccess;
 }
 
-PglErr PgrGetRefalt1GenotypeCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uint32_t* genocounts) {
+PglErr PgrGetCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uint32_t* genocounts) {
   assert(vidx < pgrp->fi.raw_variant_ct);
   if (!sample_ct) {
     ZeroU32Arr(4, genocounts);
     return kPglRetSuccess;
   }
+  // todo: multiallelic case
   return GetRefalt1GenotypeCounts(sample_include, sample_include_interleaved_vec, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, nullptr, nullptr, genocounts);
 }
 
@@ -4912,6 +4913,7 @@ void Aux1UpdateGenovecSubsetMatch3(const uint32_t* __restrict ambig_sample_ids, 
   }
 }
 
+/*
 PglErr PgrReadGenovecSubsetThenCommon2(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uint32_t* __restrict maj_allele_idx_ptr, uint32_t* __restrict second_allele_idx_ptr, uint32_t* __restrict allele_ct_buf) {
   assert(vidx < pgrp->fi.raw_variant_ct);
   const uint32_t allele_ct = pgrp->fi.allele_idx_offsets[vidx + 1] - pgrp->fi.allele_idx_offsets[vidx];
@@ -5037,6 +5039,7 @@ PglErr PgrReadGenovecSubsetThenCommon2(const uintptr_t* __restrict sample_includ
   }
   return kPglRetSuccess;
 }
+*/
 
 PglErr ParseDifflistJustAmbigIds(const unsigned char* fread_end, PgenReader* pgrp, const unsigned char** fread_pp) {
   // Side effects: uses pgr.workspace_raregeno_tmp_loadbuf.
@@ -5674,7 +5677,7 @@ PglErr ReadRefalt1GenovecHphaseSubsetUnsafe(const uintptr_t* __restrict sample_i
   return kPglRetSuccess;
 }
 
-PglErr PgrReadRefalt1GenovecHphaseSubsetUnsafe(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr) {
+PglErr PgrGetP(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr) {
   assert(vidx < pgrp->fi.raw_variant_ct);
   if (!sample_ct) {
     *phasepresent_ct_ptr = 0;
@@ -5813,7 +5816,7 @@ PglErr ParseDosage16(const unsigned char* fread_ptr, const unsigned char* fread_
   }
 }
 
-PglErr PgrReadRefalt1GenovecDosage16SubsetUnsafe(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr, uint32_t* is_explicit_alt1_ptr) {
+PglErr PgrGetD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr, uint32_t* is_explicit_alt1_ptr) {
   assert(vidx < pgrp->fi.raw_variant_ct);
   if (!sample_ct) {
     *dosage_ct_ptr = 0;
@@ -6087,7 +6090,7 @@ PglErr GetRefNonrefGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample
   return kPglRetSuccess;
 }
 
-PglErr PgrGetRefNonrefGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* mach_r2_ptr, uint32_t* genocounts, uint64_t* all_dosages) {
+PglErr PgrGetDWithCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* mach_r2_ptr, uint32_t* genocounts, uint64_t* all_dosages) {
   assert(vidx < pgrp->fi.raw_variant_ct);
   if (!sample_ct) {
     ZeroU32Arr(4, genocounts);
@@ -6102,7 +6105,7 @@ PglErr PgrGetRefNonrefGenotypeCountsAndDosage16s(const uintptr_t* __restrict sam
   return GetRefNonrefGenotypeCountsAndDosage16s(sample_include, sample_include_interleaved_vec, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, mach_r2_ptr, genocounts, all_dosages);
 }
 
-PglErr PgrReadRefalt1GenovecHphaseDosage16SubsetUnsafe(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr, uint32_t* is_explicit_alt1_ptr) {
+PglErr PgrGetPD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr, uint32_t* is_explicit_alt1_ptr) {
   assert(vidx < pgrp->fi.raw_variant_ct);
   if (!sample_ct) {
     *phasepresent_ct_ptr = 0;

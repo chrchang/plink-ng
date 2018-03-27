@@ -3203,7 +3203,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
           uint32_t dosage_ct;
           uint32_t is_explicit_alt1;
           // todo: multiallelic case
-          PglErr reterr = PgrReadRefalt1GenovecDosage16SubsetUnsafe(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
+          PglErr reterr = PgrGetD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
           if (reterr) {
             g_error_ret = reterr;
             variant_bidx = variant_bidx_end;
@@ -5017,7 +5017,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
           uint32_t dosage_ct;
           uint32_t is_explicit_alt1;
           // todo: multiallelic case
-          PglErr reterr = PgrReadRefalt1GenovecDosage16SubsetUnsafe(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
+          PglErr reterr = PgrGetD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
           if (reterr) {
             g_error_ret = reterr;
             variant_bidx = variant_bidx_end;
@@ -6454,7 +6454,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             uint32_t dosage_ct;
             uint32_t is_explicit_alt1;
             // todo: multiallelic case
-            reterr = PgrReadRefalt1GenovecDosage16SubsetUnsafe(nullptr, nullptr, raw_sample_ct, cur_variant_uidx, simple_pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
+            reterr = PgrGetD(nullptr, nullptr, raw_sample_ct, cur_variant_uidx, simple_pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
             if (reterr) {
               if (reterr == kPglRetMalformedInput) {
                 logerrputs("Error: Malformed .pgen file.\n");

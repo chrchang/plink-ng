@@ -55,8 +55,8 @@
 //   integer overflow issues.  (This may be reduced to 2GB later, but I'll
 //   attempt to handle the 2-4GB range properly for now since it's conceivable
 //   for multiallelic records in very large datasets to reach that size.)
-// - (later todo: include stuff like file creation command in .bim successor
-//   header; that doesn't really belong in a binary file.)
+// - (later todo: include stuff like file creation command in .pvar header;
+//   that doesn't really belong in a binary file.)
 
 // Additional parameter conventions:
 // - "quaterarr" indicates a word-aligned, packed array of 2-bit values, while
@@ -76,7 +76,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 803
+#define PGENLIB_INTERNAL_VERNUM 804
 
 // other configuration-ish values needed by plink2_common subset
 typedef unsigned char AltAlleleCt;
@@ -971,15 +971,8 @@ HEADER_INLINE void PgrClearLdCache(PgenReader* pgrp) {
   pgrp->ldbase_vidx = 0x80000000U;
 }
 
-PglErr PgrGetRefalt1GenotypeCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uint32_t* genocounts);
-
-// allele_idx is set to 0 for ref, 1 for alt1, 2 for alt2, etc.
-// frequencies are computed on the fly.  ties are broken in favor of the
-// lower-indexed allele.
-// possible todo: also provide ..._common2_then_subset() function.
-// better default than the functions above for machine learning/GWAS, since the
-// reference allele is "wrong" sometimes.
-PglErr PgrReadGenovecSubsetThenCommon2(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uint32_t* __restrict maj_allele_idx_ptr, uint32_t* __restrict second_allele_idx_ptr, uint32_t* __restrict allele_ct_buf);
+// genocounts[0] = # hom ref, [1] = # het ref, [2] = two alts, [3] = missing
+PglErr PgrGetCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uint32_t* genocounts);
 
 // Loads a quatervec with counts of a single allele (allele_idx 0 corresponds
 // to the reference allele, allele_idx 1 corresponds to alt1, etc.).  0b11 ==
@@ -1012,18 +1005,16 @@ HEADER_INLINE void PgrDetectGenovecHets(const uintptr_t* __restrict genovec, uin
   ZeroTrailingBits(raw_sample_ct, all_hets);
 }
 
-// PglErr PgrReadRefalt1GenovecHphaseRawUnsafe(uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phaseraw, uint32_t* phasepresent_ct_ptr);
-
-PglErr PgrReadRefalt1GenovecHphaseSubsetUnsafe(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr);
+PglErr PgrGetP(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr);
 
 // if dosage_present and dosage_vals are nullptr, dosage data is ignored
-PglErr PgrReadRefalt1GenovecDosage16SubsetUnsafe(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr, uint32_t* is_explicit_alt1_ptr);
+PglErr PgrGetD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr, uint32_t* is_explicit_alt1_ptr);
 
-PglErr PgrGetRefNonrefGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* mach_r2_ptr, uint32_t* genocounts, uint64_t* all_dosages);
+PglErr PgrGetDWithCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* mach_r2_ptr, uint32_t* genocounts, uint64_t* all_dosages);
 
 // ok for both dosage_present and dosage_vals to be nullptr when no dosage data
 // is present
-PglErr PgrReadRefalt1GenovecHphaseDosage16SubsetUnsafe(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr, uint32_t* is_explicit_alt1_ptr);
+PglErr PgrGetPD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr, uint32_t* is_explicit_alt1_ptr);
 
 // interface used by --make-pgen, just performs basic LD/difflist decompression
 // (still needs multiallelic and dosage-phase extensions)

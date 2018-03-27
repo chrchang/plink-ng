@@ -125,11 +125,11 @@ cdef extern from "../pgenlib_python_support.h" namespace "plink2":
 
     PglErr PgrGet1(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReaderStruct* pgrp, uintptr_t* allele_countvec)
 
-    PglErr PgrReadRefalt1GenovecHphaseSubsetUnsafe(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderStruct* pgrp, uintptr_t* genovec, uintptr_t* phasepresent, uintptr_t* phaseinfo, uint32_t* phasepresent_ct_ptr)
+    PglErr PgrGetP(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderStruct* pgrp, uintptr_t* genovec, uintptr_t* phasepresent, uintptr_t* phaseinfo, uint32_t* phasepresent_ct_ptr)
 
-    PglErr PgrReadRefalt1GenovecDosage16SubsetUnsafe(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderStruct* pgrp, uintptr_t* genovec, uintptr_t* dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr, uint32_t* is_explicit_alt1_ptr)
+    PglErr PgrGetD(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderStruct* pgrp, uintptr_t* genovec, uintptr_t* dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr, uint32_t* is_explicit_alt1_ptr)
 
-    PglErr PgrGetRefalt1GenotypeCounts(const uintptr_t* sample_include, const uintptr_t* sample_include_interleaved_vec, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderStruct* pgrp, uint32_t* genocounts)
+    PglErr PgrGetCounts(const uintptr_t* sample_include, const uintptr_t* sample_include_interleaved_vec, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReaderStruct* pgrp, uint32_t* genocounts)
 
     BoolErr CleanupPgfi(PgenFileInfo* pgfip)
     BoolErr CleanupPgr(PgenReaderStruct* pgrp)
@@ -369,7 +369,7 @@ cdef class PgenReader:
         # variants
         cdef uint32_t dosage_ct
         cdef uint32_t is_explicit_alt1
-        cdef PglErr reterr = PgrReadRefalt1GenovecDosage16SubsetUnsafe(self._subset_include_vec, self._subset_cumulative_popcounts, self._subset_size, variant_idx, self._state_ptr, self._genovec, self._dosage_present, self._dosage_vals, &dosage_ct, &is_explicit_alt1)
+        cdef PglErr reterr = PgrGetD(self._subset_include_vec, self._subset_cumulative_popcounts, self._subset_size, variant_idx, self._state_ptr, self._genovec, self._dosage_present, self._dosage_vals, &dosage_ct, &is_explicit_alt1)
         if reterr != kPglRetSuccess:
             raise RuntimeError("read_dosages() error " + str(reterr))
         if allele_idx == 0:
@@ -396,7 +396,7 @@ cdef class PgenReader:
             raise RuntimeError("read_alleles() variant_idx too large (" + str(variant_idx) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
         cdef uint32_t phasepresent_ct
         # upgrade to multiallelic version of this function in the future
-        cdef PglErr reterr = PgrReadRefalt1GenovecHphaseSubsetUnsafe(self._subset_include_vec, self._subset_cumulative_popcounts, self._subset_size, variant_idx, self._state_ptr, self._genovec, self._phasepresent, self._phaseinfo, &phasepresent_ct)
+        cdef PglErr reterr = PgrGetP(self._subset_include_vec, self._subset_cumulative_popcounts, self._subset_size, variant_idx, self._state_ptr, self._genovec, self._phasepresent, self._phaseinfo, &phasepresent_ct)
         if reterr != kPglRetSuccess:
             raise RuntimeError("read_alleles() error " + str(reterr))
         cdef int32_t* main_data_ptr = <int32_t*>(&(allele_int32_out[0]))
@@ -411,7 +411,7 @@ cdef class PgenReader:
             raise RuntimeError("read_alleles_and_phasepresent() variant_idx too large (" + str(variant_idx) + "; only " + str(self._info_ptr[0].raw_variant_ct) + " in file)")
         cdef uint32_t phasepresent_ct
         # upgrade to multiallelic version of this function in the future
-        cdef PglErr reterr = PgrReadRefalt1GenovecHphaseSubsetUnsafe(self._subset_include_vec, self._subset_cumulative_popcounts, self._subset_size, variant_idx, self._state_ptr, self._genovec, self._phasepresent, self._phaseinfo, &phasepresent_ct)
+        cdef PglErr reterr = PgrGetP(self._subset_include_vec, self._subset_cumulative_popcounts, self._subset_size, variant_idx, self._state_ptr, self._genovec, self._phasepresent, self._phaseinfo, &phasepresent_ct)
         if reterr != kPglRetSuccess:
             raise RuntimeError("read_alleles_and_phasepresent() error " + str(reterr))
         cdef int32_t* main_data_ptr = <int32_t*>(&(allele_int32_out[0]))
@@ -891,7 +891,7 @@ cdef class PgenReader:
                 raise RuntimeError("Variant-major read_alleles_range() allele_int32_out buffer has too few columns (" + str(allele_int32_out.shape[1]) + "; current sample subset has size " + str(subset_size) + ", and column count should be twice that)")
             for variant_idx in range(variant_idx_start, variant_idx_end):
                 # upgrade to multiallelic version of this function later
-                reterr = PgrReadRefalt1GenovecHphaseSubsetUnsafe(subset_include_vec, subset_cumulative_popcounts, subset_size, variant_idx, pgrp, genovec, phasepresent, phaseinfo, &phasepresent_ct)
+                reterr = PgrGetP(subset_include_vec, subset_cumulative_popcounts, subset_size, variant_idx, pgrp, genovec, phasepresent, phaseinfo, &phasepresent_ct)
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("read_alleles_range() error " + str(reterr))
                 main_data_ptr = <int32_t*>(&(allele_int32_out[(variant_idx - variant_idx_start), 0]))
@@ -931,7 +931,7 @@ cdef class PgenReader:
             vmaj_geno_iter = multivar_vmaj_geno_buf
             vmaj_phaseinfo_iter = multivar_vmaj_phaseinfo_buf
             for uii in range(variant_batch_size):
-                reterr = PgrReadRefalt1GenovecHphaseSubsetUnsafe(subset_include_vec, subset_cumulative_popcounts, subset_size, uii + variant_idx_offset, pgrp, vmaj_geno_iter, phasepresent, vmaj_phaseinfo_iter, &phasepresent_ct)
+                reterr = PgrGetP(subset_include_vec, subset_cumulative_popcounts, subset_size, uii + variant_idx_offset, pgrp, vmaj_geno_iter, phasepresent, vmaj_phaseinfo_iter, &phasepresent_ct)
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("read_alleles_range() error " + str(reterr))
                 if phasepresent_ct == 0:
@@ -993,7 +993,7 @@ cdef class PgenReader:
                 if variant_idx >= raw_variant_ct:
                     raise RuntimeError("read_alleles_list() variant index too large (" + str(variant_idx) + "; only " + str(raw_variant_ct) + " in file)")
                 # upgrade to multiallelic version of this function later
-                reterr = PgrReadRefalt1GenovecHphaseSubsetUnsafe(subset_include_vec, subset_cumulative_popcounts, subset_size, variant_idx, pgrp, genovec, phasepresent, phaseinfo, &phasepresent_ct)
+                reterr = PgrGetP(subset_include_vec, subset_cumulative_popcounts, subset_size, variant_idx, pgrp, genovec, phasepresent, phaseinfo, &phasepresent_ct)
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("read_alleles_list() error " + str(reterr))
                 main_data_ptr = <int32_t*>(&(allele_int32_out[variant_list_idx, 0]))
@@ -1033,7 +1033,7 @@ cdef class PgenReader:
                 variant_idx = variant_idxs[variant_list_idx]
                 if variant_idx >= raw_variant_ct:
                     raise RuntimeError("read_alleles_list() variant index too large (" + str(variant_idx) + "; only " + str(raw_variant_ct) + " in file)")
-                reterr = PgrReadRefalt1GenovecHphaseSubsetUnsafe(subset_include_vec, subset_cumulative_popcounts, subset_size, variant_idx, pgrp, vmaj_geno_iter, phasepresent, vmaj_phaseinfo_iter, &phasepresent_ct)
+                reterr = PgrGetP(subset_include_vec, subset_cumulative_popcounts, subset_size, variant_idx, pgrp, vmaj_geno_iter, phasepresent, vmaj_phaseinfo_iter, &phasepresent_ct)
                 if reterr != kPglRetSuccess:
                     raise RuntimeError("read_alleles_list() error " + str(reterr))
                 if phasepresent_ct == 0:
@@ -1078,7 +1078,7 @@ cdef class PgenReader:
         if allele_idx is None:
             allele_idx = 1
         cdef uint32_t* data_ptr = <uint32_t*>(&(genocount_uint32_out[0]))
-        cdef PglErr reterr = PgrGetRefalt1GenotypeCounts(self._subset_include_vec, self._subset_include_interleaved_vec, self._subset_cumulative_popcounts, self._subset_size, variant_idx, self._state_ptr, data_ptr)
+        cdef PglErr reterr = PgrGetCounts(self._subset_include_vec, self._subset_include_interleaved_vec, self._subset_cumulative_popcounts, self._subset_size, variant_idx, self._state_ptr, data_ptr)
         if reterr != kPglRetSuccess:
             raise RuntimeError("count() error " + str(reterr))
         if allele_idx != 0:

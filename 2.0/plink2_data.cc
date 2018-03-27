@@ -1382,7 +1382,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
         if (!is_x_or_y) {
           // call pgr_get_refalt1_genotype_counts() instead when dosages not
           // needed?
-          reterr = PgrGetRefNonrefGenotypeCountsAndDosage16s(sample_include, sample_include_interleaved_vec, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, mach_r2_vals? (&(mach_r2_vals[variant_uidx])) : nullptr, genocounts, cur_dosages);
+          reterr = PgrGetDWithCounts(sample_include, sample_include_interleaved_vec, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, mach_r2_vals? (&(mach_r2_vals[variant_uidx])) : nullptr, genocounts, cur_dosages);
           if (reterr) {
             g_error_ret = reterr;
             break;
@@ -1406,7 +1406,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
             }
           }
         } else if (is_y) {
-          reterr = PgrGetRefNonrefGenotypeCountsAndDosage16s(sex_male, sex_male_interleaved_vec, sex_male_cumulative_popcounts, male_ct, variant_uidx, pgrp, nullptr, genocounts, cur_dosages);
+          reterr = PgrGetDWithCounts(sex_male, sex_male_interleaved_vec, sex_male_cumulative_popcounts, male_ct, variant_uidx, pgrp, nullptr, genocounts, cur_dosages);
           if (reterr) {
             g_error_ret = reterr;
             break;
@@ -1419,7 +1419,7 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
         } else {
           // chrX
           uint32_t is_explicit_alt1;
-          reterr = PgrReadRefalt1GenovecDosage16SubsetUnsafe(nullptr, nullptr, raw_sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
+          reterr = PgrGetD(nullptr, nullptr, raw_sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
           if (reterr) {
             g_error_ret = reterr;
             break;
@@ -1973,7 +1973,7 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* arg) {
         // --hard-call-threshold not apply here.
         uint32_t dosage_ct;
         uint32_t is_explicit_alt1;
-        PglErr reterr = PgrReadRefalt1GenovecDosage16SubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
+        PglErr reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
         if (reterr) {
           g_error_ret = reterr;
           break;
@@ -2885,6 +2885,8 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
           if (bigstack_alloc_u32(sample_ct, &new_collapsed_sort_map)) {
             goto MakePlink2NoVsort_ret_NOMEM;
           }
+	  // bugfix (26 Mar 2018): forgot to initialize this
+	  memcpy(new_collapsed_sort_map, new_sample_idx_to_old, sample_ct * sizeof(int32_t));
           UidxsToIdxs(sample_include, g_sample_include_cumulative_popcounts, sample_ct, new_collapsed_sort_map);
           g_collapsed_sort_map = new_collapsed_sort_map;
         }

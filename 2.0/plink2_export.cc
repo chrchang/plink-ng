@@ -188,7 +188,7 @@ PglErr Export012Vmaj(const char* outname, const uintptr_t* sample_include, const
       // todo: multiallelic case
       uint32_t dosage_ct;
       uint32_t is_explicit_alt1;
-      reterr = PgrReadRefalt1GenovecDosage16SubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
+      reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
       if (reterr) {
         if (reterr != kPglRetReadFail) {
           logputs("\n");
@@ -932,7 +932,7 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
       }
       // todo: multiallelic case
       uint32_t dosage_ct;
-      reterr = PgrReadRefalt1GenovecDosage16SubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
+      reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
       if (reterr) {
         if (reterr != kPglRetReadFail) {
           logputs("\n");
@@ -1269,7 +1269,7 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
         }
       }
       uint32_t phasepresent_ct;
-      reterr = PgrReadRefalt1GenovecHphaseSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, phasepresent, phaseinfo, &phasepresent_ct);
+      reterr = PgrGetP(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, phasepresent, phaseinfo, &phasepresent_ct);
       if (reterr) {
         goto ExportOxHapslegend_ret_PGR_FAIL;
       }
@@ -1493,7 +1493,7 @@ THREAD_FUNC_DECL ExportBgen11Thread(void* arg) {
       }
       uint32_t dosage_ct;
       uint32_t is_explicit_alt1;
-      PglErr reterr = PgrReadRefalt1GenovecDosage16SubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
+      PglErr reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
       if (reterr) {
         g_error_ret = reterr;
         break;
@@ -2059,7 +2059,7 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* arg) {
       // todo: multiallelic cases
       uint32_t dosage_ct;
       uint32_t is_explicit_alt1;
-      PglErr reterr = PgrReadRefalt1GenovecDosage16SubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
+      PglErr reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
       if (reterr) {
         g_error_ret = reterr;
         break;
@@ -3258,7 +3258,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         if (!write_gp_or_ds) {
           reterr = PgrGet(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec);
         } else {
-          reterr = PgrReadRefalt1GenovecDosage16SubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
+          reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
         }
         if (reterr) {
           goto ExportVcf_ret_PGR_FAIL;
@@ -3390,9 +3390,9 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         // biallelic, phased
         uint32_t at_least_one_phase_present;
         if (!write_gp_or_ds) {
-          reterr = PgrReadRefalt1GenovecHphaseSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, phasepresent, phaseinfo, &at_least_one_phase_present);
+          reterr = PgrGetP(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, phasepresent, phaseinfo, &at_least_one_phase_present);
         } else {
-          reterr = PgrReadRefalt1GenovecHphaseDosage16SubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, phasepresent, phaseinfo, &at_least_one_phase_present, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
+          reterr = PgrGetPD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, phasepresent, phaseinfo, &at_least_one_phase_present, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
         }
         if (reterr) {
           goto ExportVcf_ret_PGR_FAIL;
@@ -3731,7 +3731,7 @@ THREAD_FUNC_DECL DosageTransposeThread(void* arg) {
           // todo: multiallelic case
           uint32_t dosage_ct;
           uint32_t is_explicit_alt1;
-          const PglErr reterr = PgrReadRefalt1GenovecDosage16SubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec_iter, dosage_present_iter, R_CAST(uint16_t*, dosage_vals_iter), &dosage_ct, &is_explicit_alt1);
+          const PglErr reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec_iter, dosage_present_iter, R_CAST(uint16_t*, dosage_vals_iter), &dosage_ct, &is_explicit_alt1);
           if (reterr) {
             g_error_ret = reterr;
             goto DosageTransposeThread_fail;
