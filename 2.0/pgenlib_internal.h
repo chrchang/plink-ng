@@ -76,7 +76,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 804
+#define PGENLIB_INTERNAL_VERNUM 805
 
 // other configuration-ish values needed by plink2_common subset
 typedef unsigned char AltAlleleCt;
@@ -727,7 +727,7 @@ struct PgenReaderStruct {
   uint32_t workspace_ambig_id_ct;
 
   uintptr_t* workspace_dosage_present;
-  uintptr_t* workspace_dosage_phased;
+  uintptr_t* workspace_dphase_present;
 
   // phase set loading (mode 0x11) unimplemented for now; should be a sequence
   // of (sample ID, [uint32_t phase set begin, set end), [set begin, set end),
@@ -1008,13 +1008,13 @@ HEADER_INLINE void PgrDetectGenovecHets(const uintptr_t* __restrict genovec, uin
 PglErr PgrGetP(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr);
 
 // if dosage_present and dosage_vals are nullptr, dosage data is ignored
-PglErr PgrGetD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr, uint32_t* is_explicit_alt1_ptr);
+PglErr PgrGetD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr);
 
 PglErr PgrGetDWithCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* mach_r2_ptr, uint32_t* genocounts, uint64_t* all_dosages);
 
 // ok for both dosage_present and dosage_vals to be nullptr when no dosage data
 // is present
-PglErr PgrGetPD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr, uint32_t* is_explicit_alt1_ptr);
+PglErr PgrGetPD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr);
 
 // interface used by --make-pgen, just performs basic LD/difflist decompression
 // (still needs multiallelic and dosage-phase extensions)

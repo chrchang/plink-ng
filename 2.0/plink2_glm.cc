@@ -3201,9 +3201,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
         MovU32To1Bit(variant_include, &variant_uidx);
         {
           uint32_t dosage_ct;
-          uint32_t is_explicit_alt1;
-          // todo: multiallelic case
-          PglErr reterr = PgrGetD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
+          PglErr reterr = PgrGetD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct);
           if (reterr) {
             g_error_ret = reterr;
             variant_bidx = variant_bidx_end;
@@ -5015,9 +5013,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
         MovU32To1Bit(variant_include, &variant_uidx);
         {
           uint32_t dosage_ct;
-          uint32_t is_explicit_alt1;
-          // todo: multiallelic case
-          PglErr reterr = PgrGetD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
+          PglErr reterr = PgrGetD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct);
           if (reterr) {
             g_error_ret = reterr;
             variant_bidx = variant_bidx_end;
@@ -6452,9 +6448,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           for (uint32_t condition_idx = 0; condition_idx < condition_ct; ++condition_idx) {
             const uint32_t cur_variant_uidx = condition_uidxs[condition_idx];
             uint32_t dosage_ct;
-            uint32_t is_explicit_alt1;
-            // todo: multiallelic case
-            reterr = PgrGetD(nullptr, nullptr, raw_sample_ct, cur_variant_uidx, simple_pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
+            reterr = PgrGetD(nullptr, nullptr, raw_sample_ct, cur_variant_uidx, simple_pgrp, genovec, dosage_present, dosage_vals, &dosage_ct);
             if (reterr) {
               if (reterr == kPglRetMalformedInput) {
                 logerrputs("Error: Malformed .pgen file.\n");

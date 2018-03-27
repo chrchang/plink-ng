@@ -10,6 +10,7 @@
 
 
 /* ===   Tuning parameters   === */
+#define ZWRAP_USE_ZSTD 1
 #ifndef ZWRAP_USE_ZSTD
     #define ZWRAP_USE_ZSTD 0
 #endif
@@ -24,7 +25,7 @@
 #ifdef STATIC_ZLIB
   #include "../../../zlib-1.2.11/zlib.h"
 #else
-  #include <zlib.h>                /* without #define Z_PREFIX */
+  #include <zlib.h>                  /* without #define Z_PREFIX */
 #endif
 #include "zstd_zlibwrapper.h"
 #define ZSTD_STATIC_LINKING_ONLY   /* ZSTD_isFrame, ZSTD_MAGICNUMBER */

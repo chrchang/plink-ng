@@ -2884,8 +2884,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       // context.)
 
       // todo: multiallelic case
-      uint32_t is_explicit_alt1;
-      reterr = PgrGetPD(founder_info, founder_info_cumulative_popcounts, founder_ct, variant_uidx, simple_pgrp, cur_genovec, cur_phasepresent, cur_phaseinfo, &(phasepresent_cts[var_idx]), cur_dosage_present, cur_dosage_vals, &(dosage_cts[var_idx]), &is_explicit_alt1);
+      reterr = PgrGetPD(founder_info, founder_info_cumulative_popcounts, founder_ct, variant_uidx, simple_pgrp, cur_genovec, cur_phasepresent, cur_phaseinfo, &(phasepresent_cts[var_idx]), cur_dosage_present, cur_dosage_vals, &(dosage_cts[var_idx]));
       if (reterr) {
         if (reterr == kPglRetMalformedInput) {
           logputs("\n");

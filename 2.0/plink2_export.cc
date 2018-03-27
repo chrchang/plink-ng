@@ -187,8 +187,7 @@ PglErr Export012Vmaj(const char* outname, const uintptr_t* sample_include, const
       write_iter = u32toa_x(variant_bps[variant_uidx], exportf_delim, write_iter);
       // todo: multiallelic case
       uint32_t dosage_ct;
-      uint32_t is_explicit_alt1;
-      reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
+      reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, dosage_present, dosage_vals, &dosage_ct);
       if (reterr) {
         if (reterr != kPglRetReadFail) {
           logputs("\n");
@@ -925,14 +924,13 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
       if (variant_allele_idxs) {
         variant_allele_idx_base = variant_allele_idxs[variant_uidx];
       }
-      uint32_t is_explicit_alt1;
       if (refalt1_select) {
         ref_allele_idx = refalt1_select[variant_uidx * 2];
         alt1_allele_idx = refalt1_select[variant_uidx * 2 + 1];
       }
       // todo: multiallelic case
       uint32_t dosage_ct;
-      reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
+      reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, dosage_present, dosage_vals, &dosage_ct);
       if (reterr) {
         if (reterr != kPglRetReadFail) {
           logputs("\n");
@@ -941,7 +939,7 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
         goto ExportOxGen_ret_1;
       }
       if (ref_allele_idx + ref_allele_second == 1) {
-        assert((!dosage_ct) || (!is_explicit_alt1));
+        assert(!dosage_ct);
         GenovecInvertUnsafe(sample_ct, genovec);
         BiallelicDosage16Invert(dosage_ct, dosage_vals);
       }
@@ -974,54 +972,45 @@ PglErr ExportOxGen(const uintptr_t* sample_include, const uint32_t* sample_inclu
       } else {
         const Halfword* dosage_present_alias = R_CAST(Halfword*, dosage_present);
         const Dosage* dosage_vals_iter = dosage_vals;
-        if (!is_explicit_alt1) {
-          while (1) {
-            if (widx >= sample_ctl2_m1) {
-              if (widx > sample_ctl2_m1) {
-                break;
-              }
-              inner_loop_last = (sample_ct - 1) % kBitsPerWordD2;
+        while (1) {
+          if (widx >= sample_ctl2_m1) {
+            if (widx > sample_ctl2_m1) {
+              break;
             }
-            uintptr_t geno_word = genovec[widx];
-            uint32_t dosage_present_hw = dosage_present_alias[widx];
-            if (!dosage_present_hw) {
-              for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
-                write_iter = memcpya(write_iter, &(hardcall_strs[(geno_word & 3) * 8]), 6);
-                geno_word >>= 2;
-              }
-            } else {
-              for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
-                if (dosage_present_hw & 1) {
-                  const uint32_t dosage_int = *dosage_vals_iter++;
-                  if (dosage_int <= kDosageMid) {
-                    *write_iter++ = ' ';
-                    write_iter = PrintGenDosage(kDosageMid - dosage_int, write_iter);
-                    *write_iter++ = ' ';
-                    write_iter = PrintGenDosage(dosage_int, write_iter);
-                    write_iter = strcpya(write_iter, " 0");
-                  } else {
-                    assert(dosage_int <= kDosageMax);
-                    write_iter = memcpyl3a(write_iter, " 0 ");
-                    write_iter = PrintGenDosage(kDosageMax - dosage_int, write_iter);
-                    *write_iter++ = ' ';
-                    write_iter = PrintGenDosage(dosage_int - kDosageMid, write_iter);
-                  }
-                } else {
-                  write_iter = memcpya(write_iter, &(hardcall_strs[(geno_word & 3) * 8]), 6);
-                }
-                geno_word >>= 2;
-                dosage_present_hw >>= 1;
-              }
-            }
-            ++widx;
+            inner_loop_last = (sample_ct - 1) % kBitsPerWordD2;
           }
-        } else {
-          // todo
-          // In multiallelic case, if ref/alt1 dosages sum to less than 2 (but
-          // more than 0), we first internally rescale them to sum to 2, to
-          // make .gen and bgen-1.1 export isomorphic, and bgen-1.2 export as
-          // similar as possible.
-          assert(0);
+          uintptr_t geno_word = genovec[widx];
+          uint32_t dosage_present_hw = dosage_present_alias[widx];
+          if (!dosage_present_hw) {
+            for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
+              write_iter = memcpya(write_iter, &(hardcall_strs[(geno_word & 3) * 8]), 6);
+              geno_word >>= 2;
+            }
+          } else {
+            for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
+              if (dosage_present_hw & 1) {
+                const uint32_t dosage_int = *dosage_vals_iter++;
+                if (dosage_int <= kDosageMid) {
+                  *write_iter++ = ' ';
+                  write_iter = PrintGenDosage(kDosageMid - dosage_int, write_iter);
+                  *write_iter++ = ' ';
+                  write_iter = PrintGenDosage(dosage_int, write_iter);
+                  write_iter = strcpya(write_iter, " 0");
+                } else {
+                  assert(dosage_int <= kDosageMax);
+                  write_iter = memcpyl3a(write_iter, " 0 ");
+                  write_iter = PrintGenDosage(kDosageMax - dosage_int, write_iter);
+                  *write_iter++ = ' ';
+                  write_iter = PrintGenDosage(dosage_int - kDosageMid, write_iter);
+                }
+              } else {
+                write_iter = memcpya(write_iter, &(hardcall_strs[(geno_word & 3) * 8]), 6);
+              }
+              geno_word >>= 2;
+              dosage_present_hw >>= 1;
+            }
+          }
+          ++widx;
         }
       }
       AppendBinaryEoln(&write_iter);
@@ -1492,8 +1481,7 @@ THREAD_FUNC_DECL ExportBgen11Thread(void* arg) {
         ref_allele_idx = refalt1_select[variant_uidx * 2];
       }
       uint32_t dosage_ct;
-      uint32_t is_explicit_alt1;
-      PglErr reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
+      PglErr reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct);
       if (reterr) {
         g_error_ret = reterr;
         break;
@@ -1524,50 +1512,45 @@ THREAD_FUNC_DECL ExportBgen11Thread(void* arg) {
       } else {
         const Halfword* dosage_present_alias = R_CAST(Halfword*, dosage_present);
         const Dosage* dosage_vals_iter = dosage_vals;
-        if (!is_explicit_alt1) {
-          while (1) {
-            if (widx >= sample_ctl2_m1) {
-              if (widx > sample_ctl2_m1) {
-                break;
-              }
-              inner_loop_last = (sample_ct - 1) % kBitsPerWordD2;
+        while (1) {
+          if (widx >= sample_ctl2_m1) {
+            if (widx > sample_ctl2_m1) {
+              break;
             }
-            uintptr_t geno_word = genovec[widx];
-            uint32_t dosage_present_hw = dosage_present_alias[widx];
-            if (!dosage_present_hw) {
-              for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
+            inner_loop_last = (sample_ct - 1) % kBitsPerWordD2;
+          }
+          uintptr_t geno_word = genovec[widx];
+          uint32_t dosage_present_hw = dosage_present_alias[widx];
+          if (!dosage_present_hw) {
+            for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
+              memcpy(bgen_geno_buf_iter, &(bgen11_hardcall_usis[(geno_word & 3) * 4]), 6);
+              bgen_geno_buf_iter = &(bgen_geno_buf_iter[3]);
+              geno_word >>= 2;
+            }
+          } else {
+            for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
+              if (dosage_present_hw & 1) {
+                uint32_t dosage_int = *dosage_vals_iter++;
+                dosage_int *= 2;
+                if (dosage_int <= kDosageMax) {
+                  *bgen_geno_buf_iter++ = kDosageMax - dosage_int;
+                  *bgen_geno_buf_iter++ = dosage_int;
+                  *bgen_geno_buf_iter++ = 0;
+                } else {
+                  dosage_int -= kDosageMax;
+                  *bgen_geno_buf_iter++ = 0;
+                  *bgen_geno_buf_iter++ = kDosageMax - dosage_int;
+                  *bgen_geno_buf_iter++ = dosage_int;
+                }
+              } else {
                 memcpy(bgen_geno_buf_iter, &(bgen11_hardcall_usis[(geno_word & 3) * 4]), 6);
                 bgen_geno_buf_iter = &(bgen_geno_buf_iter[3]);
-                geno_word >>= 2;
               }
-            } else {
-              for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
-                if (dosage_present_hw & 1) {
-                  uint32_t dosage_int = *dosage_vals_iter++;
-                  dosage_int *= 2;
-                  if (dosage_int <= kDosageMax) {
-                    *bgen_geno_buf_iter++ = kDosageMax - dosage_int;
-                    *bgen_geno_buf_iter++ = dosage_int;
-                    *bgen_geno_buf_iter++ = 0;
-                  } else {
-                    dosage_int -= kDosageMax;
-                    *bgen_geno_buf_iter++ = 0;
-                    *bgen_geno_buf_iter++ = kDosageMax - dosage_int;
-                    *bgen_geno_buf_iter++ = dosage_int;
-                  }
-                } else {
-                  memcpy(bgen_geno_buf_iter, &(bgen11_hardcall_usis[(geno_word & 3) * 4]), 6);
-                  bgen_geno_buf_iter = &(bgen_geno_buf_iter[3]);
-                }
-                geno_word >>= 2;
-                dosage_present_hw >>= 1;
-              }
+              geno_word >>= 2;
+              dosage_present_hw >>= 1;
             }
-            ++widx;
           }
-        } else {
-          // todo
-          assert(0);
+          ++widx;
         }
       }
       uintptr_t compressed_blen = libdeflate_zlib_compress(compressor, bgen_geno_buf, bgen_geno_buf_blen, writebuf_iter, bgen_compressed_buf_max);
@@ -2058,8 +2041,7 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* arg) {
       // todo: export phase info
       // todo: multiallelic cases
       uint32_t dosage_ct;
-      uint32_t is_explicit_alt1;
-      PglErr reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
+      PglErr reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct);
       if (reterr) {
         g_error_ret = reterr;
         break;
@@ -2114,7 +2096,8 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* arg) {
       } else {
         const Halfword* dosage_present_alias = (Halfword*)dosage_present;
         const Dosage* dosage_vals_iter = dosage_vals;
-        if (!is_explicit_alt1) {
+        // todo: multiallelic case
+        if (1) {
           while (1) {
             if (widx >= sample_ctl2_m1) {
               if (widx > sample_ctl2_m1) {
@@ -3250,7 +3233,6 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
       write_iter = memcpyl3a(write_iter, "\tGT");
 
       uint32_t dosage_ct = 0;
-      uint32_t is_explicit_alt1 = 0;
       uint32_t inner_loop_last = kBitsPerWordD2 - 1;
       uint32_t widx = 0;
       if (!some_phased) {
@@ -3258,7 +3240,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         if (!write_gp_or_ds) {
           reterr = PgrGet(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec);
         } else {
-          reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
+          reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, dosage_present, dosage_vals, &dosage_ct);
         }
         if (reterr) {
           goto ExportVcf_ret_PGR_FAIL;
@@ -3392,7 +3374,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         if (!write_gp_or_ds) {
           reterr = PgrGetP(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, phasepresent, phaseinfo, &at_least_one_phase_present);
         } else {
-          reterr = PgrGetPD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, phasepresent, phaseinfo, &at_least_one_phase_present, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
+          reterr = PgrGetPD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, phasepresent, phaseinfo, &at_least_one_phase_present, dosage_present, dosage_vals, &dosage_ct);
         }
         if (reterr) {
           goto ExportVcf_ret_PGR_FAIL;
@@ -3728,10 +3710,8 @@ THREAD_FUNC_DECL DosageTransposeThread(void* arg) {
         Dosage* dosage_vals_iter = dosagevals_buf;
         for (uint32_t vidx_offset = 0; vidx_offset < vidx_block_size; ++vidx_offset, ++variant_uidx) {
           MovU32To1Bit(variant_include, &variant_uidx);
-          // todo: multiallelic case
           uint32_t dosage_ct;
-          uint32_t is_explicit_alt1;
-          const PglErr reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec_iter, dosage_present_iter, R_CAST(uint16_t*, dosage_vals_iter), &dosage_ct, &is_explicit_alt1);
+          const PglErr reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec_iter, dosage_present_iter, R_CAST(uint16_t*, dosage_vals_iter), &dosage_ct);
           if (reterr) {
             g_error_ret = reterr;
             goto DosageTransposeThread_fail;

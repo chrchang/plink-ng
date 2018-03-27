@@ -46,7 +46,7 @@ PglErr InitCstreamZstd(const char* out_fname, uint32_t do_append, __maybe_unused
   __maybe_unused size_t retval = ZSTD_CCtx_setParameter(css_ptr->cctx, ZSTD_p_compressionLevel, g_zst_level);
   assert(!ZSTD_isError(retval));
 #ifdef ZSTD_MULTITHREAD
-  retval = ZSTD_CCtx_setParameter(css_ptr->cctx, ZSTD_p_nbThreads, thread_ct);
+  retval = ZSTD_CCtx_setParameter(css_ptr->cctx, ZSTD_p_nbWorkers, thread_ct);
   if (ZSTD_isError(retval)) {
     ZSTD_freeCCtx(css_ptr->cctx);
     return kPglRetNomem;

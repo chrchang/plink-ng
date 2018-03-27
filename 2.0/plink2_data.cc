@@ -1418,13 +1418,11 @@ THREAD_FUNC_DECL LoadAlleleAndGenoCountsThread(void* arg) {
           }
         } else {
           // chrX
-          uint32_t is_explicit_alt1;
-          reterr = PgrGetD(nullptr, nullptr, raw_sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
+          reterr = PgrGetD(nullptr, nullptr, raw_sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct);
           if (reterr) {
             g_error_ret = reterr;
             break;
           }
-          // assert(!is_explicit_alt1);
           if (sample_ct == raw_sample_ct) {
             ZeroTrailingQuaters(raw_sample_ct, genovec);
             GenovecCountFreqsUnsafe(genovec, sample_ct, genocounts);
@@ -1972,8 +1970,7 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* arg) {
         // quasi-bugfix (4 Dec 2017): it's user-hostile to make
         // --hard-call-threshold not apply here.
         uint32_t dosage_ct;
-        uint32_t is_explicit_alt1;
-        PglErr reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct, &is_explicit_alt1);
+        PglErr reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct);
         if (reterr) {
           g_error_ret = reterr;
           break;

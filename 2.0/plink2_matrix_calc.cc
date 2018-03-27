@@ -2511,10 +2511,8 @@ PglErr ExpandCenteredVarmaj(const uintptr_t* genovec, const uintptr_t* dosage_pr
 }
 
 PglErr LoadCenteredVarmaj(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t variance_standardize, uint32_t sample_ct, uint32_t variant_uidx, AltAlleleCt maj_allele_idx, double maj_freq, PgenReader* simple_pgrp, uint32_t* missing_presentp, double* normed_dosages, uintptr_t* genovec_buf, uintptr_t* dosage_present_buf, Dosage* dosage_vals_buf) {
-  // todo: multiallelic case
   uint32_t dosage_ct;
-  uint32_t is_explicit_alt1;
-  PglErr reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec_buf, dosage_present_buf, dosage_vals_buf, &dosage_ct, &is_explicit_alt1);
+  PglErr reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec_buf, dosage_present_buf, dosage_vals_buf, &dosage_ct);
   if (reterr) {
     // don't print malformed-.pgen error message here for now, since we may
     // want to put this in a multithreaded loop?
@@ -3916,8 +3914,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             for (uint32_t variant_idx = cur_variant_idx_start; variant_idx < cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
               MovU32To1Bit(variant_include, &variant_uidx);
               uint32_t dosage_ct;
-              uint32_t is_explicit_alt1;
-              reterr = PgrGetD(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_vals_iter, &dosage_ct, &is_explicit_alt1);
+              reterr = PgrGetD(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_vals_iter, &dosage_ct);
               if (reterr) {
                 if (reterr == kPglRetMalformedInput) {
                   logputs("\n");
@@ -4036,8 +4033,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           for (uint32_t variant_idx = cur_variant_idx_start; variant_idx < cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
             MovU32To1Bit(variant_include, &variant_uidx);
             uint32_t dosage_ct;
-            uint32_t is_explicit_alt1;
-            reterr = PgrGetD(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_vals_iter, &dosage_ct, &is_explicit_alt1);
+            reterr = PgrGetD(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_vals_iter, &dosage_ct);
             if (reterr) {
               goto CalcPca_ret_READ_FAIL;
             }
@@ -4302,8 +4298,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           for (uint32_t variant_idx = cur_variant_idx_start; variant_idx < cur_variant_idx_end; ++variant_uidx_load, ++variant_idx) {
             MovU32To1Bit(variant_include, &variant_uidx_load);
             uint32_t dosage_ct;
-            uint32_t is_explicit_alt1;
-            reterr = PgrGetD(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx_load, simple_pgrp, genovec_iter, dosage_present_iter, dosage_vals_iter, &dosage_ct, &is_explicit_alt1);
+            reterr = PgrGetD(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx_load, simple_pgrp, genovec_iter, dosage_present_iter, dosage_vals_iter, &dosage_ct);
             if (reterr) {
               goto CalcPca_ret_READ_FAIL;
             }
@@ -4898,8 +4893,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             // okay, the variant and allele are in our dataset.  Load it.
             // (todo: make this work in multiallelic case)
             uint32_t dosage_ct;
-            uint32_t is_explicit_alt1;
-            reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec_buf, dosage_present_buf, dosage_vals_buf, &dosage_ct, &is_explicit_alt1);
+            reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec_buf, dosage_present_buf, dosage_vals_buf, &dosage_ct);
             if (reterr) {
               if (reterr == kPglRetMalformedInput) {
                 logputs("\n");
