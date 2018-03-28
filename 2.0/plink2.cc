@@ -61,7 +61,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (27 Mar 2018)";
+  " (28 Mar 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -3967,7 +3967,7 @@ int main(int argc, char** argv) {
                 logerrputs("Error: The 'vcf-dosage' modifier only applies to --export's vcf output format.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
-              if (pc.exportf_flags & (kfExportfVcfDosageGp | kfExportfVcfDosageDs)) {
+              if (pc.exportf_flags & (kfExportfVcfDosageGp | kfExportfVcfDosageDs | kfExportfVcfDosageHds)) {
                 logerrputs("Error: Multiple --export vcf-dosage= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
@@ -3976,8 +3976,12 @@ int main(int argc, char** argv) {
                 pc.exportf_flags |= kfExportfVcfDosageGp;
               } else if (!strcmp(vcf_dosage_start, "DS")) {
                 pc.exportf_flags |= kfExportfVcfDosageDs;
+              } else if (!strcmp(vcf_dosage_start, "HDS")) {
+                pc.exportf_flags |= kfExportfVcfDosageHds;
               } else if (!strcmp(vcf_dosage_start, "DS-force")) {
                 pc.exportf_flags |= kfExportfVcfDosageDs | kfExportfVcfDosageForce;
+              } else if (!strcmp(vcf_dosage_start, "HDS-force")) {
+                pc.exportf_flags |= kfExportfVcfDosageHds | kfExportfVcfDosageForce;
               } else {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --export vcf-dosage= parameter '%s'.\n", vcf_dosage_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
@@ -7821,6 +7825,11 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
+          // Note that, in zstd 1.3.4, multithreaded compression is
+          // nondeterministic unless level 5+ is explicitly requested, see
+          //   https://github.com/facebook/zstd/issues/1077 .
+          // I've postponed the decision on whether this sort of nondeterminism
+          // is acceptable in plink2 for now (by reverting to 1.3.3).
           if (ScanPosintCapped(cur_modif, 22, &g_zst_level)) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --zst-level parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;

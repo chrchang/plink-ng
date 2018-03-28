@@ -76,7 +76,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 805
+#define PGENLIB_INTERNAL_VERNUM 900
 
 // other configuration-ish values needed by plink2_common subset
 typedef unsigned char AltAlleleCt;
@@ -329,6 +329,9 @@ HEADER_INLINE void TransposeQuaterblock(const uintptr_t* read_iter, uint32_t rea
 // replaces each x with (32768 - x)
 // okay for dosage_vals to be nullptr if dosage_ct == 0
 void BiallelicDosage16Invert(uint32_t dosage_ct, uint16_t* dosage_vals);
+
+// replaces each x with -x
+void BiallelicDphase16Invert(uint32_t dphase_ct, int16_t* dphase_deltas);
 
 // currently does zero trailing halfword
 void GenovecToMissingnessUnsafe(const uintptr_t* __restrict genovec, uint32_t sample_ct, uintptr_t* __restrict missingness);
@@ -1170,6 +1173,7 @@ PglErr SpgwAppendMultiallelicCounts(const uintptr_t** __restrict alt_countvecs);
 PglErr SpgwAppendBiallelicGenovecHphase(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, STPgenWriter* spgwp);
 
 // dosage_vals[] has length dosage_ct, not sample_ct
+// ok for traling bits of dosage_present to not be zeroed out
 void PwcAppendBiallelicGenovecDosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_vals, uint32_t dosage_ct, PgenWriterCommon* pwcp);
 
 PglErr SpgwAppendBiallelicGenovecDosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_vals, uint32_t dosage_ct, STPgenWriter* spgwp);
@@ -1180,9 +1184,11 @@ PglErr SpgwAppendBiallelicGenovecHphaseDosage16(const uintptr_t* __restrict geno
 
 // dphase_present can be nullptr if dosage_ct == dphase_ct
 // dosage_present cannot be null for nonzero dosage_ct
-// dosage_vals[] has length dosage_ct + dphase_ct
-// PglErr spgw_append_biallelic_genovec_dphase16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uintptr_t* dphase_present, const uint16_t* dosage_vals, uint32_t dosage_ct, uint32_t dphase_ct, STPgenWriter* spgwp);
+// could make dosage_vals[] has length dosage_ct + dphase_ct instead of having
+// separate dphase_deltas[]?
+void PwcAppendBiallelicGenovecDphase16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uintptr_t* __restrict dphase_present, const uint16_t* dosage_vals, const int16_t* dphase_deltas, uint32_t dosage_ct, uint32_t dphase_ct, PgenWriterCommon* pwcp);
 
+PglErr SpgwAppendBiallelicGenovecDphase16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uintptr_t* dphase_present, const uint16_t* dosage_vals, const int16_t* dphase_deltas, uint32_t dosage_ct, uint32_t dphase_ct, STPgenWriter* spgwp);
 
 // Backfills header info, then closes the file.
 PglErr SpgwFinish(STPgenWriter* spgwp);

@@ -2778,14 +2778,21 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     // needs to be larger for >9 alt alleles
     const uint32_t dosage_force = (exportf_flags / kfExportfVcfDosageForce) & 1;
     uint32_t write_ds = (exportf_flags / kfExportfVcfDosageDs) & 1;
-    uint32_t write_gp_or_ds = write_ds || (exportf_flags & kfExportfVcfDosageGp);
-    if ((!dosage_force) && write_gp_or_ds && (!(pgfip->gflags & kfPgenGlobalDosagePresent))) {
-      write_gp_or_ds = 0;
-      logerrprintf("Warning: No dosage data present.  %s field will not be exported.\n", write_ds? "DS" : "GP");
+    uint32_t write_hds = (exportf_flags / kfExportfVcfDosageHds) & 1;
+    uint32_t write_gp_ds_or_hds = write_ds || write_hds || (exportf_flags & kfExportfVcfDosageGp);
+    if ((!dosage_force) && write_gp_ds_or_hds && (!(pgfip->gflags & kfPgenGlobalDosagePresent))) {
+      write_gp_ds_or_hds = 0;
+      logerrprintf("Warning: No dosage data present.  %s field will not be exported.\n", write_hds? "HDS" : (write_ds? "DS" : "GP"));
       write_ds = 0;
+      write_hds = 0;
     }
-    if (writebuf_blen < ((4 * k1LU) + write_gp_or_ds * 24 - write_ds * 16) * sample_ct + 32 + max_filter_slen + info_reload_slen) {
-      writebuf_blen = ((4 * k1LU) + write_gp_or_ds * 24 - write_ds * 16) * sample_ct + 32 + max_filter_slen + info_reload_slen;
+    // GP: 3 limited-precision numbers, up to (7 chars + delim) * 3
+    // DS: 1 limited-precision number
+    // HDS: 2 limited-precision numbers
+    // (could allow e.g. bloated DS+HDS mode, but let's defer that for now)
+    const uintptr_t writebuf_blen_lbound = ((4 * k1LU) + write_gp_ds_or_hds * 24 - write_ds * 16 - write_hds * 8) * sample_ct + 32 + max_filter_slen + info_reload_slen;
+    if (writebuf_blen < writebuf_blen_lbound) {
+      writebuf_blen = writebuf_blen_lbound;
     }
     writebuf_blen += kMaxMediumLine;
     char* writebuf;
@@ -2918,9 +2925,13 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         write_iter = strcpya(write_iter, "##INFO=<ID=PR,Number=0,Type=Flag,Description=\"Provisional reference allele, may not be based on real reference genome\">" EOLN_STR);
       }
     }
-    if (write_ds) {
+    if (write_hds) {
+      write_iter = strcpya(write_iter, "##FORMAT=<ID=HDS,Number=2,Type=Float,Description=\"Estimated Haploid Alternate Allele Dosage \">" EOLN_STR);
+      logerrputs("Error: VCF HDS output is under development.\n");
+      goto ExportVcf_ret_1;
+    } else if (write_ds) {
       write_iter = strcpya(write_iter, "##FORMAT=<ID=DS,Number=1,Type=Float,Description=\"Estimated Alternate Allele Dosage : [P(0/1)+2*P(1/1)]\">" EOLN_STR);
-    } else if (write_gp_or_ds) {
+    } else if (write_gp_ds_or_hds) {
       write_iter = strcpya(write_iter, "##FORMAT=<ID=GP,Number=G,Type=Float,Description=\"Phred-scaled Genotype Likelihoods\">" EOLN_STR);
     }
     // possible todo: optionally export .psam information as
@@ -3042,7 +3053,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
 
     uintptr_t* dosage_present = nullptr;
     Dosage* dosage_vals = nullptr;
-    if (write_gp_or_ds) {
+    if (write_gp_ds_or_hds) {
       if (bigstack_alloc_w(sample_ctl, &dosage_present) ||
           bigstack_alloc_dosage(sample_ct, &dosage_vals)) {
         goto ExportVcf_ret_NOMEM;
@@ -3237,7 +3248,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
       uint32_t widx = 0;
       if (!some_phased) {
         // biallelic, nothing phased in entire file
-        if (!write_gp_or_ds) {
+        if (!write_gp_ds_or_hds) {
           reterr = PgrGet(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec);
         } else {
           reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, dosage_present, dosage_vals, &dosage_ct);
@@ -3371,7 +3382,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
       } else {
         // biallelic, phased
         uint32_t at_least_one_phase_present;
-        if (!write_gp_or_ds) {
+        if (!write_gp_ds_or_hds) {
           reterr = PgrGetP(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, phasepresent, phaseinfo, &at_least_one_phase_present);
         } else {
           reterr = PgrGetPD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, phasepresent, phaseinfo, &at_least_one_phase_present, dosage_present, dosage_vals, &dosage_ct);

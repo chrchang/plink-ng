@@ -1380,6 +1380,14 @@ void BiallelicDosage16Invert(uint32_t dosage_ct, uint16_t* dosage_vals) {
   }
 }
 
+void BiallelicDphase16Invert(uint32_t dphase_ct, int16_t* dphase_deltas) {
+  // todo: vectorize this (or maybe compiler is smart enough to do it
+  // automatically?)
+  for (uint32_t uii = 0; uii < dphase_ct; ++uii) {
+    dphase_deltas[uii] = -dphase_deltas[uii];
+  }
+}
+
 void GenovecToMissingnessUnsafe(const uintptr_t* __restrict genovec, uint32_t sample_ct, uintptr_t* __restrict missingness) {
   const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
   Halfword* missingness_alias = R_CAST(Halfword*, missingness);
@@ -6987,11 +6995,6 @@ BoolErr ValidateAndCountDeltalist(const unsigned char* fread_end, uint32_t sampl
 PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, PgenReader* pgrp, const unsigned char** fread_pp, char* errstr_buf) {
   // similar to ParseDosage16().  doesn't support multiallelic data yet.
   const uint32_t vrtype = pgrp->fi.vrtypes[vidx];
-  if (vrtype & 0x80) {
-    // this should be trivial, just multiply array lengths by 2...
-    snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Phased dosage validation is not implemented yet.\n");
-    return kPglRetNotYetSupported;
-  }
   const uint32_t sample_ct = pgrp->fi.raw_sample_ct;
   if ((vrtype & 0x60) == 0x40) {
     // unconditional dosage.  handle separately from other two cases since
@@ -7012,7 +7015,25 @@ PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, PgenReade
         return kPglRetMalformedInput;
       }
     }
-    *fread_pp += sample_ct * sizeof(int16_t);
+    if (vrtype & 0x80) {
+      const uint16_t* dosage_vals = R_CAST(const uint16_t*, *fread_pp);
+      const int16_t* dphase_deltas = R_CAST(const int16_t*, &(dosage_vals_read_iter[sample_ct]));
+      for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
+        const uint16_t dosage_val = dosage_vals[sample_idx];
+        const int16_t dphase_delta = dphase_deltas[sample_idx];
+        const uint16_t dpiece0_x2 = dosage_val + dphase_delta;
+        const uint16_t dpiece1_x2 = dosage_val - dphase_delta;
+        if ((dpiece0_x2 & 1) || (dpiece0_x2 > 32768) || (dpiece1_x2 > 32768)) {
+          if ((dphase_delta != -32768) || (dosage_val != 65535)) {
+            snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid unconditional phased-dosage track for (0-based) variant #%u.\n", vidx);
+            return kPglRetMalformedInput;
+          }
+        }
+      }
+      *fread_pp += sample_ct * (2 * sizeof(int16_t));
+    } else {
+      *fread_pp += sample_ct * sizeof(int16_t);
+    }
     return kPglRetSuccess;
   }
   uint32_t dosage_ct;
@@ -7049,7 +7070,78 @@ PglErr ValidateDosage16(const unsigned char* fread_end, uint32_t vidx, PgenReade
       return kPglRetMalformedInput;
     }
   }
-  *fread_pp += dosage_ct * sizeof(int16_t);
+  if (vrtype & 0x80) {
+    dosage_vals_read_iter = R_CAST(const uint16_t*, *fread_pp);
+    *fread_pp += dosage_ct * sizeof(int16_t);
+    if (!(**fread_pp)) {
+      *fread_pp += 1;
+      const int16_t* dphase_deltas = R_CAST(const int16_t*, *fread_pp);
+      for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
+        const uint16_t dosage_val = dosage_vals_read_iter[sample_idx];
+        const int16_t dphase_delta = dphase_deltas[sample_idx];
+        const uint16_t dpiece0_x2 = dosage_val + dphase_delta;
+        const uint16_t dpiece1_x2 = dosage_val - dphase_delta;
+        if ((dpiece0_x2 & 1) || (dpiece0_x2 > 32768) || (dpiece1_x2 > 32768)) {
+          snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid phased-dosage track for (0-based) variant #%u.\n", vidx);
+          return kPglRetMalformedInput;
+        }
+      }
+      *fread_pp += dosage_ct * sizeof(int16_t);
+    } else {
+      if (!((**fread_pp) & 1)) {
+        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid phased-dosage track for (0-based) variant #%u.\n", vidx);
+        return kPglRetMalformedInput;
+      }
+      const uintptr_t* file_dphase_present = R_CAST(const uintptr_t*, *fread_pp);
+      const uint32_t dphase_present_byte_ct = 1 + (dosage_ct / CHAR_BIT);
+      *fread_pp += dphase_present_byte_ct;
+      const uint32_t trailing_bit_ct = (dosage_ct + 1) % CHAR_BIT;
+      if (trailing_bit_ct && ((*fread_pp)[-1] & (255 << trailing_bit_ct))) {
+        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid phased-dosage track for (0-based) variant #%u.\n", vidx);
+        return kPglRetMalformedInput;
+      }
+      const int16_t* dphase_deltas_read_iter = R_CAST(const int16_t*, *fread_pp);
+      const uint32_t dphase_widx_last = (dphase_present_byte_ct - 1) / kBytesPerWord;
+      uint32_t dphase_widx = 0;
+      uint32_t dphase_lowbits = 1;
+      uint32_t loop_end = kBitsPerWord;
+      while (1) {
+        uintptr_t ww;
+        if (dphase_widx >= dphase_widx_last) {
+          if (dphase_widx > dphase_widx_last) {
+            break;
+          }
+          loop_end = 1 + (dosage_ct % kBitsPerWord);
+          const uint32_t final_byte_ct = DivUp(loop_end, CHAR_BIT);
+          ww = SubwordLoad(&(file_dphase_present[dphase_widx]), final_byte_ct);
+        } else {
+          ww = file_dphase_present[dphase_widx];
+        }
+        for (; dphase_lowbits < loop_end; ++dphase_lowbits, ++dosage_vals_read_iter) {
+          if (!((ww >> dphase_lowbits) & 1)) {
+            continue;
+          }
+          const uint16_t dosage_val = *dosage_vals_read_iter;
+          const int16_t dphase_delta = *dphase_deltas_read_iter++;
+          const uint16_t dpiece0_x2 = dosage_val + dphase_delta;
+          const uint16_t dpiece1_x2 = dosage_val - dphase_delta;
+          if ((dpiece0_x2 & 1) || (dpiece0_x2 > 32768) || (dpiece1_x2 > 32768)) {
+            snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid phased-dosage track for (0-based) variant #%u.\n", vidx);
+            return kPglRetMalformedInput;
+          }
+        }
+        dphase_lowbits = 0;
+        ++dphase_widx;
+      }
+      if (dphase_deltas_read_iter == R_CAST(const int16_t*, *fread_pp)) {
+        snprintf(errstr_buf, kPglErrstrBufBlen, "Error: Invalid phased-dosage track for (0-based) variant #%u.\n", vidx);
+        return kPglRetMalformedInput;
+      }
+      *fread_pp = R_CAST(const unsigned char*, dphase_deltas_read_iter);
+    }
+  } else {
+    *fread_pp += dosage_ct * sizeof(int16_t);
+  }
   return kPglRetSuccess;
 }
 
@@ -7412,7 +7504,8 @@ uint32_t CountSpgwAllocCachelinesRequired(uint32_t variant_ct, uint32_t sample_c
   cachelines_required += 1 + (max_difflist_len / kInt32PerCacheline);
 
   // fwrite_buf
-  cachelines_required += DivUp(max_vrec_len + kPglFwriteBlockSize - 1, kCacheline);
+  // + kBytesPerWord due to use of CopyBitarrSubsetEx()
+  cachelines_required += DivUp(max_vrec_len + kPglFwriteBlockSize + kBytesPerWord - 2, kCacheline);
   if (phase_dosage_gflags & kfPgenGlobalHardcallPhasePresent) {
     // phasepresent, phaseinfo
     cachelines_required += 2 * BitCtToCachelineCt(sample_ct);
@@ -7714,7 +7807,7 @@ void PwcInitPhase2(uintptr_t fwrite_cacheline_ct, uint32_t thread_ct, PgenWriter
 }
 
 void SpgwInitPhase2(uint32_t max_vrec_len, STPgenWriter* spgwp, unsigned char* spgw_alloc) {
-  uintptr_t fwrite_cacheline_ct = DivUp(max_vrec_len + kPglFwriteBlockSize - 1, kCacheline);
+  uintptr_t fwrite_cacheline_ct = DivUp(max_vrec_len + kPglFwriteBlockSize + kBytesPerWord - 2, kCacheline);
   PgenWriterCommon* pwcp = &(spgwp->pwc);
   if (pwcp->phase_dosage_gflags & kfPgenGlobalHardcallPhasePresent) {
     // er, why do we need this extra space?  Document this.
@@ -8544,6 +8637,8 @@ void AppendHphase(const uintptr_t* __restrict genovec, const uintptr_t* __restri
     // no need to write phasepresent; just write phaseinfo directly to output
     // buffer
     phaseinfo_write_idx_lowbits = 1;
+    // todo: better AVX2 implementation
+    // (or, if we preprocess geno_hets, we can just call CopyBitarrSubsetEx()?)
     for (uint32_t widx = 0; widx < sample_ctl2; ++widx) {
       const uintptr_t geno_word = genovec[widx];
       uintptr_t geno_hets = (~(geno_word >> 1)) & geno_word & kMask5555;
@@ -8563,6 +8658,7 @@ void AppendHphase(const uintptr_t* __restrict genovec, const uintptr_t* __restri
     }
     fwrite_bufp_final = R_CAST(unsigned char*, fwrite_bufp_alias);
   } else {
+    // similarly, this is a minor variant of ExpandThenSubsetBytearr()
     uintptr_t* phaseinfo_tmp = pwcp->genovec_invert_buf;
     uintptr_t* phaseinfo_tmp_iter = phaseinfo_tmp;
     uint32_t phasepresent_write_idx_lowbits = 1;
@@ -8654,6 +8750,7 @@ PglErr SpgwAppendBiallelicGenovecHphase(const uintptr_t* __restrict genovec, con
 }
 
 
+// ok if delta_bitarr trailing bits set
 uint32_t PwcAppendDeltalist(const uintptr_t* delta_bitarr, uint32_t deltalist_len, PgenWriterCommon* pwcp) {
   assert(deltalist_len);
   unsigned char* fwrite_bufp = pwcp->fwrite_bufp;
@@ -8685,6 +8782,7 @@ uint32_t PwcAppendDeltalist(const uintptr_t* delta_bitarr, uint32_t deltalist_le
   return fwrite_bufp - fwrite_bufp_start;
 }
 
+// ok if dosage_present trailing bits set
 void AppendDosage16(const uintptr_t* __restrict dosage_present, const uint16_t* dosage_vals, uint32_t dosage_ct, PgenWriterCommon* pwcp, unsigned char* vrtype_ptr, uint32_t* vrec_len_ptr) {
   const uint32_t sample_ct = pwcp->sample_ct;
   const uint32_t max_deltalist_entry_ct = sample_ct / kPglMaxDeltalistLenDivisor;
@@ -8707,6 +8805,7 @@ void AppendDosage16(const uintptr_t* __restrict dosage_present, const uint16_t* 
   *vrec_len_ptr += dosage_ct * sizeof(int16_t);
 }
 
+// ok if dosage_present trailing bits set
 void PwcAppendBiallelicGenovecDosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_vals, uint32_t dosage_ct, PgenWriterCommon* pwcp) {
   // safe to call this even when entire file has no phase/dosage info
   const uint32_t vidx = pwcp->vidx;
@@ -8727,6 +8826,7 @@ void PwcAppendBiallelicGenovecDosage16(const uintptr_t* __restrict genovec, cons
   }
 }
 
+// ok if dosage_present trailing bits set
 PglErr SpgwAppendBiallelicGenovecDosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_vals, uint32_t dosage_ct, STPgenWriter* spgwp) {
   // flush write buffer if necessary
   if (spgwp->pwc.fwrite_bufp >= &(spgwp->pwc.fwrite_buf[kPglFwriteBlockSize])) {
@@ -8741,6 +8841,7 @@ PglErr SpgwAppendBiallelicGenovecDosage16(const uintptr_t* __restrict genovec, c
   return kPglRetSuccess;
 }
 
+// NOT ok if phasepresent trailing bits set, but ok for dosage_present
 void PwcAppendBiallelicGenovecHphaseDosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_vals, uint32_t dosage_ct, PgenWriterCommon* pwcp) {
   // assumes there is phase and/or dosage data in output file, otherwise
   // vrtype_dest needs to be replaced
@@ -8780,74 +8881,27 @@ PglErr SpgwAppendBiallelicGenovecHphaseDosage16(const uintptr_t* __restrict geno
   return kPglRetSuccess;
 }
 
-/*
-// need to rewrite these to reflect reordering of tracks #4-5, and addition of
-// track #6.
-void AppendDphase16(const uintptr_t* __restrict dosage_present, const uintptr_t* __restrict dphase_present, const uint16_t* __restrict dosage_vals, uint32_t dosage_ct, uint32_t dphase_ct, PgenWriterCommon* pwcp, unsigned char* vrtype_ptr, uint32_t* vrec_len_ptr) {
-  if (!dphase_ct) {
-    AppendDosage16(dosage_present, dosage_vals, dosage_ct, pwcp, vrtype_ptr, vrec_len_ptr);
-  }
-  const uint32_t sample_ct = pwcp->sample_ct;
-  const uint32_t max_deltalist_entry_ct = sample_ct / kPglMaxDeltalistLenDivisor;
-  if (dosage_ct <= max_deltalist_entry_ct) {
-    // case 1: store dosage IDs as deltalist.
-    *vrec_len_ptr += PwcAppendDeltalist(dosage_present, dosage_ct, pwcp);
-    *vrtype_ptr += 0x20;
-  } else if (dosage_ct == sample_ct) {
-    // case 2: fixed-width, no need to store dosage IDs at all.
-    // dosage_vals permitted to have 65535 = missing
-    *vrtype_ptr += 0x40;
-  } else {
-    // case 3: save dosage_present bitarray directly.
-    const uint32_t sample_ctb = DivUp(sample_ct, CHAR_BIT);
-    *vrec_len_ptr += sample_ctb;
-    pwcp->fwrite_bufp = (unsigned char*)memcpya(pwcp->fwrite_bufp, dosage_present, sample_ctb);
-    *vrtype_ptr += 0x60;
-  }
+void AppendDphase16(const uintptr_t* __restrict dosage_present, const uintptr_t* __restrict dphase_present, const int16_t* dphase_deltas, uint32_t dosage_ct, uint32_t dphase_ct, PgenWriterCommon* pwcp, unsigned char* vrtype_ptr, uint32_t* vrec_len_ptr) {
+  assert(dphase_ct);
   *vrtype_ptr += 0x80;
   if (dosage_ct == dphase_ct) {
     *(pwcp->fwrite_bufp)++ = 0;
-    pwcp->fwrite_bufp = (unsigned char*)memcpya(pwcp->fwrite_bufp, dosage_vals, dphase_ct * 2 * sizeof(int16_t));
-    *vrec_len_ptr += 1 + (dphase_ct * 2 * sizeof(int16_t));
+    *vrec_len_ptr += 1 + dphase_ct * sizeof(int16_t);
   } else {
-    uintptr_t* dphase_present_tmp_write_iter = pwcp->genovec_invert_buf;
-    const uint32_t dosage_ctp1b = 1 + (dosage_ct / CHAR_BIT);
-    const uint32_t widx_last = dosage_ct / kBitsPerWord;
-    uintptr_t dphase_present_write_word = 1;
-    uint32_t sample_idx = 0;
-    uint32_t dosage_idx_lowbits = 1;
-    uint32_t widx = 0;
-    uint32_t loop_end = kBitsPerWord;
-    while (1) {
-      if (widx >= widx_last) {
-        if (widx > widx_last) {
-          break;
-        }
-        loop_end = 1 + (dosage_ct % kBitsPerWord);
-      }
-      for (; dosage_idx_lowbits < loop_end; ++dosage_idx_lowbits, ++sample_idx) {
-        MovU32To1Bit(dosage_present, &sample_idx);
-        if (IsSet(dphase_present, sample_idx)) {
-          dphase_present_write_word |= k1LU << dosage_idx_lowbits;
-        }
-      }
-      *dphase_present_tmp_write_iter++ = dphase_present_write_word;
-      dphase_present_write_word = 0;
-      dosage_idx_lowbits = 0;
-      ++widx;
-    }
-    char* cur_write_iter = memcpya(pwcp->fwrite_bufp, pwcp->genovec_invert_buf, dosage_ctp1b);
-    cur_write_iter = memcpya(cur_write_iter, dosage_vals, (dosage_ct + dphase_ct) * sizeof(int16_t));
-    *vrec_len_ptr += (uintptr_t)(cur_write_iter - pwcp->fwrite_bufp);
-    pwcp->fwrite_bufp = (unsigned char*)cur_write_iter;
+    CopyBitarrSubsetEx(dphase_present, dosage_present, 1, dosage_ct + 1, R_CAST(uintptr_t*, pwcp->fwrite_bufp));
+    pwcp->fwrite_bufp[0] |= 1;
+    const uint32_t dphase_present_byte_ct = 1 + dosage_ct / CHAR_BIT;
+    pwcp->fwrite_bufp = &(pwcp->fwrite_bufp[dphase_present_byte_ct]);
+    *vrec_len_ptr += dphase_present_byte_ct + dphase_ct * sizeof(int16_t);
   }
+  pwcp->fwrite_bufp = R_CAST(unsigned char*, memcpya(pwcp->fwrite_bufp, dphase_deltas, dphase_ct * sizeof(int16_t)));
 }
 
-void PwcAppendBiallelicGenovecDphase16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uintptr_t* __restrict dphase_present, const uint16_t* __restrict dosage_vals, uint32_t dosage_ct, uint32_t dphase_ct, PgenWriterCommon* pwcp) {
+void PwcAppendBiallelicGenovecDphase16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uintptr_t* __restrict dphase_present, const uint16_t* dosage_vals, const int16_t* dphase_deltas, uint32_t dosage_ct, uint32_t dphase_ct, PgenWriterCommon* pwcp) {
   // assumes there is phase and/or dosage data in output file, otherwise
   // vrtype_dest needs to be replaced
   const uint32_t vidx = pwcp->vidx;
-  unsigned char* vrtype_dest = &(((unsigned char*)pwcp->vrtype_buf)[vidx]);
+  unsigned char* vrtype_dest = &(R_CAST(unsigned char*, pwcp->vrtype_buf)[vidx]);
   uint32_t het_ct;
   uint32_t vrec_len = PwcAppendBiallelicGenovecMain(genovec, vidx, pwcp, &het_ct, vrtype_dest);
   const uintptr_t vrec_len_byte_ct = pwcp->vrec_len_byte_ct;
@@ -8860,25 +8914,27 @@ void PwcAppendBiallelicGenovecDphase16(const uintptr_t* __restrict genovec, cons
     AppendHphase(genovec, phasepresent, phaseinfo, het_ct, phasepresent_ct, pwcp, vrtype_dest, &vrec_len);
   }
   if (dosage_ct) {
-    AppendDphase16(dosage_present, dphase_present, dosage_vals, dosage_ct, dphase_ct, pwcp, vrtype_dest, &vrec_len);
+    AppendDosage16(dosage_present, dosage_vals, dosage_ct, pwcp, vrtype_dest, &vrec_len);
+    if (dphase_ct) {
+      AppendDphase16(dosage_present, dphase_present, dphase_deltas, dosage_ct, dphase_ct, pwcp, vrtype_dest, &vrec_len);
+    }
   }
   memcpy(vrec_len_dest, &vrec_len, vrec_len_byte_ct);
 }
 
-PglErr SpgwAppendBiallelicGenovecDphase16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uintptr_t* dphase_present, const uint16_t* dosage_vals, uint32_t dosage_ct, uint32_t dphase_ct, STPgenWriter* spgwp) {
+PglErr SpgwAppendBiallelicGenovecDphase16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uintptr_t* dphase_present, const uint16_t* dosage_vals, const int16_t* dphase_deltas, uint32_t dosage_ct, uint32_t dphase_ct, STPgenWriter* spgwp) {
   // flush write buffer if necessary
   if (spgwp->pwc.fwrite_bufp >= &(spgwp->pwc.fwrite_buf[kPglFwriteBlockSize])) {
-    const uintptr_t cur_byte_ct = (uintptr_t)(spgwp->pwc.fwrite_bufp - spgwp->pwc.fwrite_buf);
+    const uintptr_t cur_byte_ct = spgwp->pwc.fwrite_bufp - spgwp->pwc.fwrite_buf;
     if (fwrite_checked(spgwp->pwc.fwrite_buf, cur_byte_ct, spgwp->pgen_outfile)) {
       return kPglRetWriteFail;
     }
     spgwp->pwc.vblock_fpos_offset += cur_byte_ct;
     spgwp->pwc.fwrite_bufp = spgwp->pwc.fwrite_buf;
   }
-  PwcAppendBiallelicGenovecDphase16(genovec, phasepresent, phaseinfo, dosage_present, dphase_present, dosage_vals, dosage_ct, dphase_ct, &(spgwp->pwc));
+  PwcAppendBiallelicGenovecDphase16(genovec, phasepresent, phaseinfo, dosage_present, dphase_present, dosage_vals, dphase_deltas, dosage_ct, dphase_ct, &(spgwp->pwc));
   return kPglRetSuccess;
 }
-*/
 
 PglErr PwcFinish(PgenWriterCommon* pwcp, FILE** pgen_outfile_ptr) {
   const uint32_t variant_ct = pwcp->variant_ct;

@@ -20,9 +20,9 @@ extern "C" {
 #define Z_PREFIX
 #define ZLIB_INTERNAL   /* disables gz*64 functions but fixes zlib 1.2.4 with Z_PREFIX */
 #ifdef STATIC_ZLIB
-  #include "../../../zlib-1.2.11/zlib.h"
+#  include "../../../zlib-1.2.11/zlib.h"
 #else
-  #include <zlib.h>
+#  include <zlib.h>
 #endif
 
 #if !defined(z_const)

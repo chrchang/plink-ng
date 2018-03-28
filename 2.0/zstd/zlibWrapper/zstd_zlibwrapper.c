@@ -23,9 +23,9 @@
 #define NO_DUMMY_DECL
 #define ZLIB_CONST
 #ifdef STATIC_ZLIB
-  #include "../../../zlib-1.2.11/zlib.h"
+#  include "../../../zlib-1.2.11/zlib.h"
 #else
-  #include <zlib.h>                  /* without #define Z_PREFIX */
+#  include <zlib.h>                  /* without #define Z_PREFIX */
 #endif
 #include "zstd_zlibwrapper.h"
 #define ZSTD_STATIC_LINKING_ONLY   /* ZSTD_isFrame, ZSTD_MAGICNUMBER */
