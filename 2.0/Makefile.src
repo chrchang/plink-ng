@@ -18,5 +18,5 @@ CINCLUDE2 = -I../htslib -I../libdeflate -I../libdeflate/common
 ZSTD_INCLUDE = -Izstd/lib -Izstd/lib/common -Izstd/zlibWrapper
 ZSTD_INCLUDE2 = -I../zstd/lib -I../zstd/lib/common -I../zstd/zlibWrapper
 
-CLEAN = *.o htslib/*.o htslib/cram/*.o libdeflate/lib/*.o libdeflate/lib/x86/*.o zstd/lib/common/*.o zstd/lib/compress/*.o zstd/lib/decompress/*.o zstd/zlibWrapper/*.o build/plink2 build/pgen_compress
+CLEAN = *.o htslib/*.o htslib/cram/*.o libdeflate/lib/*.o libdeflate/lib/x86/*.o zstd/lib/common/*.o zstd/lib/compress/*.o zstd/lib/decompress/*.o zstd/zlibWrapper/*.o bin/plink2 bin/pgen_compress
 CLEAN3 = $(foreach expr,$(CLEAN),../$(expr))

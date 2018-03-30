@@ -667,6 +667,7 @@ HEADER_INLINE uint32_t vecuc_movemask(VecUc vv) {
 }
 
 typedef uint32_t MovemaskUint;
+typedef uint64_t MovemaskUint2;
 
 HEADER_INLINE VecI veci_loadu(const void* mem_addr) {
   return R_CAST(VecI, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
@@ -674,6 +675,10 @@ HEADER_INLINE VecI veci_loadu(const void* mem_addr) {
 
 HEADER_INLINE VecS vecs_loadu(const void* mem_addr) {
   return R_CAST(VecS, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
+}
+
+HEADER_INLINE VecUc vecuc_loadu(const void* mem_addr) {
+  return R_CAST(VecUc, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
 }
 
 HEADER_INLINE void veci_storeu(void* mem_addr, VecI vv) {
@@ -743,6 +748,7 @@ HEADER_INLINE uint32_t vecuc_movemask(VecUc vv) {
 }
 
 typedef uint16_t MovemaskUint;
+typedef uint32_t MovemaskUint2;
 
 HEADER_INLINE VecI veci_loadu(const void* mem_addr) {
   return R_CAST(VecI, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
@@ -955,8 +961,16 @@ HEADER_INLINE uintptr_t UnpackHalfwordToWord(uintptr_t hw) {
   return _pdep_u64(hw, kMask5555);
 }
 
+HEADER_INLINE MovemaskUint2 UnpackMovemaskUintToUint2(MovemaskUint hw) {
+  return _pdep_u64(hw, kMask5555);
+}
+
 HEADER_INLINE Halfword PackWordToHalfword(uintptr_t ww) {
   // Assumes only even bits of ww can be set.
+  return _pext_u64(ww, kMask5555);
+}
+
+HEADER_INLINE MovemaskUint PackMovemaskUint2ToUint(MovemaskUint2 ww) {
   return _pext_u64(ww, kMask5555);
 }
 #else  // !USE_AVX2
@@ -980,6 +994,22 @@ HEADER_INLINE Halfword PackWordToHalfword(uintptr_t ww) {
 #  endif
   return S_CAST(Halfword, ww | (ww >> kBitsPerWordD4));
 }
+
+#  ifdef __LP64__
+HEADER_INLINE MovemaskUint2 UnpackMovemaskUintToUint2(MovemaskUint hw) {
+  hw = (hw | (hw << 8)) & 0x00ff00ffU;
+  hw = (hw | (hw << 4)) & 0x0f0f0f0fU;
+  hw = (hw | (hw << 2)) & 0x33333333U;
+  return (hw | (hw << 1)) & 0x55555555U;
+}
+
+HEADER_INLINE MovemaskUint PackMovemaskUint2ToUint(MovemaskUint2 ww) {
+  ww = (ww | (ww >> 1)) & kMask3333;
+  ww = (ww | (ww >> 2)) & kMask0F0F;
+  ww = (ww | (ww >> 4)) & kMask00FF;
+  return S_CAST(MovemaskUint, ww | (ww >> 8));
+}
+#  endif
 #endif  // !USE_AVX2
 
 // alignment must be a power of 2

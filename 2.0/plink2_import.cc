@@ -3380,6 +3380,11 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
         if (bit_precision > 16) {
           goto Bgen13DosageOrPhaseScanThread_not_yet_supported;
         }
+        if (cur_allele_ct != 2) {
+          // shouldn't be possible to get here for now
+          assert(0);
+          goto Bgen13DosageOrPhaseScanThread_not_yet_supported;
+        }
         const uint64_t totq_magic = kBgenMagicNums[bit_precision].totq_magic;
         const uint32_t totq_postshift = kBgenMagicNums[bit_precision].totq_postshift;
         uint32_t totq_incr = kBgenMagicNums[bit_precision].totq_incr;
@@ -3419,11 +3424,6 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
           numer_prod_certainty_min = bgen_import_dosage_certainty_thresholds[bit_precision + 17];
         }
 
-        if (cur_allele_ct != 2) {
-          // shouldn't be possible to get here for now
-          assert(0);
-          goto Bgen13DosageOrPhaseScanThread_not_yet_supported;
-        }
         if (min_ploidy == max_ploidy) {
           // faster handling of common cases (no need to keep checking if
           // we've read past the end)
@@ -3719,40 +3719,214 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
         if (bit_precision > 16) {
           goto Bgen13GenoToPgenThread_not_yet_supported;
         }
-        const uint64_t totq_magic = kBgenMagicNums[bit_precision].totq_magic;
-        const uint32_t totq_postshift = kBgenMagicNums[bit_precision].totq_postshift;
-        uint32_t totq_incr = kBgenMagicNums[bit_precision].totq_incr;
-        const uint32_t bytes_per_prob = DivUp(bit_precision, CHAR_BIT);
-
-        // also equal to denominator
-        const uintptr_t numer_mask = (1U << bit_precision) - 1;
-
-        totq_incr += 1U << (bit_precision - 1);
-        uint32_t numer_certainty_min = 0;
-        uint32_t numer_prod_certainty_min = 0;
-        if (bgen_import_dosage_certainty_thresholds) {
-          numer_certainty_min = bgen_import_dosage_certainty_thresholds[bit_precision];
-          numer_prod_certainty_min = bgen_import_dosage_certainty_thresholds[bit_precision + 17];
-        }
-
-        Dosage* cur_dosage_vals_iter = write_dosage_vals_iter;
-        Dosage* cur_dphase_deltas_iter = &(write_dosage_vals_iter[sample_ct]);
-        uint32_t inner_loop_last = kBitsPerWordD2 - 1;
-        uint32_t widx = 0;
-        unsigned char cur_phasepresent_exists = 0;
         if (cur_allele_ct != 2) {
           // shouldn't be possible to get here for now
           assert(0);
           goto Bgen13GenoToPgenThread_not_yet_supported;
         }
-        if (min_ploidy == max_ploidy) {
-          // faster handling of common cases (no need to keep checking if we've
-          // read past the end)
-          if (uncompressed_byte_ct != (bytes_per_prob * (max_ploidy * k1LU) + 1) * sample_ct + 10) {
+        Dosage* cur_dosage_vals_iter = write_dosage_vals_iter;
+        Dosage* cur_dphase_deltas_iter = &(write_dosage_vals_iter[sample_ct]);
+        unsigned char cur_phasepresent_exists = 0;
+        // turns out UKB haplotype files still use bit_precision == 16, so
+        // wait till bgen-1.3 export implemented before trying this
+        /*
+#ifdef __LP64__
+        if ((bit_precision == 1) && is_phased && (min_ploidy == max_ploidy)) {
+          // may as well have some movemask fun here
+          if (uncompressed_byte_ct != (1 + (max_ploidy * k1LU) * sample_ct + 10)) {
             goto Bgen13GenoToPgenThread_malformed;
           }
-          if (max_ploidy == 2) {
-            if (!is_phased) {
+          if (max_ploidy) {
+            // ok to read e.g. 62 bytes past the end of these arrays
+            const uint32_t sample_ctv = sample_ct / kBytesPerVec;
+            const uint32_t sample_rem = sample_ct % kBytesPerVec;
+            write_phasepresent_iter[sample_ctaw - 1] = 0;
+            if (max_ploidy == 2) {
+              VecUc nonmissing_cmp = vecuc_set1(2);
+              for (uint32_t vec_idx = 0; vec_idx < sample_ctv;) {
+                const VecUc nm_vec = vecuc_loadu(&(missing_and_ploidy_iter[vec_idx * kBytesPerVec]));
+                uint32_t cur_nm = vecuc_movemask(nm_vec == nonmissing_cmp);
+                MovemaskUint2 geno_missing = ~(UnpackMovemaskUintToUint2(cur_nm) * 3);
+                VecUc hap_vec = vecuc_loadu(&(uncompressed_geno_iter[vec_idx * 2 * kBytesPerVec]));
+                MovemaskUint2 hap_ui = vecw_movemask(vecw_slli(R_CAST(VecW, hap_vec), 7));
+                hap_vec = vecuc_loadu(&(uncompressed_geno_iter[vec_idx * 2 * kBytesPerVec + kBytesPerVec]));
+                hap_ui |= S_CAST(MovemaskUint2, vecw_movemask(vecw_slli(R_CAST(VecW, hap_vec), 7))) << kBytesPerVec;
+                MovemaskUint2 geno_mmui = hap_ui - ((hap_ui >> 1) & kMask5555);
+                MovemaskUint2 phasepresent_01 = geno_mmui & kMask5555;
+                MovemaskUint2 phaseinfo_01 = phasepresent_01 & hap_ui;;;
+                geno_mmui = geno_mmui | geno_missing;
+                ++vec_idx;
+                if ((vec_idx == sample_ctv) && sample_rem) {
+                  cur_nm = bzhi(cur_nm, sample_rem);
+                  geno_mmui = bzhi(geno_mmui, 2 * sample_rem);
+                }
+                R_CAST(MovemaskUint2*, write_genovec_iter)[vec_idx] = geno_mmui;
+                R_CAST(MovemaskUint*, write_phasepresent_iter)[vec_idx] = PackMovemaskUint2ToUint(phasepresent_01) & cur_nm;
+                R_CAST(MovemaskUint*, write_phaseinfo_iter)[vec_idx] = PackMovemaskUint2ToUint(phaseinfo_01) & cur_nm;
+              }
+            } else {
+              // todo
+              goto Bgen13GenoToPgenThread_not_yet_supported;
+            }
+            cur_phasepresent_exists = !AllWordsAreZero(write_phasepresent_iter, sample_ctaw);
+          } else {
+            SetAllBits(sample_ct * 2, write_genovec_iter);
+          }
+        } else {
+#endif  // __LP64__
+        */
+          const uint64_t totq_magic = kBgenMagicNums[bit_precision].totq_magic;
+          const uint32_t totq_postshift = kBgenMagicNums[bit_precision].totq_postshift;
+          uint32_t totq_incr = kBgenMagicNums[bit_precision].totq_incr;
+          const uint32_t bytes_per_prob = DivUp(bit_precision, CHAR_BIT);
+
+          // also equal to denominator
+          const uintptr_t numer_mask = (1U << bit_precision) - 1;
+
+          totq_incr += 1U << (bit_precision - 1);
+          uint32_t numer_certainty_min = 0;
+          uint32_t numer_prod_certainty_min = 0;
+          if (bgen_import_dosage_certainty_thresholds) {
+            numer_certainty_min = bgen_import_dosage_certainty_thresholds[bit_precision];
+            numer_prod_certainty_min = bgen_import_dosage_certainty_thresholds[bit_precision + 17];
+          }
+
+          uint32_t inner_loop_last = kBitsPerWordD2 - 1;
+          uint32_t widx = 0;
+          if (min_ploidy == max_ploidy) {
+            // faster handling of common cases (no need to keep checking if
+            // we've read past the end)
+            if (uncompressed_byte_ct != (bytes_per_prob * (max_ploidy * k1LU) + 1) * sample_ct + 10) {
+              goto Bgen13GenoToPgenThread_malformed;
+            }
+            if (max_ploidy == 2) {
+              if (!is_phased) {
+                while (1) {
+                  if (widx >= sample_ctl2_m1) {
+                    if (widx > sample_ctl2_m1) {
+                      break;
+                    }
+                    inner_loop_last = (sample_ct - 1) % kBitsPerWordD2;
+                  }
+                  uintptr_t genovec_word = 0;
+                  uint32_t dosage_present_hw = 0;
+                  for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits, uncompressed_geno_iter = &(uncompressed_geno_iter[2 * bytes_per_prob])) {
+                    const uint32_t missing_and_ploidy = *missing_and_ploidy_iter++;
+                    if (missing_and_ploidy != 2) {
+                      // (could also validate that missing_and_ploidy == 130)
+                    Bgen13GenoToPgenThread_diploid_unphased_missing:
+                      genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+                      continue;
+                    }
+  #ifdef __arm__
+  #  error "Unaligned accesses in Bgen13GenoToPgenThread()."
+  #endif
+                    const uintptr_t numer_aa = (*R_CAST(const uint32_t*, uncompressed_geno_iter)) & numer_mask;
+                    const uintptr_t numer_ab = (*R_CAST(const uint32_t*, &(uncompressed_geno_iter[bytes_per_prob]))) & numer_mask;
+                    if (numer_aa + numer_ab > numer_mask) {
+                      goto Bgen13GenoToPgenThread_malformed;
+                    }
+                    if ((numer_aa < numer_certainty_min) && (numer_ab < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_aa + numer_ab)) {
+                      // missing due to --import-dosage-certainty
+                      goto Bgen13GenoToPgenThread_diploid_unphased_missing;
+                    }
+                    const uint32_t write_dosage_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_aa) + kDosageMid * S_CAST(uint64_t, numer_ab) + totq_incr)) >> totq_postshift;
+                    const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
+                    if (halfdist < hard_call_halfdist) {
+                      genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+                    } else {
+                      genovec_word |= ((write_dosage_int + (kDosage4th * k1LU)) / kDosageMid) << (2 * sample_idx_lowbits);
+                      if (halfdist >= dosage_erase_halfdist) {
+                        continue;
+                      }
+                    }
+                    dosage_present_hw |= 1U << sample_idx_lowbits;
+                    *cur_dosage_vals_iter++ = write_dosage_int;
+                  }
+                  write_genovec_iter[widx] = genovec_word;
+                  R_CAST(Halfword*, write_dosage_present_iter)[widx] = dosage_present_hw;
+                  ++widx;
+                }
+              } else {
+                // biallelic, phased, diploid
+                // note that in 64-bit builds there's a separate fast path
+                // above for bit_precision == 1
+                write_phasepresent_iter[sample_ctaw - 1] = 0;
+                while (1) {
+                  if (widx >= sample_ctl2_m1) {
+                    if (widx > sample_ctl2_m1) {
+                      break;
+                    }
+                    inner_loop_last = (sample_ct - 1) % kBitsPerWordD2;
+                  }
+                  uintptr_t genovec_word = 0;
+                  uint32_t phasepresent_hw = 0;
+                  uint32_t phaseinfo_hw = 0;
+                  uint32_t dosage_present_hw = 0;
+                  uint32_t dphase_present_hw = 0;
+                  for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits, uncompressed_geno_iter = &(uncompressed_geno_iter[2 * bytes_per_prob])) {
+                    const uint32_t missing_and_ploidy = *missing_and_ploidy_iter++;
+                    if (missing_and_ploidy != 2) {
+                      // (could also validate that missing_and_ploidy == 130)
+                    Bgen13GenoToPgenThread_diploid_phased_missing:
+                      genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+                      continue;
+                    }
+                    const uintptr_t numer_a1 = (*R_CAST(const uint32_t*, uncompressed_geno_iter)) & numer_mask;
+                    const uintptr_t numer_a2 = (*R_CAST(const uint32_t*, &(uncompressed_geno_iter[bytes_per_prob]))) & numer_mask;
+                    if (numer_prod_certainty_min) {
+                      const uintptr_t a1_a2_prod = numer_a1 * numer_a2;
+                      const uintptr_t a1_a2_scaled_sum = numer_mask * (numer_a1 + numer_a2);
+                      if ((a1_a2_prod < numer_prod_certainty_min) && (a1_a2_scaled_sum - 2 * a1_a2_prod < numer_prod_certainty_min) && (numer_mask * numer_mask - a1_a2_scaled_sum + a1_a2_prod < numer_prod_certainty_min)) {
+                        goto Bgen13GenoToPgenThread_diploid_phased_missing;
+                      }
+                    }
+                    const uint32_t write_dhap1_int = (totq_magic * (kDosageMid * S_CAST(uint64_t, numer_a1) + totq_incr)) >> totq_postshift;
+                    const uint32_t write_dhap2_int = (totq_magic * (kDosageMid * S_CAST(uint64_t, numer_a2) + totq_incr)) >> totq_postshift;
+                    const uint32_t write_dosage_int = write_dhap1_int + write_dhap2_int;
+                    const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
+                    // reference allele assumed to be second here, so haplotype
+                    // dosages are for alt1
+                    const int32_t write_dphase_delta = write_dhap1_int - write_dhap2_int;
+                    if (halfdist < hard_call_halfdist) {
+                      genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+                    } else {
+                      const uintptr_t cur_geno = (write_dosage_int + (kDosage4th * k1LU)) / kDosageMid;
+                      genovec_word |= cur_geno << (2 * sample_idx_lowbits);
+                      if (cur_geno == 1) {
+                        // possible todo: lower bound on
+                        // abs(write_dphase_delta)
+                        if (write_dphase_delta != 0) {
+                          phasepresent_hw |= 1U << sample_idx_lowbits;
+                          // phaseinfo_hw bit set for 1|0
+                          if (write_dphase_delta > 0) {
+                            phaseinfo_hw |= 1U << sample_idx_lowbits;
+                          }
+                        }
+                      }
+                      if (halfdist >= dosage_erase_halfdist) {
+                        continue;
+                      }
+                    }
+                    // we should never get here in bit_precision == 1 case
+                    dosage_present_hw |= 1U << sample_idx_lowbits;
+                    *cur_dosage_vals_iter++ = write_dosage_int;
+                    if (write_dphase_delta != 0) {
+                      dphase_present_hw |= 1U << sample_idx_lowbits;
+                      *cur_dphase_deltas_iter++ = write_dphase_delta;
+                    }
+                  }
+                  write_genovec_iter[widx] = genovec_word;
+                  R_CAST(Halfword*, write_phasepresent_iter)[widx] = phasepresent_hw;
+                  R_CAST(Halfword*, write_phaseinfo_iter)[widx] = phaseinfo_hw;
+                  R_CAST(Halfword*, write_dosage_present_iter)[widx] = dosage_present_hw;
+                  R_CAST(Halfword*, write_dphase_present_iter)[widx] = dphase_present_hw;
+                  ++widx;
+                }
+                cur_phasepresent_exists = !AllWordsAreZero(write_phasepresent_iter, sample_ctaw);
+              }
+            } else if (max_ploidy) {
+              // biallelic, haploid
               while (1) {
                 if (widx >= sample_ctl2_m1) {
                   if (widx > sample_ctl2_m1) {
@@ -3762,27 +3936,18 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
                 }
                 uintptr_t genovec_word = 0;
                 uint32_t dosage_present_hw = 0;
-                for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits, uncompressed_geno_iter = &(uncompressed_geno_iter[2 * bytes_per_prob])) {
+                for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits, uncompressed_geno_iter = &(uncompressed_geno_iter[bytes_per_prob])) {
                   const uint32_t missing_and_ploidy = *missing_and_ploidy_iter++;
-                  if (missing_and_ploidy != 2) {
-                    // (could also validate that missing_and_ploidy == 130)
-                  Bgen13GenoToPgenThread_diploid_unphased_missing:
+                  if (missing_and_ploidy != 1) {
+                  Bgen13GenoToPgenThread_haploid_missing:
                     genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
                     continue;
                   }
-#ifdef __arm__
-#  error "Unaligned accesses in Bgen13GenoToPgenThread()."
-#endif
-                  const uintptr_t numer_aa = (*R_CAST(const uint32_t*, uncompressed_geno_iter)) & numer_mask;
-                  const uintptr_t numer_ab = (*R_CAST(const uint32_t*, &(uncompressed_geno_iter[bytes_per_prob]))) & numer_mask;
-                  if (numer_aa + numer_ab > numer_mask) {
-                    goto Bgen13GenoToPgenThread_malformed;
+                  const uintptr_t numer_a = (*R_CAST(const uint32_t*, uncompressed_geno_iter)) & numer_mask;
+                  if ((numer_a < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_a)) {
+                    goto Bgen13GenoToPgenThread_haploid_missing;
                   }
-                  if ((numer_aa < numer_certainty_min) && (numer_ab < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_aa + numer_ab)) {
-                    // missing due to --import-dosage-certainty
-                    goto Bgen13GenoToPgenThread_diploid_unphased_missing;
-                  }
-                  const uint32_t write_dosage_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_aa) + kDosageMid * S_CAST(uint64_t, numer_ab) + totq_incr)) >> totq_postshift;
+                  const uint32_t write_dosage_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_a) + totq_incr)) >> totq_postshift;
                   const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
                   if (halfdist < hard_call_halfdist) {
                     genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
@@ -3800,11 +3965,79 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
                 ++widx;
               }
             } else {
-              // biallelic, phased, diploid
-              // possible todo: bit_precision == 1 fast path (I suspect default
-              // path is already fast enough for UKB haplotype files, though)
+              // all-ploidy-0, set everything to missing
+              SetAllBits(sample_ct * 2, write_genovec_iter);
+            }
+          } else {
+            // biallelic, variable ploidy
+            const unsigned char* uncompressed_geno_end = &(cur_uncompressed_geno[uncompressed_byte_ct]);
+            if (!is_phased) {
+              while (1) {
+                if (widx >= sample_ctl2_m1) {
+                  if (widx > sample_ctl2_m1) {
+                    break;
+                  }
+                  inner_loop_last = (sample_ct - 1) % kBitsPerWordD2;
+                }
+                uintptr_t genovec_word = 0;
+                uint32_t dosage_present_hw = 0;
+                for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
+                  if (uncompressed_geno_iter > uncompressed_geno_end) {
+                    goto Bgen13GenoToPgenThread_malformed;
+                  }
+                  uint32_t missing_and_ploidy = *missing_and_ploidy_iter++;
+                  uint32_t write_dosage_int;
+                  if (missing_and_ploidy == 2) {
+                    const uintptr_t numer_aa = (*R_CAST(const uint32_t*, uncompressed_geno_iter)) & numer_mask;
+                    const uintptr_t numer_ab = (*R_CAST(const uint32_t*, &(uncompressed_geno_iter[bytes_per_prob]))) & numer_mask;
+                    uncompressed_geno_iter = &(uncompressed_geno_iter[2 * bytes_per_prob]);
+                    if (numer_aa + numer_ab > numer_mask) {
+                      goto Bgen13GenoToPgenThread_malformed;
+                    }
+                    if ((numer_aa < numer_certainty_min) && (numer_ab < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_aa + numer_ab)) {
+                      // missing due to --import-dosage-certainty
+                      goto Bgen13GenoToPgenThread_generic_unphased_missing;
+                    }
+                    write_dosage_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_aa) + kDosageMid * S_CAST(uint64_t, numer_ab) + totq_incr)) >> totq_postshift;
+                  } else if (missing_and_ploidy == 1) {
+                    const uintptr_t numer_a = (*R_CAST(const uint32_t*, uncompressed_geno_iter)) & numer_mask;
+                    uncompressed_geno_iter = &(uncompressed_geno_iter[bytes_per_prob]);
+                    if ((numer_a < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_a)) {
+                      goto Bgen13GenoToPgenThread_generic_unphased_missing;
+                    }
+                    write_dosage_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_a) + totq_incr)) >> totq_postshift;
+                  } else {
+                    missing_and_ploidy &= 127;
+                    if (missing_and_ploidy > 2) {
+                      goto Bgen13GenoToPgenThread_malformed;
+                    }
+                    uncompressed_geno_iter = &(uncompressed_geno_iter[missing_and_ploidy * bytes_per_prob]);
+                  Bgen13GenoToPgenThread_generic_unphased_missing:
+                    genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+                    continue;
+                  }
+                  const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
+                  if (halfdist < hard_call_halfdist) {
+                    genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+                  } else {
+                    genovec_word |= ((write_dosage_int + (kDosage4th * k1LU)) / kDosageMid) << (2 * sample_idx_lowbits);
+                    if (halfdist >= dosage_erase_halfdist) {
+                      continue;
+                    }
+                  }
+                  dosage_present_hw |= 1U << sample_idx_lowbits;
+                  *cur_dosage_vals_iter++ = write_dosage_int;
+                }
+                write_genovec_iter[widx] = genovec_word;
+                R_CAST(Halfword*, write_dosage_present_iter)[widx] = dosage_present_hw;
+                ++widx;
+              }
+            } else {
+              // biallelic, phased, variable ploidy
               write_phasepresent_iter[sample_ctaw - 1] = 0;
               while (1) {
+                // todo: test this code path once bgen-1.3 chrX export
+                // implemented
                 if (widx >= sample_ctl2_m1) {
                   if (widx > sample_ctl2_m1) {
                     break;
@@ -3816,29 +4049,46 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
                 uint32_t phaseinfo_hw = 0;
                 uint32_t dosage_present_hw = 0;
                 uint32_t dphase_present_hw = 0;
-                for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits, uncompressed_geno_iter = &(uncompressed_geno_iter[2 * bytes_per_prob])) {
-                  const uint32_t missing_and_ploidy = *missing_and_ploidy_iter++;
-                  if (missing_and_ploidy != 2) {
-                    // (could also validate that missing_and_ploidy == 130)
-                  Bgen13GenoToPgenThread_diploid_phased_missing:
+                uint32_t write_dhap1_int;
+                uint32_t write_dhap2_int;
+                for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
+                  if (uncompressed_geno_iter > uncompressed_geno_end) {
+                    goto Bgen13GenoToPgenThread_malformed;
+                  }
+                  uint32_t missing_and_ploidy = *missing_and_ploidy_iter++;
+                  if (missing_and_ploidy == 2) {
+                    const uintptr_t numer_a1 = (*R_CAST(const uint32_t*, uncompressed_geno_iter)) & numer_mask;
+                    const uintptr_t numer_a2 = (*R_CAST(const uint32_t*, &(uncompressed_geno_iter[bytes_per_prob]))) & numer_mask;
+                    uncompressed_geno_iter = &(uncompressed_geno_iter[2 * bytes_per_prob]);
+                    if (numer_prod_certainty_min) {
+                      const uintptr_t a1_a2_prod = numer_a1 * numer_a2;
+                      const uintptr_t a1_a2_scaled_sum = numer_mask * (numer_a1 + numer_a2);
+                      if ((a1_a2_prod < numer_prod_certainty_min) && (a1_a2_scaled_sum - 2 * a1_a2_prod < numer_prod_certainty_min) && (numer_mask * numer_mask - a1_a2_scaled_sum + a1_a2_prod < numer_prod_certainty_min)) {
+                        goto Bgen13GenoToPgenThread_generic_phased_missing;
+                      }
+                    }
+                    write_dhap1_int = (totq_magic * (kDosageMid * S_CAST(uint64_t, numer_a1) + totq_incr)) >> totq_postshift;
+                    write_dhap2_int = (totq_magic * (kDosageMid * S_CAST(uint64_t, numer_a2) + totq_incr)) >> totq_postshift;
+                  } else if (missing_and_ploidy == 1) {
+                    const uintptr_t numer_a = (*R_CAST(const uint32_t*, uncompressed_geno_iter)) & numer_mask;
+                    uncompressed_geno_iter = &(uncompressed_geno_iter[bytes_per_prob]);
+                    if ((numer_a < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_a)) {
+                      goto Bgen13GenoToPgenThread_generic_phased_missing;
+                    }
+                    write_dhap1_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_a) + totq_incr)) >> totq_postshift;
+                    write_dhap2_int = write_dhap1_int;
+                  } else {
+                    missing_and_ploidy &= 127;
+                    if (missing_and_ploidy > 2) {
+                      goto Bgen13GenoToPgenThread_malformed;
+                    }
+                    uncompressed_geno_iter = &(uncompressed_geno_iter[missing_and_ploidy * bytes_per_prob]);
+                  Bgen13GenoToPgenThread_generic_phased_missing:
                     genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
                     continue;
                   }
-                  const uintptr_t numer_a1 = (*R_CAST(const uint32_t*, uncompressed_geno_iter)) & numer_mask;
-                  const uintptr_t numer_a2 = (*R_CAST(const uint32_t*, &(uncompressed_geno_iter[bytes_per_prob]))) & numer_mask;
-                  if (numer_prod_certainty_min) {
-                    const uintptr_t a1_a2_prod = numer_a1 * numer_a2;
-                    const uintptr_t a1_a2_scaled_sum = numer_mask * (numer_a1 + numer_a2);
-                    if ((a1_a2_prod < numer_prod_certainty_min) && (a1_a2_scaled_sum - 2 * a1_a2_prod < numer_prod_certainty_min) && (numer_mask * numer_mask - a1_a2_scaled_sum + a1_a2_prod < numer_prod_certainty_min)) {
-                      goto Bgen13GenoToPgenThread_diploid_phased_missing;
-                    }
-                  }
-                  const uint32_t write_dhap1_int = (totq_magic * (kDosageMid * S_CAST(uint64_t, numer_a1) + totq_incr)) >> totq_postshift;
-                  const uint32_t write_dhap2_int = (totq_magic * (kDosageMid * S_CAST(uint64_t, numer_a2) + totq_incr)) >> totq_postshift;
                   const uint32_t write_dosage_int = write_dhap1_int + write_dhap2_int;
                   const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
-                  // reference allele assumed to be second here, so haplotype
-                  // dosages are for alt1
                   const int32_t write_dphase_delta = write_dhap1_int - write_dhap2_int;
                   if (halfdist < hard_call_halfdist) {
                     genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
@@ -3859,7 +4109,6 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
                       continue;
                     }
                   }
-                  // we should never get here in bit_precision == 1 case
                   dosage_present_hw |= 1U << sample_idx_lowbits;
                   *cur_dosage_vals_iter++ = write_dosage_int;
                   if (write_dphase_delta != 0) {
@@ -3868,212 +4117,17 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
                   }
                 }
                 write_genovec_iter[widx] = genovec_word;
-                R_CAST(Halfword*, write_phasepresent_iter)[widx] = phasepresent_hw;
-                R_CAST(Halfword*, write_phaseinfo_iter)[widx] = phaseinfo_hw;
                 R_CAST(Halfword*, write_dosage_present_iter)[widx] = dosage_present_hw;
-                R_CAST(Halfword*, write_dphase_present_iter)[widx] = dphase_present_hw;
                 ++widx;
               }
               cur_phasepresent_exists = !AllWordsAreZero(write_phasepresent_iter, sample_ctaw);
             }
-          } else if (max_ploidy) {
-            // biallelic, haploid
-            while (1) {
-              if (widx >= sample_ctl2_m1) {
-                if (widx > sample_ctl2_m1) {
-                  break;
-                }
-                inner_loop_last = (sample_ct - 1) % kBitsPerWordD2;
-              }
-              uintptr_t genovec_word = 0;
-              uint32_t dosage_present_hw = 0;
-              for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits, uncompressed_geno_iter = &(uncompressed_geno_iter[bytes_per_prob])) {
-                const uint32_t missing_and_ploidy = *missing_and_ploidy_iter++;
-                if (missing_and_ploidy != 1) {
-                Bgen13GenoToPgenThread_haploid_missing:
-                  genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
-                  continue;
-                }
-                const uintptr_t numer_a = (*R_CAST(const uint32_t*, uncompressed_geno_iter)) & numer_mask;
-                if ((numer_a < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_a)) {
-                  goto Bgen13GenoToPgenThread_haploid_missing;
-                }
-                const uint32_t write_dosage_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_a) + totq_incr)) >> totq_postshift;
-                const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
-                if (halfdist < hard_call_halfdist) {
-                  genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
-                } else {
-                  genovec_word |= ((write_dosage_int + (kDosage4th * k1LU)) / kDosageMid) << (2 * sample_idx_lowbits);
-                  if (halfdist >= dosage_erase_halfdist) {
-                    continue;
-                  }
-                }
-                dosage_present_hw |= 1U << sample_idx_lowbits;
-                *cur_dosage_vals_iter++ = write_dosage_int;
-              }
-              write_genovec_iter[widx] = genovec_word;
-              R_CAST(Halfword*, write_dosage_present_iter)[widx] = dosage_present_hw;
-              ++widx;
-            }
-          } else {
-            // all-ploidy-0, set everything to missing
-            SetAllBits(sample_ct * 2, write_genovec_iter);
           }
-        } else {
-          // biallelic, variable ploidy
-          const unsigned char* uncompressed_geno_end = &(cur_uncompressed_geno[uncompressed_byte_ct]);
-          if (!is_phased) {
-            while (1) {
-              if (widx >= sample_ctl2_m1) {
-                if (widx > sample_ctl2_m1) {
-                  break;
-                }
-                inner_loop_last = (sample_ct - 1) % kBitsPerWordD2;
-              }
-              uintptr_t genovec_word = 0;
-              uint32_t dosage_present_hw = 0;
-              for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
-                if (uncompressed_geno_iter > uncompressed_geno_end) {
-                  goto Bgen13GenoToPgenThread_malformed;
-                }
-                uint32_t missing_and_ploidy = *missing_and_ploidy_iter++;
-                uint32_t write_dosage_int;
-                if (missing_and_ploidy == 2) {
-                  const uintptr_t numer_aa = (*R_CAST(const uint32_t*, uncompressed_geno_iter)) & numer_mask;
-                  const uintptr_t numer_ab = (*R_CAST(const uint32_t*, &(uncompressed_geno_iter[bytes_per_prob]))) & numer_mask;
-                  uncompressed_geno_iter = &(uncompressed_geno_iter[2 * bytes_per_prob]);
-                  if (numer_aa + numer_ab > numer_mask) {
-                    goto Bgen13GenoToPgenThread_malformed;
-                  }
-                  if ((numer_aa < numer_certainty_min) && (numer_ab < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_aa + numer_ab)) {
-                    // missing due to --import-dosage-certainty
-                    goto Bgen13GenoToPgenThread_generic_unphased_missing;
-                  }
-                  write_dosage_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_aa) + kDosageMid * S_CAST(uint64_t, numer_ab) + totq_incr)) >> totq_postshift;
-                } else if (missing_and_ploidy == 1) {
-                  const uintptr_t numer_a = (*R_CAST(const uint32_t*, uncompressed_geno_iter)) & numer_mask;
-                  uncompressed_geno_iter = &(uncompressed_geno_iter[bytes_per_prob]);
-                  if ((numer_a < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_a)) {
-                    goto Bgen13GenoToPgenThread_generic_unphased_missing;
-                  }
-                  write_dosage_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_a) + totq_incr)) >> totq_postshift;
-                } else {
-                  missing_and_ploidy &= 127;
-                  if (missing_and_ploidy > 2) {
-                    goto Bgen13GenoToPgenThread_malformed;
-                  }
-                  uncompressed_geno_iter = &(uncompressed_geno_iter[missing_and_ploidy * bytes_per_prob]);
-                Bgen13GenoToPgenThread_generic_unphased_missing:
-                  genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
-                  continue;
-                }
-                const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
-                if (halfdist < hard_call_halfdist) {
-                  genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
-                } else {
-                  genovec_word |= ((write_dosage_int + (kDosage4th * k1LU)) / kDosageMid) << (2 * sample_idx_lowbits);
-                  if (halfdist >= dosage_erase_halfdist) {
-                    continue;
-                  }
-                }
-                dosage_present_hw |= 1U << sample_idx_lowbits;
-                *cur_dosage_vals_iter++ = write_dosage_int;
-              }
-              write_genovec_iter[widx] = genovec_word;
-              R_CAST(Halfword*, write_dosage_present_iter)[widx] = dosage_present_hw;
-              ++widx;
-            }
-          } else {
-            // biallelic, phased, variable ploidy
-            write_phasepresent_iter[sample_ctaw - 1] = 0;
-            while (1) {
-              // todo: test this code path once bgen-1.3 chrX export
-              // implemented
-              if (widx >= sample_ctl2_m1) {
-                if (widx > sample_ctl2_m1) {
-                  break;
-                }
-                inner_loop_last = (sample_ct - 1) % kBitsPerWordD2;
-              }
-              uintptr_t genovec_word = 0;
-              uint32_t phasepresent_hw = 0;
-              uint32_t phaseinfo_hw = 0;
-              uint32_t dosage_present_hw = 0;
-              uint32_t dphase_present_hw = 0;
-              uint32_t write_dhap1_int;
-              uint32_t write_dhap2_int;
-              for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
-                if (uncompressed_geno_iter > uncompressed_geno_end) {
-                  goto Bgen13GenoToPgenThread_malformed;
-                }
-                uint32_t missing_and_ploidy = *missing_and_ploidy_iter++;
-                if (missing_and_ploidy == 2) {
-                  const uintptr_t numer_a1 = (*R_CAST(const uint32_t*, uncompressed_geno_iter)) & numer_mask;
-                  const uintptr_t numer_a2 = (*R_CAST(const uint32_t*, &(uncompressed_geno_iter[bytes_per_prob]))) & numer_mask;
-                  uncompressed_geno_iter = &(uncompressed_geno_iter[2 * bytes_per_prob]);
-                  if (numer_prod_certainty_min) {
-                    const uintptr_t a1_a2_prod = numer_a1 * numer_a2;
-                    const uintptr_t a1_a2_scaled_sum = numer_mask * (numer_a1 + numer_a2);
-                    if ((a1_a2_prod < numer_prod_certainty_min) && (a1_a2_scaled_sum - 2 * a1_a2_prod < numer_prod_certainty_min) && (numer_mask * numer_mask - a1_a2_scaled_sum + a1_a2_prod < numer_prod_certainty_min)) {
-                      goto Bgen13GenoToPgenThread_generic_phased_missing;
-                    }
-                  }
-                  write_dhap1_int = (totq_magic * (kDosageMid * S_CAST(uint64_t, numer_a1) + totq_incr)) >> totq_postshift;
-                  write_dhap2_int = (totq_magic * (kDosageMid * S_CAST(uint64_t, numer_a2) + totq_incr)) >> totq_postshift;
-                } else if (missing_and_ploidy == 1) {
-                  const uintptr_t numer_a = (*R_CAST(const uint32_t*, uncompressed_geno_iter)) & numer_mask;
-                  uncompressed_geno_iter = &(uncompressed_geno_iter[bytes_per_prob]);
-                  if ((numer_a < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_a)) {
-                    goto Bgen13GenoToPgenThread_generic_phased_missing;
-                  }
-                  write_dhap1_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_a) + totq_incr)) >> totq_postshift;
-                  write_dhap2_int = write_dhap1_int;
-                } else {
-                  missing_and_ploidy &= 127;
-                  if (missing_and_ploidy > 2) {
-                    goto Bgen13GenoToPgenThread_malformed;
-                  }
-                  uncompressed_geno_iter = &(uncompressed_geno_iter[missing_and_ploidy * bytes_per_prob]);
-                Bgen13GenoToPgenThread_generic_phased_missing:
-                  genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
-                  continue;
-                }
-                const uint32_t write_dosage_int = write_dhap1_int + write_dhap2_int;
-                const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
-                const int32_t write_dphase_delta = write_dhap1_int - write_dhap2_int;
-                if (halfdist < hard_call_halfdist) {
-                  genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
-                } else {
-                  const uintptr_t cur_geno = (write_dosage_int + (kDosage4th * k1LU)) / kDosageMid;
-                  genovec_word |= cur_geno << (2 * sample_idx_lowbits);
-                  if (cur_geno == 1) {
-                    // possible todo: lower bound on abs(write_dphase_delta)
-                    if (write_dphase_delta != 0) {
-                      phasepresent_hw |= 1U << sample_idx_lowbits;
-                      // phaseinfo_hw bit set for 1|0
-                      if (write_dphase_delta > 0) {
-                        phaseinfo_hw |= 1U << sample_idx_lowbits;
-                      }
-                    }
-                  }
-                  if (halfdist >= dosage_erase_halfdist) {
-                    continue;
-                  }
-                }
-                dosage_present_hw |= 1U << sample_idx_lowbits;
-                *cur_dosage_vals_iter++ = write_dosage_int;
-                if (write_dphase_delta != 0) {
-                  dphase_present_hw |= 1U << sample_idx_lowbits;
-                  *cur_dphase_deltas_iter++ = write_dphase_delta;
-                }
-              }
-              write_genovec_iter[widx] = genovec_word;
-              R_CAST(Halfword*, write_dosage_present_iter)[widx] = dosage_present_hw;
-              ++widx;
-            }
-            cur_phasepresent_exists = !AllWordsAreZero(write_phasepresent_iter, sample_ctaw);
-          }
+          /*
+#ifdef __LP64__
         }
+#endif
+          */
         const uint32_t dosage_ct = cur_dosage_vals_iter - write_dosage_vals_iter;
         uint32_t dphase_ct = cur_dphase_deltas_iter - &(write_dosage_vals_iter[sample_ct]);
         // note that this is inverted from bgen-1.1

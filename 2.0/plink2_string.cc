@@ -246,15 +246,17 @@ uint32_t UintSlen(uint32_t num) {
 // could also use something like ((32 - lz_ct) * 77) >> 8, since 77/256 is a
 // sufficiently good approximation of ln(2)/ln(10), but that's a bit slower and
 // this table doesn't take much space
+//
+// bugfix (29 Mar 2018): this table was totally wrong, ugh
 static const unsigned char kBsrUintSlenBase[] =
-{1, 1, 1, 2,
- 2, 2, 3, 3,
+{1, 1, 1, 1,
+ 2, 2, 2, 3,
  3, 3, 4, 4,
- 4, 5, 5, 5,
- 6, 6, 6, 6,
- 7, 7, 7, 8,
- 8, 8, 9, 9,
- 9};
+ 4, 4, 5, 5,
+ 5, 6, 6, 6,
+ 7, 7, 7, 7,
+ 8, 8, 8, 9,
+ 9, 9, 9, 9};
 
 uint32_t UintSlen(uint32_t num) {
   // tried divide-by-10 and divide-by-100 loops, they were slower

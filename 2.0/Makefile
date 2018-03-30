@@ -32,11 +32,11 @@ all: plink2 pgen_compress
 
 # for clean build, "make clean" first
 plink2: $(OBJ)
-	g++ $(ARCH32) $(OBJ) -o build/plink2 $(BLASFLAGS64) $(LINKFLAGS)
+	g++ $(ARCH32) $(OBJ) -o bin/plink2 $(BLASFLAGS64) $(LINKFLAGS)
 
 # basic pgenlib_internal.h usage example; also needed for tests
 pgen_compress: plink2_base.o pgenlib_internal.o pgen_compress.o
-	g++ plink2_base.o pgenlib_internal.o pgen_compress.o -o build/pgen_compress
+	g++ plink2_base.o pgenlib_internal.o pgen_compress.o -o bin/pgen_compress
 
 .PHONY: clean
 clean:

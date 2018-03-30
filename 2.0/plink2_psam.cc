@@ -1027,7 +1027,9 @@ PglErr LoadPhenos(const char* pheno_fname, const RangeList* pheno_range_list_ptr
         }
       }
       final_pheno_ct = new_pheno_ct + old_pheno_ct;
-      const uintptr_t max_new_name_blen = 6 + UintSlen(final_pheno_ct - 1);
+      // bugfix (29 Mar 2018): don't subtract 1 from final_pheno_ct here since
+      // names are 1-based
+      const uintptr_t max_new_name_blen = 6 + UintSlen(final_pheno_ct);
       if (max_new_name_blen > max_pheno_name_blen) {
         max_pheno_name_blen = max_new_name_blen;
       }
