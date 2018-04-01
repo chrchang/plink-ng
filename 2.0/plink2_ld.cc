@@ -2837,7 +2837,8 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     uint32_t phasepresent_cts[2];
     uintptr_t* dosage_presents[2];
     Dosage* dosage_vals[2];
-    uint32_t dosage_cts[2];
+    uintptr_t* dphase_presents[2];
+    SDosage* dphase_deltas[2];
     if (bigstack_alloc_u32(founder_ctl, &founder_info_cumulative_popcounts) ||
         bigstack_alloc_w(founder_ctl2, &(genovecs[0])) ||
         bigstack_alloc_w(founder_ctl2, &(genovecs[1])) ||
@@ -2848,7 +2849,11 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         bigstack_alloc_w(founder_ctl, &(dosage_presents[0])) ||
         bigstack_alloc_w(founder_ctl, &(dosage_presents[1])) ||
         bigstack_alloc_dosage(founder_ct, &(dosage_vals[0])) ||
-        bigstack_alloc_dosage(founder_ct, &(dosage_vals[1]))) {
+        bigstack_alloc_dosage(founder_ct, &(dosage_vals[1])) ||
+        bigstack_alloc_w(founder_ctl, &(dphase_presents[0])) ||
+        bigstack_alloc_w(founder_ctl, &(dphase_presents[1])) ||
+        bigstack_alloc_dphase(founder_ct, &(dphase_deltas[0])) ||
+        bigstack_alloc_dphase(founder_ct, &(dphase_deltas[1]))) {
       goto LdConsole_ret_NOMEM;
     }
     const uint32_t x_present = (is_xs[0] || is_xs[1]);
@@ -2871,6 +2876,8 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     uint32_t use_dosage = ldip->ld_console_flags & kfLdConsoleDosage;
 
     PgrClearLdCache(simple_pgrp);
+    uint32_t dosage_cts[2];
+    uint32_t dphase_cts[2];
     for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {
       const uint32_t variant_uidx = var_uidxs[var_idx];
       uintptr_t* cur_genovec = genovecs[var_idx];
@@ -2878,18 +2885,24 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       uintptr_t* cur_phaseinfo = phaseinfos[var_idx];
       uintptr_t* cur_dosage_present = dosage_presents[var_idx];
       Dosage* cur_dosage_vals = dosage_vals[var_idx];
+      uintptr_t* cur_dphase_present = dphase_presents[var_idx];
+      SDosage* cur_dphase_deltas = dphase_deltas[var_idx];
       // (unconditionally allocating phaseinfo/dosage_vals and using the most
       // general-purpose loader makes sense when this loop only executes twice,
       // but --r2 will want to use different pgenlib loaders depending on
       // context.)
 
       // todo: multiallelic case
-      reterr = PgrGetPD(founder_info, founder_info_cumulative_popcounts, founder_ct, variant_uidx, simple_pgrp, cur_genovec, cur_phasepresent, cur_phaseinfo, &(phasepresent_cts[var_idx]), cur_dosage_present, cur_dosage_vals, &(dosage_cts[var_idx]));
+      reterr = PgrGetPDp(founder_info, founder_info_cumulative_popcounts, founder_ct, variant_uidx, simple_pgrp, cur_genovec, cur_phasepresent, cur_phaseinfo, &(phasepresent_cts[var_idx]), cur_dosage_present, cur_dosage_vals, &(dosage_cts[var_idx]), cur_dphase_present, cur_dphase_deltas, &(dphase_cts[var_idx]));
       if (reterr) {
         if (reterr == kPglRetMalformedInput) {
           logputs("\n");
           logerrputs("Error: Malformed .pgen file.\n");
         }
+        goto LdConsole_ret_1;
+      }
+      if (dphase_cts[var_idx]) {
+        logerrputs("Error: --ld phased-dosage support is under development.\n");
         goto LdConsole_ret_1;
       }
       ZeroTrailingQuaters(founder_ct, cur_genovec);

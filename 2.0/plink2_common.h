@@ -35,6 +35,7 @@ namespace plink2 {
 // leave the door semi-open to 32-bit dosages (or 31?  24?)
 // note that u31tod()/u31tof() can't be used on 32-bit dosages
 typedef uint16_t Dosage;
+typedef int16_t SDosage;
 typedef uint32_t DosageProd;
 #define kDosageMax (1U << (8 * sizeof(Dosage) - 1))
 CONSTU31(kDosageMid, kDosageMax / 2);
@@ -216,14 +217,31 @@ HEADER_INLINE BoolErr bigstack_alloc_dosage(uintptr_t ct, Dosage** dosage_arr_pt
   return !(*dosage_arr_ptr);
 }
 
+HEADER_INLINE BoolErr bigstack_alloc_dphase(uintptr_t ct, SDosage** dphase_arr_ptr) {
+  *dphase_arr_ptr = S_CAST(SDosage*, bigstack_alloc(ct * sizeof(SDosage)));
+  return !(*dphase_arr_ptr);
+}
+
+
 HEADER_INLINE BoolErr bigstack_alloc_dosagep(uintptr_t ct, Dosage*** dosagep_arr_ptr) {
   *dosagep_arr_ptr = S_CAST(Dosage**, bigstack_alloc(ct * sizeof(intptr_t)));
   return !(*dosagep_arr_ptr);
 }
 
+HEADER_INLINE BoolErr bigstack_alloc_dphasep(uintptr_t ct, SDosage*** dphasep_arr_ptr) {
+  *dphasep_arr_ptr = S_CAST(SDosage**, bigstack_alloc(ct * sizeof(intptr_t)));
+  return !(*dphasep_arr_ptr);
+}
+
+
 HEADER_INLINE BoolErr bigstack_end_alloc_dosage(uintptr_t ct, Dosage** dosage_arr_ptr) {
   *dosage_arr_ptr = S_CAST(Dosage*, bigstack_end_alloc(ct * sizeof(Dosage)));
   return !(*dosage_arr_ptr);
+}
+
+HEADER_INLINE BoolErr bigstack_end_alloc_dphase(uintptr_t ct, SDosage** dphase_arr_ptr) {
+  *dphase_arr_ptr = S_CAST(SDosage*, bigstack_end_alloc(ct * sizeof(SDosage)));
+  return !(*dphase_arr_ptr);
 }
 
 
@@ -599,13 +617,15 @@ void InterleavedMaskZero(const uintptr_t* __restrict interleaved_mask, uintptr_t
 // sets samples in the mask to missing (0b11)
 void InterleavedSetMissing(const uintptr_t* __restrict interleaved_set, uintptr_t vec_ct, uintptr_t* __restrict genovec);
 
-void InterleavedSetMissingCleardosage(const uintptr_t* __restrict orig_set, const uintptr_t* __restrict interleaved_set, uintptr_t vec_ct, uintptr_t* __restrict genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_vals);
+void InterleavedSetMissingCleardosage(const uintptr_t* __restrict orig_set, const uintptr_t* __restrict interleaved_set, uintptr_t vec_ct, uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_vals);
 
 void SetMaleHetMissing(const uintptr_t* __restrict sex_male_interleaved, uint32_t vec_ct, uintptr_t* __restrict genovec);
 
-void SetMaleHetMissingCleardosage(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sex_male_interleaved, uint32_t vec_ct, uintptr_t* __restrict genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_vals);
+void EraseMaleDphases(const uintptr_t* __restrict sex_male, uint32_t* __restrict write_dphase_ct_ptr, uintptr_t* __restrict dphasepresent, SDosage* dphase_deltas);
 
-void SetMaleHetMissingKeepdosage(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sex_male_interleaved, uint32_t word_ct, uintptr_t* __restrict genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_vals);
+void SetMaleHetMissingCleardosage(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sex_male_interleaved, uint32_t vec_ct, uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_vals);
+
+void SetMaleHetMissingKeepdosage(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sex_male_interleaved, uint32_t word_ct, uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_vals);
 
 // Clears each bit in bitarr which doesn't correspond to a genovec het.
 // Assumes that either trailing bits of bitarr are already zero, or trailing

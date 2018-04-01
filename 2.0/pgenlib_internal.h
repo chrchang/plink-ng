@@ -76,7 +76,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 900
+#define PGENLIB_INTERNAL_VERNUM 901
 
 // other configuration-ish values needed by plink2_common subset
 typedef unsigned char AltAlleleCt;
@@ -592,11 +592,8 @@ struct PgenFileInfoStruct {
   //   unconditional dosages, but it doesn't work well when only some samples
   //   have dosage data.
   // bit 7: some dosages phased?  if yes, and dosages are not unconditionally
-  //        present, auxiliary data track #5 is either a single zero byte
-  //        (indicating that all dosages are phased), or a bitarray of length
-  //        (dosage_ct + 1) where the first bit is set, and the other bits
-  //        indicate whether phase info is present for that sample (unset = no
-  //        phasing info)
+  //        present, auxiliary data track #5 is a bitarray of length dosage_ct
+  //        indicating whether dphase_delta exists for that sample.
   //        note that this is independent of bit 4; either can be set without
   //        the other.
   //        when phased dosages are present, track #6 contains values
@@ -1017,7 +1014,7 @@ PglErr PgrGetDWithCounts(const uintptr_t* __restrict sample_include, const uintp
 
 // ok for both dosage_present and dosage_vals to be nullptr when no dosage data
 // is present
-PglErr PgrGetPD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr);
+PglErr PgrGetPDp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr, uintptr_t* __restrict dphase_present, int16_t* dphase_deltas, uint32_t* dphase_ct_ptr);
 
 // interface used by --make-pgen, just performs basic LD/difflist decompression
 // (still needs multiallelic and dosage-phase extensions)
@@ -1182,7 +1179,6 @@ void PwcAppendBiallelicGenovecHphaseDosage16(const uintptr_t* __restrict genovec
 
 PglErr SpgwAppendBiallelicGenovecHphaseDosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_vals, uint32_t dosage_ct, STPgenWriter* spgwp);
 
-// dphase_present can be nullptr if dosage_ct == dphase_ct
 // dosage_present cannot be null for nonzero dosage_ct
 // could make dosage_vals[] has length dosage_ct + dphase_ct instead of having
 // separate dphase_deltas[]?

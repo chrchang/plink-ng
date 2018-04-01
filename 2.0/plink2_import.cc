@@ -3725,7 +3725,8 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
           goto Bgen13GenoToPgenThread_not_yet_supported;
         }
         Dosage* cur_dosage_vals_iter = write_dosage_vals_iter;
-        Dosage* cur_dphase_deltas_iter = &(write_dosage_vals_iter[sample_ct]);
+        SDosage* cur_dphase_deltas_start = R_CAST(SDosage*, &(write_dosage_vals_iter[sample_ct]));
+        SDosage* cur_dphase_deltas_iter = cur_dphase_deltas_start;
         unsigned char cur_phasepresent_exists = 0;
         // turns out UKB haplotype files still use bit_precision == 16, so
         // wait till bgen-1.3 export implemented before trying this
@@ -3818,9 +3819,9 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
                       genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
                       continue;
                     }
-  #ifdef __arm__
-  #  error "Unaligned accesses in Bgen13GenoToPgenThread()."
-  #endif
+#ifdef __arm__
+#  error "Unaligned accesses in Bgen13GenoToPgenThread()."
+#endif
                     const uintptr_t numer_aa = (*R_CAST(const uint32_t*, uncompressed_geno_iter)) & numer_mask;
                     const uintptr_t numer_ab = (*R_CAST(const uint32_t*, &(uncompressed_geno_iter[bytes_per_prob]))) & numer_mask;
                     if (numer_aa + numer_ab > numer_mask) {
@@ -3850,7 +3851,7 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
               } else {
                 // biallelic, phased, diploid
                 // note that in 64-bit builds there's a separate fast path
-                // above for bit_precision == 1
+                // planned for bit_precision == 1
                 write_phasepresent_iter[sample_ctaw - 1] = 0;
                 while (1) {
                   if (widx >= sample_ctl2_m1) {
@@ -3867,7 +3868,6 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
                   for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits, uncompressed_geno_iter = &(uncompressed_geno_iter[2 * bytes_per_prob])) {
                     const uint32_t missing_and_ploidy = *missing_and_ploidy_iter++;
                     if (missing_and_ploidy != 2) {
-                      // (could also validate that missing_and_ploidy == 130)
                     Bgen13GenoToPgenThread_diploid_phased_missing:
                       genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
                       continue;
@@ -3894,6 +3894,9 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
                       const uintptr_t cur_geno = (write_dosage_int + (kDosage4th * k1LU)) / kDosageMid;
                       genovec_word |= cur_geno << (2 * sample_idx_lowbits);
                       if (cur_geno == 1) {
+                        // note that --dosage-erase-threshold may prevent
+                        // dphase_delta from being saved
+                        //
                         // possible todo: lower bound on
                         // abs(write_dphase_delta)
                         if (write_dphase_delta != 0) {
@@ -4129,7 +4132,7 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
 #endif
           */
         const uint32_t dosage_ct = cur_dosage_vals_iter - write_dosage_vals_iter;
-        uint32_t dphase_ct = cur_dphase_deltas_iter - &(write_dosage_vals_iter[sample_ct]);
+        uint32_t dphase_ct = cur_dphase_deltas_iter - cur_dphase_deltas_start;
         // note that this is inverted from bgen-1.1
         if (!prov_ref_allele_second) {
           GenovecInvertUnsafe(sample_ct, write_genovec_iter);
@@ -4137,7 +4140,7 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
           if (dosage_ct) {
             BiallelicDosage16Invert(dosage_ct, write_dosage_vals_iter);
             if (dphase_ct) {
-              BiallelicDphase16Invert(dphase_ct, R_CAST(int16_t*, &(write_dosage_vals_iter[sample_ct])));
+              BiallelicDphase16Invert(dphase_ct, cur_dphase_deltas_start);
             }
           }
         }
@@ -6076,14 +6079,15 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
                   }
                 }
               } else {
-                logerrputs("Error: Phased dosage import is currently under development.\n");
-                reterr = kPglRetNotYetSupported;
-                goto OxBgenToPgen_ret_1;
                 const Dosage* dosage_vals = &(write_dosage_val_bufs[write_block_vidx * 2 * sample_ct]);
-                const int16_t* dphase_deltas = R_CAST(const int16_t*, &(dosage_vals[sample_ct]));
+                const SDosage* dphase_deltas = R_CAST(const SDosage*, &(dosage_vals[sample_ct]));
                 if (SpgwAppendBiallelicGenovecDphase16(write_genovec_iter, write_phasepresent_iter, write_phaseinfo_iter, &(write_dosage_presents[write_block_vidx * sample_ctaw]), &(write_dphase_presents[write_block_vidx * sample_ctaw]), dosage_vals, dphase_deltas, cur_dosage_ct, cur_dphase_ct, &spgw)) {
                   goto OxBgenToPgen_ret_WRITE_FAIL;
                 }
+                logputs("\n");
+                logerrputs("Error: .bgen phased-dosage import is currently under development.\n");
+                reterr = kPglRetNotYetSupported;
+                goto OxBgenToPgen_ret_1;
               }
               write_phasepresent_iter = &(write_phasepresent_iter[sample_ctaw]);
               write_phaseinfo_iter = &(write_phaseinfo_iter[sample_ctaw]);

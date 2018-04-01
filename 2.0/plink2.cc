@@ -61,7 +61,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (29 Mar 2018)";
+  " (31 Mar 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -672,6 +672,16 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       reterr = LoadPvar(pvarname, pcp->var_filter_exceptions_flattened, pcp->varid_template, pcp->missing_varid_match, pcp->require_info_flattened, pcp->require_no_info_flattened, pcp->extract_if_info_expr, pcp->exclude_if_info_expr, pcp->misc_flags, pcp->pvar_psam_flags, pcp->exportf_flags, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->dependency_flags & kfFilterNoSplitChr), pcp->max_thread_ct, cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids_mutable, &variant_allele_idxs, K_CAST(const char***, &allele_storage_mutable), &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage_mutable, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_slen, &xheader_blen, &info_flags, &max_filter_slen);
       if (reterr) {
         goto Plink2Core_ret_1;
+      }
+      if (!variant_ct) {
+        // conditionally permit this?
+        if (raw_variant_ct) {
+          logerrprintfww("Error: No variants loaded from %s.\n", pvarname);
+          goto Plink2Core_ret_INCONSISTENT_INPUT;
+        } else {
+          logerrprintfww("Error: No variants in %s.\n", pvarname);
+          goto Plink2Core_ret_MALFORMED_INPUT;
+        }
       }
       pvar_filter_storage = TO_CONSTCPCONSTP(pvar_filter_storage_mutable);
       if (variant_ct == raw_variant_ct) {
@@ -1717,6 +1727,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 
       if (pcp->filter_flags & kfFilterPvarReq) {
         if (!variant_ct) {
+          // do we want this to be conditionally acceptable?
           logerrputs("Error: No variants remaining after main filters.\n");
           goto Plink2Core_ret_INCONSISTENT_INPUT;
         }
@@ -2149,6 +2160,9 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     break;
   Plink2Core_ret_INVALID_CMDLINE:
     reterr = kPglRetInvalidCmdline;
+    break;
+  Plink2Core_ret_MALFORMED_INPUT:
+    reterr = kPglRetMalformedInput;
     break;
   Plink2Core_ret_INCONSISTENT_INPUT:
     reterr = kPglRetInconsistentInput;

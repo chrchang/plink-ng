@@ -1301,6 +1301,10 @@ PglErr ExportOxHapslegend(const uintptr_t* sample_include, const uint32_t* sampl
       if (ref_allele_second + ref_allele_idx == 1) {
         GenovecInvertUnsafe(sample_ct, genovec);
         ZeroTrailingQuaters(sample_ct, genovec);
+        // bugfix (31 Mar 2018): need to update phaseinfo
+        if (phasepresent_ct) {
+          BitvecXor(phasepresent, sample_ctl, phaseinfo);
+        }
       }
       if (just_haps) {
         write_iter = memcpya(write_iter, chr_buf, chr_blen);
@@ -2040,14 +2044,17 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* arg) {
       }
       // todo: export phase info
       // todo: multiallelic cases
+      uint32_t phasepresent_ct;
       uint32_t dosage_ct;
-      PglErr reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct);
+      uint32_t dphase_ct;
+      PglErr reterr = PgrGetPDp(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, pgrp, genovec, phasepresent, phaseinfo, &phasepresent_ct, dosage_present, dosage_vals, &dosage_ct);
       if (reterr) {
         g_error_ret = reterr;
         break;
       }
       if (ref_allele_idx + ref_allele_second == 1) {
         GenovecInvertUnsafe(sample_ct, genovec);
+        // todo: invert hphase and dphase
         BiallelicDosage16Invert(dosage_ct, dosage_vals);
       }
       unsigned char* bgen_geno_buf_iter = uncompressed_bgen_geno_buf;
@@ -3053,9 +3060,13 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
 
     uintptr_t* dosage_present = nullptr;
     Dosage* dosage_vals = nullptr;
+    uintptr_t* dphase_present = nullptr;
+    SDosage* dphase_deltas = nullptr;
     if (write_gp_ds_or_hds) {
       if (bigstack_alloc_w(sample_ctl, &dosage_present) ||
-          bigstack_alloc_dosage(sample_ct, &dosage_vals)) {
+          bigstack_alloc_dosage(sample_ct, &dosage_vals) ||
+          bigstack_alloc_w(sample_ctl, &dphase_present) ||
+          bigstack_alloc_dphase(sample_ct, &dphase_deltas)) {
         goto ExportVcf_ret_NOMEM;
       }
     }
@@ -3244,6 +3255,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
       write_iter = memcpyl3a(write_iter, "\tGT");
 
       uint32_t dosage_ct = 0;
+      uint32_t dphase_ct = 0;
       uint32_t inner_loop_last = kBitsPerWordD2 - 1;
       uint32_t widx = 0;
       if (!some_phased) {
@@ -3385,7 +3397,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         if (!write_gp_ds_or_hds) {
           reterr = PgrGetP(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, phasepresent, phaseinfo, &at_least_one_phase_present);
         } else {
-          reterr = PgrGetPD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, phasepresent, phaseinfo, &at_least_one_phase_present, dosage_present, dosage_vals, &dosage_ct);
+          reterr = PgrGetPDp(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, phasepresent, phaseinfo, &at_least_one_phase_present, dosage_present, dosage_vals, &dosage_ct, dphase_present, dphase_deltas, &dphase_ct);
         }
         if (reterr) {
           goto ExportVcf_ret_PGR_FAIL;

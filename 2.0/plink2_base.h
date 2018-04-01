@@ -1822,11 +1822,7 @@ HEADER_INLINE uint32_t WordBitIdxToUidx(uintptr_t ulii, uint32_t bit_idx) {
   return ctzw(ClearBottomSetBits(bit_idx, ulii));
 }
 
-void CopyBitarrSubsetEx(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t bit_idx_start, uint32_t bit_idx_end, uintptr_t* __restrict output_bitarr);
-
-HEADER_INLINE void CopyBitarrSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t subset_size, uintptr_t* __restrict output_bitarr) {
-  CopyBitarrSubsetEx(raw_bitarr, subset_mask, 0, subset_size, output_bitarr);
-}
+void CopyBitarrSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t bit_idx_end, uintptr_t* __restrict output_bitarr);
 
 // expand_size + read_start_bit must be positive.
 void ExpandBytearr(const void* __restrict compact_bitarr, const uintptr_t* __restrict expand_mask, uint32_t word_ct, uint32_t expand_size, uint32_t read_start_bit, uintptr_t* __restrict target);

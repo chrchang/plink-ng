@@ -323,7 +323,7 @@ PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, Fam
       BigstackReset(bigstack_mark2);
     }
 
-    // make sure to handle sample_ct == 0 case properly
+    // make sure to error out properly in sample_ct == 0 case
     PsamInfoLl* psam_info_reverse_ll = nullptr;
     const uint32_t sids_present = (psam_cols_mask / 2) & 1;
     const uint32_t paternal_ids_present = psam_cols_mask & 4;

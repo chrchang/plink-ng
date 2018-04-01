@@ -994,6 +994,42 @@ void BitvecOr(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr
 #endif
 }
 
+void BitvecXor(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec) {
+  // main_bitvec := main_bitvec XOR arg_bitvec
+#ifdef __LP64__
+  VecW* main_bitvvec_iter = R_CAST(VecW*, main_bitvec);
+  const VecW* arg_bitvvec_iter = R_CAST(const VecW*, arg_bitvec);
+  const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
+  if (full_vec_ct & 1) {
+    *main_bitvvec_iter++ ^= (*arg_bitvvec_iter++);
+  }
+  if (full_vec_ct & 2) {
+    *main_bitvvec_iter++ ^= (*arg_bitvvec_iter++);
+    *main_bitvvec_iter++ ^= (*arg_bitvvec_iter++);
+  }
+  for (uintptr_t ulii = 3; ulii < full_vec_ct; ulii += 4) {
+    *main_bitvvec_iter++ ^= (*arg_bitvvec_iter++);
+    *main_bitvvec_iter++ ^= (*arg_bitvvec_iter++);
+    *main_bitvvec_iter++ ^= (*arg_bitvvec_iter++);
+    *main_bitvvec_iter++ ^= (*arg_bitvvec_iter++);
+  }
+#  ifdef USE_AVX2
+  if (word_ct & 2) {
+    const uintptr_t base_idx = full_vec_ct * kWordsPerVec;
+    main_bitvec[base_idx] ^= arg_bitvec[base_idx];
+    main_bitvec[base_idx + 1] ^= arg_bitvec[base_idx + 1];
+  }
+#  endif
+  if (word_ct & 1) {
+    main_bitvec[word_ct - 1] ^= arg_bitvec[word_ct - 1];
+  }
+#else
+  for (uintptr_t widx = 0; widx < word_ct; ++widx) {
+    main_bitvec[widx] ^= arg_bitvec[widx];
+  }
+#endif
+}
+
 void BitvecAndNot2(const uintptr_t* __restrict include_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec) {
   // main_bitvec := (~main_bitvec) AND include_bitvec
   // this corresponds _mm_andnot() operand order

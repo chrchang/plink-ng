@@ -452,13 +452,14 @@ uint32_t FindLast1BitBefore(const uintptr_t* bitarr, uint32_t loc) {
 }
 
 #ifdef USE_AVX2
-void CopyBitarrSubsetEx(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t bit_idx_start, uint32_t bit_idx_end, uintptr_t* __restrict output_bitarr) {
+// void CopyBitarrSubsetEx(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t bit_idx_start, uint32_t bit_idx_end, uintptr_t* __restrict output_bitarr) {
+void CopyBitarrSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t bit_idx_end, uintptr_t* __restrict output_bitarr) {
   const uint32_t bit_idx_end_lowbits = bit_idx_end % kBitsPerWord;
   uintptr_t* output_bitarr_iter = output_bitarr;
   uintptr_t* output_bitarr_last = &(output_bitarr[bit_idx_end / kBitsPerWord]);
   uintptr_t cur_output_word = 0;
   uint32_t read_widx = UINT32_MAX;  // deliberate overflow
-  uint32_t write_idx_lowbits = bit_idx_start;
+  uint32_t write_idx_lowbits = 0;
   while ((output_bitarr_iter != output_bitarr_last) || (write_idx_lowbits != bit_idx_end_lowbits)) {
     uintptr_t cur_mask_word;
     // sparse subset_mask optimization
@@ -842,13 +843,13 @@ void ExpandThenSubsetBytearrNested(const void* __restrict compact_bitarr, const 
   }
 }
 #else  // !USE_AVX2
-void CopyBitarrSubsetEx(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t bit_idx_start, uint32_t bit_idx_end, uintptr_t* __restrict output_bitarr) {
+void CopyBitarrSubset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict subset_mask, uint32_t bit_idx_end, uintptr_t* __restrict output_bitarr) {
   const uint32_t bit_idx_end_lowbits = bit_idx_end % kBitsPerWord;
   uintptr_t* output_bitarr_iter = output_bitarr;
   uintptr_t* output_bitarr_last = &(output_bitarr[bit_idx_end / kBitsPerWord]);
   uintptr_t cur_output_word = 0;
   uint32_t read_widx = UINT32_MAX;  // deliberate overflow
-  uint32_t write_idx_lowbits = bit_idx_start;
+  uint32_t write_idx_lowbits = 0;
   while ((output_bitarr_iter != output_bitarr_last) || (write_idx_lowbits != bit_idx_end_lowbits)) {
     uintptr_t cur_mask_word;
     // sparse subset_mask optimization
