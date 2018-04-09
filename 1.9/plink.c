@@ -93,7 +93,7 @@
 
 static const char ver_str[] =
 #ifdef STABLE_BUILD
-  "PLINK v1.90b5.3"
+  "PLINK v1.90b5.4"
 #else
   "PLINK v1.90p"
 #endif
@@ -105,10 +105,10 @@ static const char ver_str[] =
 #else
   " 32-bit"
 #endif
-  " (23 Mar 2018)";
+  " (9 Apr 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifdef STABLE_BUILD
   " " // (don't want this when version number has two trailing digits)
 #else
@@ -12801,7 +12801,8 @@ int32_t main(int32_t argc, char** argv) {
 	if (enforce_param_ct_range(param_ct, argv[cur_arg], 1, 1)) {
 	  goto main_ret_INVALID_CMDLINE_2A;
 	}
-	retval = alloc_fname(&cluster.zerofname, argv[cur_arg + uii], argptr, 0);
+        // bugfix (9 Apr 2018): had wrong array index
+	retval = alloc_fname(&cluster.zerofname, argv[cur_arg + 1], argptr, 0);
 	if (retval) {
 	  goto main_ret_1;
 	}
