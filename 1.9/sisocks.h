@@ -14,13 +14,13 @@
  *  along with this program; if not, write to the Free Software
  *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
-   
-   conditional defines: 
+
+   conditional defines:
 
    MAIN
      should be defined in just one file that will contain the fn definitions and variables
 
-   USE_SNPRINTF 
+   USE_SNPRINTF
      emulate snprintf on Win platforms (you will
      lose the security which is provided under unix of course)
 
@@ -137,7 +137,7 @@ extern int initsocks(void);
 
 #define donesocks() WSACleanup()
 #else
- 
+
 /* no stupid stuff necessary for unix */
 #define initsocks()
 #define donesocks()
@@ -244,7 +244,7 @@ extern FILE *sockerrlog;
 int sockerrorchecks(char *buf, int blen, int res);
 int sockerrorcheck(char *sn, int rtb, int res);
 #endif
-    
+
 #define FCF(X,F) sockerrorcheck(X,1,F)
 #define CF(X,F) sockerrorcheck(X,0,F)
 
@@ -261,5 +261,5 @@ struct sockaddr *build_sin(struct sockaddr_in *sa,char *ip,int port) {
 #else
 struct sockaddr *build_sin(struct sockaddr_in *sa,char *ip,int port);
 #endif
-          
+
 #endif /* __SISOCKS_H__ */
