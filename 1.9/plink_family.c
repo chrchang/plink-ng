@@ -509,12 +509,14 @@ uint32_t erase_mendel_errors(uintptr_t unfiltered_sample_ct, uintptr_t* loadbuf,
       unn = uii / BITCT2;
       uoo = ujj / BITCT2;
       upp = ukk / BITCT2;
-      uii = 2 * (uii % BITCT2);
+      const uint32_t uqq = 2 * (uii % BITCT2);
       ujj = 2 * (ujj % BITCT2);
       ukk = 2 * (ukk % BITCT2);
-      ulii = (workbuf[unn] >> uii) & 3;
+      ulii = (workbuf[unn] >> uqq) & 3;
       uljj = ((workbuf[uoo] >> ujj) & 3) | (((workbuf[upp] >> ukk) & 3) << 2);
       if (ulii != 1) {
+        // bugfix (10 Apr 2018): is_set(sex_male, uii) didn't work since we had
+        // replaced the value with twice the low-order bits
 	if ((!is_x) || (!is_set(sex_male, uii))) {
           umm = mendel_error_table[ulii | (uljj << 2)];
 	} else {
@@ -522,7 +524,7 @@ uint32_t erase_mendel_errors(uintptr_t unfiltered_sample_ct, uintptr_t* loadbuf,
 	}
         if (umm) {
 	  ulii = loadbuf[unn];
-	  uljj = ONELU << uii;
+	  uljj = ONELU << uqq;
 	  loadbuf[unn] = (ulii & (~(3 * uljj))) | uljj;
 	  if (umm & 0x100) {
 	    ulii = loadbuf[uoo];
@@ -539,9 +541,9 @@ uint32_t erase_mendel_errors(uintptr_t unfiltered_sample_ct, uintptr_t* loadbuf,
       } else if (!uljj) {
 	// both parents are homozygous for the same allele, so child genotype
 	// is "known" for the purpose of checking grandchild genotypes
-	workbuf[unn] &= ~(ONELU << uii);
+	workbuf[unn] &= ~(ONELU << uqq);
       } else if (uljj == 15) {
-	workbuf[unn] |= (2 * ONELU) << uii;
+	workbuf[unn] |= (2 * ONELU) << uqq;
       }
       // no need to fill "known" heterozygous genotype, since that's treated
       // the same way as a missing genotype
