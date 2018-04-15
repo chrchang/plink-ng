@@ -48,6 +48,26 @@ static const float kRecipDosageMidf = 0.00006103515625;
 CONSTU31(kDosagePerVec, kBytesPerVec / sizeof(Dosage));
 CONSTU31(kDosagePerCacheline, kCacheline / sizeof(Dosage));
 
+// dosage_int = 0..2 value in 16384ths
+// returns distance from 0.5 or 1.5 in 16384ths, whichever is closer
+HEADER_INLINE uint32_t BiallelicDosageHalfdist(uint32_t dosage_int) {
+  const uint32_t dosage_int_rem = dosage_int & (kDosageMid - 1);
+  return abs_i32(S_CAST(int32_t, dosage_int_rem) - kDosage4th);
+}
+
+HEADER_INLINE uint32_t HaploidDosageHalfdist(uint32_t dosage_int) {
+  return abs_i32(S_CAST(int32_t, dosage_int) - kDosage4th);
+}
+
+HEADER_INLINE uint32_t DosageHetdist(uint32_t dosage_int) {
+  return abs_i32(S_CAST(int32_t, dosage_int) - kDosageMid);
+}
+
+HEADER_INLINE uint32_t DosageHomdist(uint32_t dosage_int) {
+  // todo: compare vs. branchless
+  return (dosage_int > kDosageMid)? (kDosageMax - dosage_int) : dosage_int;
+}
+
 // this is a bit arbitrary
 CONSTU31(kMaxPhenoCt, 524287);
 #define MAX_PHENO_CT_STR "524287"
@@ -100,7 +120,8 @@ FLAGSET64_DEF_START()
   kfMiscBiallelicOnly = (1LLU << 35),
   kfMiscBiallelicOnlyStrict = (1LLU << 36),
   kfMiscBiallelicOnlyList = (1LLU << 37),
-  kfMiscStrictSid0 = (1LLU << 38)
+  kfMiscStrictSid0 = (1LLU << 38),
+  kfMiscAllowBadFreqs = (1LLU << 39)
 FLAGSET64_DEF_END(MiscFlags);
 
 FLAGSET64_DEF_START()
@@ -137,7 +158,7 @@ FLAGSET64_DEF_START()
   kfExportfStructure = (1 << 29),
   kfExportfTranspose = (1 << 30),
   kfExportfVcf = (1U << 31),
-  kfExportfTypemask = (2 * kfExportfVcf) - kfExportf23,
+  kfExportfTypemask = (2LLU * kfExportfVcf) - kfExportf23,
   kfExportfIncludeAlt = (1LLU << 32),
   kfExportfBgz = (1LLU << 33),
   kfExportfVcfDosageGp = (1LLU << 34),
@@ -251,17 +272,21 @@ HEADER_INLINE void ZeroDosageArr(uintptr_t entry_ct, Dosage* dosage_arr) {
   memset(dosage_arr, 0, entry_ct * sizeof(Dosage));
 }
 
+HEADER_INLINE void ZeroDphaseArr(uintptr_t entry_ct, SDosage* dphase_arr) {
+  memset(dphase_arr, 0, entry_ct * sizeof(SDosage));
+}
+
 HEADER_INLINE void SetAllDosageArr(uintptr_t entry_ct, Dosage* dosage_arr) {
   memset(dosage_arr, 255, entry_ct * sizeof(Dosage));
 }
 
-void PopulateDenseDosage(const uintptr_t* genovec, const uintptr_t* dosage_present, const Dosage* dosage_vals, uint32_t sample_ct, uint32_t dosage_ct, Dosage* dense_dosage);
+void PopulateDenseDosage(const uintptr_t* genovec, const uintptr_t* dosage_present, const Dosage* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, Dosage* dense_dosage);
 
 void SetHetMissing(uintptr_t word_ct, uintptr_t* genovec);
 
-void SetHetMissingCleardosage(uintptr_t word_ct, uintptr_t* genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* dosagepresent, Dosage* dosage_vals);
+void SetHetMissingCleardosage(uintptr_t word_ct, uintptr_t* genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* dosagepresent, Dosage* dosage_main);
 
-void SetHetMissingKeepdosage(uintptr_t word_ct, uintptr_t* genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* dosagepresent, Dosage* dosage_vals);
+void SetHetMissingKeepdosage(uintptr_t word_ct, uintptr_t* genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* dosagepresent, Dosage* dosage_main);
 
 void GenoarrToNonmissing(const uintptr_t* genoarr, uint32_t sample_ctl2, uintptr_t* nonmissing_bitarr);
 
@@ -617,15 +642,15 @@ void InterleavedMaskZero(const uintptr_t* __restrict interleaved_mask, uintptr_t
 // sets samples in the mask to missing (0b11)
 void InterleavedSetMissing(const uintptr_t* __restrict interleaved_set, uintptr_t vec_ct, uintptr_t* __restrict genovec);
 
-void InterleavedSetMissingCleardosage(const uintptr_t* __restrict orig_set, const uintptr_t* __restrict interleaved_set, uintptr_t vec_ct, uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_vals);
+void InterleavedSetMissingCleardosage(const uintptr_t* __restrict orig_set, const uintptr_t* __restrict interleaved_set, uintptr_t vec_ct, uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main);
 
 void SetMaleHetMissing(const uintptr_t* __restrict sex_male_interleaved, uint32_t vec_ct, uintptr_t* __restrict genovec);
 
-void EraseMaleDphases(const uintptr_t* __restrict sex_male, uint32_t* __restrict write_dphase_ct_ptr, uintptr_t* __restrict dphasepresent, SDosage* dphase_deltas);
+void EraseMaleDphases(const uintptr_t* __restrict sex_male, uint32_t* __restrict write_dphase_ct_ptr, uintptr_t* __restrict dphasepresent, SDosage* dphase_delta);
 
-void SetMaleHetMissingCleardosage(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sex_male_interleaved, uint32_t vec_ct, uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_vals);
+void SetMaleHetMissingCleardosage(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sex_male_interleaved, uint32_t vec_ct, uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main);
 
-void SetMaleHetMissingKeepdosage(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sex_male_interleaved, uint32_t word_ct, uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_vals);
+void SetMaleHetMissingKeepdosage(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sex_male_interleaved, uint32_t word_ct, uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main);
 
 // Clears each bit in bitarr which doesn't correspond to a genovec het.
 // Assumes that either trailing bits of bitarr are already zero, or trailing
@@ -633,7 +658,8 @@ void SetMaleHetMissingKeepdosage(const uintptr_t* __restrict sex_male, const uin
 void MaskGenovecHetsUnsafe(const uintptr_t* __restrict genovec, uint32_t raw_sample_ctl2, uintptr_t* __restrict bitarr);
 
 // vertical popcount support
-// scramble_1_4_8_32() and friends in plink2_cmdline
+// VcountScramble1() and friends in plink2_cmdline
+/*
 #ifdef __LP64__
 #  ifdef USE_AVX2
 // 2->4: 0 2 ... 126 1 3 ... 127
@@ -685,6 +711,7 @@ HEADER_INLINE void Vcount0Incr2To4(uint32_t acc2_vec_ct, uintptr_t* acc2, uintpt
     ++acc4v_iter;
   }
 }
+*/
 
 
 // uint32_t chr_window_max(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_pos, uint32_t chr_fo_idx, uint32_t ct_max, uint32_t bp_max, uint32_t cur_window_max);
@@ -835,7 +862,7 @@ PglErr ParseChrRanges(const char* const* argvk, const char* flagname_p, const ch
 
 
 // sample_ct not relevant if genovecs_ptr == nullptr
-PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, PgenFileInfo* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** dosage_present_ptr, Dosage*** dosage_val_bufs_ptr, uint32_t* read_block_size_ptr, unsigned char** main_loadbufs, pthread_t** threads_ptr, PgenReader*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr);
+PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t bytes_avail, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, PgenFileInfo* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** phasepresent_ptr, uintptr_t*** phaseinfo_ptr, uintptr_t*** dosage_present_ptr, Dosage*** dosage_mains_ptr, uintptr_t*** dphase_present_ptr, SDosage*** dphase_delta_ptr, uint32_t* read_block_size_ptr, unsigned char** main_loadbufs, pthread_t** threads_ptr, PgenReader*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr);
 
 
 // These use g_textbuf.

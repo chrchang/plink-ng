@@ -194,7 +194,7 @@ void GenoarrPhasedToHapCodes(const uintptr_t* genoarr, const uintptr_t* phaseinf
 
 static const float kGenoToFloat[4] = {0.0f, 1.0f, 2.0f, -9.0f};
 
-void Dosage16ToFloatsMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_vals, uint32_t sample_ct, uint32_t dosage_ct, float* geno_float) {
+void Dosage16ToFloatsMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, float* geno_float) {
   const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
   float* write_iter = geno_float;
   uint32_t subgroup_len = kBitsPerWordD2;
@@ -214,19 +214,19 @@ void Dosage16ToFloatsMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_pr
     ++widx;
   }
   if (dosage_ct) {
-    const uint16_t* dosage_vals_iter = dosage_vals;
+    const uint16_t* dosage_main_iter = dosage_main;
     uint32_t sample_uidx = 0;
     for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_uidx) {
       MovU32To1Bit(dosage_present, &sample_uidx);
       // multiply by 2^{-14}
-      geno_float[sample_uidx] = S_CAST(float, *dosage_vals_iter++) * 0.00006103515625f;
+      geno_float[sample_uidx] = S_CAST(float, *dosage_main_iter++) * 0.00006103515625f;
     }
   }
 }
 
 static const double kGenoToDouble[4] = {0.0, 1.0, 2.0, -9.0};
 
-void Dosage16ToDoublesMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_vals, uint32_t sample_ct, uint32_t dosage_ct, double* geno_double) {
+void Dosage16ToDoublesMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, double* geno_double) {
   const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
   double* write_iter = geno_double;
   uint32_t subgroup_len = kBitsPerWordD2;
@@ -246,11 +246,11 @@ void Dosage16ToDoublesMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_p
     ++widx;
   }
   if (dosage_ct) {
-    const uint16_t* dosage_vals_iter = dosage_vals;
+    const uint16_t* dosage_main_iter = dosage_main;
     uint32_t sample_uidx = 0;
     for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_uidx) {
       MovU32To1Bit(dosage_present, &sample_uidx);
-      geno_double[sample_uidx] = S_CAST(double, *dosage_vals_iter++) * 0.00006103515625;
+      geno_double[sample_uidx] = S_CAST(double, *dosage_main_iter++) * 0.00006103515625;
     }
   }
 }
@@ -413,11 +413,11 @@ static inline uint32_t BiallelicDosage16Halfdist(uint32_t dosage_int) {
   return abs_i32(S_CAST(int32_t, dosage_int_rem) - 8192);
 }
 
-void FloatsToDosage16(const float* floatarr, uint32_t sample_ct, uint32_t hard_call_halfdist, uintptr_t* genoarr, uintptr_t* dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr) {
+void FloatsToDosage16(const float* floatarr, uint32_t sample_ct, uint32_t hard_call_halfdist, uintptr_t* genoarr, uintptr_t* dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr) {
   const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
   const float* read_iter = floatarr;
   Halfword* dosage_present_alias = R_CAST(Halfword*, dosage_present);
-  uint16_t* dosage_vals_iter = dosage_vals;
+  uint16_t* dosage_main_iter = dosage_main;
   uint32_t subgroup_len = kBitsPerWordD2;
   uint32_t widx = 0;
   while (1) {
@@ -441,7 +441,7 @@ void FloatsToDosage16(const float* floatarr, uint32_t sample_ct, uint32_t hard_c
         }
         if (cur_halfdist != 8192) {
           dosage_present_hw |= 1U << sample_idx_lowbits;
-          *dosage_vals_iter++ = dosage_int;
+          *dosage_main_iter++ = dosage_int;
         }
       }
       geno_word |= cur_geno << (2 * sample_idx_lowbits);
@@ -453,14 +453,14 @@ void FloatsToDosage16(const float* floatarr, uint32_t sample_ct, uint32_t hard_c
   if (widx % 2) {
     dosage_present_alias[widx] = 0;
   }
-  *dosage_ct_ptr = dosage_vals_iter - dosage_vals;
+  *dosage_ct_ptr = dosage_main_iter - dosage_main;
 }
 
-void DoublesToDosage16(const double* doublearr, uint32_t sample_ct, uint32_t hard_call_halfdist, uintptr_t* genoarr, uintptr_t* dosage_present, uint16_t* dosage_vals, uint32_t* dosage_ct_ptr) {
+void DoublesToDosage16(const double* doublearr, uint32_t sample_ct, uint32_t hard_call_halfdist, uintptr_t* genoarr, uintptr_t* dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr) {
   const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
   const double* read_iter = doublearr;
   Halfword* dosage_present_alias = R_CAST(Halfword*, dosage_present);
-  uint16_t* dosage_vals_iter = dosage_vals;
+  uint16_t* dosage_main_iter = dosage_main;
   uint32_t subgroup_len = kBitsPerWordD2;
   uint32_t widx = 0;
   while (1) {
@@ -484,7 +484,7 @@ void DoublesToDosage16(const double* doublearr, uint32_t sample_ct, uint32_t har
         }
         if (cur_halfdist != 8192) {
           dosage_present_hw |= 1U << sample_idx_lowbits;
-          *dosage_vals_iter++ = dosage_int;
+          *dosage_main_iter++ = dosage_int;
         }
       }
       geno_word |= cur_geno << (2 * sample_idx_lowbits);
@@ -496,7 +496,7 @@ void DoublesToDosage16(const double* doublearr, uint32_t sample_ct, uint32_t har
   if (widx % 2) {
     dosage_present_alias[widx] = 0;
   }
-  *dosage_ct_ptr = dosage_vals_iter - dosage_vals;
+  *dosage_ct_ptr = dosage_main_iter - dosage_main;
 }
 
 #ifdef __cplusplus

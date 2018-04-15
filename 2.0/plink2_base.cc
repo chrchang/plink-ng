@@ -1108,7 +1108,8 @@ void ExpandThenSubsetBytearrNested(const void* __restrict compact_bitarr, const 
   uint32_t compact_idx_lowbits = CHAR_BIT * (sizeof(intptr_t) - leading_byte_ct);
   uintptr_t compact_read_word = SubwordLoad(compact_bitarr, leading_byte_ct) << compact_idx_lowbits;
   const uintptr_t* compact_bitarr_iter = R_CAST(const uintptr_t*, &(S_CAST(const unsigned char*, compact_bitarr)[leading_byte_ct]));
-  const uint32_t subset_sizel = BitCtToWordCt(subset_size);
+  // bugfix (12 Apr 2018): need to round down here
+  const uint32_t subset_size_dl = subset_size / kBitsPerWord;
   const uint32_t subset_size_lowbits = subset_size % kBitsPerWord;
   const uintptr_t* mid_read_iter = mid_bitarr;
   uintptr_t mid_read_word = *mid_read_iter++;
@@ -1118,7 +1119,7 @@ void ExpandThenSubsetBytearrNested(const void* __restrict compact_bitarr, const 
   uint32_t write_idx_lowbits = 0;
   uint32_t write_widx = 0;
   uint32_t read_widx = 0;
-  while ((write_widx != subset_sizel) || (write_idx_lowbits != subset_size_lowbits)) {
+  while ((write_widx != subset_size_dl) || (write_idx_lowbits != subset_size_lowbits)) {
     const uintptr_t subset_word = subset_mask[read_widx];
     const uintptr_t top_word = top_expand_mask[read_widx];
     ++read_widx;
@@ -1442,7 +1443,7 @@ void TransposeBitblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stri
       *initial_target_iter++ = *read_iter_tmp;
       read_iter_tmp = &(read_iter_tmp[read_byte_stride]);
     }
-    initial_target_iter = R_CAST(unsigned char*, memseta(initial_target_iter, 0, read_batch_rem));
+    initial_target_iter = memsetua(initial_target_iter, 0, read_batch_rem);
   }
 
   // third-to-last shuffle, 8 bit spacing -> 4

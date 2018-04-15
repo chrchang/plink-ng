@@ -1641,7 +1641,7 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     }
     FillCumulativePopcounts(founder_info, raw_sample_ctl, founder_info_cumulative_popcounts);
     CopyBitarrSubset(sex_male, founder_info, founder_ct, founder_male_collapsed);
-    BitarrInvertCopy(founder_male_collapsed, founder_ct, founder_nonmale_collapsed);
+    AlignedBitarrInvertCopy(founder_male_collapsed, founder_ct, founder_nonmale_collapsed);
     uint32_t* subcontig_weights;
     if (bigstack_end_alloc_u32(subcontig_ct, &subcontig_weights)) {
       goto LdPrune_ret_NOMEM;
@@ -2106,8 +2106,8 @@ void HardcallPhasedR2Refine(const uintptr_t* phasepresent0, const uintptr_t* pha
 
 // phased-dosage r^2 computation:
 //   just do brute force for now
-//   use dense dosage_sum/(optional dosage_diff phase info) representation
-//     when either dosage_diff is null, can skip that dot product
+//   use dense dosage_sum/(optional dphase_delta) representation
+//     when either dphase_delta is null, can skip that dot product
 //   also have a unphased_het_dosage array pointer.  this is null if all
 //     dosages are phased.  otherwise...
 //     suppose one unphased sample has dosage(var0)=0.2 and dosage(var1)=1.4.
@@ -2330,9 +2330,9 @@ uint64_t DosageUnsignedNomissDotprod(const Dosage* dosage_vec0, const Dosage* do
   }
 }
 
-int64_t DosageSignedDotprod(const Dosage* dosage_diff0, const Dosage* dosage_diff1, uint32_t vec_ct) {
-  const __m256i* dosage_diff0_iter = R_CAST(const __m256i*, dosage_diff0);
-  const __m256i* dosage_diff1_iter = R_CAST(const __m256i*, dosage_diff1);
+int64_t DosageSignedDotprod(const SDosage* dphase_delta0, const SDosage* dphase_delta1, uint32_t vec_ct) {
+  const __m256i* dphase_delta0_iter = R_CAST(const __m256i*, dphase_delta0);
+  const __m256i* dphase_delta1_iter = R_CAST(const __m256i*, dphase_delta1);
   const __m256i m16 = {kMask0000FFFF, kMask0000FFFF, kMask0000FFFF, kMask0000FFFF};
   const __m256i all_4096 = {0x1000100010001000LLU, 0x1000100010001000LLU, 0x1000100010001000LLU, 0x1000100010001000LLU};
   uint64_t dotprod = 0;
@@ -2340,21 +2340,21 @@ int64_t DosageSignedDotprod(const Dosage* dosage_diff0, const Dosage* dosage_dif
   while (1) {
     __m256i dotprod_lo = _mm256_setzero_si256();
     __m256i dotprod_hi = _mm256_setzero_si256();
-    const __m256i* dosage_diff0_stop;
+    const __m256i* dphase_delta0_stop;
     if (vec_ct_rem < 4096) {
       if (!vec_ct_rem) {
         // this cancels out the shift-hi16-by-4096 below
         return S_CAST(int64_t, dotprod) - (0x10000000LLU * kDosagePerVec) * vec_ct;
       }
-      dosage_diff0_stop = &(dosage_diff0_iter[vec_ct_rem]);
+      dphase_delta0_stop = &(dphase_delta0_iter[vec_ct_rem]);
       vec_ct_rem = 0;
     } else {
-      dosage_diff0_stop = &(dosage_diff0_iter[4096]);
+      dphase_delta0_stop = &(dphase_delta0_iter[4096]);
       vec_ct_rem -= 4096;
     }
     do {
-      __m256i dosage0 = *dosage_diff0_iter++;
-      __m256i dosage1 = *dosage_diff1_iter++;
+      __m256i dosage0 = *dphase_delta0_iter++;
+      __m256i dosage1 = *dphase_delta1_iter++;
 
       __m256i hi16 = _mm256_mulhi_epi16(dosage0, dosage1);
       __m256i lo16 = _mm256_mullo_epi16(dosage0, dosage1);
@@ -2368,7 +2368,7 @@ int64_t DosageSignedDotprod(const Dosage* dosage_diff0, const Dosage* dosage_dif
       hi16 = _mm256_and_si256(_mm256_add_epi64(hi16, _mm256_srli_epi64(hi16, 16)), m16);
       dotprod_lo = _mm256_add_epi64(dotprod_lo, lo16);
       dotprod_hi = _mm256_add_epi64(dotprod_hi, hi16);
-    } while (dosage_diff0_iter < dosage_diff0_stop);
+    } while (dphase_delta0_iter < dphase_delta0_stop);
     UniVec acc_lo;
     UniVec acc_hi;
     acc_lo.vw = R_CAST(VecW, dotprod_lo);
@@ -2565,9 +2565,9 @@ uint64_t DosageUnsignedNomissDotprod(const Dosage* dosage_vec0, const Dosage* do
   }
 }
 
-int64_t DosageSignedDotprod(const Dosage* dosage_diff0, const Dosage* dosage_diff1, uint32_t vec_ct) {
-  const __m128i* dosage_diff0_iter = R_CAST(const __m128i*, dosage_diff0);
-  const __m128i* dosage_diff1_iter = R_CAST(const __m128i*, dosage_diff1);
+int64_t DosageSignedDotprod(const SDosage* dphase_delta0, const SDosage* dphase_delta1, uint32_t vec_ct) {
+  const __m128i* dphase_delta0_iter = R_CAST(const __m128i*, dphase_delta0);
+  const __m128i* dphase_delta1_iter = R_CAST(const __m128i*, dphase_delta1);
   const __m128i m16 = {kMask0000FFFF, kMask0000FFFF};
   const __m128i all_4096 = {0x1000100010001000LLU, 0x1000100010001000LLU};
   uint64_t dotprod = 0;
@@ -2575,21 +2575,21 @@ int64_t DosageSignedDotprod(const Dosage* dosage_diff0, const Dosage* dosage_dif
   while (1) {
     __m128i dotprod_lo = _mm_setzero_si128();
     __m128i dotprod_hi = _mm_setzero_si128();
-    const __m128i* dosage_diff0_stop;
+    const __m128i* dphase_delta0_stop;
     if (vec_ct_rem < 8192) {
       if (!vec_ct_rem) {
         // this cancels out the shift-hi16-by-4096 below
         return S_CAST(int64_t, dotprod) - (0x10000000LLU * kDosagePerVec) * vec_ct;
       }
-      dosage_diff0_stop = &(dosage_diff0_iter[vec_ct_rem]);
+      dphase_delta0_stop = &(dphase_delta0_iter[vec_ct_rem]);
       vec_ct_rem = 0;
     } else {
-      dosage_diff0_stop = &(dosage_diff0_iter[8192]);
+      dphase_delta0_stop = &(dphase_delta0_iter[8192]);
       vec_ct_rem -= 8192;
     }
     do {
-      __m128i dosage0 = *dosage_diff0_iter++;
-      __m128i dosage1 = *dosage_diff1_iter++;
+      __m128i dosage0 = *dphase_delta0_iter++;
+      __m128i dosage1 = *dphase_delta1_iter++;
 
       __m128i hi16 = _mm_mulhi_epi16(dosage0, dosage1);
       __m128i lo16 = _mm_mullo_epi16(dosage0, dosage1);
@@ -2602,7 +2602,7 @@ int64_t DosageSignedDotprod(const Dosage* dosage_diff0, const Dosage* dosage_dif
       hi16 = _mm_and_si128(_mm_add_epi64(hi16, _mm_srli_epi64(hi16, 16)), m16);
       dotprod_lo = _mm_add_epi64(dotprod_lo, lo16);
       dotprod_hi = _mm_add_epi64(dotprod_hi, hi16);
-    } while (dosage_diff0_iter < dosage_diff0_stop);
+    } while (dphase_delta0_iter < dphase_delta0_stop);
     UniVec acc_lo;
     UniVec acc_hi;
     acc_lo.vw = R_CAST(VecW, dotprod_lo);
@@ -2677,33 +2677,44 @@ uint64_t DosageUnsignedNomissDotprod(const Dosage* dosage_vec0, const Dosage* do
   return dotprod;
 }
 
-int64_t DosageSignedDotprod(const Dosage* dosage_diff0, const Dosage* dosage_diff1, uint32_t vec_ct) {
+int64_t DosageSignedDotprod(const SDosage* dphase_delta0, const SDosage* dphase_delta1, uint32_t vec_ct) {
   const uint32_t sample_cta2 = vec_ct * 2;
   int64_t dotprod = 0;
   for (uint32_t sample_idx = 0; sample_idx < sample_cta2; ++sample_idx) {
-    const int32_t cur_diff0 = S_CAST(int16_t, dosage_diff0[sample_idx]);
-    const int32_t cur_diff1 = S_CAST(int16_t, dosage_diff1[sample_idx]);
+    const int32_t cur_diff0 = dphase_delta0[sample_idx];
+    const int32_t cur_diff1 = dphase_delta1[sample_idx];
     dotprod += cur_diff0 * cur_diff1;
   }
   return dotprod;
 }
 #endif
 
-void DosagePhaseinfoPatch(const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, uint32_t sample_ct, Dosage* dosage_uhet, Dosage* dosage_diff) {
+void DosagePhaseinfoPatch(const uintptr_t* phasepresent, const uintptr_t* phaseinfo, const uintptr_t* dosage_present, const Dosage* dosage_vec, const uintptr_t* dphase_present, uint32_t sample_ct, Dosage* dosage_uhet, SDosage* dphase_delta) {
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
   for (uint32_t widx = 0; widx < sample_ctl; ++widx) {
-    uintptr_t phasepresent_nodosage_word = phasepresent[widx] & (~dosage_present[widx]);
-    if (phasepresent_nodosage_word) {
+    uintptr_t phasepresent_nodphase_word = phasepresent[widx] & (~dphase_present[widx]);
+    if (phasepresent_nodphase_word) {
       const uintptr_t phaseinfo_word = phaseinfo[widx];
+      const uintptr_t dosage_present_word = dosage_present[widx];
       const uint32_t sample_idx_offset = widx * kBitsPerWord;
       do {
-        const uint32_t sample_idx_lowbits = ctzw(phasepresent_nodosage_word);
-        const uint32_t cur_diff = 49152 - ((phaseinfo_word >> sample_idx_lowbits) & 1) * 32768;
+        const uint32_t sample_idx_lowbits = ctzw(phasepresent_nodphase_word);
         const uint32_t sample_idx = sample_idx_offset + sample_idx_lowbits;
+        // should compile to blsi
+        // todo: compare with (k1LU << sample_idx_lowbits)
+        const uintptr_t shifted_bit = phasepresent_nodphase_word & (-phasepresent_nodphase_word);
+        int32_t cur_diff = kDosageMid;
+        if (dosage_present_word & shifted_bit) {
+          cur_diff = DosageHomdist(dosage_vec[sample_idx]);
+        }
+        // todo: verify the compiler optimizes this well
+        if (!(phaseinfo_word & shifted_bit)) {
+          cur_diff = -cur_diff;
+        }
         dosage_uhet[sample_idx] = 0;
-        dosage_diff[sample_idx] = cur_diff;
-        phasepresent_nodosage_word &= phasepresent_nodosage_word - 1;
-      } while (phasepresent_nodosage_word);
+        dphase_delta[sample_idx] = cur_diff;
+        phasepresent_nodphase_word ^= shifted_bit;
+      } while (phasepresent_nodphase_word);
     }
   }
 }
@@ -2836,7 +2847,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     uintptr_t* phaseinfos[2];
     uint32_t phasepresent_cts[2];
     uintptr_t* dosage_presents[2];
-    Dosage* dosage_vals[2];
+    Dosage* dosage_mains[2];
     uintptr_t* dphase_presents[2];
     SDosage* dphase_deltas[2];
     if (bigstack_alloc_u32(founder_ctl, &founder_info_cumulative_popcounts) ||
@@ -2848,8 +2859,8 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         bigstack_alloc_w(founder_ctl, &(phaseinfos[1])) ||
         bigstack_alloc_w(founder_ctl, &(dosage_presents[0])) ||
         bigstack_alloc_w(founder_ctl, &(dosage_presents[1])) ||
-        bigstack_alloc_dosage(founder_ct, &(dosage_vals[0])) ||
-        bigstack_alloc_dosage(founder_ct, &(dosage_vals[1])) ||
+        bigstack_alloc_dosage(founder_ct, &(dosage_mains[0])) ||
+        bigstack_alloc_dosage(founder_ct, &(dosage_mains[1])) ||
         bigstack_alloc_w(founder_ctl, &(dphase_presents[0])) ||
         bigstack_alloc_w(founder_ctl, &(dphase_presents[1])) ||
         bigstack_alloc_dphase(founder_ct, &(dphase_deltas[0])) ||
@@ -2884,25 +2895,21 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       uintptr_t* cur_phasepresent = phasepresents[var_idx];
       uintptr_t* cur_phaseinfo = phaseinfos[var_idx];
       uintptr_t* cur_dosage_present = dosage_presents[var_idx];
-      Dosage* cur_dosage_vals = dosage_vals[var_idx];
+      Dosage* cur_dosage_main = dosage_mains[var_idx];
       uintptr_t* cur_dphase_present = dphase_presents[var_idx];
-      SDosage* cur_dphase_deltas = dphase_deltas[var_idx];
-      // (unconditionally allocating phaseinfo/dosage_vals and using the most
+      SDosage* cur_dphase_delta = dphase_deltas[var_idx];
+      // (unconditionally allocating phaseinfo/dosage_main and using the most
       // general-purpose loader makes sense when this loop only executes twice,
       // but --r2 will want to use different pgenlib loaders depending on
       // context.)
 
       // todo: multiallelic case
-      reterr = PgrGetPDp(founder_info, founder_info_cumulative_popcounts, founder_ct, variant_uidx, simple_pgrp, cur_genovec, cur_phasepresent, cur_phaseinfo, &(phasepresent_cts[var_idx]), cur_dosage_present, cur_dosage_vals, &(dosage_cts[var_idx]), cur_dphase_present, cur_dphase_deltas, &(dphase_cts[var_idx]));
+      reterr = PgrGetDp(founder_info, founder_info_cumulative_popcounts, founder_ct, variant_uidx, simple_pgrp, cur_genovec, cur_phasepresent, cur_phaseinfo, &(phasepresent_cts[var_idx]), cur_dosage_present, cur_dosage_main, &(dosage_cts[var_idx]), cur_dphase_present, cur_dphase_delta, &(dphase_cts[var_idx]));
       if (reterr) {
         if (reterr == kPglRetMalformedInput) {
           logputs("\n");
           logerrputs("Error: Malformed .pgen file.\n");
         }
-        goto LdConsole_ret_1;
-      }
-      if (dphase_cts[var_idx]) {
-        logerrputs("Error: --ld phased-dosage support is under development.\n");
         goto LdConsole_ret_1;
       }
       ZeroTrailingQuaters(founder_ct, cur_genovec);
@@ -2911,7 +2918,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
           SetHetMissing(founder_ctl2, cur_genovec);
         }
         phasepresent_cts[var_idx] = 0;
-        // todo: erase phased dosages
+        dphase_cts[var_idx] = 0;
       } else if (x_male_ct && is_xs[var_idx]) {
         if (!use_dosage) {
           SetMaleHetMissing(sex_male_collapsed_interleaved, founder_ctv, cur_genovec);
@@ -2920,12 +2927,17 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
           BitvecAndNot(sex_male_collapsed, founder_ctl, cur_phasepresent);
           phasepresent_cts[var_idx] = PopcountWords(cur_phasepresent, founder_ctl);
         }
-        // todo: erase male phased dosages
+        if (dphase_cts[var_idx]) {
+          EraseMaleDphases(sex_male_collapsed, &(dphase_cts[var_idx]), cur_dphase_present, cur_dphase_delta);
+        }
       }
     }
-    const uint32_t use_phase = is_same_chr && (!is_nonx_haploids[0]) && phasepresent_cts[0] && phasepresent_cts[1];
+    const uint32_t use_phase = is_same_chr && (phasepresent_cts[0] || dphase_cts[0]) && (phasepresent_cts[1] || dphase_cts[1]);
     const uint32_t ignore_hethet = is_nonx_haploids[0] || is_nonx_haploids[1];
     if ((!dosage_cts[0]) && (!dosage_cts[1]) && (!ignore_hethet)) {
+      // If the 'dosage' modifier was present, no literal dosages are present,
+      // but one or both variants is purely haploid, may as well use the dosage
+      // code path anyway (converting hets to dosage 0.5).
       use_dosage = 0;
     }
 
@@ -3033,7 +3045,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       uint64_t alt_dosages[2];
       uint32_t nm_cts[2];
       for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {
-        PopulateDenseDosage(genovecs[var_idx], dosage_presents[var_idx], dosage_vals[var_idx], founder_ct, dosage_cts[var_idx], dosage_vecs[var_idx]);
+        PopulateDenseDosage(genovecs[var_idx], dosage_presents[var_idx], dosage_mains[var_idx], founder_ct, dosage_cts[var_idx], dosage_vecs[var_idx]);
         alt_dosages[var_idx] = DenseDosageSum(dosage_vecs[var_idx], founder_dosagev_ct);
         FillDosageUhet(dosage_vecs[var_idx], founder_dosagev_ct, dosage_uhets[var_idx]);
         GenovecToNonmissingnessUnsafe(genovecs[var_idx], founder_ct, nm_bitvecs[var_idx]);
@@ -3041,20 +3053,39 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         BitvecOr(dosage_presents[var_idx], founder_ctl, nm_bitvecs[var_idx]);
         nm_cts[var_idx] = PopcountWords(nm_bitvecs[var_idx], founder_ctl);
       }
-      Dosage* dosage_diffs[2];
-      dosage_diffs[0] = nullptr;
-      dosage_diffs[1] = nullptr;
+      SDosage* main_dphase_deltas[2];
+      main_dphase_deltas[0] = nullptr;
+      main_dphase_deltas[1] = nullptr;
       if (use_phase) {
-        if (bigstack_alloc_dosage(founder_ct, &dosage_diffs[0]) ||
-            bigstack_alloc_dosage(founder_ct, &dosage_diffs[1])) {
+        if (bigstack_alloc_dphase(founder_ct, &main_dphase_deltas[0]) ||
+            bigstack_alloc_dphase(founder_ct, &main_dphase_deltas[1])) {
           goto LdConsole_ret_NOMEM;
         }
         for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {
-          ZeroDosageArr(founder_dosagev_ct * kDosagePerVec, dosage_diffs[var_idx]);
-          if (phasepresent_cts[var_idx]) {
-            DosagePhaseinfoPatch(phasepresents[var_idx], phaseinfos[var_idx], dosage_presents[var_idx], founder_ct, dosage_uhets[var_idx], dosage_diffs[var_idx]);
+          // this should probably be a PopulateDenseDphase() function in
+          // plink2_common
+          ZeroDphaseArr(founder_dosagev_ct * kDosagePerVec, main_dphase_deltas[var_idx]);
+          const SDosage* read_dphase_delta = dphase_deltas[var_idx];
+          uintptr_t* cur_dphase_present = dphase_presents[var_idx];
+          const Dosage* cur_dosage_vec = dosage_vecs[var_idx];
+          Dosage* cur_dosage_uhet = dosage_uhets[var_idx];
+          SDosage* cur_dphase_delta = main_dphase_deltas[var_idx];
+          const uint32_t cur_dphase_ct = dphase_cts[var_idx];
+          if (cur_dphase_ct) {
+            uint32_t sample_uidx = 0;
+            for (uint32_t dphase_idx = 0; dphase_idx < cur_dphase_ct; ++dphase_idx, ++sample_uidx) {
+              MovU32To1Bit(cur_dphase_present, &sample_uidx);
+              const uint32_t dosage_int = cur_dosage_vec[sample_uidx];
+              const int32_t dphase_delta_val = read_dphase_delta[dphase_idx];
+              cur_dosage_uhet[sample_uidx] = DosageHomdist(dosage_int) - abs_i32(dphase_delta_val);
+              cur_dphase_delta[sample_uidx] = dphase_delta_val;
+            }
+          } else {
+            ZeroWArr(founder_ctl, cur_dphase_present);
           }
-          // todo: patch in phased-dosage values
+          if (phasepresent_cts[var_idx]) {
+            DosagePhaseinfoPatch(phasepresents[var_idx], phaseinfos[var_idx], dosage_presents[var_idx], cur_dosage_vec, cur_dphase_present, founder_ct, cur_dosage_uhet, cur_dphase_delta);
+          }
         }
       }
       const uint64_t orig_alt_dosage1 = alt_dosages[1];
@@ -3069,7 +3100,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       }
       hethet_present = (uhethet_dosageprod != 0);
       if (use_phase && hethet_present) {
-        dosageprod = S_CAST(int64_t, dosageprod) + DosageSignedDotprod(dosage_diffs[0], dosage_diffs[1], founder_dosagev_ct);
+        dosageprod = S_CAST(int64_t, dosageprod) + DosageSignedDotprod(main_dphase_deltas[0], main_dphase_deltas[1], founder_dosagev_ct);
       }
       altsums_d[0] = S_CAST(int64_t, alt_dosages[0]) * kRecipDosageMid;
       altsums_d[1] = S_CAST(int64_t, alt_dosages[1]) * kRecipDosageMid;
@@ -3310,7 +3341,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
               goto LdConsole_ret_NOMEM;
             }
             CopyBitarrSubset(sex_nm, founder_info, founder_ct, nosex_collapsed);
-            BitarrInvert(founder_ct, nosex_collapsed);
+            AlignedBitarrInvert(founder_ctl, nosex_collapsed);
           }
         }
         // Unlike plink 1.9, we don't restrict these HWE computations to the

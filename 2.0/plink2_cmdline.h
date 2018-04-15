@@ -276,6 +276,10 @@ HEADER_INLINE IntErr fputs_checked(const char* str, FILE* outfile) {
 
 BoolErr fwrite_flush2(char* buf_flush, FILE* outfile, char** write_iter_ptr);
 
+HEADER_INLINE BoolErr fwrite_uflush2(unsigned char* buf_flush, FILE* outfile, unsigned char** write_iter_ptr) {
+  return fwrite_flush2(R_CAST(char*, buf_flush), outfile, R_CAST(char**, write_iter_ptr));
+}
+
 HEADER_INLINE BoolErr fwrite_ck(char* buf_flush, FILE* outfile, char** write_iter_ptr) {
   if ((*write_iter_ptr) < buf_flush) {
     return 0;
@@ -286,6 +290,10 @@ HEADER_INLINE BoolErr fwrite_ck(char* buf_flush, FILE* outfile, char** write_ite
 // fclose_null defined in plink2_base.h
 
 BoolErr fclose_flush_null(char* buf_flush, char* write_iter, FILE** outfile_ptr);
+
+HEADER_INLINE BoolErr fclose_uflush_null(unsigned char* buf_flush, unsigned char* write_iter, FILE** outfile_ptr) {
+  return fclose_flush_null(R_CAST(char*, buf_flush), R_CAST(char*, write_iter), outfile_ptr);
+}
 
 HEADER_INLINE void fclose_cond(FILE* fptr) {
   if (fptr) {
@@ -1096,11 +1104,6 @@ HEADER_INLINE BoolErr bigstack_end_calloc_i64(uintptr_t ct, int64_t** ll_arr_ptr
 }
 
 
-// These ensure the trailing bits are zeroed out.
-void BitarrInvert(uintptr_t bit_ct, uintptr_t* bitarr);
-
-void BitarrInvertCopy(const uintptr_t* __restrict source_bitarr, uintptr_t bit_ct, uintptr_t* __restrict target_bitarr);
-
 // BitvecAnd(), BitvecAndNot() in plink2_base.h
 
 void BitvecAndCopy(const uintptr_t* __restrict source1_bitvec, const uintptr_t* __restrict source2_bitvec, uintptr_t word_ct, uintptr_t* target_bitvec);
@@ -1109,7 +1112,32 @@ void BitvecAndNotCopy(const uintptr_t* __restrict source_bitvec, const uintptr_t
 
 void BitvecOr(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec);
 
-void BitvecXor(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec);
+void BitvecInvert(uintptr_t word_ct, uintptr_t* main_bitvec);
+
+void BitvecInvertCopy(const uintptr_t* __restrict source_bitvec, uintptr_t word_ct, uintptr_t* __restrict target_bitvec);
+
+// These ensure the trailing bits are zeroed out.
+// 'AlignedBitarr' instead of Bitvec since this takes bit_ct instead of word_ct
+// as the size argument, and zeroes trailing bits.
+HEADER_INLINE void AlignedBitarrInvert(uintptr_t bit_ct, uintptr_t* main_bitvec) {
+  const uintptr_t fullword_ct = bit_ct / kBitsPerWord;
+  BitvecInvert(fullword_ct, main_bitvec);
+  const uint32_t trail_ct = bit_ct % kBitsPerWord;
+  if (trail_ct) {
+    main_bitvec[fullword_ct] = bzhi(~main_bitvec[fullword_ct], trail_ct);
+  }
+}
+
+HEADER_INLINE void AlignedBitarrInvertCopy(const uintptr_t* __restrict source_bitvec, uintptr_t bit_ct, uintptr_t* __restrict target_bitvec) {
+  const uintptr_t fullword_ct = bit_ct / kBitsPerWord;
+  BitvecInvertCopy(source_bitvec, fullword_ct, target_bitvec);
+  const uint32_t trail_ct = bit_ct % kBitsPerWord;
+  if (trail_ct) {
+    target_bitvec[fullword_ct] = bzhi(~source_bitvec[fullword_ct], trail_ct);
+  }
+}
+
+// void BitvecXor(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec);
 
 void BitvecAndNot2(const uintptr_t* __restrict include_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec);
 
@@ -1256,6 +1284,32 @@ HEADER_INLINE uintptr_t PopcountWordsNzbase(const uintptr_t* bitvec, uintptr_t s
 #endif
 
 uintptr_t PopcountBitRange(const uintptr_t* bitvec, uintptr_t start_idx, uintptr_t end_idx);
+
+// possible todo: check if movemask is better in AVX2 case
+HEADER_INLINE uint32_t IntersectionIsEmpty(const uintptr_t* bitarr1, const uintptr_t* bitarr2, uint32_t word_ct) {
+  for (uint32_t widx = 0; widx < word_ct; ++widx) {
+    if (bitarr1[widx] & bitarr2[widx]) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+HEADER_INLINE uint32_t UnionIsFull(const uintptr_t* bitarr1, const uintptr_t* bitarr2, uint32_t bit_ct) {
+  const uint32_t fullword_ct = bit_ct / kBitsPerWord;
+  for (uint32_t widx = 0; widx < fullword_ct; ++widx) {
+    if ((bitarr1[widx] | bitarr2[widx]) != ~k0LU) {
+      return 0;
+    }
+  }
+  const uint32_t trailing_bit_ct = bit_ct % kBitsPerWord;
+  if (trailing_bit_ct) {
+    if ((bitarr1[fullword_ct] | bitarr2[fullword_ct]) != ((k1LU << trailing_bit_ct) - k1LU)) {
+      return 0;
+    }
+  }
+  return 1;
+}
 
 uintptr_t PopcountWordsIntersect(const uintptr_t* __restrict bitvec1_iter, const uintptr_t* __restrict bitvec2_iter, uintptr_t word_ct);
 

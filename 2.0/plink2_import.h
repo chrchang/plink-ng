@@ -44,7 +44,7 @@ ENUM_U31_DEF_END(VcfHalfCall);
 FLAGSET_DEF_START()
   kfOxfordImport0,
   kfOxfordImportRefFirst = (1 << 0),
-  kfOxfordImportRefSecond = (1 << 1),
+  kfOxfordImportRefLast = (1 << 1),
   kfOxfordImportBgenSnpIdChr = (1 << 2)
 FLAGSET_DEF_END(OxfordImportFlags);
 
@@ -56,7 +56,7 @@ FLAGSET_DEF_START()
   kfPlink1DosageFormatDouble = (1 << 3),
   kfPlink1DosageFormatTriple = (1 << 4),
   kfPlink1DosageRefFirst = (1 << 5),
-  kfPlink1DosageRefSecond = (1 << 6)
+  kfPlink1DosageRefLast = (1 << 6)
 FLAGSET_DEF_END(Plink1DosageFlags);
 
 FLAGSET_DEF_START()

@@ -75,7 +75,7 @@ char* dosagetoa(uint64_t dosage, char* start) {
   return start;
 }
 
-void PopulateDenseDosage(const uintptr_t* genovec, const uintptr_t* dosage_present, const Dosage* dosage_vals, uint32_t sample_ct, uint32_t dosage_ct, Dosage* dense_dosage) {
+void PopulateDenseDosage(const uintptr_t* genovec, const uintptr_t* dosage_present, const Dosage* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, Dosage* dense_dosage) {
   // see also fill_cur_dosage_ints in plink2_matrix_calc
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
   Dosage lookup_table[4];
@@ -110,7 +110,7 @@ void PopulateDenseDosage(const uintptr_t* genovec, const uintptr_t* dosage_prese
   uint32_t sample_idx = 0;
   for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_idx) {
     MovU32To1Bit(dosage_present, &sample_idx);
-    dense_dosage[sample_idx] = dosage_vals[dosage_idx];
+    dense_dosage[sample_idx] = dosage_main[dosage_idx];
   }
 }
 
@@ -168,7 +168,7 @@ void SetHetMissing(uintptr_t word_ct, uintptr_t* genovec) {
 #endif
 }
 
-void SetHetMissingCleardosage(uintptr_t word_ct, uintptr_t* __restrict genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_vals) {
+void SetHetMissingCleardosage(uintptr_t word_ct, uintptr_t* __restrict genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main) {
   const uint32_t orig_write_dosage_ct = *write_dosage_ct_ptr;
   if (orig_write_dosage_ct) {
     uint32_t sample_uidx = 0;
@@ -187,7 +187,7 @@ void SetHetMissingCleardosage(uintptr_t word_ct, uintptr_t* __restrict genovec, 
           if (GetQuaterarrEntry(genovec, sample_uidx) == 1) {
             ClearBit(sample_uidx, dosagepresent);
           } else {
-            dosage_vals[dosage_write_idx++] = dosage_vals[dosage_read_idx];
+            dosage_main[dosage_write_idx++] = dosage_main[dosage_read_idx];
           }
         }
         *write_dosage_ct_ptr = dosage_write_idx;
@@ -198,8 +198,8 @@ void SetHetMissingCleardosage(uintptr_t word_ct, uintptr_t* __restrict genovec, 
   SetHetMissing(word_ct, genovec);
 }
 
-void SetHetMissingKeepdosage(uintptr_t word_ct, uintptr_t* __restrict genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_vals) {
-  // count # of 1.00000 dosages we need to insert, and then rewrite dosage_vals
+void SetHetMissingKeepdosage(uintptr_t word_ct, uintptr_t* __restrict genovec, uint32_t* write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main) {
+  // count # of 1.00000 dosages we need to insert, and then rewrite dosage_main
   // from back to front so we don't need temporary buffers.
 
   const uint32_t orig_dosage_ct = *write_dosage_ct_ptr;
@@ -236,9 +236,9 @@ void SetHetMissingKeepdosage(uintptr_t word_ct, uintptr_t* __restrict genovec, u
         const uintptr_t cur_bit_word = k1LU << top_set_bit;
         Dosage cur_dosage = kDosageMid;
         if (cur_bit_word & dosagepresent_word) {
-          cur_dosage = dosage_vals[--dosage_read_idx];
+          cur_dosage = dosage_main[--dosage_read_idx];
         }
-        dosage_vals[--dosage_write_idx] = cur_dosage;
+        dosage_main[--dosage_write_idx] = cur_dosage;
         new_dosagepresent_word -= cur_bit_word;
       } while (new_dosagepresent_word);
       genovec[widx] = geno_word | (geno_hets << 1);
@@ -1316,7 +1316,7 @@ void InterleavedSetMissing(const uintptr_t* __restrict interleaved_set, uintptr_
 #endif
 }
 
-void InterleavedSetMissingCleardosage(const uintptr_t* __restrict orig_set, const uintptr_t* __restrict interleaved_set, uintptr_t vec_ct, uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_vals) {
+void InterleavedSetMissingCleardosage(const uintptr_t* __restrict orig_set, const uintptr_t* __restrict interleaved_set, uintptr_t vec_ct, uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main) {
   const uint32_t orig_write_dosage_ct = *write_dosage_ct_ptr;
   if (orig_write_dosage_ct) {
     uint32_t sample_uidx = 0;
@@ -1335,7 +1335,7 @@ void InterleavedSetMissingCleardosage(const uintptr_t* __restrict orig_set, cons
           if (IsSet(orig_set, sample_uidx)) {
             ClearBit(sample_uidx, dosagepresent);
           } else {
-            dosage_vals[dosage_write_idx++] = dosage_vals[dosage_read_idx];
+            dosage_main[dosage_write_idx++] = dosage_main[dosage_read_idx];
           }
         }
         *write_dosage_ct_ptr = dosage_write_idx;
@@ -1389,7 +1389,7 @@ void SetMaleHetMissing(const uintptr_t* __restrict sex_male_interleaved, uint32_
 #endif
 }
 
-void EraseMaleHetDosages(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_vals) {
+void EraseMaleHetDosages(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main) {
   const uint32_t orig_write_dosage_ct = *write_dosage_ct_ptr;
   uint32_t sample_uidx = 0;
   for (uint32_t dosage_read_idx = 0; dosage_read_idx < orig_write_dosage_ct; ++dosage_read_idx, ++sample_uidx) {
@@ -1406,7 +1406,7 @@ void EraseMaleHetDosages(const uintptr_t* __restrict sex_male, const uintptr_t* 
         if (IsSet(sex_male, sample_uidx) && (GetQuaterarrEntry(genovec, sample_uidx) == 1)) {
           ClearBit(sample_uidx, dosagepresent);
         } else {
-          dosage_vals[dosage_write_idx++] = dosage_vals[dosage_read_idx];
+          dosage_main[dosage_write_idx++] = dosage_main[dosage_read_idx];
         }
       }
       *write_dosage_ct_ptr = dosage_write_idx;
@@ -1415,7 +1415,7 @@ void EraseMaleHetDosages(const uintptr_t* __restrict sex_male, const uintptr_t* 
   }
 }
 
-void EraseMaleDphases(const uintptr_t* __restrict sex_male, uint32_t* __restrict write_dphase_ct_ptr, uintptr_t* __restrict dphasepresent, SDosage* dphase_deltas) {
+void EraseMaleDphases(const uintptr_t* __restrict sex_male, uint32_t* __restrict write_dphase_ct_ptr, uintptr_t* __restrict dphasepresent, SDosage* dphase_delta) {
   const uint32_t orig_write_dphase_ct = *write_dphase_ct_ptr;
   uint32_t sample_uidx = 0;
   for (uint32_t dphase_read_idx = 0; dphase_read_idx < orig_write_dphase_ct; ++dphase_read_idx, ++sample_uidx) {
@@ -1432,7 +1432,7 @@ void EraseMaleDphases(const uintptr_t* __restrict sex_male, uint32_t* __restrict
         if (IsSet(sex_male, sample_uidx)) {
           ClearBit(sample_uidx, dphasepresent);
         } else {
-          dphase_deltas[dphase_write_idx++] = dphase_deltas[dphase_read_idx];
+          dphase_delta[dphase_write_idx++] = dphase_delta[dphase_read_idx];
         }
       }
       *write_dphase_ct_ptr = dphase_write_idx;
@@ -1441,15 +1441,15 @@ void EraseMaleDphases(const uintptr_t* __restrict sex_male, uint32_t* __restrict
   }
 }
 
-void SetMaleHetMissingCleardosage(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sex_male_interleaved, uint32_t vec_ct, uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_vals) {
+void SetMaleHetMissingCleardosage(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sex_male_interleaved, uint32_t vec_ct, uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main) {
   if (*write_dosage_ct_ptr) {
-    EraseMaleHetDosages(sex_male, genovec, write_dosage_ct_ptr, dosagepresent, dosage_vals);
+    EraseMaleHetDosages(sex_male, genovec, write_dosage_ct_ptr, dosagepresent, dosage_main);
   }
   SetMaleHetMissing(sex_male_interleaved, vec_ct, genovec);
 }
 
-void SetMaleHetMissingKeepdosage(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sex_male_interleaved, uint32_t word_ct, uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_vals) {
-  // count # of 1.00000 dosages we need to insert, and then rewrite dosage_vals
+void SetMaleHetMissingKeepdosage(const uintptr_t* __restrict sex_male, const uintptr_t* __restrict sex_male_interleaved, uint32_t word_ct, uintptr_t* __restrict genovec, uint32_t* __restrict write_dosage_ct_ptr, uintptr_t* __restrict dosagepresent, Dosage* dosage_main) {
+  // count # of 1.00000 dosages we need to insert, and then rewrite dosage_main
   // from back to front so we don't need temporary buffers.
   const uint32_t orig_dosage_ct = *write_dosage_ct_ptr;
   if (!orig_dosage_ct) {
@@ -1486,9 +1486,9 @@ void SetMaleHetMissingKeepdosage(const uintptr_t* __restrict sex_male, const uin
         const uintptr_t cur_bit_word = k1LU << top_set_bit;
         Dosage cur_dosage = kDosageMid;
         if (cur_bit_word & dosagepresent_word) {
-          cur_dosage = dosage_vals[--dosage_read_idx];
+          cur_dosage = dosage_main[--dosage_read_idx];
         }
-        dosage_vals[--dosage_write_idx] = cur_dosage;
+        dosage_main[--dosage_write_idx] = cur_dosage;
         new_dosagepresent_word -= cur_bit_word;
       } while (new_dosagepresent_word);
       genovec[widx] = geno_word | (male_geno_hets << 1);
@@ -1934,8 +1934,8 @@ PglErr ParseChrRanges(const char* const* argvk, const char* flagname_p, const ch
 }
 
 
-PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, PgenFileInfo* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** dosage_present_ptr, Dosage*** dosage_val_bufs_ptr, uint32_t* read_block_size_ptr, unsigned char** main_loadbufs, pthread_t** threads_ptr, PgenReader*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr) {
-  uintptr_t cachelines_avail = bigstack_left() / kCacheline;
+PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t bytes_avail, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, PgenFileInfo* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** phasepresent_ptr, uintptr_t*** phaseinfo_ptr, uintptr_t*** dosage_present_ptr, Dosage*** dosage_mains_ptr, uintptr_t*** dphase_present_ptr, SDosage*** dphase_delta_ptr, uint32_t* read_block_size_ptr, unsigned char** main_loadbufs, pthread_t** threads_ptr, PgenReader*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr) {
+  uintptr_t cachelines_avail = bytes_avail / kCacheline;
   uint32_t read_block_size = kPglVblockSize;
   uint64_t multiread_cacheline_ct;
   while (1) {
@@ -1985,12 +1985,20 @@ PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint
   const uint32_t sample_ctcl = BitCtToCachelineCt(sample_ct);
 
   // todo: increase in multiallelic case
-  const uintptr_t dosage_vals_cl = DivUp(sample_ct, (kCacheline / sizeof(Dosage)));
+  const uintptr_t dosage_main_cl = DivUp(sample_ct, (kCacheline / sizeof(Dosage)));
   if (genovecs_ptr) {
     thread_alloc_cacheline_ct += 1 + sample_ctcl2;
+    if (phasepresent_ptr) {
+      assert(phaseinfo_ptr);
+      thread_alloc_cacheline_ct += 2 + sample_ctcl;
+    }
     if (dosage_present_ptr) {
-      assert(dosage_val_bufs_ptr);
-      thread_alloc_cacheline_ct += 2 + sample_ctcl + dosage_vals_cl;
+      assert(dosage_mains_ptr);
+      thread_alloc_cacheline_ct += 2 + sample_ctcl + dosage_main_cl;
+      if (dphase_present_ptr) {
+        assert(dphase_delta_ptr);
+        thread_alloc_cacheline_ct += 2 + sample_ctcl + dosage_main_cl;
+      }
     }
   }
   if (thread_alloc_cacheline_ct * calc_thread_ct > cachelines_avail) {
@@ -2015,18 +2023,34 @@ PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint
   }
   if (genovecs_ptr) {
     *genovecs_ptr = S_CAST(uintptr_t**, bigstack_alloc_raw(array_of_ptrs_alloc));
+    if (phasepresent_ptr) {
+      *phasepresent_ptr = S_CAST(uintptr_t**, bigstack_alloc_raw(array_of_ptrs_alloc));
+      *phaseinfo_ptr = S_CAST(uintptr_t**, bigstack_alloc_raw(array_of_ptrs_alloc));
+    }
     if (dosage_present_ptr) {
       *dosage_present_ptr = S_CAST(uintptr_t**, bigstack_alloc_raw(array_of_ptrs_alloc));
-      *dosage_val_bufs_ptr = S_CAST(Dosage**, bigstack_alloc_raw(array_of_ptrs_alloc));
+      *dosage_mains_ptr = S_CAST(Dosage**, bigstack_alloc_raw(array_of_ptrs_alloc));
+      if (dphase_present_ptr) {
+        *dphase_present_ptr = S_CAST(uintptr_t**, bigstack_alloc_raw(array_of_ptrs_alloc));
+        *dphase_delta_ptr = S_CAST(SDosage**, bigstack_alloc_raw(array_of_ptrs_alloc));
+      }
     }
     const uintptr_t genovec_alloc = sample_ctcl2 * kCacheline;
-    const uintptr_t dosage_present_alloc = sample_ctcl * kCacheline;
-    const uintptr_t dosage_vals_alloc = dosage_vals_cl * kCacheline;
+    const uintptr_t bitarray_alloc = sample_ctcl * kCacheline;
+    const uintptr_t dosage_main_alloc = dosage_main_cl * kCacheline;
     for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
       (*genovecs_ptr)[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(genovec_alloc));
+      if (phasepresent_ptr) {
+        (*phasepresent_ptr)[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(bitarray_alloc));
+        (*phaseinfo_ptr)[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(bitarray_alloc));
+      }
       if (dosage_present_ptr) {
-        (*dosage_present_ptr)[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(dosage_present_alloc));
-        (*dosage_val_bufs_ptr)[tidx] = S_CAST(Dosage*, bigstack_alloc_raw(dosage_vals_alloc));
+        (*dosage_present_ptr)[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(bitarray_alloc));
+        (*dosage_mains_ptr)[tidx] = S_CAST(Dosage*, bigstack_alloc_raw(dosage_main_alloc));
+        if (dphase_present_ptr) {
+          (*dphase_present_ptr)[tidx] = S_CAST(uintptr_t*, bigstack_alloc_raw(bitarray_alloc));
+          (*dphase_delta_ptr)[tidx] = S_CAST(SDosage*, bigstack_alloc_raw(dosage_main_alloc));
+        }
       }
     }
   }

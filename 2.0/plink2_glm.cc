@@ -2898,7 +2898,7 @@ typedef struct {
 static PgenReader** g_pgr_ptrs = nullptr;
 static uintptr_t** g_genovecs = nullptr;
 static uintptr_t** g_dosage_presents = nullptr;
-static Dosage** g_dosage_val_bufs = nullptr;
+static Dosage** g_dosage_mains = nullptr;
 static unsigned char** g_workspace_bufs = nullptr;
 static uint32_t* g_read_variant_uidx_starts = nullptr;
 static const AltAlleleCt* g_a0_alleles = nullptr;
@@ -2990,10 +2990,10 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
   PgenReader* pgrp = g_pgr_ptrs[tidx];
   uintptr_t* genovec = g_genovecs[tidx];
   uintptr_t* dosage_present = nullptr;
-  Dosage* dosage_vals = nullptr;
+  Dosage* dosage_main = nullptr;
   if (g_dosage_presents) {
     dosage_present = g_dosage_presents[tidx];
-    dosage_vals = g_dosage_val_bufs[tidx];
+    dosage_main = g_dosage_mains[tidx];
   }
   unsigned char* workspace_buf = g_workspace_bufs[tidx];
   const uintptr_t* variant_include = g_variant_include;
@@ -3201,7 +3201,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
         MovU32To1Bit(variant_include, &variant_uidx);
         {
           uint32_t dosage_ct;
-          PglErr reterr = PgrGetD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct);
+          PglErr reterr = PgrGetD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
           if (reterr) {
             g_error_ret = reterr;
             variant_bidx = variant_bidx_end;
@@ -3210,7 +3210,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
           if (a0_alleles && a0_alleles[variant_uidx]) {
             GenovecInvertUnsafe(cur_sample_ct, genovec);
             if (dosage_ct) {
-              BiallelicDosage16Invert(dosage_ct, dosage_vals);
+              BiallelicDosage16Invert(dosage_ct, dosage_main);
             }
           }
           ZeroTrailingQuaters(cur_sample_ct, genovec);
@@ -3265,7 +3265,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
               for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_idx) {
                 MovU32To1Bit(dosage_present, &sample_idx);
                 // 32768 -> 2, 16384 -> 1, 0 -> 0
-                nm_predictors_pmaj_iter[sample_idx] = kRecipDosageMidf * u31tof(dosage_vals[dosage_idx]);
+                nm_predictors_pmaj_iter[sample_idx] = kRecipDosageMidf * u31tof(dosage_main[dosage_idx]);
               }
             }
           } else {
@@ -3278,7 +3278,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
                 MovU32To1Bit(sample_nm, &sample_midx);
                 float cur_val;
                 if (IsSet(dosage_present, sample_midx)) {
-                  cur_val = kRecipDosageMidf * u31tof(dosage_vals[dosage_idx++]);
+                  cur_val = kRecipDosageMidf * u31tof(dosage_main[dosage_idx++]);
                 } else {
                   cur_val = kSmallFloats[GetQuaterarrEntry(genovec, sample_midx)];
                 }
@@ -4138,7 +4138,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     uintptr_t per_variant_xalloc_byte_ct = sizeof(LogisticAuxResult) + 2 * max_reported_test_ct * sizeof(double) + max_sample_ct * local_covar_ct * sizeof(float);
     unsigned char* main_loadbufs[2];
     uint32_t read_block_size;
-    if (PgenMtLoadInit(variant_include, max_sample_ct, variant_ct, pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, per_variant_xalloc_byte_ct, pgfip, &calc_thread_ct, &g_genovecs, dosage_is_present? (&g_dosage_presents) : nullptr, dosage_is_present? (&g_dosage_val_bufs) : nullptr, &read_block_size, main_loadbufs, &ts.threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
+    if (PgenMtLoadInit(variant_include, max_sample_ct, variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, per_variant_xalloc_byte_ct, pgfip, &calc_thread_ct, &g_genovecs, nullptr, nullptr, dosage_is_present? (&g_dosage_presents) : nullptr, dosage_is_present? (&g_dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, main_loadbufs, &ts.threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
       goto GlmLogistic_ret_NOMEM;
     }
     ts.calc_thread_ct = calc_thread_ct;
@@ -4813,10 +4813,10 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
   PgenReader* pgrp = g_pgr_ptrs[tidx];
   uintptr_t* genovec = g_genovecs[tidx];
   uintptr_t* dosage_present = nullptr;
-  Dosage* dosage_vals = nullptr;
+  Dosage* dosage_main = nullptr;
   if (g_dosage_presents) {
     dosage_present = g_dosage_presents[tidx];
-    dosage_vals = g_dosage_val_bufs[tidx];
+    dosage_main = g_dosage_mains[tidx];
   }
   unsigned char* workspace_buf = g_workspace_bufs[tidx];
   const uintptr_t* variant_include = g_variant_include;
@@ -5013,7 +5013,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
         MovU32To1Bit(variant_include, &variant_uidx);
         {
           uint32_t dosage_ct;
-          PglErr reterr = PgrGetD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_vals, &dosage_ct);
+          PglErr reterr = PgrGetD(cur_sample_include, cur_sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
           if (reterr) {
             g_error_ret = reterr;
             variant_bidx = variant_bidx_end;
@@ -5022,7 +5022,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
           if (a0_alleles && a0_alleles[variant_uidx]) {
             GenovecInvertUnsafe(cur_sample_ct, genovec);
             if (dosage_ct) {
-              BiallelicDosage16Invert(dosage_ct, dosage_vals);
+              BiallelicDosage16Invert(dosage_ct, dosage_main);
             }
           }
           ZeroTrailingQuaters(cur_sample_ct, genovec);
@@ -5082,7 +5082,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
                 for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_idx) {
                   MovU32To1Bit(dosage_present, &sample_idx);
                   // 32768 -> 2, 16384 -> 1, 0 -> 0
-                  nm_predictors_pmaj_iter[sample_idx] = kRecipDosageMid * u31tod(dosage_vals[dosage_idx]);
+                  nm_predictors_pmaj_iter[sample_idx] = kRecipDosageMid * u31tod(dosage_main[dosage_idx]);
                 }
               }
             }
@@ -5101,7 +5101,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
                 MovU32To1Bit(sample_nm, &sample_midx);
                 double cur_val;
                 if (IsSet(dosage_present, sample_midx)) {
-                  cur_val = kRecipDosageMid * u31tod(dosage_vals[dosage_idx++]);
+                  cur_val = kRecipDosageMid * u31tod(dosage_main[dosage_idx++]);
                 } else {
                   cur_val = kSmallDoubles[GetQuaterarrEntry(genovec, sample_midx)];
                 }
@@ -5627,7 +5627,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     uintptr_t per_variant_xalloc_byte_ct = sizeof(LinearAuxResult) + 2 * max_reported_test_ct * sizeof(double) + max_sample_ct * local_covar_ct * sizeof(double);
     unsigned char* main_loadbufs[2];
     uint32_t read_block_size;
-    if (PgenMtLoadInit(variant_include, max_sample_ct, variant_ct, pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, per_variant_xalloc_byte_ct, pgfip, &calc_thread_ct, &g_genovecs, dosage_is_present? (&g_dosage_presents) : nullptr, dosage_is_present? (&g_dosage_val_bufs) : nullptr, &read_block_size, main_loadbufs, &ts.threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
+    if (PgenMtLoadInit(variant_include, max_sample_ct, variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, per_variant_xalloc_byte_ct, pgfip, &calc_thread_ct, &g_genovecs, nullptr, nullptr, dosage_is_present? (&g_dosage_presents) : nullptr, dosage_is_present? (&g_dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, main_loadbufs, &ts.threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
       goto GlmLinear_ret_NOMEM;
     }
     ts.calc_thread_ct = calc_thread_ct;
@@ -6177,7 +6177,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     const GlmFlags glm_flags = glm_info_ptr->flags;
     g_glm_flags = glm_flags;
     g_dosage_presents = nullptr;
-    g_dosage_val_bufs = nullptr;
+    g_dosage_mains = nullptr;
     const uint32_t output_zst = (glm_flags / kfGlmZs) & 1;
     const uint32_t perm_adapt = (glm_flags / kfGlmPerm) & 1;
     const uint32_t perms_total = perm_adapt? aperm_ptr->max : glm_info_ptr->mperm_ct;
@@ -6438,17 +6438,17 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           BigstackEndSet(condition_uidxs);
           uintptr_t* genovec;
           uintptr_t* dosage_present;
-          Dosage* dosage_vals;
+          Dosage* dosage_main;
           if (bigstack_end_alloc_w(QuaterCtToWordCt(raw_sample_ct), &genovec) ||
               bigstack_end_alloc_w(raw_sample_ctl, &dosage_present) ||
-              bigstack_end_alloc_dosage(raw_sample_ct, &dosage_vals)) {
+              bigstack_end_alloc_dosage(raw_sample_ct, &dosage_main)) {
             goto GlmMain_ret_NOMEM;
           }
           PgrClearLdCache(simple_pgrp);
           for (uint32_t condition_idx = 0; condition_idx < condition_ct; ++condition_idx) {
             const uint32_t cur_variant_uidx = condition_uidxs[condition_idx];
             uint32_t dosage_ct;
-            reterr = PgrGetD(nullptr, nullptr, raw_sample_ct, cur_variant_uidx, simple_pgrp, genovec, dosage_present, dosage_vals, &dosage_ct);
+            reterr = PgrGetD(nullptr, nullptr, raw_sample_ct, cur_variant_uidx, simple_pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
             if (reterr) {
               if (reterr == kPglRetMalformedInput) {
                 logerrputs("Error: Malformed .pgen file.\n");
@@ -6459,7 +6459,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             if (g_a0_alleles && g_a0_alleles[cur_variant_uidx]) {
               GenovecInvertUnsafe(raw_sample_ct, genovec);
               if (dosage_ct) {
-                BiallelicDosage16Invert(dosage_ct, dosage_vals);
+                BiallelicDosage16Invert(dosage_ct, dosage_main);
               }
             }
             PhenoCol* cur_covar_col = &(new_covar_cols[local_covar_ct + condition_idx]);
@@ -6480,7 +6480,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               uint32_t sample_uidx = 0;
               for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_uidx) {
                 MovU32To1Bit(dosage_present, &sample_uidx);
-                cur_covar_vals[sample_uidx] = kRecipDosageMid * u31tod(dosage_vals[dosage_idx]);
+                cur_covar_vals[sample_uidx] = kRecipDosageMid * u31tod(dosage_main[dosage_idx]);
               }
               BitvecOr(dosage_present, raw_sample_ctl, cur_nonmiss);
             }

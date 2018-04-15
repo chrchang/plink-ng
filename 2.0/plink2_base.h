@@ -91,7 +91,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 305
+#define PLINK2_BASE_VERNUM 306
 
 
 #define _FILE_OFFSET_BITS 64
@@ -595,6 +595,7 @@ CONSTU31(kBytesPerVec, 32);
 // bleah, have to define these here, vector_size doesn't see enum values
 typedef uintptr_t VecW __attribute__ ((vector_size (32)));
 typedef int32_t VecI __attribute__ ((vector_size (32)));
+typedef unsigned short VecUs __attribute__ ((vector_size (32)));
 typedef short VecS __attribute__ ((vector_size (32)));
 typedef char VecC __attribute__ ((vector_size (32)));
 typedef unsigned char VecUc __attribute__ ((vector_size (32)));
@@ -602,6 +603,7 @@ typedef unsigned char VecUc __attribute__ ((vector_size (32)));
 CONSTU31(kBytesPerVec, 16);
 typedef uintptr_t VecW __attribute__ ((vector_size (16)));
 typedef int32_t VecI __attribute ((vector_size (16)));
+typedef unsigned short VecUs __attribute__ ((vector_size (16)));
 typedef short VecS __attribute__ ((vector_size (16)));
 typedef char VecC __attribute__ ((vector_size (16)));
 typedef unsigned char VecUc __attribute__ ((vector_size (16)));
@@ -624,6 +626,14 @@ HEADER_INLINE VecW vecw_setzero() {
   return R_CAST(VecW, _mm256_setzero_si256());
 }
 
+HEADER_INLINE VecUs vecus_setzero() {
+  return R_CAST(VecUs, _mm256_setzero_si256());
+}
+
+HEADER_INLINE VecUc vecuc_setzero() {
+  return R_CAST(VecUc, _mm256_setzero_si256());
+}
+
 HEADER_INLINE VecC vecc_setzero() {
   return R_CAST(VecC, _mm256_setzero_si256());
 }
@@ -642,19 +652,27 @@ HEADER_INLINE VecI veci_set1(int32_t ii) {
   return R_CAST(VecI, _mm256_set1_epi32(ii));
 }
 
-HEADER_INLINE VecS vecs_set1(short si) {
-  return R_CAST(VecS, _mm256_set1_epi16(si));
+HEADER_INLINE VecUs vecus_set1(unsigned short usi) {
+  return R_CAST(VecUs, _mm256_set1_epi16(usi));
 }
 
-HEADER_INLINE VecC vecc_set1(char cc) {
-  return R_CAST(VecC, _mm256_set1_epi8(cc));
+HEADER_INLINE VecS vecs_set1(short si) {
+  return R_CAST(VecS, _mm256_set1_epi16(si));
 }
 
 HEADER_INLINE VecUc vecuc_set1(unsigned char ucc) {
   return R_CAST(VecUc, _mm256_set1_epi8(ucc));
 }
 
+HEADER_INLINE VecC vecc_set1(char cc) {
+  return R_CAST(VecC, _mm256_set1_epi8(cc));
+}
+
 HEADER_INLINE uint32_t vecw_movemask(VecW vv) {
+  return _mm256_movemask_epi8(R_CAST(__m256i, vv));
+}
+
+HEADER_INLINE uint32_t vecus_movemask(VecUs vv) {
   return _mm256_movemask_epi8(R_CAST(__m256i, vv));
 }
 
@@ -666,11 +684,17 @@ HEADER_INLINE uint32_t vecuc_movemask(VecUc vv) {
   return _mm256_movemask_epi8(R_CAST(__m256i, vv));
 }
 
+#define kMovemaskUintMax UINT32_MAX
+
 typedef uint32_t MovemaskUint;
 typedef uint64_t MovemaskUint2;
 
 HEADER_INLINE VecI veci_loadu(const void* mem_addr) {
   return R_CAST(VecI, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
+}
+
+HEADER_INLINE VecUs vecus_loadu(const void* mem_addr) {
+  return R_CAST(VecUs, _mm256_loadu_si256(S_CAST(const __m256i*, mem_addr)));
 }
 
 HEADER_INLINE VecS vecs_loadu(const void* mem_addr) {
@@ -707,6 +731,14 @@ HEADER_INLINE VecW vecw_setzero() {
   return R_CAST(VecW, _mm_setzero_si128());
 }
 
+HEADER_INLINE VecUs vecus_setzero() {
+  return R_CAST(VecUs, _mm_setzero_si128());
+}
+
+HEADER_INLINE VecUc vecuc_setzero() {
+  return R_CAST(VecUc, _mm_setzero_si128());
+}
+
 HEADER_INLINE VecC vecc_setzero() {
   return R_CAST(VecC, _mm_setzero_si128());
 }
@@ -723,19 +755,27 @@ HEADER_INLINE VecI veci_set1(int32_t ii) {
   return R_CAST(VecI, _mm_set1_epi32(ii));
 }
 
-HEADER_INLINE VecI vecs_set1(short si) {
-  return R_CAST(VecI, _mm_set1_epi16(si));
+HEADER_INLINE VecUs vecus_set1(unsigned short usi) {
+  return R_CAST(VecUs, _mm_set1_epi16(usi));
 }
 
-HEADER_INLINE VecC vecc_set1(char cc) {
-  return R_CAST(VecC, _mm_set1_epi8(cc));
+HEADER_INLINE VecI vecs_set1(short si) {
+  return R_CAST(VecI, _mm_set1_epi16(si));
 }
 
 HEADER_INLINE VecUc vecuc_set1(unsigned char ucc) {
   return R_CAST(VecUc, _mm_set1_epi8(ucc));
 }
 
+HEADER_INLINE VecC vecc_set1(char cc) {
+  return R_CAST(VecC, _mm_set1_epi8(cc));
+}
+
 HEADER_INLINE uint32_t vecw_movemask(VecW vv) {
+  return _mm_movemask_epi8(R_CAST(__m128i, vv));
+}
+
+HEADER_INLINE uint32_t vecus_movemask(VecUs vv) {
   return _mm_movemask_epi8(R_CAST(__m128i, vv));
 }
 
@@ -747,6 +787,8 @@ HEADER_INLINE uint32_t vecuc_movemask(VecUc vv) {
   return _mm_movemask_epi8(R_CAST(__m128i, vv));
 }
 
+#define kMovemaskUintMax 65535
+
 typedef uint16_t MovemaskUint;
 typedef uint32_t MovemaskUint2;
 
@@ -754,8 +796,16 @@ HEADER_INLINE VecI veci_loadu(const void* mem_addr) {
   return R_CAST(VecI, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
 }
 
+HEADER_INLINE VecUs vecus_loadu(const void* mem_addr) {
+  return R_CAST(VecUs, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
+}
+
 HEADER_INLINE VecS vecs_loadu(const void* mem_addr) {
   return R_CAST(VecS, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
+}
+
+HEADER_INLINE VecUc vecuc_loadu(const void* mem_addr) {
+  return R_CAST(VecUc, _mm_loadu_si128(S_CAST(const __m128i*, mem_addr)));
 }
 
 HEADER_INLINE void veci_storeu(void* mem_addr, VecI vv) {
@@ -961,6 +1011,10 @@ HEADER_INLINE uintptr_t UnpackHalfwordToWord(uintptr_t hw) {
   return _pdep_u64(hw, kMask5555);
 }
 
+HEADER_INLINE uintptr_t UnpackHalfwordToWordShift1(uintptr_t hw) {
+  return _pdep_u64(hw, kMaskAAAA);
+}
+
 HEADER_INLINE MovemaskUint2 UnpackMovemaskUintToUint2(MovemaskUint hw) {
   return _pdep_u64(hw, kMask5555);
 }
@@ -982,6 +1036,10 @@ HEADER_INLINE uintptr_t UnpackHalfwordToWord(uintptr_t hw) {
   hw = (hw | (hw << 4)) & kMask0F0F;
   hw = (hw | (hw << 2)) & kMask3333;
   return ((hw | (hw << 1)) & kMask5555);
+}
+
+HEADER_INLINE uintptr_t UnpackHalfwordToWordShift1(uintptr_t hw) {
+  return UnpackHalfwordToWord(hw) << 1;
 }
 
 HEADER_INLINE Halfword PackWordToHalfword(uintptr_t ww) {
@@ -1179,15 +1237,25 @@ HEADER_INLINE BoolErr ScanUintIcap(const char* str, uint32_t* valp) {
 // memcpya() tends to be used to copy known-length text strings, while
 // memseta() has more mixed usage but char* type is also at least as common as
 // unsigned char*; append comes up less when working with raw byte arrays.  So
-// give these char* return types.
+// give the shortest-name forms char* return types.
 HEADER_INLINE char* memseta(void* target, unsigned char val, uintptr_t ct) {
   memset(target, val, ct);
   return &(S_CAST(char*, target)[ct]);
 }
 
+HEADER_INLINE unsigned char* memsetua(void* target, unsigned char val, uintptr_t ct) {
+  memset(target, val, ct);
+  return &(S_CAST(unsigned char*, target)[ct]);
+}
+
 HEADER_INLINE char* memcpya(void* __restrict target, const void* __restrict source, uintptr_t ct) {
   memcpy(target, source, ct);
   return &(S_CAST(char*, target)[ct]);
+}
+
+HEADER_INLINE unsigned char* memcpyua(void* __restrict target, const void* __restrict source, uintptr_t ct) {
+  memcpy(target, source, ct);
+  return &(S_CAST(unsigned char*, target)[ct]);
 }
 
 HEADER_CINLINE uintptr_t BitCtToVecCt(uintptr_t val) {
@@ -1540,7 +1608,7 @@ HEADER_INLINE uintptr_t SubwordLoad(const void* bytearr, uint32_t ct) {
 }
 
 // ct must be in 1..4.
-HEADER_INLINE uint32_t SubUintLoad(const void* bytearr, uint32_t ct) {
+HEADER_INLINE uint32_t SubU32Load(const void* bytearr, uint32_t ct) {
   if (ct & 1) {
     const unsigned char* bytearr_iter = S_CAST(const unsigned char*, bytearr);
     uint32_t cur_uint = *bytearr_iter;
@@ -1598,7 +1666,7 @@ HEADER_INLINE void SubwordStoreMov(uintptr_t cur_word, uint32_t byte_ct, unsigne
 }
 
 // byte_ct must be in 1..4.
-HEADER_INLINE void SubUintStore(uint32_t cur_uint, uint32_t byte_ct, void* target) {
+HEADER_INLINE void SubU32Store(uint32_t cur_uint, uint32_t byte_ct, void* target) {
   if (byte_ct & 1) {
     unsigned char* target_iter = S_CAST(unsigned char*, target);
     *target_iter = cur_uint;
@@ -1616,10 +1684,26 @@ HEADER_INLINE void SubUintStore(uint32_t cur_uint, uint32_t byte_ct, void* targe
   return;
 }
 
-HEADER_INLINE void SubUintStoreMov(uint32_t cur_uint, uint32_t byte_ct, unsigned char** targetp) {
-  SubUintStore(cur_uint, byte_ct, *targetp);
+HEADER_INLINE void SubU32StoreMov(uint32_t cur_uint, uint32_t byte_ct, unsigned char** targetp) {
+  SubU32Store(cur_uint, byte_ct, *targetp);
   *targetp += byte_ct;
 }
+
+#ifdef __LP64__
+HEADER_INLINE void SubU64StoreMov(uint64_t cur_u64, uint32_t byte_ct, unsigned char** targetp) {
+  return SubwordStoreMov(cur_u64, byte_ct, targetp);
+}
+#else
+HEADER_INLINE void SubU64StoreMov(uint64_t cur_u64, uint32_t byte_ct, unsigned char** targetp) {
+  if (byte_ct > 4) {
+    *R_CAST(uint32_t*, *targetp) = cur_u64;
+    *targetp += 4;
+    byte_ct -= 4;
+    cur_u64 >>= 32;
+  }
+  return SubU32StoreMov(cur_u64, byte_ct, targetp);
+}
+#endif
 
 // requires positive word_ct
 // stay agnostic a bit longer re: word_ct := DIV_UP(entry_ct, kBitsPerWord)

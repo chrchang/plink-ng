@@ -147,9 +147,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      interpreted as a Minimac3-style dosage.\n\n"
                );
     HelpPrint("data\tgen\tbgen\tsample\thaps\tlegend", &help_ctrl, 1,
-"  --data [filename prefix] <ref-first | ref-second> <gzs>\n"
-"  --bgen [filename] <snpid-chr> <ref-first | ref-second>\n"
-"  --gen [filename] <ref-first | ref-second>\n"
+"  --data [filename prefix] <ref-first | ref-last> <gzs>\n"
+"  --bgen [filename] <snpid-chr> <ref-first | ref-last>\n"
+"  --gen [filename] <ref-first | ref-last>\n"
 "  --sample [filename]\n"
 "    Specify an Oxford-format dataset to import.  --data specifies a .gen{.zst}\n"
 "    + .sample pair, while --bgen specifies a BGEN v1.1+ file.\n"
@@ -157,14 +157,13 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      companion .sample file.\n"
 "    * With 'snpid-chr', chromosome codes are read from the 'SNP ID' field\n"
 "      instead of the usual chromosome field.\n"
-"    * By default, the second allele for each variant is treated as a\n"
-"      provisional reference allele.  To specify that the first (resp. second)\n"
-"      allele really is always reference, add the 'ref-first' (resp.\n"
-"      'ref-second') modifier.\n\n"
+"    * By default, the last allele for each variant is treated as a provisional\n"
+"      reference allele.  To specify that the first (resp. last) allele really\n"
+"      is always reference, add the 'ref-first' (resp. 'ref-last') modifier.\n\n"
                );
     // todo: make 'per' prefix modifiable
     HelpPrint("haps\tlegend", &help_ctrl, 1,
-"  --haps [filename] <ref-first | ref-second>\n"
+"  --haps [filename] <ref-first | ref-last>\n"
 "  --legend [filename] [chr code]\n"
 "    Specify .haps {+ .legend} file(s) to import.\n"
 "    * When --legend is specified, it's assumed that the --haps file doesn't\n"
@@ -179,7 +178,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("import-dosage\tdosage", &help_ctrl, 1,
 "  --import-dosage [allele dosage file] <noheader> <id-delim=[char]> <skip0=[i]>\n"
 "                  <skip1=[j]> <skip2=[k]> <dose1> <format=[m]>\n"
-"                  <ref-first | ref-second> <single-chr=[code]>\n"
+"                  <ref-first | ref-last> <single-chr=[code]>\n"
 "                  <chr-col-num=[#]> <pos-col-num=[#]>\n"
 "    Specify PLINK 1.x-style dosage file to import.\n"
 "    * You must also specify a companion .psam/.fam file.\n"
@@ -593,9 +592,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * By default, only hardcalls are considered.  Add the 'dosage' modifier if\n"
 "      you want dosages to be taken into account.  (In the diploid case, an\n"
 "      unphased dosage of x is interpreted as P(0/0) = 1 - x, P(0/1) = x when x\n"
-"      is in 0..1.)  Note that when both an unphased dosage and a phased\n"
-"      hardcall are present, this ignores the phased hardcall, which may not be\n"
-"      what you want when the dosage is e.g. 0.95...\n\n"
+"      is in 0..1.)\n\n"
                );
     // for kinship estimation, LD pruning isn't really advisable (if more speed
     // is needed, the humble --bp-space may lead to a better approximation?
@@ -1339,7 +1336,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                       k / (j+k).\n"
 "                       Note that this does not affect --freq's output.\n"
                );
-    HelpPrint("read-freq", &help_ctrl, 0,
+    HelpPrint("read-freq\tbad-freqs", &help_ctrl, 0,
 "  --read-freq [file] : Load allele frequency estimates from the given --freq or\n"
 "                       --geno-counts (or PLINK 1.9 --freqx) report, instead of\n"
 "                       imputing them from the immediate dataset.\n"
@@ -1389,9 +1386,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                       always evaluates to false when the\n"
 "                                       phenotype/covariate is missing.\n"
                );
-    HelpPrint("nonfounders\tfreq\thardy\thwe", &help_ctrl, 0,
+    HelpPrint("nonfounders\tfreq\thardy\thwe\tbad-freqs", &help_ctrl, 0,
 "  --nonfounders      : Include nonfounders in allele freq/HWE calculations.\n"
                );
+    HelpPrint("bad-freqs", &help_ctrl, 0,
+"  --bad-freqs        : When PLINK 2 needs decent allele frequencies, it\n"
+"                       normally errors out if they aren't provided by\n"
+"                       --read-freq and less than 50 founders are available to\n"
+"                       impute them from.  Use --bad-freqs to force PLINK 2 to\n"
+"                       proceed in this case.\n"
+              );
     HelpPrint("output-chr", &help_ctrl, 0,
 "  --output-chr [MT code] : Set chromosome coding scheme in output files by\n"
 "                           providing the desired human mitochondrial code.\n"
@@ -1473,7 +1477,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      add 'male0'.\n"
                );
     // don't make --real-ref-alleles apply to e.g. Oxford import, since
-    // explicit 'ref-first'/'ref-second' modifiers are clearer
+    // explicit 'ref-first'/'ref-last' modifiers are clearer
     HelpPrint("real-ref-alleles", &help_ctrl, 0,
 "  --real-ref-alleles : Treat A2 alleles in a PLINK 1.x fileset as actual ref\n"
 "                       alleles; otherwise they're marked as provisional.\n"

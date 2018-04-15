@@ -61,7 +61,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (31 Mar 2018)";
+  " (14 Apr 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -314,13 +314,18 @@ uint32_t SingleVariantLoaderIsNeeded(const char* king_cutoff_fprefix, Command1Fl
 }
 
 
-// might want to combine these two functions
-uint32_t AlleleFreqsAreNeeded(Command1Flags command_flags1, GlmFlags glm_flags, double min_maf, double max_maf) {
-  return (command_flags1 & (kfCommand1AlleleFreq | kfCommand1LdPrune | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Score)) || (min_maf != 0.0) || (max_maf != 1.0) || ((command_flags1 & kfCommand1Glm) && (!(glm_flags & kfGlmA0Ref)));
+uint32_t DecentAlleleFreqsAreNeeded(Command1Flags command_flags1, ScoreFlags score_flags) {
+  return (command_flags1 & (kfCommand1Pca | kfCommand1MakeRel)) || ((command_flags1 & kfCommand1Score) && ((!(score_flags & kfScoreNoMeanimpute)) || (score_flags & (kfScoreCenter | kfScoreVarianceStandardize))));
 }
 
 uint32_t MajAllelesAreNeeded(Command1Flags command_flags1, GlmFlags glm_flags) {
   return (command_flags1 & (kfCommand1LdPrune | kfCommand1Pca | kfCommand1MakeRel)) || ((command_flags1 & kfCommand1Glm) && (!(glm_flags & kfGlmA0Ref)));
+}
+
+// only needs to cover cases not captured by DecentAlleleFreqsAreNeeded() or
+// MajAllelesAreNeeded()
+uint32_t IndecentAlleleFreqsAreNeeded(Command1Flags command_flags1, double min_maf, double max_maf) {
+  return (command_flags1 & (kfCommand1AlleleFreq | kfCommand1Score)) || (min_maf != 0.0) || (max_maf != 1.0);
 }
 
 
@@ -1442,8 +1447,23 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       if (pgenname[0]) {
-        if (AlleleFreqsAreNeeded(pcp->command_flags1, pcp->glm_info.flags, pcp->min_maf, pcp->max_maf)) {
-          if (MajAllelesAreNeeded(pcp->command_flags1, pcp->glm_info.flags)) {
+        const uint32_t decent_afreqs_needed = DecentAlleleFreqsAreNeeded(pcp->command_flags1, pcp->score_info.flags);
+        const uint32_t maj_alleles_needed = MajAllelesAreNeeded(pcp->command_flags1, pcp->glm_info.flags);
+        if (decent_afreqs_needed || maj_alleles_needed || IndecentAlleleFreqsAreNeeded(pcp->command_flags1, pcp->min_maf, pcp->max_maf)) {
+          if ((!pcp->read_freq_fname) && ((sample_ct < 50) || ((!nonfounders) && (founder_ct < 50))) && decent_afreqs_needed && (!(pcp->misc_flags & kfMiscAllowBadFreqs))) {
+            if ((!nonfounders) && (sample_ct >= 50)) {
+              logerrputs("Error: This run requires decent allele frequencies, but they aren't being\nloaded with --read-freq, and less than 50 founders are available to impute them\nfrom.  Possible solutions:\n* You can use --nonfounders to include nonfounders when imputing allele\n  frequencies.\n* You can generate (with --freq) or obtain an allele frequency file based on a\n  larger similar-population reference dataset, and load it with --read-freq.\n* (Not recommended) You can override this error with --bad-freqs.\n");
+            } else {
+              logerrputs("Error: This run requires decent allele frequencies, but they aren't being\nloaded with --read-freq, and less than 50 samples are available to impute them\nfrom.\nYou should generate (with --freq) or obtain an allele frequency file based on a\nlarger similar-population reference dataset, and load it with --read-freq.\n");
+              if (nonfounders) {
+                logerrputs("If you're certain you want to proceed without doing that, use --bad-freqs to\noverride this error.\n");
+              } else if (sample_ct != founder_ct) {
+                logerrputs("If you're certain you want to proceed without doing that, use --bad-freqs to\noverride this error, and consider using --nonfounders as well.\n");
+              }
+            }
+            goto Plink2Core_ret_INCONSISTENT_INPUT;
+          }
+          if (maj_alleles_needed) {
             maj_alleles = S_CAST(AltAlleleCt*, bigstack_alloc(raw_variant_ct * sizeof(AltAlleleCt)));
             if (!maj_alleles) {
               goto Plink2Core_ret_NOMEM;
@@ -3425,8 +3445,11 @@ int main(int argc, char** argv) {
               oxford_import_flags |= kfOxfordImportBgenSnpIdChr;
             } else if (!strcmp(cur_modif, "ref-first")) {
               oxford_import_flags |= kfOxfordImportRefFirst;
+            } else if (!strcmp(cur_modif, "ref-last")) {
+              oxford_import_flags |= kfOxfordImportRefLast;
             } else if (!strcmp(cur_modif, "ref-second")) {
-              oxford_import_flags |= kfOxfordImportRefSecond;
+              logerrputs("Warning: --bgen 'ref-second' modifier is deprecated.  Use 'ref-last' instead.\n");
+              oxford_import_flags |= kfOxfordImportRefLast;
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --bgen parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
@@ -3450,6 +3473,9 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_WWA;
           }
           pc.filter_flags |= kfFilterPvarReq | kfFilterNoSplitChr;
+        } else if (strequal_k_unsafe(flagname_p2, "ad-freqs")) {
+          pc.misc_flags |= kfMiscAllowBadFreqs;
+          goto main_param_zero;
         } else {
           goto main_ret_INVALID_CMDLINE_UNRECOGNIZED;
         }
@@ -3716,8 +3742,8 @@ int main(int argc, char** argv) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             if (!strcmp(cur_modif, "ref-first")) {
               oxford_import_flags |= kfOxfordImportRefFirst;
-            } else if (!strcmp(cur_modif, "ref-second")) {
-              oxford_import_flags |= kfOxfordImportRefSecond;
+            } else if ((!strcmp(cur_modif, "ref-last")) || (!strcmp(cur_modif, "ref-second"))) {
+              oxford_import_flags |= kfOxfordImportRefLast;
             } else if (!strcmp(cur_modif, "gzs")) {
               if (xload & kfXloadOxBgen) {
                 // may as well permit e.g. --data ref-first + --bgen
@@ -4525,8 +4551,8 @@ int main(int argc, char** argv) {
             const char* cur_modif = argvk[arg_idx + 2];
             if (!strcmp(cur_modif, "ref-first")) {
               oxford_import_flags |= kfOxfordImportRefFirst;
-            } else if (!strcmp(cur_modif, "ref-second")) {
-              oxford_import_flags |= kfOxfordImportRefSecond;
+            } else if ((!strcmp(cur_modif, "ref-last")) || (!strcmp(cur_modif, "ref-second"))) {
+              oxford_import_flags |= kfOxfordImportRefLast;
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --gen parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
@@ -4673,8 +4699,8 @@ int main(int argc, char** argv) {
             const char* cur_modif = argvk[arg_idx + 2];
             if (!strcmp(cur_modif, "ref-first")) {
               oxford_import_flags |= kfOxfordImportRefFirst;
-            } else if (!strcmp(cur_modif, "ref-second")) {
-              oxford_import_flags |= kfOxfordImportRefSecond;
+            } else if ((!strcmp(cur_modif, "ref-last")) && (!strcmp(cur_modif, "ref-second"))) {
+              oxford_import_flags |= kfOxfordImportRefLast;
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --haps parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
@@ -4910,8 +4936,9 @@ int main(int argc, char** argv) {
               }
             } else if (strequal_k(cur_modif, "ref-first", cur_modif_slen)) {
               plink1_dosage_info.flags |= kfPlink1DosageRefFirst;
-            } else if (strequal_k(cur_modif, "ref-second", cur_modif_slen)) {
-              plink1_dosage_info.flags |= kfPlink1DosageRefSecond;
+            } else if (strequal_k(cur_modif, "ref-last", cur_modif_slen) ||
+                       strequal_k(cur_modif, "ref-second", cur_modif_slen)) {
+              plink1_dosage_info.flags |= kfPlink1DosageRefLast;
             } else if (StrStartsWith(cur_modif, "id-delim=", cur_modif_slen)) {
               if (plink1_dosage_info.id_delim) {
                 logerrputs("Error: Multiple --import-dosage id-delim= modifiers.\n");
@@ -4988,8 +5015,8 @@ int main(int argc, char** argv) {
               }
             }
           }
-          if ((plink1_dosage_info.flags & (kfPlink1DosageRefFirst | kfPlink1DosageRefSecond)) == (kfPlink1DosageRefFirst | kfPlink1DosageRefSecond)) {
-            logerrputs("Error: --import-dosage 'ref-first' and 'ref-second' modifiers cannot be used\ntogether.\n");
+          if ((plink1_dosage_info.flags & (kfPlink1DosageRefFirst | kfPlink1DosageRefLast)) == (kfPlink1DosageRefFirst | kfPlink1DosageRefLast)) {
+            logerrputs("Error: --import-dosage 'ref-first' and 'ref-last' modifiers cannot be used\ntogether.\n");
             goto main_ret_INVALID_CMDLINE;
           }
           const uint32_t id_col_idx = plink1_dosage_info.skips[0];
@@ -7926,8 +7953,8 @@ int main(int argc, char** argv) {
         goto main_ret_INVALID_CMDLINE_A;
       }
     }
-    if ((oxford_import_flags & (kfOxfordImportRefFirst | kfOxfordImportRefSecond)) == (kfOxfordImportRefFirst | kfOxfordImportRefSecond)) {
-      logerrputs("Error: --data/--{b}gen 'ref-first' and 'ref-second' modifiers cannot be used\ntogether.\n");
+    if ((oxford_import_flags & (kfOxfordImportRefFirst | kfOxfordImportRefLast)) == (kfOxfordImportRefFirst | kfOxfordImportRefLast)) {
+      logerrputs("Error: --data/--{b}gen 'ref-first' and 'ref-last' modifiers cannot be used\ntogether.\n");
       goto main_ret_INVALID_CMDLINE;
     }
     if (!strcmp(g_missing_catname, g_output_missing_pheno)) {

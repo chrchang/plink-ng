@@ -881,30 +881,6 @@ BoolErr bigstack_end_calloc_u64(uintptr_t ct, uint64_t** ull_arr_ptr) {
   return 0;
 }
 
-
-void BitarrInvert(uintptr_t bit_ct, uintptr_t* bitarr) {
-  uintptr_t* bitarr_stop = &(bitarr[bit_ct / kBitsPerWord]);
-  while (bitarr < bitarr_stop) {
-    *bitarr = ~(*bitarr);
-    ++bitarr;
-  }
-  const uint32_t trailing_bit_ct = bit_ct % kBitsPerWord;
-  if (trailing_bit_ct) {
-    *bitarr = bzhi(~(*bitarr), trailing_bit_ct);
-  }
-}
-
-void BitarrInvertCopy(const uintptr_t* __restrict source_bitarr, uintptr_t bit_ct, uintptr_t* __restrict target_bitarr) {
-  const uintptr_t* source_bitarr_stop = &(source_bitarr[bit_ct / kBitsPerWord]);
-  while (source_bitarr < source_bitarr_stop) {
-    *target_bitarr++ = ~(*source_bitarr++);
-  }
-  const uint32_t trailing_bit_ct = bit_ct % kBitsPerWord;
-  if (trailing_bit_ct) {
-    *target_bitarr = bzhi(~(*source_bitarr), trailing_bit_ct);
-  }
-}
-
 void BitvecAndCopy(const uintptr_t* __restrict source1_bitvec, const uintptr_t* __restrict source2_bitvec, uintptr_t word_ct, uintptr_t* target_bitvec) {
 #ifdef __LP64__
   VecW* target_bitvvec = R_CAST(VecW*, target_bitvec);
@@ -994,6 +970,78 @@ void BitvecOr(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr
 #endif
 }
 
+void BitvecInvert(uintptr_t word_ct, uintptr_t* main_bitvec) {
+#ifdef __LP64__
+  VecW* main_bitvvec_iter = R_CAST(VecW*, main_bitvec);
+  const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
+  const VecW all1 = VCONST_W(~k0LU);
+  if (full_vec_ct & 1) {
+    *main_bitvvec_iter++ ^= all1;
+  }
+  if (full_vec_ct & 2) {
+    *main_bitvvec_iter++ ^= all1;
+    *main_bitvvec_iter++ ^= all1;
+  }
+  for (uintptr_t ulii = 3; ulii < full_vec_ct; ulii += 4) {
+    *main_bitvvec_iter++ ^= all1;
+    *main_bitvvec_iter++ ^= all1;
+    *main_bitvvec_iter++ ^= all1;
+    *main_bitvvec_iter++ ^= all1;
+  }
+#  ifdef USE_AVX2
+  if (word_ct & 2) {
+    const uintptr_t base_idx = full_vec_ct * kWordsPerVec;
+    main_bitvec[base_idx] ^= ~k0LU;
+    main_bitvec[base_idx + 1] ^= ~k0LU;
+  }
+#  endif
+  if (word_ct & 1) {
+    main_bitvec[word_ct - 1] ^= ~k0LU;
+  }
+#else
+  for (uintptr_t widx = 0; widx < word_ct; ++widx) {
+    main_bitvec[widx] ^= ~k0LU;
+  }
+#endif
+}
+
+void BitvecInvertCopy(const uintptr_t* __restrict source_bitvec, uintptr_t word_ct, uintptr_t* __restrict target_bitvec) {
+#ifdef __LP64__
+  const VecW* source_bitvvec_iter = R_CAST(const VecW*, source_bitvec);
+  VecW* target_bitvvec_iter = R_CAST(VecW*, target_bitvec);
+  const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
+  const VecW all1 = VCONST_W(~k0LU);
+  if (full_vec_ct & 1) {
+    *target_bitvvec_iter++ = (*source_bitvvec_iter++) ^ all1;
+  }
+  if (full_vec_ct & 2) {
+    *target_bitvvec_iter++ = (*source_bitvvec_iter++) ^ all1;
+    *target_bitvvec_iter++ = (*source_bitvvec_iter++) ^ all1;
+  }
+  for (uintptr_t ulii = 3; ulii < full_vec_ct; ulii += 4) {
+    *target_bitvvec_iter++ = (*source_bitvvec_iter++) ^ all1;
+    *target_bitvvec_iter++ = (*source_bitvvec_iter++) ^ all1;
+    *target_bitvvec_iter++ = (*source_bitvvec_iter++) ^ all1;
+    *target_bitvvec_iter++ = (*source_bitvvec_iter++) ^ all1;
+  }
+#  ifdef USE_AVX2
+  if (word_ct & 2) {
+    const uintptr_t base_idx = full_vec_ct * kWordsPerVec;
+    target_bitvec[base_idx] = ~source_bitvec[base_idx];
+    target_bitvec[base_idx + 1] = ~source_bitvec[base_idx + 1];
+  }
+#  endif
+  if (word_ct & 1) {
+    target_bitvec[word_ct - 1] = ~source_bitvec[word_ct - 1];
+  }
+#else
+  for (uintptr_t widx = 0; widx < word_ct; ++widx) {
+    target_bitvec[widx] = ~source_bitvec[widx];
+  }
+#endif
+}
+
+/*
 void BitvecXor(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec) {
   // main_bitvec := main_bitvec XOR arg_bitvec
 #ifdef __LP64__
@@ -1029,6 +1077,7 @@ void BitvecXor(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintpt
   }
 #endif
 }
+*/
 
 void BitvecAndNot2(const uintptr_t* __restrict include_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec) {
   // main_bitvec := (~main_bitvec) AND include_bitvec

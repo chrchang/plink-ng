@@ -1174,6 +1174,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
         }
         if (variants_completed) {
           JoinThreads3z(&ts);
+          // CalcKingThread() never errors out
         } else {
           ts.thread_func_ptr = CalcKingThread;
         }
@@ -2298,6 +2299,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
         }
         if (variants_completed) {
           JoinThreads3z(&ts);
+          // CalcKingTableSubsetThread() never errors out
         } else {
           ts.thread_func_ptr = CalcKingTableSubsetThread;
         }
@@ -2452,7 +2454,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
 }
 
 // this probably belongs in plink2_common
-void ExpandVariantDosages(const uintptr_t* genovec, const uintptr_t* dosage_present, const Dosage* dosage_vals, double slope, double intercept, double missing_val, uint32_t sample_ct, uint32_t dosage_ct, double* expanded_dosages) {
+void ExpandVariantDosages(const uintptr_t* genovec, const uintptr_t* dosage_present, const Dosage* dosage_main, double slope, double intercept, double missing_val, uint32_t sample_ct, uint32_t dosage_ct, double* expanded_dosages) {
   double lookup_vals[4];
   lookup_vals[0] = intercept;
   lookup_vals[1] = intercept + slope;
@@ -2482,13 +2484,13 @@ void ExpandVariantDosages(const uintptr_t* genovec, const uintptr_t* dosage_pres
     uint32_t sample_uidx = 0;
     for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_uidx) {
       MovU32To1Bit(dosage_present, &sample_uidx);
-      expanded_dosages[sample_uidx] = dosage_vals[dosage_idx] * slope + intercept;
+      expanded_dosages[sample_uidx] = dosage_main[dosage_idx] * slope + intercept;
     }
   }
 }
 
 // assumes trailing bits of genovec are zeroed out
-PglErr ExpandCenteredVarmaj(const uintptr_t* genovec, const uintptr_t* dosage_present, const Dosage* dosage_vals, uint32_t variance_standardize, uint32_t sample_ct, uint32_t dosage_ct, double maj_freq, double* normed_dosages) {
+PglErr ExpandCenteredVarmaj(const uintptr_t* genovec, const uintptr_t* dosage_present, const Dosage* dosage_main, uint32_t variance_standardize, uint32_t sample_ct, uint32_t dosage_ct, double maj_freq, double* normed_dosages) {
   const double nonmaj_freq = 1.0 - maj_freq;
   double inv_stdev;
   if (variance_standardize) {
@@ -2506,13 +2508,13 @@ PglErr ExpandCenteredVarmaj(const uintptr_t* genovec, const uintptr_t* dosage_pr
   } else {
     inv_stdev = 1.0;
   }
-  ExpandVariantDosages(genovec, dosage_present, dosage_vals, inv_stdev, -2 * nonmaj_freq * inv_stdev, 0.0, sample_ct, dosage_ct, normed_dosages);
+  ExpandVariantDosages(genovec, dosage_present, dosage_main, inv_stdev, -2 * nonmaj_freq * inv_stdev, 0.0, sample_ct, dosage_ct, normed_dosages);
   return kPglRetSuccess;
 }
 
-PglErr LoadCenteredVarmaj(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t variance_standardize, uint32_t sample_ct, uint32_t variant_uidx, AltAlleleCt maj_allele_idx, double maj_freq, PgenReader* simple_pgrp, uint32_t* missing_presentp, double* normed_dosages, uintptr_t* genovec_buf, uintptr_t* dosage_present_buf, Dosage* dosage_vals_buf) {
+PglErr LoadCenteredVarmaj(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t variance_standardize, uint32_t sample_ct, uint32_t variant_uidx, AltAlleleCt maj_allele_idx, double maj_freq, PgenReader* simple_pgrp, uint32_t* missing_presentp, double* normed_dosages, uintptr_t* genovec_buf, uintptr_t* dosage_present_buf, Dosage* dosage_main_buf) {
   uint32_t dosage_ct;
-  PglErr reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec_buf, dosage_present_buf, dosage_vals_buf, &dosage_ct);
+  PglErr reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec_buf, dosage_present_buf, dosage_main_buf, &dosage_ct);
   if (reterr) {
     // don't print malformed-.pgen error message here for now, since we may
     // want to put this in a multithreaded loop?
@@ -2521,7 +2523,7 @@ PglErr LoadCenteredVarmaj(const uintptr_t* sample_include, const uint32_t* sampl
   if (maj_allele_idx) {
     GenovecInvertUnsafe(sample_ct, genovec_buf);
     if (dosage_ct) {
-      BiallelicDosage16Invert(dosage_ct, dosage_vals_buf);
+      BiallelicDosage16Invert(dosage_ct, dosage_main_buf);
     }
   }
   ZeroTrailingQuaters(sample_ct, genovec_buf);
@@ -2550,7 +2552,7 @@ PglErr LoadCenteredVarmaj(const uintptr_t* sample_include, const uint32_t* sampl
       }
     }
   }
-  return ExpandCenteredVarmaj(genovec_buf, dosage_present_buf, dosage_vals_buf, variance_standardize, sample_ct, dosage_ct, maj_freq, normed_dosages);
+  return ExpandCenteredVarmaj(genovec_buf, dosage_present_buf, dosage_main_buf, variance_standardize, sample_ct, dosage_ct, maj_freq, normed_dosages);
 }
 
 // multithread globals
@@ -2796,6 +2798,7 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
       }
       if (cur_variant_idx_start) {
         JoinThreads3z(&ts);
+        // CalcDblMissingThread() never errors out
         if (ts.is_last_block) {
           break;
         }
@@ -2917,12 +2920,12 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     uint32_t* sample_include_cumulative_popcounts;
     uintptr_t* genovec_buf;
     uintptr_t* dosage_present_buf;
-    Dosage* dosage_vals_buf;
+    Dosage* dosage_main_buf;
     if (bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
         bigstack_alloc_thread(calc_thread_ct, &ts.threads) ||
         bigstack_alloc_w(row_end_idxl2, &genovec_buf) ||
         bigstack_alloc_w(row_end_idxl, &dosage_present_buf) ||
-        bigstack_alloc_dosage(row_end_idx, &dosage_vals_buf)) {
+        bigstack_alloc_dosage(row_end_idx, &dosage_main_buf)) {
       goto CalcGrm_ret_NOMEM;
     }
     FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
@@ -2992,7 +2995,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - allele_idx_base;
             allele_idx_base -= variant_uidx;
           }
-          reterr = LoadCenteredVarmaj(sample_include, sample_include_cumulative_popcounts, variance_standardize, row_end_idx, variant_uidx, maj_allele_idx, GetAlleleFreq(&(allele_freqs[allele_idx_base]), maj_allele_idx, cur_allele_ct), simple_pgrp, variant_include_has_missing? (&missing_present) : nullptr, normed_vmaj_iter, genovec_buf, dosage_present_buf, dosage_vals_buf);
+          reterr = LoadCenteredVarmaj(sample_include, sample_include_cumulative_popcounts, variance_standardize, row_end_idx, variant_uidx, maj_allele_idx, GetAlleleFreq(&(allele_freqs[allele_idx_base]), maj_allele_idx, cur_allele_ct), simple_pgrp, variant_include_has_missing? (&missing_present) : nullptr, normed_vmaj_iter, genovec_buf, dosage_present_buf, dosage_main_buf);
           if (reterr) {
             if (reterr == kPglRetInconsistentInput) {
               logputs("\n");
@@ -3014,6 +3017,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       }
       if (cur_variant_idx_start) {
         JoinThreads3z(&ts);
+        // CalcGrmPartThread() and CalcGrmThread() never error out
         if (ts.is_last_block) {
           break;
         }
@@ -3469,7 +3473,7 @@ CONSTU31(kPcaVariantBlockSize, 240);
 static uintptr_t* g_genovecs[2] = {nullptr, nullptr};
 static uint32_t* g_dosage_cts[2] = {nullptr, nullptr};
 static uintptr_t* g_dosage_presents[2] = {nullptr, nullptr};
-static Dosage* g_dosage_val_bufs[2] = {nullptr, nullptr};
+static Dosage* g_dosage_mains[2] = {nullptr, nullptr};
 static double* g_cur_maj_freqs[2] = {nullptr, nullptr};
 static double** g_yy_bufs = nullptr;
 static double** g_y_transpose_bufs = nullptr;
@@ -3505,11 +3509,11 @@ THREAD_FUNC_DECL CalcPcaXtxaThread(void* arg) {
       const uintptr_t* genovec_iter = &(g_genovecs[parity][vidx_offset * pca_sample_ctaw2]);
       const uint32_t* cur_dosage_cts = &(g_dosage_cts[parity][vidx_offset]);
       const uintptr_t* dosage_present_iter = &(g_dosage_presents[parity][vidx_offset * pca_sample_ctaw]);
-      const Dosage* dosage_vals_iter = &(g_dosage_val_bufs[parity][vidx_offset * pca_sample_ct]);
+      const Dosage* dosage_main_iter = &(g_dosage_mains[parity][vidx_offset * pca_sample_ct]);
       const double* cur_maj_freqs_iter = &(g_cur_maj_freqs[parity][vidx_offset]);
       double* yy_iter = yy_buf;
       for (uint32_t uii = 0; uii < cur_thread_batch_size; ++uii) {
-        PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_vals_iter, 1, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
+        PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
         if (reterr) {
           g_error_ret = reterr;
           break;
@@ -3517,7 +3521,7 @@ THREAD_FUNC_DECL CalcPcaXtxaThread(void* arg) {
         yy_iter = &(yy_iter[pca_sample_ct]);
         genovec_iter = &(genovec_iter[pca_sample_ctaw2]);
         dosage_present_iter = &(dosage_present_iter[pca_sample_ctaw]);
-        dosage_vals_iter = &(dosage_vals_iter[pca_sample_ct]);
+        dosage_main_iter = &(dosage_main_iter[pca_sample_ct]);
       }
       double* cur_qq = &(qq_iter[vidx_offset * qq_col_ct]);
       RowMajorMatrixMultiplyStrided(yy_buf, g1, cur_thread_batch_size, pca_sample_ct, pc_ct_x2, pc_ct_x2, pca_sample_ct, qq_col_ct, cur_qq);
@@ -3556,11 +3560,11 @@ THREAD_FUNC_DECL CalcPcaXaThread(void* arg) {
       const uintptr_t* genovec_iter = &(g_genovecs[parity][vidx_offset * pca_sample_ctaw2]);
       const uint32_t* cur_dosage_cts = &(g_dosage_cts[parity][vidx_offset]);
       const uintptr_t* dosage_present_iter = &(g_dosage_presents[parity][vidx_offset * pca_sample_ctaw]);
-      const Dosage* dosage_vals_iter = &(g_dosage_val_bufs[parity][vidx_offset * pca_sample_ct]);
+      const Dosage* dosage_main_iter = &(g_dosage_mains[parity][vidx_offset * pca_sample_ct]);
       const double* cur_maj_freqs_iter = &(g_cur_maj_freqs[parity][vidx_offset]);
       double* yy_iter = yy_buf;
       for (uint32_t uii = 0; uii < cur_thread_batch_size; ++uii) {
-        PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_vals_iter, 1, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
+        PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
         if (reterr) {
           g_error_ret = reterr;
           break;
@@ -3568,7 +3572,7 @@ THREAD_FUNC_DECL CalcPcaXaThread(void* arg) {
         yy_iter = &(yy_iter[pca_sample_ct]);
         genovec_iter = &(genovec_iter[pca_sample_ctaw2]);
         dosage_present_iter = &(dosage_present_iter[pca_sample_ctaw]);
-        dosage_vals_iter = &(dosage_vals_iter[pca_sample_ct]);
+        dosage_main_iter = &(dosage_main_iter[pca_sample_ct]);
       }
       double* cur_qq = &(qq_iter[vidx_offset * qq_col_ct]);
       RowMajorMatrixMultiplyStrided(yy_buf, g1, cur_thread_batch_size, pca_sample_ct, pc_ct_x2, pc_ct_x2, pca_sample_ct, qq_col_ct, cur_qq);
@@ -3606,11 +3610,11 @@ THREAD_FUNC_DECL CalcPcaXtbThread(void* arg) {
       const uintptr_t* genovec_iter = &(g_genovecs[parity][vidx_offset * pca_sample_ctaw2]);
       const uint32_t* cur_dosage_cts = &(g_dosage_cts[parity][vidx_offset]);
       const uintptr_t* dosage_present_iter = &(g_dosage_presents[parity][vidx_offset * pca_sample_ctaw]);
-      const Dosage* dosage_vals_iter = &(g_dosage_val_bufs[parity][vidx_offset * pca_sample_ct]);
+      const Dosage* dosage_main_iter = &(g_dosage_mains[parity][vidx_offset * pca_sample_ct]);
       const double* cur_maj_freqs_iter = &(g_cur_maj_freqs[parity][vidx_offset]);
       double* yy_iter = yy_buf;
       for (uint32_t uii = 0; uii < cur_thread_batch_size; ++uii) {
-        PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_vals_iter, 1, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
+        PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
         if (reterr) {
           g_error_ret = reterr;
           break;
@@ -3618,7 +3622,7 @@ THREAD_FUNC_DECL CalcPcaXtbThread(void* arg) {
         yy_iter = &(yy_iter[pca_sample_ct]);
         genovec_iter = &(genovec_iter[pca_sample_ctaw2]);
         dosage_present_iter = &(dosage_present_iter[pca_sample_ctaw]);
-        dosage_vals_iter = &(dosage_vals_iter[pca_sample_ct]);
+        dosage_main_iter = &(dosage_main_iter[pca_sample_ct]);
       }
       MatrixTransposeCopy(yy_buf, cur_thread_batch_size, pca_sample_ct, y_transpose_buf);
       RowMajorMatrixMultiplyIncr(y_transpose_buf, qq_iter, pca_sample_ct, qq_col_ct, cur_thread_batch_size, bb_part_buf);
@@ -3658,11 +3662,11 @@ THREAD_FUNC_DECL CalcPcaVarWtsThread(void* arg) {
       const uintptr_t* genovec_iter = &(g_genovecs[parity][vidx_offset * pca_sample_ctaw2]);
       const uint32_t* cur_dosage_cts = &(g_dosage_cts[parity][vidx_offset]);
       const uintptr_t* dosage_present_iter = &(g_dosage_presents[parity][vidx_offset * pca_sample_ctaw]);
-      const Dosage* dosage_vals_iter = &(g_dosage_val_bufs[parity][vidx_offset * pca_sample_ct]);
+      const Dosage* dosage_main_iter = &(g_dosage_mains[parity][vidx_offset * pca_sample_ct]);
       const double* cur_maj_freqs_iter = &(g_cur_maj_freqs[parity][vidx_offset]);
       double* yy_iter = yy_buf;
       for (uint32_t uii = 0; uii < cur_thread_batch_size; ++uii) {
-        PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_vals_iter, 1, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
+        PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
         if (reterr) {
           g_error_ret = reterr;
           break;
@@ -3670,7 +3674,7 @@ THREAD_FUNC_DECL CalcPcaVarWtsThread(void* arg) {
         yy_iter = &(yy_iter[pca_sample_ct]);
         genovec_iter = &(genovec_iter[pca_sample_ctaw2]);
         dosage_present_iter = &(dosage_present_iter[pca_sample_ctaw]);
-        dosage_vals_iter = &(dosage_vals_iter[pca_sample_ct]);
+        dosage_main_iter = &(dosage_main_iter[pca_sample_ct]);
       }
       // Variant weight matrix = X^T * S * D^{-1/2}, where X^T is the
       // variance-standardized genotype matrix, S is the sample weight matrix,
@@ -3841,12 +3845,12 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
       const uintptr_t genovecs_alloc = RoundUpPow2(pca_sample_ctaw2 * kPcaVariantBlockSize * sizeof(intptr_t), kCacheline);
       const uintptr_t dosage_cts_alloc = RoundUpPow2(kPcaVariantBlockSize * sizeof(int32_t), kCacheline);
       const uintptr_t dosage_presents_alloc = RoundUpPow2(pca_sample_ctaw * kPcaVariantBlockSize * sizeof(intptr_t), kCacheline);
-      const uintptr_t dosage_vals_alloc = RoundUpPow2(pca_sample_ct * kPcaVariantBlockSize * sizeof(Dosage), kCacheline);
+      const uintptr_t dosage_main_alloc = RoundUpPow2(pca_sample_ct * kPcaVariantBlockSize * sizeof(Dosage), kCacheline);
       const uintptr_t cur_maj_freqs_alloc = RoundUpPow2(kPcaVariantBlockSize * sizeof(double), kCacheline);
       const uintptr_t yy_alloc = RoundUpPow2(kPcaVariantBlockSize * pca_sample_ct * sizeof(double), kCacheline);
       const uintptr_t b_size = pca_sample_ct * qq_col_ct;
       const uintptr_t g2_bb_part_alloc = RoundUpPow2(b_size * sizeof(double), kCacheline);
-      const uintptr_t per_thread_alloc = 2 * (genovecs_alloc + dosage_cts_alloc + dosage_presents_alloc + dosage_vals_alloc + cur_maj_freqs_alloc + yy_alloc) + g2_bb_part_alloc;
+      const uintptr_t per_thread_alloc = 2 * (genovecs_alloc + dosage_cts_alloc + dosage_presents_alloc + dosage_main_alloc + cur_maj_freqs_alloc + yy_alloc) + g2_bb_part_alloc;
 
       const uintptr_t bigstack_avail = bigstack_left();
       if (per_thread_alloc * calc_thread_ct > bigstack_avail) {
@@ -3859,7 +3863,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         g_genovecs[parity] = S_CAST(uintptr_t*, bigstack_alloc_raw(genovecs_alloc * calc_thread_ct));
         g_dosage_cts[parity] = S_CAST(uint32_t*, bigstack_alloc_raw(dosage_cts_alloc * calc_thread_ct));
         g_dosage_presents[parity] = S_CAST(uintptr_t*, bigstack_alloc_raw(dosage_presents_alloc * calc_thread_ct));
-        g_dosage_val_bufs[parity] = S_CAST(Dosage*, bigstack_alloc_raw(dosage_vals_alloc * calc_thread_ct));
+        g_dosage_mains[parity] = S_CAST(Dosage*, bigstack_alloc_raw(dosage_main_alloc * calc_thread_ct));
         g_cur_maj_freqs[parity] = S_CAST(double*, bigstack_alloc_raw(cur_maj_freqs_alloc * calc_thread_ct));
       }
       for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
@@ -3909,12 +3913,12 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             uintptr_t* genovec_iter = g_genovecs[parity];
             uint32_t* dosage_ct_iter = g_dosage_cts[parity];
             uintptr_t* dosage_present_iter = g_dosage_presents[parity];
-            Dosage* dosage_vals_iter = g_dosage_val_bufs[parity];
+            Dosage* dosage_main_iter = g_dosage_mains[parity];
             double* maj_freqs_write_iter = g_cur_maj_freqs[parity];
             for (uint32_t variant_idx = cur_variant_idx_start; variant_idx < cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
               MovU32To1Bit(variant_include, &variant_uidx);
               uint32_t dosage_ct;
-              reterr = PgrGetD(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_vals_iter, &dosage_ct);
+              reterr = PgrGetD(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_main_iter, &dosage_ct);
               if (reterr) {
                 if (reterr == kPglRetMalformedInput) {
                   logputs("\n");
@@ -3926,14 +3930,14 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
               if (maj_allele_idx) {
                 GenovecInvertUnsafe(pca_sample_ct, genovec_iter);
                 if (dosage_ct) {
-                  BiallelicDosage16Invert(dosage_ct, dosage_vals_iter);
+                  BiallelicDosage16Invert(dosage_ct, dosage_main_iter);
                 }
               }
               ZeroTrailingQuaters(pca_sample_ct, genovec_iter);
               genovec_iter = &(genovec_iter[pca_sample_ctaw2]);
               *dosage_ct_iter++ = dosage_ct;
               dosage_present_iter = &(dosage_present_iter[pca_sample_ctaw]);
-              dosage_vals_iter = &(dosage_vals_iter[pca_sample_ct]);
+              dosage_main_iter = &(dosage_main_iter[pca_sample_ct]);
               uintptr_t allele_idx_base;
               if (!variant_allele_idxs) {
                 allele_idx_base = variant_uidx;
@@ -4028,12 +4032,12 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           uintptr_t* genovec_iter = g_genovecs[parity];
           uint32_t* dosage_ct_iter = g_dosage_cts[parity];
           uintptr_t* dosage_present_iter = g_dosage_presents[parity];
-          Dosage* dosage_vals_iter = g_dosage_val_bufs[parity];
+          Dosage* dosage_main_iter = g_dosage_mains[parity];
           double* maj_freqs_write_iter = g_cur_maj_freqs[parity];
           for (uint32_t variant_idx = cur_variant_idx_start; variant_idx < cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
             MovU32To1Bit(variant_include, &variant_uidx);
             uint32_t dosage_ct;
-            reterr = PgrGetD(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_vals_iter, &dosage_ct);
+            reterr = PgrGetD(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_main_iter, &dosage_ct);
             if (reterr) {
               goto CalcPca_ret_READ_FAIL;
             }
@@ -4041,14 +4045,14 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             if (maj_allele_idx) {
               GenovecInvertUnsafe(pca_sample_ct, genovec_iter);
               if (dosage_ct) {
-                BiallelicDosage16Invert(dosage_ct, dosage_vals_iter);
+                BiallelicDosage16Invert(dosage_ct, dosage_main_iter);
               }
             }
             ZeroTrailingQuaters(pca_sample_ct, genovec_iter);
             genovec_iter = &(genovec_iter[pca_sample_ctaw2]);
             *dosage_ct_iter++ = dosage_ct;
             dosage_present_iter = &(dosage_present_iter[pca_sample_ctaw]);
-            dosage_vals_iter = &(dosage_vals_iter[pca_sample_ct]);
+            dosage_main_iter = &(dosage_main_iter[pca_sample_ct]);
             uintptr_t allele_idx_base;
             if (!variant_allele_idxs) {
               allele_idx_base = variant_uidx;
@@ -4242,10 +4246,10 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         const uintptr_t genovecs_alloc = RoundUpPow2(pca_sample_ctaw2 * kPcaVariantBlockSize * sizeof(intptr_t), kCacheline);
         const uintptr_t dosage_cts_alloc = RoundUpPow2(kPcaVariantBlockSize * sizeof(int32_t), kCacheline);
         const uintptr_t dosage_presents_alloc = RoundUpPow2(pca_sample_ctaw * kPcaVariantBlockSize * sizeof(intptr_t), kCacheline);
-        const uintptr_t dosage_vals_alloc = RoundUpPow2(pca_sample_ct * kPcaVariantBlockSize * sizeof(Dosage), kCacheline);
+        const uintptr_t dosage_main_alloc = RoundUpPow2(pca_sample_ct * kPcaVariantBlockSize * sizeof(Dosage), kCacheline);
         const uintptr_t cur_maj_freqs_alloc = RoundUpPow2(kPcaVariantBlockSize * sizeof(double), kCacheline);
         const uintptr_t yy_alloc = RoundUpPow2(kPcaVariantBlockSize * pca_sample_ct * sizeof(double), kCacheline);
-        const uintptr_t per_thread_alloc = 2 * (genovecs_alloc + dosage_cts_alloc + dosage_presents_alloc + dosage_vals_alloc + cur_maj_freqs_alloc) + yy_alloc + var_wts_part_alloc;
+        const uintptr_t per_thread_alloc = 2 * (genovecs_alloc + dosage_cts_alloc + dosage_presents_alloc + dosage_main_alloc + cur_maj_freqs_alloc) + yy_alloc + var_wts_part_alloc;
         if (per_thread_alloc * calc_thread_ct > arena_avail) {
           if (arena_avail < per_thread_alloc) {
             goto CalcPca_ret_NOMEM;
@@ -4257,7 +4261,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           g_genovecs[parity] = S_CAST(uintptr_t*, arena_alloc_raw(genovecs_alloc * calc_thread_ct, &arena_bottom));
           g_dosage_cts[parity] = S_CAST(uint32_t*, arena_alloc_raw(dosage_cts_alloc * calc_thread_ct, &arena_bottom));
           g_dosage_presents[parity] = S_CAST(uintptr_t*, arena_alloc_raw(dosage_presents_alloc * calc_thread_ct, &arena_bottom));
-          g_dosage_val_bufs[parity] = S_CAST(Dosage*, arena_alloc_raw(dosage_vals_alloc * calc_thread_ct, &arena_bottom));
+          g_dosage_mains[parity] = S_CAST(Dosage*, arena_alloc_raw(dosage_main_alloc * calc_thread_ct, &arena_bottom));
           g_cur_maj_freqs[parity] = S_CAST(double*, arena_alloc_raw(cur_maj_freqs_alloc * calc_thread_ct, &arena_bottom));
         }
         for (uint32_t tidx = 0; tidx < calc_thread_ct; ++tidx) {
@@ -4293,12 +4297,12 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           uintptr_t* genovec_iter = g_genovecs[parity];
           uint32_t* dosage_ct_iter = g_dosage_cts[parity];
           uintptr_t* dosage_present_iter = g_dosage_presents[parity];
-          Dosage* dosage_vals_iter = g_dosage_val_bufs[parity];
+          Dosage* dosage_main_iter = g_dosage_mains[parity];
           double* maj_freqs_write_iter = g_cur_maj_freqs[parity];
           for (uint32_t variant_idx = cur_variant_idx_start; variant_idx < cur_variant_idx_end; ++variant_uidx_load, ++variant_idx) {
             MovU32To1Bit(variant_include, &variant_uidx_load);
             uint32_t dosage_ct;
-            reterr = PgrGetD(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx_load, simple_pgrp, genovec_iter, dosage_present_iter, dosage_vals_iter, &dosage_ct);
+            reterr = PgrGetD(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx_load, simple_pgrp, genovec_iter, dosage_present_iter, dosage_main_iter, &dosage_ct);
             if (reterr) {
               goto CalcPca_ret_READ_FAIL;
             }
@@ -4306,14 +4310,14 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             if (maj_allele_idx) {
               GenovecInvertUnsafe(pca_sample_ct, genovec_iter);
               if (dosage_ct) {
-                BiallelicDosage16Invert(dosage_ct, dosage_vals_iter);
+                BiallelicDosage16Invert(dosage_ct, dosage_main_iter);
               }
             }
             ZeroTrailingQuaters(pca_sample_ct, genovec_iter);
             genovec_iter = &(genovec_iter[pca_sample_ctaw2]);
             *dosage_ct_iter++ = dosage_ct;
             dosage_present_iter = &(dosage_present_iter[pca_sample_ctaw]);
-            dosage_vals_iter = &(dosage_vals_iter[pca_sample_ct]);
+            dosage_main_iter = &(dosage_main_iter[pca_sample_ct]);
             uintptr_t allele_idx_base;
             if (!variant_allele_idxs) {
               allele_idx_base = variant_uidx_load;
@@ -4540,7 +4544,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
 
 // to test: do we actually want cur_dosage_ints to be uint64_t* instead of
 // uint32_t*?
-void FillCurDosageInts(const uintptr_t* genovec_buf, const uintptr_t* dosage_present, const Dosage* dosage_vals_buf, uint32_t sample_ct, uint32_t dosage_ct, uint32_t is_diploid_p1, uint64_t* cur_dosage_ints) {
+void FillCurDosageInts(const uintptr_t* genovec_buf, const uintptr_t* dosage_present, const Dosage* dosage_main_buf, uint32_t sample_ct, uint32_t dosage_ct, uint32_t is_diploid_p1, uint64_t* cur_dosage_ints) {
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
   uint32_t loop_len = kBitsPerWordD2;
   uint32_t widx = 0;
@@ -4569,7 +4573,7 @@ void FillCurDosageInts(const uintptr_t* genovec_buf, const uintptr_t* dosage_pre
   uint32_t sample_idx = 0;
   for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_idx) {
     MovU32To1Bit(dosage_present, &sample_idx);
-    cur_dosage_ints[sample_idx] = dosage_vals_buf[dosage_idx] * is_diploid_p1;
+    cur_dosage_ints[sample_idx] = dosage_main_buf[dosage_idx] * is_diploid_p1;
   }
 }
 
@@ -4758,7 +4762,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     uintptr_t* sex_nonmale_collapsed = nullptr;
     uintptr_t* genovec_buf = nullptr;
     uintptr_t* dosage_present_buf = nullptr;
-    Dosage* dosage_vals_buf = nullptr;
+    Dosage* dosage_main_buf = nullptr;
     uintptr_t* missing_acc1 = nullptr;
     uintptr_t* missing_male_acc1 = nullptr;
     uint64_t* dosage_sums;
@@ -4776,7 +4780,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
         bigstack_alloc_w(sample_ctl, &sex_nonmale_collapsed) ||
         bigstack_alloc_w(sample_ctl2, &genovec_buf) ||
         bigstack_alloc_w(sample_ctl, &dosage_present_buf) ||
-        bigstack_alloc_dosage(sample_ct, &dosage_vals_buf) ||
+        bigstack_alloc_dosage(sample_ct, &dosage_main_buf) ||
         bigstack_alloc_w(45 * acc1_vec_ct * kWordsPerVec, &missing_acc1) ||
         bigstack_alloc_w(45 * acc1_vec_ct * kWordsPerVec, &missing_male_acc1) ||
         bigstack_calloc_u64(sample_ct, &dosage_sums) ||
@@ -4799,7 +4803,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
     ZeroWArr(acc8_vec_ct * (4 * kWordsPerVec), missing_haploid_acc32);
     FillCumulativePopcounts(sample_include, raw_sample_ctl, sample_include_cumulative_popcounts);
     CopyBitarrSubset(sex_male, sample_include, sample_ct, sex_nonmale_collapsed);
-    BitarrInvert(sample_ct, sex_nonmale_collapsed);
+    AlignedBitarrInvert(sample_ct, sex_nonmale_collapsed);
     const uint32_t nonmale_ct = PopcountWords(sex_nonmale_collapsed, sample_ctl);
     const uint32_t male_ct = sample_ct - nonmale_ct;
     uint32_t* variant_id_htable = nullptr;
@@ -4893,7 +4897,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             // okay, the variant and allele are in our dataset.  Load it.
             // (todo: make this work in multiallelic case)
             uint32_t dosage_ct;
-            reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec_buf, dosage_present_buf, dosage_vals_buf, &dosage_ct);
+            reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec_buf, dosage_present_buf, dosage_main_buf, &dosage_ct);
             if (reterr) {
               if (reterr == kPglRetMalformedInput) {
                 logputs("\n");
@@ -4923,7 +4927,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             if (!cur_allele_idx) {
               GenovecInvertUnsafe(sample_ct, genovec_buf);
               if (dosage_ct) {
-                BiallelicDosage16Invert(dosage_ct, dosage_vals_buf);
+                BiallelicDosage16Invert(dosage_ct, dosage_main_buf);
               }
             }
             ZeroTrailingQuaters(sample_ct, genovec_buf);
@@ -4931,7 +4935,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             if (dosage_ct) {
               BitvecAndNot(dosage_present_buf, sample_ctl, missing_acc1);
             }
-            FillCurDosageInts(genovec_buf, dosage_present_buf, dosage_vals_buf, sample_ct, dosage_ct, 2 - is_nonx_haploid, dosage_incrs);
+            FillCurDosageInts(genovec_buf, dosage_present_buf, dosage_main_buf, sample_ct, dosage_ct, 2 - is_nonx_haploid, dosage_incrs);
             double ploidy_d;
             if (is_nonx_haploid) {
               if (is_y) {
@@ -5138,6 +5142,7 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
               const uint32_t is_not_first_block = (ts.thread_func_ptr != nullptr);
               if (is_not_first_block) {
                 JoinThreads3z(&ts);
+                // CalcScoreThread() never errors out
               } else {
                 ts.thread_func_ptr = CalcScoreThread;
               }

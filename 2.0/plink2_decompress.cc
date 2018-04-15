@@ -164,7 +164,7 @@ PglErr IsBgzf(const char* fname, uint32_t* is_bgzf_ptr) {
     return kPglRetOpenFail;
   }
   unsigned char buf[16];
-  if (!fread(buf, 16, 1, infile)) {
+  if (!fread_unlocked(buf, 16, 1, infile)) {
     fclose(infile);
     return kPglRetReadFail;
   }
@@ -550,6 +550,8 @@ PglErr RlsOpenMaybeBgzf(const char* fname, __maybe_unused uint32_t calc_thread_c
         return kPglRetNomem;
       }
     }
+#else
+    calc_thread_ct = 1;
 #endif
     rlsp->bgzf_decompress_thread_ct = calc_thread_ct;
   } else {
