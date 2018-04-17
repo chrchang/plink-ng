@@ -3732,6 +3732,7 @@ PglErr RefFromFa(const uintptr_t* variant_include, const uint32_t* variant_bps, 
           }
         }
         skip_chr = (chr_fo_idx == UINT32_MAX);
+        *chr_name_end = '\n';  // bugfix (16 Apr 2018)
         continue;
       }
       const char* line_start = line_iter;

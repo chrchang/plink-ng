@@ -492,7 +492,6 @@ CONSTU31(kPglMaxDeltalistLenDivisor, 9);
 //   e. one "delta segment"/group: [array of [group size - 1] VINT values,
 //      each indicating the difference between the current and previous sample
 //      IDs; i.e. value is 1 for two consecutive samples]
-//   f. [if multiallelic, array of appropriate-length disambiguation values]
 
 
 // PgenFileInfo and PgenReader are the main exported "classes".
@@ -535,6 +534,13 @@ struct PgenFileInfoStruct {
   //         listed 0b11 values, the rest are assumed to be actual missing
   //         data.  (101 should practically never happen--gross violation of
   //         Hardy-Weinberg equilibrium--so it's reserved for future use.)
+  //         ***** warning (16 Apr 2018) *****
+  //         original multiallelic plan will probably be thrown out, to be
+  //         replaced by 0b01 = ref/altx, 0b10 = altx/alty.  Many subsequent
+  //         pgenlib_internal comments and code relating to multiallelic
+  //         variants should be ignored; they will be replaced during
+  //         implementation.
+  //         ***** end warning *****
   //   010 = Differences-from-earlier-variant encoding ("LD compression").  The
   //         last variant without this type of encoding is the base.
   //         To simplify random access logic, the first variant in each vblock
