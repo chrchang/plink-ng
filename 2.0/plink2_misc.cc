@@ -2812,7 +2812,7 @@ PglErr ComputeHweXPvals(const uintptr_t* variant_include, const uint32_t* founde
   return reterr;
 }
 
-PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const uint32_t* founder_raw_geno_cts, const uint32_t* founder_x_male_geno_cts, const uint32_t* founder_x_nosex_geno_cts, const double* hwe_x_pvals, uint32_t variant_ct, uint32_t hwe_x_ct, uint32_t max_allele_slen, double output_min_p, HardyFlags hardy_flags, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end) {
+PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const uint32_t* founder_raw_geno_cts, const uint32_t* founder_x_male_geno_cts, const uint32_t* founder_x_nosex_geno_cts, const double* hwe_x_pvals, uint32_t variant_ct, uint32_t hwe_x_ct, uint32_t max_allele_slen, double output_min_ln, HardyFlags hardy_flags, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -2828,6 +2828,7 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
     const uint32_t chr_code_endl = BitCtToWordCt(chr_code_end);
     const uintptr_t overflow_buf_size = RoundUpPow2(kCompressStreamBlock + max_chr_blen + kMaxIdSlen + 512 + 2 * max_allele_slen, kCacheline);
     const uint32_t output_zst = hardy_flags & kfHardyZs;
+    const double output_min_p = (output_min_ln < kLnDenormalMin)? 0 : exp(output_min_ln);
     uintptr_t overflow_buf_alloc = overflow_buf_size;
     if (output_zst) {
       overflow_buf_alloc += CstreamWkspaceReq(overflow_buf_size);

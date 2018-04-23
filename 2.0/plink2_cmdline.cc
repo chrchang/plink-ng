@@ -161,11 +161,7 @@ int32_t double_cmp_decr(const void* aa, const void* bb) {
   return (dxx < dyy);
 }
 
-int32_t intcmp(const void* aa, const void* bb) {
-  return *S_CAST(const int32_t*, aa) - *S_CAST(const int32_t*, bb);
-}
-
-int32_t uint64cmp(const void* aa, const void* bb) {
+int32_t u64cmp(const void* aa, const void* bb) {
   const uint64_t ullaa = *S_CAST(const uint64_t*, aa);
   const uint64_t ullbb = *S_CAST(const uint64_t*, bb);
   if (ullaa < ullbb) {
@@ -175,7 +171,7 @@ int32_t uint64cmp(const void* aa, const void* bb) {
 }
 
 #ifndef __cplusplus
-int32_t uint64cmp_decr(const void* aa, const void* bb) {
+int32_t u64cmp_decr(const void* aa, const void* bb) {
   const uint64_t ullaa = *S_CAST(const uint64_t*, aa);
   const uint64_t ullbb = *S_CAST(const uint64_t*, bb);
   if (ullaa > ullbb) {
@@ -462,7 +458,7 @@ BoolErr CleanupLogfile(uint32_t print_end_time) {
 unsigned char* g_bigstack_base = nullptr;
 unsigned char* g_bigstack_end = nullptr;
 
-uintptr_t DetectMb() {
+uintptr_t DetectMib() {
   int64_t llxx;
   // return zero if detection failed
   // see e.g. http://nadeausoftware.com/articles/2012/09/c_c_tip_how_get_physical_memory_size_system .
@@ -487,40 +483,40 @@ uintptr_t DetectMb() {
   return llxx;
 }
 
-uintptr_t GetDefaultAllocMb() {
-  const uintptr_t total_mb = DetectMb();
-  if (!total_mb) {
-    return kBigstackDefaultMb;
+uintptr_t GetDefaultAllocMib() {
+  const uintptr_t total_mib = DetectMib();
+  if (!total_mib) {
+    return kBigstackDefaultMib;
   }
-  if (total_mb < (kBigstackMinMb * 2)) {
-    return kBigstackMinMb;
+  if (total_mib < (kBigstackMinMib * 2)) {
+    return kBigstackMinMib;
   }
-  return (total_mb / 2);
+  return (total_mib / 2);
 }
 
-PglErr InitBigstack(uintptr_t malloc_size_mb, uintptr_t* malloc_mb_final_ptr, unsigned char** bigstack_ua_ptr) {
+PglErr InitBigstack(uintptr_t malloc_size_mib, uintptr_t* malloc_mib_final_ptr, unsigned char** bigstack_ua_ptr) {
   // guarantee contiguous malloc space outside of main workspace
   unsigned char* bubble;
   if (pgl_malloc(kNonBigstackMin, &bubble)) {
     return kPglRetNomem;
   }
-  assert(malloc_size_mb >= kBigstackMinMb);
+  assert(malloc_size_mib >= kBigstackMinMib);
 #ifndef __LP64__
-  assert(malloc_size_mb <= 2047);
+  assert(malloc_size_mib <= 2047);
 #endif
   // don't use pgl_malloc here since we don't automatically want to set
   // g_failed_alloc_attempt_size on failure
-  unsigned char* bigstack_ua = S_CAST(unsigned char*, malloc(malloc_size_mb * 1048576 * sizeof(char)));
+  unsigned char* bigstack_ua = S_CAST(unsigned char*, malloc(malloc_size_mib * 1048576 * sizeof(char)));
   // this is thwarted by overcommit, but still better than nothing...
   while (!bigstack_ua) {
-    malloc_size_mb = (malloc_size_mb * 3) / 4;
-    if (malloc_size_mb < kBigstackMinMb) {
-      malloc_size_mb = kBigstackMinMb;
+    malloc_size_mib = (malloc_size_mib * 3) / 4;
+    if (malloc_size_mib < kBigstackMinMib) {
+      malloc_size_mib = kBigstackMinMib;
     }
-    bigstack_ua = S_CAST(unsigned char*, malloc(malloc_size_mb * 1048576 * sizeof(char)));
-    if ((!bigstack_ua) && (malloc_size_mb == kBigstackMinMb)) {
+    bigstack_ua = S_CAST(unsigned char*, malloc(malloc_size_mib * 1048576 * sizeof(char)));
+    if ((!bigstack_ua) && (malloc_size_mib == kBigstackMinMib)) {
       // switch to "goto cleanup" pattern if any more exit points are needed
-      g_failed_alloc_attempt_size = kBigstackMinMb * 1048576;
+      g_failed_alloc_attempt_size = kBigstackMinMib * 1048576;
       free(bubble);
       return kPglRetNomem;
     }
@@ -529,7 +525,7 @@ PglErr InitBigstack(uintptr_t malloc_size_mb, uintptr_t* malloc_mb_final_ptr, un
   unsigned char* bigstack_initial_base = R_CAST(unsigned char*, RoundUpPow2(R_CAST(uintptr_t, bigstack_ua), kCacheline));
   g_bigstack_base = bigstack_initial_base;
   // last 512 bytes now reserved for g_one_char_strs
-  g_bigstack_end = &(bigstack_initial_base[RoundDownPow2(malloc_size_mb * 1048576 - 512 - S_CAST(uintptr_t, bigstack_initial_base - bigstack_ua), kCacheline)]);
+  g_bigstack_end = &(bigstack_initial_base[RoundDownPow2(malloc_size_mib * 1048576 - 512 - S_CAST(uintptr_t, bigstack_initial_base - bigstack_ua), kCacheline)]);
   free(bubble);
   uintptr_t* one_char_iter = R_CAST(uintptr_t*, g_bigstack_end);
 #ifdef __LP64__
@@ -553,7 +549,7 @@ PglErr InitBigstack(uintptr_t malloc_size_mb, uintptr_t* malloc_mb_final_ptr, un
   g_input_missing_geno_ptr = &(g_one_char_strs[96]);
   g_output_missing_geno_ptr = &(g_one_char_strs[92]);
 
-  *malloc_mb_final_ptr = malloc_size_mb;
+  *malloc_mib_final_ptr = malloc_size_mib;
   *bigstack_ua_ptr = bigstack_ua;
   return kPglRetSuccess;
 }
@@ -791,39 +787,39 @@ BoolErr bigstack_calloc_f(uintptr_t ct, float** f_arr_ptr) {
   return 0;
 }
 
-BoolErr bigstack_calloc_u16(uintptr_t ct, uint16_t** usi_arr_ptr) {
-  *usi_arr_ptr = S_CAST(uint16_t*, bigstack_alloc(ct * sizeof(int16_t)));
-  if (!(*usi_arr_ptr)) {
+BoolErr bigstack_calloc_u16(uintptr_t ct, uint16_t** u16_arr_ptr) {
+  *u16_arr_ptr = S_CAST(uint16_t*, bigstack_alloc(ct * sizeof(int16_t)));
+  if (!(*u16_arr_ptr)) {
     return 1;
   }
-  memset(*usi_arr_ptr, 0, ct * sizeof(int16_t));
+  memset(*u16_arr_ptr, 0, ct * sizeof(int16_t));
   return 0;
 }
 
-BoolErr bigstack_calloc_u32(uintptr_t ct, uint32_t** ui_arr_ptr) {
-  *ui_arr_ptr = S_CAST(uint32_t*, bigstack_alloc(ct * sizeof(int32_t)));
-  if (!(*ui_arr_ptr)) {
+BoolErr bigstack_calloc_u32(uintptr_t ct, uint32_t** u32_arr_ptr) {
+  *u32_arr_ptr = S_CAST(uint32_t*, bigstack_alloc(ct * sizeof(int32_t)));
+  if (!(*u32_arr_ptr)) {
     return 1;
   }
-  ZeroU32Arr(ct, *ui_arr_ptr);
+  ZeroU32Arr(ct, *u32_arr_ptr);
   return 0;
 }
 
-BoolErr bigstack_calloc_w(uintptr_t ct, uintptr_t** ul_arr_ptr) {
-  *ul_arr_ptr = S_CAST(uintptr_t*, bigstack_alloc(ct * sizeof(intptr_t)));
-  if (!(*ul_arr_ptr)) {
+BoolErr bigstack_calloc_w(uintptr_t ct, uintptr_t** w_arr_ptr) {
+  *w_arr_ptr = S_CAST(uintptr_t*, bigstack_alloc(ct * sizeof(intptr_t)));
+  if (!(*w_arr_ptr)) {
     return 1;
   }
-  ZeroWArr(ct, *ul_arr_ptr);
+  ZeroWArr(ct, *w_arr_ptr);
   return 0;
 }
 
-BoolErr bigstack_calloc_u64(uintptr_t ct, uint64_t** ull_arr_ptr) {
-  *ull_arr_ptr = S_CAST(uint64_t*, bigstack_alloc(ct * sizeof(int64_t)));
-  if (!(*ull_arr_ptr)) {
+BoolErr bigstack_calloc_u64(uintptr_t ct, uint64_t** u64_arr_ptr) {
+  *u64_arr_ptr = S_CAST(uint64_t*, bigstack_alloc(ct * sizeof(int64_t)));
+  if (!(*u64_arr_ptr)) {
     return 1;
   }
-  ZeroU64Arr(ct, *ull_arr_ptr);
+  ZeroU64Arr(ct, *u64_arr_ptr);
   return 0;
 }
 
@@ -854,30 +850,30 @@ BoolErr bigstack_end_calloc_f(uintptr_t ct, float** f_arr_ptr) {
   return 0;
 }
 
-BoolErr bigstack_end_calloc_u32(uintptr_t ct, uint32_t** ui_arr_ptr) {
-  *ui_arr_ptr = S_CAST(uint32_t*, bigstack_end_alloc(ct * sizeof(int32_t)));
-  if (!(*ui_arr_ptr)) {
+BoolErr bigstack_end_calloc_u32(uintptr_t ct, uint32_t** u32_arr_ptr) {
+  *u32_arr_ptr = S_CAST(uint32_t*, bigstack_end_alloc(ct * sizeof(int32_t)));
+  if (!(*u32_arr_ptr)) {
     return 1;
   }
-  ZeroU32Arr(ct, *ui_arr_ptr);
+  ZeroU32Arr(ct, *u32_arr_ptr);
   return 0;
 }
 
-BoolErr bigstack_end_calloc_w(uintptr_t ct, uintptr_t** ul_arr_ptr) {
-  *ul_arr_ptr = S_CAST(uintptr_t*, bigstack_end_alloc(ct * sizeof(intptr_t)));
-  if (!(*ul_arr_ptr)) {
+BoolErr bigstack_end_calloc_w(uintptr_t ct, uintptr_t** w_arr_ptr) {
+  *w_arr_ptr = S_CAST(uintptr_t*, bigstack_end_alloc(ct * sizeof(intptr_t)));
+  if (!(*w_arr_ptr)) {
     return 1;
   }
-  ZeroWArr(ct, *ul_arr_ptr);
+  ZeroWArr(ct, *w_arr_ptr);
   return 0;
 }
 
-BoolErr bigstack_end_calloc_u64(uintptr_t ct, uint64_t** ull_arr_ptr) {
-  *ull_arr_ptr = S_CAST(uint64_t*, bigstack_end_alloc(ct * sizeof(int64_t)));
-  if (!(*ull_arr_ptr)) {
+BoolErr bigstack_end_calloc_u64(uintptr_t ct, uint64_t** u64_arr_ptr) {
+  *u64_arr_ptr = S_CAST(uint64_t*, bigstack_end_alloc(ct * sizeof(int64_t)));
+  if (!(*u64_arr_ptr)) {
     return 1;
   }
-  ZeroU64Arr(ct, *ull_arr_ptr);
+  ZeroU64Arr(ct, *u64_arr_ptr);
   return 0;
 }
 
@@ -3836,7 +3832,7 @@ PglErr CmdlineParsePhase2(const char* ver_str, const char* errstr_append, const 
   return reterr;
 }
 
-PglErr CmdlineParsePhase3(uintptr_t max_default_mb, uintptr_t malloc_size_mb, uint32_t memory_require, Plink2CmdlineMeta* pcmp, unsigned char** bigstack_ua_ptr) {
+PglErr CmdlineParsePhase3(uintptr_t max_default_mib, uintptr_t malloc_size_mib, uint32_t memory_require, Plink2CmdlineMeta* pcmp, unsigned char** bigstack_ua_ptr) {
   PglErr reterr = kPglRetSuccess;
   {
     if (pcmp->subst_argv) {
@@ -3860,40 +3856,40 @@ PglErr CmdlineParsePhase3(uintptr_t max_default_mb, uintptr_t malloc_size_mb, ui
       pcmp->flag_map = nullptr;
     }
 
-    uint64_t total_mb = DetectMb();
-    if (!malloc_size_mb) {
-      if (!total_mb) {
-        malloc_size_mb = max_default_mb? max_default_mb : kBigstackDefaultMb;
-      } else if (total_mb < (kBigstackMinMb * 2)) {
-        malloc_size_mb = kBigstackMinMb;
+    uint64_t total_mib = DetectMib();
+    if (!malloc_size_mib) {
+      if (!total_mib) {
+        malloc_size_mib = max_default_mib? max_default_mib : kBigstackDefaultMib;
+      } else if (total_mib < (kBigstackMinMib * 2)) {
+        malloc_size_mib = kBigstackMinMib;
       } else {
-        malloc_size_mb = total_mb / 2;
-        if (max_default_mb && (malloc_size_mb > max_default_mb)) {
-          malloc_size_mb = max_default_mb;
+        malloc_size_mib = total_mib / 2;
+        if (max_default_mib && (malloc_size_mib > max_default_mib)) {
+          malloc_size_mib = max_default_mib;
         }
       }
     }
-    assert(malloc_size_mb >= kBigstackMinMb);
+    assert(malloc_size_mib >= kBigstackMinMib);
 #ifndef __LP64__
-    if (malloc_size_mb > kMalloc32bitMbMax) {
-      malloc_size_mb = kMalloc32bitMbMax;
+    if (malloc_size_mib > kMalloc32bitMibMax) {
+      malloc_size_mib = kMalloc32bitMibMax;
     }
 #endif
-    if (total_mb) {
-      snprintf(g_logbuf, kLogbufSize, "%" PRIu64 " MB RAM detected; reserving %" PRIuPTR " MB for main workspace.\n", total_mb, malloc_size_mb);
+    if (total_mib) {
+      snprintf(g_logbuf, kLogbufSize, "%" PRIu64 " MiB RAM detected; reserving %" PRIuPTR " MiB for main workspace.\n", total_mib, malloc_size_mib);
     } else {
-      snprintf(g_logbuf, kLogbufSize, "Failed to determine total system memory.  Attempting to reserve %" PRIuPTR " MB.\n", malloc_size_mb);
+      snprintf(g_logbuf, kLogbufSize, "Failed to determine total system memory.  Attempting to reserve %" PRIuPTR " MiB.\n", malloc_size_mib);
     }
     logputsb();
-    uintptr_t malloc_mb_final;
-    if (InitBigstack(malloc_size_mb, &malloc_mb_final, bigstack_ua_ptr)) {
+    uintptr_t malloc_mib_final;
+    if (InitBigstack(malloc_size_mib, &malloc_mib_final, bigstack_ua_ptr)) {
       goto CmdlineParsePhase3_ret_NOMEM;
     }
-    if (malloc_size_mb != malloc_mb_final) {
+    if (malloc_size_mib != malloc_mib_final) {
       if (memory_require) {
         goto CmdlineParsePhase3_ret_NOMEM;
       }
-      logprintf("Allocated %" PRIuPTR " MB successfully, after larger attempt(s) failed.\n", malloc_mb_final);
+      logprintf("Allocated %" PRIuPTR " MiB successfully, after larger attempt(s) failed.\n", malloc_mib_final);
     }
 
 #ifndef _WIN32
@@ -4196,7 +4192,7 @@ PglErr SearchHeaderLine(const char* header_line_iter, const char* const* search_
 #ifdef __cplusplus
       std::sort(cols_and_types, &(cols_and_types[search_col_ct]));
 #else
-      qsort(cols_and_types, search_col_ct, sizeof(int64_t), uint64cmp);
+      qsort(cols_and_types, search_col_ct, sizeof(int64_t), u64cmp);
 #endif
       uint32_t prev_col_idx = cols_and_types[0] >> 32;
       col_skips[0] = prev_col_idx;

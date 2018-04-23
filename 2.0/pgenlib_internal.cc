@@ -6507,7 +6507,7 @@ PglErr PgrGetMissingnessDosage(const uintptr_t* __restrict sample_include, const
 }
 */
 
-PglErr PgrGetMissingnessPD(const uintptr_t* __restrict sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict missingness_hc, uintptr_t* __restrict missingness_dosage, uintptr_t* __restrict hets, uintptr_t* __restrict genovec_buf) {
+PglErr PgrGetMissingnessD(const uintptr_t* __restrict sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict missingness_hc, uintptr_t* __restrict missingness_dosage, uintptr_t* __restrict hets, uintptr_t* __restrict genovec_buf) {
   // either missingness_hc or missingness_dosage must be non-null
   assert(vidx < pgrp->fi.raw_variant_ct);
   if (!sample_ct) {

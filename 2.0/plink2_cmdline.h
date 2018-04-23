@@ -312,13 +312,10 @@ int32_t double_cmp(const void* aa, const void* bb);
 
 int32_t double_cmp_decr(const void* aa, const void* bb);
 
-// requires all elements to be within 2^31 - 1 of each other
-int32_t intcmp(const void* aa, const void* bb);
-
-int32_t uint64cmp(const void* aa, const void* bb);
+int32_t u64cmp(const void* aa, const void* bb);
 
 #ifndef __cplusplus
-int32_t uint64cmp_decr(const void* aa, const void* bb);
+int32_t u64cmp_decr(const void* aa, const void* bb);
 #endif
 
 HEADER_INLINE uint32_t U32ArrMax(const uint32_t* unsorted_arr, uintptr_t len) {
@@ -424,15 +421,13 @@ BoolErr CleanupLogfile(uint32_t print_end_time);
 
 CONSTU31(kNonBigstackMin, 67108864);
 
-CONSTU31(kBigstackMinMb, 640);
-CONSTU31(kBigstackDefaultMb, 2048);
+CONSTU31(kBigstackMinMib, 640);
+CONSTU31(kBigstackDefaultMib, 2048);
 
 static const double kPi = 3.1415926535897932;
 static const double kSqrt2 = 1.4142135623730951;
 static const double kRecipE = 0.36787944117144233;
 static const double kLn2 = 0.6931471805599453;
-static const double kLn10 = 2.3025850929940457;
-static const double kRecipLn10 = 0.43429448190325176;
 static const double kRecip2m53 = 0.00000000000000011102230246251565404236316680908203125;
 static const double kRecip2m32 = 0.00000000023283064365386962890625;
 static const double k2m64 = 18446744073709551616.0;
@@ -451,18 +446,20 @@ static const double kBigEpsilon = 0.000000476837158203125;
 // allow tail sum to be up to 2^30.)
 static const double kExactTestBias = 0.00000000000000000000000010339757656912845935892608650874535669572651386260986328125;
 
+static const double kLnPvalError = 9.0;
+
 // probably time to flip arena_alloc and bigstack_alloc definitions...
 
 // manually managed, very large double-ended stack
 extern unsigned char* g_bigstack_base;
 extern unsigned char* g_bigstack_end;
 
-uintptr_t DetectMb();
+uintptr_t DetectMib();
 
-uintptr_t GetDefaultAllocMb();
+uintptr_t GetDefaultAllocMib();
 
 // caller is responsible for freeing bigstack_ua
-PglErr InitBigstack(uintptr_t malloc_size_mb, uintptr_t* malloc_mb_final_ptr, unsigned char** bigstack_ua_ptr);
+PglErr InitBigstack(uintptr_t malloc_size_mib, uintptr_t* malloc_mib_final_ptr, unsigned char** bigstack_ua_ptr);
 
 
 HEADER_INLINE uintptr_t bigstack_left() {
@@ -516,14 +513,14 @@ HEADER_INLINE BoolErr bigstack_alloc_f(uintptr_t ct, float** f_arr_ptr) {
   return !(*f_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_alloc_i16(uintptr_t ct, int16_t** si_arr_ptr) {
-  *si_arr_ptr = S_CAST(int16_t*, bigstack_alloc(ct * sizeof(int16_t)));
-  return !(*si_arr_ptr);
+HEADER_INLINE BoolErr bigstack_alloc_i16(uintptr_t ct, int16_t** i16_arr_ptr) {
+  *i16_arr_ptr = S_CAST(int16_t*, bigstack_alloc(ct * sizeof(int16_t)));
+  return !(*i16_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_alloc_i32(uintptr_t ct, int32_t** i_arr_ptr) {
-  *i_arr_ptr = S_CAST(int32_t*, bigstack_alloc(ct * sizeof(int32_t)));
-  return !(*i_arr_ptr);
+HEADER_INLINE BoolErr bigstack_alloc_i32(uintptr_t ct, int32_t** i32_arr_ptr) {
+  *i32_arr_ptr = S_CAST(int32_t*, bigstack_alloc(ct * sizeof(int32_t)));
+  return !(*i32_arr_ptr);
 }
 
 HEADER_INLINE BoolErr bigstack_alloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr) {
@@ -531,29 +528,29 @@ HEADER_INLINE BoolErr bigstack_alloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr
   return !(*uc_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_alloc_u16(uintptr_t ct, uint16_t** usi_arr_ptr) {
-  *usi_arr_ptr = S_CAST(uint16_t*, bigstack_alloc(ct * sizeof(int16_t)));
-  return !(*usi_arr_ptr);
+HEADER_INLINE BoolErr bigstack_alloc_u16(uintptr_t ct, uint16_t** u16_arr_ptr) {
+  *u16_arr_ptr = S_CAST(uint16_t*, bigstack_alloc(ct * sizeof(int16_t)));
+  return !(*u16_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_alloc_u32(uintptr_t ct, uint32_t** ui_arr_ptr) {
-  *ui_arr_ptr = S_CAST(uint32_t*, bigstack_alloc(ct * sizeof(int32_t)));
-  return !(*ui_arr_ptr);
+HEADER_INLINE BoolErr bigstack_alloc_u32(uintptr_t ct, uint32_t** u32_arr_ptr) {
+  *u32_arr_ptr = S_CAST(uint32_t*, bigstack_alloc(ct * sizeof(int32_t)));
+  return !(*u32_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_alloc_w(uintptr_t ct, uintptr_t** ul_arr_ptr) {
-  *ul_arr_ptr = S_CAST(uintptr_t*, bigstack_alloc(ct * sizeof(intptr_t)));
-  return !(*ul_arr_ptr);
+HEADER_INLINE BoolErr bigstack_alloc_w(uintptr_t ct, uintptr_t** w_arr_ptr) {
+  *w_arr_ptr = S_CAST(uintptr_t*, bigstack_alloc(ct * sizeof(intptr_t)));
+  return !(*w_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_alloc_i64(uintptr_t ct, int64_t** ll_arr_ptr) {
-  *ll_arr_ptr = S_CAST(int64_t*, bigstack_alloc(ct * sizeof(int64_t)));
-  return !(*ll_arr_ptr);
+HEADER_INLINE BoolErr bigstack_alloc_i64(uintptr_t ct, int64_t** i64_arr_ptr) {
+  *i64_arr_ptr = S_CAST(int64_t*, bigstack_alloc(ct * sizeof(int64_t)));
+  return !(*i64_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_alloc_u64(uintptr_t ct, uint64_t** ull_arr_ptr) {
-  *ull_arr_ptr = S_CAST(uint64_t*, bigstack_alloc(ct * sizeof(int64_t)));
-  return !(*ull_arr_ptr);
+HEADER_INLINE BoolErr bigstack_alloc_u64(uintptr_t ct, uint64_t** u64_arr_ptr) {
+  *u64_arr_ptr = S_CAST(uint64_t*, bigstack_alloc(ct * sizeof(int64_t)));
+  return !(*u64_arr_ptr);
 }
 
 // some versions of gcc give aliasing warnings if we use bigstack_alloc_w()
@@ -575,14 +572,14 @@ HEADER_INLINE BoolErr bigstack_alloc_kcp(uintptr_t ct, const char*** kcp_arr_ptr
   return !(*kcp_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_alloc_i16p(uintptr_t ct, int16_t*** sip_arr_ptr) {
-  *sip_arr_ptr = S_CAST(int16_t**, bigstack_alloc(ct * sizeof(intptr_t)));
-  return !(*sip_arr_ptr);
+HEADER_INLINE BoolErr bigstack_alloc_i16p(uintptr_t ct, int16_t*** i16p_arr_ptr) {
+  *i16p_arr_ptr = S_CAST(int16_t**, bigstack_alloc(ct * sizeof(intptr_t)));
+  return !(*i16p_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_alloc_i32p(uintptr_t ct, int32_t*** ip_arr_ptr) {
-  *ip_arr_ptr = S_CAST(int32_t**, bigstack_alloc(ct * sizeof(intptr_t)));
-  return !(*ip_arr_ptr);
+HEADER_INLINE BoolErr bigstack_alloc_i32p(uintptr_t ct, int32_t*** i32p_arr_ptr) {
+  *i32p_arr_ptr = S_CAST(int32_t**, bigstack_alloc(ct * sizeof(intptr_t)));
+  return !(*i32p_arr_ptr);
 }
 
 HEADER_INLINE BoolErr bigstack_alloc_ucp(uintptr_t ct, unsigned char*** ucp_arr_ptr) {
@@ -590,14 +587,14 @@ HEADER_INLINE BoolErr bigstack_alloc_ucp(uintptr_t ct, unsigned char*** ucp_arr_
   return !(*ucp_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_alloc_u16p(uintptr_t ct, uint16_t*** usip_arr_ptr) {
-  *usip_arr_ptr = S_CAST(uint16_t**, bigstack_alloc(ct * sizeof(intptr_t)));
-  return !(*usip_arr_ptr);
+HEADER_INLINE BoolErr bigstack_alloc_u16p(uintptr_t ct, uint16_t*** u16p_arr_ptr) {
+  *u16p_arr_ptr = S_CAST(uint16_t**, bigstack_alloc(ct * sizeof(intptr_t)));
+  return !(*u16p_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_alloc_u32p(uintptr_t ct, uint32_t*** uip_arr_ptr) {
-  *uip_arr_ptr = S_CAST(uint32_t**, bigstack_alloc(ct * sizeof(intptr_t)));
-  return !(*uip_arr_ptr);
+HEADER_INLINE BoolErr bigstack_alloc_u32p(uintptr_t ct, uint32_t*** u32p_arr_ptr) {
+  *u32p_arr_ptr = S_CAST(uint32_t**, bigstack_alloc(ct * sizeof(intptr_t)));
+  return !(*u32p_arr_ptr);
 }
 
 HEADER_INLINE BoolErr bigstack_alloc_dp(uintptr_t ct, double*** dp_arr_ptr) {
@@ -628,22 +625,22 @@ HEADER_INLINE void BigstackDoubleReset(void* new_base, void* new_end) {
   BigstackEndReset(new_end);
 }
 
-// assumes we've already been writing to ulptr and have previously performed
+// assumes we've already been writing to wptr and have previously performed
 // bounds-checking.
-HEADER_INLINE void BigstackFinalizeUl(__maybe_unused const uintptr_t* ulptr, uintptr_t ct) {
-  assert(ulptr == R_CAST(const uintptr_t*, g_bigstack_base));
+HEADER_INLINE void BigstackFinalizeW(__maybe_unused const uintptr_t* wptr, uintptr_t ct) {
+  assert(wptr == R_CAST(const uintptr_t*, g_bigstack_base));
   g_bigstack_base += RoundUpPow2(ct * sizeof(intptr_t), kCacheline);
   assert(g_bigstack_base <= g_bigstack_end);
 }
 
-HEADER_INLINE void BigstackFinalizeUi(__maybe_unused const uint32_t* uiptr, uintptr_t ct) {
-  assert(uiptr == R_CAST(const uint32_t*, g_bigstack_base));
+HEADER_INLINE void BigstackFinalizeU32(__maybe_unused const uint32_t* u32ptr, uintptr_t ct) {
+  assert(u32ptr == R_CAST(const uint32_t*, g_bigstack_base));
   g_bigstack_base += RoundUpPow2(ct * sizeof(int32_t), kCacheline);
   assert(g_bigstack_base <= g_bigstack_end);
 }
 
-HEADER_INLINE void BigstackFinalizeU64(__maybe_unused const uint64_t* ullptr, uintptr_t ct) {
-  assert(ullptr == R_CAST(const uint64_t*, g_bigstack_base));
+HEADER_INLINE void BigstackFinalizeU64(__maybe_unused const uint64_t* u64ptr, uintptr_t ct) {
+  assert(u64ptr == R_CAST(const uint64_t*, g_bigstack_base));
   g_bigstack_base += RoundUpPow2(ct * sizeof(int64_t), kCacheline);
   assert(g_bigstack_base <= g_bigstack_end);
 }
@@ -724,9 +721,9 @@ HEADER_INLINE BoolErr bigstack_end_alloc_f(uintptr_t ct, float** f_arr_ptr) {
   return !(*f_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_end_alloc_i32(uintptr_t ct, int32_t** i_arr_ptr) {
-  *i_arr_ptr = S_CAST(int32_t*, bigstack_end_alloc(ct * sizeof(int32_t)));
-  return !(*i_arr_ptr);
+HEADER_INLINE BoolErr bigstack_end_alloc_i32(uintptr_t ct, int32_t** i32_arr_ptr) {
+  *i32_arr_ptr = S_CAST(int32_t*, bigstack_end_alloc(ct * sizeof(int32_t)));
+  return !(*i32_arr_ptr);
 }
 
 HEADER_INLINE BoolErr bigstack_end_alloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr) {
@@ -734,24 +731,24 @@ HEADER_INLINE BoolErr bigstack_end_alloc_uc(uintptr_t ct, unsigned char** uc_arr
   return !(*uc_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_end_alloc_u32(uintptr_t ct, uint32_t** ui_arr_ptr) {
-  *ui_arr_ptr = S_CAST(uint32_t*, bigstack_end_alloc(ct * sizeof(int32_t)));
-  return !(*ui_arr_ptr);
+HEADER_INLINE BoolErr bigstack_end_alloc_u32(uintptr_t ct, uint32_t** u32_arr_ptr) {
+  *u32_arr_ptr = S_CAST(uint32_t*, bigstack_end_alloc(ct * sizeof(int32_t)));
+  return !(*u32_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_end_alloc_w(uintptr_t ct, uintptr_t** ul_arr_ptr) {
-  *ul_arr_ptr = S_CAST(uintptr_t*, bigstack_end_alloc(ct * sizeof(intptr_t)));
-  return !(*ul_arr_ptr);
+HEADER_INLINE BoolErr bigstack_end_alloc_w(uintptr_t ct, uintptr_t** w_arr_ptr) {
+  *w_arr_ptr = S_CAST(uintptr_t*, bigstack_end_alloc(ct * sizeof(intptr_t)));
+  return !(*w_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_end_alloc_i64(uintptr_t ct, int64_t** ll_arr_ptr) {
-  *ll_arr_ptr = S_CAST(int64_t*, bigstack_end_alloc(ct * sizeof(int64_t)));
-  return !(*ll_arr_ptr);
+HEADER_INLINE BoolErr bigstack_end_alloc_i64(uintptr_t ct, int64_t** i64_arr_ptr) {
+  *i64_arr_ptr = S_CAST(int64_t*, bigstack_end_alloc(ct * sizeof(int64_t)));
+  return !(*i64_arr_ptr);
 }
 
-HEADER_INLINE BoolErr bigstack_end_alloc_u64(uintptr_t ct, uint64_t** ull_arr_ptr) {
-  *ull_arr_ptr = S_CAST(uint64_t*, bigstack_end_alloc(ct * sizeof(int64_t)));
-  return !(*ull_arr_ptr);
+HEADER_INLINE BoolErr bigstack_end_alloc_u64(uintptr_t ct, uint64_t** u64_arr_ptr) {
+  *u64_arr_ptr = S_CAST(uint64_t*, bigstack_end_alloc(ct * sizeof(int64_t)));
+  return !(*u64_arr_ptr);
 }
 
 typedef struct LlStrStruct {
@@ -824,9 +821,9 @@ HEADER_INLINE BoolErr arena_alloc_f(unsigned char* arena_top, uintptr_t ct, unsi
   return !(*f_arr_ptr);
 }
 
-HEADER_INLINE BoolErr arena_alloc_i(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, int32_t** i_arr_ptr) {
-  *i_arr_ptr = S_CAST(int32_t*, arena_alloc(arena_top, ct * sizeof(int32_t), arena_bottom_ptr));
-  return !(*i_arr_ptr);
+HEADER_INLINE BoolErr arena_alloc_i32(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, int32_t** i32_arr_ptr) {
+  *i32_arr_ptr = S_CAST(int32_t*, arena_alloc(arena_top, ct * sizeof(int32_t), arena_bottom_ptr));
+  return !(*i32_arr_ptr);
 }
 
 HEADER_INLINE BoolErr arena_alloc_uc(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, unsigned char** uc_arr_ptr) {
@@ -834,24 +831,24 @@ HEADER_INLINE BoolErr arena_alloc_uc(unsigned char* arena_top, uintptr_t ct, uns
   return !(*uc_arr_ptr);
 }
 
-HEADER_INLINE BoolErr arena_alloc_ui(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, uint32_t** ui_arr_ptr) {
-  *ui_arr_ptr = S_CAST(uint32_t*, arena_alloc(arena_top, ct * sizeof(int32_t), arena_bottom_ptr));
-  return !(*ui_arr_ptr);
+HEADER_INLINE BoolErr arena_alloc_u32(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, uint32_t** u32_arr_ptr) {
+  *u32_arr_ptr = S_CAST(uint32_t*, arena_alloc(arena_top, ct * sizeof(int32_t), arena_bottom_ptr));
+  return !(*u32_arr_ptr);
 }
 
-HEADER_INLINE BoolErr arena_alloc_ul(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, uintptr_t** ul_arr_ptr) {
-  *ul_arr_ptr = S_CAST(uintptr_t*, arena_alloc(arena_top, ct * sizeof(intptr_t), arena_bottom_ptr));
-  return !(*ul_arr_ptr);
+HEADER_INLINE BoolErr arena_alloc_w(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, uintptr_t** w_arr_ptr) {
+  *w_arr_ptr = S_CAST(uintptr_t*, arena_alloc(arena_top, ct * sizeof(intptr_t), arena_bottom_ptr));
+  return !(*w_arr_ptr);
 }
 
-HEADER_INLINE BoolErr arena_alloc_i64(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, int64_t** ll_arr_ptr) {
-  *ll_arr_ptr = S_CAST(int64_t*, arena_alloc(arena_top, ct * sizeof(int64_t), arena_bottom_ptr));
-  return !(*ll_arr_ptr);
+HEADER_INLINE BoolErr arena_alloc_i64(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, int64_t** i64_arr_ptr) {
+  *i64_arr_ptr = S_CAST(int64_t*, arena_alloc(arena_top, ct * sizeof(int64_t), arena_bottom_ptr));
+  return !(*i64_arr_ptr);
 }
 
-HEADER_INLINE BoolErr arena_alloc_u64(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, uint64_t** ull_arr_ptr) {
-  *ull_arr_ptr = S_CAST(uint64_t*, arena_alloc(arena_top, ct * sizeof(int64_t), arena_bottom_ptr));
-  return !(*ull_arr_ptr);
+HEADER_INLINE BoolErr arena_alloc_u64(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, uint64_t** u64_arr_ptr) {
+  *u64_arr_ptr = S_CAST(uint64_t*, arena_alloc(arena_top, ct * sizeof(int64_t), arena_bottom_ptr));
+  return !(*u64_arr_ptr);
 }
 
 HEADER_INLINE BoolErr arena_alloc_cp(unsigned char* arena_top, uintptr_t ct, unsigned char** arena_bottom_ptr, char*** cp_arr_ptr) {
@@ -895,9 +892,9 @@ HEADER_INLINE BoolErr arena_end_alloc_f(unsigned char* arena_bottom, uintptr_t c
   return !(*f_arr_ptr);
 }
 
-HEADER_INLINE BoolErr arena_end_alloc_i32(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, int32_t** i_arr_ptr) {
-  *i_arr_ptr = S_CAST(int32_t*, arena_end_alloc(arena_bottom, ct * sizeof(int32_t), arena_top_ptr));
-  return !(*i_arr_ptr);
+HEADER_INLINE BoolErr arena_end_alloc_i32(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, int32_t** i32_arr_ptr) {
+  *i32_arr_ptr = S_CAST(int32_t*, arena_end_alloc(arena_bottom, ct * sizeof(int32_t), arena_top_ptr));
+  return !(*i32_arr_ptr);
 }
 
 HEADER_INLINE BoolErr arena_end_alloc_uc(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, unsigned char** uc_arr_ptr) {
@@ -905,24 +902,24 @@ HEADER_INLINE BoolErr arena_end_alloc_uc(unsigned char* arena_bottom, uintptr_t 
   return !(*uc_arr_ptr);
 }
 
-HEADER_INLINE BoolErr arena_end_alloc_u32(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, uint32_t** ui_arr_ptr) {
-  *ui_arr_ptr = S_CAST(uint32_t*, arena_end_alloc(arena_bottom, ct * sizeof(int32_t), arena_top_ptr));
-  return !(*ui_arr_ptr);
+HEADER_INLINE BoolErr arena_end_alloc_u32(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, uint32_t** u32_arr_ptr) {
+  *u32_arr_ptr = S_CAST(uint32_t*, arena_end_alloc(arena_bottom, ct * sizeof(int32_t), arena_top_ptr));
+  return !(*u32_arr_ptr);
 }
 
-HEADER_INLINE BoolErr arena_end_alloc_w(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, uintptr_t** ul_arr_ptr) {
-  *ul_arr_ptr = S_CAST(uintptr_t*, arena_end_alloc(arena_bottom, ct * sizeof(intptr_t), arena_top_ptr));
-  return !(*ul_arr_ptr);
+HEADER_INLINE BoolErr arena_end_alloc_w(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, uintptr_t** w_arr_ptr) {
+  *w_arr_ptr = S_CAST(uintptr_t*, arena_end_alloc(arena_bottom, ct * sizeof(intptr_t), arena_top_ptr));
+  return !(*w_arr_ptr);
 }
 
-HEADER_INLINE BoolErr arena_end_alloc_i64(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, int64_t** ll_arr_ptr) {
-  *ll_arr_ptr = S_CAST(int64_t*, arena_end_alloc(arena_bottom, ct * sizeof(int64_t), arena_top_ptr));
-  return !(*ll_arr_ptr);
+HEADER_INLINE BoolErr arena_end_alloc_i64(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, int64_t** i64_arr_ptr) {
+  *i64_arr_ptr = S_CAST(int64_t*, arena_end_alloc(arena_bottom, ct * sizeof(int64_t), arena_top_ptr));
+  return !(*i64_arr_ptr);
 }
 
-HEADER_INLINE BoolErr arena_end_alloc_u64(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, uint64_t** ull_arr_ptr) {
-  *ull_arr_ptr = S_CAST(uint64_t*, arena_end_alloc(arena_bottom, ct * sizeof(int64_t), arena_top_ptr));
-  return !(*ull_arr_ptr);
+HEADER_INLINE BoolErr arena_end_alloc_u64(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, uint64_t** u64_arr_ptr) {
+  *u64_arr_ptr = S_CAST(uint64_t*, arena_end_alloc(arena_bottom, ct * sizeof(int64_t), arena_top_ptr));
+  return !(*u64_arr_ptr);
 }
 
 HEADER_INLINE BoolErr arena_end_alloc_cp(unsigned char* arena_bottom, uintptr_t ct, unsigned char** arena_top_ptr, char*** cp_arr_ptr) {
@@ -961,24 +958,25 @@ HEADER_INLINE void ZeroVecArr(uintptr_t entry_ct, VecW* vvec) {
   memset(vvec, 0, entry_ct * kBytesPerVec);
 }
 
-HEADER_INLINE void SetAllU64Arr(uintptr_t entry_ct, uint64_t* ullarr) {
+HEADER_INLINE void SetAllU64Arr(uintptr_t entry_ct, uint64_t* u64arr) {
   // bugfix (1 Feb 2018): forgot to multiply by 2 in 32-bit case
-  SetAllWArr(entry_ct * (sizeof(int64_t) / kBytesPerWord), R_CAST(uintptr_t*, ullarr));
+  SetAllWArr(entry_ct * (sizeof(int64_t) / kBytesPerWord), R_CAST(uintptr_t*, u64arr));
 }
 
-HEADER_INLINE void ZeroI32Arr(uintptr_t entry_ct, int32_t* iarr) {
-  memset(iarr, 0, entry_ct * sizeof(int32_t));
+HEADER_INLINE void ZeroI32Arr(uintptr_t entry_ct, int32_t* i32arr) {
+  memset(i32arr, 0, entry_ct * sizeof(int32_t));
 }
 
-HEADER_INLINE void SetAllI32Arr(uintptr_t entry_ct, int32_t* iarr) {
+HEADER_INLINE void SetAllI32Arr(uintptr_t entry_ct, int32_t* i32arr) {
   for (uintptr_t ulii = 0; ulii < entry_ct; ulii++) {
-    *iarr++ = -1;
+    *i32arr++ = -1;
   }
 }
 
-HEADER_INLINE void SetAllU32Arr(uintptr_t entry_ct, uint32_t* uiarr) {
+// todo: verify the compiler properly optimizes this for 64-bit
+HEADER_INLINE void SetAllU32Arr(uintptr_t entry_ct, uint32_t* u32arr) {
   for (uintptr_t ulii = 0; ulii < entry_ct; ulii++) {
-    *uiarr++ = ~0U;
+    *u32arr++ = ~0U;
   }
 }
 
@@ -1039,6 +1037,7 @@ uintptr_t AdvBoundedTo0Bit(const uintptr_t* bitarr, uintptr_t loc, uintptr_t cei
 // floor permitted to be -1, though not smaller than that.
 int32_t FindLast1BitBeforeBounded(const uintptr_t* bitarr, uint32_t loc, int32_t floor);
 
+// todo: compare to AVX2 movemask
 HEADER_INLINE uint32_t wordsequal(const uintptr_t* word_arr1, const uintptr_t* word_arr2, uintptr_t word_ct) {
   for (uintptr_t widx = 0; widx < word_ct; ++widx) {
     if (word_arr1[widx] ^ word_arr2[widx]) {
@@ -1055,28 +1054,28 @@ BoolErr bigstack_calloc_d(uintptr_t ct, double** d_arr_ptr);
 
 BoolErr bigstack_calloc_f(uintptr_t ct, float** f_arr_ptr);
 
-BoolErr bigstack_calloc_u16(uintptr_t ct, uint16_t** usi_arr_ptr);
+BoolErr bigstack_calloc_u16(uintptr_t ct, uint16_t** u16_arr_ptr);
 
-BoolErr bigstack_calloc_u32(uintptr_t ct, uint32_t** ui_arr_ptr);
+BoolErr bigstack_calloc_u32(uintptr_t ct, uint32_t** u32_arr_ptr);
 
-BoolErr bigstack_calloc_w(uintptr_t ct, uintptr_t** ul_arr_ptr);
+BoolErr bigstack_calloc_w(uintptr_t ct, uintptr_t** w_arr_ptr);
 
-BoolErr bigstack_calloc_u64(uintptr_t ct, uint64_t** ull_arr_ptr);
+BoolErr bigstack_calloc_u64(uintptr_t ct, uint64_t** u64_arr_ptr);
 
 HEADER_INLINE BoolErr bigstack_calloc_c(uintptr_t ct, char** c_arr_ptr) {
   return bigstack_calloc_uc(ct, R_CAST(unsigned char**, c_arr_ptr));
 }
 
-HEADER_INLINE BoolErr bigstack_calloc_i16(uintptr_t ct, int16_t** si_arr_ptr) {
-  return bigstack_calloc_u16(ct, R_CAST(uint16_t**, si_arr_ptr));
+HEADER_INLINE BoolErr bigstack_calloc_i16(uintptr_t ct, int16_t** i16_arr_ptr) {
+  return bigstack_calloc_u16(ct, R_CAST(uint16_t**, i16_arr_ptr));
 }
 
-HEADER_INLINE BoolErr bigstack_calloc_i32(uintptr_t ct, int32_t** i_arr_ptr) {
-  return bigstack_calloc_u32(ct, R_CAST(uint32_t**, i_arr_ptr));
+HEADER_INLINE BoolErr bigstack_calloc_i32(uintptr_t ct, int32_t** i32_arr_ptr) {
+  return bigstack_calloc_u32(ct, R_CAST(uint32_t**, i32_arr_ptr));
 }
 
-HEADER_INLINE BoolErr bigstack_calloc_i64(uintptr_t ct, int64_t** ll_arr_ptr) {
-  return bigstack_calloc_u64(ct, R_CAST(uint64_t**, ll_arr_ptr));
+HEADER_INLINE BoolErr bigstack_calloc_i64(uintptr_t ct, int64_t** i64_arr_ptr) {
+  return bigstack_calloc_u64(ct, R_CAST(uint64_t**, i64_arr_ptr));
 }
 
 BoolErr bigstack_end_calloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr);
@@ -1085,22 +1084,22 @@ BoolErr bigstack_end_calloc_d(uintptr_t ct, double** d_arr_ptr);
 
 BoolErr bigstack_end_calloc_f(uintptr_t ct, float** f_arr_ptr);
 
-BoolErr bigstack_end_calloc_u32(uintptr_t ct, uint32_t** ui_arr_ptr);
+BoolErr bigstack_end_calloc_u32(uintptr_t ct, uint32_t** u32_arr_ptr);
 
-BoolErr bigstack_end_calloc_w(uintptr_t ct, uintptr_t** ul_arr_ptr);
+BoolErr bigstack_end_calloc_w(uintptr_t ct, uintptr_t** w_arr_ptr);
 
-BoolErr bigstack_end_calloc_u64(uintptr_t ct, uint64_t** ull_arr_ptr);
+BoolErr bigstack_end_calloc_u64(uintptr_t ct, uint64_t** u64_arr_ptr);
 
 HEADER_INLINE BoolErr bigstack_end_calloc_c(uintptr_t ct, char** c_arr_ptr) {
   return bigstack_end_calloc_uc(ct, R_CAST(unsigned char**, c_arr_ptr));
 }
 
-HEADER_INLINE BoolErr bigstack_end_calloc_i32(uintptr_t ct, int32_t** i_arr_ptr) {
-  return bigstack_end_calloc_u32(ct, R_CAST(uint32_t**, i_arr_ptr));
+HEADER_INLINE BoolErr bigstack_end_calloc_i32(uintptr_t ct, int32_t** i32_arr_ptr) {
+  return bigstack_end_calloc_u32(ct, R_CAST(uint32_t**, i32_arr_ptr));
 }
 
-HEADER_INLINE BoolErr bigstack_end_calloc_i64(uintptr_t ct, int64_t** ll_arr_ptr) {
-  return bigstack_end_calloc_u64(ct, R_CAST(uint64_t**, ll_arr_ptr));
+HEADER_INLINE BoolErr bigstack_end_calloc_i64(uintptr_t ct, int64_t** i64_arr_ptr) {
+  return bigstack_end_calloc_u64(ct, R_CAST(uint64_t**, i64_arr_ptr));
 }
 
 
@@ -1673,7 +1672,7 @@ HEADER_INLINE void InvalidArg(const char* cur_arg) {
   logpreprintfww("Error: Unrecognized flag ('%s').\n", cur_arg);
 }
 
-PglErr CmdlineParsePhase3(uintptr_t max_default_mb, uintptr_t malloc_size_mb, uint32_t memory_require, Plink2CmdlineMeta* pcmp, unsigned char** bigstack_ua_ptr);
+PglErr CmdlineParsePhase3(uintptr_t max_default_mib, uintptr_t malloc_size_mib, uint32_t memory_require, Plink2CmdlineMeta* pcmp, unsigned char** bigstack_ua_ptr);
 
 void CleanupPlink2CmdlineMeta(Plink2CmdlineMeta* pcmp);
 
@@ -1717,12 +1716,12 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
 #ifndef __LP64__
   // 2047 seems to consistently fail on both OS X and Windows
 #  ifdef _WIN32
-CONSTU31(kMalloc32bitMbMax, 1728);
+CONSTU31(kMalloc32bitMibMax, 1728);
 #  else
 #    ifdef __APPLE__
-CONSTU31(kMalloc32bitMbMax, 1888);
+CONSTU31(kMalloc32bitMibMax, 1888);
 #    else
-CONSTU31(kMalloc32bitMbMax, 2047);
+CONSTU31(kMalloc32bitMibMax, 2047);
 #    endif
 #  endif
 #endif

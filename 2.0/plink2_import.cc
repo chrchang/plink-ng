@@ -1252,7 +1252,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
 
     if (allele_idx_end > 2 * variant_ct) {
       variant_allele_idxs[variant_ct] = allele_idx_end;
-      BigstackFinalizeUl(variant_allele_idxs, variant_ct + 1);
+      BigstackFinalizeW(variant_allele_idxs, variant_ct + 1);
     } else {
       variant_allele_idxs = nullptr;
     }
@@ -3529,7 +3529,7 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
           if (!is_phased) {
             // It's likely only one thread can execute this due to memory
             // limitations (since we don't know whether multiallelic variants
-            // are present in advance, we try to use 4 GB buffers), so this is
+            // are present in advance, we try to use 4 GiB buffers), so this is
             // frequently more of a bottleneck than the full-decode loop when
             // no phase or dosage info is in the file.
             uint32_t sample_idx = 0;
@@ -4104,7 +4104,10 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
                       if (cur_geno == 1) {
                         // generate hardcall-phase from dosage-phase iff
                         // delta > 0.5.
-                        const uint32_t neg_sign_bit = -(write_dphase_delta_val >> 31);
+                        // bugfix (22 Apr 2018): (write_dphase_delta_val >> 31)
+                        // is actually undefined behavior for an int32_t; must
+                        // cast to uint32_t first
+                        const uint32_t neg_sign_bit = -(S_CAST(uint32_t, write_dphase_delta_val) >> 31);
                         const uint32_t abs_write_dphase_delta_val = (S_CAST(uint32_t, write_dphase_delta_val) ^ neg_sign_bit) - neg_sign_bit;
                         if (abs_write_dphase_delta_val > kDosage4th) {
                           phasepresent_hw |= 1U << sample_idx_lowbits;
@@ -4298,6 +4301,27 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
                     }
                     write_dosage_int = write_dhap1_int + write_dhap2_int;
                     write_dphase_delta_val = write_dhap1_int - write_dhap2_int;
+                    const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
+                    if (halfdist < hard_call_halfdist) {
+                      genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+                    } else {
+                      const uintptr_t cur_geno = (write_dosage_int + (kDosage4th * k1LU)) / kDosageMid;
+                      genovec_word |= cur_geno << (2 * sample_idx_lowbits);
+                      if (cur_geno == 1) {
+                        const uint32_t neg_sign_bit = -(S_CAST(uint32_t, write_dphase_delta_val) >> 31);
+                        const uint32_t abs_write_dphase_delta_val = (S_CAST(uint32_t, write_dphase_delta_val) ^ neg_sign_bit) - neg_sign_bit;
+                        if (abs_write_dphase_delta_val > kDosage4th) {
+                          phasepresent_hw |= 1U << sample_idx_lowbits;
+                          phaseinfo_hw |= (neg_sign_bit + 1) << sample_idx_lowbits;
+                          if ((abs_write_dphase_delta_val == write_dosage_int) || (abs_write_dphase_delta_val + write_dosage_int == kDosageMax)) {
+                            // can omit explicit dphase_delta in this case
+                            write_dphase_delta_val = 0;
+                          }
+                        } else if ((write_dosage_int == kDosageMid) && (!write_dphase_delta_val)) {
+                          continue;
+                        }
+                      }
+                    }
                   } else if (missing_and_ploidy == 1) {
                     const uintptr_t numer_a = (*R_CAST(const uint32_t*, uncompressed_geno_iter)) & numer_mask;
                     uncompressed_geno_iter = &(uncompressed_geno_iter[bytes_per_prob]);
@@ -4305,6 +4329,16 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
                       goto Bgen13GenoToPgenThread_generic_phased_missing;
                     }
                     write_dosage_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_a) + totq_incr)) >> totq_postshift;
+                    const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
+                    if (halfdist < hard_call_halfdist) {
+                      genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+                    } else {
+                      genovec_word |= ((write_dosage_int + (kDosage4th * k1LU)) / kDosageMid) << (2 * sample_idx_lowbits);
+                      // bugfix (22 Apr 2018): forgot this check
+                      if (halfdist >= dosage_erase_halfdist) {
+                        continue;
+                      }
+                    }
                     write_dphase_delta_val = 0;
                   } else {
                     missing_and_ploidy &= 127;
@@ -4316,36 +4350,20 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
                     genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
                     continue;
                   }
-                  const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
-                  if (halfdist < hard_call_halfdist) {
-                    genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
-                  } else {
-                    const uintptr_t cur_geno = (write_dosage_int + (kDosage4th * k1LU)) / kDosageMid;
-                    genovec_word |= cur_geno << (2 * sample_idx_lowbits);
-                    if (cur_geno == 1) {
-                      const uint32_t neg_sign_bit = -(write_dphase_delta_val >> 31);
-                      const uint32_t abs_write_dphase_delta_val = (S_CAST(uint32_t, write_dphase_delta_val) ^ neg_sign_bit) - neg_sign_bit;
-                      if (abs_write_dphase_delta_val > kDosage4th) {
-                        phasepresent_hw |= 1U << sample_idx_lowbits;
-                        phaseinfo_hw |= (neg_sign_bit + 1) << sample_idx_lowbits;
-                        if ((abs_write_dphase_delta_val == write_dosage_int) || (abs_write_dphase_delta_val + write_dosage_int == kDosageMax)) {
-                          // can omit explicit dphase_delta in this case
-                          write_dphase_delta_val = 0;
-                        }
-                      } else if ((write_dosage_int == kDosageMid) && (!write_dphase_delta_val)) {
-                        continue;
-                      }
-                    }
-                  }
                   dosage_present_hw |= 1U << sample_idx_lowbits;
                   *cur_dosage_main_iter++ = write_dosage_int;
                   if (write_dphase_delta_val != 0) {
+                    ;;;
                     dphase_present_hw |= 1U << sample_idx_lowbits;
                     *cur_dphase_delta_iter++ = write_dphase_delta_val;
                   }
                 }
                 write_genovec_iter[widx] = genovec_word;
+                // bugfix (22 Apr 2018): didn't save phasepresent, etc.
+                R_CAST(Halfword*, write_phasepresent_iter)[widx] = phasepresent_hw;
+                R_CAST(Halfword*, write_phaseinfo_iter)[widx] = phaseinfo_hw;
                 R_CAST(Halfword*, write_dosage_present_iter)[widx] = dosage_present_hw;
+                R_CAST(Halfword*, write_dphase_present_iter)[widx] = dphase_present_hw;
                 ++widx;
               }
               cur_phasepresent_exists = !AllWordsAreZero(write_phasepresent_iter, sample_ctaw);
@@ -5364,7 +5382,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           g_bgen_import_dosage_certainty_thresholds[bit_precision] = 1 + S_CAST(int32_t, import_dosage_certainty * denom_d);
         }
       }
-      // bugfix (2 Jul 2017): if max_thread_ct == 1 but there's >12GB memory,
+      // bugfix (2 Jul 2017): if max_thread_ct == 1 but there's >12GiB memory,
       //   limit to 1 thread rather than (max_thread_ct - 1)...
       uint32_t calc_thread_ct_limit = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
       if (calc_thread_ct_limit > raw_variant_ct) {
@@ -5402,28 +5420,28 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       // with VCF ploidy >2.  But I'll wait until this case actually comes up
       // in the wild...)
       // But even without that, the diploid worst case of 65535 alleles,
-      // unphased 32-bit probabilities blows past the 4GB uncompressed record
+      // unphased 32-bit probabilities blows past the 4GiB uncompressed record
       // size limit with just 1 sample!  Consequences:
       // * A simple way to avoid unnecessary NOMEM errors is to give each
-      //   thread 4GB of decompression workspace on the first pass.  This may
+      //   thread 4GiB of decompression workspace on the first pass.  This may
       //   greatly reduce the number of decompression worker threads we can
       //   deploy, but for the first pass that's acceptable: the worker threads
       //   will usually all exit almost immediately (since we just need to
       //   determine whether *any* phase/dosage info needs to be saved).
-      // * Even 1 thread x 4GB won't always be available, especially since we
+      // * Even 1 thread x 4GiB won't always be available, especially since we
       //   have a double-buffering workflow which requires additional
       //   allocations summing to more than twice the decompression workspace.
       //   So we need to be able to fall back to a smaller decompression
       //   workspace size, and throw NOMEM when it's insufficient.
-      // * Of course, records will almost always be far smaller than 4GB.
+      // * Of course, records will almost always be far smaller than 4GiB.
       //   During the first pass, we'll see every uncompressed record size
       //   (even if the decompression worker threads terminate early), so we
       //   can usually increase the number of worker threads before the second
       //   pass.
       // Overall memory allocation for first pass:
-      //   loadbuf_size (~1/7, up to 2GB) : Chromosome code/variant ID/allele
-      //                                    code load buffer.
-      //   mainbuf_size (~2/7) : Compressed genotype data buffer 0, up to 4GB
+      //   loadbuf_size (~1/7, up to 2GiB) : Chromosome code/variant ID/allele
+      //                                     code load buffer.
+      //   mainbuf_size (~2/7) : Compressed genotype data buffer 0, up to 4GiB
       //                         per decompression thread
       //   mainbuf_size        : Compressed genotype data buffer 1
       //   mainbuf_size        : Decompression thread workspace(s)
@@ -7659,7 +7677,7 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     if (check_pos_col) {
       parse_table[relevant_initial_col_ct++] = (S_CAST(uint64_t, pdip->pos_col_idx) << 32) + 1;
     }
-    qsort(parse_table, relevant_initial_col_ct, sizeof(int64_t), uint64cmp);
+    qsort(parse_table, relevant_initial_col_ct, sizeof(int64_t), u64cmp);
     uint32_t col_skips[6];
     uint32_t col_types[6];
     for (uint32_t uii = 0; uii < relevant_initial_col_ct; ++uii) {

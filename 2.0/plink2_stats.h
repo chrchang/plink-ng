@@ -29,13 +29,13 @@ namespace plink2 {
 // now thread-safe!
 double ChisqToP(double chisq, uint32_t df);
 
-double ChisqToNegLnP(double chisq, uint32_t df);
+double ChisqToLnP(double chisq, uint32_t df);
 
 // only handles df=1 and 2 for now, plan to support 4 later
 double PToChisq(double pval, uint32_t df);
 
 // only handles df=1 for now
-double NegLnPToChisq(double negln_pval);
+double LnPToChisq(double ln_pval);
 
 double TstatToP(double tt, double df);
 
@@ -43,7 +43,9 @@ double TstatToP(double tt, double df);
 // interface that allocates and incrementally fills a table.)
 double TstatToP2(double tt, double df, double cached_gamma_mult);
 
-double TstatToNegLnP(double tt, double df);
+// No -9 error return since that's a legitimate p-value logarithm.  Caller is
+// responsible for validating input.
+double TstatToLnP(double tt, double df);
 
 double QuantileToZscore(double pval);
 
@@ -51,8 +53,8 @@ HEADER_INLINE double ZscoreToP(double zz) {
   return ChisqToP(zz * zz, 1);
 }
 
-HEADER_INLINE double ZscoreToNegLnP(double zz) {
-  return ChisqToNegLnP(zz * zz, 1);
+HEADER_INLINE double ZscoreToLnP(double zz) {
+  return ChisqToLnP(zz * zz, 1);
 }
 
 double HweP(int32_t obs_hets, int32_t obs_hom1, int32_t obs_hom2, uint32_t midp);

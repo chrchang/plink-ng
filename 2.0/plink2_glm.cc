@@ -262,7 +262,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
         goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
       }
     }
-    BigstackFinalizeUi(local_sample_uidx_order, local_sample_ct);
+    BigstackFinalizeU32(local_sample_uidx_order, local_sample_ct);
     *local_sample_uidx_order_ptr = local_sample_uidx_order;
     *local_sample_ct_ptr = local_sample_ct;
     const uint32_t new_sample_ct = PopcountWords(new_sample_include, raw_sample_ctl);
@@ -541,7 +541,7 @@ PglErr GlmLocalOpen(const char* local_covar_fname, const char* local_pvar_fname,
         goto GlmLocalOpen_ret_MALFORMED_INPUT_WW;
       }
     }
-    BigstackFinalizeUl(local_variant_include, BitCtToWordCt(local_variant_ct));
+    BigstackFinalizeW(local_variant_include, BitCtToWordCt(local_variant_ct));
     *local_variant_ctl_ptr = BitCtToWordCt(local_variant_ct);
     assert(new_variant_ct <= *variant_ct_ptr);
     if (new_variant_ct < *variant_ct_ptr) {
@@ -3975,7 +3975,7 @@ PglErr ReadLocalCovarBlock(const uintptr_t* sample_include, const uintptr_t* sam
 
 // only pass the parameters which aren't also needed by the compute threads,
 // for now
-PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, const char* const* test_names_x, const char* const* test_names_y, const uint32_t* variant_bps, const char* const* variant_ids, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const char* outname, uint32_t raw_variant_ct, uint32_t max_chr_blen, double ci_size, double pfilter, double output_min_p, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, PgenFileInfo* pgfip, ReadLineStream* local_covar_rlsp, uintptr_t* valid_variants, double* orig_negln_pvals, double* orig_permstat, uint32_t* valid_variant_ct_ptr) {
+PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, const char* const* test_names_x, const char* const* test_names_y, const uint32_t* variant_bps, const char* const* variant_ids, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const char* outname, uint32_t raw_variant_ct, uint32_t max_chr_blen, double ci_size, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, PgenFileInfo* pgfip, ReadLineStream* local_covar_rlsp, uintptr_t* valid_variants, double* orig_ln_pvals, double* orig_permstat, uint32_t* valid_variant_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -4032,7 +4032,6 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     if (reterr) {
       goto GlmLogistic_ret_1;
     }
-    const double negln_pfilter = -log(pfilter);
     const uint32_t report_neglog10p = (glm_flags / kfGlmLog10) & 1;
     const uint32_t add_interactions = (glm_flags / kfGlmInteraction) & 1;
     const uint32_t domdev_present = (glm_flags & (kfGlmGenotypic | kfGlmHethom))? 1 : 0;
@@ -4413,27 +4412,27 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
           if (is_invalid && valid_variants) {
             ClearBit(write_variant_uidx, valid_variants);
           }
-          if (negln_pfilter >= 0.0) {
+          if (ln_pfilter <= 0.0) {
             if (is_invalid) {
               continue;
             }
             double permstat;
-            double primary_negln_pval;
+            double primary_ln_pval;
             if (!cur_constraint_ct) {
               permstat = fabs(primary_beta / primary_se);
               // could precompute a tstat threshold instead
-              primary_negln_pval = ZscoreToNegLnP(permstat);
+              primary_ln_pval = ZscoreToLnP(permstat);
             } else {
               // possible todo: support for F-distribution p-values instead
               // of asymptotic chi-square p-values
               // cur_constraint_ct may be different on chrX/chrY than it is on
-              // autosomes, so just have permstat == pval to be safe
-              primary_negln_pval = ChisqToNegLnP(primary_se, cur_constraint_ct);
-              permstat = primary_negln_pval;
+              // autosomes, so just have permstat be -log(pval) to be safe
+              primary_ln_pval = ChisqToLnP(primary_se, cur_constraint_ct);
+              permstat = -primary_ln_pval;
             }
-            if (primary_negln_pval < negln_pfilter) {
-              if (orig_negln_pvals) {
-                orig_negln_pvals[valid_variant_ct] = primary_negln_pval;
+            if (primary_ln_pval > ln_pfilter) {
+              if (orig_ln_pvals) {
+                orig_ln_pvals[valid_variant_ct] = primary_ln_pval;
               }
               if (orig_permstat) {
                 orig_permstat[valid_variant_ct] = permstat;
@@ -4552,14 +4551,14 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
               *cswritep++ = '\t';
               cswritep = u32toa(auxp->sample_obs_ct, cswritep);
             }
-            double negln_pval = -9;
+            double ln_pval = kLnPvalError;
             double permstat = 0.0;
             if ((!cur_constraint_ct) || (test_idx != primary_reported_test_idx)) {
               double beta = *beta_se_iter++;
               double se = *beta_se_iter++;
               if (!is_invalid) {
                 permstat = beta / se;
-                negln_pval = ZscoreToNegLnP(permstat);
+                ln_pval = ZscoreToLnP(permstat);
               }
               if (orbeta_col) {
                 *cswritep++ = '\t';
@@ -4625,20 +4624,20 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
               }
               // could avoid recomputing
               if (!is_invalid) {
-                negln_pval = ChisqToNegLnP(primary_se, cur_constraint_ct);
-                permstat = negln_pval;
+                ln_pval = ChisqToLnP(primary_se, cur_constraint_ct);
+                permstat = -ln_pval;
               }
             }
             if (p_col) {
               *cswritep++ = '\t';
               if (!is_invalid) {
-                double reported_val;
                 if (report_neglog10p) {
-                  reported_val = kRecipLn10 * negln_pval;
+                  double reported_val = (-kRecipLn10) * ln_pval;
+                  cswritep = dtoa_g(reported_val, cswritep);
                 } else {
-                  reported_val = MAXV(exp(-negln_pval), output_min_p);
+                  double reported_ln = MAXV(ln_pval, output_min_ln);
+                  cswritep = lntoa_g(reported_ln, cswritep);
                 }
-                cswritep = dtoa_g(reported_val, cswritep);
               } else {
                 cswritep = strcpya(cswritep, "NA");
               }
@@ -4648,8 +4647,8 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
               goto GlmLogistic_ret_WRITE_FAIL;
             }
             if ((test_idx == primary_reported_test_idx) && (!is_invalid)) {
-              if (orig_negln_pvals) {
-                orig_negln_pvals[valid_variant_ct] = negln_pval;
+              if (orig_ln_pvals) {
+                orig_ln_pvals[valid_variant_ct] = ln_pval;
               }
               if (orig_permstat) {
                 orig_permstat[valid_variant_ct] = permstat;
@@ -5467,7 +5466,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
   }
 }
 
-PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, const char* const* test_names_x, const char* const* test_names_y, const uint32_t* variant_bps, const char* const* variant_ids, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const char* outname, uint32_t raw_variant_ct, uint32_t max_chr_blen, double ci_size, double pfilter, double output_min_p, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, PgenFileInfo* pgfip, ReadLineStream* local_covar_rlsp, uintptr_t* valid_variants, double* orig_negln_pvals, uint32_t* valid_variant_ct_ptr) {
+PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, const char* const* test_names_x, const char* const* test_names_y, const uint32_t* variant_bps, const char* const* variant_ids, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const uint32_t* local_sample_uidx_order, const uintptr_t* local_variant_include, const char* outname, uint32_t raw_variant_ct, uint32_t max_chr_blen, double ci_size, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, uintptr_t overflow_buf_size, uint32_t local_sample_ct, PgenFileInfo* pgfip, ReadLineStream* local_covar_rlsp, uintptr_t* valid_variants, double* orig_ln_pvals, uint32_t* valid_variant_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
@@ -5524,7 +5523,6 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     if (reterr) {
       goto GlmLinear_ret_1;
     }
-    const double negln_pfilter = -log(pfilter);
     const uint32_t report_neglog10p = (glm_flags / kfGlmLog10) & 1;
     const uint32_t add_interactions = (glm_flags / kfGlmInteraction) & 1;
     const uint32_t domdev_present = (glm_flags & (kfGlmGenotypic | kfGlmHethom))? 1 : 0;
@@ -5880,22 +5878,28 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
             ClearBit(write_variant_uidx, valid_variants);
           }
           const LinearAuxResult* auxp = &(cur_block_aux[variant_bidx]);
-          if (negln_pfilter >= 0.0) {
+          if (ln_pfilter <= 0.0) {
             if (is_invalid) {
               continue;
             }
-            double primary_negln_pval;
+            double primary_ln_pval;
             if (!cur_constraint_ct) {
-              const double primary_tstat = primary_beta / primary_se;
-              primary_negln_pval = TstatToNegLnP(primary_tstat, auxp->sample_obs_ct - cur_predictor_ct);
+              if (primary_beta == 0.0) {
+                primary_ln_pval = 0.0;
+              } else if (primary_se == 0.0) {
+                primary_ln_pval = -DBL_MAX;
+              } else {
+                const double primary_tstat = primary_beta / primary_se;
+                primary_ln_pval = TstatToLnP(primary_tstat, auxp->sample_obs_ct - cur_predictor_ct);
+              }
             } else {
               // possible todo: support for F-distribution p-values instead
               // of asymptotic chi-square p-values
-              primary_negln_pval = ChisqToNegLnP(primary_se, cur_constraint_ct);
+              primary_ln_pval = ChisqToLnP(primary_se, cur_constraint_ct);
             }
-            if (primary_negln_pval > negln_pfilter) {
-              if (orig_negln_pvals) {
-                orig_negln_pvals[valid_variant_ct] = primary_negln_pval;
+            if (primary_ln_pval > ln_pfilter) {
+              if (orig_ln_pvals) {
+                orig_ln_pvals[valid_variant_ct] = primary_ln_pval;
               }
               ++valid_variant_ct;
               continue;
@@ -5981,14 +5985,14 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
               *cswritep++ = '\t';
               cswritep = u32toa(auxp->sample_obs_ct, cswritep);
             }
-            double negln_pval = -9;
+            double ln_pval = kLnPvalError;
             double tstat = 0.0;
             if ((!cur_constraint_ct) || (test_idx != primary_reported_test_idx)) {
               double beta = *beta_se_iter++;
               double se = *beta_se_iter++;
               if (!is_invalid) {
                 tstat = beta / se;
-                negln_pval = TstatToNegLnP(tstat, auxp->sample_obs_ct - cur_predictor_ct);
+                ln_pval = TstatToLnP(tstat, auxp->sample_obs_ct - cur_predictor_ct);
               }
               if (beta_col) {
                 *cswritep++ = '\t';
@@ -6048,20 +6052,19 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
               }
               // could avoid recomputing
               if (!is_invalid) {
-                negln_pval = ChisqToNegLnP(primary_se, cur_constraint_ct);
+                ln_pval = ChisqToLnP(primary_se, cur_constraint_ct);
               }
             }
             if (p_col) {
               *cswritep++ = '\t';
               if (!is_invalid) {
-                double reported_val;
                 if (report_neglog10p) {
-                  reported_val = kRecipLn10 * negln_pval;
+                  const double reported_val = (-kRecipLn10) * ln_pval;
+                  cswritep = dtoa_g(reported_val, cswritep);
                 } else {
-                  // can do comparison before exponentiation
-                  reported_val = MAXV(exp(-negln_pval), output_min_p);
+                  const double reported_ln = MAXV(ln_pval, output_min_ln);
+                  cswritep = lntoa_g(reported_ln, cswritep);
                 }
-                cswritep = dtoa_g(reported_val, cswritep);
               } else {
                 cswritep = strcpya(cswritep, "NA");
               }
@@ -6071,8 +6074,8 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
               goto GlmLinear_ret_WRITE_FAIL;
             }
             if ((test_idx == primary_reported_test_idx) && (!is_invalid)) {
-              if (orig_negln_pvals) {
-                orig_negln_pvals[valid_variant_ct++] = negln_pval;
+              if (orig_ln_pvals) {
+                orig_ln_pvals[valid_variant_ct++] = ln_pval;
               }
             }
           }
@@ -6138,7 +6141,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
 
 static const double kSexMaleToCovarD[2] = {2.0, 1.0};
 
-PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const AltAlleleCt* maj_alleles, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const AdjustInfo* adjust_info_ptr, const APerm* aperm_ptr, const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t orig_covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t xchr_model, double ci_size, double vif_thresh, double pfilter, double output_min_p, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const AltAlleleCt* maj_alleles, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const AdjustInfo* adjust_info_ptr, const APerm* aperm_ptr, const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t orig_covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t xchr_model, double ci_size, double vif_thresh, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   PglErr reterr = kPglRetSuccess;
@@ -7219,11 +7222,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       }
 
       uintptr_t* valid_variants = nullptr;
-      double* orig_negln_pvals = nullptr;
+      double* orig_ln_pvals = nullptr;
       double* orig_permstat = nullptr;
       if (report_adjust || perms_total) {
         if (bigstack_alloc_w(raw_variant_ctl, &valid_variants) ||
-            bigstack_alloc_d(cur_variant_ct, &orig_negln_pvals)) {
+            bigstack_alloc_d(cur_variant_ct, &orig_ln_pvals)) {
           goto GlmMain_ret_NOMEM;
         }
         memcpy(valid_variants, cur_variant_include, raw_variant_ctl * sizeof(intptr_t));
@@ -7233,7 +7236,8 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
               goto GlmMain_ret_NOMEM;
             }
           } else {
-            orig_permstat = orig_negln_pvals;
+            // unfortunately, signs are reversed
+            orig_permstat = orig_ln_pvals;
           }
         }
       }
@@ -7290,15 +7294,15 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
 
       uint32_t valid_variant_ct = 0;
       if (is_logistic) {
-        reterr = GlmLogistic(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, outname, raw_variant_ct, max_chr_blen, ci_size, pfilter, output_min_p, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &local_covar_rls, valid_variants, orig_negln_pvals, orig_permstat, &valid_variant_ct);
+        reterr = GlmLogistic(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, outname, raw_variant_ct, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &local_covar_rls, valid_variants, orig_ln_pvals, orig_permstat, &valid_variant_ct);
       } else {
-        reterr = GlmLinear(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, outname, raw_variant_ct, max_chr_blen, ci_size, pfilter, output_min_p, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &local_covar_rls, valid_variants, orig_negln_pvals, &valid_variant_ct);
+        reterr = GlmLinear(cur_pheno_name, cur_test_names, cur_test_names_x, cur_test_names_y, glm_pos_col? variant_bps : nullptr, variant_ids, allele_storage, glm_info_ptr, local_sample_uidx_order, cur_local_variant_include, outname, raw_variant_ct, max_chr_blen, ci_size, ln_pfilter, output_min_ln, max_thread_ct, pgr_alloc_cacheline_ct, overflow_buf_size, local_sample_ct, pgfip, &local_covar_rls, valid_variants, orig_ln_pvals, &valid_variant_ct);
       }
       if (reterr) {
         goto GlmMain_ret_1;
       }
       if (report_adjust) {
-        reterr = Multcomp(valid_variants, cip, nullptr, variant_bps, variant_ids, variant_allele_idxs, allele_storage, adjust_info_ptr, orig_negln_pvals, nullptr, valid_variant_ct, max_allele_slen, pfilter, output_min_p, joint_test, max_thread_ct, outname, outname_end2);
+        reterr = Multcomp(valid_variants, cip, nullptr, variant_bps, variant_ids, variant_allele_idxs, allele_storage, adjust_info_ptr, orig_ln_pvals, nullptr, valid_variant_ct, max_allele_slen, ln_pfilter, output_min_ln, joint_test, max_thread_ct, outname, outname_end2);
         if (reterr) {
           goto GlmMain_ret_1;
         }
@@ -7308,6 +7312,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         logerrputs("Error: --glm permutation tests are under development.\n");
         reterr = kPglRetNotYetSupported;
         goto GlmMain_ret_1;
+        // note that orig_permstat signs are now flipped for linear case
       }
     }
   }

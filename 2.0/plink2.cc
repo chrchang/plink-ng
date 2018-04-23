@@ -61,7 +61,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (16 Apr 2018)";
+  " (22 Apr 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -228,8 +228,8 @@ typedef struct Plink2CmdlineStruct {
   uint32_t hard_call_thresh;
   uint32_t dosage_erase_thresh;
 
-  double pfilter;
-  double output_min_p;
+  double ln_pfilter;
+  double output_min_ln;
   double vif_thresh;
   double mind_thresh;
   double geno_thresh;
@@ -1423,8 +1423,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       }
 
       // dosages are currently in 32768ths
-      uint64_t* allele_dosages = nullptr;  // same indexes as allele_storage
+      // same indexes as allele_storage.  We can't omit the last allele (in the
+      // way allele_freqs does) because the sum isn't constant (missing
+      // values).
+      uint64_t* allele_dosages = nullptr;
       uint64_t* founder_allele_dosages = nullptr;
+
       AltAlleleCt* maj_alleles = nullptr;
       double* allele_freqs = nullptr;
       uint32_t* raw_geno_cts = nullptr;
@@ -1711,7 +1715,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           }
         }
         if (pcp->command_flags1 & kfCommand1Hardy) {
-          reterr = HardyReport(variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, nonfounders? raw_geno_cts : founder_raw_geno_cts, nonfounders? x_male_geno_cts : founder_x_male_geno_cts, nonfounders? x_nosex_geno_cts : founder_x_nosex_geno_cts, hwe_x_pvals, variant_ct, hwe_x_ct, max_allele_slen, pcp->output_min_p, pcp->hardy_flags, pcp->max_thread_ct, nonfounders, outname, outname_end);
+          reterr = HardyReport(variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, nonfounders? raw_geno_cts : founder_raw_geno_cts, nonfounders? x_male_geno_cts : founder_x_male_geno_cts, nonfounders? x_nosex_geno_cts : founder_x_nosex_geno_cts, hwe_x_pvals, variant_ct, hwe_x_ct, max_allele_slen, pcp->output_min_ln, pcp->hardy_flags, pcp->max_thread_ct, nonfounders, outname, outname_end);
           if (reterr) {
             goto Plink2Core_ret_1;
           }
@@ -2159,7 +2163,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       // eventually check for nonzero pheno_ct here?
 
       if (pcp->command_flags1 & kfCommand1Glm) {
-        reterr = GlmMain(sample_include, &pii.sii, sex_nm, sex_male, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, maj_alleles, allele_storage, &(pcp->glm_info), &(pcp->adjust_info), &(pcp->aperm), pcp->glm_local_covar_fname, pcp->glm_local_pvar_fname, pcp->glm_local_psam_fname, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, max_allele_slen, pcp->xchr_model, pcp->ci_size, pcp->vif_thresh, pcp->pfilter, pcp->output_min_p, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
+        reterr = GlmMain(sample_include, &pii.sii, sex_nm, sex_male, pheno_cols, pheno_names, covar_cols, covar_names, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, maj_alleles, allele_storage, &(pcp->glm_info), &(pcp->adjust_info), &(pcp->aperm), pcp->glm_local_covar_fname, pcp->glm_local_pvar_fname, pcp->glm_local_psam_fname, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, covar_ct, max_covar_name_blen, raw_variant_ct, variant_ct, max_variant_id_slen, max_allele_slen, pcp->xchr_model, pcp->ci_size, pcp->vif_thresh, pcp->ln_pfilter, pcp->output_min_ln, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, &simple_pgr, outname, outname_end);
         if (reterr) {
           goto Plink2Core_ret_1;
         }
@@ -2959,8 +2963,8 @@ int main(int argc, char** argv) {
     pc.hard_call_thresh = UINT32_MAX;
 
     pc.dosage_erase_thresh = 0;
-    pc.pfilter = 2.0;  // make --pfilter 1 still filter out NAs
-    pc.output_min_p = 0.0;
+    pc.ln_pfilter = kLnPvalError;  // make --pfilter 1 still filter out NAs
+    pc.output_min_ln = -DBL_MAX;
     pc.vif_thresh = 50.0;
     pc.mind_thresh = 1.0;
     pc.geno_thresh = 1.0;
@@ -2996,7 +3000,7 @@ int main(int argc, char** argv) {
     double import_dosage_certainty = 0.0;
     int32_t vcf_min_gq = -1;
     int32_t vcf_min_dp = -1;
-    intptr_t malloc_size_mb = 0;
+    intptr_t malloc_size_mib = 0;
     LoadParams load_params = kfLoadParams0;
     Xload xload = kfXload0;
     uint32_t rseed_ct = 0;
@@ -5328,17 +5332,17 @@ int main(int argc, char** argv) {
             memory_require = 1;
           }
           const char* mb_modif = argvk[arg_idx + mb_modif_idx];
-          if (ScanPosintptr(mb_modif, R_CAST(uintptr_t*, &malloc_size_mb))) {
+          if (ScanPosintptr(mb_modif, R_CAST(uintptr_t*, &malloc_size_mib))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --memory parameter '%s'.\n", mb_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-          if (malloc_size_mb < S_CAST(intptr_t, kBigstackMinMb)) {
-            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --memory parameter '%s' (minimum %u).\n", mb_modif, kBigstackMinMb);
+          if (malloc_size_mib < S_CAST(intptr_t, kBigstackMinMib)) {
+            snprintf(g_logbuf, kLogbufSize, "Error: Invalid --memory parameter '%s' (minimum %u).\n", mb_modif, kBigstackMinMib);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
 #ifndef __LP64__
-          if (malloc_size_mb > S_CAST(intptr_t, kMalloc32bitMbMax)) {
-            logerrprintf("Error: --memory parameter too large for 32-bit version (max %u).\n", kMalloc32bitMbMax);
+          if (malloc_size_mib > S_CAST(intptr_t, kMalloc32bitMibMax)) {
+            logerrprintf("Error: --memory parameter too large for 32-bit version (max %u).\n", kMalloc32bitMibMax);
             goto main_ret_INVALID_CMDLINE;
           }
 #endif
@@ -6459,7 +6463,7 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if ((!ScanadvDouble(cur_modif, &pc.output_min_p)) || (!(pc.output_min_p >= 0.0)) || (pc.output_min_p >= 1.0)) {
+          if ((!ScanadvLn(cur_modif, &pc.output_min_ln)) || (pc.output_min_ln >= 0.0)) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --output-min-p parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -6659,11 +6663,11 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           const char* cur_modif = argvk[arg_idx + 1];
-          if (!ScanadvDouble(cur_modif, &pc.pfilter)) {
+          if (!ScanadvLn(cur_modif, &pc.ln_pfilter)) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --pfilter parameter '%s'.\n", cur_modif);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-          if ((pc.pfilter <= 0.0) || (pc.pfilter > 1.0)) {
+          if ((pc.ln_pfilter == -DBL_MAX) || (pc.ln_pfilter > 0.0)) {
             logerrputs("Error: --pfilter threshold must be in (0, 1].\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
@@ -8009,7 +8013,7 @@ int main(int argc, char** argv) {
       rseeds = nullptr;
     }
 
-    if (CmdlineParsePhase3(0, malloc_size_mb, memory_require, &pcm, &bigstack_ua)) {
+    if (CmdlineParsePhase3(0, malloc_size_mib, memory_require, &pcm, &bigstack_ua)) {
       goto main_ret_NOMEM;
     }
     g_input_missing_geno_ptr = &(g_one_char_strs[2 * ctou32(input_missing_geno_char)]);
@@ -8037,7 +8041,7 @@ int main(int argc, char** argv) {
 
     if (batch_job) {
       if (adjust_file_info.fname) {
-        reterr = AdjustFile(&adjust_file_info, pc.pfilter, pc.output_min_p, pc.max_thread_ct, outname, outname_end);
+        reterr = AdjustFile(&adjust_file_info, pc.ln_pfilter, pc.output_min_ln, pc.max_thread_ct, outname, outname_end);
         if (reterr) {
           goto main_ret_1;
         }

@@ -347,7 +347,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    <vcf-dosage=[field]> <ref-first> <bits=[#]>\n"
 "    Create a new fileset with all filters applied.  The following output\n"
 "    formats are supported:\n"
-"    (actually, only A, AD, A-transpose, bgen-1.1, ind-major-bed, haps,\n"
+"    (actually, only A, AD, A-transpose, bgen-1.x, ind-major-bed, haps,\n"
 "    hapslegend, oxford, and vcf are implemented for now)\n"
 "    * '23': 23andMe 4-column format.  This can only be used on a single\n"
 "            sample's data (--keep may be handy), and does not support\n"
@@ -912,8 +912,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      correlations in genome-wide association studies.)\n"
 "    * 'log10' causes negative base 10 logs of p-values to be reported, instead\n"
 "      of raw p-values.  'input-log10' specifies that the input file contains\n"
-"      -log10(p) values (this should frequently be combined with\n"
-"      \"--adjust-p-field LOG10P\").\n"
+"      -log10(p) values.\n"
 "    * If the input file contains multiple tests per variant which are\n"
 "      distinguished by a 'TEST' column (true for --linear/--logistic/--glm),\n"
 "      you must use 'test=' to select the test to process.\n"
@@ -1638,7 +1637,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                       shape instead, and postprocess as necessary.\n"
                );
     HelpPrint("memory\tseed", &help_ctrl, 0,
-"  --memory [val] <require> : Set size, in MB, of initial workspace malloc\n"
+"  --memory [val] <require> : Set size, in MiB, of initial workspace malloc\n"
 "                             attempt.  To error out instead of reducing the\n"
 "                             request size when the initial attempt fails, add\n"
 "                             the 'require' modifier.\n"

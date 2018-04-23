@@ -1,6 +1,6 @@
-BASEFLAGS=-Wall -Wextra -Wshadow -mavx2 -mbmi -mbmi2 -mlzcnt -DNDEBUG -DZSTD_MULTITHREAD
-# BASEFLAGS=-Wall -Wextra -Wshadow -mavx2 -mbmi -mbmi2 -mlzcnt -DZSTD_MULTITHREAD
-# BASEFLAGS=-Wall -Wextra -Wshadow -msse4.2 -DNDEBUG -DZSTD_MULTITHREAD
+BASEFLAGS=-Wall -Wextra -Wshadow -Wformat-security -mavx2 -mbmi -mbmi2 -mlzcnt -DNDEBUG -DZSTD_MULTITHREAD
+# BASEFLAGS=-Wall -Wextra -Wshadow -Wformat-security -mavx2 -mbmi -mbmi2 -mlzcnt -DZSTD_MULTITHREAD
+# BASEFLAGS=-Wall -Wextra -Wshadow -Wformat-security -msse4.2 -DNDEBUG -DZSTD_MULTITHREAD
 CFLAGS=-O3 -std=gnu99
 # this actually needs to be named "CXXFLAGS"
 CXXFLAGS=-O2 -std=c++14 -Wold-style-cast

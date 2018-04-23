@@ -528,7 +528,7 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
 //   compression/decompression.
 // - Handle seekable-zstd read/write in essentially the same way as bgzf.
 //   Modify compressor stream to default to writing seekable zstd files, with
-//   block size on the order of 1-16 MB.
+//   block size on the order of 1-16 MiB.
 // - Check this whenever we open a read stream, since even when we only want to
 //   use one decompressor thread, we still benefit from knowing a file is bgzf
 //   because we can safely use libdeflate instead of zlib under the hood.

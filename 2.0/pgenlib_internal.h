@@ -51,9 +51,9 @@
 //   with >2 alt alleles is an array of 1-bit values, where absence = 0; and
 //   presence/absence of phasing info is similar.)  Time to move away from 01
 //   nonsense.
-// - Individual variant records are prohibited from being >= 4GB, to reduce
-//   integer overflow issues.  (This may be reduced to 2GB later, but I'll
-//   attempt to handle the 2-4GB range properly for now since it's conceivable
+// - Individual variant records are prohibited from being >= 4GiB, to reduce
+//   integer overflow issues.  (This may be reduced to 2GiB later, but I'll
+//   attempt to handle the 2-4GiB range properly for now since it's conceivable
 //   for multiallelic records in very large datasets to reach that size.)
 // - (later todo: include stuff like file creation command in .pvar header;
 //   that doesn't really belong in a binary file.)
@@ -76,12 +76,12 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 902
+#define PGENLIB_INTERNAL_VERNUM 903
 
 // other configuration-ish values needed by plink2_common subset
 typedef unsigned char AltAlleleCt;
-// don't use CONSTU31 for this since it may need the 32nd bit in the future
-#define kPglMaxAltAlleleCt S_CAST(uint32_t, S_CAST(AltAlleleCt, -2))
+// Set this to 65534 if AltAlleleCt is uint16_t, 2^24 - 1 if uint32_t.
+CONSTU31(kPglMaxAltAlleleCt, 254);
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -389,8 +389,10 @@ FLAGSET_DEF_START()
   kfPgrLdcache0,
   kfPgrLdcacheQuater = (1 << 0),
   kfPgrLdcacheDifflist = (1 << 1),
-  kfPgrLdcacheAllHets = (1 << 2),
-  kfPgrLdcacheRefalt1Genocounts = (1 << 3)
+  kfPgrLdcacheAll01 = (1 << 2),
+  kfPgrLdcacheAll10 = (1 << 3),
+  kfPgrLdcacheAllHets = (1 << 4),
+  kfPgrLdcacheRefalt1Genocounts = (1 << 5)
 FLAGSET_DEF_END(PgrLdcacheFlags);
 
 // difflist/LD compression should never involve more than
@@ -441,9 +443,7 @@ CONSTU31(kPglMaxDeltalistLenDivisor, 9);
 //               the entry is zero, and 8 (multiallelic) if the record has 1-3
 //               extra bytes.  Designed for single-sample files sharing a
 //               single .bim-like file (note that if they don't share a .bim,
-//               .bim size will dominate), but it's usable whenever there's no
-//               variant where >2 samples have a rare alternate allele
-//               (assuming <16 alt alleles).
+//               .bim size will dominate).
 //         1001: No difflist/LD/onebit compression, 4 bit
 //               (vrec_len - ceil(sample_ct / 4)) value.  vrtype is zero if the
 //               entry is zero, and 8 if the record has 1-15 extra bytes.
@@ -474,7 +474,7 @@ CONSTU31(kPglMaxDeltalistLenDivisor, 9);
 //
 // 5. The variant records.  See below for details.
 
-// Difflist format (used for onebit, sparse variant, and LD compression):
+// Difflist format:
 //   a. [difflist_len VINT]
 //   If difflist_len is zero, that's it.  Otherwise, the difflist is organized
 //   into 64-element groups (the last group will usually be smaller), to make
@@ -488,7 +488,8 @@ CONSTU31(kPglMaxDeltalistLenDivisor, 9);
 //   b. [array of group start sample IDs, each of sample_id_byte_ct]
 //   c. [array of 1-byte [delta segment lengths minus 63], with last entry
 //      omitted]
-//   d. [array of 2-bit replacement genotype values]
+//   d. [if main datatrack, array of 2-bit replacement genotype values.  some
+//      other difflist uses exclude this piece.]
 //   e. one "delta segment"/group: [array of [group size - 1] VINT values,
 //      each indicating the difference between the current and previous sample
 //      IDs; i.e. value is 1 for two consecutive samples]
@@ -529,11 +530,9 @@ struct PgenFileInfoStruct {
   // bits 0-2:
   //   000 = Simple 2-bit encoding.
   //   100, 110, 111 = Simple difflist.  Low two bits store the base value.
-  //         for multiallelic variants, if the base value is 0b11 (missing),
-  //         auxiliary data track #1 only contains entries for explicitly
-  //         listed 0b11 values, the rest are assumed to be actual missing
-  //         data.  (101 should practically never happen--gross violation of
-  //         Hardy-Weinberg equilibrium--so it's reserved for future use.)
+  //         (101 is currently reserved for future use since
+  //         almost-all-ref/altx variants shouldn't really exist, thanks to
+  //         Hardy-Weinberg equilibrium.)
   //         ***** warning (16 Apr 2018) *****
   //         original multiallelic plan will probably be thrown out, to be
   //         replaced by 0b01 = ref/altx, 0b10 = altx/alty.  Many subsequent
@@ -546,7 +545,7 @@ struct PgenFileInfoStruct {
   //         To simplify random access logic, the first variant in each vblock
   //         is prohibited from using this encoding.
   //   011 = Inverted differences-from-earlier-variant encoding.  (This covers
-  //         the case where a reference allele is "wrong".)  When decoding, the
+  //         the case where a reference allele is 'wrong'.)  When decoding, the
   //         difflist should be processed first, then the entire genovec should
   //         be flipped.
   //   001 = 1-bit + difflist representation.  Suppose most calls are
@@ -557,9 +556,74 @@ struct PgenFileInfoStruct {
   //         The main datatrack is preceded by a single byte indicating what
   //         the two common values are: 2 low bits = [set value - unset value],
   //         next 2 bits = unset value (6 possibilities).  Top 4 bits are
-  //         reserved.  When the set value is 3, it does NOT represent
-  //         rarealts; those must be explicitly spelled out in the difflist.
-  // bit 3: more than 1 alt allele?
+  //         reserved.
+  // bit 3: more than 1 alt allele?  If yes, auxiliary data track #1
+  //        disambiguates the 0b01 (ref/altx) and 0b10 (altx/alty, x may equal
+  //        y) hardcalls.  This contains a format byte, followed by a list of
+  //        ref/altx patches, then a list of altx/alty patches.  All unpatched
+  //        genotypes are ref/alt1 or alt1/alt1.
+  //        The bottom 4 bits of the format byte describe how the ref/altx
+  //        patch set is stored.
+  //   0 = Starts with a bitarray with [total ref/altx count] bits (divide by 8
+  //       and round up to get byte count of this component; any trailing bits
+  //       in the last byte must be 0), where each set bit corresponds to
+  //       presence of a rarealt (i.e. alt2/alt3/...).
+  //       ExpandBytearr(aux1_first_quarter, all_01, raw_sample_ctl, ct_01, 0,
+  //                     patch_01);
+  //       can be used to convert this into a set of sample IDs, though we may
+  //       want to avoid an intermediate unpacking step in practice.  Note that
+  //       when we're passing in sample_ct < raw_sample_ct and the main
+  //       datatrack is LD-compressed, we'd like ldbase_all_01 to be cached.
+  //       This is followed by a packed array of fixed-width [allele idx - 2]
+  //       values, where the width depends on the total number of alt alleles.
+  //       2 alts: width ZERO.  All set bits in the first bitarray correspond
+  //               to ref/alt2.
+  //       3 alts: width 1 bit.  Set bits correspond to ref/alt3, clear bits
+  //               correspond to ref/alt2.
+  //       4-5 alts: width 2 bits.  0b00 corresponds to ref/alt2, 0b01 =
+  //                 ref/alt3, 0b10 = ref/alt4, etc.
+  //       6-17 alts: width 4 bits.
+  //       18-257 alts: width 8 bits.
+  //       258-65537 alts: width 16 bits.
+  //       65538-16777215 alts: width 24 bits.  Reasonable to prohibit more
+  //                            than 2^24 - 1 = 16777215, since variant records
+  //                            are limited to 4 GiB.  I can imagine some
+  //                            applications of >65534 in highly variable
+  //                            regions, though, and it doesn't actually cost
+  //                            us anything to define a way to represent it.
+  //                            (A plink2 binary compiled with AltAlleleCt
+  //                            typedef'd as uint32_t will run more slowly, of
+  //                            course, but most binaries will not be compiled
+  //                            that way.)
+  //   1 = Same as mode 0, except the initial bitarray is replaced by a
+  //       difflist with sample IDs.  (We could make that piece somewhat
+  //       smaller by storing 0-based ref/altx indexes instead, but I'm pretty
+  //       sure that isn't worth the performance penalty of requiring all_01
+  //       and more complicated unpacking.  Though we'll need to peek at
+  //       aux1[0] before decompressing the main datatrack to exploit this.)
+  //   15 = Null (no ref/altx exists in the maintrack)?  Might remove this
+  //        (storing this as mode 0 takes no more space, and mode 1 just takes
+  //        1 more byte), but it may enable some relevant performance
+  //        optimizations.
+  //   2-14 are reserved for future use.  We don't define an efficient way to
+  //   represent a variant that e.g. has more alt2s than alt1s for now, since
+  //   alt alleles will usually be sorted in order of decreasing frequency, but
+  //   maybe this will matter in the future.
+  //
+  //   The top 4 bits describe how the altx/alty patch set is stored.  0/1/15
+  //   have the same meaning as they do for the ref/altx patch set; the only
+  //   thing that changes is the format of the packed array of values at the
+  //   end.
+  //   2 alts: width 1.  This is treated as a special case.  Set bits
+  //           correspond to alt2/alt2, clear = alt1/alt2.
+  //   3-4 alts: width 2+2 bits.  Each stores [allele idx - 1], with the
+  //             smaller number in the lower bits.  E.g. alt1/alt2 is stored as
+  //             0b0100; alt3/alt3 is stored as 0b1010.
+  //   5-16 alts: width 4+4 bits.
+  //   17-256 alts: width 8+8 bits.
+  //   257-65536 alts: width 16+16 bits.
+  //   65537-16777215 alts: width 24+24 bits.
+  //
   // bit 4: hardcall phased?  If yes, auxiliary data track #2 contains
   //        phasing information for heterozygous calls.
   //        The first *bit* of the track indicates whether an explicit
@@ -635,23 +699,8 @@ struct PgenFileInfoStruct {
   //   max(raw_variant_ct + 1, RoundUpPow2(raw_variant_ct, kBytesPerWord))
   unsigned char* vrtypes;
 
-  // alt allele counts.  if >1, auxiliary data track #1 disambiguates all the
-  // "missing or rare alt" explicit hardcalls.  genotype representation is:
-  //   low bits: smaller [1-based alt allele idx], 0 = ref
-  //   high bits: larger [1-based alt allele idx]
-  //   ...
-  //   2 alts: 1-bit array with 0 = missing, 1 = nonmissing.  Then, for the
-  //     nonmissing subset, 2 low bits.  The high bits entry is omitted because
-  //     the value has to be alt2; optimize the common case!
-  //   3 alts: 1-bit nonmissingness array,  2 low bits, 2 high bits
-  //   4-15 alts: 1-bit nonmissingness array, then 4 low bits, 4 high bits
-  //   16-255 alts: 1-bit nonmissingness array; then 8 low bits, 8 high bits
-  //   (the following is also defined, but not implemented for now:
-  //   256-4095 alts: 1-bit nonmissingness array; 12 low bits, 12 high bits
-  //   4096-65535 alts: 1-bit nonmissingness array; 16 low bits, 16 high bits
-  //   65536-16777215 alts: 1-bit nonmissingness array; 24 low bits, 24 high
-  //   bits; the latter might be necessary in the most variable regions if we
-  //   use tiles...)
+  // alt allele counts.
+
   // This can be nullptr if all alt allele counts are 1.
   // (actually, we store the allele index offsets, so
   // (allele_idx_offsets[n+1] - allele_idx_offsets[n]) is the number of alleles
@@ -715,6 +764,9 @@ struct PgenReaderStruct {
   // must be set to sample_ct.
   uint32_t* ldbase_difflist_sample_ids;
 
+  // enable this once new multiallelic implementation starts
+  // uintptr_t* ldbase_all_01;
+  // uintptr_t* ldbase_all_10;
   uintptr_t* ldbase_all_hets;
 
   // common genotype can be looked up from vrtypes[]
@@ -734,6 +786,9 @@ struct PgenReaderStruct {
   uintptr_t* workspace_raregeno_tmp_loadbuf;
   uint32_t* workspace_difflist_sample_ids_tmp;
 
+  // this is obsolete.
+  // new plan:
+  //   uintptr_t* workspace_aux1_;;;
   uintptr_t* workspace_aux1_nonmissing_vec;
   uintptr_t* workspace_aux1_code_vec;
 
@@ -808,6 +863,9 @@ HEADER_INLINE uint32_t VrtypeDosage(uint32_t vrtype) {
   return (vrtype & 0x60);
 }
 
+// this is obsolete.  Now want two functions, one for aux1a (ref/altx patches)
+// dependent on alt_allele_ct and ct_01, and one for aux1b (altx/alty patches)
+// dependent on alt_allele_ct and ct_10.
 HEADER_INLINE uintptr_t GetAux1AlleleByteCt(uint32_t alt_allele_ct, uint32_t aux1_nonmissing_ct) {
   assert(alt_allele_ct >= 2);
   if (alt_allele_ct == 2) {
@@ -948,7 +1006,8 @@ void PgrDifflistToGenovecUnsafe(const uintptr_t* __restrict raregeno, const uint
 //   be changed.
 // * PgrGet1() only counts the specified allele.
 // * PgrGetM() is the multiallelic loader which doesn't collapse multiple
-//   alleles into one.  Exact functional form TBD.
+//   alleles into one.  Exact functional form TBD, but probably fills a
+//   length-[2 * sample_ct] array of AltAlleleCt with max/max = missing.
 // * PgrGetDifflistOrGenovec() opportunistically returns the sparse genotype
 //   representation ('difflist'), for functions capable of taking advantage of
 //   it.  I don't plan to use this in plink2 before at least 2019, but the
@@ -982,7 +1041,7 @@ PglErr PgrGetDifflistOrGenovec(const uintptr_t* __restrict sample_include, const
 // iterating from the first variant.  (Which can almost never be assumed in
 // plink2 since variant_include[] may not include the first variant.)
 HEADER_INLINE void PgrClearLdCache(PgenReader* pgrp) {
-  pgrp->ldbase_stypes &= kfPgrLdcacheAllHets;
+  pgrp->ldbase_stypes &= (kfPgrLdcacheAll01 | kfPgrLdcacheAll10 | kfPgrLdcacheAllHets);
 
   // bugfix, ld_load_necessary() was otherwise claiming that reload wasn't
   // necessary in certain cases
@@ -1035,7 +1094,7 @@ PglErr PgrGetDWithCounts(const uintptr_t* __restrict sample_include, const uintp
 PglErr PgrGetDp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr, uintptr_t* __restrict dphase_present, int16_t* dphase_delta, uint32_t* dphase_ct_ptr);
 
 // interface used by --make-pgen, just performs basic LD/difflist decompression
-// (still needs multiallelic and dosage-phase extensions)
+// (still needs multiallelic extension)
 PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgrp, uintptr_t** loadbuf_iter_ptr, unsigned char* loaded_vrtype_ptr);
 
 PglErr PgrValidate(PgenReader* pgrp, char* errstr_buf);
@@ -1047,7 +1106,7 @@ PglErr PgrGetMissingness(const uintptr_t* __restrict sample_include, const uint3
 // either missingness_hc (hardcall) or missingness_dosage must be non-null for
 // now
 // missingness_dosage must be vector-aligned
-PglErr PgrGetMissingnessPD(const uintptr_t* __restrict sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict missingness_hc, uintptr_t* __restrict missingness_dosage, uintptr_t* __restrict hets, uintptr_t* __restrict genovec_buf);
+PglErr PgrGetMissingnessD(const uintptr_t* __restrict sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict missingness_hc, uintptr_t* __restrict missingness_dosage, uintptr_t* __restrict hets, uintptr_t* __restrict genovec_buf);
 
 
 // failure = kPglRetReadFail

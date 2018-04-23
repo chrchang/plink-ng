@@ -1786,22 +1786,22 @@ HEADER_INLINE void vecaligned_free_cond(void* aligned_ptr) {
 
 // now compiling with gcc >= 4.4 (or clang equivalent) on all platforms, so
 // safe to use memset everywhere
-HEADER_INLINE void ZeroU32Arr(uintptr_t entry_ct, uint32_t* uiarr) {
-  memset(uiarr, 0, entry_ct * sizeof(int32_t));
+HEADER_INLINE void ZeroU32Arr(uintptr_t entry_ct, uint32_t* u32arr) {
+  memset(u32arr, 0, entry_ct * sizeof(int32_t));
 }
 
-HEADER_INLINE void ZeroWArr(uintptr_t entry_ct, uintptr_t* ularr) {
-  memset(ularr, 0, entry_ct * sizeof(intptr_t));
+HEADER_INLINE void ZeroWArr(uintptr_t entry_ct, uintptr_t* warr) {
+  memset(warr, 0, entry_ct * sizeof(intptr_t));
 }
 
-HEADER_INLINE void ZeroU64Arr(uintptr_t entry_ct, uint64_t* ullarr) {
-  memset(ullarr, 0, entry_ct * sizeof(int64_t));
+HEADER_INLINE void ZeroU64Arr(uintptr_t entry_ct, uint64_t* u64arr) {
+  memset(u64arr, 0, entry_ct * sizeof(int64_t));
 }
 
-HEADER_INLINE void SetAllWArr(uintptr_t entry_ct, uintptr_t* ularr) {
+HEADER_INLINE void SetAllWArr(uintptr_t entry_ct, uintptr_t* warr) {
   // todo: test this against memset(, 255, ) and manually vectorized loop
   for (uintptr_t idx = 0; idx < entry_ct; ++idx) {
-    ularr[idx] = ~k0LU;
+    warr[idx] = ~k0LU;
   }
 }
 

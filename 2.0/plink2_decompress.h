@@ -44,7 +44,7 @@ PglErr gzopen_read_checked(const char* fname, gzFile* gzf_ptr);
 // loadbuf_size assumed to be either exactly kMaxMediumLine (in which case
 // any longer line is treated as pathological), or strictly larger (in which
 // case we report an out-of-memory error when gzgets blows the buffer, unless
-// loadbuf_size == kMaxLongLine, which is close to 2GB).
+// loadbuf_size == kMaxLongLine, which is close to 2GiB).
 PglErr GzopenAndSkipFirstLines(const char* fname, uint32_t lines_to_skip, uintptr_t loadbuf_size, char* loadbuf, gzFile* gzf_ptr);
 
 // plink2_compress_stream interface should be used for writing .gz files.
@@ -96,7 +96,7 @@ PglErr IsBgzf(const char* fname, uint32_t* is_bgzf_ptr);
 // these require us to stop using the Zstd zlib wrapper, so they're unlikely to
 // be worth the time investment before the initial plink 2.0 beta release.
 
-// (tested a few different values for this, 1 MB appears to work well on the
+// (tested a few different values for this, 1 MiB appears to work well on the
 // systems we care most about)
 CONSTU31(kDecompressChunkSize, 1048576);
 static_assert(!(kDecompressChunkSize % kCacheline), "kDecompressChunkSize must be a multiple of kCacheline.");

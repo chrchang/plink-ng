@@ -637,8 +637,8 @@ HEADER_INLINE BoolErr ScanmovUintDefcap(const char** str_iterp, uint32_t* valp) 
 CXXCONST_CP ScanadvDouble(const char* str_iter, double* valp);
 
 #ifdef __cplusplus
-HEADER_INLINE char* ScanadvDouble(char* ss, double* valp) {
-  return const_cast<char*>(ScanadvDouble(const_cast<const char*>(ss), valp));
+HEADER_INLINE char* ScanadvDouble(char* str_iter, double* valp) {
+  return const_cast<char*>(ScanadvDouble(const_cast<const char*>(str_iter), valp));
 }
 #endif
 
@@ -653,6 +653,14 @@ HEADER_INLINE BoolErr ScanFloat(const char* ss, float* valp) {
   *valp = S_CAST(float, dxx);
   return 0;
 }
+
+CXXCONST_CP ScanadvLn(const char* str_iter, double* ln_ptr);
+
+#ifdef __cplusplus
+HEADER_INLINE char* ScanadvLn(char* str_iter, double* ln_ptr) {
+  return const_cast<char*>(ScanadvLn(const_cast<const char*>(str_iter), ln_ptr));
+}
+#endif
 
 // memcpya(), memseta() defined in plink2_base.h
 
@@ -1076,6 +1084,13 @@ char* dtoa_g(double dxx, char* start);
 // represented as 32768ths).
 // (may want to replace _p8 with _p10 for perfect int32 handling.)
 char* dtoa_g_p8(double dxx, char* start);
+
+static const double kLn10 = 2.3025850929940457;
+static const double kRecipLn10 = 0.43429448190325176;
+static const double kLnDenormalMin = -744.4400719213812;
+
+// Currently assumes ln_val <= 0.0.
+char* lntoa_g(double ln_val, char* start);
 
 HEADER_INLINE void TrailingZeroesToSpaces(char* start) {
   --start;

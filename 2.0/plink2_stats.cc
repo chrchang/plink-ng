@@ -557,12 +557,12 @@ static inline long double u31told(uint32_t uii) {
 }
 */
 
-double finite_gamma_q_negln(uint32_t aa, double xx) {
+double finite_gamma_q_ln(uint32_t aa, double xx) {
   // a is a positive integer < 30; max(0.6, a-1) < x < kLogMaxValue
   // (e^{-x})(1 + x + x^2/2 + x^3/3! + x^4/4! + ... + x^{a-1}/(a-1)!)
   //
-  // negative logarithm:
-  // x - log(1 + x + ... + x^{a-1}/(a-1)!)
+  // logarithm:
+  // log(1 + x + ... + x^{a-1}/(a-1)!) - x
   // no overflow or underflow danger for main term thanks to bounds
   double sum = 1.0;
   double term = 1.0;
@@ -571,7 +571,7 @@ double finite_gamma_q_negln(uint32_t aa, double xx) {
     term *= xx;
     sum += term;
   }
-  return xx - log(sum);
+  return log(sum) - xx;
 }
 
 double erfc_fast2(double zz, double* tau_ln_ptr) {
@@ -580,13 +580,13 @@ double erfc_fast2(double zz, double* tau_ln_ptr) {
   return tt;
 }
 
-double finite_half_gamma_q_negln(double aa, double xx) {
+double finite_half_gamma_q_ln(double aa, double xx) {
   // a is in {0.5, 1.5, ..., 29.5}; max(0.2, a-1) < x < kLogMaxValue
   const double sqrt_x = sqrt(xx);
   double tau_ln;
   double tt = erfc_fast2(sqrt_x, &tau_ln);
   if (aa < 1) {
-    return -log(tt) - tau_ln;
+    return log(tt) + tau_ln;
   }
   double term = exp(-xx) / (kSqrtPi * sqrt_x);
   term *= xx * 2;
@@ -597,7 +597,7 @@ double finite_half_gamma_q_negln(double aa, double xx) {
     sum += term;
   }
   double ee = tt * exp(tau_ln) + sum;
-  return -log(ee);
+  return log(ee);
 }
 
 static const double kLnSqrtPi = 0.5723649429247001;
@@ -624,8 +624,8 @@ double regularized_gamma_prefix_ln(double aa, double zz) {
   return prefix_ln + log(sqrt(agh * kRecipE) * lanczos_sum_expg_scaled_recip(aa));
 }
 
-// does not guarantee return value >= 0 for now; caller must do that.
-double gamma_incomplete_imp2_negln(uint32_t df, double xx) {
+// does not guarantee return value <= 0 for now; caller must do that.
+double gamma_incomplete_imp2_ln(uint32_t df, double xx) {
   assert(df);
   assert(xx >= 0.0);
   const double aa = u31tod(df) * 0.5;
@@ -687,9 +687,9 @@ double gamma_incomplete_imp2_negln(uint32_t df, double xx) {
   }
   switch(eval_method) {
   case 0:
-    return finite_gamma_q_negln(df / 2, xx);
+    return finite_gamma_q_ln(df / 2, xx);
   case 1:
-    return finite_half_gamma_q_negln(aa, xx);
+    return finite_half_gamma_q_ln(aa, xx);
   case 2:
     {
       const double result_ln = regularized_gamma_prefix_ln(aa, xx);
@@ -703,7 +703,7 @@ double gamma_incomplete_imp2_negln(uint32_t df, double xx) {
       }
       const double init_value = -aa * exp(-result_ln);
       const double multiplier = -lower_gamma_series(aa, xx, init_value) / aa;
-      return -result_ln - log(multiplier);
+      return result_ln + log(multiplier);
     }
   case 3:
     {
@@ -711,13 +711,13 @@ double gamma_incomplete_imp2_negln(uint32_t df, double xx) {
       double gg;
       double result = tgamma_small_upper_part_df1(xx, 0, nullptr, &gg);
       result /= gg;  // convert this to multiplication by constant?
-      return -log(result);
+      return log(result);
     }
   case 4:
     {
       const double result1_ln = regularized_gamma_prefix_ln(aa, xx);
       const double result2_ln = log(upper_gamma_fraction(aa, xx));
-      return -result1_ln - result2_ln;
+      return result1_ln + result2_ln;
     }
   case 5:
   default:  // silence compiler warning
@@ -728,15 +728,15 @@ double gamma_incomplete_imp2_negln(uint32_t df, double xx) {
       if (xx < aa) {
         result = 1.0 - result;
       }
-      return -log(result);
+      return log(result);
     }
   }
 }
 
-double ChisqToNegLnP(double chisq, uint32_t df) {
-  return MAXV(gamma_incomplete_imp2_negln(df, chisq * 0.5), 0.0);
+double ChisqToLnP(double chisq, uint32_t df) {
+  return MINV(gamma_incomplete_imp2_ln(df, chisq * 0.5), 0.0);
 }
-// ***** end ChisqToNegLnP *****
+// ***** end ChisqToLnP *****
 
 
 // ***** thread-safe PToChisq *****
@@ -927,12 +927,12 @@ double PToChisq(double pval, uint32_t df) {
 
 // ***** end thread-safe PToChisq *****
 
-double NegLnPToChisq(double negln_pval) {
-  if (negln_pval < 65.04474754675797) {
-    return gamma_p_inv_imp2(1, exp(-negln_pval)) * 2;
+double LnPToChisq(double ln_pval) {
+  if (ln_pval > -65.04474754675797) {
+    return gamma_p_inv_imp2(1, exp(ln_pval)) * 2;
   }
   // (bb < 1e-28) case in find_inverse_gamma2()
-  const double yy = negln_pval - kLnSqrtPi;
+  const double yy = kLnSqrtPi - ln_pval;
   const double c1 = -0.5 * log(yy);
   const double c1_2 = c1 * c1;
   const double c1_3 = c1_2 * c1;
@@ -1059,30 +1059,26 @@ double TstatToP2(double tt, double df, double cached_gamma_mult) {
 }
 // ***** end thread-safe TstatToP calculation *****
 
-// ***** begin TstatToNegLnP *****
-double betai_slow_negln(double aa, double bb, double xx) {
-  if ((xx < 0.0) || (xx > 1.0)) {
-    return -9;
-  }
+// ***** begin TstatToLnP *****
+
+// Assumes xx is in range; no -9 error return since that value may be valid.
+double betai_slow_ln(double aa, double bb, double xx) {
   uint32_t do_invert = (xx * (aa + bb + 2.0)) >= (aa + 1.0);
   if ((xx == 0.0) || (xx == 1.0)) {
-    return do_invert? 0.0 : DBL_MAX;
+    return do_invert? 0.0 : -DBL_MAX;
   }
   // this is very expensive
   double bt_ln = lgamma(aa + bb) - lgamma(aa) - lgamma(bb) + aa * log(xx) + bb * log(1.0 - xx);
   if (!do_invert) {
-    return -bt_ln - log(betacf_slow(aa, bb, xx) / aa);
+    return bt_ln + log(betacf_slow(aa, bb, xx) / aa);
   }
-  return -log(1.0 - exp(bt_ln) * betacf_slow(bb, aa, 1.0 - xx) / bb);
+  return log(1.0 - exp(bt_ln) * betacf_slow(bb, aa, 1.0 - xx) / bb);
 }
 
-double TstatToNegLnP(double tt, double df) {
-  if (!IsRealnum(tt)) {
-    return -9;
-  }
-  return betai_slow_negln(df * 0.5, 0.5, df / (df + tt * tt));
+double TstatToLnP(double tt, double df) {
+  return betai_slow_ln(df * 0.5, 0.5, df / (df + tt * tt));
 }
-// ***** end TstatToNegLnP *****
+// ***** end TstatToLnP *****
 
 
 // Inverse normal distribution

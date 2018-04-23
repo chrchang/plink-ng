@@ -1009,7 +1009,7 @@ CXXCONST_CP ScanadvDouble(const char* str_iter, double* valp) {
   //   segfaulting on space/eoln/null)
   // don't care about hexadecimal
   // ok to lose last ~2 bits of precision
-  // ok if this yields incorrect results on >1GB strings
+  // ok if behavior undefined on >1GB strings in 32-bit case, >2GB for 64-bit
   // fail on nan/infinity/overflow instead of usual strtod behavior
   uint32_t cur_char_code = ctou32(*str_iter);
   const uint32_t is_negative = (cur_char_code == 45);
@@ -1017,7 +1017,7 @@ CXXCONST_CP ScanadvDouble(const char* str_iter, double* valp) {
     cur_char_code = ctou32(*(++str_iter));
   }
   uint32_t cur_digit = cur_char_code - 48;
-  int32_t e10 = 0;
+  intptr_t e10 = 0;
   const char* dot_ptr;
   int64_t digits;
 #ifdef __LP64__
@@ -1036,7 +1036,6 @@ CXXCONST_CP ScanadvDouble(const char* str_iter, double* valp) {
         goto ScanadvDouble_parse_exponent;
       }
       digits = digits * 10 + cur_digit;
-      // this check should work differently in 32-bit version
     } while (digits < 10000000000000000LL);
     // we have 17 significant digits; count the rest, but don't worry about
     // contents
@@ -1046,7 +1045,7 @@ CXXCONST_CP ScanadvDouble(const char* str_iter, double* valp) {
     do {
       cur_digit = ctou32(*(++str_iter)) - 48;
     } while (cur_digit < 10);
-    e10 = S_CAST(uint32_t, str_iter - last_sig_fig_ptr) - 1;
+    e10 = S_CAST(intptr_t, str_iter - last_sig_fig_ptr) - 1;
     if (cur_digit == 0xfffffffeU) {
       do {
         cur_digit = ctou32(*(++str_iter)) - 48;
@@ -1068,12 +1067,12 @@ CXXCONST_CP ScanadvDouble(const char* str_iter, double* valp) {
   while (1) {
     cur_digit = ctou32(*(++str_iter)) - 48;
     if (cur_digit >= 10) {
-      e10 = 1 - S_CAST(int32_t, str_iter - dot_ptr);
+      e10 = 1 - S_CAST(intptr_t, str_iter - dot_ptr);
       break;
     }
     digits = digits * 10 + cur_digit;
     if (digits >= 10000000000000000LL) {
-      e10 = -S_CAST(int32_t, str_iter - dot_ptr);
+      e10 = -S_CAST(intptr_t, str_iter - dot_ptr);
       do {
         cur_digit = ctou32(*(++str_iter)) - 48;
       } while (cur_digit < 10);
@@ -1090,7 +1089,7 @@ CXXCONST_CP ScanadvDouble(const char* str_iter, double* valp) {
     cur_digit = cur_char_code - 48;
     int32_t cur_exp = 0;
     while (cur_digit < 10) {
-      if (cur_exp >= 107374182) {
+      if (cur_exp >= 214748364) {
         // may as well guard against exponent overflow
         if (!exp_is_negative) {
           return nullptr;
@@ -1146,7 +1145,7 @@ CXXCONST_CP ScanadvDouble(const char* str_iter, double* valp) {
     do {
       cur_digit = ctou32(*(++str_iter)) - 48;
     } while (cur_digit < 10);
-    e10 = S_CAST(uint32_t, str_iter - last_sig_fig_ptr) - 1;
+    e10 = S_CAST(intptr_t, str_iter - last_sig_fig_ptr) - 1;
     if (cur_digit == 0xfffffffeU) {
       do {
         cur_digit = ctou32(*(++str_iter)) - 48;
@@ -1168,7 +1167,7 @@ CXXCONST_CP ScanadvDouble(const char* str_iter, double* valp) {
   while (1) {
     cur_digit = ctou32(*(++str_iter)) - 48;
     if (cur_digit >= 10) {
-      e10 = 1 - S_CAST(int32_t, str_iter - dot_ptr);
+      e10 = 1 - S_CAST(intptr_t, str_iter - dot_ptr);
       digits = digits_short;
       break;
     }
@@ -1179,12 +1178,12 @@ CXXCONST_CP ScanadvDouble(const char* str_iter, double* valp) {
       while (1) {
         cur_digit = ctou32(*(++str_iter)) - 48;
         if (cur_digit >= 10) {
-          e10 = 1 - S_CAST(int32_t, str_iter - dot_ptr);
+          e10 = 1 - S_CAST(intptr_t, str_iter - dot_ptr);
           goto ScanadvDouble_parse_exponent;
         }
         digits = digits * 10 + cur_digit;
         if (digits >= 10000000000000000LL) {
-          e10 = -S_CAST(int32_t, str_iter - dot_ptr);
+          e10 = -S_CAST(intptr_t, str_iter - dot_ptr);
           do {
             cur_digit = ctou32(*(++str_iter)) - 48;
           } while (cur_digit < 10);
@@ -1205,6 +1204,7 @@ CXXCONST_CP ScanadvDouble(const char* str_iter, double* valp) {
     while (cur_digit < 10) {
       if (cur_exp >= 107374182) {
         // may as well guard against exponent overflow
+        // 2^30 instead of 2^31 limit since this gets added to e10
         if (!exp_is_negative) {
           return nullptr;
         }
@@ -1267,6 +1267,238 @@ CXXCONST_CP ScanadvDouble(const char* str_iter, double* valp) {
     }
   }
   *valp = dxx;
+  return S_CAST(CXXCONST_CP, str_iter);
+}
+
+CXXCONST_CP ScanadvLn(const char* str_iter, double* ln_ptr) {
+  // revised ScanadvDouble() which currently requires number to be nonnegative
+  // returns -DBL_MAX on 0
+  uint32_t cur_char_code = ctou32(*str_iter);
+  const uint32_t is_negative = (cur_char_code == 45);
+  if (is_negative || (cur_char_code == 43)) {
+    cur_char_code = ctou32(*(++str_iter));
+  }
+  uint32_t cur_digit = cur_char_code - 48;
+  intptr_t e10 = 0;
+  const char* dot_ptr;
+  int64_t digits;
+#ifdef __LP64__
+  if (cur_digit < 10) {
+    // ok, we have at least one digit
+    digits = cur_digit;
+    // to check: best to skip leading zeroes and compare against 17 instead of
+    // 10^16?
+    do {
+      cur_digit = ctou32(*(++str_iter)) - 48;
+      if (cur_digit >= 10) {
+        if (cur_digit == 0xfffffffeU) {
+          dot_ptr = str_iter;
+          goto ScanadvLn_parse_decimal;
+        }
+        goto ScanadvLn_parse_exponent;
+      }
+      digits = digits * 10 + cur_digit;
+    } while (digits < 10000000000000000LL);
+    // we have 17 significant digits; count the rest, but don't worry about
+    // contents
+    // (could keep ~19 instead, but if we're systematically losing the last two
+    // bits of precision anyway...)
+    const char* last_sig_fig_ptr = str_iter;
+    do {
+      cur_digit = ctou32(*(++str_iter)) - 48;
+    } while (cur_digit < 10);
+    e10 = S_CAST(intptr_t, str_iter - last_sig_fig_ptr) - 1;
+    if (cur_digit == 0xfffffffeU) {
+      do {
+        cur_digit = ctou32(*(++str_iter)) - 48;
+      } while (cur_digit < 10);
+    }
+    goto ScanadvLn_parse_exponent;
+  }
+  if (cur_digit != 0xfffffffeU) {
+    return nullptr;
+  }
+  // first (nonsign) character is dot, verify we have a digit after it
+  dot_ptr = str_iter;
+  cur_digit = ctou32(*(++str_iter)) - 48;
+  if (cur_digit >= 10) {
+    return nullptr;
+  }
+  digits = cur_digit;
+ ScanadvLn_parse_decimal:
+  while (1) {
+    cur_digit = ctou32(*(++str_iter)) - 48;
+    if (cur_digit >= 10) {
+      e10 = 1 - S_CAST(intptr_t, str_iter - dot_ptr);
+      break;
+    }
+    digits = digits * 10 + cur_digit;
+    if (digits >= 10000000000000000LL) {
+      e10 = -S_CAST(intptr_t, str_iter - dot_ptr);
+      do {
+        cur_digit = ctou32(*(++str_iter)) - 48;
+      } while (cur_digit < 10);
+      break;
+    }
+  }
+ ScanadvLn_parse_exponent:
+  if (is_negative && (digits != 0)) {
+    return nullptr;
+  }
+  if ((cur_digit & 0xdf) == 21) { // 'E' - '0' is 21
+    cur_char_code = ctou32(*(++str_iter));
+    const uint32_t exp_is_negative = (cur_char_code == 45);
+    if (exp_is_negative || (cur_char_code == 43)) {
+      cur_char_code = ctou32(*(++str_iter));
+    }
+    cur_digit = cur_char_code - 48;
+    int32_t cur_exp = 0;
+    while (cur_digit < 10) {
+      if (cur_exp >= 214748364) {
+        // may as well guard against exponent overflow
+        if (!exp_is_negative) {
+          return nullptr;
+        }
+        *ln_ptr = -DBL_MAX;
+        do {
+          cur_digit = ctou32(*(++str_iter)) - 48;
+        } while (cur_digit < 10);
+        return S_CAST(CXXCONST_CP, str_iter);
+      }
+      cur_exp = cur_exp * 10 + cur_digit;
+      cur_digit = ctou32(*(++str_iter)) - 48;
+    }
+    if (exp_is_negative) {
+      cur_exp = -cur_exp;
+    }
+    e10 += cur_exp;
+  }
+#else  // not __LP64__
+  int32_t digits_short;
+  if (cur_digit < 10) {
+    // ok, we have at least one digit
+    digits_short = cur_digit;
+    // to check: best to skip leading zeroes and compare against 17 instead of
+    // 10^16?
+    do {
+      cur_digit = ctou32(*(++str_iter)) - 48;
+      if (cur_digit >= 10) {
+        if (cur_digit == 0xfffffffeU) {
+          dot_ptr = str_iter;
+          goto ScanadvLn_parse_decimal;
+        }
+        digits = digits_short;
+        goto ScanadvLn_parse_exponent;
+      }
+      digits_short = digits_short * 10 + cur_digit;
+    } while (digits_short < 100000000);
+    digits = digits_short;
+    do {
+      cur_digit = ctou32(*(++str_iter)) - 48;
+      if (cur_digit >= 10) {
+        if (cur_digit == 0xfffffffeU) {
+          dot_ptr = str_iter;
+          goto ScanadvLn_parse_decimal_long;
+        }
+        goto ScanadvLn_parse_exponent;
+      }
+      digits = digits * 10 + cur_digit;
+    } while (digits < 10000000000000000LL);
+    // we have 17 significant digits; count the rest, but don't worry about
+    // contents
+    const char* last_sig_fig_ptr = str_iter;
+    do {
+      cur_digit = ctou32(*(++str_iter)) - 48;
+    } while (cur_digit < 10);
+    e10 = S_CAST(intptr_t, str_iter - last_sig_fig_ptr) - 1;
+    if (cur_digit == 0xfffffffeU) {
+      do {
+        cur_digit = ctou32(*(++str_iter)) - 48;
+      } while (cur_digit < 10);
+    }
+    goto ScanadvLn_parse_exponent;
+  }
+  if (cur_digit != 0xfffffffeU) {
+    return nullptr;
+  }
+  // first (nonsign) character is dot, verify we have a digit after it
+  dot_ptr = str_iter;
+  cur_digit = ctou32(*(++str_iter)) - 48;
+  if (cur_digit >= 10) {
+    return nullptr;
+  }
+  digits_short = cur_digit;
+ ScanadvLn_parse_decimal:
+  while (1) {
+    cur_digit = ctou32(*(++str_iter)) - 48;
+    if (cur_digit >= 10) {
+      e10 = 1 - S_CAST(intptr_t, str_iter - dot_ptr);
+      digits = digits_short;
+      break;
+    }
+    digits_short = digits_short * 10 + cur_digit;
+    if (digits_short >= 100000000) {
+      digits = digits_short;
+    ScanadvLn_parse_decimal_long:
+      while (1) {
+        cur_digit = ctou32(*(++str_iter)) - 48;
+        if (cur_digit >= 10) {
+          e10 = 1 - S_CAST(intptr_t, str_iter - dot_ptr);
+          goto ScanadvLn_parse_exponent;
+        }
+        digits = digits * 10 + cur_digit;
+        if (digits >= 10000000000000000LL) {
+          e10 = -S_CAST(intptr_t, str_iter - dot_ptr);
+          do {
+            cur_digit = ctou32(*(++str_iter)) - 48;
+          } while (cur_digit < 10);
+          goto ScanadvLn_parse_exponent;
+        }
+      }
+    }
+  }
+ ScanadvLn_parse_exponent:
+  if (is_negative && (digits != 0)) {
+    return nullptr;
+  }
+  if ((cur_digit & 0xdf) == 21) { // 'E' - '0' is 21
+    cur_char_code = ctou32(*(++str_iter));
+    const uint32_t exp_is_negative = (cur_char_code == 45);
+    if (exp_is_negative || (cur_char_code == 43)) {
+      cur_char_code = ctou32(*(++str_iter));
+    }
+    cur_digit = cur_char_code - 48;
+    int32_t cur_exp = 0;
+    while (cur_digit < 10) {
+      if (cur_exp >= 107374182) {
+        // may as well guard against exponent overflow
+        if (!exp_is_negative) {
+          return nullptr;
+        }
+        *ln_ptr = -DBL_MAX;
+        do {
+          cur_digit = ctou32(*(++str_iter)) - 48;
+        } while (cur_digit < 10);
+        return S_CAST(CXXCONST_CP, str_iter);
+      }
+      cur_exp = cur_exp * 10 + cur_digit;
+      cur_digit = ctou32(*(++str_iter)) - 48;
+    }
+    if (exp_is_negative) {
+      cur_exp = -cur_exp;
+    }
+    e10 += cur_exp;
+  }
+#endif
+  if (digits == 0) {
+    *ln_ptr = -DBL_MAX;
+    return S_CAST(CXXCONST_CP, str_iter);
+  }
+  double ln_val = log(S_CAST(double, digits));
+  if (e10) {
+    ln_val += e10 * kLn10;
+  }
+  *ln_ptr = ln_val;
   return S_CAST(CXXCONST_CP, str_iter);
 }
 
@@ -2465,6 +2697,57 @@ char* dtoa_f_p5_clipped(double dxx, char* start) {
   return &(start[-1]);  // strip the decimal point
 }
 */
+
+char* lntoa_g(double ln_val, char* start) {
+  assert(ln_val <= 0.0);
+  // log(9.9999949999999e-5)
+  if (ln_val > -9.210340871976317) {
+    // log(0.99999949999999)
+    if (ln_val > -5.000001349509205e-7) {
+      *start++ = '1';
+      return start;
+    }
+    double dxx = exp(ln_val);
+    // 6 sig fig decimal, no less than ~0.0001
+    start = memcpya(start, "0.", 2);
+    if (dxx < 9.9999949999999e-3) {
+      dxx *= 100;
+      start = memcpya(start, "00", 2);
+    }
+    if (dxx < 9.9999949999999e-2) {
+      dxx *= 10;
+      *start++ = '0';
+    }
+    return uitoa_trunc6(BankerRoundD(dxx * 1000000, kBankerRound8), start);
+  }
+  // 6 sig fig exponential notation, small
+
+  // if exponent is in danger of overflowing int32, just print '0'
+  if (ln_val < 0x7ffffffb * (-kLn10)) {
+    *start++ = '0';
+    return start;
+  }
+  int32_t xp10 = 1 + static_cast<int32_t>((-5.000001349509205e-7 - ln_val) * kRecipLn10);
+  double mantissa = exp((static_cast<int32_t>(xp10) * kLn10) + ln_val);
+  // mantissa will usually be in [.9999995, 9.999995], but ln_val can be
+  // smaller than -2^32, and floating point errors in either direction are
+  // definitely possible (<20 bits of precision).
+  if (mantissa < 0.99999949999999) {
+    mantissa *= 10;
+    xp10 += 1;
+  } else if (mantissa > 9.9999949999999) {
+    mantissa *= 0.1;
+    xp10 -= 1;
+  }
+  uint32_t quotient;
+  uint32_t remainder;
+  BankerRoundD5(mantissa, kBankerRound8, &quotient, &remainder);
+  start = memcpya(qrtoa_1p5(quotient, remainder, start), "e-", 2);
+  if (xp10 < 10) {
+    *start++ = '0';
+  }
+  return u32toa(xp10, start);
+}
 
 
 // Briefly had banker's rounding for floats, but then I realized that the only

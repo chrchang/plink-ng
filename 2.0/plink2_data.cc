@@ -1934,7 +1934,7 @@ uint32_t ApplyHardCallThreshPhased(const uintptr_t* dosage_present, const Dosage
       *dphase_write_iter++ = dphase_delta_val;
       if (geno_xor) {
         if (new_geno == 1) {
-          const uint32_t neg_sign_bit = -(dphase_delta_val >> 31);
+          const uint32_t neg_sign_bit = -(S_CAST(uint32_t, dphase_delta_val) >> 31);
           const uint32_t abs_dphase_delta_val = (S_CAST(uint32_t, dphase_delta_val) ^ neg_sign_bit) - neg_sign_bit;
           if (abs_dphase_delta_val > kDosage4th) {
             SetBit(sample_uidx, phasepresent);
@@ -3784,7 +3784,7 @@ BoolErr SortChr(const ChrInfo* cip, const uint32_t* chr_idx_to_size, uint32_t us
 #ifdef __cplusplus
   std::sort(std_sortbuf, &(std_sortbuf[std_sortbuf_len]));
 #else
-  qsort(std_sortbuf, std_sortbuf_len, sizeof(int64_t), uint64cmp);
+  qsort(std_sortbuf, std_sortbuf_len, sizeof(int64_t), u64cmp);
 #endif
   uint32_t write_vidx = 0;
   write_cip->chr_fo_vidx_start[0] = 0;
@@ -4415,7 +4415,7 @@ PglErr MakePlink2Vsort(const char* xheader, const uintptr_t* sample_include, con
 #ifdef __cplusplus
       std::sort(pos_vidx_sort_chr, &(pos_vidx_sort_chr[chr_size]));
 #else
-      qsort(pos_vidx_sort_chr, chr_size, sizeof(int64_t), uint64cmp);
+      qsort(pos_vidx_sort_chr, chr_size, sizeof(int64_t), u64cmp);
 #endif
       uint32_t prev_pos = pos_vidx_sort_chr[0] >> 32;
       uint32_t prev_variant_uidx = S_CAST(uint32_t, pos_vidx_sort_chr[0]);

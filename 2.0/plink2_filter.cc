@@ -2540,7 +2540,7 @@ THREAD_FUNC_DECL LoadSampleMissingCtsThread(void* arg) {
       // could instead have missing_hc and (missing_hc - missing_dosage); that
       // has the advantage of letting you skip one of the two increment
       // operations when the variant is all hardcalls.
-      PglErr reterr = PgrGetMissingnessPD(nullptr, nullptr, raw_sample_ct, variant_uidx, pgrp, missing_hc_acc1, missing_dosage_acc1, cur_hets, genovec_buf);
+      PglErr reterr = PgrGetMissingnessD(nullptr, nullptr, raw_sample_ct, variant_uidx, pgrp, missing_hc_acc1, missing_dosage_acc1, cur_hets, genovec_buf);
       if (reterr) {
         g_error_ret = reterr;
         break;

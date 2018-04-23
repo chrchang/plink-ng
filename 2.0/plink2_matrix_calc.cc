@@ -2505,6 +2505,15 @@ PglErr ExpandCenteredVarmaj(const uintptr_t* genovec, const uintptr_t* dosage_pr
       return kPglRetSuccess;
     }
     inv_stdev = 1.0 / sqrt(variance);
+    // todo:
+    // * Variance is doubled in haploid case, so inv_stdev should be multiplied
+    //   by sqrt(0.5) there.  Still want to leave chrY/MT out of basic GRM
+    //   since those chromosomes obviously have special properties re: genomic
+    //   relatedness, but could apply this to --score.
+    // * Could use one inv_stdev for males and one for nonmales for chrX
+    //   --score (while still leaving that out of GRM... or just leave males
+    //   out there?).  This depends on dosage compensation model; discussed in
+    //   e.g. GCTA paper.
   } else {
     inv_stdev = 1.0;
   }
@@ -2751,7 +2760,7 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
         uintptr_t* missing_vmaj_iter = missing_vmaj;
         for (uint32_t variant_idx = cur_variant_idx_start; variant_idx < cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
           MovU32To1Bit(variant_include, &variant_uidx);
-          reterr = PgrGetMissingnessPD(sample_include, sample_include_cumulative_popcounts, row_end_idx, variant_uidx, simple_pgrp, nullptr, missing_vmaj_iter, nullptr, genovec_buf);
+          reterr = PgrGetMissingnessD(sample_include, sample_include_cumulative_popcounts, row_end_idx, variant_uidx, simple_pgrp, nullptr, missing_vmaj_iter, nullptr, genovec_buf);
           if (reterr) {
             if (reterr == kPglRetMalformedInput) {
               logputs("\n");

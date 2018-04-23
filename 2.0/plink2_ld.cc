@@ -830,9 +830,6 @@ THREAD_FUNC_DECL IndepPairwiseThread(void* arg) {
                   // > instead of >=, so we don't prune from a pair of
                   // variants with zero common observations
                   if (cov12 * cov12 > prune_ld_thresh * variance1 * variance2) {
-                    // strictly speaking, the (1 + kSmallEpsilon) tolerance
-                    // does not appear to be needed yet, but it will be once
-                    // --read-freq is implemented.
                     // this has a surprisingly large ~3% speed penalty on my
                     // main test scenario, but that's an acceptable price to
                     // pay for reproducibility.
@@ -1290,7 +1287,7 @@ PglErr LdPruneSubcontigSplitAll(const uintptr_t* variant_include, const ChrInfo*
   }
   *subcontig_ct_ptr = S_CAST(uintptr_t, subcontig_info_iter - subcontig_info) / 3;
   *subcontig_info_ptr = subcontig_info;
-  BigstackFinalizeUi(subcontig_info, (*subcontig_ct_ptr) * 3);
+  BigstackFinalizeU32(subcontig_info, (*subcontig_ct_ptr) * 3);
   *window_max_ptr = window_max;
   return kPglRetSuccess;
 }
@@ -1400,7 +1397,7 @@ PglErr LoadBalance(const uint32_t* task_weights, uint32_t task_ct, uint32_t* thr
   // could try std::nth_element if this is ever a bottleneck
   std::sort(sorted_tagged_weights, sorted_tagged_weights_end, std::greater<uint64_t>());
 #else
-  qsort(sorted_tagged_weights, task_ct, sizeof(int64_t), uint64cmp_decr);
+  qsort(sorted_tagged_weights, task_ct, sizeof(int64_t), u64cmp_decr);
 #endif
   const uint64_t largest_tagged_weight = sorted_tagged_weights[0];
   uint32_t initial_max_load = largest_tagged_weight >> 32;
