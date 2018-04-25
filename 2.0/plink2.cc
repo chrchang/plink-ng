@@ -61,7 +61,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (22 Apr 2018)";
+  " (24 Apr 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -184,7 +184,6 @@ typedef struct Plink2CmdlineStruct {
 
   Command1Flags command_flags1;
   PvarPsamFlags pvar_psam_flags;
-  ExportfFlags exportf_flags;
   SortFlags sample_sort_flags;
   SortFlags sort_vars_flags;
   GrmFlags grm_flags;
@@ -196,7 +195,6 @@ typedef struct Plink2CmdlineStruct {
   RangeList pheno_range_list;
   RangeList covar_range_list;
   FamCol fam_cols;
-  IdpasteFlags exportf_id_paste;
   UpdateSexInfo update_sex_info;
   LdInfo ld_info;
   KingFlags king_flags;
@@ -215,6 +213,7 @@ typedef struct Plink2CmdlineStruct {
   CmpExpr remove_if_expr;
   CmpExpr extract_if_info_expr;
   CmpExpr exclude_if_info_expr;
+  ExportfInfo exportf_info;
   double ci_size;
   float var_min_qual;
   uint32_t splitpar_bound1;
@@ -251,13 +250,11 @@ typedef struct Plink2CmdlineStruct {
   uint32_t max_thread_ct;
   uint32_t parallel_idx;
   uint32_t parallel_tot;
-  uint32_t exportf_bits;
   uint32_t mwithin_val;
   uint32_t min_bp_space;
   uint32_t thin_keep_ct;
   uint32_t thin_keep_sample_ct;
   uint32_t keep_fcol_num;
-  char exportf_id_delim;
 
   char* var_filter_exceptions_flattened;
   char* varid_template;
@@ -535,7 +532,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
   {
     // this predicate will need to exclude --merge-list special case later
     uint32_t pvar_renamed = 0;
-    if ((make_plink2_flags & (kfMakeBed | kfMakePgen)) || (pcp->exportf_flags & kfExportfIndMajorBed)) {
+    if ((make_plink2_flags & (kfMakeBed | kfMakePgen)) || (pcp->exportf_info.flags & kfExportfIndMajorBed)) {
       uint32_t fname_slen;
 #ifdef _WIN32
       fname_slen = GetFullPathName(pgenname, kPglFnamesize, g_textbuf, nullptr);
@@ -552,7 +549,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
         pgen_rename = RealpathIdentical(outname, g_textbuf, &(g_textbuf[kPglFnamesize + 64]));
       }
-      if ((!pgen_rename) && ((make_plink2_flags & kfMakeBed) || (pcp->exportf_flags & kfExportfIndMajorBed))) {
+      if ((!pgen_rename) && ((make_plink2_flags & kfMakeBed) || (pcp->exportf_info.flags & kfExportfIndMajorBed))) {
         snprintf(outname_end, kMaxOutfnameExtBlen, ".bed");
         pgen_rename = RealpathIdentical(outname, g_textbuf, &(g_textbuf[kPglFnamesize + 64]));
       }
@@ -643,7 +640,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     }
 
     uint32_t max_variant_id_slen = 1;
-    uint32_t info_reload_slen = InfoReloadIsNeeded(pcp->command_flags1, pcp->pvar_psam_flags, pcp->exportf_flags);
+    uint32_t info_reload_slen = InfoReloadIsNeeded(pcp->command_flags1, pcp->pvar_psam_flags, pcp->exportf_info.flags);
     uintptr_t* variant_allele_idxs = nullptr;
     uint32_t raw_variant_ct = 0;
     uint32_t variant_ct = 0;
@@ -674,7 +671,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
     ChrIdx* chr_idxs = nullptr;  // split-chromosome case only
     if (pvarname[0]) {
       char** pvar_filter_storage_mutable = nullptr;
-      reterr = LoadPvar(pvarname, pcp->var_filter_exceptions_flattened, pcp->varid_template, pcp->missing_varid_match, pcp->require_info_flattened, pcp->require_no_info_flattened, pcp->extract_if_info_expr, pcp->exclude_if_info_expr, pcp->misc_flags, pcp->pvar_psam_flags, pcp->exportf_flags, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->dependency_flags & kfFilterNoSplitChr), pcp->max_thread_ct, cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids_mutable, &variant_allele_idxs, K_CAST(const char***, &allele_storage_mutable), &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage_mutable, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_slen, &xheader_blen, &info_flags, &max_filter_slen);
+      reterr = LoadPvar(pvarname, pcp->var_filter_exceptions_flattened, pcp->varid_template, pcp->missing_varid_match, pcp->require_info_flattened, pcp->require_no_info_flattened, pcp->extract_if_info_expr, pcp->exclude_if_info_expr, pcp->misc_flags, pcp->pvar_psam_flags, pcp->exportf_info.flags, pcp->var_min_qual, pcp->splitpar_bound1, pcp->splitpar_bound2, pcp->new_variant_id_max_allele_slen, (pcp->filter_flags / kfFilterSnpsOnly) & 3, !(pcp->dependency_flags & kfFilterNoSplitChr), pcp->max_thread_ct, cip, &max_variant_id_slen, &info_reload_slen, &vpos_sortstatus, &xheader, &variant_include, &variant_bps, &variant_ids_mutable, &variant_allele_idxs, K_CAST(const char***, &allele_storage_mutable), &pvar_qual_present, &pvar_quals, &pvar_filter_present, &pvar_filter_npass, &pvar_filter_storage_mutable, &nonref_flags, &variant_cms, &chr_idxs, &raw_variant_ct, &variant_ct, &max_allele_slen, &xheader_blen, &info_flags, &max_filter_slen);
       if (reterr) {
         goto Plink2Core_ret_1;
       }
@@ -2117,7 +2114,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
 
         if (pcp->command_flags1 & kfCommand1Exportf) {
-          reterr = Exportf(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, make_plink2_flags, pcp->exportf_flags, pcp->exportf_id_paste, pcp->exportf_id_delim, pcp->exportf_bits, pgr_alloc_cacheline_ct, xheader, &pgfi, &simple_pgr, outname, outname_end);
+          reterr = Exportf(sample_include, &pii, sex_nm, sex_male, pheno_cols, pheno_names, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, info_reload_slen? pvarname : nullptr, variant_cms, &(pcp->exportf_info), xheader_blen, info_flags, raw_sample_ct, sample_ct, pheno_ct, max_pheno_name_blen, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, pcp->max_thread_ct, make_plink2_flags, pgr_alloc_cacheline_ct, xheader, &pgfi, &simple_pgr, outname, outname_end);
           if (reterr) {
             goto Plink2Core_ret_1;
           }
@@ -2688,6 +2685,7 @@ int main(int argc, char** argv) {
   InitCmpExpr(&pc.remove_if_expr);
   InitCmpExpr(&pc.extract_if_info_expr);
   InitCmpExpr(&pc.exclude_if_info_expr);
+  InitExportf(&pc.exportf_info);
   AdjustFileInfo adjust_file_info;
   InitAdjust(&pc.adjust_info, &adjust_file_info);
   ChrInfo chr_info;
@@ -2930,7 +2928,6 @@ int main(int argc, char** argv) {
     // uint64_t command_flags2 = 0;
     pc.misc_flags = kfMisc0;
     pc.pvar_psam_flags = kfPvarPsam0;
-    pc.exportf_flags = kfExportf0;
     pc.sample_sort_flags = kfSort0;
     pc.sort_vars_flags = kfSort0;
     pc.grm_flags = kfGrm0;
@@ -2938,7 +2935,6 @@ int main(int argc, char** argv) {
     pc.write_covar_flags = kfWriteCovar0;
     pc.pheno_transform_flags = kfPhenoTransform0;
     pc.fam_cols = kfFamCol13456;
-    pc.exportf_id_paste = kfIdpaste0;
     pc.king_flags = kfKing0;
     pc.king_cutoff = -1;
     pc.king_table_filter = -DBL_MAX;
@@ -2990,13 +2986,11 @@ int main(int argc, char** argv) {
     pc.xchr_model = 2;
     pc.parallel_idx = 0;
     pc.parallel_tot = 1;
-    pc.exportf_bits = 0;
     pc.mwithin_val = 1;
     pc.min_bp_space = 0;
     pc.thin_keep_ct = UINT32_MAX;
     pc.thin_keep_sample_ct = UINT32_MAX;
     pc.keep_fcol_num = 0;
-    pc.exportf_id_delim = '\0';
     double import_dosage_certainty = 0.0;
     int32_t vcf_min_gq = -1;
     int32_t vcf_min_dp = -1;
@@ -3943,27 +3937,27 @@ int main(int argc, char** argv) {
           }
           uint32_t format_param_idxs = 0;
           if (!flagname_p2[5]) {
-            GetExportfTargets(&(argvk[arg_idx]), param_ct, &pc.exportf_flags, &pc.exportf_id_paste, &format_param_idxs);
+            GetExportfTargets(&(argvk[arg_idx]), param_ct, &pc.exportf_info.flags, &pc.exportf_info.idpaste_flags, &format_param_idxs);
             if (!format_param_idxs) {
               logerrputs("Error: --export requires at least one output format.  (Did you forget 'ped' or\n'vcf'?)\n");
               goto main_ret_INVALID_CMDLINE_A;
             }
             logputsb();
           } else {
-            pc.exportf_flags = kfExportfPed;
+            pc.exportf_info.flags = kfExportfPed;
           }
           // can't have e.g. bgen-1.1 and bgen-1.2 simultaneously, since they
           // have the same extension and different content.
-          const uint64_t bgen_flags = S_CAST(uint64_t, pc.exportf_flags & (kfExportfBgen11 | kfExportfBgen12 | kfExportfBgen13));
+          const uint64_t bgen_flags = S_CAST(uint64_t, pc.exportf_info.flags & (kfExportfBgen11 | kfExportfBgen12 | kfExportfBgen13));
           if (bgen_flags & (bgen_flags - 1)) {
             logerrputs("Error: Multiple --export bgen versions.\n");
             goto main_ret_INVALID_CMDLINE;
           }
-          if ((pc.exportf_flags & (kfExportfHaps | kfExportfHapsLegend)) == (kfExportfHaps | kfExportfHapsLegend)) {
+          if ((pc.exportf_info.flags & (kfExportfHaps | kfExportfHapsLegend)) == (kfExportfHaps | kfExportfHapsLegend)) {
             logerrputs("Error: 'haps' and 'hapslegend' formats cannot be exported simultaneously.\n");
             goto main_ret_INVALID_CMDLINE;
           }
-          if ((pc.exportf_flags & (kfExportfA | kfExportfAD)) == (kfExportfA | kfExportfAD)) {
+          if ((pc.exportf_info.flags & (kfExportfA | kfExportfAD)) == (kfExportfA | kfExportfAD)) {
             logerrputs("Error: 'A' and 'AD' formats cannot be exported simultaneously.\n");
             goto main_ret_INVALID_CMDLINE;
           }
@@ -3975,119 +3969,119 @@ int main(int argc, char** argv) {
             const char* cur_modif = argvk[arg_idx + param_idx];
             const uint32_t cur_modif_slen = strlen(cur_modif);
             if (StrStartsWith(cur_modif, "id-paste=", cur_modif_slen)) {
-              if (!(pc.exportf_flags & (kfExportfVcf | kfExportfBgen12 | kfExportfBgen13))) {
+              if (!(pc.exportf_info.flags & (kfExportfVcf | kfExportfBgen12 | kfExportfBgen13))) {
                 // todo: bcf
                 logerrputs("Error: The 'id-paste' modifier only applies to --export's vcf, bgen-1.2, and\nbgen-1.3 output formats.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
-              if (pc.exportf_id_paste) {
+              if (pc.exportf_info.idpaste_flags) {
                 logerrputs("Error: Multiple --export id-paste= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[strlen("id-paste=")]), "maybefid\0fid\0iid\0maybesid\0sid\0", "export", kfIdpasteMaybefid, kfIdpasteDefault, 1, &pc.exportf_id_paste);
+              reterr = ParseColDescriptor(&(cur_modif[strlen("id-paste=")]), "maybefid\0fid\0iid\0maybesid\0sid\0", "export", kfIdpasteMaybefid, kfIdpasteDefault, 1, &pc.exportf_info.idpaste_flags);
               if (reterr) {
                 goto main_ret_1;
               }
             } else if (StrStartsWith(cur_modif, "id-delim=", cur_modif_slen)) {
-              if (!(pc.exportf_flags & (kfExportfVcf | kfExportfBgen12 | kfExportfBgen13))) {
+              if (!(pc.exportf_info.flags & (kfExportfVcf | kfExportfBgen12 | kfExportfBgen13))) {
                 logerrputs("Error: The 'id-delim' modifier only applies to --export's vcf, bgen-1.2, and\nbgen-1.3 output formats.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
-              if (pc.exportf_id_delim) {
+              if (pc.exportf_info.id_delim) {
                 logerrputs("Error: Multiple --export id-delim= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              pc.exportf_id_delim = ExtractCharParam(&(cur_modif[strlen("id-delim=")]));
-              if (!pc.exportf_id_delim) {
+              pc.exportf_info.id_delim = ExtractCharParam(&(cur_modif[strlen("id-delim=")]));
+              if (!pc.exportf_info.id_delim) {
                 logerrputs("Error: --export id-delim= value must be a single character.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
-              if ((ctou32(pc.exportf_id_delim) < ' ') || (pc.exportf_id_delim == '0')) {
+              if ((ctou32(pc.exportf_info.id_delim) < ' ') || (pc.exportf_info.id_delim == '0')) {
                 logerrputs("Error: --export id-delim= value cannot be tab, newline, '0', or a nonprinting\ncharacter.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
             } else if (StrStartsWith(cur_modif, "vcf-dosage=", cur_modif_slen)) {
-              if (!(pc.exportf_flags & kfExportfVcf)) {
+              if (!(pc.exportf_info.flags & kfExportfVcf)) {
                 logerrputs("Error: The 'vcf-dosage' modifier only applies to --export's vcf output format.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
-              if (pc.exportf_flags & (kfExportfVcfDosageGp | kfExportfVcfDosageDs | kfExportfVcfDosageHds)) {
+              if (pc.exportf_info.vcf_mode != kVcfExport0) {
                 logerrputs("Error: Multiple --export vcf-dosage= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
               const char* vcf_dosage_start = &(cur_modif[strlen("vcf-dosage=")]);
               if (!strcmp(vcf_dosage_start, "GP")) {
-                pc.exportf_flags |= kfExportfVcfDosageGp;
+                pc.exportf_info.vcf_mode = kVcfExportGp;
               } else if (!strcmp(vcf_dosage_start, "DS")) {
-                pc.exportf_flags |= kfExportfVcfDosageDs;
-              } else if (!strcmp(vcf_dosage_start, "HDS")) {
-                pc.exportf_flags |= kfExportfVcfDosageHds;
+                pc.exportf_info.vcf_mode = kVcfExportDs;
               } else if (!strcmp(vcf_dosage_start, "DS-force")) {
-                pc.exportf_flags |= kfExportfVcfDosageDs | kfExportfVcfDosageForce;
+                pc.exportf_info.vcf_mode = kVcfExportDsForce;
+              } else if (!strcmp(vcf_dosage_start, "HDS")) {
+                pc.exportf_info.vcf_mode = kVcfExportHds;
               } else if (!strcmp(vcf_dosage_start, "HDS-force")) {
-                pc.exportf_flags |= kfExportfVcfDosageHds | kfExportfVcfDosageForce;
+                pc.exportf_info.vcf_mode = kVcfExportHdsForce;
               } else {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --export vcf-dosage= parameter '%s'.\n", vcf_dosage_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
             } else if (StrStartsWith(cur_modif, "bits=", cur_modif_slen)) {
-              if (!(pc.exportf_flags & (kfExportfBgen12 | kfExportfBgen13))) {
+              if (!(pc.exportf_info.flags & (kfExportfBgen12 | kfExportfBgen13))) {
                 logerrputs("Error: The 'bits' modifier only applies to --export's bgen-1.2 and bgen-1.3\noutput formats.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
-              if (pc.exportf_bits) {
+              if (pc.exportf_info.bgen_bits) {
                 logerrputs("Error: Multiple --export bits= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
               const char* bits_start = &(cur_modif[strlen("bits=")]);
-              if (ScanPosintCapped(bits_start, 32, &pc.exportf_bits)) {
+              if (ScanPosintCapped(bits_start, 32, &pc.exportf_info.bgen_bits)) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --export bits= parameter '%s'.\n", bits_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
             } else if (strequal_k(cur_modif, "include-alt", cur_modif_slen)) {
-              if (!(pc.exportf_flags & (kfExportfA | kfExportfAD))) {
+              if (!(pc.exportf_info.flags & (kfExportfA | kfExportfAD))) {
                 logerrputs("Error: The 'include-alt' modifier only applies to --export's A and AD output\nformats.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
-              pc.exportf_flags |= kfExportfIncludeAlt;
+              pc.exportf_info.flags |= kfExportfIncludeAlt;
             } else if (strequal_k(cur_modif, "omit-nonmale-y", cur_modif_slen)) {
-              if (!(pc.exportf_flags & (kfExportfList | kfExportfRlist))) {
+              if (!(pc.exportf_info.flags & (kfExportfList | kfExportfRlist))) {
                 logerrputs("Error: The 'omit-nonmale-y' modifier only applies to --export's list and rlist\noutput formats.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
-              pc.exportf_flags |= kfExportfOmitNonmaleY;
+              pc.exportf_info.flags |= kfExportfOmitNonmaleY;
             } else if (strequal_k(cur_modif, "01", cur_modif_slen) || strequal_k(cur_modif, "12", cur_modif_slen)) {
-              if (pc.exportf_flags & (kfExportfA | kfExportfAD)) {
+              if (pc.exportf_info.flags & (kfExportfA | kfExportfAD)) {
                 snprintf(g_logbuf, kLogbufSize, "Error: The '%s' modifier does not apply to --export's A and AD output formats.\n", cur_modif);
                 goto main_ret_INVALID_CMDLINE_2A;
               }
-              if (pc.exportf_flags & kfExportfVcf) {
+              if (pc.exportf_info.flags & kfExportfVcf) {
                 logerrputs("Error: '01'/'12' cannot be used with --export's vcf output format.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
               if (cur_modif[0] == '0') {
-                if (pc.exportf_flags & kfExportf12) {
+                if (pc.exportf_info.flags & kfExportf12) {
                   logerrputs("Error: --export '01' and '12' cannot be used together.\n");
                   goto main_ret_INVALID_CMDLINE;
                 }
-                pc.exportf_flags |= kfExportf01;
+                pc.exportf_info.flags |= kfExportf01;
               } else {
-                if (pc.exportf_flags & kfExportf01) {
+                if (pc.exportf_info.flags & kfExportf01) {
                   logerrputs("Error: --export '01' and '12' cannot be used together.\n");
                   goto main_ret_INVALID_CMDLINE;
                 }
-                pc.exportf_flags |= kfExportf12;
+                pc.exportf_info.flags |= kfExportf12;
               }
             } else if (strequal_k(cur_modif, "bgz", cur_modif_slen)) {
-              if (!(pc.exportf_flags & (kfExportfOxGen | kfExportfVcf))) {
+              if (!(pc.exportf_info.flags & (kfExportfOxGen | kfExportfVcf))) {
                 logerrputs("Error: The 'bgz' modifier only applies to --export's oxford and vcf output\nformats.\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
-              pc.exportf_flags |= kfExportfBgz;
+              pc.exportf_info.flags |= kfExportfBgz;
             } else if (strequal_k(cur_modif, "spaces", cur_modif_slen)) {
-              pc.exportf_flags |= kfExportfSpaces;
+              pc.exportf_info.flags |= kfExportfSpaces;
             } else if (strequal_k(cur_modif, "ref-first", cur_modif_slen)) {
-              pc.exportf_flags |= kfExportfRefFirst;
+              pc.exportf_info.flags |= kfExportfRefFirst;
             } else if (strequal_k(cur_modif, "gen-gz", cur_modif_slen)) {
               logerrputs("Error: 'gen-gz' modifier retired.  Use '--export oxford bgz' instead.\n");
               goto main_ret_INVALID_CMDLINE_WWA;
@@ -4096,9 +4090,9 @@ int main(int argc, char** argv) {
               goto main_ret_INVALID_CMDLINE_WWA;
             }
           }
-          if (pc.exportf_flags & (kfExportfVcf | kfExportfBgen12 | kfExportfBgen13)) {
-            if (!pc.exportf_id_paste) {
-              pc.exportf_id_paste = kfIdpasteDefault;
+          if (pc.exportf_info.flags & (kfExportfVcf | kfExportfBgen12 | kfExportfBgen13)) {
+            if (!pc.exportf_info.idpaste_flags) {
+              pc.exportf_info.idpaste_flags = kfIdpasteDefault;
             }
           }
           pc.command_flags1 |= kfCommand1Exportf;
@@ -4448,8 +4442,8 @@ int main(int argc, char** argv) {
                 logerrputs("Error: Improper --glm mperm syntax.  (Use --glm mperm=[value]'.)\n");
                 goto main_ret_INVALID_CMDLINE_A;
               }
-              if (ScanPosintDefcap(cur_modif, &pc.glm_info.mperm_ct)) {
-                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --glm mperm parameter '%s'.\n", &(cur_modif[6]));
+              if (ScanPosintDefcap(&(cur_modif[6]), &pc.glm_info.mperm_ct)) {
+                snprintf(g_logbuf, kLogbufSize, "Error: Invalid --glm mperm= parameter '%s'.\n", &(cur_modif[6]));
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
             } else if (StrStartsWith(cur_modif, "local-covar=", cur_modif_slen)) {
@@ -5347,7 +5341,7 @@ int main(int argc, char** argv) {
           }
 #endif
         } else if (strequal_k_unsafe(flagname_p2, "ake-bed")) {
-          if (pc.exportf_flags & kfExportfIndMajorBed) {
+          if (pc.exportf_info.flags & kfExportfIndMajorBed) {
             logerrputs("Error: --make-bed cannot be used with --export ind-major-bed.\n");
             goto main_ret_INVALID_CMDLINE;
           }
@@ -5997,7 +5991,7 @@ int main(int argc, char** argv) {
             goto main_ret_1;
           }
         } else if (strequal_k_unsafe(flagname_p2, "erge-par")) {
-          if (pc.exportf_flags & kfExportfVcf) {
+          if (pc.exportf_info.flags & kfExportfVcf) {
             logerrputs("Warning: --merge-par should not be used with VCF export.  (The VCF export\nroutine automatically converts PAR1/PAR2 chromosome codes to X, while using\nthe PAR boundaries to get male ploidy right; --merge-par causes VCF export to\nget male ploidy wrong.)\n");
           }
           pc.misc_flags |= kfMiscMergePar;
@@ -6008,7 +6002,7 @@ int main(int argc, char** argv) {
             logerrputs("Error: --merge-par cannot be used with --merge-x.\n");
             goto main_ret_INVALID_CMDLINE_A;
           }
-          if (pc.exportf_flags & kfExportfVcf) {
+          if (pc.exportf_info.flags & kfExportfVcf) {
             logerrputs("Warning: --merge-x should not be used in the same run as VCF export; this\ncauses some ploidies to be wrong.  Instead, use --merge-x + --sort-vars +\n--make-{b}pgen in one run, and follow up with --split-par + --export vcf.\n");
           }
           pc.misc_flags |= kfMiscMergeX;
@@ -7592,11 +7586,14 @@ int main(int argc, char** argv) {
           if (param_ct == 2) {
             const char* cur_modif = argvk[arg_idx + 2];
             const uint32_t cur_modif_slen = strlen(cur_modif);
-            if (!StrStartsWith(cur_modif, "dosage=", cur_modif_slen)) {
+            // tolerate vcf-dosage= as well, so it's possible to use the same
+            // pattern as --export
+            if ((!StrStartsWith(cur_modif, "dosage=", cur_modif_slen)) && (!StrStartsWith(cur_modif, "vcf-dosage=", cur_modif_slen))) {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --vcf parameter '%s'.\n", cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             }
-            reterr = CmdlineAllocString(&(cur_modif[strlen("dosage=")]), argvk[arg_idx], 4095, &vcf_dosage_import_field);
+            const char* dosage_field_start = (cur_modif[0] == 'v')? &(cur_modif[11]) : &(cur_modif[7]);
+            reterr = CmdlineAllocString(dosage_field_start, argvk[arg_idx], 4095, &vcf_dosage_import_field);
             if (reterr) {
               goto main_ret_1;
             }

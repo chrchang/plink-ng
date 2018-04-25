@@ -2490,7 +2490,7 @@ void ExpandVariantDosages(const uintptr_t* genovec, const uintptr_t* dosage_pres
 }
 
 // assumes trailing bits of genovec are zeroed out
-PglErr ExpandCenteredVarmaj(const uintptr_t* genovec, const uintptr_t* dosage_present, const Dosage* dosage_main, uint32_t variance_standardize, uint32_t sample_ct, uint32_t dosage_ct, double maj_freq, double* normed_dosages) {
+PglErr ExpandCenteredVarmaj(const uintptr_t* genovec, const uintptr_t* dosage_present, const Dosage* dosage_main, uint32_t variance_standardize, uint32_t is_haploid, uint32_t sample_ct, uint32_t dosage_ct, double maj_freq, double* normed_dosages) {
   const double nonmaj_freq = 1.0 - maj_freq;
   double inv_stdev;
   if (variance_standardize) {
@@ -2505,11 +2505,11 @@ PglErr ExpandCenteredVarmaj(const uintptr_t* genovec, const uintptr_t* dosage_pr
       return kPglRetSuccess;
     }
     inv_stdev = 1.0 / sqrt(variance);
-    // todo:
-    // * Variance is doubled in haploid case, so inv_stdev should be multiplied
-    //   by sqrt(0.5) there.  Still want to leave chrY/MT out of basic GRM
-    //   since those chromosomes obviously have special properties re: genomic
-    //   relatedness, but could apply this to --score.
+    if (is_haploid) {
+      // Variance is doubled in haploid case.
+      inv_stdev *= (1.0 / kSqrt2);
+    }
+    // possible todo:
     // * Could use one inv_stdev for males and one for nonmales for chrX
     //   --score (while still leaving that out of GRM... or just leave males
     //   out there?).  This depends on dosage compensation model; discussed in
@@ -2521,7 +2521,7 @@ PglErr ExpandCenteredVarmaj(const uintptr_t* genovec, const uintptr_t* dosage_pr
   return kPglRetSuccess;
 }
 
-PglErr LoadCenteredVarmaj(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t variance_standardize, uint32_t sample_ct, uint32_t variant_uidx, AltAlleleCt maj_allele_idx, double maj_freq, PgenReader* simple_pgrp, uint32_t* missing_presentp, double* normed_dosages, uintptr_t* genovec_buf, uintptr_t* dosage_present_buf, Dosage* dosage_main_buf) {
+PglErr LoadCenteredVarmaj(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t variance_standardize, uint32_t is_haploid, uint32_t sample_ct, uint32_t variant_uidx, AltAlleleCt maj_allele_idx, double maj_freq, PgenReader* simple_pgrp, uint32_t* missing_presentp, double* normed_dosages, uintptr_t* genovec_buf, uintptr_t* dosage_present_buf, Dosage* dosage_main_buf) {
   uint32_t dosage_ct;
   PglErr reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec_buf, dosage_present_buf, dosage_main_buf, &dosage_ct);
   if (reterr) {
@@ -2561,7 +2561,7 @@ PglErr LoadCenteredVarmaj(const uintptr_t* sample_include, const uint32_t* sampl
       }
     }
   }
-  return ExpandCenteredVarmaj(genovec_buf, dosage_present_buf, dosage_main_buf, variance_standardize, sample_ct, dosage_ct, maj_freq, normed_dosages);
+  return ExpandCenteredVarmaj(genovec_buf, dosage_present_buf, dosage_main_buf, variance_standardize, is_haploid, sample_ct, dosage_ct, maj_freq, normed_dosages);
 }
 
 // multithread globals
@@ -2972,6 +2972,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     // 5. Join threads
     // 6. Goto step 2 unless eof
     const uint32_t variance_standardize = !(grm_flags & kfGrmCov);
+    const uint32_t is_haploid = cip->haploid_mask[0] & 1;
     uint32_t parity = 0;
     uint32_t cur_variant_idx_start = 0;
     uint32_t variant_uidx = 0;
@@ -3004,7 +3005,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
             cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - allele_idx_base;
             allele_idx_base -= variant_uidx;
           }
-          reterr = LoadCenteredVarmaj(sample_include, sample_include_cumulative_popcounts, variance_standardize, row_end_idx, variant_uidx, maj_allele_idx, GetAlleleFreq(&(allele_freqs[allele_idx_base]), maj_allele_idx, cur_allele_ct), simple_pgrp, variant_include_has_missing? (&missing_present) : nullptr, normed_vmaj_iter, genovec_buf, dosage_present_buf, dosage_main_buf);
+          reterr = LoadCenteredVarmaj(sample_include, sample_include_cumulative_popcounts, variance_standardize, is_haploid, row_end_idx, variant_uidx, maj_allele_idx, GetAlleleFreq(&(allele_freqs[allele_idx_base]), maj_allele_idx, cur_allele_ct), simple_pgrp, variant_include_has_missing? (&missing_present) : nullptr, normed_vmaj_iter, genovec_buf, dosage_present_buf, dosage_main_buf);
           if (reterr) {
             if (reterr == kPglRetInconsistentInput) {
               logputs("\n");
@@ -3491,6 +3492,7 @@ static double* g_g1 = nullptr;
 static double* g_qq = nullptr;
 
 static uint32_t g_pc_ct = 0;
+static uint32_t g_is_haploid = 0;
 static PglErr g_error_ret = kPglRetSuccess;
 
 THREAD_FUNC_DECL CalcPcaXtxaThread(void* arg) {
@@ -3522,7 +3524,9 @@ THREAD_FUNC_DECL CalcPcaXtxaThread(void* arg) {
       const double* cur_maj_freqs_iter = &(g_cur_maj_freqs[parity][vidx_offset]);
       double* yy_iter = yy_buf;
       for (uint32_t uii = 0; uii < cur_thread_batch_size; ++uii) {
-        PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
+        // instead of setting is_haploid here, we just divide eigenvalues by 2
+        // at the end if necessary
+        PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, 0, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
         if (reterr) {
           g_error_ret = reterr;
           break;
@@ -3573,7 +3577,7 @@ THREAD_FUNC_DECL CalcPcaXaThread(void* arg) {
       const double* cur_maj_freqs_iter = &(g_cur_maj_freqs[parity][vidx_offset]);
       double* yy_iter = yy_buf;
       for (uint32_t uii = 0; uii < cur_thread_batch_size; ++uii) {
-        PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
+        PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, 0, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
         if (reterr) {
           g_error_ret = reterr;
           break;
@@ -3623,7 +3627,7 @@ THREAD_FUNC_DECL CalcPcaXtbThread(void* arg) {
       const double* cur_maj_freqs_iter = &(g_cur_maj_freqs[parity][vidx_offset]);
       double* yy_iter = yy_buf;
       for (uint32_t uii = 0; uii < cur_thread_batch_size; ++uii) {
-        PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
+        PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, 0, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
         if (reterr) {
           g_error_ret = reterr;
           break;
@@ -3651,6 +3655,7 @@ THREAD_FUNC_DECL CalcPcaVarWtsThread(void* arg) {
   const uintptr_t pca_sample_ctaw2 = QuaterCtToAlignedWordCt(pca_sample_ct);
   const uintptr_t pca_sample_ctaw = BitCtToAlignedWordCt(pca_sample_ct);
   const uint32_t pc_ct = g_pc_ct;
+  const uint32_t is_haploid = g_is_haploid;
   const uint32_t vidx_offset = tidx * kPcaVariantBlockSize;
 
   // either first batch size is calc_thread_ct * kPcaVariantBlockSize, or there
@@ -3675,7 +3680,7 @@ THREAD_FUNC_DECL CalcPcaVarWtsThread(void* arg) {
       const double* cur_maj_freqs_iter = &(g_cur_maj_freqs[parity][vidx_offset]);
       double* yy_iter = yy_buf;
       for (uint32_t uii = 0; uii < cur_thread_batch_size; ++uii) {
-        PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
+        PglErr reterr = ExpandCenteredVarmaj(genovec_iter, dosage_present_iter, dosage_main_iter, 1, is_haploid, pca_sample_ct, cur_dosage_cts[uii], cur_maj_freqs_iter[uii], yy_iter);
         if (reterr) {
           g_error_ret = reterr;
           break;
@@ -3799,6 +3804,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
     g_pca_sample_ct = pca_sample_ct;
     g_pc_ct = pc_ct;
     g_error_ret = kPglRetSuccess;
+    g_is_haploid = cip->haploid_mask[0] & 1;
     uint32_t cur_allele_ct = 2;
     double* qq = nullptr;
     double* eigvecs_smaj;
@@ -4117,6 +4123,11 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
         eigvals[pc_idx] = ss[pc_idx] * ss[pc_idx] * variant_ct_recip;
       }
       writebuf = R_CAST(char*, svd_rect_wkspace);
+      if (g_is_haploid) {
+        for (uint32_t pc_idx = 0; pc_idx < pc_ct; ++pc_idx) {
+          eigvals[pc_idx] *= 0.5;
+        }
+      }
     } else {
       __CLPK_integer lwork;
       __CLPK_integer liwork;

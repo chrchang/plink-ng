@@ -161,11 +161,7 @@ FLAGSET64_DEF_START()
   kfExportfTypemask = (2LLU * kfExportfVcf) - kfExportf23,
   kfExportfIncludeAlt = (1LLU << 32),
   kfExportfBgz = (1LLU << 33),
-  kfExportfVcfDosageGp = (1LLU << 34),
-  kfExportfVcfDosageDs = (1LLU << 35),
-  kfExportfVcfDosageHds = (1LLU << 36),
-  kfExportfVcfDosageForce = (1LLU << 37),
-  kfExportfOmitNonmaleY = (1LLU << 38)
+  kfExportfOmitNonmaleY = (1LLU << 34)
 FLAGSET64_DEF_END(ExportfFlags);
 
 FLAGSET_DEF_START()

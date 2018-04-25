@@ -2029,7 +2029,7 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* arg) {
     unsigned char* writebuf_iter = &(g_writebufs[parity][write_idx * sample_ct4]);
     uint32_t variant_uidx = g_read_variant_uidx_starts[tidx];
     uint32_t chr_end = 0;
-    uint32_t is_x_or_y = 0;
+    uint32_t is_x = 0;
     uint32_t is_y = 0;
     uint32_t is_haploid_nonmt = 0;
     uint32_t is_mt = 0;
@@ -2039,8 +2039,8 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* arg) {
         const uint32_t chr_fo_idx = GetVariantChrFoIdx(cip, variant_uidx);
         const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
         chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+        is_x = (chr_idx == x_code);
         is_y = (chr_idx == y_code);
-        is_x_or_y = is_y || (chr_idx == x_code);
         is_mt = (chr_idx == mt_code);
         is_haploid_nonmt = IsSet(cip->haploid_mask, chr_idx) && (!is_mt);
       }
@@ -2078,16 +2078,14 @@ THREAD_FUNC_DECL MakeBedlikeThread(void* arg) {
         GenovecInvertUnsafe(sample_ct, genovec);
       }
       if (set_hh_missing && is_haploid_nonmt) {
-        if (is_x_or_y) {
-          // male hets to missing
+        if (is_x) {
           SetMaleHetMissing(sex_male_collapsed_interleaved, sample_ctv2, genovec);
-          if (is_y) {
-            // all female calls to missing; unknown-sex calls now left alone
-            InterleavedSetMissing(sex_female_collapsed_interleaved, sample_ctv2, genovec);
-          }
         } else {
           // all hets to missing
           SetHetMissing(sample_ctl2, genovec);
+          if (is_y) {
+            InterleavedSetMissing(sex_female_collapsed_interleaved, sample_ctv2, genovec);
+          }
         }
       } else if (set_mixed_mt_missing && is_mt) {
         // all hets to missing
@@ -2211,7 +2209,7 @@ THREAD_FUNC_DECL MakePgenThread(void* arg) {
     unsigned char* loaded_vrtypes = g_loaded_vrtypes[parity];
     uint32_t loaded_vrtype = 0;
     uint32_t chr_end_bidx = 0;
-    uint32_t is_x_or_y = 0;
+    uint32_t is_x = 0;
     uint32_t is_y = 0;
     uint32_t is_haploid_nonmt = 0;
     uint32_t is_mt = 0;
@@ -2223,8 +2221,8 @@ THREAD_FUNC_DECL MakePgenThread(void* arg) {
         const uint32_t chr_fo_idx = CountSortedSmallerU32(&(write_chr_fo_vidx_start[1]), cip->chr_ct, write_idx + variant_idx_offset + 1);
         const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
         chr_end_bidx = write_chr_fo_vidx_start[chr_fo_idx + 1] - variant_idx_offset;
+        is_x = (chr_idx == x_code);
         is_y = (chr_idx == y_code);
-        is_x_or_y = is_y || (chr_idx == x_code);
         is_mt = (chr_idx == mt_code);
         is_haploid_nonmt = IsSet(cip->haploid_mask, chr_idx) && (!is_mt);
       }
@@ -2429,21 +2427,13 @@ THREAD_FUNC_DECL MakePgenThread(void* arg) {
         // moved after --hard-call-threshold, since it makes sense to
         // immediately erase fresh het haploid calls
         if (set_hh_missing && is_haploid_nonmt) {
-          if (is_x_or_y) {
-            if (is_y) {
-              // all female calls to missing; unknown-sex calls now left
-              // alone
-              InterleavedSetMissingCleardosage(sex_female_collapsed, sex_female_collapsed_interleaved, sample_ctv2, write_genovec, &write_dosage_ct, write_dosagepresent, write_dosagevals);
-              is_hphase = 0;
-              write_dphase_ct = 0;
-            } else {
-              if (is_hphase && cur_write_phasepresent) {
-                // bugfix (31 Mar 2018): this needs to happen before
-                // SetMaleHetMissing{Clear,Keep}dosage()
-                MaskGenovecHetsUnsafe(write_genovec, sample_ctl2, cur_write_phasepresent);
-              }
-              EraseMaleDphases(sex_male_collapsed, &write_dphase_ct, write_dphasepresent, write_dphasedeltas);
+          if (is_x) {
+            if (is_hphase && cur_write_phasepresent) {
+              // bugfix (31 Mar 2018): this needs to happen before
+              // SetMaleHetMissing{Clear,Keep}dosage()
+              MaskGenovecHetsUnsafe(write_genovec, sample_ctl2, cur_write_phasepresent);
             }
+            EraseMaleDphases(sex_male_collapsed, &write_dphase_ct, write_dphasepresent, write_dphasedeltas);
             if (!set_hh_missing_keep_dosage) {
               // need to erase dosages associated with the hardcalls we're
               // about to clear
@@ -2462,6 +2452,9 @@ THREAD_FUNC_DECL MakePgenThread(void* arg) {
               SetHetMissingCleardosage(sample_ctl2, write_genovec, &write_dosage_ct, write_dosagepresent, write_dosagevals);
             } else {
               SetHetMissingKeepdosage(sample_ctl2, write_genovec, &write_dosage_ct, write_dosagepresent, write_dosagevals);
+            }
+            if (is_y) {
+              InterleavedSetMissingCleardosage(sex_female_collapsed, sex_female_collapsed_interleaved, sample_ctv2, write_genovec, &write_dosage_ct, write_dosagepresent, write_dosagevals);
             }
             is_hphase = 0;
             write_dphase_ct = 0;

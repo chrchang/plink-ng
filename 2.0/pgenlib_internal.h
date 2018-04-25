@@ -1091,6 +1091,8 @@ PglErr PgrGetDWithCounts(const uintptr_t* __restrict sample_include, const uintp
 
 // ok for both dosage_present and dosage_main to be nullptr when no dosage data
 // is present
+// ok for dphase_present/dphase_delta to be nullptr; dphase_ct always set to 0
+// in that case
 PglErr PgrGetDp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr, uintptr_t* __restrict dphase_present, int16_t* dphase_delta, uint32_t* dphase_ct_ptr);
 
 // interface used by --make-pgen, just performs basic LD/difflist decompression

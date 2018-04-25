@@ -26,6 +26,14 @@
 namespace plink2 {
 #endif
 
+void InitExportf(ExportfInfo* exportf_info_ptr) {
+  exportf_info_ptr->flags = kfExportf0;
+  exportf_info_ptr->idpaste_flags = kfIdpaste0;
+  exportf_info_ptr->id_delim = '\0';
+  exportf_info_ptr->bgen_bits = 0;
+  exportf_info_ptr->vcf_mode = kVcfExport0;
+}
+
 // a few multithread globals
 static uint32_t g_sample_ct = 0;
 static uint32_t g_calc_thread_ct = 0;
@@ -3829,10 +3837,11 @@ uint32_t ValidVcfAlleleCode(const char* allele_code_iter) {
   return 1;
 }
 
-char* DiploidVcfDosagePrint(uint32_t dosage_int, uint32_t write_ds, char* write_iter) {
+char* PrintDiploidVcfDosage(uint32_t dosage_int, uint32_t write_ds, char* write_iter) {
   if (write_ds) {
     return PrintSmallDosage(dosage_int, write_iter);
   }
+  // GP
   if (dosage_int <= kDosageMid) {
     write_iter = PrintSmallDosage(kDosageMid - dosage_int, write_iter);
     *write_iter++ = ',';
@@ -3846,8 +3855,8 @@ char* DiploidVcfDosagePrint(uint32_t dosage_int, uint32_t write_ds, char* write_
 }
 
 // assumes rawval is in [0, 327679]
-static_assert(kDosageMax == 32768, "HaploidDosagePrint() needs to be updated.");
-char* HaploidDosagePrint(uint32_t rawval, char* start) {
+static_assert(kDosageMax == 32768, "PrintHaploidDosage() needs to be updated.");
+char* PrintHaploidDosage(uint32_t rawval, char* start) {
   // Instead of constant 5-digit precision, we print fewer digits whenever that
   // doesn't interfere with proper round-tripping.  I.e. we search for the
   // shortest string in
@@ -3890,7 +3899,7 @@ char* HaploidDosagePrint(uint32_t rawval, char* start) {
 #ifdef __arm__
 #  error "Unaligned accesses in ExportVcf()."
 #endif
-PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const uintptr_t* sex_male_collapsed, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const AltAlleleCt* refalt1_select, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, uint32_t max_thread_ct, ExportfFlags exportf_flags, IdpasteFlags exportf_id_paste, char exportf_id_delim, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, const SampleIdInfo* siip, const uintptr_t* sex_male_collapsed, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const AltAlleleCt* refalt1_select, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, uint32_t max_thread_ct, ExportfFlags exportf_flags, VcfExportMode vcf_mode, IdpasteFlags exportf_id_paste, char exportf_id_delim, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   BGZF* bgz_outfile = nullptr;
@@ -3923,21 +3932,43 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     uintptr_t writebuf_blen = kMaxIdSlen + 32 + max_chr_blen + 2 * max_allele_slen;
     // QUAL, FILTER, INFO, FORMAT, genotypes, eoln
     // needs to be larger for >9 alt alleles
-    const uint32_t dosage_force = (exportf_flags / kfExportfVcfDosageForce) & 1;
-    uint32_t write_ds = (exportf_flags / kfExportfVcfDosageDs) & 1;
-    uint32_t write_hds = (exportf_flags / kfExportfVcfDosageHds) & 1;
-    uint32_t write_gp_ds_or_hds = write_ds || write_hds || (exportf_flags & kfExportfVcfDosageGp);
-    if ((!dosage_force) && write_gp_ds_or_hds && (!(pgfip->gflags & kfPgenGlobalDosagePresent))) {
-      write_gp_ds_or_hds = 0;
-      logerrprintf("Warning: No dosage data present.  %s field will not be exported.\n", write_hds? "HDS" : (write_ds? "DS" : "GP"));
+    uint32_t write_some_dosage = 0;
+    uint32_t write_ds = 0;
+    uint32_t write_hds = 0;
+    uint32_t ds_force = 0;
+    uint32_t hds_force = 0;
+    if (vcf_mode != kVcfExport0) {
+      write_some_dosage = 1;
+      if (vcf_mode != kVcfExportGp) {
+        write_ds = 1;
+        if (vcf_mode == kVcfExportDsForce) {
+          ds_force = 1;
+        } else if (vcf_mode != kVcfExportDs) {
+          write_hds = 1;
+          if (vcf_mode == kVcfExportHdsForce) {
+            ds_force = 1;
+            hds_force = 1;
+          }
+        }
+      }
+    }
+    if ((!ds_force) && write_some_dosage && (!(pgfip->gflags & kfPgenGlobalDosagePresent))) {
+      write_some_dosage = 0;
+      logerrprintf("Warning: No dosage data present.  %s will not be exported.\n", write_hds? "DS and HDS fields" : (write_ds? "DS field" : "GP field"));
       write_ds = 0;
       write_hds = 0;
     }
+    // GT: 4 bytes
     // GP: 3 limited-precision numbers, up to (7 chars + delim) * 3
-    // DS: 1 limited-precision number
-    // HDS: 2 limited-precision numbers
-    // (could allow e.g. bloated DS+HDS mode, but let's defer that for now)
-    const uintptr_t writebuf_blen_lbound = ((4 * k1LU) + write_gp_ds_or_hds * 24 - write_ds * 16 - write_hds * 8) * sample_ct + 32 + max_filter_slen + info_reload_slen;
+    // DS + HDS: also 3 limited precision numbers
+    // DS only: 1 limited-precision number
+    uintptr_t output_bytes_per_sample;
+    if (write_some_dosage) {
+      output_bytes_per_sample = (write_ds && (!write_hds))? 12 : 28;
+    } else {
+      output_bytes_per_sample = 4;
+    }
+    const uintptr_t writebuf_blen_lbound = sample_ct * output_bytes_per_sample + 32 + max_filter_slen + info_reload_slen;
     if (writebuf_blen < writebuf_blen_lbound) {
       writebuf_blen = writebuf_blen_lbound;
     }
@@ -4072,13 +4103,12 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         write_iter = strcpya(write_iter, "##INFO=<ID=PR,Number=0,Type=Flag,Description=\"Provisional reference allele, may not be based on real reference genome\">" EOLN_STR);
       }
     }
-    if (write_hds) {
-      write_iter = strcpya(write_iter, "##FORMAT=<ID=HDS,Number=2,Type=Float,Description=\"Estimated Haploid Alternate Allele Dosage \">" EOLN_STR);
-      logerrputs("Error: VCF HDS output is under development.\n");
-      goto ExportVcf_ret_1;
-    } else if (write_ds) {
+    if (write_ds) {
       write_iter = strcpya(write_iter, "##FORMAT=<ID=DS,Number=1,Type=Float,Description=\"Estimated Alternate Allele Dosage : [P(0/1)+2*P(1/1)]\">" EOLN_STR);
-    } else if (write_gp_ds_or_hds) {
+      if (write_hds) {
+        write_iter = strcpya(write_iter, "##FORMAT=<ID=HDS,Number=2,Type=Float,Description=\"Estimated Haploid Alternate Allele Dosage \">" EOLN_STR);
+      }
+    } else if (write_some_dosage) {
       write_iter = strcpya(write_iter, "##FORMAT=<ID=GP,Number=G,Type=Float,Description=\"Phred-scaled Genotype Likelihoods\">" EOLN_STR);
     }
     // possible todo: optionally export .psam information as
@@ -4125,7 +4155,8 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     // saving that info.  But that approximation is still pretty inaccurate; as
     // soon as we have any use for them, explicit phase set support should be
     // added to pgenlib.
-    const uint32_t some_phased = (pgfip->gflags / kfPgenGlobalHardcallPhasePresent) & 1;
+    const uint32_t load_dphase = write_hds && (pgfip->gflags & kfPgenGlobalDosagePhasePresent);
+    const uint32_t some_phased = (pgfip->gflags & kfPgenGlobalHardcallPhasePresent) || load_dphase;
     uintptr_t* prev_phased = nullptr;
     uintptr_t* phasepresent = nullptr;
     uintptr_t* phaseinfo = nullptr;
@@ -4142,12 +4173,16 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     Dosage* dosage_main = nullptr;
     uintptr_t* dphase_present = nullptr;
     SDosage* dphase_delta = nullptr;
-    if (write_gp_ds_or_hds) {
+    if (write_some_dosage && (pgfip->gflags & kfPgenGlobalDosagePresent)) {
       if (bigstack_alloc_w(sample_ctl, &dosage_present) ||
-          bigstack_alloc_dosage(sample_ct, &dosage_main) ||
-          bigstack_alloc_w(sample_ctl, &dphase_present) ||
-          bigstack_alloc_dphase(sample_ct, &dphase_delta)) {
+          bigstack_alloc_dosage(sample_ct, &dosage_main)) {
         goto ExportVcf_ret_NOMEM;
+      }
+      if (load_dphase) {
+        if (bigstack_alloc_w(sample_ctl, &dphase_present) ||
+            bigstack_alloc_dphase(sample_ct, &dphase_delta)) {
+          goto ExportVcf_ret_NOMEM;
+        }
       }
     }
 
@@ -4167,11 +4202,14 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     basic_genotext[2] = 0x312f3109;  // \t1/1
     basic_genotext[3] = 0x2e2f2e09;  // \t./.
     char haploid_genotext[4][4];
-    uint32_t haploid_genotext_blen[8];  // 4..7 = male chrX
+    uint32_t haploid_genotext_blen[8];
     memcpy(haploid_genotext[0], "\t0/0", 4);
     memcpy(haploid_genotext[1], "\t0/1", 4);
     memcpy(haploid_genotext[2], "\t1/1", 4);
     memcpy(haploid_genotext[3], "\t./.", 4);
+    // lengths [0], [2], and [3] reset at beginning of chromosome
+    // chrX: nonmales are diploid and use indices 0..3, males are 4..7
+    // other: all haploid, indices 0..3
     haploid_genotext_blen[1] = 4;
     haploid_genotext_blen[4] = 2;
     haploid_genotext_blen[5] = 4;
@@ -4179,8 +4217,31 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
     haploid_genotext_blen[7] = 2;
     // don't bother exporting GP for hardcalls
     // usually don't bother for DS, but DS-force is an exception
-    char dosage_inttext[16];  // 4..7 = haploid, 5 should never be looked up
-    memcpy(dosage_inttext, ":0:1:2:.:0:.:1:.", 16);
+    char ds_inttext[16];  // 4..7 = haploid, 5 should never be looked up
+    memcpy(ds_inttext, ":0:1:2:.:0:.:1:.", 16);
+
+    // 0..3 = diploid unphased
+    // 4..5 = phased, phaseinfo=0 first
+    // could make this include DS text in front
+    // could expand this to e.g. 10 cases and make [4], [5] less fiddly
+    char hds_inttext[6][8];
+
+    // [4]..[7] = haploid unphased; == 4 for phased
+    uint32_t hds_inttext_blen[8];
+
+    memcpy(hds_inttext[0], ":0,0", 4);
+    memcpy(hds_inttext[1], ":0.5,0.5", 8);
+    memcpy(hds_inttext[2], ":1,1", 4);
+    memcpy(hds_inttext[3], ":.", 2);  // should this be '.,.'?
+    memcpy(hds_inttext[4], ":0,1", 4);
+    memcpy(hds_inttext[5], ":1,0", 4);
+    // lengths [0] and [2] reset at beginning of chromosome
+    hds_inttext_blen[1] = 8;
+    hds_inttext_blen[3] = 2;
+    hds_inttext_blen[4] = 2;
+    hds_inttext_blen[5] = 4;
+    hds_inttext_blen[6] = 2;
+    hds_inttext_blen[7] = 2;
     const char* dot_ptr = &(g_one_char_strs[92]);
     const uint32_t sample_ctl2_m1 = sample_ctl2 - 1;
     uint32_t chr_fo_idx = UINT32_MAX;
@@ -4220,10 +4281,14 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
             haploid_genotext_blen[0] = 4;
             haploid_genotext_blen[2] = 4;
             haploid_genotext_blen[3] = 4;
+            hds_inttext_blen[0] = 4;
+            hds_inttext_blen[2] = 4;
           } else {
             haploid_genotext_blen[0] = 2;
             haploid_genotext_blen[2] = 2;
             haploid_genotext_blen[3] = 2;
+            hds_inttext_blen[0] = 2;
+            hds_inttext_blen[2] = 2;
           }
         }
       }
@@ -4246,30 +4311,6 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
       if (refalt1_select) {
         ref_allele_idx = refalt1_select[variant_uidx * 2];
         alt1_allele_idx = refalt1_select[variant_uidx * 2 + 1];
-        // this logic only works in the biallelic case
-        assert(cur_allele_ct == 2);
-        if (!is_haploid) {
-          if (alt1_allele_idx) {
-            basic_genotext[0] = 0x302f3009;
-            basic_genotext[2] = 0x312f3109;
-          } else {
-            basic_genotext[0] = 0x312f3109;
-            basic_genotext[2] = 0x302f3009;
-          }
-        } else {
-          if (alt1_allele_idx) {
-            memcpy(haploid_genotext[0], "\t0/0", 4);
-            memcpy(haploid_genotext[2], "\t1/1", 4);
-          } else {
-            memcpy(haploid_genotext[0], "\t1/1", 4);
-            memcpy(haploid_genotext[2], "\t0/0", 4);
-          }
-        }
-        if (alt1_allele_idx) {
-          memcpy(dosage_inttext, ":0:1:2:.:0:.:1:.", 16);
-        } else {
-          memcpy(dosage_inttext, ":2:1:0:.:1:.:0:.", 16);
-        }
       }
       if (cur_alleles[ref_allele_idx] != dot_ptr) {
         write_iter = strcpya(write_iter, cur_alleles[ref_allele_idx]);
@@ -4340,7 +4381,9 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
       uint32_t widx = 0;
       if (!some_phased) {
         // biallelic, nothing phased in entire file
-        if (!write_gp_ds_or_hds) {
+        // (technically possible for dosage-phase to be present, if no
+        // hardcalls are phased and HDS output not requested)
+        if (!write_some_dosage) {
           reterr = PgrGet(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec);
         } else {
           reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, dosage_present, dosage_main, &dosage_ct);
@@ -4348,7 +4391,15 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         if (reterr) {
           goto ExportVcf_ret_PGR_FAIL;
         }
-        if ((!dosage_ct) && (!dosage_force)) {
+        if (!alt1_allele_idx) {
+          // assumes biallelic
+          assert(cur_allele_ct == 2);
+          GenovecInvertUnsafe(sample_ct, genovec);
+          if (dosage_ct) {
+            BiallelicDosage16Invert(dosage_ct, dosage_main);
+          }
+        }
+        if ((!dosage_ct) && (!ds_force)) {
           if (!is_haploid) {
             // always 4 bytes wide, exploit that
             uint32_t* write_iter_ui_alias = R_CAST(uint32_t*, write_iter);
@@ -4390,21 +4441,19 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
             }
           }
         } else {
-          // some dosages present, or DS-force
+          // some dosages present, or {H}DS-force; unphased
           if (write_ds) {
             write_iter = memcpyl3a(write_iter, ":DS");
-            if (!dosage_ct) {
-              // DS-force, need to clear this
-              ZeroWArr(sample_ctl, dosage_present);
+            if (hds_force) {
+              write_iter = memcpya(write_iter, ":HDS", 4);
             }
           } else {
             write_iter = memcpyl3a(write_iter, ":GP");
           }
-          if (!alt1_allele_idx) {
-            BiallelicDosage16Invert(dosage_ct, dosage_main);
-          }
           Dosage* dosage_main_iter = dosage_main;
+          uint32_t dosage_present_hw = 0;
           if (!is_haploid) {
+            // autosomal diploid, unphased
             while (1) {
               if (widx >= sample_ctl2_m1) {
                 if (widx > sample_ctl2_m1) {
@@ -4413,16 +4462,27 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
                 inner_loop_last = (sample_ct - 1) % kBitsPerWordD2;
               }
               uintptr_t genovec_word = genovec[widx];
-              uint32_t dosage_present_hw = R_CAST(Halfword*, dosage_present)[widx];
+              if (dosage_ct) {
+                dosage_present_hw = R_CAST(Halfword*, dosage_present)[widx];
+              }
               for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
                 const uint32_t cur_geno = genovec_word & 3;
                 write_iter = memcpya(write_iter, &(basic_genotext[cur_geno]), 4);
                 if (dosage_present_hw & 1) {
                   *write_iter++ = ':';
                   const uint32_t dosage_int = *dosage_main_iter++;
-                  write_iter = DiploidVcfDosagePrint(dosage_int, write_ds, write_iter);
-                } else if (dosage_force) {
-                  write_iter = memcpya(write_iter, &(dosage_inttext[cur_geno * 2]), 2);
+                  write_iter = PrintDiploidVcfDosage(dosage_int, write_ds, write_iter);
+                  if (hds_force) {
+                    *write_iter++ = ':';
+                    char* write_iter2 = PrintHaploidDosage(dosage_int, write_iter);
+                    write_iter2[0] = ',';
+                    write_iter = memcpya(&(write_iter2[1]), write_iter, write_iter2 - write_iter);
+                  }
+                } else if (ds_force) {
+                  write_iter = memcpya(write_iter, &(ds_inttext[cur_geno * 2]), 2);
+                  if (hds_force) {
+                    write_iter = memcpya(write_iter, hds_inttext[cur_geno], hds_inttext_blen[cur_geno]);
+                  }
                 }
                 genovec_word >>= 2;
                 dosage_present_hw >>= 1;
@@ -4430,6 +4490,8 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
               ++widx;
             }
           } else {
+            // at least partly haploid, unphased
+            uint32_t sex_male_hw = 0;
             while (1) {
               if (widx >= sample_ctl2_m1) {
                 if (widx > sample_ctl2_m1) {
@@ -4438,8 +4500,12 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
                 inner_loop_last = (sample_ct - 1) % kBitsPerWordD2;
               }
               uintptr_t genovec_word = genovec[widx];
-              uint32_t sex_male_hw = is_x * (R_CAST(const Halfword*, sex_male_collapsed)[widx]);
-              uint32_t dosage_present_hw = R_CAST(Halfword*, dosage_present)[widx];
+              if (is_x) {
+                sex_male_hw = R_CAST(const Halfword*, sex_male_collapsed)[widx];
+              }
+              if (dosage_ct) {
+                dosage_present_hw = R_CAST(Halfword*, dosage_present)[widx];
+              }
               for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
                 const uint32_t cur_geno = genovec_word & 3;
                 const uint32_t cur_is_male = sex_male_hw & 1;
@@ -4449,19 +4515,41 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
                   *write_iter++ = ':';
                   uint32_t dosage_int = *dosage_main_iter++;
                   if (cur_genotext_blen == 2) {
+                    // render current hardcall as haploid
                     if (write_ds) {
-                      write_iter = HaploidDosagePrint(dosage_int, write_iter);
+                      char* write_iter2 = PrintHaploidDosage(dosage_int, write_iter);
+                      if (hds_force) {
+                        write_iter2[0] = ':';
+                        write_iter2 = memcpya(&(write_iter2[1]), write_iter, write_iter2 - write_iter);
+                      }
+                      write_iter = write_iter2;
                     } else {
-                      write_iter = HaploidDosagePrint(kDosageMax - dosage_int, write_iter);
+                      // GP
+                      write_iter = PrintHaploidDosage(kDosageMax - dosage_int, write_iter);
                       *write_iter++ = ',';
-                      write_iter = HaploidDosagePrint(dosage_int, write_iter);
+                      write_iter = PrintHaploidDosage(dosage_int, write_iter);
                     }
                   } else {
-                    // het haploid, or female X
-                    write_iter = DiploidVcfDosagePrint(dosage_int, write_ds, write_iter);
+                    // render current hardcall as diploid (female X, or het
+                    // haploid)
+                    write_iter = PrintDiploidVcfDosage(dosage_int, write_ds, write_iter);
+                    if (hds_force) {
+                      *write_iter++ = ':';
+                      char* write_iter2 = PrintHaploidDosage(dosage_int, write_iter);
+                      if (is_x && (!cur_is_male)) {
+                        // do not render phased-dosage as diploid in het
+                        // haploid case
+                        write_iter2[0] = ',';
+                        write_iter2 = memcpya(&(write_iter2[1]), write_iter, write_iter2 - write_iter);
+                      }
+                      write_iter = write_iter2;
+                    }
                   }
-                } else if (dosage_force) {
-                  write_iter = memcpya(write_iter, &(dosage_inttext[2 * cur_geno + 16 - 4 * cur_genotext_blen]), 2);
+                } else if (ds_force) {
+                  write_iter = memcpya(write_iter, &(ds_inttext[2 * cur_geno + 16 - 4 * cur_genotext_blen]), 2);
+                  if (hds_force) {
+                    write_iter = memcpya(write_iter, hds_inttext[cur_geno], hds_inttext_blen[cur_is_male * 4 + cur_geno]);
+                  }
                 }
                 genovec_word >>= 2;
                 sex_male_hw >>= 1;
@@ -4473,17 +4561,31 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         }
       } else {
         // biallelic, phased
-        uint32_t at_least_one_phase_present;
-        if (!write_gp_ds_or_hds) {
-          reterr = PgrGetP(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, phasepresent, phaseinfo, &at_least_one_phase_present);
+        uint32_t phasepresent_ct;
+        if (!write_some_dosage) {
+          reterr = PgrGetP(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, phasepresent, phaseinfo, &phasepresent_ct);
         } else {
-          reterr = PgrGetDp(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, phasepresent, phaseinfo, &at_least_one_phase_present, dosage_present, dosage_main, &dosage_ct, dphase_present, dphase_delta, &dphase_ct);
+          reterr = PgrGetDp(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec, phasepresent, phaseinfo, &phasepresent_ct, dosage_present, dosage_main, &dosage_ct, dphase_present, dphase_delta, &dphase_ct);
         }
         if (reterr) {
           goto ExportVcf_ret_PGR_FAIL;
         }
-        at_least_one_phase_present = (at_least_one_phase_present != 0);
-        if ((!dosage_ct) && (!dosage_force)) {
+        if (!alt1_allele_idx) {
+          // assumes biallelic
+          assert(cur_allele_ct == 2);
+          GenovecInvertUnsafe(sample_ct, genovec);
+          if (phasepresent_ct) {
+            BitvecInvert(sample_ctl, phaseinfo);
+          }
+          if (dosage_ct) {
+            BiallelicDosage16Invert(dosage_ct, dosage_main);
+            if (dphase_ct) {
+              BiallelicDphase16Invert(dphase_ct, dphase_delta);
+            }
+          }
+        }
+        uint32_t phasepresent_hw = 0;
+        if ((!dosage_ct) && (!ds_force)) {
           if (!is_haploid) {
             uint32_t* write_iter_ui_alias = R_CAST(uint32_t*, write_iter);
             while (1) {
@@ -4496,10 +4598,10 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
               uintptr_t genovec_word = genovec[widx];
               uint32_t prev_phased_halfword = R_CAST(Halfword*, prev_phased)[widx];
 
-              // zero this out if phasepresent_ct == 0
-              const uint32_t phasepresent_halfword = at_least_one_phase_present * (R_CAST(Halfword*, phasepresent)[widx]);
-
-              const uint32_t phaseinfo_halfword = R_CAST(Halfword*, phaseinfo)[widx];
+              if (phasepresent_ct) {
+                phasepresent_hw = R_CAST(Halfword*, phasepresent)[widx];
+              }
+              const uint32_t phaseinfo_hw = R_CAST(Halfword*, phaseinfo)[widx];
               for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
                 const uintptr_t cur_geno = genovec_word & 3;
 
@@ -4507,9 +4609,9 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
                 uint32_t cur_basic_genotext = basic_genotext[cur_geno];
                 if (cur_geno == 1) {
                   const uint32_t cur_shift = (1U << sample_idx_lowbits);
-                  if (phasepresent_halfword & cur_shift) {
+                  if (phasepresent_hw & cur_shift) {
                     prev_phased_halfword |= cur_shift;
-                    if (phaseinfo_halfword & cur_shift) {
+                    if (phaseinfo_hw & cur_shift) {
                       cur_basic_genotext ^= 0x1000100;  // 0|1 -> 1|0
                     }
                   } else {
@@ -4525,6 +4627,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
             }
             write_iter = R_CAST(char*, write_iter_ui_alias);
           } else {
+            uint32_t is_male_hw = 0;
             while (1) {
               if (widx >= sample_ctl2_m1) {
                 if (widx > sample_ctl2_m1) {
@@ -4533,13 +4636,16 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
                 inner_loop_last = (sample_ct - 1) % kBitsPerWordD2;
               }
               uintptr_t genovec_word = genovec[widx];
-              uint32_t is_male_hw = is_x * (R_CAST(const Halfword*, sex_male_collapsed)[widx]);
+              if (is_x) {
+                is_male_hw = R_CAST(const Halfword*, sex_male_collapsed)[widx];
+              }
               uint32_t prev_phased_halfword = R_CAST(Halfword*, prev_phased)[widx];
 
-              // zero this out if phasepresent_ct == 0
-              const uint32_t phasepresent_halfword = at_least_one_phase_present * (R_CAST(Halfword*, phasepresent)[widx]);
+              if (phasepresent_ct) {
+                phasepresent_hw = R_CAST(Halfword*, phasepresent)[widx];
+              }
 
-              const uint32_t phaseinfo_halfword = R_CAST(Halfword*, phaseinfo)[widx];
+              const uint32_t phaseinfo_hw = R_CAST(Halfword*, phaseinfo)[widx];
               for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
                 const uint32_t cur_geno = genovec_word & 3;
                 const uint32_t cur_is_male = is_male_hw & 1;
@@ -4548,11 +4654,12 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
                 if (cur_blen == 4) {
                   if (cur_geno == 1) {
                     // a bit redundant with how is_male_hw is handled, but
-                    // updating this on every loop iteration doesn't seem better
+                    // updating this on every loop iteration doesn't seem
+                    // better
                     const uint32_t cur_shift = (1U << sample_idx_lowbits);
-                    if (phasepresent_halfword & cur_shift) {
+                    if (phasepresent_hw & cur_shift) {
                       prev_phased_halfword |= cur_shift;
-                      if (phaseinfo_halfword & cur_shift) {
+                      if (phaseinfo_hw & cur_shift) {
                         memcpy(&(write_iter[-4]), "\t1|0", 4);
                       } else {
                         write_iter[-2] = '|';
@@ -4572,19 +4679,22 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
             }
           }
         } else {
-          // both dosage (or DS-force) and phase present
+          // both dosage (or {H}DS-force) and phase present
           if (write_ds) {
             write_iter = memcpyl3a(write_iter, ":DS");
-            if (!dosage_ct) {
-              ZeroWArr(sample_ctl, dosage_present);
+            if (hds_force || dphase_ct ||
+                (write_hds && phasepresent_ct && dosage_ct && (!IntersectionIsEmpty(phasepresent, dosage_present, sample_ctl)))) {
+              write_iter = memcpya(write_iter, ":HDS", 4);
+              // no need to clear dphase_present, since we zero-initialize
+              // dphase_present_hw and never refresh it when dphase_ct == 0
             }
           } else {
             write_iter = memcpyl3a(write_iter, ":GP");
           }
-          if (!alt1_allele_idx) {
-            BiallelicDosage16Invert(dosage_ct, dosage_main);
-          }
           Dosage* dosage_main_iter = dosage_main;
+          SDosage* dphase_delta_iter = dphase_delta;
+          uint32_t dosage_present_hw = 0;
+          uint32_t dphase_present_hw = 0;
           if (!is_haploid) {
             while (1) {
               if (widx >= sample_ctl2_m1) {
@@ -4596,19 +4706,25 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
               uintptr_t genovec_word = genovec[widx];
               uint32_t prev_phased_halfword = R_CAST(Halfword*, prev_phased)[widx];
 
-              // zero this out if phasepresent_ct == 0
-              const uint32_t phasepresent_halfword = at_least_one_phase_present * (R_CAST(Halfword*, phasepresent)[widx]);
+              if (phasepresent_ct) {
+                phasepresent_hw = R_CAST(Halfword*, phasepresent)[widx];
+              }
 
-              const uint32_t phaseinfo_halfword = R_CAST(Halfword*, phaseinfo)[widx];
-              const uint32_t dosage_present_hw = R_CAST(Halfword*, dosage_present)[widx];
+              const uint32_t phaseinfo_hw = R_CAST(Halfword*, phaseinfo)[widx];
+              if (dosage_ct) {
+                dosage_present_hw = R_CAST(Halfword*, dosage_present)[widx];
+                if (dphase_ct) {
+                  dphase_present_hw = R_CAST(Halfword*, dphase_present)[widx];
+                }
+              }
               uint32_t cur_shift = 1;
               for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
                 const uint32_t cur_geno = genovec_word & 3;
                 write_iter = memcpya(write_iter, &(basic_genotext[cur_geno]), 4);
                 if (cur_geno == 1) {
-                  if (phasepresent_halfword & cur_shift) {
+                  if (phasepresent_hw & cur_shift) {
                     prev_phased_halfword |= cur_shift;
-                    if (phaseinfo_halfword & cur_shift) {
+                    if (phaseinfo_hw & cur_shift) {
                       memcpy(&(write_iter[-4]), "\t1|0", 4);
                     }
                   } else {
@@ -4621,9 +4737,41 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
                 if (dosage_present_hw & cur_shift) {
                   *write_iter++ = ':';
                   const uint32_t dosage_int = *dosage_main_iter++;
-                  write_iter = DiploidVcfDosagePrint(dosage_int, write_ds, write_iter);
-                } else if (dosage_force) {
-                  write_iter = memcpya(write_iter, &(dosage_inttext[cur_geno * 2]), 2);
+                  write_iter = PrintDiploidVcfDosage(dosage_int, write_ds, write_iter);
+                  if ((phasepresent_hw | dphase_present_hw) & cur_shift) {
+                    int32_t cur_dphase_delta;
+                    if (dphase_present_hw & cur_shift) {
+                      cur_dphase_delta = *dphase_delta_iter++;
+                    } else {
+                      cur_dphase_delta = DosageHomdist(dosage_int);
+                      if (!(phaseinfo_hw & cur_shift)) {
+                        cur_dphase_delta = -cur_dphase_delta;
+                      }
+                    }
+                    *write_iter++ = ':';
+                    write_iter = PrintSmallDosage((dosage_int + cur_dphase_delta) >> 1, write_iter);
+                    *write_iter++ = ',';
+                    write_iter = PrintSmallDosage((dosage_int - cur_dphase_delta) >> 1, write_iter);
+                  } else if (hds_force) {
+                    *write_iter++ = ':';
+                    char* write_iter2 = PrintHaploidDosage(dosage_int, write_iter);
+                    write_iter2[0] = ',';
+                    write_iter = memcpya(&(write_iter2[1]), write_iter, write_iter2 - write_iter);
+                  }
+                } else if (ds_force) {
+                  write_iter = memcpya(write_iter, &(ds_inttext[cur_geno * 2]), 2);
+                  if (hds_force) {
+                    uint32_t hds_inttext_index = cur_geno;
+                    uint32_t tmp_blen = hds_inttext_blen[cur_geno];
+                    if (phasepresent_hw & cur_shift) {
+                      // do we want to remove this branch?  doubt it's
+                      // worthwhile since variable-length memcpy will branch
+                      // anyway...
+                      hds_inttext_index = 4 + ((phaseinfo_hw >> sample_idx_lowbits) & 1);
+                      tmp_blen = 4;
+                    }
+                    write_iter = memcpya(write_iter, hds_inttext[hds_inttext_index], tmp_blen);
+                  }
                 }
                 genovec_word >>= 2;
                 cur_shift <<= 1;
@@ -4632,6 +4780,7 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
               ++widx;
             }
           } else {
+            uint32_t is_male_hw = 0;
             while (1) {
               if (widx >= sample_ctl2_m1) {
                 if (widx > sample_ctl2_m1) {
@@ -4640,14 +4789,22 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
                 inner_loop_last = (sample_ct - 1) % kBitsPerWordD2;
               }
               uintptr_t genovec_word = genovec[widx];
-              uint32_t is_male_hw = is_x * (R_CAST(const Halfword*, sex_male_collapsed)[widx]);
+              if (is_x) {
+                is_male_hw = R_CAST(const Halfword*, sex_male_collapsed)[widx];
+              }
               uint32_t prev_phased_halfword = R_CAST(Halfword*, prev_phased)[widx];
 
-              // zero this out if phasepresent_ct == 0
-              const uint32_t phasepresent_halfword = at_least_one_phase_present * (R_CAST(Halfword*, phasepresent)[widx]);
+              if (phasepresent_ct) {
+                phasepresent_hw = R_CAST(Halfword*, phasepresent)[widx];
+              }
 
-              const uint32_t phaseinfo_halfword = R_CAST(Halfword*, phaseinfo)[widx];
-              const uint32_t dosage_present_hw = R_CAST(Halfword*, dosage_present)[widx];
+              const uint32_t phaseinfo_hw = R_CAST(Halfword*, phaseinfo)[widx];
+              if (dosage_ct) {
+                dosage_present_hw = R_CAST(Halfword*, dosage_present)[widx];
+                if (dphase_ct) {
+                  dphase_present_hw = R_CAST(Halfword*, dphase_present)[widx];
+                }
+              }
               uint32_t cur_shift = 1;
               for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
                 const uint32_t cur_geno = genovec_word & 3;
@@ -4655,10 +4812,12 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
                 const uint32_t cur_blen = haploid_genotext_blen[cur_geno + cur_is_male * 4];
                 write_iter = memcpya(write_iter, haploid_genotext[cur_geno], cur_blen);
                 if (cur_blen == 4) {
+                  // render current hardcall as diploid (chrX female, or het
+                  // haploid)
                   if (cur_geno == 1) {
-                    if (phasepresent_halfword & cur_shift) {
+                    if (phasepresent_hw & cur_shift) {
                       prev_phased_halfword |= cur_shift;
-                      if (phaseinfo_halfword & cur_shift) {
+                      if (phaseinfo_hw & cur_shift) {
                         memcpy(&(write_iter[-4]), "\t1|0", 4);
                       }
                     } else {
@@ -4671,23 +4830,80 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
                   if (dosage_present_hw & cur_shift) {
                     *write_iter++ = ':';
                     const uint32_t dosage_int = *dosage_main_iter++;
-                    write_iter = DiploidVcfDosagePrint(dosage_int, write_ds, write_iter);
-                  } else if (dosage_force) {
-                    write_iter = memcpya(write_iter, &(dosage_inttext[cur_geno * 2]), 2);
+                    write_iter = PrintDiploidVcfDosage(dosage_int, write_ds, write_iter);
+                    if ((phasepresent_hw | dphase_present_hw) & cur_shift) {
+                      int32_t cur_dphase_delta;
+                      if (dphase_present_hw & cur_shift) {
+                        cur_dphase_delta = *dphase_delta_iter++;
+                      } else {
+                        cur_dphase_delta = DosageHomdist(dosage_int);
+                        if (!(phaseinfo_hw & cur_shift)) {
+                          cur_dphase_delta = -cur_dphase_delta;
+                        }
+                      }
+                      *write_iter++ = ':';
+                      write_iter = PrintSmallDosage((dosage_int + cur_dphase_delta) >> 1, write_iter);
+                      *write_iter++ = ',';
+                      write_iter = PrintSmallDosage((dosage_int - cur_dphase_delta) >> 1, write_iter);
+                    } else if (hds_force) {
+                      *write_iter++ = ':';
+                      char* write_iter2 = PrintHaploidDosage(dosage_int, write_iter);
+                      // do not render phased-dosage as diploid in het haploid
+                      // case
+                      if (is_x && (!cur_is_male)) {
+                        write_iter2[0] = ',';
+                        write_iter2 = memcpya(&(write_iter2[1]), write_iter, write_iter2 - write_iter);
+                      }
+                      write_iter = write_iter2;
+                    }
+                  } else if (ds_force) {
+                    write_iter = memcpya(write_iter, &(ds_inttext[cur_geno * 2]), 2);
+                    if (hds_force) {
+                      uint32_t hds_inttext_index = cur_geno;
+                      uint32_t tmp_blen;
+                      if (phasepresent_hw & cur_shift) {
+                        // do we want to remove this branch?  doubt it's
+                        // worthwhile since variable-length memcpy will branch
+                        // anyway...
+                        hds_inttext_index = 4 + ((phaseinfo_hw >> sample_idx_lowbits) & 1);
+                        tmp_blen = 4;
+                      } else {
+                        // do not render phased-dosage as diploid in het
+                        // haploid case
+                        tmp_blen = hds_inttext_blen[cur_is_male * 4 + cur_geno];
+                      }
+                      write_iter = memcpya(write_iter, hds_inttext[hds_inttext_index], tmp_blen);
+                    }
                   }
                 } else {
+                  // render current hardcall as haploid
+                  // (can't get here for hardcall-phased)
                   if (dosage_present_hw & cur_shift) {
                     *write_iter++ = ':';
                     const uint32_t dosage_int = *dosage_main_iter++;
                     if (write_ds) {
-                      write_iter = HaploidDosagePrint(dosage_int, write_iter);
+                      write_iter = PrintHaploidDosage(dosage_int, write_iter);
+                      if (dphase_present_hw & cur_shift) {
+                        // explicit dosage-phase, so render HDS as diploid
+                        const int32_t cur_dphase_delta = *dphase_delta_iter++;
+                        *write_iter++ = ':';
+                        write_iter = PrintSmallDosage((dosage_int + cur_dphase_delta) >> 1, write_iter);
+                        *write_iter++ = ',';
+                        write_iter = PrintSmallDosage((dosage_int - cur_dphase_delta) >> 1, write_iter);
+                      } else if (hds_force) {
+                        *write_iter++ = ':';
+                        write_iter = PrintHaploidDosage(dosage_int, write_iter);
+                      }
                     } else {
-                      write_iter = HaploidDosagePrint(kDosageMax - dosage_int, write_iter);
+                      write_iter = PrintHaploidDosage(kDosageMax - dosage_int, write_iter);
                       *write_iter++ = ',';
-                      write_iter = HaploidDosagePrint(dosage_int, write_iter);
+                      write_iter = PrintHaploidDosage(dosage_int, write_iter);
                     }
-                  } else if (dosage_force) {
-                    write_iter = memcpya(write_iter, &(dosage_inttext[cur_geno * 2 + 8]), 2);
+                  } else if (ds_force) {
+                    write_iter = memcpya(write_iter, &(ds_inttext[cur_geno * 2 + 8]), 2);
+                    if (hds_force) {
+                      write_iter = memcpya(write_iter, hds_inttext[cur_geno], hds_inttext_blen[cur_geno + 4]);
+                    }
                   }
                 }
                 genovec_word >>= 2;
@@ -5299,7 +5515,7 @@ PglErr Export012Smaj(const char* outname, const uintptr_t* orig_sample_include, 
   return reterr;
 }
 
-PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const AltAlleleCt* refalt1_select, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, uint32_t max_thread_ct, MakePlink2Flags make_plink2_flags, ExportfFlags exportf_flags, IdpasteFlags exportf_id_paste, char exportf_id_delim, __maybe_unused uint32_t exportf_bits, uintptr_t pgr_alloc_cacheline_ct, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const AltAlleleCt* refalt1_select, const uintptr_t* pvar_qual_present, const float* pvar_quals, const uintptr_t* pvar_filter_present, const uintptr_t* pvar_filter_npass, const char* const* pvar_filter_storage, const char* pvar_info_reload, const double* variant_cms, const ExportfInfo* eip, uintptr_t xheader_blen, InfoFlags info_flags, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t max_filter_slen, uint32_t info_reload_slen, uint32_t max_thread_ct, MakePlink2Flags make_plink2_flags, uintptr_t pgr_alloc_cacheline_ct, char* xheader, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
   {
@@ -5316,21 +5532,22 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
     CopyBitarrSubset(sex_male, sample_include, sample_ct, sex_male_collapsed);
     ZeroTrailingWords(sample_ctl, sex_male_collapsed);
     uint32_t* sample_missing_geno_cts = nullptr;
-    if (exportf_flags & (kfExportfOxGen | kfExportfHaps | kfExportfHapsLegend | kfExportfBgen11 | kfExportfBgen12 | kfExportfBgen13)) {
+    ExportfFlags flags = eip->flags;
+    if (flags & (kfExportfOxGen | kfExportfHaps | kfExportfHapsLegend | kfExportfBgen11 | kfExportfBgen12 | kfExportfBgen13)) {
       if (bigstack_alloc_u32(sample_ct, &sample_missing_geno_cts)) {
         goto Exportf_ret_NOMEM;
       }
     }
-    if (exportf_flags & (kfExportf01 | kfExportf12)) {
+    if (flags & (kfExportf01 | kfExportf12)) {
       // todo
     }
-    if (exportf_flags & (kfExportfTypemask - kfExportfIndMajorBed - kfExportfVcf - kfExportfOxGen - kfExportfBgen11 - kfExportfBgen12 - kfExportfBgen13 - kfExportfHaps - kfExportfHapsLegend - kfExportfATranspose - kfExportfA - kfExportfAD)) {
+    if (flags & (kfExportfTypemask - kfExportfIndMajorBed - kfExportfVcf - kfExportfOxGen - kfExportfBgen11 - kfExportfBgen12 - kfExportfBgen13 - kfExportfHaps - kfExportfHapsLegend - kfExportfATranspose - kfExportfA - kfExportfAD)) {
       logerrputs("Error: Only VCF, oxford, bgen-1.x, haps, hapslegend, A, AD, A-transpose, and\nind-major-bed output have been implemented so far.\n");
       reterr = kPglRetNotYetSupported;
       goto Exportf_ret_1;
     }
-    const char exportf_delim = (exportf_flags & kfExportfSpaces)? ' ' : '\t';
-    if (exportf_flags & kfExportfATranspose) {
+    const char exportf_delim = (flags & kfExportfSpaces)? ' ' : '\t';
+    if (flags & kfExportfATranspose) {
       snprintf(outname_end, kMaxOutfnameExtBlen, ".traw");
       PgrClearLdCache(simple_pgrp);
       reterr = Export012Vmaj(outname, sample_include, sample_include_cumulative_popcounts, piip->sii.sample_ids, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, variant_cms, sample_ct, piip->sii.max_sample_id_blen, variant_ct, max_allele_slen, exportf_delim, simple_pgrp);
@@ -5338,42 +5555,44 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
         goto Exportf_ret_1;
       }
     }
-    if (exportf_flags & kfExportfIndMajorBed) {
+    if (flags & kfExportfIndMajorBed) {
       reterr = ExportIndMajorBed(sample_include, variant_include, variant_allele_idxs, refalt1_select, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, max_thread_ct, pgr_alloc_cacheline_ct, pgfip, outname, outname_end);
       if (reterr) {
         goto Exportf_ret_1;
       }
     }
-    if (exportf_flags & kfExportfOxGen) {
+    if (flags & kfExportfOxGen) {
       PgrClearLdCache(simple_pgrp);
-      reterr = ExportOxGen(sample_include, sample_include_cumulative_popcounts, sex_male, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, sample_ct, variant_ct, max_allele_slen, max_thread_ct, exportf_flags, simple_pgrp, outname, outname_end, sample_missing_geno_cts);
+      reterr = ExportOxGen(sample_include, sample_include_cumulative_popcounts, sex_male, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, sample_ct, variant_ct, max_allele_slen, max_thread_ct, flags, simple_pgrp, outname, outname_end, sample_missing_geno_cts);
       if (reterr) {
         goto Exportf_ret_1;
       }
     }
-    if (exportf_flags & (kfExportfHaps | kfExportfHapsLegend)) {
+    if (flags & (kfExportfHaps | kfExportfHapsLegend)) {
       PgrClearLdCache(simple_pgrp);
-      reterr = ExportOxHapslegend(sample_include, sample_include_cumulative_popcounts, sex_male_collapsed, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, exportf_flags, simple_pgrp, outname, outname_end);
+      reterr = ExportOxHapslegend(sample_include, sample_include_cumulative_popcounts, sex_male_collapsed, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, flags, simple_pgrp, outname, outname_end);
       if (reterr) {
         goto Exportf_ret_1;
       }
       ZeroU32Arr(sample_ct, sample_missing_geno_cts);
     }
-    if (exportf_flags & kfExportfBgen11) {
+    const IdpasteFlags idpaste_flags = eip->idpaste_flags;
+    const char id_delim = eip->id_delim;
+    if (flags & kfExportfBgen11) {
       assert(PopcountWords(sample_include, raw_sample_ctl) == sample_ct);
       snprintf(outname_end, kMaxOutfnameExtBlen, ".bgen");
-      reterr = ExportBgen11(outname, sample_include, sample_include_cumulative_popcounts, sex_male, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, max_thread_ct, exportf_flags, pgr_alloc_cacheline_ct, pgfip, sample_missing_geno_cts);
+      reterr = ExportBgen11(outname, sample_include, sample_include_cumulative_popcounts, sex_male, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, max_thread_ct, flags, pgr_alloc_cacheline_ct, pgfip, sample_missing_geno_cts);
       if (reterr) {
         goto Exportf_ret_1;
       }
-    } else if (exportf_flags & (kfExportfBgen12 | kfExportfBgen13)) {
+    } else if (flags & (kfExportfBgen12 | kfExportfBgen13)) {
       snprintf(outname_end, kMaxOutfnameExtBlen, ".bgen");
-      reterr = ExportBgen13(outname, sample_include, sample_include_cumulative_popcounts, &(piip->sii), sex_nm, sex_male, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, max_thread_ct, exportf_flags, exportf_bits, exportf_id_paste, exportf_id_delim, pgr_alloc_cacheline_ct, pgfip, sample_missing_geno_cts);
+      reterr = ExportBgen13(outname, sample_include, sample_include_cumulative_popcounts, &(piip->sii), sex_nm, sex_male, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, max_thread_ct, flags, eip->bgen_bits, idpaste_flags, id_delim, pgr_alloc_cacheline_ct, pgfip, sample_missing_geno_cts);
       if (reterr) {
         goto Exportf_ret_1;
       }
     }
-    if (exportf_flags & (kfExportfOxGen | kfExportfBgen11 | kfExportfBgen12 | kfExportfBgen13 | kfExportfHaps | kfExportfHapsLegend)) {
+    if (flags & (kfExportfOxGen | kfExportfBgen11 | kfExportfBgen12 | kfExportfBgen13 | kfExportfHaps | kfExportfHapsLegend)) {
       snprintf(outname_end, kMaxOutfnameExtBlen, ".sample");
       logprintfww5("Writing %s ... ", outname);
       fflush(stdout);
@@ -5389,9 +5608,9 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
       }
       logputs("done.\n");
     }
-    if (exportf_flags & kfExportfVcf) {
+    if (flags & kfExportfVcf) {
       PgrClearLdCache(simple_pgrp);
-      reterr = ExportVcf(sample_include, sample_include_cumulative_popcounts, &(piip->sii), sex_male_collapsed, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, pvar_info_reload, xheader_blen, info_flags, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, max_thread_ct, exportf_flags, exportf_id_paste, exportf_id_delim, xheader, pgfip, simple_pgrp, outname, outname_end);
+      reterr = ExportVcf(sample_include, sample_include_cumulative_popcounts, &(piip->sii), sex_male_collapsed, variant_include, cip, variant_bps, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, pvar_qual_present, pvar_quals, pvar_filter_present, pvar_filter_npass, pvar_filter_storage, pvar_info_reload, xheader_blen, info_flags, sample_ct, raw_variant_ct, variant_ct, max_allele_slen, max_filter_slen, info_reload_slen, max_thread_ct, flags, eip->vcf_mode, idpaste_flags, id_delim, xheader, pgfip, simple_pgrp, outname, outname_end);
       if (reterr) {
         goto Exportf_ret_1;
       }
@@ -5399,15 +5618,15 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
     // todo: everything else
     // sample-major output should share a (probably multithreaded) transpose
     // routine
-    if (exportf_flags & (kfExportfA | kfExportfAD)) {
+    if (flags & (kfExportfA | kfExportfAD)) {
       snprintf(outname_end, kMaxOutfnameExtBlen, ".raw");
-      reterr = Export012Smaj(outname, sample_include, piip, sex_nm, sex_male, pheno_cols, variant_include, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, raw_sample_ct, sample_ct, pheno_ct, raw_variant_ct, variant_ct, max_allele_slen, (exportf_flags / kfExportfAD) & 1, (exportf_flags / kfExportfIncludeAlt) & 1, max_thread_ct, pgr_alloc_cacheline_ct, exportf_delim, pgfip);
+      reterr = Export012Smaj(outname, sample_include, piip, sex_nm, sex_male, pheno_cols, variant_include, variant_ids, variant_allele_idxs, allele_storage, refalt1_select, raw_sample_ct, sample_ct, pheno_ct, raw_variant_ct, variant_ct, max_allele_slen, (flags / kfExportfAD) & 1, (flags / kfExportfIncludeAlt) & 1, max_thread_ct, pgr_alloc_cacheline_ct, exportf_delim, pgfip);
       if (reterr) {
         goto Exportf_ret_1;
       }
     }
 
-    if ((!(make_plink2_flags & kfMakeFam)) && (exportf_flags & kfExportfIndMajorBed)) {
+    if ((!(make_plink2_flags & kfMakeFam)) && (flags & kfExportfIndMajorBed)) {
       snprintf(outname_end, kMaxOutfnameExtBlen, ".fam");
       logprintfww5("Writing %s ... ", outname);
       fflush(stdout);
@@ -5417,7 +5636,7 @@ PglErr Exportf(const uintptr_t* sample_include, const PedigreeIdInfo* piip, cons
       }
       logputs("done.\n");
     }
-    if ((!(make_plink2_flags & kfMakeBim)) && (exportf_flags & kfExportfIndMajorBed)) {
+    if ((!(make_plink2_flags & kfMakeBim)) && (flags & kfExportfIndMajorBed)) {
       snprintf(outname_end, kMaxOutfnameExtBlen, ".bim");
       logprintfww5("Writing %s ... ", outname);
       fflush(stdout);

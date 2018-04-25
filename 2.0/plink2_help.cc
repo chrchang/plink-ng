@@ -134,8 +134,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --no-parents       : .fam file does not contain columns 3-4 (parents).\n"
 "  --no-sex           : .fam file does not contain column 5 (sex).\n"
                );
-    // todo: allele fraction import.  but first need to see how it's
-    // represented in practice, since it isn't in the spec...
+    // probable todo: dosage=AD mode.
     HelpPrint("vcf\tbcf\tpsam", &help_ctrl, 1,
 "  --vcf [filename] <dosage=[field]>\n"
 "  --bcf [filename] <dosage=[field]>  (not implemented yet)\n"
@@ -143,8 +142,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * These can be used with --psam.\n"
 "    * By default, dosage information is not imported.  To import the GP field\n"
 "      (must be VCFv4.3-style 0..1, one probability per possible genotype), add\n"
-"      'dosage=GP'.  'dosage=DS' (or anything else) causes the named field to be\n"
-"      interpreted as a Minimac3-style dosage.\n\n"
+"      'dosage=GP'.  To import Minimac4-style DS+HDS phased dosage, add\n"
+"      'dosage=HDS'.  'dosage=DS' (or anything else for now) causes the named\n"
+"      field to be interpreted as a Minimac3-style dosage.\n"
+"      In all of these cases, hardcalls are now regenerated from scratch from\n"
+"      the dosages.\n\n"
                );
     HelpPrint("data\tgen\tbgen\tsample\thaps\tlegend", &help_ctrl, 1,
 "  --data [filename prefix] <ref-first | ref-last> <gzs>\n"
@@ -404,11 +406,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "             construct sample IDs (choices are maybefid, fid, iid, maybesid,\n"
 "             and sid; default is maybefid,iid,maybesid), while the 'id-delim'\n"
 "             modifier sets the character between the ID pieces (default '_').\n"
-"             By default, dosages are not exported; use 'vcf-dosage=GP' to\n"
-"             export them as genotype posterior probabilities, or\n"
-"             'vcf-dosage=DS' to export Minimac3-style dosages.  Replace 'DS'\n"
-"             with 'DS-force' to prevent DS from being omitted when it's an\n"
-"             integer.\n"
+"             Dosages are not exported unless the 'vcf-dosage=' modifier is\n"
+"             present.  The following five dosage export modes are supported:\n"
+"               'GP': genotype posterior probabilities.\n"
+"               'DS': Minimac3-style dosages, omitted for hardcalls.\n"
+"               'DS-force': Minimac3-style dosages, never omit.\n"
+"               'HDS': Minimac4-style phased dosages, omitted for hardcalls and\n"
+"                      unphased calls.  Also includes 'DS' output.\n"
+"               'HDS-force': Always report DS and HDS.\n"
                // possible todo: pedigree output?
 "    In addition,\n"
 "    * When the output format only supports biallelic variants, multiallelic\n"
@@ -1419,8 +1424,9 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --set-hh-missing <keep-dosage>       : Make --make-{b}pgen/--make-bed set\n"
 "                                         non-MT heterozygous haploid hardcalls,\n"
 "                                         and all female chrY calls, to missing.\n"
-"                                         (Unlike PLINK 1.x, this does not\n"
-"                                         change unknown-sex chrY genotypes.)\n"
+"                                         (Unlike PLINK 1.x, this treats\n"
+"                                         unknown-sex chrY genotypes like males,\n"
+"                                         not females.)\n"
 "                                         By default, all associated dosages are\n"
 "                                         are also erased; use 'keep-dosage' to\n"
 "                                         keep them all.\n"
