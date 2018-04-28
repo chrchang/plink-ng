@@ -18,29 +18,29 @@ else
     fi
 fi
 
-cd UNIT_TEST_EXTRACT_CHR
-./run_tests.sh $d $2 $3 > UNIT_TEST_EXTRACT_CHR.log
+cd TEST_EXTRACT_CHR
+./run_tests.sh $d $2 $3 > TEST_EXTRACT_CHR.log
 cd ..
-echo "UNIT_TEST_EXTRACT_CHR passed."
+echo "TEST_EXTRACT_CHR passed."
 
-cd UNIT_TEST_MAF_FILTER
-./run_tests.sh $d $2 $3 > UNIT_TEST_MAF_FILTER.log
+cd TEST_MAF_FILTER
+./run_tests.sh $d $2 $3 > TEST_MAF_FILTER.log
 cd ..
-echo "UNIT_TEST_MAF_FILTER passed."
+echo "TEST_MAF_FILTER passed."
 
-cd UNIT_TEST_PGEN_FREQ
-./run_tests.sh $d $2 $3 > UNIT_TEST_PGEN_FREQ.log
+cd TEST_PGEN_FREQ
+./run_tests.sh $d $2 $3 > TEST_PGEN_FREQ.log
 cd ..
-echo "UNIT_TEST_PGEN_FREQ passed."
+echo "TEST_PGEN_FREQ passed."
 
-cd UNIT_TEST_PHASED_VCF
-./run_tests.sh $d $2 $3 > UNIT_TEST_PHASED_VCF.log
+cd TEST_PHASED_VCF
+./run_tests.sh $d $2 $3 > TEST_PHASED_VCF.log
 cd ..
-echo "UNIT_TEST_PHASED_VCF passed."
+echo "TEST_PHASED_VCF passed."
 
-cd UNIT_TEST_SAMPLE_SUBSET
-./run_tests.sh $d $2 $3 > UNIT_TEST_SAMPLE_SUBSET.log
+cd TEST_SAMPLE_SUBSET
+./run_tests.sh $d $2 $3 > TEST_SAMPLE_SUBSET.log
 cd ..
-echo "UNIT_TEST_SAMPLE_SUBSET passed."
+echo "TEST_SAMPLE_SUBSET passed."
 
 echo "All tests passed."
