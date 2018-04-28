@@ -824,13 +824,20 @@ BoolErr GlmDetermineCovars(const uintptr_t* pheno_cc, const uintptr_t* initial_c
     }
     memcpy(sample_include_backup, cur_sample_include, raw_sample_ctl * sizeof(intptr_t));
     memcpy(covar_include, initial_covar_include, raw_covar_ctl * sizeof(intptr_t));
+    // bugfix (28 Apr 2018): initial_covar_include can contain an extra sex set
+    // bit at the end.
+    if (PopcountWords(initial_covar_include, raw_covar_ctl) > initial_covar_ct) {
+      uintptr_t last_word = covar_include[raw_covar_ctl - 1];
+      const uint32_t highest_set_bit_idx = bsrw(last_word);
+      covar_include[raw_covar_ctl - 1] -= k1LU << highest_set_bit_idx;
+    }
 
     // 1. Determine samples for which all phenotype/covariate values are
     //    present, then provisionally remove the covariates which are constant
     //    over that set in linear case, or produce separation in logistic case
     uint32_t covar_uidx = 0;
     for (uint32_t covar_idx = 0; covar_idx < initial_covar_ct; ++covar_idx, ++covar_uidx) {
-      MovU32To1Bit(initial_covar_include, &covar_uidx);
+      MovU32To1Bit(covar_include, &covar_uidx);
       if (covar_cols[covar_uidx].nonmiss) {
         BitvecAnd(covar_cols[covar_uidx].nonmiss, raw_sample_ctl, cur_sample_include);
       }
@@ -6619,7 +6626,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         // todo: permit this, and automatically expand a single parameter index
         // referring to a categorical covariate into the appropriate range of
         // final predictor indices
-        logerrputs("Error: --parameters/--tests cannot be used directly with categorical\ncovariates; expand them into binary covariates with --split-cat-pheno first.\n");
+        logerrputs("Error: --parameters/--tests cannot currently be used directly with categorical\ncovariates; expand them into binary covariates with --split-cat-pheno first.\n");
         goto GlmMain_ret_INCONSISTENT_INPUT;
       }
     }
@@ -7036,11 +7043,12 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       const char** cur_covar_names_x = nullptr;
       if (sample_ct_x) {
         if (is_logistic) {
-          if (GlmAllocFillAndTestPhenoCovarsCc(cur_sample_include_x, cur_pheno_col->data.cc, covar_include_x, covar_cols, covar_names, sample_ct_x, covar_ct_x, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, g_max_corr, vif_thresh, xtx_state, &g_pheno_x_cc, gcount_cc_col? (&g_gcount_case_interleaved_vec_x) : nullptr, &g_pheno_x_f, &g_nm_precomp, &g_covars_cmaj_x_f, &cur_covar_names_x, &vif_corr_check_result)) {
+          // bugfix (28 Apr 2018): g_nm_precomp -> g_nm_precomp_x
+          if (GlmAllocFillAndTestPhenoCovarsCc(cur_sample_include_x, cur_pheno_col->data.cc, covar_include_x, covar_cols, covar_names, sample_ct_x, covar_ct_x, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, g_max_corr, vif_thresh, xtx_state, &g_pheno_x_cc, gcount_cc_col? (&g_gcount_case_interleaved_vec_x) : nullptr, &g_pheno_x_f, &g_nm_precomp_x, &g_covars_cmaj_x_f, &cur_covar_names_x, &vif_corr_check_result)) {
             goto GlmMain_ret_NOMEM;
           }
         } else {
-          if (GlmAllocFillAndTestPhenoCovarsQt(cur_sample_include_x, cur_pheno_col->data.qt, covar_include_x, covar_cols, covar_names, sample_ct_x, covar_ct_x, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, g_max_corr, vif_thresh, xtx_state, &g_pheno_x_d, &g_nm_precomp, &g_covars_cmaj_x_d, &cur_covar_names_x, &vif_corr_check_result)) {
+          if (GlmAllocFillAndTestPhenoCovarsQt(cur_sample_include_x, cur_pheno_col->data.qt, covar_include_x, covar_cols, covar_names, sample_ct_x, covar_ct_x, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_x, max_covar_name_blen, g_max_corr, vif_thresh, xtx_state, &g_pheno_x_d, &g_nm_precomp_x, &g_covars_cmaj_x_d, &cur_covar_names_x, &vif_corr_check_result)) {
             goto GlmMain_ret_NOMEM;
           }
         }
@@ -7061,11 +7069,11 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
       const char** cur_covar_names_y = nullptr;
       if (sample_ct_y) {
         if (is_logistic) {
-          if (GlmAllocFillAndTestPhenoCovarsCc(cur_sample_include_y, cur_pheno_col->data.cc, covar_include_y, covar_cols, covar_names, sample_ct_y, covar_ct_y, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, g_max_corr, vif_thresh, xtx_state, &g_pheno_y_cc, gcount_cc_col? (&g_gcount_case_interleaved_vec_y) : nullptr, &g_pheno_y_f, &g_nm_precomp, &g_covars_cmaj_y_f, &cur_covar_names_y, &vif_corr_check_result)) {
+          if (GlmAllocFillAndTestPhenoCovarsCc(cur_sample_include_y, cur_pheno_col->data.cc, covar_include_y, covar_cols, covar_names, sample_ct_y, covar_ct_y, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, g_max_corr, vif_thresh, xtx_state, &g_pheno_y_cc, gcount_cc_col? (&g_gcount_case_interleaved_vec_y) : nullptr, &g_pheno_y_f, &g_nm_precomp_y, &g_covars_cmaj_y_f, &cur_covar_names_y, &vif_corr_check_result)) {
             goto GlmMain_ret_NOMEM;
           }
         } else {
-          if (GlmAllocFillAndTestPhenoCovarsQt(cur_sample_include_y, cur_pheno_col->data.qt, covar_include_y, covar_cols, covar_names, sample_ct_y, covar_ct_y, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, g_max_corr, vif_thresh, xtx_state, &g_pheno_y_d, &g_nm_precomp, &g_covars_cmaj_y_d, &cur_covar_names_y, &vif_corr_check_result)) {
+          if (GlmAllocFillAndTestPhenoCovarsQt(cur_sample_include_y, cur_pheno_col->data.qt, covar_include_y, covar_cols, covar_names, sample_ct_y, covar_ct_y, local_covar_ct, covar_max_nonnull_cat_ct, extra_cat_ct_y, max_covar_name_blen, g_max_corr, vif_thresh, xtx_state, &g_pheno_y_d, &g_nm_precomp_y, &g_covars_cmaj_y_d, &cur_covar_names_y, &vif_corr_check_result)) {
             goto GlmMain_ret_NOMEM;
           }
         }

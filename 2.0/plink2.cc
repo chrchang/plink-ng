@@ -61,7 +61,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (24 Apr 2018)";
+  " (28 Apr 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -7497,7 +7497,7 @@ int main(int argc, char** argv) {
               goto main_ret_1;
             }
           }
-          logerrputs("Error: --tests is not implemented yet.\n");
+          logerrputs("Error: --tests is under development.\n");
           reterr = kPglRetNotYetSupported;
           goto main_ret_1;
         } else {

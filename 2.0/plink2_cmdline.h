@@ -262,6 +262,15 @@ HEADER_INLINE void DebugPrintf(const char* fmt, ...) {
   }
 }
 
+HEADER_INLINE void DPrintf(const char* fmt, ...) {
+  if (g_debug_on) {
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(g_logbuf, kLogbufSize, fmt, args);
+    logputsb();
+  }
+}
+
 BoolErr fopen_checked(const char* fname, const char* mode, FILE** target_ptr);
 
 HEADER_INLINE IntErr putc_checked(int32_t ii, FILE* outfile) {
