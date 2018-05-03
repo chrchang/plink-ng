@@ -685,6 +685,8 @@ BoolErr ParseVcfBiallelicDosage(const char* gtext_iter, const char* gtext_end, u
       // possible todo: allow this to be suppressed (maybe upstream of this
       // function); 1000 Genomes phase 1 haploid dosages are still on 0..2
       // scale
+      // right now the best approach for importing those files is commenting
+      // out this line and recompiling...
       alt_dosage *= 2;
     }
     if (alt_dosage > 2.0) {
@@ -3732,11 +3734,15 @@ static uint32_t* g_thread_bidxs[2] = {nullptr, nullptr};
 static uint16_t* g_bgen_allele_cts[2] = {nullptr, nullptr};
 static uint32_t* g_uncompressed_genodata_byte_cts[2] = {nullptr, nullptr};
 
-// for each bit precision level, how large must
+// For each bit precision level, how large must
 //   max(numerators, 2^{bit_precision} - 1 - [sum of numerators])
 // be to avoid throwing out the genotype?
+// Idempotence (consistently get same data back after export and reimport) is
+// not possible for --import-dosage-certainty, so we may as well operate on the
+// pre-conversion numerators.
 static uint32_t* g_bgen_import_dosage_certainty_thresholds = nullptr;
 
+/*
 // Reliably fast division by constants of the form 2^n - 1; see
 //   http://ridiculousfish.com/blog/posts/labor-of-division-episode-iii.html
 // The general case also requires a preshift parameter, but it's always zero
@@ -3747,7 +3753,7 @@ typedef struct BgenMagicNumStruct {
   uint32_t totq_incr;
 } BgenMagicNum;
 
-static const BgenMagicNum kBgenMagicNums[17] = {
+static const BgenMagicNum kBgenMagicNums[25] = {
   {0, 0, 0},
   {1, 0, 0},
   {2863311531U, 33, 0},
@@ -3764,26 +3770,114 @@ static const BgenMagicNum kBgenMagicNums[17] = {
   {67117057, 39, 1},
   {268451841, 42, 1},
   {1073774593U, 45, 1},
-  {2147516417U, 47, 0}
-  // todo: check whether something similar works for 17-32 bit cases
-  /*
-  ,{131073, 34, 1},
+  {2147516417U, 47, 0},
+  {131073, 34, 1},
   {262145, 36, 1},
   {524289, 38, 1},
   {1048577, 40, 1},
   {2097153, 42, 1},
   {4194305, 44, 1},
   {8388609, 46, 1},
-  {16777217, 48, 1},
-  {33554433, 50, 1},
-  {67108865, 52, 1},
-  {134217729, 54, 1},
-  {268435457, 56, 1},
-  {536870913, 58, 1},
-  {1073741825U, 60, 1},
-  {2147483649U, 62, 1},
-  {2147483649U, 63, 0}
-  */
+  {16777217, 48, 1}
+  // need to switch to a different algorithm past this point thanks to overflow
+  // issues
+};
+*/
+
+// bgen-1.3 diploid import requires the following operation (haploid is
+// identical except b is always zero):
+//   round((32768a + 16384b)/(2^{bit precision} - 1))
+//   floor((32768a + 16384b)/(2^{bit_precision} - 1) + 0.5)
+// = floor((32768a + 16384b + 2^{bit_precision - 1})
+//     / (2^{bit_precision} - 1))
+// = (totq_magic * (32768a + 16384b + 2^{bits-1} + totq_incr))
+//     >> totq_postshift
+//
+// This works fine for bit_precision <= 16, anyway.  There are two issues which
+// come up with higher precision:
+// 1. The ridiculous_fish magic numbers assume a 32-bit dividend.  Our dividend
+//    is guaranteed to be divisible by 2^14, but it can be as large as
+//      (2^{bits} - 1) * 2^15 + 2^{bits-1}.
+// 2. Relatedly, the current sequence of operations multiplies totq_magic by
+//    (dividend + totq_incr) (where totq_incr is zero or one); this
+//    intermediate result must not overflow a uint64_t.
+// It turns out that neither of these problems are relevant for bit_precision
+// in [17, 24], but there's a failure at bits=25.
+//
+// However, the following rearrangement works for bits in [2, 31]:
+//   (preadd + (totq_magic * (2a + b))) >> (totq_postshift - 14)
+//   where preadd := (totq_magic * (2^{bits-1} + totq_incr)) >> 14
+// and setting {preadd = 0, mult = 2^14, postshift = 0} works well enough for
+// bits=1.
+// It fails for bits=32, 2a+b=2147614719.
+//
+// The following code was used to generate and validate the body of the table
+// below:
+// for (uint32_t uii = 2; uii <= 31; ++uii) {
+//   const uint32_t divisor = (1LLU << uii) - 1U;
+//   uint64_t mult;
+//   uint32_t preshift;
+//   uint32_t postshift;
+//   uint32_t incr;
+//   DivisionMagicNums(divisor, &mult, &preshift, &postshift, &incr);
+//   const uint64_t half = 1U << (uii - 1);
+//   const uint64_t preadd = (mult * (half + incr)) >> 14;
+//   const uint32_t postshift_m14 = postshift - 14;
+//   printf("{%llu%s, %llu%s, %u},\n", preadd, (preadd > 0x7fffffff)? "LLU" : "", mult, (mult > 0x7fffffff)? "U" : "", postshift_m14);
+//   for (uint64_t ullii = 0; ullii <= 2 * divisor; ++ullii) {
+//     uint64_t numer = ullii * 16384;
+//     uint64_t true_result = (numer + half) / divisor;
+//     uint64_t my_result = (preadd + mult * ullii) >> postshift_m14;
+//     if (true_result != my_result) {
+//       printf("failure: bits=%u, 2a+b=%llu\n", uii, ullii);
+//       exit(1);
+//     }
+//   }
+// }
+
+static_assert(kDosageMid == 16384, "bgen-1.3 import magic numbers must be changed.");
+typedef struct BgenMagicNumStruct {
+  uint64_t preadd;
+  uint32_t mult;  // must copy this into a uint64_t
+  uint32_t postshift;
+} BgenMagicNum;
+
+// We throw a not-yet-supported error on bits=32 for now.
+CONSTU31(kMaxBgenImportBits, 31);
+
+static const BgenMagicNum kBgenMagicNums[kMaxBgenImportBits + 1] = {
+  {0, 0, 0},
+  {0, 16384, 0},
+  {349525, 2863311531U, 19},
+  {374491, 1227133513, 19},
+  {1118481, 2290649225U, 21},
+  {1150051, 1108378657, 21},
+  {2197016, 1090785345, 22},
+  {1073345, 270549121, 21},
+  {16843009, 2155905153U, 25},
+  {2109464, 134480385, 22},
+  {33652832, 1074791425, 26},
+  {262528, 4196353, 19},
+  {2098688, 16781313, 22},
+  {16783360, 67117057, 25},
+  {134242305, 268451841, 28},
+  {1073840131, 1073774593, 31},
+  {4295032834LLU, 2147516417U, 33},
+  {524300, 131073, 20},
+  {2097176, 262145, 22},
+  {8388656, 524289, 24},
+  {33554528, 1048577, 26},
+  {134217920, 2097153, 28},
+  {536871296, 4194305, 30},
+  {2147484416LLU, 8388609, 32},
+  {8589936128LLU, 16777217, 34},
+  {34359741440LLU, 33554433, 36},
+  {137438959616LLU, 67108865, 38},
+  {549755826176LLU, 134217729, 40},
+  {2199023280128LLU, 268435457, 42},
+  {8796093071360LLU, 536870913, 44},
+  {35184372187136LLU, 1073741825, 46},
+  {140737488551936LLU, 2147483649U, 48}
 };
 
 static_assert(sizeof(Dosage) == 2, "Bgen13DosageOrPhaseScanThread() needs to be updated.");
@@ -3876,7 +3970,7 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
         if ((!bit_precision) || (bit_precision > 32)) {
           goto Bgen13DosageOrPhaseScanThread_malformed;
         }
-        if (bit_precision > 16) {
+        if (bit_precision > kMaxBgenImportBits) {
           goto Bgen13DosageOrPhaseScanThread_not_yet_supported;
         }
         if (cur_allele_ct != 2) {
@@ -3884,38 +3978,14 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
           assert(0);
           goto Bgen13DosageOrPhaseScanThread_not_yet_supported;
         }
-        const uint64_t totq_magic = kBgenMagicNums[bit_precision].totq_magic;
-        const uint32_t totq_postshift = kBgenMagicNums[bit_precision].totq_postshift;
-        uint32_t totq_incr = kBgenMagicNums[bit_precision].totq_incr;
+        const uint64_t magic_preadd = kBgenMagicNums[bit_precision].preadd;
+        const uint64_t magic_mult = kBgenMagicNums[bit_precision].mult;
+        const uint32_t magic_postshift = kBgenMagicNums[bit_precision].postshift;
         const uint32_t bytes_per_prob = DivUp(bit_precision, CHAR_BIT);
 
         // also equal to denominator
         const uintptr_t numer_mask = (1U << bit_precision) - 1;
 
-        // diploid (haploid is identical except b is always zero):
-        //   round((32768a + 16384b)/(2^{bit precision} - 1))
-        //   floor((32768a + 16384b)/(2^{bit_precision} - 1) + 0.5)
-        // = floor((32768a + 16384b + 2^{bit_precision - 1})
-        //     / (2^{bit_precision} - 1))
-        // = (totq_magic * (32768a + 16384b + 2^{bits-1} + totq_incr))
-        //     >> totq_postshift
-        //
-        // This works fine for bit_precision <= 16, anyway.  There are two
-        // issues which come up with higher precision:
-        // 1. The ridiculous_fish magic numbers assume a 32-bit dividend.  Our
-        //    dividend is guaranteed to be divisible by 2^14, but it can be as
-        //    large as
-        //      (2^{bits} - 1) * 2^15 + 2^{bits-1}.
-        //    I would not be surprised if a similar approach still works with
-        //    bits > 16, but I'm pretty sure the magic-number-generating
-        //    function would need to be different.
-        // 2. Relatedly, the current sequence of operations multiplies
-        //    totq_magic by (dividend + totq_incr) (where totq_incr is zero or
-        //    one); this intermediate result must not overflow a uint64_t.
-        //
-        // Meanwhile, idempotence is not possible for --import-dosage-certainty
-        // anyway, so we apply that check to the pre-conversion numerators.
-        totq_incr += 1U << (bit_precision - 1);
         uint32_t numer_certainty_min = 0;
         if (bgen_import_dosage_certainty_thresholds) {
           numer_certainty_min = bgen_import_dosage_certainty_thresholds[bit_precision];
@@ -3944,7 +4014,7 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
               if ((numer_a < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_a)) {
                 continue;
               }
-              const uint32_t write_dosage_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_a) + totq_incr)) >> totq_postshift;
+              const uint32_t write_dosage_int = (magic_preadd + magic_mult * 2 * numer_a) >> magic_postshift;
               const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
               if (halfdist < dosage_erase_halfdist) {
                 goto Bgen13DosageOrPhaseScanThread_found;
@@ -3979,7 +4049,7 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
                 }
               }
               sample_idx = vec_idx * (kBytesPerVec / 2);
-            } else {
+            } else if (bit_precision <= 16) {
               // 2x2 bytes per entry
               const uint32_t full_vec_ct = sample_ct / (kBytesPerVec / 4);
               // If all uint16s are equal to 0 or numer_mask, all calls in this
@@ -3995,6 +4065,50 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
                 }
               }
               sample_idx = vec_idx * (kBytesPerVec / 4);
+            } else if (bit_precision <= 24) {
+              // 3x2 bytes per entry
+              // check 15 or 30 bytes at a time
+              const uint32_t full_vec_ct = sample_ct / (kBytesPerVec / 6);
+              const VecUc vec0 = vecuc_setzero();
+              const uint32_t init0 = numer_mask | 0xff000000U;
+              const uint32_t init1 = (numer_mask >> 8) | 0xffff0000U;
+              const uint32_t init2 = (numer_mask << 8) | (numer_mask >> 16);
+#  ifdef USE_AVX2
+              const VecUc vecmax = R_CAST(VecUc, _mm256_set_epi32(init1 & 65535, init0, init2, init1, init0, init2, init1, init0));
+#  else
+              const VecUc vecmax = R_CAST(VecUc, _mm_set_epi32(numer_mask, init2, init1, init0));
+#  endif
+              uint32_t vec_idx = 0;
+              for (; vec_idx < full_vec_ct; ++vec_idx) {
+                const VecUc cur_vec = vecuc_loadu(&(uncompressed_geno_iter[vec_idx * (kBytesPerVec - (kBytesPerVec % 3))]));
+                const VecUc safe_bytes = (cur_vec == vec0) | (cur_vec == vecmax);
+#  ifdef USE_AVX2
+                if ((vecuc_movemask(safe_bytes) << 2) != 0xfffffffcU) {
+                  break;
+                }
+#  else
+                if ((vecuc_movemask(safe_bytes) << 17) != 0xfff80000U) {
+                  break;
+                }
+#  endif
+              }
+              sample_idx = vec_idx * (kBytesPerVec / 6);
+            } else {
+              // 4x2 bytes per entry
+              const uint32_t full_vec_ct = sample_ct / (kBytesPerVec / 8);
+              // If all uint32s are equal to 0 or numer_mask, all calls in this
+              // block must be hardcall/missing.
+              const VecUi vec0 = vecui_setzero();
+              const VecUi vecmax = vecui_set1(numer_mask);
+              uint32_t vec_idx = 0;
+              for (; vec_idx < full_vec_ct; ++vec_idx) {
+                const VecUi cur_vec = vecui_loadu(&(uncompressed_geno_iter[vec_idx * kBytesPerVec]));
+                const VecUi safe_u32s = (cur_vec == vec0) | (cur_vec == vecmax);
+                if (vecui_movemask(safe_u32s) != kMovemaskUintMax) {
+                  break;
+                }
+              }
+              sample_idx = vec_idx * (kBytesPerVec / 8);
             }
 #endif
             for (; sample_idx < sample_ct; ++sample_idx) {
@@ -4023,7 +4137,7 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
                 // treat as missing
                 continue;
               }
-              const uint32_t write_dosage_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_aa) + kDosageMid * S_CAST(uint64_t, numer_ab) + totq_incr)) >> totq_postshift;
+              const uint32_t write_dosage_int = (magic_preadd + magic_mult * (2 * numer_aa + numer_ab)) >> magic_postshift;
               const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
               if (halfdist < dosage_erase_halfdist) {
                 goto Bgen13DosageOrPhaseScanThread_found;
@@ -4047,7 +4161,7 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
             // --import-dosage-certainty: Original plan was to treat the
             // haplotype dosages as independent, but unfortunately that
             // produces a gross export-reimport discontinuity.  To avoid that
-            // discontinuity, we have to assume the best-case scenario.
+            // discontinuity, we should assume maximal het probability.
             if (numer_certainty_min) {
               // this will need to change slightly if 32-bit precision is ever
               // supported
@@ -4061,8 +4175,8 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
                 continue;
               }
             }
-            const uint32_t write_dhap1_int = (totq_magic * (kDosageMid * S_CAST(uint64_t, numer_a1) + totq_incr)) >> totq_postshift;
-            const uint32_t write_dhap2_int = (totq_magic * (kDosageMid * S_CAST(uint64_t, numer_a2) + totq_incr)) >> totq_postshift;
+            const uint32_t write_dhap1_int = (magic_preadd + magic_mult * numer_a1) >> magic_postshift;
+            const uint32_t write_dhap2_int = (magic_preadd + magic_mult * numer_a2) >> magic_postshift;
             const uint32_t halfdist1 = HaploidDosageHalfdist(write_dhap1_int);
             const uint32_t halfdist2 = HaploidDosageHalfdist(write_dhap2_int);
             // 'Found' if we save phase OR dosage info.
@@ -4100,7 +4214,7 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
                 // treat as missing
                 continue;
               }
-              const uint32_t write_dosage_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_aa) + kDosageMid * S_CAST(uint64_t, numer_ab) + totq_incr)) >> totq_postshift;
+              const uint32_t write_dosage_int = (magic_preadd + magic_mult * (2 * numer_aa + numer_ab)) >> magic_postshift;
               const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
               if (halfdist < dosage_erase_halfdist) {
                 goto Bgen13DosageOrPhaseScanThread_found;
@@ -4111,7 +4225,7 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
               if ((numer_a < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_a)) {
                 continue;
               }
-              const uint32_t write_dosage_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_a) + totq_incr)) >> totq_postshift;
+              const uint32_t write_dosage_int = (magic_preadd + magic_mult * numer_a * 2) >> magic_postshift;
               const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
               if (halfdist < dosage_erase_halfdist) {
                 goto Bgen13DosageOrPhaseScanThread_found;
@@ -4146,8 +4260,8 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
                 continue;
               }
             }
-            const uint32_t write_dhap1_int = (totq_magic * (kDosageMid * S_CAST(uint64_t, numer_a1) + totq_incr)) >> totq_postshift;
-            const uint32_t write_dhap2_int = (totq_magic * (kDosageMid * S_CAST(uint64_t, numer_a2) + totq_incr)) >> totq_postshift;
+            const uint32_t write_dhap1_int = (magic_preadd + magic_mult * numer_a1) >> magic_postshift;
+            const uint32_t write_dhap2_int = (magic_preadd + magic_mult * numer_a2) >> magic_postshift;
             const uint32_t halfdist1 = HaploidDosageHalfdist(write_dhap1_int);
             const uint32_t halfdist2 = HaploidDosageHalfdist(write_dhap2_int);
             if ((halfdist1 >= dosage_erase_halfdist2) && (halfdist2 >= dosage_erase_halfdist2)) {
@@ -4165,7 +4279,7 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
             if ((numer_a < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_a)) {
               continue;
             }
-            const uint32_t write_dosage_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_a) + totq_incr)) >> totq_postshift;
+            const uint32_t write_dosage_int = (magic_preadd + magic_mult * numer_a * 2) >> magic_postshift;
             const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
             if (halfdist < dosage_erase_halfdist) {
               goto Bgen13DosageOrPhaseScanThread_found;
@@ -4301,7 +4415,7 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
         if ((!bit_precision) || (bit_precision > 32)) {
           goto Bgen13GenoToPgenThread_malformed;
         }
-        if (bit_precision > 16) {
+        if (bit_precision > kMaxBgenImportBits) {
           goto Bgen13GenoToPgenThread_not_yet_supported;
         }
         if (cur_allele_ct != 2) {
@@ -4314,7 +4428,7 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
         SDosage* cur_dphase_delta_iter = cur_dphase_delta_start;
         unsigned char cur_phasepresent_exists = 0;
         // turns out UKB haplotype files still use bit_precision == 16, so
-        // wait till bgen-1.3 export implemented before trying this
+        // don't bother finishing this for now
         /*
 #ifdef __LP64__
         if ((bit_precision == 1) && is_phased && (min_ploidy == max_ploidy)) {
@@ -4361,15 +4475,14 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
         } else {
 #endif  // __LP64__
         */
-          const uint64_t totq_magic = kBgenMagicNums[bit_precision].totq_magic;
-          const uint32_t totq_postshift = kBgenMagicNums[bit_precision].totq_postshift;
-          uint32_t totq_incr = kBgenMagicNums[bit_precision].totq_incr;
+          const uint64_t magic_preadd = kBgenMagicNums[bit_precision].preadd;
+          const uint64_t magic_mult = kBgenMagicNums[bit_precision].mult;
+          const uint32_t magic_postshift = kBgenMagicNums[bit_precision].postshift;
           const uint32_t bytes_per_prob = DivUp(bit_precision, CHAR_BIT);
 
           // also equal to denominator
           const uintptr_t numer_mask = (1U << bit_precision) - 1;
 
-          totq_incr += 1U << (bit_precision - 1);
           uint32_t numer_certainty_min = 0;
           if (bgen_import_dosage_certainty_thresholds) {
             numer_certainty_min = bgen_import_dosage_certainty_thresholds[bit_precision];
@@ -4432,7 +4545,7 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
                       // missing due to --import-dosage-certainty
                       goto Bgen13GenoToPgenThread_diploid_unphased_missing;
                     }
-                    const uint32_t write_dosage_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_aa) + kDosageMid * S_CAST(uint64_t, numer_ab) + totq_incr)) >> totq_postshift;
+                    const uint32_t write_dosage_int = (magic_preadd + magic_mult * (2 * numer_aa + numer_ab)) >> magic_postshift;
                     const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
                     if (halfdist < hard_call_halfdist) {
                       genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
@@ -4493,8 +4606,8 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
                         goto Bgen13GenoToPgenThread_diploid_phased_missing;
                       }
                     }
-                    uint32_t write_dhap1_int = (totq_magic * (kDosageMid * S_CAST(uint64_t, numer_a1) + totq_incr)) >> totq_postshift;
-                    uint32_t write_dhap2_int = (totq_magic * (kDosageMid * S_CAST(uint64_t, numer_a2) + totq_incr)) >> totq_postshift;
+                    uint32_t write_dhap1_int = (magic_preadd + magic_mult * numer_a1) >> magic_postshift;
+                    uint32_t write_dhap2_int = (magic_preadd + magic_mult * numer_a2) >> magic_postshift;
                     const uint32_t halfdist1 = HaploidDosageHalfdist(write_dhap1_int);
                     const uint32_t halfdist2 = HaploidDosageHalfdist(write_dhap2_int);
                     if ((halfdist1 >= dosage_erase_halfdist2) && (halfdist2 >= dosage_erase_halfdist2)) {
@@ -4592,7 +4705,7 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
                   if ((numer_a < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_a)) {
                     goto Bgen13GenoToPgenThread_haploid_missing;
                   }
-                  const uint32_t write_dosage_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_a) + totq_incr)) >> totq_postshift;
+                  const uint32_t write_dosage_int = (magic_preadd + magic_mult * numer_a * 2) >> magic_postshift;
                   const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
                   if (halfdist < hard_call_halfdist) {
                     genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
@@ -4643,14 +4756,14 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
                       // missing due to --import-dosage-certainty
                       goto Bgen13GenoToPgenThread_generic_unphased_missing;
                     }
-                    write_dosage_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_aa) + kDosageMid * S_CAST(uint64_t, numer_ab) + totq_incr)) >> totq_postshift;
+                    write_dosage_int = (magic_preadd + magic_mult * (2 * numer_aa + numer_ab)) >> magic_postshift;
                   } else if (missing_and_ploidy == 1) {
                     const uintptr_t numer_a = (*R_CAST(const uint32_t*, uncompressed_geno_iter)) & numer_mask;
                     uncompressed_geno_iter = &(uncompressed_geno_iter[bytes_per_prob]);
                     if ((numer_a < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_a)) {
                       goto Bgen13GenoToPgenThread_generic_unphased_missing;
                     }
-                    write_dosage_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_a) + totq_incr)) >> totq_postshift;
+                    write_dosage_int = (magic_preadd + magic_mult * numer_a * 2) >> magic_postshift;
                   } else {
                     missing_and_ploidy &= 127;
                     if (missing_and_ploidy > 2) {
@@ -4681,8 +4794,6 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
               // biallelic, phased, variable ploidy
               write_phasepresent_iter[sample_ctaw - 1] = 0;
               while (1) {
-                // todo: test this code path once bgen-1.3 chrX export
-                // implemented
                 if (widx >= sample_ctl2_m1) {
                   if (widx > sample_ctl2_m1) {
                     break;
@@ -4713,8 +4824,8 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
                         goto Bgen13GenoToPgenThread_generic_phased_missing;
                       }
                     }
-                    const uint32_t write_dhap1_int = (totq_magic * (kDosageMid * S_CAST(uint64_t, numer_a1) + totq_incr)) >> totq_postshift;
-                    const uint32_t write_dhap2_int = (totq_magic * (kDosageMid * S_CAST(uint64_t, numer_a2) + totq_incr)) >> totq_postshift;
+                    const uint32_t write_dhap1_int = (magic_preadd + magic_mult * numer_a1) >> magic_postshift;
+                    const uint32_t write_dhap2_int = (magic_preadd + magic_mult * numer_a2) >> magic_postshift;
                     const uint32_t halfdist1 = HaploidDosageHalfdist(write_dhap1_int);
                     const uint32_t halfdist2 = HaploidDosageHalfdist(write_dhap2_int);
                     if ((halfdist1 >= dosage_erase_halfdist2) && (halfdist2 >= dosage_erase_halfdist2)) {
@@ -4757,7 +4868,7 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
                     if ((numer_a < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_a)) {
                       goto Bgen13GenoToPgenThread_generic_phased_missing;
                     }
-                    write_dosage_int = (totq_magic * (kDosageMax * S_CAST(uint64_t, numer_a) + totq_incr)) >> totq_postshift;
+                    write_dosage_int = (magic_preadd + magic_mult * numer_a * 2) >> magic_postshift;
                     const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
                     if (halfdist < hard_call_halfdist) {
                       genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
@@ -5804,8 +5915,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
 
       g_bgen_import_dosage_certainty_thresholds = nullptr;
       if (import_dosage_certainty > (1.0 - kSmallEpsilon) / 3.0) {
-        g_bgen_import_dosage_certainty_thresholds = S_CAST(uint32_t*, bigstack_alloc_raw_rd(17 * sizeof(int32_t)));
-        for (uint32_t bit_precision = 1; bit_precision <= 16; ++bit_precision) {
+        g_bgen_import_dosage_certainty_thresholds = S_CAST(uint32_t*, bigstack_alloc_raw_rd((kMaxBgenImportBits + 1) * sizeof(int32_t)));
+        for (uint32_t bit_precision = 1; bit_precision <= kMaxBgenImportBits; ++bit_precision) {
           const uint32_t denom = (1U << bit_precision) - 1;
           const double denom_d = u31tod(denom);
           g_bgen_import_dosage_certainty_thresholds[bit_precision] = 1 + S_CAST(int32_t, import_dosage_certainty * denom_d);

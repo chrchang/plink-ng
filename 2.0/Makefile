@@ -1,44 +1,67 @@
 BASEFLAGS=-mavx2 -mbmi -mbmi2 -mlzcnt -DNDEBUG -DZSTD_MULTITHREAD
 # BASEFLAGS=-mavx2 -mbmi -mbmi2 -mlzcnt -DZSTD_MULTITHREAD
 # BASEFLAGS=-msse4.2 -DNDEBUG -DZSTD_MULTITHREAD
-CFLAGS=-O3 -std=gnu99
-# this actually needs to be named "CXXFLAGS"
-CXXFLAGS=-O2 -std=c++14
 
-CFLAGS += ${BASEFLAGS}
-CXXFLAGS += ${BASEFLAGS}
+include Makefile.src
 
-ZLIB=../zlib-1.2.11/libz-64.a
-BLASFLAGS64=-llapack -lf77blas -latlas
-LINKFLAGS=-lm -lpthread -L. ${ZLIB}
-ARCH32=
+# Respect the environment:
+# Use defaults below only if not set in env or make arguments
+CC		?= gcc
+CXX		?= g++
+CFLAGS		?= -O3
+CXXFLAGS	?= -O2
+ZLIB		?= ../zlib-1.2.11/libz-64.a
+BLASFLAGS64	?= -llapack -lf77blas -latlas
+ARCH32		?=
+
+# Mandatory flags added to defaults or env settings
+CFLAGS		+= -std=gnu99 $(BASEFLAGS) $(CWARN) $(CINCLUDE) $(ZSTD_INCLUDE)
+CXXFLAGS	+= -std=c++14 $(BASEFLAGS) $(CXXWARN)
+LDFLAGS		+= -lm -lpthread -L. $(ZLIB)
+
+# Installation defaults
+MKDIR		?= mkdir
+INSTALL		?= install
+STRIP_CMD	?= strip
+PREFIX		?= /usr/local
+DESTDIR		?= .
 
 UNAME := $(shell uname)
 ifeq ($(UNAME), Darwin)
   BLASFLAGS=-framework Accelerate
   BLASFLAGS64=-framework Accelerate
-  LINKFLAGS=-ldl -lpthread -lz
+  LDFLAGS=-ldl -lpthread -lz
 endif
 
-include Makefile.src
-CFLAGS += ${CWARN} ${CINCLUDE} ${ZSTD_INCLUDE}
-CXXFLAGS += ${CXXWARN}
-
 %.o: %.c
-	gcc -c $(CFLAGS) $(ARCH32) -o $@ $<
+	$(CC) -c $(CFLAGS) $(ARCH32) -o $@ $<
+
 %.o: %.cc
-	g++ -c $(CXXFLAGS) $(ARCH32) -o $@ $<
+	$(CXX) -c $(CXXFLAGS) $(ARCH32) -o $@ $<
 
 all: plink2 pgen_compress
 
 # for clean build, "make clean" first
+# Run mkdir for both plink2 and pgen_compress as we don't know which
+# target will run first
 plink2: $(OBJ)
-	g++ $(ARCH32) $(OBJ) -o bin/plink2 $(BLASFLAGS64) $(LINKFLAGS)
+	$(MKDIR) -p bin
+	$(CXX) $(ARCH32) $(OBJ) -o bin/plink2 $(BLASFLAGS64) $(LDFLAGS)
 
 # basic pgenlib_internal.h usage example; also needed for tests
 pgen_compress: plink2_base.o pgenlib_internal.o pgen_compress.o
-	g++ plink2_base.o pgenlib_internal.o pgen_compress.o -o bin/pgen_compress
+	$(MKDIR) -p bin
+	$(CXX) plink2_base.o pgenlib_internal.o pgen_compress.o \
+		-o bin/pgen_compress
 
-.PHONY: clean
+.PHONY: install-strip install clean
+
+install-strip: install
+	$(STRIP_CMD) $(DESTDIR)$(PREFIX)/bin/*
+
+install: all
+	$(MKDIR) -p $(DESTDIR)$(PREFIX)/bin
+	$(INSTALL) -c bin/* $(DESTDIR)$(PREFIX)/bin
+
 clean:
 	rm -f $(CLEAN)

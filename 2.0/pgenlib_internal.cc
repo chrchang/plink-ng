@@ -8478,7 +8478,7 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
     }
     if (allele_ct > 3) {
       if (allele_ct <= 18) {
-        const AltAlleleCt* patch_01_vals_high_iter = &(patch_01_vals[1]);
+        const AltAlleleCt* patch_01_vals_iter = patch_01_vals;
         uintptr_t* write_alias = R_CAST(uintptr_t*, pwcp->fwrite_bufp);
         uint32_t widx = 0;
         uint32_t written_byte_ct;
@@ -8496,10 +8496,10 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
             uintptr_t cur_word = 0;
             for (uint32_t uii = 0; uii < loop_len; ++uii) {
               // todo: try movemask, if-statement
-              cur_word |= S_CAST(uintptr_t, patch_01_vals_high_iter[2 * uii] - 2) << uii;
+              cur_word |= S_CAST(uintptr_t, patch_01_vals_iter[uii] - 2) << uii;
             }
             write_alias[widx] = cur_word;
-            patch_01_vals_high_iter = &(patch_01_vals_high_iter[loop_len * 2]);
+            patch_01_vals_iter = &(patch_01_vals_iter[loop_len]);
             ++widx;
           }
           written_byte_ct = DivUp(patch_01_ct, 8);
@@ -8516,10 +8516,10 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
             }
             uintptr_t cur_word = 0;
             for (uint32_t uii = 0; uii < loop_len; ++uii) {
-              cur_word |= S_CAST(uintptr_t, patch_01_vals_high_iter[2 * uii] - 2) << (2 * uii);
+              cur_word |= S_CAST(uintptr_t, patch_01_vals_iter[uii] - 2) << (2 * uii);
             }
             write_alias[widx] = cur_word;
-            patch_01_vals_high_iter = &(patch_01_vals_high_iter[loop_len * 2]);
+            patch_01_vals_iter = &(patch_01_vals_iter[loop_len]);
             ++widx;
           }
           written_byte_ct = DivUp(patch_01_ct, 4);
@@ -8536,10 +8536,10 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
             }
             uintptr_t cur_word = 0;
             for (uint32_t uii = 0; uii < loop_len; ++uii) {
-              cur_word |= S_CAST(uintptr_t, patch_01_vals_high_iter[2 * uii] - 2) << (4 * uii);
+              cur_word |= S_CAST(uintptr_t, patch_01_vals_iter[uii] - 2) << (4 * uii);
             }
             write_alias[widx] = cur_word;
-            patch_01_vals_high_iter = &(patch_01_vals_high_iter[loop_len * 2]);
+            patch_01_vals_iter = &(patch_01_vals_iter[loop_len]);
             ++widx;
           }
           written_byte_ct = DivUp(patch_01_ct, 2);
@@ -8547,13 +8547,12 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
         pwcp->fwrite_bufp = &(pwcp->fwrite_bufp[written_byte_ct]);
         vrec_len += written_byte_ct;
       } else {
-        const AltAlleleCt* patch_01_vals_high = &(patch_01_vals[1]);
         // 1 byte per entry
         // need 2-byte and 3-byte cases here for larger AltAlleleCt, those also
         // need to check for vrec_len overflow
         unsigned char* payload = pwcp->fwrite_bufp;
         for (uint32_t patch_idx = 0; patch_idx < patch_01_ct; ++patch_idx) {
-          payload[patch_idx] = patch_01_vals_high[2 * patch_idx] - 2;
+          payload[patch_idx] = patch_01_vals[patch_idx] - 2;
         }
         pwcp->fwrite_bufp = &(pwcp->fwrite_bufp[patch_01_ct]);
         vrec_len += patch_01_ct;
@@ -8751,7 +8750,7 @@ void PglMultiallelicDenseToSparse(const AltAlleleCt* __restrict wide_codes, uint
   while (1) {
     if (widx >= word_ct_m1) {
       if (widx > word_ct_m1) {
-        *patch_01_ct_ptr = S_CAST(uintptr_t, patch_01_vals_iter - patch_01_vals) / 2;
+        *patch_01_ct_ptr = patch_01_vals_iter - patch_01_vals;
         *patch_10_ct_ptr = S_CAST(uintptr_t, patch_10_vals_iter - patch_10_vals) / 2;
         return;
       }
@@ -8780,7 +8779,6 @@ void PglMultiallelicDenseToSparse(const AltAlleleCt* __restrict wide_codes, uint
           cur_geno = 1;
           if (second_code > 1) {
             patch_01_hw |= 1U << sample_idx_lowbits;
-            *patch_01_vals_iter++ = 0;
             *patch_01_vals_iter++ = second_code;
           }
         } else {

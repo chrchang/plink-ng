@@ -3250,11 +3250,6 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
       }
       ZeroPtrArr(max_thread_ct, g_libdeflate_compressors);
     }
-    if (exportf_bits > 16) {
-      logerrputs("Error: bits= parameter is currently limited to 16.  (This is sufficient to\ncapture all information in a .pgen file.)\n");
-      reterr = kPglRetNotYetSupported;
-      goto ExportBgen13_ret_1;
-    }
     const uint32_t phase_is_present = pgfip->gflags & (kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePhasePresent);
     if (!exportf_bits) {
       // default
@@ -4105,9 +4100,10 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
       }
     }
     if (write_ds) {
-      write_iter = strcpya(write_iter, "##FORMAT=<ID=DS,Number=1,Type=Float,Description=\"Estimated Alternate Allele Dosage : [P(0/1)+2*P(1/1)]\">" EOLN_STR);
+      write_iter = strcpya(write_iter, "##FORMAT=<ID=DS,Number=A,Type=Float,Description=\"Estimated Alternate Allele Dosage : [P(0/1)+2*P(1/1)]\">" EOLN_STR);
       if (write_hds) {
-        write_iter = strcpya(write_iter, "##FORMAT=<ID=HDS,Number=2,Type=Float,Description=\"Estimated Haploid Alternate Allele Dosage \">" EOLN_STR);
+        // bugfix (3 May 2018): 'Number=2' was inaccurate for haploid calls.
+        write_iter = strcpya(write_iter, "##FORMAT=<ID=HDS,Number=.,Type=Float,Description=\"Estimated Haploid Alternate Allele Dosage \">" EOLN_STR);
       }
     } else if (write_some_dosage) {
       write_iter = strcpya(write_iter, "##FORMAT=<ID=GP,Number=G,Type=Float,Description=\"Phred-scaled Genotype Likelihoods\">" EOLN_STR);
@@ -4277,13 +4273,14 @@ PglErr ExportVcf(const uintptr_t* sample_include, const uint32_t* sample_include
         char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
         *chr_name_end = '\t';
         chr_buf_blen = 1 + S_CAST(uintptr_t, chr_name_end - chr_buf);
+        // bugfix (3 May 2018): forgot to update hds_inttext_blen[]
+        hds_inttext_blen[0] = 4;
+        hds_inttext_blen[2] = 4;
         if (is_haploid) {
           if (is_x) {
             haploid_genotext_blen[0] = 4;
             haploid_genotext_blen[2] = 4;
             haploid_genotext_blen[3] = 4;
-            hds_inttext_blen[0] = 4;
-            hds_inttext_blen[2] = 4;
           } else {
             haploid_genotext_blen[0] = 2;
             haploid_genotext_blen[2] = 2;

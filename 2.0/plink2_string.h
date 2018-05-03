@@ -1119,7 +1119,10 @@ char* dtoa_f_probp6_clipped(double dxx, char* start);
 
 // char* dtoa_f_p5_clipped(double dxx, char* start);
 
-char* ftoa_g(float fxx, char* start);
+// dedicated ftoa_g() discontinued
+HEADER_INLINE char* ftoa_g(float fxx, char* start) {
+  return dtoa_g(S_CAST(double, fxx), start);
+}
 
 HEADER_INLINE char* u32toa_x(uint32_t uii, char extra_char, char* start) {
   char* penult = u32toa(uii, start);

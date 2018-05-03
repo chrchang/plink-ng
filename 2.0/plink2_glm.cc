@@ -2283,6 +2283,18 @@ static inline void ComputeTwoPlusOneTripleProduct(const float* bb, const float* 
 }
 #else  // no __LP64__ (and hence, unsafe to assume presence of SSE2)
 static inline void LogisticSse(uint32_t nn, float* vect) {
+  // We use explicit static_cast<float> instead of e.g. 1.0f because
+  // handling of the latter is actually implementation-specific; see
+  //   http://nullprogram.com/blog/2018/05/01/
+  // In particular, that blog post claims that
+  //   int float_compare() {
+  //     float x = 1.3f;
+  //     return x == 1.3f;
+  //   }
+  // returns 0 under gcc and 1 under clang (with -std=c99 -m32, which is one of
+  // plink2's compilation settings)????!!!!!!!
+  // Unless the author is outright mistaken, this suggests that use of the f
+  // suffix should be considered a bug ~100% of the time.
   for (uint32_t uii = 0; uii < nn; ++uii) {
     vect[uii] = S_CAST(float, 1.0) / (1 + expf(-vect[uii]));
   }

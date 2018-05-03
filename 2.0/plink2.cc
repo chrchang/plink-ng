@@ -61,7 +61,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (2 May 2018)";
+  " (3 May 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -4034,7 +4034,8 @@ int main(int argc, char** argv) {
                 goto main_ret_INVALID_CMDLINE;
               }
               const char* bits_start = &(cur_modif[strlen("bits=")]);
-              if (ScanPosintCapped(bits_start, 32, &pc.exportf_info.bgen_bits)) {
+              // pointless to support bits>16
+              if (ScanPosintCapped(bits_start, 16, &pc.exportf_info.bgen_bits)) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --export bits= parameter '%s'.\n", bits_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
@@ -4084,6 +4085,9 @@ int main(int argc, char** argv) {
               pc.exportf_info.flags |= kfExportfRefFirst;
             } else if (strequal_k(cur_modif, "gen-gz", cur_modif_slen)) {
               logerrputs("Error: 'gen-gz' modifier retired.  Use '--export oxford bgz' instead.\n");
+              goto main_ret_INVALID_CMDLINE_WWA;
+            } else if (StrStartsWith(cur_modif, "dosage=", cur_modif_slen)) {
+              snprintf(g_logbuf, kLogbufSize, "Error: Invalid --export parameter '%s'. (Did you mean 'vcf-%s'?)\n", cur_modif, cur_modif);
               goto main_ret_INVALID_CMDLINE_WWA;
             } else {
               snprintf(g_logbuf, kLogbufSize, "Error: Invalid --export parameter '%s'.%s\n", cur_modif, ((param_idx == param_ct) && (!outname_end))? " (Did you forget '--out'?)" : "");

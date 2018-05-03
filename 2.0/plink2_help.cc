@@ -368,7 +368,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * 'bgen-1.x': Oxford-format .bgen + .sample.  For v1.2/v1.3, sample\n"
 "                  identifiers are stored in the .bgen (with id-delim and\n"
 "                  id-paste settings applied), and default precision is 16-bit\n"
-"                  (use the 'bits' modifier to change this).\n"
+"                  (use the 'bits' modifier to reduce this).\n"
 "    * 'bimbam': Regular BIMBAM format.\n"
 "    * 'bimbam-1chr': BIMBAM format, with a two-column .pos.txt file.  Does not\n"
 "                     support multiple chromosomes.\n"

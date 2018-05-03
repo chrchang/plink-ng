@@ -76,7 +76,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 1000
+#define PGENLIB_INTERNAL_VERNUM 1001
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -1271,6 +1271,8 @@ HEADER_INLINE PglErr SpgwAppendBiallelicDifflistLimited(const uintptr_t* __restr
 // 1. sparse: genovec, bitarray+values describing ref/altx hardcalls which
 //    aren't ref/alt1, bitarray+values describing altx/alty hardcalls which
 //    aren't alt1/alt1.
+//    patch_01_vals[] contains one entry per relevant sample (only need altx
+//    index), patch_10_vals[] contains two.
 //    Ok if patch_01_ct == patch_10_ct == 0; in this case no aux1 track is
 //    saved and bit 3 of vrtype is not set.  (Note that multiallelic dosage may
 //    still be present when vrtype bit 3 is unset.)

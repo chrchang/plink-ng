@@ -1015,9 +1015,6 @@ HEADER_INLINE void ZeromovFArr(uintptr_t entry_ct, float** farr_ptr) {
 }
 
 
-// void DivisionMagicNums(uint32_t divisor, uint64_t* multp, uint32_t* __restrict pre_shiftp, uint32_t* __restrict post_shiftp, uint32_t* __restrict incrp);
-
-
 // SetAllBits, IsSet, SetBit, ClearBit, AdvTo1Bit, AdvTo0Bit, MovU32To1Bit,
 // MovU32To0Bit, AdvBoundedTo1Bit, FindLast1BitBefore, AllWordsAreZero defined
 // in plink2_base.h
