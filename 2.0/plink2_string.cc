@@ -2906,10 +2906,10 @@ char* ftoa_g(float fxx, char* start) {
         return &(start[1]);
       }
       if (fxx < S_CAST(float, 9.9999944e-32)) {
-        fxx *= 1.0e32;
+        fxx *= S_CAST(float, 1.0e32);
         xp10 |= 32;
       } else {
-        fxx *= 1.0e16;
+        fxx *= S_CAST(float, 1.0e16);
         xp10 |= 16;
       }
     }
@@ -2938,27 +2938,27 @@ char* ftoa_g(float fxx, char* start) {
         return memcpyl3a(start, "inf");
       }
       if (fxx >= S_CAST(float, 9.9999944e31)) {
-        fxx *= 1.0e-32;
+        fxx *= S_CAST(float, 1.0e-32);
         xp10 |= 32;
       } else {
-        fxx *= 1.0e-16;
+        fxx *= S_CAST(float, 1.0e-16);
         xp10 |= 16;
       }
     }
     if (fxx >= S_CAST(float, 9.9999944e7)) {
-      fxx *= 1.0e-8;
+      fxx *= S_CAST(float, 1.0e-8);
       xp10 |= 8;
     }
     if (fxx >= S_CAST(float, 9.9999944e3)) {
-      fxx *= 1.0e-4;
+      fxx *= S_CAST(float, 1.0e-4);
       xp10 |= 4;
     }
     if (fxx >= S_CAST(float, 9.9999944e1)) {
-      fxx *= 1.0e-2;
+      fxx *= S_CAST(float, 1.0e-2);
       xp10 |= 2;
     }
     if (fxx >= S_CAST(float, 9.9999944e0)) {
-      fxx *= 1.0e-1;
+      fxx *= S_CAST(float, 1.0e-1);
       ++xp10;
     }
     RoundF5(fxx, &quotient, &remainder);

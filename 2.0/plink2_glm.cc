@@ -2419,7 +2419,7 @@ void CholeskyDecomposition(const float* aa, uint32_t predictor_ct, float* ll) {
     if (fxx >= S_CAST(float, 0.0)) {
       fyy = sqrtf(fxx);
     } else {
-      fyy = 1e-6;
+      fyy = S_CAST(float, 1e-6);
     }
     ll[row_idx * predictor_ctavp1] = fyy;
     fyy = S_CAST(float, 1.0) / fyy;  // now 1.0 / L[j][j]
@@ -2676,8 +2676,8 @@ BoolErr FirthRegression(const float* yy, const float* xx, uint32_t sample_ct, ui
   // arithmetic.  (possible todo: use a fully-double-precision routine to
   // finish the job when that happens.)
   const uint32_t max_iter = 20;
-  const float gconv = 0.0001;
-  const float xconv = 0.0001;
+  const float gconv = S_CAST(float, 0.0001);
+  const float xconv = S_CAST(float, 0.0001);
   const double lconv = 0.0001;
   uint32_t hs_bail = 0;
   while (1) {
@@ -3313,7 +3313,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
               // everything is on 0..1 scale, not 0..2
               dosage_ceil = 1.0;
               for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx) {
-                genotype_vals[sample_idx] *= 0.5;
+                genotype_vals[sample_idx] *= S_CAST(float, 0.5);
               }
             }
           } else {
@@ -3326,7 +3326,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
               uint32_t sample_idx = 0;
               for (uint32_t male_idx = 0; male_idx < nm_male_ct; ++male_idx, ++sample_idx) {
                 MovU32To1Bit(male_nm, &sample_idx);
-                genotype_vals[sample_idx] *= 0.5;
+                genotype_vals[sample_idx] *= S_CAST(float, 0.5);
               }
               block_aux_iter->allele_obs_ct -= nm_male_ct;
               block_aux_iter->case_allele_obs_ct -= PopcountWordsIntersect(pheno_cc_nm, male_nm, nm_sample_ctl);

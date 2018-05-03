@@ -1265,7 +1265,7 @@ HEADER_INLINE uint32_t IsRealnum(double dxx) {
 }
 
 HEADER_INLINE uint32_t IsRealnumF(float fxx) {
-  return (fxx == fxx) && (fxx != INFINITY) && (fxx != -INFINITY);
+  return (fxx == fxx) && (fxx != S_CAST(float, INFINITY)) && (fxx != S_CAST(float, -INFINITY));
 }
 
 

@@ -5927,7 +5927,7 @@ int main(int argc, char** argv) {
             dxx -= int_part;
             pc.min_allele_dosage = int_part * S_CAST(uint64_t, kDosageMax);
             if (dxx > 0.0) {
-              pc.min_allele_dosage += 1 + (dxx * (kDosageMax * (1 - kSmallEpsilon)));
+              pc.min_allele_dosage += 1 + S_CAST(uint64_t, dxx * (kDosageMax * (1 - kSmallEpsilon)));
             }
             pc.filter_flags |= kfFilterPvarReq;
             pc.dependency_flags |= kfFilterAllReq | kfFilterNoSplitChr;
@@ -7563,7 +7563,7 @@ int main(int argc, char** argv) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --var-min-qual parameter '%s'.\n", argvk[arg_idx + 1]);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
-          pc.var_min_qual *= 1 - kSmallEpsilon;
+          pc.var_min_qual *= S_CAST(float, 1 - kSmallEpsilon);
           pc.filter_flags |= kfFilterPvarReq;
         } else if (strequal_k_unsafe(flagname_p2, "ar-filter")) {
           if (param_ct) {
