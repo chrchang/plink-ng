@@ -91,7 +91,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PLINK2_BASE_VERNUM 306
+#define PLINK2_BASE_VERNUM 307
 
 
 #define _FILE_OFFSET_BITS 64
@@ -292,6 +292,7 @@ typedef enum
   kPglRetHelp,
   kPglRetThreadCreateFail,
   kPglRetNetworkFail,
+  kPglRetVarRecordTooLarge,
   kPglRetSampleMajorBed = 32,
   kPglRetWarningErrcode = 61,
   kPglRetImproperFunctionCall = 62,
@@ -343,6 +344,7 @@ const PglErr kPglRetInvalidCmdline = PglErr::ec::kPglRetInvalidCmdline;
 const PglErr kPglRetHelp = PglErr::ec::kPglRetHelp;
 const PglErr kPglRetThreadCreateFail = PglErr::ec::kPglRetThreadCreateFail;
 const PglErr kPglRetNetworkFail = PglErr::ec::kPglRetNetworkFail;
+const PglErr kPglRetVarRecordTooLarge = PglErr::ec::kPglRetVarRecordTooLarge;
 const PglErr kPglRetSampleMajorBed = PglErr::ec::kPglRetSampleMajorBed;
 const PglErr kPglRetWarningErrcode = PglErr::ec::kPglRetWarningErrcode;
 const PglErr kPglRetImproperFunctionCall = PglErr::ec::kPglRetImproperFunctionCall;

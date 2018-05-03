@@ -2185,7 +2185,7 @@ double HweXchrP(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, i
         // table, but the table to the immediate right of the mode is not,
         // we'll fail to count the mode.
         // ("right" = high het count, "left" = low het count.)
-        if (cur_lhets) {
+        if (cur_lhets != 0.0) {
           cur_lhom1 += 1;
           base_probl *= (old_male1 * cur_lhets) / (2 * cur_male2 * cur_lhom1);
           cur_lhets -= 1;
@@ -2200,7 +2200,7 @@ double HweXchrP(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, i
         cur_male1 += 1;
         cur_male2 -= 1;
         row_prob *= (old_male2 * old_female1) / (cur_male1 * (n2 - cur_male2));
-        if (cur_lhets) {
+        if (cur_lhets != 0.0) {
           cur_lhom2 += 1;
           base_probl *= (old_male2 * cur_lhets) / (2 * cur_male1 * cur_lhom2);
           cur_lhets -= 1;
@@ -2248,7 +2248,7 @@ double HweXchrP(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, i
       tailp += tail_incr1;
       if (male1_decreasing) {
         const double old_male1 = cur_male1 + 1;
-        if (cur_rhom2) {
+        if (cur_rhom2 != 0.0) {
           cur_rhets += 1;
           base_probr *= (2 * old_male1 * cur_rhom2) / (cur_male2 * cur_rhets);
           cur_rhom2 -= 1;
@@ -2259,7 +2259,7 @@ double HweXchrP(int32_t female_hets, int32_t female_hom1, int32_t female_hom2, i
         }
       } else {
         const double old_male2 = cur_male2 + 1;
-        if (cur_rhom1) {
+        if (cur_rhom1 != 0.0) {
           cur_rhets += 1;
           base_probr *= (2 * old_male2 * cur_rhom1) / (cur_male1 * cur_rhets);
           cur_rhom1 -= 1;

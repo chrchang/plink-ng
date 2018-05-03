@@ -3273,7 +3273,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     uint32_t first_relevant_sol_idx = 0;
     uint32_t best_lnlike_mask = 0;
     double cubic_sols[3];
-    if (half_unphased_hethet_share) {
+    if (half_unphased_hethet_share != 0.0) {
       // detect degenerate cases to avoid e-17 ugliness
       // possible todo: when there are multiple solutions, mark the EM solution
       //   in some manner

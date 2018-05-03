@@ -211,7 +211,7 @@ double DestructiveMedianD(uintptr_t len, double* unsorted_arr) {
 // these will probably be used in __cplusplus case too
 float MedianF(const float* sorted_arr, uintptr_t len) {
   if (!len) {
-    return 0.0f;
+    return 0.0;
   }
   if (len % 2) {
     return sorted_arr[len / 2];
@@ -3155,6 +3155,7 @@ const char kErrstrNomem[] = "Error: Out of memory.  The --memory flag may be hel
 const char kErrstrWrite[] = "Error: File write failure.\n";
 const char kErrstrRead[] = "Error: File read failure.\n";
 const char kErrstrThreadCreate[] = "Error: Failed to create thread.\n";
+const char kErrstrVarRecordTooLarge[] = "Error: Variant record size exceeds ~4 GiB limit.\n";
 
 // assumes logfile is open
 void DispExitMsg(PglErr reterr) {
@@ -3174,6 +3175,9 @@ void DispExitMsg(PglErr reterr) {
     } else if (reterr == kPglRetThreadCreateFail) {
       logputs("\n");
       logerrputs(kErrstrThreadCreate);
+    } else if (reterr == kPglRetVarRecordTooLarge) {
+      logputs("\n");
+      logerrputs(kErrstrVarRecordTooLarge);
     } else if (reterr == kPglRetLongLine) {
       logputs("\n");
       logerrprintf("Error: Unhandled internal line-too-long message.\n");

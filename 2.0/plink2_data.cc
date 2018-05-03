@@ -2485,13 +2485,19 @@ THREAD_FUNC_DECL MakePgenThread(void* arg) {
           }
         }
         if ((!is_hphase) && (!write_dphase_ct)) {
-          PwcAppendBiallelicGenovecDosage16(write_genovec, write_dosagepresent, write_dosagevals, write_dosage_ct, pwcp);
+          if (PwcAppendBiallelicGenovecDosage16(write_genovec, write_dosagepresent, write_dosagevals, write_dosage_ct, pwcp)) {
+            g_error_ret = kPglRetVarRecordTooLarge;
+            break;
+          }
         } else {
           if (!is_hphase) {
             ZeroWArr(sample_ctl, write_phasepresent);
           }
           // extraneous phaseinfo bits may be set
-          PwcAppendBiallelicGenovecDphase16(write_genovec, cur_write_phasepresent, write_phaseinfo, write_dosagepresent, write_dphasepresent, write_dosagevals, write_dphasedeltas, write_dosage_ct, write_dphase_ct, pwcp);
+          if (PwcAppendBiallelicGenovecDphase16(write_genovec, cur_write_phasepresent, write_phaseinfo, write_dosagepresent, write_dphasepresent, write_dosagevals, write_dphasedeltas, write_dosage_ct, write_dphase_ct, pwcp)) {
+            g_error_ret = kPglRetVarRecordTooLarge;
+            break;
+          }
           cur_write_phasepresent = write_phasepresent;
         }
         loadbuf_iter = cur_genovec_end;
@@ -2922,7 +2928,7 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
           JoinThreads3z(&ts);
           reterr = g_error_ret;
           if (reterr) {
-            goto MakePgenRobust_ret_WRITE_FAIL;
+            goto MakePgenRobust_ret_1;
           }
         }
         if (!ts.is_last_block) {
@@ -2962,9 +2968,6 @@ PglErr MakePgenRobust(const uintptr_t* sample_include, const uint32_t* new_sampl
   while (0) {
   MakePgenRobust_ret_NOMEM:
     reterr = kPglRetNomem;
-    break;
-  MakePgenRobust_ret_WRITE_FAIL:
-    reterr = kPglRetThreadCreateFail;
     break;
   MakePgenRobust_ret_THREAD_CREATE_FAIL:
     reterr = kPglRetThreadCreateFail;
@@ -3608,7 +3611,7 @@ PglErr MakePlink2NoVsort(const char* xheader, const uintptr_t* sample_include, c
           JoinThreads3z(&ts);
           reterr = g_error_ret;
           if (reterr) {
-            goto MakePlink2NoVsort_ret_WRITE_FAIL;
+            goto MakePlink2NoVsort_ret_1;
           }
         }
         parity = 1 - parity;

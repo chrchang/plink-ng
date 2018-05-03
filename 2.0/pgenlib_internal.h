@@ -76,16 +76,17 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 903
+#define PGENLIB_INTERNAL_VERNUM 1000
+
+#ifdef __cplusplus
+namespace plink2 {
+#endif
 
 // other configuration-ish values needed by plink2_common subset
 typedef unsigned char AltAlleleCt;
 // Set this to 65534 if AltAlleleCt is uint16_t, 2^24 - 1 if uint32_t.
 CONSTU31(kPglMaxAltAlleleCt, 254);
-
-#ifdef __cplusplus
-namespace plink2 {
-#endif
+#define kMissingAlleleCode S_CAST(AltAlleleCt, -1)
 
 // more verbose than (val + 3) / 4, but may as well make semantic meaning
 // obvious; any explicit DivUp(val, 4) expressions should have a different
@@ -154,6 +155,11 @@ HEADER_INLINE void CopyQuaterarr(const uintptr_t* __restrict source_quaterarr, u
 // raw_quaterarr_entry_ct) to always be allocated and unset.  This removes the
 // need for some explicit end-of-bitarray checks.
 void CopyQuaterarrNonemptySubset(const uintptr_t* __restrict raw_quaterarr, const uintptr_t* __restrict subset_mask, uint32_t raw_quaterarr_entry_ct, uint32_t subset_entry_ct, uintptr_t* __restrict output_quaterarr);
+
+// Copies a bit from raw_bitarr for each 01 entry in genovec.
+void Copy01Subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict genovec, uint32_t bit_idx_end, uintptr_t* __restrict output_bitarr);
+
+void Copy10Subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict genovec, uint32_t bit_idx_end, uintptr_t* __restrict output_bitarr);
 
 void GenovecCountFreqsUnsafe(const uintptr_t* genovec, uint32_t sample_ct, uint32_t* counts);
 
@@ -389,10 +395,9 @@ FLAGSET_DEF_START()
   kfPgrLdcache0,
   kfPgrLdcacheQuater = (1 << 0),
   kfPgrLdcacheDifflist = (1 << 1),
-  kfPgrLdcacheAll01 = (1 << 2),
-  kfPgrLdcacheAll10 = (1 << 3),
-  kfPgrLdcacheAllHets = (1 << 4),
-  kfPgrLdcacheRefalt1Genocounts = (1 << 5)
+  kfPgrLdcacheRawQuater = (1 << 2),
+  kfPgrLdcacheAllHets = (1 << 3),
+  kfPgrLdcacheRefalt1Genocounts = (1 << 4)
 FLAGSET_DEF_END(PgrLdcacheFlags);
 
 // difflist/LD compression should never involve more than
@@ -488,12 +493,12 @@ CONSTU31(kPglMaxDeltalistLenDivisor, 9);
 //   b. [array of group start sample IDs, each of sample_id_byte_ct]
 //   c. [array of 1-byte [delta segment lengths minus 63], with last entry
 //      omitted]
-//   d. [if main datatrack, array of 2-bit replacement genotype values.  some
-//      other difflist uses exclude this piece.]
+//   d. [optional payload of fixed-width genotype values]
+//      (in retrospect, this should have been positioned after (e) and omitted
+//      from a lower-level packed-bitarray definition, oh well...)
 //   e. one "delta segment"/group: [array of [group size - 1] VINT values,
 //      each indicating the difference between the current and previous sample
 //      IDs; i.e. value is 1 for two consecutive samples]
-
 
 // PgenFileInfo and PgenReader are the main exported "classes".
 // Exported functions involving these data structure should all have
@@ -533,13 +538,6 @@ struct PgenFileInfoStruct {
   //         (101 is currently reserved for future use since
   //         almost-all-ref/altx variants shouldn't really exist, thanks to
   //         Hardy-Weinberg equilibrium.)
-  //         ***** warning (16 Apr 2018) *****
-  //         original multiallelic plan will probably be thrown out, to be
-  //         replaced by 0b01 = ref/altx, 0b10 = altx/alty.  Many subsequent
-  //         pgenlib_internal comments and code relating to multiallelic
-  //         variants should be ignored; they will be replaced during
-  //         implementation.
-  //         ***** end warning *****
   //   010 = Differences-from-earlier-variant encoding ("LD compression").  The
   //         last variant without this type of encoding is the base.
   //         To simplify random access logic, the first variant in each vblock
@@ -573,7 +571,8 @@ struct PgenFileInfoStruct {
   //       can be used to convert this into a set of sample IDs, though we may
   //       want to avoid an intermediate unpacking step in practice.  Note that
   //       when we're passing in sample_ct < raw_sample_ct and the main
-  //       datatrack is LD-compressed, we'd like ldbase_all_01 to be cached.
+  //       datatrack is LD-compressed, we'd like ldbase_raw_genovec to be
+  //       cached.
   //       This is followed by a packed array of fixed-width [allele idx - 2]
   //       values, where the width depends on the total number of alt alleles.
   //       2 alts: width ZERO.  All set bits in the first bitarray correspond
@@ -644,17 +643,30 @@ struct PgenFileInfoStruct {
   //   01 = dosage list.  Auxiliary data track #3 contains a delta-encoded list
   //        of sample IDs (like a difflist, but with no genotypes).  Track #4
   //        contains a 16-bit (0..2^15; 65535 missing value is only permitted
-  //        in unconditional-dosage case) value for each allele except the ref
-  //        (intended to omit the last alt instead, but forgot, and it's too
-  //        late now, oops).  When the variant is multiallelic, order is
-  //        [sample0 alt1 prob] [sample0 alt2 prob] ... [sample1 alt1 prob] ...
+  //        in unconditional-dosage case) value expressing the sum of all alt
+  //        allele dosages.  (Yes, making this the ref allele dosage would have
+  //        been a bit cleaner, but it's too late now.)
+  //        If the variant is multiallelic, nonzero alt2/alt3/... dosages are
+  //        likely to be sparse.  So,
+  //        - track #5 contains a delta-encoded list describing which
+  //          [sample_uidx x rarealt dosage] entries are nonzero, where rarealt
+  //          index is in the lowest bits and sample_uidx can be computed via
+  //          right-shift (to avoid integer-division headaches, especially
+  //          important since indexes in this list can be larger than 2^32).
+  //          We use sample_uidx here to make subsetting less painful.
+  //          Since each nonzero dosage value requires 16 bits, and
+  //          delta-encoding of a dense list adds less than 9 bits per entry,
+  //          there isn't much point in supporting a dense bitarray mode here.
+  //        - track #6 contains the rarealt nonzero dosage values.
   //        Note that this and the other dosage modes are in ADDITION to
   //        hardcalls.  This increases filesize by up to 12.5%, but makes the
   //        reader substantially simpler; --hard-call-threshold logic is nicely
   //        compartmentalized.
   //   10 = unconditional dosage (just track #4).
   //   11 = dosage bitarray.  In this case, auxiliary data track #3 contains an
-  //        array of 1-bit values indicating which samples have dosages.
+  //        array of 1-bit values indicating which samples have dosages.  If
+  //        the variant is multiallelic, tracks #5 and 6 are as described
+  //        above.
   //   bgen 1.2 format no longer permits fractional missingness, so no good
   //   reason for us to support it.
   //   Considered putting *all* dosage data at the end of the file (like I will
@@ -662,28 +674,29 @@ struct PgenFileInfoStruct {
   //   unconditional dosages, but it doesn't work well when only some samples
   //   have dosage data.
   // bit 7: some dosages explicitly phased?  If yes, and dosages are not
-  //        unconditionally present, auxiliary data track #5 is a bitarray of
+  //        unconditionally present, auxiliary data track #7 is a bitarray of
   //        length dosage_ct indicating whether dphase_delta exists for that
   //        sample.  Note that this is technically independent of bit 4; either
   //        can be set without the other.  (However, in practice, bit 4 is
   //        almost always set when bit 7 is, since that enables more efficient
   //        storage of 0|0.99, 1|0.02, and similar pairs.)
-  //        When phased dosages are present, track #6 contains values
-  //        representing [(hap1 alt1 prob) - (hap2 alt1 prob)],
-  //        [(hap1 alt2 prob) - (hap2 alt2 prob)], etc., where the underlying
-  //        values are represented in [0..16384] (so the signed difference is
-  //        in [-16384..16384]).  Track #4 contains the corresponding sums;
-  //        parity should always match whenever dphase_delta is nonzero.  In
-  //        fixed-width case, -32768 should be stored in track #6 when the
-  //        entire call is missing, while 0 and missing-phase are considered
-  //        synonymous.
+  //        When phased dosages are present, track #8 contains values
+  //        representing [(hap1 alt prob) - (hap2 alt prob)], etc., where the
+  //        underlying values are represented in [0..16384] (so the signed
+  //        difference is in [-16384..16384]).  Track #4 contains the
+  //        corresponding sums; parity should always match whenever
+  //        dphase_delta is nonzero.  In fixed-width case, -32768 should be
+  //        stored in track #8 when the entire call is missing, while 0 and
+  //        missing-phase are considered synonymous.
   //        In the biallelic case, if a hardcall is phased, a dosage is
   //        present, and no explicit dosage-phase is, we define it to mean the
   //        unique dphase_delta sequence with maximal absolute value, and
   //        --make-pgen takes advantage of it.  This definition technically
   //        works for triallelic variants as well, but it breaks down with 4
   //        alleles, so we prohibit hardcall-phase + dosage + no-dosage-phase
-  //        in the multiallelic case.
+  //        with more than 2 alleles.
+  //        In the multiallelic case, tracks #9 and #10 are analogous to #5 and
+  //        #6.
   //
   // Representation of variable ploidy (MT) was considered, but rejected since
   // dosages should be at least as appropriate for MT.
@@ -764,9 +777,7 @@ struct PgenReaderStruct {
   // must be set to sample_ct.
   uint32_t* ldbase_difflist_sample_ids;
 
-  // enable this once new multiallelic implementation starts
-  // uintptr_t* ldbase_all_01;
-  // uintptr_t* ldbase_all_10;
+  uintptr_t* ldbase_raw_genovec;
   uintptr_t* ldbase_all_hets;
 
   // common genotype can be looked up from vrtypes[]
@@ -786,16 +797,9 @@ struct PgenReaderStruct {
   uintptr_t* workspace_raregeno_tmp_loadbuf;
   uint32_t* workspace_difflist_sample_ids_tmp;
 
-  // this is obsolete.
-  // new plan:
-  //   uintptr_t* workspace_aux1_;;;
-  uintptr_t* workspace_aux1_nonmissing_vec;
-  uintptr_t* workspace_aux1_code_vec;
-
+  uintptr_t* workspace_aux1x_present;
+  uintptr_t* workspace_raw_genovec;  // may not need this
   uintptr_t* workspace_all_hets;
-
-  uint32_t* workspace_ambig_sample_ids;
-  uint32_t workspace_ambig_id_ct;
 
   uintptr_t* workspace_dosage_present;
   uintptr_t* workspace_dphase_present;
@@ -843,6 +847,8 @@ HEADER_INLINE uint32_t VrtypeLdCompressed(uint32_t vrtype) {
   return (vrtype & 6) == 2;
 }
 
+// Only checks for rarealt-containing hardcall.  Multiallelic dosage may still
+// be present when this returns zero.
 HEADER_INLINE uint32_t VrtypeMultiallelic(uint32_t vrtype) {
   return (vrtype & 8);
 }
@@ -863,20 +869,35 @@ HEADER_INLINE uint32_t VrtypeDosage(uint32_t vrtype) {
   return (vrtype & 0x60);
 }
 
-// this is obsolete.  Now want two functions, one for aux1a (ref/altx patches)
-// dependent on alt_allele_ct and ct_01, and one for aux1b (altx/alty patches)
-// dependent on alt_allele_ct and ct_10.
-HEADER_INLINE uintptr_t GetAux1AlleleByteCt(uint32_t alt_allele_ct, uint32_t aux1_nonmissing_ct) {
+static_assert(kPglMaxAltAlleleCt <= 254, "GetAux1xAlleleEntryByteCt() needs to be updated.");
+HEADER_INLINE uintptr_t GetAux1aAlleleEntryByteCt(uint32_t alt_allele_ct, uint32_t ct_01) {
   assert(alt_allele_ct >= 2);
   if (alt_allele_ct == 2) {
-    return DivUp(aux1_nonmissing_ct, 4);
+    return 0;
   }
   if (alt_allele_ct == 3) {
-    return DivUp(aux1_nonmissing_ct, 2);
+    return DivUp(ct_01, 8);
   }
-  // one byte per entry for alt_allele_ct < 16, two bytes for 16..255
-  return ((alt_allele_ct >= 16) + 1) * aux1_nonmissing_ct;
-  // todo: alt_allele_ct > 255
+  if (alt_allele_ct <= 5) {
+    return DivUp(ct_01, 4);
+  }
+  if (alt_allele_ct <= 17) {
+    return DivUp(ct_01, 2);
+  }
+  return ct_01;
+}
+
+HEADER_INLINE uintptr_t GetAux1bAlleleEntryByteCt(uint32_t alt_allele_ct, uint32_t ct_10) {
+  assert(alt_allele_ct >= 2);
+  if (alt_allele_ct == 2) {
+    return DivUp(ct_10, 1);
+  }
+  if (alt_allele_ct < 5) {
+    return DivUp(ct_10, 4);
+  }
+  // one byte per entry for alt_allele_ct <= 16, two bytes for 16..255
+  return ((alt_allele_ct >= 17) + 1) * ct_10;
+  // todo: alt_allele_ct > 256
 }
 
 // PgenFileInfo initialization is split into two phases, to decouple
@@ -1041,7 +1062,7 @@ PglErr PgrGetDifflistOrGenovec(const uintptr_t* __restrict sample_include, const
 // iterating from the first variant.  (Which can almost never be assumed in
 // plink2 since variant_include[] may not include the first variant.)
 HEADER_INLINE void PgrClearLdCache(PgenReader* pgrp) {
-  pgrp->ldbase_stypes &= (kfPgrLdcacheAll01 | kfPgrLdcacheAll10 | kfPgrLdcacheAllHets);
+  pgrp->ldbase_stypes &= kfPgrLdcacheRawQuater | kfPgrLdcacheAllHets;
 
   // bugfix, ld_load_necessary() was otherwise claiming that reload wasn't
   // necessary in certain cases
@@ -1130,10 +1151,8 @@ struct PgenWriterCommonStruct {
   const uintptr_t* allele_idx_offsets;
   uintptr_t* explicit_nonref_flags;  // usually nullptr
 
-  // you can get a ~1-2% speedup by writing directly to genovec and swapping
-  // it with ldbase_genovec when appropriate; don't think that's worth
-  // supporting, given the messier API.
-  // uintptr_t* genovec;
+  // needed for multiallelic-phased case
+  uintptr_t* genovec_hets_buf;
 
   uint32_t ldbase_genocounts[4];
 
@@ -1141,8 +1160,7 @@ struct PgenWriterCommonStruct {
   // zero in multithreaded case
   uint64_t vblock_fpos_offset;
 
-  // these must hold sample_ct entries (could be fewer if not subsetting, but
-  // let's play it safe)
+  // these must hold sample_ct entries
   // genovec_invert_buf also used as phaseinfo and dphase_present temporary
   // storage
   uintptr_t* genovec_invert_buf;
@@ -1197,6 +1215,10 @@ typedef struct MTPgenWriterStruct MTPgenWriter;
 
 void PreinitSpgw(STPgenWriter* spgwp);
 
+// phase_dosage_gflags zero vs. nonzero is most important: this determines size
+// of header.  Otherwise, setting more flags than necessary just increases
+// memory requirements.
+//
 // nonref_flags_storage values:
 //   0 = no info stored
 //   1 = always trusted
@@ -1220,50 +1242,127 @@ PglErr MpgwInitPhase2(const char* __restrict fname, const uintptr_t* __restrict 
 // trailing bits of genovec must be zeroed out
 void PwcAppendBiallelicGenovec(const uintptr_t* __restrict genovec, PgenWriterCommon* pwcp);
 
-PglErr SpgwAppendBiallelicGenovec(const uintptr_t* __restrict genovec, STPgenWriter* spgwp);
+BoolErr SpgwFlush(STPgenWriter* spgwp);
+
+HEADER_INLINE PglErr SpgwAppendBiallelicGenovec(const uintptr_t* __restrict genovec, STPgenWriter* spgwp) {
+  if (SpgwFlush(spgwp)) {
+    return kPglRetWriteFail;
+  }
+  PwcAppendBiallelicGenovec(genovec, &(spgwp->pwc));
+  return kPglRetSuccess;
+}
 
 // trailing bits of raregeno must be zeroed out
 // all raregeno entries assumed to be unequal to difflist_common_geno; the
-// difflist should be compacted first if this isn't true (might be possible
-// with multiallelic projections?)
+// difflist should be compacted first if this isn't true
 // difflist_len must be <= 2 * (sample_ct / kPglMaxDifflistLenDivisor);
 // there's an assert checking this
 void PwcAppendBiallelicDifflistLimited(const uintptr_t* __restrict raregeno, const uint32_t* __restrict difflist_sample_ids, uint32_t difflist_common_geno, uint32_t difflist_len, PgenWriterCommon* pwcp);
 
-PglErr SpgwAppendBiallelicDifflistLimited(const uintptr_t* __restrict raregeno, const uint32_t* __restrict difflist_sample_ids, uint32_t difflist_common_geno, uint32_t difflist_len, STPgenWriter* spgwp);
+HEADER_INLINE PglErr SpgwAppendBiallelicDifflistLimited(const uintptr_t* __restrict raregeno, const uint32_t* __restrict difflist_sample_ids, uint32_t difflist_common_geno, uint32_t difflist_len, STPgenWriter* spgwp) {
+  if (SpgwFlush(spgwp)) {
+    return kPglRetWriteFail;
+  }
+  PwcAppendBiallelicDifflistLimited(raregeno, difflist_sample_ids, difflist_common_geno, difflist_len, &(spgwp->pwc));
+  return kPglRetSuccess;
+}
 
-// trailing bits of refalt1_genovec must be zeroed out
-// not implemented yet
-PglErr SpgwAppendMultiallelicCounts(const uintptr_t** __restrict alt_countvecs);
+// Two interfaces for appending multiallelic hardcalls:
+// 1. sparse: genovec, bitarray+values describing ref/altx hardcalls which
+//    aren't ref/alt1, bitarray+values describing altx/alty hardcalls which
+//    aren't alt1/alt1.
+//    Ok if patch_01_ct == patch_10_ct == 0; in this case no aux1 track is
+//    saved and bit 3 of vrtype is not set.  (Note that multiallelic dosage may
+//    still be present when vrtype bit 3 is unset.)
+// 2. generic dense: takes a length-2n array of AltAlleleCt allele codes.
+//    Assumes [2k] <= [2k+1] for each k.  Instead of providing direct API
+//    functions for this, we just provide a dense -> sparse helper function.
+BoolErr PwcAppendMultiallelicSparse(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AltAlleleCt* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AltAlleleCt* __restrict patch_10_vals, uint32_t patch_01_ct, uint32_t patch_10_ct, PgenWriterCommon* pwcp);
+
+HEADER_INLINE PglErr SpgwAppendMultiallelicSparse(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AltAlleleCt* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AltAlleleCt* __restrict patch_10_vals, uint32_t patch_01_ct, uint32_t patch_10_ct, STPgenWriter* spgwp) {
+  if (SpgwFlush(spgwp)) {
+    return kPglRetWriteFail;
+  }
+  if (PwcAppendMultiallelicSparse(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, patch_01_ct, patch_10_ct, &(spgwp->pwc))) {
+    return kPglRetVarRecordTooLarge;
+  }
+  return kPglRetSuccess;
+}
+
+// This may not zero out trailing halfword of patch_{01,10}_set.
+void PglMultiallelicDenseToSparse(const AltAlleleCt* __restrict wide_codes, uint32_t sample_ct, uintptr_t* __restrict genovec, uintptr_t* __restrict patch_01_set, AltAlleleCt* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AltAlleleCt* __restrict patch_10_vals, uint32_t* __restrict patch_01_ct_ptr, uint32_t* __restrict patch_10_ct_ptr);
 
 // phasepresent == nullptr ok, that indicates that ALL heterozygous calls are
 // phased.  Caller should use e.g. PwcAppendBiallelicGenovec() if it's known
 // in advance that no calls are phased.
 // Ok for phaseinfo to have bits set at non-het calls, NOT currently okay for
 //   phasepresent
-// void pwc_append_biallelic_genovec_hphase(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, PgenWriterCommon* pwcp);
+void PwcAppendBiallelicGenovecHphase(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, PgenWriterCommon* pwcp);
 
 // phasepresent == nullptr ok
 // ok for trailing bits of phaseinfo to not be zeroed out, NOT currently ok for
 //   phasepresent
-PglErr SpgwAppendBiallelicGenovecHphase(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, STPgenWriter* spgwp);
+HEADER_INLINE PglErr SpgwAppendBiallelicGenovecHphase(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, STPgenWriter* spgwp) {
+  if (SpgwFlush(spgwp)) {
+    return kPglRetWriteFail;
+  }
+  PwcAppendBiallelicGenovecHphase(genovec, phasepresent, phaseinfo, &(spgwp->pwc));
+  return kPglRetSuccess;
+}
+
+BoolErr PwcAppendMultiallelicGenovecHphase(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AltAlleleCt* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AltAlleleCt* __restrict patch_10_vals, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, uint32_t patch_01_ct, uint32_t patch_10_ct, PgenWriterCommon* pwcp);
+
+HEADER_INLINE PglErr SpgwAppendMultiallelicGenovecHphase(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AltAlleleCt* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AltAlleleCt* __restrict patch_10_vals, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, uint32_t patch_01_ct, uint32_t patch_10_ct, STPgenWriter* spgwp) {
+  if (SpgwFlush(spgwp)) {
+    return kPglRetWriteFail;
+  }
+  if (PwcAppendMultiallelicGenovecHphase(genovec, patch_01_set, patch_01_vals, patch_10_set, patch_10_vals, phasepresent, phaseinfo, patch_01_ct, patch_10_ct, &(spgwp->pwc))) {
+    return kPglRetVarRecordTooLarge;
+  }
+  return kPglRetSuccess;
+}
+
 
 // dosage_main[] has length dosage_ct, not sample_ct
 // ok for traling bits of dosage_present to not be zeroed out
-void PwcAppendBiallelicGenovecDosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_main, uint32_t dosage_ct, PgenWriterCommon* pwcp);
+BoolErr PwcAppendBiallelicGenovecDosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_main, uint32_t dosage_ct, PgenWriterCommon* pwcp);
 
-PglErr SpgwAppendBiallelicGenovecDosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_main, uint32_t dosage_ct, STPgenWriter* spgwp);
+HEADER_INLINE PglErr SpgwAppendBiallelicGenovecDosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_main, uint32_t dosage_ct, STPgenWriter* spgwp) {
+  if (SpgwFlush(spgwp)) {
+    return kPglRetWriteFail;
+  }
+  if (PwcAppendBiallelicGenovecDosage16(genovec, dosage_present, dosage_main, dosage_ct, &(spgwp->pwc))) {
+    return kPglRetVarRecordTooLarge;
+  }
+  return kPglRetSuccess;
+}
 
-void PwcAppendBiallelicGenovecHphaseDosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_main, uint32_t dosage_ct, PgenWriterCommon* pwcp);
+BoolErr PwcAppendBiallelicGenovecHphaseDosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_main, uint32_t dosage_ct, PgenWriterCommon* pwcp);
 
-PglErr SpgwAppendBiallelicGenovecHphaseDosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_main, uint32_t dosage_ct, STPgenWriter* spgwp);
+HEADER_INLINE PglErr SpgwAppendBiallelicGenovecHphaseDosage16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uint16_t* dosage_main, uint32_t dosage_ct, STPgenWriter* spgwp) {
+  if (SpgwFlush(spgwp)) {
+    return kPglRetWriteFail;
+  }
+  if (PwcAppendBiallelicGenovecHphaseDosage16(genovec, phasepresent, phaseinfo, dosage_present, dosage_main, dosage_ct, &(spgwp->pwc))) {
+    return kPglRetVarRecordTooLarge;
+  }
+  return kPglRetSuccess;
+}
 
 // dosage_present cannot be null for nonzero dosage_ct
 // could make dosage_main[] has length dosage_ct + dphase_ct instead of having
 // separate dphase_delta[]?
-void PwcAppendBiallelicGenovecDphase16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uintptr_t* __restrict dphase_present, const uint16_t* dosage_main, const int16_t* dphase_delta, uint32_t dosage_ct, uint32_t dphase_ct, PgenWriterCommon* pwcp);
+BoolErr PwcAppendBiallelicGenovecDphase16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uintptr_t* __restrict dphase_present, const uint16_t* dosage_main, const int16_t* dphase_delta, uint32_t dosage_ct, uint32_t dphase_ct, PgenWriterCommon* pwcp);
 
-PglErr SpgwAppendBiallelicGenovecDphase16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uintptr_t* dphase_present, const uint16_t* dosage_main, const int16_t* dphase_delta, uint32_t dosage_ct, uint32_t dphase_ct, STPgenWriter* spgwp);
+HEADER_INLINE PglErr SpgwAppendBiallelicGenovecDphase16(const uintptr_t* __restrict genovec, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, const uintptr_t* __restrict dosage_present, const uintptr_t* dphase_present, const uint16_t* dosage_main, const int16_t* dphase_delta, uint32_t dosage_ct, uint32_t dphase_ct, STPgenWriter* spgwp) {
+  if (SpgwFlush(spgwp)) {
+    return kPglRetWriteFail;
+  }
+  if (PwcAppendBiallelicGenovecDphase16(genovec, phasepresent, phaseinfo, dosage_present, dphase_present, dosage_main, dphase_delta, dosage_ct, dphase_ct, &(spgwp->pwc))) {
+    return kPglRetVarRecordTooLarge;
+  }
+  return kPglRetSuccess;
+}
 
 // Backfills header info, then closes the file.
 PglErr SpgwFinish(STPgenWriter* spgwp);

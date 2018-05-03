@@ -229,6 +229,11 @@ void InitPedigreeIdInfo(MiscFlags misc_flags, PedigreeIdInfo* piip);
 // bigstack.
 
 
+HEADER_INLINE BoolErr bigstack_alloc_allele(uintptr_t ct, AltAlleleCt** allele_arr_ptr) {
+  *allele_arr_ptr = S_CAST(AltAlleleCt*, bigstack_alloc(ct * sizeof(AltAlleleCt)));
+  return !(*allele_arr_ptr);
+}
+
 HEADER_INLINE BoolErr bigstack_alloc_dosage(uintptr_t ct, Dosage** dosage_arr_ptr) {
   *dosage_arr_ptr = S_CAST(Dosage*, bigstack_alloc(ct * sizeof(Dosage)));
   return !(*dosage_arr_ptr);

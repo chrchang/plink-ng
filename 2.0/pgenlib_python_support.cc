@@ -192,7 +192,7 @@ void GenoarrPhasedToHapCodes(const uintptr_t* genoarr, const uintptr_t* phaseinf
   }
 }
 
-static const float kGenoToFloat[4] = {0.0f, 1.0f, 2.0f, -9.0f};
+static const float kGenoToFloat[4] = {0.0, 1.0, 2.0, -9.0};
 
 void Dosage16ToFloatsMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_present, const uint16_t* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, float* geno_float) {
   const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
@@ -219,7 +219,7 @@ void Dosage16ToFloatsMinus9(const uintptr_t* genoarr, const uintptr_t* dosage_pr
     for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_uidx) {
       MovU32To1Bit(dosage_present, &sample_uidx);
       // multiply by 2^{-14}
-      geno_float[sample_uidx] = S_CAST(float, *dosage_main_iter++) * 0.00006103515625f;
+      geno_float[sample_uidx] = S_CAST(float, *dosage_main_iter++) * S_CAST(float, 0.00006103515625);
     }
   }
 }

@@ -440,7 +440,7 @@ HEADER_INLINE void PrintSymmMatrix(const double* matrix, uint32_t dim) {
 HEADER_INLINE void PrintSymmFmatrix(const float* matrix, uint32_t dim) {
   for (uint32_t uii = 0; uii < dim; ++uii) {
     for (uint32_t ujj = 0; ujj <= uii; ++ujj) {
-      printf("%g ", matrix[uii * dim + ujj]);
+      printf("%g ", S_CAST(double, matrix[uii * dim + ujj]));
     }
     printf("\n");
   }

@@ -2186,7 +2186,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                     }
                     if (IsSet(matched_loaded_alleles, loaded_allele_idx)) {
                       const uint32_t internal_allele_idx = loaded_to_internal_allele_idx[loaded_allele_idx];
-                      if (cur_allele_freqs[internal_allele_idx]) {
+                      if (cur_allele_freqs[internal_allele_idx] != 0.0) {
                         snprintf(g_logbuf, kLogbufSize, "Error: Duplicate entry on line %" PRIuPTR " of --read-freq file.\n", line_idx);
                         goto ReadAlleleFreqs_ret_MALFORMED_INPUT_2;
                       }
@@ -2228,7 +2228,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
                     // O(n^2), may want to replace with O(n log n)
                     for (; internal_allele_idx < cur_allele_ct; ++internal_allele_idx) {
                       if (!strcmp(alt_freq_iter, cur_alleles[internal_allele_idx])) {
-                        if (cur_allele_freqs[internal_allele_idx]) {
+                        if (cur_allele_freqs[internal_allele_idx] != 0.0) {
                           snprintf(g_logbuf, kLogbufSize, "Error: Duplicate entry on line %" PRIuPTR " of --read-freq file.\n", line_idx);
                           goto ReadAlleleFreqs_ret_MALFORMED_INPUT_2;
                         }
@@ -2976,7 +2976,7 @@ void EnforceHweThresh(const ChrInfo* cip, const uint32_t* founder_raw_geno_cts, 
       test_failed = (joint_pval < hwe_thresh);
       if (test_failed && keep_fewhet && (hetref_ct * S_CAST(uint64_t, hetref_ct) < (4LLU * homref_ct) * nonref_diploid_ct)) {
         // female-only retest
-        if (joint_pval) {
+        if (joint_pval != 0.0) {
           joint_pval *= hwe_thresh_recip;
         } else {
           // keep the variant iff female-only p-value also underflows

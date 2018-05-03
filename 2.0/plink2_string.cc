@@ -2727,8 +2727,8 @@ char* lntoa_g(double ln_val, char* start) {
     *start++ = '0';
     return start;
   }
-  int32_t xp10 = 1 + static_cast<int32_t>((-5.000001349509205e-7 - ln_val) * kRecipLn10);
-  double mantissa = exp((static_cast<int32_t>(xp10) * kLn10) + ln_val);
+  int32_t xp10 = 1 + S_CAST(int32_t, (-5.000001349509205e-7 - ln_val) * kRecipLn10);
+  double mantissa = exp((S_CAST(int32_t, xp10) * kLn10) + ln_val);
   // mantissa will usually be in [.9999995, 9.999995], but ln_val can be
   // smaller than -2^32, and floating point errors in either direction are
   // definitely possible (<20 bits of precision).
@@ -2757,7 +2757,7 @@ char* lntoa_g(double ln_val, char* start) {
 // here, with similar interfaces to the double-rounding functions to minimize
 // the need for separate reasoning about this code.
 CSINLINE uint32_t RoundF(float fxx) {
-  return S_CAST(uint32_t, S_CAST(int32_t, fxx + 0.5));
+  return S_CAST(uint32_t, S_CAST(int32_t, fxx + S_CAST(float, 0.5)));
 }
 
 static inline void RoundF1(float fxx, uint32_t* quotientp, uint32_t* remainderp) {
@@ -2800,8 +2800,21 @@ char* ftoa_so6(float fxx, char* start) {
   // 6e-7.
   // (possible todo: just brute-force test this on all <2^32 possible floats
   // and look for a better threshold)
-  if (fxx < 99.999944) {
-    if (fxx < 9.9999944) {
+  //
+  // We use explicit static_cast<float> instead of e.g. 99.999944f because
+  // handling of the latter is actually implementation-specific; see
+  //   http://nullprogram.com/blog/2018/05/01/
+  // In particular, that blog post claims that
+  //   int float_compare() {
+  //     float x = 1.3f;
+  //     return x == 1.3f;
+  //   }
+  // returns 0 under gcc and 1 under clang (with -std=c99 -m32, which is one of
+  // plink2's compilation settings)????!!!!!!!
+  // Unless the author is outright mistaken, this suggests that use of the f
+  // suffix should be considered a bug ~100% of the time.
+  if (fxx < S_CAST(float, 99.999944)) {
+    if (fxx < S_CAST(float, 9.9999944)) {
       RoundF5(fxx, &quotient, &remainder);
       return qrtoa_1p5(quotient, remainder, start);
     }
@@ -2825,8 +2838,8 @@ char* ftoa_so6(float fxx, char* start) {
     }
     return &(start[1]);
   }
-  if (fxx < 9999.9944) {
-    if (fxx < 999.99944) {
+  if (fxx < S_CAST(float, 9999.9944)) {
+    if (fxx < S_CAST(float, 999.99944)) {
       RoundF3(fxx, &uii, &remainder);
       quotient = uii / 100;
       *start = '0' + quotient;
@@ -2856,7 +2869,7 @@ char* ftoa_so6(float fxx, char* start) {
     *start++ = '.';
     goto ftoa_so6_pretail;
   }
-  if (fxx >= 99999.944) {
+  if (fxx >= S_CAST(float, 99999.944)) {
     return uitoa_z6(RoundF(fxx), start);
   }
   RoundF1(fxx, &uii, &remainder);
@@ -2886,13 +2899,13 @@ char* ftoa_g(float fxx, char* start) {
     *start++ = '-';
     fxx = -fxx;
   }
-  if (fxx < 9.9999944e-5) {
-    if (fxx < 9.9999944e-16) {
-      if (fxx == 0.0) {
+  if (fxx < S_CAST(float, 9.9999944e-5)) {
+    if (fxx < S_CAST(float, 9.9999944e-16)) {
+      if (fxx == S_CAST(float, 0.0)) {
         *start = '0';
         return &(start[1]);
       }
-      if (fxx < 9.9999944e-32) {
+      if (fxx < S_CAST(float, 9.9999944e-32)) {
         fxx *= 1.0e32;
         xp10 |= 32;
       } else {
@@ -2900,31 +2913,31 @@ char* ftoa_g(float fxx, char* start) {
         xp10 |= 16;
       }
     }
-    if (fxx < 9.9999944e-8) {
+    if (fxx < S_CAST(float, 9.9999944e-8)) {
       fxx *= 100000000;
       xp10 |= 8;
     }
-    if (fxx < 9.9999944e-4) {
+    if (fxx < S_CAST(float, 9.9999944e-4)) {
       fxx *= 10000;
       xp10 |= 4;
     }
-    if (fxx < 9.9999944e-2) {
+    if (fxx < S_CAST(float, 9.9999944e-2)) {
       fxx *= 100;
       xp10 |= 2;
     }
-    if (fxx < 9.9999944e-1) {
+    if (fxx < S_CAST(float, 9.9999944e-1)) {
       fxx *= 10;
       ++xp10;
     }
     RoundF5(fxx, &quotient, &remainder);
     return memcpya(memcpya(qrtoa_1p5(quotient, remainder, start), "e-", 2), &(kDigitPair[xp10]), 2);
   }
-  if (fxx >= 999999.44) {
-    if (fxx >= 9.9999944e15) {
+  if (fxx >= S_CAST(float, 999999.44)) {
+    if (fxx >= S_CAST(float, 9.9999944e15)) {
       if (fxx > FLT_MAX) {
         return memcpyl3a(start, "inf");
       }
-      if (fxx >= 9.9999944e31) {
+      if (fxx >= S_CAST(float, 9.9999944e31)) {
         fxx *= 1.0e-32;
         xp10 |= 32;
       } else {
@@ -2932,35 +2945,35 @@ char* ftoa_g(float fxx, char* start) {
         xp10 |= 16;
       }
     }
-    if (fxx >= 9.9999944e7) {
+    if (fxx >= S_CAST(float, 9.9999944e7)) {
       fxx *= 1.0e-8;
       xp10 |= 8;
     }
-    if (fxx >= 9.9999944e3) {
+    if (fxx >= S_CAST(float, 9.9999944e3)) {
       fxx *= 1.0e-4;
       xp10 |= 4;
     }
-    if (fxx >= 9.9999944e1) {
+    if (fxx >= S_CAST(float, 9.9999944e1)) {
       fxx *= 1.0e-2;
       xp10 |= 2;
     }
-    if (fxx >= 9.9999944e0) {
+    if (fxx >= S_CAST(float, 9.9999944e0)) {
       fxx *= 1.0e-1;
       ++xp10;
     }
     RoundF5(fxx, &quotient, &remainder);
     return memcpya(memcpya(qrtoa_1p5(quotient, remainder, start), "e+", 2), &(kDigitPair[xp10]), 2);
   }
-  if (fxx >= 0.99999944) {
+  if (fxx >= S_CAST(float, 0.99999944)) {
     return ftoa_so6(fxx, start);
   }
   // 6 sig fig decimal, no less than ~0.0001
   start = memcpya(start, "0.", 2);
-  if (fxx < 9.9999944e-3) {
+  if (fxx < S_CAST(float, 9.9999944e-3)) {
     fxx *= 100;
     start = memcpya(start, "00", 2);
   }
-  if (fxx < 9.9999944e-2) {
+  if (fxx < S_CAST(float, 9.9999944e-2)) {
     fxx *= 10;
     *start++ = '0';
   }

@@ -145,8 +145,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      'dosage=GP'.  To import Minimac4-style DS+HDS phased dosage, add\n"
 "      'dosage=HDS'.  'dosage=DS' (or anything else for now) causes the named\n"
 "      field to be interpreted as a Minimac3-style dosage.\n"
-"      In all of these cases, hardcalls are now regenerated from scratch from\n"
-"      the dosages.\n\n"
+"      In all of these cases, hardcalls are regenerated from scratch from the\n"
+"      dosages.  As a consequence, variants with no GT field can now be\n"
+"      imported; they will be assumed to contain only diploid calls when HDS is\n"
+"      also absent.\n\n"
                );
     HelpPrint("data\tgen\tbgen\tsample\thaps\tlegend", &help_ctrl, 1,
 "  --data [filename prefix] <ref-first | ref-last> <gzs>\n"

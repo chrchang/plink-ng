@@ -61,10 +61,10 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (28 Apr 2018)";
+  " (2 May 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
-  ""
+  " "
 #ifndef LAPACK_ILP64
   "  "
 #endif
@@ -7559,7 +7559,7 @@ int main(int argc, char** argv) {
           if (EnforceParamCtRange(argvk[arg_idx], param_ct, 1, 1)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
-          if (ScanFloat(argvk[arg_idx + 1], &pc.var_min_qual) || (pc.var_min_qual < 0.0)) {
+          if (ScanFloat(argvk[arg_idx + 1], &pc.var_min_qual) || (pc.var_min_qual < S_CAST(float, 0.0))) {
             snprintf(g_logbuf, kLogbufSize, "Error: Invalid --var-min-qual parameter '%s'.\n", argvk[arg_idx + 1]);
             goto main_ret_INVALID_CMDLINE_WWA;
           }
@@ -7687,7 +7687,6 @@ int main(int argc, char** argv) {
             goto main_ret_INVALID_CMDLINE;
           }
           import_flags |= kfImportVcfRequireGt;
-          pc.dependency_flags |= kfFilterAllReq;
           goto main_param_zero;
         } else if (strequal_k_unsafe(flagname_p2, "if")) {
           if (!(pc.command_flags1 & kfCommand1Glm)) {

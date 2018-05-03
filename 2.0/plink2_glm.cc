@@ -77,12 +77,12 @@ BoolErr LinearHypothesisChisqF(const float* coef, const float* constraints_con_m
   const float* inner_iter = inner_buf;
   if (constraint_ct > kDotprodFThresh) {
     for (uint32_t constraint_idx = 0; constraint_idx < constraint_ct; ++constraint_idx) {
-      result += DotprodF(inner_iter, outer_buf, constraint_ct) * outer_buf[constraint_idx];
+      result += S_CAST(double, DotprodF(inner_iter, outer_buf, constraint_ct) * outer_buf[constraint_idx]);
       inner_iter = &(inner_iter[constraint_ct]);
     }
   } else {
     for (uint32_t constraint_idx = 0; constraint_idx < constraint_ct; ++constraint_idx) {
-      result += DotprodFShort(inner_iter, outer_buf, constraint_ct) * outer_buf[constraint_idx];
+      result += S_CAST(double, DotprodFShort(inner_iter, outer_buf, constraint_ct) * outer_buf[constraint_idx]);
       inner_iter = &(inner_iter[constraint_ct]);
     }
   }
@@ -1567,7 +1567,7 @@ BoolErr GlmAllocFillAndTestPhenoCovarsQt(const uintptr_t* sample_include, const 
   return 0;
 }
 
-static const float kSmallFloats[4] = {0.0f, 1.0f, 2.0f, 3.0f};
+static const float kSmallFloats[4] = {0.0, 1.0, 2.0, 3.0};
 
 BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const uintptr_t* pheno_cc, const uintptr_t* covar_include, const PhenoCol* covar_cols, const char* covar_names, uintptr_t sample_ct, uintptr_t covar_ct, uint32_t local_covar_ct, uint32_t covar_max_nonnull_cat_ct, uintptr_t extra_cat_ct, uintptr_t max_covar_name_blen, double max_corr, double vif_thresh, uintptr_t xtx_state, uintptr_t** pheno_cc_collapsed_ptr, uintptr_t** gcount_case_interleaved_vec_ptr, float** pheno_f_ptr, RegressionNmPrecomp** nm_precomp_ptr, float** covars_cmaj_f_ptr, const char*** cur_covar_names_ptr, VifCorrErr* vif_corr_check_result_ptr) {
   const uintptr_t sample_ctav = RoundUpPow2(sample_ct, kFloatPerFVec);
@@ -2284,20 +2284,20 @@ static inline void ComputeTwoPlusOneTripleProduct(const float* bb, const float* 
 #else  // no __LP64__ (and hence, unsafe to assume presence of SSE2)
 static inline void LogisticSse(uint32_t nn, float* vect) {
   for (uint32_t uii = 0; uii < nn; ++uii) {
-    vect[uii] = 1.0 / (1 + exp(-vect[uii]));
+    vect[uii] = S_CAST(float, 1.0) / (1 + expf(-vect[uii]));
   }
 }
 
 static inline void ComputeVAndPMinusY(const float* yy, uint32_t nn, float* pp, float* vv) {
   for (uint32_t uii = 0; uii < nn; ++uii) {
-    vv[uii] = pp[uii] * (1.0 - pp[uii]);
+    vv[uii] = pp[uii] * (S_CAST(float, 1.0) - pp[uii]);
     pp[uii] -= yy[uii];
   }
 }
 
 static inline void ComputeV(const float* pp, uint32_t nn, float* vv) {
   for (uint32_t uii = 0; uii < nn; ++uii) {
-    vv[uii] = pp[uii] * (1.0 - pp[uii]);
+    vv[uii] = pp[uii] * (S_CAST(float, 1.0) - pp[uii]);
   }
 }
 
@@ -2367,8 +2367,8 @@ double ComputeLoglik(const float* yy, const float* pp, uint32_t sample_ct) {
   // possible todo: look for a high-precision way to accelerate this.
   double loglik = 0.0;
   for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
-    const float new_pi = pp[sample_idx];
-    loglik += (yy[sample_idx])? log(new_pi) : log(1.0 - new_pi);
+    const double new_pi = S_CAST(double, pp[sample_idx]);
+    loglik += (yy[sample_idx] != S_CAST(float, 0.0))? log(new_pi) : log(1.0 - new_pi);
   }
   return loglik;
 }
@@ -2416,13 +2416,13 @@ void CholeskyDecomposition(const float* aa, uint32_t predictor_ct, float* ll) {
       fxx -= fyy * fyy;
     }
     float fyy;
-    if (fxx >= 0.0) {
+    if (fxx >= S_CAST(float, 0.0)) {
       fyy = sqrtf(fxx);
     } else {
       fyy = 1e-6;
     }
     ll[row_idx * predictor_ctavp1] = fyy;
-    fyy = 1.0 / fyy;  // now 1.0 / L[j][j]
+    fyy = S_CAST(float, 1.0) / fyy;  // now 1.0 / L[j][j]
     for (uint32_t row_idx2 = row_idx + 1; row_idx2 < predictor_ct; ++row_idx2) {
       float fxx2 = aa[row_idx2 * predictor_ctav + row_idx];
       float* ll_row_iter2 = &(ll[row_idx * predictor_ctav]);
@@ -2542,7 +2542,7 @@ BoolErr LogisticRegression(const float* yy, const float* xx, uint32_t sample_ct,
       return 1;
     }
     if (iteration > 4) {
-      if (((delta_coef > 20.0) && (delta_coef > 2 * min_delta_coef)) || ((iteration >= 8) && fabsf(1.0f - delta_coef) < 1e-3)) {
+      if (((delta_coef > S_CAST(float, 20.0)) && (delta_coef > 2 * min_delta_coef)) || ((iteration >= 8) && (fabsf(S_CAST(float, 1.0) - delta_coef) < S_CAST(float, 1e-3)))) {
         return 1;
       }
       if (iteration >= 15) {
@@ -2551,7 +2551,7 @@ BoolErr LogisticRegression(const float* yy, const float* xx, uint32_t sample_ct,
     }
     // Pons reported that 1.1e-3 was dangerous, so I agree with the decision to
     // tighten this threshold from 1e-3 to 1e-4.
-    if (delta_coef < 1e-4) {
+    if (delta_coef < S_CAST(float, 1e-4)) {
       return 0;
     }
   }
@@ -2595,7 +2595,7 @@ void FirthComputeWeights(const float* yy, const float* xx, const float* pp, cons
     }
     const float cur_weight = vv[sample_idx];
     const float cur_pi = pp[sample_idx];
-    ww[sample_idx] = (yy[sample_idx] - cur_pi) + (0.5 - cur_pi) * cur_weight * dotprod;
+    ww[sample_idx] = (yy[sample_idx] - cur_pi) + (S_CAST(float, 0.5) - cur_pi) * cur_weight * dotprod;
   }
 }
 #endif
@@ -2763,7 +2763,7 @@ BoolErr FirthRegression(const float* yy, const float* xx, uint32_t sample_ct, ui
         }
         maxhs = halfstep_idx;
       } else if (halfstep_idx == maxhs) {
-        if ((dcoef_max < 0.001) && (grad_max < 0.05) && (loglik >= loglik_old - lconv)) {
+        if ((dcoef_max < S_CAST(float, 0.001)) && (grad_max < S_CAST(float, 0.05)) && (loglik >= loglik_old - lconv)) {
           // we've converged as much as we can with single-precision
           // arithmetic, and now we're flailing around.  don't even take the
           // 2^{-maxhs} step, undo it all and bail.
@@ -3020,8 +3020,8 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
   const uint32_t model_recessive = (glm_flags / kfGlmRecessive) & 1;
   const uint32_t joint_genotypic = (glm_flags / kfGlmGenotypic) & 1;
   const uint32_t joint_hethom = (glm_flags / kfGlmHethom) & 1;
-  const float max_corr = S_CAST(float, g_max_corr);
-  const float vif_thresh = S_CAST(float, g_vif_thresh);
+  const double max_corr = g_max_corr;
+  const double vif_thresh = g_vif_thresh;
   const uint32_t domdev_present = joint_genotypic || joint_hethom;
   const uint32_t domdev_present_p1 = domdev_present + 1;
   const uint32_t reported_pred_uidx_start = 1 - include_intercept;
@@ -3338,7 +3338,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
           // is stable
           double dosage_ssq = 0.0;
           for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx) {
-            const double cur_genotype_val = genotype_vals[sample_idx];
+            const double cur_genotype_val = S_CAST(double, genotype_vals[sample_idx]);
             dosage_sum += cur_genotype_val;
             dosage_ssq += cur_genotype_val * cur_genotype_val;
             alt_case_dosage += cur_genotype_val * kSmallDoubles[IsSet(pheno_cc_nm, sample_idx)];
@@ -3370,8 +3370,8 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
             domdev_vals = nm_predictors_pmaj_iter;
             for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx) {
               float cur_genotype_val = genotype_vals[sample_idx];
-              if (cur_genotype_val > 1.0) {
-                cur_genotype_val = 2.0 - cur_genotype_val;
+              if (cur_genotype_val > S_CAST(float, 1.0)) {
+                cur_genotype_val = S_CAST(float, 2.0) - cur_genotype_val;
               }
               nm_predictors_pmaj_iter[sample_idx] = cur_genotype_val;
             }
@@ -3382,7 +3382,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
             for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx) {
               const float cur_genotype_val = genotype_vals[sample_idx];
               // 0..1..1
-              if (cur_genotype_val > 1.0) {
+              if (cur_genotype_val > S_CAST(float, 1.0)) {
                 genotype_vals[sample_idx] = 1.0;
               }
             }
@@ -3390,10 +3390,10 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
             for (uint32_t sample_idx = 0; sample_idx < nm_sample_ct; ++sample_idx) {
               const float cur_genotype_val = genotype_vals[sample_idx];
               // 0..0..1
-              if (cur_genotype_val < 1.0) {
+              if (cur_genotype_val < S_CAST(float, 1.0)) {
                 genotype_vals[sample_idx] = 0.0;
               } else {
-                genotype_vals[sample_idx] = cur_genotype_val - 1.0;
+                genotype_vals[sample_idx] = cur_genotype_val - S_CAST(float, 1.0);
               }
             }
           }
@@ -3567,7 +3567,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
           // validParameters() check
           for (uint32_t pred_uidx = 1; pred_uidx < cur_predictor_ct; ++pred_uidx) {
             const float hh_inv_diag_element = hh_return[pred_uidx * predictor_ctavp1];
-            if ((hh_inv_diag_element < 1e-20) || (!IsRealnum(hh_inv_diag_element))) {
+            if ((hh_inv_diag_element < S_CAST(float, 1e-20)) || (!IsRealnumF(hh_inv_diag_element))) {
               goto GlmLogisticThread_skip_variant;
             }
             // use sample_variance_buf[] to store diagonal square roots
@@ -3575,7 +3575,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
           }
           sample_variance_buf[0] = sqrtf(hh_return[0]);
           for (uint32_t pred_uidx = 1; pred_uidx < cur_predictor_ct; ++pred_uidx) {
-            const float cur_hh_inv_diag_sqrt = 0.99999 * sample_variance_buf[pred_uidx];
+            const float cur_hh_inv_diag_sqrt = S_CAST(float, 0.99999) * sample_variance_buf[pred_uidx];
             const float* hh_inv_row_iter = &(hh_return[pred_uidx * predictor_ctav]);
             const float* hh_inv_diag_sqrts_iter = sample_variance_buf;
             for (uint32_t pred_uidx2 = 0; pred_uidx2 < pred_uidx; ++pred_uidx2) {
@@ -3586,7 +3586,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
           }
           double* beta_se_iter2 = beta_se_iter;
           for (uint32_t pred_uidx = reported_pred_uidx_start; pred_uidx < reported_pred_uidx_end; ++pred_uidx) {
-            *beta_se_iter2++ = coef_return[pred_uidx];
+            *beta_se_iter2++ = S_CAST(double, coef_return[pred_uidx]);
             *beta_se_iter2++ = S_CAST(double, sample_variance_buf[pred_uidx]);
           }
           if (cur_constraint_ct) {

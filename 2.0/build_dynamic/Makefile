@@ -22,7 +22,7 @@ MKLROOT = /home/ubuntu/intel/mkl
 MKL_IOMP5_DIR = /home/ubuntu/intel/compilers_and_libraries_2017.2.174/linux/compiler/lib/intel64
 FORCE_32BIT =
 
-BASEFLAGS=-Wall -Wextra -Wshadow -DZSTD_MULTITHREAD
+BASEFLAGS=-DZSTD_MULTITHREAD
 # ***** end configuration *****
 
 LINKFLAGS=-lm -lpthread
@@ -100,13 +100,10 @@ ifdef NO_LAPACK
   BLASFLAGS=
 endif
 
-CFLAGS += ${BASEFLAGS}
-ZCFLAGS += ${BASEFLAGS}
-CXXFLAGS += ${BASEFLAGS}
-
 include ../Makefile.src
-CFLAGS += ${CINCLUDE2}
-ZCFLAGS += ${ZSTD_INCLUDE2}
+CFLAGS += ${BASEFLAGS} ${CWARN} ${CINCLUDE2}
+ZCFLAGS += ${BASEFLAGS} ${CWARN} ${ZSTD_INCLUDE2}
+CXXFLAGS += ${BASEFLAGS} ${CXXWARN}
 
 all: plink2 pgen_compress
 

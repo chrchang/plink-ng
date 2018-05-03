@@ -746,8 +746,9 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
       double ln_pval;
       if (!input_log10) {
         if (!ScanadvLn(pval_str, &ln_pval)) {
+          uint32_t cur_slen;
         AdjustFile_alphabetic_pval:
-          const uint32_t cur_slen = token_slens[6];
+          cur_slen = token_slens[6];
           if (IsNanStr(pval_str, cur_slen)) {
             ln_pval = kLnPvalError;
           } else if (strequal_k(pval_str, "INF", cur_slen) ||

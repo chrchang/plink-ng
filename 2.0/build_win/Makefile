@@ -13,7 +13,7 @@ ZSTD_O2 = 1
 OPENBLAS_ROOT = ../../openblas
 ZLIB_STATIC = ../../zlib-1.2.11/libz.a
 
-BASEFLAGS=-Wall -Wextra -Wshadow
+BASEFLAGS=
 # ***** end configuration *****
 
 BASEFLAGS += -DSTATIC_ZLIB -fno-exceptions
@@ -51,12 +51,10 @@ ifndef NO_AVX2
   BASEFLAGS += -mbmi
 endif
 
-CFLAGS += ${BASEFLAGS}
-CXXFLAGS += ${BASEFLAGS}
-
 include ../Makefile.src
-CFLAGS += ${CINCLUDE2}
-ZCFLAGS += ${ZSTD_INCLUDE2}
+CFLAGS += ${BASEFLAGS} ${CWARN} ${CINCLUDE2}
+ZCFLAGS += ${CWARN} ${ZSTD_INCLUDE2}
+CXXFLAGS += ${BASEFLAGS} ${CXXWARN}
 
 all: plink2 pgen_compress
 

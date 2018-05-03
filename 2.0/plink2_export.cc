@@ -3285,6 +3285,7 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
       const uint64_t bytes_per_prob = DivUp(exportf_bits, 8);
       uint64_t bgen_geno_buf_size = 10 + sample_ct * 5 * bytes_per_prob;
       if (bgen_geno_buf_size > 0xffffffffU - 4) {
+        // could return VarRecordTooLarge error instead
         logerrputs("Error: Too many samples for .bgen format.\n");
         goto ExportBgen13_ret_INCONSISTENT_INPUT;
       }

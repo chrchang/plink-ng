@@ -1,9 +1,9 @@
-BASEFLAGS=-Wall -Wextra -Wshadow -Wformat-security -mavx2 -mbmi -mbmi2 -mlzcnt -DNDEBUG -DZSTD_MULTITHREAD
-# BASEFLAGS=-Wall -Wextra -Wshadow -Wformat-security -mavx2 -mbmi -mbmi2 -mlzcnt -DZSTD_MULTITHREAD
-# BASEFLAGS=-Wall -Wextra -Wshadow -Wformat-security -msse4.2 -DNDEBUG -DZSTD_MULTITHREAD
+BASEFLAGS=-mavx2 -mbmi -mbmi2 -mlzcnt -DNDEBUG -DZSTD_MULTITHREAD
+# BASEFLAGS=-mavx2 -mbmi -mbmi2 -mlzcnt -DZSTD_MULTITHREAD
+# BASEFLAGS=-msse4.2 -DNDEBUG -DZSTD_MULTITHREAD
 CFLAGS=-O3 -std=gnu99
 # this actually needs to be named "CXXFLAGS"
-CXXFLAGS=-O2 -std=c++14 -Wold-style-cast
+CXXFLAGS=-O2 -std=c++14
 
 CFLAGS += ${BASEFLAGS}
 CXXFLAGS += ${BASEFLAGS}
@@ -21,7 +21,8 @@ ifeq ($(UNAME), Darwin)
 endif
 
 include Makefile.src
-CFLAGS += ${CINCLUDE} ${ZSTD_INCLUDE}
+CFLAGS += ${CWARN} ${CINCLUDE} ${ZSTD_INCLUDE}
+CXXFLAGS += ${CXXWARN}
 
 %.o: %.c
 	gcc -c $(CFLAGS) $(ARCH32) -o $@ $<
