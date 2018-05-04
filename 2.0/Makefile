@@ -1,3 +1,9 @@
+
+###########################################################################
+# Note: This Makefile is intended for development.  For production
+# builds, use build_dynamic/Makefile.
+###########################################################################
+
 BASEFLAGS=-mavx2 -mbmi -mbmi2 -mlzcnt -DNDEBUG -DZSTD_MULTITHREAD
 # BASEFLAGS=-mavx2 -mbmi -mbmi2 -mlzcnt -DZSTD_MULTITHREAD
 # BASEFLAGS=-msse4.2 -DNDEBUG -DZSTD_MULTITHREAD
