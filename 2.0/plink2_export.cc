@@ -3269,6 +3269,12 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
         }
       }
     }
+    if (exportf_bits % 8) {
+      // crap, misinterpreted the spec
+      reterr = kPglRetNotYetSupported;
+      logerrputs("Error: bits= value must be 8 or 16 for now.\n");
+      goto ExportBgen13_ret_NOMEM;
+    }
     if (ConstructBgen13LookupTables(exportf_bits)) {
       goto ExportBgen13_ret_NOMEM;
     }

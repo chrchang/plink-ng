@@ -3973,6 +3973,11 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
         if (bit_precision > kMaxBgenImportBits) {
           goto Bgen13DosageOrPhaseScanThread_not_yet_supported;
         }
+        if (bit_precision % 8) {
+          // crap, misinterpreted the spec
+          goto Bgen13DosageOrPhaseScanThread_not_yet_supported;
+        }
+
         if (cur_allele_ct != 2) {
           // shouldn't be possible to get here for now
           assert(0);
@@ -4416,6 +4421,10 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
           goto Bgen13GenoToPgenThread_malformed;
         }
         if (bit_precision > kMaxBgenImportBits) {
+          goto Bgen13GenoToPgenThread_not_yet_supported;
+        }
+        if (bit_precision % 8) {
+          // crap, misinterpreted the spec
           goto Bgen13GenoToPgenThread_not_yet_supported;
         }
         if (cur_allele_ct != 2) {
@@ -5524,9 +5533,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
             JoinThreads3z(&ts);
             reterr = g_error_ret;
             if (reterr) {
-              logputs("\n");
-              logerrputs("Error: Invalid compressed SNP block in .bgen file.\n");
-              goto OxBgenToPgen_ret_MALFORMED_INPUT;
+              goto OxBgenToPgen_ret_bgen13_thread_fail;
             }
             dosage_is_present = g_dosage_is_present;
             if (dosage_is_present) {
@@ -6942,7 +6949,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       logerrputs("Error: Invalid compressed SNP block in .bgen file.\n");
     } else if (reterr == kPglRetNotYetSupported) {
       logputs("\n");
-      logerrputs("Error: BGEN import doesn't currently support phased variants, >16-bit\nprobability precision, or ploidy > 2.\n");
+      logerrputs("Error: BGEN import doesn't currently support multiallelic variants, probability\nprecision levels outside {8-bit, 16-bit, 24-bit}, or ploidy > 2.\n");
     }
   }
  OxBgenToPgen_ret_1:
