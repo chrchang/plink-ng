@@ -4035,10 +4035,15 @@ int main(int argc, char** argv) {
               }
               const char* bits_start = &(cur_modif[strlen("bits=")]);
               // pointless to support bits>16
-              if (ScanPosintCapped(bits_start, 16, &pc.exportf_info.bgen_bits)) {
+              uint32_t bgen_bits;
+              if (ScanPosintCapped(bits_start, 16, &bgen_bits)) {
                 snprintf(g_logbuf, kLogbufSize, "Error: Invalid --export bits= parameter '%s'.\n", bits_start);
                 goto main_ret_INVALID_CMDLINE_WWA;
               }
+              if (bgen_bits & (bgen_bits - 1)) {
+                logerrputs("Warning: Support for non-power-of-2 bits= export values is likely to be\ndiscontinued, since .bgen size tends to be larger than the\nnext-higher-power-of-2 precision level.\n");
+              }
+              pc.exportf_info.bgen_bits = bgen_bits;
             } else if (strequal_k(cur_modif, "include-alt", cur_modif_slen)) {
               if (!(pc.exportf_info.flags & (kfExportfA | kfExportfAD))) {
                 logerrputs("Error: The 'include-alt' modifier only applies to --export's A and AD output\nformats.\n");

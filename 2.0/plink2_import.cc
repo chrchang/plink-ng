@@ -3494,7 +3494,7 @@ PglErr OxGenToPgen(const char* genname, const char* samplename, const char* ox_s
     reterr = kPglRetMalformedInput;
     break;
   OxGenToPgen_ret_INCONSISTENT_INPUT:
-    reterr = kPglRetMalformedInput;
+    reterr = kPglRetInconsistentInput;
     break;
   }
  OxGenToPgen_ret_1:
@@ -3746,9 +3746,9 @@ HEADER_INLINE void Bgen13GetTwoVals(const unsigned char* prob_start, uint64_t pr
   const uint64_t bit_offset = prob_offset * bit_precision;
   const unsigned char* first_relevant_byte_ptr = &(prob_start[bit_offset / CHAR_BIT]);
   // This can read slightly past the end of the buffer.
-  // Note that with bit_precision=30 and variable ploidy,
-  // (bit_offset % CHAR_BIT) == 6 is possible, so we may only get 58 bits when
-  // we need 60; thus we don't support 30-31 bits for now.
+  // Note that with bit_precision=29 and variable ploidy,
+  // (bit_offset % CHAR_BIT) == 7 is possible, so we may only get 57 bits when
+  // we need 58; thus we don't support 29-31 bits for now.
   const uint64_t cur_bits = (*R_CAST(const uint64_t*, first_relevant_byte_ptr)) >> (bit_offset % CHAR_BIT);
   *first_val_ptr = cur_bits & numer_mask;
   *second_val_ptr = (cur_bits >> bit_precision) & numer_mask;
@@ -3867,8 +3867,8 @@ typedef struct BgenMagicNumStruct {
   uint32_t postshift;
 } BgenMagicNum;
 
-// We throw a not-yet-supported error on bits>29 for now.
-CONSTU31(kMaxBgenImportBits, 29);
+// We throw a not-yet-supported error on bits>28 for now.
+CONSTU31(kMaxBgenImportBits, 28);
 
 static const BgenMagicNum kBgenMagicNums[kMaxBgenImportBits + 1] = {
   {0, 0, 0},
@@ -3899,8 +3899,8 @@ static const BgenMagicNum kBgenMagicNums[kMaxBgenImportBits + 1] = {
   {34359741440LLU, 33554433, 36},
   {137438959616LLU, 67108865, 38},
   {549755826176LLU, 134217729, 40},
-  {2199023280128LLU, 268435457, 42},
-  {8796093071360LLU, 536870913, 44}
+  {2199023280128LLU, 268435457, 42}
+  // ,{8796093071360LLU, 536870913, 44}
   // ,{35184372187136LLU, 1073741825, 46}
   // ,{140737488551936LLU, 2147483649U, 48}
 };
@@ -4196,13 +4196,15 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
                 goto Bgen13DosageOrPhaseScanThread_found;
               }
             } else {
-              // this is very slightly liberal (could be ploidy-2 missing call
-              // when there's only space for 1 more probability),
-              // implementation would be different in a bgen validator
-              if (prob_offset >= prob_offset_end) {
-                goto Bgen13DosageOrPhaseScanThread_malformed;
-              }
               if (missing_and_ploidy == 1) {
+                // this is slightly liberal (we don't care to validate in
+                // missing case); implementation would be different in a bgen
+                // validator
+                // note that this can't be moved before the if(), since
+                // missing-ploidy could be zero
+                if (prob_offset >= prob_offset_end) {
+                  goto Bgen13DosageOrPhaseScanThread_malformed;
+                }
                 const uintptr_t numer_a = Bgen13GetOneVal(probs_start, prob_offset, bit_precision, numer_mask);
                 ++prob_offset;
                 if ((numer_a < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_a)) {
@@ -4259,10 +4261,10 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
               }
             }
           } else {
-            if (prob_offset >= prob_offset_end) {
-              goto Bgen13DosageOrPhaseScanThread_malformed;
-            }
             if (missing_and_ploidy == 1) {
+              if (prob_offset >= prob_offset_end) {
+                goto Bgen13DosageOrPhaseScanThread_malformed;
+              }
               const uintptr_t numer_a = Bgen13GetOneVal(probs_start, prob_offset, bit_precision, numer_mask);
               ++prob_offset;
               if ((numer_a < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_a)) {
@@ -4706,10 +4708,10 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
                   }
                   write_dosage_int = (magic_preadd + magic_mult * (2 * numer_aa + numer_ab)) >> magic_postshift;
                 } else {
-                  if (prob_offset >= prob_offset_end) {
-                    goto Bgen13GenoToPgenThread_malformed;
-                  }
                   if (missing_and_ploidy == 1) {
+                    if (prob_offset >= prob_offset_end) {
+                      goto Bgen13GenoToPgenThread_malformed;
+                    }
                     const uintptr_t numer_a = Bgen13GetOneVal(probs_start, prob_offset, bit_precision, numer_mask);
                     ++prob_offset;
                     if ((numer_a < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_a)) {
@@ -4817,10 +4819,10 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
                     }
                   }
                 } else {
-                  if (prob_offset >= prob_offset_end) {
-                    goto Bgen13GenoToPgenThread_malformed;
-                  }
                   if (missing_and_ploidy == 1) {
+                    if (prob_offset >= prob_offset_end) {
+                      goto Bgen13GenoToPgenThread_malformed;
+                    }
                     const uintptr_t numer_a = Bgen13GetOneVal(probs_start, prob_offset, bit_precision, numer_mask);
                     ++prob_offset;
                     if ((numer_a < numer_certainty_min) && (numer_mask - numer_certainty_min < numer_a)) {
@@ -6894,7 +6896,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       logerrputs("Error: Invalid compressed SNP block in .bgen file.\n");
     } else if (reterr == kPglRetNotYetSupported) {
       logputs("\n");
-      logerrputs("Error: BGEN import doesn't currently support multiallelic variants, 30-32 bit\nprobability precision, or ploidy > 2.\n");
+      logerrputs("Error: BGEN import doesn't currently support multiallelic variants, 29-32 bit\nprobability precision, or ploidy > 2.\n");
     }
   }
  OxBgenToPgen_ret_1:

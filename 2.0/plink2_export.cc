@@ -2002,6 +2002,33 @@ uint32_t NoFemaleMissing(const uintptr_t* genovec, const uintptr_t* dosage_prese
   return 1;
 }
 
+// These may belong in plink2_base or plink2_common.
+// cur_write_bit_idx stays in [0, kBitsPerWord - 1]
+static inline void AppendBits(uint32_t bit_ct, uintptr_t payload, uintptr_t* cur_write_bits_ptr, uint32_t* cur_write_bit_idx_ptr, uintptr_t** probs_write_iter_ptr) {
+  uint32_t cur_write_bit_idx = *cur_write_bit_idx_ptr;
+  *cur_write_bits_ptr |= payload << cur_write_bit_idx;
+  cur_write_bit_idx += bit_ct;
+  if (cur_write_bit_idx >= kBitsPerWord) {
+    **probs_write_iter_ptr = *cur_write_bits_ptr;
+    *probs_write_iter_ptr += 1;
+    cur_write_bit_idx -= kBitsPerWord;
+    *cur_write_bits_ptr = payload >> (bit_ct - cur_write_bit_idx);
+  }
+  *cur_write_bit_idx_ptr = cur_write_bit_idx;
+}
+
+static inline void Append0Bits(uint32_t bit_ct, uintptr_t* cur_write_bits_ptr, uint32_t* cur_write_bit_idx_ptr, uintptr_t** probs_write_iter_ptr) {
+  uint32_t cur_write_bit_idx = *cur_write_bit_idx_ptr;
+  cur_write_bit_idx += bit_ct;
+  if (cur_write_bit_idx >= kBitsPerWord) {
+    **probs_write_iter_ptr = *cur_write_bits_ptr;
+    *probs_write_iter_ptr += 1;
+    cur_write_bit_idx -= kBitsPerWord;
+    *cur_write_bits_ptr = 0;
+  }
+  *cur_write_bit_idx_ptr = cur_write_bit_idx;
+}
+
 static unsigned char** g_thread_wkspaces = nullptr;
 static uintptr_t** g_phasepresents = nullptr;
 static uintptr_t** g_phaseinfos = nullptr;
@@ -2012,20 +2039,17 @@ static uintptr_t* g_sex_female_collapsed = nullptr;
 static uint32_t g_bgen_bit_precision = 0;
 
 // Precomputed 1-genotype-at-a-time tables (4 entries)
-static uint16_t* g_bgen_diploid_basic_table8 = nullptr;
-static uint32_t* g_bgen_diploid_basic_table16 = nullptr;
-static unsigned char* g_bgen_haploid_basic_table8 = nullptr;
-static uint16_t* g_bgen_haploid_basic_table16 = nullptr;
+static uint32_t* g_bgen_diploid_basic_table = nullptr;
+static uint16_t* g_bgen_haploid_basic_table = nullptr;
 
 // Precomputed 4-genotype-at-a-time tables (256 entries; multiply index by two
 // and copy two values at a time for table16).
 static uint64_t* g_bgen_diploid_hardcall_table8 = nullptr;
 static uint64_t* g_bgen_diploid_hardcall_table16 = nullptr;
 
-// Precomputed 1-genotype-at-a-time tables (16 entries: phasepresent = bit 2,
+// Precomputed 1-genotype-at-a-time table (16 entries: phasepresent = bit 2,
 // phaseinfo = bit 3)
-static uint16_t* g_bgen_diploid_phased_hardcall_table8 = nullptr;
-static uint32_t* g_bgen_diploid_phased_hardcall_table16 = nullptr;
+static uint32_t* g_bgen_diploid_phased_hardcall_table = nullptr;
 
 // 4-genotype-at-a-time tables.
 static uint32_t* g_bgen_haploid_hardcall_table8 = nullptr;
@@ -2034,129 +2058,119 @@ static uint64_t* g_bgen_haploid_hardcall_table16 = nullptr;
 BoolErr ConstructBgen13LookupTables(uint32_t exportf_bits) {
   const uint32_t max_val = (1U << exportf_bits) - 1;
   const uint32_t half_val_roundeven = ((max_val + 1) / 2) & (~1);
+  if (bigstack_alloc_u32(4, &g_bgen_diploid_basic_table) ||
+      bigstack_alloc_u32(16, &g_bgen_diploid_phased_hardcall_table) ||
+      bigstack_alloc_u16(4, &g_bgen_haploid_basic_table)) {
+    return 1;
+  }
+  // reference allele is exported as second allele so default import and
+  // export settings work together
+  // (yeah, this will make multiallelic case annoying)
+  // unphased diploid:
+  //   [0] = 0, 0
+  //   [1] = 0, max
+  //   [2] = max, 0
+  //   [3] = 0, 0
+  g_bgen_diploid_basic_table[0] = 0;
+  g_bgen_diploid_basic_table[1] = max_val << exportf_bits;
+  g_bgen_diploid_basic_table[2] = max_val;
+  g_bgen_diploid_basic_table[3] = 0;
+
+  // phased diploid:
+  //   [0] = 0, 0
+  //   [1] unphased = half, half
+  //   [1] phased, phaseinfo clear = 0, max
+  //   [1] phased, phaseinfo set = max, 0
+  //   [2] = max, max
+  //   [3] = 0, 0
+  g_bgen_diploid_phased_hardcall_table[0] = 0;
+  g_bgen_diploid_phased_hardcall_table[1] = half_val_roundeven * ((1U << exportf_bits) + 1);
+  g_bgen_diploid_phased_hardcall_table[2] = max_val * ((1U << exportf_bits) + 1);
+  g_bgen_diploid_phased_hardcall_table[3] = 0;
+  // might need to defend against garbage phaseinfo
+  // cheap to defend against garbage phasepresent
+  memcpy(&(g_bgen_diploid_phased_hardcall_table[4]), g_bgen_diploid_phased_hardcall_table, 4 * sizeof(int32_t));
+  memcpy(&(g_bgen_diploid_phased_hardcall_table[8]), g_bgen_diploid_phased_hardcall_table, 8 * sizeof(int32_t));
+  g_bgen_diploid_phased_hardcall_table[5] = max_val << exportf_bits;
+  g_bgen_diploid_phased_hardcall_table[13] = max_val;
+
+  // haploid:
+  //   [0] = 0
+  //   [1] = half, may as well round-to-even
+  //   [2] = max
+  //   [3] = 0
+  g_bgen_haploid_basic_table[0] = 0;
+  g_bgen_haploid_basic_table[1] = half_val_roundeven;
+  g_bgen_haploid_basic_table[2] = max_val;
+  g_bgen_haploid_basic_table[3] = 0;
+
   if (exportf_bits <= 8) {
     // can conditionally skip some of these tables, but whatever
-    if (bigstack_alloc_u16(4, &g_bgen_diploid_basic_table8) ||
-        bigstack_alloc_u64(256, &g_bgen_diploid_hardcall_table8) ||
-        bigstack_alloc_u16(16, &g_bgen_diploid_phased_hardcall_table8) ||
-        bigstack_alloc_uc(4, &g_bgen_haploid_basic_table8) ||
+    if (bigstack_alloc_u64(256, &g_bgen_diploid_hardcall_table8) ||
         bigstack_alloc_u32(256, &g_bgen_haploid_hardcall_table8)) {
       return 1;
     }
-    // reference allele is exported as second allele so default import and
-    // export settings work together
-    // (yeah, this will make multiallelic case annoying)
-    // unphased diploid:
-    //   [0] = 0, 0
-    //   [1] = 0, max
-    //   [2] = max, 0
-    //   [3] = 0, 0
-    g_bgen_diploid_basic_table8[0] = 0;
-    g_bgen_diploid_basic_table8[1] = max_val << 8;
-    g_bgen_diploid_basic_table8[2] = max_val;
-    g_bgen_diploid_basic_table8[3] = 0;
     uint64_t* write64_iter = g_bgen_diploid_hardcall_table8;
     for (uint32_t uii = 0; uii < 4; ++uii) {
-      const uint64_t entry3 = S_CAST(uint64_t, g_bgen_diploid_basic_table8[uii]) << 48;
+      const uint64_t entry3 = S_CAST(uint64_t, g_bgen_diploid_basic_table[uii]) << (exportf_bits * 6);
       for (uint32_t ujj = 0; ujj < 4; ++ujj) {
-        const uint64_t entry23 = entry3 | (S_CAST(uint64_t, g_bgen_diploid_basic_table8[ujj]) << 32);
+        const uint64_t entry23 = entry3 | (S_CAST(uint64_t, g_bgen_diploid_basic_table[ujj]) << (exportf_bits * 4));
         for (uint32_t ukk = 0; ukk < 4; ++ukk) {
-          const uint64_t entry123 = entry23 | (S_CAST(uint64_t, g_bgen_diploid_basic_table8[ukk]) << 16);
+          const uint64_t entry123 = entry23 | (S_CAST(uint64_t, g_bgen_diploid_basic_table[ukk]) << (exportf_bits * 2));
           for (uint32_t umm = 0; umm < 4; ++umm) {
-            *write64_iter++ = entry123 | g_bgen_diploid_basic_table8[umm];
+            *write64_iter++ = entry123 | g_bgen_diploid_basic_table[umm];
           }
         }
       }
     }
-    // phased diploid:
-    //   [0] = 0, 0
-    //   [1] unphased = half, half
-    //   [1] phased, phaseinfo clear = 0, max
-    //   [1] phased, phaseinfo set = max, 0
-    //   [2] = max, max
-    //   [3] = 0, 0
-    g_bgen_diploid_phased_hardcall_table8[0] = 0;
-    g_bgen_diploid_phased_hardcall_table8[1] = half_val_roundeven * 257;
-    g_bgen_diploid_phased_hardcall_table8[2] = max_val * 257;
-    g_bgen_diploid_phased_hardcall_table8[3] = 0;
-    // might need to defend against garbage phaseinfo
-    // cheap to defend against garbage phasepresent
-    memcpy(&(g_bgen_diploid_phased_hardcall_table8[4]), g_bgen_diploid_phased_hardcall_table8, 4 * sizeof(int16_t));
-    memcpy(&(g_bgen_diploid_phased_hardcall_table8[8]), g_bgen_diploid_phased_hardcall_table8, 8 * sizeof(int16_t));
-    g_bgen_diploid_phased_hardcall_table8[5] = max_val << 8;
-    g_bgen_diploid_phased_hardcall_table8[13] = max_val;
 
-    // haploid:
-    //   [0] = 0
-    //   [1] = half, may as well round-to-even
-    //   [2] = max
-    //   [3] = 0
-    g_bgen_haploid_basic_table8[0] = 0;
-    g_bgen_haploid_basic_table8[1] = half_val_roundeven;
-    g_bgen_haploid_basic_table8[2] = max_val;
-    g_bgen_haploid_basic_table8[3] = 0;
     uint32_t* write32_iter = g_bgen_haploid_hardcall_table8;
     for (uint32_t uii = 0; uii < 4; ++uii) {
-      const uint32_t entry3 = S_CAST(uint32_t, g_bgen_haploid_basic_table8[uii]) << 24;
+      const uint32_t entry3 = S_CAST(uint32_t, g_bgen_haploid_basic_table[uii]) << (exportf_bits * 3);
       for (uint32_t ujj = 0; ujj < 4; ++ujj) {
-        const uint32_t entry23 = entry3 | (S_CAST(uint32_t, g_bgen_haploid_basic_table8[ujj]) << 16);
+        const uint32_t entry23 = entry3 | (S_CAST(uint32_t, g_bgen_haploid_basic_table[ujj]) << (exportf_bits * 2));
         for (uint32_t ukk = 0; ukk < 4; ++ukk) {
-          const uint32_t entry123 = entry23 | (S_CAST(uint32_t, g_bgen_haploid_basic_table8[ukk]) << 8);
+          const uint32_t entry123 = entry23 | (S_CAST(uint32_t, g_bgen_haploid_basic_table[ukk]) << exportf_bits);
           for (uint32_t umm = 0; umm < 4; ++umm) {
-            *write32_iter++ = entry123 | g_bgen_haploid_basic_table8[umm];
+            *write32_iter++ = entry123 | g_bgen_haploid_basic_table[umm];
           }
         }
       }
     }
   } else {
-    // (yeah, a template function makes sense here...)
-    if (bigstack_alloc_u32(4, &g_bgen_diploid_basic_table16) ||
-        bigstack_alloc_u64(512, &g_bgen_diploid_hardcall_table16) ||
-        bigstack_alloc_u32(16, &g_bgen_diploid_phased_hardcall_table16) ||
-        bigstack_alloc_u16(4, &g_bgen_haploid_basic_table16) ||
+    if (bigstack_alloc_u64(512, &g_bgen_diploid_hardcall_table16) ||
         bigstack_alloc_u64(256, &g_bgen_haploid_hardcall_table16)) {
       return 1;
     }
-    g_bgen_diploid_basic_table16[0] = 0;
-    g_bgen_diploid_basic_table16[1] = max_val << 16;
-    g_bgen_diploid_basic_table16[2] = max_val;
-    g_bgen_diploid_basic_table16[3] = 0;
     uint64_t* write64_iter = g_bgen_diploid_hardcall_table16;
+    uint64_t entry23_low = 0;
     for (uint32_t uii = 0; uii < 4; ++uii) {
-      const uint64_t entry3 = S_CAST(uint64_t, g_bgen_diploid_basic_table16[uii]) << 32;
+      const uint64_t entry3 = S_CAST(uint64_t, g_bgen_diploid_basic_table[uii]) << (exportf_bits * 2);
       for (uint32_t ujj = 0; ujj < 4; ++ujj) {
-        const uint64_t entry23 = entry3 | g_bgen_diploid_basic_table16[ujj];
+        uint64_t entry23_high = entry3 | g_bgen_diploid_basic_table[ujj];
+        if (exportf_bits < 16) {
+          entry23_low = entry23_high << (4 * exportf_bits);
+          entry23_high = entry23_high >> (64 - 4 * exportf_bits);
+        }
         for (uint32_t ukk = 0; ukk < 4; ++ukk) {
-          const uint64_t entry1 = S_CAST(uint64_t, g_bgen_diploid_basic_table16[ukk]) << 32;
+          const uint64_t entry123_low = entry23_low | (S_CAST(uint64_t, g_bgen_diploid_basic_table[ukk]) << (exportf_bits * 2));
           for (uint32_t umm = 0; umm < 4; ++umm) {
-            *write64_iter++ = entry1 | g_bgen_diploid_basic_table16[umm];
-            *write64_iter++ = entry23;
+            *write64_iter++ = entry123_low | g_bgen_diploid_basic_table[umm];
+            *write64_iter++ = entry23_high;
           }
         }
       }
     }
-    g_bgen_diploid_phased_hardcall_table16[0] = 0;
-    g_bgen_diploid_phased_hardcall_table16[1] = half_val_roundeven * 65537;
-    g_bgen_diploid_phased_hardcall_table16[2] = max_val * 65537;
-    g_bgen_diploid_phased_hardcall_table16[3] = 0;
-    memcpy(&(g_bgen_diploid_phased_hardcall_table16[4]), g_bgen_diploid_phased_hardcall_table16, 4 * sizeof(int32_t));
-    memcpy(&(g_bgen_diploid_phased_hardcall_table16[8]), g_bgen_diploid_phased_hardcall_table16, 8 * sizeof(int32_t));
-    g_bgen_diploid_phased_hardcall_table16[5] = max_val << 16;
-    g_bgen_diploid_phased_hardcall_table16[13] = max_val;
 
-    g_bgen_haploid_basic_table16[0] = 0;
-    g_bgen_haploid_basic_table16[1] = half_val_roundeven;
-    g_bgen_haploid_basic_table16[2] = max_val;
-    g_bgen_haploid_basic_table16[3] = 0;
     write64_iter = g_bgen_haploid_hardcall_table16;
     for (uint32_t uii = 0; uii < 4; ++uii) {
-      const uint64_t entry3 = S_CAST(uint64_t, g_bgen_haploid_basic_table16[uii]) << 48;
+      const uint64_t entry3 = S_CAST(uint64_t, g_bgen_haploid_basic_table[uii]) << (exportf_bits * 3);
       for (uint32_t ujj = 0; ujj < 4; ++ujj) {
-        const uint64_t entry23 = entry3 | (S_CAST(uint64_t, g_bgen_haploid_basic_table16[ujj]) << 32);
+        const uint64_t entry23 = entry3 | (S_CAST(uint64_t, g_bgen_haploid_basic_table[ujj]) << (exportf_bits * 2));
         for (uint32_t ukk = 0; ukk < 4; ++ukk) {
-          const uint64_t entry123 = entry23 | (S_CAST(uint64_t, g_bgen_haploid_basic_table16[ukk]) << 16);
+          const uint64_t entry123 = entry23 | (S_CAST(uint64_t, g_bgen_haploid_basic_table[ukk]) << exportf_bits);
           for (uint32_t umm = 0; umm < 4; ++umm) {
-            *write64_iter++ = entry123 | g_bgen_haploid_basic_table16[umm];
+            *write64_iter++ = entry123 | g_bgen_haploid_basic_table[umm];
           }
         }
       }
@@ -2198,14 +2212,11 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* arg) {
   const uint32_t* sample_include_cumulative_popcounts = g_sample_include_cumulative_popcounts;
   const uintptr_t* sex_male_collapsed = g_sex_male_collapsed;
   const uintptr_t* sex_female_collapsed = g_sex_female_collapsed;
-  const unsigned char* bgen_haploid_basic_table8 = g_bgen_haploid_basic_table8;
-  const uint16_t* bgen_haploid_basic_table16 = g_bgen_haploid_basic_table16;
-  const uint16_t* bgen_diploid_basic_table8 = g_bgen_diploid_basic_table8;
-  const uint32_t* bgen_diploid_basic_table16 = g_bgen_diploid_basic_table16;
+  const uint16_t* bgen_haploid_basic_table = g_bgen_haploid_basic_table;
+  const uint32_t* bgen_diploid_basic_table = g_bgen_diploid_basic_table;
   const uint64_t* bgen_diploid_hardcall_table8 = g_bgen_diploid_hardcall_table8;
   const uint64_t* bgen_diploid_hardcall_table16 = g_bgen_diploid_hardcall_table16;
-  const uint16_t* bgen_diploid_phased_hardcall_table8 = g_bgen_diploid_phased_hardcall_table8;
-  const uint32_t* bgen_diploid_phased_hardcall_table16 = g_bgen_diploid_phased_hardcall_table16;
+  const uint32_t* bgen_diploid_phased_hardcall_table = g_bgen_diploid_phased_hardcall_table;
   const uint32_t* bgen_haploid_hardcall_table8 = g_bgen_haploid_hardcall_table8;
   const uint64_t* bgen_haploid_hardcall_table16 = g_bgen_haploid_hardcall_table16;
   const uint32_t calc_thread_ct = g_calc_thread_ct;
@@ -2358,116 +2369,82 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* arg) {
         if (!use_phased_format) {
           *bgen_geno_buf_iter++ = 0;
           *bgen_geno_buf_iter++ = bit_precision;
-          uint64_t* genodata_alias_iter = R_CAST(uint64_t*, bgen_geno_buf_iter);
+          unsigned char* probs_write_citer = bgen_geno_buf_iter;
           if (!two_byte_probs) {
             for (uint32_t geno_byte_idx = 0; geno_byte_idx < sample_ct4; ++geno_byte_idx) {
               const unsigned char cur_geno4 = genovec_alias[geno_byte_idx];
-              genodata_alias_iter[geno_byte_idx] = bgen_diploid_hardcall_table8[cur_geno4];
+              *R_CAST(uint64_t*, probs_write_citer) = bgen_diploid_hardcall_table8[cur_geno4];
+              probs_write_citer = &(probs_write_citer[bit_precision]);
             }
           } else {
             // 9..16
             for (uint32_t geno_byte_idx = 0; geno_byte_idx < sample_ct4; ++geno_byte_idx) {
               const unsigned char cur_geno4 = genovec_alias[geno_byte_idx];
-              *genodata_alias_iter++ = bgen_diploid_hardcall_table16[2 * cur_geno4];
-              *genodata_alias_iter++ = bgen_diploid_hardcall_table16[2 * cur_geno4 + 1];
+              *R_CAST(uint64_t*, probs_write_citer) = bgen_diploid_hardcall_table16[2 * cur_geno4];
+              *R_CAST(uint64_t*, &(probs_write_citer[8])) = bgen_diploid_hardcall_table16[2 * cur_geno4 + 1];
+              probs_write_citer = &(probs_write_citer[bit_precision]);
             }
           }
         } else {
           // use_phased_format
           *bgen_geno_buf_iter++ = 1;
           *bgen_geno_buf_iter++ = bit_precision;
-          uint32_t widx = 0;
-          uint32_t loop_len = kBitsPerWordD2;
-          if (!two_byte_probs) {
-            uint16_t* genodata_alias_iter = R_CAST(uint16_t*, bgen_geno_buf_iter);
-            while (1) {
-              if (widx >= sample_ctl2_m1) {
-                if (widx > sample_ctl2_m1) {
-                  break;
-                }
-                loop_len = ModNz(sample_ct, kBitsPerWordD2);
-              }
-              uintptr_t geno_word = genovec[widx];
-              // probable todo: fast path for phasepresent_hw == 0
-              uintptr_t phaseword = UnpackHalfwordToWord(R_CAST(Halfword*, phasepresent)[widx]) | UnpackHalfwordToWordShift1(R_CAST(Halfword*, phaseinfo)[widx]);
-              for (uint32_t uii = 0; uii < loop_len; ++uii) {
-                // could halve the loop length and shuffle geno_word and
-                // phaseword together, with single right-shift-4 each
-                // iteration
-                *genodata_alias_iter++ = bgen_diploid_phased_hardcall_table8[(geno_word & 3) | ((phaseword & 3) * 4)];
-                geno_word >>= 2;
-                phaseword >>= 2;
-              }
-              ++widx;
+          const unsigned char* phasepresent_alias = R_CAST(const unsigned char*, phasepresent);
+          const unsigned char* phaseinfo_alias = R_CAST(const unsigned char*, phaseinfo);
+          const uint32_t bit_precision_x2 = bit_precision * 2;
+
+          uintptr_t* probs_write_witer = R_CAST(uintptr_t*, bgen_geno_buf_iter);
+          uintptr_t cur_write_bits = 0;
+          uint32_t cur_write_bit_idx = 0;
+          // possible todo: iterate over genovec halfwords instead, and convert
+          // diploid_phased_hardcall_table to support two-at-a-time lookup.
+          for (uint32_t geno_byte_idx = 0; geno_byte_idx < sample_ct4; ++geno_byte_idx) {
+            const uint32_t geno_byte_idx_d2 = geno_byte_idx / 2;
+            uint32_t cur_geno4 = genovec_alias[geno_byte_idx];
+            uint32_t cur_phasepresent4 = phasepresent_alias[geno_byte_idx_d2];
+            uint32_t cur_phaseinfo4 = phaseinfo_alias[geno_byte_idx_d2];
+            if (geno_byte_idx % 2) {
+              cur_phasepresent4 >>= 4;
+              cur_phaseinfo4 >>= 4;
             }
-          } else {
-            uint32_t* genodata_alias_iter = R_CAST(uint32_t*, bgen_geno_buf_iter);
-            while (1) {
-              if (widx >= sample_ctl2_m1) {
-                if (widx > sample_ctl2_m1) {
-                  break;
-                }
-                loop_len = ModNz(sample_ct, kBitsPerWordD2);
-              }
-              uintptr_t geno_word = genovec[widx];
-              uintptr_t phaseword = UnpackHalfwordToWord(R_CAST(Halfword*, phasepresent)[widx]) | UnpackHalfwordToWordShift1(R_CAST(Halfword*, phaseinfo)[widx]);
-              for (uint32_t uii = 0; uii < loop_len; ++uii) {
-                *genodata_alias_iter++ = bgen_diploid_phased_hardcall_table16[(geno_word & 3) | ((phaseword & 3) * 4)];
-                geno_word >>= 2;
-                phaseword >>= 2;
-              }
-              ++widx;
+            for (uint32_t uii = 0; uii < 4; ++uii) {
+              const uint32_t cur_index = (cur_geno4 & 3) | ((cur_phasepresent4 & 1) * 4) | ((cur_phaseinfo4 & 1) * 8);
+              const uintptr_t payload = bgen_diploid_phased_hardcall_table[cur_index];
+              AppendBits(bit_precision_x2, payload, &cur_write_bits, &cur_write_bit_idx, &probs_write_witer);
+              cur_geno4 >>= 2;
+              cur_phasepresent4 >>= 1;
+              cur_phaseinfo4 >>= 1;
             }
           }
+          *probs_write_witer = cur_write_bits;
         }
         if (dosage_ct) {
+          const uintptr_t bit_precision_x2 = bit_precision * 2;
           uint32_t sample_uidx = 0;
+          uintptr_t* probs_write = R_CAST(uintptr_t*, bgen_geno_buf_iter);
           if (!use_phased_format) {
             // first value is P(geno=2), second value is P(geno=1)
-            if (!two_byte_probs) {
-              for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_uidx) {
-                // multiply by e.g. 255/16384 and round
-                // there are multiple ways to interpret "round to even" here,
-                // so I give up and just round 0.5 up (especially since it
-                // should be very rare).
-                MovU32To1Bit(dosage_present, &sample_uidx);
-                // note that this needs to be changed to uint64_t if internal
-                // dosage representation is no longer 16-bit
-                const uint32_t cur_dosage = dosage_main[dosage_idx];
-                uint32_t output_prob2 = 0;
-                uint32_t output_prob1;
-                if (cur_dosage > kDosageMid) {
-                  output_prob2 = ((cur_dosage - kDosageMid) * max_output_val + kDosage4th) / kDosageMid;
-                  output_prob1 = max_output_val - output_prob2;
-                } else {
-                  output_prob1 = (cur_dosage * max_output_val + kDosage4th) / kDosageMid;
-                }
-                bgen_geno_buf_iter[sample_uidx * 2] = output_prob2;
-                bgen_geno_buf_iter[sample_uidx * 2 + 1] = output_prob1;
+            for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_uidx) {
+              // multiply by e.g. 255/16384 and round
+              // there are multiple ways to interpret "round to even" here,
+              // so I give up and just round 0.5 up (especially since it
+              // should be very rare).
+              MovU32To1Bit(dosage_present, &sample_uidx);
+              // note that this needs to be changed to uint64_t if internal
+              // dosage representation is no longer 16-bit
+              const uint32_t cur_dosage = dosage_main[dosage_idx];
+              uint32_t output_prob2 = 0;
+              uint32_t output_prob1;
+              if (cur_dosage > kDosageMid) {
+                output_prob2 = ((cur_dosage - kDosageMid) * max_output_val + kDosage4th) / kDosageMid;
+                output_prob1 = max_output_val - output_prob2;
+              } else {
+                output_prob1 = (cur_dosage * max_output_val + kDosage4th) / kDosageMid;
               }
-            } else {
-              uint16_t* genodata_alias = R_CAST(uint16_t*, bgen_geno_buf_iter);
-              for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_uidx) {
-                MovU32To1Bit(dosage_present, &sample_uidx);
-                const uint32_t cur_dosage = dosage_main[dosage_idx];
-                uint32_t output_prob2 = 0;
-                uint32_t output_prob1;
-                if (cur_dosage > kDosageMid) {
-                  output_prob2 = ((cur_dosage - kDosageMid) * max_output_val + kDosage4th) / kDosageMid;
-                  output_prob1 = max_output_val - output_prob2;
-                } else {
-                  output_prob1 = (cur_dosage * max_output_val + kDosage4th) / kDosageMid;
-                }
-                genodata_alias[sample_uidx * 2] = output_prob2;
-                genodata_alias[sample_uidx * 2 + 1] = output_prob1;
-              }
+              CopyBits(output_prob2 | (output_prob1 << bit_precision), sample_uidx * S_CAST(uint64_t, bit_precision_x2), bit_precision_x2, probs_write);
             }
           } else {
             // phased format, need to take hphase and/or dphase into account
-            uint16_t* genodata_alias = nullptr;
-            if (two_byte_probs) {
-              genodata_alias = R_CAST(uint16_t*, bgen_geno_buf_iter);
-            }
             uint32_t dphase_idx = 0;
             for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_uidx) {
               MovU32To1Bit(dosage_present, &sample_uidx);
@@ -2498,17 +2475,17 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* arg) {
                 output_prob1 = (cur_dosage * max_output_val + kDosageMid) / kDosageMax;
                 output_prob2 = output_prob1;
               }
-              if (genodata_alias) {
-                genodata_alias[2 * sample_uidx] = output_prob1;
-                genodata_alias[2 * sample_uidx + 1] = output_prob2;
-              } else {
-                bgen_geno_buf_iter[2 * sample_uidx] = output_prob1;
-                bgen_geno_buf_iter[2 * sample_uidx + 1] = output_prob2;
-              }
+              CopyBits(output_prob1 | (output_prob2 << bit_precision), sample_uidx * S_CAST(uint64_t, bit_precision_x2), bit_precision_x2, probs_write);
             }
           }
         }
-        bgen_geno_buf_iter = &(bgen_geno_buf_iter[sample_ct * 2 * (1 + two_byte_probs)]);
+        const uint64_t tot_prob_bit_ct = sample_ct * 2 * S_CAST(uint64_t, bit_precision);
+        bgen_geno_buf_iter = &(bgen_geno_buf_iter[tot_prob_bit_ct / CHAR_BIT]);
+        const uint32_t remainder = tot_prob_bit_ct % 8;
+        if (remainder) {
+          *bgen_geno_buf_iter &= (1 << remainder) - 1;
+          ++bgen_geno_buf_iter;
+        }
       } else if ((!use_phased_format) && (!is_x) && (!cur_y)) {
         // 2 alleles, min ploidy == max ploidy == 1
         // dosages can be patched in after the fact
@@ -2517,600 +2494,489 @@ THREAD_FUNC_DECL ExportBgen13Thread(void* arg) {
         bgen_geno_buf_iter = FillBgen13PloidyAndMissingness(genovec, dosage_present, 1, sample_ct, dosage_ct, bgen_geno_buf_iter);
         *bgen_geno_buf_iter++ = 0;
         *bgen_geno_buf_iter++ = bit_precision;
-        const unsigned char* genovec_alias = R_CAST(unsigned char*, genovec);
+        unsigned char* probs_write_citer = bgen_geno_buf_iter;
+        const uint16_t* genovec_alias = R_CAST(uint16_t*, genovec);
+        const uint32_t sample_ct8 = DivUp(sample_ct, 8);
+        const uint32_t bit_precision_x4 = bit_precision * 4;
         if (!two_byte_probs) {
-          uint32_t* genodata_alias = R_CAST(uint32_t*, bgen_geno_buf_iter);
-          for (uint32_t geno_byte_idx = 0; geno_byte_idx < sample_ct4; ++geno_byte_idx) {
-            const unsigned char cur_geno4 = genovec_alias[geno_byte_idx];
-            genodata_alias[geno_byte_idx] = bgen_haploid_hardcall_table8[cur_geno4];
+          for (uint32_t geno_u16_idx = 0; geno_u16_idx < sample_ct8; ++geno_u16_idx) {
+            const uint32_t cur_geno8 = genovec_alias[geno_u16_idx];
+            *R_CAST(uint64_t*, probs_write_citer) = bgen_haploid_hardcall_table8[cur_geno8 & 255] | (S_CAST(uint64_t, bgen_haploid_hardcall_table8[cur_geno8 >> 8]) << bit_precision_x4);
+            probs_write_citer = &(probs_write_citer[bit_precision]);
           }
         } else {
-          uint64_t* genodata_alias = R_CAST(uint64_t*, bgen_geno_buf_iter);
-          for (uint32_t geno_byte_idx = 0; geno_byte_idx < sample_ct4; ++geno_byte_idx) {
-            const unsigned char cur_geno4 = genovec_alias[geno_byte_idx];
-            genodata_alias[geno_byte_idx] = bgen_haploid_hardcall_table16[cur_geno4];
+          const uint32_t backfill = 64 - bit_precision_x4;
+          for (uint32_t geno_u16_idx = 0; geno_u16_idx < sample_ct8; ++geno_u16_idx) {
+            // this may write 14 bytes past the end
+            const uint32_t cur_geno8 = genovec_alias[geno_u16_idx];
+            uint64_t low_bits = bgen_haploid_hardcall_table16[cur_geno8 & 255];
+            uint64_t high_bits = bgen_haploid_hardcall_table16[cur_geno8 >> 8];
+            if (backfill) {
+              low_bits |= high_bits << bit_precision_x4;
+              high_bits = high_bits >> backfill;
+            }
+            *R_CAST(uint64_t*, probs_write_citer) = low_bits;
+            *R_CAST(uint64_t*, &(probs_write_citer[8])) = high_bits;
+            probs_write_citer = &(probs_write_citer[bit_precision]);
           }
         }
         if (dosage_ct) {
           uint32_t sample_uidx = 0;
-          if (!two_byte_probs) {
-            const uint32_t half_int = kDosageMid - (bit_precision == 1);
-            for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_uidx) {
-              // multiply by e.g. 255/32768 and round-to-even
-              MovU32To1Bit(dosage_present, &sample_uidx);
-              // note that this needs to be changed to uint64_t if internal
-              // dosage representation is no longer 16-bit
-              const uint32_t cur_dosage = dosage_main[dosage_idx];
-              const uint32_t output_prob = (cur_dosage * max_output_val + half_int) / kDosageMax;
-              bgen_geno_buf_iter[sample_uidx] = output_prob;
-            }
-          } else {
-            uint16_t* genodata_alias = R_CAST(uint16_t*, bgen_geno_buf_iter);
-            for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_uidx) {
-              MovU32To1Bit(dosage_present, &sample_uidx);
-              const uint32_t cur_dosage = dosage_main[dosage_idx];
-              const uint32_t output_prob = (cur_dosage * max_output_val + kDosageMid) / kDosageMax;
-              genodata_alias[sample_uidx] = output_prob;
-            }
+          const uint32_t half_int = kDosageMid - (bit_precision == 1);
+          uintptr_t* probs_write = R_CAST(uintptr_t*, bgen_geno_buf_iter);
+          for (uint32_t dosage_idx = 0; dosage_idx < dosage_ct; ++dosage_idx, ++sample_uidx) {
+            // multiply by e.g. 255/32768 and round-to-even
+            MovU32To1Bit(dosage_present, &sample_uidx);
+            // note that this needs to be changed to uint64_t if internal
+            // dosage representation is no longer 16-bit
+            const uint32_t cur_dosage = dosage_main[dosage_idx];
+            const uint32_t output_prob = (cur_dosage * max_output_val + half_int) / kDosageMax;
+            CopyBits(output_prob, sample_uidx * S_CAST(uint64_t, bit_precision), bit_precision, probs_write);
           }
         }
-        bgen_geno_buf_iter = &(bgen_geno_buf_iter[sample_ct * (1 + two_byte_probs)]);
-      } else if (!dosage_ct) {
-        if (!phasepresent_ct) {
-          if (is_x) {
-            // if male_ct == 0, we used the all-diploid code path instead
-            // if male_ct == sample_ct, we treat as haploid general case
-            *R_CAST(uint32_t*, bgen_geno_buf_iter) = 0x2010002;
-            bgen_geno_buf_iter = &(bgen_geno_buf_iter[4]);
-            unsigned char* ploidy_and_missingness_iter = bgen_geno_buf_iter;
-            bgen_geno_buf_iter = &(bgen_geno_buf_iter[sample_ct]);
-            *bgen_geno_buf_iter++ = 0;
-            *bgen_geno_buf_iter++ = bit_precision;
-            uint32_t widx = 0;
-            uint32_t loop_len = kBitsPerWordD2;
-            if (!two_byte_probs) {
-              while (1) {
-                if (widx >= sample_ctl2_m1) {
-                  if (widx > sample_ctl2_m1) {
-                    break;
-                  }
-                  loop_len = ModNz(sample_ct, kBitsPerWordD2);
-                }
-                uintptr_t geno_word = genovec[widx];
-                uint32_t male_hw = R_CAST(const Halfword*, sex_male_collapsed)[widx];
-                for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits < loop_len; ++sample_idx_lowbits) {
-                  const uintptr_t cur_geno = geno_word & 3;
-                  const uint32_t cur_male = male_hw & 1;
-                  *ploidy_and_missingness_iter++ = (cur_geno == 3) * 128 + 2 - cur_male;
-                  if (cur_male) {
-                    *bgen_geno_buf_iter++ = bgen_haploid_basic_table8[cur_geno];
-                  } else {
-                    *R_CAST(uint16_t*, bgen_geno_buf_iter) = bgen_diploid_basic_table8[cur_geno];
-                    bgen_geno_buf_iter = &(bgen_geno_buf_iter[2]);
-                  }
-                  geno_word >>= 2;
-                  male_hw >>= 1;
-                }
-                ++widx;
-              }
-            } else {
-              uint16_t* genodata_iter = R_CAST(uint16_t*, bgen_geno_buf_iter);
-              while (1) {
-                if (widx >= sample_ctl2_m1) {
-                  if (widx > sample_ctl2_m1) {
-                    break;
-                  }
-                  loop_len = ModNz(sample_ct, kBitsPerWordD2);
-                }
-                uintptr_t geno_word = genovec[widx];
-                uint32_t male_hw = R_CAST(const Halfword*, sex_male_collapsed)[widx];
-                for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits < loop_len; ++sample_idx_lowbits) {
-                  const uintptr_t cur_geno = geno_word & 3;
-                  const uint32_t cur_male = male_hw & 1;
-                  *ploidy_and_missingness_iter++ = (cur_geno == 3) * 128 + 2 - cur_male;
-                  if (cur_male) {
-                    *genodata_iter++ = bgen_haploid_basic_table16[cur_geno];
-                  } else {
-                    *R_CAST(uint32_t*, genodata_iter) = bgen_diploid_basic_table16[cur_geno];
-                    genodata_iter = &(genodata_iter[2]);
-                  }
-                  geno_word >>= 2;
-                  male_hw >>= 1;
-                }
-                ++widx;
-              }
-              bgen_geno_buf_iter = R_CAST(unsigned char*, genodata_iter);
-            }
-          } else {
-            assert(cur_y);
-            if ((female_ct == sample_ct) && AllBitsAreOne(genovec, sample_ct * 2)) {
-              // chrY, all females, all missing = max ploidy 0
-              *R_CAST(uint32_t*, bgen_geno_buf_iter) = 0x0000002;
+        const uint64_t tot_prob_bit_ct = sample_ct * S_CAST(uint64_t, bit_precision);
+        bgen_geno_buf_iter = &(bgen_geno_buf_iter[tot_prob_bit_ct / CHAR_BIT]);
+        const uint32_t remainder = tot_prob_bit_ct % 8;
+        if (remainder) {
+          *bgen_geno_buf_iter &= (1 << remainder) - 1;
+          ++bgen_geno_buf_iter;
+        }
+      } else {
+        uintptr_t cur_write_bits = 0;
+        uint32_t cur_write_bit_idx = 0;
+        uint32_t widx = 0;
+        uint32_t loop_len = kBitsPerWordD2;
+        uintptr_t* probs_write_witer;
+        if (!dosage_ct) {
+          if (!phasepresent_ct) {
+            if (is_x) {
+              // if male_ct == 0, we used the all-diploid code path instead
+              // if male_ct == sample_ct, we treat as haploid general case
+              *R_CAST(uint32_t*, bgen_geno_buf_iter) = 0x2010002;
               bgen_geno_buf_iter = &(bgen_geno_buf_iter[4]);
-              bgen_geno_buf_iter = memsetua(bgen_geno_buf_iter, 128, sample_ct);
+              unsigned char* ploidy_and_missingness_iter = bgen_geno_buf_iter;
+              bgen_geno_buf_iter = &(bgen_geno_buf_iter[sample_ct]);
               *bgen_geno_buf_iter++ = 0;
               *bgen_geno_buf_iter++ = bit_precision;
+              probs_write_witer = R_CAST(uintptr_t*, bgen_geno_buf_iter);
+              while (1) {
+                if (widx >= sample_ctl2_m1) {
+                  if (widx > sample_ctl2_m1) {
+                    break;
+                  }
+                  loop_len = ModNz(sample_ct, kBitsPerWordD2);
+                }
+                uintptr_t geno_word = genovec[widx];
+                uint32_t male_hw = R_CAST(const Halfword*, sex_male_collapsed)[widx];
+                for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits < loop_len; ++sample_idx_lowbits) {
+                  const uintptr_t cur_geno = geno_word & 3;
+                  const uint32_t cur_male = male_hw & 1;
+                  *ploidy_and_missingness_iter++ = (cur_geno == 3) * 128 + 2 - cur_male;
+                  if (cur_male) {
+                    AppendBits(bit_precision, bgen_haploid_basic_table[cur_geno], &cur_write_bits, &cur_write_bit_idx, &probs_write_witer);
+                  } else {
+                    AppendBits(2 * bit_precision, bgen_diploid_basic_table[cur_geno], &cur_write_bits, &cur_write_bit_idx, &probs_write_witer);
+                  }
+                  geno_word >>= 2;
+                  male_hw >>= 1;
+                }
+                ++widx;
+              }
             } else {
+              assert(cur_y);
+              if ((female_ct == sample_ct) && AllBitsAreOne(genovec, sample_ct * 2)) {
+                // chrY, all females, all missing = max ploidy 0
+                *R_CAST(uint32_t*, bgen_geno_buf_iter) = 0x0000002;
+                bgen_geno_buf_iter = &(bgen_geno_buf_iter[4]);
+                bgen_geno_buf_iter = memsetua(bgen_geno_buf_iter, 128, sample_ct);
+                *bgen_geno_buf_iter++ = 0;
+                *bgen_geno_buf_iter++ = bit_precision;
+                probs_write_witer = R_CAST(uintptr_t*, bgen_geno_buf_iter);
+              } else {
+                *R_CAST(uint32_t*, bgen_geno_buf_iter) = 0x1000002;
+                bgen_geno_buf_iter = &(bgen_geno_buf_iter[4]);
+                unsigned char* ploidy_and_missingness_iter = bgen_geno_buf_iter;
+                bgen_geno_buf_iter = &(bgen_geno_buf_iter[sample_ct]);
+                *bgen_geno_buf_iter++ = 0;
+                *bgen_geno_buf_iter++ = bit_precision;
+                probs_write_witer = R_CAST(uintptr_t*, bgen_geno_buf_iter);
+                while (1) {
+                  if (widx >= sample_ctl2_m1) {
+                    if (widx > sample_ctl2_m1) {
+                      break;
+                    }
+                    loop_len = ModNz(sample_ct, kBitsPerWordD2);
+                  }
+                  uintptr_t geno_word = genovec[widx];
+                  uint32_t female_hw = R_CAST(const Halfword*, sex_female_collapsed)[widx];
+                  for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits < loop_len; ++sample_idx_lowbits) {
+                    const uintptr_t cur_geno = geno_word & 3;
+                    const uint32_t cur_female = female_hw & 1;
+                    const uint32_t ploidy_and_missingness = (cur_geno == 3) * (128 - cur_female) + 1;
+                    *ploidy_and_missingness_iter++ = ploidy_and_missingness;
+                    if (ploidy_and_missingness != 128) {
+                      AppendBits(bit_precision, bgen_haploid_basic_table[cur_geno], &cur_write_bits, &cur_write_bit_idx, &probs_write_witer);
+                    }
+                    geno_word >>= 2;
+                    female_hw >>= 1;
+                  }
+                  ++widx;
+                }
+              }
+            }
+          } else {
+            // phase present, no dosages present, variable ploidy
+            // lookup tables still usable
+            if (is_x) {
+              *R_CAST(uint32_t*, bgen_geno_buf_iter) = 0x2010002;
+              bgen_geno_buf_iter = &(bgen_geno_buf_iter[4]);
+              unsigned char* ploidy_and_missingness_iter = bgen_geno_buf_iter;
+              bgen_geno_buf_iter = &(bgen_geno_buf_iter[sample_ct]);
+              *bgen_geno_buf_iter++ = 1;
+              *bgen_geno_buf_iter++ = bit_precision;
+              probs_write_witer = R_CAST(uintptr_t*, bgen_geno_buf_iter);
+              while (1) {
+                if (widx >= sample_ctl2_m1) {
+                  if (widx > sample_ctl2_m1) {
+                    break;
+                  }
+                  loop_len = ModNz(sample_ct, kBitsPerWordD2);
+                }
+                uintptr_t geno_word = genovec[widx];
+                uint32_t nonmale_hw = ~R_CAST(const Halfword*, sex_male_collapsed)[widx];
+                uint32_t phasepresent_hw = R_CAST(const Halfword*, phasepresent)[widx];
+                uint32_t phaseinfo_hw = R_CAST(const Halfword*, phaseinfo)[widx];
+                for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits < loop_len; ++sample_idx_lowbits, geno_word >>= 2, nonmale_hw >>= 1, phasepresent_hw >>= 1, phaseinfo_hw >>= 1) {
+                  const uintptr_t cur_geno = geno_word & 3;
+                  const uint32_t cur_nonmale = nonmale_hw & 1;
+                  if (cur_geno == 3) {
+                    *ploidy_and_missingness_iter++ = 129 + cur_nonmale;
+                    Append0Bits(bit_precision << cur_nonmale, &cur_write_bits, &cur_write_bit_idx, &probs_write_witer);
+                    continue;
+                  }
+                  const uint32_t cur_phasepresent = phasepresent_hw & 1;
+                  if (cur_phasepresent | cur_nonmale) {
+                    *ploidy_and_missingness_iter++ = 2;
+                    const uint32_t cur_index = cur_geno | (cur_phasepresent * 4) | ((phaseinfo_hw & 1) * 8);
+                    AppendBits(bit_precision * 2, bgen_diploid_phased_hardcall_table[cur_index], &cur_write_bits, &cur_write_bit_idx, &probs_write_witer);
+                    continue;
+                  }
+                  *ploidy_and_missingness_iter++ = 1;
+                  AppendBits(bit_precision, bgen_haploid_basic_table[cur_geno], &cur_write_bits, &cur_write_bit_idx, &probs_write_witer);
+                }
+                ++widx;
+              }
+            } else {
+              // can't be all-female all-missing since phasepresent_ct > 0
+              *R_CAST(uint32_t*, bgen_geno_buf_iter) = 0x2010002 - cur_y * 0x10000;
+              bgen_geno_buf_iter = &(bgen_geno_buf_iter[4]);
+              unsigned char* ploidy_and_missingness_iter = bgen_geno_buf_iter;
+              bgen_geno_buf_iter = &(bgen_geno_buf_iter[sample_ct]);
+              *bgen_geno_buf_iter++ = 1;
+              *bgen_geno_buf_iter++ = bit_precision;
+              probs_write_witer = R_CAST(uintptr_t*, bgen_geno_buf_iter);
+              uint32_t female_hw = 0;
+              while (1) {
+                if (widx >= sample_ctl2_m1) {
+                  if (widx > sample_ctl2_m1) {
+                    break;
+                  }
+                  loop_len = ModNz(sample_ct, kBitsPerWordD2);
+                }
+                uintptr_t geno_word = genovec[widx];
+                if (cur_y) {
+                  female_hw = R_CAST(const Halfword*, sex_female_collapsed)[widx];
+                }
+                uint32_t phasepresent_hw = R_CAST(const Halfword*, phasepresent)[widx];
+                uint32_t phaseinfo_hw = R_CAST(const Halfword*, phaseinfo)[widx];
+                for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits < loop_len; ++sample_idx_lowbits, geno_word >>= 2, phasepresent_hw >>= 1, phaseinfo_hw >>= 1) {
+                  const uintptr_t cur_geno = geno_word & 3;
+                  if (cur_geno == 3) {
+                    // female_hw not incrementally shifted for now
+                    if (!(female_hw & (1U << sample_idx_lowbits))) {
+                      *ploidy_and_missingness_iter++ = 129;
+                      Append0Bits(bit_precision, &cur_write_bits, &cur_write_bit_idx, &probs_write_witer);
+                    } else {
+                      *ploidy_and_missingness_iter++ = 128;
+                    }
+                    continue;
+                  }
+                  const uint32_t cur_phasepresent = phasepresent_hw & 1;
+                  if (cur_phasepresent) {
+                    *ploidy_and_missingness_iter++ = 2;
+                    const uint32_t cur_index = cur_geno | (cur_phasepresent * 4) | ((phaseinfo_hw & 1) * 8);
+                    AppendBits(bit_precision * 2, bgen_diploid_phased_hardcall_table[cur_index], &cur_write_bits, &cur_write_bit_idx, &probs_write_witer);
+                    continue;
+                  }
+                  *ploidy_and_missingness_iter++ = 1;
+                  AppendBits(bit_precision, bgen_haploid_basic_table[cur_geno], &cur_write_bits, &cur_write_bit_idx, &probs_write_witer);
+                }
+                ++widx;
+              }
+            }
+          }
+        } else {
+          // dosages present, variable ploidy
+          // don't bother with lookup tables here
+          const Dosage* dosage_main_iter = dosage_main;
+          if (!use_phased_format) {
+            if (is_x) {
+              *R_CAST(uint32_t*, bgen_geno_buf_iter) = 0x2010002;
+              bgen_geno_buf_iter = &(bgen_geno_buf_iter[4]);
+              unsigned char* ploidy_and_missingness_iter = bgen_geno_buf_iter;
+              bgen_geno_buf_iter = &(bgen_geno_buf_iter[sample_ct]);
+              *bgen_geno_buf_iter++ = 0;
+              *bgen_geno_buf_iter++ = bit_precision;
+              probs_write_witer = R_CAST(uintptr_t*, bgen_geno_buf_iter);
+              while (1) {
+                if (widx >= sample_ctl2_m1) {
+                  if (widx > sample_ctl2_m1) {
+                    break;
+                  }
+                  loop_len = ModNz(sample_ct, kBitsPerWordD2);
+                }
+                uintptr_t geno_word = genovec[widx];
+                const uint32_t male_hw = R_CAST(const Halfword*, sex_male_collapsed)[widx];
+                const uint32_t dosage_present_hw = R_CAST(const Halfword*, dosage_present)[widx];
+                uint32_t shifted_bit = 1;
+                for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits < loop_len; ++sample_idx_lowbits, shifted_bit *= 2, geno_word >>= 2) {
+                  const uint32_t cur_male = male_hw & shifted_bit;
+                  uint32_t cur_dosage;
+                  if (dosage_present_hw & shifted_bit) {
+                    cur_dosage = *dosage_main_iter++;
+                  } else {
+                    const uintptr_t cur_geno = geno_word & 3;
+                    if (cur_geno == 3) {
+                      const uint32_t cur_nonmale = !cur_male;
+                      *ploidy_and_missingness_iter++ = 129 + cur_nonmale;
+                      Append0Bits(bit_precision << cur_nonmale, &cur_write_bits, &cur_write_bit_idx, &probs_write_witer);
+                      continue;
+                    }
+                    cur_dosage = cur_geno * kDosageMid;
+                  }
+                  if (cur_male) {
+                    *ploidy_and_missingness_iter++ = 1;
+                    uint32_t output_prob = (cur_dosage * max_output_val + kDosageMid) / kDosageMax;
+                    AppendBits(bit_precision, output_prob, &cur_write_bits, &cur_write_bit_idx, &probs_write_witer);
+                    continue;
+                  }
+                  *ploidy_and_missingness_iter++ = 2;
+                  uint32_t output_prob2 = 0;
+                  uint32_t output_prob1;
+                  if (cur_dosage > kDosageMid) {
+                    output_prob2 = ((cur_dosage - kDosageMid) * max_output_val + kDosage4th) / kDosageMid;
+                    output_prob1 = max_output_val - output_prob2;
+                  } else {
+                    output_prob1 = (cur_dosage * max_output_val + kDosage4th) / kDosageMid;
+                  }
+                  AppendBits(bit_precision * 2, output_prob2 | (output_prob1 << bit_precision), &cur_write_bits, &cur_write_bit_idx, &probs_write_witer);
+                }
+                ++widx;
+              }
+            } else {
+              assert(cur_y);
+              // can't be all-female all-missing since dosage_ct > 0
               *R_CAST(uint32_t*, bgen_geno_buf_iter) = 0x1000002;
               bgen_geno_buf_iter = &(bgen_geno_buf_iter[4]);
               unsigned char* ploidy_and_missingness_iter = bgen_geno_buf_iter;
               bgen_geno_buf_iter = &(bgen_geno_buf_iter[sample_ct]);
               *bgen_geno_buf_iter++ = 0;
               *bgen_geno_buf_iter++ = bit_precision;
-              uint32_t widx = 0;
-              uint32_t loop_len = kBitsPerWordD2;
-              if (!two_byte_probs) {
-                while (1) {
-                  if (widx >= sample_ctl2_m1) {
-                    if (widx > sample_ctl2_m1) {
-                      break;
-                    }
-                    loop_len = ModNz(sample_ct, kBitsPerWordD2);
+              probs_write_witer = R_CAST(uintptr_t*, bgen_geno_buf_iter);
+              while (1) {
+                if (widx >= sample_ctl2_m1) {
+                  if (widx > sample_ctl2_m1) {
+                    break;
                   }
-                  uintptr_t geno_word = genovec[widx];
-                  uint32_t female_hw = R_CAST(const Halfword*, sex_female_collapsed)[widx];
-                  for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits < loop_len; ++sample_idx_lowbits) {
+                  loop_len = ModNz(sample_ct, kBitsPerWordD2);
+                }
+                uintptr_t geno_word = genovec[widx];
+                const uint32_t female_hw = R_CAST(const Halfword*, sex_female_collapsed)[widx];
+                const uint32_t dosage_present_hw = R_CAST(const Halfword*, dosage_present)[widx];
+                uint32_t shifted_bit = 1;
+                for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits < loop_len; ++sample_idx_lowbits, shifted_bit *= 2, geno_word >>= 2) {
+                  uint32_t cur_dosage;
+                  if (dosage_present_hw & shifted_bit) {
+                    cur_dosage = *dosage_main_iter++;
+                  } else {
                     const uintptr_t cur_geno = geno_word & 3;
-                    const uint32_t cur_female = female_hw & 1;
-                    const uint32_t ploidy_and_missingness = (cur_geno == 3) * (128 - cur_female) + 1;
-                    *ploidy_and_missingness_iter++ = ploidy_and_missingness;
-                    if (ploidy_and_missingness != 128) {
-                      *bgen_geno_buf_iter++ = bgen_haploid_basic_table8[cur_geno];
+                    if (cur_geno == 3) {
+                      if (!(female_hw & shifted_bit)) {
+                        *ploidy_and_missingness_iter++ = 129;
+                        Append0Bits(bit_precision, &cur_write_bits, &cur_write_bit_idx, &probs_write_witer);
+                      } else {
+                        *ploidy_and_missingness_iter++ = 128;
+                      }
+                      continue;
                     }
-                    geno_word >>= 2;
-                    female_hw >>= 1;
+                    cur_dosage = cur_geno * kDosageMid;
                   }
-                  ++widx;
-                }
-              } else {
-                uint16_t* genodata_iter = R_CAST(uint16_t*, bgen_geno_buf_iter);
-                while (1) {
-                  if (widx >= sample_ctl2_m1) {
-                    if (widx > sample_ctl2_m1) {
-                      break;
-                    }
-                    loop_len = ModNz(sample_ct, kBitsPerWordD2);
-                  }
-                  uintptr_t geno_word = genovec[widx];
-                  uint32_t female_hw = R_CAST(const Halfword*, sex_female_collapsed)[widx];
-                  for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits < loop_len; ++sample_idx_lowbits) {
-                    const uintptr_t cur_geno = geno_word & 3;
-                    const uint32_t cur_female = female_hw & 1;
-                    const uint32_t ploidy_and_missingness = (cur_geno == 3) * (128 - cur_female) + 1;
-                    *ploidy_and_missingness_iter++ = ploidy_and_missingness;
-                    if (ploidy_and_missingness != 128) {
-                      *genodata_iter++ = bgen_haploid_basic_table16[cur_geno];
-                    }
-                    geno_word >>= 2;
-                    female_hw >>= 1;
-                  }
-                  ++widx;
-                }
-                bgen_geno_buf_iter = R_CAST(unsigned char*, genodata_iter);
-              }
-            }
-          }
-        } else {
-          // phase present, no dosages present, variable ploidy
-          // lookup tables still usable
-          if (is_x) {
-            *R_CAST(uint32_t*, bgen_geno_buf_iter) = 0x2010002;
-            bgen_geno_buf_iter = &(bgen_geno_buf_iter[4]);
-            unsigned char* ploidy_and_missingness_iter = bgen_geno_buf_iter;
-            bgen_geno_buf_iter = &(bgen_geno_buf_iter[sample_ct]);
-            *bgen_geno_buf_iter++ = 1;
-            *bgen_geno_buf_iter++ = bit_precision;
-            uint32_t widx = 0;
-            uint32_t loop_len = kBitsPerWordD2;
-            while (1) {
-              if (widx >= sample_ctl2_m1) {
-                if (widx > sample_ctl2_m1) {
-                  break;
-                }
-                loop_len = ModNz(sample_ct, kBitsPerWordD2);
-              }
-              uintptr_t geno_word = genovec[widx];
-              uint32_t nonmale_hw = ~R_CAST(const Halfword*, sex_male_collapsed)[widx];
-              uint32_t phasepresent_hw = R_CAST(const Halfword*, phasepresent)[widx];
-              uint32_t phaseinfo_hw = R_CAST(const Halfword*, phaseinfo)[widx];
-              for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits < loop_len; ++sample_idx_lowbits, geno_word >>= 2, nonmale_hw >>= 1, phasepresent_hw >>= 1, phaseinfo_hw >>= 1) {
-                const uintptr_t cur_geno = geno_word & 3;
-                const uint32_t cur_nonmale = nonmale_hw & 1;
-                if (cur_geno == 3) {
-                  *ploidy_and_missingness_iter++ = 129 + cur_nonmale;
-                  bgen_geno_buf_iter = memsetua(bgen_geno_buf_iter, 0, (1 + two_byte_probs) << cur_nonmale);
-                  continue;
-                }
-                const uint32_t cur_phasepresent = phasepresent_hw & 1;
-                if (cur_phasepresent | cur_nonmale) {
-                  *ploidy_and_missingness_iter++ = 2;
-                  const uint32_t cur_index = cur_geno | (cur_phasepresent * 4) | ((phaseinfo_hw & 1) * 8);
-                  if (!two_byte_probs) {
-                    *R_CAST(uint16_t*, bgen_geno_buf_iter) = bgen_diploid_phased_hardcall_table8[cur_index];
-                    bgen_geno_buf_iter = &(bgen_geno_buf_iter[2]);
-                  } else {
-                    *R_CAST(uint32_t*, bgen_geno_buf_iter) = bgen_diploid_phased_hardcall_table16[cur_index];
-                    bgen_geno_buf_iter = &(bgen_geno_buf_iter[4]);
-                  }
-                  continue;
-                }
-                *ploidy_and_missingness_iter++ = 1;
-                if (!two_byte_probs) {
-                  *bgen_geno_buf_iter++ = bgen_haploid_basic_table8[cur_geno];
-                } else {
-                  *R_CAST(uint16_t*, bgen_geno_buf_iter) = bgen_haploid_basic_table16[cur_geno];
-                  bgen_geno_buf_iter = &(bgen_geno_buf_iter[2]);
-                }
-              }
-              ++widx;
-            }
-          } else {
-            // can't be all-female all-missing since phasepresent_ct > 0
-            *R_CAST(uint32_t*, bgen_geno_buf_iter) = 0x2010002 - cur_y * 0x10000;
-            bgen_geno_buf_iter = &(bgen_geno_buf_iter[4]);
-            unsigned char* ploidy_and_missingness_iter = bgen_geno_buf_iter;
-            bgen_geno_buf_iter = &(bgen_geno_buf_iter[sample_ct]);
-            *bgen_geno_buf_iter++ = 1;
-            *bgen_geno_buf_iter++ = bit_precision;
-            uint32_t widx = 0;
-            uint32_t loop_len = kBitsPerWordD2;
-            uint32_t female_hw = 0;
-            while (1) {
-              if (widx >= sample_ctl2_m1) {
-                if (widx > sample_ctl2_m1) {
-                  break;
-                }
-                loop_len = ModNz(sample_ct, kBitsPerWordD2);
-              }
-              uintptr_t geno_word = genovec[widx];
-              if (cur_y) {
-                female_hw = R_CAST(const Halfword*, sex_female_collapsed)[widx];
-              }
-              uint32_t phasepresent_hw = R_CAST(const Halfword*, phasepresent)[widx];
-              uint32_t phaseinfo_hw = R_CAST(const Halfword*, phaseinfo)[widx];
-              for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits < loop_len; ++sample_idx_lowbits, geno_word >>= 2, phasepresent_hw >>= 1, phaseinfo_hw >>= 1) {
-                const uintptr_t cur_geno = geno_word & 3;
-                if (cur_geno == 3) {
-                  // female_hw not incrementally shifted for now
-                  if (!(female_hw & (1U << sample_idx_lowbits))) {
-                    *ploidy_and_missingness_iter++ = 129;
-                    bgen_geno_buf_iter = memsetua(bgen_geno_buf_iter, 0, 1 + two_byte_probs);
-                  } else {
-                    *ploidy_and_missingness_iter++ = 128;
-                  }
-                  continue;
-                }
-                const uint32_t cur_phasepresent = phasepresent_hw & 1;
-                if (cur_phasepresent) {
-                  *ploidy_and_missingness_iter++ = 2;
-                  const uint32_t cur_index = cur_geno | (cur_phasepresent * 4) | ((phaseinfo_hw & 1) * 8);
-                  if (!two_byte_probs) {
-                    *R_CAST(uint16_t*, bgen_geno_buf_iter) = bgen_diploid_phased_hardcall_table8[cur_index];
-                    bgen_geno_buf_iter = &(bgen_geno_buf_iter[2]);
-                  } else {
-                    *R_CAST(uint32_t*, bgen_geno_buf_iter) = bgen_diploid_phased_hardcall_table16[cur_index];
-                    bgen_geno_buf_iter = &(bgen_geno_buf_iter[4]);
-                  }
-                  continue;
-                }
-                *ploidy_and_missingness_iter++ = 1;
-                if (!two_byte_probs) {
-                  *bgen_geno_buf_iter++ = bgen_haploid_basic_table8[cur_geno];
-                } else {
-                  *R_CAST(uint16_t*, bgen_geno_buf_iter) = bgen_haploid_basic_table16[cur_geno];
-                  bgen_geno_buf_iter = &(bgen_geno_buf_iter[2]);
-                }
-              }
-              ++widx;
-            }
-          }
-        }
-      } else {
-        // dosages present, variable ploidy
-        // don't bother with lookup tables here
-        const Dosage* dosage_main_iter = dosage_main;
-        if (!use_phased_format) {
-          if (is_x) {
-            *R_CAST(uint32_t*, bgen_geno_buf_iter) = 0x2010002;
-            bgen_geno_buf_iter = &(bgen_geno_buf_iter[4]);
-            unsigned char* ploidy_and_missingness_iter = bgen_geno_buf_iter;
-            bgen_geno_buf_iter = &(bgen_geno_buf_iter[sample_ct]);
-            *bgen_geno_buf_iter++ = 0;
-            *bgen_geno_buf_iter++ = bit_precision;
-            uint32_t widx = 0;
-            uint32_t loop_len = kBitsPerWordD2;
-            while (1) {
-              if (widx >= sample_ctl2_m1) {
-                if (widx > sample_ctl2_m1) {
-                  break;
-                }
-                loop_len = ModNz(sample_ct, kBitsPerWordD2);
-              }
-              uintptr_t geno_word = genovec[widx];
-              const uint32_t male_hw = R_CAST(const Halfword*, sex_male_collapsed)[widx];
-              const uint32_t dosage_present_hw = R_CAST(const Halfword*, dosage_present)[widx];
-              uint32_t shifted_bit = 1;
-              for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits < loop_len; ++sample_idx_lowbits, shifted_bit *= 2, geno_word >>= 2) {
-                const uint32_t cur_male = male_hw & shifted_bit;
-                uint32_t cur_dosage;
-                if (dosage_present_hw & shifted_bit) {
-                  cur_dosage = *dosage_main_iter++;
-                } else {
-                  const uintptr_t cur_geno = geno_word & 3;
-                  if (cur_geno == 3) {
-                    const uint32_t cur_nonmale = !cur_male;
-                    *ploidy_and_missingness_iter++ = 129 + cur_nonmale;
-                    bgen_geno_buf_iter = memsetua(bgen_geno_buf_iter, 0, (1 + two_byte_probs) << cur_nonmale);
-                    continue;
-                  }
-                  cur_dosage = cur_geno * kDosageMid;
-                }
-                if (cur_male) {
                   *ploidy_and_missingness_iter++ = 1;
                   uint32_t output_prob = (cur_dosage * max_output_val + kDosageMid) / kDosageMax;
-                  if (!two_byte_probs) {
-                    *bgen_geno_buf_iter++ = output_prob;
-                  } else {
-                    *R_CAST(uint16_t*, bgen_geno_buf_iter) = output_prob;
-                    bgen_geno_buf_iter = &(bgen_geno_buf_iter[2]);
-                  }
-                  continue;
+                  AppendBits(bit_precision, output_prob, &cur_write_bits, &cur_write_bit_idx, &probs_write_witer);
                 }
-                *ploidy_and_missingness_iter++ = 2;
-                uint32_t output_prob2 = 0;
-                uint32_t output_prob1;
-                if (cur_dosage > kDosageMid) {
-                  output_prob2 = ((cur_dosage - kDosageMid) * max_output_val + kDosage4th) / kDosageMid;
-                  output_prob1 = max_output_val - output_prob2;
-                } else {
-                  output_prob1 = (cur_dosage * max_output_val + kDosage4th) / kDosageMid;
-                }
-                if (!two_byte_probs) {
-                  *bgen_geno_buf_iter++ = output_prob2;
-                  *bgen_geno_buf_iter++ = output_prob1;
-                } else {
-                  *R_CAST(uint16_t*, bgen_geno_buf_iter) = output_prob2;
-                  bgen_geno_buf_iter = &(bgen_geno_buf_iter[2]);
-                  *R_CAST(uint16_t*, bgen_geno_buf_iter) = output_prob1;
-                  bgen_geno_buf_iter = &(bgen_geno_buf_iter[2]);
-                }
+                ++widx;
               }
-              ++widx;
             }
           } else {
-            assert(cur_y);
-            // can't be all-female all-missing since dosage_ct > 0
-            *R_CAST(uint32_t*, bgen_geno_buf_iter) = 0x1000002;
-            bgen_geno_buf_iter = &(bgen_geno_buf_iter[4]);
-            unsigned char* ploidy_and_missingness_iter = bgen_geno_buf_iter;
-            bgen_geno_buf_iter = &(bgen_geno_buf_iter[sample_ct]);
-            *bgen_geno_buf_iter++ = 0;
-            *bgen_geno_buf_iter++ = bit_precision;
-            uint32_t widx = 0;
-            uint32_t loop_len = kBitsPerWordD2;
-            while (1) {
-              if (widx >= sample_ctl2_m1) {
-                if (widx > sample_ctl2_m1) {
-                  break;
-                }
-                loop_len = ModNz(sample_ct, kBitsPerWordD2);
-              }
-              uintptr_t geno_word = genovec[widx];
-              const uint32_t female_hw = R_CAST(const Halfword*, sex_female_collapsed)[widx];
-              const uint32_t dosage_present_hw = R_CAST(const Halfword*, dosage_present)[widx];
-              uint32_t shifted_bit = 1;
-              for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits < loop_len; ++sample_idx_lowbits, shifted_bit *= 2, geno_word >>= 2) {
-                uint32_t cur_dosage;
-                if (dosage_present_hw & shifted_bit) {
-                  cur_dosage = *dosage_main_iter++;
-                } else {
-                  const uintptr_t cur_geno = geno_word & 3;
-                  if (cur_geno == 3) {
-                    if (!(female_hw & shifted_bit)) {
-                      *ploidy_and_missingness_iter++ = 129;
-                      bgen_geno_buf_iter = memsetua(bgen_geno_buf_iter, 0, 1 + two_byte_probs);
-                    } else {
-                      *ploidy_and_missingness_iter++ = 128;
-                    }
-                    continue;
+            const SDosage* dphase_delta_iter = dphase_delta;
+            if (is_x) {
+              *R_CAST(uint32_t*, bgen_geno_buf_iter) = 0x2010002;
+              bgen_geno_buf_iter = &(bgen_geno_buf_iter[4]);
+              unsigned char* ploidy_and_missingness_iter = bgen_geno_buf_iter;
+              bgen_geno_buf_iter = &(bgen_geno_buf_iter[sample_ct]);
+              *bgen_geno_buf_iter++ = 1;
+              *bgen_geno_buf_iter++ = bit_precision;
+              probs_write_witer = R_CAST(uintptr_t*, bgen_geno_buf_iter);
+              while (1) {
+                if (widx >= sample_ctl2_m1) {
+                  if (widx > sample_ctl2_m1) {
+                    break;
                   }
-                  cur_dosage = cur_geno * kDosageMid;
+                  loop_len = ModNz(sample_ct, kBitsPerWordD2);
                 }
-                *ploidy_and_missingness_iter++ = 1;
-                uint32_t output_prob = (cur_dosage * max_output_val + kDosageMid) / kDosageMax;
-                if (!two_byte_probs) {
-                  *bgen_geno_buf_iter++ = output_prob;
-                } else {
-                  *R_CAST(uint16_t*, bgen_geno_buf_iter) = output_prob;
-                  bgen_geno_buf_iter = &(bgen_geno_buf_iter[2]);
-                }
-              }
-              ++widx;
-            }
-          }
-        } else {
-          const SDosage* dphase_delta_iter = dphase_delta;
-          if (is_x) {
-            *R_CAST(uint32_t*, bgen_geno_buf_iter) = 0x2010002;
-            bgen_geno_buf_iter = &(bgen_geno_buf_iter[4]);
-            unsigned char* ploidy_and_missingness_iter = bgen_geno_buf_iter;
-            bgen_geno_buf_iter = &(bgen_geno_buf_iter[sample_ct]);
-            *bgen_geno_buf_iter++ = 1;
-            *bgen_geno_buf_iter++ = bit_precision;
-            uint32_t widx = 0;
-            uint32_t loop_len = kBitsPerWordD2;
-            while (1) {
-              if (widx >= sample_ctl2_m1) {
-                if (widx > sample_ctl2_m1) {
-                  break;
-                }
-                loop_len = ModNz(sample_ct, kBitsPerWordD2);
-              }
-              uintptr_t geno_word = genovec[widx];
-              const uint32_t male_hw = R_CAST(const Halfword*, sex_male_collapsed)[widx];
-              const uint32_t phaseinfo_hw = R_CAST(const Halfword*, phaseinfo)[widx];
-              const uint32_t dosage_present_hw = R_CAST(const Halfword*, dosage_present)[widx];
-              const uint32_t dphase_present_hw = R_CAST(const Halfword*, dphase_present)[widx];
-              const uint32_t either_phase_present_hw = dphase_present_hw | (R_CAST(const Halfword*, phasepresent)[widx]);
-              uint32_t shifted_bit = 1;
-              for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits < loop_len; ++sample_idx_lowbits, shifted_bit *= 2, geno_word >>= 2) {
-                const uint32_t cur_male = male_hw & shifted_bit;
-                uint32_t cur_dosage;
-                if (dosage_present_hw & shifted_bit) {
-                  cur_dosage = *dosage_main_iter++;
-                } else {
-                  const uintptr_t cur_geno = geno_word & 3;
-                  if (cur_geno == 3) {
-                    const uint32_t cur_nonmale = !cur_male;
-                    *ploidy_and_missingness_iter++ = 129 + cur_nonmale;
-                    bgen_geno_buf_iter = memsetua(bgen_geno_buf_iter, 0, (1 + two_byte_probs) << cur_nonmale);
-                    continue;
-                  }
-                  cur_dosage = cur_geno * kDosageMid;
-                }
-                uint32_t output_prob1;
-                uint32_t output_prob2;
-                if (either_phase_present_hw & shifted_bit) {
-                  if (dphase_present_hw & shifted_bit) {
-                    const int32_t cur_dphase_delta_val = *dphase_delta_iter++;
-                    const uint32_t left_raw = (cur_dosage + cur_dphase_delta_val) >> 1;
-                    const uint32_t right_raw = (cur_dosage - cur_dphase_delta_val) >> 1;
-                    output_prob1 = (left_raw * max_output_val + kDosage4th) / kDosageMid;
-                    output_prob2 = (right_raw * max_output_val + kDosage4th) / kDosageMid;
+                uintptr_t geno_word = genovec[widx];
+                const uint32_t male_hw = R_CAST(const Halfword*, sex_male_collapsed)[widx];
+                const uint32_t phaseinfo_hw = R_CAST(const Halfword*, phaseinfo)[widx];
+                const uint32_t dosage_present_hw = R_CAST(const Halfword*, dosage_present)[widx];
+                const uint32_t dphase_present_hw = R_CAST(const Halfword*, dphase_present)[widx];
+                const uint32_t either_phase_present_hw = dphase_present_hw | (R_CAST(const Halfword*, phasepresent)[widx]);
+                uint32_t shifted_bit = 1;
+                for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits < loop_len; ++sample_idx_lowbits, shifted_bit *= 2, geno_word >>= 2) {
+                  const uint32_t cur_male = male_hw & shifted_bit;
+                  uint32_t cur_dosage;
+                  if (dosage_present_hw & shifted_bit) {
+                    cur_dosage = *dosage_main_iter++;
                   } else {
-                    if (cur_dosage > kDosageMid) {
-                      output_prob1 = ((cur_dosage - kDosageMid) * max_output_val + kDosage4th) / kDosageMid;
-                      output_prob2 = max_output_val;
-                    } else {
-                      output_prob1 = 0;
-                      output_prob2 = (cur_dosage * max_output_val + kDosage4th) / kDosageMid;
+                    const uintptr_t cur_geno = geno_word & 3;
+                    if (cur_geno == 3) {
+                      const uint32_t cur_nonmale = !cur_male;
+                      *ploidy_and_missingness_iter++ = 129 + cur_nonmale;
+                      Append0Bits(bit_precision << cur_nonmale, &cur_write_bits, &cur_write_bit_idx, &probs_write_witer);
+                      continue;
                     }
-                    if (phaseinfo_hw & shifted_bit) {
-                      const uint32_t tmpval = output_prob1;
-                      output_prob1 = output_prob2;
-                      output_prob2 = tmpval;
-                    }
+                    cur_dosage = cur_geno * kDosageMid;
                   }
-                } else {
-                  // unphased, nonmissing
-                  output_prob1 = (cur_dosage * max_output_val + kDosageMid) / kDosageMax;
-                  if (cur_male) {
-                    *ploidy_and_missingness_iter++ = 1;
-                    if (!two_byte_probs) {
-                      *bgen_geno_buf_iter++ = output_prob1;
-                    } else {
-                      *R_CAST(uint16_t*, bgen_geno_buf_iter) = output_prob1;
-                      bgen_geno_buf_iter = &(bgen_geno_buf_iter[2]);
-                    }
-                    continue;
-                  }
-                  output_prob2 = output_prob1;
-                }
-                *ploidy_and_missingness_iter++ = 2;
-                if (!two_byte_probs) {
-                  *bgen_geno_buf_iter++ = output_prob1;
-                  *bgen_geno_buf_iter++ = output_prob2;
-                } else {
-                  *R_CAST(uint16_t*, bgen_geno_buf_iter) = output_prob1;
-                  bgen_geno_buf_iter = &(bgen_geno_buf_iter[2]);
-                  *R_CAST(uint16_t*, bgen_geno_buf_iter) = output_prob2;
-                  bgen_geno_buf_iter = &(bgen_geno_buf_iter[2]);
-                }
-              }
-              ++widx;
-            }
-          } else {
-            // can't be all-female all-missing since dosage_ct > 0
-            *R_CAST(uint32_t*, bgen_geno_buf_iter) = 0x2010002 - cur_y * 0x10000;
-            bgen_geno_buf_iter = &(bgen_geno_buf_iter[4]);
-            unsigned char* ploidy_and_missingness_iter = bgen_geno_buf_iter;
-            bgen_geno_buf_iter = &(bgen_geno_buf_iter[sample_ct]);
-            *bgen_geno_buf_iter++ = 1;
-            *bgen_geno_buf_iter++ = bit_precision;
-            uint32_t widx = 0;
-            uint32_t loop_len = kBitsPerWordD2;
-            uint32_t female_hw = 0;
-            while (1) {
-              if (widx >= sample_ctl2_m1) {
-                if (widx > sample_ctl2_m1) {
-                  break;
-                }
-                loop_len = ModNz(sample_ct, kBitsPerWordD2);
-              }
-              uintptr_t geno_word = genovec[widx];
-              if (cur_y) {
-                female_hw = R_CAST(const Halfword*, sex_female_collapsed)[widx];
-              }
-              const uint32_t phaseinfo_hw = R_CAST(const Halfword*, phaseinfo)[widx];
-              const uint32_t dosage_present_hw = R_CAST(const Halfword*, dosage_present)[widx];
-              const uint32_t dphase_present_hw = R_CAST(const Halfword*, dphase_present)[widx];
-              const uint32_t either_phase_present_hw = dphase_present_hw | (R_CAST(const Halfword*, phasepresent)[widx]);
-              uint32_t shifted_bit = 1;
-              for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits < loop_len; ++sample_idx_lowbits, shifted_bit *= 2, geno_word >>= 2) {
-                uint32_t cur_dosage;
-                if (dosage_present_hw & shifted_bit) {
-                  cur_dosage = *dosage_main_iter++;
-                } else {
-                  const uintptr_t cur_geno = geno_word & 3;
-                  if (cur_geno == 3) {
-                    if (!(female_hw & shifted_bit)) {
-                      *ploidy_and_missingness_iter++ = 129;
-                      bgen_geno_buf_iter = memsetua(bgen_geno_buf_iter, 0, 1 + two_byte_probs);
-                    } else {
-                      *ploidy_and_missingness_iter++ = 128;
-                    }
-                    continue;
-                  }
-                  cur_dosage = cur_geno * kDosageMid;
-                }
-                if (either_phase_present_hw & shifted_bit) {
-                  *ploidy_and_missingness_iter++ = 2;
                   uint32_t output_prob1;
                   uint32_t output_prob2;
-                  if (dphase_present_hw & shifted_bit) {
-                    const int32_t cur_dphase_delta_val = *dphase_delta_iter++;
-                    const uint32_t left_raw = (cur_dosage + cur_dphase_delta_val) >> 1;
-                    const uint32_t right_raw = (cur_dosage - cur_dphase_delta_val) >> 1;
-                    output_prob1 = (left_raw * max_output_val + kDosage4th) / kDosageMid;
-                    output_prob2 = (right_raw * max_output_val + kDosage4th) / kDosageMid;
-                  } else {
-                    if (cur_dosage > kDosageMid) {
-                      output_prob1 = ((cur_dosage - kDosageMid) * max_output_val + kDosage4th) / kDosageMid;
-                      output_prob2 = max_output_val;
+                  if (either_phase_present_hw & shifted_bit) {
+                    if (dphase_present_hw & shifted_bit) {
+                      const int32_t cur_dphase_delta_val = *dphase_delta_iter++;
+                      const uint32_t left_raw = (cur_dosage + cur_dphase_delta_val) >> 1;
+                      const uint32_t right_raw = (cur_dosage - cur_dphase_delta_val) >> 1;
+                      output_prob1 = (left_raw * max_output_val + kDosage4th) / kDosageMid;
+                      output_prob2 = (right_raw * max_output_val + kDosage4th) / kDosageMid;
                     } else {
-                      output_prob1 = 0;
-                      output_prob2 = (cur_dosage * max_output_val + kDosage4th) / kDosageMid;
+                      if (cur_dosage > kDosageMid) {
+                        output_prob1 = ((cur_dosage - kDosageMid) * max_output_val + kDosage4th) / kDosageMid;
+                        output_prob2 = max_output_val;
+                      } else {
+                        output_prob1 = 0;
+                        output_prob2 = (cur_dosage * max_output_val + kDosage4th) / kDosageMid;
+                      }
+                      if (phaseinfo_hw & shifted_bit) {
+                        const uint32_t tmpval = output_prob1;
+                        output_prob1 = output_prob2;
+                        output_prob2 = tmpval;
+                      }
                     }
-                    if (phaseinfo_hw & shifted_bit) {
-                      const uint32_t tmpval = output_prob1;
-                      output_prob1 = output_prob2;
-                      output_prob2 = tmpval;
-                    }
-                  }
-                  if (!two_byte_probs) {
-                    *bgen_geno_buf_iter++ = output_prob1;
-                    *bgen_geno_buf_iter++ = output_prob2;
                   } else {
-                    *R_CAST(uint16_t*, bgen_geno_buf_iter) = output_prob1;
-                    bgen_geno_buf_iter = &(bgen_geno_buf_iter[2]);
-                    *R_CAST(uint16_t*, bgen_geno_buf_iter) = output_prob2;
-                    bgen_geno_buf_iter = &(bgen_geno_buf_iter[2]);
+                    // unphased, nonmissing
+                    output_prob1 = (cur_dosage * max_output_val + kDosageMid) / kDosageMax;
+                    if (cur_male) {
+                      *ploidy_and_missingness_iter++ = 1;
+                      AppendBits(bit_precision, output_prob1, &cur_write_bits, &cur_write_bit_idx, &probs_write_witer);
+                      continue;
+                    }
+                    output_prob2 = output_prob1;
                   }
-                  continue;
+                  *ploidy_and_missingness_iter++ = 2;
+                  AppendBits(bit_precision * 2, output_prob1 | (output_prob2 << bit_precision), &cur_write_bits, &cur_write_bit_idx, &probs_write_witer);
                 }
-                *ploidy_and_missingness_iter++ = 1;
-                uint32_t output_prob = (cur_dosage * max_output_val + kDosageMid) / kDosageMax;
-                if (!two_byte_probs) {
-                  *bgen_geno_buf_iter++ = output_prob;
-                } else {
-                  *R_CAST(uint16_t*, bgen_geno_buf_iter) = output_prob;
-                  bgen_geno_buf_iter = &(bgen_geno_buf_iter[2]);
-                }
+                ++widx;
               }
-              ++widx;
+            } else {
+              // can't be all-female all-missing since dosage_ct > 0
+              *R_CAST(uint32_t*, bgen_geno_buf_iter) = 0x2010002 - cur_y * 0x10000;
+              bgen_geno_buf_iter = &(bgen_geno_buf_iter[4]);
+              unsigned char* ploidy_and_missingness_iter = bgen_geno_buf_iter;
+              bgen_geno_buf_iter = &(bgen_geno_buf_iter[sample_ct]);
+              *bgen_geno_buf_iter++ = 1;
+              *bgen_geno_buf_iter++ = bit_precision;
+              probs_write_witer = R_CAST(uintptr_t*, bgen_geno_buf_iter);
+              uint32_t female_hw = 0;
+              while (1) {
+                if (widx >= sample_ctl2_m1) {
+                  if (widx > sample_ctl2_m1) {
+                    break;
+                  }
+                  loop_len = ModNz(sample_ct, kBitsPerWordD2);
+                }
+                uintptr_t geno_word = genovec[widx];
+                if (cur_y) {
+                  female_hw = R_CAST(const Halfword*, sex_female_collapsed)[widx];
+                }
+                const uint32_t phaseinfo_hw = R_CAST(const Halfword*, phaseinfo)[widx];
+                const uint32_t dosage_present_hw = R_CAST(const Halfword*, dosage_present)[widx];
+                const uint32_t dphase_present_hw = R_CAST(const Halfword*, dphase_present)[widx];
+                const uint32_t either_phase_present_hw = dphase_present_hw | (R_CAST(const Halfword*, phasepresent)[widx]);
+                uint32_t shifted_bit = 1;
+                for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits < loop_len; ++sample_idx_lowbits, shifted_bit *= 2, geno_word >>= 2) {
+                  uint32_t cur_dosage;
+                  if (dosage_present_hw & shifted_bit) {
+                    cur_dosage = *dosage_main_iter++;
+                  } else {
+                    const uintptr_t cur_geno = geno_word & 3;
+                    if (cur_geno == 3) {
+                      if (!(female_hw & shifted_bit)) {
+                        *ploidy_and_missingness_iter++ = 129;
+                        Append0Bits(bit_precision, &cur_write_bits, &cur_write_bit_idx, &probs_write_witer);
+                      } else {
+                        *ploidy_and_missingness_iter++ = 128;
+                      }
+                      continue;
+                    }
+                    cur_dosage = cur_geno * kDosageMid;
+                  }
+                  if (either_phase_present_hw & shifted_bit) {
+                    *ploidy_and_missingness_iter++ = 2;
+                    uint32_t output_prob1;
+                    uint32_t output_prob2;
+                    if (dphase_present_hw & shifted_bit) {
+                      const int32_t cur_dphase_delta_val = *dphase_delta_iter++;
+                      const uint32_t left_raw = (cur_dosage + cur_dphase_delta_val) >> 1;
+                      const uint32_t right_raw = (cur_dosage - cur_dphase_delta_val) >> 1;
+                      output_prob1 = (left_raw * max_output_val + kDosage4th) / kDosageMid;
+                      output_prob2 = (right_raw * max_output_val + kDosage4th) / kDosageMid;
+                    } else {
+                      if (cur_dosage > kDosageMid) {
+                        output_prob1 = ((cur_dosage - kDosageMid) * max_output_val + kDosage4th) / kDosageMid;
+                        output_prob2 = max_output_val;
+                      } else {
+                        output_prob1 = 0;
+                        output_prob2 = (cur_dosage * max_output_val + kDosage4th) / kDosageMid;
+                      }
+                      if (phaseinfo_hw & shifted_bit) {
+                        const uint32_t tmpval = output_prob1;
+                        output_prob1 = output_prob2;
+                        output_prob2 = tmpval;
+                      }
+                    }
+                    AppendBits(bit_precision * 2, output_prob1 | (output_prob2 << bit_precision), &cur_write_bits, &cur_write_bit_idx, &probs_write_witer);
+                    continue;
+                  }
+                  *ploidy_and_missingness_iter++ = 1;
+                  uint32_t output_prob = (cur_dosage * max_output_val + kDosageMid) / kDosageMax;
+                  AppendBits(bit_precision, output_prob, &cur_write_bits, &cur_write_bit_idx, &probs_write_witer);
+                }
+                ++widx;
+              }
             }
           }
         }
+        *probs_write_witer = cur_write_bits;
+        bgen_geno_buf_iter = R_CAST(unsigned char*, probs_write_witer);
+        bgen_geno_buf_iter = &(bgen_geno_buf_iter[DivUp(cur_write_bit_idx, CHAR_BIT)]);
       }
       const uint32_t uncompressed_bytect = bgen_geno_buf_iter - uncompressed_bgen_geno_buf;
       uintptr_t compressed_bytect;
@@ -3269,12 +3135,6 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
         }
       }
     }
-    if (exportf_bits % 8) {
-      // crap, misinterpreted the spec
-      reterr = kPglRetNotYetSupported;
-      logerrputs("Error: bits= value must be 8 or 16 for now.\n");
-      goto ExportBgen13_ret_NOMEM;
-    }
     if (ConstructBgen13LookupTables(exportf_bits)) {
       goto ExportBgen13_ret_NOMEM;
     }
@@ -3282,9 +3142,8 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
     uintptr_t bgen_geno_cacheline_ct;
     uintptr_t bgen_compressed_buf_max;
     {
-      // 4+2+1+1+1+1 + sample_ct * 5 * bytes_per_prob for ordinary diploid case
-      const uint64_t bytes_per_prob = DivUp(exportf_bits, 8);
-      uint64_t bgen_geno_buf_size = 10 + sample_ct * 5 * bytes_per_prob;
+      const uint64_t tot_prob_bit_ct = S_CAST(uint64_t, sample_ct) * 2 * exportf_bits;
+      uint64_t bgen_geno_buf_size = 10 + sample_ct + DivUp(tot_prob_bit_ct, 8);
       if (bgen_geno_buf_size > 0xffffffffU - 4) {
         // could return VarRecordTooLarge error instead
         logerrputs("Error: Too many samples for .bgen format.\n");
@@ -3295,8 +3154,8 @@ PglErr ExportBgen13(const char* outname, const uintptr_t* sample_include, uint32
       } else {
         bgen_compressed_buf_max = ZSTD_compressBound(bgen_geno_buf_size);
       }
-      // +12 since we may write that far past the end
-      bgen_geno_buf_size += 12;
+      // +14 since we may write that far past the end
+      bgen_geno_buf_size += 14;
       bgen_geno_cacheline_ct = DivUp(bgen_geno_buf_size, kCacheline);
     }
     g_bgen_compressed_buf_max = bgen_compressed_buf_max;
