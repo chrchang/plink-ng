@@ -627,7 +627,7 @@ static const uint32_t* g_subcontig_info = nullptr;
 static const uint32_t* g_subcontig_thread_assignments = nullptr;
 static const uintptr_t* g_variant_include = nullptr;
 static const uintptr_t* g_variant_allele_idxs = nullptr;
-static const AltAlleleCt* g_maj_alleles = nullptr;
+static const AlleleCode* g_maj_alleles = nullptr;
 static const double* g_all_allele_freqs = nullptr;
 static const uint32_t* g_variant_bps = nullptr;
 static uint32_t* g_tvidx_end = nullptr;
@@ -664,7 +664,7 @@ THREAD_FUNC_DECL IndepPairwiseThread(void* arg) {
   const uint32_t y_start = g_y_start;
   const uint32_t y_len = g_y_len;
   const uintptr_t* variant_allele_idxs = g_variant_allele_idxs;
-  const AltAlleleCt* maj_alleles = g_maj_alleles;
+  const AlleleCode* maj_alleles = g_maj_alleles;
   const double* all_allele_freqs = g_all_allele_freqs;
   const uint32_t* variant_bps = g_variant_bps;
   const uint32_t founder_ct = g_founder_ct;
@@ -890,7 +890,7 @@ THREAD_FUNC_DECL IndepPairwiseThread(void* arg) {
   }
 }
 
-PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* variant_allele_idxs, const AltAlleleCt* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uint32_t* founder_info_cumulative_popcounts, const uintptr_t* founder_nonmale, const uintptr_t* founder_male, const LdInfo* ldip, const uint32_t* subcontig_info, const uint32_t* subcontig_thread_assignments, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t founder_male_ct, uint32_t subcontig_ct, uintptr_t window_max, uint32_t calc_thread_ct, uint32_t max_load, PgenReader* simple_pgrp, uintptr_t* removed_variants_collapsed) {
+PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const uintptr_t* variant_allele_idxs, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uint32_t* founder_info_cumulative_popcounts, const uintptr_t* founder_nonmale, const uintptr_t* founder_male, const LdInfo* ldip, const uint32_t* subcontig_info, const uint32_t* subcontig_thread_assignments, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t founder_male_ct, uint32_t subcontig_ct, uintptr_t window_max, uint32_t calc_thread_ct, uint32_t max_load, PgenReader* simple_pgrp, uintptr_t* removed_variants_collapsed) {
   PglErr reterr = kPglRetSuccess;
   {
     const uint32_t founder_nonmale_ct = founder_ct - founder_male_ct;
@@ -1550,7 +1550,7 @@ PglErr LdPruneWrite(const uintptr_t* variant_include, const uintptr_t* removed_v
   return reterr;
 }
 
-PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const AltAlleleCt* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_male, const LdInfo* ldip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const AlleleCode* maj_alleles, const double* allele_freqs, const uintptr_t* founder_info, const uintptr_t* sex_male, const LdInfo* ldip, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   // common initialization between --indep-pairwise and --indep-pairphase
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;

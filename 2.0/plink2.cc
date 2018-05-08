@@ -61,7 +61,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (4 May 2018)";
+  " (7 May 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -1426,7 +1426,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
       uint64_t* allele_dosages = nullptr;
       uint64_t* founder_allele_dosages = nullptr;
 
-      AltAlleleCt* maj_alleles = nullptr;
+      AlleleCode* maj_alleles = nullptr;
       double* allele_freqs = nullptr;
       uint32_t* raw_geno_cts = nullptr;
       uint32_t* founder_raw_geno_cts = nullptr;
@@ -1465,7 +1465,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             goto Plink2Core_ret_INCONSISTENT_INPUT;
           }
           if (maj_alleles_needed) {
-            maj_alleles = S_CAST(AltAlleleCt*, bigstack_alloc(raw_variant_ct * sizeof(AltAlleleCt)));
+            maj_alleles = S_CAST(AlleleCode*, bigstack_alloc(raw_variant_ct * sizeof(AlleleCode)));
             if (!maj_alleles) {
               goto Plink2Core_ret_NOMEM;
             }
@@ -1915,7 +1915,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         uintptr_t* nonref_flags_backup = nullptr;
         uint32_t nonref_flags_was_null = (nonref_flags == nullptr);
 
-        AltAlleleCt* refalt1_select = nullptr;
+        AlleleCode* refalt1_select = nullptr;
         if ((pcp->misc_flags & kfMiscMajRef) || setting_alleles_from_file) {
           if (loop_cats_idx + 1 < loop_cats_ct) {
             // --ref-allele and --alt1-allele may alter max_allele_slen and
@@ -1935,19 +1935,19 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               memcpy(nonref_flags_backup, nonref_flags, raw_variant_ctl * sizeof(intptr_t));
             }
           }
-          const uintptr_t refalt1_word_ct = DivUp(2 * raw_variant_ct * sizeof(AltAlleleCt), kBytesPerWord);
+          const uintptr_t refalt1_word_ct = DivUp(2 * raw_variant_ct * sizeof(AlleleCode), kBytesPerWord);
           uintptr_t* refalt1_select_ul;
           // no need to track bigstack_end_mark before this is allocated, etc.,
           // due to the restriction to --make-pgen/--export
           if (bigstack_end_alloc_w(refalt1_word_ct, &refalt1_select_ul)) {
             goto Plink2Core_ret_NOMEM;
           }
-          const uintptr_t alt_allele_vals = k1LU << (8 * sizeof(AltAlleleCt));
+          const uintptr_t alt_allele_vals = k1LU << (8 * sizeof(AlleleCode));
           const uintptr_t fill_word = ((~k0LU) / ((alt_allele_vals - 1) * (alt_allele_vals + 1))) * alt_allele_vals;
           for (uintptr_t widx = 0; widx < refalt1_word_ct; ++widx) {
             refalt1_select_ul[widx] = fill_word;
           }
-          refalt1_select = R_CAST(AltAlleleCt*, refalt1_select_ul);
+          refalt1_select = R_CAST(AlleleCode*, refalt1_select_ul);
           const uint32_t not_all_nonref = !(pgfi.gflags & kfPgenGlobalAllNonref);
           if ((not_all_nonref || setting_alleles_from_file) && (!nonref_flags)) {
             if (bigstack_end_alloc_w(raw_variant_ctl, &nonref_flags)) {
@@ -2013,7 +2013,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
                 if (alt_ct_p1 == 2) {
                   // optimize common case
                   if (cur_allele_dosages[1] > cur_allele_dosages[0]) {
-                    // assumes AltAlleleCt is unsigned char
+                    // assumes AlleleCode is unsigned char
                     R_CAST(uint16_t*, refalt1_select)[variant_uidx] = 1;
                     if (nonref_flags) {
                       SetBit(variant_uidx, nonref_flags);

@@ -48,6 +48,14 @@ static const float kRecipDosageMidf = 0.00006103515625;
 CONSTU31(kDosagePerVec, kBytesPerVec / sizeof(Dosage));
 CONSTU31(kDosagePerCacheline, kCacheline / sizeof(Dosage));
 
+HEADER_CINLINE uintptr_t DosageCtToVecCt(uintptr_t val) {
+  return DivUp(val, kDosagePerVec);
+}
+
+HEADER_CINLINE uintptr_t DosageCtToAlignedWordCt(uintptr_t val) {
+  return kWordsPerVec * DosageCtToVecCt(val);
+}
+
 // dosage_int = 0..2 value in 16384ths
 // returns distance from 0.5 or 1.5 in 16384ths, whichever is closer
 HEADER_INLINE uint32_t BiallelicDosageHalfdist(uint32_t dosage_int) {
@@ -229,8 +237,8 @@ void InitPedigreeIdInfo(MiscFlags misc_flags, PedigreeIdInfo* piip);
 // bigstack.
 
 
-HEADER_INLINE BoolErr bigstack_alloc_allele(uintptr_t ct, AltAlleleCt** allele_arr_ptr) {
-  *allele_arr_ptr = S_CAST(AltAlleleCt*, bigstack_alloc(ct * sizeof(AltAlleleCt)));
+HEADER_INLINE BoolErr bigstack_alloc_allele(uintptr_t ct, AlleleCode** allele_arr_ptr) {
+  *allele_arr_ptr = S_CAST(AlleleCode*, bigstack_alloc(ct * sizeof(AlleleCode)));
   return !(*allele_arr_ptr);
 }
 

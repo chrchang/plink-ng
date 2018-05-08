@@ -365,7 +365,7 @@ PglErr ExtractExcludeRange(const char* fnames, const ChrInfo* cip, const uint32_
     char* line_iter = nullptr;
     do {
       if (!line_iter) {
-        reterr = InitRLstreamMinsizeRaw(fnames_iter, &rls, &line_iter);
+        reterr = InitRLstreamFastsizeRaw(fnames_iter, &rls, &line_iter);
       } else {
         reterr = RetargetRLstreamRaw(fnames_iter, &rls, &line_iter);
         // previous file always read to eof, so no need to call

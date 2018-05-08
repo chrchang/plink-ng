@@ -2413,7 +2413,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
   return reterr;
 }
 
-void ComputeMajAlleles(const uintptr_t* variant_include, const uintptr_t* variant_allele_idxs, const double* allele_freqs, uint32_t variant_ct, AltAlleleCt* maj_alleles) {
+void ComputeMajAlleles(const uintptr_t* variant_include, const uintptr_t* variant_allele_idxs, const double* allele_freqs, uint32_t variant_ct, AlleleCode* maj_alleles) {
   uint32_t cur_allele_ct = 2;
   uint32_t variant_uidx = 0;
   for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
@@ -3144,7 +3144,7 @@ void EnforceMinBpSpace(const ChrInfo* cip, const uint32_t* variant_bps, uint32_t
 // (Workaround for that case when merge is implemented: generate a
 // single-sample file with all the right reference alleles, and merge with
 // that.)
-PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const TwoColParams* allele_flag_info, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t is_alt1, uint32_t force, uint32_t max_thread_ct, const char** allele_storage, uint32_t* max_allele_slen_ptr, AltAlleleCt* refalt1_select, uintptr_t* nonref_flags, uintptr_t* previously_seen) {
+PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const TwoColParams* allele_flag_info, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t is_alt1, uint32_t force, uint32_t max_thread_ct, const char** allele_storage, uint32_t* max_allele_slen_ptr, AlleleCode* refalt1_select, uintptr_t* nonref_flags, uintptr_t* previously_seen) {
   // temporary allocations on bottom, "permanent" allocations on top (so we
   // don't reset g_bigstack_end).
   // previously_seen[] should be preallocated iff both --ref-allele and
@@ -3289,7 +3289,7 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
       // note that when both --ref-allele and --alt1-allele are present in the
       // same run, --alt1-allele must deal with the possibility of a
       // pre-altered refalt1_select[].
-      AltAlleleCt* cur_refalt1_select = &(refalt1_select[2 * variant_uidx]);
+      AlleleCode* cur_refalt1_select = &(refalt1_select[2 * variant_uidx]);
       // this is always zero or one
       uint32_t orig_main_allele_idx = cur_refalt1_select[is_alt1];
 
@@ -3486,7 +3486,7 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
   return reterr;
 }
 
-PglErr RefFromFaProcessContig(const uintptr_t* variant_include, const uint32_t* variant_bps, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const ChrInfo* cip, uint32_t force, uint32_t chr_fo_idx, uint32_t variant_uidx_last, char* seqbuf, char* seqbuf_end, AltAlleleCt* refalt1_select, uintptr_t* nonref_flags, uint32_t* changed_ct_ptr, uint32_t* validated_ct_ptr, uint32_t* downgraded_ct_ptr) {
+PglErr RefFromFaProcessContig(const uintptr_t* variant_include, const uint32_t* variant_bps, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const ChrInfo* cip, uint32_t force, uint32_t chr_fo_idx, uint32_t variant_uidx_last, char* seqbuf, char* seqbuf_end, AlleleCode* refalt1_select, uintptr_t* nonref_flags, uint32_t* changed_ct_ptr, uint32_t* validated_ct_ptr, uint32_t* downgraded_ct_ptr) {
   uint32_t variant_uidx = AdvTo1Bit(variant_include, cip->chr_fo_vidx_start[chr_fo_idx]);
   const uint32_t bp_end = seqbuf_end - seqbuf;
   if (variant_bps[variant_uidx_last] >= bp_end) {
@@ -3620,7 +3620,7 @@ PglErr RefFromFaProcessContig(const uintptr_t* variant_include, const uint32_t* 
   }
 }
 
-PglErr RefFromFa(const uintptr_t* variant_include, const uint32_t* variant_bps, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const ChrInfo* cip, const char* fname, uint32_t max_allele_slen, uint32_t force, AltAlleleCt* refalt1_select, uintptr_t* nonref_flags) {
+PglErr RefFromFa(const uintptr_t* variant_include, const uint32_t* variant_bps, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const ChrInfo* cip, const char* fname, uint32_t max_allele_slen, uint32_t force, AlleleCode* refalt1_select, uintptr_t* nonref_flags) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;

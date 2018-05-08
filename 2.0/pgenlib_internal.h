@@ -76,17 +76,18 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 1001
+#define PGENLIB_INTERNAL_VERNUM 1002
 
 #ifdef __cplusplus
 namespace plink2 {
 #endif
 
 // other configuration-ish values needed by plink2_common subset
-typedef unsigned char AltAlleleCt;
-// Set this to 65534 if AltAlleleCt is uint16_t, 2^24 - 1 if uint32_t.
+typedef unsigned char AlleleCode;
+// Set this to 65534 if AlleleCode is uint16_t, 2^24 - 1 if uint32_t.
 CONSTU31(kPglMaxAltAlleleCt, 254);
-#define kMissingAlleleCode S_CAST(AltAlleleCt, -1)
+#define kMissingAlleleCode S_CAST(AlleleCode, -1)
+CONSTU31(kAlleleCodesPerVec, kBytesPerVec / sizeof(AlleleCode));
 
 // more verbose than (val + 3) / 4, but may as well make semantic meaning
 // obvious; any explicit DivUp(val, 4) expressions should have a different
@@ -110,6 +111,14 @@ HEADER_INLINE uintptr_t QuaterCtToAlignedWordCt(uintptr_t val) {
 
 HEADER_INLINE uintptr_t QuaterCtToCachelineCt(uintptr_t val) {
   return DivUp(val, kQuatersPerCacheline);
+}
+
+HEADER_INLINE uintptr_t AlleleCodeCtToVecCt(uintptr_t val) {
+  return DivUp(val, kAlleleCodesPerVec);
+}
+
+HEADER_INLINE uintptr_t AlleleCodeCtToAlignedWordCt(uintptr_t val) {
+  return kWordsPerVec * AlleleCodeCtToVecCt(val);
 }
 
 HEADER_INLINE uintptr_t GetQuaterarrEntry(const uintptr_t* quaterarr, uint32_t idx) {
@@ -157,9 +166,9 @@ HEADER_INLINE void CopyQuaterarr(const uintptr_t* __restrict source_quaterarr, u
 void CopyQuaterarrNonemptySubset(const uintptr_t* __restrict raw_quaterarr, const uintptr_t* __restrict subset_mask, uint32_t raw_quaterarr_entry_ct, uint32_t subset_entry_ct, uintptr_t* __restrict output_quaterarr);
 
 // Copies a bit from raw_bitarr for each 01 entry in genovec.
-void Copy01Subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict genovec, uint32_t bit_idx_end, uintptr_t* __restrict output_bitarr);
+void Copy01Subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict genovec, uint32_t write_bit_idx_start, uint32_t bit_ct, uintptr_t* __restrict output_bitarr);
 
-void Copy10Subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict genovec, uint32_t bit_idx_end, uintptr_t* __restrict output_bitarr);
+void Copy10Subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict genovec, uint32_t bit_ct, uintptr_t* __restrict output_bitarr);
 
 void GenovecCountFreqsUnsafe(const uintptr_t* genovec, uint32_t sample_ct, uint32_t* counts);
 
@@ -590,7 +599,7 @@ struct PgenFileInfoStruct {
   //                            applications of >65534 in highly variable
   //                            regions, though, and it doesn't actually cost
   //                            us anything to define a way to represent it.
-  //                            (A plink2 binary compiled with AltAlleleCt
+  //                            (A plink2 binary compiled with AlleleCode
   //                            typedef'd as uint32_t will run more slowly, of
   //                            course, but most binaries will not be compiled
   //                            that way.)
@@ -1028,7 +1037,7 @@ void PgrDifflistToGenovecUnsafe(const uintptr_t* __restrict raregeno, const uint
 // * PgrGet1() only counts the specified allele.
 // * PgrGetM() is the multiallelic loader which doesn't collapse multiple
 //   alleles into one.  Exact functional form TBD, but probably fills a
-//   length-[2 * sample_ct] array of AltAlleleCt with max/max = missing.
+//   length-[2 * sample_ct] array of AlleleCode with max/max = missing.
 // * PgrGetDifflistOrGenovec() opportunistically returns the sparse genotype
 //   representation ('difflist'), for functions capable of taking advantage of
 //   it.  I don't plan to use this in plink2 before at least 2019, but the
@@ -1276,12 +1285,12 @@ HEADER_INLINE PglErr SpgwAppendBiallelicDifflistLimited(const uintptr_t* __restr
 //    Ok if patch_01_ct == patch_10_ct == 0; in this case no aux1 track is
 //    saved and bit 3 of vrtype is not set.  (Note that multiallelic dosage may
 //    still be present when vrtype bit 3 is unset.)
-// 2. generic dense: takes a length-2n array of AltAlleleCt allele codes.
+// 2. generic dense: takes a length-2n array of AlleleCode allele codes.
 //    Assumes [2k] <= [2k+1] for each k.  Instead of providing direct API
 //    functions for this, we just provide a dense -> sparse helper function.
-BoolErr PwcAppendMultiallelicSparse(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AltAlleleCt* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AltAlleleCt* __restrict patch_10_vals, uint32_t patch_01_ct, uint32_t patch_10_ct, PgenWriterCommon* pwcp);
+BoolErr PwcAppendMultiallelicSparse(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t patch_01_ct, uint32_t patch_10_ct, PgenWriterCommon* pwcp);
 
-HEADER_INLINE PglErr SpgwAppendMultiallelicSparse(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AltAlleleCt* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AltAlleleCt* __restrict patch_10_vals, uint32_t patch_01_ct, uint32_t patch_10_ct, STPgenWriter* spgwp) {
+HEADER_INLINE PglErr SpgwAppendMultiallelicSparse(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t patch_01_ct, uint32_t patch_10_ct, STPgenWriter* spgwp) {
   if (SpgwFlush(spgwp)) {
     return kPglRetWriteFail;
   }
@@ -1292,7 +1301,7 @@ HEADER_INLINE PglErr SpgwAppendMultiallelicSparse(const uintptr_t* __restrict ge
 }
 
 // This may not zero out trailing halfword of patch_{01,10}_set.
-void PglMultiallelicDenseToSparse(const AltAlleleCt* __restrict wide_codes, uint32_t sample_ct, uintptr_t* __restrict genovec, uintptr_t* __restrict patch_01_set, AltAlleleCt* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AltAlleleCt* __restrict patch_10_vals, uint32_t* __restrict patch_01_ct_ptr, uint32_t* __restrict patch_10_ct_ptr);
+void PglMultiallelicDenseToSparse(const AlleleCode* __restrict wide_codes, uint32_t sample_ct, uintptr_t* __restrict genovec, uintptr_t* __restrict patch_01_set, AlleleCode* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals, uint32_t* __restrict patch_01_ct_ptr, uint32_t* __restrict patch_10_ct_ptr);
 
 // phasepresent == nullptr ok, that indicates that ALL heterozygous calls are
 // phased.  Caller should use e.g. PwcAppendBiallelicGenovec() if it's known
@@ -1312,9 +1321,9 @@ HEADER_INLINE PglErr SpgwAppendBiallelicGenovecHphase(const uintptr_t* __restric
   return kPglRetSuccess;
 }
 
-BoolErr PwcAppendMultiallelicGenovecHphase(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AltAlleleCt* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AltAlleleCt* __restrict patch_10_vals, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, uint32_t patch_01_ct, uint32_t patch_10_ct, PgenWriterCommon* pwcp);
+BoolErr PwcAppendMultiallelicGenovecHphase(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, uint32_t patch_01_ct, uint32_t patch_10_ct, PgenWriterCommon* pwcp);
 
-HEADER_INLINE PglErr SpgwAppendMultiallelicGenovecHphase(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AltAlleleCt* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AltAlleleCt* __restrict patch_10_vals, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, uint32_t patch_01_ct, uint32_t patch_10_ct, STPgenWriter* spgwp) {
+HEADER_INLINE PglErr SpgwAppendMultiallelicGenovecHphase(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, uint32_t patch_01_ct, uint32_t patch_10_ct, STPgenWriter* spgwp) {
   if (SpgwFlush(spgwp)) {
     return kPglRetWriteFail;
   }

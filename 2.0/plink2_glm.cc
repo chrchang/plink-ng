@@ -2920,7 +2920,7 @@ static uintptr_t** g_dosage_presents = nullptr;
 static Dosage** g_dosage_mains = nullptr;
 static unsigned char** g_workspace_bufs = nullptr;
 static uint32_t* g_read_variant_uidx_starts = nullptr;
-static const AltAlleleCt* g_a0_alleles = nullptr;
+static const AlleleCode* g_a0_alleles = nullptr;
 
 static uintptr_t* g_sample_include = nullptr;
 static const uintptr_t* g_sample_include_x = nullptr;
@@ -3016,7 +3016,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
   }
   unsigned char* workspace_buf = g_workspace_bufs[tidx];
   const uintptr_t* variant_include = g_variant_include;
-  const AltAlleleCt* a0_alleles = g_a0_alleles;
+  const AlleleCode* a0_alleles = g_a0_alleles;
   const uintptr_t* sex_male_collapsed = g_sex_male_collapsed;
   const ChrInfo* cip = g_cip;
   const uint32_t* subset_chr_fo_vidx_start = g_subset_chr_fo_vidx_start;
@@ -4006,7 +4006,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     const uintptr_t* variant_include = g_variant_include;
     const ChrInfo* cip = g_cip;
     const uintptr_t* variant_allele_idxs = g_variant_allele_idxs;
-    const AltAlleleCt* a0_alleles = g_a0_alleles;
+    const AlleleCode* a0_alleles = g_a0_alleles;
 
     const uint32_t sample_ct = g_sample_ct;
     const uint32_t sample_ct_x = g_sample_ct_x;
@@ -4838,7 +4838,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
   }
   unsigned char* workspace_buf = g_workspace_bufs[tidx];
   const uintptr_t* variant_include = g_variant_include;
-  const AltAlleleCt* a0_alleles = g_a0_alleles;
+  const AlleleCode* a0_alleles = g_a0_alleles;
   const uintptr_t* sex_male_collapsed = g_sex_male_collapsed;
   const ChrInfo* cip = g_cip;
   const uint32_t* subset_chr_fo_vidx_start = g_subset_chr_fo_vidx_start;
@@ -5497,7 +5497,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     const uintptr_t* variant_include = g_variant_include;
     const ChrInfo* cip = g_cip;
     const uintptr_t* variant_allele_idxs = g_variant_allele_idxs;
-    const AltAlleleCt* a0_alleles = g_a0_alleles;
+    const AlleleCode* a0_alleles = g_a0_alleles;
 
     const uint32_t sample_ct = g_sample_ct;
     const uint32_t sample_ct_x = g_sample_ct_x;
@@ -6160,7 +6160,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
 
 static const double kSexMaleToCovarD[2] = {2.0, 1.0};
 
-PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const AltAlleleCt* maj_alleles, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const AdjustInfo* adjust_info_ptr, const APerm* aperm_ptr, const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t orig_covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t xchr_model, double ci_size, double vif_thresh, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const AlleleCode* maj_alleles, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const AdjustInfo* adjust_info_ptr, const APerm* aperm_ptr, const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t orig_covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t xchr_model, double ci_size, double vif_thresh, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   PglErr reterr = kPglRetSuccess;

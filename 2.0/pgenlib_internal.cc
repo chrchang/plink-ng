@@ -89,14 +89,16 @@ void CopyQuaterarrNonemptySubset(const uintptr_t* __restrict raw_quaterarr, cons
   }
 }
 
-void Copy01Subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict genovec, uint32_t bit_idx_end, uintptr_t* __restrict output_bitarr) {
+// bit_idx_start assumed to be < kBitsPerWord
+void Copy01Subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict genovec, uint32_t write_bit_idx_start, uint32_t bit_ct, uintptr_t* __restrict output_bitarr) {
+  const uint32_t bit_idx_end = bit_ct + write_bit_idx_start;
   const uint32_t bit_idx_end_lowbits = bit_idx_end % kBitsPerWord;
   const Halfword* raw_bitarr_alias = R_CAST(const Halfword*, raw_bitarr);
   uintptr_t* output_bitarr_iter = output_bitarr;
   uintptr_t* output_bitarr_last = &(output_bitarr[bit_idx_end / kBitsPerWord]);
   uintptr_t cur_output_word = 0;
   uint32_t read_widx = UINT32_MAX;  // deliberate overflow
-  uint32_t write_idx_lowbits = 0;
+  uint32_t write_idx_lowbits = write_bit_idx_start;
   while ((output_bitarr_iter != output_bitarr_last) || (write_idx_lowbits != bit_idx_end_lowbits)) {
     uintptr_t cur_mask_word;
     // sparse genovec optimization
@@ -104,6 +106,8 @@ void Copy01Subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __res
     do {
       // todo: try reading two genovec words at a time.  would need to be very
       // careful with the possible trailing word, though.
+      // more important to optimize this function now that regular phased-call
+      // handling code is using it.
       cur_mask_word = genovec[++read_widx];
       cur_mask_word = cur_mask_word & (~(cur_mask_word >> 1)) & kMask5555;
     } while (!cur_mask_word);
@@ -111,8 +115,8 @@ void Copy01Subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __res
     uint32_t set_bit_ct = kBitsPerWordD2;
     if (cur_mask_word != kMask5555) {
       const uintptr_t cur_mask_hw = PackWordToHalfword(cur_mask_word);
+      set_bit_ct = PopcountWord(cur_mask_word);
       extracted_bits = _pext_u64(extracted_bits, cur_mask_hw);
-      set_bit_ct = PopcountWord(extracted_bits);
     }
     cur_output_word |= extracted_bits << write_idx_lowbits;
     const uint32_t new_write_idx_lowbits = write_idx_lowbits + set_bit_ct;
@@ -129,11 +133,11 @@ void Copy01Subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __res
   }
 }
 
-void Copy10Subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict genovec, uint32_t bit_idx_end, uintptr_t* __restrict output_bitarr) {
-  const uint32_t bit_idx_end_lowbits = bit_idx_end % kBitsPerWord;
+void Copy10Subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict genovec, uint32_t bit_ct, uintptr_t* __restrict output_bitarr) {
+  const uint32_t bit_idx_end_lowbits = bit_ct % kBitsPerWord;
   const Halfword* raw_bitarr_alias = R_CAST(const Halfword*, raw_bitarr);
   uintptr_t* output_bitarr_iter = output_bitarr;
-  uintptr_t* output_bitarr_last = &(output_bitarr[bit_idx_end / kBitsPerWord]);
+  uintptr_t* output_bitarr_last = &(output_bitarr[bit_ct / kBitsPerWord]);
   uintptr_t cur_output_word = 0;
   uint32_t read_widx = UINT32_MAX;  // deliberate overflow
   uint32_t write_idx_lowbits = 0;
@@ -149,8 +153,8 @@ void Copy10Subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __res
     uint32_t set_bit_ct = kBitsPerWordD2;
     if (cur_mask_word != kMask5555) {
       const uintptr_t cur_mask_hw = PackWordToHalfword(cur_mask_word);
+      set_bit_ct = PopcountWord(cur_mask_word);
       extracted_bits = _pext_u64(extracted_bits, cur_mask_hw);
-      set_bit_ct = PopcountWord(extracted_bits);
     }
     cur_output_word |= extracted_bits << write_idx_lowbits;
     const uint32_t new_write_idx_lowbits = write_idx_lowbits + set_bit_ct;
@@ -269,106 +273,68 @@ void CopyQuaterarrNonemptySubset(const uintptr_t* __restrict raw_quaterarr, cons
   }
 }
 
-void Copy01Subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict genovec, uint32_t bit_idx_end, uintptr_t* __restrict output_bitarr) {
+void Copy01Subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict genovec, uint32_t write_bit_idx_start, uint32_t bit_ct, uintptr_t* __restrict output_bitarr) {
+  const uint32_t bit_idx_end = write_bit_idx_start + bit_ct;
   const uint32_t bit_idx_end_lowbits = bit_idx_end % kBitsPerWord;
   const Halfword* raw_bitarr_alias = R_CAST(const Halfword*, raw_bitarr);
   uintptr_t* output_bitarr_iter = output_bitarr;
   uintptr_t* output_bitarr_last = &(output_bitarr[bit_idx_end / kBitsPerWord]);
   uintptr_t cur_output_word = 0;
   uint32_t read_widx = UINT32_MAX;  // deliberate overflow
-  uint32_t write_idx_lowbits = 0;
+  uint32_t write_idx_lowbits = write_bit_idx_start;
   while ((output_bitarr_iter != output_bitarr_last) || (write_idx_lowbits != bit_idx_end_lowbits)) {
-    uintptr_t cur_mask_word;
+    uintptr_t geno_hets;
     // sparse genovec optimization
     // guaranteed to terminate since there's at least one more set bit
     do {
-      cur_mask_word = genovec[++read_widx];
-      cur_mask_word = cur_mask_word & (~(cur_mask_word >> 1)) & kMask5555;
-    } while (!cur_mask_word);
-    const uintptr_t cur_mask_hw = PackWordToHalfword(cur_mask_word);
-    uintptr_t cur_masked_input_word = raw_bitarr_alias[read_widx] & cur_mask_hw;
-    const uint32_t cur_mask_popcount = PopcountWord(cur_mask_hw);
-    uintptr_t subsetted_input_word = 0;
-    if (cur_masked_input_word) {
-      const uintptr_t cur_inv_mask = ~cur_mask_hw;
-      do {
-        const uint32_t read_uidx_nz_start_lowbits = ctzw(cur_masked_input_word);
-        const uintptr_t cur_inv_mask_shifted = cur_inv_mask >> read_uidx_nz_start_lowbits;
-        // cur_inv_mask_shifted guaranteed to have high set bits
-        const uint32_t cur_read_end = ctzw(cur_inv_mask_shifted) + read_uidx_nz_start_lowbits;
-        // this seems to optimize better than (k1LU << cur_read_end) - k1LU
-        // todo: check if/when that's true elsewhere
-        const uintptr_t lowmask = (~k0LU) >> (kBitsPerWord - cur_read_end);
-        const uintptr_t bits_to_copy = cur_masked_input_word & lowmask;
-        cur_masked_input_word -= bits_to_copy;
-        // todo: check if a less-popcounty implementation should be used in
-        // non-SSE4.2 case
-        const uint32_t cur_write_end = PopcountWord(cur_mask_hw & lowmask);
-        subsetted_input_word |= bits_to_copy >> (cur_read_end - cur_write_end);
-      } while (cur_masked_input_word);
-    }
-    cur_output_word |= subsetted_input_word << write_idx_lowbits;
-    const uint32_t new_write_idx_lowbits = write_idx_lowbits + cur_mask_popcount;
-    if (new_write_idx_lowbits >= kBitsPerWord) {
-      *output_bitarr_iter++ = cur_output_word;
-      // ...and these are the bits that fell off
-      // write_idx_lowbits guaranteed to be nonzero
-      cur_output_word = subsetted_input_word >> (kBitsPerWord - write_idx_lowbits);
-    }
-    write_idx_lowbits = new_write_idx_lowbits % kBitsPerWord;
+      geno_hets = genovec[++read_widx];
+      geno_hets = geno_hets & (~(geno_hets >> 1)) & kMask5555;
+    } while (!geno_hets);
+    // screw it, just iterate over set bits
+    const uint32_t cur_halfword = raw_bitarr_alias[read_widx];
+    do {
+      const uint32_t sample_idx_lowbits = ctzw(geno_hets) / 2;
+      cur_output_word |= S_CAST(uintptr_t, (cur_halfword >> sample_idx_lowbits) & k1LU) << write_idx_lowbits;
+      if (++write_idx_lowbits == kBitsPerWord) {
+        *output_bitarr_iter++ = cur_output_word;
+        cur_output_word = 0;
+        write_idx_lowbits = 0;
+      }
+      geno_hets &= geno_hets - 1;
+    } while (geno_hets);
   }
   if (write_idx_lowbits) {
     *output_bitarr_iter = cur_output_word;
   }
 }
 
-void Copy10Subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict genovec, uint32_t bit_idx_end, uintptr_t* __restrict output_bitarr) {
-  const uint32_t bit_idx_end_lowbits = bit_idx_end % kBitsPerWord;
+void Copy10Subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict genovec, uint32_t bit_ct, uintptr_t* __restrict output_bitarr) {
+  const uint32_t bit_idx_end_lowbits = bit_ct % kBitsPerWord;
   const Halfword* raw_bitarr_alias = R_CAST(const Halfword*, raw_bitarr);
   uintptr_t* output_bitarr_iter = output_bitarr;
-  uintptr_t* output_bitarr_last = &(output_bitarr[bit_idx_end / kBitsPerWord]);
+  uintptr_t* output_bitarr_last = &(output_bitarr[bit_ct / kBitsPerWord]);
   uintptr_t cur_output_word = 0;
   uint32_t read_widx = UINT32_MAX;  // deliberate overflow
   uint32_t write_idx_lowbits = 0;
   while ((output_bitarr_iter != output_bitarr_last) || (write_idx_lowbits != bit_idx_end_lowbits)) {
-    uintptr_t cur_mask_word;
+    uintptr_t geno_2alts;
     // sparse genovec optimization
     // guaranteed to terminate since there's at least one more set bit
     do {
-      cur_mask_word = genovec[++read_widx];
-      cur_mask_word = (~cur_mask_word) & (cur_mask_word >> 1) & kMask5555;
-    } while (!cur_mask_word);
-    const uintptr_t cur_mask_hw = PackWordToHalfword(cur_mask_word);
-    uintptr_t cur_masked_input_word = raw_bitarr_alias[read_widx] & cur_mask_hw;
-    const uint32_t cur_mask_popcount = PopcountWord(cur_mask_hw);
-    uintptr_t subsetted_input_word = 0;
-    if (cur_masked_input_word) {
-      const uintptr_t cur_inv_mask = ~cur_mask_hw;
-      do {
-        const uint32_t read_uidx_nz_start_lowbits = ctzw(cur_masked_input_word);
-        const uintptr_t cur_inv_mask_shifted = cur_inv_mask >> read_uidx_nz_start_lowbits;
-        // cur_inv_mask_shifted guaranteed to have high set bits
-        const uint32_t cur_read_end = ctzw(cur_inv_mask_shifted) + read_uidx_nz_start_lowbits;
-        // this seems to optimize better than (k1LU << cur_read_end) - k1LU
-        // todo: check if/when that's true elsewhere
-        const uintptr_t lowmask = (~k0LU) >> (kBitsPerWord - cur_read_end);
-        const uintptr_t bits_to_copy = cur_masked_input_word & lowmask;
-        cur_masked_input_word -= bits_to_copy;
-        // todo: check if a less-popcounty implementation should be used in
-        // non-SSE4.2 case
-        const uint32_t cur_write_end = PopcountWord(cur_mask_hw & lowmask);
-        subsetted_input_word |= bits_to_copy >> (cur_read_end - cur_write_end);
-      } while (cur_masked_input_word);
-    }
-    cur_output_word |= subsetted_input_word << write_idx_lowbits;
-    const uint32_t new_write_idx_lowbits = write_idx_lowbits + cur_mask_popcount;
-    if (new_write_idx_lowbits >= kBitsPerWord) {
-      *output_bitarr_iter++ = cur_output_word;
-      // ...and these are the bits that fell off
-      // write_idx_lowbits guaranteed to be nonzero
-      cur_output_word = subsetted_input_word >> (kBitsPerWord - write_idx_lowbits);
-    }
-    write_idx_lowbits = new_write_idx_lowbits % kBitsPerWord;
+      geno_2alts = genovec[++read_widx];
+      geno_2alts = (~geno_2alts) & (geno_2alts >> 1) & kMask5555;
+    } while (!geno_2alts);
+    const uint32_t cur_halfword = raw_bitarr_alias[read_widx];
+    do {
+      const uint32_t sample_idx_lowbits = ctzw(geno_2alts) / 2;
+      cur_output_word |= S_CAST(uintptr_t, (cur_halfword >> sample_idx_lowbits) & k1LU) << write_idx_lowbits;
+      if (++write_idx_lowbits == kBitsPerWord) {
+        *output_bitarr_iter++ = cur_output_word;
+        cur_output_word = 0;
+        write_idx_lowbits = 0;
+      }
+      geno_2alts &= geno_2alts - 1;
+    } while (geno_2alts);
   }
   if (write_idx_lowbits) {
     *output_bitarr_iter = cur_output_word;
@@ -7294,9 +7260,9 @@ uint32_t CountSpgwAllocCachelinesRequired(uint32_t variant_ct, uint32_t sample_c
   cachelines_required += 1 + (max_difflist_len / kInt32PerCacheline);
 
   // fwrite_buf
-  // + (5 + sizeof(AltAlleleCt)) * kPglDifflistGroupSize to avoid buffer
+  // + (5 + sizeof(AlleleCode)) * kPglDifflistGroupSize to avoid buffer
   // overflow in middle of difflist writing
-  cachelines_required += DivUp(max_vrec_len + kPglFwriteBlockSize + (5 + sizeof(AltAlleleCt)) * kPglDifflistGroupSize, kCacheline);
+  cachelines_required += DivUp(max_vrec_len + kPglFwriteBlockSize + (5 + sizeof(AlleleCode)) * kPglDifflistGroupSize, kCacheline);
   // possible todo: dosage (doesn't currently need an allocation, but that's
   // unlikely to remain true--e.g. get_ref_nonref_genotype_counts_and_dosages
   // tends to use workspace_vec when a function it calls doesn't use it...)
@@ -7329,7 +7295,7 @@ PglErr SpgwInitPhase1(const char* __restrict fname, const uintptr_t* __restrict 
       prev_offset = cur_offset;
     }
     // see comments in middle of MpgwInitPhase1()
-    max_vrec_len += 2 + sizeof(AltAlleleCt) + GetAux1bAlleleEntryByteCt(max_alt_ct_p1 - 1, sample_ct - 1);
+    max_vrec_len += 2 + sizeof(AlleleCode) + GetAux1bAlleleEntryByteCt(max_alt_ct_p1 - 1, sample_ct - 1);
     // try to permit uncompressed records to be larger than this, only error
     // out when trying to write a larger compressed record.
   }
@@ -7414,7 +7380,7 @@ void MpgwInitPhase1(const uintptr_t* __restrict allele_idx_offsets, uint32_t var
     //
     // One way to hit the maximum size is to have exactly 1 ref/altx genotype,
     // all other genotypes are altx/alty, and all genotypes include a rarealt.
-    // Then, we need 2 + sizeof(AltAlleleCt) bytes for the format byte and
+    // Then, we need 2 + sizeof(AlleleCode) bytes for the format byte and
     // aux1a, (sample_ct + 6) / 8 bytes for the bitarray at the front of aux1b,
     // and
     //   alt ct  aux1_last_quarter bytes required
@@ -7428,7 +7394,7 @@ void MpgwInitPhase1(const uintptr_t* __restrict allele_idx_offsets, uint32_t var
     assert(!dosage_gflag);
     uintptr_t prev_offset = 0;
     uint32_t vidx = 0;
-    const uint32_t extra_bytes_base = 2 + sizeof(AltAlleleCt) + (sample_ct + 6) / 8;
+    const uint32_t extra_bytes_base = 2 + sizeof(AlleleCode) + (sample_ct + 6) / 8;
     const uint64_t extra_bytes_max = kPglMaxBytesPerVariant - max_vrec_len;
     uint64_t extra_byte_cts[4];
     uint32_t extra_alt_ceil = kPglMaxAltAlleleCt + 1;
@@ -7584,7 +7550,7 @@ void PwcInitPhase2(uintptr_t fwrite_cacheline_ct, uint32_t thread_ct, PgenWriter
 }
 
 void SpgwInitPhase2(uint32_t max_vrec_len, STPgenWriter* spgwp, unsigned char* spgw_alloc) {
-  const uintptr_t fwrite_cacheline_ct = DivUp(max_vrec_len + kPglFwriteBlockSize + (5 + sizeof(AltAlleleCt)) * kPglDifflistGroupSize, kCacheline);
+  const uintptr_t fwrite_cacheline_ct = DivUp(max_vrec_len + kPglFwriteBlockSize + (5 + sizeof(AlleleCode)) * kPglDifflistGroupSize, kCacheline);
   PgenWriterCommon* pwcp = &(spgwp->pwc);
   PwcInitPhase2(fwrite_cacheline_ct, 1, &pwcp, spgw_alloc);
 }
@@ -8433,8 +8399,8 @@ BoolErr PwcAppendDeltalist(const uintptr_t* delta_bitarr, uint32_t deltalist_len
   return CheckedVrecLenIncr(fwrite_bufp - fwrite_bufp_start, vrec_len_ptr);
 }
 
-static_assert(sizeof(AltAlleleCt) == 1, "PwcAppendMultiallelicMain() needs to be updated.");
-BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AltAlleleCt* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AltAlleleCt* __restrict patch_10_vals, uint32_t patch_01_ct, uint32_t patch_10_ct, uint32_t vidx, PgenWriterCommon* pwcp, const uintptr_t** genovec_hets_ptr, uint32_t* het_ct_ptr, unsigned char* vrtype_ptr, uint32_t* vrec_len_ptr) {
+static_assert(sizeof(AlleleCode) == 1, "PwcAppendMultiallelicMain() needs to be updated.");
+BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t patch_01_ct, uint32_t patch_10_ct, uint32_t vidx, PgenWriterCommon* pwcp, const uintptr_t** genovec_hets_ptr, uint32_t* het_ct_ptr, unsigned char* vrtype_ptr, uint32_t* vrec_len_ptr) {
   uint32_t genovec_het_ct;
   uint32_t genovec_altxy_ct;
   uint32_t vrec_len = PwcAppendBiallelicGenovecMain(genovec, vidx, pwcp, &genovec_het_ct, &genovec_altxy_ct, vrtype_ptr);
@@ -8472,13 +8438,13 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
 #ifdef __arm__
 #  error "Unaligned accesses in PwcAppendMultiallelicMain()."
 #endif
-      Copy01Subset(patch_01_set, genovec, genovec_het_ct, R_CAST(uintptr_t*, pwcp->fwrite_bufp));
+      Copy01Subset(patch_01_set, genovec, 0, genovec_het_ct, R_CAST(uintptr_t*, pwcp->fwrite_bufp));
       pwcp->fwrite_bufp = &(pwcp->fwrite_bufp[genovec_het_ctb]);
       vrec_len += genovec_het_ctb;
     }
     if (allele_ct > 3) {
       if (allele_ct <= 18) {
-        const AltAlleleCt* patch_01_vals_iter = patch_01_vals;
+        const AlleleCode* patch_01_vals_iter = patch_01_vals;
         uintptr_t* write_alias = R_CAST(uintptr_t*, pwcp->fwrite_bufp);
         uint32_t widx = 0;
         uint32_t written_byte_ct;
@@ -8548,7 +8514,7 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
         vrec_len += written_byte_ct;
       } else {
         // 1 byte per entry
-        // need 2-byte and 3-byte cases here for larger AltAlleleCt, those also
+        // need 2-byte and 3-byte cases here for larger AlleleCode, those also
         // need to check for vrec_len overflow
         unsigned char* payload = pwcp->fwrite_bufp;
         for (uint32_t patch_idx = 0; patch_idx < patch_01_ct; ++patch_idx) {
@@ -8569,7 +8535,7 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
     const uint32_t max_deltalist_entry_ct = genovec_altxy_ct / kPglMaxDeltalistLenDivisor;
     if (patch_10_ct < max_deltalist_entry_ct) {
       // can't actually fail for now, but cannot ignore overflow check if
-      // sizeof(AltAlleleCt) > 1
+      // sizeof(AlleleCode) > 1
       if (PwcAppendDeltalist(patch_10_set, patch_10_ct, pwcp, &vrec_len)) {
         return 1;
       }
@@ -8583,7 +8549,7 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
       pwcp->fwrite_bufp = &(pwcp->fwrite_bufp[genovec_altxy_ctb]);
     }
     if (allele_ct <= 17) {
-      const AltAlleleCt* patch_10_vals_iter = patch_10_vals;
+      const AlleleCode* patch_10_vals_iter = patch_10_vals;
       uintptr_t* write_alias = R_CAST(uintptr_t*, pwcp->fwrite_bufp);
       uint32_t widx = 0;
       uint32_t bytes_to_write;
@@ -8661,14 +8627,14 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
       pwcp->fwrite_bufp = &(pwcp->fwrite_bufp[bytes_to_write]);
     } else {
       // 1 byte per half-entry
-      // need 2- and 3-byte cases for larger AltAlleleCt
+      // need 2- and 3-byte cases for larger AlleleCode
       unsigned char* payload = pwcp->fwrite_bufp;
       if (CheckedVrecLenIncr(patch_10_ct * (2 * k1LU), &vrec_len)) {
         return 1;
       }
       const uint32_t patch_10_ct_x2 = patch_10_ct * 2;
       // hopefully the compiler automatically vectorizes this when
-      // sizeof(AltAlleleCt) == 1
+      // sizeof(AlleleCode) == 1
       for (uint32_t uii = 0; uii < patch_10_ct_x2; ++uii) {
         payload[uii] = patch_10_vals[uii] - 1;
       }
@@ -8679,8 +8645,8 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
       // everything working before doing more optimization.
       const uint32_t sample_ct = pwcp->sample_ct;
       const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
-      const AltAlleleCt* patch_10_vals_iter = patch_10_vals;
-      const AltAlleleCt* patch_10_vals_end = &(patch_10_vals[patch_10_ct * 2]);
+      const AlleleCode* patch_10_vals_iter = patch_10_vals;
+      const AlleleCode* patch_10_vals_end = &(patch_10_vals[patch_10_ct * 2]);
       uintptr_t* genovec_hets = nullptr;
       uint32_t het_ct = genovec_het_ct;
       for (uint32_t widx = 0; widx < sample_ctl2; ++widx) {
@@ -8688,8 +8654,8 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
         detect_10 = (~detect_10) & (detect_10 >> 1) & kMask5555;
         if (detect_10) {
           do {
-            const AltAlleleCt val1 = *patch_10_vals_iter++;
-            const AltAlleleCt val2 = *patch_10_vals_iter++;
+            const AlleleCode val1 = *patch_10_vals_iter++;
+            const AlleleCode val2 = *patch_10_vals_iter++;
             if (val1 != val2) {
               if (!genovec_hets) {
                 genovec_hets = pwcp->genovec_hets_buf;
@@ -8720,7 +8686,7 @@ BoolErr PwcAppendMultiallelicMain(const uintptr_t* __restrict genovec, const uin
   return 0;
 }
 
-BoolErr PwcAppendMultiallelicSparse(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AltAlleleCt* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AltAlleleCt* __restrict patch_10_vals, uint32_t patch_01_ct, uint32_t patch_10_ct, PgenWriterCommon* pwcp) {
+BoolErr PwcAppendMultiallelicSparse(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, uint32_t patch_01_ct, uint32_t patch_10_ct, PgenWriterCommon* pwcp) {
   const uint32_t vidx = pwcp->vidx;
   unsigned char vrtype;
   uint32_t vrec_len;
@@ -8738,13 +8704,13 @@ BoolErr PwcAppendMultiallelicSparse(const uintptr_t* __restrict genovec, const u
   return 0;
 }
 
-void PglMultiallelicDenseToSparse(const AltAlleleCt* __restrict wide_codes, uint32_t sample_ct, uintptr_t* __restrict genovec, uintptr_t* __restrict patch_01_set, AltAlleleCt* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AltAlleleCt* __restrict patch_10_vals, uint32_t* __restrict patch_01_ct_ptr, uint32_t* __restrict patch_10_ct_ptr) {
+void PglMultiallelicDenseToSparse(const AlleleCode* __restrict wide_codes, uint32_t sample_ct, uintptr_t* __restrict genovec, uintptr_t* __restrict patch_01_set, AlleleCode* __restrict patch_01_vals, uintptr_t* __restrict patch_10_set, AlleleCode* __restrict patch_10_vals, uint32_t* __restrict patch_01_ct_ptr, uint32_t* __restrict patch_10_ct_ptr) {
   const uint32_t word_ct_m1 = (sample_ct - 1) / kBitsPerWordD2;
-  const AltAlleleCt* wide_codes_iter = wide_codes;
+  const AlleleCode* wide_codes_iter = wide_codes;
   Halfword* patch_01_set_alias = R_CAST(Halfword*, patch_01_set);
   Halfword* patch_10_set_alias = R_CAST(Halfword*, patch_10_set);
-  AltAlleleCt* patch_01_vals_iter = patch_01_vals;
-  AltAlleleCt* patch_10_vals_iter = patch_10_vals;
+  AlleleCode* patch_01_vals_iter = patch_01_vals;
+  AlleleCode* patch_10_vals_iter = patch_10_vals;
   uint32_t loop_len = kBitsPerWordD2;
   uint32_t widx = 0;
   while (1) {
@@ -8760,8 +8726,8 @@ void PglMultiallelicDenseToSparse(const AltAlleleCt* __restrict wide_codes, uint
     uint32_t patch_01_hw = 0;
     uint32_t patch_10_hw = 0;
     for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits < loop_len; ++sample_idx_lowbits) {
-      const AltAlleleCt first_code = *wide_codes_iter++;
-      const AltAlleleCt second_code = *wide_codes_iter++;
+      const AlleleCode first_code = *wide_codes_iter++;
+      const AlleleCode second_code = *wide_codes_iter++;
       uintptr_t cur_geno;
       if (first_code) {
         if (first_code == kMissingAlleleCode) {
@@ -8812,29 +8778,10 @@ BoolErr AppendHphase(const uintptr_t* __restrict genovec_hets, const uintptr_t* 
   if (het_ct == phasepresent_ct) {
     // no need to write phasepresent; just write phaseinfo directly to output
     // buffer
-    phaseinfo_write_idx_lowbits = 1;
-    // todo: better AVX2 implementation
-    // (or, if we preprocess geno_hets, we can just call CopyBitarrSubsetEx()?)
-    for (uint32_t widx = 0; widx < sample_ctl2; ++widx) {
-      const uintptr_t geno_word = genovec_hets[widx];
-      uintptr_t geno_hets = (~(geno_word >> 1)) & geno_word & kMask5555;
-      if (geno_hets) {
-        const uint32_t phaseinfo_halfword = R_CAST(const Halfword*, phaseinfo)[widx];
-        do {
-          const uint32_t sample_idx_lowbits = ctzw(geno_hets) / 2;
-          phaseinfo_write_word |= S_CAST(uintptr_t, (phaseinfo_halfword >> sample_idx_lowbits) & k1LU) << phaseinfo_write_idx_lowbits;
-          if (++phaseinfo_write_idx_lowbits == kBitsPerWord) {
-            *fwrite_bufp_alias++ = phaseinfo_write_word;
-            phaseinfo_write_word = 0;
-            phaseinfo_write_idx_lowbits = 0;
-          }
-          geno_hets &= geno_hets - 1;
-        } while (geno_hets);
-      }
-    }
-    fwrite_bufp_final = R_CAST(unsigned char*, fwrite_bufp_alias);
+    Copy01Subset(phaseinfo, genovec_hets, 1, het_ct, fwrite_bufp_alias);
+    fwrite_bufp_final = &(pwcp->fwrite_bufp[1 + (het_ct / CHAR_BIT)]);
   } else {
-    // similarly, this is a minor variant of ExpandThenSubsetBytearr()
+    // this is a minor variant of ExpandThenSubsetBytearr()
     uintptr_t* phaseinfo_tmp = pwcp->genovec_invert_buf;
     uintptr_t* phaseinfo_tmp_iter = phaseinfo_tmp;
     uint32_t phasepresent_write_idx_lowbits = 1;
@@ -8878,13 +8825,14 @@ BoolErr AppendHphase(const uintptr_t* __restrict genovec_hets, const uintptr_t* 
     fwrite_bufp_final = R_CAST(unsigned char*, fwrite_bufp_alias);
     if (phasepresent_write_idx_lowbits) {
       const uint32_t cur_byte_ct = DivUp(phasepresent_write_idx_lowbits, CHAR_BIT);
+      // er, safe to write the entire word...
       SubwordStoreMov(phasepresent_write_word, cur_byte_ct, &fwrite_bufp_final);
     }
     fwrite_bufp_final = memcpyua(fwrite_bufp_final, phaseinfo_tmp, sizeof(intptr_t) * (phaseinfo_tmp_iter - phaseinfo_tmp));
-  }
-  if (phaseinfo_write_idx_lowbits) {
-    const uint32_t cur_byte_ct = DivUp(phaseinfo_write_idx_lowbits, CHAR_BIT);
-    SubwordStoreMov(phaseinfo_write_word, cur_byte_ct, &fwrite_bufp_final);
+    if (phaseinfo_write_idx_lowbits) {
+      const uint32_t cur_byte_ct = DivUp(phaseinfo_write_idx_lowbits, CHAR_BIT);
+      SubwordStoreMov(phaseinfo_write_word, cur_byte_ct, &fwrite_bufp_final);
+    }
   }
 #ifdef __LP64__
   assert(((*vrec_len_ptr) + S_CAST(uintptr_t, fwrite_bufp_final - pwcp->fwrite_bufp)) <= kPglMaxBytesPerVariant);
@@ -8912,7 +8860,7 @@ void PwcAppendBiallelicGenovecHphase(const uintptr_t* __restrict genovec, const 
   SubU32Store(vrec_len, vrec_len_byte_ct, vrec_len_dest);
 }
 
-BoolErr PwcAppendMultiallelicGenovecHphase(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AltAlleleCt* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AltAlleleCt* __restrict patch_10_vals, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, uint32_t patch_01_ct, uint32_t patch_10_ct, PgenWriterCommon* pwcp) {
+BoolErr PwcAppendMultiallelicGenovecHphase(const uintptr_t* __restrict genovec, const uintptr_t* __restrict patch_01_set, const AlleleCode* __restrict patch_01_vals, const uintptr_t* __restrict patch_10_set, const AlleleCode* __restrict patch_10_vals, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, uint32_t patch_01_ct, uint32_t patch_10_ct, PgenWriterCommon* pwcp) {
   const uint32_t vidx = pwcp->vidx;
   const uintptr_t* genovec_hets;
   unsigned char vrtype;
@@ -9028,7 +8976,6 @@ BoolErr PwcAppendBiallelicGenovecHphaseDosage16(const uintptr_t* __restrict geno
 }
 
 BoolErr AppendDphase16(const uintptr_t* __restrict dosage_present, const uintptr_t* __restrict dphase_present, const int16_t* dphase_delta, uint32_t dosage_ct, uint32_t dphase_ct, PgenWriterCommon* pwcp, unsigned char* vrtype_ptr, uint32_t* vrec_len_ptr) {
-  // TODO: error out if insufficient space
   assert(dphase_ct);
   const uint32_t dphase_present_byte_ct = DivUp(dosage_ct, CHAR_BIT);
   if (CheckedVrecLenIncr(dphase_present_byte_ct + dphase_ct * sizeof(int16_t), vrec_len_ptr)) {

@@ -34,7 +34,7 @@ void GenoarrToInt64sMinus9(const uintptr_t* genoarr, uint32_t sample_ct, int64_t
 
 // For Python interface, allele_codes is always int32_t.  Python programmers
 // should not need to worry about whether pgenlib was compiled with 1-, 2-, or
-// 4-byte AltAlleleCt.
+// 4-byte AlleleCode.
 void GenoarrToAlleleCodes(const uintptr_t* genoarr, uint32_t sample_ct, int32_t* allele_codes);
 
 // phasebytes can be nullptr; if it isn't, entry is 1 iff genotype is an

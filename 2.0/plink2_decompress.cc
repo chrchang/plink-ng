@@ -227,10 +227,17 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
         //    reading forward.
         char* latest_consume_tail;
 #ifdef _WIN32
+        // bugfix (7 May 2018): when consumer thread is waiting with
+        // syncp->consume_tail == cur_block_start, read_stop is near but not at
+        // buf_end, and there's no '\n' in the subsequent read, we can reach
+        // here a second time without releasing the consumer, so we'd enter
+        // deadlock if we unconditionally wait on consumer_progress_event.
+        // However, if memmove_required isn't true, we have to wait first; see
+        // the 21 Mar bugfix.
+        if (!memmove_required) {
+          goto ReadLineStreamThread_wait_first;
+        }
         while (1) {
-          // bugfix (7 Mar 2018): do not wait for consumer_progress_event on
-          // first iteration?
-          WaitForSingleObject(consumer_progress_event, INFINITE);
           EnterCriticalSection(critical_sectionp);
           interrupt = syncp->interrupt;
           if (interrupt != kRlsInterruptNone) {
@@ -248,20 +255,17 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
             break;
           }
           LeaveCriticalSection(critical_sectionp);
+        ReadLineStreamThread_wait_first:
+          WaitForSingleObject(consumer_progress_event, INFINITE);
         }
         // bugfix (23 Mar 2018): didn't always leave the critical section
         LeaveCriticalSection(critical_sectionp);
 #else
         pthread_mutex_lock(sync_mutexp);
-        interrupt = syncp->interrupt;
-        if (interrupt != kRlsInterruptNone) {
-          goto ReadLineStreamThread_INTERRUPT;
+        if (!memmove_required) {
+          goto ReadLineStreamThread_wait_first;
         }
         while (1) {
-          while (!syncp->consumer_progress_state) {
-            pthread_cond_wait(consumer_progress_condvarp, sync_mutexp);
-          }
-          syncp->consumer_progress_state = 0;
           interrupt = syncp->interrupt;
           if (interrupt != kRlsInterruptNone) {
             goto ReadLineStreamThread_INTERRUPT;
@@ -275,6 +279,11 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
           } else if (latest_consume_tail <= cur_block_start) {
             break;
           }
+        ReadLineStreamThread_wait_first:
+          while (!syncp->consumer_progress_state) {
+            pthread_cond_wait(consumer_progress_condvarp, sync_mutexp);
+          }
+          syncp->consumer_progress_state = 0;
         }
         pthread_mutex_unlock(sync_mutexp);
 #endif
@@ -351,7 +360,8 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
         // bugfix (21 Mar 2018): must force consumer_progress_state to 0 (or
         // ResetEvent(consumer_progress_event); otherwise the other wait loop's
         // read_stop = buf_end assignment may occur before all later bytes are
-        // actually consumed.
+        // actually consumed, in the next_available_end == latest_consume_tail
+        // edge case.
         syncp->consumer_progress_state = 0;
         pthread_cond_signal(reader_progress_condvarp);
         pthread_mutex_unlock(sync_mutexp);

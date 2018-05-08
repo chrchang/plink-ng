@@ -166,6 +166,10 @@ void PreinitRLstream(ReadLineStream* rlsp);
 
 CONSTU31(kRLstreamBlenLowerBound, 2 * kDecompressChunkSize);
 static_assert(kRLstreamBlenLowerBound >= kMaxMediumLine, "max_line_blen lower limit too small.");
+// Noticeable slowdown below this buffer size (11+1 = 12 MiB) on my dev
+// machine.  (Additional buffer space beyond this point can still help a little
+// bit.)
+CONSTU31(kRLstreamBlenFast, 11 * kDecompressChunkSize);
 
 // required_byte_ct can't be greater than kMaxLongLine.
 // unstandardized_byte_ct cannot be bigstack_left() here, because the read
@@ -238,6 +242,11 @@ PglErr RlsOpenMaybeBgzf(const char* fname, uint32_t calc_thread_ct, ReadLineStre
 // gz_infile assumed to already be opened.  Ok if e.g. header line has already
 // been read from it.
 // enforced_max_line_blen must be a multiple of kCacheline.
+// The caller is responsible for ensuring max_line_blen >=
+// kRLstreamBlenLowerBound, and preferably >= kRLstreamBlenFast, if at all
+// possible.  The lower bound isn't hard--the stream will still work properly
+// with a very small value--but there will be a lot of pointless
+// synchronization in that case.
 // name inspired by the Win32 API
 PglErr InitRLstreamEx(uint32_t alloc_at_end, uint32_t enforced_max_line_blen, uint32_t max_line_blen, ReadLineStream* rlsp, char** consume_iterp);
 
@@ -257,20 +266,20 @@ HEADER_INLINE PglErr InitRLstreamEndallocRaw(const char* fname, uint32_t max_lin
   return InitRLstreamEx(1, kMaxLongLine, max_line_blen, rlsp, consume_iterp);
 }
 
-HEADER_INLINE PglErr InitRLstreamMinsizeRaw(const char* fname, ReadLineStream* rlsp, char** consume_iterp) {
+HEADER_INLINE PglErr InitRLstreamFastsizeRaw(const char* fname, ReadLineStream* rlsp, char** consume_iterp) {
   PglErr reterr = gzopen_read_checked(fname, &rlsp->gz_infile);
   if (reterr) {
     return reterr;
   }
-  return InitRLstreamEx(0, kRLstreamBlenLowerBound, kRLstreamBlenLowerBound, rlsp, consume_iterp);
+  return InitRLstreamEx(0, kRLstreamBlenFast, kRLstreamBlenFast, rlsp, consume_iterp);
 }
 
 HEADER_INLINE PglErr SizeAndInitRLstreamRaw(const char* fname, uintptr_t unstandardized_byte_ct, ReadLineStream* rlsp, char** consume_iterp) {
   // plink 1.9 immediately failed with an out-of-memory error if a "long line"
   // buffer would be smaller than kMaxMediumLine + 1 bytes, so may as well make
   // that the default lower bound.  (The precise value is currently irrelevant
-  // since kDecompressChunkSize is larger and we take the maximum of the two at
-  // compile time, but it's useful to distinguish "minimum acceptable
+  // since kRLstreamBlenLowerBound is larger and we take the maximum of the two
+  // at compile time, but it's useful to distinguish "minimum acceptable
   // potentially-long-line buffer size" from "load/decompression block size
   // which generally has good performance".)
   uintptr_t linebuf_size;
