@@ -23,6 +23,8 @@
 #include "libdeflate/libdeflate.h"
 #include "zstd/lib/zstd.h"
 
+#include <unistd.h>  // debug
+
 #ifdef __cplusplus
 namespace plink2 {
 #endif
@@ -2215,9 +2217,11 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
 
         if (format_dosage_relevant) {
           vic.dosage_field_idx = GetVcfFormatPosition(dosage_import_field, linebuf_iter, format_end, dosage_import_field_slen);
-          if (format_hds_search) {
-            vic.hds_field_idx = GetVcfFormatPosition("HDS", linebuf_iter, format_end, 3);
-          }
+        }
+        if (format_hds_search) {
+          // theoretically possible for HDS to be in VCF header without
+          // accompanying DS
+          vic.hds_field_idx = GetVcfFormatPosition("HDS", linebuf_iter, format_end, 3);
         }
         if (format_gq_or_dp_relevant) {
           vic.vibc.qual_field_ct = VcfQualScanInit(linebuf_iter, format_end, vcf_min_gq, vcf_min_dp, vic.vibc.qual_field_skips, vic.vibc.qual_thresholds);
@@ -2295,25 +2299,36 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       variant_allele_idxs = nullptr;
     }
 
-    // Close file, then reopen with a smaller line-load buffer
-    CleanupRLstream(&vcf_rls);
-    BigstackEndReset(bigstack_end_mark);
-    uint32_t calc_thread_ct = MINV(max_thread_ct - 1, max_postformat_blen / 1280);
-    if (!calc_thread_ct) {
-      calc_thread_ct = 1;
-    }
-    if ((!phase_or_dosage_found) && (vcf_min_gq == -1) && (vcf_min_dp == -1) && (calc_thread_ct > 1)) {
-      --calc_thread_ct;
-    }
-    // tested no-samples case, 2 threads seems best here (fewer than above
-    // since we need to write to disk here)
-    // 2 threads also better for simplest parsing case
-    reterr = RlsOpenMaybeBgzf(vcfname, (sample_ct && (phase_or_dosage_found || (vcf_min_gq != -1) || (vcf_min_dp != -1)))? 1 : ClipU32(max_thread_ct - 1, 1, 2), &vcf_rls);
-    if (reterr) {
-      if (reterr == kPglRetOpenFail) {
-        goto VcfToPgen_ret_READ_FAIL;
+    uint32_t calc_thread_ct;
+    {
+      // Close file, then reopen with a smaller line-load buffer and (if bgzf)
+      // reduce decompression thread count.  2 is good in the simplest cases
+      // (no GQ/DP filter, no dosage), otherwise limit to 1.
+      uint32_t decompress_thread_ct = 1;
+      if ((vcf_min_gq != -1) || (vcf_min_dp != -1) || (phase_or_dosage_found && (format_dosage_relevant || format_hds_search))) {
+        // "are lines expensive to parse?"  will add a multiallelic condition
+        // to the disjunction soon
+        // this is based on a bunch of DS-force measurements
+        calc_thread_ct = 1 + (sample_ct > 5) + (sample_ct > 12) + (sample_ct > 32) + (sample_ct > 512);
+      } else {
+        if ((vcf_rls.bgz_infile != nullptr) && (max_thread_ct > 1)) {
+          decompress_thread_ct = 2;
+        }
+        // this seems to saturate around 3 threads.
+        calc_thread_ct = 1 + (sample_ct > 40) + (sample_ct > 320);
       }
-      goto VcfToPgen_ret_1;
+      CleanupRLstream(&vcf_rls);
+      BigstackEndReset(bigstack_end_mark);
+      reterr = RlsOpenMaybeBgzf(vcfname, decompress_thread_ct, &vcf_rls);
+      if (reterr) {
+        if (reterr == kPglRetOpenFail) {
+          goto VcfToPgen_ret_READ_FAIL;
+        }
+        goto VcfToPgen_ret_1;
+      }
+      if (calc_thread_ct + decompress_thread_ct > max_thread_ct) {
+        calc_thread_ct = MAXV(1, max_thread_ct - decompress_thread_ct);
+      }
     }
     reterr = InitRLstreamEx(1, kMaxLongLine, MAXV(max_line_blen, kRLstreamBlenFast), &vcf_rls, &line_iter);
     if (reterr) {
@@ -2420,8 +2435,6 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         phase_dosage_gflags = kfPgenGlobalHardcallPhasePresent | kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent;
         gparse_flags = kfGparseHphase | kfGparseDosage | kfGparseDphase;
       }
-    } else {
-      format_dosage_relevant = format_hds_search;
     }
     g_gparse_flags = gparse_flags;
     uint32_t nonref_flags_storage = 1;
@@ -2640,8 +2653,23 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         VcfToPgen_load_start:
           ++line_idx;
           if (RlsNext(&vcf_rls, &line_iter)) {
+            printf("line_idx: %lu\n", line_idx);
+            printf("variant_idx: %u\n", vidx_start + block_vidx);
             goto VcfToPgen_ret_READ_FAIL;
           }
+          /*
+          // 8 May 2018: there is some occasional-EOF issue that needs to be
+          // tracked down.
+          reterr = RlsNext(&vcf_rls, &line_iter);
+          if (reterr) {
+            printf("line_idx: %lu\n", line_idx);
+            printf("variant_idx: %u\n", vidx_start + block_vidx);
+            printf("reterr: %u\n", (uint32_t)reterr);
+            sleep(99999);
+            goto VcfToPgen_ret_READ_FAIL;
+          }
+          */
+
           if (ctou32(*line_iter) < 32) {
             goto VcfToPgen_load_start;
           }
@@ -2759,7 +2787,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
             line_iter = info_end;
             goto VcfToPgen_load_start;
           }
-          if ((!vic.vibc.gt_present) && (!format_dosage_relevant)) {
+          if ((!vic.vibc.gt_present) && (!format_dosage_relevant) && (!format_hds_search)) {
             gparse_flags = kfGparseNull;
             genotext_byte_ct = 1;
           } else {
@@ -2768,12 +2796,11 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
               vic.vibc.qual_field_ct = VcfQualScanInit(format_start, linebuf_iter, vcf_min_gq, vcf_min_dp, vic.vibc.qual_field_skips, vic.vibc.qual_thresholds);
             }
 
-            vic.dosage_field_idx = UINT32_MAX;
             if (format_dosage_relevant) {
               vic.dosage_field_idx = GetVcfFormatPosition(dosage_import_field, format_start, linebuf_iter, dosage_import_field_slen);
-              if (format_hds_search) {
-                vic.hds_field_idx = GetVcfFormatPosition("HDS", format_start, linebuf_iter, 3);
-              }
+            }
+            if (format_hds_search) {
+              vic.hds_field_idx = GetVcfFormatPosition("HDS", format_start, linebuf_iter, 3);
             }
             if (!phase_or_dosage_found) {
               gparse_flags = kfGparse0;
@@ -2816,9 +2843,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         parity = 1 - parity;
         if (vidx_start) {
           // write *previous* block results
-          // printf("trying to flush\n");
           reterr = GparseFlush(g_gparse[parity], prev_block_write_ct, &spgw);
-          // printf("flushed\n");
           if (reterr) {
             goto VcfToPgen_ret_1;
           }

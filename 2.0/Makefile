@@ -6,7 +6,7 @@
 
 BASEFLAGS=-mavx2 -mbmi -mbmi2 -mlzcnt -DNDEBUG -DZSTD_MULTITHREAD
 # BASEFLAGS=-mavx2 -mbmi -mbmi2 -mlzcnt -DZSTD_MULTITHREAD
-# BASEFLAGS=-msse4.2 -DNDEBUG -DZSTD_MULTITHREAD
+# BASEFLAGS=-msse4.2 -DZSTD_MULTITHREAD
 
 include Makefile.src
 

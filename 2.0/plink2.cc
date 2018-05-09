@@ -28,6 +28,10 @@
 #include "plink2_random.h"
 #include "plink2_set.h"
 
+#ifdef CPU_CHECK
+#  include "plink2_cpu.h"
+#endif
+
 #include <time.h>  // time()
 #include <unistd.h>  // unlink()
 
@@ -61,7 +65,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (7 May 2018)";
+  " (8 May 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -2587,6 +2591,16 @@ static_assert(kChrOffsetMT == 3, "--chr-set/--cow/... assume kChrOffsetMT == 3."
 int main(int argc, char** argv) {
 #ifdef __cplusplus
   using namespace plink2;
+#endif
+
+#ifdef CPU_CHECK
+#  ifdef USE_SSE42
+#    ifdef USE_AVX2
+  VerifyPlink2CpuFeatures(2);
+#    else
+  VerifyPlink2CpuFeatures(1);
+#    endif
+#  endif
 #endif
   // special case, since it may dump to stdout
   if ((argc > 1) && ((!strcmp(argv[1], "--zst-decompress")) || (!strcmp(argv[1], "-zst-decompress")))) {
