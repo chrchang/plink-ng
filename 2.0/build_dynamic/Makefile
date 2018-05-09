@@ -22,7 +22,7 @@ MKLROOT = /home/ubuntu/intel/mkl
 MKL_IOMP5_DIR = /home/ubuntu/intel/compilers_and_libraries_2017.2.174/linux/compiler/lib/intel64
 FORCE_32BIT =
 
-BASEFLAGS=-DCPU_CHECK -DZSTD_MULTITHREAD
+BASEFLAGS=-DZSTD_MULTITHREAD
 # ***** end configuration *****
 
 LINKFLAGS=-lm -lpthread
@@ -101,9 +101,9 @@ ifdef NO_LAPACK
 endif
 
 include ../Makefile.src
-CFLAGS += ${BASEFLAGS} ${CWARN} ${CINCLUDE2}
-ZCFLAGS += ${BASEFLAGS} ${CWARN} ${ZSTD_INCLUDE2}
-CXXFLAGS += ${BASEFLAGS} ${CXXWARN}
+CFLAGS += ${BASEFLAGS} ${CWARN2} ${CINCLUDE2}
+ZCFLAGS += ${BASEFLAGS} ${CWARN2} ${ZSTD_INCLUDE2}
+CXXFLAGS += ${BASEFLAGS} ${CXXWARN2}
 
 all: plink2 pgen_compress
 
@@ -111,8 +111,7 @@ plink2: $(CSRC2) $(ZCSRC2) $(CCSRC2)
 	gcc $(CFLAGS) $(CSRC2) -c
 	gcc $(ZCFLAGS) $(ZCSRC2) -c
 	g++ $(CXXFLAGS) $(CCSRC2) -c
-	g++ -O2 ../plink2_cpu.cc -c
-	g++ $(OBJ2) plink2_cpu.o $(ARCH32) -o plink2 $(BLASFLAGS) $(LINKFLAGS)
+	g++ $(OBJ2) $(ARCH32) -o plink2 $(BLASFLAGS) $(LINKFLAGS)
 
 pgen_compress: ../plink2_base.cc ../pgenlib_internal.cc ../pgen_compress.cc
 	g++ $(CXXFLAGS) ../plink2_base.cc ../pgenlib_internal.cc ../pgen_compress.cc -o pgen_compress

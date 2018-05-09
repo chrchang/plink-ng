@@ -34,8 +34,6 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "plink2_cpu.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -134,3 +132,19 @@ void VerifyPlink2CpuFeatures(unsigned int level) {
 #ifdef __cplusplus
 }  // namespace plink2
 #endif
+
+#if defined(CPU_CHECK1) || defined(CPU_CHECK2)
+int main(int argc, char** argv) {
+#ifdef __cplusplus
+  using namespace plink2;
+#endif
+
+#ifdef CPU_CHECK1
+  VerifyPlink2CpuFeatures(1);
+#else
+  VerifyPlink2CpuFeatures(2);
+#endif
+
+  return RealMain(argc, argv);
+}
+#endif  // CPU_CHECK1 || CPU_CHECK2

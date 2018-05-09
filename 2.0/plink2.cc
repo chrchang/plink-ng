@@ -28,10 +28,6 @@
 #include "plink2_random.h"
 #include "plink2_set.h"
 
-#ifdef CPU_CHECK
-#  include "plink2_cpu.h"
-#endif
-
 #include <time.h>  // time()
 #include <unistd.h>  // unlink()
 
@@ -2588,19 +2584,13 @@ static_assert(kChrOffsetMT == 3, "--chr-set/--cow/... assume kChrOffsetMT == 3."
 }  // namespace plink2
 #endif
 
+#if defined(CPU_CHECK1) || defined(CPU_CHECK2)
+int RealMain(int argc, char** argv) {
+#else
 int main(int argc, char** argv) {
+#endif
 #ifdef __cplusplus
   using namespace plink2;
-#endif
-
-#ifdef CPU_CHECK
-#  ifdef USE_SSE42
-#    ifdef USE_AVX2
-  VerifyPlink2CpuFeatures(2);
-#    else
-  VerifyPlink2CpuFeatures(1);
-#    endif
-#  endif
 #endif
   // special case, since it may dump to stdout
   if ((argc > 1) && ((!strcmp(argv[1], "--zst-decompress")) || (!strcmp(argv[1], "-zst-decompress")))) {

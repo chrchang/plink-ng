@@ -13,7 +13,7 @@ ZSTD_O2 = 1
 OPENBLAS_ROOT = ../../openblas
 ZLIB_STATIC = ../../zlib-1.2.11/libz.a
 
-BASEFLAGS=-DCPU_CHECK
+BASEFLAGS=
 # ***** end configuration *****
 
 BASEFLAGS += -DSTATIC_ZLIB -fno-exceptions
@@ -52,9 +52,9 @@ ifndef NO_AVX2
 endif
 
 include ../Makefile.src
-CFLAGS += ${BASEFLAGS} ${CWARN} ${CINCLUDE2}
-ZCFLAGS += ${CWARN} ${ZSTD_INCLUDE2}
-CXXFLAGS += ${BASEFLAGS} ${CXXWARN}
+CFLAGS += ${BASEFLAGS} ${CWARN2} ${CINCLUDE2}
+ZCFLAGS += ${CWARN2} ${ZSTD_INCLUDE2}
+CXXFLAGS += ${BASEFLAGS} ${CXXWARN2}
 
 all: plink2 pgen_compress
 
@@ -62,7 +62,6 @@ plink2: $(CSRC2) $(ZCSRC2) $(CCSRC2)
 	gcc $(CFLAGS) $(CSRC2) -c
 	gcc $(ZCFLAGS) $(ZCSRC2) -c
 	g++ $(CXXFLAGS) $(CCSRC2) -c
-	g++ -O2 ../plink2_cpu.cc -c
 	gfortran $(OBJ2) plink2_cpu.o -o plink2 $(BLASFLAGS) $(LINKFLAGS)
 
 pgen_compress: ../plink2_base.cc ../pgenlib_internal.cc ../pgen_compress.cc

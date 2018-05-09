@@ -2653,7 +2653,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         VcfToPgen_load_start:
           ++line_idx;
           if (RlsNext(&vcf_rls, &line_iter)) {
-            printf("line_idx: %lu\n", line_idx);
+            printf("line_idx: %" PRIuPTR "\n", line_idx);
             printf("variant_idx: %u\n", vidx_start + block_vidx);
             goto VcfToPgen_ret_READ_FAIL;
           }
