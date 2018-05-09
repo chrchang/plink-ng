@@ -4,6 +4,8 @@
 # builds, use build_dynamic/Makefile.
 ###########################################################################
 
+# Does not currently support -DCPU_CHECK_...
+
 BASEFLAGS=-mavx2 -mbmi -mbmi2 -mlzcnt -DNDEBUG -DZSTD_MULTITHREAD
 # BASEFLAGS=-mavx2 -mbmi -mbmi2 -mlzcnt -DZSTD_MULTITHREAD
 # BASEFLAGS=-msse4.2 -DZSTD_MULTITHREAD

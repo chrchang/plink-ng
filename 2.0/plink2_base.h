@@ -293,6 +293,7 @@ typedef enum
   kPglRetThreadCreateFail,
   kPglRetNetworkFail,
   kPglRetVarRecordTooLarge,
+  kPglRetUnsupportedInstructions,
   kPglRetSampleMajorBed = 32,
   kPglRetWarningErrcode = 61,
   kPglRetImproperFunctionCall = 62,
@@ -345,6 +346,7 @@ const PglErr kPglRetHelp = PglErr::ec::kPglRetHelp;
 const PglErr kPglRetThreadCreateFail = PglErr::ec::kPglRetThreadCreateFail;
 const PglErr kPglRetNetworkFail = PglErr::ec::kPglRetNetworkFail;
 const PglErr kPglRetVarRecordTooLarge = PglErr::ec::kPglRetVarRecordTooLarge;
+const PglErr kPglRetUnsupportedInstructions = PglErr::ec::kPglRetUnsupportedInstructions;
 const PglErr kPglRetSampleMajorBed = PglErr::ec::kPglRetSampleMajorBed;
 const PglErr kPglRetWarningErrcode = PglErr::ec::kPglRetWarningErrcode;
 const PglErr kPglRetImproperFunctionCall = PglErr::ec::kPglRetImproperFunctionCall;

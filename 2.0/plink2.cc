@@ -61,7 +61,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (8 May 2018)";
+  " (9 May 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   " "
@@ -2584,7 +2584,7 @@ static_assert(kChrOffsetMT == 3, "--chr-set/--cow/... assume kChrOffsetMT == 3."
 }  // namespace plink2
 #endif
 
-#if defined(CPU_CHECK1) || defined(CPU_CHECK2)
+#if defined(CPU_CHECK_SSE42) || defined(CPU_CHECK_AVX2)
 int RealMain(int argc, char** argv) {
 #else
 int main(int argc, char** argv) {

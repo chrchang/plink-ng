@@ -1,6 +1,9 @@
 # Linux/OS X Makefile for PLINK 2.00.
 #
 # Compilation options (leave blank after "=" to disable, put "= 1" to enable):
+#   Do not use AVX2 instructions: NO_AVX2
+#   Do not use SSE4.2 instructions: NO_SSE42
+#   Print clear error message if SSE42/AVX2 needed but missing: CPU_CHECK
 #   Do not link to LAPACK: NO_LAPACK
 #   Use cblas_f77 instead of cblas: FORCE_CBLAS_F77
 #   Use only -O2 optimization for zstd (may be necessary for gcc 4.x): ZSTD_O2
@@ -13,6 +16,7 @@
 #     work)
 NO_AVX2 = 1
 NO_SSE42 =
+CPU_CHECK = 1
 NO_LAPACK =
 PREFER_CBLAS_F77 =
 ZSTD_O2 = 1
@@ -25,9 +29,12 @@ FORCE_32BIT =
 BASEFLAGS=-DZSTD_MULTITHREAD
 # ***** end configuration *****
 
+include ../Makefile.src
+
 LINKFLAGS=-lm -lpthread
 ZLIB=
 ARCH32=
+CPUCHECK_FLAGS =
 
 ifdef FORCE_32BIT
   # this is targeted at Scientific Linux 6.
@@ -39,9 +46,17 @@ else
   ifdef NO_AVX2
     ifndef NO_SSE42
       BASEFLAGS += -msse4.2
+      ifdef CPU_CHECK
+        BASEFLAGS += -DCPU_CHECK_SSE42
+        CPUCHECK_FLAGS = -O2 -DCPU_CHECK_SSE42 ${CXXWARN2}
+      endif
     endif
   else
     BASEFLAGS += -mavx2 -mbmi -mbmi2 -mlzcnt
+    ifdef CPU_CHECK
+      BASEFLAGS += -DCPU_CHECK_AVX2
+      CPUCHECK_FLAGS = -O2 -DCPU_CHECK_AVX2 ${CXXWARN2}
+    endif
   endif
   CXXFLAGS = -std=c++11
 endif
@@ -100,18 +115,18 @@ ifdef NO_LAPACK
   BLASFLAGS=
 endif
 
-include ../Makefile.src
 CFLAGS += ${BASEFLAGS} ${CWARN2} ${CINCLUDE2}
 ZCFLAGS += ${BASEFLAGS} ${CWARN2} ${ZSTD_INCLUDE2}
 CXXFLAGS += ${BASEFLAGS} ${CXXWARN2}
 
 all: plink2 pgen_compress
 
-plink2: $(CSRC2) $(ZCSRC2) $(CCSRC2)
+plink2: $(CSRC2) $(ZCSRC2) $(CCSRC2) ../plink2_cpu.cc
 	gcc $(CFLAGS) $(CSRC2) -c
 	gcc $(ZCFLAGS) $(ZCSRC2) -c
 	g++ $(CXXFLAGS) $(CCSRC2) -c
-	g++ $(OBJ2) $(ARCH32) -o plink2 $(BLASFLAGS) $(LINKFLAGS)
+	g++ $(CPUCHECK_FLAGS) ../plink2_cpu.cc -c
+	g++ $(OBJ2) plink2_cpu.o $(ARCH32) -o plink2 $(BLASFLAGS) $(LINKFLAGS)
 
 pgen_compress: ../plink2_base.cc ../pgenlib_internal.cc ../pgen_compress.cc
 	g++ $(CXXFLAGS) ../plink2_base.cc ../pgenlib_internal.cc ../pgen_compress.cc -o pgen_compress

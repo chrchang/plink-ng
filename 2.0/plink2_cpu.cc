@@ -3,7 +3,8 @@
 //
 // It's currently just used to print a more informative error message when e.g.
 // the AVX2 build is run on a machine that doesn't support it.  As a
-// consequence, it must be compiled with minimal flags.
+// consequence, it must be compiled with minimal flags (just -O2,
+// -DCPU_CHECK_xxx, and warnings).
 //
 // Original license text follows.
 
@@ -34,22 +35,20 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <inttypes.h>
+#if defined(CPU_CHECK_SSE42) || defined(CPU_CHECK_AVX2)
 
-#ifdef __cplusplus
-namespace plink2 {
-#endif
+#  include <stdio.h>
+#  include <stdlib.h>
+#  include <stdint.h>
+#  include <inttypes.h>
 
 /* With old GCC versions we have to manually save and restore the x86_32 PIC
  * register (ebx).  See: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=47602  */
-#if defined(__i386__) && defined(__PIC__)
-#  define EBX_CONSTRAINT "=r"
-#else
-#  define EBX_CONSTRAINT "=b"
-#endif
+#  if defined(__i386__) && defined(__PIC__)
+#    define EBX_CONSTRAINT "=r"
+#  else
+#    define EBX_CONSTRAINT "=b"
+#  endif
 
 /* Execute the CPUID instruction.  */
 static inline void cpuid(uint32_t leaf, uint32_t subleaf, uint32_t *a, uint32_t *b, uint32_t *c, uint32_t *d) {
@@ -60,6 +59,7 @@ static inline void cpuid(uint32_t leaf, uint32_t subleaf, uint32_t *a, uint32_t 
 	  : "a" (leaf), "c" (subleaf));
 }
 
+#  ifdef CPU_CHECK_AVX2
 /* Read an extended control register.  */
 static inline uint64_t read_xcr(uint32_t index) {
   uint32_t edx, eax;
@@ -67,84 +67,69 @@ static inline uint64_t read_xcr(uint32_t index) {
   /* Execute the "xgetbv" instruction.  Old versions of binutils do not
    * recognize this instruction, so list the raw bytes instead.  */
   __asm__ (".byte 0x0f, 0x01, 0xd0" : "=d" (edx), "=a" (eax) : "c" (index));
-
-  return ((uint64_t)edx << 32) | eax;
+#    ifdef __cplusplus
+  return (static_cast<uint64_t>(edx) << 32) | eax;
+#    else
+  return (((uint64_t)edx) << 32) | eax;
+#    endif
 }
+#  endif
 
-#define IS_SET(reg, bit) ((reg) & (1U << (bit)))
+extern int RealMain(int argc, char** argv);
 
-// level == 1: sse4.2
-// level == 2: avx2/bmi/bmi2/lzcnt
-// possible future todo: call this with regular 64-bit build, suggest faster
-// build when appropriate
-void VerifyPlink2CpuFeatures(unsigned int level) {
+int main(int argc, char** argv) {
   uint32_t dummy1, dummy2, dummy3, dummy4;
   uint32_t max_function;
-  uint32_t features_2, features_3, features_4;
+  uint32_t features_2;
+#  ifdef CPU_CHECK_AVX2
+  uint32_t features_3, features_4;
+#  endif
 
   /* Get maximum supported function  */
   cpuid(0, 0, &max_function, &dummy2, &dummy3, &dummy4);
   if (max_function < 1) {
     // er, is this possible given that the 64-bit build executes at all?  well,
     // leave it in for now.
-    goto VerifyPlink2CpuFeatures_RET_SSE42_FAIL;
+    goto CpuCheck_ret_SSE42_FAIL;
   }
 
   /* Standard feature flags  */
   cpuid(1, 0, &dummy1, &dummy2, &features_2, &dummy4);
 
-  if (!IS_SET(features_2, 20)) {
-    goto VerifyPlink2CpuFeatures_RET_SSE42_FAIL;
+  // bit 20 = SSE4.2
+  if (!(features_2 & 0x100000)) {
+    goto CpuCheck_ret_SSE42_FAIL;
   }
 
-  if (level <= 1) {
-    return;
-  }
+#  ifdef CPU_CHECK_AVX2
   // os_saves_ymm_regs must be true for AVX2
-  if ((!IS_SET(features_2, 27)) ||
+  if ((!(features_2 & 0x8000000)) ||
       ((read_xcr(0) & 0x6) != 0x6)) {
-    goto VerifyPlink2CpuFeatures_RET_AVX2_FAIL;
+    goto CpuCheck_ret_AVX2_FAIL;
   }
   if (max_function < 7) {
-    goto VerifyPlink2CpuFeatures_RET_AVX2_FAIL;
+    goto CpuCheck_ret_AVX2_FAIL;
   }
   cpuid(7, 0, &dummy1, &features_3, &features_4, &dummy4);
-  if (!IS_SET(features_3, 5)) {
-    goto VerifyPlink2CpuFeatures_RET_AVX2_FAIL;
+  // bit 3 = BMI
+  // bit 5 = AVX2
+  // bit 8 = BMI2
+  if ((features_3 & 0x128) != 0x128) {
+    goto CpuCheck_ret_AVX2_FAIL;
   }
-  if (!IS_SET(features_3, 3)) {
-    fputs("Error: This plink2 build requires a processor which supports BMI instructions\n(usually accompanies AVX2 support, but apparently not in this case...).  Try a\nSSE4.2 or plain 64-bit build instead.\n", stderr);
-    exit(13);
-  }
-  if (!IS_SET(features_3, 8)) {
-    fputs("Error: This plink2 build requires a processor which supports BMI2 instructions\n(usually accompanies AVX2 support, but apparently not in this case...).  Try a\nSSE4.2 or plain 64-bit build instead.\n", stderr);
-    exit(13);
-  }
-  return;
- VerifyPlink2CpuFeatures_RET_SSE42_FAIL:
-  fputs("Error: This plink2 build requires a processor which supports SSE4.2\ninstructions.  Try a plain 64-bit build instead.\n", stderr);
-  exit(13);
- VerifyPlink2CpuFeatures_RET_AVX2_FAIL:
-  fputs("Error: This plink2 build requires a processor which supports AVX2 instructions.\nTry a SSE4.2 or plain 64-bit build instead.\n", stderr);
-  exit(13);
-}
-
-#ifdef __cplusplus
-}  // namespace plink2
-#endif
-
-#if defined(CPU_CHECK1) || defined(CPU_CHECK2)
-int main(int argc, char** argv) {
-#ifdef __cplusplus
-  using namespace plink2;
-#endif
-
-#ifdef CPU_CHECK1
-  VerifyPlink2CpuFeatures(1);
-#else
-  VerifyPlink2CpuFeatures(2);
-#endif
+#  endif
 
   return RealMain(argc, argv);
+ CpuCheck_ret_SSE42_FAIL:
+  fputs("Error: This plink2 build requires a processor which supports SSE4.2\ninstructions.  Try a plain 64-bit build instead.\n", stderr);
+  exit(13);  // 13 = kPglRetUnsupporedInstructions
+#  ifdef CPU_CHECK_AVX2
+ CpuCheck_ret_AVX2_FAIL:
+  // SSE4.2 doesn't deliver enough of an advantage to justify more clutter on
+  // the main downloads page, but technically sophisticated users should be
+  // encouraged to build from source in this case.
+  fputs("Error: This plink2 build requires a processor which supports AVX2/Haswell\ninstructions, but only SSE4.2 is available.  Try a plain 64-bit build instead,\nor use the build_dynamic/ Makefile to produce a binary that takes advantage of\nSSE4.2 instructions but not AVX2.\n", stderr);
+  exit(13);
+#  endif
 }
-#endif  // CPU_CHECK1 || CPU_CHECK2
+#endif  // CPU_CHECK_SSE42 || CPU_CHECK_AVX2
