@@ -122,6 +122,10 @@
 #  include <windows.h>
 #endif
 
+#if __cplusplus >= 201103L
+#  include <array>
+#endif
+
 #ifdef __LP64__
 #  ifndef __SSE2__
     // todo: remove this requirement, the 32-bit VecW-using code does most of
@@ -148,17 +152,20 @@
 #  endif
 #endif
 
+// done with #includes, can start C++ namespace...
+#ifdef __cplusplus
+namespace plink2 {
+#endif
+
+// ...though a bunch of symbols remain to be #defined; try to reduce the number
+// over time.
+
 #ifndef UINT32_MAX
   // can theoretically be undefined in C++03
 #  define UINT32_MAX 0xffffffffU
 #endif
 
 #define UINT32_MAXM1 0xfffffffeU
-
-// done with #includes, can start C++ namespace
-#ifdef __cplusplus
-namespace plink2 {
-#endif
 
 #ifdef __cplusplus
 #  define HEADER_INLINE inline
@@ -821,7 +828,9 @@ HEADER_INLINE uint32_t vecuc_movemask(VecUc vv) {
   return _mm_movemask_epi8(R_CAST(__m128i, vv));
 }
 
-#define kMovemaskUintMax 65535
+CONSTU31(kMovemaskUintMax, 65535);
+
+// #define kMovemaskUintMax 65535
 
 typedef uint16_t MovemaskUint;
 typedef uint32_t MovemaskUint2;
@@ -951,9 +960,12 @@ CONSTU31(kBitsPerWordD4, kBitsPerWord / 4);
 CONSTU31(kBytesPerWord, kBitsPerWord / CHAR_BIT);
 
 static_assert(CHAR_BIT == 8, "plink2_base requires CHAR_BIT == 8.");
+static_assert(sizeof(int8_t) == 1, "plink2_base requires sizeof(int8_t) == 1.");
+static_assert(sizeof(int16_t) == 2, "plink2_base requires sizeof(int16_t) == 2.");
 static_assert(sizeof(int32_t) == 4, "plink2_base requires sizeof(int32_t) == 4.");
-static_assert(sizeof(int64_t) == 8, "plink2_base requires sizeof(int64_t) == 8.");
+static_assert(sizeof(int) >= 4, "plink2_base requires sizeof(int) >= 4.");
 static_assert(sizeof(intptr_t) == kBytesPerWord, "plink2_base requires sizeof(intptr_t) == kBytesPerWord.");
+static_assert(sizeof(int64_t) == 8, "plink2_base requires sizeof(int64_t) == 8.");
 
 CONSTU31(kWordsPerVec, kBytesPerVec / kBytesPerWord);
 CONSTU31(kInt32PerVec, kBytesPerVec / 4);
@@ -989,18 +1001,56 @@ static_assert(kPglFnamesize >= PATH_MAX, "plink2_base assumes PATH_MAX <= 4096. 
 #endif
 
 
+#if __cplusplus >= 201103L
+// Main application of std::array in this codebase is enforcing length when
+// passing references between functions.  Conversely, if the array type has
+// different lengths in different functions (e.g. col_skips[]/col_types[]), we
+// actively want to avoid &arr[0] clutter.
+// When neither applies, it doesn't really matter whether we use this or not;
+// I normally won't use it unless it plausibly makes sense to pass
+// fixed-length-array-references in the future.
+#  define STD_ARRAY_DECL(tt, nn, vv) std::array<tt, nn> vv
+#  define STD_ARRAY_REF(tt, nn) std::array<tt, nn>&
+
+// necessary if tt is a pointer type, otherwise optional
+#  define STD_ARRAY_KREF(tt, nn) const std::array<tt, nn>&
+
+#  define STD_ARRAY_PTR_TYPE(tt, nn) std::array<tt, nn>*
+#  define STD_ARRAY_PTR_DECL(tt, nn, vv) std::array<tt, nn>* vv
+
+// argh, warning-free C and C++11 incompatible here
+#  define STD_ARRAY_INIT_START() {
+#  define STD_ARRAY_INIT_END() }
+
+#  define NONCOPYABLE(struct_name) \
+  struct_name() = default; \
+  struct_name(const struct_name&) = delete; \
+  struct_name& operator=(const struct_name&) = delete
+
+#else
+#  define STD_ARRAY_DECL(tt, nn, vv) tt vv[nn]
+#  define STD_ARRAY_REF(tt, nn) tt* const
+#  define STD_ARRAY_KREF(tt, nn) tt const* const
+#  define STD_ARRAY_PTR_TYPE(tt, nn) tt(*)[nn]
+#  define STD_ARRAY_PTR_DECL(tt, nn, vv) tt(*vv)[nn]
+#  define STD_ARRAY_INIT_START()
+#  define STD_ARRAY_INIT_END()
+
+#  define NONCOPYABLE(struct_name)
+#endif
+
 typedef union {
   VecW vw;
 
   // not actually 8 bytes in 32-bit builds, probably want to rename
-  uintptr_t w[kWordsPerVec];
+  STD_ARRAY_DECL(uintptr_t, kWordsPerVec, w);
 
-  uint32_t u32[kInt32PerVec];
+  STD_ARRAY_DECL(uint32_t, kInt32PerVec, u32);
 } UniVec;
 
 typedef union {
   VecF vf;
-  float f4[kFloatPerFVec];
+  STD_ARRAY_DECL(float, kFloatPerFVec, f4);
 } UniVecF;
 
 // sum must fit in 16 bits
@@ -1296,6 +1346,11 @@ HEADER_INLINE unsigned char* memcpyua(void* __restrict target, const void* __res
   return &(S_CAST(unsigned char*, target)[ct]);
 }
 
+HEADER_INLINE void AppendU32(uint32_t uii, unsigned char** targetp) {
+  memcpy(*targetp, &uii, sizeof(int32_t));
+  *targetp += sizeof(int32_t);
+}
+
 HEADER_CINLINE uintptr_t BitCtToVecCt(uintptr_t val) {
   return DivUp(val, kBitsPerVec);
 }
@@ -1440,11 +1495,11 @@ HEADER_CINLINE2 uint32_t PopcountWord(uintptr_t val) {
 #endif
 
 #ifdef USE_SSE42
-HEADER_CINLINE uint32_t Popcount2Words(uintptr_t val0, uintptr_t val1) {
+HEADER_INLINE uint32_t Popcount2Words(uintptr_t val0, uintptr_t val1) {
   return __builtin_popcountll(val0) + __builtin_popcountll(val1);
 }
 #else
-HEADER_CINLINE2 uint32_t Popcount2Words(uintptr_t val0, uintptr_t val1) {
+HEADER_INLINE uint32_t Popcount2Words(uintptr_t val0, uintptr_t val1) {
   val0 -= (val0 >> 1) & kMask5555;
   val1 -= (val1 >> 1) & kMask5555;
   const uintptr_t four_bit = (val0 & kMask3333) + ((val0 >> 2) & kMask3333) + (val1 & kMask3333) + ((val1 >> 2) & kMask3333);
@@ -1454,7 +1509,7 @@ HEADER_CINLINE2 uint32_t Popcount2Words(uintptr_t val0, uintptr_t val1) {
 #endif
 
 #ifndef __LP64__
-HEADER_CINLINE2 uint32_t Popcount4Words(uintptr_t val0, uintptr_t val1, uintptr_t val2, uintptr_t val3) {
+HEADER_INLINE uint32_t Popcount4Words(uintptr_t val0, uintptr_t val1, uintptr_t val2, uintptr_t val3) {
   val0 -= (val0 >> 1) & kMask5555;
   val1 -= (val1 >> 1) & kMask5555;
   val2 -= (val2 >> 1) & kMask5555;
@@ -1822,6 +1877,7 @@ HEADER_INLINE void vecaligned_free_cond(void* aligned_ptr) {
 #  endif
 #endif
 
+
 // now compiling with gcc >= 4.4 (or clang equivalent) on all platforms, so
 // safe to use memset everywhere
 HEADER_INLINE void ZeroU32Arr(uintptr_t entry_ct, uint32_t* u32arr) {
@@ -1835,6 +1891,31 @@ HEADER_INLINE void ZeroWArr(uintptr_t entry_ct, uintptr_t* warr) {
 HEADER_INLINE void ZeroU64Arr(uintptr_t entry_ct, uint64_t* u64arr) {
   memset(u64arr, 0, entry_ct * sizeof(int64_t));
 }
+
+
+#if __cplusplus >= 201103L
+
+template <class T, std::size_t N> void STD_ARRAY_FILL0(std::array<T, N>& arr) {
+  arr.fill(0);
+}
+
+// plain STD_ARRAY_FILL0() can't be used on array-references due to fallback
+// code.
+// this macro ensures that we *only* use it with uint32_t array-references
+#  define STD_ARRAY_REF_FILL0(ct, aref) static_assert(ct * sizeof(aref[0]) == sizeof(aref), "invalid STD_ARRAY_REF_FILL0() invocation"); aref.fill(0)
+
+#  define STD_ARRAY_REF_COPY(src, ct, dst) static_assert(ct * sizeof(src[0]) == sizeof(src), "invalid STD_ARRAY_REF_COPY() invocation"); dst = src
+
+#else  // !C++11
+
+#  define STD_ARRAY_FILL0(arr) memset(arr, 0, sizeof(arr))
+
+#  define STD_ARRAY_REF_FILL0(ct, aref) memset(aref, 0, ct * sizeof(*aref))
+
+#  define STD_ARRAY_REF_COPY(src, ct, dst) memcpy(dst, src, ct * sizeof(*src))
+
+#endif
+
 
 HEADER_INLINE void SetAllWArr(uintptr_t entry_ct, uintptr_t* warr) {
   // todo: test this against memset(, 255, ) and manually vectorized loop
@@ -1998,6 +2079,7 @@ HEADER_INLINE void TransposeBitblock(const uintptr_t* read_iter, uint32_t read_u
 #endif
 
 CONSTU31(kPglBitTransposeBufwords, kPglBitTransposeBufbytes / kBytesPerWord);
+CONSTU31(kPglBitTransposeBufvecs, kPglBitTransposeBufbytes / kBytesPerVec);
 
 // Flagset conventions:
 // * Each 32-bit and 64-bit flagset has its own type, which is guaranteed to be

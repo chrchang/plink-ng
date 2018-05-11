@@ -49,10 +49,10 @@ namespace plink2 {
 // exactly 5 columns.
 
 
-// variant_allele_idxs[] is a length-(variant_ct + 1) array of reference allele
+// allele_idx_offsets[] is a length-(variant_ct + 1) array of reference allele
 // indices in allele_storage[].  The alt1 allele index is the reference allele
 // index plus 1, etc.  The number of alt alleles for (0-based) variant n is
-// (variant_allele_idxs[n+1] - variant_allele_idxs[n] - 1).
+// (allele_idx_offsets[n+1] - allele_idx_offsets[n] - 1).
 
 // Memory for all the return arrays is allocated off the bottom of g_bigstack.
 // (I.e. it's assumed that you'll want to keep these arrays until your program
@@ -68,7 +68,7 @@ char* PrInInfoToken(uint32_t info_slen, char* info_token);
 
 // cip, max_variant_id_slen, and info_reload are in/out parameters.
 // Chromosome filtering is performed if cip requests it.
-PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattened, const char* varid_template, const char* missing_varid_match, const char* require_info_flattened, const char* require_no_info_flattened, const CmpExpr extract_if_info_expr, const CmpExpr exclude_if_info_expr, MiscFlags misc_flags, PvarPsamFlags pvar_psam_flags, ExportfFlags exportf_flags, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t split_chr_ok, uint32_t max_thread_ct, ChrInfo* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, UnsortedVar* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** variant_allele_idxs_ptr, const char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, ChrIdx** chr_idxs_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, InfoFlags* info_flags_ptr, uint32_t* max_filter_slen_ptr);
+PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattened, const char* varid_template, const char* missing_varid_match, const char* require_info_flattened, const char* require_no_info_flattened, const CmpExpr* extract_if_info_exprp, const CmpExpr* exclude_if_info_exprp, MiscFlags misc_flags, PvarPsamFlags pvar_psam_flags, ExportfFlags exportf_flags, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t split_chr_ok, uint32_t max_thread_ct, ChrInfo* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, UnsortedVar* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** allele_idx_offsets_ptr, const char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, ChrIdx** chr_idxs_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, InfoFlags* info_flags_ptr, uint32_t* max_filter_slen_ptr);
 
 #ifdef __cplusplus
 }  // namespace plink2

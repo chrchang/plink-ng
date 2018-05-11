@@ -40,7 +40,7 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
   {
     uint32_t cmdline_autosome_ct = 0;
     uint32_t cmdline_haploid = 0;
-    uint32_t cmdline_xymt_codes[kChrOffsetCt];
+    STD_ARRAY_DECL(uint32_t, kChrOffsetCt, cmdline_xymt_codes);
     if (cip->chrset_source == kChrsetSourceCmdline) {
       if (misc_flags & kfMiscChrOverrideCmdline) {
         goto ReadChrsetHeaderLine_ret_1;
@@ -49,7 +49,7 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
         // save off info we need for consistency check
         cmdline_autosome_ct = cip->autosome_ct;
         cmdline_haploid = cip->haploid_mask[0] & 1;
-        memcpy(cmdline_xymt_codes, cip->xymt_codes, kChrOffsetCt * sizeof(int32_t));
+        STD_ARRAY_REF_COPY(cip->xymt_codes, kChrOffsetCt, cmdline_xymt_codes);
       }
       ZeroWArr(kChrMaskWords, cip->haploid_mask);
     }
@@ -173,7 +173,7 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
   return reterr;
 }
 
-void VaridTemplateInit(const char* varid_template, uint32_t* template_insert_ct_ptr, uint32_t* template_base_len_ptr, uint32_t* alleles_needed_ptr, const char* varid_template_segs[5], uint32_t* varid_template_seg_lens, uint32_t* varid_template_types) {
+void VaridTemplateInit(const char* varid_template, uint32_t* template_insert_ct_ptr, uint32_t* template_base_len_ptr, uint32_t* alleles_needed_ptr, STD_ARRAY_REF(const char*, 5) varid_template_segs, STD_ARRAY_REF(uint32_t, 5) varid_template_seg_lens, STD_ARRAY_REF(uint32_t, 4) varid_template_types) {
   // template string was previously validated
   // varid_template is only input, everything else is output values
   const char* varid_template_iter = varid_template;
@@ -263,7 +263,12 @@ char* PrInInfoToken(uint32_t info_slen, char* info_token) {
   return pr_prestart? nullptr : (&(pr_prestart[1]));
 }
 
-typedef struct {
+typedef struct InfoExistStruct {
+#if __cplusplus >= 201103L
+  InfoExistStruct() = default;
+  InfoExistStruct(const InfoExistStruct&) = delete;
+  InfoExistStruct& operator=(const InfoExistStruct&) = delete;
+#endif
   char* prekeys;
   uint32_t key_ct;
   uint32_t key_slens[];
@@ -389,26 +394,27 @@ uint32_t InfoNonexistCheck(const char* info_token, const InfoExist* nonexistp) {
 
 typedef struct {
   char* prekey;
-  char* val_str;
+  const char* val_str;
   uint32_t key_slen;
   uint32_t val_slen;
   CmpBinaryOp binary_op;
   double val;
 } InfoFilter;
 
-PglErr InfoFilterInit(const unsigned char* arena_end, const CmpExpr filter_expr, const char* flagname_p, unsigned char** arena_base_ptr, InfoFilter* filterp) {
-  char* pheno_name_end_or_invalid = strchrnul3(filter_expr.pheno_name, ';', '=', ',');
+PglErr InfoFilterInit(const unsigned char* arena_end, const CmpExpr* filter_exprp, const char* flagname_p, unsigned char** arena_base_ptr, InfoFilter* filterp) {
+  const char* pheno_name = filter_exprp->pheno_name;
+  const char* pheno_name_end_or_invalid = strchrnul3(pheno_name, ';', '=', ',');
   if (*pheno_name_end_or_invalid) {
     if (*pheno_name_end_or_invalid == ';') {
-      logerrprintfww("Error: Invalid --%s key '%s' (semicolon prohibited).\n", flagname_p, filter_expr.pheno_name);
+      logerrprintfww("Error: Invalid --%s key '%s' (semicolon prohibited).\n", flagname_p, pheno_name);
     } else if (*pheno_name_end_or_invalid == '=') {
-      logerrprintfww("Error: Invalid --%s key '%s' ('=' prohibited).\n", flagname_p, filter_expr.pheno_name);
+      logerrprintfww("Error: Invalid --%s key '%s' ('=' prohibited).\n", flagname_p, pheno_name);
     } else {
-      logerrprintfww("Error: Invalid --%s key '%s' (comma prohibited).\n", flagname_p, filter_expr.pheno_name);
+      logerrprintfww("Error: Invalid --%s key '%s' (comma prohibited).\n", flagname_p, pheno_name);
     }
     return kPglRetInvalidCmdline;
   }
-  uint32_t key_slen = pheno_name_end_or_invalid - filter_expr.pheno_name;
+  uint32_t key_slen = pheno_name_end_or_invalid - pheno_name;
   const uintptr_t cur_alloc = RoundUpPow2(3 + key_slen, kCacheline);
   if (S_CAST(uintptr_t, arena_end - (*arena_base_ptr)) < cur_alloc) {
     return kPglRetNomem;
@@ -416,29 +422,30 @@ PglErr InfoFilterInit(const unsigned char* arena_end, const CmpExpr filter_expr,
   filterp->prekey = R_CAST(char*, *arena_base_ptr);
   (*arena_base_ptr) += cur_alloc;
   filterp->prekey[0] = ';';
-  char* key_iter = memcpya(&(filterp->prekey[1]), filter_expr.pheno_name, key_slen);
+  char* key_iter = memcpya(&(filterp->prekey[1]), pheno_name, key_slen);
   memcpy(key_iter, "=", 2);
   ++key_slen;
   filterp->key_slen = key_slen;
   filterp->val_str = nullptr;
   filterp->val_slen = 0;
-  filterp->binary_op = filter_expr.binary_op;
+  const CmpBinaryOp binary_op = filter_exprp->binary_op;
+  filterp->binary_op = binary_op;
   // shouldn't need to initialize val
 
-  char* val_str = &(filter_expr.pheno_name[key_slen]);
+  const char* val_str = &(pheno_name[key_slen]);
   // bugfix (14 Dec 2017): INFO string constants are not guaranteed to start in
   // a letter.  Only interpret the value as a number if ScanadvDouble()
   // consumes the entire value string.
-  char* val_num_end = ScanadvDouble(val_str, &filterp->val);
+  const char* val_num_end = ScanadvDouble(val_str, &filterp->val);
   if (val_num_end && (!val_num_end[0])) {
     return kPglRetSuccess;
   }
-  if ((filter_expr.binary_op != kCmpOperatorNoteq) && (filter_expr.binary_op != kCmpOperatorEq)) {
+  if ((binary_op != kCmpOperatorNoteq) && (binary_op != kCmpOperatorEq)) {
     logerrprintfww("Error: Invalid --%s value '%s' (finite number expected).\n", flagname_p, val_str);
     return kPglRetInvalidCmdline;
   }
   filterp->val_str = val_str;
-  char* val_str_end_or_invalid = strchrnul2(val_str, ';', '=');
+  const char* val_str_end_or_invalid = strchrnul2(val_str, ';', '=');
   if (*val_str_end_or_invalid) {
     if (*val_str_end_or_invalid == ';') {
       logerrprintfww("Error: Invalid --%s value '%s' (semicolon prohibited).\n", flagname_p, val_str);
@@ -573,38 +580,14 @@ PglErr SplitPar(const uint32_t* variant_bps, UnsortedVar vpos_sortstatus, uint32
   return kPglRetSuccess;
 }
 
-// --input-missing-genotype code set to 1 by LoadPvar()
-// er, this variable should be function-scope?
-static uint8_t acgtm_bool_table[256] = {
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-
-static inline uint32_t IsAcgtm(unsigned char ucc) {
-  return acgtm_bool_table[ucc];
-}
-
 static_assert((!(kMaxIdSlen % kCacheline)), "LoadPvar() must be updated.");
-PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattened, const char* varid_template, const char* missing_varid_match, const char* require_info_flattened, const char* require_no_info_flattened, const CmpExpr extract_if_info_expr, const CmpExpr exclude_if_info_expr, MiscFlags misc_flags, PvarPsamFlags pvar_psam_flags, ExportfFlags exportf_flags, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t split_chr_ok, uint32_t max_thread_ct, ChrInfo* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, UnsortedVar* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** variant_allele_idxs_ptr, const char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, ChrIdx** chr_idxs_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, InfoFlags* info_flags_ptr, uint32_t* max_filter_slen_ptr) {
+PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattened, const char* varid_template, const char* missing_varid_match, const char* require_info_flattened, const char* require_no_info_flattened, const CmpExpr* extract_if_info_exprp, const CmpExpr* exclude_if_info_exprp, MiscFlags misc_flags, PvarPsamFlags pvar_psam_flags, ExportfFlags exportf_flags, float var_min_qual, uint32_t splitpar_bound1, uint32_t splitpar_bound2, uint32_t new_variant_id_max_allele_slen, uint32_t snps_only, uint32_t split_chr_ok, uint32_t max_thread_ct, ChrInfo* cip, uint32_t* max_variant_id_slen_ptr, uint32_t* info_reload_slen_ptr, UnsortedVar* vpos_sortstatus_ptr, char** xheader_ptr, uintptr_t** variant_include_ptr, uint32_t** variant_bps_ptr, char*** variant_ids_ptr, uintptr_t** allele_idx_offsets_ptr, const char*** allele_storage_ptr, uintptr_t** qual_present_ptr, float** quals_ptr, uintptr_t** filter_present_ptr, uintptr_t** filter_npass_ptr, char*** filter_storage_ptr, uintptr_t** nonref_flags_ptr, double** variant_cms_ptr, ChrIdx** chr_idxs_ptr, uint32_t* raw_variant_ct_ptr, uint32_t* variant_ct_ptr, uint32_t* max_allele_slen_ptr, uintptr_t* xheader_blen_ptr, InfoFlags* info_flags_ptr, uint32_t* max_filter_slen_ptr) {
   // chr_info, max_variant_id_slen, and info_reload_slen are in/out; just
   // outparameters after them.  (Due to its large size in some VCFs, INFO is
   // not kept in memory for now.  This has a speed penalty, of course; maybe
   // it's worthwhile to conditionally load it later.)
 
-  // variant_allele_idxs currently assumed to be initialized to nullptr
+  // allele_idx_offsets currently assumed to be initialized to nullptr
 
   // should handle raw_variant_ct == 0 properly
 
@@ -941,19 +924,19 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     }
     InfoFilter info_keep;
     info_keep.prekey = nullptr;
-    if (extract_if_info_expr.pheno_name) {
+    if (extract_if_info_exprp->pheno_name) {
       // todo: also print warning (or optionally error out?) if header line is
       // missing or doesn't match type expectation
       // (same for --require-info)
-      reterr = InfoFilterInit(tmp_alloc_end, extract_if_info_expr, "extract-if-info", &tmp_alloc_base, &info_keep);
+      reterr = InfoFilterInit(tmp_alloc_end, extract_if_info_exprp, "extract-if-info", &tmp_alloc_base, &info_keep);
       if (reterr) {
         goto LoadPvar_ret_1;
       }
     }
     InfoFilter info_remove;
     info_remove.prekey = nullptr;
-    if (exclude_if_info_expr.pheno_name) {
-      reterr = InfoFilterInit(tmp_alloc_end, exclude_if_info_expr, "exclude-if-info", &tmp_alloc_base, &info_remove);
+    if (exclude_if_info_exprp->pheno_name) {
+      reterr = InfoFilterInit(tmp_alloc_end, exclude_if_info_exprp, "exclude-if-info", &tmp_alloc_base, &info_remove);
       if (reterr) {
         goto LoadPvar_ret_1;
       }
@@ -978,16 +961,16 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       }
     }
     char* chr_output_name_buf = nullptr;
-    const char* varid_template_segs[5];
-    uint32_t insert_slens[4];
-    uint32_t varid_template_seg_lens[5];
-    uint32_t varid_template_insert_types[4];
+    STD_ARRAY_DECL(const char*, 5, varid_template_segs);
+    STD_ARRAY_DECL(uint32_t, 4, insert_slens);
+    STD_ARRAY_DECL(uint32_t, 5, varid_template_seg_lens);
+    STD_ARRAY_DECL(uint32_t, 4, varid_template_insert_types);
     uint32_t varid_template_insert_ct = 0;
     uint32_t varid_template_base_len = 0;
     uint32_t varid_alleles_needed = 0;
     uint32_t missing_varid_blen = 0;
     uint32_t missing_varid_match_slen = 0;
-    ZeroU32Arr(4, insert_slens);
+    STD_ARRAY_FILL0(insert_slens);
     if (varid_template) {
       if (S_CAST(uintptr_t, tmp_alloc_end - tmp_alloc_base) < kMaxIdSlen) {
         goto LoadPvar_ret_NOMEM;
@@ -1033,6 +1016,23 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       SetBit(x_code, cip->chr_mask);
     }
 
+    uint8_t acgtm_bool_table[256] = {
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     if (snps_only > 1) {
       acgtm_bool_table[ctou32(input_missing_geno_char)] = 1;
     }
@@ -1288,11 +1288,11 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
             }
             if (snps_only > 1) {
               // just-acgt
-              if (!IsAcgtm(token_ptrs[2][0])) {
+              if (!acgtm_bool_table[ctou32(token_ptrs[2][0])]) {
                 goto LoadPvar_skip_variant;
               }
               for (uint32_t uii = 0; uii <= extra_alt_ct; ++uii) {
-                if (!IsAcgtm(linebuf_iter[2 * uii])) {
+                if (!acgtm_bool_table[ctou32(linebuf_iter[2 * uii])]) {
                   goto LoadPvar_skip_variant;
                 }
               }
@@ -1641,7 +1641,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     BigstackFinalizeCp(allele_storage, allele_idx_end);
     // We may clobber this object soon, so close it now.
     CleanupRLstream(&pvar_rls);
-    uintptr_t* variant_allele_idxs = nullptr;
+    uintptr_t* allele_idx_offsets = nullptr;
     const uint32_t full_block_ct = raw_variant_ct / kLoadPvarBlockSize;
     const uintptr_t raw_variant_ct_lowbits = raw_variant_ct % kLoadPvarBlockSize;
     // todo: determine whether we want variant_include to be guaranteed to be
@@ -1703,7 +1703,7 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     uintptr_t* variant_include = *variant_include_ptr;
     for (uint32_t block_idx = 0; block_idx < full_block_ct; ++block_idx) {
       memcpy(&(variant_bps[block_idx * kLoadPvarBlockSize]), read_iter, kLoadPvarBlockSize * sizeof(int32_t));
-      // skip over variant_allele_idxs
+      // skip over allele_idx_offsets
       read_iter = &(read_iter[kLoadPvarBlockSize * (sizeof(int32_t) + sizeof(intptr_t))]);
       memcpy(&(variant_ids[block_idx * kLoadPvarBlockSize]), read_iter, kLoadPvarBlockSize * sizeof(intptr_t));
       read_iter = &(read_iter[kLoadPvarBlockSize * sizeof(intptr_t)]);
@@ -1772,17 +1772,17 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
     }
     const uintptr_t read_iter_stride_base = kLoadPvarBlockSize * (sizeof(int32_t) + 2 * sizeof(intptr_t)) + (kLoadPvarBlockSize / CHAR_BIT) + (load_qual_col > 1) * ((kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(float)) + (load_filter_col > 1) * (2 * (kLoadPvarBlockSize / CHAR_BIT) + kLoadPvarBlockSize * sizeof(intptr_t)) + info_pr_present * (kLoadPvarBlockSize / CHAR_BIT);
     if (allele_idx_end > 2 * S_CAST(uintptr_t, raw_variant_ct)) {
-      if (bigstack_alloc_w(raw_variant_ct + 1, variant_allele_idxs_ptr)) {
+      if (bigstack_alloc_w(raw_variant_ct + 1, allele_idx_offsets_ptr)) {
         goto LoadPvar_ret_NOMEM;
       }
-      variant_allele_idxs = *variant_allele_idxs_ptr;
+      allele_idx_offsets = *allele_idx_offsets_ptr;
       uintptr_t* allele_idx_read_iter = R_CAST(uintptr_t*, &(g_bigstack_end[kLoadPvarBlockSize * sizeof(int32_t)]));
       for (uint32_t block_idx = 0; block_idx < full_block_ct; ++block_idx) {
-        memcpy(&(variant_allele_idxs[block_idx * kLoadPvarBlockSize]), allele_idx_read_iter, kLoadPvarBlockSize * sizeof(intptr_t));
+        memcpy(&(allele_idx_offsets[block_idx * kLoadPvarBlockSize]), allele_idx_read_iter, kLoadPvarBlockSize * sizeof(intptr_t));
         allele_idx_read_iter = R_CAST(uintptr_t*, R_CAST(uintptr_t, allele_idx_read_iter) + read_iter_stride_base + (block_idx >= cms_start_block) * kLoadPvarBlockSize * sizeof(double) + (block_idx >= chr_idxs_start_block) * kLoadPvarBlockSize * sizeof(ChrIdx));
       }
-      memcpy(&(variant_allele_idxs[full_block_ct * kLoadPvarBlockSize]), allele_idx_read_iter, raw_variant_ct_lowbits * sizeof(intptr_t));
-      variant_allele_idxs[raw_variant_ct] = allele_idx_end;
+      memcpy(&(allele_idx_offsets[full_block_ct * kLoadPvarBlockSize]), allele_idx_read_iter, raw_variant_ct_lowbits * sizeof(intptr_t));
+      allele_idx_offsets[raw_variant_ct] = allele_idx_end;
     }
     if (at_least_one_nzero_cm) {
       if (bigstack_alloc_d(raw_variant_ct, variant_cms_ptr)) {
@@ -1815,8 +1815,8 @@ PglErr LoadPvar(const char* pvarname, const char* var_filter_exceptions_flattene
       }
       cip->chr_ct = chrs_encountered_m1 + 1;
     } else {
-      ChrIdx* chr_idxs = S_CAST(ChrIdx*, bigstack_alloc(raw_variant_ct * sizeof(ChrIdx)));
-      if (!chr_idxs) {
+      ChrIdx* chr_idxs;
+      if (BIGSTACK_ALLOC_X(ChrIdx, raw_variant_ct, &chr_idxs)) {
         goto LoadPvar_ret_NOMEM;
       }
       *chr_idxs_ptr = chr_idxs;

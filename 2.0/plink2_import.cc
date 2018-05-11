@@ -31,7 +31,7 @@ namespace plink2 {
 
 void InitPlink1Dosage(Plink1DosageInfo* plink1_dosage_info_ptr) {
   plink1_dosage_info_ptr->flags = kfPlink1Dosage0;
-  ZeroU32Arr(3, plink1_dosage_info_ptr->skips);
+  STD_ARRAY_FILL0(plink1_dosage_info_ptr->skips);
   plink1_dosage_info_ptr->chr_col_idx = UINT32_MAX;
   plink1_dosage_info_ptr->pos_col_idx = UINT32_MAX;
   plink1_dosage_info_ptr->id_delim = '\0';
@@ -63,7 +63,7 @@ void InitGenDummy(GenDummyInfo* gendummy_info_ptr) {
 //   its side of the double-buffer, then overwrites it with new raw records.
 // (--make-pgen should probably be modified to use this approach, too.)
 
-// allele count determined from global variant_allele_idxs[] array
+// allele count determined from global allele_idx_offsets[] array
 FLAGSET_DEF_START()
   kfGparse0,
   kfGparseNull = (1 << 0),  // just create an all-missing record
@@ -78,9 +78,9 @@ typedef struct GparseReadBgenMetadataStruct {
 } GparseReadBgenMetadata;
 
 typedef struct GparseReadVcfMetadataStruct {
-  uint32_t qual_field_skips[2];
-  uint32_t qual_thresholds[2];
-  uint32_t gt_present;
+  STD_ARRAY_DECL(uint32_t, 2, qual_field_skips);
+  STD_ARRAY_DECL(int32_t, 2, qual_thresholds);
+  uint32_t gt_present;  // maybe make some of these uint8_t
   uint32_t qual_field_ct;
   uint32_t dosage_field_idx;
   uint32_t hds_field_idx;
@@ -206,9 +206,9 @@ uintptr_t* GparseGetPointers(unsigned char* record_start, uint32_t sample_ct, ui
 PglErr GparseFlush(const GparseRecord* grp, uint32_t write_block_size, STPgenWriter* spgwp) {
   PglErr reterr = kPglRetSuccess;
   {
-    const uintptr_t* variant_allele_idxs = spgwp->pwc.allele_idx_offsets;
-    if (variant_allele_idxs) {
-      variant_allele_idxs = &(variant_allele_idxs[spgwp->pwc.vidx]);
+    const uintptr_t* allele_idx_offsets = spgwp->pwc.allele_idx_offsets;
+    if (allele_idx_offsets) {
+      allele_idx_offsets = &(allele_idx_offsets[spgwp->pwc.vidx]);
     }
     const uint32_t sample_ct = spgwp->pwc.sample_ct;
     uint32_t allele_ct = 2;
@@ -226,8 +226,8 @@ PglErr GparseFlush(const GparseRecord* grp, uint32_t write_block_size, STPgenWri
     for (uintptr_t write_block_vidx = 0; write_block_vidx < write_block_size; ++write_block_vidx) {
       const GparseRecord* cur_gparse_rec = &(grp[write_block_vidx]);
       const GparseFlags flags = cur_gparse_rec->flags;
-      if (variant_allele_idxs) {
-        allele_ct = variant_allele_idxs[write_block_vidx + 1] - variant_allele_idxs[write_block_vidx];
+      if (allele_idx_offsets) {
+        allele_ct = allele_idx_offsets[write_block_vidx + 1] - allele_idx_offsets[write_block_vidx];
       }
       uintptr_t* genovec = GparseGetPointers(cur_gparse_rec->record_start, sample_ct, allele_ct, flags, &patch_01_set, &patch_01_vals, &patch_10_set, &patch_10_vals, &phasepresent, &phaseinfo, &dosage_present, &dosage_main, &dphase_present, &dphase_delta);
       const GparseWriteMetadata* cur_gwmp = &(cur_gparse_rec->metadata.write);
@@ -770,7 +770,7 @@ uint32_t GetVcfFormatPosition(const char* __restrict needle, const char* format_
   }
 }
 
-uint32_t VcfQualScanInit(const char* format_start, const char* format_end, int32_t vcf_min_gq, int32_t vcf_min_dp, uint32_t* qual_field_skips, int32_t* qual_thresholds) {
+uint32_t VcfQualScanInit(const char* format_start, const char* format_end, int32_t vcf_min_gq, int32_t vcf_min_dp, STD_ARRAY_REF(uint32_t, 2) qual_field_skips, STD_ARRAY_REF(int32_t, 2) qual_thresholds) {
   uint32_t gq_field_idx = UINT32_MAX;
   if (vcf_min_gq >= 0) {
     gq_field_idx = GetVcfFormatPosition("GQ", format_start, format_end, 2);
@@ -810,8 +810,8 @@ typedef struct VcfImportContextBaseStruct {
 
   // line-specific
   uint32_t gt_present;
-  uint32_t qual_field_skips[2];
-  int32_t qual_thresholds[2];
+  STD_ARRAY_DECL(uint32_t, 2, qual_field_skips);
+  STD_ARRAY_DECL(int32_t, 2, qual_thresholds);
   uint32_t qual_field_ct;
 } VcfImportBaseContext;
 
@@ -831,7 +831,7 @@ typedef struct VcfImportContext {
 
 // returns 1 if a quality check failed
 // assumes either 1 or 2 qual fields, otherwise change this to a loop
-uint32_t VcfCheckQuals(const uint32_t* qual_field_skips, const int32_t* qual_thresholds, const char* gtext_iter, const char* gtext_end, uint32_t qual_field_ct) {
+uint32_t VcfCheckQuals(STD_ARRAY_KREF(uint32_t, 2) qual_field_skips, STD_ARRAY_KREF(int32_t, 2) qual_thresholds, const char* gtext_iter, const char* gtext_end, uint32_t qual_field_ct) {
   const uint32_t skip0 = qual_field_skips[0];  // this can now be zero
   if (skip0) {
     gtext_iter = AdvToNthDelimChecked(gtext_iter, gtext_end, skip0, ':');
@@ -1016,8 +1016,8 @@ VcfParseErr VcfScanBiallelicHdsLine(const VcfImportContext* vicp, const char* fo
   const uint32_t sample_ct = vicp->vibc.sample_ct;
   const VcfHalfCall halfcall_mode = vicp->vibc.halfcall_mode;
   const uint32_t gt_present = vicp->vibc.gt_present;
-  const uint32_t* qual_field_skips = vicp->vibc.qual_field_skips;
-  const int32_t* qual_thresholds = vicp->vibc.qual_thresholds;
+  STD_ARRAY_KREF(uint32_t, 2) qual_field_skips = vicp->vibc.qual_field_skips;
+  STD_ARRAY_KREF(int32_t, 2) qual_thresholds = vicp->vibc.qual_thresholds;
   const uint32_t qual_field_ct = vicp->vibc.qual_field_ct;
 
   const uint32_t dosage_erase_halfdist = vicp->dosage_erase_halfdist;
@@ -1089,8 +1089,8 @@ VcfParseErr VcfConvertPhasedBiallelicDosageLine(const VcfImportContext* vicp, co
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
   const VcfHalfCall halfcall_mode = vicp->vibc.halfcall_mode;
   const uint32_t gt_present = vicp->vibc.gt_present;
-  const uint32_t* qual_field_skips = vicp->vibc.qual_field_skips;
-  const int32_t* qual_thresholds = vicp->vibc.qual_thresholds;
+  STD_ARRAY_KREF(uint32_t, 2) qual_field_skips = vicp->vibc.qual_field_skips;
+  STD_ARRAY_KREF(int32_t, 2) qual_thresholds = vicp->vibc.qual_thresholds;
   const uint32_t qual_field_ct = vicp->vibc.qual_field_ct;
 
   const uint32_t dosage_is_gp = vicp->dosage_is_gp;
@@ -1276,8 +1276,8 @@ VcfParseErr VcfConvertPhasedBiallelicDosageLine(const VcfImportContext* vicp, co
 uintptr_t VcfScanShortallelicLine(const VcfImportBaseContext* vibcp, const char* format_end, char** line_iter_ptr) {
   // Just check for a phased het.
   const VcfHalfCall halfcall_mode = vibcp->halfcall_mode;
-  const uint32_t* qual_field_skips = vibcp->qual_field_skips;
-  const int32_t* qual_thresholds = vibcp->qual_thresholds;
+  STD_ARRAY_KREF(uint32_t, 2) qual_field_skips = vibcp->qual_field_skips;
+  STD_ARRAY_KREF(int32_t, 2) qual_thresholds = vibcp->qual_thresholds;
   const uint32_t qual_field_ct = vibcp->qual_field_ct;
   const char* phasescan_iter = format_end;
   uintptr_t retval = 0;
@@ -1321,8 +1321,8 @@ VcfParseErr VcfConvertUnphasedBiallelicLine(const VcfImportBaseContext* vibcp, c
   const uint32_t sample_ct = vibcp->sample_ct;
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
   const VcfHalfCall halfcall_mode = vibcp->halfcall_mode;
-  const uint32_t* qual_field_skips = vibcp->qual_field_skips;
-  const int32_t* qual_thresholds = vibcp->qual_thresholds;
+  STD_ARRAY_KREF(uint32_t, 2) qual_field_skips = vibcp->qual_field_skips;
+  STD_ARRAY_KREF(int32_t, 2) qual_thresholds = vibcp->qual_thresholds;
   const uint32_t qual_field_ct = vibcp->qual_field_ct;
 
   uint32_t inner_loop_last = kBitsPerWordD2 - 1;
@@ -1409,8 +1409,8 @@ VcfParseErr VcfConvertPhasedBiallelicLine(const VcfImportBaseContext* vibcp, con
   const uint32_t sample_ct = vibcp->sample_ct;
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
   const VcfHalfCall halfcall_mode = vibcp->halfcall_mode;
-  const uint32_t* qual_field_skips = vibcp->qual_field_skips;
-  const int32_t* qual_thresholds = vibcp->qual_thresholds;
+  STD_ARRAY_KREF(uint32_t, 2) qual_field_skips = vibcp->qual_field_skips;
+  STD_ARRAY_KREF(int32_t, 2) qual_thresholds = vibcp->qual_thresholds;
   const uint32_t qual_field_ct = vibcp->qual_field_ct;
 
   uint32_t inner_loop_last = kBitsPerWordD2 - 1;
@@ -1506,8 +1506,8 @@ VcfParseErr VcfConvertPhasedBiallelicLine(const VcfImportBaseContext* vibcp, con
 
 uintptr_t VcfScanLongallelicLine(const VcfImportBaseContext* vibcp, const char* format_end, char** line_iter_ptr) {
   const VcfHalfCall halfcall_mode = vibcp->halfcall_mode;
-  const uint32_t* qual_field_skips = vibcp->qual_field_skips;
-  const int32_t* qual_thresholds = vibcp->qual_thresholds;
+  STD_ARRAY_KREF(uint32_t, 2) qual_field_skips = vibcp->qual_field_skips;
+  STD_ARRAY_KREF(int32_t, 2) qual_thresholds = vibcp->qual_thresholds;
   const uint32_t qual_field_ct = vibcp->qual_field_ct;
   const char* phasescan_iter = format_end;
   uintptr_t retval = 0;
@@ -1567,7 +1567,7 @@ uintptr_t VcfScanLongallelicLine(const VcfImportBaseContext* vibcp, const char* 
 static unsigned char** g_thread_wkspaces = nullptr;
 static uint32_t* g_thread_bidxs[2] = {nullptr, nullptr};
 static GparseRecord* g_gparse[2] = {nullptr, nullptr};
-static const uintptr_t* g_block_variant_allele_idxs[2] = {nullptr, nullptr};
+static const uintptr_t* g_block_allele_idx_offsets[2] = {nullptr, nullptr};
 
 static PglErr g_error_ret = kPglRetSuccess;
 static VcfParseErr* g_vcf_parse_errs = nullptr;
@@ -1628,7 +1628,7 @@ THREAD_FUNC_DECL VcfGenoToPgenThread(void* arg) {
     // this is just used as a no-error flag
     const uintptr_t cur_block_write_ct = g_cur_block_write_ct;
     if (cur_block_write_ct) {
-      const uintptr_t* block_variant_allele_idxs = g_block_variant_allele_idxs[parity];
+      const uintptr_t* block_allele_idx_offsets = g_block_allele_idx_offsets[parity];
       const uint32_t bidx_end = g_thread_bidxs[parity][tidx + 1];
       uint32_t bidx = g_thread_bidxs[parity][tidx];
       GparseRecord* cur_gparse = g_gparse[parity];
@@ -1642,16 +1642,16 @@ THREAD_FUNC_DECL VcfGenoToPgenThread(void* arg) {
         if (gparse_flags == kfGparseNull) {
           SetAllBits(2 * sample_ct, R_CAST(uintptr_t*, grp->record_start));
         } else {
-          if (block_variant_allele_idxs) {
-            cur_allele_ct = block_variant_allele_idxs[bidx + 1] - block_variant_allele_idxs[bidx];
+          if (block_allele_idx_offsets) {
+            cur_allele_ct = block_allele_idx_offsets[bidx + 1] - block_allele_idx_offsets[bidx];
           }
           uintptr_t* genovec = GparseGetPointers(thread_wkspace, sample_ct, cur_allele_ct, gparse_flags, &patch_01_set, &patch_01_vals, &patch_10_set, &patch_10_vals, &phasepresent, &phaseinfo, &dosage_present, &dosage_main, &dphase_present, &dphase_delta);
           uintptr_t* write_genovec = GparseGetPointers(grp->record_start, sample_ct, cur_allele_ct, gparse_flags, &write_patch_01_set, &write_patch_01_vals, &write_patch_10_set, &write_patch_10_vals, &write_phasepresent, &write_phaseinfo, &write_dosage_present, &write_dosage_main, &write_dphase_present, &write_dphase_delta);
           char* genotext_start = R_CAST(char*, grp->record_start);
           ++genotext_start;
           const uint32_t qual_field_ct = grp->metadata.read_vcf.qual_field_ct;
-          memcpy(vic.vibc.qual_field_skips, grp->metadata.read_vcf.qual_field_skips, qual_field_ct * sizeof(int32_t));
-          memcpy(vic.vibc.qual_thresholds, grp->metadata.read_vcf.qual_thresholds, qual_field_ct * sizeof(int32_t));
+          memcpy(&vic.vibc.qual_field_skips[0], &(grp->metadata.read_vcf.qual_field_skips)[0], qual_field_ct * sizeof(int32_t));
+          memcpy(&vic.vibc.qual_thresholds[0], &(grp->metadata.read_vcf.qual_thresholds)[0], qual_field_ct * sizeof(int32_t));
           vic.vibc.gt_present = grp->metadata.read_vcf.gt_present;
           vic.vibc.qual_field_ct = qual_field_ct;
           vic.dosage_field_idx = grp->metadata.read_vcf.dosage_field_idx;
@@ -2029,7 +2029,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       nonref_flags = S_CAST(uintptr_t*, bigstack_alloc_raw_rd(max_variant_ctaw * sizeof(intptr_t)));
     }
     uintptr_t* nonref_flags_iter = nonref_flags;
-    uintptr_t* variant_allele_idxs = R_CAST(uintptr_t*, g_bigstack_base);
+    uintptr_t* allele_idx_offsets = R_CAST(uintptr_t*, g_bigstack_base);
     if (halfcall_mode == kVcfHalfCallDefault) {
       halfcall_mode = kVcfHalfCallError;
     }
@@ -2193,7 +2193,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         SetBit(cur_chr_code, base_chr_present);
       }
 
-      variant_allele_idxs[variant_ct] = allele_idx_end;
+      allele_idx_offsets[variant_ct] = allele_idx_end;
       allele_idx_end += alt_ct + 1;
       const uint32_t variant_idx_lowbits = variant_ct % kBitsPerWord;
       if (info_pr_present) {
@@ -2293,10 +2293,10 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
     }
 
     if (allele_idx_end > 2 * variant_ct) {
-      variant_allele_idxs[variant_ct] = allele_idx_end;
-      BigstackFinalizeW(variant_allele_idxs, variant_ct + 1);
+      allele_idx_offsets[variant_ct] = allele_idx_end;
+      BigstackFinalizeW(allele_idx_offsets, variant_ct + 1);
     } else {
-      variant_allele_idxs = nullptr;
+      allele_idx_offsets = nullptr;
     }
 
     uint32_t calc_thread_ct;
@@ -2461,10 +2461,10 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       }
       if (nonref_flags_storage != 3) {
         // yeah, we may now have a temporary "memory leak" here (if
-        // multiallelic variants are present, and thus variant_allele_idxs[]
+        // multiallelic variants are present, and thus allele_idx_offsets[]
         // must be kept around), but this array is typically only 1/64 the size
-        // of variant_allele_idxs[].
-        if (!variant_allele_idxs) {
+        // of allele_idx_offsets[].
+        if (!allele_idx_offsets) {
           BigstackReset(nonref_flags);
         }
         nonref_flags = nullptr;
@@ -2499,7 +2499,7 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
       snprintf(outname_end, kMaxOutfnameExtBlen, ".pgen");
       uintptr_t spgw_alloc_cacheline_ct;
       uint32_t max_vrec_len;
-      reterr = SpgwInitPhase1(outname, variant_allele_idxs, nonref_flags, variant_ct, sample_ct, phase_dosage_gflags, nonref_flags_storage, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
+      reterr = SpgwInitPhase1(outname, allele_idx_offsets, nonref_flags, variant_ct, sample_ct, phase_dosage_gflags, nonref_flags_storage, &spgw, &spgw_alloc_cacheline_ct, &max_vrec_len);
       if (reterr) {
         goto VcfToPgen_ret_1;
       }
@@ -2607,9 +2607,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         if (sample_ct) {
           thread_bidxs = g_thread_bidxs[parity];
           cur_gparse = g_gparse[parity];
-          // er, should probably standardize on allele_idx_offsets name
-          if (variant_allele_idxs) {
-            g_block_variant_allele_idxs[parity] = &(spgw.pwc.allele_idx_offsets[vidx_start]);
+          if (allele_idx_offsets) {
+            g_block_allele_idx_offsets[parity] = &(spgw.pwc.allele_idx_offsets[vidx_start]);
           }
           geno_buf_iter = geno_bufs[parity];
           cur_thread_byte_stop = &(geno_buf_iter[per_thread_byte_limit]);
@@ -2627,8 +2626,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
           grp = &(cur_gparse[block_vidx]);
           grp->record_start = geno_buf_iter;
           grp->flags = gparse_flags;
-          memcpy(grp->metadata.read_vcf.qual_field_skips, vic.vibc.qual_field_skips, vic.vibc.qual_field_ct * sizeof(int32_t));
-          memcpy(grp->metadata.read_vcf.qual_thresholds, vic.vibc.qual_thresholds, vic.vibc.qual_field_ct * sizeof(int32_t));
+          memcpy(&(grp->metadata.read_vcf.qual_field_skips[0]), &vic.vibc.qual_field_skips[0], vic.vibc.qual_field_ct * sizeof(int32_t));
+          memcpy(&(grp->metadata.read_vcf.qual_thresholds[0]), &vic.vibc.qual_thresholds[0], vic.vibc.qual_field_ct * sizeof(int32_t));
           grp->metadata.read_vcf.gt_present = vic.vibc.gt_present;
           grp->metadata.read_vcf.qual_field_ct = vic.vibc.qual_field_ct;
           grp->metadata.read_vcf.dosage_field_idx = vic.dosage_field_idx;
@@ -2653,22 +2652,8 @@ PglErr VcfToPgen(const char* vcfname, const char* preexisting_psamname, const ch
         VcfToPgen_load_start:
           ++line_idx;
           if (RlsNext(&vcf_rls, &line_iter)) {
-            printf("line_idx: %" PRIuPTR "\n", line_idx);
-            printf("variant_idx: %u\n", vidx_start + block_vidx);
             goto VcfToPgen_ret_READ_FAIL;
           }
-          /*
-          // 8 May 2018: there is some occasional-EOF issue that needs to be
-          // tracked down.
-          reterr = RlsNext(&vcf_rls, &line_iter);
-          if (reterr) {
-            printf("line_idx: %lu\n", line_idx);
-            printf("variant_idx: %u\n", vidx_start + block_vidx);
-            printf("reterr: %u\n", (uint32_t)reterr);
-            sleep(99999);
-            goto VcfToPgen_ret_READ_FAIL;
-          }
-          */
 
           if (ctou32(*line_iter) < 32) {
             goto VcfToPgen_load_start;
@@ -4321,9 +4306,10 @@ THREAD_FUNC_DECL Bgen11GenoToPgenThread(void* arg) {
 #endif
 HEADER_INLINE uintptr_t Bgen13GetOneVal(const unsigned char* prob_start, uint64_t prob_offset, uint32_t bit_precision, uintptr_t numer_mask) {
   const uint64_t bit_offset = prob_offset * bit_precision;
-  const unsigned char* first_relevant_byte_ptr = &(prob_start[bit_offset / CHAR_BIT]);
+  uint64_t relevant_bits;
   // This can read slightly past the end of the buffer.
-  return ((*R_CAST(const uint64_t*, first_relevant_byte_ptr)) >> (bit_offset % CHAR_BIT)) & numer_mask;
+  memcpy(&relevant_bits, &(prob_start[bit_offset / CHAR_BIT]), sizeof(int64_t));
+  return (relevant_bits >> (bit_offset % CHAR_BIT)) & numer_mask;
 }
 
 #ifdef __arm__
@@ -4331,14 +4317,15 @@ HEADER_INLINE uintptr_t Bgen13GetOneVal(const unsigned char* prob_start, uint64_
 #endif
 HEADER_INLINE void Bgen13GetTwoVals(const unsigned char* prob_start, uint64_t prob_offset, uint32_t bit_precision, uintptr_t numer_mask, uintptr_t* first_val_ptr, uintptr_t* second_val_ptr) {
   const uint64_t bit_offset = prob_offset * bit_precision;
-  const unsigned char* first_relevant_byte_ptr = &(prob_start[bit_offset / CHAR_BIT]);
+  uint64_t relevant_bits;
   // This can read slightly past the end of the buffer.
   // Note that with bit_precision=29 and variable ploidy,
   // (bit_offset % CHAR_BIT) == 7 is possible, so we may only get 57 bits when
   // we need 58; thus we don't support 29-31 bits for now.
-  const uint64_t cur_bits = (*R_CAST(const uint64_t*, first_relevant_byte_ptr)) >> (bit_offset % CHAR_BIT);
-  *first_val_ptr = cur_bits & numer_mask;
-  *second_val_ptr = (cur_bits >> bit_precision) & numer_mask;
+  memcpy(&relevant_bits, &(prob_start[bit_offset / CHAR_BIT]), sizeof(int64_t));
+  relevant_bits = relevant_bits >> (bit_offset % CHAR_BIT);
+  *first_val_ptr = relevant_bits & numer_mask;
+  *second_val_ptr = (relevant_bits >> bit_precision) & numer_mask;
 }
 
 static uint16_t* g_bgen_allele_cts[2] = {nullptr, nullptr};
@@ -4548,14 +4535,15 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
         // sample_ct bytes: low 6 bits = ploidy, top bit = missingness
         // 1 byte: 1 if phased, 0 if not
         // 1 byte: # of bits of probability precision
-#ifdef __arm__
-#  error "Unaligned accesses in Bgen13DosageOrPhaseScanThread()."
-#endif
-        if ((uncompressed_byte_ct < 10 + sample_ct) || (sample_ct != *R_CAST(const uint32_t*, cur_uncompressed_geno))) {
+        uint32_t stored_sample_ct;
+        memcpy(&stored_sample_ct, cur_uncompressed_geno, sizeof(int32_t));
+        if ((uncompressed_byte_ct < 10 + sample_ct) || (sample_ct != stored_sample_ct)) {
           goto Bgen13DosageOrPhaseScanThread_malformed;
         }
         const uint32_t cur_allele_ct = bgen_allele_cts[bidx];
-        if (*R_CAST(const uint16_t*, &(cur_uncompressed_geno[4])) != cur_allele_ct) {
+        uint16_t stored_allele_ct;
+        memcpy(&stored_allele_ct, &(cur_uncompressed_geno[4]), sizeof(int16_t));
+        if (stored_allele_ct != cur_allele_ct) {
           goto Bgen13DosageOrPhaseScanThread_malformed;
         }
         const uint32_t min_ploidy = cur_uncompressed_geno[6];
@@ -4734,24 +4722,34 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
                 continue;
               }
             }
-            const uint32_t write_dhap1_int = (magic_preadd + magic_mult * numer_a1) >> magic_postshift;
-            const uint32_t write_dhap2_int = (magic_preadd + magic_mult * numer_a2) >> magic_postshift;
-            const uint32_t halfdist1 = HaploidDosageHalfdist(write_dhap1_int);
-            const uint32_t halfdist2 = HaploidDosageHalfdist(write_dhap2_int);
-            // 'Found' if we save phase OR dosage info.
-            // * Dosage is erased if halfdist1 and halfdist2 are both >=
-            //   dosage_erase_halfdist2.  But we still save phase if the two
-            //   sides don't round to the same integer.
-            // * Otherwise, we usually save dosage.  However, there's one
-            //   exception: write_dhap1_int == write_dhap2_int and they're both
-            //   really close to 0.5.  Then we just save an unphased hardcall.
-            if ((halfdist1 >= dosage_erase_halfdist2) && (halfdist2 >= dosage_erase_halfdist2)) {
-              if (((write_dhap1_int + kDosage4th) ^ (write_dhap2_int + kDosage4th)) & kDosageMid) {
+            if (numer_a1 == numer_a2) {
+              // avoid ugly precision loss
+              const uint32_t write_dosage_int = (magic_preadd + magic_mult * 2 * numer_a1) >> magic_postshift;
+              const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
+              if (halfdist < dosage_erase_halfdist) {
                 goto Bgen13DosageOrPhaseScanThread_found;
               }
             } else {
-              if ((write_dhap1_int != write_dhap2_int) || (halfdist1 + dosage_erase_halfdist2 > kDosage4th)) {
-                goto Bgen13DosageOrPhaseScanThread_found;
+              const uint32_t write_dhap1_int = (magic_preadd + magic_mult * numer_a1) >> magic_postshift;
+              const uint32_t write_dhap2_int = (magic_preadd + magic_mult * numer_a2) >> magic_postshift;
+              const uint32_t halfdist1 = HaploidDosageHalfdist(write_dhap1_int);
+              const uint32_t halfdist2 = HaploidDosageHalfdist(write_dhap2_int);
+              // 'Found' if we save phase OR dosage info.
+              // * Dosage is erased if halfdist1 and halfdist2 are both >=
+              //   dosage_erase_halfdist2.  But we still save phase if the two
+              //   sides don't round to the same integer.
+              // * Otherwise, we usually save dosage.  However, there's one
+              //   exception: write_dhap1_int == write_dhap2_int and they're
+              //   both really close to 0.5.  Then we just save an unphased
+              //   hardcall.
+              if ((halfdist1 >= dosage_erase_halfdist2) && (halfdist2 >= dosage_erase_halfdist2)) {
+                if (((write_dhap1_int + kDosage4th) ^ (write_dhap2_int + kDosage4th)) & kDosageMid) {
+                  goto Bgen13DosageOrPhaseScanThread_found;
+                }
+              } else {
+                if ((write_dhap1_int != write_dhap2_int) || (halfdist1 + dosage_erase_halfdist2 > kDosage4th)) {
+                  goto Bgen13DosageOrPhaseScanThread_found;
+                }
               }
             }
           }
@@ -4833,17 +4831,26 @@ THREAD_FUNC_DECL Bgen13DosageOrPhaseScanThread(void* arg) {
                 continue;
               }
             }
-            const uint32_t write_dhap1_int = (magic_preadd + magic_mult * numer_a1) >> magic_postshift;
-            const uint32_t write_dhap2_int = (magic_preadd + magic_mult * numer_a2) >> magic_postshift;
-            const uint32_t halfdist1 = HaploidDosageHalfdist(write_dhap1_int);
-            const uint32_t halfdist2 = HaploidDosageHalfdist(write_dhap2_int);
-            if ((halfdist1 >= dosage_erase_halfdist2) && (halfdist2 >= dosage_erase_halfdist2)) {
-              if (((write_dhap1_int + kDosage4th) ^ (write_dhap2_int + kDosage4th)) & kDosageMid) {
+            if (numer_a1 == numer_a2) {
+              // avoid ugly precision loss
+              const uint32_t write_dosage_int = (magic_preadd + magic_mult * 2 * numer_a1) >> magic_postshift;
+              const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
+              if (halfdist < dosage_erase_halfdist) {
                 goto Bgen13DosageOrPhaseScanThread_found;
               }
             } else {
-              if ((write_dhap1_int != write_dhap2_int) || (halfdist1 + dosage_erase_halfdist2 > kDosage4th)) {
-                goto Bgen13DosageOrPhaseScanThread_found;
+              const uint32_t write_dhap1_int = (magic_preadd + magic_mult * numer_a1) >> magic_postshift;
+              const uint32_t write_dhap2_int = (magic_preadd + magic_mult * numer_a2) >> magic_postshift;
+              const uint32_t halfdist1 = HaploidDosageHalfdist(write_dhap1_int);
+              const uint32_t halfdist2 = HaploidDosageHalfdist(write_dhap2_int);
+              if ((halfdist1 >= dosage_erase_halfdist2) && (halfdist2 >= dosage_erase_halfdist2)) {
+                if (((write_dhap1_int + kDosage4th) ^ (write_dhap2_int + kDosage4th)) & kDosageMid) {
+                  goto Bgen13DosageOrPhaseScanThread_found;
+                }
+              } else {
+                if ((write_dhap1_int != write_dhap2_int) || (halfdist1 + dosage_erase_halfdist2 > kDosage4th)) {
+                  goto Bgen13DosageOrPhaseScanThread_found;
+                }
               }
             }
           } else {
@@ -4924,7 +4931,7 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
     // this is just used as an no-error flag
     const uintptr_t cur_block_write_ct = g_cur_block_write_ct;
     if (cur_block_write_ct) {
-      const uintptr_t* block_variant_allele_idxs = g_block_variant_allele_idxs[parity];
+      const uintptr_t* block_allele_idx_offsets = g_block_allele_idx_offsets[parity];
       const uint32_t bidx_end = g_thread_bidxs[parity][tidx + 1];
       uint32_t bidx = g_thread_bidxs[parity][tidx];
       GparseRecord* cur_gparse = g_gparse[parity];
@@ -4959,13 +4966,17 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
         // 1 byte: 1 if phased, 0 if not
         // 1 byte: # of bits of probability precision (we just support 8 and 16
         //         for now, add others later)
-        if ((uncompressed_byte_ct < 10 + sample_ct) || (sample_ct != *R_CAST(const uint32_t*, cur_uncompressed_geno))) {
+        uint32_t stored_sample_ct;
+        memcpy(&stored_sample_ct, cur_uncompressed_geno, sizeof(int32_t));
+        if ((uncompressed_byte_ct < 10 + sample_ct) || (sample_ct != stored_sample_ct)) {
           goto Bgen13GenoToPgenThread_malformed;
         }
-        if (block_variant_allele_idxs) {
-          cur_allele_ct = block_variant_allele_idxs[bidx + 1] - block_variant_allele_idxs[bidx];
+        if (block_allele_idx_offsets) {
+          cur_allele_ct = block_allele_idx_offsets[bidx + 1] - block_allele_idx_offsets[bidx];
         }
-        if (*R_CAST(const uint16_t*, &(cur_uncompressed_geno[4])) != cur_allele_ct) {
+        uint16_t stored_allele_ct;
+        memcpy(&stored_allele_ct, &(cur_uncompressed_geno[4]), sizeof(int16_t));
+        if (stored_allele_ct != cur_allele_ct) {
           goto Bgen13GenoToPgenThread_malformed;
         }
         const uint32_t min_ploidy = cur_uncompressed_geno[6];
@@ -5113,6 +5124,15 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
                   uintptr_t numer_a1;
                   uintptr_t numer_a2;
                   Bgen13GetTwoVals(probs_start, prob_offset_base + 2 * sample_idx_lowbits, bit_precision, numer_mask, &numer_a1, &numer_a2);
+                  if (numer_certainty_min) {
+                    const uintptr_t numer_sum_x2 = 2 * (numer_a1 + numer_a2);
+                    const uint32_t dist_from_het_x2 = 2 * abs_i32(numer_sum_x2 - numer_mask);
+                    const uint32_t cur_certainty = numer_mask - abs_i32(dist_from_het_x2 - numer_mask);
+                    if (cur_certainty < numer_certainty_min) {
+                      goto Bgen13GenoToPgenThread_diploid_phased_missing;
+                    }
+                  }
+                  uint32_t write_dosage_int;
                   if (numer_a1 == numer_a2) {
                     // fast path for common trivial cases
                     if (!numer_a1) {
@@ -5122,82 +5142,86 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
                       genovec_word |= (2 * k1LU) << (2 * sample_idx_lowbits);
                       continue;
                     }
-                  }
-                  if (numer_certainty_min) {
-                    const uintptr_t numer_sum_x2 = 2 * (numer_a1 + numer_a2);
-                    const uint32_t dist_from_het_x2 = 2 * abs_i32(numer_sum_x2 - numer_mask);
-                    const uint32_t cur_certainty = numer_mask - abs_i32(dist_from_het_x2 - numer_mask);
-                    if (cur_certainty < numer_certainty_min) {
-                      goto Bgen13GenoToPgenThread_diploid_phased_missing;
-                    }
-                  }
-                  uint32_t write_dhap1_int = (magic_preadd + magic_mult * numer_a1) >> magic_postshift;
-                  uint32_t write_dhap2_int = (magic_preadd + magic_mult * numer_a2) >> magic_postshift;
-                  const uint32_t halfdist1 = HaploidDosageHalfdist(write_dhap1_int);
-                  const uint32_t halfdist2 = HaploidDosageHalfdist(write_dhap2_int);
-                  if ((halfdist1 >= dosage_erase_halfdist2) && (halfdist2 >= dosage_erase_halfdist2)) {
-                    // --dosage-erase-threshold only applies to phased dosage
-                    // when both sides are within [threshold/2] of an
-                    // integer; otherwise we have a discontinuity between
-                    // dosage=0.103=0.0515|0.0515 (dphase omitted) and
-                    // dosage=0.103=0.051|0.052.
-                    const uintptr_t geno1 = (write_dhap1_int + kDosage4th) / kDosageMid;
-                    const uintptr_t geno2 = (write_dhap2_int + kDosage4th) / kDosageMid;
-                    uintptr_t cur_geno = geno1 + geno2;
-                    // This duplicate code isn't strictly necessary, but I
-                    // expect it to pay off since all phased-het hardcalls go
-                    // here.
-                    genovec_word |= cur_geno << (2 * sample_idx_lowbits);
-                    if (cur_geno == 1) {
-                      phasepresent_hw |= 1U << sample_idx_lowbits;
-                      phaseinfo_hw |= geno1 << sample_idx_lowbits;
-                    }
-                    continue;
-                  }
-                  const uint32_t write_dosage_int = write_dhap1_int + write_dhap2_int;
-                  const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
-                  // reference allele assumed to be second here, so haplotype
-                  // dosages are for alt1.
-                  int32_t write_dphase_delta_val = write_dhap1_int - write_dhap2_int;
-                  if (halfdist < hard_call_halfdist) {
-                    // --hard-call-threshold must not care about phased
-                    // dosage; otherwise we have a discontinuity between
-                    // dosage=0.998=0.499|0.499 (dphase omitted) and
-                    // 0.998=0.498|0.5.
-                    genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
-                  } else {
-                    const uintptr_t cur_geno = (write_dosage_int + (kDosage4th * k1LU)) / kDosageMid;
-                    genovec_word |= cur_geno << (2 * sample_idx_lowbits);
-                    if (cur_geno == 1) {
-                      // generate hardcall-phase from dosage-phase iff
-                      // delta > 0.5.
-                      // bugfix (22 Apr 2018): (write_dphase_delta_val >> 31)
-                      // is actually undefined behavior for an int32_t; must
-                      // cast to uint32_t first
-                      const uint32_t neg_sign_bit = -(S_CAST(uint32_t, write_dphase_delta_val) >> 31);
-                      const uint32_t abs_write_dphase_delta_val = (S_CAST(uint32_t, write_dphase_delta_val) ^ neg_sign_bit) - neg_sign_bit;
-                      if (abs_write_dphase_delta_val > kDosage4th) {
-                        phasepresent_hw |= 1U << sample_idx_lowbits;
-                        // phaseinfo_hw bit set for 1|0
-                        // todo: check if branch is faster
-                        phaseinfo_hw |= (neg_sign_bit + 1) << sample_idx_lowbits;
-                        if ((abs_write_dphase_delta_val == write_dosage_int) || (abs_write_dphase_delta_val + write_dosage_int == kDosageMax)) {
-                          // can omit explicit dphase_delta in this case
-                          write_dphase_delta_val = 0;
-                        }
-                      } else if ((halfdist >= dosage_erase_halfdist) && (!write_dphase_delta_val)) {
-                        // unphased het hardcall special case
+                    // avoid ugly precision loss
+                    write_dosage_int = (magic_preadd + magic_mult * 2 * numer_a1) >> magic_postshift;
+                    const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
+                    if (halfdist < hard_call_halfdist) {
+                      genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+                    } else {
+                      genovec_word |= ((write_dosage_int + (kDosage4th * k1LU)) / kDosageMid) << (2 * sample_idx_lowbits);
+                      if (halfdist >= dosage_erase_halfdist) {
                         continue;
                       }
                     }
+                  } else {
+                    uint32_t write_dhap1_int = (magic_preadd + magic_mult * numer_a1) >> magic_postshift;
+                    uint32_t write_dhap2_int = (magic_preadd + magic_mult * numer_a2) >> magic_postshift;
+                    const uint32_t halfdist1 = HaploidDosageHalfdist(write_dhap1_int);
+                    const uint32_t halfdist2 = HaploidDosageHalfdist(write_dhap2_int);
+                    if ((halfdist1 >= dosage_erase_halfdist2) && (halfdist2 >= dosage_erase_halfdist2)) {
+                      // --dosage-erase-threshold only applies to phased dosage
+                      // when both sides are within [threshold/2] of an
+                      // integer; otherwise we have a discontinuity between
+                      // dosage=0.103=0.0515|0.0515 (dphase omitted) and
+                      // dosage=0.103=0.051|0.052.
+                      const uintptr_t geno1 = (write_dhap1_int + kDosage4th) / kDosageMid;
+                      const uintptr_t geno2 = (write_dhap2_int + kDosage4th) / kDosageMid;
+                      uintptr_t cur_geno = geno1 + geno2;
+                      // This duplicate code isn't strictly necessary, but I
+                      // expect it to pay off since all phased-het hardcalls go
+                      // here.
+                      genovec_word |= cur_geno << (2 * sample_idx_lowbits);
+                      if (cur_geno == 1) {
+                        phasepresent_hw |= 1U << sample_idx_lowbits;
+                        phaseinfo_hw |= geno1 << sample_idx_lowbits;
+                      }
+                      continue;
+                    }
+                    write_dosage_int = write_dhap1_int + write_dhap2_int;
+                    const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
+                    // reference allele assumed to be second here, so haplotype
+                    // dosages are for alt1.
+                    int32_t write_dphase_delta_val = write_dhap1_int - write_dhap2_int;
+                    if (halfdist < hard_call_halfdist) {
+                      // --hard-call-threshold must not care about phased
+                      // dosage; otherwise we have a discontinuity between
+                      // dosage=0.998=0.499|0.499 (dphase omitted) and
+                      // 0.998=0.498|0.5.
+                      genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+                    } else {
+                      const uintptr_t cur_geno = (write_dosage_int + (kDosage4th * k1LU)) / kDosageMid;
+                      genovec_word |= cur_geno << (2 * sample_idx_lowbits);
+                      if (cur_geno == 1) {
+                        // generate hardcall-phase from dosage-phase iff
+                        // delta > 0.5.
+                        // bugfix (22 Apr 2018): (write_dphase_delta_val >> 31)
+                        // is actually undefined behavior for an int32_t; must
+                        // cast to uint32_t first
+                        const uint32_t neg_sign_bit = -(S_CAST(uint32_t, write_dphase_delta_val) >> 31);
+                        const uint32_t abs_write_dphase_delta_val = (S_CAST(uint32_t, write_dphase_delta_val) ^ neg_sign_bit) - neg_sign_bit;
+                        if (abs_write_dphase_delta_val > kDosage4th) {
+                          phasepresent_hw |= 1U << sample_idx_lowbits;
+                          // phaseinfo_hw bit set for 1|0
+                          // todo: check if branch is faster
+                          phaseinfo_hw |= (neg_sign_bit + 1) << sample_idx_lowbits;
+                          if ((abs_write_dphase_delta_val == write_dosage_int) || (abs_write_dphase_delta_val + write_dosage_int == kDosageMax)) {
+                            // can omit explicit dphase_delta in this case
+                            write_dphase_delta_val = 0;
+                          }
+                        } else if ((halfdist >= dosage_erase_halfdist) && (!write_dphase_delta_val)) {
+                          // unphased het hardcall special case
+                          continue;
+                        }
+                      }
+                    }
+                    // we should never get here in bit_precision == 1 case
+                    if (write_dphase_delta_val != 0) {
+                      dphase_present_hw |= 1U << sample_idx_lowbits;
+                      *dphase_delta_iter++ = write_dphase_delta_val;
+                    }
                   }
-                  // we should never get here in bit_precision == 1 case
                   dosage_present_hw |= 1U << sample_idx_lowbits;
                   *dosage_main_iter++ = write_dosage_int;
-                  if (write_dphase_delta_val != 0) {
-                    dphase_present_hw |= 1U << sample_idx_lowbits;
-                    *dphase_delta_iter++ = write_dphase_delta_val;
-                  }
                 }
                 genovec[widx] = genovec_word;
                 R_CAST(Halfword*, phasepresent)[widx] = phasepresent_hw;
@@ -5340,7 +5364,6 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
               uint32_t dosage_present_hw = 0;
               uint32_t dphase_present_hw = 0;
               uint32_t write_dosage_int;
-              int32_t write_dphase_delta_val;
               for (uint32_t sample_idx_lowbits = 0; sample_idx_lowbits <= inner_loop_last; ++sample_idx_lowbits) {
                 uint32_t missing_and_ploidy = *missing_and_ploidy_iter++;
                 if (missing_and_ploidy == 2) {
@@ -5359,42 +5382,60 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
                       goto Bgen13GenoToPgenThread_generic_phased_missing;
                     }
                   }
-                  const uint32_t write_dhap1_int = (magic_preadd + magic_mult * numer_a1) >> magic_postshift;
-                  const uint32_t write_dhap2_int = (magic_preadd + magic_mult * numer_a2) >> magic_postshift;
-                  const uint32_t halfdist1 = HaploidDosageHalfdist(write_dhap1_int);
-                  const uint32_t halfdist2 = HaploidDosageHalfdist(write_dhap2_int);
-                  if ((halfdist1 >= dosage_erase_halfdist2) && (halfdist2 >= dosage_erase_halfdist2)) {
-                    const uintptr_t geno1 = (write_dhap1_int + kDosage4th) / kDosageMid;
-                    const uintptr_t geno2 = (write_dhap2_int + kDosage4th) / kDosageMid;
-                    uintptr_t cur_geno = geno1 + geno2;
-                    genovec_word |= cur_geno << (2 * sample_idx_lowbits);
-                    if (cur_geno == 1) {
-                      phasepresent_hw |= 1U << sample_idx_lowbits;
-                      phaseinfo_hw |= geno1 << sample_idx_lowbits;
-                    }
-                    continue;
-                  }
-                  write_dosage_int = write_dhap1_int + write_dhap2_int;
-                  write_dphase_delta_val = write_dhap1_int - write_dhap2_int;
-                  const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
-                  if (halfdist < hard_call_halfdist) {
-                    genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
-                  } else {
-                    const uintptr_t cur_geno = (write_dosage_int + (kDosage4th * k1LU)) / kDosageMid;
-                    genovec_word |= cur_geno << (2 * sample_idx_lowbits);
-                    if (cur_geno == 1) {
-                      const uint32_t neg_sign_bit = -(S_CAST(uint32_t, write_dphase_delta_val) >> 31);
-                      const uint32_t abs_write_dphase_delta_val = (S_CAST(uint32_t, write_dphase_delta_val) ^ neg_sign_bit) - neg_sign_bit;
-                      if (abs_write_dphase_delta_val > kDosage4th) {
-                        phasepresent_hw |= 1U << sample_idx_lowbits;
-                        phaseinfo_hw |= (neg_sign_bit + 1) << sample_idx_lowbits;
-                        if ((abs_write_dphase_delta_val == write_dosage_int) || (abs_write_dphase_delta_val + write_dosage_int == kDosageMax)) {
-                          // can omit explicit dphase_delta in this case
-                          write_dphase_delta_val = 0;
-                        }
-                      } else if ((write_dosage_int == kDosageMid) && (!write_dphase_delta_val)) {
+                  if (numer_a1 == numer_a2) {
+                    // avoid ugly precision loss
+                    write_dosage_int = (magic_preadd + magic_mult * 2 * numer_a1) >> magic_postshift;
+                    const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
+                    if (halfdist < hard_call_halfdist) {
+                      genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+                    } else {
+                      genovec_word |= ((write_dosage_int + (kDosage4th * k1LU)) / kDosageMid) << (2 * sample_idx_lowbits);
+                      if (halfdist >= dosage_erase_halfdist) {
                         continue;
                       }
+                    }
+                  } else {
+                    const uint32_t write_dhap1_int = (magic_preadd + magic_mult * numer_a1) >> magic_postshift;
+                    const uint32_t write_dhap2_int = (magic_preadd + magic_mult * numer_a2) >> magic_postshift;
+                    const uint32_t halfdist1 = HaploidDosageHalfdist(write_dhap1_int);
+                    const uint32_t halfdist2 = HaploidDosageHalfdist(write_dhap2_int);
+                    if ((halfdist1 >= dosage_erase_halfdist2) && (halfdist2 >= dosage_erase_halfdist2)) {
+                      const uintptr_t geno1 = (write_dhap1_int + kDosage4th) / kDosageMid;
+                      const uintptr_t geno2 = (write_dhap2_int + kDosage4th) / kDosageMid;
+                      uintptr_t cur_geno = geno1 + geno2;
+                      genovec_word |= cur_geno << (2 * sample_idx_lowbits);
+                      if (cur_geno == 1) {
+                        phasepresent_hw |= 1U << sample_idx_lowbits;
+                        phaseinfo_hw |= geno1 << sample_idx_lowbits;
+                      }
+                      continue;
+                    }
+                    write_dosage_int = write_dhap1_int + write_dhap2_int;
+                    int32_t write_dphase_delta_val = write_dhap1_int - write_dhap2_int;
+                    const uint32_t halfdist = BiallelicDosageHalfdist(write_dosage_int);
+                    if (halfdist < hard_call_halfdist) {
+                      genovec_word |= (3 * k1LU) << (2 * sample_idx_lowbits);
+                    } else {
+                      const uintptr_t cur_geno = (write_dosage_int + (kDosage4th * k1LU)) / kDosageMid;
+                      genovec_word |= cur_geno << (2 * sample_idx_lowbits);
+                      if (cur_geno == 1) {
+                        const uint32_t neg_sign_bit = -(S_CAST(uint32_t, write_dphase_delta_val) >> 31);
+                        const uint32_t abs_write_dphase_delta_val = (S_CAST(uint32_t, write_dphase_delta_val) ^ neg_sign_bit) - neg_sign_bit;
+                        if (abs_write_dphase_delta_val > kDosage4th) {
+                          phasepresent_hw |= 1U << sample_idx_lowbits;
+                          phaseinfo_hw |= (neg_sign_bit + 1) << sample_idx_lowbits;
+                          if ((abs_write_dphase_delta_val == write_dosage_int) || (abs_write_dphase_delta_val + write_dosage_int == kDosageMax)) {
+                            // can omit explicit dphase_delta in this case
+                            write_dphase_delta_val = 0;
+                          }
+                        } else if ((write_dosage_int == kDosageMid) && (!write_dphase_delta_val)) {
+                          continue;
+                        }
+                      }
+                    }
+                    if (write_dphase_delta_val != 0) {
+                      dphase_present_hw |= 1U << sample_idx_lowbits;
+                      *dphase_delta_iter++ = write_dphase_delta_val;
                     }
                   }
                 } else {
@@ -5418,7 +5459,6 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
                         continue;
                       }
                     }
-                    write_dphase_delta_val = 0;
                   } else {
                     missing_and_ploidy &= 127;
                     if (missing_and_ploidy > 2) {
@@ -5432,10 +5472,6 @@ THREAD_FUNC_DECL Bgen13GenoToPgenThread(void* arg) {
                 }
                 dosage_present_hw |= 1U << sample_idx_lowbits;
                 *dosage_main_iter++ = write_dosage_int;
-                if (write_dphase_delta_val != 0) {
-                  dphase_present_hw |= 1U << sample_idx_lowbits;
-                  *dphase_delta_iter++ = write_dphase_delta_val;
-                }
               }
               genovec[widx] = genovec_word;
               // bugfix (22 Apr 2018): didn't save phasepresent, etc.
@@ -5521,7 +5557,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       goto OxBgenToPgen_ret_OPEN_FAIL;
     }
     uint32_t initial_uints[5];
-    if (!fread_unlocked(initial_uints, 20, 1, bgenfile)) {
+    if (!fread_unlocked(&initial_uints[0], 20, 1, bgenfile)) {
       // this could be malformed input as well; could distinguish later?
       goto OxBgenToPgen_ret_READ_FAIL;
     }
@@ -5622,12 +5658,12 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       // with --idspace-to character or error out
       char* sample_id_block_iter = sample_id_block_main;
       for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
-        // don't use uint16_t here since we add 2
-        const uint32_t input_id_slen = *R_CAST(uint16_t*, sample_id_block_iter);
+        uint16_t input_id_slen;
+        memcpy(&input_id_slen, sample_id_block_iter, sizeof(int16_t));
 
         // need to check this to avoid read-past-the-end indeterminate
         // behavior
-        if (S_CAST(uintptr_t, sample_id_block_end - sample_id_block_iter) < input_id_slen + 2) {
+        if (S_CAST(uintptr_t, sample_id_block_end - sample_id_block_iter) < input_id_slen + (2 * k1LU)) {
           logerrputs("Error: Invalid .bgen header.\n");
           goto OxBgenToPgen_ret_MALFORMED_INPUT;
         }
@@ -5663,7 +5699,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
         uint32_t nonzero_first_field_observed = 0;
         uint32_t sample_idx = 0;
         while (1) {
-          const uint32_t input_id_slen = *R_CAST(uint16_t*, sample_id_block_iter);
+          uint16_t input_id_slen;
+          memcpy(&input_id_slen, sample_id_block_iter, sizeof(int16_t));
           char* sample_id_iter = &(sample_id_block_iter[2]);
           // previously verified that this is in-bounds
           char* sample_id_end = &(sample_id_iter[input_id_slen]);
@@ -5684,7 +5721,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
             if (!nonzero_first_field_observed) {
               sample_id_block_iter = sample_id_end;
               while (++sample_idx != sample_ct) {
-                const uint32_t new_input_id_slen = *R_CAST(uint16_t*, sample_id_block_iter);
+                uint16_t new_input_id_slen;
+                memcpy(&new_input_id_slen, sample_id_block_iter, sizeof(int16_t));
                 sample_id_iter = &(sample_id_block_iter[2]);
                 // We actually need to error out on new_input_id_slen < 2, but
                 // that'll happen in the next loop.
@@ -5728,7 +5766,8 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       char* textbuf_flush = &(textbuf[kMaxMediumLine]);
       sample_id_block_iter = sample_id_block_main;
       for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
-        const uint32_t input_id_slen = *R_CAST(uint16_t*, sample_id_block_iter);
+        uint16_t input_id_slen;
+        memcpy(&input_id_slen, sample_id_block_iter, sizeof(int16_t));
         char* sample_id_start = &(sample_id_block_iter[2]);
         char* sample_id_end = &(sample_id_start[input_id_slen]);
         reterr = ImportSampleId(sample_id_start, sample_id_end, &isic, &write_iter);
@@ -5776,8 +5815,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
       }
     }
 
-    g_libdeflate_decompressors = S_CAST(struct libdeflate_decompressor**, bigstack_alloc(max_thread_ct * sizeof(intptr_t)));
-    if (!g_libdeflate_decompressors) {
+    if (BIGSTACK_ALLOC_X(struct libdeflate_decompressor*, max_thread_ct, &g_libdeflate_decompressors)) {
       goto OxBgenToPgen_ret_NOMEM;
     }
     ZeroPtrArr(max_thread_ct, g_libdeflate_decompressors);
@@ -7151,7 +7189,7 @@ PglErr OxBgenToPgen(const char* bgenname, const char* samplename, const char* co
           thread_bidxs = g_thread_bidxs[parity];
           GparseRecord* cur_gparse = g_gparse[parity];
           if (allele_idx_offsets) {
-            g_block_variant_allele_idxs[parity] = &(spgw.pwc.allele_idx_offsets[vidx_start]);
+            g_block_allele_idx_offsets[parity] = &(spgw.pwc.allele_idx_offsets[vidx_start]);
           }
           bgen_geno_iter = compressed_geno_bufs[parity];
           unsigned char* cur_thread_byte_stop = &(bgen_geno_iter[per_thread_byte_limit]);
@@ -8669,7 +8707,8 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
     if (check_pos_col) {
       parse_table[relevant_initial_col_ct++] = (S_CAST(uint64_t, pdip->pos_col_idx) << 32) + 1;
     }
-    qsort(parse_table, relevant_initial_col_ct, sizeof(int64_t), u64cmp);
+
+    STD_SORT(relevant_initial_col_ct, u64cmp, parse_table);
     uint32_t col_skips[6];
     uint32_t col_types[6];
     for (uint32_t uii = 0; uii < relevant_initial_col_ct; ++uii) {
@@ -9150,8 +9189,8 @@ PglErr Plink1DosageToPgen(const char* dosagename, const char* famname, const cha
 
 // binary search over cdf is faster than (int)(log(drand)/log(q)) for truncated
 // geometric distribution
-static uint64_t g_geno_missing_geomdist[kBitsPerWordD2];
-static uint64_t g_dosage_geomdist[kBitsPerWordD2];
+static STD_ARRAY_DECL(uint64_t, kBitsPerWordD2, g_geno_missing_geomdist);
+static STD_ARRAY_DECL(uint64_t, kBitsPerWordD2, g_dosage_geomdist);
 static uint32_t g_geno_missing_invert = 0;
 static uint32_t g_dosage_geomdist_max = 0;
 
@@ -9160,8 +9199,8 @@ THREAD_FUNC_DECL GenerateDummyThread(void* arg) {
   const uintptr_t tidx = R_CAST(uintptr_t, arg);
   const uint32_t sample_ct = g_sample_ct;
   const uint32_t calc_thread_ct = g_calc_thread_ct;
-  const uint64_t* geno_missing_geomdist = g_geno_missing_geomdist;
-  const uint64_t* dosage_geomdist = g_dosage_geomdist;
+  STD_ARRAY_KREF(uint64_t, kBitsPerWordD2) geno_missing_geomdist = g_geno_missing_geomdist;
+  STD_ARRAY_KREF(uint64_t, kBitsPerWordD2) dosage_geomdist = g_dosage_geomdist;
   const uint32_t geno_missing_invert = g_geno_missing_invert;
   const uint32_t geno_missing_check = geno_missing_invert || (geno_missing_geomdist[kBitsPerWordD2 - 1] != 0);
   const uint32_t dosage_geomdist_max = g_dosage_geomdist_max;
@@ -9205,7 +9244,7 @@ THREAD_FUNC_DECL GenerateDummyThread(void* arg) {
           uintptr_t missing_mask = 0;
           uint32_t sample_idx_lowbits = 0;
           while (1) {
-            sample_idx_lowbits += CountSortedLeqU64(geno_missing_geomdist, kBitsPerWordD2, sfmt_genrand_uint64(sfmtp));
+            sample_idx_lowbits += CountSortedLeqU64(&geno_missing_geomdist[0], kBitsPerWordD2, sfmt_genrand_uint64(sfmtp));
             if (sample_idx_lowbits >= loop_len) {
               break;
             }
@@ -9224,7 +9263,7 @@ THREAD_FUNC_DECL GenerateDummyThread(void* arg) {
           while (1) {
             ++sample_idx_lowbits;
             if (dosage_geomdist_max) {
-              sample_idx_lowbits += CountSortedLeqU64(dosage_geomdist, dosage_geomdist_max, sfmt_genrand_uint64(sfmtp));
+              sample_idx_lowbits += CountSortedLeqU64(&dosage_geomdist[0], dosage_geomdist_max, sfmt_genrand_uint64(sfmtp));
             }
             if (sample_idx_lowbits >= loop_len) {
               break;
@@ -9771,6 +9810,8 @@ PglErr Plink1SampleMajorToPgen(const char* pgenname, uintptr_t variant_ct, uintp
     if (calc_thread_ct >= max_thread_ct) {
       calc_thread_ct = (max_thread_ct > 2)? (max_thread_ct - 1) : max_thread_ct;
     }
+    // note that BIGSTACK_ALLOC_X() doesn't work here due to variable-size
+    // array at end
     mpgwp = S_CAST(MTPgenWriter*, bigstack_alloc((calc_thread_ct + DivUp(sizeof(MTPgenWriter), kBytesPerWord)) * sizeof(intptr_t)));
     if (!mpgwp) {
       goto Plink1SampleMajorToPgen_ret_NOMEM;

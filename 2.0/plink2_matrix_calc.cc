@@ -964,6 +964,7 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
     uintptr_t* loadbuf;
     uintptr_t* splitbuf_hom;
     uintptr_t* splitbuf_ref2het;
+    VecW* vecaligned_buf;
     if (bigstack_alloc_w(raw_sample_ctl, &cur_sample_include) ||
         bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
         bigstack_alloc_w(sample_ctaw2, &loadbuf) ||
@@ -972,12 +973,8 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
         bigstack_alloc_w(king_bufsizew, &(g_smaj_hom[0])) ||
         bigstack_alloc_w(king_bufsizew, &(g_smaj_ref2het[0])) ||
         bigstack_alloc_w(king_bufsizew, &(g_smaj_hom[1])) ||
-        bigstack_alloc_w(king_bufsizew, &(g_smaj_ref2het[1]))) {
-      goto CalcKing_ret_NOMEM;
-    }
-    // force this to be cacheline-aligned
-    VecW* vecaligned_buf = S_CAST(VecW*, bigstack_alloc(kPglBitTransposeBufbytes));
-    if (!vecaligned_buf) {
+        bigstack_alloc_w(king_bufsizew, &(g_smaj_ref2het[1])) ||
+        BIGSTACK_ALLOC_X(VecW, kPglBitTransposeBufvecs, &vecaligned_buf)) {
       goto CalcKing_ret_NOMEM;
     }
 
@@ -1958,6 +1955,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
     uintptr_t* loadbuf;
     uintptr_t* splitbuf_hom;
     uintptr_t* splitbuf_ref2het;
+    VecW* vecaligned_buf;
     // ok if allocations are a bit oversized
     if (bigstack_alloc_w(raw_sample_ctl, &cur_sample_include) ||
         bigstack_alloc_u32(raw_sample_ctl, &sample_include_cumulative_popcounts) ||
@@ -1967,12 +1965,8 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
         bigstack_alloc_w(king_bufsizew, &(g_smaj_hom[0])) ||
         bigstack_alloc_w(king_bufsizew, &(g_smaj_ref2het[0])) ||
         bigstack_alloc_w(king_bufsizew, &(g_smaj_hom[1])) ||
-        bigstack_alloc_w(king_bufsizew, &(g_smaj_ref2het[1]))) {
-      goto CalcKingTableSubset_ret_NOMEM;
-    }
-    // force this to be cacheline-aligned
-    VecW* vecaligned_buf = S_CAST(VecW*, bigstack_alloc(kPglBitTransposeBufbytes));
-    if (!vecaligned_buf) {
+        bigstack_alloc_w(king_bufsizew, &(g_smaj_ref2het[1])) ||
+        BIGSTACK_ALLOC_X(VecW, kPglBitTransposeBufvecs, &vecaligned_buf)) {
       goto CalcKingTableSubset_ret_NOMEM;
     }
     SetKingTableFname(king_flags, parallel_idx, parallel_tot, outname_end);
@@ -2457,7 +2451,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
 
 // this probably belongs in plink2_common
 void ExpandVariantDosages(const uintptr_t* genovec, const uintptr_t* dosage_present, const Dosage* dosage_main, double slope, double intercept, double missing_val, uint32_t sample_ct, uint32_t dosage_ct, double* expanded_dosages) {
-  double lookup_vals[4];
+  STD_ARRAY_DECL(double, 4, lookup_vals);
   lookup_vals[0] = intercept;
   lookup_vals[1] = intercept + slope;
   lookup_vals[2] = intercept + 2 * slope;
@@ -2498,7 +2492,7 @@ PglErr ExpandCenteredVarmaj(const uintptr_t* genovec, const uintptr_t* dosage_pr
   if (variance_standardize) {
     const double variance = 2 * maj_freq * nonmaj_freq;
     if (variance < kSmallEpsilon) {
-      uint32_t genocounts[4];
+      STD_ARRAY_DECL(uint32_t, 4, genocounts);
       GenovecCountFreqsUnsafe(genovec, sample_ct, genocounts);
       if (dosage_ct || genocounts[1] || genocounts[2]) {
         return kPglRetInconsistentInput;
@@ -2567,10 +2561,10 @@ PglErr LoadCenteredVarmaj(const uintptr_t* sample_include, const uint32_t* sampl
 }
 
 // multithread globals
-double* g_normed_dosage_vmaj_bufs[2] = {nullptr, nullptr};
-double* g_normed_dosage_smaj_bufs[2] = {nullptr, nullptr};
+static double* g_normed_dosage_vmaj_bufs[2] = {nullptr, nullptr};
+static double* g_normed_dosage_smaj_bufs[2] = {nullptr, nullptr};
 
-double* g_grm = nullptr;
+static double* g_grm = nullptr;
 
 static uint32_t g_pca_sample_ct = 0;
 static uint32_t g_cur_batch_size = 0;
@@ -2626,9 +2620,9 @@ THREAD_FUNC_DECL CalcGrmPartThread(void* arg) {
 
 // missing_nz bit is set iff that sample has at least one missing entry in
 // current block
-uintptr_t* g_missing_nz[2] = {nullptr, nullptr};
-uintptr_t* g_missing_smaj[2] = {nullptr, nullptr};
-uint32_t* g_missing_dbl_exclude_cts = nullptr;
+static uintptr_t* g_missing_nz[2] = {nullptr, nullptr};
+static uintptr_t* g_missing_smaj[2] = {nullptr, nullptr};
+static uint32_t* g_missing_dbl_exclude_cts = nullptr;
 
 CONSTU31(kDblMissingBlockWordCt, 2);
 CONSTU31(kDblMissingBlockSize, kDblMissingBlockWordCt * kBitsPerWord);
@@ -2853,7 +2847,7 @@ PglErr CalcMissingMatrix(const uintptr_t* sample_include, const uint32_t* sample
   return reterr;
 }
 
-PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* variant_allele_idxs, const AlleleCode* maj_alleles, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, GrmFlags grm_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end, double** grm_ptr) {
+PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, GrmFlags grm_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end, double** grm_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   FILE* outfile = nullptr;
@@ -3000,11 +2994,11 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           const uint32_t maj_allele_idx = maj_alleles[variant_uidx];
           uint32_t missing_present = 0;
           uintptr_t allele_idx_base;
-          if (!variant_allele_idxs) {
+          if (!allele_idx_offsets) {
             allele_idx_base = variant_uidx;
           } else {
-            allele_idx_base = variant_allele_idxs[variant_uidx];
-            cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - allele_idx_base;
+            allele_idx_base = allele_idx_offsets[variant_uidx];
+            cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_base;
             allele_idx_base -= variant_uidx;
           }
           reterr = LoadCenteredVarmaj(sample_include, sample_include_cumulative_popcounts, variance_standardize, is_haploid, row_end_idx, variant_uidx, maj_allele_idx, GetAlleleFreq(&(allele_freqs[allele_idx_base]), maj_allele_idx, cur_allele_ct), simple_pgrp, variant_include_has_missing? (&missing_present) : nullptr, normed_vmaj_iter, genovec_buf, dosage_present_buf, dosage_main_buf);
@@ -3708,7 +3702,7 @@ THREAD_FUNC_DECL CalcPcaVarWtsThread(void* arg) {
   }
 }
 
-PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t pc_ct, PcaFlags pca_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, double* grm, char* outname, char* outname_end) {
+PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const double* allele_freqs, uint32_t raw_sample_ct, uintptr_t pca_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_allele_slen, uint32_t pc_ct, PcaFlags pca_flags, uint32_t max_thread_ct, PgenReader* simple_pgrp, double* grm, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -3956,11 +3950,11 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
               dosage_present_iter = &(dosage_present_iter[pca_sample_ctaw]);
               dosage_main_iter = &(dosage_main_iter[pca_sample_ct]);
               uintptr_t allele_idx_base;
-              if (!variant_allele_idxs) {
+              if (!allele_idx_offsets) {
                 allele_idx_base = variant_uidx;
               } else {
-                allele_idx_base = variant_allele_idxs[variant_uidx];
-                cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - allele_idx_base;
+                allele_idx_base = allele_idx_offsets[variant_uidx];
+                cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_base;
                 allele_idx_base -= variant_uidx;
               }
               // bugfix (23 Jul 2017): we already subtracted variant_uidx
@@ -4071,11 +4065,11 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             dosage_present_iter = &(dosage_present_iter[pca_sample_ctaw]);
             dosage_main_iter = &(dosage_main_iter[pca_sample_ct]);
             uintptr_t allele_idx_base;
-            if (!variant_allele_idxs) {
+            if (!allele_idx_offsets) {
               allele_idx_base = variant_uidx;
             } else {
-              allele_idx_base = variant_allele_idxs[variant_uidx];
-              cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - allele_idx_base;
+              allele_idx_base = allele_idx_offsets[variant_uidx];
+              cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_base;
               allele_idx_base -= variant_uidx;
             }
             *maj_freqs_write_iter++ = GetAlleleFreq(&(allele_freqs[allele_idx_base]), maj_allele_idx, cur_allele_ct);
@@ -4341,11 +4335,11 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             dosage_present_iter = &(dosage_present_iter[pca_sample_ctaw]);
             dosage_main_iter = &(dosage_main_iter[pca_sample_ct]);
             uintptr_t allele_idx_base;
-            if (!variant_allele_idxs) {
+            if (!allele_idx_offsets) {
               allele_idx_base = variant_uidx_load;
             } else {
-              allele_idx_base = variant_allele_idxs[variant_uidx_load];
-              cur_allele_ct = variant_allele_idxs[variant_uidx_load + 1] - allele_idx_base;
+              allele_idx_base = allele_idx_offsets[variant_uidx_load];
+              cur_allele_ct = allele_idx_offsets[variant_uidx_load + 1] - allele_idx_base;
               allele_idx_base -= variant_uidx_load;
             }
             *maj_freqs_write_iter++ = GetAlleleFreq(&(allele_freqs[allele_idx_base]), maj_allele_idx, cur_allele_ct);
@@ -4389,12 +4383,12 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
               cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
             }
             cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
-            uintptr_t variant_allele_idx_base = variant_uidx * 2;
-            if (variant_allele_idxs) {
-              variant_allele_idx_base = variant_allele_idxs[variant_uidx];
-              cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - variant_allele_idx_base;
+            uintptr_t allele_idx_offset_base = variant_uidx * 2;
+            if (allele_idx_offsets) {
+              allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+              cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
             }
-            const char* const* cur_alleles = &(allele_storage[variant_allele_idx_base]);
+            const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
             if (ref_col) {
               *cswritep++ = '\t';
               cswritep = strcpya(cswritep, cur_alleles[0]);
@@ -4570,7 +4564,7 @@ void FillCurDosageInts(const uintptr_t* genovec_buf, const uintptr_t* dosage_pre
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
   uint32_t loop_len = kBitsPerWordD2;
   uint32_t widx = 0;
-  uint64_t lookup_table[4];
+  STD_ARRAY_DECL(uint64_t, 4, lookup_table);
   lookup_table[0] = 0;
   lookup_table[1] = is_diploid_p1 * kDosageMid;
   lookup_table[2] = is_diploid_p1 * kDosageMax;
@@ -4628,7 +4622,7 @@ THREAD_FUNC_DECL CalcScoreThread(void* arg) {
   }
 }
 
-PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const double* allele_freqs, const ScoreInfo* score_info_ptr, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t xchr_model, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const double* allele_freqs, const ScoreInfo* score_info_ptr, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t xchr_model, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   uintptr_t line_idx = 0;
@@ -4896,17 +4890,17 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
           if (!allele_start) {
             goto ScoreReport_ret_MISSING_TOKENS;
           }
-          uintptr_t variant_allele_idx_base;
-          if (!variant_allele_idxs) {
-            variant_allele_idx_base = variant_uidx * 2;
+          uintptr_t allele_idx_offset_base;
+          if (!allele_idx_offsets) {
+            allele_idx_offset_base = variant_uidx * 2;
           } else {
-            variant_allele_idx_base = variant_allele_idxs[variant_uidx];
-            cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - variant_allele_idx_base;
+            allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+            cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
           }
           char* allele_end = CurTokenEnd(allele_start);
           char allele_end_char = *allele_end;
           *allele_end = '\0';
-          const char* const* cur_alleles = &(allele_storage[variant_allele_idx_base]);
+          const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
           uint32_t cur_allele_idx = 0;
           for (; cur_allele_idx < cur_allele_ct; ++cur_allele_idx) {
             // for very long alleles, tokequal_k might read past the end of the
@@ -5044,13 +5038,13 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx) {
               dosage_sums[sample_idx] += dosage_incrs[sample_idx];
             }
-            const double cur_allele_freq = GetAlleleFreq(&(allele_freqs[variant_allele_idx_base - variant_uidx]), cur_allele_idx, cur_allele_ct);
+            const double cur_allele_freq = GetAlleleFreq(&(allele_freqs[allele_idx_offset_base - variant_uidx]), cur_allele_idx, cur_allele_ct);
             if (center) {
               if (variance_standardize) {
                 const double variance = ploidy_d * cur_allele_freq * (1.0 - cur_allele_freq);
                 if (variance < kSmallEpsilon) {
                   ZeroTrailingQuaters(sample_ct, genovec_buf);
-                  uint32_t genocounts[4];
+                  STD_ARRAY_DECL(uint32_t, 4, genocounts);
                   GenovecCountFreqsUnsafe(genovec_buf, sample_ct, genocounts);
                   if (dosage_ct || genocounts[1] || genocounts[2]) {
                     snprintf(g_logbuf, kLogbufSize, "Error: --score variance-standardize failure for ID '%s': estimated allele frequency is zero, but not all dosages are zero. (This is possible when e.g. allele frequencies are estimated from founders, but the allele is only observed in nonfounders.)\n", variant_ids[variant_uidx]);

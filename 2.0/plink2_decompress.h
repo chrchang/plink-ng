@@ -65,6 +65,7 @@ HEADER_INLINE void gzclose_cond(gzFile gz_infile) {
 // currently hardcoded to have maximum token length = kMaxMediumLine, buffer
 // size = 2 * kMaxMediumLine * 2.
 typedef struct GzTokenStreamStruct {
+  NONCOPYABLE(GzTokenStreamStruct);
   gzFile gz_infile;
   char* buf_start;
   char* read_iter;
@@ -112,6 +113,7 @@ ENUM_U31_DEF_END(RlsInterrupt);
 typedef struct ReadLineStreamSyncStruct {
   // Mutex shared state, and everything guarded by the mutex.  Allocated to
   // different cacheline(s) than consume_stop.
+  NONCOPYABLE(ReadLineStreamSyncStruct);
 
 #ifdef _WIN32
   CRITICAL_SECTION critical_section;
@@ -136,6 +138,7 @@ typedef struct ReadLineStreamSyncStruct {
 // To minimize false (or true) sharing penalties, these values shouldn't change
 // much; only the things they point to should be frequently changing.
 typedef struct ReadLineStreamStruct {
+  NONCOPYABLE(ReadLineStreamStruct);
   // Positioned first so the compiler doesn't need to add an offset to compare
   // to this.
   char* consume_stop;

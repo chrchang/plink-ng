@@ -516,13 +516,13 @@ void InvertFmatrixSecondHalf(__CLPK_integer dim, uint32_t stride, double* half_i
       half_inverted[i * dim + j] = dbl_1d_buf[j];
     }
   }
-  inverted_result[0] = (float)half_inverted[0];
+  inverted_result[0] = S_CAST(float, half_inverted[0]);
   for (i=1; i<dim; ++i) {
     for(j=0; j<i; ++j) {
-      inverted_result[i * stride + j] = (float)half_inverted[j * dim + i];
-      inverted_result[j * stride + i] = (float)half_inverted[i * dim + j];
+      inverted_result[i * stride + j] = S_CAST(float, half_inverted[j * dim + i]);
+      inverted_result[j * stride + i] = S_CAST(float, half_inverted[i * dim + j]);
     }
-    inverted_result[i * stride + i] = (float)half_inverted[i * stride + i];
+    inverted_result[i * stride + i] = S_CAST(float, half_inverted[i * stride + i]);
   }
 }
 #else  // !NOLAPACK

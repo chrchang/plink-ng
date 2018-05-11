@@ -421,11 +421,11 @@ PglErr RandomThinCt(const char* flagname_p, const char* unitname, uint32_t thin_
   return reterr;
 }
 
-static const char keep_remove_flag_strs[4][11] = {"keep", "remove", "keep-fam", "remove-fam"};
+static const char kKeepRemoveFlagStrs[4][11] = {"keep", "remove", "keep-fam", "remove-fam"};
 
 PglErr KeepOrRemove(const char* fnames, const SampleIdInfo* siip, uint32_t raw_sample_ct, KeepFlags flags, uintptr_t* sample_include, uint32_t* sample_ct_ptr) {
   unsigned char* bigstack_mark = g_bigstack_base;
-  const char* flag_name = keep_remove_flag_strs[flags % 4];
+  const char* flag_name = kKeepRemoveFlagStrs[flags % 4];
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
   ReadLineStream rls;
@@ -1279,21 +1279,21 @@ PglErr KeepRemoveCats(const char* cats_fname, const char* cat_names_flattened, c
   return reterr;
 }
 
-void ComputeAlleleFreqs(const uintptr_t* variant_include, const uintptr_t* variant_allele_idxs, const uint64_t* founder_allele_dosages, uint32_t variant_ct, uint32_t maf_succ, double* allele_freqs) {
+void ComputeAlleleFreqs(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const uint64_t* founder_allele_dosages, uint32_t variant_ct, uint32_t maf_succ, double* allele_freqs) {
   // ok for maj_alleles or allele_freqs to be nullptr
   // note that founder_allele_dosages is in 32768ths
   uint32_t cur_allele_ct = 2;
   uint32_t variant_uidx = 0;
   for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
     MovU32To1Bit(variant_include, &variant_uidx);
-    uintptr_t variant_allele_idx_base;
-    if (!variant_allele_idxs) {
-      variant_allele_idx_base = 2 * variant_uidx;
+    uintptr_t allele_idx_offset_base;
+    if (!allele_idx_offsets) {
+      allele_idx_offset_base = 2 * variant_uidx;
     } else {
-      variant_allele_idx_base = variant_allele_idxs[variant_uidx];
-      cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - variant_allele_idx_base;
+      allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+      cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
     }
-    const uint64_t* cur_founder_allele_dosages = &(founder_allele_dosages[variant_allele_idx_base]);
+    const uint64_t* cur_founder_allele_dosages = &(founder_allele_dosages[allele_idx_offset_base]);
     uint64_t tot_dosage = 0;
     for (uint32_t allele_idx = 0; allele_idx < cur_allele_ct; ++allele_idx) {
       tot_dosage += cur_founder_allele_dosages[allele_idx];
@@ -1302,7 +1302,7 @@ void ComputeAlleleFreqs(const uintptr_t* variant_include, const uintptr_t* varia
     const uint64_t cur_maf_succ_dosage = (maf_succ | (!tot_dosage)) * kDosageMax;
 
     tot_dosage += cur_maf_succ_dosage * cur_allele_ct;
-    double* cur_allele_freqs_base = &(allele_freqs[variant_allele_idx_base - variant_uidx]);
+    double* cur_allele_freqs_base = &(allele_freqs[allele_idx_offset_base - variant_uidx]);
     const double tot_dosage_recip = 1.0 / u63tod(tot_dosage);
     const uint32_t cur_allele_ct_m1 = cur_allele_ct - 1;
     for (uint32_t allele_idx = 0; allele_idx < cur_allele_ct_m1; ++allele_idx) {
@@ -1395,7 +1395,7 @@ FLAGSET_DEF_START()
   kfReadFreqColsetHapAlt1Ct = (1 << kfReadFreqColHapAlt1Ct)
 FLAGSET_DEF_END(ReadFreqColFlags);
 
-PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const char* read_freq_fname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_alt_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t maf_succ, uint32_t max_thread_ct, double* allele_freqs) {
+PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const char* read_freq_fname, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_alt_allele_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t maf_succ, uint32_t max_thread_ct, double* allele_freqs) {
   // support PLINK 1.9 --freq/--freqx, and 2.0 --freq/--geno-counts.
   // GCTA-format no longer supported since it inhibits the allele consistency
   // check.
@@ -1882,18 +1882,18 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
         }
         SetBit(variant_uidx, already_seen);
 
-        uintptr_t variant_allele_idx_base;
-        if (!variant_allele_idxs) {
-          variant_allele_idx_base = variant_uidx * 2;
+        uintptr_t allele_idx_offset_base;
+        if (!allele_idx_offsets) {
+          allele_idx_offset_base = variant_uidx * 2;
         } else {
-          variant_allele_idx_base = variant_allele_idxs[variant_uidx];
-          cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - variant_allele_idx_base;
+          allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+          cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
           if (biallelic_only) {
             goto ReadAlleleFreqs_skip_variant;
           }
         }
         ZeroWArr(BitCtToWordCt(cur_allele_ct), matched_internal_alleles);
-        const char* const* cur_alleles = &(allele_storage[variant_allele_idx_base]);
+        const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
         uint32_t loaded_allele_ct = 0;
         if (header_cols & kfReadFreqColsetRefAllele) {
           uint32_t cur_loaded_allele_code_slen = token_slens[kfReadFreqColRefAllele];
@@ -1953,7 +1953,7 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
           }
         }
 
-        double* allele_freqs_write = &(allele_freqs[variant_allele_idx_base - variant_uidx]);
+        double* allele_freqs_write = &(allele_freqs[allele_idx_offset_base - variant_uidx]);
         if (geno_counts) {
           ZeroDArr(cur_allele_ct, cur_allele_freqs);
           if (is_numeq) {
@@ -2413,17 +2413,17 @@ PglErr ReadAlleleFreqs(const uintptr_t* variant_include, const char* const* vari
   return reterr;
 }
 
-void ComputeMajAlleles(const uintptr_t* variant_include, const uintptr_t* variant_allele_idxs, const double* allele_freqs, uint32_t variant_ct, AlleleCode* maj_alleles) {
+void ComputeMajAlleles(const uintptr_t* variant_include, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t variant_ct, AlleleCode* maj_alleles) {
   uint32_t cur_allele_ct = 2;
   uint32_t variant_uidx = 0;
   for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
     MovU32To1Bit(variant_include, &variant_uidx);
     uintptr_t allele_idx_base;
-    if (!variant_allele_idxs) {
+    if (!allele_idx_offsets) {
       allele_idx_base = variant_uidx;
     } else {
-      allele_idx_base = variant_allele_idxs[variant_uidx];
-      cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - allele_idx_base;
+      allele_idx_base = allele_idx_offsets[variant_uidx];
+      cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_base;
       allele_idx_base -= variant_uidx;
     }
     const double* cur_allele_freqs_base = &(allele_freqs[allele_idx_base]);
@@ -2629,7 +2629,7 @@ PglErr LoadSampleMissingCts(const uintptr_t* sex_male, const uintptr_t* variant_
         bigstack_alloc_wp(calc_thread_ct, &g_hethap_acc1)) {
       goto LoadSampleMissingCts_ret_NOMEM;
     }
-    unsigned char* main_loadbufs[2];
+    STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
     pthread_t* threads;
     uint32_t read_block_size;
     if (PgenMtLoadInit(variant_include, raw_sample_ct, raw_variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_alloc_cacheline_ct, 0, pgfip, &calc_thread_ct, &g_genovecs, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &read_block_size, main_loadbufs, &threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
@@ -2885,7 +2885,7 @@ void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, 
   *variant_ct_ptr -= removed_ct;
 }
 
-void EnforceHweThresh(const ChrInfo* cip, const uint32_t* founder_raw_geno_cts, const uint32_t* founder_x_male_geno_cts, const uint32_t* founder_x_nosex_geno_cts, const double* hwe_x_pvals, MiscFlags misc_flags, double hwe_thresh, uint32_t nonfounders, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+void EnforceHweThresh(const ChrInfo* cip, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), const double* hwe_x_pvals, MiscFlags misc_flags, double hwe_thresh, uint32_t nonfounders, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   if (cip->haploid_mask[0] & 1) {
     logerrputs("Warning: --hwe has no effect since entire genome is haploid.\n");
     return;
@@ -2932,7 +2932,7 @@ void EnforceHweThresh(const ChrInfo* cip, const uint32_t* founder_raw_geno_cts, 
         x_thresh = UINT32_MAX;
       }
     }
-    const uint32_t* cur_geno_cts = &(founder_raw_geno_cts[3 * variant_uidx]);
+    STD_ARRAY_KREF(uint32_t, 3) cur_geno_cts = founder_raw_geno_cts[variant_uidx];
     uint32_t homref_ct = cur_geno_cts[0];
     uint32_t hetref_ct = cur_geno_cts[1];
     uint32_t nonref_diploid_ct = cur_geno_cts[2];
@@ -2958,7 +2958,7 @@ void EnforceHweThresh(const ChrInfo* cip, const uint32_t* founder_raw_geno_cts, 
       }
     } else {
       if (founder_x_male_geno_cts) {
-        const uint32_t* cur_male_geno_cts = &(founder_x_male_geno_cts[(3 * k1LU) * (variant_uidx - x_start)]);
+        STD_ARRAY_KREF(uint32_t, 3) cur_male_geno_cts = founder_x_male_geno_cts[variant_uidx - x_start];
         male_ref_ct = cur_male_geno_cts[0];
         homref_ct -= male_ref_ct;
         hetref_ct -= cur_male_geno_cts[1];
@@ -2966,7 +2966,7 @@ void EnforceHweThresh(const ChrInfo* cip, const uint32_t* founder_raw_geno_cts, 
         nonref_diploid_ct -= male_alt_ct;
       }
       if (founder_x_nosex_geno_cts) {
-        const uint32_t* cur_nosex_geno_cts = &(founder_x_nosex_geno_cts[(3 * k1LU) * (variant_uidx - x_start)]);
+        STD_ARRAY_KREF(uint32_t, 3) cur_nosex_geno_cts = founder_x_nosex_geno_cts[variant_uidx - x_start];
         homref_ct -= cur_nosex_geno_cts[0];
         hetref_ct -= cur_nosex_geno_cts[1];
         nonref_diploid_ct -= cur_nosex_geno_cts[2];
@@ -3007,7 +3007,7 @@ void EnforceHweThresh(const ChrInfo* cip, const uint32_t* founder_raw_geno_cts, 
   *variant_ct_ptr -= removed_ct;
 }
 
-void EnforceMinorFreqConstraints(const uintptr_t* variant_allele_idxs, const uint64_t* founder_allele_dosages, const double* allele_freqs, double min_maf, double max_maf, uint64_t min_allele_dosage, uint64_t max_allele_dosage, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
+void EnforceMinorFreqConstraints(const uintptr_t* allele_idx_offsets, const uint64_t* founder_allele_dosages, const double* allele_freqs, double min_maf, double max_maf, uint64_t min_allele_dosage, uint64_t max_allele_dosage, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
   const uint32_t prefilter_variant_ct = *variant_ct_ptr;
   uint32_t variant_uidx = 0;
   uint32_t removed_ct = 0;
@@ -3023,15 +3023,15 @@ void EnforceMinorFreqConstraints(const uintptr_t* variant_allele_idxs, const uin
   uint32_t cur_allele_ct = 2;
   for (uint32_t variant_idx = 0; variant_idx < prefilter_variant_ct; ++variant_idx, ++variant_uidx) {
     MovU32To1Bit(variant_include, &variant_uidx);
-    uintptr_t variant_allele_idx_base;
-    if (!variant_allele_idxs) {
-      variant_allele_idx_base = 2 * variant_uidx;
+    uintptr_t allele_idx_offset_base;
+    if (!allele_idx_offsets) {
+      allele_idx_offset_base = 2 * variant_uidx;
     } else {
-      variant_allele_idx_base = variant_allele_idxs[variant_uidx];
-      cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - variant_allele_idx_base;
+      allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+      cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
     }
     if (allele_freqs) {
-      const double cur_nonmaj_freq = GetNonmajFreq(&(allele_freqs[variant_allele_idx_base - variant_uidx]), cur_allele_ct);
+      const double cur_nonmaj_freq = GetNonmajFreq(&(allele_freqs[allele_idx_offset_base - variant_uidx]), cur_allele_ct);
       if ((cur_nonmaj_freq < min_maf) || (cur_nonmaj_freq > max_maf)) {
         ClearBit(variant_uidx, variant_include);
         ++removed_ct;
@@ -3039,7 +3039,7 @@ void EnforceMinorFreqConstraints(const uintptr_t* variant_allele_idxs, const uin
       }
     }
     if (dosage_filter) {
-      const uint64_t* cur_founder_allele_dosages = &(founder_allele_dosages[variant_allele_idx_base]);
+      const uint64_t* cur_founder_allele_dosages = &(founder_allele_dosages[allele_idx_offset_base]);
       uint64_t max_dosage = cur_founder_allele_dosages[0];
       uint64_t nonmaj_dosage;
       if (cur_allele_ct == 2) {
@@ -3144,7 +3144,7 @@ void EnforceMinBpSpace(const ChrInfo* cip, const uint32_t* variant_bps, uint32_t
 // (Workaround for that case when merge is implemented: generate a
 // single-sample file with all the right reference alleles, and merge with
 // that.)
-PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const TwoColParams* allele_flag_info, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t is_alt1, uint32_t force, uint32_t max_thread_ct, const char** allele_storage, uint32_t* max_allele_slen_ptr, AlleleCode* refalt1_select, uintptr_t* nonref_flags, uintptr_t* previously_seen) {
+PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const TwoColParams* allele_flag_info, uint32_t raw_variant_ct, uint32_t variant_ct, uint32_t max_variant_id_slen, uint32_t is_alt1, uint32_t force, uint32_t max_thread_ct, const char** allele_storage, uint32_t* max_allele_slen_ptr, AlleleCode* refalt1_select, uintptr_t* nonref_flags, uintptr_t* previously_seen) {
   // temporary allocations on bottom, "permanent" allocations on top (so we
   // don't reset g_bigstack_end).
   // previously_seen[] should be preallocated iff both --ref-allele and
@@ -3272,14 +3272,14 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
       }
       SetBit(variant_uidx, already_seen);
       *token_end = '\0';
-      uintptr_t variant_allele_idx_base;
-      if (!variant_allele_idxs) {
-        variant_allele_idx_base = variant_uidx * 2;
+      uintptr_t allele_idx_offset_base;
+      if (!allele_idx_offsets) {
+        allele_idx_offset_base = variant_uidx * 2;
       } else {
-        variant_allele_idx_base = variant_allele_idxs[variant_uidx];
-        cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - variant_allele_idx_base;
+        allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+        cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
       }
-      const char** cur_alleles = &(allele_storage[variant_allele_idx_base]);
+      const char** cur_alleles = &(allele_storage[allele_idx_offset_base]);
       uint32_t allele_idx = 0;
       for (; allele_idx < cur_allele_ct; ++allele_idx) {
         if (!strcmp(allele_start, cur_alleles[allele_idx])) {
@@ -3486,7 +3486,7 @@ PglErr SetRefalt1FromFile(const uintptr_t* variant_include, const char* const* v
   return reterr;
 }
 
-PglErr RefFromFaProcessContig(const uintptr_t* variant_include, const uint32_t* variant_bps, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const ChrInfo* cip, uint32_t force, uint32_t chr_fo_idx, uint32_t variant_uidx_last, char* seqbuf, char* seqbuf_end, AlleleCode* refalt1_select, uintptr_t* nonref_flags, uint32_t* changed_ct_ptr, uint32_t* validated_ct_ptr, uint32_t* downgraded_ct_ptr) {
+PglErr RefFromFaProcessContig(const uintptr_t* variant_include, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const ChrInfo* cip, uint32_t force, uint32_t chr_fo_idx, uint32_t variant_uidx_last, char* seqbuf, char* seqbuf_end, AlleleCode* refalt1_select, uintptr_t* nonref_flags, uint32_t* changed_ct_ptr, uint32_t* validated_ct_ptr, uint32_t* downgraded_ct_ptr) {
   uint32_t variant_uidx = AdvTo1Bit(variant_include, cip->chr_fo_vidx_start[chr_fo_idx]);
   const uint32_t bp_end = seqbuf_end - seqbuf;
   if (variant_bps[variant_uidx_last] >= bp_end) {
@@ -3553,12 +3553,12 @@ PglErr RefFromFaProcessContig(const uintptr_t* variant_include, const uint32_t* 
   uint32_t cur_allele_ct = 2;
   while (1) {
     const uint32_t cur_bp = variant_bps[variant_uidx];
-    uintptr_t variant_allele_idx_base = variant_uidx * 2;
-    if (variant_allele_idxs) {
-      variant_allele_idx_base = variant_allele_idxs[variant_uidx];
-      cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - variant_allele_idx_base;
+    uintptr_t allele_idx_offset_base = variant_uidx * 2;
+    if (allele_idx_offsets) {
+      allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+      cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
     }
-    const char* const* cur_alleles = &(allele_storage[variant_allele_idx_base]);
+    const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
     const char* cur_ref = &(seqbuf[cur_bp]);
     int32_t consistent_allele_idx = -1;
     for (uint32_t allele_idx = 0; allele_idx < cur_allele_ct; ++allele_idx) {
@@ -3620,7 +3620,7 @@ PglErr RefFromFaProcessContig(const uintptr_t* variant_include, const uint32_t* 
   }
 }
 
-PglErr RefFromFa(const uintptr_t* variant_include, const uint32_t* variant_bps, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const ChrInfo* cip, const char* fname, uint32_t max_allele_slen, uint32_t force, AlleleCode* refalt1_select, uintptr_t* nonref_flags) {
+PglErr RefFromFa(const uintptr_t* variant_include, const uint32_t* variant_bps, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const ChrInfo* cip, const char* fname, uint32_t max_allele_slen, uint32_t force, AlleleCode* refalt1_select, uintptr_t* nonref_flags) {
   unsigned char* bigstack_mark = g_bigstack_base;
   uintptr_t line_idx = 0;
   PglErr reterr = kPglRetSuccess;
@@ -3698,7 +3698,7 @@ PglErr RefFromFa(const uintptr_t* variant_include, const uint32_t* variant_bps, 
           goto RefFromFa_ret_MALFORMED_INPUT_WW;
         }
         if (chr_fo_idx != UINT32_MAX) {
-          reterr = RefFromFaProcessContig(variant_include, variant_bps, variant_allele_idxs, allele_storage, cip, force, chr_fo_idx, cur_vidx_last, seqbuf, seq_iter, refalt1_select, nonref_flags, &changed_ct, &validated_ct, &downgraded_ct);
+          reterr = RefFromFaProcessContig(variant_include, variant_bps, allele_idx_offsets, allele_storage, cip, force, chr_fo_idx, cur_vidx_last, seqbuf, seq_iter, refalt1_select, nonref_flags, &changed_ct, &validated_ct, &downgraded_ct);
           if (reterr) {
             goto RefFromFa_ret_1;
           }
@@ -3762,7 +3762,7 @@ PglErr RefFromFa(const uintptr_t* variant_include, const uint32_t* variant_bps, 
       // seq_iter = memcpya_toupper(seq_iter, loadbuf, cur_seq_slen);
     }
     if (chr_fo_idx != UINT32_MAX) {
-      reterr = RefFromFaProcessContig(variant_include, variant_bps, variant_allele_idxs, allele_storage, cip, force, chr_fo_idx, cur_vidx_last, seqbuf, seq_iter, refalt1_select, nonref_flags, &changed_ct, &validated_ct, &downgraded_ct);
+      reterr = RefFromFaProcessContig(variant_include, variant_bps, allele_idx_offsets, allele_storage, cip, force, chr_fo_idx, cur_vidx_last, seqbuf, seq_iter, refalt1_select, nonref_flags, &changed_ct, &validated_ct, &downgraded_ct);
       if (reterr) {
         goto RefFromFa_ret_1;
       }

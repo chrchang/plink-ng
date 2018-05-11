@@ -77,15 +77,15 @@ static inline void adjust_print_ln(const char* output_min_p_str, double ln_pval,
 }
 
 // Now based around ln_pvals, to allow useful comparisons < 5e-324.
-PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char* const* chr_ids, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const char* const* allele_storage, const AdjustInfo* adjust_info_ptr, const double* ln_pvals, const double* chisqs, uint32_t orig_variant_ct, uint32_t max_allele_slen, double ln_pfilter, double output_min_ln, uint32_t skip_gc, uint32_t max_thread_ct, char* outname, char* outname_end) {
+PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char* const* chr_ids, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AdjustInfo* adjust_info_ptr, const double* ln_pvals, const double* chisqs, uint32_t orig_variant_ct, uint32_t max_allele_slen, double ln_pfilter, double output_min_ln, uint32_t skip_gc, uint32_t max_thread_ct, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
   PglErr reterr = kPglRetSuccess;
   PreinitCstream(&css);
   {
-    AdjAssocResult* sortbuf = S_CAST(AdjAssocResult*, bigstack_alloc(orig_variant_ct * sizeof(AdjAssocResult)));
-    if (!sortbuf) {
+    AdjAssocResult* sortbuf;
+    if (BIGSTACK_ALLOC_X(AdjAssocResult, orig_variant_ct, &sortbuf)) {
       goto Multcomp_ret_NOMEM;
     }
     uint32_t valid_variant_ct = 0;
@@ -243,11 +243,7 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
       goto Multcomp_ret_NOMEM;
     }
 
-#ifdef __cplusplus
-    std::sort(sortbuf, &(sortbuf[valid_variant_ct]));
-#else
-    qsort(sortbuf, valid_variant_ct, sizeof(AdjAssocResult), double_cmp);
-#endif
+    STD_SORT(valid_variant_ct, double_cmp, sortbuf);
 
     double lambda_recip = 1.0;
     if (!skip_gc) {
@@ -343,12 +339,12 @@ PglErr Multcomp(const uintptr_t* variant_include, const ChrInfo* cip, const char
         cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
       }
       cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
-      uintptr_t variant_allele_idx_base = variant_uidx * 2;
-      if (variant_allele_idxs) {
-        variant_allele_idx_base = variant_allele_idxs[variant_uidx];
-        cur_allele_ct = variant_allele_idxs[variant_uidx + 1] - variant_allele_idx_base;
+      uintptr_t allele_idx_offset_base = variant_uidx * 2;
+      if (allele_idx_offsets) {
+        allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+        cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
       }
-      const char* const* cur_alleles = &(allele_storage[variant_allele_idx_base]);
+      const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
       if (ref_col) {
         *cswritep++ = '\t';
         cswritep = strcpya(cswritep, cur_alleles[0]);
@@ -527,7 +523,7 @@ PglErr AdjustFile(const AdjustFileInfo* afip, double ln_pfilter, double output_m
     const uint32_t need_alt = (flags & (kfAdjustColAlt1 | kfAdjustColAlt));
     const uint32_t alt_comma_truncate = (need_alt == kfAdjustColAlt1);
     if (need_alt == (kfAdjustColAlt1 | kfAdjustColAlt)) {
-      // Could theoretically support this later (allocate variant_allele_idxs
+      // Could theoretically support this later (allocate allele_idx_offsets
       // and count # of multiallelic variants in first pass, etc.), but
       // unlikely to be relevant.
       // (For now, we abuse allele_storage by storing all comma-separated alt

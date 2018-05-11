@@ -1361,10 +1361,10 @@ BoolErr GlmFillAndTestCovars(const uintptr_t* sample_include, const uintptr_t* c
   }
   const uintptr_t new_covar_ct = covar_ct + extra_cat_ct;
   const uintptr_t new_nonlocal_covar_ct = new_covar_ct - local_covar_ct;
+  MatrixInvertBuf1* matrix_invert_buf1;
   uintptr_t* cat_covar_wkspace;
-  MatrixInvertBuf1* matrix_invert_buf1 = S_CAST(MatrixInvertBuf1*, bigstack_alloc(kMatrixInvertBuf1CheckedAlloc * new_nonlocal_covar_ct));
   double* dbl_2d_buf;
-  if ((!matrix_invert_buf1) ||
+  if (BIGSTACK_ALLOC_X(MatrixInvertBuf1, kMatrixInvertBuf1CheckedAlloc * new_nonlocal_covar_ct, &matrix_invert_buf1) ||
       bigstack_alloc_w(1 + (covar_max_nonnull_cat_ct / kBitsPerWord), &cat_covar_wkspace) ||
       bigstack_alloc_d(new_nonlocal_covar_ct * new_nonlocal_covar_ct, &dbl_2d_buf)) {
     return 1;
@@ -1518,8 +1518,7 @@ BoolErr GlmAllocFillAndTestPhenoCovarsQt(const uintptr_t* sample_include, const 
   *nm_precomp_ptr = nullptr;
   if (xtx_state) {
     assert(!local_covar_ct);
-    *nm_precomp_ptr = S_CAST(RegressionNmPrecomp*, bigstack_alloc(sizeof(RegressionNmPrecomp)));
-    if (!(*nm_precomp_ptr)) {
+    if (BIGSTACK_ALLOC_X(RegressionNmPrecomp, 1, nm_precomp_ptr)) {
       return 1;
     }
     // x^2 + (2*xtx_state + 2)x + (5*xtx_state - 1)
@@ -1585,8 +1584,7 @@ BoolErr GlmAllocFillAndTestPhenoCovarsCc(const uintptr_t* sample_include, const 
   *nm_precomp_ptr = nullptr;
   if (xtx_state) {
     assert(!local_covar_ct);
-    *nm_precomp_ptr = S_CAST(RegressionNmPrecomp*, bigstack_alloc(sizeof(RegressionNmPrecomp)));
-    if (!(*nm_precomp_ptr)) {
+    if (BIGSTACK_ALLOC_X(RegressionNmPrecomp, 1, nm_precomp_ptr)) {
       return 1;
     }
     // x^2 + (2*xtx_state + 2)x + (5*xtx_state - 1)
@@ -2894,7 +2892,7 @@ typedef struct {
   double mach_r2;
 
   // case hom-ref, case ref-alt, case alt-alt, ctrl hom-ref, ...
-  uint32_t geno_hardcall_cts[6];
+  STD_ARRAY_DECL(uint32_t, 6, geno_hardcall_cts);
 } LogisticAuxResult;
 
 typedef struct {
@@ -2959,7 +2957,7 @@ static RegressionNmPrecomp* g_nm_precomp_y = nullptr;
 
 static const uintptr_t* g_variant_include = nullptr;
 static const ChrInfo* g_cip = nullptr;
-static const uintptr_t* g_variant_allele_idxs = nullptr;
+static const uintptr_t* g_allele_idx_offsets = nullptr;
 static uint32_t* g_subset_chr_fo_vidx_start = nullptr;
 
 // static uint32_t g_raw_sample_ct = 0;
@@ -3215,7 +3213,7 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
       // nm_predictors_pmaj_buf.
       uint32_t prev_nm = 0;
 
-      uint32_t genocounts[4];
+      STD_ARRAY_DECL(uint32_t, 4, genocounts);
       for (; variant_bidx < cur_variant_bidx_end; ++variant_bidx, ++variant_uidx) {
         MovU32To1Bit(variant_include, &variant_uidx);
         {
@@ -3247,8 +3245,8 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
 
           if (cur_gcount_case_interleaved_vec) {
             // gcountcc
-            uint32_t* cur_geno_hardcall_cts = block_aux_iter->geno_hardcall_cts;
-            GenovecCountSubsetFreqs(genovec, cur_gcount_case_interleaved_vec, cur_sample_ct, cur_case_ct, cur_geno_hardcall_cts);
+            STD_ARRAY_REF(uint32_t, 6) cur_geno_hardcall_cts = block_aux_iter->geno_hardcall_cts;
+            GenovecCountSubsetFreqs(genovec, cur_gcount_case_interleaved_vec, cur_sample_ct, cur_case_ct, R_CAST(STD_ARRAY_REF(uint32_t, 4), cur_geno_hardcall_cts));
             for (uint32_t geno_hardcall_idx = 0; geno_hardcall_idx < 3; ++geno_hardcall_idx) {
               cur_geno_hardcall_cts[3 + geno_hardcall_idx] = genocounts[geno_hardcall_idx] - cur_geno_hardcall_cts[geno_hardcall_idx];
             }
@@ -4005,7 +4003,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
   {
     const uintptr_t* variant_include = g_variant_include;
     const ChrInfo* cip = g_cip;
-    const uintptr_t* variant_allele_idxs = g_variant_allele_idxs;
+    const uintptr_t* allele_idx_offsets = g_allele_idx_offsets;
     const AlleleCode* a0_alleles = g_a0_alleles;
 
     const uint32_t sample_ct = g_sample_ct;
@@ -4154,7 +4152,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     const uint32_t dosage_is_present = pgfip->gflags & kfPgenGlobalDosagePresent;
     uintptr_t thread_xalloc_cacheline_ct = (workspace_alloc / kCacheline) + 1;
     uintptr_t per_variant_xalloc_byte_ct = sizeof(LogisticAuxResult) + 2 * max_reported_test_ct * sizeof(double) + max_sample_ct * local_covar_ct * sizeof(float);
-    unsigned char* main_loadbufs[2];
+    STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
     uint32_t read_block_size;
     if (PgenMtLoadInit(variant_include, max_sample_ct, variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, per_variant_xalloc_byte_ct, pgfip, &calc_thread_ct, &g_genovecs, nullptr, nullptr, dosage_is_present? (&g_dosage_presents) : nullptr, dosage_is_present? (&g_dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, main_loadbufs, &ts.threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
       goto GlmLogistic_ret_NOMEM;
@@ -4165,8 +4163,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     double* block_beta_se_bufs[2];
 
     for (uint32_t uii = 0; uii < 2; ++uii) {
-      logistic_block_aux_bufs[uii] = S_CAST(LogisticAuxResult*, bigstack_alloc(read_block_size * sizeof(LogisticAuxResult)));
-      if ((!logistic_block_aux_bufs[uii]) ||
+      if (BIGSTACK_ALLOC_X(LogisticAuxResult, read_block_size, &(logistic_block_aux_bufs[uii])) ||
           bigstack_alloc_d(read_block_size * 2 * max_reported_test_ct, &(block_beta_se_bufs[uii]))) {
         goto GlmLogistic_ret_NOMEM;
       }
@@ -4461,15 +4458,15 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
             }
           }
           const LogisticAuxResult* auxp = &(cur_block_aux[variant_bidx]);
-          uintptr_t variant_allele_idx_base = write_variant_uidx * 2;
-          if (variant_allele_idxs) {
-            variant_allele_idx_base = variant_allele_idxs[write_variant_uidx];
-            cur_allele_ct = variant_allele_idxs[write_variant_uidx + 1] - variant_allele_idxs[write_variant_uidx];
+          uintptr_t allele_idx_offset_base = write_variant_uidx * 2;
+          if (allele_idx_offsets) {
+            allele_idx_offset_base = allele_idx_offsets[write_variant_uidx];
+            cur_allele_ct = allele_idx_offsets[write_variant_uidx + 1] - allele_idx_offsets[write_variant_uidx];
           }
           if (a0_alleles) {
             a0_allele_idx = a0_alleles[write_variant_uidx];
           }
-          const char* const* cur_alleles = &(allele_storage[variant_allele_idx_base]);
+          const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
           // possible todo: make number-to-string operations, strlen(), etc.
           //   happen only once per variant.
           for (uint32_t test_idx = 0; test_idx < cur_reported_test_ct; ++test_idx) {
@@ -4533,7 +4530,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
               cswritep = u32toa(auxp->allele_obs_ct - auxp->case_allele_obs_ct, cswritep);
             }
             if (gcount_cc_col) {
-              const uint32_t* cur_geno_hardcall_cts = auxp->geno_hardcall_cts;
+              STD_ARRAY_KREF(uint32_t, 6) cur_geno_hardcall_cts = auxp->geno_hardcall_cts;
               for (uint32_t uii = 0; uii < 6; ++uii) {
                 *cswritep++ = '\t';
                 cswritep = u32toa(cur_geno_hardcall_cts[uii], cswritep);
@@ -5026,7 +5023,7 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
       // nm_predictors_pmaj_buf.
       uint32_t prev_nm = 0;
 
-      uint32_t genocounts[4];
+      STD_ARRAY_DECL(uint32_t, 4, genocounts);
       for (; variant_bidx < cur_variant_bidx_end; ++variant_bidx, ++variant_uidx) {
         MovU32To1Bit(variant_include, &variant_uidx);
         {
@@ -5496,7 +5493,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
   {
     const uintptr_t* variant_include = g_variant_include;
     const ChrInfo* cip = g_cip;
-    const uintptr_t* variant_allele_idxs = g_variant_allele_idxs;
+    const uintptr_t* allele_idx_offsets = g_allele_idx_offsets;
     const AlleleCode* a0_alleles = g_a0_alleles;
 
     const uint32_t sample_ct = g_sample_ct;
@@ -5642,7 +5639,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     const uint32_t dosage_is_present = pgfip->gflags & kfPgenGlobalDosagePresent;
     uintptr_t thread_xalloc_cacheline_ct = (workspace_alloc / kCacheline) + 1;
     uintptr_t per_variant_xalloc_byte_ct = sizeof(LinearAuxResult) + 2 * max_reported_test_ct * sizeof(double) + max_sample_ct * local_covar_ct * sizeof(double);
-    unsigned char* main_loadbufs[2];
+    STD_ARRAY_DECL(unsigned char*, 2, main_loadbufs);
     uint32_t read_block_size;
     if (PgenMtLoadInit(variant_include, max_sample_ct, variant_ct, bigstack_left(), pgr_alloc_cacheline_ct, thread_xalloc_cacheline_ct, per_variant_xalloc_byte_ct, pgfip, &calc_thread_ct, &g_genovecs, nullptr, nullptr, dosage_is_present? (&g_dosage_presents) : nullptr, dosage_is_present? (&g_dosage_mains) : nullptr, nullptr, nullptr, &read_block_size, main_loadbufs, &ts.threads, &g_pgr_ptrs, &g_read_variant_uidx_starts)) {
       goto GlmLinear_ret_NOMEM;
@@ -5653,8 +5650,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     double* block_beta_se_bufs[2];
 
     for (uint32_t uii = 0; uii < 2; ++uii) {
-      linear_block_aux_bufs[uii] = S_CAST(LinearAuxResult*, bigstack_alloc(read_block_size * sizeof(LinearAuxResult)));
-      if ((!linear_block_aux_bufs[uii]) ||
+      if (BIGSTACK_ALLOC_X(LinearAuxResult, read_block_size, &(linear_block_aux_bufs[uii])) ||
           bigstack_alloc_d(read_block_size * 2 * max_reported_test_ct, &(block_beta_se_bufs[uii]))) {
         goto GlmLinear_ret_NOMEM;
       }
@@ -5924,15 +5920,15 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
               continue;
             }
           }
-          uintptr_t variant_allele_idx_base = write_variant_uidx * 2;
-          if (variant_allele_idxs) {
-            variant_allele_idx_base = variant_allele_idxs[write_variant_uidx];
-            cur_allele_ct = variant_allele_idxs[write_variant_uidx + 1] - variant_allele_idxs[write_variant_uidx];
+          uintptr_t allele_idx_offset_base = write_variant_uidx * 2;
+          if (allele_idx_offsets) {
+            allele_idx_offset_base = allele_idx_offsets[write_variant_uidx];
+            cur_allele_ct = allele_idx_offsets[write_variant_uidx + 1] - allele_idx_offsets[write_variant_uidx];
           }
           if (a0_alleles) {
             a0_allele_idx = a0_alleles[write_variant_uidx];
           }
-          const char* const* cur_alleles = &(allele_storage[variant_allele_idx_base]);
+          const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
           // possible todo: make number-to-string operations, strlen(), etc.
           //   happen only once per variant.
           for (uint32_t test_idx = 0; test_idx < cur_reported_test_ct; ++test_idx) {
@@ -6160,7 +6156,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
 
 static const double kSexMaleToCovarD[2] = {2.0, 1.0};
 
-PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* variant_allele_idxs, const AlleleCode* maj_alleles, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const AdjustInfo* adjust_info_ptr, const APerm* aperm_ptr, const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t orig_covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t xchr_model, double ci_size, double vif_thresh, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* sex_nm, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const PhenoCol* covar_cols, const char* covar_names, const uintptr_t* orig_variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const char* const* allele_storage, const GlmInfo* glm_info_ptr, const AdjustInfo* adjust_info_ptr, const APerm* aperm_ptr, const char* local_covar_fname, const char* local_pvar_fname, const char* local_psam_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t orig_covar_ct, uintptr_t max_covar_name_blen, uint32_t raw_variant_ct, uint32_t orig_variant_ct, uint32_t max_variant_id_slen, uint32_t max_allele_slen, uint32_t xchr_model, double ci_size, double vif_thresh, double ln_pfilter, double output_min_ln, uint32_t max_thread_ct, uintptr_t pgr_alloc_cacheline_ct, PgenFileInfo* pgfip, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   unsigned char* bigstack_end_mark = g_bigstack_end;
   PglErr reterr = kPglRetSuccess;
@@ -6226,7 +6222,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
     }
     g_sample_include = cur_sample_include;
     g_cip = cip;
-    g_variant_allele_idxs = variant_allele_idxs;
+    g_allele_idx_offsets = allele_idx_offsets;
 
     const uint32_t raw_variant_ctl = BitCtToWordCt(raw_variant_ct);
     uint32_t max_variant_ct = variant_ct;
@@ -6451,8 +6447,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           BigstackReset(already_seen);
         }
         raw_covar_ct += condition_ct;
-        new_covar_cols = S_CAST(PhenoCol*, bigstack_alloc((raw_covar_ct + add_sex_covar) * sizeof(PhenoCol)));
-        if ((!new_covar_cols) ||
+        if (BIGSTACK_ALLOC_X(PhenoCol, raw_covar_ct + add_sex_covar, &new_covar_cols) ||
             bigstack_alloc_c((raw_covar_ct + add_sex_covar) * new_max_covar_name_blen, &new_covar_names)) {
           goto GlmMain_ret_NOMEM;
         }
@@ -6554,8 +6549,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
           BigstackEndReset(bigstack_end_mark);
         }
       } else {
-        new_covar_cols = S_CAST(PhenoCol*, bigstack_alloc((raw_covar_ct + add_sex_covar) * sizeof(PhenoCol)));
-        if ((!new_covar_cols) ||
+        if (BIGSTACK_ALLOC_X(PhenoCol, raw_covar_ct + add_sex_covar, &new_covar_cols) ||
             bigstack_alloc_c((raw_covar_ct + add_sex_covar) * new_max_covar_name_blen, &new_covar_names)) {
           goto GlmMain_ret_NOMEM;
         }
@@ -7322,7 +7316,7 @@ PglErr GlmMain(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
         goto GlmMain_ret_1;
       }
       if (report_adjust) {
-        reterr = Multcomp(valid_variants, cip, nullptr, variant_bps, variant_ids, variant_allele_idxs, allele_storage, adjust_info_ptr, orig_ln_pvals, nullptr, valid_variant_ct, max_allele_slen, ln_pfilter, output_min_ln, joint_test, max_thread_ct, outname, outname_end2);
+        reterr = Multcomp(valid_variants, cip, nullptr, variant_bps, variant_ids, allele_idx_offsets, allele_storage, adjust_info_ptr, orig_ln_pvals, nullptr, valid_variant_ct, max_allele_slen, ln_pfilter, output_min_ln, joint_test, max_thread_ct, outname, outname_end2);
         if (reterr) {
           goto GlmMain_ret_1;
         }

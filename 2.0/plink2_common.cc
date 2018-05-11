@@ -78,7 +78,7 @@ char* dosagetoa(uint64_t dosage, char* start) {
 void PopulateDenseDosage(const uintptr_t* genovec, const uintptr_t* dosage_present, const Dosage* dosage_main, uint32_t sample_ct, uint32_t dosage_ct, Dosage* dense_dosage) {
   // see also fill_cur_dosage_ints in plink2_matrix_calc
   const uint32_t sample_ctl2_m1 = (sample_ct - 1) / kBitsPerWordD2;
-  Dosage lookup_table[4];
+  STD_ARRAY_DECL(Dosage, 4, lookup_table);
   lookup_table[0] = 0;
   lookup_table[1] = kDosageMid;
   lookup_table[2] = kDosageMax;
@@ -595,7 +595,7 @@ PglErr OpenAndLoadXidHeader(const char* fname, const char* flag_name, XidHeaderF
 }
 
 
-const char g_xymt_log_names[][5] = {"chrX", "chrY", "XY", "chrM", "PAR1", "PAR2"};
+const char g_xymt_log_names[kChrOffsetCt][5] = {"chrX", "chrY", "XY", "chrM", "PAR1", "PAR2"};
 
 static_assert(!(kChrRawEnd % kBytesPerVec), "kChrRawEnd must be a multiple of kBytesPerVec.");
 PglErr InitChrInfo(ChrInfo* cip) {
@@ -679,7 +679,7 @@ void FinalizeChrset(MiscFlags misc_flags, ChrInfo* cip) {
   cip->max_code = max_code;
   uintptr_t* chr_mask = cip->chr_mask;
   uintptr_t last_chr_mask_word = chr_mask[kChrMaskWords - 1];
-  uint32_t* xymt_codes = cip->xymt_codes;
+  STD_ARRAY_REF(uint32_t, kChrOffsetCt) xymt_codes = cip->xymt_codes;
   if (last_chr_mask_word) {
     // avoids repeating some work if this is called twice
     chr_mask[kChrMaskWords - 1] = 0;
@@ -1934,7 +1934,7 @@ PglErr ParseChrRanges(const char* const* argvk, const char* flagname_p, const ch
 }
 
 
-PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t bytes_avail, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, PgenFileInfo* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** phasepresent_ptr, uintptr_t*** phaseinfo_ptr, uintptr_t*** dosage_present_ptr, Dosage*** dosage_mains_ptr, uintptr_t*** dphase_present_ptr, SDosage*** dphase_delta_ptr, uint32_t* read_block_size_ptr, unsigned char** main_loadbufs, pthread_t** threads_ptr, PgenReader*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr) {
+PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t bytes_avail, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, PgenFileInfo* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** phasepresent_ptr, uintptr_t*** phaseinfo_ptr, uintptr_t*** dosage_present_ptr, Dosage*** dosage_mains_ptr, uintptr_t*** dphase_present_ptr, SDosage*** dphase_delta_ptr, uint32_t* read_block_size_ptr, STD_ARRAY_REF(unsigned char*, 2) main_loadbufs, pthread_t** threads_ptr, PgenReader*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr) {
   uintptr_t cachelines_avail = bytes_avail / kCacheline;
   uint32_t read_block_size = kPglVblockSize;
   uint64_t multiread_cacheline_ct;

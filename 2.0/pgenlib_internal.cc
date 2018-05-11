@@ -758,7 +758,7 @@ void GenovecAlleleCtsUnsafe(const uintptr_t* genovec, uint32_t sample_ct, uint32
   *bothset_ctp = bothset_ct;
 }
 
-void GenovecCountFreqsUnsafe(const uintptr_t* genovec, uint32_t sample_ct, uint32_t* genocounts) {
+void GenovecCountFreqsUnsafe(const uintptr_t* genovec, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts) {
   // fills genocounts[0] with the number of 00s, genocounts[1] with the number
   // of 01s, etc.
   // assumes trailing bits of last genovec word are zeroed out.
@@ -783,7 +783,7 @@ void GenovecCountFreqsUnsafe(const uintptr_t* genovec, uint32_t sample_ct, uint3
   genocounts[3] = bothset_ct;
 }
 
-void GenovecCountSubsetFreqs(const uintptr_t* __restrict genovec, const uintptr_t* __restrict sample_include_interleaved_vec, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t* genocounts) {
+void GenovecCountSubsetFreqs(const uintptr_t* __restrict genovec, const uintptr_t* __restrict sample_include_interleaved_vec, uint32_t raw_sample_ct, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts) {
   // fills genocounts[0] with the number of 00s, genocounts[1] with the number
   // of 01s, etc.
   // {raw_}sample_ct == 0 ok.
@@ -930,7 +930,7 @@ void SmallGenoarrCount3FreqIncr(const uintptr_t* genoarr_iter, uint32_t byte_ct,
   }
 }
 
-void GenoarrCountFreqs(const unsigned char* genoarr, uint32_t sample_ct, uint32_t* genocounts) {
+void GenoarrCountFreqs(const unsigned char* genoarr, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts) {
   // does not read past the end of genoarr
   uint32_t lead_byte_ct = (-R_CAST(uintptr_t, genoarr)) % kBytesPerVec;
   uint32_t even_ct = 0;
@@ -974,7 +974,7 @@ void GenoarrCountFreqs(const unsigned char* genoarr, uint32_t sample_ct, uint32_
 #ifdef __arm__
 #  error "Unaligned accesses in GenoarrCountSubsetFreqs()."
 #endif
-void GenoarrCountSubsetFreqs(const unsigned char* genoarr, const uintptr_t* __restrict sample_include_interleaved_vec, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t* genocounts) {
+void GenoarrCountSubsetFreqs(const unsigned char* genoarr, const uintptr_t* __restrict sample_include_interleaved_vec, uint32_t raw_sample_ct, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts) {
   // does not read past the end of genoarr
   const uintptr_t* genoarr_iter = R_CAST(const uintptr_t*, genoarr);
   const uintptr_t* interleaved_mask_iter = sample_include_interleaved_vec;
@@ -1113,7 +1113,7 @@ void GenoarrCountSubsetFreqs(const unsigned char* genoarr, const uintptr_t* __re
   genocounts[3] = bothset_ct;
 }
 
-void GenoarrCountSubsetFreqs2(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict sample_include, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t* genocounts) {
+void GenoarrCountSubsetFreqs2(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict sample_include, uint32_t raw_sample_ct, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts) {
   // slower GenoarrCountSubsetFreqs() which does not require
   // sample_include_interleaved_vec to be precomputed.
   // {raw_}sample_ct == 0 ok.
@@ -1156,7 +1156,7 @@ void GenoarrCountSubsetFreqs2(const uintptr_t* __restrict genoarr, const uintptr
   genocounts[3] = bothset_ct;
 }
 
-void GenoarrCountSubsetIntersectFreqs(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict subset1, const uintptr_t* __restrict subset2, uint32_t raw_sample_ct, uint32_t* genocounts) {
+void GenoarrCountSubsetIntersectFreqs(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict subset1, const uintptr_t* __restrict subset2, uint32_t raw_sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts) {
   // {raw_}sample_ct == 0 ok.
   const uint32_t raw_sample_ctl2 = QuaterCtToWordCt(raw_sample_ct);
   const uint32_t fullword_ct = raw_sample_ctl2 / 2;
@@ -1199,7 +1199,7 @@ void GenoarrCountSubsetIntersectFreqs(const uintptr_t* __restrict genoarr, const
   genocounts[3] = bothset_ct;
 }
 
-void GenovecCountFreqs(const uintptr_t* genovec, uint32_t sample_ct, uint32_t* genocounts) {
+void GenovecCountFreqs(const uintptr_t* genovec, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts) {
   // ok to read trailing genovec bytes, but must mask them out
   const uint32_t sample_ct_remainder = sample_ct % kBitsPerWordD2;
   GenovecCountFreqsUnsafe(genovec, sample_ct - sample_ct_remainder, genocounts);
@@ -1275,8 +1275,8 @@ void GenovecNonzeroToMissingUnsafe(uint32_t sample_ct, uintptr_t* genovec) {
   }
 }
 
-void DifflistCountSubsetFreqs(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict raregeno, const uint32_t* __restrict difflist_sample_ids, uint32_t common_geno, uint32_t difflist_len, uint32_t sample_ct, uint32_t* genocounts) {
-  ZeroU32Arr(4, genocounts);
+void DifflistCountSubsetFreqs(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict raregeno, const uint32_t* __restrict difflist_sample_ids, uint32_t common_geno, uint32_t difflist_len, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts) {
+  STD_ARRAY_REF_FILL0(4, genocounts);
   uint32_t common_geno_ct = sample_ct;
   for (uint32_t difflist_idx = 0; difflist_idx < difflist_len; ++difflist_idx) {
     const uint32_t raw_sample_idx = difflist_sample_ids[difflist_idx];
@@ -2385,7 +2385,8 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
       } else if (bytes_per_entry == 2) {
         for (uint32_t cur_vblock_vidx = 0; cur_vblock_vidx < cur_vblock_variant_ct; ++cur_vblock_vidx) {
           var_fpos_iter[cur_vblock_vidx] = cur_fpos;
-          uint32_t cur_vrec_len = R_CAST(const uint16_t*, fread_ptr)[cur_vblock_vidx];
+          uint16_t cur_vrec_len;
+          memcpy(&cur_vrec_len, &(fread_ptr[cur_vblock_vidx * 2]), 2);
           cur_fpos += cur_vrec_len;
           if (cur_vrec_len > max_vrec_width) {
             // todo: check whether we're better off just assuming 2^16 - 1
@@ -2395,7 +2396,11 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
       } else if (bytes_per_entry == 3) {
         for (uint32_t cur_vblock_vidx = 0; cur_vblock_vidx < cur_vblock_variant_ct; ++cur_vblock_vidx) {
           var_fpos_iter[cur_vblock_vidx] = cur_fpos;
-          uint32_t cur_vrec_len = (*R_CAST(const uint32_t*, &(fread_ptr[cur_vblock_vidx * bytes_per_entry]))) & 0xffffff;
+          uint32_t cur_vrec_len;
+          // safe to read a byte past the end, since that's either in loadbuf
+          // or, in mmap case, we can't be at the end of a valid file
+          memcpy(&cur_vrec_len, &(fread_ptr[cur_vblock_vidx * 3]), sizeof(int32_t));
+          cur_vrec_len &= 0xffffff;
           cur_fpos += cur_vrec_len;
           if (cur_vrec_len > max_vrec_width) {
             max_vrec_width = cur_vrec_len;
@@ -2404,7 +2409,8 @@ PglErr PgfiInitPhase2(PgenHeaderCtrl header_ctrl, uint32_t allele_cts_already_lo
       } else {
         for (uint32_t cur_vblock_vidx = 0; cur_vblock_vidx < cur_vblock_variant_ct; ++cur_vblock_vidx) {
           var_fpos_iter[cur_vblock_vidx] = cur_fpos;
-          uint32_t cur_vrec_len = R_CAST(const uint32_t*, fread_ptr)[cur_vblock_vidx];
+          uint32_t cur_vrec_len;
+          memcpy(&cur_vrec_len, &(fread_ptr[cur_vblock_vidx * 4]), 4);
           cur_fpos += cur_vrec_len;
           if (cur_vrec_len > max_vrec_width) {
             max_vrec_width = cur_vrec_len;
@@ -3516,6 +3522,8 @@ PglErr LdLoadGenovecSubsetIfNecessary(const uintptr_t* __restrict sample_include
 
 // fread_pp should be non-null iff this is being called by an internal function
 // as part of a multiallelic variant read
+// TODO: 'Refalt1' part of this function name (and a bunch of similar
+// functions) is obsolete, need to clean this up
 PglErr ReadRefalt1GenovecSubsetUnsafe(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, const unsigned char** fread_pp, const unsigned char** fread_endp, uintptr_t* __restrict genovec) {
   // Side effects:
   //   may use pgr.workspace_vec iff subsetting required
@@ -3828,7 +3836,7 @@ PglErr PgrGetDifflistOrGenovec(const uintptr_t* __restrict sample_include, const
   return ReadRefalt1DifflistOrGenovecSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, max_simple_difflist_len, vidx, pgrp, nullptr, nullptr, genovec, difflist_common_geno_ptr, main_raregeno, difflist_sample_ids, difflist_len_ptr);
 }
 
-PglErr LdSubsetAdjustGenocounts(const unsigned char* fread_end, const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, const uintptr_t* __restrict ldbase_genovec, uint32_t raw_sample_ct, const unsigned char** fread_pp, uint32_t* __restrict genocounts, uintptr_t* __restrict raregeno_workspace) {
+PglErr LdSubsetAdjustGenocounts(const unsigned char* fread_end, const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, const uintptr_t* __restrict ldbase_genovec, uint32_t raw_sample_ct, const unsigned char** fread_pp, STD_ARRAY_REF(uint32_t, 4) genocounts, uintptr_t* __restrict raregeno_workspace) {
   // * Assumes genocounts[] is initialized to the proper values for the LD
   //   reference variant (including subsetting).
   // * Tried a hybrid implementation which allowed the base variant to be saved
@@ -3846,8 +3854,8 @@ PglErr LdSubsetAdjustGenocounts(const unsigned char* fread_end, const uintptr_t*
   uintptr_t* raregeno_workspace_iter = raregeno_workspace;
   uintptr_t raw_sample_idx = 0;
   uint32_t subgroup_idx = 0;
-  uint32_t delta_counts[16];
-  ZeroU32Arr(16, delta_counts);
+  STD_ARRAY_DECL(uint32_t, 16, delta_counts);
+  STD_ARRAY_FILL0(delta_counts);
   while (1) {
     uint32_t remaining_deltas_in_subgroup = kBitsPerWordD2 - 1;
     if (subgroup_idx >= subgroup_idx_last) {
@@ -3995,11 +4003,11 @@ PglErr SkipDifflistIds(const unsigned char* fread_end, const unsigned char* grou
   return kPglRetMalformedInput;
 }
 
-PglErr CountparseDifflistSubset(const unsigned char* fread_end, const uintptr_t* __restrict sample_include, uint32_t common_geno, uint32_t raw_sample_ct, uint32_t sample_ct, const unsigned char** fread_pp, uint32_t* __restrict genocounts, uintptr_t* __restrict raregeno_workspace) {
+PglErr CountparseDifflistSubset(const unsigned char* fread_end, const uintptr_t* __restrict sample_include, uint32_t common_geno, uint32_t raw_sample_ct, uint32_t sample_ct, const unsigned char** fread_pp, STD_ARRAY_REF(uint32_t, 4) genocounts, uintptr_t* __restrict raregeno_workspace) {
   const unsigned char* group_info_iter;
   uint32_t difflist_len;
   PglErr reterr = ParseDifflistHeader(fread_end, raw_sample_ct, fread_pp, raregeno_workspace, &group_info_iter, &difflist_len);
-  ZeroU32Arr(4, genocounts);
+  STD_ARRAY_REF_FILL0(4, genocounts);
   if (reterr || (!difflist_len)) {
     genocounts[common_geno] = sample_ct;
     return reterr;
@@ -4062,7 +4070,7 @@ PglErr CountparseDifflistSubset(const unsigned char* fread_end, const uintptr_t*
 // 1-bit, unsubsetted: count 1-bit array, then count raregeno
 // 1-bit, subsetted: count [1-bit array AND sample_include], iterate through
 //   difflist
-PglErr CountparseOnebitSubset(const unsigned char* fread_end, const uintptr_t* __restrict sample_include, uint32_t raw_sample_ct, uint32_t sample_ct, const unsigned char** fread_pp, uint32_t* __restrict genocounts, uintptr_t* __restrict raregeno_workspace) {
+PglErr CountparseOnebitSubset(const unsigned char* fread_end, const uintptr_t* __restrict sample_include, uint32_t raw_sample_ct, uint32_t sample_ct, const unsigned char** fread_pp, STD_ARRAY_REF(uint32_t, 4) genocounts, uintptr_t* __restrict raregeno_workspace) {
   const uint32_t initial_bitarray_byte_ct = DivUp(raw_sample_ct, CHAR_BIT);
   if (S_CAST(uintptr_t, fread_end - (*fread_pp)) <= initial_bitarray_byte_ct) {
     return kPglRetMalformedInput;
@@ -4085,7 +4093,7 @@ PglErr CountparseOnebitSubset(const unsigned char* fread_end, const uintptr_t* _
   const unsigned char* group_info_iter;
   uint32_t difflist_len;
   PglErr reterr = ParseDifflistHeader(fread_end, raw_sample_ct, fread_pp, raregeno_workspace, &group_info_iter, &difflist_len);
-  ZeroU32Arr(4, genocounts);
+  STD_ARRAY_REF_FILL0(4, genocounts);
   if (reterr || (!difflist_len)) {
     genocounts[geno_code_low] = sample_ct - high_geno_ct;
     genocounts[geno_code_high] = high_geno_ct;
@@ -4151,7 +4159,7 @@ PglErr CountparseOnebitSubset(const unsigned char* fread_end, const uintptr_t* _
 
 // fread_pp should be non-null iff this is being called by an internal function
 // gathering rarealt counts, or dosages, as well
-PglErr GetRefalt1GenotypeCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, const unsigned char** fread_pp, const unsigned char** fread_endp, uint32_t* genocounts) {
+PglErr GetRefalt1GenotypeCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, const unsigned char** fread_pp, const unsigned char** fread_endp, STD_ARRAY_REF(uint32_t, 4) genocounts) {
   // genocounts[0] := ref/ref, genocounts[1] := ref/alt1,
   // genocounts[2] := alt1/alt1, genocounts[3] := missing/other
   assert(vidx < pgrp->fi.raw_variant_ct);
@@ -4176,7 +4184,7 @@ PglErr GetRefalt1GenotypeCounts(const uintptr_t* __restrict sample_include, cons
       GenovecCountFreqsUnsafe(pgrp->ldbase_genovec, sample_ct, pgrp->ldbase_refalt1_genocounts);
       pgrp->ldbase_stypes |= kfPgrLdcacheRefalt1Genocounts;
     }
-    memcpy(genocounts, pgrp->ldbase_refalt1_genocounts, 4 * sizeof(int32_t));
+    STD_ARRAY_REF_COPY(pgrp->ldbase_refalt1_genocounts, 4, genocounts);
     reterr = LdSubsetAdjustGenocounts(fread_end, subsetting_required? sample_include : nullptr, sample_include_cumulative_popcounts, pgrp->ldbase_genovec, raw_sample_ct, &fread_ptr, genocounts, pgrp->workspace_raregeno_tmp_loadbuf);
     if (vrtype & 1) {
       // inverted
@@ -4211,7 +4219,7 @@ PglErr GetRefalt1GenotypeCounts(const uintptr_t* __restrict sample_include, cons
     }
     ZeroTrailingQuaters(sample_ct, pgrp->ldbase_genovec);
     GenovecCountFreqsUnsafe(pgrp->ldbase_genovec, sample_ct, genocounts);
-    memcpy(pgrp->ldbase_refalt1_genocounts, genocounts, 4 * sizeof(int32_t));
+    STD_ARRAY_REF_COPY(genocounts, 4, pgrp->ldbase_refalt1_genocounts);
     pgrp->ldbase_stypes = kfPgrLdcacheQuater | kfPgrLdcacheRefalt1Genocounts;
     if (fread_pp) {
       *fread_pp = fread_ptr;
@@ -4272,10 +4280,10 @@ PglErr GetRefalt1GenotypeCounts(const uintptr_t* __restrict sample_include, cons
   return kPglRetSuccess;
 }
 
-PglErr PgrGetCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uint32_t* genocounts) {
+PglErr PgrGetCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, STD_ARRAY_REF(uint32_t, 4) genocounts) {
   assert(vidx < pgrp->fi.raw_variant_ct);
   if (!sample_ct) {
-    ZeroU32Arr(4, genocounts);
+    STD_ARRAY_REF_FILL0(4, genocounts);
     return kPglRetSuccess;
   }
   // todo: multiallelic case
@@ -5804,7 +5812,7 @@ uint64_t U16VecSum(const uint16_t* __restrict uint16_vec, uint32_t entry_ct) {
 #endif
 }
 
-PglErr GetRefNonrefGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* mach_r2_ptr, uint32_t* genocounts, uint64_t* all_dosages) {
+PglErr GetRefNonrefGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* mach_r2_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts, STD_ARRAY_REF(uint64_t, 2) all_dosages) {
   // genocounts[0] := ref/ref, genocounts[1] := ref/altx,
   // genocounts[2] := altx/alty, genocounts[3] := missing
   const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
@@ -5895,7 +5903,7 @@ PglErr GetRefNonrefGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample
   uint64_t alt1_dosage = 0;
   uint64_t alt1_dosage_sq_sum = 0;
   uint32_t dosage_ct = 0;
-  uint32_t replaced_genocounts[4];
+  STD_ARRAY_DECL(uint32_t, 4, replaced_genocounts);
   if ((vrtype & 0x60) == 0x40) {
     // unconditional dosage.  needs to be handled separately from the other
     // cases due to possible presence of missing values.
@@ -5905,7 +5913,7 @@ PglErr GetRefNonrefGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample
 #ifdef __arm__
 #  error "Unaligned accesses in GetRefNonrefGenotypeCountsAndDosage16s()."
 #endif
-    ZeroU32Arr(4, replaced_genocounts);
+    STD_ARRAY_FILL0(replaced_genocounts);
     const uint16_t* dosage_main = R_CAST(const uint16_t*, fread_ptr);
     if (subsetting_required) {
       for (uint32_t sample_idx = 0; sample_idx < sample_ct; ++sample_idx, ++sample_uidx) {
@@ -6006,13 +6014,11 @@ PglErr GetRefNonrefGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample
   return kPglRetSuccess;
 }
 
-PglErr PgrGetDWithCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* mach_r2_ptr, uint32_t* genocounts, uint64_t* all_dosages) {
+PglErr PgrGetDWithCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* mach_r2_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts, STD_ARRAY_REF(uint64_t, 2) all_dosages) {
   assert(vidx < pgrp->fi.raw_variant_ct);
   if (!sample_ct) {
-    ZeroU32Arr(4, genocounts);
-    const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
-    const uint32_t cur_allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
-    ZeroU64Arr(cur_allele_ct, all_dosages);
+    STD_ARRAY_REF_FILL0(4, genocounts);
+    STD_ARRAY_REF_FILL0(2, all_dosages);
     if (mach_r2_ptr) {
       *mach_r2_ptr = 1.0;
     }
@@ -7943,7 +7949,7 @@ uint32_t PwcAppendBiallelicGenovecMain(const uintptr_t* __restrict genovec, uint
 #endif
   const uint32_t sample_ct = pwcp->sample_ct;
   assert((!(sample_ct % kBitsPerWordD2)) || (!(genovec[sample_ct / kBitsPerWordD2] >> (2 * (sample_ct % kBitsPerWordD2)))));
-  uint32_t genocounts[4];
+  STD_ARRAY_DECL(uint32_t, 4, genocounts);
   GenovecCountFreqsUnsafe(genovec, sample_ct, genocounts);
   if (het_ct_ptr) {
     *het_ct_ptr = genocounts[1];
@@ -7981,7 +7987,7 @@ uint32_t PwcAppendBiallelicGenovecMain(const uintptr_t* __restrict genovec, uint
   const uint32_t difflist_viable = (most_common_geno != 1) && (difflist_len <= max_difflist_len);
 
   uintptr_t* ldbase_genovec = pwcp->ldbase_genovec;
-  uint32_t* ldbase_genocounts = pwcp->ldbase_genocounts;
+  STD_ARRAY_REF(uint32_t, 4) ldbase_genocounts = pwcp->ldbase_genocounts;
   if (!(vidx % kPglVblockSize)) {
     // beginning of a variant block.  save raw fpos in header; LD compression
     // prohibited.
@@ -8020,7 +8026,7 @@ uint32_t PwcAppendBiallelicGenovecMain(const uintptr_t* __restrict genovec, uint
     }
   }
   const uint32_t genovec_word_ct = QuaterCtToWordCt(sample_ct);
-  memcpy(ldbase_genocounts, genocounts, 4 * sizeof(int32_t));
+  STD_ARRAY_REF_COPY(genocounts, 4, ldbase_genocounts);
   pwcp->ldbase_common_geno = UINT32_MAX;
   if ((!difflist_viable) && (rare_2_geno_ct_sum < sample_ct / (2 * kPglMaxDifflistLenDivisor))) {
     *vrtype_ptr = 1;
@@ -8220,7 +8226,7 @@ uint32_t PwcAppendBiallelicDifflistLimitedMain(const uintptr_t* __restrict rareg
 #endif
   assert((!(difflist_len % kBitsPerWordD2)) || (!(raregeno[difflist_len / kBitsPerWordD2] >> (2 * (difflist_len % kBitsPerWordD2)))));
   assert(difflist_sample_ids[difflist_len] == sample_ct);
-  uint32_t genocounts[4];
+  STD_ARRAY_DECL(uint32_t, 4, genocounts);
   GenovecCountFreqsUnsafe(raregeno, difflist_len, genocounts);
   assert(!genocounts[difflist_common_geno]);
   genocounts[difflist_common_geno] = sample_ct - difflist_len;
@@ -8244,7 +8250,7 @@ uint32_t PwcAppendBiallelicDifflistLimitedMain(const uintptr_t* __restrict rareg
     max_difflist_len = sample_ctd8;
   }
   const uint32_t difflist_viable = (difflist_common_geno != 1) && (difflist_len <= max_difflist_len);
-  uint32_t* ldbase_genocounts = pwcp->ldbase_genocounts;
+  STD_ARRAY_REF(uint32_t, 4) ldbase_genocounts = pwcp->ldbase_genocounts;
   if (!(vidx % kPglVblockSize)) {
     pwcp->vblock_fpos[vidx / kPglVblockSize] = pwcp->vblock_fpos_offset + S_CAST(uintptr_t, pwcp->fwrite_bufp - pwcp->fwrite_buf);
   } else if (difflist_len > sample_ctd64) {
@@ -8293,7 +8299,7 @@ uint32_t PwcAppendBiallelicDifflistLimitedMain(const uintptr_t* __restrict rareg
       }
     }
   }
-  memcpy(ldbase_genocounts, genocounts, 4 * sizeof(int32_t));
+  STD_ARRAY_REF_COPY(genocounts, 4, ldbase_genocounts);
   if (difflist_viable) {
     *vrtype_ptr = 4 + difflist_common_geno;
     memcpy(pwcp->ldbase_raregeno, raregeno, QuaterCtToByteCt(difflist_len));
@@ -8763,11 +8769,10 @@ void PglMultiallelicDenseToSparse(const AlleleCode* __restrict wide_codes, uint3
 
 // tolerates extraneous phaseinfo bits
 BoolErr AppendHphase(const uintptr_t* __restrict genovec_hets, const uintptr_t* __restrict phasepresent, const uintptr_t* __restrict phaseinfo, uint32_t het_ct, uint32_t phasepresent_ct, PgenWriterCommon* pwcp, unsigned char* vrtype_ptr, uint32_t* vrec_len_ptr) {
-  // TODO: check for vrec_len overflow
   assert(phasepresent_ct);
   const uint32_t sample_ct = pwcp->sample_ct;
   *vrtype_ptr += 16;
-  const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
+  const uint32_t het_ctp1_8 = 1 + (het_ct / CHAR_BIT);
 #ifdef __arm__
 #  error "Unaligned accesses in AppendHphase()."
 #endif
@@ -8778,15 +8783,22 @@ BoolErr AppendHphase(const uintptr_t* __restrict genovec_hets, const uintptr_t* 
   if (het_ct == phasepresent_ct) {
     // no need to write phasepresent; just write phaseinfo directly to output
     // buffer
+    if (CheckedVrecLenIncr(het_ctp1_8, vrec_len_ptr)) {
+      return 1;
+    }
     Copy01Subset(phaseinfo, genovec_hets, 1, het_ct, fwrite_bufp_alias);
-    fwrite_bufp_final = &(pwcp->fwrite_bufp[1 + (het_ct / CHAR_BIT)]);
+    fwrite_bufp_final = &(pwcp->fwrite_bufp[het_ctp1_8]);
   } else {
     // this is a minor variant of ExpandThenSubsetBytearr()
+    if (CheckedVrecLenIncr(het_ctp1_8 + DivUp(phasepresent_ct, 8), vrec_len_ptr)) {
+      return 1;
+    }
+    const uint32_t sample_ctl2 = QuaterCtToWordCt(sample_ct);
     uintptr_t* phaseinfo_tmp = pwcp->genovec_invert_buf;
     uintptr_t* phaseinfo_tmp_iter = phaseinfo_tmp;
     uint32_t phasepresent_write_idx_lowbits = 1;
     phaseinfo_write_idx_lowbits = 0;
-    uintptr_t phasepresent_write_word = 1;
+    uintptr_t phasepresent_write_word = 1;  // first bit set
     for (uint32_t widx = 0; widx < sample_ctl2; ++widx) {
       const uintptr_t geno_word = genovec_hets[widx];
       uintptr_t geno_hets = (~(geno_word >> 1)) & geno_word & kMask5555;
@@ -8833,11 +8845,8 @@ BoolErr AppendHphase(const uintptr_t* __restrict genovec_hets, const uintptr_t* 
       const uint32_t cur_byte_ct = DivUp(phaseinfo_write_idx_lowbits, CHAR_BIT);
       SubwordStoreMov(phaseinfo_write_word, cur_byte_ct, &fwrite_bufp_final);
     }
+    assert(S_CAST(uintptr_t, fwrite_bufp_final - pwcp->fwrite_bufp) == het_ctp1_8 + DivUp(phasepresent_ct, 8));
   }
-#ifdef __LP64__
-  assert(((*vrec_len_ptr) + S_CAST(uintptr_t, fwrite_bufp_final - pwcp->fwrite_bufp)) <= kPglMaxBytesPerVariant);
-#endif
-  *vrec_len_ptr += fwrite_bufp_final - pwcp->fwrite_bufp;
   pwcp->fwrite_bufp = fwrite_bufp_final;
   return 0;
 }

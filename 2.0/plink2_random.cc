@@ -35,8 +35,7 @@ double RandNormal(sfmt_t* sfmtp, double* secondval_ptr) {
 sfmt_t** g_sfmtp_arr;
 
 BoolErr InitAllocSfmtpArr(uint32_t thread_ct, uint32_t use_main_sfmt_as_element_zero) {
-  g_sfmtp_arr = S_CAST(sfmt_t**, bigstack_alloc(thread_ct * sizeof(intptr_t)));
-  if (!g_sfmtp_arr) {
+  if (BIGSTACK_ALLOC_X(sfmt_t*, thread_ct, &g_sfmtp_arr)) {
     return 1;
   }
   if (use_main_sfmt_as_element_zero) {
@@ -45,8 +44,7 @@ BoolErr InitAllocSfmtpArr(uint32_t thread_ct, uint32_t use_main_sfmt_as_element_
   if (thread_ct > use_main_sfmt_as_element_zero) {
     uint32_t uibuf[4];
     for (uint32_t tidx = use_main_sfmt_as_element_zero; tidx < thread_ct; ++tidx) {
-      g_sfmtp_arr[tidx] = S_CAST(sfmt_t*, bigstack_alloc(sizeof(sfmt_t)));
-      if (!g_sfmtp_arr[tidx]) {
+      if (BIGSTACK_ALLOC_X(sfmt_t, 1, &(g_sfmtp_arr[tidx]))) {
         return 1;
       }
       for (uint32_t uii = 0; uii < 4; ++uii) {

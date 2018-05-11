@@ -36,6 +36,7 @@ const char kErrprintfFopen[] = "Error: Failed to open %s.\n";
 char g_textbuf[kTextbufSize];
 
 // now initialized by init_bigstack
+// can't use std::array<char, 512>& since it's initially null
 const char* g_one_char_strs = nullptr;
 // If one-base indels become sufficiently common, might want to predefine
 // g_two_char_strs[], and update allele string construction/destruction
@@ -468,7 +469,7 @@ uintptr_t DetectMib() {
   mib[1] = HW_MEMSIZE;
   llxx = 0;
   size_t sztmp = sizeof(int64_t);
-  sysctl(mib, 2, &llxx, &sztmp, nullptr, 0);
+  sysctl(&mib[0], 2, &llxx, &sztmp, nullptr, 0);
   llxx /= 1048576;
 #else
 #  ifdef _WIN32
@@ -552,6 +553,124 @@ PglErr InitBigstack(uintptr_t malloc_size_mib, uintptr_t* malloc_mib_final_ptr, 
   *malloc_mib_final_ptr = malloc_size_mib;
   *bigstack_ua_ptr = bigstack_ua;
   return kPglRetSuccess;
+}
+
+
+BoolErr bigstack_calloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr) {
+  *uc_arr_ptr = S_CAST(unsigned char*, bigstack_alloc(ct));
+  if (!(*uc_arr_ptr)) {
+    return 1;
+  }
+  memset(*uc_arr_ptr, 0, ct);
+  return 0;
+}
+
+BoolErr bigstack_calloc_d(uintptr_t ct, double** d_arr_ptr) {
+  *d_arr_ptr = S_CAST(double*, bigstack_alloc(ct * sizeof(double)));
+  if (!(*d_arr_ptr)) {
+    return 1;
+  }
+  ZeroDArr(ct, *d_arr_ptr);
+  return 0;
+}
+
+BoolErr bigstack_calloc_f(uintptr_t ct, float** f_arr_ptr) {
+  *f_arr_ptr = S_CAST(float*, bigstack_alloc(ct * sizeof(float)));
+  if (!(*f_arr_ptr)) {
+    return 1;
+  }
+  ZeroFArr(ct, *f_arr_ptr);
+  return 0;
+}
+
+BoolErr bigstack_calloc_u16(uintptr_t ct, uint16_t** u16_arr_ptr) {
+  *u16_arr_ptr = S_CAST(uint16_t*, bigstack_alloc(ct * sizeof(int16_t)));
+  if (!(*u16_arr_ptr)) {
+    return 1;
+  }
+  memset(*u16_arr_ptr, 0, ct * sizeof(int16_t));
+  return 0;
+}
+
+BoolErr bigstack_calloc_u32(uintptr_t ct, uint32_t** u32_arr_ptr) {
+  *u32_arr_ptr = S_CAST(uint32_t*, bigstack_alloc(ct * sizeof(int32_t)));
+  if (!(*u32_arr_ptr)) {
+    return 1;
+  }
+  ZeroU32Arr(ct, *u32_arr_ptr);
+  return 0;
+}
+
+BoolErr bigstack_calloc_w(uintptr_t ct, uintptr_t** w_arr_ptr) {
+  *w_arr_ptr = S_CAST(uintptr_t*, bigstack_alloc(ct * sizeof(intptr_t)));
+  if (!(*w_arr_ptr)) {
+    return 1;
+  }
+  ZeroWArr(ct, *w_arr_ptr);
+  return 0;
+}
+
+BoolErr bigstack_calloc_u64(uintptr_t ct, uint64_t** u64_arr_ptr) {
+  *u64_arr_ptr = S_CAST(uint64_t*, bigstack_alloc(ct * sizeof(int64_t)));
+  if (!(*u64_arr_ptr)) {
+    return 1;
+  }
+  ZeroU64Arr(ct, *u64_arr_ptr);
+  return 0;
+}
+
+BoolErr bigstack_end_calloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr) {
+  *uc_arr_ptr = S_CAST(unsigned char*, bigstack_end_alloc(ct));
+  if (!(*uc_arr_ptr)) {
+    return 1;
+  }
+  memset(*uc_arr_ptr, 0, ct);
+  return 0;
+}
+
+BoolErr bigstack_end_calloc_d(uintptr_t ct, double** d_arr_ptr) {
+  *d_arr_ptr = S_CAST(double*, bigstack_end_alloc(ct * sizeof(double)));
+  if (!(*d_arr_ptr)) {
+    return 1;
+  }
+  ZeroDArr(ct, *d_arr_ptr);
+  return 0;
+}
+
+BoolErr bigstack_end_calloc_f(uintptr_t ct, float** f_arr_ptr) {
+  *f_arr_ptr = S_CAST(float*, bigstack_end_alloc(ct * sizeof(float)));
+  if (!(*f_arr_ptr)) {
+    return 1;
+  }
+  ZeroFArr(ct, *f_arr_ptr);
+  return 0;
+}
+
+BoolErr bigstack_end_calloc_u32(uintptr_t ct, uint32_t** u32_arr_ptr) {
+  *u32_arr_ptr = S_CAST(uint32_t*, bigstack_end_alloc(ct * sizeof(int32_t)));
+  if (!(*u32_arr_ptr)) {
+    return 1;
+  }
+  ZeroU32Arr(ct, *u32_arr_ptr);
+  return 0;
+}
+
+BoolErr bigstack_end_calloc_w(uintptr_t ct, uintptr_t** w_arr_ptr) {
+  *w_arr_ptr = S_CAST(uintptr_t*, bigstack_end_alloc(ct * sizeof(intptr_t)));
+  if (!(*w_arr_ptr)) {
+    return 1;
+  }
+  ZeroWArr(ct, *w_arr_ptr);
+  return 0;
+}
+
+BoolErr bigstack_end_calloc_u64(uintptr_t ct, uint64_t** u64_arr_ptr) {
+  *u64_arr_ptr = S_CAST(uint64_t*, bigstack_end_alloc(ct * sizeof(int64_t)));
+  if (!(*u64_arr_ptr)) {
+    return 1;
+  }
+  ZeroU64Arr(ct, *u64_arr_ptr);
+  return 0;
 }
 
 
@@ -758,123 +877,6 @@ int32_t FindLast1BitBeforeBounded(const uintptr_t* bitarr, uint32_t loc, int32_t
   } while (!ulii);
   const uint32_t set_bit_loc = S_CAST(uintptr_t, bitarr_ptr - bitarr) * kBitsPerWord + bsrw(ulii);
   return MAXV(S_CAST(int32_t, set_bit_loc), floor);
-}
-
-BoolErr bigstack_calloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr) {
-  *uc_arr_ptr = S_CAST(unsigned char*, bigstack_alloc(ct));
-  if (!(*uc_arr_ptr)) {
-    return 1;
-  }
-  memset(*uc_arr_ptr, 0, ct);
-  return 0;
-}
-
-BoolErr bigstack_calloc_d(uintptr_t ct, double** d_arr_ptr) {
-  *d_arr_ptr = S_CAST(double*, bigstack_alloc(ct * sizeof(double)));
-  if (!(*d_arr_ptr)) {
-    return 1;
-  }
-  ZeroDArr(ct, *d_arr_ptr);
-  return 0;
-}
-
-BoolErr bigstack_calloc_f(uintptr_t ct, float** f_arr_ptr) {
-  *f_arr_ptr = S_CAST(float*, bigstack_alloc(ct * sizeof(float)));
-  if (!(*f_arr_ptr)) {
-    return 1;
-  }
-  ZeroFArr(ct, *f_arr_ptr);
-  return 0;
-}
-
-BoolErr bigstack_calloc_u16(uintptr_t ct, uint16_t** u16_arr_ptr) {
-  *u16_arr_ptr = S_CAST(uint16_t*, bigstack_alloc(ct * sizeof(int16_t)));
-  if (!(*u16_arr_ptr)) {
-    return 1;
-  }
-  memset(*u16_arr_ptr, 0, ct * sizeof(int16_t));
-  return 0;
-}
-
-BoolErr bigstack_calloc_u32(uintptr_t ct, uint32_t** u32_arr_ptr) {
-  *u32_arr_ptr = S_CAST(uint32_t*, bigstack_alloc(ct * sizeof(int32_t)));
-  if (!(*u32_arr_ptr)) {
-    return 1;
-  }
-  ZeroU32Arr(ct, *u32_arr_ptr);
-  return 0;
-}
-
-BoolErr bigstack_calloc_w(uintptr_t ct, uintptr_t** w_arr_ptr) {
-  *w_arr_ptr = S_CAST(uintptr_t*, bigstack_alloc(ct * sizeof(intptr_t)));
-  if (!(*w_arr_ptr)) {
-    return 1;
-  }
-  ZeroWArr(ct, *w_arr_ptr);
-  return 0;
-}
-
-BoolErr bigstack_calloc_u64(uintptr_t ct, uint64_t** u64_arr_ptr) {
-  *u64_arr_ptr = S_CAST(uint64_t*, bigstack_alloc(ct * sizeof(int64_t)));
-  if (!(*u64_arr_ptr)) {
-    return 1;
-  }
-  ZeroU64Arr(ct, *u64_arr_ptr);
-  return 0;
-}
-
-BoolErr bigstack_end_calloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr) {
-  *uc_arr_ptr = S_CAST(unsigned char*, bigstack_end_alloc(ct));
-  if (!(*uc_arr_ptr)) {
-    return 1;
-  }
-  memset(*uc_arr_ptr, 0, ct);
-  return 0;
-}
-
-BoolErr bigstack_end_calloc_d(uintptr_t ct, double** d_arr_ptr) {
-  *d_arr_ptr = S_CAST(double*, bigstack_end_alloc(ct * sizeof(double)));
-  if (!(*d_arr_ptr)) {
-    return 1;
-  }
-  ZeroDArr(ct, *d_arr_ptr);
-  return 0;
-}
-
-BoolErr bigstack_end_calloc_f(uintptr_t ct, float** f_arr_ptr) {
-  *f_arr_ptr = S_CAST(float*, bigstack_end_alloc(ct * sizeof(float)));
-  if (!(*f_arr_ptr)) {
-    return 1;
-  }
-  ZeroFArr(ct, *f_arr_ptr);
-  return 0;
-}
-
-BoolErr bigstack_end_calloc_u32(uintptr_t ct, uint32_t** u32_arr_ptr) {
-  *u32_arr_ptr = S_CAST(uint32_t*, bigstack_end_alloc(ct * sizeof(int32_t)));
-  if (!(*u32_arr_ptr)) {
-    return 1;
-  }
-  ZeroU32Arr(ct, *u32_arr_ptr);
-  return 0;
-}
-
-BoolErr bigstack_end_calloc_w(uintptr_t ct, uintptr_t** w_arr_ptr) {
-  *w_arr_ptr = S_CAST(uintptr_t*, bigstack_end_alloc(ct * sizeof(intptr_t)));
-  if (!(*w_arr_ptr)) {
-    return 1;
-  }
-  ZeroWArr(ct, *w_arr_ptr);
-  return 0;
-}
-
-BoolErr bigstack_end_calloc_u64(uintptr_t ct, uint64_t** u64_arr_ptr) {
-  *u64_arr_ptr = S_CAST(uint64_t*, bigstack_end_alloc(ct * sizeof(int64_t)));
-  if (!(*u64_arr_ptr)) {
-    return 1;
-  }
-  ZeroU64Arr(ct, *u64_arr_ptr);
-  return 0;
 }
 
 void BitvecAndCopy(const uintptr_t* __restrict source1_bitvec, const uintptr_t* __restrict source2_bitvec, uintptr_t word_ct, uintptr_t* target_bitvec) {
@@ -1533,9 +1535,9 @@ PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, cons
         strcpy(sort_wkspace_iter, &(orig_strbox[str_uidx * max_str_blen]));
         sort_wkspace_iter = &(sort_wkspace_iter[wkspace_entry_blen_m4]);
         if (collapse_idxs) {
-          *R_CAST(uint32_t*, sort_wkspace_iter) = str_idx;
+          memcpy(sort_wkspace_iter, &str_idx, sizeof(int32_t));
         } else {
-          *R_CAST(uint32_t*, sort_wkspace_iter) = str_uidx;
+          memcpy(sort_wkspace_iter, &str_uidx, sizeof(int32_t));
         }
         sort_wkspace_iter = &(sort_wkspace_iter[sizeof(int32_t)]);
       }
@@ -1546,8 +1548,8 @@ PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, cons
       }
     } else {
 #endif
-      StrSortIndexedDeref* sort_wkspace = S_CAST(StrSortIndexedDeref*, bigstack_alloc(str_ct * sizeof(StrSortIndexedDeref)));
-      if (!sort_wkspace) {
+      StrSortIndexedDeref* sort_wkspace;
+      if (BIGSTACK_ALLOC_X(StrSortIndexedDeref, str_ct, &sort_wkspace)) {
         goto CopySortStrboxSubsetNoalloc_ret_NOMEM;
       }
       uint32_t str_uidx = 0;
@@ -1561,17 +1563,13 @@ PglErr CopySortStrboxSubsetNoalloc(const uintptr_t* __restrict subset_mask, cons
         }
       }
       if (!use_nsort) {
-#ifdef __cplusplus
-        std::sort(sort_wkspace, &(sort_wkspace[str_ct]));
-#else
-        qsort(sort_wkspace, str_ct, sizeof(StrSortIndexedDeref), strcmp_deref);
-#endif
+        STD_SORT(str_ct, strcmp_deref, sort_wkspace);
       } else {
 #ifdef __cplusplus
         StrNsortIndexedDeref* wkspace_alias = R_CAST(StrNsortIndexedDeref*, sort_wkspace);
         std::sort(wkspace_alias, &(wkspace_alias[str_ct]));
 #else
-        qsort(sort_wkspace, str_ct, sizeof(StrSortIndexedDeref), strcmp_natural_deref);
+        STD_SORT(str_ct, strcmp_natural_deref, sort_wkspace);
 #endif
       }
       for (uintptr_t str_idx = 0; str_idx < str_ct; ++str_idx) {
@@ -2406,7 +2404,7 @@ PglErr ParseNameRanges(const char* const* argvk, const char* errstr_append, uint
 }
 
 
-uint32_t CubicRealRoots(double coef_a, double coef_b, double coef_c, double* solutions) {
+uint32_t CubicRealRoots(double coef_a, double coef_b, double coef_c, STD_ARRAY_REF(double, 3) solutions) {
   // Additional research into numerical stability may be in order here...
   double a2 = coef_a * coef_a;
   double qq = (a2 - 3 * coef_b) * (1.0 / 9.0);
@@ -4193,11 +4191,7 @@ PglErr SearchHeaderLine(const char* header_line_iter, const char* const* search_
     *found_col_ct_ptr = found_col_ct;
     *found_type_bitset_ptr = found_type_bitset;
     if (found_col_ct) {
-#ifdef __cplusplus
-      std::sort(cols_and_types, &(cols_and_types[search_col_ct]));
-#else
-      qsort(cols_and_types, search_col_ct, sizeof(int64_t), u64cmp);
-#endif
+      STD_SORT(search_col_ct, u64cmp, cols_and_types);
       uint32_t prev_col_idx = cols_and_types[0] >> 32;
       col_skips[0] = prev_col_idx;
       col_types[0] = S_CAST(uint32_t, cols_and_types[0]);

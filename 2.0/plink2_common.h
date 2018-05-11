@@ -224,6 +224,7 @@ typedef struct APermStruct {
 CONSTU31(kApermMax, 1073241823);
 
 typedef struct TwoColParamsStruct {
+  NONCOPYABLE(TwoColParamsStruct);
   uint32_t colx;
   uint32_t colid;
   uint32_t skip_ct;
@@ -237,8 +238,13 @@ void InitPedigreeIdInfo(MiscFlags misc_flags, PedigreeIdInfo* piip);
 // bigstack.
 
 
-HEADER_INLINE BoolErr bigstack_alloc_allele(uintptr_t ct, AlleleCode** allele_arr_ptr) {
+HEADER_INLINE BoolErr bigstack_alloc_ac(uintptr_t ct, AlleleCode** allele_arr_ptr) {
   *allele_arr_ptr = S_CAST(AlleleCode*, bigstack_alloc(ct * sizeof(AlleleCode)));
+  return !(*allele_arr_ptr);
+}
+
+HEADER_INLINE BoolErr bigstack_alloc_kac(uintptr_t ct, const AlleleCode** allele_arr_ptr) {
+  *allele_arr_ptr = S_CAST(const AlleleCode*, bigstack_alloc(ct * sizeof(AlleleCode)));
   return !(*allele_arr_ptr);
 }
 
@@ -498,10 +504,11 @@ FLAGSET_DEF_START()
   kfChrOutput0M = (1 << 3)
 FLAGSET_DEF_END(ChrOutput);
 
-typedef struct {
+typedef struct ChrInfoStruct {
   // Main dynamic block intended to be allocated as a single aligned block of
   // memory on the heap freeable with vecaligned_free(), with chr_mask at the
   // base.
+  NONCOPYABLE(ChrInfoStruct);
 
   uintptr_t* chr_mask;  // which chromosomes aren't known to be absent?
 
@@ -532,7 +539,7 @@ typedef struct {
   uintptr_t chr_exclude[kChrExcludeWords];
 
   // X, Y, XY...; UINT32_MAXM1 = not in chromosome set
-  uint32_t xymt_codes[kChrOffsetCt];
+  STD_ARRAY_DECL(uint32_t, kChrOffsetCt, xymt_codes);
 
   uint32_t max_numeric_code;
   uint32_t max_code;  // no longer identical to max_numeric_code, with PARs
@@ -547,7 +554,7 @@ typedef struct {
   ChrOutput output_encoding;
 } ChrInfo;
 
-extern const char g_xymt_log_names[][5];
+extern const char g_xymt_log_names[kChrOffsetCt][5];
 
 PglErr InitChrInfo(ChrInfo* cip);
 
@@ -674,11 +681,11 @@ void MaskGenovecHetsUnsafe(const uintptr_t* __restrict genovec, uint32_t raw_sam
 // 2->4: 0 2 ... 126 1 3 ... 127
 // 4->8: 0 4 ... 124 2 6 ... 126 1 5 ... 125 3 7 ... 127
 // 8->32: 0 16 ... 112 4 20 ... 116 ... 124 2 18 ... 114 6 22 ... 118 ... 126 1 17 ...
-HEADER_CINLINE uint32_t VcountScramble2(uint32_t orig_idx) {
+HEADER_INLINE uint32_t VcountScramble2(uint32_t orig_idx) {
   return (orig_idx & (~127)) + ((orig_idx & 1) * 64) + ((orig_idx & 2) * 16) + ((orig_idx & 12) * 2) + ((orig_idx & 112) / 16);
 }
 #  else
-HEADER_CINLINE uint32_t VcountScramble2(uint32_t orig_idx) {
+HEADER_INLINE uint32_t VcountScramble2(uint32_t orig_idx) {
   return (orig_idx & (~63)) + ((orig_idx & 1) * 32) + ((orig_idx & 2) * 8) + (orig_idx & 12) + ((orig_idx & 48) / 16);
 }
 #  endif
@@ -686,7 +693,7 @@ HEADER_CINLINE uint32_t VcountScramble2(uint32_t orig_idx) {
 // 2->4: 0 2 4 6 8 10 12 14 1 3 5 ...
 // 4->8: 0 4 8 12 2 6 10 14 1 5 9 ...
 // 8->32: 0 4 8 12 2 6 10 14 1 5 9 13 3 7 11 15
-HEADER_CINLINE uint32_t VcountScramble2(uint32_t orig_idx) {
+HEADER_INLINE uint32_t VcountScramble2(uint32_t orig_idx) {
   return (orig_idx & (~15)) + ((orig_idx & 1) * 8) + ((orig_idx & 2) * 2) + ((orig_idx & 12) / 4);
 }
 #endif
@@ -828,7 +835,8 @@ typedef union {
   uint32_t* cat;  // always 0 for missing, nonmiss[] check unnecessary
 } PhenoData;
 
-typedef struct {
+typedef struct PhenoColStruct {
+  NONCOPYABLE(PhenoColStruct);
   // * If categorical phenotype, [0] points to g_missing_catname, while [1],
   //   [2], etc. point to category names.  These are part of the same
   //   allocation as nonmiss, so no separate free is needed.
@@ -871,7 +879,7 @@ PglErr ParseChrRanges(const char* const* argvk, const char* flagname_p, const ch
 
 
 // sample_ct not relevant if genovecs_ptr == nullptr
-PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t bytes_avail, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, PgenFileInfo* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** phasepresent_ptr, uintptr_t*** phaseinfo_ptr, uintptr_t*** dosage_present_ptr, Dosage*** dosage_mains_ptr, uintptr_t*** dphase_present_ptr, SDosage*** dphase_delta_ptr, uint32_t* read_block_size_ptr, unsigned char** main_loadbufs, pthread_t** threads_ptr, PgenReader*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr);
+PglErr PgenMtLoadInit(const uintptr_t* variant_include, uint32_t sample_ct, uint32_t variant_ct, uintptr_t bytes_avail, uintptr_t pgr_alloc_cacheline_ct, uintptr_t thread_xalloc_cacheline_ct, uintptr_t per_variant_xalloc_byte_ct, PgenFileInfo* pgfip, uint32_t* calc_thread_ct_ptr, uintptr_t*** genovecs_ptr, uintptr_t*** phasepresent_ptr, uintptr_t*** phaseinfo_ptr, uintptr_t*** dosage_present_ptr, Dosage*** dosage_mains_ptr, uintptr_t*** dphase_present_ptr, SDosage*** dphase_delta_ptr, uint32_t* read_block_size_ptr, STD_ARRAY_REF(unsigned char*, 2) main_loadbufs, pthread_t** threads_ptr, PgenReader*** pgr_pps, uint32_t** read_variant_uidx_starts_ptr);
 
 
 // These use g_textbuf.

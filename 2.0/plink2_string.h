@@ -62,7 +62,13 @@
 #  define DBL_MAX 1.7976931348623157e308
 #endif
 #ifndef FLT_MAX
-#  define FLT_MAX 3.40282347e38f
+#  define FLT_MAX S_CAST(float, 3.40282347e38)
+#endif
+
+#ifdef __cplusplus
+#  define STD_SORT(ct, fallback_cmp, arr) std::sort(&((arr)[0]), (&((arr)[ct])))
+#else
+#  define STD_SORT(ct, fallback_cmp, arr) qsort((arr), (ct), sizeof(*(arr)), (fallback_cmp))
 #endif
 
 #ifdef __cplusplus

@@ -621,6 +621,58 @@ HEADER_INLINE BoolErr bigstack_alloc_thread(uintptr_t ct, pthread_t** thread_arr
   return !(*thread_arr_ptr);
 }
 
+BoolErr bigstack_calloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr);
+
+BoolErr bigstack_calloc_d(uintptr_t ct, double** d_arr_ptr);
+
+BoolErr bigstack_calloc_f(uintptr_t ct, float** f_arr_ptr);
+
+BoolErr bigstack_calloc_u16(uintptr_t ct, uint16_t** u16_arr_ptr);
+
+BoolErr bigstack_calloc_u32(uintptr_t ct, uint32_t** u32_arr_ptr);
+
+BoolErr bigstack_calloc_w(uintptr_t ct, uintptr_t** w_arr_ptr);
+
+BoolErr bigstack_calloc_u64(uintptr_t ct, uint64_t** u64_arr_ptr);
+
+HEADER_INLINE BoolErr bigstack_calloc_c(uintptr_t ct, char** c_arr_ptr) {
+  return bigstack_calloc_uc(ct, R_CAST(unsigned char**, c_arr_ptr));
+}
+
+HEADER_INLINE BoolErr bigstack_calloc_i16(uintptr_t ct, int16_t** i16_arr_ptr) {
+  return bigstack_calloc_u16(ct, R_CAST(uint16_t**, i16_arr_ptr));
+}
+
+HEADER_INLINE BoolErr bigstack_calloc_i32(uintptr_t ct, int32_t** i32_arr_ptr) {
+  return bigstack_calloc_u32(ct, R_CAST(uint32_t**, i32_arr_ptr));
+}
+
+HEADER_INLINE BoolErr bigstack_calloc_i64(uintptr_t ct, int64_t** i64_arr_ptr) {
+  return bigstack_calloc_u64(ct, R_CAST(uint64_t**, i64_arr_ptr));
+}
+
+#ifdef __cplusplus
+
+template <class T> BoolErr BigstackAllocX(uintptr_t ct, T** x_arr_ptr) {
+  *x_arr_ptr = S_CAST(T*, bigstack_alloc(ct * sizeof(T)));
+  return !(*x_arr_ptr);
+}
+
+// todo: define all BigstackAlloc functions in terms of ArenaAlloc; then these
+// can be namespaced, and we only need ARENA_ALLOC_X and ARENA_ALLOC_STD_ARRAY
+// macros
+#  define BIGSTACK_ALLOC_X(tt, ct, pp) BigstackAllocX<tt>((ct), (pp))
+
+#  define BIGSTACK_ALLOC_STD_ARRAY(tt, arr_size, len, pp) BigstackAllocX<std::array<tt, arr_size>>((len), (pp))
+
+#else
+
+#  define BIGSTACK_ALLOC_X(tt, ct, pp) (!((*(pp)) = S_CAST(tt*, bigstack_alloc((ct) * sizeof(tt)))))
+
+#  define BIGSTACK_ALLOC_STD_ARRAY(tt, arr_size, len, pp) (!((*(pp)) = S_CAST(STD_ARRAY_PTR_TYPE(tt, arr_size), bigstack_alloc((len) * (arr_size * sizeof(tt))))))
+
+#endif
+
 HEADER_INLINE void BigstackReset(void* new_base) {
   g_bigstack_base = S_CAST(unsigned char*, new_base);
 }
@@ -761,6 +813,7 @@ HEADER_INLINE BoolErr bigstack_end_alloc_u64(uintptr_t ct, uint64_t** u64_arr_pt
 }
 
 typedef struct LlStrStruct {
+  NONCOPYABLE(LlStrStruct);
   struct LlStrStruct* next;
   char str[];
 } LlStr;
@@ -788,6 +841,30 @@ HEADER_INLINE BoolErr bigstack_end_alloc_ucp(uintptr_t ct, unsigned char*** ucp_
 HEADER_INLINE BoolErr bigstack_end_alloc_thread(uintptr_t ct, pthread_t** thread_arr_ptr) {
   *thread_arr_ptr = S_CAST(pthread_t*, bigstack_end_alloc(ct * sizeof(pthread_t)));
   return !(*thread_arr_ptr);
+}
+
+BoolErr bigstack_end_calloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr);
+
+BoolErr bigstack_end_calloc_d(uintptr_t ct, double** d_arr_ptr);
+
+BoolErr bigstack_end_calloc_f(uintptr_t ct, float** f_arr_ptr);
+
+BoolErr bigstack_end_calloc_u32(uintptr_t ct, uint32_t** u32_arr_ptr);
+
+BoolErr bigstack_end_calloc_w(uintptr_t ct, uintptr_t** w_arr_ptr);
+
+BoolErr bigstack_end_calloc_u64(uintptr_t ct, uint64_t** u64_arr_ptr);
+
+HEADER_INLINE BoolErr bigstack_end_calloc_c(uintptr_t ct, char** c_arr_ptr) {
+  return bigstack_end_calloc_uc(ct, R_CAST(unsigned char**, c_arr_ptr));
+}
+
+HEADER_INLINE BoolErr bigstack_end_calloc_i32(uintptr_t ct, int32_t** i32_arr_ptr) {
+  return bigstack_end_calloc_u32(ct, R_CAST(uint32_t**, i32_arr_ptr));
+}
+
+HEADER_INLINE BoolErr bigstack_end_calloc_i64(uintptr_t ct, int64_t** i64_arr_ptr) {
+  return bigstack_end_calloc_u64(ct, R_CAST(uint64_t**, i64_arr_ptr));
 }
 
 
@@ -943,6 +1020,7 @@ BoolErr PushLlStr(const char* str, LlStr** ll_stack_ptr);
 // BoolErr push_llstr_counted(const char* str, uint32_t slen, LlStr** ll_stack_ptr);
 
 typedef struct L32StrStruct {
+  NONCOPYABLE(L32StrStruct);
   uint32_t len;
   char str[];
 } L32Str;
@@ -1051,61 +1129,6 @@ HEADER_INLINE uint32_t wordsequal(const uintptr_t* word_arr1, const uintptr_t* w
     }
   }
   return 1;
-}
-
-
-BoolErr bigstack_calloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr);
-
-BoolErr bigstack_calloc_d(uintptr_t ct, double** d_arr_ptr);
-
-BoolErr bigstack_calloc_f(uintptr_t ct, float** f_arr_ptr);
-
-BoolErr bigstack_calloc_u16(uintptr_t ct, uint16_t** u16_arr_ptr);
-
-BoolErr bigstack_calloc_u32(uintptr_t ct, uint32_t** u32_arr_ptr);
-
-BoolErr bigstack_calloc_w(uintptr_t ct, uintptr_t** w_arr_ptr);
-
-BoolErr bigstack_calloc_u64(uintptr_t ct, uint64_t** u64_arr_ptr);
-
-HEADER_INLINE BoolErr bigstack_calloc_c(uintptr_t ct, char** c_arr_ptr) {
-  return bigstack_calloc_uc(ct, R_CAST(unsigned char**, c_arr_ptr));
-}
-
-HEADER_INLINE BoolErr bigstack_calloc_i16(uintptr_t ct, int16_t** i16_arr_ptr) {
-  return bigstack_calloc_u16(ct, R_CAST(uint16_t**, i16_arr_ptr));
-}
-
-HEADER_INLINE BoolErr bigstack_calloc_i32(uintptr_t ct, int32_t** i32_arr_ptr) {
-  return bigstack_calloc_u32(ct, R_CAST(uint32_t**, i32_arr_ptr));
-}
-
-HEADER_INLINE BoolErr bigstack_calloc_i64(uintptr_t ct, int64_t** i64_arr_ptr) {
-  return bigstack_calloc_u64(ct, R_CAST(uint64_t**, i64_arr_ptr));
-}
-
-BoolErr bigstack_end_calloc_uc(uintptr_t ct, unsigned char** uc_arr_ptr);
-
-BoolErr bigstack_end_calloc_d(uintptr_t ct, double** d_arr_ptr);
-
-BoolErr bigstack_end_calloc_f(uintptr_t ct, float** f_arr_ptr);
-
-BoolErr bigstack_end_calloc_u32(uintptr_t ct, uint32_t** u32_arr_ptr);
-
-BoolErr bigstack_end_calloc_w(uintptr_t ct, uintptr_t** w_arr_ptr);
-
-BoolErr bigstack_end_calloc_u64(uintptr_t ct, uint64_t** u64_arr_ptr);
-
-HEADER_INLINE BoolErr bigstack_end_calloc_c(uintptr_t ct, char** c_arr_ptr) {
-  return bigstack_end_calloc_uc(ct, R_CAST(unsigned char**, c_arr_ptr));
-}
-
-HEADER_INLINE BoolErr bigstack_end_calloc_i32(uintptr_t ct, int32_t** i32_arr_ptr) {
-  return bigstack_end_calloc_u32(ct, R_CAST(uint32_t**, i32_arr_ptr));
-}
-
-HEADER_INLINE BoolErr bigstack_end_calloc_i64(uintptr_t ct, int64_t** i64_arr_ptr) {
-  return bigstack_end_calloc_u64(ct, R_CAST(uint64_t**, i64_arr_ptr));
 }
 
 
@@ -1239,6 +1262,7 @@ PglErr CopySortStrboxSubset(const uintptr_t* __restrict subset_mask, const char*
 
 
 typedef struct RangeListStruct {
+  NONCOPYABLE(RangeListStruct);
   char* names;
   unsigned char* starts_range;
   uint32_t name_ct;
@@ -1357,14 +1381,14 @@ void CopyBitarrRange(const uintptr_t* __restrict src_bitarr, uintptr_t src_start
 
 #ifdef __LP64__
 #  ifdef USE_AVX2
-HEADER_CINLINE uint32_t VcountScramble1(uint32_t orig_idx) {
+HEADER_INLINE uint32_t VcountScramble1(uint32_t orig_idx) {
   // 1->4: 0 4 8 12 16 20 24 28 32 ... 252 1 5 9 ...
   // 4->8: 0 8 16 24 32 ... 248 4 12 20 ... 1 9 17 ...
   // 8->32: 0 32 ... 224 8 40 ... 232 ... 248 4 36 ... 252 1 33 ...
   return (orig_idx & (~255)) + ((orig_idx & 3) * 64) + ((orig_idx & 4) * 8) + (orig_idx & 24) + ((orig_idx & 224) / 32);
 }
 #  else
-HEADER_CINLINE uint32_t VcountScramble1(uint32_t orig_idx) {
+HEADER_INLINE uint32_t VcountScramble1(uint32_t orig_idx) {
   // 1->4: 0 4 8 12 16 20 24 28 32 ... 124 1 5 9 ...
   // 4->8: 0 8 16 24 32 ... 120 4 12 20 ... 1 9 17 ...
   // 8->32: 0 32 64 96 8 40 72 104 16 48 80 112 24 56 88 120 4 36 68 ... 1 33 ...
@@ -1375,7 +1399,7 @@ HEADER_CINLINE uint32_t VcountScramble1(uint32_t orig_idx) {
 // 1->4: 0 4 8 12 16 20 24 28 1 5 9 13 17 21 25 29 2 6 10 ...
 // 4->8: 0 8 16 24 4 12 20 28 1 9 17 25 5 13 21 29 2 10 18 ...
 // 8->32: 0 8 16 24 4 12 20 28 1 9 17 25 5 13 21 29 2 10 18 ...
-HEADER_CINLINE uint32_t VcountScramble1(uint32_t orig_idx) {
+HEADER_INLINE uint32_t VcountScramble1(uint32_t orig_idx) {
   return (orig_idx & (~31)) + ((orig_idx & 3) * 8) + (orig_idx & 4) + ((orig_idx & 24) / 8);
 }
 #endif
@@ -1516,7 +1540,7 @@ PglErr ParseNameRanges(const char* const* argvk, const char* errstr_append, uint
 // Analytically finds all real roots of x^3 + ax^2 + bx + c, saving them in
 // solutions[] (sorted from smallest to largest), and returning the count.
 // Multiple roots are only returned/counted once.
-uint32_t CubicRealRoots(double coef_a, double coef_b, double coef_c, double* solutions);
+uint32_t CubicRealRoots(double coef_a, double coef_b, double coef_c, STD_ARRAY_REF(double, 3) solutions);
 
 
 // For pure computations, where the launcher thread joins in as thread 0.
@@ -1559,9 +1583,9 @@ BoolErr SpawnThreads2z(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, uint32_t i
 void ErrorCleanupThreads2z(THREAD_FUNCPTR_T(start_routine), uintptr_t ct, pthread_t* threads);
 
 
-// this interface simplifies error handling.  (todo: put most of these
-// variables in a struct.)
+// this interface simplifies error handling.
 typedef struct ThreadsStateStruct {
+  NONCOPYABLE(ThreadsStateStruct);
   THREAD_FUNCPTR_T(thread_func_ptr);
   pthread_t* threads;
   uint32_t calc_thread_ct;
@@ -1638,6 +1662,7 @@ PglErr AllocAndPopulateIdHtableMt(const uintptr_t* subset_mask, const char* cons
 
 
 typedef struct HelpCtrlStruct {
+  NONCOPYABLE(HelpCtrlStruct);
   uint32_t iters_left;
   uint32_t param_ct;
   const char* const* argv;
@@ -1672,6 +1697,7 @@ PglErr AllocAndFlatten(const char* const* sources, uint32_t param_ct, uint32_t m
 
 
 typedef struct Plink2CmdlineMetaStruct {
+  NONCOPYABLE(Plink2CmdlineMetaStruct);
   // need to be able to assign this to argv, so don't make it const char**
   char** subst_argv;
 
@@ -1715,7 +1741,10 @@ ENUM_U31_DEF_START()
   kCmpOperatorEq
 ENUM_U31_DEF_END(CmpBinaryOp);
 
-typedef struct {
+typedef struct CmpExprStruct {
+  // arguably too small for noncopyable to be a great idea, but the next
+  // iteration of this struct probably won't have that issue.
+  NONCOPYABLE(CmpExprStruct);
   // Restrict to [pheno/covar name] [operator] [pheno val] for now.  could
   // support or/and, parentheses, etc. later.
 

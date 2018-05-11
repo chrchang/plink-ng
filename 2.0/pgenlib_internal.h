@@ -76,7 +76,7 @@
 // 10000 * major + 100 * minor + patch
 // Exception to CONSTU31, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 1002
+#define PGENLIB_INTERNAL_VERNUM 1003
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -170,16 +170,16 @@ void Copy01Subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __res
 
 void Copy10Subset(const uintptr_t* __restrict raw_bitarr, const uintptr_t* __restrict genovec, uint32_t bit_ct, uintptr_t* __restrict output_bitarr);
 
-void GenovecCountFreqsUnsafe(const uintptr_t* genovec, uint32_t sample_ct, uint32_t* counts);
+void GenovecCountFreqsUnsafe(const uintptr_t* genovec, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts);
 
-void GenovecCountSubsetFreqs(const uintptr_t* __restrict genovec, const uintptr_t* __restrict sample_include_interleaved_vec, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t* genocounts);
+void GenovecCountSubsetFreqs(const uintptr_t* __restrict genovec, const uintptr_t* __restrict sample_include_interleaved_vec, uint32_t raw_sample_ct, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts);
 
 // slower GenovecCountSubsetFreqs() which does not require
 // sample_include_interleaved_vec to be precomputed (and incidentally doesn't
 // require vector alignment)
-void GenoarrCountSubsetFreqs2(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict sample_include, uint32_t raw_sample_ct, uint32_t sample_ct, uint32_t* genocounts);
+void GenoarrCountSubsetFreqs2(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict sample_include, uint32_t raw_sample_ct, uint32_t sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts);
 
-void GenoarrCountSubsetIntersectFreqs(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict subset1, const uintptr_t* __restrict subset2, uint32_t raw_sample_ct, uint32_t* genocounts);
+void GenoarrCountSubsetIntersectFreqs(const uintptr_t* __restrict genoarr, const uintptr_t* __restrict subset1, const uintptr_t* __restrict subset2, uint32_t raw_sample_ct, STD_ARRAY_REF(uint32_t, 4) genocounts);
 
 void GenovecInvertUnsafe(uint32_t sample_ct, uintptr_t* genovec);
 
@@ -513,6 +513,7 @@ CONSTU31(kPglMaxDeltalistLenDivisor, 9);
 // Exported functions involving these data structure should all have
 // "pgfi"/"pgr" in their names.
 
+// Note that this can be default-copied.
 struct PgenFileInfoStruct {
   // ----- Header information, constant after initialization -----
   uint32_t raw_variant_ct;
@@ -713,7 +714,9 @@ struct PgenFileInfoStruct {
   // genotype (e.g. P(AA), P(AB), P(BB) instead of just 2P(AA) + P(AB) and
   // 2P(BB) + P(AB)) is tentatively rejected due to (i) lack of relevance to
   // PLINK's analysis functions and (ii) high storage cost where we can afford
-  // it least.  However, this is subject to reevaluation if (i) changes.
+  // it least.  In principle, this is subject to reevaluation if (i) changes,
+  // but given the poor interaction with phased dosages, it's probably better
+  // to just think of them as permanently outside PLINK's scope.
   //
   //
   // base pointer is null if mode is 0x01-0x04 (const_vrtype != UINT32_MAX).
@@ -755,6 +758,7 @@ struct PgenFileInfoStruct {
 typedef struct PgenFileInfoStruct PgenFileInfo;
 
 struct PgenReaderStruct {
+  NONCOPYABLE(PgenReaderStruct);
   // would like to make this const, but that makes initialization really
   // annoying in C99
   struct PgenFileInfoStruct fi;
@@ -791,7 +795,7 @@ struct PgenReaderStruct {
 
   // common genotype can be looked up from vrtypes[]
 
-  uint32_t ldbase_refalt1_genocounts[4];
+  STD_ARRAY_DECL(uint32_t, 4, ldbase_refalt1_genocounts);
 
   uintptr_t* workspace_vec;  // must hold raw_sample_ct entries
 
@@ -1079,7 +1083,7 @@ HEADER_INLINE void PgrClearLdCache(PgenReader* pgrp) {
 }
 
 // genocounts[0] = # hom ref, [1] = # het ref, [2] = two alts, [3] = missing
-PglErr PgrGetCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uint32_t* genocounts);
+PglErr PgrGetCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, STD_ARRAY_REF(uint32_t, 4) genocounts);
 
 // Loads a quatervec with counts of a single allele (allele_idx 0 corresponds
 // to the reference allele, allele_idx 1 corresponds to alt1, etc.).  0b11 ==
@@ -1117,7 +1121,7 @@ PglErr PgrGetP(const uintptr_t* __restrict sample_include, const uint32_t* __res
 // if dosage_present and dosage_main are nullptr, dosage data is ignored
 PglErr PgrGetD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr);
 
-PglErr PgrGetDWithCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* mach_r2_ptr, uint32_t* genocounts, uint64_t* all_dosages);
+PglErr PgrGetDWithCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* mach_r2_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts, STD_ARRAY_REF(uint64_t, 2) all_dosages);
 
 // ok for both dosage_present and dosage_main to be nullptr when no dosage data
 // is present
@@ -1148,6 +1152,7 @@ BoolErr CleanupPgr(PgenReader* pgrp);
 
 
 struct PgenWriterCommonStruct {
+  NONCOPYABLE(PgenWriterCommonStruct);
   uint32_t variant_ct;
   uint32_t sample_ct;
   PgenGlobalFlags phase_dosage_gflags;  // subset of gflags
@@ -1163,7 +1168,7 @@ struct PgenWriterCommonStruct {
   // needed for multiallelic-phased case
   uintptr_t* genovec_hets_buf;
 
-  uint32_t ldbase_genocounts[4];
+  STD_ARRAY_DECL(uint32_t, 4, ldbase_genocounts);
 
   // should match ftello() return value in singlethreaded case, but be set to
   // zero in multithreaded case
@@ -1209,11 +1214,13 @@ CONSTU31(kPglFwriteBlockSize, 131072);
 // spare for the additional complexity).
 
 struct STPgenWriterStruct {
+  NONCOPYABLE(STPgenWriterStruct);
   struct PgenWriterCommonStruct pwc;
   FILE* pgen_outfile;
 };
 
 struct MTPgenWriterStruct {
+  NONCOPYABLE(MTPgenWriterStruct);
   FILE* pgen_outfile;
   uint32_t thread_ct;
   struct PgenWriterCommonStruct* pwcs[];

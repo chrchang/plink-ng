@@ -69,7 +69,7 @@ FLAGSET_DEF_END(GenDummyFlags);
 
 typedef struct Plink1DosageInfoStruct {
   Plink1DosageFlags flags;
-  uint32_t skips[3];
+  STD_ARRAY_DECL(uint32_t, 3, skips);
   uint32_t chr_col_idx;  // 0-based
   uint32_t pos_col_idx;
   char id_delim;

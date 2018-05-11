@@ -173,6 +173,9 @@ PglErr IsBgzf(const char* fname, uint32_t* is_bgzf_ptr) {
   return kPglRetSuccess;
 }
 
+// This type of code is especially bug-prone.  Goal is to get it right, and
+// fast enough to be a major win over gzgets()... and then not worry about it
+// again for years.
 THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
   ReadLineStream* context = R_CAST(ReadLineStream*, arg);
   ReadLineStreamSync* syncp = context->syncp;
@@ -216,8 +219,12 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
         // We cannot continue reading forward.  Cases:
         // 1. read_stop == buf_end, cur_block_start != buf.  This means we're
         //    in the middle of reading/decompressing a long line, and want to
-        //    wait for consume_tail == cur_block_start so we can memmove all
-        //    the bytes back and continue reading forward.
+        //    wait for consume_tail == cur_block_start, so we can memmove all
+        //    the bytes back and continue reading forward.  (Tried
+        //    relaxing this to
+        //      consume_tail >= (buf_end - cur_block_start) + margin
+        //    for various values of margin, but that didn't make a meaningful
+        //    difference.)
         // 2. read_stop == buf_end, cur_block_start == buf.  We failed with a
         //    long-line error here.
         // 3. read_stop < buf_end (usual case).  This means the consumer may
@@ -231,7 +238,9 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
         // syncp->consume_tail == cur_block_start, read_stop is near but not at
         // buf_end, and there's no '\n' in the subsequent read, we can reach
         // here a second time without releasing the consumer, so we'd enter
-        // deadlock if we unconditionally wait on consumer_progress_event.
+        // deadlock if we unconditionally wait on consumer_progress_event (and
+        // in the Linux/OS X case, we'd be waiting for a spurious wakeup to
+        // save us).
         // However, if memmove_required isn't true, we have to wait first; see
         // the 21 Mar bugfix.
         if (!memmove_required) {
@@ -288,10 +297,10 @@ THREAD_FUNC_DECL ReadLineStreamThread(void* arg) {
         pthread_mutex_unlock(sync_mutexp);
 #endif
         if (read_stop == buf_end) {
-          const uintptr_t cur_len = read_head - cur_block_start;
-          memmove(buf, cur_block_start, cur_len);
+          const uint32_t cur_memmove_len = buf_end - cur_block_start;
+          memmove(buf, cur_block_start, cur_memmove_len);
           cur_block_start = buf;
-          read_head = &(buf[cur_len]);
+          read_head = &(buf[cur_memmove_len]);
         } else {
           read_stop = buf_end;
         }

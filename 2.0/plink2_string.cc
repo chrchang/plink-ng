@@ -222,8 +222,7 @@ void WordWrap(uint32_t suffix_len, char* strbuf) {
 }
 
 
-static const uint32_t kPow10[] =
-{1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000};
+static const uint32_t kPow10[] = {1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000};
 
 #ifdef USE_AVX2
 static const unsigned char kLzUintSlenBase[] =
@@ -466,17 +465,13 @@ void SortStrboxIndexed2Fallback(uintptr_t str_ct, uintptr_t max_str_blen, uint32
     wkspace_alias[str_idx].orig_idx = id_map[str_idx];
   }
   if (!use_nsort) {
-#ifdef __cplusplus
-    std::sort(wkspace_alias, &(wkspace_alias[str_ct]));
-#else
-    qsort(wkspace_alias, str_ct, sizeof(StrSortIndexedDeref), strcmp_deref);
-#endif
+    STD_SORT(str_ct, strcmp_deref, wkspace_alias);
   } else {
 #ifdef __cplusplus
     StrNsortIndexedDeref* wkspace_alias2 = R_CAST(StrNsortIndexedDeref*, wkspace_alias);
     std::sort(wkspace_alias2, &(wkspace_alias2[str_ct]));
 #else
-    qsort(wkspace_alias, str_ct, sizeof(StrSortIndexedDeref), strcmp_natural_deref);
+    STD_SORT(str_ct, strcmp_natural_deref, wkspace_alias);
 #endif
   }
   for (uintptr_t str_idx = 0; str_idx < str_ct; ++str_idx) {
@@ -596,7 +591,7 @@ void SortStrboxIndexed2(uintptr_t str_ct, uintptr_t max_str_blen, uint32_t use_n
   }
   SortStrboxIndexed2Fallback(str_ct, max_str_blen, use_nsort, strbox, id_map, sort_wkspace);
 }
-#endif
+#endif  // __cplusplus
 
 BoolErr SortStrboxIndexedMalloc(uintptr_t str_ct, uintptr_t max_str_blen, char* strbox, uint32_t* id_map) {
   if (str_ct < 2) {
@@ -636,17 +631,13 @@ uint32_t CopyAndDedupSortedStrptrsToStrbox(const char* const* sorted_strptrs, ui
 
 void StrptrArrSortMain(uintptr_t str_ct, uint32_t use_nsort, StrSortIndexedDeref* wkspace_alias) {
   if (!use_nsort) {
-#ifdef __cplusplus
-    std::sort(wkspace_alias, &(wkspace_alias[str_ct]));
-#else
-    qsort(wkspace_alias, str_ct, sizeof(StrSortIndexedDeref), strcmp_deref);
-#endif
+    STD_SORT(str_ct, strcmp_deref, wkspace_alias);
   } else {
 #ifdef __cplusplus
     StrNsortIndexedDeref* wkspace_alias2 = R_CAST(StrNsortIndexedDeref*, wkspace_alias);
     std::sort(wkspace_alias2, &(wkspace_alias2[str_ct]));
 #else
-    qsort(wkspace_alias, str_ct, sizeof(StrSortIndexedDeref), strcmp_natural_deref);
+    STD_SORT(str_ct, strcmp_natural_deref, wkspace_alias);
 #endif
   }
 }
@@ -698,7 +689,8 @@ uint32_t MatchUpperCounted(const char* str, const char* fixed_str, uint32_t ct) 
   return 1;
 }
 
-static const char kToUpper[] = {
+// might want to make this std::array in the future?
+static const char kToUpper[256] = {
   '\0', '\1', '\2', '\3', '\4', '\5', '\6', '\7',
   '\10', '\11', '\12', '\13', '\14', '\15', '\16', '\17',
   '\20', '\21', '\22', '\23', '\24', '\25', '\26', '\27',
@@ -999,10 +991,10 @@ BoolErr ScanmovUintCapped32(uint32_t cap_div_10, uint32_t cap_mod_10, const char
 }
 #endif
 
-static const double kPositivePow10[16] = {1, 1.0e1, 1.0e2, 1.0e3, 1.0e4, 1.0e5, 1.0e6, 1.0e7, 1.0e8, 1.0e9, 1.0e10, 1.0e11, 1.0e12, 1.0e13, 1.0e14, 1.0e15};
-static const double kPositivePowTen16[16] = {1, 1.0e16, 1.0e32, 1.0e48, 1.0e64, 1.0e80, 1.0e96, 1.0e112, 1.0e128, 1.0e144, 1.0e160, 1.0e176, 1.0e192, 1.0e208, 1.0e224, 1.0e240};
-static const double kNegativePow10[16] = {1, 1.0e-1, 1.0e-2, 1.0e-3, 1.0e-4, 1.0e-5, 1.0e-6, 1.0e-7, 1.0e-8, 1.0e-9, 1.0e-10, 1.0e-11, 1.0e-12, 1.0e-13, 1.0e-14, 1.0e-15};
-static const double kNegativePowTen16[8] = {1, 1.0e-16, 1.0e-32, 1.0e-48, 1.0e-64, 1.0e-80, 1.0e-96, 1.0e-112};
+static const double kPositivePow10[] = {1, 1.0e1, 1.0e2, 1.0e3, 1.0e4, 1.0e5, 1.0e6, 1.0e7, 1.0e8, 1.0e9, 1.0e10, 1.0e11, 1.0e12, 1.0e13, 1.0e14, 1.0e15};
+static const double kPositivePowTen16[] = {1, 1.0e16, 1.0e32, 1.0e48, 1.0e64, 1.0e80, 1.0e96, 1.0e112, 1.0e128, 1.0e144, 1.0e160, 1.0e176, 1.0e192, 1.0e208, 1.0e224, 1.0e240};
+static const double kNegativePow10[] = {1, 1.0e-1, 1.0e-2, 1.0e-3, 1.0e-4, 1.0e-5, 1.0e-6, 1.0e-7, 1.0e-8, 1.0e-9, 1.0e-10, 1.0e-11, 1.0e-12, 1.0e-13, 1.0e-14, 1.0e-15};
+static const double kNegativePowTen16[] = {1, 1.0e-16, 1.0e-32, 1.0e-48, 1.0e-64, 1.0e-80, 1.0e-96, 1.0e-112};
 
 CXXCONST_CP ScanadvDouble(const char* str_iter, double* valp) {
   // requires first character to be nonspace (to succeed; it fails without
@@ -1779,7 +1771,7 @@ uint32_t CountAndMeasureMultistr(const char* multistr, uintptr_t* max_blen_ptr) 
 
 // number-to-string encoders
 
-const uint16_t kDigitPair[100] = {
+const uint16_t kDigitPair[] = {
   0x3030, 0x3130, 0x3230, 0x3330, 0x3430, 0x3530, 0x3630, 0x3730, 0x3830, 0x3930,
   0x3031, 0x3131, 0x3231, 0x3331, 0x3431, 0x3531, 0x3631, 0x3731, 0x3831, 0x3931,
   0x3032, 0x3132, 0x3232, 0x3332, 0x3432, 0x3532, 0x3632, 0x3732, 0x3832, 0x3932,
@@ -2056,17 +2048,17 @@ static inline char* qrtoa_1p7(uint32_t quotient, uint32_t remainder, char* start
 // To avoid inadvertent printing of an extra digit, there's a deliberate gap
 // between the 99.9994999...-type bounds and the largest numbers that would
 // actually round down.
-static const double kBankerRound6[] = {0.4999995, 0.5000005};
-static const double kBankerRound8[] = {0.499999995, 0.500000005};
+static const STD_ARRAY_DECL(double, 2, kBankerRound6) = STD_ARRAY_INIT_START() {0.4999995, 0.5000005} STD_ARRAY_INIT_END();
+static const STD_ARRAY_DECL(double, 2, kBankerRound8) = STD_ARRAY_INIT_START() {0.499999995, 0.500000005} STD_ARRAY_INIT_END();
 
-static inline uint32_t BankerRoundD(double dxx, const double* banker_round) {
+static inline uint32_t BankerRoundD(double dxx, STD_ARRAY_KREF(double, 2) banker_round) {
   uint32_t result = S_CAST(int32_t, dxx);
   return result + S_CAST(int32_t, (dxx - u31tod(result)) + banker_round[result & 1]);
 }
 
 // These are separate functions so the compiler can optimize the integer
 // divisions.
-static inline void BankerRoundD1(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
+static inline void BankerRoundD1(double dxx, STD_ARRAY_KREF(double, 2) banker_round, uint32_t* quotientp, uint32_t* remainderp) {
   dxx *= 10;
   uint32_t remainder = S_CAST(int32_t, dxx);
   remainder += S_CAST(int32_t, (dxx - u31tod(remainder)) + banker_round[remainder & 1]);
@@ -2074,7 +2066,7 @@ static inline void BankerRoundD1(double dxx, const double* banker_round, uint32_
   *remainderp = remainder - (*quotientp) * 10;
 }
 
-static inline void BankerRoundD2(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
+static inline void BankerRoundD2(double dxx, STD_ARRAY_KREF(double, 2) banker_round, uint32_t* quotientp, uint32_t* remainderp) {
   dxx *= 100;
   uint32_t remainder = S_CAST(int32_t, dxx);
   remainder += S_CAST(int32_t, (dxx - u31tod(remainder)) + banker_round[remainder & 1]);
@@ -2082,7 +2074,7 @@ static inline void BankerRoundD2(double dxx, const double* banker_round, uint32_
   *remainderp = remainder - (*quotientp) * 100;
 }
 
-static inline void BankerRoundD3(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
+static inline void BankerRoundD3(double dxx, STD_ARRAY_KREF(double, 2) banker_round, uint32_t* quotientp, uint32_t* remainderp) {
   dxx *= 1000;
   uint32_t remainder = S_CAST(int32_t, dxx);
   remainder += S_CAST(int32_t, (dxx - u31tod(remainder)) + banker_round[remainder & 1]);
@@ -2090,7 +2082,7 @@ static inline void BankerRoundD3(double dxx, const double* banker_round, uint32_
   *remainderp = remainder - (*quotientp) * 1000;
 }
 
-static inline void BankerRoundD4(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
+static inline void BankerRoundD4(double dxx, STD_ARRAY_KREF(double, 2) banker_round, uint32_t* quotientp, uint32_t* remainderp) {
   dxx *= 10000;
   uint32_t remainder = S_CAST(int32_t, dxx);
   remainder += S_CAST(int32_t, (dxx - u31tod(remainder)) + banker_round[remainder & 1]);
@@ -2098,7 +2090,7 @@ static inline void BankerRoundD4(double dxx, const double* banker_round, uint32_
   *remainderp = remainder - (*quotientp) * 10000;
 }
 
-static inline void BankerRoundD5(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
+static inline void BankerRoundD5(double dxx, STD_ARRAY_KREF(double, 2) banker_round, uint32_t* quotientp, uint32_t* remainderp) {
   dxx *= 100000;
   uint32_t remainder = S_CAST(int32_t, dxx);
   remainder += S_CAST(int32_t, (dxx - u31tod(remainder)) + banker_round[remainder & 1]);
@@ -2106,7 +2098,7 @@ static inline void BankerRoundD5(double dxx, const double* banker_round, uint32_
   *remainderp = remainder - (*quotientp) * 100000;
 }
 
-static inline void BankerRoundD6(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
+static inline void BankerRoundD6(double dxx, STD_ARRAY_KREF(double, 2) banker_round, uint32_t* quotientp, uint32_t* remainderp) {
   dxx *= 1000000;
   uint32_t remainder = S_CAST(int32_t, dxx);
   remainder += S_CAST(int32_t, (dxx - u31tod(remainder)) + banker_round[remainder & 1]);
@@ -2114,7 +2106,7 @@ static inline void BankerRoundD6(double dxx, const double* banker_round, uint32_
   *remainderp = remainder - (*quotientp) * 1000000;
 }
 
-static inline void BankerRoundD7(double dxx, const double* banker_round, uint32_t* quotientp, uint32_t* remainderp) {
+static inline void BankerRoundD7(double dxx, STD_ARRAY_KREF(double, 2) banker_round, uint32_t* quotientp, uint32_t* remainderp) {
   dxx *= 10000000;
   uint32_t remainder = S_CAST(int32_t, dxx);
   remainder += S_CAST(int32_t, (dxx - u31tod(remainder)) + banker_round[remainder & 1]);
