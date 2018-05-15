@@ -96,6 +96,7 @@ ifeq ($(UNAME), Darwin)
     $(error MKL is not currently supported on OS X)
   endif
   BLASFLAGS=-framework Accelerate
+  CXXFLAGS += -stdlib=libc++
 else
   ifdef DYNAMIC_MKL
     ifdef NO_LAPACK
@@ -118,6 +119,10 @@ endif
 CFLAGS += ${BASEFLAGS} ${CWARN2} ${CINCLUDE2}
 ZCFLAGS += ${BASEFLAGS} ${CWARN2} ${ZSTD_INCLUDE2}
 CXXFLAGS += ${BASEFLAGS} ${CXXWARN2}
+
+ifdef FORCE_32BIT
+  CXXFLAGS += -Wno-sign-compare
+endif
 
 all: plink2 pgen_compress
 

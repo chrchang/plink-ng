@@ -2071,7 +2071,7 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
 
     const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
     const uint32_t y_code = cip->xymt_codes[kChrOffsetY];
-    const uintptr_t* cur_sample_include = nullptr;
+    // const uintptr_t* cur_sample_include = nullptr;
     uint32_t is_autosomal_diploid = 0;
     uint32_t is_x = 0;
     uint32_t nobs_base = 0;
@@ -2103,11 +2103,11 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, __attribute__((unused)) 
         is_autosomal_diploid = !IsSet(cip->haploid_mask, chr_idx);
         nobs_base = sample_ct;
         is_x = (chr_idx == x_code);
-        cur_sample_include = sample_include;
+        // cur_sample_include = sample_include;
         PgrClearLdCache(simple_pgrp);
         if (!is_autosomal_diploid) {
           if (chr_idx == y_code) {
-            cur_sample_include = sex_male;
+            // cur_sample_include = sex_male;
             nobs_base = male_ct;
           }
         }

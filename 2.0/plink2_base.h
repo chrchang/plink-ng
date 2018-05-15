@@ -1027,6 +1027,15 @@ static_assert(kPglFnamesize >= PATH_MAX, "plink2_base assumes PATH_MAX <= 4096. 
 #  define STD_ARRAY_INIT_START() {
 #  define STD_ARRAY_INIT_END() }
 
+template <class T, std::size_t N> void STD_ARRAY_FILL0(std::array<T, N>& arr) {
+  arr.fill(0);
+}
+
+// plain STD_ARRAY_FILL0() can't be used on array-references due to fallback
+// code.
+// this macro ensures that we *only* use it with uint32_t array-references
+#  define STD_ARRAY_REF_FILL0(ct, aref) static_assert(ct * sizeof(aref[0]) == sizeof(aref), "invalid STD_ARRAY_REF_FILL0() invocation"); aref.fill(0)
+
 #  define NONCOPYABLE(struct_name) \
   struct_name() = default; \
   struct_name(const struct_name&) = delete; \
@@ -1041,6 +1050,8 @@ static_assert(kPglFnamesize >= PATH_MAX, "plink2_base assumes PATH_MAX <= 4096. 
 #  define STD_ARRAY_PTR_DECL(tt, nn, vv) tt(*vv)[nn]
 #  define STD_ARRAY_INIT_START()
 #  define STD_ARRAY_INIT_END()
+#  define STD_ARRAY_FILL0(arr) memset(arr, 0, sizeof(arr))
+#  define STD_ARRAY_REF_FILL0(ct, aref) memset(aref, 0, ct * sizeof(*aref))
 
 #  define NONCOPYABLE(struct_name)
 #endif
@@ -1702,7 +1713,7 @@ HEADER_INLINE uintptr_t ProperSubwordLoad(const void* bytearr, uint32_t ct) {
 }
 
 HEADER_INLINE uintptr_t SubwordLoad(const void* bytearr, uint32_t ct) {
-  if (ct == kBytesPerWord) {
+  if (ct == S_CAST(uint32_t, kBytesPerWord)) {
     return *S_CAST(const uintptr_t*, bytearr);
   }
   return ProperSubwordLoad(bytearr, ct);
@@ -1899,26 +1910,6 @@ HEADER_INLINE void ZeroWArr(uintptr_t entry_ct, uintptr_t* warr) {
 HEADER_INLINE void ZeroU64Arr(uintptr_t entry_ct, uint64_t* u64arr) {
   memset(u64arr, 0, entry_ct * sizeof(int64_t));
 }
-
-
-#if __cplusplus >= 201103L
-
-template <class T, std::size_t N> void STD_ARRAY_FILL0(std::array<T, N>& arr) {
-  arr.fill(0);
-}
-
-// plain STD_ARRAY_FILL0() can't be used on array-references due to fallback
-// code.
-// this macro ensures that we *only* use it with uint32_t array-references
-#  define STD_ARRAY_REF_FILL0(ct, aref) static_assert(ct * sizeof(aref[0]) == sizeof(aref), "invalid STD_ARRAY_REF_FILL0() invocation"); aref.fill(0)
-
-#else  // !C++11
-
-#  define STD_ARRAY_FILL0(arr) memset(arr, 0, sizeof(arr))
-
-#  define STD_ARRAY_REF_FILL0(ct, aref) memset(aref, 0, ct * sizeof(*aref))
-
-#endif
 
 
 HEADER_INLINE void SetAllWArr(uintptr_t entry_ct, uintptr_t* warr) {

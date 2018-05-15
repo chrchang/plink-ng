@@ -651,7 +651,7 @@ HEADER_INLINE BoolErr bigstack_calloc_i64(uintptr_t ct, int64_t** i64_arr_ptr) {
   return bigstack_calloc_u64(ct, R_CAST(uint64_t**, i64_arr_ptr));
 }
 
-#ifdef __cplusplus
+#if __cplusplus >= 201103L
 
 template <class T> BoolErr BigstackAllocX(uintptr_t ct, T** x_arr_ptr) {
   *x_arr_ptr = S_CAST(T*, bigstack_alloc(ct * sizeof(T)));
