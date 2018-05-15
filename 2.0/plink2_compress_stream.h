@@ -38,7 +38,7 @@ extern uint32_t g_zst_level;
 
 // This should be at least as large as zstd's internal block size.
 // todo: test different values, may want to increase on at least OS X...
-CONSTU31(kCompressStreamBlock, 131072);
+CONSTI32(kCompressStreamBlock, 131072);
 
 typedef struct {
   // Usually compress text, so appropriate to define this as char*.

@@ -3358,13 +3358,16 @@ THREAD_FUNC_DECL GlmLogisticThread(void* arg) {
           block_aux_iter->a1_case_dosage = alt_case_dosage;
 
           const double dosage_avg = dosage_sum / u31tod(nm_sample_ct);
-          const double dosage_variance = dosage_ssq - dosage_sum * dosage_avg;
-          // note that this value is nonsense on chrX/chrY/MT/other haploid
-          block_aux_iter->mach_r2 = 2 * dosage_variance / (dosage_sum * (dosage_ceil - dosage_avg));
+          const double dosage_variance_xn = dosage_ssq - dosage_sum * dosage_avg;
+          // Note that this value is inaccurate on chrX (males need to be
+          // handled differently, and let's not talk about unknown-sex) and MT
+          // (heteroplasmy) and is not reported on those two chromosomes.
+          // This code needs to be kept in sync with LoadAlleleAndGenoCounts().
+          block_aux_iter->mach_r2 = dosage_ceil * dosage_variance_xn / (dosage_sum * (dosage_ceil - dosage_avg));
           // okay, now we're free to skip the actual regression if there are
           // too few samples, or remaining samples are all-case/all-control, or
           // variant is monomorphic (or all-het)
-          if ((nm_sample_ct < cur_predictor_ct) || (!nm_case_ct) || (nm_case_ct == nm_sample_ct) || (fabs(dosage_variance) < kBigEpsilon)) {
+          if ((nm_sample_ct < cur_predictor_ct) || (!nm_case_ct) || (nm_case_ct == nm_sample_ct) || (fabs(dosage_variance_xn) < kBigEpsilon)) {
             if (missing_ct) {
               // covariates have not been copied yet, so we can't usually
               // change prev_nm from 0 to 1 when missing_ct == 0
@@ -4118,6 +4121,7 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
     if (sample_ct_y) {
       GetXymtCodeStartAndEndUnsafe(cip, kChrOffsetY, &y_code, &y_start, &y_end);
     }
+    const uint32_t mt_code = cip->xymt_codes[kChrOffsetMT];
     const uint32_t chr_col = glm_cols & kfGlmColChrom;
 
     // includes trailing tab
@@ -4397,7 +4401,6 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
               chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
             } while (write_variant_uidx >= chr_end);
             const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
-            suppress_mach_r2 = 1;
             if ((chr_idx == x_code) && sample_ct_x) {
               cur_reported_test_ct = reported_test_ct_x;
               cur_constraint_ct = constraint_ct_x;
@@ -4410,8 +4413,8 @@ PglErr GlmLogistic(const char* cur_pheno_name, const char* const* test_names, co
               cur_reported_test_ct = reported_test_ct;
               cur_constraint_ct = constraint_ct;
               cur_test_names = test_names;
-              suppress_mach_r2 = IsSet(cip->haploid_mask, chr_idx);
             }
+            suppress_mach_r2 = (chr_idx == x_code) || (chr_idx == mt_code);
             if (cur_constraint_ct) {
               primary_reported_test_idx = reported_test_ct - 1;
             }
@@ -5176,11 +5179,11 @@ THREAD_FUNC_DECL GlmLinearThread(void* arg) {
           block_aux_iter->a1_dosage = dosage_sum;
 
           const double dosage_avg = dosage_sum / u31tod(nm_sample_ct);
-          const double dosage_variance = dosage_ssq - dosage_sum * dosage_avg;
-          block_aux_iter->mach_r2 = 2 * dosage_variance / (dosage_sum * (dosage_ceil - dosage_avg));
+          const double dosage_variance_xn = dosage_ssq - dosage_sum * dosage_avg;
+          block_aux_iter->mach_r2 = dosage_ceil * dosage_variance_xn / (dosage_sum * (dosage_ceil - dosage_avg));
           // okay, now we're free to skip the actual regression if there are
           // too few samples, or variant is monomorphic (or all-het)
-          if ((nm_sample_ct <= cur_predictor_ct) || (fabs(dosage_variance) < kBigEpsilon)) {
+          if ((nm_sample_ct <= cur_predictor_ct) || (fabs(dosage_variance_xn) < kBigEpsilon)) {
             if (missing_ct) {
               // covariates have not been copied yet, so we can't usually
               // change prev_nm from 0 to 1 when missing_ct == 0 (and there's
@@ -5606,6 +5609,7 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
     if (sample_ct_y) {
       GetXymtCodeStartAndEndUnsafe(cip, kChrOffsetY, &y_code, &y_start, &y_end);
     }
+    const uint32_t mt_code = cip->xymt_codes[kChrOffsetMT];
     const uint32_t chr_col = glm_cols & kfGlmColChrom;
 
     // includes trailing tab
@@ -5858,13 +5862,12 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
               chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
             } while (write_variant_uidx >= chr_end);
             const uint32_t chr_idx = cip->chr_file_order[chr_fo_idx];
-            suppress_mach_r2 = 1;
-            if ((chr_idx == S_CAST(uint32_t, x_code)) && sample_ct_x) {
+            if ((chr_idx == x_code) && sample_ct_x) {
               cur_reported_test_ct = reported_test_ct_x;
               cur_predictor_ct = predictor_ct_x;
               cur_constraint_ct = constraint_ct_x;
               cur_test_names = test_names_x;
-            } else if ((chr_idx == S_CAST(uint32_t, y_code)) && sample_ct_y) {
+            } else if ((chr_idx == y_code) && sample_ct_y) {
               cur_reported_test_ct = reported_test_ct_y;
               cur_predictor_ct = predictor_ct_y;
               cur_constraint_ct = constraint_ct_y;
@@ -5874,8 +5877,8 @@ PglErr GlmLinear(const char* cur_pheno_name, const char* const* test_names, cons
               cur_predictor_ct = predictor_ct;
               cur_constraint_ct = constraint_ct;
               cur_test_names = test_names;
-              suppress_mach_r2 = IsSet(cip->haploid_mask, chr_idx);
             }
+            suppress_mach_r2 = (chr_idx == x_code) || (chr_idx == mt_code);
             if (cur_constraint_ct) {
               primary_reported_test_idx = reported_test_ct - 1;
             }

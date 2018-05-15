@@ -89,8 +89,8 @@
 #endif
 
 // 10000 * major + 100 * minor + patch
-// Exception to CONSTU31, since we want the preprocessor to have access to this
-// value.  Named with all caps as a consequence.
+// Exception to CONSTI31, since we want the preprocessor to have access
+// to this value.  Named with all caps as a consequence.
 #define PLINK2_BASE_VERNUM 307
 
 
@@ -556,9 +556,9 @@ HEADER_INLINE uint32_t bsrw(unsigned long ulii) {
 #endif
 
 // Checked a bunch of alternatives to #define constants.  For integer constants
-// less than 2^31, enum {} avoids macro expansion issues that actually matter,
-// and that more than cancels out any tiny increase in binary size due to
-// additional debugger information (which has value, anyway).  However, we
+// in [-2^31, 2^31), enum {} avoids macro expansion issues that actually
+// matter, and that more than cancels out any tiny increase in binary size due
+// to additional debugger information (which has value, anyway).  However, we
 // don't want to use this under C++ due to enumeral/non-enumeral conditional
 // expression warnings, so this isn't one-size-fits-all; and plain old const
 // int has all the functionality we want under C++ (including internal linkage,
@@ -569,17 +569,16 @@ HEADER_INLINE uint32_t bsrw(unsigned long ulii) {
 // to the need for too much duplicate C vs. C++ code ("initializer element is
 // not constant" when using const [type] in C99...)
 //
-// We start most global library-specific numeric constant names here with
-// "kPgl", which should have a vanishingly small chance of colliding with
-// anything in C99.  Note that stuff like kBytesPerWord is not considered
-// library-specific, so it's exempt from having "Pgl" in the name.  Also, the
-// few string literals here are of the FOPEN_WB sort, which have similar usage
-// patterns to e.g. PRIuPTR which shouldn't be renamed, so those remain
-// all-caps.
+// We start most pgenlib-specific numeric constant names here with "kPgl",
+// which should have a vanishingly small chance of colliding with anything in
+// C99.  Note that stuff like kBytesPerWord is not considered library-specific,
+// so it's exempt from having "Pgl" in the name.  Also, the few string literals
+// here are of the FOPEN_WB sort, which have similar usage patterns to e.g.
+// PRIuPTR which shouldn't be renamed, so those remain all-caps.
 #ifdef __cplusplus
-#  define CONSTU31(name, expr) const uint32_t name = (expr)
+#  define CONSTI32(name, expr) const int32_t name = (expr)
 #else
-#  define CONSTU31(name, expr) enum {name = (expr)}
+#  define CONSTI32(name, expr) enum {name = (expr)}
 #endif
 
 // useful because of its bitwise complement: ~k0LU is a word with all 1 bits,
@@ -595,12 +594,16 @@ static const uintptr_t k1LU = S_CAST(uintptr_t, 1);
 
 #ifdef __LP64__
 #  ifdef USE_AVX2
-CONSTU31(kBytesPerVec, 32);
+CONSTI32(kBytesPerVec, 32);
 
 // 16 still seems to noticeably outperform 32 on my Mac test machine, and
-// is about equal on my Linux test machine, but libraries (and my AVX2
-// code...) for the latter should improve over time.  Define FVEC_32 once
-// it's time to switch over.
+// is about equal on my Linux test machine, probably due to reduced clock
+// frequency when 32-byte floating point vector operations are used (as in, ALL
+// operations, sometimes on ALL cores, become slower when a single core
+// performs a 32-byte fp vector operation).
+// However, processor power management, numeric libraries, and my AVX2 code
+// should improve over time.  There will probably come a time where switching
+// to 32-byte fp is worthwhile.
 // #define FVEC_32
 
 // bleah, have to define these here, vector_size doesn't see enum values
@@ -612,7 +615,7 @@ typedef short VecS __attribute__ ((vector_size (32)));
 typedef char VecC __attribute__ ((vector_size (32)));
 typedef unsigned char VecUc __attribute__ ((vector_size (32)));
 #  else
-CONSTU31(kBytesPerVec, 16);
+CONSTI32(kBytesPerVec, 16);
 typedef uintptr_t VecW __attribute__ ((vector_size (16)));
 typedef uint32_t VecUi __attribute ((vector_size (16)));
 typedef int32_t VecI __attribute ((vector_size (16)));
@@ -621,8 +624,8 @@ typedef short VecS __attribute__ ((vector_size (16)));
 typedef char VecC __attribute__ ((vector_size (16)));
 typedef unsigned char VecUc __attribute__ ((vector_size (16)));
 #  endif
-CONSTU31(kBitsPerWord, 64);
-CONSTU31(kBitsPerWordLog2, 6);
+CONSTI32(kBitsPerWord, 64);
+CONSTI32(kBitsPerWordLog2, 6);
 
 typedef uint32_t Halfword;
 typedef uint16_t Quarterword;
@@ -828,7 +831,7 @@ HEADER_INLINE uint32_t vecuc_movemask(VecUc vv) {
   return _mm_movemask_epi8(R_CAST(__m128i, vv));
 }
 
-CONSTU31(kMovemaskUintMax, 65535);
+CONSTI32(kMovemaskUintMax, 65535);
 
 // #define kMovemaskUintMax 65535
 
@@ -875,7 +878,7 @@ HEADER_INLINE VecS vecs_max(VecS v1, VecS v2) {
 
 #  endif
 
-CONSTU31(kMovemaskUintPerWord, sizeof(intptr_t) / sizeof(MovemaskUint));
+CONSTI32(kMovemaskUintPerWord, sizeof(intptr_t) / sizeof(MovemaskUint));
 
 #  ifdef FVEC_32
 
@@ -883,7 +886,7 @@ CONSTU31(kMovemaskUintPerWord, sizeof(intptr_t) / sizeof(MovemaskUint));
 #      error "32-byte-float-vector builds require FMA3 as well."
 #    endif
 
-CONSTU31(kBytesPerFVec, 32);
+CONSTI32(kBytesPerFVec, 32);
 typedef float VecF __attribute__ ((vector_size (32)));
 
 #    define VCONST_F(xx) {xx, xx, xx, xx, xx, xx, xx, xx}
@@ -894,7 +897,7 @@ HEADER_INLINE VecF vecf_setzero() {
 
 #  else
 
-CONSTU31(kBytesPerFVec, 16);
+CONSTI32(kBytesPerFVec, 16);
 typedef float VecF __attribute__ ((vector_size (16)));
 
 #    define VCONST_F(xx) {xx, xx, xx, xx}
@@ -906,10 +909,10 @@ HEADER_INLINE VecF vecf_setzero() {
 #  endif
 
 #else  // not __LP64__
-CONSTU31(kBytesPerVec, 4);
-CONSTU31(kBytesPerFVec, 4);
-CONSTU31(kBitsPerWord, 32);
-CONSTU31(kBitsPerWordLog2, 5);
+CONSTI32(kBytesPerVec, 4);
+CONSTI32(kBytesPerFVec, 4);
+CONSTI32(kBitsPerWord, 32);
+CONSTI32(kBitsPerWordLog2, 5);
 
 typedef uint16_t Halfword;
 typedef uint8_t Quarterword;
@@ -950,14 +953,14 @@ static const uintptr_t kMask000000FF = (~S_CAST(uintptr_t, 0)) / 16843009;
 static const uintptr_t kMask000F = (~S_CAST(uintptr_t, 0)) / 4369;
 static const uintptr_t kMask0303 = (~S_CAST(uintptr_t, 0)) / 85;
 
-CONSTU31(kBitsPerVec, kBytesPerVec * CHAR_BIT);
-CONSTU31(kQuatersPerVec, kBytesPerVec * 4);
+CONSTI32(kBitsPerVec, kBytesPerVec * CHAR_BIT);
+CONSTI32(kQuatersPerVec, kBytesPerVec * 4);
 
-CONSTU31(kBitsPerWordD2, kBitsPerWord / 2);
-CONSTU31(kBitsPerWordD4, kBitsPerWord / 4);
+CONSTI32(kBitsPerWordD2, kBitsPerWord / 2);
+CONSTI32(kBitsPerWordD4, kBitsPerWord / 4);
 
 // number of bytes in a word
-CONSTU31(kBytesPerWord, kBitsPerWord / CHAR_BIT);
+CONSTI32(kBytesPerWord, kBitsPerWord / CHAR_BIT);
 
 static_assert(CHAR_BIT == 8, "plink2_base requires CHAR_BIT == 8.");
 static_assert(sizeof(int8_t) == 1, "plink2_base requires sizeof(int8_t) == 1.");
@@ -967,27 +970,27 @@ static_assert(sizeof(int) >= 4, "plink2_base requires sizeof(int) >= 4.");
 static_assert(sizeof(intptr_t) == kBytesPerWord, "plink2_base requires sizeof(intptr_t) == kBytesPerWord.");
 static_assert(sizeof(int64_t) == 8, "plink2_base requires sizeof(int64_t) == 8.");
 
-CONSTU31(kWordsPerVec, kBytesPerVec / kBytesPerWord);
-CONSTU31(kInt32PerVec, kBytesPerVec / 4);
+CONSTI32(kWordsPerVec, kBytesPerVec / kBytesPerWord);
+CONSTI32(kInt32PerVec, kBytesPerVec / 4);
 
-CONSTU31(kFloatPerFVec, kBytesPerFVec / 4);
+CONSTI32(kFloatPerFVec, kBytesPerFVec / 4);
 
-CONSTU31(kCacheline, 64);
+CONSTI32(kCacheline, 64);
 
-CONSTU31(kBitsPerCacheline, kCacheline * CHAR_BIT);
-CONSTU31(kQuatersPerCacheline, kCacheline * 4);
-CONSTU31(kInt32PerCacheline, kCacheline / sizeof(int32_t));
-CONSTU31(kInt64PerCacheline, kCacheline / sizeof(int64_t));
-CONSTU31(kWordsPerCacheline, kCacheline / kBytesPerWord);
-CONSTU31(kDoublesPerCacheline, kCacheline / sizeof(double));
-CONSTU31(kVecsPerCacheline, kCacheline / kBytesPerVec);
+CONSTI32(kBitsPerCacheline, kCacheline * CHAR_BIT);
+CONSTI32(kQuatersPerCacheline, kCacheline * 4);
+CONSTI32(kInt32PerCacheline, kCacheline / sizeof(int32_t));
+CONSTI32(kInt64PerCacheline, kCacheline / sizeof(int64_t));
+CONSTI32(kWordsPerCacheline, kCacheline / kBytesPerWord);
+CONSTI32(kDoublesPerCacheline, kCacheline / sizeof(double));
+CONSTI32(kVecsPerCacheline, kCacheline / kBytesPerVec);
 
 // could use ioctl, etc. to dynamically determine this later, and pass it as a
 // parameter to e.g. PgfiMultiread()
-CONSTU31(kDiskBlockSize, 4096);
+CONSTI32(kDiskBlockSize, 4096);
 
 // unsafe to fread or fwrite more bytes than this on e.g. OS X
-CONSTU31(kMaxBytesPerIO, 0x7ffff000);
+CONSTI32(kMaxBytesPerIO, 0x7ffff000);
 
 
 // note that this is NOT foolproof: see e.g.
@@ -995,7 +998,7 @@ CONSTU31(kMaxBytesPerIO, 0x7ffff000);
 // is why I haven't bothered with OS-based #ifdefs here.)  But it should be
 // good enough in practice.  And PATH_MAX itself is still relevant due to use
 // of realpath().
-CONSTU31(kPglFnamesize, 4096);
+CONSTI32(kPglFnamesize, 4096);
 #if defined(PATH_MAX) && !defined(_WIN32)
 static_assert(kPglFnamesize >= PATH_MAX, "plink2_base assumes PATH_MAX <= 4096.  (Safe to increase kPglFnamesize to address this, up to 131072.)");
 #endif
@@ -1015,10 +1018,12 @@ static_assert(kPglFnamesize >= PATH_MAX, "plink2_base assumes PATH_MAX <= 4096. 
 // necessary if tt is a pointer type, otherwise optional
 #  define STD_ARRAY_KREF(tt, nn) const std::array<tt, nn>&
 
+#  define STD_ARRAY_COPY(src, nn, dst) static_assert(sizeof(dst) == sizeof((dst)[0]) * nn, "Invalid STD_ARRAY_COPY() invocation."); (dst) = (src)
+
 #  define STD_ARRAY_PTR_TYPE(tt, nn) std::array<tt, nn>*
 #  define STD_ARRAY_PTR_DECL(tt, nn, vv) std::array<tt, nn>* vv
 
-// argh, warning-free C and C++11 incompatible here
+// argh, need double-braces for C++11 std::array and single-braces for C
 #  define STD_ARRAY_INIT_START() {
 #  define STD_ARRAY_INIT_END() }
 
@@ -1031,6 +1036,7 @@ static_assert(kPglFnamesize >= PATH_MAX, "plink2_base assumes PATH_MAX <= 4096. 
 #  define STD_ARRAY_DECL(tt, nn, vv) tt vv[nn]
 #  define STD_ARRAY_REF(tt, nn) tt* const
 #  define STD_ARRAY_KREF(tt, nn) tt const* const
+#  define STD_ARRAY_COPY(src, nn, dst) memcpy(dst, src, nn * sizeof(dst[0]));
 #  define STD_ARRAY_PTR_TYPE(tt, nn) tt(*)[nn]
 #  define STD_ARRAY_PTR_DECL(tt, nn, vv) tt(*vv)[nn]
 #  define STD_ARRAY_INIT_START()
@@ -1429,6 +1435,8 @@ void SetAllBits(uintptr_t ct, uintptr_t* bitarr);
 void BitvecAnd(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec);
 
 void BitvecAndNot(const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct, uintptr_t* __restrict main_bitvec);
+
+void BitvecInvert(uintptr_t word_ct, uintptr_t* main_bitvec);
 
 // Functions with "adv" in the name generally take an index or char-pointer as
 // an argument and return its new value, while "mov" functions take a
@@ -1904,15 +1912,11 @@ template <class T, std::size_t N> void STD_ARRAY_FILL0(std::array<T, N>& arr) {
 // this macro ensures that we *only* use it with uint32_t array-references
 #  define STD_ARRAY_REF_FILL0(ct, aref) static_assert(ct * sizeof(aref[0]) == sizeof(aref), "invalid STD_ARRAY_REF_FILL0() invocation"); aref.fill(0)
 
-#  define STD_ARRAY_REF_COPY(src, ct, dst) static_assert(ct * sizeof(src[0]) == sizeof(src), "invalid STD_ARRAY_REF_COPY() invocation"); dst = src
-
 #else  // !C++11
 
 #  define STD_ARRAY_FILL0(arr) memset(arr, 0, sizeof(arr))
 
 #  define STD_ARRAY_REF_FILL0(ct, aref) memset(aref, 0, ct * sizeof(*aref))
-
-#  define STD_ARRAY_REF_COPY(src, ct, dst) memcpy(dst, src, ct * sizeof(*src))
 
 #endif
 
@@ -2047,8 +2051,8 @@ uintptr_t PopcountBytesMasked(const unsigned char* bitarr, const uintptr_t* mask
 
 // transpose_quaterblock(), which is more plink-specific, is in
 // pgenlib_internal
-CONSTU31(kPglBitTransposeBatch, kBitsPerCacheline);
-CONSTU31(kPglBitTransposeWords, kWordsPerCacheline);
+CONSTI32(kPglBitTransposeBatch, kBitsPerCacheline);
+CONSTI32(kPglBitTransposeWords, kWordsPerCacheline);
 // * Up to 512x512; vecaligned_buf must have size 32k (64k in 32-bit case)
 //   (er, can reduce buffer size to 512 bytes in 64-bit case...)
 // * write_iter must be allocated up to at least
@@ -2059,7 +2063,7 @@ CONSTU31(kPglBitTransposeWords, kWordsPerCacheline);
 //   tell the compiler it doesn't need to be paranoid about writes to one of
 //   the buffers screwing with reads from the other.
 #ifdef __LP64__
-CONSTU31(kPglBitTransposeBufbytes, kPglBitTransposeBatch);
+CONSTI32(kPglBitTransposeBufbytes, kPglBitTransposeBatch);
 void TransposeBitblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, void* buf0);
 
 HEADER_INLINE void TransposeBitblock(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecW* vecaligned_buf) {
@@ -2067,7 +2071,7 @@ HEADER_INLINE void TransposeBitblock(const uintptr_t* read_iter, uint32_t read_u
 }
 
 #else  // !__LP64__
-CONSTU31(kPglBitTransposeBufbytes, (kPglBitTransposeBatch * kPglBitTransposeBatch) / (CHAR_BIT / 2));
+CONSTI32(kPglBitTransposeBufbytes, (kPglBitTransposeBatch * kPglBitTransposeBatch) / (CHAR_BIT / 2));
 void TransposeBitblockInternal(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* write_iter, VecW* __restrict buf0, VecW* __restrict buf1);
 
 // If this ever needs to be called on an input byte array, read_iter could be
@@ -2078,8 +2082,8 @@ HEADER_INLINE void TransposeBitblock(const uintptr_t* read_iter, uint32_t read_u
 }
 #endif
 
-CONSTU31(kPglBitTransposeBufwords, kPglBitTransposeBufbytes / kBytesPerWord);
-CONSTU31(kPglBitTransposeBufvecs, kPglBitTransposeBufbytes / kBytesPerVec);
+CONSTI32(kPglBitTransposeBufwords, kPglBitTransposeBufbytes / kBytesPerWord);
+CONSTI32(kPglBitTransposeBufvecs, kPglBitTransposeBufbytes / kBytesPerVec);
 
 // Flagset conventions:
 // * Each 32-bit and 64-bit flagset has its own type, which is guaranteed to be

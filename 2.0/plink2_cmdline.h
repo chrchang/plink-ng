@@ -99,33 +99,33 @@ namespace plink2 {
 #ifdef _WIN32
 // if kMaxThreads > 64, single WaitForMultipleObjects calls must be converted
 // into loops
-CONSTU31(kMaxThreads, 64);
+CONSTI32(kMaxThreads, 64);
 #else
 // currently assumed to be less than 2^16 (otherwise some multiply overflows
 // are theoretically possible, at least in the 32-bit build)
-CONSTU31(kMaxThreads, 512);
+CONSTI32(kMaxThreads, 512);
 #endif
 
 #ifdef __APPLE__
 // cblas_dgemm may fail with 128k
-CONSTU31(kDefaultThreadStack, 524288);
+CONSTI32(kDefaultThreadStack, 524288);
 #else
 // asserts didn't seem to work properly with a setting much smaller than this
-CONSTU31(kDefaultThreadStack, 131072);
+CONSTI32(kDefaultThreadStack, 131072);
 #endif
 
 // generic maximum line byte length, currently also used as a default I/O
 // buffer size.  .ped/.vcf/etc. lines can of course be longer.
-CONSTU31(kMaxMediumLine, 131072);
+CONSTI32(kMaxMediumLine, 131072);
 
-CONSTU31(kLogbufSize, 2 * kMaxMediumLine);
+CONSTI32(kLogbufSize, 2 * kMaxMediumLine);
 
 // must be at least 2 * kMaxMediumLine + 2 to support generic token loader.
-CONSTU31(kTextbufSize, 2 * kMaxMediumLine + 256);
+CONSTI32(kTextbufSize, 2 * kMaxMediumLine + 256);
 
 // when g_textbuf is used as a generic I/O buffer, this is a convenient
 // power-of-2 size (must be <= kTextbufSize).
-CONSTU31(kTextbufMainSize, 2 * kMaxMediumLine);
+CONSTI32(kTextbufMainSize, 2 * kMaxMediumLine);
 
 // "slen" is now used to indicate string lengths excluding terminating nulls,
 // while "blen" includes the terminator.
@@ -134,19 +134,19 @@ CONSTU31(kTextbufMainSize, 2 * kMaxMediumLine);
 // including terminating null).  This value supports up to 8 IDs per line
 // (maximum so far is 5, for e.g. --hom).
 // Assumed by plink2_pvar to be a multiple of 16.
-CONSTU31(kMaxIdSlen, 16000);
-CONSTU31(kMaxIdBlen, kMaxIdSlen + 1);
+CONSTI32(kMaxIdSlen, 16000);
+CONSTI32(kMaxIdBlen, kMaxIdSlen + 1);
 // Don't see a better option than #define for this.
 #define MAX_ID_SLEN_STR "16000"
 
 // Maximum size of "dynamically" allocated line load buffer.  (This is the
 // limit that applies to .vcf and similar files.)  Inconvenient to go higher
 // since fgets() takes a int32_t size argument.
-CONSTU31(kMaxLongLine, 0x7fffffc0);
+CONSTI32(kMaxLongLine, 0x7fffffc0);
 static_assert(!(kMaxLongLine % kCacheline), "kMaxLongLine must be a multiple of kCacheline.");
 
 // allow extensions like .model.trend.fisher.set.score.adjusted
-CONSTU31(kMaxOutfnameExtBlen, 39);
+CONSTI32(kMaxOutfnameExtBlen, 39);
 
 #ifdef __LP64__
 HEADER_CINLINE uint64_t RoundUpPow2U64(uint64_t val, uint64_t alignment) {
@@ -428,10 +428,10 @@ BoolErr EnforceParamCtRange(const char* flag_name, uint32_t param_ct, uint32_t m
 
 BoolErr CleanupLogfile(uint32_t print_end_time);
 
-CONSTU31(kNonBigstackMin, 67108864);
+CONSTI32(kNonBigstackMin, 67108864);
 
-CONSTU31(kBigstackMinMib, 640);
-CONSTU31(kBigstackDefaultMib, 2048);
+CONSTI32(kBigstackMinMib, 640);
+CONSTI32(kBigstackDefaultMib, 2048);
 
 static const double kPi = 3.1415926535897932;
 static const double kSqrt2 = 1.4142135623730951;
@@ -730,7 +730,7 @@ HEADER_INLINE void BigstackShrinkTop(const void* rebase, uintptr_t new_size) {
 
 // simpler to have these allocations automatically AVX2-aligned when the time
 // comes
-CONSTU31(kEndAllocAlign, MAXV(kBytesPerVec, 16));
+CONSTI32(kEndAllocAlign, MAXV(kBytesPerVec, 16));
 
 HEADER_INLINE void BigstackEndSet(const void* unaligned_end) {
   g_bigstack_end = R_CAST(unsigned char*, RoundDownPow2(R_CAST(uintptr_t, unaligned_end), kEndAllocAlign));
@@ -1132,15 +1132,13 @@ HEADER_INLINE uint32_t wordsequal(const uintptr_t* word_arr1, const uintptr_t* w
 }
 
 
-// BitvecAnd(), BitvecAndNot() in plink2_base.h
+// BitvecAnd(), BitvecAndNot(), BitvecInvert() in plink2_base.h
 
 void BitvecAndCopy(const uintptr_t* __restrict source1_bitvec, const uintptr_t* __restrict source2_bitvec, uintptr_t word_ct, uintptr_t* target_bitvec);
 
 void BitvecAndNotCopy(const uintptr_t* __restrict source_bitvec, const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct, uintptr_t* target_bitvec);
 
 void BitvecOr(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr_t* main_bitvec);
-
-void BitvecInvert(uintptr_t word_ct, uintptr_t* main_bitvec);
 
 void BitvecInvertCopy(const uintptr_t* __restrict source_bitvec, uintptr_t word_ct, uintptr_t* __restrict target_bitvec);
 
@@ -1773,12 +1771,12 @@ PglErr ParseColDescriptor(const char* col_descriptor_iter, const char* supported
 #ifndef __LP64__
   // 2047 seems to consistently fail on both OS X and Windows
 #  ifdef _WIN32
-CONSTU31(kMalloc32bitMibMax, 1728);
+CONSTI32(kMalloc32bitMibMax, 1728);
 #  else
 #    ifdef __APPLE__
-CONSTU31(kMalloc32bitMibMax, 1888);
+CONSTI32(kMalloc32bitMibMax, 1888);
 #    else
-CONSTU31(kMalloc32bitMibMax, 2047);
+CONSTI32(kMalloc32bitMibMax, 2047);
 #    endif
 #  endif
 #endif

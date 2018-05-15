@@ -1103,6 +1103,14 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
           for (uintptr_t tvidx_offset = cur_tvidx - cur_tvidx_start; tvidx_offset < tvidx_offset_end; ++tvidx_offset, ++variant_uidx) {
             MovU32To1Bit(variant_include, &variant_uidx);
             uintptr_t* cur_raw_tgenovec = &(cur_thread_raw_tgenovec[tvidx_offset * raw_tgenovec_single_variant_word_ct]);
+            // There is no generalization of Pearson r^2 to multiallelic
+            // variants with real traction, and after looking at the existing
+            // options I don't see a reason for this to change anytime soon.
+            // So we always load major allele counts.
+            // probable todo: switch to PgrGetDifflistOrGenovec() and have a
+            // fast path for low-MAF variants.  Though this isn't *that*
+            // important because knowledgeable users will have already filtered
+            // out the lowest-MAF variants before starting the LD-prune job.
             if (!is_x_or_y) {
               reterr = PgrGet1(founder_info, founder_info_cumulative_popcounts, founder_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, cur_raw_tgenovec);
               if (is_haploid) {
@@ -1654,6 +1662,8 @@ PglErr LdPrune(const uintptr_t* orig_variant_include, const ChrInfo* cip, const 
     // initial window_max-based memory requirement estimate
     if (is_pairphase) {
       // todo
+      // this should allow a mix of phased and unphased calls; see --ld
+      // implementation below.
     } else {
       const uintptr_t entire_variant_buf_word_ct = 2 * (BitCtToAlignedWordCt(founder_ct - founder_male_ct) + BitCtToAlignedWordCt(founder_male_ct));
       // reserve ~1/2 of space for main variant data buffer,
@@ -1982,16 +1992,16 @@ void GenoBitvecPhasedDotprod(const uintptr_t* one_bitvec0, const uintptr_t* two_
   *hethet_ct_ptr = hethet_ct;
 }
 
-// alt_cts[] must be initialized to correct values for
+// maj_cts[] must be initialized to correct values for
 // no-missing-values-in-other-variant case.
-uint32_t HardcallPhasedR2Stats(const uintptr_t* one_bitvec0, const uintptr_t* two_bitvec0, const uintptr_t* nm_bitvec0, const uintptr_t* one_bitvec1, const uintptr_t* two_bitvec1, const uintptr_t* nm_bitvec1, uint32_t sample_ct, uint32_t nm_ct0, uint32_t nm_ct1, uint32_t* __restrict alt_cts, uint32_t* __restrict known_dotprod_ptr, uint32_t* __restrict hethet_ct_ptr) {
+uint32_t HardcallPhasedR2Stats(const uintptr_t* one_bitvec0, const uintptr_t* two_bitvec0, const uintptr_t* nm_bitvec0, const uintptr_t* one_bitvec1, const uintptr_t* two_bitvec1, const uintptr_t* nm_bitvec1, uint32_t sample_ct, uint32_t nm_ct0, uint32_t nm_ct1, uint32_t* __restrict maj_cts, uint32_t* __restrict known_dotprod_ptr, uint32_t* __restrict hethet_ct_ptr) {
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
   uint32_t nm_intersection_ct;
   if ((nm_ct0 != sample_ct) && (nm_ct1 != sample_ct)) {
     nm_intersection_ct = PopcountWordsIntersect(nm_bitvec0, nm_bitvec1, sample_ctl);
     if (!nm_intersection_ct) {
-      alt_cts[0] = 0;
-      alt_cts[1] = 0;
+      maj_cts[0] = 0;
+      maj_cts[1] = 0;
       *known_dotprod_ptr = 0;
       *hethet_ct_ptr = 0;
       return 0;
@@ -2000,10 +2010,10 @@ uint32_t HardcallPhasedR2Stats(const uintptr_t* one_bitvec0, const uintptr_t* tw
     nm_intersection_ct = MINV(nm_ct0, nm_ct1);
   }
   if (nm_ct0 != nm_intersection_ct) {
-    alt_cts[0] = GenoBitvecSumSubset(nm_bitvec1, one_bitvec0, two_bitvec0, sample_ctl);
+    maj_cts[0] = GenoBitvecSumSubset(nm_bitvec1, one_bitvec0, two_bitvec0, sample_ctl);
   }
   if (nm_ct1 != nm_intersection_ct) {
-    alt_cts[1] = GenoBitvecSumSubset(nm_bitvec0, one_bitvec1, two_bitvec1, sample_ctl);
+    maj_cts[1] = GenoBitvecSumSubset(nm_bitvec0, one_bitvec1, two_bitvec1, sample_ctl);
   }
   GenoBitvecPhasedDotprod(one_bitvec0, two_bitvec0, one_bitvec1, two_bitvec1, sample_ctl, known_dotprod_ptr, hethet_ct_ptr);
   return nm_intersection_ct;
@@ -2281,6 +2291,8 @@ uint64_t DosageUnsignedDotprod(const Dosage* dosage_vec0, const Dosage* dosage_v
       dosage0 = _mm256_andnot_si256(invmask, dosage0);
       dosage1 = _mm256_andnot_si256(invmask, dosage1);
 
+      // todo: try rewriting this loop without 256-bit multiplication, to avoid
+      // ~15% universal clock frequency slowdown (128-bit?  sparse?)
       __m256i lo16 = _mm256_mullo_epi16(dosage0, dosage1);
       __m256i hi16 = _mm256_mulhi_epu16(dosage0, dosage1);
       lo16 = _mm256_add_epi64(_mm256_and_si256(lo16, m16), _mm256_and_si256(_mm256_srli_epi64(lo16, 16), m16));
@@ -2366,7 +2378,11 @@ int64_t DosageSignedDotprod(const SDosage* dphase_delta0, const SDosage* dphase_
       // product is in [-2^28, 2^28], so hi16 is in [-4096, 4096]
       // so if we add 4096 to hi16, we can treat it as an unsigned value in the
       //   rest of this loop
-      // ...or rewrite all these dot products to use _mm256_madd_epi16()?
+      // todo: try rewriting all these dot products to use _mm256_madd_epi16(),
+      // pretty sure that's substantially better
+      // however, that still triggers universal ~15% clock frequency slowdown,
+      // so also try sparse strategy on real imputed data and be prepared to
+      // throw out this entire function
       hi16 = _mm256_add_epi16(hi16, all_4096);
       lo16 = _mm256_add_epi64(_mm256_and_si256(lo16, m16), _mm256_and_si256(_mm256_srli_epi64(lo16, 16), m16));
       hi16 = _mm256_and_si256(_mm256_add_epi64(hi16, _mm256_srli_epi64(hi16, 16)), m16);
@@ -2723,14 +2739,14 @@ void DosagePhaseinfoPatch(const uintptr_t* phasepresent, const uintptr_t* phasei
   }
 }
 
-uint32_t DosagePhasedR2Prod(const Dosage* dosage_vec0, const uintptr_t* nm_bitvec0, const Dosage* dosage_vec1, const uintptr_t* nm_bitvec1, uint32_t sample_ct, uint32_t nm_ct0, uint32_t nm_ct1, uint64_t* __restrict alt_dosages, uint64_t* __restrict dosageprod_ptr) {
+uint32_t DosagePhasedR2Prod(const Dosage* dosage_vec0, const uintptr_t* nm_bitvec0, const Dosage* dosage_vec1, const uintptr_t* nm_bitvec1, uint32_t sample_ct, uint32_t nm_ct0, uint32_t nm_ct1, uint64_t* __restrict maj_dosages, uint64_t* __restrict dosageprod_ptr) {
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
   uint32_t nm_intersection_ct;
   if ((nm_ct0 != sample_ct) && (nm_ct1 != sample_ct)) {
     nm_intersection_ct = PopcountWordsIntersect(nm_bitvec0, nm_bitvec1, sample_ctl);
     if (!nm_intersection_ct) {
-      alt_dosages[0] = 0;
-      alt_dosages[1] = 0;
+      maj_dosages[0] = 0;
+      maj_dosages[1] = 0;
       *dosageprod_ptr = 0;
       return 0;
     }
@@ -2739,10 +2755,10 @@ uint32_t DosagePhasedR2Prod(const Dosage* dosage_vec0, const uintptr_t* nm_bitve
   }
   const uint32_t vec_ct = DivUp(sample_ct, kDosagePerVec);
   if (nm_ct0 != nm_intersection_ct) {
-    alt_dosages[0] = DenseDosageSumSubset(dosage_vec0, dosage_vec1, vec_ct);
+    maj_dosages[0] = DenseDosageSumSubset(dosage_vec0, dosage_vec1, vec_ct);
   }
   if (nm_ct1 != nm_intersection_ct) {
-    alt_dosages[1] = DenseDosageSumSubset(dosage_vec1, dosage_vec0, vec_ct);
+    maj_dosages[1] = DenseDosageSumSubset(dosage_vec1, dosage_vec0, vec_ct);
   }
   // could conditionally use dosage_unsigned_nomiss here
   *dosageprod_ptr = DosageUnsignedDotprod(dosage_vec0, dosage_vec1, vec_ct);
@@ -2778,7 +2794,7 @@ double EmPhaseUnscaledLnlike(double freq11, double freq12, double freq21, double
   return lnlike;
 }
 
-PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const LdInfo* ldip, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, PgenReader* simple_pgrp) {
+PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, const char* const* allele_storage, const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const LdInfo* ldip, uint32_t variant_ct, uint32_t raw_sample_ct, uint32_t founder_ct, PgenReader* simple_pgrp) {
   unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
   {
@@ -2907,8 +2923,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       // but --r2 will want to use different pgenlib loaders depending on
       // context.)
 
-      // todo: multiallelic case
-      reterr = PgrGetDp(founder_info, founder_info_cumulative_popcounts, founder_ct, variant_uidx, simple_pgrp, cur_genovec, cur_phasepresent, cur_phaseinfo, &(phasepresent_cts[var_idx]), cur_dosage_present, cur_dosage_main, &(dosage_cts[var_idx]), cur_dphase_present, cur_dphase_delta, &(dphase_cts[var_idx]));
+      reterr = PgrGet1Dp(founder_info, founder_info_cumulative_popcounts, founder_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, cur_genovec, cur_phasepresent, cur_phaseinfo, &(phasepresent_cts[var_idx]), cur_dosage_present, cur_dosage_main, &(dosage_cts[var_idx]), cur_dphase_present, cur_dphase_delta, &(dphase_cts[var_idx]));
       if (reterr) {
         if (reterr == kPglRetMalformedInput) {
           logputs("\n");
@@ -2953,8 +2968,8 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     //   dosage sum for each variant
     double x_male_known_dotprod_d = 0.0;
     uint32_t valid_x_male_ct = 0;
-    double altsums_d[2];
-    double x_male_altsums_d[2];
+    double majsums_d[2];
+    double x_male_majsums_d[2];
     double known_dotprod_d;
     double unknown_hethet_d;
     uint32_t valid_obs_ct;
@@ -2975,17 +2990,17 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
           bigstack_alloc_w(founder_ctaw, &nm_bitvecs[1])) {
         goto LdConsole_ret_NOMEM;
       }
-      uint32_t alt_cts[2];
-      uint32_t nm_cts[2];
+      uint32_t maj_cts[2];
+      uint32_t nm_cts[2];  // ugh.
       for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {
         GenoarrSplit12Nm(genovecs[var_idx], founder_ct, one_bitvecs[var_idx], two_bitvecs[var_idx], nm_bitvecs[var_idx]);
-        alt_cts[var_idx] = GenoBitvecSum(one_bitvecs[var_idx], two_bitvecs[var_idx], founder_ctl);
+        maj_cts[var_idx] = GenoBitvecSum(one_bitvecs[var_idx], two_bitvecs[var_idx], founder_ctl);
         nm_cts[var_idx] = PopcountWords(nm_bitvecs[var_idx], founder_ctl);
       }
-      const uint32_t orig_alt_ct1 = alt_cts[1];
+      const uint32_t orig_maj_ct1 = maj_cts[1];
       uint32_t known_dotprod;
       uint32_t unknown_hethet_ct;
-      valid_obs_ct = HardcallPhasedR2Stats(one_bitvecs[0], two_bitvecs[0], nm_bitvecs[0], one_bitvecs[1], two_bitvecs[1], nm_bitvecs[1], founder_ct, nm_cts[0], nm_cts[1], alt_cts, &known_dotprod, &unknown_hethet_ct);
+      valid_obs_ct = HardcallPhasedR2Stats(one_bitvecs[0], two_bitvecs[0], nm_bitvecs[0], one_bitvecs[1], two_bitvecs[1], nm_bitvecs[1], founder_ct, nm_cts[0], nm_cts[1], maj_cts, &known_dotprod, &unknown_hethet_ct);
       if (!valid_obs_ct) {
         goto LdConsole_ret_NO_VALID_OBSERVATIONS;
       }
@@ -2997,8 +3012,8 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         //            (phaseinfo0 ^ phaseinfo1))
         HardcallPhasedR2Refine(phasepresents[0], phaseinfos[0], phasepresents[1], phaseinfos[1], founder_ctl, &known_dotprod, &unknown_hethet_ct);
       }
-      altsums_d[0] = u31tod(alt_cts[0]);
-      altsums_d[1] = u31tod(alt_cts[1]);
+      majsums_d[0] = u31tod(maj_cts[0]);
+      majsums_d[1] = u31tod(maj_cts[1]);
       known_dotprod_d = S_CAST(double, known_dotprod);
       unknown_hethet_d = u31tod(unknown_hethet_ct);
       if (x_male_ct) {
@@ -3009,17 +3024,17 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         BitvecAnd(sex_male_collapsed, founder_ctl, one_bitvecs[0]);
         BitvecAnd(sex_male_collapsed, founder_ctl, two_bitvecs[0]);
         BitvecAnd(sex_male_collapsed, founder_ctl, nm_bitvecs[0]);
-        uint32_t x_male_alt_cts[2];
-        x_male_alt_cts[0] = GenoBitvecSum(one_bitvecs[0], two_bitvecs[0], founder_ctl);
+        uint32_t x_male_maj_cts[2];
+        x_male_maj_cts[0] = GenoBitvecSum(one_bitvecs[0], two_bitvecs[0], founder_ctl);
 
-        x_male_alt_cts[1] = orig_alt_ct1;
+        x_male_maj_cts[1] = orig_maj_ct1;
 
         const uint32_t x_male_nm_ct0 = PopcountWords(nm_bitvecs[0], founder_ctl);
         uint32_t x_male_known_dotprod;
         uint32_t x_male_unknown_hethet_ct;  // ignore
-        valid_x_male_ct = HardcallPhasedR2Stats(one_bitvecs[0], two_bitvecs[0], nm_bitvecs[0], one_bitvecs[1], two_bitvecs[1], nm_bitvecs[1], founder_ct, x_male_nm_ct0, nm_cts[1], x_male_alt_cts, &x_male_known_dotprod, &x_male_unknown_hethet_ct);
-        x_male_altsums_d[0] = u31tod(x_male_alt_cts[0]);
-        x_male_altsums_d[1] = u31tod(x_male_alt_cts[1]);
+        valid_x_male_ct = HardcallPhasedR2Stats(one_bitvecs[0], two_bitvecs[0], nm_bitvecs[0], one_bitvecs[1], two_bitvecs[1], nm_bitvecs[1], founder_ct, x_male_nm_ct0, nm_cts[1], x_male_maj_cts, &x_male_known_dotprod, &x_male_unknown_hethet_ct);
+        x_male_majsums_d[0] = u31tod(x_male_maj_cts[0]);
+        x_male_majsums_d[1] = u31tod(x_male_maj_cts[1]);
         x_male_known_dotprod_d = S_CAST(double, x_male_known_dotprod);
         // hethet impossible for chrX males
         assert(!x_male_unknown_hethet_ct);
@@ -3046,11 +3061,11 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
           bigstack_alloc_w(founder_ctl, &nm_bitvecs[1])) {
         goto LdConsole_ret_NOMEM;
       }
-      uint64_t alt_dosages[2];
+      uint64_t maj_dosages[2];
       uint32_t nm_cts[2];
       for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {
         PopulateDenseDosage(genovecs[var_idx], dosage_presents[var_idx], dosage_mains[var_idx], founder_ct, dosage_cts[var_idx], dosage_vecs[var_idx]);
-        alt_dosages[var_idx] = DenseDosageSum(dosage_vecs[var_idx], founder_dosagev_ct);
+        maj_dosages[var_idx] = DenseDosageSum(dosage_vecs[var_idx], founder_dosagev_ct);
         FillDosageUhet(dosage_vecs[var_idx], founder_dosagev_ct, dosage_uhets[var_idx]);
         GenovecToNonmissingnessUnsafe(genovecs[var_idx], founder_ct, nm_bitvecs[var_idx]);
         ZeroTrailingBits(founder_ct, nm_bitvecs[var_idx]);
@@ -3092,9 +3107,9 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
           }
         }
       }
-      const uint64_t orig_alt_dosage1 = alt_dosages[1];
+      const uint64_t orig_maj_dosage1 = maj_dosages[1];
       uint64_t dosageprod;
-      valid_obs_ct = DosagePhasedR2Prod(dosage_vecs[0], nm_bitvecs[0], dosage_vecs[1], nm_bitvecs[1], founder_ct, nm_cts[0], nm_cts[1], alt_dosages, &dosageprod);
+      valid_obs_ct = DosagePhasedR2Prod(dosage_vecs[0], nm_bitvecs[0], dosage_vecs[1], nm_bitvecs[1], founder_ct, nm_cts[0], nm_cts[1], maj_dosages, &dosageprod);
       if (!valid_obs_ct) {
         goto LdConsole_ret_NO_VALID_OBSERVATIONS;
       }
@@ -3106,8 +3121,8 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       if (use_phase && hethet_present) {
         dosageprod = S_CAST(int64_t, dosageprod) + DosageSignedDotprod(main_dphase_deltas[0], main_dphase_deltas[1], founder_dosagev_ct);
       }
-      altsums_d[0] = S_CAST(int64_t, alt_dosages[0]) * kRecipDosageMid;
-      altsums_d[1] = S_CAST(int64_t, alt_dosages[1]) * kRecipDosageMid;
+      majsums_d[0] = S_CAST(int64_t, maj_dosages[0]) * kRecipDosageMid;
+      majsums_d[1] = S_CAST(int64_t, maj_dosages[1]) * kRecipDosageMid;
       known_dotprod_d = S_CAST(int64_t, dosageprod - uhethet_dosageprod) * (kRecipDosageMidSq * 0.5);
       unknown_hethet_d = S_CAST(int64_t, uhethet_dosageprod) * kRecipDosageMidSq;
       if (x_male_ct) {
@@ -3123,19 +3138,19 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         }
         BitvecOr(R_CAST(uintptr_t*, x_male_dosage_invmask), founder_dosagev_ct * kWordsPerVec, R_CAST(uintptr_t*, dosage_vecs[0]));
         BitvecAnd(sex_male_collapsed, founder_ctl, nm_bitvecs[0]);
-        uint64_t x_male_alt_dosages[2];
-        x_male_alt_dosages[0] = DenseDosageSum(dosage_vecs[0], founder_dosagev_ct);
-        x_male_alt_dosages[1] = orig_alt_dosage1;
+        uint64_t x_male_maj_dosages[2];
+        x_male_maj_dosages[0] = DenseDosageSum(dosage_vecs[0], founder_dosagev_ct);
+        x_male_maj_dosages[1] = orig_maj_dosage1;
         const uint32_t x_male_nm_ct0 = PopcountWords(nm_bitvecs[0], founder_ctl);
         uint64_t x_male_dosageprod;
-        valid_x_male_ct = DosagePhasedR2Prod(dosage_vecs[0], nm_bitvecs[0], dosage_vecs[1], nm_bitvecs[1], founder_ct, x_male_nm_ct0, nm_cts[1], x_male_alt_dosages, &x_male_dosageprod);
+        valid_x_male_ct = DosagePhasedR2Prod(dosage_vecs[0], nm_bitvecs[0], dosage_vecs[1], nm_bitvecs[1], founder_ct, x_male_nm_ct0, nm_cts[1], x_male_maj_dosages, &x_male_dosageprod);
         if (!ignore_hethet) {
           BitvecAndNot(R_CAST(uintptr_t*, x_male_dosage_invmask), founder_dosagev_ct * kWordsPerVec, R_CAST(uintptr_t*, dosage_uhets[0]));
           const uint64_t invalid_uhethet_dosageprod = DosageUnsignedNomissDotprod(dosage_uhets[0], dosage_uhets[1], founder_dosagev_ct);
           unknown_hethet_d -= S_CAST(int64_t, invalid_uhethet_dosageprod) * kRecipDosageMidSq;
         }
-        x_male_altsums_d[0] = S_CAST(int64_t, x_male_alt_dosages[0]) * kRecipDosageMid;
-        x_male_altsums_d[1] = S_CAST(int64_t, x_male_alt_dosages[1]) * kRecipDosageMid;
+        x_male_majsums_d[0] = S_CAST(int64_t, x_male_maj_dosages[0]) * kRecipDosageMid;
+        x_male_majsums_d[1] = S_CAST(int64_t, x_male_maj_dosages[1]) * kRecipDosageMid;
         x_male_known_dotprod_d = S_CAST(int64_t, x_male_dosageprod) * (kRecipDosageMidSq * 0.5);
       }
     }
@@ -3144,38 +3159,38 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       // males have sqrt(0.5) weight if one variant is chrX, half-weight if
       // both are chrX
       const double male_decr = (is_xs[0] && is_xs[1])? 0.5 : (1.0 - 0.5 * kSqrt2);
-      altsums_d[0] -= male_decr * x_male_altsums_d[0];
-      altsums_d[1] -= male_decr * x_male_altsums_d[1];
+      majsums_d[0] -= male_decr * x_male_majsums_d[0];
+      majsums_d[1] -= male_decr * x_male_majsums_d[1];
       known_dotprod_d -= male_decr * x_male_known_dotprod_d;
       valid_obs_d -= male_decr * u31tod(valid_x_male_ct);
     }
 
     const double twice_tot_recip = 0.5 / valid_obs_d;
     // in plink 1.9, "freq12" refers to first variant=1, second variant=2
-    // this most closely corresponds to freq_ra here
+    // this most closely corresponds to freq_minmaj here
 
     // known-diplotype dosages (sum is 2 * (valid_obs_d - unknown_hethet_d)):
     //   var0  var1
-    //     0  -  0 : 2 * valid_obs_d - altsums[0] - altsums[1] + known_dotprod
-    //     1  -  0 : altsums[0] - known_dotprod - unknown_hethet_d
-    //     0  -  1 : altsums[1] - known_dotprod - unknown_hethet_d
+    //     0  -  0 : 2 * valid_obs_d - majsums[0] - majsums[1] + known_dotprod
+    //     1  -  0 : majsums[0] - known_dotprod - unknown_hethet_d
+    //     0  -  1 : majsums[1] - known_dotprod - unknown_hethet_d
     //     1  -  1 : known_dotprod
-    double freq_rr = 1.0 - (altsums_d[0] + altsums_d[1] - known_dotprod_d) * twice_tot_recip;
-    double freq_ra = (altsums_d[1] - known_dotprod_d - unknown_hethet_d) * twice_tot_recip;
-    double freq_ar = (altsums_d[0] - known_dotprod_d - unknown_hethet_d) * twice_tot_recip;
-    double freq_aa = known_dotprod_d * twice_tot_recip;
+    double freq_minmin = 1.0 - (majsums_d[0] + majsums_d[1] - known_dotprod_d) * twice_tot_recip;
+    double freq_minmaj = (majsums_d[1] - known_dotprod_d - unknown_hethet_d) * twice_tot_recip;
+    double freq_majmin = (majsums_d[0] - known_dotprod_d - unknown_hethet_d) * twice_tot_recip;
+    double freq_majmaj = known_dotprod_d * twice_tot_recip;
     const double half_unphased_hethet_share = unknown_hethet_d * twice_tot_recip;
-    const double freq_rx = freq_rr + freq_ra + half_unphased_hethet_share;
-    const double freq_ax = 1.0 - freq_rx;
-    const double freq_xr = freq_rr + freq_ar + half_unphased_hethet_share;
-    const double freq_xa = 1.0 - freq_xr;
+    const double freq_majx = freq_majmaj + freq_majmin + half_unphased_hethet_share;
+    const double freq_minx = 1.0 - freq_majx;
+    const double freq_xmaj = freq_majmaj + freq_minmaj + half_unphased_hethet_share;
+    const double freq_xmin = 1.0 - freq_xmaj;
     // frequency of ~2^{-46} is actually possible with dosages and 2 billion
     // samples, so set this threshold at 2^{-47}
-    if ((freq_rx < (kSmallEpsilon * 0.125)) || (freq_ax < (kSmallEpsilon * 0.125))) {
+    if ((freq_majx < (kSmallEpsilon * 0.125)) || (freq_minx < (kSmallEpsilon * 0.125))) {
       logerrprintfww("Warning: Skipping --ld since %s is monomorphic across all valid observations.\n", ld_console_varids[0]);
       goto LdConsole_ret_1;
     }
-    if ((freq_xr < (kSmallEpsilon * 0.125)) || (freq_xa < (kSmallEpsilon * 0.125))) {
+    if ((freq_xmaj < (kSmallEpsilon * 0.125)) || (freq_xmin < (kSmallEpsilon * 0.125))) {
       logerrprintfww("Warning: Skipping --ld since %s is monomorphic across all valid observations.\n", ld_console_varids[1]);
       goto LdConsole_ret_1;
     }
@@ -3203,19 +3218,25 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       *write_iter = '\0';
       WordWrapB(0);
       logputsb();
-      write_iter = strcpya(g_logbuf, "  REF = ");
-      const char* ref_allele = cur_alleles[0];
-      const uint32_t ref_slen = strlen(ref_allele);
-      if (ref_slen < 72) {
-        write_iter = memcpyax(write_iter, ref_allele, ref_slen, '\n');
+      write_iter = strcpya(g_logbuf, "  MAJOR = ");
+      const uint32_t maj_idx = maj_alleles[cur_variant_uidx];
+      const char* maj_allele = cur_alleles[maj_idx];
+      const uint32_t maj_slen = strlen(maj_allele);
+      uint32_t slen_limit = 70;
+      if (!maj_idx) {
+        write_iter = strcpya(write_iter, "REF = ");
+        slen_limit -= 6;
+      }
+      if (maj_slen < slen_limit) {
+        write_iter = memcpyax(write_iter, maj_allele, maj_slen, '\n');
       } else {
-        write_iter = memcpya(write_iter, ref_allele, 69);
+        write_iter = memcpya(write_iter, maj_allele, slen_limit - 3);
         write_iter = strcpya(write_iter, "...\n");
       }
       *write_iter = '\0';
       logputsb();
-      write_iter = strcpya(g_logbuf, "  ALT = ");
-      uint32_t allele_idx = 1;
+      write_iter = strcpya(g_logbuf, "  MINOR = ");
+      uint32_t allele_idx = (maj_idx == 0)? 1 : 0;
       while (1) {
         const char* cur_allele = cur_alleles[allele_idx];
         const uint32_t cur_slen = strlen(cur_allele);
@@ -3229,7 +3250,11 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
           break;
         }
         write_iter = memcpya(write_iter, cur_allele, cur_slen);
-        if (++allele_idx == cur_allele_ct) {
+        ++allele_idx;
+        if (allele_idx == maj_idx) {
+          ++allele_idx;
+        }
+        if (allele_idx == cur_allele_ct) {
           break;
         }
         *write_iter++ = ',';
@@ -3237,6 +3262,19 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       *write_iter++ = '\n';
       *write_iter = '\0';
       logputsb();
+      if (maj_idx) {
+        write_iter = strcpya(g_logbuf, "  (REF = ");
+        const char* ref_allele = cur_alleles[0];
+        const uint32_t ref_slen = strlen(ref_allele);
+        if (ref_slen < 70) {
+          write_iter = memcpya(write_iter, ref_allele, ref_slen);
+        } else {
+          write_iter = memcpya(write_iter, ref_allele, 67);
+          write_iter = memcpyl3a(write_iter, "...");
+        }
+        memcpyl3(write_iter, ")\n");
+        logputsb();
+      }
     }
     logputs("\n");
     char* write_iter = u32toa(valid_obs_ct, g_logbuf);
@@ -3284,12 +3322,12 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       // detect degenerate cases to avoid e-17 ugliness
       // possible todo: when there are multiple solutions, mark the EM solution
       //   in some manner
-      if ((freq_rr * freq_aa != 0.0) || (freq_ra * freq_ar != 0.0)) {
+      if ((freq_majmaj * freq_minmin != 0.0) || (freq_majmin * freq_minmaj != 0.0)) {
         // (f11 + x)(f22 + x)(K - x) = x(f12 + K - x)(f21 + K - x)
         // (x - K)(x + f11)(x + f22) + x(x - K - f12)(x - K - f21) = 0
         //   x^3 + (f11 + f22 - K)x^2 + (f11*f22 - K*f11 - K*f22)x
         // - K*f11*f22 + x^3 - (2K + f12 + f21)x^2 + (K + f12)(K + f21)x = 0
-        cubic_sol_ct = CubicRealRoots(0.5 * (freq_rr + freq_aa - freq_ra - freq_ar - 3 * half_unphased_hethet_share), 0.5 * (freq_rr * freq_aa + freq_ra * freq_ar + half_unphased_hethet_share * (freq_ra + freq_ar - freq_rr - freq_aa + half_unphased_hethet_share)), -0.5 * half_unphased_hethet_share * freq_rr * freq_aa, cubic_sols);
+        cubic_sol_ct = CubicRealRoots(0.5 * (freq_majmaj + freq_minmin - freq_majmin - freq_minmaj - 3 * half_unphased_hethet_share), 0.5 * (freq_majmaj * freq_minmin + freq_majmin * freq_minmaj + half_unphased_hethet_share * (freq_majmin + freq_minmaj - freq_majmaj - freq_minmin + half_unphased_hethet_share)), -0.5 * half_unphased_hethet_share * freq_majmaj * freq_minmin, cubic_sols);
         if (cubic_sol_ct > 1) {
           while (cubic_sols[cubic_sol_ct - 1] > half_unphased_hethet_share + kSmallishEpsilon) {
             --cubic_sol_ct;
@@ -3317,8 +3355,8 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         // (f21 - f22) before 6 Oct 2017, when it needed to use all the nonzero
         // values.
         cubic_sols[0] = 0.0;
-        const double nonzero_freq_xx = freq_rr + freq_aa;
-        const double nonzero_freq_xy = freq_ra + freq_ar;
+        const double nonzero_freq_xx = freq_majmaj + freq_minmin;
+        const double nonzero_freq_xy = freq_majmin + freq_minmaj;
         // (current code still works if three or all four values are zero)
         if ((nonzero_freq_xx + kSmallishEpsilon < half_unphased_hethet_share + nonzero_freq_xy) && (nonzero_freq_xy + kSmallishEpsilon < half_unphased_hethet_share + nonzero_freq_xx)) {
           cubic_sol_ct = 3;
@@ -3375,7 +3413,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
 
         double best_unscaled_lnlike = -DBL_MAX;
         for (uint32_t sol_idx = first_relevant_sol_idx; sol_idx < cubic_sol_ct; ++sol_idx) {
-          const double cur_unscaled_lnlike = EmPhaseUnscaledLnlike(freq_rr, freq_ra, freq_ar, freq_aa, half_unphased_hethet_share, cubic_sols[sol_idx]);
+          const double cur_unscaled_lnlike = EmPhaseUnscaledLnlike(freq_majmaj, freq_majmin, freq_minmaj, freq_minmin, half_unphased_hethet_share, cubic_sols[sol_idx]);
           if (cur_unscaled_lnlike > best_unscaled_lnlike) {
             best_unscaled_lnlike = cur_unscaled_lnlike;
             best_lnlike_mask = 1 << sol_idx;
@@ -3406,18 +3444,18 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         logputsb();
       }
       const double cur_sol_xx = cubic_sols[sol_idx];
-      double dd = freq_rr + cur_sol_xx - freq_rx * freq_xr;
+      double dd = freq_majmaj + cur_sol_xx - freq_majx * freq_xmaj;
       if (fabs(dd) < kSmallEpsilon) {
         dd = 0.0;
       }
       write_iter = strcpya(g_logbuf, "  r^2 = ");
-      write_iter = dtoa_g(dd * dd / (freq_rx * freq_xr * freq_ax * freq_xa), write_iter);
+      write_iter = dtoa_g(dd * dd / (freq_majx * freq_xmaj * freq_minx * freq_xmin), write_iter);
       write_iter = strcpya(write_iter, "    D' = ");
       double d_prime;
       if (dd >= 0.0) {
-        d_prime = dd / MINV(freq_xr * freq_ax, freq_xa * freq_rx);
+        d_prime = dd / MINV(freq_xmaj * freq_minx, freq_xmin * freq_majx);
       } else {
-        d_prime = -dd / MINV(freq_xr * freq_rx, freq_xa * freq_ax);
+        d_prime = -dd / MINV(freq_xmaj * freq_majx, freq_xmin * freq_minx);
       }
       write_iter = dtoa_g(d_prime, write_iter);
       assert(write_iter - g_logbuf < 79);
@@ -3428,12 +3466,12 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
 
       // Default layout:
       // [8 spaces]Frequencies      :        [centered varID[1]]
-      //     (expectations under LE)           REF         ALT
+      //     (expectations under LE)          MAJOR       MINOR
       //                                    ----------  ----------
-      //                               REF   a.bcdefg    a.bcdefg
+      //                              MAJOR  a.bcdefg    a.bcdefg
       //                                    (a.bcdefg)  (a.bcdefg)
       //       [r-justified varID[0]]
-      //                               ALT   a.bcdefg    a.bcdefg
+      //                              MINOR  a.bcdefg    a.bcdefg
       //                                    (a.bcdefg)  (a.bcdefg)
       //
       // (decimals are fixed-point, and trailing zeroes are erased iff there is
@@ -3479,26 +3517,26 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       logputsb();
 
       write_iter = strcpya(g_logbuf, "  (expectations under LE)");
-      write_iter = memseta(write_iter, 32, extra_initial_spaces + 11);
-      snprintf(write_iter, 81 - 25 - 24 - 11, "REF         ALT\n");
+      write_iter = memseta(write_iter, 32, extra_initial_spaces + 10);
+      snprintf(write_iter, 81 - 25 - 24 - 10, "MAJOR       MINOR\n");
       logputsb();
 
       write_iter = memseta(g_logbuf, 32, extra_initial_spaces + 33);
       snprintf(write_iter, 81 - 24 - 33, "----------  ----------\n");
       logputsb();
 
-      write_iter = strcpya(&(g_logbuf[28 + extra_initial_spaces]), "REF   ");
-      write_iter = dtoa_f_probp6_spaced(freq_rr + cur_sol_xx, write_iter);
+      write_iter = strcpya(&(g_logbuf[27 + extra_initial_spaces]), "MAJOR  ");
+      write_iter = dtoa_f_probp6_spaced(freq_majmaj + cur_sol_xx, write_iter);
       write_iter = strcpya(write_iter, "    ");
       const double cur_sol_xy = half_unphased_hethet_share - cur_sol_xx;
-      write_iter = dtoa_f_probp6_clipped(freq_ra + cur_sol_xy, write_iter);
+      write_iter = dtoa_f_probp6_clipped(freq_majmin + cur_sol_xy, write_iter);
       memcpy(write_iter, "\n", 2);
       logputsb();
 
-      write_iter = strcpya(&(g_logbuf[28 + extra_initial_spaces]), "     (");
-      write_iter = dtoa_f_probp6_spaced(freq_xr * freq_rx, write_iter);
+      write_iter = strcpya(&(g_logbuf[27 + extra_initial_spaces]), "      (");
+      write_iter = dtoa_f_probp6_spaced(freq_xmaj * freq_majx, write_iter);
       write_iter = strcpya(write_iter, ")  (");
-      write_iter = dtoa_f_probp6_clipped(freq_xa * freq_rx, write_iter);
+      write_iter = dtoa_f_probp6_clipped(freq_xmin * freq_majx, write_iter);
       memcpyl3(write_iter, ")\n");
       logputsb();
 
@@ -3510,26 +3548,26 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       memcpy(write_iter, "\n", 2);
       logputsb();
 
-      write_iter = memseta(g_logbuf, 32, 28 + extra_initial_spaces);
-      write_iter = strcpya(write_iter, "ALT   ");
-      write_iter = dtoa_f_probp6_spaced(freq_ar + cur_sol_xy, write_iter);
+      write_iter = memseta(g_logbuf, 32, 27 + extra_initial_spaces);
+      write_iter = strcpya(write_iter, "MINOR  ");
+      write_iter = dtoa_f_probp6_spaced(freq_minmaj + cur_sol_xy, write_iter);
       write_iter = strcpya(write_iter, "    ");
-      write_iter = dtoa_f_probp6_clipped(freq_aa + cur_sol_xx, write_iter);
+      write_iter = dtoa_f_probp6_clipped(freq_minmin + cur_sol_xx, write_iter);
       memcpy(write_iter, "\n", 2);
       logputsb();
 
-      write_iter = strcpya(&(g_logbuf[28 + extra_initial_spaces]), "     (");
-      write_iter = dtoa_f_probp6_spaced(freq_xr * freq_ax, write_iter);
+      write_iter = strcpya(&(g_logbuf[27 + extra_initial_spaces]), "      (");
+      write_iter = dtoa_f_probp6_spaced(freq_xmaj * freq_minx, write_iter);
       write_iter = strcpya(write_iter, ")  (");
-      write_iter = dtoa_f_probp6_clipped(freq_xa * freq_ax, write_iter);
+      write_iter = dtoa_f_probp6_clipped(freq_xmin * freq_minx, write_iter);
       memcpyl3(write_iter, ")\n");
       logputsb();
 
       logputs("\n");
       if (dd > 0.0) {
-        logputs("  REF alleles are in phase with each other.\n\n");
+        logputs("  Major alleles are in phase with each other.\n\n");
       } else if (dd < 0.0) {
-        logputs("  REF alleles are out of phase with each other.\n\n");
+        logputs("  Major alleles are out of phase with each other.\n\n");
       }
     }
   }

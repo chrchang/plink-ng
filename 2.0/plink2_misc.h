@@ -171,13 +171,15 @@ FLAGSET_DEF_START()
   kfHardyColRef = (1 << 4),
   kfHardyColAlt1 = (1 << 5),
   kfHardyColAlt = (1 << 6),
-  kfHardyColGcounts = (1 << 7),
-  kfHardyColGcount1col = (1 << 8),
-  kfHardyColHetfreq = (1 << 9),
-  kfHardyColSexaf = (1 << 10),
-  kfHardyColFemalep = (1 << 11),
-  kfHardyColP = (1 << 12),
-  kfHardyColDefault = (kfHardyColChrom | kfHardyColRef | kfHardyColAlt | kfHardyColGcounts | kfHardyColHetfreq | kfHardyColSexaf | kfHardyColP),
+  kfHardyColMaj = (1 << 7),
+  kfHardyColNonmaj = (1 << 8),
+  kfHardyColGcounts = (1 << 9),
+  kfHardyColGcount1col = (1 << 10),
+  kfHardyColHetfreq = (1 << 11),
+  kfHardyColSexaf = (1 << 12),
+  kfHardyColFemalep = (1 << 13),
+  kfHardyColP = (1 << 14),
+  kfHardyColDefault = (kfHardyColChrom | kfHardyColMaj | kfHardyColNonmaj | kfHardyColGcounts | kfHardyColHetfreq | kfHardyColSexaf | kfHardyColP),
   kfHardyColAll = ((kfHardyColP * 2) - kfHardyColChrom)
 FLAGSET_DEF_END(HardyFlags);
 
@@ -210,9 +212,11 @@ PglErr WriteGenoCounts(const uintptr_t* sample_include, const uintptr_t* sex_mal
 
 PglErr WriteMissingnessReports(const uintptr_t* sample_include, const SampleIdInfo* siip, const uintptr_t* sex_male, const PhenoCol* pheno_cols, const char* pheno_names, const uint32_t* sample_missing_hc_cts, const uint32_t* sample_missing_dosage_cts, const uint32_t* sample_hethap_cts, const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const uint32_t* variant_missing_hc_cts, const uint32_t* variant_missing_dosage_cts, const uint32_t* variant_hethap_cts, uint32_t sample_ct, uint32_t male_ct, uint32_t pheno_ct, uintptr_t max_pheno_name_blen, uint32_t variant_ct, uintptr_t max_allele_slen, uint32_t first_hap_uidx, MissingRptFlags missing_rpt_flags, uint32_t max_thread_ct, char* outname, char* outname_end);
 
+PglErr HardyMaj(const uintptr_t* founder_info, const uintptr_t* sex_nm, const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, uint32_t raw_sample_ct, uint32_t variant_ct, __maybe_unused PgenReader* simple_pgrp, STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_male_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_nosex_geno_cts));
+
 PglErr ComputeHweXPvals(const uintptr_t* variant_include, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), uint32_t x_start, uint32_t hwe_x_ct, uint32_t hwe_midp, uint32_t calc_thread_ct, double** hwe_x_pvals_ptr);
 
-PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), const double* hwe_x_pvals, uint32_t variant_ct, uint32_t hwe_x_ct, uint32_t max_allele_slen, double output_min_ln, HardyFlags hardy_flags, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end);
+PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), const double* hwe_x_pvals, uint32_t variant_ct, uint32_t hwe_x_ct, uint32_t max_allele_slen, double output_min_ln, HardyFlags hardy_flags, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end);
 
 PglErr WriteSnplist(const uintptr_t* variant_include, const char* const* variant_ids, uint32_t variant_ct, uint32_t output_zst, uint32_t max_thread_ct, char* outname, char* outname_end);
 

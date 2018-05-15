@@ -518,8 +518,8 @@ static uint32_t* g_loaded_sample_idx_pairs = nullptr;
 static uint32_t g_homhom_needed = 0;
 
 #ifdef USE_SSE42
-CONSTU31(kKingMultiplex, 1024);
-CONSTU31(kKingMultiplexWords, kKingMultiplex / kBitsPerWord);
+CONSTI32(kKingMultiplex, 1024);
+CONSTI32(kKingMultiplexWords, kKingMultiplex / kBitsPerWord);
 void IncrKing(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t start_idx, uint32_t end_idx, uint32_t* king_counts_iter) {
   // Tried adding another level of blocking, but couldn't get it to make a
   // difference.
@@ -600,13 +600,13 @@ void IncrKingHomhom(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, ui
 }
 #else  // !USE_SSE42
 #  ifdef __LP64__
-CONSTU31(kKingMultiplex, 1536);
+CONSTI32(kKingMultiplex, 1536);
 #  else
-CONSTU31(kKingMultiplex, 960);
+CONSTI32(kKingMultiplex, 960);
 #  endif
 static_assert(kKingMultiplex % (3 * kBitsPerVec) == 0, "Invalid kKingMultiplex value.");
-CONSTU31(kKingMultiplexWords, kKingMultiplex / kBitsPerWord);
-CONSTU31(kKingMultiplexVecs, kKingMultiplex / kBitsPerVec);
+CONSTI32(kKingMultiplexWords, kKingMultiplex / kBitsPerWord);
+CONSTI32(kKingMultiplexVecs, kKingMultiplex / kBitsPerVec);
 // expensive PopcountWord().  Use Lauradoux/Walisch accumulators, since
 // Harley-Seal requires too many variables.
 void IncrKing(const uintptr_t* smaj_hom, const uintptr_t* smaj_ref2het, uint32_t start_idx, uint32_t end_idx, uint32_t* king_counts_iter) {
@@ -892,7 +892,7 @@ char* AppendKingTableHeader(KingFlags king_flags, uint32_t king_col_fid, uint32_
 
 // probable todo: optimization for very-low-MAF variants, since unlike GRM/PCA
 // it isn't necessary to exclude them beforehand for accuracy purposes.
-PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, uint32_t raw_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_cutoff, double king_table_filter, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, uintptr_t* sample_include, uint32_t* sample_ct_ptr, char* outname, char* outname_end) {
+PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const AlleleCode* maj_alleles, uint32_t raw_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_cutoff, double king_table_filter, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, uintptr_t* sample_include, uint32_t* sample_ct_ptr, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -1123,7 +1123,9 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
           uintptr_t* ref2het_iter = splitbuf_ref2het;
           for (uint32_t uii = 0; uii < variant_batch_size; ++uii, ++variant_uidx) {
             MovU32To1Bit(variant_include, &variant_uidx);
-            reterr = PgrGet(cur_sample_include, sample_include_cumulative_popcounts, row_end_idx, variant_uidx, simple_pgrp, loadbuf);
+            // maj/nonmaj seems about as good as the other ways to handle
+            // multiallelic variants for now, but maybe revisit this later
+            reterr = PgrGet1(cur_sample_include, sample_include_cumulative_popcounts, row_end_idx, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, loadbuf);
             if (reterr) {
               goto CalcKing_ret_PGR_FAIL;
             }
@@ -1906,7 +1908,7 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, u
   return reterr;
 }
 
-PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const char* subset_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_table_filter, double king_table_subset_thresh, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const AlleleCode* maj_alleles, const char* subset_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_table_filter, double king_table_subset_thresh, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -2245,7 +2247,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
           uintptr_t* ref2het_iter = splitbuf_ref2het;
           for (uint32_t uii = 0; uii < variant_batch_size; ++uii, ++variant_uidx) {
             MovU32To1Bit(variant_include, &variant_uidx);
-            reterr = PgrGet(cur_sample_include, sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, simple_pgrp, loadbuf);
+            reterr = PgrGet1(cur_sample_include, sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, loadbuf);
             if (reterr) {
               goto CalcKingTableSubset_ret_PGR_FAIL;
             }
@@ -2519,17 +2521,11 @@ PglErr ExpandCenteredVarmaj(const uintptr_t* genovec, const uintptr_t* dosage_pr
 
 PglErr LoadCenteredVarmaj(const uintptr_t* sample_include, const uint32_t* sample_include_cumulative_popcounts, uint32_t variance_standardize, uint32_t is_haploid, uint32_t sample_ct, uint32_t variant_uidx, AlleleCode maj_allele_idx, double maj_freq, PgenReader* simple_pgrp, uint32_t* missing_presentp, double* normed_dosages, uintptr_t* genovec_buf, uintptr_t* dosage_present_buf, Dosage* dosage_main_buf) {
   uint32_t dosage_ct;
-  PglErr reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec_buf, dosage_present_buf, dosage_main_buf, &dosage_ct);
+  PglErr reterr = PgrGetInv1D(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, maj_allele_idx, simple_pgrp, genovec_buf, dosage_present_buf, dosage_main_buf, &dosage_ct);
   if (reterr) {
     // don't print malformed-.pgen error message here for now, since we may
     // want to put this in a multithreaded loop?
     return reterr;
-  }
-  if (maj_allele_idx) {
-    GenovecInvertUnsafe(sample_ct, genovec_buf);
-    if (dosage_ct) {
-      BiallelicDosage16Invert(dosage_ct, dosage_main_buf);
-    }
   }
   ZeroTrailingQuaters(sample_ct, genovec_buf);
   if (missing_presentp) {
@@ -2569,7 +2565,7 @@ static double* g_grm = nullptr;
 static uint32_t g_pca_sample_ct = 0;
 static uint32_t g_cur_batch_size = 0;
 
-CONSTU31(kGrmVariantBlockSize, 144);
+CONSTI32(kGrmVariantBlockSize, 144);
 
 // turns out dsyrk_ does exactly what we want here
 THREAD_FUNC_DECL CalcGrmThread(void* arg) {
@@ -2624,8 +2620,8 @@ static uintptr_t* g_missing_nz[2] = {nullptr, nullptr};
 static uintptr_t* g_missing_smaj[2] = {nullptr, nullptr};
 static uint32_t* g_missing_dbl_exclude_cts = nullptr;
 
-CONSTU31(kDblMissingBlockWordCt, 2);
-CONSTU31(kDblMissingBlockSize, kDblMissingBlockWordCt * kBitsPerWord);
+CONSTI32(kDblMissingBlockWordCt, 2);
+CONSTI32(kDblMissingBlockSize, kDblMissingBlockWordCt * kBitsPerWord);
 
 THREAD_FUNC_DECL CalcDblMissingThread(void* arg) {
   const uintptr_t tidx = R_CAST(uintptr_t, arg);
@@ -3473,7 +3469,7 @@ PglErr CalcGrm(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, c
 // this seems to be better than 256 (due to avoidance of cache critical
 // stride?)
 // (still want this to be a multiple of 8, for cleaner multithreading)
-CONSTU31(kPcaVariantBlockSize, 240);
+CONSTI32(kPcaVariantBlockSize, 240);
 
 // multithread globals
 static uintptr_t* g_genovecs[2] = {nullptr, nullptr};
@@ -3928,21 +3924,15 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
             double* maj_freqs_write_iter = g_cur_maj_freqs[parity];
             for (uint32_t variant_idx = cur_variant_idx_start; variant_idx < cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
               MovU32To1Bit(variant_include, &variant_uidx);
+              const uint32_t maj_allele_idx = maj_alleles[variant_uidx];
               uint32_t dosage_ct;
-              reterr = PgrGetD(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_main_iter, &dosage_ct);
+              reterr = PgrGetInv1D(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx, maj_allele_idx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_main_iter, &dosage_ct);
               if (reterr) {
                 if (reterr == kPglRetMalformedInput) {
                   logputs("\n");
                   logerrputs("Error: Malformed .pgen file.\n");
                 }
                 goto CalcPca_ret_1;
-              }
-              const uint32_t maj_allele_idx = maj_alleles[variant_uidx];
-              if (maj_allele_idx) {
-                GenovecInvertUnsafe(pca_sample_ct, genovec_iter);
-                if (dosage_ct) {
-                  BiallelicDosage16Invert(dosage_ct, dosage_main_iter);
-                }
               }
               ZeroTrailingQuaters(pca_sample_ct, genovec_iter);
               genovec_iter = &(genovec_iter[pca_sample_ctaw2]);
@@ -4047,17 +4037,11 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           double* maj_freqs_write_iter = g_cur_maj_freqs[parity];
           for (uint32_t variant_idx = cur_variant_idx_start; variant_idx < cur_variant_idx_end; ++variant_uidx, ++variant_idx) {
             MovU32To1Bit(variant_include, &variant_uidx);
+            const uint32_t maj_allele_idx = maj_alleles[variant_uidx];
             uint32_t dosage_ct;
-            reterr = PgrGetD(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_main_iter, &dosage_ct);
+            reterr = PgrGetInv1D(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx, maj_allele_idx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_main_iter, &dosage_ct);
             if (reterr) {
               goto CalcPca_ret_READ_FAIL;
-            }
-            const uint32_t maj_allele_idx = maj_alleles[variant_uidx];
-            if (maj_allele_idx) {
-              GenovecInvertUnsafe(pca_sample_ct, genovec_iter);
-              if (dosage_ct) {
-                BiallelicDosage16Invert(dosage_ct, dosage_main_iter);
-              }
             }
             ZeroTrailingQuaters(pca_sample_ct, genovec_iter);
             genovec_iter = &(genovec_iter[pca_sample_ctaw2]);
@@ -4317,17 +4301,11 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           double* maj_freqs_write_iter = g_cur_maj_freqs[parity];
           for (uint32_t variant_idx = cur_variant_idx_start; variant_idx < cur_variant_idx_end; ++variant_uidx_load, ++variant_idx) {
             MovU32To1Bit(variant_include, &variant_uidx_load);
+            const uint32_t maj_allele_idx = maj_alleles[variant_uidx_load];
             uint32_t dosage_ct;
-            reterr = PgrGetD(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx_load, simple_pgrp, genovec_iter, dosage_present_iter, dosage_main_iter, &dosage_ct);
+            reterr = PgrGetInv1D(pca_sample_include, pca_sample_include_cumulative_popcounts, pca_sample_ct, variant_uidx_load, maj_allele_idx, simple_pgrp, genovec_iter, dosage_present_iter, dosage_main_iter, &dosage_ct);
             if (reterr) {
               goto CalcPca_ret_READ_FAIL;
-            }
-            const uint32_t maj_allele_idx = maj_alleles[variant_uidx_load];
-            if (maj_allele_idx) {
-              GenovecInvertUnsafe(pca_sample_ct, genovec_iter);
-              if (dosage_ct) {
-                BiallelicDosage16Invert(dosage_ct, dosage_main_iter);
-              }
             }
             ZeroTrailingQuaters(pca_sample_ct, genovec_iter);
             genovec_iter = &(genovec_iter[pca_sample_ctaw2]);
@@ -4593,7 +4571,7 @@ void FillCurDosageInts(const uintptr_t* genovec_buf, const uintptr_t* dosage_pre
   }
 }
 
-CONSTU31(kScoreVariantBlockSize, 240);
+CONSTI32(kScoreVariantBlockSize, 240);
 static double* g_dosages_vmaj[2] = {nullptr, nullptr};
 static double* g_score_coefs_cmaj[2] = {nullptr, nullptr};
 // don't bother to explicitly multithread for now
@@ -4911,9 +4889,8 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
           }
           if (cur_allele_idx != cur_allele_ct) {
             // okay, the variant and allele are in our dataset.  Load it.
-            // (todo: make this work in multiallelic case)
             uint32_t dosage_ct;
-            reterr = PgrGetD(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, simple_pgrp, genovec_buf, dosage_present_buf, dosage_main_buf, &dosage_ct);
+            reterr = PgrGet1D(sample_include, sample_include_cumulative_popcounts, sample_ct, variant_uidx, cur_allele_idx, simple_pgrp, genovec_buf, dosage_present_buf, dosage_main_buf, &dosage_ct);
             if (reterr) {
               if (reterr == kPglRetMalformedInput) {
                 logputs("\n");
@@ -4938,14 +4915,6 @@ PglErr ScoreReport(const uintptr_t* sample_include, const SampleIdInfo* siip, co
             is_relevant_x = is_relevant_x && xchr_model;
 
             const uint32_t is_y = (chr_idx == y_code);
-            // pre-multiallelic kludge: current counts are for alt1, invert if
-            // score is based on ref allele
-            if (!cur_allele_idx) {
-              GenovecInvertUnsafe(sample_ct, genovec_buf);
-              if (dosage_ct) {
-                BiallelicDosage16Invert(dosage_ct, dosage_main_buf);
-              }
-            }
             ZeroTrailingQuaters(sample_ct, genovec_buf);
             GenovecToMissingnessUnsafe(genovec_buf, sample_ct, missing_acc1);
             if (dosage_ct) {

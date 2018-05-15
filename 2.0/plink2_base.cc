@@ -375,6 +375,41 @@ void BitvecAndNot(const uintptr_t* __restrict exclude_bitvec, uintptr_t word_ct,
 #endif
 }
 
+void BitvecInvert(uintptr_t word_ct, uintptr_t* main_bitvec) {
+#ifdef __LP64__
+  VecW* main_bitvvec_iter = R_CAST(VecW*, main_bitvec);
+  const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
+  const VecW all1 = VCONST_W(~k0LU);
+  if (full_vec_ct & 1) {
+    *main_bitvvec_iter++ ^= all1;
+  }
+  if (full_vec_ct & 2) {
+    *main_bitvvec_iter++ ^= all1;
+    *main_bitvvec_iter++ ^= all1;
+  }
+  for (uintptr_t ulii = 3; ulii < full_vec_ct; ulii += 4) {
+    *main_bitvvec_iter++ ^= all1;
+    *main_bitvvec_iter++ ^= all1;
+    *main_bitvvec_iter++ ^= all1;
+    *main_bitvvec_iter++ ^= all1;
+  }
+#  ifdef USE_AVX2
+  if (word_ct & 2) {
+    const uintptr_t base_idx = full_vec_ct * kWordsPerVec;
+    main_bitvec[base_idx] ^= ~k0LU;
+    main_bitvec[base_idx + 1] ^= ~k0LU;
+  }
+#  endif
+  if (word_ct & 1) {
+    main_bitvec[word_ct - 1] ^= ~k0LU;
+  }
+#else
+  for (uintptr_t widx = 0; widx < word_ct; ++widx) {
+    main_bitvec[widx] ^= ~k0LU;
+  }
+#endif
+}
+
 uintptr_t AdvTo1Bit(const uintptr_t* bitarr, uintptr_t loc) {
   const uintptr_t* bitarr_iter = &(bitarr[loc / kBitsPerWord]);
   uintptr_t ulii = (*bitarr_iter) >> (loc % kBitsPerWord);

@@ -30,8 +30,8 @@
 
 #ifdef NOLAPACK
 typedef double MatrixInvertBuf1;
-CONSTU31(kMatrixInvertBuf1ElemAlloc, 2 * sizeof(double));
-CONSTU31(kMatrixInvertBuf1CheckedAlloc, 2 * sizeof(double));
+CONSTI32(kMatrixInvertBuf1ElemAlloc, 2 * sizeof(double));
+CONSTI32(kMatrixInvertBuf1CheckedAlloc, 2 * sizeof(double));
 #  define __CLPK_integer int
 
 #else  // not NOLAPACK
@@ -144,9 +144,9 @@ static_assert(sizeof(MKL_INT) == 8, "Unexpected MKL_INT size.");
 
 typedef __CLPK_integer MatrixInvertBuf1;
 // need to be careful about >= 2^32?
-CONSTU31(kMatrixInvertBuf1ElemAlloc, sizeof(__CLPK_integer));
+CONSTI32(kMatrixInvertBuf1ElemAlloc, sizeof(__CLPK_integer));
 // invert_matrix_checked() usually requires a larger buffer
-CONSTU31(kMatrixInvertBuf1CheckedAlloc, 2 * sizeof(__CLPK_integer));
+CONSTI32(kMatrixInvertBuf1CheckedAlloc, 2 * sizeof(__CLPK_integer));
 
 #endif  // !NOLAPACK
 
@@ -181,8 +181,8 @@ HEADER_INLINE float DotprodFShort(const float* vec1, const float* vec2, uint32_t
 }
 
 // todo: benchmark again after Spectre/Meltdown mitigation is deployed
-CONSTU31(kDotprodDThresh, 17);
-CONSTU31(kDotprodFThresh, 15);
+CONSTI32(kDotprodDThresh, 17);
+CONSTI32(kDotprodFThresh, 15);
 
 #ifdef NOLAPACK
 HEADER_INLINE double DotprodD(const double* vec1, const double* vec2, uint32_t ct) {

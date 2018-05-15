@@ -968,41 +968,6 @@ void BitvecOr(const uintptr_t* __restrict arg_bitvec, uintptr_t word_ct, uintptr
 #endif
 }
 
-void BitvecInvert(uintptr_t word_ct, uintptr_t* main_bitvec) {
-#ifdef __LP64__
-  VecW* main_bitvvec_iter = R_CAST(VecW*, main_bitvec);
-  const uintptr_t full_vec_ct = word_ct / kWordsPerVec;
-  const VecW all1 = VCONST_W(~k0LU);
-  if (full_vec_ct & 1) {
-    *main_bitvvec_iter++ ^= all1;
-  }
-  if (full_vec_ct & 2) {
-    *main_bitvvec_iter++ ^= all1;
-    *main_bitvvec_iter++ ^= all1;
-  }
-  for (uintptr_t ulii = 3; ulii < full_vec_ct; ulii += 4) {
-    *main_bitvvec_iter++ ^= all1;
-    *main_bitvvec_iter++ ^= all1;
-    *main_bitvvec_iter++ ^= all1;
-    *main_bitvvec_iter++ ^= all1;
-  }
-#  ifdef USE_AVX2
-  if (word_ct & 2) {
-    const uintptr_t base_idx = full_vec_ct * kWordsPerVec;
-    main_bitvec[base_idx] ^= ~k0LU;
-    main_bitvec[base_idx + 1] ^= ~k0LU;
-  }
-#  endif
-  if (word_ct & 1) {
-    main_bitvec[word_ct - 1] ^= ~k0LU;
-  }
-#else
-  for (uintptr_t widx = 0; widx < word_ct; ++widx) {
-    main_bitvec[widx] ^= ~k0LU;
-  }
-#endif
-}
-
 void BitvecInvertCopy(const uintptr_t* __restrict source_bitvec, uintptr_t word_ct, uintptr_t* __restrict target_bitvec) {
 #ifdef __LP64__
   const VecW* source_bitvvec_iter = R_CAST(const VecW*, source_bitvec);
@@ -3016,7 +2981,7 @@ uint32_t Edit1Match(const char* s1, const char* s2, uint32_t len1, uint32_t len2
   return 1;
 }
 
-CONSTU31(kMaxEqualHelpParams, 64);
+CONSTI32(kMaxEqualHelpParams, 64);
 
 void HelpPrint(const char* cur_params, HelpCtrl* help_ctrl_ptr, uint32_t postprint_newline, const char* payload) {
   if (help_ctrl_ptr->param_ct) {

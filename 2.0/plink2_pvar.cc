@@ -25,7 +25,7 @@ namespace plink2 {
 // elements, but demultiplexing was relatively expensive.  now we allocate
 // size-64k pos[], allele_idxs[], ids[], cms[], etc. blocks, and just memcpy
 // those chunks at the end.  (cms[] is lazy-initialized.)
-CONSTU31(kLoadPvarBlockSize, 65536);
+CONSTI32(kLoadPvarBlockSize, 65536);
 static_assert(!(kLoadPvarBlockSize & (kLoadPvarBlockSize - 1)), "kLoadPvarBlockSize must be a power of 2.");
 static_assert(kLoadPvarBlockSize >= (kMaxMediumLine / 8), "kLoadPvarBlockSize cannot be smaller than kMaxMediumLine / 8.");
 
@@ -49,7 +49,7 @@ PglErr ReadChrsetHeaderLine(const char* chrset_iter, const char* file_descrip, M
         // save off info we need for consistency check
         cmdline_autosome_ct = cip->autosome_ct;
         cmdline_haploid = cip->haploid_mask[0] & 1;
-        STD_ARRAY_REF_COPY(cip->xymt_codes, kChrOffsetCt, cmdline_xymt_codes);
+        STD_ARRAY_COPY(cip->xymt_codes, kChrOffsetCt, cmdline_xymt_codes);
       }
       ZeroWArr(kChrMaskWords, cip->haploid_mask);
     }

@@ -63,7 +63,7 @@ namespace plink2 {
 // FID/IID-sensitive sample filters are applied.
 
 // chosen to be likely to fit in L3 cache
-CONSTU31(kCatHtableSize, 524287);
+CONSTI32(kCatHtableSize, 524287);
 static_assert(kCatHtableSize >= kMaxPhenoCt, "kCatHtableSize cannot be smaller than kMaxPhenoCt.");
 
 PglErr LoadPsam(const char* psamname, const RangeList* pheno_range_list_ptr, FamCol fam_cols, uint32_t pheno_ct_max, int32_t missing_pheno, uint32_t affection_01, PedigreeIdInfo* piip, uintptr_t** sample_include_ptr, uintptr_t** founder_info_ptr, uintptr_t** sex_nm_ptr, uintptr_t** sex_male_ptr, PhenoCol** pheno_cols_ptr, char** pheno_names_ptr, uint32_t* raw_sample_ct_ptr, uint32_t* pheno_ct_ptr, uintptr_t* max_pheno_name_blen_ptr);

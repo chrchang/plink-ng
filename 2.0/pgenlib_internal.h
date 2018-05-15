@@ -74,9 +74,9 @@
 #include "plink2_base.h"
 
 // 10000 * major + 100 * minor + patch
-// Exception to CONSTU31, since we want the preprocessor to have access to this
+// Exception to CONSTI32, since we want the preprocessor to have access to this
 // value.  Named with all caps as a consequence.
-#define PGENLIB_INTERNAL_VERNUM 1003
+#define PGENLIB_INTERNAL_VERNUM 1004
 
 #ifdef __cplusplus
 namespace plink2 {
@@ -84,10 +84,12 @@ namespace plink2 {
 
 // other configuration-ish values needed by plink2_common subset
 typedef unsigned char AlleleCode;
+typedef uint16_t DoubleAlleleCode;
+static_assert(sizeof(DoubleAlleleCode) == 2 * sizeof(AlleleCode), "Inconsistent AlleleCode and DoubleAlleleCode definitions.");
 // Set this to 65534 if AlleleCode is uint16_t, 2^24 - 1 if uint32_t.
-CONSTU31(kPglMaxAltAlleleCt, 254);
+CONSTI32(kPglMaxAltAlleleCt, 254);
 #define kMissingAlleleCode S_CAST(AlleleCode, -1)
-CONSTU31(kAlleleCodesPerVec, kBytesPerVec / sizeof(AlleleCode));
+CONSTI32(kAlleleCodesPerVec, kBytesPerVec / sizeof(AlleleCode));
 
 // more verbose than (val + 3) / 4, but may as well make semantic meaning
 // obvious; any explicit DivUp(val, 4) expressions should have a different
@@ -151,7 +153,7 @@ HEADER_INLINE uint32_t Popcount01Word(uintptr_t val) {
 #endif
 
 // safe errstr_buf size for pgen_init_phase{1,2}()
-CONSTU31(kPglErrstrBufBlen, kPglFnamesize + 256);
+CONSTI32(kPglErrstrBufBlen, kPglFnamesize + 256);
 
 // assumes subset_mask has trailing zeroes up to the next vector boundary
 void FillInterleavedMaskVec(const uintptr_t* __restrict subset_mask, uint32_t base_vec_ct, uintptr_t* interleaved_mask_vec);
@@ -312,21 +314,21 @@ HEADER_INLINE void FPutVint31(uint32_t uii, FILE* ff) {
 */
 
 // main batch size
-CONSTU31(kPglQuaterTransposeBatch, kQuatersPerCacheline);
+CONSTI32(kPglQuaterTransposeBatch, kQuatersPerCacheline);
 
 // word width of each matrix row
-CONSTU31(kPglQuaterTransposeWords, kWordsPerCacheline);
+CONSTI32(kPglQuaterTransposeWords, kWordsPerCacheline);
 
 #ifdef USE_AVX2
-CONSTU31(kPglQuaterTransposeBufbytes, kPglQuaterTransposeBatch);
+CONSTI32(kPglQuaterTransposeBufbytes, kPglQuaterTransposeBatch);
 
 void TransposeQuaterblockAvx2(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, void* __restrict buf0);
 #else
-CONSTU31(kPglQuaterTransposeBufbytes, (kPglQuaterTransposeBatch * kPglQuaterTransposeBatch) / 2);
+CONSTI32(kPglQuaterTransposeBufbytes, (kPglQuaterTransposeBatch * kPglQuaterTransposeBatch) / 2);
 
 void TransposeQuaterblockNoAvx2(const uintptr_t* read_iter, uint32_t read_ul_stride, uint32_t write_ul_stride, uint32_t read_batch_size, uint32_t write_batch_size, uintptr_t* __restrict write_iter, unsigned char* __restrict buf0, unsigned char* __restrict buf1);
 #endif
-CONSTU31(kPglQuaterTransposeBufwords, kPglQuaterTransposeBufbytes / kBytesPerWord);
+CONSTI32(kPglQuaterTransposeBufwords, kPglQuaterTransposeBufbytes / kBytesPerWord);
 // up to 256x256; vecaligned_buf must have size 32k (256 bytes in AVX2 case)
 // write_iter must be allocated up to at least
 //   RoundUpPow2(write_batch_size, 2) rows
@@ -366,13 +368,13 @@ void SplitHomRef2het(const uintptr_t* genoarr, uint32_t sample_ct, uintptr_t* __
 // other configuration-ish values
 // this part of the specification is set in stone.
 
-CONSTU31(kPglVblockSize, 65536);
+CONSTI32(kPglVblockSize, 65536);
 
 // Currently chosen so that it plus kPglFwriteBlockSize + kCacheline - 2 is
 // < 2^32, so DivUp(kPglMaxBytesPerVariant + kPglFwriteBlockSize - 1,
 // kCacheline) doesn't overflow.
 static const uint32_t kPglMaxBytesPerVariant = 0xfffdffc0U;
-// CONSTU31(kPglMaxBytesPerDataTrack, 0x7ffff000);
+// CONSTI32(kPglMaxBytesPerDataTrack, 0x7ffff000);
 // static_assert(kMaxBytesPerIO >= (int32_t)kPglMaxBytesPerDataTrack, "pgenlib_internal assumes a single variant data track always fits in one fread/fwrite operation.");
 
 // mmap is a horrible idea for 32-bit builds, and as long as we have non-mmap
@@ -388,7 +390,7 @@ static const uint32_t kPglMaxBytesPerVariant = 0xfffdffc0U;
 #endif
 
 // currently must be power of 2, and multiple of (kBitsPerWord / 2)
-CONSTU31(kPglDifflistGroupSize, 64);
+CONSTI32(kPglDifflistGroupSize, 64);
 
 FLAGSET_DEF_START()
   kfPgenGlobal0,
@@ -414,11 +416,11 @@ FLAGSET_DEF_END(PgrLdcacheFlags);
 // entries.  (however, returned difflists can have up to twice as many entries,
 // when a variant is LD-compressed and the reference variant is
 // difflist-compressed.)
-CONSTU31(kPglMaxDifflistLenDivisor, 8);
+CONSTI32(kPglMaxDifflistLenDivisor, 8);
 
 // threshold for using a deltalist to represent a bitarray on disk (currently
 // relevant for dosage data)
-CONSTU31(kPglMaxDeltalistLenDivisor, 9);
+CONSTI32(kPglMaxDeltalistLenDivisor, 9);
 
 // The actual format:
 // 1. 2 magic bytes 0x6c 0x1b.
@@ -694,10 +696,12 @@ struct PgenFileInfoStruct {
   //        representing [(hap1 alt prob) - (hap2 alt prob)], etc., where the
   //        underlying values are represented in [0..16384] (so the signed
   //        difference is in [-16384..16384]).  Track #4 contains the
-  //        corresponding sums; parity should always match whenever
-  //        dphase_delta is nonzero.  In fixed-width case, -32768 should be
-  //        stored in track #8 when the entire call is missing, while 0 and
-  //        missing-phase are considered synonymous.
+  //        corresponding sums; parity does NOT need to match (necessary to
+  //        allow this since we treat omitted values as zero; and since we are
+  //        allowing it, no point in making parity match in other situations
+  //        either).  In fixed-width case, -32768 should be stored in track #8
+  //        when the entire call is missing, while 0 and missing-phase are
+  //        considered synonymous.
   //        In the biallelic case, if a hardcall is phased, a dosage is
   //        present, and no explicit dosage-phase is, we define it to mean the
   //        unique dphase_delta sequence with maximal absolute value, and
@@ -825,7 +829,7 @@ struct PgenReaderStruct {
 typedef struct PgenReaderStruct PgenReader;
 
 // might want this value to be typed...
-CONSTU31(kPglVrtypePlink1, 256);
+CONSTI32(kPglVrtypePlink1, 256);
 
 HEADER_INLINE uint32_t GetPgfiVrtype(const PgenFileInfo* pgfip, uint32_t vidx) {
   if (pgfip->vrtypes) {
@@ -1121,7 +1125,11 @@ PglErr PgrGetP(const uintptr_t* __restrict sample_include, const uint32_t* __res
 // if dosage_present and dosage_main are nullptr, dosage data is ignored
 PglErr PgrGetD(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr);
 
-PglErr PgrGetDWithCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* mach_r2_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts, STD_ARRAY_REF(uint64_t, 2) all_dosages);
+PglErr PgrGet1D(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr);
+
+PglErr PgrGetInv1D(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr);
+
+PglErr PgrGetDCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, double* mach_r2_ptr, STD_ARRAY_REF(uint32_t, 4) genocounts, STD_ARRAY_REF(uint64_t, 2) all_dosages);
 
 // ok for both dosage_present and dosage_main to be nullptr when no dosage data
 // is present
@@ -1129,8 +1137,10 @@ PglErr PgrGetDWithCounts(const uintptr_t* __restrict sample_include, const uintp
 // in that case
 PglErr PgrGetDp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr, uintptr_t* __restrict dphase_present, int16_t* dphase_delta, uint32_t* dphase_ct_ptr);
 
+PglErr PgrGet1Dp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr, uintptr_t* __restrict dphase_present, int16_t* dphase_delta, uint32_t* dphase_ct_ptr);
+
 // interface used by --make-pgen, just performs basic LD/difflist decompression
-// (still needs multiallelic extension)
+// (still needs merge-supporting multiallelic extension)
 PglErr PgrGetRaw(uint32_t vidx, PgenGlobalFlags read_gflags, PgenReader* pgrp, uintptr_t** loadbuf_iter_ptr, unsigned char* loaded_vrtype_ptr);
 
 PglErr PgrValidate(PgenReader* pgrp, char* errstr_buf);
@@ -1199,7 +1209,7 @@ struct PgenWriterCommonStruct {
 
 typedef struct PgenWriterCommonStruct PgenWriterCommon;
 
-CONSTU31(kPglFwriteBlockSize, 131072);
+CONSTI32(kPglFwriteBlockSize, 131072);
 
 // Given packed arrays of unphased biallelic genotypes in uncompressed plink2
 // binary format (00 = hom ref, 01 = het ref/alt1, 10 = hom alt1, 11 =

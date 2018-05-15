@@ -38,15 +38,15 @@ typedef uint16_t Dosage;
 typedef int16_t SDosage;
 typedef uint32_t DosageProd;
 #define kDosageMax (1U << (8 * sizeof(Dosage) - 1))
-CONSTU31(kDosageMid, kDosageMax / 2);
-CONSTU31(kDosage4th, kDosageMax / 4);
-CONSTU31(kDosageMissing, kDosageMax * 2 - 1);
+CONSTI32(kDosageMid, kDosageMax / 2);
+CONSTI32(kDosage4th, kDosageMax / 4);
+CONSTI32(kDosageMissing, kDosageMax * 2 - 1);
 static const double kRecipDosageMax = 0.000030517578125;
 static const double kRecipDosageMid = 0.00006103515625;
 static const double kRecipDosageMidSq = 0.0000000037252902984619140625;
 static const float kRecipDosageMidf = 0.00006103515625;
-CONSTU31(kDosagePerVec, kBytesPerVec / sizeof(Dosage));
-CONSTU31(kDosagePerCacheline, kCacheline / sizeof(Dosage));
+CONSTI32(kDosagePerVec, kBytesPerVec / sizeof(Dosage));
+CONSTI32(kDosagePerCacheline, kCacheline / sizeof(Dosage));
 
 HEADER_CINLINE uintptr_t DosageCtToVecCt(uintptr_t val) {
   return DivUp(val, kDosagePerVec);
@@ -76,15 +76,20 @@ HEADER_INLINE uint32_t DosageHomdist(uint32_t dosage_int) {
   return (dosage_int > kDosageMid)? (kDosageMax - dosage_int) : dosage_int;
 }
 
+// on 0..32768 scale
+HEADER_INLINE uint32_t DphaseHalfdist(uint32_t dphase_side) {
+  return abs_i32(S_CAST(int32_t, dphase_side) - kDosageMid);
+}
+
 // this is a bit arbitrary
-CONSTU31(kMaxPhenoCt, 524287);
+CONSTI32(kMaxPhenoCt, 524287);
 #define MAX_PHENO_CT_STR "524287"
 
 // maximum number of usable cluster computers, this is arbitrary though it
 // shouldn't be larger than 2^32 - 1
 // (actually, there's an overflow danger: [work units] * parallel_idx may not
 // fit in a uint64 if parallel_tot is too high.)
-CONSTU31(kParallelMax, 32768);
+CONSTI32(kParallelMax, 32768);
 
 // unnecessary to use e.g. (1LLU << 0), the FLAGSET64 macros should force the
 // integer type to 64-bit.
@@ -221,7 +226,7 @@ typedef struct APermStruct {
 } APerm;
 
 // (2^31 - 1000001) / 2
-CONSTU31(kApermMax, 1073241823);
+CONSTI32(kApermMax, 1073241823);
 
 typedef struct TwoColParamsStruct {
   NONCOPYABLE(TwoColParamsStruct);
@@ -438,8 +443,8 @@ PglErr OpenAndLoadXidHeader(const char* fname, const char* flag_name, XidHeaderF
 
 
 // note that this is no longer divisible by 64
-CONSTU31(kMaxContigs, 65274);
-CONSTU31(kMaxChrCodeDigits, 5);
+CONSTI32(kMaxContigs, 65274);
+CONSTI32(kMaxChrCodeDigits, 5);
 
 // change ChrIdx to uint32_t if (kMaxContigs + kChrOffsetCt) > 65536
 typedef uint16_t ChrIdx;
@@ -448,13 +453,13 @@ typedef uint16_t ChrIdx;
 // compiler support is available)
 // (not get_htable_fast_size since, an overwhelming majority of the time, we'll
 // have far fewer than 2^16 codes)
-CONSTU31(kChrHtableSize, 130579);
+CONSTI32(kChrHtableSize, 130579);
 
 // (note that n+1, n+2, n+3, and n+4 are reserved for X/Y/XY/MT)
-CONSTU31(kMaxChrTextnum, 95);
+CONSTI32(kMaxChrTextnum, 95);
 
 // get_chr_code_raw() needs to be modified if this changes
-CONSTU31(kMaxChrTextnumSlen, 2);
+CONSTI32(kMaxChrTextnumSlen, 2);
 
 ENUM_U31_DEF_START()
   kChrOffsetX,
@@ -472,21 +477,21 @@ ENUM_U31_DEF_START()
   kChrOffsetCt
 ENUM_U31_DEF_END(XymtOffset);
 
-CONSTU31(kChrRawX, kMaxContigs + kChrOffsetX);
-CONSTU31(kChrRawY, kMaxContigs + kChrOffsetY);
-CONSTU31(kChrRawXY, kMaxContigs + kChrOffsetXY);
-CONSTU31(kChrRawMT, kMaxContigs + kChrOffsetMT);
-CONSTU31(kChrRawPAR1, kMaxContigs + kChrOffsetPAR1);
-CONSTU31(kChrRawPAR2, kMaxContigs + kChrOffsetPAR2);
-CONSTU31(kChrRawEnd, kMaxContigs + kChrOffsetCt);
+CONSTI32(kChrRawX, kMaxContigs + kChrOffsetX);
+CONSTI32(kChrRawY, kMaxContigs + kChrOffsetY);
+CONSTI32(kChrRawXY, kMaxContigs + kChrOffsetXY);
+CONSTI32(kChrRawMT, kMaxContigs + kChrOffsetMT);
+CONSTI32(kChrRawPAR1, kMaxContigs + kChrOffsetPAR1);
+CONSTI32(kChrRawPAR2, kMaxContigs + kChrOffsetPAR2);
+CONSTI32(kChrRawEnd, kMaxContigs + kChrOffsetCt);
 
 static_assert((!(kChrRawEnd % kBitsPerWord)), "kChrRawEnd expression must be updated.");
-CONSTU31(kChrMaskWords, kChrRawEnd / kBitsPerWord);
+CONSTI32(kChrMaskWords, kChrRawEnd / kBitsPerWord);
 
 #ifdef __LP64__
-CONSTU31(kChrExcludeWords, 2);
+CONSTI32(kChrExcludeWords, 2);
 #else
-CONSTU31(kChrExcludeWords, 4);
+CONSTI32(kChrExcludeWords, 4);
 #endif
 static_assert(kChrExcludeWords * kBitsPerWord >= kMaxChrTextnum + 2 * kChrOffsetCt + 1, "kChrExcludeWords must be updated.");
 
@@ -788,7 +793,7 @@ BoolErr allele_reset(const char* newval, uint32_t allele_slen, char** allele_ptr
 void cleanup_allele_storage(uint32_t max_allele_slen, uintptr_t allele_storage_entry_ct, const char** allele_storage);
 */
 
-CONSTU31(kMaxMissingPhenostrBlen, 32);
+CONSTI32(kMaxMissingPhenostrBlen, 32);
 // might want g_input_missing_catname and/or g_output_missing_catname later,
 // but let's start with the simplest implementation
 extern char g_missing_catname[];  // default "NONE", not changeable for now

@@ -119,6 +119,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     HelpPrint("pfile\tpgen\tpvar\tpsam\tbfile\tbed\tbim\tfam\timport-dosage\tdosage", &help_ctrl, 1,
 "  --pvar [filename]      : Specify full name of .pvar/.bim file.\n"
+              );
+    HelpPrint("pfile\tpgen\tpvar\tpsam\tbfile\tbed\tbim\tfam\timport-dosage\tdosage\tvcf\tbcf", &help_ctrl, 1,
 "  --psam [filename]      : Specify full name of .psam/.fam file.\n\n"
                );
     HelpPrint("bfile\tbpfile\tbed\tbim\tfam", &help_ctrl, 1,
@@ -235,26 +237,24 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     }
     HelpPrint("out", &help_ctrl, 1,
 "  --out [prefix]     : Specify prefix for output files.\n\n"
-               );
+              );
     if (!param_ct) {
       fputs(
 "Most runs also require at least one of the following commands:\n\n"
 , stdout);
     }
     HelpPrint("make-pgen\tmake-bpgen\tmake-bed\tmake-just-pvar\tmake-just-psam", &help_ctrl, 1,
-"  --make-pgen <vzs> <format=[code]> <trim-alts>\n"
-"              <erase-phase> <erase-dosage>\n"
+"  --make-pgen <vzs> <format=[code]> <trim-alts> <erase-phase> <erase-dosage>\n"
 "              <pvar-cols=[col set descriptor]> <psam-cols=[col set descriptor]>\n"
-"  --make-bpgen <vzs> <format=[code]> <trim-alts>\n"
-"               <erase-phase> <erase-dosage>\n"
+"  --make-bpgen <vzs> <format=[code]> <trim-alts> <erase-phase> <erase-dosage>\n"
 "  --make-bed <vzs> <trim-alts>\n"
                /*
-"  --make-pgen <vzs> <format=[code]> <multiallelics=[mode]> <trim-alts>\n"
-"              <erase-alt2+> <erase-phase> <erase-dosage>\n"
+"  --make-pgen <vzs> <format=[code]> <trim-alts> <erase-phase> <erase-dosage>\n"
+"              <multiallelics=[mode]> <erase-alt2+>\n"
 "              <pvar-cols=[col set descriptor]> <psam-cols=[col set descriptor]>\n"
-"  --make-bpgen <vzs> <format=[code]> <multiallelics=[mode]> <trim-alts>\n"
-"               <erase-alt2+> <erase-phase> <erase-dosage>\n"
-"  --make-bed <vzs> <multiallelics=[split mode]> <trim-alts>\n"
+"  --make-bpgen <vzs> <format=[code]> <trim-alts> <erase-phase> <erase-dosage>\n"
+"               <multiallelics=[mode]> <erase-alt2+>\n"
+"  --make-bed <vzs> <trim-alts> <multiallelics=[split mode]> <erase-alt2+>\n"
                */
 "    Create a new PLINK binary fileset (--make-pgen = .pgen + .pvar{.zst} +\n"
 "    .psam, --make-bpgen = .pgen + .bim{.zst} + .fam).\n"
@@ -271,11 +271,16 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                /*
 "        3: unphased dosage data\n"
 "        4: phased dosage data\n"
+"    * The 'trim-alts' modifier causes alternate alleles not present in the\n"
+"      dataset after sample filtering to be removed.  (This occurs before any\n"
+"      genotype/dosage erasure performed by --make-{b}pgen/--make-bed.)\n"
                */
     // Commented out since, while this is on the roadmap, it isn't implemented
     // yet.  (This also applies to other commented-out help text.)
+"    * The 'erase-phase' and 'erase-dosage' modifiers prevent phase and dosage\n"
+"      information from being written to the new .pgen.\n"
                /*
-"    * The 'multiallelics' modifier (alias: 'm') specifies a merge or split\n"
+"    * The 'multiallelics=' modifier (alias: 'm=') specifies a merge or split\n"
 "      mode.  The following modes are currently supported (well, not yet):\n"
 "      * '-': Split all multiallelic records.\n"
 "      * '-snps': Split SNP-only multiallelic records.\n"
@@ -293,16 +298,10 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      INFO splitting/merging and left-alignment and normalization of indels are\n"
 "      not currently supported.  'bcftools norm' (possibly on a single-sample\n"
 "      file) can be used for this.\n"
-"    * The 'trim-alts' modifier causes alternate alleles not present in the\n"
-"      dataset after filtering to be removed.\n"
 "    * The 'erase-alt2+' modifier causes alt alleles past the first to be\n"
-"      removed; affected genotypes are set to missing.  (trim-alts happens\n"
-"      first.)\n"
-               */
-"    * The 'erase-phase' and 'erase-dosage' modifiers prevent phase and dosage\n"
-"      information from being written to the new .pgen.\n"
-               /*
-"    * When the 'multiallelics=', 'trim-alts', and/or 'erase-...' modifier is\n"
+"      removed; affected genotypes are set to missing.  This is applied after\n"
+"      'multiallelics=' merge.\n"
+"    * When the 'trim-alts', 'multiallelics=', and/or 'erase-...' modifier is\n"
 "      present, --make-bed/--make-{b}pgen cannot be combined with other\n"
 "      commands.  (They can be combined with other filters.)\n"
                */
@@ -333,7 +332,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "        phenos: All active phenotypes, if any.  (Can be combined with pheno1 to\n"
 "                force at least one phenotype column to be written.)\n"
 "      The default is maybefid,maybesid,maybeparents,sex,phenos.\n\n"
-               );
+              );
     HelpPrint("make-just-pvar\tmake-just-psam\tmake-just-bim\tmake-just-fam\twrite-cluster\n", &help_ctrl, 1,
 "  --make-just-pvar <zs> <cols=[column set descriptor]>\n"
 "  --make-just-psam <cols=[column set descriptor]>\n"
@@ -344,7 +343,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    USE THESE CAUTIOUSLY.  It is very easy to desynchronize your binary\n"
 "    genotype data and your sample/variant indexes if you use these commands\n"
 "    improperly.  If you have any doubt, stick with --make-{b}pgen/--make-bed.\n\n"
-               );
+              );
     HelpPrint("export\trecode", &help_ctrl, 1,
 "  --export [output format(s)...] <01 | 12> <bgz> <id-delim=[char]>\n"
 "    <id-paste=[column set descriptor]> <include-alt> <omit-nonmale-y> <spaces>\n"
@@ -428,15 +427,13 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * For biallelic formats where it's unspecified whether the reference/major\n"
 "      allele should appear first or second, --export defaults to second for\n"
 "      compatibility with PLINK 1.9.  Use 'ref-first' to change this.\n\n"
-               );
+              );
 
     // don't bother with case/control or cluster-stratification any more, since
     // user can loop through subgroups and then use Unix cut/paste
 
-    // todo: add optional columns for computed MAF (nothing here quite
-    // corresponds to nonmajor_freqs when e.g. --maf-succ was specified) and
-    // machr2 (this is probably the best home since, unlike --geno-counts and
-    // --hardy, it's dosage-aware).
+    // todo: add optional column for computed MAF (nothing here quite
+    // corresponds to nonmajor_freqs when e.g. --maf-succ was specified).
     HelpPrint("freq\tmach-r2-filter", &help_ctrl, 1,
 "  --freq <zs> <counts> <cols=[column set descriptor]> <bins-only>\n"
 "         <refbins=[comma-separated bin boundaries] | refbins-file=[filename]>\n"
@@ -469,7 +466,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    'alt1bins='/'alt1bins-file=' is present; these report the total number of\n"
 "    frequencies or counts in each left-closed, right-open interval.  (If you\n"
 "    only want these histogram(s), and not the main report, add 'bins-only'.)\n\n"
-               );
+              );
     // this can't really handle dosages, so we specify "hardcall"
     HelpPrint("geno-counts\tfreq\tfreqx\frqx", &help_ctrl, 1,
 "  --geno-counts <zs> <cols=[column set descriptor]>\n"
@@ -501,7 +498,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      missing: Number of missing genotypes.\n"
 "      nobs: Number of (nonmissing) genotype observations.\n"
 "    The default is chrom,ref,alt,homref,refalt,altxy,hapref,hapalt,missing.\n\n"
-               );
+              );
     // todo: add cluster-stratification
     HelpPrint("missing", &help_ctrl, 1,
 "  --missing <zs> <sample-only | variant-only> <scols=[column set descriptor]>\n"
@@ -545,12 +542,12 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      fmisshh: Missing hardcall rate, counting het haploids.\n"
 "      fhethap: Heterozygous haploid rate.\n"
 "    The default is chrom,nmiss,nobs,fmiss.\n\n"
-               );
+              );
     HelpPrint("hardy", &help_ctrl, 1,
 "  --hardy <zs> <midp> <cols=[column set descriptor]>\n"
 "    Hardy-Weinberg exact test p-value report(s).\n"
-"    * For multiallelic variants, the test is based on the reference allele.\n"
 "    * By default, only founders are considered; change this with --nonfounders.\n"
+"    * For multiallelic variants, the test is based on major allele counts.\n"
 "    * chrX is now omitted from the main {output prefix}.hardy report.  Instead,\n"
 "      (if present) it gets its own {output prefix}.hardy.x report based on the\n"
 "      method described in Graffelman J, Weir BS (2016) Hardy-Weinberg\n"
@@ -563,12 +560,14 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      ref: Reference allele.\n"
 "      alt1: Alternate allele 1.\n"
 "      alt: All alternate alleles, comma-separated.\n"
-"      gcounts: Hom-ref count, total number of ref-altx heterozygous calls, and\n"
-"               total number of nonmissing calls with no reference allele.  On\n"
-"               chrX, these are followed by male ref and male alt counts.\n"
+"      maj: Major allele.\n"
+"      nonmaj: All nonmajor alleles, comma-separated.\n"
+"      gcounts: Hom-maj count, total number of maj-nonmaj heterozygous calls,\n"
+"               and total number of nonmissing calls with no major allele.  On\n"
+"               chrX, these are followed by male maj and male nonmaj counts.\n"
 "      gcount1col: gcounts values in a single comma-separated column.\n"
-"      hetfreq: Observed and expected heterozygote frequencies.\n"
-"      sexaf: Female and male ref allele frequencies (chrX only).\n"
+"      hetfreq: Observed and expected maj-nonmaj heterozygote frequencies.\n"
+"      sexaf: Female and male maj allele frequencies (chrX only).\n"
 "      femalep: Female-only p/midp-value (chrX only).\n"
 "      p: Hardy-Weinberg equilibrium exact test p/midp-value.\n"
 "    The default is chrom,ref,alt,gcounts,hetfreq,sexaf,p.\n\n"
@@ -576,21 +575,25 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     HelpPrint("indep\tindep-pairwise", &help_ctrl, 1,
 "  --indep-pairwise [window size]<kb> {step size (variant ct)}\n"
 "                   [unphased-hardcall-r^2 threshold]\n"
-"    Generate a list of variants in approximate linkage equilibrium.  With the\n"
-"    'kb' modifier, the window size is in kilobase instead of variant count\n"
-"    units.  (Pre-'kb' space is optional, i.e. '--indep-pairwise 500 kb 0.5' and\n"
-"    and '--indep-pairwise 500kb 0.5' have the same effect.)\n"
-"    The step size now defaults to 1 if it's unspecified, and *must* be 1 if the\n"
-"    window is in kilobase units.\n"
+"    Generate a list of variants in approximate linkage equilibrium.\n"
+"    * For multiallelic variants, major allele counts are used in the r^2\n"
+"      computation.\n"
+"    * With the 'kb' modifier, the window size is in kilobase instead of variant\n"
+"      count units.  (Pre-'kb' space is optional, i.e.\n"
+"      '--indep-pairwise 500 kb 0.5' and '--indep-pairwise 500kb 0.5' have the\n"
+"      same effect.)\n"
+"    * The step size now defaults to 1 if it's unspecified, and *must* be 1 if\n"
+"      the window is in kilobase units.\n"
 "    Note that you need to rerun plink2 using --extract or --exclude on the\n"
 "    .prune.in/.prune.out file to apply the list to another computation.\n\n"
-               );
-    // todo: replace --indep-pairphase with new --ld approach (possibly with
-    // its optional dosage support?)
+              );
+    // todo: implement --indep-pairphase with new --ld approach.  (eventually
+    // add an option to take dosages into account?  but not a priority.)
     HelpPrint("ld", &help_ctrl, 1,
 "  --ld [variant ID] [variant ID] <dosage> <hwe-midp>\n"
 "    This displays diplotype frequencies, r^2, and D' for a single pair of\n"
 "    variants.\n"
+"    * For multiallelic variants, major allele counts/dosages are used.\n"
 "    * Phase information is used when both variants are on the same chromosome.\n"
 "    * When there is at least one sample with unphased het calls for both\n"
 "      variants, diplotype frequencies are estimated using the Hill equation.\n"
@@ -603,9 +606,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
     // for kinship estimation, LD pruning isn't really advisable (if more speed
     // is needed, the humble --bp-space may lead to a better approximation?
-    // and in practice speed isn't an issue any more with --make-king, though
-    // there may be more work to do re: not blowing the cache when there are
-    // 100k+ samples)
+    // and in practice speed doesn't seem to be an issue any more with
+    // --make-king
     HelpPrint("make-king\tmake-king-table", &help_ctrl, 1,
 "  --make-king <square | square0 | triangle> <zs | bin | bin4>\n"
 "    KING-robust kinship estimator, described by Manichaikul A, Mychaleckyj JC,\n"
@@ -620,6 +622,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * Only autosomes are currently considered.\n"
 "    * Pedigree information is currently ignored; the between-family estimator\n"
 "      is used for all pairs.\n"
+"    * For multiallelic variants, major allele counts are used.\n"
 "    * If the 'square' or 'square0' modifier is present, a square matrix is\n"
 "      written instead; 'square0' fills the upper right triangle with zeroes.\n"
 "    * If the 'zs' modifier is present, the .king file is Zstd-compressed.\n"
@@ -1354,6 +1357,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                   equilibrium exact test p-values below a\n"
 "                                   threshold.\n"
 "                                   * By default, only founders are considered.\n"
+"                                   * For multiallelic variants, the test is\n"
+"                                     based on major allele counts.\n"
 "                                   * chrX p-values are now computed using\n"
 "                                     Graffelman and Weir's method.\n"
 "                                   * With 'keep-fewhet', variants which fail\n"
@@ -1368,6 +1373,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                                   (defaults 0.1 and 2.0).\n"
 "                                   * If a single parameter is provided, it is\n"
 "                                     treated as the minimum.\n"
+"                                   * The metric is not computed on chrX and MT.\n"
                );
     HelpPrint("keep-females\tkeep-males\tkeep-nosex\tremove-females\tremove-males\tremove-nosex\tfilter-males\tfilter-females", &help_ctrl, 0,
 "  --keep-females     : Exclude male and unknown-sex samples.\n"

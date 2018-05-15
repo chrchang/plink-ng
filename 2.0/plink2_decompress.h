@@ -99,7 +99,7 @@ PglErr IsBgzf(const char* fname, uint32_t* is_bgzf_ptr);
 
 // (tested a few different values for this, 1 MiB appears to work well on the
 // systems we care most about)
-CONSTU31(kDecompressChunkSize, 1048576);
+CONSTI32(kDecompressChunkSize, 1048576);
 static_assert(!(kDecompressChunkSize % kCacheline), "kDecompressChunkSize must be a multiple of kCacheline.");
 
 // consumer -> reader message
@@ -167,12 +167,12 @@ typedef struct ReadLineStreamStruct {
 
 void PreinitRLstream(ReadLineStream* rlsp);
 
-CONSTU31(kRLstreamBlenLowerBound, 2 * kDecompressChunkSize);
+CONSTI32(kRLstreamBlenLowerBound, 2 * kDecompressChunkSize);
 static_assert(kRLstreamBlenLowerBound >= kMaxMediumLine, "max_line_blen lower limit too small.");
 // Noticeable slowdown below this buffer size (11+1 = 12 MiB) on my dev
 // machine.  (Additional buffer space beyond this point can still help a little
 // bit.)
-CONSTU31(kRLstreamBlenFast, 11 * kDecompressChunkSize);
+CONSTI32(kRLstreamBlenFast, 11 * kDecompressChunkSize);
 
 // required_byte_ct can't be greater than kMaxLongLine.
 // unstandardized_byte_ct cannot be bigstack_left() here, because the read
