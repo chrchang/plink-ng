@@ -338,6 +338,18 @@ HEADER_INLINE uintptr_t GetMaxSampleFmtidBlen(const SampleIdInfo* siip, uint32_t
 
 BoolErr CollapsedSampleFmtidInitAlloc(const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t sample_ct, uint32_t include_fid, uint32_t include_sid, char** collapsed_sample_fmtids_ptr, uintptr_t* max_sample_fmtid_blen_ptr);
 
+uint32_t GetMajIdxMulti(const double* cur_allele_freqs, uint32_t cur_allele_ct);
+
+HEADER_INLINE uint32_t GetMajIdx(const double* cur_allele_freqs, uint32_t cur_allele_ct) {
+  if (cur_allele_freqs[0] >= 0.5) {
+    return 0;
+  }
+  if (cur_allele_ct == 2) {
+    return 1;
+  }
+  return GetMajIdxMulti(cur_allele_freqs, cur_allele_ct);
+}
+
 HEADER_INLINE double GetNonmajFreq(const double* cur_allele_freqs, uint32_t cur_allele_ct) {
   double tot_nonlast_freq = cur_allele_freqs[0];
   double max_freq = tot_nonlast_freq;
@@ -362,8 +374,7 @@ HEADER_INLINE double GetAlleleFreq(const double* cur_allele_freqs, uint32_t alle
   for (uint32_t tmp_allele_idx = 1; tmp_allele_idx < cur_allele_ct_m1; ++tmp_allele_idx) {
     last_freq -= cur_allele_freqs[tmp_allele_idx];
   }
-  // possible todo: force this to be nonnegative?
-  return last_freq;
+  return MAXV(last_freq, 0.0);
 }
 
 

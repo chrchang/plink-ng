@@ -324,6 +324,33 @@ BoolErr CollapsedSampleFmtidInitAlloc(const uintptr_t* sample_include, const Sam
   return 0;
 }
 
+uint32_t GetMajIdxMulti(const double* cur_allele_freqs, uint32_t cur_allele_ct) {
+  double max_freq = cur_allele_freqs[1];
+  if (max_freq >= 0.5) {
+    return 1;
+  }
+  double tot_nonlast_freq = cur_allele_freqs[0];
+  uint32_t maj_allele_idx = 1;
+  if (tot_nonlast_freq >= max_freq) {
+    maj_allele_idx = 0;
+    max_freq = tot_nonlast_freq;
+  }
+  tot_nonlast_freq += max_freq;
+  const uint32_t cur_allele_ct_m1 = cur_allele_ct - 1;
+  for (uint32_t allele_idx = 2; allele_idx < cur_allele_ct_m1; ++allele_idx) {
+    const double cur_freq = cur_allele_freqs[allele_idx];
+    if (cur_freq > max_freq) {
+      maj_allele_idx = allele_idx;
+      max_freq = cur_freq;
+    }
+    tot_nonlast_freq += cur_freq;
+  }
+  if (max_freq + tot_nonlast_freq < 1.0 - kSmallEpsilon) {
+    return cur_allele_ct_m1;
+  }
+  return maj_allele_idx;
+}
+
 // forced SID '0' if sids == nullptr
 // ok for sample_augid_map_ptr == nullptr
 PglErr AugidInitAlloc(const uintptr_t* sample_include, const SampleIdInfo* siip, uint32_t sample_ct, uint32_t** sample_augid_map_ptr, char** sample_augids_ptr, uintptr_t* max_sample_augid_blen_ptr) {

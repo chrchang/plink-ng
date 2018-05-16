@@ -2683,31 +2683,76 @@ WriteMissingnessReports_ret_1:
   return reterr;
 }
 
-PglErr HardyMaj(__maybe_unused const uintptr_t* founder_info, __maybe_unused const uintptr_t* sex_nm, __maybe_unused const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const AlleleCode* maj_alleles, __maybe_unused uint32_t raw_sample_ct, uint32_t variant_ct, __maybe_unused PgenReader* simple_pgrp, STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_male_geno_cts), STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_nosex_geno_cts)) {
+/*
+PglErr HardyMultiallelic(__maybe_unused const uintptr_t* founder_info, __maybe_unused const uintptr_t* sex_nm, __maybe_unused const uintptr_t* sex_male, const uintptr_t* variant_include, const ChrInfo* cip, const uintptr_t* allele_idx_offsets, const double* allele_freqs, uint32_t raw_sample_ct, uint32_t autosomal_variant_ct, uint32_t hwe_x_ct, uint32_t hwe_multiallelic_flags, __maybe_unused PgenReader* simple_pgrp, STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_geno_cts), __maybe_unused STD_ARRAY_PTR_DECL(uint32_t, 6, hwe_triallelic_geno_cts), __maybe_unused double* hwe_triallelic_pvals, __maybe_unused STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_male_geno_cts), __maybe_unused STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_nosex_geno_cts)) {
+  unsigned char* bigstack_mark = g_bigstack_base;
   PglErr reterr = kPglRetSuccess;
   {
-    uint32_t x_start = UINT32_MAX;
-    uint32_t x_end = UINT32_MAX;
-    if (hwe_x_male_geno_cts || hwe_x_nosex_geno_cts) {
-      const uint32_t x_code = cip->xymt_codes[kChrOffsetX];
-      const uint32_t x_chr_fo_idx = cip->chr_idx_to_foidx[x_code];
-      x_start = cip->chr_fo_vidx_start[x_chr_fo_idx];
-      x_end = cip->chr_fo_vidx_start[x_chr_fo_idx + 1];
+    logerrputs("Error: --hardy/--hwe multiallelic support is under development.\n");
+    exit(63);
+    const uint32_t raw_sample_ctv = BitCtToVecCt(raw_sample_ct);
+    const uint32_t raw_sample_ctl = BitCtToWordCt(raw_sample_ct);
+    uintptr_t* founder_info_interleaved_vec;
+    uint32_t* founder_info_cumulative_popcounts;
+    if (bigstack_alloc_w(raw_sample_ctv * kWordsPerVec, &founder_info_interleaved_vec) ||
+        bigstack_alloc_u32(raw_sample_ctl, &founder_info_cumulative_popcounts)) {
+      goto HardyMultiallelic_ret_NOMEM;
     }
-    uint32_t x_thresh = x_start;
-    uint32_t is_x = 0;
-    uint32_t cur_allele_ct = 2;
+    FillInterleavedMaskVec(founder_info, raw_sample_ctv, founder_info_interleaved_vec);
+    FillCumulativePopcounts(founder_info, raw_sample_ctl, founder_info_cumulative_popcounts);
+    const uint32_t founder_ct = founder_info_cumulative_popcounts[raw_sample_ctl - 1] + PopcountWord(founder_info[raw_sample_ctl - 1]);
+    uint32_t chr_fo_idx = UINT32_MAX;
+    uint32_t chr_end = 0;
     uint32_t variant_uidx = 0;
-    for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
-      MovU32To1Bit(variant_include, &variant_uidx);
-      if (variant_uidx >= x_thresh) {
-        is_x = (variant_uidx < x_end);
-        if (!is_x) {
-          x_thresh = UINT32_MAX;
+    PgrClearLdCache(simple_pgrp);
+    if (hwe_multiallelic_flags & 2) {
+      for (uint32_t variant_idx = 0; variant_idx < autosomal_variant_ct; ++variant_idx, ++variant_uidx) {
+        MovU32To1Bit(variant_include, &variant_uidx);
+        if (variant_uidx >= chr_end) {
+          uint32_t chr_idx;
+          do {
+            ++chr_fo_idx;
+            chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+            chr_idx = cip->chr_file_order[chr_fo_idx];
+          } while ((variant_uidx >= chr_end) || IsSet(cip->haploid_mask, chr_idx));
+          variant_uidx = AdvTo1Bit(variant_include, cip->chr_fo_vidx_start[chr_fo_idx]);
         }
+        // just do the same thing as we do on chrX
+        const uintptr_t allele_idx_offsets_base = allele_idx_offsets[variant_uidx];
+        const uint32_t cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets_base;
+        if (cur_allele_ct == 2) {
+          continue;
+        }
+        const uint32_t maj_idx = GetMajIdx(&(allele_freqs[allele_idx_offsets_base - variant_uidx]), cur_allele_ct);
+        if (!maj_idx) {
+          continue;
+        }
+        STD_ARRAY_DECL(uint32_t, 4, genocounts);
+        reterr = PgrGetInv1Counts(founder_info, founder_info_interleaved_vec, founder_info_cumulative_popcounts, founder_ct, variant_uidx, maj_idx, simple_pgrp, genocounts);
+        if (reterr) {
+          if (reterr == kPglRetMalformedInput) {
+            // probably want to attach a more descriptive error buffer to
+            // PgenReader at some point.
+            logputs("\n");
+            logerrputs("Error: Malformed .pgen file.\n");
+          }
+          goto HardyMultiallelic_ret_1;
+        }
+        STD_ARRAY_REF(uint32_t, 3) cur_hwe_geno_cts = hwe_geno_cts[variant_uidx];
+        cur_hwe_geno_cts[0] = genocounts[0];
+        cur_hwe_geno_cts[1] = genocounts[1];
+        cur_hwe_geno_cts[2] = genocounts[2];
       }
-      // could also iterate on nonzero maj_alleles[] bytes
-      const uint32_t maj_idx = maj_alleles[variant_uidx];
+    } else {
+      // want multiple worker threads calling HweTriallelicP()
+      // usual trivial load balancer is a bad idea here, want a work queue
+      // instead since job length can vary pretty wildly (try batches of 8
+      // first, they're cacheline friendly and locking overhead shouldn't be
+      // too horrendous?
+    }
+      const uintptr_t allele_idx_offset_base = allele_idx_offsets[variant_uidx];
+      const uint32_t cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];;;
+      const uint32_t maj_idx = GetMajIdx();
       if (!maj_idx) {
         continue;
       }
@@ -2735,15 +2780,23 @@ PglErr HardyMaj(__maybe_unused const uintptr_t* founder_info, __maybe_unused con
           }
         }
       } else {
-        logerrputs("Error: --hardy/--hwe multiallelic support is under development.\n");
-        exit(63);
       }
+    if (hwe_x_ct) {
+      // todo: leave biallelic variants alone, load major counts for
+      // multiallelics
+      PgrClearLdCache(simple_pgrp);
     }
   }
   while (0) {
+  HardyMultiallelic_ret_NOMEM:
+    reterr = kPglRetNomem;
+    break;
   }
+ HardyMultiallelic_ret_1:
+  BigstackReset(bigstack_mark);
   return reterr;
 }
+*/
 
 // multithread globals
 static const uintptr_t* g_variant_include = nullptr;
@@ -2871,17 +2924,13 @@ PglErr ComputeHweXPvals(const uintptr_t* variant_include, const STD_ARRAY_PTR_DE
   return reterr;
 }
 
-PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const AlleleCode* maj_alleles, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), const double* hwe_x_pvals, uint32_t variant_ct, uint32_t hwe_x_ct, uint32_t max_allele_slen, double output_min_ln, HardyFlags hardy_flags, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end) {
+PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const uint32_t* variant_bps, const char* const* variant_ids, const uintptr_t* allele_idx_offsets, const char* const* allele_storage, const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_nosex_geno_cts), const double* hwe_x_pvals, uint32_t variant_ct, uint32_t hwe_x_ct, uint32_t max_allele_slen, double output_min_ln, HardyFlags hardy_flags, uint32_t max_thread_ct, uint32_t nonfounders, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   char* cswritep = nullptr;
   CompressStreamState css;
   PglErr reterr = kPglRetSuccess;
   PreinitCstream(&css);
   {
-    if (cip->haploid_mask[0] & 1) {
-      logerrputs("Error: --hardy is pointless on an all-haploid genome.\n");
-      goto HardyReport_ret_INCONSISTENT_INPUT;
-    }
     const uint32_t max_chr_blen = GetMaxChrSlen(cip) + 1;
     const uint32_t chr_code_end = cip->max_code + 1 + cip->name_ct;
     const uint32_t chr_code_endl = BitCtToWordCt(chr_code_end);
@@ -2919,12 +2968,12 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
     }
     variant_ct -= variant_skip_ct;
     const uint32_t midp = (hardy_flags / kfHardyMidp) & 1;
+    const uint32_t redundant = (hardy_flags / kfHardyRedundant) & 1;
     const uint32_t chr_col = hardy_flags & kfHardyColChrom;
     const uint32_t ref_col = hardy_flags & kfHardyColRef;
     const uint32_t alt1_col = hardy_flags & kfHardyColAlt1;
     const uint32_t alt_col = hardy_flags & kfHardyColAlt;
-    const uint32_t maj_col = hardy_flags & kfHardyColMaj;
-    const uint32_t nonmaj_col = hardy_flags & kfHardyColNonmaj;
+    const uint32_t ax_col = hardy_flags & kfHardyColAx;
     const uint32_t gcounts = hardy_flags & (kfHardyColGcounts | kfHardyColGcount1col);
     const uint32_t gcount_1col = hardy_flags & kfHardyColGcount1col;
     const char gcount_delim = gcount_1col? ',' : '\t';
@@ -2962,17 +3011,15 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
       if (alt_col) {
         cswritep = strcpya(cswritep, "\tALT");
       }
-      if (maj_col) {
-        cswritep = strcpya(cswritep, "\tMAJ");
-      }
-      if (nonmaj_col) {
-        cswritep = strcpya(cswritep, "\tNONMAJ");
+      cswritep = memcpyl3a(cswritep, "\tA1");
+      if (ax_col) {
+        cswritep = strcpya(cswritep, "\tAX");
       }
       if (gcounts) {
         if (gcount_1col) {
           cswritep = strcpya(cswritep, "\tGCOUNTS");
         } else {
-          cswritep = strcpya(cswritep, "\tHOM_MAJ_CT\tHET_MAJ_CT\tTWO_NONMAJ_CT");
+          cswritep = strcpya(cswritep, "\tHOM_A1_CT\tHET_A1_CT\tTWO_AX_CT");
         }
       }
       if (hetfreq_cols) {
@@ -2998,93 +3045,114 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
       uint32_t cur_allele_ct = 2;
       for (uint32_t variant_idx = 0; variant_idx < variant_ct; ++variant_idx, ++variant_uidx) {
         MovU32To1Bit(variant_include, &variant_uidx);
-        if (chr_col) {
-          if (variant_uidx >= chr_end) {
-            uint32_t chr_idx;
-            do {
-              ++chr_fo_idx;
-              chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
-              chr_idx = cip->chr_file_order[chr_fo_idx];
-            } while ((variant_uidx >= chr_end) || IsSet(chr_skips, chr_idx));
-            variant_uidx = AdvTo1Bit(variant_include, cip->chr_fo_vidx_start[chr_fo_idx]);
+        // bugfix (15 May 2018): this needs to happen even if we aren't
+        // printing #CHROM column
+        if (variant_uidx >= chr_end) {
+          uint32_t chr_idx;
+          do {
+            ++chr_fo_idx;
+            chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+            chr_idx = cip->chr_file_order[chr_fo_idx];
+          } while ((variant_uidx >= chr_end) || IsSet(chr_skips, chr_idx));
+          variant_uidx = AdvTo1Bit(variant_include, cip->chr_fo_vidx_start[chr_fo_idx]);
+          if (chr_col) {
             char* chr_name_end = chrtoa(cip, chr_idx, chr_buf);
             *chr_name_end = '\t';
             chr_buf_blen = 1 + S_CAST(uintptr_t, chr_name_end - chr_buf);
           }
-          cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
         }
-        if (variant_bps) {
-          cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
-        }
-        cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
         uintptr_t allele_idx_offset_base = variant_uidx * 2;
         if (allele_idx_offsets) {
           allele_idx_offset_base = allele_idx_offsets[variant_uidx];
           cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
         }
         const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
-        if (ref_col) {
-          *cswritep++ = '\t';
-          cswritep = strcpya(cswritep, cur_alleles[0]);
-        }
-        if (alt1_col) {
-          *cswritep++ = '\t';
-          cswritep = strcpya(cswritep, cur_alleles[1]);
-        }
-        if (alt_col) {
-          *cswritep++ = '\t';
-          for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct; ++allele_idx) {
-            if (Cswrite(&css, &cswritep)) {
-              goto HardyReport_ret_WRITE_FAIL;
-            }
-            cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
+        const uint32_t print_allele_ct = ((cur_allele_ct == 2) && (!redundant))? 1 : cur_allele_ct;
+        for (uint32_t a1_idx = 0; a1_idx < print_allele_ct; ++a1_idx) {
+          if (chr_col) {
+            cswritep = memcpya(cswritep, chr_buf, chr_buf_blen);
           }
-          --cswritep;
-        }
-        const uint32_t maj_idx = maj_alleles[variant_uidx];
-        if (maj_col) {
-          *cswritep++ = '\t';
-          cswritep = strcpya(cswritep, cur_alleles[maj_idx]);
-        }
-        if (nonmaj_col) {
-          *cswritep++ = '\t';
-          for (uint32_t allele_idx = 0; allele_idx < cur_allele_ct; ++allele_idx) {
-            if (allele_idx == maj_idx) {
-              continue;
-            }
-            if (Cswrite(&css, &cswritep)) {
-              goto HardyReport_ret_WRITE_FAIL;
-            }
-            cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
+          if (variant_bps) {
+            cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
           }
-          --cswritep;
-        }
-        STD_ARRAY_KREF(uint32_t, 3) cur_geno_cts = founder_raw_geno_cts[variant_uidx];
-        if (gcounts) {
+          cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
+          if (ref_col) {
+            *cswritep++ = '\t';
+            cswritep = strcpya(cswritep, cur_alleles[0]);
+          }
+          if (alt1_col) {
+            *cswritep++ = '\t';
+            cswritep = strcpya(cswritep, cur_alleles[1]);
+          }
+          if (alt_col) {
+            *cswritep++ = '\t';
+            for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct; ++allele_idx) {
+              if (Cswrite(&css, &cswritep)) {
+                goto HardyReport_ret_WRITE_FAIL;
+              }
+              cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
+            }
+            --cswritep;
+          }
           *cswritep++ = '\t';
-          cswritep = u32toa_x(cur_geno_cts[0], gcount_delim, cswritep);
-          cswritep = u32toa_x(cur_geno_cts[1], gcount_delim, cswritep);
-          cswritep = u32toa(cur_geno_cts[2], cswritep);
-        }
-        if (hetfreq_cols) {
-          *cswritep++ = '\t';
-          const uint32_t tot_obs = cur_geno_cts[0] + cur_geno_cts[1] + cur_geno_cts[2];
-          const double tot_obs_recip = 1.0 / u31tod(tot_obs);
-          cswritep = dtoa_g(u31tod(cur_geno_cts[1]) * tot_obs_recip, cswritep);
-          *cswritep++ = '\t';
-          const double dbl_maj_freq = (cur_geno_cts[0] * 2 + cur_geno_cts[1]) * tot_obs_recip;
-          const double expected_het_freq = dbl_maj_freq * (1.0 - dbl_maj_freq * 0.5);
-          cswritep = dtoa_g(expected_het_freq, cswritep);
-        }
-        if (p_col) {
-          // possible todo: multithread this
-          *cswritep++ = '\t';
-          const double hwe_p = HweP(cur_geno_cts[1], cur_geno_cts[0], cur_geno_cts[2], midp);
-          cswritep = dtoa_g(MAXV(hwe_p, output_min_p), cswritep);
-        }
-        AppendBinaryEoln(&cswritep);
-        if (Cswrite(&css, &cswritep)) {
-          goto HardyReport_ret_WRITE_FAIL;
+          cswritep = strcpya(cswritep, cur_alleles[a1_idx]);
+          if (ax_col) {
+            *cswritep++ = '\t';
+            for (uint32_t allele_idx = 0; allele_idx < cur_allele_ct; ++allele_idx) {
+              if (allele_idx == a1_idx) {
+                continue;
+              }
+              if (Cswrite(&css, &cswritep)) {
+                goto HardyReport_ret_WRITE_FAIL;
+              }
+              cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
+            }
+            --cswritep;
+          }
+          STD_ARRAY_KREF(uint32_t, 3) cur_geno_cts = hwe_geno_cts[variant_uidx];
+          // todo: multiallelic support
+          const uint32_t het_a1_ct = cur_geno_cts[1];
+          uint32_t hom_a1_ct;
+          uint32_t two_ax_ct;
+          if (!a1_idx) {
+            hom_a1_ct = cur_geno_cts[0];
+            two_ax_ct = cur_geno_cts[2];
+          } else {
+            hom_a1_ct = cur_geno_cts[2];
+            two_ax_ct = cur_geno_cts[0];
+          }
+          if (gcounts) {
+            *cswritep++ = '\t';
+            cswritep = u32toa_x(hom_a1_ct, gcount_delim, cswritep);
+            cswritep = u32toa_x(het_a1_ct, gcount_delim, cswritep);
+            cswritep = u32toa(two_ax_ct, cswritep);
+          }
+          if (hetfreq_cols) {
+            *cswritep++ = '\t';
+            const uint32_t tot_obs = hom_a1_ct + het_a1_ct + two_ax_ct;
+            const double tot_obs_recip = 1.0 / u31tod(tot_obs);
+            cswritep = dtoa_g(u31tod(het_a1_ct) * tot_obs_recip, cswritep);
+            *cswritep++ = '\t';
+            const double dbl_maj_freq = (hom_a1_ct * 2 + het_a1_ct) * tot_obs_recip;
+            // (1.0 - maj_freq) is vulnerable to catastrophic cancellation when
+            // maj_freq is 1
+            if (hom_a1_ct == tot_obs) {
+              *cswritep++ = '0';
+            } else {
+              const double expected_het_freq = dbl_maj_freq * (1.0 - dbl_maj_freq * 0.5);
+              cswritep = dtoa_g(expected_het_freq, cswritep);
+            }
+          }
+          if (p_col) {
+            // possible todo: multithread this
+            *cswritep++ = '\t';
+            const double hwe_p = HweP(het_a1_ct, hom_a1_ct, two_ax_ct, midp);
+            cswritep = dtoa_g(MAXV(hwe_p, output_min_p), cswritep);
+          }
+          AppendBinaryEoln(&cswritep);
+          if (Cswrite(&css, &cswritep)) {
+            goto HardyReport_ret_WRITE_FAIL;
+          }
         }
         if (variant_idx >= next_print_variant_idx) {
           if (pct > 10) {
@@ -3137,25 +3205,23 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
       if (alt_col) {
         cswritep = strcpya(cswritep, "\tALT");
       }
-      if (maj_col) {
-        cswritep = strcpya(cswritep, "\tMAJ");
-      }
-      if (nonmaj_col) {
-        cswritep = strcpya(cswritep, "\tNONMAJ");
+      cswritep = memcpyl3a(cswritep, "\tA1");
+      if (ax_col) {
+        cswritep = strcpya(cswritep, "\tAX");
       }
       if (gcounts) {
         if (gcount_1col) {
           cswritep = strcpya(cswritep, "\tGCOUNTS");
         } else {
-          cswritep = strcpya(cswritep, "\tFEMALE_HOM_MAJ_CT\tFEMALE_HET_MAJ_CT\tFEMALE_TWO_NONMAJ_CT\tMALE_MAJ_CT\tMALE_NONMAJ_CT");
+          cswritep = strcpya(cswritep, "\tFEMALE_HOM_A1_CT\tFEMALE_HET_A1_CT\tFEMALE_TWO_AX_CT\tMALE_A1_CT\tMALE_AX_CT");
         }
       }
       if (hetfreq_cols) {
-        cswritep = strcpya(cswritep, "\tO(FEMALE_HET_MAJ)\tE(FEMALE_HET_MAJ)");
+        cswritep = strcpya(cswritep, "\tO(FEMALE_HET_A1)\tE(FEMALE_HET_A1)");
       }
       const uint32_t sexaf_cols = hardy_flags & kfHardyColSexaf;
       if (sexaf_cols) {
-        cswritep = strcpya(cswritep, "\tFEMALE_MAJ_FREQ\tMALE_MAJ_FREQ");
+        cswritep = strcpya(cswritep, "\tFEMALE_A1_FREQ\tMALE_A1_FREQ");
       }
       const uint32_t femalep_col = hardy_flags & kfHardyColFemalep;
       if (femalep_col) {
@@ -3181,115 +3247,121 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
       const uint32_t x_start = cip->chr_fo_vidx_start[x_chr_fo_idx];
       uint32_t variant_uidx = x_start;
       uint32_t cur_allele_ct = 2;
-      uint32_t male_maj_ct = 0;
-      uint32_t male_nonmaj_ct = 0;
+      uint32_t male_a1_ct = 0;
+      uint32_t male_ax_ct = 0;
       for (uint32_t variant_idx = 0; variant_idx < hwe_x_ct; ++variant_idx, ++variant_uidx) {
         MovU32To1Bit(variant_include, &variant_uidx);
-        cswritep = memcpya(cswritep, x_name_buf, x_name_blen);
-        if (variant_bps) {
-          cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
-        }
-        cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
         uintptr_t allele_idx_offset_base = variant_uidx * 2;
         if (allele_idx_offsets) {
           allele_idx_offset_base = allele_idx_offsets[variant_uidx];
           cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offset_base;
         }
         const char* const* cur_alleles = &(allele_storage[allele_idx_offset_base]);
-        if (ref_col) {
-          *cswritep++ = '\t';
-          cswritep = strcpya(cswritep, cur_alleles[0]);
-        }
-        if (alt1_col) {
-          *cswritep++ = '\t';
-          cswritep = strcpya(cswritep, cur_alleles[1]);
-        }
-        if (alt_col) {
-          *cswritep++ = '\t';
-          for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct; ++allele_idx) {
-            if (Cswrite(&css, &cswritep)) {
-              goto HardyReport_ret_WRITE_FAIL;
+        const uint32_t print_allele_ct = ((cur_allele_ct == 2) && (!redundant))? 1 : cur_allele_ct;
+        for (uint32_t a1_idx = 0; a1_idx < print_allele_ct; ++a1_idx) {
+          cswritep = memcpya(cswritep, x_name_buf, x_name_blen);
+          if (variant_bps) {
+            cswritep = u32toa_x(variant_bps[variant_uidx], '\t', cswritep);
+          }
+          cswritep = strcpya(cswritep, variant_ids[variant_uidx]);
+          if (ref_col) {
+            *cswritep++ = '\t';
+            cswritep = strcpya(cswritep, cur_alleles[0]);
+          }
+          if (alt1_col) {
+            *cswritep++ = '\t';
+            cswritep = strcpya(cswritep, cur_alleles[1]);
+          }
+          if (alt_col) {
+            *cswritep++ = '\t';
+            for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct; ++allele_idx) {
+              if (Cswrite(&css, &cswritep)) {
+                goto HardyReport_ret_WRITE_FAIL;
+              }
+              cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
             }
-            cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
+            --cswritep;
           }
-          --cswritep;
-        }
-        const uint32_t maj_idx = maj_alleles[variant_uidx];
-        if (maj_col) {
           *cswritep++ = '\t';
-          cswritep = strcpya(cswritep, cur_alleles[maj_idx]);
-        }
-        if (nonmaj_col) {
-          *cswritep++ = '\t';
-          for (uint32_t allele_idx = 0; allele_idx < cur_allele_ct; ++allele_idx) {
-            if (allele_idx == maj_idx) {
-              continue;
+          cswritep = strcpya(cswritep, cur_alleles[a1_idx]);
+          if (ax_col) {
+            *cswritep++ = '\t';
+            for (uint32_t allele_idx = 0; allele_idx < cur_allele_ct; ++allele_idx) {
+              if (allele_idx == a1_idx) {
+                continue;
+              }
+              if (Cswrite(&css, &cswritep)) {
+                goto HardyReport_ret_WRITE_FAIL;
+              }
+              cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
             }
-            if (Cswrite(&css, &cswritep)) {
-              goto HardyReport_ret_WRITE_FAIL;
+            --cswritep;
+          }
+          // todo: multiallelic support
+          STD_ARRAY_KREF(uint32_t, 3) cur_geno_cts = hwe_geno_cts[variant_uidx];
+          uint32_t female_hom_a1_ct = cur_geno_cts[2 * a1_idx];
+          uint32_t female_het_a1_ct = cur_geno_cts[1];
+          uint32_t female_two_ax_ct = cur_geno_cts[2 - 2 * a1_idx];
+          if (hwe_x_male_geno_cts) {
+            STD_ARRAY_KREF(uint32_t, 3) cur_male_geno_cts = hwe_x_male_geno_cts[variant_uidx - x_start];
+            male_a1_ct = cur_male_geno_cts[2 * a1_idx];
+            female_hom_a1_ct -= male_a1_ct;
+            female_het_a1_ct -= cur_male_geno_cts[1];
+            male_ax_ct = cur_male_geno_cts[2 - 2 * a1_idx];
+            female_two_ax_ct -= male_ax_ct;
+          }
+          if (hwe_x_nosex_geno_cts) {
+            STD_ARRAY_KREF(uint32_t, 3) cur_nosex_geno_cts = hwe_x_nosex_geno_cts[variant_uidx - x_start];
+            female_hom_a1_ct -= cur_nosex_geno_cts[2 * a1_idx];
+            female_het_a1_ct -= cur_nosex_geno_cts[1];
+            female_two_ax_ct -= cur_nosex_geno_cts[2 - 2 * a1_idx];
+          }
+          if (gcounts) {
+            *cswritep++ = '\t';
+            cswritep = u32toa_x(female_hom_a1_ct, gcount_delim, cswritep);
+            cswritep = u32toa_x(female_het_a1_ct, gcount_delim, cswritep);
+            cswritep = u32toa_x(female_two_ax_ct, gcount_delim, cswritep);
+            cswritep = u32toa_x(male_a1_ct, gcount_delim, cswritep);
+            cswritep = u32toa(male_ax_ct, cswritep);
+          }
+          if (hetfreq_cols || sexaf_cols) {
+            const uint32_t tot_female_obs = female_hom_a1_ct + female_het_a1_ct + female_two_ax_ct;
+            const double tot_female_obs_recip = 1.0 / u31tod(tot_female_obs);
+            const double dbl_a1_freq = (female_hom_a1_ct * 2 + female_het_a1_ct) * tot_female_obs_recip;
+            if (hetfreq_cols) {
+              *cswritep++ = '\t';
+              cswritep = dtoa_g(u31tod(female_het_a1_ct) * tot_female_obs_recip, cswritep);
+              *cswritep++ = '\t';
+              // (1.0 - a1_freq) is vulnerable to catastrophic cancellation when
+              // actual a1_freq is 1.
+              if (female_hom_a1_ct == tot_female_obs) {
+                *cswritep++ = '0';
+              } else {
+                const double expected_het_freq = dbl_a1_freq * (1.0 - 0.5 * dbl_a1_freq);
+                cswritep = dtoa_g(expected_het_freq, cswritep);
+              }
             }
-            cswritep = strcpyax(cswritep, cur_alleles[allele_idx], ',');
+            if (sexaf_cols) {
+              *cswritep++ = '\t';
+              cswritep = dtoa_g(dbl_a1_freq * 0.5, cswritep);
+              *cswritep++ = '\t';
+              const double male_a1_freq = u31tod(male_a1_ct) / u31tod(male_a1_ct + male_ax_ct);
+              cswritep = dtoa_g(male_a1_freq, cswritep);
+            }
           }
-          --cswritep;
-        }
-        STD_ARRAY_KREF(uint32_t, 3) cur_geno_cts = founder_raw_geno_cts[variant_uidx];
-        uint32_t female_hommaj_ct = cur_geno_cts[0];
-        uint32_t female_het_maj_ct = cur_geno_cts[1];
-        uint32_t female_two_nonmaj_ct = cur_geno_cts[2];
-        if (founder_x_male_geno_cts) {
-          STD_ARRAY_KREF(uint32_t, 3) cur_male_geno_cts = founder_x_male_geno_cts[variant_uidx - x_start];
-          male_maj_ct = cur_male_geno_cts[0];
-          female_hommaj_ct -= male_maj_ct;
-          female_het_maj_ct -= cur_male_geno_cts[1];
-          male_nonmaj_ct = cur_male_geno_cts[2];
-          female_two_nonmaj_ct -= male_nonmaj_ct;
-        }
-        if (founder_x_nosex_geno_cts) {
-          STD_ARRAY_KREF(uint32_t, 3) cur_nosex_geno_cts = founder_x_nosex_geno_cts[variant_uidx - x_start];
-          female_hommaj_ct -= cur_nosex_geno_cts[0];
-          female_het_maj_ct -= cur_nosex_geno_cts[1];
-          female_two_nonmaj_ct -= cur_nosex_geno_cts[2];
-        }
-        if (gcounts) {
-          *cswritep++ = '\t';
-          cswritep = u32toa_x(female_hommaj_ct, gcount_delim, cswritep);
-          cswritep = u32toa_x(female_het_maj_ct, gcount_delim, cswritep);
-          cswritep = u32toa_x(female_two_nonmaj_ct, gcount_delim, cswritep);
-          cswritep = u32toa_x(male_maj_ct, gcount_delim, cswritep);
-          cswritep = u32toa(male_nonmaj_ct, cswritep);
-        }
-        if (hetfreq_cols || sexaf_cols) {
-          const uint32_t tot_female_obs = female_hommaj_ct + female_het_maj_ct + female_two_nonmaj_ct;
-          const double tot_female_obs_recip = 1.0 / u31tod(tot_female_obs);
-          const double dbl_ref_freq = (female_hommaj_ct * 2 + female_het_maj_ct) * tot_female_obs_recip;
-          const double ref_freq = dbl_ref_freq * 0.5;
-          if (hetfreq_cols) {
+          if (femalep_col) {
             *cswritep++ = '\t';
-            cswritep = dtoa_g(u31tod(female_het_maj_ct) * tot_female_obs_recip, cswritep);
-            *cswritep++ = '\t';
-            const double expected_het_freq = dbl_ref_freq * (1.0 - ref_freq);
-            cswritep = dtoa_g(expected_het_freq, cswritep);
+            const double female_hwe_p = HweP(female_het_a1_ct, female_hom_a1_ct, female_two_ax_ct, midp);
+            cswritep = dtoa_g(MAXV(female_hwe_p, output_min_p), cswritep);
           }
-          if (sexaf_cols) {
+          if (p_col) {
             *cswritep++ = '\t';
-            cswritep = dtoa_g(ref_freq, cswritep);
-            *cswritep++ = '\t';
-            const double male_ref_freq = u31tod(male_maj_ct) / u31tod(male_maj_ct + male_nonmaj_ct);
-            cswritep = dtoa_g(male_ref_freq, cswritep);
+            cswritep = dtoa_g(MAXV(hwe_x_pvals[variant_idx], output_min_p), cswritep);
           }
-        }
-        if (femalep_col) {
-          *cswritep++ = '\t';
-          const double female_hwe_p = HweP(female_het_maj_ct, female_hommaj_ct, female_two_nonmaj_ct, midp);
-          cswritep = dtoa_g(MAXV(female_hwe_p, output_min_p), cswritep);
-        }
-        if (p_col) {
-          *cswritep++ = '\t';
-          cswritep = dtoa_g(MAXV(hwe_x_pvals[variant_idx], output_min_p), cswritep);
-        }
-        AppendBinaryEoln(&cswritep);
-        if (Cswrite(&css, &cswritep)) {
-          goto HardyReport_ret_WRITE_FAIL;
+          AppendBinaryEoln(&cswritep);
+          if (Cswrite(&css, &cswritep)) {
+            goto HardyReport_ret_WRITE_FAIL;
+          }
         }
       }
       if (CswriteCloseNull(&css, cswritep)) {
@@ -3305,9 +3377,6 @@ PglErr HardyReport(const uintptr_t* variant_include, const ChrInfo* cip, const u
     break;
   HardyReport_ret_WRITE_FAIL:
     reterr = kPglRetWriteFail;
-    break;
-  HardyReport_ret_INCONSISTENT_INPUT:
-    reterr = kPglRetInconsistentInput;
     break;
   }
  HardyReport_ret_1:

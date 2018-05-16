@@ -4158,7 +4158,7 @@ PglErr CountparseOnebitSubset(const unsigned char* fread_end, const uintptr_t* _
 
 // fread_pp should be non-null iff this is being called by an internal function
 // gathering rarealt counts, or dosages, as well
-PglErr GetRefalt1GenotypeCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, const unsigned char** fread_pp, const unsigned char** fread_endp, STD_ARRAY_REF(uint32_t, 4) genocounts) {
+PglErr GetRefNonrefGenotypeCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, const unsigned char** fread_pp, const unsigned char** fread_endp, STD_ARRAY_REF(uint32_t, 4) genocounts) {
   // genocounts[0] := ref/ref, genocounts[1] := ref/alt1,
   // genocounts[2] := alt1/alt1, genocounts[3] := missing/other
   assert(vidx < pgrp->fi.raw_variant_ct);
@@ -4285,8 +4285,30 @@ PglErr PgrGetCounts(const uintptr_t* __restrict sample_include, const uintptr_t*
     STD_ARRAY_REF_FILL0(4, genocounts);
     return kPglRetSuccess;
   }
-  // todo: multiallelic case
-  return GetRefalt1GenotypeCounts(sample_include, sample_include_interleaved_vec, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, nullptr, nullptr, genocounts);
+  return GetRefNonrefGenotypeCounts(sample_include, sample_include_interleaved_vec, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, nullptr, nullptr, genocounts);
+}
+
+PglErr PgrGetInv1Counts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReader* pgrp, STD_ARRAY_REF(uint32_t, 4) genocounts) {
+  if (!sample_ct) {
+    STD_ARRAY_REF_FILL0(4, genocounts);
+    return kPglRetSuccess;
+  }
+  PglErr reterr = GetRefNonrefGenotypeCounts(sample_include, sample_include_interleaved_vec, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, nullptr, nullptr, genocounts);
+  if (!allele_idx) {
+    return reterr;
+  }
+  const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
+  const uint32_t cur_allele_ct = allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx];
+  if (cur_allele_ct == 2) {
+    // allele_idx must be 1
+    const uint32_t tmpval = genocounts[0];
+    genocounts[0] = genocounts[2];
+    genocounts[2] = tmpval;
+    return reterr;
+  }
+  fputs("multiallelic variants not yet supported by PgrGetInv1Counts()\n", stderr);
+  exit(S_CAST(int32_t, kPglRetNotYetSupported));
+  return reterr;
 }
 
 /*
@@ -4983,6 +5005,7 @@ PglErr PgrGet1(const uintptr_t* __restrict sample_include, const uint32_t* __res
     }
     if (!allele_idx) {
       GenovecInvertUnsafe(sample_ct, allele_countvec);
+      return kPglRetSuccess;
     }
     if (!is_multiallelic) {
       return kPglRetSuccess;
@@ -5111,6 +5134,36 @@ PglErr PgrGet1(const uintptr_t* __restrict sample_include, const uint32_t* __res
   }
   return kPglRetSuccess;
   */
+}
+
+PglErr PgrGetInv1(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReader* pgrp, uintptr_t* __restrict allele_invcountvec) {
+  if (!sample_ct) {
+    return kPglRetSuccess;
+  }
+  const uint32_t vrtype = GetPgfiVrtype(&(pgrp->fi), vidx);
+  // const uint32_t raw_sample_ct = pgrp->fi.raw_sample_ct;
+  // const uint32_t subsetting_required = (sample_ct != raw_sample_ct);
+  if (allele_idx < 2) {
+    const uint32_t is_multiallelic = VrtypeMultiallelic(vrtype);
+    const unsigned char* fread_ptr;
+    const unsigned char* fread_end;
+    PglErr reterr = ReadRefalt1GenovecSubsetUnsafe(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, is_multiallelic? (&fread_ptr) : nullptr, &fread_end, allele_invcountvec);
+    if (reterr) {
+      return reterr;
+    }
+    if (!allele_idx) {
+      return kPglRetSuccess;
+    }
+    GenovecInvertUnsafe(sample_ct, allele_invcountvec);
+    if (!is_multiallelic) {
+      return kPglRetSuccess;
+    }
+    // todo
+    // this should share a function with PgrGet1()
+  }
+  fputs("multiallelic variants not yet supported by PgrGetInv1()\n", stderr);
+  exit(S_CAST(int32_t, kPglRetNotYetSupported));
+  return kPglRetSuccess;
 }
 
 void DetectGenovecHetsHw(const uintptr_t*__restrict genovec, uint32_t raw_sample_ctl2, Halfword* all_hets_hw) {
@@ -5882,7 +5935,7 @@ PglErr GetRefNonrefGenotypeCountsAndDosage16s(const uintptr_t* __restrict sample
   // todo: can't take the shortcut in the multiallelic variant case?
   if ((!(pgrp->fi.gflags & (kfPgenGlobalDosagePresent | kfPgenGlobalDosagePhasePresent))) || ((!(vrtype & 0x68)) && (!subsetting_required))) {
     {
-      PglErr reterr = GetRefalt1GenotypeCounts(sample_include, sample_include_interleaved_vec, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, nullptr, nullptr, genocounts);
+      PglErr reterr = GetRefNonrefGenotypeCounts(sample_include, sample_include_interleaved_vec, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, nullptr, nullptr, genocounts);
       if (reterr) {
         return reterr;
       }
@@ -6111,7 +6164,7 @@ PglErr PgrGetDp(const uintptr_t* __restrict sample_include, const uint32_t* __re
   return ParseDosage16(fread_ptr, fread_end, sample_include, sample_ct, vidx, alt_allele_ct, pgrp, dosage_ct_ptr, dphase_present, dphase_delta, dphase_ct_ptr, dosage_present, dosage_main);
 }
 
-PglErr PgrGet1Dp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr, uintptr_t* __restrict dphase_present, int16_t* dphase_delta, uint32_t* dphase_ct_ptr) {
+PglErr PgrGetInv1Dp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr, uintptr_t* __restrict dphase_present, int16_t* dphase_delta, uint32_t* dphase_ct_ptr) {
   const uintptr_t* allele_idx_offsets = pgrp->fi.allele_idx_offsets;
   const uint32_t allele_ct = allele_idx_offsets? (allele_idx_offsets[vidx + 1] - allele_idx_offsets[vidx]) : 2;
   if ((allele_ct == 2) || (!allele_idx)) {
@@ -6119,7 +6172,7 @@ PglErr PgrGet1Dp(const uintptr_t* __restrict sample_include, const uint32_t* __r
     uint32_t dosage_ct;
     uint32_t dphase_ct;
     PglErr reterr = PgrGetDp(sample_include, sample_include_cumulative_popcounts, sample_ct, vidx, pgrp, genovec, phasepresent, phaseinfo, &phasepresent_ct, dosage_present, dosage_main, &dosage_ct, dphase_present, dphase_delta, &dphase_ct);
-    if (!allele_idx) {
+    if (allele_idx) {
       GenovecInvertUnsafe(sample_ct, genovec);
       if (phasepresent_ct) {
         BitvecInvert(BitCtToWordCt(sample_ct), phaseinfo);
@@ -6136,7 +6189,7 @@ PglErr PgrGet1Dp(const uintptr_t* __restrict sample_include, const uint32_t* __r
     *dphase_ct_ptr = dphase_ct;
     return reterr;
   }
-  fputs("multiallelic variants not yet supported by PgrGet1Dp()\n", stderr);
+  fputs("multiallelic variants not yet supported by PgrGetInv1Dp()\n", stderr);
   exit(S_CAST(int32_t, kPglRetNotYetSupported));
   return kPglRetSuccess;
 }

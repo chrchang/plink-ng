@@ -1042,7 +1042,9 @@ void PgrDifflistToGenovecUnsafe(const uintptr_t* __restrict raregeno, const uint
 //   missing.)
 // * PgrGetInv1() is similar, except that the allele index to treat as REF can
 //   be changed.
-// * PgrGet1() only counts the specified allele.
+// * PgrGet1() only counts the specified allele.  To minimize inversion costs,
+//   GetInv1() should be called on major alleles and Get1() should be called on
+//   minor ones.
 // * PgrGetM() is the multiallelic loader which doesn't collapse multiple
 //   alleles into one.  Exact functional form TBD, but probably fills a
 //   length-[2 * sample_ct] array of AlleleCode with max/max = missing.
@@ -1089,6 +1091,12 @@ HEADER_INLINE void PgrClearLdCache(PgenReader* pgrp) {
 // genocounts[0] = # hom ref, [1] = # het ref, [2] = two alts, [3] = missing
 PglErr PgrGetCounts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, STD_ARRAY_REF(uint32_t, 4) genocounts);
 
+// genocounts[0] = # of hardcalls with two copies of specified allele
+// genocounts[1] = # of hardcalls with exactly one copy of specified allele
+// genocounts[2] = # of hardcalls with no copies
+// genocounts[3] = missing
+PglErr PgrGetInv1Counts(const uintptr_t* __restrict sample_include, const uintptr_t* __restrict sample_include_interleaved_vec, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReader* pgrp, STD_ARRAY_REF(uint32_t, 4) genocounts);
+
 // Loads a quatervec with counts of a single allele (allele_idx 0 corresponds
 // to the reference allele, allele_idx 1 corresponds to alt1, etc.).  0b11 ==
 // missing call.
@@ -1096,6 +1104,8 @@ PglErr PgrGetCounts(const uintptr_t* __restrict sample_include, const uintptr_t*
 // (except with missing == 0b11, of course).
 // todo: provide a difflist interface once anyone wants it.
 PglErr PgrGet1(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReader* pgrp, uintptr_t* __restrict allele_countvec);
+
+PglErr PgrGetInv1(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, uint32_t allele_idx, PgenReader* pgrp, uintptr_t* __restrict allele_invcountvec);
 
 // todo: add functions which directly support MAF-based queries.  Note that
 // when the difflist representation is used, we can disqualify some low-MAF
@@ -1137,7 +1147,7 @@ PglErr PgrGetDCounts(const uintptr_t* __restrict sample_include, const uintptr_t
 // in that case
 PglErr PgrGetDp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr, uintptr_t* __restrict dphase_present, int16_t* dphase_delta, uint32_t* dphase_ct_ptr);
 
-PglErr PgrGet1Dp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr, uintptr_t* __restrict dphase_present, int16_t* dphase_delta, uint32_t* dphase_ct_ptr);
+PglErr PgrGetInv1Dp(const uintptr_t* __restrict sample_include, const uint32_t* __restrict sample_include_cumulative_popcounts, uint32_t sample_ct, uint32_t vidx, AlleleCode allele_idx, PgenReader* pgrp, uintptr_t* __restrict genovec, uintptr_t* __restrict phasepresent, uintptr_t* __restrict phaseinfo, uint32_t* phasepresent_ct_ptr, uintptr_t* __restrict dosage_present, uint16_t* dosage_main, uint32_t* dosage_ct_ptr, uintptr_t* __restrict dphase_present, int16_t* dphase_delta, uint32_t* dphase_ct_ptr);
 
 // interface used by --make-pgen, just performs basic LD/difflist decompression
 // (still needs merge-supporting multiallelic extension)

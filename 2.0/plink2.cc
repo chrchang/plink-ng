@@ -61,7 +61,7 @@ static const char ver_str[] = "PLINK v2.00a2"
 #ifdef USE_MKL
   " Intel"
 #endif
-  " (14 May 2018)";
+  " (15 May 2018)";
 static const char ver_str2[] =
   // include leading space if day < 10, so character length stays the same
   ""
@@ -321,10 +321,10 @@ uint32_t DecentAlleleFreqsAreNeeded(Command1Flags command_flags1, ScoreFlags sco
   return (command_flags1 & (kfCommand1Pca | kfCommand1MakeRel)) || ((command_flags1 & kfCommand1Score) && ((!(score_flags & kfScoreNoMeanimpute)) || (score_flags & (kfScoreCenter | kfScoreVarianceStandardize))));
 }
 
-// not actually needed for e.g. --hardy, --hwe, --make-king, etc. if no
-// multiallelic variants are retained, but let's keep this simpler for now
-uint32_t MajAllelesAreNeeded(Command1Flags command_flags1, GlmFlags glm_flags, double hwe_thresh) {
-  return (command_flags1 & (kfCommand1MakeKing | kfCommand1LdPrune | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Hardy | kfCommand1Ld)) || ((command_flags1 & kfCommand1Glm) && (!(glm_flags & kfGlmA0Ref))) || (hwe_thresh != 1.0);
+// not actually needed for e.g. --hardy, --hwe, etc. if no multiallelic
+// variants are retained, but let's keep this simpler for now
+uint32_t MajAllelesAreNeeded(Command1Flags command_flags1, GlmFlags glm_flags) {
+  return (command_flags1 & (kfCommand1LdPrune | kfCommand1Pca | kfCommand1MakeRel | kfCommand1Ld)) || ((command_flags1 & kfCommand1Glm) && (!(glm_flags & kfGlmA0Ref)));
 }
 
 // only needs to cover cases not captured by DecentAlleleFreqsAreNeeded() or
@@ -1458,7 +1458,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
 
       if (pgenname[0]) {
         const uint32_t decent_afreqs_needed = DecentAlleleFreqsAreNeeded(pcp->command_flags1, pcp->score_info.flags);
-        const uint32_t maj_alleles_needed = MajAllelesAreNeeded(pcp->command_flags1, pcp->glm_info.flags, pcp->hwe_thresh);
+        const uint32_t maj_alleles_needed = MajAllelesAreNeeded(pcp->command_flags1, pcp->glm_info.flags);
         if (decent_afreqs_needed || maj_alleles_needed || IndecentAlleleFreqsAreNeeded(pcp->command_flags1, pcp->min_maf, pcp->max_maf)) {
           if ((!pcp->read_freq_fname) && ((sample_ct < 50) || ((!nonfounders) && (founder_ct < 50))) && decent_afreqs_needed && (!(pcp->misc_flags & kfMiscAllowBadFreqs))) {
             if ((!nonfounders) && (sample_ct >= 50)) {
@@ -1602,7 +1602,8 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             const uint32_t founder_knownsex_ct = PopcountWordsIntersect(founder_info, sex_nm, raw_sample_ctl);
             if (founder_knownsex_ct < founder_ct) {
               if ((founder_ct == sample_ct) && x_nosex_geno_cts) {
-                // shouldn't be possible for now
+                // shouldn't be possible for now, since x_nosex_geno_cts can
+                // only be non-null when nonfounders is true
                 assert(0);
                 // founder_x_nosex_geno_cts = x_nosex_geno_cts;
               } else {
@@ -1626,14 +1627,12 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
           // hardcall-missing-count slot... and it's NOT fine to pass in
           // nullptrs for both missing-count arrays...
           const uint32_t dosageless_file = !(pgfi.gflags & kfPgenGlobalDosagePresent);
-          // todo: if allele_presents != nullptr and dosages present, need to
-          // pass --hard-call-threshold and --dosage-erase-threshold params
           reterr = LoadAlleleAndGenoCounts(sample_include, founder_info, sex_nm, sex_male, variant_include, cip, allele_idx_offsets, raw_sample_ct, sample_ct, founder_ct, male_ct, nosex_ct, raw_variant_ct, variant_ct, first_hap_uidx, pcp->max_thread_ct, pgr_alloc_cacheline_ct, &pgfi, allele_presents, allele_dosages, founder_allele_dosages, ((!variant_missing_hc_cts) && dosageless_file)? variant_missing_dosage_cts : variant_missing_hc_cts, dosageless_file? nullptr : variant_missing_dosage_cts, variant_hethap_cts, raw_geno_cts, founder_raw_geno_cts, x_male_geno_cts, founder_x_male_geno_cts, x_nosex_geno_cts, founder_x_nosex_geno_cts, mach_r2_vals);
           if (reterr) {
             goto Plink2Core_ret_1;
           }
           if (pcp->command_flags1 & kfCommand1GenotypingRate) {
-            // probable todo: also report this opportunistically
+            // possible todo: also report this opportunistically
             // (variant_missing_hc_cts filled for other reasons).  worth
             // multithreading in that case.
             const uint32_t is_dosage = (pcp->misc_flags / kfMiscGenotypingRateDosage) & 1;
@@ -1694,23 +1693,80 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         }
 
         if ((pcp->command_flags1 & kfCommand1Hardy) || (pcp->hwe_thresh != 1.0)) {
-          STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_geno_cts) = nonfounders? raw_geno_cts : founder_raw_geno_cts;
-          STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_male_geno_cts) = nonfounders? x_male_geno_cts : founder_x_male_geno_cts;
-          STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_nosex_geno_cts) = nonfounders? x_nosex_geno_cts : founder_x_nosex_geno_cts;
-          if ((pcp->command_flags1 & kfCommand1Hardy) || allele_idx_offsets) {
-            // no difference between ref/alt and maj/nonmaj for all-biallelic
-            // --hwe
-            reterr = HardyMaj(nonfounders? sample_include : founder_info, sex_nm, sex_male, variant_include, cip, allele_idx_offsets, maj_alleles, raw_sample_ct, variant_ct, &simple_pgr, hwe_geno_cts, hwe_x_male_geno_cts, hwe_x_nosex_geno_cts);
-            if (reterr) {
-              goto Plink2Core_ret_1;
+          if (cip->haploid_mask[0] & 1) {
+            if (pcp->command_flags1 & kfCommand1Hardy) {
+              logerrputs("Error: --hardy is pointless on an all-haploid genome.\n");
+              goto Plink2Core_ret_INCONSISTENT_INPUT;
             }
-          }
-          double* hwe_x_pvals = nullptr;
-          uint32_t hwe_x_ct = 0;
-          if (hwe_x_probs_needed) {
-            hwe_x_ct = CountChrVariantsUnsafe(variant_include, cip, cip->xymt_codes[kChrOffsetX]);
-            // hwe_x_ct == 0 possible, if --geno filters out all remaining chrX
-            // variants
+            // could make hwe_thresh non-const and set it to 1.0 earlier on in
+            // this case
+            logerrputs("Warning: --hwe has no effect since entire genome is haploid.\n");
+          } else {
+            STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_geno_cts) = nonfounders? raw_geno_cts : founder_raw_geno_cts;
+            STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_male_geno_cts) = nonfounders? x_male_geno_cts : founder_x_male_geno_cts;
+            STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_nosex_geno_cts) = nonfounders? x_nosex_geno_cts : founder_x_nosex_geno_cts;
+
+            // For multiallelic variants, perform one 'biallelic' test per
+            // allele.  This is much, much faster than e.g. triallelic exact
+            // tests, and the resulting set of p-values are arguably more
+            // useful anyway.
+
+            // one entry per autosomal multiallelic alt allele.
+            // STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_autosomal_multiallelic_altgeno_cts) = nullptr;
+            // one entry per chrX multiallelic alt allele.
+            // STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_multiallelic_knownsex_altgeno_cts) = nullptr;
+            // STD_ARRAY_PTR_DECL(uint32_t, 3, hwe_x_multiallelic_male_altgeno_cts) = nullptr;
+            uint32_t hwe_x_ct = 0;
+            if (hwe_x_probs_needed) {
+              hwe_x_ct = CountChrVariantsUnsafe(variant_include, cip, cip->xymt_codes[kChrOffsetX]);
+              // hwe_x_ct == 0 possible when hwe_x_probs_needed set, if --geno
+              // filters out all chrX variants
+            }
+            uintptr_t autosomal_extra_allele_ct = 0;
+            uintptr_t x_extra_allele_ct = 0;
+            if (allele_idx_offsets) {
+              const uint32_t autosomal_variant_ct = variant_ct - hwe_x_ct - CountNonAutosomalVariants(variant_include, cip, !hwe_x_probs_needed, 1);
+              uint32_t chr_fo_idx = 0;
+              uint32_t chr_end = 0;
+              uint32_t variant_uidx = 0;
+              for (uint32_t variant_idx = 0; variant_idx < autosomal_variant_ct; ++variant_idx, ++variant_uidx) {
+                MovU32To1Bit(variant_include, &variant_uidx);
+                if (variant_uidx >= chr_end) {
+                  uint32_t chr_idx;
+                  do {
+                    ++chr_fo_idx;
+                    chr_end = cip->chr_fo_vidx_start[chr_fo_idx + 1];
+                    chr_idx = cip->chr_file_order[chr_fo_idx];
+                  } while ((variant_uidx >= chr_end) || IsSet(cip->haploid_mask, chr_idx));
+                  variant_uidx = AdvTo1Bit(variant_include, cip->chr_fo_vidx_start[chr_fo_idx]);
+                }
+                const uint32_t cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
+                if (cur_allele_ct > 2) {
+                  autosomal_extra_allele_ct += cur_allele_ct - 1;
+                }
+              }
+              if (hwe_x_ct) {
+                variant_uidx = x_start;
+                for (uint32_t variant_idx = 0; variant_idx < hwe_x_ct; ++variant_idx, ++variant_uidx) {
+                  MovU32To1Bit(variant_include, &variant_uidx);
+                  const uint32_t cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_offsets[variant_uidx];
+                  if (cur_allele_ct > 2) {
+                    x_extra_allele_ct += cur_allele_ct - 1;
+                  }
+                }
+              }
+              if (autosomal_extra_allele_ct || x_extra_allele_ct) {
+                // todo
+                /*
+                reterr = HardyMultiallelic(nonfounders? sample_include : founder_info, sex_nm, sex_male, variant_include, cip, allele_idx_offsets, allele_freqs, raw_sample_ct, autosomal_variant_ct, hwe_x_ct, hwe_multiallelic_flags, &simple_pgr, hwe_geno_cts, hwe_triallelic_geno_cts, hwe_triallelic_pvals, hwe_x_male_geno_cts, hwe_x_nosex_geno_cts);
+                if (reterr) {
+                  goto Plink2Core_ret_1;
+                }
+                */
+              }
+            }
+
+            double* hwe_x_pvals = nullptr;
             if (hwe_x_ct && ((pcp->hwe_thresh != 1.0) || (pcp->hardy_flags & kfHardyColP))) {
               // support suppression of --hardy p column (with a gigantic
               // dataset, maybe it's reasonable to stick to femalep, etc.)
@@ -1728,24 +1784,27 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
               } else {
                 hwe_midp = (pcp->misc_flags / kfMiscHweMidp) & 1;
               }
+              // todo: multiallelic support
               reterr = ComputeHweXPvals(variant_include, hwe_geno_cts, hwe_x_male_geno_cts, hwe_x_nosex_geno_cts, x_start, hwe_x_ct, hwe_midp, pcp->max_thread_ct, &hwe_x_pvals);
               if (reterr) {
                 goto Plink2Core_ret_1;
               }
             }
-          }
-          if (pcp->command_flags1 & kfCommand1Hardy) {
-            reterr = HardyReport(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, maj_alleles, hwe_geno_cts, hwe_x_male_geno_cts, hwe_x_nosex_geno_cts, hwe_x_pvals, variant_ct, hwe_x_ct, max_allele_slen, pcp->output_min_ln, pcp->hardy_flags, pcp->max_thread_ct, nonfounders, outname, outname_end);
-            if (reterr) {
-              goto Plink2Core_ret_1;
+            if (pcp->command_flags1 & kfCommand1Hardy) {
+              // todo: multiallelic support;;;
+              reterr = HardyReport(variant_include, cip, variant_bps, variant_ids, allele_idx_offsets, allele_storage, hwe_geno_cts, hwe_x_male_geno_cts, hwe_x_nosex_geno_cts, hwe_x_pvals, variant_ct, hwe_x_ct, max_allele_slen, pcp->output_min_ln, pcp->hardy_flags, pcp->max_thread_ct, nonfounders, outname, outname_end);
+              if (reterr) {
+                goto Plink2Core_ret_1;
+              }
+              if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1MissingReport | kfCommand1Hardy | kfCommand1WriteSamples)))) {
+                goto Plink2Core_early_complete;
+              }
             }
-            if (!(pcp->command_flags1 & (~(kfCommand1GenotypingRate | kfCommand1AlleleFreq | kfCommand1GenoCounts | kfCommand1MissingReport | kfCommand1Hardy | kfCommand1WriteSamples)))) {
-              goto Plink2Core_early_complete;
+            if (pcp->hwe_thresh != 1.0) {
+              // assumes no filtering between hwe_x_pvals[] computation and
+              // here
+              EnforceHweThresh(cip, hwe_geno_cts, hwe_x_male_geno_cts, hwe_x_nosex_geno_cts, hwe_x_pvals, pcp->misc_flags, pcp->hwe_thresh, nonfounders, variant_include, &variant_ct);
             }
-          }
-          if (pcp->hwe_thresh != 1.0) {
-            // assumes no filtering between hwe_x_pvals[] computation and here
-            EnforceHweThresh(cip, hwe_geno_cts, hwe_x_male_geno_cts, hwe_x_nosex_geno_cts, hwe_x_pvals, pcp->misc_flags, pcp->hwe_thresh, nonfounders, variant_include, &variant_ct);
           }
         }
         // raw_geno_cts/founder_raw_geno_cts/hwe_x_pvals no longer needed
@@ -1793,7 +1852,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             // command-line parser currently guarantees --king-table-subset
             // isn't used with --king-cutoff or --make-king
             // probable todo: --king-cutoff-table which can use .kin0 as input
-            reterr = CalcKingTableSubset(sample_include, &pii.sii, variant_include, cip, maj_alleles, pcp->king_table_subset_fname, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, pcp->king_table_filter, pcp->king_table_subset_thresh, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
+            reterr = CalcKingTableSubset(sample_include, &pii.sii, variant_include, cip, pcp->king_table_subset_fname, raw_sample_ct, sample_ct, raw_variant_ct, variant_ct, pcp->king_table_filter, pcp->king_table_subset_thresh, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, outname, outname_end);
             if (reterr) {
               goto Plink2Core_ret_1;
             }
@@ -1801,7 +1860,7 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
             if (king_cutoff_fprefix) {
               reterr = KingCutoffBatch(&pii.sii, raw_sample_ct, pcp->king_cutoff, sample_include, king_cutoff_fprefix, &sample_ct);
             } else {
-              reterr = CalcKing(&pii.sii, variant_include, cip, maj_alleles, raw_sample_ct, raw_variant_ct, variant_ct, pcp->king_cutoff, pcp->king_table_filter, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, sample_include, &sample_ct, outname, outname_end);
+              reterr = CalcKing(&pii.sii, variant_include, cip, raw_sample_ct, raw_variant_ct, variant_ct, pcp->king_cutoff, pcp->king_table_filter, pcp->king_flags, pcp->parallel_idx, pcp->parallel_tot, pcp->max_thread_ct, &simple_pgr, sample_include, &sample_ct, outname, outname_end);
             }
             if (reterr) {
               goto Plink2Core_ret_1;
@@ -1864,7 +1923,9 @@ PglErr Plink2Core(const Plink2Cmdline* pcp, MakePlink2Flags make_plink2_flags, c
         //           https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4836868/
         //         to select an unrelated subset.  (unfortunately, step 7 is
         //         random, so we can't always test for perfect concordance with
-        //         the R package.)
+        //         the R package.)  This minimizes the risk of getting PCs
+        //         which map to e.g. a sample-duplicate cluster instead of
+        //         broad ancestry.
         //      d. compute PCs on the unrelated subset, project to related
         //         subset in the usual way.  (since overall algorithm has a
         //         random component anyway, there's no longer much of a point
@@ -4617,7 +4678,7 @@ int main(int argc, char** argv) {
 
       case 'h':
         if (strequal_k_unsafe(flagname_p2, "ardy")) {
-          if (EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 3)) {
+          if (EnforceParamCtRange(argvk[arg_idx], param_ct, 0, 4)) {
             goto main_ret_INVALID_CMDLINE_2A;
           }
           for (uint32_t param_idx = 1; param_idx <= param_ct; ++param_idx) {
@@ -4627,12 +4688,14 @@ int main(int argc, char** argv) {
               pc.hardy_flags |= kfHardyZs;
             } else if (strequal_k(cur_modif, "midp", cur_modif_slen)) {
               pc.hardy_flags |= kfHardyMidp;
+            } else if (strequal_k(cur_modif, "redundant", cur_modif_slen)) {
+              pc.hardy_flags |= kfHardyRedundant;
             } else if (StrStartsWith(cur_modif, "cols=", cur_modif_slen)) {
               if (pc.hardy_flags & kfHardyColAll) {
                 logerrputs("Error: Multiple --hardy cols= modifiers.\n");
                 goto main_ret_INVALID_CMDLINE;
               }
-              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0maj\0nonmaj\0gcounts\0gcount1col\0hetfreq\0sexaf\0femalep\0p\0", "freq", kfHardyColChrom, kfHardyColDefault, 1, &pc.hardy_flags);
+              reterr = ParseColDescriptor(&(cur_modif[5]), "chrom\0pos\0ref\0alt1\0alt\0ax\0gcounts\0gcount1col\0hetfreq\0sexaf\0femalep\0p\0", "freq", kfHardyColChrom, kfHardyColDefault, 1, &pc.hardy_flags);
               if (reterr) {
                 goto main_ret_1;
               }
@@ -8203,6 +8266,8 @@ int main(int argc, char** argv) {
         }
       }
       if ((pc.command_flags1 & (~(kfCommand1MakePlink2 | kfCommand1Validate | kfCommand1WriteSnplist | kfCommand1WriteCovar | kfCommand1WriteSamples))) || ((pc.command_flags1 & kfCommand1MakePlink2) && (pc.sort_vars_flags == kfSort0))) {
+        // split-chromosome prohibited for all commands unless explicitly
+        // permitted here
         pc.dependency_flags |= kfFilterNoSplitChr;
       }
 

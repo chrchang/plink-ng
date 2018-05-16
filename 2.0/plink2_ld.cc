@@ -1112,12 +1112,12 @@ PglErr IndepPairwise(const uintptr_t* variant_include, const ChrInfo* cip, const
             // important because knowledgeable users will have already filtered
             // out the lowest-MAF variants before starting the LD-prune job.
             if (!is_x_or_y) {
-              reterr = PgrGet1(founder_info, founder_info_cumulative_popcounts, founder_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, cur_raw_tgenovec);
+              reterr = PgrGetInv1(founder_info, founder_info_cumulative_popcounts, founder_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, cur_raw_tgenovec);
               if (is_haploid) {
                 SetHetMissing(founder_ctl2, cur_raw_tgenovec);
               }
             } else {
-              reterr = PgrGet1(nullptr, nullptr, raw_sample_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, tmp_genovec);
+              reterr = PgrGetInv1(nullptr, nullptr, raw_sample_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, tmp_genovec);
               if (founder_male_ct) {
                 CopyQuaterarrNonemptySubset(tmp_genovec, founder_male, raw_sample_ct, founder_male_ct, cur_raw_tgenovec);
                 SetHetMissing(founder_male_ctl2, cur_raw_tgenovec);
@@ -1992,16 +1992,16 @@ void GenoBitvecPhasedDotprod(const uintptr_t* one_bitvec0, const uintptr_t* two_
   *hethet_ct_ptr = hethet_ct;
 }
 
-// maj_cts[] must be initialized to correct values for
+// nmaj_cts[] must be initialized to correct values for
 // no-missing-values-in-other-variant case.
-uint32_t HardcallPhasedR2Stats(const uintptr_t* one_bitvec0, const uintptr_t* two_bitvec0, const uintptr_t* nm_bitvec0, const uintptr_t* one_bitvec1, const uintptr_t* two_bitvec1, const uintptr_t* nm_bitvec1, uint32_t sample_ct, uint32_t nm_ct0, uint32_t nm_ct1, uint32_t* __restrict maj_cts, uint32_t* __restrict known_dotprod_ptr, uint32_t* __restrict hethet_ct_ptr) {
+uint32_t HardcallPhasedR2Stats(const uintptr_t* one_bitvec0, const uintptr_t* two_bitvec0, const uintptr_t* nm_bitvec0, const uintptr_t* one_bitvec1, const uintptr_t* two_bitvec1, const uintptr_t* nm_bitvec1, uint32_t sample_ct, uint32_t nm_ct0, uint32_t nm_ct1, uint32_t* __restrict nmaj_cts, uint32_t* __restrict known_dotprod_ptr, uint32_t* __restrict hethet_ct_ptr) {
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
   uint32_t nm_intersection_ct;
   if ((nm_ct0 != sample_ct) && (nm_ct1 != sample_ct)) {
     nm_intersection_ct = PopcountWordsIntersect(nm_bitvec0, nm_bitvec1, sample_ctl);
     if (!nm_intersection_ct) {
-      maj_cts[0] = 0;
-      maj_cts[1] = 0;
+      nmaj_cts[0] = 0;
+      nmaj_cts[1] = 0;
       *known_dotprod_ptr = 0;
       *hethet_ct_ptr = 0;
       return 0;
@@ -2010,10 +2010,10 @@ uint32_t HardcallPhasedR2Stats(const uintptr_t* one_bitvec0, const uintptr_t* tw
     nm_intersection_ct = MINV(nm_ct0, nm_ct1);
   }
   if (nm_ct0 != nm_intersection_ct) {
-    maj_cts[0] = GenoBitvecSumSubset(nm_bitvec1, one_bitvec0, two_bitvec0, sample_ctl);
+    nmaj_cts[0] = GenoBitvecSumSubset(nm_bitvec1, one_bitvec0, two_bitvec0, sample_ctl);
   }
   if (nm_ct1 != nm_intersection_ct) {
-    maj_cts[1] = GenoBitvecSumSubset(nm_bitvec0, one_bitvec1, two_bitvec1, sample_ctl);
+    nmaj_cts[1] = GenoBitvecSumSubset(nm_bitvec0, one_bitvec1, two_bitvec1, sample_ctl);
   }
   GenoBitvecPhasedDotprod(one_bitvec0, two_bitvec0, one_bitvec1, two_bitvec1, sample_ctl, known_dotprod_ptr, hethet_ct_ptr);
   return nm_intersection_ct;
@@ -2739,14 +2739,14 @@ void DosagePhaseinfoPatch(const uintptr_t* phasepresent, const uintptr_t* phasei
   }
 }
 
-uint32_t DosagePhasedR2Prod(const Dosage* dosage_vec0, const uintptr_t* nm_bitvec0, const Dosage* dosage_vec1, const uintptr_t* nm_bitvec1, uint32_t sample_ct, uint32_t nm_ct0, uint32_t nm_ct1, uint64_t* __restrict maj_dosages, uint64_t* __restrict dosageprod_ptr) {
+uint32_t DosagePhasedR2Prod(const Dosage* dosage_vec0, const uintptr_t* nm_bitvec0, const Dosage* dosage_vec1, const uintptr_t* nm_bitvec1, uint32_t sample_ct, uint32_t nm_ct0, uint32_t nm_ct1, uint64_t* __restrict nmaj_dosages, uint64_t* __restrict dosageprod_ptr) {
   const uint32_t sample_ctl = BitCtToWordCt(sample_ct);
   uint32_t nm_intersection_ct;
   if ((nm_ct0 != sample_ct) && (nm_ct1 != sample_ct)) {
     nm_intersection_ct = PopcountWordsIntersect(nm_bitvec0, nm_bitvec1, sample_ctl);
     if (!nm_intersection_ct) {
-      maj_dosages[0] = 0;
-      maj_dosages[1] = 0;
+      nmaj_dosages[0] = 0;
+      nmaj_dosages[1] = 0;
       *dosageprod_ptr = 0;
       return 0;
     }
@@ -2755,10 +2755,10 @@ uint32_t DosagePhasedR2Prod(const Dosage* dosage_vec0, const uintptr_t* nm_bitve
   }
   const uint32_t vec_ct = DivUp(sample_ct, kDosagePerVec);
   if (nm_ct0 != nm_intersection_ct) {
-    maj_dosages[0] = DenseDosageSumSubset(dosage_vec0, dosage_vec1, vec_ct);
+    nmaj_dosages[0] = DenseDosageSumSubset(dosage_vec0, dosage_vec1, vec_ct);
   }
   if (nm_ct1 != nm_intersection_ct) {
-    maj_dosages[1] = DenseDosageSumSubset(dosage_vec1, dosage_vec0, vec_ct);
+    nmaj_dosages[1] = DenseDosageSumSubset(dosage_vec1, dosage_vec0, vec_ct);
   }
   // could conditionally use dosage_unsigned_nomiss here
   *dosageprod_ptr = DosageUnsignedDotprod(dosage_vec0, dosage_vec1, vec_ct);
@@ -2923,7 +2923,7 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       // but --r2 will want to use different pgenlib loaders depending on
       // context.)
 
-      reterr = PgrGet1Dp(founder_info, founder_info_cumulative_popcounts, founder_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, cur_genovec, cur_phasepresent, cur_phaseinfo, &(phasepresent_cts[var_idx]), cur_dosage_present, cur_dosage_main, &(dosage_cts[var_idx]), cur_dphase_present, cur_dphase_delta, &(dphase_cts[var_idx]));
+      reterr = PgrGetInv1Dp(founder_info, founder_info_cumulative_popcounts, founder_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, cur_genovec, cur_phasepresent, cur_phaseinfo, &(phasepresent_cts[var_idx]), cur_dosage_present, cur_dosage_main, &(dosage_cts[var_idx]), cur_dphase_present, cur_dphase_delta, &(dphase_cts[var_idx]));
       if (reterr) {
         if (reterr == kPglRetMalformedInput) {
           logputs("\n");
@@ -2968,8 +2968,8 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     //   dosage sum for each variant
     double x_male_known_dotprod_d = 0.0;
     uint32_t valid_x_male_ct = 0;
-    double majsums_d[2];
-    double x_male_majsums_d[2];
+    double nmajsums_d[2];
+    double x_male_nmajsums_d[2];
     double known_dotprod_d;
     double unknown_hethet_d;
     uint32_t valid_obs_ct;
@@ -2990,17 +2990,17 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
           bigstack_alloc_w(founder_ctaw, &nm_bitvecs[1])) {
         goto LdConsole_ret_NOMEM;
       }
-      uint32_t maj_cts[2];
+      uint32_t nmaj_cts[2];
       uint32_t nm_cts[2];  // ugh.
       for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {
         GenoarrSplit12Nm(genovecs[var_idx], founder_ct, one_bitvecs[var_idx], two_bitvecs[var_idx], nm_bitvecs[var_idx]);
-        maj_cts[var_idx] = GenoBitvecSum(one_bitvecs[var_idx], two_bitvecs[var_idx], founder_ctl);
+        nmaj_cts[var_idx] = GenoBitvecSum(one_bitvecs[var_idx], two_bitvecs[var_idx], founder_ctl);
         nm_cts[var_idx] = PopcountWords(nm_bitvecs[var_idx], founder_ctl);
       }
-      const uint32_t orig_maj_ct1 = maj_cts[1];
+      const uint32_t orig_maj_ct1 = nmaj_cts[1];
       uint32_t known_dotprod;
       uint32_t unknown_hethet_ct;
-      valid_obs_ct = HardcallPhasedR2Stats(one_bitvecs[0], two_bitvecs[0], nm_bitvecs[0], one_bitvecs[1], two_bitvecs[1], nm_bitvecs[1], founder_ct, nm_cts[0], nm_cts[1], maj_cts, &known_dotprod, &unknown_hethet_ct);
+      valid_obs_ct = HardcallPhasedR2Stats(one_bitvecs[0], two_bitvecs[0], nm_bitvecs[0], one_bitvecs[1], two_bitvecs[1], nm_bitvecs[1], founder_ct, nm_cts[0], nm_cts[1], nmaj_cts, &known_dotprod, &unknown_hethet_ct);
       if (!valid_obs_ct) {
         goto LdConsole_ret_NO_VALID_OBSERVATIONS;
       }
@@ -3012,8 +3012,8 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         //            (phaseinfo0 ^ phaseinfo1))
         HardcallPhasedR2Refine(phasepresents[0], phaseinfos[0], phasepresents[1], phaseinfos[1], founder_ctl, &known_dotprod, &unknown_hethet_ct);
       }
-      majsums_d[0] = u31tod(maj_cts[0]);
-      majsums_d[1] = u31tod(maj_cts[1]);
+      nmajsums_d[0] = u31tod(nmaj_cts[0]);
+      nmajsums_d[1] = u31tod(nmaj_cts[1]);
       known_dotprod_d = S_CAST(double, known_dotprod);
       unknown_hethet_d = u31tod(unknown_hethet_ct);
       if (x_male_ct) {
@@ -3024,17 +3024,17 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         BitvecAnd(sex_male_collapsed, founder_ctl, one_bitvecs[0]);
         BitvecAnd(sex_male_collapsed, founder_ctl, two_bitvecs[0]);
         BitvecAnd(sex_male_collapsed, founder_ctl, nm_bitvecs[0]);
-        uint32_t x_male_maj_cts[2];
-        x_male_maj_cts[0] = GenoBitvecSum(one_bitvecs[0], two_bitvecs[0], founder_ctl);
+        uint32_t x_male_nmaj_cts[2];
+        x_male_nmaj_cts[0] = GenoBitvecSum(one_bitvecs[0], two_bitvecs[0], founder_ctl);
 
-        x_male_maj_cts[1] = orig_maj_ct1;
+        x_male_nmaj_cts[1] = orig_maj_ct1;
 
         const uint32_t x_male_nm_ct0 = PopcountWords(nm_bitvecs[0], founder_ctl);
         uint32_t x_male_known_dotprod;
         uint32_t x_male_unknown_hethet_ct;  // ignore
-        valid_x_male_ct = HardcallPhasedR2Stats(one_bitvecs[0], two_bitvecs[0], nm_bitvecs[0], one_bitvecs[1], two_bitvecs[1], nm_bitvecs[1], founder_ct, x_male_nm_ct0, nm_cts[1], x_male_maj_cts, &x_male_known_dotprod, &x_male_unknown_hethet_ct);
-        x_male_majsums_d[0] = u31tod(x_male_maj_cts[0]);
-        x_male_majsums_d[1] = u31tod(x_male_maj_cts[1]);
+        valid_x_male_ct = HardcallPhasedR2Stats(one_bitvecs[0], two_bitvecs[0], nm_bitvecs[0], one_bitvecs[1], two_bitvecs[1], nm_bitvecs[1], founder_ct, x_male_nm_ct0, nm_cts[1], x_male_nmaj_cts, &x_male_known_dotprod, &x_male_unknown_hethet_ct);
+        x_male_nmajsums_d[0] = u31tod(x_male_nmaj_cts[0]);
+        x_male_nmajsums_d[1] = u31tod(x_male_nmaj_cts[1]);
         x_male_known_dotprod_d = S_CAST(double, x_male_known_dotprod);
         // hethet impossible for chrX males
         assert(!x_male_unknown_hethet_ct);
@@ -3061,11 +3061,11 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
           bigstack_alloc_w(founder_ctl, &nm_bitvecs[1])) {
         goto LdConsole_ret_NOMEM;
       }
-      uint64_t maj_dosages[2];
+      uint64_t nmaj_dosages[2];
       uint32_t nm_cts[2];
       for (uint32_t var_idx = 0; var_idx < 2; ++var_idx) {
         PopulateDenseDosage(genovecs[var_idx], dosage_presents[var_idx], dosage_mains[var_idx], founder_ct, dosage_cts[var_idx], dosage_vecs[var_idx]);
-        maj_dosages[var_idx] = DenseDosageSum(dosage_vecs[var_idx], founder_dosagev_ct);
+        nmaj_dosages[var_idx] = DenseDosageSum(dosage_vecs[var_idx], founder_dosagev_ct);
         FillDosageUhet(dosage_vecs[var_idx], founder_dosagev_ct, dosage_uhets[var_idx]);
         GenovecToNonmissingnessUnsafe(genovecs[var_idx], founder_ct, nm_bitvecs[var_idx]);
         ZeroTrailingBits(founder_ct, nm_bitvecs[var_idx]);
@@ -3107,9 +3107,9 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
           }
         }
       }
-      const uint64_t orig_maj_dosage1 = maj_dosages[1];
+      const uint64_t orig_nmaj_dosage1 = nmaj_dosages[1];
       uint64_t dosageprod;
-      valid_obs_ct = DosagePhasedR2Prod(dosage_vecs[0], nm_bitvecs[0], dosage_vecs[1], nm_bitvecs[1], founder_ct, nm_cts[0], nm_cts[1], maj_dosages, &dosageprod);
+      valid_obs_ct = DosagePhasedR2Prod(dosage_vecs[0], nm_bitvecs[0], dosage_vecs[1], nm_bitvecs[1], founder_ct, nm_cts[0], nm_cts[1], nmaj_dosages, &dosageprod);
       if (!valid_obs_ct) {
         goto LdConsole_ret_NO_VALID_OBSERVATIONS;
       }
@@ -3121,8 +3121,8 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       if (use_phase && hethet_present) {
         dosageprod = S_CAST(int64_t, dosageprod) + DosageSignedDotprod(main_dphase_deltas[0], main_dphase_deltas[1], founder_dosagev_ct);
       }
-      majsums_d[0] = S_CAST(int64_t, maj_dosages[0]) * kRecipDosageMid;
-      majsums_d[1] = S_CAST(int64_t, maj_dosages[1]) * kRecipDosageMid;
+      nmajsums_d[0] = S_CAST(int64_t, nmaj_dosages[0]) * kRecipDosageMid;
+      nmajsums_d[1] = S_CAST(int64_t, nmaj_dosages[1]) * kRecipDosageMid;
       known_dotprod_d = S_CAST(int64_t, dosageprod - uhethet_dosageprod) * (kRecipDosageMidSq * 0.5);
       unknown_hethet_d = S_CAST(int64_t, uhethet_dosageprod) * kRecipDosageMidSq;
       if (x_male_ct) {
@@ -3138,19 +3138,19 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
         }
         BitvecOr(R_CAST(uintptr_t*, x_male_dosage_invmask), founder_dosagev_ct * kWordsPerVec, R_CAST(uintptr_t*, dosage_vecs[0]));
         BitvecAnd(sex_male_collapsed, founder_ctl, nm_bitvecs[0]);
-        uint64_t x_male_maj_dosages[2];
-        x_male_maj_dosages[0] = DenseDosageSum(dosage_vecs[0], founder_dosagev_ct);
-        x_male_maj_dosages[1] = orig_maj_dosage1;
+        uint64_t x_male_nmaj_dosages[2];
+        x_male_nmaj_dosages[0] = DenseDosageSum(dosage_vecs[0], founder_dosagev_ct);
+        x_male_nmaj_dosages[1] = orig_nmaj_dosage1;
         const uint32_t x_male_nm_ct0 = PopcountWords(nm_bitvecs[0], founder_ctl);
         uint64_t x_male_dosageprod;
-        valid_x_male_ct = DosagePhasedR2Prod(dosage_vecs[0], nm_bitvecs[0], dosage_vecs[1], nm_bitvecs[1], founder_ct, x_male_nm_ct0, nm_cts[1], x_male_maj_dosages, &x_male_dosageprod);
+        valid_x_male_ct = DosagePhasedR2Prod(dosage_vecs[0], nm_bitvecs[0], dosage_vecs[1], nm_bitvecs[1], founder_ct, x_male_nm_ct0, nm_cts[1], x_male_nmaj_dosages, &x_male_dosageprod);
         if (!ignore_hethet) {
           BitvecAndNot(R_CAST(uintptr_t*, x_male_dosage_invmask), founder_dosagev_ct * kWordsPerVec, R_CAST(uintptr_t*, dosage_uhets[0]));
           const uint64_t invalid_uhethet_dosageprod = DosageUnsignedNomissDotprod(dosage_uhets[0], dosage_uhets[1], founder_dosagev_ct);
           unknown_hethet_d -= S_CAST(int64_t, invalid_uhethet_dosageprod) * kRecipDosageMidSq;
         }
-        x_male_majsums_d[0] = S_CAST(int64_t, x_male_maj_dosages[0]) * kRecipDosageMid;
-        x_male_majsums_d[1] = S_CAST(int64_t, x_male_maj_dosages[1]) * kRecipDosageMid;
+        x_male_nmajsums_d[0] = S_CAST(int64_t, x_male_nmaj_dosages[0]) * kRecipDosageMid;
+        x_male_nmajsums_d[1] = S_CAST(int64_t, x_male_nmaj_dosages[1]) * kRecipDosageMid;
         x_male_known_dotprod_d = S_CAST(int64_t, x_male_dosageprod) * (kRecipDosageMidSq * 0.5);
       }
     }
@@ -3159,15 +3159,15 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
       // males have sqrt(0.5) weight if one variant is chrX, half-weight if
       // both are chrX
       const double male_decr = (is_xs[0] && is_xs[1])? 0.5 : (1.0 - 0.5 * kSqrt2);
-      majsums_d[0] -= male_decr * x_male_majsums_d[0];
-      majsums_d[1] -= male_decr * x_male_majsums_d[1];
+      nmajsums_d[0] -= male_decr * x_male_nmajsums_d[0];
+      nmajsums_d[1] -= male_decr * x_male_nmajsums_d[1];
       known_dotprod_d -= male_decr * x_male_known_dotprod_d;
       valid_obs_d -= male_decr * u31tod(valid_x_male_ct);
     }
 
     const double twice_tot_recip = 0.5 / valid_obs_d;
     // in plink 1.9, "freq12" refers to first variant=1, second variant=2
-    // this most closely corresponds to freq_minmaj here
+    // this most closely corresponds to freq_majmin here
 
     // known-diplotype dosages (sum is 2 * (valid_obs_d - unknown_hethet_d)):
     //   var0  var1
@@ -3175,10 +3175,10 @@ PglErr LdConsole(const uintptr_t* variant_include, const ChrInfo* cip, const cha
     //     1  -  0 : majsums[0] - known_dotprod - unknown_hethet_d
     //     0  -  1 : majsums[1] - known_dotprod - unknown_hethet_d
     //     1  -  1 : known_dotprod
-    double freq_minmin = 1.0 - (majsums_d[0] + majsums_d[1] - known_dotprod_d) * twice_tot_recip;
-    double freq_minmaj = (majsums_d[1] - known_dotprod_d - unknown_hethet_d) * twice_tot_recip;
-    double freq_majmin = (majsums_d[0] - known_dotprod_d - unknown_hethet_d) * twice_tot_recip;
-    double freq_majmaj = known_dotprod_d * twice_tot_recip;
+    double freq_majmaj = 1.0 - (nmajsums_d[0] + nmajsums_d[1] - known_dotprod_d) * twice_tot_recip;
+    double freq_majmin = (nmajsums_d[1] - known_dotprod_d - unknown_hethet_d) * twice_tot_recip;
+    double freq_minmaj = (nmajsums_d[0] - known_dotprod_d - unknown_hethet_d) * twice_tot_recip;
+    double freq_minmin = known_dotprod_d * twice_tot_recip;
     const double half_unphased_hethet_share = unknown_hethet_d * twice_tot_recip;
     const double freq_majx = freq_majmaj + freq_majmin + half_unphased_hethet_share;
     const double freq_minx = 1.0 - freq_majx;

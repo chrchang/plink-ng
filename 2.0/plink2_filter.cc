@@ -2426,27 +2426,7 @@ void ComputeMajAlleles(const uintptr_t* variant_include, const uintptr_t* allele
       cur_allele_ct = allele_idx_offsets[variant_uidx + 1] - allele_idx_base;
       allele_idx_base -= variant_uidx;
     }
-    const double* cur_allele_freqs_base = &(allele_freqs[allele_idx_base]);
-    if (cur_allele_ct == 2) {
-      maj_alleles[variant_uidx] = (cur_allele_freqs_base[0] < 0.5);
-    } else {
-      uint32_t maj_allele_idx = 0;
-      double max_freq = cur_allele_freqs_base[0];
-      double tot_alt_freq = max_freq;
-      const uint32_t cur_allele_ct_m1 = cur_allele_ct - 1;
-      for (uint32_t allele_idx = 1; allele_idx < cur_allele_ct_m1; ++allele_idx) {
-        const double cur_freq = cur_allele_freqs_base[allele_idx];
-        tot_alt_freq += cur_freq;
-        if (cur_freq > max_freq) {
-          maj_allele_idx = allele_idx;
-          max_freq = cur_freq;
-        }
-      }
-      if (max_freq + tot_alt_freq <= 1.0) {
-        maj_allele_idx = cur_allele_ct_m1;
-      }
-      maj_alleles[variant_uidx] = maj_allele_idx;
-    }
+    maj_alleles[variant_uidx] = GetMajIdx(&(allele_freqs[allele_idx_base]), cur_allele_ct);
   }
 }
 
@@ -2885,11 +2865,8 @@ void EnforceGenoThresh(const ChrInfo* cip, const uint32_t* variant_missing_cts, 
   *variant_ct_ptr -= removed_ct;
 }
 
+// todo: use triallelic p-values when available
 void EnforceHweThresh(const ChrInfo* cip, const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_raw_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_male_geno_cts), const STD_ARRAY_PTR_DECL(uint32_t, 3, founder_x_nosex_geno_cts), const double* hwe_x_pvals, MiscFlags misc_flags, double hwe_thresh, uint32_t nonfounders, uintptr_t* variant_include, uint32_t* variant_ct_ptr) {
-  if (cip->haploid_mask[0] & 1) {
-    logerrputs("Warning: --hwe has no effect since entire genome is haploid.\n");
-    return;
-  }
   uint32_t prefilter_variant_ct = *variant_ct_ptr;
   uint32_t x_start = UINT32_MAX;
   uint32_t x_end = UINT32_MAX;

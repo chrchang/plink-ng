@@ -892,7 +892,7 @@ char* AppendKingTableHeader(KingFlags king_flags, uint32_t king_col_fid, uint32_
 
 // probable todo: optimization for very-low-MAF variants, since unlike GRM/PCA
 // it isn't necessary to exclude them beforehand for accuracy purposes.
-PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const AlleleCode* maj_alleles, uint32_t raw_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_cutoff, double king_table_filter, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, uintptr_t* sample_include, uint32_t* sample_ct_ptr, char* outname, char* outname_end) {
+PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, uint32_t raw_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_cutoff, double king_table_filter, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, uintptr_t* sample_include, uint32_t* sample_ct_ptr, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -1123,9 +1123,16 @@ PglErr CalcKing(const SampleIdInfo* siip, const uintptr_t* variant_include, cons
           uintptr_t* ref2het_iter = splitbuf_ref2het;
           for (uint32_t uii = 0; uii < variant_batch_size; ++uii, ++variant_uidx) {
             MovU32To1Bit(variant_include, &variant_uidx);
-            // maj/nonmaj seems about as good as the other ways to handle
-            // multiallelic variants for now, but maybe revisit this later
-            reterr = PgrGet1(cur_sample_include, sample_include_cumulative_popcounts, row_end_idx, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, loadbuf);
+            // Model does not cleanly generalize to multiallelic variants
+            // (unless there's something I overlooked, which is quite
+            // possible).
+            // Thought about using major allele counts in that case, but that
+            // sacrifices a really nice property of this method: estimated
+            // relationship coefficient between each pair of samples is
+            // independent of estimated allele frequencies.  And the accuracy
+            // improvement we'd get in return is microscopic.  So we stick to
+            // REF/ALT allele counts instead.
+            reterr = PgrGet(cur_sample_include, sample_include_cumulative_popcounts, row_end_idx, variant_uidx, simple_pgrp, loadbuf);
             if (reterr) {
               goto CalcKing_ret_PGR_FAIL;
             }
@@ -1908,7 +1915,7 @@ PglErr KingTableSubsetLoad(const char* sorted_xidbox, const uint32_t* xid_map, u
   return reterr;
 }
 
-PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const AlleleCode* maj_alleles, const char* subset_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_table_filter, double king_table_subset_thresh, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
+PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdInfo* siip, const uintptr_t* variant_include, const ChrInfo* cip, const char* subset_fname, uint32_t raw_sample_ct, uint32_t orig_sample_ct, uint32_t raw_variant_ct, uint32_t variant_ct, double king_table_filter, double king_table_subset_thresh, KingFlags king_flags, uint32_t parallel_idx, uint32_t parallel_tot, uint32_t max_thread_ct, PgenReader* simple_pgrp, char* outname, char* outname_end) {
   unsigned char* bigstack_mark = g_bigstack_base;
   FILE* outfile = nullptr;
   char* cswritep = nullptr;
@@ -2247,7 +2254,7 @@ PglErr CalcKingTableSubset(const uintptr_t* orig_sample_include, const SampleIdI
           uintptr_t* ref2het_iter = splitbuf_ref2het;
           for (uint32_t uii = 0; uii < variant_batch_size; ++uii, ++variant_uidx) {
             MovU32To1Bit(variant_include, &variant_uidx);
-            reterr = PgrGet1(cur_sample_include, sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, maj_alleles[variant_uidx], simple_pgrp, loadbuf);
+            reterr = PgrGet(cur_sample_include, sample_include_cumulative_popcounts, cur_sample_ct, variant_uidx, simple_pgrp, loadbuf);
             if (reterr) {
               goto CalcKingTableSubset_ret_PGR_FAIL;
             }
@@ -4345,6 +4352,7 @@ PglErr CalcPca(const uintptr_t* sample_include, const SampleIdInfo* siip, const 
           for (uint32_t vidx = cur_variant_idx_start - prev_batch_size; vidx < cur_variant_idx_start; ++vidx, ++variant_uidx) {
             MovU32To1Bit(variant_include, &variant_uidx);
             if (chr_col) {
+              // ok to skip this logic if chr_col not printed
               if (variant_uidx >= chr_end) {
                 do {
                   ++chr_fo_idx;

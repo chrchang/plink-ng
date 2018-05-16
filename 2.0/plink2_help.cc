@@ -137,11 +137,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "  --no-sex           : .fam file does not contain column 5 (sex).\n"
                );
     // probable todo: dosage=AD mode.
-    HelpPrint("vcf\tbcf\tpsam", &help_ctrl, 1,
+    HelpPrint("vcf\tbcf\tpsam\tfam", &help_ctrl, 1,
 "  --vcf [filename] <dosage=[field]>\n"
 "  --bcf [filename] <dosage=[field]>  (not implemented yet)\n"
 "    Specify full name of .vcf{.gz|.zst} or BCF2 file to import.\n"
-"    * These can be used with --psam.\n"
+"    * These can be used with --psam/--fam.\n"
 "    * By default, dosage information is not imported.  To import the GP field\n"
 "      (must be VCFv4.3-style 0..1, one probability per possible genotype), add\n"
 "      'dosage=GP'.  To import Minimac4-style DS+HDS phased dosage, add\n"
@@ -544,14 +544,19 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    The default is chrom,nmiss,nobs,fmiss.\n\n"
               );
     HelpPrint("hardy", &help_ctrl, 1,
-"  --hardy <zs> <midp> <cols=[column set descriptor]>\n"
+"  --hardy <zs> <midp> <redundant> <cols=[column set descriptor]>\n"
 "    Hardy-Weinberg exact test p-value report(s).\n"
 "    * By default, only founders are considered; change this with --nonfounders.\n"
-"    * For multiallelic variants, the test is based on major allele counts.\n"
 "    * chrX is now omitted from the main {output prefix}.hardy report.  Instead,\n"
 "      (if present) it gets its own {output prefix}.hardy.x report based on the\n"
 "      method described in Graffelman J, Weir BS (2016) Hardy-Weinberg\n"
 "      equilibrium and the X chromosome.\n"
+"    * For variants with k alleles where k>2, k separate 'biallelic' tests are\n"
+"      performed, each reported on its own line.  However, biallelic variants\n"
+"      are normally reported on a single line, since the counts/frequencies\n"
+"      would be mirror-images and the p-values would be the same.  You can add\n"
+"      the 'redundant' modifier to force biallelic variant results to be\n"
+"      reported on two lines for parsing convenience.\n"
 "    * There is currently no special handling of case/control phenotypes.\n"
 "    Supported column sets are:\n"
 "      chrom: Chromosome ID.\n"
@@ -560,17 +565,17 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      ref: Reference allele.\n"
 "      alt1: Alternate allele 1.\n"
 "      alt: All alternate alleles, comma-separated.\n"
-"      maj: Major allele.\n"
-"      nonmaj: All nonmajor alleles, comma-separated.\n"
-"      gcounts: Hom-maj count, total number of maj-nonmaj heterozygous calls,\n"
-"               and total number of nonmissing calls with no major allele.  On\n"
-"               chrX, these are followed by male maj and male nonmaj counts.\n"
+"      (A1 is always present, and positioned here.)\n"
+"      ax: Non-A1 allele(s), comma-separated.\n"
+"      gcounts: Hom-A1 count, total number of het-A1 calls, and total number of\n"
+"               nonmissing calls with no copies of A1.  On chrX, these are\n"
+"               followed by male A1 and male non-A1 counts.\n"
 "      gcount1col: gcounts values in a single comma-separated column.\n"
-"      hetfreq: Observed and expected maj-nonmaj heterozygote frequencies.\n"
-"      sexaf: Female and male maj allele frequencies (chrX only).\n"
+"      hetfreq: Observed and expected het-A1 frequencies.\n"
+"      sexaf: Female and male A1 observed allele frequencies (chrX only).\n"
 "      femalep: Female-only p/midp-value (chrX only).\n"
 "      p: Hardy-Weinberg equilibrium exact test p/midp-value.\n"
-"    The default is chrom,ref,alt,gcounts,hetfreq,sexaf,p.\n\n"
+"    The default is chrom,ax,gcounts,hetfreq,sexaf,p.\n\n"
                );
     HelpPrint("indep\tindep-pairwise", &help_ctrl, 1,
 "  --indep-pairwise [window size]<kb> {step size (variant ct)}\n"
@@ -607,7 +612,11 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
     // for kinship estimation, LD pruning isn't really advisable (if more speed
     // is needed, the humble --bp-space may lead to a better approximation?
     // and in practice speed doesn't seem to be an issue any more with
-    // --make-king
+    // --make-king.
+    //
+    // For multiallelic variants, major allele counts are theoretically
+    // slightly more informative than REF allele counts, but the advantage is
+    // far too small to be worth losing allele-frequency-independence.
     HelpPrint("make-king\tmake-king-table", &help_ctrl, 1,
 "  --make-king <square | square0 | triangle> <zs | bin | bin4>\n"
 "    KING-robust kinship estimator, described by Manichaikul A, Mychaleckyj JC,\n"
@@ -622,7 +631,7 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "    * Only autosomes are currently considered.\n"
 "    * Pedigree information is currently ignored; the between-family estimator\n"
 "      is used for all pairs.\n"
-"    * For multiallelic variants, major allele counts are used.\n"
+"    * For multiallelic variants, REF allele counts are used.\n"
 "    * If the 'square' or 'square0' modifier is present, a square matrix is\n"
 "      written instead; 'square0' fills the upper right triangle with zeroes.\n"
 "    * If the 'zs' modifier is present, the .king file is Zstd-compressed.\n"
@@ -781,8 +790,6 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "      variants, and no others.  The 'sex' modifier causes it to be added\n"
 "      everywhere (except chrY), while 'no-x-sex' excludes it entirely.\n"
 "    * The 'log10' modifier causes p-values to be reported in -log10(p) form.\n"
-"      (This is one way to enable comparisons between p-values smaller than\n"
-"      5e-324.)\n"
 "    * The 'genotypic' modifier adds an additive effect/dominance deviation 2df\n"
 "      joint test (0-2 and 0..1..0 coding), while 'hethom' uses 0..0..1 and\n"
 "      0..1..0 coding instead.\n"
@@ -1352,28 +1359,26 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
                );
 // todo: something like <check-ctrls>/<check-ctrl=[case/ctrl phenotype name]>
 // and maybe <ctrls-only>/<ctrl-only=[case/ctrl phenotype name]>
-    HelpPrint("hwe\tmach-r2-filter", &help_ctrl, 0,
-"  --hwe [p] <midp> <keep-fewhet> : Exclude variants with Hardy-Weinberg\n"
-"                                   equilibrium exact test p-values below a\n"
-"                                   threshold.\n"
-"                                   * By default, only founders are considered.\n"
-"                                   * For multiallelic variants, the test is\n"
-"                                     based on major allele counts.\n"
-"                                   * chrX p-values are now computed using\n"
-"                                     Graffelman and Weir's method.\n"
-"                                   * With 'keep-fewhet', variants which fail\n"
-"                                     the test in the too-few-hets direction are\n"
-"                                     not excluded.  (On chrX, this uses the\n"
-"                                     ratio between the Graffelman/Weir p-value\n"
-"                                     and the female-only p-value.)\n"
-"                                   * There is currently no special handling of\n"
-"                                     case/control phenotypes.\n"
-"  --mach-r2-filter {min} {max}   : Exclude variants with MaCH imputation\n"
-"                                   quality metric outside of [min, max]\n"
-"                                   (defaults 0.1 and 2.0).\n"
-"                                   * If a single parameter is provided, it is\n"
-"                                     treated as the minimum.\n"
-"                                   * The metric is not computed on chrX and MT.\n"
+    HelpPrint("hwe", &help_ctrl, 0,
+"  --hwe [p] <midp> <keep-fewhet> :\n"
+"    Exclude variants with Hardy-Weinberg equilibrium exact test p-values below\n"
+"    a threshold.\n"
+"    * By default, only founders are considered.\n"
+"    * chrX p-values are now computed using Graffelman and Weir's method.\n"
+"    * For variants with k alleles with k>2, k separate 'biallelic' tests are\n"
+"      performed, and the variant is filtered out if any of them fail.\n"
+"    * With 'keep-fewhet', variants which fail the test in the too-few-hets\n"
+"      direction are not excluded.  On chrX, this uses the ratio between the\n"
+"      Graffelman/Weir p-value and the female-only p-value.\n"
+"    * There is currently no special handling of case/control phenotypes.\n"
+              );
+    HelpPrint("mach-r2-filter", &help_ctrl, 0,
+"  --mach-r2-filter {min} {max} : Exclude variants with MaCH imputation quality\n"
+"                                 metric outside of [min, max] (defaults 0.1 and\n"
+"                                 2.0).\n"
+"                                 * If a single parameter is provided, it is\n"
+"                                   treated as the minimum.\n"
+"                                 * The metric is not computed on chrX and MT.\n"
                );
     HelpPrint("keep-females\tkeep-males\tkeep-nosex\tremove-females\tremove-males\tremove-nosex\tfilter-males\tfilter-females", &help_ctrl, 0,
 "  --keep-females     : Exclude male and unknown-sex samples.\n"
@@ -1666,7 +1671,8 @@ PglErr DispHelp(const char* const* argvk, uint32_t param_ct) {
 "                       needed to reproduce some randomized runs.\n"
                );
     HelpPrint("output-min-p", &help_ctrl, 0,
-"  --output-min-p [p] : Specify minimum p-value to write to reports.\n"
+"  --output-min-p [p] : Specify minimum p-value to write to reports.  (5e-324\n"
+"                       is useful for preventing underflow in some programs.)\n"
                );
     HelpPrint("debug\trandmem", &help_ctrl, 0,
 "  --debug            : Use slower, more crash-resistant logging method.\n"
